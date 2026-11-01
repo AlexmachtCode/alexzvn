@@ -133,5 +133,115 @@ ck('Zugang: … für diese Sitzung weg, auf der Platte noch da', s.zoomZugangLes
 schreibschutz(false);
 ck('Zugang: Entfernen bei schreibbarer Datei → true, Feld weg', s.zoomZugangLoeschen() === true && !datei().includes('zoomZugangEnc'));
 
+// ── Plan B, Task B4: Zoom-Slots in connect-settings.json (Spec 7.2, 11.5; T90–T92 über einstellungsLage) ──
+{
+  const e = await import('../src/main/zoom/einstellungen');
+  const { readdirSync } = await import('node:fs');
+  type Slot = import('../src/shared/types').ZoomSlotEinstellung;
+  /** JSON mit sortierten Schlüsseln: Gleichheit ohne Rücksicht auf die Reihenfolge der Felder. */
+  const flach = (x: unknown): string => JSON.stringify(x, (_k, v: unknown) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v);
+  const V = { aufloesung: '720p', tonAn: true } as const;
+  const ordnerA = mkdtempSync(join(tmpdir(), 'jmc-slots-'));
+  const dateiA = join(ordnerA, 'connect-settings.json');
+  const inA = (): Record<string, unknown> => JSON.parse(readFileSync(dateiA, 'utf8')) as Record<string, unknown>;
+  g.__mock.userData = ordnerA;
+  g.__mock.verschluesselung = true;
+
+  ck('B4 7.2: ohne Datei → keine Slots; Vorgaben 720p/an, Sprecher sprecherVideo/1000, Vorschau an, keine Zustimmung über 5',
+    s.zoomSlots().length === 0 && flach(s.zoomSlotVorgaben()) === flach({ aufloesung: '720p', tonAn: true })
+      && flach(s.zoomSprecher()) === flach({ signal: 'sprecherVideo', haltezeitMs: 1000 }) && s.zoomVorschau() === true && s.zoomSlotsUeber5() === false);
+  ck('B4 7.2: einstellungsLage ohne Befund → gesichert null, verworfen 0', flach(s.einstellungsLage()) === flach({ gesichert: null, verworfen: 0 }));
+
+  // 11.5 Konstruktor-Rundlauf: jedes der elf Felder einzeln geändert, geschrieben, gelesen
+  const basis = e.neuerSlot(1, V, []);
+  const ABWEICHUNG: Array<[keyof Slot, Partial<Slot>]> = [
+    ['nr', { nr: 16 }], ['ndiName', { ndiName: 'Bühne links' }], ['modus', { modus: 'freigabe' }], ['person', { person: 'Anna Maria' }],
+    ['an', { an: true }], ['aufloesung', { aufloesung: '1080p' }], ['ersatzbild', { ersatzbild: 'schwarz' }], ['tonAn', { tonAn: false }],
+    ['tonArt', { tonArt: 'person' }], ['computerton', { computerton: false }], ['ohneKamera', { ohneKamera: false }],
+  ];
+  ck('B4 11.5: der Rundlauf deckt alle elf Felder', ABWEICHUNG.length === 11 && new Set(ABWEICHUNG.map(([f]) => f)).size === 11 && Object.keys(basis).length === 11);
+  for (const [feld, a] of ABWEICHUNG) {
+    const slot = { ...basis, ...a };
+    ck(`B4 11.5 Rundlauf ${feld}: geschrieben, gelesen, gleich`, s.setzeZoomSlots([slot]) && flach(s.zoomSlots()) === flach([slot]));
+  }
+  ck('B4 7.2: zoomSlotsFassung 1 in der Datei', inA().zoomSlotsFassung === 1);
+
+  // 7.2: vorübergehende Slots nie, anNurMeeting mit an: false
+  const dauerhaft = { ...basis, nr: 1, ndiName: 'Zoom 1', person: 'Anna', an: true };
+  const voruebergehend = { ...basis, nr: 2, ndiName: 'JM Connect – Zoom Bernd', person: 'Bernd', an: true };
+  const nurMeeting = { ...basis, nr: 3, ndiName: 'Zoom 3', person: 'Carla', an: true };
+  s.setzeZoomSlots(e.slotsFuerPlatte([
+    { e: dauerhaft, voruebergehend: false, anNurMeeting: false },
+    { e: voruebergehend, voruebergehend: true, anNurMeeting: false },
+    { e: nurMeeting, voruebergehend: false, anNurMeeting: true },
+  ]));
+  ck('B4 7.2, 0.14: ein vorübergehender Slot steht nie in der Datei (weder Nummer noch Name noch Person)',
+    !readFileSync(dateiA, 'utf8').includes('Bernd') && s.zoomSlots().every((x) => x.nr !== 2));
+  ck('B4 7.2 RR7: ein dauerhafter Slot mit anNurMeeting steht mit an: false in der Datei', s.zoomSlots().find((x) => x.nr === 3)?.an === false);
+  ck('B4 7.2: ein dauerhafter Slot ohne anNurMeeting behält an: true', s.zoomSlots().find((x) => x.nr === 1)?.an === true);
+
+  // Vorgaben, Sprecher, Vorschau, Zustimmung über 5: Rundlauf
+  ck('B4 7.2: Vorgaben, Sprecher, Vorschau und Zustimmung → gespeichert und gelesen',
+    s.setzeZoomSlotVorgaben({ aufloesung: '1080p', tonAn: false }) && s.setzeZoomSprecher({ signal: 'tonAktiv', haltezeitMs: 2500 })
+      && s.setzeZoomVorschau(false) && s.setzeZoomSlotsUeber5(true)
+      && flach(s.zoomSlotVorgaben()) === flach({ aufloesung: '1080p', tonAn: false }) && flach(s.zoomSprecher()) === flach({ signal: 'tonAktiv', haltezeitMs: 2500 })
+      && s.zoomVorschau() === false && s.zoomSlotsUeber5() === true);
+  ck('B4 7.2: … alles in der Datei', flach(inA().zoomSlotVorgaben) === flach({ aufloesung: '1080p', tonAn: false })
+    && flach(inA().zoomSprecher) === flach({ signal: 'tonAktiv', haltezeitMs: 2500 }) && inA().zoomVorschau === false && inA().zoomSlotsUeber5 === true);
+
+  // 11.5: normiereSlot beim Lesen, T91 mit Zahl
+  writeFileSync(dateiA, JSON.stringify({ zoomSlots: [
+    { ...basis, nr: 4, ndiName: 'Zoom 4' },
+    { ...basis, nr: 4, ndiName: 'Zoom 4b' },
+    { ...basis, nr: 5, ndiName: 'zoom 4' },
+    { ...basis, nr: 17, ndiName: 'Zoom 17' },
+    { ...basis, nr: 6, ndiName: 'A:B' },
+    { ...basis, nr: 7, ndiName: 'Zoom 7', modus: 'galerie', aufloesung: '4k' },
+  ] }));
+  const gelesen = s.zoomSlots();
+  ck('B4 11.5: normiereSlot beim Lesen: zwei übernommen, unbekannte Werte → Vorgabe',
+    JSON.stringify(gelesen.map((x) => [x.nr, x.modus, x.aufloesung])) === JSON.stringify([[4, 'teilnehmer', '720p'], [7, 'teilnehmer', '720p']]));
+  ck('B4 11.5 T91: vier verworfen (doppelte Nummer, doppelter Name, Nummer 17, Name mit „:“)', s.einstellungsLage().verworfen === 4);
+
+  // 11.5 T92: Schreibfehler → nur diese Sitzung, die Anzeige behauptet kein Speichern
+  const neu = { ...basis, nr: 9, ndiName: 'Zoom 9' };
+  g.__mock.userData = kaputt;
+  ck('B4 11.5 T92: Schreiben scheitert → setzeZoomSlots meldet false', s.setzeZoomSlots([neu]) === false);
+  ck('B4 11.5: … die Slots gelten für diese Sitzung (der Getter liefert sie)', flach(s.zoomSlots()) === flach([neu]));
+  ck('B4 11.5: … ebenso Vorgaben, Sprecher, Vorschau und Zustimmung (false, der Sitzungswert gilt)',
+    s.setzeZoomSlotVorgaben({ aufloesung: '360p', tonAn: true }) === false && s.zoomSlotVorgaben().aufloesung === '360p'
+      && s.setzeZoomSprecher({ signal: 'aktivesVideo', haltezeitMs: 0 }) === false && s.zoomSprecher().signal === 'aktivesVideo'
+      && s.setzeZoomVorschau(true) === false && s.zoomVorschau() === true && s.setzeZoomSlotsUeber5(false) === false && s.zoomSlotsUeber5() === false);
+  g.__mock.userData = ordnerA;
+  ck('B4: Platte wieder schreibbar → true, die Platte gilt', s.setzeZoomSlots([neu]) === true && s.setzeZoomSlotVorgaben(V) && s.setzeZoomSprecher({ signal: 'sprecherVideo', haltezeitMs: 1000 })
+    && s.setzeZoomVorschau(true) && s.setzeZoomSlotsUeber5(false) && flach(inA().zoomSlots) === flach([neu]) && flach(s.zoomSlots()) === flach([neu]));
+
+  // 0.17, T90: unlesbare Datei → Sicherungskopie vor dem nächsten Schreiben
+  const ordnerB = mkdtempSync(join(tmpdir(), 'jmc-slots-kaputt-'));
+  const dateiB = join(ordnerB, 'connect-settings.json');
+  writeFileSync(dateiB, '{ "zoomSlots": [ kaputt');
+  g.__mock.userData = ordnerB;
+  ck('B4 7.2: unlesbare Datei → keine Slots, Vorgaben', s.zoomSlots().length === 0 && flach(s.zoomSlotVorgaben()) === flach(V) && s.zoomVorschau() === true);
+  ck('B4 0.17: … vor dem nächsten Schreiben noch keine Sicherungskopie, die Datei liegt unverändert',
+    s.einstellungsLage().gesichert === null && readdirSync(ordnerB).length === 1 && readFileSync(dateiB, 'utf8') === '{ "zoomSlots": [ kaputt');
+  ck('B4 0.17: … das nächste Schreiben gelingt', s.setzeZoomVorschau(false) === true);
+  const kopien = readdirSync(ordnerB).filter((n) => n !== 'connect-settings.json');
+  ck('B4 0.17: Sicherungskopie im selben Ordner, Name mit Zeitstempel', kopien.length === 1 && /^connect-settings\.unlesbar-\d{8}-\d{6}\.json$/.test(kopien[0]));
+  ck('B4 0.17: … mit dem alten Inhalt (die übrigen Felder gehen nicht still verloren)', kopien.length === 1 && readFileSync(join(ordnerB, kopien[0]), 'utf8') === '{ "zoomSlots": [ kaputt');
+  ck('B4 T90: einstellungsLage nennt die Sicherungskopie', s.einstellungsLage().gesichert === kopien[0]);
+  ck('B4 0.17: … die neue Datei ist lesbar und trägt den neuen Wert', (JSON.parse(readFileSync(dateiB, 'utf8')) as { zoomVorschau?: unknown }).zoomVorschau === false);
+  s.setzeZoomVorschau(true);
+  ck('B4 0.17: ein weiteres Schreiben legt keine zweite Kopie an, der Name bleibt', readdirSync(ordnerB).length === 2 && s.einstellungsLage().gesichert === kopien[0]);
+  const ordnerC = mkdtempSync(join(tmpdir(), 'jmc-slots-null-'));
+  writeFileSync(join(ordnerC, 'connect-settings.json'), 'null');
+  g.__mock.userData = ordnerC;
+  ck('B4 0.17: gültiges JSON, das kein Objekt ist (null), zählt als unlesbar und wird gesichert',
+    s.zoomSlots().length === 0 && s.setzeZoomVorschau(false) && readdirSync(ordnerC).some((n) => n.startsWith('connect-settings.unlesbar-')));
+  ck('B4 sicherungsName: Ortszeit JJJJMMTT-hhmmss', e.sicherungsName(new Date(2026, 9, 20, 7, 5, 9), () => false) === 'connect-settings.unlesbar-20261020-070509.json');
+  ck('B4 sicherungsName: vergeben → „-2“, „-3“', e.sicherungsName(new Date(2026, 9, 20, 7, 5, 9), (n) => !n.endsWith('-3.json')) === 'connect-settings.unlesbar-20261020-070509-3.json');
+  g.__mock.userData = wurzel;
+}
+
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

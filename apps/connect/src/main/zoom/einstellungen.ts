@@ -234,4 +234,27 @@ export function pruefeHaltezeit(ms: number): string | null {
   return Number.isInteger(ms) && ms >= 0 && ms <= SPEAKER_HOLD_MAX_MS && ms % 100 === 0 ? null : HALTEZEIT_UNGUELTIG;
 }
 
+/**
+ * Was auf die Platte darf (Spec 7.2, 0.14, RR7): nie ein vorübergehender Slot (also auch kein Anzeigename aus `zoom_load`);
+ * ein dauerhafter Slot mit `anNurMeeting` steht mit `an: false` dort. Der Kern (Task B12, B13) gibt setzeZoomSlots nur
+ * dieses Ergebnis.
+ */
+export function slotsFuerPlatte(l: readonly { e: ZoomSlotEinstellung; voruebergehend: boolean; anNurMeeting: boolean }[]): ZoomSlotEinstellung[] {
+  return l.filter((x) => !x.voruebergehend).map((x) => (x.anNurMeeting ? { ...x.e, an: false } : { ...x.e }));
+}
+
+/**
+ * Name der Sicherungskopie einer unlesbaren Einstellungsdatei (Spec 7.2, 0.17): `connect-settings.unlesbar-<JJJJMMTT-hhmmss>.json`
+ * nach der Ortszeit von `zeit`, im selben Ordner. Ist der Name schon vergeben (`gibtEs`), folgen „-2“, „-3“ …, damit keine
+ * Sicherung eine andere überschreibt.
+ */
+export function sicherungsName(zeit: Date, gibtEs: (name: string) => boolean): string {
+  const zz = (n: number, stellen = 2): string => String(n).padStart(stellen, '0');
+  const stempel = `${zz(zeit.getFullYear(), 4)}${zz(zeit.getMonth() + 1)}${zz(zeit.getDate())}-${zz(zeit.getHours())}${zz(zeit.getMinutes())}${zz(zeit.getSeconds())}`;
+  for (let n = 1; ; n++) {
+    const name = `connect-settings.unlesbar-${stempel}${n === 1 ? '' : `-${n}`}.json`;
+    if (!gibtEs(name)) return name;
+  }
+}
+
 // ── Ende des Moduls ──

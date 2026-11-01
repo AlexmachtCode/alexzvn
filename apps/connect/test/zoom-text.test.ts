@@ -1091,6 +1091,17 @@ console.log('— B3 · ST43–ST47, ST74 wörtlich');
   ck('ST74 nennt SPEAKER_HOLD_MAX_MS in Sekunden', HALTEZEIT_UNGUELTIG.includes(`0 bis ${SPEAKER_HOLD_MAX_MS / 1000} Sekunden`));
 }
 
+// ── Plan B, Task B4: Einstellungsdatei (Spec 9.6 T90–T92) ──
+console.log('— B4 · ST90–ST92 wörtlich');
+{
+  const { EINSTELLUNG_TEXT } = await import('../src/shared/zoom-text');
+  ck('ST90 wörtlich', EINSTELLUNG_TEXT.unlesbar('connect-settings.unlesbar-20261020-070509.json')
+    === 'Die Einstellungen von Connect waren unlesbar. Die Datei liegt gesichert als „connect-settings.unlesbar-20261020-070509.json“; Connect arbeitet mit den Vorgaben weiter, auch für die Zoom-Slots.');
+  ck('ST91 wörtlich (Plural)', EINSTELLUNG_TEXT.verworfen(3) === '3 gespeicherte Slots waren unvollständig oder doppelt und wurden nicht übernommen.');
+  ck('ST91 wörtlich (Singular bei 1)', EINSTELLUNG_TEXT.verworfen(1) === '1 gespeicherter Slot war unvollständig oder doppelt und wurde nicht übernommen.');
+  ck('ST92 = TEXT_A4_SCHREIBFEHLER wörtlich', TEXT_A4_SCHREIBFEHLER === 'Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.');
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

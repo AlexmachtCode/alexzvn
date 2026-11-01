@@ -63,6 +63,18 @@ export const NDI_NAME_TEXT = {
 /** Spec 9.4, T74: Haltezeit des Sprecher-Slots ungültig (Prüfregel KF7 in main/zoom/einstellungen.ts; 5 s = SPEAKER_HOLD_MAX_MS). */
 export const HALTEZEIT_UNGUELTIG = 'Haltezeit: erlaubt sind 0 bis 5 Sekunden.';
 
+/** Spec 9.6, T90 und T91: Lage der Einstellungsdatei (7.2). T92 ist TEXT_A4_SCHREIBFEHLER (oben). */
+export const EINSTELLUNG_TEXT = {
+  /** T90 */
+  unlesbar: (datei: string): string =>
+    `Die Einstellungen von Connect waren unlesbar. Die Datei liegt gesichert als „${datei}“; Connect arbeitet mit den Vorgaben weiter, auch für die Zoom-Slots.`,
+  /** T91, Singular bei 1 */
+  verworfen: (x: number): string =>
+    x === 1
+      ? '1 gespeicherter Slot war unvollständig oder doppelt und wurde nicht übernommen.'
+      : `${x} gespeicherte Slots waren unvollständig oder doppelt und wurden nicht übernommen.`,
+};
+
 /** Gründe im Kartentext Z1a (Spec 7.2), je Mangel einer. */
 export const MANGEL_GRUND: Record<ZoomMangel, string> = {
   sdk_fehlt: 'SDK-Ordner fehlt',

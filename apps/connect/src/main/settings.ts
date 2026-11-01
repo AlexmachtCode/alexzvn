@@ -10,14 +10,18 @@
 // Reihenfolge: Umgebungsvariable > gespeicherte Einstellung > Vorgabe (nur bei der URL).
 // Die Umgebungsvariablen bleiben absichtlich vorrangig — sie sind der Dev-Workflow.
 import { app, safeStorage } from 'electron';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
-import type { ProxyKeySource } from '@shared/types';
+import type { ProxyKeySource, ZoomSlotEinstellung, ZoomSlotVorgaben, ZoomSprecherEinstellung } from '@shared/types';
 import { ANZEIGENAME_VORGABE } from './zoom/kern';
 import {
   gueltigerAnzeigename,
   gueltigerVersatz,
+  normiereSlots,
+  normiereSprecher,
+  normiereVorgaben,
+  sicherungsName,
   waehleZugang,
   zugangAusKlartext,
   zugangAusUmgebung,
@@ -41,6 +45,18 @@ interface Stored {
   zoomVersatzMs?: number;
   /** Zoom: SDK-Schlüssel für „Zoom-SDK laden“, safeStorage-verschlüsselt, base64. Nie im Klartext (Spec SDK nachladen 4.2). */
   zoomSdkKeyEnc?: string;
+  /** Zoom-Slots (Spec 7.2): Fassung des Slot-Formats, beim Schreiben 1; fehlt = 1. */
+  zoomSlotsFassung?: number;
+  /** Höchstens 16 dauerhafte Slots, nie ein vorübergehender; gelesen nur über normiereSlots (zoom/einstellungen.ts). */
+  zoomSlots?: unknown;
+  /** `{ aufloesung, tonAn }`; fehlt = 720p, Ton an. */
+  zoomSlotVorgaben?: unknown;
+  /** `{ signal, haltezeitMs }`; fehlt = sprecherVideo, 1000. */
+  zoomSprecher?: unknown;
+  /** Schalter „Vorschau“; fehlt = an. */
+  zoomVorschau?: unknown;
+  /** Zustimmung zu mehr als 5 eingeschalteten Slots (E4); fehlt = aus. */
+  zoomSlotsUeber5?: unknown;
 }
 
 /** Nur belegt, wenn kein OS-Schlüsselbund da ist: dann lebt der Key nur für diese Sitzung. */
@@ -51,21 +67,46 @@ function file(): string {
   return join(app.getPath('userData'), 'connect-settings.json');
 }
 
+/**
+ * Beim Lesen unlesbar gesehen (Spec 7.2, 0.17; B-EP11): Zeitpunkt für den Namen der Sicherungskopie. Das nächste write()
+ * benennt die Datei vorher um. `null` = nichts zu sichern.
+ */
+let unlesbarSeit: Date | null = null;
+/** Name der Sicherungskopie dieser Sitzung (T90, einstellungsLage); bleibt bis zum Beenden. */
+let gesichertAls: string | null = null;
+
 function read(): Stored {
   try {
     const p = file();
     if (!existsSync(p)) return {};
-    return JSON.parse(readFileSync(p, 'utf8')) as Stored;
+    const inhalt: unknown = JSON.parse(readFileSync(p, 'utf8'));
+    if (typeof inhalt === 'object' && inhalt !== null && !Array.isArray(inhalt)) return inhalt as Stored;
   } catch {
-    return {}; // beschädigt → wie „nichts hinterlegt"
+    // nicht lesbar oder kein JSON: unten
   }
+  // Beschädigt (auch gültiges JSON, das kein Objekt ist) → wie „nichts hinterlegt“. Das nächste write() sichert die Datei
+  // vorher, statt sie still zu überschreiben (Spec 0.17, T90).
+  unlesbarSeit ??= new Date();
+  return {};
 }
 
-/** `false`, wenn nichts auf der Platte gelandet ist; wer davon eine Anzeige abhängig macht, muss das prüfen. */
+/**
+ * `false`, wenn nichts auf der Platte gelandet ist; wer davon eine Anzeige abhängig macht, muss das prüfen. War die Datei
+ * beim Lesen unlesbar, wird sie vorher zur Sicherungskopie umbenannt (Spec 7.2); scheitert das, wird nicht geschrieben.
+ */
 function write(next: Stored): boolean {
   try {
     const p = file();
     mkdirSync(dirname(p), { recursive: true });
+    if (unlesbarSeit !== null) {
+      if (existsSync(p)) {
+        const name = sicherungsName(unlesbarSeit, (n) => existsSync(join(dirname(p), n)));
+        renameSync(p, join(dirname(p), name));
+        gesichertAls = name;
+        getLog().warn(`[connect] Einstellungsdatei war unlesbar, gesichert als ${name}`);
+      }
+      unlesbarSeit = null;
+    }
     writeFileSync(p, JSON.stringify(next, null, 2) + '\n', { mode: 0o600 });
     return true;
   } catch (e) {
@@ -336,4 +377,109 @@ export function zoomSdkSchluesselLoeschen(): boolean {
   zoomSdkGespeichert = null;
   zoomSdkSitzung = null;
   return geschrieben || !aufPlatte;
+}
+
+// ── Zoom-Slots (Connect 0.4.0, Spec 7.2; Plan B, Task B4) ─────────────────────────────────────
+// Gelesen wird bei jedem Aufruf neu und nur über die Normierer aus zoom/einstellungen.ts (ein Konstruktor je Typ, 7.10).
+// Scheitert das Schreiben, gilt der Wert nur für diese Sitzung (Muster Versatz, T92): Der Getter liefert ihn, der Setter
+// meldet false. Vorübergehende Slots und `anNurMeeting` filtert der Kern vorher mit slotsFuerPlatte (einstellungen.ts).
+
+let zoomSlotsSitzung: ZoomSlotEinstellung[] | null = null;
+let zoomSlotVorgabenSitzung: ZoomSlotVorgaben | null = null;
+let zoomSprecherSitzung: ZoomSprecherEinstellung | null = null;
+let zoomVorschauSitzung: boolean | null = null;
+let zoomSlotsUeber5Sitzung: boolean | null = null;
+/** Zahl der beim Lesen verworfenen Slots (T91); bleibt bis zum Beenden, auch wenn ein späteres Schreiben die Datei bereinigt. */
+let zoomSlotsVerworfen = 0;
+
+/** Ein Feld setzen und die ganze Datei schreiben; `true` = auf der Platte. */
+function schreibeFeld(setze: (s: Stored) => void): boolean {
+  const next = read();
+  setze(next);
+  return write(next);
+}
+
+/** Gespeicherte (dauerhafte) Slots nach Nummer; was normiereSlots verwirft, zählt einstellungsLage() (T91). */
+export function zoomSlots(): ZoomSlotEinstellung[] {
+  if (zoomSlotsSitzung !== null) return zoomSlotsSitzung.map((s) => ({ ...s }));
+  const { slots, verworfen } = normiereSlots(read().zoomSlots);
+  if (verworfen > 0) {
+    zoomSlotsVerworfen = verworfen;
+    getLog().warn(`[zoom] ${verworfen} gespeicherte Slots verworfen (unvollständig oder doppelt)`);
+  }
+  return slots;
+}
+
+/** Schreibt `zoomSlotsFassung` 1 und die Slots durch normiereSlots. `false` = nur für diese Sitzung (T92). */
+export function setzeZoomSlots(s: readonly ZoomSlotEinstellung[]): boolean {
+  const { slots } = normiereSlots(s);
+  const ok = schreibeFeld((st) => {
+    st.zoomSlotsFassung = 1;
+    st.zoomSlots = slots;
+  });
+  zoomSlotsSitzung = ok ? null : slots;
+  return ok;
+}
+
+/** Vorgaben für neue Slots (7.6); fehlt oder ungültig = 720p, Ton an. */
+export function zoomSlotVorgaben(): ZoomSlotVorgaben {
+  return zoomSlotVorgabenSitzung ?? normiereVorgaben(read().zoomSlotVorgaben);
+}
+
+export function setzeZoomSlotVorgaben(v: ZoomSlotVorgaben): boolean {
+  const n = normiereVorgaben(v);
+  const ok = schreibeFeld((st) => {
+    st.zoomSlotVorgaben = n;
+  });
+  zoomSlotVorgabenSitzung = ok ? null : n;
+  return ok;
+}
+
+/** Sprecher-Einstellungen (7.6); fehlt oder ungültig = sprecherVideo, 1000 ms. Die Haltezeit prüft der Kern vorher (T74). */
+export function zoomSprecher(): ZoomSprecherEinstellung {
+  return zoomSprecherSitzung ?? normiereSprecher(read().zoomSprecher);
+}
+
+export function setzeZoomSprecher(s: ZoomSprecherEinstellung): boolean {
+  const n = normiereSprecher(s);
+  const ok = schreibeFeld((st) => {
+    st.zoomSprecher = n;
+  });
+  zoomSprecherSitzung = ok ? null : n;
+  return ok;
+}
+
+/** Schalter „Vorschau“ (7.7); fehlt = an. */
+export function zoomVorschau(): boolean {
+  if (zoomVorschauSitzung !== null) return zoomVorschauSitzung;
+  const v = read().zoomVorschau;
+  return typeof v === 'boolean' ? v : true;
+}
+
+export function setzeZoomVorschau(an: boolean): boolean {
+  const ok = schreibeFeld((st) => {
+    st.zoomVorschau = an;
+  });
+  zoomVorschauSitzung = ok ? null : an;
+  return ok;
+}
+
+/** Zustimmung zu mehr als 5 eingeschalteten Slots (E4, 7.4); fehlt = aus. */
+export function zoomSlotsUeber5(): boolean {
+  if (zoomSlotsUeber5Sitzung !== null) return zoomSlotsUeber5Sitzung;
+  const v = read().zoomSlotsUeber5;
+  return typeof v === 'boolean' ? v : false;
+}
+
+export function setzeZoomSlotsUeber5(an: boolean): boolean {
+  const ok = schreibeFeld((st) => {
+    st.zoomSlotsUeber5 = an;
+  });
+  zoomSlotsUeber5Sitzung = ok ? null : an;
+  return ok;
+}
+
+/** Lage der Einstellungsdatei für T90 (`gesichert`: Sicherungskopie dieser Sitzung) und T91 (`verworfen`), Spec 7.2. */
+export function einstellungsLage(): { gesichert: string | null; verworfen: number } {
+  return { gesichert: gesichertAls, verworfen: zoomSlotsVerworfen };
 }
