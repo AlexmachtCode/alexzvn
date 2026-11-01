@@ -20,7 +20,6 @@ import {
   AUTH_RESULT_NAMES,
   VIDEO_RESOLUTIONS,
   VIDEO_DELAY_MAX_MS,
-  type AudioReason,
   type BridgeEvent,
   type Participant,
   type WireEvent,
@@ -28,12 +27,7 @@ import {
 import { withNdiRuntimeOnPath } from '../src/ndi-path.ts';
 import { PE_MASCHINE_X64, PE_MASCHINE_X86, SDK_FASSUNG, SDK_FASSUNG_BRIDGE, findeSdkBin, peInfo } from '../src/sdk.ts';
 import * as paket from '../src/index.ts';
-import type {
-  AudioReason as PaketAudioReason,
-  AudioState as PaketAudioState,
-  VideoReason as PaketVideoReason,
-  VideoState as PaketVideoState,
-} from '../src/index.ts';
+import type { AudioState as PaketAudioState } from '../src/index.ts';
 import { tmpdir } from 'node:os';
 import { delimiter } from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync, unlinkSync } from 'node:fs';
@@ -1337,6 +1331,7 @@ console.log('\nprotocol — Video: jede Ursache hat ihren eigenen Namen:');
 
 // Das Abo über das Drehbuch "video" (videoSubscribe → video/audio) zog nach A2 PT5 um (Plan A, Task A2, 11.10):
 // die Attrappe beantwortet videoSubscribe nur noch im Altweg.
+// WIDERRUF (Plan B, Task B23): Den Altweg gibt es nicht mehr; videoSubscribe ist ein unbekannter Befehl.
 
 // --- NDI-Laufzeit auf dem PATH des Kindprozesses ------------------------
 // REGRESSION, gemessen am 2026-08-13: zoom-bridge.exe ist seit Stage 2 auch
@@ -2052,8 +2047,9 @@ console.log('\nprotocol — Fehlerkatalog Stage 4:');
     paket.FAIL_CODE_NAMES === FAIL_CODE_NAMES && paket.failCodeName === failCodeName && paket.failReason === failReason && paket.endReason === endReason,
     'src/index.ts exportiert FAIL_CODE_NAMES, failCodeName, failReason, endReason',
   );
-  const typen: [PaketAudioState, PaketAudioReason, PaketVideoState, PaketVideoReason] = ['off', 'participantLeft', 'black', 'participantLeft'];
-  assert(typen.length === 4, 'src/index.ts exportiert die Typen AudioState, AudioReason, VideoState, VideoReason (prueft tsc)');
+  // AudioReason, VideoState und VideoReason entfallen mit dem Altweg (Plan B, Task B23); dass sie fehlen, prueft Abschnitt B23.
+  const typen: [PaketAudioState] = ['off'];
+  assert(typen.length === 1, 'src/index.ts exportiert den Typ AudioState (prueft tsc)');
 }
 
 // --- Stage 4: Attrappe mit den Stellschrauben aus Spec 12.1 Nr. 4 ---------------
@@ -2411,7 +2407,8 @@ console.log('\nAttrappe — Stage 4b:');
   assert(stelle(ev, art('error', { where: 'slot', code: 'slotAlreadyOn', slot: 1 })) > iZurueck, '... der Slot lebt noch (slotAlreadyOn)');
 }
 // FAKE_ABO_VERZOEGERUNG_MS (verzögertes videoSubscribe) gilt nur noch im Altweg (A-EP1); seine beiden Fälle entfallen
-// hier, Connect prüft den Altweg bis Plan B, Task B23 (zoom-kern.test.ts). „(2)" bei gleichem Namen entfällt: Den Namen
+// hier, Connect prüft den Altweg bis Plan B, Task B23 (zoom-kern.test.ts; WIDERRUF mit B23: Altweg und Stellschraube sind
+// entfernt, kein Test setzt sie mehr). „(2)" bei gleichem Namen entfällt: Den Namen
 // vergibt Connect; ein belegter Name ist slotNameTaken (A2 Prüffolge mit laufendem Slot).
 {
   const ev = await fahreSteuerung({ FAKE_PUFFERFEHLER_MS: '100' }, async (b, ev) => {
@@ -2753,7 +2750,7 @@ console.log('\nA1 index — Exporte des Slot-Vertrags (PT4):');
 // ── A2 · Attrappe: Slot-Befehle, Ereignisse, Stellschrauben, Drehbuch „Slots“, Altweg (Spec 11.3, 11.2 PT5, PT7) ──
 import { spawn } from 'node:child_process';
 
-console.log('\nA2 Attrappe — Slot-Befehle werden beantwortet, der alte Weg nur mit FAKE_ALTWEG (PT5):');
+console.log('\nA2 Attrappe — Slot-Befehle werden beantwortet, videoSubscribe ist ein unbekannter Befehl (PT5):');
 {
   const ev = await fahreSteuerung({}, async (b, ev) => {
     b.send({ cmd: 'speakerConfig', signal: 'activeVideo', holdMs: 0 });
@@ -2763,7 +2760,8 @@ console.log('\nA2 Attrappe — Slot-Befehle werden beantwortet, der alte Weg nur
     await bisEreignis(ev, art('slotAudio', { slot: 1, state: 'live' }));
     b.send({ cmd: 'slotSet', slot: 1, fallback: 'black' });
     b.send({ cmd: 'slotOff', slot: 1 });
-    b.send({ cmd: 'videoSubscribe', id: ANNA, resolution: '720p' });
+    // videoSubscribe steht seit Plan B, Task B23 nicht mehr in Command; der Fall schickt ihn absichtlich.
+    b.send({ cmd: 'videoSubscribe', id: ANNA, resolution: '720p' } as unknown as Command);
     await bisEreignis(ev, art('error', { where: 'cmd' }));
   });
   assert(ev.some(art('speakerConfig', { signal: 'activeVideo', holdMs: 0 })) && ev.some(art('previewMode', { on: false })),
@@ -2776,15 +2774,6 @@ console.log('\nA2 Attrappe — Slot-Befehle werden beantwortet, der alte Weg nur
     'A2 6.15: Ton vor Bild (slotAudio off direkt vor slot off)');
   assert(ev.some(art('error', { where: 'cmd', code: 1 })) && !ev.some(art('video')),
     'A2 PT5: videoSubscribe ohne FAKE_ALTWEG → error where:cmd code:1, kein video-Ereignis');
-}
-{
-  const ev = await fahreSteuerung({ FAKE_ALTWEG: '1' }, async (b, ev) => {
-    await imMeeting(b, ev);
-    b.send({ cmd: 'videoSubscribe', id: ANNA, resolution: '720p' });
-    await bisEreignis(ev, art('video', { id: ANNA, state: 'subscribed' }));
-  });
-  assert(ev.some(art('video', { id: ANNA, state: 'subscribed', source: 'JM Connect – Zoom Anna' })) && !ev.some(art('error', { where: 'cmd' })),
-    'A2 A-EP1: mit FAKE_ALTWEG=1 beantwortet die Attrappe videoSubscribe wie bisher (video subscribed)');
 }
 
 console.log('\nA2 Attrappe — dieselben Kataloge wie src/protocol.ts (Review Focus 6):');
@@ -4782,5 +4771,42 @@ console.log('\nNativer Teil — Abschluss-Fix F15 (Rückrufe im Flug werden vor 
       && !deleg.includes('"'),
     'AF15 README: Rückrufe im Flug werden vor dem Freigeben eines Slots ohne gehaltene Sperre abgewartet, höchstens 500 ms');
 }
+// ── Plan B, Task B23 · Der Altweg ist entfernt (Spec 6.18, 0.20; Gliederung A-EP1, A-EP7) ──
+console.log('\nB23 Altweg — weder Paket noch Attrappe kennen videoSubscribe, video oder audio:');
+{
+  const quelle = (datei: string): string => readFileSync(join(testDir, '..', 'src', datei), 'utf8');
+  const protokoll = quelle('protocol.ts');
+  const zustand = quelle('state.ts');
+  const index = quelle('index.ts');
+  assert(![protokoll, zustand, index].some((t) => t.includes('@deprecated')),
+    'B23: protocol.ts, state.ts und index.ts tragen kein @deprecated mehr (der Altweg ist ganz weg)');
+  assert(!/export (type|interface) (VideoState|VideoReason|AudioReason|VideoSub|AudioSub)\b/.test(protokoll + zustand),
+    'B23 6.18: VideoState, VideoReason, AudioReason, VideoSub und AudioSub gibt es nicht mehr');
+  assert(!/\b(VideoState|VideoReason|AudioReason)\b/.test(index), 'B23 6.18: src/index.ts exportiert keinen der alten Typen');
+  assert(!/cmd: 'video(Un)?[Ss]ubscribe'|ev: 'video'|ev: 'audio'/.test(protokoll),
+    'B23 6.2/6.3: Command ohne videoSubscribe/videoUnsubscribe, WireEvent ohne video/audio');
+  const attrappe = readFileSync(fake, 'utf8');
+  assert(!attrappe.includes('FAKE_' + 'ALTWEG'), 'B23 A-EP1: fake-bridge.mjs kennt den Altweg-Schalter nicht mehr');
+  assert(!attrappe.includes('FAKE_' + 'ABO_VERZOEGERUNG_MS'), 'B23 A-EP1: … und die Stellschraube des verzögerten videoSubscribe nicht');
+  assert(!/'video(Un)?[Ss]ubscribe'|ev: 'video'|ev: 'audio'/.test(attrappe),
+    'B23 6.18: fake-bridge.mjs hat keinen Zweig für videoSubscribe/videoUnsubscribe und sendet kein video-/audio-Ereignis');
+}
+{
+  // Alte Umgebungen (etwa eine Fabrik, die FAKE_ALTWEG noch setzt) bekommen das Verhalten der nativen Bridge seit A11.
+  const ev = await fahreSteuerung({ FAKE_ALTWEG: '1', FAKE_ABO_FEHLER: 'videoSenderFailed' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    // videoSubscribe steht seit dieser Aufgabe nicht mehr in Command; der Fall schickt ihn absichtlich.
+    b.send({ cmd: 'videoSubscribe', id: ANNA, resolution: '720p' } as unknown as Command);
+    await bisEreignis(ev, art('error'));
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    await bisEreignis(ev, art('slot', { slot: 1, state: 'live' }));
+  });
+  assert(ev.some(art('error', { where: 'cmd', code: 1 })) && !ev.some(art('video')) && !ev.some(art('audio')),
+    'B23 A-EP1: auch mit FAKE_ALTWEG=1 ist videoSubscribe ein unbekannter Befehl (where:cmd code:1), kein video-/audio-Ereignis');
+  assert(!ev.some(art('error', { where: 'video' })) && !ev.some(art('error', { where: 'slot' }))
+    && ev.some(art('slot', { slot: 1, state: 'live', reason: 'frames' })),
+    'B23 A-EP7: FAKE_ABO_FEHLER ohne Doppelpunkt wirkt nicht mehr (kein Fehler, Slot 1 zeigt Bild)');
+}
+
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

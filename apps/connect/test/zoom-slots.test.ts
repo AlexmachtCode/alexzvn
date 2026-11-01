@@ -1943,6 +1943,32 @@ console.log('— PK27 · macOS: keine zoom_*-Schlüssel, kein Slot-Aufruf an ein
   await p.aufraeumen();
 }
 
+// ── Plan B, Task B23: PK33 endgültig — kein Altweg mehr in Connect (Spec 7.10, 6.18, 0.20; Gliederung A-EP1, A-EP7) ──
+{
+  const { readdirSync, readFileSync, statSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const dateien = (ordner: string): string[] => readdirSync(ordner).flatMap((n) => {
+    const p = join(ordner, n);
+    return statSync(p).isDirectory() ? dateien(p) : /\.(ts|tsx|mjs|cjs|js)$/.test(n) ? [p] : [];
+  });
+  const treffer = (liste: string[], muster: RegExp): string[] => liste.flatMap((p) => readFileSync(p, 'utf8').split(/\r?\n/)
+    .flatMap((z, i) => (muster.test(z) ? [`${p.slice(p.lastIndexOf('connect'))}:${i + 1}`] : [])));
+  const quelle = dateien(fileURLToPath(new URL('../src/', import.meta.url)));
+  const tests = dateien(fileURLToPath(new URL('./', import.meta.url)));
+  // Die Namen stehen hier zerlegt, damit diese Datei sich nicht selbst findet.
+  const ALT = ['FAKE_' + 'ALTWEG', 'FAKE_' + 'ABO_VERZOEGERUNG_MS'];
+  const imCode = treffer(quelle, /\bvideo(Un)?[Ss]ubscribe\b/);
+  ck('B23 PK33: in apps/connect/src kein videoSubscribe und kein videoUnsubscribe (auch nicht im Kommentar)', quelle.length > 20 && imCode.length === 0);
+  if (imCode.length) console.log(`      Treffer: ${imCode.join(' / ')}`);
+  const imTest = treffer(tests, new RegExp(`\\b(${ALT.join('|')})\\b`));
+  ck(`B23 A-EP1: kein Connect-Test setzt ${ALT.join(' oder ')} (die Attrappe kennt beide nicht mehr)`, tests.length > 5 && imTest.length === 0);
+  if (imTest.length) console.log(`      Treffer: ${imTest.join(' / ')}`);
+  const aboAlt = treffer(tests, new RegExp('FAKE_' + "ABO_FEHLER: *'[^':]*'"));
+  ck('B23 A-EP7: Connect-Tests setzen den Abo-Fehler der Attrappe nur im Format „nr:sdk“', aboAlt.length === 0);
+  if (aboAlt.length) console.log(`      Treffer: ${aboAlt.join(' / ')}`);
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

@@ -73,9 +73,10 @@ export type SlotState = (typeof SLOT_STATES)[number];
 export const SLOT_SENT = ['none', 'transparent', 'freeze', 'black', 'white', 'held'] as const;
 export type SlotSent = (typeof SLOT_SENT)[number];
 /**
- * Warum sich der Zustand eines Slots zuletzt geaendert hat (6.3), genau 20 Werte. Dieselbe Kernregel wie bei
- * VideoReason: eine Ursache, ein Name. 'noFrames' (seit 200 ms kein Bild, Zoom meldet die Kamera aber als an) ist
- * ausdruecklich nicht 'cameraOff'.
+ * Warum sich der Zustand eines Slots zuletzt geaendert hat (6.3), genau 20 Werte. Kernregel: eine Ursache, ein Name.
+ * 'noFrames' (seit 200 ms kein Bild, Zoom meldet die Kamera aber als an) ist ausdruecklich nicht 'cameraOff'; ebenso ist
+ * 'meetingEnded' nicht 'command' und 'privilegeRevoked' keins von beiden (gemessen am Abo je Teilnehmer, 13.08.2026 und
+ * Stage 4b; der Altweg samt diesen Kommentaren ist mit Plan B, Task B23 entfernt, nachzulesen in der Git-Historie).
  */
 export const SLOT_REASONS = [
   'command', 'frames', 'noTarget', 'participantLeft', 'cameraOff', 'noFrames', 'speakerNone', 'speakerNoVideo',
@@ -83,7 +84,11 @@ export const SLOT_REASONS = [
   'resolutionChanged', 'bufferMismatch', 'subscribeFailed', 'meetingEnded', 'privilegeRevoked',
 ] as const;
 export type SlotReason = (typeof SLOT_REASONS)[number];
-/** Warum sich der Ton eines Slots zuletzt geaendert hat (6.3), genau 12 Werte. */
+/**
+ * Warum sich der Ton eines Slots zuletzt geaendert hat (6.3), genau 12 Werte. 'audioUnavailable' ist ein eigener Wert
+ * neben 'command': 'command' heisst "der Ton ist aus, weil so eingestellt", 'audioUnavailable' "Ton gewollt, aber
+ * audioEnsureSubscribed() ist gescheitert" (Nachbesserung Review Task 5 der Stage 3, frueher am AudioReason).
+ */
 export const SLOT_AUDIO_REASONS = [
   'command', 'packets', 'gap', 'audioUnavailable', 'participantLeft', 'personNotInMode', 'noShare', 'rateMismatch',
   'targetChanged', 'modeChanged', 'meetingEnded', 'privilegeRevoked',
@@ -163,90 +168,19 @@ const SLOT_ERROR_NAMES: Record<SlotFehler, string> = {
   previewUnavailable: 'PREVIEW_UNAVAILABLE',
 };
 
-/** @deprecated Altweg (videoSubscribe); entfaellt mit Plan B, Task B23. Slots melden SlotState. */
-export type VideoState = 'subscribed' | 'live' | 'black' | 'unsubscribed';
-// "meetingEnded" ist AUSDRUECKLICH nicht "command": beim Meeting-Ende hat
-// niemand etwas befohlen. GEMESSEN am 2026-08-13, als es den Wert noch nicht
-// gab: das Abo ueberlebte das Ende seiner Sitzung, und der letzte gemeldete
-// Stand war "black"/"cameraOff" - "jemand hat die Kamera aus" fuer ein
-// beendetes Meeting. Zwei Ursachen, ein Name.
-/** @deprecated Altweg (videoSubscribe); entfaellt mit Plan B, Task B23. Slots melden SlotReason. */
-export type VideoReason =
-  | 'command'
-  | 'frames'
-  | 'cameraOff'
-  | 'participantLeft'
-  | 'rebound'
-  | 'bufferMismatch'
-  | 'meetingEnded'
-  // Umgehaengt ueber den ANZEIGENAMEN statt ueber die persistentId, und
-  // darum ein eigener Name: der Weg ist schwaecher. GEMESSEN am 14.08.2026,
-  // dass Zooms persistentId einen Wiederbeitritt NICHT ueberlebt (derselbe
-  // Gast kam mit einem anderen Wert zurueck) - ohne diesen zweiten Weg gaebe
-  // es das Umhaengen nur auf dem Papier. Er greift ausschliesslich bei
-  // EINDEUTIGEM Namen (je genau ein Teilnehmer und ein Abo); sonst bleibt die
-  // Quelle schwarz. Wer im Protokoll "reboundByName" liest, weiss, dass die
-  // Zuordnung auf einem Namen beruht und nicht auf einer Kennung.
-  | 'reboundByName'
-  // Der Host hat die Aufnahme-Erlaubnis entzogen (privilege canRecordRaw:false,
-  // source:'broadcast'), und die Bridge baut darum JEDES Abo ab (Stage 4b,
-  // N4b.1: "The app must stop accessing content if permission is revoked").
-  // Ein EIGENER Name: weder hat der Aufrufer etwas befohlen ('command') noch
-  // ist das Meeting zu Ende ('meetingEnded'). Wer 'privilegeRevoked' liest,
-  // weiss: das Meeting laeuft weiter, und erteilt der Host die Erlaubnis neu,
-  // darf neu abonniert werden. Zwei Ursachen, ein Name - genau das schliesst
-  // die Kernregel aus.
-  | 'privilegeRevoked';
-
 export const AUDIO_STATES = ['waiting', 'live', 'silent', 'off'] as const;
 export type AudioState = (typeof AUDIO_STATES)[number];
 
-// Kein 'queueOverflow': ein Ueberlauf aendert keinen Zustand des Abos, er ist
-// ein Fehler ueber die MASCHINE (eine Warteschlange fuer alle) und geht
-// darum als error-Ereignis ohne id raus, nicht als Grund fuer einen Wechsel.
-//
-// 'rebound' und 'reboundByName' bekommen HIER keinen eigenen Ton-Mechanismus -
-// der Ton haengt am Bild-Abo (siehe den Kommentar bei 'audio' in reduce(),
-// state.ts). Wird das videoSubscribe eines Gasts auf eine neue Kennung
-// umgehaengt (VideoReason oben), reicht ein spaeterer Task denselben Grund an
-// ein audio-Ereignis unter der neuen Kennung durch. Ein AudioReason, der
-// diese beiden Werte nicht kennt, waere eine Behauptung ueber die Leitung,
-// die die native Seite widerlegt.
-//
-// 'audioUnavailable' ist ein EIGENER Wert und teilt sich NICHT 'command'
-// (Nachbesserung, Review Task 5): 'command' heisst "der Aufrufer hat den Ton
-// ausgeschaltet", 'audioUnavailable' heisst "der Aufrufer wollte Ton, aber
-// audioEnsureSubscribed() ist gescheitert (kein Helfer oder subscribe()
-// schlug fehl)". Vorher liefen beide Faelle auf denselben Wert
-// {"state":"off","reason":"command"} hinaus und waren nur ueber ein
-// begleitendes error-Ereignis OHNE id zu unterscheiden - fuer einen
-// Konsumenten also gar nicht, denn das error-Ereignis laesst sich keinem Abo
-// zuordnen. Zwei Ursachen, ein Name: genau das verbietet die Kernregel
-// "Eine Ursache, ein Name".
-/** @deprecated Altweg (videoSubscribe); entfaellt mit Plan B, Task B23. Slots melden SlotAudioReason. */
-export type AudioReason =
-  | 'command'
-  | 'audioUnavailable'
-  | 'packets'
-  | 'gap'
-  | 'participantLeft'
-  | 'meetingEnded'
-  | 'rebound'
-  | 'reboundByName'
-  // Beim Entzug der Aufnahme-Erlaubnis meldet sich der Ton mit DEMSELBEN Grund
-  // ab wie das Bild (VideoReason oben) - der Ton haengt am Bild-Abo.
-  | 'privilegeRevoked';
-
+// Ein Ueberlauf der Ton-Warteschlange ist kein Zustand eines Slots, sondern ein Fehler ueber die MASCHINE (eine
+// Warteschlange fuer alle Slots): error where:'audio' code:'audioQueueOverflow' ohne slot (6.4), nie ein Grund in slotAudio.
 export type Command =
   | { cmd: 'init' }
   | { cmd: 'auth'; jwt: string }
   | { cmd: 'join'; meetingId: string; passcode: string; displayName: string }
   | { cmd: 'leave' }
   | { cmd: 'quit' }
-  /** @deprecated Altweg bis Plan B, Task B23; die native Bridge beantwortet ihn ab Plan A, Task A11 mit where:"cmd", code:1. */
-  | { cmd: 'videoSubscribe'; id: number; resolution?: VideoResolutionKey; audio?: boolean }
-  /** @deprecated wie videoSubscribe. */
-  | { cmd: 'videoUnsubscribe'; id: number }
+  // videoSubscribe und videoUnsubscribe (Abo je Teilnehmer-Kennung) gibt es seit den Slots nicht mehr (Spec 6.18); die
+  // Bridge beantwortet sie wie jeden unbekannten Befehl mit where:"cmd", code:1 (6.2).
   // EIN Wert fuer ALLE Zoom-Quellen (Owner, 30.09.2026), jederzeit aenderbar,
   // auch vor dem Beitritt - ausser fuer Freigabe-Slots, die ohne Versatz senden
   // (Spec 6.14). Verzoegert wird das BILD: der Ton kommt bei Zoom
@@ -318,6 +252,9 @@ export type WireEvent =
   // eine Warteschlange für alle, und der verwerfende Rückruf weiß gar nicht,
   // zu welchem Abo das Paket gehört hätte. Eine erfundene id wäre dort
   // schlimmer als keine.
+  // WIDERRUF (Plan B, Task B23): Seit den Slots traegt kein Fehler der Bridge mehr eine Teilnehmer-Kennung;
+  // audioBufferMismatch nennt den Slot (unten, 6.4). Das Feld bleibt optional im Typ, weil der Reducer eine
+  // gelieferte id weiter nach lastError uebernimmt (test/selftest.ts, Stage 3) und die Konsole sie anzeigt.
   //
   // "dropped" steht NUR an `audioQueueOverflow` und nennt, WIE VIELE Pakete
   // bis zu dieser Meldung verworfen wurden. Gemeldet wird einmal je Meeting
@@ -342,34 +279,9 @@ export type WireEvent =
       type?: 'video' | 'share'; dropped?: number; detail?: string;
     }
   | { ev: 'bye' }
-  // "rotation" und "limitedRange" FEHLEN, solange kein Bild kam (bei
-  // state:"subscribed" also immer). Ein Wert waere dort erfunden - und eine
-  // erfundene 0 liesse sich spaeter nicht von einer gemessenen 0
-  // unterscheiden.
-  /** @deprecated Altweg bis Plan B, Task B23; ersetzt durch slot. */
-  | {
-      ev: 'video';
-      id: number;
-      state: VideoState;
-      source: string;
-      reason: VideoReason;
-      rebindable: boolean;
-      rotation?: number;
-      limitedRange?: boolean;
-    }
-  // "sampleRate"/"channels" FEHLEN, solange kein Paket sie geliefert hat (bei
-  // state:"waiting" also immer). Dieselbe Regel wie rotation/limitedRange beim
-  // Bild: eine erfundene 32000 liesse sich spaeter nicht von einer gemessenen
-  // unterscheiden.
-  /** @deprecated Altweg bis Plan B, Task B23; ersetzt durch slotAudio. */
-  | {
-      ev: 'audio';
-      id: number;
-      state: AudioState;
-      reason: AudioReason;
-      sampleRate?: number;
-      channels?: number;
-    }
+  // Die Ereignisse video und audio (je Teilnehmer-Kennung) gibt es seit den Slots nicht mehr (Spec 6.3, 6.18); ihre
+  // Regel "keine erfundenen Werte" (rotation, limitedRange, sampleRate, channels fehlen, solange nichts gemessen ist)
+  // gilt an slot und slotAudio weiter (unten).
   // Die Bestaetigung auf videoDelay: der Wert, der AB JETZT gilt - gemeldet,
   // nicht geglaubt. Ohne sie wuesste ein Aufrufer nach einem abgewiesenen
   // Befehl nicht, ob der alte oder der neue Versatz laeuft.

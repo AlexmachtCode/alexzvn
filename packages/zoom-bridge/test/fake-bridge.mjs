@@ -52,7 +52,7 @@ const VORSCHAU_JPEG = [
 
 /** „a:b,c:d" -> [['a','b'],['c','d']] (Formate der Stellschrauben, 11.3); leer oder fehlend -> []. */
 const eintraege = (text) => (text ?? '').split(',').map((t) => t.trim()).filter(Boolean).map((t) => t.split(':'));
-/** „nr:wert,…" -> Map(nr -> wert); Eintraege ohne Doppelpunkt zaehlen nicht (alte Lesart, A-EP7). */
+/** „nr:wert,…" -> Map(nr -> wert); Eintraege ohne Doppelpunkt zaehlen nicht (die alte Lesart gibt es seit Plan B, Task B23 nicht mehr, A-EP7). */
 const paare = (text) => new Map(eintraege(text).filter((t) => t.length === 2).map(([nr, wert]) => [Number(nr), wert]));
 
 /**
@@ -247,7 +247,7 @@ const scripts = {
   // init -> ready, auth -> auth, DANN join. Jede empfangene Befehlszeile geht
   // als "ATTRAPPE empfing: <zeile>" auf stderr, damit ein Test pruefen kann,
   // was gesendet wurde - und was NICHT (kein join im Nur-Anmelden-Modus, kein
-  // videoSubscribe ohne Erlaubnis).
+  // slotOn ohne Erlaubnis).
   //
   // Stellschrauben (Umgebung):
   //   FAKE_AUTH_CODE        Ergebnis der Anmeldung (Vorgabe 0 = AUTHRET_SUCCESS)
@@ -273,16 +273,10 @@ const scripts = {
   //   FAKE_VERBINDUNG_WEG_MS  so lange nach dem Beitritt: reconnecting, dann
   //                         failed (2 = Wiederverbinden fehlgeschlagen)
   //   FAKE_WIEDERBEITRITT_MS  "Anna" (16778240, OHNE persistentId) geht und kommt
-  //                         als 16778250 zurueck. Beim Weggang wie das Original
-  //                         (native/callbacks.cpp onUserLeft, native/video.cpp
-  //                         videoParticipantLeft): left, dann - falls ein Abo auf
-  //                         ihr laeuft - video black (participantLeft), dann, falls
-  //                         ihr Ton lief, audio off (participantLeft). Das Abo
-  //                         BLEIBT. Bei der Rueckkehr haengt es sich ueber den
-  //                         Namen um (reboundByName), wenn der Name EXAKT gleich
-  //                         und eindeutig ist (je ein Teilnehmer und ein Abo) - in
-  //                         der Reihenfolge von onUserJoin: ERST joined, DANN das
-  //                         video-Ereignis.
+  //                         als 16778250 zurueck: left, dann die Folgen des Weggangs
+  //                         fuer die Slots (unter "Slots" unten); bei der Rueckkehr
+  //                         nur joined. Die Attrappe haengt nie selbst um (11.3),
+  //                         die Rueckkehr schickt Connect per slotSet.
   //   FAKE_ABGANG_MS        quit braucht so lange, bevor das Meeting verlassen wird
   //   FAKE_LOGDATEI         jede empfangene Befehlszeile auch in diese Datei
   //                         (fuer den Konsolen-Pruefstand, der stderr nicht sieht)
@@ -302,15 +296,15 @@ const scripts = {
   //                         darum disconnecting und ended
   //   FAKE_ENTZUG_MS        so lange nach der Erlaubnis entzieht der Host sie:
   //                         privilege canRecordRaw:false, source:'broadcast'. Ab
-  //                         Stage 4b baut die Attrappe danach ALLE Abos ab, wie die
+  //                         Stage 4b baut die Attrappe danach ALLE Slots ab, wie die
   //                         Bridge (native/main.cpp, Abbau nach pumpOnce()): einen
-  //                         Takt spaeter (setImmediate), je Abo audio off (falls Ton
-  //                         gemeldet) vor video unsubscribed, Grund privilegeRevoked
+  //                         Takt spaeter (setImmediate), je Slot slotAudio off vor
+  //                         slot off, Grund privilegeRevoked
   //   FAKE_RUECKKEHR_MS     mit FAKE_WIEDERBEITRITT_MS: Abstand zwischen left und
   //                         joined (Vorgabe 0 = sofort, wie bisher)
   //   FAKE_RUECKKEHR_NAME   mit FAKE_WIEDERBEITRITT_MS: Name bei der Rueckkehr
-  //                         (Vorgabe: unveraendert). Weicht er ab, haengt die
-  //                         Attrappe NICHT um - das Abo bleibt schwarz unter 16778240
+  //                         (Vorgabe: unveraendert), etwa "anna" fuer die Rueckkehr
+  //                         mit nur normiert gleichem Namen
   //
   // Stage 4b (JM Connect 0.3.0):
   //   FAKE_ERTEILUNG_MS     nur mit FAKE_ENTZUG_MS: so lange nach dem Entzug erteilt
@@ -325,30 +319,17 @@ const scripts = {
   //   FAKE_VERBINDUNG_ZURUECK_MS  nur mit FAKE_VERBINDUNG_HAENGT_MS: so lange nach
   //                         reconnecting verbindet Zoom selbst: connecting, inMeeting,
   //                         dann wie das Original roster und privilege source:'check'.
-  //                         Abos und Teilnehmer (samt Kennungen) bleiben
-  //   FAKE_ABO_VERZOEGERUNG_MS  videoSubscribe legt das Abo sofort an, meldet video
-  //                         subscribed und den Ton aber erst nach so vielen ms. Kommt
-  //                         vorher videoUnsubscribe oder ein Abbau, meldet sie nur
-  //                         video unsubscribed (command bzw. Abbaugrund), kein audio
-  //                         off, und subscribed kommt nie
-  //   FAKE_ABO_FEHLER       das erste videoSubscribe, das Erlaubnis, Teilnehmer und
-  //                         Doppel-Abo besteht, beantwortet die Attrappe mit error
-  //                         where:'video', diesem Code und der Kennung, OHNE Abo (wie
-  //                         videoSenderFailed in native/video.cpp); jedes weitere geht
-  //   FAKE_PUFFERFEHLER_MS  so lange nach video subscribed je Abo einmal error
-  //                         where:'video' code:'videoBufferMismatch' mit id, bei
-  //                         laufendem Ton dazu where:'audio' code:'audioBufferMismatch'
+  //                         Slots und Teilnehmer (samt Kennungen) bleiben
+  //   FAKE_PUFFERFEHLER_MS  so lange nach dem ersten Bild je Slot einmal error
+  //                         where:'slot' code:'slotBufferMismatch', bei laufendem Ton
+  //                         dazu where:'audio' code:'audioBufferMismatch', beide mit slot
   //   FAKE_NAMENSZEILE=1    100 ms nach dem roster eine stderr-Zeile "Namensprobe: Anna, Ben"
   //                         mit allen fremden Teilnehmern (Pruefstand: JM Connect
   //                         schreibt keine Teilnehmernamen ins Log)
-  //   NDI-Name wie uniqueSourceName() (native/video.cpp): traegt ein EIGENES Abo
-  //                         "JM Connect – Zoom <Name>" schon, folgen " (2)", " (3)" ...
   //
-  // Slots (Connect 0.4.0, Spec 11.3; Plan A, Task A2). Zeiten in ms ab inMeeting:
-  //   FAKE_ALTWEG=1         der alte Weg bis Plan B, Task B23 (A-EP1): videoSubscribe/videoUnsubscribe mit den
-  //                         video-/audio-Ereignissen, FAKE_ABO_FEHLER ohne Doppelpunkt, das Umhaengen nach Namen bei
-  //                         FAKE_WIEDERBEITRITT_MS und FAKE_ABO_VERZOEGERUNG_MS gelten nur hier. Ohne den Schalter
-  //                         ist videoSubscribe ein unbekannter Befehl (error where:'cmd' code:1)
+  // Slots (Connect 0.4.0, Spec 11.3; Plan A, Task A2). Zeiten in ms ab inMeeting. videoSubscribe und
+  // videoUnsubscribe sind unbekannte Befehle (error where:'cmd' code:1, wie die Bridge, 6.2; der
+  // Altweg-Schalter ist mit Plan B, Task B23 entfernt):
   //   FAKE_SPRECHER_FOLGE   „ms:kennung,…": je Eintrag ein speakerSignal mit ids [kennung]
   //   FAKE_SPRECHER_SIGNAL  das Signal dieser Folge (Vorgabe speakerVideo); steuern tut nur das per speakerConfig
   //                         gewaehlte (Vorgabe speakerVideo, Haltezeit 1000 ms, vereinfacht nachgebildet)
@@ -367,7 +348,7 @@ const scripts = {
   //                         type, dann slot fallback/subscribeFailed; der Slot laeuft weiter
   //   FAKE_SLOT_STUMM       „nr,…": slotOn fuer diesen Slot bleibt ohne jede Antwort
   //   FAKE_ENTZUG_MS, FAKE_ERTEILUNG_MS, FAKE_ABBAU_MS, FAKE_MEETING_ENDE_MS, FAKE_VERBINDUNG_*, FAKE_WIEDERBEITRITT_MS,
-  //   FAKE_RUECKKEHR_*, FAKE_PUFFERFEHLER_MS gelten auch fuer Slots: Abbau je Slot mit slotAudio off vor slot off;
+  //   FAKE_RUECKKEHR_*, FAKE_PUFFERFEHLER_MS gelten fuer Slots: Abbau je Slot mit slotAudio off vor slot off;
   //                         Weggang -> left, dann slot fallback/participantLeft, KEIN Umhaengen (Connect schickt
   //                         slotSet); Pufferfehler -> slotBufferMismatch und bei laufendem Ton audioBufferMismatch,
   //                         beide mit slot
@@ -380,11 +361,11 @@ const scripts = {
   //     EXE meldet davor den Ton-Umschaltplan im alten Modus (waiting/command ...). waiting/command nach so einem
   //     Befehl laesst sich gegen die Attrappe nicht pruefen.
   //   - Gleich wie die EXE: slotSet {resolution} haengt nur bei einer ANDEREN Aufloesung um.
-  // Der Vertrag folgt dem Original: Fehler tragen die Kennung, wo eine gelesen
-  // wurde; videoDelay prueft ganze Zahl 0..1000 und bestaetigt den geltenden
-  // Wert; ein Abo ohne "audio" hat Ton (Vorgabe true); beim Abbau meldet sich
-  // der Ton VOR dem Bild ab (README Abschnitt 7); quit verlaesst ein laufendes
-  // Meeting erst und sagt dann "bye"; EOF wirkt wie quit.
+  // Der Vertrag folgt dem Original: Slot-Fehler tragen die Slot-Nummer, wo eine
+  // gelesen wurde; videoDelay prueft ganze Zahl 0..1000 und bestaetigt den
+  // geltenden Wert; beim Abbau meldet sich der Ton VOR dem Bild ab (slotAudio
+  // off vor slot off, 6.15); quit verlaesst ein laufendes Meeting erst und sagt
+  // dann "bye"; EOF wirkt wie quit.
   steuerung: () => {
     if (process.env.FAKE_SOFORT_ENDE) {
       // process.exit() nimmt eine 32-Bit-Zahl MIT Vorzeichen; Windows meldet
@@ -404,18 +385,6 @@ const scripts = {
     let canRecordRaw = false;
     let imMeeting = false;
     let sdkOben = true;
-    // id -> { source, audio, rebindable, name, tonLaeuft, offen, zeit }. audio = Ton
-    // bestellt (wie audioOn im Original), tonLaeuft = Ton gemeldet und noch nicht
-    // "off". offen = subscribed noch nicht gemeldet (FAKE_ABO_VERZOEGERUNG_MS),
-    // zeit = der Zeitgeber, der es melden wird.
-    const abos = new Map();
-    // Altweg (A-EP1): nur mit FAKE_ALTWEG=1 gibt es videoSubscribe/videoUnsubscribe noch.
-    const altweg = process.env.FAKE_ALTWEG === '1';
-    // FAKE_ABO_FEHLER ohne Doppelpunkt (ein Fehlerschluessel wie videoSenderFailed): nur im Altweg, genau einmal,
-    // danach null (A-EP7). Mit Doppelpunkt („nr:sdk") gilt er fuer Slots (aboFehlerSlot unten).
-    let aboFehler = altweg && process.env.FAKE_ABO_FEHLER && !process.env.FAKE_ABO_FEHLER.includes(':')
-      ? process.env.FAKE_ABO_FEHLER
-      : null;
     const logDatei = process.env.FAKE_LOGDATEI;
 
     // --- Slots (Spec 6.1-6.17, 11.3; Gliederung 3.5) ---------------------------------------------------------
@@ -893,17 +862,8 @@ const scripts = {
       vorschauTakt = vorschauAn ? setInterval(vorschauSenden, VORSCHAU_MS) : null;
     };
 
-    const abbauen = (grund) => {
-      for (const [id, a] of abos) {
-        // Ein OFFENES Abo hat weder subscribed noch seinen Ton gemeldet: es
-        // bekommt nur das unsubscribed, sein verzoegertes subscribed faellt weg.
-        if (a.offen) clearTimeout(a.zeit);
-        else if (a.audio) say({ ev: 'audio', id, state: 'off', reason: grund });
-        say({ ev: 'video', id, state: 'unsubscribed', source: a.source, reason: grund, rebindable: a.rebindable });
-      }
-      abos.clear();
-      slotsAbbauen(grund);
-    };
+    // Abbau-Ketten (6.15): Entzug, Meeting-Ende, Abriss und quit bauen alle Slots ab.
+    const abbauen = (grund) => slotsAbbauen(grund);
 
     const imMeetingAnkommen = () => {
       say({ ev: 'status', status: 'inMeeting', raw: 3, code: 0 });
@@ -911,8 +871,8 @@ const scripts = {
       teilnehmer.set(100, person(100, 'JM Connect', { self: true, persistentId: 'p-self' }));
       for (let i = 0; i < fremde; i++) {
         const ueber = i === 0 ? { role: 'host' } : {};
-        // Fuer den Wiederbeitritt OHNE persistentId - der Weg ueber den Namen
-        // braucht keine (native/video.cpp, videoParticipantJoined).
+        // Fuer den Wiederbeitritt OHNE persistentId - die Rueckkehr ueber den
+        // Namen (Connect, Spec 7.3) braucht keine.
         if (i === 0 && wiederbeitritt) ueber.persistentId = '';
         // FAKE_DOPPELNAME: zwei Fremde mit demselben Namen (Spec 4 "Doppelname").
         const name = i === 1 && process.env.FAKE_DOPPELNAME === '1' ? 'Anna' : (namen[i] ?? `Gast ${i}`);
@@ -978,35 +938,11 @@ const scripts = {
           teilnehmer.delete(16778240);
           say({ ev: 'left', id: 16778240 });
           slotsBeiWeggang(16778240);
-          // Wie native/video.cpp videoParticipantLeft: das Abo BLEIBT (die Quelle
-          // darf nicht wegbrechen), das Bild wird schwarz, der Ton endet - aber
-          // nur, wenn er noch lief.
-          const weg = abos.get(16778240);
-          if (weg) {
-            say({ ev: 'video', id: 16778240, state: 'black', source: weg.source, reason: 'participantLeft', rebindable: weg.rebindable });
-            if (weg.tonLaeuft) {
-              weg.tonLaeuft = false;
-              say({ ev: 'audio', id: 16778240, state: 'off', reason: 'participantLeft' });
-            }
-          }
           const rueckkehr = () => {
             const neu = { ...alt, id: 16778250, name: process.env.FAKE_RUECKKEHR_NAME ?? alt.name };
             teilnehmer.set(neu.id, neu);
-            // ERST joined, DANN das Umhaengen (native/callbacks.cpp onUserJoin).
+            // Nur joined: Die Attrappe haengt nie selbst um (11.3); die Rueckkehr schickt Connect per slotSet.
             say({ ev: 'joined', p: neu });
-            // Umhaengen nur bei EXAKT gleichem Namen, der unter den Teilnehmern
-            // UND unter den Abos genau einmal vorkommt (native/video.cpp:1305-1316).
-            const gleichnamigeTeilnehmer = [...teilnehmer.values()].filter((p) => p.name === neu.name).length;
-            const kandidaten = [...abos].filter(([id, a]) => id !== neu.id && a.name === neu.name);
-            if (gleichnamigeTeilnehmer === 1 && kandidaten.length === 1) {
-              const [altId, a] = kandidaten[0];
-              abos.delete(altId);
-              abos.set(neu.id, a);
-              a.tonLaeuft = a.audio;
-              say({ ev: 'video', id: neu.id, state: 'subscribed', source: a.source, reason: 'reboundByName', rebindable: a.rebindable });
-              // Grund wie das Original (native/video.cpp:1491): der Umhaenge-Grund.
-              if (a.audio) say({ ev: 'audio', id: neu.id, state: 'waiting', reason: 'reboundByName' });
-            }
           };
           const rueckkehrMs = Number(process.env.FAKE_RUECKKEHR_MS ?? '0');
           if (rueckkehrMs > 0) setTimeout(rueckkehr, rueckkehrMs);
@@ -1058,7 +994,7 @@ const scripts = {
             // ... ausser Zoom kommt selbst zurueck (Stage 4b). Wie das Original bei
             // JEDEM inMeeting (native/callbacks.cpp onMeetingStatusChanged): roster
             // und die Sofortpruefung der Erlaubnis (native/session.cpp
-            // checkPrivilege()). Abos und Kennungen bleiben; ob Zoom die
+            // checkPrivilege()). Slots und Kennungen bleiben; ob Zoom die
             // Kennungen dabei wechselt, ist ungemessen.
             setTimeout(() => {
               if (!imMeeting) return;
@@ -1153,59 +1089,8 @@ const scripts = {
       else if (c.cmd === 'slotOff') slotOff(zeile);
       else if (c.cmd === 'speakerConfig') speakerConfig(zeile);
       else if (c.cmd === 'previewMode') previewMode(zeile);
-      else if (altweg && c.cmd === 'videoSubscribe') {
-        if (!Number.isInteger(c.id)) return say({ ev: 'error', where: 'video', code: 'videoUnknownParticipant' });
-        if ('audio' in c && typeof c.audio !== 'boolean') return say({ ev: 'error', where: 'video', code: 'videoBadAudioFlag', id: c.id });
-        if (!canRecordRaw) return say({ ev: 'error', where: 'video', code: 'videoNoPrivilege', id: c.id });
-        if (!teilnehmer.has(c.id)) return say({ ev: 'error', where: 'video', code: 'videoUnknownParticipant', id: c.id });
-        if (abos.has(c.id)) return say({ ev: 'error', where: 'video', code: 'videoAlreadySubscribed', id: c.id });
-        if (aboFehler !== null) {
-          // Wie videoSenderFailed in native/video.cpp: Fehler mit Kennung, kein Abo, kein video- oder audio-Ereignis.
-          const code = aboFehler;
-          aboFehler = null;
-          return say({ ev: 'error', where: 'video', code, id: c.id });
-        }
-        // Wie uniqueSourceName() in native/video.cpp: traegt ein EIGENES Abo den
-        // Namen schon (exakter Vergleich), folgen " (2)", " (3)" ...
-        const basis = `JM Connect – Zoom ${teilnehmer.get(c.id).name}`;
-        let source = basis;
-        for (let n = 2; [...abos.values()].some((x) => x.source === source); n++) source = `${basis} (${n})`;
-        const audio = c.audio !== false;
-        // Wie emitVideo() in native/video.cpp: umhaengbar ueber die persistentId
-        // nur, wenn sie nicht leer ist.
-        const rebindable = teilnehmer.get(c.id).persistentId !== '';
-        const a = { source, audio, rebindable, name: teilnehmer.get(c.id).name, tonLaeuft: false, offen: true, zeit: null };
-        abos.set(c.id, a);
-        const melden = () => {
-          a.offen = false;
-          a.tonLaeuft = audio;
-          say({ ev: 'video', id: c.id, state: 'subscribed', source, reason: 'command', rebindable });
-          say({ ev: 'audio', id: c.id, state: audio ? 'waiting' : 'off', reason: 'command' });
-          if (process.env.FAKE_PUFFERFEHLER_MS) {
-            // Wie native/video.cpp (Delegate) und audio.cpp: ein falsch
-            // ausgelegter Puffer wird je Abo EINMAL gemeldet, mit Kennung.
-            setTimeout(() => {
-              if (abos.get(c.id) !== a) return;
-              say({ ev: 'error', where: 'video', code: 'videoBufferMismatch', id: c.id });
-              if (a.tonLaeuft) say({ ev: 'error', where: 'audio', code: 'audioBufferMismatch', id: c.id });
-            }, Number(process.env.FAKE_PUFFERFEHLER_MS));
-          }
-        };
-        const verzoegerung = Number(process.env.FAKE_ABO_VERZOEGERUNG_MS ?? '0');
-        if (verzoegerung > 0) {
-          a.zeit = setTimeout(() => {
-            if (abos.get(c.id) === a) melden();
-          }, verzoegerung);
-        } else melden();
-      } else if (altweg && c.cmd === 'videoUnsubscribe') {
-        if (!abos.has(c.id)) return say({ ev: 'error', where: 'video', code: 'videoNotSubscribed', id: c.id });
-        const a = abos.get(c.id);
-        abos.delete(c.id);
-        // Offen (FAKE_ABO_VERZOEGERUNG_MS): subscribed und Ton waren nie gemeldet.
-        if (a.offen) clearTimeout(a.zeit);
-        else if (a.audio) say({ ev: 'audio', id: c.id, state: 'off', reason: 'command' });
-        say({ ev: 'video', id: c.id, state: 'unsubscribed', source: a.source, reason: 'command', rebindable: a.rebindable });
-      } else say({ ev: 'error', where: 'cmd', code: 1 });
+      // Alles andere, auch videoSubscribe und videoUnsubscribe (6.18): unbekannter Befehl wie in native/main.cpp.
+      else say({ ev: 'error', where: 'cmd', code: 1 });
     };
 
     let rest = '';

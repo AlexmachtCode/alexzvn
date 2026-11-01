@@ -1,27 +1,9 @@
 // Die Zustandsmaschine: aus Ereignissen wird ein Bild der Sitzung.
 // Rein — kein Prozess, keine Uhr, keine Seiteneffekte. Deshalb ohne SDK pruefbar.
 import type {
-  AudioReason, AudioState, BridgeEvent, MeetingStatusName, Participant, SlotAudioReason, SlotAudioSource, SlotMode,
-  SlotReason, SlotSent, SlotState, VideoReason, VideoState,
+  AudioState, BridgeEvent, MeetingStatusName, Participant, SlotAudioReason, SlotAudioSource, SlotMode,
+  SlotReason, SlotSent, SlotState,
 } from './protocol.ts';
-
-/** @deprecated Nur noch als Typ bis Plan B, Task B23; die Sitzung fuehrt seit Plan A, Task A3 slots (SlotSub). */
-export interface VideoSub {
-  state: VideoState;
-  source: string;
-  reason: VideoReason;
-  rebindable: boolean;
-  rotation?: number;
-  limitedRange?: boolean;
-}
-
-/** @deprecated Nur noch als Typ bis Plan B, Task B23; die Sitzung fuehrt seit Plan A, Task A3 slotAudio (SlotAudioSub). */
-export interface AudioSub {
-  state: AudioState;
-  reason: AudioReason;
-  sampleRate?: number;
-  channels?: number;
-}
 
 /**
  * Ein laufender Slot, wie ihn das letzte slot-Ereignis beschreibt (Spec 6.3; Gliederung 3.4). rotation und
