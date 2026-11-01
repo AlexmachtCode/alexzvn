@@ -4808,5 +4808,47 @@ console.log('\nB23 Altweg — weder Paket noch Attrappe kennen videoSubscribe, v
     'B23 A-EP7: FAKE_ABO_FEHLER ohne Doppelpunkt wirkt nicht mehr (kein Fehler, Slot 1 zeigt Bild)');
 }
 
+// ── Nachtrag B zu Plan B (Ruling R10) · Die Attrappe antwortet verspätet (FAKE_SLOT_SPAET) ──
+console.log('\nNachtrag B Attrappe — verspätete Antworten (FAKE_SLOT_SPAET):');
+{
+  let antwort1 = -1;
+  let antwort2 = -1;
+  const ev = await fahreSteuerung({ FAKE_SLOT_SPAET: '2:400' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    const t0 = Date.now();
+    b.send(slotAn(2, 'JM Connect – Zoom Ben', { id: BEN }));
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA }));
+    b.send({ cmd: 'slotSet', slot: 2, fallback: 'black' });
+    b.send({ cmd: 'slotOff', slot: 2 });
+    await bisEreignis(ev, art('slot', { slot: 1 }));
+    antwort1 = Date.now() - t0;
+    await bisEreignis(ev, art('slot', { slot: 2 }));
+    antwort2 = Date.now() - t0;
+    await bisEreignis(ev, art('slot', { slot: 2, state: 'off' }));
+  });
+  const spaet = antwort2 >= 400 && antwort1 >= 0 && antwort1 < 400 && stelle(ev, art('slot', { slot: 1 })) < stelle(ev, art('slot', { slot: 2 }));
+  if (!spaet) console.error(`      gemessen: slotOn 2 nach ${antwort2} ms, slotOn 1 nach ${antwort1} ms`);
+  assert(spaet, 'Nachtrag B R10: FAKE_SLOT_SPAET=2:400 → slotOn 2 frühestens nach 400 ms beantwortet, das spätere slotOn 1 vorher');
+  const zwei = ev.filter(art('slot', { slot: 2 })) as unknown as Array<{ state: string; reason: string; sent: string }>;
+  assert(JSON.stringify(slotFolge(ev, 2)) === JSON.stringify([`starting/command@${BEN}`, `starting/command@${BEN}`, `off/command@${BEN}`])
+      && zwei[1]?.sent === 'black',
+    'Nachtrag B R10: … slotSet und slotOff danach der Reihe nach: Aufbau, Bestätigung mit dem neuen Ersatzbild, dann slot off/command');
+}
+{
+  let antwort = -1;
+  const ev = await fahreSteuerung({ FAKE_SLOT_SPAET: '3:300' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(3, 'JM Connect – Zoom Carla', { id: ANNA }));
+    await bisEreignis(ev, art('slot', { slot: 3, state: 'live' }));
+    const t0 = Date.now();
+    b.send({ cmd: 'slotSet', slot: 3, resolution: '1080p' });
+    await bisEreignis(ev, art('slot', { slot: 3, reason: 'resolutionChanged' }));
+    antwort = Date.now() - t0;
+  });
+  const spaet = antwort >= 300 && ev.some(art('slot', { slot: 3, reason: 'resolutionChanged' }));
+  if (!spaet) console.error(`      gemessen: slotSet nach ${antwort} ms beantwortet`);
+  assert(spaet, 'Nachtrag B R10: auch slotSet an einen laufenden Slot wird erst nach 300 ms beantwortet');
+}
+
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

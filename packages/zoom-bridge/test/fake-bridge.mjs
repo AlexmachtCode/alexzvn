@@ -347,6 +347,10 @@ const scripts = {
   //   FAKE_ABO_FEHLER       „nr:sdk,…": das erste Abo dieses Slots scheitert: error slotSubscribeFailed mit sdk und
   //                         type, dann slot fallback/subscribeFailed; der Slot laeuft weiter
   //   FAKE_SLOT_STUMM       „nr,…": slotOn fuer diesen Slot bleibt ohne jede Antwort
+  //   FAKE_SLOT_SPAET       „nr:ms,…" (Nachtrag B zu Plan B, Ruling R10): slotOn und slotSet dieses Slots werden erst ms
+  //                         nach dem Eingang ausgefuehrt und beantwortet; jeder Befehl dieses Slots (auch slotOff) erst nach
+  //                         den frueheren, also in Eingangsreihenfolge wie die Bridge (ein slotOff waehrend eines
+  //                         verzoegerten Aufbaus beendet ihn danach mit slot off). Andere Slots antworten sofort
   //   FAKE_ENTZUG_MS, FAKE_ERTEILUNG_MS, FAKE_ABBAU_MS, FAKE_MEETING_ENDE_MS, FAKE_VERBINDUNG_*, FAKE_WIEDERBEITRITT_MS,
   //   FAKE_RUECKKEHR_*, FAKE_PUFFERFEHLER_MS gelten fuer Slots: Abbau je Slot mit slotAudio off vor slot off;
   //                         Weggang -> left, dann slot fallback/participantLeft, KEIN Umhaengen (Connect schickt
@@ -408,6 +412,32 @@ const scripts = {
     const slotFehler = paare(process.env.FAKE_SLOT_FEHLER); // nr -> Schluessel, je einmal
     const aboFehlerSlot = paare(process.env.FAKE_ABO_FEHLER); // nr -> SDKError, je einmal
     const stummeSlots = new Set(eintraege(process.env.FAKE_SLOT_STUMM).map(([nr]) => Number(nr)));
+    // FAKE_SLOT_SPAET: je Slot eine Warteschlange { liste: [{ faellig, f }], zeit } in Eingangsreihenfolge.
+    const spaeteSlots = new Map([...paare(process.env.FAKE_SLOT_SPAET)].map(([nr, ms]) => [nr, Number(ms)]));
+    const schlangen = new Map();
+    const abarbeiten = (q) => {
+      q.zeit = null;
+      while (q.liste.length > 0) {
+        const rest = q.liste[0].faellig - Date.now();
+        if (rest > 0) {
+          q.zeit = setTimeout(() => abarbeiten(q), rest);
+          return;
+        }
+        q.liste.shift().f();
+      }
+    };
+    // Ohne den Schalter (oder fuer andere Slots) sofort wie bisher; slotOn und slotSet verzoegert, slotOff nur der Reihe nach.
+    const derReiheNach = (zeile, verzoegern, f) => {
+      const nr = slotNummer(zeile);
+      if (nr === null || !spaeteSlots.has(nr)) return f();
+      let q = schlangen.get(nr);
+      if (!q) {
+        q = { liste: [], zeit: null };
+        schlangen.set(nr, q);
+      }
+      q.liste.push({ faellig: Date.now() + (verzoegern ? spaeteSlots.get(nr) : 0), f });
+      if (q.zeit === null) abarbeiten(q);
+    };
     const geliefert = /^(\d+)x(\d+)$/.exec(process.env.FAKE_AUFLOESUNG_GELIEFERT ?? '');
     let statsTakt = null;
     let vorschauTakt = null;
@@ -1084,9 +1114,9 @@ const scripts = {
       else if (c.cmd === 'videoDelay') {
         if (Number.isInteger(c.ms) && c.ms >= 0 && c.ms <= 1000) say({ ev: 'videoDelay', ms: c.ms });
         else say({ ev: 'error', where: 'video', code: 'videoBadDelay' });
-      } else if (c.cmd === 'slotOn') slotOn(zeile);
-      else if (c.cmd === 'slotSet') slotSet(zeile);
-      else if (c.cmd === 'slotOff') slotOff(zeile);
+      } else if (c.cmd === 'slotOn') derReiheNach(zeile, true, () => slotOn(zeile));
+      else if (c.cmd === 'slotSet') derReiheNach(zeile, true, () => slotSet(zeile));
+      else if (c.cmd === 'slotOff') derReiheNach(zeile, false, () => slotOff(zeile));
       else if (c.cmd === 'speakerConfig') speakerConfig(zeile);
       else if (c.cmd === 'previewMode') previewMode(zeile);
       // Alles andere, auch videoSubscribe und videoUnsubscribe (6.18): unbekannter Befehl wie in native/main.cpp.
