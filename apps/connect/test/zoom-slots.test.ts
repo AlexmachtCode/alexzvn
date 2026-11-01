@@ -1370,6 +1370,273 @@ console.log('— PK34 · Fehler ohne Slot, Wettlauf, slotReconnecting, Ton-Abo-F
   await p.aufraeumen();
 }
 
+// ── Plan B, Task B15: Modi, Sprecher, Freigabe, Kamera, Ton am laufenden Slot, Auflösung, Umbenennung ──
+/** Das letzte slotSet an Slot `nr` (Bridge 1), ohne Feldreihenfolge zu raten: als JSON. */
+const letztesSlotSet = (p: Probe, nr: number): string => JSON.stringify(slotBefehle(p, 1, nr).filter((c) => c.cmd === 'slotSet').at(-1) ?? null);
+/** Wartet, bis das letzte slotSet an Slot `nr` dem Soll entspricht (die Attrappe schreibt ihre Befehlsdatei erst beim Empfang). */
+const bisSlotSet = (p: Probe, nr: number, soll: Record<string, unknown>): Promise<boolean> => bis(() => letztesSlotSet(p, nr) === JSON.stringify(soll), 2000);
+/** Ereignisse `ev` für Slot `nr` (alle Bridges), roh. */
+function slotEreignisse(p: Probe, ev: string, nr: number): Array<Record<string, unknown>> {
+  return p.ereignisse.map((x) => x.ev as unknown as Record<string, unknown>).filter((e) => e.ev === ev && e.slot === nr);
+}
+/** Eine Zeile mit „0 Bilder/s“ als ganzer Zahl (nicht „30 Bilder/s“, Spec 10.7). */
+const NULL_BILDER = /(^|\D)0 Bilder\/s/;
+
+console.log('— PK7 · Moduswechsel am laufenden Slot: nur slotSet {mode}, Grund modeChanged, Tonweg (7.1, 6.10; N1)');
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true })],
+    stell: () => ({ FAKE_TEILNEHMER: '3', FAKE_SPRECHER_FOLGE: `300:${BEN}`, FAKE_FREIGABEN: `400:${CARLA}:101:begin` }),
+  });
+  await insMeeting(p);
+  ck('PK7: Slot 1 zeigt Anna', await bis(() => lage(p, 1)?.text === 'Zeigt Anna.', 3000));
+  await warte(500);
+  const tonVorher = slotEreignisse(p, 'slotAudio', 1).length;
+  ck('… auf Sprecher: slotSet nur mit mode, Grund modeChanged, dann T25', ok(p.kern.slotAendern(1, { modus: 'sprecher' }))
+    && (await bisSlotSet(p, 1, { cmd: 'slotSet', slot: 1, mode: 'speaker' }))
+    && (await bis(() => lage(p, 1)?.text === 'Zeigt Ben (Sprecher).', 3000))
+    && slotEreignisse(p, 'slot', 1).some((e) => e.mode === 'speaker' && e.reason === 'modeChanged'));
+  ck('… Teilnehmer → Sprecher: kein slotAudio (der Tonweg bleibt mix)', slotEreignisse(p, 'slotAudio', 1).length === tonVorher);
+  ck('… auf Freigabe: slotSet {mode: share}, slotAudio mit configured mixShare, die Tonzeile nennt die neue Quelle',
+    ok(p.kern.slotAendern(1, { modus: 'freigabe' })) && (await bisSlotSet(p, 1, { cmd: 'slotSet', slot: 1, mode: 'share' }))
+      && (await bis(() => lage(p, 1)?.text === 'Zeigt die Freigabe von Carla.', 3000))
+      && slotEreignisse(p, 'slotAudio', 1).slice(tonVorher).some((e) => e.configured === 'mixShare')
+      && (await bis(() => lage(p, 1)?.tonText?.startsWith('Ton: Mischton + Computerton') === true, 2000)));
+  const tonFreigabe = slotEreignisse(p, 'slotAudio', 1).length;
+  ck('… zurück auf Teilnehmer: slotSet {mode: participant, id: Anna}, configured mix, T15', ok(p.kern.slotAendern(1, { modus: 'teilnehmer' }))
+    && (await bisSlotSet(p, 1, { cmd: 'slotSet', slot: 1, mode: 'participant', id: ANNA }))
+    && (await bis(() => lage(p, 1)?.text === 'Zeigt Anna.', 3000))
+    && slotEreignisse(p, 'slotAudio', 1).slice(tonFreigabe).some((e) => e.configured === 'mix')
+    && (await bis(() => lage(p, 1)?.tonText?.startsWith('Ton: Mischton ·') === true, 2000)));
+  ck('… nie slotOff, nur ein slotOn, NDI-Name unverändert', !slotBefehle(p, 1, 1).some((c) => c.cmd === 'slotOff')
+    && slotBefehle(p, 1, 1).filter((c) => c.cmd === 'slotOn').length === 1 && lage(p, 1)?.einstellung.ndiName === 'Zoom 1');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Zora', an: true })] });
+  await insMeeting(p);
+  ck('PK7 (ohne Ziel): Teilnehmer „Zora“, nicht im Meeting → T16', await bis(() => lage(p, 1)?.text === 'Wartet auf Zora · Ersatzbild transparent', 3000));
+  ck('… auf Sprecher mit leerer Erinnerung → die Bridge meldet mode speaker, T26', ok(p.kern.slotAendern(1, { modus: 'sprecher' }))
+    && (await bis(() => slotEreignisse(p, 'slot', 1).at(-1)?.mode === 'speaker', 2000)) && (await bis(() => lage(p, 1)?.text === 'Wartet auf eine sprechende Person · Ersatzbild transparent', 3000)));
+  ck('… auf Freigabe ohne Freigabe → mode share, T29c', ok(p.kern.slotAendern(1, { modus: 'freigabe' }))
+    && (await bis(() => slotEreignisse(p, 'slot', 1).at(-1)?.mode === 'share', 2000)) && (await bis(() => lage(p, 1)?.text === 'Wartet auf eine Bildschirmfreigabe · Ersatzbild transparent', 3000)));
+  ck('… zurück auf Teilnehmer → mode participant, T16', ok(p.kern.slotAendern(1, { modus: 'teilnehmer' }))
+    && (await bis(() => slotEreignisse(p, 'slot', 1).at(-1)?.mode === 'participant', 2000)) && (await bis(() => lage(p, 1)?.text === 'Wartet auf Zora · Ersatzbild transparent', 3000)));
+  ck('… nie T20 („erstes Bild steht noch aus“), auch nicht als Grund modeChanged ohne Ziel',
+    !p.abbilder.some((a) => a.slots.some((s) => s.text.includes('erstes Bild steht noch aus')))
+    && !slotEreignisse(p, 'slot', 1).some((e) => e.target === 0 && e.reason === 'modeChanged'));
+  await p.aufraeumen();
+}
+
+console.log('— PK9 · Bildausfall (T19b); „Kamera aus“ in der Teilnehmerliste folgt videoStatus auch ohne laufenden Slot');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_KEIN_BILD_MS: `${ANNA}:900`, FAKE_KAMERA_AUS_MS: `${BEN}:900` }) });
+  await insMeeting(p);
+  ck('PK9: Bildausfall → T19b', await bis(() => lage(p, 1)?.text === 'Anna: Zoom liefert gerade kein Bild · Ersatzbild transparent', 3000));
+  ck('… Ben (ohne Slot): Kamera aus in der Teilnehmerliste', await bis(() => p.kern.abbild().teilnehmer.find((t) => t.id === BEN)?.kamera === 'aus', 3000));
+  await p.aufraeumen();
+}
+
+console.log('— PK10 · Zwei Freigaben: T28b mit der neuesten, nach ihrem Ende T28');
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { modus: 'freigabe', an: true })],
+    stell: () => ({ FAKE_TEILNEHMER: '3', FAKE_FREIGABEN: `300:${BEN}:101:begin,700:${CARLA}:102:begin,1700:${CARLA}:102:end` }),
+  });
+  await insMeeting(p);
+  ck('PK10: zwei Freigaben → T28b mit Carla', await bis(() => lage(p, 1)?.text === 'Zeigt die Freigabe von Carla (die neueste von 2: Ben, Carla).', 3000));
+  ck('… Carla endet → T28 mit Ben', await bis(() => lage(p, 1)?.text === 'Zeigt die Freigabe von Ben.', 3000));
+  ck('… die Freigaben stehen in den Messwerten', p.kern.abbild().messwerte.freigaben?.list.length === 1);
+  await p.aufraeumen();
+}
+
+console.log('— PK13 · zoom_slot_audio am laufenden Freigabe-Slot: slotSet mit beiden Ton-Feldern');
+{
+  const p = baueKern({
+    slots: [slotEinst(3, { modus: 'freigabe', an: true, tonAn: true, computerton: true })],
+    stell: () => ({ FAKE_TEILNEHMER: '3', FAKE_FREIGABEN: `300:${CARLA}:101:begin` }),
+  });
+  await insMeeting(p);
+  ck('PK13: Slot 3 zeigt die Freigabe', await bis(() => lage(p, 3)?.zustand === 'zeigt', 3000));
+  befehl(p, 'zoom_slot_audio', '3', 'OFF');
+  ck('… OFF → slotSet {audio: off, shareAudio: false}, zoom_slot3_audio=0',
+    (await bisSlotSet(p, 3, { cmd: 'slotSet', slot: 3, audio: 'off', shareAudio: false })) && slotKurz(p, 3)?.tonEin === false);
+  befehl(p, 'zoom_slot_audio', '3', 'ON');
+  ck('… ON stellt beide wieder her', (await bisSlotSet(p, 3, { cmd: 'slotSet', slot: 3, audio: 'mix', shareAudio: true }))
+    && slotKurz(p, 3)?.tonEin === true);
+  await p.aufraeumen();
+}
+
+console.log('— PK14 · Ton am laufenden Slot: immer beide Felder; T75, T75b, T58f (B2, N9-1, RN4, RN5)');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })] });
+  await insMeeting(p);
+  ck('PK14: Slot 1 zeigt Anna', await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000));
+  ck('… Ton aus → slotSet {audio: off, shareAudio: true} (beide Felder), keine Ablehnung', ok(p.kern.slotAendern(1, { tonAn: false }))
+    && (await bisSlotSet(p, 1, { cmd: 'slotSet', slot: 1, audio: 'off', shareAudio: true }))
+    && (await warte(300), !p.ereignisse.some((x) => x.ev.ev === 'error')));
+  ck('… nur der Computerton geändert → wieder beide Felder', ok(p.kern.slotAendern(1, { computerton: false }))
+    && (await bisSlotSet(p, 1, { cmd: 'slotSet', slot: 1, audio: 'off', shareAudio: false })));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { modus: 'sprecher', an: true, tonArt: 'person' })], stell: () => ({ FAKE_SPRECHER_FOLGE: `300:${BEN}` }) });
+  await insMeeting(p);
+  ck('PK14: Tonart Person im Modus Sprecher → slotOn mit audio person, die Bridge meldet off/personNotInMode → T75',
+    (await bis(() => lage(p, 1)?.tonText === 'Ton: Person-Ton gibt es nur im Modus Teilnehmer. Der Slot sendet keinen Meeting-Ton.', 3000))
+      && (await bis(() => slotBefehle(p, 1, 1).find((c) => c.cmd === 'slotOn')?.audio === 'person', 2000)));
+  await p.aufraeumen();
+}
+for (const tonArt of ['mischton', 'person'] as const) {
+  const p = baueKern({
+    slots: [slotEinst(1, { modus: 'freigabe', an: true, tonAn: false, tonArt })],
+    stell: () => ({ FAKE_TEILNEHMER: '3', FAKE_FREIGABEN: `900:${CARLA}:101:begin,2000:${CARLA}:101:end` }),
+  });
+  await insMeeting(p);
+  ck(`PK14 (nur Computerton, Tonart ${tonArt}): niemand teilt → T58f`, await bis(() => lage(p, 1)?.tonText === 'Ton: Computerton · wartet auf eine Bildschirmfreigabe', 3000));
+  ck('… die Freigabe beginnt → nach den ersten Paketen T58c', await bis(() => lage(p, 1)?.tonText === 'Ton: Computerton · läuft (32,0 kHz, mono)', 3000));
+  ck('… sie endet → T58f, nie T75', await bis(() => lage(p, 1)?.tonText === 'Ton: Computerton · wartet auf eine Bildschirmfreigabe', 3000)
+    && !p.abbilder.some((a) => a.slots.some((s) => s.tonText?.includes('Person-Ton gibt es nur'))));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { modus: 'freigabe', an: true, tonAn: true, tonArt: 'person', computerton: true })],
+    stell: () => ({ FAKE_TEILNEHMER: '3', FAKE_FREIGABEN: `900:${CARLA}:101:begin,2000:${CARLA}:101:end,2800:${BEN}:102:begin` }),
+  });
+  await insMeeting(p);
+  const T75 = 'Ton: Person-Ton gibt es nur im Modus Teilnehmer. Der Slot sendet keinen Meeting-Ton.';
+  const T75B = 'Ton: Person-Ton gibt es nur im Modus Teilnehmer; es läuft nur der Computerton.';
+  ck('PK14 (RN5): ohne gezeigte Freigabe T75', await bis(() => lage(p, 1)?.tonText === T75, 3000));
+  ck('… Freigabe beginnt → T75b, sobald der Computerton gemessen hinausgeht', await bis(() => lage(p, 1)?.tonText === T75B, 3000));
+  ck('… endet → T75', await bis(() => lage(p, 1)?.tonText === T75, 3000));
+  ck('… beginnt wieder → T75b', await bis(() => lage(p, 1)?.tonText === T75B, 3000));
+  ck('… die Bridge bleibt dabei auf off/personNotInMode', slotEreignisse(p, 'slotAudio', 1).slice(1)
+    .every((e) => e.state === 'off' && e.reason === 'personNotInMode'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { modus: 'freigabe', an: true })], stell: () => ({ FAKE_TEILNEHMER: '3', FAKE_FREIGABEN: `300:${CARLA}:101:begin` }) });
+  await insMeeting(p);
+  ck('PK14 (rateMismatch): Freigabe-Slot mit Mischton und Computerton zeigt die Freigabe', await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000));
+  // Die Attrappe kennt keinen Mischer (6.13): slotStats mit beiden Formaten und das slotAudio der Bridge werden eingespeist.
+  p.einspeisen(1, {
+    ev: 'slotStats', slot: 1, fallbackFps: 0, heldFrames: 0, workUs: 0, copyUs: 0, previewUs: 0, memKb: 0, resWanted: '720p', foreignFrames: 0,
+    lateFrames: 0, tooFrequent: 0, noShareData: 0, rendererNew: 0, rendererLost: 0, audioRate: 32000, audioCh: 1, shareAudioRate: 48000, shareAudioCh: 2,
+  });
+  p.einspeisen(1, { ev: 'slotAudio', slot: 1, state: 'live', source: 'share', configured: 'mixShare', reason: 'rateMismatch' });
+  ck('… slotAudio live/rateMismatch → T76 mit beiden Formaten aus slotStats (10.6 Regel 5, Vorgabe OFP10)', lage(p, 1)?.tonText
+    === 'Ton: Mischton und Computerton passen nicht zusammen (32,0 kHz, mono und 48,0 kHz, 2 Kanäle). Es läuft nur der Computerton.');
+  p.einspeisen(1, { ev: 'slotAudio', slot: 1, state: 'live', source: 'mixShare', configured: 'mixShare', reason: 'packets' });
+  ck('… passen die Formate wieder (packets), steht T58c', lage(p, 1)?.tonText?.startsWith('Ton: Mischton + Computerton · läuft (') === true);
+  await p.aufraeumen();
+}
+
+console.log('— PK15 · Auflösung: T50, T51, T51c; nie „0 Bilder/s“ (10.7)');
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true, aufloesung: '1080p' }), slotEinst(2, { person: 'Ben', an: true }),
+      slotEinst(3, { modus: 'freigabe', an: true, aufloesung: '1080p' })],
+    stell: () => ({ FAKE_TEILNEHMER: '3', FAKE_AUFLOESUNG_GELIEFERT: '1280x720', FAKE_FREIGABEN: `300:${CARLA}:101:begin`, FAKE_KAMERA_AUS_MS: `${ANNA}:3200` }),
+  });
+  await insMeeting(p);
+  ck('PK15: 1080p und 1280×720 → T51', await bis(() => lage(p, 1)?.messText === '1080p gewünscht · Zoom liefert 1280×720 · 30 Bilder/s', 4000));
+  ck('KF1 (Messzeile): geliefert {1280, 720, 30} und zuletzt {1280, 720} kommen durch slotLage', JSON.stringify(lage(p, 1)?.geliefert)
+    === '{"b":1280,"h":720,"fps":30}' && JSON.stringify(lage(p, 1)?.zuletzt) === '{"b":1280,"h":720}');
+  ck('… 720p und 1280×720 → T50', await bis(() => lage(p, 2)?.messText === '720p · Zoom liefert 1280×720 · 30 Bilder/s', 4000));
+  ck('… Freigabe-Slot 1080p mit 1280×720 → T50', await bis(() => lage(p, 3)?.messText === '1080p · Zoom liefert 1280×720 · 30 Bilder/s', 4000));
+  ck('… nach Kamera aus → T51c', await bis(() => lage(p, 1)?.messText === '1080p · zuletzt 1280×720 · jetzt kein Bild', 5000));
+  ck('KF1 (Messzeile): ohne Bild geliefert null, zuletzt {1280, 720}', lage(p, 1)?.geliefert === null
+    && JSON.stringify(lage(p, 1)?.zuletzt) === '{"b":1280,"h":720}');
+  await warte(2300);
+  ck('… auch nach dem nächsten slotStats T51c, nie „0 Bilder/s“', lage(p, 1)?.messText === '1080p · zuletzt 1280×720 · jetzt kein Bild'
+    && !p.abbilder.some((a) => a.slots.some((s) => NULL_BILDER.test(s.messText ?? ''))));
+  await p.aufraeumen();
+}
+for (const [geliefert, stufe, soll] of [
+  ['960x720', '720p', '720p · Zoom liefert 960×720 · 30 Bilder/s'],
+  ['720x1280', '720p', '720p · Zoom liefert 720×1280 · 30 Bilder/s'],
+  ['1920x1200', '1080p', '1080p · Zoom liefert 1920×1200 · 30 Bilder/s'],
+] as const) {
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true, aufloesung: stufe })], stell: () => ({ FAKE_AUFLOESUNG_GELIEFERT: geliefert }) });
+  await insMeeting(p);
+  ck(`PK15: ${stufe} und ${geliefert} → T50`, await bis(() => lage(p, 1)?.messText === soll, 4000));
+  await p.aufraeumen();
+}
+
+console.log('— PK25 · Umbenennung der gezeigten Person (B8): Kachel, gespeicherte Person, Rückkehr unter neuem und altem Namen');
+for (const rueckkehrName of ['Annette', 'Anna'] as const) {
+  let umbenannt = false;
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true })],
+    stell: (n): Record<string, string> => (n === 1
+      ? { FAKE_WIEDERBEITRITT_MS: '1500', FAKE_RUECKKEHR_MS: '400', FAKE_RUECKKEHR_NAME: rueckkehrName, FAKE_MEETING_ENDE_MS: '3500' } : {}),
+    sitzung: (s) => {
+      const a = s.participants.get(ANNA);
+      if (!umbenannt || !a) return s;
+      const participants = new Map(s.participants);
+      participants.set(ANNA, { ...a, name: 'Annette' });
+      return { ...s, participants };
+    },
+  });
+  await insMeeting(p);
+  ck(`PK25 (Rückkehr als „${rueckkehrName}“): Slot 1 zeigt Anna`, await bis(() => lage(p, 1)?.text === 'Zeigt Anna.', 3000));
+  umbenannt = true;
+  p.einspeisen(1, { ev: 'renamed', id: ANNA, name: 'Annette' });
+  ck('… die Kachel nennt den neuen Namen, gespeichert bleibt Anna', lage(p, 1)?.text === 'Zeigt Annette.' && gespeichert(p, 1)?.person === 'Anna');
+  ck('… Rückkehr → slotSet auf die neue Kennung', await bis(() => slotBefehle(p, 1, 1).some((c) => c.cmd === 'slotSet' && c.id === ANNA_ZURUECK), 4000));
+  ck('… nach dem Meeting-Ende gilt der gespeicherte Name', (await bis(() => p.kern.kurz().zustand === 'bereit', 4000))
+    && lage(p, 1)?.zielName === 'Anna' && lage(p, 1)?.einstellung.person === 'Anna');
+  await p.aufraeumen();
+}
+
+console.log('— PK29 · Sprecher → Teilnehmer mit abwesender Person; spätes slot live mit mode speaker (RR9, N3)');
+{
+  const p = baueKern({ slots: [slotEinst(1, { modus: 'sprecher', person: 'Zora', an: true })], stell: () => ({ FAKE_SPRECHER_FOLGE: `300:${BEN}` }) });
+  await insMeeting(p);
+  ck('PK29: der Sprecher-Slot zeigt Ben', await bis(() => lage(p, 1)?.text === 'Zeigt Ben (Sprecher).', 3000));
+  ck('… auf Teilnehmer mit „Zora“ (abwesend) → T16, kein Alarm', ok(p.kern.slotAendern(1, { modus: 'teilnehmer' }))
+    && (await bis(() => lage(p, 1)?.text === 'Wartet auf Zora · Ersatzbild transparent', 3000)) && slotKurz(p, 1)?.alarm === false);
+  p.einspeisen(1, slotEv(1, 'live', BEN, 'frames', 'speaker'));
+  ck('… ein spätes slot live mit mode speaker setzt zeigteSchon nicht', lage(p, 1)?.zeigteSchon === false && slotKurz(p, 1)?.alarm === false);
+  await p.aufraeumen();
+}
+
+console.log('— PK8 · Sprecher: speakerConfig in der Startfolge und nach jeder Änderung, letzte 20 Signale, T25 (7.6)');
+{
+  const folge = Array.from({ length: 22 }, (_, i) => `${200 + i * 40}:${i % 2 === 0 ? BEN : CARLA}`).join(',');
+  const p = baueKern({
+    slots: [slotEinst(1, { modus: 'sprecher', an: true })],
+    sprecher: { signal: 'aktivesVideo', haltezeitMs: 1500 },
+    stell: () => ({ FAKE_TEILNEHMER: '3', FAKE_SPRECHER_FOLGE: folge, FAKE_SPRECHER_SIGNAL: 'activeVideo' }),
+  });
+  await insMeeting(p);
+  ck('PK8: Startfolge mit den gespeicherten Werten', JSON.stringify(p.befehle(1).find((c) => c.cmd === 'speakerConfig'))
+    === JSON.stringify({ cmd: 'speakerConfig', signal: 'activeVideo', holdMs: 1500 }));
+  ck('… nach allen 22 Signalen: die letzten 20 in den Messwerten, mit Namen',
+    await bis(() => p.ereignisse.filter((x) => x.ev.ev === 'speakerSignal').length === 22, 4000) && p.kern.abbild().messwerte.sprecherSignale.length === 20
+    && p.kern.abbild().messwerte.sprecherSignale.at(-1)?.ids[0] === CARLA
+    && JSON.stringify(p.kern.abbild().messwerte.sprecherSignale.at(-1)?.namen) === '["Carla"]');
+  ck('… T25 mit dem Namen der zuletzt gezeigten Person (nach der Haltezeit)', await bis(() => lage(p, 1)?.text === 'Zeigt Carla (Sprecher).', 4000));
+  const vorher = p.befehle(1).filter((c) => c.cmd === 'speakerConfig').length;
+  ck('… sprecherSetzen: gespeichert und speakerConfig gesendet', ok(p.kern.sprecherSetzen({ signal: 'sprecherVideo', haltezeitMs: 500 }))
+    && JSON.stringify(p.einst.sprecher) === '{"signal":"sprecherVideo","haltezeitMs":500}'
+    && (await bis(() => p.befehle(1).some((c) => c.cmd === 'speakerConfig' && c.signal === 'speakerVideo' && c.holdMs === 500), 2000)));
+  ck('… Haltezeit 6 s → T74, nichts gespeichert, nichts gesendet', text(p.kern.sprecherSetzen({ signal: 'sprecherVideo', haltezeitMs: 6000 }))
+    === 'Haltezeit: erlaubt sind 0 bis 5 Sekunden.' && p.einst.sprecher.haltezeitMs === 500
+    && (await warte(300), p.befehle(1).filter((c) => c.cmd === 'speakerConfig').length === vorher + 1));
+  await p.aufraeumen();
+}
+
+console.log('— 7.6 · Vorgaben für neue Slots');
+{
+  const p = baueKern();
+  const r = ok(p.kern.vorgabenSetzen({ aufloesung: '1080p', tonAn: false })) ? p.kern.slotAnlegen() : null;
+  ck('vorgabenSetzen speichert, der nächste neue Slot übernimmt sie', r?.ok === true && JSON.stringify(p.einst.vorgaben) === '{"aufloesung":"1080p","tonAn":false}'
+    && gespeichert(p, r.nr ?? 0)?.aufloesung === '1080p' && gespeichert(p, r.nr ?? 0)?.tonAn === false && p.kern.abbild().vorgaben.aufloesung === '1080p');
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

@@ -57,6 +57,8 @@ import {
   kachelFehlerZeile,
   kachelZeile,
   KANDIDAT_KENNZEICHEN,
+  kanaeleText,
+  khzText,
   nachfrageText,
   r5Text,
   SLOT_TEXT,
@@ -66,6 +68,7 @@ import {
   TEXT_A4_SCHREIBFEHLER,
   TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT,
   TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT,
+  UNBEKANNT,
   WIEDERBEITRITT_VERSUCHE,
   ZOOM_STATE_ZUSTANDSWORT,
   zoomZ,
@@ -112,8 +115,11 @@ import {
 import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFehler, type SdkLadenDienste } from './sdk-laden';
 import { SDK_PAKET } from './sdk-paket';
 import { deuteZoomBefehl, ladeZiel, type SlotSchalter } from './fernsteuerung';
-import { neuerSlot, pruefeNdiName, slotsFuerPlatte, uebergangsNdiName } from './einstellungen';
 import {
+  istSlotAufloesung, istSprecherSignal, neuerSlot, pruefeHaltezeit, pruefeNdiName, slotsFuerPlatte, uebergangsNdiName,
+} from './einstellungen';
+import {
+  ERSATZBILD_ZU_BRIDGE,
   istOffen,
   MODUS_ZU_BRIDGE,
   planeSlotAbgleich,
@@ -250,6 +256,10 @@ export interface ZoomKern {
   slotPersonWaehlen(nr: number, teilnehmerId: number): ZoomErgebnis;
   /** „Behalten“ (7.2): macht einen vorübergehenden Slot dauerhaft bzw. das Einschalten mit `anNurMeeting` zur gespeicherten Start-Taste. */
   slotBehalten(nr: number): ZoomErgebnis;
+  /** Vorgaben für neue Slots (7.6): Auflösung und Ton; gespeichert. */
+  vorgabenSetzen(v: ZoomSlotVorgaben): ZoomErgebnis;
+  /** Sprecher-Einstellungen (7.6): Signal und Haltezeit (T74 bei ungültiger Haltezeit); gespeichert, `speakerConfig` an die Bridge. */
+  sprecherSetzen(s: ZoomSprecherEinstellung): ZoomErgebnis;
   schliessen(): void;
   meldungWeg(): void;
   gastLabelsGeaendert(): void;
@@ -273,6 +283,12 @@ const AUFBAU_FEHLER: ReadonlySet<string> = new Set<SlotFehler>([
   'slotBadResolution', 'slotBadAudio', 'slotBadFallback', 'slotBadFlag', 'slotBadTarget',
 ]);
 const istSlotFehler = (code: string): code is SlotFehler => Object.prototype.hasOwnProperty.call(SLOT_FEHLER_TEXT, code);
+/** So viele Sprecher-Signale hält das Abbild (7.8, T65). */
+const SPRECHER_SIGNALE_MAX = 20;
+/** Ein Ereignis ohne `ev`, wie es die Messwerte halten (Gemeldet<…>, 7.8). */
+function ohneEv(ev: BridgeEvent): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(ev).filter(([k]) => k !== 'ev'));
+}
 type StatusEreignis = { ev: 'status'; status: MeetingStatusName; code: number };
 type PrivilegEreignis = { ev: 'privilege'; canRecordRaw: boolean; source: 'broadcast' | 'requestAnswer' | 'check'; requested?: boolean; denied?: boolean; timedOut?: boolean };
 type SlotEreignis = { ev: 'slot'; slot: number; state: SlotState; mode: SlotMode; target: number; share: number; reason: SlotReason; sent: SlotSent };
@@ -304,6 +320,11 @@ interface SlotIntern {
   tonGemerkt: { tonAn: boolean; computerton: boolean } | null;
   /** `zoom_unload` (7.2): Der vorübergehende Slot verschwindet, sobald kein Sender und keine Antwortfrist mehr besteht. */
   loeschen: boolean;
+  /**
+   * Messzeile (10.7): `geliefert` aus dem laufenden Fenster dieses Ziels (slotStats), `zuletzt` die letzte Größe dieses Ziels.
+   * Fällt mit dem Sender und mit jedem `slot`-Ereignis, das Ziel, Freigabe oder Modus ändert (B55).
+   */
+  mess: { geliefert: { b: number; h: number; fps: number } | null; zuletzt: { b: number; h: number } | null } | null;
 }
 /** `ausgang` ordnet einen Fehler der Startfolge für den Wiederbeitritt ein (6.4); null bei Mangel oder Abbruch. */
 type StartErgebnis =
@@ -454,7 +475,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function neuerIntern(e: ZoomSlotEinstellung, voruebergehend = false): SlotIntern {
     return {
       e, voruebergehend, anNurMeeting: false, s: { ...SITZUNG_LEER }, bridge: null, slotOffGesendet: false, frist: null, ton: null,
-      fehler: null, gescheitertText: null, aboFehlerName: null, tonGemerkt: null, loeschen: false,
+      fehler: null, gescheitertText: null, aboFehlerName: null, tonGemerkt: null, loeschen: false, mess: null,
     };
   }
 
@@ -531,6 +552,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return andere.length ? Math.min(...andere) : null;
   }
 
+  /** T28b (10.2 Regel 4): laufende Bild-Freigaben (ohne reine Ton-Freigaben, 6.9) aus dem letzten `shares`, mit Namen. */
+  function bildFreigaben(): { zahl: number; namen: string[] } {
+    const bild = (messwerte.freigaben?.list ?? []).filter((f) => !f.audioOnly);
+    return { zahl: bild.length, namen: bild.map((f) => nameVon(f.user)).filter((n): n is string => n !== null) };
+  }
+
   /**
    * T104 an dieser Kachel (7.1, 10.6; Nachfix W6): nur mit eingeschaltetem Ton, solange der Merker steht oder der eigene Ton
    * des Slots auf `off/audioUnavailable` steht (dann mit dem zuletzt gemeldeten Ton-Abo-Fehler).
@@ -540,6 +567,19 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (tonAboFehler !== null) return tonAboFehlerText(tonAboFehler);
     if (x.ton?.state === 'off' && x.ton.reason === 'audioUnavailable' && letzterTonAboFehler !== null) return tonAboFehlerText(letzterTonAboFehler);
     return null;
+  }
+
+  /**
+   * T76 (10.6 Regel 5): Meldet die Bridge für den Ton des Slots `rateMismatch` (Mischer-Slot, 6.10 Schritt 8), nennt die Kachel
+   * beide Formate aus dem letzten slotStats des Slots: {r1} Mischton (`audioRate`, `audioCh`), {r2} Computerton
+   * (`shareAudioRate`, `shareAudioCh`), je „{rate} kHz, {kanäle}“ wie in T58c; ein fehlender Wert heißt „unbekannt“ (Vorgabe OFP10).
+   */
+  function rateMismatchAn(x: SlotIntern): { r1: string; r2: string } | null {
+    if (x.ton?.reason !== 'rateMismatch') return null;
+    const m = messwerte.slots.find((s) => s.slot === x.e.nr);
+    const format = (rate: number | undefined, ch: number | undefined): string =>
+      (rate === undefined ? UNBEKANNT : `${khzText(rate / 1000)} kHz, ${ch === undefined ? UNBEKANNT : kanaeleText(ch)}`);
+    return { r1: format(m?.audioRate, m?.audioCh), r2: format(m?.shareAudioRate, m?.shareAudioCh) };
   }
 
   /** Der einzige Konstruktor von ZoomSlotLage (Slot-Spec 7.10, KF1). `z` = Zeile der Kurzform (für die Zustandszeile). */
@@ -569,8 +609,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       zweifel,
       imWarteraum,
       wahl: ziel?.wahl ? ziel.wahl.map((w) => ({ id: w.id, name: w.name, hinweis: kandidatHinweis(w.id) })) : null,
-      geliefert: null,
-      zuletzt: null,
+      geliefert: x.mess?.geliefert ?? null,
+      zuletzt: x.mess?.zuletzt ?? null,
       ton: x.ton?.state ?? 'aus',
       tonGrund: x.ton?.reason ?? null,
       tonQuelle,
@@ -585,16 +625,18 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       ndiWarnung: pruefeNdiName(e.ndiName, e.nr, [], d.gastLabels()).warnung,
       text: kachelZeile({
         zustand: zst, z, erlaubnis: lageErlaubnis, modus: e.modus, grund, gesendet, ersatzbild: e.ersatzbild, zielName: gezeigt, person,
-        doppelt, zweifel, imWarteraum, liefSchon: x.s.liefSchon, andererSlot, freigaben: { zahl: 0, namen: [] },
+        doppelt, zweifel, imWarteraum, liefSchon: x.s.liefSchon, andererSlot, freigaben: bildFreigaben(),
         aboFehlerName: x.aboFehlerName, gescheitertText: x.gescheitertText,
       }),
       tonText: slotTonZeile({
         zustand: zst, modus: e.modus, ziel: x.bridge?.target ?? 0, grund, tonAn: e.tonAn, tonArt: e.tonArt, computerton: e.computerton,
         person, doppelt, zweifel, imWarteraum, ton: x.ton?.state ?? 'aus', tonGrund: x.ton?.reason ?? null, quelle: tonQuelle,
         eingestellt: tonEingestellt, rateKhz: x.ton?.rate != null ? x.ton.rate / 1000 : null, kanaele: x.ton?.kanaele ?? null,
-        tonAboFehler: tonAboFehlerAn(x), rateMismatch: null,
+        tonAboFehler: tonAboFehlerAn(x), rateMismatch: rateMismatchAn(x),
       }),
-      messText: slotMessZeile({ zustand: zst, modus: e.modus, stufe: e.aufloesung, geliefert: null, zuletzt: null }),
+      messText: slotMessZeile({
+        zustand: zst, modus: e.modus, stufe: e.aufloesung, geliefert: x.mess?.geliefert ?? null, zuletzt: x.mess?.zuletzt ?? null,
+      }),
     };
   }
 
@@ -1354,11 +1396,19 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         // Der Reducer führt videoOn des Teilnehmers nach (0.18); der Abgleich prüft das Ziel neu (7.3 „Auslöser“).
         abgleichPlanen();
         break;
-      // Slot-Spec 7.10: eigene Zweige. Messwerte, Sprecher und Freigaben werten Plan B, Task B15 und B16 aus.
+      // Slot-Spec 7.8, 7.10: Messwerte, Freigaben und Sprecher-Signale (Plan B, Task B15); die Vorschau folgt mit Task B16.
       case 'slotStats':
+        slotStatsEreignis(ohneEv(ev) as ZoomMesswerte['slots'][number]);
+        break;
       case 'bridgeStats':
+        messwerte.bridge = ohneEv(ev) as NonNullable<ZoomMesswerte['bridge']>;
+        break;
       case 'shares':
+        messwerte.freigaben = ohneEv(ev) as NonNullable<ZoomMesswerte['freigaben']>;
+        break;
       case 'speakerSignal':
+        sprecherSignalEreignis(ohneEv(ev) as Omit<ZoomMesswerte['sprecherSignale'][number], 'namen'>);
+        break;
       case 'preview':
       case 'speakerConfig':
       case 'previewMode':
@@ -1726,6 +1776,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     x.bridge = null;
     x.ton = null;
     x.slotOffGesendet = false;
+    // 10.7 (B55): Messzeile und Messwerte gehören zum Sender.
+    x.mess = null;
+    messwerte.slots = messwerte.slots.filter((m) => m.slot !== x.e.nr);
     loeschenWennFrei(x);
   }
 
@@ -1770,16 +1823,22 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   /** Dauerhafte Slots auf die Platte (7.2); false → nur diese Sitzung (T92). */
   function speichern(): void {
-    const ok = d.einstellungen.setzeSlots(slotsFuerPlatte([...slots.values()].sort((a, b) => a.e.nr - b.e.nr)));
-    if (!ok) {
-      if (!nurSitzung) d.log('[zoom] Slots nur für diese Sitzung gemerkt (Einstellungsdatei nicht schreibbar)');
-      nurSitzung = true;
-    }
+    schreibErgebnis(d.einstellungen.setzeSlots(slotsFuerPlatte([...slots.values()].sort((a, b) => a.e.nr - b.e.nr))));
   }
 
-  /** Beitrittsfolge und Weggang (7.3 Nr. 5): roster setzt alle auf 0 (neue Kennungen), joined zählt weiter, left merkt wegSeq. */
+  /** Ein Setter der Einstellungen meldete false: Die Werte gelten nur für diese Sitzung (T92); einmal im Log. */
+  function schreibErgebnis(ok: boolean): void {
+    if (ok) return;
+    if (!nurSitzung) d.log('[zoom] Slots nur für diese Sitzung gemerkt (Einstellungsdatei nicht schreibbar)');
+    nurSitzung = true;
+  }
+
+  /**
+   * Beitrittsfolge und Weggang (7.3 Nr. 5): roster setzt alle auf 0 (neue Kennungen), joined zählt weiter, left merkt wegSeq;
+   * renamed der gezeigten Person setzt `personJetzt` für dieses Meeting (Nr. 6).
+   */
   function teilnehmerEreignis(ev: BridgeEvent): void {
-    const e = ev as unknown as { list?: Participant[]; p?: Participant; id?: number };
+    const e = ev as unknown as { list?: Participant[]; p?: Participant; id?: number; name?: unknown };
     if (ev.ev === 'roster') {
       folgeJe.clear();
       folgeZaehler = 0;
@@ -1791,7 +1850,25 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       folgeJe.set(e.p.id, folgeZaehler);
     } else if (ev.ev === 'left' && typeof e.id === 'number') {
       for (const x of slots.values()) if (x.s.gewaehlteId === e.id) x.s = { ...x.s, wegSeq: folgeZaehler };
+    } else if (ev.ev === 'renamed' && typeof e.id === 'number' && typeof e.name === 'string') {
+      for (const x of slots.values()) if (x.s.gewaehlteId === e.id) x.s = { ...x.s, personJetzt: e.name };
     }
+  }
+
+  /** slotStats (7.8, 10.7): Messwerte je laufendem Slot und die Messzeile seiner Kachel. */
+  function slotStatsEreignis(e: ZoomMesswerte['slots'][number]): void {
+    const x = slots.get(e.slot);
+    if (x === undefined || x.bridge === null) return;
+    messwerte.slots = [...messwerte.slots.filter((m) => m.slot !== e.slot), e].sort((a, b) => a.slot - b.slot);
+    const geliefert = e.w !== undefined && e.h !== undefined && e.fps !== undefined ? { b: e.w, h: e.h, fps: e.fps } : null;
+    const zuletzt = geliefert !== null ? { b: geliefert.b, h: geliefert.h } : e.lastW !== undefined && e.lastH !== undefined ? { b: e.lastW, h: e.lastH } : null;
+    x.mess = { geliefert, zuletzt };
+  }
+
+  /** speakerSignal (7.8): die letzten SPRECHER_SIGNALE_MAX Signale mit den Namen der Kennungen (nur für die Anzeige, 0.23). */
+  function sprecherSignalEreignis(e: Omit<ZoomMesswerte['sprecherSignale'][number], 'namen'>): void {
+    const namen = e.ids.map(nameVon).filter((n): n is string => n !== null);
+    messwerte.sprecherSignale = [...messwerte.sprecherSignale, { ...e, namen }].slice(-SPRECHER_SIGNALE_MAX);
   }
 
   function slotEreignis(e: SlotEreignis): void {
@@ -1810,6 +1887,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       r5Pruefen();
       return;
     }
+    // 10.7 (B55): neues Ziel, neue Freigabe oder neuer Modus → Messzeile neu; ohne Bild gilt die letzte Größe (T51c).
+    const vorher = x.bridge;
+    if (vorher !== null && (vorher.target !== e.target || vorher.share !== e.share || vorher.mode !== e.mode)) x.mess = null;
+    else if (e.state !== 'live' && x.mess?.geliefert) x.mess = { geliefert: null, zuletzt: { b: x.mess.geliefert.b, h: x.mess.geliefert.h } };
     x.bridge = { gen: aktiveGen, state: e.state, mode: e.mode, target: e.target, share: e.share, reason: e.reason, sent: e.sent };
     // 10.9: Die Fehlerzeile fällt, sobald der Slot danach `live` meldet.
     if (e.state === 'live') x.fehler = null;
@@ -2032,11 +2113,63 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // 7.3 Nr. 5, 7 (RR9): Mit der Person fallen gewaehlteId, wegSeq, personJetzt und zeigteSchon, mit dem Modus zeigteSchon.
     if (neu.person !== x.e.person) x.s = sitzungNach(x.s, 'personGeaendert');
     if (neu.modus !== x.e.modus) x.s = sitzungNach(x.s, 'modusGeaendert');
+    const set = laufenderSender(x) ? slotSetFuer(x.e, neu) : null;
     x.e = neu;
+    if (set !== null && set.mode === 'participant') {
+      // 7.3 Nr. 5: Der Wechsel auf Teilnehmer nimmt das Ziel gleich mit (sonst stünde der Slot bis zum nächsten Abgleich ohne).
+      const z = teilnehmerZiel(neu, x.s, abgleichTeilnehmer());
+      if (z.gewaehlteId !== x.s.gewaehlteId) x.s = { ...x.s, gewaehlteId: z.gewaehlteId, wegSeq: null };
+      set.id = z.ziel;
+    }
     if (!x.voruebergehend) speichern();
     d.log(`[zoom] Slot ${nr} geändert (${Object.keys(aenderung).sort().join(', ')})`);
+    if (set !== null && sende(set)) d.log(`[zoom] Slot ${nr}: slotSet (${Object.keys(set).filter((k) => k !== 'cmd' && k !== 'slot').join(', ')})`);
     gastWarnung(nr, warnung);
     abgleichen();
+    return { ok: true };
+  }
+
+  /** Der Slot hat einen Sender der aktiven Bridge, der nicht gerade abgebaut wird (slotSet ist möglich, 6.2). */
+  function laufenderSender(x: SlotIntern): boolean {
+    return x.bridge !== null && !x.slotOffGesendet && x.bridge.gen === aktiveGen && !imAbbau.has(aktiveGen);
+  }
+
+  /**
+   * slotSet an einen laufenden Slot (7.1, 6.2): nur die geänderten Felder, ohne Neustart; Ton immer `audio` und `shareAudio`
+   * zusammen aus tonFuerBridge (PK14, N9-1). Person (Abgleich, 7.3 Nr. 5) und NDI-Name (nur ausgeschaltet) nie; `null` = nichts.
+   */
+  function slotSetFuer(alt: ZoomSlotEinstellung, neu: ZoomSlotEinstellung): Extract<Command, { cmd: 'slotSet' }> | null {
+    const set: Extract<Command, { cmd: 'slotSet' }> = { cmd: 'slotSet', slot: alt.nr };
+    if (neu.modus !== alt.modus) set.mode = MODUS_ZU_BRIDGE[neu.modus];
+    if (neu.aufloesung !== alt.aufloesung) set.resolution = neu.aufloesung;
+    if (neu.ersatzbild !== alt.ersatzbild) set.fallback = ERSATZBILD_ZU_BRIDGE[neu.ersatzbild];
+    if (neu.ohneKamera !== alt.ohneKamera) set.showNoVideo = neu.ohneKamera;
+    const tonAlt = tonFuerBridge(alt);
+    const tonNeu = tonFuerBridge(neu);
+    if (tonAlt.audio !== tonNeu.audio || tonAlt.shareAudio !== tonNeu.shareAudio) {
+      set.audio = tonNeu.audio;
+      set.shareAudio = tonNeu.shareAudio;
+    }
+    return Object.keys(set).length > 2 ? set : null;
+  }
+
+  function vorgabenSetzen(v: ZoomSlotVorgaben): ZoomErgebnis {
+    if (!istSlotAufloesung(v.aufloesung) || typeof v.tonAn !== 'boolean') return { ok: false, text: '' };
+    schreibErgebnis(d.einstellungen.setzeVorgaben({ aufloesung: v.aufloesung, tonAn: v.tonAn }));
+    d.log(`[zoom] Vorgaben für neue Slots: ${v.aufloesung}, Ton ${v.tonAn ? 'an' : 'aus'}`);
+    abbildGeaendert();
+    return { ok: true };
+  }
+
+  function sprecherSetzen(s: ZoomSprecherEinstellung): ZoomErgebnis {
+    if (!istSprecherSignal(s.signal)) return { ok: false, text: '' };
+    const fehler = pruefeHaltezeit(s.haltezeitMs);
+    if (fehler !== null) return { ok: false, text: fehler };
+    schreibErgebnis(d.einstellungen.setzeSprecher({ signal: s.signal, haltezeitMs: s.haltezeitMs }));
+    // 7.6: jede Änderung geht sofort an die Bridge (ohne Bridge kommt sie mit der nächsten Startfolge).
+    sende({ cmd: 'speakerConfig', signal: SIGNAL_ZU_BRIDGE[s.signal], holdMs: s.haltezeitMs });
+    d.log(`[zoom] Sprecher: ${s.signal}, Haltezeit ${s.haltezeitMs} ms`);
+    abbildGeaendert();
     return { ok: true };
   }
 
@@ -2362,6 +2495,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     slotAusPerson,
     slotPersonWaehlen,
     slotBehalten,
+    vorgabenSetzen,
+    sprecherSetzen,
     schliessen,
     meldungWeg,
     gastLabelsGeaendert: () => abbildGeaendert(),
