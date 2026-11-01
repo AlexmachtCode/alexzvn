@@ -118,10 +118,13 @@ function freierName(grund: string, belegt: readonly string[]): string {
   }
 }
 
-/** Form eines NDI-Namens (E26): Länge 1–60 Code-Punkte (T43), kein „:“ (T44), keine Steuerzeichen (T47); null = in Ordnung. */
+/**
+ * Form eines NDI-Namens (E26): Länge 1–60 Code-Punkte (T43), kein „:“ (T44), keine Steuerzeichen (T47); null = in Ordnung. Ein
+ * Name nur aus Leerraum gilt wie ein leerer (T43, Nachtrag B, NB5); Leerraum am Rand bleibt erlaubt und wird nicht gekürzt (W4).
+ */
 function ndiNameFormFehler(name: string): string | null {
   const n = codePunkte(name);
-  if (n < 1 || n > NDI_NAME_MAX) return NDI_NAME_TEXT.laenge;
+  if (n < 1 || n > NDI_NAME_MAX || name.trim() === '') return NDI_NAME_TEXT.laenge;
   if (name.includes(':')) return NDI_NAME_TEXT.doppelpunkt;
   if (STEUERZEICHEN.test(name)) return NDI_NAME_TEXT.steuerzeichen;
   return null;

@@ -77,7 +77,14 @@ interface SlotEinstellungen {
   /** Bild-Versatz (zoom_delay, 6.7): gespeicherter Wert und „nur diese Sitzung“ nach einem Schreibfehler (L14). */
   versatzMs: number;
   versatzNurSitzung: boolean;
+  /** Was die Setter melden (Startwert aus BaueOptionen); `scheitert`: diese Felder scheitern dazu (Nachtrag B, M2, NB9). */
+  schreibenLiefert: boolean;
+  scheitert: Set<SlotFeld>;
+  /** Felder, deren letztes Schreiben scheiterte, wie die …Sitzung-Werte in settings.ts; daraus einstellungsLage().nurSitzung (T92, NB9). */
+  nurSitzung: Set<SlotFeld>;
 }
+/** Die Slot-Felder der Einstellungsdatei mit eigenem Setter (Spec 7.2). */
+type SlotFeld = 'slots' | 'vorgaben' | 'sprecher' | 'vorschau' | 'ueber5';
 interface Probe {
   kern: ZoomKern;
   logs: string[];
@@ -113,6 +120,8 @@ interface BaueOptionen {
   ueber5?: boolean;
   /** Was die Setter der Slot-Felder melden; false = Einstellungsdatei nicht schreibbar (nur diese Sitzung, T92). */
   schreibenLiefert?: boolean;
+  /** Nur diese Felder lassen sich nicht schreiben (Nachtrag B, M2). */
+  scheitert?: SlotFeld[];
   einstellungsLage?: { gesichert: string | null; verworfen: number };
   /** Laufzeit-Dienste (Mangel im Wiederbeitritt, PK11); fehlt = immer eingerichtet. */
   laufzeit?: ZoomKernAbhaengigkeiten['laufzeit'];
@@ -143,8 +152,18 @@ function baueKern(o: BaueOptionen = {}): Probe {
     ueber5: o.ueber5 ?? false,
     versatzMs: 0,
     versatzNurSitzung: false,
+    schreibenLiefert: o.schreibenLiefert ?? true,
+    scheitert: new Set(o.scheitert ?? []),
+    nurSitzung: new Set(),
   };
-  const liefert = (): boolean => o.schreibenLiefert ?? true;
+  const liefert = (feld?: SlotFeld): boolean => einst.schreibenLiefert && (feld === undefined || !einst.scheitert.has(feld));
+  /** Ein Setter schreibt `feld`: Ergebnis wie liefert(), dazu die Lage „nur diese Sitzung“ wie settings.ts (NB9). */
+  const geschrieben = (feld: SlotFeld): boolean => {
+    const ok = liefert(feld);
+    if (ok) einst.nurSitzung.delete(feld);
+    else einst.nurSitzung.add(feld);
+    return ok;
+  };
   const fabrik: BridgeFabrik = (opts, nr) => {
     startZahl += 1;
     const b = new Bridge({
@@ -202,30 +221,35 @@ function baueKern(o: BaueOptionen = {}): Probe {
       slots: () => einst.slots.map((s) => ({ ...s })),
       setzeSlots: (s) => {
         einst.schreibvorgaenge += 1;
-        if (liefert()) einst.slots = s.map((x) => ({ ...x }));
-        return liefert();
+        const ok = geschrieben('slots');
+        if (ok) einst.slots = s.map((x) => ({ ...x }));
+        return ok;
       },
       vorgaben: () => ({ ...einst.vorgaben }),
       setzeVorgaben: (v) => {
-        if (liefert()) einst.vorgaben = { ...v };
-        return liefert();
+        const ok = geschrieben('vorgaben');
+        if (ok) einst.vorgaben = { ...v };
+        return ok;
       },
       sprecher: () => ({ ...einst.sprecher }),
       setzeSprecher: (s) => {
-        if (liefert()) einst.sprecher = { ...s };
-        return liefert();
+        const ok = geschrieben('sprecher');
+        if (ok) einst.sprecher = { ...s };
+        return ok;
       },
       vorschau: () => einst.vorschau,
       setzeVorschau: (an) => {
-        if (liefert()) einst.vorschau = an;
-        return liefert();
+        const ok = geschrieben('vorschau');
+        if (ok) einst.vorschau = an;
+        return ok;
       },
       ueber5: () => einst.ueber5,
       setzeUeber5: (an) => {
-        if (liefert()) einst.ueber5 = an;
-        return liefert();
+        const ok = geschrieben('ueber5');
+        if (ok) einst.ueber5 = an;
+        return ok;
       },
-      einstellungsLage: () => o.einstellungsLage ?? { gesichert: null, verworfen: 0 },
+      einstellungsLage: () => ({ ...(o.einstellungsLage ?? { gesichert: null, verworfen: 0 }), nurSitzung: einst.nurSitzung.size > 0 }),
     },
     sdkSchluessel: { lesen: () => ({ wert: null, herkunft: 'none' }), speichern: () => 'stored', loeschen: () => true },
     gastLabels: o.gastLabels ?? (() => []),
@@ -580,8 +604,11 @@ console.log('— KF3 · abbild(): Vorgaben, Sprecher, Vorschau, Zustimmung über
     && JSON.stringify(a.sprecher) === '{"signal":"aktivesVideo","haltezeitMs":2500}' && a.vorschauAn === false && a.ueber5 === true);
   ck('… vorschauVerfuegbar, Messwerte leer (nichts gemeldet)', a.vorschauVerfuegbar === true
     && JSON.stringify(a.messwerte) === '{"bridge":null,"slots":[],"freigaben":null,"sprecherSignale":[]}');
-  ck('… einstellungen.gesichert (T90), Hinweis T91 mit der Zahl', a.einstellungen.gesichert === 'connect-settings.unlesbar-20261020-101010.json'
-    && a.einstellungen.nurSitzung === false && a.hinweise.includes('2 gespeicherte Slots waren unvollständig oder doppelt und wurden nicht übernommen.'));
+  // Nachtrag B (M2): Mit ueber5 und keinem eingeschalteten Slot verfällt die Zustimmung schon beim Anlegen des Kerns; dieses
+  // Schreiben scheitert hier, darum steht T92 (vorher still, das war der Befund M2).
+  ck('… einstellungen.gesichert (T90), Hinweis T91 mit der Zahl; T92 aus dem gescheiterten Verfall der Zustimmung (M2)',
+    a.einstellungen.gesichert === 'connect-settings.unlesbar-20261020-101010.json'
+    && a.einstellungen.nurSitzung === true && a.hinweise.includes('2 gespeicherte Slots waren unvollständig oder doppelt und wurden nicht übernommen.'));
   const r = p.kern.slotAnlegen();
   ck('… Schreiben scheitert: Slot angelegt, nurSitzung (T92)', r.ok && p.kern.abbild().einstellungen.nurSitzung === true
     && p.kern.abbild().slots.length === 1 && p.einst.slots.length === 0);
@@ -2169,6 +2196,176 @@ console.log('— NB8 · Gegenfall ohne Verzögerung: ein normaler Start bleibt b
   await warte(600);
   ck('… je Slot genau ein slotOn, kein slotSet und kein slotOff (Befehlszählung)',
     slotGesendet(p, 1).map((c) => `${String(c.cmd)} ${String(c.slot)}`).join(',') === 'slotOn 1,slotOn 2,slotOn 3');
+  await p.aufraeumen();
+}
+
+// ── Nachtrag B zu Plan B: Kleinbefunde (NB1, M1, NB11, NB13, NB16, NB17/NB18, NB19, NB9, M2, NB5, M3) ──
+console.log('— Nachtrag B · Kleinbefunde: Start-Taste, Fristen, Messwerte, Vorschau, T92, NDI-Name, „Als Slot laden“');
+{
+  const p = baueKern();
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  ck('NB1: zoom_load Ben → der vorübergehende Slot 1 zeigt Ben', await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000));
+  befehl(p, 'zoom_unload', 'Ben');
+  ck('… zoom_unload und gleich „Start“ an der Kachel', ok(p.kern.slotStart(1, true)) && lage(p, 1)?.einstellung.an === true);
+  ck('… das slot off des entladenen Senders löscht den neu gestarteten Slot nicht, er läuft wieder',
+    (await bis(() => zaehle(p, 'slotOn', 1) === 2 && lage(p, 1)?.zustand === 'zeigt', 3000)) && lage(p, 1)?.voruebergehend === true);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true }), slotEinst(2, { person: 'Ben', an: true })],
+    stell: () => ({ FAKE_ABO_FEHLER: '1:9', FAKE_SLOT_FEHLER: '2:slotRendererFailed' }),
+  });
+  await insMeeting(p);
+  const T20C = 'Anna: Zoom hat das Abo abgelehnt (SDKERR_NORECORDINGINPROCESS) · Ersatzbild transparent. Für einen neuen Versuch „Stopp“ und wieder „Start“.';
+  ck('M1: Slot 1 läuft mit T20c, Slot 2 ist gescheitert', (await bis(() => lage(p, 1)?.text === T20C, 3000))
+    && (await bis(() => lage(p, 2)?.zustand === 'gescheitert', 3000)));
+  befehl(p, 'zoom_slot', '1', 'ON');
+  ck('… zoom_slot 1 ON am laufenden Slot: nichts geändert (T20c bleibt, kein zweites slotOn), zoom_cmd ok', cmdKv(p) === 'ok/0'
+    && lage(p, 1)?.text === T20C && slotKurz(p, 1)?.alarm === true);
+  ck('… „Start“ an der Kachel ebenso', ok(p.kern.slotStart(1, true)) && lage(p, 1)?.text === T20C && (await warte(300), zaehle(p, 'slotOn', 1) === 1));
+  befehl(p, 'zoom_slot', '2', 'ON');
+  ck('… an einem Slot ohne Sender bleibt das Wiederholen: zoom_slot 2 ON versucht es neu', await bis(() => zaehle(p, 'slotOn', 2) === 2
+    && lage(p, 2)?.zustand === 'zeigt', 3000));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_SLOT_SPAET: '1:800' }) });
+  await insMeeting(p);
+  await bis(() => zaehle(p, 'slotOn', 1) === 1, 2000);
+  p.einspeisen(1, { ev: 'error', where: 'audio', code: 'audioSubscribeFailed', name: 'AUDIO_SUBSCRIBE_FAILED', slot: 1 });
+  ck('NB11: ein Ton-Fehler mit Slot beendet die Antwortfrist des slotOn nicht (SZ3 bleibt)', lage(p, 1)?.zustand === 'startet');
+  p.einspeisen(1, { ev: 'roster', list: [] });
+  await warte(400);
+  ck('… ein Abgleich danach schickt kein zweites slotOn; die Antwort kommt an', zaehle(p, 'slotOn', 1) === 1
+    && (await bis(() => lage(p, 1)?.zustand === 'zeigt', 2000)) && zaehle(p, 'slotOn', 1) === 1);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true })], fristen: { aboAntwortMs: 400 },
+    stell: () => ({ FAKE_SLOT_SPAET: '1:900', FAKE_ENTZUG_MS: '1500', FAKE_ERTEILUNG_MS: '300' }),
+  });
+  await insMeeting(p);
+  ck('NB13: die Antwort kommt nach der Frist → T21 (keine_antwort)', await bis(() => lage(p, 1)?.zustand === 'keine_antwort', 2000));
+  ck('… der späte Sender kommt an, der Slot zeigt Anna', await bis(() => lage(p, 1)?.zustand === 'zeigt', 2000));
+  ck('… nach Entzug und Wiedererteilung startet er von selbst wieder (der Fehlerstand fiel mit dem späten Sender)',
+    await bis(() => zaehle(p, 'slotOn', 1) === 2 && lage(p, 1)?.zustand === 'zeigt', 5000));
+  await p.aufraeumen();
+}
+{
+  const bilder: Array<{ nr: number; ziel: number }> = [];
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], onVorschau: (b) => bilder.push(b) });
+  await insMeeting(p);
+  await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000);
+  const stats = {
+    ev: 'slotStats', slot: 1, fallbackFps: 0, heldFrames: 0, workUs: 0, copyUs: 0, previewUs: 0, memKb: 0, resWanted: '720p', foreignFrames: 0,
+    lateFrames: 0, tooFrequent: 0, noShareData: 0, rendererNew: 0, rendererLost: 0,
+  };
+  p.einspeisen(1, { ...stats, w: 1280, h: 720, fps: 30 });
+  p.einspeisen(1, { ...stats });
+  ck('NB16: ein slotStats ohne Größe überschreibt die bekannte letzte Größe nicht', JSON.stringify(lage(p, 1)?.zuletzt) === JSON.stringify({ b: 1280, h: 720 }));
+  p.einspeisen(1, { ev: 'preview', slot: 1, target: ANNA, w: 1, h: 1, jpeg: 'RlJFTUQ=' });
+  ck('NB19: Fenster nicht sichtbar → ein Vorschaubild im Flug wird verworfen', bilder.length === 0);
+  p.kern.fensterSichtbar(true);
+  p.einspeisen(1, { ev: 'preview', slot: 1, target: ANNA, w: 1, h: 1, jpeg: 'RlJFTUQ=' });
+  ck('… sichtbar → es kommt an', bilder.length === 1 && bilder[0]?.ziel === ANNA);
+  await p.aufraeumen();
+}
+console.log('— NB17/NB18 · Messwerte und Rückkehr gehören zu Bridge und Meeting: Meeting-Ende und neue Bridge leeren sie');
+const T65_KOPF = 'Sprecher-Signale (letzte 20): Uhrzeit | Video-Sprecher | Aktives Video | Ton-Aktivität';
+/** Alle Mess-Teile, die NB17/NB18 betreffen: T61, T62c, T63c, T65 mit Zeile, T66, T67. */
+function messwerteVoll(p: Probe): boolean {
+  const z = p.kern.messwerteText().split('\n');
+  const t65 = z.indexOf(T65_KOPF);
+  return z.some((l) => l.startsWith('Zoom-Bridge: ')) && z.includes('Rückkehr in Slot 1: persistentId fehlt')
+    && z.some((l) => l.startsWith('Freigabe-Rückrufe (letzte 10): ')) && t65 >= 0 && z.length > t65 + 1 && /^\d\d:/.test(z[t65 + 1] ?? '')
+    && z.some((l) => l.startsWith('Lücke beim Wechsel: ')) && z.some((l) => l.startsWith('Wechsel pro Minute: '));
+}
+const MESS_STATS = {
+  ev: 'slotStats', slot: 2, fallbackFps: 0, heldFrames: 0, workUs: 0, copyUs: 0, previewUs: 0, memKb: 0, resWanted: '720p', foreignFrames: 0,
+  lateFrames: 0, tooFrequent: 0, noShareData: 0, rendererNew: 0, rendererLost: 0, gapMs: 120,
+};
+const MESS_SLOTS = [slotEinst(1, { person: 'Anna', an: true }), slotEinst(2, { modus: 'sprecher', an: true }), slotEinst(3, { modus: 'freigabe', an: true })];
+const MESS_STELL = {
+  FAKE_TEILNEHMER: '3', FAKE_SPRECHER_FOLGE: `200:${BEN}`, FAKE_FREIGABEN: `300:${CARLA}:101:begin`, FAKE_WIEDERBEITRITT_MS: '500', FAKE_RUECKKEHR_MS: '200',
+};
+{
+  const p = baueKern({ slots: MESS_SLOTS, stell: () => ({ ...MESS_STELL, FAKE_MEETING_ENDE_MS: '3800' }) });
+  await insMeeting(p);
+  await bis(() => lage(p, 2)?.zustand === 'zeigt', 3000);
+  p.einspeisen(1, MESS_STATS);
+  ck('NB17/NB18: im Meeting füllen sich T61, T62c, T63c, T65, T66 und T67', await bis(() => messwerteVoll(p), 3500));
+  ck('… nach dem Meeting-Ende sind Messwerte, Freigaben, Sprecher-Signale, Lücken, Wechsel und Rückkehr leer',
+    (await bis(() => p.kern.kurz().zustand === 'bereit', 3000)) && p.kern.abbild().messwerte.bridge === null && p.kern.abbild().messwerte.freigaben === null
+    && p.kern.abbild().messwerte.sprecherSignale.length === 0 && p.kern.messwerteText() === T65_KOPF);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: MESS_SLOTS, wiederbeitrittPlanMs: [30, 30, 30, 30, 30],
+    stell: (n): Record<string, string> => (n === 1 ? { ...MESS_STELL, FAKE_VERBINDUNG_WEG_MS: '3800' } : { FAKE_TEILNEHMER: '3' }),
+  });
+  await insMeeting(p);
+  await bis(() => lage(p, 2)?.zustand === 'zeigt', 3000);
+  p.einspeisen(1, MESS_STATS);
+  ck('NB17/NB18 (neue Bridge): mit der ersten Bridge füllen sich die Messwerte', await bis(() => messwerteVoll(p), 3500));
+  ck('… die neue Bridge (Wiederbeitritt) beginnt ohne die Messwerte und die Rückkehr der alten', (await bis(() => p.starts() === 2, 6000))
+    && p.kern.abbild().messwerte.bridge === null && p.kern.abbild().messwerte.freigaben === null
+    && p.kern.abbild().messwerte.sprecherSignale.length === 0 && p.kern.messwerteText() === T65_KOPF);
+  await p.aufraeumen();
+}
+console.log('— NB9/M2 · T92 kommt aus settings.ts: steht genau, solange ein Slot-Feld nur in dieser Sitzung gilt; jeder Setter meldet es');
+{
+  const p = baueKern({ schreibenLiefert: false });
+  ck('NB9: Schreiben scheitert → T92', ok(p.kern.slotAnlegen()) && p.kern.abbild().einstellungen.nurSitzung === true);
+  p.einst.schreibenLiefert = true;
+  ck('… das nächste Schreiben gelingt → T92 fällt', ok(p.kern.slotAnlegen()) && p.kern.abbild().einstellungen.nurSitzung === false);
+  p.einst.scheitert.add('vorgaben');
+  ck('… Vorgaben nicht schreibbar → T92', ok(p.kern.vorgabenSetzen({ aufloesung: '360p', tonAn: false })) && p.kern.abbild().einstellungen.nurSitzung === true);
+  p.einst.scheitert.clear();
+  ck('… ein späteres erfolgreiches Schreiben der Slots hebt T92 nicht auf, solange die Vorgaben nur in der Sitzung gelten',
+    ok(p.kern.slotAnlegen()) && p.kern.abbild().einstellungen.nurSitzung === true);
+  ck('… erst mit den Vorgaben fällt T92', ok(p.kern.vorgabenSetzen({ aufloesung: '720p', tonAn: true })) && p.kern.abbild().einstellungen.nurSitzung === false);
+  await p.aufraeumen();
+}
+const T92_LOG = '[zoom] Slots nur für diese Sitzung gemerkt (Einstellungsdatei nicht schreibbar)';
+{
+  const p = baueKern({ ueber5: true, scheitert: ['ueber5'], slots: [slotEinst(1, { an: true })] });
+  ck('M2: Verfall der Zustimmung beim Anlegen des Kerns, Datei nicht schreibbar → T92 und die Logzeile',
+    p.kern.abbild().einstellungen.nurSitzung === true && p.logs.includes(T92_LOG));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ scheitert: ['ueber5'], slots: [1, 2, 3, 4, 5, 6].map((nr) => slotEinst(nr, { an: nr <= 5 })) });
+  ck('M2: „Trotzdem einschalten“ (6. Slot), nur die Zustimmung nicht schreibbar → T92 und die Logzeile', ok(p.kern.slotStart(6, true, true))
+    && p.kern.abbild().einstellungen.nurSitzung === true && p.logs.includes(T92_LOG));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ scheitert: ['ueber5'], slots: [1, 2, 3, 4, 5, 6].map((nr) => slotEinst(nr, { an: nr <= 5 })) });
+  befehl(p, 'zoom_slot', '6', 'ON');
+  ck('M2: der 6. per Companion (F8), nur die Zustimmung nicht schreibbar → T92 und die Logzeile', cmdKv(p) === 'f8/0'
+    && p.kern.abbild().einstellungen.nurSitzung === true && p.logs.includes(T92_LOG));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1)] });
+  ck('NB5: ein NDI-Name nur aus Leerzeichen → T43 wie ein leerer, nichts gespeichert',
+    text(p.kern.slotAendern(1, { ndiName: '   ' })) === 'Der NDI-Name muss 1 bis 60 Zeichen lang sein.' && gespeichert(p, 1)?.ndiName === 'Zoom 1');
+  ck('… ebenso mit geschütztem Leerzeichen', text(p.kern.slotAendern(1, { ndiName: ' \u00a0 ' })) === 'Der NDI-Name muss 1 bis 60 Zeichen lang sein.');
+  ck('… Leerzeichen am Rand eines Namens bleiben erlaubt und unverändert (Übergangs-Namensregel, W4)',
+    ok(p.kern.slotAendern(1, { ndiName: ' Bühne ' })) && gespeichert(p, 1)?.ndiName === ' Bühne ');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_DOPPELNAME: '1' }) });
+  await insMeeting(p);
+  ck('M3: „Als Slot laden“ für die zweite „Anna“ → der neue Slot zeigt genau sie, ohne „Welche Person?“', ok(p.kern.slotAusPerson(BEN))
+    && slotGesendet(p, 1, 1).find((c) => c.cmd === 'slotOn')?.id === BEN && (await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000))
+    && lage(p, 1)?.doppelt === 1 && sender(p).get(1)?.target === BEN);
+  ck('… gespeichert ist nur der Name', gespeichert(p, 1)?.person === 'Anna' && !('gewaehlteId' in (gespeichert(p, 1) ?? {})));
   await p.aufraeumen();
 }
 

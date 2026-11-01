@@ -192,8 +192,11 @@ export interface ZoomKernAbhaengigkeiten {
     setzeVorschau(an: boolean): boolean;
     ueber5(): boolean;
     setzeUeber5(an: boolean): boolean;
-    /** T90 (Sicherungskopie einer unlesbaren Datei) und T91 (verworfene Slots). */
-    einstellungsLage(): { gesichert: string | null; verworfen: number };
+    /**
+     * T90 (Sicherungskopie einer unlesbaren Datei), T91 (verworfene Slots) und T92 (`nurSitzung`: ein Slot-Feld gilt nur für
+     * diese Sitzung, weil sein letztes Schreiben scheiterte; Nachtrag B, NB9). Fehlt `nurSitzung`, gilt false.
+     */
+    einstellungsLage(): { gesichert: string | null; verworfen: number; nurSitzung?: boolean };
   };
   gastLabels(): string[];
   /** Fertige Zeile mit Präfix, schon maskiert. */
@@ -475,8 +478,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
    * `slotOff`: schon gesendet (einmal je Sender). Kein Spiegel von Session.slots: Hier steht nur, was keinem Slot gehört.
    */
   const reserviert = new Map<number, { gen: number; slotOff: boolean }>();
-  /** Ein setze…() der Einstellungen lieferte false: Werte gelten nur für diese Sitzung (T92). */
-  let nurSitzung = false;
+  /** Die Logzeile zu T92 steht schon (einmal, bis settings.ts wieder alles gespeichert meldet); T92 selbst leitet abbild() ab (NB9). */
+  let nurSitzungGeloggt = false;
   /** Beitrittsfolge je Teilnehmer dieser Sitzung (7.3 Nr. 5): Einträge aus `roster` 0, jedes `joined` die nächste Zahl. */
   const folgeJe = new Map<number, number>();
   let folgeZaehler = 0;
@@ -778,6 +781,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const id = zugang.daten?.clientId ?? null;
     const k = kurz();
     const z = zoomZ(k);
+    const einstellungsLage = d.einstellungen.einstellungsLage();
     return {
       kurz: k,
       einrichtung: {
@@ -799,7 +803,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       messwerte: {
         bridge: messwerte.bridge, slots: [...messwerte.slots], freigaben: messwerte.freigaben, sprecherSignale: [...messwerte.sprecherSignale],
       },
-      einstellungen: { nurSitzung, gesichert: d.einstellungen.einstellungsLage().gesichert },
+      // NB9 (Nachtrag B): T92 steht genau, solange settings.ts für ein Slot-Feld einen Sitzungswert hält.
+      einstellungen: { nurSitzung: einstellungsLage.nurSitzung === true, gesichert: einstellungsLage.gesichert },
       abriss: zustand === 'abriss' ? { versuch: folge?.versuch ?? null, versuche: WIEDERBEITRITT_VERSUCHE, naechsterUm: folge?.naechsterUm ?? null } : null,
       meldung: meldung ? { ...meldung } : null,
       hinweise: [...hinweise],
@@ -1336,10 +1341,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // 7.7: Eine neue Bridge richtet die Vorschau neu ein; die Uhr ihrer Freigabe-Rückrufe beginnt bei 0 (7.8).
     vorschauVerfuegbar = true;
     vorschauDetail = null;
-    rueckrufBis = -1;
-    rueckrufZeiten.clear();
-    sprecherWechsel = [];
-    letzterSprecher = 0;
+    messwerteLeeren();
     const ordner = lzErg.ordner;
     const exePfad = join(ordner, BRIDGE_EXE);
     const bridge = fabrik(
@@ -1959,8 +1961,31 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     folgeZaehler = 0;
     tonAboFehler = null;
     r5Offen = false;
+    messwerteLeeren();
     // 7.4: Gehen vorübergehende Slots und `anNurMeeting` mit dem Meeting, verfällt die Zustimmung wie bei jedem Ausschalten.
     zustimmungPruefen();
+  }
+
+  /**
+   * Messwerte, die zu einer Bridge und einem Meeting gehören (7.8): die Uhr der Freigabe-Rückrufe und die Sprecher-Wechsel (B16),
+   * dazu ab Nachtrag B (NB17, NB18) Prozess-Messwerte, Freigaben, Sprecher-Signale samt Uhrzeiten, Lücken und die Rückkehr je
+   * Slot (T62c). Jede neue Bridge und jedes Sitzungsende leeren sie; die Messwerte je Slot fallen mit dem Sender (senderWeg).
+   */
+  function messwerteLeeren(): void {
+    rueckrufBis = -1;
+    rueckrufZeiten.clear();
+    sprecherWechsel = [];
+    letzterSprecher = 0;
+    messwerte.bridge = null;
+    messwerte.freigaben = null;
+    messwerte.sprecherSignale = [];
+    sprecherZeiten = [];
+    luecken = [];
+    letzteLueckeJe.clear();
+    for (const x of slots.values()) {
+      x.rueckkehr = null;
+      x.wegPersistentId = null;
+    }
   }
 
   /** Dauerhafte Slots auf die Platte (7.2); false → nur diese Sitzung (T92). */
@@ -1968,11 +1993,17 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     schreibErgebnis(d.einstellungen.setzeSlots(slotsFuerPlatte([...slots.values()].sort((a, b) => a.e.nr - b.e.nr))));
   }
 
-  /** Ein Setter der Einstellungen meldete false: Die Werte gelten nur für diese Sitzung (T92); einmal im Log. */
+  /**
+   * Ein Setter der Einstellungen meldete false: Die Werte gelten nur für diese Sitzung (T92). Die Anzeige leitet abbild() aus
+   * settings.ts ab (NB9); hier steht nur die Logzeile, einmal, bis settings.ts wieder alles gespeichert meldet.
+   */
   function schreibErgebnis(ok: boolean): void {
-    if (ok) return;
-    if (!nurSitzung) d.log('[zoom] Slots nur für diese Sitzung gemerkt (Einstellungsdatei nicht schreibbar)');
-    nurSitzung = true;
+    if (ok) {
+      if (d.einstellungen.einstellungsLage().nurSitzung !== true) nurSitzungGeloggt = false;
+      return;
+    }
+    if (!nurSitzungGeloggt) d.log('[zoom] Slots nur für diese Sitzung gemerkt (Einstellungsdatei nicht schreibbar)');
+    nurSitzungGeloggt = true;
   }
 
   /**
@@ -2013,7 +2044,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (x === undefined || x.bridge === null) return;
     messwerte.slots = [...messwerte.slots.filter((m) => m.slot !== e.slot), e].sort((a, b) => a.slot - b.slot);
     const geliefert = e.w !== undefined && e.h !== undefined && e.fps !== undefined ? { b: e.w, h: e.h, fps: e.fps } : null;
-    const zuletzt = geliefert !== null ? { b: geliefert.b, h: geliefert.h } : e.lastW !== undefined && e.lastH !== undefined ? { b: e.lastW, h: e.lastH } : null;
+    // NB16 (Nachtrag B): ohne jede Größe im slotStats bleibt die bekannte letzte Größe dieses Ziels stehen.
+    const zuletzt = geliefert !== null ? { b: geliefert.b, h: geliefert.h }
+      : e.lastW !== undefined && e.lastH !== undefined ? { b: e.lastW, h: e.lastH } : x.mess?.zuletzt ?? null;
     x.mess = { geliefert, zuletzt };
     // T66: jede neue Lücke eines Sprecher-Slots.
     if (x.e.modus === 'sprecher' && e.gapMs !== undefined && letzteLueckeJe.get(e.slot) !== e.gapMs) {
@@ -2126,6 +2159,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     }
     // I-1: Die erste Antwort übernimmt die Einstellung des ältesten offenen slotOn; danach zieht nachziehen() nach.
     if (vorher === null) x.gesendet = x.slotOnOffen.shift() ?? { ...x.e };
+    // NB13: Kommt der Sender nach der Frist doch noch, gilt „keine Antwort“ nicht mehr (sonst startete er nach seinem Ende nie neu).
+    if (x.s.fehlerstand === 'keine_antwort') x.s = { ...x.s, fehlerstand: null };
     // 10.7 (B55): neues Ziel, neue Freigabe oder neuer Modus → Messzeile neu; ohne Bild gilt die letzte Größe (T51c).
     if (vorher !== null && (vorher.target !== e.target || vorher.share !== e.share || vorher.mode !== e.mode)) x.mess = null;
     else if (e.state !== 'live' && x.mess?.geliefert) x.mess = { geliefert: null, zuletzt: { b: x.mess.geliefert.b, h: x.mess.geliefert.h } };
@@ -2202,7 +2237,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function slotFehlerEreignis(e: FehlerEreignis): void {
     const name = e.name ?? String(e.code);
     const x = typeof e.slot === 'number' ? slots.get(e.slot) : undefined;
-    if (x) fristBeantwortet(x);
+    // NB11 (Nachtrag B): Nur Antworten zum Video-Slot beenden die Frist eines slotOn, ein Ton-Fehler (`where:"audio"`) nicht.
+    if (x && e.where === 'slot') fristBeantwortet(x);
     const code = String(e.code);
     if (e.where === 'slot' && typeof e.slot === 'number') {
       // Nachtrag B (I-2): die Antwort auf das älteste offene slotOn ohne Sender (eine Ablehnung) bzw. auf ein weiteres (slotAlreadyOn).
@@ -2352,7 +2388,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function zustimmungPruefen(): void {
     const zustimmung = d.einstellungen.ueber5();
     if (!zustimmung || ueber5Nach(eingeschaltet(), zustimmung)) return;
-    d.einstellungen.setzeUeber5(false);
+    // M2 (Nachtrag B): wie jeder Setter über schreibErgebnis (T92, Logzeile).
+    schreibErgebnis(d.einstellungen.setzeUeber5(false));
     d.log('[zoom] Zustimmung über 5 Slots verfallen');
   }
 
@@ -2364,7 +2401,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const n = eingeschaltet() + 1;
     if (n <= BETRIEBSGROESSE || d.einstellungen.ueber5()) return null;
     if (!trotz) return { ok: false, nachfrage: true, text: nachfrageText(n) };
-    d.einstellungen.setzeUeber5(true);
+    schreibErgebnis(d.einstellungen.setzeUeber5(true));
     d.log('[zoom] Zustimmung über 5 Slots gegeben');
     return null;
   }
@@ -2376,11 +2413,23 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   /** Start-Taste (7.2, 7.3 Nr. 2): hebt Fehlerstand, Frist und `anNurMeeting` auf, speichert und gleicht sofort ab. */
   function startTaste(x: SlotIntern, an: boolean): void {
+    // M1 (Nachtrag B): „Start“ an einem Slot, der schon an ist und einen Sender hat, ändert nichts: Fehlerstand, Fehlerzeile und
+    // Frist bleiben (die Diagnose steht weiter), kein zweites slotOn. Nur die Start-Taste gilt nun als gesetzt (7.2: anNurMeeting
+    // fällt und wird gespeichert). Ein Slot ohne Sender wird wie bisher neu versucht.
+    if (an && x.e.an && x.bridge !== null) {
+      if (x.anNurMeeting) {
+        x.anNurMeeting = false;
+        if (!x.voruebergehend) speichern();
+      }
+      return;
+    }
     x.s = sitzungNach(x.s, 'stoppStart');
     fristBeantwortet(x);
     fehlerWeg(x);
     x.e = { ...x.e, an };
     x.anNurMeeting = false;
+    // NB1: „Start“ nach zoom_unload eines vorübergehenden Slots hebt das Entladen auf (sonst löschte ihn sein nächstes slot off).
+    if (an) x.loeschen = false;
     if (!x.voruebergehend) speichern();
     d.log(`[zoom] Slot ${x.e.nr} ${an ? 'eingeschaltet' : 'ausgeschaltet'}`);
     if (!an) zustimmungPruefen();
@@ -2503,6 +2552,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   /** 7.7 (B53): nur Bilder des Ziels, das die Bridge für diesen Slot zuletzt meldete (bei Freigabe die Freigabe-Kennung). */
   function vorschauEreignis(e: VorschauEreignis): void {
+    // NB19 (Nachtrag B): Bilder im Flug nach dem Ausschalten oder Verbergen erreichen das Fenster nicht mehr.
+    if (!vorschauWunsch()) return;
     const b = slots.get(e.slot)?.bridge;
     if (!b) return;
     const ziel = b.mode === 'share' ? b.share : b.target;
@@ -2634,7 +2685,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const frage = nachfrage(trotz);
     if (frage !== null) return frage;
     const e = slotFuerPerson(nr, p.name);
-    slots.set(nr, neuerIntern(e));
+    const x = neuerIntern(e);
+    // M3 (Nachtrag B): Der Slot zeigt die angeklickte Person, auch bei einem Namensvetter (Sitzungswahl wie die Handwahl, 7.3 Nr. 5);
+    // gespeichert wird nur der Name.
+    x.s = { ...x.s, gewaehlteId: teilnehmerId };
+    slots.set(nr, x);
     speichern();
     d.log(`[zoom] Slot ${nr} aus Teilnehmer ${teilnehmerId} angelegt`);
     gastWarnung(nr, pruefeNdiName(e.ndiName, nr, [], d.gastLabels()).warnung);
@@ -2677,7 +2732,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function fernUeber5(neu: number): FernErgebnis {
     const n = eingeschaltet() + neu;
     if (n <= BETRIEBSGROESSE) return FERN_OK;
-    if (!d.einstellungen.ueber5()) d.einstellungen.setzeUeber5(true);
+    if (!d.einstellungen.ueber5()) schreibErgebnis(d.einstellungen.setzeUeber5(true));
     return { kennung: 'f8', text: FT.F8(n) };
   }
 

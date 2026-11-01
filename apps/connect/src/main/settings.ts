@@ -479,7 +479,13 @@ export function setzeZoomSlotsUeber5(an: boolean): boolean {
   return ok;
 }
 
-/** Lage der Einstellungsdatei für T90 (`gesichert`: Sicherungskopie dieser Sitzung) und T91 (`verworfen`), Spec 7.2. */
-export function einstellungsLage(): { gesichert: string | null; verworfen: number } {
-  return { gesichert: gesichertAls, verworfen: zoomSlotsVerworfen };
+/**
+ * Lage der Einstellungsdatei für T90 (`gesichert`: Sicherungskopie dieser Sitzung), T91 (`verworfen`) und T92 (`nurSitzung`),
+ * Spec 7.2. `nurSitzung` (Nachtrag B, NB9): Für irgendein Slot-Feld gilt ein Sitzungswert, weil sein letztes Schreiben
+ * scheiterte. Jeder Setter hebt nur seinen eigenen auf; ein späteres erfolgreiches Schreiben eines anderen Felds ändert daran nichts.
+ */
+export function einstellungsLage(): { gesichert: string | null; verworfen: number; nurSitzung: boolean } {
+  const nurSitzung = zoomSlotsSitzung !== null || zoomSlotVorgabenSitzung !== null || zoomSprecherSitzung !== null
+    || zoomVorschauSitzung !== null || zoomSlotsUeber5Sitzung !== null;
+  return { gesichert: gesichertAls, verworfen: zoomSlotsVerworfen, nurSitzung };
 }

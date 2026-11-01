@@ -151,7 +151,7 @@ ck('Zugang: Entfernen bei schreibbarer Datei → true, Feld weg', s.zoomZugangLo
   ck('B4 7.2: ohne Datei → keine Slots; Vorgaben 720p/an, Sprecher sprecherVideo/1000, Vorschau an, keine Zustimmung über 5',
     s.zoomSlots().length === 0 && flach(s.zoomSlotVorgaben()) === flach({ aufloesung: '720p', tonAn: true })
       && flach(s.zoomSprecher()) === flach({ signal: 'sprecherVideo', haltezeitMs: 1000 }) && s.zoomVorschau() === true && s.zoomSlotsUeber5() === false);
-  ck('B4 7.2: einstellungsLage ohne Befund → gesichert null, verworfen 0', flach(s.einstellungsLage()) === flach({ gesichert: null, verworfen: 0 }));
+  ck('B4 7.2: einstellungsLage ohne Befund → gesichert null, verworfen 0', flach(s.einstellungsLage()) === flach({ gesichert: null, verworfen: 0, nurSitzung: false }));
 
   // 11.5 Konstruktor-Rundlauf: jedes der elf Felder einzeln geändert, geschrieben, gelesen
   const basis = e.neuerSlot(1, V, []);
@@ -240,6 +240,41 @@ ck('Zugang: Entfernen bei schreibbarer Datei → true, Feld weg', s.zoomZugangLo
     s.zoomSlots().length === 0 && s.setzeZoomVorschau(false) && readdirSync(ordnerC).some((n) => n.startsWith('connect-settings.unlesbar-')));
   ck('B4 sicherungsName: Ortszeit JJJJMMTT-hhmmss', e.sicherungsName(new Date(2026, 9, 20, 7, 5, 9), () => false) === 'connect-settings.unlesbar-20261020-070509.json');
   ck('B4 sicherungsName: vergeben → „-2“, „-3“', e.sicherungsName(new Date(2026, 9, 20, 7, 5, 9), (n) => !n.endsWith('-3.json')) === 'connect-settings.unlesbar-20261020-070509-3.json');
+  g.__mock.userData = wurzel;
+}
+
+// ── Nachtrag B zu Plan B: T92 aus settings.ts abgeleitet (NB9), NDI-Name nur aus Leerraum (NB5) ──
+{
+  const e = await import('../src/main/zoom/einstellungen');
+  const ordner = mkdtempSync(join(tmpdir(), 'jmc-nb9-'));
+  const V = { aufloesung: '720p', tonAn: true } as const;
+  g.__mock.userData = ordner;
+  ck('NB9: alles gespeichert → einstellungsLage().nurSitzung false', s.setzeZoomSlotVorgaben(V) && s.einstellungsLage().nurSitzung === false);
+  g.__mock.userData = kaputt;
+  ck('NB9: Vorgaben nicht schreibbar → nurSitzung true (T92)', s.setzeZoomSlotVorgaben({ aufloesung: '360p', tonAn: false }) === false
+    && s.einstellungsLage().nurSitzung === true);
+  g.__mock.userData = ordner;
+  ck('NB9: ein späteres erfolgreiches setzeZoomSlots hebt T92 nicht auf, solange die Vorgaben nur in der Sitzung gelten',
+    s.setzeZoomSlots([]) === true && s.einstellungsLage().nurSitzung === true);
+  ck('NB9: erst das erfolgreiche Schreiben der Vorgaben hebt T92 auf', s.setzeZoomSlotVorgaben(V) === true && s.einstellungsLage().nurSitzung === false);
+  const setter: Array<[string, () => boolean]> = [
+    ['Slots', () => s.setzeZoomSlots([])], ['Vorgaben', () => s.setzeZoomSlotVorgaben(V)],
+    ['Sprecher', () => s.setzeZoomSprecher({ signal: 'sprecherVideo', haltezeitMs: 1000 })], ['Vorschau', () => s.setzeZoomVorschau(true)],
+    ['Zustimmung über 5', () => s.setzeZoomSlotsUeber5(false)],
+  ];
+  const lauf = setter.map(([name, setze]) => {
+    g.__mock.userData = kaputt;
+    const gescheitert = setze() === false && s.einstellungsLage().nurSitzung;
+    g.__mock.userData = ordner;
+    const gespeichert = setze() === true && !s.einstellungsLage().nurSitzung;
+    return gescheitert && gespeichert ? '' : `${name} `;
+  }).join('');
+  ck(`NB9: jedes der fünf Slot-Felder setzt T92 beim Scheitern und hebt es beim Speichern auf${lauf ? ` (abweichend: ${lauf})` : ''}`, lauf === '');
+  const basis = e.neuerSlot(1, V, []);
+  ck('NB5: normiereSlot verwirft einen gespeicherten NDI-Namen nur aus Leerraum wie einen leeren',
+    e.normiereSlot({ ...basis, ndiName: '   ' }) === null && e.normiereSlot({ ...basis, ndiName: '   ' }) === null
+    && e.normiereSlots([{ ...basis, ndiName: '   ' }]).verworfen === 1);
+  ck('NB5: … Leerraum am Rand bleibt erlaubt und unverändert (W4)', e.normiereSlot({ ...basis, ndiName: ' Bühne ' })?.ndiName === ' Bühne ');
   g.__mock.userData = wurzel;
 }
 

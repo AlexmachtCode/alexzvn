@@ -78,6 +78,9 @@ export function SlotEinstellungen({
   const [loeschFrage, setLoeschFrage] = useState(false);
   const schluessel = `aendern:${nr}`;
   const beschaeftigt = aufrufe.laeuft.has(schluessel);
+  // M4 (Nachtrag B): NDI-Name und „Löschen“ sind auch gesperrt, solange der ausgeschaltete Slot noch stoppt (SZ9): Der Kern lehnt
+  // beides ab, solange ein Sender besteht. Der Tooltip T35/T36 („erst ausschalten“) gilt nur dem eingeschalteten Slot.
+  const stoppt = lage.zustand === 'stoppt';
   const aendere = (aenderung: Aenderung): Promise<ZoomErgebnis> =>
     aufrufe.fuehreAus(schluessel, ort, () => window.jmconnect.zoomSlotAendern({ nr, aenderung }));
   const uebernimmName = (): void => {
@@ -106,7 +109,7 @@ export function SlotEinstellungen({
         <MitTooltip titel={e.an ? SLOT_TEXT.nameGesperrt : undefined}>
           <input
             value={ndiName ?? e.ndiName}
-            disabled={e.an || beschaeftigt}
+            disabled={e.an || stoppt || beschaeftigt}
             onChange={(ev) => setNdiName(ev.target.value)}
             onBlur={uebernimmName}
             onKeyDown={(ev) => {
@@ -212,11 +215,11 @@ export function SlotEinstellungen({
         </label>
       )}
       <MitTooltip titel={e.an ? SLOT_TEXT.loeschenGesperrt : undefined}>
-        <button disabled={e.an || aufrufe.laeuft.has(`loeschen:${nr}`)} onClick={() => setLoeschFrage(true)} className={STIL.rot}>
+        <button disabled={e.an || stoppt || aufrufe.laeuft.has(`loeschen:${nr}`)} onClick={() => setLoeschFrage(true)} className={STIL.rot}>
           {BEDIEN_TEXT.loeschen}
         </button>
       </MitTooltip>
-      {loeschFrage && !e.an && (
+      {loeschFrage && !e.an && !stoppt && (
         <div className="rounded border border-red-800 bg-red-950/40 p-2 text-red-100">
           <p>{loeschenFrage(nr, e.ndiName)}</p>
           <div className="mt-2 flex gap-2">

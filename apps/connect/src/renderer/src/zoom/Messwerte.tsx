@@ -37,7 +37,10 @@ export function Messwerte({ a }: { a: ZoomAbbild }): JSX.Element {
     void window.jmconnect
       .zoomMesswerteText()
       .then((t) => {
-        if (gilt) setText(t);
+        if (!gilt) return;
+        setText(t);
+        // NB22 (Nachtrag B): Ein späteres erfolgreiches Laden löscht einen früheren Ladefehler.
+        setFehler(null);
       })
       .catch((e: unknown) => {
         if (gilt) setFehler(e instanceof Error ? e.message : String(e));
