@@ -27,6 +27,8 @@ import { SlotBereich, TeilnehmerSlotAngabe } from './SlotBereich';
 import { NachfrageZeile } from './SlotKachel';
 import { istNachfrage, type SlotAufrufe, type SlotNachfrage, type SlotOrt } from './SlotEinstellungen';
 
+import { Messwerte } from './Messwerte';
+
 // Tooltip- und Hinweistexte wörtlich aus Spec 8 und 9 (der Renderer importiert klartext.ts nicht). TEXT_S10 ist
 // neu gefasst und steht wörtlich in Spec 2026-10-06 (Zoom-SDK nachladen), Abschnitt 5 (Owner 06.10.2026).
 // Q10, Q11, Q14 und Q15 an der Teilnehmerzeile entfallen mit den Quellen (Spec 9.7, Plan B, Task B11); Q15 lebt als T98 am
@@ -732,6 +734,9 @@ export function ZoomCard(): JSX.Element {
       {a.teilnehmer.length > 0 && <ul className="mb-3 space-y-2">{a.teilnehmer.map((t) => zeile(t))}</ul>}
 
       {/* 9 · Die Liste der gemerkten Quellen entfällt (Spec 7.5 Nr. 10, Plan B, Task B11); an ihre Stelle treten die Zoom-Slots (Task B21). */}
+
+      {/* 11 · Messwerte (Spec 7.5 Nr. 11, 7.8): aufklappbar, eingeklappt als Vorgabe; Kopie ohne Namen */}
+      <Messwerte a={a} />
 
       {/* 10 · Hinweise (die letzten 5) */}
       {a.hinweise.length > 0 && (

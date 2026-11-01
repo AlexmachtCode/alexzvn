@@ -4,7 +4,7 @@ import { lobbyCount, onAirGuests, standbyGuest } from '@jm/rtc/state';
 import { ndiPoolKey } from '@jm/rtc/protocol';
 import type { Guest, OperatorAction, RoomState } from '@jm/rtc/protocol';
 import type { AppStatus, GuestInvite, ProxyKeySource, ShowInfo } from '@shared/types';
-import { zoomZeile } from '@shared/zoom-text';
+import { MAC_ZEILE, zoomZeile } from '@shared/zoom-text';
 import { toDataUrl } from '@/lib/qr';
 import { ZoomCard } from './zoom/ZoomCard';
 
@@ -362,8 +362,9 @@ export function App(): JSX.Element {
         </>
       )}
 
-      {/* Zoom (Stage 4a, Spec 9): außerhalb des Raum-Zweigs, unabhängig vom Cloud-Raum (E4), nur unter Windows. */}
-      {window.jmconnect.platform === 'win32' && <ZoomCard />}
+      {/* Zoom (Stage 4a, Spec 9): außerhalb des Raum-Zweigs, unabhängig vom Cloud-Raum (E4), nur unter Windows. Sonst steht
+          an ihrer Stelle die Zeile T95 (Connect 0.4.0, Spec 7.11). */}
+      {window.jmconnect.platform === 'win32' ? <ZoomCard /> : <p className="mt-6 text-xs text-neutral-500">{MAC_ZEILE}</p>}
     </div>
   );
 }

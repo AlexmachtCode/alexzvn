@@ -545,6 +545,36 @@ console.log('— B21: Zoom-Karte mit Slot-Bereich, Kachel, Einstellungen und Tei
   ck('B21 7.5 Nr. 7: unter dem Bild-Versatz die Zeile T81', karte.includes('{SLOT_FELD.versatzZusatz}'));
 }
 
+console.log('— B22: Messwerte in der Karte, Kopieren ohne Namen, Zeile T95 außerhalb von Windows (Spec 7.5 Nr. 11, 7.8, 7.11)');
+{
+  const { readFileSync, existsSync } = await import('node:fs');
+  const pfad = (rel: string): URL => new URL(rel, import.meta.url);
+  const lies = (rel: string): string => (existsSync(pfad(rel)) ? readFileSync(pfad(rel), 'utf8').replace(/\r\n/g, '\n') : '');
+  const zt = await import('../src/shared/zoom-text');
+  const mw = lies('../src/renderer/src/zoom/Messwerte.tsx');
+  const karte = lies('../src/renderer/src/zoom/ZoomCard.tsx');
+  const app = lies('../src/renderer/src/App.tsx');
+  ck('B22 7.8: „Messwerte kopieren“ holt den Text vom Kern (zoomMesswerteText) und schreibt genau ihn mit navigator.clipboard.writeText',
+    mw.includes('.zoomMesswerteText()') && mw.includes('.then((text) => navigator.clipboard.writeText(text))'));
+  ck('B22 7.8, 0.23: in die Zwischenablage kommt nie das Abbild (kein JSON.stringify, genau ein writeText)',
+    mw !== '' && !mw.includes('JSON.stringify') && (mw.match(/clipboard\.writeText\(/g) ?? []).length === 1);
+  ck('B22 7.8: Rückmeldung T68 aus MESS_TEXT.T68, ein Fehler der Zwischenablage wird angezeigt',
+    mw.includes('{MESS_TEXT.T68}') && mw.includes('.catch((e: unknown) => setFehler(') && mw.includes('{fehler &&'));
+  ck('B22 7.5 Nr. 11: eingeklappt als Vorgabe; Knöpfe „Messwerte“ und „Messwerte kopieren“ aus BEDIEN_TEXT; Anzeige neu bei jeder Meldung (a.messwerte)',
+    mw.includes('const [auf, setAuf] = useState(false);') && mw.includes('{BEDIEN_TEXT.messwerte}')
+      && mw.includes('{BEDIEN_TEXT.messwerteKopieren}') && mw.includes('const m = a.messwerte;') && mw.includes('}, [auf, m]);'));
+  const texte = [zt.MESS_TEXT.T68, zt.BEDIEN_TEXT.messwerte, zt.BEDIEN_TEXT.messwerteKopieren, zt.MAC_ZEILE];
+  ck('B22 B-EP4 Messwerte.tsx: kein Nutzertext als Literal, kein JSX-Text mit Buchstaben',
+    mw !== '' && texte.every((t) => ![`'${t}'`, `"${t}"`, `\`${t}\``, `>${t}<`].some((f) => mw.includes(f)))
+      && !/>[^<>{}\n]*[A-Za-zÄÖÜäöüß][^<>{}\n]*<\//.test(mw));
+  const iM = karte.indexOf('<Messwerte a={a} />');
+  ck('B22 7.5: ZoomCard zeigt die Messwerte nach dem Slot-Bereich und vor den Hinweisen',
+    iM > karte.indexOf('<SlotBereich a={a} aufrufe={slotAufrufe} />') && iM < karte.indexOf('{/* 10 · Hinweise'));
+  ck('B22 7.11: App.tsx zeigt außerhalb von win32 an der Stelle der Karte T95 aus zoom-text.ts, nie als Literal',
+    app.includes(`{window.jmconnect.platform === 'win32' ? <ZoomCard /> : <p className="mt-6 text-xs text-neutral-500">{MAC_ZEILE}</p>}`)
+      && !app.includes(zt.MAC_ZEILE));
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
