@@ -47,6 +47,10 @@ namespace {
 //                  Seit dem Abschluss-Fix: jeder Rueckruf prueft zuerst Delegate::abgemeldet (F1);
 //                  emitSlot nimmt die Ausgabe-Sperre emitMutex vor fieldMutex (F12);
 //                  der Abbau-Rueckruf schreibt eine stderr-Zeile mit der Slot-Nummer (F1, Abnahme).
+//                  F15: jeder Rueckruf zaehlt sich ZUERST in die Wache seines Delegates (RueckrufImFlug)
+//                  und prueft DANN abgemeldet. Bevor der Hauptthread einen Slot freigibt, meldet er
+//                  jeden Delegate des Slots ab und wartet OHNE gehaltene Sperre, bis keiner mehr im
+//                  Flug ist - hoechstens RUECKRUF_FRIST_MS, sonst bleibt der Slot bis Prozessende.
 // Auf welchem Thread das SDK die Delegate-Rueckrufe ruft, sagt kein Header (heute nur
 // Kommentar, E15); die Regel traegt beide Faelle.
 
@@ -63,7 +67,11 @@ class Delegate : public IZoomSDKRendererDelegate {
   // Abgemeldet (Abschluss-Fix F1, Abschlusspruefung I-1): gesetzt, bevor die Bridge den Renderer dieses Delegates verwirft
   // oder abbaut oder seinen Slot loescht. Jeder der drei Rueckrufe prueft es ZUERST und fasst danach weder Slot noch Abo
   // an. Der Delegate selbst lebt bis zum Prozessende (g_delegates); seine Zeiger slot_/abo_ duerfen dann tot sein.
-  std::atomic<bool> abgemeldet{false};
+  // Seit F15 (Sicherheitspruefung, TOCTOU) ist der Merker Teil der Wache: Zaehler imFlug plus abgemeldet (slot_logic.h,
+  // Dekker, seq_cst). Ein Rueckruf zaehlt sich ZUERST (RueckrufImFlug) und prueft DANN; vor dem Freigeben eines Slots
+  // meldet der Hauptthread ab und wartet, bis kein Rueckruf mehr im Flug ist (slotFreigabeAbwarten).
+  RueckrufWache wache;
+  bool zeigtAuf(const Slot* s) const { return slot_ == s; }
 
  private:
   Slot* slot_;
@@ -218,7 +226,7 @@ Delegate* neuerDelegate(Slot& s, Abo& abo) {
 }
 
 void delegateAbmelden(Abo& abo) {
-  if (abo.delegate != nullptr) abo.delegate->abgemeldet = true;
+  if (abo.delegate != nullptr) rueckrufAbmelden(abo.delegate->wache);
 }
 
 // Sprecher und Freigaben (6.8, 6.9): EINE Erinnerung und EINE Liste je Bridge, nur
@@ -444,6 +452,8 @@ void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf) {
   if (err == SDKERR_NO_SHARE_DATA) s.noShareData.fetch_add(1);
   if (err == SDKERR_SHARE_CANNOT_SUBSCRIBE_MYSELF) emitLog(L"subscribe(SHARE) meldet SHARE_CANNOT_SUBSCRIBE_MYSELF - die Bridge teilt nie selbst");
   // N2a.2: der Merker am Abo, nicht versuch (bei Erfolg oben schon 0) - lief der Abschluss beim ersten 29, kein zweiter.
+  // WIDERRUFEN „nur beim ersten 29“ seit dem Abschluss-Fix F2: auch beim ersten 18 laeuft der Abschluss und setzt den
+  // Merker; fuer beide Wege gilt: kein zweiter.
   lauf.lage.abschlussGelaufen = abo.abschlussGelaufen;
   const UmhaengPlan weiter = umhaengNachSubscribe(lauf.lage, static_cast<int>(err), abo.versuch);
   planAusfuehren(s, lauf, weiter);
@@ -460,7 +470,9 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
   if (rendererSperre() && planBrauchtRenderer(plan)) return;
   Abo& abo = s.abo();
   size_t tonNr = 0;   // naechste Meldung aus plan.tonFolge (E-a2-7)
-  bool abschlussHier = false;   // dieser Plan lief schon durch ZielStandNeu (29-Weg: Abschluss vor WiederholenIn500ms)
+  // dieser Plan lief schon durch ZielStandNeu (29-Weg: Abschluss vor WiederholenIn500ms). Seit dem Abschluss-Fix F2
+  // ebenso der 18-Weg - „nur 29“ ist widerrufen.
+  bool abschlussHier = false;
   for (const UmhaengSchritt schritt : plan.schritte) {
     switch (schritt) {
       case UmhaengSchritt::Vormerken:
@@ -842,6 +854,8 @@ void wiederholungen(int64_t jetzt) {
     UmhaengLauf lauf;
     // N2a.2: Ziel, Modus und Grund des Umhaengens, das 18 bzw. 29 bekam (gemerkt bei WiederholenIn500ms) - nach 18
     // ist abo.target noch das alte Ziel. Den Merker abschlussGelaufen gibt subscribeAusfuehren weiter.
+    // WIDERRUFEN seit dem Abschluss-Fix F2: auch nach 18 lief der Abschluss schon, abo.target ist das neue Ziel; die
+    // gemerkten Werte bleiben die Quelle, weil die Wiederholung zu IHREM Umhaengen gehoert.
     lauf.ziel = abo.wiederholZiel;
     lauf.lage = lageFuer(*s, abo.wiederholModus, abo.wiederholZiel, abo.wiederholGrund);
     lauf.lage.modusVorher = abo.wiederholModusVorher;
@@ -876,6 +890,33 @@ int g_meetingNr = 0;
 // zaehlt nur join hoch) - weder HaltelisteAbbauen noch HaltelisteVerwerfen fassen sie an, sie bleiben bis Prozessende.
 constexpr int kMeetingEingefroren = -1;
 bool g_sessionLeaveErgebnis = false;   // Rueckgabe von sessionLeave() fuer den Nachlauf-Plan
+
+// Slots, bei denen nach RUECKRUF_FRIST_MS noch ein Rueckruf im Flug war (Abschluss-Fix F15): nie freigegeben, bis zum
+// Prozessende (release ohne delete). Ihr Sender ist schon zu (SenderZu steht in jedem Plan vor SlotLoeschen und
+// InHalteliste; slotOn schliesst ihn vorher selbst), sie stehen in keiner Karte und bekommen nichts mehr.
+std::vector<Slot*> g_slotsImFlug;
+
+// Vor JEDEM Freigeben eines Slots (Abschluss-Fix F15, Ruling): jeden Delegate, der auf ihn zeigt - den laufenden und alle
+// frueher ausgemusterten -, abmelden, dann abwarten, bis keiner seiner Rueckrufe mehr im Flug ist. Der Hauptthread haelt
+// dabei KEINE Sperre (kein fieldMutex, kein emitMutex): der Rueckruf nimmt emitMutex -> fieldMutex -> Sender-Sperre ->
+// stdout und kann darum immer zu Ende laufen. Ruft das SDK einen Rueckruf synchron in unSubscribe/destroyRenderer auf dem
+// Hauptthread, ist er vor deren Rueckkehr fertig; hier steht der Zaehler dann auf 0. Die Frist (500 ms, slot_logic.h)
+// schliesst Haengen aus: false = noch im Flug, der Aufrufer gibt den Slot dann nicht frei. Nur Hauptthread.
+bool slotFreigabeAbwarten(Slot& s) {
+  for (Delegate* d : g_delegates) {
+    if (d->zeigtAuf(&s)) rueckrufAbmelden(d->wache);
+  }
+  const int64_t bis = jetztMs() + RUECKRUF_FRIST_MS;
+  bool frei = true;
+  for (Delegate* d : g_delegates) {
+    if (d->zeigtAuf(&s) && !rueckrufeAbwarten(d->wache, bis, jetztMs, [] { Sleep(1); })) frei = false;
+  }
+  if (!frei) {
+    emitLog(L"Slot " + std::to_wstring(s.nr) + L": nach " + std::to_wstring(RUECKRUF_FRIST_MS) +
+            L" ms laeuft noch ein Rueckruf - der Slot bleibt bis zum Prozessende stehen (Sender zu)");
+  }
+  return frei;
+}
 
 bool jeSlot(AbbauSchritt a) {
   switch (a) {
@@ -980,6 +1021,8 @@ void abbauAusfuehren(Kette kette, Grund grund, bool verlassen = false, int nurNr
         // Abschluss-Fix F1 (I-1): vor dem Loeschen den Delegate abmelden - ein spaeter Rueckruf (nach destroyRenderer
         // oder, am Meeting-Ende, ganz ohne Renderer-Aufruf) trifft dann einen lebenden Delegate, der nichts anfasst.
         for (auto& abo : s->abos) delegateAbmelden(*abo);
+        // F15: einen Rueckruf im Flug abwarten, bevor g_slots.erase den Slot freigibt; nach der Frist bleibt er stehen.
+        if (!slotFreigabeAbwarten(*s)) g_slotsImFlug.push_back(slot->release());
         return true;
       case AbbauSchritt::InHalteliste:
         // Renderer-Sperre: weder unSubscribe noch destroyRenderer, und der Delegate
@@ -1011,6 +1054,7 @@ void abbauAusfuehren(Kette kette, Grund grund, bool verlassen = false, int nurNr
             delegateAbmelden(*abo);
           }
           emitLog(L"Slot " + std::to_wstring(it->slot->nr) + L": aus der Halteliste abgebaut (INMEETING)");
+          if (!slotFreigabeAbwarten(*it->slot)) g_slotsImFlug.push_back(it->slot.release());   // F15
           it = g_slotsHalt.erase(it);
         }
         return false;
@@ -1023,6 +1067,7 @@ void abbauAusfuehren(Kette kette, Grund grund, bool verlassen = false, int nurNr
             delegateAbmelden(*abo);   // Abschluss-Fix F1: vor dem Loeschen abmelden, der Delegate lebt weiter
           }
           emitLog(L"Slot " + std::to_wstring(it->slot->nr) + L": aus der Halteliste verworfen (ohne Renderer-Aufruf)");
+          if (!slotFreigabeAbwarten(*it->slot)) g_slotsImFlug.push_back(it->slot.release());   // F15
           it = g_slotsHalt.erase(it);
         }
         return false;
@@ -1410,9 +1455,10 @@ void slotStatsMelden(Slot& s, int64_t jetzt) {
   wenn(s.resSet >= 0, "resSet", std::to_string(s.resSet));
   wenn(s.resGot >= 0, "resGot", std::to_string(s.resGot));
   wenn(s.rawType >= 0, "rawType", std::to_string(s.rawType));
-  if (mode != SlotMode::Share && ziel != 0 && videoCtrl() != nullptr && !rendererSperre()) {
+  if (!rendererSperre() && mode != SlotMode::Share && ziel != 0 && videoCtrl() != nullptr) {
     // GetUserVideoSize: Bedeutung ungeklaert (MS24) - nur ein Messwert. Nicht waehrend der Renderer-Sperre
-    // (Abschluss-Fix F13, M7); die Felder fehlen dann.
+    // (Abschluss-Fix F13, M7); die Felder fehlen dann. Die Sperre steht ZUERST (Restpunkt R-b der Nachpruefung):
+    // videoCtrl() ist selbst ein SDK-Aufruf (GetMeetingVideoController, session.cpp).
     const VideoSize gross = videoCtrl()->GetUserVideoSize(ziel);
     wenn(gross.width > 0, "userVideoW", std::to_string(gross.width));
     wenn(gross.height > 0, "userVideoH", std::to_string(gross.height));
@@ -1527,6 +1573,7 @@ void slotOn(const SlotBefehl& b) {
             (HasRawdataLicense() ? L"true" : L"false"));
     delegateAbmelden(abo);   // Abschluss-Fix F1: der Slot wird gleich frei, der Delegate lebt weiter (g_delegates)
     s.sender.close();
+    if (!slotFreigabeAbwarten(s)) g_slotsImFlug.push_back(slot.release());   // F15, wie jede Freigabestelle
     emitSlotFehler("slotRendererFailed", b.nr);
     return;
   }
@@ -1982,15 +2029,16 @@ void Slot::bildAnkunft(Abo& abo, YUVRawDataI420* data) {
 }
 
 void Delegate::onRendererBeDestroyed() {
-  // ZUERST abgemeldet (Abschluss-Fix F1, I-1): ist der Delegate ausgemustert (Renderer verworfen, abgebaut, Slot
-  // geloescht), fasst der Rueckruf weder Slot noch Abo an - beide koennen frei sein.
-  const bool schonAbgemeldet = abgemeldet.load();
+  // ZUERST in den Flug (F15), darin abgemeldet (F1, I-1): ist der Delegate ausgemustert (Renderer verworfen, abgebaut,
+  // Slot geloescht), fasst der Rueckruf weder Slot noch Abo an - beide koennen frei sein. Laeuft er, wartet der
+  // Hauptthread mit dem Freigeben, bis er den Waechter am Ende verlaesst.
+  const RueckrufImFlug flug(wache);
   // Merker fuer die Abnahme (Gruppe L): wann der Rueckruf kommt - vor oder nach destroyRenderer, vor oder nach ENDED.
   // Nur die Slot-Nummer des Delegates (nie ein Name). emitLog ist eine einzige CRT-Schreibung mit eigener Stream-Sperre;
   // so schreiben auch die Lauscher-Rueckrufe (callbacks.cpp), und bildAnkunft schreibt aus diesem Delegate stdout.
   emitLog(L"Slot " + std::to_wstring(nr_) +
-          (schonAbgemeldet ? L": onRendererBeDestroyed nach dem Abmelden (nichts angefasst)" : L": onRendererBeDestroyed"));
-  if (schonAbgemeldet) return;
+          (flug.drin() ? L": onRendererBeDestroyed" : L": onRendererBeDestroyed nach dem Abmelden (nichts angefasst)"));
+  if (!flug.drin()) return;
   // "you should never use this renderer object any more"
   // (rawdata_renderer_interface.h:36-40): nur das Atom, den Rest macht die
   // Hauptschleife beim naechsten Umhaengen (6.10 Schritt 2).
@@ -1998,12 +2046,14 @@ void Delegate::onRendererBeDestroyed() {
 }
 
 void Delegate::onRawDataFrameReceived(YUVRawDataI420* data) {
-  if (abgemeldet.load() || data == nullptr) return;   // F1: ein abgemeldeter Delegate fasst nichts an
+  const RueckrufImFlug flug(wache);   // F15: zaehlen, dann pruefen - bis zum Ende dieses Rumpfs im Flug
+  if (!flug.drin() || data == nullptr) return;   // F1: ein abgemeldeter Delegate fasst nichts an
   slot_->bildAnkunft(*abo_, data);
 }
 
 void Delegate::onRawDataStatusChanged(RawDataStatus status) {
-  if (abgemeldet.load()) return;   // F1: ein abgemeldeter Delegate fasst nichts an
+  const RueckrufImFlug flug(wache);   // F15: zaehlen, dann pruefen - bis zum Ende dieses Rumpfs im Flug
+  if (!flug.drin()) return;   // F1: ein abgemeldeter Delegate fasst nichts an
   // RawData_Off setzt KEINEN Grund (6.7): der Header dokumentiert ihn nicht, und er
   // kam gemessen auch nach unSubscribe(). Nach dem ersten Bild dieses Ziels loest er
   // nur die Abfrage IsVideoOn() in der Hauptschleife aus. Der Riegel verwirft ihn, auch wenn er erst nach der Rueckkehr von unSubscribe kommt (ANNAHME AN22, unbelegt).

@@ -3532,7 +3532,7 @@ console.log('\nNativer Teil — A11 Slot-Verwaltung, Befehle, Umhängen (Spec 6.
     'A11 E-a2-7: lageFuer setzt altesZiel aus dem bisherigen Ziel (neue Auflösung ohne Zielwechsel: der Ton bleibt)');
   const ausf = rumpf(video, 'void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) ');
   assert((ausf.match(/lauf\.lage\.rendererGescheitert\s*=\s*true;\s*lauf\.sdkFehler\s*=\s*static_cast<int>\(err\);\s*planAusfuehren\(s,\s*lauf,\s*umhaengNachSubscribe\(lauf\.lage,/g) ?? []).length === 2,
-    'A11 E-a2-7: scheitert createRenderer (neuer oder gleicher Delegate), führt der Ausführer umhaengNachSubscribe mit rendererGescheitert aus');
+    'A11 E-a2-7: scheitert createRenderer (neuer Delegate nach rendererTot oder beim Typwechsel), führt der Ausführer umhaengNachSubscribe mit rendererGescheitert aus');
   const iFehler = ausf.indexOf('case UmhaengSchritt::FehlerSubscribeMelden:');
   const fehler = iFehler < 0 ? '' : ausf.slice(iFehler, ausf.indexOf('break;', iFehler));
   assert(fehler.includes('slotSubscribeFailed') && /\\"sdk\\":"\s*\+\s*std::to_string\(lauf\.sdkFehler\)/.test(fehler)
@@ -4520,14 +4520,19 @@ console.log('\nNativer Teil — Abschluss-Fix Plan A (Delegates bis Prozessende,
     const rueck = r.search(/\breturn\s*;/);
     return r !== '' && rueck >= 0 && (zugriff < 0 || rueck < zugriff);
   };
-  const zerstoertMerker = /^\{\s*const\s+bool\s+(\w+)\s*=\s*abgemeldet\.load\(\)\s*;/.exec(zerstoert);
-  assert(/std::atomic<bool>\s+abgemeldet\{false\}\s*;/.test(delegateKlasse)
-      && /^\{\s*if\s*\(\s*abgemeldet\.load\(\)\s*\|\|\s*data\s*==\s*nullptr\s*\)\s*return\s*;/.test(bild)
-      && /^\{\s*if\s*\(\s*abgemeldet\.load\(\)\s*\)\s*return\s*;/.test(status)
-      && zerstoertMerker !== null && new RegExp(`if\\s*\\(\\s*${zerstoertMerker[1]}\\s*\\)\\s*return\\s*;`).test(zerstoert)
+  // Seit F15 prüft jeder Rückruf abgemeldet über den Flug-Wächter RueckrufImFlug (erst zählen, dann prüfen): die erste
+  // Anweisung legt ihn an, die zweite kehrt ohne drin() zurück - vor jedem Zugriff auf Slot oder Abo.
+  const FLUG = /^\{\s*const\s+RueckrufImFlug\s+(\w+)\(\s*wache\s*\)\s*;/;
+  const flugName = (r: string): string => FLUG.exec(r)?.[1] ?? '\\u0000';
+  assert(/\bRueckrufWache\s+wache\s*;/.test(delegateKlasse)
+      && new RegExp(`^\\{\\s*const\\s+RueckrufImFlug\\s+(\\w+)\\(\\s*wache\\s*\\)\\s*;\\s*if\\s*\\(\\s*!${flugName(bild)}\\.drin\\(\\)\\s*\\|\\|\\s*data\\s*==\\s*nullptr\\s*\\)\\s*return\\s*;`).test(bild)
+      && new RegExp(`^\\{\\s*const\\s+RueckrufImFlug\\s+(\\w+)\\(\\s*wache\\s*\\)\\s*;\\s*if\\s*\\(\\s*!${flugName(status)}\\.drin\\(\\)\\s*\\)\\s*return\\s*;`).test(status)
+      && FLUG.test(zerstoert) && new RegExp(`if\\s*\\(\\s*!${flugName(zerstoert)}\\.drin\\(\\)\\s*\\)\\s*return\\s*;`).test(zerstoert)
       && [zerstoert, bild, status].every(zugriffNachRueckkehr),
-    'F1 6.10/6.15 (I-1): Delegate::abgemeldet - alle drei Rückrufe prüfen es zuerst und kehren vor jedem Zugriff auf Slot oder Abo zurück');
-  const delegatesNutzung = [...vAF.matchAll(/\bg_delegates\b(\s*\.\s*(\w+))?/g)].map((m) => m[2] ?? '');
+    'AF1 6.10/6.15 (I-1): Delegate::abgemeldet - alle drei Rückrufe prüfen es zuerst und kehren vor jedem Zugriff auf Slot oder Abo zurück');
+  // Seit F15 durchsucht slotFreigabeAbwarten g_delegates (zwei Bereichsschleifen, nur lesend); sonst nur push_back/back.
+  const vohneFreigabe = vAF.replace(rumpf(vAF, 'bool slotFreigabeAbwarten(Slot& s)'), '{}');
+  const delegatesNutzung = [...vohneFreigabe.matchAll(/\bg_delegates\b(\s*\.\s*(\w+))?/g)].map((m) => m[2] ?? '');
   const delegateZuweisungen = [...vAF.matchAll(/\bdelegate\s*=(?!=)\s*([^;]*);/g)].map((m) => m[1].trim());
   assert(/std::vector<Delegate\*>\s+g_delegates\s*;/.test(vAF)
       && delegatesNutzung.filter((n) => n === '').length === 1 && delegatesNutzung.every((n) => ['', 'push_back', 'back'].includes(n))
@@ -4535,26 +4540,29 @@ console.log('\nNativer Teil — Abschluss-Fix Plan A (Delegates bis Prozessende,
       && !/\bdelete\b/.test(vAF) && !/unique_ptr<\s*Delegate\s*>/.test(vAF) && !/\balteDelegates\b/.test(vAF)
       && /Delegate\*\s+delegate\s*=\s*nullptr\s*;/.test(aboAF)
       && delegateZuweisungen.length >= 4 && delegateZuweisungen.every((z) => /^neuerDelegate\(\s*s\s*,\s*abo\s*\)$|^nullptr$/.test(z)),
-    'F1 (I-1): jeder Delegate entsteht in neuerDelegate und gehört g_delegates bis zum Prozessende - kein delete, kein erase, kein unique_ptr<Delegate>');
+    'AF1 (I-1): jeder Delegate entsteht in neuerDelegate und gehört g_delegates bis zum Prozessende - kein delete, kein erase, kein unique_ptr<Delegate>');
   const typwechselAF = planZweigAF('CreateRendererTypwechsel');
   assert(!/CreateRendererGleicherDelegate/.test(logikAF + vAF) && /case\s+UmhaengSchritt::CreateRendererTypwechsel\s*:/.test(rumpf(logikAF, 'inline bool planBrauchtRenderer('))
       && vorDem(typwechselAF, 'abo.delegate = neuerDelegate(s, abo);', 'rendererAnlegen(abo)') && /s\.rendererNew\.fetch_add\(1\)/.test(typwechselAF)
       && vorDem(planZweigAF('CreateRendererNeuerDelegate'), 'abo.delegate = neuerDelegate(s, abo);', 'rendererAnlegen(abo)')
       && !/rendererNew/.test(planZweigAF('CreateRendererNeuerDelegate')),
-    'F1 6.10 (Ruling, Abweichung von AN11): der Typwechsel legt den neuen Renderer mit einem NEUEN Delegate an; rendererNew zählt weiter nur diesen Fall');
+    'AF1 6.10 (Ruling, Abweichung von AN11): der Typwechsel legt den neuen Renderer mit einem NEUEN Delegate an; rendererNew zählt weiter nur diesen Fall');
   const slotOnText = rumpf(vAFt, 'void slotOn(const SlotBefehl& b)');
-  assert(/void\s+delegateAbmelden\(\s*Abo&\s*abo\s*\)\s*\{\s*if\s*\(\s*abo\.delegate\s*!=\s*nullptr\s*\)\s*abo\.delegate->abgemeldet\s*=\s*true\s*;\s*\}/.test(vAF)
+  // Seit F15 setzt delegateAbmelden den Merker über rueckrufAbmelden (seq_cst); zwischen Abmelden und return true steht
+  // in SlotLoeschen das Abwarten der Rückrufe im Flug.
+  assert(/void\s+delegateAbmelden\(\s*Abo&\s*abo\s*\)\s*\{\s*if\s*\(\s*abo\.delegate\s*!=\s*nullptr\s*\)\s*rueckrufAbmelden\(\s*abo\.delegate->wache\s*\)\s*;\s*\}/.test(vAF)
       && vorDem(planZweigAF('ZeigerVerwerfen'), 'delegateAbmelden(abo);', 'abo.delegate = nullptr;')
       && vorDem(planZweigAF('DestroyRenderer'), 'delegateAbmelden(abo);', 'destroyRenderer(')
-      && /for\s*\(\s*auto&\s*abo\s*:\s*s->abos\s*\)\s*delegateAbmelden\(\s*\*abo\s*\)\s*;\s*return\s+true\s*;/.test(abbauZweigAF('SlotLoeschen'))
+      && /for\s*\(\s*auto&\s*abo\s*:\s*s->abos\s*\)\s*delegateAbmelden\(\s*\*abo\s*\)\s*;/.test(abbauZweigAF('SlotLoeschen'))
+      && vorDem(abbauZweigAF('SlotLoeschen'), 'delegateAbmelden(*abo);', 'return true;')
       && vorDem(abbauZweigAF('HaltelisteAbbauen'), 'delegateAbmelden(*abo);', 'g_slotsHalt.erase(')
       && vorDem(abbauZweigAF('HaltelisteVerwerfen'), 'delegateAbmelden(*abo);', 'g_slotsHalt.erase(')
       && vorDem(slotOnText, 'delegateAbmelden(abo);', '"slotRendererFailed"'),
-    'F1 (I-1): abgemeldet wird beim Verwerfen (rendererTot), beim Typwechsel vor destroyRenderer, vor dem Löschen eines Slots, beim Leeren der Halteliste und im Fehlerpfad von slotOn');
+    'AF1 (I-1): abgemeldet wird beim Verwerfen (rendererTot), beim Typwechsel vor destroyRenderer, vor dem Löschen eines Slots, beim Leeren der Halteliste und im Fehlerpfad von slotOn');
   assert((zerstoert.match(/\bemitLog\s*\(/g) ?? []).length === 1 && /std::to_wstring\(\s*nr_\s*\)/.test(zerstoert) && /\bint\s+nr_\s*;/.test(delegateKlasse)
       && zerstoert.indexOf('emitLog(') < zerstoert.search(/\b(slot_|abo_)/)
       && /rendererTot\.exchange\(true\)/.test(zerstoert) && /rendererLost\.fetch_add\(1\)/.test(zerstoert),
-    'F1 Abnahme Gruppe L: onRendererBeDestroyed schreibt eine stderr-Zeile mit der Slot-Nummer aus dem Delegate (nr_), auch nach dem Abmelden');
+    'AF1 Abnahme Gruppe L: onRendererBeDestroyed schreibt eine stderr-Zeile mit der Slot-Nummer aus dem Delegate (nr_), auch nach dem Abmelden');
 
   // F3 (SG1, SG2, M3 teilweise; Spec 6.5, 6.10 Schritt 2, B32): im Slot-Block rufen Unsubscribe und DestroyRenderer den
   // Renderer nur mit !rendererTot und ohne Sperre (fuerSlot hier nicht: er brächte für einen toten Renderer eine
@@ -4567,7 +4575,7 @@ console.log('\nNativer Teil — Abschluss-Fix Plan A (Delegates bis Prozessende,
     const aufrufe = [...z.matchAll(RENDERER_AF)].map((m) => m.index ?? -1);
     const i = z.search(BEDINGUNG_SLOT);
     return i >= 0 && aufrufe.length === 1 && aufrufe[0] > i;
-  }), 'F3 SG1 (B32, 6.5): im Abbau rufen Unsubscribe und DestroyRenderer den Renderer nur mit !rendererTot und ohne Renderer-Sperre');
+  }), 'AF3 SG1 (B32, 6.5): im Abbau rufen Unsubscribe und DestroyRenderer den Renderer nur mit !rendererTot und ohne Renderer-Sperre');
   const halteAbAF = abbauZweigAF('HaltelisteAbbauen');
   const iFilterAF = halteAbAF.search(/if\s*\(\s*!halteEintragGehoertZu\(\s*static_cast<uint32_t>\(\s*it->meeting\s*\)\s*,\s*static_cast<uint32_t>\(\s*g_meetingNr\s*\)\s*\)\s*\|\|\s*rendererSperre\(\)\s*\)\s*\{\s*\+\+it\s*;\s*continue\s*;\s*\}/);
   const schritteAF = /for\s*\(\s*const\s+AbbauSchritt\s+(\w+)\s*:\s*halteEintragAbbauen\(\s*abo->rendererTot\.load\(\)\s*\)\s*\)/.exec(halteAbAF);
@@ -4576,19 +4584,19 @@ console.log('\nNativer Teil — Abschluss-Fix Plan A (Delegates bis Prozessende,
       && rendererHalteAF.every((i) => i > (schritteAF.index ?? 0))
       && new RegExp(`if\\s*\\(\\s*${schritteAF[1]}\\s*==\\s*AbbauSchritt::Unsubscribe\\s*\\)\\s*logSdkError\\([^;]*->unSubscribe\\(\\)\\s*\\)\\s*;`).test(halteAbAF)
       && new RegExp(`if\\s*\\(\\s*${schritteAF[1]}\\s*==\\s*AbbauSchritt::DestroyRenderer\\s*\\)\\s*logSdkError\\([^;]*destroyRenderer\\(\\s*abo->renderer\\s*\\)\\s*\\)\\s*;`).test(halteAbAF),
-    'F3 SG1/SG2 (M3, PB20): HaltelisteAbbauen filtert mit halteEintragGehoertZu, überspringt in der Sperre und ruft nur, was halteEintragAbbauen(rendererTot) plant');
+    'AF3 SG1/SG2 (M3, PB20): HaltelisteAbbauen filtert mit halteEintragGehoertZu, überspringt in der Sperre und ruft nur, was halteEintragAbbauen(rendererTot) plant');
   const sharesAF = rumpf(vAF, 'void emitShares(const char* seeded)');
   assert(/const\s+char\*\s+(\w+)\s*=\s*sharingStatusName\(\s*r\.status\s*\)\s*;\s*if\s*\(\s*\1\s*==\s*nullptr\s*\)\s*continue\s*;/.test(sharesAF)
       && !/SHARING_STATUS_NAMEN/.test(sharesAF),
-    'F3 M3 (6.3): shares.recent nennt den Status über sharingStatusName; ein unbekannter Wert wird nicht gemeldet (kein „unknown“)');
+    'AF3 M3 (6.3): shares.recent nennt den Status über sharingStatusName; ein unbekannter Wert wird nicht gemeldet (kein „unknown“)');
 
   // F4 (SG3; Spec 6.1 Thread-Regel, PT6 a): auch Slot::bildAnkunft, der eigentliche Bild-Rückruf, fasst weder g_slots noch
   // eine andere Hauptthread-Liste an und ruft keine Renderer-, slot…- oder videoParticipant…-Funktion.
-  const GLOBAL_HAUPTTHREAD = /\b(g_slots|g_slotsHalt|g_delegates|g_freigaben|g_erinnerung|g_sprecher)\b/;
+  const GLOBAL_HAUPTTHREAD = /\b(g_slots|g_slotsHalt|g_slotsImFlug|g_delegates|g_freigaben|g_erinnerung|g_sprecher)\b/;
   const sdkRuempfeAF: Array<[string, string]> = [['Slot::bildAnkunft', rumpf(vAF, 'void Slot::bildAnkunft(')], ...rueckrufRuempfe(vAF)];
   const verstossAF = sdkRuempfeAF.filter(([, k]) => k === '' || RUECKRUF_VERBOTEN.test(k) || GLOBAL_HAUPTTHREAD.test(k)).map(([n]) => n);
   assert(sdkRuempfeAF.length >= 4 && verstossAF.length === 0,
-    'F4 PT6 a (SG3): weder Slot::bildAnkunft noch ein Delegate-Rückruf ruft Renderer-, slot…- oder videoParticipant…-Funktionen oder fasst g_slots, Halteliste, g_delegates an');
+    'AF4 PT6 a (SG3): weder Slot::bildAnkunft noch ein Delegate-Rückruf ruft Renderer-, slot…- oder videoParticipant…-Funktionen oder fasst g_slots, Halteliste, g_delegates an');
   if (verstossAF.length > 0) console.error(`      Verstoß in: ${verstossAF.join(', ')}`);
 
   // F7 (M1 d; Spec 6.2 slotSet „Bestätigung immer mit einem slot-Ereignis“): merkt die Renderer-Sperre das Umhängen eines
@@ -4601,7 +4609,7 @@ console.log('\nNativer Teil — Abschluss-Fix Plan A (Delegates bis Prozessende,
       && /slotBestaetigen\(\s*s\s*\)\s*;\s*\}$/.test(setAF.trim())
       && /s\.grund\s*=\s*Grund::command\s*;[\s\S]*emitSlot\(\s*s\s*\)\s*;/.test(rumpf(vAF, 'void slotBestaetigen(Slot& s)'))
       && (vAF.match(/\bslotSetLaeuft\s*=\s*true/g) ?? []).length === 1,
-    'F7 6.2 (M1 d): ein slotSet, dessen Umhängen die Renderer-Sperre nur vormerkt, bestätigt mit einem slot-Ereignis (aktueller Stand, Grund command)');
+    'AF7 6.2 (M1 d): ein slotSet, dessen Umhängen die Renderer-Sperre nur vormerkt, bestätigt mit einem slot-Ereignis (aktueller Stand, Grund command)');
 
   // F8 a/e (M1 a, e; die Spec schweigt, die EXE folgt der Attrappe): slot off trägt das aktuelle Paar target/share; der
   // erste Freigabe-Slot nach dem Leeren der Liste (INMEETING, leave, Meeting-Ende, quit) ergänzt einmal (seeded einmal).
@@ -4609,15 +4617,15 @@ console.log('\nNativer Teil — Abschluss-Fix Plan A (Delegates bis Prozessende,
   const slotEvAF = rumpf(vAF, 'void emitSlot(Slot& s)');
   assert(/zielPaar\(\s*s\s*,/.test(offAF) && /zielPaar\(\s*s\s*,/.test(slotEvAF) && !/\\"target\\":0,\\"share\\":0/.test(rumpf(vAFt, 'void emitSlotOff(Slot& s, Grund grund)'))
       && /std::to_string\(\s*target\s*\)/.test(offAF) && /std::to_string\(\s*share\s*\)/.test(offAF),
-    'F8 a (M1 a, wie die Attrappe): slot off trägt das aktuelle Paar target/share (zielPaar wie jedes slot-Ereignis), nicht 0/0');
+    'AF8 a (M1 a, wie die Attrappe): slot off trägt das aktuelle Paar target/share (zielPaar wie jedes slot-Ereignis), nicht 0/0');
   assert(/if\s*\(\s*!g_freigabenErgaenzt\s*\)\s*\{\s*g_freigabenErgaenzt\s*=\s*true\s*;\s*freigabenBefuellen\(\s*true\s*\)\s*;\s*\}/.test(rumpf(vAF, 'unsigned zielNachModus('))
       && /g_freigabenErgaenzt\s*=\s*false\s*;/.test(abbauZweigAF('FreigabenLeeren')) && !/\bandererFreigabeSlot\b/.test(vAF),
-    'F8 e (M1 e, wie die Attrappe): der erste Freigabe-Slot nach dem Leeren der Liste ergänzt einmal (seeded einmal je Meeting)');
+    'AF8 e (M1 e, wie die Attrappe): der erste Freigabe-Slot nach dem Leeren der Liste ergänzt einmal (seeded einmal je Meeting)');
 
   // F9 (M2; Spec 6.16): previewMode bestätigt den tatsächlichen Zustand - nach previewUnavailable on:false.
   const modusAF = rumpf(nativ('preview.cpp'), 'void vorschauModus(bool an)');
   assert(/\(\s*g_an\.load\(\)\s*\?\s*"true"\s*:\s*"false"\s*\)/.test(modusAF) && !/\(\s*an\s*\?\s*"true"/.test(modusAF),
-    'F9 6.16 (M2): previewMode bestätigt den tatsächlichen Zustand (g_an), nach previewUnavailable also on:false');
+    'AF9 6.16 (M2): previewMode bestätigt den tatsächlichen Zustand (g_an), nach previewUnavailable also on:false');
 
   // F10 (M4; Spec 6.3 speakerSignal.ms „Bridge-Uhr“): eine Uhr für speakerSignal.ms und shares.recent[].ms - jetztMs()
   // (GetTickCount64, ms), dieselbe, die die Slot-Logik bekommt (A12).
@@ -4625,14 +4633,17 @@ console.log('\nNativer Teil — Abschluss-Fix Plan A (Delegates bis Prozessende,
   assert(/\\"ms\\":"\s*\+\s*std::to_string\(\s*jetzt\s*\)/.test(sprecherAF) && !/m\.qpc/.test(sprecherAF)
       && /const\s+int64_t\s+jetzt\s*=\s*jetztMs\(\)\s*;/.test(sprecherAF)
       && /g_freigabeRecent\.push_back\(\s*FreigabeRueckruf\{\s*jetztMs\(\)\s*,/.test(rumpf(vAF, 'void slotsFreigabe(const MerkerFreigabe& f)'))
-      && /int64_t\s+jetztMs\(\)\s*\{\s*return\s+static_cast<int64_t>\(\s*GetTickCount64\(\)\s*\)\s*;\s*\}/.test(vAF),
-    'F10 6.3 (M4): speakerSignal.ms und shares.recent[].ms kommen aus derselben Bridge-Uhr (jetztMs, GetTickCount64, ms)');
+      && /int64_t\s+jetztMs\(\)\s*\{\s*return\s+static_cast<int64_t>\(\s*GetTickCount64\(\)\s*\)\s*;\s*\}/.test(vAF)
+      // Restpunkt R-e der Nachprüfung: MerkerSprecher.qpc wurde nach F10 nur noch geschrieben - entfernt
+      && /struct\s+MerkerSprecher\s*\{\s*int\s+signal\s*=\s*0\s*;\s*std::vector<unsigned>\s+ids\s*;\s*\}\s*;/.test(nativ('callbacks.h', true))
+      && !/\bqpcJetzt\b|\.qpc\b/.test(nativ('callbacks.cpp', true)),
+    'AF10 6.3 (M4): speakerSignal.ms und shares.recent[].ms kommen aus derselben Bridge-Uhr (jetztMs, GetTickCount64, ms)');
 
   // F11 (M5, Ruling; Spec 6.13 „bleibt ohne Ton … bis an ihm Ton wieder eingeschaltet wird“): tonSicht gibt den Merker
   // weiter, tonZiele überspringt solche Slots (Logik-Fall af11).
   assert(/TonSlotSicht\{[^}]*s->tonAudioUnavailable\s*\}/.test(rumpf(vAF, 'std::vector<TonSlotSicht> tonSicht()'))
       && /if\s*\(\s*!s\.laeuft\s*\|\|\s*s\.tonAudioUnavailable\s*\)\s*continue\s*;/.test(rumpf(logikAF, 'inline std::vector<TonZiel> tonZiele(')),
-    'F11 6.13 (M5, Ruling): ein Slot auf off/audioUnavailable fällt aus tonSicht/tonZiele, bis an ihm Ton wieder eingeschaltet wird');
+    'AF11 6.13 (M5, Ruling): ein Slot auf off/audioUnavailable fällt aus tonSicht/tonZiele, bis an ihm Ton wieder eingeschaltet wird');
 
   // F12 (M6; E15 ungemessen): emitSlot liest den Stand und schreibt die Zeile unter EINER Ausgabe-Sperre je Slot.
   // Reihenfolge: emitMutex vor fieldMutex, nie umgekehrt (kein emit*() im Sperrblock von fieldMutex); kein SDK- oder
@@ -4643,15 +4654,16 @@ console.log('\nNativer Teil — Abschluss-Fix Plan A (Delegates bis Prozessende,
       && /if\s*\(\s*s\.imAbbau\.load\(\)\s*\)\s*return\s*;/.test(slotEvAF) && !/\bsender\b|\bsend\w*\s*\(|->/.test(slotEvAF)
       && /^\{\s*std::lock_guard<std::mutex>\s+\w+\(\s*s\.emitMutex\s*\)\s*;/.test(offAF)
       && (vAF.match(/\bemitMutex\b/g) ?? []).length === 3,
-    'F12 6.3 (M6): emitSlot liest und schreibt unter der Ausgabe-Sperre des Slots (vor fieldMutex, kein SDK-/NDI-Aufruf), slot off ebenso');
+    'AF12 6.3 (M6): emitSlot liest und schreibt unter der Ausgabe-Sperre des Slots (vor fieldMutex, kein SDK-/NDI-Aufruf), slot off ebenso');
 
   // F13 (M7; Spec 6.5): während der Renderer-Sperre keine periodischen SDK-Leser - IsVideoOn (kameraAn: „unbekannt“ =
   // an), die RawData_Off-Abfrage wartet, GetUserVideoSize und GetMeeting…StatisticInfo fallen aus (Felder fehlen dann).
   assert(/^\{\s*if\s*\(\s*rendererSperre\(\)\s*\)\s*return\s+true\s*;/.test(rumpf(vAF, 'bool kameraAn(unsigned id)'))
       && /if\s*\(\s*z\.rawOffGesehen\s*&&\s*!rendererSperre\(\)\s*\)/.test(rumpf(vAF, 'void ersatzbildTick(Slot& s, int64_t jetzt)'))
-      && /if\s*\(\s*mode\s*!=\s*SlotMode::Share\s*&&\s*ziel\s*!=\s*0\s*&&\s*videoCtrl\(\)\s*!=\s*nullptr\s*&&\s*!rendererSperre\(\)\s*\)/.test(rumpf(vAF, 'void slotStatsMelden(Slot& s, int64_t jetzt)'))
+      // Restpunkt R-b der Nachprüfung: die Sperre ZUERST - videoCtrl() ist selbst ein SDK-Leser (GetMeetingVideoController)
+      && /if\s*\(\s*!rendererSperre\(\)\s*&&\s*mode\s*!=\s*SlotMode::Share\s*&&\s*ziel\s*!=\s*0\s*&&\s*videoCtrl\(\)\s*!=\s*nullptr\s*\)/.test(rumpf(vAF, 'void slotStatsMelden(Slot& s, int64_t jetzt)'))
       && /^\{\s*if\s*\(\s*g_meeting\s*==\s*nullptr\s*\|\|\s*callbacksRendererSperre\(\)\s*\)\s*return\s+false\s*;/.test(rumpf(nativ('session.cpp', true), 'bool sessionEmpfangsStatistik(')),
-    'F13 6.5 (M7): während der Renderer-Sperre keine periodischen SDK-Leser (IsVideoOn, GetUserVideoSize, GetMeeting…StatisticInfo)');
+    'AF13 6.5 (M7): während der Renderer-Sperre keine periodischen SDK-Leser (IsVideoOn, GetUserVideoSize, GetMeeting…StatisticInfo)');
 }
 console.log('\nDoku — Abschluss-Fix Plan A (README: Delegates, 18-Wartezeit, Abweichungen mit Spec-Verweis, N3-Review Minor 1/2):');
 {
@@ -4674,22 +4686,101 @@ console.log('\nDoku — Abschluss-Fix Plan A (README: Delegates, 18-Wartezeit, A
   const sperre = absatzAF('**Renderer-Sperre.**');
   // F14, N3-Review Minor 1: der Satz zu 29 gilt nur Freigabe-Slots (29 gibt es nur bei SHARE, Spec 6.10 Tabelle).
   assert(/Bei Freigabe-Slots [^.]*`SDKERR_NO_SHARE_DATA` \(29\)/.test(wdh) && !/Meldet das SDK `SDKERR_NO_SHARE_DATA`/.test(wdh),
-    'F14 (N3-Review Minor 1): der Satz zu SDKERR_NO_SHARE_DATA (29) gilt in der README nur Freigabe-Slots');
+    'AF14 (N3-Review Minor 1): der Satz zu SDKERR_NO_SHARE_DATA (29) gilt in der README nur Freigabe-Slots');
   // F14, N3-Review Minor 2: der Anführungszeichen-Wächter gilt auch für den Ton-Absatz; ausgenommen sind nur seine
   // Code-Spannen mit dem Protokoll-Wert (`audio:"person"`, dazu `audio:"mix"`, das im selben Absatz steht).
   const ohneCode = (t: string): string => t.replace(/`audio:"(person|mix)"`/g, '');
   assert(ton !== '' && [wdh, deleg, ersatz, vorschau, sperre].every((t) => t !== '')
       && ![ohneCode(ton), wdh, deleg, ersatz, vorschau, sperre].some((t) => t.includes('"')),
-    'F14 (N3-Review Minor 2): keine ASCII-Anführungszeichen im Ton-Absatz (außer in den Code-Spannen audio:…) und in den neuen Absätzen');
+    'AF14 (N3-Review Minor 2): keine ASCII-Anführungszeichen im Ton-Absatz (außer in den Code-Spannen audio:…) und in den neuen Absätzen');
   assert(deleg.includes('Spec 6.10') && deleg.includes('AN11') && deleg.includes('neuen Delegate') && deleg.includes('bis zum Prozessende')
       && deleg.includes('`onRendererBeDestroyed`') && deleg.includes('Slot-Nummer'),
-    'F1 README: Delegates leben bis zum Prozessende; der Typwechsel nimmt einen neuen Delegate (Abweichung von Spec 6.10/AN11 genannt)');
+    'AF1 README: Delegates leben bis zum Prozessende; der Typwechsel nimmt einen neuen Delegate (Abweichung von Spec 6.10/AN11 genannt)');
   assert(wdh.includes('sofort') && wdh.includes('Spec 6.10') && wdh.includes('weder Bild noch Ton'),
-    'F2 README: bei 18 läuft der Abschluss sofort, vom alten Ziel geht weder Bild noch Ton hinaus (Abweichung von Spec 6.10 genannt)');
+    'AF2 README: bei 18 läuft der Abschluss sofort, vom alten Ziel geht weder Bild noch Ton hinaus (Abweichung von Spec 6.10 genannt)');
   assert(ersatz.includes('vor dem ersten Bild') && ersatz.includes('`fallback/cameraOff`') && ersatz.includes('Spec 6.12'),
-    'F6 README: Kamera laut Zoom aus vor dem ersten Bild gleich fallback/cameraOff (Abweichung von Spec 6.12 genannt)');
+    'AF6 README: Kamera laut Zoom aus vor dem ersten Bild gleich fallback/cameraOff (Abweichung von Spec 6.12 genannt)');
+  // Restpunkt R-c der Nachprüfung: die Attrappe beachtet die Sperre bei slotSet nicht - die README nennt den Unterschied.
+  assert(sperre.includes('Attrappe und Bridge unterscheiden sich') && sperre.includes('`modeChanged`') && sperre.includes('`targetChanged`'),
+    'AF7 README (R-c): die README nennt, dass die Attrappe ein slotSet in der Sperre sofort umhängt, die Bridge nur bestätigt');
   assert(vorschau.includes('`previewMode`') && vorschau.includes('tatsächlichen Zustand') && vorschau.includes('Spec 6.3'),
-    'F9 README: previewMode bestätigt den tatsächlichen Zustand (Abweichung von Spec 6.3 „wie gesendet“ genannt)');
+    'AF9 README: previewMode bestätigt den tatsächlichen Zustand (Abweichung von Spec 6.3 „wie gesendet“ genannt)');
+}
+console.log('\nNativer Teil — Abschluss-Fix F15 (Rückrufe im Flug werden vor dem Freigeben eines Slots abgewartet):');
+{
+  // F15 (Sicherheitsprüfung an 28ebfa9d88, MEDIUM, TOCTOU; Ruling des Controllers): zwischen der Prüfung von abgemeldet
+  // und dem Zugriff auf Slot/Abo lag kein Schutz - ein Rückruf im Flug konnte einen eben freigegebenen Slot treffen.
+  // Flugzähler im Delegate (Dekker, seq_cst): der Rückruf zählt ZUERST und prüft DANN abgemeldet; der Hauptthread meldet
+  // ab und wartet OHNE gehaltene Sperre, bis der Zähler 0 ist - höchstens RUECKRUF_FRIST_MS, sonst bleibt der Slot bis
+  // zum Prozessende stehen (Sender schon zu). Jede Freigabestelle eines Slots geht über slotFreigabeAbwarten.
+  const vF = nativ('video.cpp', true);
+  const vFt = nativ('video.cpp');
+  const logikF = nativ('slot_logic.h', true);
+  const vorDemF = (text: string, a: string, b: string): boolean => text.indexOf(a) >= 0 && text.indexOf(b) > text.indexOf(a);
+  const betreten = rumpf(logikF, 'inline bool rueckrufBetreten(RueckrufWache& w)');
+  const iZaehlen = betreten.search(/w\.imFlug\.fetch_add\(\s*1\s*,\s*std::memory_order_seq_cst\s*\)\s*;/);
+  const iPruefen = betreten.search(/w\.abgemeldet\.load\(\s*std::memory_order_seq_cst\s*\)/);
+  const flugTeil = (() => {
+    const i = logikF.indexOf('struct RueckrufWache');
+    const j = logikF.indexOf('class RueckrufImFlug', i);
+    return i < 0 || j < 0 ? '' : logikF.slice(i, j) + rumpf(logikF.slice(j), 'class RueckrufImFlug');
+  })();
+  assert(/struct\s+RueckrufWache\s*\{\s*std::atomic<int>\s+imFlug\{0\}\s*;\s*std::atomic<bool>\s+abgemeldet\{false\}\s*;\s*\}/.test(logikF)
+      && iZaehlen >= 0 && iPruefen > iZaehlen
+      && /w\.imFlug\.fetch_sub\(\s*1\s*,\s*std::memory_order_seq_cst\s*\)\s*;\s*return\s+false\s*;/.test(betreten)
+      && /void\s+rueckrufAbmelden\(\s*RueckrufWache&\s*w\s*\)\s*\{\s*w\.abgemeldet\.store\(\s*true\s*,\s*std::memory_order_seq_cst\s*\)\s*;\s*\}/.test(logikF)
+      && /drin_\(\s*rueckrufBetreten\(\s*w\s*\)\s*\)/.test(flugTeil) && /~RueckrufImFlug\(\)\s*\{\s*if\s*\(\s*drin_\s*\)\s*rueckrufVerlassen\(\s*\*w_\s*\)\s*;\s*\}/.test(flugTeil)
+      && flugTeil !== '' && !/memory_order_(relaxed|acquire|release|acq_rel|consume)/.test(flugTeil)
+      && /inline\s+constexpr\s+int64_t\s+RUECKRUF_FRIST_MS\s*=\s*500\s*;/.test(logikF),
+    'AF15 (Dekker, seq_cst): ein Rückruf zählt sich ZUERST und prüft DANN abgemeldet; abgewiesen gibt er sofort zurück; der Wächter verlässt nur, wenn er drin ist');
+  const rueckrufeF = ['void Delegate::onRendererBeDestroyed(', 'void Delegate::onRawDataFrameReceived(', 'void Delegate::onRawDataStatusChanged(']
+    .map((k) => rumpf(vF, k));
+  assert(rueckrufeF.every((r) => /^\{\s*const\s+RueckrufImFlug\s+\w+\(\s*wache\s*\)\s*;/.test(r) && !/\babgemeldet\b|\bimFlug\b/.test(r)),
+    'AF15: alle drei Rückrufe legen als erste Anweisung den Flug-Wächter an und lesen abgemeldet nie selbst (sonst kippt die Reihenfolge)');
+  const freigabe = rumpf(vF, 'bool slotFreigabeAbwarten(Slot& s)');
+  const freigabeText = rumpf(vFt, 'bool slotFreigabeAbwarten(Slot& s)');
+  assert(freigabe !== '' && vorDemF(freigabe, 'rueckrufAbmelden(d->wache)', 'rueckrufeAbwarten(d->wache')
+      && /for\s*\(\s*Delegate\*\s+d\s*:\s*g_delegates\s*\)\s*\{?\s*if\s*\(\s*d->zeigtAuf\(\s*&s\s*\)\s*\)\s*rueckrufAbmelden\(\s*d->wache\s*\)\s*;/.test(freigabe)
+      && /jetztMs\(\)\s*\+\s*RUECKRUF_FRIST_MS/.test(freigabe)
+      && !/lock_guard|unique_lock|scoped_lock|\.lock\(|fieldMutex|emitMutex|try_lock/.test(freigabe)
+      && (freigabe.match(/\bemitLog\s*\(/g) ?? []).length === 1 && /std::to_wstring\(\s*s\.nr\s*\)/.test(freigabe)
+      && !/\b(name|ndi|ndiName|source)\b/.test(freigabeText.slice(freigabeText.indexOf('emitLog('))),
+    'AF15: slotFreigabeAbwarten meldet jeden Delegate des Slots ab und wartet danach - ohne gehaltene Sperre, mit Frist und stderr-Zeile (Slot-Nummer)');
+  const ausF = rumpf(vF, 'void abbauAusfuehren(');
+  const zweigF = (name: string): string => {
+    const i = ausF.indexOf(`case AbbauSchritt::${name}:`);
+    if (i < 0) return '';
+    const j = ausF.indexOf('case AbbauSchritt::', i + 1);
+    return ausF.slice(i, j < 0 ? ausF.length : j);
+  };
+  const imFlugNutzung = [...vF.matchAll(/\bg_slotsImFlug\b(\s*\.\s*(\w+))?/g)].map((m) => m[2] ?? '');
+  assert(vorDemF(zweigF('SlotLoeschen'), 'if (!slotFreigabeAbwarten(*s)) g_slotsImFlug.push_back(slot->release());', 'return true;')
+      && vorDemF(zweigF('HaltelisteAbbauen'), 'if (!slotFreigabeAbwarten(*it->slot)) g_slotsImFlug.push_back(it->slot.release());', 'g_slotsHalt.erase(')
+      && vorDemF(zweigF('HaltelisteVerwerfen'), 'if (!slotFreigabeAbwarten(*it->slot)) g_slotsImFlug.push_back(it->slot.release());', 'g_slotsHalt.erase(')
+      && /s\.sender\.close\(\);\s*if\s*\(\s*!slotFreigabeAbwarten\(\s*s\s*\)\s*\)\s*g_slotsImFlug\.push_back\(\s*slot\.release\(\)\s*\)\s*;/.test(rumpf(vF, 'void slotOn(const SlotBefehl& b)'))
+      && (vF.match(/\bg_slots\.erase\(/g) ?? []).length === 1 && (vF.match(/\bg_slotsHalt\.erase\(/g) ?? []).length === 2
+      && /std::vector<Slot\*>\s+g_slotsImFlug\s*;/.test(vF)
+      && imFlugNutzung.filter((n) => n === '').length === 1 && imFlugNutzung.every((n) => ['', 'push_back'].includes(n)),
+    'AF15: jede Freigabestelle eines Slots (SlotLoeschen, HaltelisteAbbauen, HaltelisteVerwerfen, Fehlerpfad slotOn) geht über slotFreigabeAbwarten; läuft die Frist ab, bleibt der Slot bis zum Prozessende');
+  // Sender schon zu, bevor ein Slot nach der Frist stehen bleibt: in jedem Plan steht SenderZu vor SlotLoeschen und
+  // InHalteliste (Halteliste-Einträge haben ihren Sender also schon zu), slotOn schließt ihn vorher selbst.
+  const sl = nativ('slot_logic.h', true);
+  const block = rumpf(sl, 'inline void slotBlock(');
+  assert(/s\.push_back\(AbbauSchritt::SenderZu\);\s*s\.push_back\(AbbauSchritt::InHalteliste\);\s*return;/.test(block)
+      && /s\.push_back\(AbbauSchritt::SenderZu\);\s*s\.push_back\(AbbauSchritt::SlotLoeschen\);\s*\}$/.test(block.trim()),
+    'AF15: SenderZu steht im Slot-Block vor InHalteliste und vor SlotLoeschen - ein stehen gebliebener Slot sendet nichts mehr');
+}
+{
+  const readme = a17Lies(join(testDir, '..', 'README.md'), 'utf8').replace(/\r\n/g, '\n');
+  const a7 = readme.indexOf('\n## 7 · ');
+  const e7 = readme.indexOf('\n## ', a7 + 1);
+  const s7 = readme.slice(a7, e7 < 0 ? undefined : e7);
+  const i = s7.indexOf('\n**Delegates.**');
+  const j = i < 0 ? -1 : s7.indexOf('\n\n', i + 1);
+  const deleg = i < 0 ? '' : s7.slice(i, j < 0 ? undefined : j).replace(/\s+/g, ' ');
+  assert(deleg.includes('abgewartet') && deleg.includes('ohne gehaltene Sperre') && deleg.includes('500 ms') && deleg.includes('bis zum Prozessende')
+      && !deleg.includes('"'),
+    'AF15 README: Rückrufe im Flug werden vor dem Freigeben eines Slots ohne gehaltene Sperre abgewartet, höchstens 500 ms');
 }
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

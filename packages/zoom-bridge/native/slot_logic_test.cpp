@@ -1478,6 +1478,60 @@ void af11_audio_unavailable_ohne_ton() {
   CHECK(zieleSind(tonZiele(PaketArt::Share, B, s), {{3, Weg::Direkt}}));
 }
 
+void af15_rueckrufe_im_flug() {
+  std::printf("Abschluss F15: Rueckrufe im Flug - erst zaehlen, dann pruefen; vor dem Freigeben abmelden und abwarten, mit Frist\n");
+  // Ohne Threads: die Uhr und die Pause speist der Fall ein (eine Pause = 10 ms).
+  int64_t uhr = 0;
+  int pausen = 0;
+  const std::function<int64_t()> jetzt = [&uhr] { return uhr; };
+  const std::function<void()> pause = [&uhr, &pausen] { uhr += 10; ++pausen; };
+  CHECK(RUECKRUF_FRIST_MS == 500);
+  // Betreten vor dem Abmelden: der Rueckruf laeuft weiter, das Abwarten laeuft in die Frist (false).
+  RueckrufWache w;
+  CHECK(rueckrufBetreten(w) && w.imFlug.load() == 1);
+  rueckrufAbmelden(w);
+  CHECK(!rueckrufeAbwarten(w, uhr + RUECKRUF_FRIST_MS, jetzt, pause));
+  CHECK(uhr == RUECKRUF_FRIST_MS && pausen == static_cast<int>(RUECKRUF_FRIST_MS / 10));
+  // Nach dem Verlassen: sofort fertig (true), ohne Pause.
+  rueckrufVerlassen(w);
+  pausen = 0;
+  CHECK(rueckrufeAbwarten(w, uhr + RUECKRUF_FRIST_MS, jetzt, pause) && pausen == 0);
+  // Betreten nach dem Abmelden: abgewiesen, der Zaehler steht wieder auf 0.
+  CHECK(!rueckrufBetreten(w) && w.imFlug.load() == 0);
+  // Der Waechter eines Rueckrufs: zaehlt im Konstruktor, gibt im Destruktor zurueck - abgewiesen zaehlt er nicht doppelt.
+  RueckrufWache v;
+  {
+    const RueckrufImFlug f(v);
+    CHECK(f.drin() && v.imFlug.load() == 1);
+  }
+  CHECK(v.imFlug.load() == 0);
+  rueckrufAbmelden(v);
+  {
+    const RueckrufImFlug f(v);
+    CHECK(!f.drin() && v.imFlug.load() == 0);
+  }
+  CHECK(v.imFlug.load() == 0);
+  // Ein Rueckruf, der waehrend des Wartens endet: fertig nach drei Pausen, vor der Frist.
+  RueckrufWache u;
+  CHECK(rueckrufBetreten(u));
+  rueckrufAbmelden(u);
+  pausen = 0;
+  const int64_t beginn = uhr;
+  const std::function<void()> endetNachDrei = [&uhr, &pausen, &u] {
+    uhr += 10;
+    if (++pausen == 3) rueckrufVerlassen(u);
+  };
+  CHECK(rueckrufeAbwarten(u, beginn + RUECKRUF_FRIST_MS, jetzt, endetNachDrei) && pausen == 3 && uhr - beginn == 30);
+  // Zwei Rueckrufe im Flug: erst nach dem zweiten Verlassen fertig.
+  RueckrufWache z;
+  CHECK(rueckrufBetreten(z) && rueckrufBetreten(z) && z.imFlug.load() == 2);
+  rueckrufAbmelden(z);
+  rueckrufVerlassen(z);
+  CHECK(!rueckrufeAbwarten(z, uhr + 20, jetzt, pause));
+  rueckrufVerlassen(z);
+  CHECK(rueckrufeAbwarten(z, uhr, jetzt, pause));   // auch bei abgelaufener Frist true, wenn keiner mehr fliegt
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -1540,6 +1594,7 @@ int main() {
   af6_kamera_aus_vor_erstem_bild();
   af8_fehler_vor_slot();
   af11_audio_unavailable_ohne_ton();
+  af15_rueckrufe_im_flug();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;

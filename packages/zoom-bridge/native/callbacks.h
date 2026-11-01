@@ -68,10 +68,11 @@ struct MerkerKamera { unsigned id = 0; int status = 0; };
 struct MerkerFreigabe { unsigned user = 0; unsigned share = 0; int status = 0; int contentType = 0; bool typNachtrag = false; };
 /**
  * Sprecher-Signal: signal 0 = speakerVideo, 1 = activeVideo, 2 = activeAudio
- * (Reihenfolge von SPEAKER_SIGNALS bzw. slotlogic::Signal); qpc =
- * QueryPerformanceCounter im Rueckruf.
+ * (Reihenfolge von SPEAKER_SIGNALS bzw. slotlogic::Signal). Das Feld qpc (QueryPerformanceCounter im Rueckruf) ist seit
+ * dem Abschluss-Fix entfernt: speakerSignal.ms kommt seit F10 aus der Bridge-Uhr jetztMs(), das Feld wurde nur noch
+ * geschrieben (Restpunkt R-e der Nachpruefung).
  */
-struct MerkerSprecher { int signal = 0; std::vector<unsigned> ids; long long qpc = 0; };
+struct MerkerSprecher { int signal = 0; std::vector<unsigned> ids; };
 
 /** INMEETING kam seit dem letzten Nehmen (nimmt und loescht, exchange). */
 bool callbacksTakeInMeeting();

@@ -9,6 +9,7 @@
 // Die Aufzaehlungen folgen in Reihenfolge und Schreibweise den Katalogen in src/protocol.ts; jede hat eine
 // Namens-Tabelle gleicher Laenge. test/selftest.ts gleicht Aufzaehlung, Tabelle und Katalog ab (A-EP10).
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -1352,6 +1353,63 @@ inline bool statusImMeeting(int status) {
 inline bool sperreLoesenErlaubt(Kette kette, bool statusImMeeting) {
   return kette != Kette::InMeetingErneut || statusImMeeting;
 }
+
+// ---- Rueckrufe im Flug (Spec 6.1 Thread-Regel, 6.15; Abschluss-Fix F15) ----------------------------------------
+
+/**
+ * Wache eines Renderer-Delegates: Zahl der laufenden Rueckrufe und der Merker abgemeldet. Beide seq_cst, Muster nach
+ * Dekker: der Rueckruf erhoeht ZUERST den Zaehler und liest DANN abgemeldet, der Hauptthread setzt ZUERST abgemeldet und
+ * liest DANN den Zaehler - einer von beiden sieht immer den anderen. Kein Mutex; der Delegate (und mit ihm die Wache) lebt
+ * bis zum Prozessende, darum darf ein Rueckruf sie auch nach dem Loeschen seines Slots anfassen.
+ */
+struct RueckrufWache {
+  std::atomic<int> imFlug{0};
+  std::atomic<bool> abgemeldet{false};
+};
+
+/** Frist, die der Hauptthread vor dem Freigeben eines Slots auf Rueckrufe im Flug wartet (F15). */
+inline constexpr int64_t RUECKRUF_FRIST_MS = 500;
+
+/** Ein Rueckruf betritt: zaehlen, dann pruefen. false = abgemeldet; der Zaehler ist dann schon wieder zurueck. */
+inline bool rueckrufBetreten(RueckrufWache& w) {
+  w.imFlug.fetch_add(1, std::memory_order_seq_cst);
+  if (!w.abgemeldet.load(std::memory_order_seq_cst)) return true;
+  w.imFlug.fetch_sub(1, std::memory_order_seq_cst);
+  return false;
+}
+
+/** Ein Rueckruf verlaesst, auf jedem Weg (ueber RueckrufImFlug). */
+inline void rueckrufVerlassen(RueckrufWache& w) { w.imFlug.fetch_sub(1, std::memory_order_seq_cst); }
+
+/** Hauptthread: abmelden. Jeder danach betretende Rueckruf wird abgewiesen. */
+inline void rueckrufAbmelden(RueckrufWache& w) { w.abgemeldet.store(true, std::memory_order_seq_cst); }
+
+/**
+ * Hauptthread, nach rueckrufAbmelden: wartet, bis kein Rueckruf mehr im Flug ist (true), oder bis jetzt() >= bisMs
+ * (false, Frist um). pause() gibt die Zeitscheibe ab. Nimmt und haelt keine Sperre; Uhr und Pause kommen von aussen (G-A2).
+ */
+inline bool rueckrufeAbwarten(const RueckrufWache& w, int64_t bisMs, const std::function<int64_t()>& jetzt,
+                              const std::function<void()>& pause) {
+  while (w.imFlug.load(std::memory_order_seq_cst) != 0) {
+    if (jetzt() >= bisMs) return false;
+    pause();
+  }
+  return true;
+}
+
+/** Waechter eines Rueckrufs: betritt im Konstruktor, verlaesst im Destruktor - nur, wenn er betreten durfte. */
+class RueckrufImFlug {
+ public:
+  explicit RueckrufImFlug(RueckrufWache& w) : w_(&w), drin_(rueckrufBetreten(w)) {}
+  ~RueckrufImFlug() { if (drin_) rueckrufVerlassen(*w_); }
+  RueckrufImFlug(const RueckrufImFlug&) = delete;
+  RueckrufImFlug& operator=(const RueckrufImFlug&) = delete;
+  bool drin() const { return drin_; }
+
+ private:
+  RueckrufWache* w_;
+  bool drin_;
+};
 
 // ---- Base64 fuer die Vorschau (Spec 6.16; genutzt von native/preview.cpp, A13) ----------------------------
 

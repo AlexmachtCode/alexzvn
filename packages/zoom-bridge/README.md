@@ -446,6 +446,9 @@ dem vorgemerkten Modus. Das Ziel kommt je Modus neu, weil die Kennungen mit
 `INMEETING` wechseln (Teilnehmer: kein Ziel, `noTarget`; Sprecher: neue Wahl;
 Freigabe: die gezeigte; Spec 6.15). Auch ein `slotSet`, dessen Umhängen die Sperre nur
 vormerkt, bekommt sein `slot`-Ereignis: den aktuellen Stand mit Grund `command` (Spec 6.2).
+Attrappe und Bridge unterscheiden sich hier: Die Attrappe beachtet die Sperre bei
+`slotSet` nicht, hängt sofort um und meldet den neuen Stand mit `modeChanged` bzw.
+`targetChanged`; die Bridge hängt erst nach `INMEETING` um.
 Periodische Abfragen am SDK ruht die Bridge in der Sperre ebenfalls (Kamera des Ziels,
 `GetUserVideoSize`, Empfangsstatistik); `userVideoW`/`userVideoH` und
 `recvVideo`/`recvShare` fehlen dann. `slotOn` beantwortet sie solange mit `slotReconnecting`. Grund ist der gemessene
@@ -476,7 +479,13 @@ zurück und fassen weder Slot noch Abo an. Einträge der Halteliste behalten ihr
 Delegate, bis sie abgebaut oder verworfen werden, damit ein spätes
 `onRendererBeDestroyed` den Renderer noch als tot markiert. Jedes
 `onRendererBeDestroyed` schreibt eine stderr-Zeile mit der Slot-Nummer, auch nach dem
-Abmelden: Die Abnahme liest daran ab, wann Zoom den Rückruf schickt.
+Abmelden: Die Abnahme liest daran ab, wann Zoom den Rückruf schickt. Ein Rückruf, der
+beim Abmelden schon läuft, wird abgewartet: Jeder Rückruf zählt sich beim Betreten,
+bevor er prüft, ob sein Delegate abgemeldet ist. Bevor die Bridge einen Slot freigibt
+(Löschen, Halteliste abbauen oder verwerfen), meldet sie alle Delegates dieses Slots ab
+und wartet ohne gehaltene Sperre, bis keiner mehr läuft. Läuft nach 500 ms noch einer,
+gibt sie den Slot nicht frei: Er bleibt mit geschlossenem Sender bis zum Prozessende
+stehen, dazu eine stderr-Zeile mit der Slot-Nummer.
 
 **Abbau-Ketten.** Welche Schritte `slotOff`, `leave`, quit/EOF, Meeting-Ende und
 Entzug in welcher Reihenfolge ausführen, liefert die reine Funktion `abbauPlan`. Der

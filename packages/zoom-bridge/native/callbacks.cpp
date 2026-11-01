@@ -70,12 +70,8 @@ bool merkerNehmen(std::deque<T>& q, T* out) {
   q.pop_front();
   return true;
 }
-
-long long qpcJetzt() {
-  LARGE_INTEGER t;
-  QueryPerformanceCounter(&t);
-  return t.QuadPart;
-}
+// Hier stand qpcJetzt() fuer MerkerSprecher.qpc - entfernt mit dem Feld (Abschluss-Fix, Restpunkt R-e: nach F10 nur
+// noch geschrieben, speakerSignal.ms kommt aus jetztMs()).
 }  // namespace
 
 bool callbacksTakeInMeeting() { return g_inMeetingOffen.exchange(false); }
@@ -446,11 +442,11 @@ void VideoCtrlListener::onHostRequestStartVideo(IRequestStartVideoHandler* /*han
 }
 
 void VideoCtrlListener::onActiveSpeakerVideoUserChanged(unsigned int userid) {
-  merkerEinreihen(g_merkerSprecher, MerkerSprecher{0, std::vector<unsigned>{userid}, qpcJetzt()});
+  merkerEinreihen(g_merkerSprecher, MerkerSprecher{0, std::vector<unsigned>{userid}});
 }
 
 void VideoCtrlListener::onActiveVideoUserChanged(unsigned int userid) {
-  merkerEinreihen(g_merkerSprecher, MerkerSprecher{1, std::vector<unsigned>{userid}, qpcJetzt()});
+  merkerEinreihen(g_merkerSprecher, MerkerSprecher{1, std::vector<unsigned>{userid}});
 }
 
 void VideoCtrlListener::onCameraControlRequestReceived(unsigned int /*userId*/, CameraControlRequestType /*requestType*/,
@@ -463,7 +459,7 @@ void AudioCtrlListener::onUserActiveAudioChange(IList<unsigned int >* plstActive
   // darum JETZT kopieren.
   std::vector<unsigned> ids;
   for (int i = 0; plstActiveAudio != nullptr && i < plstActiveAudio->GetCount(); ++i) ids.push_back(plstActiveAudio->GetItem(i));
-  merkerEinreihen(g_merkerSprecher, MerkerSprecher{2, std::move(ids), qpcJetzt()});
+  merkerEinreihen(g_merkerSprecher, MerkerSprecher{2, std::move(ids)});
 }
 
 void AudioCtrlListener::onHostRequestStartAudio(IRequestStartAudioHandler* /*handler_*/) {
