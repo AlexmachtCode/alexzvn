@@ -10,7 +10,7 @@ const { join } = require('node:path');
 const { pathToFileURL } = require('node:url');
 exports.default = async function afterPack(context) {
   const modul = join(__dirname, '..', '..', '..', 'packages', 'zoom-bridge', 'scripts', 'auslieferung.mjs');
-  const { verboteneZoomDateien, verboteneAsarEintraege } = await import(pathToFileURL(modul).href);
+  const { verboteneZoomDateien, verboteneAsarEintraege, sdkNamenQuellen } = await import(pathToFileURL(modul).href);
   const sdkBin = process.env.ZOOM_SDK_DIR && join(process.env.ZOOM_SDK_DIR, 'x64', 'bin');
   const treffer = [
     ...verboteneZoomDateien(context.appOutDir, { sdkBin }),   // Dateien im Ordner, auch app.asar.unpacked
@@ -20,4 +20,7 @@ exports.default = async function afterPack(context) {
   if (context.electronPlatformName === 'win32' && !existsSync(join(context.appOutDir, 'resources', 'zoom-bridge', 'zoom-bridge.exe'))) {
     throw new Error('zoom-bridge.exe fehlt im Installer (prepackage gelaufen?).');
   }
+  // Erfolgszeile fuers Bauprotokoll (Spec 13 Nr. 7, Nachbesserung B85): Waechter 1 (bundle-zoom-bridge.mjs) und Waechter 2
+  // stehen dort beide. Kein eigener Test: der Haken ruft nur die geteilten Waechter-Funktionen aus auslieferung.mjs.
+  console.log(`[after-pack] Wächter 2: keine Zoom-SDK-Dateien im Installer (${context.appOutDir}; geprüft gegen ${sdkNamenQuellen({ sdkBin })}).`);
 };

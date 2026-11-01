@@ -1,0 +1,201 @@
+# Abnahme JM Connect 0.4.0 (Zoom-Slots, Lasttest, NDI; Owner, echte Hardware)
+
+Spec: `docs/superpowers/specs/2026-10-17-connect-zoom-slots-design.md`, Abschnitt 12 (Regeln, Voraussetzungen, die Schritte A1 bis L1, die Lasttabelle und das Kriterium stehen hier wörtlich), Messpunkte aus 17.2 (MS1 bis MS28); Ergänzung FR13: Gruppe N aus 22.12 mit den Messpunkten MS30 bis MS36 aus 22.13. Pläne: `docs/superpowers/plans/2026-10-19-connect-zoom-slots-a-bridge.md`, `docs/superpowers/plans/2026-10-19-connect-zoom-slots-b-connect-companion.md`, `docs/superpowers/plans/2026-10-19-connect-zoom-slots-c-ndi.md`.
+
+T-Nummern verweisen auf die Texttabelle der Spec (T1 bis T106 in Abschnitt 9, T107 bis T146 in 22.9); die Kachel zeigt den Text wörtlich, mit den eingesetzten Werten. Zwei Ergänzungen am Wortlaut von Abschnitt 12, damit jeder Messpunkt einen Schritt mit Feld hat (Regel 5): G2 notiert zusätzlich „Empfang laut Zoom“ (T62b, MS24), K1–K10 nennt MS14. Dazu nennt K12 die Annahme AN15 aus 17.1, die der Vergleich prüft (Ort laut 17.1: Lasttest, MS19, K12).
+
+**Regeln:**
+- Getesteter Bau ist der **veröffentlichte Pre-Release** aus dem Launcher (B.7), nicht ein interner Bau; SHA-256 des Installers in „Getesteter Bau“.
+- Der native Teil ist geändert → Gruppe L (Gegenprobe der bisherigen Funktionen) ist Pflicht (`ABNAHME-0.3.0.md:8`).
+- Meeting-Nummer, Kenncode und echte Teilnehmernamen nie in die Datei, nur `<Name>` (`ABNAHME-0.3.0.md:9`); die Messwerte-Kopie ist schon ohne Namen (0.23).
+- Companion mit Modul 0.3.0 aus dem Release; für A3 zusätzlich ein Rechner mit Connect 0.3.0 oder eine Switcher-Show, die unter 0.3.0 eingerichtet wurde.
+- Jeder Messpunkt aus 17.2 hat einen Schritt, der sein Feld füllt (Nachbesserung B80); was hier kein Feld hat, ist kein Messpunkt.
+- Ergänzung FR13 (22.12, vom Owner am 18.10.2026 freigegeben): Gruppe N (ND1–ND17) unter Windows und macOS ist Pflicht, mit den Messpunkten MS30–MS36 (22.13); für sie gilt dieselbe Regel.
+
+**Getesteter Bau** (vom Owner auszufüllen):
+
+| Bau | SHA-256 | Datum | Raum-PC |
+| --- | --- | --- | --- |
+| `JM Connect-0.4.0-win-x64.exe` (Pre-Release `connect-v0.4.0`, über den Launcher installiert) | | | |
+| `jm-suite-companion-0.3.0.tgz` (Modul 0.3.0, aus dem Release) | | | |
+
+**Raum-PC** (vom Owner auszufüllen):
+
+| Prozessor | Grafikkarte | Arbeitsspeicher | HD-Video im Zoom-Konto (AN24) |
+| --- | --- | --- | --- |
+| | | | |
+
+**Voraussetzungen** (Nachbesserung B5, B40; Nachfix W8): Raum-PC mit Windows (Prozessor, Grafikkarte, Arbeitsspeicher notieren); Meeting im eigenen Zoom-Konto, Host im Zoom-Client; die Kontoeinstellung für HD-Video notieren (ob das Konto 1080p zulässt, ist **Annahme** AN24); **mindestens 9 verschiedene Kamera-Quellen** für Gruppe K (Teilnehmer-Geräte, weitere Zoom-Clients auf einem zweiten Rechner oder virtuelle Kameras), möglichst alle für 1080p eingerichtet (Kamera, HD im Zoom-Client; für eine aussagekräftige Zeile „9 Slots, 1080p“ müssen es neun sein, die 1080p allein liefern, K0), und zwei mit gleichem Namen; zwei Geräte können den Bildschirm teilen, eines mit Computerton; ein Teilnehmer mit angemeldetem Zoom-Konto (für MS16); JM Switcher und ein NDI-Monitor im Netz, im Switcher ein eigenes Hintergrundbild unter dem Slot-Eingang (für transparent); ein Browser-Gast mit einem Namen gleich einem Slot (L1); Companion mit Modul 0.3.0; Task-Manager mit den Spalten CPU, GPU („3D“ und „Video Decode“) und Arbeitsspeicher; eine Stoppuhr (H1, D6). Reichen die Kamera-Quellen nicht, gilt die Regel unter der Lasttabelle.
+
+## A · Installation
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| A1 | Connect 0.4.0 über den Launcher installieren (Update von 0.3.0) | Version sichtbar; Einrichtung, Zugang, Versatz unverändert; Abschnitt „Zoom-Slots“ mit T30 | |
+| A2 | Slots anlegen: „Zoom 1 Moderation“ (Teilnehmer `<Name A>`), „Zoom 2 Sprecher“ (Sprecher), „Zoom 3 Freigabe“ (Freigabe), Connect beenden und aus dem Launcher neu starten | alle drei unverändert da; im Switcher noch keine Quelle | |
+| A3a | Übergang mit einem Switcher-Eingang aus 0.3.0 (Quelle „‹Rechner› (JM Connect – Zoom <Name B>)“): im Meeting `<Name B>` „Als Slot laden“ (Nachbesserung B79 f) | der alte Eingang zeigt das Bild ohne Neueinrichtung; der Slot ist dauerhaft (kein T96). Dass dauerhafte Slots Neustart und Meeting-Ende überstehen, prüfen A2 und J3, denn A3b löscht diesen Slot (Fünfte Runde N7) | |
+| A3b | Den Slot aus A3a ausschalten und löschen, dann `zoom_load <Name B>` per Companion (Nachfix W5: Solange ein Teilnehmer-Slot dieses Namens besteht, legt `zoom_load` keinen neuen an, 8.3) | ein neuer vorübergehender Slot mit T96 und dem alten NDI-Namen; der alte Eingang zeigt wieder Bild ohne Neueinrichtung; nach dem nächsten neuen Beitritt (spätestens D5) ist der Slot weg (7.3 Nr. 8); dass vorübergehende Slots mit dem Meeting enden, prüft J3 an einem eigenen Slot (Sechste Runde RN8) | |
+| A4 | Connect 0.4.0 unter macOS starten (mit der Ergänzung FR13 Pflicht, Ablauf in ND9; vorher „falls ein Mac da ist“) | T95 an der Stelle der Zoom-Karte | |
+
+## B · Teilnehmer
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| B1 | Beitreten, Erlaubnis erteilen | die eingeschalteten Slots starten von selbst; Quellen „‹Rechner› (Zoom 1 Moderation)“ usw. im Switcher; Kachel T15 | |
+| B2 | `<Name A>` verlässt das Meeting und kommt nach mehr als 1 s zurück (#262) | T16 mit Ersatzbild, `zoom_alarm` = 1, dann wieder T15 mit Ton; der Switcher-Eingang bleibt verbunden (kein Neuverbinden sichtbar) | |
+| B2b | dasselbe mit dem angemeldeten Konto | T62c notieren (MS16) | |
+| B3 | Zwei Geräte mit gleichem Namen; Slot auf diesen Namen; Person wählen; dann schaltet die gewählte Person die Kamera aus | T13, Companion-Feedback „braucht einen Eingriff“; nach der Wahl Bild; nach Kamera aus T19 ohne Alarm | |
+| B4 | `<Name A>` schaltet die Kamera aus und an | T19, Ersatzbild; Teilnehmerliste zeigt „Kamera aus“ | |
+| B5 | Doppel-Abo vor dem Lasttest: Slot 1 Teilnehmer `<Name A>`, Slot 2 Sprecher, `<Name A>` spricht; dann zwei Freigabe-Slots, B teilt (Nachbesserung B35) | je Slot: Bild ja/nein, Bilder/s, geliefert B×H, Kachel (T97?) notieren (MS21) | |
+
+## C · Ersatzbilder
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| C1 | Ersatzbild nacheinander transparent, eingefroren, schwarz, weiß, je Kamera aus; dann bei schon ausgeschalteter Kamera auf „eingefroren“ umstellen | transparent: im Switcher liegt das Hintergrundbild sichtbar darunter (MS12); eingefroren: letztes Bild; schwarz; weiß; Umstellen bei aus: T60 und transparent | |
+
+## D · Sprecher
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| D1 | zwei Personen wechseln sich im Abstand von etwa 2 s ab, Haltezeit 1 s; danach T69 notieren | Slot folgt ohne Dauerflackern; Lücke (T66) notieren (MS13); „zu häufige Aufrufe“ und „fremde Bilder“ aus T69 (MS4, MS11) | |
+| D2 | Signal nacheinander auf alle drei stellen, je D1 wiederholen | notieren, welches Signal passt; Spotlight durch den Host einmal je Signal (MS7) | |
+| D3 | „Teilnehmer ohne Kamera zeigen“ aus, dann an; je eine Person ohne Kamera spricht, je Signal (Nachbesserung B49) | aus: Slot bleibt bei der vorigen Person; an: notieren, ob das Signal die Person ohne Kamera überhaupt meldet (Slot zeigt T27 bzw. bleibt; MS7) | |
+| D4 | JM Connect selbst ist stumm; prüfen, dass der eigene Teilnehmer nie gezeigt wird | nie | |
+| D5 | neuer Beitritt mit **allen** Slots auf Ton aus (kein `JoinVoip`), D1 wiederholen (Nachbesserung B36) | notieren, ob Sprecher-Signale kommen (Signal-Tabelle T65; MS22) | |
+| D6 | Sprecher-Slot mit Mischton: Klatschen vor der Kamera, im Switcher Bild gegen Ton (Nachbesserung B80) | Versatz Bild–Ton notieren (MS18) | |
+
+## E · Freigabe
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| E1 | Person B teilt den Bildschirm, pausiert, teilt weiter, beendet | T28, T29 mit gehaltenem Bild, T28, T29c; Auflösung und Bildrate notieren (MS1); T63c: Rückrufe und Freigabe-Kennung bei Pause notieren (MS6) | |
+| E2 | Stehender Bildschirm 60 s; dann Maus bewegen | T29b, kein Ersatzbild-Flackern, die Kachel bleibt ruhig (kein Wechsel unter 2 s, Nachbesserung B66) | |
+| E3 | A und B teilen gleichzeitig, dann endet B | Slot zeigt B (neueste, T28b), dann A | |
+| E4 | Freigabe mit Computerton: Computerton an/aus; dann Ton Mischton dazu; T63/T64/T64c ansehen | Ton der Freigabe in derselben NDI-Quelle; aus → still; mit Mischton: notieren, ob der Computerton doppelt klingt (MS8, MS9); Kennung des Freigabe-Tons notieren (MS28); zum Schluss bei Ton aus und Computerton an die Freigabe beenden: Tonzeile T58f (Fünfte Runde, `noShare`) | |
+| E4b | Slot mit Ton Person auf die teilende Person, während sie Ton teilt (Nachbesserung B80) | notieren, ob ihr Person-Ton den Computerton enthält (MS9, zweite Frage) | |
+| E5 | Connect beitreten, während schon jemand teilt | notieren, ob der Slot die laufende Freigabe sofort zeigt (`seeded`, MS3) | |
+| E6 | Connect ist im Meeting, B teilt schon, **dann** einen Freigabe-Slot einschalten (Nachbesserung B38) | Slot zeigt die Freigabe; nie T29c, solange B teilt | |
+| E7 | B verlässt das Meeting, während B teilt (AN9) | Slot geht auf die nächstjüngere Freigabe bzw. T29c | |
+| E8 | reine Computerton-Freigabe nach einer laufenden Bildschirmfreigabe (Nachbesserung B37) | Slot bleibt bei der Bildschirmfreigabe; Typ und Rückrufe in T63c notieren (MS23) | |
+| E9 | Freigabe beginnen und sofort `rendererNew`/`noShareData` in T69 notieren | MS27 | |
+
+## F · Ton
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| F1 | Slot 1 Ton Person, Slot 2 Mischton, Slot 3 aus; dann am laufenden Slot umschalten; Companion „Ton aus“ an einem Freigabe-Slot mit Computerton | jeweils der richtige Ton; Umschalten ohne Neustart der Quelle; Companion „Ton aus“ macht die Quelle still, `zoom_slot{n}_audio` = 0 | |
+
+## G · Moduswechsel
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| G1 | Slot 1 laufend (Ton nach Vorgabe: Mischton, Computerton an) von Teilnehmer auf Sprecher, auf Freigabe, zurück | der Switcher-Eingang bleibt verbunden; die Tonzeile passt nach jedem Wechsel zum neuen Modus (10.6: in Freigabe mit Computerton, sonst nur Mischton), und der Ton läuft danach wieder (T58c; Restnachfix N1); Zähler „neue Renderer“ und „Renderer-Typ“ aus T69 notieren (MS5) | |
+| G2 | Auflösung am laufenden Slot von 720p auf 1080p und zurück (Nachbesserung B48) | „Renderer meldet“ (T62) und geliefert B×H notieren (MS2); dazu „Empfang laut Zoom“ (T62b) notieren (MS24) | |
+
+## H · Anzeige
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| H1 | Kacheln, Vorschau, Messwerte ansehen; Fenster minimieren und zurückholen; „Messwerte kopieren“; bei 9 Slots Start-Klick → Kachel mit Stoppuhr | Vorschau etwa 2 Bilder/s, nach dem Minimieren aus und danach wieder an; Kopie ohne Namen; Verzögerung notieren (MS15) | |
+
+## I · Companion
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| I1 | Slot ein/aus/umschalten, Modus, Person, Ton je Slot; Variablen und Feedbacks ansehen; alte Befehle `zoom_load`, `zoom_unload`, `zoom_delay`; 17 verschiedene Namen nacheinander laden und entladen; `zoom_load` auf den Namen eines ausgeschalteten dauerhaften Slots (Restrunde RR7) | alles wirkt; `zoom_slot{n}_target` nennt die gezeigte Person; alte Befehle wie in 0.3.0 (vorübergehende Slots, kein F14); der dauerhafte Slot zeigt T96b und ist nach dem Meeting-Ende (J3) wieder aus | |
+
+## J · Abbau
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| J1 | Host entzieht die Erlaubnis, erteilt sie wieder, **während** B den Bildschirm teilt und ein Freigabe-Slot läuft (Nachfix W3) | Bild und Ton aller Slots stoppen sofort, T12b; danach laufen alle wieder, Sprecher-Slot zeigt sofort wieder den Sprecher, der Freigabe-Slot sofort wieder Bs Freigabe (nie T29c, solange B teilt) | |
+| J2 | Netzwerkkabel 60 s ziehen | Z10/Z11, danach laufen die Slots wieder; notieren, ob der Switcher selbst neu verbindet (MS17) | |
+| J3 | Kurz vorher per Companion `zoom_load <Name C>` (vorübergehender Slot, T96); dann beendet der Host das Meeting, **während** eine Freigabe und ein Sprecher-Slot laufen; dann Beenden aus dem Tray (Nachbesserung B34; Sechste Runde RN8) | **kein Absturz der Bridge** (Log: kein Rückgabewert eines Absturzes, Muster `packages/zoom-bridge/ABNAHME-STAGE3.md:264-267`); nach dem Meeting-Ende, vor dem Beenden: die dauerhaften Slots stehen weiter in der Karte, der vorübergehende Slot für `<Name C>` ist weg (der aus A3b ging schon mit einem neuen Beitritt, A3b), der dauerhafte Slot aus I1 (`zoom_load`, T96b) ist wieder aus und ohne T96b (Fünfte Runde N7); Connect endet binnen 15 s; notieren, welche Rückrufe zwischen `disconnecting` und `ended` kamen (MS26) | |
+| J4 | Netzwerkkabel 5 s ziehen (Z10 kurz, wie A3 aus 0.3.0, `ABNAHME-0.3.0.md:33`; Nachbesserung B80) | Slots laufen weiter oder wieder; „vom SDK abgebaute Renderer“ aus T69 notieren (MS25); kein Absturz | |
+
+## K · Lasttest (#261)
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| K0 | Vor K1 jede Kamera-Quelle einzeln mit genau einem laufenden Slot, je 30 s in 720p und in 1080p (Nachfix W8; Siebte Runde, Schlussprüfung S6). Freigaben misst K0 nicht: Ihre Bilder/s hängen am Bildinhalt (bei stehendem Bildschirm liefert Zoom kaum Bilder, 0.5), und 10.7 nimmt sie vom Größenvergleich aus (Achte Runde, Feinschliff FS5) | je Kamera-Quelle geliefert B×H und Bilder/s notieren (die Bilder/s sind der Maßstab von Kriterium (1) unten); „liefert die Stufe allein“ = kürzere Seite mindestens die Nennhöhe (Regel 10.7); daraus je Stufe die Zahl der Kamera-Quellen, die sie allein liefern (MS10) | |
+| K1–K10 | 1, 3, 5, 7, 9 Slots je in 720p und 1080p, je 5 min (Tabelle unten); bei 6 die Nachfrage T40 einmal | Felder vollständig; „schafft dieser Rechner“ je Stufe ja/nein nach dem Kriterium unten; Lastwerte je Zeile (MS14) | |
+| K11 | bei 5 und 9 Slots Vorschau aus und wieder an | CPU-Unterschied notieren (MS15) | |
+| K12 | zwei Slots auf dieselbe Person gegen zwei Slots auf verschiedene Personen, je 720p (Nachbesserung B5) | Prozess-CPU und GPU „Video Decode“ beider Fälle notieren (MS19); der Vergleich prüft die **Annahme** AN15, dass jeder Renderer eine eigene Dekodierung kostet | |
+
+**Lasttest (Gruppe K), je Stufe eine Zeile:**
+
+| Slots | Auflösung | Rechner | je Slot: geliefert B×H, Bilder/s, Bridge-Anteil (ms/s) | Prozess-CPU (T61) | System-CPU | GPU 3D / Video Decode (Task-Manager) | Arbeitsspeicher | Bild ruckelfrei im Switcher | Ton ruckelfrei | verschiedene Quellen | davon liefern die Stufe allein (K0) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 720p | | | | | | | | | | |
+| 1 | 1080p | | | | | | | | | | |
+| 3 | 720p | | | | | | | | | | |
+| 3 | 1080p | | | | | | | | | | |
+| 5 | 720p | | | | | | | | | | |
+| 5 | 1080p | | | | | | | | | | |
+| 7 | 720p | | | | | | | | | | |
+| 7 | 1080p | | | | | | | | | | |
+| 9 | 720p | | | | | | | | | | |
+| 9 | 1080p | | | | | | | | | | |
+
+Je Stufe zeigt jeder Slot eine **eigene** Kamera-Quelle auf einem Teilnehmer-Slot. Reichen die Quellen nicht, werden Sprecher- und Freigabe-Slots aufgefüllt, die Spalte „verschiedene Quellen“ nennt die Zahl, und eine Stufe mit weniger verschiedenen Quellen als Slots gilt als **nicht aussagekräftig für #261**, bis K12 (MS19) zeigt, ob doppelt belegte Slots eine eigene Dekodierung kosten. Ebenso gilt eine Stufe für die Frage nach einer HD-Grenze (MS10) als **nicht aussagekräftig für #261**, wenn weniger ihrer Kamera-Quellen die Stufe allein liefern (letzte Spalte, aus K0), als Slots laufen (Nachfix W8; Freigaben zählen in der letzten Spalte nicht, wie in 10.7, eine mit einer Freigabe aufgefüllte Stufe ist für MS10 also nicht aussagekräftig; Achte Runde, Feinschliff FS5): Liefert eine Quelle schon allein nur 720p, sagt ihr 720p-Bild in der 1080p-Zeile nichts über eine Grenze, die Zoom bei mehreren Abos zieht (Hinweise darauf nur beim Custom-UI-Container, `customized_video_container.h:197-199`). Die Lastwerte der Zeile (MS14) bleiben gültig, mit den tatsächlich gelieferten Größen. Die Messwerte-Kopie (T68) jeder Stufe kommt unter die Tabelle.
+
+**Kriterium „schafft dieser Rechner“** (Vorschlag der Spec, Owner-Frage FR9; Nachbesserung B73): eine Stufe gilt als geschafft, wenn über die 5 Minuten (1) jeder Teilnehmer- und Sprecher-Slot mindestens 90 % der Bildrate liefert, die seine Quelle allein in derselben Auflösung lieferte (K0; ein Sprecher-Slot gemessen an der Quelle, die er gerade zeigt; Siebte Runde, Schlussprüfung S6), (2) `fallbackFps` bei laufendem Bild 0 bleibt, (3) T61 keine verworfenen Ton-Pakete und keine verworfenen Zoom-Ereignisse zeigt, (4) Bild und Ton im Switcher ruckelfrei sind. Für Freigabe-Slots gilt (1) nicht, weil ihre Bilder/s am Bildinhalt hängen und 10.7 sie vom Größenvergleich ausnimmt; für sie gelten nur (2) bis (4), und (2) heißt bei ihnen: bei laufender Freigabe nach ihrem ersten Bild nie ein Ersatzbild (Zustand nie `fallback`, `sent` nur `none` oder `held`), denn `fallbackFps` zählt auch die Haltebilder (6.17), die ein Freigabe-Slot bei stehendem Bildschirm gewollt sendet (0.5, 6.9) (Achte Runde, Feinschliff FS5). Die Betriebsgröße (5, `zoom-text.ts:40-45`) ändert erst eine Owner-Entscheidung nach der Abnahme; der Lasttest liefert die Grundlage.
+
+**Messwerte-Kopien je Stufe** („Messwerte kopieren“, T68, ohne Namen; vom Owner einzufügen):
+
+- 1 Slot, 720p:
+- 1 Slot, 1080p:
+- 3 Slots, 720p:
+- 3 Slots, 1080p:
+- 5 Slots, 720p:
+- 5 Slots, 1080p:
+- 7 Slots, 720p:
+- 7 Slots, 1080p:
+- 9 Slots, 720p:
+- 9 Slots, 1080p:
+
+## L · Gegenprobe
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| L1 | „Einrichtung prüfen“, Warteraum und Einlass, Versatz per Klatschtest, zwei Browser-Gäste parallel zu 5 Slots, einer davon mit dem NDI-Namen eines Slots, Log durchsuchen nach Kenncode, Meeting-Nummer und Teilnehmernamen | wie in 0.3.0; T46 an der Kachel; notieren, welche Quelle der Switcher zeigt (MS20); im Log keiner der Werte | |
+
+## N · NDI (Ergänzung FR13)
+
+Schritte folgen mit Plan C.
+
+## Messungen
+
+| # | Frage | Wo gemessen | Ergebnis |
+| --- | --- | --- | --- |
+| MS1 | Hält eine Freigabe die gewählte Auflösung ein? Welche Größe und Bildrate hat sie (Bildschirm, Fenster, ungerade Maße → `slotBufferMismatch`?) | E1 | |
+| MS2 | Hält der Renderer die Auflösung über `unSubscribe`+`subscribe`; was meldet `getResolution()` nach dem Setzen? (Ob eine Stufe auch ohne Umhängen wirkt, prüft 0.4.0 nicht, 6.11.) | G2, K | |
+| MS3 | Meldet Zoom laufende Freigaben beim Ankommen nach (`seeded`)? In welcher Reihenfolge? | E5, E6 | |
+| MS4 | Kommen nach dem Umhängen Bilder mit fremder `GetSourceID()` (`foreignFrames`)? Was liefert `GetSourceID()` bei VIDEO und SHARE (`gapUngeprueft`)? | D1, G1 | |
+| MS5 | Darf ein Renderer zwischen VIDEO und SHARE wechseln (`rendererNew`, `rawType`)? | G1 | |
+| MS6 | Was kommt während `Sharing_Pause` (keine Bilder, Standbilder, `RawData_Off`)? Ist die Freigabe-Kennung gesetzt, und zieht der Typ-Nachtrag eine Kennung 0 nach (T63c)? | E1 | |
+| MS7 | Unterschied der drei Sprecher-Signale, auch bei Spotlight; Bedeutung von 0; Meldungen über den eigenen Teilnehmer; Form der Liste; melden sie Personen ohne Kamera? | D2, D3 | |
+| MS8 | Kommt Freigabe-Ton trotz `EnablePlayMeetingAudio(false)`; Rate und Kanäle? | E4 | |
+| MS9 | Enthält der Mischton den Computerton; enthält der Ton der teilenden Person ihn? | E4, E4b | |
+| MS10 | Gelieferte Größe je Slot bei 720p und 1080p mit 1, 3, 5, 7, 9 Slots; gilt eine HD-Grenze? (360p misst die Abnahme nicht, Entwurf B.6; Nachbesserung B73). Aussagekräftig nur für Zeilen, deren Kamera-Quellen die Stufe allein liefern (Nachfix W8); Freigaben zählen nicht, wie in 10.7 (Achte Runde, Feinschliff FS5) | K0, K | |
+| MS11 | Liefert `subscribe` bei schnellem Wechsel `SDKERR_TOO_FREQUENT_CALL` (`tooFrequent`)? | D1 | |
+| MS12 | Zeigt der JM Switcher das transparente Ersatzbild durchsichtig, ohne Ruckler beim Formatwechsel? | C1 | |
+| MS13 | Lücke beim Sprecherwechsel (`gapMs`), Wechsel pro Minute | D1 | |
+| MS14 | Last je Stufe: Bridge-Anteil, Prozess, System, GPU, Speicher | K | |
+| MS15 | Kosten der Vorschau (CPU an/aus); Verzögerung von Klick bis Kachel bei 9 Slots | K11, H1 | |
+| MS16 | Hält die `persistentId` bei angemeldeten Zoom-Konten über Weggang und Wiederbeitritt (T62c)? | B2b | |
+| MS17 | Verbindet der Switcher nach Entzug oder Wiederbeitritt (neuer Sender, gleicher Name) selbst neu? | J1, J2 | |
+| MS18 | Laufen Bild und Ton von Sprecher- und Freigabe-Slot gleich (Mischton; kein Versatz bei Freigabe)? | D6, E4 | |
+| MS19 | Kosten mehrere Slots auf dieselbe Person doppelt? | K12 | |
+| MS20 | Was tut NDI mit zwei gleichnamigen Sendern (Slot und Browser-Gast; ST4 M8)? | L1 | |
+| MS21 | Beliefert Zoom zwei Renderer auf dieselbe Kennung (VIDEO) bzw. dieselbe Freigabe (SHARE) zugleich? Je Slot Bild ja/nein, Bilder/s, B×H | B5 | |
+| MS22 | Kommen die Sprecher-Signale ohne `JoinVoip`? | D5 | |
+| MS23 | Welche Folge von Zustand und Typ meldet Zoom je Freigabe-Art (Bildschirm, Fenster, Whiteboard, reiner Computerton)? | E8, E1 | |
+| MS24 | Was sagen `GetUserVideoSize`, die HD-Einstellungen und `recvResolution`/`recvFps` neben der gemessenen Größe (T62b)? | K, G2 | |
+| MS25 | Kommt `onRendererBeDestroyed` bei Z10, Z11 oder Meeting-Ende (`rendererLost`)? | J2, J3, J4 | |
+| MS26 | Welche Rückrufe kommen zwischen `DISCONNECTING` und `ENDED`? | J3 | |
+| MS27 | Liefert `subscribe(SHARE)` bei `Sharing_Other_Share_Begin` sofort oder zuerst 29 (`noShareData`)? | E9 | |
+| MS28 | Welche Kennung trägt der Freigabe-Ton (`shareAudioLastId`), gleich der `userid` aus `ZoomSDKSharingSourceInfo`? | E4 | |
+
+Entfallen: **MS29** („Kommt `RawData_Off` innerhalb von `unSubscribe()` oder danach?“, Restrunde RR2). Die Messpunkte MS30 bis MS36 der Ergänzung FR13 folgen mit Plan C.
