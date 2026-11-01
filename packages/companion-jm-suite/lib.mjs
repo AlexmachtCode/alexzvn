@@ -18,6 +18,8 @@ export function toCompanionOption(arg) {
  *  - Switcher-Befehle haben KEINEN Namespace (PREVIEW 2, CUT) — Rückwärtskompat.
  *  - Toggle-Actions (toggleKey) lösen 'toggle' clientseitig über den letzten
  *    STATE-Wert auf und senden ON/OFF (alle Tools akzeptieren ON/OFF).
+ *    Ein Platzhalter {slot} im toggleKey wird vorher aus der Option „slot“
+ *    aufgelöst (Connect 0.4.0, Spec 8.5 Nr. 2; slotSchluessel).
  *
  * @param {string} role      Tool-Rolle (z. B. 'timer')
  * @param {object} action    Capability-Action {verb, args?, toggleKey?}
@@ -31,7 +33,7 @@ export function buildCommandLine(role, action, options, state) {
     let val = options?.[arg.id];
     if (arg.id === 'mode' && action.toggleKey) {
       if (val === 'toggle') {
-        const cur = state?.[action.toggleKey];
+        const cur = state?.[slotSchluessel(action.toggleKey, options)];
         val = cur === '1' || cur === 'an' || cur === 'true' ? 'off' : 'on';
       }
       args.push(String(val).toUpperCase());
@@ -43,6 +45,38 @@ export function buildCommandLine(role, action, options, state) {
   const prefix = role === 'switcher' ? '' : `${role.toUpperCase()} `;
   const tail = args.length ? ` ${args.join(' ')}` : '';
   return `${prefix}${verb}${tail}`;
+}
+
+/**
+ * Platzhalter in toggleKey/stateKey auflösen (Connect 0.4.0, Spec 8.1, 8.5): `{slot}` wird durch den Wert der Option
+ * „slot“ ersetzt ('zoom_slot{slot}_on' mit slot 3 → 'zoom_slot3_on'). Andere Platzhalter gibt es nicht; ein Schlüssel
+ * ohne Platzhalter bleibt unverändert.
+ */
+export function slotSchluessel(schluessel, werte) {
+  return schluessel.replace('{slot}', String(werte?.slot));
+}
+
+/**
+ * Ist ein Feedback an (main.js buildFeedbacks, Spec 8.5 Nr. 3)? Den stateKey vorher über slotSchluessel aus den
+ * Feedback-Optionen auflösen, dann 'truthy' über isTruthy, 'equalsArg' als Zahlvergleich mit der Option des Arguments.
+ */
+export function feedbackAn(f, optionen, state) {
+  const v = state?.[slotSchluessel(f.stateKey, optionen)];
+  if (f.match === 'truthy') return isTruthy(v);
+  return Number(v) === Number(optionen?.[f.arg.id]);
+}
+
+/**
+ * Feedbacks eines Presets (main.js buildPresets, Spec 8.5 Nr. 3): das Feedback mit dem Verb der Aktion als ID oder dem
+ * toggleKey als stateKey. Ohne Argument wie bisher mit leeren Optionen; mit Platzhalter {slot} mit der Option slot: 1
+ * (Vorgabe von slotArg); jedes andere Feedback mit Argument hängt das Preset wie bisher nicht an.
+ */
+export function presetFeedbacks(cap, aktion) {
+  const fb = cap.feedbacks.find((f) => f.id === aktion.verb || f.stateKey === aktion.toggleKey);
+  if (!fb) return [];
+  if (!fb.arg) return [{ feedbackId: fb.id, options: {} }];
+  if (fb.stateKey.includes('{slot}')) return [{ feedbackId: fb.id, options: { slot: 1 } }];
+  return [];
 }
 
 /** Passt eine empfangene STATE-Zeile (ns) zur konfigurierten Rolle? */

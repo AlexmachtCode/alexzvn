@@ -6,7 +6,7 @@
 import crypto from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { CAPABILITIES, KNOWN_ROLES, parseSuiteCommand, parseSuiteState, formatSuiteState, parseAuthReq, formatAuth, isAuthOk, isAuthFail } from '../generated/protocol.mjs'
-import { buildCommandLine, matchesRole, isControlService, pickEndpoint, isTruthy } from '../lib.mjs'
+import { buildCommandLine, matchesRole, isControlService, pickEndpoint, isTruthy, slotSchluessel, feedbackAn, presetFeedbacks } from '../lib.mjs'
 import { computeAuthProof, normalizeFingerprint } from '../auth.mjs'
 
 let failed = 0
@@ -162,6 +162,58 @@ eq(
   [true, true, true],
   'JM Connect in products und in beiden Beschreibungen',
 )
+
+// ── Zoom-Slots: Platzhalter {slot}, Feedbacks, Presets (Connect 0.4.0, Spec 8.5 Nr. 2–3, 11.7) ──
+{
+  const S = (id) => C?.actions.find((a) => a.id === id)
+  const zs = S('zoom_slot')
+  eq(zs ? buildCommandLine('connect', zs, { slot: 3, mode: 'toggle' }, { zoom_slot3_on: '1' }) : null, 'CONNECT ZOOM_SLOT 3 OFF', 'zoom_slot Slot 3 Umschalten bei zoom_slot3_on=1 → CONNECT ZOOM_SLOT 3 OFF')
+  eq(zs ? buildCommandLine('connect', zs, { slot: 3, mode: 'toggle' }, { zoom_slot3_on: '0' }) : null, 'CONNECT ZOOM_SLOT 3 ON', '… bei zoom_slot3_on=0 → ON')
+  eq(zs ? buildCommandLine('connect', zs, { slot: 3, mode: 'toggle' }, { zoom_slot1_on: '1', zoom_slot3_on: '0' }) : null, 'CONNECT ZOOM_SLOT 3 ON', '… liest den Schlüssel von Slot 3, nicht den eines anderen Slots')
+  eq(zs ? buildCommandLine('connect', zs, { slot: 16, mode: 'off' }, {}) : null, 'CONNECT ZOOM_SLOT 16 OFF', '… Stopp ohne Auflösung: OFF')
+  const za = S('zoom_slot_audio')
+  eq(za ? buildCommandLine('connect', za, { slot: 2, mode: 'toggle' }, { zoom_slot2_audio: '1' }) : null, 'CONNECT ZOOM_SLOT_AUDIO 2 OFF', 'zoom_slot_audio Slot 2 Umschalten über zoom_slot2_audio=1 → OFF')
+  const zm = S('zoom_slot_mode')
+  eq(zm ? buildCommandLine('connect', zm, { slot: 4, modus: 'freigabe' }, {}) : null, 'CONNECT ZOOM_SLOT_MODE 4 freigabe', 'zoom_slot_mode Slot 4 freigabe → CONNECT ZOOM_SLOT_MODE 4 freigabe')
+  const zp = S('zoom_slot_person')
+  const zeileP = zp ? buildCommandLine('connect', zp, { slot: 1, name: 'Anna Maria' }, {}) : null
+  eq(zeileP, 'CONNECT ZOOM_SLOT_PERSON 1 Anna Maria', 'zoom_slot_person „Anna Maria“ → CONNECT ZOOM_SLOT_PERSON 1 Anna Maria')
+  const gp = zeileP ? parseSuiteCommand(zeileP) : null
+  eq(gp ? [gp.ns, gp.verb, gp.args[0], gp.args.slice(1).join(' ')] : null, ['connect', 'zoom_slot_person', '1', 'Anna Maria'], '… Connect liest Slot-Nummer und den ganzen Namen')
+  eq(
+    [slotSchluessel('zoom_slot{slot}_live', { slot: 2 }), slotSchluessel('recording', { slot: 2 }), slotSchluessel('zoom_live', {})],
+    ['zoom_slot2_live', 'recording', 'zoom_live'],
+    'slotSchluessel: {slot} aus der Option, Schlüssel ohne Platzhalter unverändert',
+  )
+  const fl = C?.feedbacks.find((f) => f.id === 'zoom_slot_live')
+  const zustand = { zoom_slot1_live: '0', zoom_slot2_live: '1' }
+  eq(fl ? [feedbackAn(fl, { slot: 2 }, zustand), feedbackAn(fl, { slot: 1 }, zustand)] : null, [true, false], 'Feedback zoom_slot_live mit slot: 2 liest zoom_slot2_live (an), mit slot: 1 zoom_slot1_live (aus)')
+  const fa = C?.feedbacks.find((f) => f.id === 'zoom_slot_alarm')
+  eq(fa ? feedbackAn(fa, { slot: 16 }, { zoom_slot16_alarm: '1' }) : null, true, 'Feedback zoom_slot_alarm mit slot: 16 liest zoom_slot16_alarm')
+  const fz = C?.feedbacks.find((f) => f.id === 'zoom_live')
+  eq(fz ? [feedbackAn(fz, {}, { zoom_live: '1' }), feedbackAn(fz, {}, { zoom_live: '0' })] : null, [true, false], 'Feedback ohne Platzhalter (zoom_live) wie bisher')
+  const fsw = CAPABILITIES.switcher.feedbacks.find((f) => f.match === 'equalsArg')
+  eq(
+    fsw ? [feedbackAn(fsw, { [fsw.arg.id]: 3 }, { [fsw.stateKey]: '3' }), feedbackAn(fsw, { [fsw.arg.id]: 2 }, { [fsw.stateKey]: '3' })] : null,
+    [true, false],
+    'Feedback equalsArg (Switcher) wie bisher',
+  )
+  eq(zs ? presetFeedbacks(C, zs) : null, [{ feedbackId: 'zoom_slot_on', options: { slot: 1 } }], 'Preset zoom_slot trägt das Feedback zoom_slot_on mit slot: 1 (Spec 8.5 Nr. 3, 11.7)')
+  eq(za ? presetFeedbacks(C, za) : null, [], 'Preset zoom_slot_audio ohne Feedback (keines mit diesem stateKey)')
+  eq(presetFeedbacks(C, S('talkback')), [{ feedbackId: 'talkback', options: {} }], 'Preset talkback wie bisher (Feedback ohne Argument, leere Optionen)')
+  eq(
+    presetFeedbacks({ feedbacks: [{ id: 'x', stateKey: 'x', match: 'equalsArg', arg: { id: 'n' } }] }, { verb: 'x' }),
+    [],
+    'Preset mit einem Feedback mit Argument, ohne Platzhalter: wie bisher kein Feedback',
+  )
+  // main.js lädt @companion-module/base und läuft hier nicht; geprüft wird, dass es die getesteten Helfer nutzt.
+  const main = readFileSync(new URL('../main.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+  eq(
+    [main.includes('callback: (feedback) => feedbackAn(f, feedback.options, this.state),'), main.includes('feedbacks: presetFeedbacks(cap, a),'), main.includes('this.state[f.stateKey]')],
+    [true, true, false],
+    'main.js: Feedbacks über feedbackAn, Presets über presetFeedbacks, kein wörtlicher stateKey mehr',
+  )
+}
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`)
 process.exit(failed === 0 ? 0 : 1)

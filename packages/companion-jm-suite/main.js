@@ -20,7 +20,7 @@ import {
   CAPABILITIES,
   KNOWN_ROLES,
 } from './generated/protocol.mjs'
-import { buildCommandLine, toCompanionOption, matchesRole, isTruthy, isControlService, pickEndpoint } from './lib.mjs'
+import { buildCommandLine, toCompanionOption, matchesRole, feedbackAn, presetFeedbacks, isControlService, pickEndpoint } from './lib.mjs'
 import { computeAuthProof, normalizeFingerprint } from './auth.mjs'
 import { browseSuite } from './discovery.mjs'
 
@@ -125,11 +125,8 @@ class JmSuiteInstance extends InstanceBase {
         name: f.label,
         defaultStyle: { bgcolor: rgb(f.bgcolor), color: rgb(f.color) },
         options: f.arg ? [toCompanionOption(f.arg)] : [],
-        callback: (feedback) => {
-          const v = this.state[f.stateKey]
-          if (f.match === 'truthy') return isTruthy(v)
-          return Number(v) === Number(feedback.options[f.arg.id])
-        },
+        // Spec 8.5 Nr. 3: {slot} im stateKey aus der Option „slot“ auflösen (lib.mjs feedbackAn, ohne Runtime getestet).
+        callback: (feedback) => feedbackAn(f, feedback.options, this.state),
       }
     }
     return fb
@@ -144,7 +141,7 @@ class JmSuiteInstance extends InstanceBase {
     for (const a of cap.actions) {
       const options = {}
       for (const arg of a.args ?? []) options[arg.id] = arg.default
-      const fb = cap.feedbacks.find((f) => f.id === a.verb || f.stateKey === a.toggleKey)
+      // Feedback des Presets (Spec 8.5 Nr. 3): mit Platzhalter {slot} für Slot 1 (lib.mjs presetFeedbacks).
       presets[a.id] = {
         type: 'button',
         category: cap.label,
@@ -156,7 +153,7 @@ class JmSuiteInstance extends InstanceBase {
           bgcolor: combineRgb(0, 0, 0),
         },
         steps: [{ down: [{ actionId: a.id, options }], up: [] }],
-        feedbacks: fb && !fb.arg ? [{ feedbackId: fb.id, options: {} }] : [],
+        feedbacks: presetFeedbacks(cap, a),
       }
     }
     return presets

@@ -48,17 +48,36 @@ Bis Modul 0.1.0 fehlte die Rolle ganz; mit 0.2.0 ist Connect erstmals steuerbar
   Folien-Steuerung, Entfernen (Gast-ID); Variablen `room`, `guests`, `lobby`,
   `onair`, `active_label`, `standby`, `standby_label`, `talkback`, `connected`.
 - **Zoom (nur Connect unter Windows):**
-  - Aktionen „Zoom: Person als Quelle laden“ (`CONNECT ZOOM_LOAD <Anzeigename>`),
-    „Zoom: Quelle entladen“ (`CONNECT ZOOM_UNLOAD <Anzeigename>`) und
-    „Zoom: Bild-Versatz setzen“ (`CONNECT ZOOM_DELAY <ms>`, 0–1000). Der
-    Anzeigename ist der Name in Zoom; Leerzeichen sind erlaubt
-    („Anna Maria“). Beitreten oder Verlassen geht nicht per Companion.
-  - Variablen `zoom_status`, `zoom_sources`, `zoom_live`, `zoom_privilege`,
-    `zoom_alarm`, `zoom_cmd` (Ergebnis des letzten Zoom-Befehls: `ok` oder
-    `f1` … `f8`, vor dem ersten Befehl leer) und `zoom_cmd_rejected` (1/0).
-  - Feedbacks „Zoom-Quellen geladen“ (grün), „Zoom braucht einen Eingriff“
+  - **Zoom-Slots (ab Modul 0.3.0 mit Connect 0.4.0):** bis zu 16 Slots mit fester
+    Nummer. Jeder Slot ist eine NDI-Quelle mit festem Namen und zeigt eine Person,
+    den aktiven Sprecher oder die neueste Bildschirmfreigabe. Aktionen
+    „Zoom-Slot ein/aus“ (`CONNECT ZOOM_SLOT <nr> ON|OFF|TOGGLE`),
+    „Zoom-Slot: Modus wählen“ (`CONNECT ZOOM_SLOT_MODE <nr> teilnehmer|sprecher|freigabe`),
+    „Zoom-Slot: Person wählen“ (`CONNECT ZOOM_SLOT_PERSON <nr> <Anzeigename>`) und
+    „Zoom-Slot: Ton ein/aus“ (`CONNECT ZOOM_SLOT_AUDIO <nr> ON|OFF|TOGGLE`).
+    Je Slot n = 1 … 16 die Variablen `zoom_slot<n>_on`, `_live`, `_alarm`,
+    `_audio`, `_mode`, `_target` und `_state`; einen Namen trägt nur `_target`.
+    Feedbacks „Zoom-Slot eingeschaltet“ (gelb), „Zoom-Slot zeigt Bild“ (grün) und
+    „Zoom-Slot braucht einen Eingriff“ (rot) mit der Option „Slot (Nr.)“.
+    Umschalten und Feedbacks lösen die Slot-Nummer aus der Option auf; das Preset
+    „Zoom-Slot ein/aus“ trägt das Feedback für Slot 1.
+  - Aktionen „Zoom: Person als Slot laden (nur dieses Meeting)“
+    (`CONNECT ZOOM_LOAD <Anzeigename>`), „Zoom: Slot einer Person entladen“
+    (`CONNECT ZOOM_UNLOAD <Anzeigename>`) und „Zoom: Bild-Versatz setzen“
+    (`CONNECT ZOOM_DELAY <ms>`, 0–1000). Seit Connect 0.4.0 legt `ZOOM_LOAD` einen
+    vorübergehenden Slot an, der mit dem Meeting endet, oder schaltet einen
+    gespeicherten Slot dieser Person nur für dieses Meeting ein; `ZOOM_UNLOAD`
+    schaltet ihn wieder aus. Der Anzeigename ist der Name in Zoom; Leerzeichen
+    sind erlaubt („Anna Maria“). Beitreten oder Verlassen geht nicht per Companion.
+  - Variablen `zoom_status`, `zoom_sources` (laufende Slots), `zoom_live`,
+    `zoom_privilege`, `zoom_alarm`, `zoom_cmd` (Ergebnis des letzten Zoom-Befehls:
+    `ok` oder `f1` … `f14`, vor dem ersten Befehl leer) und `zoom_cmd_rejected` (1/0).
+  - Feedbacks „Zoom-Slots laufen“ (grün), „Zoom braucht einen Eingriff“
     (rot) und „letzter Zoom-Befehl abgelehnt“ (gelb). Den Grund einer Ablehnung
     zeigt JM Connect im Fenster unter „Hinweise“.
+  - Modul 0.2.0 mit Connect 0.4.0: Die drei Zoom-Befehle und die sieben Variablen
+    wirken weiter (über vorübergehende Slots); die Slot-Aktionen fehlen dort.
+    Modul 0.3.0 mit Connect 0.3.0: Die Slot-Befehle beantwortet Connect mit `f7`.
 - Unter macOS sendet Connect keine `zoom_*`-Werte (die Variablen bleiben leer);
   Zoom-Befehle schreibt Connect dort nur ins Log.
 - JM Rundown bietet die Zoom-Aktionen erst mit seinem nächsten Release an.
@@ -68,7 +87,7 @@ Bis Modul 0.1.0 fehlte die Rolle ganz; mit 0.2.0 ist Connect erstmals steuerbar
 | Datei | Inhalt |
 |---|---|
 | `main.js` | Companion-Modul (InstanceBase). Generiert Definitionen aus `CAPABILITIES`, verbindet per TCP (manuell oder mDNS-Auto), liest STATE → Variablen/Feedbacks. |
-| `lib.mjs` | Pure Hilfsfunktionen (Zeilenbau, Optionsfelder, Toggle-Auflösung, Endpunkt-Auswahl) — ohne Companion-Runtime testbar. |
+| `lib.mjs` | Pure Hilfsfunktionen (Zeilenbau, Optionsfelder, Toggle-Auflösung, Platzhalter `{slot}`, Feedback-Auswertung, Preset-Feedbacks, Endpunkt-Auswahl) — ohne Companion-Runtime testbar. |
 | `discovery.mjs` | mDNS-Browse (`bonjour-service`) der Suite-Steuer-Endpunkte (`_jmps._tcp`, TXT `ctl=1`). Spiegelt `@jm/discovery`, da das Modul standalone ist. |
 | `generated/protocol.mjs` | **Generiert** aus `packages/suite-control-protocol/src/{index,capabilities}.ts` — Parser + Capabilities. NICHT von Hand bearbeiten. |
 | `companion/manifest.json` | Companion-Modul-Manifest (node22, nodejs-ipc). |
