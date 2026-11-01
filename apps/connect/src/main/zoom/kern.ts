@@ -28,7 +28,7 @@ import {
   type Session,
 } from '@jm/zoom-bridge';
 import type {
-  AudioState, Participant, SlotAudioReason, SlotAudioSource, SlotMode, SlotReason, SlotSent, SlotState,
+  AudioState, Participant, SlotAudioReason, SlotAudioSource, SlotMode, SlotReason, SlotSent, SlotState, SpeakerSignal,
 } from '@jm/zoom-bridge/protocol';
 import { AUDIO_ABO_FEHLER, SLOT_NR_MAX, sdkErrorName, type SlotFehler } from '@jm/zoom-bridge/protocol';
 import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
@@ -53,12 +53,14 @@ import type {
 } from '../../shared/types';
 import {
   BETRIEBSGROESSE,
+  dezimal,
   EINSTELLUNG_TEXT,
   kachelFehlerZeile,
   kachelZeile,
   KANDIDAT_KENNZEICHEN,
   kanaeleText,
   khzText,
+  MESS_TEXT,
   nachfrageText,
   r5Text,
   SLOT_TEXT,
@@ -75,6 +77,8 @@ import {
   type ZoomStateKv,
   type ZoomZ,
 } from '../../shared/zoom-text';
+// T57 steht mit den übrigen Vorschau-Texten im reinen Modul der Kachel (Plan B, Task B7); der Kern braucht ihn für „Hinweise“.
+import { VORSCHAU_TEXT } from '../../renderer/src/zoom/slot-vorschau';
 import {
   KT,
   SLOT_FEHLER_TEXT,
@@ -211,6 +215,10 @@ export interface ZoomKernAbhaengigkeiten {
   fristen?: Partial<ZoomFristen>;
   /** Wartezeit vor Versuch 1–5 in ms (Spec 6.4, 12.2). Vorgabe WIEDERBEITRITT_PLAN_S × 1000; Länge = WIEDERBEITRITT_VERSUCHE. */
   wiederbeitrittPlanMs?: readonly number[];
+  /** Vorschaubild eines Slots (Slot-Spec 7.7): direkt an das Fenster, nie ins Abbild, nie ins Log; nur des aktuellen Ziels. */
+  onVorschau?(bild: { nr: number; ziel: number; w: number; h: number; jpeg: string }): void;
+  /** Startwert: Hauptfenster sichtbar und nicht minimiert (7.7, B-EP8); Vorgabe false. */
+  fensterSichtbar?: boolean;
 }
 export interface ZoomKern {
   abbild(): ZoomAbbild;
@@ -260,6 +268,12 @@ export interface ZoomKern {
   vorgabenSetzen(v: ZoomSlotVorgaben): ZoomErgebnis;
   /** Sprecher-Einstellungen (7.6): Signal und Haltezeit (T74 bei ungültiger Haltezeit); gespeichert, `speakerConfig` an die Bridge. */
   sprecherSetzen(s: ZoomSprecherEinstellung): ZoomErgebnis;
+  /** Schalter „Vorschau“ (7.7): gespeichert; `previewMode {on: Schalter und Fenster sichtbar}` an die Bridge. */
+  vorschauSetzen(an: boolean): ZoomErgebnis;
+  /** Hauptfenster sichtbar und nicht minimiert (hide, show, minimize, restore; 7.7); ändert `previewMode`. */
+  fensterSichtbar(sichtbar: boolean): void;
+  /** „Messwerte kopieren“ (7.8): T61–T69 ohne Teilnehmer- und NDI-Namen, Slots als „Slot {nr} ({Modus})“ (0.23). */
+  messwerteText(): string;
   schliessen(): void;
   meldungWeg(): void;
   gastLabelsGeaendert(): void;
@@ -325,7 +339,17 @@ interface SlotIntern {
    * Fällt mit dem Sender und mit jedem `slot`-Ereignis, das Ziel, Freigabe oder Modus ändert (B55).
    */
   mess: { geliefert: { b: number; h: number; fps: number } | null; zuletzt: { b: number; h: number } | null } | null;
+  /** Log 7.8 (B66): letzte Art `state/reason`, wann jede Art zuletzt geschrieben wurde, letzte Minutenzeile. */
+  log: { art: string; zeiten: Map<string, number>; minute: number };
+  /** persistentId der gezeigten Person beim Weggang ('' ohne) und der Vergleich bei ihrer Rückkehr (T62c, MS16). */
+  wegPersistentId: string | null;
+  rueckkehr: 'gleich' | 'verschieden' | 'fehlt' | null;
 }
+type VorschauEreignis = { ev: 'preview'; slot: number; target: number; w: number; h: number; jpeg: string };
+/** Log 7.8: eine Zustandsart je Slot höchstens einmal je 2 s (B66), Messwerte je Minute, Sprecher-Signale je Sekunde gebündelt. */
+const LOG_ART_MS = 2000;
+const LOG_MINUTE_MS = 60_000;
+const LOG_SPRECHER_MS = 1000;
 /** `ausgang` ordnet einen Fehler der Startfolge für den Wiederbeitritt ein (6.4); null bei Mangel oder Abbruch. */
 type StartErgebnis =
   | { ok: true; bridge: BridgeArt; gen: number }
@@ -438,6 +462,31 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
    */
   let tonAboFehler: string | null = null;
   let letzterTonAboFehler: string | null = null;
+  // ── Vorschau, Messwerte und Log (Slot-Spec 7.7, 7.8; Plan B, Task B16) ──
+  let fenster = d.fensterSichtbar ?? false;
+  let vorschauVerfuegbar = true;
+  /** {detail} von T57 an der Kachel: HRESULT des letzten previewUnavailable (6.4), null solange die Vorschau verfügbar ist. */
+  let vorschauDetail: string | null = null;
+  /** Log: letzte Prozesszeile, gesammelte Sprecher-Signale samt Zeitgeber, zuletzt geloggter Freigabe-Rückruf (Bridge-Uhr). */
+  let bridgeLogZeit = 0;
+  let sprecherLogZeit = 0;
+  let sprecherGesammelt: string[] = [];
+  let sprecherLogTimer: ReturnType<typeof setTimeout> | null = null;
+  let rueckrufBis = -1;
+  /** persistentId je Kennung aus roster und joined, nur im Arbeitsspeicher (T62c, MS16). */
+  const persistentIds = new Map<number, string>();
+  /** Lücken beim Sprecher-Wechsel (gapMs der Sprecher-Slots, je neuer Wert), die letzten 20 (T66). */
+  let luecken: Array<{ ms: number; ungeprueft: boolean }> = [];
+  const letzteLueckeJe = new Map<number, number>();
+  /**
+   * T67 (7.8, MS13): Zeitpunkte (Uhr von Connect), zu denen ein Sprecher-Slot eine andere Person zeigte als zuletzt, die letzten 20;
+   * mehrere Sprecher-Slots mit derselben Person zählen einmal. Gilt je Bridge (die Kennungen gelten nur dort).
+   */
+  let sprecherWechsel: number[] = [];
+  let letzterSprecher = 0;
+  /** T65, T63c: Uhrzeit des Empfangs je Sprecher-Signal (gleich lang wie messwerte.sprecherSignale) und je Freigabe-Rückruf. */
+  let sprecherZeiten: number[] = [];
+  const rueckrufZeiten = new Map<number, number>();
   let beendenVersprechen: Promise<void> | null = null;
 
   // ── Bridge-Lebenslauf (Spec 5.2, 6.9) ────────────────────────────────────
@@ -476,6 +525,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return {
       e, voruebergehend, anNurMeeting: false, s: { ...SITZUNG_LEER }, bridge: null, slotOffGesendet: false, frist: null, ton: null,
       fehler: null, gescheitertText: null, aboFehlerName: null, tonGemerkt: null, loeschen: false, mess: null,
+      log: { art: '', zeiten: new Map(), minute: 0 }, wegPersistentId: null, rueckkehr: null,
     };
   }
 
@@ -719,7 +769,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       vorgaben: d.einstellungen.vorgaben(),
       sprecher: d.einstellungen.sprecher(),
       vorschauAn: d.einstellungen.vorschau(),
-      vorschauVerfuegbar: true,
+      vorschauVerfuegbar,
+      vorschauDetail,
       ueber5: d.einstellungen.ueber5(),
       messwerte: {
         bridge: messwerte.bridge, slots: [...messwerte.slots], freigaben: messwerte.freigaben, sprecherSignale: [...messwerte.sprecherSignale],
@@ -1251,6 +1302,13 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       x.s = sitzungNach(x.s, 'neueBridge');
     }
     tonAboFehler = null;
+    // 7.7: Eine neue Bridge richtet die Vorschau neu ein; die Uhr ihrer Freigabe-Rückrufe beginnt bei 0 (7.8).
+    vorschauVerfuegbar = true;
+    vorschauDetail = null;
+    rueckrufBis = -1;
+    rueckrufZeiten.clear();
+    sprecherWechsel = [];
+    letzterSprecher = 0;
     const ordner = lzErg.ordner;
     const exePfad = join(ordner, BRIDGE_EXE);
     const bridge = fabrik(
@@ -1315,10 +1373,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         bridge.send({ cmd: 'init' });
         bridge.send({ cmd: 'auth', jwt });
         bridge.send({ cmd: 'videoDelay', ms });
-        // Slot-Spec 7.6: zusammen mit videoDelay die gespeicherten Sprecher-Einstellungen; die Vorschau beginnt aus (6.16) und
-        // folgt ab Plan B, Task B16 dem Schalter „Vorschau“ und dem Fenster.
+        // Slot-Spec 7.6, 7.7: zusammen mit videoDelay die gespeicherten Sprecher-Einstellungen und die Vorschau nach Schalter
+        // „Vorschau“ und Fenster (die Bridge beginnt mit ausgeschalteter Vorschau, 6.16).
         bridge.send({ cmd: 'speakerConfig', signal: SIGNAL_ZU_BRIDGE[sp.signal], holdMs: sp.haltezeitMs });
-        bridge.send({ cmd: 'previewMode', on: false });
+        bridge.send({ cmd: 'previewMode', on: vorschauWunsch() });
       } catch {
         // Bridge schon tot: ihr exit-Ereignis kam vorher und hat die Startfolge entschieden.
       }
@@ -1401,15 +1459,18 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         slotStatsEreignis(ohneEv(ev) as ZoomMesswerte['slots'][number]);
         break;
       case 'bridgeStats':
-        messwerte.bridge = ohneEv(ev) as NonNullable<ZoomMesswerte['bridge']>;
+        bridgeStatsEreignis(ohneEv(ev) as NonNullable<ZoomMesswerte['bridge']>);
         break;
       case 'shares':
-        messwerte.freigaben = ohneEv(ev) as NonNullable<ZoomMesswerte['freigaben']>;
+        freigabenEreignis(ohneEv(ev) as NonNullable<ZoomMesswerte['freigaben']>);
         break;
       case 'speakerSignal':
         sprecherSignalEreignis(ohneEv(ev) as Omit<ZoomMesswerte['sprecherSignale'][number], 'namen'>);
         break;
       case 'preview':
+        // 7.7: direkt an das Fenster, nicht über Abbild und Kurzform (bis zu 2 Bilder/s je Slot).
+        vorschauEreignis(ev as unknown as VorschauEreignis);
+        return;
       case 'speakerConfig':
       case 'previewMode':
         break;
@@ -1779,6 +1840,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // 10.7 (B55): Messzeile und Messwerte gehören zum Sender.
     x.mess = null;
     messwerte.slots = messwerte.slots.filter((m) => m.slot !== x.e.nr);
+    x.log.art = '';
     loeschenWennFrei(x);
   }
 
@@ -1842,14 +1904,24 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (ev.ev === 'roster') {
       folgeJe.clear();
       folgeZaehler = 0;
-      for (const p of e.list ?? []) if (!p.self) folgeJe.set(p.id, 0);
+      persistentIds.clear();
+      for (const p of e.list ?? []) {
+        if (p.self) continue;
+        folgeJe.set(p.id, 0);
+        persistentIds.set(p.id, p.persistentId);
+      }
       // Neue Kennungen (etwa nach Z10): gewaehlteId, wegSeq und personJetzt gelten nicht mehr (7.3 Nr. 5).
       for (const x of slots.values()) x.s = sitzungNach(x.s, 'z10Roster');
     } else if (ev.ev === 'joined' && e.p && !e.p.self) {
       folgeZaehler += 1;
       folgeJe.set(e.p.id, folgeZaehler);
+      persistentIds.set(e.p.id, e.p.persistentId);
     } else if (ev.ev === 'left' && typeof e.id === 'number') {
-      for (const x of slots.values()) if (x.s.gewaehlteId === e.id) x.s = { ...x.s, wegSeq: folgeZaehler };
+      for (const x of slots.values()) {
+        if (x.s.gewaehlteId !== e.id) continue;
+        x.s = { ...x.s, wegSeq: folgeZaehler };
+        x.wegPersistentId = persistentIds.get(e.id) ?? '';
+      }
     } else if (ev.ev === 'renamed' && typeof e.id === 'number' && typeof e.name === 'string') {
       for (const x of slots.values()) if (x.s.gewaehlteId === e.id) x.s = { ...x.s, personJetzt: e.name };
     }
@@ -1863,12 +1935,78 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const geliefert = e.w !== undefined && e.h !== undefined && e.fps !== undefined ? { b: e.w, h: e.h, fps: e.fps } : null;
     const zuletzt = geliefert !== null ? { b: geliefert.b, h: geliefert.h } : e.lastW !== undefined && e.lastH !== undefined ? { b: e.lastW, h: e.lastH } : null;
     x.mess = { geliefert, zuletzt };
+    // T66: jede neue Lücke eines Sprecher-Slots.
+    if (x.e.modus === 'sprecher' && e.gapMs !== undefined && letzteLueckeJe.get(e.slot) !== e.gapMs) {
+      letzteLueckeJe.set(e.slot, e.gapMs);
+      luecken = [...luecken, { ms: e.gapMs, ungeprueft: e.gapUngeprueft === true }].slice(-SPRECHER_SIGNALE_MAX);
+    }
+    // 7.8: je laufendem Slot jede Minute eine Zeile mit den Messwerten.
+    const jetzt = Date.now();
+    if (jetzt - x.log.minute >= LOG_MINUTE_MS) {
+      x.log.minute = jetzt;
+      d.log(slotLogZeile(x));
+    }
+  }
+
+  /** Logzeile eines Slots (7.8): Nummer, Modus, Zustand, Grund, `sent`, Messwerte, Ton und Zähler; nie ein Name (0.23). */
+  function slotLogZeile(x: SlotIntern): string {
+    const b = x.bridge;
+    const m = messwerte.slots.find((s) => s.slot === x.e.nr);
+    const w = (v: number | undefined): string => (v === undefined ? '-' : String(v));
+    const teile = [
+      `${b?.state ?? 'off'}/${b?.reason ?? '-'}`, `sent ${b?.sent ?? '-'}`, `${w(m?.w)}×${w(m?.h)}`, `fps ${w(m?.fps)}`,
+      `fallbackFps ${w(m?.fallbackFps)}`, `workUs ${w(m?.workUs)}`, `copyUs ${w(m?.copyUs)}`, `previewUs ${w(m?.previewUs)}`,
+      `memKb ${w(m?.memKb)}`, `resSet ${w(m?.resSet)}`, `resGot ${w(m?.resGot)}`, `rawType ${w(m?.rawType)}`,
+      `Ton ${x.ton?.source ?? 'none'}/${x.ton?.configured ?? 'none'}`, `audioPps ${w(m?.audioPps)}`, `mixDrops ${w(m?.mixDrops)}`,
+      `mixSilenceMs ${w(m?.mixSilenceMs)}`, `foreignFrames ${w(m?.foreignFrames)}`, `lateFrames ${w(m?.lateFrames)}`,
+      `tooFrequent ${w(m?.tooFrequent)}`, `noShareData ${w(m?.noShareData)}`, `rendererNew ${w(m?.rendererNew)}`, `rendererLost ${w(m?.rendererLost)}`,
+    ];
+    return `[zoom] Slot ${x.e.nr} (${x.e.modus}): ${teile.join(' · ')}`;
+  }
+
+  /** bridgeStats (7.8): Messwerte im Abbild, jede Minute eine Logzeile mit allen Feldern (ohne Namen). */
+  function bridgeStatsEreignis(e: NonNullable<ZoomMesswerte['bridge']>): void {
+    messwerte.bridge = e;
+    const jetzt = Date.now();
+    if (jetzt - bridgeLogZeit < LOG_MINUTE_MS) return;
+    bridgeLogZeit = jetzt;
+    d.log(`[zoom] Zoom-Bridge: ${Object.entries(e).map(([k, v]) => `${k} ${JSON.stringify(v)}`).join(' · ')}`);
+  }
+
+  /** shares (7.8): Freigaben im Abbild; jeder neue Freigabe-Rückruf eine Logzeile mit Zustand, Kennungen und Typ. */
+  function freigabenEreignis(e: NonNullable<ZoomMesswerte['freigaben']>): void {
+    messwerte.freigaben = e;
+    for (const k of [...rueckrufZeiten.keys()]) if (!e.recent.some((r) => r.ms === k)) rueckrufZeiten.delete(k);
+    for (const r of e.recent) {
+      if (r.ms <= rueckrufBis) continue;
+      rueckrufBis = r.ms;
+      // 6.3: Die Bridge meldet shares bei jedem Freigabe-Rückruf; der Empfang ist die Uhrzeit des Rückrufs in T63c.
+      rueckrufZeiten.set(r.ms, Date.now());
+      d.log(`[zoom] Freigabe-Rückruf: ${r.cb} ${r.status} (Person ${r.user}, Freigabe ${r.share}, Typ ${r.type})`);
+    }
+  }
+
+  /** Sprecher-Signale gebündelt, höchstens eine Logzeile je Sekunde, nur mit Kennungen (7.8). */
+  function sprecherLoggen(e: { signal: SpeakerSignal; ids: number[] }): void {
+    sprecherGesammelt.push(`${e.signal} ${e.ids.join(',') || '-'}`);
+    if (sprecherLogTimer !== null) return;
+    const schreiben = (): void => {
+      sprecherLogTimer = null;
+      sprecherLogZeit = Date.now();
+      d.log(`[zoom] Sprecher-Signale: ${sprecherGesammelt.join(' · ')}`);
+      sprecherGesammelt = [];
+    };
+    const rest = sprecherLogZeit + LOG_SPRECHER_MS - Date.now();
+    if (rest <= 0) schreiben();
+    else sprecherLogTimer = zeitgeber(rest, schreiben);
   }
 
   /** speakerSignal (7.8): die letzten SPRECHER_SIGNALE_MAX Signale mit den Namen der Kennungen (nur für die Anzeige, 0.23). */
   function sprecherSignalEreignis(e: Omit<ZoomMesswerte['sprecherSignale'][number], 'namen'>): void {
     const namen = e.ids.map(nameVon).filter((n): n is string => n !== null);
     messwerte.sprecherSignale = [...messwerte.sprecherSignale, { ...e, namen }].slice(-SPRECHER_SIGNALE_MAX);
+    sprecherZeiten = [...sprecherZeiten, Date.now()].slice(-SPRECHER_SIGNALE_MAX);
+    sprecherLoggen(e);
   }
 
   function slotEreignis(e: SlotEreignis): void {
@@ -1892,8 +2030,20 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (vorher !== null && (vorher.target !== e.target || vorher.share !== e.share || vorher.mode !== e.mode)) x.mess = null;
     else if (e.state !== 'live' && x.mess?.geliefert) x.mess = { geliefert: null, zuletzt: { b: x.mess.geliefert.b, h: x.mess.geliefert.h } };
     x.bridge = { gen: aktiveGen, state: e.state, mode: e.mode, target: e.target, share: e.share, reason: e.reason, sent: e.sent };
+    if (e.mode === 'speaker' && e.target !== 0 && e.target !== letzterSprecher) {
+      letzterSprecher = e.target;
+      sprecherWechsel = [...sprecherWechsel, Date.now()].slice(-SPRECHER_SIGNALE_MAX);
+    }
     // 10.9: Die Fehlerzeile fällt, sobald der Slot danach `live` meldet.
     if (e.state === 'live') x.fehler = null;
+    // 7.8 (B66, W1): eine Logzeile je Zustandswechsel; dieselbe Art höchstens einmal je 2 s, `sent` allein ist kein Wechsel.
+    const art = `${e.state}/${e.reason}`;
+    const jetzt = Date.now();
+    if (art !== x.log.art && jetzt - (x.log.zeiten.get(art) ?? 0) >= LOG_ART_MS) {
+      x.log.zeiten.set(art, jetzt);
+      d.log(slotLogZeile(x));
+    }
+    x.log.art = art;
     // 7.3 Nr. 7: liefSchon, sobald in diesem Meeting ein Sender bestand; zeigteSchon nur über zeigteSchonNachLive (N3).
     if (!x.s.liefSchon) x.s = { ...x.s, liefSchon: true };
     if (e.state === 'live' && x.e.modus === 'teilnehmer') x.s = { ...x.s, zeigteSchon: zeigteSchonNachLive(x.s, e) };
@@ -1928,6 +2078,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       const text = SLOT_FEHLER_TEXT[code];
       if (code === 'slotSubscribeFailed') {
         if (x) x.aboFehlerName = typeof e.sdk === 'number' ? sdkErrorName(e.sdk) : name;
+      } else if (code === 'previewUnavailable') {
+        // 7.1, 7.7: vorschauVerfuegbar falsch (T57 an jeder Kachel) und einmal unter „Hinweise“.
+        if (vorschauVerfuegbar) hinweis(VORSCHAU_TEXT.T57(e.detail ?? name));
+        vorschauVerfuegbar = false;
+        vorschauDetail = e.detail ?? name;
       } else if (text !== 'keine') {
         const klartext = text({ name, nr: e.slot ?? null });
         if (x === undefined || code === 'slotBufferMismatch') hinweis(klartext);
@@ -2029,7 +2184,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     for (const h of planeSlotAbgleich(abgleichEingabe())) {
       const x = slots.get(h.nr);
       if (x === undefined) continue;
-      if (h.art === 'nameMerken') x.s = { ...x.s, gewaehlteId: h.gewaehlteId, wegSeq: null };
+      if (h.art === 'nameMerken') {
+        if (x.s.wegSeq !== null && h.gewaehlteId !== null) rueckkehrMerken(x, h.gewaehlteId);
+        x.s = { ...x.s, gewaehlteId: h.gewaehlteId, wegSeq: null };
+      }
       else if (h.art === 'starten') startSenden(x, h.befehl);
       else if (h.art === 'aendern') {
         if (sende(h.befehl)) d.log(`[zoom] Slot ${h.nr}: neues Ziel ${String(h.befehl.id)}`);
@@ -2084,6 +2242,15 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     d.log(`[zoom] Slot ${x.e.nr} ${an ? 'eingeschaltet' : 'ausgeschaltet'}`);
     if (!an) zustimmungPruefen();
     abgleichen();
+  }
+
+  /** Rückkehr der gezeigten Person (7.3 Nr. 5 c): persistentId beim Weggang gegen die neue (MS16); Logzeile und T62c, ohne Namen. */
+  function rueckkehrMerken(x: SlotIntern, neueId: number): void {
+    const alt = x.wegPersistentId ?? '';
+    const neu = aktiveSitzung()?.participants.get(neueId)?.persistentId ?? '';
+    x.rueckkehr = alt === '' || neu === '' ? 'fehlt' : alt === neu ? 'gleich' : 'verschieden';
+    x.wegPersistentId = null;
+    d.log(`[zoom] Slot ${x.e.nr}: Rückkehr: persistentId ${x.rueckkehr}`);
   }
 
   function slotAnlegen(): ZoomErgebnis & { nr?: number } {
@@ -2171,6 +2338,110 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     d.log(`[zoom] Sprecher: ${s.signal}, Haltezeit ${s.haltezeitMs} ms`);
     abbildGeaendert();
     return { ok: true };
+  }
+
+  // ── Vorschau und Messwerte (Slot-Spec 7.7, 7.8; Plan B, Task B16) ──────────
+  /** 7.7 (E17): Vorschau an, wenn der Schalter an und das Hauptfenster sichtbar und nicht minimiert ist. */
+  function vorschauWunsch(): boolean {
+    return d.einstellungen.vorschau() && fenster;
+  }
+
+  function vorschauSetzen(an: boolean): ZoomErgebnis {
+    schreibErgebnis(d.einstellungen.setzeVorschau(an));
+    d.log(`[zoom] Vorschau ${an ? 'an' : 'aus'}`);
+    sende({ cmd: 'previewMode', on: vorschauWunsch() });
+    abbildGeaendert();
+    return { ok: true };
+  }
+
+  function fensterSichtbar(sichtbar: boolean): void {
+    if (sichtbar === fenster) return;
+    fenster = sichtbar;
+    sende({ cmd: 'previewMode', on: vorschauWunsch() });
+  }
+
+  /** 7.7 (B53): nur Bilder des Ziels, das die Bridge für diesen Slot zuletzt meldete (bei Freigabe die Freigabe-Kennung). */
+  function vorschauEreignis(e: VorschauEreignis): void {
+    const b = slots.get(e.slot)?.bridge;
+    if (!b) return;
+    const ziel = b.mode === 'share' ? b.share : b.target;
+    if (ziel === 0 || e.target !== ziel) return;
+    d.onVorschau?.({ nr: e.slot, ziel: e.target, w: e.w, h: e.h, jpeg: e.jpeg });
+  }
+
+  /** Spalte „Uhrzeit“ in T63c und T65: Empfang in Connect als hh:mm:ss.mmm (Ortszeit); ohne Zeit „unbekannt“. */
+  function uhrzeit(t: number | undefined): string {
+    if (t === undefined) return UNBEKANNT;
+    const d0 = new Date(t);
+    const zwei = (v: number): string => String(v).padStart(2, '0');
+    return `${zwei(d0.getHours())}:${zwei(d0.getMinutes())}:${zwei(d0.getSeconds())}.${String(d0.getMilliseconds()).padStart(3, '0')}`;
+  }
+
+  /**
+   * „Messwerte kopieren“ (7.8, T61–T69): Prozess, je Slot T62, T62b, T69 und T62c, Freigabe (T63/T64/T64c, T64b, T63c),
+   * Sprecher (T65–T67). Slots heißen „Slot {nr} ({Modus})“, Personen erscheinen nur als Kennung, nie ein Name (0.23).
+   */
+  function messwerteText(): string {
+    const z: string[] = [];
+    const u = (v: number | undefined): number | string => v ?? UNBEKANNT;
+    const fps = (v: number | undefined): string => (v === undefined ? UNBEKANNT : dezimal(v));
+    const b = messwerte.bridge;
+    if (b) {
+      z.push(MESS_TEXT.T61({
+        cpu: dezimal(b.cpuPct), sys: dezimal(b.sysPct), mem: dezimal(b.memMb), q: b.audioQueueMax, d: b.audioDropped, mv: b.merkerVerworfen, hl: b.halteliste,
+      }));
+    }
+    for (const m of messwerte.slots) {
+      const x = slots.get(m.slot);
+      if (x === undefined) continue;
+      z.push(MESS_TEXT.T62({
+        nr: m.slot, modus: x.e.modus, b: u(m.w), h: u(m.h), fps: fps(m.fps), ffps: dezimal(m.fallbackFps), work: dezimal(m.workUs / 1000),
+        copy: dezimal(m.copyUs / 1000), prev: dezimal(m.previewUs / 1000), mem: dezimal(m.memKb / 1024), res: m.resWanted,
+        resSetName: m.resSet !== undefined ? sdkErrorName(m.resSet) : UNBEKANNT, resGot: u(m.resGot), pps: u(m.audioPps), md: u(m.mixDrops),
+        ms: u(m.mixSilenceMs),
+      }));
+      z.push(MESS_TEXT.T62b({
+        nr: m.slot, ub: m.userVideoW ?? null, uh: m.userVideoH ?? null, hd: b?.hdVideo ?? null, og: b?.originalSize ?? null,
+        rv: b?.recvVideo ?? null, rs: b?.recvShare ?? null,
+      }));
+      z.push(MESS_TEXT.T69({
+        f: m.foreignFrames, l: m.lateFrames, t: m.tooFrequent, nsd: m.noShareData, r: m.rendererNew, rl: m.rendererLost, typ: u(m.rawType),
+      }));
+    }
+    for (const x of [...slots.values()].sort((p, q) => p.e.nr - q.e.nr)) if (x.rueckkehr !== null) z.push(MESS_TEXT.T62c(x.e.nr, x.rueckkehr));
+    const fr = messwerte.freigaben;
+    if (fr) {
+      const gezeigt = fr.list.find((f) => f.share === fr.shown);
+      const fm = messwerte.slots.find((m) => slots.get(m.slot)?.bridge?.share === fr.shown && slots.get(m.slot)?.e.modus === 'freigabe');
+      if (gezeigt && fm) {
+        const bild = { b: u(fm.w), h: u(fm.h), fps: fps(fm.fps) };
+        if (fm.shareAudioRate !== undefined) {
+          z.push(MESS_TEXT.T63({ ...bild, rate: khzText(fm.shareAudioRate / 1000), kanaele: kanaeleText(fm.shareAudioCh ?? 1), p: gezeigt.pauses, g: fm.heldFrames }));
+        } else if (b && b.shareAudioUnassigned > 0) z.push(MESS_TEXT.T64c({ ...bild, x: b.shareAudioUnassigned, k: u(b.shareAudioLastId) }));
+        else z.push(MESS_TEXT.T64(bild));
+      }
+      if (fr.seeded) z.push(MESS_TEXT.T64b[fr.seeded]);
+      z.push(`${MESS_TEXT.T63c.titel}: ${MESS_TEXT.T63c.spalten.join(' | ')}`);
+      for (const r of fr.recent) z.push(`${uhrzeit(rueckrufZeiten.get(r.ms))} | ${r.cb} | ${r.status} | ${r.user} | ${r.share} | ${r.type}`);
+    }
+    z.push(`${MESS_TEXT.T65.titel}: ${MESS_TEXT.T65.spalten.join(' | ')}`);
+    const spalte = (s: { signal: SpeakerSignal; ids: number[] }, sig: SpeakerSignal): string => (s.signal === sig ? s.ids.join(',') : '');
+    messwerte.sprecherSignale.forEach((s, i) => {
+      z.push(`${uhrzeit(sprecherZeiten[i])} | ${spalte(s, 'speakerVideo')} | ${spalte(s, 'activeVideo')} | ${spalte(s, 'activeAudio')}`);
+    });
+    if (luecken.length > 0) {
+      const werte = luecken.map((l) => l.ms).sort((p, q) => p - q);
+      const median = werte.length % 2 === 1 ? werte[(werte.length - 1) / 2] : (werte[werte.length / 2 - 1] + werte[werte.length / 2]) / 2;
+      z.push(MESS_TEXT.T66({
+        a: luecken[luecken.length - 1].ms, m: dezimal(median), x: werte[werte.length - 1], w: luecken.length, ungeprueft: luecken.some((l) => l.ungeprueft),
+      }));
+    }
+    // T67: Wechsel der Sprecher-Slots seit dem ältesten gemerkten (der erste ist die erste Person, kein Wechsel), je Minute.
+    if (sprecherWechsel.length > 0) {
+      const minuten = (Date.now() - sprecherWechsel[0]) / LOG_MINUTE_MS;
+      z.push(MESS_TEXT.T67(minuten > 0 ? dezimal((sprecherWechsel.length - 1) / minuten) : UNBEKANNT));
+    }
+    return z.join('\n');
   }
 
   function slotLoeschen(nr: number): ZoomErgebnis {
@@ -2497,6 +2768,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     slotBehalten,
     vorgabenSetzen,
     sprecherSetzen,
+    vorschauSetzen,
+    fensterSichtbar,
+    messwerteText,
     schliessen,
     meldungWeg,
     gastLabelsGeaendert: () => abbildGeaendert(),

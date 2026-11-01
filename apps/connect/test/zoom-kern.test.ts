@@ -2382,24 +2382,7 @@ console.log('— Randfälle 0.3.0: Versatz nur Sitzung (Nr. 4)');
 // „Ton aus dem Soll“ (Nr. 2) entfällt (Ton je Slot, Spec 0.8); „Doppelname“ (Nr. 1, NDI-Vorschau „ (2)“) zieht nach PK23 (Task B13).
 
 // ── Aufgabe 12 (4b): Logzeilen ohne Teilnehmernamen (N4b.2, L11) ─────────────
-/** N4b.2: true, wenn keine Logzeile einen dieser Namen als ganzes Wort enthält (ohne Groß-/Kleinschreibung). */
-function keinTeilnehmernameImLog(p: Probe, namen: readonly string[]): boolean {
-  return !p.logs.some((z) => namen.some((n) => new RegExp(`(?<![\\p{L}\\p{N}])${n}(?![\\p{L}\\p{N}])`, 'iu').test(z)));
-}
-/** Die Namen der Attrappe (fake-bridge.mjs, Drehbuch steuerung). */
-const ATTRAPPEN_NAMEN = ['Anna', 'Ben', 'Carla', 'Dora', 'Emil', 'Frieda'];
-
-console.log('— Logzeilen ohne Teilnehmernamen (N4b.2, L11)');
-{
-  const p = baueKern({ stell: () => ({ FAKE_NAMENSZEILE: '1' }) });
-  await insMeeting(p);
-  ck('Namensprobe der Bridge erscheint maskiert: „Namensprobe: ‹Name›, ‹Name›“',
-    await bis(() => p.logs.includes('[zoom-bridge] Namensprobe: ‹Name›, ‹Name›'), 2000));
-  ck('… keine Logzeile nennt einen Teilnehmernamen', keinTeilnehmernameImLog(p, ATTRAPPEN_NAMEN));
-  ck('… der eigene Anzeigename bleibt im Log', p.logs.includes('[zoom] Beitritt gestartet (Anzeigename „JM Connect“)'));
-  ck('… Karte und Abbild behalten die Namen', zeile(p, ANNA)?.name === 'Anna' && zeile(p, BEN)?.name === 'Ben');
-  await p.aufraeumen();
-}
+// Die Namensprobe und `keinTeilnehmernameImLog` zogen mit Plan B, Task B16 nach PK17 (zoom-slots.test.ts, Spec 7.8, 11.10).
 // Q16/Q17 mit Namen entfallen (T105/T106 tragen keinen Namen); Rückkehr unter „anna“ und Wiederbeitritt (R5) ziehen nach PK17 (B16).
 {
   // Die Utility-Prozesse (NDI-Gast-Sender, Programm-Empfänger) schreiben über ndi-guests.ts bzw. ndi-program.ts ins main.log.

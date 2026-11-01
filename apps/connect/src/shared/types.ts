@@ -186,6 +186,8 @@ export interface ZoomAbbild {
   /** Schalter „Vorschau“ (7.7); `vorschauVerfuegbar` false nach previewUnavailable (T57). */
   vorschauAn: boolean;
   vorschauVerfuegbar: boolean;
+  /** {detail} von T57 an der Kachel (HRESULT aus previewUnavailable, 6.4); null, solange die Vorschau verfügbar ist. */
+  vorschauDetail: string | null;
   /** Zustimmung zu mehr als 5 eingeschalteten Slots (E4, 7.4). */
   ueber5: boolean;
   /** Messwerte (Spec 7.8). */

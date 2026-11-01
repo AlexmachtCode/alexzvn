@@ -115,6 +115,9 @@ interface BaueOptionen {
   einstellungsLage?: { gesichert: string | null; verworfen: number };
   /** Laufzeit-Dienste (Mangel im Wiederbeitritt, PK11); fehlt = immer eingerichtet. */
   laufzeit?: ZoomKernAbhaengigkeiten['laufzeit'];
+  /** Startwert des Hauptfensters (7.7); fehlt = wie die Hülle vor dem ersten Fenster: nicht sichtbar. */
+  fensterSichtbar?: boolean;
+  onVorschau?: ZoomKernAbhaengigkeiten['onVorschau'];
 }
 
 function baueKern(o: BaueOptionen = {}): Probe {
@@ -233,6 +236,8 @@ function baueKern(o: BaueOptionen = {}): Probe {
     proxyUrl: () => 'https://proxy.test',
     fristen: { anmeldeMs: 3000, joinTimeoutMs: 3000, killTimeoutMs: 2000, ...o.fristen },
     wiederbeitrittPlanMs: o.wiederbeitrittPlanMs ?? [30, 30, 30, 30, 30],
+    ...(o.fensterSichtbar !== undefined ? { fensterSichtbar: o.fensterSichtbar } : {}),
+    ...(o.onVorschau ? { onVorschau: o.onVorschau } : {}),
   });
   return {
     kern,
@@ -1634,6 +1639,139 @@ console.log('— 7.6 · Vorgaben für neue Slots');
   const r = ok(p.kern.vorgabenSetzen({ aufloesung: '1080p', tonAn: false })) ? p.kern.slotAnlegen() : null;
   ck('vorgabenSetzen speichert, der nächste neue Slot übernimmt sie', r?.ok === true && JSON.stringify(p.einst.vorgaben) === '{"aufloesung":"1080p","tonAn":false}'
     && gespeichert(p, r.nr ?? 0)?.aufloesung === '1080p' && gespeichert(p, r.nr ?? 0)?.tonAn === false && p.kern.abbild().vorgaben.aufloesung === '1080p');
+  await p.aufraeumen();
+}
+
+// ── Plan B, Task B16: Vorschau, Fenster, Messwerte, Log ──
+/** N4b.2: true, wenn keine Logzeile einen dieser Namen als ganzes Wort enthält (Muster aus zoom-kern.test.ts, 7.8). */
+function keinTeilnehmernameImLog(p: Probe, namen: readonly string[]): boolean {
+  return !p.logs.some((z) => namen.some((n) => new RegExp(`(?<![\\p{L}\\p{N}])${n}(?![\\p{L}\\p{N}])`, 'iu').test(z)));
+}
+/** Die Namen der Attrappe (fake-bridge.mjs, Drehbuch steuerung). */
+const ATTRAPPEN_NAMEN = ['Anna', 'Ben', 'Carla', 'Dora', 'Emil', 'Frieda'];
+/** Das letzte previewMode an die Bridge `startNr`. */
+const letztesPreviewMode = (p: Probe, startNr = 1): unknown => p.befehle(startNr).filter((c) => c.cmd === 'previewMode').at(-1)?.on;
+
+console.log('— PK16 · Vorschau: Push statt Abbild, nicht im Log, previewMode in der Startfolge, Schalter, Fenster, fremdes Ziel (7.7)');
+{
+  const bilder: Array<{ nr: number; ziel: number; w: number; h: number; jpeg: string }> = [];
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], fensterSichtbar: true, onVorschau: (b) => bilder.push(b) });
+  await insMeeting(p);
+  ck('PK16: Startfolge mit previewMode {on: true} (Schalter an, Fenster sichtbar)', JSON.stringify(p.befehle(1).find((c) => c.cmd === 'previewMode'))
+    === JSON.stringify({ cmd: 'previewMode', on: true }));
+  ck('… Vorschaubilder kommen als Push mit Nummer und Ziel', await bis(() => bilder.some((b) => b.nr === 1 && b.ziel === ANNA && b.jpeg.length > 100), 3000));
+  const jpeg = bilder[0]?.jpeg ?? 'fehlt';
+  ck('… nicht im Abbild, nicht im Log', !JSON.stringify(p.kern.abbild()).includes(jpeg.slice(0, 40)) && !p.logs.some((z) => z.includes(jpeg.slice(0, 40))));
+  p.einspeisen(1, { ev: 'preview', slot: 1, target: BEN, w: 1, h: 1, jpeg: 'RlJFTUQ=' });
+  ck('… ein Vorschaubild mit fremdem Ziel wird verworfen', !bilder.some((b) => b.jpeg === 'RlJFTUQ='));
+  p.kern.fensterSichtbar(false);
+  ck('… Fenster verborgen oder minimiert → previewMode {on: false}', await bis(() => letztesPreviewMode(p) === false, 2000));
+  p.kern.fensterSichtbar(true);
+  ck('… wieder sichtbar → previewMode {on: true}', await bis(() => letztesPreviewMode(p) === true, 2000));
+  ck('… Schalter aus → previewMode {on: false}, gespeichert, im Abbild', ok(p.kern.vorschauSetzen(false)) && p.einst.vorschau === false
+    && p.kern.abbild().vorschauAn === false && (await bis(() => letztesPreviewMode(p) === false, 2000)));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })] });
+  await insMeeting(p);
+  ck('PK16: ohne Startwert gilt das Fenster als nicht sichtbar → Startfolge mit previewMode {on: false}', letztesPreviewMode(p) === false);
+  const detailVorher = p.kern.abbild().vorschauDetail;
+  p.einspeisen(1, { ev: 'error', where: 'slot', code: 'previewUnavailable', name: 'PREVIEW_UNAVAILABLE', detail: '0x80004005' });
+  p.einspeisen(1, { ev: 'error', where: 'slot', code: 'previewUnavailable', name: 'PREVIEW_UNAVAILABLE', detail: '0x80004005' });
+  ck('… previewUnavailable → vorschauVerfuegbar falsch, T57 einmal unter „Hinweise“', p.kern.abbild().vorschauVerfuegbar === false
+    && p.kern.abbild().hinweise.filter((h) => h === 'Vorschau nicht verfügbar (0x80004005). Bild und Ton laufen unverändert.').length === 1
+    && lage(p, 1)?.fehler === null);
+  ck('… das Abbild trägt {detail} für T57 an der Kachel (HRESULT, 6.4), vorher null', detailVorher === null
+    && p.kern.abbild().vorschauDetail === '0x80004005');
+  await p.aufraeumen();
+}
+
+console.log('— PK17 · Messwerte und Log ohne Namen (7.8, 0.23)');
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true }), slotEinst(2, { modus: 'sprecher', an: true }), slotEinst(3, { modus: 'freigabe', an: true })],
+    stell: () => ({
+      FAKE_TEILNEHMER: '3', FAKE_NAMENSZEILE: '1', FAKE_SPRECHER_FOLGE: `300:${BEN},600:${CARLA}`, FAKE_FREIGABEN: `400:${CARLA}:101:begin`,
+      FAKE_WIEDERBEITRITT_MS: '1500', FAKE_RUECKKEHR_MS: '300',
+    }),
+  });
+  await insMeeting(p);
+  ck('PK17: slotStats und bridgeStats im Abbild', await bis(() => p.kern.abbild().messwerte.slots.length === 3 && p.kern.abbild().messwerte.bridge !== null, 4000));
+  ck('… Rückkehr der gezeigten Person: Logzeile mit dem Vergleich der persistentId (MS16)', await bis(() => p.logs.includes('[zoom] Slot 1: Rückkehr: persistentId fehlt'), 4000));
+  await bis(() => p.kern.abbild().messwerte.slots.some((m) => m.slot === 1 && m.w !== undefined), 4000);
+  const text = p.kern.messwerteText();
+  ck('… messwerteText: Prozess, Slots als „Slot {nr} ({Modus})“, Rückkehr, Freigabe, Sprecher', text.includes('Zoom-Bridge: 1,5 % eines Kerns')
+    && text.includes('Slot 1 (Teilnehmer): 1280×720, 30 Bilder/s') && text.includes('Slot 2 (Aktiver Sprecher): ')
+    && text.includes('Rückkehr in Slot 1: persistentId fehlt') && text.includes('Freigabe-Rückrufe (letzte 10)') && text.includes('Sprecher-Signale (letzte 20)'));
+  ck('… ohne Teilnehmernamen und ohne NDI-Namen', !ATTRAPPEN_NAMEN.some((n) => new RegExp(`(?<![\\p{L}\\p{N}])${n}(?![\\p{L}\\p{N}])`, 'u').test(text))
+    && !['Zoom 1', 'Zoom 2', 'Zoom 3'].some((n) => text.includes(n)));
+  const reihen = text.split('\n').filter((z) => z.includes(' | ') && !z.startsWith('Freigabe-Rückrufe') && !z.startsWith('Sprecher-Signale'));
+  ck('… Spalte „Uhrzeit“ in T63c und T65: Empfang in Connect als hh:mm:ss.mmm, nicht die Uhr der Bridge', reihen.length >= 3
+    && reihen.every((z) => /^\d{2}:\d{2}:\d{2}\.\d{3} \| /.test(z)));
+  ck('… Namensprobe der Bridge erscheint maskiert', await bis(() => p.logs.includes('[zoom-bridge] Namensprobe: ‹Name›, ‹Name›, ‹Name›'), 2000));
+  ck('… Logzeilen je Slot, Sprecher-Signale und Freigabe-Rückrufe', p.logs.some((z) => /^\[zoom\] Slot 1 \(teilnehmer\): live\//.test(z))
+    && p.logs.some((z) => z.startsWith('[zoom] Sprecher-Signale: ')) && p.logs.some((z) => z.startsWith('[zoom] Freigabe-Rückruf: ')));
+  ck('… keine Logzeile nennt einen Teilnehmernamen', keinTeilnehmernameImLog(p, ATTRAPPEN_NAMEN));
+  ck('… der eigene Anzeigename bleibt im Log, Karte und Abbild behalten die Namen', p.logs.includes('[zoom] Beitritt gestartet (Anzeigename „JM Connect“)')
+    && p.kern.abbild().teilnehmer.some((t) => t.name === 'Ben'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(2, { modus: 'sprecher', an: true })], stell: () => ({ FAKE_TEILNEHMER: '3', FAKE_SPRECHER_FOLGE: `300:${BEN}` }) });
+  await insMeeting(p);
+  ck('PK17 (T67, MS13): der Sprecher-Slot zeigt Ben', await bis(() => lage(p, 2)?.text === 'Zeigt Ben (Sprecher).', 3000));
+  // Ben spricht weiter, zwei Rückrufe melden ihn abwechselnd (Video-Sprecher, Ton-Aktivität mit Carla): zehn Signale, kein Wechsel des Slots.
+  for (let i = 0; i < 10; i += 1) {
+    p.einspeisen(1, { ev: 'speakerSignal', signal: i % 2 === 0 ? 'speakerVideo' : 'activeAudio', ids: i % 2 === 0 ? [BEN] : [CARLA, BEN], ms: 10_000 + i * 100 });
+  }
+  const t67 = (): string | undefined => p.kern.messwerteText().split('\n').find((z) => z.startsWith('Wechsel pro Minute: '));
+  ck('… zehn Signale, der Slot bleibt bei Ben → „Wechsel pro Minute: 0“ (T67 zählt die Wechsel des Slots, nicht die Signale)', t67() === 'Wechsel pro Minute: 0');
+  p.einspeisen(1, slotEv(2, 'live', CARLA, 'speakerChanged', 'speaker'));
+  ck('… der Slot wechselt auf Carla → ein Wechsel, Rate über 0', /^Wechsel pro Minute: [1-9]/.test(t67() ?? ''));
+  await p.aufraeumen();
+}
+
+console.log('— PK17 · Log ohne Namen: Fernsteuerung, Übergangsnamen, Rückkehr unter „anna“, zweite Bridge (7.8, 0.23, N4b.2; 11.10)');
+{
+  const p = baueKern({ slots: [slotEinst(1, { ndiName: 'Bühne links', person: 'Carla', an: true })], stell: () => ({ FAKE_TEILNEHMER: '3' }) });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  ck('PK17 (Fernsteuerung): zoom_load Ben → vorübergehender Slot 2 „JM Connect – Zoom Ben“ läuft', cmdKv(p) === 'ok/0'
+    && (await bis(() => lage(p, 2)?.zustand === 'zeigt', 3000)));
+  ck('… „Als Slot laden“ für Anna → Slot 3 „JM Connect – Zoom Anna“ läuft', ok(p.kern.slotAusPerson(ANNA))
+    && (await bis(() => lage(p, 3)?.zustand === 'zeigt', 3000)));
+  befehl(p, 'zoom_slot_person', '1', 'Anna', 'Maria');
+  befehl(p, 'zoom_unload', 'Ben');
+  await bis(() => lage(p, 2) === undefined, 3000);
+  ck('… keine Logzeile nennt einen Teilnehmernamen (auch nicht „Anna Maria“), keine Zeile von Connect einen NDI-Namen der Slots',
+    keinTeilnehmernameImLog(p, [...ATTRAPPEN_NAMEN, 'Maria'])
+    && !p.logs.some((z) => z.startsWith('[zoom] ') && ['Bühne links', 'JM Connect – Zoom Ben', 'JM Connect – Zoom Anna'].some((n) => z.includes(n))));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true })],
+    stell: () => ({ FAKE_WIEDERBEITRITT_MS: '600', FAKE_RUECKKEHR_MS: '200', FAKE_RUECKKEHR_NAME: 'anna', FAKE_NAMENSZEILE: '1' }),
+  });
+  await insMeeting(p);
+  ck('PK17 (Rückkehr als „anna“, aus 0.3.0): slotSet auf die neue Kennung, kein Teilnehmername im Log',
+    (await bis(() => slotBefehle(p, 1, 1).some((c) => c.cmd === 'slotSet' && c.id === ANNA_ZURUECK), 3000))
+    && keinTeilnehmernameImLog(p, [...ATTRAPPEN_NAMEN, 'anna']));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true }), slotEinst(2, { person: 'Carla', an: true, tonAn: false }), slotEinst(3, { person: 'Dora', an: true })],
+    stell: (n): Record<string, string> => (n === 1
+      ? { FAKE_VERBINDUNG_WEG_MS: '800', FAKE_TEILNEHMER: '4', FAKE_NAMENSZEILE: '1' }
+      : { FAKE_DOPPELNAME: '1', FAKE_TEILNEHMER: '4', FAKE_NAMENSZEILE: '1' }),
+  });
+  await insMeeting(p);
+  ck('PK17 (Wiederbeitritt mit zweiter Bridge und Doppelname, aus 0.3.0): T87 erscheint',
+    await bis(() => p.kern.abbild().hinweise.some((h) => h.startsWith('Wieder im Meeting.')), 8000) && p.starts() === 2);
+  ck('… kein Teilnehmername im Log, auch nicht aus der zweiten Bridge (Namensprobe mit vier maskierten Namen)',
+    p.logs.some((z) => z.startsWith('[zoom-bridge] Namensprobe: ‹Name›, ‹Name›, ‹Name›, ‹Name›')) && keinTeilnehmernameImLog(p, ATTRAPPEN_NAMEN));
   await p.aufraeumen();
 }
 
