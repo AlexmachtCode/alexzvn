@@ -231,3 +231,14 @@ Rückgabewert: es ist eine andere Ursache als „Quelle nicht gefunden".
 - **Kein Pegeln, kein Mischen, keine Verzögerungskorrektur.** Das ist Sache des
   Switchers.
 - **Keine Anbindung an `apps/connect`.** Das ist Stage 4.
+
+## Nachtrag 2026-10-18: Zoom-Slots (Connect 0.4.0)
+
+Mit der Spec `docs/superpowers/specs/2026-10-17-connect-zoom-slots-design.md` (vom Owner am 18.10.2026 freigegeben) gilt ab Connect 0.4.0 Folgendes aus dieser Spec nicht mehr. Der Text oben bleibt als Stand der Stage 3 stehen.
+
+- **„Kein Mischton“, „Kein Bildschirmton“** (Abschnitt 10): Jeder Slot wählt Mischton (`onMixedAudioRawDataReceived`), den Ton der gezeigten Person oder keinen Ton; ein Freigabe-Slot nimmt den Computerton der Freigabe dazu (`onShareAudioRawDataReceived`; Spec 0.6, 6.13).
+- **„Kein nachträgliches Umschalten“** (Abschnitt 10): Ton und Tonart lassen sich am laufenden Slot umschalten (`slotSet`, Spec 0.8).
+- **„Kein Pegeln, kein Mischen“** (Abschnitt 10): Für Mischton mit Computerton mischt die Bridge beide Wege (Spec 6.13); gepegelt wird weiter nicht.
+- **Protokoll** (Abschnitt 7): Das Ereignis `audio` und das Feld `audio` an `videoSubscribe` entfallen; an ihre Stelle treten `slotAudio` und das Feld `audio` an `slotOn` und `slotSet` (Spec 6.2, 6.3).
+
+Weiter gilt: kein Dolmetscherton, kein Ton zurück nach Zoom.

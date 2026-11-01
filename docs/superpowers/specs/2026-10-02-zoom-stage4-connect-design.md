@@ -1611,3 +1611,11 @@ Diese Randfälle hat der Owner am 06.10.2026 für 0.3.0 vorgemerkt („Randfäll
 
 - **OAuth und OBF für Meetings fremder Konten.** Das wartet auf die Owner-Entscheidungen E1–E6 und das Zoom-Review. Die Bridge-Änderung `onBehalfToken` liegt auf dem Branch `spike/zoom-obf`.
 - **Release, Proxy-Deploy und Katalog** sind keine Plan-Aufgaben. Sie laufen wie bisher nach Owner-Freigabe.
+
+## Nachtrag 2026-10-18: Zoom-Slots (Connect 0.4.0)
+
+Mit der Spec `docs/superpowers/specs/2026-10-17-connect-zoom-slots-design.md` (vom Owner am 18.10.2026 freigegeben) gelten ab Connect 0.4.0 zwei Nicht-Ziele dieser Spec nicht mehr. Die Zeilen oben bleiben als Stand von 0.2.0 und 0.3.0 stehen.
+
+- **„Keine Vorschau“** (Nicht-Ziele): Jede Slot-Kachel zeigt eine kleine Vorschau, etwa 2 Bilder pro Sekunde, ohne Bild-Versatz. Die Bilder kommen als JPEG aus der Bridge, nur in Connect, nie ins Log und nie in den STATE (Spec 6.16, 7.7).
+- **„Kein Mischton, kein Bildschirmton“** (Nicht-Ziele): Jeder Slot wählt Mischton, den Ton der gezeigten Person oder keinen Ton, ein Freigabe-Slot dazu den Computerton der Freigabe (Spec 0.6, 0.8, 6.13). Weiter gilt: kein Dolmetscherton, kein Ton zurück nach Zoom.
+- Zoom-Slots ersetzen die gemerkten Quellen und das Laden je Person (Spec 7.1 bis 7.5); `zoom_load` und `zoom_unload` wirken über vorübergehende Slots (Spec 8.3, 8.4).

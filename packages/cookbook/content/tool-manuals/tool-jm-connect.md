@@ -1,15 +1,15 @@
 ---
 id: tool-jm-connect
-title: "JM Connect — Browser-Gäste und Zoom-Teilnehmer als NDI-Quellen"
+title: "JM Connect — Browser-Gäste und Zoom-Slots als NDI-Quellen"
 category: Tool-Manuals
 difficulty: anspruchsvoll
 setupTimeMin: 45
 teamSize: "1-2"
-tags: [connect, zoom, remote, gaeste, ndi, companion, wiederbeitritt, manual]
+tags: [connect, zoom, slots, remote, gaeste, ndi, companion, wiederbeitritt, manual]
 relatedTools: [jm-connect, jm-switcher, jm-rundown]
 prerequisites:
   - Windows 10/11, 64 Bit (mit Zoom und NDI) oder macOS (ohne Zoom und ohne NDI)
-  - JM Connect ab 0.3.0, installiert über den Launcher
+  - JM Connect ab 0.4.0, installiert über den Launcher
   - Zoom-SDK 7.1.5.43953 (per „Zoom-SDK laden“ oder als SDK-Ordner aus der JM-Ablage)
   - Zugangsdaten der Meeting-SDK-App (Datei oder Client-ID und Client-Secret)
   - Ein Zoom-Meeting im eigenen Zoom-Konto, Host im Zoom-Client
@@ -18,16 +18,16 @@ equipmentOwner: jm
 crewRoles:
   - Media Operator (Zuschaltungen)
   - Host im Zoom-Client (lässt zu, erteilt die Aufnahme-Erlaubnis)
-lastReviewed: 2026-10-17
+lastReviewed: 2026-10-20
 owner: tech@jakobsmedien.com
-summary: "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-Quellen im Switcher. Zoom wird einmal je PC eingerichtet, das Meeting muss im eigenen Zoom-Konto liegen, Personen werden einzeln geladen. Nach einem Abriss tritt Connect selbst wieder bei. Fernsteuerbar per Companion über Port 8737."
+summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: bis zu 16 Zoom-Slots mit eigenem NDI-Namen zeigen je eine Person, den aktiven Sprecher oder die neueste Bildschirmfreigabe. Zoom wird einmal je PC eingerichtet, das Meeting muss im eigenen Zoom-Konto liegen. Nach einem Abriss tritt Connect selbst wieder bei und startet die eingeschalteten Slots neu. Fernsteuerbar per Companion über Port 8737."
 ---
 
 ## Zutaten
 
 ### Voraussetzungen
 - Windows 10/11, 64 Bit, für Zoom und NDI. Unter macOS (installiert über den Launcher, Paket ohne Zoom und ohne NDI) laufen Raum, Einladungen und Green Room; die Gäste erscheinen dort nicht als NDI-Quelle und sehen und hören das Programm nicht, einander und die Regie per Talkback hören sie weiter.
-- JM Connect ab Version 0.3.0, installiert über den Launcher.
+- JM Connect ab Version 0.4.0, installiert über den Launcher.
 - Zoom-SDK 7.1.5.43953: auf JM-eigenen Rechnern per Knopf „Zoom-SDK laden“ (braucht den SDK-Schlüssel), sonst als SDK-Ordner aus der JM-Ablage. Connect kopiert es einmal je PC nach %LOCALAPPDATA%\JM Connect\zoom-laufzeit (rund 315 MB).
 - Zugangsdaten der Meeting-SDK-App: die Zugangsdaten-Datei (clientId, clientSecret) oder Client-ID und Client-Secret von Hand. Connect speichert sie verschlüsselt unter diesem Windows-Konto und schickt sie nie in die Cloud.
 - Ein Zoom-Meeting im eigenen Zoom-Konto der Meeting-SDK-App. Der Host sitzt im Zoom-Client auf einem zweiten Gerät.
@@ -35,13 +35,14 @@ summary: "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-
 - NDI-Switcher (JM Switcher, TriCaster, vMix, OBS) oder NDI-Monitor im selben Netz.
 
 ### Netzwerk & Steuerung
-- Steuerport 8737 (TCP-Zeilenprotokoll), mDNS-Name jm-connect-ctl (TXT ctl=1). In Companion die Rolle „JM Connect“, ab Modul 0.2.0.
+- Steuerport 8737 (TCP-Zeilenprotokoll), mDNS-Name jm-connect-ctl (TXT ctl=1). In Companion die Rolle „JM Connect“, für die Zoom-Slots ab Modul 0.3.0 (liegt dem Release von Connect 0.4.0 bei; in Companion über „Import custom module“ importieren).
 - Befehle für Browser-Gäste: CONNECT GO · CONNECT NEXT · CONNECT STANDBY <Gast-ID> · CONNECT ONAIR <Gast-ID> · CONNECT OFF <Gast-ID> · CONNECT APPROVE <Gast-ID> · CONNECT TALKBACK on|off|toggle · CONNECT SLIDES <Gast-ID> on|off|toggle · CONNECT KICK <Gast-ID> · STATE?
-- Befehle für Zoom: CONNECT ZOOM_LOAD <Anzeigename> lädt die Person mit genau diesem Anzeigenamen (Groß- und Kleinschreibung egal, Leerzeichen erlaubt) mit der Ton-Einstellung ihrer Zeile. CONNECT ZOOM_UNLOAD <Anzeigename> entlädt sie oder vergisst die gemerkte Quelle. CONNECT ZOOM_DELAY <ms> setzt den Bild-Versatz (0 bis 1000). Einen Beitritt per Companion gibt es bewusst nicht.
+- Befehle für Zoom-Slots (ab Modul 0.3.0): CONNECT ZOOM_SLOT <Nr> ON|OFF|TOGGLE setzt die Start-Taste eines Slots. CONNECT ZOOM_SLOT_MODE <Nr> teilnehmer|sprecher|freigabe wechselt den Modus; die Quelle bleibt im Switcher. CONNECT ZOOM_SLOT_PERSON <Nr> <Anzeigename> wählt die Person und den Modus Teilnehmer; sie muss nicht im Meeting sein. CONNECT ZOOM_SLOT_AUDIO <Nr> ON|OFF|TOGGLE: OFF macht die Quelle still (auch den Computerton einer Freigabe), ON stellt den vorigen Ton-Stand wieder her (ohne vorigen Stand: Ton an).
+- Befehle wie in 0.3.0: CONNECT ZOOM_LOAD <Anzeigename> legt für die Person mit genau diesem Anzeigenamen (Groß- und Kleinschreibung egal, Leerzeichen erlaubt) einen vorübergehenden Slot an und schaltet ihn ein; er gilt bis zum Ende dieses Meetings und wird nie gespeichert. Gibt es schon einen ausgeschalteten Teilnehmer-Slot mit diesem Namen, schaltet ZOOM_LOAD ihn nur für dieses Meeting ein (Kennzeichen „nur dieses Meeting an“); läuft schon einer, ändert sich nichts. CONNECT ZOOM_UNLOAD <Anzeigename> schaltet die Teilnehmer-Slots dieser Person aus: vorübergehende verschwinden, gespeicherte bleiben. CONNECT ZOOM_DELAY <ms> setzt den Bild-Versatz (0 bis 1000). Einen Beitritt per Companion gibt es bewusst nicht.
 - STATE der Browser-Gäste: room, connected, guests, lobby, onair, active_label, standby, standby_label, talkback.
-- STATE von Zoom: zoom_status (einrichtung, bereit, tritt_bei, warteraum, im_meeting, abriss, verlaesst, fehler), zoom_sources (Anzahl geladener Quellen), zoom_live (1/0), zoom_privilege (Aufnahme-Erlaubnis, 1/0), zoom_alarm (Eingriff nötig, 1/0), zoom_cmd (Ergebnis des letzten Zoom-Befehls: ok oder f1 bis f8), zoom_cmd_rejected (letzter Zoom-Befehl abgelehnt, 1/0). Die zoom_*-Werte enthalten nie einen Namen.
-- Feedbacks: Gast auf Sendung (rot), Gäste im Warteraum (gelb), Talkback (gelb), Zoom-Quellen geladen (grün), Zoom braucht einen Eingriff (rot), letzter Zoom-Befehl abgelehnt (gelb).
-- Ab Modul 0.2.0 leuchten „Gast auf Sendung“ und „Gäste im Warteraum“ bei jeder Anzahl über 0, und Namen mit Leerzeichen (active_label, standby_label) kommen ganz an. Ältere Module kennen die Rolle „JM Connect“ nicht.
+- STATE von Zoom: zoom_status (einrichtung, bereit, tritt_bei, warteraum, im_meeting, abriss, verlaesst, fehler), zoom_sources (Anzahl laufender Slots), zoom_live (1, solange mindestens ein Slot läuft), zoom_privilege (Aufnahme-Erlaubnis, 1/0), zoom_alarm (Eingriff nötig, 1/0), zoom_cmd (Ergebnis des letzten Zoom-Befehls: ok oder f1 bis f14), zoom_cmd_rejected (letzter Zoom-Befehl abgelehnt, 1/0). Je Slot n = 1 bis 16: zoom_slot{n}_on (eingeschaltet, auch nur für dieses Meeting), zoom_slot{n}_live (zeigt Bild), zoom_slot{n}_alarm (braucht einen Eingriff), zoom_slot{n}_audio (Ton eingeschaltet, Computerton eingerechnet), zoom_slot{n}_mode (teilnehmer, sprecher, freigabe), zoom_slot{n}_target (wen der Slot gerade zeigt), zoom_slot{n}_state (fehlt, aus, wartet, startet, zeigt, gehalten, ersatz, fehler, zurueckgestellt, stoppt). Namen stehen nur in zoom_slot{n}_target und nur, solange der Slot Bild zeigt; alle übrigen zoom_*-Werte enthalten keinen Namen.
+- Feedbacks: Gast auf Sendung (rot), Gäste im Warteraum (gelb), Talkback (gelb), Zoom-Slots laufen (grün), Zoom braucht einen Eingriff (rot), letzter Zoom-Befehl abgelehnt (gelb); je Slot (Option „Slot (Nr.)“): Zoom-Slot eingeschaltet (gelb), Zoom-Slot zeigt Bild (grün), Zoom-Slot braucht einen Eingriff (rot).
+- Ab Modul 0.2.0 leuchten „Gast auf Sendung“ und „Gäste im Warteraum“ bei jeder Anzahl über 0, und Namen mit Leerzeichen (active_label, standby_label) kommen ganz an. Ältere Module kennen die Rolle „JM Connect“ nicht. Modul 0.2.0 läuft mit Connect 0.4.0 weiter (ZOOM_LOAD, ZOOM_UNLOAD und ZOOM_DELAY wirken über vorübergehende Slots), zeigt die Slots aber nicht.
 - JM Rundown kennt die Zoom-Aktionen erst ab seinem nächsten Release; bis dahin steuert er Zoom nicht.
 
 ### Browser-Gäste (kurz)
@@ -50,21 +51,32 @@ summary: "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-
 - Freigegebene Gäste auf Sendung schalten. Unter Windows ist jeder Gast eine eigene NDI-Quelle „JM Connect – <Name>“, ein geteilter Bildschirm eine weitere; unter macOS gibt es keine NDI-Quellen.
 - Talkback (Regie ins Ohr) für alle oder per Halten-Taste für einen Gast; Programm-Rückkanal mit Mix-Minus je Gast nur unter Windows (er kommt über NDI).
 
+### Zoom-Slots (kurz)
+- Ein Slot ist ein fester Platz mit Nummer (1 bis 16) und eigenem NDI-Namen. Im Switcher ist er eine NDI-Quelle, die bestehen bleibt, auch wenn wechselt, wen der Slot zeigt.
+- Modus je Slot: „Teilnehmer“ (eine gewählte Person), „Aktiver Sprecher“ (wer gerade spricht, nie JM Connect selbst) oder „Bildschirmfreigabe“ (die neueste laufende Freigabe; bei Pause oder stehendem Bildschirm bleibt das letzte Bild stehen).
+- Je Slot: Auflösung („360p“, „720p“, „1080p“), Ersatzbild, solange Zoom kein Bild liefert („transparent“, „eingefroren“, „schwarz“, „weiß“), Ton an oder aus mit der Tonart „Mischton“ (alle Mikrofone des Meetings) oder „Person“ (nur die gezeigte Person, nur im Modus Teilnehmer), bei Bildschirmfreigaben zusätzlich „Computerton der Freigabe“.
+- Gespeicherte Slots bleiben samt Einstellungen am Rechner und starten im Meeting von selbst, sobald sie eingeschaltet sind und der Host die Aufnahme-Erlaubnis erteilt hat. Vorübergehende Slots (per Companion ZOOM_LOAD) gelten nur bis zum Ende des Meetings.
+
 ### Harte Grenzen
 - Kein Tally, kein Talkback/IFB und kein Mix-Minus je Zoom-Person: Zoom-Ton ist ein gemeinsamer Kanal. Das ist eine Grenze von Zoom.
 - Nur Meetings im eigenen Zoom-Konto. Zwei Gründe, beide von Zoom: Eine nicht im Zoom Marketplace veröffentlichte App kommt nicht in Meetings fremder Konten (Code 63), und seit 02.03.2026 verlangt Zoom dafür zusätzlich ein OBF-Token (Codes 503/504).
-- Ohne Aufnahme-Erlaubnis des Hosts gibt es keine Zoom-Quellen. Entzieht der Host sie, stoppt Connect sofort Bild und Ton aller Zoom-Quellen.
-- Höchstens 5 Zoom-Quellen sind gemessen. Ab der 6. warnt Connect; von selbst lädt es nie mehr als 5.
+- Ohne Aufnahme-Erlaubnis des Hosts läuft kein Slot. Entzieht der Host sie, stoppt Connect sofort Bild und Ton aller Slots.
+- Bis zu 16 Slots; gemessen sind 5 gleichzeitig laufende. Beim Einschalten des 6. fragt Connect einmal nach („Trotzdem einschalten“); die Zustimmung gilt, bis wieder höchstens 5 Slots eingeschaltet sind. Ob dieser Rechner mehr schafft, zeigen die Messwerte.
+- Rückkehr nur bei eindeutigem Namen: Verlässt die gezeigte Person das Meeting und kommt wieder, zeigt der Slot sie von selbst wieder, aber nur, wenn ihr Anzeigename im Meeting eindeutig ist; sonst wählt der Bediener an der Kachel („Welche Person?“).
+- 1080p nur, soweit Zoom liefert: Die Messzeile der Kachel zeigt, was wirklich ankommt, zum Beispiel „1080p gewünscht · Zoom liefert 1280×720 · 30 Bilder/s“.
 - Kopfhörer tragen: Lautsprecher im selben Raum wie ein abonniertes Mikrofon erzeugen Echo.
-- Kein Mischton, kein Bildschirmton, kein Dolmetscherton, kein Ton zurück nach Zoom.
-- Keine Bildvorschau in Connect: das Bild im Switcher oder NDI-Monitor ansehen.
+- Kein Dolmetscherton, kein Ton zurück nach Zoom.
+- Die Vorschau in der Kachel zeigt etwa 2 Bilder pro Sekunde und ohne Bild-Versatz; Bild und Ton im Takt zeigt nur der Switcher oder NDI-Monitor. Bildschirmfreigaben senden ohne Bild-Versatz.
+- Zoom-Slots nur unter Windows: Unter macOS steht an der Stelle der Zoom-Karte „Zoom-Slots gibt es nur unter Windows: Die Zoom-Bridge läuft nur dort.“
 - Zoom und NDI nur unter Windows. Das Mac-Paket hat beides nicht: keine NDI-Quellen, kein Programm-Rückkanal, keine Zoom-Karte.
 - Die SDK-Fassung ist fest (7.1.5.43953). Lehnt Zoom sie ab, hilft nur ein neuer Connect-Release.
 - JM Rundown kennt die Zoom-Aktionen erst ab seinem nächsten Release.
 
 ### Logs und Datenschutz
 - JM Connect schreibt Meeting-Nummer und Kenncode nie auf die Platte, nie ins Log und nie in den Companion-Status. Nach einem Neustart von Connect müssen sie neu eingegeben werden.
-- Das Log nennt Zoom-Teilnehmer und Browser-Gäste nur mit ihrer Kennung, nie mit dem Anzeigenamen. Karte und NDI-Namen zeigen die Namen weiter.
+- Das Log nennt Zoom-Teilnehmer und Browser-Gäste nur mit ihrer Kennung, nie mit dem Anzeigenamen, und Slots nur mit Nummer und Modus. Karte, Companion-Variable zoom_slot{n}_target und NDI-Namen zeigen die Namen weiter.
+- Teilnehmer-Slots speichern den Anzeigenamen ihrer Person am Rechner (in connect-settings.json unter %APPDATA%\JM Connect), damit der Slot sie im nächsten Meeting wiederfindet. Vorübergehende Slots (ZOOM_LOAD) und Namen aus einer Umbenennung im Meeting speichert Connect nie.
+- „Messwerte kopieren“ legt die Messwerte ohne Teilnehmer- und ohne NDI-Namen in die Zwischenablage (Slots als Nummer und Modus, Personen als Kennung).
 - Alle Suite-Apps löschen Logzeilen, die älter als 14 Tage sind, 30 Sekunden nach dem Start und danach alle 6 Stunden, jeweils ab ihrem nächsten Release. Ein zweiter Start einer schon laufenden App räumt nicht auf.
 - Den Logordner öffnet der Knopf „Logordner öffnen“ in der Zoom-Karte.
 
@@ -80,32 +92,41 @@ summary: "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-
 - Zoom-SDK ohne Schlüssel: „SDK-Ordner wählen …“ und den SDK-Ordner aus der JM-Ablage wählen (den Ordner mit dem Unterordner x64\bin). Danach steht dort „Zoom-SDK 7.1.5.43953 eingerichtet“.
 - Zugangsdaten: „Datei wählen …“ oder „Eintragen …“ (Client-ID und Client-Secret). Danach steht dort „hinterlegt (Client-ID endet auf …)“.
 - „Einrichtung prüfen“ meldet sich ohne Meeting bei Zoom an. Erwartet: „Einrichtung in Ordnung: Zoom-SDK 7.1.5 (43953), Anmeldung bei Zoom erfolgreich.“
-- Vor der Show den Bild-Versatz eintragen (Wert aus dem Klatschtest). Erscheint darunter „Nur für diese Sitzung gemerkt …“, ließ sich die Einstellungsdatei nicht schreiben: Der Wert gilt bis zum Beenden von Connect und muss danach neu eingetragen werden.
+- Vor der Show den Bild-Versatz eintragen (Wert aus dem Klatschtest). Er gilt für Teilnehmer- und Sprecher-Slots, nicht für Bildschirmfreigaben. Erscheint darunter „Nur für diese Sitzung gemerkt …“, ließ sich die Einstellungsdatei nicht schreiben: Der Wert gilt bis zum Beenden von Connect und muss danach neu eingetragen werden.
+- Zoom-Slots anlegen (geht auch ohne Meeting): „Slot hinzufügen“, an der Kachel „Einstellungen“ aufklappen und „NDI-Name“ (so heißt die Quelle im Switcher, 1 bis 60 Zeichen, ohne Doppelpunkt), „Modus“, „Person“ (nur Teilnehmer: der Anzeigename in Zoom), „Auflösung“, „Ersatzbild“ und „Ton“ setzen. Jede Änderung wird sofort gespeichert und wirkt im Meeting sofort.
+- Mit „Start“ den Slot einschalten, mit „Stopp“ aus. Den NDI-Namen ändern und den Slot löschen geht nur bei ausgeschaltetem Slot.
+- Im Kopf der Zoom-Slots: „Vorgaben …“ legt Auflösung und Ton für neue Slots fest, „Sprecher-Einstellungen …“ das Sprecher-Signal und die Haltezeit (0 bis 5 s; so lange muss jemand sprechen, bevor der Sprecher-Slot wechselt), der Schalter „Vorschau“ die Vorschau aller Kacheln.
+- Nach dem Update von 0.3.0 ist die Slot-Liste leer („Noch keine Slots. …“). Ein Switcher-Eingang aus 0.3.0 („JM Connect – Zoom <Name>“) bekommt sein Bild wieder, wenn die Person im Meeting mit „Als Slot laden“ geladen wird: Der Slot bekommt den bisherigen NDI-Namen.
 - Vor der Show mit dem Host absprechen: „JM Connect“ aus dem Warteraum zulassen und die Aufnahme-Erlaubnis erteilen, nach einem Wiederbeitritt gegebenenfalls erneut. Kopfhörer bereitlegen.
 
 ### Während
 - Meeting-Nummer, Kenncode (darf leer bleiben) und Anzeigename (Vorgabe „JM Connect“) eingeben, „Beitreten“. Das Kenncode-Feld leert sich sofort.
 - Im Warteraum muss der Host „JM Connect“ zulassen. Danach fragt Connect die Aufnahme-Erlaubnis an; der Host erteilt sie im Zoom-Client.
-- Personen laden: vor dem Laden den Schalter „Ton“ der Zeile setzen (bei geladener Quelle erst entladen), dann „Als Quelle laden“. Jede Person wird eine eigene NDI-Quelle „JM Connect – Zoom <Name>“ mit Bild und Ton.
-- Bild und Ton jeder Quelle stehen in ihrer Zeile im Klartext, zum Beispiel „Bild läuft · Ton läuft“ oder „Bild schwarz: Kamera aus · Ton läuft“.
-- Name doppelt im Meeting: Connect markiert beide Zeilen rot. Von Hand laden; die zweite Quelle heißt „JM Connect – Zoom <Name> (2)“.
+- Slots starten: Nach der Aufnahme-Erlaubnis starten die eingeschalteten Slots von selbst. Eine Person aus der Teilnehmerliste: „Als Slot laden“ legt einen gespeicherten Teilnehmer-Slot „JM Connect – Zoom <Name>“ an und schaltet ihn ein (ab dem 6. eingeschalteten Slot erst nach der Nachfrage). Zeigt schon ein Slot die Person, steht in ihrer Zeile „läuft in Slot …“.
+- Jede Kachel sagt im Klartext, was der Slot zeigt, zum Beispiel „Zeigt Anna.“, „Wartet auf Anna · Ersatzbild transparent“ oder „Anna: Kamera aus · Ersatzbild transparent“; darunter Auflösung und Bildrate („720p · Zoom liefert 1280×720 · 30 Bilder/s“), den Ton und gegebenenfalls einen Fehler.
+- Name doppelt im Meeting: Die Kachel zeigt „Name doppelt: „Anna“ ist 2-mal im Meeting. Bitte unten die richtige Person wählen. · Ersatzbild transparent“; unter „Welche Person?“ die richtige wählen. Connect hängt nie von selbst auf eine Person gleichen Namens um: lieber ein Handgriff als die falsche Person auf Sendung.
+- Modus am laufenden Slot wechseln: unter „Einstellungen“ den Modus wählen; die Quelle bleibt im Switcher bestehen, nur das Bild wechselt. Ebenso wirken Person, Auflösung, Ersatzbild und Ton sofort, ohne Neustart der Quelle.
 - Verbindung weg: Erst versucht Zoom selbst, neu zu verbinden („Verbindung unterbrochen …“). Gelingt das nicht, tritt Connect mit bis zu 5 Versuchen neu bei (nach 2, 5, 10, 20 und 30 s, mit Countdown in der Karte). „Abbrechen“ beendet die Versuche, „Erneut beitreten“ startet später mit denselben Daten.
-- Nach dem Wiederbeitritt muss der Host gegebenenfalls wieder zulassen und die Aufnahme-Erlaubnis erteilen. Dann lädt Connect alle gemerkten Quellen mit eindeutigem Namen von selbst, mit derselben Ton-Einstellung und demselben NDI-Namen.
-- Gemerkte Quellen: Wer geladen war und gerade fehlt, steht unter „Gemerkte Quellen“ (wartet auf die Person, wartet auf die Aufnahme-Erlaubnis, wird geladen, keine Antwort der Zoom-Bridge, Laden gescheitert, wartet auf den Wiederbeitritt, Name doppelt, Person weg, oder über 5 Quellen nicht automatisch geladen). Ist die Person im Meeting und hat Connect die Aufnahme-Erlaubnis, aber ihr Laden ist gescheitert (die Zoom-Bridge hat nicht binnen 10 s geantwortet oder das Laden abgelehnt, der Grund steht an ihrer Zeile), steht dort „… bitte von Hand laden“: Connect lädt sie nicht sofort von selbst neu, erst wieder, wenn sich die Teilnehmerliste ändert, die Aufnahme-Erlaubnis neu erteilt wird oder Connect neu ins Meeting kommt. Lehnt die Zoom-Bridge das Laden ab, weil die Aufnahme-Erlaubnis fehlt, steht dort stattdessen „wartet auf die Aufnahme-Erlaubnis“; meldet sie, dass die Person nicht mehr im Meeting ist, „wartet auf die Person“. Von Hand laden hilft in beiden Fällen nicht. Solange Connect selbst nicht im Meeting ist (Zoom verbindet neu, Wiederbeitritt, nach jeder Fehlermeldung mit „Erneut beitreten“, etwa nach „Abbrechen“, einem gescheiterten Wiederbeitritt oder „Verbindung verloren: …“, beim erneuten Beitritt, im Warteraum), steht bei jedem Eintrag „wartet auf den Wiederbeitritt“. Nur „Person weg, Quelle schwarz“ bleibt stehen, solange die Zoom-Bridge weiterläuft (Zoom verbindet selbst neu, oder der Host hat Connect in den Warteraum geschoben): Die schwarze Quelle läuft dann weiter und lässt sich mit „Entladen“ abbauen. „Vergessen“ nimmt einen Eintrag heraus; ist die Quelle schon angefordert, meldet Connect die Anforderung ab. Solange Einträge fehlen, steht zoom_alarm auf 1.
-- Entzieht der Host die Aufnahme-Erlaubnis, stoppt Connect sofort Bild und Ton aller Zoom-Quellen. Erteilt er sie wieder, lädt Connect die gemerkten Quellen von selbst, höchstens 5.
-- Companion: ZOOM_LOAD, ZOOM_UNLOAD und ZOOM_DELAY wirken wie die Knöpfe der Karte. Leuchtet „letzter Zoom-Befehl abgelehnt“, steht der Grund unter „Hinweise“ in der Karte.
+- Nach dem Wiederbeitritt muss der Host gegebenenfalls wieder zulassen und die Aufnahme-Erlaubnis erteilen. Dann startet Connect alle eingeschalteten Slots von selbst, mit denselben Einstellungen und demselben NDI-Namen; unter „Hinweise“ steht „Wieder im Meeting. … laufen wieder.“
+- Verlässt die gezeigte Person das Meeting, zeigt der Slot sein Ersatzbild („Wartet auf Anna · Ersatzbild transparent“), und zoom_alarm steht auf 1. Kommt sie zurück, zeigt der Slot sie wieder, ohne dass die Quelle im Switcher verschwindet (bei eindeutigem Namen).
+- Ein Slot auf eine Person, die in diesem Meeting nicht dabei ist, wartet still auf sie und hebt zoom_alarm nicht. Braucht ein Slot einen Eingriff (Name doppelt, Aufbau gescheitert, keine Antwort der Zoom-Bridge, Abo abgelehnt), nennt seine Kachel Grund und Handgriff, und zoom_alarm und zoom_slot{n}_alarm stehen auf 1.
+- Entzieht der Host die Aufnahme-Erlaubnis, stoppt Connect sofort Bild und Ton aller Slots („Gestoppt: Der Host hat die Aufnahme-Erlaubnis entzogen. …“). Erteilt er sie wieder, startet Connect die eingeschalteten Slots von selbst.
+- Companion: Die Slot-Befehle wirken wie Start-Taste, Modus, Person und Ton der Kachel. Ein per ZOOM_LOAD angelegter Slot trägt an der Kachel das Kennzeichen „vorübergehend“ mit dem Knopf „Behalten“; „Behalten“ macht ihn zu einem gespeicherten Slot. Leuchtet „letzter Zoom-Befehl abgelehnt“, steht der Grund unter „Hinweise“ in der Karte.
+- „Messwerte“ (aufklappbar, unter den Slots) zeigt Last, Auflösung, Bildrate und Ton je Slot sowie die Sprecher-Signale; „Messwerte kopieren“ legt sie ohne Namen in die Zwischenablage, etwa für einen Fehlerbericht.
 
 ### Nachbereitung
-- „Meeting verlassen“ (bei geladenen Quellen fragt der Knopf einmal nach) oder Connect über das Tray beenden. Beides verlässt das Meeting sauber; die Zoom-Quellen verschwinden. Die gemerkten Quellen sind sofort weg, schon während „Verlasse das Meeting …“ steht.
-- Nach einer Fehlermeldung leert „Schließen“ Meeting-Nummer, Kenncode und gemerkte Quellen.
+- „Meeting verlassen“ (bei laufenden Slots fragt der Knopf einmal nach) oder Connect über das Tray beenden. Beides verlässt das Meeting sauber; die Zoom-Quellen verschwinden aus dem Switcher. Gespeicherte Slots bleiben samt Einstellungen für das nächste Meeting; vorübergehende sind weg, und per ZOOM_LOAD nur für dieses Meeting eingeschaltete Slots sind wieder aus.
+- Nach einer Fehlermeldung leert „Schließen“ Meeting-Nummer und Kenncode; vorübergehende Slots verschwinden dabei.
 - Bei Störungen „Logordner öffnen“ und main.log sichern. Es enthält weder Teilnehmernamen noch Kenncode noch Meeting-Nummer.
 
 ## Profi-Tipps
-- Companion-Tasten per Anzeigename anlegen, zum Beispiel ZOOM_LOAD Anna Maria Beispiel. Zooms Teilnehmer-Kennungen gelten nur bis zum nächsten Beitritt, der Name bleibt.
-- Doppelte Namen vorher vermeiden: Teilnehmer bitten, sich in Zoom eindeutig zu benennen (Handys heißen oft gleich, etwa „Samsung SM-…“). Sonst gibt es nach einem Abriss Handarbeit, mit Absicht: lieber ein Handgriff als die falsche Person.
-- Das Feedback „Zoom braucht einen Eingriff“ (zoom_alarm) auf eine Taste legen. Es leuchtet bei Abriss, Fehler, fehlender Aufnahme-Erlaubnis und solange gemerkte Quellen fehlen.
-- Einen Browser-Gast nie „Zoom <Name>“ nennen, wenn diese Person auch aus Zoom geladen ist: Dann senden zwei Quellen unter demselben NDI-Namen.
-- Den Versatz einmal je Raum mit dem Klatschtest messen; er gilt für alle Zoom-Quellen.
+- Companion-Tasten je Slot-Nummer anlegen, zum Beispiel ZOOM_SLOT 1 TOGGLE mit dem Feedback „Zoom-Slot zeigt Bild“ für Slot 1: Slot-Nummern und NDI-Namen bleiben über Meetings gleich, Zooms Teilnehmer-Kennungen nicht. Eine Person auf einen Slot legen: ZOOM_SLOT_PERSON 1 Anna Maria Beispiel.
+- Doppelte Namen vorher vermeiden: Teilnehmer bitten, sich in Zoom eindeutig zu benennen (Handys heißen oft gleich, etwa „Samsung SM-…“). Sonst wählt der Bediener an der Kachel, mit Absicht: lieber ein Handgriff als die falsche Person.
+- Das Feedback „Zoom braucht einen Eingriff“ (zoom_alarm) auf eine Taste legen. Es leuchtet bei Abriss, Fehler, fehlender Aufnahme-Erlaubnis und solange ein Slot einen Eingriff braucht; „Zoom-Slot braucht einen Eingriff“ zeigt dasselbe je Slot.
+- Einen Browser-Gast nie so nennen wie den NDI-Namen eines Slots: Dann senden zwei Quellen unter demselben NDI-Namen. Die Kachel warnt („NDI-Name doppelt: Ein Browser-Gast sendet ebenfalls als …“).
+- Den Versatz einmal je Raum mit dem Klatschtest messen; er gilt für alle Teilnehmer- und Sprecher-Slots, nicht für Bildschirmfreigaben.
+- Für Bildschirmfreigaben einen eigenen Slot im Modus „Bildschirmfreigabe“ anlegen: Er zeigt immer die neueste Freigabe, ohne dass jemand die teilende Person wählen muss.
+- Die Vorschau kostet Rechenzeit: Bei vielen Slots den Schalter „Vorschau“ ausschalten; bei minimiertem Fenster ist sie ohnehin aus.
 - Notfallweg: Das Einzelpaket zoom-bridge-v0.1.0 bleibt bis zur ersten Live-Show mit Connect verfügbar.
 
 ## Pannenhilfe
@@ -150,23 +171,41 @@ summary: "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-
 | „… Zoom verlangt für dieses Meeting einen Beitritt im Namen eines angemeldeten Nutzers (OBF-Token) …“ | Das Meeting gehört einem fremden Konto. Das kann Connect nicht; das Meeting im eigenen Konto anlegen. |
 | „Der Host hat zugelassen, aber Zoom hat den Einlass in 30 s nicht abgeschlossen …“ | Das Netz ist beim Einlass aus dem Warteraum zu langsam. Netz prüfen, erneut beitreten. |
 | „Keine Aufnahme-Erlaubnis — der Host muss sie im Zoom-Client erteilen.“ | Der Host hat die Erlaubnis noch nicht erteilt. Im Zoom-Client erteilen lassen; Connect merkt es von selbst. |
-| „Aufnahme-Erlaubnis vom Host entzogen, Quellen gestoppt …“ | Der Host hat die Erlaubnis entzogen; Connect hat Bild und Ton aller Zoom-Quellen sofort gestoppt. Erteilt der Host sie wieder, lädt Connect die gemerkten Quellen von selbst. |
+| „Aufnahme-Erlaubnis vom Host entzogen, Slots gestoppt …“ | Der Host hat die Erlaubnis entzogen; Connect hat Bild und Ton aller Slots sofort gestoppt. Erteilt der Host sie wieder, startet Connect die eingeschalteten Slots von selbst. |
 | „NDI ließ sich in der Zoom-Bridge nicht starten …“ | Die NDI-Laufzeit fehlt oder ist gestört. Details im Log; JM Connect neu installieren. |
-| „NDI-Name doppelt: Ein Browser-Gast und diese Zoom-Person senden beide als …“ | Ein Browser-Gast heißt wie eine Zoom-Quelle. Einen der beiden umbenennen. |
-| „Name doppelt im Meeting …“ | Zwei Personen tragen denselben Anzeigenamen. Nach einem Wiederbeitritt lädt Connect sie nicht von selbst; von Hand laden oder die Personen umbenennen lassen. |
-| „… nicht automatisch geladen (mehr als 5 Zoom-Quellen), bitte von Hand laden“ | Die gemerkte Quelle liegt über der Betriebsgröße 5. In der Teilnehmerliste von Hand laden (zweiter Klick nach der Warnung) oder vergessen. |
-| „… — wartet auf die Aufnahme-Erlaubnis“ (unter „Gemerkte Quellen“) | Die Person ist im Meeting, aber der Host hat die Aufnahme-Erlaubnis entzogen oder nach einem Wiederbeitritt noch nicht neu erteilt, oder die Zoom-Bridge hat das Laden dieser Person mangels Erlaubnis abgelehnt (an ihrer Zeile steht „Keine Aufnahme-Erlaubnis — der Host muss sie im Zoom-Client erteilen.“). Erteilen lassen; Connect lädt die Quelle dann von selbst. Kommt sie trotz erteilter Erlaubnis nicht, in der Teilnehmerliste „Als Quelle laden“ klicken. |
-| „… — wird geladen …“ (unter „Gemerkte Quellen“) | Connect hat die Quelle bei der Zoom-Bridge angefordert und wartet auf die Bestätigung. Kommt sie nicht binnen 10 s, steht an der Zeile „Keine Antwort der Zoom-Bridge auf „Als Quelle laden“.“. Sind die Person und Connect dann noch im Meeting und hat Connect die Aufnahme-Erlaubnis, steht unter „Gemerkte Quellen“ „… — keine Antwort der Zoom-Bridge, bitte von Hand laden“ (außer Connect lädt sie ohnehin gleich neu, dann bleibt „wird geladen …“); sonst der Stand, der dann zutrifft, etwa „wartet auf die Person“ oder „wartet auf den Wiederbeitritt“. Soll die Quelle doch nicht kommen: „Vergessen“ meldet die Anforderung ab. |
-| „… — keine Antwort der Zoom-Bridge, bitte von Hand laden“ (unter „Gemerkte Quellen“) | Die Person ist im Meeting, aber die Zoom-Bridge hat „Als Quelle laden“ nicht binnen 10 s beantwortet; an ihrer Zeile steht „Keine Antwort der Zoom-Bridge auf „Als Quelle laden“.“ Connect lädt sie nicht sofort von selbst neu (erst wieder, wenn sich die Teilnehmerliste ändert, die Aufnahme-Erlaubnis neu erteilt wird oder Connect neu ins Meeting kommt). In der Teilnehmerliste „Als Quelle laden“ klicken. Bleibt die Antwort wieder aus, „Logordner öffnen“ und main.log sichern. |
-| „… — Laden gescheitert, bitte von Hand laden“ (unter „Gemerkte Quellen“) | Die Person ist im Meeting, aber die Zoom-Bridge hat das Laden abgelehnt; der Grund steht an ihrer Zeile (zum Beispiel „Die Quelle ließ sich nicht aufbauen (…). Details im Log.“). Lehnt sie ab, weil die Aufnahme-Erlaubnis fehlt oder weil die Person nicht mehr im Meeting ist, steht dort nicht dieser Text, sondern „wartet auf die Aufnahme-Erlaubnis“ bzw. „wartet auf die Person“. Connect lädt sie nicht sofort von selbst neu (erst wieder, wenn sich die Teilnehmerliste ändert, die Aufnahme-Erlaubnis neu erteilt wird oder Connect neu ins Meeting kommt). In der Teilnehmerliste „Als Quelle laden“ klicken. Scheitert es wieder, „Logordner öffnen“ und main.log sichern. |
-| „… — wartet auf den Wiederbeitritt“ (unter „Gemerkte Quellen“) | Connect selbst ist gerade nicht im Meeting: Zoom verbindet neu, Connect tritt neu bei, eine Fehlermeldung mit „Erneut beitreten“ steht da (zum Beispiel ist der Wiederbeitritt gescheitert oder abgebrochen), „Erneut beitreten“ läuft, oder der Host hat Connect in den Warteraum geschoben. Ob die Person da ist, sieht Connect erst wieder im Meeting. Abwarten bzw. „Erneut beitreten“; danach lädt Connect die Quelle von selbst, sobald die Aufnahme-Erlaubnis da ist (bei eindeutigem Namen). |
-| „Verbindung unterbrochen. Zoom versucht selbst, neu zu verbinden …“ | Das Netz war kurz weg. Abwarten: Zoom verbindet selbst, die Quellen laufen danach weiter. |
+| „NDI-Name doppelt: Ein Browser-Gast sendet ebenfalls als …“ (an der Kachel) | Ein Browser-Gast heißt wie der NDI-Name eines Slots; im Switcher ist nicht sicher, welche Quelle ankommt. Einen der beiden umbenennen. |
+| „Name doppelt: „…“ ist …-mal im Meeting. Bitte unten die richtige Person wählen. …“ | Zwei Personen tragen denselben Anzeigenamen. Unter „Welche Person?“ an der Kachel die richtige wählen oder die Personen umbenennen lassen. Connect wählt nie von selbst. |
+| „„…“ hat das Meeting verlassen; eine andere Person mit diesem Namen ist noch da. …“ | Die gezeigte Person ist gegangen, eine gleichnamige war schon vorher da; Connect springt nicht auf sie. Ist sie gemeint, unter „Welche Person?“ wählen. |
+| „Nicht gestartet: mehr als 5 Slots ohne Bestätigung. …“ | Mehr als 5 Slots sind eingeschaltet, aber die Zustimmung fehlt (etwa nach einer von Hand geänderten Einstellungsdatei); die ersten 5 laufen. Einmal „Stopp“ und wieder „Start“, dann „Trotzdem einschalten“. |
+| „Mehr als 5 Zoom-Slots gleichzeitig sind nicht gemessen. …“ | Nachfrage beim 6. eingeschalteten Slot. „Trotzdem einschalten“ schaltet ihn ein; ob der Rechner es schafft, zeigen die Messwerte. |
+| „Höchstens 16 Slots. Zuerst einen Slot löschen.“ | Alle 16 Nummern sind belegt, vorübergehende Slots eingerechnet. Einen ausgeschalteten Slot löschen. |
+| „Wartet auf die Aufnahme-Erlaubnis des Hosts.“ (an der Kachel) | Der Host hat die Aufnahme-Erlaubnis noch nicht erteilt. Im Zoom-Client erteilen lassen; die eingeschalteten Slots starten dann von selbst. |
+| „Wartet auf … · Ersatzbild …“ | Die Person des Slots ist nicht im Meeting oder hat es verlassen. Kommt sie mit eindeutigem Namen, zeigt der Slot sie von selbst. Ist der Name falsch geschrieben, unter „Einstellungen“ bei „Person“ berichtigen. |
+| „Wartet auf … (im Warteraum) · Ersatzbild …“ | Die Person wartet im Warteraum. Der Host lässt sie im Zoom-Client zu. |
+| „Keine Person gewählt · Ersatzbild …“ | Teilnehmer-Slot ohne Person. Unter „Einstellungen“ bei „Person“ den Anzeigenamen eintragen. |
+| „…: Kamera aus · Ersatzbild …“ | Zoom meldet die Kamera der Person als aus. Kein Fehler; der Slot zeigt wieder Bild, sobald die Kamera an ist. |
+| „…: Zoom liefert gerade kein Bild · Ersatzbild …“ | Zoom liefert kein Bild, obwohl die Kamera als an gilt (Netz der Person oder Zoom selbst). Abwarten; bleibt es, die Person bitten, die Kamera aus- und wieder einzuschalten. |
+| „…: erstes Bild steht noch aus · Ersatzbild …“ | Der Slot ist gestartet oder hat umgeschaltet, das erste Bild kommt noch. Bleibt es länger, die Messwerte ansehen. |
+| „…: Zoom hat das Abo abgelehnt (…) · Ersatzbild …. Für einen neuen Versuch „Stopp“ und wieder „Start“.“ | Zoom hat das Bild dieses Slots verweigert (Grund in Klammern). Connect versucht es nicht von selbst neu. „Stopp“, dann „Start“; scheitert es wieder, einen Slot weniger betreiben und „Messwerte kopieren“ sichern. |
+| „Keine Antwort der Zoom-Bridge. Für einen neuen Versuch „Stopp“ und wieder „Start“.“ | Die Zoom-Bridge hat das Starten dieses Slots nicht binnen 10 s beantwortet. „Stopp“, dann „Start“; bleibt die Antwort aus, „Logordner öffnen“ und main.log sichern. |
+| „Gescheitert: Der Slot ließ sich nicht aufbauen (…). Details im Log. …“ | Der Aufbau des Slots ist gescheitert (Grund in Klammern). Connect startet ihn nicht von selbst neu. „Stopp“, dann „Start“; Details im Log. |
+| „Wartet auf eine sprechende Person · Ersatzbild …“ | Sprecher-Slot: Noch hat niemand gesprochen, den der Slot zeigen darf. Unter „Sprecher-Einstellungen …“ ein anderes Signal versuchen. |
+| „Wartet auf eine Bildschirmfreigabe · Ersatzbild …“ | Freigabe-Slot: Niemand teilt gerade. Kein Fehler. |
+| „Freigabe von … pausiert · letztes Bild gehalten“ oder „… unverändert · letztes Bild gehalten“ | Die Freigabe ist pausiert bzw. der Bildschirm steht; der Slot hält das letzte Bild. Kein Fehler. |
+| „… gewünscht · Zoom liefert …“ (Messzeile) | Zoom liefert eine kleinere Auflösung als gewählt (Netz, Zoom-Konto ohne HD, viele Slots). Kein Fehler von Connect; die Kachel zeigt ehrlich, was ankommt. |
+| „Ton: Person-Ton gibt es nur im Modus Teilnehmer. …“ | Tonart „Person“ in einem Sprecher- oder Freigabe-Slot. Unter „Einstellungen“ „Mischton“ wählen oder den Modus Teilnehmer. |
+| „Ton nicht verfügbar (…) — das Bild läuft ohne Ton. …“ | Zoom hat den Ton verweigert. Den Ton des Slots aus- und wieder einschalten. |
+| „Vorschau nicht verfügbar (…). Bild und Ton laufen unverändert.“ | Die Vorschau ließ sich auf diesem Rechner nicht einrichten. Nur die Kacheln sind betroffen, die NDI-Quellen laufen. |
+| „Der NDI-Name muss 1 bis 60 Zeichen lang sein.“, „Ein Doppelpunkt ist im NDI-Namen nicht erlaubt …“, „Diesen NDI-Namen trägt schon Slot …“, „Steuerzeichen sind im NDI-Namen nicht erlaubt.“ | Der NDI-Name ist ungültig oder schon vergeben. Einen anderen Namen eintragen: 1 bis 60 Zeichen, ohne Doppelpunkt, eindeutig unter den Slots. |
+| „Die Einstellungen von Connect waren unlesbar. …“ | connect-settings.json war beschädigt. Connect hat sie gesichert (Name im Text) und arbeitet mit den Vorgaben; fehlende Slots neu anlegen. |
+| „… gespeicherte Slots waren unvollständig oder doppelt …“ | Einträge in connect-settings.json waren ungültig, etwa nach einer Änderung von Hand. Die übrigen Slots sind da; fehlende neu anlegen. |
+| „Verbindung unterbrochen. Zoom versucht selbst, neu zu verbinden …“ | Das Netz war kurz weg. Abwarten: Zoom verbindet selbst, die Slots laufen danach weiter. |
 | „Verbindung zum Meeting verloren. Wiederbeitritt … von 5 …“ | Connect tritt selbst neu bei. Netz prüfen; „Abbrechen“ beendet die Versuche. |
 | „Wiederbeitritt gescheitert (…). „Erneut beitreten“ versucht es noch einmal.“ | Alle 5 Versuche sind gescheitert, der letzte Grund steht in Klammern. Netz prüfen, dann „Erneut beitreten“. |
-| „Wiederbeitritt abgebrochen.“ | „Abbrechen“ wurde gedrückt. „Erneut beitreten“ startet neu; die gemerkten Quellen bleiben. |
-| „Wiederbeitritt abgebrochen: …“ | Ein Versuch ist endgültig gescheitert, der Grund steht dahinter (zum Beispiel abgelehnte Zugangsdaten oder ein Fehler beim Start der Zoom-Bridge). Den Grund beheben, dann „Erneut beitreten“; die gemerkten Quellen bleiben. Details im Log. |
+| „Wiederbeitritt abgebrochen.“ | „Abbrechen“ wurde gedrückt. „Erneut beitreten“ startet neu; danach starten die eingeschalteten Slots wieder. |
+| „Wiederbeitritt abgebrochen: …“ | Ein Versuch ist endgültig gescheitert, der Grund steht dahinter (zum Beispiel abgelehnte Zugangsdaten oder ein Fehler beim Start der Zoom-Bridge). Den Grund beheben, dann „Erneut beitreten“; die eingeschalteten Slots starten danach wieder. Details im Log. |
 | „Meeting beendet: …“ | Der Host hat das Meeting beendet. „Erneut beitreten“, sobald er es neu startet, sonst „Schließen“. |
-| „Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.“ (unter dem Versatz) | connect-settings.json ist schreibgeschützt oder gesperrt. Der Versatz gilt bis zum Beenden von Connect. Schreibrechte im Ordner %APPDATA%\JM Connect prüfen. |
+| „Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.“ (unter dem Versatz oder in der Zoom-Karte) | connect-settings.json ist schreibgeschützt oder gesperrt. Versatz und Slots gelten bis zum Beenden von Connect. Schreibrechte im Ordner %APPDATA%\JM Connect prüfen. |
 | Companion-Taste „letzter Zoom-Befehl abgelehnt“ leuchtet | Der Grund steht unter „Hinweise“ in der Zoom-Karte, zum Beispiel „Companion: niemand namens … im Meeting.“ Namen prüfen und die Taste erneut drücken. |
 | Ein Text endet mit „Details im Log“ | Knopf „Logordner öffnen“ in der Zoom-Karte, dann main.log ansehen. |
 
@@ -176,15 +215,16 @@ summary: "Remote-Gäste per Browser und einzelne Zoom-Teilnehmer als eigene NDI-
 - [ ] „Zoom-SDK 7.1.5.43953 eingerichtet“
 - [ ] Zugangsdaten hinterlegt (Client-ID endet auf …)
 - [ ] „Einrichtung prüfen“ meldet „Einrichtung in Ordnung …“
-- [ ] Companion-Modul 0.2.0 mit der Rolle „JM Connect“ an Port 8737 (optional)
+- [ ] Companion-Modul 0.3.0 mit der Rolle „JM Connect“ an Port 8737 (optional)
+- [ ] Zoom-Slots angelegt: NDI-Namen wie die Switcher-Eingänge, Modus, Person, Auflösung, Ton; „Start“ an den Slots, die laufen sollen
 
 ### Vor Live
 - [ ] Meeting im eigenen Zoom-Konto, Host im Zoom-Client bereit
 - [ ] Bild-Versatz eingetragen, darunter „bestätigt: … ms“
 - [ ] Kopfhörer am Regieplatz
 - [ ] Jede Zoom-Person mit eindeutigem Anzeigenamen
-- [ ] Aufnahme-Erlaubnis erteilt, Quellen im Switcher mit Bild und Ton
-- [ ] Höchstens 5 Zoom-Quellen
+- [ ] Aufnahme-Erlaubnis erteilt, jede eingeschaltete Kachel zeigt ihr Bild („Zeigt …“), die Slots im Switcher mit Bild und Ton
+- [ ] Höchstens 5 Slots eingeschaltet (mehr nur nach „Trotzdem einschalten“, nicht gemessen)
 
 ### Nach Live
 - [ ] „Meeting verlassen“ oder Connect beendet, keine Zoom-Quelle mehr im Switcher

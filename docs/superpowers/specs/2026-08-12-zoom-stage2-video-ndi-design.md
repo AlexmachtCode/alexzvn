@@ -285,3 +285,11 @@ Zusätzlich festzuhalten, weil es die Bildqualität bestimmt und heute niemand w
   **gemeldet**, aber nicht ausgeglichen — Drehen bräche das Null-Kopieren und lohnt erst, wenn die Abnahme
   zeigt, dass der Fall überhaupt auftritt. Sichtbar statt still.
 - **Keine Änderung am Switcher** und **keine Änderung an `packages/ndi`.**
+
+## Nachtrag 2026-10-18: Zoom-Slots (Connect 0.4.0)
+
+Mit der Spec `docs/superpowers/specs/2026-10-17-connect-zoom-slots-design.md` (vom Owner am 18.10.2026 freigegeben) gilt ab Connect 0.4.0 Folgendes aus dieser Spec nicht mehr. Der Text oben bleibt als Stand der Stage 2 stehen.
+
+- **„Keine Bildschirmfreigabe“** (Abschnitt 11): Ein Slot im Modus Bildschirmfreigabe zeigt die neueste laufende Freigabe (`RAW_DATA_TYPE_SHARE`, Spec 6.9).
+- **Protokoll** (Abschnitt 5): `videoSubscribe`, `videoUnsubscribe` und das Ereignis `video` entfallen; an ihre Stelle treten `slotOn`, `slotSet`, `slotOff` und das Ereignis `slot` (Spec 6.2, 6.3, 6.18).
+- **Quellenname und Wiederbeitritt** (Abschnitt 7): Die Bridge vergibt keine Namen mehr und hängt nicht mehr selbst um. Den NDI-Namen bestimmt der Slot; die Rückkehr einer Person stößt JM Connect mit `slotSet` an (Spec 0.2, 6.7, 6.18).
