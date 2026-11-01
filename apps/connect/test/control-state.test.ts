@@ -88,8 +88,8 @@ console.log('— Teil 1b: Zoom-Teil nur bei Änderung melden (aenderungsMelder)'
 console.log('— Teil 1c: Zoom-Schlüssel = Variablen der Rolle connect, Namen mit Leerzeichen kommen ganz an');
 {
   const kurz: ZoomKurz = {
-    zustand: 'im_meeting', warten: null, erlaubnis: 'ja', quellen: 2, ohneBild: 0, sollOffen: 0,
-    versuch: null, maengel: [], kopieLaeuft: false, befehl: { kennung: 'f3', abgelehnt: true },
+    zustand: 'im_meeting', warten: null, erlaubnis: 'ja', slotsLaufen: 2, slotsErsatz: 0, slotsOffen: 0, slotsAn: 2, slotsGestopptEntzug: 0,
+    slotKurz: [], versuch: null, maengel: [], kopieLaeuft: false, befehl: { kennung: 'f3', abgelehnt: true },
   };
   const kv = stateKvAus(kurz);
   const variablen = CAPABILITIES.connect.variables.map((v) => v.id).filter((id) => id.startsWith('zoom_'));

@@ -3,7 +3,7 @@
 // Aus der Zoom-Bridge kommen NUR Typen und nur aus '@jm/zoom-bridge/protocol' (Spec 5.1):
 // protocol.ts hat selbst keine Importe, darum prüft tsconfig.web.json diese Datei ohne Änderung mit.
 import type {
-  AudioReason, AudioState, SlotAudioReason, SlotReason, SlotSent, UserRoleName, VideoReason, VideoState,
+  AudioState, SlotAudioReason, SlotReason, SlotSent, UserRoleName, WireEvent,
 } from '@jm/zoom-bridge/protocol';
 
 /** Ergebnis von openRoom: alles, was der Operator-Renderer zum Verbinden braucht. */
@@ -108,79 +108,21 @@ export type ZoomBefehlKennung =
  */
 export interface ZoomBefehlErgebnis { kennung: ZoomBefehlKennung; abgelehnt: boolean }
 
-/** Ein laufendes Abo der Bridge. */
-export interface ZoomQuelle {
-  /** Teilnehmer-ID zum Zeitpunkt des Abos. Gilt nur in dieser Sitzung. */
-  aboId: number;
-  /** Wörtlich aus dem video-Ereignis (`source`). */
-  ndiName: string;
-  bild: Exclude<VideoState, 'unsubscribed'>;
-  bildGrund: VideoReason;
-  /** 'aus' = ohne Ton geladen. */
-  ton: AudioState | 'aus';
-  tonGrund: AudioReason | null;
-  /** Klartext des letzten Fehlers dieses Abos (Abschnitt 8.4). */
-  fehler: string | null;
-}
-
-/** Ein Zoom-Teilnehmer, wie die Zoom-Karte ihn zeigt. Die eigene Zeile der Bridge fehlt. */
+/**
+ * Ein Zoom-Teilnehmer, wie die Zoom-Karte ihn zeigt. Die eigene Zeile der Bridge fehlt. Ab Connect 0.4.0 (Spec 7.10,
+ * 10.10) ohne Quelle, Ton-Vorwahl, NDI-Vorschau, Kollision und Zeilenfehler: Bild, Ton und Fehler stehen an der Kachel.
+ */
 export interface ZoomParticipant {
   /** Zooms GetUserID(). Gilt nur in dieser Sitzung. */
   id: number;
   name: string;
   rolle: UserRoleName;
+  /** Aus dem Teilnehmer der Sitzung; der Reducer führt ihn bei `videoStatus` nach (Spec 0.18, 7.10). */
   kamera: 'an' | 'aus' | 'keine';
   imWarteraum: boolean;
   doppelname: boolean;
-  /** Ton-Schalter dieser Zeile (je Teilnehmer-ID, nicht je Name). Vorgabe true, nur änderbar ohne Quelle. */
-  tonVorwahl: boolean;
-  quelle: ZoomQuelle | null;
-  /** „JM Connect – Zoom <name>“, solange noch keine Quelle läuft. */
-  ndiNameVorschau: string;
-  /** Klartext Q10, wenn ein Browser-Gast denselben NDI-Namen führt. */
-  kollision: string | null;
-  /**
-   * Zeilenfehler (Q2, Q4, Q5, Q8), auch ohne laufende Quelle. Zusatz zu Spec 5.4: Spec 9 Punkt 8
-   * verlangt Zeilenfehler auch dort, wo noch keine Quelle läuft, und ZoomQuelle.fehler gibt es erst mit Quelle.
-   */
-  fehler: string | null;
-}
-
-/** Ein Eintrag der Soll-Liste, der gerade keinem Teilnehmer zugeordnet ist. */
-export interface ZoomSollEintrag {
-  name: string;
-  ton: boolean;
-  /** Zuletzt gemeldeter NDI-Name, sonst die Vorschau. */
-  ndiName: string;
-  /**
-   * 'grenze': würde abonniert, aber die Betriebsgröße ist erreicht (L7, N4b.3 Nr. 3); zählt als offen.
-   * 'erlaubnis': die Person ist eindeutig da, aber im Meeting fehlt die Aufnahme-Erlaubnis (Z6, Z7). Ruling 08.10.2026 (R2):
-   * auch, wenn an IHRER Zeile Q1 steht (die Bridge lehnte ihr Abo mangels Erlaubnis ab), obwohl Connect die Erlaubnis noch als
-   * „ja“ führt; wie 'keineAntwort' und 'gescheitert' ersetzt das nur den Rückfall 'wartet'.
-   * 'laedt': das Abo ist gesendet, die Bridge hat es noch nicht bestätigt (höchstens bis zur Frist Q8), oder im Meeting
-   * mit Erlaubnis ist ein Abgleich geplant, der diesen Eintrag abonnieren wird (noch kein Abo gesendet).
-   * Beide Zusätze aus der Gesamtprüfung 4b („Statuszeile lügt“); zählen als offen.
-   * 'wiederbeitritt': Connect selbst ist nicht im Meeting (jeder Zustand ≠ im_meeting: Z10, Z11, jedes fehler mit gemerkten
-   * Quellen, etwa R2, R7, „Verbindung verloren: …“ oder B3–B5, „Erneut beitreten“ und der Warteraum mitten im Meeting; in
-   * verlaesst, einrichtung und bereit ist die Soll-Liste leer, Ruling 08.10.2026). Teilnehmerliste und Abos gelten dann
-   * nicht; Vorrang vor allen anderen Ständen außer 'verwaist' (Owner 08.10.2026). 'verwaist' bleibt auch außerhalb des
-   * Meetings, solange die Bridge lebt (Z10, Warteraum mitten im Meeting und das folgende tritt_bei): die schwarze Quelle
-   * läuft weiter und muss sich per „Entladen“ abbauen lassen (Ruling 08.10.2026). Zählt als offen.
-   * 'keineAntwort' und 'gescheitert' (Owner 08.10.2026): im Meeting mit Erlaubnis, die Person ist eindeutig da, und an IHRER
-   * Teilnehmerzeile steht, dass ihr Laden gescheitert ist: 'keineAntwort' = das Abo blieb ohne Antwort der Bridge (Q8),
-   * 'gescheitert' = die Bridge hat das Abo mit Fehler abgelehnt (istLadeFehler in klartext.ts; nicht Q1 und nicht Q2, Ruling
-   * 08.10.2026: bei Q2 ist die Person weg, es bleibt 'wartet'). Sie ersetzen nur den
-   * Rückfall 'wartet'; alle anderen Stände (auch 'laedt' bei geplantem Abgleich) behalten Vorrang. Kein automatischer neuer
-   * Versuch. Zählen als offen.
-   */
-  stand: 'wartet' | 'erlaubnis' | 'laedt' | 'wiederbeitritt' | 'keineAntwort' | 'gescheitert' | 'doppelname' | 'verwaist' | 'grenze';
-  /** Nur bei 'verwaist': das alte Abo, zum Entladen. */
-  aboId: number | null;
-  /**
-   * Zwei oder mehr fremde Teilnehmer tragen diesen normierten Namen. Zusatz zu Spec 5.4: nur so kann
-   * die Karte „Person weg, Quelle schwarz“ bei Doppelname rot mit Q11 zeigen (Spec 9 Punkt 9).
-   */
-  doppelname: boolean;
+  /** Laufende Slots (SZ4–SZ6, jeder Modus), deren Ziel diese Person ist oder deren gezeigte Freigabe sie teilt, nach Nummer (10.10). */
+  slotNrn: number[];
 }
 
 /** Kurzform für Tray, Kopfzeile und STATE. Teil von AppStatus. */
@@ -190,12 +132,22 @@ export interface ZoomKurz {
   warten: 'warteraum' | 'host' | null;
   /** Nur bei 'im_meeting' gesetzt, sonst null. */
   erlaubnis: ZoomErlaubnis | null;
-  /** n: Abos der laufenden Bridge, deren NDI-Sender existiert. 0, wenn keine Bridge läuft. */
-  quellen: number;
-  /** Davon nicht im Zustand 'live' (black oder subscribed = erstes Bild steht aus). */
-  ohneBild: number;
-  /** Offene Soll-Einträge (Begriffe, Abschnitt 4). */
-  sollOffen: number;
+  /** n: laufende Slots aller Modi, deren NDI-Sender besteht (SZ4, SZ5, SZ6, SZ9; Spec 10.1). 0 ohne Bridge. */
+  slotsLaufen: number;
+  /** k: davon mit Ersatzbild (SZ6). */
+  slotsErsatz: number;
+  /** o: offene Slots (Spec 3, 10.1). */
+  slotsOffen: number;
+  /** e: eingeschaltete Slots, auch vorübergehende und solche mit `anNurMeeting` (10.11). */
+  slotsAn: number;
+  /** Slots in SZ2 mit Erlaubnis „entzogen“, die in diesem Meeting liefen (10.3, T82). */
+  slotsGestopptEntzug: number;
+  /**
+   * Je angelegtem Slot nach Nummer die Werte für zoom_slot{n}_* (Spec 8.2, 10.4): `live` nur in SZ4/SZ5 und Z6–Z9b, `ziel` nur
+   * mit `live` (sonst leer), `alarm` = zählt in o, `tonEin` = Ton eingeschaltet (Computerton eingerechnet), `zustandWort` = Wert
+   * von zoom_slot{n}_state.
+   */
+  slotKurz: Array<{ nr: number; an: boolean; live: boolean; alarm: boolean; tonEin: boolean; modus: ZoomSlotModus; ziel: string; zustandWort: string }>;
   /** Nur bei 'abriss': null = Zoom verbindet selbst neu, sonst Versuch 1 bis 5. */
   versuch: number | null;
   /** Alle Mängel der Einrichtung. Nicht leer ⇒ Zustand 'einrichtung'. Während einer laufenden Bridge kann kein Mangel entstehen (Sperre S10). */
@@ -227,7 +179,20 @@ export interface ZoomAbbild {
   versatz: { gewuenschtMs: number; bestaetigtMs: number | null; nurSitzung: boolean };
   /** Ohne eigene Zeile. Host und Co-Host zuerst, dann nach Name (de). */
   teilnehmer: ZoomParticipant[];
-  soll: ZoomSollEintrag[];
+  /** Alle angelegten Slots nach Nummer (Spec 7.1); ein Konstruktor: slotLage() im Kern. */
+  slots: ZoomSlotLage[];
+  /** Vorgaben für neue Slots und Sprecher-Einstellungen (Spec 7.6). */
+  vorgaben: ZoomSlotVorgaben;
+  sprecher: ZoomSprecherEinstellung;
+  /** Schalter „Vorschau“ (7.7); `vorschauVerfuegbar` false nach previewUnavailable (T57). */
+  vorschauAn: boolean;
+  vorschauVerfuegbar: boolean;
+  /** Zustimmung zu mehr als 5 eingeschalteten Slots (E4, 7.4). */
+  ueber5: boolean;
+  /** Messwerte (Spec 7.8). */
+  messwerte: ZoomMesswerte;
+  /** Einstellungsdatei: Werte nur für diese Sitzung (T92), Name der Sicherungskopie einer unlesbaren Datei (T90). */
+  einstellungen: { nurSitzung: boolean; gesichert: string | null };
   abriss: { versuch: number | null; versuche: 5; naechsterUm: number | null } | null;
   /** Steht im Meldungsbereich der Karte, in JEDEM Zustand, bis quittiert (Abschnitt 9, Punkt 2). */
   meldung: { art: 'info' | 'warnung' | 'fehler'; text: string; detail: string | null } | null;
@@ -267,6 +232,21 @@ export interface ZoomSlotEinstellung {
 }
 export interface ZoomSlotVorgaben { aufloesung: ZoomSlotAufloesung; tonAn: boolean }  // Vorgabe 720p, Ton an
 export interface ZoomSprecherEinstellung { signal: ZoomSprecherSignal; haltezeitMs: number } // Vorgabe sprecherVideo, 1000
+
+/** Ein Ereignis der Bridge ohne `ev` (Messwerte, Spec 6.3, 7.8). */
+type Gemeldet<E extends string> = Omit<Extract<WireEvent, { ev: E }>, 'ev'>;
+/**
+ * Messwerte (Spec 7.8) so, wie die Bridge sie zuletzt gemeldet hat; leer, solange nichts gemeldet ist (keine erfundenen Werte).
+ * Namen stehen nur in `sprecherSignale` (für die Anzeige), nie im Log und nie in „Messwerte kopieren“ (0.23).
+ */
+export interface ZoomMesswerte {
+  bridge: Gemeldet<'bridgeStats'> | null;
+  /** Je laufendem Slot das letzte slotStats, nach Nummer. */
+  slots: Gemeldet<'slotStats'>[];
+  freigaben: Gemeldet<'shares'> | null;
+  /** Die letzten 20 Sprecher-Signale aller drei Rückrufe, mit den Namen der Kennungen. */
+  sprecherSignale: Array<Gemeldet<'speakerSignal'> & { namen: string[] }>;
+}
 
 /** Slot-Zustände (10.1), 12 Werte. */
 export type ZoomSlotZustand =

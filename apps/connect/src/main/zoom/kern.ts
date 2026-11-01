@@ -4,7 +4,8 @@
 // (IPC, Dialoge, safeStorage, Tray). Muster: Master-Link Teil 2a (verbund/kern.ts).
 //
 // Der Kern hält Zustand, Mängel der Einrichtung, die laufende Bridge samt Generation (6.9),
-// Quellen, Soll-Liste und Meldung. Er fasst kein Electron an und liest keine Einstellung selbst.
+// die Zoom-Slots (Slot-Spec 7.1, ab Connect 0.4.0) und Meldung. Er fasst kein Electron an und liest
+// Einstellungen nur über `einstellungen` (Slot-Spec 7.10).
 //
 // GEHEIMNISSE (Spec 5.7, 8.7): Meeting-Nummer und Kenncode leben nur in `nummer`/`kenncode`
 // und gehen nur in den join-Befehl. Jede stderr-Zeile der Bridge läuft durch `maskiere`.
@@ -26,10 +27,14 @@ import {
   type MeetingStatusName,
   type Session,
 } from '@jm/zoom-bridge';
-import type { AudioReason, AudioState, VideoReason, VideoState } from '@jm/zoom-bridge/protocol';
+import type {
+  AudioState, Participant, SlotAudioReason, SlotAudioSource, SlotMode, SlotReason, SlotSent, SlotState,
+} from '@jm/zoom-bridge/protocol';
+import { SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
 import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
 import type {
   ProxyKeySource,
+  TonQuelle,
   ZoomAbbild,
   ZoomBefehlErgebnis,
   ZoomBefehlKennung,
@@ -37,18 +42,32 @@ import type {
   ZoomErlaubnis,
   ZoomKurz,
   ZoomMangel,
+  ZoomMesswerte,
   ZoomParticipant,
-  ZoomQuelle,
-  ZoomSollEintrag,
+  ZoomSlotEinstellung,
+  ZoomSlotLage,
+  ZoomSlotVorgaben,
+  ZoomSlotZustand,
+  ZoomSprecherEinstellung,
   ZoomZustand,
 } from '../../shared/types';
 import {
+  EINSTELLUNG_TEXT,
+  kachelFehlerZeile,
+  kachelZeile,
+  KANDIDAT_KENNZEICHEN,
+  SLOT_TEXT,
+  slotMessZeile,
+  slotTonZeile,
   stateKvAus,
   TEXT_A4_SCHREIBFEHLER,
   TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT,
   TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT,
   WIEDERBEITRITT_VERSUCHE,
+  ZOOM_STATE_ZUSTANDSWORT,
+  zoomZ,
   type ZoomStateKv,
+  type ZoomZ,
 } from '../../shared/zoom-text';
 import {
   KT,
@@ -63,14 +82,10 @@ import {
   fernLogText,
   FT,
   istEndgueltig,
-  istErlaubnisFehler,
-  istLadeFehler,
   mangelText,
   maskiere,
   maskiereNamen,
-  quellenFehler,
   spawnMeldung,
-  tonZustand,
   type Meldungstext,
   type VersuchsAusgang,
 } from './klartext';
@@ -90,14 +105,33 @@ import {
 } from './laufzeit';
 import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFehler, type SdkLadenDienste } from './sdk-laden';
 import { SDK_PAKET } from './sdk-paket';
-import { deuteZoomBefehl, ladeZiel } from './fernsteuerung';
-import { istAusserhalbMeeting, sollAbbild, sollHandlungen, type SollLage, type SollListe, type SollZeilenStand } from './soll';
-import { baueTeilnehmer, istVerwaist, ndiVorschau, normName, zaehleQuellen } from './teilnehmer';
+import { deuteZoomBefehl } from './fernsteuerung';
+import { neuerSlot, pruefeNdiName, slotsFuerPlatte, uebergangsNdiName } from './einstellungen';
+import {
+  istOffen,
+  MODUS_ZU_BRIDGE,
+  planeSlotAbgleich,
+  SIGNAL_ZU_BRIDGE,
+  SITZUNG_LEER,
+  sitzungNach,
+  slotEndetMitMeeting,
+  slotZustand,
+  teilnehmerZiel,
+  tonEingeschaltet,
+  tonFuerBridge,
+  zaehleSlots,
+  zeigteSchonNachLive,
+  type AbgleichEingabe,
+  type SitzungsEreignis,
+  type SlotSitzung,
+  type ZielErgebnis,
+} from './slots';
+import { baueTeilnehmer } from './teilnehmer';
 import { WIEDERBEITRITT_PLAN_S } from './fristen';
 
 // Feste Werte (Spec 5.2) stehen ab 4b in fristen.ts (rein). kern.ts reicht sie unverändert weiter, damit zoom.ts,
 // index.ts, settings.ts und die Tests weiter von hier importieren.
-import { AUFLOESUNG, BETRIEBSGROESSE, HINWEISE_MAX, JWT_GUELTIG_S, ZOOM_FRISTEN, type ZoomFristen } from './fristen';
+import { HINWEISE_MAX, JWT_GUELTIG_S, ZOOM_FRISTEN, type ZoomFristen } from './fristen';
 export {
   ANZEIGENAME_VORGABE, AUFLOESUNG, BEENDEN_FRIST_MS, BETRIEBSGROESSE, HINWEISE_MAX, JWT_GUELTIG_S, WIEDERBEITRITT_PLAN_S, ZOOM_FRISTEN,
 } from './fristen';
@@ -129,6 +163,20 @@ export interface ZoomKernAbhaengigkeiten {
     /** Der geltende Versatz steht nur im Arbeitsspeicher (N4b.3 Nr. 4). */
     versatzNurSitzung(): boolean;
     setzeLaufzeit(v: { dir: string; fassung: string; eingerichtetAm: string }): void;
+    // Zoom-Slots (Slot-Spec 7.2, 7.10; Plan B, Task B12). Jedes setze…() liefert true = gespeichert, false = gilt nur für diese
+    // Sitzung (T92). Der Kern übergibt setzeSlots nur dauerhafte Slots, `anNurMeeting` als `an: false` (slotsFuerPlatte).
+    slots(): ZoomSlotEinstellung[];
+    setzeSlots(s: readonly ZoomSlotEinstellung[]): boolean;
+    vorgaben(): ZoomSlotVorgaben;
+    setzeVorgaben(v: ZoomSlotVorgaben): boolean;
+    sprecher(): ZoomSprecherEinstellung;
+    setzeSprecher(s: ZoomSprecherEinstellung): boolean;
+    vorschau(): boolean;
+    setzeVorschau(an: boolean): boolean;
+    ueber5(): boolean;
+    setzeUeber5(an: boolean): boolean;
+    /** T90 (Sicherungskopie einer unlesbaren Datei) und T91 (verworfene Slots). */
+    einstellungsLage(): { gesichert: string | null; verworfen: number };
   };
   gastLabels(): string[];
   /** Fertige Zeile mit Präfix, schon maskiert. */
@@ -174,13 +222,22 @@ export interface ZoomKern {
   verlassen(): Promise<void>;
   /**
    * Spec 6.8 „Abbrechen“, nur Z11 (Folge wartet oder läuft): Zeitgeber löschen, Versuchs-Bridge stop(), Zustand
-   * fehler mit R7, erneutMoeglich true; Soll-Liste, Nummer und Kenncode bleiben. Sonst wirkungslos.
+   * fehler mit R7, erneutMoeglich true; Slots, Nummer und Kenncode bleiben. Sonst wirkungslos.
    */
   abbrechen(): void;
-  laden(e: { id: number; ton: boolean; trotzBetriebsgroesse: boolean }): Promise<ZoomErgebnis>;
-  entladen(e: { aboId: number }): Promise<ZoomErgebnis>;
-  ton(e: { id: number; an: boolean }): ZoomErgebnis;
-  sollVerwerfen(e: { name: string }): void;
+  // ── Zoom-Slots (Slot-Spec 7.1, 7.3; Plan B, Task B12) ──
+  /** Neuer Slot mit der kleinsten freien Nummer (Vorgaben 7.6); bei 16 Slots T32. */
+  slotAnlegen(): ZoomErgebnis & { nr?: number };
+  /** Ändert Felder eines Slots und speichert sofort; der NDI-Name nur bei ausgeschaltetem Slot (T35) und nach E26 (T43–T47). */
+  slotAendern(nr: number, aenderung: Partial<Omit<ZoomSlotEinstellung, 'nr' | 'an'>>): ZoomErgebnis;
+  /** Löscht einen ausgeschalteten Slot (sonst T36); die Nummer wird frei. */
+  slotLoeschen(nr: number): ZoomErgebnis;
+  /** Start-Taste setzen (speichert); der Abgleich startet bzw. stoppt sofort. */
+  slotStart(nr: number, an: boolean, trotz?: boolean): ZoomErgebnis | { ok: false; nachfrage: true; text: string };
+  /** „Als Slot laden“ (E13): dauerhafter Teilnehmer-Slot für diese Person nach der Übergangs-Namensregel, eingeschaltet. */
+  slotAusPerson(teilnehmerId: number, trotz?: boolean): ZoomErgebnis | { ok: false; nachfrage: true; text: string };
+  /** Handwahl bei Doppelname oder Zweifel (7.3 Nr. 5): Der Slot zeigt diese Kennung. */
+  slotPersonWaehlen(nr: number, teilnehmerId: number): ZoomErgebnis;
   schliessen(): void;
   meldungWeg(): void;
   gastLabelsGeaendert(): void;
@@ -189,13 +246,37 @@ export interface ZoomKern {
   beenden(fristMs: number): Promise<void>;
 }
 
-type FehlerEreignis = { ev: 'error'; where: string; code: number | string; id?: number; dropped?: number; detail?: string; name?: string };
+type FehlerEreignis = {
+  ev: 'error'; where: string; code: number | string; id?: number; slot?: number; dropped?: number; detail?: string; name?: string;
+};
 type StatusEreignis = { ev: 'status'; status: MeetingStatusName; code: number };
 type PrivilegEreignis = { ev: 'privilege'; canRecordRaw: boolean; source: 'broadcast' | 'requestAnswer' | 'check'; requested?: boolean; denied?: boolean; timedOut?: boolean };
-type VideoEreignis = { ev: 'video'; id: number; state: VideoState; source: string; reason: VideoReason; rebindable: boolean };
-type AudioEreignis = { ev: 'audio'; id: number; state: AudioState; reason: AudioReason };
-/** Eine Quelle samt der Generation der Bridge, die sie meldet (6.9). */
-interface QuelleIntern extends ZoomQuelle { gen: number }
+type SlotEreignis = { ev: 'slot'; slot: number; state: SlotState; mode: SlotMode; target: number; share: number; reason: SlotReason; sent: SlotSent };
+type SlotTonEreignis = {
+  ev: 'slotAudio'; slot: number; state: AudioState; source: SlotAudioSource; configured: SlotAudioSource; reason: SlotAudioReason;
+  sampleRate?: number; channels?: number;
+};
+/**
+ * Ein Slot im Kern (Slot-Spec 7.1, ersetzt Quellen, Soll-Liste, Ton-Vorwahl, Abo-Fristen und Zeilenfehler). `bridge` ist der
+ * Sender samt der Generation der Bridge, die ihn meldet (6.9; null ohne Sender). `s` gilt nur für diese Sitzung (7.3).
+ */
+interface SlotIntern {
+  e: ZoomSlotEinstellung;
+  voruebergehend: boolean;
+  anNurMeeting: boolean;
+  s: SlotSitzung;
+  bridge: { gen: number; state: SlotState; mode: SlotMode; target: number; share: number; reason: SlotReason; sent: SlotSent } | null;
+  /** `slotOff` gesendet, das `slot off` der Bridge steht aus (SZ9). */
+  slotOffGesendet: boolean;
+  /** Antwortfrist des gesendeten `slotOn` (10 s, 7.3 Nr. 2). */
+  frist: ReturnType<typeof setTimeout> | null;
+  /** Letztes `slotAudio` dieses Slots (bleibt auch bei `off`, A-EP6); null ohne Sender. */
+  ton: { state: AudioState; reason: SlotAudioReason; source: SlotAudioSource; configured: SlotAudioSource; rate: number | null; kanaele: number | null } | null;
+  /** Klartext der Fehlerzeile (10.9), Klartext für T23 (SZ8) und Fehlername für T20c; gesetzt ab Plan B, Task B14. */
+  fehler: string | null;
+  gescheitertText: string | null;
+  aboFehlerName: string | null;
+}
 /** `ausgang` ordnet einen Fehler der Startfolge für den Wiederbeitritt ein (6.4); null bei Mangel oder Abbruch. */
 type StartErgebnis =
   | { ok: true; bridge: BridgeArt; gen: number }
@@ -222,14 +303,30 @@ function beschreibe(ev: BridgeEvent): string {
   switch (ev.ev) {
     case 'status':
       return `status ${String(e.status)} (Code ${String(e.code)})`;
-    case 'video':
-    case 'audio':
-      return `${ev.ev} ${String(e.id)} ${String(e.state)} (${String(e.reason)})`;
+    // Slot-Spec 7.10, 0.23: Slot-Nummer, Zustand und Grund, nie der NDI-Name (`ndi`) und nie ein Teilnehmername.
+    case 'slot':
+    case 'slotAudio':
+      return `${ev.ev} ${String(e.slot)} ${String(e.state)} (${String(e.reason)})`;
     case 'privilege':
       return `privilege canRecordRaw=${String(e.canRecordRaw)} source=${String(e.source)}`;
     default:
       return ev.ev;
   }
+}
+
+/** Die Zeilen Z6–Z9b: nur dort zeigt ein Slot laut STATE Bild (Slot-Spec 8.2, 10.4; Restrunde RR5). */
+const Z_IM_MEETING: ReadonlySet<ZoomZ> = new Set<ZoomZ>(['Z6', 'Z7', 'Z7b', 'Z8', 'Z9', 'Z9b']);
+
+/**
+ * Was ein Slot laut Einstellung sendet, solange die Bridge noch kein `configured` gemeldet hat (Tonweg 6.10 Schritt 8 aus der
+ * Ton-Abbildung 7.1): Teilnehmer Mischton bzw. Person, Sprecher nur Mischton, Freigabe Mischton und/oder Computerton.
+ */
+function tonWegEingestellt(e: ZoomSlotEinstellung): TonQuelle {
+  const { audio, shareAudio } = tonFuerBridge(e);
+  if (e.modus === 'teilnehmer') return audio === 'off' ? 'none' : audio;
+  if (e.modus === 'sprecher') return audio === 'mix' ? 'mix' : 'none';
+  if (audio === 'mix') return shareAudio ? 'mixShare' : 'mix';
+  return shareAudio ? 'share' : 'none';
 }
 
 export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
@@ -279,8 +376,13 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let folge: { versuch: number; naechsterUm: number | null; zeitgeber: ReturnType<typeof setTimeout> | null; letzte: Meldungstext | null; beginn: number } | null = null;
   /** R5 steht aus: gesetzt beim Erfolg eines Versuchs, verbraucht vom ersten Abgleich mit Erlaubnis 'ja' (L3). */
   let r5Offen = false;
-  const soll: SollListe = new Map();
-  const quellen = new Map<number, QuelleIntern>();
+  /** Alle angelegten Slots nach Nummer (Slot-Spec 7.1, E1): dauerhafte aus den Einstellungen, vorübergehende nur hier (7.2). */
+  const slots = new Map<number, SlotIntern>();
+  /** Ein setze…() der Einstellungen lieferte false: Werte gelten nur für diese Sitzung (T92). */
+  let nurSitzung = false;
+  /** Beitrittsfolge je Teilnehmer dieser Sitzung (7.3 Nr. 5): Einträge aus `roster` 0, jedes `joined` die nächste Zahl. */
+  const folgeJe = new Map<number, number>();
+  let folgeZaehler = 0;
   let beendenVersprechen: Promise<void> | null = null;
 
   // ── Bridge-Lebenslauf (Spec 5.2, 6.9) ────────────────────────────────────
@@ -296,23 +398,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let jwt: string | null = null;
   let startBeob: StartBeobachter | null = null;
 
-  // ── Quellen, Teilnehmerzeilen (Spec 6.3) ─────────────────────────────────
-  /** Ton-Schalter je Teilnehmer-ID (nicht je Name), gilt beim Laden. */
-  const tonVorwahl = new Map<number, boolean>();
-  /**
-   * Zeilenfehler ohne laufende Quelle (Q2, Q8 …), je Teilnehmer-ID. `laden`: was er für die gemerkte Quelle dieser Person heißt
-   * (Owner 08.10.2026): 'keineAntwort' bei Q8, 'gescheitert', wenn die Bridge ihr Abo abgelehnt hat (istLadeFehler);
-   * Ruling 08.10.2026: 'erlaubnis' bei Q1 (istErlaubnisFehler, R2); sonst null, auch bei Q2 (R1: die Person ist weg).
-   */
-  const zeilenFehler = new Map<number, { text: string; laden: SollZeilenStand | null }>();
-  const tonAngefragt = new Map<number, boolean>();
-  const aboFristen = new Map<number, ReturnType<typeof setTimeout>>();
   /** L11: Anzeigenamen fremder Teilnehmer, die der Kern in dieser Programmsitzung gesehen hat; nur im Arbeitsspeicher. */
   const gesehenNamen = new Set<string>();
 
-  // ── Soll-Abgleich (Spec 6.3) ─────────────────────────────────────────────
+  // ── Slot-Abgleich (Slot-Spec 7.3) ────────────────────────────────────────
   let abgleichTimer: ReturnType<typeof setTimeout> | null = null;
-  const abmeldeWarter = new Map<number, Array<() => void>>();
 
   // ── Abbild und Drossel ───────────────────────────────────────────────────
   let letzterPush = 0;
@@ -323,110 +413,194 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return aktiveBridge !== null && !imAbbau.has(aktiveGen) ? aktiveBridge.session : null;
   }
 
-  function aktiveQuellen(): Map<number, ZoomQuelle> {
-    const m = new Map<number, ZoomQuelle>();
-    for (const q of quellen.values()) {
-      if (q.gen !== aktiveGen || imAbbau.has(aktiveGen)) continue;
-      m.set(q.aboId, { aboId: q.aboId, ndiName: q.ndiName, bild: q.bild, bildGrund: q.bildGrund, ton: q.ton, tonGrund: q.tonGrund, fehler: q.fehler });
-    }
-    return m;
-  }
+  // ── Slots: Lage, Zahlen, Kurzform (Slot-Spec 7.1, 7.3, 10.1–10.4) ─────────
+  /** Messwerte (7.8) so, wie die Bridge sie zuletzt gemeldet hat; gefüllt ab Plan B, Task B15/B16. */
+  const messwerte: ZoomMesswerte = { bridge: null, slots: [], freigaben: null, sprecherSignale: [] };
 
-  /** L7: bestätigte Quellen der aktiven Generation ∪ offene Abos (aboFristen), ohne Doppelzählung. */
-  function belegteAbos(): Set<number> {
-    const belegt = new Set(aktiveQuellen().keys());
-    for (const id of aboFristen.keys()) belegt.add(id);
-    return belegt;
-  }
-
-  /** Freie Plätze bis zur Betriebsgröße (N4b.3 Nr. 3): so viele Soll-Einträge darf der Abgleich abonnieren. */
-  function freiePlaetze(): number {
-    return Math.max(0, BETRIEBSGROESSE - belegteAbos().size);
-  }
-
-  function teilnehmerAbbild(): ZoomParticipant[] {
-    const s = aktiveSitzung();
-    if (!s) return [];
-    return baueTeilnehmer({
-      liste: [...s.participants.values()],
-      quellen: aktiveQuellen(),
-      tonVorwahl,
-      zeilenFehler: new Map([...zeilenFehler].map(([id, z]) => [id, z.text])),
-      gastLabels: d.gastLabels(),
-      // N4b.3 Nr. 2: ohne eigene Vorwahl zeigt der Schalter den Ton, mit dem der Abgleich lädt.
-      sollTon: (name) => soll.get(normName(name))?.ton,
-    });
-  }
-
-  function sollLage(): SollLage {
-    const s = aktiveSitzung();
-    const alle = s ? [...s.participants.values()] : [];
-    const ids = new Set(alle.map((p) => p.id));
-    const abos = new Map<number, { verwaist: boolean }>();
-    for (const q of aktiveQuellen().values()) abos.set(q.aboId, { verwaist: istVerwaist(q.aboId, ids, { state: q.bild, reason: q.bildGrund }) });
-    // Review Focus 1: Ein gesendetes, noch unbestätigtes Abo gilt als verbunden; sonst abonnierte der Abgleich es ein zweites Mal.
-    // Verwaist ist es nur in einer lebenden Sitzung (Ruling 08.10.2026): Baut die Bridge ab (Z11), gibt es keine schwarze Quelle
-    // zum Entladen; der Eintrag wartet dann über sollOffen auf den Wiederbeitritt, nicht „Person weg, Quelle schwarz“.
-    for (const id of aboFristen.keys()) if (!abos.has(id)) abos.set(id, { verwaist: s !== null && !ids.has(id) });
+  function neuerIntern(e: ZoomSlotEinstellung, voruebergehend = false): SlotIntern {
     return {
-      teilnehmer: alle.filter((p) => !p.self).map((p) => ({ id: p.id, name: p.name, imWarteraum: p.inWaitingRoom })),
-      abos,
-      erlaubnisFehlt: erlaubnisFehlt(),
-      // Das Fenster bis zum Abgleich (300 ms): Wen er abonnieren wird, der wird gerade geladen (Gesamtprüfung 4b).
-      abgleichGeplant: abgleichTimer !== null && zustand === 'im_meeting' && erlaubnis === 'ja',
-      // Owner 08.10.2026: Ohne Meeting (Z10, Z11, fehler, „Erneut beitreten“) wartet jeder offene Eintrag auf den Wiederbeitritt,
-      // außer einem verwaisten: dessen schwarze Quelle lebt in Z10 weiter und bleibt entladbar (Ruling 08.10.2026).
-      ausserhalbMeeting: istAusserhalbMeeting(zustand),
-      // Owner 08.10.2026: Q8 oder ein Ladefehler an der Zeile einer eindeutig anwesenden Person ersetzt dort den Rückfall 'wartet';
-      // Q1 ebenso, mit 'erlaubnis' (Ruling 08.10.2026, R2).
-      zeilenStand: new Map([...zeilenFehler].flatMap(([id, z]) => (z.laden === null ? [] : [[id, z.laden] as const]))),
+      e, voruebergehend, anNurMeeting: false, s: { ...SITZUNG_LEER }, bridge: null, slotOffGesendet: false, frist: null, ton: null,
+      fehler: null, gescheitertText: null, aboFehlerName: null,
     };
   }
 
-  /** Im Meeting ohne Aufnahme-Erlaubnis (Z6, Z7): Der Abgleich handelt nicht, gemerkte Quellen warten auf die Erlaubnis. */
-  function erlaubnisFehlt(): boolean {
-    return zustand === 'im_meeting' && erlaubnis !== 'ja';
+  /** Fremde Teilnehmer der aktiven Sitzung (ohne eigene Zeile), auch im Warteraum. */
+  function fremde(): Participant[] {
+    const s = aktiveSitzung();
+    return s ? [...s.participants.values()].filter((p) => !p.self) : [];
   }
 
-  /**
-   * Offene Soll-Einträge fürs Abbild, für sollOffen und zoom_alarm (Spec 4, 7.5). Ein gesendetes, noch unbestätigtes Abo
-   * gilt im Abgleich als verbunden (sollLage), ist aber noch keine laufende Quelle: Der Eintrag bleibt offen ('laedt', ohne
-   * Erlaubnis 'erlaubnis', außerhalb des Meetings 'wiederbeitritt'), bis die Bridge subscribed meldet oder die Frist Q8
-   * abläuft. Reihenfolge wie die Soll-Liste.
-   */
-  function sollOffen(): ZoomSollEintrag[] {
-    const lage = sollLage();
-    const offen = new Map(sollAbbild(soll, lage, freiePlaetze()).map((e) => [normName(e.name), e]));
-    const laeuft = aktiveQuellen();
-    const aus: ZoomSollEintrag[] = [];
-    for (const [schluessel, s] of soll) {
-      const e = offen.get(schluessel);
-      if (e) aus.push(e);
-      else if (s.aboId !== null && aboFristen.has(s.aboId) && !laeuft.has(s.aboId)) {
-        // Gesamtprüfung 4b („Statuszeile lügt“): Die Person ist da, Connect wartet auf die Bridge, nicht auf sie. Außerhalb des
-        // Meetings (Z10 mit offenem Abo, Z11 während des Abbaus) aber auf den Wiederbeitritt (Owner 08.10.2026, wie in sollAbbild).
-        const stand = lage.ausserhalbMeeting === true ? 'wiederbeitritt' : erlaubnisFehlt() ? 'erlaubnis' : 'laedt';
-        aus.push({ name: s.name, ton: s.ton, ndiName: s.ndiName, stand, aboId: null, doppelname: false });
-      }
-    }
-    return aus;
+  /** Anzeigename zu einer Kennung der aktiven Sitzung; nur für Texte und STATE, nie fürs Log (0.23). */
+  function nameVon(id: number): string | null {
+    return id !== 0 ? (aktiveSitzung()?.participants.get(id)?.name ?? null) : null;
   }
 
-  function kurz(): ZoomKurz {
-    const { n, k } = zaehleQuellen(quellen.values());
+  /** Zustand eines Slots nach der Vorrangfolge 7.3. Ein Sender zählt, bis seine Bridge abgebaut ist (10.1, 7.3 Nr. 10). */
+  function zustandVon(x: SlotIntern): ZoomSlotZustand {
+    return slotZustand({
+      an: x.e.an,
+      senderAktiv: x.bridge !== null,
+      slotOffGesendet: x.slotOffGesendet,
+      bridgeImAbbau: x.bridge !== null && imAbbau.has(x.bridge.gen),
+      bridgeState: x.bridge?.state ?? null,
+      meeting: zustand,
+      erlaubnis: zustand === 'im_meeting' ? erlaubnis : null,
+      fehlerstand: x.s.fehlerstand,
+      fristLaeuft: x.frist !== null,
+    });
+  }
+
+  /** Teilnehmer für Abgleich und Anzeige, mit Beitrittsfolge (7.3 Nr. 5). */
+  function abgleichTeilnehmer(): AbgleichEingabe['teilnehmer'] {
+    return fremde().map((p) => ({ id: p.id, name: p.name, imWarteraum: p.inWaitingRoom, folge: folgeJe.get(p.id) ?? 0 }));
+  }
+
+  interface SlotRoh { x: SlotIntern; zustand: ZoomSlotZustand; ziel: ZielErgebnis | null; offen: boolean }
+
+  /** Je Slot nach Nummer: Zustand (7.3), Teilnehmer-Ziel wie im Abgleich (7.3 Nr. 5) und Offenheit (10.1). */
+  function slotRohLagen(): SlotRoh[] {
+    const t = aktiveSitzung() !== null ? abgleichTeilnehmer() : null;
+    return [...slots.values()].sort((a, b) => a.e.nr - b.e.nr).map((x) => {
+      const z = zustandVon(x);
+      const ziel = x.e.modus === 'teilnehmer' && t !== null ? teilnehmerZiel(x.e, x.s, t) : null;
+      const offen = istOffen({
+        zustand: z, liefSchon: x.s.liefSchon, doppelt: ziel?.doppelt ?? 1, zweifel: ziel?.zweifel ?? false,
+        grund: x.bridge?.reason ?? null, modus: x.e.modus, zeigteSchon: x.s.zeigteSchon,
+      });
+      return { x, zustand: z, ziel, offen };
+    });
+  }
+
+  /** Name der Person, die der Slot gerade zeigt (Ziel der Bridge; bei Freigabe die teilende Person), sonst null. */
+  function gezeigtVon(x: SlotIntern): string | null {
+    return x.bridge !== null ? nameVon(x.bridge.target) : null;
+  }
+
+  /** Kennzeichen eines Kandidaten der Doppelname-Auswahl (7.5, OFP3): Kamera aus, Host, im Warteraum. */
+  function kandidatHinweis(id: number): string {
+    const p = aktiveSitzung()?.participants.get(id);
+    if (!p) return '';
+    const teile: string[] = [];
+    if (!p.videoOn) teile.push(KANDIDAT_KENNZEICHEN.kameraAus);
+    if (p.role === 'host') teile.push(KANDIDAT_KENNZEICHEN.host);
+    if (p.inWaitingRoom) teile.push(KANDIDAT_KENNZEICHEN.imWarteraum);
+    return teile.join(', ');
+  }
+
+  /** T97: kleinste Nummer eines anderen Slots, dessen Sender dasselbe Ziel hat (nur mit Ziel). */
+  function andererSlotVon(x: SlotIntern): number | null {
+    const b = x.bridge;
+    if (b === null || b.target === 0) return null;
+    const andere = [...slots.values()]
+      .filter((y) => y !== x && y.bridge !== null && y.bridge.target === b.target && y.bridge.share === b.share)
+      .map((y) => y.e.nr);
+    return andere.length ? Math.min(...andere) : null;
+  }
+
+  /** Der einzige Konstruktor von ZoomSlotLage (Slot-Spec 7.10, KF1). `z` = Zeile der Kurzform (für die Zustandszeile). */
+  function slotLage(r: SlotRoh, z: ZoomZ): ZoomSlotLage {
+    const { x, zustand: zst, ziel } = r;
+    const e = x.e;
+    const person = x.s.personJetzt ?? e.person;
+    const gezeigt = gezeigtVon(x);
+    const doppelt = ziel?.doppelt ?? 1;
+    const zweifel = ziel?.zweifel ?? false;
+    const imWarteraum = ziel?.imWarteraum ?? false;
+    const andererSlot = andererSlotVon(x);
+    const grund = x.bridge?.reason ?? null;
+    const gesendet = x.bridge?.sent ?? null;
+    const tonQuelle: TonQuelle = x.ton?.source ?? 'none';
+    const tonEingestellt: TonQuelle = x.ton?.configured ?? tonWegEingestellt(e);
+    const lageErlaubnis = zustand === 'im_meeting' ? erlaubnis : null;
     return {
+      einstellung: { ...e },
+      voruebergehend: x.voruebergehend,
+      anNurMeeting: x.anNurMeeting,
+      zustand: zst,
+      grund,
+      gesendet,
+      zielName: gezeigt ?? (e.modus === 'teilnehmer' && person !== '' ? person : null),
+      doppelt,
+      zweifel,
+      imWarteraum,
+      wahl: ziel?.wahl ? ziel.wahl.map((w) => ({ id: w.id, name: w.name, hinweis: kandidatHinweis(w.id) })) : null,
+      geliefert: null,
+      zuletzt: null,
+      ton: x.ton?.state ?? 'aus',
+      tonGrund: x.ton?.reason ?? null,
+      tonQuelle,
+      tonEingestellt,
+      offen: r.offen,
+      liefSchon: x.s.liefSchon,
+      zeigteSchon: x.s.zeigteSchon,
+      andererSlot,
+      fehler: kachelFehlerZeile({ zustand: zst, letzterSlotFehler: x.fehler, seitDemLive: false }),
+      text: kachelZeile({
+        zustand: zst, z, erlaubnis: lageErlaubnis, modus: e.modus, grund, gesendet, ersatzbild: e.ersatzbild, zielName: gezeigt, person,
+        doppelt, zweifel, imWarteraum, liefSchon: x.s.liefSchon, andererSlot, freigaben: { zahl: 0, namen: [] },
+        aboFehlerName: x.aboFehlerName, gescheitertText: x.gescheitertText,
+      }),
+      tonText: slotTonZeile({
+        zustand: zst, modus: e.modus, ziel: x.bridge?.target ?? 0, grund, tonAn: e.tonAn, tonArt: e.tonArt, computerton: e.computerton,
+        person, doppelt, zweifel, imWarteraum, ton: x.ton?.state ?? 'aus', tonGrund: x.ton?.reason ?? null, quelle: tonQuelle,
+        eingestellt: tonEingestellt, rateKhz: x.ton?.rate != null ? x.ton.rate / 1000 : null, kanaele: x.ton?.kanaele ?? null,
+        tonAboFehler: null, rateMismatch: null,
+      }),
+      messText: slotMessZeile({ zustand: zst, modus: e.modus, stufe: e.aufloesung, geliefert: null, zuletzt: null }),
+    };
+  }
+
+  /** Teilnehmerzeilen mit den Nummern der laufenden Slots (SZ4–SZ6), deren Ziel diese Person ist (10.10, KF4). */
+  function teilnehmerAbbild(): ZoomParticipant[] {
+    const s = aktiveSitzung();
+    if (!s) return [];
+    const slotNrn = new Map<number, number[]>();
+    for (const r of slotRohLagen()) {
+      const b = r.x.bridge;
+      if (b === null || b.target === 0 || !(r.zustand === 'zeigt' || r.zustand === 'gehalten' || r.zustand === 'ersatz')) continue;
+      slotNrn.set(b.target, [...(slotNrn.get(b.target) ?? []), r.x.e.nr]);
+    }
+    return baueTeilnehmer({ liste: [...s.participants.values()], slotNrn });
+  }
+
+  /** Die einzige Kurzform (Slot-Spec 7.1, KF2): n, k, o, e und je Slot die Werte für STATE und Companion (8.2, 10.4). */
+  function kurz(): ZoomKurz {
+    const roh = slotRohLagen();
+    const lageErlaubnis = zustand === 'im_meeting' ? erlaubnis : null;
+    const z = zaehleSlots(roh.map((r) => ({ zustand: r.zustand, offen: r.offen, an: r.x.e.an, erlaubnis: lageErlaubnis, liefSchon: r.x.s.liefSchon })));
+    const k: ZoomKurz = {
       zustand,
       warten: zustand === 'warteraum' ? warten : null,
-      erlaubnis: zustand === 'im_meeting' ? erlaubnis : null,
-      quellen: n,
-      ohneBild: k,
-      sollOffen: sollOffen().length,
+      erlaubnis: lageErlaubnis,
+      slotsLaufen: z.n,
+      slotsErsatz: z.k,
+      slotsOffen: z.o,
+      slotsAn: z.e,
+      slotsGestopptEntzug: z.gestopptEntzug,
+      slotKurz: [],
       versuch: zustand === 'abriss' ? (folge?.versuch ?? null) : null,
       maengel: [...maengel],
       // Spec SDK nachladen 4.4: Kopfzeile und Tray zeigen beim Laden dieselbe Einrichtungszeile wie bei der Kopie (Z1b).
       kopieLaeuft: kopie !== null || ladung !== null,
       befehl: befehl ? { ...befehl } : null,
     };
+    // 8.2, 10.4 (RR5): `live`, `zeigt`, `gehalten` und `ersatz` nur in Z6–Z9b; außerhalb mit Sender `wartet`, Ziel leer.
+    const imMeetingZ = Z_IM_MEETING.has(zoomZ(k));
+    k.slotKurz = roh.map((r) => {
+      const live = (r.zustand === 'zeigt' || r.zustand === 'gehalten') && imMeetingZ;
+      const mitSender = r.zustand === 'zeigt' || r.zustand === 'gehalten' || r.zustand === 'ersatz';
+      return {
+        nr: r.x.e.nr,
+        an: r.x.e.an,
+        live,
+        alarm: r.offen,
+        tonEin: tonEingeschaltet(r.x.e),
+        modus: r.x.e.modus,
+        ziel: live ? (gezeigtVon(r.x) ?? '') : '',
+        zustandWort: mitSender && !imMeetingZ ? 'wartet' : ZOOM_STATE_ZUSTANDSWORT[r.zustand],
+      };
+    });
+    return k;
   }
 
   function abbild(): ZoomAbbild {
@@ -438,8 +612,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       : zugang.herkunft === 'env' ? KT.A6
       : zugangFehler;
     const id = zugang.daten?.clientId ?? null;
+    const k = kurz();
+    const z = zoomZ(k);
     return {
-      kurz: kurz(),
+      kurz: k,
       einrichtung: {
         sdk: { stand, fassung: stand === 'ok' ? SDK_FASSUNG : null, kopie: kopie ? { ...kopie } : null, laden: ladung ? { ...ladung } : null, text: sdkText },
         zugang: { herkunft: zugang.herkunft, ...(zugang.grund ? { grund: zugang.grund } : {}), clientIdEnde: id ? id.slice(-4) : null, text: zugangText },
@@ -449,7 +625,16 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       // nurSitzung liest ab Aufgabe 11 (4b) einstellungen.versatzNurSitzung().
       versatz: { gewuenschtMs: d.einstellungen.versatzMs(), bestaetigtMs: aktiveSitzung()?.videoDelayMs ?? null, nurSitzung: d.einstellungen.versatzNurSitzung() },
       teilnehmer: teilnehmerAbbild(),
-      soll: sollOffen(),
+      slots: slotRohLagen().map((r) => slotLage(r, z)),
+      vorgaben: d.einstellungen.vorgaben(),
+      sprecher: d.einstellungen.sprecher(),
+      vorschauAn: d.einstellungen.vorschau(),
+      vorschauVerfuegbar: true,
+      ueber5: d.einstellungen.ueber5(),
+      messwerte: {
+        bridge: messwerte.bridge, slots: [...messwerte.slots], freigaben: messwerte.freigaben, sprecherSignale: [...messwerte.sprecherSignale],
+      },
+      einstellungen: { nurSitzung, gesichert: d.einstellungen.einstellungsLage().gesichert },
       abriss: zustand === 'abriss' ? { versuch: folge?.versuch ?? null, versuche: WIEDERBEITRITT_VERSUCHE, naechsterUm: folge?.naechsterUm ?? null } : null,
       meldung: meldung ? { ...meldung } : null,
       hinweise: [...hinweise],
@@ -527,9 +712,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return !laufzeitStand.ok && laufzeitStand.mangel === 'sdk_defekt' ? laufzeitStand.datei : null;
   }
 
-  /** Spec 5.3: Ein Mangel leert Soll-Liste, Nummer und Kenncode. */
+  /** Spec 5.3: Ein Mangel beendet die Sitzung der Slots (Slot-Spec 7.3 Nr. 2, 7, 8; RR1) und leert Nummer und Kenncode. */
   function mangelFolgen(): void {
-    soll.clear();
+    sitzungsEnde('mangel');
     nummer = null;
     kenncode = null;
   }
@@ -834,7 +1019,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (zustand !== 'bereit' && zustand !== 'fehler') return;
     folgeBeenden();
     meldung = null;
-    soll.clear();
+    sitzungsEnde('schliessen');
     nummer = null;
     kenncode = null;
     setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
@@ -905,8 +1090,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         (e: unknown) => d.log(`[zoom] Zoom-Bridge ließ sich nicht beenden: ${e instanceof Error ? e.message : String(e)}`),
       )
       .then(() => {
-        // 6.9: Kehrt stop() zurück, gehören die Quellen dieser Generation nicht mehr zum Abbild.
-        for (const [id, q] of quellen) if (q.gen === gen) quellen.delete(id);
+        // 6.9: Kehrt stop() zurück, gehören die Sender dieser Generation nicht mehr zum Abbild (Slot-Spec 7.3 Nr. 10).
+        for (const x of slots.values()) if (x.bridge?.gen === gen) senderWeg(x);
         stopps.delete(gen);
         ohneProzess.delete(gen);
         if (aktiveBridge === b) {
@@ -968,12 +1153,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // S-c
     const gen = aktiveGen + 1;
     startNr += 1;
-    tonVorwahl.clear();
-    zeilenFehler.clear();
-    tonAngefragt.clear();
-    // Offene Abos der alten Bridge belegen keinen Platz mehr (L7); ihre Q8-Frist zählt ohnehin nur in ihrer Generation.
-    for (const t of aboFristen.values()) clearTimeout(t);
-    aboFristen.clear();
+    // Slot-Spec 7.3 Nr. 2, 5: Mit jeder neuen Bridge fallen Fristen und Fehlerstände; die Kennungen der alten gelten nicht mehr.
+    for (const x of slots.values()) {
+      fristBeantwortet(x);
+      x.s = sitzungNach(x.s, 'neueBridge');
+    }
     const ordner = lzErg.ordner;
     const exePfad = join(ordner, BRIDGE_EXE);
     const bridge = fabrik(
@@ -1033,10 +1217,15 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       jwt = buildJwt({ clientId: daten.clientId, clientSecret: daten.clientSecret, ttlSeconds: JWT_GUELTIG_S });
       const v = d.einstellungen.versatzMs();
       const ms = Number.isInteger(v) && v >= 0 && v <= 1000 ? v : 0;
+      const sp = d.einstellungen.sprecher();
       try {
         bridge.send({ cmd: 'init' });
         bridge.send({ cmd: 'auth', jwt });
         bridge.send({ cmd: 'videoDelay', ms });
+        // Slot-Spec 7.6: zusammen mit videoDelay die gespeicherten Sprecher-Einstellungen; die Vorschau beginnt aus (6.16) und
+        // folgt ab Plan B, Task B16 dem Schalter „Vorschau“ und dem Fenster.
+        bridge.send({ cmd: 'speakerConfig', signal: SIGNAL_ZU_BRIDGE[sp.signal], holdMs: sp.haltezeitMs });
+        bridge.send({ cmd: 'previewMode', on: false });
       } catch {
         // Bridge schon tot: ihr exit-Ereignis kam vorher und hat die Startfolge entschieden.
       }
@@ -1054,20 +1243,17 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return { ok: true, bridge, gen };
   }
 
-  /** Ereignisse einer Bridge im Abbau oder alter Generation (6.9): nur Quellen abbauen, sonst Log. */
+  /** Ereignisse einer Bridge im Abbau oder alter Generation (6.9): nur Sender dieser Generation abbauen, sonst Log (PK22). */
   function abbauEreignis(gen: number, ev: BridgeEvent): void {
-    if (ev.ev === 'video' && (ev as unknown as VideoEreignis).state === 'unsubscribed') {
-      const id = (ev as unknown as VideoEreignis).id;
-      if (quellen.get(id)?.gen === gen) quellen.delete(id);
+    if (ev.ev === 'slot' && (ev as unknown as SlotEreignis).state === 'off') {
+      const x = slots.get((ev as unknown as SlotEreignis).slot);
+      if (x && x.bridge?.gen === gen) senderWeg(x);
       return;
     }
-    if (ev.ev === 'audio' && (ev as unknown as AudioEreignis).state === 'off') {
-      const a = ev as unknown as AudioEreignis;
-      const q = quellen.get(a.id);
-      if (q && q.gen === gen) {
-        q.ton = 'off';
-        q.tonGrund = a.reason;
-      }
+    if (ev.ev === 'slotAudio' && (ev as unknown as SlotTonEreignis).state === 'off') {
+      const a = ev as unknown as SlotTonEreignis;
+      const x = slots.get(a.slot);
+      if (x && x.bridge?.gen === gen && x.ton) x.ton = { ...x.ton, state: 'off', reason: a.reason, source: a.source };
       return;
     }
     if (ev.ev !== 'error') d.log(`[zoom] (Abbau) ${beschreibe(ev)}`);
@@ -1100,17 +1286,31 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       case 'error':
         fehlerEreignis(ev as unknown as FehlerEreignis);
         break;
-      case 'video':
-        videoEreignis(ev as unknown as VideoEreignis);
+      case 'slot':
+        slotEreignis(ev as unknown as SlotEreignis);
         break;
-      case 'audio':
-        audioEreignis(ev as unknown as AudioEreignis);
+      case 'slotAudio':
+        slotTonEreignis(ev as unknown as SlotTonEreignis);
         break;
       case 'roster':
       case 'joined':
       case 'left':
       case 'renamed':
+        teilnehmerEreignis(ev);
         abgleichPlanen();
+        break;
+      case 'videoStatus':
+        // Der Reducer führt videoOn des Teilnehmers nach (0.18); der Abgleich prüft das Ziel neu (7.3 „Auslöser“).
+        abgleichPlanen();
+        break;
+      // Slot-Spec 7.10: eigene Zweige. Messwerte, Sprecher und Freigaben werten Plan B, Task B15 und B16 aus.
+      case 'slotStats':
+      case 'bridgeStats':
+      case 'shares':
+      case 'speakerSignal':
+      case 'preview':
+      case 'speakerConfig':
+      case 'previewMode':
         break;
     }
     abbildGeaendert();
@@ -1184,7 +1384,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     d.einstellungen.setzeAnzeigename(name);
     nummer = { eingabe: e.nummer, normiert };
     kenncode = e.kenncode;
-    soll.clear();
+    sitzungsEnde('beitritt');
     // N4b.3 Nr. 6, L15: Hinweise gehören zum letzten Meeting; „Erneut beitreten“ behält sie.
     hinweise.length = 0;
     return starteBeitritt();
@@ -1212,9 +1412,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // L4: auch während eines Versuchs ist ended ein Meeting-Ende, die Folge endet.
     folgeBeenden();
     void stoppeBridge();
-    // L12: Mit ended sind die Quellen der aktiven Generation weg (n = 0 in Z2); die Bridge baut sie ohnehin selbst ab.
-    for (const [id, q] of quellen) if (q.gen === aktiveGen) quellen.delete(id);
-    soll.clear();
+    // L12: Mit ended sind die Sender der aktiven Generation weg (n = 0 in Z2); die Bridge baut sie ohnehin selbst ab.
+    for (const x of slots.values()) if (x.bridge?.gen === aktiveGen) senderWeg(x);
+    sitzungsEnde('meetingEnde');
     melde('warnung', m);
     setzeZustand('bereit');
   }
@@ -1283,8 +1483,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   function fehlerEreignis(e: FehlerEreignis): void {
-    if (e.where === 'video' || e.where === 'audio') {
-      quellenFehlerEreignis(e);
+    if (e.where === 'slot' || e.where === 'audio' || e.where === 'video') {
+      slotFehlerEreignis(e);
       return;
     }
     const name = e.name ?? String(e.code);
@@ -1330,10 +1530,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // 6.8: Wiederbeitritts-Zeitgeber löschen; ein laufender Versuch verwirft sein Ergebnis (laufNr).
     folgeBeenden();
     d.log('[zoom] Meeting verlassen');
-    // Ruling 08.10.2026 (Spec 6.3: „Verlassen“ leert die Liste): VOR Z12 und vor dem Warten auf die Bridge (bis 5 s, hängt sie, bis
-    // killTimeoutMs), sonst stünde neben „Verlasse das Meeting …“ jede Quelle als „wartet auf den Wiederbeitritt“. Im Abbau liest
-    // niemand die Soll-Liste: laden und abgleichen verlangen im_meeting, Ereignisse der Bridge im Abbau gehen an abbauEreignis.
-    soll.clear();
+    // Ruling 08.10.2026, Slot-Spec 7.3 Nr. 8: Die Sitzung der Slots endet VOR Z12 und vor dem Warten auf die Bridge (bis 5 s,
+    // hängt sie, bis killTimeoutMs). Im Abbau startet nichts: der Abgleich verlangt im_meeting, Ereignisse der Bridge im Abbau
+    // gehen an abbauEreignis.
+    sitzungsEnde('verlassen');
     setzeZustand('verlaesst');
     await stoppeBridge();
     nummer = null;
@@ -1460,313 +1660,269 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     scheitert({ text: KT.R7, detail: null });
   }
 
-  // ── Quellen (Spec 6.3, 8.4) ──────────────────────────────────────────────
-  function aboBeantwortet(id: number): void {
-    const t = aboFristen.get(id);
-    if (t === undefined) return;
-    clearTimeout(t);
-    aboFristen.delete(id);
+  // ── Slots: Ereignisse, Abgleich, Bedienung (Slot-Spec 7.1–7.3; Plan B, Task B12) ──
+  /** Die Antwortfrist eines gesendeten slotOn ist erledigt (Ereignis, Fehler, neue Bridge, Sitzungsende). */
+  function fristBeantwortet(x: SlotIntern): void {
+    if (x.frist === null) return;
+    clearTimeout(x.frist);
+    x.frist = null;
   }
 
-  function abonniere(id: number, ton: boolean): void {
-    zeilenFehler.delete(id);
-    tonAngefragt.set(id, ton);
-    if (!sende({ cmd: 'videoSubscribe', id, resolution: AUFLOESUNG, audio: ton })) return;
-    aboBeantwortet(id);
-    const gen = aktiveGen;
-    aboFristen.set(
-      id,
-      zeitgeber(f.aboAntwortMs, () => {
-        aboFristen.delete(id);
-        if (gen !== aktiveGen || imAbbau.has(gen)) return;
-        // Owner 08.10.2026: Die gemerkte Quelle steht dann auf „keine Antwort der Zoom-Bridge, bitte von Hand laden“. Kein neuer
-        // Versuch von selbst (kein abgleichPlanen); erst ein späterer Abgleich (roster, joined …) oder „Als Quelle laden“ lädt neu.
-        zeilenFehler.set(id, { text: KT.Q8, laden: 'keineAntwort' });
-        d.log(`[zoom] Abo ${id}: keine Antwort der Zoom-Bridge`);
-        abbildGeaendert();
-      }),
-    );
+  /** Der Sender des Slots ist weg (slot off, Abbau der Generation, Meeting-Ende). */
+  function senderWeg(x: SlotIntern): void {
+    x.bridge = null;
+    x.ton = null;
+    x.slotOffGesendet = false;
   }
 
-  function videoEreignis(e: VideoEreignis): void {
-    aboBeantwortet(e.id);
-    if (e.state === 'unsubscribed') {
-      // N4b.1: Beim Entzug baut die Bridge jedes Abo ab. Die Soll-Liste bleibt; die Wiedererteilung lädt über den Abgleich neu.
-      if (e.reason === 'privilegeRevoked') d.log(`[zoom] Quelle ${e.id} gestoppt (Entzug)`);
-      quellen.delete(e.id);
-      abmeldungGesehen(e.id);
-      // Erlaubnis flattert (Review Focus 2): Kommt der Abbau erst nach der Wiedererteilung und ihrem Abgleich, sah dieser
-      // die Quelle noch verbunden. Ein neuer Abgleich lädt sie dann wieder; sonst bliebe sie bis zum nächsten roster aus.
-      if (e.reason === 'privilegeRevoked' && erlaubnis === 'ja') abgleichPlanen();
-      return;
-    }
-    let alt = quellen.get(e.id);
-    if (e.reason === 'rebound' || e.reason === 'reboundByName') {
-      for (const [id, q] of quellen) {
-        if (id === e.id || q.gen !== aktiveGen || q.ndiName !== e.source) continue;
-        quellen.delete(id);
-        alt = alt ?? q;
-        tonAngefragt.set(e.id, tonAngefragt.get(id) ?? true);
-        // Der Soll-Eintrag folgt der neuen Kennung (Spec 6.3).
-        for (const s of soll.values()) if (s.aboId === id) s.aboId = e.id;
-        d.log(`[zoom] Quelle ${id} → ${e.id} umgehängt (${e.reason})`);
+  /**
+   * Sitzungsende für alle Slots (Slot-Spec 7.2, 7.3 Nr. 2, 5, 7, 8; RR1, RR7): Meeting-Ende, „Verlassen“, „Schließen“, neuer
+   * Beitritt, Beenden und ein Mangel der Einrichtung. Sitzung, Frist und Fehlerstand fallen, die Beitrittsfolge beginnt neu;
+   * vorübergehende Slots verschwinden, `anNurMeeting` geht aus (gespeichert war schon `an: false`).
+   */
+  function sitzungsEnde(ereignis: SitzungsEreignis): void {
+    for (const [nr, x] of slots) {
+      fristBeantwortet(x);
+      x.s = sitzungNach(x.s, ereignis);
+      const folgen = slotEndetMitMeeting(x, ereignis);
+      if (folgen === 'loeschen') slots.delete(nr);
+      else if (folgen === 'ausschalten') {
+        x.e = { ...x.e, an: false };
+        x.anNurMeeting = false;
       }
     }
-    zeilenFehler.delete(e.id);
-    quellen.set(e.id, {
-      gen: aktiveGen,
-      aboId: e.id,
-      ndiName: e.source,
-      bild: e.state,
-      bildGrund: e.reason,
-      ton: alt?.ton ?? (tonAngefragt.get(e.id) === false ? 'aus' : 'waiting'),
-      tonGrund: alt?.tonGrund ?? null,
-      fehler: alt?.fehler ?? null,
-    });
-    for (const s of soll.values()) if (s.aboId === e.id) s.ndiName = e.source;
+    folgeJe.clear();
+    folgeZaehler = 0;
   }
 
-  function audioEreignis(e: AudioEreignis): void {
-    const q = quellen.get(e.id);
-    if (!q || q.gen !== aktiveGen) return;
-    if (e.state === 'off' && e.reason === 'command' && tonAngefragt.get(e.id) === false) {
-      q.ton = 'aus';
-      q.tonGrund = null;
-    } else {
-      q.ton = e.state;
-      q.tonGrund = e.reason;
+  /** Dauerhafte Slots auf die Platte (7.2); false → nur diese Sitzung (T92). */
+  function speichern(): void {
+    const ok = d.einstellungen.setzeSlots(slotsFuerPlatte([...slots.values()].sort((a, b) => a.e.nr - b.e.nr)));
+    if (!ok) {
+      if (!nurSitzung) d.log('[zoom] Slots nur für diese Sitzung gemerkt (Einstellungsdatei nicht schreibbar)');
+      nurSitzung = true;
     }
-    const t = tonZustand(e.state, e.reason);
-    if (t.art === 'zeile') q.fehler = t.text;
   }
 
-  function quellenFehlerEreignis(e: FehlerEreignis): void {
-    const id = typeof e.id === 'number' ? e.id : null;
-    if (id !== null) aboBeantwortet(id);
-    const person = id !== null ? (aktiveSitzung()?.participants.get(id)?.name ?? null) : null;
-    const einordnung = quellenFehler(String(e.code), e.name ?? String(e.code), person, e.dropped, id ?? undefined);
-    if (einordnung.art === 'keine') return;
-    // N4b.2: Q16/Q17 zeigen den Namen unter „Hinweise“, das Log nennt nur die Kennung (logText).
-    if (einordnung.art === 'hinweis') {
-      hinweis(einordnung.text, einordnung.logText);
+  /** Beitrittsfolge und Weggang (7.3 Nr. 5): roster setzt alle auf 0 (neue Kennungen), joined zählt weiter, left merkt wegSeq. */
+  function teilnehmerEreignis(ev: BridgeEvent): void {
+    const e = ev as unknown as { list?: Participant[]; p?: Participant; id?: number };
+    if (ev.ev === 'roster') {
+      folgeJe.clear();
+      folgeZaehler = 0;
+      for (const p of e.list ?? []) if (!p.self) folgeJe.set(p.id, 0);
+      // Neue Kennungen (etwa nach Z10): gewaehlteId, wegSeq und personJetzt gelten nicht mehr (7.3 Nr. 5).
+      for (const x of slots.values()) x.s = sitzungNach(x.s, 'z10Roster');
+    } else if (ev.ev === 'joined' && e.p && !e.p.self) {
+      folgeZaehler += 1;
+      folgeJe.set(e.p.id, folgeZaehler);
+    } else if (ev.ev === 'left' && typeof e.id === 'number') {
+      for (const x of slots.values()) if (x.s.gewaehlteId === e.id) x.s = { ...x.s, wegSeq: folgeZaehler };
+    }
+  }
+
+  function slotEreignis(e: SlotEreignis): void {
+    const x = slots.get(e.slot);
+    if (x === undefined) return;
+    fristBeantwortet(x);
+    if (e.state === 'off') {
+      senderWeg(x);
+      if (e.reason === 'privilegeRevoked') d.log(`[zoom] Slot ${e.slot} gestoppt (Entzug)`);
+      // „Stopp“ und „Start“ kurz nacheinander: Erst jetzt ist der Sender weg, der Abgleich startet den Slot neu.
+      if (e.reason === 'command' && x.e.an) abgleichen();
       return;
     }
-    if (id === null) {
-      hinweis(einordnung.text);
-      return;
-    }
-    const q = quellen.get(id);
-    if (q && q.gen === aktiveGen) q.fehler = einordnung.text;
-    // Owner 08.10.2026: Ohne laufende Quelle hat die Bridge das Laden dieser Person abgelehnt („Laden gescheitert, bitte von Hand
-    // laden“), außer bei Q1, Q2 und Q13 (istLadeFehler). Kein neuer Versuch von selbst. Ruling 08.10.2026: Q1 wartet auf die
-    // Aufnahme-Erlaubnis (R2), Q2 auf die Person (R1, null), denn „von Hand laden“ brächte bei beiden nichts.
-    else {
-      const code = String(e.code);
-      const laden = istLadeFehler(code) ? 'gescheitert' : istErlaubnisFehler(code) ? 'erlaubnis' : null;
-      zeilenFehler.set(id, { text: einordnung.text, laden });
-    }
+    x.bridge = { gen: aktiveGen, state: e.state, mode: e.mode, target: e.target, share: e.share, reason: e.reason, sent: e.sent };
+    // 7.3 Nr. 7: liefSchon, sobald in diesem Meeting ein Sender bestand; zeigteSchon nur über zeigteSchonNachLive (N3).
+    if (!x.s.liefSchon) x.s = { ...x.s, liefSchon: true };
+    if (e.state === 'live' && x.e.modus === 'teilnehmer') x.s = { ...x.s, zeigteSchon: zeigteSchonNachLive(x.s, e) };
   }
 
-  async function laden(e: { id: number; ton: boolean; trotzBetriebsgroesse: boolean }): Promise<ZoomErgebnis> {
-    if (zustand !== 'im_meeting') return { ok: false, text: '' };
-    if (erlaubnis !== 'ja') return { ok: false, text: KT.Q1 };
-    const s = aktiveSitzung();
-    const p = s?.participants.get(e.id);
-    if (!s || !p || p.self) return { ok: false, text: KT.Q2 };
-    if (p.inWaitingRoom) return { ok: false, text: KT.Q15 };
-    // L7: offene Abos zählen mit, sonst kämen zwei schnelle Klicks (oder Companion) über die Betriebsgröße.
-    const n = belegteAbos().size;
-    if (n >= BETRIEBSGROESSE && !e.trotzBetriebsgroesse) return { ok: false, text: KT.Q9(n + 1) };
-    const schluessel = normName(p.name);
+  function slotTonEreignis(e: SlotTonEreignis): void {
+    const x = slots.get(e.slot);
+    if (x === undefined) return;
+    x.ton = {
+      state: e.state, reason: e.reason, source: e.source, configured: e.configured, rate: e.sampleRate ?? null, kanaele: e.channels ?? null,
+    };
+  }
+
+  /**
+   * Fehler der Slots und des Tons (Slot-Spec 7.1 „Fehler und ihr Anzeigeort“). Hier nur: Die Frist des Slots ist beantwortet,
+   * Bild-Versatz Q13 wie 0.3.0. Fehlerstände, Fehlerzeile und Hinweise (T101–T106, Q6) folgen mit Plan B, Task B14.
+   */
+  function slotFehlerEreignis(e: FehlerEreignis): void {
+    if (typeof e.slot === 'number') {
+      const x = slots.get(e.slot);
+      if (x) fristBeantwortet(x);
+    }
+    if (e.where === 'video' && e.code === 'videoBadDelay') hinweis(KT.Q13);
+  }
+
+  /** slotOn senden und die Antwortfrist stellen (7.3 Nr. 2). Die Logzeile nennt Nummer und Modus, nie Namen (0.23). */
+  function startSenden(x: SlotIntern, befehl: Extract<Command, { cmd: 'slotOn' }>): void {
+    if (!sende(befehl)) return;
+    d.log(`[zoom] Slot ${x.e.nr} startet (${x.e.modus})`);
     const gen = aktiveGen;
-    // Schritt 3: verwaiste Quelle mit gleichem normierten Namen erst entladen, damit der NDI-Name gleich bleibt.
-    const alt = soll.get(schluessel);
-    const altQuelle = alt?.aboId != null && alt.aboId !== e.id ? quellen.get(alt.aboId) : undefined;
-    if (alt && altQuelle && altQuelle.gen === gen && istVerwaist(altQuelle.aboId, new Set(s.participants.keys()), { state: altQuelle.bild, reason: altQuelle.bildGrund })) {
-      d.log(`[zoom] Verwaiste Quelle ${altQuelle.aboId} wird vor dem Laden entladen`);
-      sende({ cmd: 'videoUnsubscribe', id: altQuelle.aboId });
-      await abmeldungAbwarten(altQuelle.aboId);
-      if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting') return { ok: false, text: '' };
-      // Nach dem await die Erlaubnis neu prüfen: Ein Entzug in der Wartezeit lädt nichts mehr (N4b.1).
-      if (erlaubnis !== 'ja') return { ok: false, text: KT.Q1 };
-      // … und Abos und Soll-Liste: Hat ein zweiter Aufruf (Taste doppelt, Companion) die Person in der Wartezeit schon
-      // abonniert, ist das erledigt; wurde der Eintrag entladen oder vergessen, lädt nichts mehr.
-      if (belegteAbos().has(e.id)) return { ok: true };
-      if (soll.get(schluessel) !== alt) return { ok: false, text: '' };
-    }
-    abonniere(e.id, e.ton);
-    soll.set(schluessel, { name: p.name, ton: e.ton, ndiName: ndiVorschau(p.name), aboId: e.id });
-    d.log(`[zoom] Quelle laden: Teilnehmer ${e.id}${e.ton ? '' : ' (ohne Ton)'}`);
-    abbildGeaendert();
-    return { ok: true };
-  }
-
-  async function entladen(e: { aboId: number }): Promise<ZoomErgebnis> {
-    let vergessen = false;
-    for (const [k, s] of soll) {
-      if (s.aboId !== e.aboId) continue;
-      soll.delete(k);
-      vergessen = true;
-    }
-    const q = quellen.get(e.aboId);
-    // N4b.3 Nr. 7: auch ein gesendetes, noch unbestätigtes Abo (offene Frist) abmelden. Ohne Abo nichts senden (sonst Q4).
-    const offen = aboFristen.has(e.aboId);
-    const gesendet = ((q !== undefined && q.gen === aktiveGen) || offen) && sende({ cmd: 'videoUnsubscribe', id: e.aboId });
-    if (offen) aboBeantwortet(e.aboId);
-    if (gesendet || vergessen) d.log(`[zoom] Quelle ${e.aboId} entladen`);
-    abbildGeaendert();
-    return gesendet || vergessen ? { ok: true } : { ok: false, text: KT.Q2 };
-  }
-
-  function ton(e: { id: number; an: boolean }): ZoomErgebnis {
-    if (aktiveQuellen().has(e.id)) return { ok: false, text: KT.Q14 };
-    tonVorwahl.set(e.id, e.an);
-    abbildGeaendert();
-    return { ok: true };
-  }
-
-  // ── Soll-Liste und Abgleich (Spec 6.3) ───────────────────────────────────
-  function abmeldungAbwarten(id: number): Promise<void> {
-    if (!quellen.has(id)) return Promise.resolve();
-    return new Promise<void>((resolve) => {
-      const frist = zeitgeber(f.unsubscribeWarteMs, () => resolve());
-      const liste = abmeldeWarter.get(id) ?? [];
-      liste.push(() => {
-        clearTimeout(frist);
-        resolve();
-      });
-      abmeldeWarter.set(id, liste);
+    x.frist = zeitgeber(f.aboAntwortMs, () => {
+      x.frist = null;
+      if (gen !== aktiveGen || imAbbau.has(gen)) return;
+      d.log(`[zoom] Slot ${x.e.nr}: keine Antwort der Zoom-Bridge`);
+      abbildGeaendert();
     });
   }
 
-  function abmeldungGesehen(id: number): void {
-    const liste = abmeldeWarter.get(id);
-    if (!liste) return;
-    abmeldeWarter.delete(id);
-    for (const fertig of liste) fertig();
+  function stoppSenden(x: SlotIntern): void {
+    if (x.slotOffGesendet || x.bridge === null) return;
+    if (!sende({ cmd: 'slotOff', slot: x.e.nr })) return;
+    x.slotOffGesendet = true;
+    d.log(`[zoom] Slot ${x.e.nr} wird gestoppt`);
   }
 
-  /** 300 ms nach roster/joined/left/renamed/inMeeting/Erlaubnis „ja“; jeder Auslöser startet den Zeitgeber neu. */
+  /** Eingabe des reinen Abgleichs (slots.ts) aus der Lage des Kerns. */
+  function abgleichEingabe(): AbgleichEingabe {
+    return {
+      meeting: zustand,
+      erlaubnis: zustand === 'im_meeting' ? erlaubnis : null,
+      ueber5: d.einstellungen.ueber5(),
+      teilnehmer: aktiveSitzung() !== null ? abgleichTeilnehmer() : [],
+      slots: [...slots.values()].map((x) => ({
+        e: x.e,
+        voruebergehend: x.voruebergehend,
+        anNurMeeting: x.anNurMeeting,
+        s: { ...x.s, frist: x.frist !== null },
+        bridge: x.bridge === null ? null : {
+          laeuft: true, imAbbau: x.slotOffGesendet || imAbbau.has(x.bridge.gen), mode: x.bridge.mode, target: x.bridge.target,
+        },
+      })),
+    };
+  }
+
+  /** 300 ms nach roster, joined, left, renamed, videoStatus, inMeeting und Erlaubnis „ja“; jeder Auslöser startet neu (7.3). */
   function abgleichPlanen(): void {
     if (abgleichTimer !== null) clearTimeout(abgleichTimer);
     abgleichTimer = zeitgeber(f.abgleichMs, () => {
       abgleichTimer = null;
-      void abgleichen();
+      abgleichen();
     });
   }
 
-  async function abgleichen(): Promise<void> {
-    if (zustand !== 'im_meeting' || erlaubnis !== 'ja') return;
-    const gen = aktiveGen;
-    const lage = sollLage();
-    // N4b.3 Nr. 3: höchstens bis zur Betriebsgröße; Einträge ohne Platz stehen als 'grenze' und bleiben offen (L7).
-    const plaetze = freiePlaetze();
-    const handlungen = sollHandlungen(soll, lage, plaetze);
-    const offen = sollAbbild(soll, lage, plaetze);
-    const ueber = offen.filter((e) => e.stand === 'grenze').length;
-    if (ueber > 0) d.log(`[zoom] Abgleich: ${ueber === 1 ? '1 gemerkte Quelle' : `${ueber} gemerkte Quellen`} über der Betriebsgröße, nicht geladen`);
-    // L3: R5 nach dem ersten Abgleich mit Erlaubnis nach einem Wiederbeitritt; d = offene Einträge ohne Handlung, die auf
-    // eine eindeutige Person warten. 'grenze' wartet auf einen Platz, nicht auf eine Person, und zählt darum nicht.
-    const r5 = r5Offen;
-    r5Offen = false;
-    const ohneHandlung = offen.length - ueber - handlungen.length;
-    let k = 0;
-    for (const h of handlungen) {
-      if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting' || erlaubnis !== 'ja') return;
-      const eintrag = soll.get(h.schluessel);
-      if (!eintrag) continue;
-      if (h.art === 'neuLaden') {
-        d.log(`[zoom] Abgleich: verwaiste Quelle ${h.altAboId} wird für Teilnehmer ${h.id} neu geladen`);
-        sende({ cmd: 'videoUnsubscribe', id: h.altAboId });
-        await abmeldungAbwarten(h.altAboId);
-        // Nach dem await auch die Erlaubnis neu prüfen: Ein Entzug in der Wartezeit lädt nichts mehr (N4b.1).
-        if (gen !== aktiveGen || imAbbau.has(gen) || zustand !== 'im_meeting' || erlaubnis !== 'ja' || soll.get(h.schluessel) !== eintrag) continue;
-      } else {
-        // L7: Nach einem await in dieser Runde (Neu-Laden) kann ein Laden von Hand oder per Companion den Platz belegt
-        // haben, den die Planung vorsah. Ohne freien Platz bleibt der Eintrag offen und steht im Abbild als 'grenze'.
-        if (freiePlaetze() <= 0) continue;
-        d.log(`[zoom] Abgleich: Teilnehmer ${h.id} wird abonniert`);
-      }
-      eintrag.aboId = h.id;
-      abonniere(h.id, h.ton);
-      k += 1;
+  /**
+   * Slot-Abgleich (7.3 Nr. 1–10), synchron: kein await zwischen Prüfen und Senden. Startet, hängt um (slotSet {id}), stoppt
+   * und stellt zurück, was planeSlotAbgleich ergibt; sofort nach jeder Änderung des Bedieners, sonst über abgleichPlanen.
+   */
+  function abgleichen(): void {
+    if (beendenVersprechen !== null || aktiveBridge === null || imAbbau.has(aktiveGen)) return;
+    for (const h of planeSlotAbgleich(abgleichEingabe())) {
+      const x = slots.get(h.nr);
+      if (x === undefined) continue;
+      if (h.art === 'nameMerken') x.s = { ...x.s, gewaehlteId: h.gewaehlteId, wegSeq: null };
+      else if (h.art === 'starten') startSenden(x, h.befehl);
+      else if (h.art === 'aendern') {
+        if (sende(h.befehl)) d.log(`[zoom] Slot ${h.nr}: neues Ziel ${String(h.befehl.id)}`);
+      } else if (h.art === 'stoppen') stoppSenden(x);
+      else x.s = { ...x.s, fehlerstand: 'zurueckgestellt' };
     }
-    if (r5) hinweis(KT.R5(k, ohneHandlung, ueber));
     abbildGeaendert();
   }
 
-  function sollVerwerfen(e: { name: string }): void {
-    const schluessel = normName(e.name);
-    const eintrag = soll.get(schluessel);
-    if (eintrag !== undefined) {
-      soll.delete(schluessel);
-      d.log('[zoom] Gemerkte Quelle vergessen');
-      // Prüfung 08.10.2026: Ein gesendetes, noch unbestätigtes Abo ('laedt', 'erlaubnis', 'wiederbeitritt' über den Zusatzweg in
-      // sollOffen) wie beim Entladen abmelden (N4b.3 Nr. 7). Sonst liefe nach der Bestätigung eine Quelle, die der Bediener eben
-      // vergessen hat, ohne Soll-Eintrag (Plan 4b, Review Focus 4: Was vergessen ist, kommt nicht zurück).
-      const id = eintrag.aboId;
-      if (id !== null && aboFristen.has(id)) {
-        if (sende({ cmd: 'videoUnsubscribe', id })) d.log(`[zoom] Offenes Abo ${id} abgemeldet`);
-        aboBeantwortet(id);
-      }
-    }
+  function slotAnlegen(): ZoomErgebnis & { nr?: number } {
+    let nr = 1;
+    while (slots.has(nr)) nr += 1;
+    if (nr > SLOT_NR_MAX) return { ok: false, text: SLOT_TEXT.hoechstens };
+    const e = neuerSlot(nr, d.einstellungen.vorgaben(), [...slots.values()].map((x) => x.e.ndiName));
+    slots.set(nr, neuerIntern(e));
+    speichern();
+    d.log(`[zoom] Slot ${nr} angelegt`);
     abbildGeaendert();
+    return { ok: true, nr };
+  }
+
+  function slotAendern(nr: number, aenderung: Partial<Omit<ZoomSlotEinstellung, 'nr' | 'an'>>): ZoomErgebnis {
+    const x = slots.get(nr);
+    if (x === undefined) return { ok: false, text: '' };
+    if (aenderung.ndiName !== undefined && aenderung.ndiName !== x.e.ndiName) {
+      if (x.e.an || x.bridge !== null) return { ok: false, text: SLOT_TEXT.nameGesperrt };
+      const andere = [...slots.values()].map((y) => ({ nr: y.e.nr, ndiName: y.e.ndiName }));
+      const p = pruefeNdiName(aenderung.ndiName, nr, andere, d.gastLabels());
+      if (p.fehler !== null) return { ok: false, text: p.fehler };
+    }
+    const neu: ZoomSlotEinstellung = { ...x.e, ...aenderung, nr: x.e.nr, an: x.e.an };
+    // 7.3 Nr. 5, 7 (RR9): Mit der Person fallen gewaehlteId, wegSeq, personJetzt und zeigteSchon, mit dem Modus zeigteSchon.
+    if (neu.person !== x.e.person) x.s = sitzungNach(x.s, 'personGeaendert');
+    if (neu.modus !== x.e.modus) x.s = sitzungNach(x.s, 'modusGeaendert');
+    x.e = neu;
+    if (!x.voruebergehend) speichern();
+    d.log(`[zoom] Slot ${nr} geändert (${Object.keys(aenderung).sort().join(', ')})`);
+    abgleichen();
+    return { ok: true };
+  }
+
+  function slotLoeschen(nr: number): ZoomErgebnis {
+    const x = slots.get(nr);
+    if (x === undefined) return { ok: false, text: '' };
+    if (x.e.an || x.bridge !== null) return { ok: false, text: SLOT_TEXT.loeschenGesperrt };
+    fristBeantwortet(x);
+    slots.delete(nr);
+    if (!x.voruebergehend) speichern();
+    d.log(`[zoom] Slot ${nr} gelöscht`);
+    abbildGeaendert();
+    return { ok: true };
+  }
+
+  function slotStart(nr: number, an: boolean, _trotz?: boolean): ZoomErgebnis | { ok: false; nachfrage: true; text: string } {
+    const x = slots.get(nr);
+    if (x === undefined) return { ok: false, text: '' };
+    // 7.3 Nr. 2: „Stopp“ und „Start“ heben den Fehlerstand auf; die Start-Taste wird gespeichert.
+    x.s = sitzungNach(x.s, 'stoppStart');
+    fristBeantwortet(x);
+    x.e = { ...x.e, an };
+    if (!x.voruebergehend) speichern();
+    d.log(`[zoom] Slot ${nr} ${an ? 'eingeschaltet' : 'ausgeschaltet'}`);
+    abgleichen();
+    return { ok: true };
+  }
+
+  function slotAusPerson(teilnehmerId: number, _trotz?: boolean): ZoomErgebnis | { ok: false; nachfrage: true; text: string } {
+    const p = aktiveSitzung()?.participants.get(teilnehmerId);
+    if (!p || p.self) return { ok: false, text: KT.Q2 };
+    if (p.inWaitingRoom) return { ok: false, text: SLOT_TEXT.warteraumTooltip };
+    let nr = 1;
+    while (slots.has(nr)) nr += 1;
+    if (nr > SLOT_NR_MAX) return { ok: false, text: SLOT_TEXT.hoechstens };
+    // E13, 7.2 „Übergang“: Übergangs-Namensregel, Person = Anzeigename, Ersatzbild transparent, Vorgaben, an.
+    const belegt = [...slots.values()].map((x) => x.e.ndiName);
+    const e: ZoomSlotEinstellung = {
+      ...neuerSlot(nr, d.einstellungen.vorgaben(), belegt), ndiName: uebergangsNdiName(p.name, belegt), person: p.name, an: true,
+    };
+    const x = neuerIntern(e);
+    slots.set(nr, x);
+    speichern();
+    d.log(`[zoom] Slot ${nr} aus Teilnehmer ${teilnehmerId} angelegt`);
+    abgleichen();
+    return { ok: true };
+  }
+
+  function slotPersonWaehlen(nr: number, teilnehmerId: number): ZoomErgebnis {
+    const x = slots.get(nr);
+    const p = aktiveSitzung()?.participants.get(teilnehmerId);
+    if (x === undefined || !p || p.self) return { ok: false, text: KT.Q2 };
+    x.s = { ...x.s, gewaehlteId: teilnehmerId, wegSeq: null };
+    d.log(`[zoom] Slot ${nr}: Person gewählt (Teilnehmer ${teilnehmerId})`);
+    abgleichen();
+    return { ok: true };
   }
 
   // ── Fernsteuerung (Spec 11.2, 8.6) ───────────────────────────────────────
-  /** Name zu einer Quelle oder einem offenen Abo: aus der Sitzung, sonst (verwaist) aus dem Soll-Eintrag. */
-  function quellenName(aboId: number): string | null {
-    const p = aktiveSitzung()?.participants.get(aboId);
-    if (p) return p.name;
-    for (const s of soll.values()) if (s.aboId === aboId) return s.name;
-    return null;
-  }
-
-  /** zoom_load: F4 ohne Meeting oder Erlaubnis, F2/F3/F4 nach dem Ladeziel; schon belegt → nichts; ab der 6. Quelle F8. */
-  function fernLaden(name: string): { kennung: ZoomBefehlKennung; text: string | null } {
-    if (zustand !== 'im_meeting') return { kennung: 'f4', text: FT.F4('nicht im Meeting') };
-    if (erlaubnis !== 'ja') return { kennung: 'f4', text: FT.F4('keine Aufnahme-Erlaubnis') };
-    const fremde = [...(aktiveSitzung()?.participants.values() ?? [])]
-      .filter((p) => !p.self)
-      .map((p) => ({ id: p.id, name: p.name, imWarteraum: p.inWaitingRoom }));
-    const ziel = ladeZiel(name, fremde);
-    if (ziel.art === 'niemand') return { kennung: 'f2', text: FT.F2(name) };
-    if (ziel.art === 'mehrdeutig') return { kennung: 'f3', text: FT.F3(name, ziel.n) };
-    if (ziel.art === 'warteraum') return { kennung: 'f4', text: FT.F4('die Person ist im Warteraum') };
-    const belegt = belegteAbos();
-    // Schon geladen oder das Abo ist unterwegs (Taste doppelt gedrückt, Review Focus 1): nichts tun.
-    if (belegt.has(ziel.id)) return { kennung: 'ok', text: null };
-    const ton = teilnehmerAbbild().find((t) => t.id === ziel.id)?.tonVorwahl ?? true;
-    void laden({ id: ziel.id, ton, trotzBetriebsgroesse: true });
-    // Die Fernsteuerung lädt auch über die Betriebsgröße, mit der Warnung F8 (nicht abgelehnt).
-    return belegt.size >= BETRIEBSGROESSE ? { kennung: 'f8', text: FT.F8(belegt.size + 1) } : { kennung: 'ok', text: null };
-  }
-
-  /** zoom_unload: alle Quellen und offenen Abos mit diesem normierten Namen entladen, sonst den Soll-Eintrag vergessen; nichts → F5. */
-  function fernEntladen(name: string): { kennung: ZoomBefehlKennung; text: string | null } {
-    const ziel = normName(name);
-    const aboIds = [...belegteAbos()].filter((id) => {
-      const n = quellenName(id);
-      return n !== null && normName(n) === ziel;
-    });
-    const eintrag = soll.get(ziel);
-    const nurSoll = eintrag !== undefined && (eintrag.aboId === null || !aboIds.includes(eintrag.aboId));
-    if (aboIds.length === 0 && !nurSoll) return { kennung: 'f5', text: FT.F5(name) };
-    for (const id of aboIds) void entladen({ aboId: id });
-    if (nurSoll) sollVerwerfen({ name });
-    return { kennung: 'ok', text: null };
-  }
-
   function steuerbefehl(cmd: { verb: string; args: string[] }): void {
     const verb = cmd.verb.toLowerCase();
     const b = deuteZoomBefehl(cmd.verb, cmd.args);
     let erg: { kennung: ZoomBefehlKennung; text: string | null } = { kennung: 'ok', text: null };
     // Die Slot-Verben (Spec 8.3) deutet fernsteuerung.ts ab Plan B, Task B5; ausgeführt werden sie erst ab Task B13. Bis
     // dahin beantwortet der Kern jedes von ihnen, auch ein ungültiges, wie 0.3.0 mit F7 (wie B-EP3 für zoom_load).
-    if (verb.startsWith('zoom_slot')) erg = { kennung: 'f7', text: FT.F7(verb) };
+    // B-EP3: Mit den Quellen entfällt der alte Weg von zoom_load und zoom_unload; bis Task B13 (vorübergehende Slots) beantwortet
+    // der Kern beide wie ein unbekanntes Verb mit F7.
+    if (verb.startsWith('zoom_slot') || b.art === 'laden' || b.art === 'entladen') erg = { kennung: 'f7', text: FT.F7(verb) };
     else if (b.art === 'abgelehnt') erg = { kennung: b.kennung, text: b.text };
-    else if (b.art === 'laden') erg = fernLaden(b.name);
-    else if (b.art === 'entladen') erg = fernEntladen(b.name);
     // Wie 6.7; „nur für diese Sitzung gemerkt“ zählt über die Fernsteuerung als ausgeführt (L14).
     else if (b.art === 'versatz') versatz({ ms: b.ms });
     // 8.6: F1–F7 sind abgelehnt, F8 ist eine Warnung zu einem ausgeführten Befehl.
@@ -1809,9 +1965,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       if (ladeLauf !== null) {
         if (!(await mitFrist(ladeLauf, fristMs))) d.log('[zoom] Laden des Zoom-SDK nicht rechtzeitig abgebrochen');
       } else if (kopieLauf !== null && !(await mitFrist(kopieLauf, fristMs))) d.log('[zoom] SDK-Kopie nicht rechtzeitig abgebrochen');
-      // Ruling 08.10.2026: Die Soll-Liste geht wie beim Verlassen VOR Z12 und vor dem Warten auf die Bridge (sonst stünde neben
-      // „Verlasse das Meeting …“ jede Quelle als „wartet auf den Wiederbeitritt“). Im Abbau liest niemand die Liste.
-      soll.clear();
+      // Ruling 08.10.2026, Slot-Spec 7.3 Nr. 8: Die Sitzung der Slots endet wie beim Verlassen VOR Z12 und vor dem Warten auf
+      // die Bridge.
+      sitzungsEnde('beenden');
       // Kopie und Bridge laufen nie gleichzeitig (Sperre S10): insgesamt höchstens fristMs.
       if (aktiveBridge !== null) {
         // N4b.3 Nr. 8: Z12 („verlässt das Meeting …“) nur mit Meeting, nicht bei „Einrichtung prüfen“.
@@ -1832,6 +1988,11 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   zustand = maengel.length ? 'einrichtung' : 'bereit';
   d.log(`[zoom] Zoom-Kern bereit: ${zustand}${maengel.length ? ` (Mängel: ${maengel.join(', ')})` : ''}`);
   meldeLaufzeit(laufzeitStand);
+  // Slot-Spec 7.2: die gespeicherten (dauerhaften) Slots; verworfene Einträge nennt der Hinweis T91 (die Zahl, nie ein Name).
+  for (const e of d.einstellungen.slots()) slots.set(e.nr, neuerIntern(e));
+  const lage = d.einstellungen.einstellungsLage();
+  if (lage.verworfen > 0) hinweis(EINSTELLUNG_TEXT.verworfen(lage.verworfen));
+  d.log(`[zoom] ${slots.size === 1 ? '1 Slot' : `${slots.size} Slots`} gelesen`);
   letzteKurz = JSON.stringify(kurz());
 
   return {
@@ -1854,10 +2015,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     erneut,
     verlassen,
     abbrechen,
-    laden,
-    entladen,
-    ton,
-    sollVerwerfen,
+    slotAnlegen,
+    slotAendern,
+    slotLoeschen,
+    slotStart,
+    slotAusPerson,
+    slotPersonWaehlen,
     schliessen,
     meldungWeg,
     gastLabelsGeaendert: () => abbildGeaendert(),

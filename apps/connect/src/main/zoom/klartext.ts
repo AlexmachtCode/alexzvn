@@ -3,11 +3,11 @@
 // der Spec; Platzhalter {…} sind Funktionsparameter. Fassung, Fristen und Betriebsgröße kommen aus
 // den Konstanten (N4b.3 Nr. 8). Logzeilen nennen nie den Namen eines Teilnehmers (N4b.2): Hinweise
 // mit Namen tragen einen eigenen `logText`, Zeilen der Bridge laufen durch maskiereNamen.
-import type { AudioReason, AudioState, SlotFehler } from '@jm/zoom-bridge/protocol';
+import type { SlotFehler } from '@jm/zoom-bridge/protocol';
 import { authResultName, endReason, failCodeName, failReason, SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
 import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
 import type { ZoomBefehlKennung, ZoomMangel } from '../../shared/types';
-import { BETRIEBSGROESSE, Q9_ANFANG, TEXT_A4, TEXT_A6, TEXT_S11, TEXT_S17 } from '../../shared/zoom-text';
+import { BETRIEBSGROESSE, TEXT_A4, TEXT_A6, TEXT_S11, TEXT_S17 } from '../../shared/zoom-text';
 import { ZOOM_FRISTEN } from './fristen';
 
 /** Text groß in der Karte, Detail klein darunter (technischer Name und Code), Spec 8. */
@@ -114,21 +114,14 @@ export const KT = {
     `Ton nicht verfügbar (${name}) — das Bild läuft ohne Ton. Für einen neuen Versuch entladen und neu laden.`,
   Q6: (dropped: number): string => `Ton: ${dropped} Pakete verworfen — dieser PC kommt nicht hinterher.`,
   Q7: 'NDI ließ sich in der Zoom-Bridge nicht starten. Details im Log.',
-  Q8: 'Keine Antwort der Zoom-Bridge auf „Als Quelle laden“.',
-  Q9: (n: number): string =>
-    `${Q9_ANFANG} Noch einmal klicken, um die ${n}. Quelle trotzdem zu laden.`,
-  Q10: (ndiName: string): string =>
-    `NDI-Name doppelt: Ein Browser-Gast und diese Zoom-Person senden beide als „${ndiName}“. Im Switcher ist nicht sicher, welche Quelle ankommt. Einen der beiden umbenennen.`,
-  Q11: 'Name doppelt im Meeting — nach einem Wiederbeitritt kann Connect diese Quelle nicht von selbst zuordnen.',
+  // Q8, Q9, Q10, Q11, Q14 und Q17 entfallen mit den Quellen (Slot-Spec 9.7 „Entfallen“; Plan B, Task B12): ersetzt durch T21,
+  // T40, T46, T13/T13b, den Ton je Slot (0.8) und T106.
   Q12: (name: string): string =>
     `Zoom hat die Anfrage nach der Aufnahme-Erlaubnis nicht angenommen (${name}). Der Host kann sie im Zoom-Client trotzdem erteilen.`,
   Q13: 'Bild-Versatz: erlaubt sind ganze Zahlen von 0 bis 1000 ms.',
-  Q14: 'Zum Umschalten erst entladen.',
   Q15: 'Erst im Zoom-Client zulassen.',
   Q16: (person: string): string =>
     `Bild: fehlerhafte Bilder von „${person}“ verworfen (videoBufferMismatch). Die Quelle bleibt bestehen; ob wieder Bild kommt, zeigt ihr Bild-Zustand.`,
-  Q17: (person: string): string =>
-    `Ton: ein fehlerhaftes Paket von „${person}“ verworfen (audioBufferMismatch). Der Ton läuft mit dem nächsten gültigen Paket weiter.`,
 
   // 8.5 Abriss und Wiederbeitritt (6.4)
   R6: (grund: string): string => `Meeting beendet: ${grund}.`,
@@ -252,86 +245,6 @@ export function mangelText(m: ZoomMangel, datei: string | null): string {
     case 'zugang_unlesbar':
       return KT.A5;
   }
-}
-
-/**
- * Wohin ein Fehler gehört: an die Zeile/Quelle, unter „Hinweise“ oder nirgends (8.4). Ein Hinweis trägt
- * zusätzlich `logText`: dieselbe Aussage ohne Teilnehmernamen, mit der Kennung (N4b.2, L11).
- */
-export type Einordnung = { art: 'zeile'; text: string } | { art: 'hinweis'; text: string; logText: string } | { art: 'keine' };
-
-/** Logtexte der Hinweise Q16/Q17 (Texttabelle 4b): Kennung statt Name. */
-const LOG_Q16 = (kennung: string): string => `Bild: fehlerhafte Bilder von Teilnehmer ${kennung} verworfen (videoBufferMismatch).`;
-const LOG_Q17 = (kennung: string): string => `Ton: ein fehlerhaftes Paket von Teilnehmer ${kennung} verworfen (audioBufferMismatch).`;
-
-/**
- * `error where:'video'|'audio'` → Einordnung (8.4). `name` = Fehlername aus enrich(), `person` = Anzeigename
- * (nur für die Karte), `id` = Teilnehmer-Kennung aus dem Ereignis (nur für das Log).
- */
-export function quellenFehler(code: string, name: string, person: string | null, dropped?: number, id?: number): Einordnung {
-  const wer = person ?? 'unbekannt';
-  const kennung = id === undefined ? 'unbekannt' : String(id);
-  switch (code) {
-    case 'videoNoPrivilege':
-      return { art: 'zeile', text: KT.Q1 };
-    case 'videoUnknownParticipant':
-      return { art: 'zeile', text: KT.Q2 };
-    case 'videoAlreadySubscribed':
-      return { art: 'keine' }; // Q3: kein Text, das Abbild gleicht sich an
-    case 'videoNotSubscribed':
-      return { art: 'keine' }; // Abmeldung doppelt gesendet (Taste prellt bei zoom_unload): das Ziel ist erreicht
-    case 'videoRendererFailed':
-    case 'videoRawRecordingFailed':
-    case 'videoSenderFailed':
-      return { art: 'zeile', text: KT.Q4(name) };
-    case 'audioVoipJoinFailed':
-    case 'audioHelperMissing':
-    case 'audioSubscribeFailed':
-      return { art: 'zeile', text: KT.Q5(name) };
-    case 'videoBadDelay':
-      return { art: 'zeile', text: KT.Q13 };
-    case 'audioQueueOverflow':
-      return { art: 'hinweis', text: KT.Q6(dropped ?? 0), logText: KT.Q6(dropped ?? 0) };
-    case 'videoBufferMismatch':
-      return { art: 'hinweis', text: KT.Q16(wer), logText: LOG_Q16(kennung) };
-    case 'audioBufferMismatch':
-      return { art: 'hinweis', text: KT.Q17(wer), logText: LOG_Q17(kennung) };
-    default:
-      return { art: 'zeile', text: KT.Q4(name) };
-  }
-}
-
-/**
- * Owner 08.10.2026 („Laden gescheitert, bitte von Hand laden“): Steht dieser Bild- oder Tonfehler an der Zeile einer Person
- * ohne laufende Quelle, hat die Bridge das Laden genau dieser Person abgelehnt. Mit Kennung meldet die Bridge solche Fehler nur
- * als Antwort auf videoSubscribe (video.cpp videoSubscribe, main.cpp videoBadResolution und videoBadAudioFlag) und beim
- * Umhängen (video.cpp, videoRendererFailed an der neuen Kennung). Ja für jeden Zeilenfehler aus quellenFehler außer Q1, Q2 und
- * Q13: Q4 (videoRendererFailed, videoRawRecordingFailed, videoSenderFailed und jeder unbekannte Code, etwa videoBadResolution,
- * den Connect mit seiner festen Auflösung 720p praktisch nie auslöst, und videoBadAudioFlag) und Q5 (audio…; die Bridge meldet
- * sie heute ohne Kennung, also als Hinweis, nie an einer Zeile).
- * Nein (Ruling 08.10.2026, R1 und R2: „von Hand laden“ brächte nichts) für Q2 (videoUnknownParticipant: Die Person ist nicht mehr
- * im Meeting, der Eintrag fällt auf „wartet auf die Person“ zurück) und Q1 (videoNoPrivilege: der Eintrag wartet auf die
- * Aufnahme-Erlaubnis, istErlaubnisFehler). Nein auch für Q13 (videoBadDelay gilt dem Bild-Versatz aller Quellen und kommt ohne
- * Kennung), für Q3 und videoNotSubscribed (kein Text) und für die Hinweise Q6, Q16, Q17.
- */
-export function istLadeFehler(code: string): boolean {
-  if (code === 'videoNoPrivilege' || code === 'videoUnknownParticipant' || code === 'videoBadDelay') return false;
-  return quellenFehler(code, code, null).art === 'zeile';
-}
-
-/**
- * Ruling 08.10.2026 (R2): Q1 (videoNoPrivilege) an der Zeile einer Person ohne laufende Quelle heißt, die Bridge hat ihr Abo
- * abgelehnt, weil die Aufnahme-Erlaubnis fehlt. Ist die Person eindeutig da, wartet ihr gemerkter Eintrag dann auf die
- * Erlaubnis (Stand 'erlaubnis'), auch wenn Connect die Erlaubnis noch als „ja“ führt (bis zum privilege-Ereignis).
- */
-export function istErlaubnisFehler(code: string): boolean {
-  return code === 'videoNoPrivilege';
-}
-
-/** Ton-Zustand einer Quelle: nur `off`/`audioUnavailable` ist ein Fehler (Q5); `off`/`command` ist „ohne Ton geladen“. */
-export function tonZustand(state: AudioState, reason: AudioReason): Einordnung {
-  if (state === 'off' && reason === 'audioUnavailable') return { art: 'zeile', text: KT.Q5('audioUnavailable') };
-  return { art: 'keine' };
 }
 
 /**
@@ -460,7 +373,7 @@ export const SLOT_KT = {
   /** T104 (Q5 geändert): Ton-Abo-Fehler, an jeder Kachel mit eingeschaltetem Ton (7.1, 10.6). */
   T104: (name: string): string =>
     `Ton nicht verfügbar (${name}) — das Bild läuft ohne Ton. Für einen neuen Versuch den Ton aus- und wieder einschalten.`,
-  /** T105 (wie Q16): `slotBufferMismatch`, Hinweis. Ohne Slot-Nummer „unbekannt“, wie Q16 ohne Person (quellenFehler oben). */
+  /** T105 (wie Q16): `slotBufferMismatch`, Hinweis. Ohne Slot-Nummer „unbekannt“, wie Q16 ohne Person in 0.3.0. */
   T105: (nr: number | null): string =>
     `Bild: fehlerhafte Bilder in Slot ${nr ?? 'unbekannt'} verworfen (slotBufferMismatch). Der Slot läuft weiter; ob wieder Bild kommt, zeigt seine Kachel.`,
   /** T106 (ersetzt Q17 für Slots): `audioBufferMismatch` mit `slot`, Hinweis. */

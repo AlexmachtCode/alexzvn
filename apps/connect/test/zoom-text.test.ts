@@ -5,21 +5,20 @@
 // Zustandsart fängt der Typcheck (tsc, CI-Job typecheck); die Zählprüfungen unten schützen nur
 // die Testtabellen selbst.
 import { readFileSync } from 'node:fs';
-import type { AudioReason, VideoReason } from '@jm/zoom-bridge/protocol';
 import type {
-  AppStatus, ProxyKeySource, ZoomAbbild, ZoomBefehlErgebnis, ZoomErlaubnis, ZoomKurz, ZoomMangel, ZoomQuelle, ZoomSollEintrag, ZoomZustand,
+  AppStatus, ProxyKeySource, ZoomAbbild, ZoomBefehlErgebnis, ZoomErlaubnis, ZoomKurz, ZoomMangel, ZoomZustand,
 } from '../src/shared/types';
 import {
-  BETRIEBSGROESSE, bildText, einrichtungsTextArt, gaesteZeile, kartenZeile, MANGEL_GRUND, Q9_ANFANG, quellenZustandText, sdkBalken,
-  sdkKnopf, sdkLadenZeile, sdkSchluesselZeile, sdkZeile, sollFarbe, sollZeile, stateKvAus, TEXT_A4, TEXT_A4_SCHREIBFEHLER, TEXT_A6, TEXT_S11,
-  TEXT_S17, tonText, trayTooltip, trayVerlassenAktiv, versatzUebernommen, versatzZeile, WIEDERBEITRITT_VERSUCHE, zoomKnoepfe, zoomZ,
+  BETRIEBSGROESSE, einrichtungsTextArt, gaesteZeile, kartenZeile, MANGEL_GRUND, sdkBalken,
+  sdkKnopf, sdkLadenZeile, sdkSchluesselZeile, sdkZeile, stateKvAus, TEXT_A4, TEXT_A4_SCHREIBFEHLER, TEXT_A6, TEXT_S11,
+  TEXT_S17, trayTooltip, trayVerlassenAktiv, versatzUebernommen, versatzZeile, WIEDERBEITRITT_VERSUCHE, zoomKnoepfe, zoomZ,
   zoomZeile, zugangZeile, type ZoomStatusWert, type ZoomZ,
 } from '../src/shared/zoom-text';
 import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
 import * as fristen from '../src/main/zoom/fristen';
 import {
   authMeldung, dllMeldung, endeMeldung, ENDGUELTIGE_FAIL_CODES, exitCodeAus, failMeldung, failText, fehlerDetail, fernLogText, FT,
-  istEndgueltig, istErlaubnisFehler, istLadeFehler, KT, mangelText, maskiere, maskiereNamen, quellenFehler, spawnMeldung, tonZustand, VORSATZ, type VersuchsAusgang,
+  istEndgueltig, KT, mangelText, maskiere, maskiereNamen, spawnMeldung, VORSATZ, type VersuchsAusgang,
 } from '../src/main/zoom/klartext';
 
 let pass = 0, fail = 0;
@@ -30,8 +29,8 @@ function ck(name: string, cond: boolean): void {
 // ── Testhilfen ──
 function kurz(z: Partial<ZoomKurz> = {}): ZoomKurz {
   return {
-    zustand: 'bereit', warten: null, erlaubnis: null, quellen: 0, ohneBild: 0, sollOffen: 0,
-    versuch: null, maengel: [], kopieLaeuft: false, befehl: null, ...z,
+    zustand: 'bereit', warten: null, erlaubnis: null, slotsLaufen: 0, slotsErsatz: 0, slotsOffen: 0, slotsAn: 0, slotsGestopptEntzug: 0,
+    slotKurz: [], versuch: null, maengel: [], kopieLaeuft: false, befehl: null, ...z,
   };
 }
 function abbild(a: Omit<Partial<ZoomAbbild>, 'kurz'> & { kurz?: Partial<ZoomKurz> } = {}): ZoomAbbild {
@@ -45,7 +44,9 @@ function abbild(a: Omit<Partial<ZoomAbbild>, 'kurz'> & { kurz?: Partial<ZoomKurz
     },
     anzeigename: 'Regie Süd',
     versatz: { gewuenschtMs: 0, bestaetigtMs: null, nurSitzung: false },
-    teilnehmer: [], soll: [], abriss: null, meldung: null, hinweise: [],
+    teilnehmer: [], slots: [], vorgaben: { aufloesung: '720p', tonAn: true }, sprecher: { signal: 'sprecherVideo', haltezeitMs: 1000 },
+    vorschauAn: true, vorschauVerfuegbar: true, ueber5: false, messwerte: { bridge: null, slots: [], freigaben: null, sprecherSignale: [] },
+    einstellungen: { nurSitzung: false, gesichert: null }, abriss: null, meldung: null, hinweise: [],
     erneutMoeglich: false, pruefungLaeuft: false, abbauLaeuft: false,
     ...rest,
   };
@@ -69,7 +70,7 @@ interface Fall72 {
   tray: (n: number, k: number) => string | null;
   karte: (n: number, k: number) => string | null;
 }
-const q = (n: number): string => (n === 1 ? '1 Quelle' : `${n} Quellen`);
+const s = (n: number): string => (n === 1 ? '1 Slot läuft' : `${n} Slots laufen`);
 const T72: Record<ZoomZ, Fall72> = {
   Z0: { lage: { zustand: 'nicht_verfuegbar' }, nk: [[0, 0]], tray: () => null, karte: () => null },
   Z1a: {
@@ -112,25 +113,26 @@ const T72: Record<ZoomZ, Fall72> = {
     tray: () => '△ Zoom: im Meeting ohne Aufnahme-Erlaubnis',
     karte: () => 'Im Meeting ohne Aufnahme-Erlaubnis. Der Host hat abgelehnt. Der Host kann sie im Zoom-Client jederzeit erteilen; Connect merkt das von selbst.',
   },
+  // Z7b, Z8, Z9, Z9b: Slot-Spec 9.5 (T83–T86; Plan B, Task B12), n = laufende Slots, k = mit Ersatzbild.
   Z7b: {
     lage: { zustand: 'im_meeting', erlaubnis: 'abgelehnt' }, nk: [[2, 0], [2, 2], [1, 1]],
-    tray: (n) => `△ Zoom: ${q(n)}, Aufnahme-Erlaubnis fehlt`,
-    karte: (n) => n === 1
-      ? 'Die Aufnahme-Erlaubnis fehlt (vom Host abgelehnt). 1 Quelle besteht noch. Der Host kann sie im Zoom-Client erteilen.'
-      : `Die Aufnahme-Erlaubnis fehlt (vom Host abgelehnt). ${n} Quellen bestehen noch. Der Host kann sie im Zoom-Client erteilen.`,
+    tray: (n) => `△ Zoom: ${s(n)}, Aufnahme-Erlaubnis fehlt`,
+    karte: (n) => `Die Aufnahme-Erlaubnis fehlt (vom Host abgelehnt). ${s(n)} noch. Der Host kann sie im Zoom-Client erteilen.`,
   },
   Z8: {
     lage: { zustand: 'im_meeting', erlaubnis: 'ja' }, nk: [[0, 0]],
-    tray: () => '○ Zoom: im Meeting, keine Quelle geladen', karte: () => 'Im Meeting. Personen unten als Quelle laden.',
+    tray: () => '○ Zoom: im Meeting, kein Slot läuft', karte: () => 'Im Meeting. Kein Slot läuft: Slots unten einschalten oder eine Person als Slot laden.',
   },
   Z9: {
     lage: { zustand: 'im_meeting', erlaubnis: 'ja' }, nk: [[2, 0], [1, 0]],
-    tray: (n) => `● Zoom: ${q(n)} geladen`, karte: (n) => `Im Meeting. ${q(n)} geladen.`,
+    tray: (n) => `● Zoom: ${s(n)}`, karte: (n) => `Im Meeting. ${s(n)}.`,
   },
   Z9b: {
     lage: { zustand: 'im_meeting', erlaubnis: 'ja' }, nk: [[2, 1], [2, 2], [1, 1]],
-    tray: (n, k) => `● Zoom: ${q(n)} geladen, ${k} ohne Bild`,
-    karte: (n, k) => `Im Meeting. ${q(n)} geladen, ${k} davon ohne Bild (Kamera aus, Person weg oder erstes Bild steht noch aus).`,
+    tray: (n, k) => (n === 1 ? '● Zoom: 1 Slot läuft, mit Ersatzbild' : `● Zoom: ${n} Slots laufen, ${k} mit Ersatzbild`),
+    karte: (n, k) => (n === 1
+      ? 'Im Meeting. 1 Slot läuft, mit Ersatzbild; die Kachel nennt den Grund.'
+      : `Im Meeting. ${n} Slots laufen, ${k} davon mit Ersatzbild; die Kacheln nennen den Grund.`),
   },
   Z10: {
     lage: { zustand: 'abriss', versuch: null }, nk: [[0, 0], [2, 2]],
@@ -151,10 +153,10 @@ const T72: Record<ZoomZ, Fall72> = {
     tray: () => '✕ Zoom: Fehler, siehe Connect-Fenster', karte: () => 'Beitritt gescheitert: falscher Kenncode.',
   },
 };
-/** Abbild für Zeile z mit n Quellen, davon k ohne Bild, o offenen Soll-Einträgen. */
+/** Abbild für Zeile z mit n laufenden Slots, davon k mit Ersatzbild, o offenen Slots. */
 function lage(z: ZoomZ, n: number, k: number, o = 0): ZoomAbbild {
   const f = T72[z];
-  return abbild({ ...f.abbild, kurz: { ...f.lage, quellen: n, ohneBild: k, sollOffen: o } });
+  return abbild({ ...f.abbild, kurz: { ...f.lage, slotsLaufen: n, slotsErsatz: k, slotsOffen: o } });
 }
 
 // Zustand → mögliche Zeilen (Spec 7.1). Record über ZoomZustand: ein neuer Zustand scheitert im Typcheck.
@@ -225,32 +227,36 @@ const ERLAUBNIS: Record<ZoomErlaubnis, { z0: ZoomZ; z2: ZoomZ; karte0: string; k
   offen: {
     z0: 'Z6', z2: 'Z7b',
     karte0: 'Im Meeting. Warte auf die Aufnahme-Erlaubnis: Der Host muss sie im Zoom-Client für „Regie Süd“ erteilen.',
-    karte2: 'Die Aufnahme-Erlaubnis fehlt (angefragt, noch keine Antwort). 2 Quellen bestehen noch. Der Host kann sie im Zoom-Client erteilen.',
+    karte2: 'Die Aufnahme-Erlaubnis fehlt (angefragt, noch keine Antwort). 2 Slots laufen noch. Der Host kann sie im Zoom-Client erteilen.',
   },
-  ja: { z0: 'Z8', z2: 'Z9', karte0: 'Im Meeting. Personen unten als Quelle laden.', karte2: 'Im Meeting. 2 Quellen geladen.' },
+  // Slot-Spec 9.5 (Plan B, Task B12): T84 mit e = 0 (kein Slot eingeschaltet, Vorgabe der Testhilfe), T85.
+  ja: {
+    z0: 'Z8', z2: 'Z9', karte0: 'Im Meeting. Kein Slot läuft: Slots unten einschalten oder eine Person als Slot laden.',
+    karte2: 'Im Meeting. 2 Slots laufen.',
+  },
   abgelehnt: {
     z0: 'Z7', z2: 'Z7b',
     karte0: 'Im Meeting ohne Aufnahme-Erlaubnis. Der Host hat abgelehnt. Der Host kann sie im Zoom-Client jederzeit erteilen; Connect merkt das von selbst.',
-    karte2: 'Die Aufnahme-Erlaubnis fehlt (vom Host abgelehnt). 2 Quellen bestehen noch. Der Host kann sie im Zoom-Client erteilen.',
+    karte2: 'Die Aufnahme-Erlaubnis fehlt (vom Host abgelehnt). 2 Slots laufen noch. Der Host kann sie im Zoom-Client erteilen.',
   },
   abgelaufen: {
     z0: 'Z7', z2: 'Z7b',
     karte0: 'Im Meeting ohne Aufnahme-Erlaubnis. Zoom hat keine Antwort bekommen. Der Host kann sie im Zoom-Client jederzeit erteilen; Connect merkt das von selbst.',
-    karte2: 'Die Aufnahme-Erlaubnis fehlt (keine Antwort bekommen). 2 Quellen bestehen noch. Der Host kann sie im Zoom-Client erteilen.',
+    karte2: 'Die Aufnahme-Erlaubnis fehlt (keine Antwort bekommen). 2 Slots laufen noch. Der Host kann sie im Zoom-Client erteilen.',
   },
   // 4b (N4b.1, Texttabelle): Die Bridge baut beim Entzug ab; n > 0 gibt es nur, solange sie noch abbaut.
-  // karte0 gilt ohne gemerkte Quelle (sollOffen 0, Vorgabe der Testhilfe): dann bleibt der bisherige Satz (Spec 7: jeder Text wahr).
+  // karte0 gilt ohne gestoppten Slot (slotsGestopptEntzug 0, Vorgabe der Testhilfe): dann bleibt der bisherige Satz (Spec 7: jeder Text wahr).
   entzogen: {
     z0: 'Z7', z2: 'Z7b',
     karte0: 'Im Meeting ohne Aufnahme-Erlaubnis. Der Host hat sie entzogen. Der Host kann sie im Zoom-Client jederzeit erteilen; Connect merkt das von selbst.',
-    karte2: 'Aufnahme-Erlaubnis vom Host entzogen. Connect stoppt 2 Quellen …',
+    karte2: 'Aufnahme-Erlaubnis vom Host entzogen. Connect stoppt 2 Slots …',
   },
 };
 console.log('— 7.1/7.2 je Erlaubnis (n = 0 und n = 2)');
 ck('ZoomErlaubnis hat 5 Werte', Object.keys(ERLAUBNIS).length === 5);
 for (const e of Object.keys(ERLAUBNIS) as ZoomErlaubnis[]) {
-  const a0 = abbild({ kurz: { zustand: 'im_meeting', erlaubnis: e, quellen: 0 } });
-  const a2 = abbild({ kurz: { zustand: 'im_meeting', erlaubnis: e, quellen: 2, ohneBild: 0 } });
+  const a0 = abbild({ kurz: { zustand: 'im_meeting', erlaubnis: e, slotsLaufen: 0 } });
+  const a2 = abbild({ kurz: { zustand: 'im_meeting', erlaubnis: e, slotsLaufen: 2, slotsErsatz: 0 } });
   ck(`${e}, n=0 → ${ERLAUBNIS[e].z0}, Kartentext wörtlich`, zoomZ(a0.kurz) === ERLAUBNIS[e].z0 && kartenZeile(a0, JETZT) === ERLAUBNIS[e].karte0);
   ck(`${e}, n=2 → ${ERLAUBNIS[e].z2}, Kartentext wörtlich`, zoomZ(a2.kurz) === ERLAUBNIS[e].z2 && kartenZeile(a2, JETZT) === ERLAUBNIS[e].karte2);
 }
@@ -498,16 +504,11 @@ console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die 
     ['Q5', KT.Q5('AUDIO_HELPER_MISSING'), 'Ton nicht verfügbar (AUDIO_HELPER_MISSING) — das Bild läuft ohne Ton. Für einen neuen Versuch entladen und neu laden.'],
     ['Q6', KT.Q6(12), 'Ton: 12 Pakete verworfen — dieser PC kommt nicht hinterher.'],
     ['Q7', KT.Q7, 'NDI ließ sich in der Zoom-Bridge nicht starten. Details im Log.'],
-    ['Q8', KT.Q8, 'Keine Antwort der Zoom-Bridge auf „Als Quelle laden“.'],
-    ['Q9', KT.Q9(6), 'Mehr als 5 Zoom-Quellen sind nicht gemessen. Noch einmal klicken, um die 6. Quelle trotzdem zu laden.'],
-    ['Q10', KT.Q10('JM Connect – Zoom Anna'), 'NDI-Name doppelt: Ein Browser-Gast und diese Zoom-Person senden beide als „JM Connect – Zoom Anna“. Im Switcher ist nicht sicher, welche Quelle ankommt. Einen der beiden umbenennen.'],
-    ['Q11', KT.Q11, 'Name doppelt im Meeting — nach einem Wiederbeitritt kann Connect diese Quelle nicht von selbst zuordnen.'],
+    // Q8, Q9, Q10, Q11, Q14 und Q17 entfallen mit den Quellen (Slot-Spec 9.7 „Entfallen“; Plan B, Task B12).
     ['Q12', KT.Q12('SDKERR_NO_PERMISSION'), 'Zoom hat die Anfrage nach der Aufnahme-Erlaubnis nicht angenommen (SDKERR_NO_PERMISSION). Der Host kann sie im Zoom-Client trotzdem erteilen.'],
     ['Q13', KT.Q13, 'Bild-Versatz: erlaubt sind ganze Zahlen von 0 bis 1000 ms.'],
-    ['Q14', KT.Q14, 'Zum Umschalten erst entladen.'],
     ['Q15', KT.Q15, 'Erst im Zoom-Client zulassen.'],
     ['Q16', KT.Q16('Anna'), 'Bild: fehlerhafte Bilder von „Anna“ verworfen (videoBufferMismatch). Die Quelle bleibt bestehen; ob wieder Bild kommt, zeigt ihr Bild-Zustand.'],
-    ['Q17', KT.Q17('Ben'), 'Ton: ein fehlerhaftes Paket von „Ben“ verworfen (audioBufferMismatch). Der Ton läuft mit dem nächsten gültigen Paket weiter.'],
     ['R6', KT.R6('vom Gastgeber beendet'), 'Meeting beendet: vom Gastgeber beendet.'],
     ['R2', KT.R2('Zoom hat den Beitritt in 30 s weder bestätigt noch abgelehnt. Netzwerk prüfen und erneut versuchen.'),
       'Wiederbeitritt gescheitert (Zoom hat den Beitritt in 30 s weder bestätigt noch abgelehnt. Netzwerk prüfen und erneut versuchen). „Erneut beitreten“ versucht es noch einmal.'],
@@ -517,7 +518,6 @@ console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die 
     ['PRUEFUNG_OK', KT.PRUEFUNG_OK, 'Einrichtung in Ordnung: Zoom-SDK 7.1.5 (43953), Anmeldung bei Zoom erfolgreich.'],
   ];
   for (const [id, ist, soll] of KT_SOLL) ck(`${id} wörtlich`, ist === soll);
-  ck('Q9 beginnt mit dem geteilten Q9_ANFANG (zweiter Klick der Karte hängt daran)', KT.Q9(6).startsWith(Q9_ANFANG));
   ck('KT und die Tabelle haben dieselben Schlüssel (jeder Text genau einmal wörtlich geprüft)',
     JSON.stringify(Object.keys(KT).sort()) === JSON.stringify(KT_SOLL.map(([id]) => id).sort()));
   ck('S13: ⌈s/60⌉ Minuten, bei 1 die Einzahl (60 s → 1 Minute, 61 s → 2 Minuten, 600 s → 10), nie 0',
@@ -632,66 +632,9 @@ console.log('— Mängel → Text (6.2 Schritt 1)');
   }
 }
 
-console.log('— 8.4: Bild-/Ton-Fehler → Zeile, Hinweis oder nichts');
-{
-  const e = (code: string, name: string, person: string | null = 'Anna', dropped?: number) => quellenFehler(code, name, person, dropped);
-  ck('videoNoPrivilege → Zeile Q1', JSON.stringify(e('videoNoPrivilege', 'VIDEO_NO_PRIVILEGE')) === JSON.stringify({ art: 'zeile', text: KT.Q1 }));
-  ck('videoUnknownParticipant → Zeile Q2', JSON.stringify(e('videoUnknownParticipant', 'VIDEO_UNKNOWN_PARTICIPANT')) === JSON.stringify({ art: 'zeile', text: KT.Q2 }));
-  ck('videoAlreadySubscribed → nichts (Q3)', e('videoAlreadySubscribed', 'VIDEO_ALREADY_SUBSCRIBED').art === 'keine');
-  for (const [code, name] of [['videoRendererFailed', 'VIDEO_RENDERER_FAILED'], ['videoRawRecordingFailed', 'VIDEO_RAW_RECORDING_FAILED'], ['videoSenderFailed', 'VIDEO_SENDER_FAILED']]) {
-    ck(`${code} → Zeile Q4(${name})`, JSON.stringify(e(code, name)) === JSON.stringify({ art: 'zeile', text: KT.Q4(name) }));
-  }
-  for (const [code, name] of [['audioVoipJoinFailed', 'AUDIO_VOIP_JOIN_FAILED'], ['audioHelperMissing', 'AUDIO_HELPER_MISSING'], ['audioSubscribeFailed', 'AUDIO_SUBSCRIBE_FAILED']]) {
-    ck(`${code} → Zeile Q5(${name})`, JSON.stringify(e(code, name)) === JSON.stringify({ art: 'zeile', text: KT.Q5(name) }));
-  }
-  ck('videoBadDelay → Zeile Q13', JSON.stringify(e('videoBadDelay', 'VIDEO_BAD_DELAY')) === JSON.stringify({ art: 'zeile', text: KT.Q13 }));
-  ck('audioQueueOverflow → Hinweis Q6 mit dropped, Logtext gleich (kein Name darin)',
-    JSON.stringify(e('audioQueueOverflow', 'AUDIO_QUEUE_OVERFLOW', null, 37)) === JSON.stringify({
-      art: 'hinweis', text: 'Ton: 37 Pakete verworfen — dieser PC kommt nicht hinterher.', logText: 'Ton: 37 Pakete verworfen — dieser PC kommt nicht hinterher.',
-    }));
-  ck('audioQueueOverflow ohne dropped → 0', e('audioQueueOverflow', 'AUDIO_QUEUE_OVERFLOW', null).art === 'hinweis' && JSON.stringify(e('audioQueueOverflow', 'AUDIO_QUEUE_OVERFLOW', null)).includes('Ton: 0 Pakete'));
-  ck('videoBufferMismatch → Hinweis Q16 (keine Zeile), Logtext mit Kennung statt Name',
-    JSON.stringify(quellenFehler('videoBufferMismatch', 'VIDEO_BUFFER_MISMATCH', 'Anna', undefined, 16778240)) === JSON.stringify({
-      art: 'hinweis', text: KT.Q16('Anna'), logText: 'Bild: fehlerhafte Bilder von Teilnehmer 16778240 verworfen (videoBufferMismatch).',
-    }));
-  ck('audioBufferMismatch → Hinweis Q17 (keine Zeile), Logtext mit Kennung statt Name',
-    JSON.stringify(quellenFehler('audioBufferMismatch', 'AUDIO_BUFFER_MISMATCH', 'Ben', undefined, 16778243)) === JSON.stringify({
-      art: 'hinweis', text: KT.Q17('Ben'), logText: 'Ton: ein fehlerhaftes Paket von Teilnehmer 16778243 verworfen (audioBufferMismatch).',
-    }));
-  const ohneId = quellenFehler('videoBufferMismatch', 'VIDEO_BUFFER_MISMATCH', 'Anna');
-  ck('Q16 ohne Kennung im Ereignis: Logtext „Teilnehmer unbekannt“, nie der Name',
-    ohneId.art === 'hinweis' && ohneId.logText.includes('Teilnehmer unbekannt') && !ohneId.logText.includes('Anna'));
-  ck('unbekannter Code → Zeile Q4 mit dem Namen', JSON.stringify(e('videoNeu', 'OWN_UNKNOWN(videoNeu)')) === JSON.stringify({ art: 'zeile', text: KT.Q4('OWN_UNKNOWN(videoNeu)') }));
-  ck('Ton off/command (ohne Ton geladen) → kein Fehler', tonZustand('off', 'command').art === 'keine');
-  ck('Ton off/audioUnavailable → Zeile Q5', JSON.stringify(tonZustand('off', 'audioUnavailable')) === JSON.stringify({ art: 'zeile', text: KT.Q5('audioUnavailable') }));
-  ck('Ton off/participantLeft → kein Zeilenfehler', tonZustand('off', 'participantLeft').art === 'keine');
-  ck('Ton live → kein Fehler', tonZustand('live', 'packets').art === 'keine');
-}
-
-console.log('— Owner 08.10.2026: Welche Zeilenfehler ein gescheitertes Laden genau dieser Person bedeuten (Stand „gescheitert“)');
-{
-  // Die Bridge lehnt das Abo der Person ab (video.cpp videoSubscribe, main.cpp; jeweils mit Kennung): Q4; dazu Q5,
-  // falls ein Tonfehler je eine Kennung trüge, und jeder unbekannte Code (wie quellenFehler: Zeile Q4), etwa die beiden
-  // Befehlsfeld-Fehler aus main.cpp (videoBadResolution, videoBadAudioFlag).
-  const JA = ['videoRendererFailed', 'videoRawRecordingFailed', 'videoSenderFailed',
-    'videoBadResolution', 'videoBadAudioFlag', 'videoNeu', 'audioVoipJoinFailed', 'audioHelperMissing', 'audioSubscribeFailed'];
-  for (const code of JA) ck(`${code} → Ladefehler`, istLadeFehler(code) && quellenFehler(code, code, 'Anna', undefined, 16778240).art === 'zeile');
-  // Q13 gilt dem Bild-Versatz aller Quellen, kein Laden; Q3, videoNotSubscribed und die Hinweise stehen an keiner Zeile.
-  const NEIN = ['videoBadDelay', 'videoAlreadySubscribed', 'videoNotSubscribed', 'audioQueueOverflow', 'videoBufferMismatch', 'audioBufferMismatch'];
-  for (const code of NEIN) ck(`${code} → kein Ladefehler`, !istLadeFehler(code));
-  // Ruling 08.10.2026 (R1, R2): Q1 und Q2 stehen an der Zeile, sind aber kein Ladefehler, denn „von Hand laden“ brächte nichts.
-  // Q2 („Diese Person ist nicht mehr im Meeting.“): Die Person ist weg, der Eintrag wartet auf sie. Q1 („Keine Aufnahme-Erlaubnis …“):
-  // Der Eintrag wartet auf die Aufnahme-Erlaubnis (istErlaubnisFehler), auch wenn Connect sie noch als „ja“ führt.
-  for (const code of ['videoNoPrivilege', 'videoUnknownParticipant']) {
-    ck(`${code} → Zeile, aber kein Ladefehler (Ruling 08.10.2026)`,
-      !istLadeFehler(code) && quellenFehler(code, code, 'Anna', undefined, 16778240).art === 'zeile');
-  }
-  ck('videoNoPrivilege (Q1) → Erlaubnisfehler (Ruling 08.10.2026)', istErlaubnisFehler('videoNoPrivilege'));
-  const andere = [...JA, ...NEIN, 'videoUnknownParticipant'];
-  const auchErlaubnis = andere.filter((code) => istErlaubnisFehler(code));
-  if (auchErlaubnis.length > 0) console.log(`     (fälschlich Erlaubnisfehler: ${auchErlaubnis.join(', ')})`);
-  ck(`jeder andere Code (${andere.length}, auch Q2) → kein Erlaubnisfehler`, andere.length === 16 && auchErlaubnis.length === 0);
-}
+// 8.4 (Bild- und Tonfehler einer Quelle → Zeile, Hinweis oder nichts) und die Zeilenfehler eines gescheiterten Ladens entfallen
+// mit quellenFehler, istLadeFehler, istErlaubnisFehler und tonZustand (Plan B, Task B12). Die Fehler der Slots ordnet
+// SLOT_FEHLER_TEXT (Task B5) ein, ihre Anzeigeorte prüft PK34 (Task B14).
 
 console.log('— 8.7: Maskierung nur nicht-leerer Werte, längste zuerst');
 {
@@ -778,7 +721,6 @@ console.log('— 4b: Konstanten in den Statustexten (N4b.3 Nr. 8, L16)');
   const z11 = abbild({ kurz: { zustand: 'abriss', versuch: 3 }, abriss: { versuch: 3, versuche: WIEDERBEITRITT_VERSUCHE, naechsterUm: null } });
   ck('Z11 (Karte) nennt „von WIEDERBEITRITT_VERSUCHE“',
     kartenZeile(z11, JETZT) === `Verbindung zum Meeting verloren. Wiederbeitritt 3 von ${WIEDERBEITRITT_VERSUCHE} läuft …`);
-  ck('Q9_ANFANG nennt BETRIEBSGROESSE', Q9_ANFANG === `Mehr als ${BETRIEBSGROESSE} Zoom-Quellen sind nicht gemessen.`);
   const quelle = readFileSync(new URL('../src/shared/zoom-text.ts', import.meta.url), 'utf8');
   ck('Quelltext-Wächter: zoom-text.ts schreibt „von 5“ und „Mehr als 5“ nicht als Literal',
     !quelle.includes('von 5') && !quelle.includes('Mehr als 5'));
@@ -791,32 +733,32 @@ console.log('— 4b: Konstanten in den Statustexten (N4b.3 Nr. 8, L16)');
   ck('Quelltext-Wächter: zoom-text.ts schreibt die SDK-Fassung nicht als Literal', !quelle.includes('7.1.5'));
 }
 
-console.log('— 4b: Z7/Z7b beim Entzug (N4b.1, Texttabelle 4b)');
+console.log('— 4b: Z7/Z7b beim Entzug (N4b.1; ab Plan B, Task B12 mit Slots: T82, T83)');
 {
-  const z7 = (e: ZoomErlaubnis, n: number, o = 0): ZoomAbbild =>
-    abbild({ kurz: { zustand: 'im_meeting', erlaubnis: e, quellen: n, ohneBild: 0, sollOffen: o } });
-  ck('Z7 entzogen mit gemerkten Quellen (o = 2): Tray/Kopfzeile wörtlich',
-    zoomZeile(z7('entzogen', 0, 2).kurz) === '△ Zoom: Aufnahme-Erlaubnis vom Host entzogen, Quellen gestoppt');
-  ck('Z7 entzogen mit gemerkten Quellen (o = 2): Karte wörtlich', kartenZeile(z7('entzogen', 0, 2), JETZT)
-    === 'Aufnahme-Erlaubnis vom Host entzogen, Quellen gestoppt. Erteilt der Host sie im Zoom-Client wieder, lädt Connect die gemerkten Quellen von selbst.');
-  ck('Z7 entzogen ohne gemerkte Quelle (o = 0): kein „Quellen gestoppt“, Tray und Karte wie vor 4b (Spec 7: jeder Text wahr)',
+  const z7 = (e: ZoomErlaubnis, n: number, gestoppt = 0): ZoomAbbild =>
+    abbild({ kurz: { zustand: 'im_meeting', erlaubnis: e, slotsLaufen: n, slotsErsatz: 0, slotsOffen: gestoppt, slotsGestopptEntzug: gestoppt } });
+  ck('Z7 entzogen mit gestoppten Slots (2): Tray/Kopfzeile T82 wörtlich',
+    zoomZeile(z7('entzogen', 0, 2).kurz) === '△ Zoom: Aufnahme-Erlaubnis vom Host entzogen, Slots gestoppt');
+  ck('Z7 entzogen mit gestoppten Slots (2): Karte T82 wörtlich', kartenZeile(z7('entzogen', 0, 2), JETZT)
+    === 'Aufnahme-Erlaubnis vom Host entzogen, Slots gestoppt. Erteilt der Host sie im Zoom-Client wieder, startet Connect die eingeschalteten Slots von selbst.');
+  ck('Z7 entzogen ohne gestoppten Slot: kein „Slots gestoppt“, Tray und Karte wie vor 4b (Spec 7: jeder Text wahr)',
     zoomZeile(z7('entzogen', 0).kurz) === '△ Zoom: im Meeting ohne Aufnahme-Erlaubnis'
       && kartenZeile(z7('entzogen', 0), JETZT)
         === 'Im Meeting ohne Aufnahme-Erlaubnis. Der Host hat sie entzogen. Der Host kann sie im Zoom-Client jederzeit erteilen; Connect merkt das von selbst.');
-  ck('Z7b entzogen, n = 1: Karte im Singular', kartenZeile(z7('entzogen', 1), JETZT) === 'Aufnahme-Erlaubnis vom Host entzogen. Connect stoppt 1 Quelle …');
-  ck('Z7b entzogen, n = 2: Karte wörtlich', kartenZeile(z7('entzogen', 2), JETZT) === 'Aufnahme-Erlaubnis vom Host entzogen. Connect stoppt 2 Quellen …');
-  ck('Z7b entzogen: Tray bleibt „{n} Quellen, Aufnahme-Erlaubnis fehlt“',
-    zoomZeile(z7('entzogen', 1).kurz) === '△ Zoom: 1 Quelle, Aufnahme-Erlaubnis fehlt'
-      && zoomZeile(z7('entzogen', 2).kurz) === '△ Zoom: 2 Quellen, Aufnahme-Erlaubnis fehlt');
+  ck('Z7b entzogen, n = 1: Karte T83 im Singular', kartenZeile(z7('entzogen', 1), JETZT) === 'Aufnahme-Erlaubnis vom Host entzogen. Connect stoppt 1 Slot …');
+  ck('Z7b entzogen, n = 2: Karte T83 wörtlich', kartenZeile(z7('entzogen', 2), JETZT) === 'Aufnahme-Erlaubnis vom Host entzogen. Connect stoppt 2 Slots …');
+  ck('Z7b entzogen: Tray T83 „{n} Slots laufen, Aufnahme-Erlaubnis fehlt“',
+    zoomZeile(z7('entzogen', 1).kurz) === '△ Zoom: 1 Slot läuft, Aufnahme-Erlaubnis fehlt'
+      && zoomZeile(z7('entzogen', 2).kurz) === '△ Zoom: 2 Slots laufen, Aufnahme-Erlaubnis fehlt');
   ck('Z7 abgelehnt und abgelaufen: Tray unverändert',
     zoomZeile(z7('abgelehnt', 0).kurz) === '△ Zoom: im Meeting ohne Aufnahme-Erlaubnis'
       && zoomZeile(z7('abgelaufen', 0).kurz) === '△ Zoom: im Meeting ohne Aufnahme-Erlaubnis');
-  ck('Z7b abgelehnt, n = 1: Karte unverändert', kartenZeile(z7('abgelehnt', 1), JETZT)
-    === 'Die Aufnahme-Erlaubnis fehlt (vom Host abgelehnt). 1 Quelle besteht noch. Der Host kann sie im Zoom-Client erteilen.');
-  ck('Z7b abgelaufen, n = 2: Karte unverändert', kartenZeile(z7('abgelaufen', 2), JETZT)
-    === 'Die Aufnahme-Erlaubnis fehlt (keine Antwort bekommen). 2 Quellen bestehen noch. Der Host kann sie im Zoom-Client erteilen.');
-  ck('Z7b offen, n = 2: Karte unverändert', kartenZeile(z7('offen', 2), JETZT)
-    === 'Die Aufnahme-Erlaubnis fehlt (angefragt, noch keine Antwort). 2 Quellen bestehen noch. Der Host kann sie im Zoom-Client erteilen.');
+  ck('Z7b abgelehnt, n = 1: Karte T83 im Singular', kartenZeile(z7('abgelehnt', 1), JETZT)
+    === 'Die Aufnahme-Erlaubnis fehlt (vom Host abgelehnt). 1 Slot läuft noch. Der Host kann sie im Zoom-Client erteilen.');
+  ck('Z7b abgelaufen, n = 2: Karte T83', kartenZeile(z7('abgelaufen', 2), JETZT)
+    === 'Die Aufnahme-Erlaubnis fehlt (keine Antwort bekommen). 2 Slots laufen noch. Der Host kann sie im Zoom-Client erteilen.');
+  ck('Z7b offen, n = 2: Karte T83', kartenZeile(z7('offen', 2), JETZT)
+    === 'Die Aufnahme-Erlaubnis fehlt (angefragt, noch keine Antwort). 2 Slots laufen noch. Der Host kann sie im Zoom-Client erteilen.');
 }
 
 console.log('— 4b: 7.5 zoom_cmd und zoom_cmd_rejected (8.6, 11.2), in jedem Zustand gleich');
@@ -839,90 +781,8 @@ console.log('— 4b: 7.5 zoom_cmd und zoom_cmd_rejected (8.6, 11.2), in jedem Zu
     stateKvAus({ ...lage('Z0', 0, 0).kurz, befehl: { kennung: 'ok', abgelehnt: false } }) === null);
 }
 
-console.log('— 4b: Gemerkte Quellen (Spec 9 Punkt 9, Stand grenze)');
-{
-  const e = (stand: ZoomSollEintrag['stand']): ZoomSollEintrag => ({
-    name: 'Anna Maria', ton: true, ndiName: 'JM Connect – Zoom Anna Maria', stand, aboId: stand === 'verwaist' ? 16778240 : null, doppelname: false,
-  });
-  const SOLL: Record<ZoomSollEintrag['stand'], string> = {
-    wartet: 'Anna Maria — wartet auf die Person',
-    // Fix-Welle 4b (Gesamtprüfung, „Statuszeile lügt“): die Person ist da, es fehlt die Erlaubnis bzw. die Antwort der Bridge.
-    erlaubnis: 'Anna Maria — wartet auf die Aufnahme-Erlaubnis',
-    laedt: 'Anna Maria — wird geladen …',
-    // Owner 08.10.2026: Connect selbst ist nicht im Meeting (Z10, Z11, fehler, „Erneut beitreten“); Vorrang vor allen außer verwaist.
-    wiederbeitritt: 'Anna Maria — wartet auf den Wiederbeitritt',
-    // Owner 08.10.2026: Die Person ist eindeutig da, ihr Abo blieb ohne Antwort (Q8) bzw. die Bridge lehnte es ab (Zeilenfehler).
-    keineAntwort: 'Anna Maria — keine Antwort der Zoom-Bridge, bitte von Hand laden',
-    gescheitert: 'Anna Maria — Laden gescheitert, bitte von Hand laden',
-    doppelname: 'Anna Maria — Name doppelt, bitte von Hand laden',
-    verwaist: 'Anna Maria — Person weg, Quelle schwarz',
-    grenze: 'Anna Maria — nicht automatisch geladen (mehr als 5 Zoom-Quellen), bitte von Hand laden',
-  };
-  ck('ZoomSollEintrag kennt neun Stände', Object.keys(SOLL).length === 9);
-  for (const s of Object.keys(SOLL) as Array<ZoomSollEintrag['stand']>) ck(`sollZeile ${s} wörtlich`, sollZeile(e(s)) === SOLL[s]);
-}
-
-console.log('— Ruling 08.10.2026 (R3): Farbe der gemerkten Quellen, „keine Antwort …“ und „Laden gescheitert …“ gelb wie grenze');
-{
-  const e = (stand: ZoomSollEintrag['stand'], doppelname = false): ZoomSollEintrag => ({
-    name: 'Anna', ton: true, ndiName: 'JM Connect – Zoom Anna', stand, aboId: stand === 'verwaist' ? 16778240 : null, doppelname,
-  });
-  // Die drei Stände „…, bitte von Hand laden“ ohne Doppelnamen stehen gelb (grenze seit 4b, keineAntwort und gescheitert seit R3);
-  // doppelname rot; verwaist rot nur mit Doppelname (Q11); der Rest grau. Der Record fängt einen neuen Stand im Typcheck.
-  const FARBE: Record<ZoomSollEintrag['stand'], 'rot' | 'gelb' | 'grau'> = {
-    wartet: 'grau', erlaubnis: 'grau', laedt: 'grau', wiederbeitritt: 'grau', keineAntwort: 'gelb', gescheitert: 'gelb',
-    doppelname: 'rot', verwaist: 'grau', grenze: 'gelb',
-  };
-  const STAENDE = Object.keys(FARBE) as Array<ZoomSollEintrag['stand']>;
-  for (const s of STAENDE) ck(`sollFarbe ${s}: ${FARBE[s]}`, sollFarbe(e(s)) === FARBE[s]);
-  ck('sollFarbe verwaist mit Doppelname: rot (Q11)', sollFarbe(e('verwaist', true)) === 'rot');
-  const anders = STAENDE.filter((s) => s !== 'verwaist' && sollFarbe(e(s, true)) !== FARBE[s]);
-  if (anders.length > 0) console.log(`     (mit Doppelname-Markierung anders: ${anders.join(', ')})`);
-  ck('… die Doppelname-Markierung ändert die Farbe der übrigen acht Stände nicht', STAENDE.length === 9 && anders.length === 0);
-}
-
-console.log('— 4b: Bild und Ton der Quelle im Klartext (Spec 9 Punkt 8, N4b.3 Nr. 8 „Rohwerte“)');
-{
-  const SCHWARZ: Record<VideoReason, string> = {
-    command: 'Bild schwarz: kein Bild von Zoom',
-    frames: 'Bild schwarz: kein Bild von Zoom',
-    cameraOff: 'Bild schwarz: Kamera aus',
-    participantLeft: 'Bild schwarz: Person weg',
-    rebound: 'Bild schwarz: kein Bild von Zoom',
-    bufferMismatch: 'Bild schwarz: fehlerhafte Bilder',
-    meetingEnded: 'Bild schwarz: kein Bild von Zoom',
-    reboundByName: 'Bild schwarz: kein Bild von Zoom',
-    privilegeRevoked: 'Bild schwarz: kein Bild von Zoom',
-  };
-  ck('VideoReason hat 9 Werte (mit privilegeRevoked)', Object.keys(SCHWARZ).length === 9);
-  for (const g of Object.keys(SCHWARZ) as VideoReason[]) ck(`bildText black/${g}`, bildText('black', g) === SCHWARZ[g]);
-  ck('bildText subscribed: „Bild: erstes Bild steht aus“', bildText('subscribed', 'command') === 'Bild: erstes Bild steht aus');
-  ck('bildText live: „Bild läuft“, der Grund zählt nicht', bildText('live', 'frames') === 'Bild läuft' && bildText('live', 'rebound') === 'Bild läuft');
-  const AUS: Record<AudioReason, string> = {
-    command: 'Ton aus',
-    audioUnavailable: 'Ton nicht verfügbar',
-    packets: 'Ton aus',
-    gap: 'Ton aus',
-    participantLeft: 'Ton aus: Person weg',
-    meetingEnded: 'Ton aus',
-    rebound: 'Ton aus',
-    reboundByName: 'Ton aus',
-    privilegeRevoked: 'Ton aus',
-  };
-  ck('AudioReason hat 9 Werte (mit privilegeRevoked)', Object.keys(AUS).length === 9);
-  for (const g of Object.keys(AUS) as AudioReason[]) ck(`tonText off/${g}`, tonText('off', g) === AUS[g]);
-  ck('tonText off ohne Grund: „Ton aus“', tonText('off', null) === 'Ton aus');
-  ck('tonText aus (ohne Ton geladen): „ohne Ton“', tonText('aus', null) === 'ohne Ton' && tonText('aus', 'command') === 'ohne Ton');
-  ck('tonText waiting: „Ton: wartet auf das erste Paket“', tonText('waiting', 'command') === 'Ton: wartet auf das erste Paket');
-  ck('tonText live: „Ton läuft“', tonText('live', 'packets') === 'Ton läuft');
-  ck('tonText silent: „Ton: Stille“', tonText('silent', 'gap') === 'Ton: Stille');
-  const q: ZoomQuelle = {
-    aboId: 16778240, ndiName: 'JM Connect – Zoom Anna', bild: 'black', bildGrund: 'cameraOff', ton: 'off', tonGrund: 'audioUnavailable', fehler: null,
-  };
-  ck('quellenZustandText: „Bild … · Ton …“', quellenZustandText(q) === 'Bild schwarz: Kamera aus · Ton nicht verfügbar');
-  ck('quellenZustandText: frisch ohne Ton geladen',
-    quellenZustandText({ ...q, bild: 'subscribed', bildGrund: 'command', ton: 'aus', tonGrund: null }) === 'Bild: erstes Bild steht aus · ohne Ton');
-}
+// Die 4b-Blöcke „Gemerkte Quellen“ (Stände, Farben) und „Bild und Ton der Quelle im Klartext“ entfallen mit ihren Texten
+// (Slot-Spec 9.7 „Entfallen“, 11.10; Plan B, Task B12). Nachfolger sind die Kachel-, Ton- und Messzeilen (Task B6, B7).
 
 console.log('— 4b: Versatz-Zeile (Spec 9 Punkt 7, N4b.3 Nr. 4, L14)');
 {
@@ -985,7 +845,6 @@ console.log('— 4b: Klartexte aus Konstanten statt Literal (N4b.3 Nr. 8)');
   ck('CT nennt joinTimeoutMs in Sekunden', KT.CT === `Zoom hat den Beitritt in ${f.joinTimeoutMs / 1000} s weder bestätigt noch abgelehnt. Netzwerk prüfen und erneut versuchen.`);
   ck('CE nennt joinTimeoutMs in Sekunden (derselbe Wachhund der Bridge)',
     KT.CE === `Der Host hat zugelassen, aber Zoom hat den Einlass in ${f.joinTimeoutMs / 1000} s nicht abgeschlossen. Netzwerk prüfen und erneut beitreten.`);
-  ck('Q9 nennt BETRIEBSGROESSE', KT.Q9(6) === `Mehr als ${BETRIEBSGROESSE} Zoom-Quellen sind nicht gemessen. Noch einmal klicken, um die 6. Quelle trotzdem zu laden.`);
   const quelle = readFileSync(new URL('../src/main/zoom/klartext.ts', import.meta.url), 'utf8');
   ck('Quelltext-Wächter: klartext.ts schreibt die SDK-Fassung nicht als Literal', !quelle.includes('7.1.5'));
   ck('Quelltext-Wächter: B16, CT und CE schreiben „30 s“ nicht als Literal',

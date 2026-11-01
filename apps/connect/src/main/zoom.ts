@@ -14,11 +14,22 @@ import { activeLabels } from './ndi-guests';
 import { setZoomControlState } from './control-server';
 import { aenderungsMelder } from './control-state';
 import {
+  einstellungsLage,
   proxyUrl,
   setzeZoomAnzeigename,
   setzeZoomLaufzeit,
+  setzeZoomSlots,
+  setzeZoomSlotsUeber5,
+  setzeZoomSlotVorgaben,
+  setzeZoomSprecher,
   setzeZoomVersatzMs,
+  setzeZoomVorschau,
   zoomAnzeigename,
+  zoomSlots,
+  zoomSlotsUeber5,
+  zoomSlotVorgaben,
+  zoomSprecher,
+  zoomVorschau,
   zoomSdkSchluesselLesen,
   zoomSdkSchluesselLoeschen,
   zoomSdkSchluesselSpeichern,
@@ -84,6 +95,18 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
         setzeVersatzMs: setzeZoomVersatzMs,
         versatzNurSitzung: zoomVersatzNurSitzung,
         setzeLaufzeit: setzeZoomLaufzeit,
+        // Zoom-Slots (Slot-Spec 7.2, 7.10; Plan B, Task B12): gelesen und geschrieben nur über settings.ts.
+        slots: zoomSlots,
+        setzeSlots: setzeZoomSlots,
+        vorgaben: zoomSlotVorgaben,
+        setzeVorgaben: setzeZoomSlotVorgaben,
+        sprecher: zoomSprecher,
+        setzeSprecher: setzeZoomSprecher,
+        vorschau: zoomVorschau,
+        setzeVorschau: setzeZoomVorschau,
+        ueber5: zoomSlotsUeber5,
+        setzeUeber5: setzeZoomSlotsUeber5,
+        einstellungsLage,
       },
       // „Zoom-SDK laden“ (Spec SDK nachladen 4.3): Umgebung JMPS_PROXY_URL, Einstellung oder Vorgabe; kein Proxy-Schlüssel.
       proxyUrl,
@@ -215,7 +238,7 @@ export function zoomVerlassen(): void {
   });
 }
 
-/** Gast-Sender haben sich geändert: Kollisionsprüfung Gast ↔ Zoom neu rechnen (Spec 6.3). */
+/** Gast-Sender haben sich geändert: Abbild neu senden (die NDI-Namensprüfung gegen Gast-Namen liest gastLabels, Slot-Spec T46). */
 export function zoomGastLabelsGeaendert(): void {
   kern?.gastLabelsGeaendert();
 }

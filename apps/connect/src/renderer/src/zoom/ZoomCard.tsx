@@ -17,6 +17,7 @@ import {
   versatzUebernommen,
   versatzZeile,
   zoomKnoepfe,
+  verlassenFrage as verlassenFrageText,
   zugangZeile,
 } from '@shared/zoom-text';
 
@@ -307,7 +308,8 @@ export function ZoomCard(): JSX.Element {
   const sdk = a.einrichtung.sdk;
   const zugang = a.einrichtung.zugang;
   const zugangText = zugangZeile(a);
-  const n = k.quellen;
+  // Slot-Spec 7.5 Nr. 5/6: Die Verlassen-Rückfrage hängt an n = laufende Slots (T80).
+  const n = k.slotsLaufen;
   const frage = verlassenFrage && n > 0;
   const sperrTitel = kn.einrichtungAenderbar ? undefined : TEXT_S10;
   const zugangEntfernbar =
@@ -332,7 +334,7 @@ export function ZoomCard(): JSX.Element {
 
   const verlassen = (): void => {
     if (n > 0 && !verlassenFrage) {
-      setVerlassenFrage(true); // erster Klick: „Ja, verlassen (n Quellen laufen)“
+      setVerlassenFrage(true); // erster Klick: T80 „Ja, verlassen (n Slots laufen)“
       return;
     }
     setVerlassenFrage(false);
@@ -645,7 +647,7 @@ export function ZoomCard(): JSX.Element {
       {kn.verlassen && (
         <div className="mb-3 flex flex-wrap gap-2">
           <button disabled={laeuft.has('verlassen')} onClick={verlassen} className={frage ? ROT : RAND}>
-            {frage ? (n === 1 ? 'Ja, verlassen (1 Quelle läuft)' : `Ja, verlassen (${n} Quellen laufen)`) : 'Meeting verlassen'}
+            {frage ? verlassenFrageText(n) : 'Meeting verlassen'}
           </button>
           {kn.abbrechen && (
             <button

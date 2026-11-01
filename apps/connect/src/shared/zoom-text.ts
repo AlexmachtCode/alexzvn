@@ -5,12 +5,11 @@
 //
 // Rein: keine node:-Module; zur Laufzeit lädt sie nur `@jm/zoom-bridge/protocol` (importfrei; SLOT_NR_MAX, Plan B Task B8).
 // Der Renderer-tsconfig prüft diese Datei mit, und die Karte (ZoomCard.tsx) nutzt sie direkt.
-import type { AudioReason, VideoReason } from '@jm/zoom-bridge/protocol';
 import type {
-  AppStatus, ProxyKeySource, ZoomAbbild, ZoomBefehlKennung, ZoomErgebnis, ZoomErlaubnis, ZoomKurz, ZoomMangel, ZoomQuelle, ZoomSollEintrag,
+  AppStatus, ProxyKeySource, ZoomAbbild, ZoomBefehlKennung, ZoomErgebnis, ZoomErlaubnis, ZoomKurz, ZoomMangel,
 } from './types';
 
-// Zoom-Slots (Plan B, Block b2): eigene Importzeilen; die Zeilen oben bleiben bis zum Kern-Umstieg (Task B12) unverändert.
+// Zoom-Slots (Plan B, Block b2): eigene Importzeilen; die Typen der alten Quellen fallen mit dem Kern-Umstieg (Task B12) weg.
 import { SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
 import type { AudioState, SlotAudioReason, SlotReason, SlotSent } from '@jm/zoom-bridge/protocol';
 import type {
@@ -48,9 +47,6 @@ export const TEXT_S17 = 'Laden abgebrochen. Die bisherige Einrichtung bleibt unv
 export const BETRIEBSGROESSE = 5;
 /** Höchstens so viele Wiederbeitritts-Versuche nach einem Abriss (Spec 6.4); die Wartezeiten stehen in main/zoom/fristen.ts. */
 export const WIEDERBEITRITT_VERSUCHE = 5;
-
-/** Anfang von Q9: Main (klartext.ts) und Karte teilen ihn; die Karte macht daraus den zweiten Klick „trotzdem laden“. */
-export const Q9_ANFANG = `Mehr als ${BETRIEBSGROESSE} Zoom-Quellen sind nicht gemessen.`;
 
 /** Höchstlänge eines NDI-Namens in Code-Punkten (Spec E26, 0.22); T43 und die Prüfregel (main/zoom/einstellungen.ts) teilen sie. */
 export const NDI_NAME_MAX = 60;
@@ -92,7 +88,7 @@ export const MANGEL_GRUND: Record<ZoomMangel, string> = {
   zugang_unlesbar: 'Zugangsdaten lassen sich nicht entschlüsseln, bitte erneut eintragen oder die Datei erneut wählen',
 };
 
-/** Spec 7.1: Zustand + Erlaubnis + n + k → Zeile der Tabelle. */
+/** Spec 7.1: Zustand + Erlaubnis + n + k → Zeile der Tabelle; n = laufende Slots, k = Slots mit Ersatzbild (Slot-Spec 10.3). */
 export function zoomZ(k: ZoomKurz): ZoomZ {
   switch (k.zustand) {
     case 'nicht_verfuegbar':
@@ -110,8 +106,8 @@ export function zoomZ(k: ZoomKurz): ZoomZ {
     case 'im_meeting': {
       // erlaubnis ist in im_meeting immer gesetzt (Spec 5.4); null zählt wie „ausstehend“.
       const e = k.erlaubnis ?? 'offen';
-      if (e === 'ja') return k.quellen === 0 ? 'Z8' : k.ohneBild === 0 ? 'Z9' : 'Z9b';
-      if (k.quellen > 0) return 'Z7b';
+      if (e === 'ja') return k.slotsLaufen === 0 ? 'Z8' : k.slotsErsatz === 0 ? 'Z9' : 'Z9b';
+      if (k.slotsLaufen > 0) return 'Z7b';
       return e === 'offen' ? 'Z6' : 'Z7';
     }
     case 'abriss':
@@ -123,9 +119,15 @@ export function zoomZ(k: ZoomKurz): ZoomZ {
   }
 }
 
-/** „1 Quelle“ / „2 Quellen“ (Spec 7.2: Singular bei 1). */
-function quellenText(n: number): string {
-  return n === 1 ? '1 Quelle' : `${n} Quellen`;
+/** Eingabe der Slot-Statuszeilen T82–T86 (slotTrayZeile, slotKartenZeile, Plan B, Task B9) aus der Kurzform. */
+function slotStatus(k: ZoomKurz): SlotStatusEingabe {
+  const e = k.erlaubnis ?? 'offen';
+  return {
+    z: zoomZ(k),
+    erlaubnis: k.erlaubnis,
+    grund: e === 'ja' || e === 'entzogen' ? null : Z7B_GRUND[e],
+    zahlen: { n: k.slotsLaufen, k: k.slotsErsatz, o: k.slotsOffen, e: k.slotsAn, a: k.slotKurz.length, gestopptEntzug: k.slotsGestopptEntzug },
+  };
 }
 
 /**
@@ -154,19 +156,12 @@ export function zoomZeile(k: ZoomKurz | null): string | null {
     case 'Z6':
       return '◌ Zoom: im Meeting, Aufnahme-Erlaubnis ausstehend';
     case 'Z7':
-      // N4b.1: Beim Entzug baut die Bridge alle Abos ab; nach der Wiedererteilung lädt Connect die gemerkten Quellen selbst
-      // neu. Ohne gemerkte Quelle (nichts lief, alles vergessen) stimmt „Quellen gestoppt“ nicht: dann der bisherige Text.
-      return k.erlaubnis === 'entzogen' && k.sollOffen > 0
-        ? '△ Zoom: Aufnahme-Erlaubnis vom Host entzogen, Quellen gestoppt'
-        : '△ Zoom: im Meeting ohne Aufnahme-Erlaubnis';
     case 'Z7b':
-      return `△ Zoom: ${quellenText(k.quellen)}, Aufnahme-Erlaubnis fehlt`;
     case 'Z8':
-      return '○ Zoom: im Meeting, keine Quelle geladen';
     case 'Z9':
-      return `● Zoom: ${quellenText(k.quellen)} geladen`;
     case 'Z9b':
-      return `● Zoom: ${quellenText(k.quellen)} geladen, ${k.ohneBild} ohne Bild`;
+      // Slot-Spec 9.5 (T82–T86). Z7 ohne gestoppte Slots (nichts lief, oder nicht entzogen) behält die Zeile aus ST4 7.2.
+      return slotTrayZeile(slotStatus(k)) ?? '△ Zoom: im Meeting ohne Aufnahme-Erlaubnis';
     case 'Z10':
       return '△ Zoom: Verbindung unterbrochen, Zoom verbindet neu';
     case 'Z11':
@@ -179,8 +174,8 @@ export function zoomZeile(k: ZoomKurz | null): string | null {
 }
 
 /**
- * Z7 (n = 0): der ganze Satz zum Grund. 'offen' ist dort Z6, 'ja' ist Z8. 'entzogen' mit gemerkten Quellen hat einen
- * eigenen Text (Z7_ENTZOGEN); ohne gemerkte Quelle gilt der Satz hier.
+ * Z7 (n = 0): der ganze Satz zum Grund. 'offen' ist dort Z6, 'ja' ist Z8. 'entzogen' mit gestoppten Slots hat einen eigenen
+ * Text (T82, slotKartenZeile); ohne gestoppten Slot gilt der Satz hier.
  */
 const Z7_GRUND: Record<'abgelehnt' | 'abgelaufen' | 'entzogen', string> = {
   abgelehnt: 'Der Host hat abgelehnt.',
@@ -188,20 +183,12 @@ const Z7_GRUND: Record<'abgelehnt' | 'abgelaufen' | 'entzogen', string> = {
   entzogen: 'Der Host hat sie entzogen.',
 };
 
-/** Z7b (n > 0): der Grund in Klammern. 'ja' ist dort Z9/Z9b, 'entzogen' hat einen eigenen Text (kartenZeile). */
+/** Z7b (n > 0): der Grund in Klammern ({Grund} in T83). 'ja' ist dort Z9/Z9b, 'entzogen' hat einen eigenen Text (T83). */
 const Z7B_GRUND: Record<Exclude<ZoomErlaubnis, 'ja' | 'entzogen'>, string> = {
   offen: 'angefragt, noch keine Antwort',
   abgelehnt: 'vom Host abgelehnt',
   abgelaufen: 'keine Antwort bekommen',
 };
-
-/**
- * Entzug (N4b.1, Texttabelle 4b): Die Bridge baut alle Abos ab, Connect behält die Soll-Liste und lädt nach
- * der Wiedererteilung selbst neu. n > 0 gibt es dabei nur, solange die Bridge noch abbaut (Z7b); danach steht Z7,
- * und zwar mit diesem Text nur, solange es gemerkte Quellen gibt (sollOffen > 0).
- */
-const Z7_ENTZOGEN =
-  'Aufnahme-Erlaubnis vom Host entzogen, Quellen gestoppt. Erteilt der Host sie im Zoom-Client wieder, lädt Connect die gemerkten Quellen von selbst.';
 
 /** Bytes → MB für Z1b, gerundet (MiB, wie Windows rechnet). */
 function mb(bytes: number): number {
@@ -242,18 +229,15 @@ export function kartenZeile(a: ZoomAbbild, jetztMs: number): string | null {
     case 'Z6':
       return `Im Meeting. Warte auf die Aufnahme-Erlaubnis: Der Host muss sie im Zoom-Client für „${a.anzeigename}“ erteilen.`;
     case 'Z7':
-      // zoomZ liefert Z7 nur für abgelehnt/abgelaufen/entzogen. „Quellen gestoppt“ nur, wenn es gemerkte Quellen gibt.
-      if (e === 'entzogen' && k.sollOffen > 0) return Z7_ENTZOGEN;
-      return `Im Meeting ohne Aufnahme-Erlaubnis. ${Z7_GRUND[e as keyof typeof Z7_GRUND]} Der Host kann sie im Zoom-Client jederzeit erteilen; Connect merkt das von selbst.`;
+      // zoomZ liefert Z7 nur für abgelehnt/abgelaufen/entzogen. „Slots gestoppt“ (T82) nur, wenn ein Slot durch den Entzug stoppte.
+      return slotKartenZeile(slotStatus(k))
+        ?? `Im Meeting ohne Aufnahme-Erlaubnis. ${Z7_GRUND[e as keyof typeof Z7_GRUND]} Der Host kann sie im Zoom-Client jederzeit erteilen; Connect merkt das von selbst.`;
     case 'Z7b':
-      if (e === 'entzogen') return `Aufnahme-Erlaubnis vom Host entzogen. Connect stoppt ${quellenText(k.quellen)} …`;
-      return `Die Aufnahme-Erlaubnis fehlt (${Z7B_GRUND[e as keyof typeof Z7B_GRUND]}). ${quellenText(k.quellen)} ${k.quellen === 1 ? 'besteht' : 'bestehen'} noch. Der Host kann sie im Zoom-Client erteilen.`;
     case 'Z8':
-      return 'Im Meeting. Personen unten als Quelle laden.';
     case 'Z9':
-      return `Im Meeting. ${quellenText(k.quellen)} geladen.`;
     case 'Z9b':
-      return `Im Meeting. ${quellenText(k.quellen)} geladen, ${k.ohneBild} davon ohne Bild (Kamera aus, Person weg oder erstes Bild steht noch aus).`;
+      // Slot-Spec 9.5 (T83–T86); slotKartenZeile liefert für diese Zeilen immer einen Text.
+      return slotKartenZeile(slotStatus(k)) ?? '';
     case 'Z10':
       return 'Verbindung unterbrochen. Zoom versucht selbst, neu zu verbinden …';
     case 'Z11': {
@@ -280,7 +264,7 @@ export function gaesteZeile(s: AppStatus): string {
 /** Tooltip des Tray-Symbols, das einzige kombinierte Feld (Spec 7.4, Code wörtlich). */
 export function trayTooltip(s: AppStatus): string {
   const teile: string[] = [];
-  if (s.ndiSenders > 0 || (s.zoom?.quellen ?? 0) > 0) teile.push('Zuschaltungen aktiv');
+  if (s.ndiSenders > 0 || (s.zoom?.slotsLaufen ?? 0) > 0) teile.push('Zuschaltungen aktiv');
   if (s.zoom?.zustand === 'abriss') teile.push('Zoom-Verbindung unterbrochen');
   if (s.zoom?.zustand === 'fehler') teile.push('Zoom-Fehler');
   return teile.length ? `JM Connect — ${teile.join(' · ')}` : 'JM Connect';
@@ -315,8 +299,9 @@ export interface ZoomStateKv {
 }
 
 /**
- * Tabelle 7.5 wörtlich: `alarm[0]` gilt bei o = 0, `alarm[1]` bei o > 0 (o = offene Soll-Einträge).
- * In Z1a, Z1b und Z2 ist o immer 0 (ein Mangel bzw. jeder Weg nach Z2 leert die Soll-Liste).
+ * Tabelle 7.5 wörtlich: `alarm[0]` gilt bei o = 0, `alarm[1]` bei o > 0 (o = offene Slots, Slot-Spec 10.1, 10.4).
+ * In Z1a, Z1b und Z2 ist o immer 0: Ein Mangel bzw. jeder Weg nach Z2 leert `liefSchon`, `zeigteSchon` und die
+ * Fehlerstände (Slot-Spec 7.3 Nr. 2, Nr. 7; RR1).
  */
 const STATE_JE_Z: Record<Exclude<ZoomZ, 'Z0'>, { status: ZoomStatusWert; privilege: 0 | 1; alarm: readonly [0 | 1, 0 | 1] }> = {
   Z1a: { status: 'einrichtung', privilege: 0, alarm: [0, 0] },
@@ -345,10 +330,10 @@ export function stateKvAus(k: ZoomKurz): ZoomStateKv | null {
   const s = STATE_JE_Z[z];
   return {
     zoom_status: s.status,
-    zoom_sources: k.quellen,
-    zoom_live: k.quellen > 0 ? 1 : 0,
+    zoom_sources: k.slotsLaufen,
+    zoom_live: k.slotsLaufen > 0 ? 1 : 0,
     zoom_privilege: s.privilege,
-    zoom_alarm: s.alarm[k.sollOffen > 0 ? 1 : 0],
+    zoom_alarm: s.alarm[k.slotsOffen > 0 ? 1 : 0],
     // Hängen nicht am Zustand (7.5): der letzte Befehl bleibt stehen, bis der nächste kommt.
     zoom_cmd: k.befehl?.kennung ?? '',
     zoom_cmd_rejected: k.befehl?.abgelehnt ? 1 : 0,
@@ -481,94 +466,6 @@ export function zoomKnoepfe(a: ZoomAbbild): ZoomKnoepfe {
     einrichtungOffen: mangel,
     sperrHinweis: mangel,
   };
-}
-
-/** Gemerkte Quellen (Spec 9 Punkt 9, Texttabelle 4b): Text je Stand eines offenen Soll-Eintrags. */
-const SOLL_STAND: Record<ZoomSollEintrag['stand'], string> = {
-  wartet: 'wartet auf die Person',
-  // Gesamtprüfung 4b („Statuszeile lügt“): Die Person ist da. Texte vom Owner freigegeben 08.10.2026.
-  erlaubnis: 'wartet auf die Aufnahme-Erlaubnis',
-  laedt: 'wird geladen …',
-  // Connect selbst ist nicht im Meeting (jeder Zustand außer im_meeting, etwa Z10, Z11, fehler, „Erneut beitreten“);
-  // Vorrang vor allen Ständen außer verwaist.
-  wiederbeitritt: 'wartet auf den Wiederbeitritt',
-  // Owner 08.10.2026 (freigegeben): Die Person ist eindeutig da, an ihrer Zeile steht Q8 bzw. ein Ladefehler der Bridge
-  // (nicht Q1, das wartet auf die Aufnahme-Erlaubnis, und nicht Q2, das wartet auf die Person; Ruling 08.10.2026).
-  // Kein automatischer neuer Versuch; ein geplanter Abgleich („wird geladen …“) und alle übrigen Stände haben Vorrang.
-  keineAntwort: 'keine Antwort der Zoom-Bridge, bitte von Hand laden',
-  gescheitert: 'Laden gescheitert, bitte von Hand laden',
-  doppelname: 'Name doppelt, bitte von Hand laden',
-  verwaist: 'Person weg, Quelle schwarz',
-  grenze: `nicht automatisch geladen (mehr als ${BETRIEBSGROESSE} Zoom-Quellen), bitte von Hand laden`,
-};
-
-/** Eine Zeile unter „Gemerkte Quellen“: „{Name} — {Stand}“. */
-export function sollZeile(e: ZoomSollEintrag): string {
-  return `${e.name} — ${SOLL_STAND[e.stand]}`;
-}
-
-/**
- * Farbe einer Zeile unter „Gemerkte Quellen“ (die Karte setzt sie in Klassen um). Rot: Name doppelt, auch „Person weg, Quelle
- * schwarz“ bei Doppelname (Q11). Gelb: die übrigen Stände mit „…, bitte von Hand laden“, also 'grenze' (L7) und, Ruling
- * 08.10.2026 (R3), 'keineAntwort' und 'gescheitert'. Sonst grau.
- */
-export function sollFarbe(e: ZoomSollEintrag): 'rot' | 'gelb' | 'grau' {
-  if (e.stand === 'doppelname' || (e.stand === 'verwaist' && e.doppelname)) return 'rot';
-  return e.stand === 'grenze' || e.stand === 'keineAntwort' || e.stand === 'gescheitert' ? 'gelb' : 'grau';
-}
-
-/** Bild `black` je Grund (Texttabelle 4b). Record über alle Gründe: ein neuer Grund scheitert im Typcheck. */
-const BILD_SCHWARZ: Record<VideoReason, string> = {
-  command: 'kein Bild von Zoom',
-  frames: 'kein Bild von Zoom',
-  cameraOff: 'Kamera aus',
-  participantLeft: 'Person weg',
-  rebound: 'kein Bild von Zoom',
-  bufferMismatch: 'fehlerhafte Bilder',
-  meetingEnded: 'kein Bild von Zoom',
-  reboundByName: 'kein Bild von Zoom',
-  privilegeRevoked: 'kein Bild von Zoom',
-};
-
-/** Bild-Zustand einer Quelle im Klartext statt Rohwert (N4b.3 Nr. 8). */
-export function bildText(bild: ZoomQuelle['bild'], grund: VideoReason): string {
-  if (bild === 'subscribed') return 'Bild: erstes Bild steht aus';
-  if (bild === 'live') return 'Bild läuft';
-  return `Bild schwarz: ${BILD_SCHWARZ[grund]}`;
-}
-
-/** Ton `off` je Grund (Texttabelle 4b); nur zwei Gründe haben einen eigenen Text. */
-const TON_AUS: Record<AudioReason, string> = {
-  command: 'Ton aus',
-  audioUnavailable: 'Ton nicht verfügbar',
-  packets: 'Ton aus',
-  gap: 'Ton aus',
-  participantLeft: 'Ton aus: Person weg',
-  meetingEnded: 'Ton aus',
-  rebound: 'Ton aus',
-  reboundByName: 'Ton aus',
-  privilegeRevoked: 'Ton aus',
-};
-
-/** Ton-Zustand einer Quelle im Klartext; 'aus' = ohne Ton geladen (kein Fehler). */
-export function tonText(ton: ZoomQuelle['ton'], grund: AudioReason | null): string {
-  switch (ton) {
-    case 'aus':
-      return 'ohne Ton';
-    case 'waiting':
-      return 'Ton: wartet auf das erste Paket';
-    case 'live':
-      return 'Ton läuft';
-    case 'silent':
-      return 'Ton: Stille';
-    case 'off':
-      return grund === null ? 'Ton aus' : TON_AUS[grund];
-  }
-}
-
-/** Bild und Ton einer Quelle in einer Zeile der Teilnehmerliste (Spec 9 Punkt 8). */
-export function quellenZustandText(q: ZoomQuelle): string {
-  return `${bildText(q.bild, q.bildGrund)} · ${tonText(q.ton, q.tonGrund)}`;
 }
 
 /** Zeilen unter dem Feld „Bild-Versatz (ms)“ (Spec 9 Punkt 7); bei `nurSitzung` zusätzlich TEXT_A4_SCHREIBFEHLER (L14). */
