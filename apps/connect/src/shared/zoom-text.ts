@@ -44,6 +44,25 @@ export const WIEDERBEITRITT_VERSUCHE = 5;
 /** Anfang von Q9: Main (klartext.ts) und Karte teilen ihn; die Karte macht daraus den zweiten Klick „trotzdem laden“. */
 export const Q9_ANFANG = `Mehr als ${BETRIEBSGROESSE} Zoom-Quellen sind nicht gemessen.`;
 
+/** Höchstlänge eines NDI-Namens in Code-Punkten (Spec E26, 0.22); T43 und die Prüfregel (main/zoom/einstellungen.ts) teilen sie. */
+export const NDI_NAME_MAX = 60;
+/** Spec 9.3, T43–T47: Prüfung des NDI-Namens eines Slots (E26). T46 ist eine Warnung, das Speichern gelingt (ersetzt Q10 für Slots). */
+export const NDI_NAME_TEXT = {
+  /** T43 */
+  laenge: `Der NDI-Name muss 1 bis ${NDI_NAME_MAX} Zeichen lang sein.`,
+  /** T44 */
+  doppelpunkt: 'Ein Doppelpunkt ist im NDI-Namen nicht erlaubt (NDI macht daraus ein Leerzeichen).',
+  /** T45 */
+  doppelt: (nr: number): string => `Diesen NDI-Namen trägt schon Slot ${nr}.`,
+  /** T46 */
+  gast: (ndiName: string): string =>
+    `NDI-Name doppelt: Ein Browser-Gast sendet ebenfalls als „${ndiName}“. Im Switcher ist nicht sicher, welche Quelle ankommt. Einen der beiden umbenennen.`,
+  /** T47 */
+  steuerzeichen: 'Steuerzeichen sind im NDI-Namen nicht erlaubt.',
+};
+/** Spec 9.4, T74: Haltezeit des Sprecher-Slots ungültig (Prüfregel KF7 in main/zoom/einstellungen.ts; 5 s = SPEAKER_HOLD_MAX_MS). */
+export const HALTEZEIT_UNGUELTIG = 'Haltezeit: erlaubt sind 0 bis 5 Sekunden.';
+
 /** Gründe im Kartentext Z1a (Spec 7.2), je Mangel einer. */
 export const MANGEL_GRUND: Record<ZoomMangel, string> = {
   sdk_fehlt: 'SDK-Ordner fehlt',

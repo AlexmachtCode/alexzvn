@@ -1072,6 +1072,25 @@ console.log('— 4b: maskiereNamen (N4b.2, L11): ganze Wörter, längste zuerst'
   ck('NDI-Name: der Name hinter dem Gedankenstrich wird maskiert', maskiereNamen('JM Connect – Zoom Anna (2)', ['Anna']) === `JM Connect – Zoom ${P} (2)`);
 }
 
+// ── Plan B, Task B3: NDI-Namensprüfung und Haltezeit (Spec 9.3 T43–T47, 9.4 T74) ──
+console.log('— B3 · ST43–ST47, ST74 wörtlich');
+{
+  const { NDI_NAME_MAX, NDI_NAME_TEXT, HALTEZEIT_UNGUELTIG } = await import('../src/shared/zoom-text');
+  const { SPEAKER_HOLD_MAX_MS } = await import('@jm/zoom-bridge/protocol');
+  const SOLL: Array<[string, string, string]> = [
+    ['T43', NDI_NAME_TEXT.laenge, 'Der NDI-Name muss 1 bis 60 Zeichen lang sein.'],
+    ['T44', NDI_NAME_TEXT.doppelpunkt, 'Ein Doppelpunkt ist im NDI-Namen nicht erlaubt (NDI macht daraus ein Leerzeichen).'],
+    ['T45', NDI_NAME_TEXT.doppelt(3), 'Diesen NDI-Namen trägt schon Slot 3.'],
+    ['T46', NDI_NAME_TEXT.gast('JM Connect – Zoom Anna'),
+      'NDI-Name doppelt: Ein Browser-Gast sendet ebenfalls als „JM Connect – Zoom Anna“. Im Switcher ist nicht sicher, welche Quelle ankommt. Einen der beiden umbenennen.'],
+    ['T47', NDI_NAME_TEXT.steuerzeichen, 'Steuerzeichen sind im NDI-Namen nicht erlaubt.'],
+    ['T74', HALTEZEIT_UNGUELTIG, 'Haltezeit: erlaubt sind 0 bis 5 Sekunden.'],
+  ];
+  for (const [id, ist, soll] of SOLL) ck(`S${id} wörtlich`, ist === soll);
+  ck('ST43 nennt NDI_NAME_MAX (60, E26)', NDI_NAME_MAX === 60 && NDI_NAME_TEXT.laenge.includes(`1 bis ${NDI_NAME_MAX} Zeichen`));
+  ck('ST74 nennt SPEAKER_HOLD_MAX_MS in Sekunden', HALTEZEIT_UNGUELTIG.includes(`0 bis ${SPEAKER_HOLD_MAX_MS / 1000} Sekunden`));
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

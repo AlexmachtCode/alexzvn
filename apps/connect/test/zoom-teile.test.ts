@@ -649,6 +649,132 @@ console.log('— Ruling 08.10.2026 (R1, R2): Q1 an ihrer Zeile → „erlaubnis�
   }
 }
 
+// ── Plan B, Task B3: Einstellungen der Slots rein (Spec 7.2, 7.6, 7.9, E26; PK24, PK35, KF6, KF7) ──
+{
+  const e = await import('../src/main/zoom/einstellungen');
+  const { pruefeSlotEingabe } = await import('../src/main/zoom/slot-eingabe');
+  const { NDI_NAME_TEXT, HALTEZEIT_UNGUELTIG } = await import('../src/shared/zoom-text');
+  type SlotKanal = import('../src/main/zoom/slot-eingabe').SlotKanal;
+  const j = (x: unknown): string => JSON.stringify(x);
+  /** JSON mit sortierten Schlüsseln: Gleichheit ohne Rücksicht auf die Reihenfolge der Felder. */
+  const flach = (x: unknown): string => JSON.stringify(x, (_k, v: unknown) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v);
+  const P = 'JM Connect – Zoom ';
+  const V = { aufloesung: '720p', tonAn: true } as const;
+
+  console.log('— B3 · Übergangs-Namensregel (PK35 rein, Spec 7.2)');
+  ck('B3 PK35: „A:B“ → „JM Connect – Zoom A B“', e.uebergangsNdiName('A:B', []) === `${P}A B`);
+  ck('B3 PK35: „A: B“ → zwei Leerzeichen, wie 0.3.0 nach NDI', e.uebergangsNdiName('A: B', []) === `${P}A  B`);
+  ck('B3 PK35: „A  B“, „ A“ und „A “ bleiben Zeichen für Zeichen erhalten',
+    e.uebergangsNdiName('A  B', []) === `${P}A  B` && e.uebergangsNdiName(' A', []) === `${P} A` && e.uebergangsNdiName('A ', []) === `${P}A `);
+  ck('B3 PK35: Steuerzeichen fallen weg (U+0001, Tab, U+007F, U+0085)', e.uebergangsNdiName('A\u0001B\tC\u007fD\u0085E', []) === `${P}ABCDE`);
+  const lang = 'x'.repeat(70);
+  ck('B3 PK35: 70 Zeichen → 60 Code-Punkte', e.uebergangsNdiName(lang, []) === `${P}${'x'.repeat(42)}` && e.codePunkte(e.uebergangsNdiName(lang, [])) === 60);
+  ck('B3 PK35: gekürzt nach Code-Punkten, nie mitten in einem Emoji',
+    e.codePunkte(e.uebergangsNdiName('😀'.repeat(50), [])) === 60 && e.uebergangsNdiName('😀'.repeat(50), []) === `${P}${'😀'.repeat(42)}`);
+  ck('B3 PK35: Kollision nach gleicherNdiName (ohne Groß-/Kleinschreibung) → „ (2)“', e.uebergangsNdiName('Anna', ['jm connect – zoom anna']) === `${P}Anna (2)`);
+  ck('B3 PK35: „ (2)“ auch belegt → „ (3)“', e.uebergangsNdiName('Anna', [`${P}Anna`, `${P}ANNA (2)`]) === `${P}Anna (3)`);
+  ck('B3 PK35: Platz für „ (2)“ vor dem Kürzen', e.uebergangsNdiName(lang, [`${P}${'x'.repeat(42)}`]) === `${P}${'x'.repeat(38)} (2)`);
+  const uebergang = ['Moderation: Anna', ' A', 'A ', lang].map((n) => ({ ...e.neuerSlot(1, V, []), ndiName: e.uebergangsNdiName(n, []) }));
+  ck('B3 PK35: normiereSlot verwirft einen so angelegten Slot nicht und ändert seinen Namen nicht',
+    uebergang.every((s) => e.normiereSlot(s)?.ndiName === s.ndiName) && uebergang[0].ndiName === `${P}Moderation  Anna`);
+
+  console.log('— B3 · NDI-Namensprüfung (PK24 rein, E26)');
+  const andere = [{ nr: 5, ndiName: 'Bühne' }, { nr: 3, ndiName: 'Zoom 3' }, { nr: 9, ndiName: 'ZOOM 3' }];
+  const fehler = (name: string, nr = 1): string | null => e.pruefeNdiName(name, nr, andere, []).fehler;
+  ck('B3 PK24 T43: leer', j(e.pruefeNdiName('', 1, andere, [])) === j({ fehler: NDI_NAME_TEXT.laenge, warnung: null }));
+  ck('B3 PK24 T43: 61 Code-Punkte', fehler('x'.repeat(61)) === NDI_NAME_TEXT.laenge);
+  ck('B3 PK24: 60 Code-Punkte gültig, ein Emoji zählt 1', fehler('x'.repeat(60)) === null && fehler(`😀${'x'.repeat(59)}`) === null);
+  ck('B3 PK24 T43: zwei Emoji und 59 Zeichen = 61 Code-Punkte', fehler(`😀😀${'x'.repeat(59)}`) === NDI_NAME_TEXT.laenge);
+  ck('B3 PK24 T44: Doppelpunkt', fehler('A:B') === NDI_NAME_TEXT.doppelpunkt);
+  ck('B3 PK24 T47: Steuerzeichen (U+0001, Zeilenumbruch, U+007F, U+009F)', ['A\u0001', 'A\nB', 'A\u007f', 'A\u009f'].every((n) => fehler(n) === NDI_NAME_TEXT.steuerzeichen));
+  ck('B3 PK24 T45: Name eines anderen Slots, ohne Groß-/Kleinschreibung, kleinste Nummer', fehler('zoom 3') === NDI_NAME_TEXT.doppelt(3));
+  ck('B3 PK24 T45: gleich nach NFC („Bu\\u0308hne“ = „Bühne“)', fehler('Bühne') === NDI_NAME_TEXT.doppelt(5));
+  ck('B3 PK24: der eigene Name des Slots ist kein Doppel', fehler('Bühne', 5) === null);
+  ck('B3 PK24 T46: gleich einem Browser-Gast → nur Warnung, das Speichern gelingt',
+    j(e.pruefeNdiName('JM Connect – Zoom Anna', 1, andere, ['jm connect – zoom anna'])) === j({ fehler: null, warnung: NDI_NAME_TEXT.gast('JM Connect – Zoom Anna') }));
+  ck('B3 PK24: ein Fehler verdrängt die Warnung', j(e.pruefeNdiName('A:B', 1, andere, ['A:B'])) === j({ fehler: NDI_NAME_TEXT.doppelpunkt, warnung: null }));
+
+  console.log('— B3 · Haltezeit (KF7, Spec 7.6)');
+  ck('B3 KF7: 0, 0,1, 1 und 5 s gültig', [0, 100, 1000, 5000].every((ms) => e.pruefeHaltezeit(ms) === null));
+  ck('B3 KF7: −0,1, 5,1 und 0,05 s → T74', [-100, 5100, 50].every((ms) => e.pruefeHaltezeit(ms) === HALTEZEIT_UNGUELTIG));
+  ck('B3 KF7: keine ganze Zahl, NaN, Unendlich → T74', [150.5, Number.NaN, Infinity].every((ms) => e.pruefeHaltezeit(ms) === HALTEZEIT_UNGUELTIG));
+
+  console.log('— B3 · normiereSlot, normiereSlots, Vorgaben, Sprecher, neuer Slot (Spec 7.2, 7.6)');
+  const voll = {
+    nr: 7, ndiName: 'Bühne links', modus: 'freigabe', person: 'Anna', an: true, aufloesung: '1080p', ersatzbild: 'weiss', tonAn: false,
+    tonArt: 'person', computerton: false, ohneKamera: false,
+  };
+  ck('B3 normiereSlot: gültiger Slot bleibt Feld für Feld gleich (alle elf von der Vorgabe abweichend)', flach(e.normiereSlot(voll)) === flach(voll));
+  ck('B3 normiereSlot: genau die elf Felder, fremde fallen weg', j(Object.keys(e.normiereSlot({ ...voll, extra: 1 }) ?? {}).sort())
+    === j(['an', 'aufloesung', 'computerton', 'ersatzbild', 'modus', 'ndiName', 'nr', 'ohneKamera', 'person', 'tonAn', 'tonArt']));
+  ck('B3 normiereSlot: unbekannte Werte → Vorgabe eines neuen Slots (7.6)',
+    flach(e.normiereSlot({ nr: 2, ndiName: 'Zoom 2', modus: 'galerie', person: 5, an: 'ja', aufloesung: '4k', ersatzbild: 'rot', tonAn: 1, tonArt: 'stereo', computerton: null }))
+      === flach({ nr: 2, ndiName: 'Zoom 2', modus: 'teilnehmer', person: '', an: false, aufloesung: '720p', ersatzbild: 'transparent', tonAn: true, tonArt: 'mischton', computerton: true, ohneKamera: true }));
+  ck('B3 normiereSlot: Nummer außerhalb 1–16 oder keine ganze Zahl → verworfen', [0, 17, 1.5, '3', undefined].every((nr) => e.normiereSlot({ ...voll, nr }) === null));
+  ck('B3 normiereSlot: NDI-Name fehlt oder verletzt E26 → verworfen, nie still ersetzt',
+    [undefined, '', 'A:B', 'A\u0001', 'x'.repeat(61), 7].every((ndiName) => e.normiereSlot({ ...voll, ndiName }) === null));
+  ck('B3 normiereSlot: kein Objekt → verworfen', [null, 'x', 3, [voll]].every((r) => e.normiereSlot(r) === null));
+  const liste = e.normiereSlots([
+    { ...voll, nr: 4, ndiName: 'Zoom 4' }, { ...voll, nr: 2, ndiName: 'Zoom 2' }, { ...voll, nr: 4, ndiName: 'Zoom 4b' },
+    { ...voll, nr: 5, ndiName: 'ZOOM 2' }, { ...voll, nr: 99, ndiName: 'Zoom 99' },
+  ]);
+  ck('B3 normiereSlots: doppelte Nummer, doppelter Name, Nummer 99 → drei verworfen; der erste gilt, nach Nummer sortiert',
+    liste.verworfen === 3 && j(liste.slots.map((s) => [s.nr, s.ndiName])) === j([[2, 'Zoom 2'], [4, 'Zoom 4']]));
+  ck('B3 normiereSlots: Feld fehlt → leer, nichts verworfen', j(e.normiereSlots(undefined)) === j({ slots: [], verworfen: 0 }) && j(e.normiereSlots(null)) === j({ slots: [], verworfen: 0 }));
+  ck('B3 normiereSlots: kein Array → leer, ein Eintrag verworfen (T91 statt stillen Verlusts)', j(e.normiereSlots({ nr: 1 })) === j({ slots: [], verworfen: 1 }));
+  ck('B3 normiereVorgaben: fehlt → 720p, Ton an; gültige Werte bleiben',
+    flach(e.normiereVorgaben(undefined)) === flach({ aufloesung: '720p', tonAn: true }) && flach(e.normiereVorgaben({ aufloesung: '360p', tonAn: false })) === flach({ aufloesung: '360p', tonAn: false })
+      && flach(e.normiereVorgaben({ aufloesung: '4k', tonAn: 'nein' })) === flach({ aufloesung: '720p', tonAn: true }));
+  ck('B3 normiereSprecher: fehlt → sprecherVideo, 1000; gültige Werte bleiben; Haltezeit gegen KF7',
+    flach(e.normiereSprecher(undefined)) === flach({ signal: 'sprecherVideo', haltezeitMs: 1000 })
+      && flach(e.normiereSprecher({ signal: 'tonAktiv', haltezeitMs: 2500 })) === flach({ signal: 'tonAktiv', haltezeitMs: 2500 })
+      && flach(e.normiereSprecher({ signal: 'laut', haltezeitMs: 5100 })) === flach({ signal: 'sprecherVideo', haltezeitMs: 1000 }));
+  ck('B3 neuerSlot: Vorgaben 7.6 (Teilnehmer, keine Person, transparent, Mischton, Computerton an, ohne Kamera an, Start aus, „Zoom {nr}“)',
+    flach(e.neuerSlot(3, { aufloesung: '1080p', tonAn: false }, [])) === flach({ nr: 3, ndiName: 'Zoom 3', modus: 'teilnehmer', person: '', an: false, aufloesung: '1080p', ersatzbild: 'transparent', tonAn: false, tonArt: 'mischton', computerton: true, ohneKamera: true }));
+  ck('B3 neuerSlot: Kollision → „Zoom 1 (2)“, dann „ (3)“', e.neuerSlot(1, V, ['zoom 1']).ndiName === 'Zoom 1 (2)' && e.neuerSlot(1, V, ['Zoom 1', 'Zoom 1 (2)']).ndiName === 'Zoom 1 (3)');
+  ck('B3 neuerSlot: geht durch normiereSlot unverändert', flach(e.normiereSlot(e.neuerSlot(16, V, []))) === flach(e.neuerSlot(16, V, [])));
+
+  console.log('— B3 · pruefeSlotEingabe je Kanal (KF6, Spec 7.9)');
+  const gut: Array<[SlotKanal, unknown]> = [
+    ['anlegen', {}],
+    ['aendern', { nr: 2, aenderung: { ndiName: 'Bühne', modus: 'sprecher', person: 'Anna', aufloesung: '360p', ersatzbild: 'schwarz', tonAn: false, tonArt: 'person', computerton: false, ohneKamera: false } }],
+    ['aendern', { nr: 16, aenderung: {} }],
+    ['loeschen', { nr: 16 }],
+    ['start', { nr: 1, an: true }], ['start', { nr: 1, an: false, trotz: true }],
+    ['ausPerson', { teilnehmerId: 16778240 }], ['ausPerson', { teilnehmerId: 4294967295, trotz: false }],
+    ['person', { nr: 3, teilnehmerId: 16778241 }],
+    ['vorgaben', { aufloesung: '360p', tonAn: false }],
+    ['sprecher', { signal: 'tonAktiv', haltezeitMs: 5100 }],
+    ['vorschau', { an: false }],
+    ['messwerte', {}],
+    ['behalten', { nr: 5 }],
+  ];
+  for (const [kanal, roh] of gut) {
+    const r = pruefeSlotEingabe(kanal, roh);
+    ck(`B3 KF6 ${kanal} gültig: ${j(roh)}`, r.ok && flach(r.wert) === flach(roh) && r.wert !== roh);
+  }
+  const schlecht: Array<[SlotKanal, unknown]> = [
+    ['anlegen', { nr: 1 }],
+    ['aendern', { nr: 2 }], ['aendern', { nr: 2, aenderung: { nr: 3 } }], ['aendern', { nr: 2, aenderung: { an: true } }],
+    ['aendern', { nr: 2, aenderung: { modus: 'galerie' } }], ['aendern', { nr: 2, aenderung: { ndiName: 5 } }],
+    ['aendern', { nr: 2, aenderung: { person: 'x'.repeat(513) } }], ['aendern', { nr: 0, aenderung: {} }],
+    ['aendern', { nr: 2, aenderung: [] }], ['aendern', { nr: 2, aenderung: { toString: 'x' } }], ['aendern', { nr: 2, aenderung: {}, x: 1 }],
+    ['loeschen', { nr: 17 }], ['loeschen', { nr: '1' }], ['loeschen', {}],
+    ['start', { nr: 1 }], ['start', { nr: 1, an: 'ja' }], ['start', { nr: 1, an: true, trotz: 1 }], ['start', { nr: 1, an: true, extra: 1 }],
+    ['ausPerson', { teilnehmerId: 0 }], ['ausPerson', { teilnehmerId: 1.5 }], ['ausPerson', { teilnehmerId: 4294967296 }],
+    ['person', { nr: 3 }], ['person', { nr: 3, teilnehmerId: -1 }],
+    ['vorgaben', { aufloesung: '4k', tonAn: true }], ['vorgaben', { aufloesung: '720p' }],
+    ['sprecher', { signal: 'laut', haltezeitMs: 1000 }], ['sprecher', { signal: 'tonAktiv', haltezeitMs: '1000' }],
+    ['sprecher', { signal: 'tonAktiv', haltezeitMs: Number.NaN }],
+    ['vorschau', { an: 1 }], ['messwerte', { x: 1 }], ['behalten', { nr: null }],
+  ];
+  for (const [kanal, roh] of schlecht) ck(`B3 KF6 ${kanal} ungültig: ${j(roh)}`, j(pruefeSlotEingabe(kanal, roh)) === j({ ok: false }));
+  const kanaele: SlotKanal[] = ['anlegen', 'aendern', 'loeschen', 'start', 'ausPerson', 'person', 'vorgaben', 'sprecher', 'vorschau', 'messwerte', 'behalten'];
+  ck('B3 KF6: kein Objekt ist für keinen der elf Kanäle gültig',
+    kanaele.length === 11 && kanaele.every((k) => [undefined, null, 'x', 3, [], [{}]].every((roh) => !pruefeSlotEingabe(k, roh).ok)));
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
