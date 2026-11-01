@@ -4,8 +4,10 @@
 import type { SlotReason } from '@jm/zoom-bridge/protocol';
 import type { ZoomErlaubnis, ZoomSlotEinstellung, ZoomSlotModus, ZoomSlotZustand } from '../src/shared/types';
 import {
-  ERSATZBILD_ZU_BRIDGE, istOffen, MODUS_ZU_BRIDGE, SIGNAL_ZU_BRIDGE, slotOnBefehl, slotZustand, tonEingeschaltet, tonFuerBridge,
-  zaehleSlots, type OffenEingabe, type SlotZustandEingabe,
+  ERSATZBILD_ZU_BRIDGE, istOffen, MODUS_ZU_BRIDGE, planeSlotAbgleich, SIGNAL_ZU_BRIDGE, SITZUNG_LEER, sitzungNach, slotEndetMitMeeting,
+  slotOnBefehl, slotZustand, teilnehmerZiel, tonEingeschaltet, tonFuerBridge, ueber5Nach, zaehleSlots, zeigteSchonNachLive,
+  type AbgleichEingabe, type AbgleichSlot, type AbgleichTeilnehmer, type OffenEingabe, type SitzungsEreignis, type SlotSitzung,
+  type SlotZustandEingabe, type ZielErgebnis,
 } from '../src/main/zoom/slots';
 
 let pass = 0, fail = 0;
@@ -201,6 +203,160 @@ console.log('— B1 · Abbildungen und slotOnBefehl (6.2, 7.3 Nr. 2, Nr. 9)');
       cmd: 'slotOn', slot: 16, ndi: 'Folien', mode: 'share', resolution: '720p', audio: 'off', shareAudio: true, fallback: 'black',
       showNoVideo: true,
     }));
+}
+
+// ── Plan B, Task B2: Slot-Abgleich rein (Spec 7.3 Nr. 1–10, 7.2, 7.4) ──
+const ANNA_NEU = 16778250, CARLA = 16778242;
+/** Teilnehmer für den Abgleich; `folge` = Beitrittsfolge (roster 0, jedes joined die nächste Zahl). */
+const t = (id: number, name: string, folge = 0, imWarteraum = false): AbgleichTeilnehmer => ({ id, name, imWarteraum, folge });
+const sitzung = (x: Partial<SlotSitzung> = {}): SlotSitzung => ({ ...SITZUNG_LEER, ...x });
+function aslot(e: ZoomSlotEinstellung, s: Partial<SlotSitzung> = {}, bridge: AbgleichSlot['bridge'] = null): AbgleichSlot {
+  return { e, voruebergehend: false, anNurMeeting: false, s: sitzung(s), bridge };
+}
+const laeuft = (mode: 'participant' | 'speaker' | 'share', target: number): AbgleichSlot['bridge'] => ({ laeuft: true, imAbbau: false, mode, target });
+function abgleich(slots: AbgleichSlot[], teilnehmer: AbgleichTeilnehmer[], x: Partial<AbgleichEingabe> = {}): string {
+  return j(planeSlotAbgleich({ meeting: 'im_meeting', erlaubnis: 'ja', ueber5: false, teilnehmer, slots, ...x }));
+}
+const ziel = (x: Partial<ZielErgebnis>): string =>
+  flach({ ziel: 0, gewaehlteId: null, doppelt: 1, zweifel: false, imWarteraum: false, keinePerson: false, wahl: null, ...x });
+
+console.log('— B2 · 7.3 Nr. 1–4, 9, 10: starten, stoppen, zurückstellen');
+{
+  const anna = einstellung();
+  const T = [t(ANNA, 'Anna'), t(BEN, 'Ben')];
+  const start = j([{ art: 'nameMerken', nr: 1, gewaehlteId: ANNA }, { art: 'starten', nr: 1, befehl: slotOnBefehl(anna, ANNA) }]);
+  ck('B2 7.3 Nr. 1: nicht im Meeting → nichts', abgleich([aslot(anna)], T, { meeting: 'warteraum' }) === '[]' && abgleich([aslot(anna)], T, { meeting: 'abriss' }) === '[]');
+  ck('B2 7.3 Nr. 1: Erlaubnis nicht „ja“ → nichts', ([null, 'offen', 'abgelehnt', 'abgelaufen', 'entzogen'] as const).every((erlaubnis) => abgleich([aslot(anna)], T, { erlaubnis }) === '[]'));
+  ck('B2 7.3 Nr. 2: eingeschaltet, läuft nicht → nameMerken (Anna eindeutig), dann starten mit allen Feldern', abgleich([aslot(anna)], T) === start);
+  ck('B2 7.3 Nr. 2: Frist läuft → nichts', abgleich([aslot(anna, { frist: true })], T) === '[]');
+  ck('B2 7.3 Nr. 2: Fehlerstand → kein neuer Start von selbst (B13), auch bei roster (PK18 rein)',
+    (['keine_antwort', 'gescheitert', 'zurueckgestellt'] as const).every((fehlerstand) => abgleich([aslot(anna, { fehlerstand })], T) === '[]'));
+  const sieben = [7, 3, 1, 6, 2, 5, 4].map((nr) => aslot(einstellung({ nr, ndiName: `Zoom ${nr}`, modus: 'sprecher' })));
+  const arten = (s: string): string => j((JSON.parse(s) as { art: string; nr: number }[]).map((h) => `${h.art} ${h.nr}`));
+  ck('B2 7.3 Nr. 3: sieben eingeschaltet ohne Zustimmung → 1–5 starten nach Nummer, 6 und 7 zurückstellen',
+    arten(abgleich(sieben, T)) === j(['starten 1', 'starten 2', 'starten 3', 'starten 4', 'starten 5', 'zurueckstellen 6', 'zurueckstellen 7']));
+  ck('B2 7.3 Nr. 3: mit Zustimmung → alle sieben starten', arten(abgleich(sieben, T, { ueber5: true })) === j([1, 2, 3, 4, 5, 6, 7].map((n) => `starten ${n}`)));
+  const zweiLaufen = sieben.map((x) => (x.e.nr <= 2 ? { ...x, bridge: laeuft('speaker', 0) } : x));
+  ck('B2 7.3 Nr. 3: laufende zählen mit (1 und 2 laufen → 3, 4, 5 starten, 6, 7 zurückstellen)',
+    arten(abgleich(zweiLaufen, T)) === j(['starten 3', 'starten 4', 'starten 5', 'zurueckstellen 6', 'zurueckstellen 7']));
+  const zweiAus = sieben.map((x) => (x.e.nr === 2 ? { ...x, e: { ...x.e, an: false } } : x));
+  ck('B2 7.3 Nr. 3: ausgeschaltete zählen nicht (2 aus → 1, 3, 4, 5, 6 starten, 7 zurückstellen)',
+    arten(abgleich(zweiAus, T)) === j(['starten 1', 'starten 3', 'starten 4', 'starten 5', 'starten 6', 'zurueckstellen 7']));
+  const aus = einstellung({ an: false });
+  ck('B2 7.3 Nr. 4: ausgeschaltet und läuft → stoppen, auch außerhalb des Meetings',
+    abgleich([aslot(aus, {}, laeuft('participant', ANNA))], T) === j([{ art: 'stoppen', nr: 1 }])
+      && abgleich([aslot(aus, {}, laeuft('participant', ANNA))], T, { meeting: 'abriss', erlaubnis: null }) === j([{ art: 'stoppen', nr: 1 }]));
+  ck('B2 7.3 Nr. 4, 10: slotOff unterwegs oder Bridge im Abbau → nichts (kein zweites slotOff, kein Start)',
+    abgleich([aslot(aus, {}, { laeuft: true, imAbbau: true, mode: 'participant', target: ANNA })], T) === '[]'
+      && abgleich([aslot(anna, {}, { laeuft: false, imAbbau: true, mode: 'participant', target: 0 })], T) === '[]');
+  ck('B2 7.3 Nr. 4: ausgeschaltet, läuft nicht → nichts', abgleich([aslot(aus)], T) === '[]');
+  const sprecher = einstellung({ nr: 2, ndiName: 'Sprecher', modus: 'sprecher' });
+  const folien = einstellung({ nr: 3, ndiName: 'Folien', modus: 'freigabe' });
+  ck('B2 7.3 Nr. 9: Sprecher- und Freigabe-Slots starten ohne Ziel und ohne nameMerken',
+    abgleich([aslot(sprecher), aslot(folien)], T) === j([{ art: 'starten', nr: 2, befehl: slotOnBefehl(sprecher, 0) }, { art: 'starten', nr: 3, befehl: slotOnBefehl(folien, 0) }])
+      && !('id' in slotOnBefehl(sprecher, 0)));
+  ck('B2 7.3 Nr. 9: laufende Sprecher- und Freigabe-Slots werden nie umgehängt',
+    abgleich([aslot(sprecher, {}, laeuft('speaker', BEN)), aslot(folien, {}, laeuft('share', 101))], T) === '[]');
+}
+
+console.log('— B2 · 7.3 Nr. 5, 6: Ziel eines Teilnehmer-Slots, (a), (b), (c), Umbenennung');
+{
+  const anna = einstellung();
+  const z = (s: Partial<SlotSitzung>, tl: AbgleichTeilnehmer[], e = anna): string => flach(teilnehmerZiel(e, sitzung(s), tl));
+  // (a)
+  ck('B2 (a): gewählte Person da → Ziel sie, doppelt 1, auch neben einem Namensvetter',
+    z({ gewaehlteId: ANNA }, [t(ANNA, 'Anna'), t(ANNA_NEU, 'anna', 3)]) === ziel({ ziel: ANNA, gewaehlteId: ANNA }));
+  ck('B2 (a): gewählte Person im Warteraum → Ziel 0, imWarteraum (T17)', z({ gewaehlteId: ANNA }, [t(ANNA, 'Anna', 0, true)]) === ziel({ gewaehlteId: ANNA, imWarteraum: true }));
+  ck('B2 (a): vergleicht keinen Namen (umbenannt oder Handwahl gilt)', z({ gewaehlteId: BEN }, [t(BEN, 'Ben')]) === ziel({ ziel: BEN, gewaehlteId: BEN }));
+  // (b)
+  ck('B2 (b): kein Namensvetter → Ziel 0 (T16)', z({}, [t(BEN, 'Ben')]) === ziel({}));
+  ck('B2 (b): genau einer → Ziel er, gewaehlteId er', z({}, [t(ANNA, 'Anna'), t(BEN, 'Ben')]) === ziel({ ziel: ANNA, gewaehlteId: ANNA }));
+  ck('B2 (b): normierter Name („  ANNA “ findet „Anna“, NFC)', z({}, [t(ANNA, '  ANNA ')]) === ziel({ ziel: ANNA, gewaehlteId: ANNA })
+    && flach(teilnehmerZiel(einstellung({ person: 'Aná' }), sitzung(), [t(ANNA, 'Ana\u0301')])) === ziel({ ziel: ANNA, gewaehlteId: ANNA }));
+  ck('B2 (b): genau einer im Warteraum → Ziel 0, imWarteraum (T17)', z({}, [t(ANNA, 'Anna', 0, true)]) === ziel({ imWarteraum: true }));
+  ck('B2 (b): zwei, einer im Warteraum → Ziel 0, doppelt 2, Wahl mit beiden (der Warteraum zählt mit)',
+    z({}, [t(ANNA, 'Anna'), t(ANNA_NEU, 'anna', 2, true)])
+      === ziel({ doppelt: 2, wahl: [{ id: ANNA, name: 'Anna', hinweis: '' }, { id: ANNA_NEU, name: 'anna', hinweis: '' }] }));
+  ck('B2 (b): keine Person eingestellt → keinePerson (T18)', z({}, [t(ANNA, 'Anna')], einstellung({ person: '' })) === ziel({ keinePerson: true }));
+  // (c): Anna (gewaehlteId ANNA) ging bei Folge 2
+  const weg = { gewaehlteId: ANNA, wegSeq: 2 };
+  ck('B2 (c): Rückkehr, genau einer nach dem Weggang beigetreten → Ziel er, gewaehlteId er',
+    z(weg, [t(ANNA_NEU, 'Anna', 3), t(BEN, 'Ben')]) === ziel({ ziel: ANNA_NEU, gewaehlteId: ANNA_NEU }));
+  ck('B2 (c): Rückkehr nach dem normierten Namen („anna “, PK5 rein)', z(weg, [t(ANNA_NEU, 'anna ', 3)]) === ziel({ ziel: ANNA_NEU, gewaehlteId: ANNA_NEU }));
+  ck('B2 (c): genau einer, schon vor dem Weggang da → Ziel 0, zweifel, Wahl (T13b, PK6 rein)',
+    z(weg, [t(ANNA_NEU, 'Anna', 1)]) === ziel({ gewaehlteId: ANNA, zweifel: true, wahl: [{ id: ANNA_NEU, name: 'Anna', hinweis: '' }] }));
+  ck('B2 (c): Folge gleich wegSeq zählt als „vorher da“', JSON.parse(z(weg, [t(ANNA_NEU, 'Anna', 2)])).zweifel === true);
+  ck('B2 (c): wegSeq unbekannt → kein Sprung (zweifel)', JSON.parse(z({ gewaehlteId: ANNA }, [t(ANNA_NEU, 'Anna', 9)])).zweifel === true);
+  ck('B2 (c): genau einer im Warteraum → Ziel 0, imWarteraum (T17)', z(weg, [t(ANNA_NEU, 'Anna', 3, true)]) === ziel({ gewaehlteId: ANNA, imWarteraum: true }));
+  ck('B2 (c): mehrere → Ziel 0, doppelt, Wahl (T13)',
+    z(weg, [t(ANNA_NEU, 'Anna', 3), t(CARLA, 'ANNA', 4)])
+      === ziel({ gewaehlteId: ANNA, doppelt: 2, wahl: [{ id: ANNA_NEU, name: 'Anna', hinweis: '' }, { id: CARLA, name: 'ANNA', hinweis: '' }] }));
+  ck('B2 (c): keiner → Ziel 0 (T16), gewaehlteId bleibt', z(weg, [t(BEN, 'Ben')]) === ziel({ gewaehlteId: ANNA }));
+  // Nr. 6: Anna hat sich in „Annabelle“ umbenannt (personJetzt), ging dann
+  const umbenannt = { ...weg, personJetzt: 'Annabelle' };
+  ck('B2 Nr. 6: Rückkehr unter dem neuen Namen', z(umbenannt, [t(ANNA_NEU, 'Annabelle', 3)]) === ziel({ ziel: ANNA_NEU, gewaehlteId: ANNA_NEU }));
+  ck('B2 Nr. 6: Rückkehr auch unter dem gespeicherten Namen', z(umbenannt, [t(ANNA_NEU, 'Anna', 3)]) === ziel({ ziel: ANNA_NEU, gewaehlteId: ANNA_NEU }));
+  ck('B2 Nr. 6: je ein Namensvetter unter beiden Namen → doppelt 2', JSON.parse(z(umbenannt, [t(ANNA_NEU, 'Anna', 3), t(CARLA, 'Annabelle', 4)])).doppelt === 2);
+  // im Abgleich
+  ck('B2 Nr. 5 im Abgleich: Rückkehr per slotSet {id} am laufenden Slot, nie slotOff/slotOn (PK4 rein)',
+    abgleich([aslot(anna, weg, laeuft('participant', 0))], [t(ANNA_NEU, 'Anna', 3)])
+      === j([{ art: 'nameMerken', nr: 1, gewaehlteId: ANNA_NEU }, { art: 'aendern', nr: 1, befehl: { cmd: 'slotSet', slot: 1, id: ANNA_NEU } }]));
+  ck('B2 Nr. 5 im Abgleich: Ziel wie in der Bridge → nichts', abgleich([aslot(anna, { gewaehlteId: ANNA }, laeuft('participant', ANNA))], [t(ANNA, 'Anna')]) === '[]');
+  const ben = einstellung({ person: 'Ben' });
+  ck('B2 Nr. 5 im Abgleich: Person auf Ben gestellt (nicht da), Anna läuft → slotSet {id: 0} (PK29 rein)',
+    abgleich([aslot(ben, sitzungNach(sitzung({ gewaehlteId: ANNA, zeigteSchon: true }), 'personGeaendert'), laeuft('participant', ANNA))], [t(ANNA, 'Anna')])
+      === j([{ art: 'aendern', nr: 1, befehl: { cmd: 'slotSet', slot: 1, id: 0 } }]));
+  ck('B2 Nr. 5 im Abgleich: Bridge meldet noch einen anderen Modus → nichts (Moduswechsel unterwegs)',
+    abgleich([aslot(anna, {}, laeuft('speaker', BEN))], [t(ANNA, 'Anna'), t(BEN, 'Ben')]) === '[]');
+  ck('B2 Nr. 5 im Abgleich: Doppelname beim Start → Ziel 0, kein nameMerken',
+    abgleich([aslot(anna)], [t(ANNA, 'Anna'), t(ANNA_NEU, 'Anna', 1)]) === j([{ art: 'starten', nr: 1, befehl: slotOnBefehl(anna, 0) }]));
+}
+
+console.log('— B2 · 7.3 Nr. 2, 5, 7, 8: Sitzung nach einem Ereignis (RR1, RR7, RR9)');
+{
+  const voll: SlotSitzung = { gewaehlteId: ANNA, wegSeq: 2, personJetzt: 'Annabelle', liefSchon: true, zeigteSchon: true, fehlerstand: 'gescheitert', frist: true };
+  const LEER = j(SITZUNG_LEER);
+  const ohneKennungen = { gewaehlteId: null, wegSeq: null, personJetzt: null };
+  const SOLL: Array<[SitzungsEreignis, SlotSitzung]> = [
+    ['meetingEnde', SITZUNG_LEER], ['verlassen', SITZUNG_LEER], ['schliessen', SITZUNG_LEER], ['beitritt', SITZUNG_LEER],
+    ['beenden', SITZUNG_LEER], ['mangel', SITZUNG_LEER],
+    ['neueBridge', { ...voll, ...ohneKennungen, fehlerstand: null, frist: false }],
+    ['z11', { ...voll, ...ohneKennungen, fehlerstand: null, frist: false }],
+    ['erneut', { ...voll, ...ohneKennungen, fehlerstand: null, frist: false }],
+    ['z10Roster', { ...voll, ...ohneKennungen }],
+    ['entzug', voll],
+    ['personGeaendert', { ...voll, ...ohneKennungen, zeigteSchon: false }],
+    ['modusGeaendert', { ...voll, zeigteSchon: false }],
+    ['stoppStart', { ...voll, fehlerstand: null, frist: false }],
+  ];
+  for (const [ereignis, soll] of SOLL) ck(`B2 sitzungNach ${ereignis}`, j(sitzungNach(voll, ereignis)) === j(soll));
+  ck('B2 sitzungNach: die Tabelle deckt alle 14 Ereignisse', new Set(SOLL.map(([e]) => e)).size === 14);
+  ck('B2 SITZUNG_LEER: alles null bzw. false', LEER === j({ gewaehlteId: null, wegSeq: null, personJetzt: null, liefSchon: false, zeigteSchon: false, fehlerstand: null, frist: false }));
+  ck('B2 sitzungNach ändert die Eingabe nicht', j(voll) === j({ gewaehlteId: ANNA, wegSeq: 2, personJetzt: 'Annabelle', liefSchon: true, zeigteSchon: true, fehlerstand: 'gescheitert', frist: true }));
+  const ENDE: SitzungsEreignis[] = ['meetingEnde', 'verlassen', 'schliessen', 'beitritt', 'beenden', 'mangel'];
+  const ANDERE: SitzungsEreignis[] = ['neueBridge', 'entzug', 'z10Roster', 'z11', 'erneut', 'personGeaendert', 'modusGeaendert', 'stoppStart'];
+  ck('B2 Nr. 8: vorübergehender Slot zu jedem Sitzungsende → loeschen', ENDE.every((e) => slotEndetMitMeeting({ voruebergehend: true, anNurMeeting: false }, e) === 'loeschen'));
+  ck('B2 Nr. 8 RR7: dauerhafter Slot mit anNurMeeting → ausschalten', ENDE.every((e) => slotEndetMitMeeting({ voruebergehend: false, anNurMeeting: true }, e) === 'ausschalten'));
+  ck('B2 Nr. 8: dauerhafter Slot → bleibt', ENDE.every((e) => slotEndetMitMeeting({ voruebergehend: false, anNurMeeting: false }, e) === 'bleibt'));
+  ck('B2 Nr. 8: Entzug, Z10, Z11, „Erneut beitreten“ und die übrigen → bleibt, auch vorübergehend',
+    ANDERE.every((e) => slotEndetMitMeeting({ voruebergehend: true, anNurMeeting: true }, e) === 'bleibt'));
+}
+
+console.log('— B2 · 7.3 Nr. 7: zeigteSchon nur von slot live mit eingestellter Person (N3)');
+{
+  const s = sitzung({ gewaehlteId: ANNA });
+  ck('B2 N3: participant, target = gewaehlteId → zeigteSchon', zeigteSchonNachLive(s, { mode: 'participant', target: ANNA }));
+  ck('B2 N3: anderes Ziel → nicht gesetzt (Ereignis im Flug nach Personenwechsel)', !zeigteSchonNachLive(s, { mode: 'participant', target: BEN }));
+  ck('B2 N3: anderer Modus → nicht gesetzt (spätes slot live nach Moduswechsel)', !zeigteSchonNachLive(s, { mode: 'speaker', target: ANNA }));
+  ck('B2 N3: ohne gewaehlteId → nicht gesetzt, auch nicht für Ziel 0', !zeigteSchonNachLive(sitzung(), { mode: 'participant', target: 0 }) && !zeigteSchonNachLive(sitzung(), { mode: 'participant', target: ANNA }));
+  ck('B2 N3: einmal gesetzt bleibt es', zeigteSchonNachLive(sitzung({ zeigteSchon: true }), { mode: 'speaker', target: BEN }));
+}
+
+console.log('— B2 · 7.4: Zustimmung über 5 verfällt');
+{
+  ck('B2 7.4: 6 eingeschaltet mit Zustimmung → bleibt', ueber5Nach(6, true));
+  ck('B2 7.4: höchstens 5 → verfällt', !ueber5Nach(5, true) && !ueber5Nach(0, true));
+  ck('B2 7.4: ohne Zustimmung → keine', !ueber5Nach(6, false) && !ueber5Nach(5, false));
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
