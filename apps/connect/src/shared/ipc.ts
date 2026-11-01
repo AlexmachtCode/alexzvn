@@ -76,6 +76,32 @@ export const IPC = {
   zoomSchliessen: 'jmc:zoom-schliessen',
   /** invoke: Meldung quittieren → void. */
   zoomMeldungWeg: 'jmc:zoom-meldung-weg',
+  // ── Zoom-Slots (Connect 0.4.0, Spec 7.9). Die Hülle prüft jede Nutzlast mit pruefeSlotEingabe (main/zoom/slot-eingabe.ts);
+  // die Preload reicht sie als Ganzes weiter (11.11 KF5).
+  /** invoke: {} → ZoomErgebnis & { nr? } (T32 bei 16 Slots). */
+  zoomSlotAnlegen: 'jmc:zoom-slot-anlegen',
+  /** invoke: { nr, aenderung } (Felder von ZoomSlotEinstellung ohne nr und an) → ZoomErgebnis. */
+  zoomSlotAendern: 'jmc:zoom-slot-aendern',
+  /** invoke: { nr } → ZoomErgebnis (T36, wenn der Slot an ist). */
+  zoomSlotLoeschen: 'jmc:zoom-slot-loeschen',
+  /** invoke: { nr, an, trotz? } → ZoomErgebnis oder { ok: false, nachfrage: true, text } (T40, Spec 7.4). */
+  zoomSlotStart: 'jmc:zoom-slot-start',
+  /** invoke: { teilnehmerId, trotz? } → wie zoomSlotStart („Als Slot laden“). */
+  zoomSlotAusPerson: 'jmc:zoom-slot-aus-person',
+  /** invoke: { nr, teilnehmerId } → ZoomErgebnis (Auswahl bei Doppelname oder Zweifel). */
+  zoomSlotPerson: 'jmc:zoom-slot-person',
+  /** invoke: { aufloesung, tonAn } → ZoomErgebnis (Vorgaben für neue Slots, 7.6). */
+  zoomSlotVorgaben: 'jmc:zoom-slot-vorgaben',
+  /** invoke: { signal, haltezeitMs } → ZoomErgebnis (T74 bei ungültiger Haltezeit). */
+  zoomSprecher: 'jmc:zoom-sprecher',
+  /** invoke: { an } → ZoomErgebnis (Schalter „Vorschau“). */
+  zoomVorschauSchalten: 'jmc:zoom-vorschau-schalten',
+  /** invoke: {} → string (Messwerte ohne Teilnehmer- und NDI-Namen, 7.8). */
+  zoomMesswerteText: 'jmc:zoom-messwerte-text',
+  /** invoke: { nr } → ZoomErgebnis („Behalten“, 7.2). */
+  zoomSlotBehalten: 'jmc:zoom-slot-behalten',
+  /** push (Main → Renderer): { nr, ziel, w, h, jpeg } (Vorschau, nie im Abbild, nie im Log, 7.7). */
+  zoomVorschauBild: 'jmc:zoom-vorschau-bild',
   /** invoke: Connect-Logordner im Explorer öffnen → void. */
   zoomLogordner: 'jmc:zoom-logordner',
 } as const;

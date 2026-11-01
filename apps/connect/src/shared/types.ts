@@ -285,6 +285,11 @@ export interface ZoomSlotLage {
 
 export type ZoomErgebnis = { ok: true } | { ok: false; text: string };
 
+/** Antwort von zoomSlotStart und zoomSlotAusPerson (Spec 7.4, 7.9): ab dem 6. eingeschalteten Slot ohne Zustimmung T40. */
+export type ZoomStartErgebnis = ZoomErgebnis | { ok: false; nachfrage: true; text: string };
+/** Vorschaubild eines Slots (Spec 7.7): Push jmc:zoom-vorschau-bild, nie im Abbild, nie im Log. */
+export interface ZoomVorschauBild { nr: number; ziel: number; w: number; h: number; jpeg: string }
+
 export type TrayCommand = { kind: 'show' } | { kind: 'closeRoom' };
 
 /** Steuerbefehl vom TCP-Protokoll (Companion/Rundown), den der Renderer an den DO relayt. */
@@ -356,5 +361,20 @@ export interface JmConnectApi {
   zoomErneut: () => Promise<ZoomErgebnis>;
   zoomSchliessen: () => Promise<void>;
   zoomMeldungWeg: () => Promise<void>;
+  // ── Zoom-Slots (Connect 0.4.0, Spec 7.9). Jede Nutzlast geht als Ganzes durch die Preload; die Hülle prüft sie.
+  zoomSlotAnlegen: () => Promise<ZoomErgebnis & { nr?: number }>;
+  zoomSlotAendern: (p: { nr: number; aenderung: Partial<Omit<ZoomSlotEinstellung, 'nr' | 'an'>> }) => Promise<ZoomErgebnis>;
+  zoomSlotLoeschen: (p: { nr: number }) => Promise<ZoomErgebnis>;
+  zoomSlotStart: (p: { nr: number; an: boolean; trotz?: boolean }) => Promise<ZoomStartErgebnis>;
+  zoomSlotAusPerson: (p: { teilnehmerId: number; trotz?: boolean }) => Promise<ZoomStartErgebnis>;
+  zoomSlotPerson: (p: { nr: number; teilnehmerId: number }) => Promise<ZoomErgebnis>;
+  zoomSlotVorgaben: (p: ZoomSlotVorgaben) => Promise<ZoomErgebnis>;
+  zoomSprecher: (p: ZoomSprecherEinstellung) => Promise<ZoomErgebnis>;
+  zoomVorschauSchalten: (p: { an: boolean }) => Promise<ZoomErgebnis>;
+  /** Messwerte ohne Teilnehmer- und NDI-Namen für die Zwischenablage (7.8). */
+  zoomMesswerteText: () => Promise<string>;
+  zoomSlotBehalten: (p: { nr: number }) => Promise<ZoomErgebnis>;
+  /** Vorschaubilder abonnieren (Push, 7.7). Liefert Unsubscribe. */
+  onZoomVorschauBild: (cb: (b: ZoomVorschauBild) => void) => () => void;
   zoomLogordner: () => Promise<void>;
 }

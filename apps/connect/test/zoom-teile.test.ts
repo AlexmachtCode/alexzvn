@@ -424,6 +424,69 @@ console.log('— B11 · Laden, Entladen, Ton-Umschalten und Vergessen gibt es we
     reste.length === 0);
 }
 
+console.log('— B20: IPC der Zoom-Slots, Preload als Ganzes, Hülle nur über pruefeSlotEingabe, Fenster (Spec 7.9, 7.7, 11.11 KF5)');
+{
+  // Preload, Hülle und index.ts laden Electron und laufen hier nicht; geprüft wird ihr Quelltext (nach LF, CI hat LF).
+  const { readFileSync } = await import('node:fs');
+  const lies = (rel: string): string => readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const ipc = lies('../src/shared/ipc.ts');
+  const preload = lies('../src/preload/index.ts');
+  const huelle = lies('../src/main/zoom.ts');
+  const index = lies('../src/main/index.ts');
+  // Konstante, Kanal (7.9), Kanal von pruefeSlotEingabe (B3), Aufruf im Kern mit dem geprüften Wert.
+  const KANAELE: [string, string, string, string][] = [
+    ['zoomSlotAnlegen', 'jmc:zoom-slot-anlegen', 'anlegen', 'k.slotAnlegen()'],
+    ['zoomSlotAendern', 'jmc:zoom-slot-aendern', 'aendern', 'k.slotAendern(e.wert.nr, e.wert.aenderung)'],
+    ['zoomSlotLoeschen', 'jmc:zoom-slot-loeschen', 'loeschen', 'k.slotLoeschen(e.wert.nr)'],
+    ['zoomSlotStart', 'jmc:zoom-slot-start', 'start', 'k.slotStart(e.wert.nr, e.wert.an, e.wert.trotz)'],
+    ['zoomSlotAusPerson', 'jmc:zoom-slot-aus-person', 'ausPerson', 'k.slotAusPerson(e.wert.teilnehmerId, e.wert.trotz)'],
+    ['zoomSlotPerson', 'jmc:zoom-slot-person', 'person', 'k.slotPersonWaehlen(e.wert.nr, e.wert.teilnehmerId)'],
+    ['zoomSlotVorgaben', 'jmc:zoom-slot-vorgaben', 'vorgaben', 'k.vorgabenSetzen(e.wert)'],
+    ['zoomSprecher', 'jmc:zoom-sprecher', 'sprecher', 'k.sprecherSetzen(e.wert)'],
+    ['zoomVorschauSchalten', 'jmc:zoom-vorschau-schalten', 'vorschau', 'k.vorschauSetzen(e.wert.an)'],
+    ['zoomMesswerteText', 'jmc:zoom-messwerte-text', 'messwerte', 'k.messwerteText()'],
+    ['zoomSlotBehalten', 'jmc:zoom-slot-behalten', 'behalten', 'k.slotBehalten(e.wert.nr)'],
+  ];
+  const OHNE_NUTZLAST = new Set(['zoomSlotAnlegen', 'zoomMesswerteText']);
+  /** Rumpf von `  ipcMain.handle(IPC.<name>, …` bis zur schließenden Zeile `  });`. */
+  const handler = (name: string): string => {
+    const i = huelle.indexOf(`  ipcMain.handle(IPC.${name}, `);
+    const ende = i < 0 ? -1 : huelle.indexOf('\n  });\n', i);
+    return i < 0 || ende < 0 ? '' : huelle.slice(i, ende + 6);
+  };
+  for (const [name, kanal, pruef, aufruf] of KANAELE) {
+    ck(`B20 7.9 ${name}: Kanal ${kanal} in shared/ipc.ts`, ipc.includes(`  ${name}: '${kanal}',`));
+    const weiter = OHNE_NUTZLAST.has(name)
+      ? `  ${name}: () => ipcRenderer.invoke(IPC.${name}, {}),`
+      : `  ${name}: (p) => ipcRenderer.invoke(IPC.${name}, p),`;
+    ck(`B20 KF5 ${name}: Preload reicht die Nutzlast als Ganzes`, preload.includes(weiter));
+    const h = handler(name);
+    ck(`B20 KF5 ${name}: Hülle prüft nur mit pruefeSlotEingabe('${pruef}') und gibt das Ergebnis unverändert an den Kern`,
+      h.includes(`    const e = pruefeSlotEingabe('${pruef}', p);\n`)
+        && h.includes(`    return e.ok ? ${aufruf} : ${name === 'zoomMesswerteText' ? "''" : 'NICHTS'};\n`)
+        && !h.includes('feld(p'));
+  }
+  ck('B20 7.9: genau zwölf Slot-Kanäle in shared/ipc.ts (elf invoke, ein Push)',
+    (ipc.match(/^ {2}zoom(Slot\w+|Sprecher|VorschauSchalten|MesswerteText|VorschauBild): 'jmc:/gm) ?? []).length === 12
+      && ipc.includes(`  zoomVorschauBild: 'jmc:zoom-vorschau-bild',`));
+  ck('B20 7.7: Preload abonniert den Push zoomVorschauBild und gibt ein Unsubscribe zurück',
+    preload.includes('    ipcRenderer.on(IPC.zoomVorschauBild, listener);\n    return () => ipcRenderer.off(IPC.zoomVorschauBild, listener);'));
+  ck('B20 7.7: Hülle reicht onVorschau direkt als Push ans Fenster, nicht über das Abbild',
+    huelle.includes('      onVorschau: (b) => {\n') && huelle.includes('w.webContents.send(IPC.zoomVorschauBild, b);'));
+  ck('B20 GEP14: Startwert fensterSichtbar: false (der Kern entsteht vor dem Fenster)', huelle.includes('      fensterSichtbar: false,\n'));
+  const fStart = huelle.indexOf('export function verdrahteZoomFenster(');
+  const fenster = fStart < 0 ? '' : huelle.slice(fStart, huelle.indexOf('\n}\n', fStart));
+  ck('B20 7.7: verdrahteZoomFenster hängt show, hide, minimize, restore und ready-to-show an',
+    ['show', 'hide', 'minimize', 'restore', 'ready-to-show'].every((ev) => fenster.includes(`  win.on('${ev}', melde);`)));
+  ck('B20 7.7: sichtbar = gezeigt und nicht minimiert, an kern.fensterSichtbar, einmal sofort',
+    fenster.includes('kern?.fensterSichtbar(!win.isDestroyed() && win.isVisible() && !win.isMinimized());')
+      && fenster.trimEnd().endsWith('melde();'));
+  const anlegen = index.slice(index.indexOf('function createWindow(): BrowserWindow {'), index.indexOf('function showOrCreateWindow(): void {'));
+  ck('B20 GEP14: createWindow verdrahtet jedes neue Hauptfenster nach createMainWindow (auch das aus showOrCreateWindow)',
+    anlegen.indexOf('createMainWindow(') >= 0 && anlegen.indexOf('  verdrahteZoomFenster(win);') > anlegen.indexOf('createMainWindow(')
+      && index.slice(index.indexOf('function showOrCreateWindow(): void {')).includes('    createWindow();'));
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

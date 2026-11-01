@@ -12,7 +12,7 @@ import { startControlServer, stopControlServer } from './control-server';
 import { createTray, destroyTray, setTrayStatus } from './tray';
 import { handleShowDeepLink } from './show-open';
 import { startPresenterLink, stopPresenterLink } from './presenter-link';
-import { startZoom, zoomBeenden, zoomGastLabelsGeaendert, zoomLaeuft, zoomSteuerbefehl, zoomVerlassen } from './zoom';
+import { startZoom, verdrahteZoomFenster, zoomBeenden, zoomGastLabelsGeaendert, zoomLaeuft, zoomSteuerbefehl, zoomVerlassen } from './zoom';
 import { leiteSteuerbefehl } from './control-state';
 import { BEENDEN_FRIST_MS } from './zoom/kern';
 
@@ -62,6 +62,9 @@ function createWindow(): BrowserWindow {
   // Windows-Abmeldung oder Herunterfahren: das Zoom-Meeting noch sauber verlassen (Spec 6.6).
   // Ob Windows so lange wartet, ist ungemessen (Spec 17.1).
   win.on('session-end', () => void zoomBeenden(BEENDEN_FRIST_MS));
+  // Vorschau (Spec 7.7, GEP14): show, hide, minimize, restore und ready-to-show an den Zoom-Kern. Hier, damit auch ein von
+  // showOrCreateWindow neu angelegtes Fenster verdrahtet ist.
+  verdrahteZoomFenster(win);
   return win;
 }
 

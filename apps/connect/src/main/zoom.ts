@@ -9,6 +9,7 @@ import { IPC } from '@shared/ipc';
 import type { ZoomErgebnis, ZoomKurz } from '@shared/types';
 import { erzeugeZoomKern, type ZoomKern } from './zoom/kern';
 import { zoomAktiv, zoomStateTeil } from './zoom/plattform';
+import { pruefeSlotEingabe } from './zoom/slot-eingabe';
 import { pruefeZugangEingabe } from './zoom/zugang-eingabe';
 import { pruefeSdkSchluesselEingabe } from './zoom/sdk-schluessel-eingabe';
 import { activeLabels } from './ndi-guests';
@@ -117,6 +118,14 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
         const w = d.getWindow();
         if (w && !w.isDestroyed()) w.webContents.send(IPC.zoom, a);
       },
+      // Vorschau (Spec 7.7): jedes preview-Ereignis direkt als Push ans Fenster, nie über das Abbild, nie ins Log.
+      onVorschau: (b) => {
+        const w = d.getWindow();
+        if (w && !w.isDestroyed()) w.webContents.send(IPC.zoomVorschauBild, b);
+      },
+      // GEP14: Der Kern entsteht vor dem Hauptfenster (index.ts), es gibt noch keins. verdrahteZoomFenster meldet jede
+      // Änderung, sobald index.ts das Fenster angelegt hat.
+      fensterSichtbar: false,
       // Kurzform geändert: AppStatus an Tray und Kopfzeile, und den Zoom-Teil des STATE (nur bei Änderung).
       onKurz: () => {
         d.onKurz();
@@ -195,6 +204,53 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
   // Die Kanäle zum Laden, Entladen, Ton-Umschalten und Vergessen entfallen (Spec 7.9, Plan B, Task B11); die Slot-Kanäle
   // kommen mit Task B20.
 
+  // Zoom-Slots (Spec 7.9, 11.11 KF5): Die Hülle prüft jede Nutzlast nur mit pruefeSlotEingabe (rein, getestet) und gibt
+  // das geprüfte Ergebnis unverändert an den Kern. Ungültig → NICHTS, der Kern wird nicht gerufen.
+  ipcMain.handle(IPC.zoomSlotAnlegen, (_e, p: unknown) => {
+    const e = pruefeSlotEingabe('anlegen', p);
+    return e.ok ? k.slotAnlegen() : NICHTS;
+  });
+  ipcMain.handle(IPC.zoomSlotAendern, (_e, p: unknown) => {
+    const e = pruefeSlotEingabe('aendern', p);
+    return e.ok ? k.slotAendern(e.wert.nr, e.wert.aenderung) : NICHTS;
+  });
+  ipcMain.handle(IPC.zoomSlotLoeschen, (_e, p: unknown) => {
+    const e = pruefeSlotEingabe('loeschen', p);
+    return e.ok ? k.slotLoeschen(e.wert.nr) : NICHTS;
+  });
+  ipcMain.handle(IPC.zoomSlotStart, (_e, p: unknown) => {
+    const e = pruefeSlotEingabe('start', p);
+    return e.ok ? k.slotStart(e.wert.nr, e.wert.an, e.wert.trotz) : NICHTS;
+  });
+  ipcMain.handle(IPC.zoomSlotAusPerson, (_e, p: unknown) => {
+    const e = pruefeSlotEingabe('ausPerson', p);
+    return e.ok ? k.slotAusPerson(e.wert.teilnehmerId, e.wert.trotz) : NICHTS;
+  });
+  ipcMain.handle(IPC.zoomSlotPerson, (_e, p: unknown) => {
+    const e = pruefeSlotEingabe('person', p);
+    return e.ok ? k.slotPersonWaehlen(e.wert.nr, e.wert.teilnehmerId) : NICHTS;
+  });
+  ipcMain.handle(IPC.zoomSlotVorgaben, (_e, p: unknown) => {
+    const e = pruefeSlotEingabe('vorgaben', p);
+    return e.ok ? k.vorgabenSetzen(e.wert) : NICHTS;
+  });
+  ipcMain.handle(IPC.zoomSprecher, (_e, p: unknown) => {
+    const e = pruefeSlotEingabe('sprecher', p);
+    return e.ok ? k.sprecherSetzen(e.wert) : NICHTS;
+  });
+  ipcMain.handle(IPC.zoomVorschauSchalten, (_e, p: unknown) => {
+    const e = pruefeSlotEingabe('vorschau', p);
+    return e.ok ? k.vorschauSetzen(e.wert.an) : NICHTS;
+  });
+  ipcMain.handle(IPC.zoomMesswerteText, (_e, p: unknown) => {
+    const e = pruefeSlotEingabe('messwerte', p);
+    return e.ok ? k.messwerteText() : '';
+  });
+  ipcMain.handle(IPC.zoomSlotBehalten, (_e, p: unknown) => {
+    const e = pruefeSlotEingabe('behalten', p);
+    return e.ok ? k.slotBehalten(e.wert.nr) : NICHTS;
+  });
+
   // Ganzzahl und Bereich 0–1000 prüft der Kern (Q13); hier nur: ist es überhaupt eine Zahl?
   ipcMain.handle(IPC.zoomVersatz, (_e, p: unknown): ZoomErgebnis => {
     const ms = feld(p, 'ms');
@@ -215,6 +271,23 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
 /** Kurzform für AppStatus (Tray, Kopfzeile); `null` ohne Kern (macOS). */
 export function zoomKurz(): ZoomKurz | null {
   return kern ? kern.kurz() : null;
+}
+
+/**
+ * Fensterzustand für die Vorschau (Spec 7.7 „Fenster“, GEP14): sichtbar heißt gezeigt und nicht minimiert. index.ts ruft das
+ * für jedes neu angelegte Hauptfenster; jedes der fünf Ereignisse und der Aufruf selbst melden den Zustand an den Kern
+ * (previewMode schickt der Kern nur bei einer Änderung, B16). Ohne Kern (macOS) wirkungslos.
+ */
+export function verdrahteZoomFenster(win: BrowserWindow): void {
+  const melde = (): void => {
+    kern?.fensterSichtbar(!win.isDestroyed() && win.isVisible() && !win.isMinimized());
+  };
+  win.on('show', melde);
+  win.on('hide', melde);
+  win.on('minimize', melde);
+  win.on('restore', melde);
+  win.on('ready-to-show', melde);
+  melde();
 }
 
 /** Kopie, Prüfung oder Bridge läuft (Spec 6.6: dann wartet before-quit auf zoomBeenden). */

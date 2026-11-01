@@ -92,6 +92,24 @@ const api: JmConnectApi = {
   zoomErneut: () => ipcRenderer.invoke(IPC.zoomErneut) as Promise<ZoomErgebnis>,
   zoomSchliessen: () => ipcRenderer.invoke(IPC.zoomSchliessen) as Promise<void>,
   zoomMeldungWeg: () => ipcRenderer.invoke(IPC.zoomMeldungWeg) as Promise<void>,
+  // ── Zoom-Slots (Spec 7.9, 11.11 KF5): jede Nutzlast als Ganzes, nie feldweise; prüfen tut die Hülle (pruefeSlotEingabe).
+  // Ohne Nutzlast geht {} hinüber, damit die Hülle auch diese Kanäle prüft.
+  zoomSlotAnlegen: () => ipcRenderer.invoke(IPC.zoomSlotAnlegen, {}),
+  zoomSlotAendern: (p) => ipcRenderer.invoke(IPC.zoomSlotAendern, p),
+  zoomSlotLoeschen: (p) => ipcRenderer.invoke(IPC.zoomSlotLoeschen, p),
+  zoomSlotStart: (p) => ipcRenderer.invoke(IPC.zoomSlotStart, p),
+  zoomSlotAusPerson: (p) => ipcRenderer.invoke(IPC.zoomSlotAusPerson, p),
+  zoomSlotPerson: (p) => ipcRenderer.invoke(IPC.zoomSlotPerson, p),
+  zoomSlotVorgaben: (p) => ipcRenderer.invoke(IPC.zoomSlotVorgaben, p),
+  zoomSprecher: (p) => ipcRenderer.invoke(IPC.zoomSprecher, p),
+  zoomVorschauSchalten: (p) => ipcRenderer.invoke(IPC.zoomVorschauSchalten, p),
+  zoomMesswerteText: () => ipcRenderer.invoke(IPC.zoomMesswerteText, {}),
+  zoomSlotBehalten: (p) => ipcRenderer.invoke(IPC.zoomSlotBehalten, p),
+  onZoomVorschauBild: (cb) => {
+    const listener = (_e: unknown, b: Parameters<typeof cb>[0]) => cb(b);
+    ipcRenderer.on(IPC.zoomVorschauBild, listener);
+    return () => ipcRenderer.off(IPC.zoomVorschauBild, listener);
+  },
   zoomLogordner: () => ipcRenderer.invoke(IPC.zoomLogordner) as Promise<void>,
 };
 
