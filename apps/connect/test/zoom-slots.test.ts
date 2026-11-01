@@ -15,11 +15,13 @@ import {
   type BridgeFabrik,
   type ZoomFristen,
   type ZoomKern,
+  type ZoomKernAbhaengigkeiten,
 } from '../src/main/zoom/kern';
 import type { LaufzeitPfade } from '../src/main/zoom/laufzeit';
 import type {
   ZoomAbbild, ZoomErgebnis, ZoomKurz, ZoomSlotEinstellung, ZoomSlotLage, ZoomSlotVorgaben, ZoomSprecherEinstellung,
 } from '../src/shared/types';
+import { kartenZeile, zoomZ } from '../src/shared/zoom-text';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const FAKE = join(HIER, '..', '..', '..', 'packages', 'zoom-bridge', 'test', 'fake-bridge.mjs');
@@ -111,6 +113,8 @@ interface BaueOptionen {
   /** Was die Setter der Slot-Felder melden; false = Einstellungsdatei nicht schreibbar (nur diese Sitzung, T92). */
   schreibenLiefert?: boolean;
   einstellungsLage?: { gesichert: string | null; verworfen: number };
+  /** Laufzeit-Dienste (Mangel im Wiederbeitritt, PK11); fehlt = immer eingerichtet. */
+  laufzeit?: ZoomKernAbhaengigkeiten['laufzeit'];
 }
 
 function baueKern(o: BaueOptionen = {}): Probe {
@@ -225,7 +229,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
     onAbbild: (a) => abbilder.push(a),
     onKurz: (k) => kurze.push(k),
     bridgeFabrik: fabrik,
-    laufzeit: { pruefe: () => ({ ok: true, ordner, ersetzt: [] }) },
+    laufzeit: o.laufzeit ?? { pruefe: () => ({ ok: true, ordner, ersetzt: [] }) },
     proxyUrl: () => 'https://proxy.test',
     fristen: { anmeldeMs: 3000, joinTimeoutMs: 3000, killTimeoutMs: 2000, ...o.fristen },
     wiederbeitrittPlanMs: o.wiederbeitrittPlanMs ?? [30, 30, 30, 30, 30],
@@ -951,6 +955,421 @@ console.log('— PK32 · Vorübergehender Slot „Behalten“: dauerhaft, gespei
     && lage(p, 1)?.einstellung.an === true && p.einst.slots.length === 1);
   await p.aufraeumen();
 }
+// ── Plan B, Task B14: Erlaubnis, Entzug, Wiederbeitritt, Zoom verbindet neu, Fehlerstände, Hinweise, Ton-Abo-Fehler ──
+/** Ein `slot`-Ereignis, wie es die Bridge `startNr` meldet (eingespeist, PK29). */
+function slotEv(slot: number, state: string, target: number, reason: string, mode = 'participant'): Record<string, unknown> {
+  return { ev: 'slot', slot, state, mode, target, share: 0, reason, sent: state === 'live' ? 'none' : 'transparent' };
+}
+const T104_ABO = 'Ton nicht verfügbar (AUDIO_SUBSCRIBE_FAILED) — das Bild läuft ohne Ton. Für einen neuen Versuch den Ton aus- und wieder einschalten.';
+
+console.log('— PK3 · Erlaubnis offen, Entzug und Wiedererteilung (0.12, T12b, T82)');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_PRIVILEGE: 'offen' }) });
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: ANZEIGENAME_VORGABE });
+  ck('PK3: erster Beitritt, Erlaubnis offen → Z6, zoom_alarm=0, kein slotOn', r.ok && (await bis(() => p.kern.kurz().zustand === 'im_meeting', 4000))
+    && (await warte(600), zoomZ(p.kern.kurz()) === 'Z6') && p.kern.stateKv()?.zoom_alarm === 0 && slotGesendet(p, 1).length === 0
+    && lage(p, 1)?.text === 'Wartet auf die Aufnahme-Erlaubnis des Hosts.');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true }), slotEinst(2, { modus: 'sprecher', an: true })],
+    stell: () => ({ FAKE_ENTZUG_MS: '1200', FAKE_ERTEILUNG_MS: '1500' }),
+  });
+  await insMeeting(p);
+  ck('PK3: beide Slots laufen', await bis(() => p.kern.kurz().slotsLaufen === 2, 3000));
+  const vorher = slotBefehle(p, 1).filter((c) => c.cmd === 'slotOn').map((c) => JSON.stringify(c));
+  ck('… nach dem Entzug T12b, Z7 mit T82, zoom_alarm=1', await bis(() => lage(p, 1)?.text
+    === 'Gestoppt: Der Host hat die Aufnahme-Erlaubnis entzogen. Erteilt er sie wieder, startet der Slot von selbst.'
+    && zoomZ(p.kern.kurz()) === 'Z7'
+    && kartenZeile(p.kern.abbild(), Date.now())
+      === 'Aufnahme-Erlaubnis vom Host entzogen, Slots gestoppt. Erteilt der Host sie im Zoom-Client wieder, startet Connect die eingeschalteten Slots von selbst.'
+    && p.kern.stateKv()?.zoom_alarm === 1, 3000));
+  ck('… nach der Wiedererteilung beide wieder gestartet, mit unveränderten Einstellungen', await bis(() => p.kern.kurz().slotsLaufen === 2
+    && slotBefehle(p, 1).filter((c) => c.cmd === 'slotOn').length === 4, 4000)
+    && JSON.stringify(slotBefehle(p, 1).filter((c) => c.cmd === 'slotOn').slice(2).map((c) => JSON.stringify(c))) === JSON.stringify(vorher));
+  await p.aufraeumen();
+}
+
+console.log('— PK11 · Meeting-Ende und Mangel im Wiederbeitritt: Slots, Sitzung und Alarm (7.2, 7.3 Nr. 8, RR1)');
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true }), slotEinst(2, { person: 'Ben' }), slotEinst(3, { person: 'Carla', an: true })],
+    stell: (n): Record<string, string> => (n === 1
+      ? { FAKE_TEILNEHMER: '4', FAKE_MEETING_ENDE_MS: '2500', FAKE_SLOT_FEHLER: '3:slotRendererFailed' } : {}),
+  });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  befehl(p, 'zoom_load', 'Dora');
+  ck('PK11: vor dem Ende: Slot 1 lief, Slot 2 nur dieses Meeting, Slot 3 gescheitert, Slot 4 vorübergehend, zoom_alarm=1',
+    await bis(() => lage(p, 1)?.liefSchon === true && lage(p, 3)?.zustand === 'gescheitert', 2000)
+      && lage(p, 2)?.anNurMeeting === true && lage(p, 4)?.voruebergehend === true && p.kern.stateKv()?.zoom_alarm === 1);
+  ck('… nach dem Meeting-Ende: dauerhafte gespeichert und eingeschaltet, vorübergehender gelöscht, anNurMeeting aus',
+    (await bis(() => p.kern.kurz().zustand === 'bereit', 4000)) && lage(p, 4) === undefined && lage(p, 2)?.einstellung.an === false
+      && lage(p, 1)?.einstellung.an === true && lage(p, 3)?.einstellung.an === true && p.einst.slots.map((s) => `${s.nr}:${s.an}`).join(',') === '1:true,2:false,3:true');
+  ck('… T11b, liefSchon, zeigteSchon und Fehlerstände gelöscht, zoom_alarm=0',
+    lage(p, 1)?.text === 'Wartet auf den Beitritt zu einem Meeting.' && lage(p, 3)?.text === 'Wartet auf den Beitritt zu einem Meeting.'
+      && p.kern.abbild().slots.every((s) => !s.liefSchon && !s.zeigteSchon && !s.offen) && p.kern.stateKv()?.zoom_alarm === 0);
+  await p.aufraeumen();
+}
+{
+  let pruefungen = 0;
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true }), slotEinst(3, { person: 'Carla', an: true })],
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_TEILNEHMER: '3', FAKE_VERBINDUNG_WEG_MS: '1800', FAKE_SLOT_FEHLER: '3:slotRendererFailed' } : {}),
+    // Aufrufe von pruefe: 1 beim Anlegen des Kerns, 2 Start 1, 3 Versuch 1 → Mangel (Muster zoom-kern.test.ts „Mangel vor Versuch 2“).
+    laufzeit: {
+      pruefe: () => (++pruefungen === 3 ? { ok: false, mangel: 'sdk_defekt', datei: 'sdk.dll' } : { ok: true, ordner: 'C:/laufzeit', ersetzt: [] }),
+    },
+  });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  ck('PK11 (Mangel): Slot 1 lief, Slot 3 gescheitert, Slot 2 vorübergehend', await bis(() => lage(p, 1)?.liefSchon === true
+    && lage(p, 3)?.zustand === 'gescheitert' && lage(p, 2)?.voruebergehend === true, 2000));
+  ck('… Mangel im Wiederbeitritt (Z1a): vorübergehender gelöscht, liefSchon und Fehlerstände gelöscht, jedes zoom_slot{n}_alarm=0',
+    (await bis(() => p.kern.kurz().zustand === 'einrichtung', 6000)) && zoomZ(p.kern.kurz()) === 'Z1a' && lage(p, 2) === undefined
+      && p.kern.abbild().slots.every((s) => !s.liefSchon && !s.zeigteSchon) && p.kern.kurz().slotKurz.every((s) => !s.alarm)
+      && lage(p, 3)?.zustand === 'ohne_meeting' && p.kern.stateKv()?.zoom_alarm === 0);
+  await p.aufraeumen();
+}
+/** Ruling 08.10.2026 (7.3 Nr. 8): ein Abbild ohne vorübergehenden Slot, ohne `anNurMeeting` und ohne Slot-Alarm. */
+const ohneMeetingSlots = (a: ZoomAbbild): boolean =>
+  a.slots.every((s) => !s.voruebergehend && !s.anNurMeeting) && a.kurz.slotKurz.every((s) => !s.alarm);
+console.log('— PK11 · Verlassen und Beenden leeren vor dem Abbau, Meeting-Ende und „Schließen“ ebenso (Ruling 08.10.2026, 7.3 Nr. 8)');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Ben' })], stell: () => ({ FAKE_ABGANG_MS: '800' }), fristen: { abbildTaktMs: 0 } });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  befehl(p, 'zoom_load', 'Anna');
+  const geladen = (await bis(() => p.kern.kurz().slotsLaufen === 2, 3000)) && lage(p, 1)?.anNurMeeting === true && lage(p, 2)?.voruebergehend === true;
+  const ab = p.abbilder.length;
+  await p.kern.verlassen();
+  const inZ12 = p.abbilder.slice(ab).filter((a) => a.kurz.zustand === 'verlaesst');
+  ck('PK11 (Verlassen): ab dem ersten Abbild in Z12 kein vorübergehender Slot, kein anNurMeeting, kein Slot-Alarm',
+    geladen && inZ12.length > 0 && inZ12.every(ohneMeetingSlots));
+  ck('… danach bereit: Slot 1 aus (gespeichert aus), Slot 2 gelöscht, zoom_alarm=0', p.kern.kurz().zustand === 'bereit'
+    && lage(p, 1)?.einstellung.an === false && gespeichert(p, 1)?.an === false && lage(p, 2) === undefined && p.kern.stateKv()?.zoom_alarm === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Ben' })], stell: () => ({ FAKE_ABGANG_MS: '800' }), fristen: { abbildTaktMs: 0 } });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  befehl(p, 'zoom_load', 'Anna');
+  const geladen = await bis(() => p.kern.kurz().slotsLaufen === 2, 3000);
+  const ab = p.abbilder.length;
+  await p.kern.beenden(5000);
+  const inZ12 = p.abbilder.slice(ab).filter((a) => a.kurz.zustand === 'verlaesst');
+  ck('PK11 (Beenden im Meeting): ab dem ersten Abbild in Z12 kein vorübergehender Slot, kein anNurMeeting, kein Slot-Alarm',
+    geladen && inZ12.length > 0 && inZ12.every(ohneMeetingSlots));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Ben' })], stell: () => ({ FAKE_MEETING_ENDE_MS: '1500', FAKE_ABGANG_MS: '600' }), fristen: { abbildTaktMs: 0 } });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  befehl(p, 'zoom_load', 'Anna');
+  const geladen = await bis(() => p.kern.kurz().slotsLaufen === 2, 3000);
+  const ende = await bis(() => p.kern.kurz().zustand === 'bereit', 4000);
+  await bis(() => !p.kern.laeuft(), 3000);
+  const abMeeting = p.abbilder.slice(Math.max(0, p.abbilder.findIndex((a) => a.kurz.zustand === 'im_meeting')));
+  const nachEnde = abMeeting.slice(Math.max(0, abMeeting.findIndex((a) => a.kurz.zustand === 'bereit')));
+  ck('PK11 (Meeting-Ende): ab dem ersten Abbild in bereit kein vorübergehender Slot, kein anNurMeeting, auch während die Bridge abbaut',
+    geladen && ende && nachEnde[0]?.kurz.zustand === 'bereit' && nachEnde.every(ohneMeetingSlots));
+  await p.aufraeumen();
+}
+{
+  // „Schließen“ nach „Abbrechen“ (R7, Z13): Bis dahin bleibt der vorübergehende Slot (7.2: nicht bei Z11), danach in keinem Abbild.
+  const p = baueKern({
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '800' } : n === 2 ? { FAKE_BEITRITT_SCHEITERT: '2' } : {}),
+    wiederbeitrittPlanMs: [30, 1500, 30, 30, 30],
+    fristen: { abbildTaktMs: 0 },
+  });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  const bereitZumAbbruch = (await bis(() => p.kern.kurz().slotsLaufen === 1, 3000)) && (await bis(() => p.kern.kurz().versuch === 2, 5000));
+  p.kern.abbrechen();
+  const imFehler = p.kern.kurz().zustand === 'fehler' && lage(p, 1)?.voruebergehend === true;
+  const ab = p.abbilder.length;
+  p.kern.schliessen();
+  await warte(300);
+  ck('PK11 („Schließen“ nach R7): bereit, ab dem nächsten Abbild kein vorübergehender Slot mehr',
+    bereitZumAbbruch && imFehler && p.kern.kurz().zustand === 'bereit' && p.abbilder.length > ab && p.abbilder.slice(ab).every(ohneMeetingSlots)
+    && lage(p, 1) === undefined);
+  await p.aufraeumen();
+}
+
+console.log('— PK18 · Aufbaufehler: T23 mit T101, Fehlerstand ohne neuen Versuch, „Stopp“/„Start“, neue Bridge (7.3 Nr. 2)');
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true }), slotEinst(2, { person: 'Ben', an: true })],
+    stell: () => ({ FAKE_SLOT_FEHLER: '2:slotRendererFailed' }),
+  });
+  await insMeeting(p);
+  ck('PK18: Slot 2 → T23 mit T101, keine Fehlerzeile daneben, zoom_slot2_alarm=1, Slot 1 läuft', await bis(() => lage(p, 2)?.zustand === 'gescheitert', 3000)
+    && lage(p, 2)?.text === 'Gescheitert: Der Slot ließ sich nicht aufbauen (SLOT_RENDERER_FAILED). Details im Log. Für einen neuen Versuch „Stopp“ und wieder „Start“.'
+    && lage(p, 2)?.fehler === null && slotKurz(p, 2)?.alarm === true && (await bis(() => lage(p, 1)?.zustand === 'zeigt', 2000)));
+  p.einspeisen(1, { ev: 'roster', list: [] });
+  await warte(800);
+  ck('… ein späteres roster startet Slot 2 nicht neu', slotGesendet(p, 1, 2).filter((c) => c.cmd === 'slotOn').length === 1
+    && lage(p, 2)?.zustand === 'gescheitert');
+  ck('… „Stopp“/„Start“ versucht es (die Attrappe scheitert nur beim ersten Mal)', ok(p.kern.slotStart(2, false)) && ok(p.kern.slotStart(2, true))
+    && (await bis(() => lage(p, 2)?.zustand === 'zeigt', 3000)) && slotBefehle(p, 1, 2).filter((c) => c.cmd === 'slotOn').length === 2);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(2, { person: 'Ben', an: true })],
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_SLOT_FEHLER: '2:slotSenderFailed', FAKE_VERBINDUNG_WEG_MS: '1200' } : {}),
+  });
+  await insMeeting(p);
+  ck('PK18: Fehlerstand gescheitert', await bis(() => lage(p, 2)?.zustand === 'gescheitert', 3000));
+  ck('… eine neue Bridge (Wiederbeitritt) löscht ihn: Slot 2 startet in Bridge 2', await bis(() => slotBefehle(p, 2, 2).some((c) => c.cmd === 'slotOn'), 6000)
+    && (await bis(() => lage(p, 2)?.zustand === 'zeigt', 3000)));
+  await p.aufraeumen();
+}
+{
+  // Wettlauf R2 aus 0.3.0: Connect führt die Erlaubnis als „ja“, die Bridge lehnt das slotOn trotzdem ab (am echten SDK der
+  // Übergang bis zum privilege-Ereignis). T100 an der Fehlerzeile (9.6, 10.9), kein Fehlerstand: Der Slot wartet (7.3 Nr. 2).
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_SLOT_FEHLER: '1:slotNoPrivilege' }), fristen: { abbildTaktMs: 0 } });
+  await insMeeting(p);
+  ck('PK18 (slotNoPrivilege bei Erlaubnis „ja“): T100 an der Fehlerzeile, kein SZ8, SZ11 mit T14, zoom_slot1_alarm=0',
+    (await bis(() => lage(p, 1)?.fehler === 'Keine Aufnahme-Erlaubnis — der Host muss sie im Zoom-Client erteilen.', 3000))
+    && p.kern.kurz().erlaubnis === 'ja' && lage(p, 1)?.zustand === 'geplant' && lage(p, 1)?.text === 'Startet …'
+    && !p.abbilder.some((a) => a.slots.some((s) => s.zustand === 'gescheitert')) && slotKurz(p, 1)?.alarm === false);
+  p.einspeisen(1, { ev: 'roster', list: [] });
+  ck('… der nächste Abgleich startet ihn, mit live fällt die Fehlerzeile (10.9)', (await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000))
+    && lage(p, 1)?.fehler === null && slotGesendet(p, 1, 1).filter((c) => c.cmd === 'slotOn').length === 2);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })] });
+  await insMeeting(p);
+  ck('PK18 (Fehlerzeile, 10.9): Slot 1 zeigt Anna', await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000));
+  p.einspeisen(1, { ev: 'error', where: 'slot', code: 'slotBadResolution', name: 'SLOT_BAD_RESOLUTION', slot: 1 });
+  ck('… die Bridge lehnt eine Einstellung am laufenden Slot ab → T103 an der Fehlerzeile, kein Fehlerstand, kein Hinweis',
+    lage(p, 1)?.fehler === 'Die Zoom-Bridge hat die Einstellung abgelehnt (SLOT_BAD_RESOLUTION). Details im Log.'
+    && lage(p, 1)?.zustand === 'zeigt' && p.kern.abbild().hinweise.length === 0);
+  p.einspeisen(1, slotEv(1, 'live', ANNA, 'frames'));
+  ck('… das nächste slot live löscht sie', lage(p, 1)?.fehler === null);
+  p.einspeisen(1, { ev: 'error', where: 'slot', code: 'slotBadResolution', name: 'SLOT_BAD_RESOLUTION', slot: 1 });
+  ck('… „Stopp“ löscht sie ebenso', lage(p, 1)?.fehler !== null && ok(p.kern.slotStart(1, false)) && lage(p, 1)?.fehler === null);
+  await p.aufraeumen();
+}
+
+console.log('— PK19 · Keine Antwort: T21 nach der Frist, kein neuer Versuch (7.3 Nr. 2)');
+{
+  const p = baueKern({ slots: [slotEinst(3, { person: 'Carla', an: true })], stell: () => ({ FAKE_SLOT_STUMM: '3', FAKE_TEILNEHMER: '3' }), fristen: { aboAntwortMs: 600 } });
+  await insMeeting(p);
+  ck('PK19: slotOn ohne Antwort → T21, zoom_slot3_alarm=1', await bis(() => lage(p, 3)?.text
+    === 'Keine Antwort der Zoom-Bridge. Für einen neuen Versuch „Stopp“ und wieder „Start“.', 3000) && slotKurz(p, 3)?.alarm === true);
+  p.einspeisen(1, { ev: 'roster', list: [] });
+  await warte(800);
+  ck('… ein roster nach Ablauf der Frist sendet kein slotOn', slotGesendet(p, 1, 3).filter((c) => c.cmd === 'slotOn').length === 1);
+  await p.aufraeumen();
+}
+
+console.log('— PK20 · Wiederbeitritt mit neuer Bridge (Z11): alle eingeschalteten Slots neu, T87 erst nach den Antworten');
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true }), slotEinst(3, { person: 'Carla', an: true })],
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_TEILNEHMER: '3', FAKE_VERBINDUNG_WEG_MS: '1500' } : { FAKE_TEILNEHMER: '3', FAKE_SLOT_STUMM: '3' }),
+    fristen: { aboAntwortMs: 1500 },
+  });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  ck('PK20: drei Slots laufen, Slot 2 vorübergehend', await bis(() => p.kern.kurz().slotsLaufen === 3, 3000) && lage(p, 2)?.voruebergehend === true);
+  ck('… im Wiederbeitritt (Z11) zoom_alarm=1', await bis(() => zoomZ(p.kern.kurz()) === 'Z11', 4000) && p.kern.stateKv()?.zoom_alarm === 1);
+  ck('… Bridge 2 startet alle drei neu, auch den vorübergehenden', await bis(() => [1, 2, 3].every((nr) => slotBefehle(p, 2, nr).some((c) => c.cmd === 'slotOn')), 6000));
+  ck('… T87 noch nicht, solange Slot 3 ohne Antwort ist', await bis(() => lage(p, 1)?.zustand === 'zeigt' && lage(p, 2)?.zustand === 'zeigt', 3000)
+    && !p.kern.abbild().hinweise.some((h) => h.startsWith('Wieder im Meeting.')));
+  ck('… nach Ablauf seiner Frist T87 mit den Zahlen aus 10.11', await bis(() => p.kern.abbild().hinweise.includes('Wieder im Meeting. 2 Slots laufen wieder. 1 nicht gestartet (siehe Kachel).'), 4000)
+    && p.kern.abbild().hinweise.filter((h) => h.startsWith('Wieder im Meeting.')).length === 1);
+  await p.aufraeumen();
+}
+
+console.log('— PK21 · Zoom verbindet selbst neu (Z10), neue Kennungen per roster');
+{
+  const NEU = 16778260;
+  let neu = false;
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true })],
+    stell: () => ({ FAKE_VERBINDUNG_HAENGT_MS: '1000', FAKE_VERBINDUNG_ZURUECK_MS: '800' }),
+    ereignis: (ev) => {
+      if (ev.ev === 'status' && (ev as unknown as { status: string }).status === 'reconnecting') neu = true;
+      return ev;
+    },
+    // Nach dem Neuverbinden trägt Anna eine neue Kennung (wie nach einem echten Z10 möglich, 7.3 Nr. 5).
+    sitzung: (s) => {
+      const a = s.participants.get(ANNA);
+      if (!neu || !a) return s;
+      const participants = new Map(s.participants);
+      participants.delete(ANNA);
+      participants.set(NEU, { ...a, id: NEU });
+      return { ...s, participants };
+    },
+  });
+  await insMeeting(p);
+  ck('PK21: Slot 1 zeigt Anna', await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000));
+  ck('… in Z10: zoom_slot1_live=0, _state=wartet, _target leer; der Slot bleibt eingeschaltet', await bis(() => zoomZ(p.kern.kurz()) === 'Z10', 3000)
+    && slotKurz(p, 1)?.live === false && slotKurz(p, 1)?.zustandWort === 'wartet' && slotKurz(p, 1)?.ziel === '' && lage(p, 1)?.einstellung.an === true);
+  ck('… nach dem roster slotSet {slot: 1, id: neu}, kein slotOff, kein zweites slotOn', await bis(() => slotBefehle(p, 1, 1)
+    .some((c) => c.cmd === 'slotSet' && c.id === NEU), 4000) && !slotBefehle(p, 1, 1).some((c) => c.cmd === 'slotOff')
+    && slotBefehle(p, 1, 1).filter((c) => c.cmd === 'slotOn').length === 1);
+  await p.aufraeumen();
+}
+
+console.log('— PK28 · Erlaubnis flattert: spätes slot off/privilegeRevoked bei Erlaubnis „ja“ → neuer Abgleich (B14)');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_ENTZUG_MS: '800', FAKE_ERTEILUNG_MS: '100', FAKE_ABBAU_MS: '700' }) });
+  await insMeeting(p);
+  ck('PK28: Slot 1 zeigt Anna', await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000));
+  ck('… nach dem späten Abbau bei Erlaubnis „ja“: SZ11 mit T14', await bis(() => lage(p, 1)?.zustand === 'geplant', 4000)
+    && lage(p, 1)?.text === 'Startet …' && p.kern.kurz().erlaubnis === 'ja');
+  ck('… der Abgleich startet ihn wieder', await bis(() => slotBefehle(p, 1, 1).filter((c) => c.cmd === 'slotOn').length === 2, 3000)
+    && (await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000)));
+  await p.aufraeumen();
+}
+
+console.log('— PK29 · Alarm beim Weggang (FR7), Personenwechsel (RR9), Ereignis im Flug (N3)');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_WIEDERBEITRITT_MS: '1200', FAKE_RUECKKEHR_MS: '5000' }) });
+  await insMeeting(p);
+  ck('PK29: gezeigte Person geht → zoom_alarm=1, zoom_slot1_alarm=1', (await bis(() => lage(p, 1)?.zeigteSchon === true, 3000))
+    && (await bis(() => lage(p, 1)?.grund === 'participantLeft', 3000)) && p.kern.stateKv()?.zoom_alarm === 1 && slotKurz(p, 1)?.alarm === true);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true })],
+    sitzung: (s) => {
+      if (!s.participants.has(ANNA)) return s;
+      const participants = new Map(s.participants);
+      participants.delete(ANNA);
+      return { ...s, participants };
+    },
+  });
+  await insMeeting(p);
+  ck('PK29: Slot „Anna“ in einem Meeting ohne Anna → T16, zoom_alarm=0', await bis(() => lage(p, 1)?.text === 'Wartet auf Anna · Ersatzbild transparent', 3000)
+    && p.kern.stateKv()?.zoom_alarm === 0 && slotKurz(p, 1)?.alarm === false);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_TEILNEHMER: '1' }) });
+  await insMeeting(p);
+  ck('PK29: Slot zeigte Anna', await bis(() => lage(p, 1)?.zeigteSchon === true, 3000));
+  ck('… Person auf Ben (nicht im Meeting), Anna bleibt → slotSet {id: 0}, T16, zoom_slot1_alarm=0', ok(p.kern.slotAendern(1, { person: 'Ben' }))
+    && (await bis(() => slotBefehle(p, 1, 1).some((c) => c.cmd === 'slotSet' && c.id === 0), 2000))
+    && (await bis(() => lage(p, 1)?.text === 'Wartet auf Ben · Ersatzbild transparent', 2000)) && slotKurz(p, 1)?.alarm === false);
+  await p.aufraeumen();
+}
+{
+  let halten = true;
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true })],
+    stell: () => ({ FAKE_TEILNEHMER: '1', FAKE_KAMERA_AUS_MS: `${ANNA}:1200` }),
+    sendeFilter: (c) => !(halten && c.cmd === 'slotSet' && c.slot === 1),
+  });
+  await insMeeting(p);
+  ck('PK29 (im Flug): Slot zeigt Anna mit Kamera aus (T19)', await bis(() => lage(p, 1)?.text === 'Anna: Kamera aus · Ersatzbild transparent', 4000));
+  p.kern.slotAendern(1, { person: 'Ben' });
+  p.einspeisen(1, slotEv(1, 'live', ANNA, 'frames'));
+  ck('… slotSet {id: 0} zurückgehalten, die Bridge meldet slot live mit Ziel Anna → zeigteSchon bleibt aus, kein Alarm',
+    lage(p, 1)?.zeigteSchon === false && slotKurz(p, 1)?.alarm === false && !slotBefehle(p, 1, 1).some((c) => c.cmd === 'slotSet'));
+  halten = false;
+  p.einspeisen(1, { ev: 'roster', list: [] });
+  ck('… nach dem slotSet T16, zoom_slot1_alarm=0', await bis(() => lage(p, 1)?.text === 'Wartet auf Ben · Ersatzbild transparent', 3000)
+    && slotKurz(p, 1)?.alarm === false);
+  await p.aufraeumen();
+}
+
+console.log('— PK30 · Abo abgelehnt: T20c mit Handgriff, Alarm, kein neuer Versuch (B51)');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_ABO_FEHLER: '1:9' }) });
+  await insMeeting(p);
+  ck('PK30: T20c mit dem SDK-Fehlernamen, zoom_slot1_alarm=1, zoom_alarm=1', await bis(() => lage(p, 1)?.text
+    === 'Anna: Zoom hat das Abo abgelehnt (SDKERR_NORECORDINGINPROCESS) · Ersatzbild transparent. Für einen neuen Versuch „Stopp“ und wieder „Start“.', 3000)
+    && slotKurz(p, 1)?.alarm === true && p.kern.stateKv()?.zoom_alarm === 1);
+  p.einspeisen(1, { ev: 'roster', list: [] });
+  await warte(800);
+  ck('… kein automatischer neuer Versuch', slotGesendet(p, 1, 1).filter((c) => c.cmd !== 'slotOff').length === 1);
+  await p.aufraeumen();
+}
+
+console.log('— PK34 · Fehler ohne Slot, Wettlauf, slotReconnecting, Ton-Abo-Fehler, Q6, T106 (B62; W2, W6)');
+{
+  let schlucken = true;
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true }), slotEinst(2, { person: 'Ben', an: true }), slotEinst(3, { modus: 'sprecher', an: true, tonAn: false })],
+    sendeFilter: (c) => !(schlucken && c.cmd === 'slotOn' && c.slot === 3),
+  });
+  await insMeeting(p);
+  ck('PK34: Slots 1 und 2 laufen, slotOn für Slot 3 verschluckt', await bis(() => p.kern.kurz().slotsLaufen === 2 && lage(p, 3)?.zustand === 'startet', 3000));
+  p.einspeisen(1, { ev: 'error', where: 'slot', code: 'slotReconnecting', name: 'SLOT_RECONNECTING', slot: 3 });
+  ck('… slotReconnecting: kein Text, kein Fehlerstand, die Frist ist beantwortet (SZ11)', lage(p, 3)?.zustand === 'geplant' && lage(p, 3)?.fehler === null
+    && p.kern.abbild().hinweise.length === 0);
+  schlucken = false;
+  p.einspeisen(1, { ev: 'roster', list: [] });
+  ck('… der nächste Abgleich startet den Slot', await bis(() => lage(p, 3)?.zustand !== 'geplant' && slotBefehle(p, 1, 3).some((c) => c.cmd === 'slotOn'), 3000));
+  p.einspeisen(1, { ev: 'error', where: 'slot', code: 'slotBadNumber', name: 'SLOT_BAD_NUMBER' });
+  ck('… slotBadNumber (ohne Slot) → „Hinweise“ T103', p.kern.abbild().hinweise.at(-1) === 'Die Zoom-Bridge hat die Einstellung abgelehnt (SLOT_BAD_NUMBER). Details im Log.');
+  p.einspeisen(1, { ev: 'error', where: 'slot', code: 'slotNotOn', name: 'SLOT_NOT_ON', slot: 1 });
+  ck('… slotNotOn: kein Text, kein SZ8', lage(p, 1)?.fehler === null && lage(p, 1)?.zustand !== 'gescheitert' && p.kern.abbild().hinweise.length === 1);
+  const tonVorher = p.kern.abbild().slots.map((s) => s.tonText).join('|');
+  p.einspeisen(1, { ev: 'error', where: 'audio', code: 'audioQueueOverflow', name: 'AUDIO_QUEUE_OVERFLOW', dropped: 12 });
+  ck('… audioQueueOverflow → nur Hinweis Q6, keine Tonzeile ändert sich', p.kern.abbild().hinweise.at(-1) === 'Ton: 12 Pakete verworfen — dieser PC kommt nicht hinterher.'
+    && p.kern.abbild().slots.map((s) => s.tonText).join('|') === tonVorher);
+  p.einspeisen(1, { ev: 'error', where: 'audio', code: 'audioBufferMismatch', name: 'AUDIO_BUFFER_MISMATCH', slot: 2 });
+  ck('… audioBufferMismatch mit slot → Hinweis T106, keine Tonzeile ändert sich', p.kern.abbild().hinweise.at(-1)
+    === 'Ton: ein fehlerhaftes Paket in Slot 2 verworfen (audioBufferMismatch). Der Ton läuft mit dem nächsten gültigen Paket weiter.'
+    && p.kern.abbild().slots.map((s) => s.tonText).join('|') === tonVorher);
+  p.einspeisen(1, { ev: 'error', where: 'audio', code: 'audioSubscribeFailed', name: 'AUDIO_SUBSCRIBE_FAILED', slot: 1 });
+  ck('… Ton-Abo-Fehler → T104 an jeder Kachel mit Ton (1, 2), nicht an Slot 3 (Ton aus)', lage(p, 1)?.tonText === T104_ABO
+    && lage(p, 2)?.tonText === T104_ABO && lage(p, 3)?.tonText === 'Ton: aus');
+  p.einspeisen(1, { ev: 'slotAudio', slot: 2, state: 'off', source: 'none', configured: 'mix', reason: 'audioUnavailable' });
+  p.einspeisen(1, { ev: 'slotAudio', slot: 1, state: 'waiting', source: 'none', configured: 'mix', reason: 'command' });
+  ck('… danach waiting/command eines anderen Slots → T104 nur noch am Slot mit eigenem off/audioUnavailable',
+    lage(p, 1)?.tonText !== T104_ABO && lage(p, 2)?.tonText === T104_ABO);
+  p.einspeisen(1, { ev: 'error', where: 'audio', code: 'audioSubscribeFailed', name: 'AUDIO_SUBSCRIBE_FAILED' });
+  p.einspeisen(1, { ev: 'privilege', canRecordRaw: false, source: 'broadcast' });
+  ck('… der Entzug löscht den Merker', p.kern.kurz().erlaubnis === 'entzogen' && lage(p, 1)?.tonText !== T104_ABO);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: (n): Record<string, string> => (n === 1 ? { FAKE_MEETING_ENDE_MS: '1500' } : {}) });
+  await insMeeting(p);
+  await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000);
+  p.einspeisen(1, { ev: 'error', where: 'audio', code: 'audioSubscribeFailed', name: 'AUDIO_SUBSCRIBE_FAILED' });
+  ck('PK34: Ton-Abo-Fehler gesetzt', lage(p, 1)?.tonText === T104_ABO);
+  ck('… Meeting-Ende und neue Bridge löschen den Merker', (await bis(() => p.kern.kurz().zustand === 'bereit', 4000)) && (await insMeeting(p))
+    && (await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000)) && lage(p, 1)?.tonText !== T104_ABO);
+  await p.aufraeumen();
+}
+{
+  // slotReconnecting über die Attrappe (Vertrag 3.5): Ein slotOn erreicht die Bridge, während sie neu verbindet. Das reconnecting
+  // hält der Test zurück, bis die Antwort da ist (es kreuzt sich mit dem slotOn); danach Z10, inMeeting und der Abgleich.
+  let zurueck: BridgeEvent | null = null;
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true }), slotEinst(3, { modus: 'sprecher', tonAn: false })],
+    stell: () => ({ FAKE_VERBINDUNG_HAENGT_MS: '1000', FAKE_VERBINDUNG_ZURUECK_MS: '1500' }),
+    ereignis: (ev) => {
+      if (zurueck !== null || ev.ev !== 'status' || (ev as unknown as { status: string }).status !== 'reconnecting') return ev;
+      zurueck = ev;
+      return { ev: 'zurueckgehalten' } as unknown as BridgeEvent;
+    },
+  });
+  await insMeeting(p);
+  ck('PK34 (Attrappe): die Bridge verbindet neu, Connect sieht es noch nicht', (await bis(() => zurueck !== null, 3000)) && p.kern.kurz().zustand === 'im_meeting');
+  const an = p.kern.slotStart(3, true);
+  ck('… Slot 3 ein: slotOn → slotReconnecting, kein Text, kein Fehlerstand, die Frist ist beantwortet (SZ11)', ok(an)
+    && (await bis(() => p.ereignisse.some((x) => x.ev.ev === 'error' && (x.ev as unknown as { code: string }).code === 'slotReconnecting'), 2000))
+    && lage(p, 3)?.zustand === 'geplant' && lage(p, 3)?.fehler === null && p.kern.abbild().hinweise.length === 0);
+  if (zurueck !== null) p.einspeisen(1, zurueck as unknown as Record<string, unknown>);
+  ck('… Z10; nach inMeeting startet der Abgleich Slot 3 (ohne eingespeistes roster)', zoomZ(p.kern.kurz()) === 'Z10'
+    && (await bis(() => slotGesendet(p, 1, 3).filter((c) => c.cmd === 'slotOn').length === 2 && lage(p, 3)?.zustand === 'ersatz', 5000)));
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

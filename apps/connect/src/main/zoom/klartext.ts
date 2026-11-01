@@ -357,8 +357,8 @@ export const FT = {
  */
 export const SLOT_KT = {
   /**
-   * T100 (wie Q1): `slotNoPrivilege`. Kein Fehlerstand, der Slot wartet (7.3 Nr. 2). SLOT_FEHLER_TEXT ordnet ihm nach
-   * Gliederung 3.6 'keine' zu; ob T100 an der Fehlerzeile stehen soll (Spec 9.6, 10.9), ist ein offener Punkt von Block b1.
+   * T100 (wie Q1): `slotNoPrivilege`. Kein Fehlerstand, der Slot wartet (7.3 Nr. 2); T100 steht an der Fehlerzeile (Spec 9.6,
+   * 10.9: ohne Zeile nur slotAlreadyOn, slotNotOn, slotReconnecting; Plan B, Task B14, OFP8).
    */
   T100: KT.Q1,
   /** T101: `slotRawRecordingFailed`, `slotSenderFailed`, `slotRendererFailed`. */
@@ -393,7 +393,7 @@ export function audioBufferMismatchText(nr: number): string {
  * ausdrücklich 'keine'. Ein neuer Schlüssel in SLOT_ERROR_KEYS ohne Eintrag scheitert im Typcheck. Wo der Text steht
  * (Fehlerzeile, SZ8 mit T23, „Hinweise“), entscheidet der Kern (Task B14):
  * - T103: die `slotBad…`- und `speakerBad…`-Schlüssel; T101: Aufbaufehler; T102: `slotNameTaken`; T105: `slotBufferMismatch`.
- * - 'keine': `slotNoPrivilege`, `slotReconnecting`, `slotAlreadyOn`, `slotNotOn` (kein Text, kein Fehlerstand);
+ * - 'keine': `slotReconnecting`, `slotAlreadyOn`, `slotNotOn` (kein Text, kein Fehlerstand; T100 für `slotNoPrivilege` ohne Fehlerstand);
  *   `slotSubscribeFailed` (sein Text ist T20c in der Zustandszeile, Task B6; die Fehlerzeile wäre doppelt, 10.9);
  *   `previewUnavailable` (T57 an jeder Kachel, Task B7; nicht in der Fehlerzeile, 10.9).
  */
@@ -409,7 +409,7 @@ export const SLOT_FEHLER_TEXT: Record<SlotFehler, ((e: { name: string; nr: numbe
   slotBadTarget: (e) => SLOT_KT.T103(e.name),
   slotAlreadyOn: 'keine',
   slotNotOn: 'keine',
-  slotNoPrivilege: 'keine',
+  slotNoPrivilege: () => SLOT_KT.T100,
   slotReconnecting: 'keine',
   slotRawRecordingFailed: (e) => SLOT_KT.T101(e.name),
   slotSenderFailed: (e) => SLOT_KT.T101(e.name),

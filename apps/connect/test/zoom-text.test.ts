@@ -1000,7 +1000,7 @@ console.log('— B5 · ST100–ST106, SF5–SF14 wörtlich, SLOT_FEHLER_TEXT je 
   const ERWARTET: Record<string, string> = {
     slotBadNumber: T103, slotBadName: T103, slotNameTaken: SLOT_KT.T102, slotBadMode: T103, slotBadResolution: T103,
     slotBadAudio: T103, slotBadFallback: T103, slotBadFlag: T103, slotBadTarget: T103, slotAlreadyOn: 'keine', slotNotOn: 'keine',
-    slotNoPrivilege: 'keine', slotReconnecting: 'keine', slotRawRecordingFailed: T101, slotSenderFailed: T101, slotRendererFailed: T101,
+    slotNoPrivilege: SLOT_KT.T100, slotReconnecting: 'keine', slotRawRecordingFailed: T101, slotSenderFailed: T101, slotRendererFailed: T101,
     slotSubscribeFailed: 'keine', slotBufferMismatch: SLOT_KT.T105(4), speakerBadSignal: T103, speakerBadHold: T103, previewUnavailable: 'keine',
   };
   ck('SLOT_FEHLER_TEXT hat genau die 21 Schlüssel aus SLOT_ERROR_KEYS',

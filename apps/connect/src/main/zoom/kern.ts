@@ -30,7 +30,7 @@ import {
 import type {
   AudioState, Participant, SlotAudioReason, SlotAudioSource, SlotMode, SlotReason, SlotSent, SlotState,
 } from '@jm/zoom-bridge/protocol';
-import { SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
+import { AUDIO_ABO_FEHLER, SLOT_NR_MAX, sdkErrorName, type SlotFehler } from '@jm/zoom-bridge/protocol';
 import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
 import type {
   ProxyKeySource,
@@ -58,6 +58,7 @@ import {
   kachelZeile,
   KANDIDAT_KENNZEICHEN,
   nachfrageText,
+  r5Text,
   SLOT_TEXT,
   slotMessZeile,
   slotTonZeile,
@@ -73,7 +74,9 @@ import {
 } from '../../shared/zoom-text';
 import {
   KT,
+  SLOT_FEHLER_TEXT,
   VORSATZ,
+  audioBufferMismatchText,
   authMeldung,
   dllMeldung,
   endeMeldung,
@@ -88,6 +91,7 @@ import {
   maskiere,
   maskiereNamen,
   spawnMeldung,
+  tonAboFehlerText,
   type Meldungstext,
   type VersuchsAusgang,
 } from './klartext';
@@ -256,7 +260,19 @@ export interface ZoomKern {
 
 type FehlerEreignis = {
   ev: 'error'; where: string; code: number | string; id?: number; slot?: number; dropped?: number; detail?: string; name?: string;
+  /** `slotSubscribeFailed`: SDKError-Zahl der Ablehnung (6.4, 6.10 Schritt 5); ihr Name steht in T20c. */
+  sdk?: number;
 };
+
+/**
+ * Aufbaufehler eines slotOn (7.3 Nr. 2): ohne Sender Fehlerstand `gescheitert` (SZ8, T23). Die übrigen Schlüssel mit Text
+ * (`slotBad…` an einem laufenden Slot, `slotBufferMismatch`) setzen keinen Fehlerstand.
+ */
+const AUFBAU_FEHLER: ReadonlySet<string> = new Set<SlotFehler>([
+  'slotRawRecordingFailed', 'slotSenderFailed', 'slotRendererFailed', 'slotNameTaken', 'slotBadName', 'slotBadMode',
+  'slotBadResolution', 'slotBadAudio', 'slotBadFallback', 'slotBadFlag', 'slotBadTarget',
+]);
+const istSlotFehler = (code: string): code is SlotFehler => Object.prototype.hasOwnProperty.call(SLOT_FEHLER_TEXT, code);
 type StatusEreignis = { ev: 'status'; status: MeetingStatusName; code: number };
 type PrivilegEreignis = { ev: 'privilege'; canRecordRaw: boolean; source: 'broadcast' | 'requestAnswer' | 'check'; requested?: boolean; denied?: boolean; timedOut?: boolean };
 type SlotEreignis = { ev: 'slot'; slot: number; state: SlotState; mode: SlotMode; target: number; share: number; reason: SlotReason; sent: SlotSent };
@@ -395,6 +411,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   /** Beitrittsfolge je Teilnehmer dieser Sitzung (7.3 Nr. 5): Einträge aus `roster` 0, jedes `joined` die nächste Zahl. */
   const folgeJe = new Map<number, number>();
   let folgeZaehler = 0;
+  /**
+   * Ton-Abo-Fehler (7.1, Nachfix W6): Name des Merkers (T104 an jeder Kachel mit Ton), null ohne. `letzterTonAboFehler` bleibt
+   * für Slots, deren eigener Ton auf `off/audioUnavailable` steht.
+   */
+  let tonAboFehler: string | null = null;
+  let letzterTonAboFehler: string | null = null;
   let beendenVersprechen: Promise<void> | null = null;
 
   // ── Bridge-Lebenslauf (Spec 5.2, 6.9) ────────────────────────────────────
@@ -509,6 +531,17 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return andere.length ? Math.min(...andere) : null;
   }
 
+  /**
+   * T104 an dieser Kachel (7.1, 10.6; Nachfix W6): nur mit eingeschaltetem Ton, solange der Merker steht oder der eigene Ton
+   * des Slots auf `off/audioUnavailable` steht (dann mit dem zuletzt gemeldeten Ton-Abo-Fehler).
+   */
+  function tonAboFehlerAn(x: SlotIntern): string | null {
+    if (!tonEingeschaltet(x.e)) return null;
+    if (tonAboFehler !== null) return tonAboFehlerText(tonAboFehler);
+    if (x.ton?.state === 'off' && x.ton.reason === 'audioUnavailable' && letzterTonAboFehler !== null) return tonAboFehlerText(letzterTonAboFehler);
+    return null;
+  }
+
   /** Der einzige Konstruktor von ZoomSlotLage (Slot-Spec 7.10, KF1). `z` = Zeile der Kurzform (für die Zustandszeile). */
   function slotLage(r: SlotRoh, z: ZoomZ): ZoomSlotLage {
     const { x, zustand: zst, ziel } = r;
@@ -559,7 +592,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         zustand: zst, modus: e.modus, ziel: x.bridge?.target ?? 0, grund, tonAn: e.tonAn, tonArt: e.tonArt, computerton: e.computerton,
         person, doppelt, zweifel, imWarteraum, ton: x.ton?.state ?? 'aus', tonGrund: x.ton?.reason ?? null, quelle: tonQuelle,
         eingestellt: tonEingestellt, rateKhz: x.ton?.rate != null ? x.ton.rate / 1000 : null, kanaele: x.ton?.kanaele ?? null,
-        tonAboFehler: null, rateMismatch: null,
+        tonAboFehler: tonAboFehlerAn(x), rateMismatch: null,
       }),
       messText: slotMessZeile({ zustand: zst, modus: e.modus, stufe: e.aufloesung, geliefert: null, zuletzt: null }),
     };
@@ -1169,10 +1202,13 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const gen = aktiveGen + 1;
     startNr += 1;
     // Slot-Spec 7.3 Nr. 2, 5: Mit jeder neuen Bridge fallen Fristen und Fehlerstände; die Kennungen der alten gelten nicht mehr.
+    // Fehlerzeile (10.9) und Ton-Abo-Merker (7.1, W6) fallen ebenso.
     for (const x of slots.values()) {
       fristBeantwortet(x);
+      fehlerWeg(x);
       x.s = sitzungNach(x.s, 'neueBridge');
     }
+    tonAboFehler = null;
     const ordner = lzErg.ordner;
     const exePfad = join(ordner, BRIDGE_EXE);
     const bridge = fabrik(
@@ -1495,6 +1531,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (erlaubnis === vorher) return;
     d.log(`[zoom] Aufnahme-Erlaubnis: ${erlaubnis}`);
     if (erlaubnis === 'ja') abgleichPlanen();
+    // 7.1 (W6): Mit dem Entzug ist das Ton-Abo abgemeldet (6.15), der Merker fällt.
+    if (erlaubnis === 'entzogen') tonAboFehler = null;
   }
 
   function fehlerEreignis(e: FehlerEreignis): void {
@@ -1691,6 +1729,13 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     loeschenWennFrei(x);
   }
 
+  /** Fehlerzeile (10.9), Klartext für T23 und Fehlername für T20c fallen: „Stopp“/„Start“, neue Bridge, Sitzungsende. */
+  function fehlerWeg(x: SlotIntern): void {
+    x.fehler = null;
+    x.gescheitertText = null;
+    x.aboFehlerName = null;
+  }
+
   /** `zoom_unload` (7.2): Ein vorübergehender Slot verschwindet, sobald kein Sender und keine Antwortfrist mehr besteht. */
   function loeschenWennFrei(x: SlotIntern): void {
     if (!x.loeschen || x.bridge !== null || x.frist !== null || slots.get(x.e.nr) !== x) return;
@@ -1706,6 +1751,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function sitzungsEnde(ereignis: SitzungsEreignis): void {
     for (const [nr, x] of slots) {
       fristBeantwortet(x);
+      fehlerWeg(x);
       x.s = sitzungNach(x.s, ereignis);
       const folgen = slotEndetMitMeeting(x, ereignis);
       if (folgen === 'loeschen') slots.delete(nr);
@@ -1716,6 +1762,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     }
     folgeJe.clear();
     folgeZaehler = 0;
+    tonAboFehler = null;
+    r5Offen = false;
     // 7.4: Gehen vorübergehende Slots und `anNurMeeting` mit dem Meeting, verfällt die Zustimmung wie bei jedem Ausschalten.
     zustimmungPruefen();
   }
@@ -1752,18 +1800,26 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     fristBeantwortet(x);
     if (e.state === 'off') {
       senderWeg(x);
-      if (e.reason === 'privilegeRevoked') d.log(`[zoom] Slot ${e.slot} gestoppt (Entzug)`);
+      if (e.reason === 'privilegeRevoked') {
+        d.log(`[zoom] Slot ${e.slot} gestoppt (Entzug)`);
+        // 7.3 „Auslöser“, B14: Die Erlaubnis flatterte; der Abbau kam nach der Wiedererteilung und ihrem Abgleich (PK28).
+        if (zustand === 'im_meeting' && erlaubnis === 'ja') abgleichPlanen();
+      }
       // „Stopp“ und „Start“ kurz nacheinander: Erst jetzt ist der Sender weg, der Abgleich startet den Slot neu.
       if (e.reason === 'command' && x.e.an) abgleichen();
+      r5Pruefen();
       return;
     }
     x.bridge = { gen: aktiveGen, state: e.state, mode: e.mode, target: e.target, share: e.share, reason: e.reason, sent: e.sent };
+    // 10.9: Die Fehlerzeile fällt, sobald der Slot danach `live` meldet.
+    if (e.state === 'live') x.fehler = null;
     // 7.3 Nr. 7: liefSchon, sobald in diesem Meeting ein Sender bestand; zeigteSchon nur über zeigteSchonNachLive (N3).
     if (!x.s.liefSchon) x.s = { ...x.s, liefSchon: true };
     if (e.state === 'live' && x.e.modus === 'teilnehmer') x.s = { ...x.s, zeigteSchon: zeigteSchonNachLive(x.s, e) };
     // 7.3 Nr. 4: Ging der Slot aus, während sein slotOn unterwegs war („Stopp“, zoom_unload), stoppt ihn der Kern, sobald die
     // Bridge den Sender meldet (vorher kennt der Abgleich keinen Sender).
     if (!x.e.an) stoppSenden(x);
+    r5Pruefen();
   }
 
   function slotTonEreignis(e: SlotTonEreignis): void {
@@ -1772,21 +1828,63 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     x.ton = {
       state: e.state, reason: e.reason, source: e.source, configured: e.configured, rate: e.sampleRate ?? null, kanaele: e.channels ?? null,
     };
+    // 7.1 (W6): `waiting/command` oder `live` meldet die Bridge nur mit stehendem Ton-Abo; der Merker fällt.
+    if ((e.state === 'waiting' && e.reason === 'command') || e.state === 'live') tonAboFehler = null;
   }
 
   /**
-   * Fehler der Slots und des Tons (Slot-Spec 7.1 „Fehler und ihr Anzeigeort“). Hier nur: Die Frist des Slots ist beantwortet,
-   * Bild-Versatz Q13 wie 0.3.0. Fehlerstände, Fehlerzeile und Hinweise (T101–T106, Q6) folgen mit Plan B, Task B14.
+   * Fehler der Slots und des Tons (Slot-Spec 7.1 „Fehler und ihr Anzeigeort“, 9.6, 10.9). `where:"slot"` mit Slot: Fehlerzeile,
+   * ein Aufbaufehler ohne Sender zusätzlich SZ8 (T23), nie `slotNoPrivilege` (T100, der Slot wartet); ohne (bekannten) Slot
+   * „Hinweise“; `'keine'` (Wettlauf, Neuverbinden) nur die Frist; `slotSubscribeFailed` den Namen für T20c. Ton: die drei Ton-Abo-Fehler setzen den
+   * Merker (T104); `audioQueueOverflow` Q6 und `audioBufferMismatch` T106 nur als Hinweis (W6). Bild-Versatz Q13 wie 0.3.0.
    */
   function slotFehlerEreignis(e: FehlerEreignis): void {
-    if (typeof e.slot === 'number') {
-      const x = slots.get(e.slot);
-      if (x) {
-        fristBeantwortet(x);
-        loeschenWennFrei(x);
+    const name = e.name ?? String(e.code);
+    const x = typeof e.slot === 'number' ? slots.get(e.slot) : undefined;
+    if (x) fristBeantwortet(x);
+    const code = String(e.code);
+    if (e.where === 'slot' && istSlotFehler(code)) {
+      const text = SLOT_FEHLER_TEXT[code];
+      if (code === 'slotSubscribeFailed') {
+        if (x) x.aboFehlerName = typeof e.sdk === 'number' ? sdkErrorName(e.sdk) : name;
+      } else if (text !== 'keine') {
+        const klartext = text({ name, nr: e.slot ?? null });
+        if (x === undefined || code === 'slotBufferMismatch') hinweis(klartext);
+        else {
+          x.fehler = klartext;
+          if (AUFBAU_FEHLER.has(code) && x.bridge === null) {
+            x.s = { ...x.s, fehlerstand: 'gescheitert' };
+            x.gescheitertText = klartext;
+          }
+        }
       }
-    }
-    if (e.where === 'video' && e.code === 'videoBadDelay') hinweis(KT.Q13);
+    } else if (e.where === 'audio') {
+      if ((AUDIO_ABO_FEHLER as readonly string[]).includes(code)) {
+        tonAboFehler = name;
+        letzterTonAboFehler = name;
+      } else if (code === 'audioQueueOverflow') hinweis(KT.Q6(e.dropped ?? 0));
+      else if (code === 'audioBufferMismatch' && typeof e.slot === 'number') hinweis(audioBufferMismatchText(e.slot));
+    } else if (e.where === 'video' && e.code === 'videoBadDelay') hinweis(KT.Q13);
+    if (x) loeschenWennFrei(x);
+    r5Pruefen();
+  }
+
+  /**
+   * T87 (10.11, B63): nach einem Wiederbeitritt (Z11 → im_meeting), sobald nach dem ersten Abgleich mit Erlaubnis jeder
+   * gestartete Slot geantwortet hat oder seine Frist abgelaufen ist. Gezählt werden die eingeschalteten Slots.
+   */
+  function r5Pruefen(): void {
+    if (!r5Offen || zustand !== 'im_meeting' || erlaubnis !== 'ja' || abgleichTimer !== null) return;
+    const an = slotRohLagen().filter((r) => r.x.e.an);
+    if (an.some((r) => r.zustand === 'startet' || r.zustand === 'geplant')) return;
+    r5Offen = false;
+    const zahl = (f: (r: (typeof an)[number]) => boolean): number => an.filter(f).length;
+    hinweis(r5Text({
+      gestartet: zahl((r) => r.zustand === 'zeigt' || r.zustand === 'gehalten' || r.zustand === 'ersatz'),
+      zweifel: zahl((r) => r.x.e.modus === 'teilnehmer' && r.ziel !== null && (r.ziel.doppelt > 1 || r.ziel.zweifel)),
+      nicht: zahl((r) => r.zustand === 'keine_antwort' || r.zustand === 'gescheitert'),
+      grenze: zahl((r) => r.zustand === 'zurueckgestellt'),
+    }));
   }
 
   /** slotOn senden und die Antwortfrist stellen (7.3 Nr. 2). Die Logzeile nennt Nummer und Modus, nie Namen (0.23). */
@@ -1798,7 +1896,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       x.frist = null;
       loeschenWennFrei(x);
       if (gen !== aktiveGen || imAbbau.has(gen)) return;
+      // 7.3 Nr. 2: ohne Antwort Fehlerstand `keine_antwort` (SZ7, T21); kein neuer Versuch von selbst.
+      x.s = { ...x.s, fehlerstand: 'keine_antwort' };
       d.log(`[zoom] Slot ${x.e.nr}: keine Antwort der Zoom-Bridge`);
+      r5Pruefen();
       abbildGeaendert();
     });
   }
@@ -1854,6 +1955,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       } else if (h.art === 'stoppen') stoppSenden(x);
       else x.s = { ...x.s, fehlerstand: 'zurueckgestellt' };
     }
+    r5Pruefen();
     abbildGeaendert();
   }
 
@@ -1894,6 +1996,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function startTaste(x: SlotIntern, an: boolean): void {
     x.s = sitzungNach(x.s, 'stoppStart');
     fristBeantwortet(x);
+    fehlerWeg(x);
     x.e = { ...x.e, an };
     x.anNurMeeting = false;
     if (!x.voruebergehend) speichern();

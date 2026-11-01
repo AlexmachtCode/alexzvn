@@ -2299,7 +2299,24 @@ console.log('— Wiederbeitritt abbrechen (Fall 25)');
 
 // ── Aufgabe 10 (4b): Entzug, Wiedererteilung, Betriebsgröße, Erlaubnis nach jedem await, R5 mit Grenze ──
 // Entfallen mit Plan B, Task B12 (Spec 11.10): Nachfolger in zoom-slots.test.ts sind PK3, PK20, PK28 (Task B14) und PK12
-// (Task B13); „Erlaubnis nach jedem await“ steht als eigener Fall mit slotStart wieder hier (Task B14).
+// (Task B13); „Erlaubnis nach jedem await“ steht als eigener Fall mit slotStart wieder hier (Task B14). Der Slot-Abgleich
+// kennt kein await mehr (7.3): Geprüft wird, dass ohne Erlaubnis nichts startet und die Wiedererteilung genau einmal startet.
+console.log('— Erlaubnis vor jedem Start: slotStart während des Entzugs (Spec 11.10, Plan B, Task B14)');
+{
+  // Weite Fenster (Entzug 800 ms nach der Erlaubnis, Wiedererteilung 2,5 s danach): Der Fall darf auch unter Last nicht
+  // zwischen Entzug und Wiedererteilung hindurchrutschen.
+  const p = baueKern({ stell: () => ({ FAKE_ENTZUG_MS: '800', FAKE_ERTEILUNG_MS: '2500' }) });
+  await insMeeting(p);
+  ck('Entzug → Erlaubnis entzogen', await bis(() => p.kern.kurz().erlaubnis === 'entzogen', 3000));
+  const r = await personLaden(p, ANNA);
+  const nr = p.kern.abbild().slots[0]?.einstellung.nr ?? 0;
+  ck('… „Als Slot laden“ während des Entzugs: Slot an, kein slotOn, die Kachel wartet auf die Erlaubnis (T12d)', ok(r)
+    && ok(p.kern.slotStart(nr, false)) && ok(p.kern.slotStart(nr, true)) && (await warte(400), !startetPerson(p, 1, ANNA))
+    && p.kern.abbild().slots[0]?.text === 'Wartet: Der Host hat die Aufnahme-Erlaubnis entzogen. Erteilt er sie wieder, startet der Slot von selbst.');
+  ck('… nach der Wiedererteilung genau ein Start für Anna', await bis(() => startetPerson(p, 1, ANNA), 4000)
+    && (await warte(500), startBefehle(p, 1).filter((b) => b.id === ANNA).length === 1));
+  await p.aufraeumen();
+}
 
 // ── Aufgabe 11 (4b): Randfälle 0.3.0 (N4b.3 Nr. 1, 2, 4, 6, 7, 8) ──────────────
 console.log('— Randfälle 0.3.0: Hinweise (Nr. 6), Sperre, Z12, Z2 (Nr. 8)');
