@@ -1761,11 +1761,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const verb = cmd.verb.toLowerCase();
     const b = deuteZoomBefehl(cmd.verb, cmd.args);
     let erg: { kennung: ZoomBefehlKennung; text: string | null } = { kennung: 'ok', text: null };
-    if (b.art === 'abgelehnt') erg = { kennung: b.kennung, text: b.text };
+    // Die Slot-Verben (Spec 8.3) deutet fernsteuerung.ts ab Plan B, Task B5; ausgeführt werden sie erst ab Task B13. Bis
+    // dahin beantwortet der Kern jedes von ihnen, auch ein ungültiges, wie 0.3.0 mit F7 (wie B-EP3 für zoom_load).
+    if (verb.startsWith('zoom_slot')) erg = { kennung: 'f7', text: FT.F7(verb) };
+    else if (b.art === 'abgelehnt') erg = { kennung: b.kennung, text: b.text };
     else if (b.art === 'laden') erg = fernLaden(b.name);
     else if (b.art === 'entladen') erg = fernEntladen(b.name);
     // Wie 6.7; „nur für diese Sitzung gemerkt“ zählt über die Fernsteuerung als ausgeführt (L14).
-    else versatz({ ms: b.ms });
+    else if (b.art === 'versatz') versatz({ ms: b.ms });
     // 8.6: F1–F7 sind abgelehnt, F8 ist eine Warnung zu einem ausgeführten Befehl.
     befehl = { kennung: erg.kennung, abgelehnt: erg.kennung !== 'ok' && erg.kennung !== 'f8' };
     // N4b.2: der Hinweis nennt den Namen, das Log nur Kennung und Verb.

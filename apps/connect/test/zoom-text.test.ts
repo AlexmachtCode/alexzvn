@@ -1048,7 +1048,8 @@ console.log('— 4b: 8.6 Fernsteuer-Hinweise (Vorsatz „Companion: “) und Log
     ['F8', FT.F8(6), 'Companion: 6. Quelle geladen — mehr als 5 sind nicht gemessen.'],
   ];
   for (const [id, ist, soll] of FT_SOLL) ck(`${id} wörtlich`, ist === soll);
-  ck('FT hat genau F1 bis F8', JSON.stringify(Object.keys(FT).sort()) === '["F1","F2","F3","F4","F5","F6","F7","F8"]');
+  ck('FT hat genau F1 bis F8 und (Plan B, Task B5) F5_SLOT, F8_SLOT, F9 bis F14',
+    JSON.stringify(Object.keys(FT).sort()) === '["F1","F10","F11","F12","F13","F14","F2","F3","F4","F5","F5_SLOT","F6","F7","F8","F8_SLOT","F9"]');
   ck('F8 nennt BETRIEBSGROESSE', FT.F8(7) === `Companion: 7. Quelle geladen — mehr als ${BETRIEBSGROESSE} sind nicht gemessen.`);
   ck('fernLogText: Kennung groß, Verb in Klammern',
     fernLogText('f3', 'zoom_load') === 'Companion: F3 (zoom_load)' && fernLogText('ok', 'zoom_delay') === 'Companion: OK (zoom_delay)');
@@ -1100,6 +1101,58 @@ console.log('— B4 · ST90–ST92 wörtlich');
   ck('ST91 wörtlich (Plural)', EINSTELLUNG_TEXT.verworfen(3) === '3 gespeicherte Slots waren unvollständig oder doppelt und wurden nicht übernommen.');
   ck('ST91 wörtlich (Singular bei 1)', EINSTELLUNG_TEXT.verworfen(1) === '1 gespeicherter Slot war unvollständig oder doppelt und wurde nicht übernommen.');
   ck('ST92 = TEXT_A4_SCHREIBFEHLER wörtlich', TEXT_A4_SCHREIBFEHLER === 'Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.');
+}
+
+// ── Plan B, Task B5: Klartexte der Slot-Fehler und Fernsteuer-Hinweise (Spec 9.6 T100–T106, 9.7 F5–F14, 7.1) ──
+console.log('— B5 · ST100–ST106, SF5–SF14 wörtlich, SLOT_FEHLER_TEXT je Schlüssel');
+{
+  const { SLOT_FEHLER_TEXT, SLOT_KT, audioBufferMismatchText, tonAboFehlerText } = await import('../src/main/zoom/klartext');
+  const { SLOT_ERROR_KEYS, SLOT_NR_MAX } = await import('@jm/zoom-bridge/protocol');
+  const SOLL: Array<[string, string, string]> = [
+    ['T100', SLOT_KT.T100, 'Keine Aufnahme-Erlaubnis — der Host muss sie im Zoom-Client erteilen.'],
+    ['T101', SLOT_KT.T101('SLOT_SENDER_FAILED'), 'Der Slot ließ sich nicht aufbauen (SLOT_SENDER_FAILED). Details im Log.'],
+    ['T102', SLOT_KT.T102, 'Diesen NDI-Namen trägt schon ein laufender Slot.'],
+    ['T103', SLOT_KT.T103('SLOT_BAD_MODE'), 'Die Zoom-Bridge hat die Einstellung abgelehnt (SLOT_BAD_MODE). Details im Log.'],
+    ['T104', tonAboFehlerText('AUDIO_HELPER_MISSING'),
+      'Ton nicht verfügbar (AUDIO_HELPER_MISSING) — das Bild läuft ohne Ton. Für einen neuen Versuch den Ton aus- und wieder einschalten.'],
+    ['T105', SLOT_KT.T105(4), 'Bild: fehlerhafte Bilder in Slot 4 verworfen (slotBufferMismatch). Der Slot läuft weiter; ob wieder Bild kommt, zeigt seine Kachel.'],
+    ['T106', audioBufferMismatchText(2), 'Ton: ein fehlerhaftes Paket in Slot 2 verworfen (audioBufferMismatch). Der Ton läuft mit dem nächsten gültigen Paket weiter.'],
+    ['F5 (geändert)', FT.F5_SLOT('Anna Maria'), 'Companion: kein eingeschalteter Teilnehmer-Slot mit „Anna Maria“.'],
+    ['F8 (geändert)', FT.F8_SLOT(6), 'Companion: 6. Slot eingeschaltet — mehr als 5 sind nicht gemessen.'],
+    ['F9', FT.F9('17'), 'Companion: Slot „17“ gibt es nicht.'],
+    ['F10', FT.F10('galerie'), 'Companion: Modus „galerie“ unbekannt — erlaubt sind teilnehmer, sprecher und freigabe.'],
+    ['F11', FT.F11(3), 'Companion: Slot 3: kein Anzeigename angegeben.'],
+    ['F12', FT.F12(3), 'Companion: Slot 3: Person-Ton gibt es nur im Modus Teilnehmer, der Slot sendet keinen Meeting-Ton.'],
+    ['F13', FT.F13('an'), 'Companion: Wert „an“ ungültig — erlaubt sind ON, OFF und TOGGLE.'],
+    ['F14', FT.F14, 'Companion: kein freier Slot (höchstens 16, vorübergehende eingerechnet).'],
+  ];
+  for (const [id, ist, soll] of SOLL) ck(`S${id} wörtlich`, ist === soll);
+  ck('ST100 ist Q1 (wie Q1, Spec 9.6)', SLOT_KT.T100 === KT.Q1);
+  ck('ST104, ST106: tonAboFehlerText und audioBufferMismatchText sind T104 und T106',
+    tonAboFehlerText('x') === SLOT_KT.T104('x') && audioBufferMismatchText(7) === SLOT_KT.T106(7));
+  ck('SF8 nennt BETRIEBSGROESSE, SF14 nennt SLOT_NR_MAX (B-EP7)',
+    FT.F8_SLOT(7) === `Companion: 7. Slot eingeschaltet — mehr als ${BETRIEBSGROESSE} sind nicht gemessen.`
+      && FT.F14 === `Companion: kein freier Slot (höchstens ${SLOT_NR_MAX}, vorübergehende eingerechnet).`);
+  const quelle = readFileSync(new URL('../src/main/zoom/klartext.ts', import.meta.url), 'utf8');
+  ck('Quelltext-Wächter: klartext.ts schreibt „höchstens 16“ nicht als Literal (B-EP7)', !quelle.includes('höchstens 16'));
+  // Je Schlüssel der Text oder ausdrücklich 'keine' (Gliederung 3.6, Spec 7.1, 9.6, 10.9)
+  const T103 = SLOT_KT.T103('NAME_X');
+  const T101 = SLOT_KT.T101('NAME_X');
+  const ERWARTET: Record<string, string> = {
+    slotBadNumber: T103, slotBadName: T103, slotNameTaken: SLOT_KT.T102, slotBadMode: T103, slotBadResolution: T103,
+    slotBadAudio: T103, slotBadFallback: T103, slotBadFlag: T103, slotBadTarget: T103, slotAlreadyOn: 'keine', slotNotOn: 'keine',
+    slotNoPrivilege: 'keine', slotReconnecting: 'keine', slotRawRecordingFailed: T101, slotSenderFailed: T101, slotRendererFailed: T101,
+    slotSubscribeFailed: 'keine', slotBufferMismatch: SLOT_KT.T105(4), speakerBadSignal: T103, speakerBadHold: T103, previewUnavailable: 'keine',
+  };
+  ck('SLOT_FEHLER_TEXT hat genau die 21 Schlüssel aus SLOT_ERROR_KEYS',
+    JSON.stringify(Object.keys(SLOT_FEHLER_TEXT).sort()) === JSON.stringify([...SLOT_ERROR_KEYS].sort()) && SLOT_ERROR_KEYS.length === 21);
+  for (const k of SLOT_ERROR_KEYS) {
+    const v = SLOT_FEHLER_TEXT[k];
+    ck(`SLOT_FEHLER_TEXT ${k} → ${ERWARTET[k] === 'keine' ? 'keine' : 'Text'}`, (v === 'keine' ? 'keine' : v({ name: 'NAME_X', nr: 4 })) === ERWARTET[k]);
+  }
+  const ohneNr = SLOT_FEHLER_TEXT.slotBufferMismatch;
+  ck('ST105 ohne Slot-Nummer: „unbekannt“ wie Q16 ohne Person in 0.3.0', ohneNr !== 'keine'
+    && ohneNr({ name: 'SLOT_BUFFER_MISMATCH', nr: null }) === 'Bild: fehlerhafte Bilder in Slot unbekannt verworfen (slotBufferMismatch). Der Slot läuft weiter; ob wieder Bild kommt, zeigt seine Kachel.');
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

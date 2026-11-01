@@ -775,6 +775,46 @@ console.log('— Ruling 08.10.2026 (R1, R2): Q1 an ihrer Zeile → „erlaubnis�
     kanaele.length === 11 && kanaele.every((k) => [undefined, null, 'x', 3, [], [{}]].every((roh) => !pruefeSlotEingabe(k, roh).ok)));
 }
 
+// ── Plan B, Task B5: Fernsteuer-Deutung der Slot-Verben (Spec 8.3, E25; erweitert den 4b-Block deuteZoomBefehl) ──
+console.log('— B5 · deuteZoomBefehl, Slot-Verben (8.3)');
+{
+  const { deuteZoomBefehl } = await import('../src/main/zoom/fernsteuerung');
+  const { FT } = await import('../src/main/zoom/klartext');
+  const j = (x: unknown): string => JSON.stringify(x);
+  const ab = (kennung: string, text: string, verb: string): string =>
+    j({ art: 'abgelehnt', kennung, text, logText: `Companion: ${kennung.toUpperCase()} (${verb})` });
+  ck('B5 zoom_slot 1 ON → slot 1 on', j(deuteZoomBefehl('zoom_slot', ['1', 'ON'])) === j({ art: 'slot', nr: 1, wert: 'on' }));
+  ck('B5 zoom_slot 16 off → slot 16 off (16 ist erlaubt)', j(deuteZoomBefehl('zoom_slot', ['16', 'off'])) === j({ art: 'slot', nr: 16, wert: 'off' }));
+  ck('B5 ZOOM_SLOT 3 TOGGLE und Toggle → toggle (Verb und Wert ohne Groß-/Kleinschreibung)',
+    j(deuteZoomBefehl('ZOOM_SLOT', ['3', 'TOGGLE'])) === j({ art: 'slot', nr: 3, wert: 'toggle' })
+      && j(deuteZoomBefehl('zoom_slot', ['3', 'Toggle'])) === j({ art: 'slot', nr: 3, wert: 'toggle' }));
+  ck('B5 zoom_slot_audio 2 OFF → slotTon 2 off', j(deuteZoomBefehl('zoom_slot_audio', ['2', 'OFF'])) === j({ art: 'slotTon', nr: 2, wert: 'off' }));
+  ck('B5 zoom_slot_audio 2 toggle → slotTon 2 toggle', j(deuteZoomBefehl('zoom_slot_audio', ['2', 'toggle'])) === j({ art: 'slotTon', nr: 2, wert: 'toggle' }));
+  ck('B5 zoom_slot_mode 2 sprecher, FREIGABE, Teilnehmer → slotModus',
+    j(deuteZoomBefehl('zoom_slot_mode', ['2', 'sprecher'])) === j({ art: 'slotModus', nr: 2, modus: 'sprecher' })
+      && j(deuteZoomBefehl('zoom_slot_mode', ['2', 'FREIGABE'])) === j({ art: 'slotModus', nr: 2, modus: 'freigabe' })
+      && j(deuteZoomBefehl('zoom_slot_mode', ['2', 'Teilnehmer'])) === j({ art: 'slotModus', nr: 2, modus: 'teilnehmer' }));
+  ck('B5 zoom_slot_person 1 Anna Maria → Name mit einem Leerzeichen verbunden',
+    j(deuteZoomBefehl('zoom_slot_person', ['1', 'Anna', 'Maria'])) === j({ art: 'slotPerson', nr: 1, name: 'Anna Maria' }));
+  const F9: Array<[string[], string]> = [[['0', 'ON'], '0'], [['17', 'ON'], '17'], [['x', 'ON'], 'x'], [[], ''], [['1.5', 'ON'], '1.5'], [['-1', 'ON'], '-1']];
+  for (const [args, arg] of F9) ck(`B5 zoom_slot ${j(args)} → F9 mit „${arg}“`, j(deuteZoomBefehl('zoom_slot', args)) === ab('f9', FT.F9(arg), 'zoom_slot'));
+  ck('B5 F9 gilt für alle vier Slot-Verben', ['zoom_slot_mode', 'zoom_slot_person', 'zoom_slot_audio'].every((v) => j(deuteZoomBefehl(v, ['99', 'x'])) === ab('f9', FT.F9('99'), v)));
+  const F13: Array<[string[], string]> = [[['1'], ''], [['1', 'an'], 'an'], [['1', 'on', 'extra'], 'on extra']];
+  for (const [args, arg] of F13) ck(`B5 zoom_slot ${j(args)} → F13 mit „${arg}“`, j(deuteZoomBefehl('zoom_slot', args)) === ab('f13', FT.F13(arg), 'zoom_slot'));
+  ck('B5 zoom_slot_audio 1 laut → F13', j(deuteZoomBefehl('zoom_slot_audio', ['1', 'laut'])) === ab('f13', FT.F13('laut'), 'zoom_slot_audio'));
+  ck('B5 zoom_slot_mode 1 galerie → F10 mit „galerie“; ohne Modus → F10 mit „“',
+    j(deuteZoomBefehl('zoom_slot_mode', ['1', 'galerie'])) === ab('f10', FT.F10('galerie'), 'zoom_slot_mode')
+      && j(deuteZoomBefehl('zoom_slot_mode', ['1'])) === ab('f10', FT.F10(''), 'zoom_slot_mode'));
+  ck('B5 zoom_slot_person 1 ohne Namen oder nur Leerraum → F11 mit der Nummer',
+    j(deuteZoomBefehl('zoom_slot_person', ['1'])) === ab('f11', FT.F11(1), 'zoom_slot_person')
+      && j(deuteZoomBefehl('zoom_slot_person', ['1', '  '])) === ab('f11', FT.F11(1), 'zoom_slot_person'));
+  const abgelehnt = [deuteZoomBefehl('zoom_slot', ['Anna']), deuteZoomBefehl('zoom_slot_mode', ['1', 'Anna']), deuteZoomBefehl('zoom_slot', ['1', 'Anna'])];
+  ck('B5 logText nennt nie einen Namen aus den Argumenten (N4b.2)', abgelehnt.every((b) => b.art === 'abgelehnt' && !b.logText.includes('Anna')));
+  ck('B5 die alten Verben deuten unverändert (zoom_load, zoom_delay, zoom_xyz → F7)',
+    j(deuteZoomBefehl('zoom_load', ['Ben'])) === j({ art: 'laden', name: 'Ben' }) && j(deuteZoomBefehl('zoom_delay', ['300'])) === j({ art: 'versatz', ms: 300 })
+      && j(deuteZoomBefehl('zoom_slotx', ['1'])) === ab('f7', FT.F7('zoom_slotx'), 'zoom_slotx'));
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

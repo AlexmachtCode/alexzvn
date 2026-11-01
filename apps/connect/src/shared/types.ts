@@ -99,9 +99,13 @@ export type ZoomMangel =
 /** 'entzogen': war 'ja', dann broadcast mit canRecordRaw:false (3.2-23). */
 export type ZoomErlaubnis = 'offen' | 'ja' | 'abgelehnt' | 'abgelaufen' | 'entzogen';
 
-/** Ergebnis eines zoom_*-Befehls als Kennung (Spec 8.6): 'ok' oder die Hinweis-ID in Kleinbuchstaben. */
-export type ZoomBefehlKennung = 'ok' | 'f1' | 'f2' | 'f3' | 'f4' | 'f5' | 'f6' | 'f7' | 'f8';
-/** `abgelehnt` ist true bei F1–F7. F8 ist eine Warnung, der Befehl wurde ausgeführt (Spec 11.2). */
+/** Ergebnis eines zoom_*-Befehls als Kennung (Spec 8.6; f9–f14 ab Connect 0.4.0, Spec 8.3): 'ok' oder die Hinweis-ID in Kleinbuchstaben. */
+export type ZoomBefehlKennung =
+  | 'ok' | 'f1' | 'f2' | 'f3' | 'f4' | 'f5' | 'f6' | 'f7' | 'f8' | 'f9' | 'f10' | 'f11' | 'f12' | 'f13' | 'f14';
+/**
+ * `abgelehnt` ist true bei F1–F7. F8 ist eine Warnung, der Befehl wurde ausgeführt (Spec 11.2). Ab Plan B, Task B13 gilt
+ * Spec 8.3: abgelehnt bei F1–F7, F9–F11, F13, F14; Warnungen sind F8 und F12.
+ */
 export interface ZoomBefehlErgebnis { kennung: ZoomBefehlKennung; abgelehnt: boolean }
 
 /** Ein laufendes Abo der Bridge. */

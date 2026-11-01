@@ -3,8 +3,8 @@
 // der Spec; Platzhalter {…} sind Funktionsparameter. Fassung, Fristen und Betriebsgröße kommen aus
 // den Konstanten (N4b.3 Nr. 8). Logzeilen nennen nie den Namen eines Teilnehmers (N4b.2): Hinweise
 // mit Namen tragen einen eigenen `logText`, Zeilen der Bridge laufen durch maskiereNamen.
-import type { AudioReason, AudioState } from '@jm/zoom-bridge/protocol';
-import { authResultName, endReason, failCodeName, failReason } from '@jm/zoom-bridge/protocol';
+import type { AudioReason, AudioState, SlotFehler } from '@jm/zoom-bridge/protocol';
+import { authResultName, endReason, failCodeName, failReason, SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
 import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
 import type { ZoomBefehlKennung, ZoomMangel } from '../../shared/types';
 import { BETRIEBSGROESSE, Q9_ANFANG, TEXT_A4, TEXT_A6, TEXT_S11, TEXT_S17 } from '../../shared/zoom-text';
@@ -429,6 +429,86 @@ export const FT = {
   F6: (arg: string): string => `Companion: Versatz „${arg}“ ungültig — erlaubt sind ganze Zahlen von 0 bis 1000.`,
   F7: (verb: string): string => `Companion: unbekannter Befehl „${verb}“.`,
   F8: (n: number): string => `Companion: ${n}. Quelle geladen — mehr als ${BETRIEBSGROESSE} sind nicht gemessen.`,
+  // Zoom-Slots (Connect 0.4.0, Spec 9.7). F5_SLOT und F8_SLOT sind die geänderten F5 und F8; die alten Fassungen gelten bis
+  // Plan B, Task B13 (zoom_load und zoom_unload über Slots) und entfallen dann.
+  F5_SLOT: (name: string): string => `Companion: kein eingeschalteter Teilnehmer-Slot mit „${name}“.`,
+  F8_SLOT: (n: number): string => `Companion: ${n}. Slot eingeschaltet — mehr als ${BETRIEBSGROESSE} sind nicht gemessen.`,
+  F9: (arg: string): string => `Companion: Slot „${arg}“ gibt es nicht.`,
+  F10: (arg: string): string => `Companion: Modus „${arg}“ unbekannt — erlaubt sind teilnehmer, sprecher und freigabe.`,
+  F11: (nr: number): string => `Companion: Slot ${nr}: kein Anzeigename angegeben.`,
+  F12: (nr: number): string => `Companion: Slot ${nr}: Person-Ton gibt es nur im Modus Teilnehmer, der Slot sendet keinen Meeting-Ton.`,
+  F13: (arg: string): string => `Companion: Wert „${arg}“ ungültig — erlaubt sind ON, OFF und TOGGLE.`,
+  F14: `Companion: kein freier Slot (höchstens ${SLOT_NR_MAX}, vorübergehende eingerechnet).`,
+};
+
+/**
+ * Klartexte zu den Fehlern der Zoom-Slots (Spec 9.6, T100–T106; ab Connect 0.4.0). `{name}` ist der Fehlername (Spalte
+ * OWN_ERROR_NAMES, über `enrich`), `{nr}` die Slot-Nummer. Q6 (`audioQueueOverflow`) gilt unverändert als KT.Q6.
+ */
+export const SLOT_KT = {
+  /**
+   * T100 (wie Q1): `slotNoPrivilege`. Kein Fehlerstand, der Slot wartet (7.3 Nr. 2). SLOT_FEHLER_TEXT ordnet ihm nach
+   * Gliederung 3.6 'keine' zu; ob T100 an der Fehlerzeile stehen soll (Spec 9.6, 10.9), ist ein offener Punkt von Block b1.
+   */
+  T100: KT.Q1,
+  /** T101: `slotRawRecordingFailed`, `slotSenderFailed`, `slotRendererFailed`. */
+  T101: (name: string): string => `Der Slot ließ sich nicht aufbauen (${name}). Details im Log.`,
+  /** T102: `slotNameTaken`. */
+  T102: 'Diesen NDI-Namen trägt schon ein laufender Slot.',
+  /** T103: `slotBad…`, `speakerBad…` (Programmfehler, sollte nie kommen; ohne Slot unter „Hinweise“). */
+  T103: (name: string): string => `Die Zoom-Bridge hat die Einstellung abgelehnt (${name}). Details im Log.`,
+  /** T104 (Q5 geändert): Ton-Abo-Fehler, an jeder Kachel mit eingeschaltetem Ton (7.1, 10.6). */
+  T104: (name: string): string =>
+    `Ton nicht verfügbar (${name}) — das Bild läuft ohne Ton. Für einen neuen Versuch den Ton aus- und wieder einschalten.`,
+  /** T105 (wie Q16): `slotBufferMismatch`, Hinweis. Ohne Slot-Nummer „unbekannt“, wie Q16 ohne Person (quellenFehler oben). */
+  T105: (nr: number | null): string =>
+    `Bild: fehlerhafte Bilder in Slot ${nr ?? 'unbekannt'} verworfen (slotBufferMismatch). Der Slot läuft weiter; ob wieder Bild kommt, zeigt seine Kachel.`,
+  /** T106 (ersetzt Q17 für Slots): `audioBufferMismatch` mit `slot`, Hinweis. */
+  T106: (nr: number): string =>
+    `Ton: ein fehlerhaftes Paket in Slot ${nr} verworfen (audioBufferMismatch). Der Ton läuft mit dem nächsten gültigen Paket weiter.`,
+};
+
+/** T104: Ton-Abo-Fehler (`audioVoipJoinFailed`, `audioHelperMissing`, `audioSubscribeFailed`; Merker `tonAboFehler`, 7.1). */
+export function tonAboFehlerText(name: string): string {
+  return SLOT_KT.T104(name);
+}
+
+/** T106: `audioBufferMismatch` mit Slot-Nummer (Hinweis; setzt den Ton-Abo-Merker nicht, Nachfix W6). */
+export function audioBufferMismatchText(nr: number): string {
+  return SLOT_KT.T106(nr);
+}
+
+/**
+ * Klartext je Fehlerschlüssel der Slots (Spec 7.1 „Fehler und ihr Anzeigeort“, 9.6, 10.9; Gliederung 3.6): ein Text oder
+ * ausdrücklich 'keine'. Ein neuer Schlüssel in SLOT_ERROR_KEYS ohne Eintrag scheitert im Typcheck. Wo der Text steht
+ * (Fehlerzeile, SZ8 mit T23, „Hinweise“), entscheidet der Kern (Task B14):
+ * - T103: die `slotBad…`- und `speakerBad…`-Schlüssel; T101: Aufbaufehler; T102: `slotNameTaken`; T105: `slotBufferMismatch`.
+ * - 'keine': `slotNoPrivilege`, `slotReconnecting`, `slotAlreadyOn`, `slotNotOn` (kein Text, kein Fehlerstand);
+ *   `slotSubscribeFailed` (sein Text ist T20c in der Zustandszeile, Task B6; die Fehlerzeile wäre doppelt, 10.9);
+ *   `previewUnavailable` (T57 an jeder Kachel, Task B7; nicht in der Fehlerzeile, 10.9).
+ */
+export const SLOT_FEHLER_TEXT: Record<SlotFehler, ((e: { name: string; nr: number | null }) => string) | 'keine'> = {
+  slotBadNumber: (e) => SLOT_KT.T103(e.name),
+  slotBadName: (e) => SLOT_KT.T103(e.name),
+  slotNameTaken: () => SLOT_KT.T102,
+  slotBadMode: (e) => SLOT_KT.T103(e.name),
+  slotBadResolution: (e) => SLOT_KT.T103(e.name),
+  slotBadAudio: (e) => SLOT_KT.T103(e.name),
+  slotBadFallback: (e) => SLOT_KT.T103(e.name),
+  slotBadFlag: (e) => SLOT_KT.T103(e.name),
+  slotBadTarget: (e) => SLOT_KT.T103(e.name),
+  slotAlreadyOn: 'keine',
+  slotNotOn: 'keine',
+  slotNoPrivilege: 'keine',
+  slotReconnecting: 'keine',
+  slotRawRecordingFailed: (e) => SLOT_KT.T101(e.name),
+  slotSenderFailed: (e) => SLOT_KT.T101(e.name),
+  slotRendererFailed: (e) => SLOT_KT.T101(e.name),
+  slotSubscribeFailed: 'keine',
+  slotBufferMismatch: (e) => SLOT_KT.T105(e.nr),
+  speakerBadSignal: (e) => SLOT_KT.T103(e.name),
+  speakerBadHold: (e) => SLOT_KT.T103(e.name),
+  previewUnavailable: 'keine',
 };
 
 /** Logzeile zu einem zoom_*-Befehl (Texttabelle 4b): nur Kennung und Verb, nie ein Name (N4b.2, L11). */
