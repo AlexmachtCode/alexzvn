@@ -1898,6 +1898,119 @@ console.log('— B7 · Tonzeile 10.6, Messzeile 10.7 und Vorschau 10.8 als Kreuz
   VPRAED.forEach((p, i) => ck(`10.8 Prädikat: ${p.name}`, vZaehler[i].treffer > 0 && vZaehler[i].verletzt === 0));
 }
 
+// ── Plan B, Task B8: Slot-Bereich, Kachel-Kopf, Teilnehmerliste, Nachfrage, Hinweis R5 (Spec 10.10, 10.11; Texte 9.2, 9.3, 9.5) ──
+console.log('— B8 · ST30–ST42, ST87, ST96, ST96b, ST98 wörtlich; Teilnehmerliste 10.10; Slot-Kopf und R5 10.11');
+{
+  const {
+    KENNZEICHEN_TEXT, loeschenFrage, nachfrageText, r5Text, SLOT_TEXT, slotKennzeichen, slotKopfZeile, teilnehmerSlotAngabe,
+  } = await import('../src/shared/zoom-text');
+  type TSE = import('../src/shared/zoom-text').TeilnehmerSlotEingabe;
+  const SOLL: Array<[string, string, string]> = [
+    ['T30', SLOT_TEXT.keineSlots, 'Noch keine Slots. „Slot hinzufügen“ oder, sobald Connect im Meeting ist, in der Teilnehmerliste eine Person „Als Slot laden“.'],
+    ['T31 (n = 0)', slotKopfZeile(3, 2, 0), '3 von 16 Slots · 2 eingeschaltet · 0 laufen'],
+    ['T31 (n = 1)', slotKopfZeile(3, 2, 1), '3 von 16 Slots · 2 eingeschaltet · 1 läuft'],
+    ['T31 (n = 2)', slotKopfZeile(16, 6, 2), '16 von 16 Slots · 6 eingeschaltet · 2 laufen'],
+    ['T32', SLOT_TEXT.hoechstens, 'Höchstens 16 Slots. Zuerst einen Slot löschen.'],
+    ['T33', SLOT_TEXT.start, 'Start'],
+    ['T34', SLOT_TEXT.stopp, 'Stopp'],
+    ['T35', SLOT_TEXT.nameGesperrt, 'Den NDI-Namen erst ändern, wenn der Slot ausgeschaltet ist.'],
+    ['T36', SLOT_TEXT.loeschenGesperrt, 'Zum Löschen den Slot erst ausschalten.'],
+    ['T37', loeschenFrage(4, 'JM Connect – Zoom Anna'), 'Slot 4 „JM Connect – Zoom Anna“ löschen? Seine Einstellungen gehen verloren.'],
+    ['T38', SLOT_TEXT.alsSlotLaden, 'Als Slot laden'],
+    ['T39 (eine Nummer)', teilnehmerSlotAngabe({ laufendMitZiel: [4], suchend: [], imWarteraum: false }).text, 'läuft in Slot 4'],
+    ['T39 (zwei Nummern)', teilnehmerSlotAngabe({ laufendMitZiel: [9, 2], suchend: [], imWarteraum: false }).text, 'läuft in Slot 2 und 9'],
+    ['T39 (drei Nummern)', teilnehmerSlotAngabe({ laufendMitZiel: [12, 5, 1], suchend: [], imWarteraum: false }).text, 'läuft in Slot 1, 5 und 12'],
+    ['T39 (vier Nummern, Vorgabe OFP4 f)', teilnehmerSlotAngabe({ laufendMitZiel: [3, 1, 2, 16], suchend: [], imWarteraum: false }).text, 'läuft in Slot 1, 2, 3 und 16'],
+    ['T39b', teilnehmerSlotAngabe({ laufendMitZiel: [], suchend: [{ nr: 3, an: false, doppelt: 1, zweifel: false }], imWarteraum: false }).text, 'Slot 3 einschalten'],
+    ['T39c', teilnehmerSlotAngabe({ laufendMitZiel: [], suchend: [{ nr: 3, an: true, doppelt: 1, zweifel: false }], imWarteraum: false }).text,
+      'Slot 3 ist an und zeigt die Person nicht (siehe Kachel)'],
+    ['T39d', teilnehmerSlotAngabe({ laufendMitZiel: [], suchend: [{ nr: 3, an: true, doppelt: 2, zweifel: false }], imWarteraum: false }).text,
+      'Slot 3: Name doppelt, bitte an der Kachel wählen'],
+    ['T40', nachfrageText(6), 'Mehr als 5 Zoom-Slots gleichzeitig sind nicht gemessen. Den 6. Slot trotzdem einschalten? Ob dieser Rechner es schafft, zeigen die Messwerte.'],
+    ['T41', SLOT_TEXT.trotzdem, 'Trotzdem einschalten'],
+    ['T42', SLOT_TEXT.abbrechen, 'Abbrechen'],
+    ['T87 (1, ohne Zusatz)', r5Text({ gestartet: 1, zweifel: 0, nicht: 0, grenze: 0 }), 'Wieder im Meeting. 1 Slot läuft wieder.'],
+    ['T87 (2, alle Zusätze im Plural)', r5Text({ gestartet: 2, zweifel: 3, nicht: 2, grenze: 4 }),
+      'Wieder im Meeting. 2 Slots laufen wieder. 3 warten auf eine eindeutige Person. 2 nicht gestartet (siehe Kachel). 4 über der Grenze von 5 nicht gestartet.'],
+    ['T87 (0, Zusätze im Singular)', r5Text({ gestartet: 0, zweifel: 1, nicht: 1, grenze: 1 }),
+      'Wieder im Meeting. 0 Slots laufen wieder. 1 wartet auf eine eindeutige Person. 1 nicht gestartet (siehe Kachel). 1 über der Grenze von 5 nicht gestartet.'],
+    ['T96 (Kennzeichen)', KENNZEICHEN_TEXT.T96.text, 'vorübergehend'],
+    ['T96 (Tooltip)', KENNZEICHEN_TEXT.T96.tooltip, 'Per Companion geladen; gilt bis zum Ende dieses Meetings.'],
+    ['T96b (Kennzeichen)', KENNZEICHEN_TEXT.T96b.text, 'nur dieses Meeting an'],
+    ['T96b (Tooltip)', KENNZEICHEN_TEXT.T96b.tooltip, 'Per Companion eingeschaltet; nach dem Ende dieses Meetings wieder aus. „Behalten“ lässt ihn eingeschaltet.'],
+    ['T98', SLOT_TEXT.warteraumTooltip, 'Erst im Zoom-Client zulassen.'],
+  ];
+  for (const [id, ist, soll] of SOLL) ck(`S${id} wörtlich`, ist === soll);
+  ck('ST98 übernimmt Q15 wörtlich', SLOT_TEXT.warteraumTooltip === KT.Q15);
+
+  // 10.11: Kennzeichen je Lage (RR7: „Behalten“ und die Start-Taste heben anNurMeeting auf, dann kein Kennzeichen)
+  ck('10.11: T96 nur an vorübergehenden Slots', JSON.stringify(slotKennzeichen({ voruebergehend: true, anNurMeeting: false })) === JSON.stringify(KENNZEICHEN_TEXT.T96));
+  ck('10.11: T96b nur an dauerhaften Slots mit anNurMeeting', JSON.stringify(slotKennzeichen({ voruebergehend: false, anNurMeeting: true })) === JSON.stringify(KENNZEICHEN_TEXT.T96b));
+  ck('10.11: dauerhafter Slot ohne anNurMeeting (auch nach „Behalten“): kein Kennzeichen', slotKennzeichen({ voruebergehend: false, anNurMeeting: false }) === null);
+
+  // 10.10 als Kreuzprodukt
+  type Such = TSE['suchend'][number];
+  const LAUFEND: number[][] = [[], [4], [9, 2], [12, 5, 1]];
+  const SUCHEND: Such[][] = [
+    [],
+    [{ nr: 3, an: false, doppelt: 1, zweifel: false }],
+    [{ nr: 3, an: true, doppelt: 1, zweifel: false }],
+    [{ nr: 3, an: true, doppelt: 2, zweifel: false }],
+    [{ nr: 3, an: true, doppelt: 1, zweifel: true }],
+    [{ nr: 7, an: true, doppelt: 1, zweifel: false }, { nr: 2, an: false, doppelt: 1, zweifel: false }],
+    [{ nr: 7, an: true, doppelt: 2, zweifel: false }, { nr: 2, an: true, doppelt: 1, zweifel: false }],
+  ];
+  function teilnehmerSoll(e: TSE): { text: string; knopf: boolean; tooltip: string | null } {
+    const liste = (n: number[]): string => (n.length === 1 ? `${n[0]}` : `${n.slice(0, -1).join(', ')} und ${n[n.length - 1]}`);
+    if (e.laufendMitZiel.length > 0) return { text: `läuft in Slot ${liste([...e.laufendMitZiel].sort((a, b) => a - b))}`, knopf: false, tooltip: null };
+    const s = [...e.suchend].sort((a, b) => a.nr - b.nr);
+    const d = s.find((x) => x.doppelt > 1 || x.zweifel);
+    if (d) return { text: `Slot ${d.nr}: Name doppelt, bitte an der Kachel wählen`, knopf: false, tooltip: null };
+    const an = s.find((x) => x.an);
+    if (an) return { text: `Slot ${an.nr} ist an und zeigt die Person nicht (siehe Kachel)`, knopf: false, tooltip: null };
+    if (s.length > 0) return { text: `Slot ${s[0].nr} einschalten`, knopf: false, tooltip: null };
+    return { text: 'Als Slot laden', knopf: true, tooltip: e.imWarteraum ? 'Erst im Zoom-Client zulassen.' : null };
+  }
+  let n = 0, abw = 0;
+  const verletzt = { alleNummern: 0, t38: 0, t98: 0, knopf: 0, t39d: 0 };
+  for (const laufendMitZiel of LAUFEND) for (const suchend of SUCHEND) for (const imWarteraum of [false, true]) {
+    const e: TSE = { laufendMitZiel, suchend, imWarteraum };
+    const ist = teilnehmerSlotAngabe(e);
+    n++;
+    if (JSON.stringify(ist) !== JSON.stringify(teilnehmerSoll(e))) abw++;
+    if (ist.text.startsWith('läuft in Slot') && !laufendMitZiel.every((nr) => new RegExp(`(^|\\D)${nr}(\\D|$)`).test(ist.text.slice(13)))) verletzt.alleNummern++;
+    if (ist.text === 'Als Slot laden' && (laufendMitZiel.length > 0 || suchend.length > 0)) verletzt.t38++;
+    if (ist.tooltip !== null && !(imWarteraum && ist.text === 'Als Slot laden')) verletzt.t98++;
+    if (ist.knopf !== (ist.text === 'Als Slot laden')) verletzt.knopf++;
+    if (ist.text.includes('Name doppelt') && !suchend.some((s) => s.doppelt > 1 || s.zweifel)) verletzt.t39d++;
+  }
+  ck(`10.10 Teilnehmerliste: jede Kombination nach der ersten passenden Regel (${n} Kombinationen)`, n === 56 && abw === 0);
+  ck('10.10 Prädikat: T39 nennt jede Nummer der laufenden Slots dieser Person', verletzt.alleNummern === 0);
+  ck('10.10 Prädikat: T38 nur ohne laufenden und ohne suchenden Slot', verletzt.t38 === 0);
+  ck('10.10 Prädikat: Tooltip T98 nur an T38 und nur bei einer Person im Warteraum', verletzt.t98 === 0);
+  ck('10.10 Prädikat: ein Knopf nur bei T38 (T39–T39d sind Angaben)', verletzt.knopf === 0);
+  ck('10.10 Prädikat: T39d nur mit einem suchenden Slot mit doppelt > 1 oder zweifel', verletzt.t39d === 0);
+
+  // T87 als Kreuzprodukt: Zusätze mit dem Wert 0 entfallen (10.11)
+  let r5 = 0, r5abw = 0, nullZusatz = 0;
+  for (const gestartet of [0, 1, 2]) for (const zweifel of [0, 1, 2]) for (const nicht of [0, 1, 2]) for (const grenze of [0, 1, 2]) {
+    const ist = r5Text({ gestartet, zweifel, nicht, grenze });
+    r5++;
+    const soll = (gestartet === 1 ? 'Wieder im Meeting. 1 Slot läuft wieder.' : `Wieder im Meeting. ${gestartet} Slots laufen wieder.`)
+      + (zweifel === 0 ? '' : zweifel === 1 ? ' 1 wartet auf eine eindeutige Person.' : ` ${zweifel} warten auf eine eindeutige Person.`)
+      + (nicht === 0 ? '' : ` ${nicht} nicht gestartet (siehe Kachel).`)
+      + (grenze === 0 ? '' : ` ${grenze} über der Grenze von 5 nicht gestartet.`);
+    if (ist !== soll) r5abw++;
+    if (/ 0 (warten|wartet|nicht gestartet|über)/.test(ist)) nullZusatz++;
+  }
+  ck(`10.11 T87: jede Kombination wörtlich (${r5} Kombinationen)`, r5 === 81 && r5abw === 0);
+  ck('10.11 Prädikat: kein Zusatz mit dem Wert 0', nullZusatz === 0);
+
+  const quelle = readFileSync(new URL('../src/shared/zoom-text.ts', import.meta.url), 'utf8');
+  ck('Quelltext-Wächter: zoom-text.ts schreibt „von 16“ und „Höchstens 16“ nicht als Literal (B-EP7)',
+    !quelle.includes('von 16') && !quelle.includes('Höchstens 16'));
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

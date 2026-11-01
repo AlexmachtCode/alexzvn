@@ -3,14 +3,15 @@
 // sein, in dem er steht. Darum feste Zeilen je Zustand (Z0–Z13, Spec 7.1) und eine einzige
 // Zuordnung zoomZ(), aus der alle Funktionen hier lesen.
 //
-// Rein: keine Laufzeit-Importe, keine node:-Module. Der Renderer-tsconfig prüft diese Datei mit,
-// und die Karte (ZoomCard.tsx) nutzt sie direkt.
+// Rein: keine node:-Module; zur Laufzeit lädt sie nur `@jm/zoom-bridge/protocol` (importfrei; SLOT_NR_MAX, Plan B Task B8).
+// Der Renderer-tsconfig prüft diese Datei mit, und die Karte (ZoomCard.tsx) nutzt sie direkt.
 import type { AudioReason, VideoReason } from '@jm/zoom-bridge/protocol';
 import type {
   AppStatus, ProxyKeySource, ZoomAbbild, ZoomBefehlKennung, ZoomErgebnis, ZoomErlaubnis, ZoomKurz, ZoomMangel, ZoomQuelle, ZoomSollEintrag,
 } from './types';
 
 // Zoom-Slots (Plan B, Block b2): eigene Importzeilen; die Zeilen oben bleiben bis zum Kern-Umstieg (Task B12) unverändert.
+import { SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
 import type { AudioState, SlotAudioReason, SlotReason, SlotSent } from '@jm/zoom-bridge/protocol';
 import type { TonQuelle, ZoomSlotAufloesung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotZustand } from './types';
 
@@ -1002,6 +1003,122 @@ export function slotMessZeile(e: MessEingabe): string | null {
   }
   if (e.zuletzt !== null) return MESS_ZEILE.T51c(e.stufe, e.zuletzt.b, e.zuletzt.h);
   return MESS_ZEILE.T51b(e.stufe);
+}
+
+/** Spec 9.3: Texte des Slot-Bereichs und der Kachel. Die Höchstzahl kommt aus SLOT_NR_MAX (B-EP7). */
+export const SLOT_TEXT = {
+  /** T30 */
+  keineSlots: 'Noch keine Slots. „Slot hinzufügen“ oder, sobald Connect im Meeting ist, in der Teilnehmerliste eine Person „Als Slot laden“.',
+  /** T32, Tooltip am gesperrten „Slot hinzufügen“ */
+  hoechstens: `Höchstens ${SLOT_NR_MAX} Slots. Zuerst einen Slot löschen.`,
+  /** T33 */
+  start: 'Start',
+  /** T34 */
+  stopp: 'Stopp',
+  /** T35, Tooltip am gesperrten NDI-Namen */
+  nameGesperrt: 'Den NDI-Namen erst ändern, wenn der Slot ausgeschaltet ist.',
+  /** T36, Tooltip am gesperrten „Löschen“ */
+  loeschenGesperrt: 'Zum Löschen den Slot erst ausschalten.',
+  /** T38 */
+  alsSlotLaden: 'Als Slot laden',
+  /** T98 (übernimmt Q15 wörtlich), Tooltip an „Als Slot laden“ bei einer Person im Warteraum */
+  warteraumTooltip: 'Erst im Zoom-Client zulassen.',
+  /** T41 */
+  trotzdem: 'Trotzdem einschalten',
+  /** T42 */
+  abbrechen: 'Abbrechen',
+};
+
+/** T31 (Spec 9.3, 10.11): Kopf des Slot-Bereichs; a angelegt, e eingeschaltet, n laufen. */
+export function slotKopfZeile(a: number, e: number, n: number): string {
+  return `${a} von ${SLOT_NR_MAX} Slots · ${e} eingeschaltet · ${n === 1 ? '1 läuft' : `${n} laufen`}`;
+}
+
+/** T37 (Spec 9.3): Rückfrage vor dem Löschen; die Knöpfe heißen BEDIEN_TEXT.loeschen (Task B9) und SLOT_TEXT.abbrechen. */
+export function loeschenFrage(nr: number, ndiName: string): string {
+  return `Slot ${nr} „${ndiName}“ löschen? Seine Einstellungen gehen verloren.`;
+}
+
+/** T40 (Spec 9.3, 7.4): Nachfrage, bevor mehr Slots eingeschaltet sind als die Betriebsgröße (B-EP7). */
+export function nachfrageText(n: number): string {
+  return `Mehr als ${BETRIEBSGROESSE} Zoom-Slots gleichzeitig sind nicht gemessen. Den ${n}. Slot trotzdem einschalten? Ob dieser Rechner es schafft, zeigen die Messwerte.`;
+}
+
+/** T96, T96b (Spec 9.2): Kennzeichen und Tooltip; der Knopf daneben heißt „Behalten“ (BEDIEN_TEXT.behalten, Task B9). */
+export const KENNZEICHEN_TEXT = {
+  T96: { text: 'vorübergehend', tooltip: 'Per Companion geladen; gilt bis zum Ende dieses Meetings.' },
+  T96b: {
+    text: 'nur dieses Meeting an',
+    tooltip: 'Per Companion eingeschaltet; nach dem Ende dieses Meetings wieder aus. „Behalten“ lässt ihn eingeschaltet.',
+  },
+};
+
+/** Spec 10.11: T96 nur an vorübergehenden Slots, T96b nur an dauerhaften mit `anNurMeeting`; danach (RR7) keins. */
+export function slotKennzeichen(s: { voruebergehend: boolean; anNurMeeting: boolean }): { text: string; tooltip: string } | null {
+  if (s.voruebergehend) return { ...KENNZEICHEN_TEXT.T96 };
+  if (s.anNurMeeting) return { ...KENNZEICHEN_TEXT.T96b };
+  return null;
+}
+
+/** „{nr1} und {nr2}“ bzw. „{nr1}, {nr2} und {nr3}“ (T39); ab vier Nummern ebenso weiter (Vorgabe OFP4 f). */
+function aufzaehlung(nrn: readonly number[]): string {
+  if (nrn.length <= 1) return nrn.join('');
+  return `${nrn.slice(0, -1).join(', ')} und ${nrn[nrn.length - 1]}`;
+}
+
+/** T39–T39d (Spec 9.3): Angaben an einer Zeile der Teilnehmerliste. */
+export const TEILNEHMER_SLOT_TEXT = {
+  T39: (nrn: readonly number[]): string => `läuft in Slot ${aufzaehlung(nrn)}`,
+  T39b: (nr: number): string => `Slot ${nr} einschalten`,
+  T39c: (nr: number): string => `Slot ${nr} ist an und zeigt die Person nicht (siehe Kachel)`,
+  T39d: (nr: number): string => `Slot ${nr}: Name doppelt, bitte an der Kachel wählen`,
+};
+
+/**
+ * Eingaben einer Zeile der Teilnehmerliste (Spec 10.10).
+ * - `laufendMitZiel`: laufende Slots (SZ4–SZ6, jeder Modus), deren Ziel in der Bridge diese Person ist bzw. deren gezeigte
+ *   Freigabe sie teilt.
+ * - `suchend`: Teilnehmer-Slots, die ihren Namen suchen (`person`, `personJetzt`, 7.3 Nr. 5).
+ * - `imWarteraum`: die Person ist im Warteraum.
+ */
+export interface TeilnehmerSlotEingabe {
+  laufendMitZiel: number[];
+  suchend: { nr: number; an: boolean; doppelt: number; zweifel: boolean }[];
+  imWarteraum: boolean;
+}
+
+/**
+ * Spec 10.10: T39 mit allen Nummern; sonst ein suchender Teilnehmer-Slot nach Nummer, in der Folge der Regel (Name doppelt
+ * oder Zweifel T39d, eingeschaltet T39c, ausgeschaltet T39b); sonst der Knopf T38, bei einer Person im Warteraum mit dem
+ * Tooltip T98 (die Karte sperrt den Knopf dann). `knopf`: an der Zeile steht „Als Slot laden“.
+ */
+export function teilnehmerSlotAngabe(e: TeilnehmerSlotEingabe): { text: string; knopf: boolean; tooltip: string | null } {
+  if (e.laufendMitZiel.length > 0) {
+    return { text: TEILNEHMER_SLOT_TEXT.T39([...e.laufendMitZiel].sort((a, b) => a - b)), knopf: false, tooltip: null };
+  }
+  const suchend = [...e.suchend].sort((a, b) => a.nr - b.nr);
+  const zweifel = suchend.find((s) => s.doppelt > 1 || s.zweifel);
+  if (zweifel) return { text: TEILNEHMER_SLOT_TEXT.T39d(zweifel.nr), knopf: false, tooltip: null };
+  const an = suchend.find((s) => s.an);
+  if (an) return { text: TEILNEHMER_SLOT_TEXT.T39c(an.nr), knopf: false, tooltip: null };
+  if (suchend.length > 0) return { text: TEILNEHMER_SLOT_TEXT.T39b(suchend[0].nr), knopf: false, tooltip: null };
+  return { text: SLOT_TEXT.alsSlotLaden, knopf: true, tooltip: e.imWarteraum ? SLOT_TEXT.warteraumTooltip : null };
+}
+
+/** T87 (Spec 9.5): Hinweis nach einem Wiederbeitritt, je Teil mit Singular; die Grenze aus BETRIEBSGROESSE. */
+export const R5_TEXT = {
+  gestartet: (n: number): string => (n === 1 ? 'Wieder im Meeting. 1 Slot läuft wieder.' : `Wieder im Meeting. ${n} Slots laufen wieder.`),
+  zweifel: (n: number): string => (n === 1 ? ' 1 wartet auf eine eindeutige Person.' : ` ${n} warten auf eine eindeutige Person.`),
+  nicht: (n: number): string => ` ${n} nicht gestartet (siehe Kachel).`,
+  grenze: (n: number): string => ` ${n} über der Grenze von ${BETRIEBSGROESSE} nicht gestartet.`,
+};
+
+/** T87 (Spec 10.11): gestartet = SZ4–SZ6, zweifel = Teilnehmer-Slots mit Name doppelt oder Zweifel, nicht = SZ7 und SZ8, grenze = SZ10; Zusätze mit 0 entfallen. */
+export function r5Text(z: { gestartet: number; zweifel: number; nicht: number; grenze: number }): string {
+  return R5_TEXT.gestartet(z.gestartet)
+    + (z.zweifel > 0 ? R5_TEXT.zweifel(z.zweifel) : '')
+    + (z.nicht > 0 ? R5_TEXT.nicht(z.nicht) : '')
+    + (z.grenze > 0 ? R5_TEXT.grenze(z.grenze) : '');
 }
 
 // ── ENDE DER SLOT-ANZEIGEN (neue Regeln direkt darüber einfügen) ──
