@@ -68,13 +68,13 @@ async function bis(pred: () => boolean, ms = 4000): Promise<boolean> {
   }
   return pred();
 }
-// Gesamtwache: hängt ein Fall, endet der Lauf rot statt nie. Gemessen 08.10.2026: etwa 120 s ohne Fremdlast (vorher 180 s
-// Wache bei etwa 109 s Laufzeit; angehoben, damit die Reserve unter Speicherdruck nicht weiter schrumpft). Mit den Proben zu
-// Q8, Ladefehler und Verlassen (Owner und Ruling 08.10.2026) gemessen 138 bis 145 s.
+// Gesamtwache: hängt ein Fall, endet der Lauf rot statt nie. Bis Connect 0.3.0 gemessen 138 bis 145 s (Wache 240 s). Nach dem
+// Umzug der Quellen-Fälle nach zoom-slots.test.ts (Plan B, Task B12 bis B16) gemessen 48 s (47,6 s, Plan B, Task B17); die Wache
+// steht auf dem Doppelten, auf volle 10 s aufgerundet (Slot-Spec 11.4).
 const wache = setTimeout(() => {
-  console.log('FAIL  Gesamtlaufzeit über 240 s – ein Fall hängt');
+  console.log('FAIL  Gesamtlaufzeit über 100 s – ein Fall hängt');
   process.exit(1);
-}, 240_000);
+}, 100_000);
 wache.unref();
 
 interface Probe {

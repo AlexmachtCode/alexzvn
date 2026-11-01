@@ -21,7 +21,7 @@ import type { LaufzeitPfade } from '../src/main/zoom/laufzeit';
 import type {
   ZoomAbbild, ZoomErgebnis, ZoomKurz, ZoomSlotEinstellung, ZoomSlotLage, ZoomSlotVorgaben, ZoomSprecherEinstellung,
 } from '../src/shared/types';
-import { kartenZeile, zoomZ } from '../src/shared/zoom-text';
+import { kartenZeile, zoomZ, zoomZeile } from '../src/shared/zoom-text';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const FAKE = join(HIER, '..', '..', '..', 'packages', 'zoom-bridge', 'test', 'fake-bridge.mjs');
@@ -50,7 +50,8 @@ async function bis(pred: () => boolean, ms = 4000): Promise<boolean> {
   }
   return pred();
 }
-// Gesamtwache (G-B6, B-EP17): hängt ein Fall, endet der Lauf rot statt nie. Plan B, Task B17 setzt sie nach Messung.
+// Gesamtwache (G-B6, B-EP17): hängt ein Fall, endet der Lauf rot statt nie. Plan B, Task B17: gemessen 118 s (117,6 s), die
+// Wache steht auf dem Doppelten, auf volle 10 s aufgerundet (Slot-Spec 11.4).
 const wache = setTimeout(() => {
   console.log('FAIL  Gesamtlaufzeit über 240 s – ein Fall hängt');
   process.exit(1);
@@ -1772,6 +1773,173 @@ console.log('— PK17 · Log ohne Namen: Fernsteuerung, Übergangsnamen, Rückke
     await bis(() => p.kern.abbild().hinweise.some((h) => h.startsWith('Wieder im Meeting.')), 8000) && p.starts() === 2);
   ck('… kein Teilnehmername im Log, auch nicht aus der zweiten Bridge (Namensprobe mit vier maskierten Namen)',
     p.logs.some((z) => z.startsWith('[zoom-bridge] Namensprobe: ‹Name›, ‹Name›, ‹Name›, ‹Name›')) && keinTeilnehmernameImLog(p, ATTRAPPEN_NAMEN));
+  await p.aufraeumen();
+}
+
+// ── Plan B, Task B17: macOS-Weiche und Drehbuch „Slots“ ──
+console.log('— PK36 · Drehbuch „Slots“ von Anfang bis Ende: jede Kachel, Kopfzeile, Teilnehmerliste und STATE nach jedem Schritt (10.2–10.11)');
+{
+  const { stateKvAus, slotKopfZeile } = await import('../src/shared/zoom-text');
+  // Jedes Abbild wird gesendet (abbildTaktMs 0); geprüft wird hinterher die FOLGE der Abbilder, nicht ein Zeitpunkt. Die Attrappe hat
+  // eine eigene Uhr, manche Zwischenstände halten nur 200–300 ms (G-B7): Ein Schritt passt, wenn ein Abbild nach dem des vorigen Schritts
+  // in jeder Kachel Zustands- und Fehlerzeile, eine der erlaubten Ton- und Messzeilen, Kopfzeile, Slot-Kopf, Teilnehmerliste
+  // (Slot-Nummern je Person, T39), die vier STATE-Schlüssel und je Slot die Werte für zoom_slot{n}_* (slotKurz, B18) trifft.
+  const p = baueKern({
+    skript: 'slots', fristen: { abbildTaktMs: 0 },
+    slots: [slotEinst(1, { person: 'Anna', an: true }), slotEinst(2, { modus: 'sprecher', an: true }), slotEinst(3, { modus: 'freigabe', an: true })],
+  });
+  await insMeeting(p);
+  interface Schritt {
+    name: string; texte: string[]; kopf: string; kv: string; sk: string[]; tn: string; kz?: string;
+    ton: string[][]; mess: Array<Array<string | null>>; karte?: string;
+  }
+  const kvVon = (a: ZoomAbbild): string => {
+    const s = stateKvAus(a.kurz);
+    return `${s?.zoom_sources}/${s?.zoom_live}/${s?.zoom_privilege}/${s?.zoom_alarm}`;
+  };
+  /** je Slot nr:an live alarm tonEin:Modus:Ziel:Zustandswort (die Quelle von zoom_slot{n}_*, Plan B, Task B18) */
+  const skVon = (a: ZoomAbbild): string[] => a.kurz.slotKurz
+    .map((s) => `${s.nr}:${Number(s.an)}${Number(s.live)}${Number(s.alarm)}${Number(s.tonEin)}:${s.modus}:${s.ziel}:${s.zustandWort}`);
+  const tnVon = (a: ZoomAbbild): string => a.teilnehmer.map((t) => `${t.name}:${t.slotNrn.join(',')}`).join('|');
+  const passt = (a: ZoomAbbild, s: Schritt): boolean => JSON.stringify(a.slots.map((x) => x.text)) === JSON.stringify(s.texte)
+    && a.slots.every((x) => x.fehler === null) && zoomZeile(a.kurz) === s.kopf && kvVon(a) === s.kv
+    && JSON.stringify(skVon(a)) === JSON.stringify(s.sk) && tnVon(a) === s.tn
+    && slotKopfZeile(a.slots.length, a.kurz.slotsAn, a.kurz.slotsLaufen) === (s.kz ?? '3 von 16 Slots · 3 eingeschaltet · 3 laufen')
+    && s.ton.every((erlaubt, i) => erlaubt.includes(a.slots[i]?.tonText ?? '–'))
+    && s.mess.every((erlaubt, i) => erlaubt.includes(a.slots[i]?.messText ?? null))
+    && (s.karte === undefined || kartenZeile(a, Date.now()) === s.karte);
+  /** Index des ersten Abbilds ab `ab`, das zum Schritt passt, sonst -1. */
+  const finde = (s: Schritt, ab: number): number => {
+    for (let i = ab; i < p.abbilder.length; i += 1) if (passt(p.abbilder[i], s)) return i;
+    return -1;
+  };
+  /** Prüft die Schritte in ihrer Folge; ein fehlender Schritt nennt das letzte Abbild mit seinen Zustandszeilen. */
+  const pruefeFolge = (schritte: Schritt[], ab: number): number[] => {
+    const gefunden: number[] = [];
+    let von = ab;
+    for (const s of schritte) {
+      const i = finde(s, von);
+      gefunden.push(i);
+      ck(`PK36: ${s.name}`, i >= 0);
+      if (i >= 0) von = i;
+      else {
+        const gleich = p.abbilder.slice(von).filter((a) => JSON.stringify(a.slots.map((x) => x.text)) === JSON.stringify(s.texte)).at(-1);
+        const a = gleich ?? p.abbilder.at(-1);
+        if (a) {
+          console.log(`      ist: ${a.slots.map((x) => `${x.text} / ${x.tonText} / ${x.messText} / ${x.fehler}`).join(' || ')}`);
+          console.log(`           ${zoomZeile(a.kurz)} || ${kvVon(a)} || ${skVon(a).join(' ')} || ${tnVon(a)}`);
+        }
+      }
+    }
+    return gefunden;
+  };
+  const ANNA_ZEIGT = 'Zeigt Anna.';
+  const BEN_SPRICHT = 'Zeigt Ben (Sprecher).';
+  const OHNE_FREIGABE = 'Wartet auf eine Bildschirmfreigabe · Ersatzbild transparent';
+  const FREIGABE_BEN = 'Zeigt die Freigabe von Ben.';
+  // Ton (10.6): ein laufender Mischton-Slot wartet auf das erste Paket oder läuft; der Freigabe-Slot (Mischton + Computerton) ohne
+  // gezeigte Freigabe hat keinen Computerton (T58g), mit Freigabe kommen beide; ohne Sender T58h.
+  const MIX = ['Ton: Mischton · wartet auf das erste Paket', 'Ton: Mischton · läuft (32,0 kHz, mono)'];
+  const FG_OHNE = ['Ton: Mischton + Computerton · wartet auf das erste Paket', 'Ton: Mischton · läuft (32,0 kHz, mono) · Computerton kommt nicht an'];
+  const FG_MIT = [...FG_OHNE, 'Ton: Mischton + Computerton · läuft (32,0 kHz, mono)'];
+  // Messzeile (10.7): vor dem ersten slotStats des Ziels T51b, danach T50 (1280×720 bei 720p); ohne Bild T51c (die Attrappe meldet
+  // alle 2 s, darum ist je Schritt die Zeile vor und nach dem nächsten slotStats erlaubt; „0 Bilder/s“ nie).
+  const KEIN = '720p gewünscht · noch kein Bild';
+  const LIEFERT = '720p · Zoom liefert 1280×720 · 30 Bilder/s';
+  const ZULETZT = '720p · zuletzt 1280×720 · jetzt kein Bild';
+  const SK_ALLE = ['1:1101:teilnehmer:Anna:zeigt', '2:1101:sprecher:Ben:zeigt', '3:1101:freigabe:Ben:zeigt'];
+  const SK_OHNE_FREIGABE = ['1:1101:teilnehmer:Anna:zeigt', '2:1101:sprecher:Ben:zeigt', '3:1001:freigabe::ersatz'];
+  const ALLE_LAUFEN = {
+    texte: [ANNA_ZEIGT, BEN_SPRICHT, FREIGABE_BEN], kopf: '● Zoom: 3 Slots laufen', kv: '3/1/1/0', sk: SK_ALLE, tn: 'Anna:1|Ben:2,3|Carla:',
+    ton: [MIX, MIX, FG_MIT], mess: [[KEIN, LIEFERT, ZULETZT], [KEIN, LIEFERT], [KEIN, LIEFERT]],
+  };
+  const drehbuch: Schritt[] = [
+    {
+      name: 'Start: Anna gezeigt, Sprecher und Freigabe ohne Ziel (T15, T26, T29c; Z9b)',
+      texte: [ANNA_ZEIGT, 'Wartet auf eine sprechende Person · Ersatzbild transparent', OHNE_FREIGABE], kopf: '● Zoom: 3 Slots laufen, 2 mit Ersatzbild',
+      kv: '3/1/1/0', sk: ['1:1101:teilnehmer:Anna:zeigt', '2:1001:sprecher::ersatz', '3:1001:freigabe::ersatz'], tn: 'Anna:1|Ben:|Carla:',
+      ton: [MIX, MIX, FG_OHNE], mess: [[KEIN, LIEFERT], [KEIN], [KEIN]],
+    },
+    {
+      name: '800 ms: Sprecher Ben (T25)', texte: [ANNA_ZEIGT, BEN_SPRICHT, OHNE_FREIGABE], kopf: '● Zoom: 3 Slots laufen, 1 mit Ersatzbild', kv: '3/1/1/0',
+      sk: SK_OHNE_FREIGABE, tn: 'Anna:1|Ben:2|Carla:', ton: [MIX, MIX, FG_OHNE], mess: [[KEIN, LIEFERT], [KEIN, LIEFERT], [KEIN]],
+    },
+    {
+      name: '2000 ms: Annas Kamera aus (T19; zoom_slot1_live=0, _target leer)',
+      texte: ['Anna: Kamera aus · Ersatzbild transparent', BEN_SPRICHT, OHNE_FREIGABE], kopf: '● Zoom: 3 Slots laufen, 2 mit Ersatzbild', kv: '3/1/1/0',
+      sk: ['1:1001:teilnehmer::ersatz', '2:1101:sprecher:Ben:zeigt', '3:1001:freigabe::ersatz'], tn: 'Anna:1|Ben:2|Carla:',
+      ton: [MIX, MIX, FG_OHNE], mess: [[ZULETZT, KEIN], [KEIN, LIEFERT], [KEIN]],
+    },
+    {
+      name: '2600 ms: Kamera wieder an', texte: [ANNA_ZEIGT, BEN_SPRICHT, OHNE_FREIGABE], kopf: '● Zoom: 3 Slots laufen, 1 mit Ersatzbild', kv: '3/1/1/0',
+      sk: SK_OHNE_FREIGABE, tn: 'Anna:1|Ben:2|Carla:', ton: [MIX, MIX, FG_OHNE], mess: [[ZULETZT, KEIN, LIEFERT], [KEIN, LIEFERT], [KEIN]],
+    },
+    { name: '3000 ms: Freigabe Ben (T28; Z9)', ...ALLE_LAUFEN },
+    {
+      name: '3200 ms: Freigabe Carla, die neueste von 2 (T28b)', ...ALLE_LAUFEN,
+      texte: [ANNA_ZEIGT, BEN_SPRICHT, 'Zeigt die Freigabe von Carla (die neueste von 2: Ben, Carla).'],
+      sk: ['1:1101:teilnehmer:Anna:zeigt', '2:1101:sprecher:Ben:zeigt', '3:1101:freigabe:Carla:zeigt'], tn: 'Anna:1|Ben:2|Carla:3',
+    },
+    { name: '3800 ms: Carla endet, wieder Ben (T28)', ...ALLE_LAUFEN },
+    {
+      name: '4400 ms: Anna geht (T16; zoom_alarm=1, zoom_slot1_alarm=1, zoom_slot1_live=0)', ...ALLE_LAUFEN,
+      texte: ['Wartet auf Anna · Ersatzbild transparent', BEN_SPRICHT, FREIGABE_BEN], kopf: '● Zoom: 3 Slots laufen, 1 mit Ersatzbild', kv: '3/1/1/1',
+      sk: ['1:1011:teilnehmer::ersatz', '2:1101:sprecher:Ben:zeigt', '3:1101:freigabe:Ben:zeigt'], tn: 'Ben:2,3|Carla:',
+      mess: [[KEIN, ZULETZT], [KEIN, LIEFERT], [KEIN, LIEFERT]],
+    },
+    { name: '4900 ms: Anna kommt zurück (T15)', ...ALLE_LAUFEN },
+    {
+      name: '5600 ms: Entzug, die Slots laufen noch (Z7b, T83; Karte „Connect stoppt 3 Slots …“)', ...ALLE_LAUFEN,
+      kopf: '△ Zoom: 3 Slots laufen, Aufnahme-Erlaubnis fehlt', kv: '3/1/0/1', karte: 'Aufnahme-Erlaubnis vom Host entzogen. Connect stoppt 3 Slots …',
+    },
+    { name: '6200 ms: Wiedererteilung (Z9)', ...ALLE_LAUFEN },
+    {
+      name: '6500 ms: später Abbau bei Erlaubnis „ja“ → SZ11 mit T14 (Z8), Ton T58h, keine Messzeile',
+      texte: ['Startet …', 'Startet …', 'Startet …'], kopf: '○ Zoom: im Meeting, kein Slot läuft', kv: '0/0/1/0',
+      sk: ['1:1001:teilnehmer::startet', '2:1001:sprecher::startet', '3:1001:freigabe::startet'], tn: 'Anna:|Ben:|Carla:',
+      kz: '3 von 16 Slots · 3 eingeschaltet · 0 laufen',
+      ton: [['Ton: Mischton, sobald der Slot läuft'], ['Ton: Mischton, sobald der Slot läuft'], ['Ton: Mischton + Computerton, sobald der Slot läuft']],
+      mess: [[null], [null], [null]],
+    },
+    { name: '… der Abgleich startet alle drei wieder', ...ALLE_LAUFEN },
+  ];
+  // Das Drehbuch endet nach 6500 ms; danach startet der Abgleich die Slots. Gewartet wird höchstens 12 s auf den letzten Schritt.
+  await bis(() => {
+    let ab = 0;
+    for (const s of drehbuch) { ab = finde(s, ab); if (ab < 0) return false; }
+    return true;
+  }, 12_000);
+  const stellen = pruefeFolge(drehbuch, 0);
+  const [, nachBen, nachKameraAus] = stellen;
+  ck('… Carla (1100 ms) blieb innerhalb der Haltezeit: Slot 2 zeigte nie Carla', nachBen >= 0 && nachKameraAus >= 0
+    && !p.abbilder.slice(nachBen, nachKameraAus).some((a) => a.slots[1]?.text.includes('Carla')));
+  const eins = slotBefehle(p, 1, 1).map((c) => (c.cmd === 'slotSet' && c.id === ANNA_ZURUECK ? 'Rückkehr' : String(c.cmd)));
+  ck('… Rückkehr über slotSet mit der neuen Kennung, ohne Neustart', eins.slice(0, eins.indexOf('Rückkehr') + 1).join(',') === 'slotOn,Rückkehr');
+  const ende = stellen.at(-1) ?? -1;
+  ck('Moduswechsel durch den Test: Slot 2 auf Teilnehmer „Carla“ → slotSet {mode, id}, T15', ok(p.kern.slotAendern(2, { modus: 'teilnehmer', person: 'Carla' })));
+  const carla: Schritt = {
+    name: '… Slot 2 zeigt Carla', ...ALLE_LAUFEN, texte: [ANNA_ZEIGT, 'Zeigt Carla.', FREIGABE_BEN],
+    sk: ['1:1101:teilnehmer:Anna:zeigt', '2:1101:teilnehmer:Carla:zeigt', '3:1101:freigabe:Ben:zeigt'], tn: 'Anna:1|Ben:3|Carla:2',
+  };
+  await bis(() => finde(carla, Math.max(ende, 0)) >= 0, 4000);
+  pruefeFolge([carla], Math.max(ende, 0));
+  ck('… in keinem Abbild eine Fehlerzeile oder „0 Bilder/s“', !p.abbilder.some((a) => a.slots.some((s) => s.fehler !== null || NULL_BILDER.test(s.messText ?? ''))));
+  await p.aufraeumen();
+}
+
+console.log('— PK27 · macOS: keine zoom_*-Schlüssel, kein Slot-Aufruf an eine Bridge (7.11, E30)');
+{
+  const { zoomAktiv, zoomStateTeil } = await import('../src/main/zoom/plattform');
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })] });
+  const kv = p.kern.stateKv();
+  ck('PK27: unter Windows aktiv, der STATE-Teil trägt die zoom_*-Schlüssel', zoomAktiv('win32')
+    && kv !== null && Object.keys(kv).length > 0 && Object.keys(kv).every((k) => k.startsWith('zoom_'))
+    && JSON.stringify(zoomStateTeil('win32', kv)) === JSON.stringify(kv));
+  ck('… unter macOS nicht aktiv, kein zoom_*-Schlüssel', !zoomAktiv('darwin') && JSON.stringify(zoomStateTeil('darwin', kv)) === '{}');
+  ck('… ohne Werte kein Teil', JSON.stringify(zoomStateTeil('win32', null)) === '{}');
+  const huelle = readFileSync(new URL('../src/main/zoom.ts', import.meta.url), 'utf8');
+  ck('… die Hülle legt den Kern nur über zoomAktiv an (ohne Kern kein Slot-Aufruf an eine Bridge) und meldet den STATE über zoomStateTeil',
+    huelle.includes('!zoomAktiv(process.platform)') && huelle.includes('zoomStateTeil(process.platform, ') && !huelle.includes("process.platform !== 'win32'"));
   await p.aufraeumen();
 }
 

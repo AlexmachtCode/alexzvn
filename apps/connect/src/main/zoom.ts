@@ -8,6 +8,7 @@ import { resourcePath } from '@jm/electron-kit';
 import { IPC } from '@shared/ipc';
 import type { ZoomErgebnis, ZoomKurz } from '@shared/types';
 import { erzeugeZoomKern, type ZoomKern } from './zoom/kern';
+import { zoomAktiv, zoomStateTeil } from './zoom/plattform';
 import { pruefeZugangEingabe } from './zoom/zugang-eingabe';
 import { pruefeSdkSchluesselEingabe } from './zoom/sdk-schluessel-eingabe';
 import { activeLabels } from './ndi-guests';
@@ -52,14 +53,13 @@ let dialogOffen = false;
 const meldeZoomTeil = aenderungsMelder(setZoomControlState);
 
 /**
- * Zoom-Teil des STATE melden: die zoom_*-Werte aus kern.stateKv(). Läuft einmal nach dem Anlegen des
- * Kerns und danach bei jeder Änderung der Kurzform (onKurz), nicht bei jedem Abbild. Ohne Kern (macOS)
+ * Zoom-Teil des STATE melden: die zoom_*-Werte aus kern.stateKv() über zoomStateTeil (Slot-Spec 7.11, 8.2). Läuft einmal
+ * nach dem Anlegen des Kerns und danach bei jeder Änderung der Kurzform (onKurz), nicht bei jedem Abbild. Ohne Kern (macOS)
  * meldet niemand einen Zoom-Teil, dort fehlen die zoom_*-Schlüssel im STATE (Spec 7.5).
  */
 function meldeZoomState(): void {
   if (!kern) return;
-  const kv = kern.stateKv();
-  meldeZoomTeil(kv ? { ...kv } : null);
+  meldeZoomTeil(zoomStateTeil(process.platform, kern.stateKv()));
 }
 
 function feld(p: unknown, name: string): unknown {
@@ -79,7 +79,7 @@ async function waehlePfad(getWindow: () => BrowserWindow | null, opts: OpenDialo
 }
 
 export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: string; onKurz: () => void }): void {
-  if (kern || process.platform !== 'win32') return;
+  if (kern || !zoomAktiv(process.platform)) return;
   // %LOCALAPPDATA% statt userData (Roaming): 315 MB gehören nicht in ein servergespiegeltes Profil (Spec 0.2).
   const basis = join(process.env.LOCALAPPDATA || join(app.getPath('home'), 'AppData', 'Local'), 'JM Connect', 'zoom-laufzeit');
   const ressourcen = resourcePath('', join(__dirname, '..', '..', 'resources'));
@@ -250,7 +250,7 @@ export function zoomGastLabelsGeaendert(): void {
  */
 export function zoomSteuerbefehl(cmd: { verb: string; args: string[] }): void {
   if (!kern) {
-    const grund = process.platform === 'win32' ? 'der Zoom-Kern ließ sich nicht anlegen' : 'Zoom gibt es nur unter Windows';
+    const grund = zoomAktiv(process.platform) ? 'der Zoom-Kern ließ sich nicht anlegen' : 'Zoom gibt es nur unter Windows';
     getLog().info(`[zoom] Companion: ${cmd.verb} ignoriert (${grund})`);
     return;
   }
