@@ -316,6 +316,48 @@ function folge(p: Probe): string[] {
 const ok = (r: { ok: boolean }): boolean => r.ok;
 const text = (r: { ok: true } | { ok: false; text: string }): string | null => (r.ok ? null : r.text);
 
+// ── Test-Naht (Plan B, Task B10; Spec 11.10) ────────────────────────────────────
+// Die Fälle, die nach Spec 11.10 in dieser Datei bleiben, stellen ihre Lage nur über diese Helfer her. Task B12 tauscht
+// die Rümpfe (Quellen und Soll-Liste → Slots); die Fälle selbst ändern sich dabei nicht.
+const ANNA = 16778240;
+const BEN = 16778241;
+const CARLA = 16778242;
+function zeile(p: Probe, id: number): ZoomAbbild['teilnehmer'][number] | undefined {
+  return p.kern.abbild().teilnehmer.find((t) => t.id === id);
+}
+/** Lädt die Person mit dieser Kennung („Als Quelle laden“); `ton: false` = ohne Ton, `trotz` = über die Betriebsgröße. */
+async function personLaden(p: Probe, id: number, o: { ton?: boolean; trotz?: boolean } = {}): Promise<ZoomErgebnis> {
+  return p.kern.laden({ id, ton: o.ton ?? true, trotzBetriebsgroesse: o.trotz ?? false });
+}
+/** n einer Kurzform: laufende Quellen. */
+function laufendIn(k: ZoomKurz): number {
+  return k.quellen;
+}
+/** n: laufende Quellen. */
+function laufendeZahl(p: Probe): number {
+  return laufendIn(p.kern.kurz());
+}
+/** o: offene Einträge der Soll-Liste. */
+function offeneZahl(p: Probe): number {
+  return p.kern.kurz().sollOffen;
+}
+/** Wartet, bis genau `n` laufen. */
+async function bisLaeuft(p: Probe, n: number, ms = 4000): Promise<boolean> {
+  return bis(() => laufendeZahl(p) === n, ms);
+}
+/** Wen Connect sich für dieses Meeting merkt (Soll-Liste), nach Namen. */
+function gemerkt(p: Probe): string[] {
+  return p.kern.abbild().soll.map((s) => s.name);
+}
+/** Startbefehle für Personen an die Bridge `startNr` (videoSubscribe), je mit Kennung und Ton. */
+function startBefehle(p: Probe, startNr: number): Array<{ id: number; ton: boolean }> {
+  return p.befehle(startNr).filter((c) => c.cmd === 'videoSubscribe').map((c) => ({ id: Number(c.id), ton: c.audio !== false }));
+}
+/** Ging an die Bridge `startNr` ein Startbefehl für diese Kennung (bei `ton` auch mit diesem Ton)? */
+function startetPerson(p: Probe, startNr: number, id: number, ton?: boolean): boolean {
+  return startBefehle(p, startNr).some((b) => b.id === id && (ton === undefined || b.ton === ton));
+}
+
 // ── Aufgabe 10: Einrichtung, Mängel, Sperre, Drossel ─────────────────────────
 console.log('— Mängel beim Start (Fall 1, erster Teil)');
 {
@@ -342,7 +384,7 @@ console.log('— Mängel beim Start (Fall 1, erster Teil)');
   ck('… Anzeigename und Versatz aus den Einstellungen, nichts bestätigt',
     a.anzeigename === 'JM Connect' && a.versatz.gewuenschtMs === 0 && a.versatz.bestaetigtMs === null);
   ck('… keine Meldung, kein „Erneut“, keine Teilnehmer, keine Soll-Einträge, kein Abriss',
-    a.meldung === null && !a.erneutMoeglich && a.teilnehmer.length === 0 && a.soll.length === 0 && a.abriss === null && !a.pruefungLaeuft);
+    a.meldung === null && !a.erneutMoeglich && a.teilnehmer.length === 0 && gemerkt(p).length === 0 && a.abriss === null && !a.pruefungLaeuft);
   ck('… Log nennt den Startzustand', p.logs.some((z) => z.startsWith('[zoom] ') && z.includes('bereit')));
   await p.aufraeumen();
 }
@@ -1068,7 +1110,7 @@ console.log('— Meeting-Ende (Fall 19, 28), Beenden (Fall 20)');
   ck('… nach dem Ende bereit mit Meldung', await bis(() => p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung !== null));
   const a = p.kern.abbild();
   ck('… Meldung genau „Meeting beendet: vom Gastgeber beendet.“ (warnung)', a.meldung?.text === 'Meeting beendet: vom Gastgeber beendet.' && a.meldung.art === 'warnung');
-  ck('… erneutMoeglich, Soll-Liste leer', a.erneutMoeglich && a.soll.length === 0 && a.kurz.sollOffen === 0);
+  ck('… erneutMoeglich, Soll-Liste leer', a.erneutMoeglich && gemerkt(p).length === 0 && offeneZahl(p) === 0);
   await warte(300);
   ck('… kein Wiederbeitritt (eine Bridge), STATE bereit/alarm 0', p.starts() === 1 && p.kern.stateKv()?.zoom_status === 'bereit' && p.kern.stateKv()?.zoom_alarm === 0);
   p.kern.schliessen();
@@ -1091,7 +1133,7 @@ console.log('— Meeting-Ende (Fall 19, 28), Beenden (Fall 20)');
   await p.kern.beenden(15_000);
   const dauer = Date.now() - t0;
   ck('Fall 20: beenden → quit gesendet, Ende vor der Frist', cmds(p, 1).includes('quit') && dauer < 15_000 && dauer >= 150);
-  ck('… Zustand verlaesst, nichts läuft mehr', p.kern.kurz().zustand === 'verlaesst' && !p.kern.laeuft() && p.kern.kurz().quellen === 0);
+  ck('… Zustand verlaesst, nichts läuft mehr', p.kern.kurz().zustand === 'verlaesst' && !p.kern.laeuft() && laufendeZahl(p) === 0);
   ck('… kein „nicht rechtzeitig“ im Log', !p.logs.includes('[zoom] Zoom-Bridge nicht rechtzeitig beendet'));
   await p.aufraeumen();
 }
@@ -1137,7 +1179,7 @@ console.log('— Verlassen (Fall 26, Review Focus 2) und Wiederbeitritt (Fall 16
   await p.kern.verlassen();
   ck('… Verlassen → bereit, keine Meldung, kein fehler, alarm 0', p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null
     && !folge(p).includes('fehler') && p.kern.stateKv()?.zoom_alarm === 0);
-  ck('… Soll-Liste, Nummer und Kenncode leer', p.kern.abbild().soll.length === 0 && !p.kern.abbild().erneutMoeglich);
+  ck('… Soll-Liste, Nummer und Kenncode leer', gemerkt(p).length === 0 && !p.kern.abbild().erneutMoeglich);
   await p.aufraeumen();
 }
 {
@@ -1162,28 +1204,28 @@ console.log('— Verlassen (Fall 26, Review Focus 2) und Wiederbeitritt (Fall 16
 {
   const p = baueKern({ stell: (n): Record<string, string> => (n === 1 ? { FAKE_ABSTURZ_MS: '300' } : {}) });
   await insMeeting(p);
-  await p.kern.laden({ id: 16778240, ton: false, trotzBetriebsgroesse: false });
+  await personLaden(p, ANNA, { ton: false });
   ck('Fall 18: Absturz im Meeting → Wiederbeitritt', await bis(() => p.kern.kurz().versuch === 1, 3000));
   const absturz = p.ereignisse.find((x) => x.startNr === 1 && x.ev.ev === 'error' && (x.ev as { where?: string }).where === 'exit')?.ev as { detail?: string } | undefined;
   ck('… Hinweis R4 mit dem Detail des Absturzes', absturz !== undefined && p.kern.abbild().hinweise.includes(KT.R4(String(absturz.detail))));
   ck('… wieder im Meeting, Anna ohne Ton neu abonniert', await bis(() => p.kern.kurz().zustand === 'im_meeting', 4000)
-    && (await bis(() => p.befehle(2).some((c) => c.cmd === 'videoSubscribe' && c.id === 16778240 && c.audio === false), 2000)));
+    && (await bis(() => startetPerson(p, 2, ANNA, false), 2000)));
   ck('… keine Meldung, zwei Bridges', p.kern.abbild().meldung === null && p.starts() === 2);
   await p.aufraeumen();
 }
 {
   const p = baueKern({ stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_HAENGT_MS: '600' } : {}), fristen: { joinTimeoutMs: 300 } });
   await insMeeting(p);
-  await p.kern.laden({ id: 16778240, ton: true, trotzBetriebsgroesse: false });
-  ck('Fall 15c: Anna geladen, Zoom verbindet neu (Z10)', (await bis(() => p.kern.kurz().quellen === 1))
+  await personLaden(p, ANNA);
+  ck('Fall 15c: Anna geladen, Zoom verbindet neu (Z10)', (await bisLaeuft(p, 1))
     && (await bis(() => p.kern.kurz().zustand === 'abriss', 2000)));
   ck('… der Wachhund (reconnectTimeout) startet den Wiederbeitritt', await bis(() => p.kern.kurz().versuch === 1, 3000));
   ck('… wieder im Meeting, Anna neu abonniert', await bis(() => p.kern.kurz().zustand === 'im_meeting', 4000)
-    && (await bis(() => p.befehle(2).some((c) => c.cmd === 'videoSubscribe' && c.id === 16778240), 2000)));
+    && (await bis(() => startetPerson(p, 2, ANNA), 2000)));
   ck('… das ended der stoppenden Bridge steht nur im Log', p.logs.some((z) => z.startsWith('[zoom] (Abbau) status ended')));
   ck('… kein R6, nie bereit, keine Meldung, Soll-Liste blieb und ist erfüllt', !folge(p).includes('bereit')
     && !p.logs.some((z) => z.includes('Meeting beendet')) && p.kern.abbild().meldung === null
-    && (await bis(() => p.kern.kurz().quellen === 1 && p.kern.kurz().sollOffen === 0)));
+    && (await bis(() => laufendeZahl(p) === 1 && offeneZahl(p) === 0)));
   await p.aufraeumen();
 }
 {
@@ -1198,12 +1240,7 @@ console.log('— Verlassen (Fall 26, Review Focus 2) und Wiederbeitritt (Fall 16
 }
 
 // ── Aufgabe 14: Quellen, Laden/Entladen, Ton, Versatz, Kollision ─────────────
-const ANNA = 16778240;
-const BEN = 16778241;
-const CARLA = 16778242;
-function zeile(p: Probe, id: number): ZoomAbbild['teilnehmer'][number] | undefined {
-  return p.kern.abbild().teilnehmer.find((t) => t.id === id);
-}
+// ANNA, BEN, CARLA und zeile() stehen seit Plan B, Task B10 in der Test-Naht oben.
 
 console.log('— Laden und Entladen (Fall 10, 10b, 11, 12)');
 {
@@ -2259,12 +2296,12 @@ console.log('— Wiederbeitritt: Erlaubnis bleibt aus (15b), endgültiger Code (
 {
   const p = baueKern({ stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '600' } : { FAKE_PRIVILEGE: 'offen' }) });
   await insMeeting(p);
-  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
-  await bis(() => p.kern.kurz().quellen === 1);
+  await personLaden(p, ANNA);
+  await bisLaeuft(p, 1);
   ck('Fall 15b: nach dem Wiederbeitritt im Meeting', await bis(() => p.starts() === 2 && p.kern.kurz().zustand === 'im_meeting', 4000));
   await warte(500);
-  ck('… ohne Erlaubnis: Z6, sollOffen 1, zoom_alarm=1', zoomZ(p.kern.kurz()) === 'Z6' && p.kern.kurz().sollOffen === 1 && p.kern.stateKv()?.zoom_alarm === 1);
-  ck('… kein Abo, kein R5', !cmds(p, 2).includes('videoSubscribe') && !p.kern.abbild().hinweise.some((h) => h.startsWith('Wieder im Meeting.')));
+  ck('… ohne Erlaubnis: Z6, sollOffen 1, zoom_alarm=1', zoomZ(p.kern.kurz()) === 'Z6' && offeneZahl(p) === 1 && p.kern.stateKv()?.zoom_alarm === 1);
+  ck('… kein Abo, kein R5', startBefehle(p, 2).length === 0 && !p.kern.abbild().hinweise.some((h) => h.startsWith('Wieder im Meeting.')));
   await p.aufraeumen();
 }
 {
@@ -2328,27 +2365,27 @@ console.log('— Wiederbeitritt: Erlaubnis bleibt aus (15b), endgültiger Code (
       ? ({ ...ev, status: 'ended', code: 0 } as unknown as BridgeEvent) : ev),
   });
   await insMeeting(p);
-  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await personLaden(p, ANNA);
   ck('L4: ended während eines Versuchs → Meeting-Ende (bereit, warnung „Meeting beendet: …“)', (await bis(() => p.kern.kurz().versuch === 1, 3000))
     && (await bis(() => p.kern.kurz().zustand === 'bereit', 4000)) && p.kern.abbild().meldung?.art === 'warnung'
     && String(p.kern.abbild().meldung?.text).startsWith('Meeting beendet: '));
   await warte(300);
-  ck('… Soll-Liste leer, erneutMoeglich, kein weiterer Versuch (zwei Bridges)', p.kern.abbild().soll.length === 0 && p.kern.abbild().erneutMoeglich
+  ck('… Soll-Liste leer, erneutMoeglich, kein weiterer Versuch (zwei Bridges)', gemerkt(p).length === 0 && p.kern.abbild().erneutMoeglich
     && p.starts() === 2 && !p.kurze.some((k) => (k.versuch ?? 0) > 1));
   await p.aufraeumen();
 }
 {
   const p = baueKern({ stell: () => ({ FAKE_VERBINDUNG_HAENGT_MS: '600', FAKE_VERBINDUNG_ZURUECK_MS: '300' }), fristen: { joinTimeoutMs: 5000 } });
   await insMeeting(p);
-  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
-  await bis(() => p.kern.kurz().quellen === 1);
+  await personLaden(p, ANNA);
+  await bisLaeuft(p, 1);
   ck('abriss → im_meeting: Zoom verbindet neu (Z10, zoom_alarm 1)', await bis(() => p.kern.kurz().zustand === 'abriss', 2000)
     && zoomZ(p.kern.kurz()) === 'Z10' && p.kern.stateKv()?.zoom_alarm === 1);
   ck('… Zoom kommt selbst zurück → im_meeting, zoom_alarm 0', await bis(() => p.kern.kurz().zustand === 'im_meeting', 2000)
     && p.kern.stateKv()?.zoom_alarm === 0);
   await warte(500);
   ck('… eine Bridge, kein neues videoSubscribe, Quelle und Soll unverändert', p.starts() === 1
-    && cmds(p, 1).filter((c) => c === 'videoSubscribe').length === 1 && p.kern.kurz().quellen === 1 && p.kern.kurz().sollOffen === 0);
+    && startBefehle(p, 1).length === 1 && laufendeZahl(p) === 1 && offeneZahl(p) === 0);
   await p.aufraeumen();
 }
 
@@ -2400,12 +2437,12 @@ console.log('— Wiederbeitritt verlassen und beenden (Review Focus 3), Warterau
     wiederbeitrittPlanMs: [30, 1500, 30, 30, 30],
   });
   await insMeeting(p);
-  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await personLaden(p, ANNA);
   ck('Verlassen in der Wartezeit vor Versuch 2: Versuch 2 wartet', await bis(() => p.kern.kurz().versuch === 2, 4000) && p.starts() === 2);
   await p.kern.verlassen();
   ck('… verlaesst → bereit, keine Meldung (kein R7), zoom_alarm=0', p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null
     && folge(p).slice(-2).join(',') === 'verlaesst,bereit' && p.kern.stateKv()?.zoom_alarm === 0);
-  ck('… Soll-Liste, Nummer und Kenncode leer', p.kern.abbild().soll.length === 0 && !p.kern.abbild().erneutMoeglich);
+  ck('… Soll-Liste, Nummer und Kenncode leer', gemerkt(p).length === 0 && !p.kern.abbild().erneutMoeglich);
   await warte(1800);
   ck('… auch nach Ablauf der Wartezeit keine weitere Bridge', p.starts() === 2 && p.kern.kurz().zustand === 'bereit' && !p.kern.laeuft());
   await p.aufraeumen();
@@ -2455,10 +2492,10 @@ for (const weg of ['beenden', 'verlassen'] as const) {
     },
   });
   await insMeeting(p);
-  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await personLaden(p, ANNA);
   ck('Mangel vor Versuch 2 → einrichtung mit S9', await bis(() => p.kern.kurz().zustand === 'einrichtung', 4000)
     && p.kern.abbild().meldung?.text === KT.S9('sdk.dll'));
-  ck('… Soll-Liste, Nummer und Kenncode leer, keine Bridge für Versuch 2', p.kern.abbild().soll.length === 0 && !p.kern.abbild().erneutMoeglich
+  ck('… Soll-Liste, Nummer und Kenncode leer, keine Bridge für Versuch 2', gemerkt(p).length === 0 && !p.kern.abbild().erneutMoeglich
     && p.starts() === 2 && p.kern.kurz().versuch === null);
   // Die Folge ist beendet, nicht nur unsichtbar: nach der Reparatur und einem neuen Beitritt ist der nächste Abriss Z10.
   ck('… SDK repariert → bereit', ok(await p.kern.sdkWaehlen('C:/SDK')) && p.kern.kurz().zustand === 'bereit');
@@ -2474,7 +2511,7 @@ console.log('— Wiederbeitritt abbrechen (Fall 25)');
     wiederbeitrittPlanMs: [30, 800, 30, 30, 30],
   });
   await insMeeting(p);
-  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await personLaden(p, ANNA);
   ck('Fall 25: Versuch 1 gescheitert, Versuch 2 wartet', await bis(() => p.kern.kurz().versuch === 2, 4000) && p.starts() === 2);
   p.kern.abbrechen();
   const m = p.kern.abbild().meldung;
@@ -2482,10 +2519,10 @@ console.log('— Wiederbeitritt abbrechen (Fall 25)');
     && p.logs.includes('[zoom] Wiederbeitritt abgebrochen'));
   await warte(1200);
   ck('… nach Ablauf der Wartezeit keine weitere Bridge, Soll-Liste blieb', p.starts() === 2 && p.kern.kurz().zustand === 'fehler'
-    && p.kern.abbild().soll.map((s) => s.name).join(',') === 'Anna');
+    && gemerkt(p).join(',') === 'Anna');
   ck('Erneut beitreten nach R7: dritte Bridge, Anna wird wieder abonniert', ok(await p.kern.erneut())
     && (await bis(() => p.kern.kurz().zustand === 'im_meeting', 4000))
-    && (await bis(() => p.befehle(3).some((c) => c.cmd === 'videoSubscribe' && c.id === ANNA), 2000)));
+    && (await bis(() => startetPerson(p, 3, ANNA), 2000)));
   await p.aufraeumen();
 }
 {
@@ -2785,11 +2822,11 @@ console.log('— Randfälle 0.3.0: Hinweise (Nr. 6), offenes Abo (Nr. 7), Sperre
 {
   const p = baueKern({ stell: () => ({ FAKE_MEETING_ENDE_MS: '600' }) });
   await insMeeting(p);
-  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
-  ck('Nr. 8 (Z2 nach Meeting-Ende): Anna geladen, dann bereit', (await bis(() => p.kern.kurz().quellen === 1))
+  await personLaden(p, ANNA);
+  ck('Nr. 8 (Z2 nach Meeting-Ende): Anna geladen, dann bereit', (await bisLaeuft(p, 1))
     && (await bis(() => p.kern.kurz().zustand === 'bereit', 3000)));
   const bereit = p.kurze.filter((k) => k.zustand === 'bereit');
-  ck('… jede Kurzform mit Zustand bereit hat 0 Quellen (L12)', bereit.length > 0 && bereit.every((k) => k.quellen === 0));
+  ck('… jede Kurzform mit Zustand bereit hat 0 Quellen (L12)', bereit.length > 0 && bereit.every((k) => laufendIn(k) === 0));
   await p.aufraeumen();
 }
 
@@ -3152,18 +3189,18 @@ console.log('— Fix-Welle: Ausnahme in der Startfolge eines Wiederbeitritts-Ver
     },
   });
   await insMeeting(p);
-  await p.kern.laden({ id: ANNA, ton: true, trotzBetriebsgroesse: false });
+  await personLaden(p, ANNA);
   ck('Ausnahme in der Startfolge von Versuch 1 → fehler „Wiederbeitritt abgebrochen: …“ statt eines ewigen „läuft …“',
     await bis(() => p.kern.kurz().zustand === 'fehler', 4000) && p.kern.abbild().meldung?.text === `${VORSATZ.wiederbeitritt}Probe: Startfolge wirft`);
   ck('… die Folge ist beendet, „Erneut beitreten“ möglich, die Soll-Liste bleibt', p.kern.kurz().versuch === null && p.kern.abbild().abriss === null
-    && p.kern.abbild().erneutMoeglich && p.kern.abbild().soll.map((s) => s.name).join(',') === 'Anna');
+    && p.kern.abbild().erneutMoeglich && gemerkt(p).join(',') === 'Anna');
   ck('… Log: die Ausnahme und „gescheitert … (endgültig)“',
     p.logs.includes('[zoom] Wiederbeitritt: Versuch 1: Ausnahme in der Startfolge: Probe: Startfolge wirft')
     && p.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 gescheitert nach \d+ ms \(endgültig\)$/.test(z)));
   await warte(300);
   ck('… keine weitere Bridge', p.starts() === 1 && p.kern.kurz().zustand === 'fehler');
   ck('… „Erneut beitreten“ führt wieder ins Meeting, Anna wird abonniert', ok(await p.kern.erneut())
-    && (await bis(() => p.kern.kurz().zustand === 'im_meeting' && p.kern.kurz().quellen === 1, 4000)) && p.starts() === 2);
+    && (await bis(() => p.kern.kurz().zustand === 'im_meeting' && laufendeZahl(p) === 1, 4000)) && p.starts() === 2);
   await p.aufraeumen();
 }
 
