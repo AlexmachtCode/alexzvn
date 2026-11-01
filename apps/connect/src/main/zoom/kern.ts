@@ -296,6 +296,11 @@ const AUFBAU_FEHLER: ReadonlySet<string> = new Set<SlotFehler>([
   'slotRawRecordingFailed', 'slotSenderFailed', 'slotRendererFailed', 'slotNameTaken', 'slotBadName', 'slotBadMode',
   'slotBadResolution', 'slotBadAudio', 'slotBadFallback', 'slotBadFlag', 'slotBadTarget',
 ]);
+/**
+ * Nachtrag B (I-2): Antworten der Bridge auf ein slotOn, die keinen Sender anlegen (6.2, Zeile slotOn): die Aufbaufehler,
+ * `slotNoPrivilege` und `slotReconnecting`. Jedes slotOn bekommt genau eine Antwort: einen Sender oder einen Fehler mit dieser Nummer.
+ */
+const SLOTON_ABLEHNUNG: ReadonlySet<string> = new Set<string>([...AUFBAU_FEHLER, 'slotNoPrivilege', 'slotReconnecting']);
 const istSlotFehler = (code: string): code is SlotFehler => Object.prototype.hasOwnProperty.call(SLOT_FEHLER_TEXT, code);
 /** So viele Sprecher-Signale hält das Abbild (7.8, T65). */
 const SPRECHER_SIGNALE_MAX = 20;
@@ -305,7 +310,10 @@ function ohneEv(ev: BridgeEvent): Record<string, unknown> {
 }
 type StatusEreignis = { ev: 'status'; status: MeetingStatusName; code: number };
 type PrivilegEreignis = { ev: 'privilege'; canRecordRaw: boolean; source: 'broadcast' | 'requestAnswer' | 'check'; requested?: boolean; denied?: boolean; timedOut?: boolean };
-type SlotEreignis = { ev: 'slot'; slot: number; state: SlotState; mode: SlotMode; target: number; share: number; reason: SlotReason; sent: SlotSent };
+/** `ndi`: NDI-Name des Senders, wie ihn die Bridge führt (6.3); Connect vergleicht ihn mit dem des Slots (Nachtrag B, I-3). */
+type SlotEreignis = {
+  ev: 'slot'; slot: number; state: SlotState; mode: SlotMode; target: number; share: number; reason: SlotReason; sent: SlotSent; ndi: string;
+};
 type SlotTonEreignis = {
   ev: 'slotAudio'; slot: number; state: AudioState; source: SlotAudioSource; configured: SlotAudioSource; reason: SlotAudioReason;
   sampleRate?: number; channels?: number;
@@ -344,6 +352,14 @@ interface SlotIntern {
   /** persistentId der gezeigten Person beim Weggang ('' ohne) und der Vergleich bei ihrer Rückkehr (T62c, MS16). */
   wegPersistentId: string | null;
   rueckkehr: 'gleich' | 'verschieden' | 'fehlt' | null;
+  /**
+   * Nachtrag B (I-1, I-2): die Einstellungen, aus denen jedes gesendete und noch unbeantwortete `slotOn` gebaut wurde, älteste
+   * zuerst (die Bridge beantwortet sie der Reihe nach: mit einem Sender oder einem Fehler mit dieser Nummer). Solange eins offen
+   * ist, kann die Bridge noch einen Sender bauen; „Stopp“ und das Ende der Antwortfrist ändern daran nichts.
+   */
+  slotOnOffen: ZoomSlotEinstellung[];
+  /** I-1: Die Einstellung, die die Bridge für den laufenden Sender zuletzt bekam (`slotOn` oder `slotSet`); null ohne Sender. */
+  gesendet: ZoomSlotEinstellung | null;
 }
 type VorschauEreignis = { ev: 'preview'; slot: number; target: number; w: number; h: number; jpeg: string };
 /** Log 7.8: eine Zustandsart je Slot höchstens einmal je 2 s (B66), Messwerte je Minute, Sprecher-Signale je Sekunde gebündelt. */
@@ -451,6 +467,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let r5Offen = false;
   /** Alle angelegten Slots nach Nummer (Slot-Spec 7.1, E1): dauerhafte aus den Einstellungen, vorübergehende nur hier (7.2). */
   const slots = new Map<number, SlotIntern>();
+  /**
+   * Verdeckt reservierte Nummern (Nachtrag B, I-2 bis I-5; Ruling R11): Die Bridge hält oder baut unter dieser Nummer einen
+   * Sender, der zu keinem Connect-Slot gehört (der Slot wurde gelöscht, während sein slotOn unbeantwortet war, die Nummer kennt
+   * Connect nicht, oder der Sender trägt einen anderen NDI-Namen). slotAnlegen, freieNummer und zoom_load überspringen sie, ein
+   * Slot mit dieser Nummer startet nicht. Sie fällt mit `slot off` oder `slotNotOn` dieser Nummer und mit dem Ende von `gen`.
+   * `slotOff`: schon gesendet (einmal je Sender). Kein Spiegel von Session.slots: Hier steht nur, was keinem Slot gehört.
+   */
+  const reserviert = new Map<number, { gen: number; slotOff: boolean }>();
   /** Ein setze…() der Einstellungen lieferte false: Werte gelten nur für diese Sitzung (T92). */
   let nurSitzung = false;
   /** Beitrittsfolge je Teilnehmer dieser Sitzung (7.3 Nr. 5): Einträge aus `roster` 0, jedes `joined` die nächste Zahl. */
@@ -525,7 +549,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return {
       e, voruebergehend, anNurMeeting: false, s: { ...SITZUNG_LEER }, bridge: null, slotOffGesendet: false, frist: null, ton: null,
       fehler: null, gescheitertText: null, aboFehlerName: null, tonGemerkt: null, loeschen: false, mess: null,
-      log: { art: '', zeiten: new Map(), minute: 0 }, wegPersistentId: null, rueckkehr: null,
+      log: { art: '', zeiten: new Map(), minute: 0 }, wegPersistentId: null, rueckkehr: null, slotOnOffen: [], gesendet: null,
     };
   }
 
@@ -1233,6 +1257,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       .then(() => {
         // 6.9: Kehrt stop() zurück, gehören die Sender dieser Generation nicht mehr zum Abbild (Slot-Spec 7.3 Nr. 10).
         for (const x of slots.values()) if (x.bridge?.gen === gen) senderWeg(x);
+        // Nachtrag B (I-2): Mit der Generation enden ihre unbeantworteten slotOn und ihre verdeckten Reservierungen. Eine neue
+        // Generation startet erst danach (starteBridge wartet auf stopps), die offenen slotOn gehören also zu dieser.
+        for (const x of slots.values()) x.slotOnOffen = [];
+        for (const [nr, r] of reserviert) if (r.gen === gen) reserviert.delete(nr);
         stopps.delete(gen);
         ohneProzess.delete(gen);
         if (aktiveBridge === b) {
@@ -1300,7 +1328,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       fristBeantwortet(x);
       fehlerWeg(x);
       x.s = sitzungNach(x.s, 'neueBridge');
+      x.slotOnOffen = [];
     }
+    // Nachtrag B (I-2): Alle früheren Generationen sind beendet (oben abgewartet), ihre Reservierungen gelten nicht mehr.
+    reserviert.clear();
     tonAboFehler = null;
     // 7.7: Eine neue Bridge richtet die Vorschau neu ein; die Uhr ihrer Freigabe-Rückrufe beginnt bei 0 (7.8).
     vorschauVerfuegbar = true;
@@ -1397,8 +1428,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   /** Ereignisse einer Bridge im Abbau oder alter Generation (6.9): nur Sender dieser Generation abbauen, sonst Log (PK22). */
   function abbauEreignis(gen: number, ev: BridgeEvent): void {
     if (ev.ev === 'slot' && (ev as unknown as SlotEreignis).state === 'off') {
-      const x = slots.get((ev as unknown as SlotEreignis).slot);
+      const nr = (ev as unknown as SlotEreignis).slot;
+      const x = slots.get(nr);
       if (x && x.bridge?.gen === gen) senderWeg(x);
+      if (reserviert.get(nr)?.gen === gen) reserviert.delete(nr);
       return;
     }
     if (ev.ev === 'slotAudio' && (ev as unknown as SlotTonEreignis).state === 'off') {
@@ -1837,6 +1870,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     x.bridge = null;
     x.ton = null;
     x.slotOffGesendet = false;
+    x.gesendet = null;
     // 10.7 (B55): Messzeile und Messwerte gehören zum Sender.
     x.mess = null;
     messwerte.slots = messwerte.slots.filter((m) => m.slot !== x.e.nr);
@@ -1851,11 +1885,56 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     x.aboFehlerName = null;
   }
 
-  /** `zoom_unload` (7.2): Ein vorübergehender Slot verschwindet, sobald kein Sender und keine Antwortfrist mehr besteht. */
+  /**
+   * `zoom_unload` (7.2): Ein vorübergehender Slot verschwindet, sobald kein Sender und keine Antwortfrist mehr besteht. Ist sein
+   * slotOn dann noch unbeantwortet (Fristablauf), geht zuerst slotOff hinaus und die Nummer bleibt reserviert (Nachtrag B, I-5).
+   */
   function loeschenWennFrei(x: SlotIntern): void {
     if (!x.loeschen || x.bridge !== null || x.frist !== null || slots.get(x.e.nr) !== x) return;
-    slots.delete(x.e.nr);
+    slotEntfernen(x, true);
     d.log(`[zoom] Slot ${x.e.nr} gelöscht (vorübergehend)`);
+  }
+
+  /**
+   * Löscht einen Slot für den Bediener sofort (Karte, Zählung, STATE). Hält oder baut die Bridge für ihn noch einen Sender
+   * (Sender bekannt oder ein slotOn unbeantwortet), bleibt seine Nummer verdeckt reserviert (Nachtrag B, I-2), und mit
+   * `mitSlotOff` geht vorher slotOff hinaus (I-5, I-6): Die Bridge arbeitet der Reihe nach, das slotOff stoppt also auch einen
+   * Sender, den das unbeantwortete slotOn erst noch baut, oder sie antwortet slotNotOn. Ohne `mitSlotOff` (Sitzungsende) wird
+   * die Bridge ohnehin gestoppt; die Reservierung endet mit ihrer Generation.
+   */
+  function slotEntfernen(x: SlotIntern, mitSlotOff: boolean): void {
+    const nr = x.e.nr;
+    fristBeantwortet(x);
+    if (slots.get(nr) === x) slots.delete(nr);
+    const gen = x.bridge?.gen ?? (x.slotOnOffen.length > 0 ? aktiveGen : null);
+    if (gen === null) return;
+    const r = { gen, slotOff: x.slotOffGesendet };
+    reserviert.set(nr, r);
+    if (!mitSlotOff || r.slotOff || gen !== aktiveGen || !sende({ cmd: 'slotOff', slot: nr })) return;
+    r.slotOff = true;
+    d.log(`[zoom] Slot ${nr} wird gestoppt (Antwort steht aus)`);
+  }
+
+  /**
+   * I-3, I-4 (Nachtrag B): Die Bridge meldet unter `nr` einen Sender, der keinem Connect-Slot gehört. Die Nummer bleibt
+   * reserviert; slotOff geht einmal je Sender hinaus, keine Flut. Die Logzeile nennt nur Nummer und Anlass (GG21).
+   */
+  function fremderSender(nr: number, anlass: string): void {
+    let r = reserviert.get(nr);
+    if (r === undefined) {
+      r = { gen: aktiveGen, slotOff: false };
+      reserviert.set(nr, r);
+    }
+    if (r.slotOff || !sende({ cmd: 'slotOff', slot: nr })) return;
+    r.slotOff = true;
+    d.log(`[zoom] Slot ${nr}: fremder Sender (${anlass}), wird gestoppt`);
+  }
+
+  /** Die Bridge hält unter `nr` nachweislich keinen Sender mehr (slot off, slotNotOn): Nummer frei; ein eingeschalteter Slot plant neu (I-4). */
+  function reservierungFrei(nr: number): void {
+    if (!reserviert.delete(nr)) return;
+    d.log(`[zoom] Slot ${nr}: Nummer wieder frei`);
+    if (slots.get(nr)?.e.an) abgleichen();
   }
 
   /**
@@ -1869,7 +1948,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       fehlerWeg(x);
       x.s = sitzungNach(x.s, ereignis);
       const folgen = slotEndetMitMeeting(x, ereignis);
-      if (folgen === 'loeschen') slots.delete(nr);
+      // Nachtrag B (I-2): ohne slotOff, die Bridge wird ohnehin gestoppt; die Nummer bleibt bis zum Ende ihrer Generation reserviert.
+      if (folgen === 'loeschen') slotEntfernen(x, false);
       else if (folgen === 'ausschalten') {
         x.e = { ...x.e, an: false };
         x.anNurMeeting = false;
@@ -2011,9 +2091,18 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   function slotEreignis(e: SlotEreignis): void {
     const x = slots.get(e.slot);
-    if (x === undefined) return;
+    // I-2, I-3 (Nachtrag B): Für eine Nummer ohne Connect-Slot oder mit fremdem Sender gibt es keine Lage, nur slotOff bzw. das
+    // Ende der Reservierung (danach plant ein eingeschalteter Slot dieser Nummer neu).
+    if (x === undefined || reserviert.has(e.slot)) {
+      if (x !== undefined) fristBeantwortet(x);
+      if (e.state === 'off') reservierungFrei(e.slot);
+      else fremderSender(e.slot, e.state);
+      return;
+    }
     fristBeantwortet(x);
     if (e.state === 'off') {
+      // Die Bridge arbeitet der Reihe nach: Nach diesem slot off baut kein früher gesendetes slotOn mehr einen Sender.
+      x.slotOnOffen = [];
       senderWeg(x);
       if (e.reason === 'privilegeRevoked') {
         d.log(`[zoom] Slot ${e.slot} gestoppt (Entzug)`);
@@ -2025,8 +2114,19 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       r5Pruefen();
       return;
     }
-    // 10.7 (B55): neues Ziel, neue Freigabe oder neuer Modus → Messzeile neu; ohne Bild gilt die letzte Größe (T51c).
     const vorher = x.bridge;
+    if (e.ndi !== x.e.ndiName) {
+      // I-3 (Nachtrag B): Ein Sender mit anderem NDI-Namen gehört nicht zu diesem Slot (etwa die späte Antwort auf ein slotOn mit
+      // dem alten Namen). Er wird nicht übernommen; ohne bekannten Sender ist er die Antwort auf das älteste offene slotOn.
+      if (vorher === null) x.slotOnOffen.shift();
+      else senderWeg(x);
+      fremderSender(e.slot, e.state);
+      r5Pruefen();
+      return;
+    }
+    // I-1: Die erste Antwort übernimmt die Einstellung des ältesten offenen slotOn; danach zieht nachziehen() nach.
+    if (vorher === null) x.gesendet = x.slotOnOffen.shift() ?? { ...x.e };
+    // 10.7 (B55): neues Ziel, neue Freigabe oder neuer Modus → Messzeile neu; ohne Bild gilt die letzte Größe (T51c).
     if (vorher !== null && (vorher.target !== e.target || vorher.share !== e.share || vorher.mode !== e.mode)) x.mess = null;
     else if (e.state !== 'live' && x.mess?.geliefert) x.mess = { geliefert: null, zuletzt: { b: x.mess.geliefert.b, h: x.mess.geliefert.h } };
     x.bridge = { gen: aktiveGen, state: e.state, mode: e.mode, target: e.target, share: e.share, reason: e.reason, sent: e.sent };
@@ -2050,12 +2150,42 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // 7.3 Nr. 4: Ging der Slot aus, während sein slotOn unterwegs war („Stopp“, zoom_unload), stoppt ihn der Kern, sobald die
     // Bridge den Sender meldet (vorher kennt der Abgleich keinen Sender).
     if (!x.e.an) stoppSenden(x);
+    // I-1 (Nachtrag B, NB8): erste Antwort oder neuer Modus → Unterschied nachsenden und sofort abgleichen.
+    else if (vorher === null || vorher.mode !== e.mode) nachziehen(x);
     r5Pruefen();
+  }
+
+  /**
+   * I-1 (Nachtrag B, NB8): Was sich seit dem Bau des letzten slotOn oder slotSet geändert hat (Modus, Ton, Auflösung,
+   * Ersatzbild, ohne Kamera), geht als EIN slotSet nach, nur an einen laufenden Sender (B-EP21). Danach gleicht der Kern
+   * sofort ab: Ziel nach dem Moduswechsel, eine Person oder Handwahl, die während des slotOn kam (7.3 Nr. 5).
+   */
+  function nachziehen(x: SlotIntern): void {
+    const set = laufenderSender(x) && x.gesendet !== null ? slotSetFuer(x.gesendet, x.e) : null;
+    if (set !== null) {
+      if (set.mode === 'participant') zielMitnehmen(x, set);
+      if (sende(set)) {
+        x.gesendet = { ...x.e };
+        d.log(`[zoom] Slot ${x.e.nr}: slotSet nach der Antwort (${Object.keys(set).filter((k) => k !== 'cmd' && k !== 'slot').join(', ')})`);
+      }
+    }
+    abgleichen();
+  }
+
+  /** 7.3 Nr. 5: Der Wechsel auf Teilnehmer nimmt das Ziel gleich mit (sonst stünde der Slot bis zum nächsten Abgleich ohne). */
+  function zielMitnehmen(x: SlotIntern, set: Extract<Command, { cmd: 'slotSet' }>): void {
+    const z = teilnehmerZiel(x.e, x.s, abgleichTeilnehmer());
+    if (z.gewaehlteId !== x.s.gewaehlteId) x.s = { ...x.s, gewaehlteId: z.gewaehlteId, wegSeq: null };
+    set.id = z.ziel;
   }
 
   function slotTonEreignis(e: SlotTonEreignis): void {
     const x = slots.get(e.slot);
-    if (x === undefined) return;
+    // I-3 (Nachtrag B): Ton eines Senders, der keinem Connect-Slot gehört → slotOff, einmal je Sender; `off` folgt dem slot off.
+    if (x === undefined || reserviert.has(e.slot)) {
+      if (e.state !== 'off') fremderSender(e.slot, `slotAudio ${e.state}`);
+      return;
+    }
     x.ton = {
       state: e.state, reason: e.reason, source: e.source, configured: e.configured, rate: e.sampleRate ?? null, kanaele: e.channels ?? null,
     };
@@ -2074,6 +2204,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const x = typeof e.slot === 'number' ? slots.get(e.slot) : undefined;
     if (x) fristBeantwortet(x);
     const code = String(e.code);
+    if (e.where === 'slot' && typeof e.slot === 'number') {
+      // Nachtrag B (I-2): die Antwort auf das älteste offene slotOn ohne Sender (eine Ablehnung) bzw. auf ein weiteres (slotAlreadyOn).
+      if (x && (code === 'slotAlreadyOn' || (x.bridge === null && SLOTON_ABLEHNUNG.has(code)))) x.slotOnOffen.shift();
+      // I-4: slotAlreadyOn, während Connect für den Slot keinen Sender kennt: Der Sender dort ist fremd → slotOff, nach dem slot off neu.
+      if (code === 'slotAlreadyOn' && (x === undefined || x.bridge === null)) fremderSender(e.slot, code);
+      // slotNotOn: Die Bridge hält unter dieser Nummer keinen Sender (Antwort auf ein slotOff der Reservierung): Nummer frei.
+      else if (code === 'slotNotOn' && reserviert.has(e.slot)) reservierungFrei(e.slot);
+    }
     if (e.where === 'slot' && istSlotFehler(code)) {
       const text = SLOT_FEHLER_TEXT[code];
       if (code === 'slotSubscribeFailed') {
@@ -2126,6 +2264,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   /** slotOn senden und die Antwortfrist stellen (7.3 Nr. 2). Die Logzeile nennt Nummer und Modus, nie Namen (0.23). */
   function startSenden(x: SlotIntern, befehl: Extract<Command, { cmd: 'slotOn' }>): void {
     if (!sende(befehl)) return;
+    // Nachtrag B (I-1, I-2): Der Abgleich hat den Befehl eben aus x.e gebaut; bis zur Antwort kann die Bridge einen Sender bauen.
+    x.slotOnOffen.push({ ...x.e });
     d.log(`[zoom] Slot ${x.e.nr} startet (${x.e.modus})`);
     const gen = aktiveGen;
     x.frist = zeitgeber(f.aboAntwortMs, () => {
@@ -2159,9 +2299,12 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         voruebergehend: x.voruebergehend,
         anNurMeeting: x.anNurMeeting,
         s: { ...x.s, frist: x.frist !== null },
-        bridge: x.bridge === null ? null : {
+        bridge: x.bridge !== null ? {
           laeuft: true, imAbbau: x.slotOffGesendet || imAbbau.has(x.bridge.gen), mode: x.bridge.mode, target: x.bridge.target,
-        },
+        }
+          // I-4 (Nachtrag B): Unter dieser Nummer läuft ein fremder Sender, sein slotOff ist gesendet (7.3 Nr. 10: nichts planen
+          // bis zu dessen slot off, danach plant reservierungFrei neu). So entsteht weder T14 auf Dauer noch eine slotOn-Flut.
+          : reserviert.has(x.e.nr) ? { laeuft: false, imAbbau: true, mode: MODUS_ZU_BRIDGE[x.e.modus], target: 0 } : null,
       })),
     };
   }
@@ -2254,8 +2397,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   function slotAnlegen(): ZoomErgebnis & { nr?: number } {
-    let nr = 1;
-    while (slots.has(nr)) nr += 1;
+    const nr = freieNummer();
     if (nr > SLOT_NR_MAX) return { ok: false, text: SLOT_TEXT.hoechstens };
     const e = neuerSlot(nr, d.einstellungen.vorgaben(), [...slots.values()].map((x) => x.e.ndiName));
     slots.set(nr, neuerIntern(e));
@@ -2280,17 +2422,16 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // 7.3 Nr. 5, 7 (RR9): Mit der Person fallen gewaehlteId, wegSeq, personJetzt und zeigteSchon, mit dem Modus zeigteSchon.
     if (neu.person !== x.e.person) x.s = sitzungNach(x.s, 'personGeaendert');
     if (neu.modus !== x.e.modus) x.s = sitzungNach(x.s, 'modusGeaendert');
-    const set = laufenderSender(x) ? slotSetFuer(x.e, neu) : null;
+    // Nachtrag B (I-1): der Unterschied zu dem, was die Bridge zuletzt bekam; ohne laufenden Sender zieht nachziehen() ihn nach.
+    const set = laufenderSender(x) ? slotSetFuer(x.gesendet ?? x.e, neu) : null;
     x.e = neu;
-    if (set !== null && set.mode === 'participant') {
-      // 7.3 Nr. 5: Der Wechsel auf Teilnehmer nimmt das Ziel gleich mit (sonst stünde der Slot bis zum nächsten Abgleich ohne).
-      const z = teilnehmerZiel(neu, x.s, abgleichTeilnehmer());
-      if (z.gewaehlteId !== x.s.gewaehlteId) x.s = { ...x.s, gewaehlteId: z.gewaehlteId, wegSeq: null };
-      set.id = z.ziel;
-    }
+    if (set !== null && set.mode === 'participant') zielMitnehmen(x, set);
     if (!x.voruebergehend) speichern();
     d.log(`[zoom] Slot ${nr} geändert (${Object.keys(aenderung).sort().join(', ')})`);
-    if (set !== null && sende(set)) d.log(`[zoom] Slot ${nr}: slotSet (${Object.keys(set).filter((k) => k !== 'cmd' && k !== 'slot').join(', ')})`);
+    if (set !== null && sende(set)) {
+      x.gesendet = { ...neu };
+      d.log(`[zoom] Slot ${nr}: slotSet (${Object.keys(set).filter((k) => k !== 'cmd' && k !== 'slot').join(', ')})`);
+    }
     gastWarnung(nr, warnung);
     abgleichen();
     return { ok: true };
@@ -2448,8 +2589,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const x = slots.get(nr);
     if (x === undefined) return { ok: false, text: '' };
     if (x.e.an || x.bridge !== null) return { ok: false, text: SLOT_TEXT.loeschenGesperrt };
-    fristBeantwortet(x);
-    slots.delete(nr);
+    // I-2, I-6 (Nachtrag B): Ist sein slotOn noch unbeantwortet („Stopp“ im Flug), bleibt die Nummer reserviert und slotOff geht hinaus.
+    slotEntfernen(x, true);
     if (!x.voruebergehend) speichern();
     d.log(`[zoom] Slot ${nr} gelöscht`);
     abbildGeaendert();
@@ -2474,10 +2615,13 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return { ...neuerSlot(nr, d.einstellungen.vorgaben(), belegt), ndiName: uebergangsNdiName(anzeigename, belegt), person: anzeigename, an: true };
   }
 
-  /** Kleinste freie Slot-Nummer; über SLOT_NR_MAX, wenn alle belegt sind (vorübergehende eingerechnet). */
+  /**
+   * Kleinste freie Slot-Nummer; über SLOT_NR_MAX, wenn alle belegt sind (vorübergehende eingerechnet). Verdeckt reservierte
+   * Nummern sind belegt, bis die Bridge für sie keinen Sender mehr hält (Nachtrag B, I-2).
+   */
   function freieNummer(): number {
     let nr = 1;
-    while (slots.has(nr)) nr += 1;
+    while (slots.has(nr) || reserviert.has(nr)) nr += 1;
     return nr;
   }
 

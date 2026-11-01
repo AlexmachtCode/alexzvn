@@ -962,9 +962,12 @@ console.log('— PK32 · Vorübergehender Slot „Behalten“: dauerhaft, gespei
   await p.aufraeumen();
 }
 // ── Plan B, Task B14: Erlaubnis, Entzug, Wiederbeitritt, Zoom verbindet neu, Fehlerstände, Hinweise, Ton-Abo-Fehler ──
-/** Ein `slot`-Ereignis, wie es die Bridge `startNr` meldet (eingespeist, PK29). */
+/**
+ * Ein `slot`-Ereignis, wie es die Bridge `startNr` meldet (eingespeist, PK29). Mit `ndi` wie jedes Ereignis der Bridge (6.3): Der
+ * Name eines Slots aus slotEinst ist „Zoom {nr}“; ein Ereignis mit anderem Namen gehört nicht zum Slot (Nachtrag B, I-3).
+ */
 function slotEv(slot: number, state: string, target: number, reason: string, mode = 'participant'): Record<string, unknown> {
-  return { ev: 'slot', slot, state, mode, target, share: 0, reason, sent: state === 'live' ? 'none' : 'transparent' };
+  return { ev: 'slot', slot, state, mode, target, share: 0, reason, sent: state === 'live' ? 'none' : 'transparent', ndi: `Zoom ${slot}` };
 }
 const T104_ABO = 'Ton nicht verfügbar (AUDIO_SUBSCRIBE_FAILED) — das Bild läuft ohne Ton. Für einen neuen Versuch den Ton aus- und wieder einschalten.';
 
@@ -1967,6 +1970,206 @@ console.log('— PK27 · macOS: keine zoom_*-Schlüssel, kein Slot-Aufruf an ein
   const aboAlt = treffer(tests, new RegExp('FAKE_' + "ABO_FEHLER: *'[^':]*'"));
   ck('B23 A-EP7: Connect-Tests setzen den Abo-Fehler der Attrappe nur im Format „nr:sdk“', aboAlt.length === 0);
   if (aboAlt.length) console.log(`      Treffer: ${aboAlt.join(' / ')}`);
+}
+
+// ── Nachtrag B zu Plan B: Slot-Wahrheit nach später Antwort (NB8, I-1), Nummer bis slot off reserviert (NB2/NB7, I-2 bis I-6) ──
+/** Was die Attrappe `startNr` nach ihren eigenen Ereignissen hält (wie Session.slots): je Sender NDI-Name, Modus, Ziel, Ton. */
+interface AttrappenSender { ndi: string; mode: string; target: number; state: string; sent: string; ton: string }
+function sender(p: Probe, startNr = 1): Map<number, AttrappenSender> {
+  const m = new Map<number, AttrappenSender>();
+  for (const { startNr: n, ev } of p.ereignisse) {
+    if (n !== startNr) continue;
+    const e = ev as unknown as Record<string, unknown> & { slot: number };
+    if (e.ev === 'slot') {
+      if (e.state === 'off') m.delete(e.slot);
+      else {
+        m.set(e.slot, {
+          ton: m.get(e.slot)?.ton ?? 'off/none', ndi: String(e.ndi), mode: String(e.mode), target: Number(e.target), state: String(e.state), sent: String(e.sent),
+        });
+      }
+    } else if (e.ev === 'slotAudio') {
+      const s = m.get(e.slot);
+      if (s) s.ton = `${String(e.state)}/${String(e.configured)}`;
+    }
+  }
+  return m;
+}
+/** Die Attrappe `startNr` hat für diese Nummer einen Sender gemeldet (die späte Antwort ist angekommen). */
+function meldeteSender(p: Probe, nr: number, startNr = 1): boolean {
+  return p.ereignisse.some((x) => x.startNr === startNr && x.ev.ev === 'slot'
+    && (x.ev as unknown as { slot: number }).slot === nr && (x.ev as unknown as { state: string }).state !== 'off');
+}
+const zaehle = (p: Probe, cmd: string, nr: number, startNr = 1): number => slotGesendet(p, startNr, nr).filter((c) => c.cmd === cmd).length;
+const TEILNEHMER_EREIGNISSE = ['joined', 'left', 'renamed', 'videoStatus'];
+/** Nach dem roster des Beitritts kam kein Teilnehmer-Ereignis (kein Auslöser des Abgleichs). */
+const keinTeilnehmerEreignis = (p: Probe): boolean => p.ereignisse.filter((x) => x.ev.ev === 'roster').length === 1
+  && !p.ereignisse.some((x) => TEILNEHMER_EREIGNISSE.includes(x.ev.ev));
+
+console.log('— NB8 · Slot-Wahrheit: was sich während des slotOn ändert, geht nach der Antwort als ein slotSet nach (I-1)');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna' })], stell: () => ({ FAKE_SLOT_SPAET: '1:500', FAKE_SPRECHER_FOLGE: `200:${BEN}` }) });
+  await insMeeting(p);
+  befehl(p, 'zoom_slot', '1', 'ON');
+  befehl(p, 'zoom_slot_mode', '1', 'sprecher');
+  ck('NB8 (1): ON und MODE sprecher im selben Tick (Companion) → die Bridge endet im Sprecher-Modus und zeigt den Sprecher Ben',
+    await bis(() => sender(p).get(1)?.mode === 'speaker' && sender(p).get(1)?.target === BEN && sender(p).get(1)?.state === 'live', 4000));
+  ck('… Kachel und zoom_slot1_mode stimmen mit der Bridge überein; ein slotOn, danach genau ein slotSet {mode: speaker}',
+    (await bis(() => lage(p, 1)?.text === 'Zeigt Ben (Sprecher).', 2000))
+    && (p.kern.stateKv() as Record<string, unknown> | null)?.zoom_slot1_mode === 'sprecher'
+    && (await warte(300), zaehle(p, 'slotOn', 1) === 1)
+    && JSON.stringify(slotGesendet(p, 1, 1).filter((c) => c.cmd === 'slotSet')) === JSON.stringify([{ cmd: 'slotSet', slot: 1, mode: 'speaker' }]));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna' })], stell: () => ({ FAKE_SLOT_SPAET: '1:500' }) });
+  await insMeeting(p);
+  befehl(p, 'zoom_slot', '1', 'ON');
+  befehl(p, 'zoom_slot_audio', '1', 'OFF');
+  ck('NB8 (2): ON und Ton aus im selben Tick → die Bridge endet ohne Ton und zeigt Anna',
+    await bis(() => sender(p).get(1)?.ton === 'off/none' && sender(p).get(1)?.target === ANNA && sender(p).get(1)?.state === 'live', 4000));
+  ck('… nach der Antwort genau ein slotSet {audio: off, shareAudio: false}; Kachel und zoom_slot1_audio sagen Ton aus',
+    (await warte(300), JSON.stringify(slotGesendet(p, 1, 1).filter((c) => c.cmd === 'slotSet'))
+      === JSON.stringify([{ cmd: 'slotSet', slot: 1, audio: 'off', shareAudio: false }]))
+    && slotKurz(p, 1)?.tonEin === false && lage(p, 1)?.einstellung.tonAn === false);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { modus: 'sprecher', an: true })], stell: () => ({ FAKE_SLOT_SPAET: '1:400', FAKE_SPRECHER_FOLGE: `100:${CARLA}`, FAKE_TEILNEHMER: '3' }),
+  });
+  await insMeeting(p);
+  ck('NB8 (3): der Sprecher-Slot läuft und zeigt Carla', await bis(() => sender(p).get(1)?.mode === 'speaker' && sender(p).get(1)?.target === CARLA
+    && lage(p, 1)?.zustand === 'zeigt', 4000));
+  befehl(p, 'zoom_slot_mode', '1', 'teilnehmer');
+  befehl(p, 'zoom_slot_person', '1', 'Ben');
+  ck('… MODE teilnehmer (Antwort verzögert), gleich danach PERSON Ben → die Bridge zeigt Ben ohne ein weiteres Teilnehmer-Ereignis',
+    await bis(() => sender(p).get(1)?.mode === 'participant' && sender(p).get(1)?.target === BEN && lage(p, 1)?.zustand === 'zeigt', 4000)
+    && keinTeilnehmerEreignis(p));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_SLOT_SPAET: '1:500', FAKE_DOPPELNAME: '1' }) });
+  await insMeeting(p);
+  ck('NB8 (4): zwei „Anna“ → das slotOn ohne Ziel ist unterwegs', (await bis(() => zaehle(p, 'slotOn', 1) === 1, 2000))
+    && slotGesendet(p, 1, 1)[0]?.id === 0 && !meldeteSender(p, 1));
+  ck('… Handwahl der zweiten „Anna“, während slotOn im Flug ist', ok(p.kern.slotPersonWaehlen(1, BEN)));
+  ck('… die Bridge zeigt die gewählte Person ohne ein weiteres Teilnehmer-Ereignis', await bis(() => sender(p).get(1)?.target === BEN
+    && sender(p).get(1)?.state === 'live', 4000) && keinTeilnehmerEreignis(p));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_SLOT_SPAET: '1:500' }) });
+  await insMeeting(p);
+  await bis(() => zaehle(p, 'slotOn', 1) === 1, 2000);
+  ck('NB8 (5): Auflösung 1080p und Ersatzbild schwarz, während slotOn im Flug ist → gespeichert, noch kein slotSet',
+    ok(p.kern.slotAendern(1, { aufloesung: '1080p', ersatzbild: 'schwarz' })) && gespeichert(p, 1)?.aufloesung === '1080p' && zaehle(p, 'slotSet', 1) === 0);
+  ck('… nach der Antwort genau ein slotSet mit beiden Feldern', (await bis(() => zaehle(p, 'slotSet', 1) === 1, 3000))
+    && JSON.stringify(slotGesendet(p, 1, 1).find((c) => c.cmd === 'slotSet')) === JSON.stringify({ cmd: 'slotSet', slot: 1, resolution: '1080p', fallback: 'black' }));
+  ck('… die Bridge endet richtig: mit der neuen Auflösung umgehängt (Ersatzbild schwarz), danach Bild; kein weiteres slotSet',
+    await bis(() => p.ereignisse.some((x) => x.ev.ev === 'slot' && (x.ev as unknown as { slot: number }).slot === 1
+      && (x.ev as unknown as { reason: string }).reason === 'resolutionChanged' && (x.ev as unknown as { sent: string }).sent === 'black')
+      && sender(p).get(1)?.state === 'live', 3000) && (await warte(300), zaehle(p, 'slotSet', 1) === 1));
+  await p.aufraeumen();
+}
+
+console.log('— NB2/NB7 · Slot-Wahrheit: kein Sender, den Connect nicht kennt; die Nummer bleibt bis slot off reserviert (I-2 bis I-6)');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_SLOT_SPAET: '1:500' }) });
+  await insMeeting(p);
+  await bis(() => zaehle(p, 'slotOn', 1) === 1, 2000);
+  ck('NB2/NB7 (6): „Stopp“ und „Löschen“, während slotOn im Flug ist → für den Bediener sofort weg (Karte, Zählung, STATE)',
+    ok(p.kern.slotStart(1, false)) && ok(p.kern.slotLoeschen(1)) && lage(p, 1) === undefined && slotKurz(p, 1) === undefined
+    && p.kern.kurz().slotsAn === 0 && p.einst.slots.length === 0);
+  ck('… die späte Antwort baut den Sender, Connect stoppt ihn mit genau einem slotOff; am Ende hält die Bridge keinen Sender',
+    (await bis(() => meldeteSender(p, 1) && sender(p).size === 0, 4000)) && (await warte(300), zaehle(p, 'slotOff', 1) === 1) && lage(p, 1) === undefined);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_SLOT_SPAET: '1:1200' }), fristen: { aboAntwortMs: 400 } });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  befehl(p, 'zoom_unload', 'Ben');
+  ck('NB2/NB7 (7): zoom_load Ben, gleich zoom_unload → der vorübergehende Slot wartet auf die Antwort', lage(p, 1)?.voruebergehend === true
+    && lage(p, 1)?.einstellung.an === false && zaehle(p, 'slotOn', 1) === 1);
+  ck('… Fristablauf vor der Antwort: zuerst slotOff, dann gelöscht', (await bis(() => lage(p, 1) === undefined, 2000)) && zaehle(p, 'slotOff', 1) === 1
+    && p.logs.indexOf('[zoom] Slot 1 wird gestoppt (Antwort steht aus)') >= 0
+    && p.logs.indexOf('[zoom] Slot 1 wird gestoppt (Antwort steht aus)') < p.logs.indexOf('[zoom] Slot 1 gelöscht (vorübergehend)'));
+  ck('… die späte Antwort hinterlässt keinen Sender', await bis(() => meldeteSender(p, 1) && sender(p).size === 0, 3000));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ stell: () => ({ FAKE_SLOT_STUMM: '1' }), fristen: { aboAntwortMs: 400 } });
+  await insMeeting(p);
+  befehl(p, 'zoom_load', 'Ben');
+  befehl(p, 'zoom_unload', 'Ben');
+  ck('NB2/NB7 (7, Antwort nie): Fristablauf → slotOff, dann gelöscht', (await bis(() => lage(p, 1) === undefined, 2000)) && zaehle(p, 'slotOff', 1) === 1);
+  ck('… die Bridge hält keinen Sender (slotNotOn): die Nummer ist wieder frei, zoom_load Anna bekommt die 1',
+    (await bis(() => p.ereignisse.some((x) => x.ev.ev === 'error' && (x.ev as unknown as { code: string }).code === 'slotNotOn'), 2000))
+    && (befehl(p, 'zoom_load', 'Anna'), lage(p, 1)?.einstellung.person === 'Anna') && !meldeteSender(p, 1));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_SLOT_SPAET: '1:600' }) });
+  await insMeeting(p);
+  await bis(() => zaehle(p, 'slotOn', 1) === 1, 2000);
+  const neu = ok(p.kern.slotStart(1, false)) && ok(p.kern.slotLoeschen(1)) ? p.kern.slotAnlegen() : { ok: false };
+  ck('NB2/NB7 (8): Löschen im Flug, sofort „Slot hinzufügen“ → die 1 bleibt verdeckt reserviert, der neue Slot bekommt die 2',
+    neu.ok && 'nr' in neu && neu.nr === 2 && p.kern.abbild().slots.map((s) => s.einstellung.nr).join(',') === '2');
+  ck('… Person Ben und Start', ok(p.kern.slotAendern(2, { person: 'Ben' })) && ok(p.kern.slotStart(2, true)));
+  ck('… am Ende läuft genau ein Sender: Slot 2 unter „Zoom 2“ mit Ben; der späte Sender der 1 ist wieder weg', await bis(() => meldeteSender(p, 1)
+    && sender(p).size === 1 && sender(p).get(2)?.ndi === 'Zoom 2' && sender(p).get(2)?.target === BEN && lage(p, 2)?.zustand === 'zeigt', 4000));
+  ck('… der neue Slot übernahm den alten Sender nie (an die 1 nur slotOn und slotOff), danach ist die 1 wieder frei',
+    slotGesendet(p, 1, 1).map((c) => c.cmd).join(',') === 'slotOn,slotOff' && p.kern.slotAnlegen().nr === 1);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })] });
+  await insMeeting(p);
+  ck('NB2/NB7 (9): Slot 1 zeigt Anna', await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000));
+  // Connect verliert den Sender (eingespeistes slot off), die Attrappe hält ihn weiter: das neue slotOn trifft auf slotAlreadyOn.
+  p.einspeisen(1, { ev: 'slot', slot: 1, state: 'off', mode: 'participant', target: ANNA, share: 0, reason: 'command', sent: 'none', ndi: 'Zoom 1' });
+  ck('… slotAlreadyOn ohne bekannten Sender → slotOff, nach dessen slot off ein neues slotOn',
+    await bis(() => slotGesendet(p, 1, 1).map((c) => c.cmd).join(',') === 'slotOn,slotOn,slotOff,slotOn', 3000));
+  ck('… am Ende läuft der Slot mit dem richtigen NDI-Namen', await bis(() => lage(p, 1)?.zustand === 'zeigt' && sender(p).size === 1
+    && sender(p).get(1)?.ndi === 'Zoom 1' && sender(p).get(1)?.target === ANNA, 3000));
+  p.einspeisen(1, { ev: 'roster', list: [] });
+  await warte(600);
+  ck('… keine slotOn-Flut: ein späteres roster startet nichts', zaehle(p, 'slotOn', 1) === 3 && zaehle(p, 'slotOff', 1) === 1);
+  p.einspeisen(1, { ev: 'slot', slot: 9, state: 'starting', mode: 'participant', target: BEN, share: 0, reason: 'command', sent: 'transparent', ndi: 'Fremd 9' });
+  p.einspeisen(1, { ev: 'slot', slot: 9, state: 'live', mode: 'participant', target: BEN, share: 0, reason: 'frames', sent: 'none', ndi: 'Fremd 9' });
+  p.einspeisen(1, { ev: 'slotAudio', slot: 10, state: 'waiting', source: 'none', configured: 'mix', reason: 'command' });
+  p.einspeisen(1, { ev: 'slotAudio', slot: 10, state: 'live', source: 'mix', configured: 'mix', reason: 'packets' });
+  ck('I-3: Nicht-off-Ereignisse für Nummern ohne Connect-Slot → je Sender genau ein slotOff, keine Kachel; die Logzeile ohne NDI-Namen',
+    zaehle(p, 'slotOff', 9) === 1 && zaehle(p, 'slotOff', 10) === 1 && p.kern.abbild().slots.length === 1 && !p.logs.some((z) => z.includes('Fremd')));
+  ck('… beide Nummern sind reserviert, bis die Bridge antwortet (slotNotOn), dann wieder frei',
+    await bis(() => p.ereignisse.filter((x) => x.ev.ev === 'error' && (x.ev as unknown as { code: string }).code === 'slotNotOn').length === 2, 2000)
+    && (await warte(100), JSON.stringify(Array.from({ length: 9 }, () => p.kern.slotAnlegen().nr)) === JSON.stringify([2, 3, 4, 5, 6, 7, 8, 9, 10])));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_SLOT_SPAET: '1:500' }) });
+  await insMeeting(p);
+  await bis(() => zaehle(p, 'slotOn', 1) === 1, 2000);
+  ck('NB2/NB7 (10): „Stopp“, NDI-Name „Bühne Anna“ und „Start“, während das erste slotOn im Flug ist', ok(p.kern.slotStart(1, false))
+    && ok(p.kern.slotAendern(1, { ndiName: 'Bühne Anna' })) && ok(p.kern.slotStart(1, true)));
+  ck('… die späte Antwort trägt den alten NDI-Namen → genau ein slotOff; danach läuft genau ein Sender unter „Bühne Anna“ mit Anna',
+    (await bis(() => sender(p).size === 1 && sender(p).get(1)?.ndi === 'Bühne Anna' && sender(p).get(1)?.target === ANNA && lage(p, 1)?.zustand === 'zeigt', 5000))
+    && (await warte(300), zaehle(p, 'slotOff', 1) === 1)
+    && p.ereignisse.some((x) => x.ev.ev === 'slot' && (x.ev as unknown as { ndi: string }).ndi === 'Zoom 1'));
+  await p.aufraeumen();
+}
+console.log('— NB8 · Gegenfall ohne Verzögerung: ein normaler Start bleibt bei genau einem slotOn je Slot');
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true }), slotEinst(2, { modus: 'sprecher', an: true }), slotEinst(3, { modus: 'freigabe', an: true })],
+    stell: () => ({ FAKE_TEILNEHMER: '3', FAKE_SPRECHER_FOLGE: `200:${BEN}`, FAKE_FREIGABEN: `300:${CARLA}:101:begin` }),
+  });
+  await insMeeting(p);
+  ck('NB8 (11): alle drei Slots zeigen Bild', await bis(() => [1, 2, 3].every((nr) => lage(p, nr)?.zustand === 'zeigt'), 4000));
+  await warte(600);
+  ck('… je Slot genau ein slotOn, kein slotSet und kein slotOff (Befehlszählung)',
+    slotGesendet(p, 1).map((c) => `${String(c.cmd)} ${String(c.slot)}`).join(',') === 'slotOn 1,slotOn 2,slotOn 3');
+  await p.aufraeumen();
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
