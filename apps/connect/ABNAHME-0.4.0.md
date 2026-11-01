@@ -104,8 +104,11 @@ T-Nummern verweisen auf die Texttabelle der Spec (T1 bis T106 in Abschnitt 9, T1
 | # | Schritt | Erwartung | Ergebnis |
 | --- | --- | --- | --- |
 | I1 | Slot ein/aus/umschalten, Modus, Person, Ton je Slot; Variablen und Feedbacks ansehen; alte Befehle `zoom_load`, `zoom_unload`, `zoom_delay`; 17 verschiedene Namen nacheinander laden und entladen; `zoom_load` auf den Namen eines ausgeschalteten dauerhaften Slots (Restrunde RR7) | alles wirkt; `zoom_slot{n}_target` nennt die gezeigte Person; alte Befehle wie in 0.3.0 (vorübergehende Slots, kein F14); der dauerhafte Slot zeigt T96b und ist nach dem Meeting-Ende (J3) wieder aus | |
+| I1 Zusatz | Feldprobe, kein Spec-Schritt (Nachtrag B, NB8): eine Companion-Taste mit den zwei Aktionen `ZOOM_SLOT n ON` und `ZOOM_SLOT_MODE n sprecher` an einem ausgeschalteten Teilnehmer-Slot | Bridge und Kachel zeigen Sprecher: die Kachel „Zeigt … (Sprecher).“ mit der sprechenden Person, `zoom_slot{n}_mode` = sprecher, im Switcher wechselt das Bild der Quelle mit dem Sprecher | |
 
 ## J · Abbau
+
+**Nur im Testmeeting, nie auf Sendung:** J1 bis J3 entziehen die Aufnahme-Erlaubnis, trennen das Netz für 60 s und beenden das Meeting; sie stören jedes laufende Meeting (Hinweis aus Nachtrag B, NB26; die Schritte selbst stehen wörtlich wie in der Spec).
 
 | # | Schritt | Erwartung | Ergebnis |
 | --- | --- | --- | --- |
@@ -113,6 +116,7 @@ T-Nummern verweisen auf die Texttabelle der Spec (T1 bis T106 in Abschnitt 9, T1
 | J2 | Netzwerkkabel 60 s ziehen | Z10/Z11, danach laufen die Slots wieder; notieren, ob der Switcher selbst neu verbindet (MS17) | |
 | J3 | Kurz vorher per Companion `zoom_load <Name C>` (vorübergehender Slot, T96); dann beendet der Host das Meeting, **während** eine Freigabe und ein Sprecher-Slot laufen; dann Beenden aus dem Tray (Nachbesserung B34; Sechste Runde RN8) | **kein Absturz der Bridge** (Log: kein Rückgabewert eines Absturzes, Muster `packages/zoom-bridge/ABNAHME-STAGE3.md:264-267`); nach dem Meeting-Ende, vor dem Beenden: die dauerhaften Slots stehen weiter in der Karte, der vorübergehende Slot für `<Name C>` ist weg (der aus A3b ging schon mit einem neuen Beitritt, A3b), der dauerhafte Slot aus I1 (`zoom_load`, T96b) ist wieder aus und ohne T96b (Fünfte Runde N7); Connect endet binnen 15 s; notieren, welche Rückrufe zwischen `disconnecting` und `ended` kamen (MS26) | |
 | J4 | Netzwerkkabel 5 s ziehen (Z10 kurz, wie A3 aus 0.3.0, `ABNAHME-0.3.0.md:33`; Nachbesserung B80) | Slots laufen weiter oder wieder; „vom SDK abgebaute Renderer“ aus T69 notieren (MS25); kein Absturz | |
+| J Zusatz | Feldprobe, kein Spec-Schritt (Nachtrag B, NB2/NB7; im Testmeeting): einen Slot starten und innerhalb von 2 s „Stopp“, „Löschen“, „Slot hinzufügen“ (Person eintragen) und „Start“ | Der neue Slot zeigt seine Person unter seinem NDI-Namen; kein verwaister Sender (im NDI-Monitor keine Quelle mehr mit dem NDI-Namen des gelöschten Slots) | |
 
 ## K · Lasttest (#261)
 

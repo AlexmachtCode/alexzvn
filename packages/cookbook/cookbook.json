@@ -1536,7 +1536,7 @@
           {
             "title": "Zoom-Slots (kurz)",
             "items": [
-              "Ein Slot ist ein fester Platz mit Nummer (1 bis 16) und eigenem NDI-Namen. Im Switcher ist er eine NDI-Quelle, die bestehen bleibt, auch wenn wechselt, wen der Slot zeigt.",
+              "Ein Slot ist ein fester Platz mit Nummer (1 bis 16) und eigenem NDI-Namen. Im Switcher ist er eine NDI-Quelle, die bestehen bleibt, auch wenn sich ändert, wen der Slot zeigt.",
               "Modus je Slot: „Teilnehmer“ (eine gewählte Person), „Aktiver Sprecher“ (wer gerade spricht, nie JM Connect selbst) oder „Bildschirmfreigabe“ (die neueste laufende Freigabe; bei Pause oder stehendem Bildschirm bleibt das letzte Bild stehen).",
               "Je Slot: Auflösung („360p“, „720p“, „1080p“), Ersatzbild, solange Zoom kein Bild liefert („transparent“, „eingefroren“, „schwarz“, „weiß“), Ton an oder aus mit der Tonart „Mischton“ (alle Mikrofone des Meetings) oder „Person“ (nur die gezeigte Person, nur im Modus Teilnehmer), bei Bildschirmfreigaben zusätzlich „Computerton der Freigabe“.",
               "Gespeicherte Slots bleiben samt Einstellungen am Rechner und starten im Meeting von selbst, sobald sie eingeschaltet sind und der Host die Aufnahme-Erlaubnis erteilt hat. Vorübergehende Slots (per Companion ZOOM_LOAD) gelten nur bis zum Ende des Meetings."
@@ -1548,7 +1548,7 @@
               "Kein Tally, kein Talkback/IFB und kein Mix-Minus je Zoom-Person: Zoom-Ton ist ein gemeinsamer Kanal. Das ist eine Grenze von Zoom.",
               "Nur Meetings im eigenen Zoom-Konto. Zwei Gründe, beide von Zoom: Eine nicht im Zoom Marketplace veröffentlichte App kommt nicht in Meetings fremder Konten (Code 63), und seit 02.03.2026 verlangt Zoom dafür zusätzlich ein OBF-Token (Codes 503/504).",
               "Ohne Aufnahme-Erlaubnis des Hosts läuft kein Slot. Entzieht der Host sie, stoppt Connect sofort Bild und Ton aller Slots.",
-              "Bis zu 16 Slots; gemessen sind 5 gleichzeitig laufende. Beim Einschalten des 6. fragt Connect einmal nach („Trotzdem einschalten“); die Zustimmung gilt, bis wieder höchstens 5 Slots eingeschaltet sind. Ob dieser Rechner mehr schafft, zeigen die Messwerte.",
+              "Bis zu 16 Slots; gemessen sind 5 gleichzeitig laufende. Beim Einschalten des 6. fragt Connect einmal nach („Trotzdem einschalten“); die Zustimmung gilt, bis wieder höchstens 5 Slots eingeschaltet sind. Über Companion fragt Connect nicht nach: ZOOM_SLOT … ON und ZOOM_LOAD schalten auch den 6. und jeden weiteren Slot ein, setzen die Zustimmung und melden unter „Hinweise“ „Companion: 6. Slot eingeschaltet — mehr als 5 sind nicht gemessen.“ (zoom_cmd f8, nicht abgelehnt). Ob dieser Rechner mehr schafft, zeigen die Messwerte.",
               "Rückkehr nur bei eindeutigem Namen: Verlässt die gezeigte Person das Meeting und kommt wieder, zeigt der Slot sie von selbst wieder, aber nur, wenn ihr Anzeigename im Meeting eindeutig ist; sonst wählt der Bediener an der Kachel („Welche Person?“).",
               "1080p nur, soweit Zoom liefert: Die Messzeile der Kachel zeigt, was wirklich ankommt, zum Beispiel „1080p gewünscht · Zoom liefert 1280×720 · 30 Bilder/s“.",
               "Kopfhörer tragen: Lautsprecher im selben Raum wie ein abonniertes Mikrofon erzeugen Echo.",
@@ -1605,7 +1605,7 @@
             "Verlässt die gezeigte Person das Meeting, zeigt der Slot sein Ersatzbild („Wartet auf Anna · Ersatzbild transparent“), und zoom_alarm steht auf 1. Kommt sie zurück, zeigt der Slot sie wieder, ohne dass die Quelle im Switcher verschwindet (bei eindeutigem Namen).",
             "Ein Slot auf eine Person, die in diesem Meeting nicht dabei ist, wartet still auf sie und hebt zoom_alarm nicht. Braucht ein Slot einen Eingriff (Name doppelt, Aufbau gescheitert, keine Antwort der Zoom-Bridge, Abo abgelehnt), nennt seine Kachel Grund und Handgriff, und zoom_alarm und zoom_slot{n}_alarm stehen auf 1.",
             "Entzieht der Host die Aufnahme-Erlaubnis, stoppt Connect sofort Bild und Ton aller Slots („Gestoppt: Der Host hat die Aufnahme-Erlaubnis entzogen. …“). Erteilt er sie wieder, startet Connect die eingeschalteten Slots von selbst.",
-            "Companion: Die Slot-Befehle wirken wie Start-Taste, Modus, Person und Ton der Kachel. Ein per ZOOM_LOAD angelegter Slot trägt an der Kachel das Kennzeichen „vorübergehend“ mit dem Knopf „Behalten“; „Behalten“ macht ihn zu einem gespeicherten Slot. Leuchtet „letzter Zoom-Befehl abgelehnt“, steht der Grund unter „Hinweise“ in der Karte.",
+            "Companion: Die Slot-Befehle wirken wie Start-Taste, Modus, Person und Ton der Kachel, nur ohne Nachfrage: Wird damit der 6. oder ein weiterer Slot eingeschaltet, schaltet Connect ihn ein und meldet „Companion: … Slot eingeschaltet — mehr als 5 sind nicht gemessen.“ (zoom_cmd f8). Ein per ZOOM_LOAD angelegter Slot trägt an der Kachel das Kennzeichen „vorübergehend“ mit dem Knopf „Behalten“; „Behalten“ macht ihn zu einem gespeicherten Slot. Leuchtet „letzter Zoom-Befehl abgelehnt“, steht der Grund unter „Hinweise“ in der Karte.",
             "„Messwerte“ (aufklappbar, unter den Slots) zeigt Last, Auflösung, Bildrate und Ton je Slot sowie die Sprecher-Signale; „Messwerte kopieren“ legt sie ohne Namen in die Zwischenablage, etwa für einen Fehlerbericht."
           ],
           "nach": [
@@ -1912,6 +1912,10 @@
             "remedy": "Der Grund steht unter „Hinweise“ in der Zoom-Karte, zum Beispiel „Companion: niemand namens … im Meeting.“ Namen prüfen und die Taste erneut drücken."
           },
           {
+            "risk": "„Companion: … Slot eingeschaltet — mehr als 5 sind nicht gemessen.“ (unter „Hinweise“)",
+            "remedy": "Ein Companion-Befehl (ZOOM_SLOT … ON oder ZOOM_LOAD) hat mehr als 5 Slots eingeschaltet. Über Companion fragt Connect nicht nach: Der Befehl ist ausgeführt (zoom_cmd f8, nicht abgelehnt), die Zustimmung gesetzt. Ob der Rechner es schafft, zeigen die Messwerte; sonst einen Slot ausschalten."
+          },
+          {
             "risk": "Ein Text endet mit „Details im Log“",
             "remedy": "Knopf „Logordner öffnen“ in der Zoom-Karte, dann main.log ansehen."
           }
@@ -1948,6 +1952,7 @@
         ],
         "tips": [
           "Companion-Tasten je Slot-Nummer anlegen, zum Beispiel ZOOM_SLOT 1 TOGGLE mit dem Feedback „Zoom-Slot zeigt Bild“ für Slot 1: Slot-Nummern und NDI-Namen bleiben über Meetings gleich, Zooms Teilnehmer-Kennungen nicht. Eine Person auf einen Slot legen: ZOOM_SLOT_PERSON 1 Anna Maria Beispiel.",
+          "Eine Companion-Taste fragt beim 6. eingeschalteten Slot nicht nach: Sie schaltet ihn ein und meldet nur die Warnung „Companion: 6. Slot eingeschaltet — mehr als 5 sind nicht gemessen.“ (zoom_cmd f8). Wer das vermeiden will, legt Start-Tasten auf höchstens 5 Slots.",
           "Doppelte Namen vorher vermeiden: Teilnehmer bitten, sich in Zoom eindeutig zu benennen (Handys heißen oft gleich, etwa „Samsung SM-…“). Sonst wählt der Bediener an der Kachel, mit Absicht: lieber ein Handgriff als die falsche Person.",
           "Das Feedback „Zoom braucht einen Eingriff“ (zoom_alarm) auf eine Taste legen. Es leuchtet bei Abriss, Fehler, fehlender Aufnahme-Erlaubnis und solange ein Slot einen Eingriff braucht; „Zoom-Slot braucht einen Eingriff“ zeigt dasselbe je Slot.",
           "Einen Browser-Gast nie so nennen wie den NDI-Namen eines Slots: Dann senden zwei Quellen unter demselben NDI-Namen. Die Kachel warnt („NDI-Name doppelt: Ein Browser-Gast sendet ebenfalls als …“).",
