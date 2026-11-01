@@ -2011,6 +2011,341 @@ console.log('— B8 · ST30–ST42, ST87, ST96, ST96b, ST98 wörtlich; Teilnehme
     !quelle.includes('von 16') && !quelle.includes('Höchstens 16'));
 }
 
+// ── Plan B, Task B9: Kopf, Tray, Karte, STATE je Slot; Messwert-, Sprecher-, Feld- und Bedientexte (Spec 9.1, 9.3–9.6, 10.3, 10.4, 8.2) ──
+console.log('— B9 · ST5–ST9, ST48, ST49, ST61–ST73, ST77, ST80–ST86, ST95 wörtlich; S7.5 Bedientexte (OFP2); Kennzeichen (OFP3)');
+{
+  const {
+    BEDIEN_TEXT, KANDIDAT_KENNZEICHEN, MAC_ZEILE, MESS_TEXT, SLOT_FELD, slotKartenZeile, slotTrayZeile, SPRECHER_TEXT, verlassenFrage,
+  } = await import('../src/shared/zoom-text');
+  type SE = import('../src/shared/zoom-text').SlotStatusEingabe;
+  const zahlen = (n: number, k: number, o: number, e: number, gestopptEntzug: number) => ({ n, k, o, e, a: 7, gestopptEntzug });
+  const tray = (z: ZoomZ, erlaubnis: ZoomErlaubnis, n: number, k = 0, e = 1, g = 0, o = g): string | null =>
+    slotTrayZeile({ z, erlaubnis, grund: null, zahlen: zahlen(n, k, o, e, g) });
+  const karte = (z: ZoomZ, erlaubnis: ZoomErlaubnis, n: number, k = 0, e = 1, g = 0, o = g): string | null =>
+    slotKartenZeile({ z, erlaubnis, grund: null, zahlen: zahlen(n, k, o, e, g) });
+  const SOLL: Array<[string, string | null, string]> = [
+    ['T5 (Feldname)', SLOT_FELD.aufloesung, 'Auflösung'],
+    ['T5 (Stufen)', Object.values(SLOT_FELD.aufloesungen).join(' · '), '360p · 720p · 1080p'],
+    ['T6 (Feldname)', SLOT_FELD.ton, 'Ton'],
+    ['T6 (Schalter)', `${SLOT_FELD.an}/${SLOT_FELD.aus}`, 'an/aus'],
+    ['T6 (Tonart)', Object.values(SLOT_FELD.tonArt).join(' · '), 'Mischton · Person'],
+    ['T7', SLOT_FELD.computerton, 'Computerton der Freigabe'],
+    ['T8', SLOT_FELD.ohneKamera, 'Teilnehmer ohne Kamera zeigen'],
+    ['T9', [SLOT_FELD.ndiName, SLOT_FELD.modus, SLOT_FELD.person, SLOT_FELD.einstellungen].join(' · '), 'NDI-Name · Modus · Person · Einstellungen'],
+    ['T48', SLOT_FELD.personPlatzhalter, 'Anzeigename in Zoom'],
+    ['T49', SLOT_FELD.welchePerson, 'Welche Person?'],
+    ['T61', MESS_TEXT.T61({ cpu: '12,5', sys: '3,1', mem: 412, q: 37, d: 0, mv: 2, hl: 1 }),
+      'Zoom-Bridge: 12,5 % eines Kerns · System 3,1 % · Arbeitsspeicher 412 MB · Ton-Warteschlange höchstens 37 Pakete, 0 verworfen · Zoom-Ereignisse verworfen 2 · zurückgehaltene Renderer 1'],
+    ['T62', MESS_TEXT.T62({ nr: 3, modus: 'sprecher', b: 1280, h: 720, fps: 25, ffps: 0, work: '4,2', copy: '0,8', prev: '1,1', mem: 18, res: '720p',
+      resSetName: 'SDKERR_SUCCESS', resGot: 2, pps: 50, md: 0, ms: 40 }),
+      'Slot 3 (Aktiver Sprecher): 1280×720, 25 Bilder/s, Ersatzbilder 0/s · Bridge-Anteil 4,2 ms/s (davon Kopie 0,8, Vorschau 1,1) · Speicher 18 MB · Auflösung 720p: SDKERR_SUCCESS, Renderer meldet 2 · Ton 50 Pakete/s, Mischer verworfen 0 ms, Stille eingefügt 40 ms'],
+    ['T62b', MESS_TEXT.T62b({ nr: 2, ub: 1280, uh: 720, hd: true, og: false, rv: { w: 1280, h: 720, fps: 30 }, rs: { w: 1920, h: 1080, fps: 12.5 } }),
+      'Slot 2: Zoom nennt als Videogröße 1280×720 · HD-Video an · Originalgröße aus · Meeting empfängt Video 1280×720, 30 Bilder/s, Freigabe 1920×1080, 12,5 Bilder/s'],
+    ['T62b (fehlende Werte)', MESS_TEXT.T62b({ nr: 2, ub: null, uh: 720, hd: null, og: null, rv: null, rs: null }),
+      'Slot 2: Zoom nennt als Videogröße unbekannt · HD-Video unbekannt · Originalgröße unbekannt · Meeting empfängt Video unbekannt, Freigabe unbekannt'],
+    ['T62c (gleich)', MESS_TEXT.T62c(4, 'gleich'), 'Rückkehr in Slot 4: persistentId gleich'],
+    ['T62c (verschieden)', MESS_TEXT.T62c(4, 'verschieden'), 'Rückkehr in Slot 4: persistentId verschieden'],
+    ['T62c (fehlt)', MESS_TEXT.T62c(4, 'fehlt'), 'Rückkehr in Slot 4: persistentId fehlt'],
+    ['T63', MESS_TEXT.T63({ b: 1920, h: 1080, fps: 15, rate: '32,0', kanaele: 'mono', p: 2, g: 31 }),
+      'Freigabe: 1920×1080, 15 Bilder/s · Computerton 32,0 kHz, mono · Pausen 2, gehaltene Bilder 31'],
+    ['T63c (Überschrift)', MESS_TEXT.T63c.titel, 'Freigabe-Rückrufe (letzte 10)'],
+    ['T63c (Spalten)', MESS_TEXT.T63c.spalten.join(' | '), 'Uhrzeit | Rückruf | Zustand | Person (Kennung) | Freigabe-Kennung | Typ'],
+    ['T64', MESS_TEXT.T64({ b: 1920, h: 1080, fps: 15 }), 'Freigabe: 1920×1080, 15 Bilder/s · kein Computerton angekommen'],
+    ['T64c', MESS_TEXT.T64c({ b: 1920, h: 1080, fps: 15, x: 412, k: 16778240 }),
+      'Freigabe: 1920×1080, 15 Bilder/s · Computerton kommt an (412 Pakete), lässt sich aber keiner Freigabe zuordnen (Kennung 16778240)'],
+    ['T64b (ok)', MESS_TEXT.T64b.ok, 'Laufende Freigaben beim Befüllen: erkannt'],
+    ['T64b (empty)', MESS_TEXT.T64b.empty, 'Laufende Freigaben beim Befüllen: keine gemeldet'],
+    ['T64b (unavailable)', MESS_TEXT.T64b.unavailable, 'Laufende Freigaben beim Befüllen: Zoom hat die Liste nicht geliefert'],
+    ['T65 (Überschrift)', MESS_TEXT.T65.titel, 'Sprecher-Signale (letzte 20)'],
+    ['T65 (Spalten)', MESS_TEXT.T65.spalten.join(' | '), 'Uhrzeit | Video-Sprecher | Aktives Video | Ton-Aktivität'],
+    ['T66', MESS_TEXT.T66({ a: 310, m: 280, x: 900, w: 12, ungeprueft: false }), 'Lücke beim Wechsel: zuletzt 310 ms · Median 280 ms · höchstens 900 ms (12 Wechsel)'],
+    ['T66 (w = 1, ohne Prüfung)', MESS_TEXT.T66({ a: 310, m: 310, x: 310, w: 1, ungeprueft: true }),
+      'Lücke beim Wechsel: zuletzt 310 ms · Median 310 ms · höchstens 310 ms (1 Wechsel) (ohne Prüfung der Quelle)'],
+    ['T67', MESS_TEXT.T67('2,5'), 'Wechsel pro Minute: 2,5'],
+    ['T68', MESS_TEXT.T68, 'Messwerte kopiert (ohne Namen).'],
+    ['T69', MESS_TEXT.T69({ f: 0, l: 3, t: 1, nsd: 4, r: 0, rl: 0, typ: 2 }),
+      'Zähler: fremde Bilder 0 · beim Umhängen verworfen 3 · zu häufige Aufrufe 1 · noch keine Freigabe-Daten 4 · neue Renderer 0 · vom SDK abgebaute Renderer 0 · Renderer-Typ 2'],
+    ['T70', SPRECHER_TEXT.signal.sprecherVideo, 'Video-Sprecher (onActiveSpeakerVideoUserChanged, Vorgabe)'],
+    ['T71', SPRECHER_TEXT.signal.aktivesVideo, 'Aktives Video (onActiveVideoUserChanged)'],
+    ['T72', SPRECHER_TEXT.signal.tonAktiv, 'Ton-Aktivität (onUserActiveAudioChange)'],
+    ['T73', SPRECHER_TEXT.T73(1500), 'Haltezeit: 1,5 s. So lange muss jemand sprechen, bevor der Sprecher-Slot wechselt.'],
+    ['T73 (ganze Sekunde)', SPRECHER_TEXT.T73(1000), 'Haltezeit: 1 s. So lange muss jemand sprechen, bevor der Sprecher-Slot wechselt.'],
+    ['T77', SLOT_FELD.vorgaben('720p', true), 'Vorgaben für neue Slots: 720p, Ton an.'],
+    ['T77 (Ton aus)', SLOT_FELD.vorgaben('1080p', false), 'Vorgaben für neue Slots: 1080p, Ton aus.'],
+    ['T80 (n = 1)', verlassenFrage(1), 'Ja, verlassen (1 Slot läuft)'],
+    ['T80 (n = 3)', verlassenFrage(3), 'Ja, verlassen (3 Slots laufen)'],
+    ['T81', SLOT_FELD.versatzZusatz, 'Gilt für Teilnehmer- und Sprecher-Slots, nicht für Bildschirmfreigaben.'],
+    ['T82 (Tray)', tray('Z7', 'entzogen', 0, 0, 1, 1), '△ Zoom: Aufnahme-Erlaubnis vom Host entzogen, Slots gestoppt'],
+    ['T82 (Karte)', karte('Z7', 'entzogen', 0, 0, 1, 1),
+      'Aufnahme-Erlaubnis vom Host entzogen, Slots gestoppt. Erteilt der Host sie im Zoom-Client wieder, startet Connect die eingeschalteten Slots von selbst.'],
+    ['T83 (Tray, n = 1)', tray('Z7b', 'abgelehnt', 1), '△ Zoom: 1 Slot läuft, Aufnahme-Erlaubnis fehlt'],
+    ['T83 (Tray, n = 2)', tray('Z7b', 'entzogen', 2), '△ Zoom: 2 Slots laufen, Aufnahme-Erlaubnis fehlt'],
+    ['T83 (Karte, n = 1)', karte('Z7b', 'abgelehnt', 1), 'Die Aufnahme-Erlaubnis fehlt (vom Host abgelehnt). 1 Slot läuft noch. Der Host kann sie im Zoom-Client erteilen.'],
+    ['T83 (Karte, n = 2)', karte('Z7b', 'offen', 2), 'Die Aufnahme-Erlaubnis fehlt (angefragt, noch keine Antwort). 2 Slots laufen noch. Der Host kann sie im Zoom-Client erteilen.'],
+    ['T83 (Karte, abgelaufen)', karte('Z7b', 'abgelaufen', 2), 'Die Aufnahme-Erlaubnis fehlt (keine Antwort bekommen). 2 Slots laufen noch. Der Host kann sie im Zoom-Client erteilen.'],
+    ['T83 (Karte, entzogen, n = 1)', karte('Z7b', 'entzogen', 1), 'Aufnahme-Erlaubnis vom Host entzogen. Connect stoppt 1 Slot …'],
+    ['T83 (Karte, entzogen, n = 2)', karte('Z7b', 'entzogen', 2), 'Aufnahme-Erlaubnis vom Host entzogen. Connect stoppt 2 Slots …'],
+    ['T84 (Tray)', tray('Z8', 'ja', 0), '○ Zoom: im Meeting, kein Slot läuft'],
+    ['T84 (Karte, e = 0)', karte('Z8', 'ja', 0, 0, 0), 'Im Meeting. Kein Slot läuft: Slots unten einschalten oder eine Person als Slot laden.'],
+    ['T84 (Karte, e > 0)', karte('Z8', 'ja', 0, 0, 6), 'Im Meeting. Kein Slot läuft; die Kacheln unten nennen den Grund.'],
+    ['T85 (Tray, n = 1)', tray('Z9', 'ja', 1), '● Zoom: 1 Slot läuft'],
+    ['T85 (Tray, n = 2)', tray('Z9', 'ja', 2), '● Zoom: 2 Slots laufen'],
+    ['T85 (Karte, n = 1)', karte('Z9', 'ja', 1), 'Im Meeting. 1 Slot läuft.'],
+    ['T85 (Karte, n = 2)', karte('Z9', 'ja', 2), 'Im Meeting. 2 Slots laufen.'],
+    ['T86 (Tray, n = 1)', tray('Z9b', 'ja', 1, 1), '● Zoom: 1 Slot läuft, mit Ersatzbild'],
+    ['T86 (Tray, n = 2)', tray('Z9b', 'ja', 2, 1), '● Zoom: 2 Slots laufen, 1 mit Ersatzbild'],
+    ['T86 (Karte, n = 1)', karte('Z9b', 'ja', 1, 1), 'Im Meeting. 1 Slot läuft, mit Ersatzbild; die Kachel nennt den Grund.'],
+    ['T86 (Karte, n = 2)', karte('Z9b', 'ja', 2, 1), 'Im Meeting. 2 Slots laufen, 1 davon mit Ersatzbild; die Kacheln nennen den Grund.'],
+    ['T95', MAC_ZEILE, 'Zoom-Slots gibt es nur unter Windows: Die Zoom-Bridge läuft nur dort.'],
+  ];
+  for (const [id, ist, soll] of SOLL) ck(`S${id} wörtlich`, ist === soll);
+  const BEDIEN: Array<[keyof typeof BEDIEN_TEXT, string]> = [
+    ['zoomSlots', 'Zoom-Slots'], ['slotHinzufuegen', 'Slot hinzufügen'], ['vorgaben', 'Vorgaben …'], ['vorschau', 'Vorschau'],
+    ['sprecherEinstellungen', 'Sprecher-Einstellungen …'], ['messwerte', 'Messwerte'], ['messwerteKopieren', 'Messwerte kopieren'],
+    ['behalten', 'Behalten'], ['loeschen', 'Löschen'],
+  ];
+  for (const [k, soll] of BEDIEN) ck(`S7.5 Bedientext „${soll}“ wörtlich (OFP2)`, BEDIEN_TEXT[k] === soll);
+  ck('S7.5 genau neun Bedientexte (OFP2)', Object.keys(BEDIEN_TEXT).length === 9);
+  ck('OFP3 Kennzeichen der Doppelname-Auswahl wie in der Teilnehmerliste: „Kamera aus“, „Host“, „im Warteraum“',
+    JSON.stringify(KANDIDAT_KENNZEICHEN) === JSON.stringify({ kameraAus: 'Kamera aus', host: 'Host', imWarteraum: 'im Warteraum' }));
+  // SlotZahlen aus B1 ist an `zahlen` übergebbar (sonst scheitert die Typprüfung dieses Tests)
+  const zB1: import('../src/main/zoom/slots').SlotZahlen = { n: 2, k: 0, o: 0, e: 2, a: 3, gestopptEntzug: 0 };
+  const se: SE = { z: 'Z9', erlaubnis: 'ja', grund: null, zahlen: zB1 };
+  ck('SlotZahlen (B1) passt an SlotStatusEingabe.zahlen', slotTrayZeile(se) === '● Zoom: 2 Slots laufen');
+}
+
+console.log('— B9 · Kopf, Tray und Karte 10.3 als Kreuzprodukt (10.5)');
+{
+  const { slotKartenZeile, slotTrayZeile } = await import('../src/shared/zoom-text');
+  type SE = import('../src/shared/zoom-text').SlotStatusEingabe;
+  const ALLE_Z: ZoomZ[] = ['Z0', 'Z1a', 'Z1b', 'Z2', 'Z3', 'Z4', 'Z5a', 'Z5b', 'Z6', 'Z7', 'Z7b', 'Z8', 'Z9', 'Z9b', 'Z10', 'Z11', 'Z12', 'Z13'];
+  const ERL: ZoomErlaubnis[] = ['offen', 'ja', 'entzogen', 'abgelehnt', 'abgelaufen'];
+  const GRUND: Record<string, string> = { offen: 'angefragt, noch keine Antwort', abgelehnt: 'vom Host abgelehnt', abgelaufen: 'keine Antwort bekommen' };
+  /** Passt (Erlaubnis, n, k) zur Zeile Z (zoomZ, Spec 7.1)? */
+  function passt(z: ZoomZ, erl: ZoomErlaubnis, n: number, k: number): boolean {
+    switch (z) {
+      case 'Z6': return erl === 'offen' && n === 0;
+      case 'Z7': return erl !== 'offen' && erl !== 'ja' && n === 0;
+      case 'Z7b': return erl !== 'ja' && n > 0;
+      case 'Z8': return erl === 'ja' && n === 0;
+      case 'Z9': return erl === 'ja' && n > 0 && k === 0;
+      case 'Z9b': return erl === 'ja' && n > 0 && k > 0;
+      default: return true;
+    }
+  }
+  /** 9.5 wörtlich: [Tray, Karte]; null = die bisherige Zeile gilt. */
+  function soll(e: SE): [string | null, string | null] {
+    const { n, k, e: an, gestopptEntzug } = e.zahlen;
+    const slots = (x: number): string => (x === 1 ? '1 Slot läuft' : `${x} Slots laufen`);
+    switch (e.z) {
+      case 'Z7':
+        return e.erlaubnis === 'entzogen' && gestopptEntzug > 0
+          ? ['△ Zoom: Aufnahme-Erlaubnis vom Host entzogen, Slots gestoppt',
+            'Aufnahme-Erlaubnis vom Host entzogen, Slots gestoppt. Erteilt der Host sie im Zoom-Client wieder, startet Connect die eingeschalteten Slots von selbst.']
+          : [null, null];
+      case 'Z7b':
+        return [`△ Zoom: ${slots(n)}, Aufnahme-Erlaubnis fehlt`, e.erlaubnis === 'entzogen'
+          ? `Aufnahme-Erlaubnis vom Host entzogen. Connect stoppt ${n === 1 ? '1 Slot' : `${n} Slots`} …`
+          : `Die Aufnahme-Erlaubnis fehlt (${GRUND[e.erlaubnis ?? 'offen']}). ${slots(n)} noch. Der Host kann sie im Zoom-Client erteilen.`];
+      case 'Z8':
+        return ['○ Zoom: im Meeting, kein Slot läuft', an === 0
+          ? 'Im Meeting. Kein Slot läuft: Slots unten einschalten oder eine Person als Slot laden.'
+          : 'Im Meeting. Kein Slot läuft; die Kacheln unten nennen den Grund.'];
+      case 'Z9':
+        return [`● Zoom: ${slots(n)}`, `Im Meeting. ${slots(n)}.`];
+      case 'Z9b':
+        return n === 1
+          ? ['● Zoom: 1 Slot läuft, mit Ersatzbild', 'Im Meeting. 1 Slot läuft, mit Ersatzbild; die Kachel nennt den Grund.']
+          : [`● Zoom: ${n} Slots laufen, ${k} mit Ersatzbild`, `Im Meeting. ${n} Slots laufen, ${k} davon mit Ersatzbild; die Kacheln nennen den Grund.`];
+      default:
+        return [null, null];
+    }
+  }
+  const PRAED: Array<{ name: string; wenn: (t: string) => boolean; dann: (e: SE, t: string) => boolean }> = [
+    { name: '„Slots gestoppt“ (T82) nur, wenn ein Slot in diesem Meeting lief und durch den Entzug nicht mehr läuft',
+      wenn: (t) => t.includes('Slots gestoppt'), dann: (e) => e.erlaubnis === 'entzogen' && e.zahlen.gestopptEntzug > 0 },
+    { name: '„{n} Slots laufen“/„1 Slot läuft“ nennt n (den bestehenden Sender), Singular genau bei n = 1',
+      wenn: (t) => /\d+ Slots? läuft|\d+ Slots laufen/.test(t),
+      dann: (e, t) => (e.zahlen.n === 1 ? t.includes('1 Slot läuft') && !t.includes('Slots laufen') : t.includes(`${e.zahlen.n} Slots laufen`)) },
+    { name: '„mit Ersatzbild“ (T86) nur mit k > 0', wenn: (t) => t.includes('mit Ersatzbild'), dann: (e) => e.zahlen.k > 0 },
+    { name: 'Z8 „die Kacheln unten nennen den Grund“ nur mit e > 0, „Slots unten einschalten“ nur mit e = 0',
+      wenn: (t) => t.includes('Kein Slot läuft'),
+      dann: (e, t) => (t.includes('die Kacheln unten nennen den Grund') ? e.zahlen.e > 0 : !t.includes('Slots unten einschalten') || e.zahlen.e === 0) },
+    { name: '„Connect stoppt“ nur beim Entzug', wenn: (t) => t.includes('Connect stoppt'), dann: (e) => e.erlaubnis === 'entzogen' },
+    { name: 'Slot-Zeilen nur im Meeting (Z7, Z7b, Z8, Z9, Z9b)', wenn: () => true, dann: (e, t) => t === '' || ['Z7', 'Z7b', 'Z8', 'Z9', 'Z9b'].includes(e.z) },
+  ];
+  let n = 0;
+  const abw: string[] = [];
+  const zaehler = PRAED.map(() => ({ treffer: 0, verletzt: 0 }));
+  for (const z of ALLE_Z) for (const erlaubnis of ERL) for (const nn of [0, 1, 2]) for (const k of [0, 1]) for (const o of [0, 1]) {
+    for (const e of [0, 1, 6]) for (const g of [0, 1]) {
+      if (!passt(z, erlaubnis, nn, k) || k > nn || g > o || (g > 0 && erlaubnis !== 'entzogen')) continue;
+      if ((z === 'Z1a' || z === 'Z1b' || z === 'Z2') && o > 0) continue;   // RR1: dort ist o immer 0
+      const ein: SE = { z, erlaubnis, grund: null, zahlen: { n: nn, k, o, e, a: 7, gestopptEntzug: g } };
+      n++;
+      const ist: [string | null, string | null] = [slotTrayZeile(ein), slotKartenZeile(ein)];
+      if (JSON.stringify(ist) !== JSON.stringify(soll(ein)) && abw.length < 5) abw.push(`${JSON.stringify(ein)} → ${JSON.stringify(ist)}`);
+      for (const t of ist) {
+        PRAED.forEach((p, i) => { const tt = t ?? ''; if (p.wenn(tt)) { zaehler[i].treffer++; if (!p.dann(ein, tt)) zaehler[i].verletzt++; } });
+      }
+    }
+  }
+  console.log(`     10.3: ${n} Kombinationen geprüft`);
+  for (const a of abw) console.log(`     Abweichung: ${a}`);
+  ck('10.3 Kopf, Tray und Karte: jede zulässige Kombination wörtlich nach 9.5', n > 0 && abw.length === 0);
+  PRAED.forEach((p, i) => ck(`10.3 Prädikat: ${p.name}`, zaehler[i].treffer > 0 && zaehler[i].verletzt === 0));
+}
+
+console.log('— B9 · STATE je Slot 8.2/10.4 als Kreuzprodukt (10.5): 119 Schlüssel, Wahrheitsprädikate');
+{
+  const { stateKvSlots, ZOOM_STATE_ZUSTANDSWORT } = await import('../src/shared/zoom-text');
+  type STE = import('../src/shared/zoom-text').SlotStateEingabe;
+  type SZ = import('../src/shared/types').ZoomSlotZustand;
+  type Modus = import('../src/shared/types').ZoomSlotModus;
+  type Slot = STE['slots'][number];
+  const IM = new Set<ZoomZ>(['Z6', 'Z7', 'Z7b', 'Z8', 'Z9', 'Z9b']);
+  const ALLE_Z: ZoomZ[] = ['Z1a', 'Z1b', 'Z2', 'Z3', 'Z4', 'Z5a', 'Z5b', 'Z6', 'Z7', 'Z7b', 'Z8', 'Z9', 'Z9b', 'Z10', 'Z11', 'Z12', 'Z13'];
+  const SENDER_AUSSEN = new Set<ZoomZ>(['Z4', 'Z5a', 'Z5b', 'Z10', 'Z11', 'Z12']);
+  // ST4 7.5 wörtlich (o = offene Slots): Status, Erlaubnis, Alarm bei o = 0 und o > 0
+  const TAB: Record<string, [string, number, number, number]> = {
+    Z1a: ['einrichtung', 0, 0, 0], Z1b: ['einrichtung', 0, 0, 0], Z2: ['bereit', 0, 0, 0], Z3: ['tritt_bei', 0, 0, 1], Z4: ['tritt_bei', 0, 0, 1],
+    Z5a: ['warteraum', 0, 0, 1], Z5b: ['warteraum', 0, 0, 1], Z6: ['im_meeting', 0, 0, 1], Z7: ['im_meeting', 0, 1, 1], Z7b: ['im_meeting', 0, 1, 1],
+    Z8: ['im_meeting', 1, 0, 1], Z9: ['im_meeting', 1, 0, 1], Z9b: ['im_meeting', 1, 0, 1], Z10: ['abriss', 0, 1, 1], Z11: ['abriss', 0, 1, 1],
+    Z12: ['verlaesst', 0, 0, 0], Z13: ['fehler', 0, 1, 1],
+  };
+  // 8.2: Zustandswort je SZ (Spalte `zoom_slot{n}_state`)
+  const WORT: Record<SZ, string> = {
+    aus: 'aus', ohne_meeting: 'wartet', wartet_erlaubnis: 'wartet', startet: 'startet', geplant: 'startet', zeigt: 'zeigt', gehalten: 'gehalten',
+    ersatz: 'ersatz', keine_antwort: 'fehler', gescheitert: 'fehler', zurueckgestellt: 'zurueckgestellt', stoppt: 'stoppt',
+  };
+  ck('8.2 ZOOM_STATE_ZUSTANDSWORT wörtlich (12 Zustände)',
+    Object.keys(ZOOM_STATE_ZUSTANDSWORT).length === 12 && (Object.keys(WORT) as SZ[]).every((k) => ZOOM_STATE_ZUSTANDSWORT[k] === WORT[k]));
+  const SENDER: SZ[] = ['zeigt', 'gehalten', 'ersatz'];
+  const LAUFEN: SZ[] = ['zeigt', 'gehalten', 'ersatz', 'stoppt'];
+  function erlaubnisse(z: ZoomZ): (ZoomErlaubnis | null)[] {
+    switch (z) {
+      case 'Z6': return ['offen'];
+      case 'Z7': return ['abgelehnt', 'abgelaufen', 'entzogen'];
+      case 'Z7b': return ['offen', 'abgelehnt', 'abgelaufen', 'entzogen'];
+      case 'Z8': case 'Z9': case 'Z9b': return ['ja'];
+      default: return [null, 'ja', 'entzogen'];
+    }
+  }
+  function zustaende(z: ZoomZ): SZ[] {
+    switch (z) {
+      case 'Z6': case 'Z7': return ['aus', 'wartet_erlaubnis'];
+      case 'Z7b': return ['aus', 'wartet_erlaubnis', 'zeigt', 'gehalten', 'ersatz', 'stoppt'];
+      case 'Z8': return ['aus', 'startet', 'keine_antwort', 'gescheitert', 'zurueckgestellt', 'geplant'];
+      case 'Z9': return ['aus', 'startet', 'zeigt', 'gehalten', 'keine_antwort', 'gescheitert', 'stoppt', 'zurueckgestellt', 'geplant'];
+      case 'Z9b': return ['aus', 'startet', 'zeigt', 'gehalten', 'ersatz', 'keine_antwort', 'gescheitert', 'stoppt', 'zurueckgestellt', 'geplant'];
+      default: return SENDER_AUSSEN.has(z) ? ['aus', 'ohne_meeting', 'zeigt', 'gehalten', 'ersatz', 'stoppt'] : ['aus', 'ohne_meeting', 'stoppt'];
+    }
+  }
+  /** Zulässige Werte von `offen` (10.1); in Z1a, Z1b und Z2 zählt kein Slot in o (RR1). */
+  function offenWerte(z: ZoomZ, sz: SZ): boolean[] {
+    if (z === 'Z1a' || z === 'Z1b' || z === 'Z2') return [false];
+    if (sz === 'ohne_meeting' || sz === 'wartet_erlaubnis' || sz === 'ersatz') return [false, true];
+    if (sz === 'keine_antwort' || sz === 'gescheitert' || sz === 'zurueckgestellt') return [true];
+    return [false];
+  }
+  const ZIEL: Record<Modus, string> = { teilnehmer: 'Anna', sprecher: 'Ben', freigabe: 'Carla' };
+  const ZWEITER: (Slot | null)[] = [
+    null,
+    { nr: 16, an: true, zustand: 'zeigt', offen: false, tonEin: true, modus: 'teilnehmer', zielName: 'Ben' },
+    { nr: 9, an: true, zustand: 'ersatz', offen: false, tonEin: false, modus: 'sprecher', zielName: null },
+  ];
+  const ALTE = ['zoom_status', 'zoom_sources', 'zoom_live', 'zoom_privilege', 'zoom_alarm', 'zoom_cmd', 'zoom_cmd_rejected'];
+  const PRAED: Array<{ name: string; verletzt: number }> = [
+    '`_live` = 1 nur in SZ4/SZ5 und Z6–Z9b',
+    '`_target` nicht leer nur mit `_live` = 1, und dann der Name, den der Slot zeigt',
+    '`_alarm` = 1 genau dann, wenn der Slot in o zählt',
+    '`_audio` = 1 genau dann, wenn der Ton eingeschaltet ist (Computerton eingerechnet)',
+    '`_state` zeigt/gehalten/ersatz nur in Z6–Z9b',
+    'Z außerhalb von Z6–Z9b mit Sender (SZ4–SZ6): `_live` 0, `_state` wartet, `_target` leer (RR5)',
+    '`_state` zurueckgestellt nur in SZ10, fehler nur in SZ7/SZ8',
+    '`zoom_sources` = laufende Slots aller Modi (SZ4, SZ5, SZ6, SZ9)',
+    '`zoom_live` = 1 genau dann, wenn n > 0',
+    'in Z1a, Z1b und Z2 jedes `_alarm` und `zoom_alarm` = 0',
+    '`zoom_alarm` nach ST4 7.5 mit o = offene Slots',
+    'genau 119 `zoom_*`-Schlüssel (7 + 16 × 7)',
+    'die sieben bisherigen Schlüssel als Teilmenge, wörtlich',
+    'nicht angelegte Slots: `_on` 0, `_mode` leer, `_state` fehlt',
+  ].map((name) => ({ name, verletzt: 0 }));
+  let n = 0, abw = 0;
+  let beispiel = '';
+  for (const z of ALLE_Z) for (const erlaubnis of erlaubnisse(z)) for (const zustand of zustaende(z)) for (const modus of ['teilnehmer', 'sprecher', 'freigabe'] as Modus[]) {
+    for (const an of zustand === 'aus' ? [false] : zustand === 'stoppt' ? [false, true] : [true]) for (const offen of offenWerte(z, zustand)) {
+      for (const tonEin of [false, true]) for (const zielName of SENDER.includes(zustand) ? [ZIEL[modus], null] : [null]) for (const zweiter of ZWEITER) {
+        if (zweiter !== null && !zustaende(z).includes(zweiter.zustand)) continue;
+        const slots: Slot[] = [{ nr: 3, an, zustand, offen, tonEin, modus, zielName }, ...(zweiter ? [zweiter] : [])];
+        const zn = slots.filter((s) => LAUFEN.includes(s.zustand)).length;
+        const zk = slots.filter((s) => s.zustand === 'ersatz').length;
+        const zo = slots.filter((s) => s.offen).length;
+        const ze = slots.filter((s) => s.an).length;
+        const zg = slots.filter((s) => s.zustand === 'wartet_erlaubnis' && s.offen && erlaubnis === 'entzogen').length;
+        const passt = z === 'Z6' ? zn === 0 : z === 'Z7' ? zn === 0 : z === 'Z7b' ? zn > 0 : z === 'Z8' ? zn === 0 : z === 'Z9' ? zn > 0 && zk === 0 : z === 'Z9b' ? zn > 0 && zk > 0 : true;
+        if (!passt) continue;
+        for (const befehl of [null, { kennung: 'f7' as const, abgelehnt: true }]) {
+          const e: STE = {
+            kurz: { zustand: IM.has(z) ? 'im_meeting' : 'bereit', erlaubnis, befehl }, z,
+            zahlen: { n: zn, k: zk, o: zo, e: ze, a: slots.length, gestopptEntzug: zg }, slots,
+          };
+          n++;
+          const kv = stateKvSlots(e);
+          const [status, priv, alarm0, alarm1] = TAB[z];
+          const erwartet: Record<string, string | number> = {
+            zoom_status: status, zoom_sources: zn, zoom_live: zn > 0 ? 1 : 0, zoom_privilege: priv, zoom_alarm: zo > 0 ? alarm1 : alarm0,
+            zoom_cmd: befehl?.kennung ?? '', zoom_cmd_rejected: befehl ? 1 : 0,
+          };
+          for (let nr = 1; nr <= 16; nr++) {
+            const s = slots.find((x) => x.nr === nr);
+            const live = s !== undefined && IM.has(z) && (s.zustand === 'zeigt' || s.zustand === 'gehalten');
+            erwartet[`zoom_slot${nr}_on`] = s?.an ? 1 : 0;
+            erwartet[`zoom_slot${nr}_live`] = live ? 1 : 0;
+            erwartet[`zoom_slot${nr}_alarm`] = s?.offen ? 1 : 0;
+            erwartet[`zoom_slot${nr}_audio`] = s?.tonEin ? 1 : 0;
+            erwartet[`zoom_slot${nr}_mode`] = s?.modus ?? '';
+            erwartet[`zoom_slot${nr}_target`] = live ? s.zielName ?? '' : '';
+            erwartet[`zoom_slot${nr}_state`] = s === undefined ? 'fehlt' : !IM.has(z) && SENDER.includes(s.zustand) ? 'wartet' : WORT[s.zustand];
+          }
+          const sortiert = (o: Record<string, string | number>): string => JSON.stringify(Object.keys(o).sort().map((k) => [k, o[k]]));
+          if (sortiert(kv) !== sortiert(erwartet)) { abw++; if (!beispiel) beispiel = `${JSON.stringify(e)} → ${JSON.stringify(kv)}`; }
+          // Wahrheitsprädikate 10.4, je Slot und für die sieben bisherigen Schlüssel
+          const v = (i: number, ok: boolean): void => { if (!ok) PRAED[i].verletzt++; };
+          for (let nr = 1; nr <= 16; nr++) {
+            const s = slots.find((x) => x.nr === nr);
+            const g = (k: string): string | number => kv[`zoom_slot${nr}_${k}`];
+            v(0, g('live') !== 1 || (s !== undefined && (s.zustand === 'zeigt' || s.zustand === 'gehalten') && IM.has(z)));
+            v(1, g('target') === '' || (g('live') === 1 && s !== undefined && g('target') === s.zielName));
+            v(2, (g('alarm') === 1) === (s?.offen === true));
+            v(3, (g('audio') === 1) === (s?.tonEin === true));
+            v(4, !['zeigt', 'gehalten', 'ersatz'].includes(String(g('state'))) || IM.has(z));
+            v(5, IM.has(z) || s === undefined || !SENDER.includes(s.zustand) || (g('live') === 0 && g('state') === 'wartet' && g('target') === ''));
+            v(6, (g('state') === 'zurueckgestellt') === (s?.zustand === 'zurueckgestellt')
+              && (g('state') === 'fehler') === (s?.zustand === 'keine_antwort' || s?.zustand === 'gescheitert'));
+            v(13, s !== undefined || (g('on') === 0 && g('mode') === '' && g('state') === 'fehlt'));
+          }
+          v(7, kv.zoom_sources === slots.filter((s) => LAUFEN.includes(s.zustand)).length);
+          v(8, (kv.zoom_live === 1) === (Number(kv.zoom_sources) > 0));
+          v(9, !(z === 'Z1a' || z === 'Z1b' || z === 'Z2') || (kv.zoom_alarm === 0 && Object.keys(kv).every((k) => !k.endsWith('_alarm') || kv[k] === 0)));
+          v(10, kv.zoom_alarm === (zo > 0 ? alarm1 : alarm0));
+          v(11, Object.keys(kv).filter((k) => k.startsWith('zoom_')).length === 119 && Object.keys(kv).length === 119);
+          v(12, ALTE.every((k) => k in kv));
+        }
+      }
+    }
+  }
+  console.log(`     10.4: ${n} Kombinationen geprüft`);
+  if (beispiel) console.log(`     Abweichung: ${beispiel.slice(0, 600)}`);
+  ck('8.2 STATE: jede zulässige Kombination, alle 119 Werte nach 8.2 und ST4 7.5', n > 0 && abw === 0);
+  for (const p of PRAED) ck(`10.4 Prädikat: ${p.name}`, p.verletzt === 0);
+  const mac = stateKvSlots({
+    kurz: { zustand: 'nicht_verfuegbar', erlaubnis: null, befehl: null }, z: 'Z0',
+    zahlen: { n: 0, k: 0, o: 0, e: 0, a: 0, gestopptEntzug: 0 }, slots: [],
+  });
+  ck('7.11 macOS (Z0): kein zoom_*-Schlüssel im STATE', Object.keys(mac).length === 0);
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

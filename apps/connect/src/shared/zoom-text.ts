@@ -13,7 +13,10 @@ import type {
 // Zoom-Slots (Plan B, Block b2): eigene Importzeilen; die Zeilen oben bleiben bis zum Kern-Umstieg (Task B12) unverändert.
 import { SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
 import type { AudioState, SlotAudioReason, SlotReason, SlotSent } from '@jm/zoom-bridge/protocol';
-import type { TonQuelle, ZoomSlotAufloesung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotZustand } from './types';
+import type {
+  TonQuelle, ZoomBefehlErgebnis, ZoomSlotAufloesung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotZustand, ZoomSprecherSignal,
+  ZoomZustand,
+} from './types';
 
 /** Die Zeilen der Zustandstabelle Spec 7.1. */
 export type ZoomZ =
@@ -1120,5 +1123,301 @@ export function r5Text(z: { gestartet: number; zweifel: number; nicht: number; g
     + (z.nicht > 0 ? R5_TEXT.nicht(z.nicht) : '')
     + (z.grenze > 0 ? R5_TEXT.grenze(z.grenze) : '');
 }
+
+/**
+ * Zählung der Slots (Spec 10.1), dieselbe Form wie `SlotZahlen` in `main/zoom/slots.ts` (Task B1): n laufen, k mit
+ * Ersatzbild, o offen, e eingeschaltet, a angelegt, `gestopptEntzug` = SZ2 mit Erlaubnis entzogen und `liefSchon`. Eigener
+ * Name, weil `shared/` nichts aus `main/` lädt (der Renderer-tsconfig prüft diese Datei mit); ein `SlotZahlen` passt.
+ */
+export interface SlotZahlenAnzeige { n: number; k: number; o: number; e: number; a: number; gestopptEntzug: number }
+
+/**
+ * Eingaben von Tray-, Kopf- und Kartenzeile (Spec 10.3). `grund`: {Grund} in T83 (Karte, Z7b ohne Entzug); `null` = aus
+ * `erlaubnis` nach der Tabelle Z7B_GRUND (wie 0.3.0).
+ */
+export interface SlotStatusEingabe { z: ZoomZ; erlaubnis: ZoomErlaubnis | null; grund: string | null; zahlen: SlotZahlenAnzeige }
+
+/** Spec 9.5: Tray- und Kopfzeile bzw. Statuszeile der Karte, die sich mit den Slots ändern (je Singular bei n = 1). */
+export const STATUS_TEXT = {
+  T82: {
+    tray: '△ Zoom: Aufnahme-Erlaubnis vom Host entzogen, Slots gestoppt',
+    karte: 'Aufnahme-Erlaubnis vom Host entzogen, Slots gestoppt. Erteilt der Host sie im Zoom-Client wieder, startet Connect die eingeschalteten Slots von selbst.',
+  },
+  T83: {
+    tray: (n: number): string => (n === 1 ? '△ Zoom: 1 Slot läuft, Aufnahme-Erlaubnis fehlt' : `△ Zoom: ${n} Slots laufen, Aufnahme-Erlaubnis fehlt`),
+    karte: (grund: string, n: number): string =>
+      `Die Aufnahme-Erlaubnis fehlt (${grund}). ${n === 1 ? '1 Slot läuft noch' : `${n} Slots laufen noch`}. Der Host kann sie im Zoom-Client erteilen.`,
+    karteEntzogen: (n: number): string => `Aufnahme-Erlaubnis vom Host entzogen. Connect stoppt ${n === 1 ? '1 Slot' : `${n} Slots`} …`,
+  },
+  T84: {
+    tray: '○ Zoom: im Meeting, kein Slot läuft',
+    karteOhneEingeschaltete: 'Im Meeting. Kein Slot läuft: Slots unten einschalten oder eine Person als Slot laden.',
+    karteMitEingeschalteten: 'Im Meeting. Kein Slot läuft; die Kacheln unten nennen den Grund.',
+  },
+  T85: {
+    tray: (n: number): string => (n === 1 ? '● Zoom: 1 Slot läuft' : `● Zoom: ${n} Slots laufen`),
+    karte: (n: number): string => (n === 1 ? 'Im Meeting. 1 Slot läuft.' : `Im Meeting. ${n} Slots laufen.`),
+  },
+  T86: {
+    tray: (n: number, k: number): string => (n === 1 ? '● Zoom: 1 Slot läuft, mit Ersatzbild' : `● Zoom: ${n} Slots laufen, ${k} mit Ersatzbild`),
+    karte: (n: number, k: number): string => (n === 1
+      ? 'Im Meeting. 1 Slot läuft, mit Ersatzbild; die Kachel nennt den Grund.'
+      : `Im Meeting. ${n} Slots laufen, ${k} davon mit Ersatzbild; die Kacheln nennen den Grund.`),
+  },
+};
+
+/**
+ * Tray- und Kopfzeile (Spec 9.5 linke Spalte, 10.3) für die Zeilen, die sich mit den Slots ändern. `null`: Hier gilt die
+ * bisherige Zeile wörtlich (Z0–Z6, Z7 ohne gestoppten Slot, Z10–Z13; 9.5 letzter Absatz).
+ */
+export function slotTrayZeile(e: SlotStatusEingabe): string | null {
+  const z = e.zahlen;
+  switch (e.z) {
+    case 'Z7':
+      // „Slots gestoppt“ nur, wenn ein Slot in diesem Meeting lief und durch den Entzug nicht mehr läuft (10.3)
+      return e.erlaubnis === 'entzogen' && z.gestopptEntzug > 0 ? STATUS_TEXT.T82.tray : null;
+    case 'Z7b':
+      return STATUS_TEXT.T83.tray(z.n);
+    case 'Z8':
+      return STATUS_TEXT.T84.tray;
+    case 'Z9':
+      return STATUS_TEXT.T85.tray(z.n);
+    case 'Z9b':
+      return STATUS_TEXT.T86.tray(z.n, z.k);
+    case 'Z0':
+    case 'Z1a':
+    case 'Z1b':
+    case 'Z2':
+    case 'Z3':
+    case 'Z4':
+    case 'Z5a':
+    case 'Z5b':
+    case 'Z6':
+    case 'Z10':
+    case 'Z11':
+    case 'Z12':
+    case 'Z13':
+      return null;
+  }
+}
+
+/** Statuszeile der Karte (Spec 9.5 rechte Spalte, 10.3); `null` wie bei `slotTrayZeile`. */
+export function slotKartenZeile(e: SlotStatusEingabe): string | null {
+  const z = e.zahlen;
+  const erlaubnis = e.erlaubnis ?? 'offen';
+  switch (e.z) {
+    case 'Z7':
+      return erlaubnis === 'entzogen' && z.gestopptEntzug > 0 ? STATUS_TEXT.T82.karte : null;
+    case 'Z7b':
+      if (erlaubnis === 'entzogen') return STATUS_TEXT.T83.karteEntzogen(z.n);
+      // zoomZ liefert Z7b nur ohne „ja“ (Spec 7.1)
+      return STATUS_TEXT.T83.karte(e.grund ?? Z7B_GRUND[erlaubnis as keyof typeof Z7B_GRUND], z.n);
+    case 'Z8':
+      return z.e > 0 ? STATUS_TEXT.T84.karteMitEingeschalteten : STATUS_TEXT.T84.karteOhneEingeschaltete;
+    case 'Z9':
+      return STATUS_TEXT.T85.karte(z.n);
+    case 'Z9b':
+      return STATUS_TEXT.T86.karte(z.n, z.k);
+    case 'Z0':
+    case 'Z1a':
+    case 'Z1b':
+    case 'Z2':
+    case 'Z3':
+    case 'Z4':
+    case 'Z5a':
+    case 'Z5b':
+    case 'Z6':
+    case 'Z10':
+    case 'Z11':
+    case 'Z12':
+    case 'Z13':
+      return null;
+  }
+}
+
+/** Werte von `zoom_slot{n}_state` je Slot-Zustand (Spec 8.2); nicht angelegte Slots melden `fehlt`. */
+export const ZOOM_STATE_ZUSTANDSWORT: Record<ZoomSlotZustand, string> = {
+  aus: 'aus',
+  ohne_meeting: 'wartet',
+  wartet_erlaubnis: 'wartet',
+  startet: 'startet',
+  zeigt: 'zeigt',
+  gehalten: 'gehalten',
+  ersatz: 'ersatz',
+  keine_antwort: 'fehler',
+  gescheitert: 'fehler',
+  stoppt: 'stoppt',
+  zurueckgestellt: 'zurueckgestellt',
+  geplant: 'startet',
+};
+
+/**
+ * Eingaben des STATE (Spec 8.2, 10.4). `z`: Zeile Z0–Z13 (Tabelle ST4 7.5); `zahlen`: n und o; `kurz.befehl`: letzter
+ * `zoom_*`-Befehl; `slots`: je angelegtem Slot die Werte seiner sieben Schlüssel (`zielName`: wen der Slot gerade zeigt,
+ * bei Freigabe die teilende Person). `kurz.zustand` und `kurz.erlaubnis` liest die Funktion nicht (Z kommt fertig).
+ */
+export interface SlotStateEingabe {
+  kurz: { zustand: ZoomZustand; erlaubnis: ZoomErlaubnis | null; befehl: ZoomBefehlErgebnis | null };
+  z: ZoomZ;
+  zahlen: SlotZahlenAnzeige;
+  slots: { nr: number; an: boolean; zustand: ZoomSlotZustand; offen: boolean; tonEin: boolean; modus: ZoomSlotModus; zielName: string | null }[];
+}
+
+/**
+ * STATE (Spec 8.2, 10.4): die sieben bisherigen Schlüssel (ST4 7.5 mit n = laufende und o = offene Slots), dazu je Slot 1–16
+ * sieben, zusammen 119. Unter macOS (Z0) keiner (7.11).
+ */
+export function stateKvSlots(e: SlotStateEingabe): Record<string, string | number> {
+  if (e.z === 'Z0') return {};
+  const s = STATE_JE_Z[e.z];
+  const kv: Record<string, string | number> = {
+    zoom_status: s.status,
+    zoom_sources: e.zahlen.n,
+    zoom_live: e.zahlen.n > 0 ? 1 : 0,
+    zoom_privilege: s.privilege,
+    zoom_alarm: s.alarm[e.zahlen.o > 0 ? 1 : 0],
+    zoom_cmd: e.kurz.befehl?.kennung ?? '',
+    zoom_cmd_rejected: e.kurz.befehl?.abgelehnt ? 1 : 0,
+  };
+  const imMeeting = imMeetingZ(e.z);
+  for (let nr = 1; nr <= SLOT_NR_MAX; nr++) {
+    const sl = e.slots.find((x) => x.nr === nr);
+    const zeigt = sl !== undefined && imMeeting && (sl.zustand === 'zeigt' || sl.zustand === 'gehalten');
+    // SZ4–SZ6 außerhalb von Z6–Z9b: Ein Sender kann bestehen, ob Bild kommt, ist ungewiss (RR5)
+    const sender = sl !== undefined && (sl.zustand === 'zeigt' || sl.zustand === 'gehalten' || sl.zustand === 'ersatz');
+    kv[`zoom_slot${nr}_on`] = sl?.an ? 1 : 0;
+    kv[`zoom_slot${nr}_live`] = zeigt ? 1 : 0;
+    kv[`zoom_slot${nr}_alarm`] = sl?.offen ? 1 : 0;
+    kv[`zoom_slot${nr}_audio`] = sl?.tonEin ? 1 : 0;
+    kv[`zoom_slot${nr}_mode`] = sl?.modus ?? '';
+    kv[`zoom_slot${nr}_target`] = zeigt ? sl.zielName ?? '' : '';
+    kv[`zoom_slot${nr}_state`] = sl === undefined ? 'fehlt' : sender && !imMeeting ? 'wartet' : ZOOM_STATE_ZUSTANDSWORT[sl.zustand];
+  }
+  return kv;
+}
+
+/** T80 (Spec 9.3): Knopf der Verlassen-Rückfrage; n = laufende Slots (7.5 Nr. 5/6). */
+export function verlassenFrage(n: number): string {
+  return n === 1 ? 'Ja, verlassen (1 Slot läuft)' : `Ja, verlassen (${n} Slots laufen)`;
+}
+
+/** T5 (Spec 9.1): Stufen der Auflösung. */
+const AUFLOESUNG_NAME: Record<ZoomSlotAufloesung, string> = { '360p': '360p', '720p': '720p', '1080p': '1080p' };
+/** T6 (Spec 9.1): Tonart. */
+const TONART_NAME: Record<ZoomSlotTonArt, string> = { mischton: 'Mischton', person: 'Person' };
+
+/** Spec 9.1, 9.3: Feldnamen der Einstellungen und Vorgaben (T5–T9, T48, T49, T77, T81); T4 steht bei ERSATZBILD_FELD. */
+export const SLOT_FELD = {
+  /** T5, Feldname und Stufen */
+  aufloesung: 'Auflösung',
+  aufloesungen: AUFLOESUNG_NAME,
+  /** T6, Feldname, Schalter, Tonart */
+  ton: 'Ton',
+  an: 'an',
+  aus: 'aus',
+  tonArt: TONART_NAME,
+  /** T7 */
+  computerton: 'Computerton der Freigabe',
+  /** T8 */
+  ohneKamera: 'Teilnehmer ohne Kamera zeigen',
+  /** T9 */
+  ndiName: 'NDI-Name',
+  modus: 'Modus',
+  person: 'Person',
+  einstellungen: 'Einstellungen',
+  /** T48, Platzhalter im leeren Feld „Person“ */
+  personPlatzhalter: 'Anzeigename in Zoom',
+  /** T49, Kopf der Doppelname-Auswahl */
+  welchePerson: 'Welche Person?',
+  /** T77, Kopf der Vorgaben */
+  vorgaben: (res: ZoomSlotAufloesung, tonAn: boolean): string => `Vorgaben für neue Slots: ${res}, Ton ${tonAn ? 'an' : 'aus'}.`,
+  /** T81, unter dem Bild-Versatz */
+  versatzZusatz: 'Gilt für Teilnehmer- und Sprecher-Slots, nicht für Bildschirmfreigaben.',
+};
+
+/** Ein Messwert, wie ihn der Aufrufer formatiert (Task B16: `dezimal`, `khzText`, `kanaeleText`). */
+type Messwert = number | string;
+/** „an“/„aus“ (T6) für HD-Video und Originalgröße in T62b (OFP4); fehlt der Wert, „unbekannt“ (9.4). */
+const anAus = (w: boolean | null): string => (w === null ? UNBEKANNT : w ? SLOT_FELD.an : SLOT_FELD.aus);
+/** Empfang laut Zoom in T62b: „{b}×{h}, {fps} Bilder/s“ wie in T62 (OFP4); fehlt der Wert, „unbekannt“ (9.4). */
+const empfang = (r: { w: number; h: number; fps: number } | null): string => (r === null ? UNBEKANNT : `${r.w}×${r.h}, ${dezimal(r.fps)} Bilder/s`);
+
+/** Spec 9.4: Messwerte (T61–T69) als Funktionen mit Platzhaltern; Slots heißen „Slot {nr} ({Modus})“, nie mit Namen (0.23). */
+export const MESS_TEXT = {
+  T61: (p: { cpu: Messwert; sys: Messwert; mem: Messwert; q: Messwert; d: Messwert; mv: Messwert; hl: Messwert }): string =>
+    `Zoom-Bridge: ${p.cpu} % eines Kerns · System ${p.sys} % · Arbeitsspeicher ${p.mem} MB · Ton-Warteschlange höchstens ${p.q} Pakete, ${p.d} verworfen · Zoom-Ereignisse verworfen ${p.mv} · zurückgehaltene Renderer ${p.hl}`,
+  /** T62; `resSetName` über `sdkErrorName`, nie als nackte Zahl (9.4). */
+  T62: (p: { nr: number; modus: ZoomSlotModus; b: Messwert; h: Messwert; fps: Messwert; ffps: Messwert; work: Messwert; copy: Messwert;
+    prev: Messwert; mem: Messwert; res: Messwert; resSetName: string; resGot: Messwert; pps: Messwert; md: Messwert; ms: Messwert }): string =>
+    `Slot ${p.nr} (${MODUS_NAME[p.modus]}): ${p.b}×${p.h}, ${p.fps} Bilder/s, Ersatzbilder ${p.ffps}/s · Bridge-Anteil ${p.work} ms/s (davon Kopie ${p.copy}, Vorschau ${p.prev}) · Speicher ${p.mem} MB · Auflösung ${p.res}: ${p.resSetName}, Renderer meldet ${p.resGot} · Ton ${p.pps} Pakete/s, Mischer verworfen ${p.md} ms, Stille eingefügt ${p.ms} ms`,
+  /** T62b; fehlende Werte „unbekannt“. */
+  T62b: (p: { nr: number; ub: number | null; uh: number | null; hd: boolean | null; og: boolean | null;
+    rv: { w: number; h: number; fps: number } | null; rs: { w: number; h: number; fps: number } | null }): string =>
+    `Slot ${p.nr}: Zoom nennt als Videogröße ${p.ub !== null && p.uh !== null ? `${p.ub}×${p.uh}` : UNBEKANNT} · HD-Video ${anAus(p.hd)} · Originalgröße ${anAus(p.og)} · Meeting empfängt Video ${empfang(p.rv)}, Freigabe ${empfang(p.rs)}`,
+  /** T62c (zu MS16). */
+  T62c: (nr: number, vergleich: 'gleich' | 'verschieden' | 'fehlt'): string => `Rückkehr in Slot ${nr}: persistentId ${vergleich}`,
+  /** T63; `p` = Pausen der gezeigten Freigabe, `g` = gehaltene Bilder. */
+  T63: (p: { b: Messwert; h: Messwert; fps: Messwert; rate: Messwert; kanaele: string; p: Messwert; g: Messwert }): string =>
+    `Freigabe: ${p.b}×${p.h}, ${p.fps} Bilder/s · Computerton ${p.rate} kHz, ${p.kanaele} · Pausen ${p.p}, gehaltene Bilder ${p.g}`,
+  /** T63c (zu MS6). */
+  T63c: { titel: 'Freigabe-Rückrufe (letzte 10)', spalten: ['Uhrzeit', 'Rückruf', 'Zustand', 'Person (Kennung)', 'Freigabe-Kennung', 'Typ'] },
+  /** T64: kein Freigabe-Ton angekommen. */
+  T64: (p: { b: Messwert; h: Messwert; fps: Messwert }): string => `Freigabe: ${p.b}×${p.h}, ${p.fps} Bilder/s · kein Computerton angekommen`,
+  /** T64c: Freigabe-Ton angekommen, keiner Freigabe zuzuordnen. */
+  T64c: (p: { b: Messwert; h: Messwert; fps: Messwert; x: Messwert; k: Messwert }): string =>
+    `Freigabe: ${p.b}×${p.h}, ${p.fps} Bilder/s · Computerton kommt an (${p.x} Pakete), lässt sich aber keiner Freigabe zuordnen (Kennung ${p.k})`,
+  /** T64b je `seeded`. */
+  T64b: {
+    ok: 'Laufende Freigaben beim Befüllen: erkannt',
+    empty: 'Laufende Freigaben beim Befüllen: keine gemeldet',
+    unavailable: 'Laufende Freigaben beim Befüllen: Zoom hat die Liste nicht geliefert',
+  } as Record<'ok' | 'empty' | 'unavailable', string>,
+  /** T65 */
+  T65: { titel: 'Sprecher-Signale (letzte 20)', spalten: ['Uhrzeit', 'Video-Sprecher', 'Aktives Video', 'Ton-Aktivität'] },
+  /** T66; „(1 Wechsel)“ bei w = 1; mit `gapUngeprueft` der Zusatz. */
+  T66: (p: { a: Messwert; m: Messwert; x: Messwert; w: number; ungeprueft: boolean }): string =>
+    `Lücke beim Wechsel: zuletzt ${p.a} ms · Median ${p.m} ms · höchstens ${p.x} ms (${p.w} Wechsel)${p.ungeprueft ? ' (ohne Prüfung der Quelle)' : ''}`,
+  /** T67 */
+  T67: (r: Messwert): string => `Wechsel pro Minute: ${r}`,
+  /** T68: Rückmeldung nach „Messwerte kopieren“. */
+  T68: 'Messwerte kopiert (ohne Namen).',
+  /** T69 */
+  T69: (p: { f: Messwert; l: Messwert; t: Messwert; nsd: Messwert; r: Messwert; rl: Messwert; typ: Messwert }): string =>
+    `Zähler: fremde Bilder ${p.f} · beim Umhängen verworfen ${p.l} · zu häufige Aufrufe ${p.t} · noch keine Freigabe-Daten ${p.nsd} · neue Renderer ${p.r} · vom SDK abgebaute Renderer ${p.rl} · Renderer-Typ ${p.typ}`,
+};
+
+/** T70–T72 (Spec 9.4): Name je Sprecher-Signal. */
+const SIGNAL_NAME: Record<ZoomSprecherSignal, string> = {
+  sprecherVideo: 'Video-Sprecher (onActiveSpeakerVideoUserChanged, Vorgabe)',
+  aktivesVideo: 'Aktives Video (onActiveVideoUserChanged)',
+  tonAktiv: 'Ton-Aktivität (onUserActiveAudioChange)',
+};
+
+/** Spec 9.4: Sprecher-Einstellungen (T70–T73); T74 (ungültige Haltezeit) steht bei Task B3. */
+export const SPRECHER_TEXT = {
+  signal: SIGNAL_NAME,
+  /** T73: Haltezeit in Sekunden („1“, „1,5“). */
+  T73: (haltezeitMs: number): string =>
+    `Haltezeit: ${dezimal(haltezeitMs / 1000)} s. So lange muss jemand sprechen, bevor der Sprecher-Slot wechselt.`,
+};
+
+/** T95 (Spec 9.6, 7.11): steht unter macOS an der Stelle der Zoom-Karte. */
+export const MAC_ZEILE = 'Zoom-Slots gibt es nur unter Windows: Die Zoom-Bridge läuft nur dort.';
+
+/** Bedientexte, die Spec 7.5/7.8 wörtlich zitiert (OFP2, Vorgabe: wörtlich übernehmen); „Behalten“ und „Löschen“ sind die Knöpfe aus T96/T96b und T37. */
+export const BEDIEN_TEXT = {
+  zoomSlots: 'Zoom-Slots',
+  slotHinzufuegen: 'Slot hinzufügen',
+  vorgaben: 'Vorgaben …',
+  vorschau: 'Vorschau',
+  sprecherEinstellungen: 'Sprecher-Einstellungen …',
+  messwerte: 'Messwerte',
+  messwerteKopieren: 'Messwerte kopieren',
+  behalten: 'Behalten',
+  loeschen: 'Löschen',
+};
+
+/** Kennzeichen je Kandidat der Doppelname-Auswahl (7.5): die Bestandstexte der Teilnehmerliste (OFP3, `ZoomCard.tsx:388-393`). */
+export const KANDIDAT_KENNZEICHEN = { kameraAus: 'Kamera aus', host: 'Host', imWarteraum: 'im Warteraum' };
 
 // ── ENDE DER SLOT-ANZEIGEN (neue Regeln direkt darüber einfügen) ──
