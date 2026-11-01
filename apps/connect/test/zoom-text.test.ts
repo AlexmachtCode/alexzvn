@@ -1513,6 +1513,391 @@ console.log('— B6 · Fehlerzeile der Kachel (10.9)');
   ck('10.9: ohne Fehler keine Zeile', kachelFehlerZeile({ zustand: 'ersatz', letzterSlotFehler: null, seitDemLive: false }) === null);
 }
 
+// ── Plan B, Task B7: Ton-, Mess- und Vorschauzeile der Kachel (Spec 10.6, 10.7, 7.7, 10.8; Texte 9.3) ──
+console.log('— B7 · ST50–ST58i, ST75, ST75b, ST76 wörtlich; Messbeispiele 10.7; Vorschau-Tabelle 7.7 (KF9)');
+{
+  const { dezimal, kanaeleText, khzText, slotMessZeile, slotTonZeile, UNBEKANNT } = await import('../src/shared/zoom-text');
+  const { VORSCHAU_TEXT, vorschauFlaeche } = await import('../src/renderer/src/zoom/slot-vorschau');
+  const { tonAboFehlerText } = await import('../src/main/zoom/klartext');
+  type TE = import('../src/shared/zoom-text').TonEingabe;
+  type ME = import('../src/shared/zoom-text').MessEingabe;
+  type VE = import('../src/renderer/src/zoom/slot-vorschau').VorschauEingabe;
+  const ton0: TE = {
+    zustand: 'zeigt', modus: 'teilnehmer', ziel: 7, grund: 'frames', tonAn: true, tonArt: 'mischton', computerton: true,
+    person: 'Anna', doppelt: 1, zweifel: false, imWarteraum: false, ton: 'live', tonGrund: 'packets', quelle: 'mix',
+    eingestellt: 'mix', rateKhz: 32, kanaele: 1, tonAboFehler: null, rateMismatch: null,
+  };
+  const t = (o: Partial<TE>): string | null => slotTonZeile({ ...ton0, ...o });
+  const mess0: ME = { zustand: 'zeigt', modus: 'teilnehmer', stufe: '720p', geliefert: { b: 1280, h: 720, fps: 25 }, zuletzt: { b: 1280, h: 720 } };
+  const m = (o: Partial<ME>): string | null => slotMessZeile({ ...mess0, ...o });
+  const T104 = tonAboFehlerText('AUDIO_HELPER_MISSING');
+  const SOLL: Array<[string, string | null, string]> = [
+    ['T50', m({}), '720p · Zoom liefert 1280×720 · 25 Bilder/s'],
+    ['T51', m({ stufe: '1080p' }), '1080p gewünscht · Zoom liefert 1280×720 · 25 Bilder/s'],
+    ['T51b', m({ geliefert: null, zuletzt: null }), '720p gewünscht · noch kein Bild'],
+    ['T51c', m({ geliefert: null }), '720p · zuletzt 1280×720 · jetzt kein Bild'],
+    ['T50 (Bildrate mit Nachkommastelle)', m({ geliefert: { b: 1280, h: 720, fps: 12.5 } }), '720p · Zoom liefert 1280×720 · 12,5 Bilder/s'],
+    ['T52', VORSCHAU_TEXT.T52, 'Vorschau ohne Bild-Versatz, etwa 2 Bilder pro Sekunde.'],
+    ['T53', VORSCHAU_TEXT.T53, 'eingefroren'],
+    ['T54', VORSCHAU_TEXT.T54, 'gehalten'],
+    ['T55', VORSCHAU_TEXT.T55, 'kein Bild'],
+    ['T55b', VORSCHAU_TEXT.T55b, 'kein Vorschaubild'],
+    ['T56', VORSCHAU_TEXT.T56, 'Vorschau aus'],
+    ['T57', VORSCHAU_TEXT.T57('0x887A0005'), 'Vorschau nicht verfügbar (0x887A0005). Bild und Ton laufen unverändert.'],
+    ['T58a', t({ tonAn: false, computerton: false }), 'Ton: aus'],
+    ['T58a (Computerton zählt nur im Modus Freigabe)', t({ modus: 'sprecher', tonAn: false, computerton: true }), 'Ton: aus'],
+    ['T58b (Mischton)', t({ ton: 'waiting', tonGrund: 'command', quelle: 'none' }), 'Ton: Mischton · wartet auf das erste Paket'],
+    ['T58b (Person)', t({ tonArt: 'person', ton: 'waiting', tonGrund: 'command', quelle: 'none', eingestellt: 'person' }),
+      'Ton: Anna · wartet auf das erste Paket'],
+    ['T58b (Person-Ton ohne gewählte Person, RN12)', t({ tonArt: 'person', person: '', ton: 'waiting', tonGrund: 'command', quelle: 'none', eingestellt: 'person' }),
+      'Ton: Person-Ton · wartet auf das erste Paket'],
+    ['T58b (Mischton + Computerton)', t({ modus: 'freigabe', ton: 'waiting', tonGrund: 'command', quelle: 'none', eingestellt: 'mixShare' }),
+      'Ton: Mischton + Computerton · wartet auf das erste Paket'],
+    ['T58c (mono)', t({}), 'Ton: Mischton · läuft (32,0 kHz, mono)'],
+    ['T58c (Mischton + Computerton, 2 Kanäle)', t({ modus: 'freigabe', eingestellt: 'mixShare', quelle: 'mixShare', rateKhz: 48, kanaele: 2 }),
+      'Ton: Mischton + Computerton · läuft (48,0 kHz, 2 Kanäle)'],
+    ['T58c (nur Computerton)', t({ modus: 'freigabe', tonAn: false, eingestellt: 'share', quelle: 'share' }), 'Ton: Computerton · läuft (32,0 kHz, mono)'],
+    ['T58d', t({ ton: 'silent', tonGrund: 'gap' }), 'Ton: Mischton · Stille (keine Pakete)'],
+    ['T58d (live, im letzten Fenster nichts hinausgegangen)', t({ quelle: 'none' }), 'Ton: Mischton · Stille (keine Pakete)'],
+    ['T58e', t({ zustand: 'ersatz', tonArt: 'person', ziel: 0, grund: 'participantLeft', ton: 'off', tonGrund: 'participantLeft', quelle: 'none', eingestellt: 'person' }),
+      'Ton: Anna · aus, die Person ist nicht im Meeting'],
+    ['T58f', t({ zustand: 'ersatz', modus: 'freigabe', tonAn: false, ziel: 0, grund: 'shareNone', ton: 'off', tonGrund: 'noShare', quelle: 'none', eingestellt: 'share' }),
+      'Ton: Computerton · wartet auf eine Bildschirmfreigabe'],
+    ['T58g', t({ modus: 'freigabe', eingestellt: 'mixShare', quelle: 'mix' }), 'Ton: Mischton · läuft (32,0 kHz, mono) · Computerton kommt nicht an'],
+    ['T58h (Slot läuft nicht)', t({ zustand: 'wartet_erlaubnis', ton: 'aus', tonGrund: null, quelle: 'none' }), 'Ton: Mischton, sobald der Slot läuft'],
+    ['T58h (aus während eines Wechsels)', t({ ton: 'off', tonGrund: 'modeChanged', quelle: 'none' }), 'Ton: Mischton, sobald der Slot läuft'],
+    ['T58i', t({ zustand: 'ersatz', tonArt: 'person', ziel: 0, grund: 'noTarget', doppelt: 2, ton: 'off', tonGrund: 'participantLeft', quelle: 'none', eingestellt: 'person' }),
+      'Ton: Person-Ton · aus, bis eine Person gewählt ist'],
+    ['T75', t({ modus: 'sprecher', tonArt: 'person', ton: 'off', tonGrund: 'personNotInMode', quelle: 'none', eingestellt: 'none' }),
+      'Ton: Person-Ton gibt es nur im Modus Teilnehmer. Der Slot sendet keinen Meeting-Ton.'],
+    ['T75 (Slot läuft nicht)', t({ zustand: 'aus', modus: 'sprecher', tonArt: 'person', ton: 'aus', tonGrund: null, quelle: 'none', eingestellt: 'none' }),
+      'Ton: Person-Ton gibt es nur im Modus Teilnehmer. Der Slot sendet keinen Meeting-Ton.'],
+    ['T75b', t({ modus: 'freigabe', tonArt: 'person', ton: 'off', tonGrund: 'personNotInMode', quelle: 'share', eingestellt: 'share' }),
+      'Ton: Person-Ton gibt es nur im Modus Teilnehmer; es läuft nur der Computerton.'],
+    ['T76', t({ modus: 'freigabe', eingestellt: 'mixShare', quelle: 'share', tonGrund: 'rateMismatch', rateMismatch: { r1: '32,0 kHz', r2: '48,0 kHz' } }),
+      'Ton: Mischton und Computerton passen nicht zusammen (32,0 kHz und 48,0 kHz). Es läuft nur der Computerton.'],
+    ['T104 an der Kachel (Text aus B5)', t({ tonAboFehler: T104, ton: 'off', tonGrund: 'audioUnavailable', quelle: 'none' }),
+      'Ton nicht verfügbar (AUDIO_HELPER_MISSING) — das Bild läuft ohne Ton. Für einen neuen Versuch den Ton aus- und wieder einschalten.'],
+  ];
+  for (const [id, ist, soll] of SOLL) ck(`S${id} wörtlich`, ist === soll);
+  ck('ST58 in SZ9 mit eingestelltem Ton: keine Tonzeile (Restrunde RR6, N5)', t({ zustand: 'stoppt' }) === null);
+  ck('ST58c ohne gemessene Rate und Kanäle: „unbekannt“ (OFP4; kommt nach 6.3 nicht vor)',
+    UNBEKANNT === 'unbekannt' && t({ rateKhz: null, kanaele: null }) === 'Ton: Mischton · läuft (unbekannt kHz, unbekannt)');
+  ck('Zahlformat: dezimal 29,97 → „30“, 12,5 → „12,5“; khzText 44,1 → „44,1“; kanaeleText 1 → „mono“, 2 → „2 Kanäle“',
+    dezimal(29.97) === '30' && dezimal(12.5) === '12,5' && khzText(44.1) === '44,1' && khzText(32) === '32,0'
+      && kanaeleText(1) === 'mono' && kanaeleText(2) === '2 Kanäle');
+  ck('10.7 Beispiel: 1280×720 bei 1080p → T51', m({ stufe: '1080p' }) === '1080p gewünscht · Zoom liefert 1280×720 · 25 Bilder/s');
+  ck('10.7 Beispiel: 960×720 bei 720p → T50', m({ geliefert: { b: 960, h: 720, fps: 25 } }) === '720p · Zoom liefert 960×720 · 25 Bilder/s');
+  ck('10.7 Beispiel: 720×1280 (hochkant) bei 720p → T50', m({ geliefert: { b: 720, h: 1280, fps: 25 } }) === '720p · Zoom liefert 720×1280 · 25 Bilder/s');
+  ck('10.7 Beispiel: 1920×1200 bei 1080p → T50', m({ stufe: '1080p', geliefert: { b: 1920, h: 1200, fps: 25 } }) === '1080p · Zoom liefert 1920×1200 · 25 Bilder/s');
+  ck('10.7 Beispiel: Freigabe 1280×720 bei 1080p → T50 (eigene Größe, MS1)',
+    m({ modus: 'freigabe', stufe: '1080p' }) === '1080p · Zoom liefert 1280×720 · 25 Bilder/s');
+
+  const v0: VE = { zustand: 'zeigt', gesendet: 'none', schalterAn: true, verfuegbar: true, detail: null, frisch: true, letzteDiesesZiels: true };
+  const v = (o: Partial<VE>): string => JSON.stringify(vorschauFlaeche({ ...v0, ...o }));
+  const F = (art: string, kennzeichen: string | null = null, text: string | null = null): string => JSON.stringify({ art, kennzeichen, text });
+  const KF9: Array<[string, string, string]> = [
+    ['Schalter „Vorschau“ aus → T56', v({ schalterAn: false }), F('leer', null, 'Vorschau aus')],
+    ['previewUnavailable → T57, auch an einer ausgeschalteten Kachel', v({ zustand: 'aus', gesendet: null, verfuegbar: false, detail: '0x887A0005' }),
+      F('leer', null, 'Vorschau nicht verfügbar (0x887A0005). Bild und Ton laufen unverändert.')],
+    ['kein Sender (SZ0) → leere Fläche, T55', v({ zustand: 'aus', gesendet: null }), F('leer', null, 'kein Bild')],
+    ['kein Sender (SZ2) → leere Fläche, T55', v({ zustand: 'wartet_erlaubnis', gesendet: null }), F('leer', null, 'kein Bild')],
+    ['SZ4, sent none, Vorschau frisch → das Bild', v({}), F('bild')],
+    ['SZ4, sent none, ohne frische Vorschau → leere Fläche, T55b, kein Ersatzbild', v({ frisch: false }), F('leer', null, 'kein Vorschaubild')],
+    ['SZ4, sent held → letzte Vorschau dieses Ziels ohne Kennzeichen und ohne Frische-Grenze (W1)', v({ gesendet: 'held', frisch: false }), F('letzte')],
+    ['SZ4, sent held, ohne letzte Vorschau → leere Fläche, T55b', v({ gesendet: 'held', letzteDiesesZiels: false }), F('leer', null, 'kein Vorschaubild')],
+    ['SZ5 → letzte Vorschau dieses Ziels mit T54', v({ zustand: 'gehalten', gesendet: 'held', frisch: false }), F('letzte', 'gehalten')],
+    ['SZ5 ohne letzte Vorschau → leere Fläche mit T54 (RR4)', v({ zustand: 'gehalten', gesendet: 'held', letzteDiesesZiels: false }), F('leer', 'gehalten')],
+    ['SZ6, sent transparent → Schachbrett', v({ zustand: 'ersatz', gesendet: 'transparent' }), F('schachbrett')],
+    ['SZ6, sent black → schwarz', v({ zustand: 'ersatz', gesendet: 'black' }), F('schwarz')],
+    ['SZ6, sent white → weiß', v({ zustand: 'ersatz', gesendet: 'white' }), F('weiss')],
+    ['SZ6, sent freeze → letzte Vorschau dieses Ziels mit T53', v({ zustand: 'ersatz', gesendet: 'freeze', frisch: false }), F('letzte', 'eingefroren')],
+    ['SZ6, sent freeze ohne letzte Vorschau → leere Fläche mit T53, nie Schachbrett (RR4)',
+      v({ zustand: 'ersatz', gesendet: 'freeze', letzteDiesesZiels: false }), F('leer', 'eingefroren')],
+    ['SZ9 → letzte Fläche, abgeblendet', v({ zustand: 'stoppt' }), F('abgeblendet')],
+    ['Schalter aus geht vor „nicht verfügbar“ (Tabellenfolge 7.7)', v({ schalterAn: false, verfuegbar: false, detail: '0x1' }), F('leer', null, 'Vorschau aus')],
+  ];
+  for (const [name, ist, soll] of KF9) ck(`KF9 ${name}`, ist === soll);
+}
+
+console.log('— B7 · Tonzeile 10.6, Messzeile 10.7 und Vorschau 10.8 als Kreuzprodukt (10.5); Zähltest');
+{
+  const { slotMessZeile, slotTonZeile } = await import('../src/shared/zoom-text');
+  const { vorschauFlaeche } = await import('../src/renderer/src/zoom/slot-vorschau');
+  const { SLOT_AUDIO_REASONS, SLOT_SENT } = await import('@jm/zoom-bridge/protocol');
+  const { tonAboFehlerText } = await import('../src/main/zoom/klartext');
+  type TE = import('../src/shared/zoom-text').TonEingabe;
+  type ME = import('../src/shared/zoom-text').MessEingabe;
+  type VE = import('../src/renderer/src/zoom/slot-vorschau').VorschauEingabe;
+  type VF = import('../src/renderer/src/zoom/slot-vorschau').VorschauFlaeche;
+  type SZ = import('../src/shared/types').ZoomSlotZustand;
+  type Modus = import('../src/shared/types').ZoomSlotModus;
+  type Quelle = import('../src/shared/types').TonQuelle;
+  type TonArt = import('../src/shared/types').ZoomSlotTonArt;
+  type Stufe = import('../src/shared/types').ZoomSlotAufloesung;
+  type TonGrund = import('@jm/zoom-bridge/protocol').SlotAudioReason;
+  type Sent = import('@jm/zoom-bridge/protocol').SlotSent;
+
+  // Zähltest (10.5 letzter Punkt): Der Record ist vollständig, sonst scheitert der Typcheck.
+  const TON_GRUENDE: Record<TonGrund, true> = {
+    command: true, packets: true, gap: true, audioUnavailable: true, participantLeft: true, personNotInMode: true, noShare: true,
+    rateMismatch: true, targetChanged: true, modeChanged: true, meetingEnded: true, privilegeRevoked: true,
+  };
+  ck('SlotAudioReason hat 12 Werte', Object.keys(TON_GRUENDE).length === 12 && SLOT_AUDIO_REASONS.length === 12);
+
+  const ZS: SZ[] = ['aus', 'ohne_meeting', 'wartet_erlaubnis', 'startet', 'zeigt', 'gehalten', 'ersatz', 'keine_antwort', 'gescheitert', 'stoppt', 'zurueckgestellt', 'geplant'];
+  const OHNE_SENDER = new Set<SZ>(['aus', 'ohne_meeting', 'wartet_erlaubnis', 'startet', 'keine_antwort', 'gescheitert', 'zurueckgestellt', 'geplant']);
+  const MODI: Modus[] = ['teilnehmer', 'sprecher', 'freigabe'];
+  const QUELLEN: Quelle[] = ['mix', 'person', 'share', 'mixShare', 'none'];
+  const mitShare = (q: Quelle): boolean => q === 'share' || q === 'mixShare';
+
+  // ── Tonzeile ──
+  // Texte 9.3 und Ton-Abbildung 7.1 mit dem Tonweg 6.13, aus der Spec abgeschrieben (nicht aus dem Modul)
+  const S = {
+    T58a: 'Ton: aus',
+    T58b: (q: string): string => `Ton: ${q} · wartet auf das erste Paket`,
+    T58c: (q: string, rate: string, k: string): string => `Ton: ${q} · läuft (${rate} kHz, ${k})`,
+    T58d: (q: string): string => `Ton: ${q} · Stille (keine Pakete)`,
+    T58e: (p: string): string => `Ton: ${p} · aus, die Person ist nicht im Meeting`,
+    T58f: 'Ton: Computerton · wartet auf eine Bildschirmfreigabe',
+    T58g: ' · Computerton kommt nicht an',
+    T58h: (q: string): string => `Ton: ${q}, sobald der Slot läuft`,
+    T58i: 'Ton: Person-Ton · aus, bis eine Person gewählt ist',
+    T75: 'Ton: Person-Ton gibt es nur im Modus Teilnehmer. Der Slot sendet keinen Meeting-Ton.',
+    T75b: 'Ton: Person-Ton gibt es nur im Modus Teilnehmer; es läuft nur der Computerton.',
+    T76: (r1: string, r2: string): string => `Ton: Mischton und Computerton passen nicht zusammen (${r1} und ${r2}). Es läuft nur der Computerton.`,
+  };
+  const name = (q: Quelle, person: string): string =>
+    q === 'mix' ? 'Mischton' : q === 'share' ? 'Computerton' : q === 'mixShare' ? 'Mischton + Computerton' : person === '' ? 'Person-Ton' : person;
+  function wegLautSpec(modus: Modus, tonAn: boolean, tonArt: TonArt, computerton: boolean): Quelle {
+    const audio = !tonAn ? 'off' : tonArt === 'mischton' ? 'mix' : 'person';
+    if (modus === 'freigabe') {
+      if (audio === 'mix') return computerton ? 'mixShare' : 'mix';
+      return computerton ? 'share' : 'none';
+    }
+    if (audio === 'mix') return 'mix';
+    return audio === 'person' && modus === 'teilnehmer' ? 'person' : 'none';
+  }
+  const weg = (f: TE): Quelle => (f.eingestellt !== 'none' ? f.eingestellt : wegLautSpec(f.modus, f.tonAn, f.tonArt, f.computerton));
+  const eingestellt = (f: TE): boolean => f.tonAn || (f.modus === 'freigabe' && f.computerton);
+  function tonSoll(f: TE): string | null {
+    if (!eingestellt(f)) return S.T58a;                                                                  // Regel 1
+    const w = weg(f);
+    if (f.zustand === 'stoppt') return null;                                                             // Regel 2
+    if (OHNE_SENDER.has(f.zustand)) return w === 'none' ? S.T75 : S.T58h(name(w, f.person));
+    if (f.tonAboFehler !== null) return f.tonAboFehler;                                                  // Regel 3
+    if (f.tonAn && f.tonArt === 'person' && f.modus !== 'teilnehmer') {                                 // Regel 4
+      return f.modus === 'freigabe' && f.computerton && mitShare(f.quelle) ? S.T75b : S.T75;
+    }
+    if (f.rateMismatch !== null) return S.T76(f.rateMismatch.r1, f.rateMismatch.r2);                     // Regel 5
+    if (f.modus === 'teilnehmer' && f.tonAn && f.tonArt === 'person' && f.ziel === 0) {                 // Regel 6
+      return f.doppelt > 1 || f.zweifel || f.person === '' ? S.T58i : S.T58e(f.person);
+    }
+    if (f.modus === 'freigabe' && !f.tonAn && f.computerton && f.ziel === 0) return S.T58f;             // Regel 7
+    if (w === 'none') return S.T75;
+    if (f.ton === 'waiting') return S.T58b(name(w, f.person));                                           // Regel 8
+    if (f.ton === 'live') {                                                                              // Regel 9
+      if (f.quelle === 'none') return S.T58d(name(w, f.person));   // nichts hinausgegangen: Stille (Lesart des Plans)
+      const k = f.kanaele === 1 ? 'mono' : `${f.kanaele} Kanäle`;
+      return S.T58c(name(f.quelle, f.person), (f.rateKhz ?? 0).toFixed(1).replace('.', ','), k) + (mitShare(w) && !mitShare(f.quelle) ? S.T58g : '');
+    }
+    if (f.ton === 'silent') return S.T58d(name(w, f.person));                                            // Regel 10
+    return S.T58h(name(w, f.person));                                                                    // Regel 11
+  }
+  const TPRAED: Array<{ name: string; wenn: (f: TE, t: string | null) => boolean; dann: (f: TE, t: string | null) => boolean }> = [
+    { name: '„· läuft (“ (T58c) nur mit dem Ton-Zustand live', wenn: (_f, t) => t?.includes('· läuft (') === true, dann: (f) => f.ton === 'live' },
+    { name: '„es läuft nur der Computerton“ (T75b) nur, wenn source share enthält',
+      wenn: (_f, t) => t?.includes('es läuft nur der Computerton') === true, dann: (f) => mitShare(f.quelle) },
+    { name: '„Person-Ton gibt es nur“ (T75, T75b) nur mit tonAn, Tonart Person und Modus außer Teilnehmer',
+      wenn: (_f, t) => t?.includes('Person-Ton gibt es nur') === true, dann: (f) => f.tonAn && f.tonArt === 'person' && f.modus !== 'teilnehmer' },
+    { name: '„nicht im Meeting“ (T58e) nur mit gewählter Person, doppelt ≤ 1 und ohne zweifel',
+      wenn: (_f, t) => t?.includes('nicht im Meeting') === true, dann: (f) => f.person !== '' && f.doppelt <= 1 && !f.zweifel },
+    { name: '„wartet auf eine Bildschirmfreigabe“ (T58f) nur im Modus Freigabe mit Ziel 0',
+      wenn: (_f, t) => t?.includes('wartet auf eine Bildschirmfreigabe') === true, dann: (f) => f.modus === 'freigabe' && f.ziel === 0 },
+    { name: '„Computerton“ in der Quelle von T58c nur, wenn er gemessen hinausgeht',
+      wenn: (_f, t) => t !== null && /^Ton: (Computerton|Mischton \+ Computerton) · läuft/.test(t), dann: (f) => mitShare(f.quelle) },
+    { name: '„Ton: aus“ nur, wenn nichts eingestellt ist (nie bei eingeschaltetem Ton, etwa in SZ1 oder SZ2)',
+      wenn: (_f, t) => t === 'Ton: aus', dann: (f) => !eingestellt(f) },
+    { name: 'in SZ9 keine Tonzeile außer „Ton: aus“ (N5, RR6)', wenn: (f) => f.zustand === 'stoppt', dann: (_f, t) => t === null || t === 'Ton: aus' },
+    { name: 'keine Tonzeile (null) nur in SZ9 mit eingestelltem Ton', wenn: (_f, t) => t === null, dann: (f) => f.zustand === 'stoppt' && eingestellt(f) },
+    { name: '„Ton nicht verfügbar“ (T104) nur mit Ton-Abo-Fehler oder eigenem Ton-Zustand off/audioUnavailable',
+      wenn: (_f, t) => t?.startsWith('Ton nicht verfügbar') === true, dann: (f) => f.tonAboFehler !== null || (f.ton === 'off' && f.tonGrund === 'audioUnavailable') },
+    { name: '„Computerton kommt nicht an“ (T58g) nur, wenn er eingestellt ist und source ihn nicht enthält',
+      wenn: (_f, t) => t?.includes('Computerton kommt nicht an') === true, dann: (f) => mitShare(weg(f)) && !mitShare(f.quelle) },
+    { name: '„bis eine Person gewählt ist“ (T58i) nur bei Teilnehmer, Person-Ton, Ziel 0 und doppelt > 1, zweifel oder keiner Person',
+      wenn: (_f, t) => t?.includes('bis eine Person gewählt ist') === true,
+      dann: (f) => f.modus === 'teilnehmer' && f.tonAn && f.tonArt === 'person' && f.ziel === 0 && (f.doppelt > 1 || f.zweifel || f.person === '') },
+    { name: '„sobald der Slot läuft“ (T58h) nur ohne Sender oder ohne laufenden Ton (off oder keine Meldung)',
+      wenn: (_f, t) => t?.includes('sobald der Slot läuft') === true, dann: (f) => OHNE_SENDER.has(f.zustand) || f.ton === 'off' || f.ton === 'aus' },
+    { name: '„passen nicht zusammen“ (T76) nur mit gemeldetem rateMismatch',
+      wenn: (_f, t) => t?.includes('passen nicht zusammen') === true, dann: (f) => f.rateMismatch !== null },
+  ];
+  const ZIEL0_GRUND = { teilnehmer: 'participantLeft', sprecher: 'speakerNone', freigabe: 'shareNone' } as const;
+  const T104 = tonAboFehlerText('AUDIO_SUBSCRIBE_FAILED');
+  interface Wahl { person: string; doppelt: number; zweifel: boolean; warteraum: boolean }
+  const EINE: Wahl[] = [{ person: 'Anna', doppelt: 1, zweifel: false, warteraum: false }];
+  const WAHLEN: Wahl[] = [];
+  for (const person of ['Anna', '']) for (const doppelt of [1, 2]) for (const zweifel of [false, true]) for (const warteraum of [false, true]) {
+    WAHLEN.push({ person, doppelt, zweifel, warteraum });
+  }
+  const EINSTELLUNGEN: Array<[boolean, TonArt, boolean]> = [];
+  for (const tonAn of [false, true]) for (const tonArt of ['mischton', 'person'] as TonArt[]) for (const computerton of [false, true]) EINSTELLUNGEN.push([tonAn, tonArt, computerton]);
+  let nTon = 0;
+  const tAbw: string[] = [];
+  const tZaehler = TPRAED.map(() => ({ treffer: 0, verletzt: 0, beispiel: '' }));
+  for (const zustand of ZS) for (const modus of MODI) {
+    if (zustand === 'gehalten' && modus !== 'freigabe') continue;
+    const laeuft = zustand === 'zeigt' || zustand === 'gehalten' || zustand === 'ersatz';
+    const ziele = zustand === 'zeigt' || zustand === 'gehalten' ? [7] : laeuft || zustand === 'stoppt' ? [0, 7] : [0];
+    for (const ziel of ziele) {
+      const wahlen = modus === 'teilnehmer' && ziel === 0 && laeuft ? WAHLEN : EINE;
+      for (const w of wahlen) for (const [tonAn, tonArt, computerton] of EINSTELLUNGEN) {
+        const eingestellte: Quelle[] = laeuft || zustand === 'stoppt' ? QUELLEN : [wegLautSpec(modus, tonAn, tonArt, computerton)];
+        for (const ton of ['waiting', 'live', 'silent', 'off', 'aus'] as const) {
+          for (const tonGrund of (ton === 'aus' ? [null] : SLOT_AUDIO_REASONS) as ReadonlyArray<TonGrund | null>) {
+            for (const quelle of ton === 'aus' ? (['none'] as Quelle[]) : QUELLEN) for (const eing of eingestellte) {
+              for (const tonAboFehler of [null, T104]) for (const kanaele of ton === 'live' ? [1, 2] : [null]) {
+                if (ton === 'off' && tonGrund === 'audioUnavailable' && tonAboFehler === null) continue;   // Kern-Vertrag 7.1 (B14)
+                const f: TE = {
+                  zustand, modus, ziel, grund: ziel === 0 ? ZIEL0_GRUND[modus] : 'frames', tonAn, tonArt, computerton,
+                  person: w.person, doppelt: w.doppelt, zweifel: w.zweifel, imWarteraum: w.warteraum, ton, tonGrund, quelle, eingestellt: eing,
+                  rateKhz: ton === 'live' ? 32 : null, kanaele, tonAboFehler,
+                  rateMismatch: tonGrund === 'rateMismatch' ? { r1: '32,0 kHz', r2: '48,0 kHz' } : null,
+                };
+                nTon++;
+                const ist = slotTonZeile(f);
+                const soll = tonSoll(f);
+                if (ist !== soll && tAbw.length < 5) tAbw.push(`${JSON.stringify(f)} → ${JSON.stringify(ist)}, erwartet ${JSON.stringify(soll)}`);
+                TPRAED.forEach((p, i) => {
+                  if (!p.wenn(f, ist)) return;
+                  tZaehler[i].treffer++;
+                  if (!p.dann(f, ist)) { tZaehler[i].verletzt++; if (!tZaehler[i].beispiel) tZaehler[i].beispiel = `${JSON.stringify(f)} → ${JSON.stringify(ist)}`; }
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  console.log(`     10.6: ${nTon} Kombinationen geprüft`);
+  for (const a of tAbw) console.log(`     Abweichung: ${a}`);
+  ck('10.6 Tonzeile: jede zulässige Kombination wörtlich nach der ersten passenden Regel', nTon > 0 && tAbw.length === 0);
+  TPRAED.forEach((p, i) => {
+    if (tZaehler[i].beispiel) console.log(`     verletzt: ${tZaehler[i].beispiel}`);
+    ck(`10.6 Prädikat: ${p.name}`, tZaehler[i].treffer > 0 && tZaehler[i].verletzt === 0);
+  });
+
+  // ── Messzeile ──
+  const NENN: Record<Stufe, number> = { '360p': 360, '720p': 720, '1080p': 1080 };
+  const GROESSEN: Array<[number, number] | null> = [null, [1280, 720], [1920, 1080], [960, 720], [720, 1280], [1920, 1200], [640, 360]];
+  function messSoll(f: ME): string | null {
+    if (f.zustand !== 'zeigt' && f.zustand !== 'gehalten' && f.zustand !== 'ersatz') return null;
+    if (f.geliefert !== null) {
+      const g = f.geliefert;
+      return f.modus !== 'freigabe' && Math.min(g.b, g.h) < NENN[f.stufe]
+        ? `${f.stufe} gewünscht · Zoom liefert ${g.b}×${g.h} · ${g.fps} Bilder/s`
+        : `${f.stufe} · Zoom liefert ${g.b}×${g.h} · ${g.fps} Bilder/s`;
+    }
+    return f.zuletzt !== null ? `${f.stufe} · zuletzt ${f.zuletzt.b}×${f.zuletzt.h} · jetzt kein Bild` : `${f.stufe} gewünscht · noch kein Bild`;
+  }
+  const MPRAED: Array<{ name: string; wenn: (f: ME, t: string | null) => boolean; dann: (f: ME, t: string | null) => boolean }> = [
+    { name: 'Messzeile nur, solange der Sender läuft (SZ4–SZ6); in SZ9 keine (RR6)',
+      wenn: (_f, t) => t !== null, dann: (f) => f.zustand === 'zeigt' || f.zustand === 'gehalten' || f.zustand === 'ersatz' },
+    { name: '„Zoom liefert“ (T50, T51) nur mit einem Bild im laufenden Fenster', wenn: (_f, t) => t?.includes('Zoom liefert') === true, dann: (f) => f.geliefert !== null },
+    { name: '„Bilder/s“ nur mit Bildern im Fenster, nie „0 Bilder/s“ neben einer alten Größe',
+      wenn: (_f, t) => t?.includes('Bilder/s') === true, dann: (f, t) => f.geliefert !== null && f.geliefert.fps > 0 && t?.includes(' 0 Bilder/s') === false },
+    { name: '„zuletzt … jetzt kein Bild“ (T51c) nur ohne Bild im Fenster und mit früherem Bild dieses Ziels',
+      wenn: (_f, t) => t?.includes('jetzt kein Bild') === true, dann: (f) => f.geliefert === null && f.zuletzt !== null },
+    { name: '„noch kein Bild“ (T51b) nur ohne jedes Bild dieses Ziels',
+      wenn: (_f, t) => t?.includes('noch kein Bild') === true, dann: (f) => f.geliefert === null && f.zuletzt === null },
+    { name: '„gewünscht · Zoom liefert“ (T51) nur bei Teilnehmer und Sprecher mit kürzerer Seite unter der Stufe',
+      wenn: (_f, t) => t?.includes('gewünscht · Zoom liefert') === true,
+      dann: (f) => f.modus !== 'freigabe' && f.geliefert !== null && Math.min(f.geliefert.b, f.geliefert.h) < NENN[f.stufe] },
+  ];
+  let nMess = 0;
+  const mAbw: string[] = [];
+  const mZaehler = MPRAED.map(() => ({ treffer: 0, verletzt: 0 }));
+  for (const zustand of ZS) for (const modus of MODI) for (const stufe of ['360p', '720p', '1080p'] as Stufe[]) for (const gr of GROESSEN) {
+    for (const imFenster of [false, true]) for (const frueher of [false, true]) {
+      const f: ME = {
+        zustand, modus, stufe,
+        geliefert: gr !== null && imFenster ? { b: gr[0], h: gr[1], fps: 25 } : null,
+        zuletzt: gr !== null && frueher ? { b: gr[0], h: gr[1] } : null,
+      };
+      nMess++;
+      const ist = slotMessZeile(f);
+      if (ist !== messSoll(f) && mAbw.length < 5) mAbw.push(`${JSON.stringify(f)} → ${JSON.stringify(ist)}`);
+      MPRAED.forEach((p, i) => { if (p.wenn(f, ist)) { mZaehler[i].treffer++; if (!p.dann(f, ist)) mZaehler[i].verletzt++; } });
+    }
+  }
+  console.log(`     10.7: ${nMess} Kombinationen geprüft`);
+  for (const a of mAbw) console.log(`     Abweichung: ${a}`);
+  ck('10.7 Messzeile: jede Kombination wörtlich', nMess > 0 && mAbw.length === 0);
+  MPRAED.forEach((p, i) => ck(`10.7 Prädikat: ${p.name}`, mZaehler[i].treffer > 0 && mZaehler[i].verletzt === 0));
+
+  // ── Vorschau ──
+  const VT = { T53: 'eingefroren', T54: 'gehalten', T55: 'kein Bild', T55b: 'kein Vorschaubild', T56: 'Vorschau aus' };
+  const fl = (art: VF['art'], kennzeichen: string | null = null, text: string | null = null): VF => ({ art, kennzeichen, text });
+  function vorschauSoll(f: VE): VF {   // Tabelle 7.7, Zeile für Zeile
+    if (!f.schalterAn) return fl('leer', null, VT.T56);
+    if (!f.verfuegbar) return fl('leer', null, `Vorschau nicht verfügbar (${f.detail}). Bild und Ton laufen unverändert.`);
+    if (OHNE_SENDER.has(f.zustand)) return fl('leer', null, VT.T55);
+    if (f.zustand === 'zeigt' && f.gesendet === 'held') return f.letzteDiesesZiels ? fl('letzte') : fl('leer', null, VT.T55b);
+    if (f.zustand === 'zeigt') return f.frisch ? fl('bild') : fl('leer', null, VT.T55b);
+    if (f.zustand === 'gehalten') return fl(f.letzteDiesesZiels ? 'letzte' : 'leer', VT.T54);
+    if (f.zustand === 'ersatz') {
+      if (f.gesendet === 'transparent') return fl('schachbrett');
+      if (f.gesendet === 'black') return fl('schwarz');
+      if (f.gesendet === 'white') return fl('weiss');
+      return fl(f.letzteDiesesZiels ? 'letzte' : 'leer', VT.T53);   // freeze
+    }
+    return fl('abgeblendet');   // SZ9
+  }
+  const ERSATZ_ART = new Set<VF['art']>(['schachbrett', 'schwarz', 'weiss']);
+  const VPRAED: Array<{ name: string; wenn: (f: VE, v: VF) => boolean; dann: (f: VE, v: VF) => boolean }> = [
+    { name: 'Schachbrett, Schwarz oder Weiß nur in SZ6 mit passendem sent (Schachbrett nur mit transparent)',
+      wenn: (_f, v) => ERSATZ_ART.has(v.art),
+      dann: (f, v) => f.zustand === 'ersatz' && ({ schachbrett: 'transparent', schwarz: 'black', weiss: 'white' } as Record<string, Sent>)[v.art] === f.gesendet },
+    { name: 'Kennzeichen „gehalten“ (T54) nur in SZ5', wenn: (_f, v) => v.kennzeichen === VT.T54, dann: (f) => f.zustand === 'gehalten' },
+    { name: 'Kennzeichen „eingefroren“ (T53) nur mit sent = freeze', wenn: (_f, v) => v.kennzeichen === VT.T53, dann: (f) => f.gesendet === 'freeze' },
+    { name: 'SZ5 oder sent = freeze ohne letzte Vorschau: leere Fläche mit Kennzeichen, nie ein Ersatzbild (RR4)',
+      wenn: (f) => f.schalterAn && f.verfuegbar && !f.letzteDiesesZiels && (f.zustand === 'gehalten' || (f.zustand === 'ersatz' && f.gesendet === 'freeze')),
+      dann: (_f, v) => v.art === 'leer' && v.kennzeichen !== null },
+    { name: 'in SZ4 nie ein Ersatzbild', wenn: (f) => f.zustand === 'zeigt', dann: (_f, v) => !ERSATZ_ART.has(v.art) },
+    { name: 'SZ4 mit sent = held und letzter Vorschau dieses Ziels: die letzte ohne Kennzeichen, nie T55b (W1)',
+      wenn: (f) => f.schalterAn && f.verfuegbar && f.zustand === 'zeigt' && f.gesendet === 'held' && f.letzteDiesesZiels,
+      dann: (_f, v) => v.art === 'letzte' && v.kennzeichen === null && v.text === null },
+    { name: 'das Bild nur in SZ4 mit sent none und frischer Vorschau', wenn: (_f, v) => v.art === 'bild', dann: (f) => f.zustand === 'zeigt' && f.gesendet === 'none' && f.frisch },
+    { name: 'T56 genau bei ausgeschaltetem Schalter, T57 nur, wenn die Vorschau nicht verfügbar ist',
+      wenn: (_f, v) => v.text !== null && (v.text === VT.T56 || v.text.startsWith('Vorschau nicht verfügbar')),
+      dann: (f, v) => (v.text === VT.T56 ? !f.schalterAn : f.schalterAn && !f.verfuegbar) },
+  ];
+  function sendeArten(sz: SZ): (Sent | null)[] {
+    if (sz === 'zeigt') return ['none', 'held'];
+    if (sz === 'gehalten') return ['held'];
+    if (sz === 'ersatz') return ['transparent', 'freeze', 'black', 'white'];
+    if (sz === 'stoppt') return [...SLOT_SENT];
+    return [null];
+  }
+  let nVor = 0;
+  const vAbw: string[] = [];
+  const vZaehler = VPRAED.map(() => ({ treffer: 0, verletzt: 0 }));
+  for (const zustand of ZS) for (const gesendet of sendeArten(zustand)) for (const schalterAn of [false, true]) for (const verfuegbar of [false, true]) {
+    for (const frisch of [false, true]) for (const letzteDiesesZiels of [false, true]) {
+      const f: VE = { zustand, gesendet, schalterAn, verfuegbar, detail: '0x887A0005', frisch, letzteDiesesZiels };
+      nVor++;
+      const ist = vorschauFlaeche(f);
+      if (JSON.stringify(ist) !== JSON.stringify(vorschauSoll(f)) && vAbw.length < 5) vAbw.push(`${JSON.stringify(f)} → ${JSON.stringify(ist)}`);
+      VPRAED.forEach((p, i) => { if (p.wenn(f, ist)) { vZaehler[i].treffer++; if (!p.dann(f, ist)) vZaehler[i].verletzt++; } });
+    }
+  }
+  console.log(`     10.8: ${nVor} Kombinationen geprüft`);
+  for (const a of vAbw) console.log(`     Abweichung: ${a}`);
+  ck('10.8 Vorschau: jede zulässige Kombination nach der Tabelle 7.7', nVor > 0 && vAbw.length === 0);
+  VPRAED.forEach((p, i) => ck(`10.8 Prädikat: ${p.name}`, vZaehler[i].treffer > 0 && vZaehler[i].verletzt === 0));
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

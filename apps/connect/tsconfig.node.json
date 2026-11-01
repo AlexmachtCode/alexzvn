@@ -26,6 +26,8 @@
     "src/preload/**/*.ts",
     "src/utility/**/*.ts",
     "src/shared/**/*.ts",
+    // Reine Renderer-Hilfe, die test/zoom-text.test.ts prüft (Plan B, Task B7); composite verlangt jede Datei hier.
+    "src/renderer/src/zoom/slot-vorschau.ts",
     "test/**/*.ts"
   ]
 }

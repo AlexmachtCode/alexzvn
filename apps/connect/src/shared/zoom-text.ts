@@ -11,8 +11,8 @@ import type {
 } from './types';
 
 // Zoom-Slots (Plan B, Block b2): eigene Importzeilen; die Zeilen oben bleiben bis zum Kern-Umstieg (Task B12) unverändert.
-import type { SlotReason, SlotSent } from '@jm/zoom-bridge/protocol';
-import type { ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotZustand } from './types';
+import type { AudioState, SlotAudioReason, SlotReason, SlotSent } from '@jm/zoom-bridge/protocol';
+import type { TonQuelle, ZoomSlotAufloesung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotZustand } from './types';
 
 /** Die Zeilen der Zustandstabelle Spec 7.1. */
 export type ZoomZ =
@@ -833,6 +833,175 @@ export function kachelZeile(e: KachelEingabe): string {
 export function kachelFehlerZeile(e: { zustand: ZoomSlotZustand; letzterSlotFehler: string | null; seitDemLive: boolean }): string | null {
   if (e.zustand === 'gescheitert' || e.seitDemLive) return null;
   return e.letzterSlotFehler;
+}
+
+/** Wort für einen fehlenden Wert (Spec 9.4, T62b: „fehlende Werte: „unbekannt““); auch in T58c (OFP4). */
+export const UNBEKANNT = 'unbekannt';
+
+/** Zahl für die Anzeige: ganzzahlig ohne Nachkommastelle, sonst eine Nachkommastelle mit Komma ({fps}, Haltezeit). */
+export function dezimal(x: number): string {
+  const r = Math.round(x * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1).replace('.', ',');
+}
+
+/** Spec 9.3: Tonzeile der Kachel (10.6) je T-Nummer; `q` ist der fertige Name der Quelle. */
+export const TON_TEXT = {
+  T58a: 'Ton: aus',
+  T58b: (q: string): string => `Ton: ${q} · wartet auf das erste Paket`,
+  T58c: (q: string, rate: string, kanaele: string): string => `Ton: ${q} · läuft (${rate} kHz, ${kanaele})`,
+  T58d: (q: string): string => `Ton: ${q} · Stille (keine Pakete)`,
+  T58e: (person: string): string => `Ton: ${person} · aus, die Person ist nicht im Meeting`,
+  T58f: 'Ton: Computerton · wartet auf eine Bildschirmfreigabe',
+  T58g: ' · Computerton kommt nicht an',
+  T58h: (q: string): string => `Ton: ${q}, sobald der Slot läuft`,
+  T58i: 'Ton: Person-Ton · aus, bis eine Person gewählt ist',
+  T75: 'Ton: Person-Ton gibt es nur im Modus Teilnehmer. Der Slot sendet keinen Meeting-Ton.',
+  T75b: 'Ton: Person-Ton gibt es nur im Modus Teilnehmer; es läuft nur der Computerton.',
+  T76: (r1: string, r2: string): string => `Ton: Mischton und Computerton passen nicht zusammen (${r1} und ${r2}). Es läuft nur der Computerton.`,
+  /** {Quelle} in T58b, T58c, T58d, T58h; Person-Ton nennt die Person, ohne gewählte Person „Person-Ton“ (RN12). */
+  quelle: { mix: 'Mischton', share: 'Computerton', mixShare: 'Mischton + Computerton', personOhneWahl: 'Person-Ton' },
+  /** {kanäle} in T58c (und T63). */
+  mono: 'mono',
+  kanaele: (c: number): string => `${c} Kanäle`,
+};
+
+/** {rate} in T58c (und T63): kHz mit einer Nachkommastelle. */
+export function khzText(rateKhz: number): string {
+  return rateKhz.toFixed(1).replace('.', ',');
+}
+
+/** {kanäle} in T58c (und T63): „mono“ bzw. „{c} Kanäle“. */
+export function kanaeleText(c: number): string {
+  return c === 1 ? TON_TEXT.mono : TON_TEXT.kanaele(c);
+}
+
+/** Spec 10.1, 10.6, 10.7: läuft der Sender des Slots (SZ4–SZ6), baut er ab (SZ9) oder fehlt er? Neuer Zustand: Typcheck. */
+const SENDER: Record<ZoomSlotZustand, 'laeuft' | 'abbau' | 'keiner'> = {
+  aus: 'keiner',
+  ohne_meeting: 'keiner',
+  wartet_erlaubnis: 'keiner',
+  startet: 'keiner',
+  zeigt: 'laeuft',
+  gehalten: 'laeuft',
+  ersatz: 'laeuft',
+  keine_antwort: 'keiner',
+  gescheitert: 'keiner',
+  stoppt: 'abbau',
+  zurueckgestellt: 'keiner',
+  geplant: 'keiner',
+};
+
+/**
+ * Eingaben der Tonzeile einer Kachel (Spec 10.6).
+ * - `ziel`: Ziel der Bridge (Kennung bzw. bei Freigabe die teilende Person), 0 ohne Ziel; die Regeln 6 und 7 hängen daran.
+ * - `grund`: Grund der Bridge zur Zustandszeile (die Tonzeile liest ihn nicht; 10.6 Regel 7 hängt am Ziel, nicht am Grund).
+ * - `person`: die eingestellte Person ('' = keine gewählt); `doppelt`, `zweifel`, `imWarteraum` wie an der Zustandszeile.
+ * - `ton`, `tonGrund`, `quelle`, `eingestellt`: `slotAudio` der Bridge (`state`, `reason`, `source`, `configured`, 6.3);
+ *   `ton` = 'aus', solange keine Meldung kam; `eingestellt` = 'none', solange die Bridge keinen Weg meldet.
+ * - `rateKhz`, `kanaele`: gemessen (`sampleRate`/1000, `channels`), sonst `null`.
+ * - `tonAboFehler`: fertiger Text T104 (B5 `tonAboFehlerText`). Der Kern legt ihn an jede Kachel mit eingeschaltetem Ton,
+ *   solange der Merker steht, und an einen Slot mit eigenem Ton `off/audioUnavailable` mit dem zuletzt gemeldeten Namen
+ *   (7.1, Nachfix W6). Diese Datei lädt `klartext.ts` nicht (das lädt diese Datei).
+ * - `rateMismatch`: die beiden Formate bei `rateMismatch` (T76), sonst `null`.
+ */
+export interface TonEingabe {
+  zustand: ZoomSlotZustand; modus: ZoomSlotModus; ziel: number; grund: SlotReason | null;
+  tonAn: boolean; tonArt: ZoomSlotTonArt; computerton: boolean; person: string; doppelt: number; zweifel: boolean;
+  imWarteraum: boolean; ton: AudioState | 'aus'; tonGrund: SlotAudioReason | null; quelle: TonQuelle; eingestellt: TonQuelle;
+  rateKhz: number | null; kanaele: number | null; tonAboFehler: string | null; rateMismatch: { r1: string; r2: string } | null;
+}
+
+/** Tonweg laut Einstellung (Ton-Abbildung 7.1 und `tonWeg` 6.13), solange die Bridge keinen meldet. */
+function wegLautEinstellung(e: Pick<TonEingabe, 'modus' | 'tonAn' | 'tonArt' | 'computerton'>): TonQuelle {
+  const computerton = e.modus === 'freigabe' && e.computerton;
+  if (e.tonAn && e.tonArt === 'mischton') return computerton ? 'mixShare' : 'mix';
+  if (e.tonAn && e.modus === 'teilnehmer') return 'person';
+  return computerton ? 'share' : 'none';
+}
+
+const mitComputerton = (q: TonQuelle): boolean => q === 'share' || q === 'mixShare';
+
+/** {Quelle}: Name eines Tonwegs; Person-Ton nennt die Person bzw. ohne gewählte Person „Person-Ton“ (RN12). */
+function quelleName(q: Exclude<TonQuelle, 'none'>, person: string): string {
+  if (q === 'person') return person === '' ? TON_TEXT.quelle.personOhneWahl : person;
+  return TON_TEXT.quelle[q];
+}
+
+/** Tonzeile der Kachel (Spec 10.6): erste passende Regel gewinnt; `null` nur in SZ9 mit eingestelltem Ton. */
+export function slotTonZeile(e: TonEingabe): string | null {
+  // Regel 1: nichts eingestellt
+  if (!e.tonAn && !(e.modus === 'freigabe' && e.computerton)) return TON_TEXT.T58a;
+  const personAusserhalb = e.tonAn && e.tonArt === 'person' && e.modus !== 'teilnehmer';
+  const eingestellt = e.eingestellt !== 'none' ? e.eingestellt : wegLautEinstellung(e);
+  // Regel 2: kein Sender bzw. Sender im Abbau. Ohne Weg laut Einstellung ist es Person-Ton außerhalb von Teilnehmer (T75).
+  const sender = SENDER[e.zustand];
+  if (sender === 'abbau') return null;
+  if (sender === 'keiner') return eingestellt === 'none' ? TON_TEXT.T75 : TON_TEXT.T58h(quelleName(eingestellt, e.person));
+  // Regel 3: Ton-Abo-Fehler (Text T104 vom Kern)
+  if (e.tonAboFehler !== null) return e.tonAboFehler;
+  // Regel 4: Person-Ton außerhalb von Teilnehmer; T75b nur, wenn der Computerton gemessen hinausgeht
+  if (personAusserhalb) return e.modus === 'freigabe' && e.computerton && mitComputerton(e.quelle) ? TON_TEXT.T75b : TON_TEXT.T75;
+  // Regel 5
+  if (e.rateMismatch !== null) return TON_TEXT.T76(e.rateMismatch.r1, e.rateMismatch.r2);
+  // Regel 6: Person-Ton ohne Ziel, in der Folge der Zustandszeile (RN12)
+  if (e.modus === 'teilnehmer' && e.tonAn && e.tonArt === 'person' && e.ziel === 0) {
+    return e.doppelt > 1 || e.zweifel || e.person === '' ? TON_TEXT.T58i : TON_TEXT.T58e(e.person);
+  }
+  // Regel 7: nur Computerton, keine gezeigte Freigabe (noShare)
+  if (e.modus === 'freigabe' && !e.tonAn && e.computerton && e.ziel === 0) return TON_TEXT.T58f;
+  // Nach den Regeln 1 und 4 ergibt die Einstellung immer einen Weg (7.1); sonst sagt T75, was zutrifft.
+  if (eingestellt === 'none') return TON_TEXT.T75;
+  // Regeln 8–11
+  switch (e.ton) {
+    case 'waiting':
+      return TON_TEXT.T58b(quelleName(eingestellt, e.person));
+    case 'live': {
+      // „läuft“ nennt die gemessene Quelle. Ging im letzten Fenster nichts hinaus (source none, kommt nach 6.3 nicht vor),
+      // sagt T58d, was zutrifft.
+      if (e.quelle === 'none') return TON_TEXT.T58d(quelleName(eingestellt, e.person));
+      const rate = e.rateKhz !== null ? khzText(e.rateKhz) : UNBEKANNT;
+      const kanaele = e.kanaele !== null ? kanaeleText(e.kanaele) : UNBEKANNT;
+      const fehlt = mitComputerton(eingestellt) && !mitComputerton(e.quelle) ? TON_TEXT.T58g : '';
+      return TON_TEXT.T58c(quelleName(e.quelle, e.person), rate, kanaele) + fehlt;
+    }
+    case 'silent':
+      return TON_TEXT.T58d(quelleName(eingestellt, e.person));
+    case 'off':
+    case 'aus':
+      return TON_TEXT.T58h(quelleName(eingestellt, e.person));
+  }
+}
+
+/** Spec 9.3: Messzeile der Kachel (10.7); `res` ist die Stufe (T5), `fps` schon formatiert (`dezimal`). */
+export const MESS_ZEILE = {
+  T50: (res: string, b: number, h: number, fps: string): string => `${res} · Zoom liefert ${b}×${h} · ${fps} Bilder/s`,
+  T51: (res: string, b: number, h: number, fps: string): string => `${res} gewünscht · Zoom liefert ${b}×${h} · ${fps} Bilder/s`,
+  T51b: (res: string): string => `${res} gewünscht · noch kein Bild`,
+  T51c: (res: string, b: number, h: number): string => `${res} · zuletzt ${b}×${h} · jetzt kein Bild`,
+};
+
+/** Nennhöhe je Stufe (10.7): verglichen wird die kürzere Seite des gelieferten Bildes. */
+const NENNHOEHE: Record<ZoomSlotAufloesung, number> = { '360p': 360, '720p': 720, '1080p': 1080 };
+
+/**
+ * Eingaben der Messzeile (Spec 10.7). `geliefert`: Größe und Bildrate aus dem laufenden 2-s-Fenster dieses Ziels;
+ * `zuletzt`: letzte Größe dieses Ziels (B55). Der Kern löscht beide bei Stopp, Abbau, Meeting-Ende und jedem Umhängen.
+ */
+export interface MessEingabe {
+  zustand: ZoomSlotZustand; modus: ZoomSlotModus; stufe: ZoomSlotAufloesung;
+  geliefert: { b: number; h: number; fps: number } | null; zuletzt: { b: number; h: number } | null;
+}
+
+/** Messzeile der Kachel (Spec 10.7); `null` ohne laufenden Sender, auch in SZ9 (Restrunde RR6). */
+export function slotMessZeile(e: MessEingabe): string | null {
+  if (SENDER[e.zustand] !== 'laeuft') return null;
+  const g = e.geliefert;
+  if (g !== null) {
+    const unter = e.modus !== 'freigabe' && Math.min(g.b, g.h) < NENNHOEHE[e.stufe];
+    return (unter ? MESS_ZEILE.T51 : MESS_ZEILE.T50)(e.stufe, g.b, g.h, dezimal(g.fps));
+  }
+  if (e.zuletzt !== null) return MESS_ZEILE.T51c(e.stufe, e.zuletzt.b, e.zuletzt.h);
+  return MESS_ZEILE.T51b(e.stufe);
 }
 
 // ── ENDE DER SLOT-ANZEIGEN (neue Regeln direkt darüber einfügen) ──
