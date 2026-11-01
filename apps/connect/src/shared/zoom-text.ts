@@ -10,6 +10,10 @@ import type {
   AppStatus, ProxyKeySource, ZoomAbbild, ZoomBefehlKennung, ZoomErgebnis, ZoomErlaubnis, ZoomKurz, ZoomMangel, ZoomQuelle, ZoomSollEintrag,
 } from './types';
 
+// Zoom-Slots (Plan B, Block b2): eigene Importzeilen; die Zeilen oben bleiben bis zum Kern-Umstieg (Task B12) unverändert.
+import type { SlotReason, SlotSent } from '@jm/zoom-bridge/protocol';
+import type { ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotZustand } from './types';
+
 /** Die Zeilen der Zustandstabelle Spec 7.1. */
 export type ZoomZ =
   | 'Z0' | 'Z1a' | 'Z1b' | 'Z2' | 'Z3' | 'Z4' | 'Z5a' | 'Z5b' | 'Z6'
@@ -577,3 +581,258 @@ export function versatzZeile(a: ZoomAbbild): string[] {
 export function versatzUebernommen(r: ZoomErgebnis): boolean {
   return r.ok || r.text === TEXT_A4_SCHREIBFEHLER;
 }
+
+// ── Zoom-Slots (Connect 0.4.0): Anzeige-Regeln (Spec 10) ──
+// Jede dauerhaft sichtbare Zeile der Slots (Kachel, Slot-Bereich, Kopf, Tray, Karte, STATE) ist hier eine reine Funktion
+// über einen kleinen Eingabetyp; Grundsatz oben: jeder Text in JEDEM Zustand wahr. Keine Funktion liest ZoomKurz oder
+// ZoomAbbild (die ändern sich erst mit dem Kern-Umstieg, Plan B Task B12). Texte wörtlich aus Spec 9 mit T-Nummer (E31).
+
+/** T1–T3 (Spec 9.1): Name des Modus. */
+export const MODUS_NAME: Record<ZoomSlotModus, string> = {
+  teilnehmer: 'Teilnehmer',
+  sprecher: 'Aktiver Sprecher',
+  freigabe: 'Bildschirmfreigabe',
+};
+
+/**
+ * Arten mit einem Namen aus T4: die Einstellung und das, was die Bridge als Ersatzbild sendet (`sent`, Spec 6.12).
+ * `none` (Bild von Zoom) und `held` (gehaltene Kopie der Freigabe) sind kein Ersatzbild und haben in T4 keinen Namen.
+ */
+export type ErsatzbildArt = Exclude<SlotSent, 'none' | 'held'> | ZoomSlotErsatzbild;
+
+/** T4 (Spec 9.1): „Ersatzbild {art}“ nennt `sent` (10.2 Regel 9), die Einstellungen nennen die Einstellung. */
+export const ERSATZBILD_NAME: Record<ErsatzbildArt, string> = {
+  transparent: 'transparent',
+  freeze: 'eingefroren',
+  black: 'schwarz',
+  white: 'weiß',
+  eingefroren: 'eingefroren',
+  schwarz: 'schwarz',
+  weiss: 'weiß',
+};
+
+/** T4, Feldname (Spec 9.1). */
+export const ERSATZBILD_FELD = 'Ersatzbild';
+
+/** Spec 9.2: Zustandszeile der Kachel je T-Nummer. `ersatz` ist der fertige Teil „Ersatzbild {art}“ bzw. T60 (10.2 Regel 9). */
+export const KACHEL_TEXT = {
+  T10: 'Ausgeschaltet.',
+  T11a: 'Wartet: Zoom ist auf diesem Rechner noch nicht eingerichtet.',
+  T11b: 'Wartet auf den Beitritt zu einem Meeting.',
+  T11c: 'Wartet: Connect tritt dem Meeting bei.',
+  T11h: 'Wartet: Connect ist im Warteraum des Meetings.',
+  T11d: 'Verbindung zum Meeting unterbrochen, Zoom verbindet neu.',
+  T11e: 'Verbindung zum Meeting verloren, Connect tritt neu bei.',
+  T11f: 'Connect verlässt das Meeting.',
+  T11g: 'Läuft nicht: Zoom meldet einen Fehler (siehe oben).',
+  T12a: 'Wartet auf die Aufnahme-Erlaubnis des Hosts.',
+  T12b: 'Gestoppt: Der Host hat die Aufnahme-Erlaubnis entzogen. Erteilt er sie wieder, startet der Slot von selbst.',
+  T12d: 'Wartet: Der Host hat die Aufnahme-Erlaubnis entzogen. Erteilt er sie wieder, startet der Slot von selbst.',
+  T12c: 'Wartet: Ohne Aufnahme-Erlaubnis startet kein Slot.',
+  T13: (person: string, d: number, ersatz: string): string =>
+    `Name doppelt: „${person}“ ist ${d}-mal im Meeting. Bitte unten die richtige Person wählen. · ${ersatz}`,
+  T13b: (person: string, ersatz: string): string =>
+    `„${person}“ hat das Meeting verlassen; eine andere Person mit diesem Namen ist noch da. Ist sie gemeint, unten wählen. · ${ersatz}`,
+  T14: 'Startet …',
+  T15: (person: string): string => `Zeigt ${person}.`,
+  T16: (person: string, ersatz: string): string => `Wartet auf ${person} · ${ersatz}`,
+  T17: (person: string, ersatz: string): string => `Wartet auf ${person} (im Warteraum) · ${ersatz}`,
+  T18: (ersatz: string): string => `Keine Person gewählt · ${ersatz}`,
+  T19: (person: string, ersatz: string): string => `${person}: Kamera aus · ${ersatz}`,
+  T19b: (person: string, ersatz: string): string => `${person}: Zoom liefert gerade kein Bild · ${ersatz}`,
+  /** {Ziel} in T20, T20b, T20c bei Freigabe-Slots; sonst ist {Ziel} der Name der Person. */
+  zielFreigabe: (person: string): string => `Freigabe von ${person}`,
+  T20: (ziel: string, ersatz: string): string => `${ziel}: erstes Bild steht noch aus · ${ersatz}`,
+  T20b: (ziel: string, ersatz: string): string => `${ziel}: fehlerhafte Bilder verworfen · ${ersatz}`,
+  T20c: (ziel: string, name: string, ersatz: string): string =>
+    `${ziel}: Zoom hat das Abo abgelehnt (${name}) · ${ersatz}. Für einen neuen Versuch „Stopp“ und wieder „Start“.`,
+  T21: 'Keine Antwort der Zoom-Bridge. Für einen neuen Versuch „Stopp“ und wieder „Start“.',
+  T22: `Nicht gestartet: mehr als ${BETRIEBSGROESSE} Slots ohne Bestätigung. Für die Bestätigung einmal „Stopp“ und wieder „Start“.`,
+  /** {Klartext} aus 9.6 (T101–T103, B5); ohne ihn (kommt nicht vor, der Kern setzt ihn) fehlt nur dieser Teil. */
+  T23: (klartext: string): string => `Gescheitert: ${klartext ? `${klartext} ` : ''}Für einen neuen Versuch „Stopp“ und wieder „Start“.`,
+  T24: 'Wird gestoppt …',
+  T25: (person: string): string => `Zeigt ${person} (Sprecher).`,
+  T26: (ersatz: string): string => `Wartet auf eine sprechende Person · ${ersatz}`,
+  T27: (person: string, ersatz: string): string => `${person} (Sprecher): Kamera aus · ${ersatz}`,
+  T27b: (person: string, ersatz: string): string => `${person} (Sprecher): Zoom liefert gerade kein Bild · ${ersatz}`,
+  T28: (person: string): string => `Zeigt die Freigabe von ${person}.`,
+  T28b: (person: string, m: number, namen: string): string => `Zeigt die Freigabe von ${person} (die neueste von ${m}: ${namen}).`,
+  T29: (person: string): string => `Freigabe von ${person} pausiert · letztes Bild gehalten`,
+  T29b: (person: string): string => `Freigabe von ${person} unverändert · letztes Bild gehalten`,
+  T29d: (person: string, ersatz: string): string => `Freigabe von ${person} pausiert · noch kein Bild · ${ersatz}`,
+  T29e: (person: string, ersatz: string): string => `Freigabe von ${person}: Zoom liefert gerade kein Bild · ${ersatz}`,
+  T29c: (ersatz: string): string => `Wartet auf eine Bildschirmfreigabe · ${ersatz}`,
+  /** „Ersatzbild {art}“ (Regel 9). */
+  ersatzbild: (art: string): string => `Ersatzbild ${art}`,
+  T60: 'Ersatzbild eingefroren (kein gespeichertes Bild, darum transparent)',
+  T97: (m: number): string => ` · Slot ${m} zeigt dieselbe Quelle; ob Zoom zwei Abos derselben Quelle zugleich beliefert, ist noch nicht gemessen.`,
+};
+
+/**
+ * Spec 10.2 Regel 2: Zeile außerhalb des Meetings, auch mit einem Sender der aktiven Bridge (Z4, Z5, Z10, Z12), denn dort ist
+ * ungewiss, ob Bild kommt; `null` = im Meeting (Z6–Z9b). Z0 gibt es nur unter macOS, und dort steht keine Kachel (7.11).
+ */
+const OHNE_MEETING: Record<ZoomZ, string | null> = {
+  Z0: KACHEL_TEXT.T11a,
+  Z1a: KACHEL_TEXT.T11a,
+  Z1b: KACHEL_TEXT.T11a,
+  Z2: KACHEL_TEXT.T11b,
+  Z3: KACHEL_TEXT.T11c,
+  Z4: KACHEL_TEXT.T11c,
+  Z5a: KACHEL_TEXT.T11h,
+  Z5b: KACHEL_TEXT.T11h,
+  Z6: null,
+  Z7: null,
+  Z7b: null,
+  Z8: null,
+  Z9: null,
+  Z9b: null,
+  Z10: KACHEL_TEXT.T11d,
+  Z11: KACHEL_TEXT.T11e,
+  Z12: KACHEL_TEXT.T11f,
+  Z13: KACHEL_TEXT.T11g,
+};
+
+/** Z6–Z9b: Connect ist im Meeting (`im_meeting`, Spec 7.1). Zustandszeile (10.2 Regel 2) und STATE (10.4) hängen daran. */
+export function imMeetingZ(z: ZoomZ): boolean {
+  return OHNE_MEETING[z] === null;
+}
+
+/** Fälle der Regeln 6–8 (Spec 10.2) im Zustand `ersatz`. */
+type ErsatzFall = 'ohneZiel' | 'kameraAus' | 'keinBild' | 'pausiert' | 'fehlerhaft' | 'abgelehnt' | 'erstesBild';
+const ALLE_MODI = (f: ErsatzFall): Record<ZoomSlotModus, ErsatzFall> => ({ teilnehmer: f, sprecher: f, freigabe: f });
+
+/**
+ * Je Grund und Modus der Fall der Regeln 6–8; ein neuer Grund ohne Eintrag scheitert im Typcheck (10.5). Die vier
+ * Ziel-0-Gründe (6.10 Schritt 3) führen in jedem Modus auf dessen Text ohne Ziel (Nachfix W7): „sonst → T20“ trifft nur
+ * Slots mit Ziel. Freigabe meldet nie `cameraOff` (6.12), `speakerNoVideo` gibt es nur im Modus Sprecher.
+ */
+const ERSATZ_FALL: Record<SlotReason, Record<ZoomSlotModus, ErsatzFall>> = {
+  command: ALLE_MODI('erstesBild'),
+  frames: ALLE_MODI('erstesBild'),
+  noTarget: ALLE_MODI('ohneZiel'),
+  participantLeft: ALLE_MODI('ohneZiel'),
+  cameraOff: { teilnehmer: 'kameraAus', sprecher: 'kameraAus', freigabe: 'erstesBild' },
+  noFrames: ALLE_MODI('keinBild'),
+  speakerNone: ALLE_MODI('ohneZiel'),
+  speakerNoVideo: { teilnehmer: 'erstesBild', sprecher: 'kameraAus', freigabe: 'erstesBild' },
+  speakerChanged: ALLE_MODI('erstesBild'),
+  shareNone: ALLE_MODI('ohneZiel'),
+  sharePaused: { teilnehmer: 'erstesBild', sprecher: 'erstesBild', freigabe: 'pausiert' },
+  shareStill: ALLE_MODI('erstesBild'),
+  shareChanged: ALLE_MODI('erstesBild'),
+  targetChanged: ALLE_MODI('erstesBild'),
+  modeChanged: ALLE_MODI('erstesBild'),
+  resolutionChanged: ALLE_MODI('erstesBild'),
+  bufferMismatch: ALLE_MODI('fehlerhaft'),
+  subscribeFailed: ALLE_MODI('abgelehnt'),
+  meetingEnded: ALLE_MODI('erstesBild'),
+  privilegeRevoked: ALLE_MODI('erstesBild'),
+};
+
+/**
+ * Eingaben der Zustandszeile einer Kachel (Spec 10.2).
+ * - `zielName`: gezeigte bzw. erwartete Person (Teilnehmer: `personJetzt` oder `person`; Sprecher: die erkannte sprechende
+ *   Person; Freigabe: die teilende Person); `null` ohne Ziel.
+ * - `person`: die eingestellte Person ('' = keine gewählt, T18).
+ * - `freigaben`: laufende Bild-Freigaben (ohne reine Ton-Freigaben, 6.9) für T28b.
+ * - `aboFehlerName`: Name des Fehlers zu `subscribeFailed` (T20c). `gescheitertText`: Klartext T101–T103 (B5) für T23.
+ */
+export interface KachelEingabe {
+  zustand: ZoomSlotZustand; z: ZoomZ; erlaubnis: ZoomErlaubnis | null; modus: ZoomSlotModus;
+  grund: SlotReason | null; gesendet: SlotSent | null; ersatzbild: ZoomSlotErsatzbild; zielName: string | null;
+  person: string; doppelt: number; zweifel: boolean; imWarteraum: boolean; liefSchon: boolean; andererSlot: number | null;
+  freigaben: { zahl: number; namen: string[] }; aboFehlerName: string | null; gescheitertText: string | null;
+}
+
+/** „Ersatzbild {art}“ (Regel 9): nennt `sent`; „eingefroren“ eingestellt und transparent gesendet → T60. */
+function ersatzTeil(gesendet: SlotSent | null, ersatzbild: ZoomSlotErsatzbild): string {
+  if (ersatzbild === 'eingefroren' && gesendet === 'transparent') return KACHEL_TEXT.T60;
+  // In SZ6 sendet die Bridge immer eine Ersatzbild-Art (6.12); ohne sie (kommt nicht vor) nennt die Zeile die Einstellung.
+  const art: ErsatzbildArt = gesendet === null || gesendet === 'none' || gesendet === 'held' ? ersatzbild : gesendet;
+  return KACHEL_TEXT.ersatzbild(ERSATZBILD_NAME[art]);
+}
+
+/** SZ6 (Regeln 6–10): der Sender besteht, Zoom liefert kein Bild; die Zeile nennt den Grund und das gesendete Ersatzbild. */
+function ersatzZeile(e: KachelEingabe, person: string): string {
+  const ersatz = ersatzTeil(e.gesendet, e.ersatzbild);
+  if (e.modus === 'teilnehmer') {
+    // Regel 6, zuerst was eine Wahl braucht oder fehlt (nur ohne Ziel, 7.3 Nr. 5)
+    if (e.doppelt > 1) return KACHEL_TEXT.T13(person, e.doppelt, ersatz);
+    if (e.zweifel) return KACHEL_TEXT.T13b(person, ersatz);
+    if (e.person === '') return KACHEL_TEXT.T18(ersatz);
+    if (e.imWarteraum) return KACHEL_TEXT.T17(person, ersatz);
+  }
+  const ziel = e.modus === 'freigabe' ? KACHEL_TEXT.zielFreigabe(person) : person;
+  const anderer = e.andererSlot !== null ? KACHEL_TEXT.T97(e.andererSlot) : '';   // Regel 10
+  const fall: ErsatzFall = e.grund === null ? 'erstesBild' : ERSATZ_FALL[e.grund][e.modus];
+  switch (fall) {
+    case 'ohneZiel':
+      if (e.modus === 'teilnehmer') return KACHEL_TEXT.T16(person, ersatz);
+      return e.modus === 'sprecher' ? KACHEL_TEXT.T26(ersatz) : KACHEL_TEXT.T29c(ersatz);
+    case 'kameraAus':
+      return e.modus === 'sprecher' ? KACHEL_TEXT.T27(person, ersatz) : KACHEL_TEXT.T19(person, ersatz);
+    case 'keinBild':
+      if (e.modus === 'teilnehmer') return KACHEL_TEXT.T19b(person, ersatz) + anderer;
+      return (e.modus === 'sprecher' ? KACHEL_TEXT.T27b(person, ersatz) : KACHEL_TEXT.T29e(person, ersatz)) + anderer;
+    case 'pausiert':
+      return KACHEL_TEXT.T29d(person, ersatz);
+    case 'fehlerhaft':
+      return KACHEL_TEXT.T20b(ziel, ersatz);
+    case 'abgelehnt':
+      return KACHEL_TEXT.T20c(ziel, e.aboFehlerName ?? 'slotSubscribeFailed', ersatz) + anderer;
+    case 'erstesBild':
+      return KACHEL_TEXT.T20(ziel, ersatz);
+  }
+}
+
+/** Zustandszeile der Kachel (Spec 10.2): erste passende Regel gewinnt. */
+export function kachelZeile(e: KachelEingabe): string {
+  // Regel 1
+  if (e.zustand === 'aus') return KACHEL_TEXT.T10;
+  if (e.zustand === 'stoppt') return KACHEL_TEXT.T24;
+  // Regel 2
+  const ohneMeeting = OHNE_MEETING[e.z];
+  if (ohneMeeting !== null) return ohneMeeting;
+  const person = e.zielName ?? e.person;
+  switch (e.zustand) {
+    // Regel 3
+    case 'wartet_erlaubnis': {
+      const erlaubnis = e.erlaubnis ?? 'offen';
+      if (erlaubnis === 'entzogen') return e.liefSchon ? KACHEL_TEXT.T12b : KACHEL_TEXT.T12d;
+      if (erlaubnis === 'abgelehnt' || erlaubnis === 'abgelaufen') return KACHEL_TEXT.T12c;
+      return KACHEL_TEXT.T12a;   // offen; „ja“ gibt es in SZ2 nicht (Vorrang 7.3 Zeile 5)
+    }
+    case 'ohne_meeting':   // SZ1 gibt es im Meeting nicht (Vorrang 7.3 Zeile 4)
+    case 'startet':
+    case 'geplant':
+      return KACHEL_TEXT.T14;
+    case 'keine_antwort':
+      return KACHEL_TEXT.T21;
+    case 'gescheitert':
+      return KACHEL_TEXT.T23(e.gescheitertText ?? '');
+    case 'zurueckgestellt':
+      return KACHEL_TEXT.T22;
+    // Regel 4
+    case 'zeigt':
+      if (e.modus === 'teilnehmer') return KACHEL_TEXT.T15(person);
+      if (e.modus === 'sprecher') return KACHEL_TEXT.T25(person);
+      return e.freigaben.zahl > 1
+        ? KACHEL_TEXT.T28b(person, e.freigaben.zahl, e.freigaben.namen.join(', '))
+        : KACHEL_TEXT.T28(person);
+    // Regel 5
+    case 'gehalten':
+      return e.grund === 'sharePaused' ? KACHEL_TEXT.T29(person) : KACHEL_TEXT.T29b(person);
+    // Regeln 6–10
+    case 'ersatz':
+      return ersatzZeile(e, person);
+  }
+}
+
+/** Fehlerzeile der Kachel (Spec 10.9): in SZ8 steht der Klartext schon in T23 (nie doppelt); nach `live` fällt sie. */
+export function kachelFehlerZeile(e: { zustand: ZoomSlotZustand; letzterSlotFehler: string | null; seitDemLive: boolean }): string | null {
+  if (e.zustand === 'gescheitert' || e.seitDemLive) return null;
+  return e.letzterSlotFehler;
+}
+
+// ── ENDE DER SLOT-ANZEIGEN (neue Regeln direkt darüber einfügen) ──

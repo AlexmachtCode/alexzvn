@@ -1155,6 +1155,364 @@ console.log('— B5 · ST100–ST106, SF5–SF14 wörtlich, SLOT_FEHLER_TEXT je 
     && ohneNr({ name: 'SLOT_BUFFER_MISMATCH', nr: null }) === 'Bild: fehlerhafte Bilder in Slot unbekannt verworfen (slotBufferMismatch). Der Slot läuft weiter; ob wieder Bild kommt, zeigt seine Kachel.');
 }
 
+// ── Plan B, Task B6: Zustandszeile und Fehlerzeile der Kachel (Spec 10.2, 10.9; Texte 9.1 T1–T4, 9.2) ──
+console.log('— B6 · ST1–ST4, ST10–ST29e, ST60, ST97 wörtlich');
+{
+  const { ERSATZBILD_FELD, ERSATZBILD_NAME, kachelZeile, MODUS_NAME } = await import('../src/shared/zoom-text');
+  type KE = import('../src/shared/zoom-text').KachelEingabe;
+  const basis: KE = {
+    zustand: 'ersatz', z: 'Z9b', erlaubnis: 'ja', modus: 'teilnehmer', grund: 'noTarget', gesendet: 'transparent',
+    ersatzbild: 'transparent', zielName: 'Anna', person: 'Anna', doppelt: 1, zweifel: false, imWarteraum: false,
+    liefSchon: true, andererSlot: null, freigaben: { zahl: 1, namen: ['Carla'] }, aboFehlerName: null, gescheitertText: null,
+  };
+  const k = (o: Partial<KE>): string => kachelZeile({ ...basis, ...o });
+  const sprecher: Partial<KE> = { modus: 'sprecher', person: '', zielName: 'Ben' };
+  const freigabe: Partial<KE> = { modus: 'freigabe', person: '', zielName: 'Carla' };
+  const SOLL: Array<[string, string, string]> = [
+    ['T10', k({ zustand: 'aus' }), 'Ausgeschaltet.'],
+    ['T11a (Z1a)', k({ zustand: 'ohne_meeting', z: 'Z1a', erlaubnis: null }), 'Wartet: Zoom ist auf diesem Rechner noch nicht eingerichtet.'],
+    ['T11a (Z1b)', k({ zustand: 'ohne_meeting', z: 'Z1b', erlaubnis: null }), 'Wartet: Zoom ist auf diesem Rechner noch nicht eingerichtet.'],
+    ['T11b (Z2)', k({ zustand: 'ohne_meeting', z: 'Z2', erlaubnis: null }), 'Wartet auf den Beitritt zu einem Meeting.'],
+    ['T11c (Z3)', k({ zustand: 'ohne_meeting', z: 'Z3', erlaubnis: null }), 'Wartet: Connect tritt dem Meeting bei.'],
+    ['T11c (Z4, Sender der aktiven Bridge)', k({ zustand: 'zeigt', z: 'Z4', grund: 'frames', gesendet: 'none' }), 'Wartet: Connect tritt dem Meeting bei.'],
+    ['T11h (Z5a)', k({ zustand: 'ohne_meeting', z: 'Z5a', erlaubnis: null }), 'Wartet: Connect ist im Warteraum des Meetings.'],
+    ['T11h (Z5b, Sender der aktiven Bridge)', k({ zustand: 'ersatz', z: 'Z5b' }), 'Wartet: Connect ist im Warteraum des Meetings.'],
+    ['T11d (Z10)', k({ zustand: 'ersatz', z: 'Z10', grund: 'cameraOff' }), 'Verbindung zum Meeting unterbrochen, Zoom verbindet neu.'],
+    ['T11e (Z11)', k({ zustand: 'ohne_meeting', z: 'Z11' }), 'Verbindung zum Meeting verloren, Connect tritt neu bei.'],
+    ['T11f (Z12)', k({ zustand: 'zeigt', z: 'Z12', grund: 'frames', gesendet: 'none' }), 'Connect verlässt das Meeting.'],
+    ['T11g (Z13)', k({ zustand: 'ohne_meeting', z: 'Z13', erlaubnis: null }), 'Läuft nicht: Zoom meldet einen Fehler (siehe oben).'],
+    ['T12a', k({ zustand: 'wartet_erlaubnis', z: 'Z6', erlaubnis: 'offen', liefSchon: false }), 'Wartet auf die Aufnahme-Erlaubnis des Hosts.'],
+    ['T12b', k({ zustand: 'wartet_erlaubnis', z: 'Z7', erlaubnis: 'entzogen', liefSchon: true }),
+      'Gestoppt: Der Host hat die Aufnahme-Erlaubnis entzogen. Erteilt er sie wieder, startet der Slot von selbst.'],
+    ['T12d', k({ zustand: 'wartet_erlaubnis', z: 'Z7', erlaubnis: 'entzogen', liefSchon: false }),
+      'Wartet: Der Host hat die Aufnahme-Erlaubnis entzogen. Erteilt er sie wieder, startet der Slot von selbst.'],
+    ['T12c (abgelehnt)', k({ zustand: 'wartet_erlaubnis', z: 'Z7', erlaubnis: 'abgelehnt' }), 'Wartet: Ohne Aufnahme-Erlaubnis startet kein Slot.'],
+    ['T12c (abgelaufen, Z7b)', k({ zustand: 'wartet_erlaubnis', z: 'Z7b', erlaubnis: 'abgelaufen' }), 'Wartet: Ohne Aufnahme-Erlaubnis startet kein Slot.'],
+    ['T13', k({ doppelt: 2 }), 'Name doppelt: „Anna“ ist 2-mal im Meeting. Bitte unten die richtige Person wählen. · Ersatzbild transparent'],
+    ['T13b', k({ zweifel: true, grund: 'participantLeft' }),
+      '„Anna“ hat das Meeting verlassen; eine andere Person mit diesem Namen ist noch da. Ist sie gemeint, unten wählen. · Ersatzbild transparent'],
+    ['T14 (SZ3)', k({ zustand: 'startet', grund: null, gesendet: null }), 'Startet …'],
+    ['T14 (SZ11)', k({ zustand: 'geplant', grund: null, gesendet: null }), 'Startet …'],
+    ['T15', k({ zustand: 'zeigt', grund: 'frames', gesendet: 'none' }), 'Zeigt Anna.'],
+    ['T16', k({ grund: 'participantLeft' }), 'Wartet auf Anna · Ersatzbild transparent'],
+    ['T17', k({ imWarteraum: true }), 'Wartet auf Anna (im Warteraum) · Ersatzbild transparent'],
+    ['T18', k({ person: '', zielName: null }), 'Keine Person gewählt · Ersatzbild transparent'],
+    ['T19', k({ grund: 'cameraOff', gesendet: 'black', ersatzbild: 'schwarz' }), 'Anna: Kamera aus · Ersatzbild schwarz'],
+    ['T19b', k({ grund: 'noFrames', gesendet: 'white', ersatzbild: 'weiss' }), 'Anna: Zoom liefert gerade kein Bild · Ersatzbild weiß'],
+    ['T20 (Teilnehmer)', k({ grund: 'targetChanged' }), 'Anna: erstes Bild steht noch aus · Ersatzbild transparent'],
+    ['T20 (Freigabe)', k({ ...freigabe, grund: 'shareChanged' }), 'Freigabe von Carla: erstes Bild steht noch aus · Ersatzbild transparent'],
+    ['T20b', k({ grund: 'bufferMismatch' }), 'Anna: fehlerhafte Bilder verworfen · Ersatzbild transparent'],
+    ['T20c', k({ grund: 'subscribeFailed', aboFehlerName: 'SDKERR_INTERNAL_ERROR' }),
+      'Anna: Zoom hat das Abo abgelehnt (SDKERR_INTERNAL_ERROR) · Ersatzbild transparent. Für einen neuen Versuch „Stopp“ und wieder „Start“.'],
+    ['T21', k({ zustand: 'keine_antwort', gesendet: null }), 'Keine Antwort der Zoom-Bridge. Für einen neuen Versuch „Stopp“ und wieder „Start“.'],
+    ['T22', k({ zustand: 'zurueckgestellt', gesendet: null }),
+      'Nicht gestartet: mehr als 5 Slots ohne Bestätigung. Für die Bestätigung einmal „Stopp“ und wieder „Start“.'],
+    ['T23', k({ zustand: 'gescheitert', gesendet: null, gescheitertText: 'Der Slot ließ sich nicht aufbauen (SLOT_SENDER_FAILED). Details im Log.' }),
+      'Gescheitert: Der Slot ließ sich nicht aufbauen (SLOT_SENDER_FAILED). Details im Log. Für einen neuen Versuch „Stopp“ und wieder „Start“.'],
+    ['T24', k({ zustand: 'stoppt' }), 'Wird gestoppt …'],
+    ['T25', k({ ...sprecher, zustand: 'zeigt', grund: 'frames', gesendet: 'none' }), 'Zeigt Ben (Sprecher).'],
+    ['T26', k({ ...sprecher, zielName: null, grund: 'speakerNone' }), 'Wartet auf eine sprechende Person · Ersatzbild transparent'],
+    ['T27', k({ ...sprecher, grund: 'speakerNoVideo' }), 'Ben (Sprecher): Kamera aus · Ersatzbild transparent'],
+    ['T27b', k({ ...sprecher, grund: 'noFrames' }), 'Ben (Sprecher): Zoom liefert gerade kein Bild · Ersatzbild transparent'],
+    ['T28', k({ ...freigabe, zustand: 'zeigt', grund: 'frames', gesendet: 'none' }), 'Zeigt die Freigabe von Carla.'],
+    ['T28 (Freigabe, die ersten 2 s mit sent = held)', k({ ...freigabe, zustand: 'zeigt', grund: 'frames', gesendet: 'held' }), 'Zeigt die Freigabe von Carla.'],
+    ['T28b', k({ ...freigabe, zustand: 'zeigt', grund: 'frames', gesendet: 'none', freigaben: { zahl: 2, namen: ['Carla', 'Ben'] } }),
+      'Zeigt die Freigabe von Carla (die neueste von 2: Carla, Ben).'],
+    ['T29', k({ ...freigabe, zustand: 'gehalten', gesendet: 'held', grund: 'sharePaused' }), 'Freigabe von Carla pausiert · letztes Bild gehalten'],
+    ['T29b', k({ ...freigabe, zustand: 'gehalten', gesendet: 'held', grund: 'shareStill' }), 'Freigabe von Carla unverändert · letztes Bild gehalten'],
+    ['T29d', k({ ...freigabe, grund: 'sharePaused' }), 'Freigabe von Carla pausiert · noch kein Bild · Ersatzbild transparent'],
+    ['T29e', k({ ...freigabe, grund: 'noFrames' }), 'Freigabe von Carla: Zoom liefert gerade kein Bild · Ersatzbild transparent'],
+    ['T29c', k({ ...freigabe, zielName: null, grund: 'shareNone' }), 'Wartet auf eine Bildschirmfreigabe · Ersatzbild transparent'],
+    ['T60', k({ grund: 'cameraOff', ersatzbild: 'eingefroren', gesendet: 'transparent' }),
+      'Anna: Kamera aus · Ersatzbild eingefroren (kein gespeichertes Bild, darum transparent)'],
+    ['T4 (sent = freeze)', k({ grund: 'cameraOff', ersatzbild: 'eingefroren', gesendet: 'freeze' }), 'Anna: Kamera aus · Ersatzbild eingefroren'],
+    ['T4 (sent nennt, was gesendet wird, nicht die Einstellung)', k({ grund: 'cameraOff', ersatzbild: 'schwarz', gesendet: 'transparent' }),
+      'Anna: Kamera aus · Ersatzbild transparent'],
+    ['T97', k({ grund: 'noFrames', andererSlot: 3 }),
+      'Anna: Zoom liefert gerade kein Bild · Ersatzbild transparent · Slot 3 zeigt dieselbe Quelle; ob Zoom zwei Abos derselben Quelle zugleich beliefert, ist noch nicht gemessen.'],
+    ['T97 an T20c', k({ ...freigabe, grund: 'subscribeFailed', aboFehlerName: 'SDKERR_INTERNAL_ERROR', andererSlot: 7 }),
+      'Freigabe von Carla: Zoom hat das Abo abgelehnt (SDKERR_INTERNAL_ERROR) · Ersatzbild transparent. Für einen neuen Versuch „Stopp“ und wieder „Start“. · Slot 7 zeigt dieselbe Quelle; ob Zoom zwei Abos derselben Quelle zugleich beliefert, ist noch nicht gemessen.'],
+  ];
+  for (const [id, ist, soll] of SOLL) ck(`S${id} wörtlich`, ist === soll);
+  ck('ST1, ST2, ST3 Modus-Namen wörtlich', JSON.stringify(MODUS_NAME) === JSON.stringify({ teilnehmer: 'Teilnehmer', sprecher: 'Aktiver Sprecher', freigabe: 'Bildschirmfreigabe' }));
+  ck('ST4 Ersatzbild-Namen (Einstellung und sent) und Feldname wörtlich',
+    JSON.stringify(ERSATZBILD_NAME) === JSON.stringify({ transparent: 'transparent', freeze: 'eingefroren', black: 'schwarz', white: 'weiß', eingefroren: 'eingefroren', schwarz: 'schwarz', weiss: 'weiß' })
+      && ERSATZBILD_FELD === 'Ersatzbild');
+  const quelle = readFileSync(new URL('../src/shared/zoom-text.ts', import.meta.url), 'utf8');
+  ck('Quelltext-Wächter: zoom-text.ts schreibt „mehr als 5“ (T22) nicht als Literal, T22 kommt aus BETRIEBSGROESSE', !quelle.includes('mehr als 5'));
+}
+
+console.log('— B6 · Zustandszeile 10.2 als Kreuzprodukt (10.5) mit den Wahrheitsprädikaten; Zähltests');
+{
+  const { kachelZeile } = await import('../src/shared/zoom-text');
+  const { SLOT_REASONS, SLOT_SENT } = await import('@jm/zoom-bridge/protocol');
+  type KE = import('../src/shared/zoom-text').KachelEingabe;
+  type SZ = import('../src/shared/types').ZoomSlotZustand;
+  type Modus = import('../src/shared/types').ZoomSlotModus;
+  type Ersatzbild = import('../src/shared/types').ZoomSlotErsatzbild;
+  type Grund = import('@jm/zoom-bridge/protocol').SlotReason;
+  type Sent = import('@jm/zoom-bridge/protocol').SlotSent;
+
+  // Zähltests (10.5 letzter Punkt): Der Record ist vollständig, sonst scheitert der Typcheck.
+  const ALLE_SZ: Record<SZ, true> = {
+    aus: true, ohne_meeting: true, wartet_erlaubnis: true, startet: true, zeigt: true, gehalten: true,
+    ersatz: true, keine_antwort: true, gescheitert: true, stoppt: true, zurueckgestellt: true, geplant: true,
+  };
+  ck('ZoomSlotZustand hat 12 Werte', Object.keys(ALLE_SZ).length === 12);
+  ck('SlotReason hat 20 Werte', SLOT_REASONS.length === 20 && new Set(SLOT_REASONS).size === 20);
+
+  // Texte 9.2, aus der Spec abgeschrieben (nicht aus dem Modul); `art` ist der fertige Ersatzbild-Teil.
+  const S = {
+    T10: 'Ausgeschaltet.',
+    T11a: 'Wartet: Zoom ist auf diesem Rechner noch nicht eingerichtet.',
+    T11b: 'Wartet auf den Beitritt zu einem Meeting.',
+    T11c: 'Wartet: Connect tritt dem Meeting bei.',
+    T11h: 'Wartet: Connect ist im Warteraum des Meetings.',
+    T11d: 'Verbindung zum Meeting unterbrochen, Zoom verbindet neu.',
+    T11e: 'Verbindung zum Meeting verloren, Connect tritt neu bei.',
+    T11f: 'Connect verlässt das Meeting.',
+    T11g: 'Läuft nicht: Zoom meldet einen Fehler (siehe oben).',
+    T12a: 'Wartet auf die Aufnahme-Erlaubnis des Hosts.',
+    T12b: 'Gestoppt: Der Host hat die Aufnahme-Erlaubnis entzogen. Erteilt er sie wieder, startet der Slot von selbst.',
+    T12d: 'Wartet: Der Host hat die Aufnahme-Erlaubnis entzogen. Erteilt er sie wieder, startet der Slot von selbst.',
+    T12c: 'Wartet: Ohne Aufnahme-Erlaubnis startet kein Slot.',
+    T13: (p: string, d: number, art: string): string => `Name doppelt: „${p}“ ist ${d}-mal im Meeting. Bitte unten die richtige Person wählen. · ${art}`,
+    T13b: (p: string, art: string): string =>
+      `„${p}“ hat das Meeting verlassen; eine andere Person mit diesem Namen ist noch da. Ist sie gemeint, unten wählen. · ${art}`,
+    T14: 'Startet …',
+    T15: (p: string): string => `Zeigt ${p}.`,
+    T16: (p: string, art: string): string => `Wartet auf ${p} · ${art}`,
+    T17: (p: string, art: string): string => `Wartet auf ${p} (im Warteraum) · ${art}`,
+    T18: (art: string): string => `Keine Person gewählt · ${art}`,
+    T19: (p: string, art: string): string => `${p}: Kamera aus · ${art}`,
+    T19b: (p: string, art: string): string => `${p}: Zoom liefert gerade kein Bild · ${art}`,
+    T20: (z: string, art: string): string => `${z}: erstes Bild steht noch aus · ${art}`,
+    T20b: (z: string, art: string): string => `${z}: fehlerhafte Bilder verworfen · ${art}`,
+    T20c: (z: string, name: string, art: string): string =>
+      `${z}: Zoom hat das Abo abgelehnt (${name}) · ${art}. Für einen neuen Versuch „Stopp“ und wieder „Start“.`,
+    T21: 'Keine Antwort der Zoom-Bridge. Für einen neuen Versuch „Stopp“ und wieder „Start“.',
+    T22: 'Nicht gestartet: mehr als 5 Slots ohne Bestätigung. Für die Bestätigung einmal „Stopp“ und wieder „Start“.',
+    T23: (klartext: string): string => `Gescheitert: ${klartext} Für einen neuen Versuch „Stopp“ und wieder „Start“.`,
+    T24: 'Wird gestoppt …',
+    T25: (p: string): string => `Zeigt ${p} (Sprecher).`,
+    T26: (art: string): string => `Wartet auf eine sprechende Person · ${art}`,
+    T27: (p: string, art: string): string => `${p} (Sprecher): Kamera aus · ${art}`,
+    T27b: (p: string, art: string): string => `${p} (Sprecher): Zoom liefert gerade kein Bild · ${art}`,
+    T28: (p: string): string => `Zeigt die Freigabe von ${p}.`,
+    T28b: (p: string, m: number, namen: string): string => `Zeigt die Freigabe von ${p} (die neueste von ${m}: ${namen}).`,
+    T29: (p: string): string => `Freigabe von ${p} pausiert · letztes Bild gehalten`,
+    T29b: (p: string): string => `Freigabe von ${p} unverändert · letztes Bild gehalten`,
+    T29d: (p: string, art: string): string => `Freigabe von ${p} pausiert · noch kein Bild · ${art}`,
+    T29e: (p: string, art: string): string => `Freigabe von ${p}: Zoom liefert gerade kein Bild · ${art}`,
+    T29c: (art: string): string => `Wartet auf eine Bildschirmfreigabe · ${art}`,
+    T60: 'Ersatzbild eingefroren (kein gespeichertes Bild, darum transparent)',
+    T97: (m: number): string => ` · Slot ${m} zeigt dieselbe Quelle; ob Zoom zwei Abos derselben Quelle zugleich beliefert, ist noch nicht gemessen.`,
+    ART: { transparent: 'transparent', freeze: 'eingefroren', black: 'schwarz', white: 'weiß' } as Record<string, string>,
+  };
+
+  const IM = new Set<ZoomZ>(['Z6', 'Z7', 'Z7b', 'Z8', 'Z9', 'Z9b']);
+  // Z0 gibt es nur unter macOS; dort steht keine Kachel (7.11). Sender außerhalb des Meetings: 10.2 Regel 2, 10.4.
+  const AUSSEN: ZoomZ[] = ['Z1a', 'Z1b', 'Z2', 'Z3', 'Z4', 'Z5a', 'Z5b', 'Z10', 'Z11', 'Z12', 'Z13'];
+  const SENDER_AUSSEN = new Set<ZoomZ>(['Z4', 'Z5a', 'Z5b', 'Z10', 'Z11', 'Z12']);
+  const OHNE_MEETING: Record<string, string> = {
+    Z1a: S.T11a, Z1b: S.T11a, Z2: S.T11b, Z3: S.T11c, Z4: S.T11c, Z5a: S.T11h, Z5b: S.T11h, Z10: S.T11d, Z11: S.T11e, Z12: S.T11f, Z13: S.T11g,
+  };
+  const MODI: Modus[] = ['teilnehmer', 'sprecher', 'freigabe'];
+  const ERSATZBILDER: Ersatzbild[] = ['transparent', 'eingefroren', 'schwarz', 'weiss'];
+  const ZIEL0: Grund[] = ['noTarget', 'participantLeft', 'speakerNone', 'shareNone'];   // 6.10 Schritt 3
+  const MIT_ZIEL: Grund[] = SLOT_REASONS.filter((g) => !ZIEL0.includes(g));
+  const ERSATZ_SENT: Sent[] = ['transparent', 'freeze', 'black', 'white'];             // SZ6 sendet ein Ersatzbild (6.12)
+  const NAMEN = ['Carla', 'Ben', 'Anna'];
+  const KLARTEXT = 'Der Slot ließ sich nicht aufbauen (SLOT_SENDER_FAILED). Details im Log.';
+  const ABO = 'SDKERR_INTERNAL_ERROR';
+
+  function erlaubnisse(z: ZoomZ): (ZoomErlaubnis | null)[] {
+    switch (z) {
+      case 'Z6': return ['offen'];
+      case 'Z7': return ['abgelehnt', 'abgelaufen', 'entzogen'];
+      case 'Z7b': return ['offen', 'abgelehnt', 'abgelaufen', 'entzogen'];
+      case 'Z8': case 'Z9': case 'Z9b': return ['ja'];
+      default: return [null, 'offen', 'ja', 'entzogen', 'abgelehnt', 'abgelaufen'];
+    }
+  }
+  function zustaende(z: ZoomZ): SZ[] {
+    switch (z) {
+      case 'Z6': case 'Z7': return ['aus', 'wartet_erlaubnis'];
+      case 'Z7b': return ['aus', 'wartet_erlaubnis', 'zeigt', 'gehalten', 'ersatz', 'stoppt'];
+      case 'Z8': return ['aus', 'startet', 'keine_antwort', 'gescheitert', 'zurueckgestellt', 'geplant'];
+      case 'Z9': return ['aus', 'startet', 'zeigt', 'gehalten', 'keine_antwort', 'gescheitert', 'stoppt', 'zurueckgestellt', 'geplant'];
+      case 'Z9b': return ['aus', 'startet', 'zeigt', 'gehalten', 'ersatz', 'keine_antwort', 'gescheitert', 'stoppt', 'zurueckgestellt', 'geplant'];
+      default: return SENDER_AUSSEN.has(z) ? ['aus', 'ohne_meeting', 'zeigt', 'gehalten', 'ersatz', 'stoppt'] : ['aus', 'ohne_meeting', 'stoppt'];
+    }
+  }
+  interface Lage { ziel0: boolean; grund: Grund | null; gesendet: Sent | null; zahl: number }
+  function lagen(sz: SZ, modus: Modus): Lage[] {
+    const l: Lage[] = [];
+    if (sz === 'zeigt') {
+      for (const grund of MIT_ZIEL) for (const gesendet of (modus === 'freigabe' ? ['none', 'held'] : ['none']) as Sent[])
+        for (const zahl of modus === 'freigabe' ? [1, 2, 3] : [1]) l.push({ ziel0: false, grund, gesendet, zahl });
+    } else if (sz === 'gehalten') {
+      if (modus === 'freigabe') for (const grund of ['sharePaused', 'shareStill'] as Grund[]) l.push({ ziel0: false, grund, gesendet: 'held', zahl: 1 });
+    } else if (sz === 'ersatz') {
+      for (const grund of SLOT_REASONS) for (const gesendet of ERSATZ_SENT) l.push({ ziel0: ZIEL0.includes(grund), grund, gesendet, zahl: 1 });
+    } else if (sz === 'stoppt') {
+      for (const grund of [null, ...SLOT_REASONS]) for (const gesendet of SLOT_SENT) {
+        l.push({ ziel0: grund !== null && ZIEL0.includes(grund), grund, gesendet, zahl: 1 });
+      }
+    } else {
+      for (const grund of [null, ...SLOT_REASONS]) l.push({ ziel0: true, grund, gesendet: null, zahl: 1 });
+    }
+    return l;
+  }
+  interface Wahl { person: string; doppelt: number; zweifel: boolean; warteraum: boolean }
+  const EINE: Wahl[] = [{ person: 'Anna', doppelt: 1, zweifel: false, warteraum: false }];
+  const WAHLEN: Wahl[] = [{ person: '', doppelt: 1, zweifel: false, warteraum: false }];
+  for (const doppelt of [1, 2]) for (const zweifel of [false, true]) for (const warteraum of [false, true]) WAHLEN.push({ person: 'Anna', doppelt, zweifel, warteraum });
+
+  /** 10.2, Regel für Regel aus der Spec abgeschrieben; liefert die T-Nummer und den Text. */
+  function soll(f: KE): [string, string] {
+    if (f.zustand === 'aus') return ['T10', S.T10];
+    if (f.zustand === 'stoppt') return ['T24', S.T24];
+    if (!IM.has(f.z)) return [({ Z1a: 'T11a', Z1b: 'T11a', Z2: 'T11b', Z3: 'T11c', Z4: 'T11c', Z5a: 'T11h', Z5b: 'T11h', Z10: 'T11d', Z11: 'T11e', Z12: 'T11f', Z13: 'T11g' } as Record<string, string>)[f.z], OHNE_MEETING[f.z]];
+    if (f.zustand === 'wartet_erlaubnis') {
+      if (f.erlaubnis === 'entzogen') return f.liefSchon ? ['T12b', S.T12b] : ['T12d', S.T12d];
+      if (f.erlaubnis === 'abgelehnt' || f.erlaubnis === 'abgelaufen') return ['T12c', S.T12c];
+      return ['T12a', S.T12a];
+    }
+    if (f.zustand === 'startet' || f.zustand === 'geplant') return ['T14', S.T14];
+    if (f.zustand === 'keine_antwort') return ['T21', S.T21];
+    if (f.zustand === 'gescheitert') return ['T23', S.T23(f.gescheitertText ?? '')];
+    if (f.zustand === 'zurueckgestellt') return ['T22', S.T22];
+    const p = f.zielName ?? f.person;
+    if (f.zustand === 'zeigt') {
+      if (f.modus === 'teilnehmer') return ['T15', S.T15(p)];
+      if (f.modus === 'sprecher') return ['T25', S.T25(p)];
+      return f.freigaben.zahl > 1 ? ['T28b', S.T28b(p, f.freigaben.zahl, f.freigaben.namen.join(', '))] : ['T28', S.T28(p)];
+    }
+    if (f.zustand === 'gehalten') return f.grund === 'sharePaused' ? ['T29', S.T29(p)] : ['T29b', S.T29b(p)];
+    // SZ6 (Regeln 6–10)
+    const art = f.ersatzbild === 'eingefroren' && f.gesendet === 'transparent' ? S.T60 : `Ersatzbild ${S.ART[f.gesendet ?? '']}`;
+    const g = f.grund;
+    const t97 = f.andererSlot !== null && (g === 'noFrames' || g === 'subscribeFailed') ? S.T97(f.andererSlot) : '';
+    const ohneZiel = g !== null && ZIEL0.includes(g);
+    if (f.modus === 'teilnehmer') {
+      if (f.doppelt > 1) return ['T13', S.T13(p, f.doppelt, art)];
+      if (f.zweifel) return ['T13b', S.T13b(p, art)];
+      if (f.person === '') return ['T18', S.T18(art)];
+      if (f.imWarteraum) return ['T17', S.T17(p, art)];
+      if (ohneZiel) return ['T16', S.T16(p, art)];
+      if (g === 'cameraOff') return ['T19', S.T19(p, art)];
+      if (g === 'noFrames') return ['T19b', S.T19b(p, art) + t97];
+      if (g === 'bufferMismatch') return ['T20b', S.T20b(p, art)];
+      if (g === 'subscribeFailed') return ['T20c', S.T20c(p, f.aboFehlerName ?? '', art) + t97];
+      return ['T20', S.T20(p, art)];
+    }
+    if (f.modus === 'sprecher') {
+      if (ohneZiel) return ['T26', S.T26(art)];
+      if (g === 'cameraOff' || g === 'speakerNoVideo') return ['T27', S.T27(p, art)];
+      if (g === 'noFrames') return ['T27b', S.T27b(p, art) + t97];
+      if (g === 'bufferMismatch') return ['T20b', S.T20b(p, art)];
+      if (g === 'subscribeFailed') return ['T20c', S.T20c(p, f.aboFehlerName ?? '', art) + t97];
+      return ['T20', S.T20(p, art)];
+    }
+    const ziel = `Freigabe von ${p}`;
+    if (ohneZiel) return ['T29c', S.T29c(art)];
+    if (g === 'sharePaused') return ['T29d', S.T29d(p, art)];
+    if (g === 'noFrames') return ['T29e', S.T29e(p, art) + t97];
+    if (g === 'bufferMismatch') return ['T20b', S.T20b(ziel, art)];
+    if (g === 'subscribeFailed') return ['T20c', S.T20c(ziel, f.aboFehlerName ?? '', art) + t97];
+    return ['T20', S.T20(ziel, art)];
+  }
+
+  /** Wahrheitsprädikate 10.2 („Prüfung auf Wahrheit“) und 10.5: Steht die Zeile, muss die Lage stimmen. */
+  const PRAED: Array<{ name: string; wenn: (t: string) => boolean; dann: (f: KE, ziel0: boolean, t: string) => boolean }> = [
+    { name: '„Zeigt …“ (T15, T25, T28) nur in SZ4; Teilnehmer und Sprecher mit sent none, Freigabe mit none oder held',
+      wenn: (t) => t.startsWith('Zeigt '), dann: (f) => f.zustand === 'zeigt' && (f.gesendet === 'none' || (f.modus === 'freigabe' && f.gesendet === 'held')) },
+    { name: '„erstes Bild steht noch aus“ (T20) nur mit einem Ziel ≠ 0 (Nachfix W7)',
+      wenn: (t) => t.includes('erstes Bild steht noch aus'), dann: (_f, ziel0) => !ziel0 },
+    { name: '„Ersatzbild …“ nur in SZ6 und mit dem Namen dessen, was gesendet wird (T60 bei eingefroren und transparent)',
+      wenn: (t) => t.includes('Ersatzbild'),
+      dann: (f, _z, t) => f.zustand === 'ersatz' && (f.ersatzbild === 'eingefroren' && f.gesendet === 'transparent'
+        ? t.includes(S.T60) : t.includes(`Ersatzbild ${S.ART[f.gesendet ?? '']}`) && !t.includes('darum transparent')) },
+    { name: '„Wartet auf {Person} ·“ (T16) nur, wenn die Person nicht da ist (Ziel 0, nicht im Warteraum, eindeutig)',
+      wenn: (t) => t.startsWith('Wartet auf Anna · '), dann: (f, ziel0) => ziel0 && !f.imWarteraum && f.doppelt <= 1 && !f.zweifel },
+    { name: '„(im Warteraum)“ (T17) nur, wenn die Person im Warteraum ist', wenn: (t) => t.includes('(im Warteraum)'), dann: (f) => f.imWarteraum },
+    { name: '„Kamera aus“ nur mit dem Grund cameraOff bzw. speakerNoVideo',
+      wenn: (t) => t.includes('Kamera aus'), dann: (f) => f.grund === 'cameraOff' || f.grund === 'speakerNoVideo' },
+    { name: '„Zoom liefert gerade kein Bild“ (T19b, T27b, T29e) nur mit dem Grund noFrames, nie aus einem bloßen Kennzeichen',
+      wenn: (t) => t.includes('Zoom liefert gerade kein Bild'), dann: (f) => f.grund === 'noFrames' },
+    { name: '„Name doppelt“ (T13) nur ohne gültige gewaehlteId (doppelt > 1)', wenn: (t) => t.includes('Name doppelt'), dann: (f) => f.doppelt > 1 },
+    { name: '„die neueste von {m}“ (T28b) nur bei mehr als einer Bild-Freigabe',
+      wenn: (t) => t.includes('die neueste von'), dann: (f) => f.freigaben.zahl > 1 },
+    { name: '„gehalten“ (T29, T29b) nur in SZ5', wenn: (t) => t.includes('gehalten'), dann: (f) => f.zustand === 'gehalten' },
+    { name: '„Gestoppt“ (T12b) nur bei Erlaubnis entzogen und liefSchon',
+      wenn: (t) => t.startsWith('Gestoppt'), dann: (f) => f.erlaubnis === 'entzogen' && f.liefSchon },
+    { name: '„Aufnahme-Erlaubnis“ nur im Meeting mit Erlaubnis ≠ ja',
+      wenn: (t) => t.includes('Aufnahme-Erlaubnis'), dann: (f) => IM.has(f.z) && f.erlaubnis !== 'ja' },
+    { name: '„„Stopp“ und wieder „Start““ (T20c, T21, T22, T23) nur in SZ7, SZ8, SZ10 oder bei abgelehntem Abo',
+      wenn: (t) => t.includes('„Stopp“ und wieder „Start“'),
+      dann: (f) => f.zustand === 'keine_antwort' || f.zustand === 'gescheitert' || f.zustand === 'zurueckgestellt' || f.grund === 'subscribeFailed' },
+    { name: 'T97 nur mit einem anderen laufenden Slot desselben Ziels und dem Grund noFrames oder subscribeFailed',
+      wenn: (t) => t.includes('zeigt dieselbe Quelle'), dann: (f) => f.andererSlot !== null && (f.grund === 'noFrames' || f.grund === 'subscribeFailed') },
+  ];
+
+  let n = 0;
+  const abweichungen: string[] = [];
+  const zaehler = PRAED.map(() => ({ treffer: 0, verletzt: 0, beispiel: '' }));
+  const gesehen = new Set<string>();
+  for (const z of [...IM, ...AUSSEN]) for (const erlaubnis of erlaubnisse(z)) for (const zustand of zustaende(z)) for (const modus of MODI) {
+    for (const l of lagen(zustand, modus)) {
+      const wahlen = modus === 'teilnehmer' && l.ziel0 && zustand !== 'stoppt' ? WAHLEN : EINE;
+      for (const w of wahlen) for (const ersatzbild of ERSATZBILDER) for (const liefSchon of [false, true]) for (const andererSlot of [null, 3]) {
+        const f: KE = {
+          zustand, z, erlaubnis, modus, grund: l.grund, gesendet: l.gesendet, ersatzbild,
+          zielName: modus === 'teilnehmer' ? (w.person === '' ? null : 'Anna') : l.ziel0 ? null : modus === 'sprecher' ? 'Ben' : 'Carla',
+          person: modus === 'teilnehmer' ? w.person : '', doppelt: w.doppelt, zweifel: w.zweifel, imWarteraum: w.warteraum,
+          liefSchon, andererSlot, freigaben: { zahl: l.zahl, namen: NAMEN.slice(0, l.zahl) }, aboFehlerName: ABO, gescheitertText: KLARTEXT,
+        };
+        n++;
+        const ist = kachelZeile(f);
+        const [id, text] = soll(f);
+        gesehen.add(id);
+        if (ist !== text && abweichungen.length < 5) abweichungen.push(`${JSON.stringify(f)} → „${ist}“, erwartet „${text}“`);
+        PRAED.forEach((p, i) => {
+          if (!p.wenn(ist)) return;
+          zaehler[i].treffer++;
+          if (!p.dann(f, l.ziel0, ist)) { zaehler[i].verletzt++; if (!zaehler[i].beispiel) zaehler[i].beispiel = `${JSON.stringify(f)} → „${ist}“`; }
+        });
+      }
+    }
+  }
+  console.log(`     10.2: ${n} Kombinationen geprüft`);
+  for (const a of abweichungen) console.log(`     Abweichung: ${a}`);
+  ck('10.2 Kachel: jede zulässige Kombination wörtlich nach der ersten passenden Regel', n > 0 && abweichungen.length === 0);
+  PRAED.forEach((p, i) => {
+    if (zaehler[i].beispiel) console.log(`     verletzt: ${zaehler[i].beispiel}`);
+    ck(`10.2 Prädikat: ${p.name}`, zaehler[i].treffer > 0 && zaehler[i].verletzt === 0);
+  });
+  const ALLE_IDS = ['T10', 'T11a', 'T11b', 'T11c', 'T11h', 'T11d', 'T11e', 'T11f', 'T11g', 'T12a', 'T12b', 'T12d', 'T12c', 'T13', 'T13b', 'T14',
+    'T15', 'T16', 'T17', 'T18', 'T19', 'T19b', 'T20', 'T20b', 'T20c', 'T21', 'T22', 'T23', 'T24', 'T25', 'T26', 'T27', 'T27b', 'T28', 'T28b',
+    'T29', 'T29b', 'T29d', 'T29e', 'T29c'];
+  ck('10.5 Kachel: jede Zeile aus 9.2 (40) kommt im Kreuzprodukt vor', ALLE_IDS.every((id) => gesehen.has(id)) && gesehen.size === ALLE_IDS.length);
+}
+
+console.log('— B6 · Fehlerzeile der Kachel (10.9)');
+{
+  const { kachelFehlerZeile } = await import('../src/shared/zoom-text');
+  type SZ = import('../src/shared/types').ZoomSlotZustand;
+  const ZS: SZ[] = ['aus', 'ohne_meeting', 'wartet_erlaubnis', 'startet', 'zeigt', 'gehalten', 'ersatz', 'keine_antwort', 'gescheitert', 'stoppt', 'zurueckgestellt', 'geplant'];
+  const T101 = 'Der Slot ließ sich nicht aufbauen (SLOT_RENDERER_FAILED). Details im Log.';
+  let falsch = 0;
+  for (const zustand of ZS) for (const letzterSlotFehler of [null, T101]) for (const seitDemLive of [false, true]) {
+    const erwartet = zustand === 'gescheitert' || seitDemLive ? null : letzterSlotFehler;
+    if (kachelFehlerZeile({ zustand, letzterSlotFehler, seitDemLive }) !== erwartet) falsch++;
+  }
+  ck('10.9: Klartext des letzten Slot-Fehlers, bis der Slot danach live meldet (12 Zustände × Fehler × live)', falsch === 0);
+  ck('10.9: in SZ8 nie eine Fehlerzeile (der Klartext steht schon in T23)',
+    ZS.length === 12 && kachelFehlerZeile({ zustand: 'gescheitert', letzterSlotFehler: T101, seitDemLive: false }) === null);
+  ck('10.9: ohne Fehler keine Zeile', kachelFehlerZeile({ zustand: 'ersatz', letzterSlotFehler: null, seitDemLive: false }) === null);
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
