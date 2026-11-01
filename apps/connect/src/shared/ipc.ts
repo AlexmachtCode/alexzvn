@@ -68,14 +68,6 @@ export const IPC = {
   zoomVerlassen: 'jmc:zoom-verlassen',
   /** invoke: Wiederbeitritt abbrechen (nur Z11; sonst wirkungslos) → void (Spec 5.5, 6.8). */
   zoomAbbrechen: 'jmc:zoom-abbrechen',
-  /** invoke: { id, ton, trotzBetriebsgroesse } → ZoomErgebnis. */
-  zoomLaden: 'jmc:zoom-laden',
-  /** invoke: { aboId } → ZoomErgebnis. */
-  zoomEntladen: 'jmc:zoom-entladen',
-  /** invoke: { id, an } → ZoomErgebnis (Ton-Vorwahl, nur ohne Quelle). */
-  zoomTon: 'jmc:zoom-ton',
-  /** invoke: { name } → void (gemerkte Quelle vergessen). */
-  zoomSollVerwerfen: 'jmc:zoom-soll-verwerfen',
   /** invoke: { ms } → ZoomErgebnis (Bild-Versatz). */
   zoomVersatz: 'jmc:zoom-versatz',
   /** invoke: Beitritt mit den Daten im Arbeitsspeicher → ZoomErgebnis. */

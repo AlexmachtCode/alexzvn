@@ -370,10 +370,6 @@ export interface JmConnectApi {
   zoomVerlassen: () => Promise<void>;
   /** Wiederbeitritt abbrechen (nur Z11, Spec 6.8): Meldung R7, „Erneut beitreten“ behält Nummer, Kenncode und gemerkte Quellen. */
   zoomAbbrechen: () => Promise<void>;
-  zoomLaden: (p: { id: number; ton: boolean; trotzBetriebsgroesse: boolean }) => Promise<ZoomErgebnis>;
-  zoomEntladen: (p: { aboId: number }) => Promise<ZoomErgebnis>;
-  zoomTon: (p: { id: number; an: boolean }) => Promise<ZoomErgebnis>;
-  zoomSollVerwerfen: (p: { name: string }) => Promise<void>;
   zoomVersatz: (p: { ms: number }) => Promise<ZoomErgebnis>;
   zoomErneut: () => Promise<ZoomErgebnis>;
   zoomSchliessen: () => Promise<void>;

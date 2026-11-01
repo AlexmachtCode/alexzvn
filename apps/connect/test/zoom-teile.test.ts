@@ -815,6 +815,33 @@ console.log('— B5 · deuteZoomBefehl, Slot-Verben (8.3)');
       && j(deuteZoomBefehl('zoom_slotx', ['1'])) === ab('f7', FT.F7('zoom_slotx'), 'zoom_slotx'));
 }
 
+// ── Plan B, Task B11: alte Bedienwege entfallen (Spec 7.9, 7.5 Nr. 9 und 10, 9.7 „Entfallen“, E29) ──
+console.log('— B11 · Laden, Entladen, Ton-Umschalten und Vergessen gibt es weder in Hülle, Preload und IPC noch in der Karte');
+{
+  const { readFileSync } = await import('node:fs');
+  const lies = (rel: string): string => readFileSync(new URL(rel, import.meta.url), 'utf8');
+  const typen = lies('../src/shared/types.ts');
+  const api = typen.slice(typen.indexOf('export interface JmConnectApi'));
+  const orte: Array<[string, string]> = [
+    ['preload/index.ts', lies('../src/preload/index.ts')],
+    ['main/zoom.ts', lies('../src/main/zoom.ts')],
+    ['shared/ipc.ts', lies('../src/shared/ipc.ts')],
+    ['JmConnectApi (shared/types.ts)', api],
+    ['renderer/src/zoom/ZoomCard.tsx', lies('../src/renderer/src/zoom/ZoomCard.tsx')],
+  ];
+  const ALT = ['zoomLaden', 'zoomEntladen', 'zoomTon', 'zoomSollVerwerfen', 'jmc:zoom-laden', 'jmc:zoom-entladen', 'jmc:zoom-ton', 'jmc:zoom-soll-verwerfen'];
+  for (const [ort, text] of orte) {
+    const treffer = ALT.filter((n) => text.includes(n));
+    ck(`B11: ${ort} nennt keinen der vier alten Kanäle${treffer.length ? ` (gefunden: ${treffer.join(', ')})` : ''}`, treffer.length === 0);
+  }
+  ck('B11: JmConnectApi gefunden (die Prüfung greift)', api.length > 1000 && api.includes('zoomVersatz'));
+  const karte = orte[4][1];
+  const RESTE = ['Als Quelle laden', 'Entladen', 'Gemerkte Quellen', 'wird: ', 'trotzId', 'soll:', 'TEXT_Q11', 'TEXT_Q14', 'kollision', 'tonVorwahl', 'ndiNameVorschau', 't.quelle', 't.fehler', 'a.soll'];
+  const reste = RESTE.filter((r) => karte.includes(r));
+  ck(`B11: die Karte hat keinen Ton-Schalter je Zeile, kein „Als Quelle laden“/„Entladen“, kein „wird: …“, keine „Gemerkten Quellen“${reste.length ? ` (gefunden: ${reste.join(', ')})` : ''}`,
+    reste.length === 0);
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

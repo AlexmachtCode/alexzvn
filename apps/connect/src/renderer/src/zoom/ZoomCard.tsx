@@ -4,19 +4,15 @@
 // (ZoomErgebnis.text, abbild.meldung). Der Kenncode lebt hier nur bis zum Klick auf „Beitreten“ (Spec 5.7).
 // Bewusst NICHT wiederverwendet: PttButton, GuestActions, PhaseBadge (kein Tally, kein Talkback, keine Phasen).
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ZoomAbbild, ZoomErgebnis, ZoomParticipant, ZoomSollEintrag } from '@shared/types';
+import type { ZoomAbbild, ZoomErgebnis, ZoomParticipant } from '@shared/types';
 import {
   einrichtungsTextArt,
   kartenZeile,
-  Q9_ANFANG,
-  quellenZustandText,
   sdkBalken,
   sdkKnopf,
   sdkLadenZeile,
   sdkSchluesselZeile,
   sdkZeile,
-  sollFarbe,
-  sollZeile,
   TEXT_S11,
   versatzUebernommen,
   versatzZeile,
@@ -26,18 +22,15 @@ import {
 
 // Tooltip- und Hinweistexte wörtlich aus Spec 8 und 9 (der Renderer importiert klartext.ts nicht). TEXT_S10 ist
 // neu gefasst und steht wörtlich in Spec 2026-10-06 (Zoom-SDK nachladen), Abschnitt 5 (Owner 06.10.2026).
+// Q10, Q11, Q14 und Q15 an der Teilnehmerzeile entfallen mit den Quellen (Spec 9.7, Plan B, Task B11); Q15 lebt als T98 am
+// Knopf „Als Slot laden“ weiter (Task B21).
 const TEXT_S10 = 'Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.';
-const TEXT_Q11 = 'Name doppelt im Meeting — nach einem Wiederbeitritt kann Connect diese Quelle nicht von selbst zuordnen.';
 const TEXT_Q13 = 'Bild-Versatz: erlaubt sind ganze Zahlen von 0 bis 1000 ms.';
-const TEXT_Q14 = 'Zum Umschalten erst entladen.';
-const TEXT_Q15 = 'Erst im Zoom-Client zulassen.';
 const SPERR_HINWEIS = 'Zoom ist gesperrt, bis SDK-Ordner und Zugangsdaten vollständig eingerichtet sind.';
 const FUSSZEILE = 'Zoom-Quellen haben kein Tally, kein Talkback und kein Mix-Minus — das sind Grenzen von Zoom.';
-/** Klassen zu sollFarbe: rot wie Q11, gelb wie die Warnung Q10, sonst grau. */
-const SOLL_FARBE = { rot: 'text-red-300', gelb: 'text-yellow-200', grau: 'text-neutral-300' } as const;
 
 /** Wo eine abgelehnte Antwort (ZoomErgebnis.text) erscheint; 'karte' = unter der Statuszeile, auch für unerwartete IPC-Fehler. */
-type Ort = 'karte' | 'einrichtung' | 'beitritt' | `zeile:${number}` | `soll:${string}`;
+type Ort = 'karte' | 'einrichtung' | 'beitritt' | `zeile:${number}`;
 type MeldungsArt = NonNullable<ZoomAbbild['meldung']>['art'];
 
 const KARTE = 'mt-6 rounded-lg border border-neutral-700 bg-neutral-900 p-4';
@@ -230,8 +223,6 @@ export function ZoomCard(): JSX.Element {
   /** SDK-Schlüssel von Hand: Eingabe offen. Der Wert selbst lebt nur in `SchluesselEingabe`. */
   const [schluesselAuf, setSchluesselAuf] = useState(false);
   const [verlassenFrage, setVerlassenFrage] = useState(false);
-  /** Zeile, für die Q9 kam: der nächste Klick dort lädt trotzdem. */
-  const [trotzId, setTrotzId] = useState<number | null>(null);
   const [antwort, setAntwort] = useState<{ ort: Ort; text: string } | null>(null);
   /** Laufende Aufrufe (gegen Doppelklicks), je Knopf ein Schlüssel. */
   const [laeuft, setLaeuft] = useState<ReadonlySet<string>>(() => new Set());
@@ -316,7 +307,6 @@ export function ZoomCard(): JSX.Element {
   const sdk = a.einrichtung.sdk;
   const zugang = a.einrichtung.zugang;
   const zugangText = zugangZeile(a);
-  const imMeeting = k.zustand === 'im_meeting';
   const n = k.quellen;
   const frage = verlassenFrage && n > 0;
   const sperrTitel = kn.einrichtungAenderbar ? undefined : TEXT_S10;
@@ -370,15 +360,9 @@ export function ZoomCard(): JSX.Element {
     });
   };
 
-  const laden = (t: ZoomParticipant): void => {
-    const trotz = trotzId === t.id;
-    void fuehreAus(`laden:${t.id}`, `zeile:${t.id}`, () =>
-      window.jmconnect.zoomLaden({ id: t.id, ton: t.tonVorwahl, trotzBetriebsgroesse: trotz }),
-    ).then((r) => setTrotzId(!r.ok && r.text.startsWith(Q9_ANFANG) ? t.id : null));
-  };
-
+  // Teilnehmerzeile ohne Ton-Schalter, ohne die Knöpfe und Zeilen der Quellen (Spec 7.5 Nr. 9, Plan B, Task B11);
+  // „Als Slot laden“ und die Angaben T39–T39d kommen mit Task B21.
   const zeile = (t: ZoomParticipant): JSX.Element => {
-    const q = t.quelle;
     const ort: Ort = `zeile:${t.id}`;
     const text = antwortText(ort);
     return (
@@ -391,92 +375,8 @@ export function ZoomCard(): JSX.Element {
           {t.kamera === 'keine' && <Kennzeichen>keine Kamera</Kennzeichen>}
           {t.imWarteraum && <Kennzeichen>im Warteraum</Kennzeichen>}
           {t.doppelname && <Kennzeichen rot>Name doppelt</Kennzeichen>}
-          <span className="ml-auto flex items-center gap-2">
-            <label title={q ? TEXT_Q14 : undefined} className="flex items-center gap-1 text-xs text-neutral-300">
-              <input
-                type="checkbox"
-                checked={q ? q.ton !== 'aus' : t.tonVorwahl}
-                disabled={q !== null || laeuft.has(`ton:${t.id}`)}
-                onChange={(e) => {
-                  const an = e.target.checked;
-                  void fuehreAus(`ton:${t.id}`, ort, () => window.jmconnect.zoomTon({ id: t.id, an }));
-                }}
-              />
-              Ton
-            </label>
-            {q ? (
-              <button
-                disabled={laeuft.has(`entladen:${q.aboId}`)}
-                onClick={() =>
-                  void fuehreAus(`entladen:${q.aboId}`, ort, () => window.jmconnect.zoomEntladen({ aboId: q.aboId }))
-                }
-                className={RAND}
-              >
-                Entladen
-              </button>
-            ) : (
-              <MitTooltip titel={t.imWarteraum ? TEXT_Q15 : undefined}>
-                <button
-                  disabled={t.imWarteraum || !imMeeting || laeuft.has(`laden:${t.id}`)}
-                  onClick={() => laden(t)}
-                  className={GELB}
-                >
-                  Als Quelle laden
-                </button>
-              </MitTooltip>
-            )}
-          </span>
         </div>
-        <div className="mt-1 text-xs text-neutral-400">
-          {q ? (
-            <>
-              {q.ndiName} · {quellenZustandText(q)}
-            </>
-          ) : (
-            <span className="text-neutral-500">wird: {t.ndiNameVorschau}</span>
-          )}
-        </div>
-        {t.doppelname && <p className="mt-1 text-xs text-red-300">{TEXT_Q11}</p>}
-        {t.kollision && <p className="mt-1 text-xs text-yellow-200">{t.kollision}</p>}
-        {q?.fehler && <p className="mt-1 text-xs text-red-300">{q.fehler}</p>}
-        {t.fehler && <p className="mt-1 text-xs text-red-300">{t.fehler}</p>}
         {text && <p className="mt-1 text-xs text-red-300">{text}</p>}
-      </li>
-    );
-  };
-
-  const sollEintrag = (e: ZoomSollEintrag): JSX.Element => {
-    // Welcher Stand welche Farbe hat, entscheidet sollFarbe (@shared/zoom-text, dort geprüft).
-    const farbe = SOLL_FARBE[sollFarbe(e)];
-    const ort: Ort = `soll:${e.name}`;
-    const text = antwortText(ort);
-    const aboId = e.stand === 'verwaist' ? e.aboId : null;
-    return (
-      <li key={e.name} className="text-xs">
-        <div className="flex items-center gap-2">
-          <span className={farbe}>{sollZeile(e)}</span>
-          {aboId !== null ? (
-            <button
-              disabled={laeuft.has(`entladen:${aboId}`)}
-              onClick={() => void fuehreAus(`entladen:${aboId}`, ort, () => window.jmconnect.zoomEntladen({ aboId }))}
-              className={`${RAND} ml-auto`}
-            >
-              Entladen
-            </button>
-          ) : (
-            <button
-              disabled={laeuft.has(`vergessen:${e.name}`)}
-              onClick={() =>
-                void fuehreAus(`vergessen:${e.name}`, ort, () => ohneText(window.jmconnect.zoomSollVerwerfen({ name: e.name })))
-              }
-              className={`${RAND} ml-auto`}
-            >
-              Vergessen
-            </button>
-          )}
-        </div>
-        {e.stand === 'verwaist' && e.doppelname && <p className="mt-0.5 text-red-300">{TEXT_Q11}</p>}
-        {text && <p className="mt-0.5 text-red-300">{text}</p>}
       </li>
     );
   };
@@ -792,13 +692,7 @@ export function ZoomCard(): JSX.Element {
       {/* 8 · Teilnehmerliste (ohne eigene Zeile; Host und Co-Host zuerst, sortiert der Kern) */}
       {a.teilnehmer.length > 0 && <ul className="mb-3 space-y-2">{a.teilnehmer.map((t) => zeile(t))}</ul>}
 
-      {/* 9 · Gemerkte Quellen (offene Soll-Einträge, Spec 6.3; Stand 'grenze' über der Betriebsgröße, L7) */}
-      {a.soll.length > 0 && (
-        <div className="mb-3">
-          <div className="mb-1 text-xs font-semibold text-neutral-400">Gemerkte Quellen</div>
-          <ul className="space-y-1">{a.soll.map((e) => sollEintrag(e))}</ul>
-        </div>
-      )}
+      {/* 9 · Die Liste der gemerkten Quellen entfällt (Spec 7.5 Nr. 10, Plan B, Task B11); an ihre Stelle treten die Zoom-Slots (Task B21). */}
 
       {/* 10 · Hinweise (die letzten 5) */}
       {a.hinweise.length > 0 && (

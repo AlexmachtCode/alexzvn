@@ -55,10 +55,6 @@ function feld(p: unknown, name: string): unknown {
   return typeof p === 'object' && p !== null ? (p as Record<string, unknown>)[name] : undefined;
 }
 
-function ganzeZahl(v: unknown): v is number {
-  return typeof v === 'number' && Number.isInteger(v);
-}
-
 async function waehlePfad(getWindow: () => BrowserWindow | null, opts: OpenDialogOptions): Promise<string | null> {
   if (dialogOffen) return null;
   dialogOffen = true;
@@ -173,29 +169,8 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
   // Spec 6.8: nur in Z11 wirksam (der Kern prüft den Zustand); Nummer, Kenncode und gemerkte Quellen bleiben.
   ipcMain.handle(IPC.zoomAbbrechen, (): void => k.abbrechen());
 
-  ipcMain.handle(IPC.zoomLaden, (_e, p: unknown): ZoomErgebnis | Promise<ZoomErgebnis> => {
-    const id = feld(p, 'id');
-    const ton = feld(p, 'ton');
-    const trotz = feld(p, 'trotzBetriebsgroesse');
-    if (!ganzeZahl(id) || typeof ton !== 'boolean' || typeof trotz !== 'boolean') return NICHTS;
-    return k.laden({ id, ton, trotzBetriebsgroesse: trotz });
-  });
-
-  ipcMain.handle(IPC.zoomEntladen, (_e, p: unknown): ZoomErgebnis | Promise<ZoomErgebnis> => {
-    const aboId = feld(p, 'aboId');
-    return ganzeZahl(aboId) ? k.entladen({ aboId }) : NICHTS;
-  });
-
-  ipcMain.handle(IPC.zoomTon, (_e, p: unknown): ZoomErgebnis => {
-    const id = feld(p, 'id');
-    const an = feld(p, 'an');
-    return ganzeZahl(id) && typeof an === 'boolean' ? k.ton({ id, an }) : NICHTS;
-  });
-
-  ipcMain.handle(IPC.zoomSollVerwerfen, (_e, p: unknown): void => {
-    const name = feld(p, 'name');
-    if (typeof name === 'string') k.sollVerwerfen({ name });
-  });
+  // Die Kanäle zum Laden, Entladen, Ton-Umschalten und Vergessen entfallen (Spec 7.9, Plan B, Task B11); die Slot-Kanäle
+  // kommen mit Task B20.
 
   // Ganzzahl und Bereich 0–1000 prüft der Kern (Q13); hier nur: ist es überhaupt eine Zahl?
   ipcMain.handle(IPC.zoomVersatz, (_e, p: unknown): ZoomErgebnis => {
