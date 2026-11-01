@@ -127,7 +127,7 @@ for (const v of ['0', '', '-1', '01', '1.5', '2 ', 'aus', 'false', undefined]) e
 const C = CAPABILITIES.connect
 eq(KNOWN_ROLES.includes('connect'), true, 'Rolle connect ist im Modul wählbar (KNOWN_ROLES)')
 eq(C?.label ?? null, 'JM Connect', 'Rolle connect heißt „JM Connect“')
-eq(C ? [C.actions.length, C.variables.length, C.feedbacks.length] : null, [12, 16, 6], 'connect: 12 Aktionen, 16 Variablen, 6 Feedbacks (9/9/3 + Zoom)')
+eq(C ? [C.actions.length, C.variables.length, C.feedbacks.length] : null, [16, 128, 9], 'connect: 16 Aktionen, 128 Variablen, 9 Feedbacks (9/9/3 + Zoom samt Slots, Spec 11.7)')
 eq(['zoom_load', 'zoom_unload', 'zoom_delay'].every((id) => C?.actions.some((a) => a.id === id && a.verb === id)), true, 'connect: zoom_load, zoom_unload, zoom_delay')
 eq(['graphic', 'slot'].every((id) => CAPABILITIES.titler.actions.some((a) => a.id === id)), true, 'titler: graphic und slot')
 const zl = C?.actions.find((a) => a.id === 'zoom_load')

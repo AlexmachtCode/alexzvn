@@ -24,7 +24,7 @@ import {
   type SwitcherStateMsg,
   type SuiteState,
 } from '../src/index.ts';
-import { CAPABILITIES, KNOWN_ROLES } from '../src/capabilities.ts';
+import { CAPABILITIES, KNOWN_ROLES, ZOOM_SLOT_MAX } from '../src/capabilities.ts';
 
 let failed = 0;
 function eq(actual: unknown, expected: unknown, msg: string): void {
@@ -173,52 +173,105 @@ eq(
   'Befehlszeilen werden nicht kodiert: CONNECT ZOOM_LOAD Anna Maria → zwei Argumente',
 );
 
-// ── Rolle connect: Zoom-Teile (Zoom Stage 4b, Spec 11.1 wörtlich) ────────────
+// ── Rolle connect: Zoom-Teile (Zoom Stage 4b, Spec 11.1; Connect 0.4.0 Zoom-Slots, Spec 8.1 wörtlich) ────────────
 {
   const c = CAPABILITIES.connect;
   const ids = (xs: { id: string }[]): string[] => xs.map((x) => x.id);
+  const NAME = { id: 'name', label: 'Anzeigename in Zoom', type: 'string', default: '' };
+  const SLOT = { id: 'slot', label: 'Slot (Nr.)', type: 'number', default: 1, min: 1, max: 16 };
+  const MODE = {
+    id: 'mode', label: 'Modus', type: 'dropdown', default: 'toggle',
+    choices: [{ id: 'toggle', label: 'Umschalten' }, { id: 'on', label: 'Start' }, { id: 'off', label: 'Stopp' }],
+  };
+  const MODUS = {
+    id: 'modus', label: 'Modus', type: 'dropdown', default: 'teilnehmer',
+    choices: [{ id: 'teilnehmer', label: 'Teilnehmer' }, { id: 'sprecher', label: 'Aktiver Sprecher' }, { id: 'freigabe', label: 'Bildschirmfreigabe' }],
+  };
+  eq(ZOOM_SLOT_MAX, 16, 'Zoom-Slots: ZOOM_SLOT_MAX = 16 (Spec 8.1, E2)');
   eq(
     ids(c.actions),
-    ['go', 'next', 'standby', 'onair', 'off', 'approve', 'talkback', 'slides', 'kick', 'zoom_load', 'zoom_unload', 'zoom_delay'],
-    'connect: 9 Raum-Aktionen wie bisher + 3 Zoom-Aktionen',
+    ['go', 'next', 'standby', 'onair', 'off', 'approve', 'talkback', 'slides', 'kick',
+      'zoom_load', 'zoom_unload', 'zoom_delay', 'zoom_slot', 'zoom_slot_mode', 'zoom_slot_person', 'zoom_slot_audio'],
+    'connect: 9 Raum-Aktionen wie bisher + 3 Zoom-Aktionen + 4 Slot-Aktionen (16)',
   );
   eq(
     c.actions.filter((a) => a.id.startsWith('zoom_')),
     [
-      { id: 'zoom_load', label: 'Zoom: Person als Quelle laden', verb: 'zoom_load', args: [{ id: 'name', label: 'Anzeigename in Zoom', type: 'string', default: '' }] },
-      { id: 'zoom_unload', label: 'Zoom: Quelle entladen', verb: 'zoom_unload', args: [{ id: 'name', label: 'Anzeigename in Zoom', type: 'string', default: '' }] },
+      { id: 'zoom_load', label: 'Zoom: Person als Slot laden (nur dieses Meeting)', verb: 'zoom_load', args: [NAME] },
+      { id: 'zoom_unload', label: 'Zoom: Slot einer Person entladen', verb: 'zoom_unload', args: [NAME] },
       { id: 'zoom_delay', label: 'Zoom: Bild-Versatz setzen', verb: 'zoom_delay', args: [{ id: 'ms', label: 'Versatz (ms)', type: 'number', default: 0, min: 0, max: 1000 }] },
+      { id: 'zoom_slot', label: 'Zoom-Slot ein/aus', verb: 'zoom_slot', args: [SLOT, MODE], toggleKey: 'zoom_slot{slot}_on' },
+      { id: 'zoom_slot_mode', label: 'Zoom-Slot: Modus wählen', verb: 'zoom_slot_mode', args: [SLOT, MODUS] },
+      { id: 'zoom_slot_person', label: 'Zoom-Slot: Person wählen', verb: 'zoom_slot_person', args: [SLOT, NAME] },
+      { id: 'zoom_slot_audio', label: 'Zoom-Slot: Ton ein/aus', verb: 'zoom_slot_audio', args: [SLOT, MODE], toggleKey: 'zoom_slot{slot}_audio' },
     ],
-    'connect: Zoom-Aktionen wörtlich, verb === id',
+    'connect: Zoom-Aktionen wörtlich nach 8.1 (zoom_load/zoom_unload mit neuer Beschriftung, gleiche ID und gleiches Verb), verb === id',
   );
   eq(
-    ids(c.variables),
+    ids(c.variables).slice(0, 16),
     ['room', 'connected', 'guests', 'lobby', 'onair', 'active_label', 'standby', 'standby_label', 'talkback',
       'zoom_status', 'zoom_sources', 'zoom_live', 'zoom_privilege', 'zoom_alarm', 'zoom_cmd', 'zoom_cmd_rejected'],
-    'connect: 9 Raum-Variablen wie bisher + 7 Zoom-Variablen',
+    'connect: 9 Raum-Variablen wie bisher + die 7 Zoom-Variablen von 0.3.0 vorn, gleiche IDs (8.4)',
   );
   eq(
-    c.variables.filter((v) => v.id.startsWith('zoom_')),
+    c.variables.slice(9, 16),
     [
       { id: 'zoom_status', label: 'Zoom: Status (einrichtung/bereit/tritt_bei/warteraum/im_meeting/abriss/verlaesst/fehler)' },
-      { id: 'zoom_sources', label: 'Zoom: geladene Quellen (Anzahl)' },
-      { id: 'zoom_live', label: 'Zoom: mindestens eine Quelle geladen (1/0)' },
+      { id: 'zoom_sources', label: 'Zoom: laufende Slots (Anzahl)' },
+      { id: 'zoom_live', label: 'Zoom: mindestens ein Slot läuft (1/0)' },
       { id: 'zoom_privilege', label: 'Zoom: Aufnahme-Erlaubnis erteilt (1/0)' },
       { id: 'zoom_alarm', label: 'Zoom: Eingriff nötig (1/0)' },
-      { id: 'zoom_cmd', label: 'Zoom: Ergebnis des letzten Zoom-Befehls (ok, f1 … f8)' },
+      { id: 'zoom_cmd', label: 'Zoom: Ergebnis des letzten Zoom-Befehls (ok, f1 … f14)' },
       { id: 'zoom_cmd_rejected', label: 'Zoom: letzter Zoom-Befehl abgelehnt (1/0)' },
     ],
-    'connect: Zoom-Variablen wörtlich',
+    'connect: die 7 Zoom-Variablen wörtlich nach 8.1 (zoom_sources, zoom_live, zoom_cmd neu beschriftet)',
   );
-  eq(ids(c.feedbacks), ['onair', 'lobby', 'talkback', 'zoom_live', 'zoom_alarm', 'zoom_cmd_rejected'], 'connect: 3 Raum-Feedbacks wie bisher + 3 Zoom-Feedbacks');
+  const jeSlot = (n: number): { id: string; label: string }[] => [
+    { id: `zoom_slot${n}_on`, label: `Zoom-Slot ${n}: eingeschaltet (1/0)` },
+    { id: `zoom_slot${n}_live`, label: `Zoom-Slot ${n}: zeigt Bild (1/0)` },
+    { id: `zoom_slot${n}_alarm`, label: `Zoom-Slot ${n}: Eingriff nötig (1/0)` },
+    { id: `zoom_slot${n}_audio`, label: `Zoom-Slot ${n}: Ton eingeschaltet, Computerton eingerechnet (1/0)` },
+    { id: `zoom_slot${n}_mode`, label: `Zoom-Slot ${n}: Modus (teilnehmer/sprecher/freigabe)` },
+    { id: `zoom_slot${n}_target`, label: `Zoom-Slot ${n}: wen der Slot zeigt (Name)` },
+    { id: `zoom_slot${n}_state`, label: `Zoom-Slot ${n}: Zustand (fehlt/aus/wartet/startet/zeigt/gehalten/ersatz/fehler/zurueckgestellt/stoppt)` },
+  ];
+  eq(
+    c.variables.slice(16),
+    Array.from({ length: 16 }, (_, i) => jeSlot(i + 1)).flat(),
+    'connect: je Slot 1 … 16 sieben Variablen wörtlich nach 8.1, Slot für Slot (112)',
+  );
+  eq(c.variables.length, 128, 'connect: 128 Variablen (9 Raum + 7 Zoom + 16 × 7)');
+  eq(
+    ids(c.feedbacks),
+    ['onair', 'lobby', 'talkback', 'zoom_live', 'zoom_alarm', 'zoom_cmd_rejected', 'zoom_slot_on', 'zoom_slot_live', 'zoom_slot_alarm'],
+    'connect: 3 Raum-Feedbacks wie bisher + 3 Zoom-Feedbacks + 3 Slot-Feedbacks (9)',
+  );
   eq(
     c.feedbacks.filter((f) => f.id.startsWith('zoom_')),
     [
-      { id: 'zoom_live', label: 'Connect: Zoom-Quellen geladen', stateKey: 'zoom_live', match: 'truthy', bgcolor: [30, 160, 60], color: [255, 255, 255] },
+      { id: 'zoom_live', label: 'Connect: Zoom-Slots laufen', stateKey: 'zoom_live', match: 'truthy', bgcolor: [30, 160, 60], color: [255, 255, 255] },
       { id: 'zoom_alarm', label: 'Connect: Zoom braucht einen Eingriff', stateKey: 'zoom_alarm', match: 'truthy', bgcolor: [200, 30, 30], color: [255, 255, 255] },
       { id: 'zoom_cmd_rejected', label: 'Connect: letzter Zoom-Befehl abgelehnt', stateKey: 'zoom_cmd_rejected', match: 'truthy', bgcolor: [251, 231, 59], color: [0, 0, 0] },
+      { id: 'zoom_slot_on', label: 'Connect: Zoom-Slot eingeschaltet', stateKey: 'zoom_slot{slot}_on', match: 'truthy', arg: SLOT, bgcolor: [251, 231, 59], color: [0, 0, 0] },
+      { id: 'zoom_slot_live', label: 'Connect: Zoom-Slot zeigt Bild', stateKey: 'zoom_slot{slot}_live', match: 'truthy', arg: SLOT, bgcolor: [30, 160, 60], color: [255, 255, 255] },
+      { id: 'zoom_slot_alarm', label: 'Connect: Zoom-Slot braucht einen Eingriff', stateKey: 'zoom_slot{slot}_alarm', match: 'truthy', arg: SLOT, bgcolor: [200, 30, 30], color: [255, 255, 255] },
     ],
-    'connect: Zoom-Feedbacks wörtlich (GREEN, RED, YELLOW/BLACK), alle truthy',
+    'connect: Zoom-Feedbacks wörtlich (zoom_live neu beschriftet; Slots YELLOW/BLACK, GREEN, RED), alle truthy, Slot mit arg slot',
+  );
+  // Platzhalter-Regel (Spec 8.1): {slot} ist der einzige Platzhalter und steht nur dort, wo es das Argument bzw. die Option „slot“ gibt.
+  const schluessel = KNOWN_ROLES.flatMap((r) => [
+    ...CAPABILITIES[r].actions.filter((a) => a.toggleKey).map((a) => ({ wo: `${r}.${a.id}`, key: a.toggleKey ?? '', slot: (a.args ?? []).some((x) => x.id === 'slot') })),
+    ...CAPABILITIES[r].feedbacks.map((f) => ({ wo: `${r}.${f.id}`, key: f.stateKey, slot: f.arg?.id === 'slot' })),
+  ]);
+  eq(
+    schluessel.filter((s) => /\{(?!slot\})/.test(s.key) || s.key.includes('{slot}') !== s.slot).map((s) => s.wo),
+    [],
+    'Platzhalter: nur {slot}, und genau dort, wo es das Argument bzw. die Option „slot“ gibt (alle Rollen)',
+  );
+  eq(
+    schluessel.filter((s) => s.key.includes('{slot}')).map((s) => s.wo),
+    ['connect.zoom_slot', 'connect.zoom_slot_audio', 'connect.zoom_slot_on', 'connect.zoom_slot_live', 'connect.zoom_slot_alarm'],
+    'Platzhalter {slot}: genau zwei Aktionen und drei Feedbacks der Rolle connect',
   );
   eq(KNOWN_ROLES.includes('connect'), true, 'connect ist eine bekannte Rolle');
 }

@@ -2417,8 +2417,9 @@ console.log('— Fernsteuerung: die sieben bisherigen STATE-Schlüssel (Fall 22)
   await insMeeting(p);
   befehl(p, 'zoom_delay', '0');
   ck('… zoom_delay 0 → zoom_cmd=ok', cmdKv(p) === 'ok/0');
-  ck('… stateKv() führt die sieben Schlüssel', JSON.stringify(Object.keys(p.kern.stateKv() ?? {}).sort())
-    === '["zoom_alarm","zoom_cmd","zoom_cmd_rejected","zoom_live","zoom_privilege","zoom_sources","zoom_status"]');
+  ck('… stateKv() führt die sieben Schlüssel (Teilmenge, B-EP15) und je Slot sieben: 119 (Spec 8.2)',
+    ['zoom_alarm', 'zoom_cmd', 'zoom_cmd_rejected', 'zoom_live', 'zoom_privilege', 'zoom_sources', 'zoom_status']
+      .every((s) => s in (p.kern.stateKv() ?? {})) && Object.keys(p.kern.stateKv() ?? {}).length === 119);
   await p.aufraeumen();
 }
 

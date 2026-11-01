@@ -324,7 +324,42 @@ const STATE_JE_Z: Record<Exclude<ZoomZ, 'Z0'>, { status: ZoomStatusWert; privile
 };
 
 /** STATE-Werte aus der Kurzform (Spec 7.5). null unter macOS: dort fehlen die zoom_*-Schlüssel ganz. */
-export function stateKvAus(k: ZoomKurz): ZoomStateKv | null {
+export function stateKvAus(k: ZoomKurz): ZoomSlotStateKv | null {
+  // Connect 0.4.0 (Spec 8.2, Task B18): die sieben Schlüssel von 0.3.0 und je Slot sieben, 7 + 16 × 7 = 119, in jedem Zustand
+  // außer macOS (Z0). Die Werte je Slot stehen fertig in der Kurzform (slotKurz, Spec 7.1; Regeln 8.2/10.4 in stateKvSlots).
+  const sieben = stateKvSieben(k);
+  return sieben === null ? null : { ...sieben, ...slotStateTeil(k.slotKurz) };
+}
+
+/** Die sieben Schlüssel je Slot (Spec 8.2), in der Reihenfolge der Companion-Variablen. */
+export const ZOOM_SLOT_STATE_TEILE = ['on', 'live', 'alarm', 'audio', 'mode', 'target', 'state'] as const;
+/** Die 16 × 7 Schlüssel je Slot im STATE. */
+export type ZoomSlotTeilKv = { [s: `zoom_slot${number}_${(typeof ZOOM_SLOT_STATE_TEILE)[number]}`]: string | number };
+/** STATE von Connect 0.4.0: die sieben Schlüssel von 0.3.0 und die 112 je Slot. */
+export type ZoomSlotStateKv = ZoomStateKv & ZoomSlotTeilKv;
+
+/**
+ * Die 112 Schlüssel je Slot aus der Kurzform (Spec 8.2), für jede Nummer 1 … SLOT_NR_MAX, auch für nicht angelegte Slots
+ * (on/live/alarm/audio 0, mode und target leer, state „fehlt“). Ein Name steht nur in `_target` (B.4), und nur bei `_live` = 1
+ * (Prädikat 10.4, hier an der Grenze zum STATE festgehalten).
+ */
+export function slotStateTeil(slotKurz: ZoomKurz['slotKurz']): ZoomSlotTeilKv {
+  const kv: ZoomSlotTeilKv = {};
+  for (let nr = 1; nr <= SLOT_NR_MAX; nr++) {
+    const s = slotKurz.find((x) => x.nr === nr);
+    kv[`zoom_slot${nr}_on` as const] = s?.an ? 1 : 0;
+    kv[`zoom_slot${nr}_live` as const] = s?.live ? 1 : 0;
+    kv[`zoom_slot${nr}_alarm` as const] = s?.alarm ? 1 : 0;
+    kv[`zoom_slot${nr}_audio` as const] = s?.tonEin ? 1 : 0;
+    kv[`zoom_slot${nr}_mode` as const] = s ? s.modus : '';
+    kv[`zoom_slot${nr}_target` as const] = s?.live ? s.ziel : '';
+    kv[`zoom_slot${nr}_state` as const] = s ? s.zustandWort : 'fehlt';
+  }
+  return kv;
+}
+
+/** Die sieben Schlüssel von 0.3.0 (Spec 7.5), Teil von stateKvAus; n und o aus den Slot-Zahlen (B12). */
+function stateKvSieben(k: ZoomKurz): ZoomStateKv | null {
   const z = zoomZ(k);
   if (z === 'Z0') return null;
   const s = STATE_JE_Z[z];

@@ -343,9 +343,11 @@ const T75: Record<Exclude<ZoomZ, 'Z0'>, { status: ZoomStatusWert; privilege: 0 |
     }
   }
   const kv = stateKvAus(lage('Z9', 2, 0, 1).kurz);
-  ck('STATE trägt genau die sieben Zoom-Schlüssel (keine Namen, keine Nummer)',
-    kv !== null && JSON.stringify(Object.keys(kv).sort())
-      === '["zoom_alarm","zoom_cmd","zoom_cmd_rejected","zoom_live","zoom_privilege","zoom_sources","zoom_status"]');
+  // Connect 0.4.0 (Spec 8.2, Task B18): dazu je Slot sieben Schlüssel; die sieben von 0.3.0 bleiben wörtlich als Teilmenge.
+  ck('STATE trägt die sieben Zoom-Schlüssel von 0.3.0 und je Slot sieben: 119',
+    kv !== null && Object.keys(kv).length === 119
+      && ['zoom_alarm', 'zoom_cmd', 'zoom_cmd_rejected', 'zoom_live', 'zoom_privilege', 'zoom_sources', 'zoom_status'].every((s) => s in kv)
+      && Object.keys(kv).filter((s) => !/^zoom_slot\d+_(on|live|alarm|audio|mode|target|state)$/.test(s)).length === 7);
 }
 
 console.log('— Einrichtungszeilen (Spec 9 Punkt 3)');

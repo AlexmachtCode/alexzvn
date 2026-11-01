@@ -41,6 +41,8 @@ export interface CapabilityAction {
    * Wenn gesetzt: Toggle-Action. Der Wert ist ein dropdown-Arg mit
    * Choices on/off/toggle; das Modul löst 'toggle' anhand des STATE-Schlüssels
    * `toggleKey` auf (an↔aus). Beispiel: Switcher RECORD/STREAM.
+   * Platzhalter (Connect 0.4.0, Spec 8.1): `{slot}` wird durch den Wert des Arguments „slot“ ersetzt
+   * ('zoom_slot{slot}_on' mit slot 3 → 'zoom_slot3_on'); andere Platzhalter gibt es nicht.
    */
   toggleKey?: string;
 }
@@ -56,7 +58,10 @@ export type RGB = [number, number, number];
 export interface CapabilityFeedback {
   id: string;
   label: string;
-  /** STATE-Schlüssel, der ausgewertet wird. */
+  /**
+   * STATE-Schlüssel, der ausgewertet wird. Platzhalter (Connect 0.4.0, Spec 8.1): `{slot}` wird durch den Wert der
+   * Option „slot“ ersetzt (Feedback mit `arg` slot); andere Platzhalter gibt es nicht.
+   */
   stateKey: string;
   /**
    *  'truthy'     → an, wenn der Schlüssel '1', 'an', 'true' oder eine positive ganze
@@ -100,6 +105,39 @@ const modeArg: CapabilityArg = {
     { id: 'off', label: 'Stopp' },
   ],
 };
+
+// ── Zoom-Slots (Connect 0.4.0, #257–#262). Slot-Nummer statt Teilnehmer-Kennung: Slots gelten immer,
+// Kennungen nur je Sitzung. {slot} in toggleKey/stateKey löst das Modul aus dem Argument „slot“ auf (8.5).
+// Namen stehen nur in zoom_slot{n}_target (B.4); alle übrigen zoom_*-Werte enthalten keinen Namen.
+export const ZOOM_SLOT_MAX = 16;
+const slotArg: CapabilityArg = { id: 'slot', label: 'Slot (Nr.)', type: 'number', default: 1, min: 1, max: ZOOM_SLOT_MAX };
+const slotModusArg: CapabilityArg = {
+  id: 'modus',
+  label: 'Modus',
+  type: 'dropdown',
+  default: 'teilnehmer',
+  choices: [
+    { id: 'teilnehmer', label: 'Teilnehmer' },
+    { id: 'sprecher', label: 'Aktiver Sprecher' },
+    { id: 'freigabe', label: 'Bildschirmfreigabe' },
+  ],
+};
+/** Je Slot n = 1 … ZOOM_SLOT_MAX sieben Variablen (Spec 8.1, 8.2), Slot für Slot in dieser Reihenfolge. */
+function zoomSlotVariablen(): CapabilityVariable[] {
+  const v: CapabilityVariable[] = [];
+  for (let n = 1; n <= ZOOM_SLOT_MAX; n++) {
+    v.push(
+      { id: `zoom_slot${n}_on`, label: `Zoom-Slot ${n}: eingeschaltet (1/0)` },
+      { id: `zoom_slot${n}_live`, label: `Zoom-Slot ${n}: zeigt Bild (1/0)` },
+      { id: `zoom_slot${n}_alarm`, label: `Zoom-Slot ${n}: Eingriff nötig (1/0)` },
+      { id: `zoom_slot${n}_audio`, label: `Zoom-Slot ${n}: Ton eingeschaltet, Computerton eingerechnet (1/0)` },
+      { id: `zoom_slot${n}_mode`, label: `Zoom-Slot ${n}: Modus (teilnehmer/sprecher/freigabe)` },
+      { id: `zoom_slot${n}_target`, label: `Zoom-Slot ${n}: wen der Slot zeigt (Name)` },
+      { id: `zoom_slot${n}_state`, label: `Zoom-Slot ${n}: Zustand (fehlt/aus/wartet/startet/zeigt/gehalten/ersatz/fehler/zurueckgestellt/stoppt)` },
+    );
+  }
+  return v;
+}
 
 export const CAPABILITIES: Record<string, RoleCapability> = {
   // ── Switcher (Bestand; Verben ohne Namespace) ──────────────────────────────
@@ -604,12 +642,19 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
       // ── Zoom (Stage 4, #197). Eigene Verben, im Main abgefangen, nie an den DO. Anzeigename statt
       // Teilnehmer-ID, weil Zooms IDs nur innerhalb einer Sitzung gelten. Kein Beitritt per Fernsteuerung.
       // Mehrwortige Namen gehen: Connect setzt die Argumente mit einem Leerzeichen wieder zusammen.
-      { id: 'zoom_load', label: 'Zoom: Person als Quelle laden', verb: 'zoom_load',
+      // Connect 0.4.0 (Spec 8.1, 8.4): zoom_load/zoom_unload behalten ID und Verb, wirken über vorübergehende Slots (7.2).
+      { id: 'zoom_load', label: 'Zoom: Person als Slot laden (nur dieses Meeting)', verb: 'zoom_load',
         args: [{ id: 'name', label: 'Anzeigename in Zoom', type: 'string', default: '' }] },
-      { id: 'zoom_unload', label: 'Zoom: Quelle entladen', verb: 'zoom_unload',
+      { id: 'zoom_unload', label: 'Zoom: Slot einer Person entladen', verb: 'zoom_unload',
         args: [{ id: 'name', label: 'Anzeigename in Zoom', type: 'string', default: '' }] },
       { id: 'zoom_delay', label: 'Zoom: Bild-Versatz setzen', verb: 'zoom_delay',
         args: [{ id: 'ms', label: 'Versatz (ms)', type: 'number', default: 0, min: 0, max: 1000 }] },
+      // Zoom-Slots (Spec 8.1, 8.3): je Slot-Nummer. TOGGLE löst das Modul über toggleKey auf, Connect zur Not selbst.
+      { id: 'zoom_slot', label: 'Zoom-Slot ein/aus', verb: 'zoom_slot', args: [slotArg, modeArg], toggleKey: 'zoom_slot{slot}_on' },
+      { id: 'zoom_slot_mode', label: 'Zoom-Slot: Modus wählen', verb: 'zoom_slot_mode', args: [slotArg, slotModusArg] },
+      { id: 'zoom_slot_person', label: 'Zoom-Slot: Person wählen', verb: 'zoom_slot_person',
+        args: [slotArg, { id: 'name', label: 'Anzeigename in Zoom', type: 'string', default: '' }] },
+      { id: 'zoom_slot_audio', label: 'Zoom-Slot: Ton ein/aus', verb: 'zoom_slot_audio', args: [slotArg, modeArg], toggleKey: 'zoom_slot{slot}_audio' },
     ],
     variables: [
       { id: 'room', label: 'Raum' },
@@ -621,24 +666,30 @@ export const CAPABILITIES: Record<string, RoleCapability> = {
       { id: 'standby', label: 'Standby-Gast (ID)' },
       { id: 'standby_label', label: 'Standby-Gast (Name)' },
       { id: 'talkback', label: 'Talkback aktiv (1/0)' },
-      // Zoom (Spec 11.1, 7.5). Ohne Namen: Den Grund eines abgelehnten Befehls zeigt Connect unter „Hinweise“.
+      // Zoom (Spec 11.1, 7.5; Connect 0.4.0: Spec 8.1, 8.2). Namen stehen nur in zoom_slot{n}_target (B.4), alle übrigen
+      // zoom_*-Werte enthalten keinen Namen. Den Grund eines abgelehnten Befehls zeigt Connect unter „Hinweise“.
       // Unter macOS fehlen die zoom_*-Schlüssel im STATE ganz.
       { id: 'zoom_status', label: 'Zoom: Status (einrichtung/bereit/tritt_bei/warteraum/im_meeting/abriss/verlaesst/fehler)' },
-      { id: 'zoom_sources', label: 'Zoom: geladene Quellen (Anzahl)' },
-      { id: 'zoom_live', label: 'Zoom: mindestens eine Quelle geladen (1/0)' },
+      { id: 'zoom_sources', label: 'Zoom: laufende Slots (Anzahl)' },
+      { id: 'zoom_live', label: 'Zoom: mindestens ein Slot läuft (1/0)' },
       { id: 'zoom_privilege', label: 'Zoom: Aufnahme-Erlaubnis erteilt (1/0)' },
       { id: 'zoom_alarm', label: 'Zoom: Eingriff nötig (1/0)' },
-      { id: 'zoom_cmd', label: 'Zoom: Ergebnis des letzten Zoom-Befehls (ok, f1 … f8)' },
+      { id: 'zoom_cmd', label: 'Zoom: Ergebnis des letzten Zoom-Befehls (ok, f1 … f14)' },
       { id: 'zoom_cmd_rejected', label: 'Zoom: letzter Zoom-Befehl abgelehnt (1/0)' },
+      ...zoomSlotVariablen(),
     ],
     feedbacks: [
       // onair und lobby sind Anzahlen: 'truthy' leuchtet bei jeder positiven ganzen Zahl (17.2 Nr. 2).
       { id: 'onair', label: 'Connect: es ist ein Gast auf Sendung', stateKey: 'onair', match: 'truthy', bgcolor: RED, color: WHITE },
       { id: 'lobby', label: 'Connect: Gäste im Warteraum', stateKey: 'lobby', match: 'truthy', bgcolor: YELLOW, color: BLACK },
       { id: 'talkback', label: 'Connect: Talkback aktiv', stateKey: 'talkback', match: 'truthy', bgcolor: YELLOW, color: BLACK },
-      { id: 'zoom_live', label: 'Connect: Zoom-Quellen geladen', stateKey: 'zoom_live', match: 'truthy', bgcolor: GREEN, color: WHITE },
+      { id: 'zoom_live', label: 'Connect: Zoom-Slots laufen', stateKey: 'zoom_live', match: 'truthy', bgcolor: GREEN, color: WHITE },
       { id: 'zoom_alarm', label: 'Connect: Zoom braucht einen Eingriff', stateKey: 'zoom_alarm', match: 'truthy', bgcolor: RED, color: WHITE },
       { id: 'zoom_cmd_rejected', label: 'Connect: letzter Zoom-Befehl abgelehnt', stateKey: 'zoom_cmd_rejected', match: 'truthy', bgcolor: YELLOW, color: BLACK },
+      // Zoom-Slots (Spec 8.1): {slot} im stateKey löst das Modul aus der Option „slot“ auf (8.5 Nr. 3).
+      { id: 'zoom_slot_on', label: 'Connect: Zoom-Slot eingeschaltet', stateKey: 'zoom_slot{slot}_on', match: 'truthy', arg: slotArg, bgcolor: YELLOW, color: BLACK },
+      { id: 'zoom_slot_live', label: 'Connect: Zoom-Slot zeigt Bild', stateKey: 'zoom_slot{slot}_live', match: 'truthy', arg: slotArg, bgcolor: GREEN, color: WHITE },
+      { id: 'zoom_slot_alarm', label: 'Connect: Zoom-Slot braucht einen Eingriff', stateKey: 'zoom_slot{slot}_alarm', match: 'truthy', arg: slotArg, bgcolor: RED, color: WHITE },
     ],
   },
 };
