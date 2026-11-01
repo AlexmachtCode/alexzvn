@@ -446,7 +446,9 @@ bool sessionHdVideo(bool* out) {
 }
 
 bool sessionEmpfangsStatistik(bool freigabe, int* w, int* h, int* fps) {
-  if (g_meeting == nullptr) return false;
+  // Abschluss-Fix F13 (M7): waehrend der Renderer-Sperre (Zoom trennt oder verbindet neu) keine periodische SDK-Abfrage;
+  // recvVideo/recvShare fehlen dann in bridgeStats.
+  if (g_meeting == nullptr || callbacksRendererSperre()) return false;
   MeetingASVStatisticInfo info;
   const SDKError err = freigabe ? g_meeting->GetMeetingShareStatisticInfo(info) : g_meeting->GetMeetingVideoStatisticInfo(info);
   if (err != SDKERR_SUCCESS) return false;

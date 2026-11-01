@@ -759,14 +759,19 @@ void pb21_umhaeng_plan() {
   UmhaengPlan p = umhaengNachSubscribe(l, FEHLER_KEINER, 0);
   CHECK((p.schritte == std::vector<S>{S::ZielStandNeu, S::VorschauPlatzLeeren, S::IsVideoOnFragen, S::SlotMelden}));
   CHECK(p.zustand == SlotState::Starting && p.grund == Grund::targetChanged);
-  // 18: dreimal nach 500 ms, danach wie anderer Fehler.
-  for (int v = 0; v < 3; ++v) CHECK(umhaengNachSubscribe(l, FEHLER_ZU_OFT, v).schritte == std::vector<S>{S::WiederholenIn500ms});
+  // 18: dreimal nach 500 ms, danach wie anderer Fehler. Seit dem Abschluss-Fix (F2) laeuft der Abschluss beim ersten 18
+  // sofort (wie beim 29); mit dem Merker danach nur noch die Wiederholung.
+  p = umhaengNachSubscribe(l, FEHLER_ZU_OFT, 0);
+  CHECK(hat(p, S::ZielStandNeu) && hat(p, S::SlotMelden) && p.schritte.back() == S::WiederholenIn500ms);
+  UmhaengLage gelaufen = l;
+  gelaufen.abschlussGelaufen = true;
+  for (int v = 0; v < 3; ++v) CHECK(umhaengNachSubscribe(gelaufen, FEHLER_ZU_OFT, v).schritte == std::vector<S>{S::WiederholenIn500ms});
   p = umhaengNachSubscribe(l, FEHLER_ZU_OFT, 3);
   CHECK(p.zustand == SlotState::Fallback && p.grund == Grund::subscribeFailed && hat(p, S::FehlerSubscribeMelden));
   // 29 nur SHARE: kein neuer Renderer (auch bei Typwechsel), Wiederholung, solange die Freigabe gezeigt wird.
   UmhaengLage freigabe = umh(SlotMode::Participant, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Off, false);
   p = umhaengNachSubscribe(freigabe, FEHLER_KEINE_FREIGABEDATEN, 0);
-  CHECK(!hat(p, S::DestroyRenderer) && !hat(p, S::CreateRendererGleicherDelegate) && hat(p, S::WiederholenIn500ms));
+  CHECK(!hat(p, S::DestroyRenderer) && !hat(p, S::CreateRendererTypwechsel) && hat(p, S::WiederholenIn500ms));
   CHECK(hat(p, S::SlotMelden) && p.zustand == SlotState::Starting && p.grund == Grund::modeChanged);
   freigabe.abschlussGelaufen = true;   // seit N2a.2 entscheidet der Merker, nicht versuch: der Abschluss lief schon
   CHECK(umhaengNachSubscribe(freigabe, FEHLER_KEINE_FREIGABEDATEN, 4).schritte == std::vector<S>{S::WiederholenIn500ms});
@@ -777,16 +782,17 @@ void pb21_umhaeng_plan() {
   // 30: wie anderer Fehler.
   p = umhaengNachSubscribe(l, FEHLER_EIGENE_FREIGABE, 0);
   CHECK(p.zustand == SlotState::Fallback && p.grund == Grund::subscribeFailed && !hat(p, S::DestroyRenderer));
-  // Anderer Fehler mit Typwechsel: einmal neuer Renderer mit demselben Delegate (rendererNew); ohne: subscribeFailed.
+  // Anderer Fehler mit Typwechsel: einmal neuer Renderer (rendererNew), seit dem Abschluss-Fix F1 mit NEUEM Delegate
+  // (Schritt CreateRendererTypwechsel, vorher CreateRendererGleicherDelegate); ohne Typwechsel: subscribeFailed.
   UmhaengLage wechsel = umh(SlotMode::Participant, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Off, false);
   p = umhaengNachSubscribe(wechsel, 7, 0);
-  CHECK((p.schritte == std::vector<S>{S::DestroyRenderer, S::CreateRendererGleicherDelegate, S::SetResolution,
+  CHECK((p.schritte == std::vector<S>{S::DestroyRenderer, S::CreateRendererTypwechsel, S::SetResolution,
                                       S::GetResolution, S::Subscribe}));
   wechsel.letzterTyp = RendererTyp::Share;   // nach dem neuen Renderer
   p = umhaengNachSubscribe(wechsel, 7, 0);
-  CHECK(p.grund == Grund::subscribeFailed && !hat(p, S::CreateRendererGleicherDelegate));
+  CHECK(p.grund == Grund::subscribeFailed && !hat(p, S::CreateRendererTypwechsel));
   p = umhaengNachSubscribe(l, 7, 0);
-  CHECK(p.grund == Grund::subscribeFailed && !hat(p, S::DestroyRenderer) && !hat(p, S::CreateRendererGleicherDelegate));
+  CHECK(p.grund == Grund::subscribeFailed && !hat(p, S::DestroyRenderer) && !hat(p, S::CreateRendererTypwechsel));
   // createRenderer gescheitert (rendererTot): subscribeFailed, Slot laeuft mit Ersatzbild.
   UmhaengLage keinRenderer = tot;
   keinRenderer.rendererGescheitert = true;
@@ -1191,7 +1197,7 @@ void n1_29_dann_erfolg() {
 void n1_plan_braucht_renderer() {
   std::printf("N1.3 planBrauchtRenderer: wahr nur mit Renderer-Schritt; Ton- und Feld-Plaene laufen auch in der Sperre\n");
   const std::vector<S> renderer = {S::Unsubscribe, S::ZeigerVerwerfen, S::CreateRendererNeuerDelegate,
-                                   S::DestroyRenderer, S::CreateRendererGleicherDelegate, S::SetResolution,
+                                   S::DestroyRenderer, S::CreateRendererTypwechsel, S::SetResolution,
                                    S::GetResolution, S::Subscribe};
   for (int i = 0; i <= static_cast<int>(S::OhneVersatzSetzen); ++i) {   // jeder Schritt allein
     const S s = static_cast<S>(i);
@@ -1234,17 +1240,20 @@ void n1_plan_braucht_renderer() {
 }
 
 void n2a2_18_18_dann_29() {
-  std::printf("N2a.2 18, 18, dann 29: Abschluss genau einmal, beim ersten 29 (Merker statt versuch)\n");
+  std::printf("N2a.2 18, 18, dann 29: Abschluss genau einmal (Merker statt versuch); seit F2 schon beim ersten 18\n");
   // Teilnehmer -> Freigabe mit Mischton und Computerton: der Abschluss setzt Ton-Stand und Mischer neu.
   UmhaengLage l = umh(SlotMode::Participant, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Mix, true);
-  CHECK(umhaengNachSubscribe(l, FEHLER_ZU_OFT, 0).schritte == std::vector<S>{S::WiederholenIn500ms});
-  CHECK(umhaengNachSubscribe(l, FEHLER_ZU_OFT, 1).schritte == std::vector<S>{S::WiederholenIn500ms});
+  // Seit dem Abschluss-Fix F2 laeuft der Abschluss schon beim ersten 18; mit dem Merker danach nur die Wiederholung.
+  CHECK(hat(umhaengNachSubscribe(l, FEHLER_ZU_OFT, 0), S::ZielStandNeu));
+  UmhaengLage gelaufen = l;
+  gelaufen.abschlussGelaufen = true;
+  CHECK(umhaengNachSubscribe(gelaufen, FEHLER_ZU_OFT, 1).schritte == std::vector<S>{S::WiederholenIn500ms});
   UmhaengPlan p = umhaengNachSubscribe(l, FEHLER_KEINE_FREIGABEDATEN, 2);   // nach zwei 18 das erste 29
   CHECK(hat(p, S::ZielStandNeu) && hat(p, S::VorschauPlatzLeeren) && hat(p, S::SlotMelden) && hat(p, S::WiederholenIn500ms));
   CHECK(p.zustand == SlotState::Starting && p.grund == Grund::modeChanged);   // T20: starting/<grund>
   CHECK(hat(p, S::MischerNeu) && tonIst(p, TonZustand::Waiting, TonGrund::modeChanged, TonQuelle::MixShare));
-  // Die ganze Folge so, wie der Ausfuehrer sie fuehrt (Merker am Abo nach dem Abschluss eines 29, N2a.2):
-  // 18, 18, 29, 29, Erfolg -> genau ein Abschluss, beim dritten Aufruf, eine Tonmeldung.
+  // Die ganze Folge so, wie der Ausfuehrer sie fuehrt (Merker am Abo nach dem Abschluss eines 18 oder 29, N2a.2, F2):
+  // 18, 18, 29, 29, Erfolg -> genau ein Abschluss, seit F2 beim ersten Aufruf, eine Tonmeldung.
   UmhaengLage lauf = umh(SlotMode::Participant, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Mix, true);
   const int folge[] = {FEHLER_ZU_OFT, FEHLER_ZU_OFT, FEHLER_KEINE_FREIGABEDATEN, FEHLER_KEINE_FREIGABEDATEN, FEHLER_KEINER};
   int versuch = 0, abschluesse = 0, meldungen = 0, abschlussBei = -1, nr = 0;
@@ -1256,11 +1265,11 @@ void n2a2_18_18_dann_29() {
       if (x == S::SlotMelden) ++meldungen;
     }
     tonMeldungen += q.tonFolge.size();
-    if (fehler == FEHLER_KEINE_FREIGABEDATEN && hat(q, S::ZielStandNeu)) lauf.abschlussGelaufen = true;
+    if (hat(q, S::ZielStandNeu) && hat(q, S::WiederholenIn500ms)) lauf.abschlussGelaufen = true;   // wie der Ausfuehrer (F2)
     if (hat(q, S::WiederholenIn500ms)) ++versuch;
     ++nr;
   }
-  CHECK(abschluesse == 1 && meldungen == 1 && abschlussBei == 2 && tonMeldungen == 1);
+  CHECK(abschluesse == 1 && meldungen == 1 && abschlussBei == 0 && tonMeldungen == 1);
   CHECK(versuch == 4);   // 18 und 29 zaehlen weiter gemeinsam (Grenze 3 nur fuer 18)
 }
 
@@ -1335,6 +1344,140 @@ void g1_halteliste_nach_leave_eingefroren() {
   CHECK(ohneRenderer(abbauPlan(Kette::LeaveNachlauf, true, false)));
 }
 
+void af2_18_abschluss_sofort() {
+  std::printf("Abschluss F2 (R1) 18: der Abschluss laeuft sofort wie bei 29 - in der Wartezeit weder Bild noch Ton des alten Ziels\n");
+  // Teilnehmer A -> B mit Person-Ton, subscribe(B) antwortet 18. Vorher blieb bis zu 3 x 500 ms der Ziel-Stand von A
+  // stehen: seine Kopie (freeze), sein Person-Ton und target A im slot-Ereignis.
+  const UmhaengLage l = umh(SlotMode::Participant, SlotMode::Participant, A, B, Grund::targetChanged, SlotAudio::Person, false);
+  UmhaengPlan p = umhaengNachSubscribe(l, FEHLER_ZU_OFT, 0);
+  CHECK((p.schritte == std::vector<S>{S::ZielStandNeu, S::VorschauPlatzLeeren, S::IsVideoOnFragen, S::SlotMelden, S::TonStandNeu,
+                                      S::TonMelden, S::WiederholenIn500ms}));
+  CHECK(p.zustand == SlotState::Starting && p.grund == Grund::targetChanged);           // slot starting/targetChanged mit target B
+  CHECK(tonIst(p, TonZustand::Waiting, TonGrund::targetChanged, TonQuelle::Person));   // der Person-Ton haengt jetzt an B
+  CHECK(!planBrauchtRenderer(p));
+  // Danach (Merker am Abo; lageFuer liest altesZiel aus dem Abo, das jetzt B ist): weitere 18 nur die Wiederholung, der
+  // Erfolg ohne zweiten Abschluss, das 18 nach drei Wiederholungen subscribeFailed ohne zweite Tonmeldung.
+  UmhaengLage danach = l;
+  danach.abschlussGelaufen = true;
+  danach.altesZiel = B;
+  CHECK(umhaengNachSubscribe(danach, FEHLER_ZU_OFT, 1).schritte == std::vector<S>{S::WiederholenIn500ms});
+  CHECK(umhaengNachSubscribe(danach, FEHLER_KEINER, 2).schritte.empty());
+  p = umhaengNachSubscribe(danach, FEHLER_ZU_OFT, 3);
+  CHECK(p.zustand == SlotState::Fallback && p.grund == Grund::subscribeFailed && hat(p, S::FehlerSubscribeMelden) && keinTon(p));
+  // Freigabewechsel F1 -> F2 im Mischer-Slot: starting/shareChanged auf F2 sofort (target und share gehoeren dann beide zur
+  // neuen Freigabe), nur Eingang B des Mischers neu, kein IsVideoOn.
+  p = umhaengNachSubscribe(umh(SlotMode::Share, SlotMode::Share, F1, F2, Grund::shareChanged, SlotAudio::Mix, true), FEHLER_ZU_OFT, 0);
+  CHECK(hat(p, S::ZielStandNeu) && !hat(p, S::IsVideoOnFragen) && p.zustand == SlotState::Starting && p.grund == Grund::shareChanged);
+  CHECK(hat(p, S::MischerEingangBNeu) && stelle(p, S::ZielStandNeu) < stelle(p, S::WiederholenIn500ms));
+  // Die ganze Folge Teilnehmer -> Freigabe mit Mischton und Computerton, wie der Ausfuehrer sie fuehrt: 18, 18, Erfolg ->
+  // genau ein Abschluss beim ersten Aufruf, eine Tonmeldung, einmal MischerNeu.
+  UmhaengLage lauf = umh(SlotMode::Participant, SlotMode::Share, A, F1, Grund::modeChanged, SlotAudio::Mix, true);
+  const int folge[] = {FEHLER_ZU_OFT, FEHLER_ZU_OFT, FEHLER_KEINER};
+  int versuch = 0, abschluesse = 0, abschlussBei = -1, mischerNeu = 0, nr = 0;
+  size_t tonMeldungen = 0;
+  for (const int fehler : folge) {
+    const UmhaengPlan q = umhaengNachSubscribe(lauf, fehler, versuch);
+    if (hat(q, S::ZielStandNeu)) { ++abschluesse; abschlussBei = nr; }
+    if (hat(q, S::MischerNeu)) ++mischerNeu;
+    tonMeldungen += q.tonFolge.size();
+    if (hat(q, S::ZielStandNeu) && hat(q, S::WiederholenIn500ms)) {
+      lauf.abschlussGelaufen = true;           // Merker (Ausfuehrer, WiederholenIn500ms)
+      lauf.modusVorher = lauf.modusNachher;    // wiederholModusVorher nach dem Abschluss
+      lauf.altesZiel = lauf.neuesZiel;         // lageFuer: abo.target ist jetzt das neue Ziel
+    }
+    if (hat(q, S::WiederholenIn500ms)) ++versuch;
+    ++nr;
+  }
+  CHECK(abschluesse == 1 && abschlussBei == 0 && tonMeldungen == 1 && mischerNeu == 1 && versuch == 2);
+}
+
+void af5_subscribe_failed_bleibt() {
+  std::printf("Abschluss F5 (R2): fallback/subscribeFailed bleibt im Freigabe-Slot, auch wenn die gezeigte Freigabe pausiert\n");
+  ZielStand ohneBild;
+  zielStandNeu(ohneBild, at(1000));   // Ziel-Stand nach dem gescheiterten subscribe (ZielStandNeu im Fehler-Plan)
+  BildLage l = lage(SlotMode::Share, Fallback::Black, SlotState::Fallback, Grund::subscribeFailed, 3000);
+  l.freigabePausiert = true;
+  BildEntscheidung e = bildEntscheidung(l, ohneBild);
+  CHECK(!e.zustandAendern && e.sent == Sent::Black && e.jetztSenden);
+  l.freigabePausiert = false;   // die Freigabe laeuft weiter: weiter T20c
+  CHECK(!bildEntscheidung(l, ohneBild).zustandAendern);
+  // Ohne gescheitertes subscribe wie bisher: nach 2 s ohne Bild bei Pause fallback/sharePaused (6.9, W1).
+  l = lage(SlotMode::Share, Fallback::Black, SlotState::Starting, Grund::shareChanged, 3000);
+  l.freigabePausiert = true;
+  e = bildEntscheidung(l, ohneBild);
+  CHECK(e.zustandAendern && e.zustand == SlotState::Fallback && e.grund == Grund::sharePaused);
+}
+
+void af6_kamera_aus_vor_erstem_bild() {
+  std::printf("Abschluss F6 (M1 c): Kamera laut Zoom aus vor dem ersten Bild -> gleich fallback/cameraOff (B31, wie die Attrappe)\n");
+  ZielStand neu;
+  zielStandNeu(neu, at(1000));
+  BildLage l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Starting, Grund::targetChanged, 1010);
+  l.kameraAusLautZoom = true;   // videoStatus Video_OFF bzw. Mute_ByHost nach dem Umhaengen, vor dem ersten Bild
+  BildEntscheidung e = bildEntscheidung(l, neu);
+  CHECK(e.zustandAendern && e.zustand == SlotState::Fallback && e.grund == Grund::cameraOff);
+  CHECK(e.sent == Sent::Transparent && e.jetztSenden);   // das Ersatzbild laeuft wie vorher
+  l.modus = SlotMode::Speaker;   // wie die Attrappe (kameraSetzen): auch im Sprecher-Slot cameraOff
+  e = bildEntscheidung(l, neu);
+  CHECK(e.zustandAendern && e.zustand == SlotState::Fallback && e.grund == Grund::cameraOff);
+  // Ohne Meldung bleibt starting (6.12); ein Zustand aus Schritt 7 (schon fallback) bleibt, wie er ist.
+  l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Starting, Grund::targetChanged, 1010);
+  CHECK(!bildEntscheidung(l, neu).zustandAendern);
+  l = lage(SlotMode::Speaker, Fallback::Transparent, SlotState::Fallback, Grund::speakerNoVideo, 1010);
+  l.kameraAusLautZoom = true;
+  CHECK(!bildEntscheidung(l, neu).zustandAendern);
+  // Freigabe nie cameraOff; Ziel 0: den Zustand setzt das Umhaengen.
+  l = lage(SlotMode::Share, Fallback::Transparent, SlotState::Starting, Grund::shareChanged, 1010);
+  l.kameraAusLautZoom = true;
+  CHECK(!bildEntscheidung(l, neu).zustandAendern);
+  l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Fallback, Grund::noTarget, 1010);
+  l.ziel = 0;
+  l.kameraAusLautZoom = true;
+  CHECK(!bildEntscheidung(l, neu).zustandAendern);
+}
+
+void af8_fehler_vor_slot() {
+  std::printf("Abschluss F8 b (M1 b): gescheitertes subscribe meldet slotSubscribeFailed vor slot fallback/subscribeFailed\n");
+  const UmhaengLage l = umh(SlotMode::Participant, SlotMode::Participant, A, B, Grund::targetChanged, SlotAudio::Off, false);
+  const auto vorher = [](const UmhaengPlan& p) {
+    return stelle(p, S::FehlerSubscribeMelden) >= 0 && stelle(p, S::FehlerSubscribeMelden) < stelle(p, S::SlotMelden);
+  };
+  CHECK(vorher(umhaengNachSubscribe(l, 7, 0)));                 // anderer Fehler
+  CHECK(vorher(umhaengNachSubscribe(l, FEHLER_ZU_OFT, 3)));     // 18 nach drei Wiederholungen
+  UmhaengLage keinRenderer = l;
+  keinRenderer.rendererTot = true;
+  keinRenderer.rendererGescheitert = true;
+  CHECK(vorher(umhaengNachSubscribe(keinRenderer, 3, 0)));      // createRenderer gescheitert (6.10 Schritt 2)
+}
+
+void af11_audio_unavailable_ohne_ton() {
+  std::printf("Abschluss F11 (M5): ein Slot auf off/audioUnavailable bekommt keinen Ton, bis an ihm Ton wieder eingeschaltet wird\n");
+  // Slot 1 Teilnehmer A mit Person-Ton, Slot 2 Sprecher mit Mischton, Slot 3 Freigabe mit Computerton von B, Slot 4 Freigabe
+  // mit Mischton und Computerton von B. Das globale Ton-Abo kam ueber einen anderen Slot zustande (6.13).
+  std::vector<TonSlotSicht> s(4);
+  for (int i = 0; i < 4; ++i) {
+    s[static_cast<size_t>(i)].nr = i + 1;
+    s[static_cast<size_t>(i)].laeuft = true;
+  }
+  s[0].modus = SlotMode::Participant; s[0].ziel = A; s[0].audio = SlotAudio::Person;
+  s[1].modus = SlotMode::Speaker; s[1].ziel = B; s[1].audio = SlotAudio::Mix;
+  s[2].modus = SlotMode::Share; s[2].ziel = F1; s[2].audio = SlotAudio::Off; s[2].shareAudio = true; s[2].shareUser = B;
+  s[3].modus = SlotMode::Share; s[3].ziel = F1; s[3].audio = SlotAudio::Mix; s[3].shareAudio = true; s[3].shareUser = B;
+  for (TonSlotSicht& x : s) x.tonAudioUnavailable = true;
+  CHECK(tonZiele(PaketArt::Person, A, s).empty());
+  CHECK(tonZiele(PaketArt::Mix, 0, s).empty());
+  CHECK(tonZiele(PaketArt::Share, B, s).empty());
+  // Ton am Slot wieder eingeschaltet (audioEnsureSubscribed glueckt): die Zuordnung nach Tabelle 6.13 gilt wieder.
+  for (TonSlotSicht& x : s) x.tonAudioUnavailable = false;
+  CHECK(zieleSind(tonZiele(PaketArt::Person, A, s), {{1, Weg::Direkt}}));
+  CHECK(zieleSind(tonZiele(PaketArt::Mix, 0, s), {{2, Weg::Direkt}, {4, Weg::MischerA}}));
+  CHECK(zieleSind(tonZiele(PaketArt::Share, B, s), {{3, Weg::Direkt}, {4, Weg::MischerB}}));
+  // Nur der betroffene Slot faellt heraus.
+  s[3].tonAudioUnavailable = true;
+  CHECK(zieleSind(tonZiele(PaketArt::Mix, 0, s), {{2, Weg::Direkt}}));
+  CHECK(zieleSind(tonZiele(PaketArt::Share, B, s), {{3, Weg::Direkt}}));
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -1392,6 +1535,11 @@ int main() {
   f1_gewuenschtes_ziel();
   n2b1_sperre_nur_bei_inmeeting();
   g1_halteliste_nach_leave_eingefroren();
+  af2_18_abschluss_sofort();
+  af5_subscribe_failed_bleibt();
+  af6_kamera_aus_vor_erstem_bild();
+  af8_fehler_vor_slot();
+  af11_audio_unavailable_ohne_ton();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;

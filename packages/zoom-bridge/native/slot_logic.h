@@ -569,6 +569,8 @@ inline Sent ersatzArt(Fallback f, bool kopieDiesesZiels) {
  *   fallback/noFrames; ein laufender bufferMismatch bleibt.
  * - Vor dem ersten Bild bleibt der Zustand (starting, oder cameraOff aus 6.10 Schritt 7); einzige Ausnahme: Freigabe
  *   pausiert und 2 s seit dem Umhaengen -> fallback/sharePaused. Ziel 0: Zustand setzt das Umhaengen.
+ *   Seit dem Abschluss-Fix: Teilnehmer/Sprecher aus starting mit Kamera laut Zoom aus -> gleich fallback/cameraOff (F6);
+ *   fallback/subscribeFailed bleibt auch im Freigabe-Slot stehen (F5).
  */
 inline BildEntscheidung bildEntscheidung(const BildLage& l, const ZielStand& z) {
   BildEntscheidung e;
@@ -592,10 +594,21 @@ inline BildEntscheidung bildEntscheidung(const BildLage& l, const ZielStand& z) 
   SlotState soll = l.zustand;
   Grund sollGrund = l.grund;
   if (!freigabe) {
-    if (!hatBild) return e;
-    soll = SlotState::Fallback;
-    sollGrund = l.bufferMismatch ? Grund::bufferMismatch : (l.kameraAusLautZoom ? Grund::cameraOff : Grund::noFrames);
+    if (!hatBild) {
+      // Abschluss-Fix F6 (Ruling, B31, wie die Attrappe): meldet Zoom die Kamera des Ziels vor dem ersten Bild als aus
+      // (videoStatus), gilt gleich fallback/cameraOff (T19, nicht T20) - auch im Sprecher-Slot. Nur aus starting: ein
+      // Zustand aus 6.10 Schritt 7 (cameraOff, speakerNoVideo) bleibt, wie er ist.
+      if (!l.kameraAusLautZoom || l.zustand != SlotState::Starting) return e;
+      soll = SlotState::Fallback;
+      sollGrund = Grund::cameraOff;
+    } else {
+      soll = SlotState::Fallback;
+      sollGrund = l.bufferMismatch ? Grund::bufferMismatch : (l.kameraAusLautZoom ? Grund::cameraOff : Grund::noFrames);
+    }
   } else if (!hatBild) {
+    // Abschluss-Fix F5 (Abschlusspruefung R2): ein gescheitertes subscribe bleibt stehen (T20c) - ohne Abo kommt kein Bild,
+    // die Pause der gezeigten Freigabe ist dann nicht der Grund.
+    if (l.grund == Grund::subscribeFailed) return e;
     if (!l.freigabePausiert || l.jetzt - z.retargetMs < FREIGABE_ZUSTAND_MS) return e;
     soll = SlotState::Fallback;
     sollGrund = Grund::sharePaused;
@@ -740,6 +753,9 @@ struct TonSlotSicht {
   SlotAudio audio = SlotAudio::Off;
   bool shareAudio = false;
   unsigned shareUser = 0;
+  // Abschluss-Fix F11 (Ruling; 6.13 „bleibt ohne Ton … bis an ihm Ton wieder eingeschaltet wird“): der Slot steht auf
+  // off/audioUnavailable und bekommt keinen Ton, auch wenn das globale Ton-Abo inzwischen ueber einen anderen Slot kam.
+  bool tonAudioUnavailable = false;
 };
 struct TonZiel {
   int nr = 0;
@@ -750,12 +766,13 @@ inline bool operator==(const TonZiel& a, const TonZiel& b) { return a.nr == b.nr
 /**
  * Zuordnung eines Pakets (6.13, B76): person k -> jeder laufende Teilnehmer-Slot mit Ziel k (k != 0) und audio person;
  * mix -> jeder laufende Slot mit audio mix, im Freigabe-Slot mit shareAudio in den Mischer (A); share k -> jeder
- * laufende Freigabe-Slot mit shareAudio und shareUser k, mit audio mix in den Mischer (B), sonst direkt.
+ * laufende Freigabe-Slot mit shareAudio und shareUser k, mit audio mix in den Mischer (B), sonst direkt. Ein Slot auf
+ * off/audioUnavailable bekommt nichts (Abschluss-Fix F11).
  */
 inline std::vector<TonZiel> tonZiele(PaketArt art, unsigned kennung, const std::vector<TonSlotSicht>& slots) {
   std::vector<TonZiel> aus;
   for (const TonSlotSicht& s : slots) {
-    if (!s.laeuft) continue;
+    if (!s.laeuft || s.tonAudioUnavailable) continue;
     switch (art) {
       case PaketArt::Person:
         if (kennung != 0 && s.modus == SlotMode::Participant && s.ziel == kennung && s.audio == SlotAudio::Person) {
@@ -781,9 +798,11 @@ enum class RendererTyp : uint8_t { Video, Share };
 inline RendererTyp rendererTyp(SlotMode modus) { return modus == SlotMode::Share ? RendererTyp::Share : RendererTyp::Video; }
 
 /** Schritte des Umhaengens (6.10) in Ausfuehrungsreihenfolge; Namen der Ton-Schritte wörtlich aus 6.10/6.13. */
+// CreateRendererTypwechsel hiess bis zum Abschluss-Fix (F1) CreateRendererGleicherDelegate: der neue Renderer beim
+// Typwechsel bekommt seitdem einen NEUEN Delegate (Ruling, Abweichung von 6.10 „mit demselben Delegate (AN11)“).
 enum class UmhaengSchritt : uint8_t {
   Vormerken, Unsubscribe, ZeigerVerwerfen, CreateRendererNeuerDelegate, DestroyRenderer,
-  CreateRendererGleicherDelegate, SetResolution, GetResolution, Subscribe, WiederholenIn500ms, ZielStandNeu,
+  CreateRendererTypwechsel, SetResolution, GetResolution, Subscribe, WiederholenIn500ms, ZielStandNeu,
   VorschauPlatzLeeren, IsVideoOnFragen, SlotMelden, FehlerSubscribeMelden, TonStandNeu, MischerEingangBNeu,
   MischerNeu, TonMelden, VersatzLeeren, OhneVersatzSetzen
 };
@@ -806,6 +825,8 @@ struct UmhaengLage {
   bool rendererGescheitert = false;         // createRenderer scheiterte (6.10 Schritt 2 bzw. neuer Renderer)
   // Schritte 6-8 liefen schon (beim ersten 29, nur SHARE); Erfolg oder 29 danach: kein zweiter. Der Ausfuehrer
   // setzt ihn nur auf diesem Weg - ein VIDEO-Abschluss enthaelt IsVideoOnFragen und laeuft immer (N1, N2a.2).
+  // WIDERRUFEN durch den Abschluss-Fix F2 (R1): auch beim ersten 18 laufen die Schritte 6-8 sofort (VIDEO samt
+  // IsVideoOnFragen); der Ausfuehrer setzt den Merker nach jedem Plan mit Abschluss vor WiederholenIn500ms.
   bool abschlussGelaufen = false;
 };
 
@@ -813,6 +834,8 @@ struct UmhaengLage {
  * Das gewuenschte Ziel eines Abos (Nachtrag N2a Fixrunde 1, F1): steht eine Wiederholung nach 18/29 an, deren Ziel -
  * nach 18 ist das Abo-Ziel noch das alte (ZielStandNeu lief nicht); sonst das Abo-Ziel. Damit vergleichen Befehle,
  * Weggang und Sprecher-Wahl; der GEZEIGTE Ziel-Stand (Herzschlag, Kopie, Ton-Zuordnung, Messwerte) bleibt am Abo-Ziel.
+ * Seit dem Abschluss-Fix F2 (R1) laeuft der Abschluss auch nach 18 sofort - dann ist das Abo-Ziel schon das neue und
+ * beide Werte sind gleich; die Funktion bleibt die eine Stelle fuer das gewuenschte Ziel.
  */
 inline unsigned gewuenschtesZiel(bool wiederholungSteht, unsigned wiederholZiel, unsigned aboZiel) {
   return wiederholungSteht ? wiederholZiel : aboZiel;
@@ -1006,6 +1029,10 @@ inline UmhaengPlan umhaengNachSubscribe(const UmhaengLage& l, int sdkFehler, int
       return p;
     }
     if (sdkFehler == FEHLER_ZU_OFT && versuch < ZU_OFT_WIEDERHOLUNGEN) {
+      // Abschluss-Fix F2 (Abschlusspruefung R1): der Abschluss (Schritte 6-8) laeuft beim ersten 18 sofort, wie beim 29 -
+      // sonst blieben bis zu 3 x 500 ms Ziel-Stand, Kopie, Person-Ton und target des ALTEN Ziels stehen, das schon
+      // abgemeldet ist. Der Merker abschlussGelaufen haelt ihn bei den weiteren Versuchen und beim Erfolg fern.
+      if (!l.abschlussGelaufen) umhaengAbschluss(l, p);
       p.schritte.push_back(UmhaengSchritt::WiederholenIn500ms);   // Zaehler tooFrequent
       return p;
     }
@@ -1017,9 +1044,9 @@ inline UmhaengPlan umhaengNachSubscribe(const UmhaengLage& l, int sdkFehler, int
       p.schritte.push_back(UmhaengSchritt::WiederholenIn500ms);   // kein neuer Renderer; Zaehler noShareData
       return p;
     }
-    if (typ != l.letzterTyp) {              // anderer Fehler mit Typwechsel: einmal neuer Renderer (AN11)
+    if (typ != l.letzterTyp) {              // anderer Fehler mit Typwechsel: einmal neuer Renderer, neuer Delegate (F1)
       p.schritte.push_back(UmhaengSchritt::DestroyRenderer);
-      p.schritte.push_back(UmhaengSchritt::CreateRendererGleicherDelegate);
+      p.schritte.push_back(UmhaengSchritt::CreateRendererTypwechsel);
       p.schritte.push_back(UmhaengSchritt::SetResolution);
       p.schritte.push_back(UmhaengSchritt::GetResolution);
       p.schritte.push_back(UmhaengSchritt::Subscribe);
@@ -1031,8 +1058,10 @@ inline UmhaengPlan umhaengNachSubscribe(const UmhaengLage& l, int sdkFehler, int
   p.schritte.push_back(UmhaengSchritt::VorschauPlatzLeeren);
   p.zustand = SlotState::Fallback;
   p.grund = Grund::subscribeFailed;
-  p.schritte.push_back(UmhaengSchritt::SlotMelden);
+  // Abschluss-Fix F8 b (M1 b; die Spec nennt keine Reihenfolge): der Fehler vor dem slot-Ereignis, wie die Attrappe und
+  // wie der Ton-Abo-Fehler vor slotAudio off/audioUnavailable (6.13).
   p.schritte.push_back(UmhaengSchritt::FehlerSubscribeMelden);   // slotSubscribeFailed mit sdk und type
+  p.schritte.push_back(UmhaengSchritt::SlotMelden);
   tonBeimUmhaengen(l, p);
   return p;
 }
@@ -1103,7 +1132,7 @@ inline bool planBrauchtRenderer(const UmhaengPlan& plan) {
       case UmhaengSchritt::ZeigerVerwerfen:
       case UmhaengSchritt::CreateRendererNeuerDelegate:
       case UmhaengSchritt::DestroyRenderer:
-      case UmhaengSchritt::CreateRendererGleicherDelegate:
+      case UmhaengSchritt::CreateRendererTypwechsel:
       case UmhaengSchritt::SetResolution:
       case UmhaengSchritt::GetResolution:
       case UmhaengSchritt::Subscribe:
@@ -1211,6 +1240,9 @@ inline void slotBlock(std::vector<AbbauSchritt>& s, bool sperre, bool rendererAn
  * Tabelle 6.15 als Schrittfolge (PB20). sperre = Renderer-Sperre gilt; verlassen = Rueckgabe von sessionLeave() (nur
  * fuer LeaveNachlauf). Der Ausfuehrer ersetzt bei rendererTot eines Slots Unsubscribe und DestroyRenderer durch
  * ZeigerVerwerfen (fuerSlot). quit/EOF: sessionShutdown() ruft main.cpp danach wie heute (kein Plan-Schritt).
+ * BERICHTIGT (Abschluss-Fix F3): den Slot-Block fuehrt der Ausfuehrer ohne fuerSlot aus - er prueft rendererTot je Abo in
+ * den Zweigen Unsubscribe und DestroyRenderer (Quelltext-Waechter F3); fuerSlot beschreibt dieselbe Regel als Plan.
+ * HaltelisteAbbauen ruft halteEintragGehoertZu und halteEintragAbbauen selbst.
  */
 inline std::vector<AbbauSchritt> abbauPlan(Kette kette, bool sperre, bool verlassen = false) {
   std::vector<AbbauSchritt> s;

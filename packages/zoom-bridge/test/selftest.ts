@@ -3703,8 +3703,10 @@ console.log('\nNativer Teil — A14 Abbau-Ketten, Renderer-Sperre, Halteliste (S
     'A14 PT6 b: im Ausführer rufen die Zweige ZeigerVerwerfen und HaltelisteVerwerfen keine Renderer-Funktion');
   assert(/abbauPlan\(\s*kette\s*,\s*rendererSperre\(\)\s*,\s*verlassen\s*\)/.test(aus),
     'A14 6.15: der Ausführer holt den Plan aus abbauPlan(kette, rendererSperre(), verlassen)');
+  // Seit dem Abschluss-Fix F3 vergleicht HaltelisteAbbauen über den getesteten Helfer halteEintragGehoertZu (PB20).
+  const MEETING_FREMD = /it->meeting\s*!=\s*g_meetingNr|!halteEintragGehoertZu\(\s*static_cast<uint32_t>\(\s*it->meeting\s*\)\s*,\s*static_cast<uint32_t>\(\s*g_meetingNr\s*\)\s*\)/;
   assert(/g_slotsHalt\.push_back\(\s*HalteEintrag\{\s*std::move\(\*slot\)\s*,\s*g_meetingNr\s*\}\s*\)/.test(zweig('InHalteliste'))
-      && /it->meeting\s*!=\s*g_meetingNr/.test(zweig('HaltelisteAbbauen')),
+      && MEETING_FREMD.test(zweig('HaltelisteAbbauen')),
     'A14 W2: InHalteliste verschiebt den ganzen Slot samt Meeting-Nummer; HaltelisteAbbauen fasst nur Einträge dieses Meetings an');
   // 6.5: jede Funktion mit Renderer-Aufrufen liest vorher die Renderer-Sperre.
   const mitSperre = ['void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) ', 'void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf)',
@@ -4117,6 +4119,8 @@ console.log('\nNativer Teil — Nachtrag N2a (Riegel unter Sperre, Wiederholung,
   // Modus und Grund DES Umhängens, das 18 bekam (abo.target ist dann noch das alte Ziel), und den Modus von vorher
   // (slotRetargetIntern stellt s.mode schon um). Der Merker abschlussGelaufen gilt nur dem 29-Weg mit Abschluss (ein
   // VIDEO-Abschluss enthält IsVideoOnFragen), geht über subscribeAusfuehren in die Lage und fällt beim nächsten Umhängen.
+  // WIDERRUFEN durch den Abschluss-Fix F2 (R1): auch der 18-Weg läuft mit Abschluss (VIDEO samt IsVideoOnFragen) und
+  // setzt den Merker; „nur nach 29“ und „abo.target ist dann noch das alte Ziel“ gelten seitdem nicht mehr.
   const wiederholen = zweigN2a('WiederholenIn500ms');
   const wdh = rumpf(video, 'void wiederholungen(');
   const sub = rumpf(video, 'void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf)');
@@ -4128,10 +4132,12 @@ console.log('\nNativer Teil — Nachtrag N2a (Riegel unter Sperre, Wiederholung,
   assert(/abo\.wiederholZiel\s*=\s*lauf\.ziel\s*;/.test(wiederholen) && /abo\.wiederholModus\s*=\s*lauf\.lage\.modusNachher\s*;/.test(wiederholen)
       && /abo\.wiederholGrund\s*=\s*lauf\.lage\.aufruf\s*;/.test(wiederholen)
       && /abo\.wiederholModusVorher\s*=\s*abo\.abschlussGelaufen\s*\?\s*lauf\.lage\.modusNachher\s*:\s*lauf\.lage\.modusVorher\s*;/.test(wiederholen)
-      && /if\s*\(\s*lauf\.sdkFehler\s*==\s*static_cast<int>\(SDKERR_NO_SHARE_DATA\)\s*&&\s*abschlussHier\s*\)\s*abo\.abschlussGelaufen\s*=\s*true\s*;/.test(wiederholen)
+      // seit dem Abschluss-Fix F2 (R1) läuft der Abschluss auch bei 18 sofort: der Merker folgt jedem Plan mit Abschluss
+      // vor WiederholenIn500ms (18 oder 29), nicht mehr nur dem 29
+      && /if\s*\(\s*abschlussHier\s*\)\s*abo\.abschlussGelaufen\s*=\s*true\s*;/.test(wiederholen)
       && (video.match(/abschlussGelaufen\s*=\s*true/g) ?? []).length === 1
       && /abschlussHier\s*=\s*true\s*;/.test(zweigN2a('ZielStandNeu')),
-    'N2a.2 6.10: WiederholenIn500ms merkt Ziel, Modus und Grund des laufenden Umhängens; abschlussGelaufen nur nach einem 29 mit Abschluss');
+    'N2a.2 6.10: WiederholenIn500ms merkt Ziel, Modus und Grund des laufenden Umhängens; abschlussGelaufen nach einem 18 oder 29 mit Abschluss (F2)');
   assert(/lauf\.ziel\s*=\s*abo\.wiederholZiel\s*;/.test(wdh)
       && /lageFuer\(\s*\*s\s*,\s*abo\.wiederholModus\s*,\s*abo\.wiederholZiel\s*,\s*abo\.wiederholGrund\s*\)/.test(wdh)
       && /lauf\.lage\.modusVorher\s*=\s*abo\.wiederholModusVorher\s*;/.test(wdh)
@@ -4388,7 +4394,9 @@ console.log('\nNativer Teil — Nachtrag N2b (Sperre nur bei echtem INMEETING, T
       && !RENDERER_G1.test(einfrierenG1) && !/erase\(|renderer\s*=|delegate|reset\(/.test(einfrierenG1)
       && /\bint\s+g_meetingNr\s*=\s*0\s*;/.test(videoN2b) && /void\s+slotsMeetingNeu\(\)\s*\{\s*\+\+g_meetingNr\s*;\s*\}/.test(videoN2b)
       && meetingNrSchreiben.length === 2
-      && /it->meeting\s*!=\s*g_meetingNr/.test(abbauZweigG1('HaltelisteAbbauen')) && /it->meeting\s*!=\s*g_meetingNr/.test(abbauZweigG1('HaltelisteVerwerfen')),
+      // HaltelisteAbbauen seit dem Abschluss-Fix F3 über halteEintragGehoertZu (derselbe Vergleich, PB20)
+      && /it->meeting\s*!=\s*g_meetingNr|!halteEintragGehoertZu\(\s*static_cast<uint32_t>\(\s*it->meeting\s*\)\s*,\s*static_cast<uint32_t>\(\s*g_meetingNr\s*\)\s*\)/.test(abbauZweigG1('HaltelisteAbbauen'))
+      && /it->meeting\s*!=\s*g_meetingNr/.test(abbauZweigG1('HaltelisteVerwerfen')),
     'G1 6.15: HaltelisteEinfrieren nimmt die Einträge dieses Meetings aus Abbauen/Verwerfen (Nummer -1), ohne Renderer-Aufruf und ohne Löschen');
 
   // N2b Fixrunde 1, G2: die Zeile „INMEETING ist überholt … Renderer-Sperre bleibt“ nur, wenn die Sperre wirklich steht
@@ -4476,6 +4484,212 @@ console.log('\nDoku — Nachtrag N3 (README an Sperre, Halteliste, Wiederholung,
   // (der alte Ton-Absatz führt `audio:"person"` als Code und bleibt darum außen vor).
   assert(![sperre, halt, wdh, messwerte].some((t) => t.includes('"')), 'N3: die neuen README-Absätze enthalten keine ASCII-Anführungszeichen');
   assert(flach7.includes('Spec 6.5 sagt nur „bis `INMEETING`“'), 'N3 N2b.1: die README nennt die Abweichung von Spec 6.5 (LOCKED/UNLOCKED zählen mit)');
+}
+console.log('\nNativer Teil — Abschluss-Fix Plan A (Delegates bis Prozessende, 18-Wartezeit, Abbau über getestete Helfer, Wächter):');
+{
+  const vAF = nativ('video.cpp', true);   // ohne Kommentare und ohne Texte
+  const vAFt = nativ('video.cpp');        // ohne Kommentare, mit Texten
+  const logikAF = nativ('slot_logic.h', true);
+  const ausfAF = rumpf(vAF, 'void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) ');
+  const planZweigAF = (name: string): string => {
+    const i = ausfAF.indexOf(`case UmhaengSchritt::${name}:`);
+    if (i < 0) return '';
+    const j = ausfAF.indexOf('case UmhaengSchritt::', i + 1);
+    return ausfAF.slice(i, j < 0 ? ausfAF.length : j);
+  };
+  const abbauAF = rumpf(vAF, 'void abbauAusfuehren(');
+  const abbauZweigAF = (name: string): string => {
+    const i = abbauAF.indexOf(`case AbbauSchritt::${name}:`);
+    if (i < 0) return '';
+    const j = abbauAF.indexOf('case AbbauSchritt::', i + 1);
+    return abbauAF.slice(i, j < 0 ? abbauAF.length : j);
+  };
+  const vorDem = (text: string, a: string, b: string): boolean => text.indexOf(a) >= 0 && text.indexOf(b) > text.indexOf(a);
+  const RENDERER_AF = /\b(subscribe|unSubscribe|setRawDataResolution|createRenderer|destroyRenderer)\s*\(/g;
+
+  // F1 (Abschlussprüfung I-1; Spec 6.10 Schritt 2, 6.15 Halteliste „das SDK ruft beim Abbau eines Renderers dessen
+  // Delegate“, AN11): kein Delegate, den das SDK noch rufen kann, wird frei. Alle Delegates gehören g_delegates (new ohne
+  // delete, die Liste wächst nur); das Abo zeigt nur auf seinen. Wer einen Renderer verwirft, abbaut oder seinen Slot
+  // löscht, setzt vorher Delegate::abgemeldet; die drei Rückrufe prüfen es ZUERST und fassen danach weder Slot noch Abo an.
+  const delegateKlasse = rumpf(vAF, 'class Delegate : public IZoomSDKRendererDelegate');
+  const aboAF = rumpf(vAF, 'struct Abo ');
+  const [zerstoert, bild, status] = ['void Delegate::onRendererBeDestroyed(', 'void Delegate::onRawDataFrameReceived(',
+    'void Delegate::onRawDataStatusChanged('].map((k) => rumpf(vAF, k));
+  const zugriffNachRueckkehr = (r: string): boolean => {
+    const zugriff = r.search(/\b(slot_|abo_)/);
+    const rueck = r.search(/\breturn\s*;/);
+    return r !== '' && rueck >= 0 && (zugriff < 0 || rueck < zugriff);
+  };
+  const zerstoertMerker = /^\{\s*const\s+bool\s+(\w+)\s*=\s*abgemeldet\.load\(\)\s*;/.exec(zerstoert);
+  assert(/std::atomic<bool>\s+abgemeldet\{false\}\s*;/.test(delegateKlasse)
+      && /^\{\s*if\s*\(\s*abgemeldet\.load\(\)\s*\|\|\s*data\s*==\s*nullptr\s*\)\s*return\s*;/.test(bild)
+      && /^\{\s*if\s*\(\s*abgemeldet\.load\(\)\s*\)\s*return\s*;/.test(status)
+      && zerstoertMerker !== null && new RegExp(`if\\s*\\(\\s*${zerstoertMerker[1]}\\s*\\)\\s*return\\s*;`).test(zerstoert)
+      && [zerstoert, bild, status].every(zugriffNachRueckkehr),
+    'F1 6.10/6.15 (I-1): Delegate::abgemeldet - alle drei Rückrufe prüfen es zuerst und kehren vor jedem Zugriff auf Slot oder Abo zurück');
+  const delegatesNutzung = [...vAF.matchAll(/\bg_delegates\b(\s*\.\s*(\w+))?/g)].map((m) => m[2] ?? '');
+  const delegateZuweisungen = [...vAF.matchAll(/\bdelegate\s*=(?!=)\s*([^;]*);/g)].map((m) => m[1].trim());
+  assert(/std::vector<Delegate\*>\s+g_delegates\s*;/.test(vAF)
+      && delegatesNutzung.filter((n) => n === '').length === 1 && delegatesNutzung.every((n) => ['', 'push_back', 'back'].includes(n))
+      && (vAF.match(/\bnew\s+Delegate\s*\(/g) ?? []).length === 1 && /\bnew\s+Delegate\s*\(/.test(rumpf(vAF, 'Delegate* neuerDelegate('))
+      && !/\bdelete\b/.test(vAF) && !/unique_ptr<\s*Delegate\s*>/.test(vAF) && !/\balteDelegates\b/.test(vAF)
+      && /Delegate\*\s+delegate\s*=\s*nullptr\s*;/.test(aboAF)
+      && delegateZuweisungen.length >= 4 && delegateZuweisungen.every((z) => /^neuerDelegate\(\s*s\s*,\s*abo\s*\)$|^nullptr$/.test(z)),
+    'F1 (I-1): jeder Delegate entsteht in neuerDelegate und gehört g_delegates bis zum Prozessende - kein delete, kein erase, kein unique_ptr<Delegate>');
+  const typwechselAF = planZweigAF('CreateRendererTypwechsel');
+  assert(!/CreateRendererGleicherDelegate/.test(logikAF + vAF) && /case\s+UmhaengSchritt::CreateRendererTypwechsel\s*:/.test(rumpf(logikAF, 'inline bool planBrauchtRenderer('))
+      && vorDem(typwechselAF, 'abo.delegate = neuerDelegate(s, abo);', 'rendererAnlegen(abo)') && /s\.rendererNew\.fetch_add\(1\)/.test(typwechselAF)
+      && vorDem(planZweigAF('CreateRendererNeuerDelegate'), 'abo.delegate = neuerDelegate(s, abo);', 'rendererAnlegen(abo)')
+      && !/rendererNew/.test(planZweigAF('CreateRendererNeuerDelegate')),
+    'F1 6.10 (Ruling, Abweichung von AN11): der Typwechsel legt den neuen Renderer mit einem NEUEN Delegate an; rendererNew zählt weiter nur diesen Fall');
+  const slotOnText = rumpf(vAFt, 'void slotOn(const SlotBefehl& b)');
+  assert(/void\s+delegateAbmelden\(\s*Abo&\s*abo\s*\)\s*\{\s*if\s*\(\s*abo\.delegate\s*!=\s*nullptr\s*\)\s*abo\.delegate->abgemeldet\s*=\s*true\s*;\s*\}/.test(vAF)
+      && vorDem(planZweigAF('ZeigerVerwerfen'), 'delegateAbmelden(abo);', 'abo.delegate = nullptr;')
+      && vorDem(planZweigAF('DestroyRenderer'), 'delegateAbmelden(abo);', 'destroyRenderer(')
+      && /for\s*\(\s*auto&\s*abo\s*:\s*s->abos\s*\)\s*delegateAbmelden\(\s*\*abo\s*\)\s*;\s*return\s+true\s*;/.test(abbauZweigAF('SlotLoeschen'))
+      && vorDem(abbauZweigAF('HaltelisteAbbauen'), 'delegateAbmelden(*abo);', 'g_slotsHalt.erase(')
+      && vorDem(abbauZweigAF('HaltelisteVerwerfen'), 'delegateAbmelden(*abo);', 'g_slotsHalt.erase(')
+      && vorDem(slotOnText, 'delegateAbmelden(abo);', '"slotRendererFailed"'),
+    'F1 (I-1): abgemeldet wird beim Verwerfen (rendererTot), beim Typwechsel vor destroyRenderer, vor dem Löschen eines Slots, beim Leeren der Halteliste und im Fehlerpfad von slotOn');
+  assert((zerstoert.match(/\bemitLog\s*\(/g) ?? []).length === 1 && /std::to_wstring\(\s*nr_\s*\)/.test(zerstoert) && /\bint\s+nr_\s*;/.test(delegateKlasse)
+      && zerstoert.indexOf('emitLog(') < zerstoert.search(/\b(slot_|abo_)/)
+      && /rendererTot\.exchange\(true\)/.test(zerstoert) && /rendererLost\.fetch_add\(1\)/.test(zerstoert),
+    'F1 Abnahme Gruppe L: onRendererBeDestroyed schreibt eine stderr-Zeile mit der Slot-Nummer aus dem Delegate (nr_), auch nach dem Abmelden');
+
+  // F3 (SG1, SG2, M3 teilweise; Spec 6.5, 6.10 Schritt 2, B32): im Slot-Block rufen Unsubscribe und DestroyRenderer den
+  // Renderer nur mit !rendererTot und ohne Sperre (fuerSlot hier nicht: er brächte für einen toten Renderer eine
+  // zusätzliche stderr-Zeile aus ZeigerVerwerfen - der Brief erlaubt die Helfer nur ohne Verhaltensänderung).
+  // HaltelisteAbbauen nimmt die getesteten Helfer halteEintragGehoertZu und halteEintragAbbauen (PB20 prüft so den
+  // echten Weg) und überspringt in der Sperre.
+  const BEDINGUNG_SLOT = /if\s*\(\s*abo->renderer\s*!=\s*nullptr\s*&&\s*!abo->rendererTot\.load\(\)\s*&&\s*!rendererSperre\(\)\s*\)/;
+  assert(['Unsubscribe', 'DestroyRenderer'].every((n) => {
+    const z = abbauZweigAF(n);
+    const aufrufe = [...z.matchAll(RENDERER_AF)].map((m) => m.index ?? -1);
+    const i = z.search(BEDINGUNG_SLOT);
+    return i >= 0 && aufrufe.length === 1 && aufrufe[0] > i;
+  }), 'F3 SG1 (B32, 6.5): im Abbau rufen Unsubscribe und DestroyRenderer den Renderer nur mit !rendererTot und ohne Renderer-Sperre');
+  const halteAbAF = abbauZweigAF('HaltelisteAbbauen');
+  const iFilterAF = halteAbAF.search(/if\s*\(\s*!halteEintragGehoertZu\(\s*static_cast<uint32_t>\(\s*it->meeting\s*\)\s*,\s*static_cast<uint32_t>\(\s*g_meetingNr\s*\)\s*\)\s*\|\|\s*rendererSperre\(\)\s*\)\s*\{\s*\+\+it\s*;\s*continue\s*;\s*\}/);
+  const schritteAF = /for\s*\(\s*const\s+AbbauSchritt\s+(\w+)\s*:\s*halteEintragAbbauen\(\s*abo->rendererTot\.load\(\)\s*\)\s*\)/.exec(halteAbAF);
+  const rendererHalteAF = [...halteAbAF.matchAll(RENDERER_AF)].map((m) => m.index ?? -1);
+  assert(iFilterAF >= 0 && schritteAF !== null && (schritteAF.index ?? -1) > iFilterAF && rendererHalteAF.length === 2
+      && rendererHalteAF.every((i) => i > (schritteAF.index ?? 0))
+      && new RegExp(`if\\s*\\(\\s*${schritteAF[1]}\\s*==\\s*AbbauSchritt::Unsubscribe\\s*\\)\\s*logSdkError\\([^;]*->unSubscribe\\(\\)\\s*\\)\\s*;`).test(halteAbAF)
+      && new RegExp(`if\\s*\\(\\s*${schritteAF[1]}\\s*==\\s*AbbauSchritt::DestroyRenderer\\s*\\)\\s*logSdkError\\([^;]*destroyRenderer\\(\\s*abo->renderer\\s*\\)\\s*\\)\\s*;`).test(halteAbAF),
+    'F3 SG1/SG2 (M3, PB20): HaltelisteAbbauen filtert mit halteEintragGehoertZu, überspringt in der Sperre und ruft nur, was halteEintragAbbauen(rendererTot) plant');
+  const sharesAF = rumpf(vAF, 'void emitShares(const char* seeded)');
+  assert(/const\s+char\*\s+(\w+)\s*=\s*sharingStatusName\(\s*r\.status\s*\)\s*;\s*if\s*\(\s*\1\s*==\s*nullptr\s*\)\s*continue\s*;/.test(sharesAF)
+      && !/SHARING_STATUS_NAMEN/.test(sharesAF),
+    'F3 M3 (6.3): shares.recent nennt den Status über sharingStatusName; ein unbekannter Wert wird nicht gemeldet (kein „unknown“)');
+
+  // F4 (SG3; Spec 6.1 Thread-Regel, PT6 a): auch Slot::bildAnkunft, der eigentliche Bild-Rückruf, fasst weder g_slots noch
+  // eine andere Hauptthread-Liste an und ruft keine Renderer-, slot…- oder videoParticipant…-Funktion.
+  const GLOBAL_HAUPTTHREAD = /\b(g_slots|g_slotsHalt|g_delegates|g_freigaben|g_erinnerung|g_sprecher)\b/;
+  const sdkRuempfeAF: Array<[string, string]> = [['Slot::bildAnkunft', rumpf(vAF, 'void Slot::bildAnkunft(')], ...rueckrufRuempfe(vAF)];
+  const verstossAF = sdkRuempfeAF.filter(([, k]) => k === '' || RUECKRUF_VERBOTEN.test(k) || GLOBAL_HAUPTTHREAD.test(k)).map(([n]) => n);
+  assert(sdkRuempfeAF.length >= 4 && verstossAF.length === 0,
+    'F4 PT6 a (SG3): weder Slot::bildAnkunft noch ein Delegate-Rückruf ruft Renderer-, slot…- oder videoParticipant…-Funktionen oder fasst g_slots, Halteliste, g_delegates an');
+  if (verstossAF.length > 0) console.error(`      Verstoß in: ${verstossAF.join(', ')}`);
+
+  // F7 (M1 d; Spec 6.2 slotSet „Bestätigung immer mit einem slot-Ereignis“): merkt die Renderer-Sperre das Umhängen eines
+  // slotSet nur vor (6.10 Schritt 0), bestätigt slotRetargetIntern mit dem aktuellen Stand und Grund command - nur für
+  // slotSet (Merker mit Aufräumer), nicht für Sprecher, Freigabe oder Weggang.
+  const bauAF = rumpf(vAF, 'void slotRetargetIntern(');
+  const setAF = rumpf(vAF, 'void slotSet(const SlotAenderung& a)');
+  assert(/if\s*\(\s*nurVormerken\s*\)\s*\{\s*if\s*\(\s*s\.slotSetLaeuft\s*\)\s*slotBestaetigen\(\s*s\s*\)\s*;\s*return\s*;\s*\}/.test(bauAF)
+      && vorDem(setAF, 's.slotSetLaeuft = true;', 'slotRetarget(') && /~\w+\(\)\s*\{\s*s->slotSetLaeuft\s*=\s*false\s*;\s*\}/.test(setAF)
+      && /slotBestaetigen\(\s*s\s*\)\s*;\s*\}$/.test(setAF.trim())
+      && /s\.grund\s*=\s*Grund::command\s*;[\s\S]*emitSlot\(\s*s\s*\)\s*;/.test(rumpf(vAF, 'void slotBestaetigen(Slot& s)'))
+      && (vAF.match(/\bslotSetLaeuft\s*=\s*true/g) ?? []).length === 1,
+    'F7 6.2 (M1 d): ein slotSet, dessen Umhängen die Renderer-Sperre nur vormerkt, bestätigt mit einem slot-Ereignis (aktueller Stand, Grund command)');
+
+  // F8 a/e (M1 a, e; die Spec schweigt, die EXE folgt der Attrappe): slot off trägt das aktuelle Paar target/share; der
+  // erste Freigabe-Slot nach dem Leeren der Liste (INMEETING, leave, Meeting-Ende, quit) ergänzt einmal (seeded einmal).
+  const offAF = rumpf(vAF, 'void emitSlotOff(Slot& s, Grund grund)');
+  const slotEvAF = rumpf(vAF, 'void emitSlot(Slot& s)');
+  assert(/zielPaar\(\s*s\s*,/.test(offAF) && /zielPaar\(\s*s\s*,/.test(slotEvAF) && !/\\"target\\":0,\\"share\\":0/.test(rumpf(vAFt, 'void emitSlotOff(Slot& s, Grund grund)'))
+      && /std::to_string\(\s*target\s*\)/.test(offAF) && /std::to_string\(\s*share\s*\)/.test(offAF),
+    'F8 a (M1 a, wie die Attrappe): slot off trägt das aktuelle Paar target/share (zielPaar wie jedes slot-Ereignis), nicht 0/0');
+  assert(/if\s*\(\s*!g_freigabenErgaenzt\s*\)\s*\{\s*g_freigabenErgaenzt\s*=\s*true\s*;\s*freigabenBefuellen\(\s*true\s*\)\s*;\s*\}/.test(rumpf(vAF, 'unsigned zielNachModus('))
+      && /g_freigabenErgaenzt\s*=\s*false\s*;/.test(abbauZweigAF('FreigabenLeeren')) && !/\bandererFreigabeSlot\b/.test(vAF),
+    'F8 e (M1 e, wie die Attrappe): der erste Freigabe-Slot nach dem Leeren der Liste ergänzt einmal (seeded einmal je Meeting)');
+
+  // F9 (M2; Spec 6.16): previewMode bestätigt den tatsächlichen Zustand - nach previewUnavailable on:false.
+  const modusAF = rumpf(nativ('preview.cpp'), 'void vorschauModus(bool an)');
+  assert(/\(\s*g_an\.load\(\)\s*\?\s*"true"\s*:\s*"false"\s*\)/.test(modusAF) && !/\(\s*an\s*\?\s*"true"/.test(modusAF),
+    'F9 6.16 (M2): previewMode bestätigt den tatsächlichen Zustand (g_an), nach previewUnavailable also on:false');
+
+  // F10 (M4; Spec 6.3 speakerSignal.ms „Bridge-Uhr“): eine Uhr für speakerSignal.ms und shares.recent[].ms - jetztMs()
+  // (GetTickCount64, ms), dieselbe, die die Slot-Logik bekommt (A12).
+  const sprecherAF = rumpf(vAFt, 'void slotsSprecher(const MerkerSprecher& m)');
+  assert(/\\"ms\\":"\s*\+\s*std::to_string\(\s*jetzt\s*\)/.test(sprecherAF) && !/m\.qpc/.test(sprecherAF)
+      && /const\s+int64_t\s+jetzt\s*=\s*jetztMs\(\)\s*;/.test(sprecherAF)
+      && /g_freigabeRecent\.push_back\(\s*FreigabeRueckruf\{\s*jetztMs\(\)\s*,/.test(rumpf(vAF, 'void slotsFreigabe(const MerkerFreigabe& f)'))
+      && /int64_t\s+jetztMs\(\)\s*\{\s*return\s+static_cast<int64_t>\(\s*GetTickCount64\(\)\s*\)\s*;\s*\}/.test(vAF),
+    'F10 6.3 (M4): speakerSignal.ms und shares.recent[].ms kommen aus derselben Bridge-Uhr (jetztMs, GetTickCount64, ms)');
+
+  // F11 (M5, Ruling; Spec 6.13 „bleibt ohne Ton … bis an ihm Ton wieder eingeschaltet wird“): tonSicht gibt den Merker
+  // weiter, tonZiele überspringt solche Slots (Logik-Fall af11).
+  assert(/TonSlotSicht\{[^}]*s->tonAudioUnavailable\s*\}/.test(rumpf(vAF, 'std::vector<TonSlotSicht> tonSicht()'))
+      && /if\s*\(\s*!s\.laeuft\s*\|\|\s*s\.tonAudioUnavailable\s*\)\s*continue\s*;/.test(rumpf(logikAF, 'inline std::vector<TonZiel> tonZiele(')),
+    'F11 6.13 (M5, Ruling): ein Slot auf off/audioUnavailable fällt aus tonSicht/tonZiele, bis an ihm Ton wieder eingeschaltet wird');
+
+  // F12 (M6; E15 ungemessen): emitSlot liest den Stand und schreibt die Zeile unter EINER Ausgabe-Sperre je Slot.
+  // Reihenfolge: emitMutex vor fieldMutex, nie umgekehrt (kein emit*() im Sperrblock von fieldMutex); kein SDK- oder
+  // NDI-Aufruf darunter. slot off nimmt dieselbe Sperre; nach slot off (imAbbau) schreibt emitSlot nichts mehr.
+  const iAusgabeAF = slotEvAF.search(/^\{\s*std::lock_guard<std::mutex>\s+\w+\(\s*s\.emitMutex\s*\)\s*;/);
+  assert(/std::mutex\s+emitMutex\s*;/.test(rumpf(vAF, 'struct Slot '))
+      && iAusgabeAF === 0 && vorDem(slotEvAF, 's.emitMutex', 's.fieldMutex') && vorDem(slotEvAF, 's.emitMutex', 'emitRaw(')
+      && /if\s*\(\s*s\.imAbbau\.load\(\)\s*\)\s*return\s*;/.test(slotEvAF) && !/\bsender\b|\bsend\w*\s*\(|->/.test(slotEvAF)
+      && /^\{\s*std::lock_guard<std::mutex>\s+\w+\(\s*s\.emitMutex\s*\)\s*;/.test(offAF)
+      && (vAF.match(/\bemitMutex\b/g) ?? []).length === 3,
+    'F12 6.3 (M6): emitSlot liest und schreibt unter der Ausgabe-Sperre des Slots (vor fieldMutex, kein SDK-/NDI-Aufruf), slot off ebenso');
+
+  // F13 (M7; Spec 6.5): während der Renderer-Sperre keine periodischen SDK-Leser - IsVideoOn (kameraAn: „unbekannt“ =
+  // an), die RawData_Off-Abfrage wartet, GetUserVideoSize und GetMeeting…StatisticInfo fallen aus (Felder fehlen dann).
+  assert(/^\{\s*if\s*\(\s*rendererSperre\(\)\s*\)\s*return\s+true\s*;/.test(rumpf(vAF, 'bool kameraAn(unsigned id)'))
+      && /if\s*\(\s*z\.rawOffGesehen\s*&&\s*!rendererSperre\(\)\s*\)/.test(rumpf(vAF, 'void ersatzbildTick(Slot& s, int64_t jetzt)'))
+      && /if\s*\(\s*mode\s*!=\s*SlotMode::Share\s*&&\s*ziel\s*!=\s*0\s*&&\s*videoCtrl\(\)\s*!=\s*nullptr\s*&&\s*!rendererSperre\(\)\s*\)/.test(rumpf(vAF, 'void slotStatsMelden(Slot& s, int64_t jetzt)'))
+      && /^\{\s*if\s*\(\s*g_meeting\s*==\s*nullptr\s*\|\|\s*callbacksRendererSperre\(\)\s*\)\s*return\s+false\s*;/.test(rumpf(nativ('session.cpp', true), 'bool sessionEmpfangsStatistik(')),
+    'F13 6.5 (M7): während der Renderer-Sperre keine periodischen SDK-Leser (IsVideoOn, GetUserVideoSize, GetMeeting…StatisticInfo)');
+}
+console.log('\nDoku — Abschluss-Fix Plan A (README: Delegates, 18-Wartezeit, Abweichungen mit Spec-Verweis, N3-Review Minor 1/2):');
+{
+  const readme = a17Lies(join(testDir, '..', 'README.md'), 'utf8').replace(/\r\n/g, '\n');
+  const a7 = readme.indexOf('\n## 7 · ');
+  const e7 = readme.indexOf('\n## ', a7 + 1);
+  const s7 = readme.slice(a7, e7 < 0 ? undefined : e7);
+  /** Der Absatz, der mit `**<kopf>**` beginnt, bis zur Leerzeile, flach; sonst ''. */
+  const absatzAF = (kopf: string): string => {
+    const i = s7.indexOf(`\n${kopf}`);
+    if (i < 0) return '';
+    const j = s7.indexOf('\n\n', i + 1);
+    return s7.slice(i, j < 0 ? undefined : j).replace(/\s+/g, ' ');
+  };
+  const wdh = absatzAF('**Wiederholung nach Fehler 18.**');
+  const ton = absatzAF('**Ton je Slot.**');
+  const deleg = absatzAF('**Delegates.**');
+  const ersatz = absatzAF('**Ersatzbild und Halten.**');
+  const vorschau = absatzAF('**Vorschau.**');
+  const sperre = absatzAF('**Renderer-Sperre.**');
+  // F14, N3-Review Minor 1: der Satz zu 29 gilt nur Freigabe-Slots (29 gibt es nur bei SHARE, Spec 6.10 Tabelle).
+  assert(/Bei Freigabe-Slots [^.]*`SDKERR_NO_SHARE_DATA` \(29\)/.test(wdh) && !/Meldet das SDK `SDKERR_NO_SHARE_DATA`/.test(wdh),
+    'F14 (N3-Review Minor 1): der Satz zu SDKERR_NO_SHARE_DATA (29) gilt in der README nur Freigabe-Slots');
+  // F14, N3-Review Minor 2: der Anführungszeichen-Wächter gilt auch für den Ton-Absatz; ausgenommen sind nur seine
+  // Code-Spannen mit dem Protokoll-Wert (`audio:"person"`, dazu `audio:"mix"`, das im selben Absatz steht).
+  const ohneCode = (t: string): string => t.replace(/`audio:"(person|mix)"`/g, '');
+  assert(ton !== '' && [wdh, deleg, ersatz, vorschau, sperre].every((t) => t !== '')
+      && ![ohneCode(ton), wdh, deleg, ersatz, vorschau, sperre].some((t) => t.includes('"')),
+    'F14 (N3-Review Minor 2): keine ASCII-Anführungszeichen im Ton-Absatz (außer in den Code-Spannen audio:…) und in den neuen Absätzen');
+  assert(deleg.includes('Spec 6.10') && deleg.includes('AN11') && deleg.includes('neuen Delegate') && deleg.includes('bis zum Prozessende')
+      && deleg.includes('`onRendererBeDestroyed`') && deleg.includes('Slot-Nummer'),
+    'F1 README: Delegates leben bis zum Prozessende; der Typwechsel nimmt einen neuen Delegate (Abweichung von Spec 6.10/AN11 genannt)');
+  assert(wdh.includes('sofort') && wdh.includes('Spec 6.10') && wdh.includes('weder Bild noch Ton'),
+    'F2 README: bei 18 läuft der Abschluss sofort, vom alten Ziel geht weder Bild noch Ton hinaus (Abweichung von Spec 6.10 genannt)');
+  assert(ersatz.includes('vor dem ersten Bild') && ersatz.includes('`fallback/cameraOff`') && ersatz.includes('Spec 6.12'),
+    'F6 README: Kamera laut Zoom aus vor dem ersten Bild gleich fallback/cameraOff (Abweichung von Spec 6.12 genannt)');
+  assert(vorschau.includes('`previewMode`') && vorschau.includes('tatsächlichen Zustand') && vorschau.includes('Spec 6.3'),
+    'F9 README: previewMode bestätigt den tatsächlichen Zustand (Abweichung von Spec 6.3 „wie gesendet“ genannt)');
 }
 console.log(failures === 0 ? '\nAlle Selbsttests bestanden.' : `\n${failures} Selbsttest(s) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

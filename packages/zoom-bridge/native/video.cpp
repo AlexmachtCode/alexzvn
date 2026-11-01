@@ -44,6 +44,9 @@ namespace {
 //   SDK-Thread   - Bild-, Status- und Abbau-Rueckruf des Delegates: nur Atome, die
 //                  Felder unter fieldMutex (NIE ueber einem Sendeaufruf gehalten)
 //                  und die Kopie per try_lock. Fasst g_slots nie an.
+//                  Seit dem Abschluss-Fix: jeder Rueckruf prueft zuerst Delegate::abgemeldet (F1);
+//                  emitSlot nimmt die Ausgabe-Sperre emitMutex vor fieldMutex (F12);
+//                  der Abbau-Rueckruf schreibt eine stderr-Zeile mit der Slot-Nummer (F1, Abnahme).
 // Auf welchem Thread das SDK die Delegate-Rueckrufe ruft, sagt kein Header (heute nur
 // Kommentar, E15); die Regel traegt beide Faelle.
 
@@ -52,14 +55,20 @@ struct Abo;
 
 class Delegate : public IZoomSDKRendererDelegate {
  public:
-  Delegate(Slot* slot, Abo* abo) : slot_(slot), abo_(abo) {}
+  Delegate(Slot* slot, Abo* abo, int nr) : slot_(slot), abo_(abo), nr_(nr) {}
   void onRendererBeDestroyed() override;
   void onRawDataFrameReceived(YUVRawDataI420* data) override;
   void onRawDataStatusChanged(RawDataStatus status) override;
 
+  // Abgemeldet (Abschluss-Fix F1, Abschlusspruefung I-1): gesetzt, bevor die Bridge den Renderer dieses Delegates verwirft
+  // oder abbaut oder seinen Slot loescht. Jeder der drei Rueckrufe prueft es ZUERST und fasst danach weder Slot noch Abo
+  // an. Der Delegate selbst lebt bis zum Prozessende (g_delegates); seine Zeiger slot_/abo_ duerfen dann tot sein.
+  std::atomic<bool> abgemeldet{false};
+
  private:
   Slot* slot_;
   Abo* abo_;
+  int nr_;   // Slot-Nummer, nur fuer die stderr-Zeile von onRendererBeDestroyed (ohne den Slot anzufassen)
 };
 
 // Ein Abo = Renderer, Delegate, Ziel, Typ, Ziel-Stand (Spec 6.1). In 0.4.0 hat
@@ -68,11 +77,10 @@ class Delegate : public IZoomSDKRendererDelegate {
 // kann, ohne diese Wege umzubauen (Spec 15).
 struct Abo {
   IZoomSDKRenderer* renderer = nullptr;
-  std::unique_ptr<Delegate> delegate;
-  // Delegates verworfener Renderer (rendererTot, 6.10 Schritt 2): nie freigegeben,
-  // solange das Abo lebt - das SDK hat seinen Renderer abgebaut, ob es den
-  // Delegate danach noch einmal ruft, sagt kein Header.
-  std::vector<std::unique_ptr<Delegate>> alteDelegates;
+  // Der Delegate des laufenden Renderers (Abschluss-Fix F1): er gehoert g_delegates und lebt bis zum Prozessende, das Abo
+  // zeigt nur auf ihn. Jeder neue Renderer bekommt einen neuen (slotOn, nach rendererTot, beim Typwechsel); der alte wird
+  // vorher abgemeldet. (Bis F1: unique_ptr hier und alteDelegates nur fuer verworfene Renderer, frei mit dem Abo.)
+  Delegate* delegate = nullptr;
   std::atomic<unsigned int> target{0};     // Teilnehmer-Kennung (VIDEO) oder shareSourceID (SHARE); 0 = keins
   ZoomSDKRawDataType type = RAW_DATA_TYPE_VIDEO;   // Typ des letzten subscribe() dieses Renderers
   std::atomic<bool> subscribed{false};    // true nur zwischen gegluecktem subscribe() und dem naechsten unSubscribe()
@@ -90,6 +98,8 @@ struct Abo {
   // Was die Wiederholung abonniert (Nachtrag N2a.2): Ziel, Modus und Grund DES Umhaengens, das 18 bzw. 29 bekam -
   // nach 18 lief ZielStandNeu noch nicht, abo.target ist dann das ALTE Ziel. Dazu der Modus von vorher, weil
   // slotRetargetIntern s.mode schon umgestellt hat und der Ton-Teil des Abschlusses ihn braucht (6.10 Schritt 8).
+  // WIDERRUFEN durch den Abschluss-Fix F2 (R1): auch nach 18 laeuft der Abschluss sofort, abo.target ist dann schon das
+  // neue Ziel. Gemerkt wird trotzdem: die Wiederholung abonniert das Ziel IHRES Umhaengens.
   unsigned wiederholZiel = 0;
   SlotMode wiederholModus = SlotMode::Participant;
   SlotMode wiederholModusVorher = SlotMode::Participant;
@@ -99,6 +109,7 @@ struct Abo {
   bool wiederholTonMitmelden = true;
   // Der Abschluss (Schritte 6-8) lief beim ersten 29 schon (nur SHARE, N1.2): Erfolg oder 29 danach ohne zweiten.
   // Gesetzt nur auf diesem Weg (ein VIDEO-Abschluss enthaelt IsVideoOnFragen), geloescht beim naechsten Umhaengen.
+  // Seit dem Abschluss-Fix F2 auch beim ersten 18 (VIDEO und SHARE): jeder Plan mit Abschluss vor WiederholenIn500ms.
   bool abschlussGelaufen = false;
 };
 
@@ -119,6 +130,11 @@ struct Slot {
   // Sperre NUR fuer die Feldbuchfuehrung (Regel wie bisher Sub::fieldMutex): nie
   // ueber einem Sendeaufruf, kein emit*() im Sperrblock. Eigene Sperre JE SLOT.
   std::mutex fieldMutex;
+  // Ausgabe-Sperre des slot-Ereignisses (Abschluss-Fix F12, Abschlusspruefung M6): emitSlot und emitSlotOff lesen den
+  // Stand und schreiben die Zeile in EINEM Zug, sonst koennte ein Ereignis aus dem SDK-Thread ein neueres ueberholen.
+  // Reihenfolge: emitMutex VOR fieldMutex, nie umgekehrt (emitSlot wird nie unter fieldMutex gerufen); darunter kein
+  // SDK- und kein NDI-Aufruf, nur die Feldsperre und die stdout-Zeile.
+  std::mutex emitMutex;
   // --- unter fieldMutex ---
   TonStand ton;
   SlotState state = SlotState::Starting;
@@ -173,6 +189,9 @@ struct Slot {
   SlotMode vorgemerktMode = SlotMode::Participant;
   unsigned vorgemerktZiel = 0;
   Grund vorgemerktGrund = Grund::command;
+  // Ein slotSet laeuft gerade (Abschluss-Fix F7): merkt die Sperre sein Umhaengen nur vor, bestaetigt slotRetargetIntern
+  // den Befehl mit einem slot-Ereignis (6.2). Gesetzt und geloescht nur in slotSet.
+  bool slotSetLaeuft = false;
   // Sprecher-Slot: die Wahl dieses Slots (6.8), neu bei Einschalten, Moduswechsel auf
   // Sprecher und Wechsel des Signals, je aus der Erinnerung vorbelegt.
   std::unique_ptr<SprecherWahl> wahl;
@@ -186,11 +205,30 @@ struct Slot {
 
 std::map<int, std::unique_ptr<Slot>> g_slots;   // hoechstens 16 Eintraege
 
+// Alle Delegates leben bis zum Prozessende (Abschluss-Fix F1, Abschlusspruefung I-1): ob und wann das SDK einen Delegate
+// nach destroyRenderer, nach dem Meeting-Ende oder nach dem Verwerfen seines Renderers noch ruft (onRendererBeDestroyed,
+// rawdata_renderer_interface.h:36-40), sagt kein Header. Darum gibt die Bridge keinen frei - new ohne delete, die Liste
+// waechst nur (je Renderer ein Delegate, ein paar Byte). Nur Hauptthread. Wer einen Renderer verwirft oder abbaut oder
+// seinen Slot loescht, meldet den Delegate vorher ab (delegateAbmelden); danach fasst er weder Slot noch Abo an.
+std::vector<Delegate*> g_delegates;
+
+Delegate* neuerDelegate(Slot& s, Abo& abo) {
+  g_delegates.push_back(new Delegate(&s, &abo, s.nr));
+  return g_delegates.back();
+}
+
+void delegateAbmelden(Abo& abo) {
+  if (abo.delegate != nullptr) abo.delegate->abgemeldet = true;
+}
+
 // Sprecher und Freigaben (6.8, 6.9): EINE Erinnerung und EINE Liste je Bridge, nur
 // Hauptthread. Gefuettert aus den Merkern (main.cpp, merkerNehmen).
 SprecherErinnerung g_erinnerung;
 SprecherEinstellung g_sprecher;                 // speakerConfig; Vorgabe speakerVideo, 1000 ms (E19)
 FreigabeListe g_freigaben;
+// Der erste Freigabe-Slot nach dem Leeren der Liste hat ergaenzend befuellt (Abschluss-Fix F8 e, wie die Attrappe:
+// einmal je Meeting, 6.9 „erstes Einschalten eines Freigabe-Slots“). Geloescht im Schritt FreigabenLeeren.
+bool g_freigabenErgaenzt = false;
 struct FreigabeRueckruf { int64_t ms; bool inhalt; int status; unsigned user, share; int typ; };
 std::deque<FreigabeRueckruf> g_freigabeRecent;  // die letzten 10 Freigabe-Rueckrufe, roh (6.3)
 unsigned g_gezeigtShare = 0, g_gezeigtUser = 0; // zuletzt gezeigte Freigabe (slotLogicTick)
@@ -225,10 +263,26 @@ uint64_t qpcUs(long long von, long long bis) {
   return (f > 0 && bis > von) ? static_cast<uint64_t>((bis - von) * 1000000LL / f) : 0;
 }
 
+// target/share eines Slots (Spec 6.3): target = Teilnehmer-Kennung bzw. bei SHARE die teilende Person, share =
+// Freigabe-Kennung (nur SHARE). Eine Stelle fuer jedes slot-Ereignis, auch slot off (Abschluss-Fix F8 a).
+void zielPaar(Slot& s, SlotMode mode, unsigned* target, unsigned* share) {
+  *target = 0;
+  *share = 0;
+  if (s.abos.empty()) return;
+  const unsigned t = s.abo().target.load();
+  if (mode == SlotMode::Share) { *share = t; *target = t != 0 ? s.shareUser.load() : 0; }
+  else *target = t;
+}
+
 // slot-Ereignis (Spec 6.3). target = Teilnehmer-Kennung bzw. bei SHARE die teilende
 // Person, share = Freigabe-Kennung (nur SHARE). rotation/limitedRange erst nach dem
 // ersten Bild DIESES Ziels (Regel "keine erfundenen Werte", B55).
 void emitSlot(Slot& s) {
+  // F12: Stand lesen und Zeile schreiben in einem Zug, vor fieldMutex (Reihenfolge am Feld emitMutex).
+  std::lock_guard<std::mutex> ausgabe(s.emitMutex);
+  // Nach slot off (imAbbau, emitSlotOff haelt dieselbe Sperre) kommt kein spaetes slot-Ereignis mehr, etwa aus einem
+  // Bild-Rueckruf, der den Riegel vor dem Abbau passierte.
+  if (s.imAbbau.load()) return;
   SlotState state;
   Grund grund;
   Sent sent;
@@ -245,11 +299,7 @@ void emitSlot(Slot& s) {
     limited = s.limitedRange;
     if (!s.abos.empty()) gemessen = s.abo().ziel.gemessen;
   }
-  if (!s.abos.empty()) {
-    const unsigned t = s.abo().target.load();
-    if (mode == SlotMode::Share) { share = t; target = t != 0 ? s.shareUser.load() : 0; }
-    else target = t;
-  }
+  zielPaar(s, mode, &target, &share);
   std::string out = "{\"ev\":\"slot\",\"slot\":" + std::to_string(s.nr) + ",\"state\":\"" + nameVon(ZUSTAND_NAMEN, state) +
                     "\",\"mode\":\"" + nameVon(MODUS_NAMEN, mode) + "\",\"target\":" + std::to_string(target) +
                     ",\"share\":" + std::to_string(share) + ",\"reason\":\"" + nameVon(GRUND_NAMEN, grund) +
@@ -261,11 +311,26 @@ void emitSlot(Slot& s) {
   emitRaw(out);
 }
 
-// slot off (Abbau): der Slot existiert danach nicht mehr, darum ohne Messfelder.
+// slot off (Abbau): der Slot existiert danach nicht mehr, darum ohne Messfelder. Mit dem letzten Paar target/share
+// (Abschluss-Fix F8 a: die Spec schweigt, die Attrappe meldet es so; bis dahin 0/0).
 void emitSlotOff(Slot& s, Grund grund) {
-  emitRaw("{\"ev\":\"slot\",\"slot\":" + std::to_string(s.nr) + ",\"state\":\"off\",\"mode\":\"" +
-          nameVon(MODUS_NAMEN, s.mode.load()) + "\",\"target\":0,\"share\":0,\"reason\":\"" + nameVon(GRUND_NAMEN, grund) +
-          "\",\"sent\":\"none\",\"ndi\":\"" + jsonEscapeUtf8(s.ndi) + "\"}");
+  std::lock_guard<std::mutex> ausgabe(s.emitMutex);   // F12: dieselbe Ausgabe-Sperre wie emitSlot
+  const SlotMode mode = s.mode.load();
+  unsigned target = 0, share = 0;
+  zielPaar(s, mode, &target, &share);
+  emitRaw("{\"ev\":\"slot\",\"slot\":" + std::to_string(s.nr) + ",\"state\":\"off\",\"mode\":\"" + nameVon(MODUS_NAMEN, mode) +
+          "\",\"target\":" + std::to_string(target) + ",\"share\":" + std::to_string(share) + ",\"reason\":\"" +
+          nameVon(GRUND_NAMEN, grund) + "\",\"sent\":\"none\",\"ndi\":\"" + jsonEscapeUtf8(s.ndi) + "\"}");
+}
+
+// Bestaetigung eines slotSet ohne ausgefuehrtes Umhaengen (6.2): der aktuelle Stand mit Grund command - auch, wenn die
+// Renderer-Sperre das Umhaengen nur vormerkt (Abschluss-Fix F7).
+void slotBestaetigen(Slot& s) {
+  {
+    std::lock_guard<std::mutex> lock(s.fieldMutex);
+    s.grund = Grund::command;
+  }
+  emitSlot(s);
 }
 
 // slotAudio-Ereignis (Spec 6.3): sampleRate/channels nur nach dem ersten Paket.
@@ -320,7 +385,10 @@ RendererTyp rendererTyp(ZoomSDKRawDataType t) { return t == RAW_DATA_TYPE_SHARE 
 
 // IsVideoOn() des Ziels (meeting_participants_ctrl_interface.h:127). true, wenn
 // unbekannt: "Kamera aus" ist eine Aussage, die nur Zoom machen darf (6.7).
+// Waehrend der Renderer-Sperre fragt die Bridge nicht (Abschluss-Fix F13, M7): Zoom trennt oder verbindet neu, die
+// Antwort gilt als unbekannt.
 bool kameraAn(unsigned id) {
+  if (rendererSperre()) return true;
   IMeetingParticipantsController* ctrl = participantsCtrl();
   IUserInfo* u = (ctrl != nullptr && id != 0) ? ctrl->GetUserByUserID(id) : nullptr;
   return u == nullptr ? true : u->IsVideoOn();
@@ -343,11 +411,12 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan);
 
 // EINZIGE Stelle mit createRenderer: slotOn ("Renderer anlegen", 6.2) und der
 // Umhaeng-Ausfuehrer (neuer Delegate nach rendererTot, gleicher Delegate beim
-// Typwechsel, 6.10) rufen sie. Liefert den SDKError; ohne Renderer nie SUCCESS. Zwei Slots auf dieselbe Kennung haben je einen eigenen Renderer, beide beliefert: ANNAHME AN21 (unbelegt, MS21).
+// Typwechsel, 6.10) rufen sie. Seit dem Abschluss-Fix F1 auch beim Typwechsel ein neuer Delegate (abo.delegate setzt
+// der Aufrufer vorher mit neuerDelegate). Liefert den SDKError; ohne Renderer nie SUCCESS. Zwei Slots auf dieselbe Kennung haben je einen eigenen Renderer, beide beliefert: ANNAHME AN21 (unbelegt, MS21).
 SDKError rendererAnlegen(Abo& abo) {
   if (rendererSperre()) return SDKERR_WRONG_USAGE;   // 6.5: kein Renderer-Aufruf waehrend der Sperre
   abo.renderer = nullptr;
-  SDKError err = createRenderer(&abo.renderer, abo.delegate.get());
+  SDKError err = createRenderer(&abo.renderer, abo.delegate);
   if (err == SDKERR_SUCCESS && abo.renderer == nullptr) err = SDKERR_UNINITIALIZE;
   if (err != SDKERR_SUCCESS) {
     abo.renderer = nullptr;
@@ -378,8 +447,8 @@ void subscribeAusfuehren(Slot& s, UmhaengLauf& lauf) {
   lauf.lage.abschlussGelaufen = abo.abschlussGelaufen;
   const UmhaengPlan weiter = umhaengNachSubscribe(lauf.lage, static_cast<int>(err), abo.versuch);
   planAusfuehren(s, lauf, weiter);
-  // Fehler nach einem Typwechsel ist ein Fall fuer den gleichen Delegate: der Plan
-  // ruft dann DestroyRenderer, CreateRendererGleicherDelegate und Subscribe erneut.
+  // Fehler nach einem Typwechsel ist ein Fall fuer einen neuen Renderer: der Plan ruft dann DestroyRenderer,
+  // CreateRendererTypwechsel (seit dem Abschluss-Fix F1 mit neuem Delegate) und Subscribe erneut.
   if (err != SDKERR_SUCCESS && !abo.wiederholen) abo.type = typ;
 }
 
@@ -408,13 +477,15 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         abo.subscribed = false;
         break;
       case UmhaengSchritt::ZeigerVerwerfen:
-        // Nie destroyRenderer, nie ein anderer Aufruf: das SDK hat ihn abgebaut (B32).
+        // Nie destroyRenderer, nie ein anderer Aufruf: das SDK hat ihn abgebaut (B32). Sein Delegate wird abgemeldet und
+        // lebt bis zum Prozessende (Abschluss-Fix F1); der neue Renderer bekommt einen neuen.
         abo.renderer = nullptr;
         abo.subscribed = false;
-        if (abo.delegate) abo.alteDelegates.push_back(std::move(abo.delegate));
+        delegateAbmelden(abo);
+        abo.delegate = nullptr;
         break;
       case UmhaengSchritt::CreateRendererNeuerDelegate: {
-        abo.delegate = std::make_unique<Delegate>(&s, &abo);
+        abo.delegate = neuerDelegate(s, abo);
         const SDKError err = rendererAnlegen(abo);
         if (err != SDKERR_SUCCESS) {
           logSdkError(L"createRenderer() nach rendererTot", err);
@@ -428,12 +499,20 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         break;
       }
       case UmhaengSchritt::DestroyRenderer:
+        // Typwechsel (Abschluss-Fix F1): den Delegate des alten Renderers ZUERST abmelden - ein spaetes
+        // onRendererBeDestroyed des alten Renderers trifft dann nie das Abo des neuen (CreateRendererTypwechsel).
+        delegateAbmelden(abo);
         if (abo.renderer != nullptr && !abo.rendererTot.load()) logSdkError(L"destroyRenderer() beim Typwechsel", destroyRenderer(abo.renderer));
         abo.renderer = nullptr;
+        abo.delegate = nullptr;
         break;
-      case UmhaengSchritt::CreateRendererGleicherDelegate: {
+      case UmhaengSchritt::CreateRendererTypwechsel: {
         // Typwechsel nach gescheitertem subscribe (6.10, AN11: ob destroyRenderer
         // synchron abschliesst, sagt kein Header - der gleiche Delegate bleibt).
+        // BERICHTIGT (Abschluss-Fix F1, Ruling des Controllers): ein NEUER Delegate - bewusste Abweichung von Spec 6.10
+        // „createRenderer mit demselben Delegate (AN11)“. AN11 erlaubt die Wiederverwendung, verlangt sie nicht; mit dem
+        // alten Delegate setzte ein spaetes onRendererBeDestroyed des alten Renderers rendererTot am neuen, lebenden.
+        abo.delegate = neuerDelegate(s, abo);
         const SDKError err = rendererAnlegen(abo);
         s.rendererNew.fetch_add(1);
         lauf.lage.letzterTyp = rendererTyp(rohTyp(lauf.lage.modusNachher));
@@ -462,7 +541,9 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         ++abo.versuch;
         abo.wiederholenAbMs = jetztMs() + 500;
         // N2a.2: der Abschluss eines 29 (nur SHARE) laeuft genau einmal; ein VIDEO-Abschluss setzt den Merker nie.
-        if (lauf.sdkFehler == static_cast<int>(SDKERR_NO_SHARE_DATA) && abschlussHier) abo.abschlussGelaufen = true;
+        // Abschluss-Fix F2 (R1): seit der Abschluss auch beim ersten 18 laeuft (VIDEO und SHARE), merkt jeder Plan mit
+        // Abschluss vor der Wiederholung ihn - die weiteren Versuche und der Erfolg laufen ohne zweiten.
+        if (abschlussHier) abo.abschlussGelaufen = true;
         // N2a.2: die Wiederholung gilt DIESEM Umhaengen. Lief sein Abschluss schon, zaehlt der Moduswechsel als
         // erledigt (Ton und Versatz sind umgestellt); sonst bleibt der Modus von vorher fuer den Abschluss.
         abo.wiederholZiel = lauf.ziel;
@@ -605,7 +686,13 @@ void slotRetargetIntern(Slot& s, SlotMode nachher, unsigned ziel, Grund aufruf, 
     s.mode = nachher;
   }
   planAusfuehren(s, lauf, plan);
-  if (nurVormerken) return;
+  if (nurVormerken) {
+    // Abschluss-Fix F7 (M1 d; 6.2 slotSet „Bestaetigung immer mit einem slot-Ereignis“): kam das Umhaengen aus einem
+    // slotSet, bestaetigt ein slot-Ereignis mit dem aktuellen Stand (Grund command) - Sprecher, Freigabe und Weggang
+    // melden waehrend der Sperre weiter nichts.
+    if (s.slotSetLaeuft) slotBestaetigen(s);
+    return;
+  }
   abo.subscribed = lauf.subscribeGeglueckt;
   abo.umhaengen = false;
 }
@@ -644,10 +731,14 @@ void emitShares(const char* seeded) {
   out += ",\"recent\":[";
   erst = true;
   for (const FreigabeRueckruf& r : g_freigabeRecent) {
+    // Abschluss-Fix F3 (M3): ein Status ausserhalb des Headers wird nicht gemeldet (sharingStatusName, slot_logic.h) -
+    // kein „unknown“, das SharingStatusName nicht kennt.
+    const char* statusName = sharingStatusName(r.status);
+    if (statusName == nullptr) continue;
     if (!erst) out += ",";
     erst = false;
     out += "{\"ms\":" + std::to_string(r.ms) + ",\"cb\":\"" + (r.inhalt ? "shareContent" : "sharingStatus") + "\",\"status\":\"" +
-           nameVon(SHARING_STATUS_NAMEN, r.status) + "\",\"user\":" + std::to_string(r.user) + ",\"share\":" + std::to_string(r.share) +
+           statusName + "\",\"user\":" + std::to_string(r.user) + ",\"share\":" + std::to_string(r.share) +
            ",\"type\":\"" + nameVon(SHARE_TYP_NAMEN, r.typ) + "\"}";
   }
   out += "]}";
@@ -688,17 +779,12 @@ void freigabenBefuellen(bool nurErgaenzen) {
   emitShares(b == Befuellt::Ok ? "ok" : b == Befuellt::Leer ? "empty" : "unavailable");
 }
 
-bool andererFreigabeSlot(const Slot& ohne) {
-  for (const auto& [nr, s] : g_slots) {
-    if (s.get() != &ohne && s->mode.load() == SlotMode::Share) return true;
-  }
-  return false;
-}
-
 // Gewuenschtes Ziel (Nachtrag N2a Fixrunde 1, F1): waehrend einer anstehenden Wiederholung (18/29) deren Ziel - nach
 // 18 ist abo.target noch das alte -, sonst abo.target. Fuer alles, was mit einem Befehl, einem Weggang oder der
 // Sprecher-Wahl vergleicht. Der GEZEIGTE Ziel-Stand (Herzschlag, Kopie, Ton-Zuordnung, Messwerte, slot-Ereignis)
 // bleibt an abo.target. Nur Hauptthread (wiederholen/wiederholZiel).
+// Seit dem Abschluss-Fix F2 (R1) laeuft der Abschluss auch nach 18 sofort; dann ist abo.target schon das gewuenschte
+// Ziel, und kein Bild, kein Ton und kein slot-Ereignis des alten Ziels bleibt in der Wartezeit stehen.
 unsigned zielImLauf(const Abo& a) { return gewuenschtesZiel(a.wiederholen, a.wiederholZiel, a.target.load()); }
 
 // Kennung aus einem Befehl als Ziel (6.7): gehoert sie keinem Teilnehmer, gilt sie als Ziel 0
@@ -713,6 +799,9 @@ unsigned teilnehmerZiel(int nr, unsigned id) {
 // Ziel nach Modus (6.7-6.10): Teilnehmer die Kennung (geprueft, teilnehmerZiel), Sprecher der
 // Kandidat aus der Erinnerung (neue SprecherWahl, vorbelegt), Freigabe die gezeigte Freigabe
 // (shareUser = teilende Person). Der erste Freigabe-Slot befuellt die Liste, nur ergaenzend (B38).
+// Abschluss-Fix F8 e (M1 e; 6.9 „erstes Einschalten eines Freigabe-Slots“, die Spec sagt nicht, ob je Meeting oder je
+// Augenblick): wie die Attrappe einmal nach jedem Leeren der Liste (INMEETING, leave, Meeting-Ende, quit) - bis dahin
+// bei jedem ersten Freigabe-Slot des Augenblicks (andererFreigabeSlot), mit seeded jedes Mal.
 unsigned zielNachModus(Slot& s, SlotMode m, unsigned idTeilnehmer, int64_t jetzt) {
   if (m == SlotMode::Participant) return teilnehmerZiel(s.nr, idTeilnehmer);
   if (m == SlotMode::Speaker) {
@@ -720,7 +809,10 @@ unsigned zielNachModus(Slot& s, SlotMode m, unsigned idTeilnehmer, int64_t jetzt
     s.wahl->vorbelegen(g_erinnerung, kameraAbfrage(), jetzt);
     return s.wahl->ziel();
   }
-  if (!andererFreigabeSlot(s)) freigabenBefuellen(true);
+  if (!g_freigabenErgaenzt) {
+    g_freigabenErgaenzt = true;
+    freigabenBefuellen(true);
+  }
   const FreigabeEintrag* g = g_freigaben.gezeigt();
   s.shareUser = g != nullptr ? g->user : 0;
   return g != nullptr ? g->share : 0;
@@ -885,6 +977,9 @@ void abbauAusfuehren(Kette kette, Grund grund, bool verlassen = false, int nurNr
         return false;
       case AbbauSchritt::SlotLoeschen:
         emitLog(L"Abbau Slot " + std::to_wstring(s->nr) + L": fertig");
+        // Abschluss-Fix F1 (I-1): vor dem Loeschen den Delegate abmelden - ein spaeter Rueckruf (nach destroyRenderer
+        // oder, am Meeting-Ende, ganz ohne Renderer-Aufruf) trifft dann einen lebenden Delegate, der nichts anfasst.
+        for (auto& abo : s->abos) delegateAbmelden(*abo);
         return true;
       case AbbauSchritt::InHalteliste:
         // Renderer-Sperre: weder unSubscribe noch destroyRenderer, und der Delegate
@@ -901,14 +996,19 @@ void abbauAusfuehren(Kette kette, Grund grund, bool verlassen = false, int nurNr
       case AbbauSchritt::HaltelisteAbbauen:
         // INMEETING desselben Meetings, nach dem Loesen der Sperre: je Eintrag
         // unSubscribe + destroyRenderer (bei rendererTot keins), dann loeschen. ANNAHME AN25 (unbelegt, MS25): die gehaltenen Renderer sind nach der eigenen Wiederverbindung noch gueltig.
+        // Abschluss-Fix F3 (SG1, SG2, M3): Zugehoerigkeit und Renderer-Aufrufe je Eintrag entscheiden die getesteten
+        // Helfer halteEintragGehoertZu und halteEintragAbbauen (PB20) statt einer Nachbildung; die Sperre bleibt die
+        // zweite Schranke. Vor dem Loeschen den Delegate abmelden (F1).
         for (auto it = g_slotsHalt.begin(); it != g_slotsHalt.end();) {
-          if (it->meeting != g_meetingNr || rendererSperre()) { ++it; continue; }
+          if (!halteEintragGehoertZu(static_cast<uint32_t>(it->meeting), static_cast<uint32_t>(g_meetingNr)) || rendererSperre()) { ++it; continue; }
           for (auto& abo : it->slot->abos) {
-            if (abo->renderer != nullptr && !abo->rendererTot.load()) {
-              logSdkError(L"unSubscribe() beim Abbau der Halteliste", abo->renderer->unSubscribe());
-              logSdkError(L"destroyRenderer() beim Abbau der Halteliste", destroyRenderer(abo->renderer));
+            for (const AbbauSchritt h : halteEintragAbbauen(abo->rendererTot.load())) {
+              if (abo->renderer == nullptr) break;
+              if (h == AbbauSchritt::Unsubscribe) logSdkError(L"unSubscribe() beim Abbau der Halteliste", abo->renderer->unSubscribe());
+              if (h == AbbauSchritt::DestroyRenderer) logSdkError(L"destroyRenderer() beim Abbau der Halteliste", destroyRenderer(abo->renderer));
             }
             abo->renderer = nullptr;
+            delegateAbmelden(*abo);
           }
           emitLog(L"Slot " + std::to_wstring(it->slot->nr) + L": aus der Halteliste abgebaut (INMEETING)");
           it = g_slotsHalt.erase(it);
@@ -918,7 +1018,10 @@ void abbauAusfuehren(Kette kette, Grund grund, bool verlassen = false, int nurNr
         // Meeting zu Ende bzw. leave mit Ruhezustand: loeschen OHNE Renderer-Aufruf.
         for (auto it = g_slotsHalt.begin(); it != g_slotsHalt.end();) {
           if (it->meeting != g_meetingNr) { ++it; continue; }
-          for (auto& abo : it->slot->abos) abo->renderer = nullptr;
+          for (auto& abo : it->slot->abos) {
+            abo->renderer = nullptr;
+            delegateAbmelden(*abo);   // Abschluss-Fix F1: vor dem Loeschen abmelden, der Delegate lebt weiter
+          }
           emitLog(L"Slot " + std::to_wstring(it->slot->nr) + L": aus der Halteliste verworfen (ohne Renderer-Aufruf)");
           it = g_slotsHalt.erase(it);
         }
@@ -934,6 +1037,7 @@ void abbauAusfuehren(Kette kette, Grund grund, bool verlassen = false, int nurNr
       case AbbauSchritt::FreigabenLeeren:
         g_freigaben.leeren();
         g_gezeigtShare = g_gezeigtUser = 0;
+        g_freigabenErgaenzt = false;   // F8 e: der naechste erste Freigabe-Slot ergaenzt wieder
         return false;
       case AbbauSchritt::ErinnerungLeeren:
         g_erinnerung.leeren();
@@ -993,8 +1097,9 @@ void abbauAusfuehren(Kette kette, Grund grund, bool verlassen = false, int nurNr
 std::vector<TonSlotSicht> tonSicht() {
   std::vector<TonSlotSicht> v;
   for (auto& [nr, s] : g_slots) {
+    // Abschluss-Fix F11 (M5): ein Slot auf off/audioUnavailable bekommt keinen Ton, bis an ihm Ton wieder an ist (6.13).
     v.push_back(TonSlotSicht{nr, !s->imAbbau.load(), s->mode.load(), s->abo().target.load(), s->audio.load(),
-                             s->shareAudio.load(), s->shareUser.load()});
+                             s->shareAudio.load(), s->shareUser.load(), s->tonAudioUnavailable});
   }
   return v;
 }
@@ -1170,8 +1275,9 @@ void ersatzbildTick(Slot& s, int64_t jetzt) {
     lastW = abo.ziel.lastW;
     lastH = abo.ziel.lastH;
   }
-  // RawData_Off nach dem ersten Bild dieses Ziels: nur die Abfrage IsVideoOn() (6.7).
-  if (z.rawOffGesehen) {
+  // RawData_Off nach dem ersten Bild dieses Ziels: nur die Abfrage IsVideoOn() (6.7). Waehrend der Renderer-Sperre
+  // wartet sie (Abschluss-Fix F13, M7): der Merker bleibt stehen, gefragt wird nach der Sperre.
+  if (z.rawOffGesehen && !rendererSperre()) {
     {
       std::lock_guard<std::mutex> lock(s.fieldMutex);
       abo.ziel.rawOffGesehen = false;
@@ -1304,8 +1410,9 @@ void slotStatsMelden(Slot& s, int64_t jetzt) {
   wenn(s.resSet >= 0, "resSet", std::to_string(s.resSet));
   wenn(s.resGot >= 0, "resGot", std::to_string(s.resGot));
   wenn(s.rawType >= 0, "rawType", std::to_string(s.rawType));
-  if (mode != SlotMode::Share && ziel != 0 && videoCtrl() != nullptr) {
-    // GetUserVideoSize: Bedeutung ungeklaert (MS24) - nur ein Messwert.
+  if (mode != SlotMode::Share && ziel != 0 && videoCtrl() != nullptr && !rendererSperre()) {
+    // GetUserVideoSize: Bedeutung ungeklaert (MS24) - nur ein Messwert. Nicht waehrend der Renderer-Sperre
+    // (Abschluss-Fix F13, M7); die Felder fehlen dann.
     const VideoSize gross = videoCtrl()->GetUserVideoSize(ziel);
     wenn(gross.width > 0, "userVideoW", std::to_string(gross.width));
     wenn(gross.height > 0, "userVideoH", std::to_string(gross.height));
@@ -1412,12 +1519,13 @@ void slotOn(const SlotBefehl& b) {
   // Freigabe-Slots senden ohne den Bild-Versatz der Personen (6.14, E11; Nachtrag N2a.5). slotOn ist kein
   // Moduswechsel, umhaengPlan plant hier kein OhneVersatzSetzen; die Warteschlange des neuen Senders ist leer.
   s.sender.setOhneVersatz(b.mode == SlotMode::Share);
-  abo.delegate = std::make_unique<Delegate>(&s, &abo);
+  abo.delegate = neuerDelegate(s, abo);
   const SDKError err = rendererAnlegen(abo);
   if (err != SDKERR_SUCCESS) {
     logSdkError(L"createRenderer()", err);
     emitLog(std::wstring(L"createRenderer() lieferte keinen Renderer. HasRawdataLicense()=") +
             (HasRawdataLicense() ? L"true" : L"false"));
+    delegateAbmelden(abo);   // Abschluss-Fix F1: der Slot wird gleich frei, der Delegate lebt weiter (g_delegates)
     s.sender.close();
     emitSlotFehler("slotRendererFailed", b.nr);
     return;
@@ -1447,6 +1555,13 @@ void slotSet(const SlotAenderung& a) {
   if (it == g_slots.end()) { emitSlotFehler("slotNotOn", a.nr); return; }
   Slot& s = *it->second;
   Abo& abo = s.abo();
+  // Abschluss-Fix F7 (6.2): merkt die Renderer-Sperre das Umhaengen dieses Befehls nur vor, bestaetigt
+  // slotRetargetIntern ihn; der Aufraeumer loescht den Merker auf jedem Weg aus slotSet.
+  s.slotSetLaeuft = true;
+  struct SlotSetEnde {
+    Slot* s;
+    ~SlotSetEnde() { s->slotSetLaeuft = false; }
+  } ende{&s};
   // Reihenfolge (6.2): fallback, showNoVideo, Ton, dann hoechstens EIN Umhaengen.
   if (a.fallbackGesetzt) s.fallback = a.fallback;
   bool sprecherWechsel = false;   // N2a.6: die neue Wahl zeigt jemand anderen als das Abo; umgehaengt wird unten
@@ -1511,11 +1626,7 @@ void slotSet(const SlotAenderung& a) {
     return;
   }
   // Kein Umhaengen: Bestaetigung mit Grund command (6.2).
-  {
-    std::lock_guard<std::mutex> lock(s.fieldMutex);
-    s.grund = Grund::command;
-  }
-  emitSlot(s);
+  slotBestaetigen(s);
 }
 
 void slotOff(int nr, Grund grund) {
@@ -1570,12 +1681,13 @@ void slotsFreigabe(const MerkerFreigabe& f) {
 
 void slotsSprecher(const MerkerSprecher& m) {
   const int64_t jetzt = jetztMs();
-  const long long f = qpcFrequenz();
   std::string ids;
   for (unsigned id : m.ids) ids += (ids.empty() ? "" : ",") + std::to_string(id);
   // Jedes der drei Signale geht an Connect, unabhaengig vom gewaehlten (6.8 Nr. 1). ANNAHME AN17 (unbelegt, MS22): die drei Sprecher-Signale kommen auch ohne JoinVoip (ohne Ton-Slot tritt die Bridge nicht bei).
+  // ms aus der Bridge-Uhr jetztMs() (GetTickCount64), derselben wie shares.recent[].ms (Abschluss-Fix F10, M4) - bis
+  // dahin QPC aus dem Rueckruf, eine zweite Uhr mit anderer Aufloesung neben der ersten in Connects Messwerten.
   emitRaw(std::string("{\"ev\":\"speakerSignal\",\"signal\":\"") + nameVon(SIGNAL_NAMEN, m.signal) + "\",\"ids\":[" + ids +
-          "],\"ms\":" + std::to_string(f > 0 ? m.qpc * 1000 / f : jetzt) + "}");
+          "],\"ms\":" + std::to_string(jetzt) + "}");
   const Signal sig = static_cast<Signal>(m.signal);
   g_erinnerung.melde(sig, m.ids, jetzt);
   for (auto& [nr, s] : g_slots) {
@@ -1870,6 +1982,15 @@ void Slot::bildAnkunft(Abo& abo, YUVRawDataI420* data) {
 }
 
 void Delegate::onRendererBeDestroyed() {
+  // ZUERST abgemeldet (Abschluss-Fix F1, I-1): ist der Delegate ausgemustert (Renderer verworfen, abgebaut, Slot
+  // geloescht), fasst der Rueckruf weder Slot noch Abo an - beide koennen frei sein.
+  const bool schonAbgemeldet = abgemeldet.load();
+  // Merker fuer die Abnahme (Gruppe L): wann der Rueckruf kommt - vor oder nach destroyRenderer, vor oder nach ENDED.
+  // Nur die Slot-Nummer des Delegates (nie ein Name). emitLog ist eine einzige CRT-Schreibung mit eigener Stream-Sperre;
+  // so schreiben auch die Lauscher-Rueckrufe (callbacks.cpp), und bildAnkunft schreibt aus diesem Delegate stdout.
+  emitLog(L"Slot " + std::to_wstring(nr_) +
+          (schonAbgemeldet ? L": onRendererBeDestroyed nach dem Abmelden (nichts angefasst)" : L": onRendererBeDestroyed"));
+  if (schonAbgemeldet) return;
   // "you should never use this renderer object any more"
   // (rawdata_renderer_interface.h:36-40): nur das Atom, den Rest macht die
   // Hauptschleife beim naechsten Umhaengen (6.10 Schritt 2).
@@ -1877,11 +1998,12 @@ void Delegate::onRendererBeDestroyed() {
 }
 
 void Delegate::onRawDataFrameReceived(YUVRawDataI420* data) {
-  if (data == nullptr) return;
+  if (abgemeldet.load() || data == nullptr) return;   // F1: ein abgemeldeter Delegate fasst nichts an
   slot_->bildAnkunft(*abo_, data);
 }
 
 void Delegate::onRawDataStatusChanged(RawDataStatus status) {
+  if (abgemeldet.load()) return;   // F1: ein abgemeldeter Delegate fasst nichts an
   // RawData_Off setzt KEINEN Grund (6.7): der Header dokumentiert ihn nicht, und er
   // kam gemessen auch nach unSubscribe(). Nach dem ersten Bild dieses Ziels loest er
   // nur die Abfrage IsVideoOn() in der Hauptschleife aus. Der Riegel verwirft ihn, auch wenn er erst nach der Rueckkehr von unSubscribe kommt (ANNAHME AN22, unbelegt).

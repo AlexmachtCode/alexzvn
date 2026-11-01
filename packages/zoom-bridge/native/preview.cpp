@@ -260,7 +260,9 @@ void vorschauModus(bool an) {
     g_an = false;
     threadAnhalten();
   }
-  emitRaw(std::string("{\"ev\":\"previewMode\",\"on\":") + (an ? "true" : "false") + "}");
+  // Abschluss-Fix F9 (M2): bestaetigt wird der tatsaechliche Zustand - nach previewUnavailable on:false, auch wenn
+  // on:true gesendet wurde (bewusste Abweichung von Spec 6.3 "wie gesendet"; README Abschnitt 7, Vorschau).
+  emitRaw(std::string("{\"ev\":\"previewMode\",\"on\":") + (g_an.load() ? "true" : "false") + "}");
 }
 
 void vorschauThreadEnde() {
