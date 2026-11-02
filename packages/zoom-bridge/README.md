@@ -251,6 +251,10 @@ beitritt, erscheint mit dem **Gerätenamen** — die NDI-Quelle hieß im Messlau
 `videoSubscribe` absichtlich fest (Umbenennen hieße, die Quelle abzureißen,
 siehe Abschnitt 7), ein späteres `renamed` ändert ihn also nicht.
 
+> Nachtrag: `videoSubscribe` gibt es seit Connect 0.4.0 nicht mehr (Spec 6.18); der
+> Absatz oben beschreibt den Altweg. Seit den Slots steht der NDI-Name am Befehl
+> `slotOn`.
+
 ## 5 · Zugangsdaten
 
 Client-ID und Client-Secret gehören in eine JSON-Datei **außerhalb des Repos**

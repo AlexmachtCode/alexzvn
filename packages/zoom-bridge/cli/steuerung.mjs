@@ -924,6 +924,8 @@ export async function starteSteuerung(o = {}) {
     // darum regelmaessig an videoNoPrivilege abgeprallt - und der Abnahmelauf
     // haette eine ZEITFRAGE als fehlende Berechtigung gemeldet. Zwei verschiedene
     // Ursachen duerfen nie denselben Namen bekommen.
+    // Nachtrag D (NB24): Den Befehl videoSubscribe gibt es seit Connect 0.4.0 nicht mehr (Spec 6.18); der Satz oben
+    // beschreibt den Altweg und bleibt als Begruendung stehen.
     if (videoIds.length > 0 && !bridge.session.canRecordRaw) {
       log('\nWarte auf die Rohdaten-Erlaubnis, bevor Video abonniert wird …');
       // Laeuft die Frist ab: weder JA noch NEIN - der Gastgeber hat schlicht

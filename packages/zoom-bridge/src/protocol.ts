@@ -119,6 +119,7 @@ export type SharingStatusName = (typeof SHARING_STATUS_NAMES)[number];
 /**
  * Eigene Fehlerschluessel der Slots, alle mit where:"slot" (6.4). Dazu slotBadTarget (A-EP2): `id` steht da, ist
  * aber kein Ganzzahl-Literal von 0 bis UINT_MAX. Ein fehlendes `id` oder 0 heisst dagegen "kein Ziel".
+ * Nachtrag D (M8): slotBadFlag meldet auch `previewMode` mit unlesbarem `on`, dann ohne `slot`.
  */
 export const SLOT_ERROR_KEYS = [
   'slotBadNumber', 'slotBadName', 'slotNameTaken', 'slotBadMode', 'slotBadResolution', 'slotBadAudio', 'slotBadFallback',
@@ -476,6 +477,8 @@ export const OWN_ERROR_NAMES: Record<string, string> = {
   // Aufrufer falsch geschrieben hat. FEHLT das Feld, ist das KEIN Fehler
   // (Vorgabe `true`, Spec Abschnitt 7) — gemeldet wird nur, was dasteht und
   // sich nicht lesen lässt.
+  // Nachtrag D (NB24): Der Befehl videoSubscribe, an dem dieses Feld stand, gibt es seit Connect 0.4.0 nicht mehr
+  // (Spec 6.18); der Schlüssel bleibt nur für den Altweg erhalten.
   videoBadAudioFlag: 'VIDEO_BAD_AUDIO_FLAG',
   // Das Feld `ms` am videoDelay-Befehl fehlt, ist keine ganze Zahl (auch
   // `"480"` als Zeichenkette, `4.5` oder `1e3`) oder liegt ausserhalb von 0 bis
