@@ -1354,6 +1354,33 @@ console.log('— Nachtrag C (M-C7-1, M-C8-2): Stapel je Handlung abgesichert, Fi
   ck('Nachtrag C M-C8-2 Lage: abbruch {init} nach bereit → „Prozess beenden“ und gescheitert/init; das folgende exit ändert nichts',
     gleich(kurz(h), ['beenden programm programm G1']) && pz(t.lage) === 'gescheitert/init' && gleich(t.lage.programmExit(g, 1), []) && pz(t.lage) === 'gescheitert/init');
 }
+console.log('— Abschluss M6: Generationswächter der Hüllen (ein spätes exit oder Beenden eines alten Prozesses trifft den neuen nie)');
+{
+  const { readFileSync } = await import('node:fs');
+  const lies = (q: string): string => readFileSync(new URL(q, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const abschnitt = (s: string, start: string, ende: string): string => {
+    const i = s.indexOf(start);
+    if (i < 0) return '';
+    const j = s.indexOf(ende, i + start.length);
+    return j < 0 ? s.slice(i) : s.slice(i, j);
+  };
+  const gast = lies('../src/main/ndi-guests.ts');
+  const programm = lies('../src/main/ndi-program.ts');
+  const gastExit = abschnitt(gast, "child.on('exit', (code) => {", '\n  });');
+  const gastBeenden = abschnitt(gast, 'function beendeProzess(', '\n}\n');
+  ck('Abschluss M6 Gast: der exit-Zuhörer leert aktuell nur für den eigenen Prozess (vor der Meldung an die Lage), beendeProzess tut bei fremder Generation nichts (vor stop und kill)',
+    gastExit.includes('if (besitzer.aktuell === prozess) besitzer.aktuell = null;')
+      && gastExit.indexOf('if (besitzer.aktuell === prozess) besitzer.aktuell = null;') < gastExit.indexOf('lage?.gastExit(')
+      && /^function beendeProzess\(schluessel: string, generation: number\): void \{\n\s*const p = eintraege\.get\(schluessel\)\?\.aktuell;\n\s*if \(!p \|\| p\.generation !== generation\) return;\n/.test(gastBeenden)
+      && gastBeenden.indexOf('p.generation !== generation') < gastBeenden.indexOf('p.child.kill()'));
+  const progExit = abschnitt(programm, "child.on('exit', (code) => {", '\n  });');
+  const progBeenden = abschnitt(programm, 'function beendeProzess(', '\n}\n');
+  ck('Abschluss M6 Programm: der exit-Zuhörer leert aktuell nur für den eigenen Prozess (vor der Meldung an die Lage), beendeProzess tut bei fremder Generation nichts (vor stop und kill)',
+    progExit.includes('if (aktuell === prozess) aktuell = null;')
+      && progExit.indexOf('if (aktuell === prozess) aktuell = null;') < progExit.indexOf('lage?.programmExit(')
+      && /^function beendeProzess\(generation: number\): void \{\n\s*const p = aktuell;\n\s*if \(!p \|\| p\.generation !== generation\) return;\n/.test(progBeenden)
+      && progBeenden.indexOf('p.generation !== generation') < progBeenden.indexOf('p.child.kill()'));
+}
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
