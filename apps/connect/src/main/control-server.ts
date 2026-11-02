@@ -64,3 +64,8 @@ export function pushControlState(kv: Kv): void {
 export function setZoomControlState(kv: Kv): void {
   stand.zoom(kv);
 }
+
+/** NDI-Teil (von der NDI-Lage in index.ts, nur bei Änderung, Plan C 22.6) setzen und den gemischten STATE broadcasten. */
+export function setNdiControlState(kv: Kv): void {
+  stand.ndi(kv);
+}

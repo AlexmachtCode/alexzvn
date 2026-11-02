@@ -236,15 +236,31 @@ eq(
     { id: `zoom_slot${n}_state`, label: `Zoom-Slot ${n}: Zustand (fehlt/aus/wartet/startet/zeigt/gehalten/ersatz/fehler/zurueckgestellt/stoppt)` },
   ];
   eq(
-    c.variables.slice(16),
+    c.variables.slice(16, 128),
     Array.from({ length: 16 }, (_, i) => jeSlot(i + 1)).flat(),
     'connect: je Slot 1 … 16 sieben Variablen wörtlich nach 8.1, Slot für Slot (112)',
   );
-  eq(c.variables.length, 128, 'connect: 128 Variablen (9 Raum + 7 Zoom + 16 × 7)');
+  // NDI (Connect 0.4.0, Spec 22.6, T136): vier Variablen hinter den Slots, Beschriftungen wörtlich nach 22.9.
+  eq(
+    c.variables.slice(128),
+    [
+      { id: 'ndi_sources', label: 'NDI: Gast-Quellen, die bestehen (Anzahl)' },
+      { id: 'ndi_failed', label: 'NDI: ausgefallene Gast-Quellen (Anzahl)' },
+      { id: 'ndi_program', label: 'NDI: Programm-Empfang (aus/sucht/keine_quelle/verbunden/ohne_bild/staut/fehler/neustart/gescheitert)' },
+      { id: 'ndi_alarm', label: 'NDI: Ausfall in Connect (1/0)' },
+    ],
+    'connect: S T136 vier NDI-Variablen wörtlich (22.6, 22.9)',
+  );
+  eq(c.variables.length, 132, 'connect: 132 Variablen (9 Raum + 7 Zoom + 16 × 7 + 4 NDI, 22.6)');
   eq(
     ids(c.feedbacks),
-    ['onair', 'lobby', 'talkback', 'zoom_live', 'zoom_alarm', 'zoom_cmd_rejected', 'zoom_slot_on', 'zoom_slot_live', 'zoom_slot_alarm'],
-    'connect: 3 Raum-Feedbacks wie bisher + 3 Zoom-Feedbacks + 3 Slot-Feedbacks (9)',
+    ['onair', 'lobby', 'talkback', 'zoom_live', 'zoom_alarm', 'zoom_cmd_rejected', 'zoom_slot_on', 'zoom_slot_live', 'zoom_slot_alarm', 'ndi_alarm'],
+    'connect: 3 Raum-Feedbacks + 3 Zoom-Feedbacks + 3 Slot-Feedbacks + 1 NDI-Feedback (10, 22.6)',
+  );
+  eq(
+    c.feedbacks.filter((f) => f.id.startsWith('ndi_')),
+    [{ id: 'ndi_alarm', label: 'Connect: NDI-Ausfall', stateKey: 'ndi_alarm', match: 'truthy', bgcolor: [200, 30, 30], color: [255, 255, 255] }],
+    'connect: S T136 Feedback „Connect: NDI-Ausfall“ wörtlich, RED/WHITE, truthy, ohne Argument (22.6)',
   );
   eq(
     c.feedbacks.filter((f) => f.id.startsWith('zoom_')),

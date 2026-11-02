@@ -247,6 +247,69 @@ console.log('— B18: STATE je Slot (Spec 8.2, 10.4, 11.6), Raum- und Zoom-Teil 
     zurueck?.kv.zoom_slot2_target === 'Anna Maria' && Object.keys(zurueck.kv).filter((s) => s.startsWith('zoom_')).length === 119);
 }
 
+console.log('— C10 PK48: STATE-Teil ndi (Spec 22.6), drei Teile nebeneinander, auch bei geschlossenem Raum und unter darwin');
+{
+  const { ndiStateKv } = await import('../src/main/ndi-lage');
+  type QL = import('../src/main/ndi-lage').NdiQuelleLage;
+  type PL = import('../src/main/ndi-lage').NdiProgrammLage;
+  const NDI_SCHLUESSEL = ['ndi_sources', 'ndi_failed', 'ndi_program', 'ndi_alarm'];
+  const ndiSchluessel = (kv: Kv): string[] => Object.keys(kv).filter((s) => s.startsWith('ndi_'));
+  const quelle = (zustand: QL['zustand'], i: number): QL => ({
+    schluessel: `g${i}`, art: 'kamera', label: `JM Connect – Gast ${i}`, zustand,
+    grund: zustand === 'gescheitert' ? 'absturz' : null, code: null, k: 0, empfaenger: null,
+  });
+  const AUS: PL = { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: '', bereit: false };
+  const leer = ndiStateKv([], AUS);
+  ck('C10 PK48: ohne Quellen und mit Empfang aus (geschlossener Raum) stehen die vier Schlüssel',
+    gleich(leer, { ndi_sources: 0, ndi_failed: 0, ndi_program: 'aus', ndi_alarm: 0 }));
+  ck('C10 22.6: mischeState mit drei Teilen', gleich(mischeState(RAUM, ZOOM, leer), { ...RAUM, ...ZOOM, ...leer }));
+  ck('C10 22.6: mischeState ohne NDI-Teil wie bisher (zwei Argumente)', gleich(mischeState(RAUM, ZOOM), { ...RAUM, ...ZOOM }));
+  ck('C10 22.6: kein anderer Teil trägt ndi_* (Raum-Start, Raum, Zoom)', [RAUM_START, RAUM, ZOOM].every((kv) => ndiSchluessel(kv).length === 0));
+
+  const gesendet: Kv[] = [];
+  const sp = erzeugeStateSpeicher((kv) => gesendet.push(kv));
+  sp.ndi(leer);
+  ck('C10 PK53: der erste NDI-Push vor jedem Raum- und Zoom-Push → Startwerte des Raums und die vier ndi_*',
+    gleich(sp.aktuell(), { ...RAUM_START, ...leer }) && gleich(gesendet.at(-1), { ...RAUM_START, ...leer }));
+  sp.raum(RAUM);
+  ck('C10 PK48: ein Raum-Push lässt ndi_* stehen', gleich(ndiSchluessel(sp.aktuell()), NDI_SCHLUESSEL) && sp.aktuell().room === 'R1');
+  sp.zoom(ZOOM);
+  ck('C10 PK48: ein Zoom-Push lässt ndi_* stehen', gleich(ndiSchluessel(sp.aktuell()), NDI_SCHLUESSEL) && sp.aktuell().zoom_status === 'im_meeting');
+  const ausfall = ndiStateKv([quelle('sendet', 1), quelle('gescheitert', 2)], { ...AUS, zustand: 'verbunden', quelle: 'REGIE (JM Switcher)' });
+  sp.ndi(ausfall);
+  ck('C10 PK48: ein NDI-Push lässt Raum- und Zoom-Teil stehen und setzt die Werte nach 22.6',
+    sp.aktuell().room === 'R1' && sp.aktuell().zoom_status === 'im_meeting' && sp.aktuell().ndi_sources === 1
+      && sp.aktuell().ndi_failed === 1 && sp.aktuell().ndi_program === 'verbunden' && sp.aktuell().ndi_alarm === 1);
+  sp.zoom({});
+  ck('C10 PK48: unter darwin (Zoom-Teil leer) stehen die vier ndi_* weiter, ohne zoom_*',
+    gleich(ndiSchluessel(sp.aktuell()), NDI_SCHLUESSEL) && zoomSchluessel(sp.aktuell()).length === 0);
+  ck('C10 22.6: die vier Schlüssel sind Variablen der Rolle connect', NDI_SCHLUESSEL.every((s) => CAPABILITIES.connect.variables.some((v) => v.id === s)));
+
+  // control-server.ts: der NDI-Teil geht mit in den Begrüßungs-STATE und bleibt bei Raum-Pushes stehen (Attrappen aus Teil 2).
+  const g = globalThis as unknown as { __srv: { opts: null | { getState(): { ns: string; kv: Kv } }; pushes: { ns: string; kv: Kv }[] } };
+  const cs = await import('../src/main/control-server');
+  cs.setNdiControlState(leer);
+  const r = await cs.startControlServer({ onCommand: () => {} });
+  ck('C10 PK48: control-server meldet den NDI-Teil (setNdiControlState), der Begrüßungs-STATE trägt ndi_*',
+    r.ok === true && gleich(ndiSchluessel(g.__srv.opts?.getState().kv ?? {}), NDI_SCHLUESSEL));
+  cs.pushControlState({ room: 'R3', onair: 0 });
+  const nachRaum = g.__srv.pushes.at(-1);
+  ck('C10 PK48: ein Renderer-Push nach dem Start lässt ndi_* stehen', nachRaum?.kv.room === 'R3' && nachRaum.kv.ndi_program === 'aus');
+  cs.stopControlServer();
+
+  // index.ts (E52, PK47): onLage meldet den STATE-Teil ndi, nur bei Änderung, ohne Plattform-Weiche.
+  const { readFileSync } = await import('node:fs');
+  const index = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const lageStart = index.indexOf('onLage: () => {');
+  const onLage = lageStart < 0 ? '' : index.slice(lageStart, index.indexOf('onNamen:', lageStart));
+  ck('C10 PK47, E52: onLage meldet den STATE-Teil ndi (ndiStateKv aus quellen und programmLage, über aenderungsMelder)',
+    onLage.includes('meldeNdi(ndiStateKv(ndiLage.quellen(), ndiLage.programmLage()));') && index.includes('const meldeNdi = aenderungsMelder(setNdiControlState);'));
+  ck('C10 E52: der STATE-Teil ndi hängt an keiner Plattform-Weiche (auch unter darwin)', onLage !== '' && !onLage.includes('platform'));
+  // 22.6 „ab dem Start“ (Nachbesserung C-robust:5): Der Rumpf von onLage sind genau diese zwei Anweisungen, ohne Bedingung
+  // davor; jede Weiche (Plattform, „erst mit Gast“, „erst nach dem ersten Ereignis“) ließe ndi_* beim Start fehlen.
+  ck('C10 22.6, PK53: onLage besteht aus notifyStatusChanged() und dem unbedingten Melden des STATE-Teils ndi (ab dem Start, auch ohne Gast)',
+    /\n\s*onLage: \(\) => \{\n\s*notifyStatusChanged\(\);\n\s*meldeNdi\(ndiStateKv\(ndiLage\.quellen\(\), ndiLage\.programmLage\(\)\)\);\n\s*\},\n/.test(index));
+}
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

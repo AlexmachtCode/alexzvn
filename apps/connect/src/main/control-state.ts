@@ -1,5 +1,6 @@
-// STATE von JM Connect aus zwei Teilen (Spec 11.3): Den Raum-Teil (room, onair, lobby, active_label …)
-// meldet der Operator-Renderer, den Zoom-Teil (zoom_status … zoom_cmd_rejected) die Zoom-Hülle. Jeder
+// STATE von JM Connect aus drei Teilen (Spec 11.3; Plan C 22.6): Den Raum-Teil (room, onair, lobby, active_label …)
+// meldet der Operator-Renderer, den Zoom-Teil (zoom_status … zoom_cmd_rejected) die Zoom-Hülle, den NDI-Teil
+// (ndi_sources, ndi_failed, ndi_program, ndi_alarm) die NDI-Lage im Main (index.ts, onLage). Jeder
 // Push ersetzt nur seinen Teil; gesendet wird immer die Mischung. Vorher ersetzte jeder Renderer-Push den
 // ganzen STATE und hätte die zoom_*-Werte gelöscht.
 // Rein (G8: kein electron, keine Aliase), damit control-state.test.ts den Ablauf prüfen kann.
@@ -10,9 +11,12 @@ export type Kv = Record<string, string | number | boolean>;
 /** Startwerte des Raum-Teils, bevor der Renderer zum ersten Mal meldet (wie bisher in control-server.ts). */
 export const RAUM_START: Kv = { room: '', onair: 0, lobby: 0, guests: 0, talkback: 0 };
 
-/** Raum-Teil und Zoom-Teil zu einem STATE. Die Schlüssel überschneiden sich nicht (zoom_* gehört nur Zoom). */
-export function mischeState(raum: Kv, zoom: Kv): Kv {
-  return { ...raum, ...zoom };
+/**
+ * Raum-, Zoom- und NDI-Teil zu einem STATE. Die Schlüssel überschneiden sich nicht (zoom_* gehört nur Zoom, ndi_* nur der
+ * NDI-Lage, 22.6). Ohne NDI-Teil (Aufrufe von vor Plan C) wie bisher.
+ */
+export function mischeState(raum: Kv, zoom: Kv, ndi: Kv = {}): Kv {
+  return { ...raum, ...zoom, ...ndi };
 }
 
 export interface StateSpeicher {
@@ -20,15 +24,18 @@ export interface StateSpeicher {
   raum(kv: Kv): void;
   /** Zoom-Hülle: ersetzt nur den Zoom-Teil, dann senden. `{}` ohne Zoom-Kern (macOS). */
   zoom(kv: Kv): void;
+  /** NDI-Lage (Plan C, 22.6): ersetzt nur den NDI-Teil (ndi_*), dann senden. Auf beiden Plattformen, ab dem Start. */
+  ndi(kv: Kv): void;
   /** Der aktuelle gemischte Stand (Kopie). */
   aktuell(): Kv;
 }
 
-/** Hält beide Teile und ruft `senden` nach jedem Push mit der Mischung (eine neue Kopie je Aufruf). */
+/** Hält die drei Teile und ruft `senden` nach jedem Push mit der Mischung (eine neue Kopie je Aufruf). */
 export function erzeugeStateSpeicher(senden: (kv: Kv) => void, raumStart: Kv = RAUM_START): StateSpeicher {
   let raumKv: Kv = { ...raumStart };
   let zoomKv: Kv = {};
-  const schicke = (): void => senden(mischeState(raumKv, zoomKv));
+  let ndiKv: Kv = {};
+  const schicke = (): void => senden(mischeState(raumKv, zoomKv, ndiKv));
   return {
     raum(kv) {
       raumKv = { ...kv };
@@ -38,7 +45,11 @@ export function erzeugeStateSpeicher(senden: (kv: Kv) => void, raumStart: Kv = R
       zoomKv = { ...kv };
       schicke();
     },
-    aktuell: () => mischeState(raumKv, zoomKv),
+    ndi(kv) {
+      ndiKv = { ...kv };
+      schicke();
+    },
+    aktuell: () => mischeState(raumKv, zoomKv, ndiKv),
   };
 }
 

@@ -127,7 +127,7 @@ for (const v of ['0', '', '-1', '01', '1.5', '2 ', 'aus', 'false', undefined]) e
 const C = CAPABILITIES.connect
 eq(KNOWN_ROLES.includes('connect'), true, 'Rolle connect ist im Modul wählbar (KNOWN_ROLES)')
 eq(C?.label ?? null, 'JM Connect', 'Rolle connect heißt „JM Connect“')
-eq(C ? [C.actions.length, C.variables.length, C.feedbacks.length] : null, [16, 128, 9], 'connect: 16 Aktionen, 128 Variablen, 9 Feedbacks (9/9/3 + Zoom samt Slots, Spec 11.7)')
+eq(C ? [C.actions.length, C.variables.length, C.feedbacks.length] : null, [16, 132, 10], 'connect: 16 Aktionen, 132 Variablen, 10 Feedbacks (9/9/3 + Zoom samt Slots, Spec 11.7; + 4 NDI-Variablen und das Feedback ndi_alarm, Spec 22.6)')
 eq(['zoom_load', 'zoom_unload', 'zoom_delay'].every((id) => C?.actions.some((a) => a.id === id && a.verb === id)), true, 'connect: zoom_load, zoom_unload, zoom_delay')
 eq(['graphic', 'slot'].every((id) => CAPABILITIES.titler.actions.some((a) => a.id === id)), true, 'titler: graphic und slot')
 const zl = C?.actions.find((a) => a.id === 'zoom_load')
@@ -213,6 +213,23 @@ eq(
     [true, true, false],
     'main.js: Feedbacks über feedbackAn, Presets über presetFeedbacks, kein wörtlicher stateKey mehr',
   )
+}
+
+// ── NDI (Connect 0.4.0, Spec 22.6, T136, PK52): Variablen und Feedback kommen über den Sync ins Modul ──
+eq(
+  C ? C.variables.slice(128).map((v) => [v.id, v.label]) : null,
+  [
+    ['ndi_sources', 'NDI: Gast-Quellen, die bestehen (Anzahl)'],
+    ['ndi_failed', 'NDI: ausgefallene Gast-Quellen (Anzahl)'],
+    ['ndi_program', 'NDI: Programm-Empfang (aus/sucht/keine_quelle/verbunden/ohne_bild/staut/fehler/neustart/gescheitert)'],
+    ['ndi_alarm', 'NDI: Ausfall in Connect (1/0)'],
+  ],
+  'connect: S T136 vier NDI-Variablen wörtlich, hinter den Slot-Variablen (22.6)',
+)
+{
+  const na = C?.feedbacks.find((f) => f.id === 'ndi_alarm')
+  eq(na ? [na.label, na.stateKey, na.match, na.arg ?? null] : null, ['Connect: NDI-Ausfall', 'ndi_alarm', 'truthy', null], 'connect: S T136 Feedback „Connect: NDI-Ausfall“ auf ndi_alarm, truthy, ohne Argument')
+  eq(na ? [feedbackAn(na, {}, { ndi_alarm: '1' }), feedbackAn(na, {}, { ndi_alarm: '0' })] : null, [true, false], 'Feedback ndi_alarm: an bei 1, aus bei 0 (22.6)')
 }
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`)

@@ -5,16 +5,16 @@ import { createMainWindow, getMainWindow, resourcePath, setupSingleInstance } fr
 import { IPC } from '@shared/ipc';
 import type { TrayCommand } from '@shared/types';
 import { registerIpc, notifyStatusChanged, currentStatus } from './ipc';
-import { erzeugeNdiLage, type NdiHandlung } from './ndi-lage';
+import { erzeugeNdiLage, ndiStateKv, type NdiHandlung } from './ndi-lage';
 import { gastHandlung, initNdiGuests, tearDownAll } from './ndi-guests';
 import { initNdiProgram, programmHandlung, stopProgram } from './ndi-program';
 import { createPeerWindow, destroyPeerWindow, getPeerWindow } from './peer-window';
-import { startControlServer, stopControlServer } from './control-server';
+import { setNdiControlState, startControlServer, stopControlServer } from './control-server';
 import { createTray, destroyTray, setTrayStatus } from './tray';
 import { handleShowDeepLink } from './show-open';
 import { startPresenterLink, stopPresenterLink } from './presenter-link';
 import { startZoom, verdrahteZoomFenster, zoomBeenden, zoomGastLabelsGeaendert, zoomLaeuft, zoomSteuerbefehl, zoomVerlassen } from './zoom';
-import { leiteSteuerbefehl } from './control-state';
+import { aenderungsMelder, leiteSteuerbefehl } from './control-state';
 import { BEENDEN_FRIST_MS } from './zoom/kern';
 
 declare const __dirname: string;
@@ -91,6 +91,8 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     // Eine NDI-Lage für alle Gast-Quellen und den Programm-Empfang (Plan C, C-EP1, E52), auf der monotonen Uhr (E50, PK55).
     // onLage: jede Änderung der öffentlichen Lage (und einmal beim Start) → Status an Fenster und Tray.
     // onNamen: die Namensliste für T46 hat sich geändert → die Kollisionsprüfung Gast ↔ Zoom neu rechnen (Spec 6.3, E42).
+    // STATE-Teil `ndi` (22.6, E52): nur bei Änderung; der erste onLage beim Start meldet ihn immer, auch unter macOS.
+    const meldeNdi = aenderungsMelder(setNdiControlState);
     const ndiLage = erzeugeNdiLage({
       jetzt: () => performance.now(),
       peerDa: () => {
@@ -99,6 +101,7 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
       },
       onLage: () => {
         notifyStatusChanged();
+        meldeNdi(ndiStateKv(ndiLage.quellen(), ndiLage.programmLage()));
       },
       onNamen: () => zoomGastLabelsGeaendert(),
     });

@@ -798,7 +798,12 @@ var CAPABILITIES = {
       { id: "zoom_alarm", label: "Zoom: Eingriff n\xF6tig (1/0)" },
       { id: "zoom_cmd", label: "Zoom: Ergebnis des letzten Zoom-Befehls (ok, f1 \u2026 f14)" },
       { id: "zoom_cmd_rejected", label: "Zoom: letzter Zoom-Befehl abgelehnt (1/0)" },
-      ...zoomSlotVariablen()
+      ...zoomSlotVariablen(),
+      // NDI (Connect 0.4.0, Spec 22.6, T136): STATE-Teil `ndi` des Mains, auf beiden Plattformen in jedem Zustand.
+      { id: "ndi_sources", label: "NDI: Gast-Quellen, die bestehen (Anzahl)" },
+      { id: "ndi_failed", label: "NDI: ausgefallene Gast-Quellen (Anzahl)" },
+      { id: "ndi_program", label: "NDI: Programm-Empfang (aus/sucht/keine_quelle/verbunden/ohne_bild/staut/fehler/neustart/gescheitert)" },
+      { id: "ndi_alarm", label: "NDI: Ausfall in Connect (1/0)" }
     ],
     feedbacks: [
       // onair und lobby sind Anzahlen: 'truthy' leuchtet bei jeder positiven ganzen Zahl (17.2 Nr. 2).
@@ -811,7 +816,9 @@ var CAPABILITIES = {
       // Zoom-Slots (Spec 8.1): {slot} im stateKey löst das Modul aus der Option „slot“ auf (8.5 Nr. 3).
       { id: "zoom_slot_on", label: "Connect: Zoom-Slot eingeschaltet", stateKey: "zoom_slot{slot}_on", match: "truthy", arg: slotArg, bgcolor: YELLOW, color: BLACK },
       { id: "zoom_slot_live", label: "Connect: Zoom-Slot zeigt Bild", stateKey: "zoom_slot{slot}_live", match: "truthy", arg: slotArg, bgcolor: GREEN, color: WHITE },
-      { id: "zoom_slot_alarm", label: "Connect: Zoom-Slot braucht einen Eingriff", stateKey: "zoom_slot{slot}_alarm", match: "truthy", arg: slotArg, bgcolor: RED, color: WHITE }
+      { id: "zoom_slot_alarm", label: "Connect: Zoom-Slot braucht einen Eingriff", stateKey: "zoom_slot{slot}_alarm", match: "truthy", arg: slotArg, bgcolor: RED, color: WHITE },
+      // NDI (22.6): 1 bei einem Ausfall einer Gast-Quelle oder des Programm-Empfangs (fehler, staut, neustart, gescheitert).
+      { id: "ndi_alarm", label: "Connect: NDI-Ausfall", stateKey: "ndi_alarm", match: "truthy", bgcolor: RED, color: WHITE }
     ]
   }
 };
