@@ -362,6 +362,257 @@ console.log('— C1 E35: Logzeilen ohne Namen, mit Generation und PID');
   ck('C1 E35 Absturz: Code und Neustarts im Log', zeilen.some((z) => z.includes('sendet → neustart, Code 1, Neustarts 1')));
 }
 
+// ── Testhilfen Programm-Empfang (Plan C, Task C2) ──
+const { leseProgrammMeldung, programmBildLage } = await import('../src/main/ndi-lage');
+type ProgrammMeldungT = import('../src/main/ndi-lage').ProgrammMeldung;
+const PB: ProgrammMeldungT = { type: 'bereit' };
+const HINWEIS = 'JM Switcher Regie';
+/** Programm-Zustand kurz: „sucht“, „gescheitert/init“. */
+function pz(l: NdiLage): string {
+  const p = l.programmLage();
+  return p.grund ? `${p.zustand}/${p.grund}` : p.zustand;
+}
+/** Start mit Peer und „bereit“; gibt die Generation des laufenden Prozesses zurück. */
+function programmBereit(t: TestLage, hinweis = HINWEIS): number {
+  const g = gen(t.lage.programmStart(hinweis));
+  t.lage.programmMeldung(g, PB);
+  return g;
+}
+/** Absturz nach „bereit“, 1 s warten, `tick()`: gibt die Generation des neuen Prozesses zurück. */
+function programmNeustartNachAbsturz(t: TestLage, g: number, code = 1): number {
+  t.lage.programmExit(g, code);
+  t.s.t += 1000;
+  return gen(t.lage.tick());
+}
+
+console.log('— C2 PK44: Programm-Lage und Lebenslauf');
+{
+  const t = testLage();
+  ck('C2 PK44 vor dem Start: aus, k 0, ohne Quelle und Hinweis, nicht bereit',
+    gleich(t.lage.programmLage(), { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: '', bereit: false }));
+  const h = t.lage.programmStart(HINWEIS);
+  ck('C2 PK44 Start → sucht, hinweis aus dem Start in der Lage, Handlung „Prozess starten“ (Generation 1)',
+    pz(t.lage) === 'sucht' && t.lage.programmLage().hinweis === HINWEIS && !t.lage.programmLage().bereit
+    && gleich(kurz(h), ['starten programm programm G1']));
+  t.lage.programmMeldung(1, PB);
+  ck('C2 PK44 bereit → weiter sucht, bereit', pz(t.lage) === 'sucht' && t.lage.programmLage().bereit);
+  t.lage.programmMeldung(1, { type: 'lage', zustand: 'keineQuelle' });
+  ck('C2 PK44 lage keineQuelle → keineQuelle ohne Quelle', pz(t.lage) === 'keineQuelle' && t.lage.programmLage().quelle === null);
+  t.lage.programmMeldung(1, { type: 'lage', zustand: 'verbunden', quelle: 'REGIE-PC (JM Switcher Regie)' });
+  ck('C2 PK44 lage verbunden → verbunden mit Quelle', pz(t.lage) === 'verbunden' && t.lage.programmLage().quelle === 'REGIE-PC (JM Switcher Regie)');
+  ck('C2 PK44 lage ohne Wechsel → keine Handlung', gleich(t.lage.programmMeldung(1, { type: 'lage', zustand: 'verbunden', quelle: 'REGIE-PC (JM Switcher Regie)' }), []));
+  const he = t.lage.programmExit(1, 1);
+  ck('C2 PK44 Absturz nach bereit → neustart, k = 1, Code 1, Quelle leer, Handlung „in 1 s neu starten“',
+    pz(t.lage) === 'neustart' && t.lage.programmLage().k === 1 && t.lage.programmLage().code === 1 && t.lage.programmLage().quelle === null
+    && gleich(kurz(he), ['planen programm programm 1000']));
+  t.s.t += 999;
+  ck('C2 PK44 tick nach 999 ms → noch kein neuer Prozess', gleich(kurz(t.lage.tick()), []) && pz(t.lage) === 'neustart');
+  t.s.t += 1;
+  const hn = t.lage.tick();
+  ck('C2 PK44 tick nach 1000 ms → neuer Prozess, weiter neustart (nie aus), k bleibt 1, Hinweis bleibt',
+    gleich(kurz(hn), ['starten programm programm G2']) && pz(t.lage) === 'neustart' && t.lage.programmLage().k === 1
+    && t.lage.programmLage().hinweis === HINWEIS);
+  t.lage.programmMeldung(2, PB);
+  ck('C2 PK44 neuer Prozess bereit → sucht, k bleibt 1', pz(t.lage) === 'sucht' && t.lage.programmLage().k === 1);
+  const g3 = programmNeustartNachAbsturz(t, 2);
+  t.lage.programmMeldung(g3, PB);
+  ck('C2 PK44 zweiter Absturz in Folge → k = 2', t.lage.programmLage().k === 2);
+  const g4 = programmNeustartNachAbsturz(t, g3);
+  t.lage.programmMeldung(g4, PB);
+  ck('C2 PK44 dritter Absturz in Folge → k = 3', t.lage.programmLage().k === 3);
+  ck('C2 PK44 vierter Absturz in Folge → gescheitert/absturz mit Code 4, kein Neustart',
+    gleich(kurz(t.lage.programmExit(g4, 4)), []) && pz(t.lage) === 'gescheitert/absturz' && t.lage.programmLage().code === 4);
+
+  for (const [ms, k] of [[59_999, 2], [60_000, 1]] as const) {
+    const r = testLage();
+    const r1 = programmBereit(r);
+    const r2 = programmNeustartNachAbsturz(r, r1);
+    r.lage.programmMeldung(r2, PB);
+    r.s.t += ms;
+    r.lage.tick();
+    r.lage.programmExit(r2, 1);
+    ck(`C2 PK44 ${ms} ms Leben nach bereit, dann Absturz → neustart mit k = ${k}`, r.lage.programmLage().k === k && pz(r.lage) === 'neustart');
+  }
+
+  const s = testLage();
+  s.lage.programmStart(HINWEIS);
+  ck('C2 PK44 Ende vor bereit → gescheitert/startAbbruch mit Code 2, kein Neustart',
+    gleich(kurz(s.lage.programmExit(1, 2)), []) && pz(s.lage) === 'gescheitert/startAbbruch' && s.lage.programmLage().code === 2);
+  s.s.t += 5000;
+  ck('C2 PK44 … auch nach 5 s kein Prozessstart', gleich(kurz(s.lage.tick()), []));
+  for (const grund of ['init', 'addon', 'unbekannt'] as const) {
+    const a = testLage();
+    a.lage.programmStart(HINWEIS);
+    const ha = a.lage.programmMeldung(1, { type: 'abbruch', grund, text: 'x' });
+    ck(`C2 PK44 abbruch {${grund}} → gescheitert/${grund}, Handlung „Prozess beenden“`,
+      pz(a.lage) === `gescheitert/${grund}` && gleich(kurz(ha), ['beenden programm programm G1']));
+    ck(`C2 PK44 abbruch {${grund}}: das folgende exit ändert nichts`, gleich(a.lage.programmExit(1, 1), []) && pz(a.lage) === `gescheitert/${grund}`);
+  }
+
+  const st = testLage();
+  const st1 = programmBereit(st);
+  st.lage.programmMeldung(st1, { type: 'lage', zustand: 'verbunden', quelle: 'Q' });
+  const hs = st.lage.programmStop();
+  ck('C2 PK44 programmStop → aus, Handlung „Prozess beenden“, Hinweis bleibt',
+    gleich(st.lage.programmLage(), { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: HINWEIS, bereit: false })
+    && gleich(kurz(hs), ['beenden programm programm G1']));
+  ck('C2 PK44 ein exit nach programmStop ist kein Absturz (bleibt aus)', gleich(st.lage.programmExit(st1, 1), []) && pz(st.lage) === 'aus');
+  ck('C2 PK44 programmStop in aus → nichts', gleich(st.lage.programmStop(), []));
+  const sn = testLage();
+  sn.lage.programmExit(programmBereit(sn), 1);
+  ck('C2 PK44 programmStop in neustart (Neustart geplant) → aus ohne „Prozess beenden“', gleich(kurz(sn.lage.programmStop()), []) && pz(sn.lage) === 'aus');
+  sn.s.t += 1000;
+  ck('C2 PK44 … der geplante Neustart entfällt', gleich(kurz(sn.lage.tick()), []) && pz(sn.lage) === 'aus');
+
+  const so = testLage();
+  const so1 = programmBereit(so);
+  so.lage.programmMeldung(so1, { type: 'lage', zustand: 'verbunden', quelle: 'Q' });
+  for (const roh of [{ type: 'stopped' }, { type: 'status', state: 'stopped' }, { type: 'status', state: 'off' }]) {
+    const m = leseProgrammMeldung(roh);
+    if (!('verworfen' in m)) so.lage.programmMeldung(so1, m);
+  }
+  ck('C2 PK44 stopped und status des Utility ändern nichts (verbunden bleibt)', pz(so.lage) === 'verbunden' && so.lage.programmLage().quelle === 'Q');
+
+  const kp = testLage(false);
+  ck('C2 PK44 Start ohne Peer-Fenster → gescheitert/keinPeer ohne Prozess, Hinweis gesetzt',
+    gleich(kurz(kp.lage.programmStart(HINWEIS)), []) && pz(kp.lage) === 'gescheitert/keinPeer' && kp.lage.programmLage().hinweis === HINWEIS);
+  ck('C2 PK44 Programm neu starten, Peer weiter weg → bleibt gescheitert/keinPeer', gleich(kurz(kp.lage.programmNeustart()), [])
+    && pz(kp.lage) === 'gescheitert/keinPeer');
+  kp.s.peer = true;
+  ck('C2 PK44 Programm neu starten mit Peer → sucht mit Prozess', gleich(kurz(kp.lage.programmNeustart()), ['starten programm programm G1'])
+    && pz(kp.lage) === 'sucht');
+  const kn = testLage();
+  kn.lage.programmExit(programmBereit(kn), 1);
+  kn.s.peer = false;
+  kn.s.t += 1000;
+  ck('C2 PK44 geplanter Neustart ohne Peer-Fenster → gescheitert/keinPeer, kein Prozess', gleich(kurz(kn.lage.tick()), [])
+    && pz(kn.lage) === 'gescheitert/keinPeer');
+
+  const lagen: [string, (t: TestLage) => void][] = [
+    ['aus', () => {}],
+    ['sucht', (x) => { x.lage.programmStart(HINWEIS); }],
+    ['verbunden', (x) => { x.lage.programmMeldung(programmBereit(x), { type: 'lage', zustand: 'verbunden', quelle: 'Q' }); }],
+    ['neustart', (x) => { x.lage.programmExit(programmBereit(x), 1); }],
+  ];
+  for (const [name, bringe] of lagen) {
+    const x = testLage();
+    bringe(x);
+    const vorher = JSON.stringify(x.lage.programmLage());
+    ck(`C2 PK44 Programm neu starten in ${name} → nichts`, gleich(x.lage.programmNeustart(), []) && JSON.stringify(x.lage.programmLage()) === vorher);
+  }
+  const gs = testLage();
+  const gs1 = programmBereit(gs);
+  const gs2 = programmNeustartNachAbsturz(gs, gs1);
+  gs.lage.programmExit(gs2, 1);
+  const hg = gs.lage.programmNeustart();
+  ck('C2 PK44 Programm neu starten in gescheitert → sucht, k 0, Grund und Code leer, neuer Prozess (Generation 3)',
+    gleich(gs.lage.programmLage(), { zustand: 'sucht', grund: null, code: null, k: 0, quelle: null, hinweis: HINWEIS, bereit: false })
+    && gleich(kurz(hg), ['starten programm programm G3']));
+
+  const pr = testLage();
+  const pr1 = programmBereit(pr);
+  const pr2 = programmNeustartNachAbsturz(pr, pr1);
+  const hp = pr.lage.programmStart('Anderer Hinweis');
+  ck('C2 PK44 Start bei laufendem Empfang: der alte Prozess endet, ein neuer startet, k 0, neuer Hinweis',
+    gleich(kurz(hp), [`beenden programm programm G${pr2}`, `starten programm programm G${pr2 + 1}`]) && pz(pr.lage) === 'sucht'
+    && pr.lage.programmLage().k === 0 && pr.lage.programmLage().hinweis === 'Anderer Hinweis');
+  ck('C2 PK44 alte Generation: bereit, lage, abbruch und exit ändern nichts',
+    gleich(pr.lage.programmMeldung(pr2, PB), []) && gleich(pr.lage.programmMeldung(pr2, { type: 'lage', zustand: 'verbunden', quelle: 'Q' }), [])
+    && gleich(pr.lage.programmMeldung(pr2, { type: 'abbruch', grund: 'init', text: '' }), []) && gleich(pr.lage.programmExit(pr2, 1), [])
+    && pz(pr.lage) === 'sucht' && !pr.lage.programmLage().bereit);
+  const vb = testLage();
+  vb.lage.programmStart(HINWEIS);
+  ck('C2 PK44 lage vor bereit → nichts', gleich(vb.lage.programmMeldung(1, { type: 'lage', zustand: 'verbunden', quelle: 'Q' }), [])
+    && pz(vb.lage) === 'sucht');
+}
+
+console.log('— C2 PK45: Bildwache programmBildLage an den Grenzen');
+{
+  const w = (jetzt: number, verbundenSeit: number, letztesBild: number | null, wartetSeit: number | null): string =>
+    programmBildLage({ jetzt, verbundenSeit, letztesBild, wartetSeit });
+  ck('C2 PK45 frisch verbunden ohne Bild, 2999 ms → verbunden', w(12_999, 10_000, null, null) === 'verbunden');
+  ck('C2 PK45 frisch verbunden ohne Bild, 3000 ms → ohneBild', w(13_000, 10_000, null, null) === 'ohneBild');
+  ck('C2 PK45 letztes Bild vor 2999 ms → verbunden', w(22_999, 10_000, 20_000, null) === 'verbunden');
+  ck('C2 PK45 letztes Bild vor 3000 ms → ohneBild', w(23_000, 10_000, 20_000, null) === 'ohneBild');
+  ck('C2 PK45 neu verbunden nach einem alten Bild: ab dem Verbinden gerechnet (2999 ms → verbunden)', w(32_999, 30_000, 20_000, null) === 'verbunden');
+  ck('C2 PK45 ein Bild wartet 2999 ms, Bild in den letzten 3 s → verbunden', w(22_999, 10_000, 22_500, 20_000) === 'verbunden');
+  ck('C2 PK45 ein Bild wartet 3000 ms, Bild in den letzten 3 s → staut', w(23_000, 10_000, 22_500, 20_000) === 'staut');
+  ck('C2 PK45 wartet 5 s, seit 3 s kein Bild → ohneBild', w(25_000, 10_000, 22_000, 20_000) === 'ohneBild');
+  ck('C2 PK45 erstes Bild nach einer Pause (wartet 0 s) → verbunden', w(40_000, 10_000, 40_000, 40_000) === 'verbunden');
+  ck('C2 PK45 staut, dann Bestätigung (nichts wartet mehr) → verbunden', w(23_000, 10_000, 22_500, null) === 'verbunden');
+}
+
+console.log('— C2 PK54: Leser der Programm-Leitung');
+{
+  const verworfen = (r: unknown): boolean => typeof r === 'object' && r !== null && 'verworfen' in r
+    && typeof (r as { verworfen: unknown }).verworfen === 'string';
+  ck('C2 PK54 bereit → bereit', gleich(leseProgrammMeldung({ type: 'bereit' }), { type: 'bereit' }));
+  for (const grund of ['addon', 'init'] as const) {
+    ck(`C2 PK54 abbruch {${grund}} → abbruch {${grund}}`, gleich(leseProgrammMeldung({ type: 'abbruch', grund, text: 'x' }), { type: 'abbruch', grund, text: 'x' }));
+  }
+  ck('C2 PK54 abbruch {sender} (nur Gast) → Grund unbekannt', gleich(leseProgrammMeldung({ type: 'abbruch', grund: 'sender' }),
+    { type: 'abbruch', grund: 'unbekannt', text: '' }));
+  for (const zustand of ['sucht', 'keineQuelle'] as const) {
+    ck(`C2 PK54 lage ${zustand} → lage ${zustand}`, gleich(leseProgrammMeldung({ type: 'lage', zustand }), { type: 'lage', zustand }));
+  }
+  ck('C2 PK54 lage sucht mit Quelle → ohne Quelle übernommen', gleich(leseProgrammMeldung({ type: 'lage', zustand: 'sucht', quelle: 'Q' }),
+    { type: 'lage', zustand: 'sucht' }));
+  for (const zustand of ['verbunden', 'ohneBild', 'staut', 'fehler'] as const) {
+    ck(`C2 PK54 lage ${zustand} mit Quelle → lage ${zustand} mit Quelle`,
+      gleich(leseProgrammMeldung({ type: 'lage', zustand, quelle: 'Q' }), { type: 'lage', zustand, quelle: 'Q' }));
+    ck(`C2 PK54 lage ${zustand} ohne Quelle oder mit leerer Quelle → verworfen`,
+      verworfen(leseProgrammMeldung({ type: 'lage', zustand })) && verworfen(leseProgrammMeldung({ type: 'lage', zustand, quelle: '' })));
+  }
+  for (const zustand of ['aus', 'neustart', 'gescheitert', 'stopped', 'connected', 7]) {
+    ck(`C2 PK54 lage mit unbekanntem Zustand ${String(zustand)} → verworfen`, verworfen(leseProgrammMeldung({ type: 'lage', zustand, quelle: 'Q' })));
+  }
+  ck('C2 PK54 alte Meldungen status und stopped, dazu video → verworfen', verworfen(leseProgrammMeldung({ type: 'status', state: 'connected' }))
+    && verworfen(leseProgrammMeldung({ type: 'stopped' })) && verworfen(leseProgrammMeldung({ type: 'video' })));
+  ck('C2 PK54 keine Nachricht → verworfen', verworfen(leseProgrammMeldung(null)) && verworfen(leseProgrammMeldung('lage')));
+}
+
+console.log('— C2 KF11: programmLage mit abweichenden Werten');
+{
+  const t = testLage();
+  const g1 = programmBereit(t, 'Regie-PGM');
+  const g2 = programmNeustartNachAbsturz(t, g1);
+  t.lage.programmMeldung(g2, PB);
+  t.lage.programmMeldung(g2, { type: 'lage', zustand: 'fehler', quelle: 'REGIE (Regie-PGM)' });
+  ck('C2 KF11 fehler nach einem Neustart: Zustand, k, Quelle, Hinweis, bereit',
+    gleich(t.lage.programmLage(), { zustand: 'fehler', grund: null, code: null, k: 1, quelle: 'REGIE (Regie-PGM)', hinweis: 'Regie-PGM', bereit: true }));
+  const g3 = programmNeustartNachAbsturz(t, g2, 7);
+  t.lage.programmExit(g3, 6);
+  ck('C2 KF11 gescheitert/startAbbruch: Grund, Code 6, k 2, Hinweis bleibt',
+    gleich(t.lage.programmLage(), { zustand: 'gescheitert', grund: 'startAbbruch', code: 6, k: 2, quelle: null, hinweis: 'Regie-PGM', bereit: false }));
+  const kopie = t.lage.programmLage();
+  kopie.zustand = 'aus';
+  ck('C2 KF11 programmLage liefert eine Kopie', pz(t.lage) === 'gescheitert/startAbbruch');
+}
+
+console.log('— C2 E35: Logzeilen des Programm-Empfangs ohne NDI-Namen, mit Generation und PID');
+{
+  const t = testLage();
+  const alle: NdiHandlung[] = [];
+  alle.push(...t.lage.programmStart('Regie-PGM'));
+  // Die Hülle meldet die PID ab `spawn`, vor „bereit“ (C-EB4).
+  t.lage.prozessPid(1, 5001);
+  alle.push(...t.lage.programmMeldung(1, PB));
+  alle.push(...t.lage.programmMeldung(1, { type: 'lage', zustand: 'verbunden', quelle: 'REGIE (Regie-PGM)' }), ...t.lage.programmExit(1, 1));
+  t.s.t += 1000;
+  const hn = t.lage.tick();
+  alle.push(...hn);
+  t.lage.prozessPid(1, 5998);
+  t.lage.prozessPid(gen(hn), 5002);
+  alle.push(...t.lage.programmMeldung(2, { type: 'abbruch', grund: 'init', text: 'NDIlib_initialize fehlgeschlagen' }));
+  alle.push(...t.lage.programmNeustart(), ...t.lage.programmStop());
+  const zeilen = logs(alle);
+  ck('C2 E35 jeder Zustandswechsel des Programms schreibt eine Logzeile (8)', zeilen.length === 8);
+  ck('C2 E35 keine Logzeile nennt Quelle oder Hinweis', zeilen.every((z) => !z.includes('Regie') && !z.includes('REGIE')));
+  ck('C2 E35 jede Logzeile nennt Generation und PID', zeilen.every((z) => /^\[ndi-lage\] Programm \(Generation \d+, PID (\d+|–)\): /.test(z)));
+  ck('C2 E35 PID der eigenen Generation ab prozessPid, „–“ davor und ab jedem neuen Prozess; eine andere Generation ändert sie nicht',
+    gleich(zeilen.map((z) => / PID (\d+|–)\): /.exec(z)?.[1] ?? '?'), ['–', '5001', '5001', '5001', '–', '5002', '–', '–']));
+  ck('C2 E35 Abbruch: Grund und Text der Meldung im Log', zeilen.some((z) => z.includes('Grund init') && z.includes('NDIlib_initialize fehlgeschlagen')));
+}
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
