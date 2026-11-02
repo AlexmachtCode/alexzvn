@@ -2937,3 +2937,34 @@ Hinweis zu Regel G: Ein Eintrag ohne Gastzeile (etwa wenn ein `tearDown` ausblie
 | LQ24 | Homebrew, `unpack_strategy/dmg.rb` (übergibt „qn“ auf stdin und schließt aus Erfolg, dass kein Lizenzvertrag im DMG ist): `https://raw.githubusercontent.com/Homebrew/brew/HEAD/Library/Homebrew/unpack_strategy/dmg.rb` (Gegenprüfung) |
 
 Einschränkung (Ist-Karte Lizenz, Abschnitt 9): Wörtlich vollständig sind nur die Lizenz-PDFs (LQ2, LQ3, LQ22, je eigene Textausgabe) sowie LQ12 und LQ14; von LQ21 sind die Abschnitte 3, 4, 6.1 und 12.3 aus einer eigenen Textausgabe gelesen; die übrigen Seiten liegen über ein Hilfsmodell gekürzt vor, LQ6 nur sinngemäß.
+
+## 23 · Nachtrag #277: Tray-Symbol unter macOS (Owner-Entscheid 21.10.2026)
+
+**Status:** Owner-Entscheid vom 21.10.2026 (18:58) zu Issue #277: „ja in 0.4.0“. Eingetragen mit Plan C, Task C20. Der Inhalt dieses Abschnitts (E59, PK61, Gruppe M, AN39–AN41, Rückfall) ist vom Owner freigegeben am 28.10.2026, 09:32 („passt alles“). Kein neuer Text: Tooltip und Menü des Tray bleiben, wie 9.5 und 22.9 sie festlegen. Neu sind hier E59, PK61, die Abnahme-Gruppe M (M1–M3) und die Annahmen AN39–AN41.
+
+**Befund** (am Code gemessen, am Mac noch nicht bestätigt): Issue #277 meldet für JM Connect 0.3.0 unter macOS (darwin 25.5.0) ein JM-Logo in bzw. über der Menüleiste und vermutet die Fenster-Insets. Im Fenster gibt es kein Logo-Bild: Die Kopfzeile ist Text, das einzige Bild ist der QR-Code. `apps/connect/src/main/tray.ts` gibt dem Tray aber `resources/icon.png` unverkleinert, 1024 × 1024 px, eine fast ganz deckende dunkle Kachel mit Marke und Abzeichen; unter macOS steht das Tray-Symbol in der Menüleiste. Das große Logo ist also das Tray-Symbol. Unter Windows bekommt das Tray dieselbe Datei; wie Windows sie zeichnet, ist ungemessen, und das Issue nennt Windows nicht.
+
+**E59 · Tray-Symbol je Plattform:**
+- macOS: ein Vorlagenbild ohne Kachel, 18 × 18 pt (scaleFactor 1) mit einer Retina-Fassung von 36 × 36 px (scaleFactor 2), jedes Pixel schwarz, die Zeichnung nur im Alpha, die vier Ecken und der äußere Pixelring durchsichtig, markiert mit `setTemplateImage(true)`, ohne `resize`. Ein reines Modul (`apps/connect/src/main/tray-symbol.ts`) zeichnet es zur Laufzeit; im Repo liegt dafür keine Bilddatei. Die Zeichnung ist V1, das Connect-Abzeichen vereinfacht (Bildschirm-Umriss, Gast, Verbindung); die Alternative V2, die JM-Marke allein wie beim Timer, hat der Owner mit OFC5 in Plan C verworfen (27.10.2026: V1).
+- Windows (und jede andere Plattform): unverändert wie 0.3.0, das Tray nimmt `resources/icon.png`.
+- Auf beiden Plattformen unverändert: Fenster-, Dock-, Paket- und Installer-Symbol (`iconPath()` dient auch dem Fenster), Tooltip, Menü und der Klick auf das Symbol.
+- Bleibt das Vorlagenbild leer, nimmt das Tray wie 0.3.0 `resources/icon.png` und schreibt eine Logzeile.
+
+**PK61 · Test** (ohne Electron, Glied der Connect-Kette): Das Modul erzeugt beide Fassungen; ein eigener PNG-Leser findet 18 × 18 bzw. 36 × 36 px, RGBA mit 8 Bit, in jedem Pixel RGB 0, Alpha nicht leer, Ecken und äußeren Ring durchsichtig, einen Anteil deckender Pixel (Alpha ≥ 128) zwischen 0,20 und 0,50, die Retina-Fassung auf 18 gerechnet gleich dem 18er (mittlere Abweichung unter 2 von 255) und bei zweimaligem Erzeugen dieselben Bytes, dazu die Zeichnung samt Lage wie die Vorschau (OFC5 in Plan C); dazu die Wahl je Plattform und Quelltext-Fälle: `setTemplateImage(true)` nur im macOS-Zweig und dort kein `resize`, bei leerem Vorlagenbild die Logzeile und der Rückfall, sonst `createFromPath` wie 0.3.0 und kein späteres `setImage` am Tray, `index.ts` unverändert. Je Fall eine Gegenprobe, darunter eine deckende Kachel, ein farbiges Pixel, eine falsche Größe, eine Zeichnung auf dem Kopf, ein fehlendes `setTemplateImage`, ein geänderter Windows-Zweig und ein nachträgliches `setImage`.
+
+**Voraussetzungen (Gruppe M):** der Mac aus Gruppe N mit Connect 0.4.0 aus dem Release (ND9), mit Retina-Bildschirm; die Darstellung umschaltbar unter „Systemeinstellungen › Erscheinungsbild“; der Raum-PC unter Windows mit Connect 0.4.0 (A1). Im Ergebnis von M1 die macOS-Version und den Bildschirm notieren (MacBook mit oder ohne Notch, externer Bildschirm), wie #277 sie verlangt; M1 und M2 wenn möglich auch auf dem Mac aus #277 (darwin 25.5.0) wiederholen. Gruppe M ist Pflicht.
+
+| # | Schritt | Erwartung |
+| --- | --- | --- |
+| M1 | Mac, Darstellung „Hell“: Connect starten, die Menüleiste ansehen, dann das Symbol einmal anklicken; hängt ein Bildschirm ohne Retina am Mac, dort ebenso | in der Menüleiste ein kleines Symbol (Bildschirm-Umriss mit Gast), so hoch wie die Nachbarsymbole, getönt wie sie, scharf, ohne Kachel und ohne Farbe; kein großes Logo in oder über der Menüleiste und keins im Fenster; der Klick wirkt wie in 0.3.0 (Menü bzw. Fenster) |
+| M2 | Mac, Darstellung „Dunkel“: wie M1 | das Symbol hell getönt wie die Nachbarsymbole, ohne Kachel; sonst wie M1 |
+| M3 | Windows: Connect 0.4.0 starten, das Symbol im Infobereich der Taskleiste ansehen, einmal klicken, dann das Kontextmenü öffnen | dasselbe Symbol wie unter 0.3.0; der Klick zeigt das Fenster, das Kontextmenü öffnet sich (seine Zeilen ändern sich in 0.4.0 gewollt und sind nicht Teil von M) |
+
+Mit M1 und M2 ist auch die Diagnose von #277 bestätigt: Das große Logo in der Menüleiste war das Tray-Symbol. Zeigt die Menüleiste weiter ein großes Logo, zuerst im Log („Logordner öffnen“) nach der Zeile „[tray] Vorlagenbild der Menüleiste ist leer (#277) …“ sehen: Steht sie da, ist es der Rückfall aus E59 (ein Ladefehler, die Diagnose trägt); fehlt sie oder sitzt das Logo im Fenster, trägt die Diagnose nicht. In beiden Fällen bleibt #277 offen.
+
+**Unbelegt** (das `electron.d.ts` von Electron 33.4.11 belegt nur `createFromBuffer` „Tries to decode as PNG or JPEG first“, `addRepresentation` mit `dataURL` „a base 64 encoded PNG or JPEG image“ und `setTemplateImage` „Marks the image as a macOS template image“):
+- AN39: macOS zeichnet auf Retina-Bildschirmen die Darstellung für scaleFactor 2 und sonst das 18er, in der Höhe der Nachbarsymbole (M1).
+- AN40: Ein Vorlagenbild zeigt macOS nur über sein Alpha, getönt passend zur hellen oder dunklen Menüleiste und beim Anklicken (M1, M2).
+- AN41: Unter Windows zeichnet das Tray `resources/icon.png` wie in 0.3.0 (M3; der Code ändert dort nichts, ungemessen ist nur die Darstellung).
+
+**Rückfall:** Trägt AN39 nicht (unscharf oder zu groß), nimmt ein eigener Plan-Punkt nur die Retina-Fassung als einzige Darstellung (scaleFactor 2); trägt AN40 nicht (das Symbol bleibt auf dunkler Leiste schwarz), bekommt das Tray je Darstellung ein eigenes Bild. Beides kommt nach der Abnahme, ohne neuen Text. Zeigt M1 weiter das große Logo, trennt die Logzeile des Rückfalls aus E59 einen Ladefehler (Zeile da) von einer falschen Diagnose (Zeile fehlt).

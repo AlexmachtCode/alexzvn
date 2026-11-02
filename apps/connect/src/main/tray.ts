@@ -3,9 +3,11 @@
 // Zoom-Meeting verlassen / Beenden. Die beiden Statuszeilen (Gäste, Zoom) und der Tooltip
 // kommen aus @shared/zoom-text, derselben Quelle wie die Kopfzeile (Spec 7.2–7.4).
 import { Menu, Tray, nativeImage, type BrowserWindow } from 'electron';
+import { getLog } from '@jm/app-runtime';
 import type { AppStatus, TrayCommand } from '@shared/types';
 import { APP_STATUS_START } from '@shared/app-status';
 import { gaesteZeile, trayTooltip, trayVerlassenAktiv, zoomZeile } from '@shared/zoom-text';
+import { traySymbolArt, trayVorlagePng } from './tray-symbol';
 
 let tray: Tray | null = null;
 let getWindow: () => BrowserWindow | null = () => null;
@@ -30,11 +32,28 @@ export function createTray(deps: TrayDeps): void {
   sendCommand = deps.sendCommand;
   onQuit = deps.onQuit;
   onZoomVerlassen = deps.onZoomVerlassen;
-  const img = nativeImage.createFromPath(deps.iconPath);
-  tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img);
+  tray = new Tray(trayBild(deps.iconPath));
   tray.on('click', showWindow);
   tray.on('double-click', showWindow);
   rebuild();
+}
+
+/**
+ * Tray-Bild (#277, Spec 23, E59). macOS: das Vorlagenbild ohne Kachel aus tray-symbol.ts, 18 pt (scaleFactor 1) mit der
+ * Retina-Fassung (36 px, scaleFactor 2), als Vorlagenbild markiert. Belegt im electron.d.ts sind createFromBuffer (PNG),
+ * addRepresentation mit dataURL (PNG) und setTemplateImage; wie macOS es zeichnet und tönt, ist unbelegt (AN39–AN41,
+ * Abnahme M1, M2). Bleibt das Bild leer, Rückfall wie 0.3.0 mit einer Logzeile. Sonst (Windows) unverändert wie 0.3.0.
+ */
+function trayBild(iconPath: string): Electron.NativeImage {
+  if (traySymbolArt(process.platform) === 'vorlage') {
+    const bild = nativeImage.createFromBuffer(trayVorlagePng(1), { scaleFactor: 1 });
+    bild.addRepresentation({ scaleFactor: 2, dataURL: `data:image/png;base64,${trayVorlagePng(2).toString('base64')}` });
+    bild.setTemplateImage(true);
+    if (!bild.isEmpty()) return bild;
+    getLog().warn('[tray] Vorlagenbild der Menüleiste ist leer (#277); Tray-Symbol wie 0.3.0 aus icon.png');
+  }
+  const img = nativeImage.createFromPath(iconPath);
+  return img.isEmpty() ? nativeImage.createEmpty() : img;
 }
 
 function showWindow(): void {

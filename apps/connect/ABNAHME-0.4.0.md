@@ -167,6 +167,18 @@ Je Stufe zeigt jeder Slot eine **eigene** Kamera-Quelle auf einem Teilnehmer-Slo
 | --- | --- | --- | --- |
 | L1 | „Einrichtung prüfen“, Warteraum und Einlass, Versatz per Klatschtest, zwei Browser-Gäste parallel zu 5 Slots, einer davon mit dem NDI-Namen eines Slots, Log durchsuchen nach Kenncode, Meeting-Nummer und Teilnehmernamen | wie in 0.3.0; T46 an der Kachel; notieren, welche Quelle der Switcher zeigt (MS20); im Log keiner der Werte | |
 
+## M · Menüleisten-Symbol (Nachtrag #277)
+
+**Voraussetzungen (Gruppe M):** der Mac aus Gruppe N mit Connect 0.4.0 aus dem Release (ND9), mit Retina-Bildschirm; die Darstellung umschaltbar unter „Systemeinstellungen › Erscheinungsbild“; der Raum-PC unter Windows mit Connect 0.4.0 (A1). Im Ergebnis von M1 die macOS-Version und den Bildschirm notieren (MacBook mit oder ohne Notch, externer Bildschirm), wie #277 sie verlangt; M1 und M2 wenn möglich auch auf dem Mac aus #277 (darwin 25.5.0) wiederholen. Gruppe M ist Pflicht.
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| M1 | Mac, Darstellung „Hell“: Connect starten, die Menüleiste ansehen, dann das Symbol einmal anklicken; hängt ein Bildschirm ohne Retina am Mac, dort ebenso | in der Menüleiste ein kleines Symbol (Bildschirm-Umriss mit Gast), so hoch wie die Nachbarsymbole, getönt wie sie, scharf, ohne Kachel und ohne Farbe; kein großes Logo in oder über der Menüleiste und keins im Fenster; der Klick wirkt wie in 0.3.0 (Menü bzw. Fenster) | |
+| M2 | Mac, Darstellung „Dunkel“: wie M1 | das Symbol hell getönt wie die Nachbarsymbole, ohne Kachel; sonst wie M1 | |
+| M3 | Windows: Connect 0.4.0 starten, das Symbol im Infobereich der Taskleiste ansehen, einmal klicken, dann das Kontextmenü öffnen | dasselbe Symbol wie unter 0.3.0; der Klick zeigt das Fenster, das Kontextmenü öffnet sich (seine Zeilen ändern sich in 0.4.0 gewollt und sind nicht Teil von M) | |
+
+Mit M1 und M2 ist auch die Diagnose von #277 bestätigt: Das große Logo in der Menüleiste war das Tray-Symbol. Zeigt die Menüleiste weiter ein großes Logo, zuerst im Log („Logordner öffnen“) nach der Zeile „[tray] Vorlagenbild der Menüleiste ist leer (#277) …“ sehen: Steht sie da, ist es der Rückfall aus E59 (ein Ladefehler, die Diagnose trägt); fehlt sie oder sitzt das Logo im Fenster, trägt die Diagnose nicht. In beiden Fällen bleibt #277 offen.
+
 ## N · NDI (Ergänzung FR13)
 
 **Voraussetzungen zusätzlich zu 12:** ein Mac mit Apple Silicon und macOS 15 mit Launcher 0.16.0; für ND12 ein Intel-Mac oder Rosetta auf dem Apple-Silicon-Mac; ein Browser-Gast; der JM Switcher mit NDI-Ausgang „JM Switcher“ (Programm); unter Windows der Task-Manager mit der Ansicht „Details“ (PID), auf dem Mac die Aktivitätsanzeige; Zugriff auf den Installationsordner von Connect unter Windows (ND5); eine geöffnete Show (ND15); eine Firewall-Regel am Raum-PC, die die Adresse des Proxys sperrt, ohne das LAN zu trennen (ND16, ND17); für ND17 das Recht, die Uhr des Raum-PCs zu stellen (automatische Zeit aus). „Getesteter Bau“ nennt zusätzlich die SHA-256 beider DMGs. A4 ist Pflicht (12).
