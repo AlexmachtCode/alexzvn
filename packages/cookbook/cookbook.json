@@ -1978,7 +1978,7 @@
           },
           {
             "risk": "„Das interne Medienfenster von Connect fehlt. Bitte Connect neu starten.“",
-            "remedy": "Das versteckte Fenster, das die Bilder der Gäste liefert, ist abgestürzt oder geschlossen. Connect beenden und neu starten; einen Knopf zum Neustarten der Quelle gibt es in diesem Fall nicht."
+            "remedy": "Das versteckte Fenster, das die Bilder der Gäste liefert, ist abgestürzt oder geschlossen. Connect beenden und neu starten; einen Knopf zum Neustarten der Quelle gibt es in diesem Fall nicht. Was der Neustart kostet (Gast-Quellen, Zoom-Meeting, Links), steht in der Zeile „Programm kommt an, die Weitergabe an die Gäste hängt“."
           },
           {
             "risk": "„Der NDI-Prozess meldete sich nicht binnen 10 s.“",
@@ -2006,7 +2006,7 @@
           },
           {
             "risk": "„Programm kommt an, die Weitergabe an die Gäste hängt“",
-            "remedy": "Das Programm kommt vom Switcher an, aber das interne Medienfenster nimmt keine Bilder ab; die Gäste sehen ein stehendes Programm. Abwarten; bleibt es, „Logordner öffnen“ und main.log sichern. Einen Knopf dafür gibt es nicht: Nur Connect neu starten baut das Medienfenster neu auf; dabei setzen alle NDI-Quellen und das Programm aus, und die Gäste sehen so lange kein Bild. Danach gelten die verteilten Links nur weiter, wenn Connect wieder über dieselbe `.jmshow` startet (der Knopf heißt dann „Raum „…“ öffnen“); ohne `.jmshow` öffnet Connect einen neuen Raum, und jeder Gast braucht einen neuen Link. „Raum schließen“ ist kein Ausweg, es macht jeden verteilten Link ungültig."
+            "remedy": "Das Programm kommt vom Switcher an, aber das interne Medienfenster nimmt keine Bilder ab; die Gäste sehen ein stehendes Programm. Abwarten; bleibt es, „Logordner öffnen“ und main.log sichern. Einen Knopf dafür gibt es nicht: Nur Connect neu starten baut das Medienfenster neu auf, und das kostet viel. Alle NDI-Quellen und das Programm setzen aus; Gäste, die schon eingelassen sind, bekommen danach keine NDI-Quelle zurück (siehe die Zeile „NDI: keine Quelle“); unter Windows verlässt Connect dabei das Zoom-Meeting, danach Meeting-Nummer und Kenncode neu eingeben, vom Host zulassen und die Aufnahme-Erlaubnis erneut erteilen lassen. Darum nur, wenn der Rückkanal wichtiger ist als die Gast-Quellen, etwa zwischen zwei Programmteilen. Die verteilten Links gelten danach nur weiter, wenn vor „Raum öffnen“ dieselbe `.jmshow` geöffnet ist (der Knopf heißt dann „Raum „…“ öffnen“); ohne `.jmshow` öffnet Connect einen neuen Raum, und jeder Gast braucht einen neuen Link. „Raum schließen“ ist kein Ausweg, es macht jeden verteilten Link ungültig."
           },
           {
             "risk": "„Programm: Öffnen gescheitert (…) · neuer Versuch folgt“",
