@@ -21,6 +21,8 @@
   "include": [
     "src/renderer/src/**/*.ts",
     "src/renderer/src/**/*.tsx",
-    "src/shared/**/*.ts"
+    "src/shared/**/*.ts",
+    // Die reine NDI-Lage (Plan C, G-C2: importiert nichts) liefert die Typen für shared/ndi-text.ts und shared/types.ts.
+    "src/main/ndi-lage.ts"
   ]
 }

@@ -208,10 +208,17 @@ function isLive(g: Guest): boolean {
   return g.phase === 'approved' || g.phase === 'onair' || g.phase === 'off';
 }
 
+/**
+ * Bereinigter Gastname, wie er im NDI-Quellennamen steht: nur Buchstaben, Ziffern, Leerzeichen, „_“ und „-“, höchstens
+ * 40 Zeichen, leer → „Gast“. Exportiert für Connect (Tooltip T113 nennt die Quelle so, wie sie im Netz heißt; Plan C, C4).
+ */
+export function ndiGastName(name: string): string {
+  return name.replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0, 40) || 'Gast';
+}
+
 /** NDI-Quellenname pro Gast — vom Switcher automatisch entdeckt (Auto-Reconnect per Name). */
 function ndiLabel(name: string): string {
-  const clean = name.replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0, 40) || 'Gast';
-  return `JM Connect – ${clean}`;
+  return `JM Connect – ${ndiGastName(name)}`;
 }
 
 /** Zweite NDI-Quelle desselben Gasts: sein geteilter Bildschirm (Welle 6.3). */
