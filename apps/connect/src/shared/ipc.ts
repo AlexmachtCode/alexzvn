@@ -1,5 +1,7 @@
 // IPC-Kanalnamen, von Main, Preload und Renderer gemeinsam genutzt.
 
+import type { OeffnenErgebnis } from './types';
+
 export const IPC = {
   /** invoke (Renderer → Main): Raum in der Cloud öffnen → RoomSession. */
   openRoom: 'jmc:open-room',
@@ -104,7 +106,59 @@ export const IPC = {
   zoomVorschauBild: 'jmc:zoom-vorschau-bild',
   /** invoke: Connect-Logordner im Explorer öffnen → void. */
   zoomLogordner: 'jmc:zoom-logordner',
+
+  // ── NDI und Lizenz (Connect 0.4.0, Plan C; Spec 22.3 Nr. 9, 22.4, E35, E55, KF12). Auf beiden Plattformen angemeldet
+  // (main/ipc.ts, außerhalb der Windows-Weiche von startZoom). Jede Nutzlast geht als Ganzes durch die Preload.
+  /** invoke: {} → OeffnenErgebnis. Logordner von Connect öffnen (Grundzeilen, Fußzeile, T142); scheitert es: der Pfad für T143. */
+  logordner: 'jmc:logordner',
+  /** invoke: { schluessel } → void. „NDI neu starten“ einer Gast-Quelle (22.3 Nr. 9); fremder oder fehlender Schlüssel: nichts. */
+  ndiNeustart: 'jmc:ndi-neustart',
+  /** invoke: {} → void. „Programm neu starten“ (22.4); wirkt nur in `gescheitert`. */
+  programmNeustart: 'jmc:programm-neustart',
+  /** invoke: {} → OeffnenErgebnis. Öffnet nur NDI_SEITE (T133, LP1); scheitert es: die Adresse für T143. */
+  ndiSeite: 'jmc:ndi-seite',
+  /** invoke: {} → OeffnenErgebnis. Öffnet nur LIZENZ_DATEI im Paket (T142, E55, LP5); scheitert es: der Pfad für T143. */
+  lizenz: 'jmc:lizenz',
 } as const;
+
+// ── NDI und Lizenz (Connect 0.4.0, Plan C, KF12): feste Ziele und reine Helfer der Kanäle; die Hülle (main/ipc.ts) gibt
+// ihnen nur die Funktionen von Electrons `shell`, so prüft ein Test sie ohne Electron.
+/** Die einzige Adresse, die jmc:ndi-seite öffnet (T133, LP1). */
+export const NDI_SEITE = 'https://ndi.video/';
+/** Die einzige Datei, die jmc:lizenz öffnet: die Lizenzbedingungen im Paket (FR16, E55, LP5; resources/LIZENZ.txt). */
+export const LIZENZ_DATEI = 'LIZENZ.txt';
+
+/**
+ * Nutzlast von jmc:ndi-neustart feldweise prüfen (22.3 Nr. 9, wie pruefeSlotEingabe 7.9): nur ein Objekt mit genau dem Feld
+ * `schluessel` (nicht leer). Alles andere ergibt null, und der Kanal tut nichts; einen unbekannten Schlüssel übergeht die Lage.
+ */
+export function neustartSchluessel(p: unknown): string | null {
+  if (typeof p !== 'object' || p === null || Array.isArray(p)) return null;
+  const o = p as Record<string, unknown>;
+  if (Object.keys(o).some((feld) => feld !== 'schluessel')) return null;
+  return typeof o.schluessel === 'string' && o.schluessel !== '' ? o.schluessel : null;
+}
+
+/** Öffnet einen Pfad (`shell.openPath` meldet ein Scheitern als Text, leer = gelungen); scheitert es: der Pfad für T143 (E35). */
+export async function oeffnePfadMit(openPath: (pfad: string) => Promise<string>, pfad: string): Promise<OeffnenErgebnis> {
+  let fehler: string;
+  try {
+    fehler = await openPath(pfad);
+  } catch (e) {
+    fehler = e instanceof Error ? e.message : String(e);
+  }
+  return fehler ? { ok: false, pfad } : { ok: true };
+}
+
+/** Öffnet eine Adresse (`shell.openExternal` lehnt ein Scheitern ab); scheitert es: die Adresse für T143 (E35). */
+export async function oeffneAdresseMit(openExternal: (adresse: string) => Promise<void>, adresse: string): Promise<OeffnenErgebnis> {
+  try {
+    await openExternal(adresse);
+    return { ok: true };
+  } catch {
+    return { ok: false, pfad: adresse };
+  }
+}
 
 /** Interner Kanal Main → versteckter Peer-Renderer: Frame-Port für einen Gast. */
 export const PEER_FRAME_PORT = 'jmc:peer-frame-port';

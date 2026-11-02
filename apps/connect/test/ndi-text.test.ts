@@ -745,6 +745,62 @@ console.log('— C9 KF10: AppStatus über baueAppStatus (E44), Startwert APP_STA
     badge.includes('programmAbzeichen({ lage: status.ndiProgramm, plattform: plattform() })') && !badge.includes('<span />'));
   ck('C9 Regel P: der volle Text des Abzeichens steht als title', badge.includes('title={titel(a)}'));
 }
+console.log('— C11 KF12: Kanäle jmc:logordner, jmc:ndi-neustart, jmc:programm-neustart, jmc:ndi-seite, jmc:lizenz');
+{
+  const k = await import('../src/shared/ipc');
+  const gleich = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+  ck('C11 KF12: die fünf Kanalnamen',
+    gleich([k.IPC.logordner, k.IPC.ndiNeustart, k.IPC.programmNeustart, k.IPC.ndiSeite, k.IPC.lizenz],
+      ['jmc:logordner', 'jmc:ndi-neustart', 'jmc:programm-neustart', 'jmc:ndi-seite', 'jmc:lizenz']));
+  ck('C11 KF12: feste Adresse und feste Datei', k.NDI_SEITE === 'https://ndi.video/' && k.LIZENZ_DATEI === 'LIZENZ.txt');
+  ck('C11 KF12: { schluessel } feldweise: ein gültiger Schlüssel kommt durch', k.neustartSchluessel({ schluessel: 'g7::screen' }) === 'g7::screen');
+  ck('C11 KF12: fehlender, leerer oder falsch getypter Schlüssel und fremde Felder ändern nichts (null)',
+    [undefined, null, 'g7', 7, [], {}, { schluessel: '' }, { schluessel: 7 }, { schluessel: 'g7', pfad: 'C:/x' }, { key: 'g7' }]
+      .every((p) => k.neustartSchluessel(p) === null));
+
+  // Scheitern je Kanal (22.11 KF12): shell als Attrappe, Electron wird nicht geladen.
+  const pfadOk = await k.oeffnePfadMit(async () => '', 'C:/Logs/JM Connect');
+  const pfadText = await k.oeffnePfadMit(async () => 'Zugriff verweigert', 'C:/Logs/JM Connect');
+  const pfadWirft = await k.oeffnePfadMit(async () => { throw new Error('kaputt'); }, 'C:/Programme/JM Connect/resources/LIZENZ.txt');
+  ck('C11 KF12 jmc:logordner: gelungen → ok', gleich(pfadOk, { ok: true }));
+  ck('C11 KF12 jmc:logordner: openPath meldet einen Fehlertext → der Pfad für T143', gleich(pfadText, { ok: false, pfad: 'C:/Logs/JM Connect' }));
+  ck('C11 KF12 jmc:lizenz: auch eine Ausnahme von openPath → der Pfad für T143',
+    gleich(pfadWirft, { ok: false, pfad: 'C:/Programme/JM Connect/resources/LIZENZ.txt' }));
+  const adresseOk = await k.oeffneAdresseMit(async () => {}, k.NDI_SEITE);
+  const adresseAbgelehnt = await k.oeffneAdresseMit(async () => { throw new Error('abgelehnt'); }, k.NDI_SEITE);
+  ck('C11 KF12 jmc:ndi-seite: gelungen → ok', gleich(adresseOk, { ok: true }));
+  ck('C11 KF12 jmc:ndi-seite: openExternal lehnt ab → die Adresse für T143', gleich(adresseAbgelehnt, { ok: false, pfad: 'https://ndi.video/' }));
+
+  // Quelltext: Preload (ganze Nutzlast), Anmeldung in registerIpc (beide Plattformen), feste Ziele.
+  const { readFileSync } = await import('node:fs');
+  const lies = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const preload = lies('../src/preload/index.ts');
+  const main = lies('../src/main/ipc.ts');
+  const zoom = lies('../src/main/zoom.ts');
+  const index = lies('../src/main/index.ts');
+  const reg = (() => { const i = main.indexOf('export function registerIpc('); return i < 0 ? '' : main.slice(i, main.indexOf('\n}\n', i)); })();
+  ck('C11 KF12: die Preload reicht jede Nutzlast als Ganzes weiter, ohne Nutzlast {}',
+    ['  logordner: () => ipcRenderer.invoke(IPC.logordner, {}),', '  ndiNeustart: (p) => ipcRenderer.invoke(IPC.ndiNeustart, p),',
+      '  programmNeustart: () => ipcRenderer.invoke(IPC.programmNeustart, {}),', '  ndiSeite: () => ipcRenderer.invoke(IPC.ndiSeite, {}),',
+      '  lizenz: () => ipcRenderer.invoke(IPC.lizenz, {}),'].every((z) => preload.includes(z)));
+  ck('C11 KF12: alle fünf Kanäle in registerIpc, ohne Plattform-Weiche, nicht in zoom.ts (startZoom läuft nur unter Windows)',
+    ['logordner', 'ndiNeustart', 'programmNeustart', 'ndiSeite', 'lizenz'].every((n) => reg.includes(`ipcMain.handle(IPC.${n}, `))
+      && !reg.includes('process.platform') && !/IPC\.(logordner|ndiNeustart|programmNeustart|ndiSeite|lizenz)\b/.test(zoom));
+  ck('C11 KF12 jmc:ndi-neustart: Nutzlast feldweise über neustartSchluessel, dann gastNeustart der Hülle',
+    /ipcMain\.handle\(IPC\.ndiNeustart, async \(_e, p: unknown\): Promise<void> => \{\n\s*const s = neustartSchluessel\(p\);\n\s*if \(s !== null\) gastNeustart\(s\);\n\s*\}\);/.test(reg));
+  ck('C11 22.4: jmc:programm-neustart ruft programmNeustart der Hülle, ohne Nutzlast zu lesen',
+    reg.includes('ipcMain.handle(IPC.programmNeustart, async (): Promise<void> => programmNeustart());'));
+  ck('C11 KF12 jmc:ndi-seite: öffnet nur NDI_SEITE, die Nutzlast wird nicht gelesen',
+    reg.includes("ipcMain.handle(IPC.ndiSeite, async (): Promise<OeffnenErgebnis> => meldeOeffnen('ndi.video', await oeffneAdresseMit((a) => shell.openExternal(a), NDI_SEITE)));"));
+  ck('C11 KF12 jmc:lizenz: öffnet nur LIZENZ.txt im Paket (resourcePath), die Nutzlast wird nicht gelesen',
+    reg.includes("ipcMain.handle(IPC.lizenz, async (): Promise<OeffnenErgebnis> => meldeOeffnen('Lizenzbedingungen', await oeffnePfadMit((pf) => shell.openPath(pf), lizenzPfad())));")
+      && /function lizenzPfad\(\): string \{\n\s*return resourcePath\(LIZENZ_DATEI, join\(__dirname, '\.\.', '\.\.', 'resources'\)\);\n\}/.test(main));
+  ck('C11 KF12 jmc:logordner: öffnet den Logordner von Connect (logDir aus index.ts)',
+    reg.includes("ipcMain.handle(IPC.logordner, async (): Promise<OeffnenErgebnis> => meldeOeffnen('Logordner', await oeffnePfadMit((pf) => shell.openPath(pf), logDir)));")
+      && index.includes('      logDir: runtime.logDir,'));
+  ck('C11 E35: ein Scheitern steht zusätzlich im Log, ohne Namen', /function meldeOeffnen\(was: string, r: OeffnenErgebnis\): OeffnenErgebnis \{\n\s*if \(!r\.ok\) getLog\(\)\.warn\(`\[connect\] \$\{was\} ließ sich nicht öffnen: \$\{r\.pfad\}`\);/.test(main));
+  ck('C11 C-EP18: der alte Kanal zoomLogordner der Zoom-Karte bleibt unter Windows', zoom.includes('ipcMain.handle(IPC.zoomLogordner,'));
+}
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

@@ -129,6 +129,7 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
       getWindow: () => getMainWindow(),
       getPeer: () => getPeerWindow(),
       onStatusChange: (s) => setTrayStatus(s),
+      logDir: runtime.logDir,
     });
 
     // Zoom (Stage 4, nur Windows) – unabhängig vom Cloud-Raum (E4). Jede Änderung der Kurzform geht

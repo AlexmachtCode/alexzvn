@@ -61,6 +61,12 @@ const api: JmConnectApi = {
     ipcRenderer.on(IPC.trayCommand, listener);
     return () => ipcRenderer.off(IPC.trayCommand, listener);
   },
+  // NDI und Lizenz (Plan C, KF12): jede Nutzlast als Ganzes, ohne Nutzlast {}; prüfen tut die Hülle (main/ipc.ts).
+  logordner: () => ipcRenderer.invoke(IPC.logordner, {}),
+  ndiNeustart: (p) => ipcRenderer.invoke(IPC.ndiNeustart, p),
+  programmNeustart: () => ipcRenderer.invoke(IPC.programmNeustart, {}),
+  ndiSeite: () => ipcRenderer.invoke(IPC.ndiSeite, {}),
+  lizenz: () => ipcRenderer.invoke(IPC.lizenz, {}),
   onControlCommand: (cb) => {
     const listener = (_e: unknown, cmd: ControlCommand) => cb(cmd);
     ipcRenderer.on(IPC.controlCommand, listener);

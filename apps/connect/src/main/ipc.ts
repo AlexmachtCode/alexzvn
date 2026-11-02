@@ -3,19 +3,23 @@
 //   - NDI-Sender je Gast starten/stoppen (ndi-guests.ts) — getrieben von den
 //     ndi-Effekten, die der Renderer aus dem DO empfängt
 //   - abgeleiteten STATE ans Steuerprotokoll weiterreichen (control-server.ts)
-import { ipcMain, type BrowserWindow } from 'electron';
+import { ipcMain, shell, type BrowserWindow } from 'electron';
+import { join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
-import { IPC, PEER_CONNECT } from '@shared/ipc';
-import type { AppStatus, ProxyInfo } from '@shared/types';
+import { resourcePath } from '@jm/electron-kit';
+import { IPC, LIZENZ_DATEI, NDI_SEITE, PEER_CONNECT, neustartSchluessel, oeffneAdresseMit, oeffnePfadMit } from '@shared/ipc';
+import type { AppStatus, OeffnenErgebnis, ProxyInfo } from '@shared/types';
 import { baueAppStatus } from '@shared/app-status';
 import { closeRoom, isConfigured, mintGuest, openRoom, peerConnectInfo, proxyConfig } from './room';
 import { proxyKeySource, proxyUrl, setProxyKey, setProxyUrl } from './settings';
-import { gastLagen, spinUp, tearDown, tearDownAll } from './ndi-guests';
-import { programmLage, startProgram, stopProgram } from './ndi-program';
+import { gastLagen, gastNeustart, spinUp, tearDown, tearDownAll } from './ndi-guests';
+import { programmLage, programmNeustart, startProgram, stopProgram } from './ndi-program';
 import { CONTROL_PORT, pushControlState } from './control-server';
 import { initShow, showInfo } from './show-open';
 import { presenterConnected, slideCue } from './presenter-link';
 import { zoomKurz } from './zoom';
+
+declare const __dirname: string;
 
 let getWindow: () => BrowserWindow | null = () => null;
 let getPeer: () => BrowserWindow | null = () => null;
@@ -46,14 +50,28 @@ function pushStatus(): void {
   onStatusChange(s);
 }
 
+/** Die Lizenzbedingungen im Paket (E55, LP5): gepackt resources/LIZENZ.txt, im Dev apps/connect/resources/LIZENZ.txt. */
+function lizenzPfad(): string {
+  return resourcePath(LIZENZ_DATEI, join(__dirname, '..', '..', 'resources'));
+}
+
+/** Ein gescheitertes Öffnen steht zusätzlich im Log (Diagnose, ohne Namen; E35). */
+function meldeOeffnen(was: string, r: OeffnenErgebnis): OeffnenErgebnis {
+  if (!r.ok) getLog().warn(`[connect] ${was} ließ sich nicht öffnen: ${r.pfad}`);
+  return r;
+}
+
 export function registerIpc(deps: {
   getWindow: () => BrowserWindow | null;
   getPeer: () => BrowserWindow | null;
   onStatusChange: (s: AppStatus) => void;
+  /** Logordner von Connect (runtime.logDir), für jmc:logordner (E35). */
+  logDir: string;
 }): void {
   getWindow = deps.getWindow;
   getPeer = deps.getPeer;
   onStatusChange = deps.onStatusChange;
+  const logDir = deps.logDir;
 
   // Show-Deep-Link kann VOR dem Fenster eintreffen — deshalb zusätzlich der getShow-Abruf unten.
   initShow((show) => getWindow()?.webContents.send(IPC.showInfo, show));
@@ -99,6 +117,19 @@ export function registerIpc(deps: {
   });
 
   ipcMain.handle(IPC.status, async () => currentStatus());
+
+  // ── NDI und Lizenz (Plan C, E35, E55, KF12): hier, auf beiden Plattformen, nicht in der Windows-Weiche von startZoom.
+  // Feste Ziele, keine Nutzlast; scheitert das Öffnen, kommt der Pfad bzw. die Adresse für T143 zurück.
+  ipcMain.handle(IPC.logordner, async (): Promise<OeffnenErgebnis> => meldeOeffnen('Logordner', await oeffnePfadMit((pf) => shell.openPath(pf), logDir)));
+  ipcMain.handle(IPC.lizenz, async (): Promise<OeffnenErgebnis> => meldeOeffnen('Lizenzbedingungen', await oeffnePfadMit((pf) => shell.openPath(pf), lizenzPfad())));
+  ipcMain.handle(IPC.ndiSeite, async (): Promise<OeffnenErgebnis> => meldeOeffnen('ndi.video', await oeffneAdresseMit((a) => shell.openExternal(a), NDI_SEITE)));
+  // „NDI neu starten“ (22.3 Nr. 9): { schluessel } feldweise geprüft; ein fremder oder fehlender Schlüssel ändert nichts.
+  ipcMain.handle(IPC.ndiNeustart, async (_e, p: unknown): Promise<void> => {
+    const s = neustartSchluessel(p);
+    if (s !== null) gastNeustart(s);
+  });
+  // „Programm neu starten“ (22.4): wirkt nur in gescheitert (Lage).
+  ipcMain.handle(IPC.programmNeustart, async (): Promise<void> => programmNeustart());
 
   // `key` ist der NDI-Pool-Schlüssel (Gast-ID = Kamera, `<id>::screen` = geteilter Bildschirm).
   ipcMain.on(IPC.ndiUp, (_e, p: { key: string; label: string }) => {

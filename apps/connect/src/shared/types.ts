@@ -293,6 +293,9 @@ export type ZoomStartErgebnis = ZoomErgebnis | { ok: false; nachfrage: true; tex
 /** Vorschaubild eines Slots (Spec 7.7): Push jmc:zoom-vorschau-bild, nie im Abbild, nie im Log. */
 export interface ZoomVorschauBild { nr: number; ziel: number; w: number; h: number; jpeg: string }
 
+/** Ergebnis der Öffnen-Kanäle jmc:logordner, jmc:lizenz, jmc:ndi-seite (Plan C, E35): bei einem Scheitern Pfad bzw. Adresse für T143. */
+export type OeffnenErgebnis = { ok: true } | { ok: false; pfad: string };
+
 export type TrayCommand = { kind: 'show' } | { kind: 'closeRoom' };
 
 /** Steuerbefehl vom TCP-Protokoll (Companion/Rundown), den der Renderer an den DO relayt. */
@@ -331,6 +334,17 @@ export interface JmConnectApi {
   getStatus: () => Promise<AppStatus>;
   onStatus: (cb: (s: AppStatus) => void) => () => void;
   onTrayCommand: (cb: (cmd: TrayCommand) => void) => () => void;
+  // ── NDI und Lizenz (Plan C, KF12): auf beiden Plattformen; jede Nutzlast geht als Ganzes durch die Preload.
+  /** „Logordner öffnen“ (Grundzeilen, Fußzeile, T142); scheitert es: der Pfad für T143. */
+  logordner: () => Promise<OeffnenErgebnis>;
+  /** „NDI neu starten“ einer Gast-Quelle (22.3 Nr. 9). */
+  ndiNeustart: (p: { schluessel: string }) => Promise<void>;
+  /** „Programm neu starten“ (22.4). */
+  programmNeustart: () => Promise<void>;
+  /** Link T133: öffnet nur https://ndi.video/; scheitert es: die Adresse für T143. */
+  ndiSeite: () => Promise<OeffnenErgebnis>;
+  /** „Lizenzbedingungen“ (T142): öffnet nur LIZENZ.txt im Paket; scheitert es: der Pfad für T143. */
+  lizenz: () => Promise<OeffnenErgebnis>;
   /** Steuerbefehle (Companion/Rundown) empfangen und an den DO relayen. Liefert Unsubscribe. */
   onControlCommand: (cb: (cmd: ControlCommand) => void) => () => void;
 
