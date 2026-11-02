@@ -1,15 +1,21 @@
 name: Connect macOS
 
-# JM Connect für macOS (arm64 und x64, unsigniert), ohne Zoom und ohne NDI (iveo-Paket, Spec 10.1–10.3; E36–E39, OF1
-# Variante A). suite-release.yml schließt connect-v weiter aus: Das Windows-Paket mit NDI und Zoom-Bridge baut der Owner
-# lokal. Dieser Workflow hängt nur die zwei DMGs an das Release des Tags.
+# JM Connect für macOS (arm64 und x64, unsigniert): ab 0.4.0 mit NDI (Spec Zoom-Slots 22.7, Weg W-CI, Owner-Entscheid zu
+# FR14 vom 18.10.2026), davor ohne NDI; Zoom ist auf dem Mac nie dabei (iveo-Paket, Spec 10.1–10.3; E36–E39). Ob NDI ins
+# Paket muss (Ausgang ndi), entscheidet die Version des gebauten Pakets; die Regel steht einmal im Prüfskript
+# (ndiErwartet, E45). suite-release.yml schließt connect-v weiter aus: Das Windows-Paket mit NDI und Zoom-Bridge baut
+# der Owner lokal. Dieser Workflow hängt nur die zwei DMGs an das Release des Tags.
 #   - Tag-Push connect-v*.*.*: baut aus dem Tag; gibt es noch kein Release, legt er ein Pre-Release an.
 #   - Hand-Start mit der Eingabe tag (Nachlauf, z. B. connect-v0.3.0): baut aus dem Tag und lädt an das bestehende
 #     Release; ohne Release bricht er ab (E38).
+#   - Hand-Start mit probe (Probelauf, 22.7 Nr. 1 und 5): baut den Stand dieses Workflows (github.sha) immer mit NDI,
+#     prüft ihn und lädt nichts hoch, auch kein Artefakt. Gestartet wird er nur vom Owner oder mit seinem OK.
 # Kein Katalog-Bump (E37): latestVersion in suite.json zieht der Owner lokal nach, wenn beide Pakete am Release hängen.
 # Zwei Jobs (OFP7): Der Bau führt fremden Code aus (Install-Skripte aus npm ci, electron-vite, electron-builder) und hat
-# darum nur Leserecht, ohne gespeichertes Token im Checkout. Das Schreibrecht hat nur der Job, der die geprüften DMGs
-# hochlädt; er führt keinen Code aus dem Repo oder aus npm aus.
+# darum nur Leserecht, ohne gespeichertes Token. Das Schreibrecht hat nur der Job, der die geprüften DMGs hochlädt; er
+# führt keinen Code aus dem Repo oder aus npm aus.
+# Das NDI-SDK für Apple liegt nur in $RUNNER_TEMP: nie im Arbeitsordner, in einem Cache, als Artefakt, am Release oder
+# im Repo (22.7 Nr. 7; Lizenz LQ22 Abschnitt 2d, 3a, 3b).
 on:
   push:
     tags:
@@ -17,9 +23,14 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Bestehendes Tag, z. B. connect-v0.3.0"
-        required: true
+        description: "Bestehendes Tag, z. B. connect-v0.3.0 (im Probelauf leer lassen)"
+        required: false
         type: string
+      probe:
+        description: "Probelauf: Stand dieses Zweigs mit NDI bauen und prüfen, nichts hochladen"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -31,45 +42,68 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
+    env:
+      # Rückfallebene W-lokal (22.7): Mit 'ja' baut der Owner das Mac-Paket ab 0.4.0 selbst; dieser Job endet dann nach
+      # „Version und NDI bestimmen“ grün, und hochladen läuft nicht. Ein Wechsel braucht das OK des Owners (C-EP12).
+      MAC_LOKAL: 'nein'
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+      probe: ${{ steps.tag.outputs.probe }}
+      version: ${{ steps.version.outputs.version }}
+      ndi: ${{ steps.version.outputs.ndi }}
+      bauen: ${{ steps.version.outputs.bauen }}
+      ndi_zeile: ${{ steps.fassung.outputs.ndi_zeile }}
     steps:
-      # Tag aus der Eingabe (Hand-Start) oder aus dem Push, als Step-Output wie in suite-release.yml (EP6). Eingaben
-      # gehen nur über env in das Skript.
+      # Tag aus der Eingabe (Hand-Start) oder aus dem Push, als Step-Output wie in suite-release.yml (EP6). Im Probelauf
+      # gibt es kein Tag. Eingaben gehen nur über env in das Skript.
       - name: Tag bestimmen und prüfen
         id: tag
         shell: bash
         env:
           EINGABE: ${{ inputs.tag }}
+          PROBE: ${{ inputs.probe }}
           EREIGNIS: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
         run: |
+          if [ "$EREIGNIS" = "workflow_dispatch" ] && [ "$PROBE" = "true" ]; then
+            echo "Probelauf: kein Tag, gebaut wird der Stand dieses Workflows (github.sha)."
+            echo "probe=ja" >> "$GITHUB_OUTPUT"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$EREIGNIS" = "workflow_dispatch" ]; then tag="$EINGABE"; else tag="$REF_NAME"; fi
           if ! printf '%s' "$tag" | grep -Eq '^connect-v[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::Tag „$tag“ hat nicht die Form connect-v‹Version› (z. B. connect-v0.3.0)."
             exit 1
           fi
+          echo "probe=nein" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#connect-v}" >> "$GITHUB_OUTPUT"
 
-      # Quellen aus dem Tag und das Prüfskript aus dem Commit dieses Workflows (EP6; im Tag connect-v0.3.0 gibt es es
-      # noch nicht), beides OHNE Anmeldedaten: Das Repo ist öffentlich, der Bau-Job braucht kein Token. Kein
-      # actions/checkout: Mit persist-credentials: false ruft es beim Entfernen der Anmeldedaten „git submodule foreach“
-      # auf und scheitert am Eintrag „portaudio“ (Commit ohne .gitmodules; Erstlauf 19.10.2026). Gibt es das Tag nicht,
-      # scheitert dieser Schritt (Spec 10.1: muss existieren).
-      - name: Quellen aus dem Tag und Prüfskript holen (ohne Anmeldedaten)
+      # Quellen aus dem Tag (im Probelauf aus github.sha) und das Prüfskript aus dem Commit dieses Workflows (EP6; im Tag
+      # connect-v0.3.0 gibt es es noch nicht bzw. in alter Fassung), alles OHNE Anmeldedaten: Das Repo ist öffentlich, der
+      # Bau-Job braucht kein Token. Kein actions/checkout: Mit persist-credentials: false ruft es beim Entfernen der
+      # Anmeldedaten „git submodule foreach“ auf und scheitert am Eintrag „portaudio“ (Commit ohne .gitmodules; Erstlauf
+      # 19.10.2026). Aus github.sha kommt außerhalb des Probelaufs genau eine Datei. Gibt es das Tag nicht, scheitert
+      # dieser Schritt (Spec 10.1: muss existieren).
+      - name: Quellen und Prüfskript holen (ohne Anmeldedaten)
         shell: bash
         env:
           TAG: ${{ steps.tag.outputs.tag }}
+          PROBE: ${{ steps.tag.outputs.probe }}
           REPO: ${{ github.repository }}
           WERKZEUG_SHA: ${{ github.sha }}
         run: |
           git init -q .
           git remote add origin "https://github.com/$REPO"
-          git -c protocol.version=2 fetch -q --no-tags --depth=1 origin "+refs/tags/$TAG:refs/tags/$TAG"
-          git checkout -q --force "refs/tags/$TAG"
-          git log -1 --format='Tag-Commit %H' "refs/tags/$TAG"
           git -c protocol.version=2 fetch -q --no-tags --depth=1 origin "$WERKZEUG_SHA"
+          if [ "$PROBE" = "ja" ]; then
+            git checkout -q --force "$WERKZEUG_SHA"
+            git log -1 --format='Probe-Commit %H' "$WERKZEUG_SHA"
+          else
+            git -c protocol.version=2 fetch -q --no-tags --depth=1 origin "+refs/tags/$TAG:refs/tags/$TAG"
+            git checkout -q --force "refs/tags/$TAG"
+            git log -1 --format='Tag-Commit %H' "refs/tags/$TAG"
+          fi
           mkdir -p werkzeug/apps/connect/tools
           git show "$WERKZEUG_SHA:apps/connect/tools/pruefe-mac-paket.mjs" > werkzeug/apps/connect/tools/pruefe-mac-paket.mjs
           echo "Prüfskript aus $WERKZEUG_SHA"
@@ -78,42 +112,178 @@ jobs:
         with:
           node-version: 20
 
-      # Der Artefaktname kommt aus apps/connect/package.json (electron-builder.yml:3): Version und Tag müssen gleich sein.
-      - name: Version im Tag prüfen
+      # Ersetzt „Version im Tag prüfen“ (GEP7): Version aus dem Tag, die apps/connect/package.json gleichen muss (der
+      # Artefaktname kommt von dort, electron-builder.yml:3), im Probelauf aus apps/connect/package.json. ndi fragt das
+      # Prüfskript (--ndi-fuer, E45), im Probelauf immer ja. bauen ist nein nur auf der Rückfallebene W-lokal.
+      - name: Version und NDI bestimmen
+        id: version
         shell: bash
         env:
-          VERSION: ${{ steps.tag.outputs.version }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          PROBE: ${{ steps.tag.outputs.probe }}
         run: |
           ist=$(node -p "require('./apps/connect/package.json').version")
-          if [ "$ist" != "$VERSION" ]; then
-            echo "::error::apps/connect/package.json nennt $ist, das Tag $VERSION."
+          if ! printf '%s' "$ist" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::apps/connect/package.json nennt keine Version der Form ‹Zahl›.‹Zahl›.‹Zahl›."
             exit 1
           fi
+          if [ "$PROBE" = "ja" ]; then
+            version="$ist"
+            ndi=ja
+          else
+            version="${TAG#connect-v}"
+            if [ "$ist" != "$version" ]; then
+              echo "::error::apps/connect/package.json nennt $ist, das Tag $version."
+              exit 1
+            fi
+            ndi=$(node werkzeug/apps/connect/tools/pruefe-mac-paket.mjs --ndi-fuer "$version")
+          fi
+          if [ "$ndi" != "ja" ] && [ "$ndi" != "nein" ]; then
+            echo "::error::Das Prüfskript nannte für $version weder ja noch nein."
+            exit 1
+          fi
+          bauen=ja
+          if [ "$MAC_LOKAL" = "ja" ] && [ "$ndi" = "ja" ]; then
+            echo "::notice::Das Mac-Paket ab 0.4.0 baut der Owner lokal (FR14, Rückfallebene)."
+            bauen=nein
+          fi
+          echo "Version $version, NDI $ndi, Probelauf $PROBE, bauen $bauen"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "ndi=$ndi" >> "$GITHUB_OUTPUT"
+          echo "bauen=$bauen" >> "$GITHUB_OUTPUT"
 
       # @jm/ndi und @jm/zoom-bridge überspringen ihren nativen Bau ohne SDK bzw. außerhalb von Windows (Spec 10.1 Nr. 4).
+      # NDI_SDK_DIR ist hier nicht gesetzt: Die Install-Skripte sehen das NDI-SDK nie (22.7 Nr. 2).
       - name: Install (workspaces)
+        if: steps.version.outputs.bauen == 'ja'
         run: npm ci
 
       - name: Build renderer/main (electron-vite)
+        if: steps.version.outputs.bauen == 'ja'
         run: npm run build -w @jm/connect
 
-      # bundle-ndi.mjs und bundle-zoom-bridge.mjs beenden sich außerhalb von Windows ohne Arbeit (Spec 4.6 Nr. 6).
-      - name: Prepackage (ohne NDI und ohne Zoom-Bridge)
+      # 22.7 Nr. 2, nur mit NDI: das aktuelle NDI-SDK für Apple von der festen, öffentlichen Adresse (LQ10, LQ11; kein
+      # Geheimnis) nach $RUNNER_TEMP, entpackt ohne Installation und ohne sudo. Die Wurzel heißt „NDI SDK for Apple“ (mit
+      # Leerzeichen, AN27); binding.gyp setzt NDI_SDK_DIR ohne Anführungszeichen ein, darum ein Link ohne Leerzeichen
+      # ($RUNNER_TEMP/ndisdk). Dann die Fassungsprüfung (E54) mit dem Prüfskript aus github.sha: Sie druckt Dateiliste,
+      # Prüfsummen und die NDI-Zeile und bricht ab, solange der Mac-Lesestand leer ist oder ein Wert abweicht.
+      - name: NDI-SDK für Apple holen und Fassung prüfen
+        id: fassung
+        if: steps.version.outputs.bauen == 'ja' && steps.version.outputs.ndi == 'ja'
+        shell: bash
+        env:
+          NDI_PAKET_URL: https://downloads.ndi.tv/SDK/NDI_SDK_Mac/Install_NDI_SDK_v6_Apple.pkg
+        run: |
+          set -o pipefail
+          paket="$RUNNER_TEMP/Install_NDI_SDK_v6_Apple.pkg"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --output "$paket" "$NDI_PAKET_URL"
+          ls -l "$paket"
+          pkgutil --expand-full "$paket" "$RUNNER_TEMP/ndi-paket"
+          treffer=$(find "$RUNNER_TEMP/ndi-paket" -path '*/lib/macOS/libndi.dylib')
+          if [ -z "$treffer" ] || [ "$(printf '%s\n' "$treffer" | wc -l | tr -d ' ')" != "1" ]; then
+            echo "::error::lib/macOS/libndi.dylib nicht genau einmal im entpackten Paket gefunden."
+            find "$RUNNER_TEMP/ndi-paket" -maxdepth 4 | head -n 100
+            exit 1
+          fi
+          wurzel=$(dirname "$(dirname "$(dirname "$treffer")")")
+          echo "Wurzel des SDK: $wurzel"
+          ln -sfn "$wurzel" "$RUNNER_TEMP/ndisdk"
+          lipo -archs "$RUNNER_TEMP/ndisdk/lib/macOS/libndi.dylib"
+          codesign -dv "$RUNNER_TEMP/ndisdk/lib/macOS/libndi.dylib" 2>&1 || echo "codesign -dv: libndi.dylib ohne Signatur (Rückgabe $?)"
+          node werkzeug/apps/connect/tools/pruefe-mac-paket.mjs --ndi-sdk "$RUNNER_TEMP/ndisdk" --ndi-paket "$paket" | tee "$RUNNER_TEMP/fassung.txt"
+          zeile=$(grep -E '^Enthaltene NDI-Laufzeit unter macOS: ' "$RUNNER_TEMP/fassung.txt")
+          echo "ndi_zeile=$zeile" >> "$GITHUB_OUTPUT"
+
+      # E46, nur mit NDI: das Addon für arm64 und x64, vereint mit lipo (im Tag connect-v0.3.0 gibt es das Skript nicht).
+      - name: NDI-Addon universell bauen (arm64 und x64)
+        if: steps.version.outputs.bauen == 'ja' && steps.version.outputs.ndi == 'ja'
+        run: npm run rebuild:native:mac -w @jm/connect
+        env:
+          NDI_SDK_DIR: ${{ runner.temp }}/ndisdk
+
+      # bundle-ndi.mjs legt ab 0.4.0 Addon, libndi.dylib und Lizenzdatei(en) nach resources/bin/mac und signiert ad hoc
+      # (im Tag connect-v0.3.0 überspringt es den Mac); bundle-zoom-bridge.mjs endet außerhalb von Windows ohne Arbeit.
+      - name: Prepackage (NDI ab 0.4.0, ohne Zoom-Bridge)
+        if: steps.version.outputs.bauen == 'ja'
         run: npm run prepackage -w @jm/connect
+        env:
+          NDI_SDK_DIR: ${{ runner.temp }}/ndisdk
 
       - name: Package (electron-builder, unsigniert)
+        if: steps.version.outputs.bauen == 'ja'
         working-directory: apps/connect
         run: npx electron-builder --mac --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
-      # Spec 10.2: zwei DMGs (arm64, x64), in beiden .app kein Ordner zoom-bridge und kein jm_ndi.node. Scheitert die
-      # Prüfung, entsteht kein Artefakt, und der Job hochladen startet nicht.
-      - name: Prüfen (macOS ohne Zoom und ohne NDI)
-        run: node werkzeug/apps/connect/tools/pruefe-mac-paket.mjs apps/connect/release
+      # Spec 22.7 (davor 10.2): zwei DMGs (arm64, x64) mit derselben Version, kein Ordner zoom-bridge, keine NDI-Kopie in
+      # der app.asar; NDI je nach ndi (im Probelauf mit --probe). Scheitert die Prüfung, entsteht kein Artefakt, und der
+      # Job hochladen startet nicht.
+      - name: Prüfen (Mac-Paket ohne Zoom, NDI nach Version)
+        if: steps.version.outputs.bauen == 'ja'
+        shell: bash
+        env:
+          NDI: ${{ steps.version.outputs.ndi }}
+          PROBE: ${{ steps.tag.outputs.probe }}
+        run: |
+          set -o pipefail
+          if [ "$PROBE" = "ja" ]; then
+            node werkzeug/apps/connect/tools/pruefe-mac-paket.mjs apps/connect/release --ndi "$NDI" --probe | tee "$RUNNER_TEMP/pruefe-mac-paket.txt"
+          else
+            node werkzeug/apps/connect/tools/pruefe-mac-paket.mjs apps/connect/release --ndi "$NDI" | tee "$RUNNER_TEMP/pruefe-mac-paket.txt"
+          fi
 
-      # Nur die zwei geprüften DMGs gehen an den Job hochladen (wie suite-build.yml), einen Tag aufbewahrt.
+      # E46 und 22.7 Nr. 4, nur mit NDI, der zweite Messweg neben dem Prüfskript: lipo -archs beider Mach-O-Dateien je App
+      # gegen die Architektur, die das Prüfskript nannte; otool -L zeigt @loader_path/libndi.dylib; codesign --verify;
+      # Ladeprobe: node lädt das Addon der arm64-App und ruft init(). Die x64-App lädt erst die Abnahme (ND12).
+      - name: NDI im Paket prüfen (lipo, otool, codesign, Ladeprobe)
+        if: steps.version.outputs.bauen == 'ja' && steps.version.outputs.ndi == 'ja'
+        shell: bash
+        run: |
+          set -o pipefail
+          grep -E '^pruefe-mac-paket: App (arm64|x86_64): ' "$RUNNER_TEMP/pruefe-mac-paket.txt" > "$RUNNER_TEMP/apps.txt"
+          if [ "$(grep -c '' "$RUNNER_TEMP/apps.txt")" != "2" ]; then
+            echo "::error::Das Prüfskript nannte nicht genau zwei Apps."
+            exit 1
+          fi
+          arm_app=""
+          while IFS= read -r zeile; do
+            rest="${zeile#pruefe-mac-paket: App }"
+            arch="${rest%%: *}"
+            app="${rest#*: }"
+            haupt=$(lipo -archs "$app/Contents/MacOS/JM Connect")
+            echo "$app: lipo nennt $haupt, das Prüfskript $arch"
+            if [ "$haupt" != "$arch" ]; then
+              echo "::error::lipo und Prüfskript nennen für $app verschiedene Architekturen."
+              exit 1
+            fi
+            for f in "$app/Contents/Resources/bin/mac/jm_ndi.node" "$app/Contents/Resources/bin/mac/libndi.dylib"; do
+              archs=$(lipo -archs "$f")
+              echo "  lipo -archs $(basename "$f"): $archs"
+              case " $archs " in
+                *" $arch "*) ;;
+                *) echo "::error::$f enthält $arch nicht."; exit 1 ;;
+              esac
+              codesign --verify --verbose "$f"
+            done
+            otool -L "$app/Contents/Resources/bin/mac/jm_ndi.node" | tee "$RUNNER_TEMP/otool.txt"
+            if ! grep -Eq '^[[:space:]]+@loader_path/libndi\.dylib ' "$RUNNER_TEMP/otool.txt"; then
+              echo "::error::jm_ndi.node in $app verweist nicht auf @loader_path/libndi.dylib."
+              exit 1
+            fi
+            if [ "$arch" = "arm64" ]; then arm_app="$app"; fi
+          done < "$RUNNER_TEMP/apps.txt"
+          ergebnis=$(ADDON="$arm_app/Contents/Resources/bin/mac/jm_ndi.node" node -e "console.log(String(require(process.env.ADDON).init()))")
+          echo "Ladeprobe arm64-App: init() = $ergebnis"
+          if [ "$ergebnis" != "true" ]; then
+            echo "::error::Ladeprobe: init() lieferte nicht true."
+            exit 1
+          fi
+
+      # Nur die zwei geprüften DMGs gehen an den Job hochladen (wie suite-build.yml), einen Tag aufbewahrt; im Probelauf
+      # keine Artefakte (22.7 Nr. 5: ein Probe-DMG mit NDI im öffentlichen Repo wäre schon eine Weitergabe).
       - name: DMGs als Artefakt ablegen
+        if: steps.version.outputs.bauen == 'ja' && steps.tag.outputs.probe != 'ja'
         uses: actions/upload-artifact@v4
         with:
           name: connect-mac-dmgs
@@ -124,12 +294,60 @@ jobs:
   hochladen:
     name: DMGs an das Release hängen
     needs: mac
+    if: needs.mac.outputs.probe != 'ja' && needs.mac.outputs.bauen == 'ja'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      # Kein Checkout, kein npm, kein node: Dieser Job führt nur gh aus und hat als einziger das Schreibrecht (OFP7).
+      # Kein Checkout, kein npm, kein node: Dieser Job führt nur bash und gh aus und hat als einziger das Schreibrecht
+      # (OFP7). Die NDI-Zeile kommt aus dem Job mac, der fremden Code ausführt: nur über env, nie als Ausdruck in einem
+      # run-Block (22.7 Nr. 6), und vor dem Hochladen gegen das Muster geprüft, Zeichen für Zeichen gleich
+      # NDI_ZEILE_MUSTER aus apps/connect/tools/pruefe-mac-paket.mjs (Workflow-Prüfung im Plan C, Task C17).
+      - name: NDI-Zeile prüfen (vor dem Hochladen)
+        if: needs.mac.outputs.ndi == 'ja'
+        shell: bash
+        env:
+          NDI_ZEILE: ${{ needs.mac.outputs.ndi_zeile }}
+          NDI_ZEILE_MUSTER: '^Enthaltene NDI-Laufzeit unter macOS: ([0-9]+(\.[0-9]+)+|unbekannt) \(SHA-256: Paket [0-9a-f]{64}, Laufzeit [0-9a-f]{64}, Lizenz [0-9a-f]{64} vom [0-9]{2}\.[0-9]{2}\.[0-9]{4}, Doku ([0-9a-f]{64}|fehlt)\)$'
+          LC_ALL: C
+        run: |
+          if [[ $NDI_ZEILE =~ $NDI_ZEILE_MUSTER ]]; then
+            echo "NDI-Zeile in Ordnung: $NDI_ZEILE"
+          else
+            echo "::error::Die NDI-Zeile aus dem Bau passt nicht zum Muster; nichts hochgeladen."
+            exit 1
+          fi
+
+      # FR15 (c): Ältere Releases bleiben, wie sie weitergegeben wurden. Ein Nachlauf (Hand-Start mit tag) nach einem neuen
+      # NDI-SDK und nachgezogenem Lesestand (E54) baute eine andere Fassung und ersetzte mit --clobber die DMGs. Steht in den
+      # Notes schon eine andere NDI-Zeile für macOS, bricht dieser Schritt darum vor dem Hochladen ab; der Owner entscheidet
+      # (C4E17). Beim Push gibt es das Release oft noch nicht; beim Hand-Start muss es lesbar sein (E38).
+      - name: Notes prüfen (keine andere NDI-Zeile für macOS)
+        if: needs.mac.outputs.ndi == 'ja'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.mac.outputs.tag }}
+          EREIGNIS: ${{ github.event_name }}
+          NDI_ZEILE: ${{ needs.mac.outputs.ndi_zeile }}
+        run: |
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > "$RUNNER_TEMP/notes-vorher.md" 2>/dev/null; then
+            if [ "$EREIGNIS" = "push" ]; then
+              echo "Zum Tag $TAG gibt es noch kein Release; keine NDI-Zeile zu vergleichen."
+              exit 0
+            fi
+            echo "::error::Die Notes zum Tag $TAG sind nicht lesbar; beim Hand-Start lädt dieser Workflow nichts hoch (E38)."
+            exit 1
+          fi
+          andere=$(tr -d '\r' < "$RUNNER_TEMP/notes-vorher.md" | grep -F 'Enthaltene NDI-Laufzeit unter macOS: ' | grep -vxF -- "$NDI_ZEILE" || true)
+          if [ -n "$andere" ]; then
+            echo "::error::In den Notes von $TAG steht schon eine andere NDI-Zeile für macOS; ein Nachlauf ersetzt keine weitergegebene Fassung (FR15 c). Nichts hochgeladen, der Owner entscheidet."
+            printf '%s\n' "$andere"
+            exit 1
+          fi
+          echo "Keine andere NDI-Zeile für macOS in den Notes von $TAG."
+
       - name: DMGs aus dem Bau holen
         uses: actions/download-artifact@v4
         with:
@@ -160,3 +378,22 @@ jobs:
           fi
           echo "Lade hoch: ${files[*]}"
           gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+
+      # 22.7 Nr. 6 und E54: die geprüfte NDI-Zeile an die Notes, wenn sie dort noch fehlt (nur mit NDI). Zeilenenden ohne CR wie
+      # im Schritt „Notes prüfen“, sonst fände der Vergleich eine von Hand bearbeitete Zeile nicht und hängte sie doppelt an.
+      - name: NDI-Zeile an die Notes hängen
+        if: needs.mac.outputs.ndi == 'ja'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.mac.outputs.tag }}
+          NDI_ZEILE: ${{ needs.mac.outputs.ndi_zeile }}
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body | tr -d '\r' > "$RUNNER_TEMP/notes.md"
+          if grep -qxF -- "$NDI_ZEILE" "$RUNNER_TEMP/notes.md"; then
+            echo "Die NDI-Zeile steht schon in den Notes."
+          else
+            printf '\n%s\n' "$NDI_ZEILE" >> "$RUNNER_TEMP/notes.md"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
+            echo "NDI-Zeile an die Notes gehängt."
+          fi
