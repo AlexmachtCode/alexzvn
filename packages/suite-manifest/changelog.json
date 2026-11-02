@@ -1690,6 +1690,26 @@
     "name": "JM Connect",
     "entries": [
       {
+        "version": "0.4.0",
+        "date": "2026-11-02",
+        "notes": [
+          "Zoom-Slots: feste NDI®-Quellen mit frei wählbarem Namen, je Slot Teilnehmer, aktiver Sprecher oder Bildschirmfreigabe, umschaltbar ohne dass die Quelle im Bildmischer verschwindet.",
+          "Eine Person, die das Meeting verlässt und zurückkommt, landet wieder auf ihrem Slot (bei eindeutigem Namen).",
+          "Je Slot Auflösung 360p, 720p oder 1080p (die Kachel zeigt, was Zoom wirklich liefert), Ersatzbild transparent, eingefroren, schwarz oder weiß, Ton als Mischton, Ton der Person oder aus, bei Freigaben mit Computerton.",
+          "Kachel je Slot mit Zustand, gemessener Auflösung und Bildrate, kleiner Vorschau und Messwerten; Slots sind am Rechner gespeichert und starten beim Beitritt von selbst.",
+          "Aus „Gemerkte Quellen“ werden „Zoom-Slots“; in der Teilnehmerliste heißt „Als Quelle laden“ jetzt „Als Slot laden“ und legt einen gespeicherten Slot mit dem bisherigen NDI-Namen „JM Connect – Zoom ‹Name›“ an, so finden bestehende Mischer-Eingänge ihre Quelle wieder.",
+          "Teilnehmer-Slots speichern den Anzeigenamen der Person am Rechner (in den Einstellungen von Connect); Log und Messwerte bleiben ohne Namen.",
+          "Companion-Modul 0.3.0 liegt bei (jm-suite-companion-0.3.0.tgz am Release connect-v0.4.0 auf GitHub, der Launcher lädt es nicht mit; in Companion über „Import custom module“ importieren): Slot ein/aus, Modus, Person, Ton je Slot, Variablen und Feedbacks. Die bisherigen Befehle „Zoom: Person als Quelle laden“ und „Zoom: Quelle entladen“ (im Modul 0.3.0 „Zoom: Person als Slot laden (nur dieses Meeting)“ und „Zoom: Slot einer Person entladen“) wirken weiter für das laufende Meeting: Sie legen einen vorübergehenden Slot an, den „entladen“ wieder löscht; gibt es für die Person schon einen ausgeschalteten gespeicherten Slot, schaltet „laden“ ihn nur für dieses Meeting ein. Modul 0.2.0 läuft weiter, zeigt die Slots aber nicht.",
+          "Vorabfassung zum Live-Test: Die Abnahme mit Lasttest steht noch aus; Korrekturen folgen mit 0.4.1.",
+          "macOS: NDI ist jetzt im Mac-Paket (arm64 und x64): Gäste erscheinen als NDI-Quelle, und der Rückkanal mit Mix-Minus läuft wie unter Windows; Zoom bleibt nur unter Windows. Fragt macOS nach dem Zugriff auf das lokale Netzwerk, bitte erlauben. Das Paket ist nicht signiert; meldet macOS, es könne JM Connect nicht prüfen, lässt sich die App unter „Systemeinstellungen › Datenschutz & Sicherheit“ freigeben.",
+          "NDI-Ausfälle sind sichtbar, unter Windows und macOS: je Gast-Quelle ein NDI-Abzeichen mit Empfängerzahl, „kein Bild“, nach einem Absturz ein automatischer Neustart (höchstens dreimal hintereinander), danach der Grund mit „NDI neu starten“; das Programm-Abzeichen sagt auch „kein Bild“ und wann die Weitergabe an die Gäste hängt. In der Fußzeile „Logordner öffnen“ und „Lizenzbedingungen“. Companion: Variablen ndi_* und Feedback „Connect: NDI-Ausfall“.",
+          "Green Room: Reißt die Verbindung zum Raum ab, bleibt die Gästeliste mit dem letzten Stand stehen, und Gäste steuern, Talkback, Folien und Einladen sind gesperrt, bis Connect wieder verbunden ist. Ist die Anmeldung am Raum abgelaufen (8 Stunden ab „Raum öffnen“), versucht Connect es für die Bedienung nicht weiter, sagt das und bietet „Raum öffnen“ an; das meldet neu an, ohne einen verteilten Link ungültig zu machen.",
+          "Behoben: „Raum schließen“ im Tray-Menü bewirkte nichts; jetzt schließt es den Raum wie der Knopf im Fenster.",
+          "Behoben: Unter macOS erschien in der Menüleiste ein übergroßes JM-Logo; jetzt steht dort ein kleines Symbol.",
+          "NDI® is a registered trademark of Vizrt NDI AB. Der Lizenztext der NDI-Laufzeit liegt im Paket. Enthaltene NDI-Laufzeit unter Windows: 6.3.2.0"
+        ]
+      },
+      {
         "version": "0.3.0",
         "date": "2026-10-12",
         "notes": [
