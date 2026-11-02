@@ -410,6 +410,162 @@ console.log('— C4 · Öffnen-Meldung T143 (22.10, E35)');
     oeffnenMeldung('linkSlots', 'gescheitert', 'https://example.invalid/') === 'ndi.video ließ sich nicht öffnen: https://ndi.video/');
 }
 
+// ── Plan C, Task C5: Raumansicht (Regel V), Raumabbruch (E57) und Raum-Folge (OE3) ──
+console.log('— C5 · Raumansicht nach Regel V: die sieben Lagen (22.10, PK58 rein)');
+{
+  const { raumAnsicht } = await import('../src/shared/raum-ansicht');
+  type RA = import('../src/shared/raum-ansicht').RaumAnsicht;
+  type RE = import('../src/shared/raum-ansicht').RaumAnsichtEingabe;
+  // Regel V aus 22.5, im Test aus der Spec abgeschrieben: je Lage, was steht und was bedienbar ist.
+  const LAGEN: Array<[string, RE, Omit<RA, 'ipcKnoepfeBedienbar'>]> = [
+    ['1 kein Client ohne Raumabbruch', { client: false, verbunden: false, raumBekannt: false, raumabbruch: false },
+      { raumOeffnen: true, raumSchliessen: false, gastEinladen: false, gaesteliste: false, t141: false, t144: false, t144Zusatz: false, wsKnoepfeBedienbar: false, linkErzeugenBedienbar: false }],
+    ['2 kein Client nach Raumabbruch, Raum-Zustand unbekannt', { client: false, verbunden: false, raumBekannt: false, raumabbruch: true },
+      { raumOeffnen: true, raumSchliessen: true, gastEinladen: false, gaesteliste: false, t141: false, t144: true, t144Zusatz: false, wsKnoepfeBedienbar: false, linkErzeugenBedienbar: false }],
+    ['3 kein Client nach Raumabbruch, Raum-Zustand bekannt', { client: false, verbunden: false, raumBekannt: true, raumabbruch: true },
+      { raumOeffnen: true, raumSchliessen: true, gastEinladen: false, gaesteliste: true, t141: false, t144: true, t144Zusatz: true, wsKnoepfeBedienbar: false, linkErzeugenBedienbar: false }],
+    ['4 Client ohne Verbindung, Raum-Zustand unbekannt', { client: true, verbunden: false, raumBekannt: false, raumabbruch: false },
+      { raumOeffnen: false, raumSchliessen: true, gastEinladen: true, gaesteliste: false, t141: false, t144: false, t144Zusatz: false, wsKnoepfeBedienbar: false, linkErzeugenBedienbar: false }],
+    ['5 Client ohne Verbindung, Raum-Zustand bekannt', { client: true, verbunden: false, raumBekannt: true, raumabbruch: false },
+      { raumOeffnen: false, raumSchliessen: true, gastEinladen: true, gaesteliste: true, t141: true, t144: false, t144Zusatz: false, wsKnoepfeBedienbar: false, linkErzeugenBedienbar: false }],
+    ['6 Client verbunden, Raum-Zustand unbekannt', { client: true, verbunden: true, raumBekannt: false, raumabbruch: false },
+      { raumOeffnen: false, raumSchliessen: true, gastEinladen: true, gaesteliste: false, t141: false, t144: false, t144Zusatz: false, wsKnoepfeBedienbar: true, linkErzeugenBedienbar: true }],
+    ['7 Client verbunden, Raum-Zustand bekannt', { client: true, verbunden: true, raumBekannt: true, raumabbruch: false },
+      { raumOeffnen: false, raumSchliessen: true, gastEinladen: true, gaesteliste: true, t141: false, t144: false, t144Zusatz: false, wsKnoepfeBedienbar: true, linkErzeugenBedienbar: true }],
+  ];
+  const FELDER = ['raumOeffnen', 'raumSchliessen', 'gastEinladen', 'gaesteliste', 't141', 't144', 't144Zusatz', 'wsKnoepfeBedienbar', 'linkErzeugenBedienbar'] as const;
+  for (const [titel, e, soll] of LAGEN) {
+    const ist = raumAnsicht(e);
+    ck(`Regel V, Lage ${titel}: ${FELDER.filter((f) => soll[f]).join(', ') || '–'}; IPC-Knöpfe bedienbar`,
+      FELDER.every((f) => ist[f] === soll[f]) && ist.ipcKnoepfeBedienbar === true);
+  }
+  // Prädikate (22.10) über die sieben Lagen; der Text kommt aus ndi-text.ts (T141, T144 samt Zusatz).
+  const R = LAGEN.map(([titel, e]) => ({ titel, e, a: raumAnsicht(e) }));
+  const zeilen = (a: RA): string => [a.t141 ? NDI_TEXT.t141 : '', a.t144 ? NDI_TEXT.t144 + (a.t144Zusatz ? NDI_TEXT.t144Zusatz : '') : ''].join('\n');
+  const zeigeR = (x: { titel: string }): string => `Lage ${x.titel}`;
+  alle('Prädikat „Raum öffnen“ ⇔ kein Client', R, ({ e, a }) => a.raumOeffnen === !e.client, zeigeR);
+  alle('Prädikat „Verbindung zum Raum beendet“ ⇔ kein Client und Raumabbruch', R,
+    ({ e, a }) => zeilen(a).includes('Verbindung zum Raum beendet') === (!e.client && e.raumabbruch), zeigeR);
+  alle('Prädikat „Raum schließen“ bedienbar ⇔ Client besteht oder Raumabbruch', R, ({ e, a }) => a.raumSchliessen === (e.client || e.raumabbruch), zeigeR);
+  alle('Prädikat „Keine Verbindung zum Raum“ (T141) ⇔ Client besteht, Raumverbindung nein und Raum-Zustand bekannt (T146 prüft PK58 im Quelltext)', R,
+    ({ e, a }) => zeilen(a).includes('Keine Verbindung zum Raum') === (e.client && !e.verbunden && e.raumBekannt), zeigeR);
+  alle('Prädikat „Die Gästeliste zeigt den letzten Stand“ ⇒ Raumverbindung nein und Raum-Zustand bekannt', R,
+    ({ e, a }) => !zeilen(a).includes('Die Gästeliste zeigt den letzten Stand') || (!e.verbunden && e.raumBekannt), zeigeR);
+  alle('Prädikat Knopf über die Raum-WebSocket oder „Link erzeugen“ bedienbar ⇒ Raumverbindung ja', R,
+    ({ e, a }) => !(a.wsKnoepfeBedienbar || a.linkErzeugenBedienbar) || e.verbunden, zeigeR);
+  alle('Prädikat Gästeliste ⇒ Raum-Zustand bekannt; „Gast einladen“ ⇔ Client besteht', R,
+    ({ e, a }) => (!a.gaesteliste || e.raumBekannt) && a.gastEinladen === e.client, zeigeR);
+  // Lagen, die nach E57 nicht vorkommen (ohne Client verbunden; Client mit Raumabbruch), sperren die WebSocket-Knöpfe trotzdem
+  // ohne Client und zeigen „Raum öffnen“ nie neben einem Client.
+  const UNMOEGLICH: RE[] = [
+    { client: false, verbunden: true, raumBekannt: true, raumabbruch: false }, { client: false, verbunden: true, raumBekannt: true, raumabbruch: true },
+    { client: true, verbunden: false, raumBekannt: true, raumabbruch: true }, { client: true, verbunden: true, raumBekannt: true, raumabbruch: true },
+  ];
+  ck('Regel V: auch in Lagen, die nicht vorkommen, ohne Client keine WebSocket-Knöpfe und mit Client kein „Raum öffnen“, kein T144',
+    UNMOEGLICH.every((e) => { const a = raumAnsicht(e); return (e.client || !a.wsKnoepfeBedienbar) && (!e.client || (!a.raumOeffnen && !a.t144)); }));
+  const nurOeffnen = raumAnsicht({ client: false, verbunden: false, raumBekannt: true, raumabbruch: false });
+  ck('Regel V: ohne Client und ohne Raumabbruch steht nur „Raum öffnen“, auch wenn noch ein Raum-Zustand bekannt wäre',
+    nurOeffnen.raumOeffnen && !nurOeffnen.raumSchliessen && !nurOeffnen.gastEinladen && !nurOeffnen.gaesteliste && !nurOeffnen.t141 && !nurOeffnen.t144);
+}
+
+console.log('— C5 · raumAbbruch nach Ablauf der Anmeldung (E57, Wanduhr)');
+{
+  const { raumAbbruch } = await import('../src/shared/raum-ansicht');
+  const BIS = Date.UTC(2026, 9, 20, 18, 0, 0); // operatorBis = exp in ms (Wanduhr), fester Testwert
+  const FAELLE: Array<[string, boolean, number, 'anmeldungAbgelaufen' | null]> = [
+    ['verbunden, operatorBis − 1 ms', true, BIS - 1, null],
+    ['verbunden, genau operatorBis', true, BIS, null],
+    ['verbunden, operatorBis + 1 h (Anmeldung abgelaufen, Verbindung steht)', true, BIS + 3_600_000, null],
+    ['getrennt, operatorBis − 1 ms', false, BIS - 1, null],
+    ['getrennt, genau operatorBis', false, BIS, 'anmeldungAbgelaufen'],
+    ['getrennt, operatorBis + 1 h', false, BIS + 3_600_000, 'anmeldungAbgelaufen'],
+  ];
+  for (const [titel, verbunden, jetzt, soll] of FAELLE) {
+    ck(`E57 raumAbbruch: ${titel} → ${soll ?? 'kein Raumabbruch'}`, raumAbbruch({ verbunden, jetzt, operatorBis: BIS }) === soll);
+  }
+}
+
+console.log('— C5 · Raum-Folge: „Raum schließen“ überholt ein laufendes „Raum öffnen“ nicht (OE3, C-EP3)');
+{
+  const { erzeugeRaumFolge } = await import('../src/shared/raum-ansicht');
+  // Antwort des Mains auf „Raum öffnen“, die der Test von außen erfüllt oder ablehnt.
+  const antwort = <T>(): { p: Promise<T>; erfuelle: (v: T) => void; lehneAb: (e: Error) => void } => {
+    let erfuelle!: (v: T) => void; let lehneAb!: (e: Error) => void;
+    const p = new Promise<T>((a, b) => { erfuelle = a; lehneAb = b; });
+    return { p, erfuelle, lehneAb };
+  };
+  const takt = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+  {
+    const folge = erzeugeRaumFolge(); const spur: string[] = []; const a = antwort<string>();
+    const o = folge.oeffnen(async () => { spur.push('öffnen-Anfang'); const s = await a.p; spur.push('öffnen-Ende'); return s; });
+    const z = folge.schliessen(async () => { spur.push('schließen'); });
+    await takt(); await takt();
+    ck('OE3: „schließen“, während „öffnen“ auf den Main wartet, läuft noch nicht', spur.join(',') === 'öffnen-Anfang');
+    a.erfuelle('S1'); const ergebnis = await o; await z;
+    ck('OE3: Reihenfolge öffnen-Anfang, öffnen-Ende, schließen; oeffnen gibt das Ergebnis weiter',
+      spur.join(',') === 'öffnen-Anfang,öffnen-Ende,schließen' && ergebnis === 'S1');
+  }
+  {
+    // Modell von room.ts: openRoom setzt das Secret erst nach der Antwort (:59-60), closeRoom verwirft es (:122-123).
+    const folge = erzeugeRaumFolge(); let secret: string | null = null; const a = antwort<string>();
+    const o = folge.oeffnen(async () => { secret = await a.p; });
+    const z = folge.schliessen(async () => { secret = null; });
+    a.erfuelle('geheim'); await o; await z;
+    ck('OE3: eine spät zurückkommende Antwort setzt nach „Raum schließen“ kein Secret mehr (E57: Schließen verwirft jeden Link)', secret === null);
+  }
+  {
+    const folge = erzeugeRaumFolge(); const spur: string[] = []; const a = antwort<string>();
+    const o = folge.oeffnen(async () => { spur.push('öffnen'); return a.p; });
+    const z = folge.schliessen(async () => { spur.push('schließen'); });
+    a.lehneAb(new Error('Proxy nicht erreichbar'));
+    let fehler = '';
+    try { await o; } catch (e) { fehler = (e as Error).message; }
+    await z;
+    ck('OE3: scheitert „öffnen“, läuft „schließen“ danach trotzdem, und oeffnen gibt den Fehler weiter (Fehlerzweig von openRoom)',
+      spur.join(',') === 'öffnen,schließen' && fehler === 'Proxy nicht erreichbar');
+  }
+  {
+    const folge = erzeugeRaumFolge(); const spur: string[] = [];
+    const z = folge.schliessen(async () => { spur.push('schließen'); });
+    ck('OE3: ohne laufendes „öffnen“ beginnt „schließen“ sofort (noch im selben Aufruf)', spur.join(',') === 'schließen');
+    await z;
+  }
+  {
+    const folge = erzeugeRaumFolge(); const spur: string[] = []; const s = antwort<void>();
+    const z = folge.schliessen(async () => { spur.push('schließen-Anfang'); await s.p; spur.push('schließen-Ende'); });
+    const o = folge.oeffnen(async () => { spur.push('öffnen'); return 'S2'; });
+    ck('OE3: „öffnen“ nach „schließen“ unverändert (wartet nicht auf das Schließen, wie heute)', spur.join(',') === 'schließen-Anfang,öffnen');
+    s.erfuelle(); await z; await o;
+  }
+  {
+    const folge = erzeugeRaumFolge(); const spur: string[] = [];
+    await folge.oeffnen(async () => { spur.push('öffnen'); });
+    const z = folge.schliessen(async () => { spur.push('schließen'); });
+    ck('OE3: nach einem erledigten „öffnen“ beginnt „schließen“ sofort (die Folge hält kein altes Öffnen fest)', spur.join(',') === 'öffnen,schließen');
+    await z;
+  }
+  {
+    // Zweiter Klick auf „Raum öffnen“, während das erste noch auf den Main wartet: openRoom (C13) ruft raumFolge.oeffnen auch
+    // dann und endet am Guard `openingRef.current || clientRef.current` sofort. Danach „Raum schließen“ (Knopf nach dem
+    // Raumabbruch oder Tray, E58): es muss trotzdem auf das erste Öffnen warten (OE3, E57).
+    const folge = erzeugeRaumFolge(); const spur: string[] = []; const a = antwort<string>();
+    let oeffnet = false; let client: string | null = null; let secret: string | null = null;
+    const openRoom = (): Promise<void> => folge.oeffnen(async () => {
+      if (oeffnet || client !== null) { spur.push('Guard'); return; }
+      oeffnet = true;
+      try { spur.push('öffnen-Anfang'); secret = await a.p; client = 'C1'; spur.push('öffnen-Ende'); } finally { oeffnet = false; }
+    });
+    const o1 = openRoom(); const o2 = openRoom();
+    await takt(); await takt();
+    const z = folge.schliessen(async () => { spur.push('schließen'); client = null; secret = null; });
+    await takt(); await takt();
+    const vorDerAntwort = spur.join(',');
+    a.erfuelle('geheim'); await o1; await o2; await z;
+    ck('OE3: ein zweites „öffnen“, das am Guard sofort endet, hebt das Warten auf das erste nicht auf („schließen“ erst nach dem ersten „öffnen“, das späte Secret verworfen)',
+      vorDerAntwort === 'öffnen-Anfang,Guard' && spur.join(',') === 'öffnen-Anfang,Guard,öffnen-Ende,schließen' && secret === null && client === null);
+  }
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
