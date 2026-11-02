@@ -17,6 +17,9 @@
 // - 3 s Pausen des Programm-Empfangs zwischen zwei Suchrunden bzw. Öffnungsversuchen (src/utility/ndi-program-receiver.ts).
 // - 3 s bis T140 „NDI: keine Quelle“ für einen eingelassenen Gast ohne Eintrag (Renderer, Regel G, C-EP16).
 // Nur die Uhrregel des Raumabbruchs (E57, shared/raum-ansicht.ts) vergleicht bewusst mit der Wanduhr.
+// Takt-Lücke (Nachtrag C, R20): Treibt die Hülle tick() im Sekundentakt (`sekundenTakt`), gilt eine Lücke von mehr als
+// 2,5 s zwischen zwei tick() als Hänger oder Ruhezustand des Main; sie zählt für keine Frist an Meldung, Start oder Bild.
+// Der erste tick() danach verschiebt deren Anker um die Lücke (hier in tick()).
 
 /** Art einer Gast-NDI-Quelle; die Bildschirm-Quelle hat den Schlüssel `‹Gast-ID›::screen` (`ndiPoolKey`). */
 export type NdiArt = 'kamera' | 'bildschirm';
@@ -212,7 +215,14 @@ export interface NdiLage {
   programmStop(): NdiHandlung[];
   /** Das Peer-Fenster meldet `render-process-gone` oder `closed` (22.3 Nr. 13, E50); ein Empfang in `aus` bleibt `aus`. */
   peerWeg(): NdiHandlung[];
-  /** Zeitgeber: jede Sekunde und nach jedem `neustartPlanen` (22.3 Nr. 7, 22.4, fällige Neustarts). */
+  /**
+   * Zeitgeber (22.3 Nr. 7, 11, 12, 22.4): die Hülle ruft ihn jede Sekunde und nach jedem `neustartPlanen`. Er rechnet die
+   * Fristen 10 s bis „bereit“ und 5 s Lebenszeichen (E50), `sendet` → `ohneBild` nach 3 s ohne Videobild, startet fällige
+   * Neustarts und setzt nach 60 s ununterbrochen die Neustarts in Folge auf 0. Mit `sekundenTakt` (Nachtrag C, R20): Liegt seit
+   * dem vorigen tick() mehr als TAKT_LUECKE_MS (Hänger, Ruhezustand), verschiebt er zuerst die Anker der Fristen an Meldung,
+   * Start und Bild jedes laufenden Prozesses um die Lücke, höchstens bis jetzt; so löst in diesem tick() keine dieser Fristen aus,
+   * die folgenden rechnen normal. Fällige Neustarts startet auch er. Der erste tick() nach dem Anlegen ist nie eine Lücke.
+   */
   tick(): NdiHandlung[];
   quelleLage(schluessel: string): NdiQuelleLage | null;
   quellen(): NdiQuelleLage[];
@@ -240,6 +250,7 @@ interface Gast {
   bereit: boolean;
   startUm: number;
   bereitUm: number;
+  /** Letztes Videobild (null: keines seit „bereit“); nach einer Takt-Lücke der verschobene Anker der 3-s-Regel. */
   bildUm: number | null;
   /** Ausfall nach „bereit“ um …; der Neustart ist fällig, sobald jetzt() − neustartAb ≥ NEUSTART_MS. */
   neustartAb: number | null;
@@ -261,14 +272,23 @@ const OHNE_BILD_MS = 3000;
 const BEREIT_FRIST_MS = 10_000;
 /** Lebenszeichen: so lange nach „bereit“ ohne jede Meldung, dann beendet der Main den Prozess (E50). */
 const LEBENSZEICHEN_MS = 5000;
+/**
+ * Takt-Lücke (Nachtrag C, R20): Mehr als so lange zwischen zwei tick() bei einem Takt von 1 s heißt, der Main stand (Hänger,
+ * Ruhezustand bei weiterlaufender Uhr). Die Meldungen der Utilities aus dieser Zeit kommen danach erst noch an.
+ */
+const TAKT_LUECKE_MS = 2500;
 
 /**
  * Eine NDI-Lage. `jetzt()` liefert die Zeit der Hülle (monoton, in ms). `onLage` feuert einmal beim Start (nach der Rückgabe,
  * vor jedem Ereignis der Hülle) und bei jeder Änderung der öffentlichen Lage; `onNamen` nur bei geänderter Namensliste (E52).
+ * `sekundenTakt`: Die Hülle ruft tick() jede Sekunde (index.ts); dann gilt eine Lücke über TAKT_LUECKE_MS als Hänger oder
+ * Ruhezustand (tick()). Ohne (Fälle mit springender Testuhr) rechnet jeder tick() die Fristen ohne Lückenprüfung.
  */
-export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; onLage?(): void; onNamen?(): void }): NdiLage {
+export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; sekundenTakt?: boolean; onLage?(): void; onNamen?(): void }): NdiLage {
   const gaeste = new Map<string, Gast>();
   let naechsteGeneration = 1;
+  /** Zeit des vorigen tick(); null bis zum ersten (der erste tick() nach dem Anlegen ist nie eine Lücke). */
+  let letzterTick: number | null = null;
   const p: Programm = {
     lage: { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: '', bereit: false },
     generation: 0, pid: null, prozess: false, startUm: 0, bereitUm: 0, neustartAb: null, meldungUm: 0, beendet: false,
@@ -375,9 +395,32 @@ export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; onLage?(
     return [...h, programmZeile(vorher)];
   }
 
-  /** Zeitgeber (22.3 Nr. 7, 11, 12, 22.4): Fristen 10 s und 5 s, fällige Neustarts, `sendet` → `ohneBild`, Rücksetzung nach 60 s. */
+  /**
+   * Takt-Lücke (Nachtrag C, R20): Die Anker der Fristen an Meldung (5 s), Start (10 s) und Bild (3 s) jedes laufenden Prozesses
+   * rücken um die Lücke vor, höchstens bis jetzt (eine Meldung, die vor diesem tick() ankam, rückt nicht hinter jetzt). Danach
+   * ist jedes Alter so groß wie beim vorigen tick(): Die Lücke zählt nicht, die beobachtete Zeit davor schon, und keine dieser
+   * Fristen löst in diesem tick() aus. Nicht verschoben: der Neustart-Wecker `neustartAb` (ein fälliger Neustart startet in
+   * diesem tick()) und `bereitUm` als Anker der Rücksetzung nach 60 s; den Anker der 3-s-Regel trägt danach `bildUm`.
+   */
+  function ankerVerschieben(t: number, luecke: number): void {
+    const vor = (anker: number): number => Math.min(anker + luecke, t);
+    for (const g of gaeste.values()) {
+      if (!g.prozess) continue;
+      g.startUm = vor(g.startUm);
+      g.meldungUm = vor(g.meldungUm);
+      if (g.bereit) g.bildUm = vor(Math.max(g.bereitUm, g.bildUm ?? g.bereitUm));
+    }
+    if (p.prozess) {
+      p.startUm = vor(p.startUm);
+      p.meldungUm = vor(p.meldungUm);
+    }
+  }
+
+  /** Zeitgeber (22.3 Nr. 7, 11, 12, 22.4): Takt-Lücke, Fristen 10 s und 5 s, fällige Neustarts, `sendet` → `ohneBild`, Rücksetzung nach 60 s. */
   function tick(): NdiHandlung[] {
     const t = o.jetzt();
+    if (o.sekundenTakt && letzterTick !== null && t - letzterTick > TAKT_LUECKE_MS) ankerVerschieben(t, t - letzterTick);
+    letzterTick = t;
     const h: NdiHandlung[] = [];
     for (const g of gaeste.values()) {
       if (g.prozess && !g.beendet) {

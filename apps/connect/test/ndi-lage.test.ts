@@ -1095,6 +1095,193 @@ console.log('— C8: Programm-Empfang angebunden (Quelltext: Utility, Hülle, in
       quit.indexOf('stopProgram();') >= 0 && quit.indexOf('destroyPeerWindow();') > quit.indexOf('stopProgram();'));
   }
 }
+console.log('— Nachtrag C (I-C7-1, R18, R20): Takt-Lücke nach Hänger oder Ruhezustand des Main, Gast und Programm (E50)');
+{
+  /** Wie testLage, aber mit sekundenTakt wie index.ts: Die Hülle ruft tick() jede Sekunde, eine längere Lücke ist ein Hänger. */
+  function taktLage(peer = true): TestLage {
+    const s = { t: 1000, peer, lage: 0, namen: 0 };
+    const lage = erzeugeNdiLage({ jetzt: () => s.t, peerDa: () => s.peer, sekundenTakt: true, onLage: () => { s.lage++; }, onNamen: () => { s.namen++; } });
+    return { lage, s };
+  }
+  const STAT: GastMeldung = { type: 'stat', connections: 1 };
+  const VERBUNDEN: ProgrammMeldungT = { type: 'lage', zustand: 'verbunden', quelle: 'Regie (JM Switcher)' };
+  /** `n` ticks im Sekundentakt; alle Handlungen zusammen. */
+  const sekunden = (t: TestLage, n: number): NdiHandlung[] => {
+    const h: NdiHandlung[] = [];
+    for (let i = 0; i < n; i++) {
+      t.s.t += 1000;
+      h.push(...t.lage.tick());
+    }
+    return h;
+  };
+
+  // (1) Gast sendet: Meldung, Bild und tick je Sekunde, dann steht der Main 6 s.
+  const a = taktLage();
+  const ga = sendend(a);
+  for (let i = 0; i < 3; i++) {
+    a.s.t += 1000;
+    a.lage.gastMeldung('g1', ga, STAT);
+    a.lage.videobild('g1');
+    a.lage.tick();
+  }
+  a.s.t += 6000;
+  const ha = a.lage.tick();
+  ck('Nachtrag C (1) Gast sendet, die Uhr springt um 6000 ms, ein tick → kein „Prozess beenden“, bleibt sendet, keine Logzeile',
+    gleich(kurz(ha), []) && zst(a.lage) === 'sendet' && logs(ha).length === 0);
+  a.lage.gastMeldung('g1', ga, STAT);
+  ck('Nachtrag C (1) … danach stat (die gepufferte Meldung kommt an, noch kein neues Bild) → bleibt sendet',
+    zst(a.lage) === 'sendet' && a.lage.quelleLage('g1')?.empfaenger === 1);
+  const ha4 = sekunden(a, 4);
+  ck('Nachtrag C (1) … weitere ticks rechnen normal: 4 s ohne Meldung kein „Prozess beenden“, nach 3 s ohne Bild ohneBild',
+    gleich(beendenH(ha4), []) && zst(a.lage) === 'ohneBild');
+  ck('Nachtrag C (1) … 5 s ohne Meldung nach der Lücke → „Prozess beenden“ (E50 gilt wieder)', gleich(beendenH(sekunden(a, 1)), ['beenden gast g1 G1']));
+
+  // (1, Reihenfolge harmlos) Die gepufferte Meldung kommt VOR dem verspäteten tick: Die Frist läuft ab ihr, nicht später.
+  const b = taktLage();
+  const gb = sendend(b);
+  b.s.t += 1000;
+  b.lage.gastMeldung('g1', gb, STAT);
+  b.lage.tick();
+  b.s.t += 6000;
+  b.lage.gastMeldung('g1', gb, STAT);
+  b.lage.tick();
+  ck('Nachtrag C (1) Meldung vor dem verspäteten tick zugestellt: 4 s danach nichts, 5 s danach „Prozess beenden“ (kein Anker hinter jetzt)',
+    gleich(beendenH(sekunden(b, 4)), []) && gleich(beendenH(sekunden(b, 1)), ['beenden gast g1 G1']));
+
+  // (2) Programm verbunden: lage und tick je Sekunde, dann steht der Main 6 s.
+  const p = taktLage();
+  const gp = programmBereit(p);
+  for (let i = 0; i < 3; i++) {
+    p.s.t += 1000;
+    p.lage.programmMeldung(gp, VERBUNDEN);
+    p.lage.tick();
+  }
+  p.s.t += 6000;
+  const hp = p.lage.tick();
+  p.lage.programmMeldung(gp, VERBUNDEN);
+  ck('Nachtrag C (2) Programm verbunden, die Uhr springt um 6000 ms, ein tick → kein „Prozess beenden“, keine Logzeile; danach lage → bleibt verbunden',
+    gleich(kurz(hp), []) && logs(hp).length === 0 && pz(p.lage) === 'verbunden' && p.lage.programmLage().quelle === 'Regie (JM Switcher)');
+  ck('Nachtrag C (2) … weitere ticks rechnen normal: 4 s ohne Meldung nichts, 5 s ohne Meldung „Prozess beenden“ (E50 gilt wieder)',
+    gleich(beendenH(sekunden(p, 4)), []) && gleich(beendenH(sekunden(p, 1)), ['beenden programm programm G1']));
+
+  // (3) Gast in startet und Programm in sucht (vor bereit), dann steht der Main 11 s.
+  const c = taktLage();
+  c.lage.spinUp('g1', 'kamera', ANNA);
+  c.lage.programmStart(HINWEIS);
+  sekunden(c, 1);
+  c.s.t += 11_000;
+  const hc = c.lage.tick();
+  ck('Nachtrag C (3) Gast startet und Programm sucht, die Uhr springt um 11 000 ms → nicht gescheitert/keinStart, kein „Prozess beenden“',
+    gleich(kurz(hc), []) && zst(c.lage) === 'startet' && pz(c.lage) === 'sucht');
+  c.lage.gastMeldung('g1', 1, BEREIT);
+  c.lage.programmMeldung(2, PB);
+  ck('Nachtrag C (3) … danach bereit (gepuffert) → sendet bzw. sucht nach bereit', zst(c.lage) === 'sendet' && pz(c.lage) === 'sucht' && c.lage.programmLage().bereit);
+  // Die Lücke zählt nicht, die beobachtete Zeit davor schon (Verschieben statt Zurücksetzen): 1 s vor der Lücke + 9 s danach.
+  const d = taktLage();
+  d.lage.spinUp('g1', 'kamera', ANNA);
+  d.lage.programmStart(HINWEIS);
+  sekunden(d, 1);
+  d.s.t += 11_000;
+  d.lage.tick();
+  ck('Nachtrag C (3) … ohne bereit: 1 s vor und 8 s nach der Lücke → noch startet bzw. sucht', gleich(kurz(sekunden(d, 8)), []) && zst(d.lage) === 'startet' && pz(d.lage) === 'sucht');
+  ck('Nachtrag C (3) … nach 10 s beobachteter Startzeit (1 s vor, 9 s nach der Lücke) → gescheitert/keinStart, Gast und Programm',
+    gleich(beendenH(sekunden(d, 1)), ['beenden gast g1 G1', 'beenden programm programm G2'])
+      && zst(d.lage) === 'gescheitert/keinStart' && pz(d.lage) === 'gescheitert/keinStart');
+
+  // (4) Gegenfall ohne Sprung: E50 bleibt, wie es war.
+  const e = taktLage();
+  sendend(e);
+  programmBereit(e);
+  const e4 = sekunden(e, 4);
+  const he = sekunden(e, 1);
+  ck('Nachtrag C (4) ohne Sprung, Meldungspause in 1-s-Schritten: nach 4 s nichts, nach 5 s „Prozess beenden“ mit „keine Lebenszeichen“, Gast und Programm (E50 bleibt gültig)',
+    gleich(beendenH(e4), []) && gleich(beendenH(he), ['beenden gast g1 G1', 'beenden programm programm G2'])
+      && logs(he).filter((z) => z.includes('keine Lebenszeichen')).length === 2);
+  const f = taktLage();
+  f.lage.spinUp('g1', 'kamera', ANNA);
+  f.lage.programmStart(HINWEIS);
+  const f9 = sekunden(f, 9);
+  const f9Lage = `${zst(f.lage)} ${pz(f.lage)}`;
+  ck('Nachtrag C (4) ohne Sprung, ohne bereit in 1-s-Schritten: nach 9 s noch startet bzw. sucht, nach 10 s gescheitert/keinStart, Gast und Programm (E50 bleibt gültig)',
+    gleich(kurz(f9), []) && f9Lage === 'startet sucht' && gleich(beendenH(sekunden(f, 1)), ['beenden gast g1 G1', 'beenden programm programm G2'])
+      && zst(f.lage) === 'gescheitert/keinStart' && pz(f.lage) === 'gescheitert/keinStart');
+  // Grenze der Lücke: 2500 ms zwischen zwei tick() sind noch Takt, 2501 ms eine Lücke.
+  const g = taktLage();
+  sendend(g);
+  g.s.t += 2500;
+  g.lage.tick();
+  g.s.t += 2500;
+  ck('Nachtrag C (4) tick alle 2500 ms ist keine Lücke: 5000 ms ohne Meldung → „Prozess beenden“', gleich(beendenH(g.lage.tick()), ['beenden gast g1 G1']));
+  const i = taktLage();
+  sendend(i);
+  i.s.t += 2501;
+  i.lage.tick();
+  i.s.t += 2501;
+  ck('Nachtrag C (4) … 2501 ms zwischen zwei tick() sind eine Lücke: kein „Prozess beenden“, bleibt sendet', gleich(beendenH(i.lage.tick()), []) && zst(i.lage) === 'sendet');
+  // Der erste tick nach dem Anlegen der Lage zählt nicht als Lücke.
+  const j = taktLage();
+  j.lage.spinUp('g1', 'kamera', ANNA);
+  j.s.t += 10_000;
+  ck('Nachtrag C (4) der erste tick nach dem Anlegen zählt nicht als Lücke: 10 s ohne bereit → gescheitert/keinStart',
+    gleich(beendenH(j.lage.tick()), ['beenden gast g1 G1']) && zst(j.lage) === 'gescheitert/keinStart');
+  // Ohne sekundenTakt (die übrigen Fälle mit springender Testuhr) rechnet jeder tick() die Fristen.
+  const k = testLage();
+  sendend(k);
+  k.s.t += 1000;
+  k.lage.tick();
+  k.s.t += 6000;
+  ck('Nachtrag C (4) ohne sekundenTakt ist ein Sprung keine Lücke: 7 s ohne Meldung → „Prozess beenden“', gleich(beendenH(k.lage.tick()), ['beenden gast g1 G1']));
+
+  // (5) Ein geplanter Neustart geht über eine Lücke nicht verloren.
+  const n = taktLage();
+  const gn = sendend(n);
+  const pn = programmBereit(n);
+  sekunden(n, 1);
+  n.lage.gastExit('g1', gn, 1);
+  n.lage.programmExit(pn, 1);
+  n.s.t += 6000;
+  ck('Nachtrag C (5) geplanter Neustart (Gast und Programm), dann eine Lücke von 6000 ms → der tick danach startet beide neu',
+    gleich(kurz(n.lage.tick()), ['starten gast g1 G3', 'starten programm programm G4']) && zst(n.lage) === 'neustart' && pz(n.lage) === 'neustart');
+  ck('Nachtrag C (5) … der neue Prozess hat ab seinem Start 10 s bis bereit', gleich(kurz(sekunden(n, 9)), [])
+    && gleich(beendenH(sekunden(n, 1)), ['beenden gast g1 G3', 'beenden programm programm G4']) && zst(n.lage) === 'gescheitert/keinStart');
+
+  // index.ts treibt die Lage im Sekundentakt und sagt es ihr.
+  const { readFileSync } = await import('node:fs');
+  const lies = (q: string): string => readFileSync(new URL(q, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const index = lies('../src/main/index.ts');
+  const aufruf = index.slice(index.indexOf('const ndiLage = erzeugeNdiLage({'), index.indexOf('\n    });', index.indexOf('const ndiLage = erzeugeNdiLage({')));
+  ck('Nachtrag C R20: index.ts gibt der Lage sekundenTakt: true, der Zeitgeber bleibt jede Sekunde',
+    aufruf.includes('sekundenTakt: true,') && index.includes('setInterval(() => ndiAusfuehren(ndiLage.tick()), 1000);'));
+}
+console.log('— Nachtrag C (M-C7-1, M-C8-2): Stapel je Handlung abgesichert, Finder-Fehler als abbruch {init}');
+{
+  const { readFileSync } = await import('node:fs');
+  const lies = (q: string): string => readFileSync(new URL(q, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const index = lies('../src/main/index.ts');
+  const empf = lies('../src/utility/ndi-program-receiver.ts');
+  /** Text ab `start` bis vor das nächste `ende` (leer, wenn `start` fehlt). */
+  const abschnitt = (s: string, start: string, ende: string): string => {
+    const i = s.indexOf(start);
+    if (i < 0) return '';
+    const j = s.indexOf(ende, i + start.length);
+    return j < 0 ? s.slice(i) : s.slice(i, j);
+  };
+  const ausfuehren = abschnitt(index, 'const ndiAusfuehren = (h: NdiHandlung[]): void => {', '\n    };');
+  ck('Nachtrag C M-C7-1: ndiAusfuehren führt jede Handlung in einem eigenen try aus; ein Fehler geht mit getLog().error ins Log, die nächste läuft',
+    /for \(const x of h\) \{\n(?:\s*\/\/[^\n]*\n)*\s*try \{\n\s*if \(x\.art === 'log'\) getLog\(\)\.info\(x\.zeile\);\n[\s\S]*?\n\s*else programmHandlung\(x\);\n\s*\} catch \(err\) \{\n[\s\S]*?getLog\(\)\.error\([^\n]*, err\);\n\s*\}\n\s*\}$/.test(ausfuehren));
+  const suche = abschnitt(empf, 'function searchLoop(', '\n}\n');
+  ck('Nachtrag C M-C8-2: ein Fehler von findSources (in resolveSource) ist abbruch {init} mit Text wie ein Scheitern von init(), ohne weitere Suche',
+    /let source: string \| null;\n\s*try \{\n\s*source = resolveSource\(nameHint\);\n\s*\} catch \(err\) \{\n(?:\s*\/\/[^\n]*\n)*\s*console\.error\('\[ndi-program-receiver\] findSources fehlgeschlagen:', err\);\n(?:[\s\S]*?\n)?\s*melde\(\{ type: 'abbruch', grund: 'init', text: fehlerText\(err\) \}\);\n\s*return;\n\s*\}/.test(suche)
+      && suche.indexOf('source = resolveSource(nameHint);') < suche.indexOf('if (source) {'));
+  ck('Nachtrag C M-C8-2: nach dem Finder-Fehler endet der Lage-Takt (keine Meldung mehr bis zum Ende durch den Main, E51)',
+    /\} catch \(err\) \{\n[\s\S]*?findSources fehlgeschlagen[\s\S]*?if \(lageTakt\) \{\n\s*clearInterval\(lageTakt\);\n\s*lageTakt = null;\n\s*\}\n\s*melde\(\{ type: 'abbruch', grund: 'init'/.test(suche));
+  // Die Lage macht aus dem abbruch {init} nach bereit gescheitert/init und beendet den Prozess, ohne Neustart (22.4).
+  const t = testLage();
+  const g = programmBereit(t);
+  const h = t.lage.programmMeldung(g, { type: 'abbruch', grund: 'init', text: 'NDIlib_find_create_v2 failed' });
+  ck('Nachtrag C M-C8-2 Lage: abbruch {init} nach bereit → „Prozess beenden“ und gescheitert/init; das folgende exit ändert nichts',
+    gleich(kurz(h), ['beenden programm programm G1']) && pz(t.lage) === 'gescheitert/init' && gleich(t.lage.programmExit(g, 1), []) && pz(t.lage) === 'gescheitert/init');
+}
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

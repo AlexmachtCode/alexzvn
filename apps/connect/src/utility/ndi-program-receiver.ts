@@ -163,7 +163,21 @@ function resolveSource(nameHint: string): string | null {
  *  „notfound" mehr, der Empfang heilt sich selbst). */
 function searchLoop(nameHint: string): void {
   if (stopRequested || !ndi) return;
-  const source = resolveSource(nameHint);
+  let source: string | null;
+  try {
+    source = resolveSource(nameHint);
+  } catch (err) {
+    // findSources wirft, wenn der NDI-Finder nicht entsteht (packages/ndi/src/addon.cc): wie ein Scheitern von init() ein
+    // abbruch {init} mit Text statt eines Absturzes nach „bereit“ (Nachtrag C, M-C8-2). Danach meldet der Empfänger nichts
+    // mehr und sucht nicht weiter; er wartet, bis der Main ihn beendet (E51).
+    console.error('[ndi-program-receiver] findSources fehlgeschlagen:', err);
+    if (lageTakt) {
+      clearInterval(lageTakt);
+      lageTakt = null;
+    }
+    melde({ type: 'abbruch', grund: 'init', text: fehlerText(err) });
+    return;
+  }
   if (stopRequested) return;
   if (source) {
     try {

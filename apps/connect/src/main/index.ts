@@ -96,6 +96,9 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     const meldeNdi = aenderungsMelder(setNdiControlState);
     const ndiLage = erzeugeNdiLage({
       jetzt: () => performance.now(),
+      // Der Zeitgeber unten ruft tick() jede Sekunde: Eine Lücke über 2,5 s ist ein Hänger oder Ruhezustand des Main, sie
+      // zählt für keine Frist (Nachtrag C, R20; die gepufferten Meldungen der Utilities kommen erst danach an).
+      sekundenTakt: true,
       peerDa: () => {
         const p = getPeerWindow();
         return p !== null && !p.webContents.isCrashed();
@@ -109,10 +112,17 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     // Führt die Handlungen der Lage aus (C-EP1): Logzeilen, Neustart-Wecker (C-EB1), Gast- und Programm-Prozesse.
     const ndiAusfuehren = (h: NdiHandlung[]): void => {
       for (const x of h) {
-        if (x.art === 'log') getLog().info(x.zeile);
-        else if (x.art === 'neustartPlanen') setTimeout(() => ndiAusfuehren(ndiLage.tick()), x.inMs + 5);
-        else if (x.teil === 'gast') gastHandlung(x);
-        else programmHandlung(x);
+        // Jede Handlung für sich (Nachtrag C, M-C7-1): Wirft eine (etwa der Start eines Prozesses), laufen die übrigen dieses
+        // Stapels trotzdem, etwa das Beenden eines anderen Prozesses; der Fehler steht im Log.
+        try {
+          if (x.art === 'log') getLog().info(x.zeile);
+          else if (x.art === 'neustartPlanen') setTimeout(() => ndiAusfuehren(ndiLage.tick()), x.inMs + 5);
+          else if (x.teil === 'gast') gastHandlung(x);
+          else programmHandlung(x);
+        } catch (err) {
+          const wo = x.art === 'log' ? '' : ` ${x.teil} ${x.schluessel}`;
+          getLog().error(`[ndi] Handlung ${x.art}${wo} fehlgeschlagen, die übrigen laufen weiter:`, err);
+        }
       }
     };
     // Versteckter WebRTC-Peer (Medien) — vor dem NDI-Pool, der ihm Frame-Ports gibt. Stürzt sein Renderer ab oder schließt
