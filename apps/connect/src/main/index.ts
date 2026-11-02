@@ -5,7 +5,8 @@ import { createMainWindow, getMainWindow, resourcePath, setupSingleInstance } fr
 import { IPC } from '@shared/ipc';
 import type { TrayCommand } from '@shared/types';
 import { registerIpc, notifyStatusChanged, currentStatus } from './ipc';
-import { initNdiGuests, tearDownAll } from './ndi-guests';
+import { erzeugeNdiLage, type NdiHandlung } from './ndi-lage';
+import { gastHandlung, initNdiGuests, tearDownAll } from './ndi-guests';
 import { initNdiProgram, stopProgram } from './ndi-program';
 import { createPeerWindow, destroyPeerWindow, getPeerWindow } from './peer-window';
 import { startControlServer, stopControlServer } from './control-server';
@@ -87,16 +88,36 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media');
 
-    // Versteckter WebRTC-Peer (Medien) — vor dem NDI-Pool, der ihm Frame-Ports gibt.
-    createPeerWindow(preloadPath);
-    // Gast-Sender ändern sich → Status pushen und die Kollisionsprüfung Gast ↔ Zoom neu rechnen (Spec 6.3).
-    initNdiGuests({
-      getPeer: () => getPeerWindow(),
-      onChange: () => {
-        notifyStatusChanged();
-        zoomGastLabelsGeaendert();
+    // Eine NDI-Lage für alle Gast-Quellen und den Programm-Empfang (Plan C, C-EP1, E52), auf der monotonen Uhr (E50, PK55).
+    // onLage: jede Änderung der öffentlichen Lage (und einmal beim Start) → Status an Fenster und Tray.
+    // onNamen: die Namensliste für T46 hat sich geändert → die Kollisionsprüfung Gast ↔ Zoom neu rechnen (Spec 6.3, E42).
+    const ndiLage = erzeugeNdiLage({
+      jetzt: () => performance.now(),
+      peerDa: () => {
+        const p = getPeerWindow();
+        return p !== null && !p.webContents.isCrashed();
       },
+      onLage: () => {
+        notifyStatusChanged();
+      },
+      onNamen: () => zoomGastLabelsGeaendert(),
     });
+    // Führt die Handlungen der Lage aus (C-EP1): Logzeilen, Neustart-Wecker (C-EB1), Gast- und Programm-Prozesse.
+    const ndiAusfuehren = (h: NdiHandlung[]): void => {
+      for (const x of h) {
+        if (x.art === 'log') getLog().info(x.zeile);
+        else if (x.art === 'neustartPlanen') setTimeout(() => ndiAusfuehren(ndiLage.tick()), x.inMs + 5);
+        else if (x.teil === 'gast') gastHandlung(x);
+        else getLog().warn(`[ndi] Handlung ${x.art} für den Programm-Empfang ohne Hülle (Plan C, bis Task C8)`);
+      }
+    };
+    // Versteckter WebRTC-Peer (Medien) — vor dem NDI-Pool, der ihm Frame-Ports gibt. Stürzt sein Renderer ab oder schließt
+    // er, gehen alle Gast-Quellen und der Programm-Empfang nach gescheitert/keinPeer (E50, T119).
+    createPeerWindow(preloadPath, () => ndiAusfuehren(ndiLage.peerWeg()));
+    // Gast-Quellen (Plan C, 22.3): Die Hülle startet und beendet Prozesse, wie die Lage es sagt.
+    initNdiGuests({ getPeer: () => getPeerWindow(), lage: ndiLage, ausfuehren: ndiAusfuehren });
+    // Zeitgeber der Lage (22.3 Nr. 7, E50): jede Sekunde, für Gast-Quellen und Programm-Empfang.
+    setInterval(() => ndiAusfuehren(ndiLage.tick()), 1000);
     // Programm-Rückkanal-Empfang (Welle 6.2a): Status-Änderungen an die Operator-UI/Tray.
     initNdiProgram({ getPeer: () => getPeerWindow(), onStatus: () => notifyStatusChanged() });
 

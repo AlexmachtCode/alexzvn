@@ -11,7 +11,11 @@ declare const __dirname: string;
 
 let peer: BrowserWindow | null = null;
 
-export function createPeerWindow(preloadPath: string): BrowserWindow {
+/**
+ * `onWeg` (Plan C, E50): Stürzt der Renderer des Peers ab (`render-process-gone`) oder schließt das Fenster (`closed`), gehen
+ * alle Gast-Quellen und der Programm-Empfang nach gescheitert/keinPeer (T119); was sich ändert, entscheidet die Lage.
+ */
+export function createPeerWindow(preloadPath: string, onWeg: () => void = () => {}): BrowserWindow {
   if (peer && !peer.isDestroyed()) return peer;
   peer = new BrowserWindow({
     show: false,
@@ -43,8 +47,10 @@ export function createPeerWindow(preloadPath: string): BrowserWindow {
   } else {
     void peer.loadFile(join(__dirname, '../renderer/peer.html'));
   }
+  peer.webContents.on('render-process-gone', () => onWeg());
   peer.on('closed', () => {
     peer = null;
+    onWeg();
   });
   return peer;
 }

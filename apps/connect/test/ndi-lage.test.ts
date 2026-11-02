@@ -886,6 +886,92 @@ console.log('— C3 PK55, OE4 a: Quelltext von ndi-lage.ts');
     ck(`C3 OE4 a Kopfkommentar nennt die Frist „${frist}“`, kopfText.includes(frist));
   }
 }
+console.log('— C7: Gast-Quellen angebunden (Quelltext: Utility, Hülle, Peer-Fenster, index.ts; PK46, PK47, PK55, PK33)');
+{
+  const { readFileSync } = await import('node:fs');
+  const lies = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const sender = lies('../src/utility/ndi-guest-sender.ts');
+  const huelle = lies('../src/main/ndi-guests.ts');
+  const peerFenster = lies('../src/main/peer-window.ts');
+  const index = lies('../src/main/index.ts');
+  /** Text ab `start` bis vor das nächste `ende` (leer, wenn `start` fehlt). */
+  const abschnitt = (s: string, start: string, ende: string): string => {
+    const i = s.indexOf(start);
+    if (i < 0) return '';
+    const j = s.indexOf(ende, i + start.length);
+    return j < 0 ? s.slice(i) : s.slice(i, j);
+  };
+  const zaehle = (s: string, t: string): number => s.split(t).length - 1;
+
+  // PK46 (Gast): @jm/ndi erst im Auftrag, in try/catch, mit abbruch und Grund; kein process.exit (E51).
+  ck('C7 PK46 Gast: kein Import von @jm/ndi auf oberster Ebene außer import type',
+    !/^import (?!type\b)[^\n]*'@jm\/ndi'/m.test(sender) && /^import type \* as NdiModul from '@jm\/ndi';$/m.test(sender));
+  ck('C7 PK46 Gast: das Laden steht in try/catch und meldet abbruch mit Grund addon',
+    /try \{\n\s*modul = require\('@jm\/ndi'\) as typeof NdiModul;\n\s*\} catch \(err\) \{\n\s*melde\(\{ type: 'abbruch', grund: 'addon', text: fehlerText\(err\) \}\);/.test(sender));
+  ck('C7 PK46 Gast: init() und createSender() melden ihr Scheitern mit Grund init bzw. sender',
+    /modul\.init\(\);\n\s*\} catch \(err\) \{\n\s*melde\(\{ type: 'abbruch', grund: 'init'/.test(sender)
+      && /modul\.createSender\(name\);\n\s*\} catch \(err\) \{\n\s*melde\(\{ type: 'abbruch', grund: 'sender'/.test(sender));
+  ck('C7 22.3 Gast: bereit erst nach init() und createSender()',
+    sender.indexOf('modul.createSender(name);') > sender.indexOf('modul.init();') && sender.indexOf("melde({ type: 'bereit' });") > sender.indexOf('modul.createSender(name);'));
+  ck('C7 PK46/E51 Gast: kein Aufruf process.exit im Utility (der Main beendet es)', !/process\.exit\(/.test(sender));
+  ck('C7 E50 Gast: ab bereit jede Sekunde ein stat (Lebenszeichen), nicht mehr nach je 30 Bildern',
+    /statTakt = setInterval\(\(\) => \{\n\s*if \(started && ndi\) melde\(\{ type: 'stat', connections: ndi\.connections\(\) \}\);\n\s*\}, 1000\);/.test(sender) && !sender.includes('% 30'));
+
+  // PK55 (Gast): nur die monotone Uhr.
+  ck('C7 PK55 Gast: kein Date.now() in ndi-guest-sender.ts und ndi-guests.ts', !sender.includes('Date.now()') && !huelle.includes('Date.now()'));
+  ck('C7 PK55 Gast: der Wachhund rechnet mit performance.now()',
+    sender.includes('const jetzt = (): number => performance.now();') && sender.includes('lastFrameAt = jetzt();') && sender.includes('if (jetzt() - lastFrameAt > 3000) {'));
+
+  // PK47: Hülle.
+  {
+    const i = huelle.indexOf('if (!eintrag) {');
+    const j = huelle.indexOf('new MessageChannelMain()');
+    ck('C7 PK47: je Eintrag genau ein MessageChannelMain, angelegt nur, solange der Eintrag noch keinen hat',
+      zaehle(huelle, 'new MessageChannelMain()') === 1 && i >= 0 && j > i && !huelle.slice(i, j).includes('\n  }'));
+  }
+  const portWeg = abschnitt(huelle, "port2.on('message', (ev) => {", '\n    });');
+  ck('C7 PK47: port2 leitet an den Prozess, der bei jeder Nachricht aktuell ist (nicht an einen festgehaltenen)',
+    portWeg.includes('const p = neu.aktuell;') && portWeg.includes('p.child.postMessage(ev.data);'));
+  ck('C7 PK47: ein Zuhörer auf exit je Prozess, das Ende geht an die Lage (gastExit)',
+    zaehle(huelle, "child.on('exit'") === 1 && /child\.on\('exit', \(code\) => \{[\s\S]*?ausfuehren\(lage\?\.gastExit\(schluessel, generation, code\) \?\? \[\]\);/.test(huelle));
+  ck('C7 E51: jede Nachricht des Prozesses geht durch leseGastMeldung, Verworfenes nur ins Log',
+    /child\.on\('message', \(roh: unknown\) => \{\n\s*const m = leseGastMeldung\(roh\);\n\s*if \('verworfen' in m\) \{/.test(huelle));
+  ck('C7 22.3 Nr. 6: jedes weitergeleitete Videobild meldet videobild an die Lage',
+    portWeg.includes("=== 'video') ausfuehren(lage?.videobild(schluessel) ?? []);"));
+  ck('C7 22.3 Nr. 1: spinUp geht an die Lage (Art aus dem Pool-Schlüssel), nicht mehr direkt an fork',
+    /export function spinUp\(key: string, label: string\): void \{\n\s*if \(!lage\) return;\n\s*const art: NdiArt = key\.includes\('::'\) \? 'bildschirm' : 'kamera';\n\s*ausfuehren\(lage\.spinUp\(key, art, label\)\);/.test(huelle));
+  ck('C7 E42: activeLabels ist die Namensliste der Lage (alle Einträge außer gescheitert)',
+    /export function activeLabels\(\): string\[\] \{\n\s*return lage \? lage\.namensListe\(\) : \[\];/.test(huelle));
+  // C-EB12 (Verhalten aus 0.3.0, Nachbesserung C-robust:6): Der Abbau der Kamera nimmt die Bildschirm-Quelle des Gasts mit.
+  ck('C7 C-EB12: tearDown baut zur Kamera die Bildschirm-Quelle mit ab (nur für Schlüssel ohne ::), vor lage.tearDown(key)',
+    /export function tearDown\(key: string\): void \{\n\s*if \(!key\.includes\('::'\)\) tearDown\(ndiPoolKey\(key, 'screen'\)\);\n\s*if \(lage\) ausfuehren\(lage\.tearDown\(key\)\);/.test(huelle));
+  const spawnTeil = abschnitt(huelle, "child.on('spawn', () => {", '\n  });');
+  ck('C7 E35: Logzeilen der Hülle nennen Schlüssel, Generation und PID, nie das label; Startzeile und PID ab spawn, die PID an die Lage',
+    spawnTeil.includes('(Generation ${generation}, PID ${child.pid ?? \'?\'}): Prozess gestartet')
+      && spawnTeil.includes('if (child.pid !== undefined) lage?.prozessPid(generation, child.pid);')
+      && !/getLog\(\)[^\n]*\blabel\b/.test(huelle) && !/getLog\(\)[^\n]*q\.label/.test(huelle));
+  ck('C7 PK33: kein case- oder ev-Zweig für video oder audio in Utility und Hülle',
+    ![sender, huelle].some((s) => /case 'video'|case 'audio'|ev === 'video'|ev === 'audio'/.test(s)));
+
+  // E50: Peer-Fenster.
+  ck('C7 E50: peer-window.ts meldet render-process-gone an onWeg', peerFenster.includes("peer.webContents.on('render-process-gone', () => onWeg());"));
+  ck('C7 E50: peer-window.ts meldet closed an onWeg', /peer\.on\('closed', \(\) => \{\n\s*peer = null;\n\s*onWeg\(\);\n\s*\}\);/.test(peerFenster));
+
+  // E52, PK47: eine Lage in index.ts.
+  const aufruf = abschnitt(index, 'const ndiLage = erzeugeNdiLage({', '\n    });');
+  ck('C7 E50: die Lage bekommt die monotone Uhr der Hülle (performance.now())', aufruf.includes('jetzt: () => performance.now(),'));
+  ck('C7 PK47: onLage ruft notifyStatusChanged()', abschnitt(aufruf, 'onLage:', 'onNamen:').includes('notifyStatusChanged();'));
+  ck('C7 PK47: onNamen ruft zoomGastLabelsGeaendert()', aufruf.includes('onNamen: () => zoomGastLabelsGeaendert(),'));
+  ck('C7 E50: peerDa fragt das Peer-Fenster (da und nicht abgestürzt)', aufruf.includes('return p !== null && !p.webContents.isCrashed();'));
+  ck('C7 E50: das Peer-Fenster meldet sein Ende an die Lage (peerWeg)', index.includes('createPeerWindow(preloadPath, () => ndiAusfuehren(ndiLage.peerWeg()));'));
+  ck('C7 C-EP1: die Gast-Hülle bekommt die eine Lage und den Ausführer, ohne onChange',
+    index.includes('initNdiGuests({ getPeer: () => getPeerWindow(), lage: ndiLage, ausfuehren: ndiAusfuehren });') && !/initNdiGuests\(\{[^}]*onChange/.test(index));
+  ck('C7 22.3 Nr. 7: Zeitgeber der Lage jede Sekunde', index.includes('setInterval(() => ndiAusfuehren(ndiLage.tick()), 1000);'));
+  ck('C7 C-EB1: neustartPlanen weckt die Lage nach inMs (tick)',
+    index.includes("else if (x.art === 'neustartPlanen') setTimeout(() => ndiAusfuehren(ndiLage.tick()), x.inMs + 5);"));
+  ck('C7 C-EP1: Handlungen für Gast-Quellen gehen an gastHandlung, Logzeilen ins Log',
+    index.includes("if (x.art === 'log') getLog().info(x.zeile);") && index.includes("else if (x.teil === 'gast') gastHandlung(x);"));
+}
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
