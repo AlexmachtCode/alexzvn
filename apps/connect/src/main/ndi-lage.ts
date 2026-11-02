@@ -17,9 +17,9 @@
 // - 3 s Pausen des Programm-Empfangs zwischen zwei Suchrunden bzw. Öffnungsversuchen (src/utility/ndi-program-receiver.ts).
 // - 3 s bis T140 „NDI: keine Quelle“ für einen eingelassenen Gast ohne Eintrag (Renderer, Regel G, C-EP16).
 // Nur die Uhrregel des Raumabbruchs (E57, shared/raum-ansicht.ts) vergleicht bewusst mit der Wanduhr.
-// Takt-Lücke (Nachtrag C, R20): Treibt die Hülle tick() im Sekundentakt (`sekundenTakt`), gilt eine Lücke von mehr als
-// 2,5 s zwischen zwei tick() als Hänger oder Ruhezustand des Main; sie zählt für keine Frist an Meldung, Start oder Bild.
-// Der erste tick() danach verschiebt deren Anker um die Lücke (hier in tick()).
+// Takt-Lücke (Nachtrag C, R20, R28): Treibt die Hülle tick() im Sekundentakt (`sekundenTakt`), gilt eine Lücke von mehr als
+// 2,5 s zwischen zwei tick() als Hänger, Ruhezustand oder Drosselung des Main. Für die Fristen an Meldung, Start und Bild zählt
+// von ihr nur ein Nenntakt (1 s): Der tick() nach der Lücke verschiebt deren Anker um die Lücke abzüglich 1 s (hier in tick()).
 
 /** Art einer Gast-NDI-Quelle; die Bildschirm-Quelle hat den Schlüssel `‹Gast-ID›::screen` (`ndiPoolKey`). */
 export type NdiArt = 'kamera' | 'bildschirm';
@@ -218,10 +218,12 @@ export interface NdiLage {
   /**
    * Zeitgeber (22.3 Nr. 7, 11, 12, 22.4): die Hülle ruft ihn jede Sekunde und nach jedem `neustartPlanen`. Er rechnet die
    * Fristen 10 s bis „bereit“ und 5 s Lebenszeichen (E50), `sendet` → `ohneBild` nach 3 s ohne Videobild, startet fällige
-   * Neustarts und setzt nach 60 s ununterbrochen die Neustarts in Folge auf 0. Mit `sekundenTakt` (Nachtrag C, R20): Liegt seit
-   * dem vorigen tick() mehr als TAKT_LUECKE_MS (Hänger, Ruhezustand), verschiebt er zuerst die Anker der Fristen an Meldung,
-   * Start und Bild jedes laufenden Prozesses um die Lücke, höchstens bis jetzt; so löst in diesem tick() keine dieser Fristen aus,
-   * die folgenden rechnen normal. Fällige Neustarts startet auch er. Der erste tick() nach dem Anlegen ist nie eine Lücke.
+   * Neustarts und setzt nach 60 s ununterbrochen die Neustarts in Folge auf 0. Mit `sekundenTakt` (Nachtrag C, R20, R28): Liegt
+   * seit dem vorigen tick() mehr als TAKT_LUECKE_MS (Hänger, Ruhezustand, Drosselung), verschiebt er zuerst die Anker der Fristen
+   * an Meldung, Start und Bild jedes laufenden Prozesses um die Lücke abzüglich eines Nenntakts (NENNTAKT_MS), höchstens bis
+   * jetzt. Ein gesunder Prozess hatte beim vorigen tick() ein Alter von höchstens etwa 1 s und hat danach höchstens etwa 2 s,
+   * unter jeder dieser Fristen; hält die Drosselung an, wächst jedes Alter je tick() um 1 s, und die Fristen greifen wieder, nur
+   * langsamer. Fällige Neustarts startet auch er. Der erste tick() nach dem Anlegen ist nie eine Lücke.
    */
   tick(): NdiHandlung[];
   quelleLage(schluessel: string): NdiQuelleLage | null;
@@ -274,15 +276,22 @@ const BEREIT_FRIST_MS = 10_000;
 const LEBENSZEICHEN_MS = 5000;
 /**
  * Takt-Lücke (Nachtrag C, R20): Mehr als so lange zwischen zwei tick() bei einem Takt von 1 s heißt, der Main stand (Hänger,
- * Ruhezustand bei weiterlaufender Uhr). Die Meldungen der Utilities aus dieser Zeit kommen danach erst noch an.
+ * Ruhezustand bei weiterlaufender Uhr) oder sein Zeitgeber ist gedrosselt. Die Meldungen der Utilities aus dieser Zeit kommen
+ * danach erst noch an.
  */
 const TAKT_LUECKE_MS = 2500;
+/**
+ * Nenntakt des Zeitgebers der Hülle (index.ts, 1 s; Nachtrag C, R28): So viel einer Takt-Lücke zählt für die Fristen als
+ * beobachtet. Zählte nichts von ihr, froren bei anhaltender Drosselung (jeder Abstand über 2,5 s, etwa App Nap unter macOS im
+ * Tray) alle Alter ein, und keine Frist griffe mehr.
+ */
+const NENNTAKT_MS = 1000;
 
 /**
  * Eine NDI-Lage. `jetzt()` liefert die Zeit der Hülle (monoton, in ms). `onLage` feuert einmal beim Start (nach der Rückgabe,
  * vor jedem Ereignis der Hülle) und bei jeder Änderung der öffentlichen Lage; `onNamen` nur bei geänderter Namensliste (E52).
- * `sekundenTakt`: Die Hülle ruft tick() jede Sekunde (index.ts); dann gilt eine Lücke über TAKT_LUECKE_MS als Hänger oder
- * Ruhezustand (tick()). Ohne (Fälle mit springender Testuhr) rechnet jeder tick() die Fristen ohne Lückenprüfung.
+ * `sekundenTakt`: Die Hülle ruft tick() jede Sekunde (index.ts); dann gilt eine Lücke über TAKT_LUECKE_MS als Hänger,
+ * Ruhezustand oder Drosselung (tick()). Ohne (Fälle mit springender Testuhr) rechnet jeder tick() die Fristen ohne Lückenprüfung.
  */
 export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; sekundenTakt?: boolean; onLage?(): void; onNamen?(): void }): NdiLage {
   const gaeste = new Map<string, Gast>();
@@ -396,14 +405,18 @@ export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; sekunden
   }
 
   /**
-   * Takt-Lücke (Nachtrag C, R20): Die Anker der Fristen an Meldung (5 s), Start (10 s) und Bild (3 s) jedes laufenden Prozesses
-   * rücken um die Lücke vor, höchstens bis jetzt (eine Meldung, die vor diesem tick() ankam, rückt nicht hinter jetzt). Danach
-   * ist jedes Alter so groß wie beim vorigen tick(): Die Lücke zählt nicht, die beobachtete Zeit davor schon, und keine dieser
-   * Fristen löst in diesem tick() aus. Nicht verschoben: der Neustart-Wecker `neustartAb` (ein fälliger Neustart startet in
-   * diesem tick()) und `bereitUm` als Anker der Rücksetzung nach 60 s; den Anker der 3-s-Regel trägt danach `bildUm`.
+   * Takt-Lücke (Nachtrag C, R20, R28): Die Anker der Fristen an Meldung (5 s), Start (10 s) und Bild (3 s) jedes laufenden
+   * Prozesses rücken um die Lücke abzüglich eines Nenntakts vor, höchstens bis jetzt (eine Meldung, die vor diesem tick() ankam,
+   * rückt nicht hinter jetzt). Danach ist jedes Alter um höchstens 1 s größer als beim vorigen tick(): Von der Lücke zählt der
+   * Nenntakt, die beobachtete Zeit davor ganz. Ein gesunder Prozess (beim vorigen tick() höchstens etwa 1 s alt) liegt damit bei
+   * höchstens etwa 2 s, unter jeder dieser Fristen, auch in diesem tick(); bei anhaltender Drosselung wächst das Alter je tick()
+   * um 1 s, und die Fristen greifen wieder, nur langsamer. Nicht verschoben: der Neustart-Wecker `neustartAb` (ein fälliger
+   * Neustart startet in diesem tick()) und `bereitUm` als Anker der Rücksetzung nach 60 s; den Anker der 3-s-Regel trägt danach
+   * `bildUm`.
    */
   function ankerVerschieben(t: number, luecke: number): void {
-    const vor = (anker: number): number => Math.min(anker + luecke, t);
+    const schub = luecke - NENNTAKT_MS;
+    const vor = (anker: number): number => Math.min(anker + schub, t);
     for (const g of gaeste.values()) {
       if (!g.prozess) continue;
       g.startUm = vor(g.startUm);

@@ -1176,15 +1176,16 @@ console.log('— Nachtrag C (I-C7-1, R18, R20): Takt-Lücke nach Hänger oder Ru
   c.lage.gastMeldung('g1', 1, BEREIT);
   c.lage.programmMeldung(2, PB);
   ck('Nachtrag C (3) … danach bereit (gepuffert) → sendet bzw. sucht nach bereit', zst(c.lage) === 'sendet' && pz(c.lage) === 'sucht' && c.lage.programmLage().bereit);
-  // Die Lücke zählt nicht, die beobachtete Zeit davor schon (Verschieben statt Zurücksetzen): 1 s vor der Lücke + 9 s danach.
+  // Von der Lücke zählt ein Nenntakt (1 s, R28), die beobachtete Zeit davor ganz (Verschieben statt Zurücksetzen):
+  // 1 s vor der Lücke + 1 s der Lücke + 8 s danach = 10 s.
   const d = taktLage();
   d.lage.spinUp('g1', 'kamera', ANNA);
   d.lage.programmStart(HINWEIS);
   sekunden(d, 1);
   d.s.t += 11_000;
   d.lage.tick();
-  ck('Nachtrag C (3) … ohne bereit: 1 s vor und 8 s nach der Lücke → noch startet bzw. sucht', gleich(kurz(sekunden(d, 8)), []) && zst(d.lage) === 'startet' && pz(d.lage) === 'sucht');
-  ck('Nachtrag C (3) … nach 10 s beobachteter Startzeit (1 s vor, 9 s nach der Lücke) → gescheitert/keinStart, Gast und Programm',
+  ck('Nachtrag C (3) … ohne bereit: 1 s vor, 1 s der Lücke und 7 s danach → noch startet bzw. sucht', gleich(kurz(sekunden(d, 7)), []) && zst(d.lage) === 'startet' && pz(d.lage) === 'sucht');
+  ck('Nachtrag C (3) … nach 10 s beobachteter Startzeit (1 s vor, 1 s der Lücke, 8 s danach) → gescheitert/keinStart, Gast und Programm',
     gleich(beendenH(sekunden(d, 1)), ['beenden gast g1 G1', 'beenden programm programm G2'])
       && zst(d.lage) === 'gescheitert/keinStart' && pz(d.lage) === 'gescheitert/keinStart');
 
@@ -1212,9 +1213,11 @@ console.log('— Nachtrag C (I-C7-1, R18, R20): Takt-Lücke nach Hänger oder Ru
   g.lage.tick();
   g.s.t += 2500;
   ck('Nachtrag C (4) tick alle 2500 ms ist keine Lücke: 5000 ms ohne Meldung → „Prozess beenden“', gleich(beendenH(g.lage.tick()), ['beenden gast g1 G1']));
+  // Mit einem Videobild beim ersten tick (R28: von 2501 ms zählt 1 s, das Bildalter liegt danach bei 1 s, nicht bei 3,5 s).
   const i = taktLage();
   sendend(i);
   i.s.t += 2501;
+  i.lage.videobild('g1');
   i.lage.tick();
   i.s.t += 2501;
   ck('Nachtrag C (4) … 2501 ms zwischen zwei tick() sind eine Lücke: kein „Prozess beenden“, bleibt sendet', gleich(beendenH(i.lage.tick()), []) && zst(i.lage) === 'sendet');
@@ -1232,18 +1235,87 @@ console.log('— Nachtrag C (I-C7-1, R18, R20): Takt-Lücke nach Hänger oder Ru
   k.s.t += 6000;
   ck('Nachtrag C (4) ohne sekundenTakt ist ein Sprung keine Lücke: 7 s ohne Meldung → „Prozess beenden“', gleich(beendenH(k.lage.tick()), ['beenden gast g1 G1']));
 
-  // (5) Ein geplanter Neustart geht über eine Lücke nicht verloren.
+  // (5) Ein geplanter Neustart geht über eine Lücke nicht verloren: Absturz 500 ms nach dem vorigen tick, fällig mitten in der
+  // Lücke (Fixrunde 1: nach dem vorigen tick, damit ein mitverschobener Neustart-Wecker auch mit Nenntakt noch nicht fällig wäre).
   const n = taktLage();
   const gn = sendend(n);
   const pn = programmBereit(n);
   sekunden(n, 1);
+  n.s.t += 500;
   n.lage.gastExit('g1', gn, 1);
   n.lage.programmExit(pn, 1);
-  n.s.t += 6000;
+  n.s.t += 5500;
   ck('Nachtrag C (5) geplanter Neustart (Gast und Programm), dann eine Lücke von 6000 ms → der tick danach startet beide neu',
     gleich(kurz(n.lage.tick()), ['starten gast g1 G3', 'starten programm programm G4']) && zst(n.lage) === 'neustart' && pz(n.lage) === 'neustart');
   ck('Nachtrag C (5) … der neue Prozess hat ab seinem Start 10 s bis bereit', gleich(kurz(sekunden(n, 9)), [])
     && gleich(beendenH(sekunden(n, 1)), ['beenden gast g1 G3', 'beenden programm programm G4']) && zst(n.lage) === 'gescheitert/keinStart');
+
+  // (6) Dauerdrosselung (Fixrunde 1, R28; etwa App Nap unter macOS im Tray): JEDER Abstand zwischen zwei tick() ist 3000 ms.
+  // Von jeder Lücke zählt ein Nenntakt (1 s), das Alter wächst je gedrosseltem tick um 1 s; die Fristen greifen wieder, nur
+  // langsamer. Vor jedem Fall ein normaler erster tick 1 s nach bereit bzw. nach dem Start (dort Alter 0 bzw. 1 s).
+  /** `n` ticks im Abstand von 3000 ms; je tick die Handlungen und danach der Zustand. */
+  const gedrosselt = (t: TestLage, n: number, zustand: () => string): { h: NdiHandlung[]; z: string }[] => {
+    const aus: { h: NdiHandlung[]; z: string }[] = [];
+    for (let r = 0; r < n; r++) {
+      t.s.t += 3000;
+      const h = t.lage.tick();
+      aus.push({ h, z: zustand() });
+    }
+    return aus;
+  };
+  // (a) Gast sendet, danach weder Meldung noch Bild: Alter nach dem m-ten gedrosselten tick = m s.
+  const da = taktLage();
+  const gda = sendend(da);
+  da.s.t += 1000;
+  da.lage.gastMeldung('g1', gda, STAT);
+  da.lage.videobild('g1');
+  da.lage.tick();
+  const ra = gedrosselt(da, 5, () => zst(da.lage));
+  ck('Nachtrag C (6a) Dauerdrosselung, Gast ohne Meldung und Bild: nach dem 2. gedrosselten tick (2 s beobachtet) noch sendet, nach dem 3. (3 s) ohneBild',
+    ra[1].z === 'sendet' && ra[2].z === 'ohneBild');
+  ck('Nachtrag C (6a) … nach dem 4. gedrosselten tick (4 s) kein „Prozess beenden“, nach dem 5. (5 s beobachtet, 15 s Wanduhr) „Prozess beenden“ mit „keine Lebenszeichen“',
+    ra.slice(0, 4).every((x) => beendenH(x.h).length === 0) && gleich(beendenH(ra[4].h), ['beenden gast g1 G1'])
+      && logs(ra[4].h).some((z) => z.includes('keine Lebenszeichen')));
+  // (b) Programm verbunden, danach keine Meldung.
+  const db = taktLage();
+  const gdb = programmBereit(db);
+  db.s.t += 1000;
+  db.lage.programmMeldung(gdb, VERBUNDEN);
+  db.lage.tick();
+  const rb = gedrosselt(db, 5, () => pz(db.lage));
+  ck('Nachtrag C (6b) Dauerdrosselung, Programm verbunden ohne Meldung: nach dem 4. gedrosselten tick (4 s) nichts, nach dem 5. (5 s) „Prozess beenden“',
+    rb.slice(0, 4).every((x) => beendenH(x.h).length === 0) && gleich(beendenH(rb[4].h), ['beenden programm programm G1']) && rb[3].z === 'verbunden');
+  // (c) Gast startet ohne bereit: 1 s bis zum ersten tick, dann je gedrosseltem tick 1 s.
+  const dc = taktLage();
+  dc.lage.spinUp('g1', 'kamera', ANNA);
+  dc.s.t += 1000;
+  dc.lage.tick();
+  const rc = gedrosselt(dc, 9, () => zst(dc.lage));
+  ck('Nachtrag C (6c) Dauerdrosselung, Gast startet ohne bereit: nach dem 8. gedrosselten tick (9 s beobachtet) noch startet, nach dem 9. (10 s, 28 s Wanduhr) gescheitert/keinStart',
+    rc.slice(0, 8).every((x) => kurz(x.h).length === 0 && x.z === 'startet') && gleich(beendenH(rc[8].h), ['beenden gast g1 G1']) && rc[8].z === 'gescheitert/keinStart');
+  // (d) Gesund unter Dauerdrosselung: stat, Bild und lage je 1 s Wanduhr zwischen den ticks (IPC kommt an, nur der Takt ist gedehnt).
+  const dd = taktLage();
+  const gdd = sendend(dd);
+  const pdd = programmBereit(dd);
+  const lebt = (): void => {
+    dd.lage.gastMeldung('g1', gdd, STAT);
+    dd.lage.videobild('g1');
+    dd.lage.programmMeldung(pdd, VERBUNDEN);
+  };
+  dd.s.t += 1000;
+  lebt();
+  dd.lage.tick();
+  const rd: { h: NdiHandlung[]; z: string }[] = [];
+  for (let r = 0; r < 10; r++) {
+    dd.s.t += 1000;
+    lebt();
+    dd.s.t += 1000;
+    lebt();
+    dd.s.t += 1000;
+    rd.push({ h: dd.lage.tick(), z: `${zst(dd.lage)} ${pz(dd.lage)}` });
+  }
+  ck('Nachtrag C (6d) gesunder Gast und Programm unter Dauerdrosselung (Meldungen je 1 s, ticks alle 3000 ms, 30 s): bleibt sendet bzw. verbunden, kein „Prozess beenden“',
+    rd.every((x) => kurz(x.h).length === 0 && x.z === 'sendet verbunden'));
 
   // index.ts treibt die Lage im Sekundentakt und sagt es ihr.
   const { readFileSync } = await import('node:fs');
