@@ -1,7 +1,8 @@
 // Zoom-Slots in der Zoom-Karte (Spec 7.5 Nr. 8, 7.6, 7.7; Task B21): Kopf mit T31, „Slot hinzufügen“, „Vorgaben …“,
 // Schalter „Vorschau“, „Sprecher-Einstellungen …“, die Lage der Einstellungsdatei (T90, T92) und die Kacheln, zwei Spalten
 // bei breitem, eine bei schmalem Bereich (Container-Query, B-EP9). Dazu die Angabe je Zeile der Teilnehmerliste (7.5 Nr. 9,
-// 10.10). Alle Texte aus @shared/zoom-text (B-EP4); hier steht kein Text-Literal.
+// 10.10). Alle Texte aus @shared/zoom-text (B-EP4), die NDI-Texte (Link T133 samt Tooltip, Meldung T143 des Öffnen-Knopfs)
+// aus @shared/ndi-text (Plan C); hier steht kein Text-Literal.
 import { useEffect, useRef, useState } from 'react';
 import { SLOT_NR_MAX, SLOT_RESOLUTIONS } from '@jm/zoom-bridge/protocol';
 import type { ZoomAbbild, ZoomParticipant, ZoomSlotAufloesung, ZoomSprecherEinstellung, ZoomSprecherSignal } from '@shared/types';

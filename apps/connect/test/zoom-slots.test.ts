@@ -2369,6 +2369,32 @@ const T92_LOG = '[zoom] Slots nur für diese Sitzung gemerkt (Einstellungsdatei 
   await p.aufraeumen();
 }
 
+// ── Nachtrag C zu Plan C (R15, Re-Review Nachtrag B Minor 1): slotEntfernen behält eine bestehende Reservierung ──
+console.log('— Nachtrag C · R15: „Löschen“ nach dem slotOff einer Reservierung schickt kein zweites slotOff (I-3, einmal je Sender)');
+{
+  const fehlerCode = (p: Probe, code: string): boolean =>
+    p.ereignisse.some((x) => x.ev.ev === 'error' && (x.ev as unknown as { code: string; slot?: number }).code === code && (x.ev as unknown as { slot?: number }).slot === 1);
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_SLOT_SPAET: '1:500' }) });
+  await insMeeting(p);
+  await bis(() => zaehle(p, 'slotOn', 1) === 1, 2000);
+  // Muster von NB2/NB7 (10), aber „Start“ 300 ms später: Die Antwort auf das slotOn A (alter Name) kommt so deutlich vor der
+  // Antwort auf das slotOn B, und dazwischen lässt sich „Stopp“ und „Löschen“ drücken.
+  ck('Nachtrag C R15: „Stopp“ und NDI-Name „Bühne Anna“, während slotOn A im Flug ist', ok(p.kern.slotStart(1, false))
+    && ok(p.kern.slotAendern(1, { ndiName: 'Bühne Anna' })));
+  await warte(300);
+  ck('… „Start“ 300 ms danach: slotOn B geht hinaus, A ist noch unbeantwortet', ok(p.kern.slotStart(1, true))
+    && (await bis(() => zaehle(p, 'slotOn', 1) === 2, 1000)) && !meldeteSender(p, 1));
+  ck('… die Antwort auf A trägt den alten NDI-Namen → die Nummer ist reserviert, genau ein slotOff',
+    (await bis(() => meldeteSender(p, 1) && zaehle(p, 'slotOff', 1) === 1, 3000)) && !fehlerCode(p, 'slotAlreadyOn'));
+  const vorB = !fehlerCode(p, 'slotAlreadyOn');
+  ck('… vor der Antwort auf B „Stopp“ und „Löschen“ → kein zweites slotOff, die bestehende Reservierung bleibt',
+    vorB && ok(p.kern.slotStart(1, false)) && ok(p.kern.slotLoeschen(1)) && lage(p, 1) === undefined && zaehle(p, 'slotOff', 1) === 1);
+  ck('… am Ende: B bekam slotAlreadyOn, genau ein slotOff an die 1, kein slotNotOn, die Bridge hält keinen Sender, die Nummer ist frei',
+    (await bis(() => fehlerCode(p, 'slotAlreadyOn') && sender(p).size === 0, 4000)) && (await warte(400), zaehle(p, 'slotOff', 1) === 1)
+      && !fehlerCode(p, 'slotNotOn') && p.kern.slotAnlegen().nr === 1);
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

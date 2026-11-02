@@ -1910,7 +1910,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (slots.get(nr) === x) slots.delete(nr);
     const gen = x.bridge?.gen ?? (x.slotOnOffen.length > 0 ? aktiveGen : null);
     if (gen === null) return;
-    const r = { gen, slotOff: x.slotOffGesendet };
+    // Eine bestehende Reservierung bleibt (Nachtrag C, R15): Hat fremderSender für diese Nummer schon slotOff geschickt, geht kein
+    // zweites hinaus (I-3, einmal je Sender).
+    const r = reserviert.get(nr) ?? { gen, slotOff: x.slotOffGesendet };
     reserviert.set(nr, r);
     if (!mitSlotOff || r.slotOff || gen !== aktiveGen || !sende({ cmd: 'slotOff', slot: nr })) return;
     r.slotOff = true;
