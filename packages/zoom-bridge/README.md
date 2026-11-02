@@ -1506,6 +1506,13 @@ Präfix eines solchen — das Tag wird dort nicht als Fassung eines Tools gelese
   ganze Suite** (`apps/connect` hat auch keinen; `apps/ndi-screen-capture/docs/phase1-native-ndi-windows.md`
   §9 führt es offen). Ein Rechtstext gehört vom Owner entschieden, nicht vom Bau
   geschrieben.
+  - **Nachtrag (Connect 0.4.0, Spec 22.14 D20):** Für JM Connect gilt der Satz „wie die ganze Suite“ nicht
+    mehr. Ab 0.4.0 liegen die Lizenzbedingungen von Connect als `apps/connect/resources/LIZENZ.txt` in beiden
+    Paketen (Text vom Owner, FR16, 18.10.2026); Connect öffnet sie über „Lizenzbedingungen“ in der Fußzeile,
+    und neben der NDI-Laufzeit liegt ihr Lizenztext (Windows `Processing.NDI.Lib.Licenses.txt`, macOS die
+    Lizenzdatei des NDI-SDK für Apple). Das Einsatzpaket `zoom-bridge-v0.1.0` bleibt, wie es ist (Riegel in
+    `scripts/build-release.mjs`, §10); für die übrigen NDI-Werkzeuge der Suite ist die Frage weiter offen
+    (Connect-Spec 22.13, Folgepunkt FP15).
 - **Die Zoom-DLLs**: Weitergabe-Lizenz weiter ungeklärt (Stage 4) — darum zwei ZIPs.
 - **Signatur**: `zoom-join.exe` und `zoom-bridge.exe` sind nicht signiert; Smart
   App Control oder ein Virenschutz können sie blockieren. Das Start-Skript meldet

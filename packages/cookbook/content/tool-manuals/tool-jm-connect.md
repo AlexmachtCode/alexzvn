@@ -1,6 +1,6 @@
 ---
 id: tool-jm-connect
-title: "JM Connect — Browser-Gäste und Zoom-Slots als NDI-Quellen"
+title: "JM Connect — Browser-Gäste und Zoom-Slots als NDI®-Quellen"
 category: Tool-Manuals
 difficulty: anspruchsvoll
 setupTimeMin: 45
@@ -8,7 +8,7 @@ teamSize: "1-2"
 tags: [connect, zoom, slots, remote, gaeste, ndi, companion, wiederbeitritt, manual]
 relatedTools: [jm-connect, jm-switcher, jm-rundown]
 prerequisites:
-  - Windows 10/11, 64 Bit (mit Zoom und NDI) oder macOS (ohne Zoom und ohne NDI)
+  - Windows 10/11, 64 Bit (mit Zoom und NDI) oder macOS auf Apple Silicon oder Intel (mit NDI, ohne Zoom)
   - JM Connect ab 0.4.0, installiert über den Launcher
   - Zoom-SDK 7.1.5.43953 (per „Zoom-SDK laden“ oder als SDK-Ordner aus der JM-Ablage)
   - Zugangsdaten der Meeting-SDK-App (Datei oder Client-ID und Client-Secret)
@@ -20,13 +20,14 @@ crewRoles:
   - Host im Zoom-Client (lässt zu, erteilt die Aufnahme-Erlaubnis)
 lastReviewed: 2026-10-20
 owner: tech@jakobsmedien.com
-summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: bis zu 16 Zoom-Slots mit eigenem NDI-Namen zeigen je eine Person, den aktiven Sprecher oder die neueste Bildschirmfreigabe. Zoom wird einmal je PC eingerichtet, das Meeting muss im eigenen Zoom-Konto liegen. Nach einem Abriss tritt Connect selbst wieder bei und startet die eingeschalteten Slots neu. Fernsteuerbar per Companion über Port 8737."
+summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: bis zu 16 Zoom-Slots mit eigenem NDI-Namen zeigen je eine Person, den aktiven Sprecher oder die neueste Bildschirmfreigabe. Zoom wird einmal je PC eingerichtet, das Meeting muss im eigenen Zoom-Konto liegen. Nach einem Abriss tritt Connect selbst wieder bei und startet die eingeschalteten Slots neu. Fernsteuerbar per Companion über Port 8737. Unter macOS mit NDI, aber ohne Zoom; NDI-Ausfälle zeigt Connect an der Gastzeile, am Programm-Abzeichen, im Tray und in Companion."
 ---
 
 ## Zutaten
 
 ### Voraussetzungen
-- Windows 10/11, 64 Bit, für Zoom und NDI. Unter macOS (installiert über den Launcher, Paket ohne Zoom und ohne NDI) laufen Raum, Einladungen und Green Room; die Gäste erscheinen dort nicht als NDI-Quelle und sehen und hören das Programm nicht, einander und die Regie per Talkback hören sie weiter.
+- Windows 10/11, 64 Bit, für Zoom und NDI. macOS (Apple Silicon oder Intel, installiert über den Launcher) ab Connect 0.4.0 mit NDI: Gäste erscheinen als NDI-Quelle, und der Programm-Rückkanal mit Mix-Minus läuft wie unter Windows; Zoom gibt es unter macOS nicht. Die NDI-Laufzeit liegt im Paket; NDI Tools oder ein NDI-SDK braucht der Rechner nicht.
+- macOS, erster Start (Stand vor der Abnahme von 0.4.0): Das Mac-Paket ist nicht signiert. Meldet macOS, es könne JM Connect nicht prüfen, lässt sich die App unter „Systemeinstellungen › Datenschutz & Sicherheit“ freigeben; Rechtsklick und „Öffnen“ helfen ab macOS 15 nicht mehr. Fragt macOS nach dem Zugriff auf das lokale Netzwerk („JM Connect sendet die Gäste als NDI-Quellen ins lokale Netzwerk und empfängt dort das Programm (NDI).“), bitte erlauben; die Einstellung steht unter Systemeinstellungen › Datenschutz & Sicherheit › Lokales Netzwerk. Welche Handgriffe macOS genau verlangt und wann es fragt, ergänzt dieses Handbuch nach der Abnahme.
 - JM Connect ab Version 0.4.0, installiert über den Launcher.
 - Zoom-SDK 7.1.5.43953: auf JM-eigenen Rechnern per Knopf „Zoom-SDK laden“ (braucht den SDK-Schlüssel), sonst als SDK-Ordner aus der JM-Ablage. Connect kopiert es einmal je PC nach %LOCALAPPDATA%\JM Connect\zoom-laufzeit (rund 315 MB).
 - Zugangsdaten der Meeting-SDK-App: die Zugangsdaten-Datei (clientId, clientSecret) oder Client-ID und Client-Secret von Hand. Connect speichert sie verschlüsselt unter diesem Windows-Konto und schickt sie nie in die Cloud.
@@ -41,21 +42,29 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 - Befehle wie in 0.3.0: CONNECT ZOOM_LOAD <Anzeigename> legt für die Person mit genau diesem Anzeigenamen (Groß- und Kleinschreibung egal, Leerzeichen erlaubt) einen vorübergehenden Slot an und schaltet ihn ein; er gilt bis zum Ende dieses Meetings und wird nie gespeichert. Gibt es schon einen ausgeschalteten Teilnehmer-Slot mit diesem Namen, schaltet ZOOM_LOAD ihn nur für dieses Meeting ein (Kennzeichen „nur dieses Meeting an“); läuft schon einer, ändert sich nichts. CONNECT ZOOM_UNLOAD <Anzeigename> schaltet die Teilnehmer-Slots dieser Person aus: vorübergehende verschwinden, gespeicherte bleiben. CONNECT ZOOM_DELAY <ms> setzt den Bild-Versatz (0 bis 1000). Einen Beitritt per Companion gibt es bewusst nicht.
 - STATE der Browser-Gäste: room, connected, guests, lobby, onair, active_label, standby, standby_label, talkback.
 - STATE von Zoom: zoom_status (einrichtung, bereit, tritt_bei, warteraum, im_meeting, abriss, verlaesst, fehler), zoom_sources (Anzahl laufender Slots), zoom_live (1, solange mindestens ein Slot läuft), zoom_privilege (Aufnahme-Erlaubnis, 1/0), zoom_alarm (Eingriff nötig, 1/0), zoom_cmd (Ergebnis des letzten Zoom-Befehls: ok oder f1 bis f14), zoom_cmd_rejected (letzter Zoom-Befehl abgelehnt, 1/0). Je Slot n = 1 bis 16: zoom_slot{n}_on (eingeschaltet, auch nur für dieses Meeting), zoom_slot{n}_live (zeigt Bild), zoom_slot{n}_alarm (braucht einen Eingriff), zoom_slot{n}_audio (Ton eingeschaltet, Computerton eingerechnet), zoom_slot{n}_mode (teilnehmer, sprecher, freigabe), zoom_slot{n}_target (wen der Slot gerade zeigt), zoom_slot{n}_state (fehlt, aus, wartet, startet, zeigt, gehalten, ersatz, fehler, zurueckgestellt, stoppt). Namen stehen nur in zoom_slot{n}_target und nur, solange der Slot Bild zeigt; alle übrigen zoom_*-Werte enthalten keinen Namen.
-- Feedbacks: Gast auf Sendung (rot), Gäste im Warteraum (gelb), Talkback (gelb), Zoom-Slots laufen (grün), Zoom braucht einen Eingriff (rot), letzter Zoom-Befehl abgelehnt (gelb); je Slot (Option „Slot (Nr.)“): Zoom-Slot eingeschaltet (gelb), Zoom-Slot zeigt Bild (grün), Zoom-Slot braucht einen Eingriff (rot).
-- Ab Modul 0.2.0 leuchten „Gast auf Sendung“ und „Gäste im Warteraum“ bei jeder Anzahl über 0, und Namen mit Leerzeichen (active_label, standby_label) kommen ganz an. Ältere Module kennen die Rolle „JM Connect“ nicht. Modul 0.2.0 läuft mit Connect 0.4.0 weiter (ZOOM_LOAD, ZOOM_UNLOAD und ZOOM_DELAY wirken über vorübergehende Slots), zeigt die Slots aber nicht.
+- STATE von NDI (Windows und macOS, in jedem Zustand, auch bei geschlossenem Raum): ndi_sources (Gast-NDI-Quellen, die bestehen), ndi_failed (ausgefallene Gast-NDI-Quellen), ndi_program (Programm-Empfang: aus, sucht, keine_quelle, verbunden, ohne_bild, staut, fehler, neustart, gescheitert), ndi_alarm (1, sobald eine Gast-Quelle ausgefallen ist oder der Programm-Empfang auf fehler, staut, neustart oder gescheitert steht; nicht bei sucht, keine_quelle und ohne_bild, denn dann liegt die Ursache meist außerhalb von Connect).
+- Feedbacks: Gast auf Sendung (rot), Gäste im Warteraum (gelb), Talkback (gelb), Zoom-Slots laufen (grün), Zoom braucht einen Eingriff (rot), letzter Zoom-Befehl abgelehnt (gelb); je Slot (Option „Slot (Nr.)“): Zoom-Slot eingeschaltet (gelb), Zoom-Slot zeigt Bild (grün), Zoom-Slot braucht einen Eingriff (rot). Dazu auf beiden Plattformen „Connect: NDI-Ausfall“ (rot, auf ndi_alarm).
+- Ab Modul 0.2.0 leuchten „Gast auf Sendung“ und „Gäste im Warteraum“ bei jeder Anzahl über 0, und Namen mit Leerzeichen (active_label, standby_label) kommen ganz an. Ältere Module kennen die Rolle „JM Connect“ nicht. Modul 0.2.0 läuft mit Connect 0.4.0 weiter (ZOOM_LOAD, ZOOM_UNLOAD und ZOOM_DELAY wirken über vorübergehende Slots), zeigt die Slots und die ndi_*-Werte aber nicht.
 - JM Rundown kennt die Zoom-Aktionen erst ab seinem nächsten Release; bis dahin steuert er Zoom nicht.
 
 ### Browser-Gäste (kurz)
 - Raum öffnen (braucht den Cloud-Zugang), für jeden Gast einen Link erzeugen und verschicken.
 - Gäste landen im Warteraum: prüfen und freigeben.
-- Freigegebene Gäste auf Sendung schalten. Unter Windows ist jeder Gast eine eigene NDI-Quelle „JM Connect – <Name>“, ein geteilter Bildschirm eine weitere; unter macOS gibt es keine NDI-Quellen.
-- Talkback (Regie ins Ohr) für alle oder per Halten-Taste für einen Gast; Programm-Rückkanal mit Mix-Minus je Gast nur unter Windows (er kommt über NDI).
+- Freigegebene Gäste auf Sendung schalten. Jeder Gast ist eine eigene NDI-Quelle „JM Connect – <Name>“, ein geteilter Bildschirm eine weitere „JM Connect – <Name> (Bildschirm)“, unter Windows wie unter macOS. Ein NDI-Abzeichen an der Gastzeile zeigt den Zustand jeder Quelle.
+- Talkback (Regie ins Ohr) für alle oder per Halten-Taste für einen Gast; Programm-Rückkanal mit Mix-Minus je Gast unter Windows und macOS (er kommt über NDI vom Switcher, Quelle mit „JM Switcher“ im Namen).
 
 ### Zoom-Slots (kurz)
 - Ein Slot ist ein fester Platz mit Nummer (1 bis 16) und eigenem NDI-Namen. Im Switcher ist er eine NDI-Quelle, die bestehen bleibt, auch wenn sich ändert, wen der Slot zeigt.
 - Modus je Slot: „Teilnehmer“ (eine gewählte Person), „Aktiver Sprecher“ (wer gerade spricht, nie JM Connect selbst) oder „Bildschirmfreigabe“ (die neueste laufende Freigabe; bei Pause oder stehendem Bildschirm bleibt das letzte Bild stehen).
 - Je Slot: Auflösung („360p“, „720p“, „1080p“), Ersatzbild, solange Zoom kein Bild liefert („transparent“, „eingefroren“, „schwarz“, „weiß“), Ton an oder aus mit der Tonart „Mischton“ (alle Mikrofone des Meetings) oder „Person“ (nur die gezeigte Person, nur im Modus Teilnehmer), bei Bildschirmfreigaben zusätzlich „Computerton der Freigabe“.
 - Gespeicherte Slots bleiben samt Einstellungen am Rechner und starten im Meeting von selbst, sobald sie eingeschaltet sind und der Host die Aufnahme-Erlaubnis erteilt hat. Vorübergehende Slots (per Companion ZOOM_LOAD) gelten nur bis zum Ende des Meetings.
+
+### NDI-Anzeige (kurz)
+- Gastzeile: je NDI-Quelle des Gasts ein Abzeichen; die Abzeichen der Bildschirm-Quelle beginnen mit „Bildschirm: …“. „NDI ●“ heißt, die Quelle sendet; nach der ersten Zählung steht die Zahl der Empfänger dabei, etwa „NDI ● 1 Empfänger“.
+- Programm-Abzeichen über der Gästeliste: „Programm ● …“ heißt, das Programm vom Switcher kommt an und geht an die Gäste. Daneben der Link „ndi.video“.
+- Fällt eine Quelle oder der Programm-Empfang aus, steht der Grund in einer Zeile darunter, mit „NDI neu starten“ bzw. „Programm neu starten“ und „Logordner öffnen“. Abzeichen und Zeilen stehen auch, solange die Verbindung zum Raum getrennt ist.
+- Fußzeile des Hauptfensters (Windows und macOS): der Markenhinweis, „Logordner öffnen“ und „Lizenzbedingungen“.
+- Tray: Die Zeile „Gäste“ nennt Ausfälle, startende Quellen und Quellen ohne Bild; der Tooltip nennt „NDI-Ausfall“. „Raum schließen“ im Tray-Menü schließt den Raum wie der Knopf im Fenster.
 
 ### Harte Grenzen
 - Kein Tally, kein Talkback/IFB und kein Mix-Minus je Zoom-Person: Zoom-Ton ist ein gemeinsamer Kanal. Das ist eine Grenze von Zoom.
@@ -68,7 +77,8 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 - Kein Dolmetscherton, kein Ton zurück nach Zoom.
 - Die Vorschau in der Kachel zeigt etwa 2 Bilder pro Sekunde und ohne Bild-Versatz; Bild und Ton im Takt zeigt nur der Switcher oder NDI-Monitor. Bildschirmfreigaben senden ohne Bild-Versatz.
 - Zoom-Slots nur unter Windows: Unter macOS steht an der Stelle der Zoom-Karte „Zoom-Slots gibt es nur unter Windows: Die Zoom-Bridge läuft nur dort.“
-- Zoom und NDI nur unter Windows. Das Mac-Paket hat beides nicht: keine NDI-Quellen, kein Programm-Rückkanal, keine Zoom-Karte.
+- Zoom nur unter Windows. Das Mac-Paket hat NDI (Gäste als NDI-Quellen, Programm-Rückkanal), aber keine Zoom-Karte; es ist nicht signiert.
+- Fällt ein NDI-Prozess wiederholt aus, startet Connect ihn höchstens dreimal hintereinander von selbst neu; danach nur per „NDI neu starten“ bzw. „Programm neu starten“.
 - Die SDK-Fassung ist fest (7.1.5.43953). Lehnt Zoom sie ab, hilft nur ein neuer Connect-Release.
 - JM Rundown kennt die Zoom-Aktionen erst ab seinem nächsten Release.
 
@@ -78,15 +88,24 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 - Teilnehmer-Slots speichern den Anzeigenamen ihrer Person am Rechner (in connect-settings.json unter %APPDATA%\JM Connect), damit der Slot sie im nächsten Meeting wiederfindet. Vorübergehende Slots (ZOOM_LOAD) und Namen aus einer Umbenennung im Meeting speichert Connect nie.
 - „Messwerte kopieren“ legt die Messwerte ohne Teilnehmer- und ohne NDI-Namen in die Zwischenablage (Slots als Nummer und Modus, Personen als Kennung).
 - Alle Suite-Apps löschen Logzeilen, die älter als 14 Tage sind, 30 Sekunden nach dem Start und danach alle 6 Stunden, jeweils ab ihrem nächsten Release. Ein zweiter Start einer schon laufenden App räumt nicht auf.
-- Den Logordner öffnet der Knopf „Logordner öffnen“ in der Zoom-Karte.
+- Den Logordner öffnet „Logordner öffnen“ in der Fußzeile des Hauptfensters (Windows und macOS), an jeder Zeile eines NDI-Ausfalls und in der Zoom-Karte (nur Windows). Den Pfad unter macOS ergänzt dieses Handbuch nach der Abnahme (Stand vor der Abnahme von 0.4.0).
+- Ausfälle der NDI-Quellen und des Programm-Empfangs stehen im Log mit Schlüssel, Grund, Exit-Code, PID und Neustart-Zähler, ohne Gast- und ohne NDI-Namen.
 
 ### Deinstallieren
 - Der Laufzeit-Ordner bleibt beim Deinstallieren liegen. Bei Bedarf %LOCALAPPDATA%\JM Connect\zoom-laufzeit von Hand löschen.
 - Das Zoom-SDK legt selbst %APPDATA%\ZoomSDK an. Auch dieser Ordner bleibt und lässt sich von Hand löschen.
 
+### Lizenz und Marke
+- „Lizenzbedingungen“ in der Fußzeile des Hauptfensters öffnet die Lizenzbedingungen von JM Connect (LIZENZ.txt im Paket, Windows und macOS). Sie gelten für jede Nutzung und enthalten die Bedingungen für die enthaltene NDI-Laufzeit.
+- Neben der NDI-Laufzeit liegt im Paket ihr Lizenztext für Drittbibliotheken: unter Windows Processing.NDI.Lib.Licenses.txt in resources\bin\win, unter macOS die Lizenzdatei des NDI-SDK für Apple in Contents/Resources/bin/mac.
+- NDI® is a registered trademark of Vizrt NDI AB.
+- Mehr zu NDI: ndi.video (https://ndi.video/). In Connect öffnet der Link „ndi.video“ über der Gästeliste und im Kopf der Zoom-Slots diese Seite.
+
 ## Schritt-für-Schritt
 
 ### Einrichtung
+- Unter macOS gibt es keine Zoom-Karte; die Zoom-Schritte dieses Abschnitts entfallen dort. Beim ersten Start die Hinweise unter „Voraussetzungen“ beachten (Freigabe der App, lokales Netzwerk).
+- Programm-Rückkanal: Im JM Switcher den NDI-Ausgang „JM Switcher“ einschalten. Connect sucht nach „Raum öffnen“ eine NDI-Quelle mit diesem Namen und zeigt sie über der Gästeliste („Programm ● …“).
 - Zoom-Karte, Knopf „Einrichtung“ aufklappen. Zoom bleibt gesperrt, bis Zoom-SDK und Zugangsdaten eingerichtet sind.
 - Zoom-SDK auf JM-eigenen Rechnern: unter „SDK-Schlüssel“ auf „Eintragen …“, den Schlüssel einfügen und speichern, dann „Zoom-SDK laden“ (rund 143 MB, mit Fortschritt und „Abbrechen“).
 - Zoom-SDK ohne Schlüssel: „SDK-Ordner wählen …“ und den SDK-Ordner aus der JM-Ablage wählen (den Ordner mit dem Unterordner x64\bin). Danach steht dort „Zoom-SDK 7.1.5.43953 eingerichtet“.
@@ -114,6 +133,10 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 - Companion: Die Slot-Befehle wirken wie Start-Taste, Modus, Person und Ton der Kachel, nur ohne Nachfrage: Wird damit der 6. oder ein weiterer Slot eingeschaltet, schaltet Connect ihn ein und meldet „Companion: … Slot eingeschaltet — mehr als 5 sind nicht gemessen.“ (zoom_cmd f8). Ein per ZOOM_LOAD angelegter Slot trägt an der Kachel das Kennzeichen „vorübergehend“ mit dem Knopf „Behalten“; „Behalten“ macht ihn zu einem gespeicherten Slot. Leuchtet „letzter Zoom-Befehl abgelehnt“, steht der Grund unter „Hinweise“ in der Karte.
 - „Messwerte“ (aufklappbar, unter den Slots) zeigt Last, Auflösung, Bildrate und Ton je Slot sowie die Sprecher-Signale; „Messwerte kopieren“ legt sie ohne Namen in die Zwischenablage, etwa für einen Fehlerbericht.
 
+- NDI im Blick behalten: „NDI ●“ an jeder Gast-Quelle und „Programm ● …“ über der Gästeliste heißen, alles läuft; was die übrigen Anzeigen bedeuten, steht in der Pannenhilfe.
+- Fällt eine Gast-Quelle aus, startet Connect sie von selbst neu, höchstens dreimal hintereinander; danach „NDI neu starten“ an der Zeile des Ausfalls. Ebenso „Programm neu starten“ für den Programm-Empfang.
+- Reißt die Verbindung zum Raum ab, bleibt die Gästeliste mit dem letzten Stand stehen; Gäste steuern, Talkback, Folien und Einladen sind gesperrt, bis Connect wieder verbunden ist. „Raum schließen“ (im Fenster und im Tray), „NDI neu starten“, „Programm neu starten“, „Logordner öffnen“ und „Lizenzbedingungen“ bleiben bedienbar.
+- Die Anmeldung von Connect am Raum gilt 8 Stunden ab dem letzten „Raum öffnen“. Reißt die Verbindung danach ab, versucht Connect es für die Bedienung nicht weiter („Verbindung zum Raum beendet: …“): dann „Raum öffnen“ wählen, nicht „Raum schließen“. „Raum öffnen“ meldet Connect neu an, ohne einen verteilten Link ungültig zu machen; die Gäste bleiben im Raum.
 ### Nachbereitung
 - „Meeting verlassen“ (bei laufenden Slots fragt der Knopf einmal nach) oder Connect über das Tray beenden. Beides verlässt das Meeting sauber; die Zoom-Quellen verschwinden aus dem Switcher. Gespeicherte Slots bleiben samt Einstellungen für das nächste Meeting; vorübergehende sind weg, und per ZOOM_LOAD nur für dieses Meeting eingeschaltete Slots sind wieder aus.
 - Nach einer Fehlermeldung leert „Schließen“ Meeting-Nummer und Kenncode; vorübergehende Slots verschwinden dabei.
@@ -128,6 +151,7 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 - Den Versatz einmal je Raum mit dem Klatschtest messen; er gilt für alle Teilnehmer- und Sprecher-Slots, nicht für Bildschirmfreigaben.
 - Für Bildschirmfreigaben einen eigenen Slot im Modus „Bildschirmfreigabe“ anlegen: Er zeigt immer die neueste Freigabe, ohne dass jemand die teilende Person wählen muss.
 - Die Vorschau kostet Rechenzeit: Bei vielen Slots den Schalter „Vorschau“ ausschalten; bei minimiertem Fenster ist sie ohnehin aus.
+- Das Feedback „Connect: NDI-Ausfall“ (ndi_alarm) auf eine Taste legen: Es leuchtet, sobald eine Gast-Quelle ausgefallen ist oder der Programm-Empfang hängt oder ausfällt, unter Windows und macOS. „NDI: kein Bild“ allein hebt es nicht, weil die Ursache dann meist außerhalb von Connect liegt (Switcher-Ausgang, Netz, Gast).
 - Notfallweg: Das Einzelpaket zoom-bridge-v0.1.0 bleibt bis zur ersten Live-Show mit Connect verfügbar.
 
 ## Pannenhilfe
@@ -207,9 +231,37 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 | „Wiederbeitritt abgebrochen: …“ | Ein Versuch ist endgültig gescheitert, der Grund steht dahinter (zum Beispiel abgelehnte Zugangsdaten oder ein Fehler beim Start der Zoom-Bridge). Den Grund beheben, dann „Erneut beitreten“; die eingeschalteten Slots starten danach wieder. Details im Log. |
 | „Meeting beendet: …“ | Der Host hat das Meeting beendet. „Erneut beitreten“, sobald er es neu startet, sonst „Schließen“. |
 | „Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.“ (unter dem Versatz oder in der Zoom-Karte) | connect-settings.json ist schreibgeschützt oder gesperrt. Versatz und Slots gelten bis zum Beenden von Connect. Schreibrechte im Ordner %APPDATA%\JM Connect prüfen. |
+| „NDI startet …“ (Gastzeile) | Der NDI-Prozess der Quelle startet. Meldet er sich nicht binnen 10 s, beendet Connect ihn und nennt den Grund („Der NDI-Prozess meldete sich nicht binnen 10 s.“). |
+| „NDI ● kein Empfänger“ | Die Quelle sendet, aber kein Switcher hat sie gewählt. Im Switcher den Eingang „JM Connect – <Name>“ wählen. Unter macOS zusätzlich den Zugriff auf das lokale Netzwerk prüfen (Systemeinstellungen › Datenschutz & Sicherheit › Lokales Netzwerk). |
+| „NDI: kein Bild“ | Die Quelle besteht, aber seit über 3 s kam kein Bild des Gasts an, etwa weil seine Kamera im Browser aus ist oder sein Netz hängt. Den Gast bitten, Kamera und Netz zu prüfen; sobald wieder Bilder kommen, steht wieder „NDI ●“. |
+| „NDI ausgefallen · Neustart … von 3 …“ | Der NDI-Prozess der Quelle ist ausgefallen. Connect startet ihn nach 1 s von selbst neu, höchstens dreimal hintereinander; im Switcher kann die Quelle kurz fehlen. Zeigt der Switcher-Eingang danach kein Bild, den Eingang dort neu wählen. |
+| „NDI ausgefallen“ mit der Zeile „NDI-Quelle Kamera: … Details im Log.“ bzw. „NDI-Quelle Bildschirm: … Details im Log.“ | Connect startet die Quelle nicht mehr von selbst. Den Grund in der Zeile lesen (Zeilen unten), dann „NDI neu starten“; „Logordner öffnen“ führt zu main.log. |
+| „NDI fehlt in diesem Paket oder ließ sich nicht laden (Addon oder NDI-Laufzeit).“ | Die Installation ist unvollständig oder beschädigt. JM Connect über den Launcher neu installieren. |
+| „Die NDI-Laufzeit ließ sich nicht starten.“ | Die NDI-Laufzeit im Paket startet nicht. „NDI neu starten“ bzw. „Programm neu starten“; hilft das nicht, Connect neu starten, sonst neu installieren. Details im Log. |
+| „Der NDI-Sender ließ sich nicht anlegen.“ | NDI hat den Sender für diese Quelle abgelehnt. „NDI neu starten“; bleibt es, das Log sichern und melden. |
+| „Der NDI-Prozess endete beim Start (Code …).“ | Der Prozess endete, bevor er bereit war. Connect startet ihn nicht von selbst neu, weil ein Startfehler meist wiederkehrt. „NDI neu starten“ bzw. „Programm neu starten“; kehrt es wieder, Connect neu installieren und den Code mit dem Log melden. |
+| „Der NDI-Prozess fiel nach drei Neustarts erneut aus.“ | Connect hat den Prozess dreimal hintereinander neu gestartet. „NDI neu starten“ bzw. „Programm neu starten“; fällt er wieder aus, das Log sichern und melden. |
+| „Das interne Medienfenster von Connect fehlt. Bitte Connect neu starten.“ | Das versteckte Fenster, das die Bilder der Gäste liefert, ist abgestürzt oder geschlossen. Connect beenden und neu starten; einen Knopf zum Neustarten der Quelle gibt es in diesem Fall nicht. |
+| „Der NDI-Prozess meldete sich nicht binnen 10 s.“ | Der Prozess hing beim Start. „NDI neu starten“ bzw. „Programm neu starten“; Details im Log. |
+| „Der NDI-Prozess meldete einen unbekannten Fehler.“ | Details im Log; „NDI neu starten“ bzw. „Programm neu starten“. |
+| „NDI: keine Quelle“ (Gastzeile) | Für diesen eingelassenen Gast besteht in Connect keine NDI-Quelle, etwa nachdem Connect bei offenem Raum neu gestartet wurde. Tray-Zeile und ndi_alarm zählen ihn nicht. Ob den Gast entfernen und neu einladen ihm wieder eine Quelle gibt, ergänzt dieses Handbuch nach der Abnahme (Stand vor der Abnahme von 0.4.0). |
+| „Programm sucht …“ | Connect sucht die Programm-Quelle im Netz. Kurz abwarten. |
+| „Programm: keine Quelle“ | Connect findet keine NDI-Quelle mit „JM Switcher“ im Namen (der Tooltip nennt den gesuchten Namen) und sucht laufend weiter. Im Switcher den NDI-Ausgang einschalten; unter macOS den Zugriff auf das lokale Netzwerk prüfen. |
+| „Programm: kein Bild von …“ | Die Programm-Quelle besteht, aber seit über 3 s kommt kein Bild an (Switcher-Ausgang, Netz oder NDI-Verbindung). Im Switcher den NDI-Ausgang prüfen; kommt wieder Bild, steht wieder „Programm ● …“. |
+| „Programm kommt an, die Weitergabe an die Gäste hängt“ | Das Programm kommt vom Switcher an, aber das interne Medienfenster nimmt keine Bilder ab; die Gäste sehen ein stehendes Programm. Abwarten; bleibt es, „Logordner öffnen“ und main.log sichern. |
+| „Programm: Öffnen gescheitert (…) · neuer Versuch folgt“ | NDI konnte die gefundene Quelle nicht öffnen; Connect versucht es nach 3 s von selbst neu. Bleibt es, im Switcher den NDI-Ausgang aus- und wieder einschalten. |
+| „Programm-Empfang ausgefallen · Neustart … von 3 …“ | Der Prozess des Programm-Empfangs ist ausgefallen; Connect startet ihn nach 1 s von selbst neu, höchstens dreimal hintereinander. |
+| „Programm-Empfang ausgefallen“ mit der Zeile „Programm-Empfang: … Details im Log.“ | Connect startet den Empfang nicht mehr von selbst. Den Grund lesen (dieselben Gründe wie bei den Gast-Quellen), dann „Programm neu starten“; „Logordner öffnen“ führt zu main.log. |
+| „△ Gäste: … von … NDI-Quellen ausgefallen“ bzw. „△ Gäste: NDI-Quelle ausgefallen“ (Tray) | Mindestens eine Gast-Quelle ist ausgefallen. Im Fenster an der Gastzeile den Grund lesen. |
+| „○ Gäste: NDI-Quelle startet …“ (Tray) | Gast-Quellen starten gerade. Kein Fehler. |
+| „JM Connect — NDI-Ausfall“ (Tooltip im Tray) | Eine Gast-Quelle ist ausgefallen, oder der Programm-Empfang hängt, startet neu oder ist ausgefallen (wie ndi_alarm). Im Fenster nachsehen. |
+| „Keine Verbindung zum Raum; Connect versucht laufend, neu zu verbinden. …“ | Die Verbindung der Bedienung zum Raum ist getrennt (Netz oder Proxy). Die Gästeliste zeigt den letzten Stand, die NDI-Abzeichen den aktuellen; Gäste steuern, Talkback, Folien und Einladen sind gesperrt. Netz prüfen und abwarten. |
+| „Keine Verbindung zum Raum „…“. Adresse und Proxy-Key prüfen — im Hintergrund wird weiter versucht.“ | Connect hat den Raum 8 s nach „Raum öffnen“ noch nicht erreicht. Cloud-Zugang (Adresse, Proxy-Key) und Netz prüfen. |
+| „Verbindung zum Raum beendet: Die Anmeldung von Connect gilt 8 Stunden ab dem letzten „Raum öffnen“ und ist abgelaufen, …“ | Die Anmeldung von Connect am Raum ist abgelaufen; Connect versucht es für die Bedienung nicht weiter. „Raum öffnen“ wählen, nicht „Raum schließen“: „Raum öffnen“ meldet Connect neu an, die Gäste bleiben, und kein verteilter Link wird ungültig. „Raum schließen“ würde alle Gäste aus dem Raum werfen und jeden Link ungültig machen. Bilder und Programm-Rückkanal können kurz aussetzen. |
+| „Logordner ließ sich nicht öffnen: …“, „Lizenzbedingungen ließen sich nicht öffnen: …“ oder „ndi.video ließ sich nicht öffnen: https://ndi.video/“ | Das System hat das Öffnen abgelehnt. Den genannten Pfad bzw. die Adresse von Hand öffnen; Knopf bzw. Link bleiben für einen neuen Versuch bedienbar. |
 | Companion-Taste „letzter Zoom-Befehl abgelehnt“ leuchtet | Der Grund steht unter „Hinweise“ in der Zoom-Karte, zum Beispiel „Companion: niemand namens … im Meeting.“ Namen prüfen und die Taste erneut drücken. |
 | „Companion: … Slot eingeschaltet — mehr als 5 sind nicht gemessen.“ (unter „Hinweise“) | Ein Companion-Befehl (ZOOM_SLOT … ON oder ZOOM_LOAD) hat mehr als 5 Slots eingeschaltet. Über Companion fragt Connect nicht nach: Der Befehl ist ausgeführt (zoom_cmd f8, nicht abgelehnt), die Zustimmung gesetzt. Ob der Rechner es schafft, zeigen die Messwerte; sonst einen Slot ausschalten. |
-| Ein Text endet mit „Details im Log“ | Knopf „Logordner öffnen“ in der Zoom-Karte, dann main.log ansehen. |
+| Ein Text endet mit „Details im Log“ | Knopf „Logordner öffnen“ daneben, in der Fußzeile des Hauptfensters oder in der Zoom-Karte, dann main.log ansehen. |
 
 ## Checklisten
 
@@ -218,6 +270,7 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 - [ ] Zugangsdaten hinterlegt (Client-ID endet auf …)
 - [ ] „Einrichtung prüfen“ meldet „Einrichtung in Ordnung …“
 - [ ] Companion-Modul 0.3.0 mit der Rolle „JM Connect“ an Port 8737 (optional)
+- [ ] Unter macOS: App freigegeben (Systemeinstellungen › Datenschutz & Sicherheit), Zugriff auf das lokale Netzwerk erlaubt
 - [ ] Zoom-Slots angelegt: NDI-Namen wie die Switcher-Eingänge, Modus, Person, Auflösung, Ton; „Start“ an den Slots, die laufen sollen
 
 ### Vor Live
@@ -226,6 +279,7 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 - [ ] Kopfhörer am Regieplatz
 - [ ] Jede Zoom-Person mit eindeutigem Anzeigenamen
 - [ ] Aufnahme-Erlaubnis erteilt, jede eingeschaltete Kachel zeigt ihr Bild („Zeigt …“), die Slots im Switcher mit Bild und Ton
+- [ ] Über der Gästeliste „Programm ● …“, an jeder Gast-Quelle „NDI ●“ mit Empfänger
 - [ ] Höchstens 5 Slots eingeschaltet (mehr nur nach „Trotzdem einschalten“, nicht gemessen)
 
 ### Nach Live

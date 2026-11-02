@@ -18,6 +18,8 @@ nun **umgesetzten** macOS-Build (arm64) — und wie man ihn lokal ausführt.
 > - **JM Caption-0.3.0-mac-arm64.dmg** — beides (whisper **und** NDI) funktional, 0 Leaks
 >
 > Reihenfolge zum Bauen: **1) Transcribe → 2) Titler → 3) Caption**.
+>
+> **JM Connect** baut sein Mac-Paket mit NDI ab 0.4.0 in der CI, nicht lokal (Abschnitt 7).
 
 ## 1. Warum sie heute Win-only sind
 
@@ -50,10 +52,13 @@ Die Win-only-Sperre sitzt an **genau drei Stellen** — nirgends in der App-Logi
    `@loader_path`-rpath setzen (einmalig im Bundle-Skript). **Das ist der einzige wirklich
    neue native Code.**
 2. **Gatekeeper/Notarisierung.** Unsignierte DMGs mit nativen Binaries landen in Quarantäne
-   („… ist beschädigt"). `ndi-screen-capture` setzt `hardenedRuntime: false` +
-   `gatekeeperAssess: false` → reicht für interne Verteilung (Nutzer muss 1× rechtsklick →
-   „Öffnen" bzw. `xattr -dr com.apple.quarantine`). Sauberes Doppelklicken braucht
-   Apple-Developer-ID-Signierung + Notarisierung (separater, optionaler Schritt).
+   („… ist beschädigt“). `ndi-screen-capture` setzt `hardenedRuntime: false` +
+   `gatekeeperAssess: false` → reicht für interne Verteilung. Bis macOS 14 genügte einmal
+   Rechtsklick → „Öffnen“; ab macOS 15 hilft das nicht mehr, die Freigabe läuft über „Systemeinstellungen ›
+   Datenschutz & Sicherheit“ (Apple, „Updates to runtime protection in macOS Sequoia“), alternativ
+   `xattr -dr com.apple.quarantine`. Apple Silicon lädt keine Mach-O-Datei ohne Signatur: nach
+   `install_name_tool` mindestens ad hoc neu signieren (`codesign --force --sign -`). Sauberes
+   Doppelklicken braucht Apple-Developer-ID-Signierung + Notarisierung (separater, optionaler Schritt).
 3. **Arch.** `ndi-screen-capture` zielt auf `arm64` + `x64`. libndi (macOS) ist universal;
    whisper.cpp muss pro Arch oder universal vorliegen. Empfehlung: **erst `arm64`** (Apple
    Silicon, die reale Office-Hardware), `x64` später bei Bedarf.
@@ -223,9 +228,14 @@ Um sie auf Mac auch in CI zu bauen:
 
 - **whisper** (Transcribe): in CI per `cmake` aus Quelle bauen — kein Secret nötig. Machbar
   ohne großen Aufwand.
-- **NDI** (Titler/Caption): Das **NDI-SDK darf nicht ins Repo** (Lizenz). Optionen: SDK in
-  einem Setup-Step von einer secret-gegateten URL ziehen und cachen, oder diese zwei Tools
-  weiterhin **lokal** bauen (wie heute Windows) und nur Transcribe in CI heben.
+- **NDI** (Titler/Caption): Das **NDI-SDK darf nicht ins Repo**, in keinen Cache, in kein Artefakt
+  und in kein Release (Lizenz, Abschnitt 2d, 3a, 3b). Vorbild ist JM Connect (Abschnitt 7): Die CI lädt
+  das NDI-SDK für Apple bei jedem Lauf von der öffentlichen Adresse, also immer die aktuelle Fassung
+  (Lizenz, Abschnitt 2b), ohne Geheimnis und ohne Cache, und hält den Bau mit der Fassungsprüfung
+  gegen den Lesestand an, bis der Owner Lizenz und Doku einer neuen Fassung gelesen hat. Die
+  Lizenzpflichten (Link auf ndi.video, Markenhinweis, Lizenztext der Laufzeit, Lizenzbedingungen)
+  gelten für Titler und Caption ebenso (Connect-Spec 22.13, Folgepunkt FP15); bis dahin bleibt der
+  **lokale** Bau.
 - Mechanik: den Filter so anpassen, dass `*-v`-Tags auf `macos-latest` durchlaufen, auf
   `windows-latest` aber nur wo sinnvoll — d. h. die Matrix-`exclude`-Logik statt globalem `if`.
 
@@ -241,5 +251,65 @@ Um sie auf Mac auch in CI zu bauen:
 | Caption | beide Zweige + yml/json | mittel | Summe der beiden |
 
 Querschnitt für alle drei: PNG-Icon (`build/icon.png`) anlegen und Gatekeeper-Hinweis in die
-Release-Notes (rechtsklick → „Öffnen" bzw. `xattr -dr com.apple.quarantine`), solange nicht
-signiert/notarisiert.
+Release-Notes (ab macOS 15 Freigabe unter „Systemeinstellungen › Datenschutz & Sicherheit“, sonst
+Rechtsklick → „Öffnen“ bzw. `xattr -dr com.apple.quarantine`), solange nicht signiert/notarisiert.
+
+---
+
+## 7. JM Connect: Mac-Paket mit NDI aus der CI (ab 0.4.0)
+
+Spec: `docs/superpowers/specs/2026-10-17-connect-zoom-slots-design.md`, Abschnitt 22.7 (Weg W-CI, Owner-Entscheid zu
+FR14 vom 18.10.2026). Connect baut sein Mac-Paket nicht lokal wie Titler und Caption, sondern im Workflow
+`.github/workflows/connect-mac.yml` auf `macos-latest` (arm64): aus dem Tag `connect-v…` oder, im Probelauf, aus dem
+Stand eines Zweigs. Zoom gibt es unter macOS nicht.
+
+**Ob NDI ins Paket muss, entscheidet die Version** (`ndiErwartet` in `apps/connect/tools/pruefe-mac-paket.mjs`): ab
+0.4.0 Pflicht, davor verboten; der Nachlauf von 0.3.0 baut weiter ohne NDI. Der Probelauf (Eingabe `probe`) baut immer
+mit NDI, prüft mit `--probe` und lädt nichts hoch, auch kein Artefakt. Starten darf ihn nur der Owner.
+
+**Ablauf im Job `mac`** (nur Leserecht, kein Geheimnis):
+1. Quellen und Prüfskript holen, ohne Anmeldedaten; das Prüfskript kommt immer aus `github.sha`, die Quellen aus dem
+   Tag bzw. im Probelauf aus `github.sha`.
+2. „Version und NDI bestimmen“: Version aus dem Tag bzw. im Probelauf aus `apps/connect/package.json`, dazu der
+   Ausgang `ndi` (im Probelauf immer `ja`). Jeder NDI-Schritt läuft nur mit `ndi` = `ja`.
+3. Nach `npm ci` und dem Bau das **NDI-SDK für Apple** per HTTPS von der festen, öffentlichen Adresse
+   `https://downloads.ndi.tv/SDK/NDI_SDK_Mac/Install_NDI_SDK_v6_Apple.pkg` laden (immer die aktuelle Fassung; die
+   Adresse ist nur inoffiziell belegt) und ohne Installation und ohne `sudo` nach `$RUNNER_TEMP` entpacken (`pkgutil`
+   und `cpio`). `NDI_SDK_DIR` zeigt auf einen Link ohne Leerzeichen auf die Wurzel `NDI SDK for Apple`
+   (Leerzeichen-Falle, 4.6).
+4. **Fassungsprüfung** statt Geheimnis oder fester Prüfsumme: Das Prüfskript mit `--ndi-sdk` und `--ndi-paket` misst
+   die SHA-256 von Paket, `lib/macOS/libndi.dylib`, Lizenz (`NDI SDK License Agreement.pdf`) und Doku
+   (`Documentation/NDI SDK Documentation.pdf`), liest die Fassung aus `Version.txt` und vergleicht mit dem Lesestand
+   `NDI_LESESTAND_MAC` im Prüfskript. Jede Abweichung, auch eine neue Fassung mit gleichem Lizenztext, hält den Bau
+   an; der Owner liest dann Lizenz und Doku, und erst mit seinem OK wird der Lesestand auf `main` nachgezogen. Der
+   erste Probelauf endet absichtlich hier, weil der Lesestand noch leer ist. Die Zeile „Enthaltene NDI-Laufzeit unter
+   macOS: …“ (Muster `NDI_ZEILE_MUSTER`) geht später an die Notes.
+5. `npm run rebuild:native:mac -w @jm/connect` (`apps/connect/tools/ndi-universal.mjs`): `node-gyp rebuild` für arm64
+   und x64, dann `lipo -create` zu einem **universellen** `jm_ndi.node`, denn `extraResources` legt denselben Ordner in
+   beide Apps.
+6. `prepackage` mit dem Mac-Zweig von `apps/connect/tools/bundle-ndi.mjs`: `jm_ndi.node`, `libndi.dylib` und die
+   Lizenzdatei(en) der Laufzeit nach `resources/bin/mac`, die Referenz per `install_name_tool` auf
+   `@loader_path/libndi.dylib`, **Ad-hoc-Signatur** (`codesign --force --sign -`) und `codesign --verify`.
+7. `electron-builder --mac` (unsigniert), dann das Prüfskript mit `--ndi ja` (Architektur je App aus dem Mach-O-Kopf,
+   keine NDI-Kopie in der `app.asar`, keine SDK-Reste), `lipo -archs`, `otool -L`, `codesign --verify` und eine
+   Ladeprobe (`init()` des Addons der arm64-App).
+
+Der Job `hochladen` (Schreibrecht, ohne Checkout und ohne npm) prüft die NDI-Zeile gegen das Muster, hängt die DMGs an
+das Release und die Zeile an die Notes.
+
+**Lokales Netzwerk (macOS 15):** NDI braucht den Zugriff auf das lokale Netzwerk. `apps/connect/electron-builder.yml`
+setzt dafür `mac.extendInfo` mit `NSLocalNetworkUsageDescription` und `NSBonjourServices` (`_ndi._tcp`); macOS fragt
+beim ersten Zugriff. Ob macOS den Zugriff der Helfer-Prozesse der App zurechnet, zeigt erst die Abnahme
+(Connect-Spec AN38, MS32).
+
+**Nie:** SDK, Paket oder entpackter Ordner im Arbeitsordner des Jobs, in `actions/cache`, als Artefakt, als
+Release-Datei oder im Repo; keine Zoom-Datei.
+
+**Rückfallebene W-lokal** (nur mit Owner-OK; Schalter `MAC_LOKAL` im Workflow, heute aus): Der Owner baut je Release auf
+einem Mac aus dem Tag, lädt das SDK wie oben frisch und entpackt es ohne Installation, ruft die Fassungsprüfung mit dem
+Prüfskript aus `main`, dann `npm run rebuild:native:mac -w @jm/connect`, `npm run dist:mac -w @jm/connect` und das
+Prüfskript mit `--ndi ja`, und hängt beide DMGs an das Release; die NDI-Zeile kommt von Hand in die Notes.
+
+**Lizenzpflichten** (für jedes Paket mit NDI, lokal wie in der CI): Link auf ndi.video, Markenhinweis
+„NDI® is a registered trademark of Vizrt NDI AB.“ (in Connect in der Fußzeile und unter macOS im Fenster „Über JM
+Connect“), Lizenztext der Laufzeit im Paket, eigene Lizenzbedingungen (`apps/connect/resources/LIZENZ.txt`).

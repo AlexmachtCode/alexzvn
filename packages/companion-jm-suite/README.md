@@ -47,6 +47,18 @@ Bis Modul 0.1.0 fehlte die Rolle ganz; mit 0.2.0 ist Connect erstmals steuerbar
 - **Raum:** GO, NEXT, Standby, Auf Sendung, Aus Sendung, Freigeben, Talkback,
   Folien-Steuerung, Entfernen (Gast-ID); Variablen `room`, `guests`, `lobby`,
   `onair`, `active_label`, `standby`, `standby_label`, `talkback`, `connected`.
+- **NDI (Connect 0.4.0 unter Windows und macOS, ab Modul 0.3.0):** vier Variablen aus dem
+  STATE-Teil `ndi`, in jedem Zustand gesetzt, auch bei geschlossenem Raum:
+  - `ndi_sources`: „NDI: Gast-Quellen, die bestehen (Anzahl)“
+  - `ndi_failed`: „NDI: ausgefallene Gast-Quellen (Anzahl)“
+  - `ndi_program`: „NDI: Programm-Empfang (aus/sucht/keine_quelle/verbunden/ohne_bild/staut/fehler/neustart/gescheitert)“
+  - `ndi_alarm`: „NDI: Ausfall in Connect (1/0)“; 1, sobald eine Gast-Quelle ausgefallen ist oder der
+    Programm-Empfang auf `fehler`, `staut`, `neustart` oder `gescheitert` steht, nicht bei `sucht`,
+    `keine_quelle` und `ohne_bild`.
+
+  Feedback „Connect: NDI-Ausfall“ (rot) auf `ndi_alarm`. Neu starten lässt sich ein NDI-Prozess nur in
+  JM Connect („NDI neu starten“, „Programm neu starten“), nicht per Companion. Modul 0.2.0 kennt die vier
+  Variablen nicht.
 - **Zoom (nur Connect unter Windows):**
   - **Zoom-Slots (ab Modul 0.3.0 mit Connect 0.4.0):** bis zu 16 Slots mit fester
     Nummer. Jeder Slot ist eine NDI-Quelle mit festem Namen und zeigt eine Person,
@@ -79,7 +91,7 @@ Bis Modul 0.1.0 fehlte die Rolle ganz; mit 0.2.0 ist Connect erstmals steuerbar
     wirken weiter (über vorübergehende Slots); die Slot-Aktionen fehlen dort.
     Modul 0.3.0 mit Connect 0.3.0: Die Slot-Befehle beantwortet Connect mit `f7`.
 - Unter macOS sendet Connect keine `zoom_*`-Werte (die Variablen bleiben leer);
-  Zoom-Befehle schreibt Connect dort nur ins Log.
+  Zoom-Befehle schreibt Connect dort nur ins Log. Die `ndi_*`-Werte sendet Connect auf beiden Plattformen.
 - JM Rundown bietet die Zoom-Aktionen erst mit seinem nächsten Release an.
 
 ## Aufbau
