@@ -2006,7 +2006,7 @@
           },
           {
             "risk": "„Programm kommt an, die Weitergabe an die Gäste hängt“",
-            "remedy": "Das Programm kommt vom Switcher an, aber das interne Medienfenster nimmt keine Bilder ab; die Gäste sehen ein stehendes Programm. Abwarten; bleibt es, „Logordner öffnen“ und main.log sichern. Einen Knopf dafür gibt es nicht: Nur Connect neu starten baut das Medienfenster neu auf; dabei setzen alle NDI-Quellen und das Programm aus, und die Gäste sehen so lange kein Bild. „Raum schließen“ ist kein Ausweg, es macht jeden verteilten Link ungültig."
+            "remedy": "Das Programm kommt vom Switcher an, aber das interne Medienfenster nimmt keine Bilder ab; die Gäste sehen ein stehendes Programm. Abwarten; bleibt es, „Logordner öffnen“ und main.log sichern. Einen Knopf dafür gibt es nicht: Nur Connect neu starten baut das Medienfenster neu auf; dabei setzen alle NDI-Quellen und das Programm aus, und die Gäste sehen so lange kein Bild. Danach gelten die verteilten Links nur weiter, wenn Connect wieder über dieselbe `.jmshow` startet (der Knopf heißt dann „Raum „…“ öffnen“); ohne `.jmshow` öffnet Connect einen neuen Raum, und jeder Gast braucht einen neuen Link. „Raum schließen“ ist kein Ausweg, es macht jeden verteilten Link ungültig."
           },
           {
             "risk": "„Programm: Öffnen gescheitert (…) · neuer Versuch folgt“",
