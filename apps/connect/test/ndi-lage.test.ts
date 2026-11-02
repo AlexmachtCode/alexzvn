@@ -972,6 +972,129 @@ console.log('— C7: Gast-Quellen angebunden (Quelltext: Utility, Hülle, Peer-F
   ck('C7 C-EP1: Handlungen für Gast-Quellen gehen an gastHandlung, Logzeilen ins Log',
     index.includes("if (x.art === 'log') getLog().info(x.zeile);") && index.includes("else if (x.teil === 'gast') gastHandlung(x);"));
 }
+console.log('— C8: Programm-Empfang angebunden (Quelltext: Utility, Hülle, index.ts; PK46, PK55, 22.4, C-EP2, C-EP9)');
+{
+  const { readFileSync } = await import('node:fs');
+  const lies = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const empf = lies('../src/utility/ndi-program-receiver.ts');
+  const huelle = lies('../src/main/ndi-program.ts');
+  const index = lies('../src/main/index.ts');
+  /** Text ab `start` bis vor das nächste `ende` (leer, wenn `start` fehlt). */
+  const abschnitt = (s: string, start: string, ende: string): string => {
+    const i = s.indexOf(start);
+    if (i < 0) return '';
+    const j = s.indexOf(ende, i + start.length);
+    return j < 0 ? s.slice(i) : s.slice(i, j);
+  };
+  const zaehle = (s: string, t: string): number => s.split(t).length - 1;
+  const start = abschnitt(empf, 'function handleStart(', '\n}\n');
+  const lageFn = abschnitt(empf, 'function meldeLage(', '\n}\n');
+
+  // PK46 (Programm): @jm/ndi erst im Auftrag; „bereit“ nach ndi.init() und vor der ersten Suche (22.4, NF8).
+  ck('C8 PK46 Programm: kein Import von @jm/ndi auf oberster Ebene außer import type',
+    !/^import (?!type\b)[^\n]*'@jm\/ndi'/m.test(empf) && /^import type \* as NdiModul from '@jm\/ndi';$/m.test(empf));
+  ck('C8 PK46 Programm: das Laden steht in try/catch und meldet abbruch mit Grund addon',
+    /try \{\n\s*modul = require\('@jm\/ndi'\) as typeof NdiModul;\n\s*\} catch \(err\) \{\n\s*melde\(\{ type: 'abbruch', grund: 'addon', text: fehlerText\(err\) \}\);/.test(start));
+  ck('C8 22.4 Programm: ein Scheitern von ndi.init() ist abbruch {init}, kein Zustand',
+    /modul\.init\(\);\n\s*\} catch \(err\) \{\n[^\n]*\n\s*melde\(\{ type: 'abbruch', grund: 'init', text: fehlerText\(err\) \}\);/.test(start));
+  {
+    const i = empf.indexOf('modul.init();');
+    const b = empf.indexOf("melde({ type: 'bereit' });");
+    const f = empf.indexOf('.findSources(');
+    ck('C8 PK46 Programm: bereit steht nach ndi.init() und vor dem ersten findSources', i >= 0 && b > i && f > b);
+  }
+  ck('C8 PK46/E51 Programm: kein Aufruf process.exit', !/process\.exit\(/.test(empf));
+  ck('C8 22.4: kein stopped mehr, auch nicht beim Start (handleStart ruft handleStop nicht)',
+    !empf.includes("'stopped'") && start !== '' && !start.includes('handleStop('));
+  ck('C8 E50, C-EP2: lage alle 500 ms, im verbundenen Zustand über programmBildLage',
+    /^import \{ programmBildLage \} from '\.\.\/main\/ndi-lage';$/m.test(empf) && start.includes('lageTakt = setInterval(meldeLage, 500);')
+      && lageFn.includes('if (connected) zustand = programmBildLage({ jetzt: jetzt(), verbundenSeit, letztesBild, wartetSeit });'));
+  ck('C8 22.4 Leitung: quelle nur in verbunden, ohneBild, staut und fehler',
+    lageFn.includes("const mitQuelle = zustand === 'verbunden' || zustand === 'ohneBild' || zustand === 'staut' || zustand === 'fehler';"));
+  ck('C8 C-EP9: eine Ausnahme von createReceiver ergibt fehler mit Quelle und den nächsten Versuch nach 3 s',
+    /\} catch \(err\) \{\n[^\n]*\n[^\n]*createReceiver fehlgeschlagen[^\n]*\n\s*zustand = 'fehler';\n\s*quelle = source;\n\s*searchTimer = setTimeout\(\(\) => searchLoop\(nameHint\), 3000\);/.test(empf));
+  ck('C8 22.4: createReceiver = false ergibt ebenso fehler mit Quelle', /if \(!ok\) \{\n\s*zustand = 'fehler';\n\s*quelle = source;/.test(empf));
+  ck('C8 22.4 Bildwache: jedes NDI-Videobild zählt, auch ein verworfenes (letztesBild vor der Rückstau-Prüfung)',
+    empf.indexOf('letztesBild = jetzt();') > 0 && empf.indexOf('letztesBild = jetzt();') < empf.indexOf('if (wartetSeit !== null) {'));
+  ck('C8 22.4: das Ack des Peers beendet das Warten', empf.includes("else if (d.type === 'ack') wartetSeit = null;"));
+  ck('C8 OE4 a: die Pausen des Empfangs bleiben 3 s (nach false, nach einer Ausnahme, nach keineQuelle)',
+    zaehle(empf, 'setTimeout(() => searchLoop(nameHint), 3000);') === 3);
+
+  // PK55 (Programm): nur die monotone Uhr.
+  ck('C8 PK55 Programm: kein Date.now() in ndi-program.ts und ndi-program-receiver.ts', !empf.includes('Date.now()') && !huelle.includes('Date.now()'));
+  ck('C8 PK55 Programm: Bildwache und Abstand der Suchmeldung im Log nehmen performance.now()',
+    empf.includes('const jetzt = (): number => performance.now();') && empf.includes('const now = jetzt();'));
+
+  // Hülle (22.4): Neustart tauscht nur den Prozess.
+  const startProgram = abschnitt(huelle, 'export function startProgram(', '\n}\n');
+  const neustart = abschnitt(huelle, 'export function programmNeustart(', '\n}\n');
+  ck('C8 22.4: startProgram ruft stopProgram nicht (kein Zwischenstand aus; den alten Prozess beendet die Lage, C-EB10)',
+    startProgram.includes('ausfuehren(lage.programmStart(nameHint));') && !startProgram.includes('stopProgram('));
+  ck('C8 22.4, PK44: „Programm neu starten“ läuft nicht über stopProgram oder startProgram',
+    neustart.includes('ausfuehren(lage.programmNeustart());') && !neustart.includes('stopProgram(') && !neustart.includes('startProgram('));
+  ck('C8 22.4: der Kanal zum Peer entsteht nur in startProgram, Bestätigungen gehen an den aktuellen Prozess',
+    zaehle(huelle, 'new MessageChannelMain()') === 1 && startProgram.includes('new MessageChannelMain()')
+      && huelle.includes("port2.on('message', (ev) => aktuell?.child.postMessage(ev.data));"));
+  ck('C8 22.4: Bilder und Ton nur vom aktuellen Prozess an den Peer, nicht durch den Leser',
+    huelle.includes("if (art === 'video' || art === 'audio') {") && huelle.includes('if (aktuell === prozess) port2?.postMessage(roh);'));
+  ck('C8 E51: jede andere Nachricht geht durch leseProgrammMeldung', huelle.includes('const m = leseProgrammMeldung(roh);'));
+  const spawnTeil = abschnitt(huelle, "child.on('spawn', () => {", '\n  });');
+  ck('C8 22.4, E35: ein Zuhörer auf exit (das Ende geht an die Lage, programmExit); Startzeile und PID ab spawn, die PID an die Lage',
+    zaehle(huelle, "child.on('exit'") === 1 && huelle.includes('ausfuehren(lage?.programmExit(generation, code) ?? []);')
+      && spawnTeil.includes('(Generation ${generation}, PID ${child.pid ?? \'?\'}): Prozess gestartet')
+      && spawnTeil.includes('if (child.pid !== undefined) lage?.prozessPid(generation, child.pid);'));
+  ck('C8 E35: Logzeilen der Hülle ohne Quelle und Suchname', !/getLog\(\)[^\n]*(hinweis|quelle|nameHint)/.test(huelle));
+  // GG21, E35, Spec 0.23 (Nachbesserung C-sicherheit:1, C-code:3; OFC3): Die Hülle leitet stdout und stderr des Utility ins
+  // Log von Connect. Seit 0.4.0 tragen frei benannte Zoom-Slots keinen Vorsatz „JM Connect – “ mehr; die Diagnose nennt darum
+  // keinen NDI-Namen und keinen Suchnamen, nur Anzahlen (Quelle und Suchname zeigt das Programm-Abzeichen, T122–T126).
+  // Feste Liste statt Suchliste (Nachfix 1): Jede console-Zeile ist ein einzeiliger Aufruf; als Argumente gelten nur
+  // Zeichenketten ('…' oder `…`) und `err`, in `…` nur ${…} aus `erlaubt`. Die erlaubten Namen halten Zahlen, ihre
+  // Deklarationen stehen fest (NdiFrame trägt nur Zahlen und die Bilddaten, packages/ndi/index.d.ts).
+  // Härtung (Nachfix 2, Nachbesserung N15, N16): Jedes Wort „console“ im Utility steht in einem direkten Aufruf console.‹m›(,
+  // jedes Wort „process“ in process.parentPort.; die erlaubten Namen und err sind zusammen genau siebenmal mit const, let oder var
+  // gebunden (die sieben Deklarationen unten; err nur als catch-Parameter). Gemessen rot (C8 Proben 15–22): ein Name über eine
+  // Hilfsvariable, als weiteres Argument von console.info, in einer geänderten Deklaration, in einer Schleifenvariable mit
+  // erlaubtem Namen, in einem neu gebundenen err, über process.stdout.write, über Aliase von console.log und von process.
+  // Grenze (gemessen grün, Step 8): ein Name nicht unmittelbar hinter const, let oder var an einen erlaubten Namen gebunden
+  // (mehrzeiliger Rückruf, Zerlegung) oder im Text eines Error (über stderr oder err); process als globalThis['\u0070rocess'].
+  {
+    const logZeilen = empf.split('\n').filter((z) => /\bconsole\.\w+\(/.test(z));
+    const erlaubt = /^(?:anzahl|eigene|emptyPolls|audioRx|videoRx|videoDropped|frame\.\w+(?: \* \d+)?)$/;
+    const nurZahlen = (z: string): boolean => {
+      const m = /\bconsole\.\w+\((.*)\);$/.exec(z.trim());
+      if (!m) return false;
+      const arg = /\s*(?:'(?:[^'\\]|\\.)*'|`((?:[^`\\]|\\.)*)`|err)\s*(?:,|$)/y;
+      for (let i = 0; i < m[1].length; i = arg.lastIndex) {
+        arg.lastIndex = i;
+        const a = arg.exec(m[1]);
+        if (!a) return false;
+        if (a[1] !== undefined && [...a[1].matchAll(/\$\{([^}]*)\}/g)].some((x) => !erlaubt.test(x[1]))) return false;
+      }
+      return true;
+    };
+    const deklariert = (d: string): boolean => zaehle(empf, d.slice(0, d.indexOf(' =') + 2)) === 1 && empf.includes(d);
+    ck('C8 GG21, E35: die Logzeilen des Programm-Utility nennen keinen NDI-Namen und keinen Suchnamen, nur Anzahlen (OFC3)',
+      logZeilen.length > 0 && logZeilen.every(nurZahlen)
+        && ['const anzahl = seen.size;', 'const eigene = anzahl - fremde.length;', 'const frame = safeReceive(60);',
+          'let emptyPolls = 0;', 'let audioRx = 0;', 'let videoRx = 0;', 'let videoDropped = 0;'].every(deklariert)
+        && (empf.match(/\bconsole\b/g) ?? []).length === (empf.match(/\bconsole\.\w+\(/g) ?? []).length
+        && (empf.match(/\bprocess\b/g) ?? []).length === (empf.match(/\bprocess\.parentPort\./g) ?? []).length
+        && (empf.match(/\b(?:const|let|var)\s+(?:anzahl|eigene|frame|emptyPolls|audioRx|videoRx|videoDropped|err)\b/g) ?? []).length === 7
+        && empf.includes('Programm-Quelle nicht gefunden, ${anzahl} NDI-Quellen gesehen, ${eigene} davon mit „JM Connect – “ im Namen (Namen nicht im Log).'));
+  }
+  ck('C8 PK33: kein case- oder ev-Zweig für video oder audio im Programm-Empfang',
+    ![empf, huelle].some((s) => /case 'video'|case 'audio'|ev === 'video'|ev === 'audio'/.test(s)));
+
+  // index.ts: dieselbe Lage, derselbe Ausführer.
+  ck('C8 C-EP1: die Programm-Hülle bekommt dieselbe Lage und denselben Ausführer',
+    index.includes('initNdiProgram({ getPeer: () => getPeerWindow(), lage: ndiLage, ausfuehren: ndiAusfuehren });'));
+  ck('C8 C-EP1: Handlungen für den Programm-Empfang gehen an programmHandlung', index.includes('else programmHandlung(x);') && !index.includes('bis Task C8'));
+  {
+    const quit = abschnitt(index, "app.on('before-quit'", '\n  });');
+    ck('C8 PK44: beim Beenden stopProgram() vor destroyPeerWindow() (ein Empfang in aus bleibt aus)',
+      quit.indexOf('stopProgram();') >= 0 && quit.indexOf('destroyPeerWindow();') > quit.indexOf('stopProgram();'));
+  }
+}
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

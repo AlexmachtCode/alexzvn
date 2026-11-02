@@ -7,7 +7,7 @@ import type { TrayCommand } from '@shared/types';
 import { registerIpc, notifyStatusChanged, currentStatus } from './ipc';
 import { erzeugeNdiLage, type NdiHandlung } from './ndi-lage';
 import { gastHandlung, initNdiGuests, tearDownAll } from './ndi-guests';
-import { initNdiProgram, stopProgram } from './ndi-program';
+import { initNdiProgram, programmHandlung, stopProgram } from './ndi-program';
 import { createPeerWindow, destroyPeerWindow, getPeerWindow } from './peer-window';
 import { startControlServer, stopControlServer } from './control-server';
 import { createTray, destroyTray, setTrayStatus } from './tray';
@@ -108,7 +108,7 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
         if (x.art === 'log') getLog().info(x.zeile);
         else if (x.art === 'neustartPlanen') setTimeout(() => ndiAusfuehren(ndiLage.tick()), x.inMs + 5);
         else if (x.teil === 'gast') gastHandlung(x);
-        else getLog().warn(`[ndi] Handlung ${x.art} für den Programm-Empfang ohne Hülle (Plan C, bis Task C8)`);
+        else programmHandlung(x);
       }
     };
     // Versteckter WebRTC-Peer (Medien) — vor dem NDI-Pool, der ihm Frame-Ports gibt. Stürzt sein Renderer ab oder schließt
@@ -118,8 +118,9 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     initNdiGuests({ getPeer: () => getPeerWindow(), lage: ndiLage, ausfuehren: ndiAusfuehren });
     // Zeitgeber der Lage (22.3 Nr. 7, E50): jede Sekunde, für Gast-Quellen und Programm-Empfang.
     setInterval(() => ndiAusfuehren(ndiLage.tick()), 1000);
-    // Programm-Rückkanal-Empfang (Welle 6.2a): Status-Änderungen an die Operator-UI/Tray.
-    initNdiProgram({ getPeer: () => getPeerWindow(), onStatus: () => notifyStatusChanged() });
+    // Programm-Rückkanal-Empfang (Welle 6.2a, Plan C 22.4): Die Hülle startet und beendet den Prozess, wie die Lage es sagt;
+    // jede Änderung meldet onLage.
+    initNdiProgram({ getPeer: () => getPeerWindow(), lage: ndiLage, ausfuehren: ndiAusfuehren });
 
     registerIpc({
       getWindow: () => getMainWindow(),
