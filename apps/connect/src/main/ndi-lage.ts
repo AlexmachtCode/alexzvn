@@ -1,9 +1,22 @@
-// Reine NDI-Lage von JM Connect (Spec 22.3, E32, E33, E42, E51): je Gast-NDI-Quelle der Zustand aus einer geschlossenen
-// Liste (5 Werte) und der Lebenslauf ihres Prozesses: Generation je Prozess, Neustart nach 1 s höchstens dreimal in Folge,
-// 60 s ununterbrochen nach „bereit“ setzen die Folge zurück. Dazu der Leser der Gast-Leitung und die Namensliste für T46.
+// Reine NDI-Lage von JM Connect (Spec 22.3, 22.4, E32–E34, E42, E50–E52): je Gast-NDI-Quelle (5 Zustände) und für den
+// Programm-Empfang (9 Zustände) der Zustand aus einer geschlossenen Liste und der Lebenslauf des Prozesses: Generation je
+// Prozess, Neustart höchstens dreimal in Folge, Fristen, Peer-Fenster. Dazu die Leser der Utility-Leitung, die Bildwache,
+// die Namensliste für T46, die Meldewege onLage/onNamen, die Zählweise e/g/b/s/a und der STATE-Teil ndi_*.
 // Rein (G-C2): kein electron und keine Uhr im Modul; die Zeit kommt über jetzt() von der Hülle. Die Lage startet und
-// beendet keinen Prozess selbst: Jede Methode gibt Handlungen zurück, die Hülle (ndi-guests.ts) führt sie aus.
-// Plan C: Task C2 ergänzt den Programm-Empfang (22.4), Task C3 die Fristen, das Peer-Fenster, onLage und den STATE-Teil.
+// beendet keinen Prozess selbst: Jede Methode gibt Handlungen zurück, die Hüllen (ndi-guests.ts, ndi-program.ts) führen
+// sie aus.
+//
+// Alle Fristen der Ergänzung (OE4 a; E50: auf einer monotonen Uhr, performance.now() bzw. process.hrtime.bigint(), nie
+// auf der Wanduhr):
+// - 10 s bis „bereit“ nach dem Start eines Prozesses, sonst gescheitert/keinStart (Gast und Programm; hier in tick()).
+// - 5 s Lebenszeichen nach „bereit“: ohne jede Meldung beendet der Main den Prozess (Gast und Programm; hier in tick()).
+// - 1 s bis zum Neustart nach einem Ausfall nach „bereit“, höchstens dreimal in Folge (hier in tick()).
+// - 60 s ununterbrochen nach „bereit“ setzen die Neustarts in Folge auf 0 (hier in tick()).
+// - 3 s ohne Videobild: eine Gast-Quelle geht von sendet nach ohneBild (hier in tick()).
+// - 3 s Bildwache des Programm-Empfangs: ohneBild und staut (hier programmBildLage(); das Utility ruft sie alle 500 ms).
+// - 3 s Pausen des Programm-Empfangs zwischen zwei Suchrunden bzw. Öffnungsversuchen (src/utility/ndi-program-receiver.ts).
+// - 3 s bis T140 „NDI: keine Quelle“ für einen eingelassenen Gast ohne Eintrag (Renderer, Regel G, C-EP16).
+// Nur die Uhrregel des Raumabbruchs (E57, shared/raum-ansicht.ts) vergleicht bewusst mit der Wanduhr.
 
 /** Art einer Gast-NDI-Quelle; die Bildschirm-Quelle hat den Schlüssel `‹Gast-ID›::screen` (`ndiPoolKey`). */
 export type NdiArt = 'kamera' | 'bildschirm';
@@ -169,6 +182,8 @@ interface Programm {
   startUm: number;
   bereitUm: number;
   neustartAb: number | null;
+  meldungUm: number;
+  beendet: boolean;
 }
 
 /** Die NDI-Lage von Connect: eine Instanz für alle Gast-Quellen und den Programm-Empfang (C-EP1). */
@@ -195,6 +210,8 @@ export interface NdiLage {
   programmNeustart(): NdiHandlung[];
   /** `stopProgram` (Raum schließen, Beenden): `aus`, ein geplanter Neustart entfällt, ein `exit` danach ist kein Absturz. */
   programmStop(): NdiHandlung[];
+  /** Das Peer-Fenster meldet `render-process-gone` oder `closed` (22.3 Nr. 13, E50); ein Empfang in `aus` bleibt `aus`. */
+  peerWeg(): NdiHandlung[];
   /** Zeitgeber: jede Sekunde und nach jedem `neustartPlanen` (22.3 Nr. 7, 22.4, fällige Neustarts). */
   tick(): NdiHandlung[];
   quelleLage(schluessel: string): NdiQuelleLage | null;
@@ -226,6 +243,10 @@ interface Gast {
   bildUm: number | null;
   /** Ausfall nach „bereit“ um …; der Neustart ist fällig, sobald jetzt() − neustartAb ≥ NEUSTART_MS. */
   neustartAb: number | null;
+  /** Letzte Meldung dieses Prozesses (Lebenszeichen, E50). */
+  meldungUm: number;
+  /** Die Lage hat den Prozess wegen fehlender Lebenszeichen beendet und wartet auf sein `exit` (22.3 Nr. 12). */
+  beendet: boolean;
 }
 
 /** Neustarts in Folge, danach `gescheitert/absturz` (E33). */
@@ -236,14 +257,21 @@ const NEUSTART_MS = 1000;
 const RUECKSETZEN_MS = 60_000;
 /** So lange ohne Videobild, dann `sendet` → `ohneBild` (22.3 Nr. 7). */
 const OHNE_BILD_MS = 3000;
+/** Frist bis „bereit“ nach dem Start eines Prozesses (E50). */
+const BEREIT_FRIST_MS = 10_000;
+/** Lebenszeichen: so lange nach „bereit“ ohne jede Meldung, dann beendet der Main den Prozess (E50). */
+const LEBENSZEICHEN_MS = 5000;
 
-/** Eine NDI-Lage. `jetzt()` liefert die Zeit der Hülle (monoton, in ms); `onNamen` nur bei geänderter Namensliste (E52). */
+/**
+ * Eine NDI-Lage. `jetzt()` liefert die Zeit der Hülle (monoton, in ms). `onLage` feuert einmal beim Start (nach der Rückgabe,
+ * vor jedem Ereignis der Hülle) und bei jeder Änderung der öffentlichen Lage; `onNamen` nur bei geänderter Namensliste (E52).
+ */
 export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; onLage?(): void; onNamen?(): void }): NdiLage {
   const gaeste = new Map<string, Gast>();
   let naechsteGeneration = 1;
   const p: Programm = {
     lage: { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: '', bereit: false },
-    generation: 0, pid: null, prozess: false, startUm: 0, bereitUm: 0, neustartAb: null,
+    generation: 0, pid: null, prozess: false, startUm: 0, bereitUm: 0, neustartAb: null, meldungUm: 0, beendet: false,
   };
 
   const namensListe = (): string[] =>
@@ -252,7 +280,9 @@ export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; onLage?(
   /** Führt eine Änderung aus und meldet danach über die Rückrufe, was sich geändert hat (E52). */
   function aendern(f: () => NdiHandlung[]): NdiHandlung[] {
     const vorNamen = JSON.stringify(namensListe());
+    const vorLage = JSON.stringify([quellen(), p.lage]);
     const h = f();
+    if (JSON.stringify([quellen(), p.lage]) !== vorLage) o.onLage?.();
     if (JSON.stringify(namensListe()) !== vorNamen) o.onNamen?.();
     return h;
   }
@@ -275,6 +305,7 @@ export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; onLage?(
     g.bereit = false;
     g.startUm = o.jetzt();
     g.neustartAb = null;
+    g.beendet = false;
     return { art: 'prozessStarten', teil: 'gast', schluessel: g.lage.schluessel, generation: g.generation };
   }
   const beendeGast = (g: Gast): NdiHandlung => ({ art: 'prozessBeenden', teil: 'gast', schluessel: g.lage.schluessel, generation: g.generation });
@@ -307,6 +338,7 @@ export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; onLage?(
     p.lage.bereit = false;
     p.startUm = o.jetzt();
     p.neustartAb = null;
+    p.beendet = false;
     return { art: 'prozessStarten', teil: 'programm', schluessel: PROGRAMM, generation: p.generation };
   }
   const beendeProgramm = (): NdiHandlung => ({ art: 'prozessBeenden', teil: 'programm', schluessel: PROGRAMM, generation: p.generation });
@@ -343,11 +375,24 @@ export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; onLage?(
     return [...h, programmZeile(vorher)];
   }
 
-  /** Zeitgeber (22.3 Nr. 7, 22.4): fällige Neustarts, `sendet` → `ohneBild`, Rücksetzung der Neustarts nach 60 s. */
+  /** Zeitgeber (22.3 Nr. 7, 11, 12, 22.4): Fristen 10 s und 5 s, fällige Neustarts, `sendet` → `ohneBild`, Rücksetzung nach 60 s. */
   function tick(): NdiHandlung[] {
     const t = o.jetzt();
     const h: NdiHandlung[] = [];
     for (const g of gaeste.values()) {
+      if (g.prozess && !g.beendet) {
+        if (!g.bereit && t - g.startUm >= BEREIT_FRIST_MS) {
+          const vorher = g.lage.zustand;
+          h.push(beendeGast(g));
+          gastGescheitert(g, 'keinStart', null);
+          h.push(gastZeile(g, vorher));
+          continue;
+        }
+        if (g.bereit && t - g.meldungUm >= LEBENSZEICHEN_MS) {
+          g.beendet = true;
+          h.push(beendeGast(g), { art: 'log', zeile: `${gastKopf(g)}: keine Lebenszeichen seit 5 s, der Main beendet den Prozess` });
+        }
+      }
       if (g.lage.zustand === 'neustart' && !g.prozess && g.neustartAb !== null && t - g.neustartAb >= NEUSTART_MS) {
         if (o.peerDa()) h.push(starteGast(g), gastZeile(g, 'neustart', ', neuer Prozess'));
         else {
@@ -362,6 +407,17 @@ export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; onLage?(
       }
       if (g.prozess && g.bereit && t - g.bereitUm >= RUECKSETZEN_MS) g.lage.k = 0;
     }
+    if (p.prozess && !p.beendet) {
+      if (!p.lage.bereit && t - p.startUm >= BEREIT_FRIST_MS) {
+        const vorher = p.lage.zustand;
+        h.push(beendeProgramm());
+        programmGescheitert('keinStart', null);
+        h.push(programmZeile(vorher));
+      } else if (p.lage.bereit && t - p.meldungUm >= LEBENSZEICHEN_MS) {
+        p.beendet = true;
+        h.push(beendeProgramm(), { art: 'log', zeile: `${programmKopf()}: keine Lebenszeichen seit 5 s, der Main beendet den Prozess` });
+      }
+    }
     if (p.lage.zustand === 'neustart' && !p.prozess && p.neustartAb !== null && t - p.neustartAb >= NEUSTART_MS) {
       if (o.peerDa()) h.push(starteProgramm(), programmZeile('neustart', ', neuer Prozess'));
       else {
@@ -373,12 +429,16 @@ export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; onLage?(
     return h;
   }
 
+  // Einmal beim Start (E52, PK53): nach der Rückgabe der Lage, vor jedem Ereignis der Hülle (Mikroaufgabe, keine Uhr).
+  queueMicrotask(() => o.onLage?.());
+
   return {
     spinUp: (schluessel, art, label) => aendern(() => {
       if (gaeste.has(schluessel)) return [];
       const g: Gast = {
         lage: { schluessel, art, label, zustand: 'startet', grund: null, code: null, k: 0, empfaenger: null },
         generation: 0, pid: null, prozess: false, bereit: false, startUm: 0, bereitUm: 0, bildUm: null, neustartAb: null,
+        meldungUm: 0, beendet: false,
       };
       gaeste.set(schluessel, g);
       if (!o.peerDa()) {
@@ -390,6 +450,7 @@ export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; onLage?(
     gastMeldung: (schluessel, generation, m) => aendern(() => {
       const g = gaeste.get(schluessel);
       if (!aktuell(g, generation)) return [];
+      g.meldungUm = o.jetzt();
       const vorher = g.lage.zustand;
       if (m.type === 'bereit') {
         if (g.bereit) return [];
@@ -464,6 +525,7 @@ export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; onLage?(
     programmStart: (hinweis) => aendern(() => programmStartIntern(hinweis)),
     programmMeldung: (generation, m) => aendern(() => {
       if (!programmAktuell(generation)) return [];
+      p.meldungUm = o.jetzt();
       const vorher = p.lage.zustand;
       if (m.type === 'bereit') {
         if (p.lage.bereit) return [];
@@ -520,6 +582,23 @@ export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; onLage?(
       return [starteProgramm(), programmZeile('gescheitert', ', Knopf „Programm neu starten“')];
     }),
     programmStop: () => aendern(programmStopIntern),
+    peerWeg: () => aendern(() => {
+      const h: NdiHandlung[] = [];
+      for (const g of gaeste.values()) {
+        if (g.lage.zustand === 'gescheitert' && g.lage.grund === 'keinPeer') continue;
+        const vorher = g.lage.zustand;
+        if (g.prozess) h.push(beendeGast(g));
+        gastGescheitert(g, 'keinPeer', null);
+        h.push(gastZeile(g, vorher, ', Peer-Fenster weg'));
+      }
+      if (p.lage.zustand !== 'aus' && !(p.lage.zustand === 'gescheitert' && p.lage.grund === 'keinPeer')) {
+        const vorher = p.lage.zustand;
+        if (p.prozess) h.push(beendeProgramm());
+        programmGescheitert('keinPeer', null);
+        h.push(programmZeile(vorher, ', Peer-Fenster weg'));
+      }
+      return h;
+    }),
     tick: () => aendern(tick),
     quelleLage: (schluessel) => {
       const g = gaeste.get(schluessel);
@@ -532,6 +611,40 @@ export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; onLage?(
       for (const g of gaeste.values()) if (g.generation === generation) g.pid = pid;
       if (p.generation === generation) p.pid = pid;
     },
+  };
+}
+
+/** Zählweise der dauerhaften Anzeigen (E42): e Einträge, g bestehende (`sendet`, `ohneBild`), davon b in `ohneBild`,
+ *  s startende (`startet`), a ausgefallene (`neustart`, `gescheitert`). */
+export interface NdiZahlen { e: number; g: number; b: number; s: number; a: number }
+
+export function ndiZahlen(q: readonly NdiQuelleLage[]): NdiZahlen {
+  const n = (f: (z: NdiQuelleZustand) => boolean): number => q.filter((x) => f(x.zustand)).length;
+  return {
+    e: q.length,
+    g: n((z) => z === 'sendet' || z === 'ohneBild'),
+    b: n((z) => z === 'ohneBild'),
+    s: n((z) => z === 'startet'),
+    a: n((z) => z === 'neustart' || z === 'gescheitert'),
+  };
+}
+
+/** Wort des Programm-Zustands im STATE (22.6, T136). */
+const PROGRAMM_STATE_WORT: Record<NdiProgrammZustand, string> = {
+  aus: 'aus', sucht: 'sucht', keineQuelle: 'keine_quelle', verbunden: 'verbunden', ohneBild: 'ohne_bild', staut: 'staut',
+  fehler: 'fehler', neustart: 'neustart', gescheitert: 'gescheitert',
+};
+/** Programm-Zustände mit Alarm (22.6); nicht `sucht`, `keineQuelle`, `ohneBild`: die Ursache sieht Connect nicht (MS30). */
+const PROGRAMM_ALARM: readonly NdiProgrammZustand[] = ['fehler', 'staut', 'neustart', 'gescheitert'];
+
+/** STATE-Teil `ndi` (22.6): vier Schlüssel in jeder Lage, auf beiden Plattformen; ein Gast ohne Eintrag zählt nicht (T140). */
+export function ndiStateKv(q: readonly NdiQuelleLage[], p: NdiProgrammLage): { ndi_sources: number; ndi_failed: number; ndi_program: string; ndi_alarm: 0 | 1 } {
+  const z = ndiZahlen(q);
+  return {
+    ndi_sources: z.g,
+    ndi_failed: z.a,
+    ndi_program: PROGRAMM_STATE_WORT[p.zustand],
+    ndi_alarm: z.a > 0 || PROGRAMM_ALARM.includes(p.zustand) ? 1 : 0,
   };
 }
 

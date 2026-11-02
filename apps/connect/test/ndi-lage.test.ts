@@ -613,6 +613,279 @@ console.log('— C2 E35: Logzeilen des Programm-Empfangs ohne NDI-Namen, mit Gen
     gleich(zeilen.map((z) => / PID (\d+|–)\): /.exec(z)?.[1] ?? '?'), ['–', '5001', '5001', '5001', '–', '5002', '–', '–']));
   ck('C2 E35 Abbruch: Grund und Text der Meldung im Log', zeilen.some((z) => z.includes('Grund init') && z.includes('NDIlib_initialize fehlgeschlagen')));
 }
+// ── Testhilfen Fristen, Meldewege und Zählweise (Plan C, Task C3) ──
+const { ndiZahlen, ndiStateKv } = await import('../src/main/ndi-lage');
+type QuelleLageT = import('../src/main/ndi-lage').NdiQuelleLage;
+type ProgrammLageT = import('../src/main/ndi-lage').NdiProgrammLage;
+type QuelleZustandT = import('../src/main/ndi-lage').NdiQuelleZustand;
+type ProgrammZustandT = import('../src/main/ndi-lage').NdiProgrammZustand;
+/** Nur die Handlungen „Prozess beenden“. */
+const beendenH = (h: NdiHandlung[]): string[] => kurz(h).filter((x) => x.startsWith('beenden'));
+
+console.log('— C3 PK39, PK44: Frist bis bereit (10 s)');
+{
+  const t = testLage();
+  t.lage.spinUp('g1', 'kamera', ANNA);
+  t.s.t += 9999;
+  ck('C3 PK39 Gast: 9999 ms ohne bereit → startet, keine Handlung', gleich(kurz(t.lage.tick()), []) && zst(t.lage) === 'startet');
+  t.s.t += 1;
+  ck('C3 PK39 Gast: 10 000 ms ohne bereit → „Prozess beenden“ und gescheitert/keinStart',
+    gleich(kurz(t.lage.tick()), ['beenden gast g1 G1']) && zst(t.lage) === 'gescheitert/keinStart');
+  ck('C3 PK39 Gast keinStart: das folgende exit ändert nichts', gleich(t.lage.gastExit('g1', 1, 1), []) && zst(t.lage) === 'gescheitert/keinStart');
+  t.s.t += 60_000;
+  ck('C3 PK39 Gast keinStart: kein Neustart von selbst', gleich(kurz(t.lage.tick()), []));
+  const n = testLage();
+  const n2 = neustartNachAbsturz(n, sendend(n));
+  n.s.t += 9999;
+  ck('C3 PK39 Gast, neuer Prozess in neustart: 9999 ms ohne bereit → weiter neustart', gleich(kurz(n.lage.tick()), []) && zst(n.lage) === 'neustart');
+  n.s.t += 1;
+  ck('C3 PK39 Gast, neuer Prozess in neustart: 10 000 ms → „Prozess beenden“ und gescheitert/keinStart',
+    gleich(kurz(n.lage.tick()), [`beenden gast g1 G${n2}`]) && zst(n.lage) === 'gescheitert/keinStart');
+  ck('C3 PK39 … das folgende exit ändert nichts', gleich(n.lage.gastExit('g1', n2, 1), []) && zst(n.lage) === 'gescheitert/keinStart');
+
+  const p = testLage();
+  p.lage.programmStart(HINWEIS);
+  p.s.t += 9999;
+  ck('C3 PK44 Programm: 9999 ms ohne bereit → sucht', gleich(kurz(p.lage.tick()), []) && pz(p.lage) === 'sucht');
+  p.s.t += 1;
+  ck('C3 PK44 Programm: 10 000 ms ohne bereit → „Prozess beenden“ und gescheitert/keinStart',
+    gleich(kurz(p.lage.tick()), ['beenden programm programm G1']) && pz(p.lage) === 'gescheitert/keinStart');
+  ck('C3 PK44 Programm keinStart: das folgende exit ändert nichts', gleich(p.lage.programmExit(1, 1), []) && pz(p.lage) === 'gescheitert/keinStart');
+  const q = testLage();
+  const q2 = programmNeustartNachAbsturz(q, programmBereit(q));
+  q.s.t += 10_000;
+  ck('C3 PK44 Programm, neuer Prozess in neustart ohne bereit nach 10 000 ms → gescheitert/keinStart',
+    gleich(kurz(q.lage.tick()), [`beenden programm programm G${q2}`]) && pz(q.lage) === 'gescheitert/keinStart');
+}
+
+console.log('— C3 PK55: Lebenszeichen (5 s), Gast und Programm');
+{
+  const t = testLage();
+  const g1 = sendend(t);
+  t.lage.prozessPid(g1, 4711);
+  t.s.t += 4999;
+  ck('C3 PK55 Gast: 4999 ms nach bereit ohne Meldung → kein „Prozess beenden“', gleich(beendenH(t.lage.tick()), []));
+  t.s.t += 1;
+  const h = t.lage.tick();
+  ck('C3 PK55 Gast: 5000 ms ohne Meldung → „Prozess beenden“ mit der Logzeile „keine Lebenszeichen“ samt Generation und PID',
+    gleich(kurz(h), ['beenden gast g1 G1']) && logs(h).some((z) => z.startsWith('[ndi-lage] Gast g1 (Generation 1, PID 4711): keine Lebenszeichen')));
+  ck('C3 PK55 Gast: der Zustand bleibt bis zum exit (ohneBild)', zst(t.lage) === 'ohneBild');
+  t.s.t += 1000;
+  ck('C3 PK55 Gast: kein zweites „Prozess beenden“, solange das exit aussteht', gleich(kurz(t.lage.tick()), []));
+  t.lage.gastExit('g1', g1, null);
+  ck('C3 PK55 Gast: das folgende exit zählt als Ausfall nach bereit → neustart, k = 1', zst(t.lage) === 'neustart' && t.lage.quelleLage('g1')?.k === 1);
+  const m = testLage();
+  const m1 = sendend(m);
+  m.s.t += 4000;
+  m.lage.gastMeldung('g1', m1, { type: 'stat', connections: 0 });
+  m.s.t += 4999;
+  ck('C3 PK55 Gast: ein stat (auch ohne Bild) setzt die Frist zurück, 4999 ms danach → nichts', gleich(beendenH(m.lage.tick()), []));
+  m.s.t += 1;
+  ck('C3 PK55 Gast: 5000 ms nach dem letzten stat → „Prozess beenden“', gleich(beendenH(m.lage.tick()), ['beenden gast g1 G1']));
+
+  const p = testLage();
+  const p1 = programmBereit(p);
+  p.lage.prozessPid(p1, 5001);
+  p.s.t += 4000;
+  p.lage.programmMeldung(p1, { type: 'lage', zustand: 'sucht' });
+  p.s.t += 4999;
+  ck('C3 PK55 Programm: lage ohne Wechsel setzt die Frist zurück, 4999 ms danach → nichts', gleich(kurz(p.lage.tick()), []));
+  p.s.t += 1;
+  const hp = p.lage.tick();
+  ck('C3 PK55 Programm: 5000 ms ohne Meldung → „Prozess beenden“ mit „keine Lebenszeichen“ samt Generation und PID, Zustand bleibt',
+    gleich(kurz(hp), ['beenden programm programm G1'])
+      && logs(hp).some((z) => z.startsWith('[ndi-lage] Programm (Generation 1, PID 5001): keine Lebenszeichen')) && pz(p.lage) === 'sucht');
+  p.s.t += 1000;
+  ck('C3 PK55 Programm: kein zweites „Prozess beenden“', gleich(kurz(p.lage.tick()), []));
+  p.lage.programmExit(p1, null);
+  ck('C3 PK55 Programm: das folgende exit → neustart, k = 1', pz(p.lage) === 'neustart' && p.lage.programmLage().k === 1);
+
+  const gs = testLage();
+  gs.lage.spinUp('g1', 'kamera', ANNA);
+  gs.lage.gastMeldung('g1', 1, { type: 'abbruch', grund: 'addon', text: '' });
+  gs.lage.programmStart(HINWEIS);
+  gs.lage.programmMeldung(2, { type: 'abbruch', grund: 'init', text: '' });
+  gs.s.t += 60_000;
+  ck('C3 PK55 keine Frist in gescheitert (Gast und Programm): nach 60 s keine Handlung', gleich(kurz(gs.lage.tick()), [])
+    && zst(gs.lage) === 'gescheitert/addon' && pz(gs.lage) === 'gescheitert/init');
+  const au = testLage();
+  programmBereit(au);
+  au.lage.programmStop();
+  au.s.t += 60_000;
+  ck('C3 PK55 keine Frist in aus: nach 60 s keine Handlung', gleich(kurz(au.lage.tick()), []) && pz(au.lage) === 'aus');
+  const gp = testLage();
+  gp.lage.gastExit('g1', sendend(gp), 1);
+  gp.lage.programmExit(programmBereit(gp), 1);
+  gp.s.t += 20_000;
+  ck('C3 PK55 keine Frist für einen geplanten Neustart ohne laufenden Prozess: ein später tick startet nur neu',
+    gleich(kurz(gp.lage.tick()), ['starten gast g1 G3', 'starten programm programm G4']));
+
+  const w = testLage();
+  sendend(w);
+  programmBereit(w);
+  const echt = Date.now;
+  try {
+    Date.now = () => echt() + 29_100_000;
+    ck('C3 PK55 Wanduhr springt 8 h 5 min vor (ND17): keine Frist löst aus', gleich(kurz(w.lage.tick()), []));
+    Date.now = () => echt() - 29_100_000;
+    w.s.t += 5000;
+    ck('C3 PK55 Wanduhr springt zurück: nach 5000 ms auf der monotonen Uhr greift die Frist trotzdem (Gast und Programm)',
+      gleich(beendenH(w.lage.tick()), ['beenden gast g1 G1', 'beenden programm programm G2']));
+  } finally {
+    Date.now = echt;
+  }
+}
+
+console.log('— C3 PK42, PK44: Peer-Fenster weg (render-process-gone, closed)');
+{
+  const t = testLage();
+  t.lage.spinUp('g1', 'kamera', ANNA);
+  sendend(t, 'g2', 'JM Connect – B');
+  t.lage.gastExit('g3', sendend(t, 'g3', 'JM Connect – C'), 1);
+  t.lage.spinUp('g4', 'kamera', 'JM Connect – D');
+  t.lage.gastMeldung('g4', 4, { type: 'abbruch', grund: 'addon', text: '' });
+  t.lage.programmStart(HINWEIS);
+  const n0 = t.s.namen;
+  const h = t.lage.peerWeg();
+  ck('C3 PK42 peerWeg → „Prozess beenden“ je laufendem Prozess (Gast g1, g2, Programm)',
+    gleich(kurz(h), ['beenden gast g1 G1', 'beenden gast g2 G2', 'beenden programm programm G5']));
+  ck('C3 PK42 peerWeg → alle Einträge gescheitert/keinPeer (auch neustart und gescheitert/addon)',
+    ['g1', 'g2', 'g3', 'g4'].every((k) => zst(t.lage, k) === 'gescheitert/keinPeer'));
+  ck('C3 PK44 peerWeg → Programm-Empfang gescheitert/keinPeer', pz(t.lage) === 'gescheitert/keinPeer');
+  ck('C3 PK42 peerWeg → Namensliste leer, onNamen', gleich(t.lage.namensListe(), []) && t.s.namen === n0 + 1);
+  t.s.t += 1000;
+  ck('C3 PK42 der geplante Neustart von g3 entfällt (kein Prozessstart nach 1 s)', gleich(kurz(t.lage.tick()), []));
+  const l0 = t.s.lage;
+  ck('C3 PK42 ein zweites peerWeg (closed nach render-process-gone) ändert nichts, kein onLage', gleich(t.lage.peerWeg(), []) && t.s.lage === l0);
+  const a = testLage();
+  sendend(a);
+  a.lage.peerWeg();
+  ck('C3 PK44 Empfang in aus bleibt bei peerWeg aus', pz(a.lage) === 'aus' && zst(a.lage) === 'gescheitert/keinPeer');
+  const e = testLage();
+  sendend(e);
+  e.lage.programmStart(HINWEIS);
+  e.lage.tearDown('g1');
+  e.lage.programmStop();
+  const l1 = e.s.lage;
+  ck('C3 PK42, PK44 Beenden: nach tearDown aller Einträge und programmStop ändert peerWeg nichts, kein onLage',
+    gleich(e.lage.peerWeg(), []) && e.lage.quellen().length === 0 && pz(e.lage) === 'aus' && e.s.lage === l1);
+}
+
+console.log('— C3 PK53: Meldewege onLage und onNamen');
+{
+  const t = testLage();
+  ck('C3 PK53 kein onLage während erzeugeNdiLage', t.s.lage === 0);
+  await Promise.resolve();
+  ck('C3 PK53 ein onLage beim Start, vor dem ersten Ereignis, ohne onNamen', t.s.lage === 1 && t.s.namen === 0);
+  ck('C3 PK53 beim Start: STATE-Teil mit allen vier ndi_*-Schlüsseln', gleich(ndiStateKv(t.lage.quellen(), t.lage.programmLage()),
+    { ndi_sources: 0, ndi_failed: 0, ndi_program: 'aus', ndi_alarm: 0 }));
+  const zaehle = (f: () => unknown): [number, number] => {
+    const l = t.s.lage, n = t.s.namen;
+    f();
+    return [t.s.lage - l, t.s.namen - n];
+  };
+  ck('C3 PK53 spinUp → onLage und onNamen', gleich(zaehle(() => t.lage.spinUp('g1', 'kamera', ANNA)), [1, 1]));
+  ck('C3 PK53 startet → sendet → onLage, kein onNamen', gleich(zaehle(() => t.lage.gastMeldung('g1', 1, BEREIT)), [1, 0]));
+  ck('C3 PK53 neue Empfängerzahl → onLage', gleich(zaehle(() => t.lage.gastMeldung('g1', 1, { type: 'stat', connections: 1 })), [1, 0]));
+  ck('C3 PK53 gleiche Empfängerzahl → kein onLage', gleich(zaehle(() => t.lage.gastMeldung('g1', 1, { type: 'stat', connections: 1 })), [0, 0]));
+  ck('C3 PK53 Videobild ohne Zustandswechsel → kein onLage', gleich(zaehle(() => t.lage.videobild('g1')), [0, 0]));
+  t.s.t += 1000;
+  ck('C3 PK53 tick ohne Änderung → kein onLage', gleich(zaehle(() => t.lage.tick()), [0, 0]));
+  t.s.t += 3000;
+  ck('C3 PK53 sendet → ohneBild → onLage, kein onNamen', gleich(zaehle(() => t.lage.tick()), [1, 0]) && zst(t.lage) === 'ohneBild');
+  ck('C3 PK53 ohneBild → sendet (Videobild) → onLage', gleich(zaehle(() => t.lage.videobild('g1')), [1, 0]));
+  ck('C3 PK53 sendet → neustart → onLage, kein onNamen', gleich(zaehle(() => t.lage.gastExit('g1', 1, 1)), [1, 0]));
+  ck('C3 PK53 Programm-Start → onLage', gleich(zaehle(() => t.lage.programmStart(HINWEIS)), [1, 0]));
+  ck('C3 PK53 Programm bereit → onLage (bereit gehört zur Lage)', gleich(zaehle(() => t.lage.programmMeldung(2, PB)), [1, 0]));
+  ck('C3 PK53 Programm-Wechsel → onLage', gleich(zaehle(() => t.lage.programmMeldung(2, { type: 'lage', zustand: 'verbunden', quelle: 'Q' })), [1, 0]));
+  ck('C3 PK53 Programm-lage ohne Wechsel → kein onLage',
+    gleich(zaehle(() => t.lage.programmMeldung(2, { type: 'lage', zustand: 'verbunden', quelle: 'Q' })), [0, 0]));
+  ck('C3 PK53 neue Programm-Quelle → onLage', gleich(zaehle(() => t.lage.programmMeldung(2, { type: 'lage', zustand: 'verbunden', quelle: 'Q2' })), [1, 0]));
+  ck('C3 PK53 Programm-Stop → onLage', gleich(zaehle(() => t.lage.programmStop()), [1, 0]));
+  ck('C3 PK53 tearDown → onLage und onNamen', gleich(zaehle(() => t.lage.tearDown('g1')), [1, 1]));
+  ck('C3 PK53 ohne Wirkung (tearDown eines unbekannten Schlüssels) → weder onLage noch onNamen', gleich(zaehle(() => t.lage.tearDown('g9')), [0, 0]));
+}
+
+console.log('— C3 E42: Zählweise e, g, b, s, a');
+{
+  const Z: readonly QuelleZustandT[] = ['startet', 'sendet', 'ohneBild', 'neustart', 'gescheitert'];
+  const quelle = (zustand: QuelleZustandT, n: number): QuelleLageT => ({
+    schluessel: `g${n}`, art: 'kamera', label: `L${n}`, zustand, grund: zustand === 'gescheitert' ? 'absturz' : null, code: null, k: 0, empfaenger: null,
+  });
+  ck('C3 E42 keine Einträge → alles 0', gleich(ndiZahlen([]), { e: 0, g: 0, b: 0, s: 0, a: 0 }));
+  const einzeln: [QuelleZustandT, object][] = [
+    ['startet', { e: 1, g: 0, b: 0, s: 1, a: 0 }], ['sendet', { e: 1, g: 1, b: 0, s: 0, a: 0 }], ['ohneBild', { e: 1, g: 1, b: 1, s: 0, a: 0 }],
+    ['neustart', { e: 1, g: 0, b: 0, s: 0, a: 1 }], ['gescheitert', { e: 1, g: 0, b: 0, s: 0, a: 1 }],
+  ];
+  for (const [z, erwartet] of einzeln) ck(`C3 E42 ein Eintrag in ${z} → ${JSON.stringify(erwartet)}`, gleich(ndiZahlen([quelle(z, 1)]), erwartet));
+  ck('C3 E42 je ein Eintrag in jedem Zustand → e 5, g 2, b 1, s 1, a 2', gleich(ndiZahlen(Z.map((z, i) => quelle(z, i))), { e: 5, g: 2, b: 1, s: 1, a: 2 }));
+  const listen: QuelleLageT[][] = [[]];
+  for (let e = 1; e <= 3; e++) {
+    const bau = (vorne: QuelleLageT[]): void => {
+      if (vorne.length === e) { listen.push(vorne); return; }
+      for (const z of Z) bau([...vorne, quelle(z, vorne.length)]);
+    };
+    bau([]);
+  }
+  ck('C3 E42 jede Aufteilung von e = 0 bis 3 (156 Listen): e = g + s + a, b ≤ g', listen.length === 156 && listen.every((l) => {
+    const x = ndiZahlen(l);
+    return x.e === l.length && x.e === x.g + x.s + x.a && x.b <= x.g;
+  }));
+  ck('C3 E42 die Reihenfolge der Einträge zählt nicht', listen.every((l) => gleich(ndiZahlen(l), ndiZahlen([...l].reverse()))));
+
+  const WORT: Record<ProgrammZustandT, string> = {
+    aus: 'aus', sucht: 'sucht', keineQuelle: 'keine_quelle', verbunden: 'verbunden', ohneBild: 'ohne_bild', staut: 'staut', fehler: 'fehler',
+    neustart: 'neustart', gescheitert: 'gescheitert',
+  };
+  const ALARM: Record<ProgrammZustandT, 0 | 1> = {
+    aus: 0, sucht: 0, keineQuelle: 0, verbunden: 0, ohneBild: 0, staut: 1, fehler: 1, neustart: 1, gescheitert: 1,
+  };
+  const P = (zustand: ProgrammZustandT): ProgrammLageT => ({
+    zustand, grund: zustand === 'gescheitert' ? 'absturz' : null, code: null, k: zustand === 'neustart' ? 1 : 0,
+    quelle: ['verbunden', 'ohneBild', 'staut', 'fehler'].includes(zustand) ? 'Q' : null, hinweis: 'JM Switcher', bereit: zustand !== 'aus',
+  });
+  const PZ = Object.keys(WORT) as ProgrammZustandT[];
+  for (const z of PZ) {
+    ck(`C3 22.6 Programm ${z}, keine Gast-Quelle → ndi_program ${WORT[z]}, ndi_alarm ${ALARM[z]}`,
+      gleich(ndiStateKv([], P(z)), { ndi_sources: 0, ndi_failed: 0, ndi_program: WORT[z], ndi_alarm: ALARM[z] }));
+  }
+  ck('C3 22.6 ndi_sources = g, ndi_failed = a; ein Ausfall gibt ndi_alarm 1 auch bei verbundenem Programm',
+    gleich(ndiStateKv([quelle('sendet', 1), quelle('ohneBild', 2), quelle('startet', 3), quelle('neustart', 4)], P('verbunden')),
+      { ndi_sources: 2, ndi_failed: 1, ndi_program: 'verbunden', ndi_alarm: 1 }));
+  ck('C3 22.6 bestehende und startende Quellen, Programm sucht → ndi_alarm 0',
+    gleich(ndiStateKv([quelle('sendet', 1), quelle('startet', 2)], P('sucht')), { ndi_sources: 1, ndi_failed: 0, ndi_program: 'sucht', ndi_alarm: 0 }));
+  let vier = true, praedikat = true, alarm = true;
+  for (const l of listen) {
+    for (const z of PZ) {
+      const kv = ndiStateKv(l, P(z));
+      if (Object.keys(kv).join(',') !== 'ndi_sources,ndi_failed,ndi_program,ndi_alarm') vier = false;
+      if (kv.ndi_sources + kv.ndi_failed > l.length) praedikat = false;
+      if ((kv.ndi_alarm === 1) !== (kv.ndi_failed > 0 || ALARM[z] === 1)) alarm = false;
+    }
+  }
+  ck('C3 22.6 vier Schlüssel in jeder Lage (156 Listen × 9 Programm-Zustände)', vier);
+  ck('C3 22.10 Prädikat ndi_sources + ndi_failed ≤ e (alle Lagen)', praedikat);
+  ck('C3 22.6 ndi_alarm = 1 ⇔ a > 0 oder Programm in fehler, staut, neustart, gescheitert (alle Lagen)', alarm);
+}
+
+console.log('— C3 PK55, OE4 a: Quelltext von ndi-lage.ts');
+{
+  const { readFileSync } = await import('node:fs');
+  const quelltext = readFileSync(new URL('../src/main/ndi-lage.ts', import.meta.url), 'utf8');
+  const code = quelltext.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  ck('C3 PK55 ndi-lage.ts liest keine Wanduhr (kein Date.now(), kein new Date)', !code.includes('Date.now(') && !code.includes('new Date'));
+  ck('C3 PK55 ndi-lage.ts importiert nichts (rein, G-C2)', !/^\s*import\s/m.test(code) && !code.includes('require('));
+  const kopf: string[] = [];
+  for (const z of quelltext.split(/\r?\n/)) {
+    if (!z.startsWith('//')) break;
+    kopf.push(z);
+  }
+  const kopfText = kopf.join('\n');
+  for (const frist of ['10 s bis „bereit“', '5 s Lebenszeichen', '1 s bis zum Neustart', '60 s ununterbrochen', '3 s ohne Videobild',
+    '3 s Bildwache', '3 s Pausen des Programm-Empfangs', '3 s bis T140']) {
+    ck(`C3 OE4 a Kopfkommentar nennt die Frist „${frist}“`, kopfText.includes(frist));
+  }
+}
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
