@@ -89,7 +89,7 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 - „Messwerte kopieren“ legt die Messwerte ohne Teilnehmer- und ohne NDI-Namen in die Zwischenablage (Slots als Nummer und Modus, Personen als Kennung).
 - Alle Suite-Apps löschen Logzeilen, die älter als 14 Tage sind, 30 Sekunden nach dem Start und danach alle 6 Stunden, jeweils ab ihrem nächsten Release. Ein zweiter Start einer schon laufenden App räumt nicht auf.
 - Den Logordner öffnet „Logordner öffnen“ in der Fußzeile des Hauptfensters (Windows und macOS), an jeder Zeile eines NDI-Ausfalls und in der Zoom-Karte (nur Windows). Den Pfad unter macOS ergänzt dieses Handbuch nach der Abnahme (Stand vor der Abnahme von 0.4.0).
-- Ausfälle der NDI-Quellen und des Programm-Empfangs stehen im Log mit Schlüssel, Grund, Exit-Code, PID und Neustart-Zähler, ohne Gast- und ohne NDI-Namen.
+- Ausfälle der NDI-Quellen und des Programm-Empfangs stehen im Log mit Schlüssel, Grund, Exit-Code, PID und Neustart-Zähler, ohne Gast- und ohne NDI-Namen. Erkennt Connect eine Takt-Lücke (Hänger oder Ruhezustand des Rechners), steht sie mit ihrer Länge im Log („Takt-Lücke … ms“), ebenfalls ohne Namen.
 
 ### Deinstallieren
 - Der Laufzeit-Ordner bleibt beim Deinstallieren liegen. Bei Bedarf %LOCALAPPDATA%\JM Connect\zoom-laufzeit von Hand löschen.
