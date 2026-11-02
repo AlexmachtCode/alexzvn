@@ -1970,7 +1970,7 @@
           },
           {
             "risk": "„Der NDI-Prozess endete beim Start (Code …).“",
-            "remedy": "Der Prozess endete, bevor er bereit war. Connect startet ihn nicht von selbst neu, weil ein Startfehler meist wiederkehrt. „NDI neu starten“ bzw. „Programm neu starten“; kehrt es wieder, Connect neu installieren und den Code mit dem Log melden."
+            "remedy": "Der Prozess endete, bevor er bereit war. Connect startet ihn nicht von selbst neu, weil ein Startfehler meist wiederkehrt. „NDI neu starten“ bzw. „Programm neu starten“ (der Knopf erscheint erst, wenn die Zeile „NDI ausgefallen“ bzw. „Programm-Empfang ausgefallen“ steht); kehrt es wieder, Connect neu installieren und den Code mit dem Log melden."
           },
           {
             "risk": "„Der NDI-Prozess fiel nach drei Neustarts erneut aus.“",
@@ -1982,7 +1982,7 @@
           },
           {
             "risk": "„Der NDI-Prozess meldete sich nicht binnen 10 s.“",
-            "remedy": "Der Prozess hing beim Start. „NDI neu starten“ bzw. „Programm neu starten“; Details im Log."
+            "remedy": "Der Prozess hing beim Start. „NDI neu starten“ bzw. „Programm neu starten“ (der Knopf erscheint erst, wenn die Zeile „NDI ausgefallen“ bzw. „Programm-Empfang ausgefallen“ steht); Details im Log."
           },
           {
             "risk": "„Der NDI-Prozess meldete einen unbekannten Fehler.“",
