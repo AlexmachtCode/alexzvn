@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { getLog, initAppRuntime } from '@jm/app-runtime';
 import { createMainWindow, getMainWindow, resourcePath, setupSingleInstance } from '@jm/electron-kit';
 import { IPC } from '@shared/ipc';
+import { NDI_TEXT } from '@shared/ndi-text';
 import type { TrayCommand } from '@shared/types';
 import { registerIpc, notifyStatusChanged, currentStatus } from './ipc';
 import { erzeugeNdiLage, ndiStateKv, type NdiHandlung } from './ndi-lage';
@@ -152,6 +153,8 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     });
     if (!res.ok) getLog().error('[control] Steuerserver-Start fehlgeschlagen:', res.error);
 
+    // Lizenzpflicht (E55, LP3): unter macOS trägt das Fenster „Über JM Connect“ des Standardmenüs den Markenhinweis T134.
+    if (process.platform === 'darwin') app.setAboutPanelOptions({ credits: NDI_TEXT.t134 });
     createWindow();
     // Kaltstart: die App wurde direkt mit einem Show-Deep-Link geöffnet.
     if (runtime.initialDeepLink) void handleShowDeepLink(runtime.initialDeepLink);

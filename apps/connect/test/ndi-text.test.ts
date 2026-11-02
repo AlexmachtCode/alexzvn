@@ -801,6 +801,71 @@ console.log('— C11 KF12: Kanäle jmc:logordner, jmc:ndi-neustart, jmc:programm
   ck('C11 E35: ein Scheitern steht zusätzlich im Log, ohne Namen', /function meldeOeffnen\(was: string, r: OeffnenErgebnis\): OeffnenErgebnis \{\n\s*if \(!r\.ok\) getLog\(\)\.warn\(`\[connect\] \$\{was\} ließ sich nicht öffnen: \$\{r\.pfad\}`\);/.test(main));
   ck('C11 C-EP18: der alte Kanal zoomLogordner der Zoom-Karte bleibt unter Windows', zoom.includes('ipcMain.handle(IPC.zoomLogordner,'));
 }
+console.log('— C12: Hauptfenster (Gastzeile, Kopfzeile, Link T133, Fußzeile, Untertitel T145, „Über JM Connect“; PK52, PK55, PK56)');
+{
+  const { readFileSync, existsSync } = await import('node:fs');
+  const lies = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const app = lies('../src/renderer/src/App.tsx');
+  const slots = lies('../src/renderer/src/zoom/SlotBereich.tsx');
+  const index = lies('../src/main/index.ts');
+  const mainIpc = lies('../src/main/ipc.ts');
+  const { NDI_TEXT } = await import('../src/shared/ndi-text');
+  const { LIZENZ_DATEI } = await import('../src/shared/ipc');
+  const funktion = (s: string, kopf: string): string => { const i = s.indexOf(kopf); return i < 0 ? '' : s.slice(i, s.indexOf('\n}\n', i)); };
+
+  // PK52, LP3: T145 ist das erste „NDI“ des Hauptfensters; davor steht im JSX von App nur der Titel.
+  const appFn = funktion(app, 'export function App(');
+  const vorT145 = (() => { const r = appFn.indexOf('\n  return ('); const t = appFn.indexOf('{NDI_TEXT.t145}'); return r < 0 || t < r ? null : appFn.slice(r, t); })();
+  ck('C12 PK52: der Untertitel der Kopfzeile ist T145 aus @shared/ndi-text', appFn.includes('<p className="text-sm text-neutral-400">{NDI_TEXT.t145}</p>'));
+  ck('C12 PK52: vor T145 steht im JSX von App nur der Titel „JM Connect“ (kein „NDI“, kein Ausdruck)',
+    vorT145 !== null && !vorT145.includes('NDI') && !vorT145.includes('{') && vorT145.includes('<h1 className="text-xl font-bold">JM Connect</h1>'));
+  ck('C12 PK52, LP3: T145 trägt das ® am ersten „NDI“', NDI_TEXT.t145.indexOf('NDI®') === NDI_TEXT.t145.indexOf('NDI') && NDI_TEXT.t145.includes('NDI®'));
+  ck('C12 PK52, E55: unter macOS trägt das Fenster „Über JM Connect“ T134 (setAboutPanelOptions, credits)',
+    index.includes("if (process.platform === 'darwin') app.setAboutPanelOptions({ credits: NDI_TEXT.t134 });"));
+  const lizenz = new URL(`../resources/${LIZENZ_DATEI}`, import.meta.url);
+  ck('C12 PK52, LP5: apps/connect/resources/LIZENZ.txt ist vorhanden und nicht leer', existsSync(lizenz) && readFileSync(lizenz, 'utf8').trim().length > 0);
+  ck('C12 PK52: jmc:lizenz öffnet genau diese Datei (LIZENZ_DATEI unter resources)',
+    mainIpc.includes("return resourcePath(LIZENZ_DATEI, join(__dirname, '..', '..', 'resources'));"));
+
+  // PK56: eine Quelle für die Texte (22.9).
+  const LITERALE = ['Programm sucht', 'Programm: keine Quelle', 'Programm ●', 'NDI ●', 'NDI ausgefallen', 'Teilt seinen Bildschirm', 'Remote-Zuschaltungen'];
+  ck('C12 PK56: App.tsx enthält keines der Literale „Programm sucht“, „Programm: keine Quelle“, „Programm ●“, „NDI ●“, „NDI ausgefallen“, „Teilt seinen Bildschirm“, „Remote-Zuschaltungen“',
+    LITERALE.every((l) => !app.includes(l)));
+  ck('C12 PK56: App.tsx importiert die NDI-Texte aus @shared/ndi-text', /^import \{[^}]*\bNDI_TEXT\b[^}]*\} from '@shared\/ndi-text';$/m.test(app));
+
+  // Regel G und P an ihren Orten (22.5 Orte 1, 2, 4, 5).
+  ck('C12 Regel G: die Gastzeile nimmt die Abzeichen beider Quellen aus gastAbzeichen', app.includes('abzeichen: gastAbzeichen({') && app.includes("ndiPoolKey(g.id, 'screen')"));
+  ck('C12 Regel G: die Grundzeile startet genau diese Quelle neu (jmc:ndi-neustart mit ihrem Schlüssel)', app.includes('window.jmconnect.ndiNeustart({ schluessel: n.schluessel })'));
+  ck('C12 T113: der Tooltip „🖥 Bildschirm“ kommt aus bildschirmTooltip', app.includes('title={bildschirmTooltip(g.name)}'));
+  const kopf = funktion(app, 'function Kopfzeile(');
+  ck('C12 Regel P: die Kopfzeile nimmt Abzeichen und Grundzeile aus programmAbzeichen, dazu Link T133 und „Programm neu starten“',
+    kopf.includes('programmAbzeichen({ lage: status.ndiProgramm, plattform: plattform() })') && kopf.includes('<NdiLink stelle="linkGaeste" />')
+      && kopf.includes('window.jmconnect.programmNeustart()'));
+  ck('C12 E53: die Kopfzeile steht, sobald der Empfang nicht aus ist, auch ohne Raumverbindung',
+    app.includes('{status && kopfzeileSichtbar({ programm: status.ndiProgramm.zustand, raumverbunden: connected }) && ('));
+  ck('C12 22.5 Ort 4: Fußzeile mit T134, „Logordner öffnen“ und „Lizenzbedingungen“ (T142), auf beiden Plattformen',
+    app.includes('<span>{NDI_TEXT.t134}</span>') && app.includes('stelle="logordnerFusszeile"')
+      && app.includes('stelle="lizenz" text={NDI_TEXT.t142Lizenz} oeffnen={() => window.jmconnect.lizenz()}') && app.includes('      <Fusszeile />'));
+  ck('C12 22.5 Ort 5, LP1: Link T133 im Kopf „Zoom-Slots“', slots.includes('<NdiLink stelle="linkSlots" />'));
+  const knopf = funktion(slots, 'export function OeffnenKnopf(');
+  ck('C12 E35, 22.10: T143 kommt aus oeffnenMeldung neben dem Knopf, der bedienbar bleibt',
+    knopf.includes('const meldung = oeffnenMeldung(stelle, letztes, pfad);') && !knopf.includes('disabled'));
+
+  // PK55 (Renderer): die T140-Frist rechnet monoton; Date.now() steht in App.tsx höchstens am Aufruf von raumAbbruch (C13).
+  ck('C12 PK55, C-EP16: die Frist für T140 nimmt performance.now()', /function useOhneEintragSeit\([\s\S]*?performance\.now\(\)[\s\S]*?\n\}\n/.test(app));
+  ck('C12 PK55: Date.now() in App.tsx nur am Aufruf von raumAbbruch',
+    app.split('Date.now()').length === app.split('raumAbbruch({ verbunden: false, jetzt: Date.now(),').length);
+
+  // Regel G, C-EP16 (Nachbesserung C-robust:4): T140 erscheint nach 3 s nur, weil ein Zeitgeber das Fenster neu zeichnet;
+  // ohne ihn stünde T140 erst beim nächsten fremden Status- oder Raum-Push. Die Frist kommt aus T140_NACH_MS (eine Quelle).
+  {
+    const uhr = funktion(app, 'function useOhneEintragSeit(');
+    ck('C12 Regel G, C-EP16: nach T140_NACH_MS ohne Eintrag zeichnet ein Zeitgeber das Fenster neu (T140 ohne fremden Push)',
+      uhr.includes('.map((t) => T140_NACH_MS - (performance.now() - t)).filter((r) => r > 0);')
+        && uhr.includes('const t = setTimeout(() => setTakt((n) => n + 1), Math.min(...rest) + 1);')
+        && uhr.includes('return () => clearTimeout(t);') && /^import \{[^}]*\bT140_NACH_MS\b[^}]*\} from '@shared\/ndi-text';$/m.test(app));
+  }
+}
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

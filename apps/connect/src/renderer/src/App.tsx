@@ -3,11 +3,12 @@ import { SignallingClient } from '@jm/rtc/signalling';
 import { lobbyCount, onAirGuests, standbyGuest } from '@jm/rtc/state';
 import { ndiPoolKey } from '@jm/rtc/protocol';
 import type { Guest, OperatorAction, RoomState } from '@jm/rtc/protocol';
-import type { AppStatus, GuestInvite, NdiProgrammZustand, ProxyKeySource, ShowInfo } from '@shared/types';
-import { programmAbzeichen, type Abzeichen } from '@shared/ndi-text';
+import type { AppStatus, GuestInvite, NdiArt, NdiProgrammZustand, NdiQuelleLage, ProxyKeySource, ShowInfo } from '@shared/types';
+import { bildschirmTooltip, gastAbzeichen, kopfzeileSichtbar, NDI_TEXT, programmAbzeichen, T140_NACH_MS, type Abzeichen } from '@shared/ndi-text';
 import { MAC_ZEILE, zoomZeile } from '@shared/zoom-text';
 import { toDataUrl } from '@/lib/qr';
 import { ZoomCard } from './zoom/ZoomCard';
+import { NdiLink, OeffnenKnopf } from './zoom/SlotBereich';
 
 // Der Operator-Renderer hält die Raum-WebSocket zum ConnectRoom-DO und spiegelt dessen
 // autoritativen Zustand. NDI-Effekte aus dem DO gehen per IPC an den Main (ndi-guests-Pool);
@@ -236,13 +237,41 @@ export function App(): JSX.Element {
 
   const guests = (room?.guests ?? []).filter((g) => g.phase !== 'left' && g.phase !== 'kicked');
   const talkback = room?.talkback ?? { mode: 'off' as const, target: null };
+  // Gast-Abzeichen (Regel G, 22.5 Ort 1): je Gast Kamera und Bildschirm aus der aktuellen Lage des Mains (E53). Ohne Status
+  // des Mains weiß das Fenster nichts über die Quellen und zeigt kein Abzeichen (eine Voreinstellung ist kein Messwert).
+  const ndiSoll = (g: Guest): [string, NdiArt, boolean][] => [
+    [g.id, 'kamera', istEingelassen(g)],
+    [ndiPoolKey(g.id, 'screen'), 'bildschirm', g.hasScreen],
+  ];
+  const offeneQuellen = status
+    ? guests.flatMap((g) => ndiSoll(g).filter(([k, , soll]) => soll && !status.ndiGaeste.some((q) => q.schluessel === k)).map(([k]) => k))
+    : [];
+  const ohneEintragSeit = useOhneEintragSeit(offeneQuellen);
+  const gastNdi = (g: Guest): { schluessel: string; lage: NdiQuelleLage | null; abzeichen: Abzeichen | null }[] =>
+    status
+      ? ndiSoll(g).map(([schluessel, art, soll]) => {
+          const lage = status.ndiGaeste.find((q) => q.schluessel === schluessel) ?? null;
+          return {
+            schluessel,
+            lage,
+            abzeichen: gastAbzeichen({
+              lage,
+              eingelassen: soll,
+              ohneEintragSeitMs: lage ? null : ohneEintragSeit(schluessel),
+              art,
+              plattform: plattform(),
+              raumverbunden: connected,
+            }),
+          };
+        })
+      : [];
 
   return (
     <div className="mx-auto max-w-3xl p-6">
       <header className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold">JM Connect</h1>
-          <p className="text-sm text-neutral-400">Remote-Zuschaltungen — Green Room</p>
+          <p className="text-sm text-neutral-400">{NDI_TEXT.t145}</p>
         </div>
         <div className="text-right text-xs text-neutral-400">
           <div>Steuerport {status?.controlPort ?? 8737}</div>
@@ -292,19 +321,24 @@ export function App(): JSX.Element {
               ))}
             </div>
           )}
+        </>
+      )}
 
-          <div className="mb-2 flex items-center justify-between text-xs text-neutral-400">
-            <span>
-              {guests.length} Gäste · {room ? lobbyCount(room) : 0} im Warteraum · {room ? onAirGuests(room).length : 0} auf Sendung
-            </span>
-            <div className="flex items-center gap-2">
-              {status?.presenterLinked && (
-                <span className="rounded-full bg-sky-900 px-2 py-0.5 font-semibold text-sky-200">📊 Presenter</span>
-              )}
-              <ProgramBadge status={status} />
-            </div>
-          </div>
+      {/* Kopfzeile der Gästeliste (22.5 Ort 2, E53): Programm-Abzeichen, Link T133 und Grundzeile T128 stehen, sobald der
+          Empfang nicht aus ist, auch ohne Raumverbindung. Die Zählung braucht die Raumverbindung. */}
+      {status && kopfzeileSichtbar({ programm: status.ndiProgramm.zustand, raumverbunden: connected }) && (
+        <Kopfzeile
+          status={status}
+          zaehlung={
+            connected
+              ? `${guests.length} Gäste · ${room ? lobbyCount(room) : 0} im Warteraum · ${room ? onAirGuests(room).length : 0} auf Sendung`
+              : null
+          }
+        />
+      )}
 
+      {connected && (
+        <>
           <PttButton
             onDown={() => talkbackDown(null)}
             onUp={talkbackUp}
@@ -314,50 +348,81 @@ export function App(): JSX.Element {
           />
 
           <ul className="space-y-2">
-            {guests.map((g) => (
-              <li key={g.id} className="flex items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-3">
-                <span className="flex-1 font-medium">{g.name}</span>
-                {g.hasScreen && (
-                  <span
-                    title={`Teilt seinen Bildschirm — eigene NDI-Quelle „JM Connect – ${g.name} (Bildschirm)"`}
-                    className="rounded-full bg-sky-900 px-2 py-0.5 text-xs font-semibold text-sky-200"
-                  >
-                    🖥 Bildschirm
-                  </span>
-                )}
-                {canHearTalkback(g) && (
-                  <PttButton
-                    onDown={() => talkbackDown(g.id)}
-                    onUp={talkbackUp}
-                    active={talkback.mode === 'selected' && talkback.target === g.id}
-                    className="px-2 py-1 text-xs"
-                    label="🎙"
-                    title={`Halten: nur ${g.name} hört die Regie`}
-                  />
-                )}
-                {canHearTalkback(g) && (
-                  <button
-                    onClick={() => {
-                      send({ t: 'slides', guestId: g.id, on: !g.canAdvance });
-                      // Kennung statt Name: Gastnamen gehören nicht ins Log (Spec N4b.2, L11), wie bei „slides“ per Steuerprotokoll.
-                      window.jmconnect.audit('slides', `${g.canAdvance ? 'entzogen' : 'erteilt'} für ${g.id}`);
-                    }}
-                    title={
-                      status?.presenterLinked
-                        ? 'Der Gast darf die Folien im JM Presenter selbst weiterblättern'
-                        : 'Kein JM Presenter im Netz gefunden — der Cue liefe ins Leere'
-                    }
-                    className={`rounded px-2 py-1 text-xs font-semibold ${
-                      g.canAdvance ? 'bg-sky-600 text-white' : 'bg-neutral-700 text-neutral-200'
-                    }`}
-                  >
-                    📊
-                  </button>
-                )}
-                <PhaseBadge phase={g.phase} />
-                <GuestActions guest={g} send={send} />
-              </li>
-            ))}
+            {guests.map((g) => {
+              const ndi = gastNdi(g);
+              return (
+                <li key={g.id} className="rounded-lg border border-neutral-800 bg-neutral-900 p-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="flex-1 font-medium">{g.name}</span>
+                    {g.hasScreen && (
+                      <span title={bildschirmTooltip(g.name)} className="rounded-full bg-sky-900 px-2 py-0.5 text-xs font-semibold text-sky-200">
+                        🖥 Bildschirm
+                      </span>
+                    )}
+                    {/* NDI-Abzeichen je Quelle (Regel G, 22.5 Ort 1): das Zustandswort vorn, der volle Text als title. */}
+                    {ndi.map(
+                      (n) =>
+                        n.abzeichen && (
+                          <span
+                            key={n.schluessel}
+                            title={titel(n.abzeichen)}
+                            className={`max-w-[40%] truncate rounded-full px-2 py-0.5 text-xs font-semibold ${n.lage ? GAST_FARBE[n.lage.zustand] : 'bg-neutral-800 text-neutral-300'}`}
+                          >
+                            {n.abzeichen.text}
+                          </span>
+                        ),
+                    )}
+                    {canHearTalkback(g) && (
+                      <PttButton
+                        onDown={() => talkbackDown(g.id)}
+                        onUp={talkbackUp}
+                        active={talkback.mode === 'selected' && talkback.target === g.id}
+                        className="px-2 py-1 text-xs"
+                        label="🎙"
+                        title={`Halten: nur ${g.name} hört die Regie`}
+                      />
+                    )}
+                    {canHearTalkback(g) && (
+                      <button
+                        onClick={() => {
+                          send({ t: 'slides', guestId: g.id, on: !g.canAdvance });
+                          // Kennung statt Name: Gastnamen gehören nicht ins Log (Spec N4b.2, L11), wie bei „slides“ per Steuerprotokoll.
+                          window.jmconnect.audit('slides', `${g.canAdvance ? 'entzogen' : 'erteilt'} für ${g.id}`);
+                        }}
+                        title={
+                          status?.presenterLinked
+                            ? 'Der Gast darf die Folien im JM Presenter selbst weiterblättern'
+                            : 'Kein JM Presenter im Netz gefunden — der Cue liefe ins Leere'
+                        }
+                        className={`rounded px-2 py-1 text-xs font-semibold ${
+                          g.canAdvance ? 'bg-sky-600 text-white' : 'bg-neutral-700 text-neutral-200'
+                        }`}
+                      >
+                        📊
+                      </button>
+                    )}
+                    <PhaseBadge phase={g.phase} />
+                    <GuestActions guest={g} send={send} />
+                  </div>
+                  {/* Grundzeile T111 in gescheitert, mit „NDI neu starten“ (nicht bei keinPeer) und „Logordner öffnen“. */}
+                  {ndi.map(
+                    (n) =>
+                      n.abzeichen?.grundzeile && (
+                        <Grundzeile
+                          key={n.schluessel}
+                          text={n.abzeichen.grundzeile}
+                          neustart={
+                            n.abzeichen.knopfNeustart
+                              ? { text: NDI_TEXT.t111Knopf, aus: () => void window.jmconnect.ndiNeustart({ schluessel: n.schluessel }) }
+                              : null
+                          }
+                          logordner={n.abzeichen.knopfLogordner}
+                        />
+                      ),
+                  )}
+                </li>
+              );
+            })}
             {guests.length === 0 && <li className="text-sm text-neutral-500">Noch keine Gäste — Link erzeugen und teilen.</li>}
           </ul>
         </>
@@ -366,6 +431,8 @@ export function App(): JSX.Element {
       {/* Zoom (Stage 4a, Spec 9): außerhalb des Raum-Zweigs, unabhängig vom Cloud-Raum (E4), nur unter Windows. Sonst steht
           an ihrer Stelle die Zeile T95 (Connect 0.4.0, Spec 7.11). */}
       {window.jmconnect.platform === 'win32' ? <ZoomCard /> : <p className="mt-6 text-xs text-neutral-500">{MAC_ZEILE}</p>}
+
+      <Fusszeile />
     </div>
   );
 }
@@ -647,6 +714,117 @@ function ProgramBadge({ status }: { status: AppStatus | null }): JSX.Element | n
     >
       {a.text}
     </span>
+  );
+}
+
+/** Eingelassen heißt: Der Gast publiziert (freigegeben, auf Sendung oder aus Sendung; wie isLive in @jm/rtc/state, C-EB37). */
+function istEingelassen(g: Guest): boolean {
+  return g.phase === 'approved' || g.phase === 'onair' || g.phase === 'off';
+}
+
+/** Farbe des Gast-Abzeichens je Zustand (22.3); ein Zustand ohne Farbe scheitert im Typcheck. */
+const GAST_FARBE: Record<NdiQuelleLage['zustand'], string> = {
+  startet: 'bg-yellow-900 text-yellow-200',
+  sendet: 'bg-green-800 text-green-100',
+  ohneBild: 'bg-yellow-900 text-yellow-200',
+  neustart: 'bg-red-900 text-red-200',
+  gescheitert: 'bg-red-900 text-red-200',
+};
+
+/**
+ * Uhr für T140 (Regel G, C-EP16): je Quelle, die einen Eintrag haben müsste (Gast eingelassen bzw. teilt) und keinen hat, die
+ * monotone Zeit (performance.now()) ab dem ersten Raum-Zustand ohne Eintrag; nie die Wanduhr (E50, PK55). Ein Zeitgeber rendert
+ * neu, sobald für eine Quelle T140_NACH_MS (3 s, dieselbe Frist wie gastAbzeichen) um ist; ohne ihn erschiene T140 erst beim
+ * nächsten fremden Push. Gibt je Schlüssel die Dauer ohne Eintrag zurück, sonst null.
+ */
+function useOhneEintragSeit(offen: readonly string[]): (schluessel: string) => number | null {
+  const seit = useRef(new Map<string, number>());
+  const [, setTakt] = useState(0);
+  const jetzt = performance.now();
+  for (const k of [...seit.current.keys()]) if (!offen.includes(k)) seit.current.delete(k);
+  for (const k of offen) if (!seit.current.has(k)) seit.current.set(k, jetzt);
+  useEffect(() => {
+    const rest = [...seit.current.values()].map((t) => T140_NACH_MS - (performance.now() - t)).filter((r) => r > 0);
+    if (rest.length === 0) return;
+    const t = setTimeout(() => setTakt((n) => n + 1), Math.min(...rest) + 1);
+    return () => clearTimeout(t);
+  });
+  return (schluessel) => {
+    const t = seit.current.get(schluessel);
+    return t === undefined ? null : performance.now() - t;
+  };
+}
+
+/**
+ * Grundzeile eines Ausfalls (T111, T128; 22.5 Orte 1 und 2): der Grund, „… neu starten“ (nicht bei keinPeer) und „Logordner
+ * öffnen“. Beide Knöpfe gehen per IPC an den Main und bleiben auch ohne Raumverbindung bedienbar (Regel V).
+ */
+function Grundzeile({
+  text,
+  neustart,
+  logordner,
+}: {
+  text: string;
+  neustart: { text: string; aus: () => void } | null;
+  logordner: boolean;
+}): JSX.Element {
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-red-200">
+      <span>{text}</span>
+      {neustart && (
+        <button onClick={neustart.aus} className="rounded border border-red-800 px-2 py-0.5 text-red-100 hover:bg-red-950">
+          {neustart.text}
+        </button>
+      )}
+      {logordner && (
+        <OeffnenKnopf stelle="logordnerGrundzeile" text={NDI_TEXT.t142Logordner} oeffnen={() => window.jmconnect.logordner()} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Kopfzeile der Gästeliste (22.5 Ort 2, E53): Zählung (nur mit Raumverbindung), Presenter, Programm-Abzeichen (Regel P), der
+ * Link T133 und in `gescheitert` die Grundzeile T128 mit „Programm neu starten“ (nicht bei keinPeer) und „Logordner öffnen“.
+ */
+function Kopfzeile({ status, zaehlung }: { status: AppStatus; zaehlung: string | null }): JSX.Element {
+  const a = programmAbzeichen({ lage: status.ndiProgramm, plattform: plattform() });
+  return (
+    <div className="mb-2">
+      <div className="flex items-center justify-between gap-2 text-xs text-neutral-400">
+        <span>{zaehlung}</span>
+        <div className="flex min-w-0 items-center gap-2">
+          {status.presenterLinked && (
+            <span className="rounded-full bg-sky-900 px-2 py-0.5 font-semibold text-sky-200">📊 Presenter</span>
+          )}
+          <ProgramBadge status={status} />
+          <NdiLink stelle="linkGaeste" />
+        </div>
+      </div>
+      {a.grundzeile !== null && (
+        <Grundzeile
+          text={a.grundzeile}
+          neustart={a.knopfNeustart ? { text: NDI_TEXT.t128Knopf, aus: () => void window.jmconnect.programmNeustart() } : null}
+          logordner={a.knopfLogordner}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Fußzeile des Hauptfensters (22.5 Ort 4, E35, E55, LP3, LP5; beide Plattformen): der Markenhinweis T134 als Fußnote und die
+ * Knöpfe aus T142 „Logordner öffnen“ und „Lizenzbedingungen“ (öffnet nur LIZENZ.txt im Paket).
+ */
+function Fusszeile(): JSX.Element {
+  return (
+    <footer className="mt-8 flex flex-wrap items-center justify-between gap-2 border-t border-neutral-800 pt-3 text-xs text-neutral-500">
+      <span>{NDI_TEXT.t134}</span>
+      <span className="flex flex-wrap items-center gap-2">
+        <OeffnenKnopf stelle="logordnerFusszeile" text={NDI_TEXT.t142Logordner} oeffnen={() => window.jmconnect.logordner()} />
+        <OeffnenKnopf stelle="lizenz" text={NDI_TEXT.t142Lizenz} oeffnen={() => window.jmconnect.lizenz()} />
+      </span>
+    </footer>
   );
 }
 

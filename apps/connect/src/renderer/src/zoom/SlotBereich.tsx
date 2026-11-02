@@ -11,6 +11,8 @@ import {
 } from '@shared/zoom-text';
 import { AntwortZeile, SlotKachel, type GemerkteVorschau } from './SlotKachel';
 import { MitTooltip, STIL, type SlotAufrufe } from './SlotEinstellungen';
+import { NDI_TEXT, oeffnenMeldung, type OeffnenStelle } from '@shared/ndi-text';
+import type { OeffnenErgebnis } from '@shared/types';
 
 /**
  * Letzte Vorschau je Slot aus dem Push (Spec 7.7). Gemerkt mit Empfangszeit, Modus und Ziel-Namen; verworfen, sobald sich
@@ -82,6 +84,64 @@ export function TeilnehmerSlotAngabe({
   );
 }
 
+/**
+ * Knopf, der etwas öffnet (Logordner, Lizenzbedingungen, ndi.video; Plan C, E35): scheitert das Öffnen, steht T143 daneben,
+ * bis es an dieser Stelle gelingt oder die Stelle verschwindet (der Zustand lebt in der Komponente); der Knopf bleibt
+ * bedienbar. Auch App.tsx nutzt ihn: Er steht hier, weil Plan C keine neue Renderer-Datei vorsieht und App.tsx diese Datei
+ * ohne Kreis-Import laden kann (C-EB38).
+ */
+export function OeffnenKnopf({
+  stelle,
+  text,
+  titel,
+  oeffnen,
+  stil,
+}: {
+  stelle: OeffnenStelle;
+  text: string;
+  titel?: string;
+  oeffnen: () => Promise<OeffnenErgebnis>;
+  stil?: string;
+}): JSX.Element {
+  const [letztes, setLetztes] = useState<'keines' | 'gescheitert' | 'gelungen'>('keines');
+  const [pfad, setPfad] = useState('');
+  const meldung = oeffnenMeldung(stelle, letztes, pfad);
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <button
+        title={titel}
+        onClick={() =>
+          void oeffnen().then((r) => {
+            if (r.ok) {
+              setLetztes('gelungen');
+            } else {
+              setPfad(r.pfad);
+              setLetztes('gescheitert');
+            }
+          })
+        }
+        className={stil ?? 'rounded border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300 hover:bg-neutral-800'}
+      >
+        {text}
+      </button>
+      {meldung !== null && <span className="text-xs text-red-300">{meldung}</span>}
+    </span>
+  );
+}
+
+/** Link T133 (LP1; 22.5 Orte 2 und 5): öffnet nur https://ndi.video/ über jmc:ndi-seite; scheitert es, steht T143 daneben. */
+export function NdiLink({ stelle }: { stelle: 'linkGaeste' | 'linkSlots' }): JSX.Element {
+  return (
+    <OeffnenKnopf
+      stelle={stelle}
+      text={NDI_TEXT.t133}
+      titel={NDI_TEXT.t133Tooltip}
+      oeffnen={() => window.jmconnect.ndiSeite()}
+      stil="text-xs text-sky-300 underline hover:text-sky-200"
+    />
+  );
+}
+
 export function SlotBereich({ a, aufrufe }: { a: ZoomAbbild; aufrufe: SlotAufrufe }): JSX.Element {
   const [vorgabenAuf, setVorgabenAuf] = useState(false);
   const [sprecherAuf, setSprecherAuf] = useState(false);
@@ -109,7 +169,11 @@ export function SlotBereich({ a, aufrufe }: { a: ZoomAbbild; aufrufe: SlotAufruf
   return (
     <section className="mb-3 rounded-lg border border-neutral-800 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">{BEDIEN_TEXT.zoomSlots}</h3>
+        <span className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold">{BEDIEN_TEXT.zoomSlots}</h3>
+          {/* Link T133 (22.5 Ort 5, LP1): im Kopf der Slots, weil hier NDI-Namen vergeben werden. */}
+          <NdiLink stelle="linkSlots" />
+        </span>
         <span className="text-xs text-neutral-400">{slotKopfZeile(a.slots.length, a.kurz.slotsAn, a.kurz.slotsLaufen)}</span>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
