@@ -274,8 +274,8 @@ mit NDI, prüft mit `--probe` und lädt nichts hoch, auch kein Artefakt. Starten
    Ausgang `ndi` (im Probelauf immer `ja`). Jeder NDI-Schritt läuft nur mit `ndi` = `ja`.
 3. Nach `npm ci` und dem Bau das **NDI-SDK für Apple** per HTTPS von der festen, öffentlichen Adresse
    `https://downloads.ndi.tv/SDK/NDI_SDK_Mac/Install_NDI_SDK_v6_Apple.pkg` laden (immer die aktuelle Fassung; die
-   Adresse ist nur inoffiziell belegt) und ohne Installation und ohne `sudo` nach `$RUNNER_TEMP` entpacken (`pkgutil`
-   und `cpio`). `NDI_SDK_DIR` zeigt auf einen Link ohne Leerzeichen auf die Wurzel `NDI SDK for Apple`
+   Adresse ist nur inoffiziell belegt) und ohne Installation und ohne `sudo` nach `$RUNNER_TEMP` entpacken (`pkgutil
+   --expand-full`). `NDI_SDK_DIR` zeigt auf einen Link ohne Leerzeichen auf die Wurzel `NDI SDK for Apple`
    (Leerzeichen-Falle, 4.6).
 4. **Fassungsprüfung** statt Geheimnis oder fester Prüfsumme: Das Prüfskript mit `--ndi-sdk` und `--ndi-paket` misst
    die SHA-256 von Paket, `lib/macOS/libndi.dylib`, Lizenz (`NDI SDK License Agreement.pdf`) und Doku

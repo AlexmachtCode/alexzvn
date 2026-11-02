@@ -96,8 +96,8 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     const meldeNdi = aenderungsMelder(setNdiControlState);
     const ndiLage = erzeugeNdiLage({
       jetzt: () => performance.now(),
-      // Der Zeitgeber unten ruft tick() jede Sekunde: Eine Lücke über 2,5 s ist ein Hänger oder Ruhezustand des Main, sie
-      // zählt für keine Frist (Nachtrag C, R20; die gepufferten Meldungen der Utilities kommen erst danach an).
+      // Der Zeitgeber unten ruft tick() jede Sekunde: Eine Lücke über 2,5 s ist ein Hänger oder Ruhezustand des Main, von
+      // ihr zählt nur ein Nenntakt (1 s) für die Fristen (Nachtrag C, R20, R28; die gepufferten Meldungen der Utilities kommen erst danach an).
       sekundenTakt: true,
       peerDa: () => {
         const p = getPeerWindow();

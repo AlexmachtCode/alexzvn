@@ -1634,7 +1634,7 @@
             "„Messwerte“ (aufklappbar, unter den Slots) zeigt Last, Auflösung, Bildrate und Ton je Slot sowie die Sprecher-Signale; „Messwerte kopieren“ legt sie ohne Namen in die Zwischenablage, etwa für einen Fehlerbericht.",
             "NDI im Blick behalten: „NDI ●“ an jeder Gast-Quelle und „Programm ● …“ über der Gästeliste heißen, alles läuft; was die übrigen Anzeigen bedeuten, steht in der Pannenhilfe.",
             "Fällt eine Gast-Quelle aus, startet Connect sie von selbst neu, höchstens dreimal hintereinander; danach „NDI neu starten“ an der Zeile des Ausfalls. Ebenso „Programm neu starten“ für den Programm-Empfang.",
-            "Reißt die Verbindung zum Raum ab, bleibt die Gästeliste mit dem letzten Stand stehen; Gäste steuern, Talkback, Folien und Einladen sind gesperrt, bis Connect wieder verbunden ist. „Raum schließen“ (im Fenster und im Tray), „NDI neu starten“, „Programm neu starten“, „Logordner öffnen“ und „Lizenzbedingungen“ bleiben bedienbar.",
+            "Reißt die Verbindung zum Raum ab, bleibt die Gästeliste mit dem letzten Stand stehen; Gäste steuern, Talkback, Folien und Einladen sind gesperrt, bis Connect wieder verbunden ist. „Raum schließen“ (im Fenster; im Tray, solange Gast-Quellen eingetragen sind), „NDI neu starten“, „Programm neu starten“, „Logordner öffnen“ und „Lizenzbedingungen“ bleiben bedienbar.",
             "Die Anmeldung von Connect am Raum gilt 8 Stunden ab dem letzten „Raum öffnen“. Reißt die Verbindung danach ab, versucht Connect es für die Bedienung nicht weiter („Verbindung zum Raum beendet: …“): dann „Raum öffnen“ wählen, nicht „Raum schließen“. „Raum öffnen“ meldet Connect neu an, ohne einen verteilten Link ungültig zu machen; die Gäste bleiben im Raum."
           ],
           "nach": [
@@ -2006,7 +2006,7 @@
           },
           {
             "risk": "„Programm kommt an, die Weitergabe an die Gäste hängt“",
-            "remedy": "Das Programm kommt vom Switcher an, aber das interne Medienfenster nimmt keine Bilder ab; die Gäste sehen ein stehendes Programm. Abwarten; bleibt es, „Logordner öffnen“ und main.log sichern."
+            "remedy": "Das Programm kommt vom Switcher an, aber das interne Medienfenster nimmt keine Bilder ab; die Gäste sehen ein stehendes Programm. Abwarten; bleibt es, „Logordner öffnen“ und main.log sichern. Einen Knopf dafür gibt es nicht: Nur Connect neu starten baut das Medienfenster neu auf; dabei setzen alle NDI-Quellen und das Programm aus, und die Gäste sehen so lange kein Bild. „Raum schließen“ ist kein Ausweg, es macht jeden verteilten Link ungültig."
           },
           {
             "risk": "„Programm: Öffnen gescheitert (…) · neuer Versuch folgt“",
