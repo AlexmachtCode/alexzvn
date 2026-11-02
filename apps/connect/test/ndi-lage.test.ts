@@ -1103,6 +1103,8 @@ console.log('— Nachtrag C (I-C7-1, R18, R20): Takt-Lücke nach Hänger oder Ru
     const lage = erzeugeNdiLage({ jetzt: () => s.t, peerDa: () => s.peer, sekundenTakt: true, onLage: () => { s.lage++; }, onNamen: () => { s.namen++; } });
     return { lage, s };
   }
+  /** Die Lückenzeile nennt weder Gast-Schlüssel, Gast-Label, NDI-Namen noch Programm-Hinweis (E35). */
+  const ohneNamen = (z: string): boolean => !z.includes('g1') && !z.includes('Anna') && !z.includes('Beispiel') && !z.includes('JM Connect') && !z.includes(HINWEIS);
   const STAT: GastMeldung = { type: 'stat', connections: 1 };
   const VERBUNDEN: ProgrammMeldungT = { type: 'lage', zustand: 'verbunden', quelle: 'Regie (JM Switcher)' };
   /** `n` ticks im Sekundentakt; alle Handlungen zusammen. */
@@ -1126,8 +1128,9 @@ console.log('— Nachtrag C (I-C7-1, R18, R20): Takt-Lücke nach Hänger oder Ru
   }
   a.s.t += 6000;
   const ha = a.lage.tick();
-  ck('Nachtrag C (1) Gast sendet, die Uhr springt um 6000 ms, ein tick → kein „Prozess beenden“, bleibt sendet, keine Logzeile',
-    gleich(kurz(ha), []) && zst(a.lage) === 'sendet' && logs(ha).length === 0);
+  ck('Nachtrag C (1) Gast sendet, die Uhr springt um 6000 ms, ein tick → kein „Prozess beenden“, bleibt sendet, genau eine Logzeile „Takt-Lücke 6000 ms“ / „um 5000 ms“ ohne Schlüssel, Label und NDI-Namen',
+    gleich(kurz(ha), []) && zst(a.lage) === 'sendet' && logs(ha).length === 1
+      && logs(ha)[0].includes('Takt-Lücke 6000 ms') && logs(ha)[0].includes('um 5000 ms') && ohneNamen(logs(ha)[0]));
   a.lage.gastMeldung('g1', ga, STAT);
   ck('Nachtrag C (1) … danach stat (die gepufferte Meldung kommt an, noch kein neues Bild) → bleibt sendet',
     zst(a.lage) === 'sendet' && a.lage.quelleLage('g1')?.empfaenger === 1);
@@ -1159,8 +1162,9 @@ console.log('— Nachtrag C (I-C7-1, R18, R20): Takt-Lücke nach Hänger oder Ru
   p.s.t += 6000;
   const hp = p.lage.tick();
   p.lage.programmMeldung(gp, VERBUNDEN);
-  ck('Nachtrag C (2) Programm verbunden, die Uhr springt um 6000 ms, ein tick → kein „Prozess beenden“, keine Logzeile; danach lage → bleibt verbunden',
-    gleich(kurz(hp), []) && logs(hp).length === 0 && pz(p.lage) === 'verbunden' && p.lage.programmLage().quelle === 'Regie (JM Switcher)');
+  ck('Nachtrag C (2) Programm verbunden, die Uhr springt um 6000 ms, ein tick → kein „Prozess beenden“, genau eine Logzeile „Takt-Lücke 6000 ms“ / „um 5000 ms“ ohne Namen; danach lage → bleibt verbunden',
+    gleich(kurz(hp), []) && logs(hp).length === 1 && logs(hp)[0].includes('Takt-Lücke 6000 ms') && logs(hp)[0].includes('um 5000 ms')
+      && ohneNamen(logs(hp)[0]) && pz(p.lage) === 'verbunden' && p.lage.programmLage().quelle === 'Regie (JM Switcher)');
   ck('Nachtrag C (2) … weitere ticks rechnen normal: 4 s ohne Meldung nichts, 5 s ohne Meldung „Prozess beenden“ (E50 gilt wieder)',
     gleich(beendenH(sekunden(p, 4)), []) && gleich(beendenH(sekunden(p, 1)), ['beenden programm programm G1']));
 
@@ -1380,6 +1384,76 @@ console.log('— Abschluss M6: Generationswächter der Hüllen (ein spätes exit
       && progExit.indexOf('if (aktuell === prozess) aktuell = null;') < progExit.indexOf('lage?.programmExit(')
       && /^function beendeProzess\(generation: number\): void \{\n\s*const p = aktuell;\n\s*if \(!p \|\| p\.generation !== generation\) return;\n/.test(progBeenden)
       && progBeenden.indexOf('p.generation !== generation') < progBeenden.indexOf('p.child.kill()'));
+}
+console.log('— Takt-Lücke Logzeile (E35, Owner 02.11.): eine Zeile je erkannter Lücke, nur mit laufendem NDI-Prozess, ohne Namen');
+{
+  function taktLage2(): TestLage {
+    const s = { t: 1000, peer: true, lage: 0, namen: 0 };
+    const lage = erzeugeNdiLage({ jetzt: () => s.t, peerDa: () => s.peer, sekundenTakt: true, onLage: () => { s.lage++; }, onNamen: () => { s.namen++; } });
+    return { lage, s };
+  }
+  const VERB: ProgrammMeldungT = { type: 'lage', zustand: 'verbunden', quelle: 'Regie (JM Switcher)' };
+  const luecken = (h: NdiHandlung[]): string[] => logs(h).filter((z) => z.includes('Takt-Lücke'));
+  const ohneNamen2 = (z: string): boolean => !z.includes('g1') && !z.includes('Anna') && !z.includes('Beispiel') && !z.includes('JM Connect') && !z.includes(HINWEIS);
+
+  // (a) Lücke ohne laufenden Prozess (Programm gestoppt, keine Gäste) → keine Zeile.
+  const a = taktLage2();
+  const ga = programmBereit(a);
+  a.s.t += 1000;
+  a.lage.programmMeldung(ga, VERB);
+  a.lage.tick();
+  a.lage.programmStop();
+  a.s.t += 6000;
+  ck('Takt-Lücke Logzeile (a) Lücke von 6000 ms ohne laufenden Prozess (nach programmStop, keine Gäste) → keine Logzeile', luecken(a.lage.tick()).length === 0);
+
+  // (b) Lücke mit nur dem Programm-Prozess; ein Gast ist abgestürzt und sein Neustart wird im tick fällig → die Zeile steht VOR dem Start.
+  const b = taktLage2();
+  const gast = sendend(b);
+  const prog = programmBereit(b);
+  b.s.t += 1000;
+  b.lage.gastMeldung('g1', gast, { type: 'stat', connections: 1 });
+  b.lage.programmMeldung(prog, VERB);
+  b.lage.tick();
+  b.s.t += 500;
+  b.lage.gastExit('g1', gast, 1);
+  b.s.t += 5500;
+  const hb = b.lage.tick();
+  ck('Takt-Lücke Logzeile (b) Lücke mit nur dem Programm-Prozess → genau eine Zeile, erste Handlung des ticks (vor dem Neustart des Gasts)',
+    luecken(hb).length === 1 && hb[0].art === 'log' && hb[0].zeile.includes('Takt-Lücke 6000 ms') && hb[0].zeile.includes('um 5000 ms')
+      && gleich(kurz(hb), ['starten gast g1 G3']) && ohneNamen2(hb[0].zeile));
+  ck('Takt-Lücke Logzeile (b) … Wortlaut', hb[0].art === 'log' && hb[0].zeile === '[ndi-lage] Takt-Lücke 6000 ms (Hänger oder Ruhezustand des Main): Fristen laufender NDI-Prozesse um 5000 ms verschoben');
+
+  // (c) Lücke mit Bruchteil → gerundet.
+  const c = taktLage2();
+  const gc = sendend(c);
+  c.s.t += 1000;
+  c.lage.gastMeldung('g1', gc, { type: 'stat', connections: 1 });
+  c.lage.tick();
+  c.s.t += 6000.4;
+  const hc = c.lage.tick();
+  ck('Takt-Lücke Logzeile (c) Lücke von 6000,4 ms → „Takt-Lücke 6000 ms“ und „um 5000 ms“, ohne Bruchteil',
+    luecken(hc).length === 1 && luecken(hc)[0].includes('Takt-Lücke 6000 ms') && luecken(hc)[0].includes('um 5000 ms') && !/\d\.\d/.test(luecken(hc)[0]));
+
+  // (d) Ohne sekundenTakt mit Sprung → keine Zeile.
+  const d = testLage();
+  sendend(d);
+  d.s.t += 1000;
+  d.lage.tick();
+  d.s.t += 6000;
+  ck('Takt-Lücke Logzeile (d) ohne sekundenTakt, Sprung um 6000 ms → keine Logzeile „Takt-Lücke“', luecken(d.lage.tick()).length === 0);
+
+  // (e) 1-s-Takt über 10 ticks → keine Zeile.
+  const e = taktLage2();
+  const ge = sendend(e);
+  const pe = programmBereit(e);
+  const alle: NdiHandlung[] = [];
+  for (let i = 0; i < 10; i++) {
+    e.s.t += 1000;
+    e.lage.gastMeldung('g1', ge, { type: 'stat', connections: 1 });
+    e.lage.programmMeldung(pe, VERB);
+    alle.push(...e.lage.tick());
+  }
+  ck('Takt-Lücke Logzeile (e) 1-s-Takt über 10 ticks mit laufenden Prozessen → keine Logzeile „Takt-Lücke“', luecken(alle).length === 0);
 }
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

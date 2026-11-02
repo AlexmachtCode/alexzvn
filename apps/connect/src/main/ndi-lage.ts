@@ -19,7 +19,8 @@
 // Nur die Uhrregel des Raumabbruchs (E57, shared/raum-ansicht.ts) vergleicht bewusst mit der Wanduhr.
 // Takt-Lücke (Nachtrag C, R20, R28): Treibt die Hülle tick() im Sekundentakt (`sekundenTakt`), gilt eine Lücke von mehr als
 // 2,5 s zwischen zwei tick() als Hänger, Ruhezustand oder Drosselung des Main. Für die Fristen an Meldung, Start und Bild zählt
-// von ihr nur ein Nenntakt (1 s): Der tick() nach der Lücke verschiebt deren Anker um die Lücke abzüglich 1 s (hier in tick()).
+// von ihr nur ein Nenntakt (1 s): Der tick() nach der Lücke verschiebt deren Anker um die Lücke abzüglich 1 s (hier in tick()) und
+// schreibt dazu eine Logzeile mit Länge und Verschiebung in ms (ohne Namen, nur bei laufendem Prozess; E35, Owner 02.11.).
 
 /** Art einer Gast-NDI-Quelle; die Bildschirm-Quelle hat den Schlüssel `‹Gast-ID›::screen` (`ndiPoolKey`). */
 export type NdiArt = 'kamera' | 'bildschirm';
@@ -412,29 +413,41 @@ export function erzeugeNdiLage(o: { jetzt(): number; peerDa(): boolean; sekunden
    * höchstens etwa 2 s, unter jeder dieser Fristen, auch in diesem tick(); bei anhaltender Drosselung wächst das Alter je tick()
    * um 1 s, und die Fristen greifen wieder, nur langsamer. Nicht verschoben: der Neustart-Wecker `neustartAb` (ein fälliger
    * Neustart startet in diesem tick()) und `bereitUm` als Anker der Rücksetzung nach 60 s; den Anker der 3-s-Regel trägt danach
-   * `bildUm`.
+   * `bildUm`. Gibt zurück, ob ein laufender Prozess (Gast oder Programm) verschoben wurde; nur dann schreibt tick() die Logzeile.
    */
-  function ankerVerschieben(t: number, luecke: number): void {
+  function ankerVerschieben(t: number, luecke: number): boolean {
     const schub = luecke - NENNTAKT_MS;
     const vor = (anker: number): number => Math.min(anker + schub, t);
+    let verschoben = false;
     for (const g of gaeste.values()) {
       if (!g.prozess) continue;
+      verschoben = true;
       g.startUm = vor(g.startUm);
       g.meldungUm = vor(g.meldungUm);
       if (g.bereit) g.bildUm = vor(Math.max(g.bereitUm, g.bildUm ?? g.bereitUm));
     }
     if (p.prozess) {
+      verschoben = true;
       p.startUm = vor(p.startUm);
       p.meldungUm = vor(p.meldungUm);
     }
+    return verschoben;
   }
 
-  /** Zeitgeber (22.3 Nr. 7, 11, 12, 22.4): Takt-Lücke, Fristen 10 s und 5 s, fällige Neustarts, `sendet` → `ohneBild`, Rücksetzung nach 60 s. */
+  /**
+   * Zeitgeber (22.3 Nr. 7, 11, 12, 22.4): Takt-Lücke, Fristen 10 s und 5 s, fällige Neustarts, `sendet` → `ohneBild`, Rücksetzung nach 60 s.
+   * Eine erkannte Lücke mit laufendem Prozess schreibt als erste Handlung eine Logzeile mit Länge und Verschiebung (E35, Owner 02.11.).
+   */
   function tick(): NdiHandlung[] {
     const t = o.jetzt();
-    if (o.sekundenTakt && letzterTick !== null && t - letzterTick > TAKT_LUECKE_MS) ankerVerschieben(t, t - letzterTick);
-    letzterTick = t;
     const h: NdiHandlung[] = [];
+    if (o.sekundenTakt && letzterTick !== null && t - letzterTick > TAKT_LUECKE_MS) {
+      const luecke = t - letzterTick;
+      if (ankerVerschieben(t, luecke)) {
+        h.push({ art: 'log', zeile: `[ndi-lage] Takt-Lücke ${Math.round(luecke)} ms (Hänger oder Ruhezustand des Main): Fristen laufender NDI-Prozesse um ${Math.round(luecke - NENNTAKT_MS)} ms verschoben` });
+      }
+    }
+    letzterTick = t;
     for (const g of gaeste.values()) {
       if (g.prozess && !g.beendet) {
         if (!g.bereit && t - g.startUm >= BEREIT_FRIST_MS) {
