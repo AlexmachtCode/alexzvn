@@ -968,6 +968,36 @@ console.log('— C13: Raum-Bereich nach Regel V, Raumabbruch, T146, Raum-Folge (
   ck('C16 E49 mac.extendInfo.NSBonjourServices nennt _ndi._tcp', bonjour >= 0 && kinder[bonjour + 1] === '      - _ndi._tcp');
 }
 
+console.log('— Nachtrag C (M-C13-3, M-C13-1, R21): spätes Schließen eines ersetzten Clients, Ablehnung von closeRoom (Quelltext)');
+{
+  const { readFileSync } = await import('node:fs');
+  const lies = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const app = lies('../src/renderer/src/App.tsx');
+  /** Text ab `start` bis vor das nächste `ende` (leer, wenn `start` fehlt). */
+  const abschnitt = (s: string, start: string, ende: string): string => {
+    const i = s.indexOf(start);
+    if (i < 0) return '';
+    const j = s.indexOf(ende, i + start.length);
+    return j < 0 ? s.slice(i) : s.slice(i, j);
+  };
+  const zaehle = (s: string, t: string): number => s.split(t).length - 1;
+  const appFn = abschnitt(app, 'export function App(', '\n}\n');
+  const openFn = abschnitt(appFn, '  const openRoom = useCallback(', '\n  );\n');
+  const closeFn = abschnitt(appFn, '  const closeRoom = useCallback(', '\n  );\n');
+  const onClose = abschnitt(openFn, 'onClose: () => {', '\n            },');
+  const fehlerZweig = abschnitt(openFn, '} catch (e) {', '} finally {');
+  const pruefung = onClose.indexOf('if (clientRef.current !== client) return;');
+  ck('Nachtrag C M-C13-3: onClose prüft zuerst, ob clientRef noch auf diesen Client zeigt, und erst danach verbundenRef und setConnected',
+    pruefung >= 0 && pruefung < onClose.indexOf('verbundenRef.current = false;') && pruefung < onClose.indexOf('setConnected(false);')
+      && /^onClose: \(\) => \{\n(?:\s*\/\/[^\n]*\n)*\s*if \(clientRef\.current !== client\) return;\n/.test(onClose));
+  const FEHLERFELD = 'setError(e instanceof Error ? e.message : String(e));';
+  ck('Nachtrag C M-C13-1: closeRoom fängt die Ablehnung des IPC-Aufrufs und zeigt sie im Fehlerfeld wie openRoom (kein neuer Text)',
+    /try \{\n\s*await window\.jmconnect\.closeRoom\(\);\n\s*\} catch \(e\) \{\n\s*setError\(e instanceof Error \? e\.message : String\(e\)\);\n\s*\}/.test(closeFn)
+      && fehlerZweig.includes(FEHLERFELD) && zaehle(app, 'window.jmconnect.closeRoom()') === 1);
+  ck('Nachtrag C M-C13-1: Knopf und Tray rufen weiter dieselbe Funktion closeRoom, die nicht mehr ablehnt',
+    zaehle(app, 'onClick={closeRoom}') === 2 && app.includes("if (cmd.kind === 'closeRoom') void closeRoom();"));
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

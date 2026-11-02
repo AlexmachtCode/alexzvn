@@ -172,11 +172,13 @@ export function App(): JSX.Element {
               setConnected(true);
             },
             onClose: () => {
+              // Nur der Client, auf den clientRef noch zeigt (Nachtrag C, M-C13-3): Ein spätes Schließen eines ersetzten
+              // Clients sperrt Rückkanal und Folien am lebenden nicht und löst keinen Raumabbruch aus.
+              if (clientRef.current !== client) return;
               verbundenRef.current = false;
               setConnected(false);
-              // Raumabbruch (E57): nur für den Client, auf den clientRef noch zeigt, und erst, wenn die Anmeldung abgelaufen
-              // ist (bewusst die Wanduhr: operatorBis ist exp des Operator-Tokens). Dann kein weiterer Versuch.
-              if (clientRef.current !== client) return;
+              // Raumabbruch (E57): erst, wenn die Anmeldung abgelaufen ist (bewusst die Wanduhr: operatorBis ist exp des
+              // Operator-Tokens). Dann kein weiterer Versuch.
               if (raumAbbruch({ verbunden: false, jetzt: Date.now(), operatorBis: session.operatorBis }) === null) return;
               client.close();
               clientRef.current = null;
@@ -251,7 +253,13 @@ export function App(): JSX.Element {
         setRoom(null);
         // Der Raum wird geschlossen und das Secret rotiert — alle erzeugten Links sind damit tot.
         setInvites([]);
-        await window.jmconnect.closeRoom();
+        // Lehnt der Main ab, steht der Fehler im Fehlerfeld wie bei openRoom (Nachtrag C, M-C13-1), statt als unbehandelte
+        // Ablehnung an Knopf und Tray zu gehen.
+        try {
+          await window.jmconnect.closeRoom();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
       }),
     [raumFolge, wachhundWeg],
   );
