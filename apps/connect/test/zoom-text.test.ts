@@ -51,10 +51,16 @@ function abbild(a: Omit<Partial<ZoomAbbild>, 'kurz'> & { kurz?: Partial<ZoomKurz
     ...rest,
   };
 }
+/** AppStatus mit g Gast-Quellen in `sendet` und dem Empfang `aus` (Plan C, E44): wie vor C9 „g NDI-Sender“. */
 function status(g: number, configured: boolean, zoom: ZoomKurz | null): AppStatus {
   return {
-    configured, proxyBase: null, proxyKeySource: 'none', controlPort: 8737, ndiSenders: g,
-    programState: 'off', programSource: null, presenterLinked: false, zoom,
+    configured, proxyBase: null, proxyKeySource: 'none', controlPort: 8737,
+    ndiGaeste: Array.from({ length: g }, (_, i) => ({
+      schluessel: `g${i + 1}`, art: 'kamera' as const, label: `JM Connect – Gast ${i + 1}`, zustand: 'sendet' as const,
+      grund: null, code: null, k: 0, empfaenger: null,
+    })),
+    ndiProgramm: { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: '', bereit: false },
+    presenterLinked: false, zoom,
   };
 }
 

@@ -6,6 +6,11 @@ import type {
   AudioState, SlotAudioReason, SlotReason, SlotSent, UserRoleName, WireEvent,
 } from '@jm/zoom-bridge/protocol';
 
+// NDI-Lage (Plan C, E44): nur Typen aus der reinen Lage; tsconfig.web.json schließt src/main/ndi-lage.ts ein (TS6307).
+// Der Renderer importiert sie von hier.
+import type { NdiProgrammLage, NdiQuelleLage } from '../main/ndi-lage';
+export type { NdiArt, NdiProgrammLage, NdiProgrammZustand, NdiQuelleLage } from '../main/ndi-lage';
+
 /** Ergebnis von openRoom: alles, was der Operator-Renderer zum Verbinden braucht. */
 export interface RoomSession {
   room: string;
@@ -48,12 +53,10 @@ export interface AppStatus {
   proxyKeySource: ProxyKeySource;
   /** Steuerport (Companion/Rundown). */
   controlPort: number;
-  /** Anzahl aktiver NDI-Sender (freigegebene Gäste). */
-  ndiSenders: number;
-  /** Programm-Rückkanal-Empfang (Welle 6.2a): 'off'|'searching'|'notfound'|'connected'|'error'|'stopped'. */
-  programState: string;
-  /** Aufgelöster NDI-Quellname des Programm-Rückkanals (oder null). */
-  programSource: string | null;
+  /** Lage je Gast-NDI-Quelle (Plan C, E44): jeder Eintrag von spinUp bis tearDown, in jedem Zustand (22.3). */
+  ndiGaeste: NdiQuelleLage[];
+  /** Lage des Programm-Empfangs samt Suchname `hinweis` (Plan C, E44, 22.4, T122). */
+  ndiProgramm: NdiProgrammLage;
   /** Ist ein JM Presenter im LAN erreichbar? (Folien-Kopplung, Welle 6.3c.) */
   presenterLinked: boolean;
   /** Zoom-Kurzform für Tray, Kopfzeile und STATE (Spec 5.4); null unter macOS. */

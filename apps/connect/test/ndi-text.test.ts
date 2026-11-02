@@ -673,6 +673,78 @@ console.log('— C6 · Tooltip nach Regel TT als Kreuzprodukt (22.10): e > 0 × 
     ({ f, t }) => teileVon(f).length === 0 || t.endsWith(teileVon(f).join(' · ')), zeigeT);
 }
 
+console.log('— C9 KF10: AppStatus über baueAppStatus (E44), Startwert APP_STATUS_START, Tray-Zeilen und Programm-Abzeichen aus der Lage');
+{
+  const { baueAppStatus, APP_STATUS_START } = await import('../src/shared/app-status');
+  const { gaesteZeile, trayTooltip } = await import('../src/shared/zoom-text');
+  type AppStatus = import('../src/shared/types').AppStatus;
+  type QL = import('../src/shared/types').NdiQuelleLage;
+  type PL = import('../src/shared/types').NdiProgrammLage;
+  type ZK = import('../src/shared/types').ZoomKurz;
+  const gleich = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+  // KF10: eine Lage mit lauter Werten, die von der Vorgabe abweichen.
+  const q: QL = { schluessel: 'g7::screen', art: 'bildschirm', label: 'JM Connect – Anna Maria Beispiel (Bildschirm)', zustand: 'neustart', grund: null, code: 139, k: 2, empfaenger: 3 };
+  const p: PL = { zustand: 'gescheitert', grund: 'keinStart', code: 7, k: 3, quelle: 'REGIE (JM Switcher B)', hinweis: 'Switcher B', bereit: true };
+  const zoom = { zustand: 'fehler' } as unknown as ZK;
+  const s = baueAppStatus({
+    configured: true, proxyBase: 'https://proxy.beispiel', proxyKeySource: 'session', controlPort: 9999,
+    ndiGaeste: [q], ndiProgramm: p, presenterLinked: true, zoom,
+  });
+  ck('C9 KF10: jedes Feld kommt aus einer Lage mit lauter abweichenden Werten durch',
+    gleich(s, { configured: true, proxyBase: 'https://proxy.beispiel', proxyKeySource: 'session', controlPort: 9999, ndiGaeste: [q], ndiProgramm: p, presenterLinked: true, zoom }) && s.zoom === zoom);
+  ck('C9 KF10: ndiProgramm samt hinweis kommt durch (T122)',
+    s.ndiProgramm.hinweis === 'Switcher B' && s.ndiProgramm.quelle === 'REGIE (JM Switcher B)' && s.ndiProgramm.zustand === 'gescheitert'
+      && s.ndiProgramm.grund === 'keinStart' && s.ndiProgramm.code === 7 && s.ndiProgramm.k === 3 && s.ndiProgramm.bereit === true);
+  ck('C9 KF10: ndiGaeste mit jedem Feld der Lage (KF11)', gleich(s.ndiGaeste, [q]));
+  ck('C9 E44: genau die acht Felder, ohne ndiSenders, programState, programSource',
+    gleich(Object.keys(s).sort(), ['configured', 'controlPort', 'ndiGaeste', 'ndiProgramm', 'presenterLinked', 'proxyBase', 'proxyKeySource', 'zoom']));
+  q.zustand = 'sendet';
+  p.hinweis = 'anders';
+  ck('C9 KF10: die NDI-Lagen sind Kopien (eine spätere Änderung der Eingabe ändert den Status nicht)',
+    s.ndiGaeste[0].zustand === 'neustart' && s.ndiProgramm.hinweis === 'Switcher B');
+  ck('C9 E44: APP_STATUS_START ist nichts Gemessenes: keine Gast-Quelle, Empfang aus, kein Zoom, nicht eingerichtet, Steuerport 8737',
+    gleich(APP_STATUS_START, {
+      configured: false, proxyBase: null, proxyKeySource: 'none', controlPort: 8737, ndiGaeste: [],
+      ndiProgramm: { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: '', bereit: false }, presenterLinked: false, zoom: null,
+    }));
+
+  // Tray-Gästezeile und Tooltip über AppStatus (Regel R, TT): gaesteZeile/trayTooltip rechnen e/g/b/s/a und ndi_alarm aus der Lage.
+  const lage = (zustand: QL['zustand'], i: number): QL => ({
+    schluessel: `g${i}`, art: 'kamera', label: `JM Connect – Gast ${i}`, zustand,
+    grund: zustand === 'gescheitert' ? 'absturz' : null, code: null, k: zustand === 'neustart' ? 1 : 0, empfaenger: null,
+  });
+  const status = (gaeste: QL[], programm: Partial<PL> = {}, z: ZK | null = null, configured = true): AppStatus =>
+    baueAppStatus({ ...APP_STATUS_START, configured, ndiGaeste: gaeste, ndiProgramm: { ...APP_STATUS_START.ndiProgramm, ...programm }, zoom: z });
+  ck('C9 Regel R über AppStatus: ein Ausfall unter zwei Quellen → T129', gaesteZeile(status([lage('sendet', 1), lage('gescheitert', 2)])) === '△ Gäste: 1 von 2 NDI-Quellen ausgefallen');
+  ck('C9 Regel R über AppStatus: eine Quelle startet → T130', gaesteZeile(status([lage('startet', 1)])) === '○ Gäste: NDI-Quelle startet …');
+  ck('C9 Regel R über AppStatus: zwei bestehen, eine ohne Bild → T131 mit Zusatz', gaesteZeile(status([lage('sendet', 1), lage('ohneBild', 2)])) === '● Gäste: 2 NDI-Quellen, 1 ohne Bild');
+  ck('C9 Regel R über AppStatus: keine Quelle, Cloud nicht eingerichtet (wie bisher)', gaesteZeile(status([], {}, null, false)) === '△ Gäste: Cloud nicht eingerichtet');
+  ck('C9 Regel TT über AppStatus: Ausfall einer Gast-Quelle → „NDI-Ausfall“ hinter „Zuschaltungen aktiv“',
+    trayTooltip(status([lage('neustart', 1)])) === 'JM Connect — Zuschaltungen aktiv · NDI-Ausfall');
+  ck('C9 Regel TT über AppStatus: Programm gescheitert ohne Gäste → „JM Connect — NDI-Ausfall“ (ndi_alarm aus dem Programm-Teil)',
+    trayTooltip(status([], { zustand: 'gescheitert', grund: 'absturz' })) === 'JM Connect — NDI-Ausfall');
+  ck('C9 Regel TT über AppStatus: Programm sucht → kein „NDI-Ausfall“ (22.6)', trayTooltip(status([], { zustand: 'sucht' })) === 'JM Connect');
+  ck('C9 Regel TT über AppStatus: die Zoom-Teile bleiben hinter „NDI-Ausfall“',
+    trayTooltip(status([lage('gescheitert', 1)], {}, { zustand: 'fehler', slotsLaufen: 0 } as unknown as ZK)) === 'JM Connect — Zuschaltungen aktiv · NDI-Ausfall · Zoom-Fehler');
+  ck('C9 Regel TT über AppStatus: n = laufende Slots (9.5) → „Zuschaltungen aktiv“ ohne Gäste',
+    trayTooltip(status([], {}, { zustand: 'im_meeting', slotsLaufen: 2 } as unknown as ZK)) === 'JM Connect — Zuschaltungen aktiv');
+
+  // Quelltext (KF10): Main und Tray bauen den Status nur über app-status.ts; das Fenster liest nur die neuen Felder.
+  const { readFileSync } = await import('node:fs');
+  const lies = (pf: string): string => readFileSync(new URL(pf, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const ipcMain = lies('../src/main/ipc.ts');
+  const tray = lies('../src/main/tray.ts');
+  const app = lies('../src/renderer/src/App.tsx');
+  ck('C9 KF10: currentStatus baut den Status nur über baueAppStatus', /export function currentStatus\(\): AppStatus \{\n\s*return baueAppStatus\(\{/.test(ipcMain));
+  ck('C9 KF10: der Tray startet mit APP_STATUS_START, ohne eigenen Startwert', tray.includes('let status: AppStatus = APP_STATUS_START;') && !tray.includes('configured: false'));
+  ck('C9 E42, E58: „Raum schließen“ im Tray hängt an e (jeder Eintrag), nicht an g', tray.includes("{ label: 'Raum schließen', enabled: status.ndiGaeste.length > 0,"));
+  ck('C9 E44: kein Leser der alten Felder mehr in Main, Tray und Fenster', ![ipcMain, tray, app].some((t) => /ndiSenders|programState|programSource/.test(t)));
+  const badge = (() => { const i = app.indexOf('function ProgramBadge('); return i < 0 ? '' : app.slice(i, app.indexOf('\n}\n', i)); })();
+  ck('C9 Regel P: das Programm-Abzeichen kommt aus programmAbzeichen, ohne leeres <span /> für unbekannte Zustände',
+    badge.includes('programmAbzeichen({ lage: status.ndiProgramm, plattform: plattform() })') && !badge.includes('<span />'));
+  ck('C9 Regel P: der volle Text des Abzeichens steht als title', badge.includes('title={titel(a)}'));
+}
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

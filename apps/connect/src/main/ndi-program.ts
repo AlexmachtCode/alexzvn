@@ -45,19 +45,6 @@ export function programmLage(): NdiProgrammLage {
   return lage ? lage.programmLage() : { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: '', bereit: false };
 }
 
-/** Übergang bis Plan C Task C9 (AppStatus noch mit programState/programSource): die alten Wörter aus der Lage. */
-export interface ProgramStatus {
-  state: string;
-  source: string | null;
-}
-const ALTES_WORT: Partial<Record<NdiProgrammLage['zustand'], string>> = {
-  aus: 'off', sucht: 'searching', keineQuelle: 'notfound', verbunden: 'connected', fehler: 'error',
-};
-export function programStatus(): ProgramStatus {
-  const l = programmLage();
-  return { state: ALTES_WORT[l.zustand] ?? l.zustand, source: l.quelle };
-}
-
 function schliesseKanal(): void {
   if (!port2) return;
   try {

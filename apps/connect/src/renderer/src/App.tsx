@@ -3,7 +3,8 @@ import { SignallingClient } from '@jm/rtc/signalling';
 import { lobbyCount, onAirGuests, standbyGuest } from '@jm/rtc/state';
 import { ndiPoolKey } from '@jm/rtc/protocol';
 import type { Guest, OperatorAction, RoomState } from '@jm/rtc/protocol';
-import type { AppStatus, GuestInvite, ProxyKeySource, ShowInfo } from '@shared/types';
+import type { AppStatus, GuestInvite, NdiProgrammZustand, ProxyKeySource, ShowInfo } from '@shared/types';
+import { programmAbzeichen, type Abzeichen } from '@shared/ndi-text';
 import { MAC_ZEILE, zoomZeile } from '@shared/zoom-text';
 import { toDataUrl } from '@/lib/qr';
 import { ZoomCard } from './zoom/ZoomCard';
@@ -609,17 +610,44 @@ function PttButton({
   );
 }
 
-function ProgramBadge({ status }: { status: AppStatus | null }): JSX.Element {
-  const state = status?.programState ?? 'off';
-  const map: Record<string, { label: string; cls: string }> = {
-    connected: { label: `Programm ● ${status?.programSource ?? ''}`.trim(), cls: 'bg-green-800 text-green-100' },
-    searching: { label: 'Programm sucht …', cls: 'bg-yellow-900 text-yellow-200' },
-    notfound: { label: 'Programm: keine Quelle', cls: 'bg-neutral-800 text-neutral-400' },
-    error: { label: 'Programm: Fehler', cls: 'bg-red-900 text-red-200' },
-  };
-  const m = map[state];
-  if (!m) return <span />;
-  return <span className={`max-w-[60%] truncate rounded-full px-2 py-0.5 font-semibold ${m.cls}`}>{m.label}</span>;
+/** Plattform für die Abzeichen (Regel G, P): unter macOS nennen die Tooltips das lokale Netzwerk (E49). */
+function plattform(): 'win32' | 'darwin' {
+  return window.jmconnect.platform === 'darwin' ? 'darwin' : 'win32';
+}
+
+/** `title` eines Abzeichens (Regel G, P): der volle Text, darunter der Tooltip aus 22.9, wenn es einen gibt (C-EB32). */
+function titel(a: Abzeichen): string {
+  return a.tooltip ? `${a.title}\n${a.tooltip}` : a.title;
+}
+
+/** Farbe des Programm-Abzeichens je Zustand (22.4); ein Zustand ohne Farbe scheitert im Typcheck. */
+const PROGRAMM_FARBE: Record<NdiProgrammZustand, string> = {
+  aus: 'bg-neutral-800 text-neutral-400',
+  sucht: 'bg-yellow-900 text-yellow-200',
+  keineQuelle: 'bg-neutral-800 text-neutral-400',
+  verbunden: 'bg-green-800 text-green-100',
+  ohneBild: 'bg-yellow-900 text-yellow-200',
+  staut: 'bg-red-900 text-red-200',
+  fehler: 'bg-red-900 text-red-200',
+  neustart: 'bg-red-900 text-red-200',
+  gescheitert: 'bg-red-900 text-red-200',
+};
+
+/**
+ * Programm-Abzeichen (Regel P, 22.5 Ort 2): ein Text je Zustand aus @shared/ndi-text (T120–T128), der volle Text als
+ * `title`, weil das Abzeichen abgeschnitten werden kann. Vor dem ersten Status des Mains steht keins (kein geratener Wert).
+ */
+function ProgramBadge({ status }: { status: AppStatus | null }): JSX.Element | null {
+  if (!status) return null;
+  const a = programmAbzeichen({ lage: status.ndiProgramm, plattform: plattform() });
+  return (
+    <span
+      title={titel(a)}
+      className={`max-w-[60%] truncate rounded-full px-2 py-0.5 font-semibold ${PROGRAMM_FARBE[status.ndiProgramm.zustand]}`}
+    >
+      {a.text}
+    </span>
+  );
 }
 
 function PhaseBadge({ phase }: { phase: Guest['phase'] }): JSX.Element {

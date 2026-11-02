@@ -4,6 +4,7 @@
 // kommen aus @shared/zoom-text, derselben Quelle wie die Kopfzeile (Spec 7.2–7.4).
 import { Menu, Tray, nativeImage, type BrowserWindow } from 'electron';
 import type { AppStatus, TrayCommand } from '@shared/types';
+import { APP_STATUS_START } from '@shared/app-status';
 import { gaesteZeile, trayTooltip, trayVerlassenAktiv, zoomZeile } from '@shared/zoom-text';
 
 let tray: Tray | null = null;
@@ -11,17 +12,8 @@ let getWindow: () => BrowserWindow | null = () => null;
 let sendCommand: (cmd: TrayCommand) => void = () => {};
 let onQuit: () => void = () => {};
 let onZoomVerlassen: () => void = () => {};
-let status: AppStatus = {
-  configured: false,
-  proxyBase: null,
-  proxyKeySource: 'none',
-  controlPort: 8737,
-  ndiSenders: 0,
-  programState: 'off',
-  programSource: null,
-  presenterLinked: false,
-  zoom: null,
-};
+/** Startwert bis zum ersten Status des Mains (E44, KF10): nichts gemessen. */
+let status: AppStatus = APP_STATUS_START;
 
 interface TrayDeps {
   iconPath: string;
@@ -73,7 +65,8 @@ function rebuild(): void {
   template.push(
     { type: 'separator' },
     { label: 'Fenster anzeigen', click: showWindow },
-    { label: 'Raum schließen', enabled: status.ndiSenders > 0, click: () => sendCommand({ kind: 'closeRoom' }) },
+    // „Raum schließen“ hängt wie bisher an e (jeder Eintrag, jeder Zustand, E42); es wirkt über das Hauptfenster (E58).
+    { label: 'Raum schließen', enabled: status.ndiGaeste.length > 0, click: () => sendCommand({ kind: 'closeRoom' }) },
   );
   if (status.zoom !== null) {
     template.push({

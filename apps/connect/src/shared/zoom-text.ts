@@ -17,6 +17,9 @@ import type {
   ZoomZustand,
 } from './types';
 
+// Plan C (C9): Zählweise und STATE-Wert der NDI-Lage für Tray-Zeile und Tooltip (rein, ohne electron).
+import { ndiStateKv, ndiZahlen } from '../main/ndi-lage';
+
 /** Die Zeilen der Zustandstabelle Spec 7.1. */
 export type ZoomZ =
   | 'Z0' | 'Z1a' | 'Z1b' | 'Z2' | 'Z3' | 'Z4' | 'Z5a' | 'Z5b' | 'Z6'
@@ -297,8 +300,9 @@ export const TRAY_NDI_TEXT = {
 
 /**
  * Zählweise der Gast-NDI-Quellen (E42): e Einträge, g bestehend (davon b ohne Bild), s startend, a ausgefallen. Dieselbe Form
- * wie NdiZahlen aus main/ndi-lage.ts; zoom-text.ts lädt nichts aus main/ (Linie von Plan B, der Renderer-tsconfig prüft
- * diese Datei mit).
+ * wie NdiZahlen aus main/ndi-lage.ts. Seit Plan C Task C9 lädt zoom-text.ts aus main/ genau ndi-lage.ts (ndiZahlen und
+ * ndiStateKv für gaesteZeile und trayTooltip; rein, ohne electron). Der Renderer prüft ndi-lage.ts darum mit
+ * (tsconfig.web.json schließt die Datei seit C4 ein, TS6307) und bündelt sie mit zoom-text.ts.
  */
 export interface NdiZahlenAnzeige { e: number; g: number; b: number; s: number; a: number }
 
@@ -324,21 +328,28 @@ export function trayTooltipNdi(e: { e: number; n: number; ndiAlarm: boolean; zoo
   return teile.length ? `${TRAY_NDI_TEXT.titel} — ${teile.join(' · ')}` : TRAY_NDI_TEXT.titel;
 }
 
-/** Gäste-Zeile im Tray (Spec 7.3, berichtigt): g = NDI-Sender der Gäste inklusive Bildschirm. */
+/**
+ * Gäste-Zeile im Tray (Spec 7.3; Plan C Regel R, E42, T129–T131): aus der Zählweise e/g/b/s/a der Gast-Lagen über
+ * gaesteZeileNdi. Ein eingelassener Gast ohne Eintrag zählt nicht (FR17).
+ */
 export function gaesteZeile(s: AppStatus): string {
-  const g = s.ndiSenders;
-  if (g > 0) return `● Gäste: ${g} ${g === 1 ? 'NDI-Quelle' : 'NDI-Quellen'}`;
-  if (s.configured) return '○ Gäste: keine NDI-Quelle';
-  return '△ Gäste: Cloud nicht eingerichtet';
+  return gaesteZeileNdi({ ...ndiZahlen(s.ndiGaeste), cloud: s.configured });
 }
 
-/** Tooltip des Tray-Symbols, das einzige kombinierte Feld (Spec 7.4, Code wörtlich). */
+/**
+ * Tooltip des Tray-Symbols, das einzige kombinierte Feld (Spec 7.4; Plan C Regel TT, T132): „Zuschaltungen aktiv“ bei e > 0
+ * oder n > 0 (n = laufende Slots, 9.5), „NDI-Ausfall“ bei ndi_alarm = 1 (22.6), dann die Zoom-Teile unverändert.
+ */
 export function trayTooltip(s: AppStatus): string {
-  const teile: string[] = [];
-  if (s.ndiSenders > 0 || (s.zoom?.slotsLaufen ?? 0) > 0) teile.push('Zuschaltungen aktiv');
-  if (s.zoom?.zustand === 'abriss') teile.push('Zoom-Verbindung unterbrochen');
-  if (s.zoom?.zustand === 'fehler') teile.push('Zoom-Fehler');
-  return teile.length ? `JM Connect — ${teile.join(' · ')}` : 'JM Connect';
+  const zoomTeile: string[] = [];
+  if (s.zoom?.zustand === 'abriss') zoomTeile.push('Zoom-Verbindung unterbrochen');
+  if (s.zoom?.zustand === 'fehler') zoomTeile.push('Zoom-Fehler');
+  return trayTooltipNdi({
+    e: s.ndiGaeste.length,
+    n: s.zoom?.slotsLaufen ?? 0,
+    ndiAlarm: ndiStateKv(s.ndiGaeste, s.ndiProgramm).ndi_alarm === 1,
+    zoomTeile,
+  });
 }
 
 /** Tray „Zoom-Meeting verlassen“ ist aktiv in Z3–Z11 (Spec 7.3). */

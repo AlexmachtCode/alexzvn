@@ -170,11 +170,6 @@ export function gastLagen(): NdiQuelleLage[] {
   return lage ? lage.quellen() : [];
 }
 
-/** e = Einträge (E42): „Raum schließen“ im Tray und „Zuschaltungen aktiv“ hängen wie bisher an ihr. */
-export function activeCount(): number {
-  return gastLagen().length;
-}
-
 /** NDI-Namen für die Kollisionsprüfung mit Zoom-Quellen (Spec 6.3, T46): alle Einträge außer `gescheitert` (E42). */
 export function activeLabels(): string[] {
   return lage ? lage.namensListe() : [];

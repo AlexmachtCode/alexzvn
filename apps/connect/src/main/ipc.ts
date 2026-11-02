@@ -7,10 +7,11 @@ import { ipcMain, type BrowserWindow } from 'electron';
 import { getLog } from '@jm/app-runtime';
 import { IPC, PEER_CONNECT } from '@shared/ipc';
 import type { AppStatus, ProxyInfo } from '@shared/types';
+import { baueAppStatus } from '@shared/app-status';
 import { closeRoom, isConfigured, mintGuest, openRoom, peerConnectInfo, proxyConfig } from './room';
 import { proxyKeySource, proxyUrl, setProxyKey, setProxyUrl } from './settings';
-import { activeCount, spinUp, tearDown, tearDownAll } from './ndi-guests';
-import { programStatus, startProgram, stopProgram } from './ndi-program';
+import { gastLagen, spinUp, tearDown, tearDownAll } from './ndi-guests';
+import { programmLage, startProgram, stopProgram } from './ndi-program';
 import { CONTROL_PORT, pushControlState } from './control-server';
 import { initShow, showInfo } from './show-open';
 import { presenterConnected, slideCue } from './presenter-link';
@@ -25,19 +26,18 @@ function proxyInfo(): ProxyInfo {
   return { url: proxyUrl(), keySource: proxyKeySource(), configured: isConfigured() };
 }
 
+/** AppStatus aus den Messwerten des Mains, gebaut nur über baueAppStatus (Plan C, E44, KF10). */
 export function currentStatus(): AppStatus {
-  const prog = programStatus();
-  return {
+  return baueAppStatus({
     configured: isConfigured(),
     proxyBase: proxyConfig().base,
     proxyKeySource: proxyKeySource(),
     controlPort: CONTROL_PORT,
-    ndiSenders: activeCount(),
-    programState: prog.state,
-    programSource: prog.source,
+    ndiGaeste: gastLagen(),
+    ndiProgramm: programmLage(),
     presenterLinked: presenterConnected(),
     zoom: zoomKurz(),
-  };
+  });
 }
 
 function pushStatus(): void {
@@ -135,7 +135,7 @@ export function registerIpc(deps: {
   });
 }
 
-/** Vom ndi-guests-Pool aufgerufen, wenn sich die Sender-Anzahl ändert. */
+/** Status an Fenster und Tray pushen; aufgerufen von der NDI-Lage (onLage, E52), Zoom und Presenter. */
 export function notifyStatusChanged(): void {
   pushStatus();
 }
