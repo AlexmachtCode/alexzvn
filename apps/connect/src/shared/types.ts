@@ -18,6 +18,8 @@ export interface RoomSession {
   wsUrl: string;
   /** HTTPS-Basis des Cloud-Proxys (für Gast-Links/QR), z. B. https://proxy.example.com. */
   proxyBase: string;
+  /** Ablauf des Operator-Tokens in ms (Wanduhr), derselbe Wert wie `exp` (E57): danach versucht Connect es nicht mehr. */
+  operatorBis: number;
 }
 
 /** Ergebnis von mintGuest: ein einladbarer Gast. */

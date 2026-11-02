@@ -58,17 +58,20 @@ export async function openRoom(room?: string, nowMs = Date.now()): Promise<RoomS
 
   current = { room: id, secretHex };
   saveRoomSecret(id, secretHex);
+  // Ablauf der Anmeldung (E57): EINE Variable für exp des Tokens und operatorBis der Sitzung.
+  const operatorBis = nowMs + OPERATOR_TTL_MS;
   const operatorToken = await mintJoinToken(secretHex, {
     room: id,
     guestId: 'operator',
     scope: 'operator',
-    exp: nowMs + OPERATOR_TTL_MS,
+    exp: operatorBis,
   });
   const wsBase = base.replace(/^http/, 'ws');
   return {
     room: id,
     wsUrl: `${wsBase}/connect/${encodeURIComponent(id)}/ws?t=${encodeURIComponent(operatorToken)}`,
     proxyBase: base,
+    operatorBis,
   };
 }
 

@@ -9,6 +9,7 @@ import { MAC_ZEILE, zoomZeile } from '@shared/zoom-text';
 import { toDataUrl } from '@/lib/qr';
 import { ZoomCard } from './zoom/ZoomCard';
 import { NdiLink, OeffnenKnopf } from './zoom/SlotBereich';
+import { erzeugeRaumFolge, raumAbbruch, raumAnsicht } from '@shared/raum-ansicht';
 
 // Der Operator-Renderer hält die Raum-WebSocket zum ConnectRoom-DO und spiegelt dessen
 // autoritativen Zustand. NDI-Effekte aus dem DO gehen per IPC an den Main (ndi-guests-Pool);
@@ -33,12 +34,24 @@ export function App(): JSX.Element {
   const [guestName, setGuestName] = useState('');
   const [show, setShow] = useState<ShowInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Regel V (22.5): „Client besteht“ ist ein React-Zustand, gesetzt in openRoom mit dem neuen Client, zurückgesetzt in
+  // closeRoom, im Fehlerzweig von openRoom und beim Raumabbruch; nie aus clientRef gelesen (eine Ref rendert nicht neu, SR3).
+  const [clientBesteht, setClientBesteht] = useState(false);
+  // „Raumabbruch“ (E57): gesetzt beim Raumabbruch, zurückgesetzt, wenn openRoom einen neuen Client anlegt, und in closeRoom.
+  const [raumabbruch, setRaumabbruch] = useState(false);
   const clientRef = useRef<SignallingClient | null>(null);
+  // Raumverbindung für die Handler (Regel V, LR5): onOpen und onClose führen sie nach; nicht roomRef, der den Raum-Zustand
+  // hält und bei einer Trennung gewollt stehen bleibt (E53).
+  const verbundenRef = useRef(false);
   const openingRef = useRef(false);
+  // OE3 (C-EP3): „Raum schließen“ wartet auf ein laufendes „Raum öffnen“ und überholt es nie.
+  const [raumFolge] = useState(erzeugeRaumFolge);
   // Der SignallingClient versucht bei Misserfolg still und endlos neu zu verbinden. Ohne diese
   // Frist stünde der Operator vor einem Fenster, das schweigt (so verschluckte die strenge CSP
   // des gepackten Builds die Raum-WebSocket komplett).
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Die Meldung des Wachhunds (T146), solange sie im Fehlerfeld steht; closeRoom und der Raumabbruch löschen genau sie (E57).
+  const wachhundTextRef = useRef<string | null>(null);
   // Der Steuerbefehl-Handler wird EINMAL registriert und darf nicht an `room` hängen (sonst
   // ab-/neu-abonniert er bei jedem Zustands-Broadcast). `talkback toggle` braucht aber den
   // aktuellen Zustand → über einen Ref lesen.
@@ -49,6 +62,14 @@ export function App(): JSX.Element {
     watchdogRef.current = null;
   }, []);
 
+  /** Wachhund samt seiner Meldung T146 weg (closeRoom, Raumabbruch; E57). Andere Fehlermeldungen bleiben stehen. */
+  const wachhundWeg = useCallback(() => {
+    clearWatchdog();
+    const t = wachhundTextRef.current;
+    wachhundTextRef.current = null;
+    if (t !== null) setError((f) => (f === t ? null : f));
+  }, [clearWatchdog]);
+
   const send = useCallback((action: OperatorAction) => {
     clientRef.current?.send(action);
   }, []);
@@ -56,17 +77,31 @@ export function App(): JSX.Element {
   // Talkback ist „Halten zum Sprechen": Taste unten → Mikro auf, Taste los → zu.
   // `target: null` spricht ALLE Gäste an, sonst nur den einen. Der DO ist autoritativ; der
   // versteckte Peer folgt seinem Broadcast und schaltet den Web-Audio-Gate.
+  // Regel V (22.5): ohne Raumverbindung tun Talkback und Folien nichts, kein send und keine Audit-Zeile. Die Handler prüfen
+  // selbst über verbundenRef, denn PttButton hört auf Pointer-Ereignisse, die `disabled` nicht sicher sperrt (SR2).
   const talkbackDown = useCallback(
     (target: string | null) => {
+      if (!verbundenRef.current) return;
       send({ t: 'talkback', mode: target ? 'selected' : 'all', target });
       window.jmconnect.audit('talkback', `an → ${target ?? 'alle Gäste'} (Bedienfeld)`);
     },
     [send],
   );
   const talkbackUp = useCallback(() => {
+    if (!verbundenRef.current) return;
     send({ t: 'talkback', mode: 'off', target: null });
     window.jmconnect.audit('talkback', 'aus (Bedienfeld)');
   }, [send]);
+  // Folien-Steuerung eines Gasts (Welle 6.3c), gesperrt wie Talkback (Regel V).
+  const folien = useCallback(
+    (g: Guest) => {
+      if (!verbundenRef.current) return;
+      send({ t: 'slides', guestId: g.id, on: !g.canAdvance });
+      // Kennung statt Name: Gastnamen gehören nicht ins Log (Spec N4b.2, L11), wie bei „slides“ per Steuerprotokoll.
+      window.jmconnect.audit('slides', `${g.canAdvance ? 'entzogen' : 'erteilt'} für ${g.id}`);
+    },
+    [send],
+  );
 
   // STATE fürs Steuerprotokoll ableiten (Companion/Rundown/Health).
   const pushControlState = useCallback((s: RoomState) => {
@@ -113,43 +148,68 @@ export function App(): JSX.Element {
     [pushControlState],
   );
 
-  const openRoom = useCallback(async () => {
-    // Nicht doppelt/gleichzeitig öffnen — sonst schließt ein neuer Raum die bestehende WS
-    // sofort wieder (wirkt wie „Raum schließt sich von selbst") und Gäste landen verwaist.
-    if (openingRef.current || clientRef.current) return;
-    openingRef.current = true;
-    setError(null);
-    try {
-      // Eine geöffnete Show gibt den Raum vor (deterministisch) → vorab verteilte Join-Links
-      // bleiben gültig, weil das Secret zu dieser Raum-ID gespeichert ist.
-      const session = await window.jmconnect.openRoom(show?.room);
-      const client = new SignallingClient({
-        url: session.wsUrl,
-        onMessage: handleMessage,
-        onOpen: () => {
+  const openRoom = useCallback(
+    () =>
+      // OE3 (C-EP3): über die Raum-Folge, damit „Raum schließen“ (Knopf und Tray) auf das Ende dieses Öffnens wartet.
+      raumFolge.oeffnen(async () => {
+        // Nicht doppelt/gleichzeitig öffnen — sonst schließt ein neuer Raum die bestehende WS
+        // sofort wieder (wirkt wie „Raum schließt sich von selbst") und Gäste landen verwaist.
+        if (openingRef.current || clientRef.current) return;
+        openingRef.current = true;
+        setError(null);
+        try {
+          // Eine geöffnete Show gibt den Raum vor (deterministisch) → vorab verteilte Join-Links
+          // bleiben gültig, weil das Secret zu dieser Raum-ID gespeichert ist.
+          const session = await window.jmconnect.openRoom(show?.room);
+          const client: SignallingClient = new SignallingClient({
+            url: session.wsUrl,
+            onMessage: handleMessage,
+            onOpen: () => {
+              clearWatchdog();
+              wachhundTextRef.current = null;
+              setError(null);
+              verbundenRef.current = true;
+              setConnected(true);
+            },
+            onClose: () => {
+              verbundenRef.current = false;
+              setConnected(false);
+              // Raumabbruch (E57): nur für den Client, auf den clientRef noch zeigt, und erst, wenn die Anmeldung abgelaufen
+              // ist (bewusst die Wanduhr: operatorBis ist exp des Operator-Tokens). Dann kein weiterer Versuch.
+              if (clientRef.current !== client) return;
+              if (raumAbbruch({ verbunden: false, jetzt: Date.now(), operatorBis: session.operatorBis }) === null) return;
+              client.close();
+              clientRef.current = null;
+              setClientBesteht(false);
+              setRaumabbruch(true);
+              wachhundWeg();
+              window.jmconnect.audit('raumabbruch', 'Anmeldung am Raum abgelaufen, keine weiteren Versuche (E57)');
+            },
+          });
+          clientRef.current = client;
+          verbundenRef.current = false;
+          setClientBesteht(true);
+          // „Raumabbruch“ endet erst mit dem neuen Client, nicht mit dem Klick (ein gescheitertes Öffnen lässt T144 stehen).
+          setRaumabbruch(false);
+          client.connect();
           clearWatchdog();
-          setError(null);
-          setConnected(true);
-        },
-        onClose: () => setConnected(false),
-      });
-      clientRef.current = client;
-      client.connect();
-      clearWatchdog();
-      watchdogRef.current = setTimeout(() => {
-        setError(
-          `Keine Verbindung zum Raum „${session.room}". Adresse und Proxy-Key prüfen — im Hintergrund wird weiter versucht.`,
-        );
-      }, 8000);
-    } catch (e) {
-      // Ohne dieses Zurücksetzen bliebe `clientRef` besetzt und jeder weitere Klick auf
-      // „Raum öffnen" liefe stumm ins Leere (der Guard oben greift).
-      clientRef.current = null;
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      openingRef.current = false;
-    }
-  }, [clearWatchdog, handleMessage, show?.room]);
+          watchdogRef.current = setTimeout(() => {
+            const t = NDI_TEXT.t146(session.room);
+            wachhundTextRef.current = t;
+            setError(t);
+          }, 8000);
+        } catch (e) {
+          // Ohne dieses Zurücksetzen bliebe `clientRef` besetzt und jeder weitere Klick auf
+          // „Raum öffnen" liefe stumm ins Leere (der Guard oben greift).
+          clientRef.current = null;
+          setClientBesteht(false);
+          setError(e instanceof Error ? e.message : String(e));
+        } finally {
+          openingRef.current = false;
+        }
+      }),
+    [clearWatchdog, handleMessage, raumFolge, show?.room, wachhundWeg],
+  );
 
   const inviteGuest = useCallback(async () => {
     try {
@@ -176,16 +236,25 @@ export function App(): JSX.Element {
     }
   }, [show, invites]);
 
-  const closeRoom = useCallback(async () => {
-    clearWatchdog();
-    clientRef.current?.close();
-    clientRef.current = null;
-    setConnected(false);
-    setRoom(null);
-    // Der Raum wird geschlossen und das Secret rotiert — alle erzeugten Links sind damit tot.
-    setInvites([]);
-    await window.jmconnect.closeRoom();
-  }, [clearWatchdog]);
+  const closeRoom = useCallback(
+    () =>
+      // OE3 (C-EP3): wartet auf ein laufendes „Raum öffnen“ und schließt danach, so setzt eine späte Antwort kein verworfenes
+      // Secret wieder (E57). Knopf und Tray rufen dieselbe Funktion (E58).
+      raumFolge.schliessen(async () => {
+        wachhundWeg();
+        clientRef.current?.close();
+        clientRef.current = null;
+        verbundenRef.current = false;
+        setClientBesteht(false);
+        setRaumabbruch(false);
+        setConnected(false);
+        setRoom(null);
+        // Der Raum wird geschlossen und das Secret rotiert — alle erzeugten Links sind damit tot.
+        setInvites([]);
+        await window.jmconnect.closeRoom();
+      }),
+    [raumFolge, wachhundWeg],
+  );
 
   useEffect(() => {
     void window.jmconnect.getStatus().then(setStatus);
@@ -226,17 +295,25 @@ export function App(): JSX.Element {
       const action = map[cmd.verb];
       if (action) send(action);
     });
+    // Tray „Raum schließen“ (E58): dieselbe Funktion wie der Knopf; jede andere Art (show) ändert hier nichts.
+    const offTray = window.jmconnect.onTrayCommand((cmd) => {
+      if (cmd.kind === 'closeRoom') void closeRoom();
+    });
     return () => {
       offStatus();
       offShow();
       offCmd();
+      offTray();
       clearWatchdog();
       clientRef.current?.close();
+      clientRef.current = null;
     };
-  }, [clearWatchdog, send]);
+  }, [clearWatchdog, closeRoom, send]);
 
   const guests = (room?.guests ?? []).filter((g) => g.phase !== 'left' && g.phase !== 'kicked');
   const talkback = room?.talkback ?? { mode: 'off' as const, target: null };
+  // Regel V (22.5): der Raum-Bereich aus „Client besteht“, Raumverbindung, Raum-Zustand und Raumabbruch (E53, E57).
+  const ansicht = raumAnsicht({ client: clientBesteht, verbunden: connected, raumBekannt: room !== null, raumabbruch });
   // Gast-Abzeichen (Regel G, 22.5 Ort 1): je Gast Kamera und Bildschirm aus der aktuellen Lage des Mains (E53). Ohne Status
   // des Mains weiß das Fenster nichts über die Quellen und zeigt kein Abzeichen (eine Voreinstellung ist kein Messwert).
   const ndiSoll = (g: Guest): [string, NdiArt, boolean][] => [
@@ -286,15 +363,32 @@ export function App(): JSX.Element {
 
       {show && <ShowCard show={show} connected={connected} invited={invites.length} onInvite={inviteSpeakers} />}
 
-      {!connected ? (
-        <button
-          onClick={openRoom}
-          disabled={!status?.configured}
-          className="rounded-xl bg-yellow-400 px-5 py-3 font-bold text-neutral-900 disabled:opacity-40"
-        >
-          {show ? `Raum „${show.room}" öffnen` : 'Raum öffnen'}
-        </button>
-      ) : (
+      {/* Raum-Bereich nach Regel V (22.5, E53, E57): was steht und was bedienbar ist, entscheidet nur raumAnsicht. */}
+      {ansicht.t144 && (
+        <div className="mb-4 rounded-lg border border-yellow-800 bg-yellow-950/30 p-3 text-sm text-yellow-200">
+          {NDI_TEXT.t144}
+          {ansicht.t144Zusatz ? NDI_TEXT.t144Zusatz : ''}
+        </div>
+      )}
+      {(ansicht.raumOeffnen || (!ansicht.gastEinladen && ansicht.raumSchliessen)) && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {ansicht.raumOeffnen && (
+            <button
+              onClick={openRoom}
+              disabled={!status?.configured}
+              className="rounded-xl bg-yellow-400 px-5 py-3 font-bold text-neutral-900 disabled:opacity-40"
+            >
+              {show ? `Raum „${show.room}“ öffnen` : 'Raum öffnen'}
+            </button>
+          )}
+          {!ansicht.gastEinladen && ansicht.raumSchliessen && (
+            <button onClick={closeRoom} className="rounded-lg border border-neutral-700 px-4 py-2 text-sm">
+              Raum schließen
+            </button>
+          )}
+        </div>
+      )}
+      {ansicht.gastEinladen && (
         <>
           <div className="mb-4 flex items-end gap-2">
             <div className="flex-1">
@@ -306,7 +400,11 @@ export function App(): JSX.Element {
                 className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm"
               />
             </div>
-            <button onClick={inviteGuest} className="rounded-lg bg-neutral-700 px-4 py-2 text-sm font-semibold">
+            <button
+              onClick={inviteGuest}
+              disabled={!ansicht.linkErzeugenBedienbar}
+              className="rounded-lg bg-neutral-700 px-4 py-2 text-sm font-semibold disabled:opacity-40"
+            >
               Link erzeugen
             </button>
             <button onClick={closeRoom} className="rounded-lg border border-neutral-700 px-4 py-2 text-sm">
@@ -324,25 +422,31 @@ export function App(): JSX.Element {
         </>
       )}
 
+      {/* T141 über der Gästeliste (E53, Regel V): Client besteht, keine Raumverbindung, Raum-Zustand bekannt. */}
+      {ansicht.t141 && (
+        <div className="mb-2 rounded-lg border border-yellow-800 bg-yellow-950/30 p-2 text-xs text-yellow-200">{NDI_TEXT.t141}</div>
+      )}
+
       {/* Kopfzeile der Gästeliste (22.5 Ort 2, E53): Programm-Abzeichen, Link T133 und Grundzeile T128 stehen, sobald der
           Empfang nicht aus ist, auch ohne Raumverbindung. Die Zählung braucht die Raumverbindung. */}
       {status && kopfzeileSichtbar({ programm: status.ndiProgramm.zustand, raumverbunden: connected }) && (
         <Kopfzeile
           status={status}
           zaehlung={
-            connected
-              ? `${guests.length} Gäste · ${room ? lobbyCount(room) : 0} im Warteraum · ${room ? onAirGuests(room).length : 0} auf Sendung`
+            ansicht.gaesteliste && room
+              ? `${guests.length} Gäste · ${lobbyCount(room)} im Warteraum · ${onAirGuests(room).length} auf Sendung`
               : null
           }
         />
       )}
 
-      {connected && (
+      {ansicht.gaesteliste && (
         <>
           <PttButton
             onDown={() => talkbackDown(null)}
             onUp={talkbackUp}
             active={talkback.mode === 'all'}
+            disabled={!ansicht.wsKnoepfeBedienbar}
             className="mb-3 w-full py-3 text-sm"
             label={talkback.mode === 'all' ? '🎙 Regie spricht — alle Gäste' : '🎙 Halten zum Sprechen (alle Gäste)'}
           />
@@ -377,6 +481,7 @@ export function App(): JSX.Element {
                         onDown={() => talkbackDown(g.id)}
                         onUp={talkbackUp}
                         active={talkback.mode === 'selected' && talkback.target === g.id}
+                        disabled={!ansicht.wsKnoepfeBedienbar}
                         className="px-2 py-1 text-xs"
                         label="🎙"
                         title={`Halten: nur ${g.name} hört die Regie`}
@@ -384,17 +489,14 @@ export function App(): JSX.Element {
                     )}
                     {canHearTalkback(g) && (
                       <button
-                        onClick={() => {
-                          send({ t: 'slides', guestId: g.id, on: !g.canAdvance });
-                          // Kennung statt Name: Gastnamen gehören nicht ins Log (Spec N4b.2, L11), wie bei „slides“ per Steuerprotokoll.
-                          window.jmconnect.audit('slides', `${g.canAdvance ? 'entzogen' : 'erteilt'} für ${g.id}`);
-                        }}
+                        onClick={() => folien(g)}
+                        disabled={!ansicht.wsKnoepfeBedienbar}
                         title={
                           status?.presenterLinked
                             ? 'Der Gast darf die Folien im JM Presenter selbst weiterblättern'
                             : 'Kein JM Presenter im Netz gefunden — der Cue liefe ins Leere'
                         }
-                        className={`rounded px-2 py-1 text-xs font-semibold ${
+                        className={`rounded px-2 py-1 text-xs font-semibold disabled:opacity-40 ${
                           g.canAdvance ? 'bg-sky-600 text-white' : 'bg-neutral-700 text-neutral-200'
                         }`}
                       >
@@ -402,7 +504,7 @@ export function App(): JSX.Element {
                       </button>
                     )}
                     <PhaseBadge phase={g.phase} />
-                    <GuestActions guest={g} send={send} />
+                    <GuestActions guest={g} send={send} gesperrt={!ansicht.wsKnoepfeBedienbar} />
                   </div>
                   {/* Grundzeile T111 in gescheitert, mit „NDI neu starten“ (nicht bei keinPeer) und „Logordner öffnen“. */}
                   {ndi.map(
@@ -648,6 +750,7 @@ function PttButton({
   label,
   title,
   active,
+  disabled,
   className,
   onDown,
   onUp,
@@ -655,6 +758,8 @@ function PttButton({
   label: string;
   title?: string;
   active: boolean;
+  /** Regel V: ohne Raumverbindung gesperrt; die Handler prüfen zusätzlich selbst (Pointer-Ereignisse, SR2). */
+  disabled?: boolean;
   className: string;
   onDown: () => void;
   onUp: () => void;
@@ -662,13 +767,14 @@ function PttButton({
   return (
     <button
       title={title}
+      disabled={disabled}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId);
         onDown();
       }}
       onPointerUp={onUp}
       onPointerCancel={onUp}
-      className={`select-none rounded-lg font-semibold transition-colors ${
+      className={`select-none rounded-lg font-semibold transition-colors disabled:opacity-40 ${
         active ? 'bg-yellow-400 text-neutral-900' : 'bg-neutral-700 text-neutral-100 hover:bg-neutral-600'
       } ${className}`}
     >
@@ -838,30 +944,31 @@ function PhaseBadge({ phase }: { phase: Guest['phase'] }): JSX.Element {
   return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{PHASE_LABEL[phase]}</span>;
 }
 
-function GuestActions({ guest, send }: { guest: Guest; send: (a: OperatorAction) => void }): JSX.Element {
-  const btn = 'rounded px-2 py-1 text-xs font-semibold';
+/** Gast-Aktionen über die Raum-WebSocket; ohne Raumverbindung gesperrt (Regel V, `gesperrt` aus raumAnsicht). */
+function GuestActions({ guest, send, gesperrt }: { guest: Guest; send: (a: OperatorAction) => void; gesperrt: boolean }): JSX.Element {
+  const btn = 'rounded px-2 py-1 text-xs font-semibold disabled:opacity-40';
   if (guest.phase === 'lobby') {
     return (
       <div className="flex gap-1">
-        <button className={`${btn} bg-green-700 text-white`} onClick={() => send({ t: 'approve', guestId: guest.id })}>Freigeben</button>
-        <button className={`${btn} bg-neutral-700`} onClick={() => send({ t: 'deny', guestId: guest.id })}>Ablehnen</button>
+        <button disabled={gesperrt} className={`${btn} bg-green-700 text-white`} onClick={() => send({ t: 'approve', guestId: guest.id })}>Freigeben</button>
+        <button disabled={gesperrt} className={`${btn} bg-neutral-700`} onClick={() => send({ t: 'deny', guestId: guest.id })}>Ablehnen</button>
       </div>
     );
   }
   if (guest.phase === 'onair') {
     return (
       <div className="flex gap-1">
-        <button className={`${btn} bg-neutral-700`} onClick={() => send({ t: 'off', guestId: guest.id })}>Aus Sendung</button>
-        <button className={`${btn} bg-red-800 text-white`} onClick={() => send({ t: 'kick', guestId: guest.id })}>Entfernen</button>
+        <button disabled={gesperrt} className={`${btn} bg-neutral-700`} onClick={() => send({ t: 'off', guestId: guest.id })}>Aus Sendung</button>
+        <button disabled={gesperrt} className={`${btn} bg-red-800 text-white`} onClick={() => send({ t: 'kick', guestId: guest.id })}>Entfernen</button>
       </div>
     );
   }
   if (guest.phase === 'approved' || guest.phase === 'off') {
     return (
       <div className="flex gap-1">
-        <button className={`${btn} bg-red-600 text-white`} onClick={() => send({ t: 'onair', guestId: guest.id })}>Auf Sendung</button>
-        <button className={`${btn} bg-neutral-700`} onClick={() => send({ t: 'standby', guestId: guest.id })}>Standby</button>
-        <button className={`${btn} bg-red-800 text-white`} onClick={() => send({ t: 'kick', guestId: guest.id })}>Entfernen</button>
+        <button disabled={gesperrt} className={`${btn} bg-red-600 text-white`} onClick={() => send({ t: 'onair', guestId: guest.id })}>Auf Sendung</button>
+        <button disabled={gesperrt} className={`${btn} bg-neutral-700`} onClick={() => send({ t: 'standby', guestId: guest.id })}>Standby</button>
+        <button disabled={gesperrt} className={`${btn} bg-red-800 text-white`} onClick={() => send({ t: 'kick', guestId: guest.id })}>Entfernen</button>
       </div>
     );
   }

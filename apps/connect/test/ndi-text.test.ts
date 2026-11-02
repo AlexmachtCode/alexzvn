@@ -866,6 +866,88 @@ console.log('— C12: Hauptfenster (Gastzeile, Kopfzeile, Link T133, Fußzeile, 
         && uhr.includes('return () => clearTimeout(t);') && /^import \{[^}]*\bT140_NACH_MS\b[^}]*\} from '@shared\/ndi-text';$/m.test(app));
   }
 }
+console.log('— C13: Raum-Bereich nach Regel V, Raumabbruch, T146, Raum-Folge (OE3), Tray-Abo (Quelltext; PK55, PK56, PK58, PK60, OE4 b)');
+{
+  const { readFileSync } = await import('node:fs');
+  const lies = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const app = lies('../src/renderer/src/App.tsx');
+  const raum = lies('../src/main/room.ts');
+  /** Text ab `start` bis vor das nächste `ende` (leer, wenn `start` fehlt). */
+  const abschnitt = (s: string, start: string, ende: string): string => {
+    const i = s.indexOf(start);
+    if (i < 0) return '';
+    const j = s.indexOf(ende, i + start.length);
+    return j < 0 ? s.slice(i) : s.slice(i, j);
+  };
+  const zaehle = (s: string, t: string): number => s.split(t).length - 1;
+  const appFn = abschnitt(app, 'export function App(', '\n}\n');
+  const openFn = abschnitt(appFn, '  const openRoom = useCallback(', '\n  );\n');
+  const closeFn = abschnitt(appFn, '  const closeRoom = useCallback(', '\n  );\n');
+  const onOpen = abschnitt(openFn, 'onOpen: () => {', '\n            },');
+  const onClose = abschnitt(openFn, 'onClose: () => {', '\n            },');
+  const fehlerZweig = abschnitt(openFn, '} catch (e) {', '} finally {');
+  const effekt = abschnitt(appFn, '  useEffect(() => {\n    void window.jmconnect.getStatus()', '\n  }, [');
+  const wachhund = abschnitt(appFn, '  const wachhundWeg = useCallback(', '\n  }, [');
+
+  // PK58: Regel V im Fenster.
+  ck('C13 PK58: der Raum-Bereich entsteht nur über raumAnsicht, kein Raum-Zweig {!connected ? ( mehr',
+    appFn.includes('const ansicht = raumAnsicht({ client: clientBesteht, verbunden: connected, raumBekannt: room !== null, raumabbruch });')
+      && !app.includes('{!connected ? ('));
+  ck('C13 PK58: „Client besteht“ ist ein useState und wird nicht aus clientRef gelesen',
+    appFn.includes('const [clientBesteht, setClientBesteht] = useState(false);') && !/client: !*clientRef/.test(app));
+  ck('C13 PK58: „Client besteht“ gesetzt in openRoom, zurückgesetzt in closeRoom, im Fehlerzweig und beim Raumabbruch (und nirgends sonst)',
+    openFn.includes('setClientBesteht(true);') && closeFn.includes('setClientBesteht(false);') && fehlerZweig.includes('setClientBesteht(false);')
+      && onClose.includes('setClientBesteht(false);') && zaehle(app, 'setClientBesteht(') === 4);
+  ck('C13 PK58: Gast-Aktionen, die Talkback-Knöpfe und der Folien-Knopf bekommen die Sperre aus raumAnsicht',
+    app.includes('<GuestActions guest={g} send={send} gesperrt={!ansicht.wsKnoepfeBedienbar} />') && zaehle(app, 'disabled={!ansicht.wsKnoepfeBedienbar}') === 3
+      && zaehle(abschnitt(app, 'function GuestActions(', '\n}\n'), 'disabled={gesperrt}') === 7 && abschnitt(app, 'function PttButton(', '\n}\n').includes('disabled={disabled}'));
+  ck('C13 PK58: „Link erzeugen“ nur mit Raumverbindung (raumAnsicht)', /onClick=\{inviteGuest\}\n\s*disabled=\{!ansicht\.linkErzeugenBedienbar\}/.test(app));
+  ck('C13 PK58: talkbackDown, talkbackUp und der Folien-Handler prüfen die Raumverbindung vor send und Audit-Zeile, über verbundenRef, nicht roomRef',
+    ['const talkbackDown = useCallback(', 'const talkbackUp = useCallback(', 'const folien = useCallback('].every((k) => {
+      const t = abschnitt(appFn, k, '[send]');
+      const p = t.indexOf('if (!verbundenRef.current) return;');
+      return p >= 0 && p < t.indexOf('send(') && p < t.indexOf('window.jmconnect.audit(') && !t.includes('roomRef');
+    }) && app.includes('onClick={() => folien(g)}'));
+  ck('C13 PK58: der Ref der Raumverbindung folgt onOpen und onClose', onOpen.includes('verbundenRef.current = true;') && onClose.includes('verbundenRef.current = false;'));
+  ck('C13 PK58, E57: onClose prüft den Raumabbruch nur für den Client, auf den clientRef noch zeigt',
+    onClose.includes('if (clientRef.current !== client) return;') && onClose.indexOf('if (clientRef.current !== client) return;') < onClose.indexOf('raumAbbruch('));
+  ck('C13 PK58, E57: der Raumabbruch beendet den Client, setzt clientRef auf null, löscht Wachhund und T146, setzt „Raumabbruch“, schreibt eine Audit-Zeile',
+    ['client.close();', 'clientRef.current = null;', 'setRaumabbruch(true);', 'wachhundWeg();', "window.jmconnect.audit('raumabbruch',"].every((t) => onClose.includes(t)));
+  ck('C13 OE4 b, E57: clientRef wird an genau vier Stellen zurückgesetzt (closeRoom, Fehlerzweig von openRoom, Raumabbruch, Aufräumen des Effekts)',
+    zaehle(app, 'clientRef.current = null;') === 4 && closeFn.includes('clientRef.current = null;') && fehlerZweig.includes('clientRef.current = null;')
+      && onClose.includes('clientRef.current = null;') && effekt.includes('clientRef.current = null;'));
+  ck('C13 PK58, T146: die Meldung des Wachhunds ist T146 aus @shared/ndi-text, gesetzt nur im Wachhund von openRoom',
+    zaehle(app, 'NDI_TEXT.t146(') === 1 && /watchdogRef\.current = setTimeout\(\(\) => \{\n\s*const t = NDI_TEXT\.t146\(session\.room\);/.test(openFn));
+  ck('C13 PK58: onOpen löscht Wachhund und Meldung wie bisher', onOpen.includes('clearWatchdog();') && onOpen.includes('setError(null);'));
+  ck('C13 PK58, T146: closeRoom löscht Wachhund und Meldung wie der Raumabbruch (wachhundWeg)',
+    closeFn.includes('wachhundWeg();') && wachhund.includes('clearWatchdog();') && wachhund.includes('if (t !== null) setError((f) => (f === t ? null : f));'));
+  ck('C13 PK58: „Raumabbruch“ endet erst, wenn openRoom den neuen Client anlegt, und in closeRoom',
+    zaehle(app, 'setRaumabbruch(false);') === 2 && openFn.indexOf('setRaumabbruch(false);') > openFn.indexOf('clientRef.current = client;') && closeFn.includes('setRaumabbruch(false);'));
+  ck('C13 PK58, E57: operatorBis kommt aus der Sitzung von openRoom', onClose.includes('raumAbbruch({ verbunden: false, jetzt: Date.now(), operatorBis: session.operatorBis })'));
+  ck('C13 PK58, E57: room.ts setzt operatorBis aus derselben Variable wie exp',
+    /const operatorBis = nowMs \+ OPERATOR_TTL_MS;\n[\s\S]*?exp: operatorBis,\n[\s\S]*?proxyBase: base,\n\s*operatorBis,\n\s*\};/.test(raum));
+  ck('C13 OE3, C-EP3: openRoom und closeRoom laufen über die Raum-Folge', openFn.includes('raumFolge.oeffnen(async () => {') && closeFn.includes('raumFolge.schliessen(async () => {'));
+
+  // PK60, E58: Tray „Raum schließen“.
+  ck('C13 PK60, E58: das Tray-Abo steht im Effekt der Steuerbefehle, ruft bei closeRoom die Funktion des Knopfs und sonst nichts',
+    effekt.includes('window.jmconnect.onControlCommand(') && effekt.includes('const offTray = window.jmconnect.onTrayCommand((cmd) => {')
+      && effekt.includes("if (cmd.kind === 'closeRoom') void closeRoom();") && zaehle(effekt, 'cmd.kind') === 1);
+  ck('C13 PK60: das Aufräumen des Effekts beendet das Tray-Abo', abschnitt(effekt, 'return () => {', '};').includes('offTray();'));
+  ck('C13 E58: Knopf und Tray rufen dieselbe Funktion closeRoom (keine zweite Schließ-Funktion)', zaehle(app, 'window.jmconnect.closeRoom()') === 1);
+
+  // PK55, PK56.
+  ck('C13 PK55: Date.now() steht in App.tsx genau einmal, am Aufruf von raumAbbruch', zaehle(app, 'Date.now()') === 1 && onClose.includes('jetzt: Date.now()'));
+  ck('C13 PK56: App.tsx enthält „Keine Verbindung zum Raum“ und „Verbindung zum Raum beendet“ nicht als Literal (T141, T144, T146)',
+    !app.includes('Keine Verbindung zum Raum') && !app.includes('Verbindung zum Raum beendet'));
+  ck('C13 Regel V: T141, T144 und sein Zusatz kommen aus NDI_TEXT, gesteuert von raumAnsicht',
+    app.includes('{ansicht.t141 && (') && app.includes('{NDI_TEXT.t141}') && app.includes('{ansicht.t144 && (') && app.includes('{NDI_TEXT.t144}')
+      && app.includes("{ansicht.t144Zusatz ? NDI_TEXT.t144Zusatz : ''}"));
+  ck('C13 Regel V, E53: die Gästeliste steht, sobald raumAnsicht sie zeigt (auch ohne Raumverbindung)', app.includes('{ansicht.gaesteliste && (') && !app.includes('{connected && ('));
+  // GG2, OFC2 (Vorgabe wie OE2 für T146; Nachbesserung C-gesamt:3): C13 schreibt die Zeile des Knopfs neu, also mit dem
+  // schließenden deutschen Anführungszeichen statt des geraden ASCII-Zeichens.
+  ck('C13 GG2, OFC2: der Knopf „Raum öffnen“ mit Show setzt den Raum in deutsche Anführungszeichen, ohne ASCII-Anführungszeichen',
+    app.includes('{show ? `Raum „${show.room}“ öffnen` : \'Raum öffnen\'}') && !app.includes('Raum „${show.room}"'));
+}
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
