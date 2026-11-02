@@ -172,12 +172,12 @@ Zoom-Teilnehmer bekommen **kein Tally**, **kein privates Talkback/IFB** und **ke
   ist. Dafür braucht es das **Marketplace-Review**. Die Unterlagen liegen auf dem Spike-Branch unter `docs/zoom-marketplace/`.
   ⛔ Owner: Entscheidungen E1–E6, dann einreichen. Danach in Connect: OAuth/OBF, Endpunkt für den Entzug der Autorisierung,
   eigene Domain.
-- 🟡 **Aktiver Sprecher als eigene NDI-Quelle** [#227](https://github.com/AlexmachtCode/alexzvn/issues/227) — für digitale
-  Pressekonferenzen. Das SDK meldet den Sprecherwechsel (`onActiveSpeakerVideoUserChanged`). **In Arbeit (02.11.2026):** als
-  Zoom-Slot-Modus „aktiver Sprecher“ in Connect 0.4.0 umgesetzt und auf `main`; Pre-Release steht an, Abnahme offen.
-- 🟡 **Bildschirmfreigaben als eigene NDI-Quelle** [#247](https://github.com/AlexmachtCode/alexzvn/issues/247) (**in Arbeit,
-  02.11.2026:** als Zoom-Slot-Modus „Bildschirmfreigabe“ in Connect 0.4.0 umgesetzt und auf `main`; Pre-Release steht an,
-  Abnahme offen; Owner-Wunsch
+- ✅ **Aktiver Sprecher als eigene NDI-Quelle** [#227](https://github.com/AlexmachtCode/alexzvn/issues/227) — für digitale
+  Pressekonferenzen. Das SDK meldet den Sprecherwechsel (`onActiveSpeakerVideoUserChanged`). **Ausgeliefert, Abnahme offen
+  (02.11.2026):** als Zoom-Slot-Modus „aktiver Sprecher“ in Connect 0.4.0 (Pre-Release `connect-v0.4.0`).
+- ✅ **Bildschirmfreigaben als eigene NDI-Quelle** [#247](https://github.com/AlexmachtCode/alexzvn/issues/247) (**ausgeliefert,
+  Abnahme offen, 02.11.2026:** als Zoom-Slot-Modus „Bildschirmfreigabe“ in Connect 0.4.0, Pre-Release `connect-v0.4.0`;
+  Owner-Wunsch
   08.10.2026). Laut SDK-Headern 7.1.5 machbar: Der Renderer abonniert eine Freigabe mit
   `subscribe(shareSourceID, RAW_DATA_TYPE_SHARE)`, `onSharingStatus` meldet Beginn, Ende und Pause, der Ton der Freigabe kommt
   über `onShareAudioRawDataReceived`. Gehört mit #227 in eine eigene Stufe „zusätzliche Quellen“. **Review-Unterlagen:**
@@ -421,7 +421,7 @@ Release, Merge und Push nur mit Owner-Okay.
 | 3 | **UX Welle 0 sichtbar**: Titler-Pilot als Titler-Release | R2 released und gemergt (beide ändern den Titler) | Plan ca. 3 h (kann schon während der R2-Umsetzung entstehen), Umsetzung ca. 5 h, dann Owner-Durchsicht |
 | 4 | **UX Welle 1**: Switcher, Timer, Rundown, Q&A, Battle, gesammelt | Titler-Pilot abgenommen | Plan je Welle, vorher je App die Funktionsliste; im Switcher O2 (auf Sendung und gesperrt) |
 | 5 | **UX Wellen 2 und 3**: übrige Tools, zuletzt der Launcher | jeweils die Welle davor | wie Welle 1 |
-| 6 | **Connect 0.4.0** + Companion-Modul 0.3.0: Zoom-Slots (Teilnehmer, aktiver Sprecher, Bildschirmfreigabe als feste NDI-Quellen, #227, #247), NDI auf dem Mac, NDI-Ausfälle sichtbar, Green Room bei getrennter Raumverbindung, Tray „Raum schließen“ behoben, kleines Menüleisten-Symbol (#277) | Pläne A–C fertig und geprüft, auf `main` (02.11.2026); Mac-Lesestand vom Owner freigegeben (02.11.); Mac-Probelauf `connect-mac.yml` grün; Notes vom Owner freigegeben (02.11.) | Merge (auf `main`), Tag `connect-v0.4.0` auf dem Merge-Commit, Pre-Release mit EXE und Modul, DMGs aus `connect-mac.yml`, dann Katalog-Bump; danach Owner-Abnahme nach `apps/connect/ABNAHME-0.4.0.md` am Pre-Release (Mac-Teil ungetestet freigegeben, Owner 02.11.) |
+| 6 | ✅ **Connect 0.4.0** + Companion-Modul 0.3.0, **released 02.11.2026** (Pre-Release `connect-v0.4.0` auf `57079b5889`, Katalog-Bump `edfe029f8d`; Owner-Abnahme nach `apps/connect/ABNAHME-0.4.0.md` offen): Zoom-Slots (Teilnehmer, aktiver Sprecher, Bildschirmfreigabe als feste NDI-Quellen, #227, #247), NDI auf dem Mac, NDI-Ausfälle sichtbar, Green Room bei getrennter Raumverbindung, Tray „Raum schließen“ behoben, kleines Menüleisten-Symbol (#277) | Pläne A–C fertig und geprüft, auf `main` (02.11.2026); Mac-Lesestand vom Owner freigegeben (02.11.); Mac-Probelauf `connect-mac.yml` grün; Notes vom Owner freigegeben (02.11.) | Merge (auf `main`), Tag `connect-v0.4.0` auf dem Merge-Commit, Pre-Release mit EXE und Modul, DMGs aus `connect-mac.yml`, dann Katalog-Bump; danach Owner-Abnahme nach `apps/connect/ABNAHME-0.4.0.md` am Pre-Release (Mac-Teil ungetestet freigegeben, Owner 02.11.) |
 
 Realistisch: Connect 0.3.0 am Tag der bestandenen Abnahme; R2 direkt danach, zur Abnahme am Folgetag; der Titler-Pilot
 nach dem R2-Release. Zwischen 2 und 3 läuft nichts parallel außer dem Schreiben des Pilot-Plans.
