@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-19T20:33:50.080Z",
+  "updatedAt": "2026-11-02T14:24:37.766Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -468,11 +468,11 @@
       "id": "jm-connect",
       "name": "JM Connect",
       "tagline": "Remote-Zuschaltungen · Green Room",
-      "description": "Hybride Konferenzen: Remote-Gäste kommen per Browser dazu (nur ein Join-Link, keine Software). Voller Green Room mit Warteraum, Vorschau, Freigabe und Tally. Der Raum-PC öffnet keinen eingehenden Port. Per Bitfocus Companion und JM Rundown fernsteuerbar (eine GO-Zeile holt den Standby-Gast auf Sendung). Unter Windows (nutzt die NDI-Runtime) erscheinen die Gäste automatisch als NDI-Quelle im JM Switcher, Titler und Rundown, und der Rückkanal mit Mix-Minus läuft: Jeder Gast sieht das Programm und hört alle anderen, aber nie sich selbst; die Regie spricht per Talkback ins Ohr; dazu Zoom-Slots: Teilnehmer, aktiver Sprecher und Bildschirmfreigabe als feste NDI-Quellen. Unter macOS: Raum, Einladungen und Green Room, ohne Zoom und ohne NDI. Die Gäste erscheinen dort nicht als NDI-Quelle und sehen und hören das Programm nicht; einander und die Regie per Talkback hören sie weiter.",
+      "description": "Hybride Konferenzen: Remote-Gäste kommen per Browser dazu (nur ein Join-Link, keine Software). Voller Green Room mit Warteraum, Vorschau, Freigabe und Tally. Der Raum-PC öffnet keinen eingehenden Port. Per Bitfocus Companion und JM Rundown fernsteuerbar (eine GO-Zeile holt den Standby-Gast auf Sendung). Unter Windows und macOS (NDI® ist im Paket enthalten) erscheinen die Gäste automatisch als NDI-Quelle im JM Switcher, Titler und Rundown, und der Rückkanal mit Mix-Minus läuft: Jeder Gast sieht das Programm und hört alle anderen, aber nie sich selbst; die Regie spricht per Talkback ins Ohr. Nur unter Windows dazu Zoom-Slots: Teilnehmer, aktiver Sprecher und Bildschirmfreigabe als feste NDI-Quellen. NDI® is a registered trademark of Vizrt NDI AB (ndi.video).",
       "category": "Studio",
       "appId": "gmbh.jakobs.connect",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.3.0",
+      "latestVersion": "0.4.0",
       "platforms": {
         "mac": {
           "artifact": "JM Connect-${version}-mac-${arch}.dmg",
