@@ -1,7 +1,7 @@
 // Selbsttest für tools/bundle-ndi.mjs und tools/ndi-universal.mjs (Spec Zoom-Slots 22.7, E46, E54, LP4; PK51): die reinen
 // Teile des Bundle-Skripts (libndi-Referenz aus otool -L, Auswahl der Lizenzdateien, Zeile der Windows-Laufzeit), der
 // Quelltext der Fassungsprüfung im Windows-Zweig, die Skripte in package.json und beide Skripte ohne SDK bzw. außerhalb
-// von macOS. Baut nichts, lädt nichts, schreibt nichts nach resources/.
+// von macOS. Baut nichts, lädt nichts, schreibt nichts nach resources/ (frischerOrdner nur in einem Temp-Ordner).
 //   node apps/connect/test/bundle-ndi.test.mjs
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -96,6 +96,46 @@ console.log('\nbundle-ndi und ndi-universal — Hauptprogramm ohne SDK bzw. auß
   } else {
     console.log('  --  ndi-universal außerhalb von macOS → Rückgabe 2 (übersprungen: nur ohne macOS)');
   }
+}
+
+console.log('\nbundle-ndi — Windows-Zweig frisch wie der Mac-Zweig (Nachtrag C, I-C15-1, R23; nur im Temp-Ordner):');
+{
+  const fs = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const modul = await import('../tools/bundle-ndi.mjs');
+  const tmp = fs.mkdtempSync(join(tmpdir(), 'jm-bundle-ndi-'));
+  try {
+    // Ein früherer Lauf hinterließ eine Datei unter altem Namen, eine unter heutigem Namen und einen Unterordner.
+    const ziel = join(tmp, 'resources', 'bin', 'win');
+    fs.mkdirSync(join(ziel, 'unter'), { recursive: true });
+    fs.writeFileSync(join(ziel, 'Processing.NDI.Lib.x64.alt.dll'), 'alt');
+    fs.writeFileSync(join(ziel, 'jm_ndi.node'), 'alt');
+    fs.writeFileSync(join(ziel, 'unter', 'rest.txt'), 'alt');
+    let fehler = null;
+    try {
+      modul.frischerOrdner(ziel);
+    } catch (e) {
+      fehler = e;
+    }
+    assert(fehler === null && fs.existsSync(ziel) && fs.statSync(ziel).isDirectory() && fs.readdirSync(ziel).length === 0,
+      'Nachtrag C I-C15-1 frischerOrdner: die Restdateien eines früheren Laufs (auch im Unterordner) sind weg, der Ordner steht leer da');
+    const neu = join(tmp, 'neu', 'bin', 'win');
+    try {
+      modul.frischerOrdner(neu);
+    } catch {
+      /* unten geprüft */
+    }
+    assert(fs.existsSync(neu) && fs.readdirSync(neu).length === 0, 'Nachtrag C I-C15-1 frischerOrdner: ein fehlender Ordner wird angelegt');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+  // Der Windows-Zweig leert seinen Ordner erst nach der Fassungsprüfung (eine gescheiterte Prüfung lässt ihn stehen) und vor dem
+  // Kopieren, wie der Mac-Zweig (C4E8); kein mkdirSync mehr, das alte Dateien stehen ließe.
+  const quelle = readFileSync(join(tools, 'bundle-ndi.mjs'), 'utf8').replace(/\r\n/g, '\n');
+  const win = quelle.slice(quelle.indexOf('function windowsZweig('), quelle.indexOf('function hauptprogramm('));
+  const frisch = win.indexOf('frischerOrdner(destDir);');
+  assert(frisch > win.indexOf('if (!r.weiter) throw new Error(') && frisch < win.indexOf('copyFileSync(') && !win.includes('mkdirSync(destDir'),
+    'Nachtrag C I-C15-1 Quelltext: der Windows-Zweig ruft frischerOrdner(destDir) nach der Fassungsprüfung und vor dem Kopieren');
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

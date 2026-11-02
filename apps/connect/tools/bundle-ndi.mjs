@@ -9,7 +9,8 @@
 //     Laufzeit (nur Textdateien), die libndi-Referenz des Addons auf @loader_path/libndi.dylib umgebogen, danach ad hoc
 //     neu signiert und beide Dateien mit codesign --verify geprüft. Die Fassung prüft hier nicht der Mac-Zweig: Seine
 //     Quellen kommen im Workflow aus dem Tag; die Fassungsprüfung läuft dort vorher aus dem Commit des Workflows (E54).
-// Ohne NDI_SDK_DIR Abbruch. Linux: übersprungen. Alle Dateien sind gitignored und werden pro Bau frisch bereitgestellt.
+// Ohne NDI_SDK_DIR Abbruch. Linux: übersprungen. Alle Dateien sind gitignored und werden pro Bau frisch bereitgestellt; beide
+// Zweige leeren ihren Ordner vorher (frischerOrdner bzw. rmSync, Nachtrag C).
 // Die reinen Teile (libndiReferenz, lizenzDateien, windowsNdiZeile) prüft test/bundle-ndi.test.mjs (PK51); als
 // Hauptprogramm läuft die Datei nur über istHauptprogramm, ein Import hat keine Nebenwirkung.
 import { execFileSync } from 'node:child_process';
@@ -54,6 +55,16 @@ export function windowsNdiZeile(werte) {
   const lizenz = werte.lizenz === 'fehlt' ? 'Lizenz fehlt' : `Lizenz ${werte.lizenz} vom ${werte.lizenzDatum}`;
   const doku = werte.doku === 'fehlt' ? 'Doku fehlt' : `Doku ${werte.doku} vom ${werte.dokuDatum}`;
   return `[bundle-ndi] NDI-Laufzeit Windows: Dateiversion ${werte.dateiversion} (SHA-256: DLL ${werte.dll}, ${lizenz}, ${doku})`;
+}
+
+/**
+ * Legt `ordner` frisch und leer an (Nachtrag C, I-C15-1, R23; wie der Mac-Zweig, C4E8): Dateien eines früheren Baus, etwa eine
+ * Laufzeit oder Lizenzdatei unter altem Namen, dürfen nicht über extraResources mitreisen. rmSync folgt keiner Verknüpfung
+ * (Junction), es entfernt nur sie selbst; der Ordner resources/bin ist ein gewöhnlicher, gitignorierter Ordner.
+ */
+export function frischerOrdner(ordner) {
+  rmSync(ordner, { recursive: true, force: true });
+  mkdirSync(ordner, { recursive: true });
 }
 
 /**
@@ -166,7 +177,8 @@ function windowsZweig(sdk) {
   const r = pruefeNdiLesestand({ kennzeichen: werte.dateiversion, lizenz: werte.lizenz, doku: werte.doku, datum: werte.lizenzDatum }, NDI_LESESTAND_WINDOWS);
   if (!r.weiter) throw new Error(`[bundle-ndi] ${r.meldung}`);
   console.log(`[bundle-ndi] ${r.meldung}`);
-  mkdirSync(destDir, { recursive: true });
+  // Frisch erst nach der Fassungsprüfung: Eine gescheiterte Prüfung lässt den Ordner, wie er war.
+  frischerOrdner(destDir);
   for (const { name, src } of sources) {
     const dest = join(destDir, name);
     copyFileSync(src, dest);
