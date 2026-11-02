@@ -566,6 +566,113 @@ console.log('— C5 · Raum-Folge: „Raum schließen“ überholt ein laufendes
   }
 }
 
+// ── Plan C, Task C6: Tray-Gästezeile (Regel R, T129–T131) und Tooltip (Regel TT, T132) ──
+console.log('— C6 · ST129–ST132 wörtlich, Tray-Gästezeile nach Regel R als Kreuzprodukt (22.10)');
+{
+  const { gaesteZeileNdi, TRAY_NDI_TEXT } = await import('../src/shared/zoom-text');
+  const { ndiZahlen } = await import('../src/main/ndi-lage');
+  type Anzeige = import('../src/shared/zoom-text').NdiZahlenAnzeige;
+  type Zahlen = import('../src/main/ndi-lage').NdiZahlen;
+  // Beide Richtungen im Typcheck: NdiZahlen aus der Lage (C3) passt in die Anzeige und umgekehrt (gleiche Form, E42).
+  const hin = (z: Zahlen): Anzeige => z;
+  const her = (z: Anzeige): Zahlen => z;
+  void her;
+  type Z = Anzeige & { cloud: boolean };
+  const zeile = (e: number, s: number, g: number, b: number, a: number, cloud = true): string => gaesteZeileNdi({ e, s, g, b, a, cloud });
+  const SOLL: Array<[string, string, string]> = [
+    ['7.3 (e = 0, Cloud eingerichtet, unverändert)', zeile(0, 0, 0, 0, 0), '○ Gäste: keine NDI-Quelle'],
+    ['7.3 (e = 0, Cloud nicht eingerichtet, unverändert)', zeile(0, 0, 0, 0, 0, false), '△ Gäste: Cloud nicht eingerichtet'],
+    ['T129 (e = 1)', zeile(1, 0, 0, 0, 1), '△ Gäste: NDI-Quelle ausgefallen'],
+    ['T129 (a = 2 von e = 3)', zeile(3, 0, 1, 0, 2), '△ Gäste: 2 von 3 NDI-Quellen ausgefallen'],
+    ['T129 vor T131 (a = 1, g = 2, b = 1)', zeile(3, 0, 2, 1, 1), '△ Gäste: 1 von 3 NDI-Quellen ausgefallen'],
+    ['T130 (s = 1)', zeile(1, 1, 0, 0, 0), '○ Gäste: NDI-Quelle startet …'],
+    ['T130 (s = 3)', zeile(3, 3, 0, 0, 0), '○ Gäste: 3 NDI-Quellen starten …'],
+    ['T131 (g = 1)', zeile(1, 0, 1, 0, 0), '● Gäste: 1 NDI-Quelle'],
+    ['T131 (g = 2, unverändert bei s = 0 und b = 0)', zeile(2, 0, 2, 0, 0), '● Gäste: 2 NDI-Quellen'],
+    ['T131 (g = 2, b = 1, s = 1)', zeile(3, 1, 2, 1, 0), '● Gäste: 2 NDI-Quellen, 1 ohne Bild, 1 startet …'],
+    ['T131 (g = 1, s = 2)', zeile(3, 2, 1, 0, 0), '● Gäste: 1 NDI-Quelle, 2 starten …'],
+    ['T131 (g = 2, b = 2)', zeile(2, 0, 2, 2, 0), '● Gäste: 2 NDI-Quellen, 2 ohne Bild'],
+    ['T131 ohne Cloud (e > 0: die Quellen zählen)', zeile(2, 0, 2, 0, 0, false), '● Gäste: 2 NDI-Quellen'],
+    ['T132 (Teil des Tooltips)', TRAY_NDI_TEXT.t132, 'NDI-Ausfall'],
+  ];
+  for (const [id, ist, soll] of SOLL) ck(`S${id} wörtlich`, ist === soll);
+  // Zählweise aus der Lage (C3) bis in die Zeile: Einträge startet, ohneBild, gescheitert.
+  const lagen = [quelle({ schluessel: 'g1', zustand: 'startet' }), quelle({ schluessel: 'g2', zustand: 'ohneBild' }),
+    quelle({ schluessel: 'g3', zustand: 'gescheitert', grund: 'absturz', code: 1 })];
+  ck('Regel R mit ndiZahlen aus der Lage: startet, ohneBild, gescheitert → „△ Gäste: 1 von 3 NDI-Quellen ausgefallen“',
+    gaesteZeileNdi({ ...hin(ndiZahlen(lagen)), cloud: true }) === '△ Gäste: 1 von 3 NDI-Quellen ausgefallen');
+
+  /** Regel R (22.5), im Test aus der Spec abgeschrieben. */
+  const regelR = (z: Z): string => {
+    if (z.e === 0) return z.cloud ? '○ Gäste: keine NDI-Quelle' : '△ Gäste: Cloud nicht eingerichtet';
+    if (z.a > 0) return z.e === 1 ? '△ Gäste: NDI-Quelle ausgefallen' : `△ Gäste: ${z.a} von ${z.e} NDI-Quellen ausgefallen`;
+    if (z.g > 0) {
+      return (z.g === 1 ? '● Gäste: 1 NDI-Quelle' : `● Gäste: ${z.g} NDI-Quellen`) + (z.b > 0 ? `, ${z.b} ohne Bild` : '')
+        + (z.s === 0 ? '' : z.s === 1 ? ', 1 startet …' : `, ${z.s} starten …`);
+    }
+    return z.s === 1 ? '○ Gäste: NDI-Quelle startet …' : `○ Gäste: ${z.s} NDI-Quellen starten …`;
+  };
+  // e ∈ {0, 1, 2, 3} mit jeder Aufteilung auf s, g (davon b) und a, je Cloud ja/nein.
+  const FAELLE: Z[] = [];
+  for (const e of [0, 1, 2, 3]) for (const a of Array.from({ length: e + 1 }, (_, i) => i))
+    for (const gg of Array.from({ length: e - a + 1 }, (_, i) => i)) for (const b of Array.from({ length: gg + 1 }, (_, i) => i))
+      for (const cloud of [true, false]) FAELLE.push({ e, a, g: gg, b, s: e - a - gg, cloud });
+  const R = FAELLE.map((z) => ({ z, t: gaesteZeileNdi(z) }));
+  const zeigeR = ({ z, t }: { z: Z; t: string }): string => `${JSON.stringify(z)} → ${t}`;
+  console.log(`     22.10 Tray-Gästezeile: ${R.length} Kombinationen geprüft`);
+  alle('22.10 Tray-Gästezeile: jede Aufteilung wörtlich nach Regel R', R, ({ z, t }) => t === regelR(z), zeigeR);
+  alle('Prädikat „●“ in der Tray-Zeile ⇒ g > 0 und a = 0', R, ({ z, t }) => !t.includes('●') || (z.g > 0 && z.a === 0), zeigeR);
+  alle('Prädikat „ausgefallen“ in der Tray-Zeile ⇔ a > 0', R, ({ z, t }) => t.includes('ausgefallen') === z.a > 0, zeigeR);
+  alle('Prädikat „ohne Bild“ in der Tray-Zeile ⇔ b > 0 und a = 0', R, ({ z, t }) => t.includes('ohne Bild') === (z.b > 0 && z.a === 0), zeigeR);
+  alle('Prädikat „startet“/„starten“ in der Tray-Zeile ⇒ s > 0 und a = 0', R, ({ z, t }) => !/startet|starten/.test(t) || (z.s > 0 && z.a === 0), zeigeR);
+  alle('Prädikat Zahlen in der Zeile stimmen (a von e, g, b, s; Singular bei 1)', R, ({ z, t }) => {
+    if (z.a > 0) return z.e === 1 ? t.endsWith('NDI-Quelle ausgefallen') : t.includes(`${z.a} von ${z.e} NDI-Quellen`);
+    if (z.g > 0) return t.includes(z.g === 1 ? '1 NDI-Quelle' : `${z.g} NDI-Quellen`) && (z.b === 0 || t.includes(`${z.b} ohne Bild`));
+    return z.e === 0 || t.includes(z.s === 1 ? 'NDI-Quelle startet' : `${z.s} NDI-Quellen starten`);
+  }, zeigeR);
+}
+
+console.log('— C6 · Tooltip nach Regel TT als Kreuzprodukt (22.10): e > 0 × n > 0 × ndi_alarm × Z0–Z13, macOS ohne Zoom');
+{
+  const { trayTooltipNdi } = await import('../src/shared/zoom-text');
+  type ZZ = import('../src/shared/zoom-text').ZoomZ;
+  // Zoom-Teile des Tooltips je Zeile aus 7.1, wörtlich wie 7.4 (zoom-text.ts:245-246: abriss = Z10/Z11, fehler = Z13).
+  const ZOOM_TEILE: Record<ZZ, string[]> = {
+    Z0: [], Z1a: [], Z1b: [], Z2: [], Z3: [], Z4: [], Z5a: [], Z5b: [], Z6: [], Z7: [], Z7b: [], Z8: [], Z9: [], Z9b: [],
+    Z10: ['Zoom-Verbindung unterbrochen'], Z11: ['Zoom-Verbindung unterbrochen'], Z12: [], Z13: ['Zoom-Fehler'],
+  };
+  ck('ZoomZ hat 18 Zeilen (Z0–Z13), jede steht in der Tooltip-Tabelle', Object.keys(ZOOM_TEILE).length === 18);
+  const SOLL: Array<[string, string, string]> = [
+    ['T132: nichts aktiv', trayTooltipNdi({ e: 0, n: 0, ndiAlarm: false, zoomTeile: [] }), 'JM Connect'],
+    ['T132: nur NDI-Ausfall (Programm-Empfang, ohne Gast-Quelle)', trayTooltipNdi({ e: 0, n: 0, ndiAlarm: true, zoomTeile: [] }), 'JM Connect — NDI-Ausfall'],
+    ['T132: Zuschaltungen aktiv und NDI-Ausfall', trayTooltipNdi({ e: 1, n: 0, ndiAlarm: true, zoomTeile: [] }), 'JM Connect — Zuschaltungen aktiv · NDI-Ausfall'],
+    ['T132: Slots laufen (n = 2), Zoom-Fehler (Z13)', trayTooltipNdi({ e: 0, n: 2, ndiAlarm: false, zoomTeile: ZOOM_TEILE.Z13 }),
+      'JM Connect — Zuschaltungen aktiv · Zoom-Fehler'],
+    ['T132: alle Teile, Z10', trayTooltipNdi({ e: 2, n: 1, ndiAlarm: true, zoomTeile: ZOOM_TEILE.Z10 }),
+      'JM Connect — Zuschaltungen aktiv · NDI-Ausfall · Zoom-Verbindung unterbrochen'],
+    ['T132: macOS (ohne Zoom), Gast-Quelle', trayTooltipNdi({ e: 1, n: 0, ndiAlarm: false, zoomTeile: [] }), 'JM Connect — Zuschaltungen aktiv'],
+  ];
+  for (const [id, ist, soll] of SOLL) ck(`S${id} wörtlich`, ist === soll);
+  /** Regel TT (22.5), aus der Spec abgeschrieben. */
+  const regelTT = (e: number, n: number, alarm: boolean, zoom: string[]): string => {
+    const t = [...(e > 0 || n > 0 ? ['Zuschaltungen aktiv'] : []), ...(alarm ? ['NDI-Ausfall'] : []), ...zoom];
+    return t.length ? `JM Connect — ${t.join(' · ')}` : 'JM Connect';
+  };
+  interface TF { zz: ZZ | 'macOS'; e: number; n: number; alarm: boolean }
+  const FAELLE: TF[] = [];
+  for (const zz of [...(Object.keys(ZOOM_TEILE) as ZZ[]), 'macOS' as const]) for (const e of [0, 1])
+    for (const n of zz === 'macOS' ? [0] : [0, 2]) for (const alarm of [false, true]) FAELLE.push({ zz, e, n, alarm });
+  const teileVon = (f: TF): string[] => (f.zz === 'macOS' ? [] : ZOOM_TEILE[f.zz]);
+  const T = FAELLE.map((f) => ({ f, t: trayTooltipNdi({ e: f.e, n: f.n, ndiAlarm: f.alarm, zoomTeile: teileVon(f) }) }));
+  const zeigeT = ({ f, t }: { f: TF; t: string }): string => `${JSON.stringify(f)} → ${t}`;
+  console.log(`     22.10 Tooltip: ${T.length} Kombinationen geprüft (alle Paare aus Z und n, auch solche, die 7.1 nicht hervorbringt)`);
+  alle('22.10 Tooltip: jede Kombination wörtlich nach Regel TT', T, ({ f, t }) => t === regelTT(f.e, f.n, f.alarm, teileVon(f)), zeigeT);
+  alle('Prädikat „Zuschaltungen aktiv“ ⇔ e > 0 oder n > 0', T, ({ f, t }) => t.includes('Zuschaltungen aktiv') === (f.e > 0 || f.n > 0), zeigeT);
+  alle('Prädikat „NDI-Ausfall“ ⇔ ndi_alarm = 1', T, ({ f, t }) => t.includes('NDI-Ausfall') === f.alarm, zeigeT);
+  alle('Prädikat die Zoom-Teile stehen unverändert am Ende (7.4)', T,
+    ({ f, t }) => teileVon(f).length === 0 || t.endsWith(teileVon(f).join(' · ')), zeigeT);
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

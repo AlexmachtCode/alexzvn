@@ -273,6 +273,57 @@ export function kartenZeile(a: ZoomAbbild, jetztMs: number): string | null {
   }
 }
 
+/**
+ * Tray-Gästezeile und Tooltip mit der NDI-Lage (Spec 22.5 Regel R und Regel TT, 22.9 T129–T132; Ergänzung FR13). Die Zeilen
+ * für e = 0 und die übrigen Tooltip-Teile stehen wörtlich wie in 7.3/7.4 (gaesteZeile und trayTooltip unten; beide
+ * delegieren ab Plan C Task C9 hierher).
+ */
+export const TRAY_NDI_TEXT = {
+  /** 7.3, unverändert: e = 0, Cloud eingerichtet */
+  keineQuelle: '○ Gäste: keine NDI-Quelle',
+  /** 7.3, unverändert: e = 0, Cloud nicht eingerichtet */
+  keineCloud: '△ Gäste: Cloud nicht eingerichtet',
+  t129: (a: number, e: number): string => (e === 1 ? '△ Gäste: NDI-Quelle ausgefallen' : `△ Gäste: ${a} von ${e} NDI-Quellen ausgefallen`),
+  t130: (s: number): string => (s === 1 ? '○ Gäste: NDI-Quelle startet …' : `○ Gäste: ${s} NDI-Quellen starten …`),
+  t131: (g: number): string => (g === 1 ? '● Gäste: 1 NDI-Quelle' : `● Gäste: ${g} NDI-Quellen`),
+  t131OhneBild: (b: number): string => `, ${b} ohne Bild`,
+  t131Startet: (s: number): string => (s === 1 ? ', 1 startet …' : `, ${s} starten …`),
+  /** 7.4, unverändert */
+  titel: 'JM Connect',
+  /** 7.4, unverändert */
+  zuschaltungen: 'Zuschaltungen aktiv',
+  t132: 'NDI-Ausfall',
+} as const;
+
+/**
+ * Zählweise der Gast-NDI-Quellen (E42): e Einträge, g bestehend (davon b ohne Bild), s startend, a ausgefallen. Dieselbe Form
+ * wie NdiZahlen aus main/ndi-lage.ts; zoom-text.ts lädt nichts aus main/ (Linie von Plan B, der Renderer-tsconfig prüft
+ * diese Datei mit).
+ */
+export interface NdiZahlenAnzeige { e: number; g: number; b: number; s: number; a: number }
+
+/** Regel R (22.5), erste passende Zeile: e = 0 wie 7.3; a > 0 → T129; g > 0 → T131 samt Zusätzen; sonst (nur s) → T130. */
+export function gaesteZeileNdi(z: NdiZahlenAnzeige & { cloud: boolean }): string {
+  if (z.e === 0) return z.cloud ? TRAY_NDI_TEXT.keineQuelle : TRAY_NDI_TEXT.keineCloud;
+  if (z.a > 0) return TRAY_NDI_TEXT.t129(z.a, z.e);
+  if (z.g > 0) {
+    return TRAY_NDI_TEXT.t131(z.g) + (z.b > 0 ? TRAY_NDI_TEXT.t131OhneBild(z.b) : '') + (z.s > 0 ? TRAY_NDI_TEXT.t131Startet(z.s) : '');
+  }
+  return TRAY_NDI_TEXT.t130(z.s);
+}
+
+/**
+ * Regel TT (22.5): „Zuschaltungen aktiv“ bei e > 0 oder n > 0 (n = laufende Slots, 9.5), „NDI-Ausfall“ bei ndi_alarm = 1
+ * (22.6), dann die Zoom-Teile unverändert (7.4); T132.
+ */
+export function trayTooltipNdi(e: { e: number; n: number; ndiAlarm: boolean; zoomTeile: string[] }): string {
+  const teile: string[] = [];
+  if (e.e > 0 || e.n > 0) teile.push(TRAY_NDI_TEXT.zuschaltungen);
+  if (e.ndiAlarm) teile.push(TRAY_NDI_TEXT.t132);
+  teile.push(...e.zoomTeile);
+  return teile.length ? `${TRAY_NDI_TEXT.titel} — ${teile.join(' · ')}` : TRAY_NDI_TEXT.titel;
+}
+
 /** Gäste-Zeile im Tray (Spec 7.3, berichtigt): g = NDI-Sender der Gäste inklusive Bildschirm. */
 export function gaesteZeile(s: AppStatus): string {
   const g = s.ndiSenders;
