@@ -18,6 +18,8 @@ T-Nummern verweisen auf die Texttabelle der Spec (T1 bis T106 in Abschnitt 9, T1
 | --- | --- | --- | --- |
 | `JM Connect-0.4.0-win-x64.exe` (Pre-Release `connect-v0.4.0`, über den Launcher installiert) | | | |
 | `jm-suite-companion-0.3.0.tgz` (Modul 0.3.0, aus dem Release) | | | |
+| `JM.Connect-0.4.0-mac-arm64.dmg` (Release `connect-v0.4.0`, aus `connect-mac.yml`, über den Launcher installiert; ND9) | | | |
+| `JM.Connect-0.4.0-mac-x64.dmg` (Release `connect-v0.4.0`, aus `connect-mac.yml`; ND12) | | | |
 
 **Raum-PC** (vom Owner auszufüllen):
 
@@ -167,7 +169,27 @@ Je Stufe zeigt jeder Slot eine **eigene** Kamera-Quelle auf einem Teilnehmer-Slo
 
 ## N · NDI (Ergänzung FR13)
 
-Schritte folgen mit Plan C.
+**Voraussetzungen zusätzlich zu 12:** ein Mac mit Apple Silicon und macOS 15 mit Launcher 0.16.0; für ND12 ein Intel-Mac oder Rosetta auf dem Apple-Silicon-Mac; ein Browser-Gast; der JM Switcher mit NDI-Ausgang „JM Switcher“ (Programm); unter Windows der Task-Manager mit der Ansicht „Details“ (PID), auf dem Mac die Aktivitätsanzeige; Zugriff auf den Installationsordner von Connect unter Windows (ND5); eine geöffnete Show (ND15); eine Firewall-Regel am Raum-PC, die die Adresse des Proxys sperrt, ohne das LAN zu trennen (ND16, ND17); für ND17 das Recht, die Uhr des Raum-PCs zu stellen (automatische Zeit aus). „Getesteter Bau“ nennt zusätzlich die SHA-256 beider DMGs. A4 ist Pflicht (12).
+
+| # | Schritt | Erwartung | Ergebnis |
+| --- | --- | --- | --- |
+| ND1 | Windows: Raum öffnen, Gast einlassen, Gast teilt den Bildschirm; im Switcher beide Quellen als Eingang wählen | je Quelle T108 mit einer Empfängerzahl ≥ 1, Programm-Abzeichen T123, Tray T131, STATE `ndi_sources=2`, `ndi_alarm=0`; T133 öffnet ndi.video; T134 sichtbar, daneben „Logordner öffnen“ und „Lizenzbedingungen“ (T142); im Untertitel T145 | |
+| ND2 | Windows: am Gast-Gerät die Kamera im Browser stoppen bzw. das Netz 10 s trennen | sobald im Switcher-Eingang kein neues Bild kommt, spätestens nach 4 s T109; danach wieder T108; notieren, welche Handlung das Bild anhielt und ob der Gast bei der Netztrennung den Raum verließ (dann `tearDown`, kein Abzeichen; MS35) | |
+| ND3 | Windows: PID des Kamera-Senders aus dem Log („Logordner öffnen“ in der Fußzeile), den Prozess im Task-Manager beenden | T110 (k = 1), Tray T129, `ndi_alarm=1`, Log mit Code und PID; danach T108, `ndi_alarm=0`; notieren, ob und nach wie vielen Sekunden der Switcher-Eingang wieder Bild zeigt (MS31) | |
+| ND4 | Windows: denselben Sender viermal hintereinander beenden, jeweils, wenn T108 wieder steht, binnen 60 s (ein Beenden vor dem `bereit` des neuen Prozesses ergäbe T117) | nach dem vierten Mal T111 mit T118, kein Neustart von selbst; „NDI neu starten“ → T107, dann T108 | |
+| ND5 | Windows: Connect beenden, im Installationsordner `resources\bin\win\jm_ndi.node` umbenennen (nicht die DLL: Fehlt nur sie, lädt der Lader eine installierte NDI-Laufzeit, `packages/ndi/index.js:29-53`, und die Zoom-Bridge nutzt dieselbe DLL, `apps/connect/src/main/zoom/laufzeit.ts:8`, `:19`, `:93-94`; eine zweite Kopie in der `app.asar` gibt es seit E56 nicht mehr, Erfolgszeile von Wächter 2 im Bauprotokoll), starten, Raum öffnen, Gast einlassen | Gastzeile T111 mit T114, Programm-Grundzeile T128 mit T114, kein Neustart von selbst, „Logordner öffnen“ öffnet den Logordner; Datei zurück, Connect neu starten: alles wie ND1 | |
+| ND6 | Windows: im Switcher den NDI-Ausgang ausschalten, nach 10 s wieder einschalten | nach spätestens 4 s T124, `ndi_program=ohne_bild`, `ndi_alarm=0`; notieren, ob das Abzeichen ohne Handgriff wieder T123 zeigt und nach wie vielen Sekunden (MS30) | |
+| ND7 | Windows: Switcher beenden, Raum schließen und wieder öffnen, dann Switcher starten | T122 mit Tooltip (ohne den macOS-Zusatz), danach T123 | |
+| ND8 | Windows: PID des Programm-Empfängers aus dem Log, Prozess beenden; danach wie ND4 viermal hintereinander, jeweils, wenn T123 wieder steht, binnen 60 s | T127 (k = 1), `ndi_alarm=1`, danach T123, `ndi_alarm=0`; nach dem vierten Mal T128 mit T118, kein Neustart von selbst; „Programm neu starten“ → T121, dann T123 | |
+| ND9 | Mac (Apple Silicon): Connect 0.4.0 über den Launcher installieren und starten; die Handgriffe für Gatekeeper notieren (MS33); fragt macOS nach dem lokalen Netzwerk (Text T135), erlauben und notieren, wann (MS32) | T95 an der Stelle der Zoom-Karte; T134 in der Fußzeile und im Fenster „Über JM Connect“, T145 im Untertitel; T133; „Lizenzbedingungen“ öffnet `LIZENZ.txt`; „Logordner öffnen“ öffnet den Logordner (Pfad für D17 notieren); ND1 wie unter Windows: Gast und Bildschirm als NDI-Quelle im Switcher am Windows-Rechner, Programm T123, die Gäste sehen und hören das Programm; STATE ohne `zoom_*`, mit `ndi_*` | |
+| ND10 | Mac: in den Systemeinstellungen den Zugriff auf das lokale Netzwerk entziehen, Connect neu starten, Gast einlassen | notieren, was Gastzeile, Programm-Abzeichen (T122 mit macOS-Zusatz?) und Switcher zeigen (MS32); danach den Zugriff wieder erlauben | |
+| ND11 | Mac: ND3, ND4 und ND8 (PID aus dem Log über „Logordner öffnen“ in der Fußzeile, beenden in der Aktivitätsanzeige) | wie unter Windows; nach ND4 öffnet „Logordner öffnen“ an der Grundzeile den Logordner | |
+| ND12 | Mac x64: das x64-DMG aus dem Release auf einem Intel-Mac oder unter Rosetta starten, Gast einlassen | Gast als NDI-Quelle im Switcher, Programm T123 (das universelle Addon lädt in der x64-App) | |
+| ND13 | Paketinhalt und Lizenzbedingungen nach der Installation über den Launcher: im Mac-Paket `JM Connect.app/Contents/Resources/bin/mac/` und `Contents/Resources/LIZENZ.txt`, im Windows-Installationsordner `resources\bin\win\` und `resources\LIZENZ.txt`; in Connect „Lizenzbedingungen“ | Mac: `jm_ndi.node`, `libndi.dylib`, Lizenzdatei der NDI-Laufzeit; Windows: `Processing.NDI.Lib.Licenses.txt`; beide: `LIZENZ.txt` mit dem Text nach FR16, „Lizenzbedingungen“ öffnet ihn; die Mac-Installation über den Launcher lief ohne Lizenzfenster und ohne Hänger durch | |
+| ND14 | Windows: Der Gast teilt eine Folie und lässt sie 10 s unverändert, dann bewegt er die Maus | notieren, ob die Bildschirm-Quelle in der Pause T109 zeigt (MS34); danach T108 | |
+| ND15 | Windows mit geöffneter Show: Gast einlassen, Connect beenden und wieder öffnen, denselben Raum öffnen; der Gast bleibt eingelassen | Gastzeile T140 (teilt der Gast, auch für die Bildschirm-Quelle); Tray-Gästezeile und `ndi_alarm` zählen ihn nicht (FR17, Vorgabe A); dann den Gast entfernen und neu einladen: notieren, ob danach T108 kommt (MS36) | |
+| ND16 | Windows: bei laufendem Gast und Programm den Proxy per Firewall sperren (das LAN bleibt), währenddessen den Kamera-Sender beenden (wie ND3), nach 30 s freigeben | T141 über der Gästeliste, die Gastzeile zeigt T110 und danach den aktuellen Zustand, das Programm-Abzeichen bleibt stehen; „Raum öffnen“ erscheint nicht, „Entfernen“, Talkback, Folien und „Link erzeugen“ sind gesperrt (ein Klick auf „Entfernen“ bewirkt nichts; Talkback für alle, während der Sperre gehalten, ergibt im Log keine neue Talkback-Zeile), „Raum schließen“ und „Logordner öffnen“ bleiben bedienbar; nach der Freigabe verschwindet T141, und „Entfernen“ ist wieder bedienbar | |
+| ND17 | Windows mit geöffneter Show: Raum öffnen, Gast einlassen und auf Sendung nehmen; die automatische Zeit ausschalten und die Uhr des Raum-PCs um 8 h 5 min vorstellen (für Connect ist die Anmeldung damit abgelaufen, für den DO nicht, E57; die Fristen der Ergänzung laufen monoton und sehen den Sprung nicht, E50); den Proxy wie in ND16 sperren und nach 30 s freigeben; dann „Raum öffnen“; zuletzt im Tray-Menü „Raum schließen“ und die automatische Zeit wieder einschalten | nach der Sperre T144 mit dem Zusatz zur Gästeliste statt T141, ohne die Meldung des Wachhunds (T146); „Raum öffnen“ und „Raum schließen“ bedienbar, Gast-Aktionen und Talkback gesperrt, Gastzeile und NDI-Abzeichen bleiben; nach der Freigabe bleibt T144 stehen (kein Versuch der Bedienung mehr, obwohl der DO den alten Token noch annähme; der versteckte Peer verbindet weiter, RS29); nach „Raum öffnen“ verbunden, T144 weg, der Gast weiter auf Sendung, sein Link öffnet den Raum nach Neuladen wieder; notieren, wie lange Bild und Rückkanal aussetzen; nach „Raum schließen“ im Tray (E58) steht im Fenster nur „Raum öffnen“, und der Link des Gasts führt nicht mehr in den Raum | |
 
 ## Messungen
 
@@ -201,5 +223,12 @@ Schritte folgen mit Plan C.
 | MS26 | Welche Rückrufe kommen zwischen `DISCONNECTING` und `ENDED`? | J3 | |
 | MS27 | Liefert `subscribe(SHARE)` bei `Sharing_Other_Share_Begin` sofort oder zuerst 29 (`noShareData`)? | E9 | |
 | MS28 | Welche Kennung trägt der Freigabe-Ton (`shareAudioLastId`), gleich der `userid` aus `ZoomSDKSharingSourceInfo`? | E4 | |
+| MS30 | Kommt das Programmbild nach Aus- und Wiedereinschalten des Switcher-NDI-Ausgangs ohne Handgriff zurück (NDI verbindet selbst neu)? Nach wie vielen Sekunden? | ND6 | |
+| MS31 | Verbindet der JM Switcher nach dem Neustart eines Gast-Senders (neuer Prozess, gleicher NDI-Name) selbst neu? Nach wie vielen Sekunden? | ND3 | |
+| MS32 | macOS 15: Fragt macOS nach dem Zugriff auf das lokale Netzwerk, und wann (erster Start, Öffnen des Raums)? Was zeigen Gastzeile, Programm-Abzeichen und Switcher, wenn der Zugriff fehlt? | ND9, ND10 | |
+| MS33 | Welche Handgriffe verlangt macOS 15 beim ersten Start für das unsignierte DMG mit NDI, das der Launcher installiert hat? | ND9 | |
+| MS34 | Zeigt eine laufende Bildschirm-Quelle bei 10 s unveränderter Folie T109 (liefert der Browser dann keine Bilder)? | ND14 | |
+| MS35 | Welche Handlung am Gast-Gerät hält die Bilder an (Kamera im Browser stoppen, Netz 10 s trennen), und verlässt der Gast bei der Netztrennung den Raum? | ND2 | |
+| MS36 | Hat ein eingelassener Gast ohne NDI-Quelle (T140) nach Entfernen und neuem Einladen wieder eine Quelle? | ND15 | |
 
-Entfallen: **MS29** („Kommt `RawData_Off` innerhalb von `unSubscribe()` oder danach?“, Restrunde RR2). Die Messpunkte MS30 bis MS36 der Ergänzung FR13 folgen mit Plan C.
+Entfallen: **MS29** („Kommt `RawData_Off` innerhalb von `unSubscribe()` oder danach?“, Restrunde RR2).
