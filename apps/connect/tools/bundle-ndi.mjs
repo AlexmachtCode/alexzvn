@@ -6,12 +6,12 @@
 //     Lizenz und Doku gegen NDI_LESESTAND_WINDOWS aus tools/pruefe-mac-paket.mjs (E54); weicht ein Wert ab, Abbruch.
 //   macOS (resources/bin/mac, ab 0.4.0, nach dem Titler apps/titler/tools/bundle-ndi.mjs): das universelle Addon (aus
 //     tools/ndi-universal.mjs) und libndi.dylib, beide mit arm64 UND x86_64 (sonst Abbruch), die Lizenzdatei(en) der
-//     Laufzeit (nur Textdateien), die libndi-Referenz des Addons auf @loader_path/libndi.dylib umgebogen, danach ad hoc
+//     Laufzeit (nur Textdateien; gleiche Kopien, die das Apple-SDK mehrfach ablegt, nur einmal: lizenzAuswahl), die libndi-Referenz des Addons auf @loader_path/libndi.dylib umgebogen, danach ad hoc
 //     neu signiert und beide Dateien mit codesign --verify geprüft. Die Fassung prüft hier nicht der Mac-Zweig: Seine
 //     Quellen kommen im Workflow aus dem Tag; die Fassungsprüfung läuft dort vorher aus dem Commit des Workflows (E54).
 // Ohne NDI_SDK_DIR Abbruch. Linux: übersprungen. Alle Dateien sind gitignored und werden pro Bau frisch bereitgestellt; beide
 // Zweige leeren ihren Ordner vorher (frischerOrdner bzw. rmSync, Nachtrag C).
-// Die reinen Teile (libndiReferenz, lizenzDateien, windowsNdiZeile) prüft test/bundle-ndi.test.mjs (PK51); als
+// Die reinen Teile (libndiReferenz, lizenzDateien, lizenzAuswahl, windowsNdiZeile) prüft test/bundle-ndi.test.mjs (PK51); als
 // Hauptprogramm läuft die Datei nur über istHauptprogramm, ein Import hat keine Nebenwirkung.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -48,6 +48,41 @@ export function lizenzDateien(namen) {
     const teile = n.toLowerCase().split('/');
     return teile.at(-1).endsWith('.txt') && n.toLowerCase().includes('licen') && !teile.includes('examples');
   });
+}
+
+/**
+ * Wählt aus den Lizenzdateien des SDK die, die beigelegt werden (flach unter ihrem Dateinamen). Das Apple-SDK
+ * (Install_NDI_SDK_v6_Apple.pkg) legt dieselbe libndi_licenses.txt dreimal ab (bin/, lib/macOS/, licenses/); gleichnamige
+ * Dateien mit gleichem Inhalt (gleiche SHA-256 über `inhaltHash(rel)`) kommen darum nur einmal, bevorzugt die im Ordner der
+ * Laufzeit (`laufzeitOrdner`, neben libndi.dylib), sonst die erste in Listenreihenfolge. Unterscheiden sich gleichnamige Dateien,
+ * Abbruch: Sie würden einander überschreiben. Gibt { kopieren, gruppen } zurück; eine Gruppe je Name mit mehreren Kopien:
+ * { name, hash, beigelegt, gleich }.
+ */
+export function lizenzAuswahl(lizenzen, inhaltHash, laufzeitOrdner = 'lib/macOS') {
+  const nachName = new Map();
+  for (const l of lizenzen) {
+    const name = basename(l);
+    if (!nachName.has(name)) nachName.set(name, []);
+    nachName.get(name).push(l);
+  }
+  const kopieren = [];
+  const gruppen = [];
+  for (const [name, pfade] of nachName) {
+    if (pfade.length === 1) {
+      kopieren.push(pfade[0]);
+      continue;
+    }
+    const hashes = pfade.map((rel) => inhaltHash(rel));
+    if (new Set(hashes).size !== 1) {
+      throw new Error(`[bundle-ndi] Lizenzdateien mit gleichem Namen, aber verschiedenem Inhalt: ${pfade.map((rel, i) => `${rel} (${hashes[i]})`).join(', ')}`);
+    }
+    const beigelegt = pfade.find((rel) => dirname(rel) === laufzeitOrdner) ?? pfade[0];
+    kopieren.push(beigelegt);
+    gruppen.push({ name, hash: hashes[0], beigelegt, gleich: pfade.filter((rel) => rel !== beigelegt) });
+  }
+  // Reihenfolge der Liste: die beigelegte Datei steht dort, wo ihr Name zuerst vorkam.
+  kopieren.sort((x, y) => lizenzen.indexOf(x) - lizenzen.indexOf(y));
+  return { kopieren, gruppen };
 }
 
 /** Die Bauprotokoll-Zeile der Windows-Laufzeit (E54): Dateiversion, SHA-256 der DLL, SHA-256 und Datum von Lizenz und Doku. */
@@ -114,8 +149,8 @@ function macZweig(sdk) {
   }
   const lizenzen = lizenzDateien(dateienRelativ(sdk));
   if (!lizenzen.length) throw new Error(`[bundle-ndi] keine Lizenzdatei der NDI-Laufzeit (.txt mit „licen“ im Pfad) unter ${sdk}`);
-  const namen = lizenzen.map((l) => basename(l));
-  if (new Set(namen).size !== namen.length) throw new Error(`[bundle-ndi] Lizenzdateien mit gleichem Namen: ${lizenzen.join(', ')}`);
+  // Gleiche Kopien nur einmal (das Apple-SDK legt sie dreimal ab), verschiedene Texte gleichen Namens: Abbruch.
+  const { kopieren: lizenzKopien, gruppen: lizenzGruppen } = lizenzAuswahl(lizenzen, (rel) => sha256(join(sdk, rel)));
   // Frisch: alte Dateien eines früheren Baus (etwa eine Lizenzdatei unter altem Namen) dürfen nicht mitreisen.
   rmSync(destDir, { recursive: true, force: true });
   mkdirSync(destDir, { recursive: true });
@@ -123,7 +158,7 @@ function macZweig(sdk) {
   const dylibDest = join(destDir, 'libndi.dylib');
   copyFileSync(nodeSrc, nodeDest);
   copyFileSync(dylibReal, dylibDest);
-  for (const l of lizenzen) copyFileSync(join(sdk, l), join(destDir, basename(l)));
+  for (const l of lizenzKopien) copyFileSync(join(sdk, l), join(destDir, basename(l)));
   // libndi-Referenz der .node auf @loader_path/libndi.dylib umbiegen (+ rpath @loader_path als Rückfall).
   const ref = libndiReferenz(execFileSync('otool', ['-L', nodeDest], { encoding: 'utf8' }));
   if (!ref) throw new Error(`[bundle-ndi] jm_ndi.node verweist laut otool -L auf keine libndi: ${nodeDest}`);
@@ -143,7 +178,10 @@ function macZweig(sdk) {
   for (const d of [nodeDest, dylibDest]) execFileSync('codesign', ['--verify', '--verbose', d], { stdio: 'inherit' });
   console.log(`[bundle-ndi] mac: jm_ndi.node (${machOArchitekturen(readFileSync(nodeDest)).join(', ')}, libndi ${ref.alt} → @loader_path/libndi.dylib, ad hoc signiert) → ${nodeDest}`);
   console.log(`[bundle-ndi] mac: libndi.dylib (${machOArchitekturen(readFileSync(dylibDest)).join(', ')}) → ${dylibDest}`);
-  for (const l of lizenzen) console.log(`[bundle-ndi] mac: Lizenzdatei ${l} → ${join(destDir, basename(l))}`);
+  for (const g of lizenzGruppen) {
+    console.log(`[bundle-ndi] Lizenzdatei ${g.name} in ${g.gleich.length + 1} Ordnern gleich (SHA-256 ${g.hash}): ${g.beigelegt} beigelegt; gleich: ${g.gleich.join(', ')}`);
+  }
+  for (const l of lizenzKopien) console.log(`[bundle-ndi] mac: Lizenzdatei ${l} → ${join(destDir, basename(l))}`);
 }
 
 function windowsZweig(sdk) {

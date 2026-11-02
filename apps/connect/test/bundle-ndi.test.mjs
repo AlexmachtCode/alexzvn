@@ -4,10 +4,12 @@
 // von macOS. Baut nichts, lädt nichts, schreibt nichts nach resources/ (frischerOrdner nur in einem Temp-Ordner).
 //   node apps/connect/test/bundle-ndi.test.mjs
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { istHauptprogramm, libndiReferenz, lizenzDateien, windowsNdiZeile } from '../tools/bundle-ndi.mjs';
+import { istHauptprogramm, libndiReferenz, lizenzAuswahl, lizenzDateien, windowsNdiZeile } from '../tools/bundle-ndi.mjs';
 
 const hier = dirname(fileURLToPath(import.meta.url));
 const tools = join(hier, '..', 'tools');
@@ -136,6 +138,60 @@ console.log('\nbundle-ndi — Windows-Zweig frisch wie der Mac-Zweig (Nachtrag C
   const frisch = win.indexOf('frischerOrdner(destDir);');
   assert(frisch > win.indexOf('if (!r.weiter) throw new Error(') && frisch < win.indexOf('copyFileSync(') && !win.includes('mkdirSync(destDir'),
     'Nachtrag C I-C15-1 Quelltext: der Windows-Zweig ruft frischerOrdner(destDir) nach der Fassungsprüfung und vor dem Kopieren');
+}
+
+// Das echte Apple-SDK (Install_NDI_SDK_v6_Apple.pkg, Laufzeit 6.3.2.0) legt libndi_licenses.txt dreimal ab (bin/, lib/macOS/,
+// licenses/); der Mac-Zweig brach am gleichen Namen ab (Lauf 41449930195). Gleiche Kopien kommen nur einmal, verschiedene Texte
+// gleichen Namens brechen weiter ab.
+{
+  const tmp = mkdtempSync(join(tmpdir(), 'bundle-ndi-lizenz-'));
+  try {
+    const sha = (rel) => createHash('sha256').update(readFileSync(join(tmp, rel))).digest('hex');
+    const lege = (rel, text) => {
+      mkdirSync(dirname(join(tmp, rel)), { recursive: true });
+      writeFileSync(join(tmp, rel), text);
+    };
+    const hashVon = (text) => createHash('sha256').update(text).digest('hex');
+    // (a) dreimal gleich → genau eine, die in lib/macOS
+    for (const r of ['bin/x.txt', 'lib/macOS/x.txt', 'licenses/x.txt']) lege(r, 'gleicher Text');
+    const a = lizenzAuswahl(['bin/x.txt', 'lib/macOS/x.txt', 'licenses/x.txt'], sha);
+    assert(JSON.stringify(a.kopieren) === '["lib/macOS/x.txt"]' && a.gruppen.length === 1 && a.gruppen[0].name === 'x.txt'
+      && a.gruppen[0].beigelegt === 'lib/macOS/x.txt' && JSON.stringify(a.gruppen[0].gleich) === '["bin/x.txt","licenses/x.txt"]'
+      && a.gruppen[0].hash === hashVon('gleicher Text'),
+    'Mac-Lizenzen lizenzAuswahl: dreimal gleicher Inhalt → nur lib/macOS/x.txt, die Gruppe nennt die beiden anderen und den Hash');
+    // (b) gleicher Name, verschiedener Inhalt → wirft mit beiden Pfaden und Hashes
+    lege('bin/y.txt', 'Text eins');
+    lege('licenses/y.txt', 'Text zwei');
+    let meldung = '';
+    try {
+      lizenzAuswahl(['bin/y.txt', 'licenses/y.txt'], sha);
+    } catch (err) {
+      meldung = String(err.message);
+    }
+    assert(meldung.includes('verschiedenem Inhalt') && meldung.includes(`bin/y.txt (${hashVon('Text eins')})`)
+      && meldung.includes(`licenses/y.txt (${hashVon('Text zwei')})`),
+    'Mac-Lizenzen lizenzAuswahl: gleicher Name, verschiedener Inhalt → Abbruch, die Meldung nennt je Pfad die SHA-256');
+    // (c) eindeutige Namen → alle, in Listenreihenfolge, keine Gruppe
+    lege('licenses/a.txt', 'a');
+    lege('bin/b.txt', 'b');
+    const c = lizenzAuswahl(['licenses/a.txt', 'bin/b.txt'], sha);
+    assert(JSON.stringify(c.kopieren) === '["licenses/a.txt","bin/b.txt"]' && c.gruppen.length === 0,
+      'Mac-Lizenzen lizenzAuswahl: eindeutige Namen → beide beigelegt, in Listenreihenfolge, keine Gruppe');
+    // (d) gleich, aber keine Kopie in lib/macOS → die erste in Listenreihenfolge
+    for (const r of ['licenses/z.txt', 'bin/z.txt']) lege(r, 'z-Text');
+    const d = lizenzAuswahl(['licenses/z.txt', 'bin/z.txt'], sha);
+    assert(JSON.stringify(d.kopieren) === '["licenses/z.txt"]' && d.gruppen[0].beigelegt === 'licenses/z.txt'
+      && JSON.stringify(d.gruppen[0].gleich) === '["bin/z.txt"]',
+    'Mac-Lizenzen lizenzAuswahl: gleich, ohne Kopie in lib/macOS → die erste in Listenreihenfolge');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  // Der Mac-Zweig wählt mit lizenzAuswahl, bevor er kopiert (nicht mehr der Abbruch bei gleichem Namen).
+  const quelle = readFileSync(join(tools, 'bundle-ndi.mjs'), 'utf8').replace(/\r\n/g, '\n');
+  const mac = quelle.slice(quelle.indexOf('function macZweig('), quelle.indexOf('function windowsZweig('));
+  const wahl = mac.indexOf('lizenzAuswahl(');
+  assert(wahl !== -1 && wahl < mac.indexOf('copyFileSync('),
+    'Mac-Lizenzen Quelltext: lizenzAuswahl( steht in macZweig vor copyFileSync(');
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
