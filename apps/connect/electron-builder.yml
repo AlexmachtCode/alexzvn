@@ -14,6 +14,11 @@ files:
   # in den devDependencies und wird gebündelt - sein Paketordner (build/, release/ mit dem
   # KOMPLETT-ZIP) gehört nie in die app.asar.
   - "!**/node_modules/@jm/zoom-bridge/**"
+  # Keine NDI-Kopie in der app.asar (Spec Zoom-Slots 22.7, E56): @jm/ndi kommt nur als JavaScript hinein, das Addon liegt
+  # in resources/bin/<plat>/ (bundle-ndi.mjs). Fehlte es dort, lüde der Lader sonst die Kopie aus build/ samt einer
+  # installierten Laufzeit statt der mitgelieferten. Wächter 2 (tools/after-pack.cjs) prüft das nach.
+  - "!**/node_modules/@jm/ndi/build/**"
+  - "!**/node_modules/@jm/ndi/bin/**"
 
 extraResources:
   - from: resources
@@ -28,11 +33,13 @@ asar: true
 # unter Windows, wenn resources/zoom-bridge/zoom-bridge.exe fehlt.
 afterPack: tools/after-pack.cjs
 
-# NDI wird LOKAL auf Windows gebaut (NDI-SDK nicht in CI verfügbar; der
-# suite-release-Workflow überspringt dieses Tool — Tag-Präfix `connect-v`). electron ist
-# im Workspace ans Root gehoistet → electron-builder findet die Version sonst nicht;
-# npmRebuild aus, weil das native Addon bereits via electron-rebuild gebaut + von
-# bundle-ndi nach resources/bin/win gestaged wird. electronVersion bei Electron-Upgrade nachziehen.
+# NDI: Das Windows-Paket baut der Owner lokal (rebuild:native, NDI-SDK unter NDI_SDK_DIR); das Mac-Paket baut ab 0.4.0
+# die CI (.github/workflows/connect-mac.yml, Weg W-CI, Spec Zoom-Slots 22.7): Sie lädt das NDI-SDK für Apple je Lauf
+# frisch, prüft seine Fassung und baut das Addon universell (rebuild:native:mac). Der suite-release-Workflow überspringt
+# dieses Tool weiter (Tag-Präfix `connect-v`). electron ist im Workspace ans Root gehoistet → electron-builder findet
+# die Version sonst nicht; npmRebuild aus, weil das native Addon schon gebaut ist (electron-rebuild bzw.
+# tools/ndi-universal.mjs) und von bundle-ndi nach resources/bin/win bzw. resources/bin/mac gestaged wird.
+# electronVersion bei Electron-Upgrade nachziehen.
 electronVersion: 33.4.11
 npmRebuild: false
 
@@ -46,6 +53,13 @@ mac:
   icon: build/icon.png
   hardenedRuntime: false
   gatekeeperAssess: false
+  # macOS 15 fragt vor dem Zugriff aufs lokale Netzwerk (NDI: Bonjour _ndi._tcp, Multicast); ohne Beschreibung und
+  # Bonjour-Liste verweigert macOS ihn (Spec 22.7, E49). Der Text ist T135 (Spec 22.9), wörtlich wie NDI_TEXT.t135 in
+  # src/shared/ndi-text.ts (Test: test/ndi-text.test.ts). extendInfo landet nur in der Info.plist der App (AN38, MS32).
+  extendInfo:
+    NSLocalNetworkUsageDescription: JM Connect sendet die Gäste als NDI-Quellen ins lokale Netzwerk und empfängt dort das Programm (NDI).
+    NSBonjourServices:
+      - _ndi._tcp
 
 win:
   target:

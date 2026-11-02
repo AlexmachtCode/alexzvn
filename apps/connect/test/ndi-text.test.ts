@@ -948,6 +948,26 @@ console.log('— C13: Raum-Bereich nach Regel V, Raumabbruch, T146, Raum-Folge (
   ck('C13 GG2, OFC2: der Knopf „Raum öffnen“ mit Show setzt den Raum in deutsche Anführungszeichen, ohne ASCII-Anführungszeichen',
     app.includes('{show ? `Raum „${show.room}“ öffnen` : \'Raum öffnen\'}') && !app.includes('Raum „${show.room}"'));
 }
+// ── C16 · T135 gegen electron-builder.yml (PK52, E49, C-EP11) ──
+{
+  const { readFileSync } = await import('node:fs');
+  const { NDI_TEXT: T } = await import('../src/shared/ndi-text');
+  const SOLL_T135 = 'JM Connect sendet die Gäste als NDI-Quellen ins lokale Netzwerk und empfängt dort das Programm (NDI).';
+  ck('S T135 wörtlich (NSLocalNetworkUsageDescription)', T.t135 === SOLL_T135);
+  ck('S T135 ohne ASCII-Anführungszeichen und ohne ® (LP3: die Nachfrage von macOS trägt kein Zeichen)', !/["'®]/.test(T.t135));
+  const yml = readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n').split('\n');
+  const von = yml.indexOf('mac:');
+  const bis = yml.findIndex((z, i) => i > von && /^\S/.test(z));
+  const mac = von < 0 ? [] : yml.slice(von + 1, bis < 0 ? yml.length : bis);
+  const ext = mac.indexOf('  extendInfo:');
+  const kinder: string[] = [];
+  for (let i = ext + 1; ext >= 0 && i < mac.length && /^ {4}/.test(mac[i]); i++) kinder.push(mac[i]);
+  ck('C16 PK52 T135 wörtlich in electron-builder.yml als mac.extendInfo.NSLocalNetworkUsageDescription (genau einmal in der Datei)',
+    kinder.includes(`    NSLocalNetworkUsageDescription: ${T.t135}`) && yml.filter((z) => z.includes('NSLocalNetworkUsageDescription')).length === 1);
+  const bonjour = kinder.indexOf('    NSBonjourServices:');
+  ck('C16 E49 mac.extendInfo.NSBonjourServices nennt _ndi._tcp', bonjour >= 0 && kinder[bonjour + 1] === '      - _ndi._tcp');
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);
