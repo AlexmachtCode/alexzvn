@@ -249,8 +249,16 @@ export const NDI_LESESTAND_WINDOWS = Object.freeze({
   lizenz: '11ae13ae038d5af06d2fd5f9e55cbbdb97e75d2526656a0dbaa4dafcb7bf48e6',
   doku: 'e9d3a84ece970f3181b23cdef6433cb205e940d28abe61d4d9d1e7477a81cc6b',
 });
-/** Mac: noch nicht gelesen. Der erste Probelauf endet darum an der Fassungsprüfung (22.15); der Owner gibt die Werte frei. */
-export const NDI_LESESTAND_MAC = null;
+/**
+ * Mac: gemessen im Probelauf connect-mac.yml am 02.11.2026 (Lauf 41447312071 an 60be310bfd, Paket Install_NDI_SDK_v6_Apple.pkg, Laufzeit 6.3.2.0),
+ * vom Owner am 02.11.2026 freigegeben. Das Kennzeichen ist unter macOS die SHA-256 des Pakets; Lizenz und Doku sind gleich der
+ * Windows-Lesung (LQ21, LQ22; die Lesart AN36 trägt).
+ */
+export const NDI_LESESTAND_MAC = Object.freeze({
+  kennzeichen: '5aa101a01b00494724c60b7e1e15b5d1743bf9c68b61739c22ac54932dde95fb',
+  lizenz: '11ae13ae038d5af06d2fd5f9e55cbbdb97e75d2526656a0dbaa4dafcb7bf48e6',
+  doku: 'e9d3a84ece970f3181b23cdef6433cb205e940d28abe61d4d9d1e7477a81cc6b',
+});
 
 /**
  * Fassungsprüfung (E54): Gleicht die gemessene Fassung dem Lesestand? `gemessen` = { kennzeichen, lizenz (SHA-256 oder

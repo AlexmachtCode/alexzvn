@@ -380,9 +380,12 @@ try {
   console.log('\npruefe-mac-paket — Fassungsprüfung und NDI-Zeile (Spec 22.7 Nr. 2, E54; PK59):');
   {
     const L = NDI_LESESTAND_WINDOWS;
+    const M = NDI_LESESTAND_MAC;
     assert(L.kennzeichen === '6.3.2.0' && L.lizenz === '11ae13ae038d5af06d2fd5f9e55cbbdb97e75d2526656a0dbaa4dafcb7bf48e6'
-      && L.doku === 'e9d3a84ece970f3181b23cdef6433cb205e940d28abe61d4d9d1e7477a81cc6b' && Object.isFrozen(L) && NDI_LESESTAND_MAC === null,
-    'C14 E54 Lesestand Windows 6.3.2.0 mit Lizenz 11ae13ae… und Doku e9d3a84e…, Lesestand Mac leer');
+      && L.doku === 'e9d3a84ece970f3181b23cdef6433cb205e940d28abe61d4d9d1e7477a81cc6b' && Object.isFrozen(L)
+      && M.kennzeichen === '5aa101a01b00494724c60b7e1e15b5d1743bf9c68b61739c22ac54932dde95fb' && M.lizenz === '11ae13ae038d5af06d2fd5f9e55cbbdb97e75d2526656a0dbaa4dafcb7bf48e6'
+      && M.doku === 'e9d3a84ece970f3181b23cdef6433cb205e940d28abe61d4d9d1e7477a81cc6b' && Object.isFrozen(M),
+    'C14 E54 Lesestand Windows 6.3.2.0 mit Lizenz 11ae13ae… und Doku e9d3a84e…, Lesestand Mac 5aa101a0… (Paket), Lizenz und Doku gleich Windows, eingefroren');
     const h = (c) => c.repeat(64);
     const stand = { kennzeichen: h('a'), lizenz: h('b'), doku: h('c') };
     const gleich = pruefeNdiLesestand({ ...stand, datum: '10.04.2026' }, stand);
@@ -446,10 +449,10 @@ try {
     const k = lauf('--ndi-sdk', s.wurzel, '--ndi-paket', s.paket);
     const zeilen = k.stdout.split('\n');
     const iZeile = zeilen.findIndex((z) => z.startsWith('Enthaltene NDI-Laufzeit unter macOS: '));
-    const iAbbruch = zeilen.findIndex((z) => z.startsWith('Fassungsprüfung: Abbruch, Lesestand leer'));
+    const iAbbruch = zeilen.findIndex((z) => z.startsWith('Fassungsprüfung: Abbruch, neue Fassung'));
     assert(k.status === 1 && iZeile > 0 && iAbbruch > iZeile && muster.test(zeilen[iZeile]) && zeilen[iZeile].startsWith('Enthaltene NDI-Laufzeit unter macOS: 6.3.2.0 (')
       && zeilen[iZeile].includes(' vom 10.04.2026, Doku '),
-    'C14 PK59 --ndi-sdk, leerer Lesestand: die geprüfte NDI-Zeile (Fassung 6.3.2.0 aus „NDI SDK v6.3.2.0 (Build 7)“) steht vor dem Abbruch, Exit 1');
+    'C14 PK59 --ndi-sdk, eingetragener Lesestand Mac (neue Fassung): die geprüfte NDI-Zeile (Fassung 6.3.2.0 aus „NDI SDK v6.3.2.0 (Build 7)“) steht vor dem Abbruch, Exit 1');
     assert(zeilen.includes('  lib/') && zeilen.includes('  lib/macOS/') && zeilen.includes('  Version.txt (26 Byte)')
       && zeilen.includes('  licenses/libndi_licenses.txt (11 Byte)') && !zeilen.some((z) => z.includes('libndi.dylib (')),
     'C14 PK59 --ndi-sdk druckt die Dateiliste der Wurzel bis zur zweiten Ebene, nur Namen und Größen');
