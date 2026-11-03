@@ -1,0 +1,233 @@
+// Gemeinsame Attrappen der Konto-Tests im Worker (P3; genutzt von konto-do.test.mjs und in Block C von konto-zugang,
+// konto-routen und qa-relay). Kein Netz, keine Cloudflare-Laufzeit (EP21):
+// - `makeCtx()`: Speicher eines Durable Object als Map mit get/put/delete/deleteAll/list (prefix, start, end, limit,
+//   reverse; sortiert) und Alarm (getAlarm/setAlarm/deleteAlarm). Werte werden wie im echten Speicher als Kopie abgelegt
+//   und gelesen (structuredClone). `ctx.daten` ist die Map, `ctx.alarmZeit` der gestellte Alarm.
+// - `makeKontoNs(env)`: Namespace-Fake für die Bindung KONTO mit `jurisdiction(j)`, `idFromName`, `get(id).fetch`; eine
+//   echte `KontoSpeicher`-Instanz je Name und Jurisdiction; jede Anfrage an den DO landet in `ns.anfragen`
+//   (URL, Methode, Kopfzeilen), gewählte Jurisdictions in `ns.jurisdiktionen`. `{ mitJurisdiktion: false }` ohne Fähigkeit.
+// - `makeKV()`: KV mit get (auch `'json'`), put (merkt `expirationTtl`), delete und list (prefix, limit, cursor).
+// - `makeUhr(start)`: Uhr für `env.KONTO_UHR` mit `stelle(ms)` und `vor(ms)`; `makeWaitCtx()`: drittes Argument von
+//   `fetch(request, env, ctx)` mit `waitUntil` und `fertig()`.
+// - `testSchluessel()`: 32 Zufallsbytes als Base64, zur Laufzeit (G4: kein Schlüssel-Literal im Quelltext).
+// - `testGeraet(angaben)`: ECDSA-P-256-Paar wie im Launcher (P8) mit `gid`, `angaben` für `vorgang-anlegen` und
+//   `beweis(zweck, bezug, ts)`; `neuerSpeicher(env)`, `rufeDo(speicher, aktion, body)`.
+// - Zählung im Format „check“: `check`, `kreuz`, `pruefeFaelle` (eine Zeile je Tabelle, bis zu fünf Abweichungen),
+//   `abschluss()` druckt `‹n› passed, ‹m› failed` und beendet mit Exit 1 bei Fehlern.
+import { KontoSpeicher } from '../konto-do.js';
+import { beweisText, geraetIdAus } from '../konto-krypto.js';
+
+let passed = 0;
+let failed = 0;
+
+export function check(name, cond) {
+  if (cond) {
+    passed++;
+    console.log(`  ok  ${name}`);
+  } else {
+    failed++;
+    console.log(`FAIL  ${name}`);
+  }
+}
+
+/** Alle Kombinationen der Achsen, in fester Reihenfolge. */
+export function kreuz(achsen) {
+  let faelle = [{}];
+  for (const [name, werte] of Object.entries(achsen)) faelle = faelle.flatMap((f) => werte.map((w) => ({ ...f, [name]: w })));
+  return faelle;
+}
+
+export function fallText(f) {
+  return f.name ?? Object.entries(f).map(([k, v]) => `${k}=${v === undefined ? 'undefined' : JSON.stringify(v)}`).join(' ');
+}
+
+/** Eine Zeile je Tabelle; `pruefe` liefert null oder eine Abweichung (auch async). */
+export async function pruefeFaelle(name, faelle, pruefe) {
+  const abw = [];
+  for (const f of faelle) {
+    const r = await pruefe(f);
+    if (r !== null) abw.push(`${fallText(f)} → ${r}`);
+  }
+  check(`${name} (${faelle.length} Fälle)`, abw.length === 0);
+  for (const z of abw.slice(0, 5)) console.log(`     ${z}`);
+  if (abw.length > 5) console.log(`     … und ${abw.length - 5} weitere`);
+}
+
+/** null bei Gleichheit (JSON), sonst „ist … soll …“. */
+export function gleich(ist, soll) {
+  return JSON.stringify(ist) === JSON.stringify(soll) ? null : `ist ${JSON.stringify(ist)} soll ${JSON.stringify(soll)}`;
+}
+
+export function abschluss() {
+  console.log(`\n${passed} passed, ${failed} failed`);
+  process.exit(failed ? 1 : 0);
+}
+
+export function makeCtx() {
+  const daten = new Map();
+  let alarm = null;
+  const kopie = (v) => (v === undefined ? undefined : structuredClone(v));
+  return {
+    daten,
+    get alarmZeit() {
+      return alarm;
+    },
+    storage: {
+      async get(k) {
+        if (Array.isArray(k)) return new Map(k.filter((x) => daten.has(x)).map((x) => [x, kopie(daten.get(x))]));
+        return kopie(daten.get(k));
+      },
+      async put(k, v) {
+        if (k && typeof k === 'object') {
+          for (const [x, y] of Object.entries(k)) daten.set(x, kopie(y));
+          return;
+        }
+        daten.set(k, kopie(v));
+      },
+      async delete(k) {
+        if (Array.isArray(k)) return k.filter((x) => daten.delete(x)).length;
+        return daten.delete(k);
+      },
+      async deleteAll() {
+        daten.clear();
+      },
+      async list({ prefix = '', start, end, limit, reverse } = {}) {
+        let keys = [...daten.keys()]
+          .filter((k) => k.startsWith(prefix) && (start === undefined || k >= start) && (end === undefined || k < end))
+          .sort();
+        if (reverse) keys.reverse();
+        if (typeof limit === 'number') keys = keys.slice(0, limit);
+        return new Map(keys.map((k) => [k, kopie(daten.get(k))]));
+      },
+      async getAlarm() {
+        return alarm;
+      },
+      async setAlarm(ms) {
+        alarm = typeof ms === 'number' ? ms : ms.getTime();
+      },
+      async deleteAlarm() {
+        alarm = null;
+      },
+    },
+    blockConcurrencyWhile(fn) {
+      return fn();
+    },
+  };
+}
+
+export function makeKontoNs(env, { mitJurisdiktion = true } = {}) {
+  const instanzen = new Map();
+  const anfragen = [];
+  const jurisdiktionen = [];
+  const instanz = (j, name) => {
+    const key = `${j}|${name}`;
+    if (!instanzen.has(key)) instanzen.set(key, new KontoSpeicher(makeCtx(), env));
+    return instanzen.get(key);
+  };
+  const machNs = (j) => ({
+    idFromName: (name) => ({ name: String(name), jurisdiktion: j, toString: () => `${j}|${name}` }),
+    get(id) {
+      const speicher = instanz(id.jurisdiktion, id.name);
+      return {
+        async fetch(request) {
+          anfragen.push({ url: request.url, method: request.method, headers: Object.fromEntries(request.headers) });
+          return speicher.fetch(request);
+        },
+      };
+    },
+  });
+  const ns = { ...machNs(''), anfragen, jurisdiktionen, instanzen, speicher: (name = 'konten', j = 'eu') => instanz(j, name) };
+  if (mitJurisdiktion) {
+    ns.jurisdiction = (j) => {
+      jurisdiktionen.push(j);
+      return machNs(j);
+    };
+  }
+  return ns;
+}
+
+export function makeKV() {
+  const m = new Map();
+  return {
+    daten: m,
+    async get(key, art) {
+      if (!m.has(key)) return null;
+      const typ = typeof art === 'string' ? art : art && art.type;
+      const wert = m.get(key).wert;
+      return typ === 'json' ? JSON.parse(wert) : wert;
+    },
+    async put(key, wert, opts = {}) {
+      m.set(key, { wert: String(wert), ttl: opts.expirationTtl ?? null });
+    },
+    async delete(key) {
+      m.delete(key);
+    },
+    async list({ prefix = '', limit = 1000, cursor } = {}) {
+      const alle = [...m.keys()].filter((k) => k.startsWith(prefix)).sort();
+      const ab = cursor ? Number(cursor) : 0;
+      const teil = alle.slice(ab, ab + limit);
+      const weiter = ab + limit < alle.length;
+      return { keys: teil.map((name) => ({ name })), list_complete: !weiter, cursor: weiter ? String(ab + limit) : '' };
+    },
+  };
+}
+
+export function makeUhr(start = Date.UTC(2026, 9, 21, 8, 0, 0)) {
+  let t = start;
+  const uhr = () => t;
+  uhr.stelle = (ms) => {
+    t = ms;
+  };
+  uhr.vor = (ms) => {
+    t += ms;
+  };
+  return uhr;
+}
+
+export function makeWaitCtx() {
+  const versprechen = [];
+  return {
+    versprechen,
+    waitUntil(p) {
+      versprechen.push(Promise.resolve(p));
+    },
+    passThroughOnException() {},
+    async fertig() {
+      await Promise.all(versprechen);
+    },
+  };
+}
+
+export function testSchluessel() {
+  return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
+}
+
+function b64url(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export async function testGeraet(o = {}) {
+  const paar = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const publicJwk = await crypto.subtle.exportKey('jwk', paar.publicKey);
+  const gid = await geraetIdAus(publicJwk);
+  return {
+    gid,
+    publicJwk,
+    angaben: { publicJwk, name: o.name ?? 'Regie-PC 1', plattform: o.plattform ?? 'win', arch: o.arch ?? 'x64', version: o.version ?? '0.18.0' },
+    async beweis(zweck, bezug, ts) {
+      const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, paar.privateKey, new TextEncoder().encode(beweisText(zweck, bezug, ts)));
+      return { gid, ts, sig: b64url(sig) };
+    },
+  };
+}
+
+export function neuerSpeicher(env = {}) {
+  const ctx = makeCtx();
+  return { ctx, speicher: new KontoSpeicher(ctx, env) };
+}
+
+/** POST https://konto.intern/<aktion> wie der Worker; Ergebnis = JSON der Antwort plus `http` (Status). */
+export async function rufeDo(speicher, aktion, body) {
+  const res = await speicher.fetch(new Request(`https://konto.intern/${aktion}`, { method: 'POST', body: JSON.stringify(body) }));
+  return { http: res.status, ...(await res.json()) };
+}
