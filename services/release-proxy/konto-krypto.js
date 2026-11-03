@@ -73,6 +73,9 @@ export async function pruefeToken(schluesselB64, token, typ, jetzt) {
     const teile = token.slice(TOKEN_PRAEFIX.length).split('.');
     if (teile.length !== 2 || !teile[0] || !teile[1]) return null;
     const [payload, sig] = teile;
+    // Die Signatur nur in der einen kanonischen Form (b64url, 43 Zeichen, keine Restbits): sonst gäbe es mehrere Texte je Token.
+    // Die Nutzlast ist über die HMAC byte-genau gebunden und braucht das nicht.
+    if (!/^[A-Za-z0-9_-]{43}$/.test(sig) || b64url(ausB64(sig)) !== sig) return null;
     const echt = await crypto.subtle.verify('HMAC', await hmacSchluessel(bytes), ausB64(sig), kodierer.encode(TOKEN_PRAEFIX + payload));
     if (!echt) return null;
     const claims = JSON.parse(dekodierer.decode(ausB64(payload)));
@@ -129,7 +132,7 @@ export async function sha256B64url(text) {
 }
 
 async function pbkdf2(passwort, salz, iterationen) {
-  const basis = await crypto.subtle.importKey('raw', kodierer.encode(passwort), 'PBKDF2', false, ['deriveBits']);
+  const basis = await crypto.subtle.importKey('raw', kodierer.encode(passwort.normalize('NFC')), 'PBKDF2', false, ['deriveBits']);
   return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: salz, iterations: iterationen }, basis, 256));
 }
 
@@ -219,7 +222,7 @@ export function beweisText(zweck, bezug, ts) {
 export async function pruefeGeraeteBeweis(publicJwk, beweis, zweck, bezug, jetzt) {
   try {
     if (!beweis || typeof beweis !== 'object' || typeof beweis.gid !== 'string' || typeof beweis.sig !== 'string') return false;
-    if (typeof beweis.ts !== 'number' || !Number.isFinite(beweis.ts) || typeof jetzt !== 'number') return false;
+    if (!Number.isFinite(beweis.ts) || !Number.isFinite(jetzt)) return false;
     if (Math.abs(jetzt - beweis.ts) > BEWEIS_FENSTER_MS) return false;
     const schluessel = await pruefSchluessel(publicJwk);
     if (!schluessel) return false;

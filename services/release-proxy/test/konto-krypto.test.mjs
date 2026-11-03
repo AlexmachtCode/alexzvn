@@ -141,6 +141,29 @@ async function run() {
       'P2 10.3: Müll-Token → null; unbrauchbarer Schlüssel → signiere wirft, pruefeToken null',
       nullen === muell.length && wirft === 3 && (await pruefeToken(testSchluessel(16), ts, 'sitzung', JETZT)) === null,
     );
+    // Signatur nur kanonisch: ein Token mit - oder _ in der Signatur suchen, damit + und / als Ersatz möglich sind.
+    let tk = ts;
+    for (let n = 0; n < 200 && !/[-_]/.test(tk.split('.')[2]); n++) tk = await signiere(S, { ...SITZUNG, kid: `k-${n}` });
+    const [, pk, sk] = tk.split('.');
+    const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const letztes = ALPHA.indexOf(sk[42]);
+    const andereRestbits = sk.slice(0, 42) + ALPHA[letztes ^ 1];
+    const standardAlphabet = sk.replace(/-/g, '+').replace(/_/g, '/');
+    const formen = [
+      ['andere Restbits im letzten Zeichen', `jm1.${pk}.${andereRestbits}`],
+      ['+ und / statt - und _', `jm1.${pk}.${standardAlphabet}`],
+      ['angehängtes =', `jm1.${pk}.${sk}=`],
+      ['Leerzeichen am Ende', `jm1.${pk}.${sk} `],
+      ['Zeilenumbruch am Ende', `jm1.${pk}.${sk}\n`],
+      ['Leerzeichen am Anfang', `jm1.${pk}. ${sk}`],
+    ];
+    const durchT = [];
+    for (const [name, t] of formen) if ((await pruefeToken(S, t, 'sitzung', JETZT)) !== null) durchT.push(name);
+    check(
+      `P2 10.3: Signatur nur in der einen kanonischen Form (${formen.length} verformte Signaturen → null, das Original gilt)`,
+      durchT.length === 0 && andereRestbits !== sk && standardAlphabet !== sk && (await pruefeToken(S, tk, 'sitzung', JETZT)) !== null,
+    );
+    for (const n of durchT.slice(0, 5)) console.log(`     ${n} → ist Claims soll null`);
   }
 
   // ── Codes (Spec 4.1, 4) ──
@@ -193,6 +216,17 @@ async function run() {
     let abgelehnt = 0;
     for (const f of fremd) if (!(await pruefePasswort('richtig-und-lang', f))) abgelehnt++;
     check(`P2 4: pruefePasswort lehnt fremde Formen ab (${fremd.length} Fälle, auch mehr als 100000 Iterationen)`, abgelehnt === fremd.length && !(await pruefePasswort(undefined, h1)));
+  }
+
+  {
+    const nfd = 'Passwörter';
+    const nfc = 'Passwörter';
+    const hd = await hashePasswort(nfd);
+    const hc = await hashePasswort(nfc);
+    check(
+      'P2 4: Passwort wird als NFC behandelt (NFD gehasht prüft mit NFC und umgekehrt)',
+      nfd !== nfc && (await pruefePasswort(nfc, hd)) && (await pruefePasswort(nfd, hc)) && !(await pruefePasswort('Passworter', hd)),
+    );
   }
 
   check(
@@ -269,6 +303,13 @@ async function run() {
     for (const [name, jwk, beweis, zweck, bezug] of falsch) if (await pruefeGeraeteBeweis(jwk, beweis, zweck, bezug, JETZT)) durch.push(name);
     check(`P2 7: Gerätebeweis falsch → false (${falsch.length} Fälle)`, durch.length === 0);
     for (const n of durch.slice(0, 5)) console.log(`     ${n} → ist true soll false`);
+    const alt = await g.beweis('abholen', 'v-1', JETZT - 365 * 24 * 60 * MIN);
+    check(
+      'P2 7: Gerätebeweis mit jetzt = NaN oder Infinity oder ohne Zahl → false (ein Jahr alter Beweis, gültige Signatur)',
+      (await pruefeGeraeteBeweis(g.publicJwk, alt, 'abholen', 'v-1', alt.ts)) &&
+        !(await pruefeGeraeteBeweis(g.publicJwk, alt, 'abholen', 'v-1', NaN)) && !(await pruefeGeraeteBeweis(g.publicJwk, alt, 'abholen', 'v-1', Infinity)) &&
+        !(await pruefeGeraeteBeweis(g.publicJwk, alt, 'abholen', 'v-1', undefined)) && !(await pruefeGeraeteBeweis(g.publicJwk, alt, 'abholen', 'v-1', String(alt.ts))),
+    );
   }
 
   // ── Log-Hygiene und rein ──
