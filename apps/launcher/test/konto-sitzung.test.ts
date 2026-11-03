@@ -515,6 +515,8 @@ const angemeldet = async (antworten: Antwort[] = [{ ok: NEU }], o: Parameters<ty
   let unbehandelt = 0;
   const merke = (): void => { unbehandelt++; };
   process.on('unhandledRejection', merke);
+  /** G12: ein Wurf ist ein Ist-Wert („wirft“), kein Absturz des Laufs. */
+  const versuche = async (f: () => unknown): Promise<boolean> => { try { await f(); return false; } catch { return true; } };
   const werfend = (u: ReturnType<typeof umgebung>): void => {
     u.umg.speicher.speichere = () => { throw new Error('Platte voll'); };
     u.umg.speicher.merkeEntzug = () => { throw new Error('Platte voll'); };
@@ -526,7 +528,7 @@ const angemeldet = async (antworten: Antwort[] = [{ ok: NEU }], o: Parameters<ty
   const start = async (gesp: GespeicherteSitzung | 'unlesbar', antwort: Antwort): Promise<string> => {
     const u = umgebung({ gespeichert: gesp, antworten: [antwort] });
     werfend(u);
-    u.t.start();
+    if (await versuche(() => u.t.start())) return 'wirft';
     await ruhe();
     return text(u);
   };
@@ -543,23 +545,47 @@ const angemeldet = async (antworten: Antwort[] = [{ ok: NEU }], o: Parameters<ty
   await ruhe();
   werfend(bedarf);
   bedarf.zeit = NEU.stand.exp - 30_000;
-  const wert = await bedarf.t.sitzungFuerBedarf();
+  let wert: string | null = null;
+  const bedarfWirft = await versuche(async () => { wert = await bedarf.t.sitzungFuerBedarf(); });
   await ruhe();
-  faelle.push(['Bedarf, Erneuerung ok', `${wert} ${text(bedarf)}`, 'jm1.test.neu2 angemeldet - jm1.test.neu2 Wecker 1 Hinweis -']);
+  faelle.push(['Bedarf, Erneuerung ok', bedarfWirft ? 'wirft' : `${wert} ${text(bedarf)}`, 'jm1.test.neu2 angemeldet - jm1.test.neu2 Wecker 1 Hinweis -']);
   const lageU = await angemeldet([{ ok: NEU }], { ich: [{ kontoAktiv: false, grund: 'gesperrt', zoomAnfrage: null, adminOffen: 0 }] });
   werfend(lageU);
-  await lageU.t.lage();
-  faelle.push(['Lage entzieht', text(lageU), 'entzogen-laeuft gesperrt jm1.test.neu Wecker 1 Hinweis -']);
+  const lageWirft = await versuche(() => lageU.t.lage());
+  faelle.push(['Lage entzieht', lageWirft ? 'wirft' : text(lageU), 'entzogen-laeuft gesperrt jm1.test.neu Wecker 1 Hinweis -']);
   const anm = umgebung();
   werfend(anm);
-  anm.t.start();
-  anm.t.angemeldet(NEU);
-  faelle.push(['angemeldet()', `${text(anm)} nachAnmeldung ${anm.nachAnmeldung.length}`, 'angemeldet - jm1.test.neu Wecker 1 Hinweis - nachAnmeldung 1']);
+  const anmWirft = await versuche(() => { anm.t.start(); anm.t.angemeldet(NEU); });
+  faelle.push(['angemeldet()', anmWirft ? 'wirft' : `${text(anm)} nachAnmeldung ${anm.nachAnmeldung.length}`, 'angemeldet - jm1.test.neu Wecker 1 Hinweis - nachAnmeldung 1']);
   await ruhe();
   process.off('unhandledRejection', merke);
   const r = pruefeFaelle('P10 AR34a: wirft der Speicher (Platte voll), stehen Zustand, Token und Wecker richtig und es gibt keine unbehandelte Ablehnung',
     faelle, ([name, ist, soll]) => (ist === soll ? null : `${name}: ist ${ist}, soll ${soll}`));
   ck(r.name, r.ok && unbehandelt === 0);
+}
+
+// --- P10 Review (AR34a): Reihenfolge — beim Speichern steht der Zustand schon (Erfolgszweige, Entzug) --------------------------
+{
+  const beobachte = (u: ReturnType<typeof umgebung>, z: string[]): void => {
+    u.umg.speicher.speichere = () => { z.push(u.t.ansicht().zustand); };
+    u.umg.speicher.merkeEntzug = () => { z.push(u.t.ansicht().zustand); };
+  };
+  const start: string[] = [];
+  const a = umgebung({ gespeichert: ALT, antworten: [{ ok: NEU }] });
+  beobachte(a, start);
+  a.t.start();
+  await ruhe();
+  const lage: string[] = [];
+  const b = await angemeldet([{ ok: NEU }], { ich: [{ kontoAktiv: false, grund: 'gesperrt', zoomAnfrage: null, adminOffen: 0 }] });
+  beobachte(b, lage);
+  await b.t.lage();
+  const gesperrt: string[] = [];
+  const c = umgebung({ gespeichert: ALT, antworten: [{ code: 'gesperrt' }] });
+  beobachte(c, gesperrt);
+  c.t.start();
+  await ruhe();
+  ck('P10 AR34a: beim Speichern steht der Zustand schon (Start ok: angemeldet; Lage und Entzug: entzogen-laeuft bzw. entzogen)',
+    start.join(',') === 'angemeldet' && lage.join(',') === 'entzogen-laeuft,entzogen-laeuft' && gesperrt.join(',') === 'entzogen,entzogen');
 }
 
 // --- P10 Review (AR34b): eine späte Antwort überschreibt keinen Entzug ----------------------------------------------------

@@ -107,7 +107,9 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
 
   /**
    * Speichern ist Nebenwirkung, nie Voraussetzung (AR34, Review): Der Zustand und der Wecker stehen vor dem Speichern, ein
-   * Fehler der Hülle (Platte voll, safeStorage) bricht den Ablauf nicht ab. Kein Log hier (G4); das Protokoll schreibt die Hülle.
+   * Fehler der Hülle (Platte voll, safeStorage) bricht den Ablauf nicht ab. Kein Log hier (G4): Der Treiber schluckt den Fehler;
+   * protokollieren muss die Hülle in ihrer `speichere`-Umsetzung (Task 21). `speichere` und `merkeEntzug` bleiben synchron,
+   * sonst fängt `sicher()` eine Ablehnung nicht.
    */
   function sicher(f: () => void): void {
     try { f(); } catch { /* bewusst geschluckt */ }
