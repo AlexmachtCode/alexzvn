@@ -15,7 +15,8 @@
 //
 // Einmal-Regeln: Abholen nimmt den Vorgang atomar (delete); alle Schreiber eines Vorgangs (Binden, Bestätigen, Google-Zustand) und
 // das Setzen per Einladung laufen in `inReihe` und lesen dort frisch (kein PBKDF2 in der Reihe), auch ohne Input-Gates. Die
-// Schreiber des Kontos (P3, P6) verlassen sich auf die Input-Gates von workerd. Nie `binde` oder `inReihe` aus der Reihe rufen.
+// Schreiber des Kontos (P3, P6) verlassen sich auf die Input-Gates von workerd. Löschen (Abholen, Abbrechen, Aufräumen) läuft außerhalb der Reihe;
+// kein Schreiber in der Reihe nimmt einen bereits entschiedenen Vorgang an. Nie `binde` oder `inReihe` aus der Reihe rufen.
 //
 // Uhr: `jetzt` kommt mit jeder Aktion vom Worker; fehlt es, und im Alarm, gilt `env.KONTO_UHR()` (nur Tests, EP21), sonst
 // `Date.now()`. Schlüssel im Speicher (EP1): konto:<kid>, email:<email>, geraet:<gid>, vorgang:<vid>, state:<state>,
@@ -470,6 +471,7 @@ export class KontoSpeicher {
     if (!v || !v.google || v.google.state !== b.state) return fehler('vorgang-unbekannt', 404);
     const { nonce, verifier } = v.google;
     delete v.google;
+    if (v.zustand !== 'offen' && v.zustand !== 'angemeldet') return fehler('vorgang-unbekannt', 404);
     await this.ctx.storage.put(K.vorgang(v.vorgang), v);
     return { ok: true, vorgang: v.vorgang, nonce, verifier };
   }
@@ -526,7 +528,8 @@ export class KontoSpeicher {
     if (v.zustand === 'angemeldet' && v.kid !== konto.kid) return fehler('konflikt', 409);
     if (mitCode) {
       const neuHash = await hashePasswort(b.neu);
-      // Die Einladung gilt einmal, auch bei gleichzeitigen Versuchen: frisch lesen, prüfen und schreiben ohne await dazwischen.
+      // Die Einladung gilt einmal, auch bei gleichzeitigen Versuchen: frisch lesen und prüfen;
+      // "ohne await bis zum put" gilt erst ab dem zweiten frischen Lesen (nach dem zeitkonstanten Vergleich).
       const gesetzt = await this.inReihe(async () => {
         const k0 = await this.ladeKonto(konto.kid);
         if (!k0 || !k0.einladung || !(k0.einladung.bis > jetzt) || !(await gleichOhneZeitleck(codeHash, k0.einladung.hash))) return false;

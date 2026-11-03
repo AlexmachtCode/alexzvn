@@ -890,6 +890,86 @@ async function run() {
     );
   }
 
+  // ── P4 Review 3: die Reihe schützt Bestätigen und google-state auch bei verschränktem Lesen (AR25, Lese-Tor) ──
+  {
+    /** Ab dem `ab`-ten Lesen des Vorgangs: Antwort zurückhalten, bis ein zweites frisches Lesen kommt (höchstens 200 ms; die Schranke wirkt nur Richtung grün). */
+    const leseTor = (ctx, vid, ab) => {
+      let n = 0;
+      let gehalten = 0;
+      let freigeben;
+      const tor = new Promise((r) => (freigeben = r));
+      const get = ctx.storage.get.bind(ctx.storage);
+      ctx.storage.get = async (key) => {
+        const w = await get(key);
+        if (key === `vorgang:${vid}` && ++n >= ab) {
+          if (++gehalten === 2) freigeben();
+          else setTimeout(freigeben, 200);
+          await tor;
+        }
+        return w;
+      };
+    };
+    {
+      const { speicher, ctx } = neuerSpeicher({});
+      const geraet = await testGeraet();
+      const k = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'maria@jakobsmedien.com', name: 'Maria Schmidt' });
+      const v = await neuerVorgang(speicher, geraet);
+      const b = await rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: v.vorgang, kid: k.kid });
+      leseTor(ctx, v.vorgang, 3);
+      const jas = await Promise.all([1, 2].map(() => rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort: 'ja' })));
+      check(
+        'P4 AR25: zweimal Bestätigen mit verschränktem Lesen: genau ein Ja gilt, das andere → 404 vorgang-unbekannt',
+        jas.filter((x) => x.ok).length === 1 && jas.filter((x) => x.http === 404 && x.code === 'vorgang-unbekannt').length === 1,
+      );
+    }
+    {
+      const { speicher, ctx } = neuerSpeicher({});
+      const geraet = await testGeraet();
+      const v = await neuerVorgang(speicher, geraet);
+      const S = zufall(24);
+      await rufeDo(speicher, 'vorgang-google-merken', { jetzt: T0, vorgang: v.vorgang, state: S, nonce: zufall(24), verifier: zufall(32) });
+      leseTor(ctx, v.vorgang, 1);
+      const beide = await Promise.all([1, 2].map(() => rufeDo(speicher, 'vorgang-google-state', { jetzt: T0, state: S })));
+      check(
+        'P4 AR25: derselbe Google-state gleichzeitig zweimal mit verschränktem Lesen: genau einmal gültig, der andere → 404 vorgang-unbekannt',
+        beide.filter((x) => x.ok).length === 1 && beide.filter((x) => x.http === 404 && x.code === 'vorgang-unbekannt').length === 1,
+      );
+    }
+    {
+      const { speicher, ctx } = neuerSpeicher({});
+      const geraet = await testGeraet();
+      const k = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'maria@jakobsmedien.com', name: 'Maria Schmidt' });
+      const v = await neuerVorgang(speicher, geraet);
+      const S = zufall(24);
+      await rufeDo(speicher, 'vorgang-google-merken', { jetzt: T0, vorgang: v.vorgang, state: S, nonce: zufall(24), verifier: zufall(32) });
+      const b = await rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: v.vorgang, kid: k.kid });
+      await rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort: 'ja' });
+      let halte = true;
+      let freigeben;
+      const tor = new Promise((r) => (freigeben = r));
+      const get = ctx.storage.get.bind(ctx.storage);
+      ctx.storage.get = async (key) => {
+        const w = await get(key);
+        if (halte && key === `vorgang:${v.vorgang}`) {
+          halte = false;
+          await tor;
+        }
+        return w;
+      };
+      const st = rufeDo(speicher, 'vorgang-google-state', { jetzt: T0, state: S });
+      for (let i = 0; i < 400 && halte; i++) await new Promise((r) => setTimeout(r, 5));
+      const erst = await abholen(speicher, v, geraet, T0);
+      freigeben();
+      const rs = await st;
+      const zweit = await abholen(speicher, v, geraet, T0);
+      check(
+        'P4 AR25: google-state gegen das Abholen eines bestätigten Vorgangs: der Vorgang wird nicht wiederbelebt (404), kein zweites Abholen',
+        erst.zustand === 'bestaetigt' && rs.http === 404 && rs.code === 'vorgang-unbekannt' && !ctx.daten.has(`vorgang:${v.vorgang}`) &&
+          zweit.http === 404 && zweit.code === 'vorgang-unbekannt',
+      );
+    }
+  }
+
   // ── Ende der Fälle ──
 }
 
