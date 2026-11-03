@@ -1,0 +1,175 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Anmeldung im Launcher (Teil 1) · Client der Worker-API /konto/* (Plan 10.1, 10.6, EP17; Spec 9.1).
+// `fetch` ist eingespeist (Hülle: globales fetch; Tests: Attrappe). Jeder Fehler wird ein KontoFehler mit festem Code:
+// fetch wirft → `netz`; Zeitlimit (Vorgabe 15 s) und jede 5xx-Antwort → `server`, außer `code: nicht-eingerichtet`;
+// 429 → `zu-viele`; sonst der `code` des Workers, ein unbekannter Code → `server`. Eine 200-Antwort ohne die erwartete
+// Form zählt als `server`. Fehlermeldungen nennen nur Code und HTTP-Status, nie eine Sitzung, ein Geheimnis oder eine URL.
+// /konto/* bekommt nie `X-Proxy-Key` (den alten Schlüssel nimmt nur das Gate für Tool-Routen, Task 15); `zugangsKopf` ist
+// der Kopf für diese Tool-Routen (Task 22). Kein electron-Import (G9).
+// ─────────────────────────────────────────────────────────────────────────────
+import type {
+  AdminAktion, AdminAktionErgebnis, AdminUebersicht, EntzugGrund, KontoFehlerCode, KontoStand, ZoomAnfrageStand,
+} from '../../shared/konto';
+import type { GeraetBeweis } from './geraet';
+
+/** Codes, die der Worker in `code` schicken darf (10.1); `netz` entsteht nur hier. */
+const WORKER_CODES: readonly KontoFehlerCode[] = ['server', 'nicht-eingerichtet', 'zu-viele', 'nicht-angemeldet',
+  'sitzung-abgelaufen', 'kein-recht', 'gesperrt', 'geloescht', 'zugang-abgelaufen', 'geraet-unbekannt', 'vorgang-unbekannt',
+  'ungueltig', 'konflikt', 'nicht-noetig', 'unbekannter-zweck', 'erster-admin', 'domain', 'uhr'];
+
+export const KONTO_ZEITLIMIT_MS = 15_000;
+
+export class KontoFehler extends Error {
+  readonly code: KontoFehlerCode;
+  readonly status: number | null;
+  constructor(code: KontoFehlerCode, status: number | null) {
+    super(`Konto-Anfrage fehlgeschlagen: ${code}${status === null ? '' : ` (HTTP ${status})`}`);
+    this.name = 'KontoFehler';
+    this.code = code;
+    this.status = status;
+  }
+}
+
+export interface IveoZentral { key: string; basis: string; slug: string; name: string; token: string }
+/** Diagnose des Workers zu GET /konto/iveo (10.1): ohne IVEO_SCHLUESSEL eine leere Liste mit diesem Hinweis (G7). */
+export type IveoHinweis = 'iveo-nicht-eingerichtet';
+export interface KontoClient {
+  vorgangAnlegen(g: { publicJwk: JsonWebKey; name: string; plattform: 'win' | 'mac'; arch: string; version: string }): Promise<{ vorgang: string; abholGeheimnis: string; code: string; adresse: string; bis: number }>;
+  vorgangAbholen(vorgang: string, abholGeheimnis: string, beweis: GeraetBeweis): Promise<{ zustand: 'wartet' | 'abgelehnt' | 'abgelaufen' } | { zustand: 'bestaetigt'; sitzung: string; stand: KontoStand }>;
+  vorgangAbbrechen(vorgang: string, abholGeheimnis: string): Promise<void>;
+  sitzungErneuern(sitzung: string, beweis: GeraetBeweis, version: string, rechnerName: string): Promise<{ sitzung: string; stand: KontoStand }>;
+  abmelden(sitzung: string): Promise<void>;
+  ich(sitzung: string): Promise<{ kontoAktiv: boolean; grund: EntzugGrund | null; zoomAnfrage: ZoomAnfrageStand | null; adminOffen: number }>;
+  freigabe(sitzung: string, zweck: string, ziel: string): Promise<{ freigabe: string; bis: number }>;
+  iveoTokens(sitzung: string): Promise<{ events: IveoZentral[]; hinweis: IveoHinweis | null }>;
+  zoomAnfragen(sitzung: string, a: { zweck: string; von: number; bis: number }): Promise<ZoomAnfrageStand>;
+  adminUebersicht(sitzung: string): Promise<AdminUebersicht>;
+  adminAktion(sitzung: string, a: AdminAktion): Promise<AdminAktionErgebnis>;
+}
+
+/** Kopf für Tool-Routen (Katalog, Installieren, Feedback …): Sitzung → Authorization; sonst Dev-Key → X-Proxy-Key; sonst nichts. */
+export function zugangsKopf(z: { sitzung: string | null; devKey?: string }): Record<string, string> {
+  if (z.sitzung) return { Authorization: `Bearer ${z.sitzung}` };
+  if (z.devKey) return { 'X-Proxy-Key': z.devKey };
+  return {};
+}
+
+type Objekt = Record<string, unknown>;
+const istObjekt = (x: unknown): x is Objekt => typeof x === 'object' && x !== null && !Array.isArray(x);
+const istText = (x: unknown): x is string => typeof x === 'string' && x.length > 0;
+const istZahl = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+const ENTZUG: readonly string[] = ['gesperrt', 'geloescht', 'zugang-abgelaufen', 'geraet-unbekannt'];
+
+function istStand(x: unknown): x is KontoStand {
+  return istObjekt(x) && istText(x.kid) && typeof x.email === 'string' && typeof x.name === 'string'
+    && (x.stufe === 'admin' || x.stufe === 'kollege' || x.stufe === 'externer') && Array.isArray(x.tools)
+    && Array.isArray(x.events) && istZahl(x.iat) && istZahl(x.exp) && (x.plattform === 'win' || x.plattform === 'mac');
+}
+function istZoomAnfrage(x: unknown): x is ZoomAnfrageStand {
+  return istObjekt(x) && istText(x.id) && (x.zustand === 'offen' || x.zustand === 'freigegeben' || x.zustand === 'abgelehnt')
+    && typeof x.zweck === 'string' && istZahl(x.von) && istZahl(x.bis) && istZahl(x.am);
+}
+
+export function erzeugeKontoClient(o: { basis: string; fetch: typeof fetch; zeitlimitMs?: number }): KontoClient {
+  const basis = o.basis.replace(/\/+$/, '');
+  const zeitlimit = o.zeitlimitMs ?? KONTO_ZEITLIMIT_MS;
+
+  async function rufe(methode: 'GET' | 'POST', pfad: string, sitzung: string | null, body?: unknown): Promise<unknown> {
+    const kopf: Record<string, string> = { Accept: 'application/json' };
+    if (body !== undefined) kopf['Content-Type'] = 'application/json';
+    if (sitzung !== null) kopf.Authorization = `Bearer ${sitzung}`;
+    let res: Response;
+    try {
+      res = await o.fetch(`${basis}${pfad}`, {
+        method: methode,
+        headers: kopf,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(zeitlimit),
+      });
+    } catch (e) {
+      throw new KontoFehler((e as { name?: unknown } | null)?.name === 'TimeoutError' ? 'server' : 'netz', null);
+    }
+    let daten: unknown = null;
+    try {
+      daten = await res.json();
+    } catch {
+      daten = null;
+    }
+    if (res.ok) return daten;
+    const code = istObjekt(daten) && typeof daten.code === 'string' && (WORKER_CODES as readonly string[]).includes(daten.code)
+      ? (daten.code as KontoFehlerCode) : null;
+    if (res.status === 429) throw new KontoFehler('zu-viele', 429);
+    if (res.status >= 500) throw new KontoFehler(code === 'nicht-eingerichtet' ? 'nicht-eingerichtet' : 'server', res.status);
+    throw new KontoFehler(code ?? 'server', res.status);
+  }
+  /** Erfolgsantwort ohne die erwartete Form → `server` (mit Status 200). */
+  function form<T>(ok: boolean, wert: T): T {
+    if (!ok) throw new KontoFehler('server', 200);
+    return wert;
+  }
+
+  return {
+    async vorgangAnlegen(g) {
+      const d = await rufe('POST', '/konto/vorgang', null, { geraet: g });
+      return form(istObjekt(d) && istText(d.vorgang) && istText(d.abholGeheimnis) && istText(d.code) && istText(d.adresse) && istZahl(d.bis),
+        d as { vorgang: string; abholGeheimnis: string; code: string; adresse: string; bis: number });
+    },
+    async vorgangAbholen(vorgang, abholGeheimnis, beweis) {
+      const d = await rufe('POST', '/konto/vorgang/abholen', null, { vorgang, abholGeheimnis, beweis });
+      if (istObjekt(d) && d.zustand === 'bestaetigt') {
+        return form(istText(d.sitzung) && istStand(d.stand), { zustand: 'bestaetigt' as const, sitzung: d.sitzung as string, stand: d.stand as KontoStand });
+      }
+      const z = istObjekt(d) ? d.zustand : null;
+      return form(z === 'wartet' || z === 'abgelehnt' || z === 'abgelaufen', { zustand: z as 'wartet' | 'abgelehnt' | 'abgelaufen' });
+    },
+    async vorgangAbbrechen(vorgang, abholGeheimnis) {
+      await rufe('POST', '/konto/vorgang/abbrechen', null, { vorgang, abholGeheimnis });
+    },
+    async sitzungErneuern(sitzung, beweis, version, rechnerName) {
+      const d = await rufe('POST', '/konto/sitzung', sitzung, { beweis, version, rechnerName });
+      return form(istObjekt(d) && istText(d.sitzung) && istStand(d.stand), d as { sitzung: string; stand: KontoStand });
+    },
+    async abmelden(sitzung) {
+      await rufe('POST', '/konto/abmelden', sitzung);
+    },
+    async ich(sitzung) {
+      const d = await rufe('GET', '/konto/ich', sitzung);
+      const ok = istObjekt(d) && typeof d.kontoAktiv === 'boolean' && (d.grund === null || d.grund === undefined || ENTZUG.includes(String(d.grund)))
+        && (d.zoomAnfrage === null || d.zoomAnfrage === undefined || istZoomAnfrage(d.zoomAnfrage));
+      const r = (ok ? d : {}) as Objekt;
+      return form(ok, {
+        kontoAktiv: r.kontoAktiv as boolean,
+        grund: (r.grund ?? null) as EntzugGrund | null,
+        zoomAnfrage: (r.zoomAnfrage ?? null) as ZoomAnfrageStand | null,
+        adminOffen: istZahl(r.adminOffen) ? r.adminOffen : 0,
+      });
+    },
+    async freigabe(sitzung, zweck, ziel) {
+      const d = await rufe('POST', '/konto/freigabe', sitzung, { zweck, ziel });
+      return form(istObjekt(d) && istText(d.freigabe) && istZahl(d.bis), d as { freigabe: string; bis: number });
+    },
+    async iveoTokens(sitzung) {
+      const d = await rufe('GET', '/konto/iveo', sitzung);
+      const liste = istObjekt(d) && Array.isArray(d.events) ? d.events : null;
+      const events = form(liste !== null, (liste ?? []).filter((e): e is IveoZentral => istObjekt(e) && istText(e.key)
+        && typeof e.basis === 'string' && istText(e.slug) && typeof e.name === 'string' && istText(e.token)));
+      // G7: die Diagnose des Workers geht weiter, statt als „kein Token hinterlegt“ zu enden (Statuszeile I12).
+      return { events, hinweis: istObjekt(d) && d.hinweis === 'iveo-nicht-eingerichtet' ? 'iveo-nicht-eingerichtet' : null };
+    },
+    async zoomAnfragen(sitzung, a) {
+      const d = await rufe('POST', '/konto/zoom-anfrage', sitzung, a);
+      return form(istObjekt(d) && istZoomAnfrage(d.anfrage), (istObjekt(d) ? d.anfrage : null) as ZoomAnfrageStand);
+    },
+    async adminUebersicht(sitzung) {
+      const d = await rufe('GET', '/konto/admin/uebersicht', sitzung);
+      return form(istObjekt(d) && Array.isArray(d.zugaenge) && Array.isArray(d.iveo) && Array.isArray(d.anfragen)
+        && Array.isArray(d.geraete) && istObjekt(d.altKey), d as unknown as AdminUebersicht);
+    },
+    async adminAktion(sitzung, a) {
+      const d = await rufe('POST', '/konto/admin/aktion', sitzung, a);
+      return form(istObjekt(d) && d.ok === true, d as unknown as AdminAktionErgebnis);
+    },
+  };
+}
+
+// ── Ende des Moduls ──
