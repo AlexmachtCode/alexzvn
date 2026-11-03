@@ -13,8 +13,9 @@
 // Abholgeheimnis, Seitentoken oder Token (OF3); der DO schreibt nichts in die Konsole (Fehler gehen als `diagnose` mit dem
 // Namen des Fehlers an den Worker).
 //
-// Einmal-Regeln (Abholen, Einladung, Binden): Input-Gates und synchrones WebCrypto in workerd serialisieren die Lese-Schreib-Folgen;
-// die Regeln halten zusätzlich ohne sie (atomares Löschen, Reihe je Instanz, frisch lesen vor dem Schreiben).
+// Einmal-Regeln: Abholen nimmt den Vorgang atomar (delete); alle Schreiber eines Vorgangs (Binden, Bestätigen, Google-Zustand) und
+// das Setzen per Einladung laufen in `inReihe` und lesen dort frisch (kein PBKDF2 in der Reihe), auch ohne Input-Gates. Die
+// Schreiber des Kontos (P3, P6) verlassen sich auf die Input-Gates von workerd. Nie `binde` oder `inReihe` aus der Reihe rufen.
 //
 // Uhr: `jetzt` kommt mit jeder Aktion vom Worker; fehlt es, und im Alarm, gilt `env.KONTO_UHR()` (nur Tests, EP21), sonst
 // `Date.now()`. Schlüssel im Speicher (EP1): konto:<kid>, email:<email>, geraet:<gid>, vorgang:<vid>, state:<state>,
@@ -412,7 +413,10 @@ export class KontoSpeicher {
     });
   }
 
-  /** Das Binden selbst, auf dem frisch gelesenen Vorgang, innerhalb der Reihe von `binde`. */
+  /**
+   * Das Binden selbst, auf dem frisch gelesenen Vorgang, innerhalb der Reihe von `binde`. Nie `binde` oder `inReihe` aus
+   * einem Schritt der Reihe aufrufen: die Reihe wartet auf sich selbst (Deadlock).
+   */
   async bindeAn(v, konto) {
     if (v.zustand === 'angemeldet' && v.kid !== konto.kid) return fehler('konflikt', 409);
     if (v.zustand !== 'offen' && v.zustand !== 'angemeldet') return fehler('vorgang-unbekannt', 404);
@@ -437,19 +441,27 @@ export class KontoSpeicher {
   }
 
   /** Aktion `vorgang-google-merken` `{ vorgang, state, nonce, verifier }`: OAuth-Zustand im Vorgang, state als eigener Schlüssel. */
-  async vorgangGoogleMerken(b, jetzt) {
-    const v = await this.ladeVorgang(b.vorgang, jetzt);
-    if (!v || (v.zustand !== 'offen' && v.zustand !== 'angemeldet')) return fehler('vorgang-unbekannt', 404);
-    if (![b.state, b.nonce, b.verifier].every((x) => typeof x === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(x))) return fehler('ungueltig', 400);
-    if (v.google && v.google.state) await this.ctx.storage.delete(K.state(v.google.state));
-    v.google = { state: b.state, nonce: b.nonce, verifier: b.verifier };
-    await this.ctx.storage.put(K.vorgang(v.vorgang), v);
-    await this.ctx.storage.put(K.state(b.state), v.vorgang);
-    return { ok: true };
+  vorgangGoogleMerken(b, jetzt) {
+    return this.inReihe(async () => {
+      const v = await this.ladeVorgang(b.vorgang, jetzt);
+      if (!v || (v.zustand !== 'offen' && v.zustand !== 'angemeldet')) return fehler('vorgang-unbekannt', 404);
+      if (![b.state, b.nonce, b.verifier].every((x) => typeof x === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(x))) return fehler('ungueltig', 400);
+      const alt = v.google && v.google.state;
+      v.google = { state: b.state, nonce: b.nonce, verifier: b.verifier };
+      await this.ctx.storage.put(K.vorgang(v.vorgang), v);
+      if (alt) await this.ctx.storage.delete(K.state(alt));
+      await this.ctx.storage.put(K.state(b.state), v.vorgang);
+      return { ok: true };
+    });
   }
 
   /** Aktion `vorgang-google-state` `{ state }` → `{ vorgang, nonce, verifier }`; ein state gilt genau einmal. */
-  async vorgangGoogleState(b, jetzt) {
+  vorgangGoogleState(b, jetzt) {
+    return this.inReihe(() => this.googleStateEinloesen(b, jetzt));
+  }
+
+  /** Der Rumpf von `vorgang-google-state`, nur innerhalb der Reihe aufrufen. */
+  async googleStateEinloesen(b, jetzt) {
     if (typeof b.state !== 'string' || !b.state) return fehler('vorgang-unbekannt', 404);
     const vid = await this.ctx.storage.get(K.state(b.state));
     if (!vid) return fehler('vorgang-unbekannt', 404);
@@ -516,8 +528,11 @@ export class KontoSpeicher {
       const neuHash = await hashePasswort(b.neu);
       // Die Einladung gilt einmal, auch bei gleichzeitigen Versuchen: frisch lesen, prüfen und schreiben ohne await dazwischen.
       const gesetzt = await this.inReihe(async () => {
+        const k0 = await this.ladeKonto(konto.kid);
+        if (!k0 || !k0.einladung || !(k0.einladung.bis > jetzt) || !(await gleichOhneZeitleck(codeHash, k0.einladung.hash))) return false;
+        // Nach dem zeitkonstanten Vergleich noch einmal frisch lesen: von hier bis zum put steht kein await.
         const k = await this.ladeKonto(konto.kid);
-        if (!k || !k.einladung || k.einladung.hash !== codeHash || !(k.einladung.bis > jetzt)) return false;
+        if (!k || !k.einladung || k.einladung.hash !== k0.einladung.hash) return false;
         k.passwort = neuHash;
         delete k.einladung;
         k.geaendert = jetzt;
@@ -577,10 +592,15 @@ export class KontoSpeicher {
     if (!v || v.zustand !== 'angemeldet') return fehler('vorgang-unbekannt', 404);
     if (!(await gleichOhneZeitleck(String(b.seitenToken ?? ''), v.seitenToken))) return fehler('vorgang-unbekannt', 403);
     if (b.antwort !== 'ja' && b.antwort !== 'nein') return fehler('ungueltig', 400);
-    v.zustand = b.antwort === 'ja' ? 'bestaetigt' : 'abgelehnt';
-    delete v.seitenToken;
-    await this.ctx.storage.put(K.vorgang(v.vorgang), v);
-    return { ok: true, zustand: v.zustand };
+    // Der Token ist oben zeitkonstant geprüft; in der Reihe wird frisch gelesen und nur noch derselbe Vorgang im selben Zustand geändert.
+    return this.inReihe(async () => {
+      const frisch = await this.ladeVorgang(v.vorgang, jetzt);
+      if (!frisch || frisch.zustand !== 'angemeldet' || frisch.seitenToken !== v.seitenToken) return fehler('vorgang-unbekannt', 404);
+      frisch.zustand = b.antwort === 'ja' ? 'bestaetigt' : 'abgelehnt';
+      delete frisch.seitenToken;
+      await this.ctx.storage.put(K.vorgang(frisch.vorgang), frisch);
+      return { ok: true, zustand: frisch.zustand };
+    });
   }
 
   /**

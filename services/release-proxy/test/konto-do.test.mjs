@@ -807,6 +807,89 @@ async function run() {
     });
   }
 
+  // ── P4 Review 2: alle Schreiber eines Vorgangs in der Reihe, ohne Input-Gates (AR22, put zurückgehalten) ──
+  {
+    const { speicher, ctx } = neuerSpeicher({});
+    const geraet = await testGeraet();
+    const a = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'anna@jakobsmedien.com', name: 'Anna A' });
+    const c = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'carl@jakobsmedien.com', name: 'Carl C' });
+    const v = await neuerVorgang(speicher, geraet);
+    const neuState = zufall(24);
+    let freigeben;
+    const tor = new Promise((r) => (freigeben = r));
+    const put = ctx.storage.put.bind(ctx.storage);
+    ctx.storage.put = async (k, w) => {
+      if (k === `vorgang:${v.vorgang}` && w && w.google && w.google.state === neuState) await tor;
+      return put(k, w);
+    };
+    const merken = rufeDo(speicher, 'vorgang-google-merken', { jetzt: T0, vorgang: v.vorgang, state: neuState, nonce: zufall(24), verifier: zufall(32) });
+    const bindA = rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: v.vorgang, kid: a.kid });
+    await new Promise((r) => setTimeout(r, 50));
+    freigeben();
+    const [rm, rA] = await Promise.all([merken, bindA]);
+    const nach = ctx.daten.get(`vorgang:${v.vorgang}`);
+    const rc = await rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: v.vorgang, kid: c.kid });
+    check(
+      'P4 AR22: Binden gegen gleichzeitiges Merken des Google-Zustands: die Bindung von A geht nicht verloren (angemeldet, kid A, Zustand erhalten); Carl → 409 konflikt',
+      rm.ok === true && rA.ok === true && nach.zustand === 'angemeldet' && nach.kid === a.kid && nach.google?.state === neuState && rc.http === 409 && rc.code === 'konflikt',
+    );
+  }
+  {
+    const { speicher, ctx } = neuerSpeicher({});
+    const geraet = await testGeraet();
+    const k = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'maria@jakobsmedien.com', name: 'Maria Schmidt' });
+    const v = await neuerVorgang(speicher, geraet);
+    const b = await rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: v.vorgang, kid: k.kid });
+    let n = 0;
+    let freigeben;
+    const tor = new Promise((r) => (freigeben = r));
+    const put = ctx.storage.put.bind(ctx.storage);
+    ctx.storage.put = async (key, w) => {
+      if (key === `vorgang:${v.vorgang}` && w && w.zustand === 'bestaetigt' && ++n === 2) await tor;
+      return put(key, w);
+    };
+    const ja1 = rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort: 'ja' });
+    const ja2 = rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort: 'ja' });
+    for (let i = 0; i < 400 && ctx.daten.get(`vorgang:${v.vorgang}`)?.zustand !== 'bestaetigt'; i++) await new Promise((r) => setTimeout(r, 5));
+    const erst = await abholen(speicher, v, geraet, T0);
+    freigeben();
+    const jas = await Promise.all([ja1, ja2]);
+    const zweit = await abholen(speicher, v, geraet, T0);
+    check(
+      'P4 AR22: zweimal „Ja“ (Doppelklick) gegen das Abholen: genau ein Ja gilt, das andere → 404, es entsteht keine zweite Sitzung',
+      erst.zustand === 'bestaetigt' && jas.filter((x) => x.ok).length === 1 && jas.filter((x) => x.http === 404 && x.code === 'vorgang-unbekannt').length === 1 &&
+        zweit.http === 404 && zweit.code === 'vorgang-unbekannt' &&
+        !ctx.daten.has(`vorgang:${v.vorgang}`),
+    );
+  }
+
+  // ── P4 Review 2: die Einladung zählt auf die Bremse (AR23: die Prüfung in der Reihe darf die erste nicht verdecken) ──
+  {
+    const { speicher, ctx } = neuerSpeicher({});
+    await legeExternenAn(speicher, { kid: 'k-e', email: 'e@firma.example', einladungscode: 'ABCD-EFGH-JKLM', einladungBis: T0 + 72 * 3600_000 });
+    await legeExternenAn(speicher, { kid: 'k-x', email: 'x@firma.example', einladungscode: 'NPQR-STUV-WXYZ', einladungBis: T0 + 10 * MIN });
+    const geraet = await testGeraet();
+    const versuch = async (email, code, jetzt) => {
+      const v = await neuerVorgang(speicher, geraet, jetzt);
+      return rufeDo(speicher, 'vorgang-passwort', { jetzt, vorgang: v.vorgang, email, einladungscode: code, neu: 'langes-passwort-1' });
+    };
+    const falsche = [];
+    for (let i = 0; i < 7; i++) falsche.push(await versuch('e@firma.example', `ABCD-EFGH-JKL${i + 2}`, T0 + i * 1000));
+    const richtigGesperrt = await versuch('e@firma.example', 'ABCD-EFGH-JKLM', T0 + 8000);
+    check(
+      'P4 AR23: 5 falsche Einladungscodes in Folge → 429 bremse (4 mal 400 einladung), auch der richtige Code kommt dann nicht durch; die Einladung bleibt',
+      JSON.stringify(falsche.map((r) => `${r.http}:${r.code}`)) === JSON.stringify(['400:einladung', '400:einladung', '400:einladung', '400:einladung', '429:bremse', '429:bremse', '429:bremse']) &&
+        richtigGesperrt.http === 429 && 'einladung' in ctx.daten.get('konto:k-e'),
+    );
+    const spaet = [];
+    for (let i = 0; i < 5; i++) spaet.push(await versuch('x@firma.example', 'NPQR-STUV-WXYZ', T0 + 10 * MIN + i * 1000));
+    check(
+      'P4 AR23: eine abgelaufene Einladung zählt als Fehlversuch (4 mal 400 einladung, der Zähler steigt, der 5. → 429 bremse)',
+      JSON.stringify(spaet.map((r) => `${r.http}:${r.code}`)) === JSON.stringify(['400:einladung', '400:einladung', '400:einladung', '400:einladung', '429:bremse']) &&
+        ctx.daten.get('fehl:k-x')?.anzahl === 5,
+    );
+  }
+
   // ── Ende der Fälle ──
 }
 
