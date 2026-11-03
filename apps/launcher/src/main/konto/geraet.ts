@@ -58,7 +58,7 @@ async function handleAus(privat: CryptoKey): Promise<GeraetHandle> {
   };
 }
 
-/** Neues Schlüsselpaar, verschlüsselt abgelegt; null, wenn Verschlüsseln oder Ablegen scheitert (dann nichts geschrieben). */
+/** Neues Schlüsselpaar, verschlüsselt abgelegt; null, wenn das Verschlüsseln scheitert (dann nichts geschrieben); scheitert das Ablegen, wirft die Funktion – die Hülle fängt das. */
 async function erzeuge(v: Verschluesseler, ablage: { schreib(b64: string): void }): Promise<GeraetHandle | null> {
   const paar = (await subtle().generateKey(ALGO, true, ['sign', 'verify'])) as CryptoKeyPair;
   const pkcs8 = Buffer.from(await subtle().exportKey('pkcs8', paar.privateKey)).toString('base64');
@@ -75,6 +75,7 @@ async function erzeuge(v: Verschluesseler, ablage: { schreib(b64: string): void 
 /**
  * Geräteschlüssel laden oder beim ersten Mal erzeugen (EP7). Ohne Schlüsselspeicher → `kein-schluesselspeicher` und nichts
  * geschrieben. Gespeicherter Schlüssel unlesbar → neues Gerät (`neu-wegen-unlesbar`), der alte Eintrag wird überschrieben.
+ * Scheitert das Ablegen (`ablage.schreib` wirft), wirft auch diese Funktion; die Hülle fängt das.
  */
 export async function ladeOderErzeugeGeraet(
   v: Verschluesseler,

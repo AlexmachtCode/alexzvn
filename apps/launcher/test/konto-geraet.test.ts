@@ -71,6 +71,15 @@ const JETZT = Date.UTC(2026, 9, 21, 10, 0, 0);
     && r2.art === 'kein-schluesselspeicher' && a2.schreibvorgaenge === 0 && a2.wert === undefined);
 }
 
+// --- P8 7, G6: ohne Schlüsselspeicher bleibt ein vorhandener Eintrag unberührt ---------------------------------------
+{
+  const ohne = verschluesseler({ verfuegbar: false });
+  const a = ablage('enc:alt');
+  const r = await ladeOderErzeugeGeraet(ohne, a);
+  ck('P8 7: ohne Schlüsselspeicher bleibt ein vorhandener Eintrag unberührt (nichts überschrieben, nichts geschrieben)',
+    r.art === 'kein-schluesselspeicher' && a.wert === 'enc:alt' && a.schreibvorgaenge === 0 && ohne.aufrufe === 0);
+}
+
 // --- P8 7: unlesbarer Schlüssel → neues Gerät -----------------------------------------------------------------------
 {
   const v = verschluesseler();
