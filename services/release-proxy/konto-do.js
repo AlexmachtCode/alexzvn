@@ -13,6 +13,9 @@
 // Abholgeheimnis, Seitentoken oder Token (OF3); der DO schreibt nichts in die Konsole (Fehler gehen als `diagnose` mit dem
 // Namen des Fehlers an den Worker).
 //
+// Einmal-Regeln (Abholen, Einladung, Binden): Input-Gates und synchrones WebCrypto in workerd serialisieren die Lese-Schreib-Folgen;
+// die Regeln halten zusätzlich ohne sie (atomares Löschen, Reihe je Instanz, frisch lesen vor dem Schreiben).
+//
 // Uhr: `jetzt` kommt mit jeder Aktion vom Worker; fehlt es, und im Alarm, gilt `env.KONTO_UHR()` (nur Tests, EP21), sonst
 // `Date.now()`. Schlüssel im Speicher (EP1): konto:<kid>, email:<email>, geraet:<gid>, vorgang:<vid>, state:<state>,
 // iveo:<basis|slug>, anfrage:<aid>, log:<ms 13-stellig>:<zufall>, fehl:<kid>, altkey:<tag>:<gruppe>:<plattform>-<arch>.
@@ -363,8 +366,9 @@ export class KontoSpeicher {
   }
 
   async vorgangWeg(v) {
-    await this.ctx.storage.delete(K.vorgang(v.vorgang));
+    const weg = await this.ctx.storage.delete(K.vorgang(v.vorgang));
     if (v.google && v.google.state) await this.ctx.storage.delete(K.state(v.google.state));
+    return weg;
   }
 
   /** Aktion `vorgang-anlegen` `{ geraet, abholHash, code }` → `{ vorgang, bis }`; das Abholgeheimnis kennt der DO nur als Hash. */
@@ -400,7 +404,16 @@ export class KontoSpeicher {
    * Ein Vorgang gehört dem ersten Konto, das sich darauf anmeldet (EP5): ein anderes Konto → 409 konflikt (B11). Meldet
    * sich dasselbe Konto noch einmal an (zweiter Reiter, Zurück im Browser), bleibt das Seitentoken gleich.
    */
-  async binde(v, konto) {
+  binde(v0, konto) {
+    return this.inReihe(async () => {
+      const v = await this.ctx.storage.get(K.vorgang(v0.vorgang));
+      if (!v) return fehler('vorgang-unbekannt', 404);
+      return this.bindeAn(v, konto);
+    });
+  }
+
+  /** Das Binden selbst, auf dem frisch gelesenen Vorgang, innerhalb der Reihe von `binde`. */
+  async bindeAn(v, konto) {
     if (v.zustand === 'angemeldet' && v.kid !== konto.kid) return fehler('konflikt', 409);
     if (v.zustand !== 'offen' && v.zustand !== 'angemeldet') return fehler('vorgang-unbekannt', 404);
     if (v.zustand === 'offen') {
@@ -470,18 +483,22 @@ export class KontoSpeicher {
     } else if (typeof b.passwort !== 'string') {
       return fehler('ungueltig', 400);
     }
+    // Immer zuerst die Attrappe holen: sonst rechnet nur die unbekannte E-Mail beim 1. Versuch je Instanz einen Hash mehr (AR18).
+    const attrappe = await this.attrappenHash();
     const gefunden = await this.kontoPerEmail(email);
     const konto = gefunden && gefunden.art === 'passwort' ? gefunden : null;
     const bremsSchluessel = konto ? K.fehl(konto.kid) : K.fehlEmail(await sha256B64url(email));
     const vorab = await this.bremseVorVersuch(bremsSchluessel, jetzt);
     if (vorab.minuten) return fehler('bremse', 429, { minuten: vorab.minuten });
     let richtig = false;
+    let codeHash = null;
     if (mitCode) {
       const hash = await sha256B64url(normalisiereCode(b.einladungscode));
+      codeHash = hash;
       richtig = !!(konto && konto.einladung && konto.einladung.bis > jetzt) && (await gleichOhneZeitleck(hash, konto.einladung.hash));
     } else {
       // Unbekannte E-Mail kostet dieselbe Rechenzeit wie ein falsches Passwort (B12: keine Auskunft, ob es die E-Mail gibt).
-      const gespeichert = konto && konto.passwort ? konto.passwort : await this.attrappenHash();
+      const gespeichert = konto && konto.passwort ? konto.passwort : attrappe;
       richtig = (await pruefePasswort(b.passwort, gespeichert)) && !!(konto && konto.passwort);
     }
     if (!richtig) {
@@ -496,18 +513,40 @@ export class KontoSpeicher {
     if (!g.ok) return fehler(g.grund, 403, g.grund === 'zugang-abgelaufen' ? { bis: konto.bis } : {});
     if (v.zustand === 'angemeldet' && v.kid !== konto.kid) return fehler('konflikt', 409);
     if (mitCode) {
-      konto.passwort = await hashePasswort(b.neu);
-      delete konto.einladung;
-      konto.geaendert = jetzt;
-      await this.speichereKonto(konto);
+      const neuHash = await hashePasswort(b.neu);
+      // Die Einladung gilt einmal, auch bei gleichzeitigen Versuchen: frisch lesen, prüfen und schreiben ohne await dazwischen.
+      const gesetzt = await this.inReihe(async () => {
+        const k = await this.ladeKonto(konto.kid);
+        if (!k || !k.einladung || k.einladung.hash !== codeHash || !(k.einladung.bis > jetzt)) return false;
+        k.passwort = neuHash;
+        delete k.einladung;
+        k.geaendert = jetzt;
+        await this.speichereKonto(k);
+        return true;
+      });
+      if (!gesetzt) return fehler('einladung', 400);
     }
     return this.binde(v, konto);
   }
 
   /** Hash eines Zufallspassworts, einmal je Instanz, für unbekannte E-Mails. */
   attrappenHash() {
-    if (!this.attrappe) this.attrappe = hashePasswort(zufall(16));
+    if (!this.attrappe) {
+      const p = hashePasswort(zufall(16));
+      this.attrappe = p;
+      // Ein abgelehntes Versprechen bleibt nicht liegen, sonst bekäme jede unbekannte E-Mail danach einen Serverfehler.
+      p.catch(() => {
+        if (this.attrappe === p) this.attrappe = null;
+      });
+    }
     return this.attrappe;
+  }
+
+  /** Arbeiten nacheinander je Instanz (Einmal-Regeln auch ohne Input-Gates); ein Fehler stoppt die Reihe nicht. */
+  inReihe(fn) {
+    const lauf = (this.einmalKette || Promise.resolve()).then(fn);
+    this.einmalKette = lauf.catch(() => undefined);
+    return lauf;
   }
 
   /**
@@ -563,7 +602,8 @@ export class KontoSpeicher {
       return { ok: true, zustand: 'abgelehnt' };
     }
     if (v.zustand !== 'bestaetigt') return { ok: true, zustand: 'wartet' };
-    await this.vorgangWeg(v);
+    // Atomar nehmen, bevor eine Sitzung entsteht: wer den Vorgang nicht mehr löschen kann, war zu spät (zweimal abholen = einmal).
+    if (!(await this.vorgangWeg(v))) return fehler('vorgang-unbekannt', 404);
     const konto = await this.ladeKonto(v.kid);
     if (!konto) return fehler('geloescht', 403);
     const g = kontoGueltig(konto, jetzt);

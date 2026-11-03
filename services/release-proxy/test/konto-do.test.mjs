@@ -684,6 +684,129 @@ async function run() {
     check('P4 6.1: nach einer Sperre zwischen Ja und Abholen entsteht kein Gerät', !ctx.daten.has(`geraet:${geraet.gid}`));
   }
 
+  // ── P4 Review: gleiche Rechenarbeit für unbekannte E-Mails beim kalten Start (AR18, keine Zeitmessung) ──
+  {
+    const ableitungen = async (email, ersterFehler = false) => {
+      const { speicher } = neuerSpeicher({});
+      await legeExternenAn(speicher, { passwort: 'richtiges-passwort' });
+      const geraet = await testGeraet();
+      const v = await neuerVorgang(speicher, geraet);
+      const original = crypto.subtle.deriveBits;
+      let n = 0;
+      let wirf = ersterFehler;
+      crypto.subtle.deriveBits = function (...a) {
+        n++;
+        if (wirf) {
+          wirf = false;
+          return Promise.reject(new Error('Ableitung ausgefallen'));
+        }
+        return original.apply(this, a);
+      };
+      try {
+        const r = await rufeDo(speicher, 'vorgang-passwort', { jetzt: T0, vorgang: v.vorgang, email, passwort: 'falsches-passwort' });
+        const nErster = n;
+        const w = await neuerVorgang(speicher, geraet);
+        const r2 = await rufeDo(speicher, 'vorgang-passwort', { jetzt: T0, vorgang: w.vorgang, email, passwort: 'falsches-passwort' });
+        return { n: nErster, r, r2 };
+      } finally {
+        delete crypto.subtle.deriveBits;
+      }
+    };
+    const bekannt = await ableitungen('technik@firma.example');
+    const unbekannt = await ableitungen('niemand@firma.example');
+    check(
+      'P4 AR18: der 1. Versuch auf einer frischen Instanz kostet für eine unbekannte und eine bekannte E-Mail gleich viele Ableitungen (Attrappe immer zuerst)',
+      bekannt.n === unbekannt.n && bekannt.n >= 2 && bekannt.r.code === 'falsch' && unbekannt.r.code === 'falsch',
+    );
+    const ausfall = await ableitungen('niemand@firma.example', true);
+    check(
+      'P4 AR18: fällt die Attrappe aus, bleibt das abgelehnte Versprechen nicht liegen (erst 500, dann wieder 401 falsch)',
+      ausfall.r.http === 500 && ausfall.r2.http === 401 && ausfall.r2.code === 'falsch',
+    );
+  }
+
+  // ── P4 Review: Einmal-Regeln auch ohne Input-Gates (AR19) ──
+  {
+    const { speicher, ctx } = neuerSpeicher({});
+    const geraet = await testGeraet();
+    const k = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'maria@jakobsmedien.com', name: 'Maria Schmidt' });
+    const v = await neuerVorgang(speicher, geraet);
+    const b = await rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: v.vorgang, kid: k.kid });
+    await rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort: 'ja' });
+    const beide = await Promise.all([abholen(speicher, v, geraet, T0), abholen(speicher, v, geraet, T0)]);
+    const sitzungen = beide.filter((x) => x.zustand === 'bestaetigt');
+    const verloren = beide.filter((x) => x.zustand !== 'bestaetigt');
+    check(
+      'P4 AR19: zweimal gleichzeitig abholen ergibt genau eine Sitzung, die andere Anfrage → 404 vorgang-unbekannt',
+      sitzungen.length === 1 && verloren.length === 1 && verloren[0].http === 404 && verloren[0].code === 'vorgang-unbekannt' && !ctx.daten.has(`vorgang:${v.vorgang}`),
+    );
+  }
+  {
+    const { speicher, ctx } = neuerSpeicher({});
+    await legeExternenAn(speicher, { kid: 'k-e', email: 'e@firma.example', einladungscode: 'ABCD-EFGH-JKLM', einladungBis: T0 + 72 * 3600_000 });
+    const geraet = await testGeraet();
+    const v1 = await neuerVorgang(speicher, geraet);
+    const v2 = await neuerVorgang(speicher, geraet);
+    const beide = await Promise.all([
+      rufeDo(speicher, 'vorgang-passwort', { jetzt: T0, vorgang: v1.vorgang, email: 'e@firma.example', einladungscode: 'ABCD-EFGH-JKLM', neu: 'passwort-erster-1' }),
+      rufeDo(speicher, 'vorgang-passwort', { jetzt: T0, vorgang: v2.vorgang, email: 'e@firma.example', einladungscode: 'ABCD-EFGH-JKLM', neu: 'passwort-zweiter-2' }),
+    ]);
+    const konto = ctx.daten.get('konto:k-e');
+    const gewinner = beide.findIndex((x) => x.ok);
+    const v3 = await neuerVorgang(speicher, geraet);
+    const login = gewinner < 0 ? null : await rufeDo(speicher, 'vorgang-passwort', { jetzt: T0, vorgang: v3.vorgang, email: 'e@firma.example', passwort: gewinner === 0 ? 'passwort-erster-1' : 'passwort-zweiter-2' });
+    check(
+      'P4 AR19: derselbe Einladungscode gleichzeitig zweimal → genau ein ok, die andere Anfrage → 400 einladung; das Passwort des Gewinners gilt',
+      beide.filter((x) => x.ok).length === 1 && beide.filter((x) => x.code === 'einladung' && x.http === 400).length === 1 && !('einladung' in konto) &&
+        login?.ok === true,
+    );
+  }
+  {
+    const { speicher, ctx } = neuerSpeicher({});
+    const geraet = await testGeraet();
+    const a = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'anna@jakobsmedien.com', name: 'Anna A' });
+    const c = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'carl@jakobsmedien.com', name: 'Carl C' });
+    const v = await neuerVorgang(speicher, geraet);
+    const beide = await Promise.all([
+      rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: v.vorgang, kid: a.kid }),
+      rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: v.vorgang, kid: c.kid }),
+    ]);
+    const erster = beide.findIndex((x) => x.ok);
+    const gespeichert = ctx.daten.get(`vorgang:${v.vorgang}`);
+    const ja = erster < 0 ? null : await rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: beide[erster].seitenToken, antwort: 'ja' });
+    const geholt = ja ? await abholen(speicher, v, geraet, T0) : null;
+    check(
+      'P4 AR19: Rennen um das Binden: genau ein Konto bindet (das andere → 409 konflikt), der Vorgang gehört diesem Konto und das Abholen liefert es',
+      beide.filter((x) => x.ok).length === 1 && beide.filter((x) => x.http === 409 && x.code === 'konflikt').length === 1 &&
+        gespeichert.kid === [a.kid, c.kid][erster] && geholt?.konto?.kid === [a.kid, c.kid][erster],
+    );
+  }
+
+  // ── P4 Review: ein entschiedener Vorgang nimmt weder Passwort-Anmeldung noch Google-Zustand an (AR20) ──
+  {
+    const { speicher, ctx } = neuerSpeicher({});
+    await legeExternenAn(speicher, { kid: 'k-e', email: 'e@firma.example', einladungscode: 'ABCD-EFGH-JKLM', einladungBis: T0 + 72 * 3600_000 });
+    const geraet = await testGeraet();
+    const k = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'maria@jakobsmedien.com', name: 'Maria Schmidt' });
+    const vorgaenge = [];
+    for (const antwort of ['ja', 'nein']) {
+      const v = await neuerVorgang(speicher, geraet);
+      const b = await rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: v.vorgang, kid: k.kid });
+      await rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort });
+      vorgaenge.push({ name: antwort === 'ja' ? 'bestätigt' : 'abgelehnt', v });
+    }
+    await pruefeFaelle('P4 AR20: entschiedener Vorgang → vorgang-passwort und vorgang-google-merken antworten 404 vorgang-unbekannt, die Einladung bleibt unverbraucht, nichts wird gemerkt', vorgaenge, async (f) => {
+      const p = await rufeDo(speicher, 'vorgang-passwort', { jetzt: T0, vorgang: f.v.vorgang, email: 'e@firma.example', einladungscode: 'ABCD-EFGH-JKLM', neu: 'langes-passwort-1' });
+      const state = zufall(24);
+      const m = await rufeDo(speicher, 'vorgang-google-merken', { jetzt: T0, vorgang: f.v.vorgang, state, nonce: zufall(24), verifier: zufall(32) });
+      const konto = ctx.daten.get('konto:k-e');
+      return gleich(
+        [p.http, p.code, m.http, m.code, 'einladung' in konto, 'passwort' in konto, ctx.daten.has(`state:${state}`), 'google' in ctx.daten.get(`vorgang:${f.v.vorgang}`)],
+        [404, 'vorgang-unbekannt', 404, 'vorgang-unbekannt', true, false, false, false],
+      );
+    });
+  }
+
   // ── Ende der Fälle ──
 }
 
