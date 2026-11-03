@@ -25,8 +25,12 @@
 // `Date.now()`. Schlüssel im Speicher (EP1): konto:<kid>, email:<email>, geraet:<gid>, vorgang:<vid>, state:<state>,
 // iveo:<basis|slug>, anfrage:<aid>, log:<ms 13-stellig>:<zufall>, fehl:<kid>, altkey:<tag>:<gruppe>:<plattform>-<arch>.
 import {
+  EINLADUNG_MS,
   PROTOKOLL_MS,
+  STUFEN,
   VORGANG_MS,
+  WERKZEUGE,
+  alterKeyGilt,
   bremseAktiv,
   darf,
   googleNeuFaellig,
@@ -40,6 +44,7 @@ import {
   geraetIdAus,
   gleichOhneZeitleck,
   hashePasswort,
+  neuerEinladungsCode,
   normalisiereCode,
   pruefeGeraeteBeweis,
   pruefePasswort,
@@ -88,6 +93,8 @@ const AKTIONEN = {
   'zoom-anfragen': 'zoomAnfragen',
   'iveo-fuer': 'iveoFuer',
   'altkey-zaehlen': 'altkeyZaehlen',
+  'admin-uebersicht': 'adminUebersicht',
+  'admin-aktion': 'adminAktion',
   // ── Ende der Aktionen ──
 };
 
@@ -158,6 +165,43 @@ function anfrageStand(a) {
     bis: a.zustand === 'freigegeben' && typeof a.freigegebenBis === 'number' ? a.freigegebenBis : a.bis,
     am: typeof a.entschiedenAm === 'number' ? a.entschiedenAm : a.am,
   };
+}
+
+/** Admin-Aktion (Plan 10.5 `AdminAktion.aktion`) → Methode; jede bekommt `(aktion, wer, jetzt)`. */
+const ADMIN_AKTIONEN = {
+  'zugang-speichern': 'zugangSpeichern',
+  einladen: 'einladen',
+  'neuer-code': 'neuerCode',
+  'zugang-loeschen': 'adminZugangLoeschen',
+  entsperren: 'adminEntsperren',
+  'iveo-hinterlegen': 'iveoHinterlegen',
+  'iveo-entfernen': 'iveoEntfernen',
+  'anfrage-freigeben': 'anfrageFreigeben',
+  'anfrage-ablehnen': 'anfrageAblehnen',
+  'geraet-markieren': 'geraetMarkieren',
+};
+
+const B64URL = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Basis-URL eines iveo-Events wie `normalizeIveoBaseUrl` in @jm/iveo (packages/iveo/src/client.ts): getrimmt, ohne Schema mit
+ * https://, ohne Schrägstriche am Ende, mit Host. Leer, ohne Host oder mit `|` (Trenner im Schlüssel) → null; eine Vorgabe-Basis
+ * kennt der DO nicht, der Launcher schickt die Basis immer mit (P27).
+ */
+function normalisiereBasis(roh) {
+  const t = typeof roh === 'string' ? roh.trim() : '';
+  if (!t || t.includes('|')) return null;
+  const mitSchema = /^https?:\/\//i.test(t) ? t : `https://${t}`;
+  const sauber = mitSchema.replace(/\/+$/, '');
+  try {
+    return new URL(sauber).host ? sauber : null;
+  } catch {
+    return null;
+  }
+}
+
+function nachName(a, b) {
+  return a.name.localeCompare(b.name, 'de') || a.email.localeCompare(b.email);
 }
 
 export class KontoSpeicher {
@@ -818,6 +862,273 @@ export class KontoSpeicher {
     const key = `altkey:${tag}:${b.gruppe}:${plattform}`;
     const alt = await this.ctx.storage.get(key);
     await this.ctx.storage.put(key, { tag, gruppe: b.gruppe, plattform, anzahl: (alt ? alt.anzahl : 0) + 1, zuletzt: jetzt });
+    return { ok: true };
+  }
+
+  // ── Admin-Maske (Spec 7, 4, 8, 9; EP15, EP19, EP20, OFP4) ──
+
+  /** Aktueller Admin im DO (OFP4): Konto da, gültig, wirksame Stufe `admin` (ERSTER_ADMIN zählt immer). Nie aus den Claims. */
+  async aktuellerAdmin(kid, jetzt) {
+    const konto = await this.ladeKonto(kid);
+    return this.istAktiverAdmin(konto, jetzt) ? konto : null;
+  }
+
+  /**
+   * Aktion `admin-uebersicht` `{ kid }` → AdminUebersicht (Plan 10.5): alle Zugänge (auch abgelaufene und gesperrte, nach
+   * Name), iveo-Events ohne `iv`/`ct`, Zoom-Anfragen (jüngste zuerst; Rechnername, JM und Plattform vom Gerät, sonst aus der
+   * Anfrage), Geräte ohne Schlüssel (`letztesKonto` = Kennung, die Maske zeigt den Namen aus `zugaenge`), alter Schlüssel mit
+   * Frist und Diagnose aus `alterKeyGilt(env, 'katalog')` und den Zeilen der Zählung (jüngster Tag zuerst). Ohne aktuellen
+   * Admin → 403 kein-recht.
+   */
+  async adminUebersicht(b, jetzt) {
+    if (!(await this.aktuellerAdmin(b.kid, jetzt))) return fehler('kein-recht', 403);
+    const st = this.ctx.storage;
+    const konten = [...(await st.list({ prefix: 'konto:' })).values()];
+    const nachKid = new Map(konten.map((k) => [k.kid, k]));
+    const geraete = new Map([...(await st.list({ prefix: 'geraet:' })).values()].map((g) => [g.gid, g]));
+    const zugaenge = konten
+      .map((k) => ({
+        kid: k.kid,
+        email: k.email,
+        name: k.name,
+        art: k.art,
+        stufe: this.stufeVon(k),
+        zustand: k.zustand,
+        tools: k.tools,
+        events: k.events,
+        bis: k.bis,
+        zoomBis: k.zoomBis,
+        einladungBis: k.einladung ? k.einladung.bis : null,
+        letzteAnmeldung: k.letzteAnmeldung,
+        ersterAdmin: this.istErster(k),
+      }))
+      .sort(nachName);
+    const iveo = [...(await st.list({ prefix: 'iveo:' })).values()].map((e) => ({ key: e.key, basis: e.basis, slug: e.slug, name: e.name, am: e.am, von: e.von }));
+    const anfragen = [...(await st.list({ prefix: 'anfrage:' })).values()]
+      .map((a) => {
+        const k = nachKid.get(a.kid);
+        const g = geraete.get(a.gid);
+        return {
+          id: a.id,
+          kid: a.kid,
+          name: k ? k.name : '',
+          email: k ? k.email : '',
+          zweck: a.zweck,
+          von: a.von,
+          bis: a.bis,
+          gid: a.gid,
+          rechnerName: g ? g.name : a.rechnerName,
+          jm: g ? g.jm === true : a.jm === true,
+          plattform: g ? g.plattform : a.plattform,
+          zustand: a.zustand,
+          am: a.am,
+        };
+      })
+      .sort((x, y) => y.am - x.am);
+    const geraeteListe = [...geraete.values()]
+      .map((g) => ({
+        gid: g.gid,
+        name: g.name,
+        plattform: g.plattform,
+        arch: g.arch,
+        version: g.version,
+        jm: g.jm === true,
+        ersterKontakt: g.ersterKontakt,
+        letzterKontakt: g.letzterKontakt,
+        letztesKonto: g.letztesKonto ?? null,
+      }))
+      .sort((x, y) => y.letzterKontakt - x.letzterKontakt);
+    const frist = alterKeyGilt(this.env, 'katalog', jetzt);
+    const zeilen = [...(await st.list({ prefix: 'altkey:', reverse: true })).values()].map((z) => ({
+      tag: z.tag,
+      gruppe: z.gruppe,
+      plattform: z.plattform,
+      anzahl: z.anzahl,
+      zuletzt: z.zuletzt,
+    }));
+    return { ok: true, zugaenge, iveo, anfragen, geraete: geraeteListe, altKey: { bis: frist.bis, diagnose: frist.diagnose, zeilen } };
+  }
+
+  /**
+   * Aktion `admin-aktion` `{ kid, aktion }` → `{ ok: true, einladungscode?, codeBis? }` (Plan 10.5 AdminAktion; bei
+   * `iveo-hinterlegen` statt `token` je Event `{ iv, ct }`, 10.4). Prüft zuerst den aktuellen Admin im DO (OFP4: ein
+   * herabgestufter oder gesperrter Admin kann sofort nichts mehr); jede gelungene Aktion schreibt genau einen
+   * Protokolleintrag mit `wer` = E-Mail des Admins (EP19). Codes: 400 ungueltig/domain, 403 kein-recht/erster-admin,
+   * 404 vorgang-unbekannt (unbekannte Kennung), 409 konflikt (S12a, S12b).
+   */
+  async adminAktion(b, jetzt) {
+    const admin = await this.aktuellerAdmin(b.kid, jetzt);
+    if (!admin) return fehler('kein-recht', 403);
+    const a = b.aktion && typeof b.aktion === 'object' && !Array.isArray(b.aktion) ? b.aktion : {};
+    const methode = typeof a.aktion === 'string' && Object.hasOwn(ADMIN_AKTIONEN, a.aktion) ? ADMIN_AKTIONEN[a.aktion] : null;
+    if (!methode) return fehler('ungueltig', 400);
+    return this[methode](a, admin.email, jetzt);
+  }
+
+  /**
+   * Stufe, Werkzeuge, Events, „Zugang bis“ und Zoom-Freigabe prüfen (Spec 5, M27): Stufe aus STUFEN, Werkzeuge aus WERKZEUGE
+   * (ohne Doppelte), Events nur hinterlegte Schlüssel, `bis` und `zoomBis` Zahl oder null, Externe brauchen `bis`. Sonst null.
+   */
+  async zugangsWerte(a) {
+    if (!STUFEN.includes(a.stufe)) return null;
+    if (!Array.isArray(a.tools) || !a.tools.every((t) => WERKZEUGE.includes(t))) return null;
+    if (!Array.isArray(a.events) || !a.events.every((e) => typeof e === 'string')) return null;
+    for (const e of a.events) if (!(await this.ctx.storage.get(K.iveo(e)))) return null;
+    const zeitOderNull = (w) => w === null || Number.isFinite(w);
+    if (!zeitOderNull(a.bis) || !zeitOderNull(a.zoomBis)) return null;
+    if (a.stufe === 'externer' && a.bis === null) return null;
+    return { stufe: a.stufe, tools: [...new Set(a.tools)], events: [...new Set(a.events)], bis: a.bis, zoomBis: a.zoomBis };
+  }
+
+  /** `zugang-speichern` (Spec 7, 4): erster Admin → 403 erster-admin (S16); den letzten aktiven Admin entmachten → 409 (S12a). */
+  async zugangSpeichern(a, wer, jetzt) {
+    const konto = await this.ladeKonto(a.kid);
+    if (!konto) return fehler('vorgang-unbekannt', 404);
+    if (this.istErster(konto)) return fehler('erster-admin', 403);
+    const werte = await this.zugangsWerte({ ...a, bis: a.bis ?? null, zoomBis: a.zoomBis ?? null });
+    if (!werte) return fehler('ungueltig', 400);
+    const bleibtAdmin = werte.stufe === 'admin' && (werte.bis === null || werte.bis > jetzt);
+    if (this.istAktiverAdmin(konto, jetzt) && !bleibtAdmin && !(await this.adminBleibt(jetzt, konto.kid))) return fehler('konflikt', 409);
+    const vorher = { stufe: konto.stufe, tools: konto.tools, events: konto.events, bis: konto.bis, zoomBis: konto.zoomBis };
+    Object.assign(konto, werte, { geaendert: jetzt });
+    await this.speichereKonto(konto);
+    await this.protokolliere({ am: jetzt, wer, was: 'zugang-speichern', wen: konto.email, details: { kid: konto.kid, vorher, nachher: werte } });
+    return { ok: true };
+  }
+
+  /**
+   * `einladen` (Spec 4, EP4): legt einen Externen mit Einladungscode an (12 Zeichen, gespeichert nur als SHA-256 der
+   * normalisierten Form, 72 h, einmal). Der Code steht nur in dieser Antwort. jakobsmedien.com → 400 domain (S17, M28);
+   * vergebene E-Mail → 409 konflikt (S12b); ohne Name, gültige E-Mail oder „bis“ in der Zukunft → 400 ungueltig.
+   */
+  async einladen(a, wer, jetzt) {
+    const email = normEmail(a.email);
+    if (!EMAIL_FORM.test(email)) return fehler('ungueltig', 400);
+    if (istDomainKonto(email)) return fehler('domain', 400);
+    if (await this.kontoPerEmail(email)) return fehler('konflikt', 409);
+    const name = text(a.name, 80);
+    const werte = await this.zugangsWerte({ stufe: 'externer', tools: a.tools, events: a.events, bis: a.bis ?? null, zoomBis: null });
+    if (!name || !werte || !(werte.bis > jetzt)) return fehler('ungueltig', 400);
+    const code = neuerEinladungsCode();
+    const konto = {
+      kid: zufall(12),
+      email,
+      name,
+      art: 'passwort',
+      stufe: 'externer',
+      zustand: 'aktiv',
+      tools: werte.tools,
+      events: werte.events,
+      bis: werte.bis,
+      zoomBis: null,
+      einladung: { hash: await sha256B64url(normalisiereCode(code)), bis: jetzt + EINLADUNG_MS },
+      erstellt: jetzt,
+      geaendert: jetzt,
+      letzteAnmeldung: null,
+    };
+    await this.speichereKonto(konto);
+    await this.protokolliere({ am: jetzt, wer, was: 'einladen', wen: email, details: { kid: konto.kid, tools: werte.tools, events: werte.events, bis: werte.bis } });
+    return { ok: true, einladungscode: code, codeBis: konto.einladung.bis };
+  }
+
+  /** `neuer-code` (Spec 4, M19): neues Einladungsverfahren, das bisherige Passwort gilt nicht mehr; nur für E-Mail-Zugänge. */
+  async neuerCode(a, wer, jetzt) {
+    const konto = await this.ladeKonto(a.kid);
+    if (!konto) return fehler('vorgang-unbekannt', 404);
+    if (konto.art !== 'passwort') return fehler('ungueltig', 400);
+    const code = neuerEinladungsCode();
+    delete konto.passwort;
+    konto.einladung = { hash: await sha256B64url(normalisiereCode(code)), bis: jetzt + EINLADUNG_MS };
+    konto.geaendert = jetzt;
+    await this.speichereKonto(konto);
+    await this.ctx.storage.delete(K.fehl(konto.kid));
+    await this.protokolliere({ am: jetzt, wer, was: 'neuer-code', wen: konto.email, details: { kid: konto.kid } });
+    return { ok: true, einladungscode: code, codeBis: konto.einladung.bis };
+  }
+
+  /** `zugang-loeschen` (Spec 4): Google sperren, Externe löschen (P3). */
+  async adminZugangLoeschen(a, wer, jetzt) {
+    return this.zugangLoeschen(a.kid, wer, jetzt);
+  }
+
+  /** `entsperren` (Spec 4): Sperre aufheben (P3). */
+  async adminEntsperren(a, wer, jetzt) {
+    return this.entsperren(a.kid, wer, jetzt);
+  }
+
+  /**
+   * `iveo-hinterlegen` (Spec 6.4, 7): je Event `{ slug, name, iv, ct }` unter `<normalisierte Basis>|<slug>` (EP13); ein
+   * vorhandenes Event wird ersetzt. Klartext kennt der DO nie. Ohne Basis, ohne Events, mit `|` im Slug oder ohne iv/ct → 400.
+   */
+  async iveoHinterlegen(a, wer, jetzt) {
+    const basis = normalisiereBasis(a.basis);
+    const liste = Array.isArray(a.events) ? a.events : [];
+    if (!basis || liste.length === 0 || liste.length > 100) return fehler('ungueltig', 400);
+    const eintraege = [];
+    for (const e of liste) {
+      const slug = e && typeof e.slug === 'string' ? e.slug.trim() : '';
+      if (!slug || slug.length > 120 || slug.includes('|')) return fehler('ungueltig', 400);
+      if (typeof e.iv !== 'string' || typeof e.ct !== 'string' || !B64URL.test(e.iv) || !B64URL.test(e.ct)) return fehler('ungueltig', 400);
+      eintraege.push({ key: `${basis}|${slug}`, basis, slug, name: text(e.name, 200) || slug, iv: e.iv, ct: e.ct, am: jetzt, von: wer });
+    }
+    for (const e of eintraege) await this.ctx.storage.put(K.iveo(e.key), e);
+    await this.protokolliere({ am: jetzt, wer, was: 'iveo-hinterlegen', wen: basis, details: { slugs: eintraege.map((e) => e.slug) } });
+    return { ok: true };
+  }
+
+  /** `iveo-entfernen` (Spec 7, M34): Launcher, die das Token schon haben, behalten es bis zu ihrem nächsten Start. */
+  async iveoEntfernen(a, wer, jetzt) {
+    const key = typeof a.key === 'string' ? a.key : '';
+    const e = key ? await this.ctx.storage.get(K.iveo(key)) : null;
+    if (!e) return fehler('vorgang-unbekannt', 404);
+    await this.ctx.storage.delete(K.iveo(key));
+    await this.protokolliere({ am: jetzt, wer, was: 'iveo-entfernen', wen: e.basis, details: { slug: e.slug } });
+    return { ok: true };
+  }
+
+  /** Offene Anfrage laden; unbekannt → 404, schon entschieden → 400 (Spec 8). */
+  async offeneAnfrage(id) {
+    const anfrage = typeof id === 'string' && id ? await this.ctx.storage.get(K.anfrage(id)) : null;
+    if (!anfrage) return { fehler: fehler('vorgang-unbekannt', 404) };
+    if (anfrage.zustand !== 'offen') return { fehler: fehler('ungueltig', 400) };
+    return { anfrage };
+  }
+
+  /** `anfrage-freigeben` (Spec 8, Schritt 3): `zoomBis` am Konto, Anfrage geschlossen; wirkt beim nächsten Start (6.3). */
+  async anfrageFreigeben(a, wer, jetzt) {
+    const { anfrage, fehler: f } = await this.offeneAnfrage(a.id);
+    if (f) return f;
+    if (!Number.isFinite(a.bis) || !(a.bis > jetzt)) return fehler('ungueltig', 400);
+    const konto = await this.ladeKonto(anfrage.kid);
+    if (!konto) return fehler('vorgang-unbekannt', 404);
+    konto.zoomBis = a.bis;
+    konto.geaendert = jetzt;
+    await this.speichereKonto(konto);
+    Object.assign(anfrage, { zustand: 'freigegeben', entschiedenAm: jetzt, entschiedenVon: wer, freigegebenBis: a.bis });
+    await this.ctx.storage.put(K.anfrage(anfrage.id), anfrage);
+    await this.protokolliere({ am: jetzt, wer, was: 'anfrage-freigeben', wen: konto.email, details: { id: anfrage.id, bis: a.bis, gid: anfrage.gid } });
+    return { ok: true };
+  }
+
+  /** `anfrage-ablehnen` (Spec 8, Schritt 4): Anfrage geschlossen, der Externe sieht es beim nächsten Kontakt (`ich`). */
+  async anfrageAblehnen(a, wer, jetzt) {
+    const { anfrage, fehler: f } = await this.offeneAnfrage(a.id);
+    if (f) return f;
+    Object.assign(anfrage, { zustand: 'abgelehnt', entschiedenAm: jetzt, entschiedenVon: wer });
+    await this.ctx.storage.put(K.anfrage(anfrage.id), anfrage);
+    const konto = await this.ladeKonto(anfrage.kid);
+    await this.protokolliere({ am: jetzt, wer, was: 'anfrage-ablehnen', wen: konto ? konto.email : anfrage.kid, details: { id: anfrage.id } });
+    return { ok: true };
+  }
+
+  /** `geraet-markieren` (Spec 7: JM-Rechner); wirkt für Zoom beim nächsten Start (6.3). */
+  async geraetMarkieren(a, wer, jetzt) {
+    const geraet = typeof a.gid === 'string' && a.gid ? await this.ctx.storage.get(K.geraet(a.gid)) : null;
+    if (!geraet) return fehler('vorgang-unbekannt', 404);
+    if (typeof a.jm !== 'boolean') return fehler('ungueltig', 400);
+    geraet.jm = a.jm;
+    await this.ctx.storage.put(K.geraet(geraet.gid), geraet);
+    await this.protokolliere({ am: jetzt, wer, was: 'geraet-markieren', wen: geraet.name, details: { gid: geraet.gid, jm: a.jm } });
     return { ok: true };
   }
 

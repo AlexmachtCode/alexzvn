@@ -4,9 +4,9 @@
 // ctx.storage; Aktionen gehen wie vom Worker als POST an https://konto.intern/<aktion> (rufeDo). P4–P6 fügen ihre Fälle
 // direkt vor der Marke „Ende der Fälle“ ein und ihre Hilfsfunktionen direkt vor `async function run() {`.
 import { readFileSync } from 'node:fs';
-import { PROTOKOLL_MS, kontoStand } from '../konto-kern.js';
-import { hashePasswort, neuerBestaetigungsCode, sha256B64url, zufall } from '../konto-krypto.js';
-import { abschluss, check, gleich, makeCtx, makeUhr, neuerSpeicher, pruefeFaelle, rufeDo, testGeraet } from './konto-attrappen.mjs';
+import { PROTOKOLL_MS, darf, kontoStand } from '../konto-kern.js';
+import { hashePasswort, iveoEntschluesseln, iveoVerschluesseln, neuerBestaetigungsCode, sha256B64url, zufall } from '../konto-krypto.js';
+import { abschluss, check, gleich, makeCtx, makeUhr, neuerSpeicher, pruefeFaelle, rufeDo, testGeraet, testSchluessel } from './konto-attrappen.mjs';
 
 const T0 = Date.UTC(2026, 9, 21, 8, 0, 0);
 const MIN = 60_000;
@@ -93,6 +93,24 @@ async function erneuern(speicher, geraet, kid, jetzt, mehr = {}) {
     rechnerName: 'Regie-PC 1',
     ...mehr,
   });
+}
+
+/**
+ * Speicher mit einem aktuellen Admin (P6): mit ERSTER_ADMIN der erste Admin über Google, sonst ein Google-Konto, das im
+ * Speicher zum Admin gemacht wird. `aktion` und `uebersicht` rufen den DO wie der Worker (P16: kid aus den Claims).
+ */
+async function mitAdmin(env = { ERSTER_ADMIN: ERSTE }) {
+  const { speicher, ctx } = neuerSpeicher(env);
+  const { kid } = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0 - TAG, email: ERSTE, name: 'Clara Chefin' });
+  if (!env.ERSTER_ADMIN) await speicher.speichereKonto({ ...(await speicher.ladeKonto(kid)), stufe: 'admin' });
+  const aktion = (a, jetzt = T0, von = kid) => rufeDo(speicher, 'admin-aktion', { jetzt, kid: von, aktion: a });
+  const uebersicht = (jetzt = T0, von = kid) => rufeDo(speicher, 'admin-uebersicht', { jetzt, kid: von });
+  return { speicher, ctx, kid, aktion, uebersicht };
+}
+
+/** iveo-Event wie vom Worker (P16): das Token mit IVEO_SCHLUESSEL verschlüsselt, der DO bekommt nur `{ iv, ct }`. */
+async function iveoEvent(schluessel, slug, name, token) {
+  return { slug, name, ...(await iveoVerschluesseln(schluessel, token)) };
 }
 
 async function run() {
@@ -1282,6 +1300,332 @@ async function run() {
     check(
       'P5 6.1 Review: wird das Gerät während des Beweises von einem anderen Konto übernommen → 403 geraet-unbekannt, Gerät unverändert',
       r2.http === 403 && r2.code === 'geraet-unbekannt' && c2.daten.get(key2).letztesKonto === 'k-uebernommen' && c2.daten.get(key2).letzterKontakt !== T0 + TAG,
+    );
+  }
+
+  // ── P6: nur aktuelle Admins (Spec 7, OFP4: Stand im DO, nicht aus den Claims) ──
+  {
+    const { speicher, ctx, kid: erster } = await mitAdmin();
+    await ctx.storage.put('geraet:g-1', { gid: 'g-1', name: 'Regie-PC 1', plattform: 'win', arch: 'x64', version: '0.18.0', jm: false, ersterKontakt: T0, letzterKontakt: T0, letztesKonto: null });
+    const google = async (email, mehr) => {
+      const { kid } = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0 - TAG, email, name: email.slice(0, email.indexOf('@')) });
+      await speicher.speichereKonto({ ...(await speicher.ladeKonto(kid)), ...mehr });
+      return kid;
+    };
+    const wer = {
+      'erster Admin': erster,
+      'ernannter Admin': await google('jonas@jakobsmedien.com', { stufe: 'admin' }),
+      Kollege: await google('maria@jakobsmedien.com', {}),
+      Externer: (await legeExternenAn(speicher, { passwort: 'richtiges-passwort' })).kid,
+      'herabgestufter Admin (die Claims sagen noch admin)': await google('paul@jakobsmedien.com', { stufe: 'kollege' }),
+      'gesperrter Admin': await google('gerd@jakobsmedien.com', { stufe: 'admin', zustand: 'gesperrt' }),
+      'abgelaufener Admin': await google('abel@jakobsmedien.com', { stufe: 'admin', bis: T0 }),
+      'unbekanntes Konto': 'k-gibts-nicht',
+    };
+    const darfDas = new Set(['erster Admin', 'ernannter Admin']);
+    const faelle = ['admin-uebersicht', 'admin-aktion'].flatMap((aufruf) => Object.keys(wer).map((name) => ({ name: `${aufruf} · ${name}`, aufruf, konto: name })));
+    await pruefeFaelle('P6 7: Admin-Maske und Admin-Aktionen nur für aktuelle Admins (Aufruf × Konto)', faelle, async (f) => {
+      const r = await rufeDo(speicher, f.aufruf, { jetzt: T0, kid: wer[f.konto], aktion: { aktion: 'geraet-markieren', gid: 'g-1', jm: false } });
+      return gleich([r.http, r.ok ? null : r.code], darfDas.has(f.konto) ? [200, null] : [403, 'kein-recht']);
+    });
+    const unbekannt = await rufeDo(speicher, 'admin-aktion', { jetzt: T0, kid: erster, aktion: { aktion: 'alles-loeschen' } });
+    const ohne = await rufeDo(speicher, 'admin-aktion', { jetzt: T0, kid: erster });
+    const proto = await rufeDo(speicher, 'admin-aktion', { jetzt: T0, kid: erster, aktion: { aktion: 'constructor' } });
+    check('P6 10.5: unbekannte, fehlende oder geerbte Admin-Aktion → 400 ungueltig', [unbekannt, ohne, proto].every((r) => r.http === 400 && r.code === 'ungueltig'));
+  }
+
+  // ── P6: zugang-speichern (Spec 7, 4, 5; EP16, EP20) ──
+  {
+    const { speicher, aktion, kid: erster } = await mitAdmin();
+    const S = testSchluessel();
+    await aktion({ aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [await iveoEvent(S, 'tagung', 'Tagung', 'test-iveo-1')] });
+    const g = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'maria@jakobsmedien.com', name: 'Maria Schmidt' });
+    const gut = { aktion: 'zugang-speichern', kid: g.kid, stufe: 'externer', tools: ['qa', 'iveo', 'qa'], events: ['https://iveo.example|tagung'], bis: T0 + 10 * TAG, zoomBis: T0 + 2 * TAG };
+    const r = await aktion(gut, T0 + MIN);
+    const k = await speicher.ladeKonto(g.kid);
+    check(
+      'P6 7: zugang-speichern setzt Stufe, Werkzeuge (ohne Doppelte), Events, Zugang bis und Zoom-Freigabe; ein Google-Konto darf Externer werden',
+      r.ok === true && k.stufe === 'externer' && JSON.stringify(k.tools) === '["qa","iveo"]' && JSON.stringify(k.events) === '["https://iveo.example|tagung"]' &&
+        k.bis === T0 + 10 * TAG && k.zoomBis === T0 + 2 * TAG && k.art === 'google' && k.geaendert === T0 + MIN,
+    );
+    const faelle = [
+      { name: 'Externer ohne bis', a: { ...gut, bis: null }, soll: [400, 'ungueltig'] },
+      { name: 'unbekanntes Werkzeug', a: { ...gut, tools: ['zoom'] }, soll: [400, 'ungueltig'] },
+      { name: 'nicht hinterlegtes Event', a: { ...gut, events: ['https://iveo.example|fehlt'] }, soll: [400, 'ungueltig'] },
+      { name: 'unbekannte Stufe', a: { ...gut, stufe: 'chef' }, soll: [400, 'ungueltig'] },
+      { name: 'bis als Text', a: { ...gut, bis: '2026-12-01' }, soll: [400, 'ungueltig'] },
+      { name: 'Werkzeuge fehlen', a: { ...gut, tools: undefined }, soll: [400, 'ungueltig'] },
+      { name: 'unbekannte Kennung', a: { ...gut, kid: 'k-gibts-nicht' }, soll: [404, 'vorgang-unbekannt'] },
+      { name: 'erster Admin', a: { ...gut, kid: erster, stufe: 'admin', bis: null }, soll: [403, 'erster-admin'] },
+    ];
+    await pruefeFaelle('P6 7: zugang-speichern lehnt ab (Externer ohne bis, unbekanntes Werkzeug, nicht hinterlegtes Event, Stufe, Formen, Kennung, erster Admin)', faelle, async (f) => {
+      const x = await aktion(f.a, T0 + 2 * MIN);
+      return gleich([x.http, x.code], f.soll);
+    });
+  }
+  {
+    const { speicher, aktion, kid: a } = await mitAdmin({});
+    const b = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'jonas@jakobsmedien.com', name: 'Jonas Weber' });
+    await speicher.speichereKonto({ ...(await speicher.ladeKonto(b.kid)), stufe: 'admin' });
+    const kollege = (kid, mehr = {}) => ({ aktion: 'zugang-speichern', kid, stufe: 'kollege', tools: [], events: [], bis: null, zoomBis: null, ...mehr });
+    const bHerab = await aktion(kollege(b.kid), T0 + MIN);
+    const selbstHerab = await aktion(kollege(a, {}), T0 + 2 * MIN);
+    const selbstAblauf = await aktion(kollege(a, { stufe: 'admin', bis: T0 + 2 * MIN }), T0 + 2 * MIN);
+    const selbstLoeschen = await aktion({ aktion: 'zugang-loeschen', kid: a }, T0 + 2 * MIN);
+    const selbstVerlaengern = await aktion(kollege(a, { stufe: 'admin', bis: T0 + 300 * TAG }), T0 + 3 * MIN);
+    check(
+      'P6 9: ohne ERSTER_ADMIN lässt sich der letzte aktive Admin weder herabstufen noch ablaufen lassen noch löschen (409 konflikt); solange ein zweiter da ist, geht es',
+      bHerab.ok === true && selbstHerab.http === 409 && selbstHerab.code === 'konflikt' && selbstAblauf.code === 'konflikt' &&
+        selbstLoeschen.code === 'konflikt' && selbstVerlaengern.ok === true && (await speicher.ladeKonto(a)).stufe === 'admin',
+    );
+  }
+
+  // ── P6: einladen und neuer Code (Spec 4, EP4) ──
+  {
+    const { speicher, ctx, aktion } = await mitAdmin();
+    const r = await aktion({ aktion: 'einladen', email: ' Tom@Firma.example ', name: 'Tom Technik', tools: ['qa'], events: [], bis: T0 + 30 * TAG }, T0);
+    const k = await speicher.kontoPerEmail('tom@firma.example');
+    const roh = JSON.stringify([...ctx.daten.values()]);
+    check(
+      'P6 4: einladen legt einen Externen an; Einladungscode XXXX-XXXX-XXXX nur in der Antwort, gespeichert nur als Hash, gilt 72 h',
+      r.ok === true && /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/.test(r.einladungscode) && r.codeBis === T0 + 72 * 3600_000 &&
+        k.stufe === 'externer' && k.art === 'passwort' && k.zustand === 'aktiv' && k.bis === T0 + 30 * TAG && JSON.stringify(k.tools) === '["qa"]' &&
+        k.einladung.hash === (await sha256B64url(r.einladungscode.replace(/-/g, ''))) && k.einladung.bis === r.codeBis &&
+        !roh.includes(r.einladungscode) && !roh.includes(r.einladungscode.replace(/-/g, '')) && !('passwort' in k),
+    );
+    const geraet = await testGeraet();
+    const erst = await passwortAnmelden(speicher, geraet, { email: 'tom@firma.example', einladungscode: r.einladungscode, neu: 'langes-passwort-1' }, T0 + MIN);
+    check(
+      'P6 4.1: mit dem Einladungscode setzt der Externe sein Passwort und ist angemeldet',
+      erst.abgeholt?.zustand === 'bestaetigt' && erst.abgeholt?.konto?.stufe === 'externer' && erst.abgeholt?.konto?.email === 'tom@firma.example',
+    );
+    const basis = { aktion: 'einladen', email: 'anna@firma.example', name: 'Anna Extern', tools: ['qa'], events: [], bis: T0 + 30 * TAG };
+    const faelle = [
+      { name: 'E-Mail vergeben', a: { ...basis, email: 'TOM@firma.example' }, soll: [409, 'konflikt'] },
+      { name: 'jakobsmedien.com', a: { ...basis, email: 'neu@jakobsmedien.com' }, soll: [400, 'domain'] },
+      { name: 'E-Mail ohne @', a: { ...basis, email: 'anna.firma.example' }, soll: [400, 'ungueltig'] },
+      { name: 'ohne Name', a: { ...basis, name: '  ' }, soll: [400, 'ungueltig'] },
+      { name: 'ohne bis', a: { ...basis, bis: undefined }, soll: [400, 'ungueltig'] },
+      { name: 'bis vorbei', a: { ...basis, bis: T0 - 1 }, soll: [400, 'ungueltig'] },
+      { name: 'unbekanntes Werkzeug', a: { ...basis, tools: ['zoom'] }, soll: [400, 'ungueltig'] },
+    ];
+    await pruefeFaelle('P6 4: einladen lehnt ab (E-Mail vergeben, jakobsmedien.com, ungültige E-Mail, ohne Name, ohne oder vergangenes bis, Werkzeug)', faelle, async (f) => {
+      const x = await aktion(f.a, T0);
+      return gleich([x.http, x.code, x.einladungscode], [...f.soll, undefined]);
+    });
+  }
+  {
+    const { speicher, aktion } = await mitAdmin();
+    await legeExternenAn(speicher, { passwort: 'altes-passwort-1' });
+    const geraet = await testGeraet();
+    const vorher = await passwortAnmelden(speicher, geraet, { email: 'technik@firma.example', passwort: 'altes-passwort-1' });
+    const r = await aktion({ aktion: 'neuer-code', kid: 'k-ext' }, T0 + MIN);
+    const alt = await passwortAnmelden(speicher, geraet, { email: 'technik@firma.example', passwort: 'altes-passwort-1' }, T0 + 2 * MIN);
+    const neu = await passwortAnmelden(speicher, geraet, { email: 'technik@firma.example', einladungscode: r.einladungscode, neu: 'neues-passwort-1' }, T0 + 3 * MIN);
+    const g = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'maria@jakobsmedien.com', name: 'Maria Schmidt' });
+    const google = await aktion({ aktion: 'neuer-code', kid: g.kid }, T0);
+    check(
+      'P6 4: neuer-code macht das alte Passwort ungültig (Anmeldung danach falsch), der neue Code setzt ein neues; Google-Konto → 400 ungueltig',
+      vorher.abgeholt.zustand === 'bestaetigt' && r.ok === true && r.codeBis === T0 + MIN + 72 * 3600_000 && alt.passwort.code === 'falsch' &&
+        neu.abgeholt.zustand === 'bestaetigt' && google.http === 400 && google.code === 'ungueltig',
+    );
+  }
+
+  // ── P6: iveo hinterlegen, ersetzen, entfernen (Spec 6.4, 7; EP13) ──
+  {
+    const { speicher, ctx, aktion, uebersicht } = await mitAdmin();
+    const S = testSchluessel();
+    const r = await aktion({ aktion: 'iveo-hinterlegen', basis: ' app.my-iveo.de/api/v1/ ', events: [await iveoEvent(S, 'tagung', 'Tagung 2026', 'test-iveo-token-a'), await iveoEvent(S, 'gala', '', 'test-iveo-token-b')] }, T0);
+    const roh = JSON.stringify([...ctx.daten.values()]);
+    const u = await uebersicht(T0);
+    const fuer = await rufeDo(speicher, 'iveo-fuer', { jetzt: T0, stufe: 'kollege', tools: [], events: [] });
+    const klar = await Promise.all(fuer.events.map((e) => iveoEntschluesseln(S, e)));
+    check(
+      'P6 6.4: iveo hinterlegen: Schlüssel <normalisierte Basis>|<slug>, Name (sonst slug), von = Admin, kein Klartext im Speicher; iveo-fuer liefert iv/ct, die der Worker entschlüsselt',
+      r.ok === true && JSON.stringify(u.iveo.map((e) => e.key)) === '["https://app.my-iveo.de/api/v1|gala","https://app.my-iveo.de/api/v1|tagung"]' &&
+        u.iveo[0].name === 'gala' && u.iveo[1].name === 'Tagung 2026' && u.iveo[0].von === ERSTE && u.iveo[0].am === T0 && !roh.includes('test-iveo-token') &&
+        JSON.stringify(klar) === '["test-iveo-token-b","test-iveo-token-a"]',
+    );
+    check(
+      'P6 6.4: die Übersicht gibt nie iv oder ct heraus (je Event nur key, basis, slug, name, am, von)',
+      u.iveo.every((e) => Object.keys(e).join(',') === 'key,basis,slug,name,am,von') && fuer.events.every((e) => !JSON.stringify(u).includes(e.ct) && !JSON.stringify(u).includes(e.iv)),
+    );
+    const ersetzt = await aktion({ aktion: 'iveo-hinterlegen', basis: 'https://app.my-iveo.de/api/v1', events: [await iveoEvent(S, 'gala', 'Gala', 'test-iveo-token-c')] }, T0 + MIN);
+    const nachErsetzen = await rufeDo(speicher, 'iveo-fuer', { jetzt: T0 + MIN, stufe: 'admin', tools: [], events: [] });
+    const gala = nachErsetzen.events.find((e) => e.slug === 'gala');
+    const weg = await aktion({ aktion: 'iveo-entfernen', key: 'https://app.my-iveo.de/api/v1|tagung' }, T0 + 2 * MIN);
+    const nochmal = await aktion({ aktion: 'iveo-entfernen', key: 'https://app.my-iveo.de/api/v1|tagung' }, T0 + 2 * MIN);
+    const danach = await uebersicht(T0 + 3 * MIN);
+    check(
+      'P6 6.4: ersetzen (gleicher Schlüssel, neues Token, neues am) und entfernen; unbekannter Schlüssel → 404',
+      ersetzt.ok === true && (await iveoEntschluesseln(S, gala)) === 'test-iveo-token-c' && nachErsetzen.events.length === 2 && weg.ok === true &&
+        nochmal.http === 404 && nochmal.code === 'vorgang-unbekannt' && JSON.stringify(danach.iveo.map((e) => [e.slug, e.name, e.am])) === JSON.stringify([['gala', 'Gala', T0 + MIN]]),
+    );
+    const klartext = 'test-iveo-klartext';
+    const gut = { aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [{ slug: 'x', name: 'X', iv: 'aaaa', ct: 'bbbb' }] };
+    const faelle = [
+      { name: 'Basis leer', a: { ...gut, basis: '  ' } },
+      { name: 'Basis ohne Host', a: { ...gut, basis: 'https://' } },
+      { name: 'Basis mit |', a: { ...gut, basis: 'https://a.example|x' } },
+      { name: 'keine Events', a: { ...gut, events: [] } },
+      { name: 'Slug mit |', a: { ...gut, events: [{ slug: 'a|b', iv: 'aaaa', ct: 'bbbb' }] } },
+      { name: 'Slug leer', a: { ...gut, events: [{ slug: ' ', iv: 'aaaa', ct: 'bbbb' }] } },
+      { name: 'ohne ct', a: { ...gut, events: [{ slug: 'x', iv: 'aaaa' }] } },
+      { name: 'Klartext-Token statt iv/ct', a: { ...gut, events: [{ slug: 'x', token: klartext }] } },
+    ];
+    await pruefeFaelle('P6 6.4: iveo-hinterlegen lehnt ab (Basis, Events, Slug, ohne iv/ct; ein Klartext-Token nimmt der DO nie an)', faelle, async (f) => {
+      const x = await aktion(f.a, T0);
+      return gleich([x.http, x.code], [400, 'ungueltig']);
+    });
+    check('P6 6.4: nach den abgelehnten Fällen liegt kein Klartext und kein neues Event im Speicher', !JSON.stringify([...ctx.daten.values()]).includes(klartext) && !ctx.daten.has('iveo:https://iveo.example|x'));
+  }
+
+  // ── P6: Zoom-Anfrage freigeben und ablehnen, Gerät als JM-Rechner markieren (Spec 8, 7; OF4) ──
+  {
+    const { speicher, aktion, uebersicht, kid: adminKid } = await mitAdmin();
+    await legeExternenAn(speicher, { passwort: 'richtiges-passwort' });
+    const geraet = await testGeraet({ name: 'Laptop Tom' });
+    await passwortAnmelden(speicher, geraet, { email: 'technik@firma.example', passwort: 'richtiges-passwort' });
+    const anfragen = (jetzt) => rufeDo(speicher, 'zoom-anfragen', { jetzt, kid: 'k-ext', gid: geraet.gid, zweck: 'Tagung Berlin', von: T0 + TAG, bis: T0 + 3 * TAG });
+    const punkt = async (jetzt) => (await rufeDo(speicher, 'ich', { jetzt, kid: adminKid })).adminOffen;
+    const a1 = await anfragen(T0);
+    const punktOffen = await punkt(T0);
+    const frei = await aktion({ aktion: 'anfrage-freigeben', id: a1.anfrage.id, bis: T0 + 5 * TAG }, T0 + MIN);
+    const punktFrei = await punkt(T0 + MIN);
+    const ich1 = await rufeDo(speicher, 'ich', { jetzt: T0 + 2 * MIN, kid: 'k-ext' });
+    const start1 = await erneuern(speicher, geraet, 'k-ext', T0 + 2 * MIN, { rechnerName: 'Laptop Tom' });
+    const stand1 = kontoStand(start1.konto, start1.geraet, T0 + 2 * MIN, ERSTE);
+    const markiert = await aktion({ aktion: 'geraet-markieren', gid: geraet.gid, jm: true }, T0 + 3 * MIN);
+    const start2 = await erneuern(speicher, geraet, 'k-ext', T0 + 4 * MIN, { rechnerName: 'Laptop Tom' });
+    const stand2 = kontoStand(start2.konto, start2.geraet, T0 + 4 * MIN, ERSTE);
+    const doppelt = await aktion({ aktion: 'anfrage-freigeben', id: a1.anfrage.id, bis: T0 + 6 * TAG }, T0 + 4 * MIN);
+    check(
+      'P6 8: anfrage-freigeben setzt zoomBis und schließt die Anfrage; ich zeigt „freigegeben bis“; Zoom wirkt nach dem nächsten Start erst auf einem JM-Rechner (OF4); schon entschieden → 400',
+      frei.ok === true && JSON.stringify(ich1.zoomAnfrage) === JSON.stringify({ id: a1.anfrage.id, zustand: 'freigegeben', zweck: 'Tagung Berlin', von: T0 + TAG, bis: T0 + 5 * TAG, am: T0 + MIN }) &&
+        stand1.zoom === true && stand1.jm === false && darf(stand1, 'zoom', { jetzt: T0 + 2 * MIN }) === false && markiert.ok === true &&
+        stand2.jm === true && darf(stand2, 'zoom', { jetzt: T0 + 4 * MIN }) === true && doppelt.http === 400 && doppelt.code === 'ungueltig',
+    );
+    const a2 = await anfragen(T0 + 5 * MIN);
+    const punktNeu = await punkt(T0 + 5 * MIN);
+    const ab = await aktion({ aktion: 'anfrage-ablehnen', id: a2.anfrage.id }, T0 + 6 * MIN);
+    const punktAb = await punkt(T0 + 6 * MIN);
+    check(
+      'P6 7, EP15: der Punkt am Zahnrad folgt den Entscheidungen (adminOffen des Admins: offen 1, nach Freigeben 0, neue Anfrage 1, nach Ablehnen 0)',
+      JSON.stringify([punktOffen, punktFrei, punktNeu, punktAb]) === '[1,0,1,0]',
+    );
+    const ich2 = await rufeDo(speicher, 'ich', { jetzt: T0 + 7 * MIN, kid: 'k-ext' });
+    const u = await uebersicht(T0 + 7 * MIN);
+    check(
+      'P6 8: anfrage-ablehnen schließt die Anfrage; ich zeigt „abgelehnt am“; die Übersicht nennt Name, E-Mail, Zweck, Zeitraum, Rechner und JM (jüngste zuerst)',
+      a2.ok === true && ab.ok === true && ich2.zoomAnfrage.zustand === 'abgelehnt' && ich2.zoomAnfrage.am === T0 + 6 * MIN &&
+        JSON.stringify(u.anfragen.map((a) => [a.zustand, a.name, a.email, a.zweck, a.von, a.bis, a.rechnerName, a.jm, a.plattform])) ===
+          JSON.stringify([
+            ['abgelehnt', 'Tom Technik', 'technik@firma.example', 'Tagung Berlin', T0 + TAG, T0 + 3 * TAG, 'Laptop Tom', true, 'win'],
+            ['freigegeben', 'Tom Technik', 'technik@firma.example', 'Tagung Berlin', T0 + TAG, T0 + 3 * TAG, 'Laptop Tom', true, 'win'],
+          ]),
+    );
+    const a3 = await anfragen(T0 + 7 * MIN);
+    const faelle = [
+      { name: 'unbekannte Anfrage', a: { aktion: 'anfrage-freigeben', id: 'gibts-nicht', bis: T0 + TAG }, soll: [404, 'vorgang-unbekannt'] },
+      { name: 'freigeben bis vorbei', a: { aktion: 'anfrage-freigeben', id: a3.anfrage.id, bis: T0 }, soll: [400, 'ungueltig'] },
+      { name: 'ablehnen schon entschieden', a: { aktion: 'anfrage-ablehnen', id: a2.anfrage.id }, soll: [400, 'ungueltig'] },
+      { name: 'unbekanntes Gerät', a: { aktion: 'geraet-markieren', gid: 'gibts-nicht', jm: true }, soll: [404, 'vorgang-unbekannt'] },
+      { name: 'jm als Text', a: { aktion: 'geraet-markieren', gid: geraet.gid, jm: 'ja' }, soll: [400, 'ungueltig'] },
+    ];
+    await pruefeFaelle('P6 8: Anfragen und Geräte lehnen ab (unbekannt, vergangen, schon entschieden, jm kein Wahrheitswert)', faelle, async (f) => {
+      const x = await aktion(f.a, T0 + 8 * MIN);
+      return gleich([x.http, x.code], f.soll);
+    });
+  }
+
+  // ── P6: jede Admin-Aktion genau ein Protokolleintrag (Spec 9, EP19, OF3) ──
+  {
+    const S = testSchluessel();
+    const vorbereitet = async () => {
+      const m = await mitAdmin();
+      await legeExternenAn(m.speicher, { passwort: 'richtiges-passwort' });
+      const geraet = await testGeraet({ name: 'Laptop Tom' });
+      await passwortAnmelden(m.speicher, geraet, { email: 'technik@firma.example', passwort: 'richtiges-passwort' });
+      const a = await rufeDo(m.speicher, 'zoom-anfragen', { jetzt: T0, kid: 'k-ext', gid: geraet.gid, zweck: 'Probe', von: T0 + TAG, bis: T0 + 2 * TAG });
+      const maria = await rufeDo(m.speicher, 'konto-aus-google', { jetzt: T0, email: 'maria@jakobsmedien.com', name: 'Maria Schmidt' });
+      const gerd = await rufeDo(m.speicher, 'konto-aus-google', { jetzt: T0, email: 'gerd@jakobsmedien.com', name: 'Gerd G' });
+      await m.speicher.speichereKonto({ ...(await m.speicher.ladeKonto(gerd.kid)), zustand: 'gesperrt' });
+      await m.aktion({ aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [await iveoEvent(S, 'tagung', 'Tagung', 'test-iveo-1')] });
+      return { ...m, geraet, anfrage: a.anfrage.id, maria: maria.kid, gerd: gerd.kid };
+    };
+    const faelle = [
+      { name: 'zugang-speichern', a: () => ({ aktion: 'zugang-speichern', kid: 'k-ext', stufe: 'externer', tools: ['qa'], events: [], bis: T0 + TAG, zoomBis: null }), was: 'zugang-speichern', wen: 'technik@firma.example' },
+      { name: 'einladen', a: () => ({ aktion: 'einladen', email: 'neu@firma.example', name: 'Neu N', tools: [], events: [], bis: T0 + TAG }), was: 'einladen', wen: 'neu@firma.example' },
+      { name: 'neuer-code', a: () => ({ aktion: 'neuer-code', kid: 'k-ext' }), was: 'neuer-code', wen: 'technik@firma.example' },
+      { name: 'zugang-loeschen (Externer)', a: () => ({ aktion: 'zugang-loeschen', kid: 'k-ext' }), was: 'zugang-geloescht', wen: 'technik@firma.example' },
+      { name: 'zugang-loeschen (Google)', a: (v) => ({ aktion: 'zugang-loeschen', kid: v.maria }), was: 'zugang-gesperrt', wen: 'maria@jakobsmedien.com' },
+      { name: 'entsperren', a: (v) => ({ aktion: 'entsperren', kid: v.gerd }), was: 'zugang-entsperrt', wen: 'gerd@jakobsmedien.com' },
+      { name: 'iveo-hinterlegen', a: async () => ({ aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [await iveoEvent(S, 'gala', 'Gala', 'test-iveo-2')] }), was: 'iveo-hinterlegen', wen: 'https://iveo.example' },
+      { name: 'iveo-entfernen', a: () => ({ aktion: 'iveo-entfernen', key: 'https://iveo.example|tagung' }), was: 'iveo-entfernen', wen: 'https://iveo.example' },
+      { name: 'anfrage-freigeben', a: (v) => ({ aktion: 'anfrage-freigeben', id: v.anfrage, bis: T0 + 3 * TAG }), was: 'anfrage-freigeben', wen: 'technik@firma.example' },
+      { name: 'anfrage-ablehnen', a: (v) => ({ aktion: 'anfrage-ablehnen', id: v.anfrage }), was: 'anfrage-ablehnen', wen: 'technik@firma.example' },
+      { name: 'geraet-markieren', a: (v) => ({ aktion: 'geraet-markieren', gid: v.geraet.gid, jm: true }), was: 'geraet-markieren', wen: 'Laptop Tom' },
+      { name: 'abgelehnt: ungültig', a: () => ({ aktion: 'zugang-speichern', kid: 'k-ext', stufe: 'chef', tools: [], events: [], bis: null, zoomBis: null }), was: null },
+      { name: 'abgelehnt: kein Admin', a: () => ({ aktion: 'geraet-markieren', gid: 'x', jm: true }), von: 'k-ext', was: null },
+    ];
+    await pruefeFaelle('P6 9: jede gelungene Admin-Aktion genau ein Protokolleintrag mit wer = Admin, was, wen; abgelehnte keiner; nie Code, Hash, iv oder ct', faelle, async (f) => {
+      const v = await vorbereitet();
+      const vorher = await protokoll(v.ctx);
+      const r = await v.aktion(await f.a(v), T0 + MIN, f.von ?? v.kid);
+      const neu = (await protokoll(v.ctx)).slice(vorher.length);
+      const roh = JSON.stringify(neu);
+      const geheim = [r.einladungscode, r.einladungscode && r.einladungscode.replace(/-/g, ''), 'pbkdf2', '"iv"', '"ct"', 'hash'].filter(Boolean);
+      const ist = [neu.length, neu[0] ? neu[0].wer : null, neu[0] ? neu[0].was : null, neu[0] ? neu[0].wen : null, geheim.filter((g) => roh.includes(g))];
+      const soll = f.was ? [1, ERSTE, f.was, f.wen, []] : [0, null, null, null, []];
+      return gleich(ist, soll);
+    });
+  }
+
+  // ── P6: Übersicht (Spec 7, OF2, M44; EP15) ──
+  {
+    const { speicher, ctx, aktion, uebersicht, kid: erster } = await mitAdmin({ ERSTER_ADMIN: ERSTE, ALTKEY_BIS: '2026-11-20' });
+    await legeExternenAn(speicher, { kid: 'k-alt', email: 'alt@firma.example', name: 'Zora Alt', passwort: 'richtiges-passwort', bis: T0 - TAG });
+    const einl = await aktion({ aktion: 'einladen', email: 'neu@firma.example', name: 'Nora Neu', tools: [], events: [], bis: T0 + 10 * TAG }, T0);
+    const g = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'bernd@jakobsmedien.com', name: 'Bernd Gesperrt' });
+    await aktion({ aktion: 'zugang-loeschen', kid: g.kid }, T0);
+    const geraet = await testGeraet({ name: 'Regie-PC 9' });
+    await googleAnmelden(speicher, geraet, 'maria@jakobsmedien.com', 'Maria Schmidt', T0 + MIN);
+    await rufeDo(speicher, 'altkey-zaehlen', { jetzt: T0 - TAG, gruppe: 'katalog', plattform: 'win', arch: 'x64' });
+    await rufeDo(speicher, 'altkey-zaehlen', { jetzt: T0, gruppe: 'qa', plattform: 'mac', arch: 'arm64' });
+    const u = await uebersicht(T0 + 2 * MIN);
+    const z = (email) => u.zugaenge.find((x) => x.email === email);
+    check(
+      'P6 7: Übersicht: alle Zugänge nach Name (abgelaufene und gesperrte sichtbar, Einladung offen mit Frist, erster Admin markiert, letzte Anmeldung)',
+      u.ok === true && JSON.stringify(u.zugaenge.map((x) => x.name)) === '["Bernd Gesperrt","Clara Chefin","Maria Schmidt","Nora Neu","Zora Alt"]' &&
+        z('alt@firma.example').bis === T0 - TAG && z('bernd@jakobsmedien.com').zustand === 'gesperrt' && z('neu@firma.example').einladungBis === einl.codeBis &&
+        z(ERSTE).ersterAdmin === true && z(ERSTE).stufe === 'admin' && z('maria@jakobsmedien.com').ersterAdmin === false &&
+        z('maria@jakobsmedien.com').letzteAnmeldung === T0 + MIN && z(ERSTE).kid === erster &&
+        u.zugaenge.every((x) => Object.keys(x).join(',') === 'kid,email,name,art,stufe,zustand,tools,events,bis,zoomBis,einladungBis,letzteAnmeldung,ersterAdmin'),
+    );
+    check(
+      'P6 OF2: Übersicht: Geräte ohne Schlüssel mit letztem Konto; alter Schlüssel mit Frist aus ALTKEY_BIS und den Zeilen der Zählung (jüngster Tag zuerst)',
+      JSON.stringify(u.geraete.map((x) => [x.name, x.jm, x.letztesKonto === z('maria@jakobsmedien.com').kid, x.letzterKontakt])) === JSON.stringify([['Regie-PC 9', false, true, T0 + MIN]]) &&
+        u.geraete.every((x) => Object.keys(x).join(',') === 'gid,name,plattform,arch,version,jm,ersterKontakt,letzterKontakt,letztesKonto') &&
+        JSON.stringify(u.altKey) === JSON.stringify({ bis: '2026-11-20T00:00:00.000Z', diagnose: null, zeilen: [
+          { tag: '2026-10-21', gruppe: 'qa', plattform: 'mac-arm64', anzahl: 1, zuletzt: T0 },
+          { tag: '2026-10-20', gruppe: 'katalog', plattform: 'win-x64', anzahl: 1, zuletzt: T0 - TAG },
+        ] }),
+    );
+    const roh = JSON.stringify(u);
+    const gespeichert = [...ctx.daten.values()].filter((x) => x && x.einladung).map((x) => x.einladung.hash);
+    check(
+      'P6 OF3: Übersicht ohne Passwort-Hash, Einladungs-Hash, Geräteschlüssel und Einladungscode',
+      !roh.includes('pbkdf2') && gespeichert.length === 1 && !roh.includes(gespeichert[0]) && !roh.includes('publicJwk') && !roh.includes('"kty"') &&
+        !roh.includes(einl.einladungscode),
+    );
+    const diag = async (env) => (await (await mitAdmin({ ERSTER_ADMIN: ERSTE, ...env })).uebersicht(T0)).altKey;
+    const ohne = await diag({});
+    const unlesbar = await diag({ ALTKEY_BIS: 'bald' });
+    const vorbei = await diag({ ALTKEY_BIS: '2026-10-01' });
+    check(
+      'P6 M44: Diagnose des alten Schlüssels in der Übersicht (ohne ALTKEY_BIS → ohne-ende, unlesbar → unlesbar, Datum → bis)',
+      JSON.stringify([ohne.bis, ohne.diagnose, unlesbar.bis, unlesbar.diagnose, vorbei.bis, vorbei.diagnose]) ===
+        JSON.stringify([null, 'ohne-ende', null, 'unlesbar', '2026-10-01T00:00:00.000Z', null]),
     );
   }
 
