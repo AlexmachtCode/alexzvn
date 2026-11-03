@@ -1222,6 +1222,69 @@ async function run() {
     );
   }
 
+  // ── P5 Review: Erneuern ohne Geheimes (Passwort-Konto), Gerät gehört dem Konto bei der Zoom-Anfrage, Erneuern liest das Gerät frisch ──
+  {
+    const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
+    const r = await erneuern(speicher, geraet, kid, T0 + TAG);
+    const gespeichert = ctx.daten.get(`konto:${kid}`);
+    check(
+      'P5 6.1 Review: Erneuern gibt das Konto ohne Passwort und Einladung heraus (Passwort-Konto, im DO liegt ein Passwort)',
+      r.ok === true && !!gespeichert.passwort && !('passwort' in r.konto) && !('einladung' in r.konto) && r.konto.kid === kid,
+    );
+  }
+  {
+    const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
+    await legeExternenAn(speicher, { kid: 'k-zwei', email: 'zwei@firma.example', passwort: 'richtiges-passwort' });
+    await passwortAnmelden(speicher, geraet, { email: 'zwei@firma.example', passwort: 'richtiges-passwort' }, T0);
+    const r = await rufeDo(speicher, 'zoom-anfragen', { jetzt: T0 + MIN, kid, gid: geraet.gid, zweck: 'Probe', von: T0 + TAG, bis: T0 + 2 * TAG });
+    check(
+      'P5 8 Review: Zoom-Anfrage von einem Gerät, das inzwischen einem anderen Konto gehört → 403 geraet-unbekannt, keine Anfrage abgelegt',
+      r.http === 403 && r.code === 'geraet-unbekannt' && (await ctx.storage.list({ prefix: 'anfrage:' })).size === 0,
+    );
+  }
+  {
+    const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
+    const key = `geraet:${geraet.gid}`;
+    const get = ctx.storage.get.bind(ctx.storage);
+    const put = ctx.storage.put.bind(ctx.storage);
+    let n = 0;
+    // Lese-Tor: das erste Lesen des Geräts liefert den alten Stand; ein anderer Schreiber setzt jm, bevor der Beweis fertig ist.
+    ctx.storage.get = async (k) => {
+      const w = await get(k);
+      if (k === key && ++n === 1) {
+        const alt = { ...w };
+        await put(key, { ...w, jm: true });
+        return alt;
+      }
+      return w;
+    };
+    const r = await erneuern(speicher, geraet, kid, T0 + TAG);
+    const g = ctx.daten.get(key);
+    check(
+      'P5 6.1 Review: Erneuern liest das Gerät nach dem Beweis frisch (ein dazwischen gesetztes jm bleibt erhalten; letzter Kontakt und Version gesetzt)',
+      r.ok === true && g.jm === true && g.letzterKontakt === T0 + TAG && g.version === '0.18.0' && r.geraet.jm === true,
+    );
+    const { speicher: s2, ctx: c2, geraet: g2, kid: k2 } = await angemeldeterExterner({});
+    const key2 = `geraet:${g2.gid}`;
+    const get2 = c2.storage.get.bind(c2.storage);
+    const put2 = c2.storage.put.bind(c2.storage);
+    let m = 0;
+    c2.storage.get = async (k) => {
+      const w = await get2(k);
+      if (k === key2 && ++m === 1) {
+        const alt = { ...w };
+        await put2(key2, { ...w, letztesKonto: 'k-uebernommen' });
+        return alt;
+      }
+      return w;
+    };
+    const r2 = await erneuern(s2, g2, k2, T0 + TAG);
+    check(
+      'P5 6.1 Review: wird das Gerät während des Beweises von einem anderen Konto übernommen → 403 geraet-unbekannt, Gerät unverändert',
+      r2.http === 403 && r2.code === 'geraet-unbekannt' && c2.daten.get(key2).letztesKonto === 'k-uebernommen' && c2.daten.get(key2).letzterKontakt !== T0 + TAG,
+    );
+  }
+
   // ── Ende der Fälle ──
 }
 

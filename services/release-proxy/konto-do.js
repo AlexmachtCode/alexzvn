@@ -17,6 +17,9 @@
 // das Setzen per Einladung laufen in `inReihe` und lesen dort frisch (kein PBKDF2 in der Reihe), auch ohne Input-Gates. Die
 // Schreiber des Kontos (P3, P6) verlassen sich auf die Input-Gates von workerd. Löschen (Abholen, Abbrechen, Aufräumen) läuft außerhalb der Reihe;
 // kein Schreiber in der Reihe nimmt einen bereits entschiedenen Vorgang an. Nie `binde` oder `inReihe` aus der Reihe rufen.
+// Das Erneuern (P5) liest das Gerät nach dem Beweis (WebCrypto, kein Speicher) frisch, prüft `letztesKonto` noch einmal und setzt nur
+// seine eigenen Felder, ohne await zwischen frischem Lesen und Schreiben: ein gleichzeitiges Abholen oder eine spätere Markierung
+// (`jm`) bleibt so erhalten.
 //
 // Uhr: `jetzt` kommt mit jeder Aktion vom Worker; fehlt es, und im Alarm, gilt `env.KONTO_UHR()` (nur Tests, EP21), sonst
 // `Date.now()`. Schlüssel im Speicher (EP1): konto:<kid>, email:<email>, geraet:<gid>, vorgang:<vid>, state:<state>,
@@ -704,13 +707,16 @@ export class KontoSpeicher {
     if (!geraet || geraet.letztesKonto !== konto.kid) return fehler('geraet-unbekannt', 403);
     if (!(await pruefeGeraeteBeweis(geraet.publicJwk, b.beweis, 'erneuern', konto.kid, jetzt))) return fehler('geraet-unbekannt', 403);
     if (googleNeuFaellig(konto.art, geraet.angemeldetSeit, jetzt)) return fehler('sitzung-abgelaufen', 401);
-    geraet.letzterKontakt = jetzt;
     const version = text(b.version, 32);
-    if (version) geraet.version = version;
     const name = rechnerName(b.rechnerName);
-    if (name) geraet.name = name;
-    await this.ctx.storage.put(K.geraet(geraet.gid), geraet);
-    return { ok: true, konto: { ...ohneGeheimes(konto), stufe: this.stufeVon(konto) }, geraet: ohneSchluessel(geraet) };
+    // Der Beweis war ein Nicht-Speicher-await: das Gerät frisch lesen, prüfen, ändern, schreiben, ohne await dazwischen.
+    const frisch = await this.ctx.storage.get(K.geraet(geraet.gid));
+    if (!frisch || frisch.letztesKonto !== konto.kid) return fehler('geraet-unbekannt', 403);
+    frisch.letzterKontakt = jetzt;
+    if (version) frisch.version = version;
+    if (name) frisch.name = name;
+    await this.ctx.storage.put(K.geraet(frisch.gid), frisch);
+    return { ok: true, konto: { ...ohneGeheimes(konto), stufe: this.stufeVon(konto) }, geraet: ohneSchluessel(frisch) };
   }
 
   /** Aktion `abmelden` `{ kid, gid }` → `{ ok }` (EP26): nur `letzterKontakt` des Geräts; Konto und Gerät bleiben. */
@@ -761,7 +767,7 @@ export class KontoSpeicher {
     const zweck = text(b.zweck, 200);
     if (!zweck || !Number.isFinite(b.von) || !Number.isFinite(b.bis) || !(b.bis > b.von) || !(b.bis > jetzt)) return fehler('ungueltig', 400);
     const geraet = typeof b.gid === 'string' && b.gid ? await this.ctx.storage.get(K.geraet(b.gid)) : null;
-    if (!geraet) return fehler('geraet-unbekannt', 403);
+    if (!geraet || geraet.letztesKonto !== konto.kid) return fehler('geraet-unbekannt', 403);
     for (const [, a] of await this.ctx.storage.list({ prefix: 'anfrage:' })) {
       if (a.kid === konto.kid && a.zustand === 'offen') return fehler('konflikt', 409);
     }
