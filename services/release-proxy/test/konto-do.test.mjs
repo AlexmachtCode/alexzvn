@@ -1629,7 +1629,7 @@ async function run() {
     );
   }
 
-  // ── P6 Review: neuer Code (Hash, Bremse) und iveo-entfernen nimmt das Event aus den Zugaengen ──
+  // ── P6 Review: neuer Code (Hash, Bremse) und iveo-entfernen nimmt das Event aus den Zugängen ──
   {
     const { speicher, ctx, aktion } = await mitAdmin();
     await legeExternenAn(speicher, { passwort: 'richtiges-passwort' });
@@ -1663,6 +1663,28 @@ async function run() {
     check(
       'P6 7, 6.4: wird dasselbe Event neu hinterlegt, bekommt der Externe dadurch keinen Zugang zurück',
       JSON.stringify((await speicher.ladeKonto('k-ext')).events) === JSON.stringify([ev[1]]),
+    );
+  }
+
+  {
+    const { speicher, ctx, aktion } = await mitAdmin();
+    const S = testSchluessel();
+    await aktion({ aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [await iveoEvent(S, 'tagung', 'Tagung', 'test-iveo-1'), await iveoEvent(S, 'gala', 'Gala', 'test-iveo-2')] });
+    const key = 'https://iveo.example|tagung';
+    const gala = 'https://iveo.example|gala';
+    for (let i = 0; i < 140; i++) {
+      const kid = `k-${String(i).padStart(3, '0')}`;
+      const events = i === 5 || i === 138 ? [key, gala] : i === 6 ? [gala] : [];
+      await ctx.storage.put(`konto:${kid}`, { kid, email: `x${i}@firma.example`, name: `X ${i}`, art: 'passwort', stufe: 'externer', zustand: 'aktiv', tools: [], events, bis: T0 + TAG, zoomBis: null, erstellt: T0, geaendert: T0 });
+    }
+    const vorher = new Map([...ctx.daten].filter(([x]) => x.startsWith('konto:k-')).map(([x, k]) => [x, JSON.stringify(k)]));
+    const weg = await aktion({ aktion: 'iveo-entfernen', key }, T0 + MIN);
+    const hat = [...ctx.daten].filter(([x, k]) => x.startsWith('konto:') && Array.isArray(k.events) && k.events.includes(key)).length;
+    const geaendert = [...ctx.daten].filter(([x, k]) => x.startsWith('konto:k-') && JSON.stringify(k) !== vorher.get(x)).map(([x]) => x).sort();
+    check(
+      'P6 7, 6.4: iveo-entfernen bereinigt auch Konten hinter der ersten Seite (140 Konten, Event bei Konto 5 und 138); die übrigen Konten bleiben unverändert',
+      weg.ok === true && hat === 0 && JSON.stringify(geaendert) === '["konto:k-005","konto:k-138"]' &&
+        JSON.stringify(ctx.daten.get('konto:k-138').events) === JSON.stringify([gala]) && !ctx.daten.has(`iveo:${key}`),
     );
   }
 

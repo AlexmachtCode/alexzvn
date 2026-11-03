@@ -1083,8 +1083,8 @@ export class KontoSpeicher {
     const key = typeof a.key === 'string' ? a.key : '';
     const e = key ? await this.ctx.storage.get(K.iveo(key)) : null;
     if (!e) return fehler('vorgang-unbekannt', 404);
-    await this.ctx.storage.delete(K.iveo(key));
-    // Das Event auch aus den Zugaengen nehmen: sonst bleibt ein nicht mehr hinterlegter Schluessel in `konto.events` und jedes
+    // Erst alle Konten bereinigen, dann das Event löschen: scheitert die Schleife mittendrin, lässt sich der Vorgang wiederholen.
+    // Das Event auch aus den Zugängen nehmen: sonst bleibt ein nicht mehr hinterlegter Schlüssel in `konto.events` und jedes
     // `zugang-speichern` mit den bisherigen Events scheitert (zugangsWerte). Seiten zu 128 Konten, nur Betroffene schreiben.
     let ab;
     for (;;) {
@@ -1097,8 +1097,9 @@ export class KontoSpeicher {
         }
       }
       if (seite.length < 128) break;
-      ab = `${seite[seite.length - 1][0]} `;
+      ab = `${seite[seite.length - 1][0]}\u0000`;
     }
+    await this.ctx.storage.delete(K.iveo(key));
     await this.protokolliere({ am: jetzt, wer, was: 'iveo-entfernen', wen: e.basis, details: { slug: e.slug } });
     return { ok: true };
   }
