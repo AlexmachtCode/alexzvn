@@ -1427,7 +1427,7 @@ async function run() {
     check(
       'P6 4: neuer-code macht das alte Passwort ungültig (Anmeldung danach falsch), der neue Code setzt ein neues; Google-Konto → 400 ungueltig',
       vorher.abgeholt.zustand === 'bestaetigt' && r.ok === true && r.codeBis === T0 + MIN + 72 * 3600_000 && alt.passwort.code === 'falsch' &&
-        neu.abgeholt.zustand === 'bestaetigt' && google.http === 400 && google.code === 'ungueltig',
+        neu.abgeholt?.zustand === 'bestaetigt' && google.http === 400 && google.code === 'ungueltig',
     );
   }
 
@@ -1626,6 +1626,43 @@ async function run() {
       'P6 M44: Diagnose des alten Schlüssels in der Übersicht (ohne ALTKEY_BIS → ohne-ende, unlesbar → unlesbar, Datum → bis)',
       JSON.stringify([ohne.bis, ohne.diagnose, unlesbar.bis, unlesbar.diagnose, vorbei.bis, vorbei.diagnose]) ===
         JSON.stringify([null, 'ohne-ende', null, 'unlesbar', '2026-10-01T00:00:00.000Z', null]),
+    );
+  }
+
+  // ── P6 Review: neuer Code (Hash, Bremse) und iveo-entfernen nimmt das Event aus den Zugaengen ──
+  {
+    const { speicher, ctx, aktion } = await mitAdmin();
+    await legeExternenAn(speicher, { passwort: 'richtiges-passwort' });
+    await ctx.storage.put('fehl:k-ext', { anzahl: 3, bisMs: null });
+    const r = await aktion({ aktion: 'neuer-code', kid: 'k-ext' }, T0 + MIN);
+    const k = await speicher.ladeKonto('k-ext');
+    const roh = JSON.stringify([...ctx.daten.values()]);
+    check(
+      'P6 4: neuer-code speichert den Code nur als Hash (Rohspeicher ohne Klartext, einladung.hash = SHA-256 der normalisierten Form)',
+      r.ok === true && !roh.includes(r.einladungscode) && !roh.includes(r.einladungscode.replace(/-/g, '')) &&
+        k.einladung.hash === (await sha256B64url(r.einladungscode.replace(/-/g, ''))) && !('code' in k.einladung),
+    );
+    check('P6 4: neuer-code löscht die Bremse des Kontos', !ctx.daten.has('fehl:k-ext'));
+  }
+  {
+    const { speicher, aktion } = await mitAdmin();
+    const S = testSchluessel();
+    await aktion({ aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [await iveoEvent(S, 'tagung', 'Tagung', 'test-iveo-1'), await iveoEvent(S, 'gala', 'Gala', 'test-iveo-2')] });
+    const ev = ['https://iveo.example|tagung', 'https://iveo.example|gala'];
+    await legeExternenAn(speicher, { passwort: 'richtiges-passwort', bis: T0 + 10 * TAG });
+    const zugang = (events, bis) => ({ aktion: 'zugang-speichern', kid: 'k-ext', stufe: 'externer', tools: ['qa'], events, bis, zoomBis: null });
+    await aktion(zugang(ev, T0 + 10 * TAG), T0);
+    const weg = await aktion({ aktion: 'iveo-entfernen', key: ev[0] }, T0 + MIN);
+    const nach = await speicher.ladeKonto('k-ext');
+    const verlaengert = await aktion(zugang(nach.events, T0 + 20 * TAG), T0 + 2 * MIN);
+    check(
+      'P6 7, 6.4: iveo-entfernen nimmt das Event aus den Zugängen; der Externe lässt sich mit seinen übrigen Events speichern und verlängern',
+      weg.ok === true && JSON.stringify(nach.events) === JSON.stringify([ev[1]]) && verlaengert.ok === true && (await speicher.ladeKonto('k-ext')).bis === T0 + 20 * TAG,
+    );
+    await aktion({ aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [await iveoEvent(S, 'tagung', 'Tagung neu', 'test-iveo-3')] }, T0 + 3 * MIN);
+    check(
+      'P6 7, 6.4: wird dasselbe Event neu hinterlegt, bekommt der Externe dadurch keinen Zugang zurück',
+      JSON.stringify((await speicher.ladeKonto('k-ext')).events) === JSON.stringify([ev[1]]),
     );
   }
 

@@ -15,7 +15,9 @@
 //
 // Einmal-Regeln: Abholen nimmt den Vorgang atomar (delete); alle Schreiber eines Vorgangs (Binden, Bestätigen, Google-Zustand) und
 // das Setzen per Einladung laufen in `inReihe` und lesen dort frisch (kein PBKDF2 in der Reihe), auch ohne Input-Gates. Die
-// Schreiber des Kontos (P3, P6) verlassen sich auf die Input-Gates von workerd. Löschen (Abholen, Abbrechen, Aufräumen) läuft außerhalb der Reihe;
+// Schreiber des Kontos (P3, P6) verlassen sich auf die Input-Gates von workerd; ebenso die P6-Regeln "eine Anfrage ist nur offen
+// entscheidbar", "es bleibt immer ein Admin", die Schreiber von iveo und `geraet-markieren` und `neuer-code` (Einladung des Kontos
+// außerhalb der Reihe). Löschen (Abholen, Abbrechen, Aufräumen) läuft außerhalb der Reihe;
 // kein Schreiber in der Reihe nimmt einen bereits entschiedenen Vorgang an. Nie `binde` oder `inReihe` aus der Reihe rufen.
 // Das Erneuern (P5) liest das Gerät nach dem Beweis (WebCrypto, kein Speicher) frisch, prüft `letztesKonto` noch einmal und setzt nur
 // seine eigenen Felder, ohne await zwischen frischem Lesen und Schreiben: ein gleichzeitiges Abholen oder eine spätere Markierung
@@ -1082,6 +1084,21 @@ export class KontoSpeicher {
     const e = key ? await this.ctx.storage.get(K.iveo(key)) : null;
     if (!e) return fehler('vorgang-unbekannt', 404);
     await this.ctx.storage.delete(K.iveo(key));
+    // Das Event auch aus den Zugaengen nehmen: sonst bleibt ein nicht mehr hinterlegter Schluessel in `konto.events` und jedes
+    // `zugang-speichern` mit den bisherigen Events scheitert (zugangsWerte). Seiten zu 128 Konten, nur Betroffene schreiben.
+    let ab;
+    for (;;) {
+      const seite = [...(await this.ctx.storage.list({ prefix: 'konto:', limit: 128, ...(ab ? { start: ab } : {}) })).entries()];
+      for (const [sk, k] of seite) {
+        if (Array.isArray(k.events) && k.events.includes(key)) {
+          k.events = k.events.filter((x) => x !== key);
+          k.geaendert = jetzt;
+          await this.ctx.storage.put(sk, k);
+        }
+      }
+      if (seite.length < 128) break;
+      ab = `${seite[seite.length - 1][0]} `;
+    }
     await this.protokolliere({ am: jetzt, wer, was: 'iveo-entfernen', wen: e.basis, details: { slug: e.slug } });
     return { ok: true };
   }
