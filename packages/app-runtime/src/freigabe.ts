@@ -116,6 +116,7 @@ function sende(port: number, body: string, kopf: Record<string, string>, zeitlim
       port,
       method: 'POST',
       path: FREIGABE_PFAD,
+      // Sicherheit: kein gemeinsamer Agent, keine Keep-Alive-Verbindung; so geht die Anfrage auch an einem Proxy aus der Umgebung (HTTP_PROXY/NODE_USE_ENV_PROXY) vorbei.
       agent: false,
       headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), ...kopf },
     }, (res) => {

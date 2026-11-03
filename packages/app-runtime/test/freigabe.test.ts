@@ -166,6 +166,132 @@ const grund = (e: FreigabeErgebnis): string => (e.ok ? 'ok' : e.grund);
     && !index.includes('freigabe') && pkg.exports['./freigabe'] === './src/freigabe.ts' && pkg.exports['.'] === './src/index.ts');
 }
 
+// --- P12 Review 1: Launcher mit eigenem Schlüssel und eigener Antwort (Nonce, Wiederholung, Tür neu schreiben) ---------------
+interface Eigener { server: Server; port: number; nonces: string[] }
+async function eigenerLauncher(schl: string, antwort: (n: number, nonce: string) => { status: number; text: string; beweis: string }): Promise<Eigener> {
+  const nonces: string[] = [];
+  const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+    req.on('data', () => {});
+    req.on('end', () => {
+      const nonce = String(req.headers['x-jm-nonce'] ?? '');
+      nonces.push(nonce);
+      const a = antwort(nonces.length, nonce);
+      res.writeHead(a.status, { 'content-type': 'application/json', 'x-jm-beweis': a.beweis });
+      res.end(a.text);
+    });
+  });
+  await new Promise<void>((ok) => server.listen(0, '127.0.0.1', () => ok()));
+  return { server, port: (server.address() as { port: number }).port, nonces };
+}
+const GUT = JSON.stringify({ ok: true, freigabe: 'jm1.test.frei', bis: 1_800_000_000_000, konto: { name: 'Maria Schmidt', stufe: 'kollege' } });
+const frage = { appId: 'jm-qa', zweck: 'qa-relay', ziel: 'evt-1' };
+{
+  // Nonce-Frische: zwei Aufrufe gegen dieselbe Tür-Datei, verschiedene Nonces.
+  const l = await eigenerLauncher(SCHLUESSEL, (_n, nonce) => ({ status: 200, text: GUT, beweis: freigabeBeweis(SCHLUESSEL, ['launcher', nonce, inhaltsHash(GUT)]) }));
+  const dir = appData();
+  schreibeTuer(dir, { v: 1, port: l.port, schluessel: SCHLUESSEL, pid: 1, start: 1 });
+  const a = await holeFreigabe(frage, { appDataDir: dir });
+  const b = await holeFreigabe(frage, { appDataDir: dir });
+  await schliesse(l.server);
+  check('P12 6.2: Nonce je Anfrage neu (zwei Aufrufe gegen dieselbe Tür-Datei, beide 16 B b64url, verschieden)',
+    a.ok && b.ok && l.nonces.length === 2 && l.nonces[0] !== l.nonces[1] && l.nonces.every((n) => /^[A-Za-z0-9_-]{22}$/.test(n)));
+}
+{
+  // Wiederholung: der zweite Aufruf bekommt die erste unterschriebene Antwort erneut, sie gehört zur alten Nonce.
+  let erste: { text: string; beweis: string } | null = null;
+  const l = await eigenerLauncher(SCHLUESSEL, (n, nonce) => {
+    if (n === 1) {
+      erste = { text: GUT, beweis: freigabeBeweis(SCHLUESSEL, ['launcher', nonce, inhaltsHash(GUT)]) };
+    }
+    return { status: 200, ...(erste as { text: string; beweis: string }) };
+  });
+  const dir = appData();
+  schreibeTuer(dir, { v: 1, port: l.port, schluessel: SCHLUESSEL, pid: 1, start: 1 });
+  const a = await holeFreigabe(frage, { appDataDir: dir });
+  const b = await holeFreigabe(frage, { appDataDir: dir });
+  await schliesse(l.server);
+  check('P12 6.2: Wiederholte Antwort (erste unterschriebene Antwort beim zweiten Aufruf erneut) ist launcher-unecht',
+    a.ok === true && grund(b) === 'launcher-unecht');
+}
+{
+  // Tür-Datei bei jedem Aufruf neu lesen: zwischen zwei Aufrufen neuer Port und neuer Schlüssel.
+  const la = await eigenerLauncher(SCHLUESSEL, (_n, nonce) => ({ status: 200, text: GUT, beweis: freigabeBeweis(SCHLUESSEL, ['launcher', nonce, inhaltsHash(GUT)]) }));
+  const lb = await eigenerLauncher(ANDERER, (_n, nonce) => ({ status: 200, text: GUT, beweis: freigabeBeweis(ANDERER, ['launcher', nonce, inhaltsHash(GUT)]) }));
+  const dir = appData();
+  schreibeTuer(dir, { v: 1, port: la.port, schluessel: SCHLUESSEL, pid: 1, start: 1 });
+  const a = await holeFreigabe(frage, { appDataDir: dir });
+  schreibeTuer(dir, { v: 1, port: lb.port, schluessel: ANDERER, pid: 2, start: 2 });
+  const b = await holeFreigabe(frage, { appDataDir: dir });
+  await schliesse(la.server);
+  await schliesse(lb.server);
+  check('P12 10.8: Tür-Datei wird bei jedem Aufruf neu gelesen (neuer Port und Schlüssel zwischen zwei Aufrufen erreichen den neuen Launcher)',
+    a.ok === true && b.ok === true && la.nonces.length === 1 && lb.nonces.length === 1);
+}
+
+// --- P12 Review 1: unvollständige Tür-Dateien ergeben kein-launcher und werfen nie ------------------------------------------
+{
+  const voll = { v: 1, port: 8080, schluessel: SCHLUESSEL, pid: 1, start: 1 };
+  const ohne = (k: string): Record<string, unknown> => { const c: Record<string, unknown> = { ...voll }; delete c[k]; return c; };
+  const faelle: Array<[string, unknown]> = [
+    ['ohne Schlüssel', ohne('schluessel')],
+    ['Schlüssel zu kurz', { ...voll, schluessel: 'test-kurz' }],
+    ['Port 0', { ...voll, port: 0 }],
+    ['Port "80"', { ...voll, port: '80' }],
+    ['Port 70000', { ...voll, port: 70000 }],
+    ['ohne pid', ohne('pid')],
+    ['v 0', { ...voll, v: 0 }],
+    ['v "1"', { ...voll, v: '1' }],
+    ['[]', '[]'],
+    ['null', 'null'],
+    ['leer', ''],
+  ];
+  const abweichend: string[] = [];
+  for (const [name, inhalt] of faelle) {
+    const dir = appData();
+    schreibeTuer(dir, inhalt);
+    let ist: string;
+    try {
+      ist = grund(await holeFreigabe(frage, { appDataDir: dir, zeitlimitMs: 500 }));
+    } catch {
+      ist = 'wirft';
+    }
+    if (ist !== 'kein-launcher') abweichend.push(`${name}: ist ${ist}, soll kein-launcher`);
+  }
+  check(`P12 6.2: Unvollständige Tür-Dateien — jede ergibt kein-launcher, keine wirft (${faelle.length} Fälle)${abweichend.length ? ` — ${abweichend.slice(0, 5).join('; ')}` : ''}`,
+    abweichend.length === 0);
+}
+
+// --- P12 Review 1, G4: nichts in Konsole oder Ergebnis; agent: false; Standard-Zeitlimit 5 s -----------------------------------
+{
+  const quelle = readFileSync(new URL('../src/freigabe.ts', import.meta.url), 'utf8');
+  check('P12 G4: freigabe.ts schreibt nichts in Konsole oder Standardausgabe (weder console. noch process.std)',
+    !quelle.includes('console.') && !quelle.includes('process.std'));
+  check('P12 10.8: Anfrage ohne Keep-Alive und am Umgebungs-Proxy vorbei (agent: false steht im Quelltext)',
+    /^\s*agent: false,$/m.test(quelle));
+  const ergebnisse: FreigabeErgebnis[] = [];
+  for (const m of ['echt', 'ohne-beweis', 'falscher-schluessel', 'manipuliert', 'grund'] as Modus[]) ergebnisse.push((await fall(m)).e);
+  const text = JSON.stringify(ergebnisse);
+  check(`P12 G4: kein Ergebnis enthält einen Schlüssel oder einen Beweis (${ergebnisse.length} Fälle)`,
+    !text.includes(SCHLUESSEL) && !text.includes(ANDERER) && !/[A-Za-z0-9_-]{43}/.test(text));
+}
+{
+  // Standard-Zeitlimit 5 s, ohne 5 s zu warten: die Zeitgeber werden mitgelesen und auf 100 ms verkürzt.
+  const echt = globalThis.setTimeout;
+  const verlangt: number[] = [];
+  globalThis.setTimeout = ((f: () => void, ms?: number, ...r: unknown[]) => {
+    verlangt.push(Number(ms));
+    return echt(f, Math.min(Number(ms) || 0, 100), ...r);
+  }) as typeof setTimeout;
+  let e: FreigabeErgebnis;
+  try {
+    e = (await fall('haengt')).e;
+  } finally {
+    globalThis.setTimeout = echt;
+  }
+  check(`P12 6.2: Standard-Zeitlimit ist 5000 ms (verlangt: ${verlangt.join(', ')}) und führt zu kein-launcher`,
+    verlangt.includes(5000) && !verlangt.some((v) => v > 5000) && grund(e) === 'kein-launcher');
+}
+
 for (const o of temp) {
   try {
     rmSync(o, { recursive: true, force: true });
