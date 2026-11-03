@@ -52,6 +52,11 @@ jobs:
       # Postinstalls fehlt das Binary, ein Electron-Import bricht hier also ab.
       - name: Launcher (iveo-Abgleich-Kern, Hülle, Show-Editor)
         run: npm run selftest:iveo -w @jm/launcher
+      # Anmeldung im Launcher, Teil 1 (Plan 2026-10-21, Tasks 7–14): Rechte, Gerät, Worker-Client, Sitzung, Anmelde-Ablauf,
+      # Tür-Dienst (echte Sockets nur auf 127.0.0.1), iveo im Speicher. tsx, ohne Electron, ohne Netz. Der Name steht in
+      # Anführungszeichen, weil er „: “ enthält (sonst bricht das YAML).
+      - name: "Launcher (Anmeldung: Konto, Gerät, Sitzung, Freigaben)"
+        run: npm run selftest:konto -w @jm/launcher
       - name: iveo + Show-Format (Kennungen von iveo bis in die Show)
         run: npm run selftest -w @jm/iveo
       - name: Timer (aktiver Punkt über die Kennung)
