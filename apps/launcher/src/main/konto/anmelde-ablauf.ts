@@ -17,6 +17,8 @@ export interface AnmeldeAblauf { starte(): Promise<void>; abbrechen(): Promise<v
 export const ABFRAGE_MS = 2000;
 /** AA4: so viele Netz- bzw. Serverfehler in Folge beenden das Warten mit `fehler`. */
 export const FEHLER_IN_FOLGE_MAX = 5;
+/** EP5: ein Vorgang lebt 5 min. Die Frist läuft auf der eigenen Uhr (Start + 5 min), nie gegen die Uhr des Workers (EP30). */
+export const VORGANG_MS = 5 * 60_000;
 
 const LAEUFT: ReadonlyArray<AnmeldeSchritt['art']> = ['startet', 'wartet'];
 const VORUEBERGEHEND: readonly string[] = ['netz', 'server', 'zu-viele'];
@@ -33,6 +35,16 @@ export function erzeugeAnmeldeAblauf(u: {
   let vorgang: { id: string; abholGeheimnis: string; bis: number; geraet: GeraetHandle } | null = null;
   let stoppeWecker: (() => void) | null = null;
   let fehlerInFolge = 0;
+  let letzterFehler: KontoFehlerCode | null = null;
+
+  /** Einen Vorgang beim Worker schließen, ohne zu warten; ein Fehler wird verschluckt (best effort). */
+  function schliesse(v: { id: string; abholGeheimnis: string }): void {
+    try {
+      u.client.vorgangAbbrechen(v.id, v.abholGeheimnis).catch(() => undefined);
+    } catch {
+      /* best effort */
+    }
+  }
 
   function setze(s: AnmeldeSchritt): void {
     aktuell = s;
@@ -58,6 +70,7 @@ export function erzeugeAnmeldeAblauf(u: {
     const v = vorgang;
     if (meinLauf !== lauf || !v) return;
     if (u.jetzt() >= v.bis) {
+      schliesse(v);
       ende({ art: 'abgelaufen' });
       return;
     }
@@ -71,12 +84,22 @@ export function erzeugeAnmeldeAblauf(u: {
     }
     if (meinLauf !== lauf) return;
     if (antwort === null) {
-      if (code === 'vorgang-unbekannt') ende({ art: 'abgelaufen' });
-      else if (code !== null && VORUEBERGEHEND.includes(code)) {
+      if (code === 'vorgang-unbekannt') {
+        // Der Worker nimmt den Vorgang beim erfolgreichen Abholen weg. Folgt „unbekannt“ direkt auf einen vorübergehenden
+        // Fehler, ging womöglich die Antwort mit der Bestätigung verloren: ehrlich „fehler“ statt „abgelaufen“.
+        if (fehlerInFolge > 0 && letzterFehler !== null) ende({ art: 'fehler', code: letzterFehler });
+        else ende({ art: 'abgelaufen' });
+      } else if (code !== null && VORUEBERGEHEND.includes(code)) {
         fehlerInFolge++;
-        if (fehlerInFolge >= FEHLER_IN_FOLGE_MAX) ende({ art: 'fehler', code });
-        else plane(meinLauf);
-      } else ende({ art: 'fehler', code: code ?? 'server' });
+        letzterFehler = code;
+        if (fehlerInFolge >= FEHLER_IN_FOLGE_MAX) {
+          schliesse(v);
+          ende({ art: 'fehler', code });
+        } else plane(meinLauf);
+      } else {
+        schliesse(v);
+        ende({ art: 'fehler', code: code ?? 'server' });
+      }
       return;
     }
     fehlerInFolge = 0;
@@ -99,6 +122,7 @@ export function erzeugeAnmeldeAblauf(u: {
       if (LAEUFT.includes(aktuell.art)) return;
       const meinLauf = ++lauf;
       fehlerInFolge = 0;
+      letzterFehler = null;
       setze({ art: 'startet' });
       const g = await u.geraet();
       if (meinLauf !== lauf) return;
@@ -107,6 +131,7 @@ export function erzeugeAnmeldeAblauf(u: {
         return;
       }
       let v: Awaited<ReturnType<KontoClient['vorgangAnlegen']>>;
+      const t0 = u.jetzt();
       try {
         v = await u.client.vorgangAnlegen({ publicJwk: g.publicJwk, name: u.rechnerName, plattform: u.plattform, arch: u.arch, version: u.version });
       } catch (e) {
@@ -118,7 +143,9 @@ export function erzeugeAnmeldeAblauf(u: {
         u.client.vorgangAbbrechen(v.vorgang, v.abholGeheimnis).catch(() => undefined);
         return;
       }
-      vorgang = { id: v.vorgang, abholGeheimnis: v.abholGeheimnis, bis: v.bis, geraet: g };
+      // Die Frist auf der eigenen Uhr (t0 + 5 min); das `bis` des Workers geht nach dessen Uhr und wird nicht verglichen.
+      const bisLokal = t0 + VORGANG_MS;
+      vorgang = { id: v.vorgang, abholGeheimnis: v.abholGeheimnis, bis: bisLokal, geraet: g };
       // AA2: Browser öffnen, dann „wartet“ mit dem Ergebnis (K52, wenn er nicht aufging).
       let offen = false;
       try {
@@ -127,7 +154,7 @@ export function erzeugeAnmeldeAblauf(u: {
         offen = false;
       }
       if (meinLauf !== lauf) return;
-      setze({ art: 'wartet', code: v.code, adresse: v.adresse, bis: v.bis, browserOffen: offen });
+      setze({ art: 'wartet', code: v.code, adresse: v.adresse, bis: bisLokal, browserOffen: offen });
       plane(meinLauf);
     },
 
@@ -137,13 +164,8 @@ export function erzeugeAnmeldeAblauf(u: {
       const v = vorgang;
       lauf++;
       ende({ art: 'abgebrochen' });
-      if (v) {
-        try {
-          await u.client.vorgangAbbrechen(v.id, v.abholGeheimnis);
-        } catch {
-          /* best effort: der Vorgang verfällt am Worker nach 5 min von selbst */
-        }
-      }
+      // Best effort, ohne zu warten: der Vorgang verfällt am Worker nach 5 min von selbst.
+      if (v) schliesse(v);
     },
 
     schritt: () => aktuell,

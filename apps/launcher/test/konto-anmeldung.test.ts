@@ -24,9 +24,11 @@ const STAND: KontoStand = {
 };
 type Abholen = 'wartet' | 'bestaetigt' | 'abgelehnt' | 'abgelaufen' | KontoFehler['code'];
 
-function umgebung(o: { browser?: boolean | 'wirft'; abholen?: Abholen[]; anlegen?: KontoFehler['code'] | 'haengt'; geraet?: boolean } = {}) {
+function umgebung(o: { browser?: boolean | 'wirft' | 'haengt'; abholen?: Abholen[]; anlegen?: KontoFehler['code'] | 'haengt'; geraet?: boolean;
+  versatz?: number; abholenHaelt?: boolean } = {}) {
   const u0 = {
-    zeit: T0,
+    // Die Uhr des Rechners geht um `versatz` vor (die des Workers nicht): T0 + versatz.
+    zeit: T0 + (o.versatz ?? 0),
     schritte: [] as AnmeldeSchritt[],
     anlegen: [] as unknown[],
     abholen: [] as Array<{ vorgang: string; geheimnis: string; zweck: string; bezug: string; ts: number }>,
@@ -35,7 +37,10 @@ function umgebung(o: { browser?: boolean | 'wirft'; abholen?: Abholen[]; anlegen
     angemeldet: [] as GespeicherteSitzung[],
     wecker: [] as Array<{ ms: number; fn: () => void; aktiv: boolean }>,
     loeseAnlegen: null as null | (() => void),
+    loeseAbholen: null as null | (() => void),
+    loeseBrowser: null as null | ((offen: boolean) => void),
   };
+  let abholenGehalten = false;
   const folge = [...(o.abholen ?? [])];
   const geraet: GeraetHandle = {
     gid: 'g1',
@@ -53,6 +58,12 @@ function umgebung(o: { browser?: boolean | 'wirft'; abholen?: Abholen[]; anlegen
     async vorgangAbholen(vorgang: string, geheimnis: string, beweis: { sig: string }) {
       const [zweck, bezug, ts] = beweis.sig.split('|');
       u0.abholen.push({ vorgang, geheimnis, zweck, bezug, ts: Number(ts) });
+      // EP30: der Worker meldet `uhr`, wenn der Zeitstempel des Beweises mehr als 5 min von seiner Uhr abweicht.
+      if (Math.abs(o.versatz ?? 0) > 5 * 60_000) throw new KontoFehler('uhr', null);
+      if (o.abholenHaelt && !abholenGehalten) {
+        abholenGehalten = true;
+        return new Promise((ja) => { u0.loeseAbholen = () => ja({ zustand: 'bestaetigt', sitzung: 'jm1.test.sitzung', stand: STAND }); });
+      }
       const a = folge.shift() ?? 'wartet';
       if (a === 'bestaetigt') return { zustand: 'bestaetigt', sitzung: 'jm1.test.sitzung', stand: STAND };
       if (a === 'wartet' || a === 'abgelehnt' || a === 'abgelaufen') return { zustand: a };
@@ -75,6 +86,7 @@ function umgebung(o: { browser?: boolean | 'wirft'; abholen?: Abholen[]; anlegen
     oeffneBrowser: async (url) => {
       u0.browser.push(url);
       if (o.browser === 'wirft') throw new Error('kein Browser');
+      if (o.browser === 'haengt') return new Promise<boolean>((ja) => { u0.loeseBrowser = ja; });
       return o.browser !== false;
     },
     rechnerName: 'PC-Regie', plattform: 'win', arch: 'x64', version: '0.18.0',
@@ -138,7 +150,9 @@ const arten = (u: ReturnType<typeof umgebung>): string => u.schritte.map((s) => 
     else if (f.folge === 'abgelaufen' || f.folge === 'vorgang-unbekannt') { endArt = 'abgelaufen'; abholen = 1; }
     else if (f.folge === 'immer wartet') { endArt = 'abgelaufen'; abholen = 149; }
     else { endArt = 'fehler'; code = f.folge; abholen = 1; }
-    const soll = [`startet,wartet,${endArt}`, `${CODE}/${ok}/300000`, ADRESSE, '-', code, angemeldet, f.abbrechen ? 1 : 0, abholen,
+    // Nach einem Fehler beim Abfragen (Gerät, Uhr) und nach lokalem Ablauf wird der Vorgang best effort beim Worker geschlossen.
+    const schliesst = f.abbrechen || endArt === 'fehler' || f.folge === 'immer wartet';
+    const soll = [`startet,wartet,${endArt}`, `${CODE}/${ok}/300000`, ADRESSE, '-', code, angemeldet, schliesst ? 1 : 0, abholen,
       f.abbrechen ? 0 : abholen + (f.folge === 'immer wartet' ? 1 : 0)].join(' ');
     ergebnisse.push({ f, ist, soll });
   }
@@ -254,6 +268,71 @@ const arten = (u: ReturnType<typeof umgebung>): string => u.schritte.map((s) => 
   const quelle = readFileSync(new URL('../src/main/konto/anmelde-ablauf.ts', import.meta.url), 'utf8');
   ck('P11 AA6: der Code geht in kein Log (Konsole leer über Erfolg, Netzfehler, fremdes Gerät, Abbrechen), das Modul hat keine Konsole',
     mitschnitt.length === 0 && !/console\./.test(quelle));
+}
+
+// --- P11 EP30: die Frist läuft auf der eigenen Uhr -----------------------------------------------------------------------
+{
+  const vor = umgebung({ versatz: 6 * 60_000 });
+  await vor.ablauf.starte();
+  await bisZumEnde(vor);
+  const e = vor.ablauf.schritt();
+  const drei = umgebung({ versatz: 3 * 60_000, abholen: [] });
+  await drei.ablauf.starte();
+  const w3 = drei.ablauf.schritt();
+  await bisZumEnde(drei);
+  ck('P11 EP30: Uhr 6 min vor → die Abfrage findet statt, der Worker meldet uhr → fehler uhr (K55), nicht abgelaufen',
+    vor.abholen.length === 1 && e.art === 'fehler' && e.code === 'uhr' && vor.angemeldet.length === 0);
+  ck('P11 EP30: Uhr 3 min vor → volle Frist von 300 s auf der eigenen Uhr (wartet.bis, 149 Abfragen, dann abgelaufen)',
+    w3.art === 'wartet' && w3.bis - (T0 + 3 * 60_000) === 300_000 && drei.abholen.length === 149
+    && drei.ablauf.schritt().art === 'abgelaufen');
+}
+
+// --- P11 Verlorene Antwort: unbekannt nach vorübergehendem Fehler ist kein „abgelaufen“ ---------------------------------
+{
+  const netz = umgebung({ abholen: ['netz', 'vorgang-unbekannt'] });
+  await netz.ablauf.starte();
+  await bisZumEnde(netz);
+  const server = umgebung({ abholen: ['wartet', 'server', 'vorgang-unbekannt'] });
+  await server.ablauf.starte();
+  await bisZumEnde(server);
+  const a = netz.ablauf.schritt(), b = server.ablauf.schritt();
+  ck('P11 AA4: vorgang-unbekannt direkt nach einem Netz- oder Serverfehler → fehler mit dem vorigen Code (die Bestätigung kann verloren sein), sonst abgelaufen',
+    a.art === 'fehler' && a.code === 'netz' && b.art === 'fehler' && b.code === 'server' && netz.angemeldet.length === 0);
+}
+
+// --- P11 AA5: späte Antworten eines früheren Laufs ------------------------------------------------------------------------
+{
+  const u = umgebung({ abholenHaelt: true });
+  await u.ablauf.starte();
+  await feuere(u);
+  await u.ablauf.abbrechen();
+  await u.ablauf.starte();
+  u.loeseAbholen?.();
+  await ruhe();
+  const spaetBestaetigt = u.angemeldet.length === 0 && u.ablauf.schritt().art === 'wartet';
+  const b = umgebung({ browser: 'haengt' });
+  const laeuft = b.ablauf.starte();
+  await ruhe();
+  await b.ablauf.abbrechen();
+  b.loeseBrowser?.(true);
+  await laeuft;
+  await ruhe();
+  ck('P11 AA5: eine späte Antwort „bestätigt“ des abgebrochenen Laufs meldet den neuen Lauf nicht an; ein Browser, der erst nach dem Abbrechen zurückkehrt, bringt „wartet“ nicht zurück',
+    spaetBestaetigt && arten(b) === 'startet,abgebrochen' && b.ablauf.schritt().art === 'abgebrochen' && b.wecker.length === 0
+    && b.ablauf.adresse() === null);
+}
+
+// --- P11 G4: kein Geheimnis in den gemeldeten Schritten --------------------------------------------------------------------
+{
+  const u = umgebung({ abholen: ['wartet', 'bestaetigt'] });
+  await u.ablauf.starte();
+  await bisZumEnde(u);
+  const f = umgebung({ abholen: ['netz'] });
+  await f.ablauf.starte();
+  await bisZumEnde(f);
+  const alles = JSON.stringify([u.schritte, f.schritte]);
+  ck('P11 G4: in keinem gemeldeten Schritt stehen Abholgeheimnis oder Sitzung',
+    u.schritte.length === 3 && !alles.includes('test-abholen-1') && !alles.includes('jm1.test.sitzung'));
 }
 
 // --- P11 G9 ---------------------------------------------------------------------------------------------------------------
