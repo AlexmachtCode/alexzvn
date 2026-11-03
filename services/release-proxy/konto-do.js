@@ -16,8 +16,19 @@
 // Uhr: `jetzt` kommt mit jeder Aktion vom Worker; fehlt es, und im Alarm, gilt `env.KONTO_UHR()` (nur Tests, EP21), sonst
 // `Date.now()`. Schlüssel im Speicher (EP1): konto:<kid>, email:<email>, geraet:<gid>, vorgang:<vid>, state:<state>,
 // iveo:<basis|slug>, anfrage:<aid>, log:<ms 13-stellig>:<zufall>, fehl:<kid>, altkey:<tag>:<gruppe>:<plattform>-<arch>.
-import { PROTOKOLL_MS, istDomainKonto, istErsterAdmin, kontoGueltig } from './konto-kern.js';
-import { zufall } from './konto-krypto.js';
+import { PROTOKOLL_MS, VORGANG_MS, bremseAktiv, istDomainKonto, istErsterAdmin, kontoGueltig, nachFehlversuch } from './konto-kern.js';
+import {
+  CODE_ALPHABET,
+  geraetIdAus,
+  gleichOhneZeitleck,
+  hashePasswort,
+  normalisiereCode,
+  pruefeGeraeteBeweis,
+  pruefePasswort,
+  reinerJwk,
+  sha256B64url,
+  zufall,
+} from './konto-krypto.js';
 
 const TAG_MS = 24 * 3600_000;
 /** Aufbewahrung der Alt-Key-Zählung und entschiedener Zoom-Anfragen (nach ihrem „bis“). */
@@ -44,6 +55,15 @@ const K = {
 /** Aktion (Pfad nach https://konto.intern/) → Methode. Nur diese Namen sind von außen erreichbar. */
 const AKTIONEN = {
   'konto-aus-google': 'kontoAusGoogle',
+  'vorgang-anlegen': 'vorgangAnlegen',
+  'vorgang-lesen': 'vorgangLesen',
+  'vorgang-konto-binden': 'vorgangKontoBinden',
+  'vorgang-google-merken': 'vorgangGoogleMerken',
+  'vorgang-google-state': 'vorgangGoogleState',
+  'vorgang-passwort': 'vorgangPasswort',
+  'vorgang-bestaetigen': 'vorgangBestaetigen',
+  'vorgang-abholen': 'vorgangAbholen',
+  'vorgang-abbrechen': 'vorgangAbbrechen',
   // ── Ende der Aktionen ──
 };
 
@@ -70,6 +90,35 @@ function normEmail(email) {
 /** Getrimmter Text bis `max` Zeichen, sonst ''. */
 function text(wert, max) {
   return typeof wert === 'string' ? wert.trim().slice(0, max) : '';
+}
+
+/** Bestätigungscode `XXX-XXX` aus dem Alphabet ohne 0, O, 1, I (Spec 4.1). */
+const CODE_FORM = new RegExp(`^[${CODE_ALPHABET}]{3}-[${CODE_ALPHABET}]{3}$`);
+
+/** Konto ohne Passwort-Hash und Einladung (für Antworten an den Worker). */
+function ohneGeheimes(konto) {
+  const { passwort: _p, einladung: _e, ...rest } = konto;
+  return rest;
+}
+
+/** Gerät ohne öffentlichen Schlüssel (für Antworten an den Worker; der Schlüssel bleibt im DO). */
+function ohneSchluessel(geraet) {
+  const { publicJwk: _k, ...rest } = geraet;
+  return rest;
+}
+
+/** Steuer-, unsichtbare und Richtungszeichen (Bidi-Steuerung, Nullbreite, Trenner); sie werden im Rechnernamen Leerzeichen. */
+const UNSICHTBAR = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g;
+
+/**
+ * Rechnername für Bestätigungsseite und Admin-Maske (Spec 4.1, AbwA19): unsichtbare Zeichen werden Leerzeichen, Leerraum wird
+ * zusammengezogen, höchstens 40 Zeichen. Den Namen wählt der Launcher; die Seite nennt ihn als „Rechner: …“ und escaped ihn
+ * (P17). Gegen einen weitergeleiteten Link schützt der Vergleich des Codes, nicht der Name.
+ */
+function rechnerName(roh) {
+  if (typeof roh !== 'string') return '';
+  const t = roh.normalize('NFC').replace(UNSICHTBAR, ' ').replace(/\s+/g, ' ').trim();
+  return [...t].slice(0, 40).join('').trim();
 }
 
 export class KontoSpeicher {
@@ -301,6 +350,244 @@ export class KontoSpeicher {
     await this.speichereKonto(konto);
     await this.ctx.storage.delete(K.fehl(kid));
     await this.protokolliere({ am: jetzt, wer: durch, was: 'zugang-entsperrt', wen: konto.email, details: { kid } });
+    return { ok: true };
+  }
+
+  // ── Anmeldevorgang (Spec 4.1, EP5): anlegen → anmelden (Google oder Passwort) → bestätigen → abholen ──
+
+  /** Vorgang nur, solange er gilt (`bis > jetzt`); sonst null. */
+  async ladeVorgang(vid, jetzt) {
+    if (typeof vid !== 'string' || !vid) return null;
+    const v = await this.ctx.storage.get(K.vorgang(vid));
+    return v && v.bis > jetzt ? v : null;
+  }
+
+  async vorgangWeg(v) {
+    await this.ctx.storage.delete(K.vorgang(v.vorgang));
+    if (v.google && v.google.state) await this.ctx.storage.delete(K.state(v.google.state));
+  }
+
+  /** Aktion `vorgang-anlegen` `{ geraet, abholHash, code }` → `{ vorgang, bis }`; das Abholgeheimnis kennt der DO nur als Hash. */
+  async vorgangAnlegen(b, jetzt) {
+    const g = b.geraet && typeof b.geraet === 'object' ? b.geraet : {};
+    const publicJwk = reinerJwk(g.publicJwk);
+    const gid = publicJwk ? await geraetIdAus(publicJwk) : null;
+    const name = rechnerName(g.name);
+    if (!gid || !name || (g.plattform !== 'win' && g.plattform !== 'mac') || (g.arch !== 'x64' && g.arch !== 'arm64')) return fehler('ungueltig', 400);
+    if (typeof b.abholHash !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(b.abholHash)) return fehler('ungueltig', 400);
+    if (typeof b.code !== 'string' || !CODE_FORM.test(b.code)) return fehler('ungueltig', 400);
+    const vorgang = zufall(18);
+    const v = {
+      vorgang,
+      abholHash: b.abholHash,
+      code: b.code,
+      geraet: { gid, publicJwk, name, plattform: g.plattform, arch: g.arch, version: text(g.version, 32) },
+      bis: jetzt + VORGANG_MS,
+      zustand: 'offen',
+    };
+    await this.ctx.storage.put(K.vorgang(vorgang), v);
+    return { ok: true, vorgang, bis: v.bis };
+  }
+
+  /** Aktion `vorgang-lesen` `{ vorgang }` → `{ zustand, code, rechnerName, bis }` (Anmeldeseite, P17). */
+  async vorgangLesen(b, jetzt) {
+    const v = await this.ladeVorgang(b.vorgang, jetzt);
+    if (!v) return fehler('vorgang-unbekannt', 404);
+    return { ok: true, zustand: v.zustand, code: v.code, rechnerName: v.geraet.name, bis: v.bis };
+  }
+
+  /**
+   * Ein Vorgang gehört dem ersten Konto, das sich darauf anmeldet (EP5): ein anderes Konto → 409 konflikt (B11). Meldet
+   * sich dasselbe Konto noch einmal an (zweiter Reiter, Zurück im Browser), bleibt das Seitentoken gleich.
+   */
+  async binde(v, konto) {
+    if (v.zustand === 'angemeldet' && v.kid !== konto.kid) return fehler('konflikt', 409);
+    if (v.zustand !== 'offen' && v.zustand !== 'angemeldet') return fehler('vorgang-unbekannt', 404);
+    if (v.zustand === 'offen') {
+      v.kid = konto.kid;
+      v.zustand = 'angemeldet';
+      v.seitenToken = zufall(24);
+      await this.ctx.storage.put(K.vorgang(v.vorgang), v);
+    }
+    return { ok: true, seitenToken: v.seitenToken, email: konto.email, code: v.code, rechnerName: v.geraet.name };
+  }
+
+  /** Aktion `vorgang-konto-binden` `{ vorgang, kid }` (nach `konto-aus-google`, P18) → `{ seitenToken, email, code, rechnerName }`. */
+  async vorgangKontoBinden(b, jetzt) {
+    const v = await this.ladeVorgang(b.vorgang, jetzt);
+    if (!v) return fehler('vorgang-unbekannt', 404);
+    const konto = await this.ladeKonto(b.kid);
+    if (!konto) return fehler('vorgang-unbekannt', 404);
+    const g = kontoGueltig(konto, jetzt);
+    if (!g.ok) return fehler(g.grund, 403, g.grund === 'zugang-abgelaufen' ? { bis: konto.bis } : {});
+    return this.binde(v, konto);
+  }
+
+  /** Aktion `vorgang-google-merken` `{ vorgang, state, nonce, verifier }`: OAuth-Zustand im Vorgang, state als eigener Schlüssel. */
+  async vorgangGoogleMerken(b, jetzt) {
+    const v = await this.ladeVorgang(b.vorgang, jetzt);
+    if (!v || (v.zustand !== 'offen' && v.zustand !== 'angemeldet')) return fehler('vorgang-unbekannt', 404);
+    if (![b.state, b.nonce, b.verifier].every((x) => typeof x === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(x))) return fehler('ungueltig', 400);
+    if (v.google && v.google.state) await this.ctx.storage.delete(K.state(v.google.state));
+    v.google = { state: b.state, nonce: b.nonce, verifier: b.verifier };
+    await this.ctx.storage.put(K.vorgang(v.vorgang), v);
+    await this.ctx.storage.put(K.state(b.state), v.vorgang);
+    return { ok: true };
+  }
+
+  /** Aktion `vorgang-google-state` `{ state }` → `{ vorgang, nonce, verifier }`; ein state gilt genau einmal. */
+  async vorgangGoogleState(b, jetzt) {
+    if (typeof b.state !== 'string' || !b.state) return fehler('vorgang-unbekannt', 404);
+    const vid = await this.ctx.storage.get(K.state(b.state));
+    if (!vid) return fehler('vorgang-unbekannt', 404);
+    await this.ctx.storage.delete(K.state(b.state));
+    const v = await this.ladeVorgang(vid, jetzt);
+    if (!v || !v.google || v.google.state !== b.state) return fehler('vorgang-unbekannt', 404);
+    const { nonce, verifier } = v.google;
+    delete v.google;
+    await this.ctx.storage.put(K.vorgang(v.vorgang), v);
+    return { ok: true, vorgang: v.vorgang, nonce, verifier };
+  }
+
+  /**
+   * Aktion `vorgang-passwort` (Spec 4, EP4): `{ vorgang, email, passwort }` oder `{ vorgang, email, einladungscode, neu[, neu2] }`
+   * → `{ seitenToken, email, code, rechnerName }`. Codes für die Anmeldeseite (P17, Block-Kopf A): `falsch` 401 (B12, auch
+   * für eine unbekannte E-Mail), `einladung` 400 (B14), `bremse` 429 mit `minuten` (B13), `passwort-kurz` und
+   * `passwort-ungleich` 400 (B15), `gesperrt` 403 (B16), `zugang-abgelaufen` 403 mit `bis` (B17), `domain` 400 (B23),
+   * `konflikt` 409 (B11), `vorgang-unbekannt` 404 (B10). Die Bremse greift vor jeder Prüfung, auch für das richtige Passwort,
+   * und für eine unbekannte E-Mail genauso (Zähler nur unter dem Hash der E-Mail, AbwA18); jeder Versuch zählt schon vor dem
+   * Hash, ein Erfolg setzt die Bremse zurück.
+   */
+  async vorgangPasswort(b, jetzt) {
+    const v = await this.ladeVorgang(b.vorgang, jetzt);
+    if (!v || (v.zustand !== 'offen' && v.zustand !== 'angemeldet')) return fehler('vorgang-unbekannt', 404);
+    const email = normEmail(b.email);
+    if (istDomainKonto(email)) return fehler('domain', 400);
+    const mitCode = typeof b.einladungscode === 'string';
+    if (mitCode) {
+      if (typeof b.neu !== 'string' || b.neu.length < 10) return fehler('passwort-kurz', 400);
+      if ('neu2' in b && b.neu2 !== b.neu) return fehler('passwort-ungleich', 400);
+    } else if (typeof b.passwort !== 'string') {
+      return fehler('ungueltig', 400);
+    }
+    const gefunden = await this.kontoPerEmail(email);
+    const konto = gefunden && gefunden.art === 'passwort' ? gefunden : null;
+    const bremsSchluessel = konto ? K.fehl(konto.kid) : K.fehlEmail(await sha256B64url(email));
+    const vorab = await this.bremseVorVersuch(bremsSchluessel, jetzt);
+    if (vorab.minuten) return fehler('bremse', 429, { minuten: vorab.minuten });
+    let richtig = false;
+    if (mitCode) {
+      const hash = await sha256B64url(normalisiereCode(b.einladungscode));
+      richtig = !!(konto && konto.einladung && konto.einladung.bis > jetzt) && (await gleichOhneZeitleck(hash, konto.einladung.hash));
+    } else {
+      // Unbekannte E-Mail kostet dieselbe Rechenzeit wie ein falsches Passwort (B12: keine Auskunft, ob es die E-Mail gibt).
+      const gespeichert = konto && konto.passwort ? konto.passwort : await this.attrappenHash();
+      richtig = (await pruefePasswort(b.passwort, gespeichert)) && !!(konto && konto.passwort);
+    }
+    if (!richtig) {
+      // Der Versuch ist schon gezählt; war es der 5. in Folge, steht jetzt die Sperre (B13). Sonst dieselbe Meldung für eine
+      // unbekannte E-Mail und ein falsches Passwort (B12).
+      const minuten = bremseAktiv(vorab.bremse, jetzt);
+      if (minuten) return fehler('bremse', 429, { minuten });
+      return fehler(mitCode ? 'einladung' : 'falsch', mitCode ? 400 : 401);
+    }
+    await this.ctx.storage.delete(K.fehl(konto.kid));
+    const g = kontoGueltig(konto, jetzt);
+    if (!g.ok) return fehler(g.grund, 403, g.grund === 'zugang-abgelaufen' ? { bis: konto.bis } : {});
+    if (v.zustand === 'angemeldet' && v.kid !== konto.kid) return fehler('konflikt', 409);
+    if (mitCode) {
+      konto.passwort = await hashePasswort(b.neu);
+      delete konto.einladung;
+      konto.geaendert = jetzt;
+      await this.speichereKonto(konto);
+    }
+    return this.binde(v, konto);
+  }
+
+  /** Hash eines Zufallspassworts, einmal je Instanz, für unbekannte E-Mails. */
+  attrappenHash() {
+    if (!this.attrappe) this.attrappe = hashePasswort(zufall(16));
+    return this.attrappe;
+  }
+
+  /**
+   * Bremse vor einem Versuch (EP4, AbwA18): laufende Sperre lesen und den Versuch zählen, als eine Einheit. Die Kette je Instanz
+   * lässt parallele Versuche nacheinander zählen (keiner überschreibt den Zähler eines anderen; das hängt nicht an den Input-Gates
+   * von workerd). Liefert die Restminuten einer schon laufenden Sperre (dann wird nicht gezählt) oder 0 und die neue Bremse
+   * `{ anzahl, bisMs, am }`.
+   */
+  bremseVorVersuch(schluessel, jetzt) {
+    const lauf = (this.bremsKette || Promise.resolve()).then(async () => {
+      const alt = await this.ctx.storage.get(schluessel);
+      const minuten = bremseAktiv(alt, jetzt);
+      if (minuten) return { minuten, bremse: alt };
+      const bremse = { ...nachFehlversuch(alt, jetzt), am: jetzt };
+      await this.ctx.storage.put(schluessel, bremse);
+      return { minuten: 0, bremse };
+    });
+    this.bremsKette = lauf.catch(() => undefined);
+    return lauf;
+  }
+
+  /**
+   * Aktion `vorgang-bestaetigen` `{ vorgang, seitenToken, antwort: 'ja'|'nein' }` → `{ zustand }` (Spec 4.1, Schritt 4).
+   * Falsches oder fehlendes Seitentoken → 403 `vorgang-unbekannt` (B10); der Vorgang bleibt dann unverändert.
+   */
+  async vorgangBestaetigen(b, jetzt) {
+    const v = await this.ladeVorgang(b.vorgang, jetzt);
+    if (!v || v.zustand !== 'angemeldet') return fehler('vorgang-unbekannt', 404);
+    if (!(await gleichOhneZeitleck(String(b.seitenToken ?? ''), v.seitenToken))) return fehler('vorgang-unbekannt', 403);
+    if (b.antwort !== 'ja' && b.antwort !== 'nein') return fehler('ungueltig', 400);
+    v.zustand = b.antwort === 'ja' ? 'bestaetigt' : 'abgelehnt';
+    delete v.seitenToken;
+    await this.ctx.storage.put(K.vorgang(v.vorgang), v);
+    return { ok: true, zustand: v.zustand };
+  }
+
+  /**
+   * Aktion `vorgang-abholen` `{ vorgang, abholHash, beweis }` → `{ zustand: 'wartet'|'abgelehnt'|'abgelaufen' }` oder
+   * `{ zustand: 'bestaetigt', konto, geraet }` (Konto ohne Geheimes mit wirksamer Stufe, Gerät ohne Schlüssel; der Worker
+   * baut daraus Stand und Sitzung). Der Beweis muss vom Geräteschlüssel des Vorgangs kommen; ein fremdes Gerät lässt den
+   * Vorgang offen. Nach `bestaetigt`, `abgelehnt` und `abgelaufen` ist der Vorgang weg.
+   */
+  async vorgangAbholen(b, jetzt) {
+    const v = typeof b.vorgang === 'string' && b.vorgang ? await this.ctx.storage.get(K.vorgang(b.vorgang)) : null;
+    if (!v || !(await gleichOhneZeitleck(String(b.abholHash ?? ''), v.abholHash))) return fehler('vorgang-unbekannt', 404);
+    if (!(v.bis > jetzt)) {
+      await this.vorgangWeg(v);
+      return { ok: true, zustand: 'abgelaufen' };
+    }
+    if (!(await pruefeGeraeteBeweis(v.geraet.publicJwk, b.beweis, 'abholen', v.vorgang, jetzt))) return fehler('geraet-unbekannt', 403);
+    if (v.zustand === 'abgelehnt') {
+      await this.vorgangWeg(v);
+      return { ok: true, zustand: 'abgelehnt' };
+    }
+    if (v.zustand !== 'bestaetigt') return { ok: true, zustand: 'wartet' };
+    await this.vorgangWeg(v);
+    const konto = await this.ladeKonto(v.kid);
+    if (!konto) return fehler('geloescht', 403);
+    const g = kontoGueltig(konto, jetzt);
+    if (!g.ok) return fehler(g.grund, 403);
+    const alt = await this.ctx.storage.get(K.geraet(v.geraet.gid));
+    const geraet = {
+      ...v.geraet,
+      jm: alt ? alt.jm === true : false,
+      ersterKontakt: alt ? alt.ersterKontakt : jetzt,
+      letzterKontakt: jetzt,
+      letztesKonto: konto.kid,
+      angemeldetSeit: jetzt,
+    };
+    await this.ctx.storage.put(K.geraet(geraet.gid), geraet);
+    konto.letzteAnmeldung = jetzt;
+    await this.speichereKonto(konto);
+    return { ok: true, zustand: 'bestaetigt', konto: { ...ohneGeheimes(konto), stufe: this.stufeVon(konto) }, geraet: ohneSchluessel(geraet) };
+  }
+
+  /** Aktion `vorgang-abbrechen` `{ vorgang, abholHash }` → `{ ok }` (Launcher bricht ab, Spec 4.1). */
+  async vorgangAbbrechen(b) {
+    const v = typeof b.vorgang === 'string' && b.vorgang ? await this.ctx.storage.get(K.vorgang(b.vorgang)) : null;
+    if (!v || !(await gleichOhneZeitleck(String(b.abholHash ?? ''), v.abholHash))) return fehler('vorgang-unbekannt', 404);
+    await this.vorgangWeg(v);
     return { ok: true };
   }
 
