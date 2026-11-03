@@ -4,7 +4,7 @@
 // ctx.storage; Aktionen gehen wie vom Worker als POST an https://konto.intern/<aktion> (rufeDo). P4–P6 fügen ihre Fälle
 // direkt vor der Marke „Ende der Fälle“ ein und ihre Hilfsfunktionen direkt vor `async function run() {`.
 import { readFileSync } from 'node:fs';
-import { PROTOKOLL_MS } from '../konto-kern.js';
+import { PROTOKOLL_MS, kontoStand } from '../konto-kern.js';
 import { hashePasswort, neuerBestaetigungsCode, sha256B64url, zufall } from '../konto-krypto.js';
 import { abschluss, check, gleich, makeCtx, makeUhr, neuerSpeicher, pruefeFaelle, rufeDo, testGeraet } from './konto-attrappen.mjs';
 
@@ -71,6 +71,28 @@ async function passwortAnmelden(speicher, geraet, angaben, jetzt = T0) {
   if (!p.ok) return { v, passwort: p, abgeholt: null };
   await rufeDo(speicher, 'vorgang-bestaetigen', { jetzt, vorgang: v.vorgang, seitenToken: p.seitenToken, antwort: 'ja' });
   return { v, passwort: p, abgeholt: await abholen(speicher, v, geraet, jetzt) };
+}
+
+/** Ein Externer (Passwort), angemeldet an einem Testgerät; Grundlage der Fälle ab P5. */
+async function angemeldeterExterner(env = {}, o = {}) {
+  const { speicher, ctx } = neuerSpeicher(env);
+  const geraet = await testGeraet(o.geraet ?? {});
+  const konto = await legeExternenAn(speicher, { passwort: 'richtiges-passwort', ...(o.konto ?? {}) });
+  const r = await passwortAnmelden(speicher, geraet, { email: konto.email, passwort: 'richtiges-passwort' }, o.jetzt ?? T0);
+  return { speicher, ctx, geraet, kid: r.abgeholt.konto.kid };
+}
+
+/** Start-Prüfung wie der Worker (P16): kid und gid aus den Claims, frischer Beweis `erneuern` mit Bezug kid. */
+async function erneuern(speicher, geraet, kid, jetzt, mehr = {}) {
+  return rufeDo(speicher, 'sitzung-erneuern', {
+    jetzt,
+    kid,
+    gid: geraet.gid,
+    beweis: await geraet.beweis('erneuern', kid, jetzt),
+    version: '0.18.0',
+    rechnerName: 'Regie-PC 1',
+    ...mehr,
+  });
 }
 
 async function run() {
@@ -968,6 +990,236 @@ async function run() {
           zweit.http === 404 && zweit.code === 'vorgang-unbekannt',
       );
     }
+  }
+
+  // ── P5: Sitzung erneuern liest den aktuellen Stand (Spec 6.1, 6.3, EP2) ──
+  {
+    const { speicher, ctx } = neuerSpeicher({});
+    const geraet = await testGeraet({ name: 'Regie-PC 3', version: '0.18.0' });
+    const { kid, abgeholt } = await googleAnmelden(speicher, geraet, 'maria@jakobsmedien.com', 'Maria Schmidt');
+    const vorher = kontoStand(abgeholt.konto, abgeholt.geraet, T0, undefined);
+    const k = await speicher.ladeKonto(kid);
+    Object.assign(k, { stufe: 'externer', tools: ['qa'], events: ['https://iveo.example|tagung'], bis: T0 + 10 * TAG, zoomBis: T0 + 5 * TAG });
+    await speicher.speichereKonto(k);
+    const g = ctx.daten.get(`geraet:${geraet.gid}`);
+    g.jm = true;
+    await ctx.storage.put(`geraet:${geraet.gid}`, g);
+    const jetzt = T0 + 2 * TAG;
+    const r = await erneuern(speicher, geraet, kid, jetzt, { version: '0.18.1', rechnerName: 'Regie-PC 3\u200b neu' });
+    const nachher = kontoStand(r.konto, r.geraet, jetzt, undefined);
+    const gNeu = ctx.daten.get(`geraet:${geraet.gid}`);
+    check(
+      'P5 6.1: Erneuern liest den aktuellen Stand im DO (Stufe, Werkzeuge, Events, Zugang bis, Zoom-Freigabe, JM-Rechner) und hält Version, Name und letzten Kontakt des Geräts fest',
+      vorher.stufe === 'kollege' && vorher.jm === false && r.ok === true && nachher.stufe === 'externer' && JSON.stringify(nachher.tools) === '["qa"]' &&
+        JSON.stringify(nachher.events) === '["https://iveo.example|tagung"]' && nachher.exp === jetzt + 30 * TAG && nachher.kontoBis === T0 + 10 * TAG && nachher.zoom === true &&
+        nachher.jm === true && nachher.angemeldetSeit === T0 && !('passwort' in r.konto) && !('publicJwk' in r.geraet) &&
+        gNeu.version === '0.18.1' && gNeu.name === 'Regie-PC 3 neu' && gNeu.letzterKontakt === jetzt && gNeu.ersterKontakt === T0,
+    );
+  }
+
+  // ── P5: Klassen gesperrt, gelöscht, abgelaufen, fremdes Gerät beim Erneuern (Spec 6.3, 7) ──
+  {
+    const fremd = await testGeraet();
+    const faelle = [
+      { name: 'aktiv (Gegenstück)', vorbereiten: async () => {}, soll: [200, null] },
+      { name: 'gesperrt', vorbereiten: async (s, kid) => s.speichereKonto({ ...(await s.ladeKonto(kid)), zustand: 'gesperrt' }), soll: [403, 'gesperrt'] },
+      { name: 'gelöscht', vorbereiten: (s, kid) => s.zugangLoeschen(kid, ERSTE, T0), soll: [403, 'geloescht'] },
+      { name: 'abgelaufen (bis = jetzt)', vorbereiten: async (s, kid) => s.speichereKonto({ ...(await s.ladeKonto(kid)), bis: T0 + MIN }), soll: [403, 'zugang-abgelaufen'] },
+      { name: 'Beweis eines anderen Schlüssels', beweis: () => fremd.beweis('erneuern', 'k-ext', T0 + MIN), soll: [403, 'geraet-unbekannt'] },
+      { name: 'unbekannte gid', mehr: { gid: fremd.gid }, soll: [403, 'geraet-unbekannt'] },
+      { name: 'Beweis mit Zweck abholen', beweis: (g) => g.beweis('abholen', 'k-ext', T0 + MIN), soll: [403, 'geraet-unbekannt'] },
+      { name: 'Beweis mit fremder Konto-Kennung', beweis: (g) => g.beweis('erneuern', 'k-anders', T0 + MIN), soll: [403, 'geraet-unbekannt'] },
+      { name: 'Beweis 6 min alt', beweis: (g) => g.beweis('erneuern', 'k-ext', T0 + MIN - 6 * MIN), soll: [403, 'geraet-unbekannt'] },
+      {
+        name: 'Gerät gehört inzwischen einem anderen Konto',
+        vorbereiten: async (s, kid, g) => {
+          await legeExternenAn(s, { kid: 'k-zwei', email: 'zwei@firma.example', passwort: 'richtiges-passwort' });
+          await passwortAnmelden(s, g, { email: 'zwei@firma.example', passwort: 'richtiges-passwort' }, T0);
+        },
+        soll: [403, 'geraet-unbekannt'],
+      },
+    ];
+    await pruefeFaelle('P5 6.3: Erneuern → gesperrt, gelöscht, abgelaufen, fremdes Gerät (je 403 mit Code)', faelle, async (f) => {
+      const { speicher, geraet, kid } = await angemeldeterExterner({});
+      if (f.vorbereiten) await f.vorbereiten(speicher, kid, geraet);
+      const mehr = { ...(f.mehr ?? {}), ...(f.beweis ? { beweis: await f.beweis(geraet) } : {}) };
+      const r = await erneuern(speicher, geraet, kid, T0 + MIN, mehr);
+      return gleich([r.http, r.ok ? null : r.code], f.soll);
+    });
+  }
+
+  // ── P5: Google-Konten erneuern höchstens 90 Tage nach der letzten Anmeldung mit Google (Spec 4: Ausscheiden; OFP8) ──
+  {
+    const { speicher, ctx } = neuerSpeicher({});
+    const geraet = await testGeraet();
+    const { kid } = await googleAnmelden(speicher, geraet, 'maria@jakobsmedien.com', 'Maria Schmidt');
+    const kette = [];
+    for (const tag of [29, 58, 87, 89]) kette.push((await erneuern(speicher, geraet, kid, T0 + tag * TAG)).http);
+    const nach90 = await erneuern(speicher, geraet, kid, T0 + 90 * TAG);
+    const wieder = await googleAnmelden(speicher, geraet, 'maria@jakobsmedien.com', 'Maria Schmidt', T0 + 90 * TAG + MIN);
+    const danach = await erneuern(speicher, geraet, kid, T0 + 100 * TAG);
+    const ext = await angemeldeterExterner({}, { konto: { bis: T0 + 400 * TAG } });
+    const extNach100 = await erneuern(ext.speicher, ext.geraet, ext.kid, T0 + 100 * TAG);
+    check(
+      'P5 4, OFP8: ein Google-Konto erneuert bis 90 Tage nach der letzten Anmeldung mit Google, danach 401 sitzung-abgelaufen; eine neue Anmeldung mit Google gilt wieder; ein E-Mail-Zugang ist nicht betroffen',
+      JSON.stringify(kette) === '[200,200,200,200]' && nach90.http === 401 && nach90.code === 'sitzung-abgelaufen' &&
+        wieder.abgeholt.zustand === 'bestaetigt' && ctx.daten.get(`geraet:${geraet.gid}`).angemeldetSeit === T0 + 90 * TAG + MIN &&
+        danach.http === 200 && extNach100.http === 200,
+    );
+  }
+
+  // ── P5: ich (Spec 6.3, EP23) und abmelden (EP26) ──
+  {
+    const faelle = [
+      { name: 'aktiv', vorbereiten: async () => {}, soll: [true, null] },
+      { name: 'gesperrt', vorbereiten: async (s, kid) => s.speichereKonto({ ...(await s.ladeKonto(kid)), zustand: 'gesperrt' }), soll: [false, 'gesperrt'] },
+      { name: 'abgelaufen', vorbereiten: async (s, kid) => s.speichereKonto({ ...(await s.ladeKonto(kid)), bis: T0 + MIN }), soll: [false, 'zugang-abgelaufen'] },
+      { name: 'gelöscht', vorbereiten: (s, kid) => s.zugangLoeschen(kid, ERSTE, T0), soll: [false, 'geloescht'] },
+    ];
+    await pruefeFaelle('P5 6.3: ich meldet den aktuellen Stand (aktiv, gesperrt, abgelaufen, gelöscht)', faelle, async (f) => {
+      const { speicher, kid } = await angemeldeterExterner({});
+      await f.vorbereiten(speicher, kid);
+      const r = await rufeDo(speicher, 'ich', { jetzt: T0 + MIN, kid });
+      return gleich([r.kontoAktiv, r.grund, r.zoomAnfrage, r.adminOffen], [...f.soll, null, 0]);
+    });
+    const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
+    const ab = await rufeDo(speicher, 'abmelden', { jetzt: T0 + TAG, kid, gid: geraet.gid });
+    const fremd = await rufeDo(speicher, 'abmelden', { jetzt: T0 + 2 * TAG, kid: 'k-anders', gid: geraet.gid });
+    const g = ctx.daten.get(`geraet:${geraet.gid}`);
+    check(
+      'P5 EP26: abmelden setzt nur letzterKontakt des Geräts (nicht für ein fremdes Konto); Konto und Gerät bleiben',
+      ab.ok === true && fremd.ok === true && g.letzterKontakt === T0 + TAG && g.letztesKonto === kid && ctx.daten.has(`konto:${kid}`),
+    );
+  }
+
+  // ── P5: Zoom-Anfrage (Spec 8, Schritt 1) ──
+  {
+    const { speicher, ctx, geraet, kid } = await angemeldeterExterner({}, { geraet: { name: 'Laptop Tom', plattform: 'mac', arch: 'arm64' } });
+    const anfrage = (jetzt, o = {}) => rufeDo(speicher, 'zoom-anfragen', { jetzt, kid, gid: geraet.gid, zweck: 'Tagung Berlin', von: T0 + TAG, bis: T0 + 3 * TAG, ...o });
+    const erste = await anfrage(T0);
+    const zweite = await anfrage(T0 + MIN);
+    const gespeichert = [...(await ctx.storage.list({ prefix: 'anfrage:' })).values()];
+    const a = gespeichert[0];
+    const ich = await rufeDo(speicher, 'ich', { jetzt: T0 + MIN, kid });
+    check(
+      'P5 8: Zoom-Anfrage eines Externen: offen mit Zweck und Zeitraum, Rechnername, JM-Markierung und Plattform des Geräts abgelegt; ich zeigt sie; zweite offene → 409 konflikt',
+      erste.ok === true && JSON.stringify(erste.anfrage) === JSON.stringify({ id: a.id, zustand: 'offen', zweck: 'Tagung Berlin', von: T0 + TAG, bis: T0 + 3 * TAG, am: T0 }) &&
+        gespeichert.length === 1 && a.kid === kid && a.gid === geraet.gid && a.rechnerName === 'Laptop Tom' && a.jm === false && a.plattform === 'mac' &&
+        JSON.stringify(ich.zoomAnfrage) === JSON.stringify(erste.anfrage) && zweite.http === 409 && zweite.code === 'konflikt',
+    );
+    const faelle = [
+      { name: 'Zweck leer', o: { zweck: '   ' } },
+      { name: 'bis = von', o: { bis: T0 + TAG } },
+      { name: 'bis vor von', o: { bis: T0 + TAG - 1 } },
+      { name: 'bis vorbei', o: { von: T0 - 2 * TAG, bis: T0 - TAG } },
+      { name: 'von fehlt', o: { von: undefined } },
+      { name: 'bis als Text', o: { bis: String(T0 + 3 * TAG) } },
+    ];
+    await pruefeFaelle('P5 8: ungültige Zoom-Anfragen → 400 ungueltig', faelle, async (f) => {
+      const { speicher: s2, geraet: g2, kid: k2 } = await angemeldeterExterner({});
+      const r = await rufeDo(s2, 'zoom-anfragen', { jetzt: T0, kid: k2, gid: g2.gid, zweck: 'Tagung Berlin', von: T0 + TAG, bis: T0 + 3 * TAG, ...f.o });
+      return gleich([r.http, r.code], [400, 'ungueltig']);
+    });
+  }
+  {
+    const { speicher } = neuerSpeicher({ ERSTER_ADMIN: ERSTE });
+    const g1 = await testGeraet();
+    const g2 = await testGeraet();
+    const kollege = await googleAnmelden(speicher, g1, 'maria@jakobsmedien.com', 'Maria Schmidt');
+    const admin = await googleAnmelden(speicher, g2, ERSTE, 'Clara Chefin');
+    const anfrage = (kid, gid) => rufeDo(speicher, 'zoom-anfragen', { jetzt: T0, kid, gid, zweck: 'Probe', von: T0 + TAG, bis: T0 + 2 * TAG });
+    const rk = await anfrage(kollege.kid, g1.gid);
+    const ra = await anfrage(admin.kid, g2.gid);
+    const k = await speicher.ladeKonto(kollege.kid);
+    await speicher.speichereKonto({ ...k, stufe: 'externer', bis: T0 + 10 * TAG });
+    const herabgestuft = await anfrage(kollege.kid, g1.gid);
+    const ohneGeraet = await rufeDo(speicher, 'zoom-anfragen', { jetzt: T0, kid: kollege.kid, gid: 'gibts-nicht', zweck: 'Probe', von: T0 + TAG, bis: T0 + 2 * TAG });
+    check(
+      'P5 8: Kollege und Admin → 400 nicht-noetig (S13); ein auf Externer herabgestuftes Google-Konto darf anfragen (aktuelle Stufe im DO); unbekanntes Gerät → 403',
+      rk.http === 400 && rk.code === 'nicht-noetig' && ra.code === 'nicht-noetig' && herabgestuft.ok === true && ohneGeraet.http === 403 &&
+        ohneGeraet.code === 'geraet-unbekannt',
+    );
+  }
+
+  // ── P5: iveo-fuer (Spec 6.4, EP13) ──
+  {
+    const { speicher, ctx } = neuerSpeicher({});
+    for (const [slug, name] of [['tagung', 'Tagung'], ['messe', 'Messe'], ['gala', 'Gala']]) {
+      const key = `https://iveo.example|${slug}`;
+      await ctx.storage.put(`iveo:${key}`, { key, basis: 'https://iveo.example', slug, name, iv: `iv-${slug}`, ct: `ct-${slug}`, am: T0, von: ERSTE });
+    }
+    const T = 'https://iveo.example|tagung';
+    const G = 'https://iveo.example|gala';
+    const faelle = [
+      { name: 'Admin', stand: { stufe: 'admin', tools: [], events: [] }, soll: 'gala,messe,tagung' },
+      { name: 'Kollege', stand: { stufe: 'kollege', tools: [], events: [] }, soll: 'gala,messe,tagung' },
+      { name: 'Externer mit iveo und zwei Events', stand: { stufe: 'externer', tools: ['iveo'], events: [T, G] }, soll: 'gala,tagung' },
+      { name: 'Externer mit iveo, Event nicht hinterlegt', stand: { stufe: 'externer', tools: ['iveo'], events: ['https://iveo.example|fehlt'] }, soll: '' },
+      { name: 'Externer ohne Werkzeug iveo', stand: { stufe: 'externer', tools: ['qa', 'connect-raum'], events: [T, G] }, soll: '' },
+      { name: 'Externer, Event anderer Basis', stand: { stufe: 'externer', tools: ['iveo'], events: ['https://anders.example|tagung'] }, soll: '' },
+      { name: 'unbekannte Stufe', stand: { stufe: 'chef', tools: ['iveo'], events: [T] }, soll: '' },
+      { name: 'ohne Stand', stand: {}, soll: '' },
+    ];
+    await pruefeFaelle('P5 6.4: iveo-fuer nach Stufe, Werkzeug und Events aus den Claims', faelle, async (f) => {
+      const r = await rufeDo(speicher, 'iveo-fuer', { jetzt: T0, ...f.stand });
+      return gleich(r.events.map((e) => e.slug).join(','), f.soll);
+    });
+    const r = await rufeDo(speicher, 'iveo-fuer', { jetzt: T0, stufe: 'kollege', tools: [], events: [] });
+    check(
+      'P5 6.4: iveo-fuer liefert je Event key, basis, slug, name, iv und ct (verschlüsselt; entschlüsselt wird im Worker)',
+      JSON.stringify(Object.keys(r.events[0])) === '["key","basis","slug","name","iv","ct"]' && r.events[0].iv === 'iv-gala' && r.events[0].ct === 'ct-gala',
+    );
+  }
+
+  // ── P5: Zählung alter Schlüssel (OF2, OFP2) ──
+  {
+    const { speicher, ctx } = neuerSpeicher({});
+    const z = (jetzt, gruppe, plattform, arch) => rufeDo(speicher, 'altkey-zaehlen', { jetzt, gruppe, plattform, arch, ip: '203.0.113.7' });
+    await z(T0, 'katalog', 'win', 'x64');
+    await z(T0 + MIN, 'katalog', 'win', 'x64');
+    await z(T0 + 2 * MIN, 'qa', 'mac', 'arm64');
+    await z(T0 + TAG, 'katalog', 'win', 'x64');
+    await z(T0 + 3 * MIN, 'katalog', 'linux', 'ia32');
+    const connect = await z(T0, 'connect', 'win', 'x64');
+    const zeilen = [...(await ctx.storage.list({ prefix: 'altkey:' })).entries()];
+    const soll = [
+      ['altkey:2026-10-21:katalog:unbekannt-unbekannt', 1, T0 + 3 * MIN],
+      ['altkey:2026-10-21:katalog:win-x64', 2, T0 + MIN],
+      ['altkey:2026-10-21:qa:mac-arm64', 1, T0 + 2 * MIN],
+      ['altkey:2026-10-22:katalog:win-x64', 1, T0 + TAG],
+    ];
+    check(
+      'P5 OF2: Alt-Key-Zählung je Tag (UTC), Gruppe und Plattform-Architektur mit letzter Anfrage; Gruppe connect → 400 (gilt in Teil 1 unbefristet)',
+      JSON.stringify(zeilen.map(([k, v]) => [k, v.anzahl, v.zuletzt])) === JSON.stringify(soll) && connect.http === 400 && connect.code === 'ungueltig',
+    );
+    check(
+      'P5 OFP2: die Zählung speichert keine IP und keine Kennung eines Rechners (nur tag, gruppe, plattform, anzahl, zuletzt)',
+      !JSON.stringify(zeilen).includes('203.0.113.7') && zeilen.every(([, v]) => Object.keys(v).join(',') === 'tag,gruppe,plattform,anzahl,zuletzt'),
+    );
+  }
+
+  // ── P5: adminOffen nur für aktuelle Admins (Spec 7, EP15) ──
+  {
+    const { speicher } = neuerSpeicher({ ERSTER_ADMIN: ERSTE });
+    const admin = await googleAnmelden(speicher, await testGeraet(), ERSTE, 'Clara Chefin');
+    const kollege = await googleAnmelden(speicher, await testGeraet(), 'maria@jakobsmedien.com', 'Maria Schmidt');
+    const zweiter = await googleAnmelden(speicher, await testGeraet(), 'jonas@jakobsmedien.com', 'Jonas Weber');
+    const z = await speicher.ladeKonto(zweiter.kid);
+    await speicher.speichereKonto({ ...z, stufe: 'admin' });
+    await legeExternenAn(speicher, { passwort: 'richtiges-passwort' });
+    const extGeraet = await testGeraet();
+    await passwortAnmelden(speicher, extGeraet, { email: 'technik@firma.example', passwort: 'richtiges-passwort' });
+    await rufeDo(speicher, 'zoom-anfragen', { jetzt: T0, kid: 'k-ext', gid: extGeraet.gid, zweck: 'Probe', von: T0 + TAG, bis: T0 + 2 * TAG });
+    const offen = async (kid) => (await rufeDo(speicher, 'ich', { jetzt: T0 + MIN, kid })).adminOffen;
+    const vorher = [await offen(admin.kid), await offen(zweiter.kid), await offen(kollege.kid), await offen('k-ext')];
+    await speicher.speichereKonto({ ...(await speicher.ladeKonto(zweiter.kid)), stufe: 'kollege' });
+    const herabgestuft = await offen(zweiter.kid);
+    await speicher.speichereKonto({ ...(await speicher.ladeKonto(zweiter.kid)), stufe: 'admin', zustand: 'gesperrt' });
+    const gesperrt = await offen(zweiter.kid);
+    check(
+      'P5 7: adminOffen zählt offene Anfragen nur für aktuelle, aktive Admins (erster Admin, ernannter Admin ja; Kollege, Externer, herabgestufter und gesperrter Admin 0)',
+      JSON.stringify(vorher) === '[1,1,0,0]' && herabgestuft === 0 && gesperrt === 0,
+    );
   }
 
   // ── Ende der Fälle ──

@@ -21,7 +21,17 @@
 // Uhr: `jetzt` kommt mit jeder Aktion vom Worker; fehlt es, und im Alarm, gilt `env.KONTO_UHR()` (nur Tests, EP21), sonst
 // `Date.now()`. Schlüssel im Speicher (EP1): konto:<kid>, email:<email>, geraet:<gid>, vorgang:<vid>, state:<state>,
 // iveo:<basis|slug>, anfrage:<aid>, log:<ms 13-stellig>:<zufall>, fehl:<kid>, altkey:<tag>:<gruppe>:<plattform>-<arch>.
-import { PROTOKOLL_MS, VORGANG_MS, bremseAktiv, istDomainKonto, istErsterAdmin, kontoGueltig, nachFehlversuch } from './konto-kern.js';
+import {
+  PROTOKOLL_MS,
+  VORGANG_MS,
+  bremseAktiv,
+  darf,
+  googleNeuFaellig,
+  istDomainKonto,
+  istErsterAdmin,
+  kontoGueltig,
+  nachFehlversuch,
+} from './konto-kern.js';
 import {
   CODE_ALPHABET,
   geraetIdAus,
@@ -69,6 +79,12 @@ const AKTIONEN = {
   'vorgang-bestaetigen': 'vorgangBestaetigen',
   'vorgang-abholen': 'vorgangAbholen',
   'vorgang-abbrechen': 'vorgangAbbrechen',
+  'sitzung-erneuern': 'sitzungErneuern',
+  abmelden: 'abmelden',
+  ich: 'ich',
+  'zoom-anfragen': 'zoomAnfragen',
+  'iveo-fuer': 'iveoFuer',
+  'altkey-zaehlen': 'altkeyZaehlen',
   // ── Ende der Aktionen ──
 };
 
@@ -124,6 +140,21 @@ function rechnerName(roh) {
   if (typeof roh !== 'string') return '';
   const t = roh.normalize('NFC').replace(UNSICHTBAR, ' ').replace(/\s+/g, ' ').trim();
   return [...t].slice(0, 40).join('').trim();
+}
+
+/**
+ * Stand einer Zoom-Anfrage für den Launcher (ZoomAnfrageStand, Plan 10.5): bei `freigegeben` das gewährte „bis“ (Z9b),
+ * `am` = Zeitpunkt des letzten Wechsels (offen seit, abgelehnt am; Z9a, Z9c).
+ */
+function anfrageStand(a) {
+  return {
+    id: a.id,
+    zustand: a.zustand,
+    zweck: a.zweck,
+    von: a.von,
+    bis: a.zustand === 'freigegeben' && typeof a.freigegebenBis === 'number' ? a.freigegebenBis : a.bis,
+    am: typeof a.entschiedenAm === 'number' ? a.entschiedenAm : a.am,
+  };
 }
 
 export class KontoSpeicher {
@@ -651,6 +682,136 @@ export class KontoSpeicher {
     const v = typeof b.vorgang === 'string' && b.vorgang ? await this.ctx.storage.get(K.vorgang(b.vorgang)) : null;
     if (!v || !(await gleichOhneZeitleck(String(b.abholHash ?? ''), v.abholHash))) return fehler('vorgang-unbekannt', 404);
     await this.vorgangWeg(v);
+    return { ok: true };
+  }
+
+  // ── Sitzung, Lage, Zoom-Anfrage, iveo, alter Schlüssel (Spec 6.1, 6.3, 6.4, 7, 8, OF2) ──
+
+  /**
+   * Aktion `sitzung-erneuern` `{ kid, gid, beweis, version, rechnerName }` → `{ konto, geraet }` (Spec 6.1, EP2): jede
+   * Start-Prüfung des Launchers. Liest den aktuellen Stand (Stufe, Tools, Events, bis, Zoom-Freigabe, JM-Rechner); der Worker
+   * stellt daraus die neue Sitzung aus. Codes (je 403): `geloescht`, `gesperrt`, `zugang-abgelaufen` (S6–S8), `geraet-unbekannt`
+   * (S9: Gerät unbekannt, Beweis falsch oder das Gerät gehört inzwischen einem anderen Konto, Spec 6.1 ein Konto je Rechner);
+   * 401 `sitzung-abgelaufen` (S2), wenn ein Google-Konto sich vor 90 Tagen oder länger zuletzt mit Google angemeldet hat (Spec 4:
+   * wer ausscheidet und sein Google-Konto verliert, kommt so spätestens dann nicht mehr herein; OFP8).
+   */
+  async sitzungErneuern(b, jetzt) {
+    const konto = await this.ladeKonto(b.kid);
+    if (!konto) return fehler('geloescht', 403);
+    const g = kontoGueltig(konto, jetzt);
+    if (!g.ok) return fehler(g.grund, 403);
+    const geraet = typeof b.gid === 'string' && b.gid ? await this.ctx.storage.get(K.geraet(b.gid)) : null;
+    if (!geraet || geraet.letztesKonto !== konto.kid) return fehler('geraet-unbekannt', 403);
+    if (!(await pruefeGeraeteBeweis(geraet.publicJwk, b.beweis, 'erneuern', konto.kid, jetzt))) return fehler('geraet-unbekannt', 403);
+    if (googleNeuFaellig(konto.art, geraet.angemeldetSeit, jetzt)) return fehler('sitzung-abgelaufen', 401);
+    geraet.letzterKontakt = jetzt;
+    const version = text(b.version, 32);
+    if (version) geraet.version = version;
+    const name = rechnerName(b.rechnerName);
+    if (name) geraet.name = name;
+    await this.ctx.storage.put(K.geraet(geraet.gid), geraet);
+    return { ok: true, konto: { ...ohneGeheimes(konto), stufe: this.stufeVon(konto) }, geraet: ohneSchluessel(geraet) };
+  }
+
+  /** Aktion `abmelden` `{ kid, gid }` → `{ ok }` (EP26): nur `letzterKontakt` des Geräts; Konto und Gerät bleiben. */
+  async abmelden(b, jetzt) {
+    const geraet = typeof b.gid === 'string' && b.gid ? await this.ctx.storage.get(K.geraet(b.gid)) : null;
+    if (geraet && geraet.letztesKonto === b.kid) {
+      geraet.letzterKontakt = jetzt;
+      await this.ctx.storage.put(K.geraet(geraet.gid), geraet);
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Aktion `ich` `{ kid }` → `{ kontoAktiv, grund, zoomAnfrage, adminOffen }` (Spec 4.2, 6.3, EP15, EP23): der aktuelle Stand
+   * im DO, nicht der festgehaltene. `grund` ist `gesperrt`, `geloescht` oder `zugang-abgelaufen`; `zoomAnfrage` die jüngste
+   * Anfrage des Kontos; `adminOffen` zählt offene Anfragen nur für aktuelle, aktive Admins (sonst 0).
+   */
+  async ich(b, jetzt) {
+    const konto = await this.ladeKonto(b.kid);
+    const g = konto ? kontoGueltig(konto, jetzt) : { ok: false, grund: 'geloescht' };
+    let juengste = null;
+    let offen = 0;
+    for (const [, a] of await this.ctx.storage.list({ prefix: 'anfrage:' })) {
+      if (a.zustand === 'offen') offen++;
+      if (konto && a.kid === konto.kid && (!juengste || a.am > juengste.am)) juengste = a;
+    }
+    return {
+      ok: true,
+      kontoAktiv: g.ok,
+      grund: g.ok ? null : g.grund,
+      zoomAnfrage: juengste ? anfrageStand(juengste) : null,
+      adminOffen: g.ok && this.stufeVon(konto) === 'admin' ? offen : 0,
+    };
+  }
+
+  /**
+   * Aktion `zoom-anfragen` `{ kid, gid, zweck, von, bis }` → `{ anfrage }` (Spec 8, Schritt 1): nur Externe nach der aktuellen
+   * Stufe im DO (Admin und Kollege → 400 nicht-noetig, S13), höchstens eine offene Anfrage je Konto (409 konflikt, S12c),
+   * Zweck 1–200 Zeichen, `von < bis`, `bis` in der Zukunft (sonst 400 ungueltig). Rechnername, JM-Markierung und Plattform des
+   * Geräts werden mit abgelegt (Reiter Anfragen, M40/M41).
+   */
+  async zoomAnfragen(b, jetzt) {
+    const konto = await this.ladeKonto(b.kid);
+    if (!konto) return fehler('geloescht', 403);
+    const g = kontoGueltig(konto, jetzt);
+    if (!g.ok) return fehler(g.grund, 403);
+    if (this.stufeVon(konto) !== 'externer') return fehler('nicht-noetig', 400);
+    const zweck = text(b.zweck, 200);
+    if (!zweck || !Number.isFinite(b.von) || !Number.isFinite(b.bis) || !(b.bis > b.von) || !(b.bis > jetzt)) return fehler('ungueltig', 400);
+    const geraet = typeof b.gid === 'string' && b.gid ? await this.ctx.storage.get(K.geraet(b.gid)) : null;
+    if (!geraet) return fehler('geraet-unbekannt', 403);
+    for (const [, a] of await this.ctx.storage.list({ prefix: 'anfrage:' })) {
+      if (a.kid === konto.kid && a.zustand === 'offen') return fehler('konflikt', 409);
+    }
+    const anfrage = {
+      id: zufall(9),
+      kid: konto.kid,
+      gid: geraet.gid,
+      rechnerName: geraet.name,
+      jm: geraet.jm === true,
+      plattform: geraet.plattform,
+      zweck,
+      von: b.von,
+      bis: b.bis,
+      zustand: 'offen',
+      am: jetzt,
+      entschiedenAm: null,
+      entschiedenVon: null,
+      freigegebenBis: null,
+    };
+    await this.ctx.storage.put(K.anfrage(anfrage.id), anfrage);
+    return { ok: true, anfrage: anfrageStand(anfrage) };
+  }
+
+  /**
+   * Aktion `iveo-fuer` `{ stufe, tools, events }` → `{ events: [{ key, basis, slug, name, iv, ct }] }` (Spec 6.4, EP13): der
+   * Stand kommt aus den Claims der Sitzung (beim Start festgehalten, 6.1). Ausgewählt wird mit `darf(…, 'iveo')` aus
+   * konto-kern.js: Admin und Kollege alle hinterlegten Events, Externe nur mit Werkzeug `iveo` und nur die ausgewählten. Der
+   * Worker entschlüsselt (P16).
+   */
+  async iveoFuer(b, jetzt) {
+    const stand = { stufe: b.stufe, tools: b.tools, events: b.events, exp: jetzt + 1 };
+    const events = [];
+    for (const [, e] of await this.ctx.storage.list({ prefix: 'iveo:' })) {
+      if (darf(stand, 'iveo', { event: e.key, jetzt })) events.push({ key: e.key, basis: e.basis, slug: e.slug, name: e.name, iv: e.iv, ct: e.ct });
+    }
+    return { ok: true, events };
+  }
+
+  /**
+   * Aktion `altkey-zaehlen` `{ gruppe, plattform, arch }` → `{ ok }` (OF2, OFP2): zählt Anfragen mit dem alten PROXY_KEY je Tag
+   * (UTC), Gruppe (`katalog`, `qa`) und `‹plattform›-‹arch›` (`win`/`mac` und `x64`/`arm64`, sonst `unbekannt`); keine IP,
+   * keine Kennung des Rechners.
+   */
+  async altkeyZaehlen(b, jetzt) {
+    if (b.gruppe !== 'katalog' && b.gruppe !== 'qa') return fehler('ungueltig', 400);
+    const plattform = `${b.plattform === 'win' || b.plattform === 'mac' ? b.plattform : 'unbekannt'}-${b.arch === 'x64' || b.arch === 'arm64' ? b.arch : 'unbekannt'}`;
+    const tag = new Date(jetzt).toISOString().slice(0, 10);
+    const key = `altkey:${tag}:${b.gruppe}:${plattform}`;
+    const alt = await this.ctx.storage.get(key);
+    await this.ctx.storage.put(key, { tag, gruppe: b.gruppe, plattform, anzahl: (alt ? alt.anzahl : 0) + 1, zuletzt: jetzt });
     return { ok: true };
   }
 
