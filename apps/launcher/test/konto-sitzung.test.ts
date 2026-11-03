@@ -510,6 +510,147 @@ const angemeldet = async (antworten: Antwort[] = [{ ok: NEU }], o: Parameters<ty
     && jung.t.ansicht().grund === 'dreissig-tage' && passwort.t.ansicht().grund === 'dreissig-tage' && GOOGLE_NEU_MS === GOOGLE_NEU_MS_WORKER);
 }
 
+// --- P10 Review (AR34a): Speichern ist Nebenwirkung — wirft die Hülle, stehen Zustand und Wecker trotzdem ------------------
+{
+  let unbehandelt = 0;
+  const merke = (): void => { unbehandelt++; };
+  process.on('unhandledRejection', merke);
+  const werfend = (u: ReturnType<typeof umgebung>): void => {
+    u.umg.speicher.speichere = () => { throw new Error('Platte voll'); };
+    u.umg.speicher.merkeEntzug = () => { throw new Error('Platte voll'); };
+  };
+  const text = (u: ReturnType<typeof umgebung>): string => {
+    const a = u.t.ansicht();
+    return `${a.zustand} ${a.grund ?? '-'} ${u.t.token() ?? '-'} Wecker ${u.wecker.filter((w) => w.aktiv).length} Hinweis ${a.hinweise.join('+') || '-'}`;
+  };
+  const start = async (gesp: GespeicherteSitzung | 'unlesbar', antwort: Antwort): Promise<string> => {
+    const u = umgebung({ gespeichert: gesp, antworten: [antwort] });
+    werfend(u);
+    u.t.start();
+    await ruhe();
+    return text(u);
+  };
+  const KURZ_ALT: GespeicherteSitzung = { token: 'jm1.test.alt', stand: stand({ exp: T0 - 1 }) };
+  const faelle: Array<[string, string, string]> = [
+    ['Start, Prüfung ok', await start(ALT, { ok: NEU }), 'angemeldet - jm1.test.neu Wecker 1 Hinweis -'],
+    ['Start, Entzug (merkeEntzug und speichere werfen)', await start(ALT, { code: 'gesperrt' }), 'entzogen gesperrt - Wecker 0 Hinweis -'],
+    ['Start, unlesbar', await start('unlesbar', { code: 'netz' }), 'nicht-angemeldet - - Wecker 0 Hinweis sitzung-unlesbar'],
+    ['Start, abgelaufen', await start(KURZ_ALT, { code: 'netz' }), 'abgelaufen dreissig-tage - Wecker 0 Hinweis -'],
+    ['Start, nicht-angemeldet vom Server', await start(ALT, { code: 'nicht-angemeldet' }), 'nicht-angemeldet - - Wecker 0 Hinweis sitzung-unlesbar'],
+  ];
+  const bedarf = umgebung({ gespeichert: ALT, antworten: [{ ok: NEU }, { ok: { token: 'jm1.test.neu2', stand: stand({ iat: NEU.stand.exp - 30_000, exp: NEU.stand.exp + 30 * TAG }) } }] });
+  bedarf.t.start();
+  await ruhe();
+  werfend(bedarf);
+  bedarf.zeit = NEU.stand.exp - 30_000;
+  const wert = await bedarf.t.sitzungFuerBedarf();
+  await ruhe();
+  faelle.push(['Bedarf, Erneuerung ok', `${wert} ${text(bedarf)}`, 'jm1.test.neu2 angemeldet - jm1.test.neu2 Wecker 1 Hinweis -']);
+  const lageU = await angemeldet([{ ok: NEU }], { ich: [{ kontoAktiv: false, grund: 'gesperrt', zoomAnfrage: null, adminOffen: 0 }] });
+  werfend(lageU);
+  await lageU.t.lage();
+  faelle.push(['Lage entzieht', text(lageU), 'entzogen-laeuft gesperrt jm1.test.neu Wecker 1 Hinweis -']);
+  const anm = umgebung();
+  werfend(anm);
+  anm.t.start();
+  anm.t.angemeldet(NEU);
+  faelle.push(['angemeldet()', `${text(anm)} nachAnmeldung ${anm.nachAnmeldung.length}`, 'angemeldet - jm1.test.neu Wecker 1 Hinweis - nachAnmeldung 1']);
+  await ruhe();
+  process.off('unhandledRejection', merke);
+  const r = pruefeFaelle('P10 AR34a: wirft der Speicher (Platte voll), stehen Zustand, Token und Wecker richtig und es gibt keine unbehandelte Ablehnung',
+    faelle, ([name, ist, soll]) => (ist === soll ? null : `${name}: ist ${ist}, soll ${soll}`));
+  ck(r.name, r.ok && unbehandelt === 0);
+}
+
+// --- P10 Review (AR34b): eine späte Antwort überschreibt keinen Entzug ----------------------------------------------------
+{
+  const u = await angemeldet([{ code: 'netz' }, { haengt: true }], { ich: [{ kontoAktiv: false, grund: 'gesperrt', zoomAnfrage: null, adminOffen: 0 }] });
+  await feuere(u); // die nachgeholte Prüfung hängt
+  await u.t.lage(); // Entzug
+  const vorher = u.t.ansicht().zustand;
+  u.offen[0]?.aufloesen({ code: 'netz' });
+  await ruhe();
+  const a = u.t.ansicht();
+  const spaetOk = await angemeldet([{ code: 'netz' }, { haengt: true }], { ich: [{ kontoAktiv: false, grund: 'gesperrt', zoomAnfrage: null, adminOffen: 0 }] });
+  await feuere(spaetOk);
+  await spaetOk.t.lage();
+  spaetOk.offen[0]?.aufloesen({ ok: NEU });
+  await ruhe();
+  ck('P10 Review: späte Antwort (netz bzw. ok) nach dem Entzug durch lage() ändert nichts — entzogen-laeuft bleibt, Platte leer',
+    vorher === 'entzogen-laeuft' && a.zustand === 'entzogen-laeuft' && a.grund === 'gesperrt' && u.wecker.filter((w) => w.aktiv).length === 1
+    && spaetOk.t.ansicht().zustand === 'entzogen-laeuft' && spaetOk.gespeichert === null && spaetOk.t.token() === 'jm1.test.alt');
+}
+
+// --- P10 Review (AR30): Fristen der gespeicherten Sitzung müssen endliche Zahlen sein --------------------------------------
+{
+  const ungueltig: Array<[string, GespeicherteSitzung]> = [
+    ['exp NaN', { token: 'jm1.test.x', stand: stand({ exp: NaN }) }],
+    ['exp Infinity', { token: 'jm1.test.x', stand: stand({ exp: Infinity }) }],
+    ['exp fehlt', { token: 'jm1.test.x', stand: stand({ exp: undefined as unknown as number }) }],
+    ['kontoBis fehlt', { token: 'jm1.test.x', stand: stand({ kontoBis: undefined as unknown as null }) }],
+    ['kontoBis "x"', { token: 'jm1.test.x', stand: stand({ kontoBis: 'x' as unknown as number }) }],
+    ['kontoBis NaN', { token: 'jm1.test.x', stand: stand({ kontoBis: NaN }) }],
+  ];
+  const gut: Array<[string, GespeicherteSitzung]> = [
+    ['kontoBis null', ALT],
+    ['kontoBis Zahl', { token: 'jm1.test.alt', stand: stand({ stufe: 'externer', kontoBis: T0 + 10 * TAG }) }],
+  ];
+  const faelle: Array<[string, string]> = [];
+  for (const [name, g] of [...ungueltig, ...gut]) {
+    const u = umgebung({ gespeichert: g, antworten: [{ code: 'server' }, { code: 'server' }] });
+    u.t.start();
+    await ruhe();
+    const a = u.t.ansicht();
+    const platte = u.gespeichert === null ? 'leer' : 'da';
+    faelle.push([name, `${a.zustand} ${a.hinweise.join('+') || '-'} ${u.t.token() ?? '-'} Platte ${platte} Anfragen ${u.erneuern.length} Wecker ${u.wecker.filter((w) => w.aktiv).map((w) => w.ms).join('+') || '-'}`]);
+  }
+  const unlesbar = 'nicht-angemeldet sitzung-unlesbar - Platte leer Anfragen 0 Wecker -';
+  const r = pruefeFaelle('P10 AR30: exp NaN, Infinity oder fehlend und kontoBis fehlend, Text oder NaN → unlesbar (wie R3), keine Anfrage, kein Wecker; gültige Fristen starten normal',
+    faelle, ([name, ist]) => {
+      const schlecht = ungueltig.some(([n]) => n === name);
+      return (schlecht ? ist === unlesbar : ist.startsWith('server-nicht-erreichbar - jm1.test.')) ? null : `${name}: ist ${ist}`;
+    });
+  ck(r.name, r.ok);
+}
+
+// --- P10 Review: lage() nach exp (Rechner schlief, der Wecker kam nicht) ------------------------------------------------
+{
+  const entzug = { kontoAktiv: false, grund: 'gesperrt' as const, zoomAnfrage: null, adminOffen: 0 };
+  const a = await angemeldet([{ ok: NEU }], { ich: [entzug] });
+  await a.t.lage();
+  a.zeit = NEU.stand.exp + 3600_000;
+  const ichVorher = a.ichAufrufe;
+  await a.t.lage();
+  const b = await angemeldet([{ ok: NEU }]);
+  b.zeit = NEU.stand.exp + 3600_000;
+  await b.t.lage();
+  ck('P10 Review: lage() nach exp ohne Wecker beendet die Sitzung ohne Anfrage (entzogen-laeuft → entzogen, angemeldet → abgelaufen), kein Token mehr',
+    a.t.ansicht().zustand === 'entzogen' && a.t.ansicht().grund === 'gesperrt' && a.t.token() === null && a.ichAufrufe === ichVorher
+    && b.t.ansicht().zustand === 'abgelaufen' && b.t.ansicht().grund === 'dreissig-tage' && b.t.token() === null && b.ichAufrufe === 0);
+}
+
+// --- P10 Review (G4): kein Token in irgendeiner Meldung ---------------------------------------------------------------------
+{
+  const codes = ['ok', 'netz', 'server', 'uhr', 'nicht-eingerichtet', 'gesperrt', 'sitzung-abgelaufen', 'nicht-angemeldet'] as const;
+  let meldungen = 0;
+  let mitToken = 0;
+  for (const gesp of [ALT, 'unlesbar', null] as const) {
+    for (const c of codes) {
+      const u = umgebung({ gespeichert: gesp, antworten: [c === 'ok' ? { ok: NEU } : { code: c }], ich: [{ kontoAktiv: true, grund: null, zoomAnfrage: null, adminOffen: 0 }] });
+      u.t.start();
+      await ruhe();
+      await u.t.lage();
+      u.t.merkeAusgabe({ appId: 'jm-qa', zweck: 'qa-relay', ziel: 'evt-1', bis: T0 + TAG, am: T0 });
+      await u.t.sitzungFuerBedarf();
+      u.t.angemeldet(NEU);
+      await u.t.abmelden();
+      meldungen += u.gemeldet.length;
+      mitToken += u.gemeldet.filter((a) => JSON.stringify(a).includes('jm1.')).length + (JSON.stringify(u.t.ansicht()).includes('jm1.') ? 1 : 0);
+    }
+  }
+  ck(`P10 G4: kein Token in den ${meldungen} Meldungen an melde und nie in der Ansicht (Start-Kreuzprodukt, Lage, Bedarf, Anmeldung, Abmelden)`, meldungen > 40 && mitToken === 0);
+}
+
 // --- P10 G9 -----------------------------------------------------------------------------------------------------------------
 {
   const quelle = readFileSync(new URL('../src/main/konto/sitzung-kern.ts', import.meta.url), 'utf8');

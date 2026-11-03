@@ -46,6 +46,12 @@ export const AUSGABEN_MAX = 10;
 /** OFP8: so lange nach der letzten Anmeldung mit Google erneuert der Worker ein Google-Konto (wie GOOGLE_NEU_MS in konto-kern.js). */
 export const GOOGLE_NEU_MS = 90 * 24 * 3600_000;
 
+/** AR30: `exp` muss eine endliche Zahl sein, `kontoBis` null oder eine endliche Zahl; sonst ist die gespeicherte Sitzung unlesbar. */
+function fristenGueltig(s: GespeicherteSitzung): boolean {
+  const st = s.stand as Partial<KontoStand> | undefined;
+  return !!st && typeof st.exp === 'number' && Number.isFinite(st.exp) && (st.kontoBis === null || (typeof st.kontoBis === 'number' && Number.isFinite(st.kontoBis)));
+}
+
 const MIT_TOKEN: readonly KontoZustand[] = ['pruefe', 'angemeldet', 'offline', 'server-nicht-erreichbar', 'entzogen-laeuft'];
 const ENTZUG_CODES: readonly string[] = ['gesperrt', 'geloescht', 'zugang-abgelaufen', 'geraet-unbekannt'];
 
@@ -99,6 +105,17 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
     u.melde(a);
   }
 
+  /**
+   * Speichern ist Nebenwirkung, nie Voraussetzung (AR34, Review): Der Zustand und der Wecker stehen vor dem Speichern, ein
+   * Fehler der Hülle (Platte voll, safeStorage) bricht den Ablauf nicht ab. Kein Log hier (G4); das Protokoll schreibt die Hülle.
+   */
+  function sicher(f: () => void): void {
+    try { f(); } catch { /* bewusst geschluckt */ }
+  }
+  function speichere(s: GespeicherteSitzung | null): void { sicher(() => u.speicher.speichere(s)); }
+  function merkeEntzug(e: { grund: EntzugGrund; am: number } | null): void { sicher(() => u.speicher.merkeEntzug(e)); }
+  function loescheEntzug(): void { sicher(() => { if (u.speicher.ladeEntzug() !== null) u.speicher.merkeEntzug(null); }); }
+
   function weckerAus(): void {
     stoppeWecker?.();
     stoppeWecker = null;
@@ -118,43 +135,43 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
     // OFP8 (Nachfix 1): Hat der Server die Sitzung im Betrieb schon nicht mehr verlängert, bleibt google-neu der Grund (K25k).
     const g = zustand === 'angemeldet' && grund === 'google-neu' ? 'google-neu' : ablaufGrund(stand, jetzt);
     weckerAus();
-    u.speicher.speichere(null);
     sitzung = null;
     anzeigeStand = stand;
     zustand = 'abgelaufen';
     grund = g;
+    speichere(null);
   }
 
   /** Entzug beim ersten Versuch (R5): abgemeldet bis zur nächsten Anmeldung (R2). */
   function setzeEntzogen(g: EntzugGrund, jetzt: number): void {
     weckerAus();
-    u.speicher.merkeEntzug({ grund: g, am: jetzt });
-    u.speicher.speichere(null);
     sitzung = null;
     anzeigeStand = null;
     zustand = 'entzogen';
     grund = g;
+    merkeEntzug({ grund: g, am: jetzt });
+    speichere(null);
   }
 
   /** Entzug bei laufender Sitzung (R5 nachgeholt, R8): Sitzung bleibt im Speicher bis zum Neustart, die Platte wird leer. */
   function setzeEntzogenLaeuft(g: EntzugGrund, jetzt: number): void {
     weckerAus();
-    u.speicher.merkeEntzug({ grund: g, am: jetzt });
-    u.speicher.speichere(null);
     zustand = 'entzogen-laeuft';
     grund = g;
     planeLaufzeit();
+    merkeEntzug({ grund: g, am: jetzt });
+    speichere(null);
   }
 
   /** R3, auch im Betrieb (Nachfix 1): Der Worker erkennt die Sitzung nicht (z. B. neuer Schlüssel am Server), Hinweis K25i. */
   function setzeUnbekannt(): void {
     weckerAus();
-    u.speicher.speichere(null);
     sitzung = null;
     anzeigeStand = null;
     zustand = 'nicht-angemeldet';
     grund = null;
     if (!hinweise.includes('sitzung-unlesbar')) hinweise.push('sitzung-unlesbar');
+    speichere(null);
   }
 
   /**
@@ -262,18 +279,19 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
     } catch (e) {
       code = e instanceof KontoFehler ? e.code : 'server';
     }
-    if (meinLauf !== lauf || sitzung !== s) return;
+    // Eine späte Antwort ändert nichts, wenn die Prüfung inzwischen anderswo entschieden wurde (z. B. Entzug durch lage()).
+    if (meinLauf !== lauf || sitzung !== s || !(zustand === 'pruefe' || zustand === 'offline' || zustand === 'server-nicht-erreichbar')) return;
     const jetzt = u.jetzt();
     if (ergebnis) {
       wiederholungMs = WIEDERHOLUNG_START_MS;
       sitzung = { token: ergebnis.sitzung, stand: ergebnis.stand };
-      u.speicher.speichere(sitzung);
-      if (u.speicher.ladeEntzug() !== null) u.speicher.merkeEntzug(null);
       zustand = 'angemeldet';
       grund = null;
       letztePruefung = jetzt;
       planeLaufzeit();
       aktualisiere();
+      speichere(sitzung);
+      loescheEntzug();
       u.nachStartPruefung(ergebnis.sitzung, ergebnis.stand);
       return;
     }
@@ -332,14 +350,14 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
     const nochGueltig = s.stand.exp > jetzt;
     if (ergebnis) {
       sitzung = { token: ergebnis.sitzung, stand: ergebnis.stand };
-      u.speicher.speichere(sitzung);
-      if (u.speicher.ladeEntzug() !== null) u.speicher.merkeEntzug(null);
       wiederholungMs = WIEDERHOLUNG_START_MS;
       zustand = 'angemeldet';
       grund = null;
       letztePruefung = jetzt;
       planeLaufzeit();
       aktualisiere();
+      speichere(sitzung);
+      loescheEntzug();
       u.nachStartPruefung(ergebnis.sitzung, ergebnis.stand);
       return token();
     }
@@ -385,9 +403,10 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
         return;
       }
       const geladen = u.speicher.lade();
-      if (geladen === 'unlesbar') {
+      // AR30: eine Frist, die keine endliche Zahl ist (NaN, Infinity, fehlt), macht die Sitzung unlesbar wie R3.
+      if (geladen === 'unlesbar' || (geladen !== null && !fristenGueltig(geladen))) {
         // R3
-        u.speicher.speichere(null);
+        speichere(null);
         if (!hinweise.includes('sitzung-unlesbar')) hinweise.push('sitzung-unlesbar');
         zustand = 'nicht-angemeldet';
         aktualisiere();
@@ -441,8 +460,8 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
       const erste = u.ersteAnmeldung ? u.ersteAnmeldung() === null : false;
       sitzung = { token: s.token, stand: s.stand };
       anzeigeStand = null;
-      u.speicher.speichere(sitzung);
-      if (u.speicher.ladeEntzug() !== null) u.speicher.merkeEntzug(null);
+      speichere(sitzung);
+      loescheEntzug();
       const i = hinweise.indexOf('sitzung-unlesbar');
       if (i >= 0) hinweise.splice(i, 1);
       zustand = 'angemeldet';
@@ -462,7 +481,7 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
       weckerAus();
       sitzung = null;
       anzeigeStand = null;
-      u.speicher.speichere(null);
+      speichere(null);
       zustand = 'nicht-angemeldet';
       grund = null;
       zoomAnfrage = null;
@@ -475,6 +494,12 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
     async lage(): Promise<void> {
       // R8: nur mit laufender Sitzung in angemeldet, offline oder Server nicht erreichbar.
       const s = sitzung;
+      // Der Wecker kam nicht (Schlaf): nach `exp` endet die Sitzung auch hier, ohne Anfrage (wie sitzungFuerBedarf).
+      if (s && zustand !== 'pruefe' && MIT_TOKEN.includes(zustand) && s.stand.exp <= u.jetzt()) {
+        sitzungZuEnde(s, u.jetzt());
+        aktualisiere();
+        return;
+      }
       const t = token();
       if (!s || !t || (zustand !== 'angemeldet' && zustand !== 'offline' && zustand !== 'server-nicht-erreichbar')) return;
       const meinLauf = lauf;
