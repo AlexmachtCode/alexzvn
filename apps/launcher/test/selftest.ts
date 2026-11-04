@@ -3301,9 +3301,11 @@ await (async () => {
     lade.includes('    iveo.setze(r.events, Date.now(), r.hinweis);') && lade.endsWith('  tokensAktualisiert();\n}')
     // AR60: ein Lauf gleichzeitig, späte Antwort nach dem Abmelden verwerfen
     && lade.indexOf('  if (iveoLaedt) return;') > 0 && lade.indexOf('  if (iveoLaedt) return;') < lade.indexOf('  iveoLaedt = true;')
-    && lade.indexOf('    if (lauf !== iveoLauf)') > 0 && lade.indexOf('    if (lauf !== iveoLauf)') < lade.indexOf('    iveo.setze(')
+    && lade.indexOf('    if (lauf !== iveoLauf') > 0 && lade.indexOf('    if (lauf !== iveoLauf') < lade.indexOf('    iveo.setze(')
+    && lade.slice(0, lade.indexOf('    iveo.setze(')).includes('kid !== (kontoAnsichtJetzt().stand?.kid ?? null)') // Konto während des await gewechselt → verwerfen
+    && lade.slice(lade.indexOf('    if (lauf !== iveoLauf'), lade.indexOf('    iveo.setze(')).includes('lauf !== iveoLauf ||')
     && lade.includes('      if (kontoToken()) void ladeIveo();') // Fixrunde 1: schneller Wechsel — das neue Konto lädt sofort
-    && lade.indexOf('    iveoLaedt = false;') > 0 && lade.indexOf('    iveoLaedt = false;') < lade.indexOf('    if (lauf !== iveoLauf)')
+    && lade.indexOf('    iveoLaedt = false;') > 0 && lade.indexOf('    iveoLaedt = false;') < lade.indexOf('    if (lauf !== iveoLauf')
     && abmeldenBlock.startsWith('      iveo.leere();\n      iveoGeladen = false;\n      tokensAktualisiert();\n') && abmeldenBlock.includes('      iveoLauf++;\n')
     // Fixrunde 1: anderes Konto ohne Abmelden leert die Tokens des vorigen (kid vor dem await gemerkt, nach setze gesetzt)
     && lade.indexOf('  const kid = kontoAnsichtJetzt().stand?.kid ?? null;') > lade.indexOf('  const lauf = iveoLauf;')

@@ -334,8 +334,9 @@ async function ladeIveo(): Promise<void> {
     // EP31: der Hinweis des Workers (iveo dort nicht eingerichtet) geht mit in den Speicher; die Statuszeile nennt dann I12.
     const r = await client.iveoTokens(t);
     iveoLaedt = false;
-    if (lauf !== iveoLauf) {
-      // späte Antwort nach dem Abmelden verwerfen; ist schon ein neues Konto da, dessen Tokens gleich laden (Sperre ist frei)
+    if (lauf !== iveoLauf || kid !== (kontoAnsichtJetzt().stand?.kid ?? null)) {
+      // späte Antwort nach dem Abmelden oder nach einem Kontowechsel während des Wartens verwerfen; ist schon ein neues Konto
+      // da, dessen Tokens gleich laden (Sperre ist frei)
       if (kontoToken()) void ladeIveo();
       return;
     }
