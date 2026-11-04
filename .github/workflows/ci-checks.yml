@@ -80,6 +80,9 @@ jobs:
         run: npm run selftest -w @jm/ui
       - name: Einstellungs-Abschnitte (Ableitungen als Kreuzprodukt)
         run: npm run selftest -w @jm/settings
+      # Anmeldung im Launcher, Teil 1 (P29): Queue und Zugang zum Cloud-Relay, zwei Glieder unter strip-types, ohne Electron.
+      - name: Q&A (Queue, Zugang zum Cloud-Relay)
+        run: npm run selftest -w @jm/qa
       # Zoom Stage 4a (Spec 12.6). Keiner dieser Tests lädt Electron oder braucht das Zoom-SDK.
       - name: Zoom-Bridge (Protokoll, Zustand, Attrappe — ohne SDK)
         run: npm run selftest -w @jm/zoom-bridge
