@@ -733,7 +733,7 @@ function ck(name: string, cond: boolean): void {
     const e: Erwartung =
       !showOffen ? { fall: 'K0', text: null, schalter: false, ordnerOeffnen: false, tooltip: null }
       : rolle === 'slave' ? { fall: 'K1', text: 'Dieser Rechner hat die Rolle „Mit Master verbinden“ und legt keine Anhänge ab.', schalter: false, ordnerOeffnen: false, tooltip: null }
-      : !tokenDa ? { fall: 'K2', text: 'Anhänge lädt nur der Launcher mit dem iveo-Token dieser Show.', schalter: false, ordnerOeffnen: false, tooltip: null }
+      : !tokenDa ? { fall: 'K2', text: 'Anhänge legt nur der Rechner ab, der diese Show mit iveo abgleicht.', schalter: false, ordnerOeffnen: false, tooltip: null }
       : !schalterAn ? { fall: 'K3', text: 'Ablage in Side-Event-Ordnern ausgeschaltet.', schalter: true, ordnerOeffnen: existiert, tooltip: tt }
       : showDatei !== 'da' ? { fall: 'K4', text: 'Show-Datei am Öffnungspfad nicht gefunden oder nicht lesbar. Ablage pausiert, bis sie wieder da ist.', schalter: true, ordnerOeffnen: false, tooltip: tt }
       : sperre === 'fremd' ? { fall: 'K5', text: 'Ablage liegt bei Rechner „TECHNIK-PC“ (letztes Lebenszeichen 13:58); dieser Rechner legt nichts ab und übernimmt gegen 14:13, wenn kein neues Lebenszeichen kommt.', schalter: true, ordnerOeffnen: !ohne, tooltip: tt }
@@ -938,9 +938,10 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   const binden = funktionsKoerper(sync, 'export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResult> {');
   const iNorm = binden.indexOf('    genutzteAdresse = normalizeIveoBaseUrl(baseUrl);');
   const iCatch = binden.indexOf('    return { ok: false, ...toClientError(e) };');
-  const iToken = binden.indexOf('getIveoBaseToken(');
-  ck('P26 EP1: bindIveoEvent normalisiert die Adresse VOR dem Token-Fallback, in eigenem try mit ok:false über toClientError (T8 auch bei leerem Token-Feld)',
-    iNorm > 0 && iCatch > iNorm && iToken > iCatch && binden.includes('getIveoBaseToken(genutzteAdresse)'));
+  // Anmeldung P23 (IV4): das Token zum Binden kommt aus dem Speicher der Anmeldung (iveoTokenZumBinden), nicht mehr vom Basis-Token.
+  const iToken = binden.indexOf('iveoTokenZumBinden(');
+  ck('P26 EP1, Anmeldung P23 IV4: bindIveoEvent normalisiert die Adresse VOR dem Token-Rückfall (iveoTokenZumBinden), in eigenem try mit ok:false über toClientError',
+    iNorm > 0 && iCatch > iNorm && iToken > iCatch && binden.includes('iveoTokenZumBinden(event, genutzteAdresse)'));
   ck('P26 EP1: die Prüfung „gemerkter Token vorhanden?“ fängt eine Ablehnung bei ungültiger Adresse (kein Absturz, Merker false, Adressfehler gemerkt)',
     /hasIveoBaseToken\(iveoBaseUrl\.trim\(\) \|\| undefined\)[\s\S]*?\.catch\(\(\) => \{\n        if \(cancelled\) return;\n        setIveoBaseTokenSaved\(false\);\n        setIveoAdresseUngueltig\(true\);/.test(editor));
   ck('P26 EP1: beide Wächter (Events laden, Binden) lassen bei ungültiger Adresse an Main durch — Main antwortet mit dem T8-Text, nicht „Token erforderlich“',
@@ -3244,6 +3245,70 @@ await (async () => {
     && funktionsKoerper(huelle, 'export function starteKonto(').includes('  verbindeSitzung(kontoSitzungMoeglich);'));
   ck('P22 T23: „per Umgebungsvariable gesetzt“ (fromEnv) meint nur noch die Server-Adresse (JMPS_RELEASE_PROXY)',
     funktionsKoerper(einst, 'function envControlled(): boolean {').includes("  return Boolean(process.env['JMPS_RELEASE_PROXY']);"));
+}
+
+// --- Anmeldung P23 (Spec 6.4, 6.3; N7, N8; EP13, EP14; Verhalten 11.4 IV1–IV4): iveo über die Sitzung -----------------
+// iveo-sync.ts, settings.ts und die Hülle laden Electron; der Kern (iveo-abgleich-kern.ts) läuft in selftest:iveo echt.
+{
+  const sync = quelleLf('../src/main/iveo-sync.ts');
+  const einst = quelleLf('../src/main/settings.ts');
+  const huelle = quelleLf('../src/main/konto/huelle.ts');
+  const kernQ = quelleLf('../src/main/iveo-abgleich-kern.ts');
+  const ipc = quelleLf('../src/main/ipc.ts');
+  const preload = quelleLf('../src/preload/index.ts');
+  const typen = quelleLf('../src/shared/types.ts');
+  const kernBau = funktionsKoerper(sync, 'function kern(): IveoKern {');
+  ck('P23 IV2: der Kern bekommt Token und Grund nur über die Naht — token(event, baseUrl) und tokenGrund',
+    kernBau.includes('      token: (event, baseUrl) => getIveoToken(event, baseUrl),')
+    && kernBau.includes('      tokenGrund: (event, baseUrl) => tokenGrund(event, baseUrl),'));
+  const leser = [...ohneKommentare(sync).matchAll(/getIveoToken\(([^)]*)\)/g)].map((m) => m[1]);
+  ck(`P23 N7: alle Leser in iveo-sync.ts fragen mit Basis-URL (${leser.length} Aufrufe: ${leser.join(' | ')})`,
+    leser.length === 5 && leser.every((a) => a.includes(',')));
+  const naht = funktionsKoerper(einst, 'export function iveoTokenMitGrund(');
+  ck('P23 EP13, IV1: getIveoToken liest über die eine Naht zuerst den Speicher der Anmeldung (tokenFuer mit Lage, Abgleich hier, lokal, Env)',
+    funktionsKoerper(einst, 'export function getIveoToken(eventKey: string, basis?: string): string | undefined {').includes('  return iveoTokenMitGrund(eventKey, basis).token;')
+    && naht.includes('.tokenFuer(slug, basis?.trim() || undefined, {') && naht.includes('    abgleichHier: [...leseIveoAbgleichHier(), ...auchOhneAbgleich],')
+    && naht.includes('    lokal: (s) => lokalesIveoToken(s),') && naht.includes("    env: process.env['JMPS_IVEO_TOKEN'] || undefined,"));
+  ck('P23 EP13: getIveoBaseToken und hasIveoBaseToken lesen zuerst den Speicher (ein Event derselben Basis), dann lokal',
+    funktionsKoerper(einst, 'export function getIveoBaseToken(baseUrl?: string): string | undefined {').includes('.erlaubteEvents().find((x) => x.key.startsWith(`${basis}|`));')
+    && funktionsKoerper(einst, 'export function hasIveoBaseToken(baseUrl?: string): boolean {').includes('  return Boolean(getIveoBaseToken(baseUrl));'));
+  const binden = funktionsKoerper(sync, 'export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResult> {');
+  ck('P23 G6, IV4: Binden nimmt das Token aus dem Speicher, schreibt kein Token (kein setIveoToken/setIveoBaseToken in iveo-sync.ts) und setzt „Abgleich hier“',
+    !/setIveoToken\(|setIveoBaseToken\(/.test(sync) && binden.includes('iveoTokenZumBinden(event, genutzteAdresse)')
+    && binden.includes('    setzeIveoAbgleichHier(iveoSchluessel(genutzteAdresse, snap.event.slug), true);'));
+  ck('P23 10.7: 13. Kanal iveo:abgleichHier in ipc.ts, Preload und JmpsApi',
+    ipc.includes("  ipcMain.handle('iveo:abgleichHier', (_e, input: unknown) => setzeAbgleichHier(input));")
+    && preload.includes("  iveoAbgleichHier: (a: { key: string; an: boolean }) => invoke<{ ok: boolean }>('iveo:abgleichHier', a),")
+    && typen.includes('  iveoAbgleichHier: (a: { key: string; an: boolean }) => Promise<{ ok: boolean }>;'));
+  const hier = funktionsKoerper(sync, 'export function setzeAbgleichHier(input: unknown): { ok: boolean } {');
+  ck('P23 EP14, OFP3: „Abgleich hier übernehmen“ nur mit Token für genau dieses Event; danach setzt der Kern neu auf (kein Geheimnis gespeichert)',
+    hier.includes('  if (e.an && iveoTokenZumBinden(slug, basis) === undefined) return { ok: false };')
+    && hier.indexOf('  setzeIveoAbgleichHier(key, e.an);') < hier.indexOf('  tokensAktualisiert();') && hier.indexOf('  tokensAktualisiert();') > 0);
+  const lade = funktionsKoerper(huelle, 'async function ladeIveo(): Promise<void> {');
+  ck('P23 EP13, IV3: Tokens laden nach Anmeldung, Start-Prüfung und jeder Lage; danach tokensAktualisiert; Abmelden leert und meldet',
+    lade.includes('    iveo.setze(r.events, Date.now(), r.hinweis);') && lade.endsWith('  tokensAktualisiert();\n}')
+    // AR60: ein Lauf gleichzeitig, späte Antwort nach dem Abmelden verwerfen
+    && lade.includes('  if (iveoLaedt) return;') && lade.includes('    if (lauf !== iveoLauf) return;')
+    && /nachAbmelden: \(\) => \{[\s\S]*?iveoLauf\+\+/.test(huelle)
+    && funktionsKoerper(huelle, 'async function kontoLage(fokus: boolean): Promise<void> {').includes('  await ladeIveo();')
+    && /nachAbmelden: \(\) => \{\n {6}iveo\.leere\(\);\n {6}iveoGeladen = false;\n {6}tokensAktualisiert\(\);/.test(huelle)
+    && huelle.includes('  verbindeIveoZentral({ speicher: iveo, lage: () => ({ angemeldet: kontoSitzungMoeglich(), geladen: iveoGeladen }) });'));
+  ck('P23 G4, G5: scheitert das Laden, bleiben geladene Tokens im Speicher; die Logzeile nennt nur den Fehlercode',
+    lade.includes('    log?.warn(`Anmeldung: iveo-Tokens nicht geladen (${fehlerCode(e)})`);') && !lade.includes('iveo.leere()'));
+  ck('P23 I1–I4: die Statustexte ersetzen „kein iveo-Token auf diesem Rechner“ (Kern), tokenGrund liefert den Grund',
+    !ohneKommentare(kernQ).includes('kein iveo-Token auf diesem Rechner') && kernQ.includes("  'kein-abgleich-hier': 'Abgleich läuft auf einem anderen Rechner, hier nur Offline-Ablauf',")
+    && funktionsKoerper(sync, 'export function tokenGrund(event: string, basis?: string): KeinTokenGrund {').includes("  return g === 'ok' ? 'nicht-hinterlegt' : g;"));
+  ck('P23 P32-Vertrag: iveoShowOffen() und tokensAktualisiert() aus iveo-sync.ts',
+    funktionsKoerper(sync, 'export function iveoShowOffen(): boolean {').includes('  return openShowIveo !== null;')
+    && funktionsKoerper(sync, 'export function tokensAktualisiert(): void {').includes('  kern().tokensGeaendert();'));
+  // Nachbesserung Block D (spec:6): ohne „Abgleich hier“ hat ein angemeldeter Rechner das Token oft im Speicher — Kopfzeile der
+  // Ablage (K2) und die Antworten ohne aktive Show nennen darum den Rechner, der abgleicht (I13–I15), nicht ein fehlendes Token.
+  ck('P23 I13–I15: Ablage-Kopfzeile, Umschalten und Anhänge ohne Abgleich nennen den abgleichenden Rechner, nicht das Token',
+    ORDNER_ZEILEN_TEXTE.keinToken === 'Anhänge legt nur der Rechner ab, der diese Show mit iveo abgleicht.'
+    && kernQ.includes("    if (!a) return { ok: false, message: 'Live-Umschalten nur auf dem Rechner, der die offene Show mit iveo abgleicht.' };")
+    && sync.includes("  if (!a) return { ok: false, error: 'Anhänge lädt nur der Rechner, der die offene Show mit iveo abgleicht.' };")
+    && sync.includes("  if (!a) return { ok: false, message: 'Anhänge lädt nur der Rechner, der die offene Show mit iveo abgleicht.' };")
+    && !sync.includes('Keine iveo-Show mit Token geöffnet.') && !kernQ.includes('Kein iveo-Token für die offene Show — '));
 }
 
 // ── Ende der Fälle (Anmeldung) ──

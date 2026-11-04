@@ -28,9 +28,10 @@ import { toClientError } from '../iveo-abgleich-kern';
 import { IVEO_ABRUF_ZEITGRENZE_MS, mitZeitgrenze } from '../iveo-huelle-hilfen';
 import {
   leseKontoEntzug, leseKontoErsteAnmeldung, leseKontoFeld, resolveIveoBaseUrl, resolveProxy, resolveProxyKey,
-  schreibeKontoEntzug, schreibeKontoErsteAnmeldung, schreibeKontoFeld, verbindeSitzung,
+  schreibeKontoEntzug, schreibeKontoErsteAnmeldung, schreibeKontoFeld, verbindeIveoZentral, verbindeSitzung,
 } from '../settings';
 import { verbundStand } from '../verbund';
+import { tokensAktualisiert } from '../iveo-sync';
 
 /** R13, K31: Entwicklungsvariablen, deren NAMEN der Konto-Dialog nennt. Nie die Werte. */
 const DEV_NAMEN = ['JMPS_PROXY_KEY', 'JMPS_GITHUB_TOKEN', 'JMPS_RELEASE_PROXY', 'JMPS_IVEO_TOKEN'] as const;
@@ -107,6 +108,12 @@ let gestoppt = false;
 let lageTakt: ReturnType<typeof setInterval> | null = null;
 let letzteLage = 0;
 const iveo = erzeugeIveoZentral();
+/** P23 (I4): die Tokens des Kontos sind seit dem Start einmal geladen worden. */
+let iveoGeladen = false;
+/** AR60: zählt die Abmeldungen; eine Antwort aus einem älteren Lauf wird verworfen. */
+let iveoLauf = 0;
+/** AR60: ein Ladelauf ist unterwegs (zwei Läufe gleichzeitig würden sich verschränken). */
+let iveoLaedt = false;
 
 /** Haken nach der ersten Anmeldung auf diesem Rechner (P32 hängt das Löschen der Altlasten an, N5, OFP1). */
 export const beiErsterAnmeldung: Array<() => void> = [];
@@ -152,6 +159,8 @@ export function starteKonto(o: { emit(e: AppEvent): void; log: Logger; appDataDi
   log = o.log;
   // P22: settings.ts erfährt so, ob eine Sitzung nutzbar ist (Quelle in den Einstellungen), ohne die Hülle zu importieren.
   verbindeSitzung(kontoSitzungMoeglich);
+  // P23 (EP13): die Naht getIveoToken liest zuerst diesen Speicher; die Lage sagt „angemeldet“ und „Tokens geladen“.
+  verbindeIveoZentral({ speicher: iveo, lage: () => ({ angemeldet: kontoSitzungMoeglich(), geladen: iveoGeladen }) });
   serverBasis = resolveProxy() ?? '';
   const c = erzeugeKontoClient({ basis: serverBasis, fetch: (url, init) => fetch(url, init) });
   client = c;
@@ -207,6 +216,10 @@ async function starte(o: { log: Logger; appDataDir: string }, c: KontoClient): P
     },
     nachAbmelden: () => {
       iveo.leere();
+      iveoGeladen = false;
+      tokensAktualisiert();
+      // AR60: eine noch unterwegs befindliche Antwort des alten Kontos verwerfen
+      iveoLauf++;
       emit({ type: 'notice', message: TEXT_ABGEMELDET });
     },
   });
@@ -292,6 +305,34 @@ export function iveoZentral(): IveoZentralSpeicher {
   return iveo;
 }
 
+/**
+ * P23 (EP13, IV3): die iveo-Tokens des Kontos in den Speicher — nie auf die Platte, nie ins Log, nie an den Renderer.
+ * Scheitert das Laden, bleiben schon geladene Tokens (G5). Danach meldet die Hülle dem Kern die neue Lage: eine offene Show,
+ * die ohne Token aufgesetzt wurde, setzt er neu auf; ohne Token nennt die Statuszeile den aktuellen Grund (I1–I4).
+ */
+async function ladeIveo(): Promise<void> {
+  const t = kontoToken();
+  if (!t || !client) {
+    tokensAktualisiert();
+    return;
+  }
+  if (iveoLaedt) return; // ein Lauf ist schon unterwegs; worker-client bricht nach seiner Zeitgrenze ab, die Sperre hängt nie
+  iveoLaedt = true;
+  const lauf = iveoLauf;
+  try {
+    // EP31: der Hinweis des Workers (iveo dort nicht eingerichtet) geht mit in den Speicher; die Statuszeile nennt dann I12.
+    const r = await client.iveoTokens(t);
+    iveoLaedt = false;
+    if (lauf !== iveoLauf) return; // späte Antwort nach dem Abmelden verwerfen
+    iveo.setze(r.events, Date.now(), r.hinweis);
+    iveoGeladen = true;
+  } catch (e) {
+    iveoLaedt = false;
+    log?.warn(`Anmeldung: iveo-Tokens nicht geladen (${fehlerCode(e)})`);
+  }
+  tokensAktualisiert();
+}
+
 /** EP15: Lage beim Start, alle 5 min und bei Fensterfokus (höchstens einmal je Minute). */
 async function kontoLage(fokus: boolean): Promise<void> {
   if (!treiber) return;
@@ -299,6 +340,8 @@ async function kontoLage(fokus: boolean): Promise<void> {
   if (fokus && jetzt - letzteLage < LAGE_FOKUS_MS) return;
   letzteLage = jetzt;
   await treiber.lage();
+  // P23 (EP13): danach die iveo-Tokens — auch später hinterlegte Events, und nachgeholt, wenn der Start offline war.
+  await ladeIveo();
 }
 
 /** Admin laut festgehaltenem Stand; die Admin-Routen prüfen am Worker zusätzlich den aktuellen Stand (OFP4). */

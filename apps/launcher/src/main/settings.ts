@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { IVEO_DEFAULT_BASE_URL, normalizeIveoBaseUrl } from '@jm/iveo';
 import type { ManualEndpoint, RecentShow, SuiteSettingsInput, SuiteSettingsView } from '@shared/types';
 import type { EntzugGrund } from '@shared/konto';
+import { erzeugeIveoZentral, iveoSchluessel, type IveoGrund, type IveoZentralSpeicher } from './konto/iveo-zentral';
 
 interface StoredSettings {
   /** Legacy-Klartext-Token (alte Datei). Wird beim nächsten Schreiben migriert. */
@@ -244,10 +245,8 @@ export function setIveoToken(eventKey: string, token: string): void {
   write(s);
 }
 
-/** iveo-Token für ein Event lesen: Env-Override > verschlüsselt > Klartext-Fallback. */
-export function getIveoToken(eventKey: string): string | undefined {
-  const envTok = process.env['JMPS_IVEO_TOKEN'];
-  if (envTok) return envTok;
+/** Lokal gespeichertes iveo-Token (Bestand; nach der Anmeldung nur noch im Übergang, OFP1): verschlüsselt > Klartext; ohne Env. */
+function lokalesIveoToken(eventKey: string): string | undefined {
   const key = eventKey.trim();
   if (!key) return undefined;
   const s = read();
@@ -260,6 +259,62 @@ export function getIveoToken(eventKey: string): string | undefined {
     }
   }
   return s.iveoTokens?.[key] || undefined;
+}
+
+// ── Anmeldung P23 (Spec 6.4; EP13, EP14; Verhalten 11.4): die eine Naht für iveo-Tokens ─────────────────────────────────
+// Alle Leser (Kern, Wächter, Ablage, Anhänge, Download, Umschalten) gehen über getIveoToken. Es liest zuerst den Speicher der
+// Anmeldung (Tokens nur im Speicher, nie auf der Platte), im Übergang dann ein lokal gespeichertes Token. Der Kern bekommt
+// ein Token nur mit „Abgleich hier“ oder lokalem Token (IV1, N8). Die Hülle meldet Speicher und Lage beim Start
+// (verbindeIveoZentral); settings.ts importiert sie nicht (kein Import-Zyklus).
+const leererIveoSpeicher = erzeugeIveoZentral();
+let iveoQuelle: { speicher: IveoZentralSpeicher; lage(): { angemeldet: boolean; geladen: boolean } } | null = null;
+export function verbindeIveoZentral(q: { speicher: IveoZentralSpeicher; lage(): { angemeldet: boolean; geladen: boolean } }): void {
+  iveoQuelle = q;
+}
+
+/**
+ * IV1: Token und Grund für ein Event (Slug) und die Basis-URL seiner Bindung (leer = Standard): Entwicklungsvariable >
+ * Speicher (Schlüssel genau, dann eindeutiger Slug) > lokales Token; ohne „Abgleich hier“ und ohne lokales Token
+ * `kein-abgleich-hier`. `auchOhneAbgleich` zählt zusätzliche Schlüssel als markiert (nur das Binden, IV4).
+ */
+export function iveoTokenMitGrund(
+  eventKey: string,
+  basis?: string,
+  auchOhneAbgleich: readonly string[] = [],
+): { token: string | undefined; grund: IveoGrund } {
+  const slug = eventKey.trim();
+  if (!slug) return { token: undefined, grund: 'nicht-hinterlegt' };
+  const lage = iveoQuelle?.lage() ?? { angemeldet: false, geladen: false };
+  return (iveoQuelle?.speicher ?? leererIveoSpeicher).tokenFuer(slug, basis?.trim() || undefined, {
+    angemeldet: lage.angemeldet,
+    geladen: lage.geladen,
+    abgleichHier: [...leseIveoAbgleichHier(), ...auchOhneAbgleich],
+    lokal: (s) => lokalesIveoToken(s),
+    env: process.env['JMPS_IVEO_TOKEN'] || undefined,
+    standardBasis: resolveIveoBaseUrl(),
+  });
+}
+
+/** iveo-Token für ein Event und seine Basis-URL (Anmeldung P23): über die Naht iveoTokenMitGrund. */
+export function getIveoToken(eventKey: string, basis?: string): string | undefined {
+  return iveoTokenMitGrund(eventKey, basis).token;
+}
+
+/**
+ * IV4: Token zum Binden im Show-Editor — wie getIveoToken für genau dieses Event, aber auch ohne „Abgleich hier“ (das setzt
+ * erst das Binden). Im Übergang zuletzt der lokal gemerkte Basis-Token (C4). Ungültige Adresse → undefined.
+ */
+export function iveoTokenZumBinden(slug: string, basis: string): string | undefined {
+  const s = slug.trim();
+  if (!s) return undefined;
+  const adresse = basis.trim() || resolveIveoBaseUrl();
+  let key: string;
+  try {
+    key = iveoSchluessel(adresse, s);
+  } catch {
+    return undefined;
+  }
+  return iveoTokenMitGrund(s, adresse, [key]).token ?? lokalesIveoToken(iveoBaseKey(adresse));
 }
 
 export function deleteIveoToken(eventKey: string): void {
@@ -285,9 +340,17 @@ export function setIveoBaseToken(baseUrl: string, token: string): void {
   setIveoToken(iveoBaseKey(baseUrl.trim() || resolveIveoBaseUrl()), token);
 }
 
-/** Gespeicherten Basis-Token lesen (Env-Override greift wie bei getIveoToken). */
+/**
+ * Basis-Token lesen (C4; Anmeldung P23: zuerst der Speicher der Anmeldung — ein Event derselben Basis, ein Token gilt
+ * basis-weit —, dann im Übergang der lokal gemerkte). Env-Override wie bei getIveoToken; ungültige Adresse wirft wie bisher.
+ */
 export function getIveoBaseToken(baseUrl?: string): string | undefined {
-  return getIveoToken(iveoBaseKey(baseUrl?.trim() || resolveIveoBaseUrl()));
+  const env = process.env['JMPS_IVEO_TOKEN'];
+  if (env) return env;
+  const basis = normalizeIveoBaseUrl(baseUrl?.trim() || resolveIveoBaseUrl());
+  const e = (iveoQuelle?.speicher ?? leererIveoSpeicher).erlaubteEvents().find((x) => x.key.startsWith(`${basis}|`));
+  const zentral = e ? iveoTokenMitGrund(e.slug, e.basis, [e.key]).token : undefined;
+  return zentral ?? lokalesIveoToken(iveoBaseKey(basis));
 }
 
 /** Ist für diese Basis ein Token hinterlegt? (Boolean für den Renderer — ohne Wert.) */

@@ -92,6 +92,7 @@ const api: JmpsApi = {
   anhangOrdnerStand: () => invoke<AnhangOrdnerStand>('iveo:anhangOrdner'),
   setzeAnhangOrdner: (input: { an: boolean }) => invoke<AnhangOrdnerStand>('iveo:setzeAnhangOrdner', input),
   oeffneAnhangOrdner: (input: { programId?: string }) => invoke<ActionResult>('iveo:oeffneAnhangOrdner', input),
+  iveoAbgleichHier: (a: { key: string; an: boolean }) => invoke<{ ok: boolean }>('iveo:abgleichHier', a),
   getVerbund: () => invoke<VerbundStand>('verbund:get'),
   setzeVerbundRolle: (rolle: VerbundRolle) => invoke<VerbundStand>('verbund:rolle', rolle),
   setzeRechnerName: (name: string) => invoke<VerbundStand>('verbund:rechnerName', name),

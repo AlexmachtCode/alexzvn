@@ -114,7 +114,7 @@ const seit = new Date(2026, 9, 1, 14, 5, 30).toISOString(); // 14:05 Ortszeit
 ck('ok → keine Zeile', iveoStatusZeile({ ok: true }) === null);
 ck('kein Status → keine Zeile', iveoStatusZeile(null) === null);
 ck('401 → Text und Uhrzeit', iveoStatusZeile({ ok: false, text: 'Token ungültig oder widerrufen', seit }) === 'iveo-Abgleich gestört: Token ungültig oder widerrufen (seit 14:05)');
-ck('kein Token → Text und Uhrzeit', iveoStatusZeile({ ok: false, text: 'kein iveo-Token auf diesem Rechner, nur Offline-Ablauf', seit }) === 'iveo-Abgleich gestört: kein iveo-Token auf diesem Rechner, nur Offline-Ablauf (seit 14:05)');
+ck('kein Token (Anmeldung P23, I1) → Text und Uhrzeit', iveoStatusZeile({ ok: false, text: 'Abgleich läuft auf einem anderen Rechner, hier nur Offline-Ablauf', seit }) === 'iveo-Abgleich gestört: Abgleich läuft auf einem anderen Rechner, hier nur Offline-Ablauf (seit 14:05)');
 ck('ohne seit → ohne Klammer', iveoStatusZeile({ ok: false, text: 'X' }) === 'iveo-Abgleich gestört: X');
 ck('unlesbares seit → ohne Klammer', iveoStatusZeile({ ok: false, text: 'X', seit: 'kaputt' }) === 'iveo-Abgleich gestört: X');
 

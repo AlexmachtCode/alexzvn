@@ -52,11 +52,14 @@ import {
   getIveoAnhangOrdner,
   getIveoToken,
   getIveoBaseToken,
+  iveoTokenMitGrund,
+  iveoTokenZumBinden,
+  leseIveoAbgleichHier,
   resolveIveoBaseUrl,
   setIveoAnhangOrdner,
-  setIveoToken,
-  setIveoBaseToken,
+  setzeIveoAbgleichHier,
 } from './settings';
+import { iveoSchluessel } from './konto/iveo-zentral';
 import { sendControlCommand } from './health';
 import { meldeShowAnVerbund, verbundReloadInfo, verbundRolle } from './verbund';
 import {
@@ -67,6 +70,7 @@ import {
   toClientError,
   type IveoKern,
   type IveoSyncStatus,
+  type KeinTokenGrund,
 } from './iveo-abgleich-kern';
 import {
   abfrageTakt,
@@ -293,9 +297,10 @@ export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResul
     getLog().warn(`iveo bind fehlgeschlagen: ${(e as Error).message}`);
     return { ok: false, ...toClientError(e) };
   }
-  // C4: Token-Fallback wie bei discover (basis-weit gemerkter Token).
-  const token = input.token?.trim() || getIveoBaseToken(genutzteAdresse);
+  // Anmeldung P23 (IV4): das Token kommt aus dem Speicher der Anmeldung (für genau dieses Event, auch ohne „Abgleich hier“),
+  // im Übergang aus dem lokal gemerkten; ein Token aus der Eingabe gilt nur für diesen Aufruf und wird nie gespeichert.
   const event = input.event?.trim();
+  const token = input.token?.trim() || (event ? iveoTokenZumBinden(event, genutzteAdresse) : undefined);
   if (!token || !event) return { ok: false, error: 'Token und Event erforderlich.' };
   try {
     const client = iveoClient(token, baseUrl);
@@ -358,10 +363,10 @@ export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResul
     // offene Show, setzt sich der Kern aus der Datei neu auf und holt den Kontext bei
     // der nächsten Abfrage nach (speichereShowDatei → offeneShowGespeichert).
     const meta = buildShowMetadata(snap, baseUrl);
-    // Token verschlüsselt ablegen (Schlüssel = kanonischer Slug), Cache schreiben.
-    setIveoToken(snap.event.slug, token);
-    // C4: zusätzlich basis-weit merken → nächstes Event derselben Org ohne Neu-Eingabe.
-    setIveoBaseToken(baseUrl, token);
+    // Anmeldung P23 (G6, IV4, EP14): kein Token auf die Platte. Dieser Rechner gleicht die Show ab („Abgleich hier“, ohne
+    // Geheimnis); ist sie offen, setzt der Kern sie neu auf. Danach den token-freien Cache schreiben.
+    setzeIveoAbgleichHier(iveoSchluessel(genutzteAdresse, snap.event.slug), true);
+    kern().tokensGeaendert();
     writeCache(meta);
     const warnParts = [
       ...(skipped.length ? [`iveo lieferte für ${skipped.join(', ')} keine Daten (Server-Fehler)`] : []),
@@ -465,7 +470,9 @@ function kern(): IveoKern {
   if (!kernInstanz) {
     kernInstanz = erzeugeKern({
       clientFabrik: (token, baseUrl) => iveoClient(token, baseUrl),
-      token: (event) => getIveoToken(event),
+      // Anmeldung P23 (IV2): Token und Grund nur über die Naht in settings.ts (Speicher der Anmeldung, „Abgleich hier“).
+      token: (event, baseUrl) => getIveoToken(event, baseUrl),
+      tokenGrund: (event, baseUrl) => tokenGrund(event, baseUrl),
       leseShow: leseShowDatei,
       schreibeShow: schreibeShowFuerKern,
       // Teil 2b R2, Spec 15.3 (O3): In der Rolle Master geht RELOAD nur an Tools dieses Rechners.
@@ -533,6 +540,65 @@ export function iveoStateKv(): Record<string, string> {
   };
 }
 
+// ── Anmeldung P23 (Spec 6.4; EP13, EP14; Verhalten 11.4) ─────────────────────────────────────────────────────────────
+
+/** I1–I4 (IV2): warum für dieses Event hier kein Token da ist — für die Statuszeile des Kerns. */
+export function tokenGrund(event: string, basis?: string): KeinTokenGrund {
+  const g = iveoTokenMitGrund(event, basis).grund;
+  return g === 'ok' ? 'nicht-hinterlegt' : g;
+}
+
+/** IV3 (Ist-L 6): die Tokens im Speicher haben sich geändert → der Kern setzt die offene Show bei Bedarf neu auf. */
+export function tokensAktualisiert(): void {
+  kern().tokensGeaendert();
+}
+
+/** Für den Löschlauf lokaler Tokens (P32, IV5): ist eine iveo-gebundene Show offen? Dann wartet er. */
+export function iveoShowOffen(): boolean {
+  return openShowIveo !== null;
+}
+
+/** EP14: Schlüssel der offenen Show, ob dieser Rechner sie abgleicht und ob er es übernehmen könnte — ohne Token. */
+function abgleichStand(): IveoSideEventsResult['abgleich'] {
+  if (!openShowIveo) return undefined;
+  let key: string;
+  try {
+    key = iveoSchluessel(openShowIveo.baseUrl, openShowIveo.slug);
+  } catch {
+    return undefined;
+  }
+  return {
+    key,
+    hier: leseIveoAbgleichHier().includes(key),
+    moeglich: iveoTokenZumBinden(openShowIveo.slug, openShowIveo.baseUrl) !== undefined,
+  };
+}
+
+/**
+ * IPC iveo:abgleichHier (EP14, OFP3): „Abgleich hier übernehmen“ bzw. „beenden“ für einen Event-Schlüssel `‹Basis›|‹Slug›`.
+ * Übernehmen nur, wenn dieser Rechner ein Token für genau dieses Event hat (angemeldet mit Recht, oder lokal im Übergang).
+ * Gespeichert wird nur die Markierung, nie ein Token; danach setzt der Kern die offene Show neu auf (IV3).
+ */
+export function setzeAbgleichHier(input: unknown): { ok: boolean } {
+  const e = input as { key?: unknown; an?: unknown } | null;
+  if (!e || typeof e.key !== 'string' || typeof e.an !== 'boolean') return { ok: false };
+  const i = e.key.lastIndexOf('|');
+  if (i <= 0 || i === e.key.length - 1) return { ok: false };
+  const basis = e.key.slice(0, i);
+  const slug = e.key.slice(i + 1);
+  let key: string;
+  try {
+    key = iveoSchluessel(basis, slug);
+  } catch {
+    return { ok: false };
+  }
+  if (key !== e.key) return { ok: false };
+  if (e.an && iveoTokenZumBinden(slug, basis) === undefined) return { ok: false };
+  setzeIveoAbgleichHier(key, e.an);
+  tokensAktualisiert();
+  return { ok: true };
+}
+
 // ── Anhang-Wächter (iveo-Paket, Spec 8.2, 8.4) ───────────────────────────────
 // Beobachtet die aufgeklappte Anhang-Liste des Panels und das aktive Side Event. Die Agenda des aktiven Side Events
 // meldet der Kern direkt nach ihrem Abruf (meldeAgenda); eine aufgeklappte andere Liste holt der Wächter im Takt.
@@ -569,7 +635,7 @@ function agendaAktiv(programId: string, e: AgendaErgebnis): void {
 /** Client für den Wächter (15-s-Zeitgrenze wie Kern und Panel); ohne offene Show mit Token keiner. */
 function waechterClient(): IveoClient | null {
   const a = kern().aktiv();
-  const token = a ? getIveoToken(a.event) : undefined;
+  const token = a ? getIveoToken(a.event, offeneBaseUrl()) : undefined;
   if (!a || !token) return null;
   try {
     return iveoClient(token, offeneBaseUrl());
@@ -614,7 +680,7 @@ function offeneIveoShow(): { path: string; event: string } | null {
 /** Token der offenen Show auf diesem Rechner (9.2 Nr. 2), bei jedem Aufruf neu gelesen. */
 function tokenDerOffenenShow(): string | undefined {
   const a = kern().aktiv();
-  return a ? getIveoToken(a.event) : undefined;
+  return a ? getIveoToken(a.event, offeneBaseUrl()) : undefined;
 }
 /** Schalter (9.14): einmal gelesen, danach im Speicher; geändert wird er nur über setzeAnhangOrdner. */
 let schalterStand: boolean | null = null;
@@ -807,6 +873,7 @@ export function listSideEvents(input: IveoSideEventsInput = {}): IveoSideEventsR
       event: openShowIveo.name,
       canSwitch: a !== null,
       syncStatus,
+      abgleich: abgleichStand(),
     };
   }
   const dayMap = new Map<string, number>();
@@ -834,6 +901,7 @@ export function listSideEvents(input: IveoSideEventsInput = {}): IveoSideEventsR
     activeProgramId: a?.filter.programId,
     canSwitch: a !== null,
     syncStatus,
+    abgleich: abgleichStand(),
   };
 }
 
@@ -860,8 +928,9 @@ function offeneBaseUrl(): string {
 /** Alle Anhänge eines Side Events (aus dessen Agenda-Punkten) auflisten (iveo-Paket, Spec 8.2, 8.6). */
 export async function listSideEventMaterials(input: IveoMaterialsInput): Promise<IveoMaterialsResult> {
   const a = kern().aktiv();
-  if (!a) return { ok: false, error: 'Keine iveo-Show mit Token geöffnet.' };
-  const token = getIveoToken(a.event);
+  // Anmeldung P23 (I15): ohne aktive Show gleicht ein anderer Rechner ab (oder keiner); das Token kann im Speicher liegen.
+  if (!a) return { ok: false, error: 'Anhänge lädt nur der Rechner, der die offene Show mit iveo abgleicht.' };
+  const token = getIveoToken(a.event, offeneBaseUrl());
   if (!token) return { ok: false, error: 'Kein iveo-Token für die offene Show.' };
   const programId = input.programId?.trim();
   if (!programId) return { ok: false, error: 'programId fehlt.' };
@@ -914,12 +983,14 @@ const ANHANG_LEERLAUF_MS = 60_000;
  */
 export async function downloadSideEventMaterial(input: IveoDownloadInput): Promise<ActionResult> {
   const a = kern().aktiv();
-  if (!a) return { ok: false, message: 'Keine iveo-Show mit Token geöffnet.' };
-  const token = getIveoToken(a.event);
-  if (!token) return { ok: false, message: 'Kein iveo-Token für die offene Show.' };
+  // Anmeldung P23 (I15): ohne aktive Show gleicht ein anderer Rechner ab (oder keiner); das Token kann im Speicher liegen.
+  if (!a) return { ok: false, message: 'Anhänge lädt nur der Rechner, der die offene Show mit iveo abgleicht.' };
   // Token und Basis-URL gehören zusammen: beide jetzt, einmal. Der Dialog ist nicht modal; öffnet der Bediener währenddessen
   // eine andere Show, darf das Token dieses Events nie an die Herkunft der anderen gehen (wie im Ordner, der beide im selben Moment bildet).
+  // Anmeldung P23 (N7): das Token gilt je Event UND Basis-URL — darum erst die Adresse (einmal, P30 Fix 1), dann das Token für sie.
   const basis = offeneBaseUrl();
+  const token = getIveoToken(a.event, basis);
+  if (!token) return { ok: false, message: 'Kein iveo-Token für die offene Show.' };
   try {
     // Die Agenda ist ein JSON-Abruf und bekommt die Zeitgrenze von 15 s (Spec 7.0).
     const agenda = await iveoClient(token, basis).listAgendaItems(a.event, input.programId);

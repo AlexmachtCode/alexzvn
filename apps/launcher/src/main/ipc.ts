@@ -56,6 +56,7 @@ import {
   anhangOrdnerStand,
   setzeAnhangOrdner,
   oeffneAnhangOrdner,
+  setzeAbgleichHier,
 } from './iveo-sync';
 
 function withTool(
@@ -183,6 +184,8 @@ export function registerIpc(): void {
   ipcMain.handle('iveo:anhangOrdner', () => anhangOrdnerStand());
   ipcMain.handle('iveo:setzeAnhangOrdner', (_e, input: unknown) => setzeAnhangOrdner(input));
   ipcMain.handle('iveo:oeffneAnhangOrdner', (_e, input: unknown) => oeffneAnhangOrdner(input));
+  // Anmeldung P23 (EP14, 10.7): „Abgleich hier übernehmen/beenden“ — nur die Markierung, nie ein Token.
+  ipcMain.handle('iveo:abgleichHier', (_e, input: unknown) => setzeAbgleichHier(input));
 
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url));
 

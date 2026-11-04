@@ -177,6 +177,11 @@ export interface IveoSideEventsResult {
   canSwitch?: boolean;
   /** Zustand des iveo-Abgleichs (Spec 7.6) — das Panel zeigt ihn beim Öffnen sofort. */
   syncStatus?: IveoAbgleichStatus;
+  /**
+   * Anmeldung P23 (EP14, OFP3): Event-Schlüssel der offenen Show, ob dieser Rechner sie abgleicht („Abgleich hier“) und ob er
+   * es übernehmen könnte (ein Token für genau dieses Event ist da). Ohne Token.
+   */
+  abgleich?: { key: string; hier: boolean; moeglich: boolean };
 }
 
 /** Zustand des iveo-Abgleichs der offenen Show (Master-Link Teil 2a, Spec 7.6). */
@@ -537,6 +542,8 @@ export interface JmpsApi {
   setzeAnhangOrdner: (input: { an: boolean }) => Promise<AnhangOrdnerStand>;
   /** iveo-Paket (Spec 9.13, E35): Ordner eines Side Events (ohne Kennung: Basisordner) öffnen; nur die programId, nie ein Pfad. */
   oeffneAnhangOrdner: (input: { programId?: string }) => Promise<ActionResult>;
+  /** Anmeldung P23 (EP14): „Abgleich hier übernehmen“ (an) bzw. „beenden“ für einen Event-Schlüssel ‹Basis›|‹Slug›. */
+  iveoAbgleichHier: (a: { key: string; an: boolean }) => Promise<{ ok: boolean }>;
   /** Verbund (Master-Link Teil 1). */
   getVerbund: () => Promise<VerbundStand>;
   setzeVerbundRolle: (rolle: VerbundRolle) => Promise<VerbundStand>;
