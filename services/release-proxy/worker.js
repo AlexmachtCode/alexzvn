@@ -144,7 +144,7 @@ export default {
     // Gate erreichbar sein (Zuschauer/Presse haben keinen Key); die Admin-Routen
     // (open/pending/ack/delete) prüfen den Key im Modul selbst. `null` = kein
     // Q&A-Pfad → normal weiter.
-    const qa = await handleQa(request, env, url);
+    const qa = await handleQa(request, env, url, ctx);
     if (qa) return qa;
 
     // Remote-Zuschaltung (Welle 6). Wie Q&A: öffentliche Routen (Gast-Seite/state/ice/ws) sind

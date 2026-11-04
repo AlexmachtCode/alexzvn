@@ -15,7 +15,11 @@
 // Bindungen (wrangler.toml):
 //   QA_RELAY   KV-Namespace für Event-Metadaten + Chiffretext-Einreichungen (NEU)
 //   RATELIMIT  bestehende KV-Bindung fürs Rate-Limit (geteilt mit /feedback, /draft)
-//   PROXY_KEY  Secret — schützt die Admin-Routen (open/pending/ack/delete)
+//   Zugang zu den Admin-Routen (open/pending/ack/delete): Freigabe des Launchers für genau dieses Event (Zweck qa-relay)
+//   oder im Übergang der alte PROXY_KEY bis ALTKEY_BIS (konto-zugang.js, Anmeldung im Launcher P19)
+
+// Anmeldung im Launcher (Plan Teil 1, P19): eine Prüfstelle für Freigabe und alten Schlüssel.
+import { abgelehnt, kontoJetzt, zugangPruefen } from './konto-zugang.js';
 
 const QA = {
   submitBytes: 8 * 1024, // harte Größengrenze eines Einreich-Bodys
@@ -44,7 +48,7 @@ class QaError extends Error {
  * Routen (Einreichseiten, submit, press, pubkey, state) sind ABSICHTLICH VOR dem
  * globalen PROXY_KEY-Gate erreichbar; die Admin-Routen prüfen den Key selbst.
  */
-export async function handleQa(request, env, url) {
+export async function handleQa(request, env, url, ctx) {
   const m = url.pathname.match(/^\/qa\/([^/]+)(?:\/([a-z]+))?\/?$/);
   if (!m) return null;
 
@@ -64,16 +68,22 @@ export async function handleQa(request, env, url) {
     if (method === 'POST' && sub === 'submit') return await qaSubmit(request, env, id, 'stream');
     if (method === 'POST' && sub === 'press') return await qaSubmit(request, env, id, 'press');
 
-    // ── Admin-Routen (PROXY_KEY) ─────────────────────────────────────────────
+    // ── Admin-Routen (Freigabe oder alter PROXY_KEY) ─────────────────────────
     const adminRoute =
       (method === 'POST' && sub === '') ||
       (method === 'DELETE' && sub === '') ||
       (method === 'GET' && sub === 'pending') ||
       (method === 'POST' && sub === 'ack');
     if (adminRoute) {
-      if (!keyOk(request, env)) return json({ error: 'unauthorized' }, 401);
+      // Freigabe für genau dieses Event (Zweck qa-relay, EP3) oder der alte Proxy-Key bis ALTKEY_BIS (Gruppe qa, EP9).
+      // Eine Sitzung gilt hier nicht: Q&A bekommt vom Launcher nur Freigaben (EP8).
+      const zugang = await zugangPruefen(request, env, { funktion: 'qa', gruppe: 'qa', ziel: id, jetzt: kontoJetzt(env), ctx });
+      if (!zugang.ok) return json({ error: zugang.error, code: zugang.code }, zugang.status);
       if (!env.QA_RELAY) return json({ error: 'QA_RELAY KV-Bindung fehlt' }, 503);
-      if (method === 'POST' && sub === '') return await qaOpen(request, env, id);
+      // EP33: Das Event gehört dem Konto bzw. Rechner, dessen Freigabe es zuerst geöffnet hat (die Event-ID ist öffentlich).
+      const inhaber = await eventInhaber(env, id, zugang);
+      if (!inhaber.ok) return json({ error: inhaber.error, code: inhaber.code }, inhaber.status);
+      if (method === 'POST' && sub === '') return await qaOpen(request, env, id, inhaber.inhaber);
       if (method === 'DELETE' && sub === '') return await qaPurge(env, id);
       if (method === 'GET' && sub === 'pending') return await qaPending(env, id);
       if (method === 'POST' && sub === 'ack') return await qaAck(request, env, id);
@@ -112,7 +122,7 @@ async function getMeta(env, id) {
  * des Presse-Zugangscodes, die Offen-Flags und die Retention hoch. Idempotent —
  * erneutes Öffnen aktualisiert die Metadaten (z. B. Kanäle schließen).
  */
-async function qaOpen(request, env, id) {
+async function qaOpen(request, env, id, inhaber = null) {
   const body = await readJsonLimited(request, QA.adminBytes);
   const pubJwk = body && body.pubJwk;
   if (!pubJwk || pubJwk.kty !== 'RSA' || typeof pubJwk.n !== 'string' || typeof pubJwk.e !== 'string') {
@@ -130,6 +140,8 @@ async function qaOpen(request, env, id) {
     pressOpen: !!pressCodeHash && (body ? body.pressOpen !== false : true),
     retentionSec,
     createdAt: Date.now(),
+    // EP33: Hash von Konto und Rechner der ersten Freigabe; fehlt bei einem Event, das der alte Schlüssel geöffnet hat.
+    ...(inhaber ? { inhaber } : {}),
   };
   await env.QA_RELAY.put(metaKey(id), JSON.stringify(meta), { expirationTtl: retentionSec });
   return json({ ok: true, streamOpen: meta.streamOpen, pressOpen: meta.pressOpen });
@@ -258,11 +270,28 @@ async function qaPurge(env, id) {
 
 // ── Helfer ─────────────────────────────────────────────────────────────────────
 
-function keyOk(request, env) {
-  const provided =
-    request.headers.get('X-Proxy-Key') ||
-    (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  return !!env.PROXY_KEY && provided === env.PROXY_KEY;
+/**
+ * EP33: Wem gehört ein Event? Die ID ist öffentlich (Einreich-Adresse /qa/<id>, Saal-QR). Ohne Bindung könnte jede Freigabe für
+ * diese ID (jeder Kollege, jeder Externe mit qa) den öffentlichen Schlüssel eines laufenden Events überschreiben, es quittieren
+ * oder löschen. Das erste Öffnen mit einer Freigabe merkt sich Konto und Rechner (nur als Hash, QA_RELAY liegt nicht in der EU);
+ * danach gilt nur eine Freigabe desselben Kontos oder desselben Rechners, der alte Schlüssel nicht mehr. Ein Event ohne Inhaber
+ * (im Übergang mit dem alten Schlüssel geöffnet) bindet die erste Freigabe, die es nutzt (Q&A öffnet je Lauf nur einmal).
+ * → { ok: true, inhaber } (für qaOpen: der gemerkte, sonst der dieser Freigabe, beim alten Schlüssel null) | Ablehnung 403 S15
+ */
+async function eventInhaber(env, id, zugang) {
+  const meta = await getMeta(env, id);
+  const gemerkt = meta && meta.inhaber && typeof meta.inhaber === 'object' ? meta.inhaber : null;
+  const kid = zugang.art === 'freigabe' ? String(zugang.claims.kid || '') : '';
+  const gid = zugang.art === 'freigabe' ? String(zugang.claims.gid || '') : '';
+  const neu = kid && gid ? { kid: await sha256Hex(`qa-inhaber|kid|${kid}`), gid: await sha256Hex(`qa-inhaber|gid|${gid}`) } : null;
+  if (!gemerkt) {
+    // Restlaufzeit des Events beibehalten (KV verlangt mindestens 60 s).
+    const rest = meta ? Math.ceil(((meta.createdAt || 0) + (meta.retentionSec || 0) * 1000 - Date.now()) / 1000) : 0;
+    if (neu && meta) await env.QA_RELAY.put(metaKey(id), JSON.stringify({ ...meta, inhaber: neu }), { expirationTtl: Math.max(60, rest) });
+    return { ok: true, inhaber: neu };
+  }
+  if (neu && (neu.kid === gemerkt.kid || neu.gid === gemerkt.gid)) return { ok: true, inhaber: gemerkt };
+  return abgelehnt('keine-freigabe', 403);
 }
 
 function clientIp(request) {
