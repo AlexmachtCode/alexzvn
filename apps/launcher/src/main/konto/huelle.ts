@@ -400,27 +400,32 @@ function nachErsterAnmeldungAufraeumen(): void {
  * kein Event als zentral hinterlegt. Ins Log nur Anzahlen, nie Schlüssel oder Werte (G4).
  */
 function raeumeLokaleIveoTokensAuf(): void {
-  const erste = leseKontoErsteAnmeldung();
-  if (erste === null) return;
-  const r = lokaleLoeschen({
-    lokaleSlugs: listIveoTokenKeys(),
-    zentral: iveoGeladen ? iveo.erlaubteEvents().map((e) => e.key) : [],
-    ersteAnmeldung: erste,
-    jetzt: Date.now(),
-    iveoShowOffen: iveoShowOffen(),
-    standardBasis: resolveIveoBaseUrl(),
-  });
-  if (r.markieren.length) markiereAbgleichHier(r.markieren);
-  if (r.loeschen.length) {
-    loescheLokaleIveoTokens(r.loeschen);
-    log?.info(`Anmeldung: ${r.loeschen.length} lokal gespeicherte iveo-Tokens gelöscht (OFP1)`);
-  }
-  if (uebergangMelden && iveoGeladen) {
-    uebergangMelden = false;
-    const events = r.bleiben.filter((k) => !k.startsWith('base:'));
-    const teile = [githubGeloescht ? TEXT_GITHUB_GELOESCHT : null, events.length ? textLokaleIveo(events, r.spaetestens) : null]
-      .filter((t): t is string => t !== null);
-    if (teile.length) emit({ type: 'notice', message: teile.join(' ') });
+  try {
+    const erste = leseKontoErsteAnmeldung();
+    if (erste === null) return;
+    const r = lokaleLoeschen({
+      lokaleSlugs: listIveoTokenKeys(),
+      zentral: iveoGeladen ? iveo.erlaubteEvents().map((e) => e.key) : [],
+      ersteAnmeldung: erste,
+      jetzt: Date.now(),
+      iveoShowOffen: iveoShowOffen(),
+      standardBasis: resolveIveoBaseUrl(),
+    });
+    if (r.markieren.length) markiereAbgleichHier(r.markieren);
+    if (r.loeschen.length) {
+      loescheLokaleIveoTokens(r.loeschen);
+      log?.info(`Anmeldung: ${r.loeschen.length} lokal gespeicherte iveo-Tokens gelöscht (OFP1)`);
+    }
+    if (uebergangMelden && iveoGeladen) {
+      uebergangMelden = false;
+      const events = r.bleiben.filter((k) => !k.startsWith('base:'));
+      const teile = [githubGeloescht ? TEXT_GITHUB_GELOESCHT : null, events.length ? textLokaleIveo(events, r.spaetestens) : null]
+        .filter((t): t is string => t !== null);
+      if (teile.length) emit({ type: 'notice', message: teile.join(' ') });
+    }
+  } catch (e) {
+    // Ein Fehler hier (z. B. EPERM/EBUSY beim Schreiben) darf ladeIveo nicht abbrechen; nur der Fehlername ins Log (G4).
+    log?.warn(`Anmeldung: Aufräumen lokaler iveo-Tokens fehlgeschlagen (${(e as Error)?.name ?? 'Error'})`);
   }
 }
 

@@ -103,9 +103,11 @@ export function erzeugeIveoZentral(): IveoZentralSpeicher {
 }
 
 /**
- * IV5, OFP1: welche lokal gespeicherten Tokens jetzt verschwinden. Je lokalem Slug, für den der Worker ein Token liefert,
- * erst markieren („Abgleich hier“), dann löschen; alle übrigen spätestens 30 Tage nach der ersten Anmeldung (auch sie
- * werden vorher zur Markierung); nie, solange eine iveo-Show offen ist (dann beim nächsten Schließen bzw. Start).
+ * IV5, OFP1: welche lokal gespeicherten Tokens jetzt verschwinden. Vorzeitig nur bei genauem Treffer auf der Standardbasis
+ * (`<Standardbasis>|<slug>` steht zentral), weil das lokale Token keine Basis kennt: Ein Event gleichen Slugs auf anderer
+ * Basis ersetzt es nicht. Solche Slugs werden erst markiert („Abgleich hier“), dann gelöscht; alle übrigen spätestens 30 Tage
+ * nach der ersten Anmeldung (auch sie werden vorher zur Markierung); nie, solange eine iveo-Show offen ist (dann beim
+ * nächsten Schließen bzw. Start).
  * Basis-Tokens (`base:<URL>`, nur für „Events laden“) haben kein Event: sie werden nach der Frist ohne Markierung gelöscht.
  */
 export function lokaleLoeschen(l: {
@@ -123,8 +125,9 @@ export function lokaleLoeschen(l: {
       (fristUm ? loeschen : bleiben).push(slug);
       continue;
     }
-    const zentral = finde(l.zentral, iveoSchluessel(l.standardBasis, slug), slug.trim(), (k) => k);
-    if (zentral !== undefined || fristUm) {
+    const standard = iveoSchluessel(l.standardBasis, slug);
+    const zentral = finde(l.zentral, standard, slug.trim(), (k) => k);
+    if (l.zentral.includes(standard) || fristUm) {
       const marke = zentral ?? iveoSchluessel(l.standardBasis, slug);
       if (!markieren.includes(marke)) markieren.push(marke);
       loeschen.push(slug);

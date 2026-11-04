@@ -3589,7 +3589,9 @@ function dialogBefunde(q: string): string[] {
     && lauf.includes('  if (erste === null) return;') && lauf.includes('    iveoShowOffen: iveoShowOffen(),')
     && lauf.includes('    zentral: iveoGeladen ? iveo.erlaubteEvents().map((e) => e.key) : [],')
     && lauf.indexOf('markiereAbgleichHier(r.markieren)') > 0
-    && lauf.indexOf('markiereAbgleichHier(r.markieren)') < lauf.indexOf('loescheLokaleIveoTokens(r.loeschen)'));
+    && lauf.indexOf('markiereAbgleichHier(r.markieren)') < lauf.indexOf('loescheLokaleIveoTokens(r.loeschen)')
+    && !ohneKommentare(lauf).includes('r.loeschen.join') && !ohneKommentare(lauf).includes('r.markieren.join')
+    && lauf.includes('${r.loeschen.length}') && lauf.includes('const erste = leseKontoErsteAnmeldung();'));
   ck('P32 K32, I11: Meldungen wörtlich, nur Event-Kennungen ohne Werte, einmal nach der ersten Anmeldung, sobald die Tokens geladen sind',
     huelle.includes("const TEXT_GITHUB_GELOESCHT = 'Der gespeicherte GitHub-Zugang wurde gelöscht; Downloads laufen jetzt über deine Anmeldung.';")
     && huelle.includes('  return `Diese Events haben auf diesem Rechner noch ein lokal gespeichertes Token: ${slugs.join(\', \')}. Es wird gelöscht, sobald ein Admin das Event zentral hinterlegt, spätestens am ${datumText(spaetestens)}.`;')

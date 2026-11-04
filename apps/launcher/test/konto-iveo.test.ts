@@ -141,7 +141,7 @@ ck('P14 EP13: iveoSchluessel normalisiert die Basis wie settings.ts (Schrägstri
     let soll: { loeschen: string[]; markieren: string[]; bleiben: string[] };
     if (f.offen) soll = { loeschen: [], markieren: [], bleiben: [slug] };
     else if (f.k === 'zentral genau') soll = { loeschen: [slug], markieren: [`${PROD}|cop31`], bleiben: [] };
-    else if (f.k === 'zentral andere Basis') soll = { loeschen: [slug], markieren: [`${STAGING}|probe`], bleiben: [] };
+    else if (f.k === 'zentral andere Basis') soll = frist ? { loeschen: [slug], markieren: [`${STAGING}|probe`], bleiben: [] } : { loeschen: [], markieren: [], bleiben: [slug] };
     else if (f.k === 'zentral genau, Slug doppelt') soll = { loeschen: [slug], markieren: [`${PROD}|doppelt`], bleiben: [] };
     else if (f.k === 'Basis-Token') soll = frist ? { loeschen: [slug], markieren: [], bleiben: [] } : { loeschen: [], markieren: [], bleiben: [slug] };
     else if (f.k === 'zentral mehrdeutig') soll = frist ? { loeschen: [slug], markieren: [`${PROD}|zwei`], bleiben: [] } : { loeschen: [], markieren: [], bleiben: [slug] };
