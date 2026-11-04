@@ -10,7 +10,7 @@
 import type {
   AblaufGrund, EntzugGrund, FreigabeAusgabe, KontoAnsicht, KontoStand, KontoZustand, StoerGrund, ZoomAnfrageStand,
 } from '../../shared/konto';
-import type { GeraetHandle } from './geraet';
+import type { GeraetHandle, Verschluesseler } from './geraet';
 import { KontoFehler, type KontoClient } from './worker-client';
 
 export interface GespeicherteSitzung { token: string; stand: KontoStand }
@@ -535,6 +535,43 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
       if (hinweise.includes(h)) return;
       hinweise.push(h);
       aktualisiere();
+    },
+  };
+}
+
+// ── Ablage der Sitzung (Task 21; EP2, R3, G6; Nachbesserung Abschluss, sicherheit:12) ──
+/**
+ * G6: Die Sitzung geht nur verschlüsselt in ihr Feld (`kontoSitzungEnc` in settings.json; die Hülle verdrahtet safeStorage
+ * und settings.ts), ohne Schlüsselspeicher gar nicht (sie gilt dann nur bis zum Neustart), nie als Klartext. Unlesbar oder ohne
+ * Schlüsselspeicher gelesen → 'unlesbar' (R3: neu anmelden). `null` leert das Feld (Abmelden, Entzug).
+ * AR58: auch ein Stand mit unendlichem oder fehlendem exp, iat oder kontoBis (null oder endliche Zahl) ist 'unlesbar'.
+ */
+export function sitzungsAblage(
+  v: Verschluesseler,
+  feld: { lies(): string | undefined; schreib(wert: string | undefined): void },
+): Pick<SitzungsUmgebung['speicher'], 'lade' | 'speichere'> {
+  return {
+    lade() {
+      const roh = feld.lies();
+      if (!roh) return null;
+      if (!v.verfuegbar()) return 'unlesbar';
+      try {
+        const s = JSON.parse(v.entschluesseln(roh)) as Partial<GespeicherteSitzung> | null;
+        const st = s?.stand;
+        const brauchbar = !!s && typeof s.token === 'string' && !!st && Number.isFinite(st.exp) && Number.isFinite(st.iat)
+          && (st.kontoBis === null || Number.isFinite(st.kontoBis));
+        return brauchbar ? (s as GespeicherteSitzung) : 'unlesbar';
+      } catch {
+        return 'unlesbar';
+      }
+    },
+    speichere(s) {
+      if (s === null) {
+        feld.schreib(undefined);
+        return;
+      }
+      if (!v.verfuegbar()) return;
+      feld.schreib(v.verschluesseln(JSON.stringify(s)));
     },
   };
 }

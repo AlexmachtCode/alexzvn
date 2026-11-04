@@ -3089,5 +3089,101 @@ await (async () => {
     [/>\s*PR öffnen\s*</, /Weiteres Rezept/, />\s*Schließen\s*</, />\s*Abbrechen\s*</, /'Rezept erzeugen'/]);
 }
 
+// --- Anmeldung P21 (Spec 6.1, 6.2, 7, 2; EP2, EP7, EP8, EP12, EP26; G5, G6, G9; 10.7): Hülle, IPC, Einstellungsfelder ---
+// konto/huelle.ts, ipc.ts, preload und index.ts laden Electron und laufen hier nicht; geprüft wird ihr Quelltext. Die
+// reinen Module darunter testet npm run selftest:konto (tsx).
+{
+  const huelle = quelleLfOderLeer('../src/main/konto/huelle.ts');
+  const ipc = quelleLf('../src/main/ipc.ts');
+  const preload = quelleLf('../src/preload/index.ts');
+  const typen = quelleLf('../src/shared/types.ts');
+  const konto = quelleLfOderLeer('../src/shared/konto.ts');
+  const haupt = quelleLf('../src/main/index.ts');
+  const einst = quelleLf('../src/main/settings.ts');
+  // 10.7: Kanal → Methode in JmpsApi und Preload. Der 13. Kanal (iveo:abgleichHier) kommt mit P23.
+  const KANAELE: Array<[string, string]> = [
+    ['konto:ansicht', 'kontoAnsicht'], ['konto:anmelden', 'kontoAnmelden'], ['konto:anmeldeSchritt', 'kontoAnmeldeSchritt'],
+    ['konto:anmeldenAbbrechen', 'kontoAnmeldenAbbrechen'], ['konto:adresseKopieren', 'kontoAdresseKopieren'],
+    ['konto:abmelden', 'kontoAbmelden'], ['konto:lage', 'kontoLage'], ['konto:zoomAnfragen', 'kontoZoomAnfragen'],
+    ['konto:adminUebersicht', 'kontoAdminUebersicht'], ['konto:adminAktion', 'kontoAdminAktion'],
+    ['konto:iveoEventsLaden', 'kontoIveoEventsLaden'], ['konto:iveoEvents', 'kontoIveoEvents'],
+  ];
+  const kanalFehlt = KANAELE.filter(([k, m]) => !huelle.includes(`  ipc.handle('${k}',`) || !new RegExp(`\\n  ${m}: \\([^\\n]*\\) => invoke<[^\\n]*>\\('${k}'`).test(preload)
+    || !new RegExp(`\\n  ${m}: \\(`).test(typen)).map(([k]) => k);
+  // EP15 (Nachbesserung Block A, robust:1): nach jeder Admin-Aktion holt die Hülle die Lage neu, der Punkt am Zahnrad folgt sofort.
+  const adminLage = funktionsKoerper(huelle, 'async function adminAktion(').includes('    await treiber.lage();');
+  ck(`P21 10.7: Kanäle konto:* in huelle.ts (registriert aus ipc.ts), Preload und JmpsApi (${KANAELE.length} Kanäle)${kanalFehlt.length ? ` — fehlt: ${kanalFehlt.join(', ')}` : ''}${adminLage ? '' : ' — konto:adminAktion holt die Lage nicht neu'}`,
+    kanalFehlt.length === 0 && adminLage && ipc.includes('  registriereKontoIpc(ipcMain);') && ipc.includes("import { registriereKontoIpc } from './konto/huelle';"));
+  ck('P21 10.7: AppEvent kennt konto-changed und anmeldung-changed (mit dem Schritt)',
+    typen.includes("  | { type: 'konto-changed' }") && typen.includes("  | { type: 'anmeldung-changed'; schritt: AnmeldeSchritt };"));
+  // G9: unter src/main/konto lädt nur die Hülle Electron.
+  const kontoDateien = (readdirSync(new URL('../src/main/konto/', import.meta.url)) as string[]).filter((d) => d.endsWith('.ts')).sort();
+  const mitElectron = kontoDateien.filter((d) => /from 'electron'|require\('electron'\)/.test(quelleLf(`../src/main/konto/${d}`)));
+  ck(`P21 G9: unter src/main/konto importiert nur huelle.ts electron (${kontoDateien.length} Dateien, mit electron: ${mitElectron.join(', ') || 'keine'})`,
+    mitElectron.length === 1 && mitElectron[0] === 'huelle.ts');
+  // G5: der Start wartet nie auf die Anmeldung.
+  const quit = /app\.on\('before-quit', \(\) => \{\n([\s\S]*?)\n {4}\}\);/.exec(haupt)?.[1] ?? '';
+  ck('P21 G5: starteKonto steht direkt nach migrateTokenAtRest, ohne await; stoppeKonto im before-quit, ohne await',
+    haupt.includes('    migrateTokenAtRest();\n    starteKonto({ emit: (e) => emitAppEvent(e), log: runtime.log, appDataDir: app.getPath(\'appData\') });')
+    && !/await\s+starteKonto/.test(haupt) && quit.includes('      stoppeKonto();') && !quit.includes('await'));
+  ck('P21 G5: starteKonto kehrt sofort zurück (der Start läuft in einer eigenen async-Funktion, die nicht abgewartet wird)',
+    huelle.includes('export function starteKonto(o: { emit(e: AppEvent): void; log: Logger; appDataDir: string }): void {')
+    && funktionsKoerper(huelle, 'export function starteKonto(').includes('  bereit = starte(o, c).catch('));
+  // G6: Sitzung und Geräteschlüssel nur über safeStorage; kein Klartext-Rückfall wie settings.ts:211. Das Verhalten der Ablage
+  // prüft konto-sitzung.test.ts („P21 G6, EP2“, „P21 G6, R3“); hier nur, dass die Hülle genau sie mit safeStorage verdrahtet.
+  ck('P21 G6, EP2: die Sitzung geht nur verschlüsselt in settings.json, ohne Schlüsselspeicher gar nicht',
+    huelle.includes('  verfuegbar: () => safeStorage.isEncryptionAvailable(),')
+    && huelle.includes('  ...sitzungsAblage(verschluesseler, {')
+    && huelle.includes("    schreib: (wert) => schreibeKontoFeld('kontoSitzungEnc', wert),")
+    && (huelle.match(/schreibeKontoFeld\(/g) ?? []).length === 2);
+  ck('P21 G6, EP7: der Geräteschlüssel geht nur als Ergebnis des Verschlüsselers (geraet.ts) in settings.json',
+    huelle.includes("      schreib: (b64) => schreibeKontoFeld('geraetSchluesselEnc', b64),"));
+  const neueFelder = funktionsKoerper(einst, 'export function leseKontoFeld(');
+  ck('P21 G6: settings.ts speichert die neuen Felder nur (kein safeStorage, kein Klartext-Rückfall in den neuen Funktionen)',
+    neueFelder.length > 0 && !ohneKommentare(einst.slice(einst.indexOf('// ── Anmeldung (Plan P21'))).includes('safeStorage')
+    && einst.includes('  kontoSitzungEnc?: string;') && einst.includes('  geraetSchluesselEnc?: string;')
+    && einst.includes('  kontoErsteAnmeldung?: number;') && einst.includes('  iveoAbgleichHier?: string[];')
+    && /\n {2}kontoEntzug\?: \{ grund: EntzugGrund; am: number \};/.test(einst));
+  // 10.7: keine Antwort an den Renderer trägt eine Sitzung, eine Freigabe oder ein iveo-Token.
+  const feldNamen = (koerper: string): string[] => [...koerper.matchAll(/(\w+)\??:/g)].map((m) => m[1].toLowerCase());
+  const verboten = (namen: string[]): string[] => namen.filter((n) => /token|sitzung|freigabe$|geheim/.test(n));
+  const ansichtFelder = feldNamen(/export interface KontoAnsicht \{([\s\S]*?)\n\}/.exec(konto)?.[1] ?? '');
+  const ausgabeFelder = feldNamen(/export interface FreigabeAusgabe \{([^}]*)\}/.exec(konto)?.[1] ?? '');
+  const antwortTypen = ['KontoZoomAntwort', 'KontoAdminAntwort', 'KontoAdminAktionAntwort', 'KontoIveoEventsAntwort']
+    .map((t) => new RegExp(`export type ${t} =[\\s\\S]*?\\};\\n`).exec(typen)?.[0] ?? '').join('\n');
+  const eventFelder = feldNamen(/export interface KontoIveoEvent \{([^}]*)\}/.exec(typen)?.[1] ?? '');
+  const schlecht = [...verboten(ansichtFelder), ...verboten(ausgabeFelder), ...verboten(feldNamen(antwortTypen)), ...verboten(eventFelder)];
+  ck(`P21 10.7: KontoAnsicht, Ausgaben und IPC-Antworten ohne Token-, Sitzungs- oder Freigabefeld${schlecht.length ? ` — ${schlecht.join(', ')}` : ''}`,
+    ansichtFelder.length > 0 && antwortTypen.length > 100 && eventFelder.length === 4 && schlecht.length === 0
+    && huelle.includes("  ipc.handle('konto:iveoEvents', (): KontoIveoEvent[] => iveo.erlaubteEvents());"));
+  // AA6, G4: Code und Schritt nur an den Renderer, nie ins Log; Logzeilen ohne Stand, E-Mail oder Token.
+  const logZeilen = [...huelle.matchAll(/\.(?:info|warn|error)\((`[^`]*`|'[^']*')\)/g)].map((m) => m[1]);
+  // Geprüft wird, was eingesetzt wird (${…}): Schritt, Code, Sitzung, Token, E-Mail, Stand, Geheimnis dürfen nie hinein.
+  const logMitGeheimnis = logZeilen.flatMap((z) => [...z.matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1]))
+    .filter((a) => a !== "f.code ?? 'fehler'" && /schritt|token|sitzung|email|abhol|geheim|\bstand\b|\.code\b|^\s*[st]\s*$/i.test(a));
+  ck(`P21 AA6, G4: der Anmelde-Schritt geht nur an den Renderer; keine Logzeile setzt Code, Sitzung, Token oder E-Mail ein (${logZeilen.length} Logzeilen)${logMitGeheimnis.length ? ` — ${logMitGeheimnis.join(' | ')}` : ''}`,
+    huelle.includes("    melde: (schritt) => emit({ type: 'anmeldung-changed', schritt }),") && logZeilen.length >= 5 && logMitGeheimnis.length === 0);
+  ck('P21 EP26: „Anmelden“ startet den Ablauf nur ohne gültige Sitzung (ein Konto je Rechner)',
+    huelle.includes('    if (kontoToken() === null) await a.starte();'));
+  ck('P21 EP8: Tür-Dienst startet nach dem Treiber im Hintergrund; stoppeKonto löscht die Tür-Datei (nur angestoßen)',
+    huelle.includes('    const d = await starteTuerDienst({ appDataDir: o.appDataDir, behandle: (a) => stelle.behandle(a), log: (z) => o.log.info(z) });')
+    && funktionsKoerper(huelle, 'export function stoppeKonto(): void {').includes('  void tuer?.stoppe();'));
+  ck('P21 K33, K34: Meldungen nach Anmelden und Abmelden wörtlich',
+    huelle.includes('  return `Angemeldet als ${kurzName(stand.name, stand.email)} · ${STUFE_TEXT[stand.stufe]}.`;')
+    && huelle.includes("const TEXT_ABGEMELDET = 'Abgemeldet.';"));
+  ck('P21 R9: die erste Anmeldung wird in settings.json gemerkt, die Haken (P32) laufen genau dann',
+    /if \(leseKontoErsteAnmeldung\(\) === null\) \{\n {8}schreibeKontoErsteAnmeldung\(Date\.now\(\)\);\n {8}for \(const f of beiErsterAnmeldung\)/.test(huelle));
+  // EP35 (Nachbesserung Block D, sicherheit:8): System-Browser und Zwischenablage bekommen nur https-Adressen des Workers.
+  const imBrowser = funktionsKoerper(huelle, 'function oeffneImBrowser(url: string): Promise<boolean> {');
+  ck('P21 EP35: shell.openExternal und die Zwischenablage nur nach browserAdresseErlaubt (https, beim Worker)',
+    huelle.includes('    oeffneBrowser: oeffneImBrowser,') && imBrowser.indexOf('  if (!browserAdresseErlaubt(url, serverBasis)) {') > 0
+    && imBrowser.indexOf('browserAdresseErlaubt(') < imBrowser.indexOf('shell.openExternal(url)')
+    && huelle.includes('    if (!adresse || !browserAdresseErlaubt(adresse, serverBasis)) {')
+    && (huelle.match(/shell\.openExternal\(/g) ?? []).length === 1 && (huelle.match(/clipboard\.writeText\(/g) ?? []).length === 1
+    && huelle.includes("  const c = erzeugeKontoClient({ basis: serverBasis, fetch: (url, init) => fetch(url, init) });"));
+}
+
+// ── Ende der Fälle (Anmeldung) ──
+
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 import type { KontoAnsicht, KontoStand, ZoomAnfrageStand } from '../src/shared/konto';
 import type { GeraetHandle } from '../src/main/konto/geraet';
 import {
-  erzeugeSitzungsTreiber, GOOGLE_NEU_MS, NEUPRUEFUNG_VORLAUF_MS, WECKER_MAX_MS, type GespeicherteSitzung, type SitzungsTreiber,
-  type SitzungsUmgebung,
+  erzeugeSitzungsTreiber, GOOGLE_NEU_MS, NEUPRUEFUNG_VORLAUF_MS, sitzungsAblage, WECKER_MAX_MS, type GespeicherteSitzung,
+  type SitzungsTreiber, type SitzungsUmgebung,
 } from '../src/main/konto/sitzung-kern';
 import { KontoFehler, type KontoClient } from '../src/main/konto/worker-client';
 import { kreuz, pruefeFaelle } from './konto-rechte.test';
@@ -675,6 +675,49 @@ const angemeldet = async (antworten: Antwort[] = [{ ok: NEU }], o: Parameters<ty
     }
   }
   ck(`P10 G4: kein Token in den ${meldungen} Meldungen an melde und nie in der Ansicht (Start-Kreuzprodukt, Lage, Bedarf, Anmeldung, Abmelden)`, meldungen > 40 && mitToken === 0);
+}
+
+// --- P21 G6, EP2, R3: die Ablage der Sitzung im Verhalten (Nachbesserung Abschluss, sicherheit:12) -------------------------
+// Die Hülle (Task 21) verdrahtet sitzungsAblage mit safeStorage und kontoSitzungEnc; hier eine Attrappe des Verschlüsselers
+// (umkehrbar, ohne Klartext; ein fremder Inhalt wirft wie safeStorage) und ein Feld wie in settings.json.
+{
+  const zu = (k: string): string => `v1:${Buffer.from(k, 'utf8').toString('base64').split('').reverse().join('')}`;
+  const auf = (b: string): string => {
+    if (!b.startsWith('v1:')) throw new Error('fremd');
+    return Buffer.from(b.slice(3).split('').reverse().join(''), 'base64').toString('utf8');
+  };
+  const einstellungen: { kontoSitzungEnc?: string } = {};
+  let schreibvorgaenge = 0;
+  const feld = {
+    lies: () => einstellungen.kontoSitzungEnc,
+    schreib: (w: string | undefined) => { schreibvorgaenge++; if (w === undefined) delete einstellungen.kontoSitzungEnc; else einstellungen.kontoSitzungEnc = w; },
+  };
+  const ablage = (verfuegbar: boolean) => sitzungsAblage({ verfuegbar: () => verfuegbar, verschluesseln: zu, entschluesseln: auf }, feld);
+  const s: GespeicherteSitzung = { token: 'jm1.test-sitzung-p21.sig', stand: stand() };
+  ablage(true).speichere(s);
+  const datei = JSON.stringify(einstellungen); // so steht das Feld in settings.json
+  const zurueck = ablage(true).lade();
+  ck('P21 G6, EP2: in settings.json steht die Sitzung nur als Ausgabe des Verschlüsselers (weder Token noch E-Mail im Klartext) und kommt unverändert zurück',
+    einstellungen.kontoSitzungEnc === zu(JSON.stringify(s)) && !datei.includes('jm1.') && !datei.includes('test-sitzung-p21')
+    && !datei.includes('maria.schmidt') && JSON.stringify(zurueck) === JSON.stringify(s));
+  delete einstellungen.kontoSitzungEnc;
+  schreibvorgaenge = 0;
+  ablage(false).speichere(s);
+  const ohneSpeicher = einstellungen.kontoSitzungEnc === undefined && schreibvorgaenge === 0;
+  einstellungen.kontoSitzungEnc = 'v1:kaputt';
+  const unlesbar = ablage(true).lade();
+  const ohneSchluesselGelesen = ablage(false).lade();
+  // AR58: ein entschlüsseltes Feld mit unendlichem exp (von Hand geschriebener JSON-Text: JSON.stringify(Infinity) gäbe null,
+  // JSON.parse('1e999') ist Infinity) oder ohne kontoBis ist kein Stand, sondern 'unlesbar'.
+  einstellungen.kontoSitzungEnc = zu(JSON.stringify(s).replace(/"exp":\d+/, '"exp":1e999'));
+  const unendlich = ablage(true).lade();
+  const { kontoBis: _ohne, ...standOhneKontoBis } = s.stand;
+  einstellungen.kontoSitzungEnc = zu(JSON.stringify({ token: s.token, stand: standOhneKontoBis }));
+  const ohneKontoBis = ablage(true).lade();
+  ablage(true).speichere(null);
+  ck('P21 G6, R3: ohne Schlüsselspeicher schreibt die Ablage nichts (kein Klartext-Rückfall); ein unlesbares Feld heißt unlesbar; Abmelden leert das Feld',
+    ohneSpeicher && unlesbar === 'unlesbar' && ohneSchluesselGelesen === 'unlesbar' && unendlich === 'unlesbar' && ohneKontoBis === 'unlesbar'
+    && einstellungen.kontoSitzungEnc === undefined);
 }
 
 // --- P10 G9 -----------------------------------------------------------------------------------------------------------------

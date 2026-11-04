@@ -1,7 +1,7 @@
 // Anmeldung im Launcher (Teil 1) · P9: Client der Worker-API /konto/* (src/main/konto/worker-client.ts) — gegen den Vertrag
 // Gliederung 10.1 mit einer fetch-Attrappe, ohne Netz (tsx). Die Worker-Routen selbst prüft Block C (Task 16).
 import { readFileSync } from 'node:fs';
-import { erzeugeKontoClient, KontoFehler, zugangsKopf, type KontoClient } from '../src/main/konto/worker-client';
+import { browserAdresseErlaubt, erzeugeKontoClient, istWorkerAdresse, KontoFehler, zugangsKopf, type KontoClient } from '../src/main/konto/worker-client';
 import type { KontoStand } from '../src/shared/konto';
 import { pruefeFaelle } from './konto-rechte.test';
 
@@ -199,6 +199,47 @@ ck('P9 9.1: zugangsKopf: Sitzung → Authorization, sonst Dev-Key → X-Proxy-Ke
     att.aufrufe.length === 3 && att.aufrufe.every((a) => !Object.keys(a.kopf).includes('x-proxy-key'))
     && fehler.every((e) => e !== null) && !texte.includes(S) && !texte.includes('geheim-abholen') && !texte.includes('worker.test')
     && fehler[0]?.message === 'Konto-Anfrage fehlgeschlagen: gesperrt (HTTP 403)' && fehler[3]?.message === 'Konto-Anfrage fehlgeschlagen: netz');
+}
+
+// --- Anmeldung P21/P22 (EP35; Nachbesserung Block D, sicherheit:2, sicherheit:8): Adressen des Workers, Browser nur https ----
+{
+  const SERVER = 'https://jm-suite-proxy.jm-production-suite.workers.dev';
+  // [Adresse, Server-Adresse, gehört zum Worker (Kopf, P22), darf in den Browser (P21)]
+  const FAELLE: Array<[string, string, boolean, boolean]> = [
+    [`${SERVER}/suite.json`, SERVER, true, true],
+    [`${SERVER}/konto/anmelden?v=v1`, `${SERVER}/`, true, true],
+    [SERVER, SERVER, true, true],
+    ['https://jm-suite-proxy.jm-production-suite.workers.dev.evil.example/suite.json', SERVER, false, false],
+    ['https://jm-suite-proxy.jm-production-suite.workers.dev@evil.example/suite.json', SERVER, false, false],
+    ['https://nutzer@jm-suite-proxy.jm-production-suite.workers.dev/suite.json', SERVER, false, false],
+    ['http://jm-suite-proxy.jm-production-suite.workers.dev/suite.json', SERVER, false, false],
+    ['https://jm-suite-proxy.jm-production-suite.workers.dev:8443/suite.json', SERVER, false, false],
+    ['https://raw.githubusercontent.com/jm/suite.json', SERVER, false, false],
+    ['https://proxy.test/jm/suite.json', 'https://proxy.test/jm', true, true],
+    ['https://proxy.test/jmx/suite.json', 'https://proxy.test/jm/', false, false],
+    ['http://127.0.0.1:8787/konto/anmelden?v=v1', 'http://127.0.0.1:8787', true, true],
+    ['http://localhost:8787/konto/anmelden?v=v1', 'http://localhost:8787', true, true],
+    ['http://192.168.1.5:8787/konto/anmelden?v=v1', 'http://192.168.1.5:8787', true, false],
+    ['file:///C:/Windows/System32/calc.exe', 'file:///C:/', false, false],
+    ['ms-settings:privacy', SERVER, false, false],
+    ['keine Adresse', SERVER, false, false],
+    [`${SERVER}/suite.json`, '', false, false],
+  ];
+  const abw = FAELLE.filter(([u, s, kopf, browser]) => istWorkerAdresse(u, s) !== kopf || browserAdresseErlaubt(u, s) !== browser)
+    .map(([u, s]) => `${u} @ ${s || '-'}: ist ${istWorkerAdresse(u, s)}/${browserAdresseErlaubt(u, s)}`);
+  ck(`P21 EP35: istWorkerAdresse (gleiche Herkunft, Pfad mit Grenze, ohne Zugangsdaten) und browserAdresseErlaubt (dazu https, http nur lokal) (${FAELLE.length} Fälle)${abw.length ? ` — ${abw.length} abweichend: ${abw.slice(0, 5).join('; ')}` : ''}`,
+    abw.length === 0);
+}
+{
+  // Die Anmeldeadresse kommt vom Server; was nicht https beim Worker liegt, gilt als Serverfehler (K53), nie als Adresse.
+  const g = { publicJwk: { kty: 'EC', crv: 'P-256', x: 'x', y: 'y' }, name: 'PC-1', plattform: 'win' as const, arch: 'x64', version: '0.18.0' };
+  const codes: string[] = [];
+  for (const adresse of ['file:///C:/Windows/System32/calc.exe', 'https://worker.test.evil.example/konto/anmelden?v=v1', 'http://worker.test/konto/anmelden?v=v1']) {
+    const c = erzeugeKontoClient({ basis: BASIS, fetch: attrappe(() => ({ status: 200, json: { vorgang: 'v1', abholGeheimnis: 'h1', code: 'ABC-DEF', adresse, bis: 99 } })).fetch });
+    codes.push((await fehlerVon(c.vorgangAnlegen(g)))?.code ?? 'angenommen');
+  }
+  ck(`P21 EP35: vorgangAnlegen verwirft eine Anmeldeadresse, die nicht https beim Worker liegt, als server (${codes.join(', ')})`,
+    codes.length === 3 && codes.every((x) => x === 'server'));
 }
 
 // --- P9 G9 ------------------------------------------------------------------------------------------------------------

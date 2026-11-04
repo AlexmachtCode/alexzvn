@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IVEO_DEFAULT_BASE_URL, normalizeIveoBaseUrl } from '@jm/iveo';
 import type { ManualEndpoint, RecentShow, SuiteSettingsInput, SuiteSettingsView } from '@shared/types';
+import type { EntzugGrund } from '@shared/konto';
 
 interface StoredSettings {
   /** Legacy-Klartext-Token (alte Datei). Wird beim nächsten Schreiben migriert. */
@@ -27,6 +28,19 @@ interface StoredSettings {
   manualEndpoints?: ManualEndpoint[];
   /** iveo-Paket, Spec 9.14 (OF8): Anhänge in Side-Event-Ordnern ablegen; fehlt der Eintrag, gilt „an“. */
   iveoAnhangOrdner?: boolean;
+  /**
+   * Anmeldung (Plan P21, EP2): Sitzung samt beim Start festgehaltenem Kontostand, nur safeStorage-verschlüsselt (base64).
+   * Verschlüsselt wird in konto/huelle.ts; ohne Schlüsselspeicher steht hier nichts (G6), nie Klartext.
+   */
+  kontoSitzungEnc?: string;
+  /** Anmeldung (EP7): privater Geräteschlüssel, nur safeStorage-verschlüsselt (base64, aus konto/geraet.ts), nie Klartext. */
+  geraetSchluesselEnc?: string;
+  /** Anmeldung (R2, R5, EP23): festgestellter Entzug mit Grund, bis zur nächsten Anmeldung. Kein Geheimnis. */
+  kontoEntzug?: { grund: EntzugGrund; am: number };
+  /** Anmeldung (R9, OFP1): Zeitpunkt der ersten Anmeldung auf diesem Rechner (ms). Kein Geheimnis. */
+  kontoErsteAnmeldung?: number;
+  /** Anmeldung (EP14): Event-Schlüssel `‹Basis›|‹Slug›`, die DIESER Rechner mit iveo abgleicht. Kein Geheimnis. */
+  iveoAbgleichHier?: string[];
 }
 
 /** Wie viele zuletzt geöffnete Shows gemerkt werden (#157). */
@@ -375,4 +389,64 @@ export function setSettings(input: SuiteSettingsInput): SuiteSettingsView {
   }
   write(next);
   return getSettingsView();
+}
+
+// ── Anmeldung (Plan P21; 10.7) ────────────────────────────────────────────────
+// Nur Speichern und Lesen. Verschlüsselt wird in konto/huelle.ts (safeStorage); hier steht nie ein Klartext-Geheimnis
+// und es gibt keinen Klartext-Rückfall (G6). Jeder Schreiber liest erst und behält alle übrigen Felder (Ist-L 3).
+
+/** Verschlüsseltes Feld der Anmeldung (base64 aus safeStorage), sonst undefined. */
+export function leseKontoFeld(feld: 'kontoSitzungEnc' | 'geraetSchluesselEnc'): string | undefined {
+  const v = read()[feld];
+  return typeof v === 'string' && v ? v : undefined;
+}
+
+/** Verschlüsseltes Feld schreiben; undefined löscht es. */
+export function schreibeKontoFeld(feld: 'kontoSitzungEnc' | 'geraetSchluesselEnc', wert: string | undefined): void {
+  const s = read();
+  if (wert) s[feld] = wert;
+  else delete s[feld];
+  write(s);
+}
+
+/** Gemerkter Entzug (R2): Grund und Zeitpunkt, sonst null. */
+export function leseKontoEntzug(): { grund: EntzugGrund; am: number } | null {
+  const e = read().kontoEntzug;
+  return e && typeof e.grund === 'string' && typeof e.am === 'number' ? e : null;
+}
+
+/** Entzug merken bzw. (null) vergessen. */
+export function schreibeKontoEntzug(e: { grund: EntzugGrund; am: number } | null): void {
+  const s = read();
+  if (e) s.kontoEntzug = { grund: e.grund, am: e.am };
+  else delete s.kontoEntzug;
+  write(s);
+}
+
+/** Zeitpunkt der ersten Anmeldung auf diesem Rechner (R9, OFP1), sonst null. */
+export function leseKontoErsteAnmeldung(): number | null {
+  const v = read().kontoErsteAnmeldung;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+export function schreibeKontoErsteAnmeldung(ms: number): void {
+  write({ ...read(), kontoErsteAnmeldung: ms });
+}
+
+/** EP14: Event-Schlüssel, die dieser Rechner mit iveo abgleicht („Abgleich hier“). */
+export function leseIveoAbgleichHier(): string[] {
+  const v = read().iveoAbgleichHier;
+  return Array.isArray(v) ? v.filter((k): k is string => typeof k === 'string' && k.length > 0) : [];
+}
+
+/** „Abgleich hier“ für einen Event-Schlüssel setzen bzw. (an = false) beenden. */
+export function setzeIveoAbgleichHier(key: string, an: boolean): void {
+  const k = key.trim();
+  if (!k) return;
+  const s = read();
+  const rest = (s.iveoAbgleichHier ?? []).filter((x) => x !== k);
+  const neu = an ? [...rest, k] : rest;
+  if (neu.length) s.iveoAbgleichHier = neu;
+  else delete s.iveoAbgleichHier;
+  write(s);
 }

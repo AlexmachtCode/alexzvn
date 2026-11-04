@@ -1,6 +1,9 @@
 import type { AppChangelog, ToolManifest, ToolState } from '@jm/suite-manifest';
 import type { Recipe, CookbookCategory } from '@jm/cookbook';
 import type { Show, ShowAblaufItem, ShowIveoProgramRef, ShowIveoSpeaker } from '@jm/show';
+import type {
+  AdminAktion, AdminAktionErgebnis, AdminUebersicht, AnmeldeSchritt, KontoAnsicht, KontoFehlerCode,
+} from './konto';
 
 export type {
   ToolManifest,
@@ -447,7 +450,11 @@ export type AppEvent =
   // iveo-Paket (Spec 9.15): Stand der Ordner-Ablage bei jeder Änderung, Fortschritt höchstens einmal je Sekunde (9.6).
   | { type: 'iveo-anhang-ordner'; stand: AnhangOrdnerStand }
   // Master-Link Teil 1: Rolle, Kopplung, Teilnehmer oder Client-Zustand haben sich geändert.
-  | { type: 'verbund-changed' };
+  | { type: 'verbund-changed' }
+  // Anmeldung (Plan P21, 10.7): Ansicht des Kontos geändert (der Renderer holt sie per kontoAnsicht, ohne Token) …
+  | { type: 'konto-changed' }
+  // … bzw. neuer Schritt des Anmelde-Ablaufs (4.1); der Code steht nur hier und im Anmelde-Dialog.
+  | { type: 'anmeldung-changed'; schritt: AnmeldeSchritt };
 
 /** Die unter `window.jmps` bereitgestellte Launcher-API. */
 export interface JmpsApi {
@@ -550,6 +557,25 @@ export interface JmpsApi {
   /** Endprüfung B3: geklonter Rechner — neue rechner.id, Kopplung weg, Rolle bleibt. */
   neueRechnerKennung: () => Promise<VerbundStand>;
   setzeFesteMasterAdresse: (adresse: string | null) => Promise<VerbundStand>;
+  // ── Anmeldung (Plan P21, 10.7) ── Keine Antwort enthält eine Sitzung, eine Freigabe oder ein iveo-Token.
+  /** Ansicht des Kontos (Zustand, Stand ohne Token, Hinweise, Ausgaben an Tools). */
+  kontoAnsicht: () => Promise<KontoAnsicht>;
+  /** Anmeldung starten (nur ohne gültige Sitzung, EP26); der Fortschritt kommt als AppEvent anmeldung-changed. */
+  kontoAnmelden: () => Promise<AnmeldeSchritt>;
+  kontoAnmeldeSchritt: () => Promise<AnmeldeSchritt>;
+  kontoAnmeldenAbbrechen: () => Promise<AnmeldeSchritt>;
+  /** Adresse der Anmeldeseite in die Zwischenablage (Spec 4.1); false ohne laufenden Vorgang. */
+  kontoAdresseKopieren: () => Promise<boolean>;
+  kontoAbmelden: () => Promise<KontoAnsicht>;
+  /** Lage beim Worker (GET /konto/ich): bei Fensterfokus höchstens einmal je Minute (EP15). */
+  kontoLage: () => Promise<KontoAnsicht>;
+  kontoZoomAnfragen: (a: { zweck: string; von: number; bis: number }) => Promise<KontoZoomAntwort>;
+  kontoAdminUebersicht: () => Promise<KontoAdminAntwort>;
+  kontoAdminAktion: (a: AdminAktion) => Promise<KontoAdminAktionAntwort>;
+  /** Discovery für den Reiter iveo-Events (Admin): das Token geht nur an iveo, nie zurück. */
+  kontoIveoEventsLaden: (a: { basis: string; token: string }) => Promise<KontoIveoEventsAntwort>;
+  /** iveo-Events, für die dieses Konto ein Token hat (ohne Token). */
+  kontoIveoEvents: () => Promise<KontoIveoEvent[]>;
   onProgress: (cb: (p: InstallProgress) => void) => () => void;
   onAppEvent: (cb: (e: AppEvent) => void) => () => void;
 }
@@ -675,3 +701,13 @@ export type KoppelAntwort =
     /** Der Code ist verbraucht (Beweis ging hinaus bzw. schon gesendet): das Codefeld leeren (Endprüfung C2). */
     codeVerbraucht?: boolean;
   };
+
+// ── Anmeldung (Plan P21, 10.7): Antworten der Kanäle konto:* — nie mit Sitzung, Freigabe oder Token ──────────────
+export type KontoZoomAntwort = { ok: true; ansicht: KontoAnsicht } | { ok: false; code: KontoFehlerCode };
+export type KontoAdminAntwort = { ok: true; daten: AdminUebersicht } | { ok: false; code: KontoFehlerCode };
+export type KontoAdminAktionAntwort =
+  | { ok: true; ergebnis: AdminAktionErgebnis; daten: AdminUebersicht }
+  | { ok: false; code: KontoFehlerCode };
+export type KontoIveoEventsAntwort = { ok: true; events: Array<{ slug: string; name: string }> } | { ok: false; fehler: string };
+/** Ein iveo-Event, für das dieses Konto ein Token hat (Schlüssel `‹Basis›|‹Slug›`, EP13) — ohne Token. */
+export interface KontoIveoEvent { key: string; basis: string; slug: string; name: string }

@@ -111,7 +111,10 @@ export function erzeugeKontoClient(o: { basis: string; fetch: typeof fetch; zeit
   return {
     async vorgangAnlegen(g) {
       const d = await rufe('POST', '/konto/vorgang', null, { geraet: g });
-      return form(istObjekt(d) && istText(d.vorgang) && istText(d.abholGeheimnis) && istText(d.code) && istText(d.adresse) && istZahl(d.bis),
+      // EP35 (Nachbesserung Block D, sicherheit:8): eine Anmeldeadresse, die nicht https beim Worker liegt, ist ein Serverfehler
+      // (K53) — der Launcher öffnet sie nie im System-Browser.
+      return form(istObjekt(d) && istText(d.vorgang) && istText(d.abholGeheimnis) && istText(d.code) && istText(d.adresse)
+        && browserAdresseErlaubt(d.adresse, basis) && istZahl(d.bis),
         d as { vorgang: string; abholGeheimnis: string; code: string; adresse: string; bis: number });
     },
     async vorgangAbholen(vorgang, abholGeheimnis, beweis) {
@@ -170,6 +173,42 @@ export function erzeugeKontoClient(o: { basis: string; fetch: typeof fetch; zeit
       return form(istObjekt(d) && d.ok === true, d as unknown as AdminAktionErgebnis);
     },
   };
+}
+
+/**
+ * EP35 (Nachbesserung Block D, sicherheit:2): Liegt `url` beim Worker? Gleiche Herkunft (Schema, Host, Port) wie die
+ * Server-Adresse, keine Zugangsdaten in der Adresse, und hat die Server-Adresse einen Pfad, dann dieser Pfad mit Grenze
+ * („/a“ deckt „/a/b“, nicht „/ab“). Ein Präfixvergleich der Zeichenkette ließe Doppelgänger wie
+ * `https://worker.dev.evil.example/` oder `https://worker.dev@evil.example/` durch. Unlesbare Adressen → false.
+ */
+export function istWorkerAdresse(url: string, server: string): boolean {
+  let u: URL;
+  let s: URL;
+  try {
+    u = new URL(url);
+    s = new URL(server);
+  } catch {
+    return false;
+  }
+  if (u.origin === 'null' || u.origin !== s.origin || u.username !== '' || u.password !== '') return false;
+  const pfad = s.pathname.replace(/\/+$/, '');
+  return pfad === '' || u.pathname === pfad || u.pathname.startsWith(`${pfad}/`);
+}
+
+/**
+ * EP35 (sicherheit:8): darf die Adresse in den System-Browser bzw. die Zwischenablage? Nur https (in der Entwicklung http auf
+ * 127.0.0.1, localhost oder ::1) und nur beim Worker (istWorkerAdresse). file:, ms-…: und fremde Hosts nie.
+ */
+export function browserAdresseErlaubt(url: string, server: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  const lokal = u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '[::1]';
+  if (!(u.protocol === 'https:' || (u.protocol === 'http:' && lokal))) return false;
+  return istWorkerAdresse(url, server);
 }
 
 // ── Ende des Moduls ──

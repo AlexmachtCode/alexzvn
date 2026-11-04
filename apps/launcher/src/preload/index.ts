@@ -20,6 +20,11 @@ import type {
   IveoSwitchInput,
   JmpsApi,
   KoppelAntwort,
+  KontoAdminAktionAntwort,
+  KontoAdminAntwort,
+  KontoIveoEvent,
+  KontoIveoEventsAntwort,
+  KontoZoomAntwort,
   LauncherUpdate,
   ManualEndpoint,
   PresenceRecord,
@@ -35,6 +40,7 @@ import type {
   VerbundStand,
 } from '@shared/types';
 import type { Show } from '@jm/show';
+import type { AnmeldeSchritt, KontoAnsicht } from '@shared/konto';
 
 const api: JmpsApi = {
   platform: process.platform,
@@ -104,6 +110,19 @@ const api: JmpsApi = {
   trenneVerbund: () => invoke<VerbundStand>('verbund:trennen'),
   neueRechnerKennung: () => invoke<VerbundStand>('verbund:neueKennung'),
   setzeFesteMasterAdresse: (adresse: string | null) => invoke<VerbundStand>('verbund:festeAdresse', adresse),
+  // Anmeldung (Plan P21, 10.7): keine Antwort enthält eine Sitzung, eine Freigabe oder ein iveo-Token.
+  kontoAnsicht: () => invoke<KontoAnsicht>('konto:ansicht'),
+  kontoAnmelden: () => invoke<AnmeldeSchritt>('konto:anmelden'),
+  kontoAnmeldeSchritt: () => invoke<AnmeldeSchritt>('konto:anmeldeSchritt'),
+  kontoAnmeldenAbbrechen: () => invoke<AnmeldeSchritt>('konto:anmeldenAbbrechen'),
+  kontoAdresseKopieren: () => invoke<boolean>('konto:adresseKopieren'),
+  kontoAbmelden: () => invoke<KontoAnsicht>('konto:abmelden'),
+  kontoLage: () => invoke<KontoAnsicht>('konto:lage'),
+  kontoZoomAnfragen: (a) => invoke<KontoZoomAntwort>('konto:zoomAnfragen', a),
+  kontoAdminUebersicht: () => invoke<KontoAdminAntwort>('konto:adminUebersicht'),
+  kontoAdminAktion: (a) => invoke<KontoAdminAktionAntwort>('konto:adminAktion', a),
+  kontoIveoEventsLaden: (a) => invoke<KontoIveoEventsAntwort>('konto:iveoEventsLaden', a),
+  kontoIveoEvents: () => invoke<KontoIveoEvent[]>('konto:iveoEvents'),
   onProgress: (cb) => listen<InstallProgress>('suite:progress', cb),
   onAppEvent: (cb) => listen<AppEvent>('app:event', cb),
 };

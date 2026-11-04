@@ -44,6 +44,7 @@ import {
 import { getControlStatus, provisionControl, disableControl } from './control-provision';
 import { submitFeedback } from './feedback';
 import { submitRecipeDraft } from './cookbook-draft';
+import { registriereKontoIpc } from './konto/huelle';
 import {
   discoverIveoEvents,
   bindIveoEvent,
@@ -184,4 +185,7 @@ export function registerIpc(): void {
   ipcMain.handle('iveo:oeffneAnhangOrdner', (_e, input: unknown) => oeffneAnhangOrdner(input));
 
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url));
+
+  // Anmeldung (Plan P21, 10.7): die Kanäle konto:* — Handler in konto/huelle.ts, ohne Sitzung, Freigabe oder Token.
+  registriereKontoIpc(ipcMain);
 }
