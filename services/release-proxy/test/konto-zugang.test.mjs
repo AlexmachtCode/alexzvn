@@ -475,27 +475,51 @@ async function run() {
   // P20 EP1, EP9, EP24: Bindung, Migration und Variable in wrangler.toml, Re-Export im Worker, CI-Schritte.
   {
     const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-    const werte = toml.split('\n').filter((z) => !z.trim().startsWith('#')).join('\n');
-    const migrationen = [...werte.matchAll(/\[\[migrations\]\]\ntag = "([^"]+)"\nnew_sqlite_classes = \[([^\]]*)\]/g)].map((m) => `${m[1]}:${m[2]}`);
-    const bindungen = [...werte.matchAll(/\[\[durable_objects\.bindings\]\]\nname = "([^"]+)"\nclass_name = "([^"]+)"/g)].map((m) => `${m[1]}=${m[2]}`);
+    // Kleiner TOML-Leser (Fixrunde 1): Tabellenkopf mitführen, Schlüssel ohne Anführungszeichen, Kommentare weg. Ein Schlüssel zählt
+    // nur in seiner Tabelle (ein ALTKEY_BIS ganz oben sähe der Worker nicht, ein deleted_classes in v2 löschte den DO).
+    const tabellen = [{ kopf: '', feld: false, kv: [] }];
+    for (const z of toml.split('\n')) {
+      const s = z.trim();
+      if (!s || s.startsWith('#')) continue;
+      const kopf = /^(\[\[?)\s*([^\]]+?)\s*\]\]?$/.exec(s);
+      if (kopf) { tabellen.push({ kopf: kopf[2], feld: kopf[1] === '[[', kv: [] }); continue; }
+      const kv = /^(["']?)([A-Za-z0-9_.-]+)\1\s*=\s*(.*)$/.exec(s);
+      if (kv) tabellen[tabellen.length - 1].kv.push([kv[2], kv[3].trim()]);
+    }
+    const nurSchluessel = (t, namen) => JSON.stringify(t.kv.map(([k]) => k)) === JSON.stringify(namen);
+    const migTab = tabellen.filter((t) => t.kopf === 'migrations');
+    const bindTab = tabellen.filter((t) => t.kopf === 'durable_objects.bindings');
+    const varsTab = tabellen.filter((t) => t.kopf === 'vars' && !t.feld);
+    const migrationen = migTab.filter((t) => t.feld && nurSchluessel(t, ['tag', 'new_sqlite_classes'])).map((t) => `${t.kv[0][1].replace(/"/g, '')}:${t.kv[1][1].replace(/^\[|\]$/g, '')}`);
+    const bindungen = bindTab.filter((t) => t.feld && nurSchluessel(t, ['name', 'class_name'])).map((t) => `${t.kv[0][1].replace(/"/g, '')}=${t.kv[1][1].replace(/"/g, '')}`);
+    const inVars = (n) => (varsTab.length === 1 ? varsTab[0].kv.filter(([k]) => k === n).map(([, w]) => w) : []);
     check('P20 EP1: wrangler.toml: Bindung KONTO → KontoSpeicher, Migration v1 unverändert und genau eine v2 mit KontoSpeicher, KONTO_JURISDICTION und CONNECT_JURISDICTION eu',
-      JSON.stringify(migrationen) === JSON.stringify(['v1:"ConnectRoom"', 'v2:"KontoSpeicher"'])
-        && JSON.stringify(bindungen) === JSON.stringify(['CONNECT_ROOM=ConnectRoom', 'KONTO=KontoSpeicher'])
-        && /^KONTO_JURISDICTION = "eu"$/m.test(werte) && /^CONNECT_JURISDICTION = "eu"$/m.test(werte));
+      migTab.length === 2 && migrationen.length === 2 && JSON.stringify(migrationen) === JSON.stringify(['v1:"ConnectRoom"', 'v2:"KontoSpeicher"'])
+        && bindTab.length === 2 && bindungen.length === 2 && JSON.stringify(bindungen) === JSON.stringify(['CONNECT_ROOM=ConnectRoom', 'KONTO=KontoSpeicher'])
+        && varsTab.length === 1 && JSON.stringify(inVars('KONTO_JURISDICTION')) === '["\\"eu\\""]' && JSON.stringify(inVars('CONNECT_JURISDICTION')) === '["\\"eu\\""]'
+        && tabellen.every((t) => t.kopf === 'vars' || !t.kv.some(([k]) => k.endsWith('_JURISDICTION'))));
     // ALTKEY_BIS mit derselben Regel wie der Worker: ein unlesbarer Wert (z. B. 2026-12-32) hieße dort still „unbefristet“ (EP9).
     const { alterKeyGilt } = await import('../konto-kern.js');
-    const bis = /^ALTKEY_BIS = "([^"]*)"$/m.exec(werte);
+    const alleSchluessel = tabellen.flatMap((t) => t.kv.map(([k]) => k));
+    const geheim = /^(KONTO_SCHLUESSEL|IVEO_SCHLUESSEL|GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET|ERSTER_ADMIN|PROXY_KEY|ALTKEY_CONNECT_BIS|GITHUB_TOKEN|ANTHROPIC_API_KEY|ZOOM_SDK_KEY|RTC_.*)$/;
+    const bisAlle = tabellen.flatMap((t) => t.kv.filter(([k]) => k === 'ALTKEY_BIS'));
+    const bisWert = inVars('ALTKEY_BIS');
+    const bis = bisWert.length === 1 ? /^"([^"]*)"$/.exec(bisWert[0]) : null;
     check('P20 EP9, G4: keine Secrets in [vars], ALTKEY_CONNECT_BIS in Teil 1 nicht gesetzt, ALTKEY_BIS höchstens als lesbares Datum; alle Namen beschrieben',
-      !/^\s*(KONTO_SCHLUESSEL|IVEO_SCHLUESSEL|GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET|ERSTER_ADMIN|PROXY_KEY|ALTKEY_CONNECT_BIS)\s*=/m.test(werte)
-        && (!/^\s*ALTKEY_BIS\s*=/m.test(werte)
-          || (!!bis && /^\d{4}-\d{2}-\d{2}(T.+)?$/.test(bis[1]) && alterKeyGilt({ ALTKEY_BIS: bis[1] }, 'katalog', 0).diagnose === null))
+      !alleSchluessel.some((k) => geheim.test(k))
+        && (bisAlle.length === 0
+          || (bisAlle.length === 1 && bisWert.length === 1 && !!bis && /^\d{4}-\d{2}-\d{2}(T.+)?$/.test(bis[1]) && alterKeyGilt({ ALTKEY_BIS: bis[1] }, 'katalog', 0).diagnose === null))
         && ['KONTO_SCHLUESSEL', 'IVEO_SCHLUESSEL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'ERSTER_ADMIN', 'ALTKEY_BIS', 'ALTKEY_CONNECT_BIS'].every((n) => toml.includes(n)));
     const modul = await import('../worker.js');
     const { KontoSpeicher } = await import('../konto-do.js');
     check('P20 EP1: worker.js exportiert ConnectRoom und KontoSpeicher (Durable-Object-Klassen aus wrangler.toml)',
       modul.KontoSpeicher === KontoSpeicher && typeof modul.ConnectRoom === 'function' && typeof modul.default.fetch === 'function');
     const ci = readFileSync(new URL('../../../.github/workflows/ci-checks.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-    const laeufe = [...ci.matchAll(/run: node --experimental-strip-types services\/release-proxy\/test\/([a-z-]+)\.test\.mjs/g)].map((m) => m[1]);
+    // Fixrunde 1: Kommentare weg, nur verankerte run-Zeilen, und keiner dieser Schritte trägt if oder continue-on-error.
+    const schritte = ci.split('\n').filter((z) => !z.trim().startsWith('#')).join('\n').split(/^(?=\s*- )/m);
+    const proxySchritte = schritte.map((b) => ({ b, m: /^\s+run: node --experimental-strip-types services\/release-proxy\/test\/([a-z-]+)\.test\.mjs\s*$/m.exec(b) })).filter((x) => x.m);
+    const laeufe = proxySchritte.map((x) => x.m[1]);
+    if (proxySchritte.some((x) => /^\s*(if|continue-on-error)\s*:/m.test(x.b))) laeufe.push('bedingt');
     check('P20 EP24: ci-checks.yml startet die Proxy-Tests in dieser Reihenfolge: worker, konto-kern, konto-krypto, konto-do, konto-zugang, konto-routen, qa-relay',
       JSON.stringify(laeufe) === JSON.stringify(['worker', 'konto-kern', 'konto-krypto', 'konto-do', 'konto-zugang', 'konto-routen', 'qa-relay']));
   }

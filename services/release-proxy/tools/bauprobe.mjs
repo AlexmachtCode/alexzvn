@@ -14,14 +14,29 @@ const HIER = path.dirname(fileURLToPath(import.meta.url));
 const WORKER = path.join(HIER, '..', 'worker.js');
 const TOML = path.join(HIER, '..', 'wrangler.toml');
 
-const toml = readFileSync(TOML, 'utf8')
-  .split(/\r?\n/)
-  .filter((z) => !z.trim().startsWith('#'))
-  .join('\n');
-const klassen = new Set([...toml.matchAll(/^class_name\s*=\s*"([^"]+)"/gm)].map((m) => m[1]));
-for (const m of toml.matchAll(/^new_sqlite_classes\s*=\s*\[([^\]]*)\]/gm)) {
-  for (const k of m[1].matchAll(/"([^"]+)"/g)) klassen.add(k[1]);
+// Kleiner TOML-Leser (Fixrunde 1): Tabellenkopf mitführen. Ein Schlüssel zählt nur in seiner Tabelle: ein ALTKEY_BIS ganz oben
+// sähe der Worker nicht (alter Schlüssel unbefristet), ein deleted_classes in v2 löschte den DO beim Deploy.
+const tabellen = [{ kopf: '', feld: false, kv: [] }];
+for (const z of readFileSync(TOML, 'utf8').split(/\r?\n/)) {
+  const s = z.trim();
+  if (!s || s.startsWith('#')) continue;
+  const kopf = /^(\[\[?)\s*([^\]]+?)\s*\]\]?$/.exec(s);
+  if (kopf) { tabellen.push({ kopf: kopf[2], feld: kopf[1] === '[[', kv: [] }); continue; }
+  const kv = /^(["']?)([A-Za-z0-9_.-]+)\1\s*=\s*(.*)$/.exec(s);
+  if (kv) tabellen[tabellen.length - 1].kv.push([kv[2], kv[3].trim()]);
 }
+const befunde = [];
+const klassen = new Set();
+const migTab = tabellen.filter((t) => t.kopf === 'migrations');
+const bindTab = tabellen.filter((t) => t.kopf === 'durable_objects.bindings');
+const varsTab = tabellen.filter((t) => t.kopf === 'vars' && !t.feld);
+const schluessel = (t) => t.kv.map(([k]) => k).join(',');
+if (migTab.length !== 2 || migTab.some((t) => !t.feld || schluessel(t) !== 'tag,new_sqlite_classes')) befunde.push('[[migrations]]: genau zwei Tabellen, je nur tag und new_sqlite_classes');
+if (bindTab.some((t) => !t.feld || schluessel(t) !== 'name,class_name')) befunde.push('[[durable_objects.bindings]]: je nur name und class_name');
+if (varsTab.length !== 1) befunde.push('[vars]: genau eine Tabelle');
+if (tabellen.some((t) => t.kopf !== 'vars' && t.kv.some(([k]) => k.endsWith('_JURISDICTION')))) befunde.push('*_JURISDICTION steht ausserhalb von [vars]');
+for (const t of migTab) for (const [k, w] of t.kv) if (k === 'new_sqlite_classes') for (const m of w.matchAll(/"([^"]+)"/g)) klassen.add(m[1]);
+for (const t of bindTab) for (const [k, w] of t.kv) if (k === 'class_name') { const m = /^"([^"]+)"$/.exec(w); if (m) klassen.add(m[1]); }
 
 // EP9: Ein gesetzter, aber unlesbarer Stichtag (Tippfehler wie 2026-12-32 oder ohne Anführungszeichen) hieße im Worker still
 // „unbefristet“ (alterKeyGilt: Diagnose unlesbar). Geprüft wird mit derselben Funktion; konto-kern.js kommt über esbuild und
@@ -29,7 +44,11 @@ for (const m of toml.matchAll(/^new_sqlite_classes\s*=\s*\[([^\]]*)\]/gm)) {
 const kern = await build({ entryPoints: [path.join(HIER, '..', 'konto-kern.js')], bundle: true, format: 'esm', platform: 'neutral', write: false, logLevel: 'silent' });
 const { alterKeyGilt } = await import(`data:text/javascript;base64,${Buffer.from(kern.outputFiles[0].contents).toString('base64')}`);
 const fristen = [['ALTKEY_BIS', 'katalog'], ['ALTKEY_CONNECT_BIS', 'connect']].map(([name, gruppe]) => {
-  const m = toml.match(new RegExp(`^${name}\\s*=\\s*(.*?)\\s*$`, 'm'));
+  const draussen = tabellen.find((t) => t.kopf !== 'vars' && t.kv.some(([k]) => k === name));
+  if (draussen) return { name, ok: false, text: `AUSSERHALB von [vars] (Tabelle "${draussen.kopf || 'oben'}"), der Worker sähe ihn nicht` };
+  const treffer = (varsTab[0] ? varsTab[0].kv : []).filter(([k]) => k === name);
+  if (treffer.length > 1) return { name, ok: false, text: 'MEHRFACH gesetzt' };
+  const m = treffer.length ? [null, treffer[0][1]] : null;
   if (!m) return { name, ok: true, text: 'nicht gesetzt (unbefristet)' };
   const wert = /^"([^"]*)"$/.exec(m[1]);
   const g = wert ? alterKeyGilt({ [name]: wert[1] }, gruppe, Date.now()) : { diagnose: 'unlesbar' };
@@ -68,4 +87,5 @@ console.log(`Exporte: ${exporte.join(', ')}`);
 console.log(`DO-Klassen aus wrangler.toml: ${[...klassen].sort().join(', ')}${fehlend.length ? ` — NICHT exportiert: ${fehlend.join(', ')}` : ' — alle exportiert'}`);
 console.log(`Stichtage aus wrangler.toml: ${fristen.map((f) => `${f.name} ${f.text}`).join(', ')}`);
 for (const w of ergebnis.warnings) console.log(`  Warnung: ${w.text}${w.location ? ` (${w.location.file}:${w.location.line})` : ''}`);
-process.exit(ergebnis.warnings.length || fehlend.length || !exporte.includes('default') || fristen.some((f) => !f.ok) ? 1 : 0);
+for (const b of befunde) console.log(`  Befund wrangler.toml: ${b}`);
+process.exit(befunde.length || ergebnis.warnings.length || fehlend.length || !exporte.includes('default') || fristen.some((f) => !f.ok) ? 1 : 0);
