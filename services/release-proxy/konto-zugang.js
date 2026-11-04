@@ -15,8 +15,8 @@
 // bei GitHub. connect-relay.js prüft in Teil 1 weiter selbst gegen PROXY_KEY (G10; Gruppe connect erst mit Teil 2, EP9).
 // Fehlerform { ok: false, status, error: Text S1–S18, code } (Texttabelle 9.6). Kein Token, Schlüssel oder Claim geht in
 // einen Text oder ins Log.
-import { alterKeyGilt, darf, ZWECK_FUNKTION } from './konto-kern.js';
-import { gleichOhneZeitleck, pruefeToken, sha256B64url, TOKEN_PRAEFIX } from './konto-krypto.js';
+import { alterKeyGilt, darf, funktionFuerRoute, ZWECK_FUNKTION } from './konto-kern.js';
+import { gleichOhneZeitleck, pruefeToken, schluesselBrauchbar, sha256B64url, TOKEN_PRAEFIX } from './konto-krypto.js';
 import { compareVersions } from './paketwahl.js';
 
 /** Texte S1–S18 (Texttabelle 9.6) je Code; `konflikt` hat drei Texte (KONFLIKT_TEXT), S12a ist die Vorgabe. */
@@ -91,6 +91,9 @@ export const SELBST_UPDATE = Object.freeze({ speicherMs: 60_000, rlMax: 30, rlWi
 // Speicher des Isolats statt Cache-API (EP32): wirkt auf workers.dev wie im Test. Höchstens vier Einträge je Repo (win/mac ×
 // x64/arm64), nur öffentliche Angaben (Version, Paket, Größe, signierter Download-Link), nie etwas, das an einer Anfrage hängt.
 const selbstUpdateSpeicher = new Map();
+// Laufende Abfragen je Schlüssel: wer gleichzeitig kommt, wartet auf dieselbe Abfrage (ohne eigene Drossel, ohne eigenen Abruf).
+const selbstUpdateLaufend = new Map();
+const KEIN_CACHE = { 'cache-control': 'no-store' };
 
 /**
  * GET /tools/launcher/latest (Spec 9.1, EP10, EP32): ohne Anmeldung erreichbar, aber gebremst. Eine Antwort mit Status 200 oder
@@ -102,24 +105,41 @@ export async function selbstUpdateLiefern(request, env, { jetzt, zugang, platfor
   const schluessel = `${env.REPO}|${platform}|${arch}`;
   let eintrag = selbstUpdateSpeicher.get(schluessel);
   if (!eintrag || eintrag.bis <= jetzt) {
-    const rl = await selbstUpdateDrossel(request, env, jetzt);
-    if (!rl.ok) return jsonAntwort({ error: 'zu viele Anfragen', code: 'zu-viele' }, 429, { 'Retry-After': String(rl.retryAfter) });
-    const res = await hole();
-    // Nur feste Antworten merken; ein Fehler von GitHub (502) geht ungemerkt durch und wird beim nächsten Mal neu geholt.
-    if (res.status !== 200 && res.status !== 404) return res;
-    const text = await res.text();
-    let version = '';
-    try {
-      version = String(JSON.parse(text).version || '');
-    } catch {
-      version = '';
+    let laufend = selbstUpdateLaufend.get(schluessel);
+    if (!laufend) {
+      // Gleich synchron eintragen (vor dem ersten await), sonst laufen gleichzeitige Anfragen alle an der Map vorbei.
+      laufend = selbstUpdateHolen(request, env, jetzt, hole, schluessel).finally(() => selbstUpdateLaufend.delete(schluessel));
+      selbstUpdateLaufend.set(schluessel, laufend);
     }
-    eintrag = { bis: jetzt + SELBST_UPDATE.speicherMs, status: res.status, version, text };
-    selbstUpdateSpeicher.set(schluessel, eintrag);
+    const erg = await laufend;
+    if (erg.art === 'drossel') return jsonAntwort({ error: 'zu viele Anfragen', code: 'zu-viele' }, 429, { 'Retry-After': String(erg.retryAfter) });
+    if (erg.art === 'fehler') return new Response(erg.text, { status: erg.status, headers: { 'content-type': erg.typ, ...KEIN_CACHE } });
+    eintrag = erg.eintrag;
   }
   const offen = eintrag.status === 200 && compareVersions(eintrag.version || '0', SELBST_UPDATE_OFFEN_AB) >= 0;
   if (!zugang.ok && !offen) return jsonAntwort({ error: zugang.error, code: zugang.code }, zugang.status);
-  return new Response(eintrag.text, { status: eintrag.status, headers: { 'content-type': 'application/json; charset=utf-8' } });
+  return new Response(eintrag.text, { status: eintrag.status, headers: { 'content-type': 'application/json; charset=utf-8', ...KEIN_CACHE } });
+}
+
+/** Eine Abfrage für alle, die gleichzeitig kommen: Drossel (einmal), Abruf bei GitHub, Eintrag im Speicher. */
+async function selbstUpdateHolen(request, env, jetzt, hole, schluessel) {
+  const rl = await selbstUpdateDrossel(request, env, jetzt);
+  if (!rl.ok) return { art: 'drossel', retryAfter: rl.retryAfter };
+  const res = await hole();
+  const text = await res.text();
+  // Nur feste Antworten merken; ein Fehler von GitHub (502) geht ungemerkt durch und wird beim nächsten Mal neu geholt.
+  if (res.status !== 200 && res.status !== 404) {
+    return { art: 'fehler', status: res.status, text, typ: res.headers.get('content-type') || 'application/json; charset=utf-8' };
+  }
+  let version = '';
+  try {
+    version = String(JSON.parse(text).version || '');
+  } catch {
+    version = '';
+  }
+  const eintrag = { bis: jetzt + SELBST_UPDATE.speicherMs, status: res.status, version, text };
+  selbstUpdateSpeicher.set(schluessel, eintrag);
+  return { art: 'eintrag', eintrag };
 }
 
 /**
@@ -179,7 +199,8 @@ export async function zugangPruefen(request, env, { funktion, gruppe = null, zie
 }
 
 async function tokenPruefen(env, token, funktion, ziel, jetzt) {
-  if (!env.KONTO_SCHLUESSEL) return abgelehnt('nicht-eingerichtet', 503);
+  // Vertrag 10.3: ein fehlender oder unbrauchbarer Schlüssel (nicht genau 32 Byte Base64) ist ein Einrichtungsfehler, kein 401.
+  if (!schluesselBrauchbar(env.KONTO_SCHLUESSEL)) return abgelehnt('nicht-eingerichtet', 503);
   const freigabe = await pruefeToken(env.KONTO_SCHLUESSEL, token, 'freigabe', jetzt);
   if (freigabe) {
     // Eine Freigabe gilt nur an einer Route mit Ziel, für ihren Zweck und ihr Ziel (EP3), nie wie eine Sitzung.
@@ -203,6 +224,8 @@ async function tokenPruefen(env, token, funktion, ziel, jetzt) {
 /** OFP2: Anfragen mit altem Schlüssel je Tag, Gruppe und Plattform zählen, nach der Antwort (waitUntil), ohne IP. */
 function altKeyZaehlen(request, env, ctx, gruppe, jetzt) {
   if (!env.KONTO || !ctx || typeof ctx.waitUntil !== 'function') return;
+  // Der alte Schlüssel steckt in öffentlichen Installern: unbekannte Routen (404) schreiben nichts in den DO.
+  if (funktionFuerRoute(request.method, new URL(request.url).pathname) === null) return;
   const q = new URL(request.url).searchParams;
   const p = q.get('platform');
   const plattform = p === 'win' || p === 'mac' ? p : 'unbekannt';
@@ -240,7 +263,7 @@ async function selbstUpdateDrossel(request, env, jetzt) {
 }
 
 function jsonAntwort(obj, status, extra = {}) {
-  return new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json; charset=utf-8', ...extra } });
+  return new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json; charset=utf-8', ...KEIN_CACHE, ...extra } });
 }
 
 /** Nur der Name eines Fehlers, nie die Meldung (wie worker.js). */

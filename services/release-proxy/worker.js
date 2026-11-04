@@ -330,21 +330,23 @@ async function neuestesRelease(env, app, prefix, platform, arch) {
     // Neuestes Release mit einem Paket für diese Plattform (paketwahl.js, iveo-Paket Spec 10.5): ein x64-Mac bekommt
     // nie ein arm64-DMG; hat das neueste Release kein Paket, das neueste ältere mit Paket.
     const wahl = waehleRelease(releases, prefix, platform, arch);
-    if (wahl.art === 'kein-release') return json({ error: `kein Release für ${app}` }, 404);
-    if (wahl.art === 'kein-paket') return json({ error: keinPaketFehler(app, platform, arch) }, 404);
+    // no-store: dieselbe URL liefert ohne Zugang 401 und mit Zugang 200 (und einen signierten Link); nichts davon darf ein Cache ablegen.
+    const keinCache = { 'cache-control': 'no-store' };
+    if (wahl.art === 'kein-release') return json({ error: `kein Release für ${app}` }, 404, keinCache);
+    if (wahl.art === 'kein-paket') return json({ error: keinPaketFehler(app, platform, arch) }, 404, keinCache);
     const asset = wahl.asset;
 
     const signedUrl = await resolveSignedUrl(env.REPO, asset.id, env);
-    if (!signedUrl) return json({ error: 'Download-URL nicht auflösbar' }, 502);
+    if (!signedUrl) return json({ error: 'Download-URL nicht auflösbar' }, 502, keinCache);
 
     return json({
       version: wahl.version,
       assets: {
         [platform]: { url: signedUrl, size: asset.size, fileName: asset.name },
       },
-    });
+    }, 200, keinCache);
   } catch (e) {
-    return json({ error: String((e && e.message) || e) }, 502);
+    return json({ error: String((e && e.message) || e) }, 502, { 'cache-control': 'no-store' });
   }
 }
 

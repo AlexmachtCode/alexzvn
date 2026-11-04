@@ -42,6 +42,8 @@ globalThis.fetch = async (u, init = {}) => {
   if (url.includes('/releases/assets/')) {
     return new Response(null, { status: 302, headers: { Location: `https://signed.test/${url.split('/').pop()}` } });
   }
+  // Repo test/gleichzeitig: die Liste kommt verzögert, damit gleichzeitige Anfragen sich überlappen (Fix-Runde 1).
+  if (url.includes('/repos/test/gleichzeitig/') && url.includes('/releases?')) await new Promise((r) => setTimeout(r, 20));
   if (url.includes('/releases?')) return new Response(JSON.stringify(url.includes('/repos/test/alt/') ? RELEASES_ALT : RELEASES), { status: 200 });
   if (url.includes('/contents/')) return new Response('{"tools":[]}', { status: 200 });
   if (url.endsWith('/issues') && init.method === 'POST') {
@@ -326,6 +328,61 @@ async function run() {
     check('P15 zeitkonstant: worker.js und konto-zugang.js vergleichen den Proxy-Key nie mit === oder !==; das Gate fragt zugangPruefen',
       !/[!=]==\s*env\.PROXY_KEY/.test(w) && !/[!=]==\s*env\.PROXY_KEY/.test(z)
         && z.includes('gleichOhneZeitleck(key, env.PROXY_KEY)') && w.includes('await zugangPruefen(request, env, {'));
+  }
+
+  // P15 Fix 1 (EP32): Gleichzeitige Anfragen teilen sich EINE Abfrage: 50 Anfragen aus 50 IPs gleichzeitig → 2 Abrufe bei GitHub
+  // (Liste, Link), nicht 100; die Drossel zählt die eine Abfrage einmal.
+  {
+    const env = { ...ENV, REPO: 'test/gleichzeitig', RATELIMIT: makeKV() };
+    const zaehle = () => ghAufrufe.filter((u) => u.includes('/repos/test/gleichzeitig/')).length;
+    const res = await Promise.all(
+      Array.from({ length: 50 }, (_, i) => worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64', { kopf: { 'CF-Connecting-IP': `7.7.${i}.1` } }), env)),
+    );
+    const n = zaehle();
+    check('P15 Fix 1: 50 gleichzeitige Anfragen aus 50 IPs → alle 200 mit 2 Abrufen bei GitHub (laufende Abfrage geteilt)',
+      res.every((r) => r.status === 200) && n === 2);
+    if (n !== 2) console.log(`     Abrufe bei GitHub: ${n}`);
+  }
+
+  // P15 Fix 2 (OF2): Unbekannte Routen mit dem alten Schlüssel (der steckt in öffentlichen Installern) schreiben nichts in den DO.
+  {
+    const anfragen = [];
+    const ns = { jurisdiction: () => ns, idFromName: () => ({}), get: () => ({ fetch: async (r) => (anfragen.push(r.url), Response.json({ ok: true })) }) };
+    const offen = [];
+    const ctx = { waitUntil: (p) => offen.push(p) };
+    const env = { ...ENV, ALTKEY_BIS: VOR, KONTO: ns };
+    const r = await worker.fetch(req('/gibt-es-nicht', { kopf: { 'X-Proxy-Key': PROXY } }), env, ctx);
+    const h = await worker.fetch(req('/suite.json', { method: 'HEAD', kopf: { 'X-Proxy-Key': PROXY } }), env, ctx);
+    await Promise.all(offen);
+    check('P15 Fix 2: alter Key an unbekannter Route (404) oder unerwarteter Methode zählt nicht (kein waitUntil, kein DO-Aufruf)',
+      r.status === 404 && h.status === 404 && offen.length === 0 && anfragen.length === 0);
+    if (offen.length) console.log(`     waitUntil ${offen.length}, DO-Aufrufe ${anfragen.length}`);
+  }
+
+  // P15 Fix 3 (Vertrag 10.3): Ein unbrauchbarer KONTO_SCHLUESSEL (nicht 32 Byte Base64) ist 503 S5, nicht 401 S1.
+  {
+    const faelle = ['kurz', '', 'AAAA'];
+    const ist = [];
+    for (const k of faelle) {
+      const res = await worker.fetch(req('/suite.json', { kopf: bearer('jm1.a.b') }), { ...ENV, KONTO_SCHLUESSEL: k });
+      const b = await res.json();
+      ist.push(`${res.status} ${b.code}`);
+    }
+    check('P15 Fix 3: unbrauchbarer oder leerer KONTO_SCHLUESSEL → 503 nicht-eingerichtet', ist.every((s) => s === '503 nicht-eingerichtet'));
+    if (!ist.every((s) => s === '503 nicht-eingerichtet')) console.log(`     ${ist.join(' | ')}`);
+  }
+
+  // P15 Fix 4: /tools/:id/latest und das Selbst-Update tragen cache-control: no-store (dieselbe URL: ohne Zugang 401, mit Zugang 200).
+  {
+    const kopfVon = async (pfad, kopf, e = ENV) => (await worker.fetch(req(pfad, { kopf }), e)).headers.get('cache-control');
+    const ist = [
+      await kopfVon('/tools/jm-copy/latest?platform=win&arch=x64', { 'X-Proxy-Key': PROXY }),
+      await kopfVon('/tools/jm-copy/latest?platform=mac&arch=x64', { 'X-Proxy-Key': PROXY }), // kein Paket für mac → 404
+      await kopfVon('/tools/launcher/latest?platform=win&arch=x64', {}),
+      await kopfVon('/tools/launcher/latest?platform=win&arch=x64', {}, { ...ENV, REPO: 'test/alt' }), // 0.17.0 ohne Zugang → 401
+    ];
+    check('P15 Fix 4: /tools/:id/latest (200, 404) und Selbst-Update (200, 401) antworten mit no-store', ist.every((w) => w === 'no-store'));
+    if (!ist.every((w) => w === 'no-store')) console.log(`     ${ist.join(' | ')}`);
   }
 
   // ── Ende der Fälle ──
