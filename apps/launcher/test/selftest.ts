@@ -3672,6 +3672,38 @@ function dialogBefunde(q: string): string[] {
     && !modal.includes('openSettings'));
 }
 
+// --- Anmeldung P34 (Spec 4.1, 4.2, 6.2, 10; G2): Doku und Kochbuch bleiben wahr ------------------------------------------
+// docs/anmeldung.md nennt jede Route des Workers aus Vertrag 10.1 und hat keine ASCII-Anführungszeichen außerhalb von Code; das
+// Rezept „JM Launcher — Anmelden“ zitiert die Texte des Launchers so, wie sie im Quelltext stehen (Muster P17 der Anleitungen).
+{
+  let doku = '';
+  try { doku = quelleLf('../../../docs/anmeldung.md'); } catch { console.log('      docs/anmeldung.md fehlt'); }
+  const ROUTEN = ['POST `/konto/vorgang`', 'POST `/konto/vorgang/abholen`', 'POST `/konto/vorgang/abbrechen`', 'POST `/konto/sitzung`',
+    'POST `/konto/abmelden`', 'GET `/konto/ich`', 'POST `/konto/freigabe`', 'GET `/konto/iveo`', 'POST `/konto/zoom-anfrage`',
+    'GET `/konto/admin/uebersicht`', 'POST `/konto/admin/aktion`', 'GET `/konto/anmelden`', 'POST `/konto/passwort`', 'GET `/konto/google`',
+    'GET `/konto/google/zurueck`', 'POST `/konto/bestaetigen`'];
+  const fehlt = ROUTEN.filter((r) => !doku.includes(`| ${r} |`));
+  const ohneCode = doku.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+  ck(`P34 G2: docs/anmeldung.md nennt jede Route aus 10.1 (${ROUTEN.length}) und hat keine ASCII-Anführungszeichen außerhalb von Code${fehlt.length ? ` — fehlt: ${fehlt.join(', ')}` : ''}`,
+    doku !== '' && fehlt.length === 0 && !ohneCode.includes('"'));
+  let rezept = '';
+  try { rezept = quelleLf('../../../packages/cookbook/content/tool-manuals/launcher-anmeldung.md'); } catch { console.log('      Rezept launcher-anmeldung.md fehlt'); }
+  const anzeige = quelleLf('../src/renderer/src/lib/konto-anzeige.ts');
+  const dialog = quelleLf('../src/renderer/src/lib/konto-dialog.ts');
+  const TEXTE: Array<[string, string, string]> = [
+    ['K1', 'Anmelden', anzeige], ['K6', 'Anmeldung abgelaufen', anzeige], ['K7', 'Zugang entzogen', anzeige], ['K8', 'Anmelden nicht möglich', anzeige],
+    ['K26', 'Abmelden', dialog], ['K40', 'Im Browser anmelden', dialog],
+    ['K41', 'Der Browser zeigt gleich denselben Code. Bestätige dort nur, wenn er übereinstimmt.', dialog], ['K44', 'Adresse kopieren', dialog],
+    ['K48', 'Der Code ist abgelaufen. Starte die Anmeldung neu.', dialog], ['K48', 'Neu starten', dialog],
+    ['K49', 'Im Browser wurde „Nein, abbrechen“ gewählt. Es wurde nichts angemeldet.', dialog],
+    ['K50', 'Der Server ist nicht erreichbar. Prüfe die Internetverbindung und versuche es erneut.', dialog], ['K50', 'Erneut versuchen', dialog],
+    ['Z1', 'Zoom anfragen', dialog], ['Z8', 'Anfrage senden', dialog],
+  ];
+  const falsch = TEXTE.filter(([, t, q]) => !rezept.includes(`„${t}“`) || !q.includes(`'${t}'`)).map(([n, t]) => `${n} „${t}“`);
+  ck(`P34 R1: das Rezept zitiert die Texte des Launchers wörtlich in „ “ (${TEXTE.length} Texte)${falsch.length ? ` — abweichend: ${falsch.join(', ')}` : ''}`,
+    rezept !== '' && falsch.length === 0);
+}
+
 // ── Ende der Fälle (Anmeldung) ──
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

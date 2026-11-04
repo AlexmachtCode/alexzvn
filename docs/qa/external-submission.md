@@ -32,20 +32,27 @@ Einreichers** auf den **Public Key des Events** verschlüsselt:
 
 ## Event-Lebenszyklus
 
-1. **Öffnen** (lokale App, `PROXY_KEY`): App erzeugt ein Event-Keypair, lädt den
+1. **Öffnen** (lokale App mit Freigabe des Launchers): App erzeugt ein Event-Keypair, lädt den
    **Public Key** (JWK) + den **Hash des Presse-Codes** + Flags/Retention hoch
    (`POST /qa/<id>`). Private Key bleibt lokal (at-rest gesichert).
 2. **Einreichen** (öffentlich): Zuschauer/Presse öffnen die vom Worker gehostete
    Seite, verschlüsseln im Browser, senden den Umschlag (`/submit` bzw. `/press`).
-3. **Pollen** (lokale App, `PROXY_KEY`): `GET /qa/<id>/pending` liefert die
+3. **Pollen** (lokale App mit Freigabe des Launchers): `GET /qa/<id>/pending` liefert die
    Chiffretexte; die App entschlüsselt, ingestet in die Moderations-Queue und
    **quittiert** (`POST /qa/<id>/ack` → Löschen im Worker). Lokale Dedupe per ID.
 4. **Schließen** (lokale App): `DELETE /qa/<id>` purged alle Event-Daten; zusätzlich
    KV-TTL als Auto-Verfall.
 
+**Zugang der lokalen App (Anmeldung, Teil 1).** Q&A holt beim Launcher eine Freigabe für
+genau dieses Event (Zweck `qa-relay`, 72 Stunden), hält sie in `qa.cloud.secret` und
+erneuert sie über den Launcher, sobald weniger als 24 Stunden bleiben. Der Live-Pfad
+Q&A → Worker braucht den Launcher nicht. Bis `ALTKEY_BIS` nimmt der Worker an den
+Admin-Routen auch den alten `PROXY_KEY` an; nach der ersten gültigen Freigabe leert Q&A
+den gespeicherten Key. Einzelheiten: `docs/anmeldung.md`.
+
 ## Endpunkte (`/qa/...`)
 
-Öffentlich (kein `PROXY_KEY`):
+Öffentlich (ohne Anmeldung):
 
 | Methode | Pfad | Zweck |
 |---|---|---|
@@ -56,7 +63,7 @@ Einreichers** auf den **Public Key des Events** verschlüsselt:
 | POST | `/qa/<id>/submit` | Stream-Umschlag; rate-limited |
 | POST | `/qa/<id>/press` | Presse-Umschlag + `{code}`; rate-limited + Code-Prüfung |
 
-Authentifiziert (`PROXY_KEY`, wie die bestehenden Schreib-Endpunkte):
+Mit Zugang (Freigabe `qa-relay` für dieses Event als `Authorization: Bearer …`; bis `ALTKEY_BIS` auch der alte `PROXY_KEY`):
 
 | Methode | Pfad | Zweck |
 |---|---|---|
@@ -68,7 +75,7 @@ Authentifiziert (`PROXY_KEY`, wie die bestehenden Schreib-Endpunkte):
 ## Wiederverwendete Worker-Härtung
 
 `readJsonLimited` (Größenlimit), `clampField`, `rateLimit` (KV, Fixed-Window pro IP),
-`HttpError`, `PROXY_KEY`-Auth — identisch zu `/feedback` und `/cookbook/draft`.
+`HttpError` — wie bei `/feedback` und `/cookbook/draft`; den Zugang prüft `zugangPruefen` aus `konto-zugang.js`.
 Zusätzlich: harte Umschlag-Größenkappung, per-Event-Einreich-Cap, Konstantzeit-
 Vergleich des Presse-Code-Hashes.
 
@@ -77,8 +84,8 @@ Vergleich des Presse-Code-Hashes.
 - KV-Namespace anlegen und in `wrangler.toml` binden:
   `npx wrangler kv namespace create QA_RELAY` → id eintragen als Binding `QA_RELAY`.
   (Rate-Limit nutzt die bestehende `RATELIMIT`-Bindung.)
-- `npx wrangler deploy`. Secrets bleiben unverändert (`PROXY_KEY` genügt für die
-  Admin-Routen).
+- `npx wrangler deploy`. Die Admin-Routen prüfen seit der Anmeldung (Teil 1) die
+  Freigabe des Launchers; `PROXY_KEY` gilt dort nur bis `ALTKEY_BIS` (`docs/anmeldung.md`).
 
 ## Restrisiken / offen
 

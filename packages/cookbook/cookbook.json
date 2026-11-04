@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-21T00:00:00.000Z",
+  "updatedAt": "2026-11-04T00:00:00.000Z",
   "recipes": [
     {
       "id": "award-gala",
@@ -2600,6 +2600,139 @@
       }
     },
     {
+      "id": "launcher-anmeldung",
+      "title": "JM Launcher — Anmelden (Konto, Stufen, Zoom anfragen)",
+      "category": "Tool-Manuals",
+      "difficulty": "einfach",
+      "setupTimeMin": 5,
+      "teamSize": "1",
+      "tags": [
+        "launcher",
+        "anmeldung",
+        "konto",
+        "login",
+        "google",
+        "externe",
+        "zoom",
+        "iveo",
+        "manual"
+      ],
+      "relatedTools": [],
+      "prerequisites": [
+        "JM Launcher ab 0.18.0",
+        "Internet für die erste Anmeldung",
+        "Kollegen: Google-Firmenkonto von jakobsmedien.com",
+        "Externe Techniker: Einladungscode von einem Admin"
+      ],
+      "equipmentOwner": "jm",
+      "crewRoles": [
+        "Technik (Kollegen und externe Techniker)"
+      ],
+      "lastReviewed": "2026-11-04",
+      "owner": "tech@jakobsmedien.com",
+      "summary": "Einmal im Launcher anmelden, dann hat jedes Tool, was es braucht: Installieren und Updates, iveo-Events, Q&A extern. Kollegen melden sich mit Google an, externe Techniker mit E-Mail und Passwort. Der Launcher zeigt einen Code, der Browser denselben; bestätigt wird nur, wenn beide gleich sind. Tools ohne Server-Teil laufen auch ohne Anmeldung, und eine laufende Produktion hängt nie an der Anmeldung.",
+      "blocks": {
+        "ingredients": [
+          {
+            "title": "Was die Anmeldung bringt",
+            "items": [
+              "Installieren, Updates, Feedback und Kochbuch-Entwürfe über die Anmeldung; einen Schlüssel oder Token trägt niemand mehr ein.",
+              "iveo-Events, die ein Admin hinterlegt hat; das Token kommt nur in den Speicher des Launchers, nie in die Show-Datei.",
+              "„Q&A extern“: JM Q&A holt seine Freigabe beim Launcher.",
+              "Oben rechts steht, wer angemeldet ist: ein Kreis mit Initialen in der Farbe der Stufe, dazu Name und Stufe (Admin, Kollege, Externer); ohne Anmeldung „Anmelden“."
+            ]
+          },
+          {
+            "title": "Wer sich wie anmeldet",
+            "items": [
+              "**Kollegen** mit ihrem Google-Konto von jakobsmedien.com; beim ersten Mal sind sie automatisch Kollegen.",
+              "**Externe Techniker** mit E-Mail und Passwort; das Passwort setzen sie beim ersten Mal mit dem Einladungscode, den ihnen ein Admin auf eigenem Weg gibt (z. B. Chat). Ein Externer hat einen Zugang bis zu einem Datum und nur die Tools, die der Admin freigibt.",
+              "An einem Rechner ist immer ein Konto angemeldet. Was ohne Server läuft (Tools öffnen, Shows, Verbund, Steuerebene), geht auch ohne Anmeldung."
+            ]
+          }
+        ],
+        "steps": {
+          "vor": [
+            "Oben rechts auf „Anmelden“ klicken. Der Launcher öffnet „Im Browser anmelden“ mit einem Code und dem Satz „Der Browser zeigt gleich denselben Code. Bestätige dort nur, wenn er übereinstimmt.“",
+            "Der Browser öffnet die Anmeldeseite. Kollegen wählen „Mit Google anmelden“. Externe tragen E-Mail und Passwort ein; beim ersten Mal oder mit neuem Code unter „Erstes Mal hier oder neuen Code bekommen?“ den Einladungscode und zweimal das neue Passwort (mindestens 10 Zeichen).",
+            "Die Seite fragt „Zeigt dein Launcher diesen Code?“ und nennt den Rechner. Nur wenn der Code gleich ist: „Ja, das ist mein Rechner“. Sonst „Nein, abbrechen“.",
+            "Der Launcher meldet sich von selbst an und zeigt oben Name und Stufe. Geht der Browser nicht auf: „Adresse kopieren“ und die Adresse selbst im Browser öffnen.",
+            "Beim ersten Mal löscht der Launcher einen früher gespeicherten GitHub-Token; alte, lokal gespeicherte iveo-Tokens verschwinden nach und nach, sobald ein Admin das Event zentral hinterlegt (spätestens nach 30 Tagen)."
+          ],
+          "waehrend": [
+            "Die Anmeldung gilt bis zum nächsten Start des Launchers; beim Start prüft er sie im Hintergrund. Ohne Internet gilt sie weiter, oben steht dann „offline“, im Konto-Dialog das Datum, bis zu dem sie gilt (höchstens 30 Tage nach der letzten Prüfung beim Server; läuft der Launcher so lange, prüft er vorher von selbst neu).",
+            "Entzieht ein Admin den Zugang, läuft alles weiter, was schon läuft; beim nächsten Start ist der Rechner abgemeldet. Oben steht dann „Zugang entzogen“.",
+            "**Zoom anfragen (Externe):** im Konto-Dialog „Zoom anfragen“, Zweck oder Event und den Zeitraum eintragen, „Anfrage senden“. Ein Admin gibt frei. Connect nutzt die Freigabe erst mit einem kommenden Update (bis dahin gilt Zoom in Connect wie bisher); danach wirkt sie ab dem nächsten Start des Launchers und nur auf einem JM-Rechner unter Windows. Kollegen brauchen keine Anfrage.",
+            "**Admins** öffnen die Admin-Maske über „Admin-Maske öffnen“ in den Einstellungen oder im Konto-Dialog: Zugänge, iveo-Events, Anfragen, Geräte. Ein Punkt am Zahnrad zeigt offene Zoom-Anfragen. Scheidet ein Kollege aus, sperren Admins seinen Zugang sofort (Zugang löschen); ohne Sperre muss er sich spätestens 90 Tage nach seiner letzten Anmeldung mit Google neu anmelden und kommt dann nicht mehr herein."
+          ],
+          "nach": [
+            "Abmelden im Konto-Dialog (Klick auf den Kreis oben rechts), „Abmelden“. Laufende Tools arbeiten weiter; neue Freigaben gibt es erst nach einer neuen Anmeldung."
+          ]
+        },
+        "troubleshooting": [
+          {
+            "risk": "„Der Code ist abgelaufen. Starte die Anmeldung neu.“",
+            "remedy": "Der Code gilt 5 Minuten; „Neu starten“"
+          },
+          {
+            "risk": "„Im Browser wurde „Nein, abbrechen“ gewählt. Es wurde nichts angemeldet.“",
+            "remedy": "Neu anmelden und den Code genau vergleichen"
+          },
+          {
+            "risk": "„Der Server ist nicht erreichbar. Prüfe die Internetverbindung und versuche es erneut.“",
+            "remedy": "Internet prüfen, „Erneut versuchen“; eine bestehende Anmeldung gilt offline weiter"
+          },
+          {
+            "risk": "Der Browser geht nicht auf",
+            "remedy": "„Adresse kopieren“ und die Adresse selbst öffnen"
+          },
+          {
+            "risk": "Oben steht „Anmeldung abgelaufen“",
+            "remedy": "30 Tage ohne Prüfung beim Server, der Zugang ist abgelaufen oder die letzte Anmeldung mit Google ist 90 Tage her: neu anmelden bzw. einen Admin nach einer Verlängerung fragen"
+          },
+          {
+            "risk": "Oben steht „Zugang entzogen“",
+            "remedy": "Einen Admin fragen; was läuft, läuft weiter"
+          },
+          {
+            "risk": "Oben steht „Anmelden nicht möglich“",
+            "remedy": "Auf diesem Rechner gibt es keinen sicheren Schlüsselspeicher; Benutzerkonto und Betriebssystem prüfen lassen"
+          },
+          {
+            "risk": "Zoom-Freigabe wirkt nicht",
+            "remedy": "Connect nutzt Zoom-Freigaben erst mit einem kommenden Update; danach wirken sie nach dem nächsten Start und nur auf JM-Rechnern unter Windows. Der Konto-Dialog sagt, ob der Rechner ein JM-Rechner ist"
+          },
+          {
+            "risk": "JM Q&A: „Kein Launcher mit Anmeldung gefunden. Starte den Launcher und melde dich dort an.“",
+            "remedy": "Launcher starten und anmelden; Q&A versucht es von selbst weiter"
+          }
+        ],
+        "checklists": [
+          {
+            "title": "Neuer Rechner",
+            "items": [
+              "Launcher ab 0.18.0 installiert",
+              "Angemeldet, oben stehen Name und Stufe",
+              "Im Konto-Dialog stimmt „Dieser Rechner“ (JM-Rechner ja oder nein)"
+            ]
+          },
+          {
+            "title": "Vor der Produktion",
+            "items": [
+              "Launcher einmal mit Internet gestartet, oben steht nicht „offline“",
+              "iveo-Events im Show-Editor auswählbar (sonst einen Admin bitten, das Event zu hinterlegen)",
+              "Externe mit Zoom: Freigabe im Konto-Dialog sichtbar"
+            ]
+          }
+        ],
+        "tips": [
+          "Vor einer Produktion einmal mit Internet starten: Dann ist die Anmeldung frisch und gilt auch offline wieder bis zu 30 Tage.",
+          "Den Code immer vergleichen. Eine weitergeleitete Anmeldeadresse nützt einem anderen nichts: Ein Vorgang gehört dem ersten Konto, das sich darauf anmeldet.",
+          "JM Q&A behält seine Freigabe 72 Stunden, auch über einen Neustart von Q&A und bei geschlossenem Launcher. Für eine neue Freigabe muss der Launcher laufen."
+        ]
+      }
+    },
+    {
       "id": "launcher-gefuehrte-einrichtung",
       "title": "JM Launcher — geführte Einrichtung (Erste Schritte)",
       "category": "Tool-Manuals",
@@ -2620,7 +2753,7 @@
       "relatedTools": [],
       "prerequisites": [
         "JM Launcher ab 0.17.0",
-        "Internet für Kapitel 1 und 2 (Release-Quelle, Downloads)",
+        "Internet für Kapitel 1 und 2 (Anmeldung, Downloads)",
         "Für Kapitel 3 im Verbund ein zweiter Rechner mit Launcher ab 0.17.0 (sonst überspringen)",
         "Für Kapitel 5 Companion (sonst „Brauche ich nicht“)"
       ],
@@ -2645,7 +2778,7 @@
           {
             "title": "Die sechs Kapitel",
             "items": [
-              "**1 Anmelden:** Release-Quelle (Proxy-Schlüssel oder GitHub-Zugang). Im installierten Launcher ist sie schon verbunden; das Kapitel zeigt dann „Schon erledigt“.",
+              "**1 Anmelden:** Mit deinem Konto anmelden (Kollegen mit Google, Externe mit E-Mail und Passwort), dann im Browser den Code bestätigen. Bis dahin bleibt das Kapitel offen; ohne Internet überspringen.",
               "**2 Tools installieren:** Werkzeugkasten, Katalog mit Kategorien und Suche, „Installieren“.",
               "**3 Rolle im Verbund wählen und koppeln:** allein arbeiten, Master sein oder mit einem Master verbinden und koppeln.",
               "**4 Erste Show anlegen und an ein iveo-Event binden:** Vorlage wählen, Namen geben, iveo optional, speichern. Am Rechner mit „Mit Master verbinden“ kommt die Show vom Master; dort bestätigst du nur „Die Show ist da“.",
@@ -2675,7 +2808,7 @@
         },
         "troubleshooting": [
           {
-            "risk": "Nichts ist hervorgehoben, unter dem Text der Sprechblase steht, was fehlt (zum Beispiel „Öffne zuerst oben die Einstellungen.“ oder „Ich sehe den Knopf oben rechts gerade nicht. Zieh das Fenster breiter.“)",
+            "risk": "Nichts ist hervorgehoben, unter dem Text der Sprechblase steht, was fehlt (zum Beispiel „Klicke zuerst oben rechts auf „Anmelden“.“ oder „Ich sehe den Knopf oben rechts gerade nicht. Zieh das Fenster breiter.“)",
             "remedy": "Genau das tun: den genannten Dialog oder Reiter öffnen bzw. das Fenster größer ziehen; dann ist das Bedienelement hervorgehoben"
           },
           {
@@ -2696,7 +2829,7 @@
           },
           {
             "risk": "„Der gemerkte Fortschritt war unlesbar; die Anleitung beginnt neu.“",
-            "remedy": "Über „Erste Schritte“ neu durchgehen: Was der Launcher selbst sieht (Quelle, Tools, Rolle, gestartete Show), hat sofort wieder einen Haken; Bestätigungen wie „Companion ist verbunden“ oder „Die Show ist da“ neu geben"
+            "remedy": "Über „Erste Schritte“ neu durchgehen: Was der Launcher selbst sieht (Anmeldung, Tools, Rolle, gestartete Show), hat sofort wieder einen Haken; Bestätigungen wie „Companion ist verbunden“ oder „Die Show ist da“ neu geben"
           },
           {
             "risk": "„Der Fortschritt stammt von einer neueren Fassung und bleibt unverändert.“",
@@ -4367,7 +4500,7 @@
           },
           {
             "risk": "iveo-Speaker fehlen oder `{{organisation}}` bleibt leer",
-            "remedy": "Show iveo-gebunden gestartet? Der Token liegt im Launcher (single-holder) — der Titler liest nur `speakers.tsv`. Leere Organisation: Titler ab 0.12.1 und Launcher ab 0.16.0, im Verbund auch auf dem gekoppelten Rechner? Hat der Speaker in iveo eine Organisation?"
+            "remedy": "Show iveo-gebunden gestartet? Das iveo-Token hat nur der angemeldete Launcher im Speicher (single-holder) — der Titler liest nur `speakers.tsv`. Leere Organisation: Titler ab 0.12.1 und Launcher ab 0.16.0, im Verbund auch auf dem gekoppelten Rechner? Hat der Speaker in iveo eine Organisation?"
           }
         ],
         "checklists": [
@@ -4393,7 +4526,7 @@
         "tips": [
           "Companion-Button „Nächster Redner\": `TITLER NEXT` gefolgt von `TITLER TAKE` — ein Tastendruck holt den nächsten DataLink-Eintrag und blendet ihn ein.",
           "Grafik im JM Grafiktool bauen und als `.jmtitler` „an den Titler senden\" — Hintergrund + variablen-fähige Text-Slots kommen fertig gemappt an.",
-          "Für Konferenzen mit iveo: Speaker nie von Hand tippen — die Show materialisiert `speakers.tsv`, der Titler ruft sie per `RECALL` ab. Organisationen kommen mit (`{{organisation}}`, `{{organisationen}}`); eine Änderung in iveo erreicht die Bauchbinde in der Regel binnen etwa 5 Minuten, solange der Launcher mit dem iveo-Token dieser Show läuft und regelmäßig abfragt.",
+          "Für Konferenzen mit iveo: Speaker nie von Hand tippen — die Show materialisiert `speakers.tsv`, der Titler ruft sie per `RECALL` ab. Organisationen kommen mit (`{{organisation}}`, `{{organisationen}}`); eine Änderung in iveo erreicht die Bauchbinde in der Regel binnen etwa 5 Minuten, solange der Launcher läuft, der diese Show mit iveo abgleicht und regelmäßig abfragt.",
           "Zweiter Bildschirm statt NDI, wenn der Mischer nur SDI/HDMI-Keying kann: Chroma-Green-Ausgabe auf den Keyer, NDI bleibt zusätzlich verfügbar."
         ]
       }

@@ -224,8 +224,12 @@ Speichert man die gerade offene Show, laden Timer, Titler und Rundown sofort neu
 
 **Wenn der Abgleich hakt.** Scheitert eine iveo-Abfrage, bleibt der Ablauf, wie
 er ist. Das Side-Events-Panel im Launcher zeigt dann „iveo-Abgleich gestört:
-<Grund> (seit <Uhrzeit>)“, etwa „Token ungültig oder widerrufen“ oder „kein
-iveo-Token auf diesem Rechner, nur Offline-Ablauf“.
+<Grund> (seit <Uhrzeit>)“, etwa „Token ungültig oder widerrufen“. Ohne Token nennt
+die Statuszeile den Grund: „Abgleich läuft auf einem anderen Rechner, hier nur
+Offline-Ablauf“, „nicht angemeldet, nur Offline-Ablauf“, „kein iveo-Token für dieses
+Event hinterlegt, nur Offline-Ablauf“ oder „iveo-Token noch nicht geladen (Server
+nicht erreichbar), nur Offline-Ablauf“. Die Tokens hinterlegt ein Admin zentral;
+der Launcher hat sie nach der Anmeldung nur im Speicher (`docs/anmeldung.md`).
 
 **Titler hält seinen Speaker.** Seit Titler 0.10.0, Launcher 0.14.0 und
 Rundown 0.7.0 hält die Bauchbinde ihre Person, nicht ihre Nummer in der Liste:
@@ -280,8 +284,8 @@ Namen seiner Organisationen aus iveo, die Hauptorganisation zuerst. Der Titler
 bietet sie ab 0.12.1 als `{{organisation}}` (Hauptorganisation) und
 `{{organisationen}}` (alle, mit „ · “ verbunden) an; im Verbund braucht auch der
 gekoppelte Rechner Titler 0.12.1. Haben die Speaker einer offenen iveo-Show in
-iveo Organisationen, schreibt der Launcher mit dem iveo-Token die Show nach dem
-Update einmal neu, in der Regel binnen 5 Minuten; Timer, Titler und Rundown
+iveo Organisationen, schreibt der Launcher, der die Show mit iveo abgleicht, die
+Show nach dem Update einmal neu, in der Regel binnen 5 Minuten; Timer, Titler und Rundown
 laden dabei einmal neu. Eine Show ohne Organisationen bleibt bei einem iveo ohne
 Organisationen unverändert. Gilt ein Teil der Show aus einer früheren Abfrage,
 sagt es die Statuszeile im Side-Events-Panel: „Programm-Detail von iveo nicht
@@ -349,9 +353,10 @@ läuft danach von selbst weiter. Eine Datei über 2 GiB wird nicht geladen, eben
 keine, nach deren Laden weniger als 1 GiB Platz frei bliebe; die Zeile des Side Events nennt den Grund, ebenso
 jeden anderen Fehler.
 
-**Wer ablegt.** Nur der Launcher mit dem iveo-Token dieser Show und ohne die
-Rolle „Mit Master verbinden“, also der Einzelplatz oder der Master. Öffnen zwei
-Rechner mit Token dieselbe Show (Netzlaufwerk, synchronisierter Ordner), legt nur
+**Wer ablegt.** Nur der Launcher, der diese Show mit iveo abgleicht („Abgleich
+hier“, im Side-Events-Panel übernehmbar), und ohne die Rolle „Mit Master
+verbinden“, also der Einzelplatz oder der Master. Öffnen zwei Rechner mit „Abgleich
+hier“ dieselbe Show (Netzlaufwerk, synchronisierter Ordner), legt nur
 einer ab: Die Sperrdatei `.jm-ablage-sperre.json` im Basisordner nennt ihn, und
 der andere zeigt „Ablage liegt bei Rechner „‹Name›“ …“; er übernimmt erst, wenn
 15 Minuten lang kein Lebenszeichen kam. Nach einem Neustart oder Absturz läuft die
