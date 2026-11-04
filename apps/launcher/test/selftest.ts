@@ -1729,7 +1729,10 @@ await (async () => {
   const fehlt = ZIEL_KENNUNGEN.filter((k) => anzahl(k) !== 1).map((k) => `${k} (${anzahl(k)}×)`);
   ck(`P7 7: jede der ${ZIEL_KENNUNGEN.length} Ziel-Kennungen steht genau einmal im Renderer${fehlt.length
     ? ` — fehlt oder mehrfach: ${fehlt.join(', ')}` : ''}`, ZIEL_KENNUNGEN.length === 20 && fehlt.length === 0);
-  const fremd = funde.filter(([k]) => !ZIEL_KENNUNGEN.includes(k)).map(([k, d]) => `${k} in ${d}`);
+  // Anmeldung P24/P25: kopf.konto (Konto-Kreis) und anmeldung.code (Anmelde-Dialog) sind ab P33 die Ziele von Kapitel 1; bis
+  // dahin stehen sie schon im Renderer, gehören aber noch nicht zur Anleitung. P33 nimmt diese Ausnahme wieder heraus.
+  const KOMMEN_MIT_P33 = ['kopf.konto', 'anmeldung.code'];
+  const fremd = funde.filter(([k]) => !ZIEL_KENNUNGEN.includes(k) && !KOMMEN_MIT_P33.includes(k)).map(([k, d]) => `${k} in ${d}`);
   ck(`P7 7: jede Kennung im Renderer gehört zur Anleitung (${funde.length} gefunden)${fremd.length ? ` — fremd: ${fremd.join(', ')}` : ''}`,
     fremd.length === 0);
   ck(`P7 EP10: data-anleitung nur als Literal oder als Tabellenfeld x.anleitung, nie zusammengesetzt${roh.length ? ` — ${roh.join(', ')}` : ''}`,
@@ -3313,6 +3316,43 @@ await (async () => {
     && sync.includes("  if (!a) return { ok: false, error: 'Anhänge lädt nur der Rechner, der die offene Show mit iveo abgleicht.' };")
     && sync.includes("  if (!a) return { ok: false, message: 'Anhänge lädt nur der Rechner, der die offene Show mit iveo abgleicht.' };")
     && !sync.includes('Keine iveo-Show mit Token geöffnet.') && !kernQ.includes('Kein iveo-Token für die offene Show — '));
+}
+
+// --- Anmeldung P24 (Spec 4.2, 7; OFP5; G7): Kopf mit Konto-Kreis, Punkt am Zahnrad, Hinweis im Werkzeugkasten -------------
+// Die Regeln (kontoKopf, zahnradPunkt, werkzeugkastenHinweis) laufen echt in test/konto-anzeige.test.ts (tsx); hier die
+// Verdrahtung der Komponenten, des Stores und von App.tsx (Quelltext-Wächter wie P12 der Anleitungen).
+{
+  const kopf = quelleLf('../src/renderer/src/components/Header.tsx');
+  const kreis = quelleLfOderLeer('../src/renderer/src/components/KontoKreis.tsx');
+  const kasten = quelleLf('../src/renderer/src/components/ToolboxView.tsx');
+  const app = quelleLf('../src/renderer/src/App.tsx');
+  const store = quelleLfOderLeer('../src/renderer/src/store/konto.ts');
+  const leiste = /<div className="flex items-center gap-2" style=\{noDragRegion\}>([\s\S]*?)\n {6}<\/div>\n {4}<\/header>/.exec(kopf)?.[1] ?? '';
+  ck('P24 4.2: der Konto-Kreis steht rechts außen im Kopf (nach Hell/Dunkel), mit der Kennung kopf.konto',
+    leiste.trimEnd().endsWith('<KontoKreis />') && leiste.indexOf("{theme === 'dark' ? 'Light' : 'Dark'}") > 0
+    && leiste.indexOf("{theme === 'dark' ? 'Light' : 'Dark'}") < leiste.indexOf('<KontoKreis />')
+    && kreis.includes('data-anleitung="kopf.konto"') && kopf.includes("import { KontoKreis } from './KontoKreis';"));
+  ck('P24 G7: der Kreis zeigt nur, was kontoKopf entscheidet (kein eigener Text; ohne Aktion, also vor der ersten Ansicht, nichts)',
+    kreis.includes('  const k = kontoKopf(ansicht, breit);') && kreis.includes('  if (k.aktion === null) return null;')
+    && kreis.includes('aria-label={k.titel}') && !/'Anmelden'|Angemeldet als|offline/.test(ohneKommentare(kreis)));
+  ck('P24 OFP5: unter 1180 px nur der Kreis (Breite aus der Fenstergröße, bei resize neu gemessen)',
+    kreis.includes('  const [breit, setBreit] = useState(() => window.innerWidth >= KOPF_BREIT_AB_PX);')
+    && kreis.includes("    window.addEventListener('resize', neu);"));
+  const zahnrad = /<button\n\s+type="button"\n\s+onClick=\{openSettings\}[\s\S]*?<\/button>/.exec(kopf)?.[0] ?? '';
+  ck('P24 7: Zahnrad mit relative, Punkt nach dem Muster des System-Knopfs (absolute -top-1 -right-1), Name M3 über zahnradName',
+    zahnrad.includes("'relative grid place-items-center size-8 rounded-[var(--radius)]',")
+    && zahnrad.includes('aria-label={zahnradName(punkt)}') && zahnrad.includes('{punkt > 0 && (')
+    && zahnrad.includes('className="absolute -top-1 -right-1 grid place-items-center min-w-4 h-4 px-1')
+    && kopf.includes('  const punkt = zahnradPunkt(useKonto((s) => s.ansicht));'));
+  ck('P24 F5: der Werkzeugkasten zeigt den Hinweis aus werkzeugkastenHinweis (Ansicht und Quelle der Einstellungen), sonst nichts',
+    kasten.includes('  const hinweis = werkzeugkastenHinweis(ansicht, quelle);') && kasten.includes('{hinweis && (')
+    && kasten.includes('  const quelle = useTools((s) => s.settings?.source ?? null);'));
+  ck('P24 G7: der Store startet ohne Ansicht (null), holt sie bei konto-changed neu und abonniert einmal je Fenster; App lädt ihn',
+    store.includes('  ansicht: null,') && store.includes("        if (e.type === 'konto-changed') void get().ladeAnsicht();")
+    && store.includes("        else if (e.type === 'anmeldung-changed') set({ anmeldeSchritt: e.schritt });")
+    && store.includes('    if (!abonniert) {') && app.includes('    void ladeKonto();') && app.includes("import { useKonto } from '@/store/konto';"));
+  ck('P24 G4: der Store hält kein Geheimnis (keine Sitzung, kein Token, keine Freigabe im Zustand)',
+    store.length > 0 && !/\b(sitzung|token|freigabe)\s*:/i.test(ohneKommentare(store)));
 }
 
 // ── Ende der Fälle (Anmeldung) ──

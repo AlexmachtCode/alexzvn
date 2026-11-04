@@ -7,6 +7,9 @@ import { useTools } from '@/store/tools';
 import { useCookbook } from '@/store/cookbook';
 import { VerbundBadge } from './VerbundBadge';
 import { useAnleitungsAnsicht } from './Anleitung';
+import { KontoKreis } from './KontoKreis';
+import { zahnradName, zahnradPunkt } from '@/lib/konto-anzeige';
+import { useKonto } from '@/store/konto';
 
 export function Header() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -22,6 +25,8 @@ export function Header() {
   const openCookbook = useCookbook((s) => s.openCookbook);
   const runningCount = useTools((s) => s.presence.filter((p) => p.running).length);
   const version = useTools((s) => s.version);
+  // Anmeldung P24 (Spec 7): offene Zoom-Anfragen als Punkt am Zahnrad — nur für Admins mit gültiger Sitzung.
+  const punkt = zahnradPunkt(useKonto((s) => s.ansicht));
   // Knopf „Erste Schritte“ (Spec 4, OF2, OFP3): pausierte Einrichtung bzw. einmal der Hinweis als sichtbarer Text.
   const { fortsetzen } = useAnleitungsAnsicht();
   const hinweis = useAnleitung((s) => s.hinweis);
@@ -241,10 +246,10 @@ export function Header() {
           type="button"
           onClick={openSettings}
           data-anleitung="kopf.einstellungen"
-          aria-label="Einstellungen"
+          aria-label={zahnradName(punkt)}
           title="Einstellungen"
           className={cn(
-            'grid place-items-center size-8 rounded-[var(--radius)]',
+            'relative grid place-items-center size-8 rounded-[var(--radius)]',
             'border border-[var(--border)] text-[var(--foreground)]',
             'hover:bg-[var(--highlight)] transition-colors',
           )}
@@ -253,6 +258,16 @@ export function Header() {
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
+          {punkt > 0 && (
+            <span
+              aria-hidden
+              className="absolute -top-1 -right-1 grid place-items-center min-w-4 h-4 px-1
+                         rounded-[var(--radius-full)] bg-[var(--primary)] text-[9px] font-bold
+                         leading-none text-[var(--primary-foreground)] tabular-nums"
+            >
+              {punkt}
+            </span>
+          )}
         </button>
         <button
           type="button"
@@ -265,6 +280,8 @@ export function Header() {
         >
           {theme === 'dark' ? 'Light' : 'Dark'}
         </button>
+        {/* Anmeldung P24 (Spec 4.2): „angemeldet als …“ rechts außen. */}
+        <KontoKreis />
       </div>
     </header>
   );
