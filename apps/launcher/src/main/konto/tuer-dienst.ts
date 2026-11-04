@@ -21,8 +21,8 @@ import {
 export const TUER_ZEITFENSTER_MS = 60_000;
 export const TUER_NONCE_MS = 2 * 60_000;
 const BODY_MAX_BYTES = 4096;
-/** Frist für `behandle`: unter dem Zeitlimit des Clients (5 s), damit das Tool eine unterschriebene Antwort bekommt. */
-export const TUER_FRIST_MS = 4000;
+/** Frist für `behandle`: über der Frist der Stelle (4 s), unter dem Zeitlimit des Clients (5 s), damit das Tool eine unterschriebene Antwort bekommt. */
+export const TUER_FRIST_MS = 4500;
 const LOG_ABSTAND_MS = 10_000;
 
 /** Tür-Datei atomar schreiben: Zwischendatei im selben Ordner, dann umbenennen (Windows: kurz wiederholen). */
@@ -70,7 +70,7 @@ function anfrageAus(text: string): FreigabeAnfrage | 'neuer' | null {
 
 export async function starteTuerDienst(o: {
   appDataDir: string; behandle(a: FreigabeAnfrage): Promise<FreigabeErgebnis>; log(z: string): void; jetzt?: () => number;
-  fristMs?: number;
+  fristMs?: number; zeitlimitMs?: number;
 }): Promise<{ port: number; stoppe(): Promise<void> }> {
   const jetzt = o.jetzt ?? Date.now;
   const schluessel = randomBytes(32).toString('base64url');
@@ -153,7 +153,7 @@ export async function starteTuerDienst(o: {
     unterschrieben(res, 200, e, nonce);
   }
 
-  const server = createServer((req, res) => {
+  const server = createServer({ connectionsCheckingInterval: 1000 }, (req, res) => {
     // Browser-Seiten (Origin) und fremde Hostnamen (DNS-Rebinding) bekommen nie eine Antwort mit Unterschrift und kein Log.
     if (req.headers.origin !== undefined || req.headers.host !== `127.0.0.1:${port}`) {
       res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', connection: 'close' });
@@ -187,8 +187,8 @@ export async function starteTuerDienst(o: {
     });
   });
 
-  server.requestTimeout = 10_000;
-  server.headersTimeout = 5000;
+  server.requestTimeout = o.zeitlimitMs ?? 10_000;
+  server.headersTimeout = o.zeitlimitMs ?? 5000;
   let port = 0;
   await new Promise<void>((ok, nein) => {
     server.once('error', nein);

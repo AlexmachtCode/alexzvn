@@ -7,12 +7,12 @@ import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  freigabeBeweis, holeFreigabe, inhaltsHash, tuerPfad, type FreigabeAnfrage, type FreigabeErgebnis, type TuerDatei,
+  FREIGABE_ZEITLIMIT_MS, freigabeBeweis, holeFreigabe, inhaltsHash, tuerPfad, type FreigabeAnfrage, type FreigabeErgebnis, type TuerDatei,
 } from '@jm/app-runtime/freigabe';
 import type { FreigabeAusgabe, KontoAnsicht, KontoStand, KontoZustand } from '../src/shared/konto';
-import { erzeugeFreigabeStelle, ZWECKE } from '../src/main/konto/freigaben';
+import { erzeugeFreigabeStelle, STELLE_FRIST_MS, ZWECKE } from '../src/main/konto/freigaben';
 import type { SitzungsTreiber } from '../src/main/konto/sitzung-kern';
-import { starteTuerDienst } from '../src/main/konto/tuer-dienst';
+import { starteTuerDienst, TUER_FRIST_MS } from '../src/main/konto/tuer-dienst';
 import { KontoFehler, type KontoClient } from '../src/main/konto/worker-client';
 import { kreuz, pruefeFaelle } from './konto-rechte.test';
 
@@ -83,7 +83,7 @@ function roh(port: number, o: { schluessel: string; zeit: number; nonce: string;
   });
 }
 const NONCE = (n: number): string => `nonce${String(n).padStart(17, '0')}`;
-async function dienst(o: { behandle?: (a: FreigabeAnfrage) => Promise<FreigabeErgebnis>; jetzt?: () => number; fristMs?: number } = {}) {
+async function dienst(o: { behandle?: (a: FreigabeAnfrage) => Promise<FreigabeErgebnis>; jetzt?: () => number; fristMs?: number; zeitlimitMs?: number } = {}) {
   const dir = appData();
   const log: string[] = [];
   const behandelt: FreigabeAnfrage[] = [];
@@ -93,6 +93,7 @@ async function dienst(o: { behandle?: (a: FreigabeAnfrage) => Promise<FreigabeEr
     log: (z) => log.push(z),
     jetzt: o.jetzt,
     fristMs: o.fristMs,
+    zeitlimitMs: o.zeitlimitMs,
   });
   const tuer = JSON.parse(readFileSync(tuerPfad(dir), 'utf8')) as TuerDatei;
   return { dir, log, behandelt, d, tuer };
@@ -306,7 +307,7 @@ function halboffen(port: number): Promise<string> {
 {
   const q = readFileSync(new URL('../src/main/konto/tuer-dienst.ts', import.meta.url), 'utf8');
   ck('P13 Wächter: requestTimeout 10 s mit passendem headersTimeout und dauerhafter error-Handler am Server (Quelltext)',
-    q.includes('server.requestTimeout = 10_000;') && q.includes('server.headersTimeout = 5000;') && q.includes("server.on('error', () => o.log("));
+    q.includes('server.requestTimeout = o.zeitlimitMs ?? 10_000;') && q.includes('server.headersTimeout = o.zeitlimitMs ?? 5000;') && q.includes("server.on('error', () => o.log("));
 }
 {
   const x = await dienst({ jetzt: () => T0, behandle: async () => { throw new Error('test-absturz'); } });
@@ -314,6 +315,25 @@ function halboffen(port: number): Promise<string> {
   await x.d.stoppe();
   ck('P13 behandle wirft → unterschriebene 200 mit grund fehler',
     r.status === 200 && r.beweis === freigabeBeweis(x.tuer.schluessel, ['launcher', NONCE(60), inhaltsHash(r.text)]) && JSON.parse(r.text).grund === 'fehler');
+}
+
+// --- P13 Fix 4: Ordnung der Fristen, Server-Zeitlimit greift schnell -----------------------------------------------------------
+ck('P13 Fristen: Frist der Stelle < Frist des Tür-Dienstes < Zeitlimit des Clients (sonst verbucht der Launcher eine Ausgabe, die das Tool nie sieht)',
+  STELLE_FRIST_MS < TUER_FRIST_MS && TUER_FRIST_MS < FREIGABE_ZEITLIMIT_MS);
+{
+  const x = await dienst({ jetzt: () => T0, zeitlimitMs: 500 });
+  const ergebnis = await new Promise<{ text: string; zu: boolean }>((ja) => {
+    const s = connect(x.d.port, '127.0.0.1');
+    let text = '';
+    const frist = setTimeout(() => { s.destroy(); ja({ text, zu: false }); }, 3000);
+    s.on('data', (c) => { text += String(c); });
+    s.on('close', () => { clearTimeout(frist); ja({ text, zu: true }); });
+    s.on('error', () => {});
+    s.on('connect', () => s.write(`POST /v1/freigabe HTTP/1.1\r\nHost: 127.0.0.1:${x.d.port}\r\n`));
+  });
+  await x.d.stoppe();
+  ck('P13 Zeitlimit: eine Verbindung, die nur Kopfzeilen sendet, wird innerhalb weniger Sekunden beendet (Prüfintervall 1 s)',
+    ergebnis.zu && (ergebnis.text === '' || ergebnis.text.startsWith('HTTP/1.1 408')));
 }
 
 // --- P13 G9 ------------------------------------------------------------------------------------------------------------------
