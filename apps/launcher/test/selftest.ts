@@ -3239,7 +3239,11 @@ await (async () => {
     && entwurfKoerper.indexOf("await workerRecht('ki-entwurf')") > 0
     && entwurfKoerper.indexOf("await workerRecht('ki-entwurf')") < entwurfKoerper.indexOf('draftViaPolaris(')
     && feedbackKoerper.indexOf("await workerRecht('feedback')") > 0
-    && feedbackKoerper.indexOf("await workerRecht('feedback')") < feedbackKoerper.indexOf('await fetch('));
+    && feedbackKoerper.indexOf("await workerRecht('feedback')") < feedbackKoerper.indexOf('await fetch(')
+    // Fixrunde 1: scheitert der Worker-Abruf, meldet Feedback den Grund; F3 nur, wenn der Worker nicht gefragt wurde.
+    && feedback.includes("import { proxyFehlerText } from './release-wahl';") && feedbackKoerper.includes('proxyFehlerText(res.status, res.statusText')
+    && feedbackKoerper.includes('  if (proxyFehler) return { ok: false, message: proxyFehler };\n  return { ok: false, message: TEXT_FEEDBACK_ANMELDEN };')
+    && feedbackKoerper.split('TEXT_FEEDBACK_ANMELDEN').length === 2);
   ck('P22 SourceBadge-Quelle: eine Sitzung zählt als Quelle (proxyActive über die von der Hülle gemeldete Sitzung)',
     funktionsKoerper(einst, 'function proxyActive(): boolean {').includes('  return Boolean(resolveProxy() && (sitzungMoeglich() || resolveProxyKey()));')
     && funktionsKoerper(huelle, 'export function starteKonto(').includes('  verbindeSitzung(kontoSitzungMoeglich);'));

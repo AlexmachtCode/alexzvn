@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { ActionResult, FeedbackInput } from '@shared/types';
 import { resolveProxy, resolveToken } from './settings';
 import { workerRecht, zugangsKopfFuer } from './konto/huelle';
+import { proxyFehlerText } from './release-wahl';
 import { getLogSources } from './presence';
 import { getTools } from './manifest';
 
@@ -106,6 +107,8 @@ export async function submitFeedback(input: FeedbackInput): Promise<ActionResult
 
   // 1) Über den Worker (Anmeldung P22, Spec 9.1: Feedback darf jede Stufe; das Recht wird vor dem Abruf geprüft).
   const proxy = resolveProxy();
+  // Fehlertext des Worker-Versuchs: wer angemeldet ist und dessen Abruf scheitert, bekommt den Grund, nicht F3 (G7).
+  let proxyFehler: string | null = null;
   if (proxy && (await workerRecht('feedback'))) {
     const ziel = `${proxy.replace(/\/$/, '')}/feedback`;
     try {
@@ -123,9 +126,11 @@ export async function submitFeedback(input: FeedbackInput): Promise<ActionResult
         const data = (await res.json().catch(() => ({}))) as { url?: string };
         return { ok: true, message: data.url ? `Danke! Gemeldet: ${data.url}` : 'Danke, gemeldet!' };
       }
-      // Proxy erreichbar, aber Fehler → Token-Fallback versuchen.
-    } catch {
-      // Netzwerkfehler → Token-Fallback versuchen.
+      // Proxy erreichbar, aber Fehler → Grund merken, Token-Fallback versuchen.
+      proxyFehler = proxyFehlerText(res.status, res.statusText, await res.text().catch(() => ''));
+    } catch (e) {
+      // Netzwerkfehler → Grund merken, Token-Fallback versuchen.
+      proxyFehler = `Senden fehlgeschlagen: ${String((e as Error).message || e)}`;
     }
   }
 
@@ -165,5 +170,7 @@ export async function submitFeedback(input: FeedbackInput): Promise<ActionResult
     }
   }
 
+  // F3 nur, wenn der Worker gar nicht gefragt wurde (keine Server-Adresse oder kein Recht).
+  if (proxyFehler) return { ok: false, message: proxyFehler };
   return { ok: false, message: TEXT_FEEDBACK_ANMELDEN };
 }
