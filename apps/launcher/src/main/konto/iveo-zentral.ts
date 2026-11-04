@@ -38,10 +38,14 @@ export function iveoSchluessel(basis: string, slug: string): string {
 
 const slugVon = (key: string): string => key.slice(key.lastIndexOf('|') + 1);
 
-/** Genau dieser Schlüssel, sonst der einzige Eintrag mit diesem Slug (mehrdeutig zählt nicht). */
-function finde<T>(liste: readonly T[], key: string, slug: string, schluesselVon: (x: T) => string): T | undefined {
+/**
+ * Genau dieser Schlüssel, sonst (nur mit slugRueckfall) der einzige Eintrag mit diesem Slug (mehrdeutig zählt nicht).
+ * Review P14: Wo ein Token herauskommt und der Aufrufer eine Basis nennt, ist slugRueckfall aus; sonst bekäme eine fremde
+ * Adresse (präparierte .jmshow) das Token eines anderen Hosts.
+ */
+function finde<T>(liste: readonly T[], key: string, slug: string, schluesselVon: (x: T) => string, slugRueckfall = true): T | undefined {
   const genau = liste.find((x) => schluesselVon(x) === key);
-  if (genau !== undefined) return genau;
+  if (genau !== undefined || !slugRueckfall) return genau;
   const gleicherSlug = liste.filter((x) => slugVon(schluesselVon(x)) === slug);
   return gleicherSlug.length === 1 ? gleicherSlug[0] : undefined;
 }
@@ -87,7 +91,7 @@ export function erzeugeIveoZentral(): IveoZentralSpeicher {
       const lokal = lage.lokal(s) || undefined;
       const markiert = finde(lage.abgleichHier, key, s, (k) => k) !== undefined;
       if (!markiert && !lokal) return { token: undefined, grund: 'kein-abgleich-hier' };
-      const zentral = finde([...liste, ...frueher], key, s, (e) => e.key);
+      const zentral = finde([...liste, ...frueher], key, s, (e) => e.key, basis === undefined);
       if (zentral) return { token: zentral.token, grund: 'ok' };
       if (lokal) return { token: lokal, grund: 'ok' };
       if (!lage.angemeldet) return { token: undefined, grund: 'nicht-angemeldet' };

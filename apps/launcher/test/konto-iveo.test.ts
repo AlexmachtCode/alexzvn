@@ -156,6 +156,26 @@ ck('P14 EP13: iveoSchluessel normalisiert die Basis wie settings.ts (Schrägstri
     && alle.loeschen.every((s) => alle.markieren.some((m) => m.endsWith(`|${s}`))) && LOKAL_FRIST_MS === 30 * TAG);
 }
 
+// --- P14 Review (HIGH): eine übergebene fremde Basis bekommt kein Token über den Slug-Rückfall ------------------------------
+// Eine präparierte .jmshow mit fremder iveo.baseUrl darf das Token von PROD nicht auf einen fremden Host lenken.
+{
+  const lage: IveoLage = { angemeldet: true, geladen: true, abgleichHier: [`${PROD}|cop31`], lokal: () => undefined, env: undefined, standardBasis: PROD };
+  const faelle = kreuz({
+    basis: ['https://evil.example/api/v1', 'http://app.my-iveo.de/api/v1', 'https://x.my-iveo.de/api/v1'], wo: ['zentral', 'frueher'],
+  });
+  const r = pruefeFaelle('P14 Review: übergebene fremde Basis, eindeutiger Slug → kein Token (fremder Host, http statt https; zentral und früher)', faelle, (f) => {
+    const z = erzeugeIveoZentral();
+    z.setze([{ key: `${PROD}|cop31`, basis: PROD, slug: 'cop31', name: 'COP31', token: 'test-prod' }], T0);
+    if (f.wo === 'frueher') z.setze([], T0 + 300_000);
+    const ist = z.tokenFuer('cop31', f.basis, lage);
+    const ohneBasis = z.tokenFuer('cop31', undefined, lage);
+    const genau = z.tokenFuer('cop31', PROD, lage);
+    return ist.token === undefined && ist.grund === 'nicht-hinterlegt' && ohneBasis.token === 'test-prod' && genau.token === 'test-prod' ? null
+      : `${f.basis}/${f.wo}: ist ${ist.token ?? '-'} ${ist.grund}, ohne Basis ${ohneBasis.token ?? '-'}, genau ${genau.token ?? '-'}`;
+  });
+  ck(r.name, r.ok);
+}
+
 // --- P14 G9 --------------------------------------------------------------------------------------------------------------------
 {
   const quelle = readFileSync(new URL('../src/main/konto/iveo-zentral.ts', import.meta.url), 'utf8');
