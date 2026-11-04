@@ -245,7 +245,6 @@ export function Header() {
         <button
           type="button"
           onClick={openSettings}
-          data-anleitung="kopf.einstellungen"
           aria-label={zahnradName(punkt)}
           title="Einstellungen"
           className={cn(

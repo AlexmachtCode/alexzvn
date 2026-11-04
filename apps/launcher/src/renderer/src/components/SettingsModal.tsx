@@ -64,7 +64,7 @@ export function SettingsModal() {
         )}
 
         {/* Anmeldung P28 (Spec 3, EP12): kein GitHub-Feld mehr; die Server-Adresse bleibt für Entwicklung und Fehlersuche (T20). */}
-        <div className={cn('mt-5 flex flex-col gap-2', fromEnv && 'opacity-50 pointer-events-none')} data-anleitung="einstellungen.zugang">
+        <div className={cn('mt-5 flex flex-col gap-2', fromEnv && 'opacity-50 pointer-events-none')}>
           <Field
             label={ZUGANG_TEXTE.feld}
             placeholder="https://releases.intern.jakobsmedien.de"

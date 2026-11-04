@@ -29,7 +29,7 @@ import {
 } from '../src/renderer/src/lib/anleitung-zustand.ts';
 import { leseFortschritt, schreibeFortschritt } from '@jm/ui/anleitung';
 import {
-  anleitungsEingang, erzeugeAnleitungsTreiber, PRESENCE_FRIST_MS, type LauncherLage, type TreiberStand,
+  anleitungsEingang, erzeugeAnleitungsTreiber, PRESENCE_FRIST_MS, type KontoLage, type LauncherLage, type TreiberStand,
 } from '../src/renderer/src/lib/anleitung-zustand.ts';
 import { startEntscheidung, type StartEingang } from '../src/renderer/src/lib/anleitung-zustand.ts';
 import { anleitungAnsicht } from '@jm/ui/anleitung';
@@ -1368,10 +1368,11 @@ await (async () => {
     ['A2', 'rueckfrage', 'Willst du die Anleitung wirklich überspringen? Du findest sie jederzeit oben unter „Erste Schritte“.'],
     ['A3', 'abschluss', 'Das war die Einrichtung. Alle Schritte findest du jederzeit unter „Erste Schritte“, offene kannst du dort fortsetzen.'],
     ['A4', 'k1:titel', 'Anmelden'],
-    ['A5', 'k1:kurz', 'Proxy-Schlüssel oder GitHub-Zugang hinterlegen, damit Tools installiert und aktualisiert werden können.'],
-    ['A6', 'k1:erledigt', 'Dieser Rechner ist schon mit der Release-Quelle verbunden. Du kannst gleich weitermachen.'],
-    ['A7', 'k1.einstellungen', 'Damit der Launcher Tools laden kann, braucht er eine Verbindung zur Release-Quelle. Öffne dazu die Einstellungen.'],
-    ['A8', 'k1.zugang', 'Trage hier den Proxy-Schlüssel oder deinen GitHub-Zugang ein und klicke auf „Speichern“. Ohne Internet geht das nicht; dann überspringe diesen Schritt.'],
+    // Anmeldung P33 (EP27): A49–A52 ersetzen A5–A8 (Kapitel 1 liest die Sitzung statt der Release-Quelle).
+    ['A49', 'k1:kurz', 'Mit deinem Konto anmelden, damit du Tools installieren und aktualisieren kannst.'],
+    ['A50', 'k1:erledigt', 'Auf diesem Rechner bist du schon angemeldet. Du kannst gleich weitermachen.'],
+    ['A51', 'k1.anmelden', 'Damit der Launcher Tools laden kann, meldest du dich einmal an. Klicke oben rechts auf „Anmelden“.'],
+    ['A52', 'k1.bestaetigen', 'Melde dich im Browser an und bestätige dort, wenn er denselben Code zeigt. Ohne Internet geht das nicht; dann überspringe diesen Schritt.'],
     ['A9', 'k2:titel', 'Tools installieren'],
     ['A10', 'k2:kurz', 'Im Werkzeugkasten die Tools für deine Produktion auswählen und installieren.'],
     ['A11', 'k2:erledigt', 'Auf diesem Rechner ist schon mindestens ein Tool installiert.'],
@@ -1391,11 +1392,11 @@ await (async () => {
     ['A25', 'k4:kurz', 'Wähle, was du produzierst (Konferenz, Battle, Bühne, Podcast), und speichere die passende Show.'],
     ['A26', 'k4:erledigt', 'Die erste Show hast du an diesem Rechner schon gespeichert oder vom Master bekommen.'],
     ['A27', 'k4.reiter', 'Shows legst du im Reiter „JM Show“ an. Öffne ihn.'],
-    ['A28', 'k4.slave', 'An diesem Rechner kommt die Show vom Master; iveo und Tokens bleiben dort. Die Anleitung kann das hier nicht selbst sehen: Zeigen deine Tools die Show des Masters?'],
+    ['A54', 'k4.slave', 'An diesem Rechner kommt die Show vom Master; iveo gleicht der Master ab. Die Anleitung kann das hier nicht selbst sehen: Zeigen deine Tools die Show des Masters?'],
     ['A29', 'k4.vorlage', 'Am schnellsten geht es mit einer Vorlage. Klicke bei „Aus Vorlage starten“ auf „Vorlage wählen“.'],
     ['A30', 'k4.szenario', 'Wähle, was du produzierst, und klicke auf „Los“. Der Show-Editor übernimmt die passenden Tools.'],
     ['A31', 'k4.name', 'Gib der Show einen Namen, an dem du sie wiedererkennst.'],
-    ['A32', 'k4.iveo', 'Arbeitest du mit einem iveo-Event, bindest du es hier mit Token und Event an. Ohne iveo klickst du einfach auf „Weiter“.'],
+    ['A55', 'k4.iveo', 'Arbeitest du mit einem iveo-Event, wählst du es hier aus; die Freigabe kommt mit deiner Anmeldung. Ohne iveo klickst du einfach auf „Weiter“.'],
     ['A33', 'k4.speichern', 'Speichere die Show. Das startet noch keine Tools; das kommt im letzten Schritt.'],
     ['A34', 'k5:titel', 'Fernsteuerung für Companion einrichten'],
     ['A35', 'k5:kurz', 'Sehen, ob sich die Tools im Netz finden, und Companion anbinden; am Einzelplatz mit der sicheren Steuerebene.'],
@@ -1423,7 +1424,7 @@ await (async () => {
     return schritte.find((s) => s.id === wo)?.text;
   };
   const aAbw = A.filter(([, wo, soll]) => textVon(wo) !== soll).map(([nr]) => nr);
-  ck(`P6 9.1: A1–A48 wörtlich (${A.length} Texte)${aAbw.length ? ` — abweichend: ${aAbw.join(', ')}` : ''}`,
+  ck(`P6 9.1, P33: A1–A48 wörtlich, Kapitel 1, A28 und A32 als A49–A52, A54, A55 (${A.length} Texte)${aAbw.length ? ` — abweichend: ${aAbw.join(', ')}` : ''}`,
     A.length === 48 && aAbw.length === 0);
 
   // Aufbau je Schritt nach 9.1 (Art, Ziel, „Ziel fehlt“, Eingriff, Hinweis Überspringen, gilt nur, wenn, erledigt, wenn, Optionen).
@@ -1448,9 +1449,9 @@ await (async () => {
     { id: 'einleitung', art: 'erklaeren' },
     { id: 'rueckfrage', art: 'erklaeren', ziel: 'kopf.erste-schritte', zielFehlt: KOPF },
     { id: 'abschluss', art: 'erklaeren', ziel: 'kopf.erste-schritte', zielFehlt: KOPF },
-    { id: 'k1.einstellungen', art: 'handeln', ziel: 'kopf.einstellungen', zielFehlt: KOPF, erledigt: z('einstellungenOffen') },
-    { id: 'k1.zugang', art: 'handeln', ziel: 'einstellungen.zugang', zielFehlt: 'Öffne zuerst oben die Einstellungen.', hinweis: true,
-      erledigt: z('quelleVerbunden') },
+    { id: 'k1.anmelden', art: 'handeln', ziel: 'kopf.konto', zielFehlt: KOPF, erledigt: z('anmeldungOffen') },
+    { id: 'k1.bestaetigen', art: 'handeln', ziel: 'anmeldung.code', zielFehlt: 'Klicke zuerst oben rechts auf „Anmelden“.', hinweis: true,
+      erledigt: z('angemeldet') },
     { id: 'k2.reiter', art: 'handeln', ziel: 'reiter.werkzeugkasten', zielFehlt: REITER, erledigt: z('reiterWerkzeugkasten') },
     { id: 'k2.katalog', art: 'erklaeren', ziel: 'werkzeugkasten.kategorien', zielFehlt: 'Öffne zuerst den Reiter „Werkzeugkasten“.' },
     { id: 'k2.installieren', art: 'handeln', ziel: 'werkzeugkasten.installieren',
@@ -1503,7 +1504,7 @@ await (async () => {
     ? ` — abweichend: ${aufbauAbw.join(', ')} (ist ${schritte.length} Schritte)` : ''}`,
     schritte.length === SOLL.length && aufbauAbw.length === 0);
   const KAPITEL_SOLL: Record<string, Bedingung> = {
-    k1: z('quelleVerbunden'),
+    k1: z('angemeldet'),
     k2: z('toolInstalliert'),
     k3: eine(z('rolleMaster'), alle(z('slaveGekoppelt'), ev('slaveWarVerbunden')), alle(z('rolleAus'), en('allein'))),
     k4: eine(alle(NICHT_SLAVE, ev('showGespeichert')), alle(z('rolleSlave'), en('showVomMaster'))),
@@ -1518,13 +1519,13 @@ await (async () => {
   const ROLLEN: Array<[string, Record<string, boolean>]> = [
     ['aus', { rolleAus: true }], ['master', { rolleMaster: true }], ['slave', { rolleSlave: true }], ['unbekannt', {}],
   ];
-  const EINZELPLATZ_SCHRITTE = 'k1:einstellungen,zugang|k2:reiter,katalog,installieren|k3:verbund,allein,oeffnen,rolle'
+  const EINZELPLATZ_SCHRITTE = 'k1:anmelden,bestaetigen|k2:reiter,katalog,installieren|k3:verbund,allein,oeffnen,rolle'
     + '|k4:reiter,vorlage,szenario,name,iveo,speichern|k5:system,sicher,bestaetigen|k6:oeffnen';
   const GELTEND: Record<string, string> = {
     aus: EINZELPLATZ_SCHRITTE,
-    master: 'k1:einstellungen,zugang|k2:reiter,katalog,installieren|k3:verbund,allein,oeffnen,rolle,master'
+    master: 'k1:anmelden,bestaetigen|k2:reiter,katalog,installieren|k3:verbund,allein,oeffnen,rolle,master'
       + '|k4:reiter,vorlage,szenario,name,iveo,speichern|k5:verbund,bestaetigen|k6:master,oeffnen',
-    slave: 'k1:einstellungen,zugang|k2:reiter,katalog,installieren|k3:verbund,allein,oeffnen,rolle,slave'
+    slave: 'k1:anmelden,bestaetigen|k2:reiter,katalog,installieren|k3:verbund,allein,oeffnen,rolle,slave'
       + '|k4:slave|k5:verbund,bestaetigen|k6:oeffnen',
     unbekannt: EINZELPLATZ_SCHRITTE,
   };
@@ -1554,7 +1555,8 @@ await (async () => {
   });
   const ERLEDIGT: Array<[string, string, Record<string, boolean>, string[], string[], boolean]> = [
     ['k1 frisch', 'k1', {}, [], [], false],
-    ['k1 Quelle verbunden', 'k1', { quelleVerbunden: true }, [], [], true],
+    ['k1 angemeldet', 'k1', { angemeldet: true }, [], [], true],
+    ['k1 nur der Anmelde-Dialog offen', 'k1', { anmeldungOffen: true }, [], [], false],
     ['k2 frisch', 'k2', {}, [], [], false],
     ['k2 ein Tool installiert', 'k2', { toolInstalliert: true }, [], [], true],
     ['k3 Rolle aus ohne Entscheidung (Voreinstellung)', 'k3', { rolleAus: true }, [], [], false],
@@ -1643,7 +1645,7 @@ await (async () => {
     laufAbw.length === 0);
 
   // Gesprochene Texte (Spec 6): 35 mit den IDs aus 9.1; noch kein eigener Sprechtext (erst nach der Hörprobe).
-  const SPRECH_IDS = ['einleitung', 'rueckfrage', 'abschluss', 'k1.erledigt', 'k1.einstellungen', 'k1.zugang', 'k2.erledigt', 'k2.reiter',
+  const SPRECH_IDS = ['einleitung', 'rueckfrage', 'abschluss', 'k1.erledigt', 'k1.anmelden', 'k1.bestaetigen', 'k2.erledigt', 'k2.reiter',
     'k2.katalog', 'k2.installieren', 'k3.erledigt', 'k3.verbund', 'k3.allein', 'k3.oeffnen', 'k3.rolle', 'k3.master', 'k3.slave',
     'k4.erledigt', 'k4.reiter', 'k4.slave', 'k4.vorlage', 'k4.szenario', 'k4.name', 'k4.iveo', 'k4.speichern', 'k5.erledigt',
     'k5.system', 'k5.sicher', 'k5.neustart', 'k5.companion', 'k5.verbund', 'k5.bestaetigen', 'k6.erledigt', 'k6.master', 'k6.oeffnen'];
@@ -1671,15 +1673,15 @@ await (async () => {
     ['L2', L.optionVerbund, 'Verbund einrichten'],
     ['L3', L.optionShowDa, 'Die Show ist da'],
     ['L4', L.optionCompanion, 'Companion ist verbunden'],
-    ['L5 offen', L.aktion.k1(false), 'Einrichten'],
-    ['L5 fertig', L.aktion.k1(true), 'Ändern'],
+    ['L16 offen', L.aktion.k1(false), 'Anmelden'],
+    ['L16 fertig', L.aktion.k1(true), 'Konto'],
     ['L6 offen', L.aktion.k2(false), 'Auswählen'],
     ['L6 fertig', L.aktion.k2(true), 'Werkzeugkasten'],
     ['L7', L.aktion.k3, 'Verbund öffnen'],
     ['L8 k4', L.aktion.k4, 'Vorlage wählen'],
     ['L8 k5', L.aktion.k5, 'Prüfen'],
-    ['L9 Proxy', L.detail.k1('proxy'), 'Aktiv: Firmen-Proxy.'],
-    ['L9 GitHub', L.detail.k1('github'), 'Aktiv: GitHub.'],
+    ['L17 angemeldet', L.detail.k1('Maria S.', 'Kollege', null), 'Angemeldet als Maria S. · Kollege.'],
+    ['L17 offline', L.detail.k1('Maria S.', 'Kollege', '20.11.2026'), 'Angemeldet als Maria S. · offline bis 20.11.2026.'],
     ['L10 eins', L.detail.k2(1), '1 Tool installiert, weitere jederzeit im Werkzeugkasten.'],
     ['L10 mehrere', L.detail.k2(3), '3 Tools installiert, weitere jederzeit im Werkzeugkasten.'],
     ['L11 Knopf', L.knopf, 'Erste Schritte'],
@@ -1691,7 +1693,7 @@ await (async () => {
     ['L14 Schließen', L.schliessen, 'Schließen'],
   ];
   const lAbw = LT.filter(([, ist, soll]) => ist !== soll).map(([nr]) => nr);
-  ck(`P6 9.3: L1–L14 wörtlich (${LT.length} Texte)${lAbw.length ? ` — abweichend: ${lAbw.join(', ')}` : ''}`, lAbw.length === 0);
+  ck(`P6 9.3, P33: L1–L14 wörtlich, L16 und L17 statt L5 und L9 (${LT.length} Texte)${lAbw.length ? ` — abweichend: ${lAbw.join(', ')}` : ''}`, lAbw.length === 0);
   const alleTexte: string[] = LT.map(([, t]) => t);
   const sammle = (x: unknown): void => {
     if (typeof x === 'string') alleTexte.push(x);
@@ -1728,10 +1730,7 @@ await (async () => {
   const fehlt = ZIEL_KENNUNGEN.filter((k) => anzahl(k) !== 1).map((k) => `${k} (${anzahl(k)}×)`);
   ck(`P7 7: jede der ${ZIEL_KENNUNGEN.length} Ziel-Kennungen steht genau einmal im Renderer${fehlt.length
     ? ` — fehlt oder mehrfach: ${fehlt.join(', ')}` : ''}`, ZIEL_KENNUNGEN.length === 20 && fehlt.length === 0);
-  // Anmeldung P24/P25: kopf.konto (Konto-Kreis) und anmeldung.code (Anmelde-Dialog) sind ab P33 die Ziele von Kapitel 1; bis
-  // dahin stehen sie schon im Renderer, gehören aber noch nicht zur Anleitung. P33 nimmt diese Ausnahme wieder heraus.
-  const KOMMEN_MIT_P33 = ['kopf.konto', 'anmeldung.code'];
-  const fremd = funde.filter(([k]) => !ZIEL_KENNUNGEN.includes(k) && !KOMMEN_MIT_P33.includes(k)).map(([k, d]) => `${k} in ${d}`);
+  const fremd = funde.filter(([k]) => !ZIEL_KENNUNGEN.includes(k)).map(([k, d]) => `${k} in ${d}`);
   ck(`P7 7: jede Kennung im Renderer gehört zur Anleitung (${funde.length} gefunden)${fremd.length ? ` — fremd: ${fremd.join(', ')}` : ''}`,
     fremd.length === 0);
   ck(`P7 EP10: data-anleitung nur als Literal oder als Tabellenfeld x.anleitung, nie zusammengesetzt${roh.length ? ` — ${roh.join(', ')}` : ''}`,
@@ -1742,11 +1741,11 @@ await (async () => {
   // Kennungs-Register (Gliederung 13 P7, docs/anleitungen.md): Kennung → Komponente.
   const ORT: Record<string, string> = {
     'kopf.erste-schritte': 'components/Header.tsx',
-    'kopf.einstellungen': 'components/Header.tsx',
+    'kopf.konto': 'components/KontoKreis.tsx',
     'kopf.system': 'components/Header.tsx',
     'kopf.show-oeffnen': 'components/Header.tsx',
     'kopf.verbund': 'components/VerbundBadge.tsx',
-    'einstellungen.zugang': 'components/SettingsModal.tsx',
+    'anmeldung.code': 'components/AnmeldeModal.tsx',
     'reiter.werkzeugkasten': 'components/TabBar.tsx',
     'reiter.show': 'components/TabBar.tsx',
     'werkzeugkasten.kategorien': 'components/ToolboxView.tsx',
@@ -1769,10 +1768,11 @@ await (async () => {
 
 // --- Geführte Anleitungen P8 (Spec 5, 7, 8; EP5, EP6, EP17, G7): Zustands-Adapter Store → Bedingungen ----------------
 // Kreuzprodukte mit eigener Erwartung je Fall (aus den Fall-Namen, nicht aus dem Adapter): Ein Haken entsteht nur aus einem
-// echten Zustand; Quelle null/'none', Verbund-Stand null, Dateifehler (Rolle unbekannt) und Steuerebene null zählen nie.
+// echten Zustand; Konto null oder ohne Stand (Anmeldung P33), Verbund-Stand null, Dateifehler (Rolle unbekannt) und Steuerebene
+// null zählen nie.
 {
   const eingang = (teil: Partial<AnleitungsEingang>): AnleitungsEingang => ({
-    settings: null, states: {}, view: 'catalog', settingsOpen: false, systemOpen: false, scenariosOpen: false, showEditorOpen: false,
+    konto: null, anmeldungOffen: false, states: {}, view: 'catalog', settingsOpen: false, systemOpen: false, scenariosOpen: false, showEditorOpen: false,
     verbundOffen: false, verbund: null, steuerebene: null, recentShows: 0, laufendeTools: 0, showLaunch: false, iveoActive: false,
     ...teil,
   });
@@ -1780,41 +1780,44 @@ await (async () => {
     rolle, rechnerName: 'Regie 1', karten: [], gewaehlteKarte: null, karteFehlt: false, dateiFehler, master: null,
     slave: { gekoppelt, koppeltGerade: false, masterName: 'Master', festeAdresse: null, client: { art }, gefundeneMaster: [] },
   }) as VerbundStand;
-  const NAMEN = ['quelleVerbunden', 'toolInstalliert', 'reiterWerkzeugkasten', 'reiterShow', 'einstellungenOffen', 'systemOffen',
+  const NAMEN = ['angemeldet', 'anmeldungOffen', 'toolInstalliert', 'reiterWerkzeugkasten', 'reiterShow', 'einstellungenOffen', 'systemOffen',
     'verbundOffen', 'szenarienOffen', 'editorOffen', 'rolleAus', 'rolleMaster', 'rolleSlave', 'slaveGekoppelt', 'slaveVerbunden',
     'steuerebeneSicher', 'steuerebeneOffen', 'showGestartet'];
-  ck('P8 10.3: Namenslisten nach Gliederung 10.3 (17 Zustände, 3 Ereignisse, 3 Entscheidungen)',
+  ck('P8 10.3, P33: Namenslisten nach Gliederung 10.3, angemeldet und anmeldungOffen statt quelleVerbunden (18 Zustände, 3 Ereignisse, 3 Entscheidungen)',
     ZUSTANDS_NAMEN.join(',') === NAMEN.join(',') && EREIGNIS_NAMEN.join(',') === 'showGespeichert,slaveWarVerbunden,steuerebeneAktiviert'
     && ENTSCHEIDUNGS_NAMEN.join(',') === 'allein,companionVerbunden,showVomMaster');
   const vergleiche = (fall: string, ist: Record<string, boolean>, soll: Record<string, boolean>, abw: string[]): void => {
     for (const n of NAMEN) if (ist[n] !== soll[n]) abw.push(`${fall}: ${n} ist ${String(ist[n])}`);
   };
 
-  // Kreuz 1: Quelle × Verbund-Stand × gekoppelt × Client × Steuerebene
-  const QUELLEN = [null, 'none', 'proxy', 'github'] as const;
+  // Kreuz 1: Konto × Verbund-Stand × gekoppelt × Client × Steuerebene (Anmeldung P33: Konto statt Quelle; „pruefe“ ohne Stand
+  // ist die Ansicht vor der ersten Antwort des Mains und zählt nie)
+  const KONTEN: Array<AnleitungsEingang['konto']> = [null, { zustand: 'pruefe', kurzName: null, stufe: null, gueltigBis: null },
+    { zustand: 'nicht-angemeldet', kurzName: null, stufe: null, gueltigBis: null },
+    { zustand: 'angemeldet', kurzName: 'Maria S.', stufe: 'kollege', gueltigBis: 1 }];
   const STAENDE = ['null', 'aus', 'master', 'slave', 'aus+dateiFehler', 'master+dateiFehler', 'slave+dateiFehler'] as const;
   const CLIENTS = ['verbunden', 'sucht', 'fehler'] as const;
   const STEUER = [null, 'open', 'secure'] as const;
   let n1 = 0;
   const abw1: string[] = [];
-  for (const q of QUELLEN) for (const st of STAENDE) for (const gek of [false, true]) for (const art of CLIENTS) for (const se of STEUER) {
+  for (const q of KONTEN) for (const st of STAENDE) for (const gek of [false, true]) for (const art of CLIENTS) for (const se of STEUER) {
     n1++;
     const [rolle, fehler] = st.split('+');
     const e = eingang({
-      settings: q === null ? null : { source: q },
+      konto: q,
       verbund: st === 'null' ? null : stand(rolle, fehler ? 'EACCES' : null, gek, art),
       steuerebene: se,
     });
     const soll: Record<string, boolean> = {
-      quelleVerbunden: q === 'proxy' || q === 'github', toolInstalliert: false, reiterWerkzeugkasten: true, reiterShow: false,
+      angemeldet: q?.zustand === 'angemeldet', anmeldungOffen: false, toolInstalliert: false, reiterWerkzeugkasten: true, reiterShow: false,
       einstellungenOffen: false, systemOffen: false, verbundOffen: false, szenarienOffen: false, editorOffen: false,
       rolleAus: st === 'aus', rolleMaster: st === 'master', rolleSlave: st === 'slave', slaveGekoppelt: st === 'slave' && gek,
       slaveVerbunden: st === 'slave' && gek && art === 'verbunden', steuerebeneSicher: se === 'secure', steuerebeneOffen: se === 'open',
       showGestartet: false,
     };
-    vergleiche(`${q}/${st}/${gek ? 'gekoppelt' : 'frei'}/${art}/${se}`, anleitungsZustand(e), soll, abw1);
+    vergleiche(`${q?.zustand ?? 'kein Konto'}/${st}/${gek ? 'gekoppelt' : 'frei'}/${art}/${se}`, anleitungsZustand(e), soll, abw1);
   }
-  ck(`P8 G7: Kreuz Quelle × Verbund-Stand × gekoppelt × Client × Steuerebene, eine Voreinstellung zählt nie (${n1} Fälle)${abw1.length
+  ck(`P8 G7, P33: Kreuz Konto × Verbund-Stand × gekoppelt × Client × Steuerebene, eine Voreinstellung zählt nie (${n1} Fälle)${abw1.length
     ? ` — ${abw1.slice(0, 5).join('; ')}` : ''}`, n1 === 504 && abw1.length === 0);
 
   // Kreuz 2: Werkzeuge × Reiter × Shows × fünf Dialoge
@@ -1833,7 +1836,7 @@ await (async () => {
       const b = (i: number): boolean => (maske & (1 << i)) !== 0;
       const e = eingang({ states, view, recentShows: recent, settingsOpen: b(0), systemOpen: b(1), scenariosOpen: b(2), showEditorOpen: b(3), verbundOffen: b(4) });
       const soll: Record<string, boolean> = {
-        quelleVerbunden: false, toolInstalliert: inst, reiterWerkzeugkasten: view === 'catalog', reiterShow: view === 'jmshow',
+        angemeldet: false, anmeldungOffen: false, toolInstalliert: inst, reiterWerkzeugkasten: view === 'catalog', reiterShow: view === 'jmshow',
         einstellungenOffen: b(0), systemOffen: b(1), szenarienOffen: b(2), editorOffen: b(3), verbundOffen: b(4),
         rolleAus: false, rolleMaster: false, rolleSlave: false, slaveGekoppelt: false, slaveVerbunden: false, steuerebeneSicher: false,
         steuerebeneOffen: false, showGestartet: recent > 0,
@@ -1847,7 +1850,8 @@ await (async () => {
   const leer = leererFortschritt('einrichtung');
   const FRISCH: Array<[string, AnleitungsEingang]> = [
     ['nichts geladen', eingang({})],
-    ['Voreinstellungen geladen', eingang({ settings: { source: 'none' }, verbund: stand('aus', null, false, 'aus'), steuerebene: 'open',
+    ['Voreinstellungen geladen', eingang({ konto: { zustand: 'pruefe', kurzName: null, stufe: null, gueltigBis: null },
+      verbund: stand('aus', null, false, 'aus'), steuerebene: 'open',
       states: { 'jm-timer': { status: 'not-installed' } } })],
   ];
   const frischAbw = FRISCH.flatMap(([name, e]) => EINRICHTUNG.kapitel
@@ -1882,22 +1886,28 @@ await (async () => {
   ck(`P8 7: Produktion = Tool läuft, Show startet, iveo-Show offen (auch ohne laufendes Tool) oder am Master folgen Tools der verteilten Show (${n3} Fälle)${abw3.length
     ? ` — ${abw3.join(', ')}` : ''}`, n3 === 60 && abw3.length === 0);
 
-  // Detailzeilen L9, L10 (nur mit Daten)
+  // Detailzeilen L17, L10 (nur mit Daten; Anmeldung P33: L17 statt L9, offline mit dem Datum, bis zu dem die Anmeldung gilt)
   const D = LAUNCHER_ANLEITUNG_TEXTE.detail;
+  const { STUFE_TEXT } = await import('../src/shared/konto.ts');
+  const BIS = new Date(2026, 10, 20, 18, 0).getTime();
+  const angemeldetAls = (zustand: string): AnleitungsEingang['konto'] =>
+    ({ zustand, kurzName: 'Maria S.', stufe: 'kollege', gueltigBis: BIS }) as AnleitungsEingang['konto'];
   const DETAILS: Array<[string, AnleitungsEingang, string]> = [
     ['nichts geladen', eingang({}), '{}'],
-    ['Quelle none', eingang({ settings: { source: 'none' } }), '{}'],
-    ['Proxy', eingang({ settings: { source: 'proxy' } }), '{"k1":"Aktiv: Firmen-Proxy."}'],
-    ['GitHub', eingang({ settings: { source: 'github' } }), '{"k1":"Aktiv: GitHub."}'],
+    ['vor der ersten Antwort', eingang({ konto: { zustand: 'pruefe', kurzName: null, stufe: null, gueltigBis: null } }), '{}'],
+    ['angemeldet', eingang({ konto: angemeldetAls('angemeldet') }), '{"k1":"Angemeldet als Maria S. · Kollege."}'],
+    ['offline', eingang({ konto: angemeldetAls('offline') }), '{"k1":"Angemeldet als Maria S. · offline bis 20.11.2026."}'],
+    ['Server nicht erreichbar', eingang({ konto: angemeldetAls('server-nicht-erreichbar') }), '{"k1":"Angemeldet als Maria S. · offline bis 20.11.2026."}'],
+    ['abgelaufen', eingang({ konto: angemeldetAls('abgelaufen') }), '{}'],
     ['nur nicht installiert', eingang({ states: { 'jm-timer': { status: 'not-installed' } } }), '{}'],
     ['ein Tool', eingang({ states: { 'jm-timer': { status: 'installed' } } }), '{"k2":"1 Tool installiert, weitere jederzeit im Werkzeugkasten."}'],
-    ['zwei Tools mit Update', eingang({ settings: { source: 'proxy' }, states: { 'jm-timer': { status: 'installed' },
+    ['zwei Tools mit Update', eingang({ konto: angemeldetAls('angemeldet'), states: { 'jm-timer': { status: 'installed' },
       'jm-titler': { status: 'update-available' }, 'jm-rundown': { status: 'not-installed' } } }),
-    '{"k1":"Aktiv: Firmen-Proxy.","k2":"2 Tools installiert, weitere jederzeit im Werkzeugkasten."}'],
+    '{"k1":"Angemeldet als Maria S. · Kollege.","k2":"2 Tools installiert, weitere jederzeit im Werkzeugkasten."}'],
   ];
-  const detAbw = DETAILS.filter(([, e, soll]) => JSON.stringify(kapitelDetails(e, D)) !== soll)
-    .map(([name, e]) => `${name}: ${JSON.stringify(kapitelDetails(e, D))}`);
-  ck(`P8 9.3: Detailzeilen L9, L10 nur mit Daten, Einzahl und Mehrzahl (${DETAILS.length} Fälle)${detAbw.length ? ` — ${detAbw.join('; ')}` : ''}`,
+  const detAbw = DETAILS.filter(([, e, soll]) => JSON.stringify(kapitelDetails(e, D, STUFE_TEXT)) !== soll)
+    .map(([name, e]) => `${name}: ${JSON.stringify(kapitelDetails(e, D, STUFE_TEXT))}`);
+  ck(`P8 9.3, P33: Detailzeilen L17, L10 nur mit Daten, Einzahl und Mehrzahl, offline mit Datum (${DETAILS.length} Fälle)${detAbw.length ? ` — ${detAbw.join('; ')}` : ''}`,
     detAbw.length === 0);
 
   // Ereignisse genau beim Übergang (EP5): „Slave war verbunden“ und „Steuerebene aktiviert“ (offen → sicher in dieser Sitzung;
@@ -2140,7 +2150,7 @@ function speicherAttrappe(start: Record<string, string> = {}, o: { liestNicht?: 
 }
 /** Eingang des Adapters ohne geladene Daten (nur Voreinstellungen, G7). */
 const EINGANG_LEER: AnleitungsEingang = {
-  settings: null, states: {}, view: 'catalog', settingsOpen: false, systemOpen: false, scenariosOpen: false, showEditorOpen: false,
+  konto: null, anmeldungOffen: false, states: {}, view: 'catalog', settingsOpen: false, systemOpen: false, scenariosOpen: false, showEditorOpen: false,
   verbundOffen: false, verbund: null, steuerebene: null, recentShows: 0, laufendeTools: 0, showLaunch: false, iveoActive: false,
 };
 /** Master, dessen verteilte Show Tools anderer Rechner beziehen (EP17), und ein gekoppelter, verbundener Slave (EP5). */
@@ -2255,14 +2265,14 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
   ta.t.starte({ bestehenderRechner: false });
   ta.t.ereignis({ art: 'weiter' });
   const ort1 = ort(ta.lage.stand.fortschritt.position);
-  ta.lage.eingang = { ...ta.lage.eingang, settingsOpen: true };
+  ta.lage.eingang = { ...ta.lage.eingang, anmeldungOffen: true };
   ta.t.pruefe();
   const ort2 = ort(ta.lage.stand.fortschritt.position);
   ta.lage.eingang = { ...ta.lage.eingang, verbund: SLAVE_VERBUNDEN };
   ta.t.pruefe();
   const gemerkt = (JSON.parse(sa.daten.get(K) ?? '{}') as { ereignisse?: Record<string, string> }).ereignisse ?? {};
   ck(`P12 5, EP5: Abgleich — geänderter Zustand führt von selbst weiter (${ort1} → ${ort2}), ein neues Tool-Ereignis wird gemerkt`,
-    ort1 === 'k1.einstellungen' && ort2 === 'k1.zugang' && ta.lage.stand.jetzt.einstellungenOffen === true
+    ort1 === 'k1.anmelden' && ort2 === 'k1.bestaetigen' && ta.lage.stand.jetzt.anmeldungOffen === true
     && typeof ta.lage.stand.fortschritt.ereignisse.slaveWarVerbunden === 'string' && typeof gemerkt.slaveWarVerbunden === 'string');
 
   // Vor starte bewirkt nichts etwas (D6): ein Klick vor dem Ende von load() schriebe sonst über den ungelesenen Fortschritt.
@@ -2331,7 +2341,7 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
   // der Store ruft nur sie auf. Ein Fehler dort ließe die Stimme während der Show sprechen oder Kapitel 3, 5 und 6 nie
   // abhaken; die Erwartung rechnet der Test selbst, ohne den Adapter (Nachprüfung 1, Nachbesserung N52).
   const LAGE_LEER: LauncherLage = {
-    settings: null, states: {}, view: 'catalog', settingsOpen: false, systemOpen: false, scenariosOpen: false, showEditorOpen: false,
+    states: {}, view: 'catalog', settingsOpen: false, systemOpen: false, scenariosOpen: false, showEditorOpen: false,
     recentShows: [], presence: [], showLaunch: null, iveoActive: null,
   };
   const PRESENCE: Array<[string, Array<{ running: boolean }>, number]> = [
@@ -2348,15 +2358,17 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
   for (const [pName, presence, laufend] of PRESENCE) for (const launch of [false, true]) for (const iveo of [false, true])
     for (const [vName, stand, folgt] of STAENDE) {
       nE++;
-      const e = anleitungsEingang({ ...LAGE_LEER, presence, showLaunch: showLaunchAus(launch), iveoActive: iveoAus(iveo) }, { offen: false, stand }, null);
+      const e = anleitungsEingang({ ...LAGE_LEER, presence, showLaunch: showLaunchAus(launch), iveoActive: iveoAus(iveo) }, { offen: false, stand }, null,
+        { konto: null, anmeldungOffen: false });
       if (produktionLaeuft(e) !== (laufend > 0 || launch || iveo || folgt)) abwE.push(`${pName}/${launch}/${iveo}/${vName}: ${produktionLaeuft(e)}`);
     }
   ck(`P12 7, EP17, G15: Produktion aus dem Zustand des Launchers — Presence (leer, beendet, läuft) × Show-Start × iveo × Verbund (${nE} Fälle)${abwE.length ? ` — ${abwE.slice(0, 3).join('; ')}` : ''}`,
     nE === 48 && abwE.length === 0);
-  const SETTINGS: Array<[string, LauncherLage['settings'], AnleitungsEingang['settings']]> = [
-    ['keine', null, null],
-    ['Quelle none', { source: 'none', hasToken: false, fromEnv: false } as LauncherLage['settings'], { source: 'none' }],
-    ['GitHub', { source: 'github', hasToken: true, fromEnv: true, manifestUrl: 'https://x' } as LauncherLage['settings'], { source: 'github' }],
+  // Anmeldung P33: das Konto kommt als vierter Wert (KontoLage aus useKonto) und geht unverändert in den Eingang.
+  const KONTEN: Array<[string, KontoLage]> = [
+    ['kein Konto', { konto: null, anmeldungOffen: false }],
+    ['vor der ersten Antwort, Dialog offen', { konto: { zustand: 'pruefe', kurzName: null, stufe: null, gueltigBis: null }, anmeldungOffen: true }],
+    ['angemeldet', { konto: { zustand: 'angemeldet', kurzName: 'Maria S.', stufe: 'kollege', gueltigBis: 1 }, anmeldungOffen: false }],
   ];
   const FENSTER: Array<[string, Partial<LauncherLage>, boolean]> = [
     ['alles zu', {}, false], ['Einstellungen', { settingsOpen: true }, false], ['System', { systemOpen: true }, false],
@@ -2366,20 +2378,20 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
   let nF = 0;
   const abwF: string[] = [];
   for (const [pName, presence, laufend] of PRESENCE) for (const launch of [false, true]) for (const iveo of [false, true])
-    for (const [vName, stand] of STAENDE) for (const recent of [0, 1, 2]) for (const [sName, settings, sSoll] of SETTINGS)
+    for (const [vName, stand] of STAENDE) for (const recent of [0, 1, 2]) for (const [sName, kontoLage] of KONTEN)
       for (const steuerebene of [null, 'open', 'secure'] as const) for (const states of [{}, { 'jm-timer': { status: 'installed' } }])
         for (const [fName, fenster, verbundOffen] of FENSTER) {
           nF++;
           const lage: LauncherLage = {
-            ...LAGE_LEER, ...fenster, settings, states, presence, recentShows: Array.from({ length: recent }, (_, i) => ({ name: `Show ${i}` })),
+            ...LAGE_LEER, ...fenster, states, presence, recentShows: Array.from({ length: recent }, (_, i) => ({ name: `Show ${i}` })),
             showLaunch: showLaunchAus(launch), iveoActive: iveoAus(iveo),
           };
           const soll: Record<string, unknown> = {
-            settings: sSoll, states, view: fenster.view ?? 'catalog', settingsOpen: fenster.settingsOpen === true,
+            konto: kontoLage.konto, anmeldungOffen: kontoLage.anmeldungOffen, states, view: fenster.view ?? 'catalog', settingsOpen: fenster.settingsOpen === true,
             systemOpen: fenster.systemOpen === true, scenariosOpen: fenster.scenariosOpen === true, showEditorOpen: fenster.showEditorOpen === true,
             verbundOffen, verbund: stand, steuerebene, recentShows: recent, laufendeTools: laufend, showLaunch: launch, iveoActive: iveo,
           };
-          const ist = anleitungsEingang(lage, { offen: verbundOffen, stand }, steuerebene) as unknown as Record<string, unknown>;
+          const ist = anleitungsEingang(lage, { offen: verbundOffen, stand }, steuerebene, kontoLage) as unknown as Record<string, unknown>;
           const falsch = [...new Set([...Object.keys(ist), ...Object.keys(soll)])].filter((k) => json(ist[k]) !== json(soll[k]));
           if (falsch.length) abwF.push(`${pName}/${launch}/${iveo}/${vName}/${recent}/${sName}/${steuerebene}/${fName}: ${falsch.join(',')}`);
         }
@@ -2403,8 +2415,8 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
       '    ereignis: (e) => treiber.ereignis(e),', "    toolEreignis: (name) => treiber.ereignis({ art: 'toolEreignis', name }),",
       '    zustand: () => treiber.zustand(),', '    stimmeTrotzdemAn: () => treiber.stimmeTrotzdemAn(),'].every((z) => store.includes(z))
     && starte.includes('const start = treiber.starte(u);') && starte.includes('return start;'));
-  ck('P12 G9, EP17: der Store baut den Eingang nur über anleitungsEingang aus Launcher, Verbund und der gelesenen Steuerebene',
-    store.includes('    eingang: () => anleitungsEingang(useTools.getState(), useVerbund.getState(), get().steuerebene),')
+  ck('P12 G9, EP17, P33: der Store baut den Eingang nur über anleitungsEingang aus Launcher, Verbund, der gelesenen Steuerebene und dem Konto',
+    store.includes('    eingang: () => anleitungsEingang(useTools.getState(), useVerbund.getState(), get().steuerebene, kontoLage()),')
     && !/laufendeTools|iveoActive|showLaunch|presence/.test(code));
   const zugriffe = [...code.matchAll(/localStorage|\.getItem\(|\.setItem\(/g)].map((m) => m.index ?? -1);
   ck(`P12 G8: jeder Zugriff auf localStorage steht in try/catch (${zugriffe.length} Stellen)`,
@@ -2682,7 +2694,8 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
     ['Pause an k3.slave, dann Rolle Master', gemerkt(inK3('k3.slave')), { verbund: verbund('slave') }, { verbund: verbund('master') }],
     ['Pause an k3.slave, dann Rolle Aus', gemerkt(inK3('k3.slave')), { verbund: verbund('slave') }, { verbund: verbund('aus') }],
     ['Pause an k3.master, dann Rolle Aus', gemerkt(inK3('k3.master')), { verbund: verbund('master') }, { verbund: verbund('aus') }],
-    ['pausiert ohne gemerkten Ort, Quelle verbunden', gemerkt(null), {}, { settings: { source: 'proxy' } }],
+    ['pausiert ohne gemerkten Ort, angemeldet', gemerkt(null), {},
+      { konto: { zustand: 'angemeldet', kurzName: 'Maria S.', stufe: 'kollege', gueltigBis: 1 } }],
   ];
   const wechselAbw: string[] = [];
   for (const [name, speicher, vorher, nachher] of WECHSEL) {
@@ -2711,8 +2724,9 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
   const szenarienHash = createHash('sha256').update(quelleLf('../src/renderer/src/lib/scenarios.ts')).digest('hex');
   // Kein Funktionsverlust (Lehre; Ist-L 4.1 Checkliste, 4.2 Szenario-Auswahl): je Zeile ein Wächter.
   const tabelle: Array<[string, boolean]> = [
-    ['Checkliste 1 Release-Quelle: „Einrichten/Ändern“ öffnet die Einstellungen, Detail „Aktiv: …“ (L5, L9)',
-      modal.includes('k1: { knopf: L.aktion.k1(fertig.k1), ausfuehren: openSettings },') && modal.includes('kapitelDetails({ ...useAnleitung.getState().eingang(), settings, states }, L.detail)')],
+    ['Checkliste 1 Anmeldung (P33): „Anmelden/Konto“ öffnet den Anmelde- bzw. Konto-Dialog, Detail „Angemeldet als …“ (L16, L17)',
+      modal.includes('k1: { knopf: L.aktion.k1(fertig.k1), ausfuehren: fertig.k1 ? oeffneKonto : anmelden },')
+      && modal.includes('kapitelDetails({ ...useAnleitung.getState().eingang(), konto: anleitungsKonto(konto, kurzName), states }, L.detail, STUFE_TEXT)')],
     ['Checkliste 2 Werkzeuge: „Auswählen/Werkzeugkasten“ schließt und wechselt in den Werkzeugkasten, Zahl der Tools (L6, L10)',
       modal.includes("k2: { knopf: L.aktion.k2(fertig.k2), ausfuehren: () => { close(); setView('catalog'); } },")],
     ['Checkliste 3 Netzwerk & Steuerebene: „Prüfen“ öffnet den System-Zustand (L8)', modal.includes('k5: { knopf: L.aktion.k5, ausfuehren: openSystem },')],
@@ -2841,7 +2855,7 @@ function treiberMit(sp: ReturnType<typeof speicherAttrappe> | null, eingang: Par
     ['U22', 'Stimme trotzdem an', 'ui'], ['U33', 'Wartet auf den Neustart.', 'ui'], ['U34', 'Einrichtung abgeschlossen', 'ui'],
     ['U35', 'Fertig', 'ui'],
     ['L1', 'Ich arbeite allein an diesem Rechner', 'launcher'], ['L2', 'Verbund einrichten', 'launcher'], ['L3', 'Die Show ist da', 'launcher'],
-    ['L4', 'Companion ist verbunden', 'launcher'], ['L5', 'Einrichten', 'launcher'], ['L5', 'Ändern', 'launcher'],
+    ['L4', 'Companion ist verbunden', 'launcher'], ['L16', 'Anmelden', 'launcher'], ['L16', 'Konto', 'launcher'],
     ['L6', 'Auswählen', 'launcher'], ['L6', 'Werkzeugkasten', 'launcher'], ['L7', 'Verbund öffnen', 'launcher'],
     ['L8', 'Vorlage wählen', 'launcher'], ['L8', 'Prüfen', 'launcher'], ['L11', 'Erste Schritte', 'launcher'],
     ['L12', 'Neu: geführte Einrichtung', 'launcher'], ['L14', 'Schließen', 'launcher'],
@@ -3515,8 +3529,8 @@ function dialogBefunde(q: string): string[] {
   ck('P28 3, 6.4: kein GitHub-Feld in den Einstellungen, kein Token-Feld im iveo-Block des Editors (kein Passwortfeld, kein Token im Code)',
     !/github/i.test(ohneKommentare(einst)) && !einst.includes('type="password"') && iveoBlock.length > 0
     && !iveoBlock.includes('type="password"') && !/token/i.test(ohneKommentare(editor)));
-  ck('P28 EP12: Speichern schickt nur noch die Server-Adresse (proxyUrl), keinen GitHub-Zugang; der Bereich behält seine Kennung bis P33',
-    einst.includes('                ...(fromEnv ? {} : { proxyUrl: proxy }),') && einst.includes('data-anleitung="einstellungen.zugang"'));
+  ck('P28 EP12: Speichern schickt nur noch die Server-Adresse (proxyUrl), keinen GitHub-Zugang (die Kennung des Bereichs entfällt mit P33)',
+    einst.includes('                ...(fromEnv ? {} : { proxyUrl: proxy }),'));
   ck('P28 T20–T23: Feld, Hinweis, Zeile, Env-Hinweis und Abzeichen aus der Bibliothek; keine alten Texte der Release-Quelle',
     ['{ZUGANG_TEXTE.feld}', '{ZUGANG_TEXTE.hinweis}', '{ZUGANG_TEXTE.zeile}', '{ZUGANG_TEXTE.env}', '  const abzeichen = zugangsAbzeichen(ansicht);']
       .every((z) => einst.includes(z))
@@ -3587,6 +3601,73 @@ function dialogBefunde(q: string): string[] {
   ck(`P32 G6: settings.ts speichert keine Tokens mehr — kein setIveoToken/setIveoBaseToken, kein Klartext-Rückfall, kein neuer GitHub-Zugang; iveoTokens schreibt nur das Löschen (${schreiber} Schreiber)`,
     !/export function (setIveoToken|setIveoBaseToken|deleteIveoToken|hasIveoToken)\(/.test(code) && !code.includes('plain[key] = t')
     && !code.includes('next.githubToken = ') && schreiber > 0 && schreiber === imLoeschen);
+}
+
+// --- Anmeldung P33 (Spec 4.1, 4.2; N13; EP27; G7): Kapitel 1 „Anmelden“ der geführten Einrichtung liest die Sitzung -------
+// Kreuz über alle Konto-Zustände × Stand × Anmelde-Dialog über Adapter und echten Kern: Kapitel 1 ist nur mit gültiger
+// Sitzung UND Stand erledigt; die Ansicht vor der ersten Antwort des Mains („pruefe“ ohne Stand) zählt nie (G7). Die
+// Erwartung steht je Fall aus dem Fall selbst, nicht aus dem Adapter. Dazu die Verdrahtung (Quelltext-Wächter).
+{
+  const { kurzName: kurz } = await import('../src/shared/konto.ts');
+  type Ansicht = import('../src/shared/konto.ts').KontoAnsicht;
+  type KZ = import('../src/shared/konto.ts').KontoZustand;
+  // Vor der Umsetzung fehlt anleitungsKonto (Rot-Lauf): dann weicht jeder Fall ab, statt dass der Selbsttest abbricht.
+  const zm = (await import('../src/renderer/src/lib/anleitung-zustand.ts')) as Record<string, unknown>;
+  const kontoAus = (typeof zm.anleitungsKonto === 'function' ? zm.anleitungsKonto : () => null) as
+    (a: Ansicht | null, k: typeof kurz) => AnleitungsEingang['konto'];
+  const ZUSTAENDE: KZ[] = ['nicht-angemeldet', 'pruefe', 'angemeldet', 'offline', 'server-nicht-erreichbar', 'abgelaufen', 'entzogen',
+    'entzogen-laeuft', 'kein-schluesselspeicher'];
+  const MIT_GUELTIGER_SITZUNG: KZ[] = ['pruefe', 'angemeldet', 'offline', 'server-nicht-erreichbar', 'entzogen-laeuft'];
+  const EXP = Date.UTC(2026, 10, 20, 12, 0, 0);
+  const ansicht = (zustand: KZ, mitStand: boolean): Ansicht => ({
+    zustand, grund: null, gueltigBis: mitStand ? EXP : null, rechnerName: 'Regie 1', plattform: 'win', hinweise: [], devVariablen: [],
+    zoomAnfrage: null, adminOffen: 0, ausgaben: [], letztePruefung: null,
+    stand: mitStand ? {
+      kid: 'k-test', email: 'maria.sommer@jakobsmedien.com', name: 'Maria Sommer', art: 'google', stufe: 'kollege', tools: [], events: [],
+      zoom: true, zoomBis: null, jm: true, plattform: 'win', gid: 'g-test', iat: EXP - 86_400_000, exp: EXP, kontoBis: null, angemeldetSeit: EXP - 86_400_000,
+    } : null,
+  });
+  const LAGE: LauncherLage = {
+    states: {}, view: 'catalog', settingsOpen: false, systemOpen: false, scenariosOpen: false, showEditorOpen: false,
+    recentShows: [], presence: [], showLaunch: null, iveoActive: null,
+  };
+  const leer = leererFortschritt('einrichtung');
+  let n = 0;
+  const abw: string[] = [];
+  for (const z of [null, ...ZUSTAENDE]) for (const mitStand of [false, true]) for (const dialog of [false, true]) {
+    n++;
+    const e = anleitungsEingang(LAGE, { offen: false, stand: null }, null,
+      { konto: kontoAus(z === null ? null : ansicht(z, mitStand), kurz), anmeldungOffen: dialog });
+    const zst = anleitungsZustand(e);
+    const soll = z !== null && mitStand && MIT_GUELTIGER_SITZUNG.includes(z);
+    const k1 = kapitelZustand(EINRICHTUNG, 'k1', zst, leer) === 'erledigt';
+    if (zst.angemeldet !== soll || k1 !== soll || zst.anmeldungOffen !== dialog) {
+      abw.push(`${z ?? 'keine Ansicht'}/${mitStand ? 'Stand' : 'ohne Stand'}/${dialog ? 'Dialog offen' : 'Dialog zu'}: angemeldet ${zst.angemeldet}, k1 ${k1}, anmeldungOffen ${zst.anmeldungOffen}`);
+    }
+  }
+  ck(`P33 EP27, G7: Kapitel 1 erledigt nur mit gültiger Sitzung und Stand (KontoZustand × Stand × Anmelde-Dialog, ${n} Fälle)${abw.length ? ` — ${abw.slice(0, 5).join('; ')}` : ''}`,
+    n === 40 && abw.length === 0);
+  const liste = (q: string): string => /const MIT_SITZUNG: readonly KontoZustand\[\] = (\[[^\]]*\]);/.exec(q)?.[1] ?? '?';
+  const adapter = quelleLf('../src/renderer/src/lib/anleitung-zustand.ts');
+  const anzeige = quelleLfOderLeer('../src/renderer/src/lib/konto-anzeige.ts');
+  ck('P33 G7: Kapitel 1 und der Kopf zählen dieselben Zustände als angemeldet (MIT_SITZUNG in anleitung-zustand.ts = konto-anzeige.ts)',
+    liste(adapter) !== '?' && liste(adapter) === liste(anzeige));
+  const kopf = quelleLf('../src/renderer/src/components/Header.tsx');
+  const einst = quelleLf('../src/renderer/src/components/SettingsModal.tsx');
+  ck('P33 EP27: Ziele kopf.konto (Konto-Kreis) und anmeldung.code (Anmelde-Dialog) statt kopf.einstellungen und einstellungen.zugang (20 Kennungen)',
+    ZIEL_KENNUNGEN.length === 20 && ZIEL_KENNUNGEN.includes('kopf.konto') && ZIEL_KENNUNGEN.includes('anmeldung.code')
+    && !ZIEL_KENNUNGEN.includes('kopf.einstellungen') && !ZIEL_KENNUNGEN.includes('einstellungen.zugang')
+    && !kopf.includes('data-anleitung="kopf.einstellungen"') && !einst.includes('data-anleitung="einstellungen.zugang"')
+    && quelleLf('../src/renderer/src/components/KontoKreis.tsx').includes('data-anleitung="kopf.konto"')
+    && quelleLf('../src/renderer/src/components/AnmeldeModal.tsx').includes('data-anleitung="anmeldung.code"'));
+  const store = quelleLf('../src/renderer/src/store/anleitung.ts');
+  const modal = quelleLf('../src/renderer/src/components/OnboardingModal.tsx');
+  ck('P33 EP27: der Store liest das Konto (kontoLage aus useKonto, Abo auf useKonto); die Übersicht öffnet Anmelde- bzw. Konto-Dialog',
+    store.includes('    eingang: () => anleitungsEingang(useTools.getState(), useVerbund.getState(), get().steuerebene, kontoLage()),')
+    && funktionsKoerper(store, 'function kontoLage(): KontoLage {').includes('  return { konto: anleitungsKonto(k.ansicht, kurzName), anmeldungOffen: k.anmeldungOffen };')
+    && funktionsKoerper(store, 'function abonniere(): void {').includes('    useKonto.subscribe(() => treiber.pruefe());')
+    && modal.includes('k1: { knopf: L.aktion.k1(fertig.k1), ausfuehren: fertig.k1 ? oeffneKonto : anmelden },')
+    && !modal.includes('openSettings'));
 }
 
 // ── Ende der Fälle (Anmeldung) ──
