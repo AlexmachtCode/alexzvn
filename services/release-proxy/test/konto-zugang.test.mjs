@@ -1,0 +1,347 @@
+// Zugang zu den Tool-Routen (Anmeldung im Launcher, Plan Teil 1, P15; Spec 9, 9.1, 10; EP3, EP9, EP10, EP25, EP32; OF2).
+//   node --experimental-strip-types services/release-proxy/test/konto-zugang.test.mjs
+// Ruft worker.fetch(request, env, ctx) ohne Netz (globaler fetch-Stub für GitHub, der jeden Abruf mitschreibt). Sitzungen
+// und Freigaben signiert der Test selbst mit einem Schlüssel aus testSchluessel() (zur Laufzeit, G4). Der Konten-DO ist für
+// die Zählung ein Fake, der jede Anfrage mitschreibt (die Zählung im DO selbst testet P5). Das Selbst-Update hält Antworten
+// 60 s im Speicher des Isolats (EP32): jeder Block dazu nutzt ein eigenes Repo. Nicht über tsx (Kopf von worker.test.mjs).
+// P20 fügt Wächter für wrangler.toml und den Re-Export direkt vor der Ende-Marke ein.
+import { readFileSync } from 'node:fs';
+import worker from '../worker.js';
+import { signiere } from '../konto-krypto.js';
+import { FEHLER_TEXT, launcherSelbstUpdate, zugangPruefen } from '../konto-zugang.js';
+import { abschluss, check, makeKV, pruefeFaelle, testSchluessel } from './konto-attrappen.mjs';
+
+// Warn- und Fehlerlog mitschneiden (erwartet, und für die Prüfung auf Geheimnisse).
+const protokoll = [];
+const realWarn = console.warn;
+const realError = console.error;
+console.warn = (...a) => protokoll.push(a.join(' '));
+console.error = (...a) => protokoll.push(a.join(' '));
+
+const TAG = 24 * 3600_000;
+const T0 = Date.parse('2026-11-02T10:00:00Z');
+const jetzt = T0;
+const SCHLUESSEL = testSchluessel();
+const FREMD = testSchluessel();
+const PROXY = 'test-proxy-key';
+const ENV = { PROXY_KEY: PROXY, GITHUB_TOKEN: 'gh', REPO: 'owner/repo', KONTO_SCHLUESSEL: SCHLUESSEL, KONTO_UHR: () => jetzt };
+const VOR = new Date(T0 + 10 * TAG).toISOString(); // Frist läuft noch
+const GENAU = new Date(T0).toISOString(); // Frist endet genau jetzt
+const NACH = new Date(T0 - TAG).toISOString(); // Frist vorbei
+
+const RELEASES = [
+  { tag_name: 'launcher-v0.18.0', draft: false, assets: [{ id: 11, name: 'JM.Production.Suite-0.18.0-win-x64.exe', size: 1 }] },
+  { tag_name: 'copy-v0.2.0', draft: false, assets: [{ id: 12, name: 'JM.Copy-0.2.0-win-x64.exe', size: 1 }] },
+];
+// EP32: Im Repo test/alt ist der neueste Launcher 0.17.0 (Installer mit eingebackenem alten Schlüssel).
+const RELEASES_ALT = [{ tag_name: 'launcher-v0.17.0', draft: false, assets: [{ id: 21, name: 'JM.Production.Suite-0.17.0-win-x64.exe', size: 1 }] }];
+const ghAufrufe = [];
+globalThis.fetch = async (u, init = {}) => {
+  const url = String(u);
+  if (url.includes('api.github.com')) ghAufrufe.push(url);
+  if (url.includes('/releases/assets/')) {
+    return new Response(null, { status: 302, headers: { Location: `https://signed.test/${url.split('/').pop()}` } });
+  }
+  if (url.includes('/releases?')) return new Response(JSON.stringify(url.includes('/repos/test/alt/') ? RELEASES_ALT : RELEASES), { status: 200 });
+  if (url.includes('/contents/')) return new Response('{"tools":[]}', { status: 200 });
+  if (url.endsWith('/issues') && init.method === 'POST') {
+    return new Response(JSON.stringify({ number: 1, html_url: 'https://github.test/1' }), { status: 201 });
+  }
+  return new Response('{}', { status: 404 });
+};
+
+function req(pfad, { method = 'GET', body, kopf = {} } = {}) {
+  const init = { method, headers: { 'CF-Connecting-IP': '9.9.9.9', ...kopf } };
+  if (body !== undefined) init.body = JSON.stringify(body);
+  return new Request('https://proxy.test' + pfad, init);
+}
+const sitzung = (stufe, extra = {}, schluessel = SCHLUESSEL) =>
+  signiere(schluessel, {
+    v: 1, typ: 'sitzung', kid: `k-${stufe}`, email: `${stufe}@test.invalid`, name: 'Test Person', art: 'google', stufe,
+    tools: [], events: [], zoom: stufe !== 'externer', zoomBis: null, jm: false, plattform: 'win', gid: 'g-1',
+    iat: jetzt - TAG, exp: jetzt + TAG, kontoBis: null, angemeldetSeit: jetzt - TAG, ...extra,
+  });
+const freigabe = (ziel, extra = {}) =>
+  signiere(SCHLUESSEL, { v: 1, typ: 'freigabe', zweck: 'qa-relay', ziel, kid: 'k-kollege', gid: 'g-1', iat: jetzt, exp: jetzt + 72 * 3600_000, ...extra });
+const bearer = (t) => ({ Authorization: `Bearer ${t}` });
+
+async function run() {
+  // P15 9.1: jede Tool-Route × jeder Zugang. Erwartet: Status und code mit Text S… (oder der Status der Route selbst).
+  {
+    const ROUTEN = [
+      { name: 'GET /tools/jm-copy/latest', pfad: '/tools/jm-copy/latest?platform=win&arch=x64', erlaubt: 200 },
+      { name: 'GET /tools/jm-launcher/latest', pfad: '/tools/jm-launcher/latest?platform=win&arch=x64', erlaubt: 200 },
+      { name: 'GET /suite.json', pfad: '/suite.json', erlaubt: 200 },
+      { name: 'GET /changelog.json', pfad: '/changelog.json', erlaubt: 200 },
+      { name: 'GET /cookbook.json', pfad: '/cookbook.json', erlaubt: 200 },
+      { name: 'POST /feedback', pfad: '/feedback', method: 'POST', body: { title: 't', description: 'd' }, erlaubt: 200 },
+      // Formular-Modus mit leerem Rezept: nach dem Gate 422, ohne GitHub und ohne Anthropic.
+      { name: 'POST /cookbook/draft', pfad: '/cookbook/draft', method: 'POST', body: { mode: 'form', recipe: {} }, erlaubt: 422, ki: true },
+      // Unbekannte Pfade sind nie offen; mit Zugang wie bisher 404.
+      { name: 'GET /gibt-es-nicht', pfad: '/gibt-es-nicht', erlaubt: 404 },
+    ];
+    const ja = (r) => [r.erlaubt, null];
+    const nein = (status, code) => () => [status, code];
+    const ZUGAENGE = [
+      { name: 'ohne Zugang', kopf: {}, env: {}, soll: nein(401, 'nicht-angemeldet') },
+      { name: 'alter Key, Frist läuft', kopf: { 'X-Proxy-Key': PROXY }, env: { ALTKEY_BIS: VOR }, soll: ja },
+      { name: 'alter Key, ALTKEY_BIS fehlt (unbefristet)', kopf: { 'X-Proxy-Key': PROXY }, env: {}, soll: ja },
+      { name: 'alter Key, Frist endet genau jetzt', kopf: { 'X-Proxy-Key': PROXY }, env: { ALTKEY_BIS: GENAU }, soll: nein(401, 'alter-key-abgelaufen') },
+      { name: 'alter Key nach der Frist', kopf: { 'X-Proxy-Key': PROXY }, env: { ALTKEY_BIS: NACH }, soll: nein(401, 'alter-key-abgelaufen') },
+      { name: 'falscher Key', kopf: { 'X-Proxy-Key': 'test-falsch' }, env: { ALTKEY_BIS: VOR }, soll: nein(401, 'nicht-angemeldet') },
+      { name: 'Bearer mit altem Key', kopf: bearer(PROXY), env: { ALTKEY_BIS: VOR }, soll: ja },
+      { name: 'Sitzung Admin, Frist vorbei', kopf: bearer(await sitzung('admin')), env: { ALTKEY_BIS: NACH }, soll: ja },
+      { name: 'Sitzung Kollege', kopf: bearer(await sitzung('kollege')), env: { ALTKEY_BIS: NACH }, soll: ja },
+      { name: 'Sitzung Externer', kopf: bearer(await sitzung('externer')), env: { ALTKEY_BIS: NACH }, soll: (r) => (r.ki ? [403, 'kein-recht'] : ja(r)) },
+      { name: 'Sitzung Kollege und falscher Key', kopf: { ...bearer(await sitzung('kollege')), 'X-Proxy-Key': 'test-falsch' }, env: {}, soll: ja },
+      { name: 'Sitzung abgelaufen', kopf: bearer(await sitzung('kollege', { exp: jetzt - 1 })), env: {}, soll: nein(401, 'sitzung-abgelaufen') },
+      { name: 'Sitzung endet genau jetzt', kopf: bearer(await sitzung('kollege', { exp: jetzt })), env: {}, soll: nein(401, 'sitzung-abgelaufen') },
+      { name: 'Sitzung mit fremdem Schlüssel', kopf: bearer(await sitzung('admin', {}, FREMD)), env: {}, soll: nein(401, 'nicht-angemeldet') },
+      { name: 'Freigabe (qa-relay) statt Sitzung', kopf: bearer(await freigabe('qa-event-1')), env: {}, soll: nein(403, 'kein-recht') },
+      { name: 'Sitzung, Server ohne KONTO_SCHLUESSEL', kopf: bearer(await sitzung('kollege')), env: { KONTO_SCHLUESSEL: undefined }, soll: nein(503, 'nicht-eingerichtet') },
+    ];
+    const faelle = ZUGAENGE.flatMap((z) => ROUTEN.map((r) => ({ name: `${z.name} · ${r.name}`, z, r })));
+    await pruefeFaelle('P15 9.1: Zugang je Route', faelle, async ({ z, r }) => {
+      const res = await worker.fetch(req(r.pfad, { method: r.method, body: r.body, kopf: z.kopf }), { ...ENV, ...z.env });
+      const body = await res.json().catch(() => ({}));
+      const [status, code] = z.soll(r);
+      const ok = res.status === status && (code === null ? body.code === undefined : body.code === code && body.error === FEHLER_TEXT[code]);
+      return ok ? null : `ist ${res.status} ${body.code ?? '-'}, soll ${status} ${code ?? '-'}`;
+    });
+  }
+
+  // P15 EP3: Freigabe und Sitzung, je nachdem, ob die Route ein Ziel hat (Vorbereitung P19, direkt über zugangPruefen).
+  {
+    const r = (kopf) => new Request('https://proxy.test/qa/qa-event-1/pending', { headers: kopf });
+    const Q = { funktion: 'qa', gruppe: 'qa', ziel: 'qa-event-1' };
+    const OHNE = { funktion: 'qa', gruppe: null, ziel: null };
+    const faelle = [
+      { name: 'Freigabe für dieses Event', kopf: bearer(await freigabe('qa-event-1')), o: Q, soll: 'freigabe' },
+      { name: 'Freigabe für ein anderes Event', kopf: bearer(await freigabe('qa-event-2')), o: Q, soll: 'keine-freigabe' },
+      { name: 'Freigabe abgelaufen', kopf: bearer(await freigabe('qa-event-1', { exp: jetzt })), o: Q, soll: 'sitzung-abgelaufen' },
+      { name: 'Freigabe mit unbekanntem Zweck', kopf: bearer(await freigabe('qa-event-1', { zweck: 'connect-raum' })), o: Q, soll: 'kein-recht' },
+      { name: 'Freigabe an Route ohne Ziel', kopf: bearer(await freigabe('qa-event-1')), o: OHNE, soll: 'kein-recht' },
+      { name: 'Sitzung Kollege an Route mit Ziel', kopf: bearer(await sitzung('kollege')), o: Q, soll: 'keine-freigabe' },
+      { name: 'Sitzung Kollege an Route ohne Ziel', kopf: bearer(await sitzung('kollege')), o: OHNE, soll: 'sitzung' },
+      { name: 'Sitzung Externer ohne Werkzeug qa', kopf: bearer(await sitzung('externer')), o: OHNE, soll: 'kein-recht' },
+      { name: 'Sitzung Externer mit Werkzeug qa', kopf: bearer(await sitzung('externer', { tools: ['qa'] })), o: OHNE, soll: 'sitzung' },
+      { name: 'alter Key, Gruppe qa, Frist läuft', kopf: { 'X-Proxy-Key': PROXY }, o: Q, env: { ALTKEY_BIS: VOR }, soll: 'alter-key' },
+      { name: 'alter Key, Gruppe qa, nach der Frist', kopf: { 'X-Proxy-Key': PROXY }, o: Q, env: { ALTKEY_BIS: NACH }, soll: 'alter-key-abgelaufen' },
+      { name: 'alter Key ohne Gruppe', kopf: { 'X-Proxy-Key': PROXY }, o: OHNE, soll: 'nicht-angemeldet' },
+    ];
+    await pruefeFaelle('P15 EP3: Freigabe nur an Routen mit Ziel, Sitzung nur ohne', faelle, async (f) => {
+      const z = await zugangPruefen(r(f.kopf), { ...ENV, ...(f.env ?? {}) }, { ...f.o, jetzt });
+      const ist = z.ok ? z.art : z.code;
+      if (ist !== f.soll) return `ist ${ist}, soll ${f.soll}`;
+      if (!z.ok && z.error !== FEHLER_TEXT[z.code]) return `Text ${z.error}`;
+      if (z.ok && z.art === 'freigabe' && z.claims.ziel !== 'qa-event-1') return 'Claims fehlen';
+      return null;
+    });
+  }
+
+  // P15 Texte S1–S18 wörtlich aus der Texttabelle 9.6 (S12a als Vorgabe zu konflikt; S18 `uhr`, EP30).
+  check('P15 G2: FEHLER_TEXT S1–S18 wörtlich, ohne ASCII-Anführungszeichen',
+    FEHLER_TEXT['nicht-angemeldet'] === 'nicht angemeldet: im Launcher anmelden'
+      && FEHLER_TEXT['sitzung-abgelaufen'] === 'Anmeldung abgelaufen: im Launcher neu anmelden'
+      && FEHLER_TEXT['kein-recht'] === 'kein Recht für diese Funktion'
+      && FEHLER_TEXT['alter-key-abgelaufen'] === 'alter Schlüssel nicht mehr gültig: Launcher aktualisieren und anmelden'
+      && FEHLER_TEXT['nicht-eingerichtet'] === 'Anmeldung auf dem Server nicht eingerichtet'
+      && FEHLER_TEXT.gesperrt === 'Zugang gesperrt'
+      && FEHLER_TEXT.geloescht === 'Zugang gelöscht'
+      && FEHLER_TEXT['zugang-abgelaufen'] === 'Zugang abgelaufen'
+      && FEHLER_TEXT['geraet-unbekannt'] === 'Rechner unbekannt: neu anmelden'
+      && FEHLER_TEXT['vorgang-unbekannt'] === 'Anmeldevorgang unbekannt oder abgelaufen'
+      && FEHLER_TEXT.ungueltig === 'ungültige Anfrage'
+      && FEHLER_TEXT.konflikt === 'es muss immer mindestens einen Admin geben'
+      && FEHLER_TEXT['nicht-noetig'] === 'Zoom ist für deine Stufe schon erlaubt'
+      && FEHLER_TEXT['unbekannter-zweck'] === 'unbekannter Zweck'
+      && FEHLER_TEXT['keine-freigabe'] === 'keine Freigabe für dieses Q&A-Event'
+      && FEHLER_TEXT['erster-admin'] === 'der erste Admin lässt sich hier nicht ändern'
+      && FEHLER_TEXT.domain === 'Kollegen von jakobsmedien.com melden sich mit Google an'
+      && FEHLER_TEXT.uhr === 'Uhr des Rechners geht falsch: Datum und Uhrzeit prüfen'
+      && Object.keys(FEHLER_TEXT).length === 18
+      && Object.values(FEHLER_TEXT).every((t) => !t.includes('"')));
+
+  // P15 EP10: launcherSelbstUpdate nur GET und dekodierte ID genau launcher.
+  {
+    const faelle = [
+      ['GET', '/tools/launcher/latest', true],
+      ['GET', '/tools/launcher/latest/', true],
+      ['GET', '/tools/%6Cauncher/latest', true],
+      ['HEAD', '/tools/launcher/latest', false],
+      ['POST', '/tools/launcher/latest', false],
+      ['GET', '/tools/jm-launcher/latest', false],
+      ['GET', '/tools/launcher2/latest', false],
+      ['GET', '/tools/launcher/latest/x', false],
+      ['GET', '/tools/%E0%A4%A/latest', false],
+    ].map(([methode, pfad, soll]) => ({ name: `${methode} ${pfad}`, methode, pfad, soll }));
+    await pruefeFaelle('P15 EP10: launcherSelbstUpdate nur GET mit der dekodierten ID launcher', faelle, (f) =>
+      launcherSelbstUpdate(f.methode, f.pfad) === f.soll ? null : `soll ${f.soll}`);
+  }
+
+  // P15 N11 (EP10): Das Selbst-Update geht immer, auch nach der Frist; jm-launcher und andere Tools nicht.
+  {
+    const env = { ...ENV, ALTKEY_BIS: NACH };
+    const launcher = (kopf) => worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64', { kopf }), env);
+    const a = await launcher({});
+    const b = await launcher({ 'X-Proxy-Key': PROXY });
+    const c = await launcher({ 'X-Proxy-Key': 'test-falsch', Authorization: 'Bearer jm1.kaputt.kaputt' });
+    const version = (await a.json()).version;
+    const d = await worker.fetch(req('/tools/jm-launcher/latest?platform=win&arch=x64'), env);
+    const e = await worker.fetch(req('/tools/jm-copy/latest?platform=win&arch=x64', { kopf: { 'X-Proxy-Key': PROXY } }), env);
+    const eb = await e.json();
+    check('P15 N11: /tools/launcher/latest ohne Kopf, mit altem Key nach der Frist und mit kaputter Sitzung → 200 (0.18.0)',
+      a.status === 200 && version === '0.18.0' && b.status === 200 && c.status === 200);
+    check('P15 N11: /tools/jm-launcher/latest ohne Zugang → 401 (bleibt geprüft)', d.status === 401);
+    check('P15 N11: alter Key nach der Frist → /tools/jm-copy/latest 401 S4',
+      e.status === 401 && eb.code === 'alter-key-abgelaufen' && eb.error === 'alter Schlüssel nicht mehr gültig: Launcher aktualisieren und anmelden');
+  }
+
+  // P15 EP32: Ohne Zugang gibt es das Selbst-Update erst ab 0.18.0 (ältere Installer tragen den alten PROXY_KEY in sich);
+  // mit Zugang (Sitzung oder alter Key in der Frist) wie jedes Tool. Repo test/alt: neuester Launcher 0.17.0.
+  {
+    const env = { ...ENV, REPO: 'test/alt', ALTKEY_BIS: VOR };
+    const hole = async (kopf, e = env) => {
+      const r = await worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64', { kopf }), e);
+      const d = await r.json().catch(() => ({}));
+      return `${r.status} ${d.version ?? d.code}`;
+    };
+    const ist = [
+      await hole({}),
+      await hole({ Authorization: 'Bearer jm1.kaputt.kaputt' }),
+      await hole({ 'X-Proxy-Key': PROXY }),
+      await hole(bearer(await sitzung('externer'))),
+      await hole({ 'X-Proxy-Key': PROXY }, { ...env, ALTKEY_BIS: NACH }),
+    ].join(' | ');
+    const soll = '401 nicht-angemeldet | 401 nicht-angemeldet | 200 0.17.0 | 200 0.17.0 | 401 alter-key-abgelaufen';
+    check('P15 EP32: Selbst-Update 0.17.0 ohne Zugang und mit kaputter Sitzung 401 S1, mit altem Key und mit Sitzung 200, mit altem Key nach der Frist 401 S4',
+      ist === soll);
+    if (ist !== soll) console.log(`     ${ist}`);
+  }
+
+  // P15 EP32: Der Speicher des Isolats hält eine Antwort 60 s: 50 anonyme Anfragen kosten 2 Abrufe bei GitHub (Liste, Link).
+  {
+    let uhr = T0;
+    const env = { ...ENV, REPO: 'test/speicher', KONTO_UHR: () => uhr, RATELIMIT: makeKV() };
+    const zaehle = () => ghAufrufe.filter((u) => u.includes('/repos/test/speicher/')).length;
+    const status = [];
+    for (let i = 0; i < 50; i++) status.push((await worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64'), env)).status);
+    const nachFuenfzig = zaehle();
+    uhr += 61_000;
+    const spaeter = await worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64'), env);
+    check('P15 EP32: 50 anonyme Anfragen → 200 mit 2 Abrufen bei GitHub (Zwischenspeicher 60 s), nach 61 s wieder 2 Abrufe',
+      status.every((s) => s === 200) && nachFuenfzig === 2 && spaeter.status === 200 && zaehle() === 4);
+    if (nachFuenfzig !== 2 || zaehle() !== 4) console.log(`     Abrufe bei GitHub: ${nachFuenfzig} / ${zaehle()}`);
+  }
+
+  // P15 EP32: Die Drossel je IP zählt nur Abrufe bei GitHub (30 je 600 s): 9 × 4 Abrufe (vier Plattformen, alle 61 s neu) aus
+  // einer IP im selben Fenster → die ersten 30 gehen durch, dann 429. Ein Treffer im Speicher und eine andere IP gehen weiter.
+  {
+    let uhr = T0; // T0 liegt auf einer Fenstergrenze (10:00:00 UTC); 9 × 61 s bleiben im Fenster von 600 s
+    const rl = makeKV();
+    const env = { ...ENV, REPO: 'test/drossel', KONTO_UHR: () => uhr, RATELIMIT: rl };
+    const holen = (ziel, ip) => worker.fetch(req(`/tools/launcher/latest?platform=${ziel}`, { kopf: { 'CF-Connecting-IP': ip } }), env);
+    const antworten = [];
+    for (let schritt = 0; schritt < 9; schritt++) {
+      for (const ziel of ['win&arch=x64', 'win&arch=arm64', 'mac&arch=x64', 'mac&arch=arm64']) antworten.push(await holen(ziel, '5.5.5.5'));
+      uhr += 61_000;
+    }
+    const andere = await holen('win&arch=x64', '6.6.6.6');
+    const treffer = await holen('win&arch=x64', '5.5.5.5');
+    const zuViele = antworten.filter((a) => a.status === 429);
+    const erste = zuViele[0] ? await zuViele[0].json() : {};
+    const schluessel = [...rl.daten.keys()];
+    check('P15 EP32: Drossel je IP nur für Abrufe bei GitHub (30 je 600 s, dann 429 zu-viele mit Retry-After); Treffer im Speicher und andere IP gehen weiter; IP nie im Klartext',
+      antworten.length === 36 && antworten.slice(0, 30).every((a) => a.status !== 429) && zuViele.length === 6 && erste.code === 'zu-viele'
+        && erste.error === 'zu viele Anfragen' && Number(zuViele[0].headers.get('Retry-After')) > 0 && andere.status === 200
+        && treffer.status === 200 && schluessel.length >= 2 && !schluessel.some((s) => s.includes('5.5.5.5') || s.includes('6.6.6.6')));
+  }
+
+  // P15 G10: Connect prüft in Teil 1 weiter selbst gegen PROXY_KEY, auch nach ALTKEY_BIS.
+  {
+    const ns = { jurisdiction() { return ns; }, idFromName: () => ({}), get: () => ({ fetch: async () => new Response('{"ok":true}', { status: 200 }) }) };
+    const env = { ...ENV, ALTKEY_BIS: NACH, CONNECT_ROOM: ns };
+    const r1 = await worker.fetch(req('/connect/room-1', { method: 'POST', body: { secretHex: 'a'.repeat(64) }, kopf: { 'X-Proxy-Key': PROXY } }), env);
+    const r2 = await worker.fetch(req('/connect/room-1', { method: 'POST', body: {} }), env);
+    const b2 = await r2.json();
+    check('P15 G10: POST /connect/room-1 mit altem Key nach ALTKEY_BIS → erreicht den Raum (200) wie heute', r1.status === 200);
+    check('P15 G10: POST /connect/room-1 ohne Key → 401 unauthorized wie heute', r2.status === 401 && b2.error === 'unauthorized');
+  }
+
+  // P15 EP25: Katalog, Patch Notes und Kochbuch hängen an einer Sitzung → private statt public.
+  {
+    const werte = [];
+    for (const p of ['/suite.json', '/changelog.json', '/cookbook.json']) {
+      werte.push((await worker.fetch(req(p, { kopf: bearer(await sitzung('kollege')) }), ENV)).headers.get('cache-control'));
+    }
+    check('P15 EP25: /suite.json, /changelog.json, /cookbook.json antworten mit private, max-age=60',
+      werte.every((w) => w === 'private, max-age=60'));
+    if (!werte.every((w) => w === 'private, max-age=60')) console.log(`     ${werte.join(' | ')}`);
+  }
+
+  // P15 OF2: Anfragen mit altem Key zählt der Konten-DO nach der Antwort (waitUntil), ohne Kopfzeilen des Clients.
+  {
+    const anfragen = [];
+    const ns = {
+      aufrufe: [],
+      jurisdiction(j) { ns.aufrufe.push(`jurisdiction:${j}`); return ns; },
+      idFromName(n) { ns.aufrufe.push(`idFromName:${n}`); return { n }; },
+      get: () => ({
+        fetch: async (r) => {
+          anfragen.push({ url: r.url, kopf: [...r.headers.keys()].sort(), body: await r.json() });
+          return Response.json({ ok: true });
+        },
+      }),
+    };
+    const offen = [];
+    const ctx = { waitUntil: (p) => offen.push(p) };
+    const env = { ...ENV, ALTKEY_BIS: VOR, KONTO: ns };
+    const kopf = { 'X-Proxy-Key': PROXY, Cookie: 'a=b', 'x-connect-admin': '1' };
+    const r = await worker.fetch(req('/tools/jm-copy/latest?platform=win&arch=arm64', { kopf }), env, ctx);
+    await Promise.all(offen);
+    const a = anfragen[0];
+    check('P15 OF2: alter Key → 200 und genau eine Zählung über waitUntil (altkey-zaehlen, katalog, win, arm64, jetzt)',
+      r.status === 200 && offen.length === 1 && anfragen.length === 1 && a.url === 'https://konto.intern/altkey-zaehlen'
+        && JSON.stringify(a.body) === JSON.stringify({ jetzt: T0, gruppe: 'katalog', plattform: 'win', arch: 'arm64' }));
+    check('P15 EP1: Konten-DO in der EU, eine Instanz konten', ns.aufrufe.join(' ') === 'jurisdiction:eu idFromName:konten');
+    check('P15 B1-Lehre: die Zählanfrage trägt nur content-type, keine Kopfzeile des Clients', !!a && JSON.stringify(a.kopf) === '["content-type"]');
+    offen.length = 0;
+    anfragen.length = 0;
+    const s = await worker.fetch(req('/suite.json', { kopf: bearer(await sitzung('kollege')) }), env, ctx);
+    const ohneBindung = await worker.fetch(req('/suite.json', { kopf: { 'X-Proxy-Key': PROXY } }), { ...ENV, ALTKEY_BIS: VOR }, ctx);
+    const ohneCtx = await worker.fetch(req('/suite.json', { kopf: { 'X-Proxy-Key': PROXY } }), env);
+    check('P15 OF2: Sitzung zählt nicht; ohne KONTO-Bindung oder ohne ctx → 200 ohne Zählung',
+      s.status === 200 && ohneBindung.status === 200 && ohneCtx.status === 200 && offen.length === 0 && anfragen.length === 0);
+    const kaputt = { ...env, KONTO: { jurisdiction() { throw new Error('kaputt'); } } };
+    const k = await worker.fetch(req('/suite.json', { kopf: { 'X-Proxy-Key': PROXY } }), kaputt, ctx);
+    await Promise.all(offen);
+    check('P15 OF2: wirft der Konten-DO, bleibt die Antwort 200 und das Log nennt nur den Fehlernamen',
+      k.status === 200 && protokoll.includes('konto: Alt-Key-Zählung fehlgeschlagen (Error)'));
+  }
+
+  // P15 zeitkonstant: kein einfacher Vergleich mit dem Proxy-Key mehr im Gate.
+  {
+    const w = readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
+    const z = readFileSync(new URL('../konto-zugang.js', import.meta.url), 'utf8');
+    check('P15 zeitkonstant: worker.js und konto-zugang.js vergleichen den Proxy-Key nie mit === oder !==; das Gate fragt zugangPruefen',
+      !/[!=]==\s*env\.PROXY_KEY/.test(w) && !/[!=]==\s*env\.PROXY_KEY/.test(z)
+        && z.includes('gleichOhneZeitleck(key, env.PROXY_KEY)') && w.includes('await zugangPruefen(request, env, {'));
+  }
+
+  // ── Ende der Fälle ──
+
+  // P15 G4: Kein Geheimnis in der Konsole (läuft als letzter Fall über das ganze Protokoll).
+  const alles = protokoll.join('\n');
+  check('P15 G4: Konsole ohne Proxy-Key, Konto-Schlüssel und Token', !alles.includes(PROXY) && !alles.includes(SCHLUESSEL) && !alles.includes('jm1.'));
+}
+
+run()
+  .catch((e) => {
+    check(`P15 Test-Harness ohne Ausnahme (${e && e.name})`, false);
+    realError(e);
+  })
+  .finally(() => {
+    console.warn = realWarn;
+    console.error = realError;
+    abschluss();
+  });
