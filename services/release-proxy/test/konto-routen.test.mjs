@@ -6,6 +6,7 @@
 // Laufzeit (G4). Nicht über tsx (Kopf von worker.test.mjs).
 import { readFileSync } from 'node:fs';
 import worker from '../worker.js';
+import { handleKonto } from '../konto-relay.js';
 import { pruefeToken } from '../konto-krypto.js';
 import { FEHLER_TEXT, KONFLIKT_TEXT } from '../konto-zugang.js';
 import { abschluss, check, makeKontoNs, makeKV, makeUhr, makeWaitCtx, pruefeFaelle, rufeDo, testGeraet, testSchluessel } from './konto-attrappen.mjs';
@@ -193,7 +194,21 @@ async function run() {
       s1.status === 200 && s1.daten.zustand === 'abgelaufen' && soll(s2, 404, 'vorgang-unbekannt'));
     const kaputt = await api(env, 'POST', '/konto/vorgang', { body: { geraet: { name: 'ohne Schlüssel', plattform: 'win', arch: 'x64' } } });
     const keinJson = await api(env, 'POST', '/konto/vorgang', { roh: 'kein json', kopf: { 'content-type': 'application/json' } });
-    check('P16 4.1: Gerät ohne Schlüssel oder Body ohne JSON → 400 S11', soll(kaputt, 400, 'ungueltig') && soll(keinJson, 400, 'ungueltig'));
+    // Zu große Anfrage laut content-length: 400 S11, ohne den Body zu lesen (Attrappe merkt sich arrayBuffer()).
+    let gelesen = false;
+    const gross = {
+      method: 'POST',
+      headers: new Headers({ 'content-length': String(1024 * 1024), 'CF-Connecting-IP': '9.9.9.8' }),
+      arrayBuffer: async () => {
+        gelesen = true;
+        return new ArrayBuffer(0);
+      },
+    };
+    const grossRes = await handleKonto(gross, env, new URL('https://proxy.test/konto/vorgang'), makeWaitCtx());
+    const grossDaten = await grossRes.json();
+    check('P16 4.1: Gerät ohne Schlüssel oder Body ohne JSON → 400 S11; zu großes content-length → 400 S11, Body ungelesen',
+      soll(kaputt, 400, 'ungueltig') && soll(keinJson, 400, 'ungueltig')
+        && grossRes.status === 400 && grossDaten.code === 'ungueltig' && grossDaten.error === FEHLER_TEXT.ungueltig && gelesen === false);
   }
 
   // P16 6.1: Start-Prüfung = Erneuerung mit Gerätebeweis; der DO liest den aktuellen Stand.
@@ -316,8 +331,13 @@ async function run() {
     const ohneSchluessel = { ...env, IVEO_SCHLUESSEL: undefined };
     const n = await liste(karl, ohneSchluessel);
     const n2 = await api(ohneSchluessel, 'POST', '/konto/admin/aktion', { sitzung: chefin.sitzung, body: { aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [{ slug: 'x', name: 'X' }], token: TOKEN } });
-    check('P16 6.4: ohne IVEO_SCHLUESSEL leere Liste mit Hinweis; Hinterlegen → 503 S5',
-      n.status === 200 && JSON.stringify(n.daten) === '{"events":[],"hinweis":"iveo-nicht-eingerichtet"}' && soll(n2, 503, 'nicht-eingerichtet'));
+    // Ein unbrauchbarer Schlüssel (nicht genau 32 Byte) verhält sich wie ein fehlender, nicht wie ein 502.
+    const kurzIveo = { ...env, IVEO_SCHLUESSEL: 'test-kurz' };
+    const m = await liste(karl, kurzIveo);
+    const m2 = await api(kurzIveo, 'POST', '/konto/admin/aktion', { sitzung: chefin.sitzung, body: { aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [{ slug: 'x', name: 'X' }], token: TOKEN } });
+    check('P16 6.4: ohne IVEO_SCHLUESSEL leere Liste mit Hinweis; Hinterlegen → 503 S5; unbrauchbarer Schlüssel ebenso',
+      n.status === 200 && JSON.stringify(n.daten) === '{"events":[],"hinweis":"iveo-nicht-eingerichtet"}' && soll(n2, 503, 'nicht-eingerichtet')
+        && m.status === 200 && JSON.stringify(m.daten) === '{"events":[],"hinweis":"iveo-nicht-eingerichtet"}' && soll(m2, 503, 'nicht-eingerichtet'));
   }
 
   // P16 7: Admin-Routen nur für aktuelle Admins (der DO prüft den aktuellen Stand, OFP4); Konflikt-Texte S12a/S12b.
@@ -415,6 +435,9 @@ async function run() {
     const ohneSchluessel = await vorgang(umgebung({ KONTO_SCHLUESSEL: undefined }));
     const ohneBindung = await vorgang(umgebung({ KONTO: undefined }));
     const ohneFaehigkeit = await vorgang(umgebung({}, { mitJurisdiktion: false }));
+    const kurzEnv = umgebung({ KONTO_SCHLUESSEL: 'test-kurz' });
+    const kurzVorgang = await vorgang(kurzEnv);
+    const kurzSitzung = await api(kurzEnv, 'POST', '/konto/sitzung', { sitzung: 'jm1.test.test', body: { beweis: { ts: T0 } } });
     const globalEnv = umgebung({ KONTO_JURISDICTION: '' }, { mitJurisdiktion: false });
     const global = await vorgang(globalEnv);
     const euEnv = umgebung();
@@ -424,6 +447,8 @@ async function run() {
       { name: 'ohne KONTO_SCHLUESSEL', ok: soll(ohneSchluessel, 503, 'nicht-eingerichtet') },
       { name: 'ohne Bindung KONTO', ok: soll(ohneBindung, 503, 'nicht-eingerichtet') },
       { name: 'Bindung ohne Jurisdiction-Fähigkeit', ok: soll(ohneFaehigkeit, 503, 'nicht-eingerichtet') },
+      { name: 'KONTO_SCHLUESSEL unbrauchbar (test-kurz): Vorgang → 503 S5', ok: soll(kurzVorgang, 503, 'nicht-eingerichtet') },
+      { name: 'KONTO_SCHLUESSEL unbrauchbar: Sitzung erneuern → 503 S5, nicht 401 S1', ok: soll(kurzSitzung, 503, 'nicht-eingerichtet') },
       { name: "KONTO_JURISDICTION '' → global", ok: global.status === 200 && globalEnv.KONTO.instanzen.has('|konten') },
       { name: 'Vorgabe eu', ok: eu.status === 200 && JSON.stringify(euEnv.KONTO.jurisdiktionen.slice(0, 1)) === '["eu"]' && euEnv.KONTO.instanzen.has('eu|konten') },
     ];

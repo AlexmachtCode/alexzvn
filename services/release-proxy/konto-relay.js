@@ -7,7 +7,7 @@
 // Antworten: JSON mit cache-control no-store; Fehler { error: Text S…, code } (Texttabelle 9.6, EP17). Kein Token,
 // Abholgeheimnis, Code, Passwort oder Schlüssel geht ins Log oder in eine Fehlermeldung.
 import { FREIGABE_MS, ZWECK_FUNKTION, darf, kontoStand } from './konto-kern.js';
-import { BEWEIS_FENSTER_MS, iveoEntschluesseln, iveoVerschluesseln, neuerBestaetigungsCode, pruefeToken, sha256B64url, signiere, zufall } from './konto-krypto.js';
+import { BEWEIS_FENSTER_MS, iveoEntschluesseln, iveoVerschluesseln, neuerBestaetigungsCode, pruefeToken, schluesselBrauchbar, sha256B64url, signiere, zufall } from './konto-krypto.js';
 import { abgelehnt, kontoAktion, kontoJetzt, kontoStub } from './konto-zugang.js';
 
 // Vertrag 10.1: P16 liefert kontoStub(env); er liegt seit P15 in konto-zugang.js (Alt-Key-Zählung).
@@ -48,7 +48,7 @@ export async function handleKonto(request, env, url, ctx) {
   const schluessel = `${request.method} ${url.pathname.replace(/\/+$/, '')}`;
   const route = Object.hasOwn(ROUTEN, schluessel) ? ROUTEN[schluessel] : null;
   if (!route) return fehler(abgelehnt('ungueltig', 404));
-  let bereit = !!env.KONTO_SCHLUESSEL && !!env.KONTO;
+  let bereit = schluesselBrauchbar(env.KONTO_SCHLUESSEL) && !!env.KONTO;
   if (bereit) {
     try {
       kontoStub(env);
@@ -179,7 +179,7 @@ async function freigabe(k) {
  */
 async function iveo(k) {
   const stand = await sitzungAus(k);
-  if (!k.env.IVEO_SCHLUESSEL) return json({ events: [], hinweis: 'iveo-nicht-eingerichtet' });
+  if (!schluesselBrauchbar(k.env.IVEO_SCHLUESSEL)) return json({ events: [], hinweis: 'iveo-nicht-eingerichtet' });
   const r = await k.rufe('iveo-fuer', { stufe: stand.stufe, tools: stand.tools, events: stand.events });
   if (!r.ok) return doFehler(r);
   const events = [];
@@ -225,7 +225,7 @@ async function adminAktion(k) {
   const d = await liesJson(k.request);
   let aktion = d;
   if (d.aktion === 'iveo-hinterlegen') {
-    if (!k.env.IVEO_SCHLUESSEL) return fehler(abgelehnt('nicht-eingerichtet', 503));
+    if (!schluesselBrauchbar(k.env.IVEO_SCHLUESSEL)) return fehler(abgelehnt('nicht-eingerichtet', 503));
     const token = typeof d.token === 'string' ? d.token.trim() : '';
     const liste = Array.isArray(d.events) ? d.events : [];
     if (!token || !liste.length || !liste.every((e) => e && typeof e.slug === 'string' && e.slug)) return fehler(abgelehnt('ungueltig', 400));
@@ -269,6 +269,8 @@ async function sitzungAusstellen(k, konto, geraet) {
 
 /** JSON-Body bis KONTO.apiBytes; leer → {}; kein Objekt oder zu groß → 400 S11. */
 async function liesJson(request) {
+  const cl = request.headers.get('content-length');
+  if (cl && Number(cl) > KONTO.apiBytes) throw new Abgelehnt(abgelehnt('ungueltig', 400));
   const buf = await request.arrayBuffer();
   if (buf.byteLength > KONTO.apiBytes) throw new Abgelehnt(abgelehnt('ungueltig', 400));
   if (buf.byteLength === 0) return {};
