@@ -280,8 +280,11 @@ function ausschnitt(text: string, start: string, ende: string): string {
       index.includes("cloudSecrets = { ...cloudSecrets, proxyKey: String(key || '').trim() };"),
       zuweisungen.length,
       zuweisungen.filter((z) => !z.includes('{ ...cloudSecrets,')),
+      // Fixrunde 1 (AR64): Token und alter Key nur aus \x21-\x7e (sonst trägt fetch den Wert in die Fehlermeldung)
+      [leseFreigabe(frei(BIS_72))?.token, leseFreigabe(frei(BIS_72, EVENT, 'jm1.a\r\nb')), leseFreigabe(frei(BIS_72, EVENT, 'jm1.a€b')), leseFreigabe(frei(BIS_72, EVENT, 'jm1.a b'))],
+      ausschnitt(index, "ipcMain.handle('qa:setProxyKey'", '\n  });').includes("if (!/^[\\x21-\\x7e]*$/.test(String(key || '').trim())) key = '';"),
     ],
-    [true, true, true, true, true, 4, []],
+    [true, true, true, true, true, 4, [], ['jm1.test.frei', null, null, null], true],
     'P30 G8: CloudSecrets.freigabe in allen fünf Konstruktoren (cloud.ts EMPTY, loadSecrets; index.ts Start, Neues Event, alter Key), jede weitere Zuweisung mit ...cloudSecrets',
   );
 
@@ -295,8 +298,11 @@ function ausschnitt(text: string, start: string, ende: string): string {
       holen.includes('if (freigabeLaeuft) return freigabeLaeuft;') && holen.includes('if (getConfig().eventId !== eventId) return;'),
       holen.includes(leeren) && holen.indexOf(leeren) < holen.indexOf('saveSecrets(app.getPath'),
       (index.match(/proxyKey: ''/g) ?? []).length,
+      // Fixrunde 1 (AR64): das Token geht durch leseFreigabe; finally gibt die Sperre frei
+      holen.includes('const f = leseFreigabe({ token: e.freigabe,') && holen.includes('if (!f) {'),
+      holen.includes('.finally(() => {\n    freigabeLaeuft = null;\n  });'),
     ],
-    [true, true, true, true, true, 2],
+    [true, true, true, true, true, 2, true, true],
     'P30 QR2/QR3/QR6: holeFreigabe mit appId jm-qa, Zweck qa-relay, Ziel Event-ID, nur fällig, höchstens alle 30 s, nie doppelt; die Freigabe leert den alten Key, publicJwk und privateJwk bleiben',
   );
 
@@ -326,8 +332,16 @@ function ausschnitt(text: string, start: string, ende: string): string {
       takt.includes('altKeyAbgelehnt = true;') && takt.includes('cloudError = QA_TEXT.keyAbgelehnt;'),
       ausschnitt(index, 'function aktuellerZugang(', '\n}\n').includes("proxyKey: altKeyAbgelehnt ? '' : cloudSecrets.proxyKey,"),
       ausschnitt(index, 'function cloudCfg(', '\n}\n').includes('proxyUrl: effektiveProxyUrl(c.proxyUrl),'),
+      // Fixrunde 1 (AR64): nach jedem Warten prüft der Takt, ob Extern noch läuft und das Event gleich ist (vor dem Zugang und vor dem Öffnen)
+      takt.indexOf('if (!cloudTimer || getConfig().eventId !== cfg.eventId) {') > takt.indexOf('await freigabeHolen();')
+        && takt.indexOf('if (!cloudTimer || getConfig().eventId !== cfg.eventId) {') < takt.indexOf('zugang = aktuellerZugang();')
+        && takt.lastIndexOf('if (!cloudTimer || getConfig().eventId !== cfg.eventId) {') > takt.indexOf('await openEvent(')
+        && takt.lastIndexOf('if (!cloudTimer || getConfig().eventId !== cfg.eventId) {') < takt.indexOf('await pollPending('),
+      // nur die abgelehnte Freigabe verwerfen, danach speichern, ein Fehler dabei ist kein Absturz
+      takt.includes("cloudSecrets.freigabe?.token === zugang.f.token")
+        && /cloudSecrets = \{ \.\.\.cloudSecrets, freigabe: null \};\n\s+try \{\n\s+saveSecrets\(app\.getPath\('userData'\), cloudSecrets\);\n\s+\} catch \(e\) \{/.test(takt),
     ],
-    [true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true],
     'P30 QR1/QR4/QR5: Takt holt erst die Freigabe, pausiert ohne Zugang, öffnet, holt ab und quittiert mit dem Zugang; 401/403 verwirft die Freigabe (Q11) bzw. den alten Key (Q6d); Vorgabe-URL',
   );
 
@@ -340,8 +354,11 @@ function ausschnitt(text: string, start: string, ende: string): string {
       cloud.includes('X-Proxy-Key'),
       (cloud.match(/zugangsKopf\(zugang\)/g) ?? []).length,
       cloud.includes('throw new Error(QA_TEXT.keinSchluessel);') && !cloud.includes('erst „Neues Event"'),
+      // Fixrunde 1 (AR64): auch Öffnen und Abruf melden einen Nicht-ok-Status als RelayFehler (sonst greift 401/403 nie)
+      ausschnitt(cloud, 'export async function openEvent(', '\n}\n').includes('if (!res.ok) throw new RelayFehler(`Öffnen fehlgeschlagen (HTTP ${res.status})`, res.status);'),
+      ausschnitt(cloud, 'export async function pollPending(', '\n}\n').includes('if (!res.ok) throw new RelayFehler(`Abruf fehlgeschlagen (HTTP ${res.status})`, res.status);'),
     ],
-    [true, true, false, 4, true],
+    [true, true, false, 4, true, true, true],
     'P30 QR8, Q9, Q10: ack und purge prüfen res.ok; Kopfzeile nur über zugangsKopf (kein X-Proxy-Key in cloud.ts); Q9 ohne ASCII-Schlusszeichen',
   );
 

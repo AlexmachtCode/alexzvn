@@ -47,6 +47,7 @@ import {
   QA_TEXT,
   effektiveProxyUrl,
   erneuernFaellig,
+  leseFreigabe,
   nachAblehnung,
   versuchErlaubt,
   waehleZugang,
@@ -247,7 +248,14 @@ function freigabeHolen(): Promise<void> {
     if (getConfig().eventId !== eventId) return; // inzwischen „Neues Event“ (QR6): Ergebnis verwerfen
     if (e.ok) {
       const hatteKey = !!cloudSecrets.proxyKey;
-      const f = { token: e.freigabe, bis: e.bis, ziel: eventId, konto: { name: e.konto.name, stufe: e.konto.stufe } };
+      const f = leseFreigabe({ token: e.freigabe, bis: e.bis, ziel: eventId, konto: { name: e.konto.name, stufe: e.konto.stufe } });
+      if (!f) {
+        // Unbrauchbares Token (Zeichen außerhalb \x21-\x7e, bis nicht endlich): wie ein Fehler des Launchers behandeln.
+        if (freigabeGrund !== 'fehler') getLog().info('Q&A: keine Freigabe vom Launcher (fehler)');
+        freigabeGrund = 'fehler';
+        freigabeDetail = null;
+        return;
+      }
       cloudSecrets = { ...cloudSecrets, freigabe: f, proxyKey: '' };
       saveSecrets(app.getPath('userData'), cloudSecrets);
       freigabeGrund = null;
@@ -276,6 +284,11 @@ async function cloudPollTick(): Promise<void> {
   let zugang: QaZugang = { art: 'keiner' };
   try {
     await freigabeHolen();
+    // Während des Wartens kann „Aus“, „Event beenden“ oder „Neues Event“ gekommen sein: dann kein Relay-Aufruf mehr.
+    if (!cloudTimer || getConfig().eventId !== cfg.eventId) {
+      broadcast();
+      return;
+    }
     zugang = aktuellerZugang();
     if (zugang.art === 'keiner') {
       broadcast();
@@ -283,6 +296,10 @@ async function cloudPollTick(): Promise<void> {
     }
     if (geoeffnetFuer !== cfg.eventId) {
       await openEvent(cfg, cloudSecrets, zugang);
+      if (!cloudTimer || getConfig().eventId !== cfg.eventId) {
+        broadcast();
+        return;
+      }
       geoeffnetFuer = cfg.eventId;
     }
     const items = await pollPending(cfg, cloudSecrets, zugang);
@@ -320,8 +337,15 @@ async function cloudPollTick(): Promise<void> {
     const folge = nachAblehnung(zugang.art, err instanceof RelayFehler ? err.status : 0);
     if (folge === 'freigabe-verwerfen') {
       // QR5: Der Worker lehnt die Freigabe ab → verwerfen; der nächste Takt holt eine neue beim Launcher (Q11).
-      cloudSecrets = { ...cloudSecrets, freigabe: null };
-      saveSecrets(app.getPath('userData'), cloudSecrets);
+      // Nur die Freigabe verwerfen, die abgelehnt wurde: eine inzwischen erneuerte bleibt.
+      if (zugang.art === 'freigabe' && cloudSecrets.freigabe?.token === zugang.f.token) {
+        cloudSecrets = { ...cloudSecrets, freigabe: null };
+        try {
+          saveSecrets(app.getPath('userData'), cloudSecrets);
+        } catch (e) {
+          getLog().info(`Q&A: Geheimnisse nicht gespeichert (${(e as Error).name})`);
+        }
+      }
       geoeffnetFuer = null;
       cloudError = QA_TEXT.freigabeAbgelehnt;
     } else if (folge === 'key-abgelehnt') {
@@ -642,6 +666,9 @@ function registerIpc(): void {
   });
   ipcMain.handle('qa:setProxyKey', (_e, key: string) => {
     // Alter Proxy-Key nur im Übergang (Spec 10, EP22); ein neu eingetragener Key wird wieder versucht.
+    // Nur sichtbare ASCII-Zeichen (\x21-\x7e): sonst wirft fetch beim Kopfzeilenbau und trägt den Wert in die Fehlermeldung;
+    // ein anderer Key wird wie ein leeres Feld behandelt (Key entfernt).
+    if (!/^[\x21-\x7e]*$/.test(String(key || '').trim())) key = '';
     cloudSecrets = { ...cloudSecrets, proxyKey: String(key || '').trim() };
     saveSecrets(app.getPath('userData'), cloudSecrets);
     altKeyAbgelehnt = false;

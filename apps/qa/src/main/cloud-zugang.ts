@@ -134,7 +134,9 @@ export function leseFreigabe(roh: unknown): QaFreigabe | null {
   if (typeof roh !== 'object' || roh === null) return null;
   const r = roh as Record<string, unknown>;
   const k = r.konto as Record<string, unknown> | null | undefined;
-  if (typeof r.token !== 'string' || !r.token || typeof r.bis !== 'number' || !Number.isFinite(r.bis)) return null;
+  // Token nur aus sichtbaren ASCII-Zeichen (\x21-\x7e): alles andere macht fetch beim Bauen der Kopfzeile zum Wurf und
+  // kann den Wert in die Fehlermeldung tragen.
+  if (typeof r.token !== 'string' || !/^[\x21-\x7e]+$/.test(r.token) || typeof r.bis !== 'number' || !Number.isFinite(r.bis)) return null;
   if (typeof r.ziel !== 'string' || !r.ziel || typeof k !== 'object' || k === null || typeof k.name !== 'string') return null;
   if (k.stufe !== 'admin' && k.stufe !== 'kollege' && k.stufe !== 'externer') return null;
   return { token: r.token, bis: r.bis, ziel: r.ziel, konto: { name: k.name, stufe: k.stufe } };
