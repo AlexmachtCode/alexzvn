@@ -14,11 +14,11 @@ import type {
   AppEvent, KontoAdminAktionAntwort, KontoAdminAntwort, KontoIveoEvent, KontoIveoEventsAntwort, KontoZoomAntwort,
 } from '@shared/types';
 import {
-  kurzName, STUFE_TEXT, type AdminAktion, type AnmeldeSchritt, type KontoAnsicht, type KontoFehlerCode, type KontoStand,
-  type KontoZustand,
+  darf, kurzName, STUFE_TEXT, type AdminAktion, type AnmeldeSchritt, type Funktion, type KontoAnsicht, type KontoFehlerCode,
+  type KontoStand, type KontoZustand,
 } from '@shared/konto';
 import { ladeOderErzeugeGeraet, type GeraetHandle, type GeraetLaden, type Verschluesseler } from './geraet';
-import { browserAdresseErlaubt, erzeugeKontoClient, KontoFehler, type KontoClient } from './worker-client';
+import { browserAdresseErlaubt, erzeugeKontoClient, istWorkerAdresse, KontoFehler, zugangsKopf, type KontoClient } from './worker-client';
 import { erzeugeSitzungsTreiber, sitzungsAblage, type GespeicherteSitzung, type SitzungsTreiber } from './sitzung-kern';
 import { erzeugeAnmeldeAblauf, type AnmeldeAblauf } from './anmelde-ablauf';
 import { starteTuerDienst } from './tuer-dienst';
@@ -27,8 +27,8 @@ import { erzeugeIveoZentral, type IveoZentralSpeicher } from './iveo-zentral';
 import { toClientError } from '../iveo-abgleich-kern';
 import { IVEO_ABRUF_ZEITGRENZE_MS, mitZeitgrenze } from '../iveo-huelle-hilfen';
 import {
-  leseKontoEntzug, leseKontoErsteAnmeldung, leseKontoFeld, resolveIveoBaseUrl, resolveProxy, schreibeKontoEntzug,
-  schreibeKontoErsteAnmeldung, schreibeKontoFeld,
+  leseKontoEntzug, leseKontoErsteAnmeldung, leseKontoFeld, resolveIveoBaseUrl, resolveProxy, resolveProxyKey,
+  schreibeKontoEntzug, schreibeKontoErsteAnmeldung, schreibeKontoFeld, verbindeSitzung,
 } from '../settings';
 import { verbundStand } from '../verbund';
 
@@ -150,6 +150,8 @@ export function starteKonto(o: { emit(e: AppEvent): void; log: Logger; appDataDi
   if (bereit) return;
   emit = o.emit;
   log = o.log;
+  // P22: settings.ts erfährt so, ob eine Sitzung nutzbar ist (Quelle in den Einstellungen), ohne die Hülle zu importieren.
+  verbindeSitzung(kontoSitzungMoeglich);
   serverBasis = resolveProxy() ?? '';
   const c = erzeugeKontoClient({ basis: serverBasis, fetch: (url, init) => fetch(url, init) });
   client = c;
@@ -252,6 +254,37 @@ export function kontoAnsichtJetzt(): KontoAnsicht {
 export function kontoSitzungMoeglich(): boolean {
   const a = kontoAnsichtJetzt();
   return a.stand !== null && SITZUNG_ZUSTAENDE.includes(a.zustand);
+}
+
+/**
+ * P22 (Spec 9.1, EP12): Gibt es einen Zugang zum Worker? Sitzung (R6) oder Entwicklungs-Schlüssel (JMPS_PROXY_KEY; bis P32
+ * auch der eingebackene). Ohne beides fragen die Quellen den Worker nicht.
+ */
+export function zugangDa(): boolean {
+  return kontoSitzungMoeglich() || Boolean(resolveProxyKey());
+}
+
+/**
+ * P22 (N12, G4): Kopf für einen Abruf beim Worker — nur wenn die Adresse beim Worker liegt (gleiche Herkunft wie die
+ * Server-Adresse, Pfad mit Grenze; istWorkerAdresse, EP35), sonst {}: eine eigene Katalog-URL und ein Doppelgänger-Host
+ * (`…workers.dev.evil.example`, `…workers.dev@evil.example`) bekommen nie die Sitzung. Sitzung vor Entwicklungs-Schlüssel
+ * (zugangsKopf, P9); die Sitzung erneuert sich bei Bedarf (R7). Sitzung und Schlüssel stehen in keiner Meldung.
+ */
+export async function zugangsKopfFuer(url: string): Promise<Record<string, string>> {
+  const proxy = resolveProxy();
+  if (!proxy || !istWorkerAdresse(url, proxy)) return {};
+  return zugangsKopf({ sitzung: await kontoSitzungFuerBedarf(), devKey: resolveProxyKey() });
+}
+
+/**
+ * P22 (Spec 9.1): Darf dieser Rechner die Funktion am Worker nutzen? Mit Sitzung nach `darf` und dem festgehaltenen Stand
+ * (nach einer Erneuerung bei Bedarf, R7); ohne Sitzung nur mit Entwicklungs-Schlüssel (der Worker prüft dann selbst).
+ */
+export async function workerRecht(f: Funktion): Promise<boolean> {
+  await kontoSitzungFuerBedarf();
+  const stand = kontoSitzungMoeglich() ? kontoAnsichtJetzt().stand : null;
+  if (stand) return darf(stand, f, { jetzt: Date.now() });
+  return Boolean(resolveProxyKey());
 }
 
 /** iveo-Tokens des Kontos im Speicher (P23 füllt ihn und verdrahtet die Naht in settings.ts). */

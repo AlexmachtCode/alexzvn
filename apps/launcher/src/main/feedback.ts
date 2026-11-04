@@ -3,13 +3,16 @@ import { release } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ActionResult, FeedbackInput } from '@shared/types';
-import { resolveProxy, resolveProxyKey, resolveToken } from './settings';
+import { resolveProxy, resolveToken } from './settings';
+import { workerRecht, zugangsKopfFuer } from './konto/huelle';
 import { getLogSources } from './presence';
 import { getTools } from './manifest';
 
 const FALLBACK_REPO = 'AlexmachtCode/alexzvn';
 const MAX_LINES_PER_LOG = 120;
 const MAX_BUNDLE_CHARS = 30_000;
+/** F3 (Anmeldung P22, 9.7): weder Worker (Sitzung oder Entwicklungs-Schlüssel) noch GitHub-Zugang. */
+const TEXT_FEEDBACK_ANMELDEN = 'Zum Senden von Feedback im Launcher anmelden (oben rechts).';
 
 /** Alle Tools teilen sich dasselbe Repo; sonst Fallback. */
 function repo(): string {
@@ -101,14 +104,14 @@ export async function submitFeedback(input: FeedbackInput): Promise<ActionResult
   }
   const fullDescription = description + logBundle;
 
-  // 1) Über den Proxy (bevorzugt, tokenlos).
+  // 1) Über den Worker (Anmeldung P22, Spec 9.1: Feedback darf jede Stufe; das Recht wird vor dem Abruf geprüft).
   const proxy = resolveProxy();
-  const key = resolveProxyKey();
-  if (proxy && key) {
+  if (proxy && (await workerRecht('feedback'))) {
+    const ziel = `${proxy.replace(/\/$/, '')}/feedback`;
     try {
-      const res = await fetch(`${proxy.replace(/\/$/, '')}/feedback`, {
+      const res = await fetch(ziel, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'X-Proxy-Key': key },
+        headers: { 'content-type': 'application/json', ...(await zugangsKopfFuer(ziel)) },
         body: JSON.stringify({
           type: input.type,
           title,
@@ -162,8 +165,5 @@ export async function submitFeedback(input: FeedbackInput): Promise<ActionResult
     }
   }
 
-  return {
-    ok: false,
-    message: 'Kein Feedback-Kanal verfügbar — Proxy/Token in den Einstellungen prüfen.',
-  };
+  return { ok: false, message: TEXT_FEEDBACK_ANMELDEN };
 }

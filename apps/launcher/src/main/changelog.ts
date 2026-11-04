@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CHANGELOG } from '@jm/suite-manifest';
 import type { AppChangelog } from '@jm/suite-manifest';
-import { resolveChangelogUrl, resolveProxy, resolveProxyKey } from './settings';
+import { resolveChangelogUrl } from './settings';
+import { zugangsKopfFuer } from './konto/huelle';
 
 // App-Patchnotes: gebündelter Fallback (CHANGELOG aus @jm/suite-manifest) +
 // Live-Quelle vom Proxy (/changelog.json aus dem Katalog-Branch). So erscheinen
@@ -14,14 +15,9 @@ function cacheFile(): string {
   return join(app.getPath('userData'), 'changelog-cache.json');
 }
 
-function headers(url: string): Record<string, string> {
-  const h: Record<string, string> = { Accept: 'application/json' };
-  const proxy = resolveProxy();
-  const key = resolveProxyKey();
-  if (proxy && key && url.startsWith(proxy.replace(/\/$/, ''))) {
-    h['X-Proxy-Key'] = key;
-  }
-  return h;
+/** Anmeldung P22: Zugangskopf nur für Adressen des Workers (Sitzung, sonst Entwicklungs-Schlüssel). */
+async function headers(url: string): Promise<Record<string, string>> {
+  return { Accept: 'application/json', ...(await zugangsKopfFuer(url)) };
 }
 
 function isValid(value: unknown): value is AppChangelog[] {
@@ -50,7 +46,7 @@ export function initChangelog(): void {
 export async function refreshChangelog(): Promise<boolean> {
   const url = resolveChangelogUrl();
   try {
-    const res = await fetch(url, { headers: headers(url) });
+    const res = await fetch(url, { headers: await headers(url) });
     if (!res.ok) return false;
     const parsed = (await res.json()) as unknown;
     if (!isValid(parsed)) return false;

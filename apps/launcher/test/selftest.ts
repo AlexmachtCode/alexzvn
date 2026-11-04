@@ -1340,11 +1340,12 @@ await (async () => {
   ck('P35 11.5 F8, F11: installer.ts ohne die alten Texte, mit keinPaketText für Tool und Launcher (T29, T69)',
     !installer.includes('Kein passendes Artefakt für diese Plattform gefunden.') && !installer.includes('Kein Launcher-Installer für diese Plattform gefunden.')
     && installer.includes("keinPaketText(plattformHier(), archToken(), 'tool')") && installer.includes("keinPaketText(plattformHier(), archToken(), 'launcher')"));
-  ck('P35 11.5 F1, T27, F10: Bestandstexte wörtlich',
-    installer.includes("'Keine Release-Quelle konfiguriert — Token oder Proxy in den Einstellungen hinterlegen.'")
+  // Anmeldung P22 (9.7): F1 und F2 ersetzen die Texte mit Token und Proxy; T27 und F10 bleiben.
+  ck('P35 11.5 T27, F10 und Anmeldung P22 F1, F2: Texte wörtlich',
+    installer.includes("const TEXT_INSTALL_ANMELDEN = 'Zum Installieren im Launcher anmelden (oben rechts).';")
     && installer.includes('`Release-Abfrage fehlgeschlagen: ${(e as Error).message}`')
     && installer.includes('`Update-Abfrage fehlgeschlagen: ${(e as Error).message}`')
-    && installer.includes("'Keine Release-Quelle konfiguriert — Token in den Einstellungen hinterlegen.'"));
+    && installer.includes("const TEXT_UPDATE_ADRESSE_FEHLT = 'Die Update-Adresse fehlt. Prüfe die Server-Adresse in den Einstellungen.';"));
 }
 
 // --- Geführte Anleitungen P6 (Spec 4, 5, 7; Plan 9.1, 9.3, EP5, EP6, EP22): die Anleitungs-Datei „Einrichtung“ ---------
@@ -3181,6 +3182,68 @@ await (async () => {
     && huelle.includes('    if (!adresse || !browserAdresseErlaubt(adresse, serverBasis)) {')
     && (huelle.match(/shell\.openExternal\(/g) ?? []).length === 1 && (huelle.match(/clipboard\.writeText\(/g) ?? []).length === 1
     && huelle.includes("  const c = erzeugeKontoClient({ basis: serverBasis, fetch: (url, init) => fetch(url, init) });"));
+}
+
+// --- Anmeldung P22 (Spec 3, 9.1; N11, N12; EP10, EP12, EP17): Quellen über die Sitzung, Selbst-Update ohne Anmeldung ---
+// release-source.ts, updates.ts, installer.ts, manifest.ts, changelog.ts, cookbook.ts, feedback.ts, cookbook-draft.ts und die
+// Hülle laden Electron; geprüft wird ihr Quelltext (Muster P35 oben).
+{
+  const main = (d: string): string => quelleLf(`../src/main/${d}`);
+  const quelle = main('release-source.ts');
+  const updates = main('updates.ts');
+  const installer = main('installer.ts');
+  const huelle = main('konto/huelle.ts');
+  const einst = main('settings.ts');
+  const feedback = main('feedback.ts');
+  const entwurf = main('cookbook-draft.ts');
+  const pruefung = funktionsKoerper(updates, 'export async function checkLauncherUpdate(');
+  const download = funktionsKoerper(installer, 'export async function updateLauncher(');
+  ck('P22 9.1, EP10: Selbst-Update (Prüfung und Download) über getLauncherUpdateSource — ohne Kopf, auch ohne Anmeldung',
+    funktionsKoerper(quelle, 'export function getLauncherUpdateSource(): ReleaseSource | null {').includes('  return proxy ? new ProxyReleaseSource(proxy, async () => ({})) : null;')
+    && pruefung.includes('  const source = getLauncherUpdateSource();') && download.includes('  const source = getLauncherUpdateSource();')
+    && !pruefung.includes('getReleaseSource') && !download.includes('getReleaseSource'));
+  const toolQuelle = funktionsKoerper(quelle, 'export function getReleaseSource(): ReleaseSource | null {');
+  ck('P22 9.1, EP12: Tools aus der Sitzung, sonst mit Entwicklungs-Schlüssel, sonst über den GitHub-Zugang (bis zur Anmeldung)',
+    toolQuelle.includes('  if (proxy && zugangDa()) return new ProxyReleaseSource(proxy, zugangsKopfFuer);')
+    && toolQuelle.indexOf('zugangDa()') < toolQuelle.indexOf('resolveToken()')
+    && funktionsKoerper(huelle, 'export function zugangDa(): boolean {').includes('  return kontoSitzungMoeglich() || Boolean(resolveProxyKey());'));
+  const SECHS = ['release-source.ts', 'manifest.ts', 'changelog.ts', 'cookbook.ts', 'feedback.ts', 'cookbook-draft.ts'];
+  const selbst = SECHS.filter((d) => { const q = ohneKommentare(main(d)); return q.includes('X-Proxy-Key') || q.includes('resolveProxyKey'); });
+  const ohneKopf = SECHS.filter((d) => !ohneKommentare(main(d)).includes('zugangsKopfFuer'));
+  ck(`P22 N12: alle sechs Aufrufer holen den Kopf über zugangsKopfFuer, keiner setzt X-Proxy-Key selbst${selbst.length || ohneKopf.length ? ` — selbst: ${selbst.join(', ') || '-'}; ohne: ${ohneKopf.join(', ') || '-'}` : ''}`,
+    selbst.length === 0 && ohneKopf.length === 0);
+  const kopf = funktionsKoerper(huelle, 'export async function zugangsKopfFuer(url: string): Promise<Record<string, string>> {');
+  // EP35 (Nachbesserung Block D, sicherheit:2): gleiche Herkunft statt Präfix; das Verhalten prüft konto-client.test.ts (Task 21).
+  ck('P22 G4, EP35: der Zugangskopf geht nur an Adressen des Workers (istWorkerAdresse: gleiche Herkunft, Pfad mit Grenze), Sitzung vor Entwicklungs-Schlüssel',
+    kopf.includes('  if (!proxy || !istWorkerAdresse(url, proxy)) return {};') && !kopf.includes('startsWith(')
+    && kopf.includes('  return zugangsKopf({ sitzung: await kontoSitzungFuerBedarf(), devKey: resolveProxyKey() });'));
+  const F: Array<[string, string, string]> = [
+    ['F1', installer, "const TEXT_INSTALL_ANMELDEN = 'Zum Installieren im Launcher anmelden (oben rechts).';"],
+    ['F2', installer, "const TEXT_UPDATE_ADRESSE_FEHLT = 'Die Update-Adresse fehlt. Prüfe die Server-Adresse in den Einstellungen.';"],
+    ['F3', feedback, "const TEXT_FEEDBACK_ANMELDEN = 'Zum Senden von Feedback im Launcher anmelden (oben rechts).';"],
+    ['F4a', entwurf, "const TEXT_ENTWURF_ANMELDEN = 'Für einen Kochbuch-Entwurf im Launcher anmelden (oben rechts).';"],
+    ['F4b', entwurf, "const TEXT_ENTWURF_NUR_KOLLEGEN = 'KI-Entwürfe sind für Kollegen und Admins.';"],
+  ];
+  const fFehlt = F.filter(([, q, t]) => !q.includes(t)).map(([n]) => n);
+  const alt = ['Token oder Proxy in den Einstellungen hinterlegen', 'Token in den Einstellungen hinterlegen', 'Proxy/Token in den Einstellungen prüfen',
+    'Proxy/Key in den Einstellungen prüfen'].filter((t) => [installer, feedback, entwurf].some((q) => q.includes(t)));
+  ck(`P22 EP17: F1–F4b wörtlich, die alten Texte mit Proxy und Token sind weg${fFehlt.length || alt.length ? ` — fehlt: ${fFehlt.join(', ') || '-'}; alt: ${alt.join(' | ') || '-'}` : ''}`,
+    fFehlt.length === 0 && alt.length === 0
+    && installer.includes('message: TEXT_INSTALL_ANMELDEN') && installer.includes('message: TEXT_UPDATE_ADRESSE_FEHLT')
+    && feedback.includes('message: TEXT_FEEDBACK_ANMELDEN') && entwurf.includes('TEXT_ENTWURF_NUR_KOLLEGEN : TEXT_ENTWURF_ANMELDEN'));
+  const entwurfKoerper = funktionsKoerper(entwurf, 'export async function submitRecipeDraft(');
+  const feedbackKoerper = funktionsKoerper(feedback, 'export async function submitFeedback(');
+  ck('P22 9.1: KI-Entwurf und Feedback prüfen das Recht (darf mit festgehaltenem Stand) vor dem ersten Abruf',
+    funktionsKoerper(huelle, 'export async function workerRecht(f: Funktion): Promise<boolean> {').includes('  if (stand) return darf(stand, f, { jetzt: Date.now() });')
+    && entwurfKoerper.indexOf("await workerRecht('ki-entwurf')") > 0
+    && entwurfKoerper.indexOf("await workerRecht('ki-entwurf')") < entwurfKoerper.indexOf('draftViaPolaris(')
+    && feedbackKoerper.indexOf("await workerRecht('feedback')") > 0
+    && feedbackKoerper.indexOf("await workerRecht('feedback')") < feedbackKoerper.indexOf('await fetch('));
+  ck('P22 SourceBadge-Quelle: eine Sitzung zählt als Quelle (proxyActive über die von der Hülle gemeldete Sitzung)',
+    funktionsKoerper(einst, 'function proxyActive(): boolean {').includes('  return Boolean(resolveProxy() && (sitzungMoeglich() || resolveProxyKey()));')
+    && funktionsKoerper(huelle, 'export function starteKonto(').includes('  verbindeSitzung(kontoSitzungMoeglich);'));
+  ck('P22 T23: „per Umgebungsvariable gesetzt“ (fromEnv) meint nur noch die Server-Adresse (JMPS_RELEASE_PROXY)',
+    funktionsKoerper(einst, 'function envControlled(): boolean {').includes("  return Boolean(process.env['JMPS_RELEASE_PROXY']);"));
 }
 
 // ── Ende der Fälle (Anmeldung) ──

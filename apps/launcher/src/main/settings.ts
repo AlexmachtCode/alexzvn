@@ -167,9 +167,18 @@ export function resolvePolaris(): { url: string; key?: string } | undefined {
   return { url, key: process.env['JMPS_POLARIS_KEY']?.trim() || undefined };
 }
 
-/** Proxy ist nutzbar, wenn URL UND Key vorhanden sind. */
+/**
+ * Anmeldung (Plan P22): Ist eine Sitzung nutzbar? Die Hülle (konto/huelle.ts) meldet sich beim Start hier an; settings.ts
+ * importiert sie nicht (kein Import-Zyklus). Bis dahin gibt es keine Sitzung.
+ */
+let sitzungMoeglich: () => boolean = () => false;
+export function verbindeSitzung(f: () => boolean): void {
+  sitzungMoeglich = f;
+}
+
+/** Der Worker ist nutzbar mit Server-Adresse und Sitzung oder Entwicklungs-Schlüssel (Spec 9.1, EP12). */
 function proxyActive(): boolean {
-  return Boolean(resolveProxy() && resolveProxyKey());
+  return Boolean(resolveProxy() && (sitzungMoeglich() || resolveProxyKey()));
 }
 
 /** Effektive Remote-Manifest-URL (suite.json): Umgebungsvariable hat Vorrang. */
@@ -177,8 +186,9 @@ export function resolveManifestUrl(): string | undefined {
   return process.env['JMPS_MANIFEST_URL'] || read().manifestUrl || undefined;
 }
 
+/** Anmeldung P22 (T23): „per Umgebungsvariable gesetzt“ meint nur noch die Server-Adresse; den GitHub-Zugang gibt es im Fenster nicht mehr (P28). */
 function envControlled(): boolean {
-  return Boolean(process.env['JMPS_GITHUB_TOKEN'] || process.env['JMPS_RELEASE_PROXY']);
+  return Boolean(process.env['JMPS_RELEASE_PROXY']);
 }
 
 // ── iveo (#11) ────────────────────────────────────────────────────────────────

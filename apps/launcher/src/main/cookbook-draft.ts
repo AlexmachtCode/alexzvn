@@ -1,5 +1,11 @@
 import type { Recipe, RecipeDraftInput, RecipeDraftResult } from '@shared/types';
-import { resolveProxy, resolveProxyKey, resolvePolaris } from './settings';
+import { resolveProxy, resolvePolaris } from './settings';
+import { kontoSitzungMoeglich, workerRecht, zugangsKopfFuer } from './konto/huelle';
+
+/** F4a (Anmeldung P22, 9.7): ohne Anmeldung (und ohne Entwicklungs-Schlüssel) kein Entwurf. */
+const TEXT_ENTWURF_ANMELDEN = 'Für einen Kochbuch-Entwurf im Launcher anmelden (oben rechts).';
+/** F4b: angemeldet, aber als Externer (Spec 9.1: KI-Entwurf nur Kollege und Admin). */
+const TEXT_ENTWURF_NUR_KOLLEGEN = 'KI-Entwürfe sind für Kollegen und Admins.';
 
 /**
  * Reicht ein neues Rezept ein (Pfad B = KI). Der Client bleibt tokenlos; der PR
@@ -23,13 +29,10 @@ export async function submitRecipeDraft(input: RecipeDraftInput): Promise<Recipe
     return { ok: false, message: 'Bitte Titel und Notizen ausfüllen.' };
   }
 
+  // Anmeldung P22 (Spec 9.1): KI-Entwürfe nur für Kollegen und Admins; das Recht wird vor jedem Abruf geprüft.
   const proxy = resolveProxy();
-  const key = resolveProxyKey();
-  if (!proxy || !key) {
-    return {
-      ok: false,
-      message: 'Kein Einreich-Kanal verfügbar — Proxy/Key in den Einstellungen prüfen.',
-    };
+  if (!proxy || !(await workerRecht('ki-entwurf'))) {
+    return { ok: false, message: kontoSitzungMoeglich() ? TEXT_ENTWURF_NUR_KOLLEGEN : TEXT_ENTWURF_ANMELDEN };
   }
   const clean = { title, category: input.category, notes };
 
@@ -37,14 +40,14 @@ export async function submitRecipeDraft(input: RecipeDraftInput): Promise<Recipe
   try {
     const recipe = await draftViaPolaris(clean);
     if (recipe) {
-      return await openPrViaProxy(proxy, key, { mode: 'form', recipe });
+      return await openPrViaProxy(proxy, { mode: 'form', recipe });
     }
   } catch {
     // Polaris nicht erreichbar/Fehler → transparent auf den Anthropic-Fallback gehen.
   }
 
   // 2) Fallback: Proxy lässt Anthropic das Rezept erzeugen.
-  return await openPrViaProxy(proxy, key, { mode: 'ai', input: clean });
+  return await openPrViaProxy(proxy, { mode: 'ai', input: clean });
 }
 
 /**
@@ -80,13 +83,13 @@ async function draftViaPolaris(input: {
 /** Rezept (fertig oder per KI zu erzeugen) an den Proxy → der öffnet den PR. */
 async function openPrViaProxy(
   proxy: string,
-  key: string,
   payload: { mode: 'form'; recipe: Recipe } | { mode: 'ai'; input: RecipeDraftInput },
 ): Promise<RecipeDraftResult> {
   try {
-    const res = await fetch(`${proxy.replace(/\/$/, '')}/cookbook/draft`, {
+    const ziel = `${proxy.replace(/\/$/, '')}/cookbook/draft`;
+    const res = await fetch(ziel, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-Proxy-Key': key },
+      headers: { 'content-type': 'application/json', ...(await zugangsKopfFuer(ziel)) },
       body: JSON.stringify(payload),
     });
     const data = (await res.json().catch(() => ({}))) as {

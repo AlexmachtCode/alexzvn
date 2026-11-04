@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { COOKBOOK } from '@jm/cookbook';
 import type { Cookbook, Recipe } from '@jm/cookbook';
-import { resolveCookbookUrl, resolveProxy, resolveProxyKey } from './settings';
+import { resolveCookbookUrl } from './settings';
+import { zugangsKopfFuer } from './konto/huelle';
 
 // Kochbuch-Rezepte: gebündelter Fallback (COOKBOOK aus @jm/cookbook) + Live-Quelle
 // vom Proxy (/cookbook.json aus dem Katalog-Branch). So erscheinen neue Rezepte
@@ -14,14 +15,9 @@ function cacheFile(): string {
   return join(app.getPath('userData'), 'cookbook-cache.json');
 }
 
-function headers(url: string): Record<string, string> {
-  const h: Record<string, string> = { Accept: 'application/json' };
-  const proxy = resolveProxy();
-  const key = resolveProxyKey();
-  if (proxy && key && url.startsWith(proxy.replace(/\/$/, ''))) {
-    h['X-Proxy-Key'] = key;
-  }
-  return h;
+/** Anmeldung P22: Zugangskopf nur für Adressen des Workers (Sitzung, sonst Entwicklungs-Schlüssel). */
+async function headers(url: string): Promise<Record<string, string>> {
+  return { Accept: 'application/json', ...(await zugangsKopfFuer(url)) };
 }
 
 function isValid(value: unknown): value is Cookbook {
@@ -54,7 +50,7 @@ export function initCookbook(): void {
 export async function refreshCookbook(): Promise<boolean> {
   const url = resolveCookbookUrl();
   try {
-    const res = await fetch(url, { headers: headers(url) });
+    const res = await fetch(url, { headers: await headers(url) });
     if (!res.ok) return false;
     const parsed = (await res.json()) as unknown;
     if (!isValid(parsed)) return false;
