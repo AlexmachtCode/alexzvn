@@ -7,8 +7,8 @@
 // P20 fügt Wächter für wrangler.toml und den Re-Export direkt vor der Ende-Marke ein.
 import { readFileSync } from 'node:fs';
 import worker from '../worker.js';
-import { signiere } from '../konto-krypto.js';
-import { FEHLER_TEXT, launcherSelbstUpdate, zugangPruefen } from '../konto-zugang.js';
+import { sha256B64url, signiere } from '../konto-krypto.js';
+import { FEHLER_TEXT, launcherSelbstUpdate, selbstUpdateLiefern, zugangPruefen } from '../konto-zugang.js';
 import { abschluss, check, makeKV, pruefeFaelle, testSchluessel } from './konto-attrappen.mjs';
 
 // Warn- und Fehlerlog mitschneiden (erwartet, und für die Prüfung auf Geheimnisse).
@@ -36,9 +36,12 @@ const RELEASES = [
 // EP32: Im Repo test/alt ist der neueste Launcher 0.17.0 (Installer mit eingebackenem alten Schlüssel).
 const RELEASES_ALT = [{ tag_name: 'launcher-v0.17.0', draft: false, assets: [{ id: 21, name: 'JM.Production.Suite-0.17.0-win-x64.exe', size: 1 }] }];
 const ghAufrufe = [];
+let githubWirft = false; // Repo test/wirft: GitHub ist nicht erreichbar (Fix-Runde 2)
 globalThis.fetch = async (u, init = {}) => {
   const url = String(u);
   if (url.includes('api.github.com')) ghAufrufe.push(url);
+  if (url.includes('/repos/test/gedrosselt/') || url.includes('/repos/test/wirft/')) await new Promise((r) => setTimeout(r, 20)); // Anfragen überlappen
+  if (githubWirft && url.includes('/repos/test/wirft/')) throw new Error('netz weg');
   if (url.includes('/releases/assets/')) {
     return new Response(null, { status: 302, headers: { Location: `https://signed.test/${url.split('/').pop()}` } });
   }
@@ -383,6 +386,49 @@ async function run() {
     ];
     check('P15 Fix 4: /tools/:id/latest (200, 404) und Selbst-Update (200, 401) antworten mit no-store', ist.every((w) => w === 'no-store'));
     if (!ist.every((w) => w === 'no-store')) console.log(`     ${ist.join(' | ')}`);
+  }
+
+  // P15 Fix 5 (Review 2): Die Drossel gilt je Anfrage, nicht im geteilten Versprechen. Eine gedrosselte IP (Zähler 30) kommt zuerst,
+  // dazu 10 frische IPs gleichzeitig → nur die gedrosselte IP 429, die frischen 10 × 200, 2 Abrufe bei GitHub.
+  {
+    const rl = makeKV();
+    const env = { ...ENV, REPO: 'test/gedrosselt', RATELIMIT: rl };
+    const ipHash = (await sha256B64url(`${SCHLUESSEL}|8.8.8.8`)).slice(0, 22);
+    await rl.put(`rl:selbst-update:${ipHash}:${Math.floor(Math.floor(T0 / 1000) / 600)}`, '30');
+    const ips = ['8.8.8.8', ...Array.from({ length: 10 }, (_, i) => `8.9.${i}.1`)];
+    const res = await Promise.all(ips.map((ip) => worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64', { kopf: { 'CF-Connecting-IP': ip } }), env)));
+    const n = ghAufrufe.filter((u) => u.includes('/repos/test/gedrosselt/')).length;
+    const ist = res.map((r) => r.status).join(' ');
+    check('P15 Fix 5: gedrosselte IP zuerst + 10 frische IPs gleichzeitig → 429, dann 10 × 200, 2 Abrufe bei GitHub',
+      ist === '429 ' + Array(10).fill(200).join(' ') && n === 2);
+    if (n !== 2 || !ist.startsWith('429 200')) console.log(`     ${ist} / Abrufe ${n}`);
+  }
+
+  // P15 Fix 6 (Review 2): GitHub wirft bei 10 gleichzeitigen Anfragen → 10 × 502 mit 1 Abruf, kein 500; danach (erholt) 200.
+  // Dazu direkt: wirft hole() selbst (etwa res.text()), bekommen alle Wartenden 502 statt einer Ausnahme.
+  {
+    const env = { ...ENV, REPO: 'test/wirft', RATELIMIT: makeKV() };
+    const zaehle = () => ghAufrufe.filter((u) => u.includes('/repos/test/wirft/')).length;
+    githubWirft = true;
+    const res = await Promise.all(
+      Array.from({ length: 10 }, (_, i) => worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64', { kopf: { 'CF-Connecting-IP': `8.10.${i}.1` } }), env)),
+    );
+    const n = zaehle();
+    githubWirft = false;
+    const danach = await worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64'), env);
+    check('P15 Fix 6: GitHub wirft bei 10 gleichzeitigen Anfragen → 10 × 502 mit 1 Abruf; nach der Erholung 200',
+      res.every((r) => r.status === 502) && n === 1 && danach.status === 200);
+    if (!res.every((r) => r.status === 502) || n !== 1) console.log(`     ${res.map((r) => r.status).join(' ')} / Abrufe ${n}`);
+    const direkt = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        selbstUpdateLiefern(req('/tools/launcher/latest'), { ...ENV, REPO: 'test/hole-wirft' }, {
+          jetzt, zugang: { ok: false, status: 401, error: 'x', code: 'nicht-angemeldet' }, platform: 'win', arch: 'x64',
+          hole: async () => { await new Promise((r) => setTimeout(r, 5)); throw new Error('boom'); },
+        }).then((r) => r.status, () => 'Ausnahme'),
+      ),
+    );
+    check('P15 Fix 6: wirft hole() selbst, bekommen alle Wartenden 502 (keine Ausnahme)', direkt.every((s) => s === 502));
+    if (!direkt.every((s) => s === 502)) console.log(`     ${direkt.join(' ')}`);
   }
 
   // ── Ende der Fälle ──

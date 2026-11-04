@@ -107,12 +107,17 @@ export async function selbstUpdateLiefern(request, env, { jetzt, zugang, platfor
   if (!eintrag || eintrag.bis <= jetzt) {
     let laufend = selbstUpdateLaufend.get(schluessel);
     if (!laufend) {
-      // Gleich synchron eintragen (vor dem ersten await), sonst laufen gleichzeitige Anfragen alle an der Map vorbei.
-      laufend = selbstUpdateHolen(request, env, jetzt, hole, schluessel).finally(() => selbstUpdateLaufend.delete(schluessel));
+      // Nur wer eine Abfrage starten würde, prüft die Drossel seiner eigenen IP; ein 429 gilt nur für ihn.
+      const rl = await selbstUpdateDrossel(request, env, jetzt);
+      if (!rl.ok) return jsonAntwort({ error: 'zu viele Anfragen', code: 'zu-viele' }, 429, { 'Retry-After': String(rl.retryAfter) });
+      laufend = selbstUpdateLaufend.get(schluessel); // nach dem await neu nachsehen: kein zweiter Abruf
+    }
+    if (!laufend) {
+      // Zwischen get und set steht kein await: genau einer startet. Mitläufer werden weder gedrosselt noch gezählt.
+      laufend = selbstUpdateHolen(jetzt, hole, schluessel).finally(() => selbstUpdateLaufend.delete(schluessel));
       selbstUpdateLaufend.set(schluessel, laufend);
     }
     const erg = await laufend;
-    if (erg.art === 'drossel') return jsonAntwort({ error: 'zu viele Anfragen', code: 'zu-viele' }, 429, { 'Retry-After': String(erg.retryAfter) });
     if (erg.art === 'fehler') return new Response(erg.text, { status: erg.status, headers: { 'content-type': erg.typ, ...KEIN_CACHE } });
     eintrag = erg.eintrag;
   }
@@ -121,12 +126,17 @@ export async function selbstUpdateLiefern(request, env, { jetzt, zugang, platfor
   return new Response(eintrag.text, { status: eintrag.status, headers: { 'content-type': 'application/json; charset=utf-8', ...KEIN_CACHE } });
 }
 
-/** Eine Abfrage für alle, die gleichzeitig kommen: Drossel (einmal), Abruf bei GitHub, Eintrag im Speicher. */
-async function selbstUpdateHolen(request, env, jetzt, hole, schluessel) {
-  const rl = await selbstUpdateDrossel(request, env, jetzt);
-  if (!rl.ok) return { art: 'drossel', retryAfter: rl.retryAfter };
-  const res = await hole();
-  const text = await res.text();
+/** Eine Abfrage für alle, die gleichzeitig kommen: Abruf bei GitHub und Eintrag im Speicher (ohne Drossel, die prüft jeder selbst). */
+async function selbstUpdateHolen(jetzt, hole, schluessel) {
+  let res;
+  let text;
+  try {
+    res = await hole();
+    text = await res.text();
+  } catch (e) {
+    console.warn(`konto: Selbst-Update nicht abrufbar (${fehlerName(e)})`);
+    return { art: 'fehler', status: 502, text: JSON.stringify({ error: 'Abruf fehlgeschlagen' }), typ: 'application/json; charset=utf-8' };
+  }
   // Nur feste Antworten merken; ein Fehler von GitHub (502) geht ungemerkt durch und wird beim nächsten Mal neu geholt.
   if (res.status !== 200 && res.status !== 404) {
     return { art: 'fehler', status: res.status, text, typ: res.headers.get('content-type') || 'application/json; charset=utf-8' };
