@@ -31,6 +31,12 @@ export function AdminIveo({ daten }: { daten: AdminUebersicht }): React.JSX.Elem
   const [busy, setBusy] = useState(false);
   const zeile = zeilen.find((z) => z.key === auswahl) ?? null;
 
+  // EP13: Events und Auswahl gehoeren zu genau einer Basis und einem Token — wer eines aendert, laedt neu.
+  const aenderung = (setze: (v: string) => void, wert: string): void => {
+    setze(wert);
+    setEvents([]);
+    setGewaehlt([]);
+  };
   const eventsLaden = async (): Promise<void> => {
     if (!token.trim()) {
       setMeldung(REITER_TEXTE.tokenFehlt);
@@ -41,7 +47,11 @@ export function AdminIveo({ daten }: { daten: AdminUebersicht }): React.JSX.Elem
     try {
       const r = await laden({ basis: basis.trim() || standard, token: token.trim() });
       if (r.ok) setEvents(r.events);
-      else setMeldung(r.fehler);
+      else {
+        setEvents([]);
+        setGewaehlt([]);
+        setMeldung(r.fehler);
+      }
     } finally {
       setBusy(false);
     }
@@ -163,11 +173,11 @@ export function AdminIveo({ daten }: { daten: AdminUebersicht }): React.JSX.Elem
         <div className="flex flex-col gap-2">
           <label className="flex flex-col gap-1 text-[11px] text-[var(--muted-foreground)]">
             {REITER_TEXTE.feldBasis}
-            <input className={feldCls} value={basis} placeholder={standard} onChange={(e) => setBasis(e.target.value)} />
+            <input className={feldCls} value={basis} placeholder={standard} onChange={(e) => aenderung(setBasis, e.target.value)} />
           </label>
           <label className="flex flex-col gap-1 text-[11px] text-[var(--muted-foreground)]">
             {REITER_TEXTE.feldToken}
-            <input type="password" autoComplete="off" className={feldCls} value={token} onChange={(e) => setToken(e.target.value)} />
+            <input type="password" autoComplete="off" className={feldCls} value={token} onChange={(e) => aenderung(setToken, e.target.value)} />
           </label>
           <p className="text-[11px] text-[var(--muted-foreground)]">{REITER_TEXTE.tokenHinweis}</p>
           <div className="flex justify-end">

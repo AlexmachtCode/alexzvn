@@ -3479,7 +3479,11 @@ function dialogBefunde(q: string): string[] {
   ck('P27 6.4, M32: Token nur im Passwortfeld ohne Autovervollständigen, nach dem Hinterlegen sofort leer, kein direkter IPC-Aufruf',
     iveo.includes('<input type="password" autoComplete="off" className={feldCls} value={token}')
     && funktionsKoerper(iveo, 'const hinterlegen = async (): Promise<void> => {').includes("      if (r.ok) {\n        // M32: nach dem Hinterlegen nie wieder angezeigt — das Feld ist sofort leer.\n        setToken('');")
-    && !iveo.includes('window.jmps') && iveo.includes('const a = iveoHinterlegen({ basis, token, gewaehlt, events }, standard);'));
+    && !iveo.includes('window.jmps') && iveo.includes('const a = iveoHinterlegen({ basis, token, gewaehlt, events }, standard);')
+    // EP13 (Fixrunde 1): Basis oder Token geaendert, oder Laden gescheitert → geladene Events und Auswahl verworfen.
+    && iveo.includes('onChange={(e) => aenderung(setBasis, e.target.value)}') && iveo.includes('onChange={(e) => aenderung(setToken, e.target.value)}')
+    && funktionsKoerper(iveo, 'const aenderung = (setze: (v: string) => void, wert: string): void => {').includes('    setEvents([]);\n    setGewaehlt([]);')
+    && funktionsKoerper(iveo, 'const eventsLaden = async (): Promise<void> => {').includes('        setEvents([]);\n        setGewaehlt([]);\n        setMeldung(r.fehler);'));
   ck('P27 6.4, M34: Entfernen nur nach der Rückfrage M34',
     iveo.includes('<p>{REITER_TEXTE.frageEntfernen}</p>') && iveo.includes("const r = await aktion({ aktion: 'iveo-entfernen', key });")
     && iveo.includes('onClick={() => void entfernen(zeile.key)}') && !iveo.includes('onClick={() => void entfernen(z.key)}'));
@@ -3494,7 +3498,9 @@ function dialogBefunde(q: string): string[] {
     geraete.includes("const r = await aktion({ aktion: 'geraet-markieren', gid, jm });") && geraete.includes('{altKeyText(daten)}')
     && geraete.includes('{REITER_TEXTE.connect}') && geraete.includes('{alteLauncherZeilen(daten).map((z) => ('));
   ck('P27 G11: die Reiter bringen keinen eigenen Scrollbereich mit (einer je Dialog, in der Maske)',
-    [iveo, anfragen, geraete].every((q) => q.length > 0 && !q.includes('overflow-y-auto')));
+    [iveo, anfragen, geraete].every((q) => q.length > 0 && !q.includes('overflow-y-auto'))
+    // Fixrunde 1: kein Browser-Speicher in den Reitern (Token und Anfragen nur im Zustand).
+    && [iveo, anfragen, geraete].every((q) => !/localStorage|sessionStorage/.test(q)));
 }
 
 // --- Anmeldung P28 (Spec 3, 6.4; EP12, EP13, EP14; OFP3): Einstellungen und Show-Editor ohne Token-Felder, „Abgleich hier“ ----
