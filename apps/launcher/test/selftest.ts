@@ -3270,7 +3270,7 @@ await (async () => {
     && kernBau.includes('      tokenGrund: (event, baseUrl) => tokenGrund(event, baseUrl),'));
   const leser = [...ohneKommentare(sync).matchAll(/getIveoToken\(([^)]*)\)/g)].map((m) => m[1]);
   ck(`P23 N7: alle Leser in iveo-sync.ts fragen mit Basis-URL (${leser.length} Aufrufe: ${leser.join(' | ')})`,
-    leser.length === 5 && leser.every((a) => a.includes(',')));
+    leser.length === 5 && leser.every((a) => ['baseUrl', 'offeneBaseUrl(', 'basis'].includes(a.split(',')[1]?.trim() ?? '')));
   const naht = funktionsKoerper(einst, 'export function iveoTokenMitGrund(');
   ck('P23 EP13, IV1: getIveoToken liest über die eine Naht zuerst den Speicher der Anmeldung (tokenFuer mit Lage, Abgleich hier, lokal, Env)',
     funktionsKoerper(einst, 'export function getIveoToken(eventKey: string, basis?: string): string | undefined {').includes('  return iveoTokenMitGrund(eventKey, basis).token;')
@@ -3278,6 +3278,7 @@ await (async () => {
     && naht.includes('    lokal: (s) => lokalesIveoToken(s),') && naht.includes("    env: process.env['JMPS_IVEO_TOKEN'] || undefined,"));
   ck('P23 EP13: getIveoBaseToken und hasIveoBaseToken lesen zuerst den Speicher (ein Event derselben Basis), dann lokal',
     funktionsKoerper(einst, 'export function getIveoBaseToken(baseUrl?: string): string | undefined {').includes('.erlaubteEvents().find((x) => x.key.startsWith(`${basis}|`));')
+    && funktionsKoerper(einst, 'export function getIveoBaseToken(baseUrl?: string): string | undefined {').includes('iveoTokenMitGrund(e.slug, basis, [e.key]).token')
     && funktionsKoerper(einst, 'export function hasIveoBaseToken(baseUrl?: string): boolean {').includes('  return Boolean(getIveoBaseToken(baseUrl));'));
   const binden = funktionsKoerper(sync, 'export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResult> {');
   ck('P23 G6, IV4: Binden nimmt das Token aus dem Speicher, schreibt kein Token (kein setIveoToken/setIveoBaseToken in iveo-sync.ts) und setzt „Abgleich hier“',
@@ -3289,14 +3290,27 @@ await (async () => {
     && typen.includes('  iveoAbgleichHier: (a: { key: string; an: boolean }) => Promise<{ ok: boolean }>;'));
   const hier = funktionsKoerper(sync, 'export function setzeAbgleichHier(input: unknown): { ok: boolean } {');
   ck('P23 EP14, OFP3: „Abgleich hier übernehmen“ nur mit Token für genau dieses Event; danach setzt der Kern neu auf (kein Geheimnis gespeichert)',
-    hier.includes('  if (e.an && iveoTokenZumBinden(slug, basis) === undefined) return { ok: false };')
+    // Fixrunde 1: das Tor fragt wie der Kern nach dem Setzen der Markierung (Speicher/lokal für genau dieses Event), ohne C4-Rückfall
+    hier.includes('  if (e.an && iveoTokenMitGrund(slug, basis, [key]).token === undefined) return { ok: false };') && !hier.includes('iveoTokenZumBinden')
+    && funktionsKoerper(sync, 'function abgleichStand(): IveoSideEventsResult[\'abgleich\'] {').includes('    moeglich: iveoTokenMitGrund(openShowIveo.slug, openShowIveo.baseUrl, [key]).token !== undefined,')
     && hier.indexOf('  setzeIveoAbgleichHier(key, e.an);') < hier.indexOf('  tokensAktualisiert();') && hier.indexOf('  tokensAktualisiert();') > 0);
   const lade = funktionsKoerper(huelle, 'async function ladeIveo(): Promise<void> {');
+  const abmeldenBlock = /nachAbmelden: \(\) => \{\n((?: {6}[^\n]*\n)+) {4}\},\n/.exec(huelle)?.[1] ?? '';
+  const anmeldeBlock = /nachAnmeldung: \(s\) => \{\n((?:(?: {6}[^\n]*)?\n)+?) {4}\},\n/.exec(huelle)?.[1] ?? '';
   ck('P23 EP13, IV3: Tokens laden nach Anmeldung, Start-Prüfung und jeder Lage; danach tokensAktualisiert; Abmelden leert und meldet',
     lade.includes('    iveo.setze(r.events, Date.now(), r.hinweis);') && lade.endsWith('  tokensAktualisiert();\n}')
     // AR60: ein Lauf gleichzeitig, späte Antwort nach dem Abmelden verwerfen
-    && lade.includes('  if (iveoLaedt) return;') && lade.includes('    if (lauf !== iveoLauf) return;')
-    && /nachAbmelden: \(\) => \{[\s\S]*?iveoLauf\+\+/.test(huelle)
+    && lade.indexOf('  if (iveoLaedt) return;') > 0 && lade.indexOf('  if (iveoLaedt) return;') < lade.indexOf('  iveoLaedt = true;')
+    && lade.indexOf('    if (lauf !== iveoLauf)') > 0 && lade.indexOf('    if (lauf !== iveoLauf)') < lade.indexOf('    iveo.setze(')
+    && lade.includes('      if (kontoToken()) void ladeIveo();') // Fixrunde 1: schneller Wechsel — das neue Konto lädt sofort
+    && lade.indexOf('    iveoLaedt = false;') > 0 && lade.indexOf('    iveoLaedt = false;') < lade.indexOf('    if (lauf !== iveoLauf)')
+    && abmeldenBlock.startsWith('      iveo.leere();\n      iveoGeladen = false;\n      tokensAktualisiert();\n') && abmeldenBlock.includes('      iveoLauf++;\n')
+    // Fixrunde 1: anderes Konto ohne Abmelden leert die Tokens des vorigen (kid vor dem await gemerkt, nach setze gesetzt)
+    && lade.indexOf('  const kid = kontoAnsichtJetzt().stand?.kid ?? null;') > lade.indexOf('  const lauf = iveoLauf;')
+    && lade.indexOf('  const kid = kontoAnsichtJetzt().stand?.kid ?? null;') < lade.indexOf('await client.iveoTokens(t)')
+    && lade.indexOf('    iveoKid = kid;') > lade.indexOf('    iveo.setze(')
+    && anmeldeBlock.includes('      if (iveoKid !== null && iveoKid !== s.stand.kid) {\n        iveo.leere();\n        iveoGeladen = false;\n        iveoLauf++;\n        iveoKid = null;\n        tokensAktualisiert();\n      }\n')
+    && anmeldeBlock.indexOf('iveoKid !== s.stand.kid') < anmeldeBlock.indexOf('      void kontoLage(false);')
     && funktionsKoerper(huelle, 'async function kontoLage(fokus: boolean): Promise<void> {').includes('  await ladeIveo();')
     && /nachAbmelden: \(\) => \{\n {6}iveo\.leere\(\);\n {6}iveoGeladen = false;\n {6}tokensAktualisiert\(\);/.test(huelle)
     && huelle.includes('  verbindeIveoZentral({ speicher: iveo, lage: () => ({ angemeldet: kontoSitzungMoeglich(), geladen: iveoGeladen }) });'));
@@ -3315,6 +3329,7 @@ await (async () => {
     && kernQ.includes("    if (!a) return { ok: false, message: 'Live-Umschalten nur auf dem Rechner, der die offene Show mit iveo abgleicht.' };")
     && sync.includes("  if (!a) return { ok: false, error: 'Anhänge lädt nur der Rechner, der die offene Show mit iveo abgleicht.' };")
     && sync.includes("  if (!a) return { ok: false, message: 'Anhänge lädt nur der Rechner, der die offene Show mit iveo abgleicht.' };")
+    && sync.split('Anmeldung P23 (I15)').length === 2 // Fixrunde 1: der Kommentar steht nur beim Auflisten, nicht doppelt
     && !sync.includes('Keine iveo-Show mit Token geöffnet.') && !kernQ.includes('Kein iveo-Token für die offene Show — '));
 }
 

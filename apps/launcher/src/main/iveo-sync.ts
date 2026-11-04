@@ -570,7 +570,7 @@ function abgleichStand(): IveoSideEventsResult['abgleich'] {
   return {
     key,
     hier: leseIveoAbgleichHier().includes(key),
-    moeglich: iveoTokenZumBinden(openShowIveo.slug, openShowIveo.baseUrl) !== undefined,
+    moeglich: iveoTokenMitGrund(openShowIveo.slug, openShowIveo.baseUrl, [key]).token !== undefined,
   };
 }
 
@@ -593,7 +593,7 @@ export function setzeAbgleichHier(input: unknown): { ok: boolean } {
     return { ok: false };
   }
   if (key !== e.key) return { ok: false };
-  if (e.an && iveoTokenZumBinden(slug, basis) === undefined) return { ok: false };
+  if (e.an && iveoTokenMitGrund(slug, basis, [key]).token === undefined) return { ok: false }; // wie der Kern, ohne C4-Rückfall
   setzeIveoAbgleichHier(key, e.an);
   tokensAktualisiert();
   return { ok: true };
@@ -983,7 +983,6 @@ const ANHANG_LEERLAUF_MS = 60_000;
  */
 export async function downloadSideEventMaterial(input: IveoDownloadInput): Promise<ActionResult> {
   const a = kern().aktiv();
-  // Anmeldung P23 (I15): ohne aktive Show gleicht ein anderer Rechner ab (oder keiner); das Token kann im Speicher liegen.
   if (!a) return { ok: false, message: 'Anhänge lädt nur der Rechner, der die offene Show mit iveo abgleicht.' };
   // Token und Basis-URL gehören zusammen: beide jetzt, einmal. Der Dialog ist nicht modal; öffnet der Bediener währenddessen
   // eine andere Show, darf das Token dieses Events nie an die Herkunft der anderen gehen (wie im Ordner, der beide im selben Moment bildet).

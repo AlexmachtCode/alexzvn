@@ -114,6 +114,8 @@ let iveoGeladen = false;
 let iveoLauf = 0;
 /** AR60: ein Ladelauf ist unterwegs (zwei Läufe gleichzeitig würden sich verschränken). */
 let iveoLaedt = false;
+/** Fixrunde 1: Konto (kid), dessen Tokens im Speicher liegen; ein anderes Konto ohne Abmelden leert sie. */
+let iveoKid: string | null = null;
 
 /** Haken nach der ersten Anmeldung auf diesem Rechner (P32 hängt das Löschen der Altlasten an, N5, OFP1). */
 export const beiErsterAnmeldung: Array<() => void> = [];
@@ -209,6 +211,14 @@ async function starte(o: { log: Logger; appDataDir: string }, c: KontoClient): P
         }
       }
       emit({ type: 'notice', message: textAngemeldet(s.stand) });
+      // Fixrunde 1: anderes Konto ohne Abmelden (z. B. nach einem Entzug) → die Tokens des vorigen Kontos nicht behalten
+      if (iveoKid !== null && iveoKid !== s.stand.kid) {
+        iveo.leere();
+        iveoGeladen = false;
+        iveoLauf++;
+        iveoKid = null;
+        tokensAktualisiert();
+      }
       void kontoLage(false);
     },
     nachStartPruefung: () => {
@@ -319,13 +329,19 @@ async function ladeIveo(): Promise<void> {
   if (iveoLaedt) return; // ein Lauf ist schon unterwegs; worker-client bricht nach seiner Zeitgrenze ab, die Sperre hängt nie
   iveoLaedt = true;
   const lauf = iveoLauf;
+  const kid = kontoAnsichtJetzt().stand?.kid ?? null;
   try {
     // EP31: der Hinweis des Workers (iveo dort nicht eingerichtet) geht mit in den Speicher; die Statuszeile nennt dann I12.
     const r = await client.iveoTokens(t);
     iveoLaedt = false;
-    if (lauf !== iveoLauf) return; // späte Antwort nach dem Abmelden verwerfen
+    if (lauf !== iveoLauf) {
+      // späte Antwort nach dem Abmelden verwerfen; ist schon ein neues Konto da, dessen Tokens gleich laden (Sperre ist frei)
+      if (kontoToken()) void ladeIveo();
+      return;
+    }
     iveo.setze(r.events, Date.now(), r.hinweis);
     iveoGeladen = true;
+    iveoKid = kid;
   } catch (e) {
     iveoLaedt = false;
     log?.warn(`Anmeldung: iveo-Tokens nicht geladen (${fehlerCode(e)})`);
