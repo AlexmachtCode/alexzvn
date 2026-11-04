@@ -3704,6 +3704,38 @@ function dialogBefunde(q: string): string[] {
     rezept !== '' && falsch.length === 0);
 }
 
+// --- Anmeldung P35 (Spec 4.2, 14; OFP5; G7): die Abnahme-Datei deckt jeden Kopfzustand und jede verlangte Lage ab -----------
+// Geprüft wird nur, was die Datei abdecken muss, nie ihre Ergebnis-Spalten (Muster P17 der Anleitungen). Die festen Texte des
+// Kopfs stehen wörtlich in „ “ und wörtlich in lib/konto-anzeige.ts; die Vorlagen K2–K4 mit ‹Kurzname›.
+{
+  let abnahme = '';
+  try { abnahme = quelleLf('../ABNAHME-anmeldung.md'); } catch { console.log('      apps/launcher/ABNAHME-anmeldung.md fehlt'); }
+  const anzeige = quelleLf('../src/renderer/src/lib/konto-anzeige.ts');
+  const FEST: Array<[string, string]> = [['K1', 'Anmelden'], ['K6', 'Anmeldung abgelaufen'], ['K7', 'Zugang entzogen'], ['K8', 'Anmelden nicht möglich']];
+  const VORLAGEN: Array<[string, string]> = [['K2/K5', '‹Kurzname› · Admin'], ['K2/K5', '‹Kurzname› · Kollege'], ['K2/K5', '‹Kurzname› · Externer'],
+    ['K3', '‹Kurzname› · offline'], ['K4', '‹Kurzname› · Zugang entzogen']];
+  const kopfFehlt = [...FEST.filter(([, t]) => !abnahme.includes(`„${t}“`) || !anzeige.includes(`'${t}'`)), ...VORLAGEN.filter(([, t]) => !abnahme.includes(`„${t}“`))]
+    .map(([n, t]) => `${n} „${t}“`);
+  ck(`P35 Abnahme 4.2, OFP5: jeder Kopfzustand K1–K8 steht wörtlich in „ “, dazu OFP5 bei 980 × 640${kopfFehlt.length ? ` — fehlt: ${kopfFehlt.join(', ')}` : ''}`,
+    abnahme !== '' && kopfFehlt.length === 0 && abnahme.includes('OFP5') && abnahme.includes('980 × 640'));
+  // Lagen der Gliederung (Task 35): je Lage ein Stichwort, das nur der passende Schritt bzw. die Zusatzprüfung enthält.
+  const LAGEN: Array<[string, string]> = [
+    ['erster Admin per Google', '`ERSTER_ADMIN`'], ['Kollege per Google', '„‹Kurzname› · Kollege“'], ['Externen einladen', '„+ Externen einladen“'],
+    ['Code und Passwort', '„Passwort setzen und anmelden“'], ['Code vergleichen, Nein', '„Nein, abbrechen“'], ['weitergeleiteter Link', 'Weitergeleiteter Link'],
+    ['offline starten', '„Offline. Anmeldung gültig bis ‹Datum›.“'], ['Server nicht erreichbar', '„Server nicht erreichbar. Anmeldung gültig bis ‹Datum›.“'],
+    ['Entzug während einer Show', '„Zugang entzogen. Diese Sitzung läuft bis zum Neustart des Launchers weiter.“'],
+    ['Q&A extern ohne Launcher und Neustart', 'Q&A extern ohne Launcher'], ['iveo zentral', 'iveo zentral'], ['Abgleich hier', '„Abgleich hier übernehmen“'],
+    ['Zoom anfragen und freigeben', '„Zoom freigegeben bis ‹Datum›.“'],
+    ['alter Launcher vor ALTKEY_BIS', '„Alter Schlüssel ohne Enddatum angenommen.“'], ['alter Launcher nach ALTKEY_BIS', '**Nach `ALTKEY_BIS`'],
+    ['Connect 0.3.0 mit altem Schlüssel', 'Connect 0.3.0'], ['Mac: Geräteschlüssel nach Update', 'safeStorage auf dem unsignierten Mac'],
+  ];
+  const lageFehlt = LAGEN.filter(([, s]) => !abnahme.includes(s)).map(([n]) => n);
+  ck(`P35 Abnahme: jede Lage aus der Gliederung hat einen Schritt oder eine Zusatzprüfung (${LAGEN.length} Lagen)${lageFehlt.length ? ` — fehlt: ${lageFehlt.join(', ')}` : ''}`,
+    abnahme !== '' && lageFehlt.length === 0);
+  const ohneCode = abnahme.replace(/`[^`\n]*`/g, '');
+  ck('P35 G2: die Abnahme-Datei ohne ASCII-Anführungszeichen außerhalb von Code', abnahme !== '' && !ohneCode.includes('"'));
+}
+
 // ── Ende der Fälle (Anmeldung) ──
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
