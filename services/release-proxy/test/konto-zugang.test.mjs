@@ -431,6 +431,47 @@ async function run() {
     if (!direkt.every((s) => s === 502)) console.log(`     ${direkt.join(' ')}`);
   }
 
+  // P15 Fix 7 (Review 3): Eine laufende Abfrage hat eine Frist (15 s). Hängt hole() für immer (workerd bricht die Aufgaben eines
+  // getrennten Clients ab), bekommt eine Anfrage 61 s später (gefälschte Uhr), bei gesundem GitHub, trotzdem 200.
+  {
+    const gut = () => new Response('{"version":"0.18.0"}', { status: 200 });
+    const lauf = (e, jetztMs, hole, ctx) =>
+      selbstUpdateLiefern(req('/tools/launcher/latest'), e, { jetzt: jetztMs, zugang: { ok: false, status: 401, error: 'x', code: 'nicht-angemeldet' }, platform: 'win', arch: 'x64', hole, ctx });
+    const e1 = { ...ENV, REPO: 'test/haenger' };
+    void lauf(e1, T0, () => new Promise(() => {})); // der Starter, dessen hole() nie fertig wird
+    // Wer an der hängenden Abfrage klebt, würde nie fertig: der Wettlauf mit einem Zeitgeber macht das als Fehler sichtbar.
+    const spaet = await Promise.race([lauf(e1, T0 + 61_000, async () => gut()), new Promise((r) => setTimeout(() => r({ status: 'haengt' }), 500))]);
+    check('P15 Fix 7a: hängt hole() für immer, antwortet eine Anfrage 61 s später (gesundes GitHub) mit 200', spaet.status === 200);
+
+    // (b) Der Starter hängt seine Abfrage an ctx.waitUntil; wer beitritt, nicht.
+    const e2 = { ...ENV, REPO: 'test/waituntil' };
+    const gemerkt = [];
+    const ctx = { waitUntil: (p) => gemerkt.push(p) };
+    const hole2 = async () => (await new Promise((r) => setTimeout(r, 5)), gut());
+    const [r1, r2] = await Promise.all([lauf(e2, T0, hole2, ctx), lauf(e2, T0, hole2, ctx)]);
+    const erg = gemerkt.length === 1 ? await gemerkt[0] : null;
+    check('P15 Fix 7b: der Starter ruft ctx.waitUntil genau einmal mit der geteilten Abfrage auf (Beitretende nicht)',
+      r1.status === 200 && r2.status === 200 && gemerkt.length === 1 && !!erg && erg.art === 'eintrag');
+
+    // (c) Ein alter, endlich fertig werdender Abruf löscht keinen neueren Eintrag: C tritt B bei (2 Abrufe, nicht 3).
+    const e3 = { ...ENV, REPO: 'test/alt-neu' };
+    let aufrufe = 0;
+    const tore = [];
+    const holeTor = () => new Promise((r) => (aufrufe++, tore.push(() => r(new Response('{}', { status: 502 })))));
+    const pa = lauf(e3, T0, holeTor); // A
+    const pb = lauf(e3, T0 + 16_000, holeTor); // B: A ist zu alt, B startet neu
+    await new Promise((r) => setTimeout(r, 5));
+    tore[0](); // A endet jetzt (finally)
+    await pa;
+    const pc = lauf(e3, T0 + 16_500, holeTor); // C: muss B beitreten
+    await new Promise((r) => setTimeout(r, 5));
+    const abrufeC = aufrufe;
+    tore.forEach((fn) => fn());
+    await Promise.all([pb, pc]);
+    check('P15 Fix 7c: ein alter Abruf löscht keinen neueren Eintrag (A, B, C → 2 Abrufe, C tritt B bei)', abrufeC === 2);
+    if (abrufeC !== 2) console.log(`     Abrufe ${abrufeC}`);
+  }
+
   // ── Ende der Fälle ──
 
   // P15 G4: Kein Geheimnis in der Konsole (läuft als letzter Fall über das ganze Protokoll).

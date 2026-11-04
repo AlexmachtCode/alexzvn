@@ -314,7 +314,7 @@ export default {
 
     // EP32: das Selbst-Update über Zwischenspeicher, Drossel und Versionsgrenze (konto-zugang.js); geholt wird wie für jedes Tool.
     if (selbstUpdate) {
-      return selbstUpdateLiefern(request, env, { jetzt, zugang, platform, arch, hole: () => neuestesRelease(env, app, prefix, platform, arch) });
+      return selbstUpdateLiefern(request, env, { jetzt, zugang, platform, arch, ctx, hole: () => neuestesRelease(env, app, prefix, platform, arch) });
     }
     return neuestesRelease(env, app, prefix, platform, arch);
   },

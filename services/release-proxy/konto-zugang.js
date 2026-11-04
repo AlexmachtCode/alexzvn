@@ -93,6 +93,8 @@ export const SELBST_UPDATE = Object.freeze({ speicherMs: 60_000, rlMax: 30, rlWi
 const selbstUpdateSpeicher = new Map();
 // Laufende Abfragen je Schlüssel: wer gleichzeitig kommt, wartet auf dieselbe Abfrage (ohne eigene Drossel, ohne eigenen Abruf).
 const selbstUpdateLaufend = new Map();
+// Eine laufende Abfrage gilt so lange als beitrittsfähig (ms); danach startet die nächste Anfrage neu.
+const LAUFEND_MS = 15_000;
 const KEIN_CACHE = { 'cache-control': 'no-store' };
 
 /**
@@ -101,23 +103,36 @@ const KEIN_CACHE = { 'cache-control': 'no-store' };
  * in der Drossel je IP. Ohne Zugang (`zugang` aus dem Gate) gilt nur eine Antwort mit einer Version ab SELBST_UPDATE_OFFEN_AB,
  * sonst die Ablehnung des Gates (401 S1 bzw. S4).
  */
-export async function selbstUpdateLiefern(request, env, { jetzt, zugang, platform, arch, hole }) {
+export async function selbstUpdateLiefern(request, env, { jetzt, zugang, platform, arch, hole, ctx }) {
   const schluessel = `${env.REPO}|${platform}|${arch}`;
   let eintrag = selbstUpdateSpeicher.get(schluessel);
   if (!eintrag || eintrag.bis <= jetzt) {
-    let laufend = selbstUpdateLaufend.get(schluessel);
+    // Beitreten darf nur, wer eine Abfrage sieht, die jünger als LAUFEND_MS ist: Hängt hole() (etwa weil workerd die Aufgaben eines
+    // getrennten Clients abbricht), wartet niemand länger; die nächste Anfrage startet neu.
+    const aktuell = () => {
+      const l = selbstUpdateLaufend.get(schluessel);
+      return l && jetzt - l.seit < LAUFEND_MS ? l : null;
+    };
+    let laufend = aktuell();
     if (!laufend) {
       // Nur wer eine Abfrage starten würde, prüft die Drossel seiner eigenen IP; ein 429 gilt nur für ihn.
       const rl = await selbstUpdateDrossel(request, env, jetzt);
       if (!rl.ok) return jsonAntwort({ error: 'zu viele Anfragen', code: 'zu-viele' }, 429, { 'Retry-After': String(rl.retryAfter) });
-      laufend = selbstUpdateLaufend.get(schluessel); // nach dem await neu nachsehen: kein zweiter Abruf
+      laufend = aktuell(); // nach dem await neu nachsehen: kein zweiter Abruf
     }
     if (!laufend) {
       // Zwischen get und set steht kein await: genau einer startet. Mitläufer werden weder gedrosselt noch gezählt.
-      laufend = selbstUpdateHolen(jetzt, hole, schluessel).finally(() => selbstUpdateLaufend.delete(schluessel));
-      selbstUpdateLaufend.set(schluessel, laufend);
+      const neu = { seit: jetzt, p: null };
+      neu.p = selbstUpdateHolen(jetzt, hole, schluessel).finally(() => {
+        // Nur den eigenen Eintrag löschen: ein älterer, hängender Abruf darf einen neueren nicht entfernen.
+        if (selbstUpdateLaufend.get(schluessel) === neu) selbstUpdateLaufend.delete(schluessel);
+      });
+      selbstUpdateLaufend.set(schluessel, neu);
+      // Der Starter läuft auch weiter, wenn sein Client die Verbindung trennt (workerd bricht sonst die Aufgaben ab).
+      if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(neu.p);
+      laufend = neu;
     }
-    const erg = await laufend;
+    const erg = await laufend.p;
     if (erg.art === 'fehler') return new Response(erg.text, { status: erg.status, headers: { 'content-type': erg.typ, ...KEIN_CACHE } });
     eintrag = erg.eintrag;
   }
@@ -135,7 +150,7 @@ async function selbstUpdateHolen(jetzt, hole, schluessel) {
     text = await res.text();
   } catch (e) {
     console.warn(`konto: Selbst-Update nicht abrufbar (${fehlerName(e)})`);
-    return { art: 'fehler', status: 502, text: JSON.stringify({ error: 'Abruf fehlgeschlagen' }), typ: 'application/json; charset=utf-8' };
+    return { art: 'fehler', status: 502, text: JSON.stringify({ error: 'interner Fehler', code: 'server' }), typ: 'application/json; charset=utf-8' };
   }
   // Nur feste Antworten merken; ein Fehler von GitHub (502) geht ungemerkt durch und wird beim nächsten Mal neu geholt.
   if (res.status !== 200 && res.status !== 404) {
