@@ -37,6 +37,8 @@ import { keinPaketFehler, waehleRelease } from './paketwahl.js';
 // Anmeldung im Launcher (Plan Teil 1, P15): Zugang zu den Tool-Routen (Sitzung, Freigabe, alter Schlüssel mit Frist).
 import { funktionFuerRoute } from './konto-kern.js';
 import { kontoJetzt, launcherSelbstUpdate, selbstUpdateLiefern, zugangPruefen } from './konto-zugang.js';
+// Anmeldung im Launcher (Plan Teil 1, P16): Launcher-API, Anmeldeseite und Google-Anmeldung unter /konto/.
+import { handleKonto } from './konto-relay.js';
 
 // Durable-Object-Klassen müssen aus dem Worker-Haupt-Modul re-exportiert werden.
 export { ConnectRoom };
@@ -155,6 +157,11 @@ export default {
     // Schlüssel ZOOM_SDK_KEY. Der Proxy-Key scheidet dafür aus, er steckt in öffentlichen Installern.
     const zoomSdk = url.pathname.match(/^\/zoom-sdk\/([^/]*)\/?$/);
     if (zoomSdk) return handleZoomSdk(request, env, zoomSdk[1]);
+
+    // Anmeldung im Launcher (Plan Teil 1, P16): Launcher-API, Anmeldeseite und Google-Anmeldung unter /konto/. Jede Route
+    // prüft selbst (Sitzung, Abholgeheimnis, Seitentoken); `null` = kein Konto-Pfad → normal weiter.
+    const konto = await handleKonto(request, env, url, ctx);
+    if (konto) return konto;
 
     // Selbst-Update des Launchers (Spec 9.1): ohne Anmeldung, nur die ID launcher.
     // EP10, EP32: Ein Release ab 0.18.0 bekommt jeder Launcher, auch ohne Zugang und nach ALTKEY_BIS (die reparierende Version);
