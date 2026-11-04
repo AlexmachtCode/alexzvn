@@ -489,6 +489,158 @@ async function run() {
       soll(a, 404, 'ungueltig') && soll(b, 404, 'ungueltig') && soll(c, 404, 'ungueltig') && soll(d, 401, 'nicht-angemeldet'));
   }
 
+  // ── P17: Anmeldeseite im Browser (Spec 4.1 Schritte 2–4; Texte B1–B17, B21–B23) ──
+  {
+    const { SEITEN_TEXT, esc } = await import('../konto-seiten.js');
+    const seiten = [];
+    const merke = async (res) => {
+      const a = { status: res.status, kopf: res.headers, html: await res.text() };
+      seiten.push(a);
+      return a;
+    };
+    const hole = async (env, pfad, ip = '7.7.7.7') =>
+      merke(await worker.fetch(new Request('https://proxy.test' + pfad, { headers: { 'CF-Connecting-IP': ip } }), env, makeWaitCtx()));
+    const sende = async (env, pfad, felder, ip = '7.7.7.7') =>
+      merke(await worker.fetch(new Request('https://proxy.test' + pfad, {
+        method: 'POST',
+        headers: { 'CF-Connecting-IP': ip, 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(felder).toString(),
+      }), env, makeWaitCtx()));
+    const versteckt = (html, name) => (html.match(new RegExp(`name="${name}" value="([^"]*)"`)) || [])[1];
+    const zeigt = (a, ...texte) => texte.every((t) => a.html.includes(esc(t)));
+    const vorgang = async (env, geraet) => {
+      const v = await api(env, 'POST', '/konto/vorgang', { body: { geraet: (geraet ?? (await testGeraet())).angaben } });
+      geheim.push(v.daten.abholGeheimnis, v.daten.code);
+      return v.daten;
+    };
+    const B = SEITEN_TEXT;
+    const env = umgebung({ GOOGLE_CLIENT_ID: 'test-client.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET: 'test-google-secret' });
+    geheim.push('test-google-secret');
+    const uhr = env.KONTO_UHR;
+    const admin = await ersterAdmin(env);
+    const codeE = await einladen(env, admin, 'erika@extern.test', { bis: T0 + 2 * 3600_000 });
+    const geraet = await testGeraet({ name: '<b>Regie</b> "1" & \'A\'' });
+    const v1 = await vorgang(env, geraet);
+
+    const s1 = await hole(env, `/konto/anmelden?v=${encodeURIComponent(v1.vorgang)}`);
+    check('P17 4.1: Anmeldeseite mit Google (B1–B5, Vorgang im Formular, Google-Link mit Vorgang)',
+      s1.status === 200 && s1.html.includes(`<title>${esc(B.B1)}</title>`) && s1.html.includes(`<h1>${B.B2}</h1>`)
+        && zeigt(s1, B.B3_knopf, B.B3_zeile, B.B4_titel, B.B4_email, B.B4_passwort, B.B4_knopf, B.B5_auf, B.B5_code, B.B5_neu, B.B5_neu2, B.B5_knopf)
+        && s1.html.includes(`href="/konto/google?v=${esc(encodeURIComponent(v1.vorgang))}"`) && versteckt(s1.html, 'v') === v1.vorgang
+        && !s1.html.includes(B.B6));
+    const ohneGoogle = umgebung();
+    const vo = await vorgang(ohneGoogle);
+    const s2 = await hole(ohneGoogle, `/konto/anmelden?v=${vo.vorgang}`);
+    check('P17 4.1: ohne GOOGLE_CLIENT_ID → B6 und kein Google-Link, Passwort-Anmeldung bleibt', s2.status === 200 && zeigt(s2, B.B6, B.B4_titel) && !s2.html.includes('/konto/google'));
+    const s3 = await hole(env, '/konto/anmelden');
+    const s4 = await hole(env, '/konto/anmelden?v=gibt-es-nicht');
+    check('P17 4.1: ohne Vorgang → B22; unbekannter Vorgang → 404 B10', s3.status === 200 && zeigt(s3, B.B22) && s4.status === 404 && zeigt(s4, B.B10));
+
+    // Erstes Mal: Einladungscode und neues Passwort → Bestätigungsseite (B7) mit E-Mail, Code, Rechnername.
+    geheim.push('test-passwort-erika');
+    const b1 = await sende(env, '/konto/passwort', { v: v1.vorgang, email: 'Erika@Extern.test', einladungscode: codeE.toLowerCase(), neu: 'test-passwort-erika', neu2: 'test-passwort-erika' });
+    const t1 = versteckt(b1.html, 't');
+    geheim.push(t1);
+    check('P17 4.1: Einladung → Bestätigungsseite: Angemeldet als E-Mail, Code wie im Launcher, Rechner, Ja und Nein',
+      b1.status === 200 && zeigt(b1, B.B7_frage, B.B7_ja, B.B7_nein) && b1.html.includes(esc('Angemeldet als erika@extern.test'))
+        && b1.html.includes(`<p class="code">${v1.code}</p>`) && b1.html.includes('Rechner: &lt;b&gt;Regie&lt;/b&gt; &quot;1&quot; &amp; &#39;A&#39;')
+        && !b1.html.includes('<b>Regie') && typeof t1 === 'string' && t1.length > 20 && versteckt(b1.html, 'v') === v1.vorgang);
+    const ohneT = await sende(env, '/konto/bestaetigen', { v: v1.vorgang, antwort: 'ja' });
+    const falschT = await sende(env, '/konto/bestaetigen', { v: v1.vorgang, t: 'test-falsches-seitentoken', antwort: 'ja' });
+    const w = await api(env, 'POST', '/konto/vorgang/abholen', { body: { vorgang: v1.vorgang, abholGeheimnis: v1.abholGeheimnis, beweis: await geraet.beweis('abholen', v1.vorgang, uhr()) } });
+    check('P17 4.1: Bestätigen ohne oder mit falschem Seitentoken → 403 B10, der Launcher wartet weiter',
+      ohneT.status === 403 && zeigt(ohneT, B.B10) && falschT.status === 403 && zeigt(falschT, B.B10) && w.daten.zustand === 'wartet');
+    const ja = await sende(env, '/konto/bestaetigen', { v: v1.vorgang, t: t1, antwort: 'ja' });
+    const ab = await api(env, 'POST', '/konto/vorgang/abholen', { body: { vorgang: v1.vorgang, abholGeheimnis: v1.abholGeheimnis, beweis: await geraet.beweis('abholen', v1.vorgang, uhr()) } });
+    geheim.push(ab.daten && ab.daten.sitzung);
+    check('P17 4.1: Ja → B8; der Launcher holt die Sitzung des Externen ab', ja.status === 200 && zeigt(ja, B.B8) && ab.daten.zustand === 'bestaetigt' && ab.daten.stand.email === 'erika@extern.test');
+
+    // Nein → B9 und abgelehnt beim Abholen; ein zweites Konto am selben Vorgang → B11.
+    const v2 = await vorgang(env);
+    const b2 = await sende(env, '/konto/passwort', { v: v2.vorgang, email: 'erika@extern.test', passwort: 'test-passwort-erika' }, '7.7.7.8');
+    const t2 = versteckt(b2.html, 't');
+    geheim.push(t2);
+    const nein = await sende(env, '/konto/bestaetigen', { v: v2.vorgang, t: t2, antwort: 'nein' });
+    check('P17 4.1: Passwort richtig → Bestätigungsseite; Nein → B9', b2.status === 200 && !!t2 && nein.status === 200 && zeigt(nein, B.B9));
+    const codeF = await einladen(env, admin, 'fritz@extern.test');
+    geheim.push('test-passwort-fritz');
+    const vf = await vorgang(env);
+    const bf = await sende(env, '/konto/passwort', { v: vf.vorgang, email: 'fritz@extern.test', einladungscode: codeF, neu: 'test-passwort-fritz', neu2: 'test-passwort-fritz' }, '7.7.7.9');
+    geheim.push(versteckt(bf.html, 't'));
+    const v3 = await vorgang(env);
+    await sende(env, '/konto/passwort', { v: v3.vorgang, email: 'erika@extern.test', passwort: 'test-passwort-erika' }, '7.7.7.9');
+    const fremd = await sende(env, '/konto/passwort', { v: v3.vorgang, email: 'fritz@extern.test', passwort: 'test-passwort-fritz' }, '7.7.7.9');
+    check('P17 EP5: zweites Konto (eigene Einladung gilt) am Vorgang, an dem schon ein anderes Konto angemeldet ist → 409 B11',
+      bf.status === 200 && fremd.status === 409 && zeigt(fremd, B.B11));
+
+    // Fehlertexte je Fall (eigene IP je Fall, damit die Drossel nicht mitzählt).
+    const v4 = await vorgang(env);
+    const sp = env.KONTO.speicher();
+    const faelle = [];
+    let ip = 10;
+    const fall = async (name, felder, status, nr, werte, mehr = () => true) => {
+      const a = await sende(env, '/konto/passwort', { v: v4.vorgang, ...felder }, `10.0.0.${ip++}`);
+      faelle.push({ name, ok: a.status === status && a.html.includes(nr.startsWith('B') ? `role="alert">${esc(B[nr]).replace(/‹([^›]+)›/g, (_, n) => esc(werte[n]))}` : nr) && mehr(a), a });
+    };
+    await fall('falsches Passwort', { email: 'erika@extern.test', passwort: 'test-falsch-123' }, 401, 'B12', {}, (a) => a.html.includes('value="erika@extern.test"') && !a.html.includes('test-falsch-123'));
+    await fall('unbekannte E-Mail', { email: 'niemand@extern.test', passwort: 'test-falsch-123' }, 401, 'B12');
+    await fall('falscher Einladungscode', { email: 'fritz@extern.test', einladungscode: 'AAAA-BBBB-CCCC', neu: 'test-passwort-neu', neu2: 'test-passwort-neu' }, 401, 'B14', {}, (a) => a.html.includes('<details open>'));
+    await fall('Passwörter ungleich', { email: 'fritz@extern.test', einladungscode: 'AAAA-BBBB-CCCC', neu: 'test-passwort-neu', neu2: 'test-passwort-neu2' }, 400, 'B15_ungleich');
+    await fall('Passwort zu kurz', { email: 'fritz@extern.test', einladungscode: 'AAAA-BBBB-CCCC', neu: 'kurz', neu2: 'kurz' }, 400, 'B15_kurz');
+    await fall('E-Mail von jakobsmedien.com', { email: 'karl@jakobsmedien.com', passwort: 'test-falsch-123' }, 400, 'B23');
+    await fall('unbekannter Vorgang', { v: 'gibt-es-nicht', email: 'erika@extern.test', passwort: 'test-passwort-erika' }, 404, esc(B.B10));
+    for (let i = 0; i < 3; i++) await sende(env, '/konto/passwort', { v: v4.vorgang, email: 'erika@extern.test', passwort: 'test-falsch-123' }, `10.1.0.${i}`);
+    await fall('fünfter Fehlversuch → Bremse 15 min', { email: 'erika@extern.test', passwort: 'test-falsch-123' }, 429, 'B13', { n: 15 });
+    await fall('Bremse gilt auch für das richtige Passwort', { email: 'erika@extern.test', passwort: 'test-passwort-erika' }, 429, 'B13', { n: 15 });
+    const kidF = await sp.ctx.storage.get('email:fritz@extern.test');
+    const kontoF = await sp.ctx.storage.get(`konto:${kidF}`);
+    await sp.ctx.storage.put(`konto:${kidF}`, { ...kontoF, zustand: 'gesperrt' });
+    await fall('Zugang gesperrt (im Speicher gesetzt)', { email: 'fritz@extern.test', passwort: 'test-passwort-fritz' }, 403, 'B16');
+    await sp.ctx.storage.put(`konto:${kidF}`, kontoF);
+    uhr.vor(15 * 60_000);
+    uhr.vor(2 * 3600_000);
+    const v5 = await vorgang(env);
+    const abgelaufen = await sende(env, '/konto/passwort', { v: v5.vorgang, email: 'erika@extern.test', passwort: 'test-passwort-erika' }, '10.2.0.1');
+    // Klasse „Code abgelaufen“: der Vorgang v4 ist seit über 2 h vorbei.
+    await fall('Vorgang abgelaufen (Formular)', { email: 'erika@extern.test', passwort: 'test-passwort-erika' }, 404, esc(B.B10));
+    const spaetSeite = await hole(env, `/konto/anmelden?v=${encodeURIComponent(v4.vorgang)}`);
+    faelle.push({ name: 'Vorgang abgelaufen (Anmeldeseite)', ok: spaetSeite.status === 404 && zeigt(spaetSeite, B.B10), a: spaetSeite });
+    faelle.push({ name: 'Zugang abgelaufen mit Datum', ok: abgelaufen.status === 403 && abgelaufen.html.includes(esc('Dein Zugang ist am 02.11.2026 abgelaufen. Frag einen Admin nach einer Verlängerung.')), a: abgelaufen });
+    const dr = [];
+    // Je Versuch eine andere unbekannte E-Mail: die Bremse je E-Mail (P4, EP4) zählt dann nicht mit, nur die Drossel je IP.
+    for (let i = 0; i < 21; i++) dr.push(await sende(env, '/konto/passwort', { v: v5.vorgang, email: `niemand-${i}@extern.test`, passwort: 'test-falsch-123' }, '10.3.0.1'));
+    faelle.push({ name: 'Drossel: 21. Formular je IP in 600 s', ok: dr.slice(0, 20).every((a) => a.status === 401) && dr[20].status === 429 && zeigt(dr[20], B.B21) && Number(dr[20].kopf.get('Retry-After')) > 0, a: dr[20] });
+    await pruefeFaelle('P17 4: Fehlertexte der Anmeldeseite', faelle, (f) => (f.ok ? null : `ist ${f.a.status} ${f.a.html.slice(f.a.html.indexOf('<h1>'), f.a.html.indexOf('<h1>') + 160)}`));
+
+    // Escape: E-Mail mit HTML und Anführungszeichen landet nur escaped im Formular.
+    const v6 = await vorgang(env);
+    const boese = await sende(env, '/konto/passwort', { v: v6.vorgang, email: '"><script>x()</script>@extern.test', passwort: 'test-falsch-123' }, '10.4.0.1');
+    check('P17 Escape: Rechnername (oben) und eingegebene E-Mail mit HTML und Anführungszeichen nur escaped',
+      boese.status === 401 && boese.html.includes('value="&quot;&gt;&lt;script&gt;x()&lt;/script&gt;@extern.test"') && !boese.html.includes('<script'));
+
+    // S5: ohne Einrichtung eine Seite statt JSON.
+    const ohne = umgebung({ KONTO_SCHLUESSEL: undefined });
+    const s5 = await hole(ohne, '/konto/anmelden?v=x');
+    const s5b = await sende(ohne, '/konto/passwort', { v: 'x', email: 'a@b.test', passwort: 'test-falsch-123' });
+    check('P17 S5: ohne Einrichtung zeigen Anmeldeseite und Formular S5 als Seite (503)',
+      s5.status === 503 && s5b.status === 503 && zeigt(s5, FEHLER_TEXT['nicht-eingerichtet']) && (s5.kopf.get('content-type') || '').startsWith('text/html'));
+
+    // Kopfzeilen und kein Skript auf jeder Seite dieses Blocks.
+    const CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+    const kopfFalsch = seiten.filter((a) => a.kopf.get('content-type') !== 'text/html; charset=utf-8' || a.kopf.get('cache-control') !== 'no-store'
+      || a.kopf.get('referrer-policy') !== 'no-referrer' || a.kopf.get('x-content-type-options') !== 'nosniff'
+      || a.kopf.get('content-security-policy') !== CSP || a.kopf.get('set-cookie') !== null || /<script/i.test(a.html));
+    check(`P17 Kopfzeilen: CSP ohne Skript, no-store, no-referrer, nosniff, kein Set-Cookie, kein <script> (${seiten.length} Seiten)`, seiten.length >= 30 && kopfFalsch.length === 0);
+
+    // G2: alle Texte B1–B23 aus der Tabelle; sichtbarer Text ohne ASCII-Anführungszeichen.
+    const sichtbar = seiten.filter((a) => a !== boese).map((a) => a.html.replace(/<style>[\s\S]*?<\/style>/g, '').replace(/<[^>]*>/g, '')).join('\n');
+    check('P17 G2: SEITEN_TEXT hat B1–B23 ohne ASCII-Anführungszeichen; sichtbarer Text der Seiten ohne "',
+      ['B1', 'B2', 'B6', 'B8', 'B9', 'B10', 'B11', 'B12', 'B13', 'B14', 'B16', 'B17', 'B18', 'B19', 'B20', 'B21', 'B22', 'B23'].every((n) => typeof B[n] === 'string')
+        && Object.values(B).every((t) => !t.includes('"')) && !sichtbar.includes('"'));
+    const q = readFileSync(new URL('../konto-seiten.js', import.meta.url), 'utf8');
+    check('P17 rein: konto-seiten.js ohne import, ohne console, ohne <script', !/^import /m.test(q) && !q.includes('console.') && !q.includes('<script'));
+  }
+
   // ── Ende der Fälle ──
 
   // P16 10.1: Fehlerform und Cache-Kopf aller Antworten dieses Laufs.

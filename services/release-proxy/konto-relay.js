@@ -8,6 +8,7 @@
 // Abholgeheimnis, Code, Passwort oder Schlüssel geht ins Log oder in eine Fehlermeldung.
 import { FREIGABE_MS, ZWECK_FUNKTION, darf, kontoStand } from './konto-kern.js';
 import { BEWEIS_FENSTER_MS, iveoEntschluesseln, iveoVerschluesseln, neuerBestaetigungsCode, pruefeToken, schluesselBrauchbar, sha256B64url, signiere, zufall } from './konto-krypto.js';
+import { datumText, esc, fuelle, htmlAntwort, seiteAnmelden, seiteBestaetigen, seiteMeldung } from './konto-seiten.js';
 import { abgelehnt, kontoAktion, kontoJetzt, kontoStub } from './konto-zugang.js';
 
 // Vertrag 10.1: P16 liefert kontoStub(env); er liegt seit P15 in konto-zugang.js (Alt-Key-Zählung).
@@ -16,6 +17,8 @@ export { kontoStub } from './konto-zugang.js';
 const KONTO = {
   apiBytes: 16 * 1024, // JSON-Body der Launcher-API (Admin-Aktion mit iveo-Token und Event-Liste)
   vorgang: { rlMax: 10, rlWindowSec: 600 }, // POST /konto/vorgang je IP (EP5)
+  formBytes: 8 * 1024, // Formulare der Anmeldeseite (P17)
+  passwort: { rlMax: 20, rlWindowSec: 600 }, // POST /konto/passwort je IP (EP4), vor der Bremse je Konto im DO
 };
 
 /** Methode und Pfad (ohne Schrägstrich am Ende) → Handler. Nur diese Routen gibt es unter /konto/. */
@@ -31,11 +34,17 @@ const ROUTEN = {
   'POST /konto/zoom-anfrage': zoomAnfrage,
   'GET /konto/admin/uebersicht': adminUebersicht,
   'POST /konto/admin/aktion': adminAktion,
+  'GET /konto/anmelden': seiteAnmeldenRoute,
+  'POST /konto/passwort': passwortRoute,
+  'POST /konto/bestaetigen': bestaetigenRoute,
   // ── Ende der Routen ──
 };
 
 /** Routen mit HTML-Antwort (Anmeldeseite, P17/P18); ohne Einrichtung zeigen sie S5 als Seite statt als JSON. */
 const SEITEN = new Set([
+  'GET /konto/anmelden',
+  'POST /konto/passwort',
+  'POST /konto/bestaetigen',
   // ── Ende der Seiten ──
 ]);
 
@@ -75,6 +84,7 @@ export async function handleKonto(request, env, url, ctx) {
   } catch (e) {
     if (e instanceof Abgelehnt) return fehler(e.fehler);
     console.warn(`konto: ${schluessel} fehlgeschlagen (${fehlerName(e)})`);
+    if (SEITEN.has(schluessel)) return htmlAntwort(seiteMeldung({ text: esc('interner Fehler'), fehler: true }), 502);
     return json({ error: 'interner Fehler', code: 'server' }, 502);
   }
 }
@@ -305,9 +315,10 @@ function fehler(f) {
   return json({ error: f.error, code: f.code }, f.status);
 }
 
-/** Ohne Einrichtung: JSON 503 S5; Seiten-Routen ersetzt P17 durch eine Seite. */
-function nichtEingerichtet(_seite) {
-  return fehler(abgelehnt('nicht-eingerichtet', 503));
+/** Ohne Einrichtung: 503 S5, für die Routen der Anmeldeseite als Seite, sonst als JSON. */
+function nichtEingerichtet(seite) {
+  const f = abgelehnt('nicht-eingerichtet', 503);
+  return seite ? htmlAntwort(seiteMeldung({ text: esc(f.error), fehler: true }), 503) : fehler(f);
 }
 
 function json(obj, status = 200) {
@@ -346,6 +357,97 @@ async function drossel(k, bucket, { rlMax, rlWindowSec }) {
 /** Nur der Name eines Fehlers, nie die Meldung (wie worker.js). */
 function fehlerName(e) {
   return (e && typeof e.name === 'string' && e.name) || 'unbekannt';
+}
+
+// ── Anmeldeseite im Browser (P17; Spec 4.1 Schritte 2–4, Texte B1–B17, B21–B23) ─────────────────────────────────────
+
+/** Google-Anmeldung eingerichtet? Ohne Client zeigt die Seite B6 und nur die Passwort-Anmeldung (EP6). */
+function googleDa(env) {
+  return !!env.GOOGLE_CLIENT_ID && !!env.GOOGLE_CLIENT_SECRET;
+}
+
+/** Formular (application/x-www-form-urlencoded) bis KONTO.formBytes; größer → null. */
+async function liesFormular(request) {
+  const buf = await request.arrayBuffer();
+  if (buf.byteLength > KONTO.formBytes) return null;
+  return new URLSearchParams(new TextDecoder().decode(buf));
+}
+
+/** Seite mit einem Text aus der Tabelle 9.5. */
+function meldung(nr, status = 200, werte) {
+  return htmlAntwort(seiteMeldung({ text: fuelle(nr, werte), fehler: status >= 400 }), status);
+}
+
+/** GET /konto/anmelden?v=<vorgang>: Anmeldeseite; ohne Vorgang B22, unbekannt oder abgelaufen 404 B10. */
+async function seiteAnmeldenRoute(k) {
+  const vorgang = k.url.searchParams.get('v') || '';
+  if (!vorgang) return meldung('B22');
+  const r = await k.rufe('vorgang-lesen', { vorgang });
+  if (!r.ok) return meldung('B10', 404);
+  if (r.zustand === 'bestaetigt') return meldung('B8');
+  if (r.zustand === 'abgelehnt') return meldung('B9');
+  return htmlAntwort(seiteAnmelden({ vorgang, google: googleDa(k.env) }));
+}
+
+/**
+ * POST /konto/passwort: Externe mit E-Mail und Passwort oder mit Einladungscode und neuem Passwort (Spec 4, EP4). Zuerst die
+ * Drossel je IP (`konto-pw`, 20 je 600 s), die Bremse je Konto prüft der DO. Fehler zeigen die Anmeldeseite mit B12–B17, B21,
+ * B23 und der eingegebenen E-Mail, nie mit dem Passwort. Erfolg zeigt die Bestätigungsseite (B7).
+ */
+async function passwortRoute(k) {
+  const rl = await drossel(k, 'konto-pw', KONTO.passwort);
+  const f = await liesFormular(k.request);
+  const vorgang = f ? (f.get('v') || '').trim() : '';
+  const email = f ? (f.get('email') || '').trim().slice(0, 200) : '';
+  const seite = (nr, status, werte = {}, einladungOffen = false, extra = {}) =>
+    htmlAntwort(seiteAnmelden({ vorgang, google: googleDa(k.env), fehler: fuelle(nr, werte), email, einladungOffen }), status, extra);
+  if (!rl.ok) return seite('B21', 429, {}, false, { 'Retry-After': String(rl.retryAfter || 60) });
+  if (!f || !vorgang) return meldung('B10', 400);
+  const mitCode = (f.get('einladungscode') || '').trim() !== '';
+  const daten = mitCode
+    ? { vorgang, email, einladungscode: f.get('einladungscode'), neu: f.get('neu') || '', neu2: f.get('neu2') || '' }
+    : { vorgang, email, passwort: f.get('passwort') || '' };
+  const r = await k.rufe('vorgang-passwort', daten);
+  if (r.ok) {
+    return htmlAntwort(seiteBestaetigen({ vorgang, seitenToken: r.seitenToken, email: r.email, code: r.code, rechnerName: r.rechnerName }));
+  }
+  switch (r.code) {
+    case 'falsch':
+    case 'ungueltig':
+      return seite('B12', 401);
+    case 'einladung':
+      return seite('B14', 401, {}, true);
+    case 'bremse':
+      return seite('B13', 429, { n: r.minuten }, mitCode);
+    case 'passwort-ungleich':
+      return seite('B15_ungleich', 400, {}, true);
+    case 'passwort-kurz':
+      return seite('B15_kurz', 400, {}, true);
+    case 'gesperrt':
+      return seite('B16', 403);
+    case 'zugang-abgelaufen':
+      return seite('B17', 403, { Datum: datumText(r.bis) });
+    case 'domain':
+      return seite('B23', 400);
+    case 'konflikt':
+      return meldung('B11', 409);
+    case 'vorgang-unbekannt':
+      return meldung('B10', 404);
+    default:
+      return htmlAntwort(seiteMeldung({ text: esc('interner Fehler'), fehler: true }), 502);
+  }
+}
+
+/** POST /konto/bestaetigen: Ja oder Nein mit Seitentoken (Spec 4.1 Schritt 4); ohne gültiges Seitentoken 403 B10. */
+async function bestaetigenRoute(k) {
+  const f = await liesFormular(k.request);
+  const vorgang = f ? (f.get('v') || '').trim() : '';
+  const seitenToken = f ? (f.get('t') || '').trim() : '';
+  const antwort = f ? f.get('antwort') : '';
+  if (!vorgang || !seitenToken || (antwort !== 'ja' && antwort !== 'nein')) return meldung('B10', 403);
+  const r = await k.rufe('vorgang-bestaetigen', { vorgang, seitenToken, antwort });
+  if (r.ok) return meldung(r.zustand === 'bestaetigt' ? 'B8' : 'B9');
+  return meldung(r.code === 'konflikt' ? 'B11' : 'B10', 403);
 }
 
 // ── Ende der Handler ──
