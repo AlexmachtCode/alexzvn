@@ -3418,6 +3418,42 @@ function dialogBefunde(q: string): string[] {
   ck('P25 4.2: beide Dialoge hängen in App.tsx', app.includes('      <AnmeldeModal />') && app.includes('      <KontoModal />'));
 }
 
+// --- Anmeldung P26 (Spec 7, 4, 5; EP15, OFP4; G11): Admin-Maske — Gerüst, Reiter „Zugänge“, Knopf M1 ------------------------
+// Zeilen, Formulare und Texte laufen echt in test/konto-admin.test.ts; hier die Verdrahtung.
+{
+  const maske = quelleLfOderLeer('../src/renderer/src/components/AdminModal.tsx');
+  const zugaenge = quelleLfOderLeer('../src/renderer/src/components/AdminZugaenge.tsx');
+  const einst = quelleLf('../src/renderer/src/components/SettingsModal.tsx');
+  const konto = quelleLf('../src/renderer/src/components/KontoModal.tsx');
+  const store = quelleLf('../src/renderer/src/store/konto.ts');
+  const app = quelleLf('../src/renderer/src/App.tsx');
+  const f = dialogBefunde(maske);
+  ck(`P26 G11, EP15: Admin-Maske nach dem Dialogmuster, breit (max-w-5xl), Reiter mit role="tablist"/"tab" und aria-selected${f.length ? ` — ${f.join(', ')}` : ''}`,
+    maske.length > 0 && f.length === 0 && maske.includes('<Card className="w-full max-w-5xl p-6 jm-fade-in">')
+    && maske.includes('role="tablist"') && maske.includes('role="tab"') && maske.includes('aria-selected={aktiv}'));
+  ck('P26 7: Aufbau A — Liste links, Details rechts (grid-cols-[260px_1fr]) im Reiter „Zugänge“',
+    zugaenge.includes('<div className="mt-4 grid grid-cols-[260px_1fr] gap-5">'));
+  ck('P26 7, OFP4: die Maske gibt es nur für Admins — Knopf M1 in Einstellungen und Konto-Dialog über adminKnopfSichtbar, die Maske prüft es selbst',
+    maske.includes('  if (!offen || !adminKnopfSichtbar(ansicht)) return null;') && einst.includes('  if (!adminKnopfSichtbar(ansicht)) return null;')
+    && konto.includes('{adminKnopfSichtbar(ansicht) && (') && (einst.match(/ADMIN_TEXTE\.oeffnen/g) ?? []).length === 1
+    && (konto.match(/ADMIN_TEXTE\.oeffnen/g) ?? []).length === 1);
+  ck('P26 OFP4, M5: antwortet der Worker „kein Recht“, schließt der Store die Maske und meldet M5 (Laden und Aktion)',
+    (store.match(/useTools\.getState\(\)\.setNotice\(ADMIN_TEXTE\.keinAdmin\);/g) ?? []).length === 2);
+  ck('P26 4, G4: der Einladungscode liegt nie im Store; Schließen räumt die Admin-Daten weg',
+    !/einladungscode|codeBis/i.test(ohneKommentare(store))
+    && store.includes('  schliesseAdmin: () => set({ adminOffen: false, admin: { daten: null, laedt: false, fehler: null } }),'));
+  ck('P26 EP15: nach jeder Aktion übernimmt der Store die neue Übersicht aus der Antwort',
+    funktionsKoerper(store, 'adminAktion: async (a) => {').includes('      set({ admin: { daten: r.daten, laedt: false, fehler: null } });'));
+  ck('P26 4: Löschen, neuer Code und Einladung nur über die reinen Helfer (Rückfrage, Formular, einmalige Anzeige)',
+    zugaenge.includes('loeschFrage(zugang).text') && zugaenge.includes('const a = einladeFormular(einladung);')
+    && zugaenge.includes('const a = zugangFormular(zugang.kid, formular);') && zugaenge.includes('einladungsAnzeige(code.name, code.ergebnis)'));
+  // EP34 (Nachbesserung Block D, spec:4): bei Externen steht unter Tools und Zoom-Freigabe, dass Connect beides erst mit Teil 2 nutzt.
+  const zoomFeld = zugaenge.indexOf('{ADMIN_TEXTE.zoomBis}');
+  ck('P26 EP34, M48: bei Externen sagt der Reiter Zugänge unter der Zoom-Freigabe, dass Connect Cloud-Raum und Zoom erst mit einem Update nutzt',
+    zoomFeld > 0 && zugaenge.indexOf('{ADMIN_TEXTE.connectTeil1}') > zoomFeld && (zugaenge.match(/ADMIN_TEXTE\.connectTeil1/g) ?? []).length === 1);
+  ck('P26: die Admin-Maske hängt in App.tsx', app.includes('      <AdminModal />'));
+}
+
 // ── Ende der Fälle (Anmeldung) ──
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

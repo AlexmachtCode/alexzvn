@@ -1,6 +1,9 @@
 import { create } from 'zustand';
-import type { AnmeldeSchritt, KontoAnsicht, KontoFehlerCode } from '@shared/konto';
+import type {
+  AdminAktion, AdminAktionErgebnis, AdminUebersicht, AnmeldeSchritt, KontoAnsicht, KontoFehlerCode,
+} from '@shared/konto';
 import { sitzungGueltig } from '@/lib/konto-anzeige';
+import { ADMIN_TEXTE } from '@/lib/admin-ansicht';
 import { useTools } from './tools';
 
 // Anmeldung im Launcher (Plan P24–P27): Store des Kontos, dünn über IPC (10.7). Was angezeigt wird, entscheiden die reinen
@@ -35,6 +38,12 @@ interface KontoStore {
   abmelden: () => Promise<void>;
   /** P25: Zoom anfragen (Spec 8); bei Erfolg kommt die Ansicht mit dem Stand der Anfrage. */
   zoomAnfragen: (a: { zweck: string; von: number; bis: number }) => Promise<{ ok: true } | { ok: false; code: KontoFehlerCode }>;
+  /** P26: Daten der Admin-Maske — eine Abfrage, nach jeder Aktion die neue Übersicht; nie ein Einladungscode. */
+  admin: { daten: AdminUebersicht | null; laedt: boolean; fehler: KontoFehlerCode | null };
+  oeffneAdmin: () => void;
+  schliesseAdmin: () => void;
+  adminLaden: () => Promise<void>;
+  adminAktion: (a: AdminAktion) => Promise<{ ok: true; ergebnis: AdminAktionErgebnis } | { ok: false; code: KontoFehlerCode }>;
   // ── weitere Felder (P25–P27) ──
 }
 
@@ -47,6 +56,7 @@ export const useKonto = create<KontoStore>((set, get) => ({
   kontoOffen: false,
   anmeldungOffen: false,
   adminOffen: false,
+  admin: { daten: null, laedt: false, fehler: null },
 
   lade: async () => {
     if (!abonniert) {
@@ -117,6 +127,44 @@ export const useKonto = create<KontoStore>((set, get) => ({
       if (!r.ok) return { ok: false, code: r.code };
       set({ ansicht: r.ansicht });
       return { ok: true };
+    } catch {
+      return { ok: false, code: 'netz' };
+    }
+  },
+  // P26 (Spec 7, EP15): die Maske öffnet über den Konto-Dialog oder die Einstellungen und lädt die Übersicht.
+  oeffneAdmin: () => {
+    set({ adminOffen: true, kontoOffen: false, admin: { daten: null, laedt: true, fehler: null } });
+    void get().adminLaden();
+  },
+  // Schließen räumt die Daten weg: ohne offene Maske liegen keine Admin-Daten im Renderer.
+  schliesseAdmin: () => set({ adminOffen: false, admin: { daten: null, laedt: false, fehler: null } }),
+  adminLaden: async () => {
+    set((s) => ({ admin: { ...s.admin, laedt: true, fehler: null } }));
+    try {
+      const r = await window.jmps.kontoAdminUebersicht();
+      if (r.ok) set({ admin: { daten: r.daten, laedt: false, fehler: null } });
+      else if (r.code === 'kein-recht') {
+        // OFP4: herabgestuft oder gesperrt — der Worker prüft den aktuellen Stand; M5 und die Maske ist zu.
+        get().schliesseAdmin();
+        useTools.getState().setNotice(ADMIN_TEXTE.keinAdmin);
+      } else set((s) => ({ admin: { ...s.admin, laedt: false, fehler: r.code } }));
+    } catch {
+      set((s) => ({ admin: { ...s.admin, laedt: false, fehler: 'netz' } }));
+    }
+  },
+  adminAktion: async (a) => {
+    try {
+      const r = await window.jmps.kontoAdminAktion(a);
+      if (!r.ok) {
+        if (r.code === 'kein-recht') {
+          get().schliesseAdmin();
+          useTools.getState().setNotice(ADMIN_TEXTE.keinAdmin);
+        }
+        return { ok: false, code: r.code };
+      }
+      // EP15: nach jeder Aktion die neue Übersicht aus der Antwort; das Ergebnis (Einladungscode) geht nur an den Aufrufer.
+      set({ admin: { daten: r.daten, laedt: false, fehler: null } });
+      return { ok: true, ergebnis: r.ergebnis };
     } catch {
       return { ok: false, code: 'netz' };
     }

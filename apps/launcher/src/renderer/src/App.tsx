@@ -19,6 +19,7 @@ import { Anleitung } from '@/components/Anleitung';
 import { VerbundModal } from './components/VerbundModal';
 import { AnmeldeModal } from '@/components/AnmeldeModal';
 import { KontoModal } from '@/components/KontoModal';
+import { AdminModal } from '@/components/AdminModal';
 import { useTools } from '@/store/tools';
 import { useKonto } from '@/store/konto';
 
@@ -80,6 +81,7 @@ export function App() {
       <VerbundModal />
       <AnmeldeModal />
       <KontoModal />
+      <AdminModal />
       <OnboardingModal />
       <ShowEditorModal />
       <ScenarioPicker />

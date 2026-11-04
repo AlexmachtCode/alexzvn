@@ -6,6 +6,7 @@ import {
   zoomFormular, zoomHinweis, zoomKnopfSichtbar, zoomStand, zustandsZeile,
 } from '@/lib/konto-dialog';
 import { useKonto } from '@/store/konto';
+import { ADMIN_TEXTE, adminKnopfSichtbar } from '@/lib/admin-ansicht';
 import { useTools } from '@/store/tools';
 
 const feldCls = cn(
@@ -25,6 +26,7 @@ export function KontoModal(): React.JSX.Element | null {
   const anmelden = useKonto((s) => s.anmelden);
   const abmelden = useKonto((s) => s.abmelden);
   const zoomAnfragen = useKonto((s) => s.zoomAnfragen);
+  const oeffneAdmin = useKonto((s) => s.oeffneAdmin);
   const tools = useTools((s) => s.tools);
   const iveoShowOffen = useTools((s) => s.iveoActive !== null);
   const [frage, setFrage] = useState(false);
@@ -202,6 +204,11 @@ export function KontoModal(): React.JSX.Element | null {
               </>
             ) : (
               <div className="flex flex-wrap items-center justify-end gap-3">
+                {adminKnopfSichtbar(ansicht) && (
+                  <Button variant="outline" onClick={oeffneAdmin}>
+                    {ADMIN_TEXTE.oeffnen}
+                  </Button>
+                )}
                 {knoepfe.includes('abmelden') && (
                   <Button variant="outline" onClick={() => setFrage(true)}>
                     {KONTO_TEXTE.abmelden}

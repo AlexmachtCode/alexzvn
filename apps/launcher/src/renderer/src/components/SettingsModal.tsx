@@ -3,6 +3,8 @@ import { Button, Card, cn } from '@jm/ui';
 import type { ControlPlaneStatus } from '@shared/types';
 import { useTools } from '@/store/tools';
 import { useVerbund } from '@/store/verbund';
+import { ADMIN_TEXTE, adminKnopfSichtbar } from '@/lib/admin-ansicht';
+import { useKonto } from '@/store/konto';
 
 // iveo-Paket, Spec 7.1/7.2, Texte T5, T6, T9 (11.6 wörtlich). Production ist der Standard. T9 nennt die Adresse aus
 // settings.iveoBaseUrl (Umgebungsvariable, sonst eingetragen, sonst Standard) und sagt bewusst nicht „wirksam“: Eine
@@ -122,6 +124,7 @@ export function SettingsModal() {
 
         <ControlPlaneSection />
         <VerbundSection />
+        <AdminSection />
         </div>
 
         <div className="mt-4 flex shrink-0 items-center justify-end gap-3 border-t border-[var(--border)] pt-4">
@@ -316,6 +319,30 @@ function VerbundSection() {
           }}
         >
           Verbund öffnen
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Anmeldung P26 (Spec 7, EP15, M1): „Admin-Maske öffnen“ — nur für Admins mit gültiger Sitzung. */
+function AdminSection() {
+  const ansicht = useKonto((s) => s.ansicht);
+  const oeffneAdmin = useKonto((s) => s.oeffneAdmin);
+  const closeSettings = useTools((s) => s.closeSettings);
+  if (!adminKnopfSichtbar(ansicht)) return null;
+  return (
+    <div className="mt-5 border-t border-[var(--border)] pt-5">
+      <p className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">{ADMIN_TEXTE.titel}</p>
+      <div className="mt-3">
+        <Button
+          variant="outline"
+          onClick={() => {
+            closeSettings();
+            oeffneAdmin();
+          }}
+        >
+          {ADMIN_TEXTE.oeffnen}
         </Button>
       </div>
     </div>
