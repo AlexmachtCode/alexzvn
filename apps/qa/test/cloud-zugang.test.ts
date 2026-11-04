@@ -260,6 +260,120 @@ function soll(fall: Fall, grund: FreigabeGrund | null, eventDa: boolean, extern:
   eq(importe, ["import type { FreigabeGrund } from '@jm/app-runtime/freigabe';"], 'P29 G9: cloud-zugang.ts lädt nichts zur Laufzeit (nur ein Typ aus @jm/app-runtime/freigabe, kein Electron)');
 }
 
+// --- P30: Q&A-Main (Quelltext-Wächter; cloud.ts und index.ts laden Electron und laufen hier nicht) ---------------------
+/** Ausschnitt ab `start` bis vor das erste `ende` dahinter ('' wenn eines fehlt). */
+function ausschnitt(text: string, start: string, ende: string): string {
+  const a = text.indexOf(start);
+  const b = a < 0 ? -1 : text.indexOf(ende, a + start.length);
+  return a < 0 || b < 0 ? '' : text.slice(a, b);
+}
+{
+  const cloud = quelle('../src/main/cloud.ts');
+  const index = quelle('../src/main/index.ts');
+  const zuweisungen = index.split('\n').filter((z) => /\bcloudSecrets = \{/.test(z));
+  eq(
+    [
+      cloud.includes("const EMPTY: CloudSecrets = { publicJwk: null, privateJwk: null, proxyKey: '', freigabe: null };"),
+      ausschnitt(cloud, 'export function loadSecrets(', '\n}\n').includes('freigabe: leseFreigabe(obj.freigabe),'),
+      index.includes("let cloudSecrets: CloudSecrets = { publicJwk: null, privateJwk: null, proxyKey: '', freigabe: null };"),
+      ausschnitt(index, 'async function cloudGenerateEvent(', '\n}\n').includes('cloudSecrets = { ...cloudSecrets, publicJwk, privateJwk, freigabe: null };'),
+      index.includes("cloudSecrets = { ...cloudSecrets, proxyKey: String(key || '').trim() };"),
+      zuweisungen.length,
+      zuweisungen.filter((z) => !z.includes('{ ...cloudSecrets,')),
+    ],
+    [true, true, true, true, true, 4, []],
+    'P30 G8: CloudSecrets.freigabe in allen fünf Konstruktoren (cloud.ts EMPTY, loadSecrets; index.ts Start, Neues Event, alter Key), jede weitere Zuweisung mit ...cloudSecrets',
+  );
+
+  const holen = ausschnitt(index, 'function freigabeHolen(', '\n}\n');
+  const leeren = "cloudSecrets = { ...cloudSecrets, freigabe: f, proxyKey: '' };";
+  eq(
+    [
+      index.includes("import { holeFreigabe, type FreigabeGrund } from '@jm/app-runtime/freigabe';"),
+      holen.includes("holeFreigabe({ appId: 'jm-qa', zweck: 'qa-relay', ziel: eventId }, { appDataDir: app.getPath('appData') })"),
+      holen.includes('erneuernFaellig(cloudSecrets.freigabe, eventId, jetzt)') && holen.includes('versuchErlaubt(freigabeVersuchAm, jetzt)'),
+      holen.includes('if (freigabeLaeuft) return freigabeLaeuft;') && holen.includes('if (getConfig().eventId !== eventId) return;'),
+      holen.includes(leeren) && holen.indexOf(leeren) < holen.indexOf('saveSecrets(app.getPath'),
+      (index.match(/proxyKey: ''/g) ?? []).length,
+    ],
+    [true, true, true, true, true, 2],
+    'P30 QR2/QR3/QR6: holeFreigabe mit appId jm-qa, Zweck qa-relay, Ziel Event-ID, nur fällig, höchstens alle 30 s, nie doppelt; die Freigabe leert den alten Key, publicJwk und privateJwk bleiben',
+  );
+
+  const ein = ausschnitt(index, 'async function cloudEnable(', '\n}\n');
+  const einPfad = ausschnitt(ein, 'if (enabled) {', '} else {');
+  eq(
+    [
+      (index.match(/cloudEnabled: false/g) ?? []).length,
+      ausschnitt(index, 'async function cloudPurge(', '\n}\n').includes('patchConfig({ cloudEnabled: false });'),
+      einPfad.length > 0 && !einPfad.includes('cloudEnabled: false'),
+      einPfad.includes('cloudError = QA_TEXT.keinEvent;') && einPfad.includes('await startCloudPoll();'),
+      index.includes('if (getConfig().cloudEnabled) void cloudEnable(true);'),
+    ],
+    [1, true, true, true, true],
+    'P30 EP22/QR7: cloudEnabled false nur im Ausschalt-Pfad („Event beenden“); „An“ bleibt an ohne Zugang oder Event (Q8); der Start stellt „Extern“ wieder her',
+  );
+
+  const takt = ausschnitt(index, 'async function cloudPollTick(', '\n}\n');
+  eq(
+    [
+      takt.indexOf('await freigabeHolen();') >= 0 && takt.indexOf('await freigabeHolen();') < takt.indexOf('zugang = aktuellerZugang();'),
+      takt.includes("if (zugang.art === 'keiner') {") && takt.indexOf("if (zugang.art === 'keiner') {") < takt.indexOf('await openEvent('),
+      takt.includes('await openEvent(cfg, cloudSecrets, zugang);') && takt.includes('await pollPending(cfg, cloudSecrets, zugang);')
+        && takt.includes('await ackItems(cfg, zugang, acked);'),
+      takt.includes('nachAblehnung(zugang.art, err instanceof RelayFehler ? err.status : 0)'),
+      takt.includes('cloudSecrets = { ...cloudSecrets, freigabe: null };') && takt.includes('cloudError = QA_TEXT.freigabeAbgelehnt;'),
+      takt.includes('altKeyAbgelehnt = true;') && takt.includes('cloudError = QA_TEXT.keyAbgelehnt;'),
+      ausschnitt(index, 'function aktuellerZugang(', '\n}\n').includes("proxyKey: altKeyAbgelehnt ? '' : cloudSecrets.proxyKey,"),
+      ausschnitt(index, 'function cloudCfg(', '\n}\n').includes('proxyUrl: effektiveProxyUrl(c.proxyUrl),'),
+    ],
+    [true, true, true, true, true, true, true, true],
+    'P30 QR1/QR4/QR5: Takt holt erst die Freigabe, pausiert ohne Zugang, öffnet, holt ab und quittiert mit dem Zugang; 401/403 verwirft die Freigabe (Q11) bzw. den alten Key (Q6d); Vorgabe-URL',
+  );
+
+  const ack = ausschnitt(cloud, 'export async function ackItems(', '\n}\n');
+  const purge = ausschnitt(cloud, 'export async function purgeEvent(', '\n}\n');
+  eq(
+    [
+      ack.includes('if (!res.ok) throw new RelayFehler(QA_TEXT.quittierenFehler(res.status), res.status);'),
+      purge.includes('if (!res.ok) throw new RelayFehler(QA_TEXT.loeschenFehler(res.status), res.status);'),
+      cloud.includes('X-Proxy-Key'),
+      (cloud.match(/zugangsKopf\(zugang\)/g) ?? []).length,
+      cloud.includes('throw new Error(QA_TEXT.keinSchluessel);') && !cloud.includes('erst „Neues Event"'),
+    ],
+    [true, true, false, 4, true],
+    'P30 QR8, Q9, Q10: ack und purge prüfen res.ok; Kopfzeile nur über zugangsKopf (kein X-Proxy-Key in cloud.ts); Q9 ohne ASCII-Schlusszeichen',
+  );
+
+  const logs = [...cloud.split('\n'), ...index.split('\n')].filter((z) => z.includes('getLog()'));
+  eq(logs.filter((z) => /token|e\.freigabe|proxyKey|cloudSecrets/.test(z)), [], 'P30 G4: keine Log-Zeile mit Freigabe, Token oder Key');
+}
+
+// --- P30 G6: qa.cloud.secret im Verhalten (Nachbesserung Abschluss, sicherheit:12) ------------------------------------------
+// Attrappe des Verschlüsselers (umkehrbar, ohne Klartext): in der Datei steht nur dessen Ausgabe; ohne Schlüsselspeicher bleibt
+// die Freigabe (befristet, 72 h) nur im Speicher. cloud.ts schreibt nur, was geheimnisDatei liefert (Quelltext-Wächter).
+{
+  const modulZugang = (await import('../src/main/cloud-zugang.ts')) as {
+    geheimnisDatei?: (s: { freigabe: QaFreigabe | null }, v: { verfuegbar(): boolean; verschluesseln(text: string): Uint8Array }) => Uint8Array;
+  };
+  const geheimnisDatei = modulZugang.geheimnisDatei;
+  const f: QaFreigabe = { token: 'jm1.test-freigabe-p30.sig', bis: BIS_72, ziel: EVENT, konto: KONTO };
+  const s = {
+    publicJwk: { kty: 'RSA', n: 'test-n', e: 'AQAB' }, privateJwk: { kty: 'RSA', n: 'test-n', e: 'AQAB', d: 'test-privat-d' },
+    proxyKey: 'test-alter-key-p30', freigabe: f,
+  };
+  const zu = (t: string): Uint8Array => new TextEncoder().encode(`v1:${Buffer.from(t, 'utf8').toString('base64').split('').reverse().join('')}`);
+  const text = (b: Uint8Array): string => new TextDecoder().decode(b);
+  const mit = geheimnisDatei ? text(geheimnisDatei(s, { verfuegbar: () => true, verschluesseln: zu })) : '';
+  eq([mit === text(zu(JSON.stringify(s))), ['jm1.', 'test-freigabe-p30', 'test-privat-d', 'test-alter-key-p30'].filter((x) => mit.includes(x))], [true, []],
+    'P30 G6: mit Schlüsselspeicher steht in qa.cloud.secret nur die Ausgabe des Verschlüsselers (weder Freigabe noch Schlüssel noch alter Key im Klartext)');
+  const ohne = geheimnisDatei ? text(geheimnisDatei(s, { verfuegbar: () => false, verschluesseln: () => { throw new Error('kein Schlüsselspeicher'); } })) : '';
+  eq([ohne.includes('jm1.'), ohne.includes('test-freigabe-p30'), ohne ? (JSON.parse(ohne) as { freigabe: unknown }).freigabe : 'fehlt'], [false, false, null],
+    'P30 G6: ohne Schlüsselspeicher bleibt die Freigabe nur im Speicher (qa.cloud.secret ohne Freigabe; Schlüsselpaar und alter Key wie in Q&A 0.5.0)');
+  eq(ausschnitt(quelle('../src/main/cloud.ts'), 'export function saveSecrets(', '\n}\n').includes('  writeFileSync(secretPath(userDataDir), geheimnisDatei(s, {'), true,
+    'P30 G6: saveSecrets schreibt nur, was geheimnisDatei liefert (safeStorage als Verschlüsseler)');
+}
+
 // ── Ende der Fälle ──
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
 process.exit(failed === 0 ? 0 : 1);

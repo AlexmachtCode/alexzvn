@@ -193,4 +193,18 @@ export function zugangsZeile(l: QaZugangsLage): { text: string; ton: 'ok' | 'war
   return { text: '', ton: 'warn' };
 }
 
+/** Verschlüsseler für qa.cloud.secret (cloud.ts: safeStorage; im Test eine Attrappe). */
+export interface QaVerschluesseler { verfuegbar(): boolean; verschluesseln(text: string): Uint8Array }
+
+/**
+ * Inhalt von qa.cloud.secret (G6, Spec 12: kein dauerhaftes Geheimnis im Klartext auf dem Rechner; Nachbesserung Abschluss,
+ * sicherheit:12). Mit Schlüsselspeicher geht alles nur verschlüsselt auf die Platte. Ohne bleibt die Freigabe nur im Speicher
+ * (nach einem Neustart holt Q&A eine neue beim Launcher, der ohne Schlüsselspeicher ohnehin niemanden anmeldet); Schlüsselpaar
+ * und alter Key stehen dann wie in Q&A 0.5.0 im Klartext (Bestand #166).
+ */
+export function geheimnisDatei<T extends { freigabe: QaFreigabe | null }>(s: T, v: QaVerschluesseler): Uint8Array {
+  if (v.verfuegbar()) return v.verschluesseln(JSON.stringify(s));
+  return new TextEncoder().encode(JSON.stringify({ ...s, freigabe: null }));
+}
+
 // ── Ende des Moduls ──
