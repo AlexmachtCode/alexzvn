@@ -3,7 +3,8 @@ import type {
   AdminAktion, AdminAktionErgebnis, AdminUebersicht, AnmeldeSchritt, KontoAnsicht, KontoFehlerCode,
 } from '@shared/konto';
 import { sitzungGueltig } from '@/lib/konto-anzeige';
-import { ADMIN_TEXTE } from '@/lib/admin-ansicht';
+import type { JmpsApi } from '@shared/types';
+import { ADMIN_TEXTE, fehlerText } from '@/lib/admin-ansicht';
 import { useTools } from './tools';
 
 // Anmeldung im Launcher (Plan P24–P27): Store des Kontos, dünn über IPC (10.7). Was angezeigt wird, entscheiden die reinen
@@ -44,6 +45,8 @@ interface KontoStore {
   schliesseAdmin: () => void;
   adminLaden: () => Promise<void>;
   adminAktion: (a: AdminAktion) => Promise<{ ok: true; ergebnis: AdminAktionErgebnis } | { ok: false; code: KontoFehlerCode }>;
+  /** P27: Discovery für den Reiter „iveo-Events“ (konto:iveoEventsLaden) — das Token geht nur durch, der Store hält es nie. */
+  iveoEventsLaden: JmpsApi['kontoIveoEventsLaden'];
   // ── weitere Felder (P25–P27) ──
 }
 
@@ -167,6 +170,14 @@ export const useKonto = create<KontoStore>((set, get) => ({
       return { ok: true, ergebnis: r.ergebnis };
     } catch {
       return { ok: false, code: 'netz' };
+    }
+  },
+  // P27 (Spec 6.4, EP13): Events zu einem Token laden; nichts davon landet im Store (kein set).
+  iveoEventsLaden: async (a) => {
+    try {
+      return await window.jmps.kontoIveoEventsLaden(a);
+    } catch {
+      return { ok: false, fehler: fehlerText('netz') };
     }
   },
   // ── weitere Aktionen (P25–P27) ──

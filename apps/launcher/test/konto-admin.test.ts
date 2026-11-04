@@ -6,6 +6,7 @@ import type { AdminUebersicht, AdminZugang, KontoAnsicht, KontoFehlerCode, Konto
 import {
   ADMIN_TEXTE, adminKnopfSichtbar, einladeFormular, einladungsAnzeige, fehlerText, feldDatum, formularAusZugang, ladeFehlerText,
   loeschFrage, verlaengertBis, zugangDetails, zugangFormular, zugangZeilen,
+  REITER_TEXTE, alteLauncherZeilen, altKeyText, anfrageFreigabe, anfrageZeilen, geraeteZeilen, iveoHinterlegen, iveoZeilen,
 } from '../src/renderer/src/lib/admin-ansicht';
 import { datumText } from '../src/renderer/src/lib/konto-anzeige';
 
@@ -195,6 +196,119 @@ function ansicht(zustand: KontoZustand, s: KontoStand | null): KontoAnsicht {
   ck(`P26 G9: lib/admin-ansicht.ts — aus Aliasen nur import type, zur Laufzeit nur src/shared/konto.ts und die Nachbar-Bibliotheken (${importe.length} Import-Zeilen)`,
     importe.length >= 4 && importe.every((z) => z.startsWith('import type ') || /from '(\.\.\/\.\.\/\.\.\/shared\/konto|\.\/konto-anzeige|\.\/konto-dialog)';$/.test(z))
     && !/window\.|localStorage|from 'react'|from 'zustand'/.test(q));
+}
+
+// --- P27 6.4, EP13: Reiter „iveo-Events“ — Zeilen ohne Token, Hinterlegen mit Prüfung (M30–M35) ---------------------------
+{
+  // Selbst wenn eine Übersicht ein Token trüge (Fehler auf der Serverseite), zeigt die Zeile es nicht (6.4: nie wieder angezeigt).
+  const mitLeck = uebersicht([]);
+  mitLeck.iveo = [
+    { key: 'https://app.my-iveo.de/api/v1|cop31', basis: 'https://app.my-iveo.de/api/v1', slug: 'cop31', name: 'COP31', am: JETZT - TAG, von: 'Maria S.', token: 'test-nie-zeigen' } as AdminUebersicht['iveo'][number],
+    { key: 'https://app.my-iveo.de/api/v1|amb', basis: 'https://app.my-iveo.de/api/v1', slug: 'amb', name: 'Ambiente', am: JETZT, von: 'Ole', token: 'test-nie-zeigen' } as AdminUebersicht['iveo'][number],
+  ];
+  const zeilen = iveoZeilen(mitLeck);
+  ck('P27 6.4: iveo-Zeilen nach Name mit Event, Basis, hinterlegt am, von — nie mit Token',
+    JSON.stringify(zeilen.map((z) => `${z.event}|${z.am}|${z.von}`)) === JSON.stringify([`Ambiente|${datumText(JETZT)}|Ole`, `COP31|${datumText(JETZT - TAG)}|Maria S.`])
+    && !JSON.stringify(zeilen).includes('test-nie-zeigen'));
+  const ev = [{ slug: 'cop31', name: 'COP31' }, { slug: 'amb', name: 'Ambiente' }];
+  const h = (e: Parameters<typeof iveoHinterlegen>[0]): string => {
+    const r = iveoHinterlegen(e, 'https://app.my-iveo.de/api/v1');
+    return 'fehler' in r ? `fehler|${r.fehler}` : r.aktion === 'iveo-hinterlegen' ? `${r.aktion}|${r.basis}|${r.events.map((x) => x.slug).join(',')}|${r.token === 'test-token' ? 'Token' : 'anderes'}` : r.aktion;
+  };
+  kreuz('P27 6.4, M35: Hinterlegen — Token nötig, mindestens ein Event, leere Basis = Standard dieses Rechners', [
+    ['ohne Token', h({ basis: '', token: '  ', gewaehlt: ['cop31'], events: ev }), 'fehler|Füge das Token ein.'],
+    ['ohne Event', h({ basis: '', token: 'test-token', gewaehlt: [], events: ev }), 'fehler|Wähle mindestens ein Event.'],
+    ['Auswahl nicht in der Liste', h({ basis: '', token: 'test-token', gewaehlt: ['fremd'], events: ev }), 'fehler|Wähle mindestens ein Event.'],
+    ['gut, Standard', h({ basis: ' ', token: ' test-token ', gewaehlt: ['amb'], events: ev }), 'iveo-hinterlegen|https://app.my-iveo.de/api/v1|amb|Token'],
+    ['gut, eigene Basis', h({ basis: 'https://iveo.test/api/v1', token: 'test-token', gewaehlt: ['cop31', 'amb'], events: ev }), 'iveo-hinterlegen|https://iveo.test/api/v1|cop31,amb|Token'],
+  ]);
+}
+
+// --- P27 8 (2–4): Reiter „Anfragen“ (M40–M42) ------------------------------------------------------------------------------
+{
+  const u = uebersicht([]);
+  const anfrage = (id: string, jm: boolean, zustand: 'offen' | 'freigegeben' | 'abgelehnt', am: number): AdminUebersicht['anfragen'][number] => ({
+    id, kid: 'k1', name: 'Ext Erna', email: 'ext@partner.de', zweck: 'Gala', von: new Date(2026, 10, 10).getTime(), bis: new Date(2026, 10, 12, 23, 59, 59, 999).getTime(),
+    gid: 'g1', rechnerName: 'REGIE-01', jm, plattform: 'win', zustand, am,
+  });
+  u.anfragen = [anfrage('a2', false, 'offen', JETZT), anfrage('a1', true, 'offen', JETZT - TAG), anfrage('a3', true, 'abgelehnt', JETZT - 2 * TAG)];
+  kreuz('P27 8: offene Anfragen, älteste zuerst, M40 mit JM-Rechner, Warnung M41 nur für Nicht-JM-Rechner, Feld vorbelegt mit dem Ende', [
+    ['Zeilen', anfrageZeilen(u).map((z) => `${z.id}|${z.text}|${z.warnung}|${z.bisFeld}`).join(' / '), [
+      'a1|Ext Erna · Gala · 10.11.2026 bis 12.11.2026 · REGIE-01 (JM-Rechner)|null|2026-11-12',
+      'a2|Ext Erna · Gala · 10.11.2026 bis 12.11.2026 · REGIE-01 (kein JM-Rechner)|Achtung: kein JM-Rechner. Die Freigabe wirkt dort nicht.|2026-11-12',
+    ].join(' / ')],
+    ['keine offenen', String(anfrageZeilen(uebersicht([])).length), '0'],
+  ]);
+  const fr = (feld: string): string => {
+    const r = anfrageFreigabe('a1', feld);
+    return 'fehler' in r ? `fehler|${r.fehler}` : r.aktion === 'anfrage-freigeben' ? `${r.aktion}|${r.id}|${zeit(r.bis)}` : r.aktion;
+  };
+  kreuz('P27 8, EP15: „Freigeben bis …“ gilt bis Tagesende der Ortszeit', [
+    ['gut', fr('2026-11-12'), 'anfrage-freigeben|a1|12.11.2026 23:59:59.999'],
+    ['leer', fr(''), 'fehler|ungültige Anfrage'],
+  ]);
+}
+
+// --- P27 7, OF2, OFP2, EP9: Reiter „Geräte“ (M43–M47) -----------------------------------------------------------------------
+{
+  const u = uebersicht([zugang({ kid: 'k9', name: 'Maria Schmidt' })]);
+  u.geraete = [
+    { gid: 'g1', name: 'REGIE-01', plattform: 'win', arch: 'x64', version: '0.18.0', jm: true, ersterKontakt: JETZT - 9 * TAG, letzterKontakt: new Date(2026, 9, 21, 8, 30).getTime(), letztesKonto: 'k9' },
+    { gid: 'g2', name: 'MacBook-Ext', plattform: 'mac', arch: 'arm64', version: '0.18.0', jm: false, ersterKontakt: JETZT - TAG, letzterKontakt: new Date(2026, 9, 21, 9, 45).getTime(), letztesKonto: 'kx' },
+  ];
+  kreuz('P27 7: Geräte, zuletzt im Kontakt zuerst, mit Konto (Name), Kontakt (Datum und Uhrzeit), Version, Plattform, JM-Rechner', [
+    ['Zeilen', geraeteZeilen(u).map((g) => `${g.rechner}|${g.konto}|${g.kontakt}|${g.version}|${g.plattform}|${g.jm}`).join(' / '),
+      'MacBook-Ext|kx|21.10.2026 09:45|0.18.0|mac · arm64|false / REGIE-01|Maria Schmidt|21.10.2026 08:30|0.18.0|win · x64|true'],
+    ['keine Geräte', String(geraeteZeilen(uebersicht([])).length), '0'],
+  ]);
+  const mitFrist = (bis: string | null, diagnose: 'ohne-ende' | 'unlesbar' | null): string => {
+    const x = uebersicht([]);
+    x.altKey = { bis, diagnose, zeilen: [] };
+    return altKeyText(x);
+  };
+  kreuz('P27 EP9, M44: Frist des alten Schlüssels; ohne oder unlesbar als Diagnose „ohne Enddatum“', [
+    ['mit Datum', mitFrist('2026-12-01', null), 'Alter Schlüssel angenommen bis 01.12.2026.'],
+    ['ohne Ende', mitFrist(null, 'ohne-ende'), 'Alter Schlüssel ohne Enddatum angenommen.'],
+    ['unlesbar', mitFrist('kaputt', 'unlesbar'), 'Alter Schlüssel ohne Enddatum angenommen.'],
+  ]);
+  const alt = uebersicht([]);
+  alt.altKey.zeilen = [
+    { tag: '2026-10-20', gruppe: 'katalog', plattform: 'win/x64', anzahl: 12, zuletzt: new Date(2026, 9, 20, 17, 5).getTime() },
+    { tag: '2026-10-21', gruppe: 'qa', plattform: 'win/x64', anzahl: 3, zuletzt: new Date(2026, 9, 21, 9, 0).getTime() },
+  ];
+  kreuz('P27 OF2, OFP2: alte Launcher je Tag, Gruppe (M46) und Plattform, neueste zuerst, ohne IP (M45)', [
+    ['Zeilen', alteLauncherZeilen(alt).join(' / '), '21.10.2026 · Q&A extern · win/x64: 3 Anfragen, zuletzt 09:00 / 20.10.2026 · Katalog und Updates · win/x64: 12 Anfragen, zuletzt 17:05'],
+    ['keine', alteLauncherZeilen(uebersicht([])).join(' / '), 'Keine Anfragen mit dem alten Schlüssel.'],
+  ]);
+}
+
+// --- P27 9.4: Texte M30–M47 wörtlich, ohne ASCII-Anführungszeichen -----------------------------------------------------------
+{
+  const T = REITER_TEXTE;
+  kreuz('P27 9.4: M30–M47 wörtlich', [
+    ['M30', [T.spalteEvent, T.spalteBasis, T.spalteAm, T.spalteVon].join(' / '), 'Event / Basis / hinterlegt am / von'],
+    ['M31', [T.feldBasis, T.feldToken, T.eventsLaden, T.hinterlegen].join(' / '), 'Basis-URL / Token / Events laden / Hinterlegen'],
+    ['M32', T.tokenHinweis, 'Das Token wird nach dem Hinterlegen nie wieder angezeigt, nur ersetzt oder entfernt.'],
+    ['M33', `${T.ersetzen} / ${T.entfernen}`, 'Ersetzen / Entfernen'],
+    ['M34', T.frageEntfernen, 'Launcher, die das Token schon haben, behalten es bis zu ihrem nächsten Start.'],
+    ['M35', [T.keineEvents, T.eventWaehlen, T.tokenFehlt].join(' / '), 'Noch kein Event hinterlegt. / Wähle mindestens ein Event. / Füge das Token ein.'],
+    ['M40', `${T.anfrage('N', 'Z', 'D1', 'D2', 'R', true)} / ${T.anfrage('N', 'Z', 'D1', 'D2', 'R', false)}`, 'N · Z · D1 bis D2 · R (JM-Rechner) / N · Z · D1 bis D2 · R (kein JM-Rechner)'],
+    ['M41', T.warnungKeinJm, 'Achtung: kein JM-Rechner. Die Freigabe wirkt dort nicht.'],
+    ['M42', [T.freigeben, T.ablehnen, T.keineAnfragen].join(' / '), 'Freigeben bis … / Ablehnen / Keine offenen Anfragen.'],
+    ['M43', [T.spalteRechner, T.spalteKonto, T.spalteKontakt, T.spalteVersion, T.spaltePlattform, T.spalteJm].join(' / '), 'Rechner / zuletzt angemeldet / letzter Kontakt / Version / Plattform / JM-Rechner'],
+    ['M44', `${T.altKeyBis('D')} / ${T.altKeyOhneEnde}`, 'Alter Schlüssel angenommen bis D. / Alter Schlüssel ohne Enddatum angenommen.'],
+    ['M45', [T.alteLauncher, T.alteZeile('D', 'G', 'P', 4, 'Z'), T.keineAlten].join(' / '), 'Alte Launcher (ohne Anmeldung) / D · G · P: 4 Anfragen, zuletzt Z / Keine Anfragen mit dem alten Schlüssel.'],
+    ['M46', Object.values(T.gruppe).join(' / '), 'Katalog und Updates / Q&A extern'],
+    ['M47', T.connect, 'Für Connect gilt der alte Schlüssel weiter, bis Connect die Anmeldung nutzt.'],
+  ]);
+  const alle: string[] = [];
+  const sammle = (x: unknown): void => {
+    if (typeof x === 'string') alle.push(x);
+    else if (typeof x === 'function') alle.push(String((x as (...a: unknown[]) => string)('A', 'B', 'C', 'D', 'E', true)));
+    else if (x && typeof x === 'object') Object.values(x).forEach(sammle);
+  };
+  sammle(REITER_TEXTE);
+  ck(`P27 G2: keine ASCII-Anführungszeichen in den Texten der Reiter (${alle.length} Zeichenketten)`, alle.length >= 30 && alle.every((t) => !t.includes('"')));
 }
 
 // ── Ende der Fälle (Admin-Maske) ──

@@ -4,11 +4,17 @@ import { ADMIN_TEXTE, adminKnopfSichtbar, ladeFehlerText } from '@/lib/admin-ans
 import { KONTO_TEXTE } from '@/lib/konto-dialog';
 import { useKonto } from '@/store/konto';
 import { AdminZugaenge } from './AdminZugaenge';
+import { AdminIveo } from './AdminIveo';
+import { AdminAnfragen } from './AdminAnfragen';
+import { AdminGeraete } from './AdminGeraete';
 
 type Reiter = 'zugaenge' | 'iveo' | 'anfragen' | 'geraete';
 /** M2: Reiter der Admin-Maske (Aufbau A, Spec 7). */
 const REITER: Array<{ key: Reiter; label: string }> = [
   { key: 'zugaenge', label: ADMIN_TEXTE.reiter.zugaenge },
+  { key: 'iveo', label: ADMIN_TEXTE.reiter.iveo },
+  { key: 'anfragen', label: ADMIN_TEXTE.reiter.anfragen },
+  { key: 'geraete', label: ADMIN_TEXTE.reiter.geraete },
 ];
 
 /**
@@ -82,6 +88,9 @@ export function AdminModal(): React.JSX.Element | null {
             )}
             {!daten && !admin.fehler && <p className="mt-4 text-xs text-[var(--muted-foreground)]">{ADMIN_TEXTE.laedt}</p>}
             {daten && reiter === 'zugaenge' && <AdminZugaenge daten={daten} />}
+            {daten && reiter === 'iveo' && <AdminIveo daten={daten} />}
+            {daten && reiter === 'anfragen' && <AdminAnfragen daten={daten} />}
+            {daten && reiter === 'geraete' && <AdminGeraete daten={daten} />}
           </div>
 
           <div className="mt-4 flex shrink-0 items-center justify-end gap-3 border-t border-[var(--border)] pt-4">

@@ -3454,6 +3454,50 @@ function dialogBefunde(q: string): string[] {
   ck('P26: die Admin-Maske hängt in App.tsx', app.includes('      <AdminModal />'));
 }
 
+// --- Anmeldung P27 (Spec 7, 6.4, 8 (2–4); OF2, OFP2, EP13): Reiter „iveo-Events“, „Anfragen“, „Geräte“ ----------------------
+// Zeilen, Prüfungen und Texte laufen echt in test/konto-admin.test.ts; hier die Verdrahtung und der Weg des iveo-Tokens.
+{
+  const maske = quelleLf('../src/renderer/src/components/AdminModal.tsx');
+  const iveo = quelleLfOderLeer('../src/renderer/src/components/AdminIveo.tsx');
+  const anfragen = quelleLfOderLeer('../src/renderer/src/components/AdminAnfragen.tsx');
+  const geraete = quelleLfOderLeer('../src/renderer/src/components/AdminGeraete.tsx');
+  const store = quelleLf('../src/renderer/src/store/konto.ts');
+  const huelle = quelleLf('../src/main/konto/huelle.ts');
+  const reiter = ['zugaenge', 'iveo', 'anfragen', 'geraete'];
+  ck('P27 7, M2: vier Reiter in der Reihenfolge der Spec, je Reiter genau eine Ansicht',
+    reiter.every((r) => maske.includes(`  { key: '${r}', label: ADMIN_TEXTE.reiter.${r} },`))
+    && maske.indexOf("key: 'zugaenge'") < maske.indexOf("key: 'iveo'") && maske.indexOf("key: 'iveo'") < maske.indexOf("key: 'anfragen'")
+    && maske.indexOf("key: 'anfragen'") < maske.indexOf("key: 'geraete'")
+    && ['AdminZugaenge', 'AdminIveo', 'AdminAnfragen', 'AdminGeraete'].every((k, i) =>
+      maske.includes(`{daten && reiter === '${reiter[i]}' && <${k} daten={daten} />}`)));
+  const disc = funktionsKoerper(huelle, 'async function iveoEventsLaden(roh: unknown): Promise<KontoIveoEventsAntwort> {');
+  ck('P27 6.4, 10.7: konto:iveoEventsLaden gibt nur Slug und Name zurück, nie das Token, und speichert nichts',
+    disc.includes('    return { ok: true, events: events.map((e) => ({ slug: e.slug, name: e.name })) };')
+    && !/return[^;]*\btoken\b/.test(disc) && !/schreib|setze|speicher/i.test(ohneKommentare(disc)));
+  ck('P27 6.4, G4: der Store reicht die Discovery nur durch — kein set, das Token liegt nie im Store',
+    funktionsKoerper(store, 'iveoEventsLaden: async (a) => {').includes('      return await window.jmps.kontoIveoEventsLaden(a);')
+    && !/\bset\(/.test(funktionsKoerper(store, 'iveoEventsLaden: async (a) => {')));
+  ck('P27 6.4, M32: Token nur im Passwortfeld ohne Autovervollständigen, nach dem Hinterlegen sofort leer, kein direkter IPC-Aufruf',
+    iveo.includes('<input type="password" autoComplete="off" className={feldCls} value={token}')
+    && funktionsKoerper(iveo, 'const hinterlegen = async (): Promise<void> => {').includes("      if (r.ok) {\n        // M32: nach dem Hinterlegen nie wieder angezeigt — das Feld ist sofort leer.\n        setToken('');")
+    && !iveo.includes('window.jmps') && iveo.includes('const a = iveoHinterlegen({ basis, token, gewaehlt, events }, standard);'));
+  ck('P27 6.4, M34: Entfernen nur nach der Rückfrage M34',
+    iveo.includes('<p>{REITER_TEXTE.frageEntfernen}</p>') && iveo.includes("const r = await aktion({ aktion: 'iveo-entfernen', key });")
+    && iveo.includes('onClick={() => void entfernen(zeile.key)}') && !iveo.includes('onClick={() => void entfernen(z.key)}'));
+  ck('P27 8, M41, EP15: Anfragen — Warnung für Nicht-JM-Rechner, „Freigeben bis …“ über den reinen Helfer (Tagesende), Ablehnen',
+    anfragen.includes('{z.warnung && ') && anfragen.includes('const a = anfrageFreigabe(z.id, feld);')
+    && anfragen.includes("onClick={() => void fuehreAus({ aktion: 'anfrage-ablehnen', id: z.id })}"));
+  // EP34 (Nachbesserung Block D, spec:4): wer hier freigibt, liest, dass Connect die Freigabe erst mit Teil 2 nutzt.
+  ck('P27 EP34, M48: der Reiter Anfragen sagt über der Liste, dass Connect Zoom-Freigaben erst mit einem Update nutzt',
+    anfragen.includes('      <p className="text-[11px] text-[var(--muted-foreground)]">{ADMIN_TEXTE.connectTeil1}</p>')
+    && anfragen.indexOf('{ADMIN_TEXTE.connectTeil1}') < anfragen.indexOf('{zeilen.map((z) => {'));
+  ck('P27 7, OF2, EP9: Geräte — Häkchen JM-Rechner als Aktion, Frist des alten Schlüssels, Hinweis zu Connect, alte Launcher',
+    geraete.includes("const r = await aktion({ aktion: 'geraet-markieren', gid, jm });") && geraete.includes('{altKeyText(daten)}')
+    && geraete.includes('{REITER_TEXTE.connect}') && geraete.includes('{alteLauncherZeilen(daten).map((z) => ('));
+  ck('P27 G11: die Reiter bringen keinen eigenen Scrollbereich mit (einer je Dialog, in der Maske)',
+    [iveo, anfragen, geraete].every((q) => q.length > 0 && !q.includes('overflow-y-auto')));
+}
+
 // ── Ende der Fälle (Anmeldung) ──
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

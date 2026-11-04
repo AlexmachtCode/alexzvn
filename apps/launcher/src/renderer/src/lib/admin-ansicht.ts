@@ -3,7 +3,7 @@ import type {
 } from '@shared/konto';
 import { STUFE_TEXT } from '../../../shared/konto';
 import { datumText, KOPF_TEXTE, sitzungGueltig } from './konto-anzeige';
-import { ANMELDE_TEXTE, KONTO_TEXTE, tagesGrenze } from './konto-dialog';
+import { ANMELDE_TEXTE, KONTO_TEXTE, tagesGrenze, zeitText } from './konto-dialog';
 
 // Anmeldung im Launcher (Plan P26, P27; Spec 7, 4, 5, 8; EP15, EP16, OFP4): Zeilen, Formulare und Texte der Admin-Maske als
 // REINE Funktionen, getestet in test/konto-admin.test.ts. Datumsfelder gelten bis Tagesende der Ortszeit (EP15).
@@ -176,4 +176,97 @@ export function ladeFehlerText(code: KontoFehlerCode): string {
   return ADMIN_TEXTE.ladeFehler(fehlerText(code).replace(/\.$/, ''));
 }
 
-// ── Ende der Admin-Ansicht (P27 fügt davor ein) ──
+// ── P27: Reiter „iveo-Events“, „Anfragen“, „Geräte“ (Spec 7, 6.4, 8; OF2, OFP2; EP9, EP13) ─────────────────────────────
+
+/** Texte M30–M47 (Texttabelle 9.4, wörtlich). */
+export const REITER_TEXTE = {
+  /** M30 */ spalteEvent: 'Event', spalteBasis: 'Basis', spalteAm: 'hinterlegt am', spalteVon: 'von',
+  /** M31 */ feldBasis: 'Basis-URL', feldToken: 'Token', eventsLaden: 'Events laden', hinterlegen: 'Hinterlegen',
+  /** M32 */ tokenHinweis: 'Das Token wird nach dem Hinterlegen nie wieder angezeigt, nur ersetzt oder entfernt.',
+  /** M33 */ ersetzen: 'Ersetzen', entfernen: 'Entfernen',
+  /** M34 */ frageEntfernen: 'Launcher, die das Token schon haben, behalten es bis zu ihrem nächsten Start.',
+  /** M35 */ keineEvents: 'Noch kein Event hinterlegt.', eventWaehlen: 'Wähle mindestens ein Event.', tokenFehlt: 'Füge das Token ein.',
+  /** M40 */ anfrage: (name: string, zweck: string, von: string, bis: string, rechner: string, jm: boolean): string =>
+    `${name} · ${zweck} · ${von} bis ${bis} · ${rechner} (${jm ? 'JM-Rechner' : 'kein JM-Rechner'})`,
+  /** M41 */ warnungKeinJm: 'Achtung: kein JM-Rechner. Die Freigabe wirkt dort nicht.',
+  /** M42 */ freigeben: 'Freigeben bis …', ablehnen: 'Ablehnen', keineAnfragen: 'Keine offenen Anfragen.',
+  /** M43 */ spalteRechner: 'Rechner', spalteKonto: 'zuletzt angemeldet', spalteKontakt: 'letzter Kontakt', spalteVersion: 'Version',
+  spaltePlattform: 'Plattform', spalteJm: 'JM-Rechner',
+  /** M44 */ altKeyBis: (d: string): string => `Alter Schlüssel angenommen bis ${d}.`, altKeyOhneEnde: 'Alter Schlüssel ohne Enddatum angenommen.',
+  /** M45 */ alteLauncher: 'Alte Launcher (ohne Anmeldung)',
+  alteZeile: (tag: string, gruppe: string, plattform: string, n: number, zeit: string): string => `${tag} · ${gruppe} · ${plattform}: ${n} Anfragen, zuletzt ${zeit}`,
+  keineAlten: 'Keine Anfragen mit dem alten Schlüssel.',
+  /** M46 */ gruppe: { katalog: 'Katalog und Updates', qa: 'Q&A extern' } as Readonly<Record<'katalog' | 'qa', string>>,
+  /** M47 */ connect: 'Für Connect gilt der alte Schlüssel weiter, bis Connect die Anmeldung nutzt.',
+} as const;
+
+/** M30: hinterlegte iveo-Events nach Name — ohne Token (das gibt die Übersicht ohnehin nie heraus, 6.4). */
+export function iveoZeilen(u: AdminUebersicht): Array<{ key: string; event: string; slug: string; basis: string; am: string; von: string }> {
+  return [...u.iveo]
+    .sort((x, y) => x.name.localeCompare(y.name, 'de') || x.key.localeCompare(y.key))
+    .map((e) => ({ key: e.key, event: e.name || e.slug, slug: e.slug, basis: e.basis, am: datumText(e.am), von: e.von }));
+}
+
+/**
+ * Spec 6.4 (EP13): Formular „Hinterlegen“ → Aktion. Token nötig (M35), mindestens ein Event (M35); leere Basis = Standard
+ * dieses Rechners. Das Token geht nur in die Aktion, nie in eine Anzeige.
+ */
+export function iveoHinterlegen(e: { basis: string; token: string; gewaehlt: string[]; events: Array<{ slug: string; name: string }> }, standard: string): AdminAktion | { fehler: string } {
+  const token = e.token.trim();
+  if (!token) return { fehler: REITER_TEXTE.tokenFehlt };
+  const events = e.events.filter((x) => e.gewaehlt.includes(x.slug)).map((x) => ({ slug: x.slug, name: x.name }));
+  if (events.length === 0) return { fehler: REITER_TEXTE.eventWaehlen };
+  return { aktion: 'iveo-hinterlegen', basis: e.basis.trim() || standard, events, token };
+}
+
+/** Spec 8 (2–4): offene Zoom-Anfragen, älteste zuerst, mit M40 und der Warnung M41 für Nicht-JM-Rechner. */
+export function anfrageZeilen(u: AdminUebersicht): Array<{ id: string; text: string; warnung: string | null; bisFeld: string }> {
+  return u.anfragen
+    .filter((a) => a.zustand === 'offen')
+    .sort((x, y) => x.am - y.am)
+    .map((a) => ({
+      id: a.id,
+      text: REITER_TEXTE.anfrage(a.name || a.email, a.zweck, datumText(a.von), datumText(a.bis), a.rechnerName, a.jm),
+      warnung: a.jm ? null : REITER_TEXTE.warnungKeinJm,
+      bisFeld: feldDatum(a.bis),
+    }));
+}
+
+/** M42 „Freigeben bis …“: Datumsfeld → Aktion, bis Tagesende der Ortszeit (EP15). */
+export function anfrageFreigabe(id: string, feld: string): AdminAktion | { fehler: string } {
+  const bis = tagesGrenze(feld, true);
+  return bis === null ? { fehler: ADMIN_TEXTE.ungueltig } : { aktion: 'anfrage-freigeben', id, bis };
+}
+
+/** M43 (Spec 7): Geräte, zuletzt im Kontakt zuerst; „zuletzt angemeldet“ als Name des Kontos, sonst die Kennung. */
+export function geraeteZeilen(u: AdminUebersicht): Array<{ gid: string; rechner: string; konto: string; kontakt: string; version: string; plattform: string; jm: boolean }> {
+  const konto = (k: string | null): string => {
+    if (k === null) return '';
+    const z = u.zugaenge.find((x) => x.kid === k);
+    return z ? z.name || z.email : k;
+  };
+  return [...u.geraete]
+    .sort((x, y) => y.letzterKontakt - x.letzterKontakt)
+    .map((g) => ({
+      gid: g.gid, rechner: g.name, konto: konto(g.letztesKonto), kontakt: `${datumText(g.letzterKontakt)} ${zeitText(g.letzterKontakt)}`,
+      version: g.version, plattform: `${g.plattform} · ${g.arch}`, jm: g.jm,
+    }));
+}
+
+/** M44 (EP9): Frist des alten Schlüssels; ohne oder mit unlesbarem Enddatum die Diagnose „ohne Enddatum“. */
+export function altKeyText(u: AdminUebersicht): string {
+  const m = u.altKey.bis === null ? null : /^(\d{4})-(\d{2})-(\d{2})/.exec(u.altKey.bis);
+  if (u.altKey.diagnose !== null || !m) return REITER_TEXTE.altKeyOhneEnde;
+  return REITER_TEXTE.altKeyBis(`${m[3]}.${m[2]}.${m[1]}`);
+}
+
+/** M45, M46 (OF2, OFP2): Anfragen alter Launcher je Tag, Gruppe und Plattform, neueste zuerst; ohne IP. */
+export function alteLauncherZeilen(u: AdminUebersicht): string[] {
+  const zeilen = [...u.altKey.zeilen].sort((x, y) => y.tag.localeCompare(x.tag) || y.zuletzt - x.zuletzt);
+  if (zeilen.length === 0) return [REITER_TEXTE.keineAlten];
+  return zeilen.map((z) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(z.tag);
+    const tag = m ? `${m[3]}.${m[2]}.${m[1]}` : z.tag;
+    return REITER_TEXTE.alteZeile(tag, REITER_TEXTE.gruppe[z.gruppe], z.plattform, z.anzahl, zeitText(z.zuletzt));
+  });
+}
