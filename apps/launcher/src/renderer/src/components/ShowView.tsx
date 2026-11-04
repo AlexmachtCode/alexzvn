@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Button, Card } from '@jm/ui';
 import { useTools } from '@/store/tools';
+import { IVEO_TEXTE } from '@/lib/konto-zugang';
 
 /** SVGs identisch zu den Topbar-Icons (Header.tsx), damit die Optik matcht. */
 const ICON = {
@@ -127,7 +128,7 @@ export function ShowView(): React.JSX.Element {
             title: 'Side Events',
             description: iveoActive.canSwitch
               ? 'Zwischen den Side Events des Tages live umschalten — Timer & Titler übernehmen Ablauf & Speaker.'
-              : 'Side Events des Tages ansehen (Live-Umschalten nur am Rechner mit dem iveo-Token).',
+              : IVEO_TEXTE.ansehen,
             actionLabel: 'Side Events',
             onClick: openSideEvents,
             variant: 'accent' as const,

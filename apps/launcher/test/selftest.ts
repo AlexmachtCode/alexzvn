@@ -898,7 +898,8 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   const modal = quelleLf('../src/renderer/src/components/SettingsModal.tsx');
   const einst = quelleLf('../src/main/settings.ts');
   const typen = quelleLf('../src/shared/types.ts');
-  const T5 = 'iveo-Eventplattform (#11): Basis-URL der API. Leer = Standard (Production). Das Token ist pro Event und wird beim Anlegen einer Show eingetragen — es liegt verschlüsselt hier und nie in der Show-Datei.';
+  // Anmeldung P28: I10 ersetzt T5 (die Tokens liegen zentral, im Launcher nur im Speicher).
+  const T5 = 'iveo-Eventplattform (#11): Basis-URL der API. Leer = Standard (Production). Die Tokens hinterlegt ein Admin zentral; nach der Anmeldung hat der Launcher sie nur im Speicher, nie in der Show-Datei.';
   const T6 = 'https://app.my-iveo.de/api/v1';
   const T9_ANFANG = 'Standard für neue Bindungen und Shows ohne Adresse: ';
   const iEffekt = modal.indexOf("  useEffect(() => {\n    if (open) setIveoBaseUrl(settings?.iveoBaseUrlEingetragen ?? '');\n  }, [open, settings]);");
@@ -907,7 +908,7 @@ function funktionsKoerper(quelle: string, kopf: string): string {
     iEffekt > 0 && iReturn > 0 && iEffekt < iReturn);
   ck('P25 7.2: … das Feld startet nicht mehr mit der wirksamen Adresse (kein useState(settings?.iveoBaseUrl …))',
     modal.includes("const [iveoBaseUrl, setIveoBaseUrl] = useState('');") && !modal.includes('useState(settings?.iveoBaseUrl'));
-  ck('P25 T5: Hinweis wörtlich als Konstante, im Modal gezeigt',
+  ck('P25 T5, Anmeldung P28 I10: Hinweis wörtlich als Konstante, im Modal gezeigt',
     modal.includes(`const TEXT_IVEO_HINWEIS =\n  '${T5}';`) && modal.includes('>{TEXT_IVEO_HINWEIS}</p>'));
   ck('P25 T6: Platzhalter wörtlich als Konstante, am Feld',
     modal.includes(`const TEXT_IVEO_PLATZHALTER = '${T6}';`) && modal.includes('placeholder={TEXT_IVEO_PLATZHALTER}'));
@@ -942,12 +943,10 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   const iToken = binden.indexOf('iveoTokenZumBinden(');
   ck('P26 EP1, Anmeldung P23 IV4: bindIveoEvent normalisiert die Adresse VOR dem Token-Rückfall (iveoTokenZumBinden), in eigenem try mit ok:false über toClientError',
     iNorm > 0 && iCatch > iNorm && iToken > iCatch && binden.includes('iveoTokenZumBinden(event, genutzteAdresse)'));
-  ck('P26 EP1: die Prüfung „gemerkter Token vorhanden?“ fängt eine Ablehnung bei ungültiger Adresse (kein Absturz, Merker false, Adressfehler gemerkt)',
-    /hasIveoBaseToken\(iveoBaseUrl\.trim\(\) \|\| undefined\)[\s\S]*?\.catch\(\(\) => \{\n        if \(cancelled\) return;\n        setIveoBaseTokenSaved\(false\);\n        setIveoAdresseUngueltig\(true\);/.test(editor));
-  ck('P26 EP1: beide Wächter (Events laden, Binden) lassen bei ungültiger Adresse an Main durch — Main antwortet mit dem T8-Text, nicht „Token erforderlich“',
-    editor.includes('if (!iveoToken.trim() && !iveoBaseTokenSaved && !iveoAdresseUngueltig) {') &&
-      editor.includes('if ((!iveoToken.trim() && !iveoBaseTokenSaved && !iveoAdresseUngueltig) || !event) {') &&
-      editor.includes('setIveoAdresseUngueltig(false);'));
+  // Anmeldung P28 (Spec 6.4, EP13): der Editor fragt kein Token mehr ab und prüft keins — die Events kommen aus dem Konto, das
+  // Token nimmt der Main beim Binden aus dem Speicher (IV4); eine ungültige Adresse meldet der Main mit dem T8-Text.
+  ck('P26 EP1, Anmeldung P28: kein Token-Merker und keine Token-Wächter mehr im Editor (hasIveoBaseToken, iveoAdresseUngueltig)',
+    !editor.includes('hasIveoBaseToken') && !editor.includes('iveoAdresseUngueltig') && !editor.includes('iveoBaseTokenSaved'));
   ck('P26 EP1: discoverIveoEvents normalisiert die Adresse VOR dem Token-Fallback in eigenem try (T8 auch bei leerem Token-Feld)',
     (() => {
       const k = funktionsKoerper(sync, 'export async function discoverIveoEvents(input: IveoDiscoverInput): Promise<IveoDiscoverResult> {');
@@ -959,17 +958,17 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   ck('P26 7.4: normalizeIveoBaseUrl kommt aus @jm/iveo', /import \{[^}]*\n  normalizeIveoBaseUrl,\n[^}]*\} from '@jm\/iveo';/.test(sync));
   ck('P26 7.4: IveoBindResult trägt baseUrl?: string',
     funktionsKoerper(typen, 'export interface IveoBindResult {').includes('\n  baseUrl?: string;'));
-  ck('P26 7.4: die neue Bindung trägt bindungsAdresse(res.baseUrl, iveoBaseUrl), nicht nur das Feld',
-    editor.includes('        ...bound,\n        baseUrl: bindungsAdresse(res.baseUrl, iveoBaseUrl),'));
+  ck('P26 7.4, Anmeldung P28: die neue Bindung trägt bindungsAdresse(res.baseUrl, gewaehlt.basis) — die Basis des gewählten Events',
+    editor.includes('        ...bound,\n        baseUrl: bindungsAdresse(res.baseUrl, gewaehlt.basis),'));
   const laden = funktionsKoerper(editor, '  const loadForEdit = async (): Promise<void> => {');
   const iReset = laden.indexOf('    resetForm();');
   ck('P26 7.4: loadForEdit füllt das Feld nach resetForm() mit editorAdresseAusShow(show)',
     iReset > 0 && laden.indexOf('    setIveoBaseUrl(editorAdresseAusShow(show));') > iReset);
-  ck('P26 T7: Platzhalter aus basisUrlPlatzhalter(settings?.iveoBaseUrl), kein „Staging“ mehr im Editor',
-    editor.includes('placeholder={basisUrlPlatzhalter(settings?.iveoBaseUrl)}') && !/staging/i.test(editor));
-  const iSettings = editor.indexOf('  const settings = useTools((s) => s.settings);');
-  ck('P26 T7: der Editor liest die Einstellungen aus dem Store, vor dem frühen return',
-    iSettings > 0 && iSettings < editor.indexOf('  if (!open) return null;'));
+  ck('P26 T7, Anmeldung P28: kein Basis-URL-Feld mehr im Editor (die Basis kommt mit dem Event aus dem Konto), kein „Staging“',
+    !editor.includes('basisUrlPlatzhalter') && !editor.includes('onChange={(e) => setIveoBaseUrl(') && !/staging/i.test(editor));
+  const iKonto = editor.indexOf('  const ansicht = useKonto((s) => s.ansicht);');
+  ck('P26 T7, Anmeldung P28: der Editor liest die Ansicht des Kontos aus dem Store, vor dem frühen return',
+    iKonto > 0 && iKonto < editor.indexOf('  if (!open) return null;'));
 }
 
 // --- iveo-Paket P27 (Spec 5.9, E8, T1): die Meldung nach „Ablauf übernehmen“ baut bindMeldung -----------------------
@@ -3496,6 +3495,42 @@ function dialogBefunde(q: string): string[] {
     && geraete.includes('{REITER_TEXTE.connect}') && geraete.includes('{alteLauncherZeilen(daten).map((z) => ('));
   ck('P27 G11: die Reiter bringen keinen eigenen Scrollbereich mit (einer je Dialog, in der Maske)',
     [iveo, anfragen, geraete].every((q) => q.length > 0 && !q.includes('overflow-y-auto')));
+}
+
+// --- Anmeldung P28 (Spec 3, 6.4; EP12, EP13, EP14; OFP3): Einstellungen und Show-Editor ohne Token-Felder, „Abgleich hier“ ----
+// Abzeichen, Lage des Editors, Wahl des Events und die Knöpfe laufen echt in test/konto-anzeige.test.ts; hier die Verdrahtung.
+{
+  const einst = quelleLf('../src/renderer/src/components/SettingsModal.tsx');
+  const editor = quelleLf('../src/renderer/src/components/ShowEditorModal.tsx');
+  const panel = quelleLf('../src/renderer/src/components/SideEventsPanel.tsx');
+  const showView = quelleLf('../src/renderer/src/components/ShowView.tsx');
+  const typen = quelleLf('../src/shared/types.ts');
+  const iveoBlock = editor.slice(editor.indexOf('data-anleitung="editor.iveo"'), editor.indexOf('{iveoProgramTypes &&'));
+  ck('P28 3, 6.4: kein GitHub-Feld in den Einstellungen, kein Token-Feld im iveo-Block des Editors (kein Passwortfeld, kein Token im Code)',
+    !/github/i.test(ohneKommentare(einst)) && !einst.includes('type="password"') && iveoBlock.length > 0
+    && !iveoBlock.includes('type="password"') && !/token/i.test(ohneKommentare(editor)));
+  ck('P28 EP12: Speichern schickt nur noch die Server-Adresse (proxyUrl), keinen GitHub-Zugang; der Bereich behält seine Kennung bis P33',
+    einst.includes('                ...(fromEnv ? {} : { proxyUrl: proxy }),') && einst.includes('data-anleitung="einstellungen.zugang"'));
+  ck('P28 T20–T23: Feld, Hinweis, Zeile, Env-Hinweis und Abzeichen aus der Bibliothek; keine alten Texte der Release-Quelle',
+    ['{ZUGANG_TEXTE.feld}', '{ZUGANG_TEXTE.hinweis}', '{ZUGANG_TEXTE.zeile}', '{ZUGANG_TEXTE.env}', '  const abzeichen = zugangsAbzeichen(ansicht);']
+      .every((z) => einst.includes(z))
+    && !['Quelle für Download', 'Interner Proxy', 'Keine Quelle', 'Quelle wird per Umgebungsvariable', 'SourceBadge'].some((t) => einst.includes(t)));
+  ck('P28 6.4, EP13: der Editor bindet über den Schlüssel aus kontoIveoEvents — Basis des gewählten Events, kein Token im Aufruf',
+    editor.includes('      .kontoIveoEvents()') && editor.includes('    const gewaehlt = (kontoEvents ?? []).find((e) => e.key === eventWahl) ?? null;')
+    && editor.includes('<option key={ev.key} value={ev.key}>') && funktionsKoerper(editor, '  const bindIveo = async (').includes('        baseUrl: gewaehlt.basis,\n        event,\n')
+    && !editor.includes('discoverIveoEvents') && typen.includes('  token?: string;\n  /** Event-Slug oder UUID. */'));
+  ck('P28 I5–I5d: Bezeichner, Auswahl, Lage (nicht angemeldet, keine Events) und der Hinweis nach dem Binden aus der Bibliothek',
+    editor.includes('{IVEO_TEXTE.bezeichner}') && editor.includes('<option value="" disabled>\n                    {IVEO_TEXTE.waehlen}')
+    && editor.includes('  const lage = editorIveoLage(ansicht, kontoEvents);') && editor.includes('{iveoNeuGebunden && (')
+    && editor.includes('{IVEO_TEXTE.gebunden}'));
+  ck('P28 EP14, OFP3: „Abgleich hier“ im Panel über abgleichKnoepfe (mit der Ansicht), IPC iveo:abgleichHier, danach neu laden',
+    panel.includes('  const abgleich = abgleichKnoepfe(data?.abgleich, ansicht);')
+    && funktionsKoerper(panel, '  const setzeAbgleich = async (an: boolean): Promise<void> => {').includes('      await window.jmps.iveoAbgleichHier({ key: data.abgleich.key, an });\n      await loadDay(data.day);')
+    && panel.includes('{abgleich.warnung && '));
+  // A-D7 (Nachbesserung Block D, code:1): I6 bleibt Text im Panel — der Layout-Wächter von Launcher 0.17.1 sucht ihn als Marke.
+  ck('P28 I6, I8: Panel und Show-Ansicht nennen den abgleichenden Rechner, nicht mehr das Token (I6 wörtlich im Panel)',
+    panel.includes('                Live-Umschalten nur auf dem Rechner, der diese Show mit iveo abgleicht.\n') && showView.includes(': IVEO_TEXTE.ansehen,')
+    && !panel.includes('mit dem iveo-Token') && !showView.includes('mit dem iveo-Token'));
 }
 
 // ── Ende der Fälle (Anmeldung) ──

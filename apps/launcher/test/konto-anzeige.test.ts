@@ -15,6 +15,9 @@ import {
   zoomFehlerText, zoomFormular, zoomHinweis, zoomKnopfSichtbar, zoomStand, zustandsZeile,
 } from '../src/renderer/src/lib/konto-dialog';
 
+import type { KontoIveoEvent } from '../src/shared/types';
+import { abgleichKnoepfe, editorEventWahl, editorIveoLage, IVEO_TEXTE, ZUGANG_TEXTE, zugangsAbzeichen } from '../src/renderer/src/lib/konto-zugang';
+
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
   if (cond) { pass++; console.log(`  ok  ${name}`); } else { fail++; console.log(`FAIL  ${name}`); }
@@ -473,6 +476,87 @@ const STUFEN_FARBEN: KopfFarbe[] = ['admin', 'kollege', 'externer'];
   ck(`P25 G9: lib/konto-dialog.ts — aus Aliasen nur import type, zur Laufzeit nur ../../../shared/konto und ./konto-anzeige (${importe.length} Import-Zeilen)`,
     importe.length === 3 && importe.every((z2) => z2.startsWith('import type ') || z2.endsWith("from '../../../shared/konto';") || z2.endsWith("from './konto-anzeige';"))
     && !/window\.|localStorage|from 'react'|from 'zustand'/.test(q));
+}
+
+// --- P28 3, EP12, T21: Abzeichen der Einstellungen (Zustand × Stufe × Entwicklungs-Variable) -------------------------------
+{
+  const faelle: Array<[string, string, string]> = [];
+  for (const z of ZUSTAENDE) for (const st of [null, 'kollege'] as const) for (const dev of [[], ['JMPS_PROXY_KEY']]) {
+    const soll = dev.length > 0 ? 'entwicklung' : st !== null && MIT_SITZUNG.includes(z) ? 'angemeldet' : 'nicht-angemeldet';
+    faelle.push([`${z}/${st ?? '-'}/${dev.length ? 'dev' : '-'}`, zugangsAbzeichen(ansicht(z, st === null ? null : stand(st), { devVariablen: dev })).art, soll]);
+  }
+  faelle.push(['vor der ersten Ansicht', zugangsAbzeichen(null).art, 'nicht-angemeldet']);
+  kreuz('P28 T21: „Angemeldet“ nur mit gültiger Sitzung, „Entwicklung“ mit gesetzter Variable', faelle);
+}
+
+// --- P28 6.4, EP13, I5–I5c: iveo-Block im Show-Editor (Ansicht × Events) ---------------------------------------------------
+{
+  const ev: KontoIveoEvent = { key: 'https://app.my-iveo.de/api/v1|cop31', basis: 'https://app.my-iveo.de/api/v1', slug: 'cop31', name: 'COP31' };
+  const lage = (a: KontoAnsicht | null, e: KontoIveoEvent[] | null): string => {
+    const l = editorIveoLage(a, e);
+    return `${l.fall}|${l.text ?? '-'}`;
+  };
+  const an = ansicht('angemeldet', stand('externer'));
+  kreuz('P28 I5b, I5c: nicht angemeldet → I5b, keine Events → I5c, sonst die Auswahl', [
+    ['vor der ersten Ansicht', lage(null, null), 'laedt|-'],
+    ['nicht angemeldet', lage(ansicht('nicht-angemeldet', null), [ev]), `nicht-angemeldet|${IVEO_TEXTE.nichtAngemeldet}`],
+    ['abgelaufen', lage(ansicht('abgelaufen', stand('kollege')), [ev]), `nicht-angemeldet|${IVEO_TEXTE.nichtAngemeldet}`],
+    ['angemeldet, noch nicht geladen', lage(an, null), 'laedt|-'],
+    ['angemeldet, keine Events', lage(an, []), `keine|${IVEO_TEXTE.keineEvents}`],
+    ['angemeldet, Events', lage(an, [ev]), 'auswahl|-'],
+    ['offline mit Sitzung', lage(ansicht('offline', stand('kollege')), [ev]), 'auswahl|-'],
+  ]);
+  const zwei: KontoIveoEvent[] = [ev, { key: 'https://iveo.test/api/v1|cop31', basis: 'https://iveo.test/api/v1', slug: 'cop31', name: 'COP31 Test' }];
+  kreuz('P28 I5, EP13: gewählt wird über den Schlüssel ‹Basis›|‹Slug› — gültige Wahl bleibt, sonst das Event der Show, sonst keins', [
+    ['gültige Wahl', editorEventWahl(zwei, zwei[1].key, '', null), zwei[1].key],
+    ['Wahl nicht (mehr) in der Liste, Show mit Basis', editorEventWahl(zwei, 'weg|x', 'https://iveo.test/api/v1', 'cop31'), zwei[1].key],
+    ['Show ohne Basis: erstes Event mit dem Slug', editorEventWahl(zwei, '', '', 'cop31'), ev.key],
+    ['Show mit fremder Basis', editorEventWahl(zwei, '', 'https://anders.test/api/v1', 'cop31'), ''],
+    ['keine Show, keine Wahl', editorEventWahl(zwei, '', '', null), ''],
+    ['keine Events', editorEventWahl([], ev.key, '', 'cop31'), ''],
+  ]);
+}
+
+// --- P28 EP14, OFP3, I7, I9: „Abgleich hier“ im Side-Events-Panel (Stand × Ansicht) ----------------------------------------
+{
+  const faelle: Array<[string, string, string]> = [];
+  const ansichten: Array<[string, KontoAnsicht | null, boolean]> = [
+    ['angemeldet', ansicht('angemeldet', stand('kollege')), true], ['offline', ansicht('offline', stand('externer')), true],
+    ['nicht angemeldet', ansicht('nicht-angemeldet', null), false], ['abgelaufen', ansicht('abgelaufen', stand('kollege')), false],
+    ['vor der ersten Ansicht', null, false],
+  ];
+  for (const [name, a, gueltig] of ansichten) {
+    const k = (ab: Parameters<typeof abgleichKnoepfe>[0]): string => {
+      const r = abgleichKnoepfe(ab, a);
+      return `${r.knopf ?? '-'}|${r.warnung === null ? '-' : r.warnung === IVEO_TEXTE.warnung ? 'I9' : r.warnung}`;
+    };
+    faelle.push([`${name}/keine Show`, k(undefined), '-|-']);
+    for (const hier of [true, false]) for (const moeglich of [true, false]) {
+      const soll = hier ? 'beenden|-' : moeglich && gueltig ? 'uebernehmen|I9' : '-|-';
+      faelle.push([`${name}/hier ${hier}/möglich ${moeglich}`, k({ key: 'https://app.my-iveo.de/api/v1|cop31', hier, moeglich }), soll]);
+    }
+  }
+  kreuz('P28 EP14: „übernehmen“ (mit I9) nur angemeldet und mit Token für das Event, „beenden“ nur, wo dieser Rechner abgleicht', faelle);
+}
+
+// --- P28 9.8, 9.9: Texte T20–T23 und I5–I9 wörtlich, ohne ASCII-Anführungszeichen -------------------------------------------
+{
+  // I6 steht als Text im Panel (A-D7, Nachbesserung Block D, code:1) und wird im Launcher-Selbsttest wörtlich geprüft.
+  kreuz('P28 9.8, 9.9: T20–T23, I5–I9 (ohne I6) wörtlich', [
+    ['T20', `${ZUGANG_TEXTE.feld} / ${ZUGANG_TEXTE.hinweis}`, 'Server-Adresse / Vorgabe: Server der Suite. Nur für Entwicklung und Fehlersuche ändern.'],
+    ['T21', [ZUGANG_TEXTE.angemeldet, ZUGANG_TEXTE.nichtAngemeldet, ZUGANG_TEXTE.entwicklung].join(' / '), 'Angemeldet / Nicht angemeldet / Entwicklung'],
+    ['T22', ZUGANG_TEXTE.zeile, 'Downloads, Updates und iveo laufen über deine Anmeldung.'],
+    ['T23', ZUGANG_TEXTE.env, 'Die Server-Adresse wird per Umgebungsvariable gesetzt und kann hier nicht überschrieben werden.'],
+    ['I5', `${IVEO_TEXTE.bezeichner} / ${IVEO_TEXTE.waehlen}`, 'iveo-Event / Event wählen'],
+    ['I5b', IVEO_TEXTE.nichtAngemeldet, 'Für iveo im Launcher anmelden (oben rechts).'],
+    ['I5c', IVEO_TEXTE.keineEvents, 'Für dein Konto ist noch kein iveo-Event hinterlegt. Ein Admin hinterlegt Events in der Admin-Maske.'],
+    ['I5d', IVEO_TEXTE.gebunden, 'Dieser Rechner gleicht die Show mit iveo ab.'],
+    ['I7', `${IVEO_TEXTE.uebernehmen} / ${IVEO_TEXTE.beenden}`, 'Abgleich hier übernehmen / Abgleich hier beenden'],
+    ['I8', IVEO_TEXTE.ansehen, 'Side Events des Tages ansehen (Live-Umschalten nur am Rechner, der die Show abgleicht).'],
+    ['I9', IVEO_TEXTE.warnung, 'Gleicht ein anderer Rechner diese Show noch ab, beende dort den Abgleich, sonst schreiben beide die Show.'],
+  ]);
+  const alle = [...Object.values(ZUGANG_TEXTE), ...Object.values(IVEO_TEXTE)];
+  ck(`P28 G2: keine ASCII-Anführungszeichen in T20–T23, I5–I9 ohne I6 (${alle.length} Zeichenketten)`, alle.length === 16 && alle.every((t) => !t.includes('"')));
 }
 
 // ── Ende der Fälle (Dialoge) ──

@@ -5,13 +5,14 @@ import { useTools } from '@/store/tools';
 import { useVerbund } from '@/store/verbund';
 import { ADMIN_TEXTE, adminKnopfSichtbar } from '@/lib/admin-ansicht';
 import { useKonto } from '@/store/konto';
+import { ZUGANG_TEXTE, zugangsAbzeichen, type ZugangsArt } from '@/lib/konto-zugang';
 
 // iveo-Paket, Spec 7.1/7.2, Texte T5, T6, T9 (11.6 wörtlich). Production ist der Standard. T9 nennt die Adresse aus
 // settings.iveoBaseUrl (Umgebungsvariable, sonst eingetragen, sonst Standard) und sagt bewusst nicht „wirksam“: Eine
 // offene Show mit eigener Adresse fragt ihre eigene ab (iveo-abgleich-kern.ts setzeAuf, E16).
-/** T5: Hinweis über dem iveo-Feld. */
+/** I10 (Anmeldung P28, ersetzt T5): Hinweis über dem iveo-Feld — die Tokens liegen zentral, im Launcher nur im Speicher. */
 const TEXT_IVEO_HINWEIS =
-  'iveo-Eventplattform (#11): Basis-URL der API. Leer = Standard (Production). Das Token ist pro Event und wird beim Anlegen einer Show eingetragen — es liegt verschlüsselt hier und nie in der Show-Datei.';
+  'iveo-Eventplattform (#11): Basis-URL der API. Leer = Standard (Production). Die Tokens hinterlegt ein Admin zentral; nach der Anmeldung hat der Launcher sie nur im Speicher, nie in der Show-Datei.';
 /** T6: Platzhalter des Felds. */
 const TEXT_IVEO_PLATZHALTER = 'https://app.my-iveo.de/api/v1';
 /** T9: Zeile unter dem Feld. */
@@ -24,8 +25,10 @@ export function SettingsModal() {
   const settings = useTools((s) => s.settings);
   const close = useTools((s) => s.closeSettings);
   const save = useTools((s) => s.saveSettings);
+  // Anmeldung P28 (Spec 3, T21): das Abzeichen zeigt die Anmeldung, nicht mehr die Release-Quelle.
+  const ansicht = useKonto((s) => s.ansicht);
+  const abzeichen = zugangsAbzeichen(ansicht);
 
-  const [token, setToken] = useState('');
   const [proxy, setProxy] = useState(settings?.proxyUrl ?? '');
   const [manifestUrl, setManifestUrl] = useState(settings?.manifestUrl ?? '');
   const [iveoBaseUrl, setIveoBaseUrl] = useState('');
@@ -49,33 +52,26 @@ export function SettingsModal() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-extrabold tracking-tight">Einstellungen</h2>
-            <p className="text-xs text-[var(--muted-foreground)] mt-1">
-              Quelle für Download &amp; Auto-Update der Tools.
-            </p>
+            <p className="text-xs text-[var(--muted-foreground)] mt-1">{ZUGANG_TEXTE.zeile}</p>
           </div>
-          <SourceBadge source={settings?.source ?? 'none'} />
+          <ZugangsAbzeichen art={abzeichen.art} text={abzeichen.text} />
         </div>
 
         {fromEnv && (
           <p className="mt-4 text-xs rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-[var(--muted-foreground)]">
-            Quelle wird per Umgebungsvariable gesetzt und kann hier nicht überschrieben werden.
+            {ZUGANG_TEXTE.env}
           </p>
         )}
 
-        <div className={cn('mt-5 flex flex-col gap-4', fromEnv && 'opacity-50 pointer-events-none')} data-anleitung="einstellungen.zugang">
+        {/* Anmeldung P28 (Spec 3, EP12): kein GitHub-Feld mehr; die Server-Adresse bleibt für Entwicklung und Fehlersuche (T20). */}
+        <div className={cn('mt-5 flex flex-col gap-2', fromEnv && 'opacity-50 pointer-events-none')} data-anleitung="einstellungen.zugang">
           <Field
-            label="GitHub-Token (fine-grained PAT, read-only contents)"
-            placeholder={settings?.hasToken ? '•••••••••• (gesetzt)' : 'ghp_… / github_pat_…'}
-            type="password"
-            value={token}
-            onChange={setToken}
-          />
-          <Field
-            label="Interner Proxy (optional, hat Vorrang vor Token)"
+            label={ZUGANG_TEXTE.feld}
             placeholder="https://releases.intern.jakobsmedien.de"
             value={proxy}
             onChange={setProxy}
           />
+          <p className="text-[11px] text-[var(--muted-foreground)]">{ZUGANG_TEXTE.hinweis}</p>
         </div>
 
         <div className="mt-5 border-t border-[var(--border)] pt-5">
@@ -135,7 +131,7 @@ export function SettingsModal() {
             variant="primary"
             onClick={() =>
               save({
-                ...(fromEnv ? {} : { githubToken: token, proxyUrl: proxy }),
+                ...(fromEnv ? {} : { proxyUrl: proxy }),
                 ...(manifestFromEnv ? {} : { manifestUrl }),
                 ...(iveoBaseUrlFromEnv ? {} : { iveoBaseUrl }),
               })
@@ -250,18 +246,18 @@ function ReadonlyRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SourceBadge({ source }: { source: 'github' | 'proxy' | 'none' }) {
-  const label = source === 'github' ? 'GitHub' : source === 'proxy' ? 'Proxy' : 'Keine Quelle';
+/** T21 (Anmeldung P28): Abzeichen oben rechts — angemeldet grün, sonst neutral. */
+function ZugangsAbzeichen({ art, text }: { art: ZugangsArt; text: string }) {
   return (
     <span
       className={cn(
         'shrink-0 rounded-[var(--radius-full)] border px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.12em]',
-        source === 'none'
-          ? 'border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]'
-          : 'border-[var(--success)]/40 bg-[var(--success)]/12 text-[var(--success)]',
+        art === 'angemeldet'
+          ? 'border-[var(--success)]/40 bg-[var(--success)]/12 text-[var(--success)]'
+          : 'border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]',
       )}
     >
-      {label}
+      {text}
     </span>
   );
 }

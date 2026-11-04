@@ -5,6 +5,8 @@ import { ANHANG_TEXTE, anhangAnzeige } from '@/lib/anhang-liste';
 import { iveoStatusZeile } from '@/lib/iveo-status';
 import { ORDNER_ZEILEN_TEXTE, kopfSichtbar, kopfzeile, listenZeile, ordnerZeile, weitereSideEvents } from '@/lib/ordner-zeilen';
 import { useTools } from '@/store/tools';
+import { useKonto } from '@/store/konto';
+import { IVEO_TEXTE, abgleichKnoepfe } from '@/lib/konto-zugang';
 
 /** YYYY-MM-DD → „Di, 12.11.2024" (lokal geparst, ohne TZ-Verschiebung). */
 function formatDay(iso: string): string {
@@ -107,6 +109,8 @@ export function SideEventsPanel(): React.JSX.Element | null {
   const setzeAnhangOrdner = useTools((s) => s.setzeAnhangOrdner);
   const oeffneAnhangOrdner = useTools((s) => s.oeffneAnhangOrdner);
   const [busy, setBusy] = useState<string | null>(null);
+  // Anmeldung P28 (EP14): die Ansicht des Kontos entscheidet mit, ob „Abgleich hier übernehmen“ angeboten wird.
+  const ansicht = useKonto((s) => s.ansicht);
 
   if (!open) return null;
 
@@ -131,6 +135,20 @@ export function SideEventsPanel(): React.JSX.Element | null {
     setBusy(programId ?? '__day__');
     try {
       await switchTo(programId, data?.day);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Anmeldung P28 (EP14, OFP3, I7, I9): Knopf und Warnung zum „Abgleich hier“ aus dem reinen Helfer. Gespeichert wird im Main
+  // nur die Markierung; danach die Liste neu laden — auch wenn der Main ablehnt, damit der Knopf dem Stand folgt.
+  const abgleich = abgleichKnoepfe(data?.abgleich, ansicht);
+  const setzeAbgleich = async (an: boolean): Promise<void> => {
+    if (!data?.abgleich) return;
+    setBusy('__abgleich__');
+    try {
+      await window.jmps.iveoAbgleichHier({ key: data.abgleich.key, an });
+      await loadDay(data.day);
     } finally {
       setBusy(null);
     }
@@ -207,10 +225,26 @@ export function SideEventsPanel(): React.JSX.Element | null {
           </>
         ) : (
           <>
+            {/* Anmeldung P28 (I6, A-D7): wörtlich hier, nicht als Konstante — der Layout-Wächter des Panels (Launcher 0.17.1) sucht diesen Text als Marke im Scrollbereich. */}
             {!canSwitch && (
               <p className="mt-4 text-[11px] rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-[var(--muted-foreground)]">
-                Live-Umschalten nur auf dem Rechner mit dem iveo-Token dieser Show.
+                Live-Umschalten nur auf dem Rechner, der diese Show mit iveo abgleicht.
               </p>
+            )}
+            {abgleich.knopf && (
+              <div className="mt-3 flex flex-col gap-2 rounded-[var(--radius)] border border-[var(--border)] px-3 py-2">
+                {abgleich.warnung && <p className="text-[11px] text-[var(--muted-foreground)]">{abgleich.warnung}</p>}
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy !== null}
+                    onClick={() => void setzeAbgleich(abgleich.knopf === 'uebernehmen')}
+                  >
+                    {abgleich.knopf === 'uebernehmen' ? IVEO_TEXTE.uebernehmen : IVEO_TEXTE.beenden}
+                  </Button>
+                </div>
+              </div>
             )}
 
             <div className="mt-4 flex items-center gap-2">

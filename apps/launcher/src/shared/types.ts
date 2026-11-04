@@ -125,7 +125,8 @@ export interface IveoDiscoverResult {
  */
 export interface IveoBindInput {
   baseUrl?: string;
-  token: string;
+  /** Anmeldung P28 (IV4): entfällt im Show-Editor — der Main nimmt das Token aus dem Speicher der Anmeldung. */
+  token?: string;
   /** Event-Slug oder UUID. */
   event: string;
   /** Optionaler Ablauf-Filter (#11): nur diesen Programmtyp übernehmen (z. B. Side Events). */
