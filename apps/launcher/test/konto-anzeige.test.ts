@@ -9,6 +9,12 @@ import {
   TEXT_WERKZEUGKASTEN_OHNE_ANMELDUNG, werkzeugkastenHinweis, zahnradName, zahnradPunkt, type KopfFarbe,
 } from '../src/renderer/src/lib/konto-anzeige';
 
+import type { AnmeldeSchritt } from '../src/shared/konto';
+import {
+  abmeldeFrage, ANMELDE_TEXTE, anmeldeAnzeige, ausgabeZeilen, hinweisZeilen, KONTO_TEXTE, kontoKnoepfe, kontoZeilen, ZOOM_TEXTE, zoomConnectHinweis,
+  zoomFehlerText, zoomFormular, zoomHinweis, zoomKnopfSichtbar, zoomStand, zustandsZeile,
+} from '../src/renderer/src/lib/konto-dialog';
+
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
   if (cond) { pass++; console.log(`  ok  ${name}`); } else { fail++; console.log(`FAIL  ${name}`); }
@@ -230,6 +236,242 @@ const STUFEN_FARBEN: KopfFarbe[] = ['admin', 'kollege', 'externer'];
   const importe = q.split('\n').filter((z) => /^import\b/.test(z));
   ck(`P24 G9: lib/konto-anzeige.ts — aus Aliasen nur import type, zur Laufzeit nur ../../../shared/konto (${importe.length} Import-Zeilen)`,
     importe.length === 2 && importe.every((z) => z.startsWith('import type ') || z.endsWith("from '../../../shared/konto';"))
+    && !/window\.|localStorage|from 'react'|from 'zustand'/.test(q));
+}
+
+// --- P25 4.2: Zeilen des Konto-Dialogs (Zustand × Stufe × JM-Rechner × Plattform × Zoom-Freigabe) -----------------------
+{
+  const faelle: Array<[string, string, string]> = [];
+  for (const z of MIT_SITZUNG) for (const st of ['admin', 'kollege', 'externer'] as const) for (const jm of [true, false])
+    for (const pf of ['win', 'mac'] as const) for (const zoomBis of [null, JETZT + 5 * TAG, JETZT - TAG]) {
+      const s = stand(st, { jm, plattform: pf, zoomBis, kontoBis: st === 'externer' ? JETZT + 60 * TAG : null, art: st === 'externer' ? 'passwort' : 'google' });
+      const zeilen = kontoZeilen(ansicht(z, s, { plattform: pf }), JETZT);
+      const wert = (b: string): string => zeilen.find((x) => x.bezeichner === b)?.wert ?? '-';
+      const sollZoom = pf === 'mac' ? 'auf dem Mac nicht verfügbar' : st !== 'externer' ? 'auf diesem Rechner erlaubt'
+        : zoomBis !== null && zoomBis > JETZT
+          ? (jm ? `freigegeben bis ${datumText(zoomBis)}` : `freigegeben bis ${datumText(zoomBis)}, wirkt hier nicht (kein JM-Rechner)`)
+          : 'nicht freigegeben';
+      const sollBez = `Name,E-Mail,Anmeldeart,Stufe,Angemeldet seit,${st === 'externer' ? 'Zugang bis,' : ''}Dieser Rechner,Zoom`;
+      faelle.push([`${z}/${st}/${jm ? 'JM' : 'kein JM'}/${pf}/${zoomBis === null ? 'ohne' : zoomBis > JETZT ? 'künftig' : 'vorbei'}`,
+        `${zeilen.map((x) => x.bezeichner).join(',')}|${wert('Anmeldeart')}|${wert('Stufe')}|${wert('Dieser Rechner')}|${wert('Zoom')}`,
+        `${sollBez}|${st === 'externer' ? 'E-Mail und Passwort' : 'Google-Firmenkonto'}|${STUFE_TEXT[st]}|REGIE-01 · ${jm ? 'JM-Rechner' : 'kein JM-Rechner'}|${sollZoom}`]);
+    }
+  for (const z of ['nicht-angemeldet', 'abgelaufen', 'entzogen', 'kein-schluesselspeicher'] as const) {
+    faelle.push([`${z}/ohne Stand`, String(kontoZeilen(ansicht(z, null), JETZT).length), '0']);
+  }
+  kreuz('P25 4.2, EP18: Zeilen des Konto-Dialogs (Zustand × Stufe × JM-Rechner × Plattform × Zoom-Freigabe, K21–K24)', faelle);
+}
+
+// --- P25 8: „Zoom anfragen“, Stand der Anfrage, Hinweise Z5–Z7 -----------------------------------------------------------
+{
+  const knopf: Array<[string, string, string]> = [];
+  for (const z of ZUSTAENDE) for (const st of STUFEN) for (const zoomBis of [null, JETZT + TAG, JETZT - TAG])
+    for (const anfrage of [null, 'offen', 'abgelehnt'] as const) {
+      const s = st === null ? null : stand(st, { zoomBis });
+      const a = ansicht(z, s, { zoomAnfrage: anfrage === null ? null : { id: 'z1', zustand: anfrage, zweck: 'Gala', von: JETZT, bis: JETZT + TAG, am: JETZT - TAG } });
+      const soll = s !== null && MIT_SITZUNG.includes(z) && st === 'externer' && !(zoomBis !== null && zoomBis > JETZT) && anfrage !== 'offen';
+      knopf.push([`${z}/${st ?? '-'}/${zoomBis === null ? 'ohne' : zoomBis > JETZT ? 'künftig' : 'vorbei'}/${anfrage ?? 'keine'}`,
+        String(zoomKnopfSichtbar(a, JETZT)), String(soll)]);
+    }
+  kreuz('P25 8, EP16: „Zoom anfragen“ nur für Externe mit Sitzung, ohne gültige Freigabe und ohne offene Anfrage', knopf);
+  const hinweis: Array<[string, string, string]> = [];
+  for (const pf of ['win', 'mac'] as const) for (const jm of [true, false]) for (const st of ['admin', 'kollege', 'externer'] as const) {
+    hinweis.push([`${pf}/${jm ? 'JM' : 'kein JM'}/${st}`, zoomHinweis(ansicht('angemeldet', stand(st, { jm, plattform: pf }), { plattform: pf })),
+      pf === 'mac' ? ZOOM_TEXTE.hinweisMac : jm ? ZOOM_TEXTE.hinweisJm : ZOOM_TEXTE.hinweisKeinJm]);
+  }
+  kreuz('P25 8, EP18: Hinweis im Zoom-Formular Z5–Z7 (Plattform × JM-Rechner × Stufe)', hinweis);
+  // EP34 (Nachbesserung Block D, spec:4): Connect nutzt die Freigabe erst mit Teil 2 — Z11 steht genau dort, wo die Zeile „Zoom“
+  // unter Windows steht (mit Stand), nie auf dem Mac (dort sagt K24 „nicht verfügbar“) und nie ohne Stand.
+  const connect: Array<[string, string, string]> = [];
+  for (const z of ZUSTAENDE) for (const pf of ['win', 'mac'] as const) for (const st of STUFEN) {
+    const a = ansicht(z, st === null ? null : stand(st, { plattform: pf }), { plattform: pf });
+    connect.push([`${z}/${pf}/${st ?? '-'}`, String(zoomConnectHinweis(a)), st !== null && pf === 'win' ? ZOOM_TEXTE.connect : 'null']);
+  }
+  connect.push(['vor dem Laden', String(zoomConnectHinweis(null)), 'null']);
+  kreuz('P25 8, EP34: Z11 unter der Zeile Zoom — nur mit Stand und nur unter Windows', connect);
+  const stand3 = (zustand: 'offen' | 'freigegeben' | 'abgelehnt'): string | null =>
+    zoomStand(ansicht('angemeldet', stand('externer'), { zoomAnfrage: { id: 'z1', zustand, zweck: 'Gala', von: JETZT, bis: JETZT + 3 * TAG, am: JETZT - TAG } }));
+  kreuz('P25 8: Stand der Zoom-Anfrage Z9a–Z9c mit Datum', [
+    ['offen', String(stand3('offen')), `Zoom-Anfrage offen seit ${datumText(JETZT - TAG)}.`],
+    ['freigegeben', String(stand3('freigegeben')), `Zoom freigegeben bis ${datumText(JETZT + 3 * TAG)}.`],
+    ['abgelehnt', String(stand3('abgelehnt')), `Zoom-Anfrage abgelehnt am ${datumText(JETZT - TAG)}.`],
+    ['keine', String(zoomStand(ansicht('angemeldet', stand('externer')))), 'null'],
+  ]);
+  // Zeitpunkte als Ortszeit „TT.MM.JJJJ HH:MM:SS.mmm“ (die Ausgabe hängt so nicht von der Zeitzone des Rechners ab).
+  const zeit = (ms: number): string => {
+    const d = new Date(ms);
+    const p = (n: number, l = 2): string => String(n).padStart(l, '0');
+    return `${datumText(ms)} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+  };
+  const f = (zweck: string, von: string, bis: string): string => {
+    const r = zoomFormular({ zweck, von, bis }, JETZT);
+    return r.ok ? `ok|${r.zweck}|${zeit(r.von)}|${zeit(r.bis)}` : `fehler|${r.text}`;
+  };
+  kreuz('P25 8, EP15: Zoom-Formular — Zweck nötig, „Bis“ nach „Von“, Von ab Tagesbeginn, Bis bis Tagesende der Ortszeit', [
+    ['leerer Zweck', f('  ', '2026-11-10', '2026-11-12'), 'fehler|Nenne Zweck oder Event.'],
+    ['Bis vor Von', f('Gala', '2026-11-12', '2026-11-10'), 'fehler|„Bis“ muss nach „Von“ liegen.'],
+    ['ungültiges Datum', f('Gala', '2026-02-30', '2026-03-01'), 'fehler|„Bis“ muss nach „Von“ liegen.'],
+    ['ohne Daten', f('Gala', '', ''), 'fehler|„Bis“ muss nach „Von“ liegen.'],
+    ['ein Tag', f('Gala', '2026-11-10', '2026-11-10'), 'ok|Gala|10.11.2026 00:00:00.000|10.11.2026 23:59:59.999'],
+    ['drei Tage, Zweck getrimmt', f(' Gala ', '2026-11-10', '2026-11-12'), 'ok|Gala|10.11.2026 00:00:00.000|12.11.2026 23:59:59.999'],
+  ]);
+  kreuz('P25 8: Fehler der Zoom-Anfrage (Z10c, sonst Texte des Anmelde-Dialogs)', [
+    ['konflikt', zoomFehlerText('konflikt'), 'Es gibt schon eine offene Zoom-Anfrage.'],
+    ['netz', zoomFehlerText('netz'), ANMELDE_TEXTE.netz],
+    ['zu-viele', zoomFehlerText('zu-viele'), ANMELDE_TEXTE.zuViele],
+    ['nicht-noetig', zoomFehlerText('nicht-noetig'), ANMELDE_TEXTE.server],
+  ]);
+}
+
+// --- P25 4.2, 6.1: Zustandszeile, Hinweise, Knöpfe, Rückfrage, Ausgaben --------------------------------------------------
+{
+  const s = stand('kollege');
+  const bis = datumText(s.exp);
+  const uhr = (ms: number): string => `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`;
+  kreuz('P25 4.2: Zustandszeile K25a–K25o je Zustand und Grund (ohne Zeile in pruefe, nicht-angemeldet und in angemeldet ohne Grund)', [
+    ['offline', String(zustandsZeile(ansicht('offline', s))), KONTO_TEXTE.offline(bis)],
+    ['server', String(zustandsZeile(ansicht('server-nicht-erreichbar', s))), KONTO_TEXTE.server(bis)],
+    ['server, nicht eingerichtet (EP31)', String(zustandsZeile(ansicht('server-nicht-erreichbar', s, { grund: 'nicht-eingerichtet' }))), KONTO_TEXTE.serverNichtEingerichtet(bis)],
+    ['server, Uhr falsch (EP30)', String(zustandsZeile(ansicht('server-nicht-erreichbar', s, { grund: 'uhr' }))), KONTO_TEXTE.serverUhr(bis)],
+    ['abgelaufen 30 Tage', String(zustandsZeile(ansicht('abgelaufen', null, { grund: 'dreissig-tage' }))), KONTO_TEXTE.abgelaufenDreissig],
+    ['abgelaufen Zugang bis', String(zustandsZeile(ansicht('abgelaufen', null, { grund: 'zugang-bis', gueltigBis: JETZT - TAG }))), KONTO_TEXTE.abgelaufenBis(datumText(JETZT - TAG))],
+    ['abgelaufen Zugang bis ohne Datum', String(zustandsZeile(ansicht('abgelaufen', null, { grund: 'zugang-bis', gueltigBis: null }))), 'Anmeldung abgelaufen'],
+    ['abgelaufen Google-Anmeldung (OFP8)', String(zustandsZeile(ansicht('abgelaufen', null, { grund: 'google-neu' }))), KONTO_TEXTE.abgelaufenGoogle],
+    ['entzogen gesperrt', String(zustandsZeile(ansicht('entzogen', null, { grund: 'gesperrt' }))), 'Dein Zugang wurde beim letzten Start nicht mehr bestätigt: Zugang gesperrt. Frag einen Admin nach einem Zugang.'],
+    ['entzogen gelöscht', String(zustandsZeile(ansicht('entzogen', null, { grund: 'geloescht' }))), KONTO_TEXTE.entzogen('Zugang gelöscht')],
+    ['entzogen abgelaufen', String(zustandsZeile(ansicht('entzogen', null, { grund: 'zugang-abgelaufen' }))), KONTO_TEXTE.entzogen('Zugang abgelaufen')],
+    ['entzogen Gerät', String(zustandsZeile(ansicht('entzogen', null, { grund: 'geraet-unbekannt' }))), KONTO_TEXTE.entzogen('dieser Rechner ist dem Server unbekannt')],
+    ['entzogen läuft (ohne Grund: gesperrt)', String(zustandsZeile(ansicht('entzogen-laeuft', s))), KONTO_TEXTE.entzogenLaeuft('Zugang gesperrt')],
+    // Nachfix 1 (Nachprüfung 1, Befund 4): „Zugang bis“ erreicht, die Sitzung läuft weiter (spec:1) — der Grund steht in der Zeile.
+    ['entzogen läuft, Zugang bis erreicht', String(zustandsZeile(ansicht('entzogen-laeuft', s, { grund: 'zugang-abgelaufen' }))), 'Dein Zugang gilt nicht mehr: Zugang abgelaufen. Was schon läuft, läuft weiter; beim nächsten Start des Launchers bist du abgemeldet.'],
+    ['entzogen läuft, Gerät', String(zustandsZeile(ansicht('entzogen-laeuft', s, { grund: 'geraet-unbekannt' }))), KONTO_TEXTE.entzogenLaeuft('dieser Rechner ist dem Server unbekannt')],
+    ['kein Schlüsselspeicher', String(zustandsZeile(ansicht('kein-schluesselspeicher', null))), KONTO_TEXTE.keinSchluesselspeicher],
+    ['angemeldet', String(zustandsZeile(ansicht('angemeldet', s))), 'null'],
+    // Nachfix 1 (Befund 1): der Server verlängert ein Google-Konto im Betrieb nicht mehr (OFP8), die Sitzung gilt bis zu ihrem Ende.
+    ['angemeldet, Google 90 Tage (im Betrieb)', String(zustandsZeile(ansicht('angemeldet', s, { grund: 'google-neu' }))), `Kollegen melden sich spätestens alle 90 Tage neu mit Google an. Diese Anmeldung gilt noch bis ${bis} ${uhr(s.exp)}; danach meldest du dich neu an.`],
+    ['pruefe', String(zustandsZeile(ansicht('pruefe', s))), 'null'],
+    ['nicht angemeldet', String(zustandsZeile(ansicht('nicht-angemeldet', null))), 'null'],
+    ['vor dem Laden', String(zustandsZeile(null)), 'null'],
+  ]);
+  kreuz('P25 G7: jede Diagnose wird angezeigt (K25i, K25j, K32, K31 nur mit Namen)', [
+    ['Sitzung unlesbar', hinweisZeilen(ansicht('nicht-angemeldet', null, { hinweise: ['sitzung-unlesbar'] })).join(' | '), KONTO_TEXTE.sitzungUnlesbar],
+    ['Gerät neu', hinweisZeilen(ansicht('angemeldet', s, { hinweise: ['geraet-neu'] })).join(' | '), KONTO_TEXTE.geraetNeu],
+    ['GitHub gelöscht', hinweisZeilen(ansicht('angemeldet', s, { hinweise: ['github-geloescht'] })).join(' | '), KONTO_TEXTE.githubGeloescht],
+    ['Entwicklung', hinweisZeilen(ansicht('angemeldet', s, { devVariablen: ['JMPS_PROXY_KEY', 'JMPS_IVEO_TOKEN'] })).join(' | '), 'Entwicklungsmodus: JMPS_PROXY_KEY, JMPS_IVEO_TOKEN gesetzt.'],
+    ['nichts', hinweisZeilen(ansicht('angemeldet', s)).join(' | '), ''],
+  ]);
+  const knoepfe: Array<[string, string, string]> = ZUSTAENDE.map((z) => {
+    const a = ansicht(z, MIT_SITZUNG.includes(z) ? s : null);
+    const soll = MIT_SITZUNG.includes(z) ? 'abmelden,schliessen' : z === 'abgelaufen' || z === 'entzogen' ? 'neu-anmelden,schliessen'
+      : z === 'nicht-angemeldet' ? 'anmelden,schliessen' : 'schliessen';
+    return [z, kontoKnoepfe(a).join(','), soll];
+  });
+  knoepfe.push(['pruefe ohne Stand', kontoKnoepfe(ansicht('pruefe', null)).join(','), 'schliessen']);
+  kreuz('P25 6.1, EP26: Knöpfe des Konto-Dialogs (Abmelden nur mit Sitzung, Anmelden nur ohne)', knoepfe);
+  ck('P25 EP26: Rückfrage vor dem Abmelden — mit offener iveo-Show K27b, sonst K27a',
+    abmeldeFrage(true) === 'Abmelden? Der iveo-Abgleich der offenen Show stoppt; laufende Tools arbeiten weiter.'
+    && abmeldeFrage(false) === 'Abmelden? Laufende Tools arbeiten weiter; neue Freigaben gibt es erst nach einer neuen Anmeldung.');
+  const bisAusgabe = new Date(2026, 9, 24, 9, 5).getTime();
+  const mitAusgabe = ansicht('angemeldet', s, { ausgaben: [{ appId: 'jm-qa', zweck: 'qa-relay', ziel: 'ev1', bis: bisAusgabe, am: JETZT }] });
+  kreuz('P25 EP8: An Tools ausgegeben (K29b mit Tool, Zweck, Datum und Uhrzeit; leer K29c), ohne Token', [
+    ['eine', ausgabeZeilen(mitAusgabe, (id) => (id === 'jm-qa' ? 'JM Q&A' : id)).join(' | '), 'JM Q&A · Q&A extern · bis 24.10.2026 09:05'],
+    ['keine', ausgabeZeilen(ansicht('angemeldet', s), (id) => id).join(' | '), 'Noch nichts an Tools ausgegeben.'],
+  ]);
+}
+
+// --- P25 4.1, AA6: Anmelde-Dialog je Schritt -------------------------------------------------------------------------------
+{
+  const w = (bisAb: number, browserOffen = true): AnmeldeSchritt =>
+    ({ art: 'wartet', code: 'K7M-2QX', adresse: 'https://jm.test/konto/anmelden?v=v1', bis: JETZT + bisAb, browserOffen });
+  const z = (s: AnmeldeSchritt): string => {
+    const x = anmeldeAnzeige(s, JETZT);
+    return `${x.text}|${x.code}|${x.frist}|${x.hinweis}|${x.knoepfe.join(',')}`;
+  };
+  const T = ANMELDE_TEXTE;
+  kreuz('P25 4.1, AA6: Anmelde-Dialog je Schritt — Code nur beim Warten, Frist m:ss, Hinweis, Knöpfe', [
+    ['ruhe', z({ art: 'ruhe' }), 'null|null|null|null|abbrechen'],
+    ['startet', z({ art: 'startet' }), 'null|null|null|null|abbrechen'],
+    ['wartet 4:59', z(w(299_500)), `${T.wartet}|K7M-2QX|Gültig noch 4:59|${T.selbstOeffnen}|kopieren,abbrechen`],
+    ['wartet 1:01', z(w(61_000)), `${T.wartet}|K7M-2QX|Gültig noch 1:01|${T.selbstOeffnen}|kopieren,abbrechen`],
+    ['wartet 0:00', z(w(0)), `${T.wartet}|K7M-2QX|Gültig noch 0:00|${T.selbstOeffnen}|kopieren,abbrechen`],
+    ['wartet vorbei', z(w(-5_000)), `${T.wartet}|K7M-2QX|Gültig noch 0:00|${T.selbstOeffnen}|kopieren,abbrechen`],
+    ['Browser ging nicht auf', z(w(120_000, false)), `${T.wartet}|K7M-2QX|Gültig noch 2:00|${T.browser}|kopieren,abbrechen`],
+    ['abgelaufen', z({ art: 'abgelaufen' }), `${T.abgelaufen}|null|null|null|neu-starten,schliessen`],
+    ['abgelehnt', z({ art: 'abgelehnt' }), `${T.abgelehnt}|null|null|null|neu-starten,schliessen`],
+    ['fertig', z({ art: 'fertig', kurzName: 'Maria S.', stufe: 'kollege' }), 'null|null|null|null|schliessen'],
+    ['abgebrochen', z({ art: 'abgebrochen' }), 'null|null|null|null|schliessen'],
+    ['Netz', z({ art: 'fehler', code: 'netz' }), `${T.netz}|null|null|null|erneut,schliessen`],
+    ['nicht eingerichtet', z({ art: 'fehler', code: 'nicht-eingerichtet' }), `${T.nichtEingerichtet}|null|null|null|schliessen`],
+    ['zu viele', z({ art: 'fehler', code: 'zu-viele' }), `${T.zuViele}|null|null|null|erneut,schliessen`],
+    ['Server', z({ art: 'fehler', code: 'server' }), `${T.server}|null|null|null|erneut,schliessen`],
+    ['Uhr (EP30)', z({ art: 'fehler', code: 'uhr' }), `${T.uhr}|null|null|null|erneut,schliessen`],
+    ['Browser', z({ art: 'fehler', code: 'browser' }), `${T.browser}|null|null|null|schliessen`],
+    ['kein Schlüsselspeicher', z({ art: 'fehler', code: 'kein-schluesselspeicher' }), `${KONTO_TEXTE.keinSchluesselspeicher}|null|null|null|schliessen`],
+  ]);
+}
+
+// --- P25 9.1–9.3: Texte wörtlich, ohne ASCII-Anführungszeichen; Bibliothek ohne Laufzeit-Import aus Aliasen ----------------
+{
+  const K = KONTO_TEXTE, Z = ZOOM_TEXTE, A = ANMELDE_TEXTE;
+  kreuz('P25 9.1–9.3: K20–K29, K31, Z1–Z11, K40–K55 wörtlich', [
+    ['K20', K.titel, 'Konto'],
+    ['K21', [K.name, K.email, K.anmeldeart, K.stufe, K.seit, K.bis, K.rechner, K.zoom].join(' / '), 'Name / E-Mail / Anmeldeart / Stufe / Angemeldet seit / Zugang bis / Dieser Rechner / Zoom'],
+    ['K22', `${K.artGoogle} / ${K.artPasswort}`, 'Google-Firmenkonto / E-Mail und Passwort'],
+    ['K23', `${K.rechnerJm('R')} / ${K.rechnerKeinJm('R')}`, 'R · JM-Rechner / R · kein JM-Rechner'],
+    ['K24', [K.zoomErlaubt, K.zoomMac, K.zoomBis('D'), K.zoomBisKeinJm('D'), K.zoomNicht].join(' / '),
+      'auf diesem Rechner erlaubt / auf dem Mac nicht verfügbar / freigegeben bis D / freigegeben bis D, wirkt hier nicht (kein JM-Rechner) / nicht freigegeben'],
+    ['K25a', K.offline('D'), 'Offline. Die Anmeldung gilt auf diesem Rechner bis D. Was den Server braucht (Installieren, Updates, iveo, Q&A extern), geht erst wieder mit Internet.'],
+    ['K25b', K.server('D'), 'Der Server ist gerade nicht erreichbar. Die Anmeldung gilt weiter bis D; ich versuche es im Hintergrund erneut.'],
+    ['K25m', K.serverNichtEingerichtet('D'), 'Der Server antwortet, aber die Anmeldung ist dort noch nicht eingerichtet. Die Anmeldung gilt weiter bis D; ich versuche es im Hintergrund erneut. Sag einem Admin Bescheid.'],
+    ['K25n', K.serverUhr('D'), 'Die Uhr dieses Rechners geht mehr als 5 Minuten falsch, darum lehnt der Server die Prüfung ab. Stelle Datum und Uhrzeit richtig. Die Anmeldung gilt weiter bis D; ich versuche es im Hintergrund erneut.'],
+    ['K25c', K.abgelaufenDreissig, 'Deine Anmeldung ist abgelaufen: Sie wurde seit mindestens 30 Tagen nicht mehr beim Server erneuert. Melde dich neu an.'],
+    ['K25d', K.abgelaufenBis('D'), 'Dein Zugang galt bis D. Frag einen Admin nach einer Verlängerung.'],
+    ['K25k', K.abgelaufenGoogle, 'Kollegen melden sich spätestens alle 90 Tage neu mit Google an. Melde dich neu an.'],
+    ['K25o', K.googleNeuLaeuft('D', 'Z'), 'Kollegen melden sich spätestens alle 90 Tage neu mit Google an. Diese Anmeldung gilt noch bis D Z; danach meldest du dich neu an.'],
+    ['K25e', K.entzogen('G'), 'Dein Zugang wurde beim letzten Start nicht mehr bestätigt: G. Frag einen Admin nach einem Zugang.'],
+    ['K25f', Object.values(K.grund).join(' / '), 'Zugang gesperrt / Zugang gelöscht / Zugang abgelaufen / dieser Rechner ist dem Server unbekannt'],
+    ['K25g', K.entzogenLaeuft('G'), 'Dein Zugang gilt nicht mehr: G. Was schon läuft, läuft weiter; beim nächsten Start des Launchers bist du abgemeldet.'],
+    ['K25h', K.keinSchluesselspeicher, 'Auf diesem Rechner gibt es keinen sicheren Schlüsselspeicher. Eine Anmeldung ist hier deshalb nicht möglich.'],
+    ['K25i', K.sitzungUnlesbar, 'Die gespeicherte Anmeldung war auf diesem Rechner nicht lesbar. Melde dich neu an.'],
+    ['K25j', K.geraetNeu, 'Der Schlüssel dieses Rechners war nicht lesbar; der Rechner meldet sich als neues Gerät an. Ein Admin markiert ihn bei Bedarf neu als JM-Rechner.'],
+    ['K26', [K.abmelden, K.neuAnmelden, K.anmelden, K.schliessen].join(' / '), 'Abmelden / Neu anmelden / Anmelden / Schließen'],
+    ['K27c', `${K.jaAbmelden} / ${K.abbrechen}`, 'Abmelden / Abbrechen'],
+    ['K29a', K.ausgaben, 'An Tools ausgegeben'],
+    ['K29d', K.zweck['qa-relay'], 'Q&A extern'],
+    ['K31', K.entwicklung('X'), 'Entwicklungsmodus: X gesetzt.'],
+    ['Z1, Z2', `${Z.knopf} / ${Z.titel}`, 'Zoom anfragen / Zoom anfragen'],
+    ['Z3, Z4, Z8', `${Z.zweck} / ${Z.von} / ${Z.bis} / ${Z.senden}`, 'Zweck oder Event / Von / Bis / Anfrage senden'],
+    ['Z5–Z7 (Teil 1, EP34)', `${Z.hinweisJm} / ${Z.hinweisKeinJm} / ${Z.hinweisMac}`,
+      'Dieser Rechner ist ein JM-Rechner. / Dieser Rechner ist kein JM-Rechner. Eine Freigabe gilt für Externe nur auf JM-Rechnern. / Auf dem Mac gibt es Zoom in Connect nicht. Eine Freigabe gilt nur für JM-Rechner unter Windows.'],
+    ['Z9b (Teil 1, EP34)', Z.freigegeben('D'), 'Zoom freigegeben bis D.'],
+    ['Z11 (Teil 1, EP34)', Z.connect, 'Connect nutzt Zoom-Freigaben erst mit einem kommenden Update; bis dahin gilt Zoom in Connect wie bisher.'],
+    ['K40', A.titel, 'Im Browser anmelden'],
+    ['K41', A.vergleichen, 'Der Browser zeigt gleich denselben Code. Bestätige dort nur, wenn er übereinstimmt.'],
+    ['K42, K43', `${A.code} / ${A.frist('4:59')}`, 'Code / Gültig noch 4:59'],
+    ['K44', `${A.kopieren} / ${A.kopiert}`, 'Adresse kopieren / Adresse kopiert'],
+    ['K45', A.selbstOeffnen, 'Geht der Browser nicht auf, kopiere die Adresse und öffne sie selbst.'],
+    ['K46, K47', `${A.abbrechen} / ${A.wartet}`, 'Abbrechen / Warte auf die Bestätigung im Browser …'],
+    ['K48', `${A.abgelaufen} / ${A.neuStarten}`, 'Der Code ist abgelaufen. Starte die Anmeldung neu. / Neu starten'],
+    ['K49', A.abgelehnt, 'Im Browser wurde „Nein, abbrechen“ gewählt. Es wurde nichts angemeldet.'],
+    ['K50', `${A.netz} / ${A.erneut}`, 'Der Server ist nicht erreichbar. Prüfe die Internetverbindung und versuche es erneut. / Erneut versuchen'],
+    ['K51', A.nichtEingerichtet, 'Die Anmeldung ist auf dem Server noch nicht eingerichtet.'],
+    ['K52', A.browser, 'Der Browser ließ sich nicht öffnen. Kopiere die Adresse und öffne sie selbst.'],
+    ['K53', A.server, 'Beim Server ist etwas schiefgegangen. Versuche es in ein paar Minuten erneut.'],
+    ['K54', A.zuViele, 'Zu viele Anmeldeversuche von diesem Anschluss. Versuche es in ein paar Minuten erneut.'],
+    ['K55', A.uhr, 'Die Uhr dieses Rechners geht falsch, darum lehnt der Server die Anmeldung ab. Stelle Datum und Uhrzeit richtig und versuche es erneut.'],
+  ]);
+  const alle: string[] = [];
+  const sammle = (x: unknown): void => {
+    if (typeof x === 'string') alle.push(x);
+    else if (typeof x === 'function') alle.push(String((x as (...a: string[]) => string)('A', 'B', 'C', 'D')));
+    else if (x && typeof x === 'object') Object.values(x).forEach(sammle);
+  };
+  [KONTO_TEXTE, ZOOM_TEXTE, ANMELDE_TEXTE].forEach(sammle);
+  ck(`P25 G2: keine ASCII-Anführungszeichen in den Texten der Dialoge (${alle.length} Zeichenketten)`, alle.length > 60 && alle.every((t) => !t.includes('"')));
+  const q = readFileSync(new URL('../src/renderer/src/lib/konto-dialog.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const importe = q.split('\n').filter((zeile) => /^import\b/.test(zeile));
+  ck(`P25 G9: lib/konto-dialog.ts — aus Aliasen nur import type, zur Laufzeit nur ../../../shared/konto und ./konto-anzeige (${importe.length} Import-Zeilen)`,
+    importe.length === 3 && importe.every((z2) => z2.startsWith('import type ') || z2.endsWith("from '../../../shared/konto';") || z2.endsWith("from './konto-anzeige';"))
     && !/window\.|localStorage|from 'react'|from 'zustand'/.test(q));
 }
 

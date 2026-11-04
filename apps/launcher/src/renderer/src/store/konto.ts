@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AnmeldeSchritt, KontoAnsicht } from '@shared/konto';
+import type { AnmeldeSchritt, KontoAnsicht, KontoFehlerCode } from '@shared/konto';
 import { sitzungGueltig } from '@/lib/konto-anzeige';
 import { useTools } from './tools';
 
@@ -25,6 +25,16 @@ interface KontoStore {
   anmelden: () => void;
   oeffneKonto: () => void;
   schliesseKonto: () => void;
+  /** P25: Anmelde-Ablauf im Main abbrechen (AA5) und den Dialog schließen. */
+  anmeldenAbbrechen: () => Promise<void>;
+  /** P25: Anmelde-Dialog schließen, ohne den Ablauf anzufassen (nach einem Endzustand). */
+  schliesseAnmeldung: () => void;
+  /** P25: Adresse der Anmeldeseite in die Zwischenablage (Spec 4.1); true = kopiert. */
+  adresseKopieren: () => Promise<boolean>;
+  /** P25: abmelden (EP26); die Rückfrage K27 stellt der Dialog vorher. */
+  abmelden: () => Promise<void>;
+  /** P25: Zoom anfragen (Spec 8); bei Erfolg kommt die Ansicht mit dem Stand der Anfrage. */
+  zoomAnfragen: (a: { zweck: string; von: number; bis: number }) => Promise<{ ok: true } | { ok: false; code: KontoFehlerCode }>;
   // ── weitere Felder (P25–P27) ──
 }
 
@@ -70,8 +80,46 @@ export const useKonto = create<KontoStore>((set, get) => ({
     }
   },
 
-  anmelden: () => set({ anmeldungOffen: true }),
+  // P25 (Spec 4.1): Dialog öffnen und den Ablauf im Main starten; der Fortschritt kommt als anmeldung-changed.
+  anmelden: () => {
+    set({ anmeldungOffen: true, kontoOffen: false, anmeldeSchritt: { art: 'startet' } });
+    void window.jmps.kontoAnmelden().then((anmeldeSchritt) => set({ anmeldeSchritt })).catch(() => set({ anmeldeSchritt: { art: 'fehler', code: 'server' } }));
+  },
   oeffneKonto: () => set({ kontoOffen: true }),
   schliesseKonto: () => set({ kontoOffen: false }),
+  anmeldenAbbrechen: async () => {
+    try {
+      set({ anmeldeSchritt: await window.jmps.kontoAnmeldenAbbrechen() });
+    } catch {
+      // Main nicht erreichbar: der Dialog geht trotzdem zu.
+    }
+    set({ anmeldungOffen: false });
+  },
+  schliesseAnmeldung: () => set({ anmeldungOffen: false }),
+  adresseKopieren: async () => {
+    try {
+      return await window.jmps.kontoAdresseKopieren();
+    } catch {
+      return false;
+    }
+  },
+  abmelden: async () => {
+    try {
+      await window.jmps.kontoAbmelden();
+    } catch {
+      // Main nicht erreichbar → die nächste konto-changed bringt den Stand
+    }
+    await get().ladeAnsicht();
+  },
+  zoomAnfragen: async (a) => {
+    try {
+      const r = await window.jmps.kontoZoomAnfragen(a);
+      if (!r.ok) return { ok: false, code: r.code };
+      set({ ansicht: r.ansicht });
+      return { ok: true };
+    } catch {
+      return { ok: false, code: 'netz' };
+    }
+  },
   // ── weitere Aktionen (P25–P27) ──
 }));

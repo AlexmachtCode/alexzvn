@@ -3355,6 +3355,52 @@ await (async () => {
     store.length > 0 && !/\b(sitzung|token|freigabe)\s*:/i.test(ohneKommentare(store)));
 }
 
+// --- Anmeldung, Block D: Dialogmuster (G11) für P25–P27 — wie SystemStatusModal (#233) -------------------------------------
+/**
+ * Befunde zum Dialogmuster G11: Overlay `fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-6` mit
+ * noDragRegion und Schließen per Klick auf den Hintergrund; in der Card ein Container `flex max-h-[calc(100vh-6rem)] flex-col`;
+ * genau EIN Scrollbereich `-mr-2 min-h-0 flex-1 overflow-y-auto pr-2`; Kopf und Fuß `shrink-0`; Escape schließt.
+ */
+function dialogBefunde(q: string): string[] {
+  const b: string[] = [];
+  if (!/<div\n\s+className="fixed inset-0 z-50 grid place-items-center bg-black\/50 backdrop-blur-sm p-6"\n\s+style=\{noDragRegion\}\n\s+onClick=\{\(e\) => \{\n\s+if \(e\.target === e\.currentTarget\)/.test(q)) b.push('Overlay');
+  if (!q.includes('<div className="flex max-h-[calc(100vh-6rem)] flex-col">')) b.push('fensterhoch');
+  const scroll = [...q.matchAll(/className="([^"]*\boverflow-y-auto\b[^"]*)"/g)].map((m) => m[1]);
+  if (scroll.length !== 1 || scroll[0] !== '-mr-2 min-h-0 flex-1 overflow-y-auto pr-2') b.push(`Scrollbereiche ${scroll.length}`);
+  if ((q.match(/\bshrink-0\b/g) ?? []).length < 2) b.push('Kopf/Fuß shrink-0');
+  if (!q.includes("if (e.key === 'Escape')")) b.push('Escape');
+  return b;
+}
+
+// --- Anmeldung P25 (Spec 4.1, 4.2, 6.1, 8; EP5, EP18, EP26; G11): Anmelde-Dialog und Konto-Dialog mit Zoom-Anfrage -------
+// Die Regeln (anmeldeAnzeige, kontoZeilen, zoomFormular, …) laufen echt in test/konto-anzeige.test.ts; hier die Verdrahtung.
+{
+  const anmelde = quelleLfOderLeer('../src/renderer/src/components/AnmeldeModal.tsx');
+  const konto = quelleLfOderLeer('../src/renderer/src/components/KontoModal.tsx');
+  const store = quelleLf('../src/renderer/src/store/konto.ts');
+  const app = quelleLf('../src/renderer/src/App.tsx');
+  const fA = dialogBefunde(anmelde);
+  const fK = dialogBefunde(konto);
+  ck(`P25 G11: Anmelde-Dialog und Konto-Dialog nach dem Muster von SystemStatusModal (fensterhoch, ein Scrollbereich, Escape, noDragRegion)${fA.length || fK.length ? ` — Anmelde-Dialog: ${fA.join(', ') || '-'}; Konto-Dialog: ${fK.join(', ') || '-'}` : ''}`,
+    anmelde.length > 0 && konto.length > 0 && fA.length === 0 && fK.length === 0);
+  ck('P25 4.1, EP27: der Code steht im Anmelde-Dialog mit der Kennung anmeldung.code; K41 über ANMELDE_TEXTE, Anzeige nur aus anmeldeAnzeige',
+    anmelde.includes('<span data-anleitung="anmeldung.code"') && anmelde.includes('{ANMELDE_TEXTE.vergleichen}')
+    && anmelde.includes('  const z = anmeldeAnzeige(schritt, jetzt);') && !/Gültig noch|Im Browser anmelden/.test(ohneKommentare(anmelde)));
+  ck('P25 AA5: Escape und Klick daneben brechen beim Warten im Main ab (anmeldenAbbrechen), sonst schließen sie nur',
+    anmelde.includes("    if (z.knoepfe.includes('abbrechen')) void abbrechen();") && store.includes('      set({ anmeldeSchritt: await window.jmps.kontoAnmeldenAbbrechen() });'));
+  ck('P25 4.1: „Anmelden“ öffnet den Dialog und startet den Ablauf im Main; fertig und abgebrochen schließen ihn',
+    /anmelden: \(\) => \{\n {4}set\(\{ anmeldungOffen: true, kontoOffen: false, anmeldeSchritt: \{ art: 'startet' \} \}\);\n {4}void window\.jmps\.kontoAnmelden\(\)/.test(store)
+    && anmelde.includes("    if (offen && (schritt.art === 'fertig' || schritt.art === 'abgebrochen')) schliessen();"));
+  ck('P25 6.1, EP26: Abmelden nur nach der Rückfrage K27 (mit offener iveo-Show K27b)',
+    konto.includes('<Button variant="outline" onClick={() => setFrage(true)}>') && konto.includes('{abmeldeFrage(iveoShowOffen)}')
+    && konto.includes('  const iveoShowOffen = useTools((s) => s.iveoActive !== null);') && (konto.match(/void abmelden\(\)/g) ?? []).length === 1);
+  ck('P25 8, EP34: Zoom-Anfrage nur über zoomKnopfSichtbar, Formular über zoomFormular, Hinweis Z5–Z7 über zoomHinweis, Z11 über zoomConnectHinweis',
+    konto.includes('  const zKnopf = zoomKnopfSichtbar(ansicht, jetzt);') && konto.includes('    const f = zoomFormular(formular, Date.now());')
+    && konto.includes('{zoomHinweis(ansicht)}') && konto.includes('      } else setMeldung(zoomFehlerText(r.code));')
+    && konto.includes('  const zConnect = zoomConnectHinweis(ansicht);') && konto.includes('            {zConnect && ('));
+  ck('P25 4.2: beide Dialoge hängen in App.tsx', app.includes('      <AnmeldeModal />') && app.includes('      <KontoModal />'));
+}
+
 // ── Ende der Fälle (Anmeldung) ──
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

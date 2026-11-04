@@ -17,6 +17,8 @@ import { SideEventsPanel } from '@/components/SideEventsPanel';
 import { ShowLaunchOverlay } from '@/components/ShowLaunchOverlay';
 import { Anleitung } from '@/components/Anleitung';
 import { VerbundModal } from './components/VerbundModal';
+import { AnmeldeModal } from '@/components/AnmeldeModal';
+import { KontoModal } from '@/components/KontoModal';
 import { useTools } from '@/store/tools';
 import { useKonto } from '@/store/konto';
 
@@ -76,6 +78,8 @@ export function App() {
       <RecipeDraftModal />
       <SystemStatusModal />
       <VerbundModal />
+      <AnmeldeModal />
+      <KontoModal />
       <OnboardingModal />
       <ShowEditorModal />
       <ScenarioPicker />
