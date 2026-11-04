@@ -277,12 +277,40 @@ async function sitzungAusstellen(k, konto, geraet) {
   return { sitzung: await signiere(k.env.KONTO_SCHLUESSEL, stand), stand };
 }
 
+/**
+ * Body höchstens `max` Bytes: größer als content-length verspricht → null ohne zu lesen; ohne Body → leer; sonst Stück für
+ * Stück gelesen und beim Überschreiten abgebrochen (null), auch ohne content-length (Stream).
+ */
+async function liesBegrenzt(request, max) {
+  const cl = request.headers.get('content-length');
+  if (cl && Number(cl) > max) return null;
+  if (!request.body) return new Uint8Array(0);
+  const leser = request.body.getReader();
+  const stuecke = [];
+  let summe = 0;
+  for (;;) {
+    const { done, value } = await leser.read();
+    if (done) break;
+    summe += value.byteLength;
+    if (summe > max) {
+      await leser.cancel().catch(() => {});
+      return null;
+    }
+    stuecke.push(value);
+  }
+  const alles = new Uint8Array(summe);
+  let pos = 0;
+  for (const s of stuecke) {
+    alles.set(s, pos);
+    pos += s.byteLength;
+  }
+  return alles;
+}
+
 /** JSON-Body bis KONTO.apiBytes; leer → {}; kein Objekt oder zu groß → 400 S11. */
 async function liesJson(request) {
-  const cl = request.headers.get('content-length');
-  if (cl && Number(cl) > KONTO.apiBytes) throw new Abgelehnt(abgelehnt('ungueltig', 400));
-  const buf = await request.arrayBuffer();
-  if (buf.byteLength > KONTO.apiBytes) throw new Abgelehnt(abgelehnt('ungueltig', 400));
+  const buf = await liesBegrenzt(request, KONTO.apiBytes);
+  if (buf === null) throw new Abgelehnt(abgelehnt('ungueltig', 400));
   if (buf.byteLength === 0) return {};
   try {
     const d = JSON.parse(new TextDecoder().decode(buf));
@@ -307,8 +335,18 @@ function uhrDaneben(beweis, jetzt) {
 
 /** Fehler des DO → Vertrag 10.1; 5xx des DO → 502 „interner Fehler“ (Bestandstext von worker.js). */
 function doFehler(r, konflikt) {
-  if (!r || typeof r.status !== 'number' || r.status >= 500) return json({ error: 'interner Fehler', code: 'server' }, 502);
+  if (doAusfall(r)) return json({ error: 'interner Fehler', code: 'server' }, 502);
   return fehler(abgelehnt(r.code, r.status, konflikt));
+}
+
+/** Antwort des DO ohne Status oder mit 5xx: ein Ausfall, kein fachlicher Grund. */
+function doAusfall(r) {
+  return !r || typeof r.status !== 'number' || r.status >= 500;
+}
+
+/** Ausfall des DO auf einer Seiten-Route: Seite „interner Fehler“ (502) statt B10/B11/B12. */
+function ausfallSeite() {
+  return htmlAntwort(seiteMeldung({ text: esc('interner Fehler'), fehler: true }), 502);
 }
 
 function fehler(f) {
@@ -368,8 +406,8 @@ function googleDa(env) {
 
 /** Formular (application/x-www-form-urlencoded) bis KONTO.formBytes; größer → null. */
 async function liesFormular(request) {
-  const buf = await request.arrayBuffer();
-  if (buf.byteLength > KONTO.formBytes) return null;
+  const buf = await liesBegrenzt(request, KONTO.formBytes);
+  if (buf === null) return null;
   return new URLSearchParams(new TextDecoder().decode(buf));
 }
 
@@ -383,6 +421,7 @@ async function seiteAnmeldenRoute(k) {
   const vorgang = k.url.searchParams.get('v') || '';
   if (!vorgang) return meldung('B22');
   const r = await k.rufe('vorgang-lesen', { vorgang });
+  if (!r.ok && doAusfall(r)) return ausfallSeite();
   if (!r.ok) return meldung('B10', 404);
   if (r.zustand === 'bestaetigt') return meldung('B8');
   if (r.zustand === 'abgelehnt') return meldung('B9');
@@ -411,6 +450,7 @@ async function passwortRoute(k) {
   if (r.ok) {
     return htmlAntwort(seiteBestaetigen({ vorgang, seitenToken: r.seitenToken, email: r.email, code: r.code, rechnerName: r.rechnerName }));
   }
+  if (doAusfall(r)) return ausfallSeite();
   switch (r.code) {
     case 'falsch':
     case 'ungueltig':
@@ -447,6 +487,7 @@ async function bestaetigenRoute(k) {
   if (!vorgang || !seitenToken || (antwort !== 'ja' && antwort !== 'nein')) return meldung('B10', 403);
   const r = await k.rufe('vorgang-bestaetigen', { vorgang, seitenToken, antwort });
   if (r.ok) return meldung(r.zustand === 'bestaetigt' ? 'B8' : 'B9');
+  if (doAusfall(r)) return ausfallSeite();
   return meldung(r.code === 'konflikt' ? 'B11' : 'B10', 403);
 }
 

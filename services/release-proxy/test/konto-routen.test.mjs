@@ -585,8 +585,8 @@ async function run() {
     await fall('falsches Passwort', { email: 'erika@extern.test', passwort: 'test-falsch-123' }, 401, 'B12', {}, (a) => a.html.includes('value="erika@extern.test"') && !a.html.includes('test-falsch-123'));
     await fall('unbekannte E-Mail', { email: 'niemand@extern.test', passwort: 'test-falsch-123' }, 401, 'B12');
     await fall('falscher Einladungscode', { email: 'fritz@extern.test', einladungscode: 'AAAA-BBBB-CCCC', neu: 'test-passwort-neu', neu2: 'test-passwort-neu' }, 401, 'B14', {}, (a) => a.html.includes('<details open>'));
-    await fall('Passwörter ungleich', { email: 'fritz@extern.test', einladungscode: 'AAAA-BBBB-CCCC', neu: 'test-passwort-neu', neu2: 'test-passwort-neu2' }, 400, 'B15_ungleich');
-    await fall('Passwort zu kurz', { email: 'fritz@extern.test', einladungscode: 'AAAA-BBBB-CCCC', neu: 'kurz', neu2: 'kurz' }, 400, 'B15_kurz');
+    await fall('Passwörter ungleich', { email: 'fritz@extern.test', einladungscode: 'AAAA-BBBB-CCCC', neu: 'test-passwort-neu', neu2: 'test-passwort-neu2' }, 400, 'B15_ungleich', {}, (a) => a.html.includes('<details open>'));
+    await fall('Passwort zu kurz', { email: 'fritz@extern.test', einladungscode: 'AAAA-BBBB-CCCC', neu: 'kurz', neu2: 'kurz' }, 400, 'B15_kurz', {}, (a) => a.html.includes('<details open>'));
     await fall('E-Mail von jakobsmedien.com', { email: 'karl@jakobsmedien.com', passwort: 'test-falsch-123' }, 400, 'B23');
     await fall('unbekannter Vorgang', { v: 'gibt-es-nicht', email: 'erika@extern.test', passwort: 'test-passwort-erika' }, 404, esc(B.B10));
     for (let i = 0; i < 3; i++) await sende(env, '/konto/passwort', { v: v4.vorgang, email: 'erika@extern.test', passwort: 'test-falsch-123' }, `10.1.0.${i}`);
@@ -608,22 +608,103 @@ async function run() {
     faelle.push({ name: 'Zugang abgelaufen mit Datum', ok: abgelaufen.status === 403 && abgelaufen.html.includes(esc('Dein Zugang ist am 02.11.2026 abgelaufen. Frag einen Admin nach einer Verlängerung.')), a: abgelaufen });
     const dr = [];
     // Je Versuch eine andere unbekannte E-Mail: die Bremse je E-Mail (P4, EP4) zählt dann nicht mit, nur die Drossel je IP.
-    for (let i = 0; i < 21; i++) dr.push(await sende(env, '/konto/passwort', { v: v5.vorgang, email: `niemand-${i}@extern.test`, passwort: 'test-falsch-123' }, '10.3.0.1'));
-    faelle.push({ name: 'Drossel: 21. Formular je IP in 600 s', ok: dr.slice(0, 20).every((a) => a.status === 401) && dr[20].status === 429 && zeigt(dr[20], B.B21) && Number(dr[20].kopf.get('Retry-After')) > 0, a: dr[20] });
+    const anfDr = [];
+    for (let i = 0; i < 21; i++) {
+      dr.push(await sende(env, '/konto/passwort', { v: v5.vorgang, email: `niemand-${i}@extern.test`, passwort: 'test-falsch-123' }, '10.3.0.1'));
+      anfDr.push(env.KONTO.anfragen.length);
+    }
+    // Die Drossel kommt vor dem DO: die 21. Anfrage erreicht den DO nicht mehr (Zähler der Attrappe wächst nicht).
+    faelle.push({ name: 'Drossel: 21. Formular je IP in 600 s', ok: dr.slice(0, 20).every((a) => a.status === 401) && dr[20].status === 429 && zeigt(dr[20], B.B21) && Number(dr[20].kopf.get('Retry-After')) > 0 && anfDr[20] === anfDr[19] && anfDr[19] > anfDr[18], a: dr[20] });
     await pruefeFaelle('P17 4: Fehlertexte der Anmeldeseite', faelle, (f) => (f.ok ? null : `ist ${f.a.status} ${f.a.html.slice(f.a.html.indexOf('<h1>'), f.a.html.indexOf('<h1>') + 160)}`));
 
     // Escape: E-Mail mit HTML und Anführungszeichen landet nur escaped im Formular.
     const v6 = await vorgang(env);
     const boese = await sende(env, '/konto/passwort', { v: v6.vorgang, email: '"><script>x()</script>@extern.test', passwort: 'test-falsch-123' }, '10.4.0.1');
+    // Das versteckte Feld v (aus der Anfrage, auch auf der gedrosselten Seite) wird ebenfalls escaped.
+    const roherV = 'a"\'<>&b';
+    const vRes = await worker.fetch(new Request('https://proxy.test/konto/passwort', {
+      method: 'POST',
+      headers: { 'CF-Connecting-IP': '10.3.0.1', 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ v: roherV, email: 'x@extern.test', passwort: 'test-falsch-123' }).toString(),
+    }), env, makeWaitCtx());
+    const vEsc = { status: vRes.status, html: await vRes.text() };
     check('P17 Escape: Rechnername (oben) und eingegebene E-Mail mit HTML und Anführungszeichen nur escaped',
-      boese.status === 401 && boese.html.includes('value="&quot;&gt;&lt;script&gt;x()&lt;/script&gt;@extern.test"') && !boese.html.includes('<script'));
+      boese.status === 401 && boese.html.includes('value="&quot;&gt;&lt;script&gt;x()&lt;/script&gt;@extern.test"') && !boese.html.includes('<script')
+        && vEsc.status === 429 && vEsc.html.includes('name="v" value="a&quot;&#39;&lt;&gt;&amp;b"') && !vEsc.html.includes(roherV));
 
     // S5: ohne Einrichtung eine Seite statt JSON.
     const ohne = umgebung({ KONTO_SCHLUESSEL: undefined });
     const s5 = await hole(ohne, '/konto/anmelden?v=x');
     const s5b = await sende(ohne, '/konto/passwort', { v: 'x', email: 'a@b.test', passwort: 'test-falsch-123' });
+    // Ausnahme und Ausfall des DO auf den Seiten-Routen: Seite „interner Fehler“ (502), nie JSON, B10 oder B12.
+    const rohFetch = async (e, pfad, init) => {
+      const res = await worker.fetch(new Request('https://proxy.test' + pfad, init), e, makeWaitCtx());
+      return { status: res.status, kopf: res.headers, html: await res.text() };
+    };
+    const formKopf = (ipAdr) => ({ 'CF-Connecting-IP': ipAdr, 'content-type': 'application/x-www-form-urlencoded' });
+    const formRoh = (e, pfad, felder, ipAdr) => rohFetch(e, pfad, { method: 'POST', headers: formKopf(ipAdr), body: new URLSearchParams(felder).toString() });
+    const defekt = (modus) => {
+      const e = umgebung();
+      const jur = e.KONTO.jurisdiction;
+      e.KONTO.jurisdiction = (x) => {
+        const n = jur(x);
+        const get = n.get;
+        n.get = (id) => {
+          const s = get(id);
+          return { fetch: (rq) => modus(rq, s) };
+        };
+        return n;
+      };
+      return e;
+    };
+    const wirft = defekt(() => { throw new Error('boom'); });
+    const keinJsonDo = defekt(() => new Response('<html>Bad Gateway</html>', { status: 502 }));
+    const fuenfhundert = defekt(() => new Response(JSON.stringify({ ok: false, code: 'falsch', status: 500 })));
+    const ohneStatus = defekt(() => new Response(JSON.stringify({ ok: false, code: 'vorgang-unbekannt' })));
+    const ausfallSeiten = [
+      await rohFetch(wirft, '/konto/anmelden?v=x', { headers: { 'CF-Connecting-IP': '10.6.0.1' } }),
+      await formRoh(wirft, '/konto/passwort', { v: 'x', email: 'a@b.test', passwort: 'test-falsch-123' }, '10.6.0.2'),
+      await rohFetch(keinJsonDo, '/konto/anmelden?v=x', { headers: { 'CF-Connecting-IP': '10.6.0.3' } }),
+      await rohFetch(fuenfhundert, '/konto/anmelden?v=x', { headers: { 'CF-Connecting-IP': '10.6.0.4' } }),
+      await rohFetch(ohneStatus, '/konto/anmelden?v=x', { headers: { 'CF-Connecting-IP': '10.6.0.5' } }),
+      await formRoh(fuenfhundert, '/konto/passwort', { v: 'x', email: 'a@b.test', passwort: 'test-falsch-123' }, '10.6.0.6'),
+      await formRoh(fuenfhundert, '/konto/bestaetigen', { v: 'x', t: 'test-seitentoken', antwort: 'ja' }, '10.6.0.7'),
+      await formRoh(ohneStatus, '/konto/bestaetigen', { v: 'x', t: 'test-seitentoken', antwort: 'nein' }, '10.6.0.8'),
+    ];
+    const alsAusfallSeite = ausfallSeiten.every((a) => a.status === 502 && (a.kopf.get('content-type') || '').startsWith('text/html') && a.html.includes('role="alert">interner Fehler</p>'));
+    // Formulare sind auf 8 KB begrenzt: als Stream ohne content-length (nach dem Überschreiten abgebrochen, nicht bis zum Ende
+    // gelesen) und laut content-length (Body wird gar nicht angefasst).
+    const strom = () => {
+      const z = { pulls: 0, abgebrochen: false };
+      const enc = new TextEncoder();
+      z.body = new ReadableStream({
+        pull(c) {
+          z.pulls++;
+          if (z.pulls > 16384) return c.close();
+          c.enqueue(enc.encode(z.pulls === 1 ? `v=${v6.vorgang}&email=a%40extern.test&passwort=x&fuell=` : 'a'.repeat(1024)));
+        },
+        cancel() { z.abgebrochen = true; },
+      });
+      return z;
+    };
+    const sp1 = strom();
+    const gross1 = await rohFetch(env, '/konto/passwort', { method: 'POST', headers: formKopf('10.5.0.1'), body: sp1.body, duplex: 'half' });
+    const sp2 = strom();
+    const gross2 = await rohFetch(env, '/konto/bestaetigen', { method: 'POST', headers: formKopf('10.5.0.2'), body: sp2.body, duplex: 'half' });
+    let bodyAngefasst = 0;
+    const versprochen = (pfad) => handleKonto({
+      method: 'POST',
+      headers: new Headers({ 'content-length': String(1024 * 1024), 'CF-Connecting-IP': '10.5.0.3' }),
+      get body() { bodyAngefasst++; return null; },
+    }, env, new URL('https://proxy.test' + pfad), makeWaitCtx());
+    const gross3 = await versprochen('/konto/passwort');
+    const gross4 = await versprochen('/konto/bestaetigen');
+    const grossOk = gross1.status === 400 && zeigt(gross1, B.B10) && gross2.status === 403 && zeigt(gross2, B.B10)
+      && sp1.abgebrochen && sp1.pulls < 50 && sp2.abgebrochen && sp2.pulls < 50
+      && gross3.status === 400 && gross4.status === 403 && bodyAngefasst === 0;
     check('P17 S5: ohne Einrichtung zeigen Anmeldeseite und Formular S5 als Seite (503)',
-      s5.status === 503 && s5b.status === 503 && zeigt(s5, FEHLER_TEXT['nicht-eingerichtet']) && (s5.kopf.get('content-type') || '').startsWith('text/html'));
+      s5.status === 503 && s5b.status === 503 && zeigt(s5, FEHLER_TEXT['nicht-eingerichtet']) && (s5.kopf.get('content-type') || '').startsWith('text/html')
+        && alsAusfallSeite && grossOk);
 
     // Kopfzeilen und kein Skript auf jeder Seite dieses Blocks.
     const CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
