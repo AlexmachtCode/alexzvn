@@ -50,6 +50,7 @@ import {
   nachAblehnung,
   versuchErlaubt,
   waehleZugang,
+  zugangsZeile,
 } from './cloud-zugang';
 
 declare const __dirname: string;
@@ -128,18 +129,39 @@ function cloudCfg(): CloudCfg {
 function buildCloudInfo(): QaCloudInfo {
   const c = getConfig();
   const cfg = cloudCfg();
-  const configured = !!(c.proxyUrl && c.eventId && cloudSecrets.publicJwk && cloudSecrets.proxyKey);
+  const jetzt = Date.now();
+  // Bereit mit Server-Adresse (Vorgabe), Event und Schlüsselpaar; den Zugang (Freigabe oder alter Key) holt der Takt
+  // nach dem Anschalten (EP22, QR4). Darum hängen „configured“ und der An-Knopf nicht am Key.
+  const configured = !!(cfg.proxyUrl && c.eventId && cloudSecrets.publicJwk);
+  const zugang = aktuellerZugang(jetzt);
+  const f = cloudSecrets.freigabe;
+  const zeile = zugangsZeile({
+    zugang,
+    letzterGrund: freigabeGrund,
+    jetzt,
+    eventDa: !!(c.eventId && cloudSecrets.publicJwk),
+    extern: cloudTimer != null,
+    altKeyAbgelehnt,
+    detail: freigabeDetail,
+    freigabeAbgelaufen: !!(f && f.ziel === c.eventId && f.bis <= jetzt),
+  });
   return {
     enabled: cloudTimer != null,
     configured,
     eventId: c.eventId,
-    proxyUrl: c.proxyUrl,
+    proxyUrl: cfg.proxyUrl,
     streamUrl: streamUrl(cfg),
     pressUrl: pressUrl(cfg),
     pressCode: c.pressCode,
     streamOpen: c.streamOpen,
     pressOpen: c.pressOpen,
     hasKey: !!cloudSecrets.proxyKey,
+    zugang: {
+      art: zugang.art,
+      zeile: zeile.text,
+      ton: zeile.ton,
+      hinweis: altKeyGeloescht && !cloudSecrets.proxyKey ? QA_TEXT.keyGeloescht : null,
+    },
     lastError: cloudError,
     lastPollAt: cloudLastPollAt,
   };

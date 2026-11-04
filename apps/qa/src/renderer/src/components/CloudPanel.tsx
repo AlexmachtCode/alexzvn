@@ -3,10 +3,14 @@ import { useQa } from '@/store/useQa';
 import { toDataUrl } from '@/lib/qr';
 import type { QaCloudInfo } from '@shared/types';
 
+/** Farbe der Zugangszeile je Ton (Anmeldung im Launcher, Teil 1, P31). */
+const TON = { ok: 'text-[var(--muted-foreground)]', warn: 'text-[var(--warning)]', fehler: 'text-[var(--destructive)]' } as const;
+
 /**
  * Externe Einreichung (#166): An/Aus, QR für den Livestream-Stream-Link, Presse-
- * Link + Zugangscode, Kanal-Schalter und „Event beenden". Konfiguration (Proxy-
- * URL/Key, Event erzeugen, Presse-Code) liegt in den Einstellungen.
+ * Link + Zugangscode, Kanal-Schalter und „Event beenden". Konfiguration (Server-
+ * Adresse, Event erzeugen, Presse-Code) liegt in den Einstellungen. Die Zeile „Zugang“ sagt in jedem Zustand, was gilt
+ * oder worauf Q&A wartet (Anmeldung im Launcher, Teil 1, P31; Q2–Q6, Q12); der An-Knopf hängt nicht am Key.
  */
 export function CloudPanel({ cloud }: { cloud: QaCloudInfo }) {
   const { cloudEnable, cloudPurge, setCloudConfig } = useQa();
@@ -43,10 +47,11 @@ export function CloudPanel({ cloud }: { cloud: QaCloudInfo }) {
         </button>
       </div>
 
+      {cloud.zugang.zeile ? <p className={`mb-2 text-[11px] ${TON[cloud.zugang.ton]}`}>{cloud.zugang.zeile}</p> : null}
+
       {!cloud.configured && !cloud.enabled ? (
         <p className="text-xs text-[var(--muted-foreground)]">
-          In den Einstellungen Proxy-URL, Key und ein Event einrichten, um Fragen per Livestream/Presse
-          anzunehmen.
+          Für Fragen per Livestream oder Presse: im Launcher anmelden und hier ein Event erzeugen.
         </p>
       ) : cloud.enabled ? (
         <div className="flex flex-col items-center gap-2">

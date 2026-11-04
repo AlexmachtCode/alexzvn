@@ -374,6 +374,58 @@ function ausschnitt(text: string, start: string, ende: string): string {
     'P30 G6: saveSecrets schreibt nur, was geheimnisDatei liefert (safeStorage als Verschlüsseler)');
 }
 
+// --- P31: Oberfläche (Quelltext-Wächter; React läuft hier nicht) ------------------------------------------------------
+{
+  const settings = quelle('../src/renderer/src/components/Settings.tsx');
+  const panel = quelle('../src/renderer/src/components/CloudPanel.tsx');
+  const typen = quelle('../src/shared/types.ts');
+  const info = ausschnitt(quelle('../src/main/index.ts'), 'function buildCloudInfo(', '\n}\n');
+  const rueckgabe = ausschnitt(info, 'return {', '\n  };');
+  eq(
+    [
+      settings.includes('<Row label="Server-Adresse" hint="Vorgabe: Server der Suite. Nur für Entwicklung und Fehlersuche ändern.">'),
+      settings.includes('placeholder={cloud.proxyUrl}') && info.includes('proxyUrl: cfg.proxyUrl,'),
+      settings.includes('<Row label="Alter Proxy-Key (Übergang)" hint="Nur noch kurz gültig. Mit Anmeldung im Launcher brauchst du ihn nicht.">'),
+      panel.includes('Für Fragen per Livestream oder Presse: im Launcher anmelden und hier ein Event erzeugen.'),
+      ['Proxy-URL', 'Basis-URL des Q&A-Relays', 'Zugriffs-Key des Proxys', 'Hinterlegt (verschlüsselt gespeichert).', 'In den Einstellungen Proxy-URL']
+        .filter((t) => settings.includes(t) || panel.includes(t)),
+    ],
+    [true, true, true, true, []],
+    'P31 9.10: Q1 (Platzhalter = wirksame Adresse), Q6a und Q7 wörtlich in Settings.tsx und CloudPanel.tsx, die alten Texte sind weg',
+  );
+  const keyFeld = "{cloud.hasKey || cloud.zugang.art !== 'freigabe' ? (";
+  eq(
+    [
+      settings.includes(keyFeld) && settings.indexOf(keyFeld) < settings.indexOf('<Row label="Alter Proxy-Key (Übergang)"'),
+      (settings.match(/<Row label="Alter Proxy-Key/g) ?? []).length,
+      settings.includes(') : cloud.zugang.hinweis ? ('),
+      settings.includes('{cloud.zugang.zeile}') && panel.includes('{cloud.zugang.zeile}'),
+    ],
+    [true, 1, true, true],
+    'P31 Q6a/Q6b/Q12: Feld alter Key nur bei gespeichertem Key oder ohne Freigabe, danach Q6b; Zugangszeile in Einstellungen und CloudPanel',
+  );
+  eq(
+    [
+      panel.includes('disabled={!cloud.configured && !cloud.enabled}'),
+      panel.includes('hasKey'),
+      info.includes('const configured = !!(cfg.proxyUrl && c.eventId && cloudSecrets.publicJwk);'),
+      info.includes('cloudSecrets.proxyKey &&') || info.includes('&& cloudSecrets.proxyKey)'),
+    ],
+    [true, false, true, false],
+    'P31 3/10: An-Knopf hängt nicht am Key (configured = Server-Adresse, Event, Schlüsselpaar)',
+  );
+  eq(
+    [
+      typen.includes("zugang: { art: 'freigabe' | 'alter-key' | 'keiner'; zeile: string; ton: 'ok' | 'warn' | 'fehler'; hinweis: string | null };"),
+      info.includes('const zeile = zugangsZeile({') && rueckgabe.includes('zeile: zeile.text,') && rueckgabe.includes('ton: zeile.ton,'),
+      rueckgabe.includes('hinweis: altKeyGeloescht && !cloudSecrets.proxyKey ? QA_TEXT.keyGeloescht : null,'),
+      /token|zugang\.f\b|cloudSecrets\.freigabe/.test(rueckgabe),
+    ],
+    [true, true, true, false],
+    'P31 G8/G4: QaCloudInfo.zugang im einzigen Konstruktor buildCloudInfo (zugangsZeile, Q6b), keine Freigabe an den Renderer',
+  );
+}
+
 // ── Ende der Fälle ──
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
 process.exit(failed === 0 ? 0 : 1);

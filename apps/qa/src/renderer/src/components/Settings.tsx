@@ -3,6 +3,8 @@ import type { QaCloudInfo, QaConfig } from '@shared/types';
 import { useQa } from '@/store/useQa';
 
 const inp = 'rounded border border-[var(--border)] bg-[var(--input)] px-2 py-1 text-sm text-[var(--foreground)]';
+/** Farbe der Zugangszeile je Ton (Anmeldung im Launcher, Teil 1, P31). */
+const TON = { ok: 'text-[var(--muted-foreground)]', warn: 'text-[var(--warning)]', fehler: 'text-[var(--destructive)]' } as const;
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -79,7 +81,8 @@ export function Settings({ config, cloud, onClose }: { config: QaConfig; cloud: 
 
 /**
  * Externe Einreichung (#166): Fragen per Livestream-QR + Presse vorab, über den
- * Cloud-Relay. Proxy-URL/Key + Event + Presse-Code. Der Live-Status (QR/Links)
+ * Cloud-Relay. Server-Adresse (Vorgabe) + Event + Presse-Code; der Zugang kommt als Freigabe vom Launcher, der
+ * alte Proxy-Key nur im Übergang (Anmeldung im Launcher, Teil 1, P31). Der Live-Status (QR/Links)
  * liegt im CloudPanel rechts. Externe Einreichungen sind IMMER moderationspflichtig.
  */
 function CloudSettings({ config, cloud }: { config: QaConfig; cloud: QaCloudInfo }) {
@@ -94,35 +97,42 @@ function CloudSettings({ config, cloud }: { config: QaConfig; cloud: QaCloudInfo
         Zugangscode. Alle externen Einreichungen sind freigabepflichtig.
       </p>
 
-      <Row label="Proxy-URL" hint="Basis-URL des Q&A-Relays (Cloudflare-Worker).">
+      <Row label="Server-Adresse" hint="Vorgabe: Server der Suite. Nur für Entwicklung und Fehlersuche ändern.">
         <input
           className={`${inp} w-56`}
-          placeholder="https://…workers.dev"
+          placeholder={cloud.proxyUrl}
           value={config.proxyUrl}
           onChange={(e) => void setCloudConfig({ proxyUrl: e.target.value })}
         />
       </Row>
 
-      <Row label="Proxy-Key" hint={cloud.hasKey ? 'Hinterlegt (verschlüsselt gespeichert).' : 'Zugriffs-Key des Proxys (Secret).'}>
-        <div className="flex gap-1">
-          <input
-            className={`${inp} w-40`}
-            type="password"
-            placeholder={cloud.hasKey ? '•••••• (ändern)' : 'Key'}
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-          />
-          <button
-            className="rounded border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]"
-            onClick={() => {
-              void setProxyKey(key);
-              setKey('');
-            }}
-          >
-            Speichern
-          </button>
-        </div>
-      </Row>
+      {cloud.zugang.zeile ? <div className={`py-2 text-[11px] ${TON[cloud.zugang.ton]}`}>{cloud.zugang.zeile}</div> : null}
+
+      {/* Alter Proxy-Key nur im Übergang (Spec 10, EP22): solange einer gespeichert ist oder keine Freigabe vorliegt. */}
+      {cloud.hasKey || cloud.zugang.art !== 'freigabe' ? (
+        <Row label="Alter Proxy-Key (Übergang)" hint="Nur noch kurz gültig. Mit Anmeldung im Launcher brauchst du ihn nicht.">
+          <div className="flex gap-1">
+            <input
+              className={`${inp} w-40`}
+              type="password"
+              placeholder={cloud.hasKey ? '•••••• (ändern)' : 'Key'}
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+            />
+            <button
+              className="rounded border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]"
+              onClick={() => {
+                void setProxyKey(key);
+                setKey('');
+              }}
+            >
+              Speichern
+            </button>
+          </div>
+        </Row>
+      ) : cloud.zugang.hinweis ? (
+        <div className="py-2 text-[11px] text-[var(--muted-foreground)]">{cloud.zugang.hinweis}</div>
+      ) : null}
 
       <Row label="Event" hint={config.eventId ? `ID: ${config.eventId}` : 'Noch kein Event erzeugt.'}>
         <button
