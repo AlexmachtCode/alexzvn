@@ -40,8 +40,11 @@ function grundAusFehler(e: unknown): { grund: FreigabeGrund; detail?: string } {
 /** Werte eines Tools nur gesäubert ins Log (keine Zeilenumbrüche, höchstens 64 Zeichen). */
 const sauber = (s: string): string => s.replace(/[^\w.-]/g, '?').slice(0, 64);
 
-export function erzeugeFreigabeStelle(u: {
-  treiber: SitzungsTreiber; client: KontoClient; jetzt(): number; log(z: string): void;
+/** Frist der Stelle: unter dem Zeitlimit des Clients (5 s), damit eine späte Antwort nie als „ausgegeben“ gilt. */
+export const STELLE_FRIST_MS = 4000;
+
+function stelleOhneFrist(u: {
+  treiber: SitzungsTreiber; client: KontoClient; jetzt(): number; log(z: string): void; verfallen: WeakSet<object>;
 }): { behandle(a: FreigabeAnfrage): Promise<FreigabeErgebnis> } {
   return {
     async behandle(a: FreigabeAnfrage): Promise<FreigabeErgebnis> {
@@ -53,6 +56,7 @@ export function erzeugeFreigabeStelle(u: {
       const ziel = a.ziel ?? '';
       if (zweck.zielNoetig && !ziel) return { ok: false, grund: 'fehler', detail: 'ungueltig' };
       const sitzung = await u.treiber.sitzungFuerBedarf();
+      if (u.verfallen.has(a)) return { ok: false, grund: 'server-nicht-erreichbar' };
       const ansicht = u.treiber.ansicht();
       if (!sitzung || !ansicht.stand) return { ok: false, grund: grundOhneSitzung(ansicht.zustand) };
       if (!darf(ansicht.stand, zweck.funktion, { jetzt: u.jetzt() })) {
@@ -61,6 +65,7 @@ export function erzeugeFreigabeStelle(u: {
       }
       try {
         const r = await u.client.freigabe(sitzung, a.zweck, ziel);
+        if (u.verfallen.has(a)) return { ok: false, grund: 'server-nicht-erreichbar' }; // zu spät: nichts merken, nichts loggen
         u.treiber.merkeAusgabe({ appId: a.appId, zweck: a.zweck, ziel, bis: r.bis, am: u.jetzt() });
         u.log(`Freigabe: ${a.zweck} an ${a.appId} ausgegeben, gültig bis ${new Date(r.bis).toISOString()}`);
         return { ok: true, freigabe: r.freigabe, bis: r.bis, konto: { name: ansicht.stand.name, stufe: ansicht.stand.stufe } };
@@ -68,6 +73,30 @@ export function erzeugeFreigabeStelle(u: {
         const g = grundAusFehler(e);
         u.log(`Freigabe: ${a.zweck} für ${a.appId} nicht ausgegeben (${g.grund})`);
         return g.detail === undefined ? { ok: false, grund: g.grund } : { ok: false, grund: g.grund, detail: g.detail };
+      }
+    },
+  };
+}
+
+export function erzeugeFreigabeStelle(u: {
+  treiber: SitzungsTreiber; client: KontoClient; jetzt(): number; log(z: string): void; fristMs?: number;
+}): { behandle(a: FreigabeAnfrage): Promise<FreigabeErgebnis> } {
+  const verfallen = new WeakSet<object>();
+  const innen = stelleOhneFrist({ ...u, verfallen });
+  return {
+    async behandle(a: FreigabeAnfrage): Promise<FreigabeErgebnis> {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const frist = new Promise<FreigabeErgebnis>((ja) => {
+        timer = setTimeout(() => {
+          verfallen.add(a);
+          u.log(`Freigabe: ${sauber(a.zweck)} für ${sauber(a.appId)} nicht ausgegeben (Frist)`);
+          ja({ ok: false, grund: 'server-nicht-erreichbar' });
+        }, u.fristMs ?? STELLE_FRIST_MS);
+      });
+      try {
+        return await Promise.race([innen.behandle(a), frist]);
+      } finally {
+        clearTimeout(timer);
       }
     },
   };

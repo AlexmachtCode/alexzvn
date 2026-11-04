@@ -3,6 +3,7 @@
 // Der Client ist der echte aus @jm/app-runtime/freigabe (Task 12); der Worker ist eine Attrappe des KontoClient.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -61,7 +62,7 @@ function client(antwort: WorkerAntwort): KontoClient & { aufrufe: Array<{ sitzun
 const grund = (e: FreigabeErgebnis): string => (e.ok ? 'ok' : e.grund);
 
 /** Eine Anfrage von Hand bauen (wie der Client), um Wiederholung, fremde Schlüssel und Zeitfenster zu prüfen. */
-function roh(port: number, o: { schluessel: string; zeit: number; nonce: string; body?: string; pfad?: string; methode?: string }): Promise<{ status: number; beweis: string | undefined; text: string }> {
+function roh(port: number, o: { schluessel: string; zeit: number; nonce: string; body?: string; pfad?: string; methode?: string; kopf?: Record<string, string> }): Promise<{ status: number; beweis: string | undefined; text: string }> {
   const body = o.body ?? JSON.stringify({ v: 1, appId: 'jm-qa', zweck: 'qa-relay', ziel: 'evt-1' });
   const zeit = String(o.zeit);
   return new Promise((ja, nein) => {
@@ -70,6 +71,7 @@ function roh(port: number, o: { schluessel: string; zeit: number; nonce: string;
       headers: {
         'content-type': 'application/json', 'x-jm-zeit': zeit, 'x-jm-nonce': o.nonce,
         'x-jm-beweis': freigabeBeweis(o.schluessel, ['tool', zeit, o.nonce, inhaltsHash(body)]),
+        ...o.kopf,
       },
     }, (res) => {
       let text = '';
@@ -81,7 +83,7 @@ function roh(port: number, o: { schluessel: string; zeit: number; nonce: string;
   });
 }
 const NONCE = (n: number): string => `nonce${String(n).padStart(17, '0')}`;
-async function dienst(o: { behandle?: (a: FreigabeAnfrage) => Promise<FreigabeErgebnis>; jetzt?: () => number } = {}) {
+async function dienst(o: { behandle?: (a: FreigabeAnfrage) => Promise<FreigabeErgebnis>; jetzt?: () => number; fristMs?: number } = {}) {
   const dir = appData();
   const log: string[] = [];
   const behandelt: FreigabeAnfrage[] = [];
@@ -90,6 +92,7 @@ async function dienst(o: { behandle?: (a: FreigabeAnfrage) => Promise<FreigabeEr
     behandle: async (a) => { behandelt.push(a); return o.behandle ? o.behandle(a) : { ok: false, grund: 'niemand-angemeldet' }; },
     log: (z) => log.push(z),
     jetzt: o.jetzt,
+    fristMs: o.fristMs,
   });
   const tuer = JSON.parse(readFileSync(tuerPfad(dir), 'utf8')) as TuerDatei;
   return { dir, log, behandelt, d, tuer };
@@ -119,7 +122,8 @@ async function dienst(o: { behandle?: (a: FreigabeAnfrage) => Promise<FreigabeEr
   const ZUSTAENDE: KontoZustand[] = ['nicht-angemeldet', 'pruefe', 'angemeldet', 'offline', 'server-nicht-erreichbar', 'abgelaufen',
     'entzogen', 'entzogen-laeuft', 'kein-schluesselspeicher'];
   const STAENDE = { 'kollege': stand(), 'externer mit qa': stand({ stufe: 'externer', tools: ['qa'] }), 'externer ohne qa': stand({ stufe: 'externer', tools: ['iveo'] }) };
-  const ANTWORTEN: WorkerAntwort[] = ['ok', 'netz', 'server', 'kein-recht', 'sitzung-abgelaufen', 'gesperrt', 'unbekannter-zweck', 'ungueltig'];
+  const ANTWORTEN: WorkerAntwort[] = ['ok', 'netz', 'server', 'kein-recht', 'sitzung-abgelaufen', 'gesperrt', 'unbekannter-zweck', 'ungueltig',
+    'zu-viele', 'nicht-eingerichtet', 'nicht-angemeldet', 'geloescht', 'zugang-abgelaufen', 'geraet-unbekannt'];
   const faelle = kreuz({ z: ZUSTAENDE, s: Object.keys(STAENDE) as Array<keyof typeof STAENDE>, w: ANTWORTEN });
   const ergebnisse: Array<{ f: (typeof faelle)[number]; ist: string; soll: string }> = [];
   for (const f of faelle) {
@@ -133,7 +137,9 @@ async function dienst(o: { behandle?: (a: FreigabeAnfrage) => Promise<FreigabeEr
     else if (f.s === 'externer ohne qa') soll = 'kein-recht 0 0';
     else {
       const g = { ok: 'ok', netz: 'server-nicht-erreichbar', server: 'server-nicht-erreichbar', 'kein-recht': 'kein-recht',
-        'sitzung-abgelaufen': 'abgelaufen', gesperrt: 'entzogen', 'unbekannter-zweck': 'unbekannter-zweck', ungueltig: 'fehler/ungueltig' }[f.w as string];
+        'sitzung-abgelaufen': 'abgelaufen', gesperrt: 'entzogen', 'unbekannter-zweck': 'unbekannter-zweck', ungueltig: 'fehler/ungueltig',
+        'zu-viele': 'server-nicht-erreichbar', 'nicht-eingerichtet': 'server-nicht-erreichbar', 'nicht-angemeldet': 'niemand-angemeldet',
+        geloescht: 'entzogen', 'zugang-abgelaufen': 'entzogen', 'geraet-unbekannt': 'entzogen' }[f.w as string];
       soll = `${g} 1 ${f.w === 'ok' ? 1 : 0}`;
     }
     ergebnisse.push({ f, ist, soll });
@@ -224,6 +230,90 @@ async function dienst(o: { behandle?: (a: FreigabeAnfrage) => Promise<FreigabeEr
   ck('P13 10.8: Tür-Datei je Start neu (v 1, Port, 43 Zeichen Schlüssel, pid, start), beim Stoppen gelöscht; eine fremde Datei bleibt',
     ersteDatei.v === 1 && ersteDatei.port === a.d.port && /^[A-Za-z0-9_-]{43}$/.test(ersteDatei.schluessel) && ersteDatei.pid === process.pid
     && ersteDatei.start === T0 && wegNachStopp && zweite.schluessel !== ersteDatei.schluessel && zweite.start === T0 + 1 && fremdeBleibt);
+}
+
+const warte = (ms: number): Promise<void> => new Promise((ja) => setTimeout(ja, ms));
+/** Rohe Verbindung: Kopf mit großer Content-Length, nur 5000 Byte Körper, dann offen lassen (wartet höchstens 2 s auf die Antwort). */
+function halboffen(port: number): Promise<string> {
+  return new Promise((ja) => {
+    const s = connect(port, '127.0.0.1');
+    let text = '';
+    const t = setTimeout(() => { s.destroy(); ja(text); }, 2000);
+    s.on('data', (c) => {
+      text += String(c);
+      if (text.includes('\r\n\r\n')) { clearTimeout(t); s.destroy(); ja(text); }
+    });
+    s.on('error', () => {});
+    s.on('connect', () => s.write(`POST /v1/freigabe HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nContent-Length: 100000\r\n\r\n${'x'.repeat(5000)}`));
+  });
+}
+
+// --- P13 Fix 1: Frist unter dem Zeitlimit des Clients --------------------------------------------------------------------------
+{
+  const t = treiber('angemeldet', stand());
+  const langsam = {
+    async freigabe() { await warte(250); return { freigabe: FREIGABE, bis: T0 + 72 * 3600_000 }; },
+  } as unknown as KontoClient;
+  const log: string[] = [];
+  const stelle = erzeugeFreigabeStelle({ treiber: t, client: langsam, jetzt: () => T0, log: (z) => log.push(z), fristMs: 50 });
+  const von = Date.now();
+  const e = await stelle.behandle({ v: 1, appId: 'jm-qa', zweck: 'qa-relay', ziel: 'evt-1' });
+  const dauer = Date.now() - von;
+  await warte(400);
+  ck('P13 Frist: Worker langsamer als die Frist der Stelle → server-nicht-erreichbar; die späte Freigabe wird nicht gemerkt und nicht als ausgegeben geloggt',
+    grund(e) === 'server-nicht-erreichbar' && dauer < 200 && t.ausgaben.length === 0 && !log.some((z) => z.includes(' ausgegeben, gültig bis')));
+  const x = await dienst({ jetzt: () => T0, fristMs: 50, behandle: async () => { await warte(250); return { ok: false, grund: 'niemand-angemeldet' }; } });
+  const r = await roh(x.d.port, { schluessel: x.tuer.schluessel, zeit: T0, nonce: NONCE(21) });
+  await x.d.stoppe();
+  ck('P13 Frist: behandle langsamer als die Frist des Tür-Dienstes → unterschriebene Antwort server-nicht-erreichbar',
+    r.status === 200 && r.beweis === freigabeBeweis(x.tuer.schluessel, ['launcher', NONCE(21), inhaltsHash(r.text)])
+    && JSON.parse(r.text).grund === 'server-nicht-erreichbar');
+}
+
+// --- P13 Fix 2: Origin und Host -------------------------------------------------------------------------------------------------
+{
+  const x = await dienst({ jetzt: () => T0 });
+  const s = x.tuer.schluessel;
+  const mitOrigin = await roh(x.d.port, { schluessel: s, zeit: T0, nonce: NONCE(31), kopf: { origin: 'http://boese.example' } });
+  const fremderHost = await roh(x.d.port, { schluessel: s, zeit: T0, nonce: NONCE(32), kopf: { host: 'boese.example' } });
+  const falscherPort = await roh(x.d.port, { schluessel: s, zeit: T0, nonce: NONCE(33), kopf: { host: '127.0.0.1:1' } });
+  const gut = await roh(x.d.port, { schluessel: s, zeit: T0, nonce: NONCE(34) });
+  const nurGut = x.behandelt.length === 1 && !x.log.some((z) => z.includes('abgelehnt'));
+  await x.d.stoppe();
+  ck('P13 Origin/Host: Anfrage mit Origin oder fremdem Host → 401 ohne Unterschrift, ohne Log, behandle nicht gerufen; Host 127.0.0.1:Port geht',
+    [mitOrigin, fremderHost, falscherPort].every((r) => r.status === 401 && r.beweis === undefined) && gut.status === 200 && nurGut);
+}
+
+// --- P13 Fix 3: Größe, Log-Drosselung, Wächter -----------------------------------------------------------------------------------
+{
+  const x = await dienst({ jetzt: () => T0 });
+  const antwort = await halboffen(x.d.port);
+  await x.d.stoppe();
+  ck('P13 4 KB: zu großer Körper → 413 sofort, ohne bis zum Ende des Körpers zu lesen', antwort.startsWith('HTTP/1.1 413'));
+}
+{
+  let uhr = T0;
+  const x = await dienst({ jetzt: () => uhr });
+  for (let i = 0; i < 5; i++) await roh(x.d.port, { schluessel: 'test-fremder-schluessel-0000000000000000', zeit: uhr, nonce: NONCE(41 + i) });
+  const nach5 = x.log.filter((z) => z.includes('abgelehnt')).length;
+  uhr += 10_001;
+  await roh(x.d.port, { schluessel: 'test-fremder-schluessel-0000000000000000', zeit: uhr, nonce: NONCE(50) });
+  const zeilen = x.log.filter((z) => z.includes('abgelehnt'));
+  await x.d.stoppe();
+  ck('P13 Log: Ablehnungen höchstens eine Zeile je 10 s, danach mit Zähler der unterdrückten (4 von 5, ohne Inhalt)',
+    nach5 === 1 && zeilen.length === 2 && zeilen[1] === 'Tür-Dienst: Anfrage abgelehnt (Beweis), 4 weitere unterdrückt');
+}
+{
+  const q = readFileSync(new URL('../src/main/konto/tuer-dienst.ts', import.meta.url), 'utf8');
+  ck('P13 Wächter: requestTimeout 10 s mit passendem headersTimeout und dauerhafter error-Handler am Server (Quelltext)',
+    q.includes('server.requestTimeout = 10_000;') && q.includes('server.headersTimeout = 5000;') && q.includes("server.on('error', () => o.log("));
+}
+{
+  const x = await dienst({ jetzt: () => T0, behandle: async () => { throw new Error('test-absturz'); } });
+  const r = await roh(x.d.port, { schluessel: x.tuer.schluessel, zeit: T0, nonce: NONCE(60) });
+  await x.d.stoppe();
+  ck('P13 behandle wirft → unterschriebene 200 mit grund fehler',
+    r.status === 200 && r.beweis === freigabeBeweis(x.tuer.schluessel, ['launcher', NONCE(60), inhaltsHash(r.text)]) && JSON.parse(r.text).grund === 'fehler');
 }
 
 // --- P13 G9 ------------------------------------------------------------------------------------------------------------------

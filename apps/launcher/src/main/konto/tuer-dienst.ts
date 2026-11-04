@@ -21,6 +21,9 @@ import {
 export const TUER_ZEITFENSTER_MS = 60_000;
 export const TUER_NONCE_MS = 2 * 60_000;
 const BODY_MAX_BYTES = 4096;
+/** Frist für `behandle`: unter dem Zeitlimit des Clients (5 s), damit das Tool eine unterschriebene Antwort bekommt. */
+export const TUER_FRIST_MS = 4000;
+const LOG_ABSTAND_MS = 10_000;
 
 /** Tür-Datei atomar schreiben: Zwischendatei im selben Ordner, dann umbenennen (Windows: kurz wiederholen). */
 function schreibeAtomar(pfad: string, inhalt: string): void {
@@ -67,10 +70,13 @@ function anfrageAus(text: string): FreigabeAnfrage | 'neuer' | null {
 
 export async function starteTuerDienst(o: {
   appDataDir: string; behandle(a: FreigabeAnfrage): Promise<FreigabeErgebnis>; log(z: string): void; jetzt?: () => number;
+  fristMs?: number;
 }): Promise<{ port: number; stoppe(): Promise<void> }> {
   const jetzt = o.jetzt ?? Date.now;
   const schluessel = randomBytes(32).toString('base64url');
   const gesehen = new Map<string, number>();
+  let letzteZeile = Number.NEGATIVE_INFINITY;
+  let unterdrueckt = 0;
 
   function unterschrieben(res: ServerResponse, status: number, e: FreigabeErgebnis, nonce: string): void {
     const text = JSON.stringify(e);
@@ -82,7 +88,14 @@ export async function starteTuerDienst(o: {
     res.end(text);
   }
   function abgelehnt(res: ServerResponse, status: number, warum: string): void {
-    o.log(`Tür-Dienst: Anfrage abgelehnt (${warum})`);
+    const t = jetzt();
+    if (t - letzteZeile >= LOG_ABSTAND_MS) {
+      o.log(`Tür-Dienst: Anfrage abgelehnt (${warum})${unterdrueckt ? `, ${unterdrueckt} weitere unterdrückt` : ''}`);
+      letzteZeile = t;
+      unterdrueckt = 0;
+    } else {
+      unterdrueckt++;
+    }
     res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
     res.end('abgelehnt');
   }
@@ -125,7 +138,15 @@ export async function starteTuerDienst(o: {
     }
     let e: FreigabeErgebnis;
     try {
-      e = await o.behandle(a);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const frist = new Promise<FreigabeErgebnis>((ja) => {
+        timer = setTimeout(() => ja({ ok: false, grund: 'server-nicht-erreichbar' }), o.fristMs ?? TUER_FRIST_MS);
+      });
+      try {
+        e = await Promise.race([o.behandle(a), frist]);
+      } finally {
+        clearTimeout(timer);
+      }
     } catch {
       e = { ok: false, grund: 'fehler' };
     }
@@ -133,6 +154,12 @@ export async function starteTuerDienst(o: {
   }
 
   const server = createServer((req, res) => {
+    // Browser-Seiten (Origin) und fremde Hostnamen (DNS-Rebinding) bekommen nie eine Antwort mit Unterschrift und kein Log.
+    if (req.headers.origin !== undefined || req.headers.host !== `127.0.0.1:${port}`) {
+      res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', connection: 'close' });
+      res.end('abgelehnt');
+      return;
+    }
     if (req.method !== 'POST') {
       abgelehnt(res, 405, 'Methode');
       return;
@@ -142,20 +169,27 @@ export async function starteTuerDienst(o: {
     let zuGross = false;
     req.on('data', (c: Buffer) => {
       laenge += c.length;
-      if (laenge > BODY_MAX_BYTES) zuGross = true;
-      else teile.push(c);
+      if (zuGross) return;
+      if (laenge > BODY_MAX_BYTES) {
+        zuGross = true;
+        teile.length = 0;
+        abgelehnt(res, 413, 'zu groß');
+        res.once('finish', () => req.destroy());
+      } else {
+        teile.push(c);
+      }
     });
     req.on('end', () => {
-      if (zuGross) {
-        abgelehnt(res, 413, 'zu groß');
-        return;
-      }
+      if (zuGross) return;
       void bediene(req, res, Buffer.concat(teile).toString('utf8')).catch(() => {
         if (!res.headersSent) abgelehnt(res, 500, 'Fehler');
       });
     });
   });
 
+  server.requestTimeout = 10_000;
+  server.headersTimeout = 5000;
+  let port = 0;
   await new Promise<void>((ok, nein) => {
     server.once('error', nein);
     server.listen(0, '127.0.0.1', () => {
@@ -163,7 +197,8 @@ export async function starteTuerDienst(o: {
       ok();
     });
   });
-  const port = (server.address() as AddressInfo).port;
+  port = (server.address() as AddressInfo).port;
+  server.on('error', () => o.log('Tür-Dienst: Fehler am Socket'));
   const pfad = tuerPfad(o.appDataDir);
   const tuer: TuerDatei = { v: 1, port, schluessel, pid: process.pid, start: jetzt() };
   try {
