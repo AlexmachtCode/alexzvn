@@ -472,6 +472,34 @@ async function run() {
     if (abrufeC !== 2) console.log(`     Abrufe ${abrufeC}`);
   }
 
+  // P20 EP1, EP9, EP24: Bindung, Migration und Variable in wrangler.toml, Re-Export im Worker, CI-Schritte.
+  {
+    const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    const werte = toml.split('\n').filter((z) => !z.trim().startsWith('#')).join('\n');
+    const migrationen = [...werte.matchAll(/\[\[migrations\]\]\ntag = "([^"]+)"\nnew_sqlite_classes = \[([^\]]*)\]/g)].map((m) => `${m[1]}:${m[2]}`);
+    const bindungen = [...werte.matchAll(/\[\[durable_objects\.bindings\]\]\nname = "([^"]+)"\nclass_name = "([^"]+)"/g)].map((m) => `${m[1]}=${m[2]}`);
+    check('P20 EP1: wrangler.toml: Bindung KONTO → KontoSpeicher, Migration v1 unverändert und genau eine v2 mit KontoSpeicher, KONTO_JURISDICTION und CONNECT_JURISDICTION eu',
+      JSON.stringify(migrationen) === JSON.stringify(['v1:"ConnectRoom"', 'v2:"KontoSpeicher"'])
+        && JSON.stringify(bindungen) === JSON.stringify(['CONNECT_ROOM=ConnectRoom', 'KONTO=KontoSpeicher'])
+        && /^KONTO_JURISDICTION = "eu"$/m.test(werte) && /^CONNECT_JURISDICTION = "eu"$/m.test(werte));
+    // ALTKEY_BIS mit derselben Regel wie der Worker: ein unlesbarer Wert (z. B. 2026-12-32) hieße dort still „unbefristet“ (EP9).
+    const { alterKeyGilt } = await import('../konto-kern.js');
+    const bis = /^ALTKEY_BIS = "([^"]*)"$/m.exec(werte);
+    check('P20 EP9, G4: keine Secrets in [vars], ALTKEY_CONNECT_BIS in Teil 1 nicht gesetzt, ALTKEY_BIS höchstens als lesbares Datum; alle Namen beschrieben',
+      !/^\s*(KONTO_SCHLUESSEL|IVEO_SCHLUESSEL|GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET|ERSTER_ADMIN|PROXY_KEY|ALTKEY_CONNECT_BIS)\s*=/m.test(werte)
+        && (!/^\s*ALTKEY_BIS\s*=/m.test(werte)
+          || (!!bis && /^\d{4}-\d{2}-\d{2}(T.+)?$/.test(bis[1]) && alterKeyGilt({ ALTKEY_BIS: bis[1] }, 'katalog', 0).diagnose === null))
+        && ['KONTO_SCHLUESSEL', 'IVEO_SCHLUESSEL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'ERSTER_ADMIN', 'ALTKEY_BIS', 'ALTKEY_CONNECT_BIS'].every((n) => toml.includes(n)));
+    const modul = await import('../worker.js');
+    const { KontoSpeicher } = await import('../konto-do.js');
+    check('P20 EP1: worker.js exportiert ConnectRoom und KontoSpeicher (Durable-Object-Klassen aus wrangler.toml)',
+      modul.KontoSpeicher === KontoSpeicher && typeof modul.ConnectRoom === 'function' && typeof modul.default.fetch === 'function');
+    const ci = readFileSync(new URL('../../../.github/workflows/ci-checks.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    const laeufe = [...ci.matchAll(/run: node --experimental-strip-types services\/release-proxy\/test\/([a-z-]+)\.test\.mjs/g)].map((m) => m[1]);
+    check('P20 EP24: ci-checks.yml startet die Proxy-Tests in dieser Reihenfolge: worker, konto-kern, konto-krypto, konto-do, konto-zugang, konto-routen, qa-relay',
+      JSON.stringify(laeufe) === JSON.stringify(['worker', 'konto-kern', 'konto-krypto', 'konto-do', 'konto-zugang', 'konto-routen', 'qa-relay']));
+  }
+
   // ── Ende der Fälle ──
 
   // P15 G4: Kein Geheimnis in der Konsole (läuft als letzter Fall über das ganze Protokoll).

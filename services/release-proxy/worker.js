@@ -39,9 +39,11 @@ import { funktionFuerRoute } from './konto-kern.js';
 import { kontoJetzt, launcherSelbstUpdate, selbstUpdateLiefern, zugangPruefen } from './konto-zugang.js';
 // Anmeldung im Launcher (Plan Teil 1, P16): Launcher-API, Anmeldeseite und Google-Anmeldung unter /konto/.
 import { handleKonto } from './konto-relay.js';
+// Konten-DO der Anmeldung (EP1; Bindung KONTO, Migration v2).
+import { KontoSpeicher } from './konto-do.js';
 
 // Durable-Object-Klassen müssen aus dem Worker-Haupt-Modul re-exportiert werden.
-export { ConnectRoom };
+export { ConnectRoom, KontoSpeicher };
 
 const USER_AGENT = 'JM-Suite-Release-Proxy';
 

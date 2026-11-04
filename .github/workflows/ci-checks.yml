@@ -106,6 +106,22 @@ jobs:
       - name: Release-Proxy (Paketwahl, Routing)
         run: node --experimental-strip-types services/release-proxy/test/worker.test.mjs
 
+      # Anmeldung im Launcher (Plan Teil 1, EP24): je Testdatei des Workers ein Schritt, ohne Netz und ohne Cloudflare
+      # (Attrappen in services/release-proxy/test/konto-attrappen.mjs), wie oben nicht über tsx. Direkt hinter dem Schritt
+      # davor, nicht am Jobende (vor dem Zoom-Bridge-Schritt mit !cancelled() und den Mac-Nachbau-Schritten).
+      - name: Release-Proxy (Anmeldung, Rechte und Fristen)
+        run: node --experimental-strip-types services/release-proxy/test/konto-kern.test.mjs
+      - name: Release-Proxy (Anmeldung, Krypto und Gerätebeweis)
+        run: node --experimental-strip-types services/release-proxy/test/konto-krypto.test.mjs
+      - name: Release-Proxy (Anmeldung, Konten-DO)
+        run: node --experimental-strip-types services/release-proxy/test/konto-do.test.mjs
+      - name: Release-Proxy (Anmeldung, Zugang und Gate)
+        run: node --experimental-strip-types services/release-proxy/test/konto-zugang.test.mjs
+      - name: Release-Proxy (Anmeldung, Launcher-API, Anmeldeseite, Google)
+        run: node --experimental-strip-types services/release-proxy/test/konto-routen.test.mjs
+      - name: Release-Proxy (Q&A-Relay, Freigabe, alter Schlüssel, Blind-Relay)
+        run: node --experimental-strip-types services/release-proxy/test/qa-relay.test.mjs
+
       # Zoom-Slots (Spec 11.1, 11.9): reine Entscheidungslogik der Bridge in C++, ohne SDK-Header, mit dem g++ des
       # Runners (Annahme AN16, der erste Lauf belegt sie). Ohne Compiler endet der Schritt mit Rückgabe 2, nie still grün.
       # Mit !cancelled(): Er braucht kein npm ci und läuft auch nach einem roten Schritt davor. Die Schritte danach
