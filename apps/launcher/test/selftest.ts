@@ -3539,6 +3539,56 @@ function dialogBefunde(q: string): string[] {
     && !panel.includes('mit dem iveo-Token') && !showView.includes('mit dem iveo-Token'));
 }
 
+// --- Anmeldung P32 (Spec 1, 2, 3, 10; N3, N5, N9; EP11, EP12; OFP1, IV5; G6): Übergang im Launcher ---------------------
+// Bau ohne eingebackenen Schlüssel; nach der ersten Anmeldung sind der gespeicherte GitHub-Zugang und (nach OFP1) die lokalen
+// iveo-Tokens weg. Die Löschregel selbst (lokaleLoeschen) läuft echt in test/konto-iveo.test.ts (P14); hier die Verdrahtung
+// als Quelltext-Wächter (settings.ts und die Hülle laden Electron).
+{
+  const bau: Array<[string, string]> = [
+    ['electron.vite.config.ts', quelleLf('../electron.vite.config.ts')],
+    ['src/main/env.d.ts', quelleLf('../src/main/env.d.ts')],
+    ['src/main/settings.ts', quelleLf('../src/main/settings.ts')],
+    ['.github/workflows/suite-release.yml', quelleLf('../../../.github/workflows/suite-release.yml')],
+    ['.github/workflows/suite-build.yml', quelleLf('../../../.github/workflows/suite-build.yml')],
+  ];
+  const einst = bau[2][1];
+  // settings.ts darf die Umgebungsvariable JMPS_PROXY_KEY lesen (Entwicklung, EP12), aber nichts Eingebackenes kennen.
+  const eingebacken = bau.filter(([d, q]) => q.includes('__JMPS_PROXY_KEY__') || q.includes('BAKED_PROXY_KEY')
+    || (d !== 'src/main/settings.ts' && q.includes('JMPS_PROXY_KEY'))).map(([d]) => d);
+  ck(`P32 N3, EP11: kein eingebackener Schlüssel in den Bau-Pfaden (${bau.length} Dateien)${eingebacken.length ? ` — noch in: ${eingebacken.join(', ')}` : ''}`,
+    eingebacken.length === 0 && !bau[0][1].includes('define:')
+    && funktionsKoerper(einst, 'export function resolveProxyKey(): string | undefined {').includes("  return process.env['JMPS_PROXY_KEY'] || undefined;"));
+  const huelle = quelleLf('../src/main/konto/huelle.ts');
+  const github = funktionsKoerper(einst, 'export function loescheGithubZugang(): boolean {');
+  const haken = funktionsKoerper(huelle, 'function nachErsterAnmeldungAufraeumen(): void {');
+  ck('P32 N5, EP12: die erste Anmeldung löscht githubToken und githubTokenEnc (ein Haken an beiErsterAnmeldung, nur beim ersten Mal), Hinweis github-geloescht',
+    github.includes('  if (s.githubToken === undefined && s.githubTokenEnc === undefined) return false;')
+    && github.includes('  delete s.githubToken;') && github.includes('  delete s.githubTokenEnc;') && github.includes('  write(s);')
+    && (huelle.match(/beiErsterAnmeldung\.push\(/g) ?? []).length === 1 && huelle.includes('beiErsterAnmeldung.push(nachErsterAnmeldungAufraeumen);')
+    && /if \(leseKontoErsteAnmeldung\(\) === null\) \{\n {8}schreibeKontoErsteAnmeldung\(Date\.now\(\)\);\n {8}for \(const f of beiErsterAnmeldung\)/.test(huelle)
+    && haken.includes('  if (loescheGithubZugang()) {') && haken.includes("    treiber?.merkeHinweis('github-geloescht');")
+    && (ohneKommentare(huelle).match(/loescheGithubZugang\(/g) ?? []).length === 1);
+  const lauf = funktionsKoerper(huelle, 'function raeumeLokaleIveoTokensAuf(): void {');
+  const lade = funktionsKoerper(huelle, 'async function ladeIveo(): Promise<void> {');
+  ck('P32 OFP1, IV5: Löschlauf nach jedem Laden der Tokens (auch ohne Sitzung), nie bei offener iveo-Show, „Abgleich hier“ vor dem Löschen, zentral nur aus geladenen Tokens',
+    (lade.match(/ {2,4}raeumeLokaleIveoTokensAuf\(\);/g) ?? []).length === 2
+    && lauf.includes('  if (erste === null) return;') && lauf.includes('    iveoShowOffen: iveoShowOffen(),')
+    && lauf.includes('    zentral: iveoGeladen ? iveo.erlaubteEvents().map((e) => e.key) : [],')
+    && lauf.indexOf('markiereAbgleichHier(r.markieren)') > 0
+    && lauf.indexOf('markiereAbgleichHier(r.markieren)') < lauf.indexOf('loescheLokaleIveoTokens(r.loeschen)'));
+  ck('P32 K32, I11: Meldungen wörtlich, nur Event-Kennungen ohne Werte, einmal nach der ersten Anmeldung, sobald die Tokens geladen sind',
+    huelle.includes("const TEXT_GITHUB_GELOESCHT = 'Der gespeicherte GitHub-Zugang wurde gelöscht; Downloads laufen jetzt über deine Anmeldung.';")
+    && huelle.includes('  return `Diese Events haben auf diesem Rechner noch ein lokal gespeichertes Token: ${slugs.join(\', \')}. Es wird gelöscht, sobald ein Admin das Event zentral hinterlegt, spätestens am ${datumText(spaetestens)}.`;')
+    && lauf.includes('  if (uebergangMelden && iveoGeladen) {') && lauf.includes("    const events = r.bleiben.filter((k) => !k.startsWith('base:'));"));
+  const code = ohneKommentare(einst);
+  const SCHREIBER = /\.iveoTokens(?:Enc)?\s*=(?!=)/g;
+  const schreiber = (code.match(SCHREIBER) ?? []).length;
+  const imLoeschen = (ohneKommentare(funktionsKoerper(einst, 'export function loescheLokaleIveoTokens(slugs: readonly string[]): void {')).match(SCHREIBER) ?? []).length;
+  ck(`P32 G6: settings.ts speichert keine Tokens mehr — kein setIveoToken/setIveoBaseToken, kein Klartext-Rückfall, kein neuer GitHub-Zugang; iveoTokens schreibt nur das Löschen (${schreiber} Schreiber)`,
+    !/export function (setIveoToken|setIveoBaseToken|deleteIveoToken|hasIveoToken)\(/.test(code) && !code.includes('plain[key] = t')
+    && !code.includes('next.githubToken = ') && schreiber > 0 && schreiber === imLoeschen);
+}
+
 // ── Ende der Fälle (Anmeldung) ──
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

@@ -47,12 +47,10 @@ interface StoredSettings {
 /** Wie viele zuletzt geöffnete Shows gemerkt werden (#157). */
 const RECENT_SHOWS_CAP = 8;
 
-// Standard-Release-Quelle: der interne Cloudflare-Proxy. Die URL ist kein
-// Secret; der zugehörige Proxy-Key wird beim CI-Build via vite `define` aus dem
-// Actions-Secret JMPS_PROXY_KEY eingebacken (leer in lokalen Dev-Builds → dann
-// greift der Token-Fallback).
+// Standard-Server der Suite (Worker jm-suite-proxy). Die URL ist kein Secret. Einen eingebackenen Schlüssel gibt es
+// nicht mehr (Anmeldung P32, EP11): Der Launcher kommt über die Sitzung der Anmeldung an den Worker; nur die Entwicklung
+// setzt noch die Umgebungsvariable (resolveProxyKey).
 const DEFAULT_PROXY_URL = 'https://jm-suite-proxy.jm-production-suite.workers.dev';
-const BAKED_PROXY_KEY = typeof __JMPS_PROXY_KEY__ !== 'undefined' ? __JMPS_PROXY_KEY__ : '';
 
 // Standard-Katalogquelle: derselbe Proxy liefert die suite.json LIVE aus dem
 // Repo (Route /suite.json). So erscheinen neue Tools ohne Launcher-Release —
@@ -150,9 +148,12 @@ export function resolveProxy(): string | undefined {
   return process.env['JMPS_RELEASE_PROXY'] || read().proxyUrl || DEFAULT_PROXY_URL || undefined;
 }
 
-/** Proxy-Key: Env (Dev) > eingebackener Build-Wert. Nicht in den Settings. */
+/**
+ * Alter Proxy-Key nur noch für die Entwicklung (EP12): die Umgebungsvariable JMPS_PROXY_KEY — nie eingebacken, nie in den
+ * Settings. Der Worker nimmt ihn bis ALTKEY_BIS an (EP9); der Konto-Dialog nennt die gesetzte Variable (K31).
+ */
 export function resolveProxyKey(): string | undefined {
-  return process.env['JMPS_PROXY_KEY'] || BAKED_PROXY_KEY || undefined;
+  return process.env['JMPS_PROXY_KEY'] || undefined;
 }
 
 /**
@@ -221,29 +222,8 @@ export function setIveoAnhangOrdner(an: boolean): void {
   write(s);
 }
 
-/** iveo-Token für ein Event ablegen (verschlüsselt) bzw. löschen (leerer Wert). */
-export function setIveoToken(eventKey: string, token: string): void {
-  const key = eventKey.trim();
-  if (!key) return;
-  const s = read();
-  const enc = { ...(s.iveoTokensEnc ?? {}) };
-  const plain = { ...(s.iveoTokens ?? {}) };
-  // Beide Repräsentationen für diesen Key zurücksetzen, dann neu ablegen.
-  delete enc[key];
-  delete plain[key];
-  const t = token.trim();
-  if (t) {
-    if (safeStorage.isEncryptionAvailable()) {
-      enc[key] = safeStorage.encryptString(t).toString('base64');
-    } else {
-      // Fallback: at-rest-Klartext auf einem Einzelplatz — Token-Verlust wäre schlimmer.
-      plain[key] = t;
-    }
-  }
-  s.iveoTokensEnc = Object.keys(enc).length ? enc : undefined;
-  s.iveoTokens = Object.keys(plain).length ? plain : undefined;
-  write(s);
-}
+// Anmeldung P32 (G6, OFP1): iveo-Tokens werden auf diesem Rechner nicht mehr gespeichert. Lokal liegen nur noch alte Tokens
+// aus der Zeit vor der Anmeldung; sie werden im Übergang gelesen und nach OFP1 gelöscht (loescheLokaleIveoTokens).
 
 /** Lokal gespeichertes iveo-Token (Bestand; nach der Anmeldung nur noch im Übergang, OFP1): verschlüsselt > Klartext; ohne Env. */
 function lokalesIveoToken(eventKey: string): string | undefined {
@@ -317,27 +297,14 @@ export function iveoTokenZumBinden(slug: string, basis: string): string | undefi
   return iveoTokenMitGrund(s, adresse, [key]).token ?? lokalesIveoToken(iveoBaseKey(adresse));
 }
 
-export function deleteIveoToken(eventKey: string): void {
-  setIveoToken(eventKey, '');
-}
-
-export function hasIveoToken(eventKey: string): boolean {
-  return Boolean(getIveoToken(eventKey));
-}
-
-// ── C4: Token zusätzlich PRO BASIS-URL merken ──────────────────────────────────
+// ── C4: Token PRO BASIS-URL (Bestand) ───────────────────────────────────────────
 // Ein iveo-Token gilt basis-/org-weit — die Discovery `GET /` listet ALLE für den
-// Token lesbaren Events. Für ein NEUES Event derselben Basis muss man ihn also
-// nicht erneut einfügen. Wir legen ihn beim Binden ZUSÄTZLICH unter einem
-// `base:<normalisierte URL>`-Schlüssel ab (kollidiert nicht mit Event-Slugs) —
-// dieselbe safeStorage-Verschlüsselung, main-only, nie im Renderer/der Show.
+// Token lesbaren Events. Bis zur Anmeldung legte das Binden es zusätzlich unter einem
+// `base:<normalisierte URL>`-Schlüssel ab (kollidiert nicht mit Event-Slugs). Seit der
+// Anmeldung (P23, P32) wird nichts mehr abgelegt; ein alter Basis-Token wird nur noch
+// gelesen und nach der Frist gelöscht (OFP1, IV5).
 function iveoBaseKey(baseUrl: string): string {
   return `base:${normalizeIveoBaseUrl(baseUrl)}`;
-}
-
-/** Token unter der (normalisierten) Basis-URL ablegen (verschlüsselt) bzw. löschen. */
-export function setIveoBaseToken(baseUrl: string, token: string): void {
-  setIveoToken(iveoBaseKey(baseUrl.trim() || resolveIveoBaseUrl()), token);
 }
 
 /**
@@ -444,12 +411,11 @@ export function setSettings(input: SuiteSettingsInput): SuiteSettingsView {
   const current = read();
   const next: StoredSettings = { ...current };
   // Leerer String => Wert löschen; undefined => unverändert lassen.
-  if (input.githubToken !== undefined) {
-    const t = input.githubToken.trim();
-    // Beide Repräsentationen zurücksetzen, dann (in write→sealToken) neu versiegeln.
+  // Anmeldung P32 (N5, EP12): Ein GitHub-Zugang wird nicht mehr gespeichert (Downloads laufen über die Anmeldung); ein
+  // leerer Wert löscht einen alten weiter. Das Feld gibt es in den Einstellungen nicht mehr (P28).
+  if (input.githubToken !== undefined && !input.githubToken.trim()) {
     delete next.githubToken;
     delete next.githubTokenEnc;
-    if (t) next.githubToken = t;
   }
   if (input.proxyUrl !== undefined) {
     next.proxyUrl = input.proxyUrl.trim() || undefined;
@@ -521,5 +487,43 @@ export function setzeIveoAbgleichHier(key: string, an: boolean): void {
   const neu = an ? [...rest, k] : rest;
   if (neu.length) s.iveoAbgleichHier = neu;
   else delete s.iveoAbgleichHier;
+  write(s);
+}
+
+// ── Übergang (Plan P32; Spec 10, 2 Anti-Ziel; N5, N9; EP12, EP14; OFP1) ──────────────────────────────────────────────────
+// Nur Löschen und Markieren, nie ein neues Geheimnis (G6). Wann gelöscht wird, entscheidet die Hülle (konto/huelle.ts) nach
+// lokaleLoeschen (P14); hier steht nur, wie.
+
+/** N5, EP12: gespeicherten GitHub-Zugang löschen (verschlüsselt und Klartext). true, wenn einer da war. */
+export function loescheGithubZugang(): boolean {
+  const s = read();
+  if (s.githubToken === undefined && s.githubTokenEnc === undefined) return false;
+  delete s.githubToken;
+  delete s.githubTokenEnc;
+  write(s);
+  return true;
+}
+
+/** OFP1, IV5: lokal gespeicherte iveo-Tokens löschen (Schlüssel wie gespeichert: Slug oder `base:‹URL›`), beide Formen. */
+export function loescheLokaleIveoTokens(slugs: readonly string[]): void {
+  if (slugs.length === 0) return;
+  const s = read();
+  const enc = { ...(s.iveoTokensEnc ?? {}) };
+  const plain = { ...(s.iveoTokens ?? {}) };
+  for (const k of slugs) {
+    delete enc[k];
+    delete plain[k];
+  }
+  s.iveoTokensEnc = Object.keys(enc).length ? enc : undefined;
+  s.iveoTokens = Object.keys(plain).length ? plain : undefined;
+  write(s);
+}
+
+/** EP14, IV5: „Abgleich hier“ für mehrere Event-Schlüssel setzen, bevor ihr lokales Token gelöscht wird (kein Geheimnis). */
+export function markiereAbgleichHier(keys: readonly string[]): void {
+  const neu = keys.map((k) => k.trim()).filter((k) => k.length > 0);
+  if (neu.length === 0) return;
+  const s = read();
+  s.iveoAbgleichHier = [...new Set([...(s.iveoAbgleichHier ?? []), ...neu])];
   write(s);
 }

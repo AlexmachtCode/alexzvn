@@ -23,15 +23,16 @@ import { erzeugeSitzungsTreiber, sitzungsAblage, type GespeicherteSitzung, type 
 import { erzeugeAnmeldeAblauf, type AnmeldeAblauf } from './anmelde-ablauf';
 import { starteTuerDienst } from './tuer-dienst';
 import { erzeugeFreigabeStelle } from './freigaben';
-import { erzeugeIveoZentral, type IveoZentralSpeicher } from './iveo-zentral';
+import { erzeugeIveoZentral, lokaleLoeschen, type IveoZentralSpeicher } from './iveo-zentral';
 import { toClientError } from '../iveo-abgleich-kern';
 import { IVEO_ABRUF_ZEITGRENZE_MS, mitZeitgrenze } from '../iveo-huelle-hilfen';
 import {
-  leseKontoEntzug, leseKontoErsteAnmeldung, leseKontoFeld, resolveIveoBaseUrl, resolveProxy, resolveProxyKey,
-  schreibeKontoEntzug, schreibeKontoErsteAnmeldung, schreibeKontoFeld, verbindeIveoZentral, verbindeSitzung,
+  leseKontoEntzug, leseKontoErsteAnmeldung, leseKontoFeld, listIveoTokenKeys, loescheGithubZugang, loescheLokaleIveoTokens,
+  markiereAbgleichHier, resolveIveoBaseUrl, resolveProxy, resolveProxyKey, schreibeKontoEntzug, schreibeKontoErsteAnmeldung,
+  schreibeKontoFeld, verbindeIveoZentral, verbindeSitzung,
 } from '../settings';
 import { verbundStand } from '../verbund';
-import { tokensAktualisiert } from '../iveo-sync';
+import { iveoShowOffen, tokensAktualisiert } from '../iveo-sync';
 
 /** R13, K31: Entwicklungsvariablen, deren NAMEN der Konto-Dialog nennt. Nie die Werte. */
 const DEV_NAMEN = ['JMPS_PROXY_KEY', 'JMPS_GITHUB_TOKEN', 'JMPS_RELEASE_PROXY', 'JMPS_IVEO_TOKEN'] as const;
@@ -280,8 +281,9 @@ export function kontoSitzungMoeglich(): boolean {
 }
 
 /**
- * P22 (Spec 9.1, EP12): Gibt es einen Zugang zum Worker? Sitzung (R6) oder Entwicklungs-Schlüssel (JMPS_PROXY_KEY; bis P32
- * auch der eingebackene). Ohne beides fragen die Quellen den Worker nicht.
+ * P22 (Spec 9.1, EP12): Gibt es einen Zugang zum Worker? Sitzung (R6) oder Entwicklungs-Schlüssel (nur die
+ * Umgebungsvariable JMPS_PROXY_KEY; einen eingebackenen gibt es seit P32 nicht mehr). Ohne beides fragen die Quellen den
+ * Worker nicht.
  */
 export function zugangDa(): boolean {
   return kontoSitzungMoeglich() || Boolean(resolveProxyKey());
@@ -323,6 +325,8 @@ export function iveoZentral(): IveoZentralSpeicher {
 async function ladeIveo(): Promise<void> {
   const t = kontoToken();
   if (!t || !client) {
+    // P32 (OFP1): auch ohne Sitzung (abgemeldet, abgelaufen) gilt die Frist für lokale Tokens.
+    raeumeLokaleIveoTokensAuf();
     tokensAktualisiert();
     return;
   }
@@ -347,8 +351,81 @@ async function ladeIveo(): Promise<void> {
     iveoLaedt = false;
     log?.warn(`Anmeldung: iveo-Tokens nicht geladen (${fehlerCode(e)})`);
   }
+  // P32 (OFP1, IV5): nach jedem Laden die lokale Altlast aufräumen; danach meldet tokensAktualisiert die neue Lage.
+  raeumeLokaleIveoTokensAuf();
   tokensAktualisiert();
 }
+
+// ── Übergang (Plan P32; Spec 10, 2 Anti-Ziel; N5, N9; EP12; OFP1, IV5) ───────────────────────────────────────────────────
+// Nach der ersten Anmeldung auf diesem Rechner verschwinden die alten Geheimnisse: der gespeicherte GitHub-Zugang sofort,
+// lokal gespeicherte iveo-Tokens nach OFP1. Laufendes bleibt unberührt (G5): nie bei offener iveo-Show, und vor dem Löschen
+// eines Tokens bekommt sein Event „Abgleich hier“, damit dieser Rechner weiter abgleicht (EP14).
+
+/** K32: Meldung nach der ersten Anmeldung, wenn ein gespeicherter GitHub-Zugang gelöscht wurde. */
+const TEXT_GITHUB_GELOESCHT = 'Der gespeicherte GitHub-Zugang wurde gelöscht; Downloads laufen jetzt über deine Anmeldung.';
+
+/** TT.MM.JJJJ in Ortszeit des Rechners (G2). */
+function datumText(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+}
+
+/** I11 (OFP1): Events, deren Token noch lokal liegt — nur die Kennungen (Slugs), nie die Werte —, und das späteste Datum. */
+function textLokaleIveo(slugs: readonly string[], spaetestens: number): string {
+  return `Diese Events haben auf diesem Rechner noch ein lokal gespeichertes Token: ${slugs.join(', ')}. Es wird gelöscht, sobald ein Admin das Event zentral hinterlegt, spätestens am ${datumText(spaetestens)}.`;
+}
+
+/** Nach der ersten Anmeldung stehen K32 und I11 aus, bis die Tokens einmal geladen sind (erst dann ist die Liste wahr). */
+let uebergangMelden = false;
+/** Der Haken hat einen gespeicherten GitHub-Zugang gelöscht (K32). */
+let githubGeloescht = false;
+
+/**
+ * Haken an beiErsterAnmeldung (N5, EP12): den gespeicherten GitHub-Zugang löschen; Downloads laufen ab jetzt über die
+ * Sitzung. Der Konto-Dialog zeigt K32 als Hinweis (P25). Die Meldung kommt erst nach dem nächsten Laden der Tokens, zusammen
+ * mit I11: Eine Meldung hier würde die Meldung K33, die die Hülle direkt danach zeigt, sofort überdecken.
+ */
+function nachErsterAnmeldungAufraeumen(): void {
+  if (loescheGithubZugang()) {
+    githubGeloescht = true;
+    treiber?.merkeHinweis('github-geloescht');
+  }
+  uebergangMelden = true;
+}
+
+/**
+ * OFP1, IV5: lokal gespeicherte iveo-Tokens nach der ersten Anmeldung löschen — je Event, sobald der Worker es diesem Konto
+ * liefert, sonst spätestens 30 Tage nach der ersten Anmeldung; nie, solange eine iveo-Show offen ist (dann beim nächsten
+ * Lauf: ladeIveo ruft ihn nach jedem Laden, also beim Start, nach der Anmeldung und alle 5 min). Ohne geladene Tokens zählt
+ * kein Event als zentral hinterlegt. Ins Log nur Anzahlen, nie Schlüssel oder Werte (G4).
+ */
+function raeumeLokaleIveoTokensAuf(): void {
+  const erste = leseKontoErsteAnmeldung();
+  if (erste === null) return;
+  const r = lokaleLoeschen({
+    lokaleSlugs: listIveoTokenKeys(),
+    zentral: iveoGeladen ? iveo.erlaubteEvents().map((e) => e.key) : [],
+    ersteAnmeldung: erste,
+    jetzt: Date.now(),
+    iveoShowOffen: iveoShowOffen(),
+    standardBasis: resolveIveoBaseUrl(),
+  });
+  if (r.markieren.length) markiereAbgleichHier(r.markieren);
+  if (r.loeschen.length) {
+    loescheLokaleIveoTokens(r.loeschen);
+    log?.info(`Anmeldung: ${r.loeschen.length} lokal gespeicherte iveo-Tokens gelöscht (OFP1)`);
+  }
+  if (uebergangMelden && iveoGeladen) {
+    uebergangMelden = false;
+    const events = r.bleiben.filter((k) => !k.startsWith('base:'));
+    const teile = [githubGeloescht ? TEXT_GITHUB_GELOESCHT : null, events.length ? textLokaleIveo(events, r.spaetestens) : null]
+      .filter((t): t is string => t !== null);
+    if (teile.length) emit({ type: 'notice', message: teile.join(' ') });
+  }
+}
+
+// N5: der Haken hängt an der ersten Anmeldung (Task 21 ruft ihn nur, wenn kontoErsteAnmeldung fehlte).
+beiErsterAnmeldung.push(nachErsterAnmeldungAufraeumen);
 
 /** EP15: Lage beim Start, alle 5 min und bei Fensterfokus (höchstens einmal je Minute). */
 async function kontoLage(fokus: boolean): Promise<void> {

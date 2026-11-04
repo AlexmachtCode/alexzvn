@@ -68,10 +68,6 @@ jobs:
 
       - name: Build renderer/main (electron-vite)
         run: npm run build -w @jm/${{ steps.app.outputs.name }}
-        env:
-          # Vom Launcher-Build zur Build-Zeit eingebacken (vite define). Bei den
-          # anderen Tools ungenutzt/harmlos. Leer, falls Secret nicht gesetzt.
-          JMPS_PROXY_KEY: ${{ secrets.JMPS_PROXY_KEY }}
 
       # electron ist im Workspace ans Root gehoistet → Version in die Config
       # schreiben (shell-sicher, statt -c.electronVersion am CLI; pwsh zerlegt das).
