@@ -6,6 +6,7 @@
 // nur als { iv, ct }. Jede Anfrage an den DO baut kontoAktion neu, ohne eine Kopfzeile des Clients (Lehre B1).
 // Antworten: JSON mit cache-control no-store; Fehler { error: Text S…, code } (Texttabelle 9.6, EP17). Kein Token,
 // Abholgeheimnis, Code, Passwort oder Schlüssel geht ins Log oder in eine Fehlermeldung.
+import { googleBereit, googleRueckkehr, googleStartAdresse } from './konto-google.js';
 import { FREIGABE_MS, ZWECK_FUNKTION, darf, kontoStand } from './konto-kern.js';
 import { BEWEIS_FENSTER_MS, iveoEntschluesseln, iveoVerschluesseln, neuerBestaetigungsCode, pruefeToken, schluesselBrauchbar, sha256B64url, signiere, zufall } from './konto-krypto.js';
 import { datumText, esc, fuelle, htmlAntwort, seiteAnmelden, seiteBestaetigen, seiteMeldung } from './konto-seiten.js';
@@ -37,6 +38,8 @@ const ROUTEN = {
   'GET /konto/anmelden': seiteAnmeldenRoute,
   'POST /konto/passwort': passwortRoute,
   'POST /konto/bestaetigen': bestaetigenRoute,
+  'GET /konto/google': googleStartRoute,
+  'GET /konto/google/zurueck': googleZurueckRoute,
   // ── Ende der Routen ──
 };
 
@@ -45,6 +48,8 @@ const SEITEN = new Set([
   'GET /konto/anmelden',
   'POST /konto/passwort',
   'POST /konto/bestaetigen',
+  'GET /konto/google',
+  'GET /konto/google/zurueck',
   // ── Ende der Seiten ──
 ]);
 
@@ -401,7 +406,7 @@ function fehlerName(e) {
 
 /** Google-Anmeldung eingerichtet? Ohne Client zeigt die Seite B6 und nur die Passwort-Anmeldung (EP6). */
 function googleDa(env) {
-  return !!env.GOOGLE_CLIENT_ID && !!env.GOOGLE_CLIENT_SECRET;
+  return googleBereit(env);
 }
 
 /** Formular (application/x-www-form-urlencoded) bis KONTO.formBytes; größer → null. */
@@ -489,6 +494,70 @@ async function bestaetigenRoute(k) {
   if (r.ok) return meldung(r.zustand === 'bestaetigt' ? 'B8' : 'B9');
   if (doAusfall(r)) return ausfallSeite();
   return meldung(r.code === 'konflikt' ? 'B11' : 'B10', 403);
+}
+
+// ── Google-Anmeldung (P18; Spec 4, 4.1 Schritt 2; EP6; Texte B6, B10, B11, B16–B20) ──────────────────────────────────
+
+/** Rückkehradresse bei Google (im Client des Owners eingetragen, EP6): <origin>/konto/google/zurueck. */
+function googleZurueckAdresse(k) {
+  return `${k.url.origin}/konto/google/zurueck`;
+}
+
+/** GET /konto/google?v=<vorgang>: 302 zu Google mit PKCE S256; state, nonce und verifier merkt der Vorgang im DO. */
+async function googleStartRoute(k) {
+  if (!googleBereit(k.env)) return meldung('B6', 503);
+  const vorgang = k.url.searchParams.get('v') || '';
+  if (!vorgang) return meldung('B10', 404);
+  const state = zufall(24);
+  const nonce = zufall(24);
+  const verifier = zufall(48);
+  const r = await k.rufe('vorgang-google-merken', { vorgang, state, nonce, verifier });
+  if (!r.ok && doAusfall(r)) return ausfallSeite();
+  if (!r.ok) return meldung('B10', 404);
+  const ziel = await googleStartAdresse(k.env, { state, nonce, verifier, redirectUri: googleZurueckAdresse(k) });
+  return new Response(null, { status: 302, headers: { location: ziel, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
+}
+
+/**
+ * GET /konto/google/zurueck?code=&state=: state gilt genau einmal (DO), dann Code tauschen und prüfen (konto-google.js),
+ * Konto finden oder als Kollege anlegen (nur jakobsmedien.com), an den Vorgang binden → Bestätigungsseite (B7).
+ */
+async function googleZurueckRoute(k) {
+  if (!googleBereit(k.env)) return meldung('B6', 503);
+  const state = k.url.searchParams.get('state') || '';
+  const code = k.url.searchParams.get('code') || '';
+  if (!state) return meldung('B10', 404);
+  const s = await k.rufe('vorgang-google-state', { state });
+  if (!s.ok && doAusfall(s)) return ausfallSeite();
+  if (!s.ok) return meldung('B10', 404);
+  if (!code || k.url.searchParams.has('error')) return meldung('B20', 400);
+  const g = await googleRueckkehr(k.env, { code, verifier: s.verifier, nonce: s.nonce, redirectUri: googleZurueckAdresse(k), jetzt: k.jetzt });
+  if (!g.ok) return meldung(g.grund === 'domain' ? 'B18' : g.grund === 'email-unbestaetigt' ? 'B19' : 'B20', 403);
+  const a = await k.rufe('konto-aus-google', { email: g.email, name: g.name });
+  if (!a.ok) return googleKontoFehler(a);
+  const b = await k.rufe('vorgang-konto-binden', { vorgang: s.vorgang, kid: a.kid });
+  if (!b.ok) return googleKontoFehler(b);
+  return htmlAntwort(seiteBestaetigen({ vorgang: s.vorgang, seitenToken: b.seitenToken, email: b.email, code: b.code, rechnerName: b.rechnerName }));
+}
+
+/** Fehler des DO nach der Google-Prüfung als Seite; ein Ausfall des DO (AR53) ist „interner Fehler“, nie B10 oder B11. */
+function googleKontoFehler(r) {
+  if (doAusfall(r)) return ausfallSeite();
+  switch (r.code) {
+    case 'gesperrt':
+    case 'geloescht':
+      return meldung('B16', 403);
+    case 'zugang-abgelaufen':
+      return meldung('B17', 403, { Datum: datumText(r.bis) });
+    case 'domain':
+      return meldung('B18', 403);
+    case 'konflikt':
+      return meldung('B11', 409);
+    case 'vorgang-unbekannt':
+      return meldung('B10', 404);
+    default:
+      return htmlAntwort(seiteMeldung({ text: esc('interner Fehler'), fehler: true }), 502);
+  }
 }
 
 // ── Ende der Handler ──

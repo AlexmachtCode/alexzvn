@@ -722,6 +722,164 @@ async function run() {
     check('P17 rein: konto-seiten.js ohne import, ohne console, ohne <script', !/^import /m.test(q) && !q.includes('console.') && !q.includes('<script'));
   }
 
+  // ── P18: Google-Anmeldung (Spec 4, 4.1 Schritt 2; EP6; Texte B6, B10, B11, B16–B20) ──
+  {
+    const { SEITEN_TEXT: B, esc } = await import('../konto-seiten.js');
+    const { GOOGLE_TOKEN, pkceChallenge } = await import('../konto-google.js');
+    const CLIENT = 'test-client.apps.googleusercontent.com';
+    const SECRET = 'test-google-client-secret';
+    geheim.push(SECRET);
+    const env = umgebung({ GOOGLE_CLIENT_ID: CLIENT, GOOGLE_CLIENT_SECRET: SECRET });
+    const uhr = env.KONTO_UHR;
+    const admin = await ersterAdmin(env);
+    const sp = env.KONTO.speicher();
+    const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const idToken = (angaben) => `${b64u({ alg: 'RS256', kid: 'test' })}.${b64u(angaben)}.test-signatur`;
+    // fetch-Attrappe für Google: jede Anfrage wird mitgeschrieben; `google` bestimmt die Antwort des Token-Endpunkts.
+    const aufrufe = [];
+    let google = null;
+    const altesFetch = globalThis.fetch;
+    globalThis.fetch = async (u, init = {}) => {
+      aufrufe.push({ url: String(u), method: init.method, body: String(init.body ?? '') });
+      if (String(u) !== GOOGLE_TOKEN) return new Response('{}', { status: 404 });
+      return google();
+    };
+    const hole = async (pfad, e = env) => {
+      const res = await worker.fetch(new Request('https://proxy.test' + pfad, { headers: { 'CF-Connecting-IP': '8.8.8.8' } }), e, makeWaitCtx());
+      return { status: res.status, kopf: res.headers, html: await res.text() };
+    };
+    // Ausfall des DO (AR53): `ausfallBei` nennt die DO-Aktion, deren Antwort ein 5xx ist; alle anderen Aktionen laufen echt.
+    let ausfallBei = null;
+    const jurisdiktion = env.KONTO.jurisdiction;
+    env.KONTO.jurisdiction = (x) => {
+      const n = jurisdiktion(x);
+      const get = n.get;
+      n.get = (id) => {
+        const s = get(id);
+        return { fetch: (rq) => (ausfallBei && rq.url.endsWith(`/${ausfallBei}`) ? new Response(JSON.stringify({ ok: false, code: 'vorgang-unbekannt', status: 500 })) : s.fetch(rq)) };
+      };
+      return n;
+    };
+    /** Vorgang anlegen (je Aufruf eigene IP, die Drossel zählt 10 je IP) und den Google-Start holen → { v, ort (URL), state, nonce }. */
+    let ipNr = 0;
+    const legeAn = async () => {
+      const v = await api(env, 'POST', '/konto/vorgang', { body: { geraet: (await testGeraet()).angaben }, ip: `9.9.8.${ipNr++}` });
+      geheim.push(v.daten.abholGeheimnis, v.daten.code);
+      return v;
+    };
+    const starte = async () => {
+      const v = await legeAn();
+      const s = await hole(`/konto/google?v=${encodeURIComponent(v.daten.vorgang)}`);
+      const ort = new URL(s.kopf.get('location') || 'https://leer.invalid/');
+      return { v: v.daten, s, ort, state: ort.searchParams.get('state'), nonce: ort.searchParams.get('nonce') };
+    };
+    const angaben = (nonce, mehr = {}) => ({
+      iss: 'https://accounts.google.com', aud: CLIENT, azp: CLIENT, sub: '1234567890', hd: 'jakobsmedien.com', email: 'gabi@jakobsmedien.com',
+      email_verified: true, name: 'Gabi Google', iat: Math.floor(uhr() / 1000), exp: Math.floor(uhr() / 1000) + 3600, nonce, ...mehr,
+    });
+    const tokenAntwort = (a) => () => new Response(JSON.stringify({ access_token: 'test-access-token', id_token: idToken(a), token_type: 'Bearer' }), { status: 200 });
+
+    // Start: 302 zu Google mit PKCE S256; der Verifier liegt nur im Vorgang (DO).
+    const st = await starte();
+    const vg = await sp.ctx.storage.get(`vorgang:${st.v.vorgang}`);
+    const p = st.ort.searchParams;
+    check('P18 EP6: Start → 302 an accounts.google.com mit client_id, redirect_uri, scope, hd, prompt, state, nonce, code_challenge S256',
+      st.s.status === 302 && st.ort.origin + st.ort.pathname === 'https://accounts.google.com/o/oauth2/v2/auth' && p.get('client_id') === CLIENT
+        && p.get('redirect_uri') === 'https://proxy.test/konto/google/zurueck' && p.get('response_type') === 'code' && p.get('scope') === 'openid email profile'
+        && p.get('hd') === 'jakobsmedien.com' && p.get('prompt') === 'select_account' && p.get('code_challenge_method') === 'S256'
+        && !!vg && !!vg.google && vg.google.state === st.state && vg.google.nonce === st.nonce && p.get('code_challenge') === (await pkceChallenge(vg.google.verifier))
+        && !st.ort.href.includes(vg.google.verifier) && st.s.kopf.get('cache-control') === 'no-store' && st.s.kopf.get('set-cookie') === null);
+
+    // Rückkehr ok → Bestätigungsseite, neues Konto Kollege; der Token-Tausch trägt Code, Verifier und Secret.
+    google = tokenAntwort(angaben(st.nonce));
+    aufrufe.length = 0;
+    const z = await hole(`/konto/google/zurueck?state=${st.state}&code=test-code-ok`);
+    const tausch = aufrufe[0] ? new URLSearchParams(aufrufe[0].body) : new URLSearchParams();
+    const t = (z.html.match(/name="t" value="([^"]*)"/) || [])[1];
+    geheim.push(t, 'test-code-ok', vg.google.verifier);
+    check('P18 4.1: Rückkehr ok → Bestätigungsseite mit E-Mail und Code des Launchers',
+      z.status === 200 && z.html.includes(esc('Angemeldet als gabi@jakobsmedien.com')) && z.html.includes(`<p class="code">${st.v.code}</p>`) && !!t);
+    check('P18 EP6: genau ein Token-Tausch (POST oauth2.googleapis.com/token mit code, code_verifier, client_id, client_secret, redirect_uri, grant_type)',
+      aufrufe.length === 1 && aufrufe[0].method === 'POST' && tausch.get('code') === 'test-code-ok' && tausch.get('code_verifier') === vg.google.verifier
+        && tausch.get('client_id') === CLIENT && tausch.get('client_secret') === SECRET && tausch.get('grant_type') === 'authorization_code'
+        && tausch.get('redirect_uri') === 'https://proxy.test/konto/google/zurueck');
+    const kid = await sp.ctx.storage.get('email:gabi@jakobsmedien.com');
+    const konto = kid ? await sp.ctx.storage.get(`konto:${kid}`) : null;
+    check('P18 4: erste Google-Anmeldung legt einen Kollegen an (art google, Name von Google)', !!konto && konto.stufe === 'kollege' && konto.art === 'google' && konto.name === 'Gabi Google');
+
+    // Gegenproben-Klasse: jede Abweichung im id_token, beim Tausch oder im Konto → eigene Seite, kein Konto.
+    const gesperrt = await rufeDo(sp, 'konto-aus-google', { email: 'gesperrt@jakobsmedien.com', name: 'Gesperrt' });
+    await rufeDo(sp, 'admin-aktion', { kid: admin, aktion: { aktion: 'zugang-loeschen', kid: gesperrt.kid } });
+    const fremdesKonto = await rufeDo(sp, 'konto-aus-google', { email: 'erster@jakobsmedien.com', name: 'Erster' });
+    const faelle = [
+      { name: 'hd fremd (E-Mail jakobsmedien.com)', g: (n) => tokenAntwort(angaben(n, { hd: 'andere.de', email: 'neu@jakobsmedien.com' })), soll: [403, 'B18'] },
+      { name: 'E-Mail-Domain fremd, hd stimmt', g: (n) => tokenAntwort(angaben(n, { email: 'gabi@andere.de' })), soll: [403, 'B18'] },
+      { name: 'E-Mail unbestätigt', g: (n) => tokenAntwort(angaben(n, { email_verified: false, email: 'neu@jakobsmedien.com' })), soll: [403, 'B19'] },
+      { name: 'nonce falsch', g: () => tokenAntwort(angaben('test-fremde-nonce-1234', { email: 'neu@jakobsmedien.com' })), soll: [403, 'B20'] },
+      { name: 'aud falsch', g: (n) => tokenAntwort(angaben(n, { aud: 'fremd.apps.googleusercontent.com', azp: 'fremd.apps.googleusercontent.com', email: 'neu@jakobsmedien.com' })), soll: [403, 'B20'] },
+      { name: 'iss falsch', g: (n) => tokenAntwort(angaben(n, { iss: 'https://evil.example', email: 'neu@jakobsmedien.com' })), soll: [403, 'B20'] },
+      { name: 'exp vorbei', g: (n) => tokenAntwort(angaben(n, { exp: Math.floor(uhr() / 1000) - 1, email: 'neu@jakobsmedien.com' })), soll: [403, 'B20'] },
+      { name: 'Token-Tausch 400', g: () => () => new Response('{"error":"invalid_grant"}', { status: 400 }), soll: [403, 'B20'] },
+      { name: 'id_token unlesbar', g: () => () => new Response('{"id_token":"kaputt"}', { status: 200 }), soll: [403, 'B20'] },
+      { name: 'Google nicht erreichbar', g: () => () => { throw new TypeError('fetch failed'); }, soll: [403, 'B20'] },
+      { name: 'Abbruch bei Google (error=access_denied)', g: () => tokenAntwort({}), pfad: (s) => `/konto/google/zurueck?state=${s}&error=access_denied`, soll: [400, 'B20'] },
+      { name: 'state unbekannt', g: () => tokenAntwort({}), pfad: () => '/konto/google/zurueck?state=test-unbekannter-state&code=x', soll: [404, 'B10'] },
+      { name: 'Google-Konto gesperrt', g: (n) => tokenAntwort(angaben(n, { email: 'gesperrt@jakobsmedien.com' })), soll: [403, 'B16'] },
+      { name: 'Vorgang schon an einem anderen Konto', g: (n) => tokenAntwort(angaben(n)), vorher: async (v) => rufeDo(sp, 'vorgang-konto-binden', { vorgang: v, kid: fremdesKonto.kid }), soll: [409, 'B11'] },
+    ];
+    const vorherKonten = (await sp.ctx.storage.list({ prefix: 'konto:' })).size;
+    await pruefeFaelle('P18 4: Google-Rückkehr abgelehnt (Seite je Grund, kein neues Konto)', faelle, async (f) => {
+      const s = await starte();
+      if (f.vorher) await f.vorher(s.v.vorgang);
+      google = f.g(s.nonce);
+      const a = await hole(f.pfad ? f.pfad(s.state) : `/konto/google/zurueck?state=${s.state}&code=test-code-fall`);
+      const [status, nr] = f.soll;
+      return a.status === status && a.html.includes(esc(B[nr])) && !a.html.includes('name="t"') ? null : `ist ${a.status} ${a.html.slice(a.html.indexOf('<h1>'), a.html.indexOf('<h1>') + 140)}`;
+    });
+    // Ausfall des DO (5xx) an jeder der vier Stellen → Seite „interner Fehler“ (502), nie B10 „Link abgelaufen“ oder B11 (AR53).
+    const ausfall = async (aktion, pfad) => {
+      ausfallBei = aktion;
+      try {
+        return await hole(pfad);
+      } finally {
+        ausfallBei = null;
+      }
+    };
+    const alsAusfall = (a) => a.status === 502 && a.html.includes('role="alert">interner Fehler</p>') && !a.html.includes(esc(B.B10)) && !a.html.includes(esc(B.B11));
+    const ausfallVorgang = await legeAn();
+    const ausfallMerken = await ausfall('vorgang-google-merken', `/konto/google?v=${encodeURIComponent(ausfallVorgang.daten.vorgang)}`);
+    const ausfallState = await ausfall('vorgang-google-state', '/konto/google/zurueck?state=test-state-ausfall&code=x');
+    const ausfallAus = await starte();
+    google = tokenAntwort(angaben(ausfallAus.nonce, { email: 'erster@jakobsmedien.com' }));
+    const ausfallKonto = await ausfall('konto-aus-google', `/konto/google/zurueck?state=${ausfallAus.state}&code=test-code-ausfall`);
+    const ausfallBind = await starte();
+    google = tokenAntwort(angaben(ausfallBind.nonce, { email: 'erster@jakobsmedien.com' }));
+    const ausfallBinden = await ausfall('vorgang-konto-binden', `/konto/google/zurueck?state=${ausfallBind.state}&code=test-code-ausfall`);
+    check('P18 4: abgelehnte Google-Anmeldungen legen kein Konto an',
+      (await sp.ctx.storage.list({ prefix: 'konto:' })).size === vorherKonten && [ausfallMerken, ausfallState, ausfallKonto, ausfallBinden].every(alsAusfall));
+
+    // Ein state gilt genau einmal (Wiederholung der Rückkehr → B10).
+    const w = await starte();
+    google = tokenAntwort(angaben(w.nonce, { email: 'wieder@jakobsmedien.com' }));
+    const w1 = await hole(`/konto/google/zurueck?state=${w.state}&code=test-code-w`);
+    const w2 = await hole(`/konto/google/zurueck?state=${w.state}&code=test-code-w`);
+    geheim.push((w1.html.match(/name="t" value="([^"]*)"/) || [])[1]);
+    check('P18 EP6: Rückkehr mit demselben state ein zweites Mal → 404 B10', w1.status === 200 && w2.status === 404 && w2.html.includes(esc(B.B10)));
+
+    // Ohne Client: Start und Rückkehr zeigen B6; Ablauf mit Google bestätigt und abgeholt.
+    const ohne = umgebung();
+    const o1 = await hole('/konto/google?v=x', ohne);
+    const o2 = await hole('/konto/google/zurueck?state=x&code=y', ohne);
+    check('P18 EP6: ohne GOOGLE_CLIENT_ID → Start und Rückkehr 503 mit B6', o1.status === 503 && o2.status === 503 && o1.html.includes(esc(B.B6)) && o2.html.includes(esc(B.B6)));
+    globalThis.fetch = altesFetch;
+    const alles = protokoll.join('\n');
+    check('P18 G4: Konsole ohne Client-Secret, Code, Verifier und id_token; nur Gründe', !alles.includes(SECRET) && !alles.includes('test-code-') && !alles.includes(vg.google.verifier)
+      && !alles.includes('test-signatur') && protokoll.some((zeile) => zeile === 'konto-google: Anmeldung abgelehnt (nonce)'));
+    const q = readFileSync(new URL('../konto-google.js', import.meta.url), 'utf8');
+    check('P18 rein: konto-google.js importiert nur konto-kern.js und ruft nur den Token-Endpunkt',
+      (q.match(/^import /gm) || []).length === 1 && q.includes("from './konto-kern.js'") && (q.match(/fetch\(/g) || []).length === 1);
+  }
+
   // ── Ende der Fälle ──
 
   // P16 10.1: Fehlerform und Cache-Kopf aller Antworten dieses Laufs.
