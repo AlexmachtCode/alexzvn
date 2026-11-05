@@ -167,7 +167,11 @@ export interface IveoSideEventsResult {
    * Anmeldung P23 (EP14, OFP3): Event-Schlüssel der offenen Show, ob dieser Rechner sie abgleicht („Abgleich hier“) und ob er
    * es übernehmen könnte (ein Token für genau dieses Event ist da). Ohne Token.
    */
-  abgleich?: { key: string; hier: boolean; moeglich: boolean };
+  abgleich?: {
+    key: string; hier: boolean; moeglich: boolean;
+    /** Z1 (AR77): warum (kein) Token da ist — Code wie im Kern (I1–I4, I12), nie ein Token. */
+    grund: 'ok' | 'nicht-hinterlegt' | 'noch-nicht-geladen' | 'nicht-eingerichtet' | 'kein-abgleich-hier' | 'nicht-angemeldet';
+  };
 }
 
 /** Zustand des iveo-Abgleichs der offenen Show (Master-Link Teil 2a, Spec 7.6). */

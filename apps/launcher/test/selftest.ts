@@ -3313,7 +3313,7 @@ await (async () => {
   ck('P23 EP14, OFP3: „Abgleich hier übernehmen“ nur mit Token für genau dieses Event; danach setzt der Kern neu auf (kein Geheimnis gespeichert)',
     // Fixrunde 1: das Tor fragt wie der Kern nach dem Setzen der Markierung (Speicher/lokal für genau dieses Event), ohne C4-Rückfall
     hier.includes('  if (e.an && iveoTokenMitGrund(slug, basis, [key]).token === undefined) return { ok: false };') && !hier.includes('iveoTokenZumBinden')
-    && funktionsKoerper(sync, 'function abgleichStand(): IveoSideEventsResult[\'abgleich\'] {').includes('    moeglich: iveoTokenMitGrund(openShowIveo.slug, openShowIveo.baseUrl, [key]).token !== undefined,')
+    && funktionsKoerper(sync, 'function abgleichStand(): IveoSideEventsResult[\'abgleich\'] {').includes('  return abgleichStandVon(key, leseIveoAbgleichHier().includes(key), iveoTokenMitGrund(openShowIveo.slug, openShowIveo.baseUrl, [key]));')
     && hier.indexOf('  setzeIveoAbgleichHier(key, e.an);') < hier.indexOf('  tokensAktualisiert();') && hier.indexOf('  tokensAktualisiert();') > 0);
   // Z1: der Ablauf des Ladens (ein Lauf zugleich, späte Antwort verwerfen, Neustart bei Wechsel) steht in huelle-kern.ts
   // (erzeugeIveoLader, im Verhalten geprüft in konto-iveo.test.ts); hier die Verdrahtung in der Hülle.

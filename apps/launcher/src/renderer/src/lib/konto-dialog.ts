@@ -71,6 +71,7 @@ export const ZOOM_TEXTE = {
   /** Z10a */ zweckFehlt: 'Nenne Zweck oder Event.',
   /** Z10b */ bisVorVon: '„Bis“ muss nach „Von“ liegen.',
   /** Z10c */ schonOffen: 'Es gibt schon eine offene Zoom-Anfrage.',
+  /** Z10d (Z1, AR77) */ vergangenheit: 'Der Zeitraum liegt in der Vergangenheit.',
   /** Z11 (nur Teil 1, EP34) */ connect: 'Connect nutzt Zoom-Freigaben erst mit einem kommenden Update; bis dahin gilt Zoom in Connect wie bisher.',
 } as const;
 
@@ -248,8 +249,9 @@ export function zoomFormular(e: { zweck: string; von: string; bis: string }, jet
   if (!zweck) return { ok: false, text: ZOOM_TEXTE.zweckFehlt };
   const von = tagesGrenze(e.von, false);
   const bis = tagesGrenze(e.bis, true);
-  // Z1: ein Zeitraum, der schon zu Ende ist, wird wie ein ungültiger abgewiesen (der Worker verlangt „bis“ nach jetzt).
-  if (von === null || bis === null || bis <= von || bis <= jetzt) return { ok: false, text: ZOOM_TEXTE.bisVorVon };
+  if (von === null || bis === null || bis <= von) return { ok: false, text: ZOOM_TEXTE.bisVorVon };
+  // Z1 (AR77): ein Zeitraum, der schon zu Ende ist, bekommt Z10d (der Worker verlangt „bis“ nach jetzt); Z10b bleibt für Bis ≤ Von.
+  if (bis <= jetzt) return { ok: false, text: ZOOM_TEXTE.vergangenheit };
   return { ok: true, zweck, von, bis };
 }
 

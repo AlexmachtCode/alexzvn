@@ -5,6 +5,8 @@ import { IVEO_ERLAUBTE_BASEN, iveoBasisErlaubt, kanonischeIveoBasis } from '@jm/
 import {
   erzeugeIveoZentral, iveoHinterlegenBasis, iveoSchluessel, LOKAL_FRIST_MS, lokaleLoeschen, type IveoLage,
 } from '../src/main/konto/iveo-zentral';
+import { abgleichStandVon } from '../src/main/konto/iveo-zentral';
+import { keinTokenHinweis } from '../src/renderer/src/lib/konto-zugang';
 import { kreuz, pruefeFaelle } from './konto-rechte.test';
 
 let pass = 0, fail = 0;
@@ -252,6 +254,36 @@ ck('Z1 OE2: IVEO_ERLAUBTE_BASEN sind genau Production und Staging (die Liste des
   const quelle = readFileSync(new URL('../src/main/konto/iveo-zentral.ts', import.meta.url), 'utf8');
   ck('P14 G9: iveo-zentral.ts ohne electron-Import, ohne Konsole, ohne Dateizugriff (Tokens nur im Speicher)',
     !/from 'electron'|require\('electron'\)/.test(quelle) && !/console\./.test(quelle) && !/node:fs|writeFile|safeStorage/.test(quelle));
+}
+
+// --- Z1-L2 AR77: der Stand „Abgleich hier“ für den Renderer trägt den Grund, nie ein Token; I16 nur bei „nicht hinterlegt“ -------------
+{
+  const KEY = `${PROD}|cop31`;
+  const gueltig = { zustand: 'angemeldet', stand: { stufe: 'externer' } } as unknown as Parameters<typeof keinTokenHinweis>[1];
+  const lage = (angemeldet: boolean, geladen: boolean, lokal?: string): IveoLage => ({
+    angemeldet, geladen, abgleichHier: [KEY], lokal: () => lokal, env: undefined, standardBasis: PROD,
+  });
+  const szenen: Array<[string, Array<{ key: string; basis: string; slug: string; name: string; token: string }>, 'iveo-nicht-eingerichtet' | null, IveoLage, string, boolean]> = [
+    ['zentral da', [{ key: KEY, basis: PROD, slug: 'cop31', name: 'COP31', token: 'tok-geheim-1' }], null, lage(true, true), 'ok', false],
+    ['lokal da (Übergang)', [], null, lage(true, true, 'tok-geheim-2'), 'ok', false],
+    ['geladen, weder zentral noch lokal', [], null, lage(true, true), 'nicht-hinterlegt', true],
+    ['Tokens noch nicht geladen', [], null, lage(true, false), 'noch-nicht-geladen', false],
+    ['Server ohne iveo (I12)', [], 'iveo-nicht-eingerichtet', lage(true, true), 'nicht-eingerichtet', false],
+    ['nicht angemeldet', [], null, lage(false, false), 'nicht-angemeldet', false],
+  ];
+  const abw: string[] = [];
+  for (const [name, speicher, hinweis, l, sollGrund, sollHinweis] of szenen) {
+    const z = erzeugeIveoZentral();
+    z.setze(speicher, T0, hinweis);
+    const stand = abgleichStandVon(KEY, false, z.tokenFuer('cop31', PROD, l));
+    const text = keinTokenHinweis(stand, gueltig);
+    if (stand.grund !== sollGrund) abw.push(`${name}: Grund ${stand.grund}`);
+    if ((text !== null) !== sollHinweis) abw.push(`${name}: I16 ${text !== null}`);
+    if (stand.moeglich !== (sollGrund === 'ok')) abw.push(`${name}: moeglich ${stand.moeglich}`);
+    if (/tok-/.test(JSON.stringify(stand))) abw.push(`${name}: Token im Stand`);
+  }
+  ck(`Z1-L2 AR77 G4: Stand für den Renderer aus dem echten Speicher — Grund wie im Kern, kein Token darin, I16 nur bei nicht-hinterlegt (${szenen.length} Fälle)${abw.length ? ` — ${abw.join('; ')}` : ''}`,
+    abw.length === 0);
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

@@ -25,6 +25,16 @@ export interface IveoZentralSpeicher {
   tokenFuer(slug: string, basis: string | undefined, lage: IveoLage): { token: string | undefined; grund: IveoGrund };
 }
 
+/**
+ * Z1 (AR77): der Stand „Abgleich hier“ für den Renderer — Schlüssel, Markierung, ob ein Token da ist, und der GRUND (derselbe Code wie
+ * im Kern: I1–I4, I12). Ein Token trägt er nie (G4): aus dem Ergebnis von tokenFuer geht nur `token !== undefined` und der Grund weiter.
+ */
+export function abgleichStandVon(
+  key: string, hier: boolean, r: { token: string | undefined; grund: IveoGrund },
+): { key: string; hier: boolean; moeglich: boolean; grund: IveoGrund } {
+  return { key, hier, moeglich: r.token !== undefined, grund: r.grund };
+}
+
 /** Schlüssel eines Events: normalisierte Basis-URL (wie settings.ts, @jm/iveo) und Slug. Wirft nie. */
 export function iveoSchluessel(basis: string, slug: string): string {
   let b: string;

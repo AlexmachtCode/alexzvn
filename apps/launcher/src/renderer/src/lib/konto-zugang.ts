@@ -1,5 +1,5 @@
 import type { KontoAnsicht } from '@shared/konto';
-import type { KontoIveoEvent } from '@shared/types';
+import type { IveoSideEventsResult, KontoIveoEvent } from '@shared/types';
 import { sitzungGueltig } from './konto-anzeige';
 
 // Anmeldung im Launcher (Plan P28; Spec 3, 6.4; EP12, EP13, EP14, OFP3): der Zugang über die Anmeldung in den Einstellungen
@@ -24,6 +24,9 @@ export const IVEO_TEXTE = {
   /** I8 */ ansehen: 'Side Events des Tages ansehen (Live-Umschalten nur am Rechner, der die Show abgleicht).',
   /** I9 */ warnung: 'Gleicht ein anderer Rechner diese Show noch ab, beende dort den Abgleich, sonst schreiben beide die Show.',
 } as const;
+
+/** Grund aus dem Main (`abgleich.grund`), siehe shared/types.ts. */
+export type IveoTokenGrund = NonNullable<IveoSideEventsResult['abgleich']>['grund'];
 
 /** Text I16 (Z1, OE4): Hinweis im Side-Events-Panel; eigene Konstante, damit die geprüfte Liste I5–I9 unverändert bleibt. */
 export const IVEO_HINWEIS_TEXTE = {
@@ -74,8 +77,13 @@ export function editorEventWahl(events: KontoIveoEvent[], wahl: string, showBasi
  * hat (`moeglich` falsch: weder zentral noch lokal im Übergang) und die Anmeldung gilt (sonst sagt I5b, was zu tun ist). Der Renderer
  * erfährt nie ein Token, nur dieses Ja oder Nein (G4).
  */
-export function keinTokenHinweis(ab: { key: string; hier: boolean; moeglich: boolean } | undefined, a: KontoAnsicht | null): string | null {
-  if (!ab || ab.moeglich || !sitzungGueltig(a)) return null;
+export function keinTokenHinweis(
+  ab: { key: string; hier: boolean; moeglich: boolean; grund: IveoTokenGrund } | undefined,
+  a: KontoAnsicht | null,
+): string | null {
+  // AR77: nur „nicht hinterlegt“ — die Tokens sind geladen, das Event hat weder ein zentrales noch ein lokales. Nie bei „noch nicht
+  // geladen“ (I4), „auf dem Server nicht eingerichtet“ (I12), „kein Abgleich hier“ (I1) oder „nicht angemeldet“ (I2).
+  if (!ab || ab.moeglich || ab.grund !== 'nicht-hinterlegt' || !sitzungGueltig(a)) return null;
   return IVEO_HINWEIS_TEXTE.keinToken;
 }
 

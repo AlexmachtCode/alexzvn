@@ -58,7 +58,7 @@ import {
   setIveoAnhangOrdner,
   setzeIveoAbgleichHier,
 } from './settings';
-import { iveoSchluessel } from './konto/iveo-zentral';
+import { abgleichStandVon, iveoSchluessel } from './konto/iveo-zentral';
 import { sendControlCommand } from './health';
 import { getPresence } from './presence';
 import { showIstZu } from './show-offen';
@@ -546,11 +546,7 @@ function abgleichStand(): IveoSideEventsResult['abgleich'] {
   } catch {
     return undefined;
   }
-  return {
-    key,
-    hier: leseIveoAbgleichHier().includes(key),
-    moeglich: iveoTokenMitGrund(openShowIveo.slug, openShowIveo.baseUrl, [key]).token !== undefined,
-  };
+  return abgleichStandVon(key, leseIveoAbgleichHier().includes(key), iveoTokenMitGrund(openShowIveo.slug, openShowIveo.baseUrl, [key]));
 }
 
 /**

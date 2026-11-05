@@ -572,15 +572,17 @@ const STUFEN_FARBEN: KopfFarbe[] = ['admin', 'kollege', 'externer'];
     ['nicht angemeldet', ansicht('nicht-angemeldet', null), false], ['abgelaufen', ansicht('abgelaufen', stand('kollege')), false],
     ['vor der ersten Ansicht', null, false],
   ];
+  const GRUENDE = ['ok', 'nicht-hinterlegt', 'noch-nicht-geladen', 'nicht-eingerichtet', 'kein-abgleich-hier', 'nicht-angemeldet'] as const;
   const k = 'https://app.my-iveo.de/api/v1|cop31';
   for (const [name, a, gueltig] of ansichten) {
     faelle.push([`${name}/keine gebundene Show`, String(keinTokenHinweis(undefined, a)), 'null']);
-    // „moeglich“ = der Main hat ein Token für genau dieses Event (zentral oder lokal im Übergang) — kein Token im Renderer (G4).
-    for (const hier of [true, false]) for (const moeglich of [true, false]) {
-      faelle.push([`${name}/hier ${hier}/Token ${moeglich}`, String(keinTokenHinweis({ key: k, hier, moeglich }, a)), !moeglich && gueltig ? I16 : 'null']);
+    // AR77: der Main nennt den Grund (Code des Kerns, nie ein Token, G4). I16 NUR bei „nicht-hinterlegt“.
+    for (const hier of [true, false]) for (const grund of GRUENDE) {
+      const moeglich = grund === 'ok';
+      faelle.push([`${name}/hier ${hier}/${grund}`, String(keinTokenHinweis({ key: k, hier, moeglich, grund }, a)), grund === 'nicht-hinterlegt' && gueltig ? I16 : 'null']);
     }
   }
-  kreuz('Z1-L2 I16: Hinweis nur bei gebundener Show ohne Token (weder zentral noch lokal) und mit gültiger Anmeldung (sonst gilt I5b)', faelle);
+  kreuz('Z1-L2 AR77 I16: Hinweis nur beim Grund „nicht-hinterlegt“ und mit gültiger Anmeldung — nie bei noch-nicht-geladen, nicht-eingerichtet (I12), kein-abgleich-hier, nicht-angemeldet', faelle);
   ck('Z1-L2 I16: Text wörtlich, ohne ASCII-Anführungszeichen', IVEO_HINWEIS_TEXTE.keinToken === I16 && !I16.includes('"'));
 }
 
@@ -608,9 +610,12 @@ const STUFEN_FARBEN: KopfFarbe[] = ['admin', 'kollege', 'externer'];
     const r = zoomFormular({ zweck: 'Gala', von, bis }, JETZT);
     return r.ok ? 'ok' : `fehler|${r.text}`;
   };
-  kreuz('Z1-L2: Zoom-Zeitraum in der Vergangenheit wird abgewiesen (Z10b), heute und später gelten', [
-    ['ganz vergangen', f('2026-10-01', '2026-10-10'), `fehler|${ZOOM_TEXTE.bisVorVon}`],
-    ['gestern', f('2026-10-20', '2026-10-20'), `fehler|${ZOOM_TEXTE.bisVorVon}`],
+  kreuz('Z1-L2 AR77: Zoom-Zeitraum in der Vergangenheit → Z10d, Bis ≤ Von bleibt Z10b, heute und später gelten', [
+    ['Text Z10d wörtlich', ZOOM_TEXTE.vergangenheit, 'Der Zeitraum liegt in der Vergangenheit.'],
+    ['ganz vergangen, Von < Bis', f('2026-10-01', '2026-10-10'), `fehler|${ZOOM_TEXTE.vergangenheit}`],
+    ['gestern', f('2026-10-20', '2026-10-20'), `fehler|${ZOOM_TEXTE.vergangenheit}`],
+    ['vergangen, Bis vor Von', f('2026-10-10', '2026-10-01'), `fehler|${ZOOM_TEXTE.bisVorVon}`],
+    ['zukünftig, Bis vor Von', f('2026-11-12', '2026-11-10'), `fehler|${ZOOM_TEXTE.bisVorVon}`],
     ['heute (Ende noch nicht erreicht)', f('2026-10-21', '2026-10-21'), 'ok'],
     ['von vergangen, bis zukünftig', f('2026-10-01', '2026-10-25'), 'ok'],
     ['Jahr 0026', f('0026-11-10', '0026-11-12'), `fehler|${ZOOM_TEXTE.bisVorVon}`],
