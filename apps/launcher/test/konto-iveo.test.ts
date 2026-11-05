@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { IVEO_ERLAUBTE_BASEN, iveoBasisErlaubt, kanonischeIveoBasis } from '@jm/iveo';
 import {
-  erzeugeIveoZentral, iveoHinterlegenBasis, iveoSchluessel, LOKAL_FRIST_MS, lokaleLoeschen, type IveoLage,
+  erzeugeIveoZentral, iveoHinterlegenBasis, iveoSchluessel, zentraleKeysFuerLoeschlauf, LOKAL_FRIST_MS, lokaleLoeschen, type IveoLage,
 } from '../src/main/konto/iveo-zentral';
 import { abgleichStandVon } from '../src/main/konto/iveo-zentral';
 import { keinTokenHinweis } from '../src/renderer/src/lib/konto-zugang';
@@ -56,7 +56,8 @@ ck('P14 EP13: iveoSchluessel normalisiert die Basis wie settings.ts (Schrägstri
     const ist = z.tokenFuer('cop31', undefined, lage);
     let soll: { token: string | undefined; grund: string };
     const markiert = f.a === 'genau' || f.a === 'Slug';
-    const ausSpeicher = f.s === 'genau' ? 'tok-genau' : f.s === 'Slug eindeutig' || f.s === 'Slug mit Fremdeintrag' ? 'tok-staging' : undefined;
+    // Fixrunde 1 (Nr. 8): ohne genannte Basis greift der Slug-Rückfall nur auf die Standardbasis, nie quer auf Staging
+    const ausSpeicher = f.s === 'genau' ? 'tok-genau' : undefined;
     if (f.env) soll = { token: 'tok-env', grund: 'ok' };
     else if (!markiert && !f.lokal) soll = { token: undefined, grund: 'kein-abgleich-hier' };
     else if (ausSpeicher) soll = { token: ausSpeicher, grund: 'ok' };
@@ -165,17 +166,18 @@ ck('P14 EP13: iveoSchluessel normalisiert die Basis wie settings.ts (Schrägstri
 {
   const lage: IveoLage = { angemeldet: true, geladen: true, abgleichHier: [`${PROD}|cop31`], lokal: () => undefined, env: undefined, standardBasis: PROD };
   const faelle = kreuz({
-    basis: ['https://evil.example/api/v1', 'http://app.my-iveo.de/api/v1', 'https://x.my-iveo.de/api/v1'], wo: ['zentral', 'frueher'],
+    basis: ['https://evil.example/api/v1', 'http://app.my-iveo.de/api/v1', 'https://x.my-iveo.de/api/v1', STAGING], wo: ['zentral', 'frueher'], markiert: [false, true],
   });
-  const r = pruefeFaelle('P14 Review: übergebene fremde Basis, eindeutiger Slug → kein Token (fremder Host, http statt https; zentral und früher)', faelle, (f) => {
+  const r = pruefeFaelle('P14 Review: übergebene fremde Basis, eindeutiger Slug → kein Token (fremder Host, http statt https, Staging; zentral und früher; markiert oder nicht)', faelle, (f) => {
     const z = erzeugeIveoZentral();
     z.setze([{ key: `${PROD}|cop31`, basis: PROD, slug: 'cop31', name: 'COP31', token: 'test-prod' }], T0);
     if (f.wo === 'frueher') z.setze([], T0 + 300_000);
-    const ist = z.tokenFuer('cop31', f.basis, lage);
+    // Fixrunde 1 (I1): auch GENAU markiert (auch Staging) darf das PROD-Token nie über den Slug-Rückfall an die genannte Basis gehen
+    const ist = z.tokenFuer('cop31', f.basis, f.markiert ? { ...lage, abgleichHier: [...lage.abgleichHier, `${f.basis}|cop31`] } : lage);
     const ohneBasis = z.tokenFuer('cop31', undefined, lage);
     const genau = z.tokenFuer('cop31', PROD, lage);
     // Z1 (Nr. 7): die Markierung PROD|cop31 aktiviert keine fremde Basis mehr (kein Slug-Rückfall bei genannter Basis).
-    return ist.token === undefined && ist.grund === 'kein-abgleich-hier' && ohneBasis.token === 'test-prod' && genau.token === 'test-prod' ? null
+    return ist.token === undefined && ist.grund === (f.markiert ? 'nicht-hinterlegt' : 'kein-abgleich-hier') && ohneBasis.token === 'test-prod' && genau.token === 'test-prod' ? null
       : `${f.basis}/${f.wo}: ist ${ist.token ?? '-'} ${ist.grund}, ohne Basis ${ohneBasis.token ?? '-'}, genau ${genau.token ?? '-'}`;
   });
   ck(r.name, r.ok);
@@ -247,6 +249,25 @@ ck('Z1 OE2: IVEO_ERLAUBTE_BASEN sind genau Production und Staging (die Liste des
   const ohneBasis = z.tokenFuer('cop31', undefined, lage([`${STAGING}|cop31`]));
   ck('Z1 Nr. 7: „Abgleich hier“ einer anderen Basis aktiviert die genannte Basis nicht (kein-abgleich-hier); ohne genannte Basis gilt der eindeutige Slug weiter',
     strikt.token === undefined && strikt.grund === 'kein-abgleich-hier' && ohneBasis.token === 'tok-prod' && ohneBasis.grund === 'ok');
+}
+
+// --- Fixrunde 1 (AR78) Nr. 6 und Nr. 8 ---------------------------------------------------------------------------------------------
+{
+  // Nr. 6: ein zentraler Eintrag außerhalb der Liste darf ein lokales Token nicht vorzeitig löschen
+  const X = 'https://x.my-iveo.de/api/v1';
+  const keys = zentraleKeysFuerLoeschlauf([{ key: `${PROD}|a` }, { key: `${STAGING}|b` }, { key: `${X}|c` }, { key: 'http://app.my-iveo.de/api/v1|d' }]);
+  const l = lokaleLoeschen({ lokaleSlugs: ['c', 'a'], zentral: keys, ersteAnmeldung: T0, jetzt: T0 + 1000, iveoShowOffen: false, standardBasis: X });
+  const ohneFilter = lokaleLoeschen({ lokaleSlugs: ['c'], zentral: [`${X}|c`], ersteAnmeldung: T0, jetzt: T0 + 1000, iveoShowOffen: false, standardBasis: X });
+  ck('Fixrunde 1 Nr. 6: zentraleKeysFuerLoeschlauf lässt nur Schlüssel der festen Liste durch; ein Eintrag außerhalb löscht ein lokales Token nicht vorzeitig',
+    keys.join() === `${PROD}|a,${STAGING}|b` && l.loeschen.length === 0 && l.bleiben.join() === 'c,a' && ohneFilter.loeschen.join() === 'c');
+  // Nr. 8: ohne genannte Basis greift der Slug-Rückfall nur auf die Standardbasis, nie quer von Staging nach Production
+  const z = erzeugeIveoZentral();
+  z.setze([{ key: `${STAGING}|x`, basis: STAGING, slug: 'x', name: 'X', token: 'tok-staging' }], T0);
+  const lage: IveoLage = { angemeldet: true, geladen: true, abgleichHier: [`${STAGING}|x`, `${PROD}|x`], lokal: () => undefined, env: undefined, standardBasis: PROD };
+  const ohne = z.tokenFuer('x', undefined, lage);
+  const mit = z.tokenFuer('x', STAGING, lage);
+  ck('Fixrunde 1 Nr. 8: ohne genannte Basis (Standard = Production) bekommt ein nur auf Staging liegendes Event kein Token; mit genannter Basis Staging schon',
+    ohne.token === undefined && ohne.grund === 'nicht-hinterlegt' && mit.token === 'tok-staging');
 }
 
 // --- P14 G9 --------------------------------------------------------------------------------------------------------------------

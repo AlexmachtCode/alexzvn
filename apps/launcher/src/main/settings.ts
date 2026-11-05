@@ -311,19 +311,6 @@ function iveoBaseKey(baseUrl: string): string {
   return `base:${normalizeIveoBaseUrl(baseUrl)}`;
 }
 
-/**
- * Basis-Token lesen (C4; Anmeldung P23: zuerst der Speicher der Anmeldung — ein Event derselben Basis, ein Token gilt
- * basis-weit —, dann im Übergang der lokal gemerkte). Env-Override wie bei getIveoToken; ungültige Adresse wirft wie bisher.
- */
-export function getIveoBaseToken(baseUrl?: string): string | undefined {
-  const env = process.env['JMPS_IVEO_TOKEN'];
-  if (env) return env;
-  const basis = normalizeIveoBaseUrl(baseUrl?.trim() || resolveIveoBaseUrl());
-  const e = (iveoQuelle?.speicher ?? leererIveoSpeicher).erlaubteEvents().find((x) => x.key.startsWith(`${basis}|`));
-  const zentral = e ? iveoTokenMitGrund(e.slug, basis, [e.key]).token : undefined;
-  return zentral ?? lokalesIveoToken(iveoBaseKey(basis));
-}
-
 /** Event-Keys, für die ein Token hinterlegt ist (ohne die Tokens preiszugeben). */
 export function listIveoTokenKeys(): string[] {
   const s = read();

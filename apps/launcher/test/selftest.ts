@@ -3240,8 +3240,8 @@ await (async () => {
   // EP35 (Nachbesserung Block D, sicherheit:2): gleiche Herkunft statt Präfix; das Verhalten prüft konto-client.test.ts (Task 21).
   ck('P22 G4, EP35: der Zugangskopf geht nur an Adressen des Workers (istWorkerAdresse: gleiche Herkunft, Pfad mit Grenze), Sitzung vor Entwicklungs-Schlüssel',
     // Z1: istWorkerZiel (prüft die Server-Adresse und istWorkerAdresse) und kopfFuer (rein, im Verhalten geprüft)
-    kopf.includes('  if (!proxy || !istWorkerZiel(url, proxy)) return {};') && !kopf.includes('startsWith(')
-    && kopf.includes('  return kopfFuer(url, proxy, await kontoSitzungFuerBedarf(), resolveProxyKey());'));
+    kopf.includes('  if (!serverBasis || !istWorkerZiel(url, serverBasis)) return {};') && !kopf.includes('startsWith(')
+    && kopf.includes('  return kopfFuer(url, serverBasis, await kontoSitzungFuerBedarf(), resolveProxyKey());'));
   const F: Array<[string, string, string]> = [
     ['F1', installer, "const TEXT_INSTALL_ANMELDEN = 'Zum Installieren im Launcher anmelden (oben rechts).';"],
     ['F2', installer, "const TEXT_UPDATE_ADRESSE_FEHLT = 'Die Update-Adresse fehlt. Prüfe die Server-Adresse in den Einstellungen.';"],
@@ -3297,10 +3297,8 @@ await (async () => {
     funktionsKoerper(einst, 'export function getIveoToken(eventKey: string, basis?: string): string | undefined {').includes('  return iveoTokenMitGrund(eventKey, basis).token;')
     && naht.includes('.tokenFuer(slug, basis?.trim() || undefined, {') && naht.includes('    abgleichHier: [...leseIveoAbgleichHier(), ...auchOhneAbgleich],')
     && naht.includes('    lokal: (s) => lokalesIveoToken(s),') && naht.includes("    env: process.env['JMPS_IVEO_TOKEN'] || undefined,"));
-  ck('P23 EP13: getIveoBaseToken liest zuerst den Speicher (ein Event derselben Basis), dann lokal',
-    funktionsKoerper(einst, 'export function getIveoBaseToken(baseUrl?: string): string | undefined {').includes('.erlaubteEvents().find((x) => x.key.startsWith(`${basis}|`));')
-    && funktionsKoerper(einst, 'export function getIveoBaseToken(baseUrl?: string): string | undefined {').includes('iveoTokenMitGrund(e.slug, basis, [e.key]).token')
-    && !einst.includes('hasIveoBaseToken')); // Z1: hasIveoBaseToken ist mit dem toten Kanal iveo:hasBaseToken entfallen
+  // Fixrunde 1 (Nr. 5): getIveoBaseToken hatte keinen Aufrufer mehr und ist entfernt
+  ck('P23 EP13: getIveoBaseToken ist entfernt (keine Leser außer der Naht iveoTokenMitGrund)', !einst.includes('getIveoBaseToken'));
   const binden = funktionsKoerper(sync, 'export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResult> {');
   ck('P23 G6, IV4: Binden nimmt das Token aus dem Speicher, schreibt kein Token (kein setIveoToken/setIveoBaseToken in iveo-sync.ts) und setzt „Abgleich hier“',
     !/setIveoToken\(|setIveoBaseToken\(/.test(sync) && binden.includes('iveoTokenZumBinden(event, genutzteAdresse)')
@@ -3617,7 +3615,7 @@ function dialogBefunde(q: string): string[] {
     (lade.match(/ {2,4}raeumeLokaleIveoTokensAuf\(\);/g) ?? []).length === 1
     && (quelleLf('../src/main/konto/huelle-kern.ts').match(/\n {4}fertig\(\);/g) ?? []).length === 1 && quelleLf('../src/main/konto/huelle-kern.ts').includes('\n      fertig();\n      return;')
     && lauf.includes('  if (erste === null) return;') && lauf.includes('    iveoShowOffen: iveoShowOffen(),')
-    && lauf.includes('    zentral: iveoGeladen ? iveo.erlaubteEvents().map((e) => e.key) : [],')
+    && lauf.includes('    zentral: iveoGeladen ? zentraleKeysFuerLoeschlauf(iveo.erlaubteEvents()) : [],')
     && lauf.indexOf('markiereAbgleichHier(r.markieren)') > 0
     && lauf.indexOf('markiereAbgleichHier(r.markieren)') < lauf.indexOf('loescheLokaleIveoTokens(r.loeschen)')
     && !ohneKommentare(lauf).includes('r.loeschen.join') && !ohneKommentare(lauf).includes('r.markieren.join')

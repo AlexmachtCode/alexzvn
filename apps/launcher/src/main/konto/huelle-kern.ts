@@ -36,6 +36,8 @@ export interface UebergangsUmgebung {
 export function erzeugeUebergang(u: UebergangsUmgebung) {
   let k33Am: number | null = null;
   let stoppeZeitgeber: (() => void) | null = null;
+  /** Fixrunde 1 (Nr. 2): gemeldet ist gemeldet, auch wenn das Löschen der Vormerkung scheitert (sonst käme sie alle 5 min wieder). */
+  let gemeldet = false;
 
   const lies = (): UebergangsMerker | null => {
     try {
@@ -58,6 +60,7 @@ export function erzeugeUebergang(u: UebergangsUmgebung) {
     /** Die erste Anmeldung (oder das Nachholen) merkt, dass K32/I11 aussteht; `github`: ein GitHub-Zugang wurde gelöscht. */
     vormerken(github: boolean): void {
       const alt = lies();
+      gemeldet = false;
       schreibe({ melden: true, github: github || alt?.github === true });
     },
     /** Was gerade vorgemerkt ist (für den Hinweis im Konto-Dialog nach einem Neustart). */
@@ -79,7 +82,7 @@ export function erzeugeUebergang(u: UebergangsUmgebung) {
      */
     nachLaden(text: (github: boolean) => string | null): void {
       const m = lies();
-      if (!m || stoppeZeitgeber) return;
+      if (!m || stoppeZeitgeber || gemeldet) return;
       const t = text(m.github);
       if (t === null) {
         schreibe(null);
@@ -88,6 +91,7 @@ export function erzeugeUebergang(u: UebergangsUmgebung) {
       const warte = k33Am === null ? 0 : Math.max(0, k33Am + K33_STEHT_MS - u.jetzt());
       stoppeZeitgeber = u.wecker(warte, () => {
         stoppeZeitgeber = null;
+        gemeldet = true;
         u.melde(t);
         schreibe(null);
       });

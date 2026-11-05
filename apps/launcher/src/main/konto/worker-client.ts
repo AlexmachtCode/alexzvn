@@ -107,11 +107,18 @@ export function istStand(x: unknown): x is KontoStand {
   return istObjekt(x) && istText(x.kid) && typeof x.email === 'string' && typeof x.name === 'string'
     && (x.art === 'google' || x.art === 'passwort')
     && (x.stufe === 'admin' || x.stufe === 'kollege' || x.stufe === 'externer')
-    && Array.isArray(x.tools) && x.tools.every((t) => typeof t === 'string' && WERKZEUGE.includes(t))
+    && Array.isArray(x.tools) && x.tools.every((t) => typeof t === 'string')
     && Array.isArray(x.events) && x.events.every((e) => typeof e === 'string')
     && typeof x.zoom === 'boolean' && (x.zoomBis === null || istZahl(x.zoomBis)) && typeof x.jm === 'boolean'
     && (x.plattform === 'win' || x.plattform === 'mac') && typeof x.gid === 'string'
     && istZahl(x.iat) && istZahl(x.exp) && (x.kontoBis === null || istZahl(x.kontoBis)) && istZahl(x.angemeldetSeit);
+}
+/**
+ * Fixrunde 1 (Nr. 3): der Stand, wie der Launcher ihn behält: alle Prüfungen von istStand bleiben streng, ein Werkzeug, das diese
+ * Fassung nicht kennt (kommt mit Teil 2), wird herausgefiltert statt den ganzen Stand abzulehnen. Ungültig → null.
+ */
+export function standAus(x: unknown): KontoStand | null {
+  return istStand(x) ? { ...x, tools: x.tools.filter((t) => WERKZEUGE.includes(t)) } : null;
 }
 function istZoomAnfrage(x: unknown): x is ZoomAnfrageStand {
   return istObjekt(x) && istText(x.id) && (x.zustand === 'offen' || x.zustand === 'freigegeben' || x.zustand === 'abgelehnt')
@@ -184,7 +191,7 @@ export function erzeugeKontoClient(o: { basis: string; fetch: typeof fetch; zeit
     async vorgangAbholen(vorgang, abholGeheimnis, beweis) {
       const d = await rufe('POST', '/konto/vorgang/abholen', null, { vorgang, abholGeheimnis, beweis });
       if (istObjekt(d) && d.zustand === 'bestaetigt') {
-        return form(istText(d.sitzung) && istStand(d.stand), { zustand: 'bestaetigt' as const, sitzung: d.sitzung as string, stand: d.stand as KontoStand });
+        return form(istText(d.sitzung) && standAus(d.stand) !== null, { zustand: 'bestaetigt' as const, sitzung: d.sitzung as string, stand: standAus(d.stand) as KontoStand });
       }
       const z = istObjekt(d) ? d.zustand : null;
       return form(z === 'wartet' || z === 'abgelehnt' || z === 'abgelaufen', { zustand: z as 'wartet' | 'abgelehnt' | 'abgelaufen' });
@@ -194,7 +201,8 @@ export function erzeugeKontoClient(o: { basis: string; fetch: typeof fetch; zeit
     },
     async sitzungErneuern(sitzung, beweis, version, rechnerName) {
       const d = await rufe('POST', '/konto/sitzung', sitzung, { beweis, version, rechnerName });
-      return form(istObjekt(d) && istText(d.sitzung) && istStand(d.stand), d as { sitzung: string; stand: KontoStand });
+      return form(istObjekt(d) && istText(d.sitzung) && standAus(d.stand) !== null,
+        { sitzung: istObjekt(d) ? (d.sitzung as string) : '', stand: standAus(istObjekt(d) ? d.stand : null) as KontoStand });
     },
     async abmelden(sitzung) {
       await rufe('POST', '/konto/abmelden', sitzung);

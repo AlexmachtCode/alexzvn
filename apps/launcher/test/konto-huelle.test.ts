@@ -106,6 +106,14 @@ function uebergangUmgebung(o: { startMerker?: UebergangsMerker | null; schreibWi
   i.u.nachLaden(() => 'I11');
   ck('Z1 Nr. 8: ein zweites Laden vor Ablauf des Zeitgebers stellt keinen zweiten (keine doppelte Meldung)', i.wecker.length === 1);
 
+  // Fixrunde 1 (Nr. 2): scheitert das Löschen der Vormerkung dauerhaft, kommt die Meldung trotzdem nur einmal (nicht alle 5 min)
+  const l = uebergangUmgebung({ schreibWirft: true, startMerker: { melden: true, github: false } });
+  l.u.nachLaden(() => 'I11');
+  l.wecker[0].fn();
+  l.u.nachLaden(() => 'I11'); // das nächste Laden nach 5 min
+  l.u.nachLaden(() => 'I11');
+  ck('Fixrunde 1 Nr. 2: scheitert schreibe(null), wird K32/I11 trotzdem nur einmal gemeldet (Merker im Speicher), nicht bei jedem Laden', l.meldungen.length === 1 && l.wecker.length === 1);
+
   // Schreibfehler: kein Wurf, Log nur mit dem Fehlernamen
   const j = uebergangUmgebung({ schreibWirft: true });
   let geworfen = false;
@@ -394,6 +402,13 @@ function uebergangUmgebung(o: { startMerker?: UebergangsMerker | null; schreibWi
     return !q.includes("import { redirectFuer } from './konto/worker-client';") || !q.includes('redirect: redirectFuer(kopf)');
   });
   ck(`Z1 Abrufe mit Kopf: alle sechs Abrufer mit Kopf setzen redirect über redirectFuer(kopf)${ohne.length ? ` — ohne: ${ohne.join(', ')}` : ''}`, ohne.length === 0);
+  ck('Fixrunde 1 Nr. 4: zugangsKopfFuer prüft und baut den Kopf mit serverBasis (der Basis der Sitzung), nicht mit der änderbaren Einstellung resolveProxy()',
+    (() => {
+      const k = huelle.slice(huelle.indexOf('export async function zugangsKopfFuer'), huelle.indexOf('export async function workerRecht'));
+      return k.includes('if (!serverBasis || !istWorkerZiel(url, serverBasis)) return {};') && k.includes('return kopfFuer(url, serverBasis, ') && !k.includes('resolveProxy()');
+    })());
+  ck('Fixrunde 1 Nr. 6: der Löschlauf lokaler Tokens nimmt nur Schlüssel von Basen der Liste (zentraleKeysFuerLoeschlauf)',
+    huelle.includes('zentral: iveoGeladen ? zentraleKeysFuerLoeschlauf(iveo.erlaubteEvents()) : [],'));
   ck('Z1 Nr. 8 [T]: K33 steht vor der Übergangsmeldung — nachAnmeldung zeigt K33 und stellt k33Gezeigt, bevor irgendein Laden folgt; der Abmelden-Haken schaltet den Zeitgeber ab',
     huelle.indexOf("emit({ type: 'notice', message: textAngemeldet(s.stand) });") > 0
     && huelle.indexOf('uebergang.k33Gezeigt();') > huelle.indexOf("emit({ type: 'notice', message: textAngemeldet(s.stand) });")

@@ -828,6 +828,33 @@ const angemeldet = async (antworten: Antwort[] = [{ ok: NEU }], o: Parameters<ty
     ansichten.length >= 9 && !text.includes(GEHEIM) && !text.includes('GEHEIME') && !/"token"/.test(text));
 }
 
+// --- Fixrunde 1 (AR78): Wecker nach stoppe() auch bei fehlschlagendem Lauf, Zoom-Anfrage nur mit gewählten Feldern -------------------
+{
+  // Eine Prüfung läuft noch (hängt), der Launcher wird beendet, dann scheitert sie: setzt der Treiber den Wiederholungs-Wecker
+  // (planeWiederholung), liefe nach dem Beenden wieder ein Zeitgeber.
+  const u = umgebung({ gespeichert: ALT, antworten: [{ haengt: true }] });
+  u.t.start();
+  await ruhe();
+  const vor = u.wecker.length;
+  u.t.stoppe();
+  u.offen[0].aufloesen({ code: 'netz' });
+  await ruhe();
+  ck('Fixrunde 1 Nr. 1: scheitert ein Lauf erst nach stoppe(), entsteht kein Wiederholungs-Wecker mehr',
+    u.t.ansicht().zustand === 'offline' && u.wecker.length === vor && u.wecker.every((w) => !w.aktiv));
+}
+{
+  const GEHEIM = 'jm1.fremd-im-zoom-objekt';
+  const roh = { id: 'a1', zustand: 'offen', zweck: 'Messe', von: 10, bis: 20, am: 5, token: GEHEIM, intern: { x: 1 } } as unknown as ZoomAnfrageStand;
+  const u = umgebung({ gespeichert: ALT, antworten: [{ ok: NEU }], ich: [{ kontoAktiv: true, grund: null, zoomAnfrage: roh, adminOffen: 0 }] });
+  u.t.start();
+  await ruhe();
+  await u.t.lage();
+  const z = u.t.ansicht().zoomAnfrage;
+  const text = JSON.stringify([u.t.ansicht(), u.gemeldet]);
+  ck('Fixrunde 1 Nr. 7: die Zoom-Anfrage geht mit ausdrücklich gewählten Feldern an den Renderer (kein Fremdfeld aus dem Worker-Objekt)',
+    z !== null && JSON.stringify(Object.keys(z).sort()) === JSON.stringify(['am', 'bis', 'id', 'von', 'zustand', 'zweck']) && !text.includes(GEHEIM) && !text.includes('intern'));
+}
+
 // --- P10 G9 -----------------------------------------------------------------------------------------------------------------
 {
   const quelle = readFileSync(new URL('../src/main/konto/sitzung-kern.ts', import.meta.url), 'utf8');

@@ -25,7 +25,7 @@ import { erzeugeSitzungsTreiber, sitzungsAblage, type GespeicherteSitzung, type 
 import { erzeugeAnmeldeAblauf, type AnmeldeAblauf } from './anmelde-ablauf';
 import { starteTuerDienst } from './tuer-dienst';
 import { erzeugeFreigabeStelle } from './freigaben';
-import { erzeugeIveoZentral, iveoHinterlegenBasis, lokaleLoeschen, type IveoZentralSpeicher } from './iveo-zentral';
+import { erzeugeIveoZentral, iveoHinterlegenBasis, lokaleLoeschen, zentraleKeysFuerLoeschlauf, type IveoZentralSpeicher } from './iveo-zentral';
 import {
   adminAktionAusfuehren, anmeldenOhneAblauf, browserHref, eventsFuerRenderer, kontoGewechselt, ohneWurf, erzeugeIveoLader, erzeugeUebergang, ersteAnmeldungVerarbeiten, githubZugangNachholen,
   uebergangsText, zustandsLogger,
@@ -317,10 +317,10 @@ export function zugangDa(): boolean {
  * (zugangsKopf, P9); die Sitzung erneuert sich bei Bedarf (R7). Sitzung und Schlüssel stehen in keiner Meldung.
  */
 export async function zugangsKopfFuer(url: string): Promise<Record<string, string>> {
-  const proxy = resolveProxy();
-  if (!proxy || !istWorkerZiel(url, proxy)) return {};
+  // Fixrunde 1 (Nr. 4): die Basis, zu der die Sitzung gehört (beim Start geprüft), nicht die zur Laufzeit änderbare Einstellung.
+  if (!serverBasis || !istWorkerZiel(url, serverBasis)) return {};
   // Z1: kopfFuer prüft Server-Adresse und Ziel noch einmal (rein, im Verhalten geprüft).
-  return kopfFuer(url, proxy, await kontoSitzungFuerBedarf(), resolveProxyKey());
+  return kopfFuer(url, serverBasis, await kontoSitzungFuerBedarf(), resolveProxyKey());
 }
 
 /**
@@ -428,7 +428,7 @@ function raeumeLokaleIveoTokensAuf(): void {
     if (erste === null) return;
     const r = lokaleLoeschen({
       lokaleSlugs: listIveoTokenKeys(),
-      zentral: iveoGeladen ? iveo.erlaubteEvents().map((e) => e.key) : [],
+      zentral: iveoGeladen ? zentraleKeysFuerLoeschlauf(iveo.erlaubteEvents()) : [],
       ersteAnmeldung: erste,
       jetzt: Date.now(),
       iveoShowOffen: iveoShowOffen(),

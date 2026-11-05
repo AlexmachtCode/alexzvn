@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
   browserAdresseErlaubt, erzeugeKontoClient, gesperrterKontoClient, istWorkerAdresse, KontoFehler, kopfFuer, pruefeServerBasis, redirectFuer,
-  zugangsKopf, type KontoClient,
+  standAus, zugangsKopf, type KontoClient,
 } from '../src/main/konto/worker-client';
 import type { KontoStand } from '../src/shared/konto';
 import { pruefeFaelle } from './konto-rechte.test';
@@ -353,7 +353,7 @@ ck('P9 9.1: zugangsKopf: Sitzung → Authorization, sonst Dev-Key → X-Proxy-Ke
   // istStand prüft jedes Feld: Basis ist ein gültiger Stand; jedes fehlende oder falsch getypte Feld macht die Antwort zu server (200)
   const g0 = { ...STAND } as Record<string, unknown>;
   const SCHLECHT: Array<[string, unknown]> = [
-    ['kid', ''], ['kid', 5], ['email', null], ['name', 7], ['art', 'sms'], ['art', undefined], ['stufe', 'chef'], ['tools', 'qa'], ['tools', ['zoom']],
+    ['kid', ''], ['kid', 5], ['email', null], ['name', 7], ['art', 'sms'], ['art', undefined], ['stufe', 'chef'], ['tools', 'qa'],
     ['tools', [5]], ['events', 'a'], ['events', [1]], ['zoom', 'ja'], ['zoom', undefined], ['zoomBis', undefined], ['zoomBis', '5'],
     ['jm', 1], ['plattform', 'linux'], ['gid', 3], ['gid', undefined], ['iat', Infinity], ['iat', '1'], ['exp', null],
     ['kontoBis', undefined], ['angemeldetSeit', undefined], ['angemeldetSeit', 'gestern'],
@@ -377,6 +377,19 @@ ck('P9 9.1: zugangsKopf: Sitzung → Authorization, sonst Dev-Key → X-Proxy-Ke
   const f2 = await fehlerVon(c2.sitzungErneuern(S, BEWEIS, '0.18.0', 'PC'));
   ck(`Z1 istStand: jedes Feld von KontoStand wird geprüft (Art, Werkzeuge, Events, Zoom, JM, Gerät, alle Zeiten) — ${SCHLECHT.length} falsche Felder werden zu server${abw.length ? ` — ${abw.join('; ')}` : ''}`,
     abw.length === 0 && f2?.code === 'server');
+}
+
+// --- Fixrunde 1 (AR78) Nr. 3: unbekannte Werkzeuge (Teil 2) werden herausgefiltert, der Stand bleibt gültig ---------------------------
+{
+  const stand2 = { ...STAND, tools: ['qa', 'zukunft', 'iveo', 'zukunft-2'] } as Record<string, unknown>;
+  const c = erzeugeKontoClient({ basis: BASIS, fetch: attrappe((a) => (a.url.endsWith('/abholen')
+    ? { status: 200, json: { zustand: 'bestaetigt', sitzung: S, stand: stand2 } } : { status: 200, json: { sitzung: S, stand: stand2 } })).fetch });
+  const r1 = await c.vorgangAbholen('v1', 'h1', BEWEIS);
+  const r2 = await c.sitzungErneuern(S, BEWEIS, '0.18.0', 'PC');
+  const t1 = 'stand' in r1 ? r1.stand.tools.join() : 'kein Stand';
+  const bleibtStreng = standAus({ ...STAND, tools: ['qa', 5] }) === null && standAus({ ...STAND, gid: 3 }) === null;
+  ck(`Fixrunde 1 Nr. 3: ein unbekanntes Werkzeug lässt den Stand gültig (nur bekannte bleiben: ${t1}); ein Nicht-Text als Werkzeug und alle übrigen Prüfungen bleiben streng`,
+    t1 === 'qa,iveo' && r2.stand.tools.join() === 'qa,iveo' && bleibtStreng && stand2.tools instanceof Array && stand2.tools.length === 4);
 }
 
 // --- P9 G9 ------------------------------------------------------------------------------------------------------------

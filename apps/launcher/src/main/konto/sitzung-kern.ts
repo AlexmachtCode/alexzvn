@@ -60,6 +60,11 @@ export function standFuerAnsicht(s: KontoStand): KontoStand {
   };
 }
 
+/** Fixrunde 1 (Nr. 7): die Zoom-Anfrage für die Ansicht mit ausdrücklich gewählten Feldern (kein Rest des Worker-Objekts). */
+export function zoomFuerAnsicht(z: ZoomAnfrageStand): ZoomAnfrageStand {
+  return { id: z.id, zustand: z.zustand, zweck: z.zweck, von: z.von, bis: z.bis, am: z.am };
+}
+
 /** Z1: gemerkter Entzug aus den Einstellungen: `grund` einer der vier Werte, `am` eine endliche Zahl, sonst null. */
 export function leseEntzugAus(x: unknown): { grund: EntzugGrund; am: number } | null {
   if (typeof x !== 'object' || x === null) return null;
@@ -113,7 +118,7 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
       plattform: u.plattform,
       hinweise: [...hinweise],
       devVariablen: [...devVariablen],
-      zoomAnfrage: zoomAnfrage ? { ...zoomAnfrage } : null,
+      zoomAnfrage: zoomAnfrage ? zoomFuerAnsicht(zoomAnfrage) : null,
       adminOffen,
       ausgaben: ausgaben.map((a) => ({ ...a })),
       letztePruefung,
