@@ -144,7 +144,7 @@ export default {
     // Q&A externe Einreichung (#166). Eigene Routing-Ebene: die ÖFFENTLICHEN
     // Einreich-Routen (Seite/submit/press/pubkey/state) müssen VOR dem PROXY_KEY-
     // Gate erreichbar sein (Zuschauer/Presse haben keinen Key); die Admin-Routen
-    // (open/pending/ack/delete) prüfen den Key im Modul selbst. `null` = kein
+    // (open/pending/ack/delete) prüfen den Zugang im Modul selbst (Freigabe oder alter Key, zugangPruefen). `null` = kein
     // Q&A-Pfad → normal weiter.
     const qa = await handleQa(request, env, url, ctx);
     if (qa) return qa;

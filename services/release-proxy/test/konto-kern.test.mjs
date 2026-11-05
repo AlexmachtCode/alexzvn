@@ -25,6 +25,8 @@ import {
   googleNeuFaellig,
   istDomainKonto,
   istErsterAdmin,
+  IVEO_ERLAUBTE_BASEN,
+  iveoBasisErlaubt,
   iveoSchluessel,
   kontoGueltig,
   kontoStand,
@@ -320,13 +322,62 @@ async function run() {
     const basen = [
       [' app.my-iveo.de/api/v1/ ', 'https://app.my-iveo.de/api/v1'],
       ['https://iveo.example///', 'https://iveo.example'],
-      ['HTTP://iveo.example', 'HTTP://iveo.example'],
+      ['HTTP://iveo.example', 'http://iveo.example'],
       ['iveo.example', 'https://iveo.example'],
+      // Z1-W2 (OE2): Schema und Host klein, Port 443 bei https weg, Pfad unverändert (Groß-/Kleinschreibung bleibt)
+      ['HTTPS://App.My-Iveo.DE:443/api/v1/', 'https://app.my-iveo.de/api/v1'],
+      [' app.my-iveo.de:443/api/v1 ', 'https://app.my-iveo.de/api/v1'],
+      ['https://iveo.example:8443/', 'https://iveo.example:8443'],
+      ['http://iveo.example:443', 'http://iveo.example:443'],
+      ['https://iveo.example/Api/V1///', 'https://iveo.example/Api/V1'],
     ];
     check('Z1-W1: normalisiereBasis trimmt, ergänzt https://, entfernt Schrägstriche am Ende', basen.every(([roh, soll]) => normalisiereBasis(roh) === soll));
     check(
       'Z1-W1: normalisiereBasis lehnt leer, ohne Host, mit | und Nicht-Texte ab (null)',
       ['', '   ', 'https://', 'a|b', 'https://a.example|x', undefined, null, 5, {}].every((x) => normalisiereBasis(x) === null),
+    );
+    // AR74 A: die Normalisierung ist idempotent, N(N(x)) === N(x) (null bleibt null); Leerraum und Steuerzeichen innerhalb → null.
+    {
+      const faelle = [
+        'app.my-iveo.de/api/v1/ /', 'x.de/\t/', 'x.de/\n/', 'x.de/ /', `x.de/${String.fromCharCode(0xa0)}/`, `x.de/${String.fromCharCode(0x200b)}`, 'x.de/\u0007', 'x.de/\u007f',
+        'HTTPS://APP.MY-IVEO.DE:443/api/v1/', ' https://App.my-iveo.de:443/api/v1// ', 'app.my-iveo.de:443', 'https://a.example:443:443', 'https://a.example:0443',
+        'https://a.example?x=/', 'https://a.example/?', 'https://a.example#/', 'http://A.example:80/', 'ftp://a.example', 'https:///a.example', 'https://', '///',
+        'a b', 'https://a.example/a b', 'ä.example/', 'https://a.example/Pfad//Mit///Strichen///', 'user@A.example:443/x/', '[::1]:443/x', 'a.example:99999',
+      ];
+      const alphabet = ['h', 't', 'p', 's', ':', '/', '/', '.', '4', '3', ' ', '\t', '\n', 'A', 'x', '?', '#', '@', '|', '%'];
+      let zufall = 12345;
+      for (let i = 0; i < 3000; i++) {
+        let s = '';
+        zufall = (zufall * 1103515245 + 12345) % 2147483648;
+        for (let n = 0, len = 1 + (zufall % 14); n < len; n++) {
+          zufall = (zufall * 1103515245 + 12345) % 2147483648;
+          s += alphabet[zufall % alphabet.length];
+        }
+        faelle.push(s, `https://${s}`, `${s}/api/v1/`);
+      }
+      const nicht = faelle.filter((x) => normalisiereBasis(normalisiereBasis(x)) !== normalisiereBasis(x));
+      check(`AR74 A: normalisiereBasis ist idempotent (${faelle.length} Fälle, davon 3000 pseudozufällige)${nicht.length ? ` — nicht: ${JSON.stringify(nicht.slice(0, 3))}` : ''}`, nicht.length === 0);
+      check(
+        'AR74 A: Leerraum und Steuerzeichen innerhalb der Basis (Leerzeichen, Tab, LF, NBSP, U+200B, BEL, DEL) → null; außen werden sie weiter getrimmt',
+        ['app.my-iveo.de/api/v1/ /', 'x.de/\t/', 'x.de/\n/', 'x.de/ /', `x.de/${String.fromCharCode(0xa0)}/`, 'x.de/\u0007', 'x.de/\u007f', 'a b.example'].every((x) => normalisiereBasis(x) === null)
+          && normalisiereBasis('\t app.my-iveo.de/api/v1/ \n') === 'https://app.my-iveo.de/api/v1',
+      );
+    }
+
+    // Z1-W2 OE2: die feste Liste der iveo-Server (Production, Staging), verglichen nach der Normalisierung.
+    check(
+      'Z1-W2 OE2: IVEO_ERLAUBTE_BASEN sind genau Production und Staging, eingefroren, und selbst schon normalisiert',
+      JSON.stringify(IVEO_ERLAUBTE_BASEN) === '["https://app.my-iveo.de/api/v1","https://staging-dev.my-iveo.de/api/v1"]' && Object.isFrozen(IVEO_ERLAUBTE_BASEN)
+        && IVEO_ERLAUBTE_BASEN.every((b) => normalisiereBasis(b) === b),
+    );
+    check(
+      'Z1-W2 OE2: iveoBasisErlaubt gilt nach der Normalisierung (Schreibweise, Port 443, Schrägstrich) und lehnt jede andere Basis ab',
+      ['https://app.my-iveo.de/api/v1', 'HTTPS://APP.my-iveo.de:443/api/v1/', ' app.my-iveo.de/api/v1 ', 'https://staging-dev.my-iveo.de/api/v1/', 'Staging-Dev.my-iveo.de:443/api/v1'].every(iveoBasisErlaubt)
+        && [
+          'https://iveo.example', 'http://app.my-iveo.de/api/v1', 'https://app.my-iveo.de/api/v2', 'https://app.my-iveo.de/api/v1/x', 'https://app.my-iveo.de',
+          'https://app.my-iveo.de:8443/api/v1', 'https://app.my-iveo.de.evil.example/api/v1', 'https://app.my-iveo.de@evil.example/api/v1', 'https://evil.example/https://app.my-iveo.de/api/v1',
+          'https://staging.my-iveo.de/api/v1', 'https://my-iveo.de/api/v1', 'https://app.my-iveo.de/API/v1', '', '   ', 'a|b', undefined, null, 5, {},
+        ].every((b) => !iveoBasisErlaubt(b)),
     );
     check(
       'Z1-W1: iveoSchluessel = <normalisierte Basis>|<Slug getrimmt>; Slug leer, über 120 Zeichen, mit | oder kein Text, Basis unbrauchbar → null; 120 Zeichen gehen',

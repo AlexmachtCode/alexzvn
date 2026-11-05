@@ -86,7 +86,8 @@ export async function pruefeToken(schluesselB64, token, typ, jetzt) {
     if (teile.length !== 2 || !teile[0] || !teile[1]) return null;
     const [payload, sig] = teile;
     // Die Signatur nur in der einen kanonischen Form (b64url, 43 Zeichen, keine Restbits): sonst gäbe es mehrere Texte je Token.
-    // Die Nutzlast ist über die HMAC byte-genau gebunden und braucht das nicht.
+    // Auch die Nutzlast wird streng gelesen (ausB64url: nur das URL-Alphabet, keine Auffüllung, Rundreise-gleich); die HMAC
+    // bindet sie zusätzlich byte-genau.
     if (sig.length !== 43) return null;
     const echt = await crypto.subtle.verify('HMAC', await hmacSchluessel(bytes), ausB64url(sig), kodierer.encode(TOKEN_PRAEFIX + payload));
     if (!echt) return null;
@@ -158,7 +159,7 @@ export async function hashePasswort(passwort) {
   return `pbkdf2-sha256$${PBKDF2_ITERATIONEN}$${b64url(salz)}$${b64url(hash)}`;
 }
 
-/** Prüft ein Passwort gegen den gespeicherten Hash, zeitkonstant; fremde Formen und mehr Iterationen als erlaubt → false. */
+/** Prüft ein Passwort gegen den gespeicherten Hash, zeitkonstant; fremde Formen und jede andere Iterationszahl als genau PBKDF2_ITERATIONEN (100 000) → false. */
 export async function pruefePasswort(passwort, gespeichert) {
   try {
     if (typeof passwort !== 'string' || typeof gespeichert !== 'string') return false;

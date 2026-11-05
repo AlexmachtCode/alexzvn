@@ -7,6 +7,7 @@
 // testSchluessel() (G4). Nicht über tsx (Kopf von worker.test.mjs).
 import { readFileSync } from 'node:fs';
 import worker from '../worker.js';
+import { altKeyMerkerLeeren } from '../konto-altkey.js';
 import { signiere } from '../konto-krypto.js';
 import { FEHLER_TEXT } from '../konto-zugang.js';
 import { abschluss, check, makeKV, makeWaitCtx, pruefeFaelle, testSchluessel } from './konto-attrappen.mjs';
@@ -208,6 +209,35 @@ async function run() {
     check('P19 Quelltext: qa-relay.js ohne keyOk und ohne env.PROXY_KEY, mit zugangPruefen (qa, Ziel = Event); worker.js reicht ctx weiter',
       !q.includes('keyOk') && !q.includes('env.PROXY_KEY') && q.includes("zugangPruefen(request, env, { funktion: 'qa', gruppe: 'qa', ziel: id,")
         && w.includes('await handleQa(request, env, url, ctx)'));
+  }
+
+  // Z1-W2 [T]: ohne QA_RELAY kommt das 503 erst NACH der Zugangsprüfung (ohne Zugang 401, mit falscher Freigabe 403).
+  {
+    const ohne = umgebung({ QA_RELAY: undefined });
+    const ohneZugang = await anfrage(ohne, 'GET', `/qa/${EVENT}/pending`);
+    const fremdesEvent = await anfrage(ohne, 'GET', `/qa/${EVENT}/pending`, { kopf: bearer(await freigabe(ANDERES)) });
+    const gueltig = await anfrage(ohne, 'GET', `/qa/${EVENT}/pending`, { kopf: bearer(await freigabe(EVENT)) });
+    check(
+      'Z1-W2 [T]: ohne QA_RELAY → ohne Zugang 401 S1, Freigabe für ein anderes Event 403 S15, erst mit gültiger Freigabe 503 (QA_RELAY KV-Bindung fehlt)',
+      ohneZugang.status === 401 && ohneZugang.daten.code === 'nicht-angemeldet' && fremdesEvent.status === 403 && fremdesEvent.daten.code === 'keine-freigabe'
+        && gueltig.status === 503 && gueltig.daten.error === 'QA_RELAY KV-Bindung fehlt',
+    );
+  }
+
+  // Z1-W2 [T] Probe K: worker.fetch reicht ctx bis zur Zählung durch: ein alter Key an GET /qa/:id/pending zählt über ctx.waitUntil
+  // genau einmal (Gruppe qa).
+  {
+    const zaehlungen = [];
+    const ns = { jurisdiction: () => ns, idFromName: () => ({}), get: () => ({ fetch: async (r) => (zaehlungen.push(await r.json()), Response.json({ ok: true })) }) };
+    const offen = [];
+    const ctx = { waitUntil: (p) => offen.push(p) };
+    altKeyMerkerLeeren(); // der Merker im Isolat kennt IP, Tag und Gruppe aus den Fällen davor schon
+    const r = await anfrage(umgebung({ ALTKEY_BIS: VOR, KONTO: ns }), 'GET', `/qa/${EVENT}/pending`, { kopf: { 'X-Proxy-Key': PROXY }, ctx });
+    await Promise.all(offen);
+    check(
+      'Z1-W2 [T] Probe K: alter Key an /qa/:id/pending → durchgelassen, genau eine Zählung über ctx.waitUntil (Gruppe qa) — ctx kommt über worker.fetch und handleQa an',
+      r.status !== 401 && offen.length === 1 && zaehlungen.length === 1 && zaehlungen[0].gruppe === 'qa',
+    );
   }
 
   // ── Ende der Fälle ──

@@ -7,20 +7,19 @@
 // Antworten: JSON mit cache-control no-store; Fehler { error: Text S…, code } (Texttabelle 9.6, EP17). Kein Token,
 // Abholgeheimnis, Code, Passwort oder Schlüssel geht ins Log oder in eine Fehlermeldung.
 import { googleBereit, googleRueckkehr, googleStartAdresse } from './konto-google.js';
-import { FREIGABE_MS, ZWECK_FUNKTION, darf, iveoSchluessel, kontoStand } from './konto-kern.js';
+import { FREIGABE_MS, ZWECK_FUNKTION, darf, iveoBasisErlaubt, iveoSchluessel, kontoStand } from './konto-kern.js';
 import { BEWEIS_FENSTER_MS, iveoEntschluesseln, iveoVerschluesseln, neuerBestaetigungsCode, pruefeToken, schluesselBrauchbar, sha256B64url, signiere, zufall } from './konto-krypto.js';
 import { datumText, esc, fuelle, htmlAntwort, seiteAnmelden, seiteBestaetigen, seiteMeldung } from './konto-seiten.js';
-import { abgelehnt, kontoAktion, kontoJetzt, kontoStub } from './konto-zugang.js';
+import { KONTO_RL, abgelehnt, drosselBindung, kontoAktion, kontoJetzt, kontoStub } from './konto-zugang.js';
 
 // Vertrag 10.1: P16 liefert kontoStub(env); er liegt seit P15 in konto-zugang.js (Alt-Key-Zählung).
 export { kontoStub } from './konto-zugang.js';
 
 const KONTO = {
   apiBytes: 16 * 1024, // JSON-Body der Launcher-API (Admin-Aktion mit iveo-Token und Event-Liste)
-  vorgang: { rlMax: 10, rlWindowSec: 600 }, // POST /konto/vorgang je IP (EP5)
   formBytes: 8 * 1024, // Formulare der Anmeldeseite (P17)
-  passwort: { rlMax: 20, rlWindowSec: 600 }, // POST /konto/passwort je IP (EP4), vor der Bremse je Konto im DO
 };
+// Die Drosseln je IP (EP4, EP5) sind seit Z1-W2 Rate-Limit-Bindungen (AR70, KONTO_RL in konto-zugang.js), kein Zähler in KV mehr.
 
 /** Methode und Pfad (ohne Schrägstrich am Ende) → Handler. Nur diese Routen gibt es unter /konto/. */
 const ROUTEN = {
@@ -89,7 +88,7 @@ export async function handleKonto(request, env, url, ctx) {
   } catch (e) {
     if (e instanceof Abgelehnt) return fehler(e.fehler);
     console.warn(`konto: ${schluessel} fehlgeschlagen (${fehlerName(e)})`);
-    if (SEITEN.has(schluessel)) return htmlAntwort(seiteMeldung({ text: esc('interner Fehler'), fehler: true }), 502);
+    if (SEITEN.has(schluessel)) return ausfallSeite();
     return json({ error: 'interner Fehler', code: 'server' }, 502);
   }
 }
@@ -98,7 +97,7 @@ export async function handleKonto(request, env, url, ctx) {
 
 /** POST /konto/vorgang: Anmeldevorgang mit Code und Abholgeheimnis (Spec 4.1 Schritt 1; EP5). */
 async function vorgangAnlegen(k) {
-  const rl = await drossel(k, 'konto-vorgang', KONTO.vorgang);
+  const rl = await drosselBindung(k.request, k.env, KONTO_RL.vorgang);
   if (!rl.ok) return zuViele(rl.retryAfter);
   const d = await liesJson(k.request);
   const g = d.geraet && typeof d.geraet === 'object' ? d.geraet : null;
@@ -117,8 +116,10 @@ async function vorgangAnlegen(k) {
 
 /** POST /konto/vorgang/abholen: wartet, bestätigt (dann Sitzung und Stand), abgelehnt oder abgelaufen (Spec 4.1 Schritt 4). */
 async function vorgangAbholen(k) {
+  const rl = await drosselBindung(k.request, k.env, KONTO_RL.abholen);
+  if (!rl.ok) return zuViele(rl.retryAfter);
   const d = await liesJson(k.request);
-  if (!text(d.vorgang) || !text(d.abholGeheimnis)) return fehler(abgelehnt('ungueltig', 400));
+  if (!vorgangUndGeheimnis(d)) return fehler(abgelehnt('ungueltig', 400));
   if (uhrDaneben(d.beweis, k.jetzt)) return fehler(abgelehnt('uhr', 400));
   const r = await k.rufe('vorgang-abholen', { vorgang: d.vorgang, abholHash: await sha256B64url(d.abholGeheimnis), beweis: d.beweis });
   if (!r.ok) return doFehler(r);
@@ -128,8 +129,10 @@ async function vorgangAbholen(k) {
 
 /** POST /konto/vorgang/abbrechen: Launcher bricht ab (nur mit Abholgeheimnis). */
 async function vorgangAbbrechen(k) {
+  const rl = await drosselBindung(k.request, k.env, KONTO_RL.abbrechen);
+  if (!rl.ok) return zuViele(rl.retryAfter);
   const d = await liesJson(k.request);
-  if (!text(d.vorgang) || !text(d.abholGeheimnis)) return fehler(abgelehnt('ungueltig', 400));
+  if (!vorgangUndGeheimnis(d)) return fehler(abgelehnt('ungueltig', 400));
   const r = await k.rufe('vorgang-abbrechen', { vorgang: d.vorgang, abholHash: await sha256B64url(d.abholGeheimnis) });
   if (!r.ok) return doFehler(r);
   return json({ ok: true });
@@ -154,10 +157,13 @@ async function sitzungErneuern(k) {
   return json(await sitzungAusstellen(k, r.konto, r.geraet));
 }
 
-/** POST /konto/abmelden: best effort, merkt nur den letzten Kontakt des Geräts (EP26). */
+/**
+ * POST /konto/abmelden: best effort (EP26). Der DO löst das Gerät vom Konto (`letztesKonto`, `angemeldetSeit` null), aber nur, wenn
+ * `angemeldetSeit` der Sitzung noch der Anmeldung des Geräts entspricht: eine alte Sitzung löst eine neuere Anmeldung nicht (AR74 D).
+ */
 async function abmelden(k) {
   const stand = await sitzungAus(k);
-  const r = await k.rufe('abmelden', { kid: stand.kid, gid: stand.gid });
+  const r = await k.rufe('abmelden', { kid: stand.kid, gid: stand.gid, angemeldetSeit: stand.angemeldetSeit });
   if (!r.ok) return doFehler(r);
   return json({ ok: true });
 }
@@ -190,11 +196,17 @@ async function freigabe(k) {
 
 /**
  * GET /konto/iveo: die iveo-Tokens, die dieser Stand nutzen darf, entschlüsselt (Spec 6.4, EP13). Der Launcher hält sie nur
- * im Speicher. Ohne IVEO_SCHLUESSEL eine leere Liste mit Hinweis (Diagnose statt Schweigen, G7).
+ * im Speicher. Ohne IVEO_SCHLUESSEL (nicht gesetzt oder leer) eine leere Liste mit Hinweis (Diagnose statt Schweigen, G7); ein
+ * gesetzter, aber unbrauchbarer Schlüssel (nicht 32 Byte Base64) ist ein Einrichtungsfehler: 503 S5 (Z1-W2), mit Warnung im Log.
  */
 async function iveo(k) {
   const stand = await sitzungAus(k);
-  if (!schluesselBrauchbar(k.env.IVEO_SCHLUESSEL)) return json({ events: [], hinweis: 'iveo-nicht-eingerichtet' });
+  const schluessel = k.env.IVEO_SCHLUESSEL;
+  if (schluessel === undefined || schluessel === null || schluessel === '') return json({ events: [], hinweis: 'iveo-nicht-eingerichtet' });
+  if (!schluesselBrauchbar(schluessel)) {
+    console.warn('konto: IVEO_SCHLUESSEL unbrauchbar (nicht 32 Byte Base64)');
+    return fehler(abgelehnt('nicht-eingerichtet', 503));
+  }
   const r = await k.rufe('iveo-fuer', { stufe: stand.stufe, tools: stand.tools, events: stand.events });
   if (!r.ok) return doFehler(r);
   const events = [];
@@ -250,6 +262,8 @@ async function adminAktion(k) {
       // Geheimtext lässt sich beim Lesen nicht entschlüsseln (Z1-W1).
       const schluessel = iveoSchluessel(d.basis, e.slug);
       if (!schluessel) return fehler(abgelehnt('ungueltig', 400));
+      // OE2: nur die feste Liste der iveo-Server (Production, Staging), nach derselben Normalisierung wie der Schlüssel.
+      if (!iveoBasisErlaubt(d.basis)) return fehler(abgelehnt('iveo-basis-unbekannt', 400));
       const { iv, ct } = await iveoVerschluesseln(k.env.IVEO_SCHLUESSEL, token, schluessel);
       events.push({ slug: e.slug, name: typeof e.name === 'string' ? e.name : '', iv, ct });
     }
@@ -288,7 +302,8 @@ async function sitzungAusstellen(k, konto, geraet) {
 
 /**
  * Body höchstens `max` Bytes: größer als content-length verspricht → null ohne zu lesen; ohne Body → leer; sonst Stück für
- * Stück gelesen und beim Überschreiten abgebrochen (null), auch ohne content-length (Stream).
+ * Stück gelesen und beim Überschreiten abgebrochen (null), auch ohne content-length (Stream). Bricht der Stream mitten im Lesen ab
+ * (Client weg, Verbindung gerissen), ist der Body ungültig (null → 400), kein Fehler des Servers (Z1-W2).
  */
 async function liesBegrenzt(request, max) {
   const cl = request.headers.get('content-length');
@@ -297,15 +312,19 @@ async function liesBegrenzt(request, max) {
   const leser = request.body.getReader();
   const stuecke = [];
   let summe = 0;
-  for (;;) {
-    const { done, value } = await leser.read();
-    if (done) break;
-    summe += value.byteLength;
-    if (summe > max) {
-      await leser.cancel().catch(() => {});
-      return null;
+  try {
+    for (;;) {
+      const { done, value } = await leser.read();
+      if (done) break;
+      summe += value.byteLength;
+      if (summe > max) {
+        await leser.cancel().catch(() => {});
+        return null;
+      }
+      stuecke.push(value);
     }
-    stuecke.push(value);
+  } catch {
+    return null;
   }
   const alles = new Uint8Array(summe);
   let pos = 0;
@@ -330,8 +349,12 @@ async function liesJson(request) {
   throw new Abgelehnt(abgelehnt('ungueltig', 400));
 }
 
-function text(v) {
-  return typeof v === 'string' && v.length > 0 && v.length <= 256;
+/**
+ * Vorfilter vor SHA und DO (Z1-W2): die Vorgangs-ID ist genau 24 Zeichen, das Abholgeheimnis genau 43 Zeichen Base64url
+ * (zufall(18) und zufall(32)). Alles andere kann es nicht geben und erreicht den DO nicht.
+ */
+function vorgangUndGeheimnis(d) {
+  return typeof d.vorgang === 'string' && /^[A-Za-z0-9_-]{24}$/.test(d.vorgang) && typeof d.abholGeheimnis === 'string' && /^[A-Za-z0-9_-]{43}$/.test(d.abholGeheimnis);
 }
 
 /**
@@ -353,7 +376,7 @@ function doAusfall(r) {
   return !r || typeof r.status !== 'number' || r.status >= 500;
 }
 
-/** Ausfall des DO auf einer Seiten-Route: Seite „interner Fehler“ (502) statt B10/B11/B12. */
+/** Ausfall des DO auf einer Seiten-Route: Seite „interner Fehler“ (502) statt B10/B11/B12. Die EINE Stelle aller 502-Seiten (htmlAntwort: gleiche Kopfzeilen wie jede Seite). */
 function ausfallSeite() {
   return htmlAntwort(seiteMeldung({ text: esc('interner Fehler'), fehler: true }), 502);
 }
@@ -382,25 +405,6 @@ function zuViele(retryAfter) {
   });
 }
 
-/**
- * Fixed-Window-Drossel je IP über RATELIMIT (wie worker.js), mit der Uhr der Anmeldung. Ohne Bindung: Warnung, offen. Die IP steht
- * nur als Hash mit dem Worker-Secret im Schlüssel (Spec 11, OFP2: keine IP-Adressen speichern; KV liegt nicht in der EU).
- */
-async function drossel(k, bucket, { rlMax, rlWindowSec }) {
-  if (!k.env.RATELIMIT) {
-    console.warn(`rate-limit: KV-Bindung RATELIMIT fehlt — ${bucket} ungedrosselt`);
-    return { ok: true };
-  }
-  const ip = k.request.headers.get('CF-Connecting-IP') || 'unknown';
-  const ipHash = (await sha256B64url(`${k.env.KONTO_SCHLUESSEL ?? ''}|${ip}`)).slice(0, 22);
-  const nowSec = Math.floor(k.jetzt / 1000);
-  const key = `rl:${bucket}:${ipHash}:${Math.floor(nowSec / rlWindowSec)}`;
-  const current = Number((await k.env.RATELIMIT.get(key)) || 0);
-  if (current >= rlMax) return { ok: false, retryAfter: rlWindowSec - (nowSec % rlWindowSec) };
-  await k.env.RATELIMIT.put(key, String(current + 1), { expirationTtl: rlWindowSec * 2 });
-  return { ok: true };
-}
-
 /** Nur der Name eines Fehlers, nie die Meldung (wie worker.js). */
 function fehlerName(e) {
   return (e && typeof e.name === 'string' && e.name) || 'unbekannt';
@@ -418,6 +422,11 @@ async function liesFormular(request) {
   const buf = await liesBegrenzt(request, KONTO.formBytes);
   if (buf === null) return null;
   return new URLSearchParams(new TextDecoder().decode(buf));
+}
+
+/** 429 als Seite (B21) mit Retry-After: gedrosselte Seiten-Routen ohne eingegebene Werte (Google). */
+function zuVieleSeite(retryAfter) {
+  return htmlAntwort(seiteMeldung({ text: fuelle('B21'), fehler: true }), 429, { 'Retry-After': String(retryAfter || 60) });
 }
 
 /** Seite mit einem Text aus der Tabelle 9.5. */
@@ -439,11 +448,11 @@ async function seiteAnmeldenRoute(k) {
 
 /**
  * POST /konto/passwort: Externe mit E-Mail und Passwort oder mit Einladungscode und neuem Passwort (Spec 4, EP4). Zuerst die
- * Drossel je IP (`konto-pw`, 20 je 600 s), die Bremse je Konto prüft der DO. Fehler zeigen die Anmeldeseite mit B12–B17, B21,
+ * Drossel je IP (KONTO_RL_PASSWORT, 10 je 60 s), die Bremse je Konto prüft der DO. Fehler zeigen die Anmeldeseite mit B12–B17, B21,
  * B23 und der eingegebenen E-Mail, nie mit dem Passwort. Erfolg zeigt die Bestätigungsseite (B7).
  */
 async function passwortRoute(k) {
-  const rl = await drossel(k, 'konto-pw', KONTO.passwort);
+  const rl = await drosselBindung(k.request, k.env, KONTO_RL.passwort);
   const f = await liesFormular(k.request);
   const vorgang = f ? (f.get('v') || '').trim() : '';
   const email = f ? (f.get('email') || '').trim().slice(0, 200) : '';
@@ -483,7 +492,7 @@ async function passwortRoute(k) {
     case 'vorgang-unbekannt':
       return meldung('B10', 404);
     default:
-      return htmlAntwort(seiteMeldung({ text: esc('interner Fehler'), fehler: true }), 502);
+      return ausfallSeite();
   }
 }
 
@@ -510,6 +519,8 @@ function googleZurueckAdresse(k) {
 /** GET /konto/google?v=<vorgang>: 302 zu Google mit PKCE S256; state, nonce und verifier merkt der Vorgang im DO. */
 async function googleStartRoute(k) {
   if (!googleBereit(k.env)) return meldung('B6', 503);
+  const rl = await drosselBindung(k.request, k.env, KONTO_RL.google);
+  if (!rl.ok) return zuVieleSeite(rl.retryAfter);
   const vorgang = k.url.searchParams.get('v') || '';
   if (!vorgang) return meldung('B10', 404);
   const state = zufall(24);
@@ -528,6 +539,8 @@ async function googleStartRoute(k) {
  */
 async function googleZurueckRoute(k) {
   if (!googleBereit(k.env)) return meldung('B6', 503);
+  const rl = await drosselBindung(k.request, k.env, KONTO_RL.google);
+  if (!rl.ok) return zuVieleSeite(rl.retryAfter);
   const state = k.url.searchParams.get('state') || '';
   const code = k.url.searchParams.get('code') || '';
   if (!state) return meldung('B10', 404);
@@ -560,7 +573,7 @@ function googleKontoFehler(r) {
     case 'vorgang-unbekannt':
       return meldung('B10', 404);
     default:
-      return htmlAntwort(seiteMeldung({ text: esc('interner Fehler'), fehler: true }), 502);
+      return ausfallSeite(); // unbekannter Code des DO: wie ein Ausfall, nie eine erfundene Seite
   }
 }
 

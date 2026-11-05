@@ -1,7 +1,8 @@
 // Launcher-API /konto/* über worker.fetch (Anmeldung im Launcher, Plan Teil 1, P16; P17 und P18 fügen vor der Ende-Marke ein).
 //   node --experimental-strip-types services/release-proxy/test/konto-routen.test.mjs
 // Ohne Netz und ohne Cloudflare: Bindung KONTO = makeKontoNs (echte KontoSpeicher-Instanz je Name und Jurisdiction),
-// RATELIMIT = makeKV, Uhr = makeUhr über env.KONTO_UHR (EP21), fetch-Attrappe für GitHub (und ab P18 Google). Schritte der
+// Drosseln = makeRLBindungen (die sechs Rate-Limit-Bindungen KONTO_RL_*, AR70), RATELIMIT = makeKV (bleibt leer: die Konto-Routen
+// zählen nicht mehr in KV), Uhr = makeUhr über env.KONTO_UHR (EP21), fetch-Attrappe für GitHub (und ab P18 Google). Schritte der
 // Anmeldeseite, die erst P17/P18 als HTTP-Routen bringen, laufen hier direkt als DO-Aktion (rufeDo). Schlüssel entstehen zur
 // Laufzeit (G4). Nicht über tsx (Kopf von worker.test.mjs).
 import { readFileSync } from 'node:fs';
@@ -9,7 +10,8 @@ import worker from '../worker.js';
 import { handleKonto } from '../konto-relay.js';
 import { pruefeToken } from '../konto-krypto.js';
 import { FEHLER_TEXT, KONFLIKT_TEXT } from '../konto-zugang.js';
-import { abschluss, check, makeKontoNs, makeKV, makeUhr, makeWaitCtx, pruefeFaelle, rufeDo, testGeraet, testSchluessel } from './konto-attrappen.mjs';
+import { abschluss, check, makeKontoNs, makeKV, makeRateLimit, makeRLBindungen, makeUhr, makeWaitCtx, pruefeFaelle, rufeDo, testGeraet, testSchluessel } from './konto-attrappen.mjs';
+import { sha256B64url } from '../konto-krypto.js';
 
 // Konsole mitschneiden: erwartete Warnungen und die Prüfung „kein Geheimnis im Log“ am Ende.
 const protokoll = [];
@@ -39,7 +41,7 @@ globalThis.fetch = async (u) => {
 function umgebung(mehr = {}, nsOpt = {}) {
   const env = {
     PROXY_KEY: 'test-proxy-key', GITHUB_TOKEN: 'gh', REPO: 'owner/repo', KONTO_SCHLUESSEL: SCHLUESSEL, IVEO_SCHLUESSEL: IVEO,
-    ERSTER_ADMIN: ERSTER, KONTO_UHR: makeUhr(T0), RATELIMIT: makeKV(), ...mehr,
+    ERSTER_ADMIN: ERSTER, KONTO_UHR: makeUhr(T0), RATELIMIT: makeKV(), ...makeRLBindungen(), ...mehr,
   };
   if (!('KONTO' in mehr)) env.KONTO = makeKontoNs(env, nsOpt);
   return env;
@@ -148,7 +150,7 @@ async function run() {
       api(env, 'POST', '/konto/vorgang/abholen', { body: { vorgang: d.vorgang, abholGeheimnis: geh, beweis: await g.beweis('abholen', d.vorgang, uhr()) } });
     const w = await abholen();
     const fremd = await abholen(await testGeraet());
-    const falsch = await abholen(geraet, 'test-falsches-geheimnis');
+    const falsch = await abholen(geraet, 'Zz9_-'.repeat(8) + 'Zz9'); // richtige Form (43 Zeichen), falscher Wert
     // EP30: die Uhr des Rechners geht 6 min falsch → 400 S18 vor dem DO, der Vorgang bleibt offen.
     const uhrFalsch = await api(env, 'POST', '/konto/vorgang/abholen', {
       body: { vorgang: d.vorgang, abholGeheimnis: d.abholGeheimnis, beweis: await geraet.beweis('abholen', d.vorgang, uhr() + 6 * 60_000) },
@@ -174,7 +176,7 @@ async function run() {
     check('P16 4.1: die Sitzung öffnet das Gate (GET /suite.json → 200)', katalog.status === 200);
     const v2 = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben } });
     geheim.push(v2.daten.abholGeheimnis, v2.daten.code);
-    const ab1 = await api(env, 'POST', '/konto/vorgang/abbrechen', { body: { vorgang: v2.daten.vorgang, abholGeheimnis: 'test-falsch' } });
+    const ab1 = await api(env, 'POST', '/konto/vorgang/abbrechen', { body: { vorgang: v2.daten.vorgang, abholGeheimnis: 'Zz9_-'.repeat(8) + 'Zz9' } }); // richtige Form, falscher Wert
     const ab2 = await api(env, 'POST', '/konto/vorgang/abbrechen', { body: { vorgang: v2.daten.vorgang, abholGeheimnis: v2.daten.abholGeheimnis } });
     const ab3 = await api(env, 'POST', '/konto/vorgang/abholen', {
       body: { vorgang: v2.daten.vorgang, abholGeheimnis: v2.daten.abholGeheimnis, beweis: await geraet.beweis('abholen', v2.daten.vorgang, uhr()) },
@@ -304,7 +306,7 @@ async function run() {
     };
     const h = await api(env, 'POST', '/konto/admin/aktion', {
       sitzung: chefin.sitzung,
-      body: { aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [{ slug: 'tagung', name: 'Tagung 2026' }, { slug: 'messe', name: 'Messe' }], token: TOKEN },
+      body: { aktion: 'iveo-hinterlegen', basis: 'https://app.my-iveo.de/api/v1', events: [{ slug: 'tagung', name: 'Tagung 2026' }, { slug: 'messe', name: 'Messe' }], token: TOKEN },
     });
     const speicherText = JSON.stringify([...sp.ctx.daten.entries()]);
     const anDo = doBodies.filter((b) => b.includes('iveo-hinterlegen'));
@@ -329,8 +331,8 @@ async function run() {
       k.status === 200 && slugs(k) === 'messe:true,tagung:true' && slugs(x) === 'tagung:true' && slugs(o) === '');
     check('P16 6.4: GET /konto/iveo mit cache-control no-store', k.kopf.get('cache-control') === 'no-store');
     // Z1-W1 AAD: vertauschte Geheimtexte zweier Events (der Speicher des DO wurde verändert) lassen sich nicht mehr entschlüsseln.
-    const keyTagung = 'https://iveo.example|tagung';
-    const keyMesse = 'https://iveo.example|messe';
+    const keyTagung = 'https://app.my-iveo.de/api/v1|tagung';
+    const keyMesse = 'https://app.my-iveo.de/api/v1|messe';
     const eintragT = sp.ctx.daten.get(`iveo:${keyTagung}`);
     const eintragM = sp.ctx.daten.get(`iveo:${keyMesse}`);
     sp.ctx.daten.set(`iveo:${keyTagung}`, { ...eintragT, iv: eintragM.iv, ct: eintragM.ct });
@@ -341,14 +343,58 @@ async function run() {
     const zurueck = await liste(karl);
     check('Z1-W1 AAD: vertauschte Geheimtexte (Event A unter Schlüssel B) → GET /konto/iveo liefert keines der beiden Events; zurückgetauscht wieder beide',
       vertauscht.status === 200 && (vertauscht.daten.events || []).length === 0 && slugs(zurueck) === 'messe:true,tagung:true');
+    // AR74 B: Tausch-Variante. Der DO-Eintrag behält den key von A, übernimmt aber basis, slug, iv und ct von B: B's Token darf nicht
+    // unter A herauskommen (die AAD ist e.key, nicht basis|slug aus dem Eintrag selbst).
+    const TOKEN_B = 'test-iveo-token-b-geheim';
+    geheim.push(TOKEN_B);
+    await api(env, 'POST', '/konto/admin/aktion', { sitzung: chefin.sitzung, body: { aktion: 'iveo-hinterlegen', basis: 'https://app.my-iveo.de/api/v1', events: [{ slug: 'tausch-a', name: 'A' }], token: TOKEN } });
+    await api(env, 'POST', '/konto/admin/aktion', { sitzung: chefin.sitzung, body: { aktion: 'iveo-hinterlegen', basis: 'https://staging-dev.my-iveo.de/api/v1', events: [{ slug: 'tausch-b', name: 'B' }], token: TOKEN_B } });
+    const keyA = 'https://app.my-iveo.de/api/v1|tausch-a';
+    const keyB = 'https://staging-dev.my-iveo.de/api/v1|tausch-b';
+    const eintragA = sp.ctx.daten.get(`iveo:${keyA}`);
+    const eintragB = sp.ctx.daten.get(`iveo:${keyB}`);
+    const vorTausch = await liste(karl);
+    sp.ctx.daten.set(`iveo:${keyA}`, { ...eintragA, basis: eintragB.basis, slug: eintragB.slug, iv: eintragB.iv, ct: eintragB.ct });
+    const nachTausch = await liste(karl);
+    sp.ctx.daten.set(`iveo:${keyA}`, eintragA);
+    const unterA = (r) => (r.daten.events || []).filter((e) => e.key === keyA);
+    check('AR74 B: DO-Eintrag mit key von A, aber basis, slug, iv und ct von B → A erscheint nicht mehr (weder mit B\'s noch mit einem Token), B bleibt; vorher waren beide da',
+      unterA(vorTausch).length === 1 && unterA(nachTausch).length === 0 && !(nachTausch.daten.events || []).some((e) => e.key === keyA || (e.token === TOKEN_B && e.key !== keyB))
+        && (nachTausch.daten.events || []).some((e) => e.key === keyB && e.token === TOKEN_B));
+    // Z1-W2 [T]: zweiter darf-Filter im Worker. Ein DO ohne Filter (iveo-fuer liefert immer ALLE Events, als Admin) darf einem Externen
+    // nur sein Event und einem Externen ohne iveo nichts geben.
+    {
+      const jur = env.KONTO.jurisdiction;
+      env.KONTO.jurisdiction = (x) => {
+        const n = jur(x);
+        const get = n.get;
+        n.get = (id) => {
+          const s = get(id);
+          return {
+            fetch: async (rq) => {
+              if (!rq.url.endsWith('/iveo-fuer')) return s.fetch(rq);
+              const b = await rq.json();
+              return s.fetch(new Request(rq.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...b, stufe: 'admin' }) }));
+            },
+          };
+        };
+        return n;
+      };
+      const xGierig = await liste(mitIveo);
+      const oGierig = await liste(ohneIveo);
+      const kGierig = await liste(karl);
+      env.KONTO.jurisdiction = jur;
+      check('Z1-W2 [T] 6.4: DO ohne Filter (liefert alle Events) → der Worker filtert noch einmal: Externer mit iveo nur tagung, Externer ohne iveo nichts, Kollege alle',
+        slugs(xGierig) === 'tagung:true' && slugs(oGierig) === '' && (kGierig.daten.events || []).length > 2);
+    }
     // Dieselbe Normalisierung beim Hinterlegen und Lesen: eine ungeputzte Basis ergibt denselben Schlüssel wie die geputzte.
     const roh = await api(env, 'POST', '/konto/admin/aktion', {
       sitzung: chefin.sitzung,
-      body: { aktion: 'iveo-hinterlegen', basis: ' iveo.example/ ', events: [{ slug: ' tagung ', name: 'Tagung 2026' }], token: TOKEN },
+      body: { aktion: 'iveo-hinterlegen', basis: ' HTTPS://App.My-Iveo.DE:443/api/v1/ ', events: [{ slug: ' tagung ', name: 'Tagung 2026' }], token: TOKEN },
     });
     const nachRoh = await liste(karl);
-    check('Z1-W1 AAD: Hinterlegen mit ungeputzter Basis und Slug (iveo.example/, Leerzeichen) ersetzt https://iveo.example|tagung und lässt sich lesen',
-      roh.status === 200 && slugs(nachRoh) === 'messe:true,tagung:true' && sp.ctx.daten.has(`iveo:${keyTagung}`));
+    check('Z1-W1 AAD: Hinterlegen mit ungeputzter Basis und Slug (Schema und Host groß, :443, Schrägstrich, Leerzeichen) ersetzt https://app.my-iveo.de/api/v1|tagung und lässt sich lesen',
+      roh.status === 200 && slugs(nachRoh).split(',').filter((s) => !s.startsWith('tausch-')).join(',') === 'messe:true,tagung:true' && sp.ctx.daten.has(`iveo:${keyTagung}`));
     const kaputtBasis = await api(env, 'POST', '/konto/admin/aktion', {
       sitzung: chefin.sitzung,
       body: { aktion: 'iveo-hinterlegen', basis: 'a|b', events: [{ slug: 'x', name: 'X' }], token: TOKEN },
@@ -356,14 +402,45 @@ async function run() {
     check('Z1-W1 AAD: unbrauchbare Basis beim Hinterlegen → 400 ungueltig (der Worker verschlüsselt nichts ohne Schlüssel)', soll(kaputtBasis, 400, 'ungueltig'));
     const ohneSchluessel = { ...env, IVEO_SCHLUESSEL: undefined };
     const n = await liste(karl, ohneSchluessel);
-    const n2 = await api(ohneSchluessel, 'POST', '/konto/admin/aktion', { sitzung: chefin.sitzung, body: { aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [{ slug: 'x', name: 'X' }], token: TOKEN } });
+    const n2 = await api(ohneSchluessel, 'POST', '/konto/admin/aktion', { sitzung: chefin.sitzung, body: { aktion: 'iveo-hinterlegen', basis: 'https://app.my-iveo.de/api/v1', events: [{ slug: 'x', name: 'X' }], token: TOKEN } });
     // Ein unbrauchbarer Schlüssel (nicht genau 32 Byte) verhält sich wie ein fehlender, nicht wie ein 502.
     const kurzIveo = { ...env, IVEO_SCHLUESSEL: 'test-kurz' };
     const m = await liste(karl, kurzIveo);
-    const m2 = await api(kurzIveo, 'POST', '/konto/admin/aktion', { sitzung: chefin.sitzung, body: { aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [{ slug: 'x', name: 'X' }], token: TOKEN } });
-    check('P16 6.4: ohne IVEO_SCHLUESSEL leere Liste mit Hinweis; Hinterlegen → 503 S5; unbrauchbarer Schlüssel ebenso',
-      n.status === 200 && JSON.stringify(n.daten) === '{"events":[],"hinweis":"iveo-nicht-eingerichtet"}' && soll(n2, 503, 'nicht-eingerichtet')
-        && m.status === 200 && JSON.stringify(m.daten) === '{"events":[],"hinweis":"iveo-nicht-eingerichtet"}' && soll(m2, 503, 'nicht-eingerichtet'));
+    const m2 = await api(kurzIveo, 'POST', '/konto/admin/aktion', { sitzung: chefin.sitzung, body: { aktion: 'iveo-hinterlegen', basis: 'https://app.my-iveo.de/api/v1', events: [{ slug: 'x', name: 'X' }], token: TOKEN } });
+    check('P16 6.4: ohne IVEO_SCHLUESSEL leere Liste mit Hinweis; Hinterlegen → 503 S5',
+      n.status === 200 && JSON.stringify(n.daten) === '{"events":[],"hinweis":"iveo-nicht-eingerichtet"}' && soll(n2, 503, 'nicht-eingerichtet'));
+    const leerIveo = await liste(karl, { ...env, IVEO_SCHLUESSEL: '' });
+    check('Z1-W2: unbrauchbarer IVEO_SCHLUESSEL (gesetzt, aber nicht 32 Byte) → GET /konto/iveo und Hinterlegen 503 S5, weder leere Liste noch 502; ein leerer Wert gilt als fehlend',
+      soll(m, 503, 'nicht-eingerichtet') && soll(m2, 503, 'nicht-eingerichtet') && leerIveo.status === 200 && JSON.stringify(leerIveo.daten) === '{"events":[],"hinweis":"iveo-nicht-eingerichtet"}'
+        && protokoll.some((z) => z === 'konto: IVEO_SCHLUESSEL unbrauchbar (nicht 32 Byte Base64)'));
+
+    // Z1-W2 OE2: feste iveo-Liste. Production und Staging gehen (in jeder Schreibweise), jede andere Basis → 400 iveo-basis-unbekannt
+    // (S19), ohne dass der DO etwas bekommt oder etwas verschlüsselt wird; eine unbrauchbare Basis bleibt 400 ungueltig.
+    const vorBasen = doBodies.length;
+    const baseVersuch = (basis) => api(env, 'POST', '/konto/admin/aktion', { sitzung: chefin.sitzung, body: { aktion: 'iveo-hinterlegen', basis, events: [{ slug: 'basis-test', name: 'Basis' }], token: TOKEN } });
+    const gut = [];
+    for (const b of ['https://app.my-iveo.de/api/v1', 'https://app.my-iveo.de/api/v1/', 'APP.my-iveo.de:443/api/v1', 'https://staging-dev.my-iveo.de/api/v1', ' HTTPS://Staging-Dev.my-iveo.de:443/api/v1// ']) gut.push([b, (await baseVersuch(b)).status]);
+    const nachGut = doBodies.length;
+    const fremd = [];
+    for (const b of ['https://iveo.example', 'http://app.my-iveo.de/api/v1', 'https://app.my-iveo.de/api/v2', 'https://app.my-iveo.de', 'https://app.my-iveo.de:8443/api/v1',
+      'https://app.my-iveo.de.evil.example/api/v1', 'https://app.my-iveo.de@evil.example/api/v1', 'https://staging.my-iveo.de/api/v1', 'https://my-iveo.de/api/v1']) {
+      fremd.push([b, await baseVersuch(b)]);
+    }
+    const unbrauchbar = await baseVersuch('a|b');
+    const ohneBasis = await baseVersuch(undefined);
+    check('Z1-W2 OE2: Hinterlegen mit Production oder Staging (jede Schreibweise) → 200; jede andere Basis → 400 iveo-basis-unbekannt (S19) vor DO und Verschlüsselung; unbrauchbar oder fehlend → 400 ungueltig',
+      gut.every(([, s]) => s === 200) && fremd.every(([, a]) => soll(a, 400, 'iveo-basis-unbekannt')) && doBodies.length === nachGut && nachGut - vorBasen === 5
+        && soll(unbrauchbar, 400, 'ungueltig') && soll(ohneBasis, 400, 'ungueltig'));
+    // AR74 A: Leerraum innerhalb der Basis (x.de/ /) wird nie mit 200 angenommen (sonst läge das Event unlesbar im DO); eine Listen-Basis
+    // in auffälliger Schreibweise wird hinterlegt UND von GET /konto/iveo ausgeliefert (Hinterlegen und Lesen bilden denselben Schlüssel).
+    const lr = [];
+    for (const b of ['app.my-iveo.de/api/v1/ /', 'neu.example/ /', 'x.de/ /', 'app.my-iveo.de/api/v1/\t/', 'app.my-iveo.de/api/v1/\n/']) lr.push([b, await baseVersuch(b)]);
+    const caps = await api(env, 'POST', '/konto/admin/aktion', { sitzung: chefin.sitzung, body: { aktion: 'iveo-hinterlegen', basis: 'HTTPS://APP.MY-IVEO.DE:443/api/v1/', events: [{ slug: 'caps-test', name: 'Caps' }], token: TOKEN } });
+    const capsListe = await liste(karl);
+    check('AR74 A: Hinterlegen mit Leerraum innerhalb der Basis (x.de/ /, Tab, LF) → 400, nie 200; HTTPS://APP.MY-IVEO.DE:443/api/v1/ → 200 und GET /konto/iveo liefert das Event mit Token',
+      lr.every(([, a]) => a.status === 400 && (a.daten.code === 'ungueltig' || a.daten.code === 'iveo-basis-unbekannt')) && caps.status === 200
+        && (capsListe.daten.events || []).some((e) => e.slug === 'caps-test' && e.token === TOKEN && e.key === 'https://app.my-iveo.de/api/v1|caps-test'));
+    if (!fremd.every(([, a]) => soll(a, 400, 'iveo-basis-unbekannt'))) console.log(`     ${fremd.map(([b, a]) => `${b} → ${ist(a)}`).join('\n     ')}`);
   }
 
   // P16 7: Admin-Routen nur für aktuelle Admins (der DO prüft den aktuellen Stand, OFP4); Konflikt-Texte S12a/S12b.
@@ -434,6 +511,22 @@ async function run() {
       ichGesperrt.status === 200 && ichGesperrt.daten.kontoAktiv === false && ichGesperrt.daten.grund === 'gesperrt' && abm.status === 200 && abm.daten.ok === true);
   }
 
+  // AR74 D: Abmelden-Rennen. Eine ALTE Sitzung (erste Anmeldung) meldet nach einer neuen Anmeldung desselben Kontos am selben Gerät
+  // ab: die neue Anmeldung bleibt stehen (Erneuern mit der neuen Sitzung geht); die aktuelle Sitzung löst das Gerät wie bisher.
+  {
+    const env = umgebung();
+    const geraet = await testGeraet({ name: 'Rennen-PC' });
+    const alt = await anmelden(env, { google: true, email: 'rennen@jakobsmedien.com', name: 'Rennen', geraet });
+    env.KONTO_UHR.vor(5000);
+    const neu = await anmelden(env, { google: true, email: 'rennen@jakobsmedien.com', name: 'Rennen', geraet });
+    const abAlt = await api(env, 'POST', '/konto/abmelden', { sitzung: alt.sitzung });
+    const nachAlt = await erneuern(env, neu);
+    const abNeu = await api(env, 'POST', '/konto/abmelden', { sitzung: neu.sitzung });
+    const nachNeu = await erneuern(env, neu);
+    check('AR74 D: Abmelden mit der alten Sitzung (200) lässt die neuere Anmeldung am Gerät stehen (Erneuern 200); Abmelden mit der aktuellen löst das Gerät (Erneuern 403 geraet-unbekannt)',
+      alt.stand.angemeldetSeit !== neu.stand.angemeldetSeit && abAlt.status === 200 && nachAlt.status === 200 && abNeu.status === 200 && soll(nachNeu, 403, 'geraet-unbekannt'));
+  }
+
   // P16 B1-Lehre: keine Kopfzeile des Clients erreicht den DO (x-konto-intern, x-connect-admin, cookie, authorization).
   {
     const env = umgebung();
@@ -482,26 +575,195 @@ async function run() {
     check('P16 G7: Fehleinrichtung steht im Worker-Log (ohne Wert)', protokoll.some((z) => z.startsWith('konto: Anmeldung nicht eingerichtet')));
   }
 
-  // P16 EP5: Drossel POST /konto/vorgang 10 je 600 s und IP.
+  // Z1-W2 AR70: Drossel POST /konto/vorgang über die Bindung KONTO_RL_VORGANG (20 je 60 s und IP), nicht mehr in KV (EP5).
   {
     const env = umgebung();
     const geraet = await testGeraet();
     const status = [];
-    for (let i = 0; i < 11; i++) {
+    for (let i = 0; i < 21; i++) {
       const r = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben }, ip: '1.1.1.1' });
       if (r.daten && r.daten.abholGeheimnis) geheim.push(r.daten.abholGeheimnis, r.daten.code);
       status.push(r);
     }
     const andere = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben }, ip: '2.2.2.2' });
-    env.KONTO_UHR.vor(600_000);
+    const anfragenVorher = env.KONTO.anfragen.length;
+    const nochEine = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben }, ip: '1.1.1.1' });
+    const anfragenNachher = env.KONTO.anfragen.length;
+    env.KONTO_RL_VORGANG.neuesFenster();
     const spaeter = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben }, ip: '1.1.1.1' });
     for (const r of [andere, spaeter]) if (r.daten && r.daten.abholGeheimnis) geheim.push(r.daten.abholGeheimnis, r.daten.code);
-    const elfte = status[10];
-    const rlSchluessel = [...env.RATELIMIT.daten.keys()];
-    check('P16 EP5: 10 Vorgänge je IP in 600 s, der 11. → 429 zu-viele mit Retry-After; andere IP und nächstes Fenster frei; die IP steht nie im Klartext im Schlüssel',
-      status.slice(0, 10).every((r) => r.status === 200) && elfte.status === 429 && elfte.daten.code === 'zu-viele'
-        && elfte.daten.error === 'zu viele Anfragen' && Number(elfte.kopf.get('Retry-After')) > 0 && andere.status === 200 && spaeter.status === 200
-        && rlSchluessel.length >= 2 && !rlSchluessel.some((s) => s.includes('1.1.1.1') || s.includes('2.2.2.2')));
+    const einundzwanzigste = status[20];
+    const rlSchluessel = [...new Set(env.KONTO_RL_VORGANG.aufrufe)];
+    const erwartet = (await sha256B64url(`${SCHLUESSEL}|1.1.1.1`)).slice(0, 22);
+    check('Z1-W2 AR70: 20 Vorgänge je IP und Periode, der 21. → 429 zu-viele mit Retry-After 60 vor dem DO; andere IP und neue Periode frei; Schlüssel = IP-Hash (22 Zeichen), nie die IP; KV bleibt leer',
+      status.slice(0, 20).every((r) => r.status === 200) && einundzwanzigste.status === 429 && einundzwanzigste.daten.code === 'zu-viele'
+        && einundzwanzigste.daten.error === 'zu viele Anfragen' && einundzwanzigste.kopf.get('Retry-After') === '60' && nochEine.status === 429 && anfragenNachher === anfragenVorher
+        && andere.status === 200 && spaeter.status === 200
+        && rlSchluessel.length === 2 && rlSchluessel.includes(erwartet) && rlSchluessel.every((s) => s.length === 22 && !s.includes('1.1.1.1') && !s.includes('2.2.2.2'))
+        && env.RATELIMIT.daten.size === 0);
+  }
+
+  // Z1-W2 AR70: Verdrahtung aller sechs Bindungen mit kleiner Grenze (3): die 4. Anfrage → 429 vor dem DO, Antwort wie bisher
+  // (JSON zu-viele oder Seite B21) mit Retry-After 60; fehlt die Bindung oder wirft limit(), bleibt die Route offen (kein 5xx).
+  {
+    const Bseiten = (await import('../konto-seiten.js')).SEITEN_TEXT;
+    const vorg = 'v'.repeat(24);
+    const geh = 'g'.repeat(43);
+    const form = { v: vorg, email: 'x@extern.test', passwort: 'test-falsch-123' };
+    const jsonInit = (daten) => () => ({ method: 'POST', headers: { 'CF-Connecting-IP': '3.3.3.3', 'content-type': 'application/json' }, body: JSON.stringify(daten) });
+    const getInit = () => ({ headers: { 'CF-Connecting-IP': '3.3.3.3' } });
+    const routen = [
+      { name: 'vorgang', rl: 'KONTO_RL_VORGANG', json: true, pfad: '/konto/vorgang', init: jsonInit({ geraet: { publicJwk: {} } }) },
+      { name: 'abholen', rl: 'KONTO_RL_ABHOLEN', json: true, pfad: '/konto/vorgang/abholen', init: jsonInit({ vorgang: vorg, abholGeheimnis: geh, beweis: { ts: T0 } }) },
+      { name: 'abbrechen', rl: 'KONTO_RL_ABBRECHEN', json: true, pfad: '/konto/vorgang/abbrechen', init: jsonInit({ vorgang: vorg, abholGeheimnis: geh }) },
+      { name: 'google (Start)', rl: 'KONTO_RL_GOOGLE', json: false, pfad: `/konto/google?v=${vorg}`, init: getInit },
+      { name: 'google (Rückkehr)', rl: 'KONTO_RL_GOOGLE', json: false, pfad: '/konto/google/zurueck?state=test-state&code=test-code-x', init: getInit },
+      { name: 'passwort', rl: 'KONTO_RL_PASSWORT', json: false, pfad: '/konto/passwort', init: () => ({ method: 'POST', headers: { 'CF-Connecting-IP': '3.3.3.3', 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(form).toString() }) },
+    ];
+    const google = { GOOGLE_CLIENT_ID: 'test-client.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET: 'test-google-secret-w2' };
+    geheim.push(google.GOOGLE_CLIENT_SECRET);
+    const aufruf = (env, r) => worker.fetch(new Request('https://proxy.test' + r.pfad, r.init()), env, makeWaitCtx());
+    const verdrahtung = [];
+    const offen = [];
+    for (const r of routen) {
+      const env = umgebung({ ...google, [r.rl]: makeRateLimit(3) });
+      const antw = [];
+      for (let i = 0; i < 3; i++) antw.push((await aufruf(env, r)).status);
+      const davor = env.KONTO.anfragen.length;
+      const vierte = await aufruf(env, r);
+      const text = await vierte.text();
+      const ct = vierte.headers.get('content-type') || '';
+      const istJson = ct.startsWith('application/json');
+      verdrahtung.push({ name: r.name, ok: antw.every((s) => s !== 429) && vierte.status === 429 && vierte.headers.get('Retry-After') === '60' && env.KONTO.anfragen.length === davor
+        && (r.json ? istJson && JSON.parse(text).code === 'zu-viele' && JSON.parse(text).error === 'zu viele Anfragen'
+          : ct.startsWith('text/html') && text.includes(Bseiten.B21) && vierte.headers.get('set-cookie') === null && vierte.headers.get('x-content-type-options') === 'nosniff'), a: { status: vierte.status, text: text.slice(0, 100) } });
+      // Bindung fehlt: Warnung, offen
+      const ohne = umgebung({ ...google });
+      delete ohne[r.rl];
+      const vorWarn = protokoll.length;
+      let ohne429 = false;
+      for (let i = 0; i < 25; i++) if ((await aufruf(ohne, r)).status === 429) ohne429 = true;
+      const warnt = protokoll.slice(vorWarn).some((z) => z === `rate-limit: Bindung ${r.rl} fehlt — ungedrosselt`);
+      // limit() wirft: Warnung mit dem Namen der Ausnahme, offen, kein 5xx
+      const wirft = umgebung({ ...google, [r.rl]: makeRateLimit(3, { wirft: Object.assign(new Error('test-geheim-meldung-w2'), { name: 'TestFehler' }) }) });
+      const vorWurf = protokoll.length;
+      const wurfStatus = [];
+      for (let i = 0; i < 5; i++) wurfStatus.push((await aufruf(wirft, r)).status);
+      const warntWurf = protokoll.slice(vorWurf).some((z) => z === `rate-limit: ${r.rl} nicht prüfbar (TestFehler) — offen`);
+      offen.push({ name: r.name, ok: !ohne429 && warnt && wurfStatus.every((s) => s !== 429 && s < 500) && warntWurf && wirft[r.rl].aufrufe.length === 5, a: { status: [ohne429, warnt, warntWurf, ...wurfStatus].join(' ') } });
+    }
+    geheim.push('test-geheim-meldung-w2');
+    await pruefeFaelle('Z1-W2 AR70: Bindung je Route (4. Anfrage → 429 vor dem DO, Antwort wie bisher, Retry-After 60)', verdrahtung, (f) => (f.ok ? null : `ist ${f.a.status} ${f.a.text}`));
+    await pruefeFaelle('Z1-W2 AR70: Bindung fehlt → Warnung und offen; limit() wirft → Warnung mit Namen, offen, nie 5xx', offen, (f) => (f.ok ? null : `ist ${f.a.status}`));
+  }
+
+  // Z1-W2 Punkt 3: Vorfilter auf die exakte Form vor SHA und DO: Vorgangs-ID genau 24, Abholgeheimnis genau 43 Zeichen b64url
+  // (zufall(18), zufall(32)); sonst 400 ungueltig, und der DO bekommt nichts. Die richtige Form erreicht den DO (404 vorgang-unbekannt).
+  {
+    const env = umgebung();
+    const vorg = 'Ab1_-'.repeat(4) + 'Ab1_'; // 24
+    const geh = 'Cd2_-'.repeat(8) + 'Cd2'; // 43
+    const pfade = ['/konto/vorgang/abholen', '/konto/vorgang/abbrechen'];
+    const body = (v, g) => ({ vorgang: v, abholGeheimnis: g, beweis: { ts: T0 } });
+    const schlecht = [
+      ['Vorgang 23 Zeichen', vorg.slice(1), geh], ['Vorgang 25 Zeichen', vorg + 'a', geh], ['Vorgang mit +', vorg.slice(1) + '+', geh], ['Vorgang mit =', vorg.slice(1) + '=', geh],
+      ['Vorgang mit Leerzeichen', vorg.slice(1) + ' ', geh], ['Vorgang leer', '', geh], ['Vorgang Zahl', 24, geh], ['Vorgang null', null, geh], ['Vorgang Liste', [vorg], geh],
+      ['Geheimnis 42 Zeichen', vorg, geh.slice(1)], ['Geheimnis 44 Zeichen', vorg, geh + 'a'], ['Geheimnis mit /', vorg, geh.slice(1) + '/'], ['Geheimnis mit Zeilenumbruch', vorg, geh.slice(1) + '\n'],
+      ['Geheimnis leer', vorg, ''], ['Geheimnis fehlt', vorg, undefined], ['Geheimnis Objekt', vorg, { a: geh }],
+    ];
+    const faelle = [];
+    for (const pfad of pfade) {
+      const davor = env.KONTO.anfragen.length;
+      const antworten = [];
+      for (const [name, v, g] of schlecht) antworten.push([name, await api(env, 'POST', pfad, { body: body(v, g) })]);
+      const gut = await api(env, 'POST', pfad, { body: body(vorg, geh) });
+      faelle.push({ name: `${pfad}: 16 falsche Formen → 400 ungueltig, kein DO-Aufruf`, ok: antworten.every(([, a]) => soll(a, 400, 'ungueltig')) && env.KONTO.anfragen.length === davor + 1, a: antworten.find(([, a]) => !soll(a, 400, 'ungueltig')) });
+      faelle.push({ name: `${pfad}: richtige Form erreicht den DO (404 vorgang-unbekannt)`, ok: soll(gut, 404, 'vorgang-unbekannt'), a: [pfad, gut] });
+    }
+    await pruefeFaelle('Z1-W2 Vorfilter: Vorgang 24 und Abholgeheimnis 43 Zeichen b64url vor DO', faelle, (f) => (f.ok ? null : `ist ${f.a ? ist(f.a[1]) : '?'} bei ${f.a ? f.a[0] : '?'}`));
+  }
+
+  // Z1-W2 Punkt 6 [T]: Grenzen der Bodys (JSON 16 KB, Formular 8 KB) auf das Byte, mit und ohne content-length, und Lesefehler mitten im
+  // Stream (→ ungültig 400 bzw. B10, nie 502).
+  {
+    const env = umgebung();
+    const geraet = await testGeraet();
+    const enc = new TextEncoder();
+    const B10 = (await import('../konto-seiten.js')).SEITEN_TEXT.B10;
+    let ipNr = 0;
+    const ip = () => `11.0.0.${ipNr++}`;
+    const jsonMitLaenge = (n) => {
+      const basis = { geraet: geraet.angaben, fuell: '' };
+      const leer = enc.encode(JSON.stringify(basis)).length;
+      return JSON.stringify({ ...basis, fuell: 'a'.repeat(n - leer) });
+    };
+    const formMitLaenge = (n) => {
+      const basis = 'v=' + 'q'.repeat(24) + '&email=a%40extern.test&passwort=test-falsch-123&fuell=';
+      return basis + 'a'.repeat(n - basis.length);
+    };
+    const stromAus = (text, stueck = 1000) => {
+      const bytes = enc.encode(text);
+      let pos = 0;
+      return new ReadableStream({
+        pull(c) {
+          if (pos >= bytes.length) return c.close();
+          c.enqueue(bytes.slice(pos, pos + stueck));
+          pos += stueck;
+        },
+      });
+    };
+    const strom = (pfad, text, typ) => worker.fetch(new Request('https://proxy.test' + pfad, { method: 'POST', headers: { 'CF-Connecting-IP': ip(), 'content-type': typ }, body: stromAus(text), duplex: 'half' }), env, makeWaitCtx());
+    const mitLaenge = (pfad, text, laenge) => {
+      let angefasst = 0;
+      const req = { method: 'POST', headers: new Headers({ 'content-length': String(laenge), 'CF-Connecting-IP': ip() }), get body() { angefasst++; return stromAus(text); } };
+      return handleKonto(req, env, new URL('https://proxy.test' + pfad), makeWaitCtx()).then((res) => ({ res, angefasst: () => angefasst }));
+    };
+    const kaputt = (pfad, typ) => {
+      let n = 0;
+      const body = new ReadableStream({
+        pull(c) {
+          if (n++ === 0) c.enqueue(enc.encode('v=' + 'q'.repeat(24) + '&email='));
+          else c.error(new Error('test-lesefehler'));
+        },
+      });
+      return worker.fetch(new Request('https://proxy.test' + pfad, { method: 'POST', headers: { 'CF-Connecting-IP': ip(), 'content-type': typ }, body, duplex: 'half' }), env, makeWaitCtx());
+    };
+    const j16 = 16 * 1024;
+    const f8 = 8 * 1024;
+    const jOk = await strom('/konto/vorgang', jsonMitLaenge(j16), 'application/json');
+    const jZu = await strom('/konto/vorgang', jsonMitLaenge(j16 + 1), 'application/json');
+    const jOkL = await mitLaenge('/konto/vorgang', jsonMitLaenge(j16), j16);
+    const jZuL = await mitLaenge('/konto/vorgang', jsonMitLaenge(j16 + 1), j16 + 1);
+    const fOk = await strom('/konto/passwort', formMitLaenge(f8), 'application/x-www-form-urlencoded');
+    const fZu = await strom('/konto/passwort', formMitLaenge(f8 + 1), 'application/x-www-form-urlencoded');
+    const fOkL = await mitLaenge('/konto/passwort', formMitLaenge(f8), f8);
+    const fZuL = await mitLaenge('/konto/passwort', formMitLaenge(f8 + 1), f8 + 1);
+    const jOkDaten = await jOk.json();
+    geheim.push(jOkDaten.abholGeheimnis, jOkDaten.code);
+    const jOkLDaten = await jOkL.res.json();
+    geheim.push(jOkLDaten.abholGeheimnis, jOkLDaten.code);
+    check('Z1-W2 [T] 6: JSON-Body genau 16 KB (16384 Bytes) wird angenommen, 16385 abgelehnt (400 ungueltig); als Stream und laut content-length (dann ohne den Body zu lesen)',
+      jOk.status === 200 && jZu.status === 400 && (await jZu.json()).code === 'ungueltig' && jOkL.res.status === 200 && jZuL.res.status === 400 && jZuL.angefasst() === 0);
+    const fOkText = await fOk.text();
+    check('Z1-W2 [T] 6: Formular genau 8 KB (8192 Bytes) wird gelesen (dann 404 B10: Vorgang unbekannt), 8193 abgelehnt (400 B10); als Stream und laut content-length',
+      fOk.status === 404 && fOkText.includes(B10) && fZu.status === 400 && (await fZu.text()).includes(B10) && fOkL.res.status === 404 && fZuL.res.status === 400 && fZuL.angefasst() === 0);
+    const kJson = await kaputt('/konto/vorgang', 'application/json');
+    const kPass = await kaputt('/konto/passwort', 'application/x-www-form-urlencoded');
+    const kBest = await kaputt('/konto/bestaetigen', 'application/x-www-form-urlencoded');
+    check('Z1-W2 Punkt 6: Lesefehler mitten im Stream → ungültig: JSON 400 ungueltig, Passwort-Formular 400 B10, Bestätigen 403 B10 (nie 502)',
+      soll({ status: kJson.status, daten: await kJson.json() }, 400, 'ungueltig') && kPass.status === 400 && (await kPass.text()).includes(B10) && kBest.status === 403 && (await kBest.text()).includes(B10));
+    check('Z1-W2 Punkt 6: der Lesefehler steht nicht im Log', !protokoll.some((z) => z.includes('test-lesefehler')));
+  }
+
+  // Z1-W2 [T] P17: esc an jedem Wert der Seiten (Vorgang im Formular und im Google-Link, Seitentoken, E-Mail, Code, Rechnername).
+  {
+    const { seiteAnmelden, seiteBestaetigen } = await import('../konto-seiten.js');
+    const boese = 'a"\'<>&b';
+    const anmelden = seiteAnmelden({ vorgang: boese, google: true, fehler: '', email: boese });
+    const bestaetigen = seiteBestaetigen({ vorgang: boese, seitenToken: boese, email: boese, code: boese, rechnerName: boese });
+    check('Z1-W2 [T] P17: seiteAnmelden und seiteBestaetigen escapen jeden eingesetzten Wert (kein rohes Zeichen aus a"\'<>&b im Markup)',
+      !anmelden.includes(boese) && !bestaetigen.includes(boese) && anmelden.includes('name="v" value="a&quot;&#39;&lt;&gt;&amp;b"') && anmelden.includes('href="/konto/google?v=a%22\'%3C%3E%26b"'.replace("'", '&#39;'))
+        && bestaetigen.includes('name="v" value="a&quot;&#39;&lt;&gt;&amp;b"') && bestaetigen.includes('name="t" value="a&quot;&#39;&lt;&gt;&amp;b"') && bestaetigen.includes('a&quot;&#39;&lt;&gt;&amp;b</p>'));
   }
 
   // P16 10.1: unbekannte Routen unter /konto/ → 404 S11; andere Pfade fasst handleKonto nicht an.
@@ -635,12 +897,12 @@ async function run() {
     const dr = [];
     // Je Versuch eine andere unbekannte E-Mail: die Bremse je E-Mail (P4, EP4) zählt dann nicht mit, nur die Drossel je IP.
     const anfDr = [];
-    for (let i = 0; i < 21; i++) {
+    for (let i = 0; i < 11; i++) {
       dr.push(await sende(env, '/konto/passwort', { v: v5.vorgang, email: `niemand-${i}@extern.test`, passwort: 'test-falsch-123' }, '10.3.0.1'));
       anfDr.push(env.KONTO.anfragen.length);
     }
-    // Die Drossel kommt vor dem DO: die 21. Anfrage erreicht den DO nicht mehr (Zähler der Attrappe wächst nicht).
-    faelle.push({ name: 'Drossel: 21. Formular je IP in 600 s', ok: dr.slice(0, 20).every((a) => a.status === 401) && dr[20].status === 429 && zeigt(dr[20], B.B21) && Number(dr[20].kopf.get('Retry-After')) > 0 && anfDr[20] === anfDr[19] && anfDr[19] > anfDr[18], a: dr[20] });
+    // Die Drossel kommt vor dem DO: die 11. Anfrage erreicht den DO nicht mehr (Zähler der Attrappe wächst nicht).
+    faelle.push({ name: 'Drossel: 11. Formular je IP und Periode (KONTO_RL_PASSWORT, 10 je 60 s)', ok: dr.slice(0, 10).every((a) => a.status === 401) && dr[10].status === 429 && zeigt(dr[10], B.B21) && dr[10].kopf.get('Retry-After') === '60' && anfDr[10] === anfDr[9] && anfDr[9] > anfDr[8], a: dr[10] });
     await pruefeFaelle('P17 4: Fehlertexte der Anmeldeseite', faelle, (f) => (f.ok ? null : `ist ${f.a.status} ${f.a.html.slice(f.a.html.indexOf('<h1>'), f.a.html.indexOf('<h1>') + 160)}`));
 
     // Escape: E-Mail mit HTML und Anführungszeichen landet nur escaped im Formular.
@@ -698,6 +960,31 @@ async function run() {
       await formRoh(ohneStatus, '/konto/bestaetigen', { v: 'x', t: 'test-seitentoken', antwort: 'nein' }, '10.6.0.8'),
     ];
     const alsAusfallSeite = ausfallSeiten.every((a) => a.status === 502 && (a.kopf.get('content-type') || '').startsWith('text/html') && a.html.includes('role="alert">interner Fehler</p>'));
+    // Z1-W2 Punkt 6 [T]: jede 502-Seite (Ausnahme auf jeder Seiten-Route, Ausfall des DO, unbekannter Code des DO im Default-Zweig von
+    // passwortRoute) trägt dieselben Kopfzeilen wie die übrigen Seiten: CSP gleich, kein Set-Cookie, no-store, no-referrer, nosniff.
+    const wirftG = defekt(() => { throw new Error('boom'); });
+    wirftG.GOOGLE_CLIENT_ID = 'test-client.apps.googleusercontent.com';
+    wirftG.GOOGLE_CLIENT_SECRET = 'test-google-secret';
+    const seltsam = defekt(() => new Response(JSON.stringify({ ok: false, code: 'seltsam', status: 400 })));
+    const mehr502 = [
+      await formRoh(wirft, '/konto/bestaetigen', { v: 'x', t: 'test-seitentoken', antwort: 'ja' }, '10.6.1.1'),
+      await rohFetch(wirftG, '/konto/google?v=x', { headers: { 'CF-Connecting-IP': '10.6.1.2' } }),
+      await rohFetch(wirftG, '/konto/google/zurueck?state=x&code=y', { headers: { 'CF-Connecting-IP': '10.6.1.3' } }),
+      await formRoh(seltsam, '/konto/passwort', { v: 'x', email: 'a@b.test', passwort: 'test-falsch-123' }, '10.6.1.4'),
+    ];
+    const kopf502 = [...ausfallSeiten, ...mehr502].filter((a) => a.kopf.get('content-type') !== 'text/html; charset=utf-8' || a.kopf.get('cache-control') !== 'no-store'
+      || a.kopf.get('referrer-policy') !== 'no-referrer' || a.kopf.get('x-content-type-options') !== 'nosniff'
+      || a.kopf.get('content-security-policy') !== "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" || a.kopf.get('set-cookie') !== null);
+    check('Z1-W2 Punkt 6: alle 502-Seiten (' + (ausfallSeiten.length + mehr502.length) + ': Ausnahme auf jeder Seiten-Route, DO-Ausfall, unbekannter Code im Default-Zweig von passwortRoute) mit den Kopfzeilen der übrigen Seiten',
+      mehr502.every((a) => a.status === 502 && a.html.includes('role="alert">interner Fehler</p>')) && kopf502.length === 0);
+
+    // Z1-W2 [T]: das Aufklappfeld <details> ist offen genau bei B13 mit Einladungscode, B14, B15 (beide) und sonst zu.
+    const offen = (name) => (faelle.find((f) => f.name === name) || { a: { html: '' } }).a.html.includes('<details open>');
+    const zu = (name) => (faelle.find((f) => f.name === name) || { a: { html: '' } }).a.html.includes('<details>');
+    check('Z1-W2 [T] P17: <details> offen bei B14, B15 ungleich und B15 kurz; zu bei B12 (falsches Passwort, unbekannte E-Mail), B13 mit Passwort und B23',
+      offen('falscher Einladungscode') && offen('Passwörter ungleich') && offen('Passwort zu kurz')
+        && zu('falsches Passwort') && zu('unbekannte E-Mail') && zu('fünfter Fehlversuch → Bremse 15 min') && zu('E-Mail von jakobsmedien.com'));
+
     // Formulare sind auf 8 KB begrenzt: als Stream ohne content-length (nach dem Überschreiten abgebrochen, nicht bis zum Ende
     // gelesen) und laut content-length (Body wird gar nicht angefasst).
     const strom = () => {
@@ -766,23 +1053,35 @@ async function run() {
     let google = null;
     const altesFetch = globalThis.fetch;
     globalThis.fetch = async (u, init = {}) => {
-      aufrufe.push({ url: String(u), method: init.method, body: String(init.body ?? '') });
+      aufrufe.push({ url: String(u), method: init.method, body: String(init.body ?? ''), redirect: init.redirect, signal: init.signal });
       if (String(u) !== GOOGLE_TOKEN) return new Response('{}', { status: 404 });
-      return google();
+      if (init.signal && init.signal.aborted) throw init.signal.reason;
+      return google({ signal: init.signal });
     };
+    const seitenP18 = [];
     const hole = async (pfad, e = env) => {
       const res = await worker.fetch(new Request('https://proxy.test' + pfad, { headers: { 'CF-Connecting-IP': '8.8.8.8' } }), e, makeWaitCtx());
-      return { status: res.status, kopf: res.headers, html: await res.text() };
+      const a = { status: res.status, kopf: res.headers, html: await res.text() };
+      seitenP18.push(a);
+      return a;
     };
     // Ausfall des DO (AR53): `ausfallBei` nennt die DO-Aktion, deren Antwort ein 5xx ist; alle anderen Aktionen laufen echt.
     let ausfallBei = null;
+    let seltsamBei = null; // Z1-W2: Aktion, deren Antwort ein unbekannter Code mit Status 400 ist (Default-Zweig von googleKontoFehler)
     const jurisdiktion = env.KONTO.jurisdiction;
     env.KONTO.jurisdiction = (x) => {
       const n = jurisdiktion(x);
       const get = n.get;
       n.get = (id) => {
         const s = get(id);
-        return { fetch: (rq) => (ausfallBei && rq.url.endsWith(`/${ausfallBei}`) ? new Response(JSON.stringify({ ok: false, code: 'vorgang-unbekannt', status: 500 })) : s.fetch(rq)) };
+        return {
+          fetch: (rq) =>
+            ausfallBei && rq.url.endsWith(`/${ausfallBei}`)
+              ? new Response(JSON.stringify({ ok: false, code: 'vorgang-unbekannt', status: 500 }))
+              : seltsamBei && rq.url.endsWith(`/${seltsamBei}`)
+                ? new Response(JSON.stringify({ ok: false, code: 'seltsam', status: 400 }))
+                : s.fetch(rq),
+        };
       };
       return n;
     };
@@ -881,6 +1180,21 @@ async function run() {
     const ausfallBind = await starte();
     google = tokenAntwort(angaben(ausfallBind.nonce, { email: 'erster@jakobsmedien.com' }));
     const ausfallBinden = await ausfall('vorgang-konto-binden', `/konto/google/zurueck?state=${ausfallBind.state}&code=test-code-ausfall`);
+    // Z1-W2 [T]: ein unbekannter Code des DO nach der Google-Prüfung (Default-Zweig von googleKontoFehler) ist die Ausfallseite, kein B10/B11.
+    const seltsam = async (aktion) => {
+      const s = await starte();
+      google = tokenAntwort(angaben(s.nonce, { email: 'erster@jakobsmedien.com' }));
+      seltsamBei = aktion;
+      try {
+        return await hole(`/konto/google/zurueck?state=${s.state}&code=test-code-seltsam`);
+      } finally {
+        seltsamBei = null;
+      }
+    };
+    const seltsamKonto = await seltsam('konto-aus-google');
+    const seltsamBinden = await seltsam('vorgang-konto-binden');
+    check('Z1-W2 [T] P18: unbekannter Code des DO bei konto-aus-google und vorgang-konto-binden → Seite interner Fehler (502), Kopfzeilen wie die übrigen', alsAusfall(seltsamKonto) && alsAusfall(seltsamBinden)
+      && seltsamKonto.kopf.get('content-security-policy') === seltsamBinden.kopf.get('content-security-policy') && seltsamKonto.kopf.get('set-cookie') === null);
     check('P18 4: abgelehnte Google-Anmeldungen legen kein Konto an',
       (await sp.ctx.storage.list({ prefix: 'konto:' })).size === vorherKonten && [ausfallMerken, ausfallState, ausfallKonto, ausfallBinden].every(alsAusfall));
 
@@ -891,6 +1205,125 @@ async function run() {
     const w2 = await hole(`/konto/google/zurueck?state=${w.state}&code=test-code-w`);
     geheim.push((w1.html.match(/name="t" value="([^"]*)"/) || [])[1]);
     check('P18 EP6: Rückkehr mit demselben state ein zweites Mal → 404 B10', w1.status === 200 && w2.status === 404 && w2.html.includes(esc(B.B10)));
+
+    // Z1-W2 Punkt 5 und [T]: id_token-Prüfungen im Einzelnen, Härtung des Token-Abrufs, Log ohne E-Mail und Secret.
+    {
+      let zaehler = 0;
+      const frisch = () => `z1-${zaehler++}@jakobsmedien.com`;
+      const rueck = async (f) => {
+        env.KONTO_RL_GOOGLE.neuesFenster(); // eine IP für alle Anfragen dieses Blocks: jede beginnt in einer neuen Periode
+        const s = await starte();
+        google = f(s.nonce);
+        return hole(`/konto/google/zurueck?state=${s.state}&code=test-code-z1`);
+      };
+      const ok = (a) => a.status === 200 && a.html.includes('name="t"');
+      const nein = (a, nr) => a.status === 403 && a.html.includes(esc(B[nr])) && !a.html.includes('name="t"');
+      const ANDERE = 'andere.apps.googleusercontent.com';
+      const jetztS = uhr() / 1000;
+      const idFaelle = [
+        { name: 'iss accounts.google.com (ohne https) gilt', mehr: { iss: 'accounts.google.com' }, soll: 'ok' },
+        { name: 'iss mit Schrägstrich am Ende', mehr: { iss: 'https://accounts.google.com/' }, soll: 'B20' },
+        { name: 'iss http statt https', mehr: { iss: 'http://accounts.google.com' }, soll: 'B20' },
+        { name: 'iss mit Großbuchstaben', mehr: { iss: 'https://Accounts.google.com' }, soll: 'B20' },
+        { name: 'iss mit Zusatz hinter dem Host', mehr: { iss: 'https://accounts.google.com.evil.example' }, soll: 'B20' },
+        { name: 'mehrere aud, azp ist unser Client', mehr: { aud: [CLIENT, ANDERE], azp: CLIENT }, soll: 'ok' },
+        { name: 'mehrere aud, azp ist ein fremder Client', mehr: { aud: [CLIENT, ANDERE], azp: ANDERE }, soll: 'B20' },
+        { name: 'mehrere aud, azp fehlt', mehr: { aud: [CLIENT, ANDERE], azp: undefined }, soll: 'B20' },
+        { name: 'aud-Liste ohne unseren Client, azp stimmt', mehr: { aud: [ANDERE, 'dritte.apps.googleusercontent.com'], azp: CLIENT }, soll: 'B20' },
+        { name: 'aud als Liste mit nur unserem Client, azp fehlt', mehr: { aud: [CLIENT], azp: undefined }, soll: 'ok' },
+        { name: 'email_verified als Text true', mehr: { email_verified: 'true' }, soll: 'B19' },
+        { name: 'email_verified als Zahl 1', mehr: { email_verified: 1 }, soll: 'B19' },
+        { name: 'email_verified fehlt', mehr: { email_verified: undefined }, soll: 'B19' },
+        { name: 'hd fehlt', mehr: { hd: undefined }, soll: 'B18' },
+        { name: 'hd in Großbuchstaben', mehr: { hd: 'JAKOBSMEDIEN.COM' }, soll: 'B18' },
+        { name: 'exp genau jetzt (>= an der Grenze: abgelehnt)', mehr: { exp: jetztS }, soll: 'B20' },
+        { name: 'exp eine Sekunde nach jetzt', mehr: { exp: jetztS + 1 }, soll: 'ok' },
+        { name: 'exp als Text', mehr: { exp: String(jetztS + 3600) }, soll: 'B20' },
+      ];
+      await pruefeFaelle('Z1-W2 [T] P18: einzelne Angaben des id_token (iss exakt, azp bei mehreren aud, email_verified nur true, exp-Grenze)', idFaelle, async (f) => {
+        const a = await rueck((n) => tokenAntwort(angaben(n, { email: frisch(), ...f.mehr })));
+        const gut = f.soll === 'ok' ? ok(a) : nein(a, f.soll);
+        return gut ? null : `ist ${a.status} ${a.html.slice(a.html.indexOf('<h1>'), a.html.indexOf('<h1>') + 140)}`;
+      });
+      check('Z1-W2 [T] P18: jetzt liegt auf einer ganzen Sekunde (Voraussetzung der exp-Grenze)', Number.isInteger(jetztS));
+
+      // B17: ein Google-Konto, dessen Zugang bis abgelaufen ist, bekommt die Seite mit dem Datum (nicht B16, nicht „interner Fehler“).
+      const abgl = await rufeDo(sp, 'konto-aus-google', { email: 'abgelaufen@jakobsmedien.com', name: 'Abgelaufen' });
+      const kontoAbgl = await sp.ctx.storage.get(`konto:${abgl.kid}`);
+      await sp.ctx.storage.put(`konto:${abgl.kid}`, { ...kontoAbgl, bis: uhr() - 3600_000 });
+      const b17 = await rueck((n) => tokenAntwort(angaben(n, { email: 'abgelaufen@jakobsmedien.com' })));
+      check('Z1-W2 [T] P18: Google-Konto mit abgelaufenem Zugang → 403 B17 mit Datum; kein Bestätigungsformular',
+        b17.status === 403 && b17.html.includes(esc('Dein Zugang ist am 02.11.2026 abgelaufen. Frag einen Admin nach einer Verlängerung.')) && !b17.html.includes('name="t"'));
+
+      // Härtung des Token-Abrufs: keine Weiterleitung, Frist 10 s, Antwort höchstens 64 KiB, Rest eines Fehlers verwerfen.
+      const echteFrist = AbortSignal.timeout;
+      const fristen = [];
+      AbortSignal.timeout = (ms) => (fristen.push(ms), echteFrist.call(AbortSignal, ms));
+      aufrufe.length = 0;
+      const normal = await rueck((n) => tokenAntwort(angaben(n, { email: frisch() })));
+      AbortSignal.timeout = echteFrist;
+      check('Z1-W2 Punkt 5: der Token-Abruf geht mit redirect error und einer Frist von 10 s (AbortSignal.timeout)',
+        ok(normal) && aufrufe.length === 1 && aufrufe[0].redirect === 'error' && aufrufe[0].signal instanceof AbortSignal && JSON.stringify(fristen) === '[10000]');
+      AbortSignal.timeout = () => echteFrist.call(AbortSignal, 20);
+      const haengt = await Promise.race([
+        rueck(() => ({ signal }) => new Promise((_, ab) => signal && signal.addEventListener('abort', () => ab(signal.reason)))),
+        new Promise((r) => setTimeout(() => r({ status: 'haengt', html: '' }), 3000)),
+      ]);
+      AbortSignal.timeout = echteFrist;
+      check('Z1-W2 Punkt 5: antwortet Google nicht innerhalb der Frist, bricht der Abruf ab → 403 B20 (kein Hängen)', nein(haengt, 'B20'));
+      const weiter = await rueck(() => () => new Response(null, { status: 302, headers: { location: 'https://evil.example/' } }));
+      check('Z1-W2 Punkt 5: eine Weiterleitung von Google ist keine gültige Antwort (kein id_token) → 403 B20', nein(weiter, 'B20'));
+
+      const strom = (bloecke, { status = 200, kopf = {} } = {}) => {
+        const z = { pulls: 0, abgebrochen: false };
+        const enc = new TextEncoder();
+        z.res = new Response(
+          new ReadableStream({
+            pull(c) {
+              z.pulls++;
+              if (z.pulls > bloecke.length) return c.close();
+              c.enqueue(enc.encode(bloecke[z.pulls - 1]));
+            },
+            cancel() { z.abgebrochen = true; },
+          }, { highWaterMark: 0 }),
+          { status, headers: kopf },
+        );
+        return z;
+      };
+      const mitPolster = (n, kb) => JSON.stringify({ id_token: idToken(angaben(n, { email: frisch() })), polster: 'x'.repeat(kb * 1024) });
+      const knapp = await rueck((n) => () => new Response(mitPolster(n, 40), { status: 200 }));
+      const zuGross = await rueck((n) => () => new Response(mitPolster(n, 70), { status: 200 }));
+      const stromGross = strom(Array.from({ length: 200 }, () => 'a'.repeat(1024)));
+      const stromA = await rueck(() => () => stromGross.res);
+      const laenge = strom(['{}'], { kopf: { 'content-length': '100000' } });
+      const laengeA = await rueck(() => () => laenge.res);
+      const fehlerStrom = strom(Array.from({ length: 20 }, () => 'b'.repeat(1024)), { status: 500 });
+      const fehlerA = await rueck(() => () => fehlerStrom.res);
+      check('Z1-W2 Punkt 5: Antwort bis 64 KiB wird gelesen (40 KiB → angemeldet), größere abgelehnt (70 KiB → 403 B20)', ok(knapp) && nein(zuGross, 'B20'));
+      check('Z1-W2 Punkt 5: ein Stream ohne content-length wird beim Überschreiten von 64 KiB abgebrochen (nicht bis zum Ende gelesen); ein content-length über 64 KiB wird gar nicht gelesen',
+        nein(stromA, 'B20') && stromGross.abgebrochen && stromGross.pulls < 100 && nein(laengeA, 'B20') && laenge.pulls === 0);
+      check('Z1-W2 Punkt 5: bei einer Fehlerantwort (HTTP 500) wird der Rest des Bodys verworfen (cancel), nicht gelesen', nein(fehlerA, 'B20') && fehlerStrom.abgebrochen && fehlerStrom.pulls === 0);
+
+      // Log: ein Token-Tausch mit 400, dessen Body das Secret enthält, und alle Abweisungen nennen nur Gründe, nie E-Mail oder Secret.
+      const vorLog = protokoll.length;
+      const mitSecret = await rueck(() => () => new Response(`{"error":"invalid_client","error_description":"client_secret ${SECRET} abgelehnt"}`, { status: 400 }));
+      const neuesLog = protokoll.slice(vorLog).join('\n');
+      check('Z1-W2 [T] P18: Token-Tausch mit 400 und Secret im Body → 403 B20; das Secret steht nie im Log (nur der HTTP-Status)',
+        nein(mitSecret, 'B20') && !neuesLog.includes(SECRET) && neuesLog.includes('konto-google: Anmeldung abgelehnt (Token-Tausch HTTP 400)'));
+      check('Z1-W2 [T] P18: keine E-Mail-Adresse (kein @) in irgendeiner Zeile des Logs', protokoll.length > 5 && !protokoll.some((zeile) => zeile.includes('@')));
+    }
+
+    // Z1-W2 [T]: alle Seiten dieses Blocks (ohne die 302) tragen CSP, no-store, no-referrer, nosniff und kein Set-Cookie; der 302 sagt no-referrer.
+    {
+      const CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+      const html = seitenP18.filter((a) => a.status !== 302);
+      const umleitungen = seitenP18.filter((a) => a.status === 302);
+      const falsch = html.filter((a) => a.kopf.get('content-type') !== 'text/html; charset=utf-8' || a.kopf.get('cache-control') !== 'no-store' || a.kopf.get('referrer-policy') !== 'no-referrer'
+        || a.kopf.get('x-content-type-options') !== 'nosniff' || a.kopf.get('content-security-policy') !== CSP || a.kopf.get('set-cookie') !== null || /<script/i.test(a.html));
+      check(`Z1-W2 [T] P18: Kopfzeilen jeder Seite (${html.length}) wie auf der Anmeldeseite; jeder 302 (${umleitungen.length}) mit referrer-policy no-referrer, no-store, ohne Set-Cookie`,
+        html.length > 40 && falsch.length === 0 && umleitungen.length >= 10
+          && umleitungen.every((a) => a.kopf.get('referrer-policy') === 'no-referrer' && a.kopf.get('cache-control') === 'no-store' && a.kopf.get('set-cookie') === null && a.kopf.get('location').startsWith('https://accounts.google.com/')));
+    }
 
     // Ohne Client: Start und Rückkehr zeigen B6; Ablauf mit Google bestätigt und abgeholt.
     const ohne = umgebung();
@@ -926,6 +1359,14 @@ async function run() {
     check(`P16 G4: Konsole ohne Sitzung, Freigabe, Abholgeheimnis, Code, Passwort, Einladungscode, iveo-Token, Schlüssel (${geheim.length} Werte)`,
       treffer.length === 0 && !alles.includes('jm1.'));
   }
+  // Z1-W2 [T] G4: das Protokoll oben schneidet nur warn und error mit (der Harness druckt selbst über console.log). Darum zusätzlich
+  // ein Quelltext-Wächter: keine Datei der Anmeldung im Worker ruft console.log, console.info oder console.debug.
+  {
+    const dateien = ['konto-relay.js', 'konto-zugang.js', 'konto-do.js', 'konto-google.js', 'konto-krypto.js', 'konto-kern.js', 'konto-seiten.js', 'konto-altkey.js'];
+    const treffer = dateien.filter((d) => /\bconsole\s*\.\s*(log|info|debug|trace|dir)\b/.test(readFileSync(new URL('../' + d, import.meta.url), 'utf8')));
+    check(`Z1-W2 [T] G4: ${dateien.length} Quelltexte der Anmeldung ohne console.log, info, debug, trace oder dir${treffer.length ? ` — in ${treffer.join(', ')}` : ''}`, treffer.length === 0);
+  }
+
   // Quelltext-Wächter: konto-relay.js gibt keine Kopfzeile des Clients weiter und loggt keine Meldung eines Fehlers.
   {
     const q = readFileSync(new URL('../konto-relay.js', import.meta.url), 'utf8');

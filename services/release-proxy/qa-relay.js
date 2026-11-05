@@ -46,7 +46,8 @@ class QaError extends Error {
  * Routet alle `/qa/...`-Pfade. Gibt eine Response zurück oder `null`, wenn der
  * Pfad kein Q&A-Pfad ist (dann macht worker.js normal weiter). Öffentliche
  * Routen (Einreichseiten, submit, press, pubkey, state) sind ABSICHTLICH VOR dem
- * globalen PROXY_KEY-Gate erreichbar; die Admin-Routen prüfen den Key selbst.
+ * globalen Zugangs-Gate in worker.js erreichbar; die Admin-Routen prüfen den Zugang selbst (zugangPruefen: Freigabe für genau
+ * dieses Event oder der alte PROXY_KEY bis ALTKEY_BIS).
  */
 export async function handleQa(request, env, url, ctx) {
   const m = url.pathname.match(/^\/qa\/([^/]+)(?:\/([a-z]+))?\/?$/);

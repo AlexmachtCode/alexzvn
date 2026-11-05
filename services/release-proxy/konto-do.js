@@ -781,13 +781,16 @@ export class KontoSpeicher {
   }
 
   /**
-   * Aktion `abmelden` `{ kid, gid }` → `{ ok }` (EP26): Konto und Gerät bleiben, aber das Gerät gehört danach keinem Konto mehr
-   * (`letztesKonto` und `angemeldetSeit` null): eine alte Sitzung lässt sich mit einem frischen Gerätebeweis nicht mehr erneuern
-   * (Z1-W1, Gesamtprüfung Minor 1).
+   * Aktion `abmelden` `{ kid, gid, angemeldetSeit }` → `{ ok }` (EP26): Konto und Gerät bleiben, aber das Gerät gehört danach keinem
+   * Konto mehr (`letztesKonto` und `angemeldetSeit` null): eine alte Sitzung lässt sich mit einem frischen Gerätebeweis nicht mehr
+   * erneuern (Z1-W1, Gesamtprüfung Minor 1). `angemeldetSeit` ist der Claim der abmeldenden Sitzung; stimmt er nicht mit dem Gerät
+   * überein (neuere Anmeldung desselben Kontos am selben Gerät), bleibt alles stehen (AR74 D).
    */
   async abmelden(b, jetzt) {
     const geraet = typeof b.gid === 'string' && b.gid ? await this.ctx.storage.get(K.geraet(b.gid)) : null;
-    if (geraet && geraet.letztesKonto === b.kid) {
+    // Nur wer sich mit der AKTUELLEN Anmeldung dieses Geräts abmeldet: eine alte Sitzung (Claim angemeldetSeit) löst eine neuere
+    // Anmeldung desselben Kontos am selben Gerät nicht (AR74 D).
+    if (geraet && geraet.letztesKonto === b.kid && typeof b.angemeldetSeit === 'number' && geraet.angemeldetSeit === b.angemeldetSeit) {
       geraet.letzterKontakt = jetzt;
       geraet.letztesKonto = null;
       geraet.angemeldetSeit = null;
@@ -1091,9 +1094,10 @@ export class KontoSpeicher {
     const eintraege = [];
     for (const e of liste) {
       const slug = e && typeof e.slug === 'string' ? e.slug.trim() : '';
-      if (!iveoSchluessel(basis, slug)) return fehler('ungueltig', 400);
+      const key = iveoSchluessel(a.basis, slug); // aus der Roh-Basis, genau einmal normalisiert (AR74): derselbe String wie im Worker
+      if (!key) return fehler('ungueltig', 400);
       if (typeof e.iv !== 'string' || typeof e.ct !== 'string' || !B64URL.test(e.iv) || !B64URL.test(e.ct)) return fehler('ungueltig', 400);
-      eintraege.push({ key: iveoSchluessel(basis, slug), basis, slug, name: text(e.name, 200) || slug, iv: e.iv, ct: e.ct, am: jetzt, von: wer });
+      eintraege.push({ key, basis, slug, name: text(e.name, 200) || slug, iv: e.iv, ct: e.ct, am: jetzt, von: wer });
     }
     for (const e of eintraege) await this.ctx.storage.put(K.iveo(e.key), e);
     await this.protokolliere({ am: jetzt, wer, was: 'iveo-hinterlegen', wen: basis, details: { slugs: eintraege.map((e) => e.slug) } });

@@ -8,9 +8,10 @@
 import { readFileSync } from 'node:fs';
 import worker from '../worker.js';
 import { altKeyMerkerGroesse, altKeyMerkerLeeren, ALTKEY_MERKER_MAX } from '../konto-altkey.js';
+import { funktionFuerRoute } from '../konto-kern.js';
 import { sha256B64url, signiere } from '../konto-krypto.js';
-import { FEHLER_TEXT, launcherSelbstUpdate, selbstUpdateLiefern, zugangPruefen } from '../konto-zugang.js';
-import { abschluss, check, makeKV, pruefeFaelle, testSchluessel } from './konto-attrappen.mjs';
+import { FEHLER_TEXT, ipHash, KONTO_RL, launcherSelbstUpdate, selbstUpdateLiefern, zugangPruefen } from '../konto-zugang.js';
+import { abschluss, check, makeRateLimit, makeRLBindungen, pruefeFaelle, RL_TABELLE, testSchluessel } from './konto-attrappen.mjs';
 
 // Warn- und Fehlerlog mitschneiden (erwartet, und für die Prüfung auf Geheimnisse).
 const protokoll = [];
@@ -165,7 +166,9 @@ async function run() {
       && FEHLER_TEXT['erster-admin'] === 'der erste Admin lässt sich hier nicht ändern'
       && FEHLER_TEXT.domain === 'Kollegen von jakobsmedien.com melden sich mit Google an'
       && FEHLER_TEXT.uhr === 'Uhr des Rechners geht falsch: Datum und Uhrzeit prüfen'
-      && Object.keys(FEHLER_TEXT).length === 18
+      // S19 (Z1-W2, OE2) wörtlich wie der Text M49 des Launchers
+      && FEHLER_TEXT['iveo-basis-unbekannt'] === 'Diese iveo-Adresse ist nicht freigegeben. Erlaubt sind Production (app.my-iveo.de) und Staging (staging-dev.my-iveo.de).'
+      && Object.keys(FEHLER_TEXT).length === 19
       && Object.values(FEHLER_TEXT).every((t) => !t.includes('"')));
 
   // P15 EP10: launcherSelbstUpdate nur GET und dekodierte ID genau launcher.
@@ -228,7 +231,7 @@ async function run() {
   // P15 EP32: Der Speicher des Isolats hält eine Antwort 60 s: 50 anonyme Anfragen kosten 2 Abrufe bei GitHub (Liste, Link).
   {
     let uhr = T0;
-    const env = { ...ENV, REPO: 'test/speicher', KONTO_UHR: () => uhr, RATELIMIT: makeKV() };
+    const env = { ...ENV, REPO: 'test/speicher', KONTO_UHR: () => uhr, ...makeRLBindungen() };
     const zaehle = () => ghAufrufe.filter((u) => u.includes('/repos/test/speicher/')).length;
     const status = [];
     for (let i = 0; i < 50; i++) status.push((await worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64'), env)).status);
@@ -240,12 +243,13 @@ async function run() {
     if (nachFuenfzig !== 2 || zaehle() !== 4) console.log(`     Abrufe bei GitHub: ${nachFuenfzig} / ${zaehle()}`);
   }
 
-  // P15 EP32: Die Drossel je IP zählt nur Abrufe bei GitHub (30 je 600 s): 9 × 4 Abrufe (vier Plattformen, alle 61 s neu) aus
-  // einer IP im selben Fenster → die ersten 30 gehen durch, dann 429. Ein Treffer im Speicher und eine andere IP gehen weiter.
+  // P15 EP32, Z1-W2 AR70: Die Drossel je IP (Bindung KONTO_RL_SELBSTUPDATE, 20 je Periode) zählt nur Abrufe bei GitHub: 9 × 4 Abrufe
+  // (vier Plattformen, alle 61 s neu) aus einer IP in derselben Periode → die ersten 20 gehen durch, dann 429. Ein Treffer im
+  // Speicher und eine andere IP gehen weiter.
   {
-    let uhr = T0; // T0 liegt auf einer Fenstergrenze (10:00:00 UTC); 9 × 61 s bleiben im Fenster von 600 s
-    const rl = makeKV();
-    const env = { ...ENV, REPO: 'test/drossel', KONTO_UHR: () => uhr, RATELIMIT: rl };
+    let uhr = T0;
+    const rl = makeRateLimit(RL_TABELLE.KONTO_RL_SELBSTUPDATE.grenze);
+    const env = { ...ENV, REPO: 'test/drossel', KONTO_UHR: () => uhr, KONTO_RL_SELBSTUPDATE: rl, RATELIMIT: { get() { throw new Error('KV darf nicht gelesen werden'); }, put() { throw new Error('KV darf nicht geschrieben werden'); } } };
     const holen = (ziel, ip) => worker.fetch(req(`/tools/launcher/latest?platform=${ziel}`, { kopf: { 'CF-Connecting-IP': ip } }), env);
     const antworten = [];
     for (let schritt = 0; schritt < 9; schritt++) {
@@ -256,11 +260,24 @@ async function run() {
     const treffer = await holen('win&arch=x64', '5.5.5.5');
     const zuViele = antworten.filter((a) => a.status === 429);
     const erste = zuViele[0] ? await zuViele[0].json() : {};
-    const schluessel = [...rl.daten.keys()];
-    check('P15 EP32: Drossel je IP nur für Abrufe bei GitHub (30 je 600 s, dann 429 zu-viele mit Retry-After); Treffer im Speicher und andere IP gehen weiter; IP nie im Klartext',
-      antworten.length === 36 && antworten.slice(0, 30).every((a) => a.status !== 429) && zuViele.length === 6 && erste.code === 'zu-viele'
-        && erste.error === 'zu viele Anfragen' && Number(zuViele[0].headers.get('Retry-After')) > 0 && andere.status === 200
+    const schluessel = [...new Set(rl.aufrufe)];
+    check('Z1-W2 AR70: Selbst-Update: Drossel je IP nur für Abrufe bei GitHub (20 je Periode, dann 429 zu-viele mit Retry-After 60); Treffer im Speicher und andere IP gehen weiter; IP nie im Klartext; KV unberührt',
+      antworten.length === 36 && antworten.slice(0, 20).every((a) => a.status !== 429) && zuViele.length === 16 && erste.code === 'zu-viele'
+        && erste.error === 'zu viele Anfragen' && zuViele[0].headers.get('Retry-After') === '60' && andere.status === 200
         && treffer.status === 200 && schluessel.length >= 2 && !schluessel.some((s) => s.includes('5.5.5.5') || s.includes('6.6.6.6')));
+  }
+
+  // Z1-W2 AR70: Fehlt die Bindung KONTO_RL_SELBSTUPDATE oder wirft limit(), bleibt das Selbst-Update offen (200, nie 5xx), mit Warnung.
+  {
+    const vorWarn = protokoll.length;
+    const ohne = await worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64'), { ...ENV, REPO: 'test/rl-fehlt' });
+    const wirftBindung = makeRateLimit(1, { wirft: Object.assign(new Error('test-geheim-meldung-w2'), { name: 'TestFehler' }) });
+    const wirft = await worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64'), { ...ENV, REPO: 'test/rl-wirft', KONTO_RL_SELBSTUPDATE: wirftBindung });
+    const neu = protokoll.slice(vorWarn);
+    check('Z1-W2 AR70: Selbst-Update ohne Bindung → 200 mit Warnung; limit() wirft → 200 mit Warnung (Name der Ausnahme, nie ihre Meldung)',
+      ohne.status === 200 && wirft.status === 200 && wirftBindung.aufrufe.length === 1
+        && neu.includes('rate-limit: Bindung KONTO_RL_SELBSTUPDATE fehlt — ungedrosselt') && neu.includes('rate-limit: KONTO_RL_SELBSTUPDATE nicht prüfbar (TestFehler) — offen')
+        && !neu.join('\n').includes('test-geheim-meldung-w2'));
   }
 
   // P15 G10: Connect prüft in Teil 1 weiter selbst gegen PROXY_KEY, auch nach ALTKEY_BIS.
@@ -390,7 +407,7 @@ async function run() {
   // P15 Fix 1 (EP32): Gleichzeitige Anfragen teilen sich EINE Abfrage: 50 Anfragen aus 50 IPs gleichzeitig → 2 Abrufe bei GitHub
   // (Liste, Link), nicht 100; die Drossel zählt die eine Abfrage einmal.
   {
-    const env = { ...ENV, REPO: 'test/gleichzeitig', RATELIMIT: makeKV() };
+    const env = { ...ENV, REPO: 'test/gleichzeitig', ...makeRLBindungen() };
     const zaehle = () => ghAufrufe.filter((u) => u.includes('/repos/test/gleichzeitig/')).length;
     const res = await Promise.all(
       Array.from({ length: 50 }, (_, i) => worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64', { kopf: { 'CF-Connecting-IP': `7.7.${i}.1` } }), env)),
@@ -445,10 +462,10 @@ async function run() {
   // P15 Fix 5 (Review 2): Die Drossel gilt je Anfrage, nicht im geteilten Versprechen. Eine gedrosselte IP (Zähler 30) kommt zuerst,
   // dazu 10 frische IPs gleichzeitig → nur die gedrosselte IP 429, die frischen 10 × 200, 2 Abrufe bei GitHub.
   {
-    const rl = makeKV();
-    const env = { ...ENV, REPO: 'test/gedrosselt', RATELIMIT: rl };
+    const rl = makeRateLimit(RL_TABELLE.KONTO_RL_SELBSTUPDATE.grenze);
+    const env = { ...ENV, REPO: 'test/gedrosselt', KONTO_RL_SELBSTUPDATE: rl };
     const ipHash = (await sha256B64url(`${SCHLUESSEL}|8.8.8.8`)).slice(0, 22);
-    await rl.put(`rl:selbst-update:${ipHash}:${Math.floor(Math.floor(T0 / 1000) / 600)}`, '30');
+    rl.zaehler.set(ipHash, RL_TABELLE.KONTO_RL_SELBSTUPDATE.grenze);
     const ips = ['8.8.8.8', ...Array.from({ length: 10 }, (_, i) => `8.9.${i}.1`)];
     const res = await Promise.all(ips.map((ip) => worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64', { kopf: { 'CF-Connecting-IP': ip } }), env)));
     const n = ghAufrufe.filter((u) => u.includes('/repos/test/gedrosselt/')).length;
@@ -461,7 +478,7 @@ async function run() {
   // P15 Fix 6 (Review 2): GitHub wirft bei 10 gleichzeitigen Anfragen → 10 × 502 mit 1 Abruf, kein 500; danach (erholt) 200.
   // Dazu direkt: wirft hole() selbst (etwa res.text()), bekommen alle Wartenden 502 statt einer Ausnahme.
   {
-    const env = { ...ENV, REPO: 'test/wirft', RATELIMIT: makeKV() };
+    const env = { ...ENV, REPO: 'test/wirft', ...makeRLBindungen() };
     const zaehle = () => ghAufrufe.filter((u) => u.includes('/repos/test/wirft/')).length;
     githubWirft = true;
     const res = await Promise.all(
@@ -526,6 +543,51 @@ async function run() {
     if (abrufeC !== 2) console.log(`     Abrufe ${abrufeC}`);
   }
 
+  // Z1-W2 [T]: Zwischenspeicher des Selbst-Updates mit Restlaufzeit: 59,999 s nach dem Abruf noch aus dem Speicher, nach genau 60 s neu.
+  {
+    let uhr = T0;
+    const env = { ...ENV, REPO: 'test/ttl', KONTO_UHR: () => uhr, ...makeRLBindungen() };
+    const zaehle = () => ghAufrufe.filter((u) => u.includes('/repos/test/ttl/')).length;
+    const holen = () => worker.fetch(req('/tools/launcher/latest?platform=win&arch=x64'), env);
+    await holen();
+    const erst = zaehle();
+    uhr = T0 + 59_999;
+    await holen();
+    const knapp = zaehle();
+    uhr = T0 + 60_000;
+    await holen();
+    const genau = zaehle();
+    check('Z1-W2 [T] EP32: Zwischenspeicher 60 s: 2 Abrufe beim ersten Mal, bei +59,999 s weiter 2, bei +60 s neu (4)', erst === 2 && knapp === 2 && genau === 4);
+  }
+
+  // Z1-W2 [T]: Hash-Präfix der IP: ipHash = die ersten 22 Zeichen von sha256B64url(KONTO_SCHLUESSEL|ip); anderer Schlüssel, andere IP
+  // oder fehlender Kopf (unknown) ergeben andere Werte; die IP steht nie darin.
+  {
+    const mitIp = (ip) => new Request('https://proxy.test/x', { headers: ip === null ? {} : { 'CF-Connecting-IP': ip } });
+    const h = await ipHash(mitIp('4.3.2.1'), ENV);
+    const voll = await sha256B64url(`${SCHLUESSEL}|4.3.2.1`);
+    const andereIp = await ipHash(mitIp('4.3.2.2'), ENV);
+    const andererSchluessel = await ipHash(mitIp('4.3.2.1'), { ...ENV, KONTO_SCHLUESSEL: FREMD });
+    const ohneKopf = await ipHash(mitIp(null), ENV);
+    check('Z1-W2 [T] ipHash: genau die ersten 22 Zeichen von sha256B64url(Schlüssel|ip), je IP und je Schlüssel verschieden, ohne Kopf = unknown, nie die IP',
+      h === voll.slice(0, 22) && h.length === 22 && voll.length === 43 && h !== andereIp && h !== andererSchluessel
+        && ohneKopf === (await sha256B64url(`${SCHLUESSEL}|unknown`)).slice(0, 22) && !h.includes('4.3.2.1'));
+  }
+
+  // Z1-W2 [T] Wächter Routen ↔ funktionFuerRoute: jede Gate-Route in worker.js (Methode und Pfad) ist in funktionFuerRoute geführt (nicht null),
+  // und kein Pfad der /konto/-Routen (Launcher-API, eigene Prüfung in konto-relay.js) ist es.
+  {
+    const w = readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
+    const rq = readFileSync(new URL('../konto-relay.js', import.meta.url), 'utf8');
+    const gate = [...w.matchAll(/request\.method === '(GET|POST|DELETE)' && url\.pathname === '(\/[^']+)'/g)].map((m) => [m[1], m[2]]).filter(([, p]) => p !== '/');
+    const konto = [...rq.matchAll(/^\s+'(GET|POST) (\/konto[^']*)':/gm)].map((m) => [m[1], m[2]]);
+    const ohneFunktion = gate.filter(([m, p]) => funktionFuerRoute(m, p) === null);
+    const kontoMitFunktion = konto.filter(([m, p]) => funktionFuerRoute(m, p) !== null);
+    check(`Z1-W2 [T] Wächter: alle ${gate.length} Gate-Routen in worker.js haben eine Funktion in funktionFuerRoute${ohneFunktion.length ? ` — ohne: ${JSON.stringify(ohneFunktion)}` : ''}; keine der ${konto.length} /konto/-Routen hat eine`,
+      gate.length >= 5 && ohneFunktion.length === 0 && konto.length >= 16 && kontoMitFunktion.length === 0
+        && funktionFuerRoute('GET', '/tools/jm-copy/latest') === 'katalog' && w.includes('url.pathname.match(/^\\/tools\\/([^/]+)\\/latest\\/?$/)'));
+  }
+
   // P20 EP1, EP9, EP24: Bindung, Migration und Variable in wrangler.toml, Re-Export im Worker, CI-Schritte.
   {
     const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
@@ -552,6 +614,25 @@ async function run() {
         && bindTab.length === 2 && bindungen.length === 2 && JSON.stringify(bindungen) === JSON.stringify(['CONNECT_ROOM=ConnectRoom', 'KONTO=KontoSpeicher'])
         && varsTab.length === 1 && JSON.stringify(inVars('KONTO_JURISDICTION')) === '["\\"eu\\""]' && JSON.stringify(inVars('CONNECT_JURISDICTION')) === '["\\"eu\\""]'
         && tabellen.every((t) => t.kopf === 'vars' || !t.kv.some(([k]) => k.endsWith('_JURISDICTION'))));
+    // Z1-W2 AR70: genau die sechs [[ratelimits]] der Tabelle (Name, namespace_id, limit, period), je gefolgt von [ratelimits.simple]
+    // mit nur limit und period; period nur 10 oder 60; die Namen in KONTO_RL (konto-zugang.js) sind genau diese sechs.
+    const rlTabellen = tabellen.filter((t) => t.kopf.startsWith('ratelimits'));
+    const rlEintraege = [];
+    let rlAufbauOk = rlTabellen.length === 12;
+    for (let i = 0; i + 1 < rlTabellen.length; i += 2) {
+      const [a, s] = [rlTabellen[i], rlTabellen[i + 1]];
+      if (a.kopf !== 'ratelimits' || !a.feld || !nurSchluessel(a, ['name', 'namespace_id']) || s.kopf !== 'ratelimits.simple' || s.feld || !nurSchluessel(s, ['limit', 'period'])) {
+        rlAufbauOk = false;
+        continue;
+      }
+      const wert = (t, n) => t.kv.find(([k]) => k === n)[1];
+      rlEintraege.push([wert(a, 'name').replace(/^"|"$/g, ''), wert(a, 'namespace_id').replace(/^"|"$/g, ''), Number(wert(s, 'limit')), Number(wert(s, 'period'))]);
+    }
+    const rlSoll = Object.entries(RL_TABELLE).map(([n, t]) => [n, t.namespaceId, t.grenze, t.period]);
+    check('Z1-W2 AR70: wrangler.toml hat genau sechs [[ratelimits]] mit [ratelimits.simple] (Name, namespace_id, limit, period wie die Tabelle), period 10 oder 60; KONTO_RL nennt genau diese Namen',
+      rlAufbauOk && JSON.stringify(rlEintraege) === JSON.stringify(rlSoll) && rlEintraege.every(([, , l, p]) => Number.isInteger(l) && l > 0 && (p === 10 || p === 60))
+        && new Set(rlEintraege.map((e) => e[0])).size === 6 && new Set(rlEintraege.map((e) => e[1])).size === 6
+        && JSON.stringify(Object.values(KONTO_RL).sort()) === JSON.stringify(rlSoll.map((e) => e[0]).sort()));
     // ALTKEY_BIS mit derselben Regel wie der Worker: ein unlesbarer Wert (z. B. 2026-12-32) hieße dort still „unbefristet“ (EP9).
     const { alterKeyGilt } = await import('../konto-kern.js');
     const alleSchluessel = tabellen.flatMap((t) => t.kv.map(([k]) => k));
@@ -570,10 +651,25 @@ async function run() {
       modul.KontoSpeicher === KontoSpeicher && typeof modul.ConnectRoom === 'function' && typeof modul.default.fetch === 'function');
     const ci = readFileSync(new URL('../../../.github/workflows/ci-checks.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
     // Fixrunde 1: Kommentare weg, nur verankerte run-Zeilen, und keiner dieser Schritte trägt if oder continue-on-error.
-    const schritte = ci.split('\n').filter((z) => !z.trim().startsWith('#')).join('\n').split(/^(?=\s*- )/m);
-    const proxySchritte = schritte.map((b) => ({ b, m: /^\s+run: node --experimental-strip-types services\/release-proxy\/test\/([a-z-]+)\.test\.mjs\s*$/m.exec(b) })).filter((x) => x.m);
-    const laeufe = proxySchritte.map((x) => x.m[1]);
-    if (proxySchritte.some((x) => /^\s*(if|continue-on-error)\s*:/m.test(x.b))) laeufe.push('bedingt');
+    // Z1-W2: auch `- if:` oder `- continue-on-error:` als ERSTE Zeile eines Schritts und `- run:` als erste Zeile zählen.
+    const laeufeAus = (text) => {
+      const schritte = text.split('\n').filter((z) => !z.trim().startsWith('#')).join('\n').split(/^(?=\s*- )/m);
+      const proxySchritte = schritte.map((b) => ({ b, m: /^\s*(?:-\s+)?run: node --experimental-strip-types services\/release-proxy\/test\/([a-z-]+)\.test\.mjs\s*$/m.exec(b) })).filter((x) => x.m);
+      const l = proxySchritte.map((x) => x.m[1]);
+      if (proxySchritte.some((x) => /^\s*(?:-\s+)?(if|continue-on-error)\s*:/m.test(x.b))) l.push('bedingt');
+      return l;
+    };
+    const laeufe = laeufeAus(ci);
+    const lauf = 'node --experimental-strip-types services/release-proxy/test/konto-kern.test.mjs';
+    const yml = (...zeilen) => `jobs:\n  x:\n    steps:\n${zeilen.map((z) => `      ${z}`).join('\n')}\n`;
+    check('Z1-W2 [T] EP24-Wächter: erkennt if und continue-on-error auch als erste Zeile eines Schritts (- if:), an zweiter Stelle, und - run: als erste Zeile; ein Kommentar zählt nicht',
+      JSON.stringify(laeufeAus(yml('- name: A', `  run: ${lauf}`))) === '["konto-kern"]'
+        && JSON.stringify(laeufeAus(yml(`- run: ${lauf}`))) === '["konto-kern"]'
+        && JSON.stringify(laeufeAus(yml("- if: github.ref == 'refs/heads/main'", `  run: ${lauf}`))) === '["konto-kern","bedingt"]'
+        && JSON.stringify(laeufeAus(yml('- continue-on-error: true', `  run: ${lauf}`))) === '["konto-kern","bedingt"]'
+        && JSON.stringify(laeufeAus(yml('- name: A', "  if: always()", `  run: ${lauf}`))) === '["konto-kern","bedingt"]'
+        && JSON.stringify(laeufeAus(yml('- name: A', '  continue-on-error: true', `  run: ${lauf}`))) === '["konto-kern","bedingt"]'
+        && JSON.stringify(laeufeAus(yml('# - if: x', '- name: A', `  run: ${lauf}`))) === '["konto-kern"]');
     check('P20 EP24: ci-checks.yml startet die Proxy-Tests in dieser Reihenfolge: worker, konto-kern, konto-krypto, konto-do, konto-zugang, konto-routen, qa-relay',
       JSON.stringify(laeufe) === JSON.stringify(['worker', 'konto-kern', 'konto-krypto', 'konto-do', 'konto-zugang', 'konto-routen', 'qa-relay']));
   }

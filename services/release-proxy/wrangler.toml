@@ -48,6 +48,59 @@ new_sqlite_classes = ["ConnectRoom"]
 tag = "v2"
 new_sqlite_classes = ["KontoSpeicher"]
 
+# Drosseln der Anmeldung (Z1-W2, AR70): Rate-Limit-Bindungen der Workers statt Zähler in KV (KV erlaubt 1 Schreiben je Schlüssel
+# und Sekunde; hinter einer gemeinsamen Büro-IP und beim Abholen im 2-s-Takt gäbe das Fehlschläge). Eine Bindung je Grenze,
+# `limit` je `period` (nur 10 oder 60 Sekunden erlaubt), gezählt je Cloudflare-Standort und IP-Hash, also ungefähr. Fehlt eine
+# Bindung, warnt der Worker im Log und lässt die Route offen. Die Bauprobe und der Wächter in konto-zugang.test.mjs kennen genau
+# diese sechs Einträge. KV RATELIMIT oben bleibt für Feedback, Kochbuch-Entwurf, Zoom-SDK und Q&A unverändert.
+# KONTO_RL_VORGANG: POST /konto/vorgang
+[[ratelimits]]
+name = "KONTO_RL_VORGANG"
+namespace_id = "7301"
+  [ratelimits.simple]
+  limit = 20
+  period = 60
+
+# KONTO_RL_ABHOLEN: POST /konto/vorgang/abholen (ein Launcher fragt alle 2 s)
+[[ratelimits]]
+name = "KONTO_RL_ABHOLEN"
+namespace_id = "7302"
+  [ratelimits.simple]
+  limit = 600
+  period = 60
+
+# KONTO_RL_ABBRECHEN: POST /konto/vorgang/abbrechen
+[[ratelimits]]
+name = "KONTO_RL_ABBRECHEN"
+namespace_id = "7303"
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
+# KONTO_RL_GOOGLE: GET /konto/google und /konto/google/zurueck
+[[ratelimits]]
+name = "KONTO_RL_GOOGLE"
+namespace_id = "7304"
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
+# KONTO_RL_PASSWORT: POST /konto/passwort (die Bremse je Konto im DO bleibt)
+[[ratelimits]]
+name = "KONTO_RL_PASSWORT"
+namespace_id = "7305"
+  [ratelimits.simple]
+  limit = 10
+  period = 60
+
+# KONTO_RL_SELBSTUPDATE: GET /tools/launcher/latest ohne Zugang (nur Abrufe bei GitHub)
+[[ratelimits]]
+name = "KONTO_RL_SELBSTUPDATE"
+namespace_id = "7306"
+  [ratelimits.simple]
+  limit = 20
+  period = 60
+
 # Optionale Secrets für die Remote-Zuschaltung (verschlüsselt via `wrangler secret put`):
 #   RTC_SFU_APP_ID / RTC_SFU_APP_TOKEN     Cloudflare-Realtime-SFU-App (Medien). Fehlen sie, läuft
 #                                          der Raum im „Signalling-only"-Modus (Warteraum/Freigabe/

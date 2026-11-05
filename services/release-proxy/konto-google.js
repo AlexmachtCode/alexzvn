@@ -10,6 +10,9 @@ import { DOMAIN, istDomainKonto } from './konto-kern.js';
 export const GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
 const GOOGLE_ISS = ['https://accounts.google.com', 'accounts.google.com'];
+// Härtung des Token-Abrufs (Z1-W2): Frist, Größe der Antwort. Google antwortet in wenigen KiB; mehr ist kein id_token.
+const TOKEN_FRIST_MS = 10_000;
+const TOKEN_ANTWORT_MAX = 64 * 1024;
 
 /** Ist die Google-Anmeldung eingerichtet (Client-ID und Secret)? Sonst zeigt die Seite B6 und nur die Passwort-Anmeldung. */
 export function googleBereit(env) {
@@ -63,6 +66,58 @@ function jwtAngaben(token) {
   }
 }
 
+/**
+ * Antwort von Google als JSON, höchstens TOKEN_ANTWORT_MAX Bytes: größer als content-length verspricht → null ohne zu lesen;
+ * sonst Stück für Stück gelesen und beim Überschreiten abgebrochen (auch ohne content-length). Ein Lesefehler mitten im Stream,
+ * ein Body ohne JSON-Objekt oder eine zu große Antwort → null.
+ */
+async function liesTokenAntwort(antwort) {
+  const cl = Number(antwort.headers.get('content-length'));
+  if (Number.isFinite(cl) && cl > TOKEN_ANTWORT_MAX) {
+    await verwirf(antwort);
+    return null;
+  }
+  if (!antwort.body) return null;
+  const leser = antwort.body.getReader();
+  const stuecke = [];
+  let summe = 0;
+  try {
+    for (;;) {
+      const { done, value } = await leser.read();
+      if (done) break;
+      summe += value.byteLength;
+      if (summe > TOKEN_ANTWORT_MAX) {
+        await leser.cancel().catch(() => {});
+        return null;
+      }
+      stuecke.push(value);
+    }
+  } catch {
+    return null;
+  }
+  const alles = new Uint8Array(summe);
+  let pos = 0;
+  for (const s of stuecke) {
+    alles.set(s, pos);
+    pos += s.byteLength;
+  }
+  try {
+    const daten = JSON.parse(new TextDecoder().decode(alles));
+    return daten && typeof daten === 'object' && !Array.isArray(daten) ? daten : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Den Rest eines Bodys verwerfen, den niemand liest (gibt die Verbindung frei); Fehler dabei sind ohne Belang. */
+async function verwirf(antwort) {
+  try {
+    if (antwort.body) await antwort.body.cancel();
+  } catch {
+    // nichts zu tun
+  }
+}
+
 function nein(grund, warum) {
   console.warn(`konto-google: Anmeldung abgelehnt (${warum})`);
   return { ok: false, grund };
@@ -86,17 +141,18 @@ export async function googleRueckkehr(env, { code, verifier, nonce, redirectUri,
         grant_type: 'authorization_code',
         code_verifier: verifier,
       }).toString(),
+      // Z1-W2: keiner Weiterleitung folgen (das Secret steht im Body), und nicht länger als TOKEN_FRIST_MS warten.
+      redirect: 'error',
+      signal: AbortSignal.timeout(TOKEN_FRIST_MS),
     });
   } catch (e) {
     return nein('fehler', `Token-Tausch nicht erreichbar: ${(e && e.name) || 'unbekannt'}`);
   }
-  if (!antwort.ok) return nein('fehler', `Token-Tausch HTTP ${antwort.status}`);
-  let daten = null;
-  try {
-    daten = await antwort.json();
-  } catch {
-    daten = null;
+  if (!antwort.ok) {
+    await verwirf(antwort);
+    return nein('fehler', `Token-Tausch HTTP ${antwort.status}`);
   }
+  const daten = await liesTokenAntwort(antwort);
   const a = jwtAngaben(daten && daten.id_token);
   if (!a) return nein('fehler', 'id_token fehlt oder unlesbar');
   // OIDC Core 3.1.3.7: Aussteller, Empfänger (bei mehreren Empfängern azp), Ablauf, nonce.

@@ -1103,10 +1103,17 @@ async function run() {
       return gleich([r.kontoAktiv, r.grund, r.zoomAnfrage, r.adminOffen], [...f.soll, null, 0]);
     });
     const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
-    const fremd = await rufeDo(speicher, 'abmelden', { jetzt: T0 + 2 * TAG, kid: 'k-anders', gid: geraet.gid });
+    const fremd = await rufeDo(speicher, 'abmelden', { jetzt: T0 + 2 * TAG, kid: 'k-anders', gid: geraet.gid, angemeldetSeit: T0 });
+    // AR74 D: eine ALTE Sitzung (anderer Claim angemeldetSeit, fehlend, kein Zahlenwert) löst das Gerät nicht.
+    for (const alt of [T0 - 1, T0 + 1, undefined, null, String(T0)]) await rufeDo(speicher, 'abmelden', { jetzt: T0 + 2 * TAG, kid, gid: geraet.gid, angemeldetSeit: alt });
+    const gAlt = ctx.daten.get(`geraet:${geraet.gid}`);
+    check(
+      'AR74 D: abmelden mit falschem, fehlendem oder nicht-numerischem angemeldetSeit ändert nichts (Gerät bleibt beim Konto)',
+      gAlt.letztesKonto === kid && gAlt.angemeldetSeit === T0 && gAlt.letzterKontakt === T0,
+    );
     const gFremd = ctx.daten.get(`geraet:${geraet.gid}`);
     const fremdWirkungslos = gFremd.letzterKontakt === T0 && gFremd.letztesKonto === kid && gFremd.angemeldetSeit === T0;
-    const ab = await rufeDo(speicher, 'abmelden', { jetzt: T0 + TAG, kid, gid: geraet.gid });
+    const ab = await rufeDo(speicher, 'abmelden', { jetzt: T0 + TAG, kid, gid: geraet.gid, angemeldetSeit: T0 });
     const g = ctx.daten.get(`geraet:${geraet.gid}`);
     check(
       'P5 EP26: abmelden wirkt nur für das eigene Konto (ein fremdes ändert nichts); Konto und Gerät bleiben, das Gerät gehört danach keinem Konto (Z1-W1)',
@@ -1811,6 +1818,48 @@ async function run() {
     }
   }
   {
+    // AR74 C: Grenzen von anfragenLesen. Offen gilt bis „bis“ (bis > jetzt); entschiedene Anfragen löscht das Lesen nie.
+    const anf = (kid, gid, o) => ({ id: 'x', kid, gid, rechnerName: 'PC', jm: false, plattform: 'win', zweck: 'Z', von: T0 - 3 * TAG, bis: T0, zustand: 'offen', am: T0 - 4 * TAG, entschiedenAm: null, entschiedenVon: null, freigegebenBis: null, ...o });
+    {
+      const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
+      await ctx.storage.put('anfrage:knapp', anf(kid, geraet.gid, { id: 'knapp', bis: T0 + MIN + 1 }));
+      const blockiert = await rufeDo(speicher, 'zoom-anfragen', { jetzt: T0 + MIN, kid, gid: geraet.gid, zweck: 'Neu', von: T0 + TAG, bis: T0 + 2 * TAG });
+      check(
+        'AR74 C: eine offene Anfrage mit bis = jetzt + 1 bleibt gespeichert und blockiert eine neue (409 konflikt)',
+        blockiert.ok === false && blockiert.code === 'konflikt' && blockiert.status === 409 && ctx.daten.has('anfrage:knapp'),
+      );
+    }
+    {
+      const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
+      await ctx.storage.put('anfrage:genau', anf(kid, geraet.gid, { id: 'genau', bis: T0 + MIN }));
+      const ich = await rufeDo(speicher, 'ich', { jetzt: T0 + MIN, kid });
+      check('AR74 C: eine offene Anfrage mit bis = jetzt ist abgelaufen (weg beim Lesen)', ich.zoomAnfrage === null && !ctx.daten.has('anfrage:genau'));
+    }
+    {
+      const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
+      await ctx.storage.put('anfrage:fg', anf(kid, geraet.gid, { id: 'fg', zustand: 'freigegeben', bis: T0 - TAG, am: T0 - 5 * TAG, entschiedenAm: T0 - 4 * TAG, freigegebenBis: T0 - TAG }));
+      const ich = await rufeDo(speicher, 'ich', { jetzt: T0 + MIN, kid });
+      await ctx.storage.put('anfrage:fg', anf(kid, geraet.gid, { id: 'fg', zustand: 'abgelehnt', bis: T0 - TAG, am: T0 - 5 * TAG, entschiedenAm: T0 - 4 * TAG }));
+      const ich2 = await rufeDo(speicher, 'ich', { jetzt: T0 + MIN, kid });
+      check(
+        'AR74 C: entschiedene Anfragen (freigegeben, abgelehnt) mit vergangenem bis bleiben und stehen in ich',
+        ich.zoomAnfrage && ich.zoomAnfrage.id === 'fg' && ich.zoomAnfrage.zustand === 'freigegeben' && ich2.zoomAnfrage && ich2.zoomAnfrage.zustand === 'abgelehnt' && ctx.daten.has('anfrage:fg'),
+      );
+    }
+    {
+      const m = await mitAdmin();
+      await legeExternenAn(m.speicher, { passwort: 'richtiges-passwort' });
+      await m.ctx.storage.put('anfrage:fg', anf('k-ext', 'g-1', { id: 'fg', zustand: 'freigegeben', bis: T0 - TAG, am: T0 - 5 * TAG, freigegebenBis: T0 - TAG }));
+      await m.ctx.storage.put('anfrage:ab', anf('k-ext', 'g-1', { id: 'ab', zustand: 'abgelehnt', bis: T0 - 2 * TAG, am: T0 - 6 * TAG }));
+      await m.ctx.storage.put('anfrage:knapp', anf('k-ext', 'g-1', { id: 'knapp', bis: T0 + 1, am: T0 - TAG }));
+      const u = await m.uebersicht(T0);
+      check(
+        'AR74 C: die Übersicht zeigt entschiedene Anfragen mit vergangenem bis und die offene mit bis = jetzt + 1',
+        u.anfragen.map((a) => a.id).sort().join(',') === 'ab,fg,knapp' && m.ctx.daten.has('anfrage:fg') && m.ctx.daten.has('anfrage:ab'),
+      );
+    }
+  }
+  {
     // Kurze Frist beim letzten Admin.
     const { speicher, aktion, kid: a } = await mitAdmin({});
     const speichern = (bis, jetzt = T0 + MIN) => aktion({ aktion: 'zugang-speichern', kid: a, stufe: 'admin', tools: [], events: [], bis, zoomBis: null }, jetzt);
@@ -1927,7 +1976,7 @@ async function run() {
   {
     // [T] Ein leerer Rechnername beim Erneuern behält den alten Namen.
     const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
-    const faelle = [{ name: 'leer', n: '' }, { name: 'nur Leerraum', n: '   ' }, { name: 'nur Steuerzeichen', n: '​\u0007' }, { name: 'keine Zeichenkette', n: 42 }];
+    const faelle = [{ name: 'leer', n: '' }, { name: 'nur Leerraum', n: '   ' }, { name: 'nur Nullbreitenzeichen und Steuerzeichen', n: `${String.fromCharCode(0x200b)}\u0007` }, { name: 'keine Zeichenkette', n: 42 }];
     await pruefeFaelle('Z1-W1 [T]: sitzung-erneuern mit leerem oder unbrauchbarem Rechnernamen behält den alten Namen', faelle, async (f) => {
       const r = await erneuern(speicher, geraet, kid, T0 + MIN, { rechnerName: f.n });
       return gleich([r.ok, r.geraet.name, ctx.daten.get(`geraet:${geraet.gid}`).name], [true, 'Regie-PC 1', 'Regie-PC 1']);

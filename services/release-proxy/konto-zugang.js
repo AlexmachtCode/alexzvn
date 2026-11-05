@@ -40,6 +40,8 @@ export const FEHLER_TEXT = Object.freeze({
   'erster-admin': 'der erste Admin lässt sich hier nicht ändern', // S16
   domain: 'Kollegen von jakobsmedien.com melden sich mit Google an', // S17
   uhr: 'Uhr des Rechners geht falsch: Datum und Uhrzeit prüfen', // S18 (EP30: Gerätebeweis außerhalb ±5 min, Task 16)
+  // S19 (Z1-W2, OE2): wörtlich der Text M49 des Launchers; der Launcher zeigt ihn nach dem Code.
+  'iveo-basis-unbekannt': 'Diese iveo-Adresse ist nicht freigegeben. Erlaubt sind Production (app.my-iveo.de) und Staging (staging-dev.my-iveo.de).',
 });
 
 /** Die drei Texte zum Code `konflikt`: S12a (Admins), S12b (E-Mail vergeben), S12c (offene Zoom-Anfrage). */
@@ -86,8 +88,53 @@ export function launcherSelbstUpdate(method, pathname) {
  */
 export const SELBST_UPDATE_OFFEN_AB = '0.18.0';
 
-/** EP32: Zwischenspeicher 60 s je Repo, Plattform und Architektur; Drossel je IP (30 je 600 s) nur für Abrufe bei GitHub. */
-export const SELBST_UPDATE = Object.freeze({ speicherMs: 60_000, rlMax: 30, rlWindowSec: 600 });
+/** EP32: Zwischenspeicher 60 s je Repo, Plattform und Architektur; die Drossel je IP (KONTO_RL_SELBSTUPDATE) zählt nur Abrufe bei GitHub. */
+export const SELBST_UPDATE = Object.freeze({ speicherMs: 60_000 });
+
+/**
+ * AR70 (Z1-W2): Namen der sechs Rate-Limit-Bindungen der Anmeldung (wrangler.toml [[ratelimits]], eine je Grenze; Werte und
+ * Routen in der Tabelle des Auftrags AR70). Die Zählung gilt je Cloudflare-Standort und ist ungefähr.
+ */
+export const KONTO_RL = Object.freeze({
+  vorgang: 'KONTO_RL_VORGANG',
+  abholen: 'KONTO_RL_ABHOLEN',
+  abbrechen: 'KONTO_RL_ABBRECHEN',
+  google: 'KONTO_RL_GOOGLE',
+  passwort: 'KONTO_RL_PASSWORT',
+  selbstUpdate: 'KONTO_RL_SELBSTUPDATE',
+});
+
+/** Periode aller Bindungen in Sekunden (`period = 60`); so lange dauert es höchstens, bis eine gedrosselte IP wieder darf (Retry-After). */
+export const RL_PERIODE_SEK = 60;
+
+/**
+ * Der Hash der IP, unter dem alles gezählt wird (Spec 11, OFP2: keine IP-Adressen speichern): `sha256B64url(KONTO_SCHLUESSEL|ip)`,
+ * auf 22 Zeichen gekürzt. Die Drosseln und die Alt-Key-Zählung teilen sich diese eine Stelle.
+ */
+export async function ipHash(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  return (await sha256B64url(`${env.KONTO_SCHLUESSEL ?? ''}|${ip}`)).slice(0, 22);
+}
+
+/**
+ * Drossel je IP über eine Rate-Limit-Bindung der Workers (AR70; `env.<name>.limit({ key })` → `{ success }`), Schlüssel ist der IP-Hash.
+ * → { ok: true } | { ok: false, retryAfter }. Fehlt die Bindung oder wirft `limit()`: Warnung (bei einem Wurf mit dem Namen der
+ * Ausnahme, nie mit ihrer Meldung), offen. Eine Drossel erzeugt nie einen 5xx.
+ */
+export async function drosselBindung(request, env, name) {
+  const bindung = env[name];
+  if (!bindung || typeof bindung.limit !== 'function') {
+    console.warn(`rate-limit: Bindung ${name} fehlt — ungedrosselt`);
+    return { ok: true };
+  }
+  try {
+    const r = await bindung.limit({ key: await ipHash(request, env) });
+    return r && r.success === false ? { ok: false, retryAfter: RL_PERIODE_SEK } : { ok: true };
+  } catch (e) {
+    console.warn(`rate-limit: ${name} nicht prüfbar (${fehlerName(e)}) — offen`);
+    return { ok: true };
+  }
+}
 
 // Speicher des Isolats statt Cache-API (EP32): wirkt auf workers.dev wie im Test. Höchstens vier Einträge je Repo (win/mac ×
 // x64/arm64), nur öffentliche Angaben (Version, Paket, Größe, signierter Download-Link), nie etwas, das an einer Anfrage hängt.
@@ -117,7 +164,7 @@ export async function selbstUpdateLiefern(request, env, { jetzt, zugang, platfor
     let laufend = aktuell();
     if (!laufend) {
       // Nur wer eine Abfrage starten würde, prüft die Drossel seiner eigenen IP; ein 429 gilt nur für ihn.
-      const rl = await selbstUpdateDrossel(request, env, jetzt);
+      const rl = await drosselBindung(request, env, KONTO_RL.selbstUpdate);
       if (!rl.ok) return jsonAntwort({ error: 'zu viele Anfragen', code: 'zu-viele' }, 429, { 'Retry-After': String(rl.retryAfter) });
       laufend = aktuell(); // nach dem await neu nachsehen: kein zweiter Abruf
     }
@@ -259,13 +306,11 @@ function altKeyZaehlen(request, env, ctx, gruppe, jetzt) {
   const p = q.get('platform');
   const plattform = p === 'win' || p === 'mac' ? p : 'unbekannt';
   const arch = plattform === 'unbekannt' ? '' : q.get('arch') === 'arm64' ? 'arm64' : 'x64';
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   ctx.waitUntil(
     (async () => {
       let merk = null;
       try {
-        const ipHash = (await sha256B64url(`${env.KONTO_SCHLUESSEL ?? ''}|${ip}`)).slice(0, 22);
-        merk = `${new Date(jetzt).toISOString().slice(0, 10)}|${gruppe}|${ipHash}`;
+        merk = `${new Date(jetzt).toISOString().slice(0, 10)}|${gruppe}|${await ipHash(request, env)}`;
         if (!altKeyNeu(merk)) return;
         await kontoAktion(env, 'altkey-zaehlen', { jetzt, gruppe, plattform, arch });
       } catch (e) {
@@ -274,31 +319,6 @@ function altKeyZaehlen(request, env, ctx, gruppe, jetzt) {
       }
     })(),
   );
-}
-
-/**
- * EP32: Fixed-Window-Drossel des Selbst-Updates je IP über RATELIMIT (Uhr der Anmeldung; die IP nur als Hash, Spec 11, OFP2).
- * Ohne KV oder bei einem KV-Fehler offen, mit Warnung: ein Ausfall der Drossel hält kein Update auf, der Speicher bremst weiter.
- */
-async function selbstUpdateDrossel(request, env, jetzt) {
-  if (!env.RATELIMIT) {
-    console.warn('rate-limit: KV-Bindung RATELIMIT fehlt — selbst-update ungedrosselt');
-    return { ok: true };
-  }
-  try {
-    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-    const ipHash = (await sha256B64url(`${env.KONTO_SCHLUESSEL ?? ''}|${ip}`)).slice(0, 22);
-    const nowSec = Math.floor(jetzt / 1000);
-    const { rlMax, rlWindowSec } = SELBST_UPDATE;
-    const key = `rl:selbst-update:${ipHash}:${Math.floor(nowSec / rlWindowSec)}`;
-    const current = Number((await env.RATELIMIT.get(key)) || 0);
-    if (current >= rlMax) return { ok: false, retryAfter: rlWindowSec - (nowSec % rlWindowSec) };
-    await env.RATELIMIT.put(key, String(current + 1), { expirationTtl: rlWindowSec * 2 });
-    return { ok: true };
-  } catch (e) {
-    console.warn(`konto: Drossel Selbst-Update nicht prüfbar (${fehlerName(e)})`);
-    return { ok: true };
-  }
 }
 
 function jsonAntwort(obj, status, extra = {}) {

@@ -172,6 +172,51 @@ export function makeKV() {
   };
 }
 
+/**
+ * Die sechs Rate-Limit-Bindungen der Anmeldung (AR70, wrangler.toml [[ratelimits]]): Name → namespace_id, Grenze je Periode
+ * (60 s) und die Route. Die Tabelle steht hier EINMAL; der Wächter in konto-zugang.test.mjs vergleicht sie mit wrangler.toml.
+ */
+export const RL_TABELLE = Object.freeze({
+  KONTO_RL_VORGANG: { namespaceId: '7301', grenze: 20, period: 60 },
+  KONTO_RL_ABHOLEN: { namespaceId: '7302', grenze: 600, period: 60 },
+  KONTO_RL_ABBRECHEN: { namespaceId: '7303', grenze: 60, period: 60 },
+  KONTO_RL_GOOGLE: { namespaceId: '7304', grenze: 60, period: 60 },
+  KONTO_RL_PASSWORT: { namespaceId: '7305', grenze: 10, period: 60 },
+  KONTO_RL_SELBSTUPDATE: { namespaceId: '7306', grenze: 20, period: 60 },
+});
+
+/**
+ * Attrappe einer Rate-Limit-Bindung von Cloudflare: `limit({ key })` → `{ success }`, ein Zähler je key, ab der Grenze + 1 ist
+ * success false. `neuesFenster()` setzt die Zähler zurück (die Periode ist um). `aufrufe` merkt jeden key; `wirft` lässt limit()
+ * mit einer Ausnahme scheitern.
+ */
+export function makeRateLimit(grenze, { wirft = null } = {}) {
+  const b = {
+    grenze,
+    zaehler: new Map(),
+    aufrufe: [],
+    wirft,
+    async limit(opts) {
+      b.aufrufe.push(opts && opts.key);
+      if (b.wirft) throw b.wirft;
+      const n = (b.zaehler.get(opts.key) || 0) + 1;
+      b.zaehler.set(opts.key, n);
+      return { success: n <= b.grenze };
+    },
+    neuesFenster() {
+      b.zaehler.clear();
+    },
+  };
+  return b;
+}
+
+/** Alle sechs Bindungen mit den Grenzen aus RL_TABELLE; `ueberschreibe` ersetzt einzelne (oder lässt sie mit undefined weg). */
+export function makeRLBindungen(ueberschreibe = {}) {
+  const env = {};
+  for (const [name, t] of Object.entries(RL_TABELLE)) env[name] = makeRateLimit(t.grenze);
+  return { ...env, ...ueberschreibe };
+}
+
 export function makeUhr(start = Date.UTC(2026, 9, 21, 8, 0, 0)) {
   let t = start;
   const uhr = () => t;

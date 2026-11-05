@@ -23,20 +23,43 @@ const FRIST_FORM = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?
 
 /**
  * Basis-URL eines iveo-Events wie `normalizeIveoBaseUrl` in @jm/iveo (packages/iveo/src/client.ts): getrimmt, ohne Schema mit
- * https://, ohne Schrägstriche am Ende, mit Host. Leer, ohne Host oder mit `|` (Trenner im Schlüssel) → null; eine Vorgabe-Basis
- * kennt der Worker nicht, der Launcher schickt die Basis immer mit (P27). Die EINE Stelle der Normalisierung (Z1-W1): der Worker
- * (AAD beim Verschlüsseln und Entschlüsseln), der DO (Schlüssel im Speicher) und die feste iveo-Liste (W2) rufen sie.
+ * https://, ohne Schrägstriche am Ende, mit Host. Dazu (Z1-W2, OE2): Schema und Host klein, bei https der Port 443 weg, damit
+ * die Schreibweise nichts am Vergleich mit der festen Liste ändert; der Pfad bleibt, wie er ist. Leer, ohne Host oder mit `|`
+ * (Trenner im Schlüssel) → null; eine Vorgabe-Basis kennt der Worker nicht, der Launcher schickt die Basis immer mit (P27). Die
+ * EINE Stelle der Normalisierung (Z1-W1): der Worker (AAD beim Verschlüsseln und Entschlüsseln), der DO (Schlüssel im Speicher)
+ * und die feste iveo-Liste (IVEO_ERLAUBTE_BASEN) rufen sie.
  */
 export function normalisiereBasis(roh) {
   const t = typeof roh === 'string' ? roh.trim() : '';
-  if (!t || t.includes('|')) return null;
+  // Leerraum und Steuerzeichen INNERHALB der Basis (nach dem äußeren Trimmen) gibt es nicht: sonst wäre die Normalisierung nicht
+  // idempotent (`x.de/ /` → `https://x.de/ ` → `https://x.de`), und Hinterlegen und Lesen bildeten verschiedene Schlüssel (AR74).
+  if (!t || t.includes('|') || /[\s\u0000-\u001f\u007f]/.test(t)) return null;
   const mitSchema = /^https?:\/\//i.test(t) ? t : `https://${t}`;
-  const sauber = mitSchema.replace(/\/+$/, '');
+  const teile = /^(https?):\/\/([^/?#]*)(.*)$/i.exec(mitSchema);
+  if (!teile) return null;
+  const schema = teile[1].toLowerCase();
+  let host = teile[2].toLowerCase();
+  if (schema === 'https' && host.endsWith(':443')) host = host.slice(0, -4);
+  const sauber = `${schema}://${host}${teile[3]}`.replace(/\/+$/, '');
   try {
+    new URL(`${schema}://${teile[2]}${teile[3]}`); // die Schreibweise vor dem Kürzen muss schon eine gültige Adresse sein (kein :443:443)
     return new URL(sauber).host ? sauber : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * OE2 (Z1-W2): die feste Liste der iveo-Server, an die zentrale Tokens gehören: Production (IVEO_DEFAULT_BASE_URL in
+ * packages/iveo/src/client.ts) und Staging. Schon normalisiert (normalisiereBasis ist auf ihnen die Identität). Der Launcher hält
+ * dieselbe Liste als IVEO_ERLAUBTE_BASEN; ein Wächter vergleicht beide.
+ */
+export const IVEO_ERLAUBTE_BASEN = Object.freeze(['https://app.my-iveo.de/api/v1', 'https://staging-dev.my-iveo.de/api/v1']);
+
+/** Steht diese Basis (nach der Normalisierung) auf der festen Liste? Unbrauchbare Basen und Nicht-Texte → false. */
+export function iveoBasisErlaubt(basis) {
+  const b = normalisiereBasis(basis);
+  return b !== null && IVEO_ERLAUBTE_BASEN.includes(b);
 }
 
 /**
