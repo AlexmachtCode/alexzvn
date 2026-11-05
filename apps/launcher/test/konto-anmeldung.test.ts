@@ -25,13 +25,17 @@ const STAND: KontoStand = {
 type Abholen = 'wartet' | 'bestaetigt' | 'abgelehnt' | 'abgelaufen' | KontoFehler['code'];
 
 function umgebung(o: { browser?: boolean | 'wirft' | 'haengt'; abholen?: Abholen[]; anlegen?: KontoFehler['code'] | 'haengt'; geraet?: boolean;
-  versatz?: number; abholenHaelt?: boolean } = {}) {
+  versatz?: number; abholenHaelt?: boolean; rueckWirft?: boolean } = {}) {
   const u0 = {
     // Die Uhr des Rechners geht um `versatz` vor (die des Workers nicht): T0 + versatz.
     zeit: T0 + (o.versatz ?? 0),
     schritte: [] as AnmeldeSchritt[],
     anlegen: [] as unknown[],
-    abholen: [] as Array<{ vorgang: string; geheimnis: string; zweck: string; bezug: string; ts: number }>,
+    /** Z2: der beim Anlegen gemeldete Port des Rückkanals. */
+    rueckPorts: [] as unknown[],
+    /** Z2: Rückkanal-Attrappen (Port, Vorgang nach setzeVorgang, zu nach schliesse, angenommen = Sprung des Browsers). */
+    rueck: [] as Array<{ port: number; vorgang: string | null; zu: boolean; angenommen: (e: string) => void }>,
+    abholen: [] as Array<{ vorgang: string; geheimnis: string; zweck: string; bezug: string; ts: number; e: string | undefined }>,
     abbrechen: [] as Array<{ vorgang: string; geheimnis: string }>,
     browser: [] as string[],
     angemeldet: [] as GespeicherteSitzung[],
@@ -49,15 +53,16 @@ function umgebung(o: { browser?: boolean | 'wirft' | 'haengt'; abholen?: Abholen
   };
   const anlegenAntwort = { vorgang: 'vorgang-1', abholGeheimnis: 'test-abholen-1', code: CODE, adresse: ADRESSE, bis: T0 + 5 * 60_000 };
   const client = {
-    async vorgangAnlegen(g: unknown) {
+    async vorgangAnlegen(g: unknown, rueckPort: unknown) {
       u0.anlegen.push(g);
+      u0.rueckPorts.push(rueckPort);
       if (o.anlegen === 'haengt') return new Promise((ja) => { u0.loeseAnlegen = () => ja({ ...anlegenAntwort, vorgang: 'vorgang-spaet' }); });
       if (o.anlegen) throw new KontoFehler(o.anlegen, null);
       return { ...anlegenAntwort, vorgang: `vorgang-${u0.anlegen.length}` };
     },
-    async vorgangAbholen(vorgang: string, geheimnis: string, beweis: { sig: string }) {
+    async vorgangAbholen(vorgang: string, geheimnis: string, beweis: { sig: string }, e?: string) {
       const [zweck, bezug, ts] = beweis.sig.split('|');
-      u0.abholen.push({ vorgang, geheimnis, zweck, bezug, ts: Number(ts) });
+      u0.abholen.push({ vorgang, geheimnis, zweck, bezug, ts: Number(ts), e });
       // EP30: der Worker meldet `uhr`, wenn der Zeitstempel des Beweises mehr als 5 min von seiner Uhr abweicht.
       if (Math.abs(o.versatz ?? 0) > 5 * 60_000) throw new KontoFehler('uhr', null);
       if (o.abholenHaelt && !abholenGehalten) {
@@ -88,6 +93,12 @@ function umgebung(o: { browser?: boolean | 'wirft' | 'haengt'; abholen?: Abholen
       if (o.browser === 'wirft') throw new Error('kein Browser');
       if (o.browser === 'haengt') return new Promise<boolean>((ja) => { u0.loeseBrowser = ja; });
       return o.browser !== false;
+    },
+    oeffneRueckkanal: async (r) => {
+      if (o.rueckWirft) throw new Error('kein Port frei');
+      const k = { port: 50_000 + u0.rueck.length, vorgang: null as string | null, zu: false, angenommen: r.angenommen };
+      u0.rueck.push(k);
+      return { port: k.port, setzeVorgang: (v: string) => { k.vorgang = v; }, schliesse: async () => { k.zu = true; } };
     },
     rechnerName: 'PC-Regie', plattform: 'win', arch: 'x64', version: '0.18.0',
     angemeldet: (s) => { u0.angemeldet.push(s); },
@@ -130,6 +141,8 @@ const arten = (u: ReturnType<typeof umgebung>): string => u.schritte.map((s) => 
   };
   const faelle = kreuz({ browser: [true, false, 'wirft'] as const, folge: Object.keys(FOLGEN), abbrechen: [false, true] });
   const ergebnisse: Array<{ f: (typeof faelle)[number]; ist: string; soll: string }> = [];
+  /** Z2 Nr. 1: der Rückkanal ist nach jedem Ende zu (fertig, abgelehnt, abgelaufen, fehler, abgebrochen). */
+  const rueckZu: Array<{ f: (typeof faelle)[number]; ok: boolean; ist: string }> = [];
   for (const f of faelle) {
     const u = umgebung({ browser: f.browser, abholen: FOLGEN[f.folge] });
     await u.ablauf.starte();
@@ -155,10 +168,14 @@ const arten = (u: ReturnType<typeof umgebung>): string => u.schritte.map((s) => 
     const soll = [`startet,wartet,${endArt}`, `${CODE}/${ok}/300000`, ADRESSE, '-', code, angemeldet, schliesst ? 1 : 0, abholen,
       f.abbrechen ? 0 : abholen + (f.folge === 'immer wartet' ? 1 : 0)].join(' ');
     ergebnisse.push({ f, ist, soll });
+    rueckZu.push({ f, ok: u.rueck.length === 1 && u.rueck[0].zu && u.rueck[0].vorgang === 'vorgang-1', ist: JSON.stringify(u.rueck.map((k) => [k.vorgang, k.zu])) });
   }
   const r = pruefeFaelle('P11 4.1: Ablauf (Browser ja/nein/wirft × Antworten des Workers × Abbrechen) → Schrittfolge, Code, Adresse, Aufrufe',
     ergebnisse, (e) => (e.ist === e.soll ? null : `${e.f.browser}/${e.f.folge}/${e.f.abbrechen}: ist ${e.ist}, soll ${e.soll}`));
   ck(r.name, r.ok);
+  const z = pruefeFaelle('Z2 1: genau ein Rückkanal je Versuch, er kennt den Vorgang und ist nach jedem Ende zu (fertig, abgelehnt, abgelaufen, fehler, abgebrochen)',
+    rueckZu, (e) => (e.ok ? null : `${e.f.browser}/${e.f.folge}/${e.f.abbrechen}: ${e.ist}`));
+  ck(z.name, z.ok);
 }
 
 // --- P11 AA2, AA3: Anlegen mit Gerät, Abfrage alle 2 s mit frischem Beweis ------------------------------------------
@@ -174,29 +191,44 @@ const arten = (u: ReturnType<typeof umgebung>): string => u.schritte.map((s) => 
   ck('P11 AA2: Vorgang mit öffentlichem Schlüssel, Rechnername, Plattform, Architektur, Version; Browser mit der Adresse des Workers',
     u.anlegen.length === 1 && a.name === 'PC-Regie' && a.plattform === 'win' && a.arch === 'x64' && a.version === '0.18.0'
     && a.publicJwk.kty === 'EC' && JSON.stringify(u.browser) === JSON.stringify([ADRESSE]));
+  ck('Z2 1/2: vor dem Anlegen öffnet der Ablauf den Rückkanal und meldet dessen Port; danach kennt der Rückkanal den Vorgang',
+    u.rueck.length === 1 && JSON.stringify(u.rueckPorts) === JSON.stringify([u.rueck[0].port]) && u.rueck[0].vorgang === 'vorgang-1');
   const fertig = u.ablauf.schritt();
   ck('P11 AA3: bestätigt → angemeldet genau einmal mit Sitzung und Stand, Schritt „fertig“ mit Kurzname und Stufe',
     u.angemeldet.length === 1 && u.angemeldet[0].token === 'jm1.test.sitzung' && u.angemeldet[0].stand.kid === 'k1'
     && fertig.art === 'fertig' && fertig.kurzName === 'Maria S.' && fertig.stufe === 'kollege');
 }
 
-// --- P11 AA4: Netzfehler ------------------------------------------------------------------------------------------------
+// --- P11 AA4, Z2 Nr. 7: Netzfehler; das Fehlerbudget läuft in Zeit (60 s seit dem letzten Erfolg), nicht in Versuchen -----------
 {
-  const einzeln = umgebung({ abholen: ['netz', 'wartet', 'netz', 'netz', 'server', 'netz', 'bestaetigt'] });
-  await einzeln.ablauf.starte();
-  await bisZumEnde(einzeln);
-  const fuenf = umgebung({ abholen: ['netz', 'netz', 'netz', 'netz', 'netz', 'bestaetigt'] });
-  await fuenf.ablauf.starte();
-  await bisZumEnde(fuenf);
-  const server = umgebung({ abholen: ['server', 'zu-viele', 'server', 'server', 'server'] });
-  await server.ablauf.starte();
-  await bisZumEnde(server);
-  const e1 = fuenf.ablauf.schritt();
+  const lauf = async (folge: Abholen[]) => {
+    const u = umgebung({ abholen: folge });
+    await u.ablauf.starte();
+    await bisZumEnde(u);
+    return u;
+  };
+  const viele = (n: number, c: Abholen): Abholen[] => Array.from({ length: n }, () => c);
+  const einzeln = await lauf(['netz', 'wartet', 'netz', 'netz', 'server', 'netz', 'bestaetigt']);
+  // Anlegen bei T0, die k-te Abfrage bei T0 + 2k s: 29 Fehler in Folge sind 58 s, die 30. Abfrage (60 s) ist die erste nach dem Budget.
+  const fuenf = await lauf([...viele(5, 'netz'), 'bestaetigt']);
+  const unterBudget = await lauf([...viele(29, 'netz'), 'bestaetigt']);
+  const amBudget = await lauf([...viele(30, 'netz'), 'bestaetigt']);
+  const server = await lauf(viele(31, 'server'));
+  const mitErfolg = await lauf([...viele(20, 'netz'), 'wartet', ...viele(29, 'server'), 'bestaetigt']);
+  const e1 = amBudget.ablauf.schritt();
   const e2 = server.ablauf.schritt();
-  ck('P11 AA4: einzelne Netz- und Serverfehler beim Abfragen ändern nichts; fünf in Folge → fehler mit dem letzten Code, keine Abfrage mehr',
+  ck('P11 AA4, Z2 7: einzelne Netz- und Serverfehler ändern nichts, auch fünf oder 29 in Folge (58 s); erst nach 60 s nur mit Fehlern seit dem letzten Erfolg → fehler mit dem letzten Code, keine Abfrage mehr',
     einzeln.ablauf.schritt().art === 'fertig' && arten(einzeln) === 'startet,wartet,fertig'
-    && e1.art === 'fehler' && e1.code === 'netz' && fuenf.abholen.length === 5 && fuenf.angemeldet.length === 0
-    && e2.art === 'fehler' && e2.code === 'server' && server.abholen.length === 5);
+    && fuenf.ablauf.schritt().art === 'fertig' && unterBudget.ablauf.schritt().art === 'fertig' && unterBudget.abholen.length === 30
+    && e1.art === 'fehler' && e1.code === 'netz' && amBudget.abholen.length === 30 && amBudget.angemeldet.length === 0
+    && e2.art === 'fehler' && e2.code === 'server' && server.abholen.length === 30);
+  ck('Z2 7: ein Erfolg dazwischen (wartet) setzt das Budget zurück: 20 Fehler, wartet, 29 Fehler → weiter bis fertig',
+    mitErfolg.ablauf.schritt().art === 'fertig' && mitErfolg.angemeldet.length === 1);
+  // 429 (zu-viele) zählt nicht als Fehler: der Worker hat geantwortet.
+  const drossel = await lauf([...viele(29, 'server'), 'zu-viele', ...viele(29, 'netz'), 'bestaetigt']);
+  const nurDrossel = await lauf([...viele(40, 'zu-viele'), 'bestaetigt']);
+  ck('Z2 7: zu-viele (429) zählt nicht als Fehler: 29 Serverfehler, eine Drosselung, 29 Netzfehler → fertig; 40 Drosselungen in Folge (80 s) → fertig',
+    drossel.ablauf.schritt().art === 'fertig' && drossel.angemeldet.length === 1 && nurDrossel.ablauf.schritt().art === 'fertig' && nurDrossel.abholen.length === 41);
 }
 {
   const ergebnisse: string[] = [];
@@ -364,6 +396,49 @@ const arten = (u: ReturnType<typeof umgebung>): string => u.schritte.map((s) => 
   const alles = JSON.stringify([u.schritte, f.schritte]);
   ck('P11 G4: in keinem gemeldeten Schritt stehen Abholgeheimnis oder Sitzung',
     u.schritte.length === 3 && !alles.includes('test-abholen-1') && !alles.includes('jm1.test.sitzung'));
+}
+
+// --- Z2 Nr. 2: vor dem Sprung ohne e, danach mit genau dem Wert aus dem Rückkanal --------------------------------------------
+{
+  const E = 'Cd2_-'.repeat(8) + 'Cd2';
+  const u = umgebung({ abholen: ['wartet', 'wartet', 'bestaetigt'] });
+  await u.ablauf.starte();
+  await feuere(u);
+  u.rueck[0].angenommen(E); // der Browser springt an den Rückkanal
+  await bisZumEnde(u);
+  const alles = JSON.stringify(u.schritte);
+  ck('Z2 2: vor dem Sprung fragt der Ablauf ohne e, danach mit genau dem Wert aus dem Rückkanal; e steht in keinem gemeldeten Schritt',
+    JSON.stringify(u.abholen.map((a) => a.e ?? null)) === JSON.stringify([null, E, E]) && u.ablauf.schritt().art === 'fertig' && !alles.includes(E));
+  // Ein Wert, der den Ablauf erst nach dem Abbrechen erreicht, gilt nicht für den neuen Versuch.
+  const v = umgebung({ abholen: [] });
+  await v.ablauf.starte();
+  const alt = v.rueck[0];
+  await v.ablauf.abbrechen();
+  alt.angenommen(E);
+  await v.ablauf.starte();
+  await feuere(v);
+  ck('Z2 2: ein Einmalwert für einen abgebrochenen Versuch gilt nicht für den neuen (der neue fragt ohne e, eigener Rückkanal)',
+    v.rueck.length === 2 && v.rueck[0].zu && !v.rueck[1].zu && v.abholen.length === 1 && v.abholen[0].e === undefined && v.abholen[0].vorgang === 'vorgang-2');
+  await v.ablauf.abbrechen();
+}
+
+// --- Z2 Nr. 1: Rückkanal lässt sich nicht öffnen; Beenden des Launchers ---------------------------------------------------------
+{
+  const u = umgebung({ rueckWirft: true });
+  await u.ablauf.starte();
+  const s = u.ablauf.schritt();
+  ck('Z2 1: lässt sich der Rückkanal nicht öffnen → fehler server, kein Vorgang, kein Browser, keine Abfrage',
+    s.art === 'fehler' && s.code === 'server' && u.anlegen.length === 0 && u.browser.length === 0 && u.wecker.length === 0);
+  const b = umgebung({ abholen: [] });
+  await b.ablauf.starte();
+  await feuere(b);
+  const vorher = b.schritte.length;
+  b.ablauf.stoppe();
+  const nachStoppe = await bisZumEnde(b);
+  await ruhe();
+  ck('Z2 1: stoppe() (Beenden des Launchers) stoppt die Abfrage, schließt den Rückkanal und bricht beim Worker ab, ohne Meldung an den Renderer',
+    b.rueck[0].zu && nachStoppe === 0 && b.abbrechen.length === 1 && b.abbrechen[0].vorgang === 'vorgang-1' && b.schritte.length === vorher
+      && b.ablauf.schritt().art === 'abgebrochen' && b.ablauf.adresse() === null);
 }
 
 // --- P11 G9 ---------------------------------------------------------------------------------------------------------------

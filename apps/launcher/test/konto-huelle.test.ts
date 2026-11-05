@@ -426,6 +426,14 @@ function uebergangUmgebung(o: { startMerker?: UebergangsMerker | null; schreibWi
     && huelle.indexOf('uebergang.k33Gezeigt();') > huelle.indexOf("emit({ type: 'notice', message: textAngemeldet(s.stand) });")
     && huelle.indexOf('uebergang.k33Gezeigt();') < huelle.indexOf('void kontoLage(false);')
     && huelle.includes('      uebergang.abmelden();'));
+  // Z2: die Hülle gibt dem Ablauf den echten Rückkanal (Log nur über das Launcher-Log, rueckkanal.ts schreibt nie e) und schließt ihn
+  // beim Beenden (stoppeKonto → ablauf.stoppe). Verhalten von Rückkanal und Ablauf: konto-rueckkanal und konto-anmeldung.
+  ck('Z2 1: die Hülle verdrahtet oeffneRueckkanal mit dem Launcher-Log in den Ablauf und stoppt beim Beenden den Ablauf (Rückkanal zu)',
+    huelle.includes("import { oeffneRueckkanal } from './rueckkanal';") && huelle.includes('    oeffneRueckkanal: (o) => oeffneRueckkanal({ ...o, log: (z) => log?.info(z) }),')
+    && (() => {
+      const s = huelle.slice(huelle.indexOf('export function stoppeKonto(): void {'), huelle.indexOf('export function kontoToken()'));
+      return s.includes('  ablauf?.stoppe();');
+    })());
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

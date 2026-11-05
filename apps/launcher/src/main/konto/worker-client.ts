@@ -34,8 +34,10 @@ export interface IveoZentral { key: string; basis: string; slug: string; name: s
 /** Diagnose des Workers zu GET /konto/iveo (10.1): ohne IVEO_SCHLUESSEL eine leere Liste mit diesem Hinweis (G7). */
 export type IveoHinweis = 'iveo-nicht-eingerichtet';
 export interface KontoClient {
-  vorgangAnlegen(g: { publicJwk: JsonWebKey; name: string; plattform: 'win' | 'mac'; arch: string; version: string }): Promise<{ vorgang: string; abholGeheimnis: string; code: string; adresse: string; bis: number }>;
-  vorgangAbholen(vorgang: string, abholGeheimnis: string, beweis: GeraetBeweis): Promise<{ zustand: 'wartet' | 'abgelehnt' | 'abgelaufen' } | { zustand: 'bestaetigt'; sitzung: string; stand: KontoStand }>;
+  /** Z2: `rueckPort` ist der Port des Rückkanals auf 127.0.0.1 (rueckkanal.ts), an den der Browser nach „Ja“ springt. */
+  vorgangAnlegen(g: { publicJwk: JsonWebKey; name: string; plattform: 'win' | 'mac'; arch: string; version: string }, rueckPort: number): Promise<{ vorgang: string; abholGeheimnis: string; code: string; adresse: string; bis: number }>;
+  /** Z2: `e` ist der Einmalwert aus dem Sprung; fehlt er, geht kein `e` mit (nach „Ja“ antwortet der Worker dann nur „wartet“). */
+  vorgangAbholen(vorgang: string, abholGeheimnis: string, beweis: GeraetBeweis, e?: string): Promise<{ zustand: 'wartet' | 'abgelehnt' | 'abgelaufen' } | { zustand: 'bestaetigt'; sitzung: string; stand: KontoStand }>;
   vorgangAbbrechen(vorgang: string, abholGeheimnis: string): Promise<void>;
   sitzungErneuern(sitzung: string, beweis: GeraetBeweis, version: string, rechnerName: string): Promise<{ sitzung: string; stand: KontoStand }>;
   abmelden(sitzung: string): Promise<void>;
@@ -180,16 +182,16 @@ export function erzeugeKontoClient(o: { basis: string; fetch: typeof fetch; zeit
   }
 
   return {
-    async vorgangAnlegen(g) {
-      const d = await rufe('POST', '/konto/vorgang', null, { geraet: g });
+    async vorgangAnlegen(g, rueckPort) {
+      const d = await rufe('POST', '/konto/vorgang', null, { geraet: g, rueckPort });
       // EP35 (Nachbesserung Block D, sicherheit:8): eine Anmeldeadresse, die nicht https beim Worker liegt, ist ein Serverfehler
       // (K53) — der Launcher öffnet sie nie im System-Browser.
       return form(istObjekt(d) && istText(d.vorgang) && istText(d.abholGeheimnis) && istText(d.code) && istText(d.adresse)
         && browserAdresseErlaubt(d.adresse, basis) && istZahl(d.bis),
         d as { vorgang: string; abholGeheimnis: string; code: string; adresse: string; bis: number });
     },
-    async vorgangAbholen(vorgang, abholGeheimnis, beweis) {
-      const d = await rufe('POST', '/konto/vorgang/abholen', null, { vorgang, abholGeheimnis, beweis });
+    async vorgangAbholen(vorgang, abholGeheimnis, beweis, e) {
+      const d = await rufe('POST', '/konto/vorgang/abholen', null, { vorgang, abholGeheimnis, beweis, ...(e === undefined ? {} : { e }) });
       if (istObjekt(d) && d.zustand === 'bestaetigt') {
         return form(istText(d.sitzung) && standAus(d.stand) !== null, { zustand: 'bestaetigt' as const, sitzung: d.sitzung as string, stand: standAus(d.stand) as KontoStand });
       }

@@ -23,6 +23,7 @@ import {
 } from './worker-client';
 import { erzeugeSitzungsTreiber, sitzungsAblage, type GespeicherteSitzung, type SitzungsTreiber } from './sitzung-kern';
 import { erzeugeAnmeldeAblauf, type AnmeldeAblauf } from './anmelde-ablauf';
+import { oeffneRueckkanal } from './rueckkanal';
 import { starteTuerDienst } from './tuer-dienst';
 import { erzeugeFreigabeStelle } from './freigaben';
 import { erzeugeIveoZentral, iveoHinterlegenBasis, lokaleLoeschen, zentraleKeysFuerLoeschlauf, type IveoZentralSpeicher } from './iveo-zentral';
@@ -273,6 +274,8 @@ export function stoppeKonto(): void {
   lageTakt = null;
   // Z1: auch die Wecker des Treibers gehen aus; nach dem Beenden prüft nichts mehr im Hintergrund.
   treiber?.stoppe();
+  // Z2: eine laufende Anmeldung hört auf zu fragen und schließt ihren Rückkanal auf 127.0.0.1.
+  ablauf?.stoppe();
   void tuer?.stoppe();
   tuer = null;
 }
@@ -494,6 +497,8 @@ function anmeldeAblauf(): AnmeldeAblauf | null {
     jetzt: () => Date.now(),
     wecker,
     oeffneBrowser: oeffneImBrowser,
+    // Z2: Rückkanal nur auf 127.0.0.1; ins Log nur „angenommen“ oder „abgewiesen“, nie der Einmalwert (G4).
+    oeffneRueckkanal: (o) => oeffneRueckkanal({ ...o, log: (z) => log?.info(z) }),
     rechnerName: rechnerName(),
     plattform: plattform(),
     arch: arch(),

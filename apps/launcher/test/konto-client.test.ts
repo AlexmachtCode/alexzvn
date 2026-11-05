@@ -74,7 +74,7 @@ async function fehlerVon(p: Promise<unknown>): Promise<KontoFehler | null> {
   });
   const c: KontoClient = erzeugeKontoClient({ basis: BASIS, fetch: att.fetch });
   const g = { publicJwk: { kty: 'EC', crv: 'P-256', x: 'x', y: 'y' }, name: 'PC-1', plattform: 'win' as const, arch: 'x64', version: '0.18.0' };
-  const r1 = await c.vorgangAnlegen(g);
+  const r1 = await c.vorgangAnlegen(g, 50123);
   const r2 = await c.vorgangAbholen('v1', 'h1', BEWEIS);
   await c.vorgangAbbrechen('v1', 'h1');
   const r4 = await c.sitzungErneuern(S, BEWEIS, '0.18.0', 'PC-1');
@@ -86,7 +86,7 @@ async function fehlerVon(p: Promise<unknown>): Promise<KontoFehler | null> {
   const r10 = await c.adminUebersicht(S);
   const r11 = await c.adminAktion(S, { aktion: 'neuer-code', kid: 'k2' });
   const soll: Array<[string, string, boolean, unknown]> = [
-    ['POST', '/konto/vorgang', false, { geraet: g }],
+    ['POST', '/konto/vorgang', false, { geraet: g, rueckPort: 50123 }],
     ['POST', '/konto/vorgang/abholen', false, { vorgang: 'v1', abholGeheimnis: 'h1', beweis: BEWEIS }],
     ['POST', '/konto/vorgang/abbrechen', false, { vorgang: 'v1', abholGeheimnis: 'h1' }],
     ['POST', '/konto/sitzung', true, { beweis: BEWEIS, version: '0.18.0', rechnerName: 'PC-1' }],
@@ -112,6 +112,14 @@ async function fehlerVon(p: Promise<unknown>): Promise<KontoFehler | null> {
     && r4.sitzung === 'jm1.test.zwei' && r6.kontoAktiv === true && r6.adminOffen === 3 && r6.zoomAnfrage?.id === 'a1'
     && r7.freigabe === 'jm1.test.frei' && r8.events.length === 1 && r8.events[0].token === 'tok' && r8.hinweis === null && r9.id === 'a1'
     && Array.isArray(r10.zugaenge) && r11.einladungscode === 'AAAA-BBBB-CCCC');
+  // Z2: das Abholen schickt den Einmalwert e nur mit, wenn der Ablauf ihn hat (sonst fehlt das Feld ganz).
+  const E = 'Cd2_-'.repeat(8) + 'Cd2';
+  const vorher = att.aufrufe.length;
+  await c.vorgangAbholen('v1', 'h1', BEWEIS, E);
+  const mitE = att.aufrufe[vorher];
+  ck('Z2 2: vorgangAbholen mit e schickt { vorgang, abholGeheimnis, beweis, e }; ohne e fehlt das Feld (oben)',
+    mitE !== undefined && JSON.stringify(mitE.body) === JSON.stringify({ vorgang: 'v1', abholGeheimnis: 'h1', beweis: BEWEIS, e: E })
+    && !('e' in (att.aufrufe[1].body as Record<string, unknown>)));
 }
 
 // --- P9 EP17: Fehlerabbildung --------------------------------------------------------------------------------------
@@ -241,7 +249,7 @@ ck('P9 9.1: zugangsKopf: Sitzung → Authorization, sonst Dev-Key → X-Proxy-Ke
   const codes: string[] = [];
   for (const adresse of ['file:///C:/Windows/System32/calc.exe', 'https://worker.test.evil.example/konto/anmelden?v=v1', 'http://worker.test/konto/anmelden?v=v1']) {
     const c = erzeugeKontoClient({ basis: BASIS, fetch: attrappe(() => ({ status: 200, json: { vorgang: 'v1', abholGeheimnis: 'h1', code: 'ABC-DEF', adresse, bis: 99 } })).fetch });
-    codes.push((await fehlerVon(c.vorgangAnlegen(g)))?.code ?? 'angenommen');
+    codes.push((await fehlerVon(c.vorgangAnlegen(g, 50123)))?.code ?? 'angenommen');
   }
   ck(`P21 EP35: vorgangAnlegen verwirft eine Anmeldeadresse, die nicht https beim Worker liegt, als server (${codes.join(', ')})`,
     codes.length === 3 && codes.every((x) => x === 'server'));
