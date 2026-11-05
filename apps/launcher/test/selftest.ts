@@ -3756,13 +3756,38 @@ function dialogBefunde(q: string): string[] {
     ['Q&A extern ohne Launcher und Neustart', 'Q&A extern ohne Launcher'], ['iveo zentral', 'iveo zentral'], ['Abgleich hier', '„Abgleich hier übernehmen“'],
     ['Zoom anfragen und freigeben', '„Zoom freigegeben bis ‹Datum›.“'],
     ['alter Launcher vor ALTKEY_BIS', '„Alter Schlüssel ohne Enddatum angenommen.“'], ['alter Launcher nach ALTKEY_BIS', '**Nach `ALTKEY_BIS`'],
-    ['Connect 0.3.0 mit altem Schlüssel', 'Connect 0.3.0'], ['Mac: Geräteschlüssel nach Update', 'safeStorage auf dem unsignierten Mac'],
+    ['Connect 0.3.0 mit altem Schlüssel', 'Cloud-Raum mit dem gespeicherten Proxy-Key öffnen'], ['Mac: Geräteschlüssel nach Update', 'safeStorage auf dem unsignierten Mac'],
   ];
   const lageFehlt = LAGEN.filter(([, s]) => !abnahme.includes(s)).map(([n]) => n);
   ck(`P35 Abnahme: jede Lage aus der Gliederung hat einen Schritt oder eine Zusatzprüfung (${LAGEN.length} Lagen)${lageFehlt.length ? ` — fehlt: ${lageFehlt.join(', ')}` : ''}`,
     abnahme !== '' && lageFehlt.length === 0);
-  const ohneCode = abnahme.replace(/`[^`\n]*`/g, '');
-  ck('P35 G2: die Abnahme-Datei ohne ASCII-Anführungszeichen außerhalb von Code', abnahme !== '' && !ohneCode.includes('"'));
+  // Z1-F: die Schrittzahl wird gewacht (22 Schritte, lückenlos 1 bis 22).
+  const schritte = [...abnahme.matchAll(/^\| (\d+) \| /gm)].map((m) => Number(m[1]));
+  ck(`P35 Z1-F: die Abnahme-Tabelle hat genau 22 Schritte, lückenlos nummeriert (${schritte.length})`,
+    schritte.length === 22 && schritte.every((n, i) => n === i + 1));
+  // Z1-F: der eingerückte PowerShell-Block (Hinweis zu 11) ist Code und fällt aus der G2-Prüfung; Inline-Code ebenso.
+  const ohneCode = abnahme.replace(/^ {4}.*$/gm, '').replace(/`[^`\n]*`/g, '');
+  ck('P35 G2: die Abnahme-Datei ohne ASCII-Anführungszeichen außerhalb von Code (eingerückter PowerShell-Block ausgenommen)', abnahme !== '' && !ohneCode.includes('"'));
+  // Z1-F: der Nachtrag Texte (Z1) nennt jeden neuen Text mit Nummer und dem Wortlaut der Quelle, zeichengenau.
+  const dialogQ = quelleLf('../src/renderer/src/lib/konto-dialog.ts');
+  const adminQ = quelleLf('../src/renderer/src/lib/admin-ansicht.ts');
+  const zugangQ = quelleLf('../src/renderer/src/lib/konto-zugang.ts');
+  const workerQ = quelleLf('../../../services/release-proxy/konto-zugang.js');
+  const NACHTRAG: Array<[string, string, string]> = [
+    ['I16', 'Für dieses Event ist kein Token hinterlegt. Die Show gleicht nicht mit iveo ab, bis ein Admin das Event in der Admin-Maske hinterlegt.', zugangQ],
+    ['M49', 'Diese iveo-Adresse ist nicht freigegeben. Erlaubt sind Production (app.my-iveo.de) und Staging (staging-dev.my-iveo.de).', adminQ],
+    ['S19', 'Diese iveo-Adresse ist nicht freigegeben. Erlaubt sind Production (app.my-iveo.de) und Staging (staging-dev.my-iveo.de).', workerQ],
+    ['M50', 'Bitte eine gültige E-Mail-Adresse eingeben.', adminQ],
+    ['Z10d', 'Der Zeitraum liegt in der Vergangenheit.', dialogQ],
+    ['Z10e', 'Bitte ein gültiges Datum eingeben.', dialogQ],
+    ['K56', 'Kopieren hat nicht geklappt. Markiere die Adresse und kopiere sie von Hand.', dialogQ],
+  ];
+  const nachtragStart = abnahme.indexOf('## Nachtrag Texte (Z1)');
+  const nachtrag = nachtragStart < 0 ? '' : abnahme.slice(nachtragStart, abnahme.indexOf('\n## ', nachtragStart + 5));
+  const nachtragFehlt = NACHTRAG.filter(([nr, t, q]) => !nachtrag.includes(`| ${nr} | `) || !nachtrag.includes(`| ${t} |`) || !q.includes(`'${t}'`))
+    .map(([nr]) => nr);
+  ck(`P35 Z1-F: der Nachtrag Texte (Z1) in der Abnahme nennt I16, M49, S19, M50, Z10d, Z10e und K56 mit dem Wortlaut der Quelle${nachtragFehlt.length ? ` — fehlt oder weicht ab: ${nachtragFehlt.join(', ')}` : ''}`,
+    nachtrag !== '' && nachtragFehlt.length === 0 && abnahme.indexOf('## Nachtrag Texte (Z1)') < abnahme.indexOf('## Zusatzprüfungen'));
 }
 
 // ── Ende der Fälle (Anmeldung) ──

@@ -18,7 +18,7 @@
     "selftest": "node --experimental-strip-types test/selftest.ts && node --experimental-strip-types test/anleitung-stimme.test.ts",
     "selftest:verbund": "tsx test/verbund.test.ts && tsx test/verteiler.test.ts && tsx test/verbund-kette.test.ts",
     "selftest:iveo": "tsx test/iveo-abgleich.test.ts && tsx test/iveo-huelle.test.ts && tsx test/show-speichern.test.ts && tsx test/reload-nachholen.test.ts && tsx test/iveo-anhaenge.test.ts && tsx test/side-event-ordner.test.ts && tsx test/side-event-ordner-echt.test.ts && tsx test/anhang-laden.test.ts",
-    "selftest:konto": "tsx test/konto-rechte.test.ts && tsx test/konto-geraet.test.ts && tsx test/konto-client.test.ts && tsx test/konto-sitzung.test.ts && tsx test/konto-anmeldung.test.ts && tsx test/konto-tuer.test.ts && tsx test/konto-iveo.test.ts && tsx test/konto-anzeige.test.ts && tsx test/konto-admin.test.ts && tsx test/konto-huelle.test.ts && tsx --tsconfig tsconfig.web.json test/konto-store.test.ts",
+    "selftest:konto": "tsx test/konto-rechte.test.ts && tsx test/konto-geraet.test.ts && tsx test/konto-client.test.ts && tsx test/konto-sitzung.test.ts && tsx test/konto-anmeldung.test.ts && tsx test/konto-tuer.test.ts && tsx test/konto-iveo.test.ts && tsx test/konto-anzeige.test.ts && tsx test/konto-admin.test.ts && tsx test/konto-huelle.test.ts && tsx test/iveo-gleichstand.test.ts && tsx --tsconfig tsconfig.web.json test/konto-store.test.ts",
     "stimme:erzeugen": "node --experimental-strip-types scripts/anleitung-stimme.mjs",
     "stimme:bau-pruefen": "node scripts/pruefe-bau-stimme.mjs",
     "dist": "electron-vite build && electron-builder",

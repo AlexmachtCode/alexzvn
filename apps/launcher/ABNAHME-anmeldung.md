@@ -43,7 +43,7 @@ ist Vorname plus Initial (zum Beispiel „Maria S.“), ‹Datum› steht als TT
 | 19 | Connect 0.3.0 oder 0.4.0 (Rechner C oder A): Cloud-Raum mit dem gespeicherten Proxy-Key öffnen, einen Gast einladen | Raum, Gast-Link und Verbindung gehen wie bisher; Connect ist in Teil 1 unverändert. | | | |
 | 20 | Rechner B (Mac): den Launcher auf einen neueren Abnahme-Bau aktualisieren (Selbst-Update oder DMG), starten | Weiter angemeldet, Kopf „‹Kurzname› · Externer“; im Konto-Dialog kein Hinweis „Der Schlüssel dieses Rechners war nicht lesbar; der Rechner meldet sich als neues Gerät an. Ein Admin markiert ihn bei Bedarf neu als JM-Rechner.“ Erscheint er, ist das ein Befund (safeStorage auf dem unsignierten Mac, offener Punkt N15). | | | |
 | 21 | Rechner A: mit offener iveo-Show im Konto-Dialog „Abmelden“; „Abbrechen“; ohne offene Show „Abmelden“ | Rückfrage „Abmelden? Der iveo-Abgleich der offenen Show stoppt; laufende Tools arbeiten weiter.“ mit „Abmelden“ und „Abbrechen“. Nach „Abmelden“: „Abgemeldet.“, oben „Anmelden“, laufende Tools und Q&A extern arbeiten weiter (Freigabe bis zu ihrem Ablauf). | | | |
-| 22 | Texttabelle freigeben: den Abschnitt „Texttabelle“ des Plans lesen (Launcher, Anmeldeseite, Fehlertexte des Workers, Admin-Maske, Q&A, Kapitel 1, Kochbuch) | Freigabe oder Änderungen im Ergebnis notiert. Bei Änderungen ändert der Controller die Texte und hat alle Selbsttests grün, bevor 0.18.0 erscheint. | | | |
+| 22 | Texttabelle freigeben: den Abschnitt „Texttabelle“ des Plans lesen (Launcher, Anmeldeseite, Fehlertexte des Workers, Admin-Maske, Q&A, Kapitel 1, Kochbuch) und den „Nachtrag Texte (Z1)“ unten | Freigabe oder Änderungen im Ergebnis notiert. Bei Änderungen ändert der Controller die Texte und hat alle Selbsttests grün, bevor 0.18.0 erscheint. | | | |
 
 **Hinweis zu den Kopfzuständen:** Oben rechts steht je Zustand genau einer dieser Texte (Fenster ab 1180 px; schmaler nur der
 Kreis, der Text im Tooltip): „Anmelden“ (nicht angemeldet), „‹Kurzname› · ‹Stufe›“ mit den Stufen „Admin“, „Kollege“ und „Externer“
@@ -63,6 +63,27 @@ Die vier Zeilen in ein PowerShell-Fenster einfügen (Windows PowerShell 5.1 gen�
     'Diese Adresse im Launcher als Server-Adresse eintragen: http://127.0.0.1:' + $l.LocalEndpoint.Port
     $offen = [System.Collections.Generic.List[System.Net.Sockets.TcpClient]]::new()
     while ($true) { if ($l.Pending()) { $offen.Add($l.AcceptTcpClient()) } else { Start-Sleep -Milliseconds 200 } }
+
+## Nachtrag Texte (Z1)
+
+Diese Texte sind nach der Texttabelle des Plans dazugekommen (Nachrunde Z1). Der Owner gibt sie in Schritt 22 mit frei. Sie stehen
+hier wörtlich, so wie Launcher, Admin-Maske und Worker sie zeigen. Ergebnis, Datum und Name in der letzten Spalte.
+
+| Nr. | Ort | Wortlaut | Ergebnis / Datum / Name |
+| --- | --- | --- | --- |
+| I16 | Launcher, Side-Events-Panel: die offene Show ist an iveo gebunden, für ihr Event ist aber kein Token hinterlegt (weder zentral noch lokal im Übergang) | Für dieses Event ist kein Token hinterlegt. Die Show gleicht nicht mit iveo ab, bis ein Admin das Event in der Admin-Maske hinterlegt. | |
+| M49 | Admin-Maske, Reiter „iveo-Events“: Hinterlegen mit einer iveo-Adresse, die nicht auf der festen Liste steht | Diese iveo-Adresse ist nicht freigegeben. Erlaubt sind Production (app.my-iveo.de) und Staging (staging-dev.my-iveo.de). | |
+| S19 | Worker, Fehlertext zum Code `iveo-basis-unbekannt` (derselbe Wortlaut wie M49, AR76) | Diese iveo-Adresse ist nicht freigegeben. Erlaubt sind Production (app.my-iveo.de) und Staging (staging-dev.my-iveo.de). | |
+| M50 | Admin-Maske, Reiter „Zugänge“, „+ Externen einladen“: die E-Mail-Adresse ist keine gültige Adresse | Bitte eine gültige E-Mail-Adresse eingeben. | |
+| Z10d | Konto-Dialog, „Zoom anfragen“: der Zeitraum ist schon zu Ende | Der Zeitraum liegt in der Vergangenheit. | |
+| Z10e | Konto-Dialog, „Zoom anfragen“: ein Datum fehlt oder gibt es nicht (zum Beispiel 30. Februar oder Jahr 0026); „Bis“ nicht nach „Von“ bleibt Z10b | Bitte ein gültiges Datum eingeben. | |
+| K56 | Anmelde-Dialog: „Adresse kopieren“ ist gescheitert (vorher stand dort der Serverfehler K53) | Kopieren hat nicht geklappt. Markiere die Adresse und kopiere sie von Hand. | |
+
+Die Texte aus Z2 kommen später in diese Tabelle (Platz für weitere Zeilen).
+
+**Hinweis zum Show-Editor im Übergang:** Der Show-Editor bietet Events, die nur ein lokal gespeichertes Token haben, nicht zum
+Neufiltern an (der Punkt L2.5 ist nicht gebaut). Die Auswahl zeigt nur zentral hinterlegte Events; die Bindung einer Show bleibt
+sonst wie heute. Wer ein Event nur mit lokalem Token hat, lässt es einen Admin zentral hinterlegen.
 
 ## Zusatzprüfungen (nicht in der Tabelle)
 

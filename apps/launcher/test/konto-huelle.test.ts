@@ -93,6 +93,18 @@ function uebergangUmgebung(o: { startMerker?: UebergangsMerker | null; schreibWi
   g.u.vormerken(false);
   ck('Z1 Nr. 8: vormerken(false) nach vormerken(true) behält den GitHub-Hinweis', g.merker?.github === true);
 
+  // Z1-F AR81 (A): vormerken setzt `gemeldet` zurück. Nach einer gezeigten Meldung bringt ein neues Vormerken (z. B. nach dem
+  // Abmelden und einer weiteren ersten Anmeldung im selben Prozess) die zweite Meldung; ohne das Zurücksetzen bliebe sie stumm.
+  const m = uebergangUmgebung();
+  m.u.vormerken(false);
+  m.u.nachLaden(() => 'erste');
+  m.wecker[0].fn();
+  m.u.vormerken(true);
+  m.u.nachLaden((github) => (github ? 'zweite mit GitHub' : 'zweite'));
+  m.wecker[1]?.fn();
+  ck('Z1-F AR81 A: vormerken → melden → vormerken → nachLaden → zweite Meldung kommt (vormerken setzt gemeldet zurück)',
+    m.meldungen.join('|') === 'erste|zweite mit GitHub' && m.merker === null);
+
   // nichts zu sagen → die Vormerkung fällt weg, ohne Meldung
   const h = uebergangUmgebung();
   h.u.vormerken(false);

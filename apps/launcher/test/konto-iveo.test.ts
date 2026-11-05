@@ -268,6 +268,19 @@ ck('Z1 OE2: IVEO_ERLAUBTE_BASEN sind genau Production und Staging (die Liste des
   const mit = z.tokenFuer('x', STAGING, lage);
   ck('Fixrunde 1 Nr. 8: ohne genannte Basis (Standard = Production) bekommt ein nur auf Staging liegendes Event kein Token; mit genannter Basis Staging schon',
     ohne.token === undefined && ohne.grund === 'nicht-hinterlegt' && mit.token === 'tok-staging');
+  // Z1-F AR81 (B): der Slug-Rückfall ohne Basis vergleicht mit der Basis des EIGENEN Schlüssels (= Standardbasis der Lage), nicht mit
+  // der festen Production. Standardbasis Staging, zentral STAGING|x und PROD|x, markiert STAGING|x → das Token von Staging.
+  const z2 = erzeugeIveoZentral();
+  z2.setze([
+    { key: `${STAGING}|x`, basis: STAGING, slug: 'x', name: 'X', token: 'tok-staging' },
+    { key: `${PROD}|x`, basis: PROD, slug: 'x', name: 'X', token: 'tok-prod' },
+  ], T0);
+  const lageSt: IveoLage = { angemeldet: true, geladen: true, abgleichHier: [`${STAGING}|x`], lokal: () => undefined, env: undefined, standardBasis: STAGING };
+  const stOhne = z2.tokenFuer('x', undefined, lageSt);
+  const lageProd: IveoLage = { ...lageSt, abgleichHier: [`${PROD}|x`], standardBasis: PROD };
+  const prodOhne = z2.tokenFuer('x', undefined, lageProd);
+  ck('Z1-F AR81 B: Standardbasis Staging, ohne genannte Basis → Token von Staging, nie tok-prod; Standardbasis Production → tok-prod',
+    stOhne.token === 'tok-staging' && stOhne.grund === 'ok' && prodOhne.token === 'tok-prod' && prodOhne.grund === 'ok');
 }
 
 // --- P14 G9 --------------------------------------------------------------------------------------------------------------------

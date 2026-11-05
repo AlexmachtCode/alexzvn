@@ -72,6 +72,7 @@ export const ZOOM_TEXTE = {
   /** Z10b */ bisVorVon: '„Bis“ muss nach „Von“ liegen.',
   /** Z10c */ schonOffen: 'Es gibt schon eine offene Zoom-Anfrage.',
   /** Z10d (Z1, AR77) */ vergangenheit: 'Der Zeitraum liegt in der Vergangenheit.',
+  /** Z10e (Z1, AR80) */ datumUngueltig: 'Bitte ein gültiges Datum eingeben.',
   /** Z11 (nur Teil 1, EP34) */ connect: 'Connect nutzt Zoom-Freigaben erst mit einem kommenden Update; bis dahin gilt Zoom in Connect wie bisher.',
 } as const;
 
@@ -92,6 +93,7 @@ export const ANMELDE_TEXTE = {
   /** K52 */ browser: 'Der Browser ließ sich nicht öffnen. Kopiere die Adresse und öffne sie selbst.',
   /** K53 */ server: 'Beim Server ist etwas schiefgegangen. Versuche es in ein paar Minuten erneut.',
   /** K54 */ zuViele: 'Zu viele Anmeldeversuche von diesem Anschluss. Versuche es in ein paar Minuten erneut.',
+  /** K56 (Z1, AR80) */ kopierenFehlt: 'Kopieren hat nicht geklappt. Markiere die Adresse und kopiere sie von Hand.',
   /** K55 (EP30) */ uhr: 'Die Uhr dieses Rechners geht falsch, darum lehnt der Server die Anmeldung ab. Stelle Datum und Uhrzeit richtig und versuche es erneut.',
 } as const;
 
@@ -249,7 +251,9 @@ export function zoomFormular(e: { zweck: string; von: string; bis: string }, jet
   if (!zweck) return { ok: false, text: ZOOM_TEXTE.zweckFehlt };
   const von = tagesGrenze(e.von, false);
   const bis = tagesGrenze(e.bis, true);
-  if (von === null || bis === null || bis <= von) return { ok: false, text: ZOOM_TEXTE.bisVorVon };
+  // Z1 (AR80): ein Datum, das es nicht gibt (leer, 30. Februar, Jahr 0026), bekommt Z10e; Z10b bleibt für Bis ≤ Von.
+  if (von === null || bis === null) return { ok: false, text: ZOOM_TEXTE.datumUngueltig };
+  if (bis <= von) return { ok: false, text: ZOOM_TEXTE.bisVorVon };
   // Z1 (AR77): ein Zeitraum, der schon zu Ende ist, bekommt Z10d (der Worker verlangt „bis“ nach jetzt); Z10b bleibt für Bis ≤ Von.
   if (bis <= jetzt) return { ok: false, text: ZOOM_TEXTE.vergangenheit };
   return { ok: true, zweck, von, bis };
@@ -269,9 +273,9 @@ export function zoomFehlerText(code: KontoFehlerCode): string {
   return ANMELDE_TEXTE.server;
 }
 
-/** Z1: Ergebnis von „Adresse kopieren“ (K44): bei Erfolg „Adresse kopiert“, sonst der bestehende Fehlertext K53 statt Schweigen. */
+/** Z1: Ergebnis von „Adresse kopieren“ (K44): bei Erfolg „Adresse kopiert“, sonst K56 (AR80, vorher K53) statt Schweigen. */
 export function kopierErgebnis(ok: boolean): { kopiert: boolean; fehler: string | null } {
-  return ok ? { kopiert: true, fehler: null } : { kopiert: false, fehler: ANMELDE_TEXTE.server };
+  return ok ? { kopiert: true, fehler: null } : { kopiert: false, fehler: ANMELDE_TEXTE.kopierenFehlt };
 }
 
 /** K43: verbleibende Zeit m:ss (abgerundet auf ganze Sekunden, nie negativ). */

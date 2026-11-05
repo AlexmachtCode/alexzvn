@@ -79,7 +79,7 @@ beide laufen dieselbe Falltabelle `services/release-proxy/test/rechte-faelle.jso
 
 | Funktion | Admin | Kollege | Externer |
 | --- | --- | --- | --- |
-| Launcher-Selbst-Update (`/tools/launcher/latest`) | ja, auch ohne Anmeldung | ja, auch ohne Anmeldung | ja, auch ohne Anmeldung |
+| Launcher-Selbst-Update (`/tools/launcher/latest`) | ja, auch ohne Anmeldung (ab 0.18.0) | ja, auch ohne Anmeldung (ab 0.18.0) | ja, auch ohne Anmeldung (ab 0.18.0) |
 | Katalog, Installieren, Updates, Kochbuch, Feedback | ja | ja | ja |
 | KI-Entwurf für das Kochbuch | ja | ja | nein |
 | Q&A extern, Connect-Cloud-Raum (Teil 2) | ja | ja | nur mit dem Werkzeug |
@@ -112,6 +112,26 @@ die Zugangsprüfung für Feedback, Katalog, Kochbuch, KI-Entwurf und `/tools/:id
 | GET `/konto/google/zurueck` | öffentlich | Rückkehr von Google |
 | POST `/konto/bestaetigen` | Seitentoken | Code bestätigen oder abbrechen |
 
+**Drosseln (Z1, AR70).** Die Drosseln der Anmeldung zählen nicht in Workers KV (KV erlaubt ein Schreiben je Schlüssel und Sekunde;
+hinter einer gemeinsamen Büro-IP und beim Abholen im 2-Sekunden-Takt gäbe das Fehlschläge), sondern in Rate-Limit-Bindungen der
+Workers (`[[ratelimits]]` in `wrangler.toml`). Eine Bindung je Grenze, gezählt je IP-Hash (nie die IP selbst) und je Cloudflare-Standort,
+also ungefähr:
+
+| Bindung | `namespace_id` | Grenze je 60 s | gilt für |
+| --- | --- | --- | --- |
+| `KONTO_RL_VORGANG` | `7301` | 20 | POST `/konto/vorgang` |
+| `KONTO_RL_ABHOLEN` | `7302` | 600 | POST `/konto/vorgang/abholen` |
+| `KONTO_RL_ABBRECHEN` | `7303` | 60 | POST `/konto/vorgang/abbrechen` |
+| `KONTO_RL_GOOGLE` | `7304` | 60 | GET `/konto/google` und `/konto/google/zurueck` |
+| `KONTO_RL_PASSWORT` | `7305` | 10 | POST `/konto/passwort` (die Bremse je Konto im Durable Object bleibt) |
+| `KONTO_RL_SELBSTUPDATE` | `7306` | 20 | `/tools/launcher/latest` ohne Zugang |
+
+Bei Überschreitung antwortet die Route wie bisher mit 429 und `Retry-After: 60`. Fehlt eine Bindung oder wirft ihr `limit()`,
+warnt der Worker im Log (mit dem Fehlernamen) und lässt die Route offen; eine Drossel erzeugt nie einen 5xx. Die alten Routen
+(Feedback, Kochbuch-Entwurf, Zoom-SDK, Q&A) zählen weiter in KV `RATELIMIT`. Vor dem Durable Object prüfen die Routen zum Abholen
+und Abbrechen außerdem die Länge von Vorgangs-ID (24 Zeichen) und Abholgeheimnis (43 Zeichen); sonst antworten sie mit 400, ohne den
+Durable Object zu fragen.
+
 ## 7 · Freigaben an Tools (Spec 6.2)
 
 Der Launcher lauscht auf `127.0.0.1` an einem freien Port und legt bei jedem Start die Tür-Datei
@@ -135,12 +155,25 @@ mit `IVEO_SCHLUESSEL`. Nach jeder Start-Prüfung lädt der Launcher die erlaubte
 token-frei. Wie bisher gleicht nur der Rechner ab, an dem die Show gebunden wurde („Abgleich hier“, ohne Geheimnis in
 `settings.json`); ein zweiter Rechner übernimmt im Side-Events-Panel mit „Abgleich hier übernehmen“. Ein Token, das der Launcher einmal hat, behält er bis zum Abmelden oder Neustart, auch wenn ein Admin das Event inzwischen entfernt oder das Konto herabstuft (eine laufende Show bricht nicht ab); die Auswahl im Show-Editor folgt dagegen dem Server.
 
+**Feste iveo-Liste (Z1, OE2).** Ein zentrales Token gehört nur an einen von zwei iveo-Servern: Production
+(`https://app.my-iveo.de/api/v1`) und Staging (`https://staging-dev.my-iveo.de/api/v1`). Der Worker lehnt das Hinterlegen mit jeder
+anderen Basis mit 400 und dem Code `iveo-basis-unbekannt` ab (Worker-Text S19, derselbe Wortlaut wie M49 in der Admin-Maske); der
+Launcher weist es vor dem Senden ab und gibt ein zentrales Token nur an eine Basis der Liste weiter (sonst „nicht hinterlegt“).
+Lokale Tokens im Übergang und `JMPS_IVEO_BASE_URL` (Entwicklung) bleiben frei, bekommen aber keine zentralen Tokens außerhalb der
+Liste. Verglichen wird nach der Normalisierung: Schema und Host klein, Port 443 bei https weg, Schrägstriche am Ende weg; ohne
+Zugangsdaten, Query und Fragment. Die Liste und die Normalisierung gibt es zweimal, im Worker (`IVEO_ERLAUBTE_BASEN`,
+`normalisiereBasis` in `konto-kern.js`) und im Launcher (`IVEO_ERLAUBTE_BASEN`, `kanonischeIveoBasis` in `packages/iveo/src/client.ts`);
+der Test `apps/launcher/test/iveo-gleichstand.test.ts` vergleicht beide über eine Fall-Tabelle. Ist `IVEO_SCHLUESSEL` gesetzt, aber
+unbrauchbar (nicht 32 Byte Base64), antworten `GET /konto/iveo` und das Hinterlegen mit 503 (Text S5); fehlt er ganz, kommt der Hinweis `iveo-nicht-eingerichtet`.
+
 ## 9 · Übergang (Spec 10)
 
 - **Alter Schlüssel am Worker.** `PROXY_KEY` gilt für Katalog, Updates, Kochbuch, Feedback, KI-Entwurf und die Admin-Routen von
-  Q&A bis `ALTKEY_BIS` (Worker-Variable, ISO-Datum). Fehlt sie, gilt er unbefristet, und der Reiter „Geräte“ zeigt das. Für Connect
+  Q&A bis `ALTKEY_BIS` (Worker-Variable, ISO-Datum). Fehlt sie oder ist sie unlesbar, gilt er unbefristet, und der Reiter „Geräte“ zeigt das. Für Connect
   gilt er bis `ALTKEY_CONNECT_BIS`, die erst mit Teil 2 gesetzt wird; `connect-relay.js` prüft bis dahin selbst. Der Reiter
-  „Geräte“ zählt Anfragen mit dem alten Schlüssel je Tag, Gruppe und Plattform (ohne IP-Adressen).
+  „Geräte“ zählt Anfragen mit dem alten Schlüssel je Tag, Gruppe und Plattform (ohne IP-Adressen). Seit Z1 zählt die Anzeige
+  höchstens einen Aufruf je IP-Hash, Tag und Gruppe (der Worker merkt sich den Schlüssel `Tag|Gruppe|IP-Hash` im Isolat, bis zu
+  1000 Stück); die Zahl ist also eine Näherung für die Zahl der Anschlüsse, nicht der Anfragen.
 - **Selbst-Update.** `/tools/launcher/latest` liefert ein Release ab 0.18.0 auch ohne Zugang (60 s Zwischenspeicher, Drossel je IP; EP32), ältere Releases nur mit Sitzung oder altem Schlüssel; alte Launcher aktualisieren sich darum auch nach `ALTKEY_BIS` selbst auf 0.18.0 oder neuer.
 - **Bau ohne Schlüssel.** Seit Launcher 0.18.0 backt der Bau keinen Schlüssel mehr ein (kein `define`, kein `JMPS_PROXY_KEY` in
   `suite-release.yml` und `suite-build.yml`). Connect liest seinen Key zur Laufzeit und ist nicht betroffen.
@@ -148,6 +181,10 @@ token-frei. Wie bisher gleicht nur der Rechner ab, an dem die Show gebunden wurd
   gelöscht; Downloads laufen jetzt über deine Anmeldung.“). Lokal gespeicherte iveo-Tokens löscht er je Event, sobald der Worker
   für dieses Event auf der Standardbasis ein Token liefert, spätestens 30 Tage nach der ersten Anmeldung, nie, solange eine iveo-Show offen ist; vorher
   setzt er „Abgleich hier“. Bis dahin nennt eine Meldung die Events, die nur noch lokal ein Token haben.
+- **Abmelden beendet die Erneuerung.** `POST /konto/abmelden` löst das Gerät vom Konto (letztes Konto und Anmeldezeit werden
+  gelöscht), und zwar nur, wenn die Sitzung die aktuelle Anmeldung dieses Geräts ist. Eine Erneuerung mit einer Sitzung dieses
+  Geräts scheitert danach mit `geraet-unbekannt`; eine schon ausgegebene Sitzung gilt bis zu ihrem Ende weiter, wird aber nicht
+  mehr erneuert. Im Launcher stoppt das Abmelden zugleich den iveo-Abgleich der offenen Show; laufende Tools arbeiten weiter.
 - **Q&A** leert seinen alten Proxy-Key nach der ersten gültigen Freigabe; das Feld „Alter Proxy-Key (Übergang)“ steht nur noch
   da, solange ein Key gespeichert ist oder keine Freigabe vorliegt.
 
@@ -155,7 +192,8 @@ token-frei. Wie bisher gleicht nur der Rechner ab, an dem die Show gebunden wurd
 
 `JMPS_PROXY_KEY` (alter Weg, gilt am Worker bis `ALTKEY_BIS`), `JMPS_GITHUB_TOKEN`, `JMPS_RELEASE_PROXY` (Adresse des Workers, auch
 für die Anmeldung), `JMPS_IVEO_TOKEN` (global), `JMPS_MANIFEST_URL`, `JMPS_CHANGELOG_URL`, `JMPS_COOKBOOK_URL`,
-`JMPS_IVEO_BASE_URL`, `JMPS_POLARIS_URL`, `JMPS_POLARIS_KEY`. Ist eine der ersten vier gesetzt, nennt der Konto-Dialog ihren Namen
+`JMPS_IVEO_BASE_URL`, `JMPS_IVEO_POLL_MS` (Abfragetakt des iveo-Abgleichs in Millisekunden, nur für Tests: eine Zahl von 500 bis
+45000 verkürzt den Takt, alles andere lässt ihn bei 45 s), `JMPS_POLARIS_URL`, `JMPS_POLARIS_KEY`. Ist eine der ersten vier gesetzt, nennt der Konto-Dialog ihren Namen
 („Entwicklungsmodus: ‹Variablen› gesetzt.“). Der Worker nimmt nichts Neues aus der Umgebung eines Rechners an.
 
 ## 11 · Einrichtung des Workers (Controller, mit Owner-Freigabe)
@@ -165,6 +203,10 @@ Die Bindung `KONTO` (Klasse `KontoSpeicher`) legt die Migration `v2` beim Deploy
 des ersten Admins, ein Google-Konto von `jakobsmedien.com`; er lässt sich in der Maske weder herabstufen noch sperren und zählt ab seiner ersten Anmeldung, eine andere Adresse wirkt nicht). Den Google-Client legt der Owner im Workspace
 `jakobsmedien.com` als intern an (Redirect `/konto/google/zurueck`). Ablauf, Trockenlauf und Reihenfolge (Worker vor dem
 Launcher-Release) stehen im Plan unter „Nach der Umsetzung“ und in `services/release-proxy/README.md`.
+
+**Rate-Limit-Bindungen.** Die sechs `[[ratelimits]]`-Einträge (Abschnitt 6) verlangen wrangler ab 4.36.0. Ihre `namespace_id` 7301
+bis 7306 müssen im Cloudflare-Konto eindeutig sein: Eine Zahl, die dort schon für eine andere Rate-Limit-Bindung vergeben ist, würde
+deren Zähler teilen. Die Bauprobe (`tools/bauprobe.mjs`) und der Wächter in `konto-zugang.test.mjs` kennen genau diese sechs Einträge.
 
 ## 12 · Datenschutz und Protokoll (Spec 9, 11)
 

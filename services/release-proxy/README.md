@@ -180,6 +180,20 @@ Passwort und Einladungscode; den Rechner bestätigen sie mit dem Code, den der L
 - **Variablen:** `KONTO_JURISDICTION` (nicht im Betrieb ändern, sonst sind alle Konten verwaist), `ALTKEY_BIS` (Ende des
   alten Schlüssels; fehlt der Wert, gilt der Schlüssel unbefristet, und der Reiter Geräte der Admin-Maske zeigt das als
   Diagnose; einen unlesbaren Wert meldet die Bauprobe mit Exit 1), `ALTKEY_CONNECT_BIS` (in Teil 1 nie gesetzt).
+- **Drosseln der Anmeldung (`[[ratelimits]]`):** Die Drosseln der Routen unter `/konto/` und die des Launcher-Selbst-Updates ohne
+  Zugang zählen nicht in KV, sondern in sechs Rate-Limit-Bindungen der Workers (KV erlaubt ein Schreiben je Schlüssel und
+  Sekunde, das gäbe hinter einer gemeinsamen Büro-IP Fehlschläge). Sie stehen in `wrangler.toml`, je Grenze eine Bindung, gezählt
+  je IP-Hash und Cloudflare-Standort, also ungefähr: `KONTO_RL_VORGANG` (Vorgang anlegen, 20 je Minute), `KONTO_RL_ABHOLEN`
+  (Abholen, 600), `KONTO_RL_ABBRECHEN` (60), `KONTO_RL_GOOGLE` (Weiter zu Google und Rückkehr, 60), `KONTO_RL_PASSWORT` (10) und
+  `KONTO_RL_SELBSTUPDATE` (20). Die Bindungen verlangen wrangler ab 4.36.0. Ihre `namespace_id` 7301 bis 7306 müssen im
+  Cloudflare-Konto eindeutig sein; eine dort schon vergebene Zahl ließe zwei Bindungen einen Zähler teilen. Fehlt eine Bindung
+  oder wirft sie, warnt der Worker im Log und lässt die Route offen; die Drossel erzeugt nie einen 5xx. Bei Überschreitung
+  antworten die Routen wie bisher mit `429` und `Retry-After: 60`. Das KV `RATELIMIT` bleibt für Feedback, Kochbuch-Entwurf,
+  Zoom-SDK und Q&A.
+- **Feste iveo-Liste:** Zentral hinterlegte iveo-Tokens gehören nur an `https://app.my-iveo.de/api/v1` (Production) und
+  `https://staging-dev.my-iveo.de/api/v1` (Staging). Eine andere Basis lehnt der Worker beim Hinterlegen mit `400` und dem Code
+  `iveo-basis-unbekannt` ab; die Basis wird vorher normalisiert (Schema und Host klein, Port 443 und Schrägstriche am Ende weg).
+  Ist `IVEO_SCHLUESSEL` gesetzt, aber unbrauchbar, antworten die iveo-Pfade mit `503`.
 - **Einrichtung:** Secrets, Google-Client, `ALTKEY_BIS` und den Deploy richtet der Controller nur mit Freigabe des Owners
   ein, beschrieben im Plan unter „Vor der Umsetzung“ und „Nach der Umsetzung“; vor jedem Deploy prüft er ungemergte
   Proxy-Commits und den Trockenlauf.

@@ -9,7 +9,7 @@
 // ihm nicht eingerichtet ist, nennt tokenFuer das als Grund (EP31, I12). Ein Token, das dieser Lauf schon hat, bleibt bis zum
 // Abmelden (leere) oder Neustart, auch wenn der Worker es nicht mehr liefert (G5, Spec 6.3, M34). Kein electron-Import (G9).
 // ─────────────────────────────────────────────────────────────────────────────
-import { IVEO_DEFAULT_BASE_URL, iveoBasisErlaubt, kanonischeIveoBasis, normalizeIveoBaseUrl } from '@jm/iveo';
+import { iveoBasisErlaubt, kanonischeIveoBasis, normalizeIveoBaseUrl } from '@jm/iveo';
 import type { IveoHinweis, IveoZentral } from './worker-client';
 
 /** OFP1: lokal gespeicherte Tokens bleiben höchstens 30 Tage ab der ersten Anmeldung auf diesem Rechner. */
@@ -124,10 +124,10 @@ export function erzeugeIveoZentral(): IveoZentralSpeicher {
       if (!markiert && !lokal) return { token: undefined, grund: 'kein-abgleich-hier' };
       // OE2 (Z1): ein zentrales Token geht nur an eine Basis der festen Liste (Ziel und Eintrag); sonst bleibt es hier und das Ergebnis
       // ist nicht-hinterlegt (lokale Tokens im Übergang bleiben davon unberührt).
-      // Fixrunde 1 (Nr. 8): ohne genannte Basis greift der Slug-Rückfall nur auf Einträge der Standardbasis (Production), nie quer zu Staging.
-      const standardKey = kanonischeIveoBasis(IVEO_DEFAULT_BASE_URL);
+      // Fixrunde 1 (Nr. 8): ohne genannte Basis greift der Slug-Rückfall nur auf Einträge der Basis des eigenen Schlüssels (= der
+      // Standardbasis der Lage), nie quer zu einer anderen Basis. Z1-F (AR81 B): verglichen wird mit `key`, nicht mit der festen Production.
       const kandidaten = iveoBasisErlaubt(basisVon(key))
-        ? [...liste, ...frueher].filter((e) => iveoBasisErlaubt(basisVon(e.key)) && (basis !== undefined || basisVon(e.key) === standardKey))
+        ? [...liste, ...frueher].filter((e) => iveoBasisErlaubt(basisVon(e.key)) && (basis !== undefined || basisVon(e.key) === basisVon(key)))
         : [];
       const zentral = finde(kandidaten, key, s, (e) => e.key, basis === undefined);
       if (zentral) return { token: zentral.token, grund: 'ok' };

@@ -49,7 +49,7 @@ summary: "Einmal im Launcher anmelden, dann hat jedes Tool, was es braucht: Inst
 - **Admins** öffnen die Admin-Maske über „Admin-Maske öffnen“ in den Einstellungen oder im Konto-Dialog: Zugänge, iveo-Events, Anfragen, Geräte. Ein Punkt am Zahnrad zeigt offene Zoom-Anfragen. Scheidet ein Kollege aus, sperren Admins seinen Zugang sofort (Zugang löschen); ohne Sperre muss er sich spätestens 90 Tage nach seiner letzten Anmeldung mit Google neu anmelden und kommt dann nicht mehr herein.
 
 ### Nachbereitung
-- Abmelden im Konto-Dialog (Klick auf den Kreis oben rechts), „Abmelden“. Laufende Tools arbeiten weiter; neue Freigaben gibt es erst nach einer neuen Anmeldung.
+- Abmelden im Konto-Dialog (Klick auf den Kreis oben rechts), „Abmelden“. Der iveo-Abgleich der offenen Show stoppt; laufende Tools arbeiten weiter. Neue Freigaben gibt es erst nach einer neuen Anmeldung.
 
 ## Profi-Tipps
 - Vor einer Produktion einmal mit Internet starten: Dann ist die Anmeldung frisch und gilt auch offline wieder bis zu 30 Tage.

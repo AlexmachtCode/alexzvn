@@ -315,8 +315,8 @@ const STUFEN_FARBEN: KopfFarbe[] = ['admin', 'kollege', 'externer'];
   kreuz('P25 8, EP15: Zoom-Formular — Zweck nötig, „Bis“ nach „Von“, Von ab Tagesbeginn, Bis bis Tagesende der Ortszeit', [
     ['leerer Zweck', f('  ', '2026-11-10', '2026-11-12'), 'fehler|Nenne Zweck oder Event.'],
     ['Bis vor Von', f('Gala', '2026-11-12', '2026-11-10'), 'fehler|„Bis“ muss nach „Von“ liegen.'],
-    ['ungültiges Datum', f('Gala', '2026-02-30', '2026-03-01'), 'fehler|„Bis“ muss nach „Von“ liegen.'],
-    ['ohne Daten', f('Gala', '', ''), 'fehler|„Bis“ muss nach „Von“ liegen.'],
+    ['ungültiges Datum', f('Gala', '2026-02-30', '2026-03-01'), 'fehler|Bitte ein gültiges Datum eingeben.'],
+    ['ohne Daten', f('Gala', '', ''), 'fehler|Bitte ein gültiges Datum eingeben.'],
     ['ein Tag', f('Gala', '2026-11-10', '2026-11-10'), 'ok|Gala|10.11.2026 00:00:00.000|10.11.2026 23:59:59.999'],
     ['drei Tage, Zweck getrimmt', f(' Gala ', '2026-11-10', '2026-11-12'), 'ok|Gala|10.11.2026 00:00:00.000|12.11.2026 23:59:59.999'],
   ]);
@@ -618,12 +618,24 @@ const STUFEN_FARBEN: KopfFarbe[] = ['admin', 'kollege', 'externer'];
     ['zukünftig, Bis vor Von', f('2026-11-12', '2026-11-10'), `fehler|${ZOOM_TEXTE.bisVorVon}`],
     ['heute (Ende noch nicht erreicht)', f('2026-10-21', '2026-10-21'), 'ok'],
     ['von vergangen, bis zukünftig', f('2026-10-01', '2026-10-25'), 'ok'],
-    ['Jahr 0026', f('0026-11-10', '0026-11-12'), `fehler|${ZOOM_TEXTE.bisVorVon}`],
+    ['Jahr 0026', f('0026-11-10', '0026-11-12'), `fehler|${ZOOM_TEXTE.datumUngueltig}`],
     ['zukünftig', f('2026-11-10', '2026-11-12'), 'ok'],
   ]);
-  kreuz('Z1-L2: „Adresse kopieren“ — Erfolg zeigt K44 „Adresse kopiert“, Misserfolg den bestehenden Fehlertext K53', [
+  kreuz('Z1-L2: „Adresse kopieren“ — Erfolg zeigt K44 „Adresse kopiert“, Misserfolg K56 (nicht mehr K53)', [
     ['Erfolg', JSON.stringify(kopierErgebnis(true)), JSON.stringify({ kopiert: true, fehler: null })],
-    ['Misserfolg', JSON.stringify(kopierErgebnis(false)), JSON.stringify({ kopiert: false, fehler: ANMELDE_TEXTE.server })],
+    ['Misserfolg', JSON.stringify(kopierErgebnis(false)), JSON.stringify({ kopiert: false, fehler: ANMELDE_TEXTE.kopierenFehlt })],
+  ]);
+  // Z1-F AR80: zwei neue Texte, zeichengenau, und ihre Abgrenzung zu den Texten, die bleiben.
+  kreuz('Z1-F AR80: K56 und Z10e wörtlich; Z10b für Bis ≤ Von, Z10d für die Vergangenheit bleiben', [
+    ['K56 wörtlich', ANMELDE_TEXTE.kopierenFehlt, 'Kopieren hat nicht geklappt. Markiere die Adresse und kopiere sie von Hand.'],
+    ['Z10e wörtlich', ZOOM_TEXTE.datumUngueltig, 'Bitte ein gültiges Datum eingeben.'],
+    ['K56 ist nicht K53', String(ANMELDE_TEXTE.kopierenFehlt !== ANMELDE_TEXTE.server), 'true'],
+    ['Z10e ist nicht Z10b', String(ZOOM_TEXTE.datumUngueltig !== ZOOM_TEXTE.bisVorVon), 'true'],
+    ['30. Februar Von', f('2026-02-30', '2026-03-05'), `fehler|${ZOOM_TEXTE.datumUngueltig}`],
+    ['30. Februar Bis', f('2026-03-01', '2026-02-30'), `fehler|${ZOOM_TEXTE.datumUngueltig}`],
+    ['Bis ≤ Von bleibt Z10b', f('2026-11-12', '2026-11-10'), `fehler|${ZOOM_TEXTE.bisVorVon}`],
+    ['Vergangenheit bleibt Z10d', f('2026-10-01', '2026-10-10'), `fehler|${ZOOM_TEXTE.vergangenheit}`],
+    ['gültig', f('2026-11-10', '2026-11-12'), 'ok'],
   ]);
 }
 
