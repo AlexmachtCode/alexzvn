@@ -149,6 +149,7 @@ async function sitzungErneuern(k) {
   const r = await k.rufe('sitzung-erneuern', {
     kid: stand.kid,
     gid: stand.gid,
+    angemeldetSeit: stand.angemeldetSeit, // Claim der zu erneuernden Sitzung (AR79): nur die aktuelle Anmeldung des Geräts erneuert sich
     beweis: d.beweis,
     version: typeof d.version === 'string' ? d.version : '',
     rechnerName: typeof d.rechnerName === 'string' ? d.rechnerName : '',

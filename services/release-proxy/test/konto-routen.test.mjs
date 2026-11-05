@@ -21,6 +21,11 @@ const realError = console.error;
 const mitschnitt = (...a) => protokoll.push(a.map(String).join(' '));
 console.warn = mitschnitt;
 console.error = mitschnitt;
+// G4 (Z1-W2): auch log, info und debug werden mitgeschnitten; die Ausgabe des Harness (check in konto-attrappen.mjs) läuft über das
+// beim Laden gesicherte echte console.log und landet nicht im Mitschnitt.
+console.log = mitschnitt;
+console.info = mitschnitt;
+console.debug = mitschnitt;
 /** Alles, was nie in der Konsole stehen darf (Sitzungen, Abholgeheimnisse, Codes, Passwörter, Tokens, Schlüssel). */
 const geheim = [];
 
@@ -440,7 +445,7 @@ async function run() {
     check('AR74 A: Hinterlegen mit Leerraum innerhalb der Basis (x.de/ /, Tab, LF) → 400, nie 200; HTTPS://APP.MY-IVEO.DE:443/api/v1/ → 200 und GET /konto/iveo liefert das Event mit Token',
       lr.every(([, a]) => a.status === 400 && (a.daten.code === 'ungueltig' || a.daten.code === 'iveo-basis-unbekannt')) && caps.status === 200
         && (capsListe.daten.events || []).some((e) => e.slug === 'caps-test' && e.token === TOKEN && e.key === 'https://app.my-iveo.de/api/v1|caps-test'));
-    if (!fremd.every(([, a]) => soll(a, 400, 'iveo-basis-unbekannt'))) console.log(`     ${fremd.map(([b, a]) => `${b} → ${ist(a)}`).join('\n     ')}`);
+    if (!fremd.every(([, a]) => soll(a, 400, 'iveo-basis-unbekannt'))) realLog(`     ${fremd.map(([b, a]) => `${b} → ${ist(a)}`).join('\n     ')}`);
   }
 
   // P16 7: Admin-Routen nur für aktuelle Admins (der DO prüft den aktuellen Stand, OFP4); Konflikt-Texte S12a/S12b.
@@ -519,6 +524,18 @@ async function run() {
     const alt = await anmelden(env, { google: true, email: 'rennen@jakobsmedien.com', name: 'Rennen', geraet });
     env.KONTO_UHR.vor(5000);
     const neu = await anmelden(env, { google: true, email: 'rennen@jakobsmedien.com', name: 'Rennen', geraet });
+    // AR79: die ALTE Sitzung lässt sich nach der neueren Anmeldung nicht mehr erneuern; die neue erneuert sich in einer Kette beliebig oft.
+    const altErn = await erneuern(env, alt);
+    let kette = neu;
+    const kettenStatus = [];
+    for (let i = 0; i < 3; i++) {
+      env.KONTO_UHR.vor(1000);
+      const r = await erneuern(env, kette);
+      kettenStatus.push(r.status);
+      if (r.daten && r.daten.sitzung) kette = { ...kette, sitzung: r.daten.sitzung, stand: r.daten.stand };
+    }
+    check('AR79: alte Sitzung nach neuerer Anmeldung am selben Gerät → Erneuern 403 geraet-unbekannt; die neue Sitzung erneuert sich dreimal hintereinander (200, Kette mit der jeweils erneuerten Sitzung)',
+      soll(altErn, 403, 'geraet-unbekannt') && kettenStatus.join(',') === '200,200,200');
     const abAlt = await api(env, 'POST', '/konto/abmelden', { sitzung: alt.sitzung });
     const nachAlt = await erneuern(env, neu);
     const abNeu = await api(env, 'POST', '/konto/abmelden', { sitzung: neu.sitzung });
@@ -544,7 +561,7 @@ async function run() {
     const fremd = a.filter((x) => Object.keys(x.headers).join(',') !== 'content-type' || x.method !== 'POST' || !x.url.startsWith('https://konto.intern/'));
     check(`P16 B1-Lehre: jede DO-Anfrage ist neu gebaut (POST https://konto.intern/…, nur content-type; ${a.length} Anfragen)`,
       a.length === 4 && fremd.length === 0);
-    if (fremd.length) console.log(`     ${JSON.stringify(fremd[0]).slice(0, 200)}`);
+    if (fremd.length) realLog(`     ${JSON.stringify(fremd[0]).slice(0, 200)}`);
   }
 
   // P16 S5: ohne Einrichtung 503 S5; Jurisdiction wie Connect (Vorgabe eu, '' = global, fehlende Fähigkeit = 503).
@@ -1346,7 +1363,7 @@ async function run() {
     const texte = new Set([...Object.values(FEHLER_TEXT), ...Object.values(KONFLIKT_TEXT), 'zu viele Anfragen']);
     const falsch = fehlerAntworten.filter((a) => (a.kopf.get('content-type') || '').startsWith('application/json') && !(a.daten && texte.has(a.daten.error) && typeof a.daten.code === 'string'));
     check(`P16 10.1: jede JSON-Fehlerantwort unter /konto/ hat { error: Text S…, code } (${fehlerAntworten.length} Antworten)`, fehlerAntworten.length > 20 && falsch.length === 0);
-    for (const a of falsch.slice(0, 3)) console.log(`     ${a.pfad}: ${a.text.slice(0, 120)}`);
+    for (const a of falsch.slice(0, 3)) realLog(`     ${a.pfad}: ${a.text.slice(0, 120)}`);
     const konto = jsonAntworten.filter((a) => a.pfad.startsWith('/konto/'));
     check(`P16 10.1: jede JSON-Antwort unter /konto/ mit cache-control no-store (${konto.length} Antworten)`,
       konto.length > 50 && konto.every((a) => a.kopf.get('cache-control') === 'no-store'));

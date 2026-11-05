@@ -752,7 +752,7 @@ export class KontoSpeicher {
   // ── Sitzung, Lage, Zoom-Anfrage, iveo, alter Schlüssel (Spec 6.1, 6.3, 6.4, 7, 8, OF2) ──
 
   /**
-   * Aktion `sitzung-erneuern` `{ kid, gid, beweis, version, rechnerName }` → `{ konto, geraet }` (Spec 6.1, EP2): jede
+   * Aktion `sitzung-erneuern` `{ kid, gid, angemeldetSeit, beweis, version, rechnerName }` → `{ konto, geraet }` (Spec 6.1, EP2): jede
    * Start-Prüfung des Launchers. Liest den aktuellen Stand (Stufe, Tools, Events, bis, Zoom-Freigabe, JM-Rechner); der Worker
    * stellt daraus die neue Sitzung aus. Codes (je 403): `geloescht`, `gesperrt`, `zugang-abgelaufen` (S6–S8), `geraet-unbekannt`
    * (S9: Gerät unbekannt, Beweis falsch oder das Gerät gehört inzwischen einem anderen Konto, Spec 6.1 ein Konto je Rechner);
@@ -766,13 +766,16 @@ export class KontoSpeicher {
     if (!g.ok) return fehler(g.grund, 403);
     const geraet = typeof b.gid === 'string' && b.gid ? await this.ctx.storage.get(K.geraet(b.gid)) : null;
     if (!geraet || geraet.letztesKonto !== konto.kid) return fehler('geraet-unbekannt', 403);
+    // Nur die Sitzung der AKTUELLEN Anmeldung dieses Geräts erneuert sich: der Claim angemeldetSeit muss dem Gerät entsprechen
+    // (eine ältere Sitzung nach einer neueren Anmeldung desselben Kontos am selben Gerät nicht; AR79).
+    if (typeof b.angemeldetSeit !== 'number' || geraet.angemeldetSeit !== b.angemeldetSeit) return fehler('geraet-unbekannt', 403);
     if (!(await pruefeGeraeteBeweis(geraet.publicJwk, b.beweis, 'erneuern', konto.kid, jetzt))) return fehler('geraet-unbekannt', 403);
     if (googleNeuFaellig(konto.art, geraet.angemeldetSeit, jetzt)) return fehler('sitzung-abgelaufen', 401);
     const version = text(b.version, 32);
     const name = rechnerName(b.rechnerName);
     // Der Beweis war ein Nicht-Speicher-await: das Gerät frisch lesen, prüfen, ändern, schreiben, ohne await dazwischen.
     const frisch = await this.ctx.storage.get(K.geraet(geraet.gid));
-    if (!frisch || frisch.letztesKonto !== konto.kid) return fehler('geraet-unbekannt', 403);
+    if (!frisch || frisch.letztesKonto !== konto.kid || frisch.angemeldetSeit !== b.angemeldetSeit) return fehler('geraet-unbekannt', 403);
     frisch.letzterKontakt = jetzt;
     if (version) frisch.version = version;
     if (name) frisch.name = name;

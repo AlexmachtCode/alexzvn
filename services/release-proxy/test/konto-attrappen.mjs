@@ -20,13 +20,17 @@ import { beweisText, geraetIdAus } from '../konto-krypto.js';
 let passed = 0;
 let failed = 0;
 
+// Die eigene Ausgabe des Harness läuft über das echte, beim Laden dieses Moduls ungekapselte console.log, damit ein Test console.log,
+// info und debug mitschneiden kann (konto-routen.test.mjs, G4) und die Zeilen des Harness nicht im Mitschnitt landen.
+const echtesLog = console.log.bind(console);
+
 export function check(name, cond) {
   if (cond) {
     passed++;
-    console.log(`  ok  ${name}`);
+    echtesLog(`  ok  ${name}`);
   } else {
     failed++;
-    console.log(`FAIL  ${name}`);
+    echtesLog(`FAIL  ${name}`);
   }
 }
 
@@ -49,8 +53,8 @@ export async function pruefeFaelle(name, faelle, pruefe) {
     if (r !== null) abw.push(`${fallText(f)} → ${r}`);
   }
   check(`${name} (${faelle.length} Fälle)`, abw.length === 0);
-  for (const z of abw.slice(0, 5)) console.log(`     ${z}`);
-  if (abw.length > 5) console.log(`     … und ${abw.length - 5} weitere`);
+  for (const z of abw.slice(0, 5)) echtesLog(`     ${z}`);
+  if (abw.length > 5) echtesLog(`     … und ${abw.length - 5} weitere`);
 }
 
 /** null bei Gleichheit (JSON), sonst „ist … soll …“. */
@@ -59,7 +63,7 @@ export function gleich(ist, soll) {
 }
 
 export function abschluss() {
-  console.log(`\n${passed} passed, ${failed} failed`);
+  echtesLog(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 }
 

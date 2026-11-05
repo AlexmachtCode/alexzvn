@@ -358,7 +358,7 @@ async function run() {
       const nicht = faelle.filter((x) => normalisiereBasis(normalisiereBasis(x)) !== normalisiereBasis(x));
       check(`AR74 A: normalisiereBasis ist idempotent (${faelle.length} Fälle, davon 3000 pseudozufällige)${nicht.length ? ` — nicht: ${JSON.stringify(nicht.slice(0, 3))}` : ''}`, nicht.length === 0);
       check(
-        'AR74 A: Leerraum und Steuerzeichen innerhalb der Basis (Leerzeichen, Tab, LF, NBSP, U+200B, BEL, DEL) → null; außen werden sie weiter getrimmt',
+        'AR74 A: Leerraum und Steuerzeichen innerhalb der Basis (Leerzeichen, Tab, LF, NBSP, BEL, DEL) → null; außen werden sie weiter getrimmt',
         ['app.my-iveo.de/api/v1/ /', 'x.de/\t/', 'x.de/\n/', 'x.de/ /', `x.de/${String.fromCharCode(0xa0)}/`, 'x.de/\u0007', 'x.de/\u007f', 'a b.example'].every((x) => normalisiereBasis(x) === null)
           && normalisiereBasis('\t app.my-iveo.de/api/v1/ \n') === 'https://app.my-iveo.de/api/v1',
       );

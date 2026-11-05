@@ -47,6 +47,8 @@ for (let i = 0; i + 1 < rlTab.length; i += 2) {
   const [a, s] = [rlTab[i], rlTab[i + 1]];
   if (a.kopf !== 'ratelimits' || !a.feld || schluessel(a) !== 'name,namespace_id' || s.kopf !== 'ratelimits.simple' || s.feld || schluessel(s) !== 'limit,period') { rlAufbauOk = false; continue; }
   const roh = (t, n) => t.kv.find(([k]) => k === n)[1];
+  // AR79: Rohwerte prüfen: namespace_id ist ein String (Doku), name ein KONTO_RL_-Name, limit und period Zahlen.
+  if (!/^"KONTO_RL_[A-Z]+"$/.test(roh(a, 'name')) || !/^"\d+"$/.test(roh(a, 'namespace_id')) || !/^\d+$/.test(roh(s, 'limit')) || !/^\d+$/.test(roh(s, 'period'))) rlAufbauOk = false;
   rlIst.push([roh(a, 'name').replace(/^"|"$/g, ''), roh(a, 'namespace_id').replace(/^"|"$/g, ''), Number(roh(s, 'limit')), Number(roh(s, 'period'))]);
 }
 if (migTab.length !== 2 || migTab.some((t) => !t.feld || schluessel(t) !== 'tag,new_sqlite_classes')) befunde.push('[[migrations]]: genau zwei Tabellen, je nur tag und new_sqlite_classes');

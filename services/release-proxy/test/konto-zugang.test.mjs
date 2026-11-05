@@ -626,6 +626,8 @@ async function run() {
         continue;
       }
       const wert = (t, n) => t.kv.find(([k]) => k === n)[1];
+      // AR79: die ROHwerte, nicht die entquoteten: namespace_id ist ein String (Doku), name ein KONTO_RL_-Name, limit und period Zahlen.
+      if (!/^"KONTO_RL_[A-Z]+"$/.test(wert(a, 'name')) || !/^"\d+"$/.test(wert(a, 'namespace_id')) || !/^\d+$/.test(wert(s, 'limit')) || !/^\d+$/.test(wert(s, 'period'))) rlAufbauOk = false;
       rlEintraege.push([wert(a, 'name').replace(/^"|"$/g, ''), wert(a, 'namespace_id').replace(/^"|"$/g, ''), Number(wert(s, 'limit')), Number(wert(s, 'period'))]);
     }
     const rlSoll = Object.entries(RL_TABELLE).map(([n, t]) => [n, t.namespaceId, t.grenze, t.period]);

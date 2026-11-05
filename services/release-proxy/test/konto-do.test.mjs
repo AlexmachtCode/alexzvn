@@ -88,6 +88,8 @@ async function erneuern(speicher, geraet, kid, jetzt, mehr = {}) {
     jetzt,
     kid,
     gid: geraet.gid,
+    // Claim angemeldetSeit der erneuerten Sitzung (AR79): hier der aktuelle Wert des Geräts, wie nach der Anmeldung.
+    angemeldetSeit: ((await speicher.ctx.storage.get(`geraet:${geraet.gid}`)) || {}).angemeldetSeit,
     beweis: await geraet.beweis('erneuern', kid, jetzt),
     version: '0.18.0',
     rechnerName: 'Regie-PC 1',
@@ -1124,6 +1126,28 @@ async function run() {
       'Z1-W1 Minor 1: nach dem Abmelden lässt sich die alte Sitzung mit frischem Gerätebeweis nicht erneuern (403 geraet-unbekannt)',
       danach.http === 403 && danach.code === 'geraet-unbekannt',
     );
+  }
+
+  // AR79: sitzung-erneuern vergleicht den Claim angemeldetSeit mit dem Gerät.
+  {
+    const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
+    const gespeichert = ctx.daten.get(`geraet:${geraet.gid}`).angemeldetSeit;
+    const faelle = [
+      { name: 'passender Wert', wert: gespeichert, soll: true },
+      { name: 'älterer Wert (neuere Anmeldung am Gerät)', wert: gespeichert - 1, soll: false },
+      { name: 'neuerer Wert', wert: gespeichert + 1, soll: false },
+      { name: 'fehlt', wert: undefined, soll: false },
+      { name: 'null', wert: null, soll: false },
+      { name: 'Text', wert: String(gespeichert), soll: false },
+    ];
+    await pruefeFaelle('AR79: sitzung-erneuern nur mit passendem angemeldetSeit, sonst 403 geraet-unbekannt', faelle, async (f) => {
+      const r = await erneuern(speicher, geraet, kid, T0 + MIN, { angemeldetSeit: f.wert });
+      return f.soll ? (r.ok === true ? null : `ist ${r.code}`) : r.http === 403 && r.code === 'geraet-unbekannt' ? null : `ist ${r.ok} ${r.code}`;
+    });
+    // Das Gerät ohne angemeldetSeit (null) erneuert sich nie, auch nicht mit fehlendem Claim.
+    await ctx.storage.put(`geraet:${geraet.gid}`, { ...ctx.daten.get(`geraet:${geraet.gid}`), angemeldetSeit: null });
+    const ohneAm = await erneuern(speicher, geraet, kid, T0 + 2 * MIN, { angemeldetSeit: null });
+    check('AR79: ein Gerät ohne angemeldetSeit erneuert sich nicht (403 geraet-unbekannt)', ohneAm.http === 403 && ohneAm.code === 'geraet-unbekannt');
   }
 
   // ── P5: Zoom-Anfrage (Spec 8, Schritt 1) ──
