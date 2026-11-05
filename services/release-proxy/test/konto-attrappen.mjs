@@ -14,6 +14,7 @@
 //   `beweis(zweck, bezug, ts)`; `neuerSpeicher(env)`, `rufeDo(speicher, aktion, body)`.
 // - Zählung im Format „check“: `check`, `kreuz`, `pruefeFaelle` (eine Zeile je Tabelle, bis zu fünf Abweichungen),
 //   `abschluss()` druckt `‹n› passed, ‹m› failed` und beendet mit Exit 1 bei Fehlern.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { KontoSpeicher } from '../konto-do.js';
 import { beweisText, geraetIdAus } from '../konto-krypto.js';
 
@@ -71,7 +72,7 @@ export function makeCtx() {
   const daten = new Map();
   let alarm = null;
   const kopie = (v) => (v === undefined ? undefined : structuredClone(v));
-  return {
+  const ctx = {
     daten,
     get alarmZeit() {
       return alarm;
@@ -117,6 +118,44 @@ export function makeCtx() {
       return fn();
     },
   };
+  eingangsTor(ctx.storage);
+  return ctx;
+}
+
+// Eingangs-Tor (Input Gate) eines Durable Object, wie in der Cloudflare-Laufzeit: Solange eine Anfrage Speicherzugriffe
+// ausführt, erreicht den Speicher keine andere Anfrage. Das Tor öffnet erst, wenn die haltende Anfrage auf etwas anderes als
+// Speicher wartet (echtes I/O, etwa crypto.subtle oder einen Timer) oder fertig ist. Dann kommt die nächste dran, und ein
+// Lesen und Schreiben der ersten Anfrage mit einem solchen `await` dazwischen verzahnt sich mit der zweiten (Rennen).
+// Reine Mikrotask-Sprünge (`await Promise.resolve()`, Rückkehr aus einer async-Hilfsfunktion) öffnen es nicht.
+// Die Anfrage erkennt die Attrappe am Kontext, den `makeKontoNs().get(id).fetch` setzt; Zugriffe ohne Kontext
+// (Tests, die rufeDo direkt aufrufen) laufen wie bisher ungebremst.
+const anfrageKontext = new AsyncLocalStorage();
+let anfrageZaehler = 0;
+
+function eingangsTor(speicher) {
+  const tor = { halter: null, wartende: [] };
+  const freigeben = () => {
+    tor.halter = null;
+    const w = tor.wartende.shift();
+    if (w) {
+      tor.halter = w.ich;
+      w.weiter();
+    }
+  };
+  const gebremst = (original) => async (...args) => {
+    const ich = anfrageKontext.getStore();
+    if (!ich) return original(...args);
+    if (tor.halter && tor.halter !== ich) await new Promise((weiter) => tor.wartende.push({ ich, weiter }));
+    tor.halter = ich;
+    ich.zugriffe++;
+    const gezaehlt = ich.zugriffe;
+    // Nach dem Abarbeiten aller Mikrotasks: hat die Anfrage keinen weiteren Speicherzugriff gestellt, wartet sie auf I/O.
+    setImmediate(() => {
+      if (tor.halter === ich && ich.zugriffe === gezaehlt) freigeben();
+    });
+    return original(...args);
+  };
+  for (const name of ['get', 'put', 'delete', 'deleteAll', 'list']) speicher[name] = gebremst(speicher[name]);
 }
 
 export function makeKontoNs(env, { mitJurisdiktion = true } = {}) {
@@ -135,7 +174,8 @@ export function makeKontoNs(env, { mitJurisdiktion = true } = {}) {
       return {
         async fetch(request) {
           anfragen.push({ url: request.url, method: request.method, headers: Object.fromEntries(request.headers) });
-          return speicher.fetch(request);
+          const ich = { nr: ++anfrageZaehler, zugriffe: 0 };
+          return anfrageKontext.run(ich, () => speicher.fetch(request));
         },
       };
     },
@@ -177,7 +217,7 @@ export function makeKV() {
 }
 
 /**
- * Die sechs Rate-Limit-Bindungen der Anmeldung (AR70, wrangler.toml [[ratelimits]]): Name → namespace_id, Grenze je Periode
+ * Die sieben Rate-Limit-Bindungen der Anmeldung (AR70, wrangler.toml [[ratelimits]]): Name → namespace_id, Grenze je Periode
  * (60 s) und die Route. Die Tabelle steht hier EINMAL; der Wächter in konto-zugang.test.mjs vergleicht sie mit wrangler.toml.
  */
 export const RL_TABELLE = Object.freeze({
@@ -187,6 +227,7 @@ export const RL_TABELLE = Object.freeze({
   KONTO_RL_GOOGLE: { namespaceId: '7304', grenze: 60, period: 60 },
   KONTO_RL_PASSWORT: { namespaceId: '7305', grenze: 10, period: 60 },
   KONTO_RL_SELBSTUPDATE: { namespaceId: '7306', grenze: 20, period: 60 },
+  KONTO_RL_QAALT: { namespaceId: '7307', grenze: 60, period: 60 },
 });
 
 /**
@@ -214,7 +255,7 @@ export function makeRateLimit(grenze, { wirft = null } = {}) {
   return b;
 }
 
-/** Alle sechs Bindungen mit den Grenzen aus RL_TABELLE; `ueberschreibe` ersetzt einzelne (oder lässt sie mit undefined weg). */
+/** Alle sieben Bindungen mit den Grenzen aus RL_TABELLE; `ueberschreibe` ersetzt einzelne (oder lässt sie mit undefined weg). */
 export function makeRLBindungen(ueberschreibe = {}) {
   const env = {};
   for (const [name, t] of Object.entries(RL_TABELLE)) env[name] = makeRateLimit(t.grenze);

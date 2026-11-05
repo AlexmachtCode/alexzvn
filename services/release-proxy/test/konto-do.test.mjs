@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { PROTOKOLL_MS, darf, iveoSchluessel, kontoStand } from '../konto-kern.js';
 import { hashePasswort, iveoEntschluesseln, iveoVerschluesseln, neuerBestaetigungsCode, sha256B64url, zufall } from '../konto-krypto.js';
-import { abschluss, check, gleich, makeCtx, makeUhr, neuerSpeicher, pruefeFaelle, rufeDo, testGeraet, testSchluessel } from './konto-attrappen.mjs';
+import { abschluss, check, gleich, makeCtx, makeKontoNs, makeUhr, neuerSpeicher, pruefeFaelle, rufeDo, testGeraet, testSchluessel } from './konto-attrappen.mjs';
 
 const T0 = Date.UTC(2026, 9, 21, 8, 0, 0);
 const MIN = 60_000;
@@ -2182,6 +2182,167 @@ async function run() {
     await a.ctx.storage.put('grab:neu', { vorgang: 'neu', bis: T0 + 1 });
     await a.speicher.alarm();
     check('Z2 6: der Alarm räumt abgelaufene Grabsteine ab, laufende bleiben', !a.ctx.daten.has('grab:alt') && a.ctx.daten.has('grab:neu'));
+  }
+
+  // ── Z3: Aktion qa-inhaber (Q&A-Event-Inhaber, Compare-and-set; OE3, AR55) ──
+  {
+    const h = (c) => c.repeat(64);
+    const EV = h('a');
+    const A = { kidHash: h('1'), gidHash: h('2') };
+    const frage = (speicher, mehr = {}, jetzt = T0) => rufeDo(speicher, 'qa-inhaber', { jetzt, eventHash: EV, bisMs: jetzt + 2 * TAG, ...mehr });
+
+    // erstes Öffnen bindet; Antwort und Ablage
+    {
+      const { speicher, ctx } = neuerSpeicher();
+      const r = await frage(speicher, A);
+      check('Z3: qa-inhaber ohne Inhaber bindet kidHash, gidHash und bis → neu true', gleich([r.ok, r.neu, r.inhaber], [true, true, { ...A, bis: T0 + 2 * TAG }]) === null);
+      check('Z3: der Inhaber liegt unter der eigenen Schlüssel-Familie qa:<eventHash>', gleich([...ctx.daten.keys()], [`qa:${EV}`]) === null);
+    }
+
+    // Tabelle: Zustand davor × Eingabe → Antwort
+    {
+      const B = { kidHash: h('3'), gidHash: h('4') };
+      const faelle = [
+        { name: 'dasselbe Konto, derselbe Rechner', ein: A, soll: [200, true, false] },
+        { name: 'dasselbe Konto, anderer Rechner', ein: { kidHash: A.kidHash, gidHash: B.gidHash }, soll: [200, true, false] },
+        { name: 'anderes Konto, derselbe Rechner', ein: { kidHash: B.kidHash, gidHash: A.gidHash }, soll: [200, true, false] },
+        { name: 'anderes Konto, anderer Rechner', ein: B, soll: [403, false, 'keine-freigabe'] },
+        { name: 'alter Schlüssel (ohne Hashes) bei gebundenem Event', ein: {}, soll: [403, false, 'keine-freigabe'] },
+        { name: 'nur kidHash (Rechner fehlt) bei gebundenem Event', ein: { kidHash: A.kidHash }, soll: [400, false, 'ungueltig'] },
+        { name: 'eventHash kein SHA-256-hex', ein: { ...A, eventHash: 'qa-event-1' }, soll: [400, false, 'ungueltig'] },
+        { name: 'kidHash kein SHA-256-hex', ein: { kidHash: 'k-1', gidHash: A.gidHash }, soll: [400, false, 'ungueltig'] },
+        { name: 'bisMs keine Zahl', ein: { ...A, bisMs: 'morgen' }, soll: [400, false, 'ungueltig'] },
+      ];
+      await pruefeFaelle('Z3: qa-inhaber bei gebundenem Event je Eingabe', faelle, async (f) => {
+        const { speicher } = neuerSpeicher();
+        await frage(speicher, A);
+        const r = await frage(speicher, f.ein);
+        return gleich([r.http, r.ok, r.ok ? r.neu : r.code], f.soll);
+      });
+    }
+
+    // alter Schlüssel ohne Inhaber: ok, bindet nicht (EP33 wie heute)
+    {
+      const { speicher, ctx } = neuerSpeicher();
+      const r = await frage(speicher, {});
+      check('Z3: alter Schlüssel ohne Inhaber → ok, inhaber null, nichts gespeichert', gleich([r.ok, r.neu, r.inhaber ?? null, ctx.daten.size], [true, false, null, 0]) === null);
+      const danach = await frage(speicher, A);
+      check('Z3: danach bindet die erste Freigabe (Übergang)', gleich([danach.ok, danach.neu], [true, true]) === null);
+    }
+
+    // Aufräumen beim Lesen, Obergrenze 30 Tage, Verlängern beim Wiedersehen
+    {
+      const { speicher } = neuerSpeicher();
+      await frage(speicher, A);
+      const nach = await frage(speicher, { kidHash: h('3'), gidHash: h('4') }, T0 + 2 * TAG + 1);
+      check('Z3: abgelaufener Inhaber (bis < jetzt) gilt als nicht vorhanden: der Nächste bindet', gleich([nach.ok, nach.neu, nach.inhaber?.kidHash], [true, true, h('3')]) === null);
+      const { speicher: s2, ctx: c2 } = neuerSpeicher();
+      await frage(s2, A);
+      await frage(s2, {}, T0 + 2 * TAG + 1); // alter Schlüssel: liest und räumt auf, ohne neu zu binden
+      check('Z3: ein abgelaufener Eintrag wird beim Lesen gelöscht (auch durch den alten Schlüssel)', c2.daten.size === 0);
+      const { speicher: s3 } = neuerSpeicher();
+      const lang = await frage(s3, { ...A, bisMs: T0 + 400 * TAG });
+      check('Z3: bis ist auf 30 Tage ab jetzt begrenzt', lang.inhaber?.bis === T0 + 30 * TAG);
+      const { speicher: s4, ctx: c4 } = neuerSpeicher();
+      await frage(s4, { ...A, bisMs: T0 + 2 * TAG });
+      await frage(s4, { ...A, bisMs: T0 + 3 * TAG }, T0 + TAG);
+      await frage(s4, { ...A, bisMs: T0 + TAG }, T0 + TAG);
+      check('Z3: bis wird beim Wiedersehen nur verlängert, nie verkürzt', c4.daten.get(`qa:${EV}`)?.bis === T0 + 3 * TAG);
+    }
+
+    // Schlüssel-Familie kollidiert nicht; keine Klarform der Event-ID
+    {
+      // Ein Konto, ein Gerät, eine E-Mail-Zuordnung und ein Vorgang, deren Kennung genau der eventHash ist: der Inhaber legt sich
+      // daneben und verdrängt keinen; und umgekehrt liest qa-inhaber nie einen solchen Eintrag als Inhaber.
+      const { speicher, ctx } = neuerSpeicher();
+      const fremd = { konto: { kid: EV, tag: 'konto' }, geraet: { gid: EV, tag: 'geraet' }, email: EV, vorgang: { vid: EV, tag: 'vorgang' } };
+      for (const [fam, wert] of Object.entries(fremd)) await ctx.storage.put(`${fam}:${EV}`, wert);
+      const erst = await frage(speicher, A);
+      await frage(speicher, A, T0 + 1);
+      const unveraendert = Object.entries(fremd).every(([fam, wert]) => JSON.stringify(ctx.daten.get(`${fam}:${EV}`)) === JSON.stringify(wert));
+      const qa = [...ctx.daten.keys()].filter((k) => k.startsWith('qa:'));
+      check('Z3: ein Konto-, Geräte-, E-Mail- und Vorgangs-Schlüssel mit demselben Hash bleibt unverändert, der Inhaber liegt allein unter qa:<eventHash> und wurde gebunden',
+        unveraendert && gleich(qa, [`qa:${EV}`]) === null && erst.neu === true && erst.inhaber?.kidHash === A.kidHash);
+      const { speicher: s2, ctx: c2 } = neuerSpeicher();
+      for (const fam of ['konto', 'geraet', 'email', 'vorgang', 'state', 'iveo', 'anfrage', 'fehl', 'fehl-email', 'altkey', 'log']) await c2.storage.put(`${fam}:${EV}`, { kidHash: h('9'), gidHash: h('9'), bis: T0 + TAG });
+      const leer = await frage(s2, A);
+      check('Z3: Einträge anderer Familien mit demselben Hash gelten nie als Inhaber (der Erste bindet neu)', leer.neu === true && leer.inhaber?.kidHash === A.kidHash);
+    }
+
+    // Grenzfälle von bis (M3): bis = jetzt gilt noch, bis = jetzt − 1 ist frei
+    {
+      const B = { kidHash: h('3'), gidHash: h('4') };
+      const { speicher } = neuerSpeicher();
+      await frage(speicher, { ...A, bisMs: T0 });
+      const gleichJetzt = await frage(speicher, B, T0);
+      const { speicher: s2 } = neuerSpeicher();
+      await frage(s2, { ...A, bisMs: T0 });
+      const eineMsDanach = await frage(s2, B, T0 + 1);
+      check('Z3 M3: bis = jetzt → der Inhaber gilt noch (Fremder 403); bis = jetzt − 1 → frei (Fremder bindet)',
+        gleich([gleichJetzt.http, gleichJetzt.code, eineMsDanach.http, eineMsDanach.neu], [403, 'keine-freigabe', 200, true]) === null);
+    }
+
+    // M7: bis wird nur verlängert, wenn es um mehr als 1 h wächst (weniger Schreiblast bei der Abfrage alle 5 s)
+    {
+      const { speicher, ctx } = neuerSpeicher();
+      await frage(speicher, { ...A, bisMs: T0 + 2 * TAG });
+      const schreibt = [];
+      const echtes = ctx.storage.put;
+      ctx.storage.put = async (...a) => (schreibt.push(a[0]), echtes(...a));
+      await frage(speicher, { ...A, bisMs: T0 + 2 * TAG + 30 * MIN }, T0 + 1);
+      const nachHalbeStunde = ctx.daten.get(`qa:${EV}`)?.bis;
+      const nachHalbe = schreibt.length;
+      await frage(speicher, { ...A, bisMs: T0 + 2 * TAG + 61 * MIN }, T0 + 2);
+      check('Z3 M7: Wachstum um 30 min → kein Schreiben, bis bleibt; um 61 min → geschrieben',
+        nachHalbeStunde === T0 + 2 * TAG && nachHalbe === 0 && ctx.daten.get(`qa:${EV}`)?.bis === T0 + 2 * TAG + 61 * MIN && schreibt.length === 1);
+    }
+
+    // M5: der Tages-Alarm räumt abgelaufene Inhaber ab, gültige bleiben
+    {
+      const uhr = makeUhr(T0);
+      const { speicher, ctx } = neuerSpeicher({ KONTO_UHR: uhr });
+      await ctx.storage.put(`qa:${h('b')}`, { kidHash: h('1'), gidHash: h('2'), bis: T0 - 1 });
+      await ctx.storage.put(`qa:${h('c')}`, { kidHash: h('1'), gidHash: h('2'), bis: T0 });
+      await speicher.alarm();
+      check('Z3 M5: der Alarm löscht qa:-Einträge mit bis < jetzt und lässt bis = jetzt stehen', gleich([...ctx.daten.keys()].filter((k) => k.startsWith('qa:')), [`qa:${h('c')}`]) === null);
+    }
+
+    // M1: Zwischen dem Lesen und dem letzten Schreiben in qaInhaber steht nur Speicher-Zugriff (Eingangs-Tor)
+    {
+      const quelle = readFileSync(new URL('../konto-do.js', import.meta.url), 'utf8');
+      const rumpf = quelle.slice(quelle.indexOf('async qaInhaber('), quelle.indexOf('// ── Admin-Maske'));
+      const von = rumpf.indexOf('st.get(key)');
+      const bis = rumpf.lastIndexOf('st.put(');
+      const dazwischen = rumpf.slice(von, bis + 'st.put('.length).replace(/\/\/.*$/gm, ''); // ohne Zeilenkommentare
+      check('Z3 M1: Quelltext qaInhaber: zwischen st.get(key) und dem letzten st.put steht jedes await vor einem st.-Zugriff (kein fetch, crypto, Timer)',
+        von > 0 && bis > von && /await/.test(dazwischen) && !/await\s+(?!st\.)/.test(dazwischen) && !/setTimeout|fetch\(|crypto\./.test(dazwischen));
+    }
+
+    // AR90: Der Puffer des Absenders (qa-relay.js) muss den Schritt des DO um mindestens 60 s (Einreichungs-Minimum) übersteigen,
+    // sonst fällt bis bei einem nicht geschriebenen Zuwachs unter Meta-Ende + 60 s. Beide Konstanten kommen aus dem Quelltext.
+    {
+      const zahl = (text, muster) => {
+        const m = text.match(muster);
+        return m ? Number(m[1].replace(/_/g, '')) : NaN;
+      };
+      const doText = readFileSync(new URL('../konto-do.js', import.meta.url), 'utf8');
+      const relayText = readFileSync(new URL('../qa-relay.js', import.meta.url), 'utf8');
+      const schritt = zahl(doText, /const QA_INHABER_SCHRITT_MS = ([\d_]+);/);
+      const puffer = zahl(relayText, /bisPufferMs: ([\d_]+),/);
+      check('Z3 AR90: Quelltext: bisPufferMs (qa-relay.js) − QA_INHABER_SCHRITT_MS (konto-do.js) ≥ 60 000 ms', Number.isFinite(schritt) && Number.isFinite(puffer) && puffer - schritt >= 60_000);
+    }
+
+    // Rennen: zwei Konten öffnen gleichzeitig dasselbe Event (Promise.all über die Namespace-Attrappe mit Eingangs-Tor)
+    {
+      const ns = makeKontoNs({ KONTO_UHR: () => T0 });
+      const stub = ns.get(ns.idFromName('konten'));
+      const rufe = async (e) => {
+        const res = await stub.fetch(new Request('https://konto.intern/qa-inhaber', { method: 'POST', body: JSON.stringify({ jetzt: T0, eventHash: EV, bisMs: T0 + TAG, ...e }) }));
+        return { http: res.status, ...(await res.json()) };
+      };
+      const [x, y] = await Promise.all([rufe({ kidHash: h('1'), gidHash: h('2') }), rufe({ kidHash: h('3'), gidHash: h('4') })]);
+      check('Z3: gleichzeitig zwei fremde Konten → genau eines wird Inhaber, das andere bekommt 403 keine-freigabe', gleich([x.http + y.http, [x, y].filter((r) => r.neu === true).length, [x, y].filter((r) => r.code === 'keine-freigabe').length], [603, 1, 1]) === null);
+    }
   }
 
   // ── Ende der Fälle ──

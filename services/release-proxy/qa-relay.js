@@ -15,11 +15,12 @@
 // Bindungen (wrangler.toml):
 //   QA_RELAY   KV-Namespace für Event-Metadaten + Chiffretext-Einreichungen (NEU)
 //   RATELIMIT  bestehende KV-Bindung fürs Rate-Limit (geteilt mit /feedback, /draft)
+//   KONTO      Konten-DO (EU): hält den Inhaber eines Events per Compare-and-set (Aktion qa-inhaber, Z3); ohne ihn 503
 //   Zugang zu den Admin-Routen (open/pending/ack/delete): Freigabe des Launchers für genau dieses Event (Zweck qa-relay)
 //   oder im Übergang der alte PROXY_KEY bis ALTKEY_BIS (konto-zugang.js, Anmeldung im Launcher P19)
 
 // Anmeldung im Launcher (Plan Teil 1, P19): eine Prüfstelle für Freigabe und alten Schlüssel.
-import { abgelehnt, kontoJetzt, zugangPruefen } from './konto-zugang.js';
+import { abgelehnt, drosselBindung, kontoAktion, kontoJetzt, KONTO_RL, zugangPruefen } from './konto-zugang.js';
 
 const QA = {
   submitBytes: 8 * 1024, // harte Größengrenze eines Einreich-Bodys
@@ -29,6 +30,7 @@ const QA = {
   eventCap: 800, // max. offene Einreichungen je Event (Anti-Flut)
   pendingPage: 200, // max. Einträge pro pending-Antwort
   retentionMaxSec: 60 * 60 * 24 * 2, // 48 h Auto-Verfall (KV-TTL), auch als Default
+  bisPufferMs: 3600_000, // Puffer auf beide Terme von bis (48 h ab jetzt, Meta-Ende); der DO schreibt erst bei mehr als 30 min Zuwachs (AR89)
 };
 
 const ID_RE = /^[A-Za-z0-9_-]{6,64}$/;
@@ -81,10 +83,26 @@ export async function handleQa(request, env, url, ctx) {
       const zugang = await zugangPruefen(request, env, { funktion: 'qa', gruppe: 'qa', ziel: id, jetzt: kontoJetzt(env), ctx });
       if (!zugang.ok) return json({ error: zugang.error, code: zugang.code }, zugang.status);
       if (!env.QA_RELAY) return json({ error: 'QA_RELAY KV-Bindung fehlt' }, 503);
+      // AR87: Der alte Schlüssel steht in öffentlichen Installern. Seine Anfragen werden je IP gedrosselt, bevor sie den globalen
+      // Konten-DO erreichen (Freigaben nicht: sie sind pro Konto begrenzt und signiert).
+      if (zugang.art === 'alter-key') {
+        const rl = await drosselBindung(request, env, KONTO_RL.qaAlt);
+        if (!rl.ok) return tooMany(rl.retryAfter);
+      }
       // EP33: Das Event gehört dem Konto bzw. Rechner, dessen Freigabe es zuerst geöffnet hat (die Event-ID ist öffentlich).
+      // Z3: der Inhaber steht im Konten-DO (Compare-and-set), nicht in KV. Fällt der DO aus, antwortet die Route mit 503 statt offen.
       const inhaber = await eventInhaber(env, id, zugang);
       if (!inhaber.ok) return json({ error: inhaber.error, code: inhaber.code }, inhaber.status);
-      if (method === 'POST' && sub === '') return await qaOpen(request, env, id, inhaber.inhaber);
+      if (method === 'POST' && sub === '') {
+        const auf = await qaOpen(request, env, id);
+        // AR83: Beim ersten Öffnen gab es noch keine Meta; jetzt, wo sie da ist, reicht der Inhaber bis zu ihrem Ende.
+        // Scheitert er, bleibt es bei 200: schon die Prüfung davor deckt ab (Puffer auf beiden Termen, AR89).
+        if (auf.status === 200) {
+          const nach = await eventInhaber(env, id, zugang);
+          if (!nach.ok) console.warn(`qa-relay: Nachzug des Inhabers nach dem Öffnen fehlgeschlagen (status=${nach.status})`);
+        }
+        return auf;
+      }
       if (method === 'DELETE' && sub === '') return await qaPurge(env, id);
       if (method === 'GET' && sub === 'pending') return await qaPending(env, id);
       if (method === 'POST' && sub === 'ack') return await qaAck(request, env, id);
@@ -123,7 +141,7 @@ async function getMeta(env, id) {
  * des Presse-Zugangscodes, die Offen-Flags und die Retention hoch. Idempotent —
  * erneutes Öffnen aktualisiert die Metadaten (z. B. Kanäle schließen).
  */
-async function qaOpen(request, env, id, inhaber = null) {
+async function qaOpen(request, env, id) {
   const body = await readJsonLimited(request, QA.adminBytes);
   const pubJwk = body && body.pubJwk;
   if (!pubJwk || pubJwk.kty !== 'RSA' || typeof pubJwk.n !== 'string' || typeof pubJwk.e !== 'string') {
@@ -140,9 +158,7 @@ async function qaOpen(request, env, id, inhaber = null) {
     streamOpen: body ? body.streamOpen !== false : true,
     pressOpen: !!pressCodeHash && (body ? body.pressOpen !== false : true),
     retentionSec,
-    createdAt: Date.now(),
-    // EP33: Hash von Konto und Rechner der ersten Freigabe; fehlt bei einem Event, das der alte Schlüssel geöffnet hat.
-    ...(inhaber ? { inhaber } : {}),
+    createdAt: kontoJetzt(env), // = Date.now(); im Test über KONTO_UHR, damit Meta-Ende und Inhaber dieselbe Uhr haben
   };
   await env.QA_RELAY.put(metaKey(id), JSON.stringify(meta), { expirationTtl: retentionSec });
   return json({ ok: true, streamOpen: meta.streamOpen, pressOpen: meta.pressOpen });
@@ -195,11 +211,14 @@ async function qaSubmit(request, env, id, channel) {
   const list = await env.QA_RELAY.list({ prefix: itemPrefix(id), limit: 1000 });
   if (list.keys.length >= QA.eventCap) return json({ error: 'Warteschlange voll' }, 507);
 
-  const at = Date.now();
+  const at = kontoJetzt(env);
   const itemId = `${at}_${crypto.randomUUID().slice(0, 8)}`;
   const item = { id: itemId, channel, at, blob: envelope };
+  // AR83/I1: Eine Einreichung lebt nie länger als das Event (Meta-Ende = createdAt + retentionSec), sonst überlebte sie den
+  // Inhaber-Eintrag. KV verlangt mindestens 60 s.
+  const rest = Math.ceil(((meta.createdAt || 0) + meta.retentionSec * 1000 - at) / 1000);
   await env.QA_RELAY.put(itemPrefix(id) + itemId, JSON.stringify(item), {
-    expirationTtl: meta.retentionSec,
+    expirationTtl: Math.max(60, Math.min(meta.retentionSec, rest)),
   });
   return json({ ok: true });
 }
@@ -274,25 +293,45 @@ async function qaPurge(env, id) {
 /**
  * EP33: Wem gehört ein Event? Die ID ist öffentlich (Einreich-Adresse /qa/<id>, Saal-QR). Ohne Bindung könnte jede Freigabe für
  * diese ID (jeder Kollege, jeder Externe mit qa) den öffentlichen Schlüssel eines laufenden Events überschreiben, es quittieren
- * oder löschen. Das erste Öffnen mit einer Freigabe merkt sich Konto und Rechner (nur als Hash, QA_RELAY liegt nicht in der EU);
- * danach gilt nur eine Freigabe desselben Kontos oder desselben Rechners, der alte Schlüssel nicht mehr. Ein Event ohne Inhaber
- * (im Übergang mit dem alten Schlüssel geöffnet) bindet die erste Freigabe, die es nutzt (Q&A öffnet je Lauf nur einmal).
- * → { ok: true, inhaber } (für qaOpen: der gemerkte, sonst der dieser Freigabe, beim alten Schlüssel null) | Ablehnung 403 S15
+ * oder löschen. Z3 (OE3, AR55): Die Bindung entscheidet die DO-Aktion `qa-inhaber` im Konten-DO (EU) per Compare-and-set, nicht
+ * KV (eventual consistent, höchstens ein Schreiben je Schlüssel und Sekunde): Die erste Freigabe, die das Event nutzt (auch
+ * ein Abholen vor dem Öffnen), merkt sich Konto und Rechner, nur als Hash; danach gilt nur eine Freigabe desselben Kontos oder
+ * desselben Rechners, der alte Schlüssel nicht mehr. Ein Event ohne Inhaber (im Übergang mit dem alten Schlüssel geöffnet) bindet
+ * die erste Freigabe, die es nutzt. Die Event-ID selbst kommt nie in den DO, nur ihr Hash mit eigenem Präfix. Ein `inhaber` in
+ * alter KV-Meta wird ignoriert. AR83: Der Eintrag gilt mindestens bis zum Ende der Aufbewahrung des Events (createdAt +
+ * retentionSec, solange die Meta existiert; Einreichungen leben höchstens 60 s länger als das Event, die Mindestdauer von KV),
+ * mindestens 48 Stunden ab der letzten Nutzung, höchstens 30 Tage ab jetzt (Deckel im DO). Auf beide Terme kommt 1 Stunde Puffer
+ * (AR89): der DO schreibt `bis` nur bei mehr als 30 Minuten Zuwachs, der Puffer hält das Meta-Ende auch dann sicher darunter,
+ * wenn der Nachzug nach dem Öffnen scheitert. Die Eintragung wird bei jeder Nutzung verlängert.
+ * → { ok: true } | Ablehnung 403 S15 | Ablehnung 503 S5, wenn der DO nicht antwortet (nie still offen)
  */
 async function eventInhaber(env, id, zugang) {
-  const meta = await getMeta(env, id);
-  const gemerkt = meta && meta.inhaber && typeof meta.inhaber === 'object' ? meta.inhaber : null;
   const kid = zugang.art === 'freigabe' ? String(zugang.claims.kid || '') : '';
   const gid = zugang.art === 'freigabe' ? String(zugang.claims.gid || '') : '';
-  const neu = kid && gid ? { kid: await sha256Hex(`qa-inhaber|kid|${kid}`), gid: await sha256Hex(`qa-inhaber|gid|${gid}`) } : null;
-  if (!gemerkt) {
-    // Restlaufzeit des Events beibehalten (KV verlangt mindestens 60 s).
-    const rest = meta ? Math.ceil(((meta.createdAt || 0) + (meta.retentionSec || 0) * 1000 - Date.now()) / 1000) : 0;
-    if (neu && meta) await env.QA_RELAY.put(metaKey(id), JSON.stringify({ ...meta, inhaber: neu }), { expirationTtl: Math.max(60, rest) });
-    return { ok: true, inhaber: neu };
+  const jetzt = kontoJetzt(env);
+  // AR83: Der Inhaber gilt mindestens bis zum Ende der Aufbewahrung des Events (ein mit „Aus“ geschlossenes Event liegt bis dahin
+  // mit Einreichungen in KV), sonst 48 Stunden ab jetzt. Der DO deckelt auf 30 Tage und verlängert nur nach oben.
+  const meta = await getMeta(env, id);
+  const metaEnde = meta && Number.isFinite(meta.createdAt) && Number.isFinite(meta.retentionSec) ? meta.createdAt + meta.retentionSec * 1000 : 0;
+  const frage = { jetzt, eventHash: await sha256Hex(`qa-event|${id}`), bisMs: Math.max(jetzt + QA.retentionMaxSec * 1000, metaEnde) + QA.bisPufferMs };
+  if (kid && gid) {
+    frage.kidHash = await sha256Hex(`qa-inhaber|kid|${kid}`);
+    frage.gidHash = await sha256Hex(`qa-inhaber|gid|${gid}`);
   }
-  if (neu && (neu.kid === gemerkt.kid || neu.gid === gemerkt.gid)) return { ok: true, inhaber: gemerkt };
-  return abgelehnt('keine-freigabe', 403);
+  let r = null;
+  try {
+    r = await kontoAktion(env, 'qa-inhaber', frage);
+  } catch (e) {
+    console.warn(`qa-relay: Inhaber-Prüfung im Konten-DO fehlgeschlagen (${e && typeof e.name === 'string' ? e.name : 'Error'})`);
+  }
+  if (r && r.ok === true) return { ok: true };
+  if (r && r.ok === false && r.status === 403 && r.code === 'keine-freigabe') return abgelehnt('keine-freigabe', 403);
+  // M6: eine unerwartete Antwort des DO sichtbar machen: nur code, status und diagnose (Namen), nie Werte (G4).
+  if (r?.ok === false) {
+    const klein = (v) => (typeof v === 'string' || typeof v === 'number') && /^[A-Za-z0-9_-]{1,40}$/.test(String(v)) ? String(v) : '?';
+    console.warn(`qa-relay: Inhaber-Prüfung vom Konten-DO abgelehnt (code=${klein(r.code)}, status=${klein(r.status)}, diagnose=${klein(r.diagnose)})`);
+  }
+  return abgelehnt('nicht-eingerichtet', 503);
 }
 
 function clientIp(request) {

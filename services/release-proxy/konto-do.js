@@ -91,7 +91,14 @@ const K = {
   fehl: (kid) => `fehl:${kid}`,
   /** Bremse einer unbekannten E-Mail (P4): nur der SHA-256 der normalisierten E-Mail, nie die E-Mail selbst. */
   fehlEmail: (hash) => `fehl-email:${hash}`,
+  /** Inhaber eines Q&A-Events (Z3): nur der SHA-256 der Event-ID mit eigenem Präfix, nie die Event-ID selbst. */
+  qaInhaber: (eventHash) => `qa:${eventHash}`,
 };
+/** Q&A-Inhaber: so lange höchstens aufbewahren (Obergrenze für `bis`). */
+const QA_INHABER_MAX_MS = 30 * TAG_MS;
+/** `bis` eines Q&A-Inhabers wird nur verlängert, wenn es um mehr als so viel wächst. Muss kleiner sein als der Puffer des Absenders (QA.bisPufferMs, 1 h in qa-relay.js), damit `bis` nie unter Meta-Ende + Puffer − Schritt fällt (AR89). */
+const QA_INHABER_SCHRITT_MS = 1800_000;
+const HEX64 = /^[a-f0-9]{64}$/;
 
 /** Aktion (Pfad nach https://konto.intern/) → Methode. Nur diese Namen sind von außen erreichbar. */
 const AKTIONEN = {
@@ -111,6 +118,7 @@ const AKTIONEN = {
   'zoom-anfragen': 'zoomAnfragen',
   'iveo-fuer': 'iveoFuer',
   'altkey-zaehlen': 'altkeyZaehlen',
+  'qa-inhaber': 'qaInhaber',
   'admin-uebersicht': 'adminUebersicht',
   'admin-aktion': 'adminAktion',
   // ── Ende der Aktionen ──
@@ -386,6 +394,9 @@ export class KontoSpeicher {
     }
     for (const [key, a] of await st.list({ prefix: 'anfrage:' })) {
       if (!a || a.bis + AUFBEWAHRUNG_MS <= jetzt) await st.delete(key);
+    }
+    for (const [key, q] of await st.list({ prefix: 'qa:' })) {
+      if (!q || !(q.bis >= jetzt)) await st.delete(key);
     }
     for (const [key, g] of await st.list({ prefix: 'geraet:' })) {
       if (!g || !(g.letzterKontakt + GERAET_MS > jetzt)) await st.delete(key);
@@ -981,6 +992,46 @@ export class KontoSpeicher {
     const alt = await this.ctx.storage.get(key);
     await this.ctx.storage.put(key, { tag, gruppe: b.gruppe, plattform, anzahl: (alt ? alt.anzahl : 0) + 1, zuletzt: jetzt });
     return { ok: true };
+  }
+
+  /**
+   * Aktion `qa-inhaber` `{ eventHash, kidHash, gidHash, bisMs }` (Z3, OE3, AR55): wem gehört ein Q&A-Event? Compare-and-set
+   * im DO: Lesen und Schreiben ohne `await` auf etwas anderes als den Speicher dazwischen (Eingangs-Tor), darum entscheiden
+   * zwei gleichzeitige Freigaben verschiedener Konten eindeutig. Alle Hashes sind SHA-256 hex; die Event-ID selbst kommt nie hierher.
+   *   - noch kein Inhaber, Freigabe (kidHash und gidHash): binden → { ok, inhaber, neu: true }
+   *   - Inhaber da, kidHash ODER gidHash gleich → { ok, inhaber, neu: false } (bis wird nur verlängert)
+   *   - sonst 403 keine-freigabe; der alte Schlüssel (ohne beide Hashes) bei gebundenem Event ebenso (EP33)
+   *   - der alte Schlüssel ohne Inhaber: ok, nichts gebunden, inhaber null
+   * `bis` (ms) ist höchstens 30 Tage nach jetzt; ein Eintrag mit bis < jetzt gilt als nicht vorhanden und wird beim Lesen gelöscht.
+   */
+  async qaInhaber(b, jetzt) {
+    const mitKid = b.kidHash !== undefined;
+    const mitGid = b.gidHash !== undefined;
+    if (!HEX64.test(b.eventHash) || mitKid !== mitGid || (mitKid && !(HEX64.test(b.kidHash) && HEX64.test(b.gidHash))) || !Number.isFinite(b.bisMs)) {
+      return fehler('ungueltig', 400);
+    }
+    const st = this.ctx.storage;
+    const key = K.qaInhaber(b.eventHash);
+    let inhaber = (await st.get(key)) ?? null;
+    // Ab hier bis zum Schreiben kein await auf etwas anderes als den Speicher (Eingangs-Tor).
+    if (inhaber && !(inhaber.bis >= jetzt)) {
+      await st.delete(key);
+      inhaber = null;
+    }
+    const bis = Math.min(b.bisMs, jetzt + QA_INHABER_MAX_MS);
+    if (!inhaber) {
+      if (!mitKid) return { ok: true, inhaber: null, neu: false };
+      inhaber = { kidHash: b.kidHash, gidHash: b.gidHash, bis };
+      await st.put(key, inhaber);
+      return { ok: true, inhaber, neu: true };
+    }
+    if (!mitKid || (b.kidHash !== inhaber.kidHash && b.gidHash !== inhaber.gidHash)) return fehler('keine-freigabe', 403);
+    // Nur bei mehr als einer halben Stunde Zuwachs schreiben: Q&A fragt alle 5 s, jedes Mal ein Schreiben wäre unnötige Last.
+    if (bis - inhaber.bis > QA_INHABER_SCHRITT_MS) {
+      inhaber = { ...inhaber, bis };
+      await st.put(key, inhaber);
+    }
+    return { ok: true, inhaber, neu: false };
   }
 
   // ── Admin-Maske (Spec 7, 4, 8, 9; EP15, EP19, EP20, OFP4) ──

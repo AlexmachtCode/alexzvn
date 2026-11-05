@@ -614,11 +614,11 @@ async function run() {
         && bindTab.length === 2 && bindungen.length === 2 && JSON.stringify(bindungen) === JSON.stringify(['CONNECT_ROOM=ConnectRoom', 'KONTO=KontoSpeicher'])
         && varsTab.length === 1 && JSON.stringify(inVars('KONTO_JURISDICTION')) === '["\\"eu\\""]' && JSON.stringify(inVars('CONNECT_JURISDICTION')) === '["\\"eu\\""]'
         && tabellen.every((t) => t.kopf === 'vars' || !t.kv.some(([k]) => k.endsWith('_JURISDICTION'))));
-    // Z1-W2 AR70: genau die sechs [[ratelimits]] der Tabelle (Name, namespace_id, limit, period), je gefolgt von [ratelimits.simple]
-    // mit nur limit und period; period nur 10 oder 60; die Namen in KONTO_RL (konto-zugang.js) sind genau diese sechs.
+    // Z1-W2 AR70: genau die sieben [[ratelimits]] der Tabelle (Name, namespace_id, limit, period), je gefolgt von [ratelimits.simple]
+    // mit nur limit und period; period nur 10 oder 60; die Namen in KONTO_RL (konto-zugang.js) sind genau diese sieben.
     const rlTabellen = tabellen.filter((t) => t.kopf.startsWith('ratelimits'));
     const rlEintraege = [];
-    let rlAufbauOk = rlTabellen.length === 12;
+    let rlAufbauOk = rlTabellen.length === 14;
     for (let i = 0; i + 1 < rlTabellen.length; i += 2) {
       const [a, s] = [rlTabellen[i], rlTabellen[i + 1]];
       if (a.kopf !== 'ratelimits' || !a.feld || !nurSchluessel(a, ['name', 'namespace_id']) || s.kopf !== 'ratelimits.simple' || s.feld || !nurSchluessel(s, ['limit', 'period'])) {
@@ -631,9 +631,9 @@ async function run() {
       rlEintraege.push([wert(a, 'name').replace(/^"|"$/g, ''), wert(a, 'namespace_id').replace(/^"|"$/g, ''), Number(wert(s, 'limit')), Number(wert(s, 'period'))]);
     }
     const rlSoll = Object.entries(RL_TABELLE).map(([n, t]) => [n, t.namespaceId, t.grenze, t.period]);
-    check('Z1-W2 AR70: wrangler.toml hat genau sechs [[ratelimits]] mit [ratelimits.simple] (Name, namespace_id, limit, period wie die Tabelle), period 10 oder 60; KONTO_RL nennt genau diese Namen',
+    check('Z1-W2 AR70: wrangler.toml hat genau sieben [[ratelimits]] mit [ratelimits.simple] (Name, namespace_id, limit, period wie die Tabelle), period 10 oder 60; KONTO_RL nennt genau diese Namen',
       rlAufbauOk && JSON.stringify(rlEintraege) === JSON.stringify(rlSoll) && rlEintraege.every(([, , l, p]) => Number.isInteger(l) && l > 0 && (p === 10 || p === 60))
-        && new Set(rlEintraege.map((e) => e[0])).size === 6 && new Set(rlEintraege.map((e) => e[1])).size === 6
+        && new Set(rlEintraege.map((e) => e[0])).size === 7 && new Set(rlEintraege.map((e) => e[1])).size === 7
         && JSON.stringify(Object.values(KONTO_RL).sort()) === JSON.stringify(rlSoll.map((e) => e[0]).sort()));
     // ALTKEY_BIS mit derselben Regel wie der Worker: ein unlesbarer Wert (z. B. 2026-12-32) hieße dort still „unbefristet“ (EP9).
     const { alterKeyGilt } = await import('../konto-kern.js');

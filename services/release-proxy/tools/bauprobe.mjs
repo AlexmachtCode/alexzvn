@@ -31,7 +31,7 @@ const migTab = tabellen.filter((t) => t.kopf === 'migrations');
 const bindTab = tabellen.filter((t) => t.kopf === 'durable_objects.bindings');
 const varsTab = tabellen.filter((t) => t.kopf === 'vars' && !t.feld);
 const schluessel = (t) => t.kv.map(([k]) => k).join(',');
-// Z1-W2 (AR70): genau diese sechs Rate-Limit-Bindungen der Anmeldung: Name, namespace_id, limit je period (Sekunden). period nur 10 oder 60.
+// Z1-W2 (AR70): genau diese sieben Rate-Limit-Bindungen der Anmeldung: Name, namespace_id, limit je period (Sekunden). period nur 10 oder 60.
 const RL_SOLL = [
   ['KONTO_RL_VORGANG', '7301', 20, 60],
   ['KONTO_RL_ABHOLEN', '7302', 600, 60],
@@ -39,6 +39,7 @@ const RL_SOLL = [
   ['KONTO_RL_GOOGLE', '7304', 60, 60],
   ['KONTO_RL_PASSWORT', '7305', 10, 60],
   ['KONTO_RL_SELBSTUPDATE', '7306', 20, 60],
+  ['KONTO_RL_QAALT', '7307', 60, 60],
 ];
 const rlTab = tabellen.filter((t) => t.kopf.startsWith('ratelimits'));
 const rlIst = [];
@@ -54,7 +55,7 @@ for (let i = 0; i + 1 < rlTab.length; i += 2) {
 if (migTab.length !== 2 || migTab.some((t) => !t.feld || schluessel(t) !== 'tag,new_sqlite_classes')) befunde.push('[[migrations]]: genau zwei Tabellen, je nur tag und new_sqlite_classes');
 if (bindTab.some((t) => !t.feld || schluessel(t) !== 'name,class_name')) befunde.push('[[durable_objects.bindings]]: je nur name und class_name');
 if (varsTab.length !== 1) befunde.push('[vars]: genau eine Tabelle');
-if (!rlAufbauOk || JSON.stringify(rlIst) !== JSON.stringify(RL_SOLL) || rlIst.some(([, , l, p]) => !Number.isInteger(l) || l < 1 || (p !== 10 && p !== 60))) befunde.push('[[ratelimits]]: genau die sechs Eintraege KONTO_RL_* (je mit [ratelimits.simple] aus limit und period, period 10 oder 60)');
+if (!rlAufbauOk || JSON.stringify(rlIst) !== JSON.stringify(RL_SOLL) || rlIst.some(([, , l, p]) => !Number.isInteger(l) || l < 1 || (p !== 10 && p !== 60))) befunde.push('[[ratelimits]]: genau die sieben Eintraege KONTO_RL_* (je mit [ratelimits.simple] aus limit und period, period 10 oder 60)');
 if (tabellen.some((t) => t.kopf !== 'vars' && t.kv.some(([k]) => k.endsWith('_JURISDICTION')))) befunde.push('*_JURISDICTION steht ausserhalb von [vars]');
 for (const t of migTab) for (const [k, w] of t.kv) if (k === 'new_sqlite_classes') for (const m of w.matchAll(/"([^"]+)"/g)) klassen.add(m[1]);
 for (const t of bindTab) for (const [k, w] of t.kv) if (k === 'class_name') { const m = /^"([^"]+)"$/.exec(w); if (m) klassen.add(m[1]); }

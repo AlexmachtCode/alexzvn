@@ -153,6 +153,7 @@ also ungefähr:
 | `KONTO_RL_GOOGLE` | `7304` | 60 | GET `/konto/google` und `/konto/google/zurueck` |
 | `KONTO_RL_PASSWORT` | `7305` | 10 | POST `/konto/passwort` (die Bremse je Konto im Durable Object bleibt) |
 | `KONTO_RL_SELBSTUPDATE` | `7306` | 20 | `/tools/launcher/latest` ohne Zugang |
+| `KONTO_RL_QAALT` | `7307` | 60 | Q&A-Admin-Routen mit dem alten Schlüssel, vor dem Aufruf des Konten-DO (Z3) |
 
 Bei Überschreitung antwortet die Route wie bisher mit 429 und `Retry-After: 60`. Fehlt eine Bindung oder wirft ihr `limit()`,
 warnt der Worker im Log (mit dem Fehlernamen) und lässt die Route offen; eine Drossel erzeugt nie einen 5xx. Die alten Routen
@@ -197,7 +198,12 @@ unbrauchbar (nicht 32 Byte Base64), antworten `GET /konto/iveo` und das Hinterle
 ## 9 · Übergang (Spec 10)
 
 - **Alter Schlüssel am Worker.** `PROXY_KEY` gilt für Katalog, Updates, Kochbuch, Feedback, KI-Entwurf und die Admin-Routen von
-  Q&A bis `ALTKEY_BIS` (Worker-Variable, ISO-Datum). Fehlt sie oder ist sie unlesbar, gilt er unbefristet, und der Reiter „Geräte“ zeigt das. Für Connect
+  Q&A bis `ALTKEY_BIS` (Worker-Variable, ISO-Datum). Fehlt sie oder ist sie unlesbar, gilt er unbefristet, und der Reiter „Geräte“ zeigt das.
+  An den Q&A-Admin-Routen gilt er nur für Events ohne Inhaber und je IP höchstens 60-mal je Minute (`KONTO_RL_QAALT`), bevor er
+  den Konten-DO erreicht; hat ein Event einen Inhaber, weist der Worker ihn mit 403 ab (EP33). Inhaber ist die erste Freigabe, die
+  das Event nutzt: Konto und Rechner, nur als Hash, im Konten-DO in der EU, gesetzt per Compare-and-set (Z3). Er gilt mindestens bis
+  zum Ende der Aufbewahrung des Events, höchstens 30 Tage; Einreichungen leben höchstens 60 Sekunden länger als das Event
+  (Mindestdauer von KV). Für Connect
   gilt er bis `ALTKEY_CONNECT_BIS`, die erst mit Teil 2 gesetzt wird; `connect-relay.js` prüft bis dahin selbst. Der Reiter
   „Geräte“ zählt Anfragen mit dem alten Schlüssel je Tag, Gruppe und Plattform (ohne IP-Adressen). Seit Z1 zählt die Anzeige
   höchstens einen Aufruf je IP-Hash, Tag und Gruppe (der Worker merkt sich den Schlüssel `Tag|Gruppe|IP-Hash` im Isolat, bis zu

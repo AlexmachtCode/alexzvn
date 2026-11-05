@@ -47,8 +47,22 @@ Einreichers** auf den **Public Key des Events** verschlüsselt:
 genau dieses Event (Zweck `qa-relay`, 72 Stunden), hält sie in `qa.cloud.secret` und
 erneuert sie über den Launcher, sobald weniger als 24 Stunden bleiben. Der Live-Pfad
 Q&A → Worker braucht den Launcher nicht. Bis `ALTKEY_BIS` nimmt der Worker an den
-Admin-Routen auch den alten `PROXY_KEY` an; nach der ersten gültigen Freigabe leert Q&A
-den gespeicherten Key. Einzelheiten: `docs/anmeldung.md`.
+Admin-Routen auch den alten `PROXY_KEY` an, aber nur für Events ohne Inhaber; nach der ersten
+gültigen Freigabe leert Q&A den gespeicherten Key. Einzelheiten: `docs/anmeldung.md`.
+
+**Inhaber eines Events (EP33).** Die Event-ID ist öffentlich (Einreich-Adresse, Saal-QR). Darum
+gehört ein Event dem Konto und dem Rechner der ersten Freigabe, die es nutzt (Öffnen oder Abholen).
+Danach gilt nur eine Freigabe desselben Kontos oder desselben Rechners; jede andere Freigabe und
+der alte `PROXY_KEY` bekommen 403 („keine Freigabe“). Hat ein Event noch keinen Inhaber (im
+Übergang mit dem alten Schlüssel geöffnet), bindet die erste Freigabe, die es nutzt. Der Inhaber
+steht im Konten-Durable-Object in der EU, nicht in KV: Der Worker entscheidet dort per
+Compare-and-set, auch wenn zwei Konten das Event gleichzeitig öffnen. Gespeichert werden nur
+SHA-256-Hashes von Event-ID, Konto und Rechner. Der Inhaber gilt mindestens bis zum Ende der
+Aufbewahrung des Events, höchstens 30 Tage; Einreichungen leben höchstens 60 Sekunden länger
+als das Event (Mindestdauer von KV). Antwortet der Konten-Dienst nicht, antworten die
+Admin-Routen mit 503 statt offen. Anfragen mit dem alten Schlüssel werden je IP gedrosselt
+(60 je Minute, Bindung `KONTO_RL_QAALT`), bevor sie den Konten-Dienst erreichen. Die
+Angaben in KV (`QA_RELAY`) enthalten keinen Inhaber.
 
 ## Endpunkte (`/qa/...`)
 
@@ -83,7 +97,8 @@ Vergleich des Presse-Code-Hashes.
 
 - KV-Namespace anlegen und in `wrangler.toml` binden:
   `npx wrangler kv namespace create QA_RELAY` → id eintragen als Binding `QA_RELAY`.
-  (Rate-Limit nutzt die bestehende `RATELIMIT`-Bindung.)
+  (Rate-Limit nutzt die bestehende `RATELIMIT`-Bindung; der Inhaber eines Events steht im
+  Konten-DO hinter der Bindung `KONTO`, ohne sie antworten die Admin-Routen mit 503.)
 - `npx wrangler deploy`. Die Admin-Routen prüfen seit der Anmeldung (Teil 1) die
   Freigabe des Launchers; `PROXY_KEY` gilt dort nur bis `ALTKEY_BIS` (`docs/anmeldung.md`).
 

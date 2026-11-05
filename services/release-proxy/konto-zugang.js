@@ -97,7 +97,7 @@ export const SELBST_UPDATE_OFFEN_AB = '0.18.0';
 export const SELBST_UPDATE = Object.freeze({ speicherMs: 60_000 });
 
 /**
- * AR70 (Z1-W2): Namen der sechs Rate-Limit-Bindungen der Anmeldung (wrangler.toml [[ratelimits]], eine je Grenze; Werte und
+ * AR70 (Z1-W2): Namen der sieben Rate-Limit-Bindungen der Anmeldung (wrangler.toml [[ratelimits]], eine je Grenze; Werte und
  * Routen in der Tabelle des Auftrags AR70). Die Zählung gilt je Cloudflare-Standort und ist ungefähr.
  */
 export const KONTO_RL = Object.freeze({
@@ -107,6 +107,8 @@ export const KONTO_RL = Object.freeze({
   google: 'KONTO_RL_GOOGLE',
   passwort: 'KONTO_RL_PASSWORT',
   selbstUpdate: 'KONTO_RL_SELBSTUPDATE',
+  /** Q&A-Admin-Routen mit dem öffentlichen alten Schlüssel, vor dem Aufruf des Konten-DO (Z3, AR87). */
+  qaAlt: 'KONTO_RL_QAALT',
 });
 
 /** Periode aller Bindungen in Sekunden (`period = 60`); so lange dauert es höchstens, bis eine gedrosselte IP wieder darf (Retry-After). */

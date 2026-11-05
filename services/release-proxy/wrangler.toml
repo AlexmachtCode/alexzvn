@@ -52,7 +52,7 @@ new_sqlite_classes = ["KontoSpeicher"]
 # und Sekunde; hinter einer gemeinsamen Büro-IP und beim Abholen im 2-s-Takt gäbe das Fehlschläge). Eine Bindung je Grenze,
 # `limit` je `period` (nur 10 oder 60 Sekunden erlaubt), gezählt je Cloudflare-Standort und IP-Hash, also ungefähr. Fehlt eine
 # Bindung, warnt der Worker im Log und lässt die Route offen. Die Bauprobe und der Wächter in konto-zugang.test.mjs kennen genau
-# diese sechs Einträge. KV RATELIMIT oben bleibt für Feedback, Kochbuch-Entwurf, Zoom-SDK und Q&A unverändert.
+# diese sieben Einträge. KV RATELIMIT oben bleibt für Feedback, Kochbuch-Entwurf, Zoom-SDK und Q&A unverändert.
 # KONTO_RL_VORGANG: POST /konto/vorgang
 [[ratelimits]]
 name = "KONTO_RL_VORGANG"
@@ -99,6 +99,14 @@ name = "KONTO_RL_SELBSTUPDATE"
 namespace_id = "7306"
   [ratelimits.simple]
   limit = 20
+  period = 60
+
+# KONTO_RL_QAALT: Q&A-Admin-Routen mit dem alten Schlüssel, vor der Inhaber-Prüfung im Konten-DO (Q&A fragt alle 5 s = 12/min)
+[[ratelimits]]
+name = "KONTO_RL_QAALT"
+namespace_id = "7307"
+  [ratelimits.simple]
+  limit = 60
   period = 60
 
 # Optionale Secrets für die Remote-Zuschaltung (verschlüsselt via `wrangler secret put`):
