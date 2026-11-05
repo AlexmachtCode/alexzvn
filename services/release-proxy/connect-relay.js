@@ -83,6 +83,10 @@ export async function handleConnect(request, env, url) {
     return json({ error: e.message }, 503);
   }
   const headers = new Headers(request.headers);
+  // B1 (OFP7): vom Client mitgeschickte interne Kopfzeilen verwerfen, sonst macht sich ein Gast
+  // mit `x-connect-admin: 1` zum Operator. Nur der Worker setzt sie (unten).
+  headers.delete('x-connect-admin');
+  headers.delete('x-connect-room');
   headers.set('x-connect-room', id);
   if (isAdmin) headers.set('x-connect-admin', '1');
   return stub.fetch(new Request(request, { headers }));

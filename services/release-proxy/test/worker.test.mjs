@@ -295,6 +295,40 @@ async function run() {
     check('Jurisdiction verlangt, aber nicht unterstützt → 503 statt stiller Rückfall', r.status === 503);
   }
 
+  // 19b) B1 (OFP7): interne Kopfzeilen des Clients erreichen den Raum-DO nie.
+  {
+    let seen = null;
+    const ns = {
+      jurisdiction: () => ns,
+      idFromName: (n) => ({ n }),
+      get: () => ({
+        fetch: async (r) => {
+          seen = r.headers;
+          return new Response('{}', { status: 200 });
+        },
+      }),
+    };
+    const env = { ...baseEnv, CONNECT_ROOM: ns };
+    const forged = { 'x-connect-admin': '1', 'X-Connect-Admin': '1', 'x-connect-room': 'fremd-raum', 'X-CONNECT-ROOM': 'fremd-raum' };
+
+    // Gast (GET state) schickt die Kopfzeilen selbst mit.
+    seen = null;
+    await worker.fetch(req('/connect/room-1/state', { headers: forged, key: null }), env);
+    check('B1 Gast: x-connect-admin wird verworfen', seen && seen.get('x-connect-admin') === null);
+    check('B1 Gast: x-connect-room ist der Raum aus der Adresse', seen && seen.get('x-connect-room') === 'room-1');
+
+    // Gast mit anderem Wert.
+    seen = null;
+    await worker.fetch(req('/connect/room-1/ice', { headers: { 'X-Connect-Admin': '0' }, key: null }), env);
+    check('B1 Gast: x-connect-admin: 0 kommt nicht an', seen && seen.get('x-connect-admin') === null);
+
+    // Echter Admin (POST mit Key): genau "1", auch bei gefälschtem Wert.
+    seen = null;
+    await worker.fetch(req('/connect/room-1', { method: 'POST', body: { secretHex: 'a'.repeat(64) }, headers: { 'x-connect-admin': 'yes', 'x-connect-room': 'fremd-raum' } }), env);
+    check('B1 Admin: x-connect-admin genau "1"', seen && seen.get('x-connect-admin') === '1');
+    check('B1 Admin: x-connect-room aus der Adresse', seen && seen.get('x-connect-room') === 'room-1');
+  }
+
   // ── Zoom-SDK nachladen (JM Connect 0.2.2): GET /zoom-sdk/:fassung ──
 
   // 20) Eigener Schlüssel, Antwort, Fehlerfälle, Drosselung, kein Proxy-Key, nichts Geheimes in der Konsole.
