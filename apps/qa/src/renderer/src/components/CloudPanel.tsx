@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useQa } from '@/store/useQa';
 import { toDataUrl } from '@/lib/qr';
+import { TON } from '@/lib/zugang-ton';
 import type { QaCloudInfo } from '@shared/types';
 
-/** Farbe der Zugangszeile je Ton (Anmeldung im Launcher, Teil 1, P31). */
-const TON = { ok: 'text-[var(--muted-foreground)]', warn: 'text-[var(--warning)]', fehler: 'text-[var(--destructive)]' } as const;
 
 /**
  * Externe Einreichung (#166): An/Aus, QR für den Livestream-Stream-Link, Presse-

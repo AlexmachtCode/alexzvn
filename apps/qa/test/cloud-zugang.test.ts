@@ -274,7 +274,7 @@ function ausschnitt(text: string, start: string, ende: string): string {
   eq(
     [
       cloud.includes("const EMPTY: CloudSecrets = { publicJwk: null, privateJwk: null, proxyKey: '', freigabe: null };"),
-      ausschnitt(cloud, 'export function loadSecrets(', '\n}\n').includes('freigabe: leseFreigabe(obj.freigabe),'),
+      ausschnitt(cloud, 'export function loadSecrets(', '\n}\n').includes('return leseGeheimnisse(JSON.parse(text));'),
       index.includes("let cloudSecrets: CloudSecrets = { publicJwk: null, privateJwk: null, proxyKey: '', freigabe: null };"),
       ausschnitt(index, 'async function cloudGenerateEvent(', '\n}\n').includes('cloudSecrets = { ...cloudSecrets, publicJwk, privateJwk, freigabe: null };'),
       index.includes("cloudSecrets = { ...cloudSecrets, proxyKey: String(key || '').trim() };"),
@@ -335,13 +335,21 @@ function ausschnitt(text: string, start: string, ende: string): string {
       // Fixrunde 1 (AR64): nach jedem Warten prüft der Takt, ob Extern noch läuft und das Event gleich ist (vor dem Zugang und vor dem Öffnen)
       takt.indexOf('if (!cloudTimer || getConfig().eventId !== cfg.eventId) {') > takt.indexOf('await freigabeHolen();')
         && takt.indexOf('if (!cloudTimer || getConfig().eventId !== cfg.eventId) {') < takt.indexOf('zugang = aktuellerZugang();')
-        && takt.lastIndexOf('if (!cloudTimer || getConfig().eventId !== cfg.eventId) {') > takt.indexOf('await openEvent(')
-        && takt.lastIndexOf('if (!cloudTimer || getConfig().eventId !== cfg.eventId) {') < takt.indexOf('await pollPending('),
+        // Z1-L3: nach dem Öffnen entscheidet nachOeffnen (bei Aus während des POST: best-effort close mit denselben Kanal-Flags aus)
+        && takt.indexOf('await nachOeffnen({') > takt.indexOf('await openEvent(')
+        && takt.indexOf('await nachOeffnen({') < takt.indexOf('await pollPending(')
+        && takt.includes('nochAn: () => cloudTimer != null,') && takt.includes('eventGleich: () => getConfig().eventId === cfg.eventId,')
+        && takt.includes('schliessen: () => openEvent({ ...cfg, streamOpen: false, pressOpen: false }, cloudSecrets, zugang),')
+        && takt.indexOf('geoeffnetFuer = cfg.eventId;') > takt.indexOf('await nachOeffnen({'),
+      // Z1-L3 OE5: abgelehnter alter Key wird lokal gelöscht und gespeichert (Fehler beim Speichern: nur der Name ins Log)
+      takt.includes('err instanceof RelayFehler ? err.code : null')
+        && takt.includes('const ohneKey = altKeyEntfernen(cloudSecrets, zugang, status, code);')
+        && /if \(ohneKey !== cloudSecrets\) \{\n\s+cloudSecrets = ohneKey;\n\s+try \{\n\s+saveSecrets\(app\.getPath\('userData'\), cloudSecrets\);\n\s+\} catch \(e\) \{\n\s+getLog\(\)\.info\(`Q&A: Geheimnisse nicht gespeichert \(\$\{\(e as Error\)\.name\}\)`\);/.test(takt),
       // nur die abgelehnte Freigabe verwerfen, danach speichern, ein Fehler dabei ist kein Absturz
       takt.includes("cloudSecrets.freigabe?.token === zugang.f.token")
         && /cloudSecrets = \{ \.\.\.cloudSecrets, freigabe: null \};\n\s+try \{\n\s+saveSecrets\(app\.getPath\('userData'\), cloudSecrets\);\n\s+\} catch \(e\) \{/.test(takt),
     ],
-    [true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true],
     'P30 QR1/QR4/QR5: Takt holt erst die Freigabe, pausiert ohne Zugang, öffnet, holt ab und quittiert mit dem Zugang; 401/403 verwirft die Freigabe (Q11) bzw. den alten Key (Q6d); Vorgabe-URL',
   );
 
@@ -349,14 +357,14 @@ function ausschnitt(text: string, start: string, ende: string): string {
   const purge = ausschnitt(cloud, 'export async function purgeEvent(', '\n}\n');
   eq(
     [
-      ack.includes('if (!res.ok) throw new RelayFehler(QA_TEXT.quittierenFehler(res.status), res.status);'),
-      purge.includes('if (!res.ok) throw new RelayFehler(QA_TEXT.loeschenFehler(res.status), res.status);'),
+      ack.includes('if (!res.ok) throw new RelayFehler(QA_TEXT.quittierenFehler(res.status), res.status, await fehlerCode(res));'),
+      purge.includes('if (!res.ok) throw new RelayFehler(QA_TEXT.loeschenFehler(res.status), res.status, await fehlerCode(res));'),
       cloud.includes('X-Proxy-Key'),
       (cloud.match(/zugangsKopf\(zugang\)/g) ?? []).length,
       cloud.includes('throw new Error(QA_TEXT.keinSchluessel);') && !cloud.includes('erst „Neues Event"'),
       // Fixrunde 1 (AR64): auch Öffnen und Abruf melden einen Nicht-ok-Status als RelayFehler (sonst greift 401/403 nie)
-      ausschnitt(cloud, 'export async function openEvent(', '\n}\n').includes('if (!res.ok) throw new RelayFehler(`Öffnen fehlgeschlagen (HTTP ${res.status})`, res.status);'),
-      ausschnitt(cloud, 'export async function pollPending(', '\n}\n').includes('if (!res.ok) throw new RelayFehler(`Abruf fehlgeschlagen (HTTP ${res.status})`, res.status);'),
+      ausschnitt(cloud, 'export async function openEvent(', '\n}\n').includes('if (!res.ok) throw new RelayFehler(`Öffnen fehlgeschlagen (HTTP ${res.status})`, res.status, await fehlerCode(res));'),
+      ausschnitt(cloud, 'export async function pollPending(', '\n}\n').includes('if (!res.ok) throw new RelayFehler(`Abruf fehlgeschlagen (HTTP ${res.status})`, res.status, await fehlerCode(res));'),
     ],
     [true, true, false, 4, true, true, true],
     'P30 QR8, Q9, Q10: ack und purge prüfen res.ok; Kopfzeile nur über zugangsKopf (kein X-Proxy-Key in cloud.ts); Q9 ohne ASCII-Schlusszeichen',
@@ -440,6 +448,145 @@ function ausschnitt(text: string, start: string, ende: string): string {
     ],
     [true, true, true, false],
     'P31 G8/G4: QaCloudInfo.zugang im einzigen Konstruktor buildCloudInfo (zugangsZeile, Q6b), keine Freigabe an den Renderer',
+  );
+}
+
+// --- Z1-L3 (OE5): alter Key nach Ablehnung lokal löschen -----------------------------------------------------------------
+// Der Worker lehnt einen alten Key nur mit 401 und dem Code nicht-angemeldet (S1) oder alter-key-abgelaufen (S4) ab
+// (konto-zugang.js, zugangPruefen). Ein 403 (etwa S15 keine-freigabe, das Event gehört einem anderen Konto) sagt nichts über
+// den Key; ebenso ein 401 ohne Code (Zwischenstation). Nur die erste Art löscht den Key.
+type Z1Modul = {
+  altKeyVerworfen?: (art: QaZugang['art'], status: number, code: string | null | undefined) => boolean;
+  altKeyEntfernen?: <T extends { proxyKey: string }>(s: T, z: QaZugang, status: number, code: string | null | undefined) => T;
+  leseProxyKey?: (roh: unknown) => string;
+  leseGeheimnisse?: (roh: unknown) => { publicJwk: unknown; privateJwk: unknown; proxyKey: string; freigabe: QaFreigabe | null };
+  nachOeffnen?: (l: { nochAn: () => boolean; eventGleich: () => boolean; schliessen: () => Promise<void> }) => Promise<boolean>;
+};
+const z1 = (await import('../src/main/cloud-zugang.ts')) as Z1Modul;
+{
+  const arten: Array<QaZugang['art']> = ['alter-key', 'freigabe', 'keiner'];
+  const codes: Array<string | null> = ['nicht-angemeldet', 'alter-key-abgelaufen', 'keine-freigabe', 'kein-recht', 'sitzung-abgelaufen', null, ''];
+  const liste: Array<{ fall: string; ist: unknown; soll: unknown }> = [];
+  for (const art of arten) {
+    for (const status of [200, 401, 403, 404, 502]) {
+      for (const code of codes) {
+        liste.push({
+          fall: `${art} × ${status} × ${code ?? 'ohne Code'}`,
+          ist: z1.altKeyVerworfen ? z1.altKeyVerworfen(art, status, code) : 'fehlt',
+          soll: art === 'alter-key' && status === 401 && (code === 'nicht-angemeldet' || code === 'alter-key-abgelaufen'),
+        });
+      }
+    }
+  }
+  faelle('Z1-L3 OE5: nur 401 mit S1 oder S4 auf den alten Key betrifft den Key (Art × Status × Code)', liste);
+
+  // Zustandswechsel und Neustart: der Key ist weg, die Datei trägt ihn nicht mehr, danach geht kein Key mehr in die Kopfzeile.
+  const alt: QaZugang = { art: 'alter-key', key: 'test-alter-key-l3' };
+  const geheim = { publicJwk: { kty: 'RSA' }, privateJwk: { kty: 'RSA', d: 'test-privat' }, proxyKey: 'test-alter-key-l3', freigabe: null as QaFreigabe | null };
+  const neu = z1.altKeyEntfernen ? z1.altKeyEntfernen(geheim, alt, 401, 'nicht-angemeldet') : geheim;
+  const lauf403 = z1.altKeyEntfernen ? z1.altKeyEntfernen(geheim, alt, 403, 'keine-freigabe') : 'fehlt';
+  const neuerKey = z1.altKeyEntfernen ? z1.altKeyEntfernen({ ...geheim, proxyKey: 'test-anderer-key' }, alt, 401, 'alter-key-abgelaufen') : 'fehlt';
+  const datei = new TextDecoder().decode(modulGeheim(neu));
+  function modulGeheim(s: typeof geheim): Uint8Array {
+    return new TextEncoder().encode(JSON.stringify(s));
+  }
+  const nachNeustart = z1.leseGeheimnisse ? z1.leseGeheimnisse(JSON.parse(datei)) : null;
+  const zugangNeu = nachNeustart ? waehleZugang({ freigabe: nachNeustart.freigabe, proxyKey: nachNeustart.proxyKey, eventId: EVENT, jetzt: JETZT }) : null;
+  eq(
+    [neu.proxyKey, neu.privateJwk, lauf403 === geheim, neuerKey === 'fehlt' ? neuerKey : (neuerKey as typeof geheim).proxyKey, datei.includes('test-alter-key-l3'),
+      zugangNeu, zugangNeu ? zugangsKopf(zugangNeu) : null],
+    ['', geheim.privateJwk, true, 'test-anderer-key', false, { art: 'keiner' }, {}],
+    'Z1-L3 OE5: nach 401 S1/S4 ist der Key weg (Schlüsselpaar bleibt), 403 und ein inzwischen ersetzter Key bleiben, nach dem Neustart wird kein Key mehr gesendet',
+  );
+}
+
+// --- Z1-L3: Altlast im Speicher (Zeichenprüfung auch beim Laden) ---------------------------------------------------------
+{
+  const roh = (proxyKey: unknown, token: unknown) => ({
+    publicJwk: { kty: 'RSA' }, privateJwk: { kty: 'RSA', d: 'x' }, proxyKey,
+    freigabe: { token, bis: BIS_72, ziel: EVENT, konto: KONTO },
+  });
+  const les = (r: unknown) => (z1.leseGeheimnisse ? z1.leseGeheimnisse(r) : null);
+  const faelleKey: Array<[string, unknown, string]> = [
+    ['sauber', 'test-key_1.2', 'test-key_1.2'], ['mit Rand-Leerraum', '  test-key  ', 'test-key'], ['CR/LF', 'test-key\r\nX-Evil: 1', ''],
+    ['NUL', 'test\u0000key', ''], ['Leerzeichen innen', 'test key', ''], ['Umlaut', 'testschlüssel', ''], ['DEL', 'test\x7fkey', ''],
+    ['Zahl', 42, ''], ['null', null, ''], ['fehlt', undefined, ''], ['leer', '', ''],
+  ];
+  faelle('Z1-L3: ein gespeicherter alter Key mit Zeichen außerhalb \\x21-\\x7e wird beim Laden verworfen (leer), nie weitergereicht',
+    faelleKey.map(([fall, r, s]) => ({ fall, ist: les(roh(r, 'jm1.ok'))?.proxyKey ?? 'fehlt', soll: s })));
+  eq(
+    [les(roh('k', 'jm1.ok'))?.freigabe?.token, les(roh('k', 'jm1.a\r\nb'))?.freigabe, les(roh('k', 'jm1.a\u0000b'))?.freigabe,
+      les(roh('k', 'jm1.ok'))?.publicJwk, les(null), les('text'), les(roh('k', 'jm1.ok'))?.privateJwk],
+    ['jm1.ok', null, null, { kty: 'RSA' }, { publicJwk: null, privateJwk: null, proxyKey: '', freigabe: null },
+      { publicJwk: null, privateJwk: null, proxyKey: '', freigabe: null }, { kty: 'RSA', d: 'x' }],
+    'Z1-L3: eine gespeicherte Freigabe mit CR/LF/NUL wird beim Laden verworfen, das Schlüsselpaar bleibt; Unbrauchbares ergibt leere Geheimnisse',
+  );
+}
+
+// --- Z1-L3: Rest-Rennen „Aus“ während des open-POST -----------------------------------------------------------------------
+{
+  // Relay-Attrappe: merkt sich jeden Öffnen-Aufruf mit seinen Kanal-Flags (der Stand am Ende ist der letzte Aufruf).
+  const aufrufe: string[] = [];
+  const relay = { oeffnen: async (streamOpen: boolean): Promise<void> => { aufrufe.push(`open stream=${streamOpen}`); } };
+  const lauf = async (an: () => boolean, gleich: () => boolean, kaputt = false): Promise<{ weiter: unknown; aufrufe: string[] }> => {
+    aufrufe.length = 0;
+    const weiter = z1.nachOeffnen
+      ? await z1.nachOeffnen({
+        nochAn: an, eventGleich: gleich,
+        schliessen: async () => { await relay.oeffnen(false); if (kaputt) throw new Error('offline'); },
+      })
+      : 'fehlt';
+    return { weiter, aufrufe: [...aufrufe] };
+  };
+  eq(
+    [await lauf(() => true, () => true), await lauf(() => false, () => true), await lauf(() => false, () => true, true),
+      await lauf(() => false, () => false), await lauf(() => true, () => false)],
+    [
+      { weiter: true, aufrufe: [] },
+      { weiter: false, aufrufe: ['open stream=false'] },
+      { weiter: false, aufrufe: ['open stream=false'] },
+      { weiter: false, aufrufe: [] },
+      { weiter: false, aufrufe: [] },
+    ],
+    'Z1-L3: nach erfolgreichem Öffnen schließt Q&A best effort (auch bei Fehler), wenn Extern inzwischen aus ist; bei anderem Event oder noch an nicht',
+  );
+}
+
+// --- Z1-L3 [T]: Wächter ---------------------------------------------------------------------------------------------------
+{
+  // Filter des alten Keys vor der Zuweisung (Reihenfolge im Handler, nicht nur Vorkommen)
+  const handler = ausschnitt(quelle('../src/main/index.ts'), "ipcMain.handle('qa:setProxyKey'", '\n  });');
+  const filter = "if (!/^[\\x21-\\x7e]*$/.test(String(key || '').trim())) key = '';";
+  const zuweisung = "cloudSecrets = { ...cloudSecrets, proxyKey: String(key || '').trim() };";
+  eq([handler.indexOf(filter) >= 0, handler.indexOf(zuweisung) >= 0, handler.indexOf(filter) < handler.indexOf(zuweisung), handler.indexOf(zuweisung) < handler.indexOf('saveSecrets(')],
+    [true, true, true, true], 'Z1-L3 [T]: qa:setProxyKey filtert den Key (Zeichen \\x21-\\x7e) vor der Zuweisung und vor dem Speichern');
+
+  // TON: genau eine Definition, Farbzuordnung festgenagelt, beide Komponenten nutzen sie
+  const ton = quelle('../src/renderer/src/lib/zugang-ton.ts');
+  const settings = quelle('../src/renderer/src/components/Settings.tsx');
+  const panel = quelle('../src/renderer/src/components/CloudPanel.tsx');
+  const def = ton.split('\n').filter((z) => /^export const TON\b/.test(z));
+  eq(
+    [def, ton.includes("ok: 'text-[var(--muted-foreground)]'"), ton.includes("warn: 'text-[var(--warning)]'"), ton.includes("fehler: 'text-[var(--destructive)]'"),
+      (ton.match(/text-\[var\(/g) ?? []).length,
+      /^const TON\b/m.test(settings), /^const TON\b/m.test(panel),
+      settings.includes("import { TON } from '@/lib/zugang-ton';"), panel.includes("import { TON } from '@/lib/zugang-ton';"),
+      settings.includes('${TON[cloud.zugang.ton]}'), panel.includes('${TON[cloud.zugang.ton]}')],
+    [["export const TON = { ok: 'text-[var(--muted-foreground)]', warn: 'text-[var(--warning)]', fehler: 'text-[var(--destructive)]' } as const;"],
+      true, true, true, 3, false, false, true, true, true, true],
+    'Z1-L3 [T]: TON (ok = gedämpft, warn = Warnung, fehler = destruktiv) wird nur einmal in lib/zugang-ton.ts definiert; Settings und CloudPanel importieren sie',
+  );
+
+  // Q12 mit Detail: kein zweiter Schlusspunkt, wie bei Q3i (Q3i endet ohne Punkt; Detail ist nur ein Code)
+  const lage = (extern: boolean): QaZugangsLage => ({
+    zugang: { art: 'keiner' }, letzterGrund: 'fehler', jetzt: JETZT, eventDa: true, extern, altKeyAbgelehnt: false, detail: 'http-502',
+  });
+  const mitDetail = zugangsZeile(lage(true));
+  eq(
+    [mitDetail, zugangsZeile(lage(false)).text, mitDetail.text.endsWith('.'), mitDetail.text.includes('..'), grundText('fehler', 'http-502')],
+    [{ text: 'Extern ist an und wartet auf eine Freigabe: Freigabe fehlgeschlagen: http-502', ton: 'fehler' }, 'Freigabe fehlgeschlagen: http-502', false, false,
+      'Freigabe fehlgeschlagen: http-502'],
+    'Z1-L3 [T]: Q12 mit Q3i-Detail endet wie Q3i ohne Schlusspunkt (kein doppelter Punkt)',
   );
 }
 

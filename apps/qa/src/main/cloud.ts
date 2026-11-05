@@ -15,7 +15,7 @@ import { safeStorage } from 'electron';
 import { webcrypto } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type QaFreigabe, type QaZugang, QA_TEXT, geheimnisDatei, leseFreigabe, zugangsKopf } from './cloud-zugang';
+import { type QaFreigabe, type QaZugang, QA_TEXT, geheimnisDatei, leseGeheimnisse, zugangsKopf } from './cloud-zugang';
 
 const { subtle } = webcrypto;
 const enc = new TextEncoder();
@@ -63,13 +63,8 @@ export function loadSecrets(userDataDir: string): CloudSecrets {
   try {
     const raw = readFileSync(secretPath(userDataDir));
     const text = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(raw) : raw.toString('utf8');
-    const obj = JSON.parse(text) as Partial<CloudSecrets>;
-    return {
-      publicJwk: obj.publicJwk ?? null,
-      privateJwk: obj.privateJwk ?? null,
-      proxyKey: obj.proxyKey ?? '',
-      freigabe: leseFreigabe(obj.freigabe),
-    };
+    // Z1-L3: Key und Freigabe nur aus \x21-\x7e (leseGeheimnisse); Altlast mit CR/LF/NUL wird verworfen.
+    return leseGeheimnisse(JSON.parse(text));
   } catch {
     return { ...EMPTY };
   }
@@ -141,10 +136,23 @@ export function pressUrl(cfg: CloudCfg): string {
 /** Fehler einer Relay-Antwort mit HTTP-Status (401/403 → Freigabe verwerfen bzw. alter Key abgelehnt, QR5). */
 export class RelayFehler extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  /** Z1-L3: `code` aus dem JSON-Körper der Antwort (etwa nicht-angemeldet), sonst null; nie ein Teil der Meldung. */
+  readonly code: string | null;
+  constructor(message: string, status: number, code: string | null = null) {
     super(message);
     this.name = 'RelayFehler';
     this.status = status;
+    this.code = code;
+  }
+}
+
+/** Z1-L3: Fehlercode einer Relay-Antwort (kurzer Text aus [a-z-]), sonst null; ein unlesbarer Körper ist kein Fehler. */
+async function fehlerCode(res: Response): Promise<string | null> {
+  try {
+    const c = ((await res.json()) as { code?: unknown } | null)?.code;
+    return typeof c === 'string' && /^[a-z-]{1,40}$/.test(c) ? c : null;
+  } catch {
+    return null;
   }
 }
 
@@ -163,14 +171,14 @@ export async function openEvent(cfg: CloudCfg, secrets: CloudSecrets, zugang: Qa
       retentionSec,
     }),
   });
-  if (!res.ok) throw new RelayFehler(`Öffnen fehlgeschlagen (HTTP ${res.status})`, res.status);
+  if (!res.ok) throw new RelayFehler(`Öffnen fehlgeschlagen (HTTP ${res.status})`, res.status, await fehlerCode(res));
 }
 
 /** Offene Einreichungen abholen + entschlüsseln (ohne zu quittieren). */
 export async function pollPending(cfg: CloudCfg, secrets: CloudSecrets, zugang: QaZugang): Promise<IngestItem[]> {
   if (!secrets.privateJwk) return [];
   const res = await fetch(`${base(cfg)}/pending`, { headers: zugangsKopf(zugang) });
-  if (!res.ok) throw new RelayFehler(`Abruf fehlgeschlagen (HTTP ${res.status})`, res.status);
+  if (!res.ok) throw new RelayFehler(`Abruf fehlgeschlagen (HTTP ${res.status})`, res.status, await fehlerCode(res));
   const data = (await res.json()) as { items?: Array<{ id: string; channel: string; at: number; blob: { ek: string; iv: string; ct: string } }> };
   const out: IngestItem[] = [];
   for (const it of data.items ?? []) {
@@ -200,12 +208,12 @@ export async function ackItems(cfg: CloudCfg, zugang: QaZugang, ids: string[]): 
     headers: { ...zugangsKopf(zugang), 'content-type': 'application/json' },
     body: JSON.stringify({ ids }),
   });
-  if (!res.ok) throw new RelayFehler(QA_TEXT.quittierenFehler(res.status), res.status);
+  if (!res.ok) throw new RelayFehler(QA_TEXT.quittierenFehler(res.status), res.status, await fehlerCode(res));
 }
 
 /** Alle Event-Daten im Relay löschen (Ende des Events, DSGVO); ein Fehler wird gemeldet (Q10, QR8). */
 export async function purgeEvent(cfg: CloudCfg, zugang: QaZugang): Promise<void> {
   if (!cfg.proxyUrl || !cfg.eventId) return;
   const res = await fetch(base(cfg), { method: 'DELETE', headers: zugangsKopf(zugang) });
-  if (!res.ok) throw new RelayFehler(QA_TEXT.loeschenFehler(res.status), res.status);
+  if (!res.ok) throw new RelayFehler(QA_TEXT.loeschenFehler(res.status), res.status, await fehlerCode(res));
 }

@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import type { QaCloudInfo, QaConfig } from '@shared/types';
 import { useQa } from '@/store/useQa';
+import { TON } from '@/lib/zugang-ton';
 
 const inp = 'rounded border border-[var(--border)] bg-[var(--input)] px-2 py-1 text-sm text-[var(--foreground)]';
-/** Farbe der Zugangszeile je Ton (Anmeldung im Launcher, Teil 1, P31). */
-const TON = { ok: 'text-[var(--muted-foreground)]', warn: 'text-[var(--warning)]', fehler: 'text-[var(--destructive)]' } as const;
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (

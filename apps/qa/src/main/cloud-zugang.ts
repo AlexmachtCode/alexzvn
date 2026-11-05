@@ -209,4 +209,57 @@ export function geheimnisDatei<T extends { freigabe: QaFreigabe | null }>(s: T, 
   return new TextEncoder().encode(JSON.stringify({ ...s, freigabe: null }));
 }
 
+/**
+ * Z1-L3 (OE5): Betrifft die Ablehnung des Relays den alten Key selbst? Der Worker lehnt einen alten Key nur mit 401 ab, mit dem
+ * Code `nicht-angemeldet` (Key falsch oder nicht mehr vorhanden) oder `alter-key-abgelaufen` (nach ALTKEY_BIS). Alles andere sagt
+ * nichts über den Key: ein 403 (etwa `keine-freigabe`, das Event gehört einem anderen Konto), ein 401 ohne Code (Zwischenstation).
+ */
+export function altKeyVerworfen(art: QaZugang['art'], status: number, code: string | null | undefined): boolean {
+  return art === 'alter-key' && status === 401 && (code === 'nicht-angemeldet' || code === 'alter-key-abgelaufen');
+}
+
+/** Z1-L3 (OE5): Geheimnisse ohne den alten Key, wenn der Worker genau diesen Key abgelehnt hat; sonst dasselbe Objekt. */
+export function altKeyEntfernen<T extends { proxyKey: string }>(s: T, z: QaZugang, status: number, code: string | null | undefined): T {
+  if (z.art !== 'alter-key' || !altKeyVerworfen(z.art, status, code)) return s;
+  // Nur den abgelehnten Key: ein inzwischen eingetragener anderer Key bleibt.
+  return s.proxyKey.trim() === z.key ? { ...s, proxyKey: '' } : s;
+}
+
+/** Z1-L3: ein gespeicherter alter Key nur aus \x21-\x7e (sonst trägt fetch den Wert in die Fehlermeldung), sonst leer. */
+export function leseProxyKey(roh: unknown): string {
+  if (typeof roh !== 'string') return '';
+  const k = roh.trim();
+  return /^[\x21-\x7e]+$/.test(k) ? k : '';
+}
+
+/** Normalisierer für den ganzen Inhalt von qa.cloud.secret (G8; Z1-L3: Key und Freigabe mit unzulässigen Zeichen werden verworfen). */
+export function leseGeheimnisse(roh: unknown): { publicJwk: JsonWebKey | null; privateJwk: JsonWebKey | null; proxyKey: string; freigabe: QaFreigabe | null } {
+  const o = typeof roh === 'object' && roh !== null ? (roh as Record<string, unknown>) : {};
+  return {
+    publicJwk: (o.publicJwk as JsonWebKey | null | undefined) ?? null,
+    privateJwk: (o.privateJwk as JsonWebKey | null | undefined) ?? null,
+    proxyKey: leseProxyKey(o.proxyKey),
+    freigabe: leseFreigabe(o.freigabe),
+  };
+}
+
+/**
+ * Z1-L3: Rest-Rennen „Aus“ während des Öffnens. Nach erfolgreichem Öffnen gilt: ist Extern inzwischen aus und das Event gleich,
+ * schließt Q&A die Kanäle best effort (wie beim Ausschalten, ein Fehler ist egal), sonst stünde das Event offen, ohne dass
+ * jemand abholt. → true, wenn der Takt weitermachen soll.
+ */
+export async function nachOeffnen(l: { nochAn: () => boolean; eventGleich: () => boolean; schliessen: () => Promise<void> }): Promise<boolean> {
+  const an = l.nochAn();
+  const gleich = l.eventGleich();
+  if (an && gleich) return true;
+  if (!an && gleich) {
+    try {
+      await l.schliessen();
+    } catch {
+      /* offline o. ä. — egal */
+    }
+  }
+  return false;
+}
+
 // ── Ende des Moduls ──

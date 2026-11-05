@@ -45,10 +45,12 @@ import { holeFreigabe, type FreigabeGrund } from '@jm/app-runtime/freigabe';
 import {
   type QaZugang,
   QA_TEXT,
+  altKeyEntfernen,
   effektiveProxyUrl,
   erneuernFaellig,
   leseFreigabe,
   nachAblehnung,
+  nachOeffnen,
   versuchErlaubt,
   waehleZugang,
   zugangsZeile,
@@ -296,7 +298,14 @@ async function cloudPollTick(): Promise<void> {
     }
     if (geoeffnetFuer !== cfg.eventId) {
       await openEvent(cfg, cloudSecrets, zugang);
-      if (!cloudTimer || getConfig().eventId !== cfg.eventId) {
+      // Z1-L3: War „Aus“ während des POST schon durch, schließt nachOeffnen die Kanäle wieder (best effort) und der Takt endet.
+      if (
+        !(await nachOeffnen({
+          nochAn: () => cloudTimer != null,
+          eventGleich: () => getConfig().eventId === cfg.eventId,
+          schliessen: () => openEvent({ ...cfg, streamOpen: false, pressOpen: false }, cloudSecrets, zugang),
+        }))
+      ) {
         broadcast();
         return;
       }
@@ -353,6 +362,19 @@ async function cloudPollTick(): Promise<void> {
       altKeyAbgelehnt = true;
       geoeffnetFuer = null;
       cloudError = QA_TEXT.keyAbgelehnt;
+      // Z1-L3 (OE5): Betrifft die Ablehnung den Key selbst (401 mit nicht-angemeldet oder alter-key-abgelaufen), löschen wir ihn
+      // auch in qa.cloud.secret; sonst schickte Q&A ihn nach jedem Neustart wieder. Ein Fehler beim Speichern ist kein Absturz.
+      const status = err instanceof RelayFehler ? err.status : 0;
+      const code = err instanceof RelayFehler ? err.code : null;
+      const ohneKey = altKeyEntfernen(cloudSecrets, zugang, status, code);
+      if (ohneKey !== cloudSecrets) {
+        cloudSecrets = ohneKey;
+        try {
+          saveSecrets(app.getPath('userData'), cloudSecrets);
+        } catch (e) {
+          getLog().info(`Q&A: Geheimnisse nicht gespeichert (${(e as Error).name})`);
+        }
+      }
     }
     broadcast();
   }
