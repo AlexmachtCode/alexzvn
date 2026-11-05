@@ -16,7 +16,7 @@ import { webcrypto } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type QaFreigabe, type QaZugang, QA_TEXT, RelayFehler, fehlerCode, geheimnisDatei, hatVerworfen, leseGeheimnisse, zugangsKopf } from './cloud-zugang';
-import { schreibeAtomar } from './datei-atomar';
+import { raeumeTempReste, schreibeAtomar } from './datei-atomar';
 
 const { subtle } = webcrypto;
 const enc = new TextEncoder();
@@ -61,6 +61,8 @@ function secretPath(userDataDir: string): string {
 
 /** Geheimnisse laden (via safeStorage entschlüsseln). Fehlt/defekt → leer. */
 export function loadSecrets(userDataDir: string, log?: (meldung: string) => void): CloudSecrets {
+  // Reste abgestürzter Schreibvorgänge (ohne Schlüsselspeicher im Klartext) entfernen, bevor etwas gelesen wird.
+  raeumeTempReste(secretPath(userDataDir));
   try {
     const raw = readFileSync(secretPath(userDataDir));
     const text = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(raw) : raw.toString('utf8');

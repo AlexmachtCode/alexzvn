@@ -707,9 +707,132 @@ const z2 = (await import('../src/main/cloud-zugang.ts')) as {
   }
   eq(
     [ausschnitt(quelle('../src/main/cloud.ts'), 'export function saveSecrets(', '\n}\n').includes('schreibeAtomar(secretPath(userDataDir)'),
-      quelle('../src/main/cloud.ts').includes("import { schreibeAtomar } from './datei-atomar';"), quelle('../src/main/cloud.ts').includes('writeFileSync')],
+      quelle('../src/main/cloud.ts').includes("import { raeumeTempReste, schreibeAtomar } from './datei-atomar';"), quelle('../src/main/cloud.ts').includes('writeFileSync')],
     [true, true, false],
     'Z1-L3 AR85: saveSecrets schreibt nur über schreibeAtomar (cloud.ts ruft writeFileSync nicht mehr selbst)',
+  );
+}
+
+// --- Z1-L3 Nachrunde (AR88): schreibeAtomar unter Windows robust ----------------------------------------------------------
+{
+  const fs = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  type Ops = Record<string, (...a: never[]) => unknown>;
+  const atom = (await import('../src/main/datei-atomar.ts').catch(() => ({}))) as {
+    schreibeAtomar?: (pfad: string, daten: Uint8Array, ops?: Ops) => void;
+    raeumeTempReste?: (zielPfad: string) => void;
+  };
+  const bytes = (t: string): Uint8Array => new TextEncoder().encode(t);
+  const fehler = (code: string): Error => Object.assign(new Error(code), { code });
+  const ordner = fs.mkdtempSync(join(tmpdir(), 'qa-atomar2-'));
+  try {
+    const ziel = join(ordner, 'qa.cloud.secret');
+    const temp = `${ziel}.${process.pid}.tmp`;
+    // Attrappen, die jeden Aufruf mitschreiben und sonst das echte Dateisystem benutzen
+    const mitschrift = (renameFehler: Error[] | 'immer', rmFehler = false): { ops: Ops; log: string[]; pausen: number[] } => {
+      const log: string[] = [];
+      const pausen: number[] = [];
+      let n = 0;
+      const ops: Ops = {
+        openSync: ((p: string, f: string) => { log.push(`open ${p === temp ? 'temp' : 'ziel'}`); return fs.openSync(p, f); }) as never,
+        writeSync: ((fd: number, d: Uint8Array) => { log.push('write'); return fs.writeSync(fd, d); }) as never,
+        fsyncSync: ((fd: number) => { log.push('fsync'); fs.fsyncSync(fd); }) as never,
+        closeSync: ((fd: number) => { log.push('close'); fs.closeSync(fd); }) as never,
+        renameSync: ((a: string, b: string) => {
+          log.push('rename');
+          if (renameFehler === 'immer') throw fehler('EPERM');
+          if (n < renameFehler.length) throw renameFehler[n++];
+          fs.renameSync(a, b);
+        }) as never,
+        writeFileSync: ((p: string, d: Uint8Array) => { log.push(`direkt ${p === ziel ? 'ziel' : 'anderes'}`); fs.writeFileSync(p, d); }) as never,
+        rmSync: ((p: string, o: object) => { log.push('rm'); if (rmFehler) throw fehler('RMFEHLER'); fs.rmSync(p, o); }) as never,
+        pause: ((ms: number) => { pausen.push(ms); }) as never,
+      };
+      return { ops, log, pausen };
+    };
+    const lies = (): string => fs.readFileSync(ziel, 'utf8');
+    const stand = (): string[] => fs.readdirSync(ordner).sort();
+
+    // 1. Normalfall: Temp-Datei schreiben, fsync, schließen, umbenennen; das Ziel wird nie direkt geschrieben
+    const a = mitschrift([]);
+    atom.schreibeAtomar?.(ziel, bytes('eins'), a.ops);
+    const r1 = [a.log, a.pausen, lies(), stand()];
+    // 2. Wiederholung: zweimal EPERM, dann klappt es; zwei Pausen zu 50 ms, kein Rückfall auf direktes Schreiben
+    const b = mitschrift([fehler('EPERM'), fehler('EACCES')]);
+    atom.schreibeAtomar?.(ziel, bytes('zwei'), b.ops);
+    const r2 = [b.log.filter((x) => x === 'rename').length, b.pausen, b.log.some((x) => x.startsWith('direkt')), lies(), stand()];
+    // 3. Rückfall: nach 5 Wiederholungen (6 Versuche) schreibt Q&A die Zieldatei direkt und entfernt die Temp-Datei
+    const c = mitschrift('immer');
+    atom.schreibeAtomar?.(ziel, bytes('drei'), c.ops);
+    const r3 = [c.log.filter((x) => x === 'rename').length, c.pausen, c.log.filter((x) => x === 'direkt ziel').length, c.log.includes('rm'), lies(), stand()];
+    // 4. Kein Wiederholen bei einem anderen Fehler (ENOENT): sofort Rückfall
+    const d = mitschrift([fehler('ENOENT')]);
+    atom.schreibeAtomar?.(ziel, bytes('vier'), d.ops);
+    const r4 = [d.log.filter((x) => x === 'rename').length, d.pausen, d.log.filter((x) => x === 'direkt ziel').length, lies(), stand()];
+    // 5. Ein Ordner am Temp-Pfad: Temp-Datei geht nicht, Rückfall auf direktes Schreiben, der Ordner bleibt unberührt
+    fs.mkdirSync(temp);
+    atom.schreibeAtomar?.(ziel, bytes('fuenf'), undefined);
+    const r5 = [lies(), fs.statSync(temp).isDirectory(), stand()];
+    fs.rmdirSync(temp);
+    // 6. Rückfall scheitert ebenfalls (Ziel ist ein Ordner): wirft, Temp-Datei bleibt nicht liegen, auch wenn deren Entfernen scheitert
+    fs.mkdirSync(join(ordner, 'zielordner'));
+    const zielOrdner = join(ordner, 'zielordner');
+    let wirft = false;
+    try { atom.schreibeAtomar?.(zielOrdner, bytes('x'), mitschrift('immer').ops); } catch { wirft = true; }
+    const restNachFehler = stand().filter((n) => n.endsWith('.tmp'));
+    // scheitert auch das Entfernen der Temp-Datei, bleibt der ursprüngliche Fehler der gemeldete (nicht der des Aufräumens)
+    let meldung = '';
+    try { atom.schreibeAtomar?.(zielOrdner, bytes('x'), mitschrift('immer', true).ops); } catch (e) { meldung = String((e as { code?: string }).code ?? ''); }
+    for (const n of stand().filter((x) => x.endsWith('.tmp'))) fs.rmSync(join(ordner, n), { force: true });
+    eq(
+      [r1, r2, r3, r4, r5, wirft, restNachFehler, meldung !== '' && meldung !== 'RMFEHLER'],
+      [
+        [['open temp', 'write', 'fsync', 'close', 'rename'], [], 'eins', ['qa.cloud.secret']],
+        [3, [50, 50], false, 'zwei', ['qa.cloud.secret']],
+        [6, [50, 50, 50, 50, 50], 1, true, 'drei', ['qa.cloud.secret']],
+        [1, [], 1, 'vier', ['qa.cloud.secret']],
+        ['fuenf', true, [`qa.cloud.secret`, `qa.cloud.secret.${process.pid}.tmp`]],
+        true,
+        [],
+        true,
+      ],
+      'Z1-L3 AR88: schreibeAtomar schreibt über Temp-Datei mit fsync und Umbenennen, wiederholt bei EPERM/EACCES/EBUSY (5 x 50 ms), fällt danach auf direktes Schreiben zurück und hinterlässt nichts',
+    );
+  } finally {
+    fs.rmSync(ordner, { recursive: true, force: true });
+  }
+
+  // Aufräumen: nur qa.cloud.secret.<Ziffern>.tmp als Datei im selben Ordner; Ordner und fremde Namen bleiben, Fehler werfen nicht
+  const ordner2 = fs.mkdtempSync(join(tmpdir(), 'qa-reste-'));
+  try {
+    const ziel = join(ordner2, 'qa.cloud.secret');
+    for (const n of ['qa.cloud.secret', 'qa.cloud.secret.123.tmp', 'qa.cloud.secret.4.tmp', 'qa.cloud.secret.abc.tmp', 'qa.cloud.secret.5.tmp.bak', 'andere.9.tmp', 'qa.cloud.secret.tmp']) {
+      fs.writeFileSync(join(ordner2, n), 'klartext');
+    }
+    fs.mkdirSync(join(ordner2, 'qa.cloud.secret.77.tmp'));
+    let wirft = false;
+    try { atom.raeumeTempReste?.(ziel); atom.raeumeTempReste?.(join(ordner2, 'fehlt', 'qa.cloud.secret')); } catch { wirft = true; }
+    eq(
+      [fs.readdirSync(ordner2).sort(), wirft],
+      [['andere.9.tmp', 'qa.cloud.secret', 'qa.cloud.secret.5.tmp.bak', 'qa.cloud.secret.77.tmp', 'qa.cloud.secret.abc.tmp', 'qa.cloud.secret.tmp'], false],
+      'Z1-L3 AR88: raeumeTempReste entfernt nur liegengebliebene qa.cloud.secret.<Ziffern>.tmp-Dateien (kein Ordner, keine fremden Namen), ein Fehler wirft nicht',
+    );
+  } finally {
+    fs.rmSync(ordner2, { recursive: true, force: true });
+  }
+
+  const cloud = quelle('../src/main/cloud.ts');
+  const index = quelle('../src/main/index.ts');
+  const laden = ausschnitt(cloud, 'export function loadSecrets(', '\n}\n');
+  const speicherstellen = index.split('\n').filter((z) => z.includes("saveSecrets(app.getPath('userData'), cloudSecrets);"));
+  // jede Stelle in index.ts steht in einem try (das schließende catch mit Fehlernamen folgt direkt), kein Geheimnis im Log
+  const geschuetzt = (index.match(/try \{\n\s+saveSecrets\(app\.getPath\('userData'\), cloudSecrets\);\n\s+\} catch \(e\) \{\n\s+getLog\(\)\.info\(`Q&A: Geheimnisse nicht gespeichert \(\$\{\(e as Error\)\.name\}\)`\);/g) ?? []).length;
+  eq(
+    [laden.indexOf('raeumeTempReste(secretPath(userDataDir));') >= 0, laden.indexOf('raeumeTempReste(secretPath(userDataDir));') < laden.indexOf('readFileSync('),
+      cloud.includes("import { raeumeTempReste, schreibeAtomar } from './datei-atomar';"), speicherstellen.length, geschuetzt],
+    [true, true, true, 5, 5],
+    'Z1-L3 AR88: loadSecrets räumt Temp-Reste vor dem Lesen auf; alle fünf Speicherstellen in index.ts fangen einen Schreibfehler ab (Log nur mit Fehlernamen)',
   );
 }
 

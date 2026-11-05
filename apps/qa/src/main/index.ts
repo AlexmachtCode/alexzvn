@@ -264,7 +264,11 @@ function freigabeHolen(): Promise<void> {
         return;
       }
       cloudSecrets = { ...cloudSecrets, freigabe: f, proxyKey: '' };
-      saveSecrets(app.getPath('userData'), cloudSecrets);
+      try {
+        saveSecrets(app.getPath('userData'), cloudSecrets);
+      } catch (e) {
+        getLog().info(`Q&A: Geheimnisse nicht gespeichert (${(e as Error).name})`);
+      }
       freigabeGrund = null;
       freigabeDetail = null;
       if (hatteKey) altKeyGeloescht = true;
@@ -437,7 +441,11 @@ async function cloudEnable(enabled: boolean): Promise<void> {
 async function cloudGenerateEvent(): Promise<void> {
   const { publicJwk, privateJwk } = await generateKeypair();
   cloudSecrets = { ...cloudSecrets, publicJwk, privateJwk, freigabe: null };
-  saveSecrets(app.getPath('userData'), cloudSecrets);
+  try {
+    saveSecrets(app.getPath('userData'), cloudSecrets);
+  } catch (e) {
+    getLog().info(`Q&A: Geheimnisse nicht gespeichert (${(e as Error).name})`);
+  }
   patchConfig({ eventId: randomEventId() });
   cloudError = null;
   freigabeGrund = null;
@@ -700,7 +708,11 @@ function registerIpc(): void {
     // ein anderer Key wird wie ein leeres Feld behandelt (Key entfernt).
     if (!/^[\x21-\x7e]*$/.test(String(key || '').trim())) key = '';
     cloudSecrets = { ...cloudSecrets, proxyKey: String(key || '').trim() };
-    saveSecrets(app.getPath('userData'), cloudSecrets);
+    try {
+      saveSecrets(app.getPath('userData'), cloudSecrets);
+    } catch (e) {
+      getLog().info(`Q&A: Geheimnisse nicht gespeichert (${(e as Error).name})`);
+    }
     altKeyAbgelehnt = false;
     altKeyGeloescht = false;
     geoeffnetFuer = null;
