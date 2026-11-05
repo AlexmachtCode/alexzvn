@@ -35,22 +35,33 @@ export const IVEO_ERLAUBTE_BASEN: readonly string[] = [
 ];
 
 /**
- * Anmeldung Z1 (OE2): Basis-URL in die Form der Liste bringen: Schema und Host klein, Port 443 (bei https) weg, Schrägstriche am
+ * Anmeldung Z1 (OE2, AR84): Basis-URL in die Form der Liste bringen: Schema und Host klein, Port 443 (bei https) weg, Schrägstriche am
  * Ende weg. Keine Zugangsdaten, kein Query und kein Fragment in der Adresse; nur http(s). Alles andere → null. Wirft nie.
+ * Die Prüfung auf der Roh-Eingabe ist dieselbe wie im Worker (`normalisiereBasis` in services/release-proxy/konto-kern.js): Leerraum
+ * oder Steuerzeichen innerhalb, `|`, der Pfad bleibt als Text, wie er ist (Punktsegmente, leeres Query oder
+ * Fragment, leerer Port und Unicode im Host machen die Basis unbrauchbar); `new URL` schreibt den Pfad nicht um. Ein Wächter
+ * (test/iveo-gleichstand.test.ts) vergleicht beide Seiten über eine Fall-Tabelle ohne Ausnahme.
  */
 export function kanonischeIveoBasis(raw: string | undefined): string | null {
   const t = (raw ?? '').trim();
-  if (!t) return null;
+  if (!t || t.includes('|') || /[\s\u0000-\u001f\u007f]/.test(t)) return null;
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t) && !/^https?:\/\//i.test(t)) return null;
+  const mitSchema = /^https?:\/\//i.test(t) ? t : `https://${t}`;
+  const teile = /^(https?):\/\/([^/?#]*)(.*)$/i.exec(mitSchema);
+  if (!teile) return null;
+  const schema = teile[1].toLowerCase();
+  let host = teile[2].toLowerCase();
+  if (schema === 'https' && host.endsWith(':443')) host = host.slice(0, -4);
+  const sauber = `${schema}://${host}${teile[3]}`.replace(/\/+$/, '');
   let u: URL;
   try {
-    u = new URL(/^https?:\/\//i.test(t) ? t : `https://${t}`);
+    new URL(`${schema}://${teile[2]}${teile[3]}`); // die Schreibweise vor dem Kürzen muss schon eine gültige Adresse sein (kein :443:443)
+    u = new URL(sauber);
   } catch {
     return null;
   }
-  if (u.username !== '' || u.password !== '' || u.search !== '' || u.hash !== '' || !u.host) return null;
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
-  return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, '')}`;
+  if (!u.host || u.username !== '' || u.password !== '' || u.search !== '' || u.hash !== '') return null;
+  return sauber;
 }
 
 /** Anmeldung Z1 (OE2): steht diese Basis (normalisiert) in IVEO_ERLAUBTE_BASEN? Wirft nie. */

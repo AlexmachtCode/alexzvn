@@ -3,8 +3,11 @@
 // die Listen und über eine Fall-Tabelle: erlaubt auf beiden Seiten gleich, und wenn erlaubt, dann gleiche kanonische Form.
 // Ohne Electron, ohne Netz (tsx). Läuft in selftest:konto.
 import { IVEO_ERLAUBTE_BASEN as LISTE_LAUNCHER, iveoBasisErlaubt as erlaubtLauncher, kanonischeIveoBasis } from '@jm/iveo';
+import { iveoHinterlegenBasis } from '../src/main/konto/iveo-zentral';
 // @ts-ignore reines JS ohne Typen
 import { IVEO_ERLAUBTE_BASEN as LISTE_WORKER, iveoBasisErlaubt as erlaubtWorker, normalisiereBasis } from '../../../services/release-proxy/konto-kern.js';
+
+import { readFileSync } from 'node:fs';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -59,50 +62,45 @@ const FAELLE: string[] = [
 
 ck(`F.1: die Fall-Tabelle hat mindestens 40 Eingaben (${FAELLE.length})`, FAELLE.length >= 40);
 
-// Bekannte Abweichungen (Befund von Z1-F, der Controller entscheidet über das Angleichen; hier NICHT angeglichen). Ausnahmslos in
-// der Richtung „Launcher lässt zu, Worker lehnt ab“: der Launcher nutzt new URL (kürzt ../ und ./, entfernt leeres Query/Fragment,
-// Steuerzeichen am Ende, leeren Port, führende Nullen im Port, Unicode-Punkt und Fullwidth-Zeichen im Host, Null-Breite-Zeichen,
-// „//host“ ohne Schema), der Worker prüft Zeichen und Aufbau selbst und lehnt das alles ab. Der Worker ist hier der strengere Teil;
-// das Hinterlegen mit solcher Schreibweise scheitert also am Worker (iveo-basis-unbekannt), nie umgekehrt. Dieser Wächter nagelt
-// die Menge fest: jede NEUE Abweichung und jede behobene macht ihn rot.
-const BEKANNT: readonly string[] = [
-  'https://app.my-iveo.de/api/v1', 'https://app.my-iveo.de/api/v1/?', 'https://app.my-iveo.de/api/v1/#',
-  'https://app.my-iveo.de/api/v1/../v1', 'https://app.my-iveo.de/api/./v1', 'https://app.my-iveo.de/x/../api/v1',
-  'https://app。my-iveo.de/api/v1', 'https://ａpp.my-iveo.de/api/v1', 'https://​app.my-iveo.de/api/v1',
-  'https://app.my-iveo.de​/api/v1', '//app.my-iveo.de/api/v1', 'https://app.my-iveo.de:/api/v1',
-  'https://app.my-iveo.de:0443/api/v1', 'https://app.my-iveo.de:00443/api/v1',
-];
-
+// AR84: keine Ausnahmen. Der Launcher ist so streng wie der Worker; jede Abweichung in eine Richtung macht den Test rot.
 const abw: string[] = [];
-const abwEingaben: string[] = [];
 let erlaubtAnzahl = 0;
 for (const eingabe of FAELLE) {
   const w = erlaubtWorker(eingabe) as boolean;
   const l = erlaubtLauncher(eingabe) as boolean;
   if (w || l) erlaubtAnzahl++;
   if (w !== l) {
-    abwEingaben.push(eingabe);
     abw.push(`erlaubt verschieden: ${JSON.stringify(eingabe)} Worker=${w} Launcher=${l}`);
     continue;
   }
   if (w) {
     const kw = normalisiereBasis(eingabe) as string | null;
     const kl = kanonischeIveoBasis(eingabe);
-    if (kw !== kl) {
-      abwEingaben.push(eingabe);
-      abw.push(`kanonische Form verschieden: ${JSON.stringify(eingabe)} Worker=${kw} Launcher=${kl}`);
-    }
+    if (kw !== kl) abw.push(`kanonische Form verschieden: ${JSON.stringify(eingabe)} Worker=${kw} Launcher=${kl}`);
   }
 }
 for (const a of abw) console.log(`      ${a}`);
-ck(`F.1: Abweichungen zwischen Worker und Launcher sind genau die bekannten (${abw.length} von ${FAELLE.length} Fällen)`,
-  JSON.stringify(abwEingaben) === JSON.stringify(BEKANNT));
-ck(`F.1: keine bekannte Abweichung läuft in die gefährliche Richtung (Worker erlaubt, Launcher lehnt ab) und keine Form weicht ab`,
-  abwEingaben.every((e) => erlaubtLauncher(e) === true && erlaubtWorker(e) === false));
-ck(`F.1: alle übrigen Fälle (${FAELLE.length - abwEingaben.length}) stimmen überein: erlaubt gleich und kanonische Form gleich`,
-  FAELLE.filter((e) => !BEKANNT.includes(e)).every((e) => erlaubtWorker(e) === erlaubtLauncher(e)
-    && (!erlaubtWorker(e) || normalisiereBasis(e) === kanonischeIveoBasis(e))));
+ck(`F.1 AR84: erlaubt ist auf beiden Seiten gleich, und wenn erlaubt, ist die kanonische Form gleich, ohne Ausnahme (${FAELLE.length} Fälle, ${erlaubtAnzahl} erlaubt, ${abw.length} Abweichungen)`,
+  abw.length === 0);
+// Beim Hinterlegen geht die kanonische Form an den Worker: iveoHinterlegenBasis (Launcher) liefert für jede Eingabe genau das, was der Worker
+// als Basis speichern würde, oder null, wo der Worker ablehnt.
+{
+  const h: string[] = [];
+  for (const e of FAELLE) {
+    const ist = iveoHinterlegenBasis(e, PROD);
+    const soll = erlaubtWorker(e) ? (normalisiereBasis(e) as string) : null;
+    if (ist !== soll && !(e.trim() === '' && ist === PROD)) h.push(`${JSON.stringify(e)}: ist ${ist} soll ${soll}`);
+  }
+  for (const a of h) console.log(`      ${a}`);
+  ck(`F.1 AR84: iveoHinterlegenBasis schickt die kanonische Form des Workers oder lehnt ab (${FAELLE.length} Fälle, ${h.length} Abweichungen)`, h.length === 0);
+}
 ck('F.1: die Tabelle enthält erlaubte und abgelehnte Fälle (der Vergleich ist nicht leer)', erlaubtAnzahl >= 10 && erlaubtAnzahl < FAELLE.length - 10);
+
+{
+  const huelle = readFileSync(new URL('../src/main/konto/huelle.ts', import.meta.url), 'utf8').split('\r\n').join('\n');
+  ck('F.1 AR84: die Hülle ersetzt die Basis der Admin-Aktion durch die geprüfte kanonische Form, bevor sie an den Worker geht',
+    huelle.includes("const basis = iveoHinterlegenBasis(a.basis, resolveIveoBaseUrl());") && huelle.includes("aktion = { ...a, basis };"));
+}
 
 // Nicht-Texte: der Worker bekommt JSON, der Launcher nur Texte oder undefined; beides lehnt ab.
 ck('F.1: Nicht-Texte und undefined sind auf beiden Seiten nicht erlaubt', [undefined, null, 5, {}, []].every((x) => erlaubtWorker(x) === false)
