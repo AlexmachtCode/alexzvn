@@ -9,7 +9,7 @@
 import { googleBereit, googleRueckkehr, googleStartAdresse } from './konto-google.js';
 import { FREIGABE_MS, ZWECK_FUNKTION, darf, iveoBasisErlaubt, iveoSchluessel, kontoStand } from './konto-kern.js';
 import { BEWEIS_FENSTER_MS, iveoEntschluesseln, iveoVerschluesseln, neuerBestaetigungsCode, pruefeToken, schluesselBrauchbar, sha256B64url, signiere, zufall } from './konto-krypto.js';
-import { datumText, esc, fuelle, htmlAntwort, rueckAdresse, seiteAnmelden, seiteBestaetigen, seiteMeldung, seiteWeiter } from './konto-seiten.js';
+import { datumText, esc, fuelle, htmlAntwort, rueckZiel, seiteAnmelden, seiteBestaetigen, seiteMeldung, seiteWeiter } from './konto-seiten.js';
 import { KONTO_RL, abgelehnt, drosselBindung, kontoAktion, kontoJetzt, kontoStub } from './konto-zugang.js';
 
 // Vertrag 10.1: P16 liefert kontoStub(env); er liegt seit P15 in konto-zugang.js (Alt-Key-Zählung).
@@ -453,7 +453,9 @@ async function seiteAnmeldenRoute(k) {
   const r = await k.rufe('vorgang-lesen', { vorgang });
   if (!r.ok && doAusfall(r)) return ausfallSeite();
   if (!r.ok) return meldung('B10', 404);
-  if (r.zustand === 'bestaetigt') return meldung('B8');
+  // Z2 Fixrunde 1 (G7): „Dein Launcher ist angemeldet“ (B8) erst, wenn der Launcher abgeholt hat (Grabstein); vorher B28, ohne Knopf.
+  if (r.zustand === 'abgeholt') return meldung('B8');
+  if (r.zustand === 'bestaetigt') return meldung('B28');
   if (r.zustand === 'abgelehnt') return meldung('B9');
   return htmlAntwort(seiteAnmelden({ vorgang, google: googleDa(k.env) }));
 }
@@ -509,9 +511,10 @@ async function passwortRoute(k) {
 }
 
 /**
- * POST /konto/bestaetigen: Ja oder Nein mit Seitentoken (Spec 4.1 Schritt 4); ohne gültiges Seitentoken 403 B10. Z2: Ja springt per
- * 303 an den Rückkanal des Launchers auf demselben Rechner (`http://127.0.0.1:<rueckPort>/anmeldung/zurueck?v=…&e=…`, RFC 8252 7.3);
- * die CSP der Seiten erlaubt das in form-action. Der Körper zeigt B26 mit einem Link auf denselben Sprung (Rückfall). Nein → B9.
+ * POST /konto/bestaetigen: Ja oder Nein mit Seitentoken (Spec 4.1 Schritt 4); ohne gültiges Seitentoken 403 B10. Z2 Fixrunde 1 (OE6):
+ * Ja → 200-Seite mit B26 und dem Knopf B29; sein Formular schickt v und e per POST an den Rückkanal des Launchers auf demselben Rechner
+ * (`http://127.0.0.1:<rueckPort>/anmeldung/zurueck`, RFC 8252 7.3); die CSP der Seiten erlaubt das in form-action. Ein weiteres Ja mit
+ * demselben Seitentoken (Doppelklick) zeigt dieselbe Seite mit einem neuen e (I1). Nein → B9.
  */
 async function bestaetigenRoute(k) {
   const f = await liesFormular(k.request);
@@ -527,14 +530,13 @@ async function bestaetigenRoute(k) {
 }
 
 /**
- * Z2: 303 an den Rückkanal mit Vorgang und Einmalwert. Port und e kommen vom DO (Port beim Anlegen geprüft, e = zufall(32)); passt eins
- * nicht, ist das ein Fehler des Servers (Seite „interner Fehler“), nie ein Sprung an eine andere Adresse. e steht nie im Log.
+ * Z2 Fixrunde 1 (OE6): Seite mit Knopf an den Rückkanal, Vorgang und Einmalwert als versteckte Felder. Port und e kommen vom DO (Port
+ * beim Anlegen geprüft, e = zufall(32)); passt eins nicht, ist das ein Fehler des Servers (Seite „interner Fehler“), nie ein Formular an
+ * eine andere Adresse. e steht nie im Log, in keinem Kopf und in keiner Adresse.
  */
 function rueckSprung(vorgang, r) {
-  const portOk = Number.isInteger(r.rueckPort) && r.rueckPort >= 1024 && r.rueckPort <= 65535;
-  if (!portOk || typeof r.e !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(r.e)) return ausfallSeite();
-  const ziel = rueckAdresse(r.rueckPort, vorgang, r.e);
-  return htmlAntwort(seiteWeiter({ ziel }), 303, { location: ziel });
+  if (rueckZiel(r.rueckPort) === null || typeof r.e !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(r.e)) return ausfallSeite();
+  return htmlAntwort(seiteWeiter({ port: r.rueckPort, vorgang, e: r.e }));
 }
 
 // ── Google-Anmeldung (P18; Spec 4, 4.1 Schritt 2; EP6; Texte B6, B10, B11, B16–B20) ──────────────────────────────────

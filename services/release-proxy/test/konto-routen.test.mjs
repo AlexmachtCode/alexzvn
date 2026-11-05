@@ -787,6 +787,20 @@ async function run() {
     check('Z1-W2 [T] P17: seiteAnmelden und seiteBestaetigen escapen jeden eingesetzten Wert (kein rohes Zeichen aus a"\'<>&b im Markup)',
       !anmelden.includes(boese) && !bestaetigen.includes(boese) && anmelden.includes('name="v" value="a&quot;&#39;&lt;&gt;&amp;b"') && anmelden.includes('href="/konto/google?v=a%22\'%3C%3E%26b"'.replace("'", '&#39;'))
         && bestaetigen.includes('name="v" value="a&quot;&#39;&lt;&gt;&amp;b"') && bestaetigen.includes('name="t" value="a&quot;&#39;&lt;&gt;&amp;b"') && bestaetigen.includes('a&quot;&#39;&lt;&gt;&amp;b</p>'));
+    // Z2 Fixrunde 1 (OE6): die Seite nach Ja maskiert v und e; der Port ist streng eine ganze Zahl 1024–65535, sonst gibt es keine Seite.
+    const { seiteWeiter } = await import('../konto-seiten.js');
+    const weiter = seiteWeiter({ port: 61001, vorgang: boese, e: boese });
+    const ohnePort = [80, 1023, 65536, 61001.5, '61001', '61001"><script>', null, undefined].map((port) => {
+      try {
+        seiteWeiter({ port, vorgang: 'v', e: 'e' });
+        return 'Seite';
+      } catch {
+        return 'abgelehnt';
+      }
+    });
+    check('Z2 A1: seiteWeiter maskiert v und e im Formular (kein rohes Zeichen aus a"\'<>&b) und nimmt nur einen Port 1024–65535 als ganze Zahl (8 falsche abgelehnt)',
+      !weiter.includes(boese) && weiter.includes('name="v" value="a&quot;&#39;&lt;&gt;&amp;b"') && weiter.includes('name="e" value="a&quot;&#39;&lt;&gt;&amp;b"')
+        && weiter.includes('<form method="post" action="http://127.0.0.1:61001/anmeldung/zurueck">') && ohnePort.every((x) => x === 'abgelehnt'));
   }
 
   // P16 10.1: unbekannte Routen unter /konto/ → 404 S11; andere Pfade fasst handleKonto nicht an.
@@ -863,14 +877,15 @@ async function run() {
     check('P17 4.1: Bestätigen ohne oder mit falschem Seitentoken → 403 B10, der Launcher wartet weiter',
       ohneT.status === 403 && zeigt(ohneT, B.B10) && falschT.status === 403 && zeigt(falschT, B.B10) && w.daten.zustand === 'wartet');
     const ja = await sende(env, '/konto/bestaetigen', { v: v1.vorgang, t: t1, antwort: 'ja' });
-    // Z2: Ja springt per 303 an den Rückkanal; den Einmalwert e bringt nur dieser Sprung (der Launcher liest ihn dort).
-    const sprung = new URL(ja.kopf.get('location') || 'http://ohne-sprung.invalid/');
-    const eJa = sprung.searchParams.get('e');
+    // Z2 Fixrunde 1 (OE6): Ja zeigt eine Seite mit B26 und dem Knopf B29; das Formular schickt v und e per POST an den Rückkanal.
+    const eJa = versteckt(ja.html, 'e');
     geheim.push(eJa);
     const ab = await api(env, 'POST', '/konto/vorgang/abholen', { body: { vorgang: v1.vorgang, abholGeheimnis: v1.abholGeheimnis, beweis: await geraet.beweis('abholen', v1.vorgang, uhr()), e: eJa } });
     geheim.push(ab.daten && ab.daten.sitzung);
-    check('P17 4.1, Z2: Ja → 303 an den Rückkanal auf 127.0.0.1 (B26 als Rückfall); der Launcher holt mit e die Sitzung des Externen ab',
-      ja.status === 303 && zeigt(ja, B.B26) && sprung.host === `127.0.0.1:${RUECK_PORT}` && ab.daten.zustand === 'bestaetigt' && ab.daten.stand.email === 'erika@extern.test');
+    check('P17 4.1, Z2: Ja → Seite mit B26 und Knopf B29, Formular POST an den Rückkanal auf 127.0.0.1 (v und e versteckt); der Launcher holt mit e die Sitzung des Externen ab',
+      ja.status === 200 && zeigt(ja, B.B26, B.B29) && ja.kopf.get('location') === null
+        && ja.html.includes(`<form method="post" action="http://127.0.0.1:${RUECK_PORT}/anmeldung/zurueck">`) && versteckt(ja.html, 'v') === v1.vorgang
+        && typeof eJa === 'string' && ab.daten.zustand === 'bestaetigt' && ab.daten.stand.email === 'erika@extern.test');
 
     // Nein → B9 und abgelehnt beim Abholen; ein zweites Konto am selben Vorgang → B11.
     const v2 = await vorgang(env);
@@ -1368,8 +1383,8 @@ async function run() {
       (q.match(/^import /gm) || []).length === 1 && q.includes("from './konto-kern.js'") && (q.match(/fetch\(/g) || []).length === 1);
   }
 
-  // ── Z2: Rückkanal-Bindung über HTTP (Spec 4.1 mit Z2; RFC 8252 loopback redirect): anlegen mit Port → anmelden → Ja → 303 an
-  // 127.0.0.1:<port> mit v und e → abholen nur mit e; Grabstein 60 s; Phishing (der Angreifer legt den Vorgang selbst an) ──
+  // ── Z2: Rückkanal-Bindung über HTTP (Spec 4.1 mit Z2; Fixrunde 1 OE6): anlegen mit Port → anmelden → Ja → Seite mit Knopf (POST an
+  // 127.0.0.1:<port>, v und e versteckt) → abholen nur mit e; Doppelklick (I1); B27, B28, B8; Grabstein 60 s; Phishing ──
   {
     const { SEITEN_TEXT: B, esc } = await import('../konto-seiten.js');
     const env = umgebung();
@@ -1416,20 +1431,32 @@ async function run() {
       best.html.includes(`<p>${esc('Rechner: Regie-PC 7 (vom Rechner gemeldet)')}</p>`) && (best.html.match(/Regie-PC 7/g) || []).length === 1);
     const vorJa = await abholen(v, geraet);
 
-    // Nr. 3: Ja → 303 an genau http://127.0.0.1:<rueckPort>/anmeldung/zurueck?v=…&e=…
+    // Nr. 3, Fixrunde 1 (OE6): Ja → 200-Seite mit B26 und einem Formular (POST) an genau http://127.0.0.1:<rueckPort>/anmeldung/zurueck;
+    // v und e stehen nur als versteckte Felder darin, nie in einer Adresse oder einem Kopf; der Knopf trägt B29.
+    /** Formular der Seite nach Ja: Ziel, Methode, versteckte Felder, Knopf. */
+    const knopfFormular = (html) => {
+      const f = html.match(/<form method="(post)" action="([^"]*)"><input type="hidden" name="v" value="([^"]*)"><input type="hidden" name="e" value="([^"]*)"><button type="submit">([^<]*)<\/button><\/form>/);
+      return f ? { methode: f[1], ziel: f[2], v: f[3], e: f[4], knopf: f[5] } : null;
+    };
     const ja = await formular('/konto/bestaetigen', { v: v.vorgang, t, antwort: 'ja' });
-    const ort = ja.kopf.get('location') || '';
-    const ziel = new URL(ort || 'http://ohne-sprung.invalid/');
-    const e = ziel.searchParams.get('e') ?? '';
+    const kf = knopfFormular(ja.html);
+    const e = kf ? kf.e : '';
     geheim.push(e);
-    check('Z2 3: Ja → 303 an genau http://127.0.0.1:<rueckPort>/anmeldung/zurueck?v=<Vorgang>&e=<43 Zeichen b64url>',
-      ja.status === 303 && ort === `http://127.0.0.1:61001/anmeldung/zurueck?v=${encodeURIComponent(v.vorgang)}&e=${e}` && /^[A-Za-z0-9_-]{43}$/.test(e)
-        && ziel.hostname === '127.0.0.1' && ziel.port === '61001' && ziel.searchParams.get('v') === v.vorgang && [...ziel.searchParams.keys()].join(',') === 'v,e');
-    check('Z2 3: die 303-Antwort trägt die Kopfzeilen der Seiten (CSP mit form-action http://127.0.0.1:*, no-store, no-referrer, nosniff, kein Cookie, kein Skript) und als Rückfall B26 als Link auf denselben Sprung',
+    const kopfText = [...ja.kopf.entries()].map(([k, w]) => `${k}: ${w}`).join('\n');
+    check('Z2 3 (OE6): Ja → 200 mit B26 und einem POST-Formular an genau http://127.0.0.1:<rueckPort>/anmeldung/zurueck; v und e (43 Zeichen b64url) nur als versteckte Felder, Knopf B29; e in keinem Kopf, kein Location',
+      ja.status === 200 && !!kf && kf.methode === 'post' && kf.ziel === 'http://127.0.0.1:61001/anmeldung/zurueck' && kf.v === v.vorgang
+        && /^[A-Za-z0-9_-]{43}$/.test(e) && kf.knopf === esc(B.B29) && ja.html.includes(`<p>${esc(B.B26)}</p>`)
+        && ja.kopf.get('location') === null && !kopfText.includes(e) && (ja.html.match(new RegExp(e, 'g')) || []).length === 1);
+    check('Z2 3 (OE6): die Seite nach Ja trägt die Kopfzeilen der Seiten (CSP mit form-action http://127.0.0.1:*, no-store, no-referrer, nosniff, kein Cookie), kein Skript, kein meta refresh',
       ja.kopf.get('content-type') === 'text/html; charset=utf-8' && ja.kopf.get('cache-control') === 'no-store' && ja.kopf.get('referrer-policy') === 'no-referrer'
         && ja.kopf.get('x-content-type-options') === 'nosniff'
         && ja.kopf.get('content-security-policy') === "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' http://127.0.0.1:*; base-uri 'none'; frame-ancestors 'none'"
-        && ja.kopf.get('set-cookie') === null && !/<script/i.test(ja.html) && ja.html.includes(`<a href="${esc(ort)}">${esc(B.B26)}</a>`));
+        && ja.kopf.get('set-cookie') === null && !/<script/i.test(ja.html) && !/http-equiv/i.test(ja.html) && !/<a /i.test(ja.html));
+    // B28 (Fixrunde 1): die Anmeldeseite bei bestätigt, aber noch nicht abgeholt: B28 ohne Knopf und ohne e, kein B8.
+    const zwischendurch = await worker.fetch(new Request(`https://proxy.test/konto/anmelden?v=${encodeURIComponent(v.vorgang)}`, { headers: { 'CF-Connecting-IP': '10.9.2.1' } }), env, makeWaitCtx());
+    const zwischenHtml = await zwischendurch.text();
+    check('Z2 B28: GET /konto/anmelden bei bestätigt, aber noch nicht abgeholt → B28, kein Knopf, kein e, nicht B8',
+      zwischendurch.status === 200 && zwischenHtml.includes(esc(B.B28)) && !zwischenHtml.includes('<form') && !zwischenHtml.includes(e) && !zwischenHtml.includes(esc(B.B8)));
     // Liefert der DO einen unbrauchbaren Port oder kein gültiges e, springt die Seite nirgendwohin (502 „interner Fehler“, kein Location).
     const sprungMit = async (antwortDo) => {
       const e2 = umgebung();
@@ -1452,11 +1479,11 @@ async function run() {
     };
     const eGut = 'Ab1_-'.repeat(8) + 'Ab1';
     const schlecht = [];
-    for (const a of [{ rueckPort: 80, e: eGut }, { rueckPort: 70000, e: eGut }, { rueckPort: '61001', e: eGut }, { rueckPort: 61001, e: 'kurz' }, { rueckPort: 61001 }, { e: eGut }]) {
+    for (const a of [{ rueckPort: 80, e: eGut }, { rueckPort: 70000, e: eGut }, { rueckPort: '61001', e: eGut }, { rueckPort: 61001.5, e: eGut }, { rueckPort: 61001, e: 'kurz' }, { rueckPort: 61001 }, { e: eGut }]) {
       schlecht.push(await sprungMit({ ok: true, zustand: 'bestaetigt', ...a }));
     }
-    check('Z2 3: liefert der DO einen unbrauchbaren Port (80, 70000, Text, fehlt) oder kein gültiges e, gibt es keinen Sprung (502 interner Fehler, kein Location)',
-      schlecht.every((a) => a.status === 502 && a.ort === null && a.html.includes('role="alert">interner Fehler</p>')));
+    check('Z2 3: liefert der DO einen unbrauchbaren Port (80, 70000, Text, 61001.5, fehlt) oder kein gültiges e, gibt es kein Formular an 127.0.0.1 (502 interner Fehler, kein Location)',
+      schlecht.every((a) => a.status === 502 && a.ort === null && a.html.includes('role="alert">interner Fehler</p>') && !a.html.includes('127.0.0.1')));
 
     // Nr. 2: abholen ohne e → wartet; falsches e (richtige Form) → wartet; falsche Form → 400 vor dem DO; mit e → Sitzung.
     const ohneE = await abholen(v, geraet);
@@ -1475,6 +1502,8 @@ async function run() {
     const c1 = mitE.daten && mitE.daten.sitzung ? await pruefeToken(SCHLUESSEL, mitE.daten.sitzung, 'sitzung', uhr()) : null;
     check('Z2 2: mit e → bestaetigt mit der Sitzung des Externen an genau diesem Gerät',
       mitE.status === 200 && mitE.daten.zustand === 'bestaetigt' && !!c1 && c1.gid === geraet.gid && c1.email === 'erika@extern.test');
+    const seiteNachAbholen = await worker.fetch(new Request(`https://proxy.test/konto/anmelden?v=${encodeURIComponent(v.vorgang)}`, { headers: { 'CF-Connecting-IP': '10.9.2.2' } }), env, makeWaitCtx());
+    const nachAbholenHtml = await seiteNachAbholen.text();
 
     // Nr. 6: die Antwort geht unterwegs verloren; dieselbe Anfrage innerhalb von 60 s → dieselbe Anmeldung, danach nicht mehr.
     uhr.vor(59_999);
@@ -1486,9 +1515,43 @@ async function run() {
     check('Z2 6: Antwort verloren: Wiederholung nach 59,999 s mit demselben Abholgeheimnis und e → bestaetigt, neue Sitzung desselben Geräts (gleiche kid, gid, angemeldetSeit); nach 60 s → 404 S10',
       wieder.status === 200 && wieder.daten.zustand === 'bestaetigt' && !!c2 && !!c1 && c2.kid === c1.kid && c2.gid === c1.gid && c2.angemeldetSeit === c1.angemeldetSeit
         && soll(zuSpaet, 404, 'vorgang-unbekannt'));
+    const seiteSpaet = await worker.fetch(new Request(`https://proxy.test/konto/anmelden?v=${encodeURIComponent(v.vorgang)}`, { headers: { 'CF-Connecting-IP': '10.9.2.3' } }), env, makeWaitCtx());
+    const spaetHtml = await seiteSpaet.text();
+    check('Z2 B8 (Fixrunde 1): erst nach dem Abholen zeigt die Anmeldeseite B8 (60 s lang), danach 404 B10',
+      seiteNachAbholen.status === 200 && nachAbholenHtml.includes(esc(B.B8)) && !nachAbholenHtml.includes(esc(B.B28)) && seiteSpaet.status === 404 && spaetHtml.includes(esc(B.B10)));
+
+    // I1 (Fixrunde 1): Doppelklick auf „Ja“ — jedes weitere Ja mit demselben Seitentoken zeigt die Seite mit einem neuen e (höchstens
+    // drei), das vierte die Antwort von vorher (403 B10). Der Browser zeigt die letzte Seite; mit deren e holt der Launcher ab.
+    const gd = await testGeraet({ name: 'Regie-PC 8' });
+    const vd = (await api(env, 'POST', '/konto/vorgang', { body: { geraet: gd.angaben, rueckPort: 61002 } })).daten;
+    geheim.push(vd.abholGeheimnis, vd.code);
+    const bd = await formular('/konto/passwort', { v: vd.vorgang, email: 'erika@extern.test', passwort: 'test-passwort-erika-z2' });
+    const td = seitenToken(bd.html);
+    geheim.push(td);
+    const doppelt = [];
+    for (let i = 0; i < 4; i++) doppelt.push(await formular('/konto/bestaetigen', { v: vd.vorgang, t: td, antwort: 'ja' }));
+    const eListe = doppelt.slice(0, 3).map((a) => (knopfFormular(a.html) || {}).e);
+    geheim.push(...eListe);
+    const mitLetztem = await abholen(vd, gd, eListe[2]);
+    geheim.push(mitLetztem.daten && mitLetztem.daten.sitzung);
+    check('Z2 I1: Doppelklick auf Ja: das 2. und 3. Ja zeigen die Seite mit je neuem e (Formular an denselben Port), das 4. → 403 B10; mit dem e der zuletzt gezeigten Seite holt der Launcher ab',
+      doppelt.slice(0, 3).every((a) => a.status === 200 && (knopfFormular(a.html) || {}).ziel === 'http://127.0.0.1:61002/anmeldung/zurueck')
+        && eListe.every((x) => /^[A-Za-z0-9_-]{43}$/.test(x ?? '')) && new Set(eListe).size === 3
+        && doppelt[3].status === 403 && doppelt[3].html.includes(esc(B.B10)) && !doppelt[3].html.includes('<form method="post" action="http://127.0.0.1')
+        && mitLetztem.status === 200 && mitLetztem.daten.zustand === 'bestaetigt');
+
+    // B27 (Fixrunde 1): ein Name, der nach der Erlaubnisliste leer ist, weist nicht ab; die Seite sagt „Rechner: (kein Name gemeldet)“.
+    const gn = await testGeraet({ name: '\u{2605}\u{2605} !' });
+    const vn = await api(env, 'POST', '/konto/vorgang', { body: { geraet: gn.angaben, rueckPort: 61003 } });
+    geheim.push(vn.daten && vn.daten.abholGeheimnis, vn.daten && vn.daten.code);
+    const bn = vn.daten ? await formular('/konto/passwort', { v: vn.daten.vorgang, email: 'erika@extern.test', passwort: 'test-passwort-erika-z2' }) : { html: '' };
+    geheim.push(seitenToken(bn.html));
+    check('Z2 B27: Rechnername nur aus Zeichen außerhalb der Erlaubnisliste → Vorgang entsteht (200), die Seite zeigt B27 statt B25',
+      vn.status === 200 && bn.html.includes(`<p>${esc(B.B27)}</p>`) && !bn.html.includes('(vom Rechner gemeldet)'));
 
     // Phishing: der Angreifer legt den Vorgang auf seinem Rechner an (eigener Port) und schickt dem Opfer den Link; das Opfer meldet
-    // sich an und klickt Ja. Der Browser des Opfers springt an 127.0.0.1:62002 auf dem Rechner des Opfers: e erreicht den Angreifer nie.
+    // sich an und klickt Ja. Der Knopf im Browser des Opfers schickt e an 127.0.0.1:62002 auf dem Rechner des Opfers: e erreicht den
+    // Angreifer nie.
     const angreifer = await testGeraet({ name: 'Regie-PC 1' });
     const zweiter = await testGeraet({ name: 'Anderer PC' });
     const va = (await api(env, 'POST', '/konto/vorgang', { body: { geraet: angreifer.angaben, rueckPort: 62002 } })).daten;
@@ -1497,11 +1560,11 @@ async function run() {
     const ta = seitenToken(pb.html);
     geheim.push(ta);
     const jaOpfer = await formular('/konto/bestaetigen', { v: va.vorgang, t: ta, antwort: 'ja' });
-    const ortOpfer = new URL(jaOpfer.kopf.get('location') || 'http://ohne-sprung.invalid/');
-    geheim.push(ortOpfer.searchParams.get('e'));
+    const kfOpfer = knopfFormular(jaOpfer.html) || {};
+    geheim.push(kfOpfer.e);
     const fremdGeheimnis = 'Cd2_-'.repeat(8) + 'Cd2';
     const zweiterOhne = await abholen(va, zweiter, undefined, fremdGeheimnis);
-    const zweiterMitE = await abholen(va, zweiter, ortOpfer.searchParams.get('e') ?? undefined, fremdGeheimnis);
+    const zweiterMitE = await abholen(va, zweiter, kfOpfer.e, fremdGeheimnis);
     const antworten = [];
     let sitzung = false;
     for (let i = 0; i < 150; i++) {
@@ -1510,8 +1573,9 @@ async function run() {
       antworten.push(r.daten ? r.daten.zustand ?? r.daten.code : r.status);
       if (r.daten && r.daten.sitzung) sitzung = true;
     }
-    check('Z2 Phishing: der Rechner des Angreifers (eigener Vorgang, das Opfer bestätigt, Sprung an 127.0.0.1:62002 beim Opfer) bekommt nie eine Sitzung: 149 × wartet, nach 5 min abgelaufen; ein zweiter Launcher (anderes Abholgeheimnis, auch mit e) → 404 S10',
-      jaOpfer.status === 303 && ortOpfer.host === '127.0.0.1:62002' && !sitzung && antworten.slice(0, 149).every((z) => z === 'wartet') && antworten[149] === 'abgelaufen'
+    check('Z2 Phishing: der Rechner des Angreifers (eigener Vorgang, das Opfer bestätigt, Knopf an 127.0.0.1:62002 beim Opfer) bekommt nie eine Sitzung: 149 × wartet, nach 5 min abgelaufen; ein zweiter Launcher (anderes Abholgeheimnis, auch mit dem richtigen e) → 404 S10',
+      jaOpfer.status === 200 && kfOpfer.ziel === 'http://127.0.0.1:62002/anmeldung/zurueck' && /^[A-Za-z0-9_-]{43}$/.test(kfOpfer.e ?? '')
+        && !sitzung && antworten.slice(0, 149).every((z) => z === 'wartet') && antworten[149] === 'abgelaufen'
         && soll(zweiterOhne, 404, 'vorgang-unbekannt') && soll(zweiterMitE, 404, 'vorgang-unbekannt'));
   }
 

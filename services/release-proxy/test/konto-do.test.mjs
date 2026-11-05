@@ -411,9 +411,12 @@ async function run() {
       { name: 'Schlüssel mit privatem Anteil', body: { ...gut, geraet: { ...geraet.angaben, publicJwk: { ...geraet.publicJwk, d: 'x' } } }, soll: 400 },
       { name: 'Plattform linux', body: { ...gut, geraet: { ...geraet.angaben, plattform: 'linux' } }, soll: 400 },
       { name: 'Architektur ia32', body: { ...gut, geraet: { ...geraet.angaben, arch: 'ia32' } }, soll: 400 },
-      { name: 'Rechnername leer', body: { ...gut, geraet: { ...geraet.angaben, name: '  ' } }, soll: 400 },
+      // Z2 Fixrunde 1 (AR91 Nr. 4): wegen des Namens weist der Worker nie ab; leer bleibt leer (Seite: B27).
+      { name: 'Rechnername leer', body: { ...gut, geraet: { ...geraet.angaben, name: '  ' } }, soll: 200 },
+      { name: 'Rechnername fehlt', body: { ...gut, geraet: { ...geraet.angaben, name: undefined } }, soll: 200 },
+      { name: 'Rechnername keine Zeichenkette', body: { ...gut, geraet: { ...geraet.angaben, name: 42 } }, soll: 200 },
     ];
-    await pruefeFaelle('P4 4.1, Z2: vorgang-anlegen prüft Code, Abhol-Hash, Gerät und den Port des Rückkanals (1024–65535)', faelle, async (f) => {
+    await pruefeFaelle('P4 4.1, Z2: vorgang-anlegen prüft Code, Abhol-Hash, Gerät und den Port des Rückkanals (1024–65535); der Rechnername weist nie ab', faelle, async (f) => {
       const r = await rufeDo(speicher, 'vorgang-anlegen', { jetzt: T0, ...f.body });
       return gleich([r.http, r.ok ? 'ok' : r.code], [f.soll, f.soll === 200 ? 'ok' : 'ungueltig']);
     });
@@ -698,15 +701,16 @@ async function run() {
       { name: 'Tag-Zeichen U+E0041 und U+E007F', roh: 'PC\u{e0041}\u{e007f}1', soll: 'PC1' },
       { name: 'Emoji', roh: 'Regie \u{1f3ac} PC', soll: 'Regie PC' },
       { name: 'länger als 40 Zeichen', roh: 'Dein Rechner: Code stimmt, bitte Ja klicken und fertig', soll: 'Dein Rechner Code stimmt bitte Ja klicke' },
-      { name: 'nur Leerraum und Unsichtbares', roh: ' \u{200b} ', soll: null },
-      { name: 'nur Hangul-F\u00fcller', roh: '\u{3164}\u{3164}', soll: null },
-      { name: 'nur Sonderzeichen', roh: '#!?', soll: null },
+      // Z2 Fixrunde 1 (AR91 Nr. 4): leer nach der Erlaubnisliste bleibt leer, der Vorgang entsteht (die Seite zeigt B27).
+      { name: 'nur Leerraum und Unsichtbares', roh: ' \u{200b} ', soll: '' },
+      { name: 'nur Hangul-F\u00fcller', roh: '\u{3164}\u{3164}', soll: '' },
+      { name: 'nur Sonderzeichen', roh: '#!?', soll: '' },
     ];
-    await pruefeFaelle('P4 4.1, Z2: Rechnername nur aus Buchstaben, Ziffern, Leerzeichen und -_.()\' (nach NFC, höchstens 40 Zeichen, Hangul-Füller ausdrücklich weg, alles andere entfernt, Leerraum zusammengezogen; leer → 400)', faelle, async (f) => {
+    await pruefeFaelle('P4 4.1, Z2: Rechnername nur aus Buchstaben, Ziffern, Leerzeichen und -_.()\' (nach NFC, höchstens 40 Zeichen, Hangul-Füller ausdrücklich weg, alles andere entfernt, Leerraum zusammengezogen; leer bleibt leer, nie 400)', faelle, async (f) => {
       const g = await testGeraet({ name: f.roh });
       const r = await rufeDo(speicher, 'vorgang-anlegen', { jetzt: T0, geraet: g.angaben, abholHash: await sha256B64url(zufall(32)), code: 'K7P-42X', rueckPort: RUECK_PORT });
       const ist = r.ok ? ctx.daten.get(`vorgang:${r.vorgang}`).geraet.name : `${r.http}:${r.code}`;
-      return gleich(ist, f.soll === null ? '400:ungueltig' : f.soll);
+      return gleich(ist, f.soll);
     });
     // Z2 Nr. 5, gemessen (Node 24): \p{L} lässt U+115F, U+1160, U+3164 und U+FFA0 durch (Kategorie Lo, Default_Ignorable_Code_Point);
     // die Regel entfernt sie darum ausdrücklich (die vier Fälle oben).
@@ -936,19 +940,55 @@ async function run() {
     };
     const ja1 = rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort: 'ja' });
     const ja2 = rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort: 'ja' });
-    for (let i = 0; i < 400 && ctx.daten.get(`vorgang:${v.vorgang}`)?.zustand !== 'bestaetigt'; i++) await new Promise((r) => setTimeout(r, 5));
-    // Z2: abgeholt wird mit dem Einmalwert des Ja, das gilt (das andere Ja liefert keinen).
-    const erstesJa = await Promise.race([ja1, ja2].map((p) => p.then((r) => (r.ok ? r : new Promise(() => {})))));
-    const erst = await abholen(speicher, { ...v, e: erstesJa.e }, geraet, T0);
+    for (let i = 0; i < 400 && n < 2; i++) await new Promise((r) => setTimeout(r, 5));
+    // Z2 Fixrunde 1 (I1): beide Ja gelten, jedes mit eigenem e. Das zweite Ja schreibt gerade (zurückgehalten), während der Launcher mit
+    // dem e des ersten abholt: Das Abholen nimmt den Vorgang in derselben Reihe, also erst nach dem zweiten Ja; nichts wird wiederbelebt.
+    const erstesJa = await ja1;
+    const holt = abholen(speicher, { ...v, e: erstesJa.e }, geraet, T0);
+    await new Promise((r) => setTimeout(r, 30));
+    const vorFreigabe = ctx.daten.has(`vorgang:${v.vorgang}`);
     freigeben();
-    const jas = await Promise.all([ja1, ja2]);
+    const [jaZwei, erst] = await Promise.all([ja2, holt]);
+    const grab = ctx.daten.get(`grab:${v.vorgang}`);
+    const angemeldetSeit = ctx.daten.get(`geraet:${geraet.gid}`)?.angemeldetSeit;
     const zweit = await abholen(speicher, v, geraet, T0);
+    const mitZweitemE = await abholen(speicher, { ...v, e: jaZwei.e }, geraet, T0 + 1000);
     check(
-      'P4 AR22, Z2: zweimal „Ja“ (Doppelklick) gegen das Abholen: genau ein Ja gilt und liefert ein e, das andere → 404 ohne e, es entsteht keine zweite Sitzung',
-      erst.zustand === 'bestaetigt' && jas.filter((x) => x.ok).length === 1 && jas.filter((x) => x.http === 404 && x.code === 'vorgang-unbekannt').length === 1 &&
-        jas.filter((x) => typeof x.e === 'string').length === 1 && zweit.http === 404 && zweit.code === 'vorgang-unbekannt' &&
-        !ctx.daten.has(`vorgang:${v.vorgang}`),
+      'P4 AR22, Z2: zweimal „Ja“ (Doppelklick) gegen das Abholen: beide Ja gelten (je ein eigenes e), abgeholt wird genau einmal und erst nach dem zweiten Ja; der Vorgang wird nicht wiederbelebt, ohne e → 404, das zweite e liefert nur dieselbe Anmeldung (Grabstein)',
+      erstesJa.ok === true && jaZwei.ok === true && typeof erstesJa.e === 'string' && typeof jaZwei.e === 'string' && erstesJa.e !== jaZwei.e && vorFreigabe
+        && erst.zustand === 'bestaetigt' && !ctx.daten.has(`vorgang:${v.vorgang}`) && Array.isArray(grab?.eHashes) && grab.eHashes.length === 2
+        && zweit.http === 404 && zweit.code === 'vorgang-unbekannt'
+        && mitZweitemE.zustand === 'bestaetigt' && mitZweitemE.geraet.angemeldetSeit === angemeldetSeit && ctx.daten.get(`geraet:${geraet.gid}`).angemeldetSeit === angemeldetSeit,
     );
+  }
+
+  // ── Z2 Fixrunde 1 (I1): ein weiteres Ja (zurückgehalten) gegen das Abbrechen des Launchers: der Vorgang bleibt weg ──
+  {
+    const { speicher, ctx } = neuerSpeicher({});
+    const geraet = await testGeraet();
+    const k = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'maria@jakobsmedien.com', name: 'Maria Schmidt' });
+    const v = await neuerVorgang(speicher, geraet);
+    const b = await rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: v.vorgang, kid: k.kid });
+    await rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort: 'ja' });
+    let freigeben;
+    let gehalten = false;
+    const tor = new Promise((r) => (freigeben = r));
+    const put = ctx.storage.put.bind(ctx.storage);
+    ctx.storage.put = async (key, w) => {
+      if (key === `vorgang:${v.vorgang}` && w && Array.isArray(w.eHashes) && w.eHashes.length === 2) {
+        gehalten = true;
+        await tor;
+      }
+      return put(key, w);
+    };
+    const jaZwei = rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort: 'ja' });
+    for (let i = 0; i < 400 && !gehalten; i++) await new Promise((r) => setTimeout(r, 5));
+    const ab = rufeDo(speicher, 'vorgang-abbrechen', { jetzt: T0, vorgang: v.vorgang, abholHash: v.abholHash });
+    await new Promise((r) => setTimeout(r, 30));
+    freigeben();
+    const [rj, ra] = await Promise.all([jaZwei, ab]);
+    check('Z2 I1: ein weiteres Ja, das gerade schreibt, gegen das Abbrechen: das Abbrechen wartet in der Reihe, danach ist der Vorgang weg (nicht wiederbelebt)',
+      gehalten && rj.ok === true && ra.ok === true && !ctx.daten.has(`vorgang:${v.vorgang}`));
   }
 
   // ── P4 Review 2: die Einladung zählt auf die Bremse (AR23: die Prüfung in der Reihe darf die erste nicht verdecken) ──
@@ -1005,9 +1045,12 @@ async function run() {
       const b = await rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: v.vorgang, kid: k.kid });
       leseTor(ctx, v.vorgang, 3);
       const jas = await Promise.all([1, 2].map(() => rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort: 'ja' })));
+      const nachJa = ctx.daten.get(`vorgang:${v.vorgang}`);
+      // Z2 Fixrunde 1 (I1): ein wiederholtes Ja gilt; das Lese-Tor darf keins verlieren: zwei e, zwei Hashes, kein Klartext-Seitentoken.
       check(
-        'P4 AR25: zweimal Bestätigen mit verschränktem Lesen: genau ein Ja gilt, das andere → 404 vorgang-unbekannt',
-        jas.filter((x) => x.ok).length === 1 && jas.filter((x) => x.http === 404 && x.code === 'vorgang-unbekannt').length === 1,
+        'P4 AR25, Z2: zweimal Bestätigen mit verschränktem Lesen: beide Ja gelten mit je eigenem e, keins geht verloren (zwei Hashes im Vorgang, Seitentoken nur als Hash)',
+        jas.every((x) => x.ok === true && typeof x.e === 'string') && jas[0].e !== jas[1].e && nachJa.zustand === 'bestaetigt'
+          && Array.isArray(nachJa.eHashes) && nachJa.eHashes.length === 2 && !('seitenToken' in nachJa) && typeof nachJa.seitenHash === 'string',
       );
     }
     {
@@ -2077,9 +2120,10 @@ async function run() {
     const ja = await rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort: 'ja' });
     const gespeichert = ctx.daten.get(`vorgang:${v.vorgang}`);
     const roh = JSON.stringify([...ctx.daten.entries()]);
-    check('Z2 2: Ja → e (43 Zeichen b64url, zufall(32)) und der Port des Rückkanals in der Antwort; im Speicher nur sha256(e), nie e',
+    check('Z2 2: Ja → e (43 Zeichen b64url, zufall(32)) und der Port des Rückkanals in der Antwort; im Speicher nur sha256(e) und sha256(Seitentoken), nie e, nie das Seitentoken',
       ja.ok === true && ja.zustand === 'bestaetigt' && typeof ja.e === 'string' && /^[A-Za-z0-9_-]{43}$/.test(ja.e) && ja.rueckPort === 61234
-        && gespeichert.eHash === (await sha256B64url(ja.e)) && !roh.includes(ja.e));
+        && JSON.stringify(gespeichert.eHashes) === JSON.stringify([await sha256B64url(ja.e)]) && gespeichert.seitenHash === (await sha256B64url(b.seitenToken))
+        && !roh.includes(ja.e) && !roh.includes(b.seitenToken));
     const beweis = async (ts) => geraet.beweis('abholen', v.vorgang, ts);
     const ohneE = await abholen(speicher, v, geraet, T0 + 1000);
     const falschesE = await abholen(speicher, { ...v, e: zufall(32) }, geraet, T0 + 2000);
@@ -2095,7 +2139,7 @@ async function run() {
     const bw = await rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: w.vorgang, kid: k.kid });
     const nein = await rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: w.vorgang, seitenToken: bw.seitenToken, antwort: 'nein' });
     check('Z2 2: Nein → kein e und kein Port in der Antwort, kein Hash im Vorgang',
-      nein.ok === true && nein.zustand === 'abgelehnt' && !('e' in nein) && !('rueckPort' in nein) && !('eHash' in ctx.daten.get(`vorgang:${w.vorgang}`)));
+      nein.ok === true && nein.zustand === 'abgelehnt' && !('e' in nein) && !('rueckPort' in nein) && !('eHashes' in ctx.daten.get(`vorgang:${w.vorgang}`)));
     // Ein bestätigter Vorgang ohne Hash (etwa aus der Zeit vor Z2) gibt ohne e nie eine Sitzung: fehlt der Hash, gilt kein e.
     const alt = await neuerVorgang(speicher, geraet);
     const altGespeichert = ctx.daten.get(`vorgang:${alt.vorgang}`);
@@ -2104,6 +2148,58 @@ async function run() {
     const altLeer = await rufeDo(speicher, 'vorgang-abholen', { jetzt: T0, vorgang: alt.vorgang, abholHash: alt.abholHash, beweis: await geraet.beweis('abholen', alt.vorgang, T0), eHash: '' });
     check('Z2 2: ein bestätigter Vorgang ohne gespeicherten Hash → wartet, auch mit leerem e (nie eine Sitzung ohne Sprung)',
       altOhne.zustand === 'wartet' && altLeer.zustand === 'wartet' && ctx.daten.has(`vorgang:${alt.vorgang}`));
+  }
+
+  // ── Z2 Fixrunde 1 (I1): Doppelklick auf „Ja“ verliert die Anmeldung nicht — jedes weitere Ja mit demselben Seitentoken bringt ein
+  // neues e (höchstens 3), frühere bleiben gültig; ab dem 4. Ja die heutige Antwort ──
+  {
+    const { speicher, ctx } = neuerSpeicher({});
+    const geraet = await testGeraet();
+    const k = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'maria@jakobsmedien.com', name: 'Maria Schmidt' });
+    /** Vorgang bis „Ja“ × anzahl (nacheinander) → { v, jas }. */
+    const mitJas = async (anzahl) => {
+      const v = await neuerVorgang(speicher, geraet);
+      const b = await rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: v.vorgang, kid: k.kid });
+      const jas = [];
+      for (let i = 0; i < anzahl; i++) jas.push(await rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0 + i, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort: 'ja' }));
+      return { v, b, jas };
+    };
+    const { v, b, jas } = await mitJas(4);
+    const gespeichert = ctx.daten.get(`vorgang:${v.vorgang}`);
+    const fremdesToken = await rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: zufall(24), antwort: 'ja' });
+    const neinDanach = await rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v.vorgang, seitenToken: b.seitenToken, antwort: 'nein' });
+    const es = jas.slice(0, 3).map((j) => j.e);
+    check('Z2 I1: drei Ja mit demselben Seitentoken → je ein neues e (alle verschieden, Port dabei), drei Hashes im Vorgang; das 4. Ja → 404 (Seite B10), ein fremdes Seitentoken → 403, Nein nach Ja → 404',
+      jas.slice(0, 3).every((j) => j.ok === true && j.zustand === 'bestaetigt' && /^[A-Za-z0-9_-]{43}$/.test(j.e) && j.rueckPort === RUECK_PORT) && new Set(es).size === 3
+        && jas[3].http === 404 && jas[3].code === 'vorgang-unbekannt' && !('e' in jas[3])
+        && JSON.stringify(gespeichert.eHashes) === JSON.stringify(await Promise.all(es.map((e) => sha256B64url(e))))
+        && fremdesToken.http === 403 && neinDanach.http === 404 && ctx.daten.get(`vorgang:${v.vorgang}`).zustand === 'bestaetigt');
+    // Jedes der drei e holt ab (je ein eigener Vorgang, damit jedes einzeln geprüft wird).
+    const ergebnisse = [];
+    for (let i = 0; i < 3; i++) {
+      const x = await mitJas(3);
+      ergebnisse.push(await abholen(speicher, { ...x.v, e: x.jas[i].e }, geraet, T0 + 10));
+    }
+    check('Z2 I1: das Abholen nimmt jedes e aus der Liste an (erstes, zweites, drittes Ja)', ergebnisse.every((r) => r.zustand === 'bestaetigt'));
+    // Kein früher Abbruch: gleich viele SHA-256-Berechnungen, ob das e an Position 1 oder 3 der Liste steht (jeder Eintrag wird verglichen).
+    const digests = async (pos) => {
+      const x = await mitJas(3);
+      const original = crypto.subtle.digest;
+      let n = 0;
+      crypto.subtle.digest = function (...a) {
+        n++;
+        return original.apply(this, a);
+      };
+      try {
+        const r = await abholen(speicher, { ...x.v, e: x.jas[pos].e }, geraet, T0 + 20);
+        return r.zustand === 'bestaetigt' ? n : -1;
+      } finally {
+        crypto.subtle.digest = original;
+      }
+    };
+    const n1 = await digests(0);
+    const n3 = await digests(2);
+    check(`Z2 I1: jedes e der Liste wird verglichen, ohne frühen Abbruch (Hash-Berechnungen bei Position 1: ${n1}, bei Position 3: ${n3})`, n1 > 0 && n1 === n3);
   }
 
   // ── Z2 Phishing: ein Angreifer startet den Vorgang selbst und schickt dem Opfer den Link ──
@@ -2128,13 +2224,16 @@ async function run() {
     // Ein zweiter „Launcher“ (eigenes Gerät, eigenes Abholgeheimnis, kein e) am selben Vorgang: nie eine Sitzung.
     const v2 = await neuerVorgang(speicher, zweiter);
     const b2 = await rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0, vorgang: v2.vorgang, kid: opfer.kid });
-    await rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v2.vorgang, seitenToken: b2.seitenToken, antwort: 'ja' });
+    const ja2 = await rufeDo(speicher, 'vorgang-bestaetigen', { jetzt: T0, vorgang: v2.vorgang, seitenToken: b2.seitenToken, antwort: 'ja' });
     const fremdGeheimnis = await rufeDo(speicher, 'vorgang-abholen', { jetzt: T0, vorgang: v2.vorgang, abholHash: await sha256B64url(zufall(32)), beweis: await zweiter.beweis('abholen', v2.vorgang, T0) });
-    const fremdMitE = await rufeDo(speicher, 'vorgang-abholen', { jetzt: T0, vorgang: v2.vorgang, abholHash: await sha256B64url(zufall(32)), beweis: await zweiter.beweis('abholen', v2.vorgang, T0), eHash: await sha256B64url(ja.e) });
-    check('Z2 Phishing: der Rechner des Angreifers (eigener Vorgang, Opfer bestätigt, kein e) bekommt nie eine Sitzung (nur wartet, dann abgelaufen); ein zweiter Launcher mit anderem Abholgeheimnis → 404, auch mit einem e',
+    // M5: mit dem richtigen e von v2, aber falschem Abholgeheimnis (und richtigem Gerät): nie eine Sitzung.
+    const fremdMitE = await rufeDo(speicher, 'vorgang-abholen', { jetzt: T0, vorgang: v2.vorgang, abholHash: await sha256B64url(zufall(32)), beweis: await zweiter.beweis('abholen', v2.vorgang, T0), eHash: await sha256B64url(ja2.e) });
+    check('Z2 Phishing: der Rechner des Angreifers (eigener Vorgang, Opfer bestätigt, kein e) bekommt nie eine Sitzung (nur wartet, dann abgelaufen); ein zweiter Launcher mit anderem Abholgeheimnis → 404, auch mit dem richtigen e',
       ja.ok === true && !konto && [...zustaende].join(',') === 'wartet' && ende.zustand === 'abgelaufen' && !ctx.daten.has(`geraet:${angreifer.gid}`)
         && (await speicher.ladeKonto(opfer.kid)).letzteAnmeldung === null
-        && fremdGeheimnis.http === 404 && fremdGeheimnis.code === 'vorgang-unbekannt' && fremdMitE.http === 404 && !ctx.daten.has(`geraet:${zweiter.gid}`));
+        && fremdGeheimnis.http === 404 && fremdGeheimnis.code === 'vorgang-unbekannt' && ja2.ok === true && typeof ja2.e === 'string'
+        && fremdMitE.http === 404 && fremdMitE.code === 'vorgang-unbekannt' && !ctx.daten.has(`geraet:${zweiter.gid}`)
+        && ctx.daten.get(`vorgang:${v2.vorgang}`)?.zustand === 'bestaetigt');
   }
 
   // ── Z2 Nr. 6: Grabstein nach dem Abholen (verlorene Antwort, 60 s, dasselbe Abholgeheimnis und dasselbe e) ──
@@ -2161,9 +2260,11 @@ async function run() {
       erst.zustand === 'bestaetigt' && !ctx.daten.has(`vorgang:${v.vorgang}`) && !!grab && grab.bis === T1 + 60_000 && !roh.includes(v.e) && !roh.includes(v.abholGeheimnis)
         && nochmal.http === 200 && nochmal.zustand === 'bestaetigt' && nochmal.konto.kid === k.kid && nochmal.geraet.gid === geraet.gid
         && nochmal.geraet.angemeldetSeit === erst.geraet.angemeldetSeit && erst.geraet.angemeldetSeit === T1 && !('publicJwk' in nochmal.geraet) && !('passwort' in nochmal.konto));
-    check('Z2 6: der Grabstein nimmt nichts anderes an: ohne e, anderes e, anderes Abholgeheimnis → 404; fremdes Gerät → 403; die Seite kennt den Vorgang nicht (404)',
+    // Z2 Fixrunde 1 (B8 erst nach dem Abholen): die Seite erfährt vom Grabstein nur „abgeholt“, ohne Code, Rechnername oder Hash.
+    check('Z2 6: der Grabstein nimmt nichts anderes an: ohne e, anderes e, anderes Abholgeheimnis → 404; fremdes Gerät → 403; die Seite liest nur den Zustand abgeholt',
       ohneE.http === 404 && ohneE.code === 'vorgang-unbekannt' && anderesE.http === 404 && anderesGeheimnis.http === 404
-        && fremdesGeraet.http === 403 && fremdesGeraet.code === 'geraet-unbekannt' && seite.http === 404 && seite.code === 'vorgang-unbekannt');
+        && fremdesGeraet.http === 403 && fremdesGeraet.code === 'geraet-unbekannt' && seite.ok === true && seite.zustand === 'abgeholt'
+        && JSON.stringify(Object.keys(seite).sort()) === JSON.stringify(['http', 'ok', 'zustand']));
     check('Z2 6: nach 60 s ist der Vorgang weg: Wiederholung → 404 vorgang-unbekannt, der Grabstein ist gelöscht',
       danach.http === 404 && danach.code === 'vorgang-unbekannt' && !ctx.daten.has(`grab:${v.vorgang}`));
     // Ein abgemeldetes Gerät (oder eins, das inzwischen anders angemeldet ist) bekommt aus dem Grabstein nichts mehr.
@@ -2175,6 +2276,15 @@ async function run() {
     const wNochmal = await abholen(speicher, w, geraet, T0 + 2 * MIN + 2000);
     check('Z2 6: nach dem Abmelden innerhalb der 60 s liefert der Grabstein keine Sitzung mehr (404)',
       wErst.zustand === 'bestaetigt' && wNochmal.http === 404 && wNochmal.code === 'vorgang-unbekannt');
+    // M4 (m3): wird das Konto binnen der 60 s gesperrt, gibt der Grabstein keine Sitzung (403 gesperrt).
+    const s = await neuerVorgang(speicher, geraet, T0 + 3 * MIN);
+    const bs = await rufeDo(speicher, 'vorgang-konto-binden', { jetzt: T0 + 3 * MIN, vorgang: s.vorgang, kid: k.kid });
+    await bestaetige(speicher, s, bs.seitenToken, 'ja', T0 + 3 * MIN);
+    const sErst = await abholen(speicher, s, geraet, T0 + 3 * MIN);
+    await speicher.speichereKonto({ ...(await speicher.ladeKonto(k.kid)), zustand: 'gesperrt' });
+    const sNochmal = await abholen(speicher, s, geraet, T0 + 3 * MIN + 2000);
+    check('Z2 6 (M4 m3): ein Konto, das binnen der 60 s gesperrt wird, bekommt aus dem Grabstein keine Sitzung (403 gesperrt)',
+      sErst.zustand === 'bestaetigt' && sNochmal.http === 403 && sNochmal.code === 'gesperrt' && !('konto' in sNochmal));
     // Der Alarm räumt abgelaufene Grabsteine ab.
     const uhr = makeUhr(T0);
     const a = neuerSpeicher({ KONTO_UHR: uhr });

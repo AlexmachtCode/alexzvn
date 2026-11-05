@@ -18,8 +18,10 @@
 // Schreiber des Kontos (P3, Abholen, P6) verlassen sich auf die Input-Gates von workerd (workerd lässt während eines
 // Speicherzugriffs keinen fremden Aufruf in den Code; die Map-Attrappe der Tests kennt dieses Tor nicht); ebenso die P6-Regeln "eine Anfrage ist nur offen
 // entscheidbar", "es bleibt immer ein Admin", die Schreiber von iveo und `geraet-markieren` und `neuer-code` (Einladung des Kontos
-// außerhalb der Reihe). Löschen (Abholen, Abbrechen, Aufräumen) läuft außerhalb der Reihe;
-// kein Schreiber in der Reihe nimmt einen bereits entschiedenen Vorgang an. Nie `binde` oder `inReihe` aus der Reihe rufen.
+// außerhalb der Reihe). Aufräumen löscht außerhalb der Reihe; kein Schreiber in der Reihe nimmt einen bereits entschiedenen Vorgang
+// an, mit einer Ausnahme (Z2 Fixrunde 1, I1): ein weiteres Ja mit demselben Seitentoken hängt an einen bestätigten, nicht abgeholten
+// Vorgang ein neues e an. Darum nehmen Abholen und Abbrechen den Vorgang ebenfalls in der Reihe (ein spätes Ja belebt nichts wieder).
+// Nie `binde` oder `inReihe` aus der Reihe rufen.
 // Das Erneuern (P5) liest das Gerät nach dem Beweis (WebCrypto, kein Speicher) frisch, prüft `letztesKonto` noch einmal und setzt nur
 // seine eigenen Felder, ohne await zwischen frischem Lesen und Schreiben: ein gleichzeitiges Abholen oder eine gleichzeitige Markierung
 // (`jm`) bleibt so erhalten (ebenfalls dank der Input-Gates).
@@ -76,6 +78,8 @@ const RUECK_PORT_MIN = 1024;
 const RUECK_PORT_MAX = 65535;
 /** Z2 (Nr. 6): so lange nach dem Abholen nimmt der Grabstein dasselbe Abholgeheimnis und dasselbe e noch einmal an. */
 const GRAB_MS = 60_000;
+/** Z2 Fixrunde 1 (I1): so viele Einmalwerte gibt es je Vorgang höchstens (erstes Ja plus zwei Wiederholungen, etwa ein Doppelklick). */
+const E_MAX = 3;
 const EMAIL_FORM = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const K = {
@@ -509,13 +513,15 @@ export class KontoSpeicher {
   /**
    * Aktion `vorgang-anlegen` `{ geraet, abholHash, code, rueckPort }` → `{ vorgang, bis }`; das Abholgeheimnis kennt der DO nur als
    * Hash. Z2: `rueckPort` ist der Port, auf dem der Launcher auf 127.0.0.1 lauscht (ganze Zahl 1024–65535, sonst 400 ungueltig).
+   * Z2 Fixrunde 1 (AR91 Nr. 4): wegen des Rechnernamens weist der DO nie ab; ist er nach der Erlaubnisliste leer, bleibt er leer
+   * (die Seite zeigt dann B27).
    */
   async vorgangAnlegen(b, jetzt) {
     const g = b.geraet && typeof b.geraet === 'object' ? b.geraet : {};
     const publicJwk = reinerJwk(g.publicJwk);
     const gid = publicJwk ? await geraetIdAus(publicJwk) : null;
     const name = rechnerName(g.name);
-    if (!gid || !name || (g.plattform !== 'win' && g.plattform !== 'mac') || (g.arch !== 'x64' && g.arch !== 'arm64')) return fehler('ungueltig', 400);
+    if (!gid || (g.plattform !== 'win' && g.plattform !== 'mac') || (g.arch !== 'x64' && g.arch !== 'arm64')) return fehler('ungueltig', 400);
     if (typeof b.abholHash !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(b.abholHash)) return fehler('ungueltig', 400);
     if (typeof b.code !== 'string' || !CODE_FORM.test(b.code)) return fehler('ungueltig', 400);
     if (!Number.isInteger(b.rueckPort) || b.rueckPort < RUECK_PORT_MIN || b.rueckPort > RUECK_PORT_MAX) return fehler('ungueltig', 400);
@@ -533,10 +539,17 @@ export class KontoSpeicher {
     return { ok: true, vorgang, bis: v.bis };
   }
 
-  /** Aktion `vorgang-lesen` `{ vorgang }` → `{ zustand, code, rechnerName, bis }` (Anmeldeseite, P17). */
+  /**
+   * Aktion `vorgang-lesen` `{ vorgang }` → `{ zustand, code, rechnerName, bis }` (Anmeldeseite, P17). Z2 Fixrunde 1: nach dem Abholen
+   * (Grabstein, 60 s) nur `{ zustand: 'abgeholt' }` — erst dann zeigt die Seite B8; vorher bei `bestaetigt` B28.
+   */
   async vorgangLesen(b, jetzt) {
     const v = await this.ladeVorgang(b.vorgang, jetzt);
-    if (!v) return fehler('vorgang-unbekannt', 404);
+    if (!v) {
+      const g = typeof b.vorgang === 'string' && b.vorgang ? await this.ctx.storage.get(K.grab(b.vorgang)) : null;
+      if (g && g.bis > jetzt) return { ok: true, zustand: 'abgeholt' };
+      return fehler('vorgang-unbekannt', 404);
+    }
     return { ok: true, zustand: v.zustand, code: v.code, rechnerName: v.geraet.name, bis: v.bis };
   }
 
@@ -730,22 +743,45 @@ export class KontoSpeicher {
    * Z2: Bei Ja entsteht der Einmalwert `e = zufall(32)` (43 Zeichen b64url); der DO speichert nur `sha256(e)` und gibt `e` genau
    * einmal mit dem Port des Rückkanals zurück (`{ zustand, e, rueckPort }`): Die Bestätigen-Route baut daraus den Sprung an
    * 127.0.0.1 auf demselben Rechner. Abholen verlangt danach dieses e (RFC 8252, loopback redirect).
+   * Z2 Fixrunde 1 (I1, Doppelklick): beim ersten Ja bleibt vom Seitentoken nur sein Hash (`seitenHash`), die Hashes der Einmalwerte
+   * stehen in `eHashes`. Ein weiteres Ja mit demselben Seitentoken, solange der Vorgang bestätigt und nicht abgeholt ist, bringt ein
+   * neues e, dessen Hash an die Liste kommt (höchstens E_MAX = 3); frühere bleiben gültig. Ab dem vierten Ja, bei Nein nach Ja und mit
+   * einem anderen Seitentoken bleibt es bei der Antwort von vorher (404 bzw. 403, Seite B10). Abholen nimmt den Vorgang in derselben
+   * Reihe, darum kann ein spätes Ja einen abgeholten Vorgang nicht wiederbeleben.
    */
   async vorgangBestaetigen(b, jetzt) {
     const v = await this.ladeVorgang(b.vorgang, jetzt);
-    if (!v || v.zustand !== 'angemeldet') return fehler('vorgang-unbekannt', 404);
-    if (!(await gleichOhneZeitleck(String(b.seitenToken ?? ''), v.seitenToken))) return fehler('vorgang-unbekannt', 403);
+    if (!v || (v.zustand !== 'angemeldet' && v.zustand !== 'bestaetigt')) return fehler('vorgang-unbekannt', 404);
+    const token = typeof b.seitenToken === 'string' ? b.seitenToken : '';
+    // Seitentoken zeitkonstant: vor dem ersten Ja im Klartext, danach nur noch sein Hash.
+    const seitenHash = token ? await sha256B64url(token) : '';
+    const tokenOk =
+      v.zustand === 'angemeldet' ? await gleichOhneZeitleck(token, v.seitenToken) : await gleichOhneZeitleck(seitenHash, String(v.seitenHash ?? ''));
+    if (!tokenOk) return fehler('vorgang-unbekannt', 403);
     if (b.antwort !== 'ja' && b.antwort !== 'nein') return fehler('ungueltig', 400);
+    if (v.zustand === 'bestaetigt' && b.antwort !== 'ja') return fehler('vorgang-unbekannt', 404);
     // Z2: e und sein Hash vor der Reihe (SHA-256 ist ein await ohne Speicher); in die Reihe geht nur das Schreiben.
     const e = b.antwort === 'ja' ? zufall(32) : null;
     const eHash = e ? await sha256B64url(e) : null;
-    // Der Token ist oben zeitkonstant geprüft; in der Reihe wird frisch gelesen und nur noch derselbe Vorgang im selben Zustand geändert.
+    // Der Token ist oben zeitkonstant geprüft; in der Reihe wird frisch gelesen und nur noch derselbe Vorgang geändert: das erste Ja
+    // (angemeldet → bestätigt) oder ein weiteres Ja mit demselben Seitentoken (bestätigt, Liste noch nicht voll).
     return this.inReihe(async () => {
       const frisch = await this.ladeVorgang(v.vorgang, jetzt);
-      if (!frisch || frisch.zustand !== 'angemeldet' || frisch.seitenToken !== v.seitenToken) return fehler('vorgang-unbekannt', 404);
-      frisch.zustand = b.antwort === 'ja' ? 'bestaetigt' : 'abgelehnt';
-      delete frisch.seitenToken;
-      if (eHash) frisch.eHash = eHash;
+      if (!frisch) return fehler('vorgang-unbekannt', 404);
+      if (frisch.zustand === 'angemeldet') {
+        if (v.zustand !== 'angemeldet' || frisch.seitenToken !== v.seitenToken) return fehler('vorgang-unbekannt', 404);
+        frisch.zustand = b.antwort === 'ja' ? 'bestaetigt' : 'abgelehnt';
+        delete frisch.seitenToken;
+        if (eHash) {
+          frisch.seitenHash = seitenHash;
+          frisch.eHashes = [eHash];
+        }
+      } else if (frisch.zustand === 'bestaetigt' && eHash && frisch.seitenHash === seitenHash) {
+        if (!Array.isArray(frisch.eHashes) || frisch.eHashes.length >= E_MAX) return fehler('vorgang-unbekannt', 404);
+        frisch.eHashes = [...frisch.eHashes, eHash];
+      } else {
+        return fehler('vorgang-unbekannt', 404);
+      }
       await this.ctx.storage.put(K.vorgang(frisch.vorgang), frisch);
       return e ? { ok: true, zustand: frisch.zustand, e, rueckPort: frisch.rueckPort } : { ok: true, zustand: frisch.zustand };
     });
@@ -776,10 +812,17 @@ export class KontoSpeicher {
       return { ok: true, zustand: 'abgelehnt' };
     }
     if (v.zustand !== 'bestaetigt') return { ok: true, zustand: 'wartet' };
-    // Z2: ohne den Einmalwert aus dem Sprung (oder ohne gespeicherten Hash) keine Sitzung, nur „wartet“.
-    if (!(await this.eStimmt(b.eHash, v.eHash))) return { ok: true, zustand: 'wartet' };
+    // Z2: ohne einen Einmalwert aus dem Formular an den Rückkanal (oder ohne gespeicherte Hashes) keine Sitzung, nur „wartet“.
+    if (!(await this.eStimmt(b.eHash, v.eHashes))) return { ok: true, zustand: 'wartet' };
     // Atomar nehmen, bevor eine Sitzung entsteht: wer den Vorgang nicht mehr löschen kann, war zu spät (zweimal abholen = einmal).
-    if (!(await this.vorgangWeg(v))) return fehler('vorgang-unbekannt', 404);
+    // Z2 Fixrunde 1 (I1): in der Reihe der Bestätigungen, damit ein gleichzeitiges weiteres Ja den Vorgang nicht wiederbelebt; die
+    // Hashes kommen aus dem frisch gelesenen Vorgang (ein weiteres Ja davor ist also im Grabstein).
+    const genommen = await this.inReihe(async () => {
+      const frisch = await this.ctx.storage.get(K.vorgang(v.vorgang));
+      if (!frisch || frisch.zustand !== 'bestaetigt' || frisch.abholHash !== v.abholHash) return null;
+      return (await this.vorgangWeg(frisch)) ? frisch : null;
+    });
+    if (!genommen) return fehler('vorgang-unbekannt', 404);
     const konto = await this.ladeKonto(v.kid);
     if (!konto) return fehler('geloescht', 403);
     const g = kontoGueltig(konto, jetzt);
@@ -800,7 +843,7 @@ export class KontoSpeicher {
     await this.ctx.storage.put(K.grab(v.vorgang), {
       vorgang: v.vorgang,
       abholHash: v.abholHash,
-      eHash: v.eHash,
+      eHashes: genommen.eHashes,
       kid: konto.kid,
       gid: geraet.gid,
       publicJwk: v.geraet.publicJwk,
@@ -810,10 +853,15 @@ export class KontoSpeicher {
     return { ok: true, zustand: 'bestaetigt', konto: { ...ohneGeheimes(konto), stufe: this.stufeVon(konto) }, geraet: ohneSchluessel(geraet) };
   }
 
-  /** Z2: stimmt `eHash` (sha256 des mitgeschickten e) mit dem gespeicherten Hash? Ohne einen der beiden nie; sonst zeitkonstant. */
-  async eStimmt(eHash, gespeichert) {
-    if (typeof gespeichert !== 'string' || gespeichert === '' || typeof eHash !== 'string' || eHash === '') return false;
-    return gleichOhneZeitleck(eHash, gespeichert);
+  /**
+   * Z2: stimmt `eHash` (sha256 des mitgeschickten e) mit einem der gespeicherten Hashes? Ohne e oder ohne Liste nie. Z2 Fixrunde 1
+   * (I1): jeder Eintrag wird zeitkonstant verglichen, alle Vergleiche laufen, erst danach zählt ein Treffer (kein früher Abbruch, der
+   * die Position verrät).
+   */
+  async eStimmt(eHash, liste) {
+    if (!Array.isArray(liste) || liste.length === 0 || typeof eHash !== 'string' || eHash === '') return false;
+    const treffer = await Promise.all(liste.map((h) => gleichOhneZeitleck(eHash, typeof h === 'string' ? h : '')));
+    return treffer.reduce((ja, t) => ja || t, false);
   }
 
   /**
@@ -831,7 +879,7 @@ export class KontoSpeicher {
       return fehler('vorgang-unbekannt', 404);
     }
     if (!(await pruefeGeraeteBeweis(g.publicJwk, b.beweis, 'abholen', vid, jetzt))) return fehler('geraet-unbekannt', 403);
-    if (!(await this.eStimmt(b.eHash, g.eHash))) return fehler('vorgang-unbekannt', 404);
+    if (!(await this.eStimmt(b.eHash, g.eHashes))) return fehler('vorgang-unbekannt', 404);
     const konto = await this.ladeKonto(g.kid);
     if (!konto) return fehler('geloescht', 403);
     const gueltig = kontoGueltig(konto, jetzt);
@@ -841,11 +889,17 @@ export class KontoSpeicher {
     return { ok: true, zustand: 'bestaetigt', konto: { ...ohneGeheimes(konto), stufe: this.stufeVon(konto) }, geraet: ohneSchluessel(geraet) };
   }
 
-  /** Aktion `vorgang-abbrechen` `{ vorgang, abholHash }` → `{ ok }` (Launcher bricht ab, Spec 4.1). */
+  /**
+   * Aktion `vorgang-abbrechen` `{ vorgang, abholHash }` → `{ ok }` (Launcher bricht ab, Spec 4.1). Z2 Fixrunde 1: das Löschen in der
+   * Reihe der Bestätigungen, damit ein gleichzeitiges weiteres Ja den abgebrochenen Vorgang nicht wiederbelebt.
+   */
   async vorgangAbbrechen(b) {
     const v = typeof b.vorgang === 'string' && b.vorgang ? await this.ctx.storage.get(K.vorgang(b.vorgang)) : null;
     if (!v || !(await gleichOhneZeitleck(String(b.abholHash ?? ''), v.abholHash))) return fehler('vorgang-unbekannt', 404);
-    await this.vorgangWeg(v);
+    await this.inReihe(async () => {
+      const frisch = await this.ctx.storage.get(K.vorgang(v.vorgang));
+      if (frisch) await this.vorgangWeg(frisch);
+    });
     return { ok: true };
   }
 

@@ -5,7 +5,8 @@
 // Worker), der Vorgang steht als verstecktes Feld im Formular, das Seitentoken nur im Bestätigungsformular, nie im Link
 // (EP5). Jeder Wert aus Anfrage oder Speicher (E-Mail, Name, Rechnername, Code, Vorgang) geht durch `esc`. Kopfzeilen nach
 // Vertrag 10.1: CSP ohne Skript, no-store, no-referrer, nosniff. Rein: kein Import, keine Konsole.
-// Z2: Nach „Ja“ springt der Browser per 303 an den Rückkanal des Launchers auf demselben Rechner (rueckAdresse, RFC 8252 loopback).
+// Z2 (Fixrunde 1, OE6): Nach „Ja“ zeigt die Seite einen Knopf; sein Formular schickt Vorgang und Einmalwert per POST an den Rückkanal
+// des Launchers auf demselben Rechner (rueckZiel, RFC 8252 loopback). Kein automatischer Sprung.
 
 /** Texttabelle 9.5 (B1–B23) und Z2 (B24–B26), wörtlich; ‹E-Mail›, ‹Code›, ‹Name›, ‹n›, ‹Datum› sind Platzhalter. */
 export const SEITEN_TEXT = Object.freeze({
@@ -49,11 +50,15 @@ export const SEITEN_TEXT = Object.freeze({
   B24: 'Bestätige nur, wenn du selbst gerade auf diesem Rechner im Launcher auf „Anmelden“ geklickt hast. Hat dir jemand diesen Link geschickt, klicke auf „Nein, abbrechen“.',
   B25: 'Rechner: ‹Name› (vom Rechner gemeldet)',
   B26: 'Weiter zum Launcher auf diesem Rechner. Öffnet sich nichts, wurde die Anmeldung auf einem anderen Rechner gestartet; starte sie dort im Launcher neu.',
+  // Z2 Fixrunde 1 (AR93, OE6; zur Owner-Freigabe): B27 Name leer, B28 bestätigt und noch nicht abgeholt, B29 Knopf nach „Ja“.
+  B27: 'Rechner: (kein Name gemeldet)',
+  B28: 'Die Anmeldung ist bestätigt, der Launcher hat sie aber noch nicht übernommen. Wurde sie auf einem anderen Rechner gestartet, starte sie dort im Launcher neu.',
+  B29: 'Weiter zum Launcher',
 });
 
 /**
- * Kopfzeilen jeder HTML-Seite (Vertrag 10.1). Z2: `form-action` erlaubt zusätzlich `http://127.0.0.1:*`, weil Chrome, Edge und
- * Safari form-action auch auf die Weiterleitung nach dem Formular „Ja“ anwenden (303 an den Rückkanal des Launchers); sonst unverändert.
+ * Kopfzeilen jeder HTML-Seite (Vertrag 10.1). Z2: `form-action` erlaubt zusätzlich `http://127.0.0.1:*` für das Formular der Seite nach
+ * „Ja“ (Knopf B29, POST an den Rückkanal des Launchers, Fixrunde 1 OE6); sonst unverändert.
  */
 export const SEITEN_KOPF = Object.freeze({
   'content-type': 'text/html; charset=utf-8',
@@ -67,11 +72,13 @@ export const SEITEN_KOPF = Object.freeze({
 export const RUECK_PFAD = '/anmeldung/zurueck';
 
 /**
- * Z2 (RFC 8252 7.3): Ziel des Sprungs nach „Ja“: der Launcher auf demselben Rechner, `http://127.0.0.1:<port>/anmeldung/zurueck` mit
- * Vorgang und Einmalwert. Immer die IP-Literale 127.0.0.1, nie `localhost` (RFC 8252 8.3).
+ * Z2 (RFC 8252 7.3): Ziel des Formulars nach „Ja“: der Launcher auf demselben Rechner, `http://127.0.0.1:<port>/anmeldung/zurueck`.
+ * Immer das IP-Literal 127.0.0.1, nie `localhost` (RFC 8252 8.3). Fixrunde 1 (OE6): ohne Query; Vorgang und Einmalwert gehen als
+ * versteckte Felder im POST. Der Port ist streng eine ganze Zahl 1024–65535, sonst null.
  */
-export function rueckAdresse(port, vorgang, e) {
-  return `http://127.0.0.1:${port}${RUECK_PFAD}?v=${encodeURIComponent(vorgang)}&e=${encodeURIComponent(e)}`;
+export function rueckZiel(port) {
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) return null;
+  return `http://127.0.0.1:${port}${RUECK_PFAD}`;
 }
 
 /** HTML-Escape für Text und Attributwerte (&, <, >, ", '). */
@@ -170,7 +177,8 @@ export function seiteBestaetigen({ vorgang, seitenToken, email, code, rechnerNam
       `<p>${fuelle('B7_als', { 'E-Mail': email })}</p>`,
       `<p>${fuelle('B7_frage')}</p>`,
       `<p class="code">${fuelle('B7_code', { Code: code })}</p>`,
-      `<p>${fuelle('B25', { Name: rechnerName })}</p>`,
+      // Z2 Fixrunde 1 (AR91 Nr. 4): ein nach der Erlaubnisliste leerer Name erscheint als B27.
+      `<p>${rechnerName ? fuelle('B25', { Name: rechnerName }) : fuelle('B27')}</p>`,
       `<p class="warnung" role="note">${fuelle('B24')}</p>`,
       '<form method="post" action="/konto/bestaetigen">' +
         `<input type="hidden" name="v" value="${esc(vorgang)}"><input type="hidden" name="t" value="${esc(seitenToken)}">` +
@@ -181,11 +189,21 @@ export function seiteBestaetigen({ vorgang, seitenToken, email, code, rechnerNam
 }
 
 /**
- * Z2: Körper der 303-Antwort nach „Ja“ (Rückfall, falls ein Browser der Weiterleitung nicht von selbst folgt): B26 als Link auf
- * denselben Sprung. Kein Skript; `ziel` kommt aus rueckAdresse und wird im Attribut escaped.
+ * Z2 Fixrunde 1 (OE6): Seite nach „Ja“: B26 und darunter ein Formular `method="post"` an den Rückkanal (rueckZiel) mit den versteckten
+ * Feldern `v` und `e` und dem Knopf B29. Kein Skript, kein meta refresh, kein automatischer Sprung: der Einmalwert steht nie in einer
+ * Adresszeile, im Verlauf oder in einem Location-Kopf. v und e werden für HTML maskiert; ein Port außerhalb 1024–65535 (oder keine
+ * ganze Zahl) ergibt keine Seite (Fehler, die Route zeigt dann „interner Fehler“).
  */
-export function seiteWeiter({ ziel }) {
-  return rahmen(`<p><a href="${esc(ziel)}">${fuelle('B26')}</a></p>`);
+export function seiteWeiter({ port, vorgang, e }) {
+  const ziel = rueckZiel(port);
+  if (ziel === null) throw new Error('Port des Rückkanals ungültig');
+  return rahmen(
+    [
+      `<p>${fuelle('B26')}</p>`,
+      `<form method="post" action="${esc(ziel)}"><input type="hidden" name="v" value="${esc(vorgang)}"><input type="hidden" name="e" value="${esc(e)}">` +
+        `<button type="submit">${fuelle('B29')}</button></form>`,
+    ].join('\n'),
+  );
 }
 
 /** Seite mit einer Meldung (B8–B11, B22, S5, „interner Fehler“). `text` ist fertig gefüllt (fuelle oder esc). */
