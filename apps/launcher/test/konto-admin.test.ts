@@ -284,6 +284,32 @@ function ansicht(zustand: KontoZustand, s: KontoStand | null): KontoAnsicht {
   ]);
 }
 
+// --- Z2 Fixrunde 2 (AR94 N1): leerer Rechnername in der Admin-Maske → M51 „(kein Name gemeldet)“ ------------------------------
+// Seit B27 meldet sich auch ein Rechner an, dessen Name nach der Erlaubnisliste leer ist; die Daten bleiben leer, nur die Anzeige
+// fällt auf M51 zurück (der Wortlaut von B27 ohne „Rechner:“).
+{
+  const u = uebersicht([zugang({ kid: 'k9', name: 'Maria Schmidt' })]);
+  const geraet = (gid: string, name: string, kontakt: number): AdminUebersicht['geraete'][number] => ({
+    gid, name, plattform: 'win', arch: 'x64', version: '0.18.0', jm: true, ersterKontakt: JETZT - TAG, letzterKontakt: kontakt, letztesKonto: 'k9',
+  });
+  u.geraete = [geraet('g1', '', JETZT - 1000), geraet('g2', '   ', JETZT - 2000), geraet('g3', 'REGIE-01', JETZT - 3000)];
+  const anfrage = (id: string, rechnerName: string, am: number): AdminUebersicht['anfragen'][number] => ({
+    id, kid: 'k9', name: 'Maria Schmidt', email: 'maria@jakobsmedien.com', zweck: 'Gala', von: new Date(2026, 10, 10).getTime(),
+    bis: new Date(2026, 10, 12, 23, 59, 59, 999).getTime(), gid: 'g1', rechnerName, jm: true, plattform: 'win', zustand: 'offen', am,
+  });
+  u.anfragen = [anfrage('a1', '', JETZT - 3000), anfrage('a2', ' ', JETZT - 2000), anfrage('a3', 'REGIE-01', JETZT - 1000)];
+  const M51 = '(kein Name gemeldet)';
+  const b27 = /B27: '([^']*)'/.exec(readFileSync(new URL('../../../services/release-proxy/konto-seiten.js', import.meta.url), 'utf8'));
+  const zeile = (t: string): string => `Maria Schmidt · Gala · 10.11.2026 bis 12.11.2026 · ${t} (JM-Rechner)`;
+  kreuz('Z2 Fixrunde 2 (N1): Geräte und Anfragen zeigen bei leerem Rechnernamen (leer oder nur Leerraum) M51 „(kein Name gemeldet)“, sonst den Namen; die Daten bleiben unverändert; M51 ist B27 ohne „Rechner:“', [
+    ['M51 wörtlich', REITER_TEXTE.keinName, M51],
+    ['B27 = „Rechner: “ + M51', b27 ? b27[1] : '(B27 fehlt)', `Rechner: ${M51}`],
+    ['Geräte', geraeteZeilen(u).map((g) => `${g.gid}|${g.rechner}`).join(' / '), `g1|${M51} / g2|${M51} / g3|REGIE-01`],
+    ['Anfragen', anfrageZeilen(u).map((z) => `${z.id}|${z.text}`).join(' / '), `a1|${zeile(M51)} / a2|${zeile(M51)} / a3|${zeile('REGIE-01')}`],
+    ['Daten unverändert', JSON.stringify([...u.geraete.map((g) => g.name), ...u.anfragen.map((a) => a.rechnerName)]), JSON.stringify(['', '   ', 'REGIE-01', '', ' ', 'REGIE-01'])],
+  ]);
+}
+
 // --- P27 9.4: Texte M30–M47 wörtlich, ohne ASCII-Anführungszeichen -----------------------------------------------------------
 {
   const T = REITER_TEXTE;

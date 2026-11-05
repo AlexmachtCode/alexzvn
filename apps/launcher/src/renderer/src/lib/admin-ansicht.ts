@@ -217,7 +217,7 @@ export function ladeFehlerText(code: KontoFehlerCode): string {
 
 // ── P27: Reiter „iveo-Events“, „Anfragen“, „Geräte“ (Spec 7, 6.4, 8; OF2, OFP2; EP9, EP13) ─────────────────────────────
 
-/** Texte M30–M47 (Texttabelle 9.4, wörtlich). */
+/** Texte M30–M47 (Texttabelle 9.4, wörtlich), dazu M51 (Z2 Fixrunde 2, zur Owner-Freigabe im Nachtrag der Abnahme). */
 export const REITER_TEXTE = {
   /** M30 */ spalteEvent: 'Event', spalteBasis: 'Basis', spalteAm: 'hinterlegt am', spalteVon: 'von',
   /** M31 */ feldBasis: 'Basis-URL', feldToken: 'Token', eventsLaden: 'Events laden', hinterlegen: 'Hinterlegen',
@@ -237,7 +237,14 @@ export const REITER_TEXTE = {
   keineAlten: 'Keine Anfragen mit dem alten Schlüssel.',
   /** M46 */ gruppe: { katalog: 'Katalog und Updates', qa: 'Q&A extern' } as Readonly<Record<'katalog' | 'qa', string>>,
   /** M47 */ connect: 'Für Connect gilt der alte Schlüssel weiter, bis Connect die Anmeldung nutzt.',
+  /** M51 (Z2 Fixrunde 2, AR94 N1): Rechnername nach der Erlaubnisliste leer; der Wortlaut von B27 ohne „Rechner:“ */
+  keinName: '(kein Name gemeldet)',
 } as const;
+
+/** M51 (AR94 N1): leerer oder nur aus Leerraum bestehender Rechnername → „(kein Name gemeldet)“; nur die Anzeige, die Daten bleiben. */
+function rechnerAnzeige(name: string): string {
+  return name.trim() ? name : REITER_TEXTE.keinName;
+}
 
 /** M30: hinterlegte iveo-Events nach Name — ohne Token (das gibt die Übersicht ohnehin nie heraus, 6.4). */
 export function iveoZeilen(u: AdminUebersicht): Array<{ key: string; event: string; slug: string; basis: string; am: string; von: string }> {
@@ -265,7 +272,7 @@ export function anfrageZeilen(u: AdminUebersicht): Array<{ id: string; text: str
     .sort((x, y) => x.am - y.am)
     .map((a) => ({
       id: a.id,
-      text: REITER_TEXTE.anfrage(a.name || a.email, a.zweck, datumText(a.von), datumText(a.bis), a.rechnerName, a.jm),
+      text: REITER_TEXTE.anfrage(a.name || a.email, a.zweck, datumText(a.von), datumText(a.bis), rechnerAnzeige(a.rechnerName), a.jm),
       warnung: a.jm ? null : REITER_TEXTE.warnungKeinJm,
       bisFeld: feldDatum(a.bis),
     }));
@@ -287,7 +294,7 @@ export function geraeteZeilen(u: AdminUebersicht): Array<{ gid: string; rechner:
   return [...u.geraete]
     .sort((x, y) => y.letzterKontakt - x.letzterKontakt)
     .map((g) => ({
-      gid: g.gid, rechner: g.name, konto: konto(g.letztesKonto), kontakt: `${datumText(g.letzterKontakt)} ${zeitText(g.letzterKontakt)}`,
+      gid: g.gid, rechner: rechnerAnzeige(g.name), konto: konto(g.letztesKonto), kontakt: `${datumText(g.letzterKontakt)} ${zeitText(g.letzterKontakt)}`,
       version: g.version, plattform: `${g.plattform} · ${g.arch}`, jm: g.jm,
     }));
 }
