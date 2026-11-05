@@ -47,30 +47,49 @@ unverändert; `connect-relay.js` und `/zoom-sdk` sind in Teil 1 nicht angefasst.
    Code. Bestätige dort nur, wenn er übereinstimmt.“). Geht der Browser nicht auf, kopiert der Techniker die Adresse.
 3. Im Browser meldet sich der Techniker an (Google oder E-Mail und Passwort, beim ersten Mal mit Einladungscode). Die Seite zeigt
    den Code, den Rechner nur als „Rechner: ‹Name› (vom Rechner gemeldet)“ (der Worker lässt im Namen nur Buchstaben, Ziffern,
-   Leerzeichen und `-_.()'` stehen, höchstens 40 Zeichen) und direkt über „Ja, das ist mein Rechner“ den Warnsatz „Bestätige nur,
-   wenn du selbst gerade auf diesem Rechner im Launcher auf „Anmelden“ geklickt hast. Hat dir jemand diesen Link geschickt,
-   klicke auf „Nein, abbrechen“.“ Die Seite bestätigt über ein Formular mit Seitentoken; sie hat kein Skript und setzt keine
-   Cookies.
-4. Nach „Ja“ leitet der Worker den Browser mit 303 an den Rückkanal auf demselben Rechner weiter:
-   `http://127.0.0.1:<rueckPort>/anmeldung/zurueck?v=<Vorgang>&e=<Einmalwert>` (wie die Anmeldung von Desktop-Programmen bei Google,
-   RFC 8252 „loopback redirect“). Der Einmalwert `e` entsteht beim Bestätigen (32 Zufallsbytes); der Worker speichert nur seinen
-   SHA-256. Der Rückkanal nimmt genau diese eine Anfrage an (Host-Kopf `127.0.0.1:<Port>`, der eigene Vorgang, `e` mit 43 Zeichen),
-   zeigt im Browser „Fertig. Du kannst dieses Fenster schließen; der Launcher meldet sich jetzt an.“ und schließt sich. Er schließt
-   sich auch beim Abbrechen, nach 5 Minuten und beim Beenden des Launchers; ins Log kommt nur, ob ein Aufruf angenommen oder
-   abgewiesen wurde. Kommt der Browser nicht an (anderer Rechner), steht auf der Seite „Weiter zum Launcher auf diesem Rechner.
-   Öffnet sich nichts, wurde die Anmeldung auf einem anderen Rechner gestartet; starte sie dort im Launcher neu.“
-5. Der Launcher fragt alle 2 Sekunden nach (`POST /konto/vorgang/abholen`, mit Abholgeheimnis und Gerätebeweis, ab dem Sprung mit
-   `e`). Nach der Bestätigung gibt der Worker die Sitzung samt Kontostand nur mit diesem `e` heraus; ohne oder mit falschem `e`
-   antwortet er wie vorher „wartet“. Geht die Antwort mit der Sitzung unterwegs verloren, nimmt der Worker dieselbe Anfrage
-   (dasselbe Abholgeheimnis, dasselbe `e`, derselbe Rechner) noch 60 Sekunden lang an und stellt eine neue Sitzung desselben Geräts
-   aus. Vorübergehende Netz- oder Serverfehler beenden das Warten erst, wenn seit der letzten Antwort 60 Sekunden lang nur Fehler
-   kamen; eine Drosselung (429) zählt nicht als Fehler.
+   Leerzeichen und `-_.()'` stehen, höchstens 40 Zeichen; bleibt nichts übrig, steht dort „Rechner: (kein Name gemeldet)“, und der
+   Worker weist wegen des Namens nie ab) und direkt über „Ja, das ist mein Rechner“ den Warnsatz „Bestätige nur, wenn du selbst
+   gerade auf diesem Rechner im Launcher auf „Anmelden“ geklickt hast. Hat dir jemand diesen Link geschickt, klicke auf „Nein,
+   abbrechen“.“ Die Seite bestätigt über ein Formular mit Seitentoken; sie hat kein Skript und setzt keine Cookies.
+4. Nach „Ja“ zeigt die Seite „Weiter zum Launcher auf diesem Rechner. Öffnet sich nichts, wurde die Anmeldung auf einem anderen
+   Rechner gestartet; starte sie dort im Launcher neu.“ und darunter den Knopf „Weiter zum Launcher“. Es gibt keinen automatischen
+   Sprung (Owner-Entscheidung OE6). Der Knopf schickt ein Formular per POST an den Rückkanal auf demselben Rechner,
+   `http://127.0.0.1:<rueckPort>/anmeldung/zurueck`, mit dem Vorgang `v` und dem Einmalwert `e` als versteckten Feldern (wie die
+   Anmeldung von Desktop-Programmen bei Google, RFC 8252 „loopback“). Der Einmalwert geht so unsichtbar an den Launcher: Er steht
+   nie in der Adresszeile, im Verlauf oder in einem Kopf der Antwort. `e` entsteht beim Bestätigen (32 Zufallsbytes); der Worker
+   speichert nur seinen SHA-256. Ein Doppelklick auf „Ja“ verliert nichts: Jedes weitere „Ja“ mit demselben Seitentoken zeigt die
+   Seite mit einem neuen `e` (höchstens drei je Vorgang, alle bleiben gültig), danach kommt „Dieser Anmeldelink ist abgelaufen oder
+   ungültig. Starte die Anmeldung im Launcher neu.“ Öffnet jemand die Anmeldeadresse nach „Ja“, aber bevor der Launcher übernommen hat, zeigt die Seite „Die Anmeldung
+   ist bestätigt, der Launcher hat sie aber noch nicht übernommen. Wurde sie auf einem anderen Rechner gestartet, starte sie dort
+   im Launcher neu.“ (ohne Knopf und ohne `e`); erst nach dem Übernehmen „Fertig. Dein Launcher ist angemeldet.“.
+   Der Rückkanal nimmt nur `POST /anmeldung/zurueck` an (Host-Kopf `127.0.0.1:<Port>`, Formular höchstens 1 KiB, genau die Felder `v`
+   und `e`, der eigene Vorgang, `e` mit 43 Zeichen; alles andere bekommt 404 ohne Inhalt), zeigt im Browser „Fertig. Du kannst
+   dieses Fenster schließen; der Launcher meldet sich jetzt an.“ und meldet den Wert genau einmal an den Launcher. Ein Doppelklick
+   auf den Knopf bekommt noch 10 Sekunden lang dieselbe Seite, danach schließt der Rückkanal. Beim Abbrechen, nach 5 Minuten und
+   beim Beenden des Launchers schließt er sofort; ins Log kommt nur, ob ein Aufruf angenommen oder abgewiesen wurde.
+5. Der Launcher fragt alle 2 Sekunden nach (`POST /konto/vorgang/abholen`, mit Abholgeheimnis und Gerätebeweis, ab dem Knopf mit
+   `e`). Nach der Bestätigung gibt der Worker die Sitzung samt Kontostand nur mit einem `e` dieses Vorgangs heraus; ohne oder mit
+   falschem `e` antwortet er wie vorher „wartet“. Geht die Antwort mit der Sitzung unterwegs verloren, nimmt der Worker dieselbe
+   Anfrage (dasselbe Abholgeheimnis, ein `e` dieses Vorgangs, derselbe Rechner) noch 60 Sekunden lang an und stellt eine neue Sitzung
+   desselben Geräts aus. Vorübergehende Netz- oder Serverfehler beenden das Warten erst, wenn seit der letzten Antwort 60 Sekunden
+   lang nur Fehler kamen (gemessen auf einer monotonen Uhr, ein Sprung der Rechneruhr ändert daran nichts); eine Drosselung (429)
+   zählt nicht als Fehler. Endet die Frist von 5 Minuten, während der Worker drosselt, sagt der Dialog „Zu viele Anmeldeversuche
+   von diesem Anschluss. Versuche es in ein paar Minuten erneut.“ statt „abgelaufen“. Lässt sich der Rückkanal nicht öffnen, sagt
+   er „Der Launcher konnte die Anmeldung auf diesem Rechner nicht vorbereiten. Starte den Launcher neu und versuche es noch
+   einmal.“
 
-Ein Vorgang gehört dem ersten Konto, das sich darauf anmeldet. Ein weitergeleiteter Link verschafft dem, der ihn weitergeleitet
-hat, keine Sitzung: Startet jemand die Anmeldung auf seinem Rechner und schickt den Link einem anderen, springt der Browser des
-anderen nach „Ja“ an dessen eigenen Rechner; dort lauscht kein Rückkanal für diesen Vorgang, und der Rechner, der den Vorgang
+Ein Vorgang gehört dem ersten Konto, das sich darauf anmeldet. Der Einmalwert geht per Formular unsichtbar an den Launcher und
+steht nicht in der Adresszeile oder im Verlauf. Wer den Link weiterleitet, bekommt auf seinem Rechner keine Sitzung: Startet jemand
+die Anmeldung auf seinem Rechner und schickt den Link einem anderen, schickt der Knopf im Browser des anderen den Einmalwert an
+dessen eigenen Rechner. Dort führt er ins Leere, denn auf diesem Rechner ist kein Vorgang offen (der Browser meldet, dass
+`127.0.0.1` nicht erreichbar ist, oder der Rückkanal des anderen weist den fremden Vorgang ab), und der Rechner, der den Vorgang
 gestartet hat, bekommt den Einmalwert nie. Der Preis: Bestätigen geht nur im Browser desselben Rechners, auf dem der Launcher die
 Anmeldung gestartet hat (nicht auf dem Handy, nicht auf einem zweiten Rechner).
+
+**Grenze:** Auf einem Rechner, an dem mehrere Benutzer gleichzeitig angemeldet sind (Benutzerwechsel, Terminalserver), teilen sich
+alle dieselbe Adresse `127.0.0.1`. Zwischen Benutzern desselben Rechners schützt der Rückkanal nicht: Der Knopf im Browser eines
+Benutzers erreicht auch den Launcher eines anderen. Darum gilt der Warnsatz: Bestätigen nur, wenn man selbst gerade im eigenen
+Launcher auf „Anmelden“ geklickt hat.
 
 ## 4 · Sitzung und Kontostand (Spec 6.1, 6.3)
 
@@ -132,13 +151,15 @@ die Zugangsprüfung für Feedback, Katalog, Kochbuch, KI-Entwurf und `/tools/:id
 | POST `/konto/passwort` | öffentlich, gedrosselt, Bremse je Konto | Anmeldung mit E-Mail und Passwort bzw. Einladungscode |
 | GET `/konto/google` | öffentlich | Weiter zu Google (PKCE) |
 | GET `/konto/google/zurueck` | öffentlich | Rückkehr von Google |
-| POST `/konto/bestaetigen` | Seitentoken | Code bestätigen (dann 303 an den Rückkanal auf `127.0.0.1`) oder abbrechen |
+| POST `/konto/bestaetigen` | Seitentoken | Code bestätigen (dann Seite mit Knopf, Formular an den Rückkanal auf `127.0.0.1`) oder abbrechen |
 
 Die Seiten tragen `content-security-policy: default-src 'none'; style-src 'unsafe-inline'; form-action 'self' http://127.0.0.1:*;
 base-uri 'none'; frame-ancestors 'none'`, dazu `no-store`, `no-referrer` und `nosniff`, kein Cookie. `form-action` erlaubt
-`http://127.0.0.1:*`, weil Chrome, Edge und Safari `form-action` auch auf die Weiterleitung nach dem Formular „Ja“ anwenden
-(Firefox prüft nur das erste Ziel); der Sprung ist eine Navigation der ganzen Seite, die weder Mixed Content noch die Prüfung
-„Local Network Access“ von Chrome trifft (die gilt dort nur für Abrufe und eingebettete Rahmen).
+`http://127.0.0.1:*`, weil das Formular des Knopfs „Weiter zum Launcher“ dorthin geht. Das Absenden ist eine Navigation der ganzen
+Seite an eine Loopback-Adresse: Chrome und Edge warnen davor nicht (die Warnung vor unsicheren Formularen gilt nur für Ziele, die
+nicht „potentially trustworthy“ sind, `127.0.0.1` ist es), Firefox ebenso nicht (Ausnahme für Loopback), und die Prüfung „Local
+Network Access“ gilt in Chrome heute nur für Abrufe und eingebettete Rahmen, in Firefox lässt sie Navigationen der ganzen Seite
+durch. Für Safari gibt es dazu keinen Beleg; die Abnahme prüft es auf dem Mac.
 
 **Drosseln (Z1, AR70).** Die Drosseln der Anmeldung zählen nicht in Workers KV (KV erlaubt ein Schreiben je Schlüssel und Sekunde;
 hinter einer gemeinsamen Büro-IP und beim Abholen im 2-Sekunden-Takt gäbe das Fehlschläge), sondern in Rate-Limit-Bindungen der

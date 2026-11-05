@@ -3734,9 +3734,20 @@ function dialogBefunde(q: string): string[] {
   // Z2 Nr. 8: Doku und Rezept beschreiben den Rückkanal und seinen Preis; der alte Satz „ein weitergeleiteter Link nützt einem anderen
   // nichts“ (Gesamtprüfung Minor 7) steht nirgends mehr, auch nicht über einen Zeilenumbruch hinweg.
   const flach = (t: string): string => t.replace(/\s+/g, ' ');
-  ck('P34 Z2: docs/anmeldung.md nennt den Rückkanal auf 127.0.0.1 und den Preis (nur im Browser desselben Rechners), das Rezept den Sprung; der Satz vom weitergeleiteten Link, der nichts nützt, ist weg',
+  ck('P34 Z2: docs/anmeldung.md nennt den Rückkanal auf 127.0.0.1 und den Preis (nur im Browser desselben Rechners), das Rezept den Knopf; der Satz vom weitergeleiteten Link, der nichts nützt, ist weg',
     flach(doku).includes('http://127.0.0.1:<rueckPort>/anmeldung/zurueck') && flach(doku).includes('Bestätigen geht nur im Browser desselben Rechners')
-    && flach(rezept).includes('springt der Browser zum Launcher') && !/weitergeleitete[rn]? (Link|Anmeldeadresse) nützt einem anderen nichts/.test(flach(doku) + flach(rezept)));
+    && flach(rezept).includes('schickt die Bestätigung unsichtbar an den Launcher') && !/weitergeleitete[rn]? (Link|Anmeldeadresse) nützt einem anderen nichts/.test(flach(doku) + flach(rezept)));
+  // Z2 Fixrunde 1 (AR93 D, I2, M1): Doku und Rezept sagen nur noch, was stimmt — e per Formular, nicht in Adresszeile oder Verlauf;
+  // wer weiterleitet, bekommt keine Sitzung, der Knopf führt ins Leere; die Grenze bei mehreren Benutzern eines Rechners; kein 303
+  // und kein e in einer Adresse mehr.
+  const d = flach(doku);
+  const r = flach(rezept);
+  ck('P34 Z2 Fixrunde 1: Doku und Rezept: e geht per Formular unsichtbar an den Launcher (nicht in Adresszeile oder Verlauf), wer weiterleitet bekommt keine Sitzung, der Knopf führt ins Leere (nicht erreichbar), Grenze Mehrbenutzer-Rechner; kein 303 und kein e in einer Adresse',
+    d.includes('Der Einmalwert geht per Formular unsichtbar an den Launcher und steht nicht in der Adresszeile oder im Verlauf.')
+    && d.includes('Wer den Link weiterleitet, bekommt auf seinem Rechner keine Sitzung') && d.includes('Dort führt er ins Leere, denn auf diesem Rechner ist kein Vorgang offen')
+    && d.includes('teilen sich alle dieselbe Adresse `127.0.0.1`. Zwischen Benutzern desselben Rechners schützt der Rückkanal nicht')
+    && r.includes('Auf einem fremden Rechner führt der Knopf ins Leere, der Browser meldet „nicht erreichbar“') && r.includes('teilen sie sich 127.0.0.1; zwischen ihnen schützt das nicht')
+    && !/\b303\b/.test(d) && !/[?&]e=/.test(d + r) && !d.includes('springt der Browser'));
 }
 
 // --- Anmeldung P35 (Spec 4.2, 14; OFP5; G7): die Abnahme-Datei deckt jeden Kopfzustand und jede verlangte Lage ab -----------
@@ -3806,9 +3817,24 @@ function dialogBefunde(q: string): string[] {
   ];
   const z2Fehlt = NACHTRAG_Z2.filter(([nr, t, q]) => !nachtrag.includes(`| ${nr} | `) || !nachtrag.includes(`| ${t} |`) || !q.includes(`'${t}'`)).map(([nr]) => nr);
   const schritt9 = (abnahme.match(/^\| 9 \| .*$/m) || [''])[0];
+  const schritt2 = (abnahme.match(/^\| 2 \| .*$/m) || [''])[0];
   ck(`P35 Z2: der Nachtrag Texte nennt B24, B25, B26 und K57 mit dem Wortlaut der Quelle; Schritt 9 nennt das Ergebnis des Rückkanals${z2Fehlt.length ? ` — fehlt oder weicht ab: ${z2Fehlt.join(', ')}` : ''}`,
     nachtrag !== '' && z2Fehlt.length === 0
-    && schritt9.includes('der Rechner des anderen bekommt keine Sitzung, die Seite springt auf den eigenen Rechner, dort ist kein Vorgang offen'));
+    && schritt9.includes('Der Rechner des anderen bekommt keine Sitzung; der Knopf führt ins Leere, der Browser meldet „nicht erreichbar“, denn auf diesem Rechner ist kein Vorgang offen.'));
+  // Z2 Fixrunde 1 (AR93 C, D): B27, B28, B29 (Worker) und K58 (Dialog) stehen im Nachtrag wie in der Quelle; Schritt 2 prüft den
+  // Doppelklick auf Ja und auf den Knopf, Schritt 9 B28 und den Knopf ins Leere, beide auf Windows und auf dem Mac; kein Sprung mehr.
+  const NACHTRAG_FR1: Array<[string, string, string]> = [
+    ['B27', 'Rechner: (kein Name gemeldet)', seitenQ],
+    ['B28', 'Die Anmeldung ist bestätigt, der Launcher hat sie aber noch nicht übernommen. Wurde sie auf einem anderen Rechner gestartet, starte sie dort im Launcher neu.', seitenQ],
+    ['B29', 'Weiter zum Launcher', seitenQ],
+    ['K58', 'Der Launcher konnte die Anmeldung auf diesem Rechner nicht vorbereiten. Starte den Launcher neu und versuche es noch einmal.', dialogQ],
+  ];
+  const fr1Fehlt = NACHTRAG_FR1.filter(([nr, t, q]) => !nachtrag.includes(`| ${nr} | `) || !nachtrag.includes(`| ${t} |`) || !q.includes(`'${t}'`)).map(([nr]) => nr);
+  ck(`P35 Z2 Fixrunde 1: der Nachtrag nennt B27, B28, B29 und K58 wie die Quelle; Schritt 2 mit Doppelklick auf Ja und Knopf, Schritt 9 mit B28; beide auf Windows und Mac; kein automatischer Sprung${fr1Fehlt.length ? ` — fehlt oder weicht ab: ${fr1Fehlt.join(', ')}` : ''}`,
+    fr1Fehlt.length === 0
+    && schritt2.includes('per Doppelklick') && schritt2.includes('den Knopf „Weiter zum Launcher“ ebenfalls doppelt klicken') && schritt2.includes('Der Launcher meldet sich trotz Doppelklick genau einmal an')
+    && schritt2.includes('Mac (Safari)') && schritt9.includes('Mac (Safari)') && schritt9.includes(NACHTRAG_FR1[1][1])
+    && !schritt2.includes('springt der Browser') && !schritt9.includes('springt auf den eigenen Rechner'));
 }
 
 // ── Ende der Fälle (Anmeldung) ──
