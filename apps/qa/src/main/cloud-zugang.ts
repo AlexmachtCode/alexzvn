@@ -262,4 +262,41 @@ export async function nachOeffnen(l: { nochAn: () => boolean; eventGleich: () =>
   return false;
 }
 
+/** Fehler einer Relay-Antwort mit HTTP-Status und Code (401/403 → Freigabe verwerfen bzw. alter Key abgelehnt, QR5; Z1-L3 OE5). */
+export class RelayFehler extends Error {
+  readonly status: number;
+  /** `code` aus dem JSON-Körper der Antwort (etwa nicht-angemeldet), sonst null; nie ein Teil der Meldung. */
+  readonly code: string | null;
+  constructor(message: string, status: number, code: string | null = null) {
+    super(message);
+    this.name = 'RelayFehler';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/** Der Code einer Fehlerantwort: ein kurzer Text aus [a-z-] (1 bis 40 Zeichen) im Feld `code` eines Objekts, sonst null. */
+export function leseFehlerCode(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null) return null;
+  const c = (body as { code?: unknown }).code;
+  return typeof c === 'string' && /^[a-z-]{1,40}$/.test(c) ? c : null;
+}
+
+/** Fehlercode einer Relay-Antwort aus ihrem Körper; ein unlesbarer Körper (HTML, leer) ist kein Fehler, sondern null. */
+export async function fehlerCode(res: Response): Promise<string | null> {
+  try {
+    return leseFehlerCode(await res.json());
+  } catch {
+    return null;
+  }
+}
+
+/** Hat der Normalisierer beim Laden etwas verworfen (ein Key oder eine Freigabe, die auf der Platte stand)? Dann speichert Q&A neu. */
+export function hatVerworfen(roh: unknown, g: { proxyKey: string; freigabe: QaFreigabe | null }): boolean {
+  const o = typeof roh === 'object' && roh !== null ? (roh as Record<string, unknown>) : {};
+  const keyDa = o.proxyKey !== undefined && o.proxyKey !== null && o.proxyKey !== '';
+  const freigabeDa = o.freigabe !== undefined && o.freigabe !== null;
+  return (keyDa && g.proxyKey === '') || (freigabeDa && g.freigabe === null);
+}
+
 // ── Ende des Moduls ──

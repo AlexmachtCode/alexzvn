@@ -220,6 +220,11 @@ function broadcast(): void {
   persistEntries();
 }
 
+/** Eine Zeile ins Log (für loadSecrets; die Zeile trägt nie ein Geheimnis, nur einen Fehlernamen). */
+function logInfo(meldung: string): void {
+  getLog().info(meldung);
+}
+
 // ── Externe Einreichung: Zugang (Anmeldung im Launcher, Teil 1, P30) ──
 /** QR1: gültige Freigabe für dieses Event vor altem Key vor keinem; einen abgelehnten Key nie wieder (QR5). */
 function aktuellerZugang(jetzt = Date.now()): QaZugang {
@@ -359,7 +364,10 @@ async function cloudPollTick(): Promise<void> {
       cloudError = QA_TEXT.freigabeAbgelehnt;
     } else if (folge === 'key-abgelehnt') {
       // QR5: alter Key nach der Frist → nicht wiederholen, ab jetzt nur noch die Freigabe (Q6d).
-      altKeyAbgelehnt = true;
+      // Nur für den Key, der noch der gespeicherte ist: qa:setProxyKey kann ihn während des Wartens ersetzt haben (AR85).
+      if (zugang.art === 'alter-key' && cloudSecrets.proxyKey.trim() === zugang.key) {
+        altKeyAbgelehnt = true;
+      }
       geoeffnetFuer = null;
       cloudError = QA_TEXT.keyAbgelehnt;
       // Z1-L3 (OE5): Betrifft die Ablehnung den Key selbst (401 mit nicht-angemeldet oder alter-key-abgelaufen), löschen wir ihn
@@ -806,7 +814,7 @@ if (!gotLock) {
   app.whenReady().then(() => {
     // Gespeicherte Queue + Cloud-Geheimnisse laden (safeStorage ist erst jetzt bereit).
     loadEntries();
-    cloudSecrets = loadSecrets(app.getPath('userData'));
+    cloudSecrets = loadSecrets(app.getPath('userData'), logInfo);
     registerIpc();
     createMainWindow();
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);

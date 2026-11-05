@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs';
 import type { FreigabeGrund } from '@jm/app-runtime/freigabe';
 import {
-  ERNEUERN_VOR_MS, FREIGABE_ABSTAND_MS, GRUND_TEXT, QA_TEXT, QA_VORGABE_URL, effektiveProxyUrl, erneuernFaellig, grundText,
+  ERNEUERN_VOR_MS, FREIGABE_ABSTAND_MS, GRUND_TEXT, geheimnisDatei, QA_TEXT, QA_VORGABE_URL, effektiveProxyUrl, erneuernFaellig, grundText,
   leseFreigabe, nachAblehnung, versuchErlaubt, waehleZugang, zugangsKopf, zugangsZeile,
   type QaFreigabe, type QaZugang, type QaZugangsLage,
 } from '../src/main/cloud-zugang.ts';
@@ -274,7 +274,7 @@ function ausschnitt(text: string, start: string, ende: string): string {
   eq(
     [
       cloud.includes("const EMPTY: CloudSecrets = { publicJwk: null, privateJwk: null, proxyKey: '', freigabe: null };"),
-      ausschnitt(cloud, 'export function loadSecrets(', '\n}\n').includes('return leseGeheimnisse(JSON.parse(text));'),
+      ausschnitt(cloud, 'export function loadSecrets(', '\n}\n').includes('const roh: unknown = JSON.parse(text);') && ausschnitt(cloud, 'export function loadSecrets(', '\n}\n').includes('const s = leseGeheimnisse(roh);'),
       index.includes("let cloudSecrets: CloudSecrets = { publicJwk: null, privateJwk: null, proxyKey: '', freigabe: null };"),
       ausschnitt(index, 'async function cloudGenerateEvent(', '\n}\n').includes('cloudSecrets = { ...cloudSecrets, publicJwk, privateJwk, freigabe: null };'),
       index.includes("cloudSecrets = { ...cloudSecrets, proxyKey: String(key || '').trim() };"),
@@ -340,7 +340,10 @@ function ausschnitt(text: string, start: string, ende: string): string {
         && takt.indexOf('await nachOeffnen({') < takt.indexOf('await pollPending(')
         && takt.includes('nochAn: () => cloudTimer != null,') && takt.includes('eventGleich: () => getConfig().eventId === cfg.eventId,')
         && takt.includes('schliessen: () => openEvent({ ...cfg, streamOpen: false, pressOpen: false }, cloudSecrets, zugang),')
-        && takt.indexOf('geoeffnetFuer = cfg.eventId;') > takt.indexOf('await nachOeffnen({'),
+        // AR85: der ganze Block steht fest: Verneinung, Abbruch mit broadcast und return, danach erst geoeffnetFuer
+        && /await openEvent\(cfg, cloudSecrets, zugang\);\n[^\n]*\n\s+if \(\n\s+!\(await nachOeffnen\(\{[\s\S]*?\}\)\)\n\s+\) \{\n\s+broadcast\(\);\n\s+return;\n\s+\}\n\s+geoeffnetFuer = cfg\.eventId;/.test(takt),
+      // AR85 Minor 3: „abgelehnt“ nur für den Key, der noch der gespeicherte ist (setProxyKey kann ihn inzwischen ersetzt haben)
+      /if \(zugang\.art === 'alter-key' && cloudSecrets\.proxyKey\.trim\(\) === zugang\.key\) \{\n\s+altKeyAbgelehnt = true;\n\s+\}/.test(takt),
       // Z1-L3 OE5: abgelehnter alter Key wird lokal gelöscht und gespeichert (Fehler beim Speichern: nur der Name ins Log)
       takt.includes('err instanceof RelayFehler ? err.code : null')
         && takt.includes('const ohneKey = altKeyEntfernen(cloudSecrets, zugang, status, code);')
@@ -349,7 +352,7 @@ function ausschnitt(text: string, start: string, ende: string): string {
       takt.includes("cloudSecrets.freigabe?.token === zugang.f.token")
         && /cloudSecrets = \{ \.\.\.cloudSecrets, freigabe: null \};\n\s+try \{\n\s+saveSecrets\(app\.getPath\('userData'\), cloudSecrets\);\n\s+\} catch \(e\) \{/.test(takt),
     ],
-    [true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true],
     'P30 QR1/QR4/QR5: Takt holt erst die Freigabe, pausiert ohne Zugang, öffnet, holt ab und quittiert mit dem Zugang; 401/403 verwirft die Freigabe (Q11) bzw. den alten Key (Q6d); Vorgabe-URL',
   );
 
@@ -395,7 +398,7 @@ function ausschnitt(text: string, start: string, ende: string): string {
   const ohne = geheimnisDatei ? text(geheimnisDatei(s, { verfuegbar: () => false, verschluesseln: () => { throw new Error('kein Schlüsselspeicher'); } })) : '';
   eq([ohne.includes('jm1.'), ohne.includes('test-freigabe-p30'), ohne ? (JSON.parse(ohne) as { freigabe: unknown }).freigabe : 'fehlt'], [false, false, null],
     'P30 G6: ohne Schlüsselspeicher bleibt die Freigabe nur im Speicher (qa.cloud.secret ohne Freigabe; Schlüsselpaar und alter Key wie in Q&A 0.5.0)');
-  eq(ausschnitt(quelle('../src/main/cloud.ts'), 'export function saveSecrets(', '\n}\n').includes('  writeFileSync(secretPath(userDataDir), geheimnisDatei(s, {'), true,
+  eq(ausschnitt(quelle('../src/main/cloud.ts'), 'export function saveSecrets(', '\n}\n').includes('  schreibeAtomar(secretPath(userDataDir), geheimnisDatei(s, {'), true,
     'P30 G6: saveSecrets schreibt nur, was geheimnisDatei liefert (safeStorage als Verschlüsseler)');
 }
 
@@ -486,11 +489,13 @@ const z1 = (await import('../src/main/cloud-zugang.ts')) as Z1Modul;
   const neu = z1.altKeyEntfernen ? z1.altKeyEntfernen(geheim, alt, 401, 'nicht-angemeldet') : geheim;
   const lauf403 = z1.altKeyEntfernen ? z1.altKeyEntfernen(geheim, alt, 403, 'keine-freigabe') : 'fehlt';
   const neuerKey = z1.altKeyEntfernen ? z1.altKeyEntfernen({ ...geheim, proxyKey: 'test-anderer-key' }, alt, 401, 'alter-key-abgelaufen') : 'fehlt';
-  const datei = new TextDecoder().decode(modulGeheim(neu));
-  function modulGeheim(s: typeof geheim): Uint8Array {
-    return new TextEncoder().encode(JSON.stringify(s));
-  }
-  const nachNeustart = z1.leseGeheimnisse ? z1.leseGeheimnisse(JSON.parse(datei)) : null;
+  // AR85: die Datei entsteht wie im Betrieb mit geheimnisDatei und der Attrappe des Verschlüsselers (umkehrbar, ohne Klartext);
+  // der Neustart entschlüsselt sie mit deren Umkehrung und liest sie mit leseGeheimnisse.
+  const zuD = (t: string): Uint8Array => new TextEncoder().encode(`v1:${Buffer.from(t, 'utf8').toString('base64').split('').reverse().join('')}`);
+  const aufD = (b: Uint8Array): string => Buffer.from(new TextDecoder().decode(b).slice(3).split('').reverse().join(''), 'base64').toString('utf8');
+  const bytes = geheimnisDatei(neu, { verfuegbar: () => true, verschluesseln: zuD });
+  const datei = new TextDecoder().decode(bytes);
+  const nachNeustart = z1.leseGeheimnisse ? z1.leseGeheimnisse(JSON.parse(aufD(bytes))) : null;
   const zugangNeu = nachNeustart ? waehleZugang({ freigabe: nachNeustart.freigabe, proxyKey: nachNeustart.proxyKey, eventId: EVENT, jetzt: JETZT }) : null;
   eq(
     [neu.proxyKey, neu.privateJwk, lauf403 === geheim, neuerKey === 'fehlt' ? neuerKey : (neuerKey as typeof geheim).proxyKey, datei.includes('test-alter-key-l3'),
@@ -589,6 +594,127 @@ const z1 = (await import('../src/main/cloud-zugang.ts')) as Z1Modul;
     'Z1-L3 [T]: Q12 mit Q3i-Detail endet wie Q3i ohne Schlusspunkt (kein doppelter Punkt)',
   );
 }
+
+// --- Z1-L3 Fixrunde 1 (AR85) -------------------------------------------------------------------------------------------------
+type RelayFehlerKlasse = new (message: string, status: number, code?: string | null) => Error & { status: number; code: string | null };
+const z2 = (await import('../src/main/cloud-zugang.ts')) as {
+  fehlerCode?: (res: Response) => Promise<string | null>;
+  leseFehlerCode?: (body: unknown) => string | null;
+  RelayFehler?: RelayFehlerKlasse;
+  hatVerworfen?: (roh: unknown, g: { proxyKey: string; freigabe: QaFreigabe | null }) => boolean;
+};
+{
+  // Der OE5-Kern: der Code aus dem Körper einer echten Response, nur kurzer Text aus [a-z-], alles andere null
+  const antwort = (status: number, body: BodyInit | null, typ = 'application/json'): Response =>
+    new Response(body, { status, headers: { 'content-type': typ } });
+  const lies = async (res: Response): Promise<unknown> => (z2.fehlerCode ? await z2.fehlerCode(res) : 'fehlt');
+  eq(
+    [
+      await lies(antwort(401, JSON.stringify({ error: 'x', code: 'nicht-angemeldet' }))),
+      await lies(antwort(401, JSON.stringify({ code: 'alter-key-abgelaufen' }))),
+      await lies(antwort(401, '<html><body>401</body></html>', 'text/html')),
+      await lies(antwort(401, null)),
+      await lies(antwort(401, '42')),
+      await lies(antwort(401, 'null')),
+      await lies(antwort(401, JSON.stringify({ code: 'NICHT-ANGEMELDET' }))),
+      await lies(antwort(401, JSON.stringify({ code: 42 }))),
+      await lies(antwort(401, JSON.stringify({ code: 'a'.repeat(40) }))),
+      await lies(antwort(401, JSON.stringify({ code: 'a'.repeat(41) }))),
+      await lies(antwort(401, JSON.stringify({ code: 'abc\r\ndef' }))),
+      await lies(antwort(401, JSON.stringify({ error: 'ohne code' }))),
+    ],
+    ['nicht-angemeldet', 'alter-key-abgelaufen', null, null, null, null, null, null, 'a'.repeat(40), null, null, null],
+    'Z1-L3 AR85: fehlerCode liest den Code aus dem JSON-Körper einer echten Response (HTML, leer, Zahl, null, Großbuchstaben, Länge, CR/LF ergeben null)',
+  );
+  eq(
+    [z2.leseFehlerCode?.({ code: 'nicht-angemeldet' }), z2.leseFehlerCode?.('nicht-angemeldet'), z2.leseFehlerCode?.(null), z2.leseFehlerCode?.({ code: 'x_y' })],
+    ['nicht-angemeldet', null, null, null],
+    'Z1-L3 AR85: leseFehlerCode nimmt nur ein Objekt mit code aus [a-z-] (1 bis 40 Zeichen)',
+  );
+  const F = z2.RelayFehler;
+  const f1 = F ? new F('Öffnen fehlgeschlagen (HTTP 401)', 401, 'nicht-angemeldet') : null;
+  const f2 = F ? new F('Abruf fehlgeschlagen (HTTP 502)', 502) : null;
+  eq(
+    [f1?.status, f1?.code, f1?.name, f1 instanceof Error, f1?.message, f2?.code, f2?.status],
+    [401, 'nicht-angemeldet', 'RelayFehler', true, 'Öffnen fehlgeschlagen (HTTP 401)', null, 502],
+    'Z1-L3 AR85: RelayFehler trägt Status und Code (ohne Code null) und bleibt ein Error; der Code steht nie in der Meldung',
+  );
+  // Ende zu Ende ohne Netz: Antwort -> RelayFehler -> altKeyEntfernen löscht den Key nur bei 401 mit S1/S4
+  const key: QaZugang = { art: 'alter-key', key: 'test-key-l3' };
+  const lauf = async (status: number, body: BodyInit | null): Promise<string> => {
+    const res = antwort(status, body);
+    const err = F && z2.fehlerCode ? new F('x', res.status, await z2.fehlerCode(res)) : null;
+    return z1.altKeyEntfernen && err ? z1.altKeyEntfernen({ proxyKey: 'test-key-l3' }, key, err.status, err.code).proxyKey : 'fehlt';
+  };
+  eq(
+    [await lauf(401, '{"code":"nicht-angemeldet"}'), await lauf(401, '{"code":"alter-key-abgelaufen"}'), await lauf(403, '{"code":"keine-freigabe"}'),
+      await lauf(401, '<html>'), await lauf(401, null)],
+    ['', '', 'test-key-l3', 'test-key-l3', 'test-key-l3'],
+    'Z1-L3 AR85: Antwort -> RelayFehler -> Key weg nur bei 401 mit nicht-angemeldet oder alter-key-abgelaufen',
+  );
+
+  // Minor 5: Altlast von der Platte bereinigen, wenn der Normalisierer etwas verworfen hat
+  const g = (roh: unknown) => (z1.leseGeheimnisse ? z1.leseGeheimnisse(roh) : { proxyKey: '', freigabe: null as QaFreigabe | null });
+  const wurde = (roh: unknown): unknown => (z2.hatVerworfen ? z2.hatVerworfen(roh, g(roh)) : 'fehlt');
+  const gutF = { token: 'jm1.ok', bis: BIS_72, ziel: EVENT, konto: KONTO };
+  eq(
+    [wurde({ proxyKey: 'k', freigabe: gutF }), wurde({ proxyKey: '  k  ' }), wurde({}), wurde({ proxyKey: '' }), wurde({ proxyKey: 'a\r\nb' }),
+      wurde({ proxyKey: 'a b' }), wurde({ freigabe: { ...gutF, token: 'jm1.a\r\nb' } }), wurde({ freigabe: null }), wurde(null), wurde({ proxyKey: 42 })],
+    [false, false, false, false, true, true, true, false, false, true],
+    'Z1-L3 AR85: hatVerworfen meldet, wenn Key oder Freigabe beim Laden verworfen wurden (leer, null und Rand-Leerraum zählen nicht)',
+  );
+  const cloud = quelle('../src/main/cloud.ts');
+  const laden = ausschnitt(cloud, 'export function loadSecrets(', '\n}\n');
+  eq(
+    [/if \(hatVerworfen\(roh, s\)\) \{\n\s+try \{\n\s+saveSecrets\(userDataDir, s\);\n\s+\} catch \(e\) \{\n\s+log\?\.\(`Q&A: Geheimnisse nicht gespeichert \(\$\{\(e as Error\)\.name\}\)`\);/.test(laden),
+      quelle('../src/main/index.ts').includes("cloudSecrets = loadSecrets(app.getPath('userData'), logInfo);")],
+    [true, true],
+    'Z1-L3 AR85: hat loadSecrets etwas verworfen, speichert es einmal neu (try/catch, nur der Fehlername ins Log)',
+  );
+}
+
+// Minor 4: Schreiben über Temp-Datei und Umbenennen (reine Hilfe, ohne Electron)
+{
+  const { mkdtempSync, readFileSync: lies, writeFileSync: schreib, readdirSync, rmSync, mkdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const atom = (await import('../src/main/datei-atomar.ts').catch(() => ({}))) as { schreibeAtomar?: (pfad: string, daten: Uint8Array) => void };
+  const ordner = mkdtempSync(join(tmpdir(), 'qa-atomar-'));
+  try {
+    const ziel = join(ordner, 'qa.cloud.secret');
+    const text = (b: Uint8Array): string => new TextDecoder().decode(b);
+    atom.schreibeAtomar?.(ziel, new TextEncoder().encode('erste'));
+    const a = lies(ziel, 'utf8');
+    // ein Absturz hat früher eine Temp-Datei hinterlassen: sie stört weder das Schreiben noch das Lesen
+    schreib(join(ordner, 'qa.cloud.secret.99999.tmp'), 'halb');
+    atom.schreibeAtomar?.(ziel, new TextEncoder().encode('zweite'));
+    const b = lies(ziel, 'utf8');
+    const rest = readdirSync(ordner).sort();
+    // Schreiben scheitert (Ordner fehlt): wirft, die vorhandene Datei bleibt, keine Temp-Datei bleibt
+    let wirft = false;
+    try { atom.schreibeAtomar?.(join(ordner, 'fehlt', 'x.secret'), new TextEncoder().encode('x')); } catch { wirft = true; }
+    // Ziel ist ein Ordner: das Umbenennen scheitert, die Temp-Datei wird entfernt
+    mkdirSync(join(ordner, 'zielordner'));
+    let wirft2 = false;
+    try { atom.schreibeAtomar?.(join(ordner, 'zielordner'), new TextEncoder().encode('y')); } catch { wirft2 = true; }
+    eq(
+      [a, b, rest, wirft, wirft2, readdirSync(ordner).filter((n) => n.endsWith('.tmp') && n !== 'qa.cloud.secret.99999.tmp'), text(new TextEncoder().encode('ok'))],
+      ['erste', 'zweite', ['qa.cloud.secret', 'qa.cloud.secret.99999.tmp'], true, true, [], 'ok'],
+      'Z1-L3 AR85: schreibeAtomar schreibt über eine Temp-Datei im selben Ordner und benennt um; eine liegengebliebene Temp-Datei stört nicht, ein Fehler hinterlässt keine neue',
+    );
+  } finally {
+    rmSync(ordner, { recursive: true, force: true });
+  }
+  eq(
+    [ausschnitt(quelle('../src/main/cloud.ts'), 'export function saveSecrets(', '\n}\n').includes('schreibeAtomar(secretPath(userDataDir)'),
+      quelle('../src/main/cloud.ts').includes("import { schreibeAtomar } from './datei-atomar';"), quelle('../src/main/cloud.ts').includes('writeFileSync')],
+    [true, true, false],
+    'Z1-L3 AR85: saveSecrets schreibt nur über schreibeAtomar (cloud.ts ruft writeFileSync nicht mehr selbst)',
+  );
+}
+
+// Minor 7: keine doppelte Leerzeile im Kopf von CloudPanel.tsx
+eq(/\n\n\n/.test(quelle('../src/renderer/src/components/CloudPanel.tsx').slice(0, 400)), false, 'Z1-L3 AR85: CloudPanel.tsx hat im Kopf keine doppelte Leerzeile');
 
 // ── Ende der Fälle ──
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);

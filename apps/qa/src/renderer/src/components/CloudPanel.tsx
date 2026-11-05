@@ -4,7 +4,6 @@ import { toDataUrl } from '@/lib/qr';
 import { TON } from '@/lib/zugang-ton';
 import type { QaCloudInfo } from '@shared/types';
 
-
 /**
  * Externe Einreichung (#166): An/Aus, QR für den Livestream-Stream-Link, Presse-
  * Link + Zugangscode, Kanal-Schalter und „Event beenden". Konfiguration (Server-

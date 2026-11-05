@@ -13,9 +13,10 @@
 // (Freigabe des Launchers als Bearer, im Übergang der alte Proxy-Key); welcher Zugang gilt, entscheidet index.ts (QR1).
 import { safeStorage } from 'electron';
 import { webcrypto } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type QaFreigabe, type QaZugang, QA_TEXT, geheimnisDatei, leseGeheimnisse, zugangsKopf } from './cloud-zugang';
+import { type QaFreigabe, type QaZugang, QA_TEXT, RelayFehler, fehlerCode, geheimnisDatei, hatVerworfen, leseGeheimnisse, zugangsKopf } from './cloud-zugang';
+import { schreibeAtomar } from './datei-atomar';
 
 const { subtle } = webcrypto;
 const enc = new TextEncoder();
@@ -59,12 +60,21 @@ function secretPath(userDataDir: string): string {
 }
 
 /** Geheimnisse laden (via safeStorage entschlüsseln). Fehlt/defekt → leer. */
-export function loadSecrets(userDataDir: string): CloudSecrets {
+export function loadSecrets(userDataDir: string, log?: (meldung: string) => void): CloudSecrets {
   try {
     const raw = readFileSync(secretPath(userDataDir));
     const text = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(raw) : raw.toString('utf8');
-    // Z1-L3: Key und Freigabe nur aus \x21-\x7e (leseGeheimnisse); Altlast mit CR/LF/NUL wird verworfen.
-    return leseGeheimnisse(JSON.parse(text));
+    // Z1-L3: Key und Freigabe nur aus \x21-\x7e (leseGeheimnisse); Altlast mit CR/LF/NUL wird verworfen und nicht wieder gespeichert.
+    const roh: unknown = JSON.parse(text);
+    const s = leseGeheimnisse(roh);
+    if (hatVerworfen(roh, s)) {
+      try {
+        saveSecrets(userDataDir, s);
+      } catch (e) {
+        log?.(`Q&A: Geheimnisse nicht gespeichert (${(e as Error).name})`);
+      }
+    }
+    return s;
   } catch {
     return { ...EMPTY };
   }
@@ -75,7 +85,7 @@ export function loadSecrets(userDataDir: string): CloudSecrets {
  * das Schlüsselpaar steht wie in Q&A 0.5.0 im Klartext (geheimnisDatei in cloud-zugang.ts, dort im Verhalten getestet; G6).
  */
 export function saveSecrets(userDataDir: string, s: CloudSecrets): void {
-  writeFileSync(secretPath(userDataDir), geheimnisDatei(s, {
+  schreibeAtomar(secretPath(userDataDir), geheimnisDatei(s, {
     verfuegbar: () => safeStorage.isEncryptionAvailable(),
     verschluesseln: (text) => safeStorage.encryptString(text),
   }));
@@ -133,28 +143,8 @@ export function pressUrl(cfg: CloudCfg): string {
   return cfg.proxyUrl && cfg.eventId ? `${base(cfg)}/press` : '';
 }
 
-/** Fehler einer Relay-Antwort mit HTTP-Status (401/403 → Freigabe verwerfen bzw. alter Key abgelehnt, QR5). */
-export class RelayFehler extends Error {
-  readonly status: number;
-  /** Z1-L3: `code` aus dem JSON-Körper der Antwort (etwa nicht-angemeldet), sonst null; nie ein Teil der Meldung. */
-  readonly code: string | null;
-  constructor(message: string, status: number, code: string | null = null) {
-    super(message);
-    this.name = 'RelayFehler';
-    this.status = status;
-    this.code = code;
-  }
-}
-
-/** Z1-L3: Fehlercode einer Relay-Antwort (kurzer Text aus [a-z-]), sonst null; ein unlesbarer Körper ist kein Fehler. */
-async function fehlerCode(res: Response): Promise<string | null> {
-  try {
-    const c = ((await res.json()) as { code?: unknown } | null)?.code;
-    return typeof c === 'string' && /^[a-z-]{1,40}$/.test(c) ? c : null;
-  } catch {
-    return null;
-  }
-}
+// RelayFehler und fehlerCode leben im reinen Modul cloud-zugang.ts (dort im Verhalten getestet, Z1-L3 AR85).
+export { RelayFehler };
 
 /** Event im Relay öffnen/aktualisieren (Public Key + Presse-Code-Hash + Flags). */
 export async function openEvent(cfg: CloudCfg, secrets: CloudSecrets, zugang: QaZugang, retentionSec = 60 * 60 * 24 * 2): Promise<void> {
