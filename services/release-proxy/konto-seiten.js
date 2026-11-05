@@ -5,8 +5,9 @@
 // Worker), der Vorgang steht als verstecktes Feld im Formular, das Seitentoken nur im Bestätigungsformular, nie im Link
 // (EP5). Jeder Wert aus Anfrage oder Speicher (E-Mail, Name, Rechnername, Code, Vorgang) geht durch `esc`. Kopfzeilen nach
 // Vertrag 10.1: CSP ohne Skript, no-store, no-referrer, nosniff. Rein: kein Import, keine Konsole.
+// Z2: Nach „Ja“ springt der Browser per 303 an den Rückkanal des Launchers auf demselben Rechner (rueckAdresse, RFC 8252 loopback).
 
-/** Texttabelle 9.5 (B1–B23), wörtlich; ‹E-Mail›, ‹Code›, ‹Rechnername›, ‹n›, ‹Datum› sind Platzhalter. */
+/** Texttabelle 9.5 (B1–B23) und Z2 (B24–B26), wörtlich; ‹E-Mail›, ‹Code›, ‹Name›, ‹n›, ‹Datum› sind Platzhalter. */
 export const SEITEN_TEXT = Object.freeze({
   B1: 'Anmeldung · JM Production Suite',
   B2: 'Anmelden',
@@ -25,7 +26,6 @@ export const SEITEN_TEXT = Object.freeze({
   B7_als: 'Angemeldet als ‹E-Mail›',
   B7_frage: 'Zeigt dein Launcher diesen Code?',
   B7_code: '‹Code›',
-  B7_rechner: 'Rechner: ‹Rechnername›',
   B7_ja: 'Ja, das ist mein Rechner',
   B7_nein: 'Nein, abbrechen',
   B8: 'Fertig. Dein Launcher ist angemeldet. Du kannst dieses Fenster schließen.',
@@ -45,16 +45,34 @@ export const SEITEN_TEXT = Object.freeze({
   B21: 'Zu viele Anfragen. Versuche es in ein paar Minuten erneut.',
   B22: 'Starte die Anmeldung im Launcher. Diese Seite öffnet sich dann von selbst.',
   B23: 'Kollegen von jakobsmedien.com melden sich mit Google an.',
+  // Z2 (Rückkanal, zur Owner-Freigabe): B24 Warnsatz direkt über „Ja“, B25 ersetzt B7 „Rechner: ‹Rechnername›“, B26 nach „Ja“.
+  B24: 'Bestätige nur, wenn du selbst gerade auf diesem Rechner im Launcher auf „Anmelden“ geklickt hast. Hat dir jemand diesen Link geschickt, klicke auf „Nein, abbrechen“.',
+  B25: 'Rechner: ‹Name› (vom Rechner gemeldet)',
+  B26: 'Weiter zum Launcher auf diesem Rechner. Öffnet sich nichts, wurde die Anmeldung auf einem anderen Rechner gestartet; starte sie dort im Launcher neu.',
 });
 
-/** Kopfzeilen jeder HTML-Seite (Vertrag 10.1). */
+/**
+ * Kopfzeilen jeder HTML-Seite (Vertrag 10.1). Z2: `form-action` erlaubt zusätzlich `http://127.0.0.1:*`, weil Chrome, Edge und
+ * Safari form-action auch auf die Weiterleitung nach dem Formular „Ja“ anwenden (303 an den Rückkanal des Launchers); sonst unverändert.
+ */
 export const SEITEN_KOPF = Object.freeze({
   'content-type': 'text/html; charset=utf-8',
   'cache-control': 'no-store',
   'referrer-policy': 'no-referrer',
   'x-content-type-options': 'nosniff',
-  'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' http://127.0.0.1:*; base-uri 'none'; frame-ancestors 'none'",
 });
+
+/** Z2: Pfad des Rückkanals im Launcher (apps/launcher/src/main/konto/rueckkanal.ts, RUECK_PFAD; der Kettentest prüft beide). */
+export const RUECK_PFAD = '/anmeldung/zurueck';
+
+/**
+ * Z2 (RFC 8252 7.3): Ziel des Sprungs nach „Ja“: der Launcher auf demselben Rechner, `http://127.0.0.1:<port>/anmeldung/zurueck` mit
+ * Vorgang und Einmalwert. Immer die IP-Literale 127.0.0.1, nie `localhost` (RFC 8252 8.3).
+ */
+export function rueckAdresse(port, vorgang, e) {
+  return `http://127.0.0.1:${port}${RUECK_PFAD}?v=${encodeURIComponent(vorgang)}&e=${encodeURIComponent(e)}`;
+}
 
 /** HTML-Escape für Text und Attributwerte (&, <, >, ", '). */
 export function esc(s) {
@@ -91,9 +109,10 @@ const STIL = [
   'button,.knopf{display:inline-block;margin-top:.8rem;padding:.55rem 1rem;font-size:1rem;border:0;border-radius:.4rem;background:#1f5fbf;color:#fff;text-decoration:none;cursor:pointer}',
   '.zweit{background:#e4e6eb;color:#1c1e21}.hinweis{font-size:.9rem;color:#555}',
   '.fehler{padding:.6rem .8rem;border-radius:.4rem;background:#fde8e8;color:#8a1c1c}',
+  '.warnung{padding:.6rem .8rem;border-radius:.4rem;background:#fff4e0;color:#6b4200}',
   '.code{font:600 2rem ui-monospace,Consolas,monospace;letter-spacing:.15em;margin:.5rem 0}',
   'details{margin-top:1rem}summary{cursor:pointer}',
-  '@media (prefers-color-scheme:dark){body{background:#18191a;color:#e4e6eb}main{background:#242526}input{background:#18191a;color:#e4e6eb;border-color:#555}.zweit{background:#3a3b3c;color:#e4e6eb}.hinweis{color:#b0b3b8}}',
+  '@media (prefers-color-scheme:dark){body{background:#18191a;color:#e4e6eb}main{background:#242526}input{background:#18191a;color:#e4e6eb;border-color:#555}.zweit{background:#3a3b3c;color:#e4e6eb}.hinweis{color:#b0b3b8}.warnung{background:#3d2e14;color:#ffd99a}a{color:#8ab4f8}}',
 ].join('');
 
 function rahmen(inhalt) {
@@ -141,20 +160,32 @@ export function seiteAnmelden({ vorgang, google, fehler = '', email = '', einlad
   return rahmen(teile.join('\n'));
 }
 
-/** Bestätigungsseite (Spec 4.1 Schritte 3–4): E-Mail, Code, Rechnername, Ja/Nein mit Seitentoken im Formular. */
+/**
+ * Bestätigungsseite (Spec 4.1 Schritte 3–4): E-Mail, Code, Rechnername, Ja/Nein mit Seitentoken im Formular. Z2: der Rechnername nur
+ * als B25 („vom Rechner gemeldet“), der Warnsatz B24 direkt über „Ja, das ist mein Rechner“.
+ */
 export function seiteBestaetigen({ vorgang, seitenToken, email, code, rechnerName }) {
   return rahmen(
     [
       `<p>${fuelle('B7_als', { 'E-Mail': email })}</p>`,
       `<p>${fuelle('B7_frage')}</p>`,
       `<p class="code">${fuelle('B7_code', { Code: code })}</p>`,
-      `<p>${fuelle('B7_rechner', { Rechnername: rechnerName })}</p>`,
+      `<p>${fuelle('B25', { Name: rechnerName })}</p>`,
+      `<p class="warnung" role="note">${fuelle('B24')}</p>`,
       '<form method="post" action="/konto/bestaetigen">' +
         `<input type="hidden" name="v" value="${esc(vorgang)}"><input type="hidden" name="t" value="${esc(seitenToken)}">` +
         `<button type="submit" name="antwort" value="ja">${fuelle('B7_ja')}</button> ` +
         `<button type="submit" name="antwort" value="nein" class="zweit">${fuelle('B7_nein')}</button></form>`,
     ].join('\n'),
   );
+}
+
+/**
+ * Z2: Körper der 303-Antwort nach „Ja“ (Rückfall, falls ein Browser der Weiterleitung nicht von selbst folgt): B26 als Link auf
+ * denselben Sprung. Kein Skript; `ziel` kommt aus rueckAdresse und wird im Attribut escaped.
+ */
+export function seiteWeiter({ ziel }) {
+  return rahmen(`<p><a href="${esc(ziel)}">${fuelle('B26')}</a></p>`);
 }
 
 /** Seite mit einer Meldung (B8–B11, B22, S5, „interner Fehler“). `text` ist fertig gefüllt (fuelle oder esc). */

@@ -25,7 +25,7 @@
 // (`jm`) bleibt so erhalten (ebenfalls dank der Input-Gates).
 //
 // Uhr: `jetzt` kommt mit jeder Aktion vom Worker; fehlt es, und im Alarm, gilt `env.KONTO_UHR()` (nur Tests, EP21), sonst
-// `Date.now()`. Schlüssel im Speicher (EP1): konto:<kid>, email:<email>, geraet:<gid>, vorgang:<vid>, state:<state>,
+// `Date.now()`. Schlüssel im Speicher (EP1): konto:<kid>, email:<email>, geraet:<gid>, vorgang:<vid>, grab:<vid> (Z2), state:<state>,
 // iveo:<basis|slug>, anfrage:<aid>, log:<ms 13-stellig>:<zufall>, fehl:<kid>, altkey:<tag>:<gruppe>:<plattform>-<arch>.
 import {
   EINLADUNG_MS,
@@ -71,6 +71,11 @@ const MAX_WERKZEUGE = 20;
 const AUFRAEUM_SEITE = 500;
 /** Ein Admin mit kürzerer Frist als so lange zählt für „es bleibt immer ein Admin“ nicht (er liefe bald aus). */
 const ADMIN_FRIST_MIN_MS = 30 * TAG_MS;
+/** Z2: Port des Rückkanals (Launcher auf 127.0.0.1, Port 0 → vom Betriebssystem gewählt), eine ganze Zahl in diesen Grenzen. */
+const RUECK_PORT_MIN = 1024;
+const RUECK_PORT_MAX = 65535;
+/** Z2 (Nr. 6): so lange nach dem Abholen nimmt der Grabstein dasselbe Abholgeheimnis und dasselbe e noch einmal an. */
+const GRAB_MS = 60_000;
 const EMAIL_FORM = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const K = {
@@ -78,6 +83,8 @@ const K = {
   email: (email) => `email:${email}`,
   geraet: (gid) => `geraet:${gid}`,
   vorgang: (vid) => `vorgang:${vid}`,
+  /** Z2 (Nr. 6): Grabstein eines abgeholten Vorgangs (60 s), nur mit Hashes; die Anmeldeseite sieht ihn nie. */
+  grab: (vid) => `grab:${vid}`,
   state: (state) => `state:${state}`,
   iveo: (key) => `iveo:${key}`,
   anfrage: (aid) => `anfrage:${aid}`,
@@ -149,17 +156,33 @@ function ohneSchluessel(geraet) {
   return rest;
 }
 
-/** Steuer-, unsichtbare und Richtungszeichen (Bidi-Steuerung, Nullbreite, Trenner); sie werden im Rechnernamen Leerzeichen. */
-const UNSICHTBAR = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g;
+/**
+ * Z2 (Nr. 5, AR20): Erlaubnisliste statt Sperrliste. Erlaubt sind Buchstaben und Ziffern (Unicode \p{L}\p{N}, nach NFC), das
+ * Leerzeichen und - _ . ( ) '; alles andere (Steuer-, Format-, Richtungs- und Nullbreitenzeichen, Symbole, Emoji, Satzzeichen,
+ * kombinierende Zeichen, Tags) wird entfernt.
+ */
+const NICHT_ERLAUBT = /[^\p{L}\p{N} \-_.()']/gu;
+/**
+ * Gemessen (Node 24): \p{L} lässt die Hangul-Füller U+115F, U+1160, U+3164 und U+FFA0 durch (Kategorie Lo, unsichtbar). Sie sind die
+ * einzigen Buchstaben oder Ziffern mit Default_Ignorable_Code_Point; beide Angaben fallen hier ausdrücklich weg.
+ */
+const UNSICHTBARE_BUCHSTABEN = /[\p{Default_Ignorable_Code_Point}\u{115f}\u{1160}\u{3164}\u{ffa0}]/gu;
 
 /**
- * Rechnername für Bestätigungsseite und Admin-Maske (Spec 4.1, AbwA19): unsichtbare Zeichen werden Leerzeichen, Leerraum wird
- * zusammengezogen, höchstens 40 Zeichen. Den Namen wählt der Launcher; die Seite nennt ihn als „Rechner: …“ und escaped ihn
- * (P17). Gegen einen weitergeleiteten Link schützt der Vergleich des Codes, nicht der Name.
+ * Rechnername für Bestätigungsseite und Admin-Maske (Spec 4.1, AbwA19; Z2 Nr. 5): nach NFC wird Leerraum ein Leerzeichen, unsichtbare
+ * Buchstaben und alles außerhalb der Erlaubnisliste fallen weg, Leerraum wird zusammengezogen, höchstens 40 Zeichen. Den Namen wählt
+ * der Launcher; die Seite nennt ihn nur als „Rechner: ‹Name› (vom Rechner gemeldet)“ (B25) und escaped ihn (P17). Gegen einen
+ * weitergeleiteten Link schützt der Rückkanal (Z2), nicht der Name.
  */
 function rechnerName(roh) {
   if (typeof roh !== 'string') return '';
-  const t = roh.normalize('NFC').replace(UNSICHTBAR, ' ').replace(/\s+/g, ' ').trim();
+  const t = roh
+    .normalize('NFC')
+    .replace(/\s+/gu, ' ')
+    .replace(UNSICHTBARE_BUCHSTABEN, '')
+    .replace(NICHT_ERLAUBT, '')
+    .replace(/ {2,}/g, ' ')
+    .trim();
   return [...t].slice(0, 40).join('').trim();
 }
 
@@ -344,6 +367,10 @@ export class KontoSpeicher {
     for (const [key, vid] of await st.list({ prefix: 'state:' })) {
       if (!(await st.get(K.vorgang(vid)))) await st.delete(key);
     }
+    // Z2 (Nr. 6): Grabsteine abgeholter Vorgänge nach ihren 60 s.
+    for (const [key, g] of await st.list({ prefix: 'grab:' })) {
+      if (!g || !(g.bis > jetzt)) await st.delete(key);
+    }
     for (const [key, k] of await st.list({ prefix: 'konto:' })) {
       if (k && k.einladung && !(k.einladung.bis > jetzt)) {
         delete k.einladung;
@@ -468,7 +495,10 @@ export class KontoSpeicher {
     return weg;
   }
 
-  /** Aktion `vorgang-anlegen` `{ geraet, abholHash, code }` → `{ vorgang, bis }`; das Abholgeheimnis kennt der DO nur als Hash. */
+  /**
+   * Aktion `vorgang-anlegen` `{ geraet, abholHash, code, rueckPort }` → `{ vorgang, bis }`; das Abholgeheimnis kennt der DO nur als
+   * Hash. Z2: `rueckPort` ist der Port, auf dem der Launcher auf 127.0.0.1 lauscht (ganze Zahl 1024–65535, sonst 400 ungueltig).
+   */
   async vorgangAnlegen(b, jetzt) {
     const g = b.geraet && typeof b.geraet === 'object' ? b.geraet : {};
     const publicJwk = reinerJwk(g.publicJwk);
@@ -477,12 +507,14 @@ export class KontoSpeicher {
     if (!gid || !name || (g.plattform !== 'win' && g.plattform !== 'mac') || (g.arch !== 'x64' && g.arch !== 'arm64')) return fehler('ungueltig', 400);
     if (typeof b.abholHash !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(b.abholHash)) return fehler('ungueltig', 400);
     if (typeof b.code !== 'string' || !CODE_FORM.test(b.code)) return fehler('ungueltig', 400);
+    if (!Number.isInteger(b.rueckPort) || b.rueckPort < RUECK_PORT_MIN || b.rueckPort > RUECK_PORT_MAX) return fehler('ungueltig', 400);
     const vorgang = zufall(18);
     const v = {
       vorgang,
       abholHash: b.abholHash,
       code: b.code,
       geraet: { gid, publicJwk, name, plattform: g.plattform, arch: g.arch, version: text(g.version, 32) },
+      rueckPort: b.rueckPort,
       bis: jetzt + VORGANG_MS,
       zustand: 'offen',
     };
@@ -684,31 +716,44 @@ export class KontoSpeicher {
   /**
    * Aktion `vorgang-bestaetigen` `{ vorgang, seitenToken, antwort: 'ja'|'nein' }` → `{ zustand }` (Spec 4.1, Schritt 4).
    * Falsches oder fehlendes Seitentoken → 403 `vorgang-unbekannt` (B10); der Vorgang bleibt dann unverändert.
+   * Z2: Bei Ja entsteht der Einmalwert `e = zufall(32)` (43 Zeichen b64url); der DO speichert nur `sha256(e)` und gibt `e` genau
+   * einmal mit dem Port des Rückkanals zurück (`{ zustand, e, rueckPort }`): Die Bestätigen-Route baut daraus den Sprung an
+   * 127.0.0.1 auf demselben Rechner. Abholen verlangt danach dieses e (RFC 8252, loopback redirect).
    */
   async vorgangBestaetigen(b, jetzt) {
     const v = await this.ladeVorgang(b.vorgang, jetzt);
     if (!v || v.zustand !== 'angemeldet') return fehler('vorgang-unbekannt', 404);
     if (!(await gleichOhneZeitleck(String(b.seitenToken ?? ''), v.seitenToken))) return fehler('vorgang-unbekannt', 403);
     if (b.antwort !== 'ja' && b.antwort !== 'nein') return fehler('ungueltig', 400);
+    // Z2: e und sein Hash vor der Reihe (SHA-256 ist ein await ohne Speicher); in die Reihe geht nur das Schreiben.
+    const e = b.antwort === 'ja' ? zufall(32) : null;
+    const eHash = e ? await sha256B64url(e) : null;
     // Der Token ist oben zeitkonstant geprüft; in der Reihe wird frisch gelesen und nur noch derselbe Vorgang im selben Zustand geändert.
     return this.inReihe(async () => {
       const frisch = await this.ladeVorgang(v.vorgang, jetzt);
       if (!frisch || frisch.zustand !== 'angemeldet' || frisch.seitenToken !== v.seitenToken) return fehler('vorgang-unbekannt', 404);
       frisch.zustand = b.antwort === 'ja' ? 'bestaetigt' : 'abgelehnt';
       delete frisch.seitenToken;
+      if (eHash) frisch.eHash = eHash;
       await this.ctx.storage.put(K.vorgang(frisch.vorgang), frisch);
-      return { ok: true, zustand: frisch.zustand };
+      return e ? { ok: true, zustand: frisch.zustand, e, rueckPort: frisch.rueckPort } : { ok: true, zustand: frisch.zustand };
     });
   }
 
   /**
-   * Aktion `vorgang-abholen` `{ vorgang, abholHash, beweis }` → `{ zustand: 'wartet'|'abgelehnt'|'abgelaufen' }` oder
+   * Aktion `vorgang-abholen` `{ vorgang, abholHash, beweis, eHash? }` → `{ zustand: 'wartet'|'abgelehnt'|'abgelaufen' }` oder
    * `{ zustand: 'bestaetigt', konto, geraet }` (Konto ohne Geheimes mit wirksamer Stufe, Gerät ohne Schlüssel; der Worker
    * baut daraus Stand und Sitzung). Der Beweis muss vom Geräteschlüssel des Vorgangs kommen; ein fremdes Gerät lässt den
    * Vorgang offen. Nach `bestaetigt`, `abgelehnt` und `abgelaufen` ist der Vorgang weg.
+   * Z2: Nach der Bestätigung gibt es die Sitzung nur mit dem Einmalwert e aus dem Sprung auf den Rechner (`eHash` = sha256(e), vom
+   * Worker gebildet), zeitkonstant gegen den gespeicherten Hash verglichen; ohne oder mit falschem e antwortet der DO wie vor dem Ja
+   * (`wartet`) und verrät nichts. Nach dem Abholen liegt 60 s ein Grabstein (`grab:<vid>`, Nr. 6): Er nimmt dasselbe
+   * Abholgeheimnis und dasselbe e noch einmal an (verlorene Antwort) und liefert dieselbe Anmeldung (`grabAbholen`).
    */
   async vorgangAbholen(b, jetzt) {
-    const v = typeof b.vorgang === 'string' && b.vorgang ? await this.ctx.storage.get(K.vorgang(b.vorgang)) : null;
+    const vid = typeof b.vorgang === 'string' && b.vorgang ? b.vorgang : null;
+    const v = vid ? await this.ctx.storage.get(K.vorgang(vid)) : null;
+    if (!v && vid) return this.grabAbholen(b, vid, jetzt);
     if (!v || !(await gleichOhneZeitleck(String(b.abholHash ?? ''), v.abholHash))) return fehler('vorgang-unbekannt', 404);
     if (!(v.bis > jetzt)) {
       await this.vorgangWeg(v);
@@ -720,6 +765,8 @@ export class KontoSpeicher {
       return { ok: true, zustand: 'abgelehnt' };
     }
     if (v.zustand !== 'bestaetigt') return { ok: true, zustand: 'wartet' };
+    // Z2: ohne den Einmalwert aus dem Sprung (oder ohne gespeicherten Hash) keine Sitzung, nur „wartet“.
+    if (!(await this.eStimmt(b.eHash, v.eHash))) return { ok: true, zustand: 'wartet' };
     // Atomar nehmen, bevor eine Sitzung entsteht: wer den Vorgang nicht mehr löschen kann, war zu spät (zweimal abholen = einmal).
     if (!(await this.vorgangWeg(v))) return fehler('vorgang-unbekannt', 404);
     const konto = await this.ladeKonto(v.kid);
@@ -738,6 +785,48 @@ export class KontoSpeicher {
     await this.ctx.storage.put(K.geraet(geraet.gid), geraet);
     konto.letzteAnmeldung = jetzt;
     await this.speichereKonto(konto);
+    // Z2 (Nr. 6): Grabstein für eine verlorene Antwort, nur mit Hashes und dem öffentlichen Schlüssel (für den Gerätebeweis).
+    await this.ctx.storage.put(K.grab(v.vorgang), {
+      vorgang: v.vorgang,
+      abholHash: v.abholHash,
+      eHash: v.eHash,
+      kid: konto.kid,
+      gid: geraet.gid,
+      publicJwk: v.geraet.publicJwk,
+      angemeldetSeit: geraet.angemeldetSeit,
+      bis: jetzt + GRAB_MS,
+    });
+    return { ok: true, zustand: 'bestaetigt', konto: { ...ohneGeheimes(konto), stufe: this.stufeVon(konto) }, geraet: ohneSchluessel(geraet) };
+  }
+
+  /** Z2: stimmt `eHash` (sha256 des mitgeschickten e) mit dem gespeicherten Hash? Ohne einen der beiden nie; sonst zeitkonstant. */
+  async eStimmt(eHash, gespeichert) {
+    if (typeof gespeichert !== 'string' || gespeichert === '' || typeof eHash !== 'string' || eHash === '') return false;
+    return gleichOhneZeitleck(eHash, gespeichert);
+  }
+
+  /**
+   * Z2 (Nr. 6): Abholen am Grabstein. Dasselbe Abholgeheimnis, ein frischer Beweis desselben Geräts und dasselbe e innerhalb von 60 s
+   * nach dem Abholen → dieselbe Anmeldung noch einmal (Konto frisch geprüft, Gerät unverändert, gleiches `angemeldetSeit`; der
+   * Worker stellt dazu eine neue Sitzung desselben Geräts aus). Alles andere ist 404 `vorgang-unbekannt` (ein fremdes Gerät 403),
+   * wie ohne Grabstein. Ist das Gerät inzwischen abgemeldet oder anders angemeldet, gibt es nichts mehr. Nach 60 s ist er weg.
+   */
+  async grabAbholen(b, vid, jetzt) {
+    const st = this.ctx.storage;
+    const g = await st.get(K.grab(vid));
+    if (!g || !(await gleichOhneZeitleck(String(b.abholHash ?? ''), g.abholHash))) return fehler('vorgang-unbekannt', 404);
+    if (!(g.bis > jetzt)) {
+      await st.delete(K.grab(vid));
+      return fehler('vorgang-unbekannt', 404);
+    }
+    if (!(await pruefeGeraeteBeweis(g.publicJwk, b.beweis, 'abholen', vid, jetzt))) return fehler('geraet-unbekannt', 403);
+    if (!(await this.eStimmt(b.eHash, g.eHash))) return fehler('vorgang-unbekannt', 404);
+    const konto = await this.ladeKonto(g.kid);
+    if (!konto) return fehler('geloescht', 403);
+    const gueltig = kontoGueltig(konto, jetzt);
+    if (!gueltig.ok) return fehler(gueltig.grund, 403);
+    const geraet = await st.get(K.geraet(g.gid));
+    if (!geraet || geraet.letztesKonto !== g.kid || geraet.angemeldetSeit !== g.angemeldetSeit) return fehler('vorgang-unbekannt', 404);
     return { ok: true, zustand: 'bestaetigt', konto: { ...ohneGeheimes(konto), stufe: this.stufeVon(konto) }, geraet: ohneSchluessel(geraet) };
   }
 

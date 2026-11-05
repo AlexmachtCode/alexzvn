@@ -34,6 +34,8 @@ const T0 = Date.parse('2026-11-02T10:00:00Z');
 const SCHLUESSEL = testSchluessel();
 const IVEO = testSchluessel();
 const ERSTER = 'chefin@jakobsmedien.com';
+/** Z2: Port des Rückkanals, den der Launcher beim Anlegen meldet (Ganzzahl 1024–65535). */
+const RUECK_PORT = 50321;
 geheim.push(SCHLUESSEL, IVEO);
 
 globalThis.fetch = async (u) => {
@@ -108,7 +110,7 @@ async function einladen(env, adminKid, email, mehr = {}) {
 async function anmelden(env, o) {
   const sp = env.KONTO.speicher();
   const geraet = o.geraet ?? (await testGeraet({ name: o.rechner ?? 'Regie-PC 1' }));
-  const v = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben } });
+  const v = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben, rueckPort: RUECK_PORT } });
   geheim.push(v.daten.abholGeheimnis, v.daten.code);
   let bind;
   if (o.google) {
@@ -118,9 +120,11 @@ async function anmelden(env, o) {
     geheim.push(o.passwort);
     bind = await rufeDo(sp, 'vorgang-passwort', { vorgang: v.daten.vorgang, email: o.email, einladungscode: o.einladungscode, neu: o.passwort, neu2: o.passwort });
   }
-  await rufeDo(sp, 'vorgang-bestaetigen', { vorgang: v.daten.vorgang, seitenToken: bind.seitenToken, antwort: 'ja' });
+  // Z2: die Antwort auf Ja trägt den Einmalwert e; den bekäme der Launcher über den Sprung an 127.0.0.1 (Kette unten über HTTP).
+  const ja = await rufeDo(sp, 'vorgang-bestaetigen', { vorgang: v.daten.vorgang, seitenToken: bind.seitenToken, antwort: 'ja' });
+  geheim.push(ja.e);
   const ab = await api(env, 'POST', '/konto/vorgang/abholen', {
-    body: { vorgang: v.daten.vorgang, abholGeheimnis: v.daten.abholGeheimnis, beweis: await geraet.beweis('abholen', v.daten.vorgang, env.KONTO_UHR()) },
+    body: { vorgang: v.daten.vorgang, abholGeheimnis: v.daten.abholGeheimnis, beweis: await geraet.beweis('abholen', v.daten.vorgang, env.KONTO_UHR()), e: ja.e },
   });
   if (!ab.daten || !ab.daten.sitzung) throw new Error(`Anmeldung ${o.email} gescheitert: ${ist(ab)}`);
   geheim.push(ab.daten.sitzung);
@@ -142,7 +146,7 @@ async function run() {
     const env = umgebung();
     const uhr = env.KONTO_UHR;
     const geraet = await testGeraet();
-    const v = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben } });
+    const v = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben, rueckPort: RUECK_PORT } });
     const d = v.daten || {};
     geheim.push(d.abholGeheimnis, d.code);
     check('P16 4.1: POST /konto/vorgang → 200 mit Vorgang, Abholgeheimnis, Code XXX-XXX, Adresse und bis = jetzt + 5 min',
@@ -151,8 +155,8 @@ async function run() {
         && d.adresse === `https://proxy.test/konto/anmelden?v=${encodeURIComponent(d.vorgang)}` && d.bis === T0 + 5 * 60_000);
     const speicherText = JSON.stringify([...env.KONTO.speicher().ctx.daten.values()]);
     check('P16 4.1: der DO kennt das Abholgeheimnis nur als Hash', !speicherText.includes(d.abholGeheimnis) && speicherText.includes(d.code));
-    const abholen = async (g = geraet, geh = d.abholGeheimnis) =>
-      api(env, 'POST', '/konto/vorgang/abholen', { body: { vorgang: d.vorgang, abholGeheimnis: geh, beweis: await g.beweis('abholen', d.vorgang, uhr()) } });
+    const abholen = async (g = geraet, geh = d.abholGeheimnis, e = undefined) =>
+      api(env, 'POST', '/konto/vorgang/abholen', { body: { vorgang: d.vorgang, abholGeheimnis: geh, beweis: await g.beweis('abholen', d.vorgang, uhr()), e } });
     const w = await abholen();
     const fremd = await abholen(await testGeraet());
     const falsch = await abholen(geraet, 'Zz9_-'.repeat(8) + 'Zz9'); // richtige Form (43 Zeichen), falscher Wert
@@ -166,20 +170,22 @@ async function run() {
     const sp = env.KONTO.speicher();
     const g = await rufeDo(sp, 'konto-aus-google', { email: 'karl@jakobsmedien.com', name: 'Karl Kollege' });
     const bind = await rufeDo(sp, 'vorgang-konto-binden', { vorgang: d.vorgang, kid: g.kid });
-    await rufeDo(sp, 'vorgang-bestaetigen', { vorgang: d.vorgang, seitenToken: bind.seitenToken, antwort: 'ja' });
+    const ja = await rufeDo(sp, 'vorgang-bestaetigen', { vorgang: d.vorgang, seitenToken: bind.seitenToken, antwort: 'ja' });
+    geheim.push(ja.e);
     uhr.vor(30_000);
-    const b = await abholen();
+    const b = await abholen(geraet, d.abholGeheimnis, ja.e);
     const s = b.daten || {};
     geheim.push(s.sitzung);
     const claims = s.sitzung ? await pruefeToken(SCHLUESSEL, s.sitzung, 'sitzung', uhr()) : null;
     check('P16 4.1: nach Ja → bestaetigt mit Sitzung (jm1., prüfbar) und Stand Kollege, Gerät und 30 Tage',
       b.status === 200 && s.zustand === 'bestaetigt' && !!claims && claims.kid === g.kid && claims.stufe === 'kollege'
         && claims.gid === geraet.gid && claims.exp === uhr() + 30 * TAG && JSON.stringify(s.stand) === JSON.stringify(claims));
+    // Z2: ohne e nimmt der Grabstein nichts an (dasselbe e innerhalb von 60 s: eigener Fall unten).
     const nochmal = await abholen();
-    check('P16 4.1: zweites Abholen → 404 S10', soll(nochmal, 404, 'vorgang-unbekannt'));
+    check('P16 4.1, Z2: zweites Abholen ohne e → 404 S10', soll(nochmal, 404, 'vorgang-unbekannt'));
     const katalog = await api(env, 'GET', '/suite.json', { sitzung: s.sitzung });
     check('P16 4.1: die Sitzung öffnet das Gate (GET /suite.json → 200)', katalog.status === 200);
-    const v2 = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben } });
+    const v2 = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben, rueckPort: RUECK_PORT } });
     geheim.push(v2.daten.abholGeheimnis, v2.daten.code);
     const ab1 = await api(env, 'POST', '/konto/vorgang/abbrechen', { body: { vorgang: v2.daten.vorgang, abholGeheimnis: 'Zz9_-'.repeat(8) + 'Zz9' } }); // richtige Form, falscher Wert
     const ab2 = await api(env, 'POST', '/konto/vorgang/abbrechen', { body: { vorgang: v2.daten.vorgang, abholGeheimnis: v2.daten.abholGeheimnis } });
@@ -189,7 +195,7 @@ async function run() {
     check('P16 4.1: Abbrechen nur mit Abholgeheimnis (sonst 404 S10); danach ist der Vorgang weg',
       soll(ab1, 404, 'vorgang-unbekannt') && ab2.status === 200 && ab2.daten.ok === true && soll(ab3, 404, 'vorgang-unbekannt'));
     // Klasse „Code abgelaufen“: genau 5 min nach dem Anlegen gilt der Vorgang nicht mehr (Frist VORGANG_MS, EP5).
-    const v3 = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben } });
+    const v3 = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben, rueckPort: RUECK_PORT } });
     geheim.push(v3.daten.abholGeheimnis, v3.daten.code);
     uhr.vor(5 * 60_000);
     const spaet = async () => api(env, 'POST', '/konto/vorgang/abholen', {
@@ -552,7 +558,7 @@ async function run() {
     const boese = { 'x-konto-intern': '1', 'x-connect-admin': '1', cookie: 'sitzung=test-keks', 'x-forwarded-host': 'evil.test' };
     env.KONTO.anfragen.length = 0;
     const geraet = await testGeraet();
-    const v = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben }, kopf: boese });
+    const v = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben, rueckPort: RUECK_PORT }, kopf: boese });
     geheim.push(v.daten && v.daten.abholGeheimnis, v.daten && v.daten.code);
     await api(env, 'GET', '/konto/ich', { sitzung: chefin.sitzung, kopf: boese });
     await api(env, 'GET', '/konto/admin/uebersicht', { sitzung: chefin.sitzung, kopf: boese });
@@ -567,7 +573,7 @@ async function run() {
   // P16 S5: ohne Einrichtung 503 S5; Jurisdiction wie Connect (Vorgabe eu, '' = global, fehlende Fähigkeit = 503).
   {
     const geraet = await testGeraet();
-    const vorgang = (env) => api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben } });
+    const vorgang = (env) => api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben, rueckPort: RUECK_PORT } });
     const ohneSchluessel = await vorgang(umgebung({ KONTO_SCHLUESSEL: undefined }));
     const ohneBindung = await vorgang(umgebung({ KONTO: undefined }));
     const ohneFaehigkeit = await vorgang(umgebung({}, { mitJurisdiktion: false }));
@@ -598,16 +604,16 @@ async function run() {
     const geraet = await testGeraet();
     const status = [];
     for (let i = 0; i < 21; i++) {
-      const r = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben }, ip: '1.1.1.1' });
+      const r = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben, rueckPort: RUECK_PORT }, ip: '1.1.1.1' });
       if (r.daten && r.daten.abholGeheimnis) geheim.push(r.daten.abholGeheimnis, r.daten.code);
       status.push(r);
     }
-    const andere = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben }, ip: '2.2.2.2' });
+    const andere = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben, rueckPort: RUECK_PORT }, ip: '2.2.2.2' });
     const anfragenVorher = env.KONTO.anfragen.length;
-    const nochEine = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben }, ip: '1.1.1.1' });
+    const nochEine = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben, rueckPort: RUECK_PORT }, ip: '1.1.1.1' });
     const anfragenNachher = env.KONTO.anfragen.length;
     env.KONTO_RL_VORGANG.neuesFenster();
-    const spaeter = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben }, ip: '1.1.1.1' });
+    const spaeter = await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben, rueckPort: RUECK_PORT }, ip: '1.1.1.1' });
     for (const r of [andere, spaeter]) if (r.daten && r.daten.abholGeheimnis) geheim.push(r.daten.abholGeheimnis, r.daten.code);
     const einundzwanzigste = status[20];
     const rlSchluessel = [...new Set(env.KONTO_RL_VORGANG.aufrufe)];
@@ -710,7 +716,7 @@ async function run() {
     let ipNr = 0;
     const ip = () => `11.0.0.${ipNr++}`;
     const jsonMitLaenge = (n) => {
-      const basis = { geraet: geraet.angaben, fuell: '' };
+      const basis = { geraet: geraet.angaben, rueckPort: RUECK_PORT, fuell: '' };
       const leer = enc.encode(JSON.stringify(basis)).length;
       return JSON.stringify({ ...basis, fuell: 'a'.repeat(n - leer) });
     };
@@ -814,7 +820,7 @@ async function run() {
     const versteckt = (html, name) => (html.match(new RegExp(`name="${name}" value="([^"]*)"`)) || [])[1];
     const zeigt = (a, ...texte) => texte.every((t) => a.html.includes(esc(t)));
     const vorgang = async (env, geraet) => {
-      const v = await api(env, 'POST', '/konto/vorgang', { body: { geraet: (geraet ?? (await testGeraet())).angaben } });
+      const v = await api(env, 'POST', '/konto/vorgang', { body: { geraet: (geraet ?? (await testGeraet())).angaben, rueckPort: RUECK_PORT } });
       geheim.push(v.daten.abholGeheimnis, v.daten.code);
       return v.daten;
     };
@@ -846,9 +852,10 @@ async function run() {
     const b1 = await sende(env, '/konto/passwort', { v: v1.vorgang, email: 'Erika@Extern.test', einladungscode: codeE.toLowerCase(), neu: 'test-passwort-erika', neu2: 'test-passwort-erika' });
     const t1 = versteckt(b1.html, 't');
     geheim.push(t1);
-    check('P17 4.1: Einladung → Bestätigungsseite: Angemeldet als E-Mail, Code wie im Launcher, Rechner, Ja und Nein',
+    // Z2 Nr. 5: der Rechnername nur aus erlaubten Zeichen (aus <b>Regie</b> "1" & 'A' wird bRegieb 1 'A'), escaped und als B25.
+    check('P17 4.1, Z2: Einladung → Bestätigungsseite: Angemeldet als E-Mail, Code wie im Launcher, Rechner (B25, nur erlaubte Zeichen, escaped), Ja und Nein',
       b1.status === 200 && zeigt(b1, B.B7_frage, B.B7_ja, B.B7_nein) && b1.html.includes(esc('Angemeldet als erika@extern.test'))
-        && b1.html.includes(`<p class="code">${v1.code}</p>`) && b1.html.includes('Rechner: &lt;b&gt;Regie&lt;/b&gt; &quot;1&quot; &amp; &#39;A&#39;')
+        && b1.html.includes(`<p class="code">${v1.code}</p>`) && b1.html.includes('<p>Rechner: bRegieb 1 &#39;A&#39; (vom Rechner gemeldet)</p>')
         && !b1.html.includes('<b>Regie') && typeof t1 === 'string' && t1.length > 20 && versteckt(b1.html, 'v') === v1.vorgang);
     const ohneT = await sende(env, '/konto/bestaetigen', { v: v1.vorgang, antwort: 'ja' });
     const falschT = await sende(env, '/konto/bestaetigen', { v: v1.vorgang, t: 'test-falsches-seitentoken', antwort: 'ja' });
@@ -856,9 +863,14 @@ async function run() {
     check('P17 4.1: Bestätigen ohne oder mit falschem Seitentoken → 403 B10, der Launcher wartet weiter',
       ohneT.status === 403 && zeigt(ohneT, B.B10) && falschT.status === 403 && zeigt(falschT, B.B10) && w.daten.zustand === 'wartet');
     const ja = await sende(env, '/konto/bestaetigen', { v: v1.vorgang, t: t1, antwort: 'ja' });
-    const ab = await api(env, 'POST', '/konto/vorgang/abholen', { body: { vorgang: v1.vorgang, abholGeheimnis: v1.abholGeheimnis, beweis: await geraet.beweis('abholen', v1.vorgang, uhr()) } });
+    // Z2: Ja springt per 303 an den Rückkanal; den Einmalwert e bringt nur dieser Sprung (der Launcher liest ihn dort).
+    const sprung = new URL(ja.kopf.get('location') || 'http://ohne-sprung.invalid/');
+    const eJa = sprung.searchParams.get('e');
+    geheim.push(eJa);
+    const ab = await api(env, 'POST', '/konto/vorgang/abholen', { body: { vorgang: v1.vorgang, abholGeheimnis: v1.abholGeheimnis, beweis: await geraet.beweis('abholen', v1.vorgang, uhr()), e: eJa } });
     geheim.push(ab.daten && ab.daten.sitzung);
-    check('P17 4.1: Ja → B8; der Launcher holt die Sitzung des Externen ab', ja.status === 200 && zeigt(ja, B.B8) && ab.daten.zustand === 'bestaetigt' && ab.daten.stand.email === 'erika@extern.test');
+    check('P17 4.1, Z2: Ja → 303 an den Rückkanal auf 127.0.0.1 (B26 als Rückfall); der Launcher holt mit e die Sitzung des Externen ab',
+      ja.status === 303 && zeigt(ja, B.B26) && sprung.host === `127.0.0.1:${RUECK_PORT}` && ab.daten.zustand === 'bestaetigt' && ab.daten.stand.email === 'erika@extern.test');
 
     // Nein → B9 und abgelehnt beim Abholen; ein zweites Konto am selben Vorgang → B11.
     const v2 = await vorgang(env);
@@ -991,7 +1003,7 @@ async function run() {
     ];
     const kopf502 = [...ausfallSeiten, ...mehr502].filter((a) => a.kopf.get('content-type') !== 'text/html; charset=utf-8' || a.kopf.get('cache-control') !== 'no-store'
       || a.kopf.get('referrer-policy') !== 'no-referrer' || a.kopf.get('x-content-type-options') !== 'nosniff'
-      || a.kopf.get('content-security-policy') !== "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" || a.kopf.get('set-cookie') !== null);
+      || a.kopf.get('content-security-policy') !== "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' http://127.0.0.1:*; base-uri 'none'; frame-ancestors 'none'" || a.kopf.get('set-cookie') !== null);
     check('Z1-W2 Punkt 6: alle 502-Seiten (' + (ausfallSeiten.length + mehr502.length) + ': Ausnahme auf jeder Seiten-Route, DO-Ausfall, unbekannter Code im Default-Zweig von passwortRoute) mit den Kopfzeilen der übrigen Seiten',
       mehr502.every((a) => a.status === 502 && a.html.includes('role="alert">interner Fehler</p>')) && kopf502.length === 0);
 
@@ -1036,8 +1048,8 @@ async function run() {
       s5.status === 503 && s5b.status === 503 && zeigt(s5, FEHLER_TEXT['nicht-eingerichtet']) && (s5.kopf.get('content-type') || '').startsWith('text/html')
         && alsAusfallSeite && grossOk);
 
-    // Kopfzeilen und kein Skript auf jeder Seite dieses Blocks.
-    const CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+    // Kopfzeilen und kein Skript auf jeder Seite dieses Blocks (Z2: form-action auch http://127.0.0.1:* für den Sprung nach Ja).
+    const CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' http://127.0.0.1:*; base-uri 'none'; frame-ancestors 'none'";
     const kopfFalsch = seiten.filter((a) => a.kopf.get('content-type') !== 'text/html; charset=utf-8' || a.kopf.get('cache-control') !== 'no-store'
       || a.kopf.get('referrer-policy') !== 'no-referrer' || a.kopf.get('x-content-type-options') !== 'nosniff'
       || a.kopf.get('content-security-policy') !== CSP || a.kopf.get('set-cookie') !== null || /<script/i.test(a.html));
@@ -1105,7 +1117,7 @@ async function run() {
     /** Vorgang anlegen (je Aufruf eigene IP, die Drossel zählt 10 je IP) und den Google-Start holen → { v, ort (URL), state, nonce }. */
     let ipNr = 0;
     const legeAn = async () => {
-      const v = await api(env, 'POST', '/konto/vorgang', { body: { geraet: (await testGeraet()).angaben }, ip: `9.9.8.${ipNr++}` });
+      const v = await api(env, 'POST', '/konto/vorgang', { body: { geraet: (await testGeraet()).angaben, rueckPort: RUECK_PORT }, ip: `9.9.8.${ipNr++}` });
       geheim.push(v.daten.abholGeheimnis, v.daten.code);
       return v;
     };
@@ -1332,7 +1344,7 @@ async function run() {
 
     // Z1-W2 [T]: alle Seiten dieses Blocks (ohne die 302) tragen CSP, no-store, no-referrer, nosniff und kein Set-Cookie; der 302 sagt no-referrer.
     {
-      const CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+      const CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' http://127.0.0.1:*; base-uri 'none'; frame-ancestors 'none'";
       const html = seitenP18.filter((a) => a.status !== 302);
       const umleitungen = seitenP18.filter((a) => a.status === 302);
       const falsch = html.filter((a) => a.kopf.get('content-type') !== 'text/html; charset=utf-8' || a.kopf.get('cache-control') !== 'no-store' || a.kopf.get('referrer-policy') !== 'no-referrer'
@@ -1354,6 +1366,153 @@ async function run() {
     const q = readFileSync(new URL('../konto-google.js', import.meta.url), 'utf8');
     check('P18 rein: konto-google.js importiert nur konto-kern.js und ruft nur den Token-Endpunkt',
       (q.match(/^import /gm) || []).length === 1 && q.includes("from './konto-kern.js'") && (q.match(/fetch\(/g) || []).length === 1);
+  }
+
+  // ── Z2: Rückkanal-Bindung über HTTP (Spec 4.1 mit Z2; RFC 8252 loopback redirect): anlegen mit Port → anmelden → Ja → 303 an
+  // 127.0.0.1:<port> mit v und e → abholen nur mit e; Grabstein 60 s; Phishing (der Angreifer legt den Vorgang selbst an) ──
+  {
+    const { SEITEN_TEXT: B, esc } = await import('../konto-seiten.js');
+    const env = umgebung();
+    const uhr = env.KONTO_UHR;
+    const admin = await ersterAdmin(env);
+    const code = await einladen(env, admin, 'erika@extern.test');
+    geheim.push('test-passwort-erika-z2');
+    let ipNr = 0;
+    const formular = async (pfad, felder) => {
+      const res = await worker.fetch(new Request('https://proxy.test' + pfad, {
+        method: 'POST',
+        headers: { 'CF-Connecting-IP': `10.9.0.${ipNr++}`, 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(felder).toString(),
+      }), env, makeWaitCtx());
+      return { status: res.status, kopf: res.headers, html: await res.text() };
+    };
+    const seitenToken = (html) => (html.match(/name="t" value="([^"]*)"/) || [])[1];
+    const abholen = async (v, geraet, e, geheimnis = v.abholGeheimnis) => api(env, 'POST', '/konto/vorgang/abholen', {
+      body: { vorgang: v.vorgang, abholGeheimnis: geheimnis, beweis: await geraet.beweis('abholen', v.vorgang, uhr()), ...(e === undefined ? {} : { e }) },
+    });
+
+    // Nr. 1/2: der Port des Rückkanals ist Pflicht (ganze Zahl 1024–65535).
+    const g0 = await testGeraet();
+    const ohnePort = [];
+    for (const p of [undefined, 80, 1023, 65536, 50000.5, '50321', null]) {
+      ohnePort.push(await api(env, 'POST', '/konto/vorgang', { body: { geraet: g0.angaben, ...(p === undefined ? {} : { rueckPort: p }) } }));
+    }
+    check('Z2 1/2: POST /konto/vorgang ohne gültigen rueckPort (fehlt, 80, 1023, 65536, 50000.5, Text, null) → 400 S11', ohnePort.every((a) => soll(a, 400, 'ungueltig')));
+
+    // Kette: anlegen mit Port, Einladung einlösen → Bestätigungsseite mit B25 und B24 direkt über Ja.
+    const geraet = await testGeraet({ name: 'Regie-PC 7' });
+    const v = (await api(env, 'POST', '/konto/vorgang', { body: { geraet: geraet.angaben, rueckPort: 61001 } })).daten;
+    geheim.push(v.abholGeheimnis, v.code);
+    const best = await formular('/konto/passwort', { v: v.vorgang, email: 'erika@extern.test', einladungscode: code, neu: 'test-passwort-erika-z2', neu2: 'test-passwort-erika-z2' });
+    const t = seitenToken(best.html);
+    geheim.push(t);
+    const iWarn = best.html.indexOf(esc(B.B24));
+    const iForm = best.html.indexOf('<form method="post" action="/konto/bestaetigen">');
+    const iJa = best.html.indexOf(esc(B.B7_ja));
+    const zwischen = iWarn < 0 ? 'fehlt' : best.html.slice(iWarn + esc(B.B24).length, iJa).replace(/<[^>]*>/g, '').trim();
+    check('Z2 4: der Warnsatz B24 steht auf der Bestätigungsseite direkt über „Ja, das ist mein Rechner“ (kein anderer Text dazwischen)',
+      best.status === 200 && iWarn > 0 && iWarn < iForm && iForm < iJa && zwischen === '');
+    check('Z2 5: der Rechnername steht auf der Bestätigungsseite nur in der Form B25 („Rechner: ‹Name› (vom Rechner gemeldet)“)',
+      best.html.includes(`<p>${esc('Rechner: Regie-PC 7 (vom Rechner gemeldet)')}</p>`) && (best.html.match(/Regie-PC 7/g) || []).length === 1);
+    const vorJa = await abholen(v, geraet);
+
+    // Nr. 3: Ja → 303 an genau http://127.0.0.1:<rueckPort>/anmeldung/zurueck?v=…&e=…
+    const ja = await formular('/konto/bestaetigen', { v: v.vorgang, t, antwort: 'ja' });
+    const ort = ja.kopf.get('location') || '';
+    const ziel = new URL(ort || 'http://ohne-sprung.invalid/');
+    const e = ziel.searchParams.get('e') ?? '';
+    geheim.push(e);
+    check('Z2 3: Ja → 303 an genau http://127.0.0.1:<rueckPort>/anmeldung/zurueck?v=<Vorgang>&e=<43 Zeichen b64url>',
+      ja.status === 303 && ort === `http://127.0.0.1:61001/anmeldung/zurueck?v=${encodeURIComponent(v.vorgang)}&e=${e}` && /^[A-Za-z0-9_-]{43}$/.test(e)
+        && ziel.hostname === '127.0.0.1' && ziel.port === '61001' && ziel.searchParams.get('v') === v.vorgang && [...ziel.searchParams.keys()].join(',') === 'v,e');
+    check('Z2 3: die 303-Antwort trägt die Kopfzeilen der Seiten (CSP mit form-action http://127.0.0.1:*, no-store, no-referrer, nosniff, kein Cookie, kein Skript) und als Rückfall B26 als Link auf denselben Sprung',
+      ja.kopf.get('content-type') === 'text/html; charset=utf-8' && ja.kopf.get('cache-control') === 'no-store' && ja.kopf.get('referrer-policy') === 'no-referrer'
+        && ja.kopf.get('x-content-type-options') === 'nosniff'
+        && ja.kopf.get('content-security-policy') === "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' http://127.0.0.1:*; base-uri 'none'; frame-ancestors 'none'"
+        && ja.kopf.get('set-cookie') === null && !/<script/i.test(ja.html) && ja.html.includes(`<a href="${esc(ort)}">${esc(B.B26)}</a>`));
+    // Liefert der DO einen unbrauchbaren Port oder kein gültiges e, springt die Seite nirgendwohin (502 „interner Fehler“, kein Location).
+    const sprungMit = async (antwortDo) => {
+      const e2 = umgebung();
+      const jur = e2.KONTO.jurisdiction;
+      e2.KONTO.jurisdiction = (x) => {
+        const n = jur(x);
+        const get = n.get;
+        n.get = (id) => {
+          const s = get(id);
+          return { fetch: (rq) => (rq.url.endsWith('/vorgang-bestaetigen') ? Response.json(antwortDo) : s.fetch(rq)) };
+        };
+        return n;
+      };
+      const res = await worker.fetch(new Request('https://proxy.test/konto/bestaetigen', {
+        method: 'POST',
+        headers: { 'CF-Connecting-IP': '10.9.1.1', 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ v: 'v'.repeat(24), t: 'test-seitentoken', antwort: 'ja' }).toString(),
+      }), e2, makeWaitCtx());
+      return { status: res.status, ort: res.headers.get('location'), html: await res.text() };
+    };
+    const eGut = 'Ab1_-'.repeat(8) + 'Ab1';
+    const schlecht = [];
+    for (const a of [{ rueckPort: 80, e: eGut }, { rueckPort: 70000, e: eGut }, { rueckPort: '61001', e: eGut }, { rueckPort: 61001, e: 'kurz' }, { rueckPort: 61001 }, { e: eGut }]) {
+      schlecht.push(await sprungMit({ ok: true, zustand: 'bestaetigt', ...a }));
+    }
+    check('Z2 3: liefert der DO einen unbrauchbaren Port (80, 70000, Text, fehlt) oder kein gültiges e, gibt es keinen Sprung (502 interner Fehler, kein Location)',
+      schlecht.every((a) => a.status === 502 && a.ort === null && a.html.includes('role="alert">interner Fehler</p>')));
+
+    // Nr. 2: abholen ohne e → wartet; falsches e (richtige Form) → wartet; falsche Form → 400 vor dem DO; mit e → Sitzung.
+    const ohneE = await abholen(v, geraet);
+    const falschesE = await abholen(v, geraet, 'Zz9_-'.repeat(8) + 'Zz9');
+    const davor = env.KONTO.anfragen.length;
+    const formFalsch = [];
+    for (const x of [e.slice(1), e + 'A', e.slice(1) + '+', e.slice(1) + '=', 42, null, '']) formFalsch.push(await abholen(v, geraet, x));
+    const danach = env.KONTO.anfragen.length;
+    check('Z2 2: vor dem Ja wartet; nach dem Ja ohne e oder mit falschem e der richtigen Form → wartet (nur { zustand: wartet })',
+      JSON.stringify(vorJa.daten) === '{"zustand":"wartet"}' && JSON.stringify(ohneE.daten) === '{"zustand":"wartet"}' && JSON.stringify(falschesE.daten) === '{"zustand":"wartet"}');
+    check('Z2 2: Vorfilter wie in Z1: e nicht genau 43 Zeichen b64url (42, 44, mit +, mit =, Zahl, null, leer) → 400 S11 vor dem DO',
+      formFalsch.every((a) => soll(a, 400, 'ungueltig')) && danach === davor);
+    uhr.vor(2000);
+    const mitE = await abholen(v, geraet, e);
+    geheim.push(mitE.daten && mitE.daten.sitzung);
+    const c1 = mitE.daten && mitE.daten.sitzung ? await pruefeToken(SCHLUESSEL, mitE.daten.sitzung, 'sitzung', uhr()) : null;
+    check('Z2 2: mit e → bestaetigt mit der Sitzung des Externen an genau diesem Gerät',
+      mitE.status === 200 && mitE.daten.zustand === 'bestaetigt' && !!c1 && c1.gid === geraet.gid && c1.email === 'erika@extern.test');
+
+    // Nr. 6: die Antwort geht unterwegs verloren; dieselbe Anfrage innerhalb von 60 s → dieselbe Anmeldung, danach nicht mehr.
+    uhr.vor(59_999);
+    const wieder = await abholen(v, geraet, e);
+    geheim.push(wieder.daten && wieder.daten.sitzung);
+    const c2 = wieder.daten && wieder.daten.sitzung ? await pruefeToken(SCHLUESSEL, wieder.daten.sitzung, 'sitzung', uhr()) : null;
+    uhr.vor(1);
+    const zuSpaet = await abholen(v, geraet, e);
+    check('Z2 6: Antwort verloren: Wiederholung nach 59,999 s mit demselben Abholgeheimnis und e → bestaetigt, neue Sitzung desselben Geräts (gleiche kid, gid, angemeldetSeit); nach 60 s → 404 S10',
+      wieder.status === 200 && wieder.daten.zustand === 'bestaetigt' && !!c2 && !!c1 && c2.kid === c1.kid && c2.gid === c1.gid && c2.angemeldetSeit === c1.angemeldetSeit
+        && soll(zuSpaet, 404, 'vorgang-unbekannt'));
+
+    // Phishing: der Angreifer legt den Vorgang auf seinem Rechner an (eigener Port) und schickt dem Opfer den Link; das Opfer meldet
+    // sich an und klickt Ja. Der Browser des Opfers springt an 127.0.0.1:62002 auf dem Rechner des Opfers: e erreicht den Angreifer nie.
+    const angreifer = await testGeraet({ name: 'Regie-PC 1' });
+    const zweiter = await testGeraet({ name: 'Anderer PC' });
+    const va = (await api(env, 'POST', '/konto/vorgang', { body: { geraet: angreifer.angaben, rueckPort: 62002 } })).daten;
+    geheim.push(va.abholGeheimnis, va.code);
+    const pb = await formular('/konto/passwort', { v: va.vorgang, email: 'erika@extern.test', passwort: 'test-passwort-erika-z2' });
+    const ta = seitenToken(pb.html);
+    geheim.push(ta);
+    const jaOpfer = await formular('/konto/bestaetigen', { v: va.vorgang, t: ta, antwort: 'ja' });
+    const ortOpfer = new URL(jaOpfer.kopf.get('location') || 'http://ohne-sprung.invalid/');
+    geheim.push(ortOpfer.searchParams.get('e'));
+    const fremdGeheimnis = 'Cd2_-'.repeat(8) + 'Cd2';
+    const zweiterOhne = await abholen(va, zweiter, undefined, fremdGeheimnis);
+    const zweiterMitE = await abholen(va, zweiter, ortOpfer.searchParams.get('e') ?? undefined, fremdGeheimnis);
+    const antworten = [];
+    let sitzung = false;
+    for (let i = 0; i < 150; i++) {
+      uhr.vor(2000);
+      const r = await abholen(va, angreifer);
+      antworten.push(r.daten ? r.daten.zustand ?? r.daten.code : r.status);
+      if (r.daten && r.daten.sitzung) sitzung = true;
+    }
+    check('Z2 Phishing: der Rechner des Angreifers (eigener Vorgang, das Opfer bestätigt, Sprung an 127.0.0.1:62002 beim Opfer) bekommt nie eine Sitzung: 149 × wartet, nach 5 min abgelaufen; ein zweiter Launcher (anderes Abholgeheimnis, auch mit e) → 404 S10',
+      jaOpfer.status === 303 && ortOpfer.host === '127.0.0.1:62002' && !sitzung && antworten.slice(0, 149).every((z) => z === 'wartet') && antworten[149] === 'abgelaufen'
+        && soll(zweiterOhne, 404, 'vorgang-unbekannt') && soll(zweiterMitE, 404, 'vorgang-unbekannt'));
   }
 
   // ── Ende der Fälle ──

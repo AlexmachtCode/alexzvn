@@ -9,7 +9,7 @@
 import { googleBereit, googleRueckkehr, googleStartAdresse } from './konto-google.js';
 import { FREIGABE_MS, ZWECK_FUNKTION, darf, iveoBasisErlaubt, iveoSchluessel, kontoStand } from './konto-kern.js';
 import { BEWEIS_FENSTER_MS, iveoEntschluesseln, iveoVerschluesseln, neuerBestaetigungsCode, pruefeToken, schluesselBrauchbar, sha256B64url, signiere, zufall } from './konto-krypto.js';
-import { datumText, esc, fuelle, htmlAntwort, seiteAnmelden, seiteBestaetigen, seiteMeldung } from './konto-seiten.js';
+import { datumText, esc, fuelle, htmlAntwort, rueckAdresse, seiteAnmelden, seiteBestaetigen, seiteMeldung, seiteWeiter } from './konto-seiten.js';
 import { KONTO_RL, abgelehnt, drosselBindung, kontoAktion, kontoJetzt, kontoStub } from './konto-zugang.js';
 
 // Vertrag 10.1: P16 liefert kontoStub(env); er liegt seit P15 in konto-zugang.js (Alt-Key-Zählung).
@@ -95,7 +95,10 @@ export async function handleKonto(request, env, url, ctx) {
 
 // ── Launcher-API (Vertrag 10.1) ──────────────────────────────────────────────────────────────────────────────────────
 
-/** POST /konto/vorgang: Anmeldevorgang mit Code und Abholgeheimnis (Spec 4.1 Schritt 1; EP5). */
+/**
+ * POST /konto/vorgang: Anmeldevorgang mit Code und Abholgeheimnis (Spec 4.1 Schritt 1; EP5). Z2: `rueckPort` ist der Port des
+ * Rückkanals, auf dem der Launcher auf 127.0.0.1 lauscht (ganze Zahl 1024–65535; der DO prüft, sonst 400 S11).
+ */
 async function vorgangAnlegen(k) {
   const rl = await drosselBindung(k.request, k.env, KONTO_RL.vorgang);
   if (!rl.ok) return zuViele(rl.retryAfter);
@@ -108,20 +111,28 @@ async function vorgangAnlegen(k) {
     geraet: { publicJwk: g.publicJwk, name: g.name, plattform: g.plattform, arch: g.arch, version: g.version },
     abholHash: await sha256B64url(abholGeheimnis),
     code,
+    rueckPort: d.rueckPort,
   });
   if (!r.ok) return doFehler(r);
   const adresse = `${k.url.origin}/konto/anmelden?v=${encodeURIComponent(r.vorgang)}`;
   return json({ vorgang: r.vorgang, abholGeheimnis, code, adresse, bis: r.bis });
 }
 
-/** POST /konto/vorgang/abholen: wartet, bestätigt (dann Sitzung und Stand), abgelehnt oder abgelaufen (Spec 4.1 Schritt 4). */
+/**
+ * POST /konto/vorgang/abholen: wartet, bestätigt (dann Sitzung und Stand), abgelehnt oder abgelaufen (Spec 4.1 Schritt 4). Z2: Nach
+ * der Bestätigung gibt es die Sitzung nur mit dem Einmalwert `e`, den der Sprung nach „Ja“ an den Rückkanal dieses Rechners gebracht
+ * hat. `e` darf fehlen (vorher kennt der Launcher es nicht); wenn es da ist, genau 43 Zeichen b64url (Vorfilter wie Z1). Der DO
+ * bekommt es nur als Hash.
+ */
 async function vorgangAbholen(k) {
   const rl = await drosselBindung(k.request, k.env, KONTO_RL.abholen);
   if (!rl.ok) return zuViele(rl.retryAfter);
   const d = await liesJson(k.request);
   if (!vorgangUndGeheimnis(d)) return fehler(abgelehnt('ungueltig', 400));
+  if (d.e !== undefined && !(typeof d.e === 'string' && /^[A-Za-z0-9_-]{43}$/.test(d.e))) return fehler(abgelehnt('ungueltig', 400));
   if (uhrDaneben(d.beweis, k.jetzt)) return fehler(abgelehnt('uhr', 400));
-  const r = await k.rufe('vorgang-abholen', { vorgang: d.vorgang, abholHash: await sha256B64url(d.abholGeheimnis), beweis: d.beweis });
+  const eHash = d.e === undefined ? {} : { eHash: await sha256B64url(d.e) };
+  const r = await k.rufe('vorgang-abholen', { vorgang: d.vorgang, abholHash: await sha256B64url(d.abholGeheimnis), beweis: d.beweis, ...eHash });
   if (!r.ok) return doFehler(r);
   if (r.zustand !== 'bestaetigt') return json({ zustand: r.zustand });
   return json({ zustand: 'bestaetigt', ...(await sitzungAusstellen(k, r.konto, r.geraet)) });
@@ -497,7 +508,11 @@ async function passwortRoute(k) {
   }
 }
 
-/** POST /konto/bestaetigen: Ja oder Nein mit Seitentoken (Spec 4.1 Schritt 4); ohne gültiges Seitentoken 403 B10. */
+/**
+ * POST /konto/bestaetigen: Ja oder Nein mit Seitentoken (Spec 4.1 Schritt 4); ohne gültiges Seitentoken 403 B10. Z2: Ja springt per
+ * 303 an den Rückkanal des Launchers auf demselben Rechner (`http://127.0.0.1:<rueckPort>/anmeldung/zurueck?v=…&e=…`, RFC 8252 7.3);
+ * die CSP der Seiten erlaubt das in form-action. Der Körper zeigt B26 mit einem Link auf denselben Sprung (Rückfall). Nein → B9.
+ */
 async function bestaetigenRoute(k) {
   const f = await liesFormular(k.request);
   const vorgang = f ? (f.get('v') || '').trim() : '';
@@ -505,9 +520,21 @@ async function bestaetigenRoute(k) {
   const antwort = f ? f.get('antwort') : '';
   if (!vorgang || !seitenToken || (antwort !== 'ja' && antwort !== 'nein')) return meldung('B10', 403);
   const r = await k.rufe('vorgang-bestaetigen', { vorgang, seitenToken, antwort });
-  if (r.ok) return meldung(r.zustand === 'bestaetigt' ? 'B8' : 'B9');
+  if (r.ok && r.zustand === 'bestaetigt') return rueckSprung(vorgang, r);
+  if (r.ok) return meldung('B9');
   if (doAusfall(r)) return ausfallSeite();
   return meldung(r.code === 'konflikt' ? 'B11' : 'B10', 403);
+}
+
+/**
+ * Z2: 303 an den Rückkanal mit Vorgang und Einmalwert. Port und e kommen vom DO (Port beim Anlegen geprüft, e = zufall(32)); passt eins
+ * nicht, ist das ein Fehler des Servers (Seite „interner Fehler“), nie ein Sprung an eine andere Adresse. e steht nie im Log.
+ */
+function rueckSprung(vorgang, r) {
+  const portOk = Number.isInteger(r.rueckPort) && r.rueckPort >= 1024 && r.rueckPort <= 65535;
+  if (!portOk || typeof r.e !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(r.e)) return ausfallSeite();
+  const ziel = rueckAdresse(r.rueckPort, vorgang, r.e);
+  return htmlAntwort(seiteWeiter({ ziel }), 303, { location: ziel });
 }
 
 // ── Google-Anmeldung (P18; Spec 4, 4.1 Schritt 2; EP6; Texte B6, B10, B11, B16–B20) ──────────────────────────────────
