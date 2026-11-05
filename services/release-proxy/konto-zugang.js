@@ -57,6 +57,11 @@ export function abgelehnt(code, status, konflikt) {
   return { ok: false, status, error: text ?? FEHLER_TEXT.ungueltig, code: text ? code : 'ungueltig' };
 }
 
+/** Z2 (AR85 c): PROXY_KEY ist brauchbar, wenn er eine Zeichenkette mit mehr als Leerraum ist (fehlt, leer oder anderes → nein). */
+function proxyKeyBrauchbar(k) {
+  return typeof k === 'string' && k.trim() !== '';
+}
+
 /** Uhr der Anmeldung: im Test env.KONTO_UHR (eine Funktion, über wrangler nicht setzbar, EP21), sonst Date.now(). */
 export function kontoJetzt(env) {
   return env && typeof env.KONTO_UHR === 'function' ? env.KONTO_UHR() : Date.now();
@@ -263,6 +268,13 @@ export async function zugangPruefen(request, env, { funktion, gruppe = null, zie
   // Eine Sitzung oder Freigabe geht vor; ein zusätzlich mitgeschickter Schlüssel zählt dann nicht.
   if (bearer.startsWith(TOKEN_PRAEFIX)) return tokenPruefen(env, bearer, funktion, z, jetzt);
   const key = request.headers.get('X-Proxy-Key') || bearer;
+  // Z2 (AR85 c): ohne brauchbaren PROXY_KEY lässt sich ein mitgeschickter alter Schlüssel nicht prüfen. Das ist ein Einrichtungsfehler
+  // (503 S5), kein „nicht angemeldet“: Q&A löscht seinen Key bei 401 nicht-angemeldet (OE5), ein Deploy ohne das Secret ließe sonst jede
+  // Q&A ihren gültigen Key löschen. Ein vorhandener, aber falscher Key bleibt 401.
+  if (key && gruppe && !proxyKeyBrauchbar(env.PROXY_KEY)) {
+    console.warn('konto: PROXY_KEY fehlt oder ist leer, alter Schlüssel nicht prüfbar');
+    return abgelehnt('nicht-eingerichtet', 503);
+  }
   if (!key || !gruppe || !env.PROXY_KEY || !(await gleichOhneZeitleck(key, env.PROXY_KEY))) {
     return abgelehnt('nicht-angemeldet', 401);
   }

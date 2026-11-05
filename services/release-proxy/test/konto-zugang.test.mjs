@@ -676,6 +676,42 @@ async function run() {
       JSON.stringify(laeufe) === JSON.stringify(['worker', 'konto-kern', 'konto-krypto', 'konto-do', 'konto-zugang', 'konto-routen', 'qa-relay']));
   }
 
+  // Z2 (AR85 c): fehlt PROXY_KEY oder ist er leer bzw. unbrauchbar, lässt sich ein mitgeschickter alter Schlüssel nicht prüfen: 503
+  // nicht-eingerichtet (S5) statt 401 nicht-angemeldet. Q&A löscht seinen Key genau bei 401 nicht-angemeldet (OE5); ein Deploy ohne das
+  // Secret ließe sonst jede Q&A ihren gültigen Key löschen. Ein vorhandener, aber falscher Key bleibt 401; ohne Key bleibt es 401.
+  {
+    const r = (kopf, pfad = '/qa/qa-event-1/pending') => new Request('https://proxy.test' + pfad, { headers: { 'CF-Connecting-IP': '9.9.9.9', ...kopf } });
+    const Q = { funktion: 'qa', gruppe: 'qa', ziel: 'qa-event-1' };
+    const K = { funktion: 'katalog', gruppe: 'katalog', ziel: null };
+    const OHNE = { funktion: 'qa', gruppe: null, ziel: null };
+    const alt = { 'X-Proxy-Key': PROXY };
+    const faelle = [
+      { name: 'PROXY_KEY fehlt, X-Proxy-Key (qa)', env: { PROXY_KEY: undefined }, kopf: alt, o: Q, soll: [503, 'nicht-eingerichtet'] },
+      { name: 'PROXY_KEY fehlt, X-Proxy-Key (katalog)', env: { PROXY_KEY: undefined }, kopf: alt, o: K, soll: [503, 'nicht-eingerichtet'] },
+      { name: 'PROXY_KEY leer', env: { PROXY_KEY: '' }, kopf: alt, o: Q, soll: [503, 'nicht-eingerichtet'] },
+      { name: 'PROXY_KEY nur Leerraum', env: { PROXY_KEY: '   ' }, kopf: { 'X-Proxy-Key': '   x' }, o: Q, soll: [503, 'nicht-eingerichtet'] },
+      { name: 'PROXY_KEY keine Zeichenkette', env: { PROXY_KEY: 42 }, kopf: { 'X-Proxy-Key': '42' }, o: Q, soll: [503, 'nicht-eingerichtet'] },
+      { name: 'PROXY_KEY fehlt, alter Key als Bearer ohne jm1.', env: { PROXY_KEY: undefined }, kopf: bearer(PROXY), o: Q, soll: [503, 'nicht-eingerichtet'] },
+      { name: 'PROXY_KEY da, falscher Key', env: {}, kopf: { 'X-Proxy-Key': 'test-falscher-proxy-key' }, o: Q, soll: [401, 'nicht-angemeldet'] },
+      { name: 'PROXY_KEY da, richtiger Key', env: {}, kopf: alt, o: Q, soll: [200, 'alter-key'] },
+      { name: 'PROXY_KEY fehlt, ohne Key', env: { PROXY_KEY: undefined }, kopf: {}, o: Q, soll: [401, 'nicht-angemeldet'] },
+      { name: 'PROXY_KEY fehlt, Key an Route ohne Gruppe', env: { PROXY_KEY: undefined }, kopf: alt, o: OHNE, soll: [401, 'nicht-angemeldet'] },
+    ];
+    await pruefeFaelle('Z2 AR85 c: PROXY_KEY fehlt, leer oder unbrauchbar → 503 nicht-eingerichtet für einen alten Schlüssel; falscher Key 401', faelle, async (f) => {
+      const z = await zugangPruefen(r(f.kopf), { ...ENV, ...f.env }, { ...f.o, jetzt });
+      const ist = z.ok ? [200, z.art] : [z.status, z.code];
+      if (JSON.stringify(ist) !== JSON.stringify(f.soll)) return `ist ${ist.join(' ')}, soll ${f.soll.join(' ')}`;
+      if (!z.ok && z.error !== FEHLER_TEXT[z.code]) return `Text ${z.error}`;
+      return null;
+    });
+    const vorWarn = protokoll.length;
+    const res = await worker.fetch(r(alt, '/suite.json'), { ...ENV, PROXY_KEY: undefined });
+    const b = await res.json();
+    check('Z2 AR85 c: GET /suite.json mit altem Schlüssel ohne PROXY_KEY → 503 nicht-eingerichtet (S5) mit Warnung im Log, ohne Wert',
+      res.status === 503 && b.code === 'nicht-eingerichtet' && b.error === FEHLER_TEXT['nicht-eingerichtet']
+        && protokoll.slice(vorWarn).some((z) => z.startsWith('konto: PROXY_KEY fehlt')) && !protokoll.slice(vorWarn).some((z) => z.includes(PROXY)));
+  }
+
   // ── Ende der Fälle ──
 
   // P15 G4: Kein Geheimnis in der Konsole (läuft als letzter Fall über das ganze Protokoll).
