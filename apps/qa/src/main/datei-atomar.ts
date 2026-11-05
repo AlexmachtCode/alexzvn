@@ -23,7 +23,7 @@ export const UMBENENNEN_WIEDERHOLUNGEN = 5;
 export const UMBENENNEN_PAUSE_MS = 50;
 const WIEDERHOLBAR = ['EPERM', 'EACCES', 'EBUSY'];
 
-function pauseSynchron(ms: number): void {
+export function pauseSynchron(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
@@ -34,9 +34,16 @@ function istWiederholbar(e: unknown): boolean {
   return typeof c === 'string' && WIEDERHOLBAR.includes(c);
 }
 
+/** Fehler, bei denen ein Rückfall aufs Ziel nichts rettet, sondern es halb beschreiben würde. */
+function istKeinPlatz(e: unknown): boolean {
+  const c = (e as { code?: unknown } | null)?.code;
+  return c === 'ENOSPC' || c === 'EIO' || c === 'EDQUOT';
+}
+
 export function schreibeAtomar(pfad: string, daten: Uint8Array, ops: Partial<DateiOps> = {}): void {
   const o: DateiOps = { ...STANDARD, ...ops };
   const temp = `${pfad}.${process.pid}.tmp`;
+  let tempSchritt = true;
   try {
     const fd = o.openSync(temp, 'w');
     try {
@@ -45,6 +52,7 @@ export function schreibeAtomar(pfad: string, daten: Uint8Array, ops: Partial<Dat
     } finally {
       o.closeSync(fd);
     }
+    tempSchritt = false;
     for (let versuch = 0; ; versuch++) {
       try {
         o.renameSync(temp, pfad);
@@ -54,7 +62,17 @@ export function schreibeAtomar(pfad: string, daten: Uint8Array, ops: Partial<Dat
         o.pause(UMBENENNEN_PAUSE_MS);
       }
     }
-  } catch {
+  } catch (e) {
+    // AR92: Scheitert der Temp-Schritt an Platz oder Gerät, würde ein direktes Schreiben das Ziel halb beschreiben (und das
+    // Schlüsselpaar zerstören): Temp-Datei entfernen, das Ziel nie anfassen, Fehler weitergeben.
+    if (tempSchritt && istKeinPlatz(e)) {
+      try {
+        o.rmSync(temp, { force: true });
+      } catch {
+        /* egal */
+      }
+      throw e;
+    }
     // Rückfall wie vor L3: die Zieldatei direkt schreiben; scheitert auch das, wirft dieser Fehler. Die Temp-Datei wird entfernt
     // (ein Ordner an ihrem Pfad bleibt stehen, rmSync ohne recursive lässt ihn aus).
     try {

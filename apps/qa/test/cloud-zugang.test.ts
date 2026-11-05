@@ -803,6 +803,66 @@ const z2 = (await import('../src/main/cloud-zugang.ts')) as {
     fs.rmSync(ordner, { recursive: true, force: true });
   }
 
+  // AR92: Scheitert schon der Temp-Schritt an Platz oder Gerät (ENOSPC, EIO, EDQUOT), wirft Q&A: ein Rückfall würde das Ziel halb
+  // beschreiben. Das Ziel bleibt byte-gleich, die Temp-Datei wird entfernt, der Fehler kommt beim Aufrufer an.
+  const ordner3 = fs.mkdtempSync(join(tmpdir(), 'qa-voll-'));
+  try {
+    const ziel = join(ordner3, 'qa.cloud.secret');
+    const temp = `${ziel}.${process.pid}.tmp`;
+    const ergebnis: unknown[] = [];
+    for (const schritt of ['writeSync', 'fsyncSync', 'closeSync', 'openSync']) {
+      for (const code of ['ENOSPC', 'EIO', 'EDQUOT']) {
+        fs.writeFileSync(ziel, 'alt');
+        const direkt: string[] = [];
+        const ops: Ops = {
+          [schritt]: ((...a: unknown[]) => {
+            // die echte Operation ausführen (es soll eine Temp-Datei entstehen, wo das geht), danach der Fehler
+            const echt = (fs as unknown as Record<string, (...x: unknown[]) => unknown>)[schritt];
+            if (schritt === 'writeSync') fs.writeSync(a[0] as number, new TextEncoder().encode('{"neu'));
+            else if (schritt !== 'openSync') echt(...a);
+            throw fehler(code);
+          }) as never,
+          writeFileSync: ((...a: unknown[]) => { direkt.push('direkt'); fs.writeFileSync(a[0] as string, a[1] as Uint8Array); }) as never,
+        };
+        let gemeldet = '';
+        try { atom.schreibeAtomar?.(ziel, bytes('neu-und-lang'), ops); } catch (e) { gemeldet = String((e as { code?: string }).code ?? ''); }
+        ergebnis.push([schritt, code, gemeldet === code, fs.readFileSync(ziel, 'utf8'), direkt.length, fs.readdirSync(ordner3).sort()]);
+      }
+    }
+    eq(
+      ergebnis,
+      ['writeSync', 'fsyncSync', 'closeSync', 'openSync'].flatMap((s) => ['ENOSPC', 'EIO', 'EDQUOT'].map((c) => [s, c, true, 'alt', 0, ['qa.cloud.secret']])),
+      'Z1-L3 AR92: Scheitert der Temp-Schritt (open, write, fsync, close) an ENOSPC, EIO oder EDQUOT, wirft Q&A, das Ziel bleibt „alt“ und keine Temp-Datei bleibt liegen',
+    );
+    void temp;
+  } finally {
+    fs.rmSync(ordner3, { recursive: true, force: true });
+  }
+
+  // AR92: EBUSY wird wiederholt (1 x EBUSY, dann Erfolg); die echte Pause wirkt (>= 45 ms, ohne Injektion)
+  const ordner4 = fs.mkdtempSync(join(tmpdir(), 'qa-busy-'));
+  try {
+    const ziel = join(ordner4, 'qa.cloud.secret');
+    const pausen: number[] = [];
+    let n = 0;
+    const direkt: string[] = [];
+    atom.schreibeAtomar?.(ziel, bytes('busy'), {
+      renameSync: ((a: string, b: string) => { if (n++ < 1) throw fehler('EBUSY'); fs.renameSync(a, b); }) as never,
+      writeFileSync: (() => { direkt.push('direkt'); }) as never,
+      pause: ((ms: number) => { pausen.push(ms); }) as never,
+    });
+    const t0 = performance.now();
+    (atom as { pauseSynchron?: (ms: number) => void }).pauseSynchron?.(50);
+    const dauer = performance.now() - t0;
+    eq(
+      [fs.readFileSync(ziel, 'utf8'), n, pausen, direkt, dauer >= 45 && dauer < 1000],
+      ['busy', 2, [50], [], true],
+      'Z1-L3 AR92: EBUSY wird einmal wiederholt (Umbenennen klappt im 2. Versuch, kein Rückfall); die echte pauseSynchron(50) dauert mindestens 45 ms',
+    );
+  } finally {
+    fs.rmSync(ordner4, { recursive: true, force: true });
+  }
+
   // Aufräumen: nur qa.cloud.secret.<Ziffern>.tmp als Datei im selben Ordner; Ordner und fremde Namen bleiben, Fehler werfen nicht
   const ordner2 = fs.mkdtempSync(join(tmpdir(), 'qa-reste-'));
   try {
