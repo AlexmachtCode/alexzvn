@@ -236,26 +236,40 @@ export function zoomConnectHinweis(a: KontoAnsicht | null): string | null {
 export function tagesGrenze(feld: string, ende: boolean): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(feld.trim());
   if (!m) return null;
+  // Z1: `new Date(y, …)` macht aus den Jahren 0 bis 99 still 1900 bis 1999; solche Jahre sind hier ungültig (Tippfehler wie 0026).
+  if (Number(m[1]) < 100) return null;
   const d = ende ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59, 999) : new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? d.getTime() : null;
 }
 
 /** Spec 8 (1): Zoom-Formular prüfen — Zweck nötig (Z10a), „Bis“ nach „Von“ (Z10b); Von ab Tagesbeginn, Bis bis Tagesende. */
-export function zoomFormular(e: { zweck: string; von: string; bis: string }, _jetzt: number): { ok: true; zweck: string; von: number; bis: number } | { ok: false; text: string } {
+export function zoomFormular(e: { zweck: string; von: string; bis: string }, jetzt: number): { ok: true; zweck: string; von: number; bis: number } | { ok: false; text: string } {
   const zweck = e.zweck.trim();
   if (!zweck) return { ok: false, text: ZOOM_TEXTE.zweckFehlt };
   const von = tagesGrenze(e.von, false);
   const bis = tagesGrenze(e.bis, true);
-  if (von === null || bis === null || bis <= von) return { ok: false, text: ZOOM_TEXTE.bisVorVon };
+  // Z1: ein Zeitraum, der schon zu Ende ist, wird wie ein ungültiger abgewiesen (der Worker verlangt „bis“ nach jetzt).
+  if (von === null || bis === null || bis <= von || bis <= jetzt) return { ok: false, text: ZOOM_TEXTE.bisVorVon };
   return { ok: true, zweck, von, bis };
 }
 
-/** Fehler der Zoom-Anfrage: Z10c bei offener Anfrage, sonst die Texte des Anmelde-Dialogs (K50, K53, K54). */
+/**
+ * Fehler der Zoom-Anfrage: Z10c bei offener Anfrage, sonst die Texte des Anmelde-Dialogs (K50, K51, K53, K54, K55); eine
+ * abgelaufene oder fehlende Sitzung wie in der Admin-Maske K14. Alles andere bleibt K53.
+ */
 export function zoomFehlerText(code: KontoFehlerCode): string {
   if (code === 'konflikt') return ZOOM_TEXTE.schonOffen;
   if (code === 'netz') return ANMELDE_TEXTE.netz;
   if (code === 'zu-viele') return ANMELDE_TEXTE.zuViele;
+  if (code === 'uhr') return ANMELDE_TEXTE.uhr;
+  if (code === 'nicht-eingerichtet') return ANMELDE_TEXTE.nichtEingerichtet;
+  if (code === 'sitzung-abgelaufen' || code === 'nicht-angemeldet') return KOPF_TEXTE.titelAbgelaufen;
   return ANMELDE_TEXTE.server;
+}
+
+/** Z1: Ergebnis von „Adresse kopieren“ (K44): bei Erfolg „Adresse kopiert“, sonst der bestehende Fehlertext K53 statt Schweigen. */
+export function kopierErgebnis(ok: boolean): { kopiert: boolean; fehler: string | null } {
+  return ok ? { kopiert: true, fehler: null } : { kopiert: false, fehler: ANMELDE_TEXTE.server };
 }
 
 /** K43: verbleibende Zeit m:ss (abgerundet auf ganze Sekunden, nie negativ). */

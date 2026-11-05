@@ -119,7 +119,7 @@ export function ShowView(): React.JSX.Element {
     },
     // iveo-Side-Events (#11): nur bei offener iveo-Show. Ein Klick öffnet den
     // Live-Umschalter (Timer & Titler übernehmen Ablauf & Speaker) — keine neue
-    // Show nötig. Ohne Token nur Anzeige (Umschalten am Token-Rechner).
+    // Show nötig. Ohne Abgleich hier nur Anzeige (Umschalten am Rechner, der die Show abgleicht).
     ...(iveoActive
       ? [
           {

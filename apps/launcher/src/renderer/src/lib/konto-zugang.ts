@@ -25,6 +25,11 @@ export const IVEO_TEXTE = {
   /** I9 */ warnung: 'Gleicht ein anderer Rechner diese Show noch ab, beende dort den Abgleich, sonst schreiben beide die Show.',
 } as const;
 
+/** Text I16 (Z1, OE4): Hinweis im Side-Events-Panel; eigene Konstante, damit die geprüfte Liste I5–I9 unverändert bleibt. */
+export const IVEO_HINWEIS_TEXTE = {
+  /** I16 */ keinToken: 'Für dieses Event ist kein Token hinterlegt. Die Show gleicht nicht mit iveo ab, bis ein Admin das Event in der Admin-Maske hinterlegt.',
+} as const;
+
 export type ZugangsArt = 'angemeldet' | 'nicht-angemeldet' | 'entwicklung';
 
 /**
@@ -57,10 +62,21 @@ export function editorEventWahl(events: KontoIveoEvent[], wahl: string, showBasi
   if (wahl && events.some((e) => e.key === wahl)) return wahl;
   if (showSlug) {
     const basis = showBasis.trim();
-    const e = events.find((x) => x.slug === showSlug && (!basis || x.basis === basis));
-    if (e) return e.key;
+    // Z1: ohne Basis in der Show zählt nur ein eindeutiger Slug; gibt es ihn auf zwei Basen, wählt die Auswahl nichts vor.
+    const treffer = events.filter((x) => x.slug === showSlug && (!basis || x.basis === basis));
+    if (treffer.length === 1) return treffer[0].key;
   }
   return '';
+}
+
+/**
+ * I16 (Z1, OE4): im Side-Events-Panel, wenn die offene Show an iveo gebunden ist (`ab` da), der Main aber für ihr Event kein Token
+ * hat (`moeglich` falsch: weder zentral noch lokal im Übergang) und die Anmeldung gilt (sonst sagt I5b, was zu tun ist). Der Renderer
+ * erfährt nie ein Token, nur dieses Ja oder Nein (G4).
+ */
+export function keinTokenHinweis(ab: { key: string; hier: boolean; moeglich: boolean } | undefined, a: KontoAnsicht | null): string | null {
+  if (!ab || ab.moeglich || !sitzungGueltig(a)) return null;
+  return IVEO_HINWEIS_TEXTE.keinToken;
 }
 
 /**

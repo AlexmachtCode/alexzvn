@@ -57,10 +57,12 @@ export function datumText(ms: number): string {
 
 /** Initialen aus dem Namen (erstes und letztes Wort), sonst der erste Buchstabe der E-Mail. */
 export function initialen(name: string, email: string): string {
+  // Z1: Anfangsbuchstabe als ganzer Codepoint (`[0]` zerschnitte ein Emoji oder ein Zeichen außerhalb der BMP in ein halbes).
+  const erster = (s: string): string => Array.from(s)[0] ?? '';
   const w = name.trim().split(/\s+/).filter(Boolean);
-  if (w.length === 0) return (email.trim()[0] ?? '?').toUpperCase();
-  if (w.length === 1) return w[0][0].toUpperCase();
-  return `${w[0][0]}${w[w.length - 1][0]}`.toUpperCase();
+  if (w.length === 0) return (erster(email.trim()) || '?').toUpperCase();
+  if (w.length === 1) return erster(w[0]).toUpperCase();
+  return `${erster(w[0])}${erster(w[w.length - 1])}`.toUpperCase();
 }
 
 /** Farbe des Kreises: die Stufe nur, wenn das Wort der Stufe daneben oder im Titel steht (Farbe nie ohne Wort, Spec 4.2). */

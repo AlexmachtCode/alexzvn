@@ -1898,6 +1898,9 @@ await (async () => {
     ['angemeldet', eingang({ konto: angemeldetAls('angemeldet') }), '{"k1":"Angemeldet als Maria S. · Kollege."}'],
     ['offline', eingang({ konto: angemeldetAls('offline') }), '{"k1":"Angemeldet als Maria S. · offline bis 20.11.2026."}'],
     ['Server nicht erreichbar', eingang({ konto: angemeldetAls('server-nicht-erreichbar') }), '{"k1":"Angemeldet als Maria S. · offline bis 20.11.2026."}'],
+    // Z1-L2 [T]: offline ohne Datum (gueltigBis null) → die Zeile ohne „offline bis“, nie „bis null“ oder „Invalid Date“.
+    ['offline ohne Datum', eingang({ konto: { ...angemeldetAls('offline'), gueltigBis: null } as AnleitungsEingang['konto'] }), '{"k1":"Angemeldet als Maria S. · Kollege."}'],
+    ['Server nicht erreichbar ohne Datum', eingang({ konto: { ...angemeldetAls('server-nicht-erreichbar'), gueltigBis: null } as AnleitungsEingang['konto'] }), '{"k1":"Angemeldet als Maria S. · Kollege."}'],
     ['abgelaufen', eingang({ konto: angemeldetAls('abgelaufen') }), '{}'],
     ['nur nicht installiert', eingang({ states: { 'jm-timer': { status: 'not-installed' } } }), '{}'],
     ['ein Tool', eingang({ states: { 'jm-timer': { status: 'installed' } } }), '{"k2":"1 Tool installiert, weitere jederzeit im Werkzeugkasten."}'],
@@ -3461,7 +3464,8 @@ function dialogBefunde(q: string): string[] {
     !/einladungscode|codeBis/i.test(ohneKommentare(store))
     && store.includes('  schliesseAdmin: () => set({ adminOffen: false, admin: { daten: null, laedt: false, fehler: null } }),'));
   ck('P26 EP15: nach jeder Aktion übernimmt der Store die neue Übersicht aus der Antwort',
-    funktionsKoerper(store, 'adminAktion: async (a) => {').includes('      set({ admin: { daten: r.daten, laedt: false, fehler: null } });'));
+    // Z1 (AR75): die Übernahme läuft über adminNachAktion (kam keine Übersicht mit, bleiben die alten Daten stehen).
+    funktionsKoerper(store, 'adminAktion: async (a) => {').includes('      set((s) => ({ admin: adminNachAktion(s.admin, r.daten, r.uebersichtFehler) }));'));
   ck('P26 4: Löschen, neuer Code und Einladung nur über die reinen Helfer (Rückfrage, Formular, einmalige Anzeige)',
     zugaenge.includes('loeschFrage(zugang).text') && zugaenge.includes('const a = einladeFormular(einladung);')
     && zugaenge.includes('const a = zugangFormular(zugang.kid, formular);') && zugaenge.includes('einladungsAnzeige(code.name, code.ergebnis)'));
@@ -3553,6 +3557,24 @@ function dialogBefunde(q: string): string[] {
     panel.includes('  const abgleich = abgleichKnoepfe(data?.abgleich, ansicht);')
     && funktionsKoerper(panel, '  const setzeAbgleich = async (an: boolean): Promise<void> => {').includes('      await window.jmps.iveoAbgleichHier({ key: data.abgleich.key, an });\n      await loadDay(data.day);')
     && panel.includes('{abgleich.warnung && '));
+  // Z1-L2: Verdrahtung (das Verhalten läuft echt in konto-anzeige.test.ts und konto-admin.test.ts).
+  const store = quelleLf('../src/renderer/src/store/konto.ts');
+  const adminZug = quelleLf('../src/renderer/src/components/AdminZugaenge.tsx');
+  const adminIveo = quelleLf('../src/renderer/src/components/AdminIveo.tsx');
+  const anmeldeModal = quelleLf('../src/renderer/src/components/AnmeldeModal.tsx');
+  const aktionKoerper = funktionsKoerper(store, '  adminAktion: async (a) => {');
+  ck('Z1-L2 OE4, I16: das Panel zeigt den Hinweis aus keinTokenHinweis (Hinweis vor dem Block der Liste)',
+    panel.includes('  const tokenHinweis = keinTokenHinweis(data?.abgleich, ansicht);') && panel.includes('{tokenHinweis && (')
+    && panel.indexOf('{tokenHinweis && (') < panel.indexOf('{data && !data.ok ? ('));
+  ck('Z1-L2 AR75: adminAktion übernimmt die Übersicht über adminNachAktion (nie r.daten roh) und stößt bei kein-recht adminLaden an',
+    aktionKoerper.includes('admin: adminNachAktion(s.admin, r.daten, r.uebersichtFehler)') && !aktionKoerper.includes('daten: r.daten')
+    && aktionKoerper.includes("r.uebersichtFehler === 'kein-recht'"));
+  ck('Z1-L2: Lage bei Fensterfokus und ladeAnsicht gehen beide über uebernimm',
+    store.includes('        void window.jmps.kontoLage().then(uebernimm).catch(() => {});') && store.includes('      uebernimm(await window.jmps.kontoAnsicht());')
+    && !store.includes('set({ ansicht });\n      // Wechsel'));
+  ck('Z1-L2: Sperren hält das Detail offen (loeschenSchliesstDetail), Ersetzen merkt die Vorauswahl (vorauswahlNachLaden), Kopierfehler aus kopierErgebnis',
+    adminZug.includes('if (loeschenSchliesstDetail(zugang)) setAuswahl(null);') && adminIveo.includes('setGewaehlt(vorauswahlNachLaden(r.events, vorauswahl, geladeneBasis));')
+    && adminIveo.includes('setVorauswahl({ basis: zeile.basis, slug: zeile.slug });') && anmeldeModal.includes('const e = kopierErgebnis(ok);'));
   // A-D7 (Nachbesserung Block D, code:1): I6 bleibt Text im Panel — der Layout-Wächter von Launcher 0.17.1 sucht ihn als Marke.
   ck('P28 I6, I8: Panel und Show-Ansicht nennen den abgleichenden Rechner, nicht mehr das Token (I6 wörtlich im Panel)',
     panel.includes('                Live-Umschalten nur auf dem Rechner, der diese Show mit iveo abgleicht.\n') && showView.includes(': IVEO_TEXTE.ansehen,')

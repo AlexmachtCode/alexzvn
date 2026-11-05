@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { Button, cn } from '@jm/ui';
 import type { AdminAktionErgebnis, AdminUebersicht, Stufe, Werkzeug } from '@shared/konto';
 import {
-  ADMIN_TEXTE, einladeFormular, einladungsAnzeige, fehlerText, formularAusZugang, loeschFrage, verlaengertBis, zugangDetails,
+  ADMIN_TEXTE, einladeFormular, einladungsAnzeige, fehlerText, formularAusZugang, loeschenSchliesstDetail, loeschFrage, verlaengertBis, zugangDetails,
   zugangFormular, zugangZeilen, type ZugangsFormular,
 } from '@/lib/admin-ansicht';
 import { STUFE_TEXT } from '@shared/konto';
@@ -242,7 +242,18 @@ export function AdminZugaenge({ daten }: { daten: AdminUebersicht }): React.JSX.
                         {ADMIN_TEXTE.abbrechen}
                       </Button>
                       {frage === 'loeschen' ? (
-                        <Button size="sm" variant="destructive" disabled={busy} onClick={() => void fuehreAus({ aktion: 'zugang-loeschen', kid: zugang.kid }, () => setAuswahl(null))}>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={busy}
+                          onClick={() =>
+                            void fuehreAus({ aktion: 'zugang-loeschen', kid: zugang.kid }, () => {
+                              // Z1: ein gesperrtes Google-Konto bleibt in der Liste; das Detail bleibt offen und bestätigt (M16).
+                              if (loeschenSchliesstDetail(zugang)) setAuswahl(null);
+                              else setMeldung(ADMIN_TEXTE.gespeichert(zugang.name || zugang.email));
+                            })
+                          }
+                        >
                           {loeschFrage(zugang).ja}
                         </Button>
                       ) : (

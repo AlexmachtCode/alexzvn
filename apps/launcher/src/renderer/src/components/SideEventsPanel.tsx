@@ -6,7 +6,7 @@ import { iveoStatusZeile } from '@/lib/iveo-status';
 import { ORDNER_ZEILEN_TEXTE, kopfSichtbar, kopfzeile, listenZeile, ordnerZeile, weitereSideEvents } from '@/lib/ordner-zeilen';
 import { useTools } from '@/store/tools';
 import { useKonto } from '@/store/konto';
-import { IVEO_TEXTE, abgleichKnoepfe } from '@/lib/konto-zugang';
+import { IVEO_TEXTE, abgleichKnoepfe, keinTokenHinweis } from '@/lib/konto-zugang';
 
 /** YYYY-MM-DD → „Di, 12.11.2024" (lokal geparst, ohne TZ-Verschiebung). */
 function formatDay(iso: string): string {
@@ -143,6 +143,8 @@ export function SideEventsPanel(): React.JSX.Element | null {
   // Anmeldung P28 (EP14, OFP3, I7, I9): Knopf und Warnung zum „Abgleich hier“ aus dem reinen Helfer. Gespeichert wird im Main
   // nur die Markierung; danach die Liste neu laden — auch wenn der Main ablehnt, damit der Knopf dem Stand folgt.
   const abgleich = abgleichKnoepfe(data?.abgleich, ansicht);
+  // Z1 (OE4, I16): gebundene Show, aber kein Token für ihr Event (weder zentral noch lokal) — der Main meldet nur Ja oder Nein.
+  const tokenHinweis = keinTokenHinweis(data?.abgleich, ansicht);
   const setzeAbgleich = async (an: boolean): Promise<void> => {
     if (!data?.abgleich) return;
     setBusy('__abgleich__');
@@ -211,6 +213,12 @@ export function SideEventsPanel(): React.JSX.Element | null {
             onSchalter={(an) => void setzeAnhangOrdner(an)}
             onOeffnen={() => void oeffneAnhangOrdner()}
           />
+        )}
+
+        {tokenHinweis && (
+          <p role="status" className="mt-4 text-[11px] rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-[var(--muted-foreground)] break-words">
+            {tokenHinweis}
+          </p>
         )}
 
         {data && !data.ok ? (

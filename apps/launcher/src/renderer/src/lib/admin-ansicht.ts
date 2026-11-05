@@ -39,6 +39,10 @@ export const ADMIN_TEXTE = {
   /** M29 */ keineZugaenge: 'Noch keine Zugänge. Kollegen erscheinen nach ihrer ersten Anmeldung.',
   /** M48 (nur Teil 1, EP34; Reiter Zugänge bei Externen und Reiter Anfragen) */
   connectTeil1: 'Connect nutzt Cloud-Raum und Zoom-Freigabe erst mit einem kommenden Update; bis dahin gilt in Connect alles wie bisher.',
+  /** M49 (Z1, OE2): Hinterlegen mit einer iveo-Adresse außerhalb der festen Liste */
+  iveoBasisUnbekannt: 'Diese iveo-Adresse ist nicht freigegeben. Erlaubt sind Production (app.my-iveo.de) und Staging (staging-dev.my-iveo.de).',
+  /** M50 (Z1): Einladen mit einer E-Mail-Adresse ohne gültiges Format */
+  emailUngueltig: 'Bitte eine gültige E-Mail-Adresse eingeben.',
   /** S11 (9.6) für ungültige Anfragen */ ungueltig: 'ungültige Anfrage',
   /** S13, S14 (9.6) */ nichtNoetig: 'Zoom ist für deine Stufe schon erlaubt', unbekannterZweck: 'unbekannter Zweck',
 } as const;
@@ -116,9 +120,12 @@ export function zugangFormular(kid: string, f: ZugangsFormular): AdminAktion | {
 /** Spec 4: Einladen eines Externen — nicht für jakobsmedien.com (M28), „Zugang bis“ Pflicht (M27), bis Tagesende. */
 export function einladeFormular(f: { email: string; name: string; tools: Werkzeug[]; events: string[]; bis: string }): AdminAktion | { fehler: string } {
   const email = f.email.trim().toLowerCase();
+  // M50 (Z1): erst das Format, dann die Domain; ein leeres oder offensichtlich falsches Feld erreicht den Worker nie.
+  if (!/^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(email)) return { fehler: ADMIN_TEXTE.emailUngueltig };
   if (/@jakobsmedien\.com$/.test(email)) return { fehler: ADMIN_TEXTE.domain };
   const bis = tagesGrenze(f.bis, true);
-  if (bis === null) return { fehler: ADMIN_TEXTE.bisFehlt };
+  // Ein leeres Feld heißt M27, ein Datum, das keines ist (30. Februar, Jahr 0050), „ungültig“ (Z1).
+  if (bis === null) return { fehler: f.bis.trim() ? ADMIN_TEXTE.ungueltig : ADMIN_TEXTE.bisFehlt };
   return { aktion: 'einladen', email, name: f.name.trim(), tools: [...f.tools], events: [...f.events], bis };
 }
 
@@ -153,6 +160,7 @@ export function fehlerText(code: KontoFehlerCode, aktion?: AdminAktion['aktion']
     case 'konflikt': return aktion === 'einladen' ? T.emailVergeben : T.minEinAdmin;
     case 'erster-admin': return T.ersterAdminFest;
     case 'domain': return T.domain;
+    case 'iveo-basis-unbekannt': return T.iveoBasisUnbekannt;
     case 'kein-recht': return T.keinAdmin;
     case 'netz': return ANMELDE_TEXTE.netz;
     case 'zu-viele': return ANMELDE_TEXTE.zuViele;
@@ -169,6 +177,37 @@ export function fehlerText(code: KontoFehlerCode, aktion?: AdminAktion['aktion']
     case 'vorgang-unbekannt': return T.ungueltig;
     default: return ANMELDE_TEXTE.server;
   }
+}
+
+/** Stand der Admin-Maske im Store: Übersicht, Ladevorgang und Fehler der letzten Abfrage. */
+export interface AdminStand { daten: AdminUebersicht | null; laedt: boolean; fehler: KontoFehlerCode | null }
+
+/**
+ * Z1 (AR75): Stand der Maske nach einer erfolgreichen Aktion. Kam die neue Übersicht mit (`daten`), ersetzt sie die alte. Scheiterte
+ * nur die Folge-Abfrage (`daten` null), bleiben die bisherigen Daten stehen und der Fehler der Übersicht erscheint mit dem
+ * Ladefehler-Text samt „Erneut laden“ (M4); die Maske wird nie leer, nur weil die Übersicht fehlt.
+ */
+export function adminNachAktion(vorher: AdminStand, daten: AdminUebersicht | null, uebersichtFehler?: KontoFehlerCode): AdminStand {
+  if (daten !== null) return { daten, laedt: false, fehler: null };
+  return { daten: vorher.daten, laedt: false, fehler: uebersichtFehler ?? 'server' };
+}
+
+/** Z1: Nach „Zugang löschen“ bleibt das Detail eines Google-Kontos offen (es ist nur gesperrt, „Sperre aufheben“ steht dort); ein Externer verschwindet. */
+export function loeschenSchliesstDetail(z: AdminZugang): boolean {
+  return z.art !== 'google';
+}
+
+/**
+ * Z1 (Gesamtprüfung Minor 3): „Ersetzen“ merkt sich das Event (Basis und Slug). Nach „Events laden“ ist es wieder gewählt, wenn die
+ * geladene Liste es noch enthält und dieselbe Basis geladen wurde (AR63: eine andere Basis oder ein anderes Token setzt zurück).
+ */
+export function vorauswahlNachLaden(
+  events: ReadonlyArray<{ slug: string }>,
+  vorauswahl: { basis: string; slug: string } | null,
+  geladeneBasis: string,
+): string[] {
+  if (vorauswahl === null || vorauswahl.basis !== geladeneBasis) return [];
+  return events.some((e) => e.slug === vorauswahl.slug) ? [vorauswahl.slug] : [];
 }
 
 /** M4: Ladefehler der Maske mit Grund (ohne Schlusspunkt des Grundes doppelt). */
@@ -267,6 +306,8 @@ export function alteLauncherZeilen(u: AdminUebersicht): string[] {
   return zeilen.map((z) => {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(z.tag);
     const tag = m ? `${m[3]}.${m[2]}.${m[1]}` : z.tag;
-    return REITER_TEXTE.alteZeile(tag, REITER_TEXTE.gruppe[z.gruppe], z.plattform, z.anzahl, zeitText(z.zuletzt));
+    // Z1: eine Gruppe, die dieser Launcher nicht kennt (neuerer Worker), erscheint mit ihrer Kennung statt als „undefined“.
+    const gruppe = Object.hasOwn(REITER_TEXTE.gruppe, z.gruppe) ? REITER_TEXTE.gruppe[z.gruppe] : String(z.gruppe);
+    return REITER_TEXTE.alteZeile(tag, gruppe, z.plattform, z.anzahl, zeitText(z.zuletzt));
   });
 }

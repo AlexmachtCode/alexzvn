@@ -7,8 +7,10 @@ import {
   ADMIN_TEXTE, adminKnopfSichtbar, einladeFormular, einladungsAnzeige, fehlerText, feldDatum, formularAusZugang, ladeFehlerText,
   loeschFrage, verlaengertBis, zugangDetails, zugangFormular, zugangZeilen,
   REITER_TEXTE, alteLauncherZeilen, altKeyText, anfrageFreigabe, anfrageZeilen, geraeteZeilen, iveoHinterlegen, iveoZeilen,
+  adminNachAktion, loeschenSchliesstDetail, vorauswahlNachLaden,
 } from '../src/renderer/src/lib/admin-ansicht';
 import { datumText } from '../src/renderer/src/lib/konto-anzeige';
+import { ANMELDE_TEXTE } from '../src/renderer/src/lib/konto-dialog';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -309,6 +311,100 @@ function ansicht(zustand: KontoZustand, s: KontoStand | null): KontoAnsicht {
   };
   sammle(REITER_TEXTE);
   ck(`P27 G2: keine ASCII-Anführungszeichen in den Texten der Reiter (${alle.length} Zeichenketten)`, alle.length >= 30 && alle.every((t) => !t.includes('"')));
+}
+
+// --- Z1-L2 AR75: Antwort der Aktion ohne neue Übersicht lässt die Maske stehen ---------------------------------------------------
+{
+  const alt = uebersicht([zugang({ kid: 'alt' })]);
+  const neu = uebersicht([zugang({ kid: 'neu' })]);
+  const vorher = { daten: alt, laedt: true, fehler: null };
+  const s = (daten: AdminUebersicht | null, fehler?: KontoFehlerCode): string => {
+    const r = adminNachAktion(vorher, daten, fehler);
+    return `${r.daten === alt ? 'alt' : r.daten === neu ? 'neu' : String(r.daten)}|${r.laedt}|${r.fehler}`;
+  };
+  kreuz('Z1-L2 AR75: Übersicht da → neue Daten; Übersicht gescheitert (daten null) → alte Daten bleiben, Fehler der Übersicht steht', [
+    ['neue Übersicht', s(neu), 'neu|false|null'],
+    ['Übersicht scheitert, netz', s(null, 'netz'), 'alt|false|netz'],
+    ['Übersicht scheitert, zu-viele', s(null, 'zu-viele'), 'alt|false|zu-viele'],
+    ['Übersicht scheitert ohne Code', s(null), 'alt|false|server'],
+    ['neue Übersicht, Fehler wird ignoriert', s(neu, 'netz'), 'neu|false|null'],
+  ]);
+  ck('Z1-L2 AR75: der Fehler der Übersicht erscheint mit dem bestehenden Fehlertext (M4 mit Grund)',
+    ladeFehlerText('netz') === 'Die Admin-Maske konnte nicht geladen werden: Der Server ist nicht erreichbar. Prüfe die Internetverbindung und versuche es erneut.');
+}
+
+// --- Z1-L2 OE2, M49: iveo-basis-unbekannt in der Admin-Maske ---------------------------------------------------------------------
+{
+  const M49 = 'Diese iveo-Adresse ist nicht freigegeben. Erlaubt sind Production (app.my-iveo.de) und Staging (staging-dev.my-iveo.de).';
+  kreuz('Z1-L2 M49: Text wörtlich, fehlerText für iveo-basis-unbekannt bei jeder Aktion', [
+    ['M49 wörtlich', ADMIN_TEXTE.iveoBasisUnbekannt, M49],
+    ['beim Hinterlegen', fehlerText('iveo-basis-unbekannt', 'iveo-hinterlegen'), M49],
+    ['ohne Aktion', fehlerText('iveo-basis-unbekannt'), M49],
+    ['beim Entfernen', fehlerText('iveo-basis-unbekannt', 'iveo-entfernen'), M49],
+    ['uhr bleibt der Serverfehler', fehlerText('uhr'), ANMELDE_TEXTE.server],
+  ]);
+  ck('Z1-L2 G2: keine ASCII-Anführungszeichen in M49', !ADMIN_TEXTE.iveoBasisUnbekannt.includes('"'));
+}
+
+// --- Z1-L2 M50: Einladen — E-Mail-Format, ungültiges Datum, Vergangenheit, leere Events ---------------------------------------------
+{
+  const M50 = 'Bitte eine gültige E-Mail-Adresse eingeben.';
+  const e = (form: Partial<Parameters<typeof einladeFormular>[0]>): string => {
+    const r = einladeFormular({ email: 'neu@partner.de', name: 'X', tools: [], events: [], bis: '2026-12-31', ...form });
+    return 'fehler' in r ? `fehler|${r.fehler}` : r.aktion === 'einladen' ? `einladen|${r.email}|${r.events.join(',')}|${zeit(r.bis)}` : r.aktion;
+  };
+  const ungueltigeMails = ['abc', 'a@b', 'a b@c.de', '@x.de', 'x@.de', 'a@@b.de', 'a@b.', 'a@b c.de', '', '   ', 'a@b..de'];
+  kreuz('Z1-L2 M50: ungültige E-Mail-Adresse → M50 (vor Domain und Datum)', ungueltigeMails.map((m): [string, string, string] => [`"${m}"`, e({ email: m }), `fehler|${M50}`]));
+  kreuz('Z1-L2 M50: gültige Adressen gehen durch, Domain bleibt M28, Reihenfolge M50 vor M27', [
+    ['gewöhnlich', e({ email: 'a.b+c@sub.partner.de' }), 'einladen|a.b+c@sub.partner.de||31.12.2026 23:59:59.999'],
+    ['Domain', e({ email: 'neu@jakobsmedien.com' }), `fehler|${ADMIN_TEXTE.domain}`],
+    ['Format vor Datum', e({ email: 'abc', bis: '' }), `fehler|${M50}`],
+  ]);
+  kreuz('Z1-L2: ungültiges Datum zeigt „ungültige Anfrage“ statt M27; leeres Datum bleibt M27', [
+    ['30. Februar', e({ bis: '2026-02-30' }), `fehler|${ADMIN_TEXTE.ungueltig}`],
+    ['Unsinn', e({ bis: 'morgen' }), `fehler|${ADMIN_TEXTE.ungueltig}`],
+    ['Jahr 0050', e({ bis: '0050-01-01' }), `fehler|${ADMIN_TEXTE.ungueltig}`],
+    ['leer', e({ bis: '' }), `fehler|${ADMIN_TEXTE.bisFehlt}`],
+    ['nur Leerzeichen', e({ bis: '  ' }), `fehler|${ADMIN_TEXTE.bisFehlt}`],
+  ]);
+  // [T] Der Client urteilt nicht über die Vergangenheit; der Worker lehnt sie ab (ungueltig) und die Maske zeigt dessen Text.
+  kreuz('Z1-L2 [T]: „bis“ in der Vergangenheit und leere Events gehen unverändert an den Worker, dessen Antwort ungueltig wird angezeigt', [
+    ['bis gestern', e({ bis: '2026-10-20' }), 'einladen|neu@partner.de||20.10.2026 23:59:59.999'],
+    ['leere Events', e({ events: [] }), 'einladen|neu@partner.de||31.12.2026 23:59:59.999'],
+    ['Antwort ungueltig', fehlerText('ungueltig', 'einladen'), ADMIN_TEXTE.ungueltig],
+  ]);
+  ck('Z1-L2 G2: keine ASCII-Anführungszeichen in M50 und M50 wörtlich', ADMIN_TEXTE.emailUngueltig === M50 && !M50.includes('"'));
+}
+
+// --- Z1-L2 [T]: alte Launcher mit unbekannter Gruppe zeigen die Kennung statt „undefined“ ------------------------------------------------
+{
+  const u = uebersicht([]);
+  u.altKey.zeilen = [{ tag: '2026-10-21', gruppe: 'neu' as 'qa', plattform: 'win/x64', anzahl: 1, zuletzt: new Date(2026, 9, 21, 9, 0).getTime() }];
+  kreuz('Z1-L2 [T]: alteLauncherZeilen — unbekannte Gruppe fällt auf die Kennung zurück', [
+    ['unbekannte Gruppe', alteLauncherZeilen(u).join(' / '), '21.10.2026 · neu · win/x64: 1 Anfragen, zuletzt 09:00'],
+    ['Wächter gegen „constructor“', alteLauncherZeilen({ ...u, altKey: { ...u.altKey, zeilen: [{ ...u.altKey.zeilen[0], gruppe: 'constructor' as 'qa' }] } }).join(' / '),
+      '21.10.2026 · constructor · win/x64: 1 Anfragen, zuletzt 09:00'],
+  ]);
+}
+
+// --- Z1-L2: nach dem Sperren bleibt das Detail offen ----------------------------------------------------------------------------------
+kreuz('Z1-L2: „Zugang löschen“ — Google-Konto wird gesperrt und bleibt sichtbar (Detail offen), ein Externer verschwindet (Detail zu)', [
+  ['Google', String(loeschenSchliesstDetail(zugang({ art: 'google', stufe: 'kollege' }))), 'false'],
+  ['Passwort', String(loeschenSchliesstDetail(zugang({ art: 'passwort' }))), 'true'],
+]);
+
+// --- Z1-L2 Minor 3: „Ersetzen“ stellt die Vorauswahl nach „Events laden“ wieder her -------------------------------------------------
+{
+  const B = 'https://app.my-iveo.de/api/v1';
+  const ev = [{ slug: 'cop31', name: 'COP31' }, { slug: 'amb', name: 'Ambiente' }];
+  const v = (events: typeof ev, vor: { basis: string; slug: string } | null, basis: string): string => vorauswahlNachLaden(events, vor, basis).join(',');
+  kreuz('Z1-L2: Vorauswahl nur, wenn der Slug in der geladenen Liste steht und die Basis die des Ersetzens ist', [
+    ['Slug dabei', v(ev, { basis: B, slug: 'cop31' }, B), 'cop31'],
+    ['Slug nicht mehr dabei', v([ev[1]], { basis: B, slug: 'cop31' }, B), ''],
+    ['andere Basis geladen (AR63)', v(ev, { basis: B, slug: 'cop31' }, 'https://staging-dev.my-iveo.de/api/v1'), ''],
+    ['kein Ersetzen', v(ev, null, B), ''],
+    ['leere Liste', v([], { basis: B, slug: 'cop31' }, B), ''],
+  ]);
 }
 
 // ── Ende der Fälle (Admin-Maske) ──

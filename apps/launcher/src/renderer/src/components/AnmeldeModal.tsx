@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, Card, noDragRegion } from '@jm/ui';
-import { ANMELDE_TEXTE, KONTO_TEXTE, anmeldeAnzeige } from '@/lib/konto-dialog';
+import { ANMELDE_TEXTE, KONTO_TEXTE, anmeldeAnzeige, kopierErgebnis } from '@/lib/konto-dialog';
 import { useKonto } from '@/store/konto';
 
 /**
@@ -17,6 +17,8 @@ export function AnmeldeModal(): React.JSX.Element | null {
   const neuStarten = useKonto((s) => s.anmelden);
   const kopieren = useKonto((s) => s.adresseKopieren);
   const [kopiert, setKopiert] = useState(false);
+  // Z1: scheitert das Kopieren, steht der bestehende Fehlertext (kopierErgebnis) unter dem Hinweis statt Schweigen.
+  const [kopierFehler, setKopierFehler] = useState<string | null>(null);
   const [jetzt, setJetzt] = useState(() => Date.now());
 
   // K43: die Frist zählt sekündlich herunter, solange der Dialog offen ist.
@@ -31,7 +33,10 @@ export function AnmeldeModal(): React.JSX.Element | null {
     if (offen && (schritt.art === 'fertig' || schritt.art === 'abgebrochen')) schliessen();
   }, [offen, schritt, schliessen]);
   useEffect(() => {
-    if (schritt.art !== 'wartet') setKopiert(false);
+    if (schritt.art !== 'wartet') {
+      setKopiert(false);
+      setKopierFehler(null);
+    }
   }, [schritt]);
 
   const z = anmeldeAnzeige(schritt, jetzt);
@@ -83,10 +88,24 @@ export function AnmeldeModal(): React.JSX.Element | null {
               </p>
             )}
             {z.hinweis && <p className="mt-3 text-xs text-[var(--muted-foreground)]">{z.hinweis}</p>}
+            {kopierFehler && (
+              <p role="alert" className="mt-3 text-xs text-[var(--destructive)]">
+                {kopierFehler}
+              </p>
+            )}
           </div>
           <div className="mt-6 flex shrink-0 flex-wrap items-center justify-end gap-3">
             {z.knoepfe.includes('kopieren') && (
-              <Button variant="outline" onClick={() => void kopieren().then(setKopiert)}>
+              <Button
+                variant="outline"
+                onClick={() =>
+                  void kopieren().then((ok) => {
+                    const e = kopierErgebnis(ok);
+                    setKopiert(e.kopiert);
+                    setKopierFehler(e.fehler);
+                  })
+                }
+              >
                 {kopiert ? ANMELDE_TEXTE.kopiert : ANMELDE_TEXTE.kopieren}
               </Button>
             )}

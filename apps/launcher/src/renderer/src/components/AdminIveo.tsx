@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, cn } from '@jm/ui';
 import type { AdminUebersicht } from '@shared/konto';
-import { ADMIN_TEXTE, REITER_TEXTE, fehlerText, iveoHinterlegen, iveoZeilen } from '@/lib/admin-ansicht';
+import { ADMIN_TEXTE, REITER_TEXTE, fehlerText, iveoHinterlegen, iveoZeilen, vorauswahlNachLaden } from '@/lib/admin-ansicht';
 import { useKonto } from '@/store/konto';
 import { useTools } from '@/store/tools';
 
@@ -26,6 +26,8 @@ export function AdminIveo({ daten }: { daten: AdminUebersicht }): React.JSX.Elem
   const [token, setToken] = useState('');
   const [events, setEvents] = useState<Array<{ slug: string; name: string }>>([]);
   const [gewaehlt, setGewaehlt] = useState<string[]>([]);
+  // Z1 (Minor 3): „Ersetzen“ merkt sich das Event; nach „Events laden“ ist es wieder gewählt (vorauswahlNachLaden), AR63 bleibt.
+  const [vorauswahl, setVorauswahl] = useState<{ basis: string; slug: string } | null>(null);
   const [frage, setFrage] = useState(false);
   const [meldung, setMeldung] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,9 +47,12 @@ export function AdminIveo({ daten }: { daten: AdminUebersicht }): React.JSX.Elem
     setBusy(true);
     setMeldung(null);
     try {
-      const r = await laden({ basis: basis.trim() || standard, token: token.trim() });
-      if (r.ok) setEvents(r.events);
-      else {
+      const geladeneBasis = basis.trim() || standard;
+      const r = await laden({ basis: geladeneBasis, token: token.trim() });
+      if (r.ok) {
+        setEvents(r.events);
+        setGewaehlt(vorauswahlNachLaden(r.events, vorauswahl, geladeneBasis));
+      } else {
         setEvents([]);
         setGewaehlt([]);
         setMeldung(r.fehler);
@@ -70,6 +75,7 @@ export function AdminIveo({ daten }: { daten: AdminUebersicht }): React.JSX.Elem
         setToken('');
         setEvents([]);
         setGewaehlt([]);
+        setVorauswahl(null);
         setMeldung(null);
       } else setMeldung(fehlerText(r.code, a.aktion));
     } finally {
@@ -102,6 +108,7 @@ export function AdminIveo({ daten }: { daten: AdminUebersicht }): React.JSX.Elem
             type="button"
             onClick={() => {
               setAuswahl(z.key);
+              setVorauswahl(null);
               setFrage(false);
               setMeldung(null);
             }}
@@ -158,6 +165,7 @@ export function AdminIveo({ daten }: { daten: AdminUebersicht }): React.JSX.Elem
                     setToken('');
                     setEvents([{ slug: zeile.slug, name: zeile.event }]);
                     setGewaehlt([zeile.slug]);
+                    setVorauswahl({ basis: zeile.basis, slug: zeile.slug });
                   }}
                 >
                   {REITER_TEXTE.ersetzen}

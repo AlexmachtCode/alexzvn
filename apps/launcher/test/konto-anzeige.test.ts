@@ -12,11 +12,13 @@ import {
 import type { AnmeldeSchritt } from '../src/shared/konto';
 import {
   abmeldeFrage, ANMELDE_TEXTE, anmeldeAnzeige, ausgabeZeilen, hinweisZeilen, KONTO_TEXTE, kontoKnoepfe, kontoZeilen, ZOOM_TEXTE, zoomConnectHinweis,
-  zoomFehlerText, zoomFormular, zoomHinweis, zoomKnopfSichtbar, zoomStand, zustandsZeile,
+  zoomFehlerText, zoomFormular, zoomHinweis, zoomKnopfSichtbar, zoomStand, zustandsZeile, kopierErgebnis, tagesGrenze,
 } from '../src/renderer/src/lib/konto-dialog';
 
 import type { KontoIveoEvent } from '../src/shared/types';
-import { abgleichKnoepfe, editorEventWahl, editorIveoLage, IVEO_TEXTE, ZUGANG_TEXTE, zugangsAbzeichen } from '../src/renderer/src/lib/konto-zugang';
+import {
+  abgleichKnoepfe, editorEventWahl, editorIveoLage, IVEO_HINWEIS_TEXTE, IVEO_TEXTE, keinTokenHinweis, ZUGANG_TEXTE, zugangsAbzeichen,
+} from '../src/renderer/src/lib/konto-zugang';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -510,7 +512,9 @@ const STUFEN_FARBEN: KopfFarbe[] = ['admin', 'kollege', 'externer'];
   kreuz('P28 I5, EP13: gewählt wird über den Schlüssel ‹Basis›|‹Slug› — gültige Wahl bleibt, sonst das Event der Show, sonst keins', [
     ['gültige Wahl', editorEventWahl(zwei, zwei[1].key, '', null), zwei[1].key],
     ['Wahl nicht (mehr) in der Liste, Show mit Basis', editorEventWahl(zwei, 'weg|x', 'https://iveo.test/api/v1', 'cop31'), zwei[1].key],
-    ['Show ohne Basis: erstes Event mit dem Slug', editorEventWahl(zwei, '', '', 'cop31'), ev.key],
+    // Z1-L2: bei mehrdeutigem Slug (zwei Basen) wählt die Show ohne Basis nicht stillschweigend das erste Event.
+    ['Show ohne Basis, Slug mehrdeutig: keine Wahl', editorEventWahl(zwei, '', '', 'cop31'), ''],
+    ['Show ohne Basis, Slug eindeutig: dieses Event', editorEventWahl([ev], '', '', 'cop31'), ev.key],
     ['Show mit fremder Basis', editorEventWahl(zwei, '', 'https://anders.test/api/v1', 'cop31'), ''],
     ['keine Show, keine Wahl', editorEventWahl(zwei, '', '', null), ''],
     ['keine Events', editorEventWahl([], ev.key, '', 'cop31'), ''],
@@ -557,6 +561,93 @@ const STUFEN_FARBEN: KopfFarbe[] = ['admin', 'kollege', 'externer'];
   ]);
   const alle = [...Object.values(ZUGANG_TEXTE), ...Object.values(IVEO_TEXTE)];
   ck(`P28 G2: keine ASCII-Anführungszeichen in T20–T23, I5–I9 ohne I6 (${alle.length} Zeichenketten)`, alle.length === 16 && alle.every((t) => !t.includes('"')));
+}
+
+// --- Z1-L2 OE4, I16: Hinweis im Side-Events-Panel (gebunden × Token möglich × Ansicht) -----------------------------------------------
+{
+  const I16 = 'Für dieses Event ist kein Token hinterlegt. Die Show gleicht nicht mit iveo ab, bis ein Admin das Event in der Admin-Maske hinterlegt.';
+  const faelle: Array<[string, string, string]> = [];
+  const ansichten: Array<[string, KontoAnsicht | null, boolean]> = [
+    ['angemeldet', ansicht('angemeldet', stand('externer')), true], ['offline', ansicht('offline', stand('kollege')), true],
+    ['nicht angemeldet', ansicht('nicht-angemeldet', null), false], ['abgelaufen', ansicht('abgelaufen', stand('kollege')), false],
+    ['vor der ersten Ansicht', null, false],
+  ];
+  const k = 'https://app.my-iveo.de/api/v1|cop31';
+  for (const [name, a, gueltig] of ansichten) {
+    faelle.push([`${name}/keine gebundene Show`, String(keinTokenHinweis(undefined, a)), 'null']);
+    // „moeglich“ = der Main hat ein Token für genau dieses Event (zentral oder lokal im Übergang) — kein Token im Renderer (G4).
+    for (const hier of [true, false]) for (const moeglich of [true, false]) {
+      faelle.push([`${name}/hier ${hier}/Token ${moeglich}`, String(keinTokenHinweis({ key: k, hier, moeglich }, a)), !moeglich && gueltig ? I16 : 'null']);
+    }
+  }
+  kreuz('Z1-L2 I16: Hinweis nur bei gebundener Show ohne Token (weder zentral noch lokal) und mit gültiger Anmeldung (sonst gilt I5b)', faelle);
+  ck('Z1-L2 I16: Text wörtlich, ohne ASCII-Anführungszeichen', IVEO_HINWEIS_TEXTE.keinToken === I16 && !I16.includes('"'));
+}
+
+// --- Z1-L2: zoomFehlerText (EP30, EP31, Sitzung), tagesGrenze, Zoom-Zeitraum, „Adresse kopieren“ ------------------------------------
+{
+  kreuz('Z1-L2: Fehler der Zoom-Anfrage — uhr K55, nicht-eingerichtet K51, Sitzung K14, Rest K53', [
+    ['uhr', zoomFehlerText('uhr'), ANMELDE_TEXTE.uhr],
+    ['nicht-eingerichtet', zoomFehlerText('nicht-eingerichtet'), ANMELDE_TEXTE.nichtEingerichtet],
+    ['sitzung-abgelaufen', zoomFehlerText('sitzung-abgelaufen'), KOPF_TEXTE.titelAbgelaufen],
+    ['nicht-angemeldet', zoomFehlerText('nicht-angemeldet'), KOPF_TEXTE.titelAbgelaufen],
+    ['server', zoomFehlerText('server'), ANMELDE_TEXTE.server],
+    ['kein-recht', zoomFehlerText('kein-recht'), ANMELDE_TEXTE.server],
+    ['konflikt bleibt Z10c', zoomFehlerText('konflikt'), ZOOM_TEXTE.schonOffen],
+  ]);
+  const jahr = (feld: string): string => {
+    const t = tagesGrenze(feld, false);
+    return t === null ? 'null' : String(new Date(t).getFullYear());
+  };
+  kreuz('Z1-L2: tagesGrenze — Jahre 0000–0099 werden nie zu 19xx (ungültig), ab 0100 echt', [
+    ['0000', jahr('0000-01-01'), 'null'], ['0026', jahr('0026-11-10'), 'null'], ['0050', jahr('0050-06-15'), 'null'], ['0099', jahr('0099-12-31'), 'null'],
+    ['0100', jahr('0100-01-01'), '100'], ['2026', jahr('2026-11-10'), '2026'], ['1999', jahr('1999-12-31'), '1999'],
+    ['30. Februar', jahr('2026-02-30'), 'null'], ['Unsinn', jahr('x'), 'null'],
+  ]);
+  const f = (von: string, bis: string): string => {
+    const r = zoomFormular({ zweck: 'Gala', von, bis }, JETZT);
+    return r.ok ? 'ok' : `fehler|${r.text}`;
+  };
+  kreuz('Z1-L2: Zoom-Zeitraum in der Vergangenheit wird abgewiesen (Z10b), heute und später gelten', [
+    ['ganz vergangen', f('2026-10-01', '2026-10-10'), `fehler|${ZOOM_TEXTE.bisVorVon}`],
+    ['gestern', f('2026-10-20', '2026-10-20'), `fehler|${ZOOM_TEXTE.bisVorVon}`],
+    ['heute (Ende noch nicht erreicht)', f('2026-10-21', '2026-10-21'), 'ok'],
+    ['von vergangen, bis zukünftig', f('2026-10-01', '2026-10-25'), 'ok'],
+    ['Jahr 0026', f('0026-11-10', '0026-11-12'), `fehler|${ZOOM_TEXTE.bisVorVon}`],
+    ['zukünftig', f('2026-11-10', '2026-11-12'), 'ok'],
+  ]);
+  kreuz('Z1-L2: „Adresse kopieren“ — Erfolg zeigt K44 „Adresse kopiert“, Misserfolg den bestehenden Fehlertext K53', [
+    ['Erfolg', JSON.stringify(kopierErgebnis(true)), JSON.stringify({ kopiert: true, fehler: null })],
+    ['Misserfolg', JSON.stringify(kopierErgebnis(false)), JSON.stringify({ kopiert: false, fehler: ANMELDE_TEXTE.server })],
+  ]);
+}
+
+// --- Z1-L2 [T]: Initiale code-point-sicher, Farbe je Zustand ---------------------------------------------------------------------------
+{
+  kreuz('Z1-L2 [T]: Initialen sind code-point-sicher (kein halbes Emoji) und bleiben sonst gleich', [
+    ['Emoji vorn', initialen('😀 Zed', 'x@y.de'), '😀Z'],
+    ['Emoji im zweiten Namen', initialen('Zed 😀', 'x@y.de'), 'Z😀'],
+    ['nur Emoji', initialen('😀', 'x@y.de'), '😀'],
+    ['E-Mail mit Emoji', initialen('', '😀@y.de'), '😀'],
+    ['zwei Wörter', initialen('maria schmidt', 'x@y.de'), 'MS'],
+    ['drei Wörter', initialen('Anna Lena Meier', 'x@y.de'), 'AM'],
+    ['ein Wort', initialen('maria', 'x@y.de'), 'M'],
+    ['ohne Name', initialen('  ', 'olga@y.de'), 'O'],
+    ['nichts', initialen('', ''), '?'],
+  ]);
+  const farbe = (z: KontoZustand, st: Stufe): string => kontoKopf(ansicht(z, stand(st)), true).farbe;
+  const faelle: Array<[string, string, string]> = [];
+  for (const st of ['admin', 'kollege', 'externer'] as const) {
+    faelle.push([`angemeldet/${st}`, farbe('angemeldet', st), st], [`pruefe/${st}`, farbe('pruefe', st), st]);
+    faelle.push([`offline/${st}`, farbe('offline', st), 'gedaempft'], [`server-nicht-erreichbar/${st}`, farbe('server-nicht-erreichbar', st), 'gedaempft']);
+    faelle.push([`entzogen-laeuft/${st}`, farbe('entzogen-laeuft', st), 'warnung']);
+  }
+  faelle.push(['nicht-angemeldet', kontoKopf(ansicht('nicht-angemeldet', null), true).farbe, 'neutral']);
+  faelle.push(['kein-schluesselspeicher', kontoKopf(ansicht('kein-schluesselspeicher', null), true).farbe, 'warnung']);
+  faelle.push(['abgelaufen', kontoKopf(ansicht('abgelaufen', null), true).farbe, 'warnung']);
+  faelle.push(['entzogen', kontoKopf(ansicht('entzogen', null), true).farbe, 'warnung']);
+  faelle.push(['vor dem Laden', kontoKopf(null, true).farbe, 'neutral']);
+  kreuz('Z1-L2 [T]: Farbe des Kreises je Zustand (Stufenfarbe nur angemeldet/prüfe, offline gedämpft, Entzug und Ablauf Warnung)', faelle);
 }
 
 // ── Ende der Fälle (Dialoge) ──

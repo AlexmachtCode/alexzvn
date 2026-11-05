@@ -4,7 +4,7 @@ import type {
 } from '@shared/konto';
 import { sitzungGueltig } from '@/lib/konto-anzeige';
 import type { JmpsApi } from '@shared/types';
-import { ADMIN_TEXTE, fehlerText } from '@/lib/admin-ansicht';
+import { ADMIN_TEXTE, adminNachAktion, fehlerText } from '@/lib/admin-ansicht';
 import { useTools } from './tools';
 
 // Anmeldung im Launcher (Plan P24–P27): Store des Kontos, dünn über IPC (10.7). Was angezeigt wird, entscheiden die reinen
@@ -50,8 +50,27 @@ interface KontoStore {
   // ── weitere Felder (P25–P27) ──
 }
 
-/** React StrictMode ruft load() im Dev zweimal: die Abos entstehen nur einmal je Fenster. */
+/**
+ * React StrictMode ruft load() im Dev zweimal: die Abos entstehen nur einmal je Fenster. Aufgeräumt werden sie bewusst nie
+ * (kein Abbestellen): der Store lebt so lange wie das Fenster, ein neues Fenster lädt das Modul und damit diesen Zähler neu.
+ */
 let abonniert = false;
+
+/**
+ * Eine neue Ansicht übernehmen — aus ladeAnsicht und aus der Lage bei Fensterfokus (Z1: vorher setzte der Fokuspfad nur die
+ * Ansicht und übersah einen Wechsel der Sitzung). Wechsel zwischen „mit“ und „ohne gültige Sitzung“: Quelle in den
+ * Einstellungen und Update-Hinweise neu holen (sonst zeigte der Werkzeugkasten F5 bzw. keine Updates nach dem Stand vor der
+ * Anmeldung).
+ */
+function uebernimm(ansicht: KontoAnsicht): void {
+  const vorher = useKonto.getState().ansicht;
+  useKonto.setState({ ansicht });
+  if (sitzungGueltig(vorher) !== sitzungGueltig(ansicht)) {
+    void window.jmps.getSettings().then((settings) => useTools.setState({ settings })).catch(() => {});
+    void useTools.getState().checkUpdates();
+    void useTools.getState().loadLauncherUpdate();
+  }
+}
 
 export const useKonto = create<KontoStore>((set, get) => ({
   ansicht: null,
@@ -70,7 +89,7 @@ export const useKonto = create<KontoStore>((set, get) => ({
       });
       // EP15: Lage bei Fensterfokus; der Main fragt höchstens einmal je Minute beim Worker.
       window.addEventListener('focus', () => {
-        void window.jmps.kontoLage().then((ansicht) => set({ ansicht })).catch(() => {});
+        void window.jmps.kontoLage().then(uebernimm).catch(() => {});
       });
     }
     await get().ladeAnsicht();
@@ -78,16 +97,7 @@ export const useKonto = create<KontoStore>((set, get) => ({
 
   ladeAnsicht: async () => {
     try {
-      const vorher = get().ansicht;
-      const ansicht = await window.jmps.kontoAnsicht();
-      set({ ansicht });
-      // Wechsel zwischen „mit“ und „ohne gültige Sitzung“: Quelle in den Einstellungen und Update-Hinweise neu holen
-      // (sonst zeigte der Werkzeugkasten F5 bzw. keine Updates nach dem Stand vor der Anmeldung).
-      if (sitzungGueltig(vorher) !== sitzungGueltig(ansicht)) {
-        void window.jmps.getSettings().then((settings) => useTools.setState({ settings })).catch(() => {});
-        void useTools.getState().checkUpdates();
-        void useTools.getState().loadLauncherUpdate();
-      }
+      uebernimm(await window.jmps.kontoAnsicht());
     } catch {
       // Main nicht erreichbar → bisherige Ansicht behalten
     }
@@ -166,7 +176,14 @@ export const useKonto = create<KontoStore>((set, get) => ({
         return { ok: false, code: r.code };
       }
       // EP15: nach jeder Aktion die neue Übersicht aus der Antwort; das Ergebnis (Einladungscode) geht nur an den Aufrufer.
-      set({ admin: { daten: r.daten, laedt: false, fehler: null } });
+      // Z1 (AR75): kam keine Übersicht mit (daten null, nur die Folge-Abfrage scheiterte), bleiben die alten Daten stehen und
+      // der Fehler der Übersicht erscheint; die Aktion selbst hat geklappt, das Ergebnis geht trotzdem zurück.
+      // Meldete die Übersicht „kein Recht“ (herabgestuft, OFP4), fragt adminLaden noch einmal und schließt die Maske mit M5.
+      if (r.daten === null && r.uebersichtFehler === 'kein-recht') {
+        void get().adminLaden();
+        return { ok: true, ergebnis: r.ergebnis };
+      }
+      set((s) => ({ admin: adminNachAktion(s.admin, r.daten, r.uebersichtFehler) }));
       return { ok: true, ergebnis: r.ergebnis };
     } catch {
       return { ok: false, code: 'netz' };
