@@ -17,7 +17,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { request } from 'node:http';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 export const TUER_DATEI = 'launcher-tuer.json';
 export const FREIGABE_VERSION = 1;
@@ -83,6 +83,8 @@ export function pruefeErgebnis(roh: unknown): FreigabeErgebnis | null {
 
 /** Tür-Datei lesen: fehlt bzw. kaputt → null, eine neuere Fassung → 'neuer'. */
 function leseTuer(appDataDir: string): TuerDatei | 'neuer' | null {
+  // Z1: nur ein absoluter Pfad; ein relativer läse je nach Arbeitsordner eine fremde Tür-Datei.
+  if (!isAbsolute(appDataDir)) return null;
   let roh: unknown;
   try {
     roh = JSON.parse(readFileSync(tuerPfad(appDataDir), 'utf8'));
