@@ -5,6 +5,7 @@ import { COOKBOOK } from '@jm/cookbook';
 import type { Cookbook, Recipe } from '@jm/cookbook';
 import { resolveCookbookUrl } from './settings';
 import { zugangsKopfFuer } from './konto/huelle';
+import { redirectFuer } from './konto/worker-client';
 
 // Kochbuch-Rezepte: gebündelter Fallback (COOKBOOK aus @jm/cookbook) + Live-Quelle
 // vom Proxy (/cookbook.json aus dem Katalog-Branch). So erscheinen neue Rezepte
@@ -50,7 +51,9 @@ export function initCookbook(): void {
 export async function refreshCookbook(): Promise<boolean> {
   const url = resolveCookbookUrl();
   try {
-    const res = await fetch(url, { headers: await headers(url) });
+    // Z1: trägt der Kopf eine Sitzung oder einen Schlüssel, folgt der Abruf keiner Weiterleitung (redirectFuer).
+    const kopf = await headers(url);
+    const res = await fetch(url, { headers: kopf, redirect: redirectFuer(kopf) });
     if (!res.ok) return false;
     const parsed = (await res.json()) as unknown;
     if (!isValid(parsed)) return false;

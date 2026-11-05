@@ -1,7 +1,12 @@
 // Anmeldung im Launcher (Teil 1) · P9: Client der Worker-API /konto/* (src/main/konto/worker-client.ts) — gegen den Vertrag
 // Gliederung 10.1 mit einer fetch-Attrappe, ohne Netz (tsx). Die Worker-Routen selbst prüft Block C (Task 16).
 import { readFileSync } from 'node:fs';
-import { browserAdresseErlaubt, erzeugeKontoClient, istWorkerAdresse, KontoFehler, zugangsKopf, type KontoClient } from '../src/main/konto/worker-client';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import {
+  browserAdresseErlaubt, erzeugeKontoClient, gesperrterKontoClient, istWorkerAdresse, KontoFehler, kopfFuer, pruefeServerBasis, redirectFuer,
+  zugangsKopf, type KontoClient,
+} from '../src/main/konto/worker-client';
 import type { KontoStand } from '../src/shared/konto';
 import { pruefeFaelle } from './konto-rechte.test';
 
@@ -240,6 +245,138 @@ ck('P9 9.1: zugangsKopf: Sitzung → Authorization, sonst Dev-Key → X-Proxy-Ke
   }
   ck(`P21 EP35: vorgangAnlegen verwirft eine Anmeldeadresse, die nicht https beim Worker liegt, als server (${codes.join(', ')})`,
     codes.length === 3 && codes.every((x) => x === 'server'));
+}
+
+// --- Z1 L1 (AR57): Server-Adresse geprüft, Kopf nur an den Worker, keine Weiterleitung mit Kopf, Stand vollständig geprüft -------
+{
+  // [Eingabe, geprüfte Form oder null]
+  const FAELLE: Array<[string, string | null]> = [
+    ['https://jm-suite-proxy.jm-production-suite.workers.dev', 'https://jm-suite-proxy.jm-production-suite.workers.dev'],
+    ['https://JM-Suite-Proxy.JM-Production-Suite.Workers.Dev/', 'https://jm-suite-proxy.jm-production-suite.workers.dev'],
+    ['HTTPS://worker.test:443///', 'https://worker.test'], ['https://worker.test/jm/', 'https://worker.test/jm'], ['  https://worker.test  ', 'https://worker.test'],
+    ['https://worker.test:8443', 'https://worker.test:8443'],
+    ['http://127.0.0.1:8787', 'http://127.0.0.1:8787'], ['http://[::1]:8787/', 'http://[::1]:8787'], ['HTTP://127.0.0.1', 'http://127.0.0.1'],
+    ['http://worker.test', null], ['http://localhost:8787', null], ['http://192.168.1.5:8787', null], ['http://127.0.0.1.evil.example', null],
+    ['https://nutzer:geheim@worker.test', null], ['https://nutzer@worker.test', null], ['https://worker.test/?x=1', null], ['https://worker.test/#x', null],
+    ['file:///C:/Windows', null], ['ftp://worker.test', null], ['worker.test', null], ['', null], ['   ', null], ['https://', null],
+  ];
+  const abw = FAELLE.filter(([roh, soll]) => pruefeServerBasis(roh) !== soll).map(([roh]) => `${JSON.stringify(roh)} → ${pruefeServerBasis(roh)}`);
+  ck(`Z1 AR57: pruefeServerBasis — https, Schema und Host klein, :443 weg, kein Schrägstrich am Ende; http nur für 127.0.0.1 und [::1] (${FAELLE.length} Fälle)${abw.length ? ` — ${abw.join('; ')}` : ''}`,
+    abw.length === 0 && pruefeServerBasis(undefined) === null);
+  let gebaut = 0;
+  const falsch: string[] = [];
+  for (const [roh, soll] of FAELLE) {
+    try {
+      erzeugeKontoClient({ basis: roh, fetch: attrappe(() => ({ status: 200 })).fetch });
+      gebaut++;
+      if (soll === null) falsch.push(`gebaut: ${roh}`);
+    } catch {
+      if (soll !== null) falsch.push(`abgelehnt: ${roh}`);
+    }
+  }
+  ck(`Z1 AR57: erzeugeKontoClient baut den Client nur mit geprüfter Adresse, sonst wirft er vor jeder Anfrage (${FAELLE.length} Fälle, ${gebaut} gebaut)${falsch.length ? ` — ${falsch.join('; ')}` : ''}`,
+    falsch.length === 0);
+  const ein = attrappe(() => ({ status: 200, json: {} }));
+  const g = gesperrterKontoClient();
+  const codes = [(await fehlerVon(g.ich('x')))?.code, (await fehlerVon(g.iveoTokens('x')))?.code, (await fehlerVon(g.adminUebersicht('x')))?.code];
+  ck('Z1 AR57: gesperrterKontoClient (Ersatz bei unzulässiger Adresse) scheitert mit server und sendet nie eine Anfrage',
+    codes.every((c) => c === 'server') && ein.aufrufe.length === 0);
+  // EP35 mit [::1]: die Form, die URL.hostname liefert, ist [::1] (mit Klammern)
+  const v6: Array<[string, string, boolean, boolean]> = [
+    ['http://[::1]:8787/konto/anmelden?v=v1', 'http://[::1]:8787', true, true], ['http://[::1]:9/x', 'http://[::1]:8787', false, false],
+    ['http://[::2]:8787/x', 'http://[::2]:8787', true, false], ['https://[::1]:8787/x', 'https://[::1]:8787', true, true],
+  ];
+  const abw6 = v6.filter(([u, s, kopf, browser]) => istWorkerAdresse(u, s) !== kopf || browserAdresseErlaubt(u, s) !== browser).map(([u]) => u);
+  ck(`Z1 AR57, EP35: [::1] steht in der Tabelle von istWorkerAdresse und browserAdresseErlaubt (${v6.length} Fälle)${abw6.length ? ` — abweichend: ${abw6.join('; ')}` : ''}`, abw6.length === 0);
+}
+{
+  const SERVER = 'https://jm-suite-proxy.jm-production-suite.workers.dev';
+  // [Adresse, Server, Sitzung, Schlüssel, erwarteter Kopf]
+  const FAELLE: Array<[string, string, string | null, string | undefined, Record<string, string>]> = [
+    [`${SERVER}/suite.json`, SERVER, 'jm1.s', undefined, { Authorization: 'Bearer jm1.s' }],
+    [`${SERVER}/suite.json`, `${SERVER}/`, 'jm1.s', 'dev', { Authorization: 'Bearer jm1.s' }],
+    [`${SERVER}/suite.json`, SERVER, null, 'dev', { 'X-Proxy-Key': 'dev' }],
+    [`${SERVER}/suite.json`, SERVER, null, undefined, {}],
+    ['https://raw.githubusercontent.com/jm/suite.json', SERVER, 'jm1.s', 'dev', {}],
+    [`${SERVER}.evil.example/suite.json`, SERVER, 'jm1.s', 'dev', {}],
+    ['https://jm-suite-proxy.jm-production-suite.workers.dev@evil.example/suite.json', SERVER, 'jm1.s', 'dev', {}],
+    ['http://jm-suite-proxy.jm-production-suite.workers.dev/suite.json', SERVER, 'jm1.s', 'dev', {}],
+    // die Server-Adresse selbst ist nicht zulässig (http im Netz, Zugangsdaten): nie ein Kopf
+    ['http://worker.test/suite.json', 'http://worker.test', 'jm1.s', 'dev', {}],
+    ['https://nutzer:pw@worker.test/suite.json', 'https://nutzer:pw@worker.test', 'jm1.s', 'dev', {}],
+    ['http://127.0.0.1:8787/suite.json', 'http://127.0.0.1:8787', 'jm1.s', undefined, { Authorization: 'Bearer jm1.s' }],
+    ['http://[::1]:8787/suite.json', 'http://[::1]:8787', null, 'dev', { 'X-Proxy-Key': 'dev' }],
+    [`${SERVER}/suite.json`, '', 'jm1.s', 'dev', {}], ['keine Adresse', SERVER, 'jm1.s', 'dev', {}],
+  ];
+  const abw = FAELLE.filter(([u, s, sitzung, key, soll]) => JSON.stringify(kopfFuer(u, s, sitzung, key)) !== JSON.stringify(soll)).map(([u, s]) => `${u} @ ${s || '-'}`);
+  ck(`Z1 Abrufe mit Kopf: kopfFuer gibt Sitzung (vor Schlüssel) nur an eine Adresse des geprüften Workers, sonst {} (${FAELLE.length} Fälle)${abw.length ? ` — abweichend: ${abw.join('; ')}` : ''}`,
+    abw.length === 0);
+  const R: Array<[Record<string, string>, string]> = [
+    [{ Authorization: 'Bearer x' }, 'error'], [{ authorization: 'Bearer x' }, 'error'], [{ 'X-Proxy-Key': 'k' }, 'error'], [{ 'x-proxy-key': 'k' }, 'error'],
+    [{ Accept: 'application/json' }, 'follow'], [{}, 'follow'], [{ Authorization: 'Bearer x', Accept: 'a' }, 'error'],
+  ];
+  ck(`Z1 Abrufe mit Kopf: redirectFuer — 'error' mit Sitzung oder Schlüssel im Kopf, sonst 'follow' (${R.length} Fälle)`,
+    R.every(([k, soll]) => redirectFuer(k) === soll));
+}
+{
+  // Echte Weiterleitung auf 127.0.0.1: Der Server A leitet auf Server B um. Mit Kopf (redirect: 'error') erreicht B nie eine Anfrage.
+  const b = { treffer: [] as Array<Record<string, string | string[] | undefined>> };
+  const serverB = createServer((req, res) => { b.treffer.push(req.headers); res.writeHead(200, { 'content-type': 'application/json', connection: 'close' }); res.end('{}'); });
+  await new Promise<void>((ok) => serverB.listen(0, '127.0.0.1', ok));
+  const portB = (serverB.address() as AddressInfo).port;
+  const serverA = createServer((_req, res) => { res.writeHead(302, { location: `http://127.0.0.1:${portB}/ziel`, connection: 'close' }); res.end(); });
+  await new Promise<void>((ok) => serverA.listen(0, '127.0.0.1', ok));
+  const portA = (serverA.address() as AddressInfo).port;
+  const urlA = `http://127.0.0.1:${portA}/suite.json`;
+  const kopf = kopfFuer(urlA, `http://127.0.0.1:${portA}`, 'jm1.geheim', undefined);
+  let mitKopf = 'kein Fehler';
+  try { await fetch(urlA, { headers: kopf, redirect: redirectFuer(kopf) }); } catch (e) { mitKopf = (e as { name?: string }).name ?? 'Fehler'; }
+  const trefferMitKopf = b.treffer.length;
+  // Gegenprobe der Aussage: ohne Kopf (redirect: 'follow') wird die Weiterleitung befolgt — der Test misst also wirklich die Weiterleitung
+  const ohne = await fetch(urlA, { headers: { Accept: 'application/json' }, redirect: redirectFuer({ Accept: 'application/json' }) });
+  await ohne.text();
+  // der Konto-Client selbst: Weiterleitung bei /konto/* → Fehler netz, B bekommt nie die Sitzung
+  const c = erzeugeKontoClient({ basis: `http://127.0.0.1:${portA}`, fetch: (url, init) => fetch(url, init) });
+  const vorher = b.treffer.length;
+  const f = await fehlerVon(c.ich('jm1.geheim'));
+  const mitAuth = b.treffer.slice(vorher).filter((h) => h.authorization !== undefined).length;
+  // Windows (Node/undici): ein vollständig gelesenes fetch und ein process.exit gleich danach lösen einen Absturz im Kern aus
+  // (Assertion UV_HANDLE_CLOSING). Alles sauber schließen und kurz warten, bevor der Lauf endet.
+  for (const sv of [serverA, serverB]) { sv.closeAllConnections(); await new Promise<void>((ok) => sv.close(() => ok())); }
+  await new Promise<void>((ok) => setTimeout(ok, 250));
+  ck('Z1 Abrufe mit Kopf: eine Weiterleitung trägt den Kopf nicht weiter — mit Sitzung im Kopf wirft der Abruf, das Ziel sieht keine Anfrage (echter Socket)',
+    mitKopf !== 'kein Fehler' && trefferMitKopf === 0 && ohne.ok && b.treffer.length === 1 && b.treffer[0].authorization === undefined);
+  ck('Z1 Abrufe mit Kopf: der Konto-Client folgt keiner Weiterleitung (netz), die Sitzung erreicht das Ziel nie',
+    f?.code === 'netz' && mitAuth === 0);
+}
+{
+  // istStand prüft jedes Feld: Basis ist ein gültiger Stand; jedes fehlende oder falsch getypte Feld macht die Antwort zu server (200)
+  const g0 = { ...STAND } as Record<string, unknown>;
+  const SCHLECHT: Array<[string, unknown]> = [
+    ['kid', ''], ['kid', 5], ['email', null], ['name', 7], ['art', 'sms'], ['art', undefined], ['stufe', 'chef'], ['tools', 'qa'], ['tools', ['zoom']],
+    ['tools', [5]], ['events', 'a'], ['events', [1]], ['zoom', 'ja'], ['zoom', undefined], ['zoomBis', undefined], ['zoomBis', '5'],
+    ['jm', 1], ['plattform', 'linux'], ['gid', 3], ['gid', undefined], ['iat', Infinity], ['iat', '1'], ['exp', null],
+    ['kontoBis', undefined], ['angemeldetSeit', undefined], ['angemeldetSeit', 'gestern'],
+  ];
+  const gueltig2 = { ...g0, art: 'passwort', tools: ['connect-raum', 'qa', 'iveo'], events: ['a|b'], zoomBis: 5, kontoBis: 9 };
+  async function standAntwort(s: Record<string, unknown>): Promise<string> {
+    const c = erzeugeKontoClient({ basis: BASIS, fetch: attrappe(() => ({ status: 200, json: { zustand: 'bestaetigt', sitzung: S, stand: s } })).fetch });
+    const f = await fehlerVon(c.vorgangAbholen('v1', 'h1', BEWEIS));
+    return f ? `${f.code}/${f.status}` : 'angenommen';
+  }
+  const abw: string[] = [];
+  if (await standAntwort(g0) !== 'angenommen' || await standAntwort(gueltig2) !== 'angenommen') abw.push('gültiger Stand abgewiesen');
+  for (const [feld, wert] of SCHLECHT) {
+    const s = { ...g0 };
+    if (wert === undefined) delete s[feld]; else s[feld] = wert;
+    const r = await standAntwort(s);
+    if (r !== 'server/200') abw.push(`${feld}=${String(wert)} → ${r}`);
+  }
+  // sitzungErneuern prüft denselben Stand
+  const c2 = erzeugeKontoClient({ basis: BASIS, fetch: attrappe(() => ({ status: 200, json: { sitzung: S, stand: { ...g0, angemeldetSeit: 'x' } } })).fetch });
+  const f2 = await fehlerVon(c2.sitzungErneuern(S, BEWEIS, '0.18.0', 'PC'));
+  ck(`Z1 istStand: jedes Feld von KontoStand wird geprüft (Art, Werkzeuge, Events, Zoom, JM, Gerät, alle Zeiten) — ${SCHLECHT.length} falsche Felder werden zu server${abw.length ? ` — ${abw.join('; ')}` : ''}`,
+    abw.length === 0 && f2?.code === 'server');
 }
 
 // --- P9 G9 ------------------------------------------------------------------------------------------------------------

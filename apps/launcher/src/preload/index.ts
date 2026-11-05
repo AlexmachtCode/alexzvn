@@ -10,8 +10,6 @@ import type {
   InstallProgress,
   IveoBindInput,
   IveoBindResult,
-  IveoDiscoverInput,
-  IveoDiscoverResult,
   IveoDownloadInput,
   IveoMaterialsInput,
   IveoMaterialsResult,
@@ -78,10 +76,7 @@ const api: JmpsApi = {
   submitFeedback: (input: FeedbackInput) => invoke<ActionResult>('feedback:submit', input),
   submitRecipeDraft: (input: RecipeDraftInput) =>
     invoke<RecipeDraftResult>('cookbook:draft', input),
-  discoverIveoEvents: (input: IveoDiscoverInput) =>
-    invoke<IveoDiscoverResult>('iveo:discover', input),
   bindIveoEvent: (input: IveoBindInput) => invoke<IveoBindResult>('iveo:bind', input),
-  hasIveoBaseToken: (baseUrl?: string) => invoke<boolean>('iveo:hasBaseToken', baseUrl),
   listIveoSideEvents: (input?: IveoSideEventsInput) =>
     invoke<IveoSideEventsResult>('iveo:listSideEvents', input ?? {}),
   switchIveoSideEvent: (input: IveoSwitchInput) => invoke<ActionResult>('iveo:switchSideEvent', input),

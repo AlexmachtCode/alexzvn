@@ -1,6 +1,7 @@
 import type { Recipe, RecipeDraftInput, RecipeDraftResult } from '@shared/types';
 import { resolveProxy, resolvePolaris } from './settings';
 import { kontoSitzungMoeglich, workerRecht, zugangsKopfFuer } from './konto/huelle';
+import { redirectFuer } from './konto/worker-client';
 
 /** F4a (Anmeldung P22, 9.7): ohne Anmeldung (und ohne Entwicklungs-Schlüssel) kein Entwurf. */
 const TEXT_ENTWURF_ANMELDEN = 'Für einen Kochbuch-Entwurf im Launcher anmelden (oben rechts).';
@@ -87,9 +88,12 @@ async function openPrViaProxy(
 ): Promise<RecipeDraftResult> {
   try {
     const ziel = `${proxy.replace(/\/$/, '')}/cookbook/draft`;
+    const kopf = await zugangsKopfFuer(ziel);
     const res = await fetch(ziel, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(await zugangsKopfFuer(ziel)) },
+      headers: { 'content-type': 'application/json', ...kopf },
+      // Z1: mit Sitzung oder Schlüssel im Kopf keine Weiterleitung (redirectFuer).
+      redirect: redirectFuer(kopf),
       body: JSON.stringify(payload),
     });
     const data = (await res.json().catch(() => ({}))) as {

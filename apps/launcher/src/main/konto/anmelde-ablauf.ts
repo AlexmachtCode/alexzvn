@@ -91,7 +91,9 @@ export function erzeugeAnmeldeAblauf(u: {
         else ende({ art: 'abgelaufen' });
       } else if (code !== null && VORUEBERGEHEND.includes(code)) {
         fehlerInFolge++;
-        letzterFehler = code;
+        // Z1: eine Drosselung (zu-viele) wurde am Worker abgewiesen, bevor sie etwas verbrauchen konnte: Sie erklärt kein verlorenes
+        // „bestätigt“ und wird nie der letzte Fehler.
+        if (code !== 'zu-viele') letzterFehler = code;
         if (fehlerInFolge >= FEHLER_IN_FOLGE_MAX) {
           schliesse(v);
           ende({ art: 'fehler', code });

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import type { KontoAnsicht, KontoStand, ZoomAnfrageStand } from '../src/shared/konto';
 import type { GeraetHandle } from '../src/main/konto/geraet';
 import {
-  erzeugeSitzungsTreiber, GOOGLE_NEU_MS, NEUPRUEFUNG_VORLAUF_MS, sitzungsAblage, WECKER_MAX_MS, type GespeicherteSitzung,
+  erzeugeSitzungsTreiber, GOOGLE_NEU_MS, leseEntzugAus, NEUPRUEFUNG_VORLAUF_MS, sitzungsAblage, standFuerAnsicht, WECKER_MAX_MS, type GespeicherteSitzung,
   type SitzungsTreiber, type SitzungsUmgebung,
 } from '../src/main/konto/sitzung-kern';
 import { KontoFehler, type KontoClient } from '../src/main/konto/worker-client';
@@ -718,6 +718,114 @@ const angemeldet = async (antworten: Antwort[] = [{ ok: NEU }], o: Parameters<ty
   ck('P21 G6, R3: ohne Schlüsselspeicher schreibt die Ablage nichts (kein Klartext-Rückfall); ein unlesbares Feld heißt unlesbar; Abmelden leert das Feld',
     ohneSpeicher && unlesbar === 'unlesbar' && ohneSchluesselGelesen === 'unlesbar' && unendlich === 'unlesbar' && ohneKontoBis === 'unlesbar'
     && einstellungen.kontoSitzungEnc === undefined);
+}
+
+// --- Z1 L1: Stand an den Renderer nur mit gewählten Feldern, Entzug, Fristen, Beenden ----------------------------------------------
+{
+  // Der Worker darf in den Stand schreiben, was er will (heute v und typ): die Ansicht trägt nur die Felder von KontoStand.
+  const FELDER = Object.keys(stand()).sort();
+  const mitFremd = { ...stand(), v: 1, typ: 'sitzung', token: 'jm1.fremd.geheim', passwort: 'x' } as unknown as KontoStand;
+  const u = umgebung({ gespeichert: { token: 'jm1.test.alt', stand: mitFremd }, antworten: [{ ok: { token: 'jm1.test.neu', stand: mitFremd } }] });
+  u.t.start();
+  const vorPruefung = u.t.ansicht();
+  await ruhe();
+  const nachPruefung = u.t.ansicht();
+  const json = JSON.stringify([vorPruefung, nachPruefung, u.gemeldet]);
+  ck('Z1: ansicht() trägt den Stand nur mit den ausdrücklich gewählten Feldern von KontoStand (kein v, typ oder sonstiges Fremdfeld) — vor und nach der Prüfung, auch in melde',
+    JSON.stringify(Object.keys(vorPruefung.stand ?? {}).sort()) === JSON.stringify(FELDER) && JSON.stringify(Object.keys(nachPruefung.stand ?? {}).sort()) === JSON.stringify(FELDER)
+    && !json.includes('geheim') && !json.includes('"typ"') && u.gemeldet.length > 0
+    && u.gemeldet.every((a) => a.stand === null || JSON.stringify(Object.keys(a.stand).sort()) === JSON.stringify(FELDER)));
+  const sicherStand = standFuerAnsicht(mitFremd);
+  ck('Z1: standFuerAnsicht kopiert Listen (tools, events), eine Änderung der Kopie ändert den Stand nicht',
+    (() => { sicherStand.events.push('x'); sicherStand.tools.push('qa'); return mitFremd.events.length === 0 && mitFremd.tools.length === 0; })());
+}
+{
+  const GUELTIG = ['gesperrt', 'geloescht', 'zugang-abgelaufen', 'geraet-unbekannt'] as const;
+  const faelle: Array<[unknown, { grund: string; am: number } | null]> = [
+    ...GUELTIG.map((g): [unknown, { grund: string; am: number } | null] => [{ grund: g, am: 5 }, { grund: g, am: 5 }]),
+    [{ grund: 'unbekannt', am: 5 }, null], [{ grund: 'google-neu', am: 5 }, null], [{ grund: 'uhr', am: 5 }, null], [{ grund: '', am: 5 }, null],
+    [{ grund: 'gesperrt' }, null], [{ grund: 'gesperrt', am: '5' }, null], [{ grund: 'gesperrt', am: NaN }, null], [{ grund: 'gesperrt', am: Infinity }, null],
+    [{ am: 5 }, null], [{ grund: 5, am: 5 }, null], [null, null], [undefined, null], ['gesperrt', null], [5, null], [{ grund: 'gesperrt', am: 5, mehr: 1 }, { grund: 'gesperrt', am: 5 }],
+  ];
+  const abw = faelle.filter(([roh, soll]) => JSON.stringify(leseEntzugAus(roh)) !== JSON.stringify(soll)).map(([roh]) => JSON.stringify(roh));
+  ck(`Z1: leseEntzugAus — grund einer der vier Werte, am eine endliche Zahl, sonst kein Entzug (${faelle.length} Fälle)${abw.length ? ` — abweichend: ${abw.join('; ')}` : ''}`, abw.length === 0);
+}
+{
+  // Fristen aus der Ablage: JSON kennt 1e999 als Zahl und liest sie als Infinity; fehlende Felder sind unlesbar
+  const zu = (k: string): string => `v1:${Buffer.from(k, 'utf8').toString('base64')}`;
+  const auf = (b: string): string => Buffer.from(b.slice(3), 'base64').toString('utf8');
+  let roh: string | undefined;
+  const ablage = sitzungsAblage({ verfuegbar: () => true, verschluesseln: zu, entschluesseln: auf }, { lies: () => roh, schreib: (w) => { roh = w; } });
+  const mit = (stueck: string): string | object | null => {
+    const basis = JSON.stringify({ token: 'jm1.t', stand: stand() });
+    roh = zu(stueck === '' ? basis : stueck);
+    const r = ablage.lade();
+    return r === null ? null : r === 'unlesbar' ? 'unlesbar' : 'gelesen';
+  };
+  const text = (iat: string, exp: string, bis: string) => `{"token":"jm1.t","stand":{"kid":"k1","iat":${iat},"exp":${exp},"kontoBis":${bis}}}`;
+  const faelle: Array<[string, string]> = [
+    [text('1', '2', 'null'), 'gelesen'], [text('1', '2', '3'), 'gelesen'],
+    [text('1e999', '2', 'null'), 'unlesbar'], [text('-1e999', '2', 'null'), 'unlesbar'], [text('null', '2', 'null'), 'unlesbar'],
+    ['{"token":"jm1.t","stand":{"kid":"k1","exp":2,"kontoBis":null}}', 'unlesbar'],
+    [text('1', '1e999', 'null'), 'unlesbar'], ['{"token":"jm1.t","stand":{"kid":"k1","iat":1,"kontoBis":null}}', 'unlesbar'],
+    [text('1', '2', '1e999'), 'unlesbar'], ['{"token":"jm1.t","stand":{"kid":"k1","iat":1,"exp":2}}', 'unlesbar'], [text('1', '2', '"x"'), 'unlesbar'],
+  ];
+  const abw = faelle.filter(([t, soll]) => mit(t) !== soll).map(([t]) => t.slice(0, 70));
+  ck(`Z1: die Ablage weist iat und exp fehlend/unendlich und kontoBis unendlich/fehlend/Text ab (unlesbar), gültige Fristen gelten (${faelle.length} Fälle)${abw.length ? ` — abweichend: ${abw.join('; ')}` : ''}`,
+    abw.length === 0);
+  // der Treiber selbst (fristenGueltig) lehnt eine gespeicherte Sitzung ohne endliches iat ab: unlesbar wie R3
+  const ohneIat = { token: 'jm1.t', stand: { ...stand(), iat: Infinity } } as GespeicherteSitzung;
+  const u = umgebung({ gespeichert: ohneIat });
+  u.t.start();
+  ck('Z1: der Treiber nimmt eine gespeicherte Sitzung mit unendlichem iat nicht an (nicht-angemeldet mit Hinweis sitzung-unlesbar, keine Prüfung)',
+    u.t.ansicht().zustand === 'nicht-angemeldet' && u.t.ansicht().hinweise.includes('sitzung-unlesbar') && u.erneuern.length === 0);
+}
+{
+  // Beenden: stoppe() stellt den Wecker aus, danach plant der Treiber keinen mehr und fragt nicht mehr
+  const u = await angemeldet([{ ok: NEU }]);
+  const aktivVorher = u.wecker.filter((w) => w.aktiv).length;
+  u.t.stoppe();
+  const aktivNachher = u.wecker.filter((w) => w.aktiv).length;
+  const gesamt = u.wecker.length;
+  await u.t.lage();
+  u.t.angemeldet({ token: 'jm1.test.nach-ende', stand: stand({ iat: T0, exp: T0 + 30 * TAG }) });
+  await ruhe();
+  ck('Z1: stoppe() (before-quit) schaltet den Wecker aus, danach entsteht kein neuer Wecker mehr und lage() fragt den Worker nicht mehr',
+    aktivVorher === 1 && aktivNachher === 0 && u.wecker.length === gesamt && u.ichAufrufe === 0);
+}
+
+// --- Z1 L1 [T] (T21): konto:ansicht trägt nie ein Token — in jedem Zustand und nach jeder Aktion --------------------------------------
+{
+  // konto:ansicht gibt treiber.ansicht() zurück. Ein Token (Sitzung, auch die Freigabe-Ausgaben) darf in keinem Zustand darin stehen.
+  const GEHEIM = 'jm1.test.GEHEIME-sitzung';
+  const mitToken: GespeicherteSitzung = { token: GEHEIM, stand: stand() };
+  const ansichten: KontoAnsicht[] = [];
+  const merke = (u: { t: SitzungsTreiber }): void => { ansichten.push(u.t.ansicht()); };
+  const a = umgebung({ gespeichert: mitToken, antworten: [{ ok: { token: GEHEIM, stand: stand({ iat: T0, exp: T0 + 30 * TAG }) } }], ich: [{ kontoAktiv: true, grund: null, zoomAnfrage: null, adminOffen: 2 }] });
+  merke(a);
+  a.t.start();
+  merke(a);
+  await ruhe();
+  merke(a);
+  a.t.merkeAusgabe({ appId: 'jm-qa', zweck: 'qa-relay', ziel: 'evt-1', bis: T0 + TAG, am: T0 });
+  await a.t.lage();
+  merke(a);
+  await a.t.sitzungFuerBedarf();
+  merke(a);
+  a.t.angemeldet({ token: GEHEIM, stand: stand({ iat: T0, exp: T0 + 30 * TAG }) });
+  merke(a);
+  await a.t.abmelden();
+  merke(a);
+  const b = umgebung({ gespeichert: mitToken, antworten: [{ code: 'gesperrt' }] });
+  b.t.start();
+  await ruhe();
+  merke(b);
+  const c = umgebung({ gespeichert: 'unlesbar' });
+  c.t.start();
+  merke(c);
+  const text = JSON.stringify(ansichten) + JSON.stringify(a.gemeldet) + JSON.stringify(b.gemeldet);
+  ck(`Z1 [T] G4: ansicht() und melde() tragen in ${ansichten.length + a.gemeldet.length + b.gemeldet.length} Ansichten (Start, Prüfung, Lage, Bedarf, Anmeldung, Abmelden, Entzug, unlesbar) nie das Token`,
+    ansichten.length >= 9 && !text.includes(GEHEIM) && !text.includes('GEHEIME') && !/"token"/.test(text));
 }
 
 // --- P10 G9 -----------------------------------------------------------------------------------------------------------------

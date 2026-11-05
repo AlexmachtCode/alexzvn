@@ -947,12 +947,12 @@ function funktionsKoerper(quelle: string, kopf: string): string {
   // Token nimmt der Main beim Binden aus dem Speicher (IV4); eine ungültige Adresse meldet der Main mit dem T8-Text.
   ck('P26 EP1, Anmeldung P28: kein Token-Merker und keine Token-Wächter mehr im Editor (hasIveoBaseToken, iveoAdresseUngueltig)',
     !editor.includes('hasIveoBaseToken') && !editor.includes('iveoAdresseUngueltig') && !editor.includes('iveoBaseTokenSaved'));
-  ck('P26 EP1: discoverIveoEvents normalisiert die Adresse VOR dem Token-Fallback in eigenem try (T8 auch bei leerem Token-Feld)',
-    (() => {
-      const k = funktionsKoerper(sync, 'export async function discoverIveoEvents(input: IveoDiscoverInput): Promise<IveoDiscoverResult> {');
-      const n = k.indexOf('normalizeIveoBaseUrl(baseUrl)');
-      return n > 0 && k.indexOf('getIveoBaseToken(') > n && k.includes('getIveoBaseToken(genutzteAdresse)') && k.indexOf('toClientError(e)') > n && k.indexOf('toClientError(e)') < k.indexOf('getIveoBaseToken(');
-    })());
+  // Anmeldung Z1-L1 Nr. 4 (Gesamtprüfung Minor 2): kein Renderer rief iveo:discover oder iveo:hasBaseToken; die Kanäle samt Handler,
+  // Preload, Typen und Funktionen sind entfernt (die Discovery läuft über konto:iveoEventsLaden).
+  ck('Z1 Nr. 4: die toten Kanäle iveo:discover und iveo:hasBaseToken gibt es nicht mehr (ipc.ts, Preload, JmpsApi, iveo-sync.ts, settings.ts)',
+    !/iveo:discover|iveo:hasBaseToken|discoverIveoEvents|hasIveoBaseToken|IveoDiscoverInput|IveoDiscoverResult/.test(
+      ['../src/main/ipc.ts', '../src/preload/index.ts', '../src/shared/types.ts', '../src/main/iveo-sync.ts', '../src/main/settings.ts']
+        .map((p) => ohneKommentare(quelleLf(p))).join('\n')));
   ck('P26 7.4: … und gibt sie als baseUrl zurück',
     binden.indexOf('      baseUrl: genutzteAdresse,') > binden.indexOf('    return {\n      ok: true,'));
   ck('P26 7.4: normalizeIveoBaseUrl kommt aus @jm/iveo', /import \{[^}]*\n  normalizeIveoBaseUrl,\n[^}]*\} from '@jm\/iveo';/.test(sync));
@@ -3129,7 +3129,8 @@ await (async () => {
   const kanalFehlt = KANAELE.filter(([k, m]) => !huelle.includes(`  ipc.handle('${k}',`) || !new RegExp(`\\n  ${m}: \\([^\\n]*\\) => invoke<[^\\n]*>\\('${k}'`).test(preload)
     || !new RegExp(`\\n  ${m}: \\(`).test(typen)).map(([k]) => k);
   // EP15 (Nachbesserung Block A, robust:1): nach jeder Admin-Aktion holt die Hülle die Lage neu, der Punkt am Zahnrad folgt sofort.
-  const adminLage = funktionsKoerper(huelle, 'async function adminAktion(').includes('    await treiber.lage();');
+  // Z1: die Folge-Schritte (Übersicht, Lage) laufen in huelle-kern.ts (adminAktionAusfuehren, im Verhalten geprüft); die Hülle reicht die Lage durch.
+  const adminLage = funktionsKoerper(huelle, 'async function adminAktion(').includes('    lage: () => tr.lage(),');
   ck(`P21 10.7: Kanäle konto:* in huelle.ts (registriert aus ipc.ts), Preload und JmpsApi (${KANAELE.length} Kanäle)${kanalFehlt.length ? ` — fehlt: ${kanalFehlt.join(', ')}` : ''}${adminLage ? '' : ' — konto:adminAktion holt die Lage nicht neu'}`,
     kanalFehlt.length === 0 && adminLage && ipc.includes('  registriereKontoIpc(ipcMain);') && ipc.includes("import { registriereKontoIpc } from './konto/huelle';"));
   ck('P21 10.7: AppEvent kennt konto-changed und anmeldung-changed (mit dem Schritt)',
@@ -3146,7 +3147,8 @@ await (async () => {
     && !/await\s+starteKonto/.test(haupt) && quit.includes('      stoppeKonto();') && !quit.includes('await'));
   ck('P21 G5: starteKonto kehrt sofort zurück (der Start läuft in einer eigenen async-Funktion, die nicht abgewartet wird)',
     huelle.includes('export function starteKonto(o: { emit(e: AppEvent): void; log: Logger; appDataDir: string }): void {')
-    && funktionsKoerper(huelle, 'export function starteKonto(').includes('  bereit = starte(o, c).catch('));
+    && funktionsKoerper(huelle, 'export function starteKonto(').includes('  bereit = starte(o, c)\n    .catch(')
+    && !/await\s+starte\(/.test(funktionsKoerper(huelle, 'export function starteKonto(')));
   // G6: Sitzung und Geräteschlüssel nur über safeStorage; kein Klartext-Rückfall wie settings.ts:211. Das Verhalten der Ablage
   // prüft konto-sitzung.test.ts („P21 G6, EP2“, „P21 G6, R3“); hier nur, dass die Hülle genau sie mit safeStorage verdrahtet.
   ck('P21 G6, EP2: die Sitzung geht nur verschlüsselt in settings.json, ohne Schlüsselspeicher gar nicht',
@@ -3190,15 +3192,17 @@ await (async () => {
     huelle.includes('  return `Angemeldet als ${kurzName(stand.name, stand.email)} · ${STUFE_TEXT[stand.stufe]}.`;')
     && huelle.includes("const TEXT_ABGEMELDET = 'Abgemeldet.';"));
   ck('P21 R9: die erste Anmeldung wird in settings.json gemerkt, die Haken (P32) laufen genau dann',
-    /if \(leseKontoErsteAnmeldung\(\) === null\) \{\n {8}schreibeKontoErsteAnmeldung\(Date\.now\(\)\);\n {8}for \(const f of beiErsterAnmeldung\)/.test(huelle));
+    // Z1: das Merken und die Haken laufen in huelle-kern.ts (ersteAnmeldungVerarbeiten, im Verhalten geprüft); die Hülle reicht die Einstellungen durch.
+    huelle.includes('      ersteAnmeldungVerarbeiten({\n        lies: leseKontoErsteAnmeldung, schreibe: schreibeKontoErsteAnmeldung, haken: beiErsterAnmeldung, jetzt: Date.now,'));
   // EP35 (Nachbesserung Block D, sicherheit:8): System-Browser und Zwischenablage bekommen nur https-Adressen des Workers.
   const imBrowser = funktionsKoerper(huelle, 'function oeffneImBrowser(url: string): Promise<boolean> {');
   ck('P21 EP35: shell.openExternal und die Zwischenablage nur nach browserAdresseErlaubt (https, beim Worker)',
-    huelle.includes('    oeffneBrowser: oeffneImBrowser,') && imBrowser.indexOf('  if (!browserAdresseErlaubt(url, serverBasis)) {') > 0
-    && imBrowser.indexOf('browserAdresseErlaubt(') < imBrowser.indexOf('shell.openExternal(url)')
-    && huelle.includes('    if (!adresse || !browserAdresseErlaubt(adresse, serverBasis)) {')
+    // Z1: browserHref prüft browserAdresseErlaubt und gibt new URL(url).href zurück (huelle-kern.ts, im Verhalten geprüft).
+    huelle.includes('    oeffneBrowser: oeffneImBrowser,') && imBrowser.indexOf('  const href = browserHref(url, serverBasis);') > 0
+    && imBrowser.indexOf('browserHref(') < imBrowser.indexOf('shell.openExternal(href)')
+    && huelle.includes('    const href = adresse ? browserHref(adresse, serverBasis) : null;') && huelle.includes('    clipboard.writeText(href);')
     && (huelle.match(/shell\.openExternal\(/g) ?? []).length === 1 && (huelle.match(/clipboard\.writeText\(/g) ?? []).length === 1
-    && huelle.includes("  const c = erzeugeKontoClient({ basis: serverBasis, fetch: (url, init) => fetch(url, init) });"));
+    && huelle.includes("  if (serverBasis) c = erzeugeKontoClient({ basis: serverBasis, fetch: (url, init) => fetch(url, init) });"));
 }
 
 // --- Anmeldung P22 (Spec 3, 9.1; N11, N12; EP10, EP12, EP17): Quellen über die Sitzung, Selbst-Update ohne Anmeldung ---
@@ -3232,8 +3236,9 @@ await (async () => {
   const kopf = funktionsKoerper(huelle, 'export async function zugangsKopfFuer(url: string): Promise<Record<string, string>> {');
   // EP35 (Nachbesserung Block D, sicherheit:2): gleiche Herkunft statt Präfix; das Verhalten prüft konto-client.test.ts (Task 21).
   ck('P22 G4, EP35: der Zugangskopf geht nur an Adressen des Workers (istWorkerAdresse: gleiche Herkunft, Pfad mit Grenze), Sitzung vor Entwicklungs-Schlüssel',
-    kopf.includes('  if (!proxy || !istWorkerAdresse(url, proxy)) return {};') && !kopf.includes('startsWith(')
-    && kopf.includes('  return zugangsKopf({ sitzung: await kontoSitzungFuerBedarf(), devKey: resolveProxyKey() });'));
+    // Z1: istWorkerZiel (prüft die Server-Adresse und istWorkerAdresse) und kopfFuer (rein, im Verhalten geprüft)
+    kopf.includes('  if (!proxy || !istWorkerZiel(url, proxy)) return {};') && !kopf.includes('startsWith(')
+    && kopf.includes('  return kopfFuer(url, proxy, await kontoSitzungFuerBedarf(), resolveProxyKey());'));
   const F: Array<[string, string, string]> = [
     ['F1', installer, "const TEXT_INSTALL_ANMELDEN = 'Zum Installieren im Launcher anmelden (oben rechts).';"],
     ['F2', installer, "const TEXT_UPDATE_ADRESSE_FEHLT = 'Die Update-Adresse fehlt. Prüfe die Server-Adresse in den Einstellungen.';"],
@@ -3289,10 +3294,10 @@ await (async () => {
     funktionsKoerper(einst, 'export function getIveoToken(eventKey: string, basis?: string): string | undefined {').includes('  return iveoTokenMitGrund(eventKey, basis).token;')
     && naht.includes('.tokenFuer(slug, basis?.trim() || undefined, {') && naht.includes('    abgleichHier: [...leseIveoAbgleichHier(), ...auchOhneAbgleich],')
     && naht.includes('    lokal: (s) => lokalesIveoToken(s),') && naht.includes("    env: process.env['JMPS_IVEO_TOKEN'] || undefined,"));
-  ck('P23 EP13: getIveoBaseToken und hasIveoBaseToken lesen zuerst den Speicher (ein Event derselben Basis), dann lokal',
+  ck('P23 EP13: getIveoBaseToken liest zuerst den Speicher (ein Event derselben Basis), dann lokal',
     funktionsKoerper(einst, 'export function getIveoBaseToken(baseUrl?: string): string | undefined {').includes('.erlaubteEvents().find((x) => x.key.startsWith(`${basis}|`));')
     && funktionsKoerper(einst, 'export function getIveoBaseToken(baseUrl?: string): string | undefined {').includes('iveoTokenMitGrund(e.slug, basis, [e.key]).token')
-    && funktionsKoerper(einst, 'export function hasIveoBaseToken(baseUrl?: string): boolean {').includes('  return Boolean(getIveoBaseToken(baseUrl));'));
+    && !einst.includes('hasIveoBaseToken')); // Z1: hasIveoBaseToken ist mit dem toten Kanal iveo:hasBaseToken entfallen
   const binden = funktionsKoerper(sync, 'export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResult> {');
   ck('P23 G6, IV4: Binden nimmt das Token aus dem Speicher, schreibt kein Token (kein setIveoToken/setIveoBaseToken in iveo-sync.ts) und setzt „Abgleich hier“',
     !/setIveoToken\(|setIveoBaseToken\(/.test(sync) && binden.includes('iveoTokenZumBinden(event, genutzteAdresse)')
@@ -3307,35 +3312,35 @@ await (async () => {
     hier.includes('  if (e.an && iveoTokenMitGrund(slug, basis, [key]).token === undefined) return { ok: false };') && !hier.includes('iveoTokenZumBinden')
     && funktionsKoerper(sync, 'function abgleichStand(): IveoSideEventsResult[\'abgleich\'] {').includes('    moeglich: iveoTokenMitGrund(openShowIveo.slug, openShowIveo.baseUrl, [key]).token !== undefined,')
     && hier.indexOf('  setzeIveoAbgleichHier(key, e.an);') < hier.indexOf('  tokensAktualisiert();') && hier.indexOf('  tokensAktualisiert();') > 0);
-  const lade = funktionsKoerper(huelle, 'async function ladeIveo(): Promise<void> {');
+  // Z1: der Ablauf des Ladens (ein Lauf zugleich, späte Antwort verwerfen, Neustart bei Wechsel) steht in huelle-kern.ts
+  // (erzeugeIveoLader, im Verhalten geprüft in konto-iveo.test.ts); hier die Verdrahtung in der Hülle.
+  const lade = huelle.slice(huelle.indexOf('const iveoLader = erzeugeIveoLader({'), huelle.indexOf('function ladeIveo(): Promise<void> {'));
   const abmeldenBlock = /nachAbmelden: \(\) => \{\n((?: {6}[^\n]*\n)+) {4}\},\n/.exec(huelle)?.[1] ?? '';
   const anmeldeBlock = /nachAnmeldung: \(s\) => \{\n((?:(?: {6}[^\n]*)?\n)+?) {4}\},\n/.exec(huelle)?.[1] ?? '';
   ck('P23 EP13, IV3: Tokens laden nach Anmeldung, Start-Prüfung und jeder Lage; danach tokensAktualisiert; Abmelden leert und meldet',
-    lade.includes('    iveo.setze(r.events, Date.now(), r.hinweis);') && lade.endsWith('  tokensAktualisiert();\n}')
-    // AR60: ein Lauf gleichzeitig, späte Antwort nach dem Abmelden verwerfen
-    && lade.indexOf('  if (iveoLaedt) return;') > 0 && lade.indexOf('  if (iveoLaedt) return;') < lade.indexOf('  iveoLaedt = true;')
-    && lade.indexOf('    if (lauf !== iveoLauf') > 0 && lade.indexOf('    if (lauf !== iveoLauf') < lade.indexOf('    iveo.setze(')
-    && lade.slice(0, lade.indexOf('    iveo.setze(')).includes('kid !== (kontoAnsichtJetzt().stand?.kid ?? null)') // Konto während des await gewechselt → verwerfen
-    && lade.slice(lade.indexOf('    if (lauf !== iveoLauf'), lade.indexOf('    iveo.setze(')).includes('lauf !== iveoLauf ||')
-    && lade.includes('      if (kontoToken()) void ladeIveo();') // Fixrunde 1: schneller Wechsel — das neue Konto lädt sofort
-    && lade.indexOf('    iveoLaedt = false;') > 0 && lade.indexOf('    iveoLaedt = false;') < lade.indexOf('    if (lauf !== iveoLauf')
+    lade.includes('    iveo.setze(r.events, Date.now(), r.hinweis);') && lade.includes('    raeumeLokaleIveoTokensAuf();\n    tokensAktualisiert();\n  },')
+    // AR60 (Z1: im Verhalten geprüft): ein Lauf gleichzeitig, späte Antwort nach dem Abmelden oder Kontowechsel verwerfen
+    && lade.includes('  lauf: () => iveoLauf,') && lade.includes('  kid: () => kontoAnsichtJetzt().stand?.kid ?? null,')
+    && lade.includes('  token: () => (client ? kontoToken() : null),') && lade.indexOf('    iveoKid = kid;') > lade.indexOf('    iveo.setze(')
+    && huelle.includes('function ladeIveo(): Promise<void> {\n  return iveoLader.lade();\n}')
     && abmeldenBlock.startsWith('      iveo.leere();\n      iveoGeladen = false;\n      tokensAktualisiert();\n') && abmeldenBlock.includes('      iveoLauf++;\n')
     // Fixrunde 1: anderes Konto ohne Abmelden leert die Tokens des vorigen (kid vor dem await gemerkt, nach setze gesetzt)
-    && lade.indexOf('  const kid = kontoAnsichtJetzt().stand?.kid ?? null;') > lade.indexOf('  const lauf = iveoLauf;')
-    && lade.indexOf('  const kid = kontoAnsichtJetzt().stand?.kid ?? null;') < lade.indexOf('await client.iveoTokens(t)')
-    && lade.indexOf('    iveoKid = kid;') > lade.indexOf('    iveo.setze(')
-    && anmeldeBlock.includes('      if (iveoKid !== null && iveoKid !== s.stand.kid) {\n        iveo.leere();\n        iveoGeladen = false;\n        iveoLauf++;\n        iveoKid = null;\n        tokensAktualisiert();\n      }\n')
+    && anmeldeBlock.includes('      if (kontoGewechselt(iveoKid, s.stand.kid)) {\n        iveo.leere();\n        iveoGeladen = false;\n        iveoLauf++;\n        iveoKid = null;\n        tokensAktualisiert();\n      }\n')
     && anmeldeBlock.indexOf('iveoKid !== s.stand.kid') < anmeldeBlock.indexOf('      void kontoLage(false);')
     && funktionsKoerper(huelle, 'async function kontoLage(fokus: boolean): Promise<void> {').includes('  await ladeIveo();')
     && /nachAbmelden: \(\) => \{\n {6}iveo\.leere\(\);\n {6}iveoGeladen = false;\n {6}tokensAktualisiert\(\);/.test(huelle)
     && huelle.includes('  verbindeIveoZentral({ speicher: iveo, lage: () => ({ angemeldet: kontoSitzungMoeglich(), geladen: iveoGeladen }) });'));
   ck('P23 G4, G5: scheitert das Laden, bleiben geladene Tokens im Speicher; die Logzeile nennt nur den Fehlercode',
-    lade.includes('    log?.warn(`Anmeldung: iveo-Tokens nicht geladen (${fehlerCode(e)})`);') && !lade.includes('iveo.leere()'));
+    // Z1: die Logzeile steht in huelle-kern.ts (erzeugeIveoLader) und nennt nur den Fehlercode
+    quelleLf('../src/main/konto/huelle-kern.ts').includes('d.log(`Anmeldung: iveo-Tokens nicht geladen (${d.fehlerCode(e)})`);')
+    && lade.includes('  log: (z) => log?.warn(z),') && lade.includes('  fehlerCode,') && !lade.includes('iveo.leere()'));
   ck('P23 I1–I4: die Statustexte ersetzen „kein iveo-Token auf diesem Rechner“ (Kern), tokenGrund liefert den Grund',
     !ohneKommentare(kernQ).includes('kein iveo-Token auf diesem Rechner') && kernQ.includes("  'kein-abgleich-hier': 'Abgleich läuft auf einem anderen Rechner, hier nur Offline-Ablauf',")
     && funktionsKoerper(sync, 'export function tokenGrund(event: string, basis?: string): KeinTokenGrund {').includes("  return g === 'ok' ? 'nicht-hinterlegt' : g;"));
   ck('P23 P32-Vertrag: iveoShowOffen() und tokensAktualisiert() aus iveo-sync.ts',
-    funktionsKoerper(sync, 'export function iveoShowOffen(): boolean {').includes('  return openShowIveo !== null;')
+    // Z1: „offen“ heißt: eine Show ist offen UND eines ihrer Tools läuft (show-offen.ts, im Verhalten geprüft)
+    funktionsKoerper(sync, 'export function iveoShowOffen(): boolean {').includes('  if (openShowIveo === null) return false;')
+    && funktionsKoerper(sync, 'export function iveoShowOffen(): boolean {').includes('  return !showIstZu({')
     && funktionsKoerper(sync, 'export function tokensAktualisiert(): void {').includes('  kern().tokensGeaendert();'));
   // Nachbesserung Block D (spec:6): ohne „Abgleich hier“ hat ein angemeldeter Rechner das Token oft im Speicher — Kopfzeile der
   // Ablage (K2) und die Antworten ohne aktive Show nennen darum den Rechner, der abgleicht (I13–I15), nicht ein fehlendes Token.
@@ -3485,7 +3490,8 @@ function dialogBefunde(q: string): string[] {
       maske.includes(`{daten && reiter === '${reiter[i]}' && <${k} daten={daten} />}`)));
   const disc = funktionsKoerper(huelle, 'async function iveoEventsLaden(roh: unknown): Promise<KontoIveoEventsAntwort> {');
   ck('P27 6.4, 10.7: konto:iveoEventsLaden gibt nur Slug und Name zurück, nie das Token, und speichert nichts',
-    disc.includes('    return { ok: true, events: events.map((e) => ({ slug: e.slug, name: e.name })) };')
+    // Z1: die Abbildung auf Slug und Name ist eventsFuerRenderer (huelle-kern.ts, im Verhalten geprüft)
+    disc.includes('    return { ok: true, events: eventsFuerRenderer(events) };')
     && !/return[^;]*\btoken\b/.test(disc) && !/schreib|setze|speicher/i.test(ohneKommentare(disc)));
   ck('P27 6.4, G4: der Store reicht die Discovery nur durch — kein set, das Token liegt nie im Store',
     funktionsKoerper(store, 'iveoEventsLaden: async (a) => {').includes('      return await window.jmps.kontoIveoEventsLaden(a);')
@@ -3576,16 +3582,18 @@ function dialogBefunde(q: string): string[] {
   const github = funktionsKoerper(einst, 'export function loescheGithubZugang(): boolean {');
   const haken = funktionsKoerper(huelle, 'function nachErsterAnmeldungAufraeumen(): void {');
   ck('P32 N5, EP12: die erste Anmeldung löscht githubToken und githubTokenEnc (ein Haken an beiErsterAnmeldung, nur beim ersten Mal), Hinweis github-geloescht',
-    github.includes('  if (s.githubToken === undefined && s.githubTokenEnc === undefined) return false;')
-    && github.includes('  delete s.githubToken;') && github.includes('  delete s.githubTokenEnc;') && github.includes('  write(s);')
+    // Z1: das Löschen selbst ist ohneGithubZugang (huelle-kern.ts, im Verhalten geprüft: nur die beiden GitHub-Felder gehen)
+    github.includes('  const { neu, war } = ohneGithubZugang(read());') && github.includes('  if (!war) return false;') && github.includes('  write(neu);')
     && (huelle.match(/beiErsterAnmeldung\.push\(/g) ?? []).length === 1 && huelle.includes('beiErsterAnmeldung.push(nachErsterAnmeldungAufraeumen);')
-    && /if \(leseKontoErsteAnmeldung\(\) === null\) \{\n {8}schreibeKontoErsteAnmeldung\(Date\.now\(\)\);\n {8}for \(const f of beiErsterAnmeldung\)/.test(huelle)
-    && haken.includes('  if (loescheGithubZugang()) {') && haken.includes("    treiber?.merkeHinweis('github-geloescht');")
+    && huelle.includes('      ersteAnmeldungVerarbeiten({\n        lies: leseKontoErsteAnmeldung, schreibe: schreibeKontoErsteAnmeldung, haken: beiErsterAnmeldung, jetzt: Date.now,')
+    && haken.includes('    geloescht = loescheGithubZugang();') && haken.includes("    if (geloescht) treiber?.merkeHinweis('github-geloescht');")
     && (ohneKommentare(huelle).match(/loescheGithubZugang\(/g) ?? []).length === 1);
   const lauf = funktionsKoerper(huelle, 'function raeumeLokaleIveoTokensAuf(): void {');
-  const lade = funktionsKoerper(huelle, 'async function ladeIveo(): Promise<void> {');
+  const lade = huelle.slice(huelle.indexOf('const iveoLader = erzeugeIveoLader({'), huelle.indexOf('function ladeIveo(): Promise<void> {'));
   ck('P32 OFP1, IV5: Löschlauf nach jedem Laden der Tokens (auch ohne Sitzung), nie bei offener iveo-Show, „Abgleich hier“ vor dem Löschen, zentral nur aus geladenen Tokens',
-    (lade.match(/ {2,4}raeumeLokaleIveoTokensAuf\(\);/g) ?? []).length === 2
+    // Z1: der Lader (huelle-kern.ts) ruft `fertig` nach dem Laden und ohne Sitzung (im Verhalten geprüft); `fertig` räumt auf
+    (lade.match(/ {2,4}raeumeLokaleIveoTokensAuf\(\);/g) ?? []).length === 1
+    && (quelleLf('../src/main/konto/huelle-kern.ts').match(/\n {4}fertig\(\);/g) ?? []).length === 1 && quelleLf('../src/main/konto/huelle-kern.ts').includes('\n      fertig();\n      return;')
     && lauf.includes('  if (erste === null) return;') && lauf.includes('    iveoShowOffen: iveoShowOffen(),')
     && lauf.includes('    zentral: iveoGeladen ? iveo.erlaubteEvents().map((e) => e.key) : [],')
     && lauf.indexOf('markiereAbgleichHier(r.markieren)') > 0
@@ -3595,7 +3603,8 @@ function dialogBefunde(q: string): string[] {
   ck('P32 K32, I11: Meldungen wörtlich, nur Event-Kennungen ohne Werte, einmal nach der ersten Anmeldung, sobald die Tokens geladen sind',
     huelle.includes("const TEXT_GITHUB_GELOESCHT = 'Der gespeicherte GitHub-Zugang wurde gelöscht; Downloads laufen jetzt über deine Anmeldung.';")
     && huelle.includes('  return `Diese Events haben auf diesem Rechner noch ein lokal gespeichertes Token: ${slugs.join(\', \')}. Es wird gelöscht, sobald ein Admin das Event zentral hinterlegt, spätestens am ${datumText(spaetestens)}.`;')
-    && lauf.includes('  if (uebergangMelden && iveoGeladen) {') && lauf.includes("    const events = r.bleiben.filter((k) => !k.startsWith('base:'));"));
+    // Z1 (Nr. 8): nach dem Laden meldet der Übergang (huelle-kern.ts: erzeugeUebergang, uebergangsText — im Verhalten geprüft)
+    && lauf.includes('    if (iveoGeladen) {\n      uebergang.nachLaden((github) => uebergangsText({') && lauf.includes('textLokal: textLokaleIveo'));
   const code = ohneKommentare(einst);
   const SCHREIBER = /\.iveoTokens(?:Enc)?\s*=(?!=)/g;
   const schreiber = (code.match(SCHREIBER) ?? []).length;

@@ -300,6 +300,37 @@ const arten = (u: ReturnType<typeof umgebung>): string => u.schritte.map((s) => 
     a.art === 'fehler' && a.code === 'netz' && b.art === 'fehler' && b.code === 'server' && netz.angemeldet.length === 0);
 }
 
+// --- Z1 L1: eine Drosselung (zu-viele) wird nie der „letzte Fehler“ einer verlorenen Antwort ------------------------------------
+{
+  const nurDrosselung = umgebung({ abholen: ['zu-viele', 'vorgang-unbekannt'] });
+  await nurDrosselung.ablauf.starte();
+  await bisZumEnde(nurDrosselung);
+  const nachNetz = umgebung({ abholen: ['netz', 'zu-viele', 'vorgang-unbekannt'] });
+  await nachNetz.ablauf.starte();
+  await bisZumEnde(nachNetz);
+  const nachDrosselungUndServer = umgebung({ abholen: ['zu-viele', 'server', 'vorgang-unbekannt'] });
+  await nachDrosselungUndServer.ablauf.starte();
+  await bisZumEnde(nachDrosselungUndServer);
+  const a = nurDrosselung.ablauf.schritt(), b = nachNetz.ablauf.schritt(), c = nachDrosselungUndServer.ablauf.schritt();
+  ck('Z1 Nr. 6: nach zu-viele allein ist vorgang-unbekannt abgelaufen (nicht fehler zu-viele); davor stehender netz/server bleibt der Fehlercode',
+    a.art === 'abgelaufen' && b.art === 'fehler' && b.code === 'netz' && c.art === 'fehler' && c.code === 'server');
+}
+
+// --- Z1 L1 [T]: der „letzte Code“ gilt nur für den laufenden Versuch --------------------------------------------------------------
+{
+  // Erster Versuch endet mit netz + vorgang-unbekannt (fehler netz). Ein neuer Versuch, bei dem nur vorgang-unbekannt folgt, darf den
+  // alten Code nicht erben: Er ist abgelaufen, nicht netz.
+  const u = umgebung({ abholen: ['netz', 'vorgang-unbekannt', 'vorgang-unbekannt'] });
+  await u.ablauf.starte();
+  await bisZumEnde(u);
+  const erster = u.ablauf.schritt();
+  await u.ablauf.starte();
+  await bisZumEnde(u);
+  const zweiter = u.ablauf.schritt();
+  ck('Z1 [T]: ein neuer Versuch erbt den letzten Fehlercode des vorigen nicht (erster fehler netz, zweiter ohne eigenen Fehler abgelaufen)',
+    erster.art === 'fehler' && erster.code === 'netz' && zweiter.art === 'abgelaufen');
+}
+
 // --- P11 AA5: späte Antworten eines früheren Laufs ------------------------------------------------------------------------
 {
   const u = umgebung({ abholenHaelt: true });

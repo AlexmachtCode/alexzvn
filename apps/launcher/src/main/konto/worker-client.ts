@@ -15,7 +15,7 @@ import type { GeraetBeweis } from './geraet';
 /** Codes, die der Worker in `code` schicken darf (10.1); `netz` entsteht nur hier. */
 const WORKER_CODES: readonly KontoFehlerCode[] = ['server', 'nicht-eingerichtet', 'zu-viele', 'nicht-angemeldet',
   'sitzung-abgelaufen', 'kein-recht', 'gesperrt', 'geloescht', 'zugang-abgelaufen', 'geraet-unbekannt', 'vorgang-unbekannt',
-  'ungueltig', 'konflikt', 'nicht-noetig', 'unbekannter-zweck', 'erster-admin', 'domain', 'uhr'];
+  'ungueltig', 'konflikt', 'nicht-noetig', 'unbekannter-zweck', 'erster-admin', 'domain', 'uhr', 'iveo-basis-unbekannt'];
 
 export const KONTO_ZEITLIMIT_MS = 15_000;
 
@@ -47,6 +47,47 @@ export interface KontoClient {
   adminAktion(sitzung: string, a: AdminAktion): Promise<AdminAktionErgebnis>;
 }
 
+/**
+ * AR57 (Z1): die Server-Adresse, mit der ein Client gebaut wird: https, Schema und Host klein, Port 443 weg, ohne Schrägstrich am
+ * Ende; http nur für 127.0.0.1 und [::1] (Entwicklung). Keine Zugangsdaten, kein Query, kein Fragment. Sonst null. Wirft nie.
+ */
+export function pruefeServerBasis(raw: string | undefined): string | null {
+  const t = (raw ?? '').trim();
+  let u: URL;
+  try {
+    u = new URL(t);
+  } catch {
+    return null;
+  }
+  if (u.username !== '' || u.password !== '' || u.search !== '' || u.hash !== '' || !u.host) return null;
+  const lokal = u.hostname === '127.0.0.1' || u.hostname === '[::1]';
+  if (!(u.protocol === 'https:' || (u.protocol === 'http:' && lokal))) return null;
+  return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, '')}`;
+}
+
+/** Z1: Liegt `url` beim (geprüften) Worker? Nur dann darf ein Kopf mit Sitzung oder Schlüssel mit. */
+export function istWorkerZiel(url: string, server: string): boolean {
+  const basis = pruefeServerBasis(server);
+  return basis !== null && istWorkerAdresse(url, basis);
+}
+
+/**
+ * Z1 (Abrufe mit Kopf): der Kopf für einen Abruf beim Worker, rein. Nur wenn `server` eine geprüfte Server-Adresse ist und `url`
+ * dort liegt (gleiche Herkunft, Pfad mit Grenze), sonst {}: eine fremde Adresse bekommt nie die Sitzung oder den Schlüssel.
+ */
+export function kopfFuer(url: string, server: string, sitzung: string | null, devKey?: string): Record<string, string> {
+  return istWorkerZiel(url, server) ? zugangsKopf({ sitzung, devKey }) : {};
+}
+
+/**
+ * Z1: `redirect` für einen Abruf. Trägt der Kopf eine Sitzung oder einen Schlüssel, folgt fetch keiner Weiterleitung ('error'):
+ * sonst ginge der Kopf mit zur Zieladresse (fetch behält Authorization und eigene Köpfe bei einer Weiterleitung innerhalb der
+ * Herkunft, und eine Weiterleitung auf eine andere Herkunft ist ohnehin nicht gewollt).
+ */
+export function redirectFuer(kopf: Record<string, string>): 'error' | 'follow' {
+  return Object.keys(kopf).some((k) => k.toLowerCase() === 'authorization' || k.toLowerCase() === 'x-proxy-key') ? 'error' : 'follow';
+}
+
 /** Kopf für Tool-Routen (Katalog, Installieren, Feedback …): Sitzung → Authorization; sonst Dev-Key → X-Proxy-Key; sonst nichts. */
 export function zugangsKopf(z: { sitzung: string | null; devKey?: string }): Record<string, string> {
   if (z.sitzung) return { Authorization: `Bearer ${z.sitzung}` };
@@ -60,18 +101,39 @@ const istText = (x: unknown): x is string => typeof x === 'string' && x.length >
 const istZahl = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 const ENTZUG: readonly string[] = ['gesperrt', 'geloescht', 'zugang-abgelaufen', 'geraet-unbekannt'];
 
-function istStand(x: unknown): x is KontoStand {
+const WERKZEUGE: readonly string[] = ['connect-raum', 'qa', 'iveo'];
+/** Z1: jedes Feld von KontoStand wird geprüft (Art, Stufe, Werkzeuge, Events, Zoom, JM-Rechner, Gerätekennung, alle Zeiten). */
+export function istStand(x: unknown): x is KontoStand {
   return istObjekt(x) && istText(x.kid) && typeof x.email === 'string' && typeof x.name === 'string'
-    && (x.stufe === 'admin' || x.stufe === 'kollege' || x.stufe === 'externer') && Array.isArray(x.tools)
-    && Array.isArray(x.events) && istZahl(x.iat) && istZahl(x.exp) && (x.plattform === 'win' || x.plattform === 'mac');
+    && (x.art === 'google' || x.art === 'passwort')
+    && (x.stufe === 'admin' || x.stufe === 'kollege' || x.stufe === 'externer')
+    && Array.isArray(x.tools) && x.tools.every((t) => typeof t === 'string' && WERKZEUGE.includes(t))
+    && Array.isArray(x.events) && x.events.every((e) => typeof e === 'string')
+    && typeof x.zoom === 'boolean' && (x.zoomBis === null || istZahl(x.zoomBis)) && typeof x.jm === 'boolean'
+    && (x.plattform === 'win' || x.plattform === 'mac') && typeof x.gid === 'string'
+    && istZahl(x.iat) && istZahl(x.exp) && (x.kontoBis === null || istZahl(x.kontoBis)) && istZahl(x.angemeldetSeit);
 }
 function istZoomAnfrage(x: unknown): x is ZoomAnfrageStand {
   return istObjekt(x) && istText(x.id) && (x.zustand === 'offen' || x.zustand === 'freigegeben' || x.zustand === 'abgelehnt')
     && typeof x.zweck === 'string' && istZahl(x.von) && istZahl(x.bis) && istZahl(x.am);
 }
 
+/**
+ * Z1 (AR57): Ersatz, wenn die Server-Adresse nicht zulässig ist: jeder Aufruf scheitert mit `server`, es geht nie eine Anfrage
+ * hinaus. Die Anmeldung zeigt dann den Serverfehler, statt dass der Launcher an eine unbrauchbare Adresse sendet.
+ */
+export function gesperrterKontoClient(): KontoClient {
+  const nein = (): Promise<never> => Promise.reject(new KontoFehler('server', null));
+  return {
+    vorgangAnlegen: nein, vorgangAbholen: nein, vorgangAbbrechen: nein, sitzungErneuern: nein, abmelden: nein, ich: nein,
+    freigabe: nein, iveoTokens: nein, zoomAnfragen: nein, adminUebersicht: nein, adminAktion: nein,
+  };
+}
+
 export function erzeugeKontoClient(o: { basis: string; fetch: typeof fetch; zeitlimitMs?: number }): KontoClient {
-  const basis = o.basis.replace(/\/+$/, '');
+  // AR57 (Z1): ein Client entsteht nur mit geprüfter Server-Adresse (https, Host klein; http nur für 127.0.0.1 und [::1]).
+  const basis = pruefeServerBasis(o.basis);
+  if (basis === null) throw new Error('Konto-Client: Server-Adresse nicht zulässig');
   const zeitlimit = o.zeitlimitMs ?? KONTO_ZEITLIMIT_MS;
 
   async function rufe(methode: 'GET' | 'POST', pfad: string, sitzung: string | null, body?: unknown): Promise<unknown> {
@@ -84,6 +146,8 @@ export function erzeugeKontoClient(o: { basis: string; fetch: typeof fetch; zeit
         method: methode,
         headers: kopf,
         body: body === undefined ? undefined : JSON.stringify(body),
+        // Z1: keine Weiterleitung (der Worker leitet /konto/* nie um); sonst ginge die Sitzung mit.
+        redirect: 'error',
         signal: AbortSignal.timeout(zeitlimit),
       });
     } catch (e) {

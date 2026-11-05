@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { request } from 'node:http';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import {
   FREIGABE_ZEITLIMIT_MS, freigabeBeweis, holeFreigabe, inhaltsHash, tuerPfad, type FreigabeAnfrage, type FreigabeErgebnis, type TuerDatei,
 } from '@jm/app-runtime/freigabe';
@@ -334,6 +334,29 @@ ck('P13 Fristen: Frist der Stelle < Frist des Tür-Dienstes < Zeitlimit des Clie
   await x.d.stoppe();
   ck('P13 Zeitlimit: eine Verbindung, die nur Kopfzeilen sendet, wird innerhalb weniger Sekunden beendet (Prüfintervall 1 s)',
     ergebnis.zu && (ergebnis.text === '' || ergebnis.text.startsWith('HTTP/1.1 408')));
+}
+
+// --- Z1 L1 Nr. 9: der Tür-Dienst legt die Tür-Datei nur unter einem absoluten Pfad an ---------------------------------------------
+{
+  const dir = appData();
+  const relativ = relative(process.cwd(), dir);
+  const vorher = existsSync(join(process.cwd(), relativ));
+  let fehler = 'kein Fehler';
+  try {
+    const d = await starteTuerDienst({ appDataDir: relativ, behandle: async () => ({ ok: false, grund: 'fehler' }), log: () => undefined });
+    await d.stoppe();
+  } catch (e) {
+    fehler = (e as Error).message;
+  }
+  let leer = 'kein Fehler';
+  try {
+    const d = await starteTuerDienst({ appDataDir: '', behandle: async () => ({ ok: false, grund: 'fehler' }), log: () => undefined });
+    await d.stoppe();
+  } catch (e) {
+    leer = (e as Error).message;
+  }
+  ck('Z1 Nr. 9: starteTuerDienst verlangt einen absoluten appDataDir (relativ und leer werfen vor dem Lauschen, es entsteht keine Datei)',
+    relativ !== '' && !isAbsolute(relativ) && fehler.includes('absolut') && leer.includes('absolut') && vorher && !existsSync(tuerPfad(dir)));
 }
 
 // --- P13 G9 ------------------------------------------------------------------------------------------------------------------

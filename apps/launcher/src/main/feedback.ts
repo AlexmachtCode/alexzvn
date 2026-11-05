@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { ActionResult, FeedbackInput } from '@shared/types';
 import { resolveProxy, resolveToken } from './settings';
 import { workerRecht, zugangsKopfFuer } from './konto/huelle';
+import { redirectFuer } from './konto/worker-client';
 import { proxyFehlerText } from './release-wahl';
 import { getLogSources } from './presence';
 import { getTools } from './manifest';
@@ -112,9 +113,12 @@ export async function submitFeedback(input: FeedbackInput): Promise<ActionResult
   if (proxy && (await workerRecht('feedback'))) {
     const ziel = `${proxy.replace(/\/$/, '')}/feedback`;
     try {
+      const kopf = await zugangsKopfFuer(ziel);
       const res = await fetch(ziel, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', ...(await zugangsKopfFuer(ziel)) },
+        headers: { 'content-type': 'application/json', ...kopf },
+        // Z1: mit Sitzung oder Schlüssel im Kopf keine Weiterleitung (redirectFuer).
+        redirect: redirectFuer(kopf),
         body: JSON.stringify({
           type: input.type,
           title,

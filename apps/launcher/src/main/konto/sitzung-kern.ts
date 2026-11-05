@@ -28,6 +28,8 @@ export interface SitzungsTreiber {
   start(): void; ansicht(): KontoAnsicht; token(): string | null; sitzungFuerBedarf(): Promise<string | null>;
   angemeldet(s: GespeicherteSitzung): void; abmelden(): Promise<void>; lage(): Promise<void>;
   merkeAusgabe(a: FreigabeAusgabe): void; merkeHinweis(h: KontoAnsicht['hinweise'][number]): void;
+  /** Z1: Beenden des Launchers: der Wecker geht aus, danach plant der Treiber keinen mehr und prüft nichts im Hintergrund. */
+  stoppe(): void;
 }
 
 /** R13: nur diese Namen erscheinen im Konto-Dialog (K31), nie Werte. */
@@ -46,10 +48,31 @@ export const AUSGABEN_MAX = 10;
 /** OFP8: so lange nach der letzten Anmeldung mit Google erneuert der Worker ein Google-Konto (wie GOOGLE_NEU_MS in konto-kern.js). */
 export const GOOGLE_NEU_MS = 90 * 24 * 3600_000;
 
+/**
+ * Z1: der Stand für die Ansicht (und damit für den Renderer) mit ausdrücklich gewählten Feldern. Was der Worker sonst noch in den
+ * Stand schreibt (heute `v`, `typ`; morgen vielleicht mehr), erreicht den Renderer nie.
+ */
+export function standFuerAnsicht(s: KontoStand): KontoStand {
+  return {
+    kid: s.kid, email: s.email, name: s.name, art: s.art, stufe: s.stufe, tools: [...s.tools], events: [...s.events], zoom: s.zoom,
+    zoomBis: s.zoomBis, jm: s.jm, plattform: s.plattform, gid: s.gid, iat: s.iat, exp: s.exp, kontoBis: s.kontoBis,
+    angemeldetSeit: s.angemeldetSeit,
+  };
+}
+
+/** Z1: gemerkter Entzug aus den Einstellungen: `grund` einer der vier Werte, `am` eine endliche Zahl, sonst null. */
+export function leseEntzugAus(x: unknown): { grund: EntzugGrund; am: number } | null {
+  if (typeof x !== 'object' || x === null) return null;
+  const e = x as { grund?: unknown; am?: unknown };
+  if (typeof e.grund !== 'string' || !ENTZUG_CODES.includes(e.grund) || typeof e.am !== 'number' || !Number.isFinite(e.am)) return null;
+  return { grund: e.grund as EntzugGrund, am: e.am };
+}
+
 /** AR30: `exp` muss eine endliche Zahl sein, `kontoBis` null oder eine endliche Zahl; sonst ist die gespeicherte Sitzung unlesbar. */
 function fristenGueltig(s: GespeicherteSitzung): boolean {
   const st = s.stand as Partial<KontoStand> | undefined;
-  return !!st && typeof st.exp === 'number' && Number.isFinite(st.exp) && (st.kontoBis === null || (typeof st.kontoBis === 'number' && Number.isFinite(st.kontoBis)));
+  return !!st && typeof st.exp === 'number' && Number.isFinite(st.exp) && typeof st.iat === 'number' && Number.isFinite(st.iat)
+    && (st.kontoBis === null || (typeof st.kontoBis === 'number' && Number.isFinite(st.kontoBis)));
 }
 
 const MIT_TOKEN: readonly KontoZustand[] = ['pruefe', 'angemeldet', 'offline', 'server-nicht-erreichbar', 'entzogen-laeuft'];
@@ -73,6 +96,8 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
   let stoppeWecker: (() => void) | null = null;
   let erneuerung: Promise<string | null> | null = null;
   let gemeldet = '';
+  /** Z1: nach stoppe() entsteht kein Wecker mehr und lage() fragt nicht mehr. */
+  let beendet = false;
 
   const devVariablen = DEV_VARIABLEN.filter((n) => u.devVariablen.includes(n));
 
@@ -80,7 +105,7 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
     const stand = sitzung?.stand ?? anzeigeStand;
     return {
       zustand,
-      stand: stand ? { ...stand, tools: [...stand.tools], events: [...stand.events] } : null,
+      stand: stand ? standFuerAnsicht(stand) : null,
       grund,
       // R12: bis dahin gilt ein Start (ohne „Zugang bis“ die 30 Tage der Sitzung).
       gueltigBis: stand ? Math.min(stand.exp, stand.kontoBis ?? Infinity) : null,
@@ -196,6 +221,7 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
 
   function planeWiederholung(): void {
     weckerAus();
+    if (beendet) return;
     const ms = wiederholungMs;
     wiederholungMs = Math.min(wiederholungMs * 2, WIEDERHOLUNG_MAX_MS);
     // R5, EP29 (Nachfix 2): nie über `exp` hinaus; bei `exp` endet die Sitzung ohne Anfrage (pruefeSitzung), statt bis zu
@@ -214,6 +240,7 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
    */
   function planeLaufzeit(wiederholung = false): void {
     weckerAus();
+    if (beendet) return;
     const s = sitzung;
     if (!s || (zustand !== 'angemeldet' && zustand !== 'entzogen-laeuft')) return;
     const jetzt = u.jetzt();
@@ -496,6 +523,7 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
     async lage(): Promise<void> {
       // R8: nur mit laufender Sitzung in angemeldet, offline oder Server nicht erreichbar.
       const s = sitzung;
+      if (beendet) return;
       // Der Wecker kam nicht (Schlaf): nach `exp` endet die Sitzung auch hier, ohne Anfrage (wie sitzungFuerBedarf).
       if (s && zustand !== 'pruefe' && MIT_TOKEN.includes(zustand) && s.stand.exp <= u.jetzt()) {
         sitzungZuEnde(s, u.jetzt());
@@ -524,6 +552,11 @@ export function erzeugeSitzungsTreiber(u: SitzungsUmgebung): SitzungsTreiber {
         void pruefeSitzung(true);
       }
       aktualisiere();
+    },
+
+    stoppe(): void {
+      beendet = true;
+      weckerAus();
     },
 
     merkeAusgabe(a: FreigabeAusgabe): void {

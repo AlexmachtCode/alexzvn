@@ -33,7 +33,7 @@ export interface KontoAnsicht {
 }
 export type KontoFehlerCode = 'netz' | 'server' | 'nicht-eingerichtet' | 'zu-viele' | 'nicht-angemeldet' | 'sitzung-abgelaufen'
   | 'kein-recht' | 'gesperrt' | 'geloescht' | 'zugang-abgelaufen' | 'geraet-unbekannt' | 'vorgang-unbekannt' | 'ungueltig'
-  | 'konflikt' | 'nicht-noetig' | 'unbekannter-zweck' | 'erster-admin' | 'domain' | 'uhr';
+  | 'konflikt' | 'nicht-noetig' | 'unbekannter-zweck' | 'erster-admin' | 'domain' | 'uhr' | 'iveo-basis-unbekannt';
 export type AnmeldeSchritt =
   | { art: 'ruhe' } | { art: 'startet' }
   | { art: 'wartet'; code: string; adresse: string; bis: number; browserOffen: boolean }

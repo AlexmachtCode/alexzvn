@@ -18,18 +18,24 @@ import {
   type KontoStand, type KontoZustand,
 } from '@shared/konto';
 import { ladeOderErzeugeGeraet, type GeraetHandle, type GeraetLaden, type Verschluesseler } from './geraet';
-import { browserAdresseErlaubt, erzeugeKontoClient, istWorkerAdresse, KontoFehler, zugangsKopf, type KontoClient } from './worker-client';
+import {
+  erzeugeKontoClient, gesperrterKontoClient, KontoFehler, kopfFuer, istWorkerZiel, pruefeServerBasis, type KontoClient,
+} from './worker-client';
 import { erzeugeSitzungsTreiber, sitzungsAblage, type GespeicherteSitzung, type SitzungsTreiber } from './sitzung-kern';
 import { erzeugeAnmeldeAblauf, type AnmeldeAblauf } from './anmelde-ablauf';
 import { starteTuerDienst } from './tuer-dienst';
 import { erzeugeFreigabeStelle } from './freigaben';
-import { erzeugeIveoZentral, lokaleLoeschen, type IveoZentralSpeicher } from './iveo-zentral';
+import { erzeugeIveoZentral, iveoHinterlegenBasis, lokaleLoeschen, type IveoZentralSpeicher } from './iveo-zentral';
+import {
+  adminAktionAusfuehren, anmeldenOhneAblauf, browserHref, eventsFuerRenderer, kontoGewechselt, ohneWurf, erzeugeIveoLader, erzeugeUebergang, ersteAnmeldungVerarbeiten, githubZugangNachholen,
+  uebergangsText, zustandsLogger,
+} from './huelle-kern';
 import { toClientError } from '../iveo-abgleich-kern';
 import { IVEO_ABRUF_ZEITGRENZE_MS, mitZeitgrenze } from '../iveo-huelle-hilfen';
 import {
-  leseKontoEntzug, leseKontoErsteAnmeldung, leseKontoFeld, listIveoTokenKeys, loescheGithubZugang, loescheLokaleIveoTokens,
-  markiereAbgleichHier, resolveIveoBaseUrl, resolveProxy, resolveProxyKey, schreibeKontoEntzug, schreibeKontoErsteAnmeldung,
-  schreibeKontoFeld, verbindeIveoZentral, verbindeSitzung,
+  leseKontoEntzug, leseKontoErsteAnmeldung, leseKontoFeld, leseKontoUebergang, listIveoTokenKeys, loescheGithubZugang,
+  loescheLokaleIveoTokens, markiereAbgleichHier, resolveIveoBaseUrl, resolveProxy, resolveProxyKey, schreibeKontoEntzug,
+  schreibeKontoErsteAnmeldung, schreibeKontoFeld, schreibeKontoUebergang, verbindeIveoZentral, verbindeSitzung,
 } from '../settings';
 import { verbundStand } from '../verbund';
 import { iveoShowOffen, tokensAktualisiert } from '../iveo-sync';
@@ -79,20 +85,9 @@ const sitzungsRoh = {
  */
 const sitzungsSpeicher = {
   ...sitzungsRoh,
-  speichere: (s: Parameters<typeof sitzungsRoh.speichere>[0]): void => {
-    try {
-      sitzungsRoh.speichere(s);
-    } catch (e) {
-      log?.warn(`Anmeldung: Sitzung nicht gespeichert (${(e as Error | null)?.name ?? 'Fehler'})`);
-    }
-  },
-  merkeEntzug: (e: Parameters<typeof schreibeKontoEntzug>[0]): void => {
-    try {
-      sitzungsRoh.merkeEntzug(e);
-    } catch (f) {
-      log?.warn(`Anmeldung: Entzug nicht gespeichert (${(f as Error | null)?.name ?? 'Fehler'})`);
-    }
-  },
+  // Z1: ohneWurf (huelle-kern.ts, im Verhalten geprüft) — kein Wurf nach außen, im Log nur der Fehlername.
+  speichere: ohneWurf(sitzungsRoh.speichere, (z) => log?.warn(z), 'Anmeldung: Sitzung nicht gespeichert'),
+  merkeEntzug: ohneWurf(sitzungsRoh.merkeEntzug, (z) => log?.warn(z), 'Anmeldung: Entzug nicht gespeichert'),
 };
 
 let emit: (e: AppEvent) => void = () => undefined;
@@ -104,6 +99,9 @@ let geraet: GeraetHandle | null = null;
 let treiber: SitzungsTreiber | null = null;
 let ablauf: AnmeldeAblauf | null = null;
 let bereit: Promise<void> | null = null;
+/** Z1: das Gerät ist geladen und der Treiber läuft (t.start()); Abrufe warten darauf, nie auf den Tür-Dienst. */
+let treiberBereit: Promise<void> = Promise.resolve();
+let treiberFertig: () => void = () => undefined;
 let tuer: { stoppe(): Promise<void> } | null = null;
 let gestoppt = false;
 let lageTakt: ReturnType<typeof setInterval> | null = null;
@@ -113,8 +111,6 @@ const iveo = erzeugeIveoZentral();
 let iveoGeladen = false;
 /** AR60: zählt die Abmeldungen; eine Antwort aus einem älteren Lauf wird verworfen. */
 let iveoLauf = 0;
-/** AR60: ein Ladelauf ist unterwegs (zwei Läufe gleichzeitig würden sich verschränken). */
-let iveoLaedt = false;
 /** Fixrunde 1: Konto (kid), dessen Tokens im Speicher liegen; ein anderes Konto ohne Abmelden leert sie. */
 let iveoKid: string | null = null;
 
@@ -164,12 +160,23 @@ export function starteKonto(o: { emit(e: AppEvent): void; log: Logger; appDataDi
   verbindeSitzung(kontoSitzungMoeglich);
   // P23 (EP13): die Naht getIveoToken liest zuerst diesen Speicher; die Lage sagt „angemeldet“ und „Tokens geladen“.
   verbindeIveoZentral({ speicher: iveo, lage: () => ({ angemeldet: kontoSitzungMoeglich(), geladen: iveoGeladen }) });
-  serverBasis = resolveProxy() ?? '';
-  const c = erzeugeKontoClient({ basis: serverBasis, fetch: (url, init) => fetch(url, init) });
+  // AR57 (Z1): der Client wird nur mit geprüfter Server-Adresse gebaut; sonst scheitert jeder Aufruf mit `server`.
+  serverBasis = pruefeServerBasis(resolveProxy()) ?? '';
+  let c: KontoClient;
+  if (serverBasis) c = erzeugeKontoClient({ basis: serverBasis, fetch: (url, init) => fetch(url, init) });
+  else {
+    o.log.warn('Anmeldung: Server-Adresse nicht zulässig (https nötig)');
+    c = gesperrterKontoClient();
+  }
   client = c;
-  bereit = starte(o, c).catch((e: unknown) => {
-    o.log.warn(`Anmeldung nicht gestartet (${(e as Error | null)?.name ?? 'Fehler'})`);
+  treiberBereit = new Promise<void>((ok) => {
+    treiberFertig = ok;
   });
+  bereit = starte(o, c)
+    .catch((e: unknown) => {
+      o.log.warn(`Anmeldung nicht gestartet (${(e as Error | null)?.name ?? 'Fehler'})`);
+    })
+    .finally(() => treiberFertig());
 }
 
 async function starte(o: { log: Logger; appDataDir: string }, c: KontoClient): Promise<void> {
@@ -184,6 +191,9 @@ async function starte(o: { log: Logger; appDataDir: string }, c: KontoClient): P
     g = { art: 'kein-schluesselspeicher' };
   }
   geraet = g.art === 'kein-schluesselspeicher' ? null : g.geraet;
+  // Z1: nach dem Beenden (before-quit) startet nichts mehr: kein Treiber, kein Takt, kein Tür-Dienst.
+  if (gestoppt) return;
+  const zustandsLog = zustandsLogger();
   const t = erzeugeSitzungsTreiber({
     jetzt: () => Date.now(),
     client: c,
@@ -196,24 +206,23 @@ async function starte(o: { log: Logger; appDataDir: string }, c: KontoClient): P
     wecker,
     // R12: jede Änderung genau einmal; ins Log nur der Zustand, nie Stand, Sitzung oder E-Mail.
     melde: (a) => {
-      o.log.info(`Anmeldung: Zustand ${a.zustand}`);
+      // Z1: Log nur bei einem Zustandswechsel (eine Ansicht ändert sich auch ohne ihn, z. B. bei jeder Lage).
+      const zeile = zustandsLog(a.zustand);
+      if (zeile) o.log.info(zeile);
       emit({ type: 'konto-changed' });
     },
     nachAnmeldung: (s) => {
       // R9: die erste Anmeldung auf diesem Rechner merkt settings.json; P32 hängt das Löschen der Altlasten an.
-      if (leseKontoErsteAnmeldung() === null) {
-        schreibeKontoErsteAnmeldung(Date.now());
-        for (const f of beiErsterAnmeldung) {
-          try {
-            f();
-          } catch (e) {
-            o.log.warn(`Anmeldung: Aufräumen nach der ersten Anmeldung gescheitert (${(e as Error | null)?.name ?? 'Fehler'})`);
-          }
-        }
-      }
+      // Z1: Schreibt settings.json nicht, wirft das nie nach außen (huelle-kern: Log nur mit Fehlername).
+      ersteAnmeldungVerarbeiten({
+        lies: leseKontoErsteAnmeldung, schreibe: schreibeKontoErsteAnmeldung, haken: beiErsterAnmeldung, jetzt: Date.now,
+        log: (z) => o.log.warn(z),
+      });
       emit({ type: 'notice', message: textAngemeldet(s.stand) });
+      // Z1 (Nr. 8): K33 bleibt K33_STEHT_MS stehen, danach folgt die Übergangsmeldung (K32/I11).
+      uebergang.k33Gezeigt();
       // Fixrunde 1: anderes Konto ohne Abmelden (z. B. nach einem Entzug) → die Tokens des vorigen Kontos nicht behalten
-      if (iveoKid !== null && iveoKid !== s.stand.kid) {
+      if (kontoGewechselt(iveoKid, s.stand.kid)) {
         iveo.leere();
         iveoGeladen = false;
         iveoLauf++;
@@ -231,12 +240,20 @@ async function starte(o: { log: Logger; appDataDir: string }, c: KontoClient): P
       tokensAktualisiert();
       // AR60: eine noch unterwegs befindliche Antwort des alten Kontos verwerfen
       iveoLauf++;
+      // Z1 (Nr. 8): der Zeitgeber der Übergangsmeldung geht mit der Sitzung (die Vormerkung bleibt).
+      uebergang.abmelden();
       emit({ type: 'notice', message: TEXT_ABGEMELDET });
     },
   });
   treiber = t;
   if (g.art === 'neu-wegen-unlesbar') t.merkeHinweis('geraet-neu');
   t.start();
+  treiberFertig();
+  // Z1 (Nr. 6): Wirft das Löschen des GitHub-Zugangs nach der ersten Anmeldung, holt der Start es nach.
+  if (githubZugangNachholen({ ersteAnmeldung: leseKontoErsteAnmeldung(), loesche: loescheGithubZugang, log: (z) => o.log.warn(z) })) {
+    uebergang.vormerken(true);
+  }
+  if (uebergang.vorgemerkt()?.github) t.merkeHinweis('github-geloescht');
   lageTakt = setInterval(() => void kontoLage(false), LAGE_TAKT_MS);
   // EP8: Tür-Dienst auf 127.0.0.1 mit Tür-Datei je Start; Freigaben nur über die Freigabe-Stelle (Zweck, Ziel, 72 h).
   const stelle = erzeugeFreigabeStelle({ treiber: t, client: c, jetzt: () => Date.now(), log: (z) => o.log.info(z) });
@@ -254,6 +271,8 @@ export function stoppeKonto(): void {
   gestoppt = true;
   if (lageTakt) clearInterval(lageTakt);
   lageTakt = null;
+  // Z1: auch die Wecker des Treibers gehen aus; nach dem Beenden prüft nichts mehr im Hintergrund.
+  treiber?.stoppe();
   void tuer?.stoppe();
   tuer = null;
 }
@@ -265,7 +284,8 @@ export function kontoToken(): string | null {
 
 /** R7: Sitzung für einen Abruf, bei Bedarf erneuert (Obergrenze 30 Tage). Wartet höchstens auf das Laden des Geräts. */
 export async function kontoSitzungFuerBedarf(): Promise<string | null> {
-  if (bereit) await bereit;
+  // Z1: wartet auf das Gerät und den Treiber, nicht auf den Tür-Dienst.
+  await treiberBereit;
   return treiber ? treiber.sitzungFuerBedarf() : null;
 }
 
@@ -277,7 +297,8 @@ export function kontoAnsichtJetzt(): KontoAnsicht {
 /** Ist eine Sitzung nutzbar (R6-Zustände mit Stand)? Für Quellen und Rechte (P22). */
 export function kontoSitzungMoeglich(): boolean {
   const a = kontoAnsichtJetzt();
-  return a.stand !== null && SITZUNG_ZUSTAENDE.includes(a.zustand);
+  // Z1: eine Sitzung nach `exp` ist keine nutzbare Sitzung (der Treiber gibt dann auch kein Token heraus).
+  return a.stand !== null && SITZUNG_ZUSTAENDE.includes(a.zustand) && a.stand.exp > Date.now();
 }
 
 /**
@@ -297,8 +318,9 @@ export function zugangDa(): boolean {
  */
 export async function zugangsKopfFuer(url: string): Promise<Record<string, string>> {
   const proxy = resolveProxy();
-  if (!proxy || !istWorkerAdresse(url, proxy)) return {};
-  return zugangsKopf({ sitzung: await kontoSitzungFuerBedarf(), devKey: resolveProxyKey() });
+  if (!proxy || !istWorkerZiel(url, proxy)) return {};
+  // Z1: kopfFuer prüft Server-Adresse und Ziel noch einmal (rein, im Verhalten geprüft).
+  return kopfFuer(url, proxy, await kontoSitzungFuerBedarf(), resolveProxyKey());
 }
 
 /**
@@ -321,39 +343,30 @@ export function iveoZentral(): IveoZentralSpeicher {
  * P23 (EP13, IV3): die iveo-Tokens des Kontos in den Speicher — nie auf die Platte, nie ins Log, nie an den Renderer.
  * Scheitert das Laden, bleiben schon geladene Tokens (G5). Danach meldet die Hülle dem Kern die neue Lage: eine offene Show,
  * die ohne Token aufgesetzt wurde, setzt er neu auf; ohne Token nennt die Statuszeile den aktuellen Grund (I1–I4).
+ * Z1: der Ablauf steht in huelle-kern.ts (erzeugeIveoLader, im Verhalten geprüft); ein Konto- oder Laufwechsel während des
+ * Wartens startet das Laden neu, auch wenn die Anfrage scheiterte.
  */
-async function ladeIveo(): Promise<void> {
-  const t = kontoToken();
-  if (!t || !client) {
-    // P32 (OFP1): auch ohne Sitzung (abgemeldet, abgelaufen) gilt die Frist für lokale Tokens.
-    raeumeLokaleIveoTokensAuf();
-    tokensAktualisiert();
-    return;
-  }
-  if (iveoLaedt) return; // ein Lauf ist schon unterwegs; worker-client bricht nach seiner Zeitgrenze ab, die Sperre hängt nie
-  iveoLaedt = true;
-  const lauf = iveoLauf;
-  const kid = kontoAnsichtJetzt().stand?.kid ?? null;
-  try {
-    // EP31: der Hinweis des Workers (iveo dort nicht eingerichtet) geht mit in den Speicher; die Statuszeile nennt dann I12.
-    const r = await client.iveoTokens(t);
-    iveoLaedt = false;
-    if (lauf !== iveoLauf || kid !== (kontoAnsichtJetzt().stand?.kid ?? null)) {
-      // späte Antwort nach dem Abmelden oder nach einem Kontowechsel während des Wartens verwerfen; ist schon ein neues Konto
-      // da, dessen Tokens gleich laden (Sperre ist frei)
-      if (kontoToken()) void ladeIveo();
-      return;
-    }
+const iveoLader = erzeugeIveoLader({
+  token: () => (client ? kontoToken() : null),
+  kid: () => kontoAnsichtJetzt().stand?.kid ?? null,
+  lauf: () => iveoLauf,
+  // EP31: der Hinweis des Workers (iveo dort nicht eingerichtet) geht mit in den Speicher; die Statuszeile nennt dann I12.
+  lade: (t) => (client ? client.iveoTokens(t) : Promise.reject(new KontoFehler('server', null))),
+  uebernimm: (r, kid) => {
     iveo.setze(r.events, Date.now(), r.hinweis);
     iveoGeladen = true;
     iveoKid = kid;
-  } catch (e) {
-    iveoLaedt = false;
-    log?.warn(`Anmeldung: iveo-Tokens nicht geladen (${fehlerCode(e)})`);
-  }
-  // P32 (OFP1, IV5): nach jedem Laden die lokale Altlast aufräumen; danach meldet tokensAktualisiert die neue Lage.
-  raeumeLokaleIveoTokensAuf();
-  tokensAktualisiert();
+  },
+  // P32 (OFP1, IV5): nach jedem Laden (und ohne Sitzung) die lokale Altlast aufräumen; danach meldet tokensAktualisiert die Lage.
+  fertig: () => {
+    raeumeLokaleIveoTokensAuf();
+    tokensAktualisiert();
+  },
+  log: (z) => log?.warn(z),
+  fehlerCode,
+});
+function ladeIveo(): Promise<void> {
+  return iveoLader.lade();
 }
 
 // ── Übergang (Plan P32; Spec 10, 2 Anti-Ziel; N5, N9; EP12; OFP1, IV5) ───────────────────────────────────────────────────
@@ -375,10 +388,17 @@ function textLokaleIveo(slugs: readonly string[], spaetestens: number): string {
   return `Diese Events haben auf diesem Rechner noch ein lokal gespeichertes Token: ${slugs.join(', ')}. Es wird gelöscht, sobald ein Admin das Event zentral hinterlegt, spätestens am ${datumText(spaetestens)}.`;
 }
 
-/** Nach der ersten Anmeldung stehen K32 und I11 aus, bis die Tokens einmal geladen sind (erst dann ist die Liste wahr). */
-let uebergangMelden = false;
-/** Der Haken hat einen gespeicherten GitHub-Zugang gelöscht (K32). */
-let githubGeloescht = false;
+/**
+ * Nach der ersten Anmeldung stehen K32 und I11 aus, bis die Tokens einmal geladen sind (erst dann ist die Liste wahr). Z1: Sie
+ * kommen erst nach K33 (4 s) und überleben einen Neustart (settings.json, kontoUebergang); huelle-kern.ts, im Verhalten geprüft.
+ */
+const uebergang = erzeugeUebergang({
+  speicher: { lies: leseKontoUebergang, schreib: schreibeKontoUebergang },
+  jetzt: () => Date.now(),
+  wecker,
+  melde: (message) => emit({ type: 'notice', message }),
+  log: (z) => log?.warn(z),
+});
 
 /**
  * Haken an beiErsterAnmeldung (N5, EP12): den gespeicherten GitHub-Zugang löschen; Downloads laufen ab jetzt über die
@@ -386,11 +406,14 @@ let githubGeloescht = false;
  * mit I11: Eine Meldung hier würde die Meldung K33, die die Hülle direkt danach zeigt, sofort überdecken.
  */
 function nachErsterAnmeldungAufraeumen(): void {
-  if (loescheGithubZugang()) {
-    githubGeloescht = true;
-    treiber?.merkeHinweis('github-geloescht');
+  // Z1: die Vormerkung steht auch dann, wenn das Löschen wirft (der Haken-Aufrufer fängt den Fehler; der Start holt es nach).
+  let geloescht = false;
+  try {
+    geloescht = loescheGithubZugang();
+  } finally {
+    if (geloescht) treiber?.merkeHinweis('github-geloescht');
+    uebergang.vormerken(geloescht);
   }
-  uebergangMelden = true;
 }
 
 /**
@@ -416,12 +439,10 @@ function raeumeLokaleIveoTokensAuf(): void {
       loescheLokaleIveoTokens(r.loeschen);
       log?.info(`Anmeldung: ${r.loeschen.length} lokal gespeicherte iveo-Tokens gelöscht (OFP1)`);
     }
-    if (uebergangMelden && iveoGeladen) {
-      uebergangMelden = false;
-      const events = r.bleiben.filter((k) => !k.startsWith('base:'));
-      const teile = [githubGeloescht ? TEXT_GITHUB_GELOESCHT : null, events.length ? textLokaleIveo(events, r.spaetestens) : null]
-        .filter((t): t is string => t !== null);
-      if (teile.length) emit({ type: 'notice', message: teile.join(' ') });
+    if (iveoGeladen) {
+      uebergang.nachLaden((github) => uebergangsText({
+        github, bleiben: r.bleiben, spaetestens: r.spaetestens, textGithub: TEXT_GITHUB_GELOESCHT, textLokal: textLokaleIveo,
+      }));
     }
   } catch (e) {
     // Ein Fehler hier (z. B. EPERM/EBUSY beim Schreiben) darf ladeIveo nicht abbrechen; nur der Fehlername ins Log (G4).
@@ -454,11 +475,13 @@ function istAdmin(): boolean {
  * shell.openExternal — file:, ms-…: und fremde Hosts gehen nie hinaus. Die Logzeile nennt die Adresse nicht.
  */
 function oeffneImBrowser(url: string): Promise<boolean> {
-  if (!browserAdresseErlaubt(url, serverBasis)) {
+  // Z1: geöffnet wird die Form, die URL selbst ausgibt (browserHref), nie die Rohzeichenkette.
+  const href = browserHref(url, serverBasis);
+  if (href === null) {
     log?.warn('Anmeldung: Anmeldeadresse nicht geöffnet (nicht beim Worker oder ohne https)');
     return Promise.resolve(false);
   }
-  return shell.openExternal(url).then(() => true, () => false);
+  return shell.openExternal(href).then(() => true, () => false);
 }
 
 /** Lazy: der Ablauf entsteht beim ersten „Anmelden“, dann ist der Rechnername des Verbunds geladen (EP7). */
@@ -516,15 +539,23 @@ async function adminAktion(roh: unknown): Promise<KontoAdminAktionAntwort> {
   const t = await kontoSitzungFuerBedarf();
   if (!t || !client || !treiber) return { ok: false, code: 'nicht-angemeldet' };
   if (!istAdmin()) return { ok: false, code: 'kein-recht' };
-  try {
-    const ergebnis = await client.adminAktion(t, a);
-    const daten = await client.adminUebersicht(t);
-    // Der Punkt am Zahnrad (offene Anfragen) folgt der Aktion sofort.
-    await treiber.lage();
-    return { ok: true, ergebnis, daten };
-  } catch (e) {
-    return { ok: false, code: fehlerCode(e) };
+  // OE2 (Z1): ein Token wird nur für eine Basis der festen iveo-Liste hinterlegt; sonst geht nichts an den Worker.
+  let aktion: AdminAktion = a;
+  if (a.aktion === 'iveo-hinterlegen') {
+    const basis = iveoHinterlegenBasis(a.basis, resolveIveoBaseUrl());
+    if (basis === null) return { ok: false, code: 'iveo-basis-unbekannt' };
+    aktion = { ...a, basis };
   }
+  const c = client;
+  const tr = treiber;
+  // Z1: das Ergebnis der Aktion (Einladungscode) erreicht den Aufrufer auch, wenn die Übersicht danach scheitert.
+  return adminAktionAusfuehren({
+    aktion: () => c.adminAktion(t, aktion),
+    uebersicht: () => c.adminUebersicht(t),
+    // Der Punkt am Zahnrad (offene Anfragen) folgt der Aktion sofort.
+    lage: () => tr.lage(),
+    fehlerCode,
+  });
 }
 
 /**
@@ -542,7 +573,7 @@ async function iveoEventsLaden(roh: unknown): Promise<KontoIveoEventsAntwort> {
       fetchImpl: mitZeitgrenze((url, init) => fetch(url, init), IVEO_ABRUF_ZEITGRENZE_MS),
     });
     const events = await iveoClient.discovery();
-    return { ok: true, events: events.map((e) => ({ slug: e.slug, name: e.name })) };
+    return { ok: true, events: eventsFuerRenderer(events) };
   } catch (e) {
     const f = toClientError(e);
     log?.warn(`Anmeldung: iveo-Events nicht geladen (${f.code ?? 'fehler'})`);
@@ -553,13 +584,14 @@ async function iveoEventsLaden(roh: unknown): Promise<KontoIveoEventsAntwort> {
 /** IPC nach 10.7 (registriert aus ipc.ts). Keine Antwort enthält eine Sitzung, eine Freigabe oder ein iveo-Token. */
 export function registriereKontoIpc(ipc: IpcMain): void {
   ipc.handle('konto:ansicht', async (): Promise<KontoAnsicht> => {
-    await bereit;
+    await treiberBereit;
     return kontoAnsichtJetzt();
   });
   ipc.handle('konto:anmelden', async (): Promise<AnmeldeSchritt> => {
-    await bereit;
+    await treiberBereit;
     const a = anmeldeAblauf();
-    if (!a) return { art: 'fehler', code: 'kein-schluesselspeicher' };
+    // Z1 (G7): der Fehlercode nennt den wahren Grund (ohne Schlüsselspeicher oder sonst der Server), nicht immer den Schlüsselspeicher.
+    if (!a) return anmeldenOhneAblauf(kontoAnsichtJetzt().zustand);
     // EP26: „Anmelden“ gibt es nur ohne gültige Sitzung — ein Konto je Rechner.
     if (kontoToken() === null) await a.starte();
     return a.schritt();
@@ -572,15 +604,16 @@ export function registriereKontoIpc(ipc: IpcMain): void {
   ipc.handle('konto:adresseKopieren', (): boolean => {
     const adresse = ablauf?.adresse();
     // EP35: in die Zwischenablage nur, was auch der Browser bekäme.
-    if (!adresse || !browserAdresseErlaubt(adresse, serverBasis)) {
+    const href = adresse ? browserHref(adresse, serverBasis) : null;
+    if (href === null) {
       if (adresse) log?.warn('Anmeldung: Anmeldeadresse nicht kopiert (nicht beim Worker oder ohne https)');
       return false;
     }
-    clipboard.writeText(adresse);
+    clipboard.writeText(href);
     return true;
   });
   ipc.handle('konto:abmelden', async (): Promise<KontoAnsicht> => {
-    await bereit;
+    await treiberBereit;
     await treiber?.abmelden();
     return kontoAnsichtJetzt();
   });

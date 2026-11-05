@@ -3,7 +3,7 @@
 //
 // Seit Master-Link Teil 2a (Spec 7.0) die dünne Electron-Hülle um den Kern
 // `iveo-abgleich-kern.ts` (ohne Electron, testbar):
-//   • discoverIveoEvents  — Token einmal prüfen + lesbare Events auflisten (GET /).
+//   • (Z1: discoverIveoEvents entfernt — die Discovery läuft über konto:iveoEventsLaden, kein Renderer rief iveo:discover.)
 //   • bindIveoEvent       — Token (verschlüsselt, pro Event) ablegen, Event-Snapshot
 //                           holen, zentralen Ablauf materialisieren (für den Show-
 //                           Editor) + sanitisierten Metadaten-Cache schreiben.
@@ -51,7 +51,6 @@ import type { ShowIveoProgramRef, ShowIveoSpeaker } from '@jm/show';
 import {
   getIveoAnhangOrdner,
   getIveoToken,
-  getIveoBaseToken,
   iveoTokenMitGrund,
   iveoTokenZumBinden,
   leseIveoAbgleichHier,
@@ -61,6 +60,8 @@ import {
 } from './settings';
 import { iveoSchluessel } from './konto/iveo-zentral';
 import { sendControlCommand } from './health';
+import { getPresence } from './presence';
+import { showIstZu } from './show-offen';
 import { meldeShowAnVerbund, verbundReloadInfo, verbundRolle } from './verbund';
 import {
   einPunktAblauf,
@@ -101,8 +102,6 @@ import type {
   AppEvent,
   IveoBindInput,
   IveoBindResult,
-  IveoDiscoverInput,
-  IveoDiscoverResult,
   IveoDownloadInput,
   IveoMaterialsInput,
   IveoMaterialsResult,
@@ -256,33 +255,7 @@ function iveoClient(token: string, baseUrl: string): IveoClient {
   });
 }
 
-// ── Discover / Bind (vom Show-Editor via IPC aufgerufen) ─────────────────────
-
-export async function discoverIveoEvents(input: IveoDiscoverInput): Promise<IveoDiscoverResult> {
-  const baseUrl = input.baseUrl?.trim() || resolveIveoBaseUrl();
-  // C4: kein Token im Feld → den für diese Basis gemerkten nutzen (ein Token gilt
-  // basis-weit — die Discovery listet ALLE lesbaren Events), damit ein neues Event
-  // derselben Org kein erneutes Einfügen erzwingt. Discover persistiert selbst nichts.
-  // Der Token-Fallback normalisiert über den Basis-Schlüssel und würfe bei ungültiger Adresse (T8) außerhalb des try:
-  // zuerst und in eigenem try, damit die Antwort ok:false mit dem Text ist statt eines IPC-Fehlers.
-  let genutzteAdresse: string;
-  try {
-    genutzteAdresse = normalizeIveoBaseUrl(baseUrl);
-  } catch (e) {
-    getLog().warn(`iveo discover fehlgeschlagen: ${(e as Error).message}`);
-    return { ok: false, ...toClientError(e) };
-  }
-  const token = input.token?.trim() || getIveoBaseToken(genutzteAdresse);
-  if (!token) return { ok: false, error: 'Token fehlt.' };
-  try {
-    const client = iveoClient(token, baseUrl);
-    const events = await client.discovery();
-    return { ok: true, events };
-  } catch (e) {
-    getLog().warn(`iveo discover fehlgeschlagen: ${(e as Error).message}`);
-    return { ok: false, ...toClientError(e) };
-  }
-}
+// ── Bind (vom Show-Editor via IPC aufgerufen) ─────────────────────
 
 export async function bindIveoEvent(input: IveoBindInput): Promise<IveoBindResult> {
   const baseUrl = input.baseUrl?.trim() || resolveIveoBaseUrl();
@@ -439,6 +412,9 @@ interface OpenShowIveo {
   baseUrl: string;
 }
 let openShowIveo: OpenShowIveo | null = null;
+/** Z1: wann die offene Show geöffnet wurde und welche Tools sie startet (für iveoShowOffen). */
+let showGeoeffnetAm = 0;
+let showToolIds: string[] = [];
 /** Pfad der offenen Show, auch ohne iveo (Spec 7.5: Speichern im Editor erkennen). */
 let offeneShowPfad: string | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -555,7 +531,10 @@ export function tokensAktualisiert(): void {
 
 /** Für den Löschlauf lokaler Tokens (P32, IV5): ist eine iveo-gebundene Show offen? Dann wartet er. */
 export function iveoShowOffen(): boolean {
-  return openShowIveo !== null;
+  // Z1: offen ist die Show, solange eines ihrer Tools läuft (show-offen.ts); beendet der Bediener alle, gilt sie als geschlossen.
+  if (openShowIveo === null) return false;
+  const laufend = getPresence().filter((p) => p.running).map((p) => p.appId);
+  return !showIstZu({ geoeffnetAm: showGeoeffnetAm, jetzt: Date.now(), toolIds: showToolIds, laufend });
 }
 
 /** EP14: Schlüssel der offenen Show, ob dieser Rechner sie abgleicht und ob er es übernehmen könnte — ohne Token. */
@@ -810,6 +789,8 @@ export function onShowOpened(showPath: string, show: Show): void {
   leseWarnung.ok();
   schreibWarnung.ok();
   offeneShowPfad = showPath;
+  showGeoeffnetAm = Date.now();
+  showToolIds = show.tools.map((t) => t.appId);
   merkeOffeneShow(showPath, show); // vor dem Kern: dessen meldeAktiv() braucht den Merker
   // iveo-Paket, Spec 8.2: eine geöffnete Show beginnt neu — die nächste Beobachtung gilt als erste (8.4 Nr. 1).
   anhangWaechter().zuruecksetzen();

@@ -5,6 +5,7 @@ import { CHANGELOG } from '@jm/suite-manifest';
 import type { AppChangelog } from '@jm/suite-manifest';
 import { resolveChangelogUrl } from './settings';
 import { zugangsKopfFuer } from './konto/huelle';
+import { redirectFuer } from './konto/worker-client';
 
 // App-Patchnotes: gebündelter Fallback (CHANGELOG aus @jm/suite-manifest) +
 // Live-Quelle vom Proxy (/changelog.json aus dem Katalog-Branch). So erscheinen
@@ -46,7 +47,9 @@ export function initChangelog(): void {
 export async function refreshChangelog(): Promise<boolean> {
   const url = resolveChangelogUrl();
   try {
-    const res = await fetch(url, { headers: await headers(url) });
+    // Z1: trägt der Kopf eine Sitzung oder einen Schlüssel, folgt der Abruf keiner Weiterleitung (redirectFuer).
+    const kopf = await headers(url);
+    const res = await fetch(url, { headers: kopf, redirect: redirectFuer(kopf) });
     if (!res.ok) return false;
     const parsed = (await res.json()) as unknown;
     if (!isValid(parsed)) return false;

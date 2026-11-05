@@ -103,21 +103,6 @@ export interface IveoEventStub {
   name: string;
 }
 
-/** Token EINMAL prüfen und lesbare Events auflisten (Token wird nicht persistiert). */
-export interface IveoDiscoverInput {
-  /** Optional; leer = konfigurierte/Default-Basis-URL. */
-  baseUrl?: string;
-  /** Per-Event-Bearer-Token (`iveo_live_…`). */
-  token: string;
-}
-export interface IveoDiscoverResult {
-  ok: boolean;
-  events?: IveoEventStub[];
-  /** Stabiler Fehlercode (z. B. "unauthorized"), nie rohe Upstream-Antwort. */
-  code?: string;
-  error?: string;
-}
-
 /**
  * Event an eine Show binden: Token (verschlüsselt, pro Event) ablegen und den
  * Ablauf holen. Der zurückgegebene `ablauf` wird vom Show-Editor in die Show
@@ -521,12 +506,8 @@ export interface JmpsApi {
   submitFeedback: (input: FeedbackInput) => Promise<ActionResult>;
   /** Neues Rezept einreichen (Pfad B = KI) — öffnet bei Erfolg einen PR. */
   submitRecipeDraft: (input: RecipeDraftInput) => Promise<RecipeDraftResult>;
-  /** iveo (#11): Token prüfen + lesbare Events auflisten (Token nicht gespeichert). */
-  discoverIveoEvents: (input: IveoDiscoverInput) => Promise<IveoDiscoverResult>;
   /** iveo (#11): Event an Show binden — Token verschlüsselt ablegen, Ablauf holen. */
   bindIveoEvent: (input: IveoBindInput) => Promise<IveoBindResult>;
-  /** iveo (C4): Ist für diese Basis-URL schon ein Token gemerkt? (Token bleibt im Main.) */
-  hasIveoBaseToken: (baseUrl?: string) => Promise<boolean>;
   /** iveo (#11): Side Events der offenen Show auflisten (token-frei, aus Cache). */
   listIveoSideEvents: (input?: IveoSideEventsInput) => Promise<IveoSideEventsResult>;
   /** iveo (#11): live auf ein Side Event umschalten (Ablauf+Speaker → Timer/Titler RELOAD). */
@@ -713,8 +694,12 @@ export type KoppelAntwort =
 // ── Anmeldung (Plan P21, 10.7): Antworten der Kanäle konto:* — nie mit Sitzung, Freigabe oder Token ──────────────
 export type KontoZoomAntwort = { ok: true; ansicht: KontoAnsicht } | { ok: false; code: KontoFehlerCode };
 export type KontoAdminAntwort = { ok: true; daten: AdminUebersicht } | { ok: false; code: KontoFehlerCode };
+/**
+ * Z1: Gelang die Aktion, aber nicht die Folge-Übersicht, trägt die Antwort `daten: null` und `uebersichtFehler` (das Ergebnis,
+ * z. B. der Einladungscode, geht trotzdem an den Aufrufer).
+ */
 export type KontoAdminAktionAntwort =
-  | { ok: true; ergebnis: AdminAktionErgebnis; daten: AdminUebersicht }
+  | { ok: true; ergebnis: AdminAktionErgebnis; daten: AdminUebersicht | null; uebersichtFehler?: KontoFehlerCode }
   | { ok: false; code: KontoFehlerCode };
 export type KontoIveoEventsAntwort = { ok: true; events: Array<{ slug: string; name: string }> } | { ok: false; fehler: string };
 /** Ein iveo-Event, für das dieses Konto ein Token hat (Schlüssel `‹Basis›|‹Slug›`, EP13) — ohne Token. */

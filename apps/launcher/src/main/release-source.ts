@@ -1,6 +1,7 @@
 import type { Platform, ToolManifest } from '@jm/suite-manifest';
 import { resolveProxy, resolveToken } from './settings';
 import { zugangDa, zugangsKopfFuer } from './konto/huelle';
+import { redirectFuer } from './konto/worker-client';
 import { holeAlleSeiten, RELEASES_PRO_SEITE } from './release-liste';
 import { proxyAntwortAuswerten, waehleRelease, type PaketWahl, type ReleaseEintrag } from './release-wahl';
 
@@ -143,8 +144,11 @@ class ProxyReleaseSource implements ReleaseSource {
     const url =
       `${this.base.replace(/\/$/, '')}/tools/${tool.id}/latest` +
       `?platform=${platform}&arch=${archToken()}`;
+    const kopf = await this.kopf(url);
+    // Z1: mit Sitzung oder Schlüssel im Kopf keine Weiterleitung (redirectFuer).
     const res = await fetch(url, {
-      headers: { Accept: 'application/json', ...(await this.kopf(url)) },
+      headers: { Accept: 'application/json', ...kopf },
+      redirect: redirectFuer(kopf),
     });
     // Der Fehlertext des Proxys bleibt erhalten, z. B. „Proxy 404: kein Release von connect mit einem Paket für macOS
     // (x64)“ (Spec 10.4, 11.5 F2–F6); Sitzung und Schlüssel stehen in keiner Meldung.

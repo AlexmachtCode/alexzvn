@@ -5,7 +5,6 @@ import type {
   FeedbackInput,
   InstallProgress,
   IveoBindInput,
-  IveoDiscoverInput,
   IveoDownloadInput,
   IveoMaterialsInput,
   IveoSideEventsInput,
@@ -39,14 +38,12 @@ import {
   getManualEndpoints,
   addManualEndpoint,
   removeManualEndpoint,
-  hasIveoBaseToken,
 } from './settings';
 import { getControlStatus, provisionControl, disableControl } from './control-provision';
 import { submitFeedback } from './feedback';
 import { submitRecipeDraft } from './cookbook-draft';
 import { registriereKontoIpc } from './konto/huelle';
 import {
-  discoverIveoEvents,
   bindIveoEvent,
   listSideEvents,
   switchSideEvent,
@@ -170,10 +167,7 @@ export function registerIpc(): void {
 
   // iveo (#11): Token prüfen + Events auflisten; Event an Show binden (Token
   // verschlüsselt ablegen, Ablauf holen). Token/Daten bleiben im Main-Prozess.
-  ipcMain.handle('iveo:discover', (_e, input: IveoDiscoverInput) => discoverIveoEvents(input));
   ipcMain.handle('iveo:bind', (_e, input: IveoBindInput) => bindIveoEvent(input));
-  // C4: Ist für diese Basis-URL schon ein Token gemerkt? (Boolean — Token bleibt im Main.)
-  ipcMain.handle('iveo:hasBaseToken', (_e, baseUrl?: string) => hasIveoBaseToken(baseUrl));
   ipcMain.handle('iveo:listSideEvents', (_e, input: IveoSideEventsInput) => listSideEvents(input));
   ipcMain.handle('iveo:switchSideEvent', (_e, input: IveoSwitchInput) => switchSideEvent(input));
   ipcMain.handle('iveo:listMaterials', (_e, input: IveoMaterialsInput) => listSideEventMaterials(input));

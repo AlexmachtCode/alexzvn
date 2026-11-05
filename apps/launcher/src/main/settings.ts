@@ -5,6 +5,8 @@ import { IVEO_DEFAULT_BASE_URL, normalizeIveoBaseUrl } from '@jm/iveo';
 import type { ManualEndpoint, RecentShow, SuiteSettingsInput, SuiteSettingsView } from '@shared/types';
 import type { EntzugGrund } from '@shared/konto';
 import { erzeugeIveoZentral, iveoSchluessel, type IveoGrund, type IveoZentralSpeicher } from './konto/iveo-zentral';
+import { ohneGithubZugang, type UebergangsMerker } from './konto/huelle-kern';
+import { leseEntzugAus } from './konto/sitzung-kern';
 
 interface StoredSettings {
   /** Legacy-Klartext-Token (alte Datei). Wird beim nächsten Schreiben migriert. */
@@ -42,6 +44,8 @@ interface StoredSettings {
   kontoErsteAnmeldung?: number;
   /** Anmeldung (EP14): Event-Schlüssel `‹Basis›|‹Slug›`, die DIESER Rechner mit iveo abgleicht. Kein Geheimnis. */
   iveoAbgleichHier?: string[];
+  /** Anmeldung (Z1): die Übergangsmeldung K32/I11 steht noch aus (überlebt einen Neustart); `github`: ein GitHub-Zugang wurde gelöscht. Kein Geheimnis. */
+  kontoUebergang?: { melden: true; github: boolean };
 }
 
 /** Wie viele zuletzt geöffnete Shows gemerkt werden (#157). */
@@ -320,11 +324,6 @@ export function getIveoBaseToken(baseUrl?: string): string | undefined {
   return zentral ?? lokalesIveoToken(iveoBaseKey(basis));
 }
 
-/** Ist für diese Basis ein Token hinterlegt? (Boolean für den Renderer — ohne Wert.) */
-export function hasIveoBaseToken(baseUrl?: string): boolean {
-  return Boolean(getIveoBaseToken(baseUrl));
-}
-
 /** Event-Keys, für die ein Token hinterlegt ist (ohne die Tokens preiszugeben). */
 export function listIveoTokenKeys(): string[] {
   const s = read();
@@ -450,8 +449,8 @@ export function schreibeKontoFeld(feld: 'kontoSitzungEnc' | 'geraetSchluesselEnc
 
 /** Gemerkter Entzug (R2): Grund und Zeitpunkt, sonst null. */
 export function leseKontoEntzug(): { grund: EntzugGrund; am: number } | null {
-  const e = read().kontoEntzug;
-  return e && typeof e.grund === 'string' && typeof e.am === 'number' ? e : null;
+  // Z1: `grund` muss einer der vier Werte sein, `am` eine endliche Zahl; alles andere gilt als kein Entzug.
+  return leseEntzugAus(read().kontoEntzug);
 }
 
 /** Entzug merken bzw. (null) vergessen. */
@@ -496,12 +495,25 @@ export function setzeIveoAbgleichHier(key: string, an: boolean): void {
 
 /** N5, EP12: gespeicherten GitHub-Zugang löschen (verschlüsselt und Klartext). true, wenn einer da war. */
 export function loescheGithubZugang(): boolean {
-  const s = read();
-  if (s.githubToken === undefined && s.githubTokenEnc === undefined) return false;
-  delete s.githubToken;
-  delete s.githubTokenEnc;
-  write(s);
+  // Z1: nur die beiden GitHub-Felder gehen; `proxyUrl` und alles übrige bleibt (ohneGithubZugang, im Verhalten geprüft).
+  const { neu, war } = ohneGithubZugang(read());
+  if (!war) return false;
+  write(neu);
   return true;
+}
+
+/** Z1: die Vormerkung der Übergangsmeldung K32/I11 (überlebt einen Neustart), sonst null. */
+export function leseKontoUebergang(): UebergangsMerker | null {
+  const u = read().kontoUebergang;
+  return u && u.melden === true ? { melden: true, github: u.github === true } : null;
+}
+
+/** Z1: Vormerkung setzen bzw. (null) nach der Meldung löschen. */
+export function schreibeKontoUebergang(m: UebergangsMerker | null): void {
+  const s = read();
+  if (m) s.kontoUebergang = { melden: true, github: m.github };
+  else delete s.kontoUebergang;
+  write(s);
 }
 
 /** OFP1, IV5: lokal gespeicherte iveo-Tokens löschen (Schlüssel wie gespeichert: Slug oder `base:‹URL›`), beide Formen. */

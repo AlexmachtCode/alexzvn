@@ -5,6 +5,7 @@ import { SUITE } from '@jm/suite-manifest';
 import type { SuiteManifest, ToolManifest } from '@jm/suite-manifest';
 import { defaultManifestUrl, resolveManifestUrl } from './settings';
 import { zugangsKopfFuer } from './konto/huelle';
+import { redirectFuer } from './konto/worker-client';
 
 // In-memory-Registry. Default = gebündeltes suite.json; beim Start wird ein
 // lokaler Cache geladen und optional eine remote suite.json (JMPS_MANIFEST_URL).
@@ -55,7 +56,9 @@ export async function refreshManifest(): Promise<boolean> {
   const url = manifestUrl();
   if (!url) return false;
   try {
-    const res = await fetch(url, { headers: await manifestHeaders(url) });
+    // Z1: trägt der Kopf eine Sitzung oder einen Schlüssel, folgt der Abruf keiner Weiterleitung (redirectFuer).
+    const kopf = await manifestHeaders(url);
+    const res = await fetch(url, { headers: kopf, redirect: redirectFuer(kopf) });
     if (!res.ok) return false;
     const parsed = (await res.json()) as unknown;
     if (!isValid(parsed)) return false;

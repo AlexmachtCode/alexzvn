@@ -9,7 +9,7 @@
 // ihm nicht eingerichtet ist, nennt tokenFuer das als Grund (EP31, I12). Ein Token, das dieser Lauf schon hat, bleibt bis zum
 // Abmelden (leere) oder Neustart, auch wenn der Worker es nicht mehr liefert (G5, Spec 6.3, M34). Kein electron-Import (G9).
 // ─────────────────────────────────────────────────────────────────────────────
-import { normalizeIveoBaseUrl } from '@jm/iveo';
+import { iveoBasisErlaubt, kanonischeIveoBasis, normalizeIveoBaseUrl } from '@jm/iveo';
 import type { IveoHinweis, IveoZentral } from './worker-client';
 
 /** OFP1: lokal gespeicherte Tokens bleiben höchstens 30 Tage ab der ersten Anmeldung auf diesem Rechner. */
@@ -29,7 +29,7 @@ export interface IveoZentralSpeicher {
 export function iveoSchluessel(basis: string, slug: string): string {
   let b: string;
   try {
-    b = normalizeIveoBaseUrl(basis);
+    b = kanonischeIveoBasis(basis) ?? normalizeIveoBaseUrl(basis);
   } catch {
     b = basis.trim().replace(/\/+$/, '');
   }
@@ -37,6 +37,7 @@ export function iveoSchluessel(basis: string, slug: string): string {
 }
 
 const slugVon = (key: string): string => key.slice(key.lastIndexOf('|') + 1);
+const basisVon = (key: string): string => key.slice(0, key.lastIndexOf('|'));
 
 /**
  * Genau dieser Schlüssel, sonst (nur mit slugRueckfall) der einzige Eintrag mit diesem Slug (mehrdeutig zählt nicht).
@@ -48,6 +49,16 @@ function finde<T>(liste: readonly T[], key: string, slug: string, schluesselVon:
   if (genau !== undefined || !slugRueckfall) return genau;
   const gleicherSlug = liste.filter((x) => slugVon(schluesselVon(x)) === slug);
   return gleicherSlug.length === 1 ? gleicherSlug[0] : undefined;
+}
+
+/**
+ * OE2 (Z1): die Basis, mit der die Admin-Maske ein Token hinterlegen darf, in der Form der festen Liste (IVEO_ERLAUBTE_BASEN);
+ * leer = Standardbasis dieses Rechners. Eine Basis außerhalb der Liste (oder kein Text) → null (Fehlercode iveo-basis-unbekannt).
+ */
+export function iveoHinterlegenBasis(basis: unknown, standardBasis: string): string | null {
+  if (typeof basis !== 'string') return null;
+  const k = kanonischeIveoBasis(basis.trim() || standardBasis);
+  return k !== null && iveoBasisErlaubt(k) ? k : null;
 }
 
 export function erzeugeIveoZentral(): IveoZentralSpeicher {
@@ -89,9 +100,14 @@ export function erzeugeIveoZentral(): IveoZentralSpeicher {
       const s = slug.trim();
       const key = iveoSchluessel(basis ?? lage.standardBasis, s);
       const lokal = lage.lokal(s) || undefined;
-      const markiert = finde(lage.abgleichHier, key, s, (k) => k) !== undefined;
+      // Z1: wie beim Token selbst gilt der eindeutige Slug nur, wo der Aufrufer keine Basis nennt; sonst aktiviert die Markierung
+      // einer anderen Basis den Abgleich nicht.
+      const markiert = finde(lage.abgleichHier, key, s, (k) => k, basis === undefined) !== undefined;
       if (!markiert && !lokal) return { token: undefined, grund: 'kein-abgleich-hier' };
-      const zentral = finde([...liste, ...frueher], key, s, (e) => e.key, basis === undefined);
+      // OE2 (Z1): ein zentrales Token geht nur an eine Basis der festen Liste (Ziel und Eintrag); sonst bleibt es hier und das Ergebnis
+      // ist nicht-hinterlegt (lokale Tokens im Übergang bleiben davon unberührt).
+      const kandidaten = iveoBasisErlaubt(basisVon(key)) ? [...liste, ...frueher].filter((e) => iveoBasisErlaubt(basisVon(e.key))) : [];
+      const zentral = finde(kandidaten, key, s, (e) => e.key, basis === undefined);
       if (zentral) return { token: zentral.token, grund: 'ok' };
       if (lokal) return { token: lokal, grund: 'ok' };
       if (!lage.angemeldet) return { token: undefined, grund: 'nicht-angemeldet' };

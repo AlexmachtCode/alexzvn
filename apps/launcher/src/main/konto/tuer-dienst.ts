@@ -11,7 +11,7 @@ import { randomBytes } from 'node:crypto';
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { dirname } from 'node:path';
+import { dirname, isAbsolute } from 'node:path';
 import {
   beweisGleich, FREIGABE_PFAD, FREIGABE_VERSION, freigabeBeweis, inhaltsHash, KOPF_BEWEIS, KOPF_NONCE, KOPF_ZEIT, tuerPfad,
   type FreigabeAnfrage, type FreigabeErgebnis, type TuerDatei,
@@ -72,6 +72,8 @@ export async function starteTuerDienst(o: {
   appDataDir: string; behandle(a: FreigabeAnfrage): Promise<FreigabeErgebnis>; log(z: string): void; jetzt?: () => number;
   fristMs?: number; zeitlimitMs?: number;
 }): Promise<{ port: number; stoppe(): Promise<void> }> {
+  // Z1: die Tür-Datei liegt nur unter einem absoluten Pfad (ein relativer hinge vom Arbeitsordner ab, den das Tool nicht kennt).
+  if (!isAbsolute(o.appDataDir)) throw new Error('Tür-Dienst: appDataDir muss ein absoluter Pfad sein');
   const jetzt = o.jetzt ?? Date.now;
   const schluessel = randomBytes(32).toString('base64url');
   const gesehen = new Map<string, number>();
