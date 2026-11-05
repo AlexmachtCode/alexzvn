@@ -39,7 +39,8 @@ export type AnmeldeSchritt =
   | { art: 'wartet'; code: string; adresse: string; bis: number; browserOffen: boolean }
   | { art: 'fertig'; kurzName: string; stufe: Stufe }
   | { art: 'abgelehnt' } | { art: 'abgelaufen' } | { art: 'abgebrochen' }
-  | { art: 'fehler'; code: KontoFehlerCode | 'kein-schluesselspeicher' | 'browser' };
+  // Z2 Fixrunde 1 (AR91 Nr. 3): `rueckkanal` = der Rückkanal auf 127.0.0.1 ließ sich nicht öffnen (Dialog K58).
+  | { art: 'fehler'; code: KontoFehlerCode | 'kein-schluesselspeicher' | 'browser' | 'rueckkanal' };
 export interface AdminZugang { kid: string; email: string; name: string; art: Anmeldeart; stufe: Stufe; zustand: 'aktiv' | 'gesperrt';
   tools: Werkzeug[]; events: string[]; bis: number | null; zoomBis: number | null; einladungBis: number | null;
   letzteAnmeldung: number | null; ersterAdmin: boolean }

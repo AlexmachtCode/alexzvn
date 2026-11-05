@@ -428,8 +428,10 @@ function uebergangUmgebung(o: { startMerker?: UebergangsMerker | null; schreibWi
     && huelle.includes('      uebergang.abmelden();'));
   // Z2: die Hülle gibt dem Ablauf den echten Rückkanal (Log nur über das Launcher-Log, rueckkanal.ts schreibt nie e) und schließt ihn
   // beim Beenden (stoppeKonto → ablauf.stoppe). Verhalten von Rückkanal und Ablauf: konto-rueckkanal und konto-anmeldung.
-  ck('Z2 1: die Hülle verdrahtet oeffneRueckkanal mit dem Launcher-Log in den Ablauf und stoppt beim Beenden den Ablauf (Rückkanal zu)',
+  ck('Z2 1, M2: die Hülle verdrahtet oeffneRueckkanal mit dem Launcher-Log und die monotone Uhr (performance.now) in den Ablauf und stoppt beim Beenden den Ablauf (Rückkanal zu)',
     huelle.includes("import { oeffneRueckkanal } from './rueckkanal';") && huelle.includes('    oeffneRueckkanal: (o) => oeffneRueckkanal({ ...o, log: (z) => log?.info(z) }),')
+    // Fixrunde 1 (M2): Dauern des Ablaufs auf der monotonen Uhr.
+    && huelle.includes('    monoton: () => performance.now(),')
     && (() => {
       const s = huelle.slice(huelle.indexOf('export function stoppeKonto(): void {'), huelle.indexOf('export function kontoToken()'));
       return s.includes('  ablauf?.stoppe();');

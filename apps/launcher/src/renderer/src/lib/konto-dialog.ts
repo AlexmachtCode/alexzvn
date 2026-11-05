@@ -95,6 +95,7 @@ export const ANMELDE_TEXTE = {
   /** K54 */ zuViele: 'Zu viele Anmeldeversuche von diesem Anschluss. Versuche es in ein paar Minuten erneut.',
   /** K56 (Z1, AR80) */ kopierenFehlt: 'Kopieren hat nicht geklappt. Markiere die Adresse und kopiere sie von Hand.',
   /** K55 (EP30) */ uhr: 'Die Uhr dieses Rechners geht falsch, darum lehnt der Server die Anmeldung ab. Stelle Datum und Uhrzeit richtig und versuche es erneut.',
+  /** K58 (Z2 Fixrunde 1, AR91 Nr. 3) */ rueckkanal: 'Der Launcher konnte die Anmeldung auf diesem Rechner nicht vorbereiten. Starte den Launcher neu und versuche es noch einmal.',
 } as const;
 
 /** Uhrzeit HH:MM in Ortszeit (G2). */
@@ -325,6 +326,8 @@ export function anmeldeAnzeige(s: AnmeldeSchritt, jetzt: number): AnmeldeAnzeige
       // EP30: die Uhr des Rechners geht falsch (K55); nach dem Stellen der Uhr hilft „Erneut versuchen“.
       if (c === 'uhr') return { ...leer, text: T.uhr, knoepfe: ['erneut', 'schliessen'] };
       if (c === 'browser') return { ...leer, text: T.browser };
+      // Z2 Fixrunde 1: der Rückkanal ließ sich nicht öffnen (K58, nicht K53); ein neuer Versuch kann helfen.
+      if (c === 'rueckkanal') return { ...leer, text: T.rueckkanal, knoepfe: ['erneut', 'schliessen'] };
       if (c === 'kein-schluesselspeicher') return { ...leer, text: KONTO_TEXTE.keinSchluesselspeicher };
       return { ...leer, text: T.server, knoepfe: ['erneut', 'schliessen'] };
     }

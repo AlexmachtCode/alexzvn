@@ -29,12 +29,14 @@ function umgebung(o: { browser?: boolean | 'wirft' | 'haengt'; abholen?: Abholen
   const u0 = {
     // Die Uhr des Rechners geht um `versatz` vor (die des Workers nicht): T0 + versatz.
     zeit: T0 + (o.versatz ?? 0),
+    /** Fixrunde 1 (M2): monotone Uhr; der Wecker rückt sie mit der Wanduhr vor, ein Sprung der Wanduhr lässt sie stehen. */
+    mono: 1_000_000,
     schritte: [] as AnmeldeSchritt[],
     anlegen: [] as unknown[],
     /** Z2: der beim Anlegen gemeldete Port des Rückkanals. */
     rueckPorts: [] as unknown[],
-    /** Z2: Rückkanal-Attrappen (Port, Vorgang nach setzeVorgang, zu nach schliesse, angenommen = Sprung des Browsers). */
-    rueck: [] as Array<{ port: number; vorgang: string | null; zu: boolean; angenommen: (e: string) => void }>,
+    /** Z2: Rückkanal-Attrappen (Port, Vorgang nach setzeVorgang, zu nach schliesse, nachFenster nach schliesseNachFenster, angenommen = Knopf). */
+    rueck: [] as Array<{ port: number; vorgang: string | null; zu: boolean; nachFenster: boolean; angenommen: (e: string) => void }>,
     abholen: [] as Array<{ vorgang: string; geheimnis: string; zweck: string; bezug: string; ts: number; e: string | undefined }>,
     abbrechen: [] as Array<{ vorgang: string; geheimnis: string }>,
     browser: [] as string[],
@@ -83,6 +85,7 @@ function umgebung(o: { browser?: boolean | 'wirft' | 'haengt'; abholen?: Abholen
     client,
     geraet: async () => (o.geraet === false ? null : geraet),
     jetzt: () => u0.zeit,
+    monoton: () => u0.mono,
     wecker: (ms, fn) => {
       const w = { ms, fn, aktiv: true };
       u0.wecker.push(w);
@@ -96,9 +99,12 @@ function umgebung(o: { browser?: boolean | 'wirft' | 'haengt'; abholen?: Abholen
     },
     oeffneRueckkanal: async (r) => {
       if (o.rueckWirft) throw new Error('kein Port frei');
-      const k = { port: 50_000 + u0.rueck.length, vorgang: null as string | null, zu: false, angenommen: r.angenommen };
+      const k = { port: 50_000 + u0.rueck.length, vorgang: null as string | null, zu: false, nachFenster: false, angenommen: r.angenommen };
       u0.rueck.push(k);
-      return { port: k.port, setzeVorgang: (v: string) => { k.vorgang = v; }, schliesse: async () => { k.zu = true; } };
+      return {
+        port: k.port, setzeVorgang: (v: string) => { k.vorgang = v; }, schliesse: async () => { k.zu = true; },
+        schliesseNachFenster: () => { k.nachFenster = true; },
+      };
     },
     rechnerName: 'PC-Regie', plattform: 'win', arch: 'x64', version: '0.18.0',
     angemeldet: (s) => { u0.angemeldet.push(s); },
@@ -115,6 +121,7 @@ async function feuere(u: ReturnType<typeof umgebung>): Promise<boolean> {
   if (!w) return false;
   w.aktiv = false;
   u.zeit += w.ms;
+  u.mono += w.ms;
   w.fn();
   await ruhe();
   return true;
@@ -168,12 +175,18 @@ const arten = (u: ReturnType<typeof umgebung>): string => u.schritte.map((s) => 
     const soll = [`startet,wartet,${endArt}`, `${CODE}/${ok}/300000`, ADRESSE, '-', code, angemeldet, schliesst ? 1 : 0, abholen,
       f.abbrechen ? 0 : abholen + (f.folge === 'immer wartet' ? 1 : 0)].join(' ');
     ergebnisse.push({ f, ist, soll });
-    rueckZu.push({ f, ok: u.rueck.length === 1 && u.rueck[0].zu && u.rueck[0].vorgang === 'vorgang-1', ist: JSON.stringify(u.rueck.map((k) => [k.vorgang, k.zu])) });
+    // Fixrunde 1 (OE6): nach „fertig“ schließt der Rückkanal am Ende seines Fensters (Doppelklick), nach jedem anderen Ende sofort.
+    const fertigFall = !f.abbrechen && (f.folge === 'bestaetigt' || f.folge === 'wartet,bestaetigt');
+    rueckZu.push({
+      f,
+      ok: u.rueck.length === 1 && u.rueck[0].vorgang === 'vorgang-1' && (fertigFall ? u.rueck[0].nachFenster && !u.rueck[0].zu : u.rueck[0].zu && !u.rueck[0].nachFenster),
+      ist: JSON.stringify(u.rueck.map((k) => [k.vorgang, k.zu, k.nachFenster])),
+    });
   }
   const r = pruefeFaelle('P11 4.1: Ablauf (Browser ja/nein/wirft × Antworten des Workers × Abbrechen) → Schrittfolge, Code, Adresse, Aufrufe',
     ergebnisse, (e) => (e.ist === e.soll ? null : `${e.f.browser}/${e.f.folge}/${e.f.abbrechen}: ist ${e.ist}, soll ${e.soll}`));
   ck(r.name, r.ok);
-  const z = pruefeFaelle('Z2 1: genau ein Rückkanal je Versuch, er kennt den Vorgang und ist nach jedem Ende zu (fertig, abgelehnt, abgelaufen, fehler, abgebrochen)',
+  const z = pruefeFaelle('Z2 1: genau ein Rückkanal je Versuch, er kennt den Vorgang und geht nach jedem Ende zu (abgelehnt, abgelaufen, fehler, abgebrochen sofort; fertig am Ende des Fensters für den Doppelklick)',
     rueckZu, (e) => (e.ok ? null : `${e.f.browser}/${e.f.folge}/${e.f.abbrechen}: ${e.ist}`));
   ck(z.name, z.ok);
 }
@@ -409,17 +422,63 @@ const arten = (u: ReturnType<typeof umgebung>): string => u.schritte.map((s) => 
   const alles = JSON.stringify(u.schritte);
   ck('Z2 2: vor dem Sprung fragt der Ablauf ohne e, danach mit genau dem Wert aus dem Rückkanal; e steht in keinem gemeldeten Schritt',
     JSON.stringify(u.abholen.map((a) => a.e ?? null)) === JSON.stringify([null, E, E]) && u.ablauf.schritt().art === 'fertig' && !alles.includes(E));
-  // Ein Wert, der den Ablauf erst nach dem Abbrechen erreicht, gilt nicht für den neuen Versuch.
+  // M4 (lo): ein Wert, der den alten Rückkanal erst NACH starte() des neuen Laufs erreicht (der neue Vorgang ist schon angelegt), gilt
+  // nicht für den neuen Lauf.
   const v = umgebung({ abholen: [] });
   await v.ablauf.starte();
   const alt = v.rueck[0];
   await v.ablauf.abbrechen();
-  alt.angenommen(E);
   await v.ablauf.starte();
+  alt.angenommen(E);
   await feuere(v);
-  ck('Z2 2: ein Einmalwert für einen abgebrochenen Versuch gilt nicht für den neuen (der neue fragt ohne e, eigener Rückkanal)',
+  ck('Z2 2 (M4 lo): ein Einmalwert aus dem Rückkanal eines abgebrochenen Laufs, der erst nach starte() des neuen Laufs ankommt, gilt nicht (der neue fragt ohne e, eigener Rückkanal)',
     v.rueck.length === 2 && v.rueck[0].zu && !v.rueck[1].zu && v.abholen.length === 1 && v.abholen[0].e === undefined && v.abholen[0].vorgang === 'vorgang-2');
   await v.ablauf.abbrechen();
+}
+
+// --- Z2 Fixrunde 1 (M2): Dauern auf der monotonen Uhr; Budget ab der ersten Abfrage ------------------------------------------------
+{
+  // Ein Browser-Start über 60 s beendet das Warten nicht: das Budget beginnt direkt vor der ersten Abfrage.
+  const lang = umgebung({ browser: 'haengt', abholen: ['netz', 'netz', 'bestaetigt'] });
+  const laeuft = lang.ablauf.starte();
+  await ruhe();
+  lang.mono += 70_000;
+  lang.zeit += 70_000;
+  lang.loeseBrowser?.(true);
+  await laeuft;
+  await bisZumEnde(lang);
+  // Die Wanduhr springt 10 min vor bzw. zurück: Frist und Budget hängen nicht an ihr.
+  const vor = umgebung({ abholen: ['wartet', 'wartet', 'bestaetigt'] });
+  await vor.ablauf.starte();
+  vor.zeit += 10 * 60_000;
+  await bisZumEnde(vor);
+  const zurueck = umgebung({ abholen: [...Array.from({ length: 29 }, () => 'netz' as Abholen), 'bestaetigt'] });
+  await zurueck.ablauf.starte();
+  zurueck.zeit -= 10 * 60_000;
+  await bisZumEnde(zurueck);
+  const budget = umgebung({ abholen: Array.from({ length: 31 }, () => 'netz' as Abholen) });
+  await budget.ablauf.starte();
+  budget.zeit -= 10 * 60_000;
+  await bisZumEnde(budget);
+  ck('Z2 M2: ein Browser-Start über 60 s beendet das Warten nicht (Budget ab der ersten Abfrage); danach zwei Netzfehler und fertig',
+    lang.ablauf.schritt().art === 'fertig' && lang.abholen.length === 3);
+  ck('Z2 M2: springt die Wanduhr 10 min vor oder zurück, ändert das nichts: keine vorzeitige Frist, das Budget zählt weiter monoton (29 Fehler → fertig, 30 → fehler)',
+    vor.ablauf.schritt().art === 'fertig' && zurueck.ablauf.schritt().art === 'fertig' && zurueck.abholen.length === 30
+      && budget.ablauf.schritt().art === 'fehler' && budget.abholen.length === 30);
+}
+
+// --- Z2 Fixrunde 1 (AR91 Nr. 5): endet die Frist nach einer Drosselung, zeigt der Dialog K54 statt „abgelaufen“ ---------------------
+{
+  const drossel = umgebung({ abholen: Array.from({ length: 200 }, () => 'zu-viele' as Abholen) });
+  await drossel.ablauf.starte();
+  await bisZumEnde(drossel);
+  const zuletztWartet = umgebung({ abholen: [...Array.from({ length: 100 }, () => 'zu-viele' as Abholen)] });
+  await zuletztWartet.ablauf.starte();
+  await bisZumEnde(zuletztWartet);
+  const d = drossel.ablauf.schritt();
+  ck('Z2 K54: ist die letzte Antwort vor dem Ende der Frist eine Drosselung (429), endet der Ablauf mit fehler zu-viele (K54); kommt danach wartet, bleibt es abgelaufen',
+    d.art === 'fehler' && d.code === 'zu-viele' && drossel.abholen.length === 149 && zuletztWartet.ablauf.schritt().art === 'abgelaufen'
+      && drossel.abbrechen.length === 1);
 }
 
 // --- Z2 Nr. 1: Rückkanal lässt sich nicht öffnen; Beenden des Launchers ---------------------------------------------------------
@@ -427,8 +486,8 @@ const arten = (u: ReturnType<typeof umgebung>): string => u.schritte.map((s) => 
   const u = umgebung({ rueckWirft: true });
   await u.ablauf.starte();
   const s = u.ablauf.schritt();
-  ck('Z2 1: lässt sich der Rückkanal nicht öffnen → fehler server, kein Vorgang, kein Browser, keine Abfrage',
-    s.art === 'fehler' && s.code === 'server' && u.anlegen.length === 0 && u.browser.length === 0 && u.wecker.length === 0);
+  ck('Z2 1, K58: lässt sich der Rückkanal nicht öffnen → fehler rueckkanal (Dialog K58 statt K53), kein Vorgang, kein Browser, keine Abfrage',
+    s.art === 'fehler' && s.code === 'rueckkanal' && u.anlegen.length === 0 && u.browser.length === 0 && u.wecker.length === 0);
   const b = umgebung({ abholen: [] });
   await b.ablauf.starte();
   await feuere(b);

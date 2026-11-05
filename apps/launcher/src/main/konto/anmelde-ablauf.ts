@@ -4,17 +4,22 @@
 // frischem Gerätebeweis nach, bis der Mensch im Browser „Ja, das ist mein Rechner“ (oder „Nein“) wählt oder der Code
 // abläuft. Kein Rückkanal über jmps:// (die volle URL stünde in main.log, Ist-L 12). Der Code steht nur im Schritt
 // `wartet` und geht nie in ein Log (AA6); das Abholgeheimnis verlässt dieses Modul nur zum Worker.
-// Z2 (RFC 8252 loopback redirect): Vor dem Anlegen öffnet der Ablauf einen Rückkanal auf 127.0.0.1 (rueckkanal.ts) und meldet dessen
-// Port; nach „Ja“ springt der Browser dorthin und bringt den Einmalwert e. Ab dann fragt der Ablauf mit e nach; ohne e gibt der
-// Worker keine Sitzung heraus. Der Rückkanal schließt sich mit jedem Ende des Ablaufs (fertig, abgelehnt, abgelaufen, fehler,
-// abgebrochen, stoppe). Vorübergehende Fehler beenden das Warten erst, wenn seit dem letzten Erfolg 60 s nur Fehler kamen.
-// Kein electron-Import (G9): Browser, Uhr, Wecker, Client, Gerät und Rückkanal sind eingespeist.
+// Z2 (RFC 8252 loopback): Vor dem Anlegen öffnet der Ablauf einen Rückkanal auf 127.0.0.1 (rueckkanal.ts) und meldet dessen Port;
+// nach „Ja“ schickt der Knopf der Seite (Fixrunde 1, OE6) den Einmalwert e per POST dorthin. Ab dann fragt der Ablauf mit e nach; ohne
+// e gibt der Worker keine Sitzung heraus. Der Rückkanal schließt sich mit jedem Ende des Ablaufs sofort (abgelehnt, abgelaufen,
+// fehler, abgebrochen, stoppe), nach „fertig“ erst am Ende seines Fensters für den Doppelklick. Vorübergehende Fehler beenden das
+// Warten erst, wenn seit dem letzten Erfolg 60 s nur Fehler kamen; Dauern laufen auf einer monotonen Uhr (Fixrunde 1, M2), die Wanduhr
+// dient nur dem Gerätebeweis und der Anzeige. Kein electron-Import (G9): Browser, Uhren, Wecker, Client, Gerät und Rückkanal sind
+// eingespeist.
 // ─────────────────────────────────────────────────────────────────────────────
 import { kurzName, type AnmeldeSchritt, type KontoFehlerCode } from '../../shared/konto';
 import type { GeraetHandle } from './geraet';
 import type { Rueckkanal } from './rueckkanal';
 import type { GespeicherteSitzung } from './sitzung-kern';
 import { KontoFehler, type KontoClient } from './worker-client';
+
+/** Z2: was der Ablauf vom Rückkanal braucht. */
+type RueckkanalTeil = Pick<Rueckkanal, 'port' | 'setzeVorgang' | 'schliesse' | 'schliesseNachFenster'>;
 
 export interface AnmeldeAblauf {
   starte(): Promise<void>; abbrechen(): Promise<void>; schritt(): AnmeldeSchritt; adresse(): string | null;
@@ -34,30 +39,37 @@ const VORUEBERGEHEND: readonly string[] = ['netz', 'server', 'zu-viele'];
 
 export function erzeugeAnmeldeAblauf(u: {
   client: KontoClient; geraet: () => Promise<GeraetHandle | null>; jetzt(): number;
+  /** Fixrunde 1 (M2): monotone Uhr in ms für Dauern (Frist, Fehlerbudget); die Hülle gibt performance.now(). */
+  monoton(): number;
   wecker(ms: number, fn: () => void): () => void; oeffneBrowser(url: string): Promise<boolean>;
-  /** Z2: Rückkanal auf 127.0.0.1 öffnen (Hülle: oeffneRueckkanal mit Log); `angenommen` bekommt den Einmalwert aus dem Sprung. */
-  oeffneRueckkanal(o: { angenommen(e: string): void }): Promise<Pick<Rueckkanal, 'port' | 'setzeVorgang' | 'schliesse'>>;
+  /** Z2: Rückkanal auf 127.0.0.1 öffnen (Hülle: oeffneRueckkanal mit Log); `angenommen` bekommt den Einmalwert aus dem Knopf. */
+  oeffneRueckkanal(o: { angenommen(e: string): void }): Promise<RueckkanalTeil>;
   rechnerName: string; plattform: 'win' | 'mac'; arch: string; version: string;
   angemeldet(s: GespeicherteSitzung): void; melde(s: AnmeldeSchritt): void;
 }): AnmeldeAblauf {
   let aktuell: AnmeldeSchritt = { art: 'ruhe' };
   /** Jeder Start und jedes Abbrechen zählt hoch; Antworten eines früheren Laufs werden verworfen. */
   let lauf = 0;
-  let vorgang: { id: string; abholGeheimnis: string; bis: number; geraet: GeraetHandle } | null = null;
+  /** `bis` ist die Wanduhr (Anzeige); `startMono` der Beginn auf der monotonen Uhr (Frist, M2). */
+  let vorgang: { id: string; abholGeheimnis: string; bis: number; startMono: number; geraet: GeraetHandle } | null = null;
   let stoppeWecker: (() => void) | null = null;
   let fehlerInFolge = 0;
   let letzterFehler: KontoFehlerCode | null = null;
-  /** Z2 Nr. 7: Zeit des letzten Erfolgs (Anlegen, Antwort beim Abfragen, auch 429); das Fehlerbudget läuft ab hier. */
+  /** Z2 Nr. 7, M2: monotone Zeit des letzten Erfolgs (erste Abfrage geplant, Antwort beim Abfragen, auch 429); das Budget läuft ab hier. */
   let letzterErfolg = 0;
-  /** Z2: Rückkanal des laufenden Versuchs und der Einmalwert aus dem Sprung (nur im Speicher, nie im Log, nie im Schritt). */
-  let rueck: Pick<Rueckkanal, 'port' | 'setzeVorgang' | 'schliesse'> | null = null;
+  /** Fixrunde 1 (AR91 Nr. 5): war die letzte Antwort eine Drosselung (429)? Dann endet die Frist mit K54 statt „abgelaufen“. */
+  let zuletztGedrosselt = false;
+  /** Z2: Rückkanal des laufenden Versuchs und der Einmalwert aus dem Knopf (nur im Speicher, nie im Log, nie im Schritt). */
+  let rueck: RueckkanalTeil | null = null;
   let einmalwert: string | null = null;
 
-  /** Z2: den Rückkanal schließen (best effort, ohne zu warten). */
-  function rueckZu(): void {
+  /** Z2: den Rückkanal schließen (best effort, ohne zu warten); nach „fertig“ erst am Ende seines Fensters für den Doppelklick. */
+  function rueckZu(nachFenster = false): void {
     const r = rueck;
     rueck = null;
-    if (r) r.schliesse().catch(() => undefined);
+    if (!r) return;
+    if (nachFenster) r.schliesseNachFenster();
+    else r.schliesse().catch(() => undefined);
   }
 
   /** Einen Vorgang beim Worker schließen, ohne zu warten; ein Fehler wird verschluckt (best effort). */
@@ -78,7 +90,7 @@ export function erzeugeAnmeldeAblauf(u: {
     stoppeWecker = null;
     vorgang = null;
     einmalwert = null;
-    rueckZu();
+    rueckZu(s.art === 'fertig');
     setze(s);
   }
   const fehlerCode = (e: unknown): KontoFehlerCode => (e instanceof KontoFehler ? e.code : 'server');
@@ -94,9 +106,11 @@ export function erzeugeAnmeldeAblauf(u: {
   async function frage(meinLauf: number): Promise<void> {
     const v = vorgang;
     if (meinLauf !== lauf || !v) return;
-    if (u.jetzt() >= v.bis) {
+    // M2: die Frist auf der monotonen Uhr; eine springende Wanduhr ändert nichts. AR91 Nr. 5: war die letzte Antwort eine Drosselung,
+    // sagt der Dialog K54 (zu viele Versuche) statt „abgelaufen“.
+    if (u.monoton() - v.startMono >= VORGANG_MS) {
       schliesse(v);
-      ende({ art: 'abgelaufen' });
+      ende(zuletztGedrosselt ? { art: 'fehler', code: 'zu-viele' } : { art: 'abgelaufen' });
       return;
     }
     let antwort: Awaited<ReturnType<KontoClient['vorgangAbholen']>> | null = null;
@@ -109,6 +123,7 @@ export function erzeugeAnmeldeAblauf(u: {
       code = fehlerCode(e);
     }
     if (meinLauf !== lauf) return;
+    zuletztGedrosselt = code === 'zu-viele';
     if (antwort === null) {
       if (code === 'vorgang-unbekannt') {
         // Der Worker nimmt den Vorgang beim erfolgreichen Abholen weg (Z2: der Grabstein nimmt dieselbe Anfrage noch 60 s an). Folgt
@@ -121,12 +136,13 @@ export function erzeugeAnmeldeAblauf(u: {
         if (code === 'zu-viele') {
           // Z1: eine Drosselung (zu-viele) wurde am Worker abgewiesen, bevor sie etwas verbrauchen konnte: Sie erklärt kein verlorenes
           // „bestätigt“ und wird nie der letzte Fehler. Z2 Nr. 7: Sie zählt auch nicht als Fehler (der Worker hat geantwortet).
-          letzterErfolg = u.jetzt();
+          letzterErfolg = u.monoton();
           plane(meinLauf);
         } else {
           letzterFehler = code;
-          // Z2 Nr. 7: das Fehlerbudget läuft in Zeit, nicht in Versuchen: erst nach 60 s nur mit Fehlern seit dem letzten Erfolg.
-          if (u.jetzt() - letzterErfolg >= FEHLER_BUDGET_MS) {
+          // Z2 Nr. 7: das Fehlerbudget läuft in Zeit, nicht in Versuchen: erst nach 60 s nur mit Fehlern seit dem letzten Erfolg (M2:
+          // monotone Uhr).
+          if (u.monoton() - letzterErfolg >= FEHLER_BUDGET_MS) {
             schliesse(v);
             ende({ art: 'fehler', code });
           } else plane(meinLauf);
@@ -138,7 +154,7 @@ export function erzeugeAnmeldeAblauf(u: {
       return;
     }
     fehlerInFolge = 0;
-    letzterErfolg = u.jetzt();
+    letzterErfolg = u.monoton();
     if (antwort.zustand === 'bestaetigt') {
       const s: GespeicherteSitzung = { token: antwort.sitzung, stand: antwort.stand };
       try {
@@ -159,6 +175,7 @@ export function erzeugeAnmeldeAblauf(u: {
       const meinLauf = ++lauf;
       fehlerInFolge = 0;
       letzterFehler = null;
+      zuletztGedrosselt = false;
       einmalwert = null;
       setze({ art: 'startet' });
       const g = await u.geraet();
@@ -169,11 +186,12 @@ export function erzeugeAnmeldeAblauf(u: {
       }
       // Z2: erst der Rückkanal (sein Port geht mit dem Vorgang an den Worker); ohne ihn gibt es keinen Vorgang. Den Einmalwert nimmt
       // nur der laufende Versuch an.
-      let rk: Pick<Rueckkanal, 'port' | 'setzeVorgang' | 'schliesse'>;
+      let rk: RueckkanalTeil;
       try {
         rk = await u.oeffneRueckkanal({ angenommen: (e) => { if (meinLauf === lauf && vorgang !== null) einmalwert = e; } });
       } catch {
-        if (meinLauf === lauf) ende({ art: 'fehler', code: 'server' });
+        // Fixrunde 1 (AR91 Nr. 3): eigener Code `rueckkanal` (Dialog K58) statt des Serverfehlers K53.
+        if (meinLauf === lauf) ende({ art: 'fehler', code: 'rueckkanal' });
         return;
       }
       if (meinLauf !== lauf) {
@@ -183,6 +201,7 @@ export function erzeugeAnmeldeAblauf(u: {
       rueck = rk;
       let v: Awaited<ReturnType<KontoClient['vorgangAnlegen']>>;
       const t0 = u.jetzt();
+      const t0Mono = u.monoton();
       try {
         v = await u.client.vorgangAnlegen({ publicJwk: g.publicJwk, name: u.rechnerName, plattform: u.plattform, arch: u.arch, version: u.version }, rk.port);
       } catch (e) {
@@ -196,10 +215,10 @@ export function erzeugeAnmeldeAblauf(u: {
         rk.schliesse().catch(() => undefined);
         return;
       }
-      // Die Frist auf der eigenen Uhr (t0 + 5 min); das `bis` des Workers geht nach dessen Uhr und wird nicht verglichen.
+      // Die Frist auf der eigenen Uhr (t0 + 5 min); das `bis` des Workers geht nach dessen Uhr und wird nicht verglichen. M2: geprüft wird
+      // sie auf der monotonen Uhr (t0Mono), `bis` (Wanduhr) dient nur der Anzeige „Gültig noch“.
       const bisLokal = t0 + VORGANG_MS;
-      vorgang = { id: v.vorgang, abholGeheimnis: v.abholGeheimnis, bis: bisLokal, geraet: g };
-      letzterErfolg = u.jetzt();
+      vorgang = { id: v.vorgang, abholGeheimnis: v.abholGeheimnis, bis: bisLokal, startMono: t0Mono, geraet: g };
       rk.setzeVorgang(v.vorgang);
       // AA2: Browser öffnen, dann „wartet“ mit dem Ergebnis (K52, wenn er nicht aufging).
       let offen = false;
@@ -210,6 +229,8 @@ export function erzeugeAnmeldeAblauf(u: {
       }
       if (meinLauf !== lauf) return;
       setze({ art: 'wartet', code: v.code, adresse: v.adresse, bis: bisLokal, browserOffen: offen });
+      // M2: das Fehlerbudget beginnt direkt vor der ersten Abfrage, nicht vor dem Browser (ein langsamer Browser-Start kostet nichts).
+      letzterErfolg = u.monoton();
       plane(meinLauf);
     },
 

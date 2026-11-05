@@ -413,6 +413,12 @@ const STUFEN_FARBEN: KopfFarbe[] = ['admin', 'kollege', 'externer'];
     ['Browser', z({ art: 'fehler', code: 'browser' }), `${T.browser}|null|null|null|schliessen`],
     ['kein Schlüsselspeicher', z({ art: 'fehler', code: 'kein-schluesselspeicher' }), `${KONTO_TEXTE.keinSchluesselspeicher}|null|null|null|schliessen`],
   ]);
+  // Z2 Fixrunde 1 (AR91 Nr. 3): der Rückkanal ließ sich nicht öffnen → K58 mit „Erneut versuchen“, nicht der Serverfehler K53.
+  kreuz('Z2 K58: Anmelde-Dialog bei fehler rueckkanal → K58 wörtlich mit Erneut versuchen; K58 ist nicht K53', [
+    ['Rückkanal', z({ art: 'fehler', code: 'rueckkanal' }), `${T.rueckkanal}|null|null|null|erneut,schliessen`],
+    ['K58 wörtlich', T.rueckkanal, 'Der Launcher konnte die Anmeldung auf diesem Rechner nicht vorbereiten. Starte den Launcher neu und versuche es noch einmal.'],
+    ['K58 ist nicht K53', String(T.rueckkanal !== T.server), 'true'],
+  ]);
 }
 
 // --- P25 9.1–9.3: Texte wörtlich, ohne ASCII-Anführungszeichen; Bibliothek ohne Laufzeit-Import aus Aliasen ----------------

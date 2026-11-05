@@ -495,6 +495,8 @@ function anmeldeAblauf(): AnmeldeAblauf | null {
     client,
     geraet: async () => geraet,
     jetzt: () => Date.now(),
+    // Z2 Fixrunde 1 (M2): Dauern (Frist, Fehlerbudget) auf der monotonen Uhr.
+    monoton: () => performance.now(),
     wecker,
     oeffneBrowser: oeffneImBrowser,
     // Z2: Rückkanal nur auf 127.0.0.1; ins Log nur „angenommen“ oder „abgewiesen“, nie der Einmalwert (G4).
