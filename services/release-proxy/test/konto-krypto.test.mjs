@@ -239,31 +239,32 @@ async function run() {
   // ── iveo (Spec 6.4, EP13) ──
   {
     const T = 'test-iveo-token-1234';
-    const a = await iveoVerschluesseln(S, T);
-    const b = await iveoVerschluesseln(S, T);
+    const AAD = 'https://iveo.example|tagung';
+    const a = await iveoVerschluesseln(S, T, AAD);
+    const b = await iveoVerschluesseln(S, T, AAD);
     check(
       'P2 6.4: iveo AES-GCM Rundreise, iv 12 Byte je Aufruf neu, Chiffre ohne Klartext',
-      (await iveoEntschluesseln(S, a)) === T && (await iveoEntschluesseln(S, b)) === T && a.iv !== b.iv && a.ct !== b.ct &&
+      (await iveoEntschluesseln(S, a, AAD)) === T && (await iveoEntschluesseln(S, b, AAD)) === T && a.iv !== b.iv && a.ct !== b.ct &&
         a.iv.length === 16 && B64URL.test(a.ct) && !a.ct.includes(T),
     );
     let wirft = 0;
     for (const k of [testSchluessel(16), undefined]) {
       try {
-        await iveoVerschluesseln(k, T);
+        await iveoVerschluesseln(k, T, AAD);
       } catch {
         wirft++;
       }
     }
     try {
-      await iveoVerschluesseln(S, '');
+      await iveoVerschluesseln(S, '', AAD);
     } catch {
       wirft++;
     }
     check(
       'P2 6.4: iveo falscher Schlüssel, manipuliertes ct, manipuliertes iv, fremde Form → null; unbrauchbarer Schlüssel oder leeres Token → wirft',
-      (await iveoEntschluesseln(FREMD, a)) === null && (await iveoEntschluesseln(S, { iv: a.iv, ct: kippe(a.ct, 0) })) === null &&
-        (await iveoEntschluesseln(S, { iv: kippe(a.iv, 0), ct: a.ct })) === null && (await iveoEntschluesseln(S, { iv: a.iv })) === null &&
-        (await iveoEntschluesseln(S, null)) === null && wirft === 3,
+      (await iveoEntschluesseln(FREMD, a, AAD)) === null && (await iveoEntschluesseln(S, { iv: a.iv, ct: kippe(a.ct, 0) }, AAD)) === null &&
+        (await iveoEntschluesseln(S, { iv: kippe(a.iv, 0), ct: a.ct }, AAD)) === null && (await iveoEntschluesseln(S, { iv: a.iv }, AAD)) === null &&
+        (await iveoEntschluesseln(S, null, AAD)) === null && wirft === 3,
     );
   }
 
@@ -312,6 +313,116 @@ async function run() {
     );
   }
 
+  // ── Z1-W1: AAD, Härtung, strenges Base64url ──
+  {
+    const T = 'test-iveo-token-1234';
+    const SCHLUESSEL_A = 'https://iveo.example|tagung-a';
+    const SCHLUESSEL_B = 'https://iveo.example|tagung-b';
+    const a = await iveoVerschluesseln(S, T, SCHLUESSEL_A);
+    check(
+      'Z1-W1 AAD: Geheimtext von Event A unter Schlüssel B → Entschlüsseln scheitert; unter A, und nur unter A, gelingt es',
+      (await iveoEntschluesseln(S, a, SCHLUESSEL_B)) === null && (await iveoEntschluesseln(S, a, SCHLUESSEL_A)) === T,
+    );
+    let wirft = 0;
+    for (const aad of [undefined, '', 5, null]) {
+      try {
+        await iveoVerschluesseln(S, T, aad);
+      } catch {
+        wirft++;
+      }
+    }
+    check(
+      'Z1-W1 AAD: ohne AAD (fehlt, leer, keine Zeichenkette) wird nicht verschlüsselt und nicht entschlüsselt',
+      wirft === 4 && (await iveoEntschluesseln(S, a)) === null && (await iveoEntschluesseln(S, a, '')) === null && (await iveoEntschluesseln(S, a, 7)) === null,
+    );
+    // iv genau 12 Byte: ein gültig verschlüsselter Text mit 16 oder 11 Byte iv wird nicht gelesen.
+    const aesKey = await crypto.subtle.importKey('raw', Uint8Array.from(atob(S), (c) => c.charCodeAt(0)), { name: 'AES-GCM' }, false, ['encrypt']);
+    const fremdIv = async (n) => {
+      const iv = crypto.getRandomValues(new Uint8Array(n));
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(SCHLUESSEL_A) }, aesKey, new TextEncoder().encode(T));
+      return { iv: b64url(iv), ct: b64url(ct) };
+    };
+    check(
+      'Z1-W1: iveo-iv muss genau 12 Byte lang sein (13 und 16 Byte → null)',
+      (await iveoEntschluesseln(S, await fremdIv(13), SCHLUESSEL_A)) === null && (await iveoEntschluesseln(S, await fremdIv(16), SCHLUESSEL_A)) === null &&
+        (await iveoEntschluesseln(S, await fremdIv(12), SCHLUESSEL_A)) === T,
+    );
+    check(
+      'Z1-W1: iveo iv und ct nur in kanonischem Base64url (mit Auffüllung oder Leerraum → null)',
+      (await iveoEntschluesseln(S, { iv: a.iv, ct: `${a.ct}=` }, SCHLUESSEL_A)) === null && (await iveoEntschluesseln(S, { iv: ` ${a.iv}`, ct: a.ct }, SCHLUESSEL_A)) === null &&
+        (await iveoEntschluesseln(S, a, SCHLUESSEL_A)) === T,
+    );
+
+    // sha256B64url: nur Zeichenketten, nie der Hash von „undefined“.
+    let sha = 0;
+    for (const x of [undefined, null, 42, {}]) {
+      try {
+        await sha256B64url(x);
+      } catch {
+        sha++;
+      }
+    }
+    check('Z1-W1: sha256B64url wirft bei undefined, null, Zahl, Objekt (nie der Hash von „undefined“); eine leere Zeichenkette geht', sha === 4 && (await sha256B64url('')).length === 43);
+
+    // pruefeToken: typ nur als Zeichenkette; ein Token ohne typ gilt nie.
+    const ohneTyp = await signiere(S, { v: 1, exp: JETZT + 1000 });
+    check(
+      'Z1-W1: pruefeToken mit typ undefined, Zahl, Liste oder Objekt → null (auch wenn das Token kein typ trägt)',
+      (await pruefeToken(S, ohneTyp, undefined, JETZT)) === null && (await pruefeToken(S, ohneTyp, null, JETZT)) === null &&
+        (await pruefeToken(S, await signiere(S, { v: 1, typ: 'sitzung', exp: JETZT + 1000 }), ['sitzung'], JETZT)) === null &&
+        (await pruefeToken(S, await signiere(S, { v: 1, typ: 'sitzung', exp: JETZT + 1000 }), 'sitzung', JETZT)) !== null,
+    );
+
+    // Nutzlast und Signatur mit Auffüllung: echt signiert (der Test kennt den Schlüssel), aber nicht kanonisch → null.
+    const hmacKey = await crypto.subtle.importKey('raw', Uint8Array.from(atob(S), (c) => c.charCodeAt(0)), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const mitPayload = async (payload) => `jm1.${payload}.${b64url(await crypto.subtle.sign('HMAC', hmacKey, new TextEncoder().encode(`jm1.${payload}`)))}`;
+    const nutzlast = b64url(new TextEncoder().encode(JSON.stringify({ v: 1, typ: 'sitzung', exp: JETZT + 1000, x: 1 })));
+    check(
+      'Z1-W1 ausB64: eine echt signierte Nutzlast nur kanonisch (b64url ohne Auffüllung gilt; mit = oder in Base64-Zeichen → null)',
+      (await pruefeToken(S, await mitPayload(nutzlast), 'sitzung', JETZT)) !== null &&
+        (await pruefeToken(S, await mitPayload(`${nutzlast}=`), 'sitzung', JETZT)) === null &&
+        (await pruefeToken(S, await mitPayload(` ${nutzlast}`), 'sitzung', JETZT)) === null,
+    );
+
+    // Passwort: unter 100 000 Iterationen ist ein Hash ungültig, auch wenn er stimmt.
+    const pbkdf2 = async (pw, salz, n) => {
+      const basis = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
+      return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: salz, iterations: n }, basis, 256));
+    };
+    const salz = crypto.getRandomValues(new Uint8Array(16));
+    const mit = async (n) => `pbkdf2-sha256$${n}$${b64url(salz)}$${b64url(await pbkdf2('richtig-und-lang', salz, n))}`;
+    const h = await hashePasswort('richtig-und-lang');
+    const [, , hSalz, hHash] = h.split('$');
+    check(
+      'Z1-W1: PBKDF2-Hash mit 1 oder 99999 Iterationen → false (richtiges Passwort), mit 100000 → true',
+      !(await pruefePasswort('richtig-und-lang', await mit(1))) && !(await pruefePasswort('richtig-und-lang', await mit(99_999))) &&
+        (await pruefePasswort('richtig-und-lang', await mit(100_000))),
+    );
+    check(
+      'Z1-W1 ausB64: Salz und Hash des Passworts nur kanonisch (Hash mit = aufgefüllt oder in Base64-Zeichen → false)',
+      (await pruefePasswort('richtig-und-lang', h)) && !(await pruefePasswort('richtig-und-lang', `pbkdf2-sha256$100000$${hSalz}$${hHash}=`)) &&
+        !(await pruefePasswort('richtig-und-lang', `pbkdf2-sha256$100000$${hSalz}=$${hHash}`)),
+    );
+
+    // Gerätebeweis: Signatur nur kanonisch.
+    const g = await testGeraet();
+    const ok = await g.beweis('abholen', 'v-1', JETZT);
+    check(
+      'Z1-W1 ausB64: Gerätebeweis mit aufgefüllter oder verschobener Signatur → false, die kanonische gilt',
+      (await pruefeGeraeteBeweis(g.publicJwk, ok, 'abholen', 'v-1', JETZT)) && !(await pruefeGeraeteBeweis(g.publicJwk, { ...ok, sig: `${ok.sig}==` }, 'abholen', 'v-1', JETZT)) &&
+        !(await pruefeGeraeteBeweis(g.publicJwk, { ...ok, sig: ` ${ok.sig}` }, 'abholen', 'v-1', JETZT)),
+    );
+
+    // Punkt außerhalb der Kurve: gut geformt (43 Zeichen), aber kein Punkt auf P-256.
+    const ausserhalb = { kty: 'EC', crv: 'P-256', x: 'A'.repeat(43), y: 'A'.repeat(43) };
+    const beweisGid = await g.beweis('abholen', 'v-1', JETZT);
+    check(
+      'Z1-W1: ein Punkt außerhalb der Kurve (x = y = 0, gut geformt) ergibt keine Gerätekennung und keinen gültigen Beweis',
+      reinerJwk(ausserhalb) !== null && (await geraetIdAus(ausserhalb)) === null &&
+        !(await pruefeGeraeteBeweis(ausserhalb, { ...beweisGid, gid: 'A'.repeat(22) }, 'abholen', 'v-1', JETZT)),
+    );
+  }
+
   // ── Log-Hygiene und rein ──
   {
     const mitschnitt = [];
@@ -321,7 +432,7 @@ async function run() {
       await pruefeToken(S, 'jm1.x.y', 'sitzung', JETZT);
       await pruefeToken(testSchluessel(16), 'jm1.x.y', 'sitzung', JETZT);
       await pruefePasswort('x', 'kaputt$$');
-      await iveoEntschluesseln(FREMD, await iveoVerschluesseln(S, 'test-geheim'));
+      await iveoEntschluesseln(FREMD, await iveoVerschluesseln(S, 'test-geheim', 'b|s'), 'b|s');
       await pruefeGeraeteBeweis({ kty: 'EC' }, { gid: 'x', ts: JETZT, sig: '!!' }, 'abholen', 'v', JETZT);
       await geraetIdAus({ kty: 'EC', crv: 'P-256', x: 'A'.repeat(43), y: 'A'.repeat(43) });
       try {

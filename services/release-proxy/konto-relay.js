@@ -7,7 +7,7 @@
 // Antworten: JSON mit cache-control no-store; Fehler { error: Text S…, code } (Texttabelle 9.6, EP17). Kein Token,
 // Abholgeheimnis, Code, Passwort oder Schlüssel geht ins Log oder in eine Fehlermeldung.
 import { googleBereit, googleRueckkehr, googleStartAdresse } from './konto-google.js';
-import { FREIGABE_MS, ZWECK_FUNKTION, darf, kontoStand } from './konto-kern.js';
+import { FREIGABE_MS, ZWECK_FUNKTION, darf, iveoSchluessel, kontoStand } from './konto-kern.js';
 import { BEWEIS_FENSTER_MS, iveoEntschluesseln, iveoVerschluesseln, neuerBestaetigungsCode, pruefeToken, schluesselBrauchbar, sha256B64url, signiere, zufall } from './konto-krypto.js';
 import { datumText, esc, fuelle, htmlAntwort, seiteAnmelden, seiteBestaetigen, seiteMeldung } from './konto-seiten.js';
 import { abgelehnt, kontoAktion, kontoJetzt, kontoStub } from './konto-zugang.js';
@@ -201,7 +201,7 @@ async function iveo(k) {
   let unlesbar = 0;
   for (const e of Array.isArray(r.events) ? r.events : []) {
     if (!darf(stand, 'iveo', { event: e.key, jetzt: k.jetzt })) continue;
-    const token = await iveoEntschluesseln(k.env.IVEO_SCHLUESSEL, { iv: e.iv, ct: e.ct });
+    const token = await iveoEntschluesseln(k.env.IVEO_SCHLUESSEL, { iv: e.iv, ct: e.ct }, e.key);
     if (token === null) {
       unlesbar++;
       continue;
@@ -246,7 +246,11 @@ async function adminAktion(k) {
     if (!token || !liste.length || !liste.every((e) => e && typeof e.slug === 'string' && e.slug)) return fehler(abgelehnt('ungueltig', 400));
     const events = [];
     for (const e of liste) {
-      const { iv, ct } = await iveoVerschluesseln(k.env.IVEO_SCHLUESSEL, token);
+      // AAD = der Schlüssel `basis|slug`, den der DO speichert (iveoSchluessel, dieselbe Normalisierung): ein vertauschter
+      // Geheimtext lässt sich beim Lesen nicht entschlüsseln (Z1-W1).
+      const schluessel = iveoSchluessel(d.basis, e.slug);
+      if (!schluessel) return fehler(abgelehnt('ungueltig', 400));
+      const { iv, ct } = await iveoVerschluesseln(k.env.IVEO_SCHLUESSEL, token, schluessel);
       events.push({ slug: e.slug, name: typeof e.name === 'string' ? e.name : '', iv, ct });
     }
     aktion = { aktion: 'iveo-hinterlegen', basis: d.basis, events };

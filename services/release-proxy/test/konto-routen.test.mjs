@@ -328,6 +328,32 @@ async function run() {
     check('P16 6.4: Kollege bekommt alle Events mit Token; Externer mit iveo nur sein Event; Externer ohne iveo keins',
       k.status === 200 && slugs(k) === 'messe:true,tagung:true' && slugs(x) === 'tagung:true' && slugs(o) === '');
     check('P16 6.4: GET /konto/iveo mit cache-control no-store', k.kopf.get('cache-control') === 'no-store');
+    // Z1-W1 AAD: vertauschte Geheimtexte zweier Events (der Speicher des DO wurde verändert) lassen sich nicht mehr entschlüsseln.
+    const keyTagung = 'https://iveo.example|tagung';
+    const keyMesse = 'https://iveo.example|messe';
+    const eintragT = sp.ctx.daten.get(`iveo:${keyTagung}`);
+    const eintragM = sp.ctx.daten.get(`iveo:${keyMesse}`);
+    sp.ctx.daten.set(`iveo:${keyTagung}`, { ...eintragT, iv: eintragM.iv, ct: eintragM.ct });
+    sp.ctx.daten.set(`iveo:${keyMesse}`, { ...eintragM, iv: eintragT.iv, ct: eintragT.ct });
+    const vertauscht = await liste(karl);
+    sp.ctx.daten.set(`iveo:${keyTagung}`, eintragT);
+    sp.ctx.daten.set(`iveo:${keyMesse}`, eintragM);
+    const zurueck = await liste(karl);
+    check('Z1-W1 AAD: vertauschte Geheimtexte (Event A unter Schlüssel B) → GET /konto/iveo liefert keines der beiden Events; zurückgetauscht wieder beide',
+      vertauscht.status === 200 && (vertauscht.daten.events || []).length === 0 && slugs(zurueck) === 'messe:true,tagung:true');
+    // Dieselbe Normalisierung beim Hinterlegen und Lesen: eine ungeputzte Basis ergibt denselben Schlüssel wie die geputzte.
+    const roh = await api(env, 'POST', '/konto/admin/aktion', {
+      sitzung: chefin.sitzung,
+      body: { aktion: 'iveo-hinterlegen', basis: ' iveo.example/ ', events: [{ slug: ' tagung ', name: 'Tagung 2026' }], token: TOKEN },
+    });
+    const nachRoh = await liste(karl);
+    check('Z1-W1 AAD: Hinterlegen mit ungeputzter Basis und Slug (iveo.example/, Leerzeichen) ersetzt https://iveo.example|tagung und lässt sich lesen',
+      roh.status === 200 && slugs(nachRoh) === 'messe:true,tagung:true' && sp.ctx.daten.has(`iveo:${keyTagung}`));
+    const kaputtBasis = await api(env, 'POST', '/konto/admin/aktion', {
+      sitzung: chefin.sitzung,
+      body: { aktion: 'iveo-hinterlegen', basis: 'a|b', events: [{ slug: 'x', name: 'X' }], token: TOKEN },
+    });
+    check('Z1-W1 AAD: unbrauchbare Basis beim Hinterlegen → 400 ungueltig (der Worker verschlüsselt nichts ohne Schlüssel)', soll(kaputtBasis, 400, 'ungueltig'));
     const ohneSchluessel = { ...env, IVEO_SCHLUESSEL: undefined };
     const n = await liste(karl, ohneSchluessel);
     const n2 = await api(ohneSchluessel, 'POST', '/konto/admin/aktion', { sitzung: chefin.sitzung, body: { aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [{ slug: 'x', name: 'X' }], token: TOKEN } });

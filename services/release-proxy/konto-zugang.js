@@ -7,14 +7,15 @@
 //      Geprüft werden nur Signatur und Claims, ohne Durable Object (EP2): Der Stand gilt so, wie ihn der letzte Start des
 //      Launchers festgehalten hat (Spec 6.1, 6.3).
 //   2. Der alte PROXY_KEY (X-Proxy-Key oder Bearer ohne jm1.) bis ALTKEY_BIS, nur für die Gruppen katalog und qa (EP9),
-//      zeitkonstant verglichen. Jede angenommene Anfrage zählt der Konten-DO über ctx.waitUntil (OFP2: je Tag, Gruppe,
-//      Plattform, ohne IP), damit der Reiter Geräte alte Launcher zeigt.
+//      zeitkonstant verglichen. Angenommene Anfragen zählt der Konten-DO über ctx.waitUntil (OFP2: je Tag, Gruppe,
+//      Plattform, ohne IP), damit der Reiter Geräte alte Launcher zeigt; höchstens einmal je IP-Hash, Tag und Gruppe (Z1-W1).
 //   3. Sonst 401 „nicht angemeldet“.
 // Das Selbst-Update GET /tools/launcher/latest beantwortet selbstUpdateLiefern (EP10, EP32): ohne Anmeldung erst ab Launcher
 // 0.18.0 (ältere Installer tragen den alten Schlüssel in sich), 60 s im Speicher des Isolats, Drossel je IP nur für Abrufe
 // bei GitHub. connect-relay.js prüft in Teil 1 weiter selbst gegen PROXY_KEY (G10; Gruppe connect erst mit Teil 2, EP9).
 // Fehlerform { ok: false, status, error: Text S1–S18, code } (Texttabelle 9.6). Kein Token, Schlüssel oder Claim geht in
 // einen Text oder ins Log.
+import { altKeyNeu, altKeyVergessen } from './konto-altkey.js';
 import { alterKeyGilt, darf, funktionFuerRoute, ZWECK_FUNKTION } from './konto-kern.js';
 import { gleichOhneZeitleck, pruefeToken, schluesselBrauchbar, sha256B64url, TOKEN_PRAEFIX } from './konto-krypto.js';
 import { compareVersions } from './paketwahl.js';
@@ -246,7 +247,10 @@ async function tokenPruefen(env, token, funktion, ziel, jetzt) {
   return abgelehnt(abgelaufen ? 'sitzung-abgelaufen' : 'nicht-angemeldet', 401);
 }
 
-/** OFP2: Anfragen mit altem Schlüssel je Tag, Gruppe und Plattform zählen, nach der Antwort (waitUntil), ohne IP. */
+/**
+ * OFP2: Anfragen mit altem Schlüssel je Tag, Gruppe und Plattform zählen, nach der Antwort (waitUntil); der DO speichert keine IP.
+ * Z1-W1: höchstens ein DO-Aufruf je IP-Hash, Tag und Gruppe (Merker im Isolat, konto-altkey.js); die IP gibt es nur als Hash.
+ */
 function altKeyZaehlen(request, env, ctx, gruppe, jetzt) {
   if (!env.KONTO || !ctx || typeof ctx.waitUntil !== 'function') return;
   // Der alte Schlüssel steckt in öffentlichen Installern: unbekannte Routen (404) schreiben nichts in den DO.
@@ -255,10 +259,20 @@ function altKeyZaehlen(request, env, ctx, gruppe, jetzt) {
   const p = q.get('platform');
   const plattform = p === 'win' || p === 'mac' ? p : 'unbekannt';
   const arch = plattform === 'unbekannt' ? '' : q.get('arch') === 'arm64' ? 'arm64' : 'x64';
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   ctx.waitUntil(
-    kontoAktion(env, 'altkey-zaehlen', { jetzt, gruppe, plattform, arch }).catch((e) => {
-      console.warn(`konto: Alt-Key-Zählung fehlgeschlagen (${fehlerName(e)})`);
-    }),
+    (async () => {
+      let merk = null;
+      try {
+        const ipHash = (await sha256B64url(`${env.KONTO_SCHLUESSEL ?? ''}|${ip}`)).slice(0, 22);
+        merk = `${new Date(jetzt).toISOString().slice(0, 10)}|${gruppe}|${ipHash}`;
+        if (!altKeyNeu(merk)) return;
+        await kontoAktion(env, 'altkey-zaehlen', { jetzt, gruppe, plattform, arch });
+      } catch (e) {
+        if (merk) altKeyVergessen(merk);
+        console.warn(`konto: Alt-Key-Zählung fehlgeschlagen (${fehlerName(e)})`);
+      }
+    })(),
   );
 }
 

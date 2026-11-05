@@ -7,6 +7,7 @@
 // P20 fügt Wächter für wrangler.toml und den Re-Export direkt vor der Ende-Marke ein.
 import { readFileSync } from 'node:fs';
 import worker from '../worker.js';
+import { altKeyMerkerGroesse, altKeyMerkerLeeren, ALTKEY_MERKER_MAX } from '../konto-altkey.js';
 import { sha256B64url, signiere } from '../konto-krypto.js';
 import { FEHLER_TEXT, launcherSelbstUpdate, selbstUpdateLiefern, zugangPruefen } from '../konto-zugang.js';
 import { abschluss, check, makeKV, pruefeFaelle, testSchluessel } from './konto-attrappen.mjs';
@@ -317,11 +318,64 @@ async function run() {
     const ohneCtx = await worker.fetch(req('/suite.json', { kopf: { 'X-Proxy-Key': PROXY } }), env);
     check('P15 OF2: Sitzung zählt nicht; ohne KONTO-Bindung oder ohne ctx → 200 ohne Zählung',
       s.status === 200 && ohneBindung.status === 200 && ohneCtx.status === 200 && offen.length === 0 && anfragen.length === 0);
+    altKeyMerkerLeeren(); // der Merker der Zählung ist modulweit (Z1-W1): vor dem nächsten Fall zurücksetzen
     const kaputt = { ...env, KONTO: { jurisdiction() { throw new Error('kaputt'); } } };
     const k = await worker.fetch(req('/suite.json', { kopf: { 'X-Proxy-Key': PROXY } }), kaputt, ctx);
     await Promise.all(offen);
     check('P15 OF2: wirft der Konten-DO, bleibt die Antwort 200 und das Log nennt nur den Fehlernamen',
       k.status === 200 && protokoll.includes('konto: Alt-Key-Zählung fehlgeschlagen (Error)'));
+  }
+
+  // Z1-W1 (Minor 4): die Alt-Key-Zählung geht höchstens einmal je IP-Hash, Tag und Gruppe an den DO.
+  {
+    const aufrufe = [];
+    const ns = {
+      jurisdiction() { return ns; },
+      idFromName: () => ({}),
+      get: () => ({ fetch: async (r) => { aufrufe.push(await r.json()); return Response.json({ ok: true }); } }),
+    };
+    const offen = [];
+    const ctx = { waitUntil: (p) => offen.push(p) };
+    const env = { ...ENV, ALTKEY_BIS: VOR, KONTO: ns };
+    const alt = (ip, pfad = '/suite.json') => req(pfad, { kopf: { 'X-Proxy-Key': PROXY, 'CF-Connecting-IP': ip } });
+    const sende = async (r, e = env, jetztZeit = T0) => {
+      const z = await zugangPruefen(r, e, { funktion: 'katalog', gruppe: 'katalog', jetzt: jetztZeit, ctx });
+      await Promise.all(offen.splice(0));
+      return z;
+    };
+    altKeyMerkerLeeren();
+    for (let i = 0; i < 6; i++) await sende(alt('1.1.1.1'));
+    check('Z1-W1 Minor 4: sechs gleiche Anfragen (derselbe IP-Hash, Tag, Gruppe) → genau ein DO-Aufruf', aufrufe.length === 1 && aufrufe[0].gruppe === 'katalog');
+    await sende(alt('2.2.2.2'));
+    await sende(alt('1.1.1.1'), env, T0 + TAG);
+    const qaZ = await zugangPruefen(alt('1.1.1.1', '/qa/event-1/pending'), env, { funktion: 'qa', gruppe: 'qa', jetzt: T0, ctx });
+    await Promise.all(offen.splice(0));
+    check(
+      'Z1-W1 Minor 4: eine andere IP, ein anderer Tag oder eine andere Gruppe zählt wieder (4 Aufrufe in Summe)',
+      qaZ.ok === true && aufrufe.length === 4 && aufrufe.map((a) => a.gruppe).join(',') === 'katalog,katalog,katalog,qa',
+    );
+    // Scheitert der DO, bleibt der Schlüssel nicht gemerkt: die nächste Anfrage versucht es noch einmal.
+    altKeyMerkerLeeren();
+    aufrufe.length = 0;
+    let faellt = true;
+    const wackelig = { jurisdiction() { return wackelig; }, idFromName: () => ({}), get: () => ({ fetch: async (r) => { if (faellt) throw new Error('weg'); aufrufe.push(await r.json()); return Response.json({ ok: true }); } }) };
+    const wEnv = { ...env, KONTO: wackelig };
+    await sende(alt('3.3.3.3'), wEnv);
+    faellt = false;
+    await sende(alt('3.3.3.3'), wEnv);
+    await sende(alt('3.3.3.3'), wEnv);
+    check('Z1-W1 Minor 4: ein gescheiterter DO-Aufruf wird beim nächsten Mal wiederholt, danach nicht mehr (1 Aufruf)', aufrufe.length === 1);
+    // Der Merker hat eine Obergrenze: die ältesten Einträge fliegen.
+    altKeyMerkerLeeren();
+    aufrufe.length = 0;
+    for (let i = 0; i < ALTKEY_MERKER_MAX + 5; i++) await sende(alt('10.0.' + Math.floor(i / 250) + '.' + (i % 250)));
+    const nachFlut = aufrufe.length;
+    await sende(alt('10.0.0.0'));
+    check(
+      'Z1-W1 Minor 4: der Merker hält höchstens 1000 Einträge (die älteste IP fliegt raus und zählt wieder), altKeyMerkerLeeren setzt ihn zurück',
+      nachFlut === ALTKEY_MERKER_MAX + 5 && aufrufe.length === nachFlut + 1 && altKeyMerkerGroesse() === ALTKEY_MERKER_MAX && (altKeyMerkerLeeren(), altKeyMerkerGroesse() === 0),
+    );
+    altKeyMerkerLeeren();
   }
 
   // P15 zeitkonstant: kein einfacher Vergleich mit dem Proxy-Key mehr im Gate.

@@ -21,6 +21,35 @@ export const GOOGLE_NEU_MS = 90 * 24 * 3600_000;
 // (`2026-12-15T00:00:00+01:00`, `…Z`). Der Zeitpunkt ist der erste Augenblick ohne alten Schlüssel.
 const FRIST_FORM = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
 
+/**
+ * Basis-URL eines iveo-Events wie `normalizeIveoBaseUrl` in @jm/iveo (packages/iveo/src/client.ts): getrimmt, ohne Schema mit
+ * https://, ohne Schrägstriche am Ende, mit Host. Leer, ohne Host oder mit `|` (Trenner im Schlüssel) → null; eine Vorgabe-Basis
+ * kennt der Worker nicht, der Launcher schickt die Basis immer mit (P27). Die EINE Stelle der Normalisierung (Z1-W1): der Worker
+ * (AAD beim Verschlüsseln und Entschlüsseln), der DO (Schlüssel im Speicher) und die feste iveo-Liste (W2) rufen sie.
+ */
+export function normalisiereBasis(roh) {
+  const t = typeof roh === 'string' ? roh.trim() : '';
+  if (!t || t.includes('|')) return null;
+  const mitSchema = /^https?:\/\//i.test(t) ? t : `https://${t}`;
+  const sauber = mitSchema.replace(/\/+$/, '');
+  try {
+    return new URL(sauber).host ? sauber : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Der iveo-Schlüssel `<normalisierte Basis>|<Slug getrimmt>` (EP13) genau in der Schreibweise, in der der DO ihn speichert, oder
+ * null (Basis unbrauchbar, Slug leer, länger als 120 Zeichen oder mit `|`). Er ist auch die AAD des Geheimtexts (Z1-W1).
+ */
+export function iveoSchluessel(basis, slug) {
+  const b = normalisiereBasis(basis);
+  const s = typeof slug === 'string' ? slug.trim() : '';
+  if (!b || !s || s.length > 120 || s.includes('|')) return null;
+  return `${b}|${s}`;
+}
+
 function intern(stufe) {
   return stufe === 'admin' || stufe === 'kollege';
 }

@@ -15,13 +15,14 @@
 //
 // Einmal-Regeln: Abholen nimmt den Vorgang atomar (delete); alle Schreiber eines Vorgangs (Binden, Bestätigen, Google-Zustand) und
 // das Setzen per Einladung laufen in `inReihe` und lesen dort frisch (kein PBKDF2 in der Reihe), auch ohne Input-Gates. Die
-// Schreiber des Kontos (P3, P6) verlassen sich auf die Input-Gates von workerd; ebenso die P6-Regeln "eine Anfrage ist nur offen
+// Schreiber des Kontos (P3, Abholen, P6) verlassen sich auf die Input-Gates von workerd (workerd lässt während eines
+// Speicherzugriffs keinen fremden Aufruf in den Code; die Map-Attrappe der Tests kennt dieses Tor nicht); ebenso die P6-Regeln "eine Anfrage ist nur offen
 // entscheidbar", "es bleibt immer ein Admin", die Schreiber von iveo und `geraet-markieren` und `neuer-code` (Einladung des Kontos
 // außerhalb der Reihe). Löschen (Abholen, Abbrechen, Aufräumen) läuft außerhalb der Reihe;
 // kein Schreiber in der Reihe nimmt einen bereits entschiedenen Vorgang an. Nie `binde` oder `inReihe` aus der Reihe rufen.
 // Das Erneuern (P5) liest das Gerät nach dem Beweis (WebCrypto, kein Speicher) frisch, prüft `letztesKonto` noch einmal und setzt nur
-// seine eigenen Felder, ohne await zwischen frischem Lesen und Schreiben: ein gleichzeitiges Abholen oder eine spätere Markierung
-// (`jm`) bleibt so erhalten.
+// seine eigenen Felder, ohne await zwischen frischem Lesen und Schreiben: ein gleichzeitiges Abholen oder eine gleichzeitige Markierung
+// (`jm`) bleibt so erhalten (ebenfalls dank der Input-Gates).
 //
 // Uhr: `jetzt` kommt mit jeder Aktion vom Worker; fehlt es, und im Alarm, gilt `env.KONTO_UHR()` (nur Tests, EP21), sonst
 // `Date.now()`. Schlüssel im Speicher (EP1): konto:<kid>, email:<email>, geraet:<gid>, vorgang:<vid>, state:<state>,
@@ -38,6 +39,8 @@ import {
   googleNeuFaellig,
   istDomainKonto,
   istErsterAdmin,
+  iveoSchluessel,
+  normalisiereBasis,
   kontoGueltig,
   nachFehlversuch,
 } from './konto-kern.js';
@@ -62,6 +65,12 @@ const AUFBEWAHRUNG_MS = 90 * TAG_MS;
 const GERAET_MS = 365 * TAG_MS;
 /** Bremse unbekannter E-Mails (P4, EP4) so lange nach dem letzten Versuch löschen. */
 const FEHL_EMAIL_MS = 30 * TAG_MS;
+/** Obergrenzen (Z1-W1): Events je Zugang und je Hinterlegen, Werkzeuge je Zugang, Seite beim Aufräumen der Fehl-E-Mails. */
+const MAX_EVENTS = 100;
+const MAX_WERKZEUGE = 20;
+const AUFRAEUM_SEITE = 500;
+/** Ein Admin mit kürzerer Frist als so lange zählt für „es bleibt immer ein Admin“ nicht (er liefe bald aus). */
+const ADMIN_FRIST_MIN_MS = 30 * TAG_MS;
 const EMAIL_FORM = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const K = {
@@ -185,23 +194,6 @@ const ADMIN_AKTIONEN = {
 
 const B64URL = /^[A-Za-z0-9_-]+$/;
 
-/**
- * Basis-URL eines iveo-Events wie `normalizeIveoBaseUrl` in @jm/iveo (packages/iveo/src/client.ts): getrimmt, ohne Schema mit
- * https://, ohne Schrägstriche am Ende, mit Host. Leer, ohne Host oder mit `|` (Trenner im Schlüssel) → null; eine Vorgabe-Basis
- * kennt der DO nicht, der Launcher schickt die Basis immer mit (P27).
- */
-function normalisiereBasis(roh) {
-  const t = typeof roh === 'string' ? roh.trim() : '';
-  if (!t || t.includes('|')) return null;
-  const mitSchema = /^https?:\/\//i.test(t) ? t : `https://${t}`;
-  const sauber = mitSchema.replace(/\/+$/, '');
-  try {
-    return new URL(sauber).host ? sauber : null;
-  } catch {
-    return null;
-  }
-}
-
 function nachName(a, b) {
   return a.name.localeCompare(b.name, 'de') || a.email.localeCompare(b.email);
 }
@@ -259,8 +251,8 @@ export class KontoSpeicher {
   }
 
   async speichereKonto(konto) {
-    await this.ctx.storage.put(K.konto(konto.kid), konto);
-    await this.ctx.storage.put(K.email(konto.email), konto.kid);
+    // Ein put mit Objekt: Konto und E-Mail-Index entstehen zusammen oder gar nicht (Z1-W1).
+    await this.ctx.storage.put({ [K.konto(konto.kid)]: konto, [K.email(konto.email)]: konto.kid });
   }
 
   ersterAdmin() {
@@ -284,7 +276,11 @@ export class KontoSpeicher {
   /** Zahl der aktiven Admins, ohne `ausser`. */
   async adminZahl(jetzt, ausser = null) {
     let n = 0;
-    for (const [, k] of await this.ctx.storage.list({ prefix: 'konto:' })) if (k.kid !== ausser && this.istAktiverAdmin(k, jetzt)) n++;
+    for (const [, k] of await this.ctx.storage.list({ prefix: 'konto:' })) {
+      // Ein Admin mit kurzer Frist (unter 30 Tagen) schützt nicht: er liefe aus, und „immer ein Admin“ hielte nur zum Schein.
+      const dauerhaft = typeof k.bis !== 'number' || k.bis > jetzt + ADMIN_FRIST_MIN_MS;
+      if (k.kid !== ausser && dauerhaft && this.istAktiverAdmin(k, jetzt)) n++;
+    }
     return n;
   }
 
@@ -298,8 +294,22 @@ export class KontoSpeicher {
 
   /** Protokoll (EP19, OF3): `{ am, wer, was, wen, details }`; `details` bauen die Aufrufer ohne Geheimnisse. */
   async protokolliere({ am, wer, was, wen, details }) {
+    if (!Number.isFinite(am) || typeof wer !== 'string' || !wer || typeof was !== 'string' || !was) throw new Error('Protokolleintrag ungueltig');
     const eintrag = { am, wer: String(wer), was: String(was), wen: String(wen ?? ''), details: details ?? {} };
     await this.ctx.storage.put(`log:${String(am).padStart(13, '0')}:${zufall(6)}`, eintrag);
+  }
+
+  /**
+   * Alle Zoom-Anfragen als `[Schlüssel, Anfrage]`. Eine offene Anfrage, deren „bis“ vorbei ist, zählt nicht mehr: sie wird beim
+   * Lesen gelöscht und nicht geliefert (Z1-W1). Entschiedene bleiben bis zum Aufräumen (90 Tage nach „bis“).
+   */
+  async anfragenLesen(jetzt) {
+    const aus = [];
+    for (const [key, a] of await this.ctx.storage.list({ prefix: 'anfrage:' })) {
+      if (a && a.zustand === 'offen' && !(a.bis > jetzt)) await this.ctx.storage.delete(key);
+      else aus.push([key, a]);
+    }
+    return aus;
   }
 
   // ── Aufräumen (täglich per Alarm) ──
@@ -320,7 +330,7 @@ export class KontoSpeicher {
 
   /**
    * Abgelaufene Vorgänge samt OAuth-state, verwaiste state, abgelaufene Einladungen, Protokoll nach 12 Monaten (OF3),
-   * Alt-Key-Zeilen 90 Tage nach der letzten Anfrage, entschiedene Zoom-Anfragen 90 Tage nach ihrem „bis“, Geräte 12 Monate
+   * Alt-Key-Zeilen 90 Tage nach der letzten Anfrage, Zoom-Anfragen (auch offene) 90 Tage nach ihrem „bis“, Geräte 12 Monate
    * nach dem letzten Kontakt und Zähler unbekannter E-Mails 30 Tage nach dem letzten Versuch (Spec 11).
    */
   async aufraeumen(jetzt) {
@@ -348,13 +358,17 @@ export class KontoSpeicher {
       if (!z || z.zuletzt + AUFBEWAHRUNG_MS <= jetzt) await st.delete(key);
     }
     for (const [key, a] of await st.list({ prefix: 'anfrage:' })) {
-      if (!a || (a.zustand !== 'offen' && a.bis + AUFBEWAHRUNG_MS <= jetzt)) await st.delete(key);
+      if (!a || a.bis + AUFBEWAHRUNG_MS <= jetzt) await st.delete(key);
     }
     for (const [key, g] of await st.list({ prefix: 'geraet:' })) {
       if (!g || !(g.letzterKontakt + GERAET_MS > jetzt)) await st.delete(key);
     }
-    for (const [key, f] of await st.list({ prefix: 'fehl-email:' })) {
-      if (!f || !(f.am + FEHL_EMAIL_MS > jetzt)) await st.delete(key);
+    // Zähler unbekannter E-Mails wachsen mit jedem Fremden: seitenweise lesen, nie die ganze Liste auf einmal.
+    for (let ab; ; ) {
+      const seite = [...(await st.list({ prefix: 'fehl-email:', limit: AUFRAEUM_SEITE, ...(ab ? { start: ab } : {}) })).entries()];
+      for (const [key, f] of seite) if (!f || !(f.am + FEHL_EMAIL_MS > jetzt)) await st.delete(key);
+      if (seite.length < AUFRAEUM_SEITE) break;
+      ab = `${seite[seite.length - 1][0]}\u0000`;
     }
   }
 
@@ -426,10 +440,11 @@ export class KontoSpeicher {
     return { ok: true };
   }
 
-  /** Sperre aufheben (Spec 4): aktiv mit der alten Stufe; eine laufende Passwort-Bremse fällt mit weg. */
+  /** Sperre aufheben (Spec 4), nur aus „gesperrt“ (sonst 400 ungueltig): aktiv mit der alten Stufe; eine laufende Passwort-Bremse fällt mit weg. */
   async entsperren(kid, durch, jetzt) {
     const konto = await this.ladeKonto(kid);
     if (!konto) return fehler('vorgang-unbekannt', 404);
+    if (konto.zustand !== 'gesperrt') return fehler('ungueltig', 400);
     konto.zustand = 'aktiv';
     konto.geaendert = jetzt;
     await this.speichereKonto(konto);
@@ -765,11 +780,17 @@ export class KontoSpeicher {
     return { ok: true, konto: { ...ohneGeheimes(konto), stufe: this.stufeVon(konto) }, geraet: ohneSchluessel(frisch) };
   }
 
-  /** Aktion `abmelden` `{ kid, gid }` → `{ ok }` (EP26): nur `letzterKontakt` des Geräts; Konto und Gerät bleiben. */
+  /**
+   * Aktion `abmelden` `{ kid, gid }` → `{ ok }` (EP26): Konto und Gerät bleiben, aber das Gerät gehört danach keinem Konto mehr
+   * (`letztesKonto` und `angemeldetSeit` null): eine alte Sitzung lässt sich mit einem frischen Gerätebeweis nicht mehr erneuern
+   * (Z1-W1, Gesamtprüfung Minor 1).
+   */
   async abmelden(b, jetzt) {
     const geraet = typeof b.gid === 'string' && b.gid ? await this.ctx.storage.get(K.geraet(b.gid)) : null;
     if (geraet && geraet.letztesKonto === b.kid) {
       geraet.letzterKontakt = jetzt;
+      geraet.letztesKonto = null;
+      geraet.angemeldetSeit = null;
       await this.ctx.storage.put(K.geraet(geraet.gid), geraet);
     }
     return { ok: true };
@@ -785,7 +806,7 @@ export class KontoSpeicher {
     const g = konto ? kontoGueltig(konto, jetzt) : { ok: false, grund: 'geloescht' };
     let juengste = null;
     let offen = 0;
-    for (const [, a] of await this.ctx.storage.list({ prefix: 'anfrage:' })) {
+    for (const [, a] of await this.anfragenLesen(jetzt)) {
       if (a.zustand === 'offen') offen++;
       if (konto && a.kid === konto.kid && (!juengste || a.am > juengste.am)) juengste = a;
     }
@@ -814,7 +835,7 @@ export class KontoSpeicher {
     if (!zweck || !Number.isFinite(b.von) || !Number.isFinite(b.bis) || !(b.bis > b.von) || !(b.bis > jetzt)) return fehler('ungueltig', 400);
     const geraet = typeof b.gid === 'string' && b.gid ? await this.ctx.storage.get(K.geraet(b.gid)) : null;
     if (!geraet || geraet.letztesKonto !== konto.kid) return fehler('geraet-unbekannt', 403);
-    for (const [, a] of await this.ctx.storage.list({ prefix: 'anfrage:' })) {
+    for (const [, a] of await this.anfragenLesen(jetzt)) {
       if (a.kid === konto.kid && a.zustand === 'offen') return fehler('konflikt', 409);
     }
     const anfrage = {
@@ -906,8 +927,8 @@ export class KontoSpeicher {
       }))
       .sort(nachName);
     const iveo = [...(await st.list({ prefix: 'iveo:' })).values()].map((e) => ({ key: e.key, basis: e.basis, slug: e.slug, name: e.name, am: e.am, von: e.von }));
-    const anfragen = [...(await st.list({ prefix: 'anfrage:' })).values()]
-      .map((a) => {
+    const anfragen = (await this.anfragenLesen(jetzt))
+      .map(([, a]) => {
         const k = nachKid.get(a.kid);
         const g = geraete.get(a.gid);
         return {
@@ -973,8 +994,8 @@ export class KontoSpeicher {
    */
   async zugangsWerte(a) {
     if (!STUFEN.includes(a.stufe)) return null;
-    if (!Array.isArray(a.tools) || !a.tools.every((t) => WERKZEUGE.includes(t))) return null;
-    if (!Array.isArray(a.events) || !a.events.every((e) => typeof e === 'string')) return null;
+    if (!Array.isArray(a.tools) || a.tools.length > MAX_WERKZEUGE || !a.tools.every((t) => WERKZEUGE.includes(t))) return null;
+    if (!Array.isArray(a.events) || a.events.length > MAX_EVENTS || !a.events.every((e) => typeof e === 'string')) return null;
     for (const e of a.events) if (!(await this.ctx.storage.get(K.iveo(e)))) return null;
     const zeitOderNull = (w) => w === null || Number.isFinite(w);
     if (!zeitOderNull(a.bis) || !zeitOderNull(a.zoomBis)) return null;
@@ -989,7 +1010,8 @@ export class KontoSpeicher {
     if (this.istErster(konto)) return fehler('erster-admin', 403);
     const werte = await this.zugangsWerte({ ...a, bis: a.bis ?? null, zoomBis: a.zoomBis ?? null });
     if (!werte) return fehler('ungueltig', 400);
-    const bleibtAdmin = werte.stufe === 'admin' && (werte.bis === null || werte.bis > jetzt);
+    // Der letzte Admin darf keine kurze Frist bekommen (unter 30 Tagen): sonst liefe er aus und es gäbe keinen mehr (Z1-W1).
+    const bleibtAdmin = werte.stufe === 'admin' && (werte.bis === null || werte.bis > jetzt + ADMIN_FRIST_MIN_MS);
     if (this.istAktiverAdmin(konto, jetzt) && !bleibtAdmin && !(await this.adminBleibt(jetzt, konto.kid))) return fehler('konflikt', 409);
     const vorher = { stufe: konto.stufe, tools: konto.tools, events: konto.events, bis: konto.bis, zoomBis: konto.zoomBis };
     Object.assign(konto, werte, { geaendert: jetzt });
@@ -1065,13 +1087,13 @@ export class KontoSpeicher {
   async iveoHinterlegen(a, wer, jetzt) {
     const basis = normalisiereBasis(a.basis);
     const liste = Array.isArray(a.events) ? a.events : [];
-    if (!basis || liste.length === 0 || liste.length > 100) return fehler('ungueltig', 400);
+    if (!basis || liste.length === 0 || liste.length > MAX_EVENTS) return fehler('ungueltig', 400);
     const eintraege = [];
     for (const e of liste) {
       const slug = e && typeof e.slug === 'string' ? e.slug.trim() : '';
-      if (!slug || slug.length > 120 || slug.includes('|')) return fehler('ungueltig', 400);
+      if (!iveoSchluessel(basis, slug)) return fehler('ungueltig', 400);
       if (typeof e.iv !== 'string' || typeof e.ct !== 'string' || !B64URL.test(e.iv) || !B64URL.test(e.ct)) return fehler('ungueltig', 400);
-      eintraege.push({ key: `${basis}|${slug}`, basis, slug, name: text(e.name, 200) || slug, iv: e.iv, ct: e.ct, am: jetzt, von: wer });
+      eintraege.push({ key: iveoSchluessel(basis, slug), basis, slug, name: text(e.name, 200) || slug, iv: e.iv, ct: e.ct, am: jetzt, von: wer });
     }
     for (const e of eintraege) await this.ctx.storage.put(K.iveo(e.key), e);
     await this.protokolliere({ am: jetzt, wer, was: 'iveo-hinterlegen', wen: basis, details: { slugs: eintraege.map((e) => e.slug) } });
@@ -1105,16 +1127,21 @@ export class KontoSpeicher {
   }
 
   /** Offene Anfrage laden; unbekannt → 404, schon entschieden → 400 (Spec 8). */
-  async offeneAnfrage(id) {
+  async offeneAnfrage(id, jetzt) {
     const anfrage = typeof id === 'string' && id ? await this.ctx.storage.get(K.anfrage(id)) : null;
     if (!anfrage) return { fehler: fehler('vorgang-unbekannt', 404) };
+    // Eine offene Anfrage, deren „bis“ vorbei ist, gibt es nicht mehr (anfragenLesen räumt sie auf).
+    if (anfrage.zustand === 'offen' && !(anfrage.bis > jetzt)) {
+      await this.ctx.storage.delete(K.anfrage(anfrage.id));
+      return { fehler: fehler('vorgang-unbekannt', 404) };
+    }
     if (anfrage.zustand !== 'offen') return { fehler: fehler('ungueltig', 400) };
     return { anfrage };
   }
 
   /** `anfrage-freigeben` (Spec 8, Schritt 3): `zoomBis` am Konto, Anfrage geschlossen; wirkt beim nächsten Start (6.3). */
   async anfrageFreigeben(a, wer, jetzt) {
-    const { anfrage, fehler: f } = await this.offeneAnfrage(a.id);
+    const { anfrage, fehler: f } = await this.offeneAnfrage(a.id, jetzt);
     if (f) return f;
     if (!Number.isFinite(a.bis) || !(a.bis > jetzt)) return fehler('ungueltig', 400);
     const konto = await this.ladeKonto(anfrage.kid);
@@ -1130,7 +1157,7 @@ export class KontoSpeicher {
 
   /** `anfrage-ablehnen` (Spec 8, Schritt 4): Anfrage geschlossen, der Externe sieht es beim nächsten Kontakt (`ich`). */
   async anfrageAblehnen(a, wer, jetzt) {
-    const { anfrage, fehler: f } = await this.offeneAnfrage(a.id);
+    const { anfrage, fehler: f } = await this.offeneAnfrage(a.id, jetzt);
     if (f) return f;
     Object.assign(anfrage, { zustand: 'abgelehnt', entschiedenAm: jetzt, entschiedenVon: wer });
     await this.ctx.storage.put(K.anfrage(anfrage.id), anfrage);

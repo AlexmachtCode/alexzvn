@@ -4,7 +4,7 @@
 // ctx.storage; Aktionen gehen wie vom Worker als POST an https://konto.intern/<aktion> (rufeDo). P4–P6 fügen ihre Fälle
 // direkt vor der Marke „Ende der Fälle“ ein und ihre Hilfsfunktionen direkt vor `async function run() {`.
 import { readFileSync } from 'node:fs';
-import { PROTOKOLL_MS, darf, kontoStand } from '../konto-kern.js';
+import { PROTOKOLL_MS, darf, iveoSchluessel, kontoStand } from '../konto-kern.js';
 import { hashePasswort, iveoEntschluesseln, iveoVerschluesseln, neuerBestaetigungsCode, sha256B64url, zufall } from '../konto-krypto.js';
 import { abschluss, check, gleich, makeCtx, makeUhr, neuerSpeicher, pruefeFaelle, rufeDo, testGeraet, testSchluessel } from './konto-attrappen.mjs';
 
@@ -108,9 +108,9 @@ async function mitAdmin(env = { ERSTER_ADMIN: ERSTE }) {
   return { speicher, ctx, kid, aktion, uebersicht };
 }
 
-/** iveo-Event wie vom Worker (P16): das Token mit IVEO_SCHLUESSEL verschlüsselt, der DO bekommt nur `{ iv, ct }`. */
-async function iveoEvent(schluessel, slug, name, token) {
-  return { slug, name, ...(await iveoVerschluesseln(schluessel, token)) };
+/** iveo-Event wie vom Worker (P16): das Token mit IVEO_SCHLUESSEL und dem Schlüssel `basis|slug` als AAD verschlüsselt, der DO bekommt nur `{ iv, ct }`. */
+async function iveoEvent(schluessel, slug, name, token, basis = 'https://iveo.example') {
+  return { slug, name, ...(await iveoVerschluesseln(schluessel, token, iveoSchluessel(basis, slug))) };
 }
 
 async function run() {
@@ -291,17 +291,18 @@ async function run() {
     await ctx.storage.put('anfrage:alt', { id: 'alt', kid: 'k-1', zustand: 'abgelehnt', bis: T0 - 90 * TAG });
     await ctx.storage.put('anfrage:jung', { id: 'jung', kid: 'k-1', zustand: 'freigegeben', bis: T0 - 90 * TAG + 1 });
     await ctx.storage.put('anfrage:offen', { id: 'offen', kid: 'k-2', zustand: 'offen', bis: T0 - 365 * TAG });
+    await ctx.storage.put('anfrage:offen-neu', { id: 'offen-neu', kid: 'k-2', zustand: 'offen', bis: T0 + TAG });
     await ctx.storage.put('geraet:g-alt', { gid: 'g-alt', name: 'Alt-PC', letzterKontakt: T0 - 365 * TAG, letztesKonto: 'k-1' });
     await ctx.storage.put('geraet:g-jung', { gid: 'g-jung', name: 'Neu-PC', letzterKontakt: T0 - 365 * TAG + 1, letztesKonto: null });
     await ctx.storage.put('fehl-email:alt', { anzahl: 2, bisMs: null, am: T0 - 30 * TAG });
     await ctx.storage.put('fehl-email:jung', { anzahl: 2, bisMs: null, am: T0 - 30 * TAG + 1 });
     await speicher.alarm();
     check(
-      'P3 Alarm räumt abgelaufene Vorgänge samt state, verwaiste state, abgelaufene Einladungen, Alt-Key-Zeilen und entschiedene Anfragen nach 90 Tagen, Geräte nach 12 Monaten ohne Kontakt und Zähler unbekannter E-Mails nach 30 Tagen ab; stellt sich für morgen',
+      'P3 Alarm räumt abgelaufene Vorgänge samt state, verwaiste state, abgelaufene Einladungen, Alt-Key-Zeilen und Anfragen (auch offene) 90 Tage nach ihrem „bis“, Geräte nach 12 Monaten ohne Kontakt und Zähler unbekannter E-Mails nach 30 Tagen ab; stellt sich für morgen',
       !ctx.daten.has('vorgang:alt') && !ctx.daten.has('state:s-alt') && ctx.daten.has('vorgang:neu') && ctx.daten.has('state:s-neu') &&
         !ctx.daten.has('state:s-waise') && !('einladung' in ctx.daten.get('konto:k-1')) && 'einladung' in ctx.daten.get('konto:k-2') &&
         !ctx.daten.has('altkey:2026-07-01:katalog:win-x64') && ctx.daten.has('altkey:2026-07-30:katalog:win-x64') &&
-        !ctx.daten.has('anfrage:alt') && ctx.daten.has('anfrage:jung') && ctx.daten.has('anfrage:offen') &&
+        !ctx.daten.has('anfrage:alt') && ctx.daten.has('anfrage:jung') && !ctx.daten.has('anfrage:offen') && ctx.daten.has('anfrage:offen-neu') &&
         !ctx.daten.has('geraet:g-alt') && ctx.daten.has('geraet:g-jung') && !ctx.daten.has('fehl-email:alt') && ctx.daten.has('fehl-email:jung') &&
         ctx.alarmZeit === T0 + TAG,
     );
@@ -407,7 +408,7 @@ async function run() {
     const nochmal = await abholen(speicher, v, geraet, T0 + 7000);
     const g = ctx.daten.get(`geraet:${geraet.gid}`);
     check(
-      'P4 4.1: Abholen wartet bis zur Bestätigung; Ja → Konto (ohne Geheimes) und Gerät (ohne Schlüssel); zweites Abholen → 404 vorgang-unbekannt',
+      'P4 4.1: Abholen wartet bis zur Bestätigung; Ja → Konto (ohne Passwort-Hash) und Gerät (ohne Schlüssel); zweites Abholen → 404 vorgang-unbekannt',
       warten1.zustand === 'wartet' && b.ok === true && b.email === 'maria@jakobsmedien.com' && b.code === v.code && b.rechnerName === 'Regie-PC 2' &&
         typeof b.seitenToken === 'string' && warten2.zustand === 'wartet' && lesen.zustand === 'angemeldet' && ja.zustand === 'bestaetigt' &&
         fertig.ok === true && fertig.zustand === 'bestaetigt' && fertig.konto.kid === k.kid && fertig.konto.stufe === 'kollege' &&
@@ -992,6 +993,7 @@ async function run() {
         const w = await get(key);
         if (halte && key === `vorgang:${v.vorgang}`) {
           halte = false;
+          setTimeout(freigeben, 2000); // Rückfall: sonst bliebe der Test hängen, wenn das Abholen nie ans Ziel kommt
           await tor;
         }
         return w;
@@ -1101,12 +1103,19 @@ async function run() {
       return gleich([r.kontoAktiv, r.grund, r.zoomAnfrage, r.adminOffen], [...f.soll, null, 0]);
     });
     const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
-    const ab = await rufeDo(speicher, 'abmelden', { jetzt: T0 + TAG, kid, gid: geraet.gid });
     const fremd = await rufeDo(speicher, 'abmelden', { jetzt: T0 + 2 * TAG, kid: 'k-anders', gid: geraet.gid });
+    const gFremd = ctx.daten.get(`geraet:${geraet.gid}`);
+    const fremdWirkungslos = gFremd.letzterKontakt === T0 && gFremd.letztesKonto === kid && gFremd.angemeldetSeit === T0;
+    const ab = await rufeDo(speicher, 'abmelden', { jetzt: T0 + TAG, kid, gid: geraet.gid });
     const g = ctx.daten.get(`geraet:${geraet.gid}`);
     check(
-      'P5 EP26: abmelden setzt nur letzterKontakt des Geräts (nicht für ein fremdes Konto); Konto und Gerät bleiben',
-      ab.ok === true && fremd.ok === true && g.letzterKontakt === T0 + TAG && g.letztesKonto === kid && ctx.daten.has(`konto:${kid}`),
+      'P5 EP26: abmelden wirkt nur für das eigene Konto (ein fremdes ändert nichts); Konto und Gerät bleiben, das Gerät gehört danach keinem Konto (Z1-W1)',
+      ab.ok === true && fremd.ok === true && fremdWirkungslos && g.letzterKontakt === T0 + TAG && g.letztesKonto === null && g.angemeldetSeit === null && ctx.daten.has(`konto:${kid}`),
+    );
+    const danach = await erneuern(speicher, geraet, kid, T0 + TAG + MIN);
+    check(
+      'Z1-W1 Minor 1: nach dem Abmelden lässt sich die alte Sitzung mit frischem Gerätebeweis nicht erneuern (403 geraet-unbekannt)',
+      danach.http === 403 && danach.code === 'geraet-unbekannt',
     );
   }
 
@@ -1435,11 +1444,11 @@ async function run() {
   {
     const { speicher, ctx, aktion, uebersicht } = await mitAdmin();
     const S = testSchluessel();
-    const r = await aktion({ aktion: 'iveo-hinterlegen', basis: ' app.my-iveo.de/api/v1/ ', events: [await iveoEvent(S, 'tagung', 'Tagung 2026', 'test-iveo-token-a'), await iveoEvent(S, 'gala', '', 'test-iveo-token-b')] }, T0);
+    const r = await aktion({ aktion: 'iveo-hinterlegen', basis: ' app.my-iveo.de/api/v1/ ', events: [await iveoEvent(S, 'tagung', 'Tagung 2026', 'test-iveo-token-a', ' app.my-iveo.de/api/v1/ '), await iveoEvent(S, 'gala', '', 'test-iveo-token-b', ' app.my-iveo.de/api/v1/ ')] }, T0);
     const roh = JSON.stringify([...ctx.daten.values()]);
     const u = await uebersicht(T0);
     const fuer = await rufeDo(speicher, 'iveo-fuer', { jetzt: T0, stufe: 'kollege', tools: [], events: [] });
-    const klar = await Promise.all(fuer.events.map((e) => iveoEntschluesseln(S, e)));
+    const klar = await Promise.all(fuer.events.map((e) => iveoEntschluesseln(S, e, e.key)));
     check(
       'P6 6.4: iveo hinterlegen: Schlüssel <normalisierte Basis>|<slug>, Name (sonst slug), von = Admin, kein Klartext im Speicher; iveo-fuer liefert iv/ct, die der Worker entschlüsselt',
       r.ok === true && JSON.stringify(u.iveo.map((e) => e.key)) === '["https://app.my-iveo.de/api/v1|gala","https://app.my-iveo.de/api/v1|tagung"]' &&
@@ -1450,7 +1459,7 @@ async function run() {
       'P6 6.4: die Übersicht gibt nie iv oder ct heraus (je Event nur key, basis, slug, name, am, von)',
       u.iveo.every((e) => Object.keys(e).join(',') === 'key,basis,slug,name,am,von') && fuer.events.every((e) => !JSON.stringify(u).includes(e.ct) && !JSON.stringify(u).includes(e.iv)),
     );
-    const ersetzt = await aktion({ aktion: 'iveo-hinterlegen', basis: 'https://app.my-iveo.de/api/v1', events: [await iveoEvent(S, 'gala', 'Gala', 'test-iveo-token-c')] }, T0 + MIN);
+    const ersetzt = await aktion({ aktion: 'iveo-hinterlegen', basis: 'https://app.my-iveo.de/api/v1', events: [await iveoEvent(S, 'gala', 'Gala', 'test-iveo-token-c', 'https://app.my-iveo.de/api/v1')] }, T0 + MIN);
     const nachErsetzen = await rufeDo(speicher, 'iveo-fuer', { jetzt: T0 + MIN, stufe: 'admin', tools: [], events: [] });
     const gala = nachErsetzen.events.find((e) => e.slug === 'gala');
     const weg = await aktion({ aktion: 'iveo-entfernen', key: 'https://app.my-iveo.de/api/v1|tagung' }, T0 + 2 * MIN);
@@ -1458,7 +1467,7 @@ async function run() {
     const danach = await uebersicht(T0 + 3 * MIN);
     check(
       'P6 6.4: ersetzen (gleicher Schlüssel, neues Token, neues am) und entfernen; unbekannter Schlüssel → 404',
-      ersetzt.ok === true && (await iveoEntschluesseln(S, gala)) === 'test-iveo-token-c' && nachErsetzen.events.length === 2 && weg.ok === true &&
+      ersetzt.ok === true && (await iveoEntschluesseln(S, gala, gala.key)) === 'test-iveo-token-c' && nachErsetzen.events.length === 2 && weg.ok === true &&
         nochmal.http === 404 && nochmal.code === 'vorgang-unbekannt' && JSON.stringify(danach.iveo.map((e) => [e.slug, e.name, e.am])) === JSON.stringify([['gala', 'Gala', T0 + MIN]]),
     );
     const klartext = 'test-iveo-klartext';
@@ -1686,6 +1695,257 @@ async function run() {
       weg.ok === true && hat === 0 && JSON.stringify(geaendert) === '["konto:k-005","konto:k-138"]' &&
         JSON.stringify(ctx.daten.get('konto:k-138').events) === JSON.stringify([gala]) && !ctx.daten.has(`iveo:${key}`),
     );
+  }
+
+  // ── Z1-W1: Härtung des Konten-DO (Nachrunde vor dem Deploy) ──
+  {
+    // speichereKonto: Konto und E-Mail-Index mit einem put (Objekt).
+    const { speicher, ctx } = neuerSpeicher({});
+    const puts = [];
+    const put = ctx.storage.put.bind(ctx.storage);
+    ctx.storage.put = async (k, v) => {
+      puts.push(k);
+      return put(k, v);
+    };
+    await speicher.speichereKonto({ kid: 'k-at', email: 'at@firma.example', name: 'At', art: 'passwort', stufe: 'externer', zustand: 'aktiv', tools: [], events: [], bis: T0 + TAG });
+    check(
+      'Z1-W1: speichereKonto schreibt Konto und E-Mail-Index mit EINEM put (Objekt), nicht in zwei Schritten',
+      puts.length === 1 && puts[0] !== null && typeof puts[0] === 'object' && Object.keys(puts[0]).sort().join(',') === 'email:at@firma.example,konto:k-at' &&
+        ctx.daten.get('email:at@firma.example') === 'k-at' && ctx.daten.get('konto:k-at').kid === 'k-at',
+    );
+  }
+  {
+    // protokolliere prüft die Eingaben.
+    const { speicher, ctx } = neuerSpeicher({});
+    const schlecht = [
+      { am: NaN, wer: 'x', was: 'y' },
+      { am: Infinity, wer: 'x', was: 'y' },
+      { am: String(T0), wer: 'x', was: 'y' },
+      { am: T0, wer: '', was: 'y' },
+      { am: T0, wer: undefined, was: 'y' },
+      { am: T0, wer: 'x', was: '' },
+    ];
+    let wirft = 0;
+    for (const e of schlecht) {
+      try {
+        await speicher.protokolliere(e);
+      } catch {
+        wirft++;
+      }
+    }
+    const vorher = (await protokoll(ctx)).length;
+    await speicher.protokolliere({ am: T0, wer: ERSTE, was: 'probe', wen: 'x', details: {} });
+    check('Z1-W1: protokolliere wirft bei am nicht endlich oder wer/was leer oder keine Zeichenkette (6 Fälle), schreibt dann nichts; ein gültiger Eintrag geht', wirft === 6 && vorher === 0 && (await protokoll(ctx)).length === 1);
+  }
+  {
+    // entsperren wirkt nur aus „gesperrt“.
+    const m = await mitAdmin();
+    const k = await rufeDo(m.speicher, 'konto-aus-google', { jetzt: T0, email: 'maria@jakobsmedien.com', name: 'Maria' });
+    const aktivEntsperren = await m.aktion({ aktion: 'entsperren', kid: k.kid });
+    const logNachAktiv = (await protokoll(m.ctx)).filter((e) => e.was === 'zugang-entsperrt').length;
+    await m.aktion({ aktion: 'zugang-loeschen', kid: k.kid }, T0 + MIN);
+    const gesperrt = (await m.speicher.ladeKonto(k.kid)).zustand;
+    const entsperrt = await m.aktion({ aktion: 'entsperren', kid: k.kid }, T0 + 2 * MIN);
+    const nochmal = await m.aktion({ aktion: 'entsperren', kid: k.kid }, T0 + 3 * MIN);
+    const unbekannt = await m.aktion({ aktion: 'entsperren', kid: 'k-gibts-nicht' }, T0 + 3 * MIN);
+    check(
+      'Z1-W1: entsperren wirkt nur aus gesperrt (aktives Konto → 400 ungueltig, kein Protokolleintrag; gesperrt → ok; danach nochmal → 400; unbekannt → 404)',
+      aktivEntsperren.http === 400 && aktivEntsperren.code === 'ungueltig' && logNachAktiv === 0 && gesperrt === 'gesperrt' && entsperrt.ok === true &&
+        (await m.speicher.ladeKonto(k.kid)).zustand === 'aktiv' && nochmal.http === 400 && unbekannt.http === 404 &&
+        (await protokoll(m.ctx)).filter((e) => e.was === 'zugang-entsperrt').length === 1,
+    );
+  }
+  {
+    // Aufräumen der Fehl-E-Mails seitenweise.
+    const { speicher, ctx } = neuerSpeicher({ KONTO_UHR: makeUhr(T0) });
+    for (let i = 0; i < 1100; i++) {
+      await ctx.storage.put(`fehl-email:${String(i).padStart(5, '0')}`, { anzahl: 1, bisMs: null, am: i < 700 ? T0 - 31 * TAG : T0 - TAG });
+    }
+    const seiten = [];
+    const list = ctx.storage.list.bind(ctx.storage);
+    ctx.storage.list = async (o = {}) => {
+      if (o.prefix === 'fehl-email:') seiten.push(o.limit);
+      return list(o);
+    };
+    await speicher.alarm();
+    const rest = [...ctx.daten.keys()].filter((x) => x.startsWith('fehl-email:'));
+    check(
+      'Z1-W1: das Aufräumen der Fehl-E-Mails liest in Seiten (limit höchstens 500, mehrere Seiten bei 1100 Zählern) und löscht genau die alten (700 weg, 400 bleiben)',
+      seiten.length >= 3 && seiten.every((n) => typeof n === 'number' && n <= 500) && rest.length === 400 && rest.every((x) => Number(x.slice(-5)) >= 700),
+    );
+  }
+  {
+    // Abgelaufene offene Zoom-Anfragen zählen nicht mehr und werden beim Lesen aufgeräumt.
+    const stale = (kid, gid) => ({ id: 'alt', kid, gid, rechnerName: 'Alt-PC', jm: false, plattform: 'win', zweck: 'Alt', von: T0 - 3 * TAG, bis: T0 - TAG, zustand: 'offen', am: T0 - 4 * TAG, entschiedenAm: null, entschiedenVon: null, freigegebenBis: null });
+    {
+      const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
+      await ctx.storage.put('anfrage:alt', stale(kid, geraet.gid));
+      const neu = await rufeDo(speicher, 'zoom-anfragen', { jetzt: T0 + MIN, kid, gid: geraet.gid, zweck: 'Neu', von: T0 + TAG, bis: T0 + 2 * TAG });
+      check(
+        'Z1-W1: eine offene Anfrage, deren „bis“ vorbei ist, blockiert keine neue (kein 409) und wird beim Lesen gelöscht',
+        neu.ok === true && !ctx.daten.has('anfrage:alt') && (await ctx.storage.list({ prefix: 'anfrage:' })).size === 1,
+      );
+    }
+    {
+      const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
+      await ctx.storage.put('anfrage:alt', stale(kid, geraet.gid));
+      const ich = await rufeDo(speicher, 'ich', { jetzt: T0 + MIN, kid });
+      check('Z1-W1: ich zeigt eine abgelaufene offene Anfrage nicht mehr und räumt sie auf', ich.ok === true && ich.zoomAnfrage === null && !ctx.daten.has('anfrage:alt'));
+    }
+    {
+      const m = await mitAdmin();
+      await legeExternenAn(m.speicher, { passwort: 'richtiges-passwort' });
+      await m.ctx.storage.put('anfrage:alt', stale('k-ext', 'g-1'));
+      await m.ctx.storage.put('anfrage:neu', { ...stale('k-ext', 'g-1'), id: 'neu', zweck: 'Neu', bis: T0 + 2 * TAG });
+      // Erst entscheiden, dann lesen: die Entscheidung selbst darf eine abgelaufene offene Anfrage nicht mehr annehmen.
+      const frei = await m.aktion({ aktion: 'anfrage-freigeben', id: 'alt', bis: T0 + 5 * TAG }, T0);
+      const ablehnen = await m.aktion({ aktion: 'anfrage-ablehnen', id: 'alt' }, T0);
+      const zoomBisNachFreigabe = (await m.speicher.ladeKonto('k-ext')).zoomBis;
+      await m.ctx.storage.put('anfrage:alt', stale('k-ext', 'g-1'));
+      const ich = await rufeDo(m.speicher, 'ich', { jetzt: T0, kid: m.kid });
+      const u = await m.uebersicht(T0);
+      check(
+        'Z1-W1: adminOffen und die Übersicht zählen nur noch gültige offene Anfragen (eine von zwei); die abgelaufene lässt sich weder freigeben noch ablehnen (404)',
+        zoomBisNachFreigabe === null && ich.adminOffen === 1 && u.anfragen.length === 1 && u.anfragen[0].id === 'neu' && frei.http === 404 && ablehnen.http === 404 && !m.ctx.daten.has('anfrage:alt'),
+      );
+    }
+  }
+  {
+    // Kurze Frist beim letzten Admin.
+    const { speicher, aktion, kid: a } = await mitAdmin({});
+    const speichern = (bis, jetzt = T0 + MIN) => aktion({ aktion: 'zugang-speichern', kid: a, stufe: 'admin', tools: [], events: [], bis, zoomBis: null }, jetzt);
+    const kurz = await speichern(T0 + 10 * TAG);
+    const genau = await speichern(T0 + MIN + 30 * TAG);
+    const lang = await speichern(T0 + MIN + 30 * TAG + 1);
+    check(
+      'Z1-W1: der letzte Admin bekommt keine kurze Frist (10 Tage und genau 30 Tage → 409 konflikt, 30 Tage + 1 ms geht)',
+      kurz.http === 409 && kurz.code === 'konflikt' && genau.http === 409 && lang.ok === true && (await speicher.ladeKonto(a)).bis === T0 + MIN + 30 * TAG + 1,
+    );
+    const b = await rufeDo(speicher, 'konto-aus-google', { jetzt: T0, email: 'jonas@jakobsmedien.com', name: 'Jonas' });
+    const setzeB = async (bis) => speicher.speichereKonto({ ...(await speicher.ladeKonto(b.kid)), stufe: 'admin', bis });
+    const herab = () => aktion({ aktion: 'zugang-speichern', kid: a, stufe: 'kollege', tools: [], events: [], bis: null, zoomBis: null }, T0 + 2 * MIN);
+    await setzeB(T0 + 10 * TAG);
+    const mitKurzem = await herab();
+    const loeschenMitKurzem = await aktion({ aktion: 'zugang-loeschen', kid: a }, T0 + 2 * MIN);
+    await setzeB(T0 + 60 * TAG);
+    const mitLangem = await herab();
+    check(
+      'Z1-W1: ein zweiter Admin mit kurzer Frist (10 Tage) schützt nicht (Herabstufen und Löschen des ersten → 409); mit 60 Tagen geht es',
+      mitKurzem.http === 409 && loeschenMitKurzem.http === 409 && mitLangem.ok === true,
+    );
+  }
+  {
+    // Obergrenzen von zugangsWerte, Grenzen von iveo und Slug.
+    const m = await mitAdmin();
+    const S = testSchluessel();
+    const k = await rufeDo(m.speicher, 'konto-aus-google', { jetzt: T0, email: 'maria@jakobsmedien.com', name: 'Maria' });
+    const speichern = (mehr) => m.aktion({ aktion: 'zugang-speichern', kid: k.kid, stufe: 'kollege', tools: [], events: [], bis: null, zoomBis: null, ...mehr });
+    for (let i = 0; i < 101; i++) await m.ctx.storage.put(`iveo:https://iveo.example|e${i}`, { key: `https://iveo.example|e${i}`, basis: 'https://iveo.example', slug: `e${i}`, name: `E${i}`, iv: 'aaaa', ct: 'bbbb', am: T0, von: ERSTE });
+    const schluessel = (n) => Array.from({ length: n }, (_, i) => `https://iveo.example|e${i}`);
+    const hundert = await speichern({ events: schluessel(100) });
+    const hunderteins = await speichern({ events: schluessel(101) });
+    const doppelt = await speichern({ events: ['https://iveo.example|e1', 'https://iveo.example|e1'] });
+    const werkzeuge = await speichern({ tools: Array(21).fill('qa') });
+    const werkzeugeGut = await speichern({ tools: ['qa', 'qa', 'iveo'] });
+    check(
+      'Z1-W1: zugang-speichern: 100 Events gehen, 101 → 400; doppelte Events werden zu einem; mehr als 20 Werkzeuge → 400, doppelte Werkzeuge werden zu einem',
+      hundert.ok === true && hunderteins.http === 400 && hunderteins.code === 'ungueltig' && doppelt.ok === true && werkzeuge.http === 400 && werkzeugeGut.ok === true &&
+        JSON.stringify((await m.speicher.ladeKonto(k.kid)).tools) === '["qa","iveo"]',
+    );
+    await speichern({ events: ['https://iveo.example|e1', 'https://iveo.example|e1'] });
+    check('Z1-W1: doppelte Events landen nur einmal im Konto', JSON.stringify((await m.speicher.ladeKonto(k.kid)).events) === '["https://iveo.example|e1"]');
+
+    const ev = async (slug) => ({ slug, name: slug.slice(0, 5), ...(await iveoVerschluesseln(S, 'test-iveo-grenze', iveoSchluessel('https://grenze.example', slug) ?? 'x|y')) });
+    const viele = async (n) => Promise.all(Array.from({ length: n }, (_, i) => ev(`s${i}`)));
+    const h100 = await m.aktion({ aktion: 'iveo-hinterlegen', basis: 'https://grenze.example', events: await viele(100) });
+    const h101 = await m.aktion({ aktion: 'iveo-hinterlegen', basis: 'https://grenze.example', events: await viele(101) });
+    const s120 = await m.aktion({ aktion: 'iveo-hinterlegen', basis: 'https://grenze.example', events: [await ev('x'.repeat(120))] });
+    const s121 = await m.aktion({ aktion: 'iveo-hinterlegen', basis: 'https://grenze.example', events: [{ slug: 'y'.repeat(121), name: 'Y', iv: 'aaaa', ct: 'bbbb' }] });
+    check(
+      'Z1-W1: iveo-hinterlegen: 100 Events und Slug mit 120 Zeichen gehen; 101 Events und Slug mit 121 Zeichen → 400 ungueltig, nichts gespeichert',
+      h100.ok === true && h101.http === 400 && h101.code === 'ungueltig' && s120.ok === true && s121.http === 400 && s121.code === 'ungueltig' &&
+        !m.ctx.daten.has(`iveo:https://grenze.example|${'y'.repeat(121)}`) && !m.ctx.daten.has('iveo:https://grenze.example|s100'),
+    );
+  }
+  {
+    // anfrage-freigeben mit Datum in der Vergangenheit.
+    const m = await mitAdmin();
+    await legeExternenAn(m.speicher, { passwort: 'richtiges-passwort' });
+    await m.ctx.storage.put('anfrage:a1', { id: 'a1', kid: 'k-ext', gid: 'g-1', rechnerName: 'PC', jm: false, plattform: 'win', zweck: 'Probe', von: T0, bis: T0 + 10 * TAG, zustand: 'offen', am: T0, entschiedenAm: null, entschiedenVon: null, freigegebenBis: null });
+    const faelle = [
+      { name: 'ein ms in der Vergangenheit', bis: T0 - 1 },
+      { name: 'genau jetzt', bis: T0 },
+      { name: 'weit in der Vergangenheit', bis: T0 - 365 * TAG },
+      { name: 'kein Datum', bis: 'morgen' },
+      { name: 'fehlt', bis: undefined },
+    ];
+    await pruefeFaelle('Z1-W1: anfrage-freigeben mit „bis“ nicht in der Zukunft oder ohne Zahl → 400 ungueltig', faelle, async (f) => {
+      const r = await m.aktion({ aktion: 'anfrage-freigeben', id: 'a1', bis: f.bis }, T0);
+      return gleich([r.http, r.code], [400, 'ungueltig']);
+    });
+    const unveraendert = (await m.speicher.ladeKonto('k-ext')).zoomBis === null && m.ctx.daten.get('anfrage:a1').zustand === 'offen';
+    const ok = await m.aktion({ aktion: 'anfrage-freigeben', id: 'a1', bis: T0 + 1 }, T0);
+    check('Z1-W1: nach den abgelehnten Fällen ist die Anfrage noch offen und zoomBis leer; mit „bis“ = jetzt + 1 geht es', unveraendert && ok.ok === true);
+  }
+  {
+    // [T] ERSTER_ADMIN mit Großbuchstaben und Leerzeichen auf der Env-Seite; stufeVon in der Übersicht.
+    const m = await mitAdmin({ ERSTER_ADMIN: '  Chefin@JakobsMedien.COM  ' });
+    const u = await m.uebersicht();
+    const loeschen = await m.aktion({ aktion: 'zugang-loeschen', kid: m.kid });
+    check(
+      'Z1-W1 [T]: ERSTER_ADMIN mit Großbuchstaben und Leerzeichen in der Umgebung: das Google-Konto wird Admin, die Übersicht nennt es ersterAdmin, Löschen → 403 erster-admin',
+      (await m.speicher.ladeKonto(m.kid)).stufe === 'admin' && u.zugaenge.length === 1 && u.zugaenge[0].ersterAdmin === true && u.zugaenge[0].stufe === 'admin' &&
+        loeschen.http === 403 && loeschen.code === 'erster-admin',
+    );
+    await m.speicher.speichereKonto({ ...(await m.speicher.ladeKonto(m.kid)), stufe: 'kollege' });
+    const u2 = await m.uebersicht();
+    check('Z1-W1 [T]: stufeVon in der Übersicht: ein gespeichertes „kollege“ beim ersten Admin erscheint als admin', u2.zugaenge[0].stufe === 'admin' && u2.zugaenge[0].ersterAdmin === true);
+  }
+  {
+    // [T] Anfragen von gelöschten, gesperrten und abgelaufenen Konten; Zweck über 200 Zeichen; leerer Rechnername.
+    const faelle = [
+      { name: 'gesperrt', vorbereiten: async (s, kid) => s.speichereKonto({ ...(await s.ladeKonto(kid)), zustand: 'gesperrt' }), soll: [403, 'gesperrt'] },
+      { name: 'abgelaufen', vorbereiten: async (s, kid) => s.speichereKonto({ ...(await s.ladeKonto(kid)), bis: T0 + MIN }), soll: [403, 'zugang-abgelaufen'] },
+      { name: 'gelöscht', vorbereiten: (s, kid) => s.zugangLoeschen(kid, ERSTE, T0), soll: [403, 'geloescht'] },
+    ];
+    await pruefeFaelle('Z1-W1 [T]: zoom-anfragen eines gesperrten, abgelaufenen oder gelöschten Kontos → 403 mit dem Grund, keine Anfrage abgelegt', faelle, async (f) => {
+      const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
+      await f.vorbereiten(speicher, kid);
+      const r = await rufeDo(speicher, 'zoom-anfragen', { jetzt: T0 + 2 * MIN, kid, gid: geraet.gid, zweck: 'Probe', von: T0 + TAG, bis: T0 + 2 * TAG });
+      return gleich([r.http, r.code, (await ctx.storage.list({ prefix: 'anfrage:' })).size], [...f.soll, 0]);
+    });
+    const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
+    const lang = await rufeDo(speicher, 'zoom-anfragen', { jetzt: T0 + MIN, kid, gid: geraet.gid, zweck: `  ${'x'.repeat(250)}  `, von: T0 + TAG, bis: T0 + 2 * TAG });
+    const gespeichert = [...(await ctx.storage.list({ prefix: 'anfrage:' })).values()];
+    check(
+      'Z1-W1 [T]: ein Zweck über 200 Zeichen wird (wie im Brief: text(zweck, 200)) auf 200 Zeichen gekürzt und angenommen; nur Leerraum → 400 ungueltig',
+      lang.ok === true && gespeichert.length === 1 && gespeichert[0].zweck === 'x'.repeat(200) && lang.anfrage.zweck === 'x'.repeat(200),
+    );
+    const leer = await rufeDo(speicher, 'zoom-anfragen', { jetzt: T0 + 2 * MIN, kid, gid: geraet.gid, zweck: '   ', von: T0 + TAG, bis: T0 + 2 * TAG });
+    check('Z1-W1 [T]: Zweck nur aus Leerraum → 400 ungueltig', leer.http === 400 && leer.code === 'ungueltig');
+  }
+  {
+    // [T] Ein leerer Rechnername beim Erneuern behält den alten Namen.
+    const { speicher, ctx, geraet, kid } = await angemeldeterExterner({});
+    const faelle = [{ name: 'leer', n: '' }, { name: 'nur Leerraum', n: '   ' }, { name: 'nur Steuerzeichen', n: '​\u0007' }, { name: 'keine Zeichenkette', n: 42 }];
+    await pruefeFaelle('Z1-W1 [T]: sitzung-erneuern mit leerem oder unbrauchbarem Rechnernamen behält den alten Namen', faelle, async (f) => {
+      const r = await erneuern(speicher, geraet, kid, T0 + MIN, { rechnerName: f.n });
+      return gleich([r.ok, r.geraet.name, ctx.daten.get(`geraet:${geraet.gid}`).name], [true, 'Regie-PC 1', 'Regie-PC 1']);
+    });
+  }
+  {
+    // [T] iveo-entfernen setzt „geaendert“ bei jedem betroffenen Konto (auch hinter der ersten Seite) und nur dort.
+    const { ctx, aktion } = await mitAdmin();
+    const S = testSchluessel();
+    await aktion({ aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [await iveoEvent(S, 'tagung', 'Tagung', 'test-iveo-1')] });
+    const key = 'https://iveo.example|tagung';
+    for (let i = 0; i < 140; i++) {
+      const kid = `k-${String(i).padStart(3, '0')}`;
+      await ctx.storage.put(`konto:${kid}`, { kid, email: `x${i}@firma.example`, name: `X ${i}`, art: 'passwort', stufe: 'externer', zustand: 'aktiv', tools: [], events: i === 5 || i === 138 ? [key] : [], bis: T0 + TAG, zoomBis: null, erstellt: T0, geaendert: T0 });
+    }
+    await aktion({ aktion: 'iveo-entfernen', key }, T0 + 7 * MIN);
+    const stand = (i) => ctx.daten.get(`konto:k-${String(i).padStart(3, '0')}`).geaendert;
+    check('Z1-W1 [T]: iveo-entfernen setzt geaendert = jetzt bei den betroffenen Konten (5 und 138, auch hinter der ersten Seite), alle anderen bleiben bei T0', stand(5) === T0 + 7 * MIN && stand(138) === T0 + 7 * MIN && stand(0) === T0 && stand(6) === T0 && stand(139) === T0);
   }
 
   // ── Ende der Fälle ──

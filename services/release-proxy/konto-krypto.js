@@ -31,6 +31,18 @@ function ausB64(text) {
   return out;
 }
 
+/**
+ * Base64url in genau einer Form (Z1-W1): nur das URL-Alphabet, ohne Auffüllung, ohne Leerraum, ohne Restbits. Jeder Wert hat
+ * so genau einen Text. Gilt für alles, was der Worker selbst erzeugt (Payload, Signatur, iv, ct, Salz, Hash, Gerätebeweis).
+ * Nur die Worker-Secrets lesen mit `ausB64` auch Base64 und Auffüllung.
+ */
+function ausB64url(text) {
+  if (typeof text !== 'string' || !/^[A-Za-z0-9_-]*$/.test(text)) throw new Error('kein Base64url');
+  const out = ausB64(text);
+  if (b64url(out) !== text) throw new Error('kein Base64url');
+  return out;
+}
+
 function schluesselBytes(schluesselB64) {
   try {
     const b = ausB64(schluesselB64);
@@ -69,16 +81,16 @@ export async function signiere(schluesselB64, claims) {
 export async function pruefeToken(schluesselB64, token, typ, jetzt) {
   try {
     const bytes = schluesselBytes(schluesselB64);
-    if (!bytes || typeof token !== 'string' || !token.startsWith(TOKEN_PRAEFIX)) return null;
+    if (!bytes || typeof typ !== 'string' || !typ || typeof token !== 'string' || !token.startsWith(TOKEN_PRAEFIX)) return null;
     const teile = token.slice(TOKEN_PRAEFIX.length).split('.');
     if (teile.length !== 2 || !teile[0] || !teile[1]) return null;
     const [payload, sig] = teile;
     // Die Signatur nur in der einen kanonischen Form (b64url, 43 Zeichen, keine Restbits): sonst gäbe es mehrere Texte je Token.
     // Die Nutzlast ist über die HMAC byte-genau gebunden und braucht das nicht.
-    if (!/^[A-Za-z0-9_-]{43}$/.test(sig) || b64url(ausB64(sig)) !== sig) return null;
-    const echt = await crypto.subtle.verify('HMAC', await hmacSchluessel(bytes), ausB64(sig), kodierer.encode(TOKEN_PRAEFIX + payload));
+    if (sig.length !== 43) return null;
+    const echt = await crypto.subtle.verify('HMAC', await hmacSchluessel(bytes), ausB64url(sig), kodierer.encode(TOKEN_PRAEFIX + payload));
     if (!echt) return null;
-    const claims = JSON.parse(dekodierer.decode(ausB64(payload)));
+    const claims = JSON.parse(dekodierer.decode(ausB64url(payload)));
     if (!claims || typeof claims !== 'object' || Array.isArray(claims)) return null;
     if (claims.v !== 1 || claims.typ !== typ) return null;
     if (typeof claims.exp !== 'number' || !(claims.exp > jetzt)) return null;
@@ -128,6 +140,8 @@ export function zufall(bytes) {
 }
 
 export async function sha256B64url(text) {
+  // Nie der Hash von „undefined“: ein fehlender Wert ist ein Fehler des Aufrufers, kein Eingabewert.
+  if (typeof text !== 'string') throw new Error('Text fehlt');
   return b64url(await crypto.subtle.digest('SHA-256', kodierer.encode(String(text))));
 }
 
@@ -152,9 +166,9 @@ export async function pruefePasswort(passwort, gespeichert) {
     if (teile.length !== 4 || teile[0] !== 'pbkdf2-sha256') return false;
     if (!/^[1-9][0-9]{0,6}$/.test(teile[1])) return false;
     const iterationen = Number(teile[1]);
-    if (iterationen > PBKDF2_ITERATIONEN) return false;
-    const salz = ausB64(teile[2]);
-    const soll = ausB64(teile[3]);
+    if (iterationen !== PBKDF2_ITERATIONEN) return false;
+    const salz = ausB64url(teile[2]);
+    const soll = ausB64url(teile[3]);
     if (salz.length < 16 || soll.length !== 32) return false;
     return gleicheBytes(await pbkdf2(passwort, salz, iterationen), soll);
   } catch {
@@ -168,19 +182,26 @@ async function aesSchluessel(schluesselB64) {
   return crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
 
-/** iveo-Token verschlüsseln (Spec 6.4, EP13): AES-GCM-256, iv 12 B je Aufruf neu; Ergebnis `{ iv, ct }` als b64url. */
-export async function iveoVerschluesseln(schluesselB64, klartext) {
+/**
+ * iveo-Token verschlüsseln (Spec 6.4, EP13): AES-GCM-256, iv 12 B je Aufruf neu; Ergebnis `{ iv, ct }` als b64url.
+ * `aad` (Pflicht, Z1-W1) ist der volle Schlüssel `basis|slug` des Events, genau so, wie der DO ihn speichert (`iveoSchluessel`
+ * in konto-kern.js): ein Geheimtext lässt sich nur unter dem Schlüssel entschlüsseln, für den er gemacht wurde.
+ */
+export async function iveoVerschluesseln(schluesselB64, klartext, aad) {
   if (typeof klartext !== 'string' || klartext === '') throw new Error('Token fehlt');
+  if (typeof aad !== 'string' || aad === '') throw new Error('AAD fehlt');
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await aesSchluessel(schluesselB64), kodierer.encode(klartext));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: kodierer.encode(aad) }, await aesSchluessel(schluesselB64), kodierer.encode(klartext));
   return { iv: b64url(iv), ct: b64url(ct) };
 }
 
-/** Klartext oder null (falscher Schlüssel, manipuliertes iv oder ct, fremde Form). */
-export async function iveoEntschluesseln(schluesselB64, wert) {
+/** Klartext oder null (falscher Schlüssel, falsche AAD, manipuliertes iv oder ct, iv nicht 12 Byte, fremde Form). */
+export async function iveoEntschluesseln(schluesselB64, wert, aad) {
   try {
-    if (!wert || typeof wert.iv !== 'string' || typeof wert.ct !== 'string') return null;
-    const klar = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ausB64(wert.iv) }, await aesSchluessel(schluesselB64), ausB64(wert.ct));
+    if (!wert || typeof wert.iv !== 'string' || typeof wert.ct !== 'string' || typeof aad !== 'string' || aad === '') return null;
+    const iv = ausB64url(wert.iv);
+    if (iv.length !== 12) return null;
+    const klar = await crypto.subtle.decrypt({ name: 'AES-GCM', iv, additionalData: kodierer.encode(aad) }, await aesSchluessel(schluesselB64), ausB64url(wert.ct));
     return dekodierer.decode(klar);
   } catch {
     return null;
@@ -227,7 +248,7 @@ export async function pruefeGeraeteBeweis(publicJwk, beweis, zweck, bezug, jetzt
     const schluessel = await pruefSchluessel(publicJwk);
     if (!schluessel) return false;
     if (beweis.gid !== (await geraetIdAus(publicJwk))) return false;
-    return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, schluessel, ausB64(beweis.sig), kodierer.encode(beweisText(zweck, bezug, beweis.ts)));
+    return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, schluessel, ausB64url(beweis.sig), kodierer.encode(beweisText(zweck, bezug, beweis.ts)));
   } catch {
     return false;
   }

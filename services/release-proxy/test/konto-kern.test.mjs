@@ -25,9 +25,11 @@ import {
   googleNeuFaellig,
   istDomainKonto,
   istErsterAdmin,
+  iveoSchluessel,
   kontoGueltig,
   kontoStand,
   kurzName,
+  normalisiereBasis,
   nachFehlversuch,
 } from '../konto-kern.js';
 
@@ -313,6 +315,27 @@ async function run() {
   }
 
   // ── rein (Plan 10.2: ohne Import, ohne Konsole) ──
+  // Z1-W1: die eine Stelle der iveo-Normalisierung (Schlüssel im DO, AAD im Worker, feste Liste in W2).
+  {
+    const basen = [
+      [' app.my-iveo.de/api/v1/ ', 'https://app.my-iveo.de/api/v1'],
+      ['https://iveo.example///', 'https://iveo.example'],
+      ['HTTP://iveo.example', 'HTTP://iveo.example'],
+      ['iveo.example', 'https://iveo.example'],
+    ];
+    check('Z1-W1: normalisiereBasis trimmt, ergänzt https://, entfernt Schrägstriche am Ende', basen.every(([roh, soll]) => normalisiereBasis(roh) === soll));
+    check(
+      'Z1-W1: normalisiereBasis lehnt leer, ohne Host, mit | und Nicht-Texte ab (null)',
+      ['', '   ', 'https://', 'a|b', 'https://a.example|x', undefined, null, 5, {}].every((x) => normalisiereBasis(x) === null),
+    );
+    check(
+      'Z1-W1: iveoSchluessel = <normalisierte Basis>|<Slug getrimmt>; Slug leer, über 120 Zeichen, mit | oder kein Text, Basis unbrauchbar → null; 120 Zeichen gehen',
+      iveoSchluessel(' iveo.example/ ', ' tagung ') === 'https://iveo.example|tagung' && iveoSchluessel('https://iveo.example', 'x'.repeat(120)) === `https://iveo.example|${'x'.repeat(120)}` &&
+        iveoSchluessel('https://iveo.example', 'x'.repeat(121)) === null && iveoSchluessel('https://iveo.example', '  ') === null && iveoSchluessel('https://iveo.example', 'a|b') === null &&
+        iveoSchluessel('https://iveo.example', 7) === null && iveoSchluessel('a|b', 'x') === null && iveoSchluessel(undefined, 'x') === null,
+    );
+  }
+
   {
     const quelle = readFileSync(new URL('../konto-kern.js', import.meta.url), 'utf8');
     check('P1 10.2: konto-kern.js ohne import und ohne console', !/^\s*import\s/m.test(quelle) && !/\bconsole\./.test(quelle) && !/export default/.test(quelle));
