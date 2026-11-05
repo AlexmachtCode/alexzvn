@@ -48,7 +48,8 @@ unverändert; `connect-relay.js` und `/zoom-sdk` sind in Teil 1 nicht angefasst.
 3. Im Browser meldet sich der Techniker an (Google oder E-Mail und Passwort, beim ersten Mal mit Einladungscode). Die Seite zeigt
    den Code, den Rechner nur als „Rechner: ‹Name› (vom Rechner gemeldet)“ (der Worker lässt im Namen nur Buchstaben, Ziffern,
    Leerzeichen und `-_.()'` stehen, höchstens 40 Zeichen; bleibt nichts übrig, steht dort „Rechner: (kein Name gemeldet)“, und der
-   Worker weist wegen des Namens nie ab) und direkt über „Ja, das ist mein Rechner“ den Warnsatz „Bestätige nur, wenn du selbst
+   Worker weist wegen des Namens nie ab; die Admin-Maske zeigt einen solchen Rechner in den Reitern „Geräte“ und „Anfragen“ als
+   „(kein Name gemeldet)“, gespeichert bleibt der leere Name) und direkt über „Ja, das ist mein Rechner“ den Warnsatz „Bestätige nur, wenn du selbst
    gerade auf diesem Rechner im Launcher auf „Anmelden“ geklickt hast. Hat dir jemand diesen Link geschickt, klicke auf „Nein,
    abbrechen“.“ Die Seite bestätigt über ein Formular mit Seitentoken; sie hat kein Skript und setzt keine Cookies.
 4. Nach „Ja“ zeigt die Seite „Weiter zum Launcher auf diesem Rechner. Öffnet sich nichts, wurde die Anmeldung auf einem anderen
@@ -61,7 +62,9 @@ unverändert; `connect-relay.js` und `/zoom-sdk` sind in Teil 1 nicht angefasst.
    Seite mit einem neuen `e` (höchstens drei je Vorgang, alle bleiben gültig), danach kommt „Dieser Anmeldelink ist abgelaufen oder
    ungültig. Starte die Anmeldung im Launcher neu.“ Öffnet jemand die Anmeldeadresse nach „Ja“, aber bevor der Launcher übernommen hat, zeigt die Seite „Die Anmeldung
    ist bestätigt, der Launcher hat sie aber noch nicht übernommen. Wurde sie auf einem anderen Rechner gestartet, starte sie dort
-   im Launcher neu.“ (ohne Knopf und ohne `e`); erst nach dem Übernehmen „Fertig. Dein Launcher ist angemeldet.“.
+   im Launcher neu.“ (ohne Knopf und ohne `e`); nach dem Übernehmen noch eine Minute lang „Fertig. Dein Launcher ist angemeldet. Du
+   kannst dieses Fenster schließen.“, danach wie bei jedem beendeten Vorgang „Dieser Anmeldelink ist abgelaufen oder ungültig.
+   Starte die Anmeldung im Launcher neu.“
    Der Rückkanal nimmt nur `POST /anmeldung/zurueck` an (Host-Kopf `127.0.0.1:<Port>`, Formular höchstens 1 KiB, genau die Felder `v`
    und `e`, der eigene Vorgang, `e` mit 43 Zeichen; alles andere bekommt 404 ohne Inhalt), zeigt im Browser „Fertig. Du kannst
    dieses Fenster schließen; der Launcher meldet sich jetzt an.“ und meldet den Wert genau einmal an den Launcher. Ein Doppelklick
@@ -159,7 +162,13 @@ base-uri 'none'; frame-ancestors 'none'`, dazu `no-store`, `no-referrer` und `no
 Seite an eine Loopback-Adresse: Chrome und Edge warnen davor nicht (die Warnung vor unsicheren Formularen gilt nur für Ziele, die
 nicht „potentially trustworthy“ sind, `127.0.0.1` ist es), Firefox ebenso nicht (Ausnahme für Loopback), und die Prüfung „Local
 Network Access“ gilt in Chrome heute nur für Abrufe und eingebettete Rahmen, in Firefox lässt sie Navigationen der ganzen Seite
-durch. Für Safari gibt es dazu keinen Beleg; die Abnahme prüft es auf dem Mac.
+durch. Für Safari gibt es dazu keinen Beleg; die Abnahme prüft es auf dem Mac. Ebenso unbelegt ist die optionale Safari-Einstellung
+„Vor dem Verbinden mit einer Website über HTTP warnen“ (seit Safari 18.2; in den Safari-Einstellungen im Reiter „Sicherheit“,
+englisch „Warn before connecting to a website over HTTP“). Mit ihr brach bei LocalWP eine Anmeldung über `http://localhost`
+(https://community.localwp.com/t/problem-connecting-to-local-hub-when-using-safari-8-2/45678), und WebKit-Bug 284559
+(https://bugs.webkit.org/show_bug.cgi?id=284559) beschreibt für `http://localhost` eine Sperre ohne Weiter-Knopf (seit 04.06.2026
+als behoben markiert; was sich geändert hat, steht dort nicht). Ob sie auch bei `127.0.0.1` und bei einem Formular-POST warnt
+oder blockiert, ist nicht belegt; die Abnahme prüft Schritt 2 auf dem Mac einmal mit eingeschalteter Option.
 
 **Drosseln (Z1, AR70).** Die Drosseln der Anmeldung zählen nicht in Workers KV (KV erlaubt ein Schreiben je Schlüssel und Sekunde;
 hinter einer gemeinsamen Büro-IP und beim Abholen im 2-Sekunden-Takt gäbe das Fehlschläge), sondern in Rate-Limit-Bindungen der

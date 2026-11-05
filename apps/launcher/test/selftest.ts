@@ -3748,6 +3748,16 @@ function dialogBefunde(q: string): string[] {
     && d.includes('teilen sich alle dieselbe Adresse `127.0.0.1`. Zwischen Benutzern desselben Rechners schützt der Rückkanal nicht')
     && r.includes('Auf einem fremden Rechner führt der Knopf ins Leere, der Browser meldet „nicht erreichbar“') && r.includes('teilen sie sich 127.0.0.1; zwischen ihnen schützt das nicht')
     && !/\b303\b/.test(d) && !/[?&]e=/.test(d + r) && !d.includes('springt der Browser'));
+  // Z2 Fixrunde 2 (AR94 N2, N3): B8 steht nach dem Übernehmen nur eine Minute (solange der Grabstein liegt), danach B10 wie bei
+  // jedem beendeten Vorgang. Die Safari-Option steht im Absatz der Browser-Belege als unbelegt, mit Quelle; das Rezept bekommt dazu
+  // noch keine Pannenhilfe-Zeile (erst das Ergebnis der Abnahme entscheidet).
+  ck('P34 Z2 Fixrunde 2: Doku: B8 nur noch eine Minute nach dem Übernehmen, danach B10; die Safari-Option „Vor dem Verbinden mit einer Website über HTTP warnen“ ist unbelegt und mit Quelle genannt; im Rezept steht sie nicht',
+    d.includes('nach dem Übernehmen noch eine Minute lang „Fertig. Dein Launcher ist angemeldet. Du kannst dieses Fenster schließen.“, danach wie bei jedem beendeten Vorgang „Dieser Anmeldelink ist abgelaufen oder ungültig. Starte die Anmeldung im Launcher neu.“')
+    && !d.includes('erst nach dem Übernehmen')
+    && d.includes('„Vor dem Verbinden mit einer Website über HTTP warnen“')
+    && d.includes('Ob sie auch bei `127.0.0.1` und bei einem Formular-POST warnt oder blockiert, ist nicht belegt')
+    && d.includes('https://community.localwp.com/t/problem-connecting-to-local-hub-when-using-safari-8-2/45678')
+    && !r.includes('über HTTP warnen'));
 }
 
 // --- Anmeldung P35 (Spec 4.2, 14; OFP5; G7): die Abnahme-Datei deckt jeden Kopfzustand und jede verlangte Lage ab -----------
@@ -3835,6 +3845,20 @@ function dialogBefunde(q: string): string[] {
     && schritt2.includes('per Doppelklick') && schritt2.includes('den Knopf „Weiter zum Launcher“ ebenfalls doppelt klicken') && schritt2.includes('Der Launcher meldet sich trotz Doppelklick genau einmal an')
     && schritt2.includes('Mac (Safari)') && schritt9.includes('Mac (Safari)') && schritt9.includes(NACHTRAG_FR1[1][1])
     && !schritt2.includes('springt der Browser') && !schritt9.includes('springt auf den eigenen Rechner'));
+  // Z2 Fixrunde 2 (AR94 N1–N3): M51 (Admin-Maske) steht im Nachtrag wie in der Quelle; die Zeile B28 sagt nicht mehr, B8 komme nach
+  // dem Übernehmen (nur eine Minute, danach B10); Schritt 2 prüft den Mac einmal mit eingeschalteter Safari-Option, und der Hinweis
+  // „Ohne Beleg“ nennt sie wörtlich.
+  const SAFARI_OPTION = '„Vor dem Verbinden mit einer Website über HTTP warnen“';
+  const NACHTRAG_FR2: Array<[string, string, string]> = [['M51', '(kein Name gemeldet)', adminQ]];
+  const fr2Fehlt = NACHTRAG_FR2.filter(([nr, t, q]) => !nachtrag.includes(`| ${nr} | `) || !nachtrag.includes(`| ${t} |`) || !q.includes(`'${t}'`)).map(([nr]) => nr);
+  const h9 = abnahme.indexOf('**Hinweis zu 9');
+  const h11 = abnahme.indexOf('**Hinweis zu 11');
+  const hinweis9 = h9 >= 0 && h11 > h9 ? abnahme.slice(h9, h11) : '';
+  // Umbrüche im Fließtext zählen als ein Leerzeichen (die Option darf über eine Zeilengrenze laufen).
+  const ohneBeleg = hinweis9.includes('**Ohne Beleg') ? hinweis9.slice(hinweis9.indexOf('**Ohne Beleg')).replace(/\s+/g, ' ') : '';
+  ck(`P35 Z2 Fixrunde 2: der Nachtrag nennt M51 wie die Quelle, B28 ohne „B8 erst nach dem Übernehmen“; Schritt 2 auf dem Mac einmal mit eingeschalteter Safari-Option, der Hinweis „Ohne Beleg“ nennt sie wörtlich${fr2Fehlt.length ? ` — fehlt oder weicht ab: ${fr2Fehlt.join(', ')}` : ''}`,
+    fr2Fehlt.length === 0 && !nachtrag.includes('B8 erst nach dem Übernehmen') && nachtrag.includes('nach dem Übernehmen noch eine Minute lang B8, danach B10')
+    && schritt2.includes(`einmal mit eingeschalteter Safari-Option ${SAFARI_OPTION}`) && ohneBeleg.includes(SAFARI_OPTION));
 }
 
 // ── Ende der Fälle (Anmeldung) ──
