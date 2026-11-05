@@ -3731,6 +3731,12 @@ function dialogBefunde(q: string): string[] {
   const falsch = TEXTE.filter(([, t, q]) => !rezept.includes(`„${t}“`) || !q.includes(`'${t}'`)).map(([n, t]) => `${n} „${t}“`);
   ck(`P34 R1: das Rezept zitiert die Texte des Launchers wörtlich in „ “ (${TEXTE.length} Texte)${falsch.length ? ` — abweichend: ${falsch.join(', ')}` : ''}`,
     rezept !== '' && falsch.length === 0);
+  // Z2 Nr. 8: Doku und Rezept beschreiben den Rückkanal und seinen Preis; der alte Satz „ein weitergeleiteter Link nützt einem anderen
+  // nichts“ (Gesamtprüfung Minor 7) steht nirgends mehr, auch nicht über einen Zeilenumbruch hinweg.
+  const flach = (t: string): string => t.replace(/\s+/g, ' ');
+  ck('P34 Z2: docs/anmeldung.md nennt den Rückkanal auf 127.0.0.1 und den Preis (nur im Browser desselben Rechners), das Rezept den Sprung; der Satz vom weitergeleiteten Link, der nichts nützt, ist weg',
+    flach(doku).includes('http://127.0.0.1:<rueckPort>/anmeldung/zurueck') && flach(doku).includes('Bestätigen geht nur im Browser desselben Rechners')
+    && flach(rezept).includes('springt der Browser zum Launcher') && !/weitergeleitete[rn]? (Link|Anmeldeadresse) nützt einem anderen nichts/.test(flach(doku) + flach(rezept)));
 }
 
 // --- Anmeldung P35 (Spec 4.2, 14; OFP5; G7): die Abnahme-Datei deckt jeden Kopfzustand und jede verlangte Lage ab -----------
@@ -3788,6 +3794,21 @@ function dialogBefunde(q: string): string[] {
     .map(([nr]) => nr);
   ck(`P35 Z1-F: der Nachtrag Texte (Z1) in der Abnahme nennt I16, M49, S19, M50, Z10d, Z10e und K56 mit dem Wortlaut der Quelle${nachtragFehlt.length ? ` — fehlt oder weicht ab: ${nachtragFehlt.join(', ')}` : ''}`,
     nachtrag !== '' && nachtragFehlt.length === 0 && abnahme.indexOf('## Nachtrag Texte (Z1)') < abnahme.indexOf('## Zusatzprüfungen'));
+  // Z2: die neuen Texte des Rückkanals stehen im Nachtrag, zeichengenau wie in der Quelle (Anmeldeseite des Workers, Rückkanal des
+  // Launchers); Schritt 9 nennt das neue Ergebnis des weitergeleiteten Links.
+  const seitenQ = quelleLf('../../../services/release-proxy/konto-seiten.js');
+  const rueckQ = quelleLf('../src/main/konto/rueckkanal.ts');
+  const NACHTRAG_Z2: Array<[string, string, string]> = [
+    ['B24', 'Bestätige nur, wenn du selbst gerade auf diesem Rechner im Launcher auf „Anmelden“ geklickt hast. Hat dir jemand diesen Link geschickt, klicke auf „Nein, abbrechen“.', seitenQ],
+    ['B25', 'Rechner: ‹Name› (vom Rechner gemeldet)', seitenQ],
+    ['B26', 'Weiter zum Launcher auf diesem Rechner. Öffnet sich nichts, wurde die Anmeldung auf einem anderen Rechner gestartet; starte sie dort im Launcher neu.', seitenQ],
+    ['K57', 'Fertig. Du kannst dieses Fenster schließen; der Launcher meldet sich jetzt an.', rueckQ],
+  ];
+  const z2Fehlt = NACHTRAG_Z2.filter(([nr, t, q]) => !nachtrag.includes(`| ${nr} | `) || !nachtrag.includes(`| ${t} |`) || !q.includes(`'${t}'`)).map(([nr]) => nr);
+  const schritt9 = (abnahme.match(/^\| 9 \| .*$/m) || [''])[0];
+  ck(`P35 Z2: der Nachtrag Texte nennt B24, B25, B26 und K57 mit dem Wortlaut der Quelle; Schritt 9 nennt das Ergebnis des Rückkanals${z2Fehlt.length ? ` — fehlt oder weicht ab: ${z2Fehlt.join(', ')}` : ''}`,
+    nachtrag !== '' && z2Fehlt.length === 0
+    && schritt9.includes('der Rechner des anderen bekommt keine Sitzung, die Seite springt auf den eigenen Rechner, dort ist kein Vorgang offen'));
 }
 
 // ── Ende der Fälle (Anmeldung) ──

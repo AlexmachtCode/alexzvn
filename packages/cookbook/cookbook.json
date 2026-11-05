@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-04T00:00:00.000Z",
+  "updatedAt": "2026-11-05T00:00:00.000Z",
   "recipes": [
     {
       "id": "award-gala",
@@ -2628,9 +2628,9 @@
       "crewRoles": [
         "Technik (Kollegen und externe Techniker)"
       ],
-      "lastReviewed": "2026-11-04",
+      "lastReviewed": "2026-11-05",
       "owner": "tech@jakobsmedien.com",
-      "summary": "Einmal im Launcher anmelden, dann hat jedes Tool, was es braucht: Installieren und Updates, iveo-Events, Q&A extern. Kollegen melden sich mit Google an, externe Techniker mit E-Mail und Passwort. Der Launcher zeigt einen Code, der Browser denselben; bestätigt wird nur, wenn beide gleich sind. Tools ohne Server-Teil laufen auch ohne Anmeldung, und eine laufende Produktion hängt nie an der Anmeldung.",
+      "summary": "Einmal im Launcher anmelden, dann hat jedes Tool, was es braucht: Installieren und Updates, iveo-Events, Q&A extern. Kollegen melden sich mit Google an, externe Techniker mit E-Mail und Passwort. Der Launcher zeigt einen Code, der Browser denselben; bestätigt wird nur im Browser desselben Rechners und nur, wenn beide gleich sind. Tools ohne Server-Teil laufen auch ohne Anmeldung, und eine laufende Produktion hängt nie an der Anmeldung.",
       "blocks": {
         "ingredients": [
           {
@@ -2655,8 +2655,8 @@
           "vor": [
             "Oben rechts auf „Anmelden“ klicken. Der Launcher öffnet „Im Browser anmelden“ mit einem Code und dem Satz „Der Browser zeigt gleich denselben Code. Bestätige dort nur, wenn er übereinstimmt.“",
             "Der Browser öffnet die Anmeldeseite. Kollegen wählen „Mit Google anmelden“. Externe tragen E-Mail und Passwort ein; beim ersten Mal oder mit neuem Code unter „Erstes Mal hier oder neuen Code bekommen?“ den Einladungscode und zweimal das neue Passwort (mindestens 10 Zeichen).",
-            "Die Seite fragt „Zeigt dein Launcher diesen Code?“ und nennt den Rechner. Nur wenn der Code gleich ist: „Ja, das ist mein Rechner“. Sonst „Nein, abbrechen“.",
-            "Der Launcher meldet sich von selbst an und zeigt oben Name und Stufe. Geht der Browser nicht auf: „Adresse kopieren“ und die Adresse selbst im Browser öffnen.",
+            "Die Seite fragt „Zeigt dein Launcher diesen Code?“ und nennt den Rechner („Rechner: ‹Name› (vom Rechner gemeldet)“). Direkt über dem Knopf steht: „Bestätige nur, wenn du selbst gerade auf diesem Rechner im Launcher auf „Anmelden“ geklickt hast. Hat dir jemand diesen Link geschickt, klicke auf „Nein, abbrechen“.“ Nur wenn der Code gleich ist: „Ja, das ist mein Rechner“. Sonst „Nein, abbrechen“.",
+            "Nach „Ja“ springt der Browser zum Launcher auf demselben Rechner und zeigt „Fertig. Du kannst dieses Fenster schließen; der Launcher meldet sich jetzt an.“ Der Launcher meldet sich von selbst an und zeigt oben Name und Stufe. Bestätigen geht darum nur im Browser des Rechners, auf dem du im Launcher auf „Anmelden“ geklickt hast, nicht auf dem Handy. Geht der Browser nicht auf: „Adresse kopieren“ und die Adresse selbst im Browser dieses Rechners öffnen.",
             "Beim ersten Mal löscht der Launcher einen früher gespeicherten GitHub-Token; alte, lokal gespeicherte iveo-Tokens verschwinden nach und nach, sobald ein Admin das Event zentral hinterlegt (spätestens nach 30 Tagen)."
           ],
           "waehrend": [
@@ -2685,6 +2685,10 @@
           {
             "risk": "Der Browser geht nicht auf",
             "remedy": "„Adresse kopieren“ und die Adresse selbst öffnen"
+          },
+          {
+            "risk": "Nach „Ja“: „Weiter zum Launcher auf diesem Rechner. Öffnet sich nichts, wurde die Anmeldung auf einem anderen Rechner gestartet; starte sie dort im Launcher neu.“ oder der Browser meldet, dass 127.0.0.1 nicht erreichbar ist",
+            "remedy": "Die Anmeldung lief auf einem anderen Rechner (oder die Adresse wurde weitergeleitet): dort im Launcher neu starten und im Browser desselben Rechners bestätigen"
           },
           {
             "risk": "Oben steht „Anmeldung abgelaufen“",
@@ -2727,7 +2731,7 @@
         ],
         "tips": [
           "Vor einer Produktion einmal mit Internet starten: Dann ist die Anmeldung frisch und gilt auch offline wieder bis zu 30 Tage.",
-          "Den Code immer vergleichen. Eine weitergeleitete Anmeldeadresse nützt einem anderen nichts: Ein Vorgang gehört dem ersten Konto, das sich darauf anmeldet.",
+          "Den Code immer vergleichen. Eine weitergeleitete Anmeldeadresse verschafft dem, der sie weitergeleitet hat, keine Anmeldung: Nach „Ja“ springt der Browser zum Launcher des eigenen Rechners, und nur der Launcher, der die Anmeldung gestartet hat, bekommt sie. Ein Vorgang gehört außerdem dem ersten Konto, das sich darauf anmeldet.",
           "JM Q&A behält seine Freigabe 72 Stunden, auch über einen Neustart von Q&A und bei geschlossenem Launcher. Für eine neue Freigabe muss der Launcher laufen."
         ]
       }

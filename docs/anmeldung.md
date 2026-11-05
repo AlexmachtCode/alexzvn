@@ -31,24 +31,46 @@ unverändert; `connect-relay.js` und `/zoom-sdk` sind in Teil 1 nicht angefasst.
 | Worker | `services/release-proxy/konto-zugang.js` | Zugangsprüfung für Katalog, Updates, Kochbuch, Feedback, KI-Entwurf und Q&A-Relay |
 | Worker | `services/release-proxy/konto-relay.js`, `konto-seiten.js`, `konto-google.js` | Launcher-API `/konto/*`, Anmeldeseite (ohne Skript), Google-Anmeldung |
 | Launcher | `apps/launcher/src/shared/konto.ts` | Typen, `darf` (dieselbe Falltabelle wie der Worker), `STUFE_TEXT`, `kurzName` |
-| Launcher | `apps/launcher/src/main/konto/*.ts` | Gerät, Worker-Client, Sitzungs-Treiber, Anmelde-Ablauf, Tür-Dienst, Freigabe-Stelle, iveo im Speicher (rein); `huelle.ts` verdrahtet Electron |
+| Launcher | `apps/launcher/src/main/konto/*.ts` | Gerät, Worker-Client, Sitzungs-Treiber, Anmelde-Ablauf, Rückkanal beim Bestätigen (Z2), Tür-Dienst, Freigabe-Stelle, iveo im Speicher (rein); `huelle.ts` verdrahtet Electron |
 | Launcher | `apps/launcher/src/renderer/src/lib/konto-*.ts`, `admin-ansicht.ts`, `store/konto.ts`, `components/Konto*.tsx`, `Anmelde*.tsx`, `Admin*.tsx` | Kopf, Dialoge, Admin-Maske |
 | Tools | `packages/app-runtime/src/freigabe.ts` (Export `@jm/app-runtime/freigabe`) | Client für Freigaben beim Launcher (Tür-Datei, Beweis) |
 | Q&A | `apps/qa/src/main/cloud-zugang.ts` | Zugangswahl (Freigabe vor altem Key), Erneuern, Zugangszeile |
 
 ## 3 · Anmelden (Spec 4.1)
 
-1. Der Launcher legt beim Worker einen Anmeldevorgang an (`POST /konto/vorgang`) und meldet dabei seinen Geräteschlüssel
-   (öffentlicher Teil), Rechnername, Plattform und Version an. Er bekommt Vorgang, Abholgeheimnis, einen Code `XXX-XXX` und die
-   Adresse der Anmeldeseite; der Vorgang gilt 5 Minuten.
+1. Der Launcher öffnet zuerst einen Rückkanal: einen kleinen HTTP-Lauscher nur auf `127.0.0.1` mit einem freien Port, den das
+   Betriebssystem wählt (`apps/launcher/src/main/konto/rueckkanal.ts`). Dann legt er beim Worker einen Anmeldevorgang an
+   (`POST /konto/vorgang`) und meldet dabei seinen Geräteschlüssel (öffentlicher Teil), Rechnername, Plattform, Version und den
+   Port des Rückkanals (`rueckPort`, 1024 bis 65535) an. Er bekommt Vorgang, Abholgeheimnis, einen Code `XXX-XXX` und die Adresse
+   der Anmeldeseite; der Vorgang gilt 5 Minuten.
 2. Er öffnet die Adresse im System-Browser und zeigt denselben Code im Anmelde-Dialog („Der Browser zeigt gleich denselben
    Code. Bestätige dort nur, wenn er übereinstimmt.“). Geht der Browser nicht auf, kopiert der Techniker die Adresse.
-3. Im Browser meldet sich der Techniker an (Google oder E-Mail und Passwort, beim ersten Mal mit Einladungscode) und bestätigt
-   den Code mit „Ja, das ist mein Rechner“. Die Seite bestätigt über ein Formular mit Seitentoken; sie hat kein Skript und setzt
-   keine Cookies.
-4. Der Launcher fragt alle 2 Sekunden nach (`POST /konto/vorgang/abholen`, mit Abholgeheimnis und Gerätebeweis) und bekommt nach
-   der Bestätigung die Sitzung samt Kontostand. Ein Vorgang gehört dem ersten Konto, das sich darauf anmeldet; ein
-   weitergeleiteter Link nützt einem anderen nichts.
+3. Im Browser meldet sich der Techniker an (Google oder E-Mail und Passwort, beim ersten Mal mit Einladungscode). Die Seite zeigt
+   den Code, den Rechner nur als „Rechner: ‹Name› (vom Rechner gemeldet)“ (der Worker lässt im Namen nur Buchstaben, Ziffern,
+   Leerzeichen und `-_.()'` stehen, höchstens 40 Zeichen) und direkt über „Ja, das ist mein Rechner“ den Warnsatz „Bestätige nur,
+   wenn du selbst gerade auf diesem Rechner im Launcher auf „Anmelden“ geklickt hast. Hat dir jemand diesen Link geschickt,
+   klicke auf „Nein, abbrechen“.“ Die Seite bestätigt über ein Formular mit Seitentoken; sie hat kein Skript und setzt keine
+   Cookies.
+4. Nach „Ja“ leitet der Worker den Browser mit 303 an den Rückkanal auf demselben Rechner weiter:
+   `http://127.0.0.1:<rueckPort>/anmeldung/zurueck?v=<Vorgang>&e=<Einmalwert>` (wie die Anmeldung von Desktop-Programmen bei Google,
+   RFC 8252 „loopback redirect“). Der Einmalwert `e` entsteht beim Bestätigen (32 Zufallsbytes); der Worker speichert nur seinen
+   SHA-256. Der Rückkanal nimmt genau diese eine Anfrage an (Host-Kopf `127.0.0.1:<Port>`, der eigene Vorgang, `e` mit 43 Zeichen),
+   zeigt im Browser „Fertig. Du kannst dieses Fenster schließen; der Launcher meldet sich jetzt an.“ und schließt sich. Er schließt
+   sich auch beim Abbrechen, nach 5 Minuten und beim Beenden des Launchers; ins Log kommt nur, ob ein Aufruf angenommen oder
+   abgewiesen wurde. Kommt der Browser nicht an (anderer Rechner), steht auf der Seite „Weiter zum Launcher auf diesem Rechner.
+   Öffnet sich nichts, wurde die Anmeldung auf einem anderen Rechner gestartet; starte sie dort im Launcher neu.“
+5. Der Launcher fragt alle 2 Sekunden nach (`POST /konto/vorgang/abholen`, mit Abholgeheimnis und Gerätebeweis, ab dem Sprung mit
+   `e`). Nach der Bestätigung gibt der Worker die Sitzung samt Kontostand nur mit diesem `e` heraus; ohne oder mit falschem `e`
+   antwortet er wie vorher „wartet“. Geht die Antwort mit der Sitzung unterwegs verloren, nimmt der Worker dieselbe Anfrage
+   (dasselbe Abholgeheimnis, dasselbe `e`, derselbe Rechner) noch 60 Sekunden lang an und stellt eine neue Sitzung desselben Geräts
+   aus. Vorübergehende Netz- oder Serverfehler beenden das Warten erst, wenn seit der letzten Antwort 60 Sekunden lang nur Fehler
+   kamen; eine Drosselung (429) zählt nicht als Fehler.
+
+Ein Vorgang gehört dem ersten Konto, das sich darauf anmeldet. Ein weitergeleiteter Link verschafft dem, der ihn weitergeleitet
+hat, keine Sitzung: Startet jemand die Anmeldung auf seinem Rechner und schickt den Link einem anderen, springt der Browser des
+anderen nach „Ja“ an dessen eigenen Rechner; dort lauscht kein Rückkanal für diesen Vorgang, und der Rechner, der den Vorgang
+gestartet hat, bekommt den Einmalwert nie. Der Preis: Bestätigen geht nur im Browser desselben Rechners, auf dem der Launcher die
+Anmeldung gestartet hat (nicht auf dem Handy, nicht auf einem zweiten Rechner).
 
 ## 4 · Sitzung und Kontostand (Spec 6.1, 6.3)
 
@@ -95,8 +117,8 @@ die Zugangsprüfung für Feedback, Katalog, Kochbuch, KI-Entwurf und `/tools/:id
 
 | Methode · Pfad | Zugang | Zweck |
 | --- | --- | --- |
-| POST `/konto/vorgang` | öffentlich, gedrosselt | Anmeldevorgang anlegen |
-| POST `/konto/vorgang/abholen` | Abholgeheimnis und Gerätebeweis | Stand des Vorgangs, nach der Bestätigung die Sitzung |
+| POST `/konto/vorgang` | öffentlich, gedrosselt | Anmeldevorgang anlegen (mit dem Port des Rückkanals, Z2) |
+| POST `/konto/vorgang/abholen` | Abholgeheimnis und Gerätebeweis, nach der Bestätigung dazu der Einmalwert `e` | Stand des Vorgangs, nach der Bestätigung die Sitzung |
 | POST `/konto/vorgang/abbrechen` | Abholgeheimnis | Vorgang abbrechen |
 | POST `/konto/sitzung` | Sitzung und Gerätebeweis | Sitzung erneuern (Start-Prüfung) |
 | POST `/konto/abmelden` | Sitzung | Abmelden |
@@ -110,7 +132,13 @@ die Zugangsprüfung für Feedback, Katalog, Kochbuch, KI-Entwurf und `/tools/:id
 | POST `/konto/passwort` | öffentlich, gedrosselt, Bremse je Konto | Anmeldung mit E-Mail und Passwort bzw. Einladungscode |
 | GET `/konto/google` | öffentlich | Weiter zu Google (PKCE) |
 | GET `/konto/google/zurueck` | öffentlich | Rückkehr von Google |
-| POST `/konto/bestaetigen` | Seitentoken | Code bestätigen oder abbrechen |
+| POST `/konto/bestaetigen` | Seitentoken | Code bestätigen (dann 303 an den Rückkanal auf `127.0.0.1`) oder abbrechen |
+
+Die Seiten tragen `content-security-policy: default-src 'none'; style-src 'unsafe-inline'; form-action 'self' http://127.0.0.1:*;
+base-uri 'none'; frame-ancestors 'none'`, dazu `no-store`, `no-referrer` und `nosniff`, kein Cookie. `form-action` erlaubt
+`http://127.0.0.1:*`, weil Chrome, Edge und Safari `form-action` auch auf die Weiterleitung nach dem Formular „Ja“ anwenden
+(Firefox prüft nur das erste Ziel); der Sprung ist eine Navigation der ganzen Seite, die weder Mixed Content noch die Prüfung
+„Local Network Access“ von Chrome trifft (die gilt dort nur für Abrufe und eingebettete Rahmen).
 
 **Drosseln (Z1, AR70).** Die Drosseln der Anmeldung zählen nicht in Workers KV (KV erlaubt ein Schreiben je Schlüssel und Sekunde;
 hinter einer gemeinsamen Büro-IP und beim Abholen im 2-Sekunden-Takt gäbe das Fehlschläge), sondern in Rate-Limit-Bindungen der
@@ -173,7 +201,9 @@ unbrauchbar (nicht 32 Byte Base64), antworten `GET /konto/iveo` und das Hinterle
   gilt er bis `ALTKEY_CONNECT_BIS`, die erst mit Teil 2 gesetzt wird; `connect-relay.js` prüft bis dahin selbst. Der Reiter
   „Geräte“ zählt Anfragen mit dem alten Schlüssel je Tag, Gruppe und Plattform (ohne IP-Adressen). Seit Z1 zählt die Anzeige
   höchstens einen Aufruf je IP-Hash, Tag und Gruppe (der Worker merkt sich den Schlüssel `Tag|Gruppe|IP-Hash` im Isolat, bis zu
-  1000 Stück); die Zahl ist also eine Näherung für die Zahl der Anschlüsse, nicht der Anfragen.
+  1000 Stück); die Zahl ist also eine Näherung für die Zahl der Anschlüsse, nicht der Anfragen. Fehlt `PROXY_KEY` am Worker oder
+  ist er leer, antwortet der Worker auf einen mitgeschickten alten Schlüssel mit 503 (Text S5, Code `nicht-eingerichtet`) statt
+  mit 401 (Z2, AR85): Q&A löscht seinen Key nur bei 401 `nicht-angemeldet` und behält ihn so bei einem Deploy ohne das Secret.
 - **Selbst-Update.** `/tools/launcher/latest` liefert ein Release ab 0.18.0 auch ohne Zugang (60 s Zwischenspeicher, Drossel je IP; EP32), ältere Releases nur mit Sitzung oder altem Schlüssel; alte Launcher aktualisieren sich darum auch nach `ALTKEY_BIS` selbst auf 0.18.0 oder neuer.
 - **Bau ohne Schlüssel.** Seit Launcher 0.18.0 backt der Bau keinen Schlüssel mehr ein (kein `define`, kein `JMPS_PROXY_KEY` in
   `suite-release.yml` und `suite-build.yml`). Connect liest seinen Key zur Laufzeit und ist nicht betroffen.
