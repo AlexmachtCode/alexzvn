@@ -290,6 +290,17 @@ export function eventsFuerRenderer(events: ReadonlyArray<{ slug: string; name: s
   return events.map((e) => ({ slug: e.slug, name: e.name }));
 }
 
+/**
+ * A3 (Abnahme 06.11.): Diagnose einer gescheiterten Discovery für die Logzeile: Fehlercode, HTTP-Status und Request-ID von iveo, damit
+ * „Details im Launcher-Log“ stimmt und iveo den Fall findet. Nie die Meldung selbst (G4); eine Request-ID in fremder Form fällt weg.
+ */
+export function iveoLadefehlerDiagnose(code: string | undefined, e: unknown): string {
+  const f = e as { status?: unknown; requestId?: unknown } | null | undefined;
+  const status = typeof f?.status === 'number' ? ` HTTP ${f.status}` : '';
+  const req = typeof f?.requestId === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(f.requestId) ? ` req=${f.requestId}` : '';
+  return `${code ?? 'fehler'}${status}${req}`;
+}
+
 /** Z1 (Nr. 10, T23 f): hat ein anderes Konto angemeldet als das, dessen Tokens im Speicher liegen? Dann gehören sie geleert. */
 export function kontoGewechselt(altKid: string | null, neuKid: string): boolean {
   return altKid !== null && altKid !== neuKid;

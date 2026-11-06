@@ -28,7 +28,7 @@ import { starteTuerDienst } from './tuer-dienst';
 import { erzeugeFreigabeStelle } from './freigaben';
 import { erzeugeIveoZentral, iveoHinterlegenBasis, lokaleLoeschen, zentraleKeysFuerLoeschlauf, type IveoZentralSpeicher } from './iveo-zentral';
 import {
-  adminAktionAusfuehren, anmeldenOhneAblauf, browserHref, eventsFuerRenderer, kontoGewechselt, ohneWurf, erzeugeIveoLader, erzeugeUebergang, ersteAnmeldungVerarbeiten, githubZugangNachholen,
+  adminAktionAusfuehren, anmeldenOhneAblauf, browserHref, eventsFuerRenderer, iveoLadefehlerDiagnose, kontoGewechselt, ohneWurf, erzeugeIveoLader, erzeugeUebergang, ersteAnmeldungVerarbeiten, githubZugangNachholen,
   uebergangsText, zustandsLogger,
 } from './huelle-kern';
 import { toClientError } from '../iveo-abgleich-kern';
@@ -583,7 +583,7 @@ async function iveoEventsLaden(roh: unknown): Promise<KontoIveoEventsAntwort> {
     return { ok: true, events: eventsFuerRenderer(events) };
   } catch (e) {
     const f = toClientError(e);
-    log?.warn(`Anmeldung: iveo-Events nicht geladen (${f.code ?? 'fehler'})`);
+    log?.warn(`Anmeldung: iveo-Events nicht geladen (${iveoLadefehlerDiagnose(f.code, e)})`);
     return { ok: false, fehler: f.error };
   }
 }

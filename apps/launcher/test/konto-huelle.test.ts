@@ -5,8 +5,9 @@ import { readFileSync } from 'node:fs';
 import type { AdminAktionErgebnis, AdminUebersicht, KontoFehlerCode } from '../src/shared/konto';
 import {
   adminAktionAusfuehren, anmeldenOhneAblauf, browserHref, erzeugeIveoLader, erzeugeUebergang, ersteAnmeldungVerarbeiten, eventsFuerRenderer,
-  githubZugangNachholen, K33_STEHT_MS, kontoGewechselt, ohneGithubZugang, ohneWurf, uebergangsText, zustandsLogger, type UebergangsMerker,
+  githubZugangNachholen, iveoLadefehlerDiagnose, K33_STEHT_MS, kontoGewechselt, ohneGithubZugang, ohneWurf, uebergangsText, zustandsLogger, type UebergangsMerker,
 } from '../src/main/konto/huelle-kern';
+import { IveoApiError } from '@jm/iveo';
 import { showIstZu, SHOW_GNADE_MS } from '../src/main/show-offen';
 import { KontoFehler, type IveoZentral } from '../src/main/konto/worker-client';
 
@@ -357,13 +358,23 @@ function uebergangUmgebung(o: { startMerker?: UebergangsMerker | null; schreibWi
     JSON.stringify(aus) === JSON.stringify([{ slug: 'cop31', name: 'COP31' }, { slug: 'messe', name: 'Messe' }]) && !JSON.stringify(aus).includes('geheim') && roh[0].token === 'jm1.geheim');
   ck('Z1 [T] T23 (f): kontoGewechselt — nur ein ANDERES Konto leert die Tokens; kein Konto im Speicher und dasselbe Konto nicht',
     kontoGewechselt('k1', 'k2') && !kontoGewechselt('k1', 'k1') && !kontoGewechselt(null, 'k1'));
+  // A3 (Abnahme 06.11.): der Text nennt „Details im Launcher-Log“, die Logzeile hatte aber nur den Fehlercode. Mit der Request-ID kann iveo den Fall finden.
+  const apiFehler = new IveoApiError(500, 'internal', 'Failed to load event. @ / [HTTP 500 internal req=abc-123]', 'abc-123');
+  ck('A3 [T]: Diagnose der Discovery nennt Fehlercode, HTTP-Status und Request-ID von iveo, nicht die Meldung',
+    iveoLadefehlerDiagnose('internal', apiFehler) === 'internal HTTP 500 req=abc-123');
+  ck('A3 [T]: eine Request-ID in fremder Form fällt weg (Zeilenumbruch, Leerzeichen, zu lang)',
+    iveoLadefehlerDiagnose('internal', new IveoApiError(500, 'internal', 'm', 'a\nb')) === 'internal HTTP 500'
+    && iveoLadefehlerDiagnose('internal', new IveoApiError(500, 'internal', 'm', 'Bearer x')) === 'internal HTTP 500'
+    && iveoLadefehlerDiagnose('internal', new IveoApiError(500, 'internal', 'm', 'a'.repeat(65))) === 'internal HTTP 500');
+  ck('A3 [T]: ohne iveo-Antwort (Netz, Zeitgrenze) bleibt es beim Fehlercode oder „fehler“, ohne Meldung',
+    iveoLadefehlerDiagnose(undefined, new TypeError('fetch failed mit jm1.geheim')) === 'fehler' && iveoLadefehlerDiagnose(undefined, null) === 'fehler');
 }
 {
   // Keine Logzeile in der Hülle und im Kern nennt eine Sitzung, ein Token, einen Code oder eine Adresse über eine Variable: jede
   // eingesetzte Größe steht auf der Liste (Fehlername, Fehlercode, Anzahl, Zustandsname).
   const les = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const ERLAUBT = new Set([
-    "(e as Error | null)?.name ?? 'Fehler'", "(e as Error)?.name ?? 'Error'", "f.code ?? 'fehler'", 'r.loeschen.length', // huelle.ts
+    "(e as Error | null)?.name ?? 'Fehler'", "(e as Error)?.name ?? 'Error'", 'iveoLadefehlerDiagnose(f.code, e)', 'r.loeschen.length', // huelle.ts
     'fehlerName(e)', 'd.fehlerCode(e)', 'text', // huelle-kern.ts
   ]);
   const fremd: string[] = [];
