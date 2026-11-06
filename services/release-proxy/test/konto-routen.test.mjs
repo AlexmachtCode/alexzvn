@@ -1098,6 +1098,11 @@ async function run() {
     const altesFetch = globalThis.fetch;
     globalThis.fetch = async (u, init = {}) => {
       aufrufe.push({ url: String(u), method: init.method, body: String(init.body ?? ''), redirect: init.redirect, signal: init.signal });
+      // Wie die Workers-Laufzeit (gemessen 06.11. unter workerd): `redirect: 'error'` gibt es dort nicht, der Aufruf wirft. Die Attrappe
+      // nahm den Wert vorher an; so erreichte die Anmeldung die Abnahme, ohne dass je ein Token-Tausch möglich war.
+      if (init.redirect !== undefined && init.redirect !== 'follow' && init.redirect !== 'manual') {
+        throw new TypeError('Invalid redirect value, must be one of "follow" or "manual"');
+      }
       if (String(u) !== GOOGLE_TOKEN) return new Response('{}', { status: 404 });
       if (init.signal && init.signal.aborted) throw init.signal.reason;
       return google({ signal: init.signal });
@@ -1306,8 +1311,8 @@ async function run() {
       aufrufe.length = 0;
       const normal = await rueck((n) => tokenAntwort(angaben(n, { email: frisch() })));
       AbortSignal.timeout = echteFrist;
-      check('Z1-W2 Punkt 5: der Token-Abruf geht mit redirect error und einer Frist von 10 s (AbortSignal.timeout)',
-        ok(normal) && aufrufe.length === 1 && aufrufe[0].redirect === 'error' && aufrufe[0].signal instanceof AbortSignal && JSON.stringify(fristen) === '[10000]');
+      check('Z1-W2 Punkt 5: der Token-Abruf geht mit redirect manual und einer Frist von 10 s (AbortSignal.timeout)',
+        ok(normal) && aufrufe.length === 1 && aufrufe[0].redirect === 'manual' && aufrufe[0].signal instanceof AbortSignal && JSON.stringify(fristen) === '[10000]');
       AbortSignal.timeout = () => echteFrist.call(AbortSignal, 20);
       const haengt = await Promise.race([
         rueck(() => ({ signal }) => new Promise((_, ab) => signal && signal.addEventListener('abort', () => ab(signal.reason)))),
@@ -1315,8 +1320,11 @@ async function run() {
       ]);
       AbortSignal.timeout = echteFrist;
       check('Z1-W2 Punkt 5: antwortet Google nicht innerhalb der Frist, bricht der Abruf ab → 403 B20 (kein Hängen)', nein(haengt, 'B20'));
+      aufrufe.length = 0;
       const weiter = await rueck(() => () => new Response(null, { status: 302, headers: { location: 'https://evil.example/' } }));
       check('Z1-W2 Punkt 5: eine Weiterleitung von Google ist keine gültige Antwort (kein id_token) → 403 B20', nein(weiter, 'B20'));
+      check('Z1-W2 Punkt 5: der Weiterleitung wird nicht gefolgt (das Secret steht im Body, kein zweiter Abruf)',
+        aufrufe.filter((a) => a.url === GOOGLE_TOKEN).length === 1 && !aufrufe.some((a) => a.url.includes('evil.example')));
 
       const strom = (bloecke, { status = 200, kopf = {} } = {}) => {
         const z = { pulls: 0, abgebrochen: false };

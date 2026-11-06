@@ -141,8 +141,9 @@ export async function googleRueckkehr(env, { code, verifier, nonce, redirectUri,
         grant_type: 'authorization_code',
         code_verifier: verifier,
       }).toString(),
-      // Z1-W2: keiner Weiterleitung folgen (das Secret steht im Body), und nicht länger als TOKEN_FRIST_MS warten.
-      redirect: 'error',
+      // Z1-W2: keiner Weiterleitung folgen (das Secret steht im Body), und nicht länger als TOKEN_FRIST_MS warten. `manual`, weil die
+      // Workers-Laufzeit `redirect: 'error'` mit einem TypeError ablehnt (gemessen 06.11.); eine 3xx-Antwort endet unten bei !antwort.ok.
+      redirect: 'manual',
       signal: AbortSignal.timeout(TOKEN_FRIST_MS),
     });
   } catch (e) {
