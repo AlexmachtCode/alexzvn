@@ -1,8 +1,10 @@
 import { ANLEITUNG_TEXTE, AnleitungsUebersicht, Card, noDragRegion, type AnleitungsEreignis } from '@jm/ui';
 import { LAUNCHER_ANLEITUNG_TEXTE as L } from '@/anleitung/einrichtung';
 import { NAMENSNENNUNG, STIMME_VORHANDEN } from '@/anleitung/stimme';
-import { kapitelDetails } from '@/lib/anleitung-zustand';
+import { kurzName, STUFE_TEXT } from '@shared/konto';
+import { anleitungsKonto, kapitelDetails } from '@/lib/anleitung-zustand';
 import { useAnleitung, type AnleitungStore } from '@/store/anleitung';
+import { useKonto } from '@/store/konto';
 import { useTools } from '@/store/tools';
 import { useVerbund } from '@/store/verbund';
 import { useAnleitungsAnsicht } from './Anleitung';
@@ -30,10 +32,11 @@ const SPEICHER_HINWEIS: Readonly<Record<AnleitungStore['speicher'], string | nul
 export function OnboardingModal() {
   const open = useTools((s) => s.onboardingOpen);
   const close = useTools((s) => s.closeOnboarding);
-  // Detailzeilen L9, L10 hängen an Quelle und Tool-Zuständen: beide abonnieren, damit sie live mitgehen.
-  const settings = useTools((s) => s.settings);
+  // Detailzeilen L17, L10 hängen am Konto und an den Tool-Zuständen: beide abonnieren, damit sie live mitgehen (Anmeldung P33).
+  const konto = useKonto((s) => s.ansicht);
+  const anmelden = useKonto((s) => s.anmelden);
+  const oeffneKonto = useKonto((s) => s.oeffneKonto);
   const states = useTools((s) => s.states);
-  const openSettings = useTools((s) => s.openSettings);
   const openSystem = useTools((s) => s.openSystem);
   const openScenarios = useTools((s) => s.openScenarios);
   const setView = useTools((s) => s.setView);
@@ -77,9 +80,9 @@ export function OnboardingModal() {
           titel={L.titel}
           unterzeile={L.unterzeile}
           tipp={L.tipp}
-          details={kapitelDetails({ ...useAnleitung.getState().eingang(), settings, states }, L.detail)}
+          details={kapitelDetails({ ...useAnleitung.getState().eingang(), konto: anleitungsKonto(konto, kurzName), states }, L.detail, STUFE_TEXT)}
           aktionen={{
-            k1: { knopf: L.aktion.k1(fertig.k1), ausfuehren: openSettings },
+            k1: { knopf: L.aktion.k1(fertig.k1), ausfuehren: fertig.k1 ? oeffneKonto : anmelden },
             k2: { knopf: L.aktion.k2(fertig.k2), ausfuehren: () => { close(); setView('catalog'); } },
             k3: { knopf: L.aktion.k3, ausfuehren: oeffneVerbund },
             k4: { knopf: L.aktion.k4, ausfuehren: openScenarios },

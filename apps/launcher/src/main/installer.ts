@@ -8,13 +8,18 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ToolManifest } from '@jm/suite-manifest';
 import type { ActionResult, InstallProgress } from '@shared/types';
-import { archToken, getReleaseSource, platformKey } from './release-source';
+import { archToken, getLauncherUpdateSource, getReleaseSource, platformKey } from './release-source';
 import { keinPaketText } from './release-wahl';
 import { installPathFor, recordInstalled } from './install-state';
 import { launcherManifest } from './updates';
 import { getTools } from './manifest';
 
 type Emit = (progress: InstallProgress) => void;
+
+/** F1 (Anmeldung P22, 9.7): ohne Sitzung, Entwicklungs-Schlüssel und GitHub-Zugang gibt es keine Quelle für Tools. */
+const TEXT_INSTALL_ANMELDEN = 'Zum Installieren im Launcher anmelden (oben rechts).';
+/** F2: das Selbst-Update braucht keine Anmeldung, nur die Server-Adresse (EP10). */
+const TEXT_UPDATE_ADRESSE_FEHLT = 'Die Update-Adresse fehlt. Prüfe die Server-Adresse in den Einstellungen.';
 
 /** Plattform für die Texte T29/T69 (Spec 11.5 F8, F11); ohne bekannte Plattform liefert die Quelle ohnehin kein Paket. */
 const plattformHier = (): 'mac' | 'win' => (platformKey() === 'mac' ? 'mac' : 'win');
@@ -228,10 +233,7 @@ async function download(
 export async function installTool(tool: ToolManifest, emit: Emit): Promise<ActionResult> {
   const source = getReleaseSource();
   if (!source) {
-    return {
-      ok: false,
-      message: 'Keine Release-Quelle konfiguriert — Token oder Proxy in den Einstellungen hinterlegen.',
-    };
+    return { ok: false, message: TEXT_INSTALL_ANMELDEN };
   }
 
   let asset;
@@ -349,9 +351,10 @@ export async function installTool(tool: ToolManifest, emit: Emit): Promise<Actio
  * ersetzen kann. Fortschritt läuft über die `id: 'launcher'` auf demselben Kanal.
  */
 export async function updateLauncher(emit: Emit): Promise<ActionResult> {
-  const source = getReleaseSource();
+  // Selbst-Update ohne Anmeldung (Spec 9.1, EP10): eigene Quelle ohne Kopf.
+  const source = getLauncherUpdateSource();
   if (!source) {
-    return { ok: false, message: 'Keine Release-Quelle konfiguriert — Token in den Einstellungen hinterlegen.' };
+    return { ok: false, message: TEXT_UPDATE_ADRESSE_FEHLT };
   }
   const launcher = launcherManifest(getTools());
   if (!launcher) return { ok: false, message: 'Launcher-Quelle nicht ermittelbar.' };

@@ -5,7 +5,6 @@ import type {
   FeedbackInput,
   InstallProgress,
   IveoBindInput,
-  IveoDiscoverInput,
   IveoDownloadInput,
   IveoMaterialsInput,
   IveoSideEventsInput,
@@ -39,13 +38,12 @@ import {
   getManualEndpoints,
   addManualEndpoint,
   removeManualEndpoint,
-  hasIveoBaseToken,
 } from './settings';
 import { getControlStatus, provisionControl, disableControl } from './control-provision';
 import { submitFeedback } from './feedback';
 import { submitRecipeDraft } from './cookbook-draft';
+import { registriereKontoIpc } from './konto/huelle';
 import {
-  discoverIveoEvents,
   bindIveoEvent,
   listSideEvents,
   switchSideEvent,
@@ -55,6 +53,7 @@ import {
   anhangOrdnerStand,
   setzeAnhangOrdner,
   oeffneAnhangOrdner,
+  setzeAbgleichHier,
 } from './iveo-sync';
 
 function withTool(
@@ -168,10 +167,7 @@ export function registerIpc(): void {
 
   // iveo (#11): Token prüfen + Events auflisten; Event an Show binden (Token
   // verschlüsselt ablegen, Ablauf holen). Token/Daten bleiben im Main-Prozess.
-  ipcMain.handle('iveo:discover', (_e, input: IveoDiscoverInput) => discoverIveoEvents(input));
   ipcMain.handle('iveo:bind', (_e, input: IveoBindInput) => bindIveoEvent(input));
-  // C4: Ist für diese Basis-URL schon ein Token gemerkt? (Boolean — Token bleibt im Main.)
-  ipcMain.handle('iveo:hasBaseToken', (_e, baseUrl?: string) => hasIveoBaseToken(baseUrl));
   ipcMain.handle('iveo:listSideEvents', (_e, input: IveoSideEventsInput) => listSideEvents(input));
   ipcMain.handle('iveo:switchSideEvent', (_e, input: IveoSwitchInput) => switchSideEvent(input));
   ipcMain.handle('iveo:listMaterials', (_e, input: IveoMaterialsInput) => listSideEventMaterials(input));
@@ -182,6 +178,11 @@ export function registerIpc(): void {
   ipcMain.handle('iveo:anhangOrdner', () => anhangOrdnerStand());
   ipcMain.handle('iveo:setzeAnhangOrdner', (_e, input: unknown) => setzeAnhangOrdner(input));
   ipcMain.handle('iveo:oeffneAnhangOrdner', (_e, input: unknown) => oeffneAnhangOrdner(input));
+  // Anmeldung P23 (EP14, 10.7): „Abgleich hier übernehmen/beenden“ — nur die Markierung, nie ein Token.
+  ipcMain.handle('iveo:abgleichHier', (_e, input: unknown) => setzeAbgleichHier(input));
 
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url));
+
+  // Anmeldung (Plan P21, 10.7): die Kanäle konto:* — Handler in konto/huelle.ts, ohne Sitzung, Freigabe oder Token.
+  registriereKontoIpc(ipcMain);
 }

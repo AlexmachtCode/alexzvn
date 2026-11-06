@@ -151,8 +151,8 @@ Orte liegen unter `apps/launcher/src/renderer/src/components/`; „sichtbar, wen
 | Kennung | Ort | Bedienelement | sichtbar, wenn | Schritte |
 | --- | --- | --- | --- | --- |
 | `kopf.erste-schritte` | `Header.tsx` | Knopf „Erste Schritte“ | immer | `rueckfrage`, `abschluss` |
-| `kopf.einstellungen` | `Header.tsx` | Knopf „Einstellungen“ | immer | `k1.einstellungen` |
-| `einstellungen.zugang` | `SettingsModal.tsx` | Bereich „GitHub-Token“ und „Interner Proxy“ | Einstellungen offen | `k1.zugang` |
+| `kopf.konto` | `KontoKreis.tsx` (eingebunden in `Header.tsx`) | Konto-Kreis bzw. „Anmelden“ oben rechts | Ansicht des Kontos geladen (vor der ersten Antwort des Mains nicht) | `k1.anmelden` |
+| `anmeldung.code` | `AnmeldeModal.tsx` | Code im Anmelde-Dialog | Anmelde-Dialog offen und der Code da (Schritt „wartet“) | `k1.bestaetigen` |
 | `reiter.werkzeugkasten` | `TabBar.tsx` (Feld `anleitung` in `TABS`) | Reiter „Werkzeugkasten“ | immer | `k2.reiter` |
 | `werkzeugkasten.kategorien` | `ToolboxView.tsx` | Filterbereich: Suche, Kategorien, Status | Reiter „Werkzeugkasten“ offen | `k2.katalog` |
 | `werkzeugkasten.installieren` | `ToolCard.tsx` | Knopf „Installieren“ je Tool, hervorgehoben das erste sichtbare | ein nicht installiertes Tool ist sichtbar | `k2.installieren` |
@@ -179,7 +179,8 @@ Ereignis `neustart:‹Schritt-ID›`, wenn der verlangte Neustart stattgefunden 
 
 | Name | Art | erfüllt, wenn | gelesen aus |
 | --- | --- | --- | --- |
-| `quelleVerbunden` | Zustand | Release-Quelle ist Proxy oder GitHub (im Release-Bau immer) | `useTools.settings.source` |
+| `angemeldet` | Zustand | gültige Sitzung mit Stand: angemeldet, Prüfung läuft, offline, Server nicht erreichbar oder entzogen bei laufender Sitzung (nie die Ansicht vor der ersten Antwort des Mains) | `useKonto.ansicht` |
+| `anmeldungOffen` | Zustand | Anmelde-Dialog offen | `useKonto.anmeldungOffen` |
 | `toolInstalliert` | Zustand | mindestens ein Tool nicht im Zustand „nicht installiert“ (wie die alte Checkliste) | `useTools.states` |
 | `reiterWerkzeugkasten` | Zustand | Reiter „Werkzeugkasten“ offen | `useTools.view` |
 | `reiterShow` | Zustand | Reiter „JM Show“ offen | `useTools.view` |

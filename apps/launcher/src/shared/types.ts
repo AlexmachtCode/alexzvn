@@ -1,6 +1,9 @@
 import type { AppChangelog, ToolManifest, ToolState } from '@jm/suite-manifest';
 import type { Recipe, CookbookCategory } from '@jm/cookbook';
 import type { Show, ShowAblaufItem, ShowIveoProgramRef, ShowIveoSpeaker } from '@jm/show';
+import type {
+  AdminAktion, AdminAktionErgebnis, AdminUebersicht, AnmeldeSchritt, KontoAnsicht, KontoFehlerCode,
+} from './konto';
 
 export type {
   ToolManifest,
@@ -100,21 +103,6 @@ export interface IveoEventStub {
   name: string;
 }
 
-/** Token EINMAL prüfen und lesbare Events auflisten (Token wird nicht persistiert). */
-export interface IveoDiscoverInput {
-  /** Optional; leer = konfigurierte/Default-Basis-URL. */
-  baseUrl?: string;
-  /** Per-Event-Bearer-Token (`iveo_live_…`). */
-  token: string;
-}
-export interface IveoDiscoverResult {
-  ok: boolean;
-  events?: IveoEventStub[];
-  /** Stabiler Fehlercode (z. B. "unauthorized"), nie rohe Upstream-Antwort. */
-  code?: string;
-  error?: string;
-}
-
 /**
  * Event an eine Show binden: Token (verschlüsselt, pro Event) ablegen und den
  * Ablauf holen. Der zurückgegebene `ablauf` wird vom Show-Editor in die Show
@@ -122,7 +110,8 @@ export interface IveoDiscoverResult {
  */
 export interface IveoBindInput {
   baseUrl?: string;
-  token: string;
+  /** Anmeldung P28 (IV4): entfällt im Show-Editor — der Main nimmt das Token aus dem Speicher der Anmeldung. */
+  token?: string;
   /** Event-Slug oder UUID. */
   event: string;
   /** Optionaler Ablauf-Filter (#11): nur diesen Programmtyp übernehmen (z. B. Side Events). */
@@ -174,6 +163,15 @@ export interface IveoSideEventsResult {
   canSwitch?: boolean;
   /** Zustand des iveo-Abgleichs (Spec 7.6) — das Panel zeigt ihn beim Öffnen sofort. */
   syncStatus?: IveoAbgleichStatus;
+  /**
+   * Anmeldung P23 (EP14, OFP3): Event-Schlüssel der offenen Show, ob dieser Rechner sie abgleicht („Abgleich hier“) und ob er
+   * es übernehmen könnte (ein Token für genau dieses Event ist da). Ohne Token.
+   */
+  abgleich?: {
+    key: string; hier: boolean; moeglich: boolean;
+    /** Z1 (AR77): warum (kein) Token da ist — Code wie im Kern (I1–I4, I12), nie ein Token. */
+    grund: 'ok' | 'nicht-hinterlegt' | 'noch-nicht-geladen' | 'nicht-eingerichtet' | 'kein-abgleich-hier' | 'nicht-angemeldet';
+  };
 }
 
 /** Zustand des iveo-Abgleichs der offenen Show (Master-Link Teil 2a, Spec 7.6). */
@@ -447,7 +445,11 @@ export type AppEvent =
   // iveo-Paket (Spec 9.15): Stand der Ordner-Ablage bei jeder Änderung, Fortschritt höchstens einmal je Sekunde (9.6).
   | { type: 'iveo-anhang-ordner'; stand: AnhangOrdnerStand }
   // Master-Link Teil 1: Rolle, Kopplung, Teilnehmer oder Client-Zustand haben sich geändert.
-  | { type: 'verbund-changed' };
+  | { type: 'verbund-changed' }
+  // Anmeldung (Plan P21, 10.7): Ansicht des Kontos geändert (der Renderer holt sie per kontoAnsicht, ohne Token) …
+  | { type: 'konto-changed' }
+  // … bzw. neuer Schritt des Anmelde-Ablaufs (4.1); der Code steht nur hier und im Anmelde-Dialog.
+  | { type: 'anmeldung-changed'; schritt: AnmeldeSchritt };
 
 /** Die unter `window.jmps` bereitgestellte Launcher-API. */
 export interface JmpsApi {
@@ -508,12 +510,8 @@ export interface JmpsApi {
   submitFeedback: (input: FeedbackInput) => Promise<ActionResult>;
   /** Neues Rezept einreichen (Pfad B = KI) — öffnet bei Erfolg einen PR. */
   submitRecipeDraft: (input: RecipeDraftInput) => Promise<RecipeDraftResult>;
-  /** iveo (#11): Token prüfen + lesbare Events auflisten (Token nicht gespeichert). */
-  discoverIveoEvents: (input: IveoDiscoverInput) => Promise<IveoDiscoverResult>;
   /** iveo (#11): Event an Show binden — Token verschlüsselt ablegen, Ablauf holen. */
   bindIveoEvent: (input: IveoBindInput) => Promise<IveoBindResult>;
-  /** iveo (C4): Ist für diese Basis-URL schon ein Token gemerkt? (Token bleibt im Main.) */
-  hasIveoBaseToken: (baseUrl?: string) => Promise<boolean>;
   /** iveo (#11): Side Events der offenen Show auflisten (token-frei, aus Cache). */
   listIveoSideEvents: (input?: IveoSideEventsInput) => Promise<IveoSideEventsResult>;
   /** iveo (#11): live auf ein Side Event umschalten (Ablauf+Speaker → Timer/Titler RELOAD). */
@@ -530,6 +528,8 @@ export interface JmpsApi {
   setzeAnhangOrdner: (input: { an: boolean }) => Promise<AnhangOrdnerStand>;
   /** iveo-Paket (Spec 9.13, E35): Ordner eines Side Events (ohne Kennung: Basisordner) öffnen; nur die programId, nie ein Pfad. */
   oeffneAnhangOrdner: (input: { programId?: string }) => Promise<ActionResult>;
+  /** Anmeldung P23 (EP14): „Abgleich hier übernehmen“ (an) bzw. „beenden“ für einen Event-Schlüssel ‹Basis›|‹Slug›. */
+  iveoAbgleichHier: (a: { key: string; an: boolean }) => Promise<{ ok: boolean }>;
   /** Verbund (Master-Link Teil 1). */
   getVerbund: () => Promise<VerbundStand>;
   setzeVerbundRolle: (rolle: VerbundRolle) => Promise<VerbundStand>;
@@ -550,6 +550,25 @@ export interface JmpsApi {
   /** Endprüfung B3: geklonter Rechner — neue rechner.id, Kopplung weg, Rolle bleibt. */
   neueRechnerKennung: () => Promise<VerbundStand>;
   setzeFesteMasterAdresse: (adresse: string | null) => Promise<VerbundStand>;
+  // ── Anmeldung (Plan P21, 10.7) ── Keine Antwort enthält eine Sitzung, eine Freigabe oder ein iveo-Token.
+  /** Ansicht des Kontos (Zustand, Stand ohne Token, Hinweise, Ausgaben an Tools). */
+  kontoAnsicht: () => Promise<KontoAnsicht>;
+  /** Anmeldung starten (nur ohne gültige Sitzung, EP26); der Fortschritt kommt als AppEvent anmeldung-changed. */
+  kontoAnmelden: () => Promise<AnmeldeSchritt>;
+  kontoAnmeldeSchritt: () => Promise<AnmeldeSchritt>;
+  kontoAnmeldenAbbrechen: () => Promise<AnmeldeSchritt>;
+  /** Adresse der Anmeldeseite in die Zwischenablage (Spec 4.1); false ohne laufenden Vorgang. */
+  kontoAdresseKopieren: () => Promise<boolean>;
+  kontoAbmelden: () => Promise<KontoAnsicht>;
+  /** Lage beim Worker (GET /konto/ich): bei Fensterfokus höchstens einmal je Minute (EP15). */
+  kontoLage: () => Promise<KontoAnsicht>;
+  kontoZoomAnfragen: (a: { zweck: string; von: number; bis: number }) => Promise<KontoZoomAntwort>;
+  kontoAdminUebersicht: () => Promise<KontoAdminAntwort>;
+  kontoAdminAktion: (a: AdminAktion) => Promise<KontoAdminAktionAntwort>;
+  /** Discovery für den Reiter iveo-Events (Admin): das Token geht nur an iveo, nie zurück. */
+  kontoIveoEventsLaden: (a: { basis: string; token: string }) => Promise<KontoIveoEventsAntwort>;
+  /** iveo-Events, für die dieses Konto ein Token hat (ohne Token). */
+  kontoIveoEvents: () => Promise<KontoIveoEvent[]>;
   onProgress: (cb: (p: InstallProgress) => void) => () => void;
   onAppEvent: (cb: (e: AppEvent) => void) => () => void;
 }
@@ -675,3 +694,17 @@ export type KoppelAntwort =
     /** Der Code ist verbraucht (Beweis ging hinaus bzw. schon gesendet): das Codefeld leeren (Endprüfung C2). */
     codeVerbraucht?: boolean;
   };
+
+// ── Anmeldung (Plan P21, 10.7): Antworten der Kanäle konto:* — nie mit Sitzung, Freigabe oder Token ──────────────
+export type KontoZoomAntwort = { ok: true; ansicht: KontoAnsicht } | { ok: false; code: KontoFehlerCode };
+export type KontoAdminAntwort = { ok: true; daten: AdminUebersicht } | { ok: false; code: KontoFehlerCode };
+/**
+ * Z1: Gelang die Aktion, aber nicht die Folge-Übersicht, trägt die Antwort `daten: null` und `uebersichtFehler` (das Ergebnis,
+ * z. B. der Einladungscode, geht trotzdem an den Aufrufer).
+ */
+export type KontoAdminAktionAntwort =
+  | { ok: true; ergebnis: AdminAktionErgebnis; daten: AdminUebersicht | null; uebersichtFehler?: KontoFehlerCode }
+  | { ok: false; code: KontoFehlerCode };
+export type KontoIveoEventsAntwort = { ok: true; events: Array<{ slug: string; name: string }> } | { ok: false; fehler: string };
+/** Ein iveo-Event, für das dieses Konto ein Token hat (Schlüssel `‹Basis›|‹Slug›`, EP13) — ohne Token. */
+export interface KontoIveoEvent { key: string; basis: string; slug: string; name: string }

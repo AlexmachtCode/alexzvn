@@ -52,6 +52,11 @@ jobs:
       # Postinstalls fehlt das Binary, ein Electron-Import bricht hier also ab.
       - name: Launcher (iveo-Abgleich-Kern, Hülle, Show-Editor)
         run: npm run selftest:iveo -w @jm/launcher
+      # Anmeldung im Launcher, Teil 1 (Plan 2026-10-21, Tasks 7–14): Rechte, Gerät, Worker-Client, Sitzung, Anmelde-Ablauf,
+      # Tür-Dienst (echte Sockets nur auf 127.0.0.1), iveo im Speicher. tsx, ohne Electron, ohne Netz. Der Name steht in
+      # Anführungszeichen, weil er „: “ enthält (sonst bricht das YAML).
+      - name: "Launcher (Anmeldung: Konto, Gerät, Sitzung, Freigaben)"
+        run: npm run selftest:konto -w @jm/launcher
       - name: iveo + Show-Format (Kennungen von iveo bis in die Show)
         run: npm run selftest -w @jm/iveo
       - name: Timer (aktiver Punkt über die Kennung)
@@ -75,6 +80,9 @@ jobs:
         run: npm run selftest -w @jm/ui
       - name: Einstellungs-Abschnitte (Ableitungen als Kreuzprodukt)
         run: npm run selftest -w @jm/settings
+      # Anmeldung im Launcher, Teil 1 (P29): Queue und Zugang zum Cloud-Relay, zwei Glieder unter strip-types, ohne Electron.
+      - name: Q&A (Queue, Zugang zum Cloud-Relay)
+        run: npm run selftest -w @jm/qa
       # Zoom Stage 4a (Spec 12.6). Keiner dieser Tests lädt Electron oder braucht das Zoom-SDK.
       - name: Zoom-Bridge (Protokoll, Zustand, Attrappe — ohne SDK)
         run: npm run selftest -w @jm/zoom-bridge
@@ -100,6 +108,22 @@ jobs:
       # node_modules. Nicht über tsx: worker.js ist ESM ohne package.json (Kopf von worker.test.mjs).
       - name: Release-Proxy (Paketwahl, Routing)
         run: node --experimental-strip-types services/release-proxy/test/worker.test.mjs
+
+      # Anmeldung im Launcher (Plan Teil 1, EP24): je Testdatei des Workers ein Schritt, ohne Netz und ohne Cloudflare
+      # (Attrappen in services/release-proxy/test/konto-attrappen.mjs), wie oben nicht über tsx. Direkt hinter dem Schritt
+      # davor, nicht am Jobende (vor dem Zoom-Bridge-Schritt mit !cancelled() und den Mac-Nachbau-Schritten).
+      - name: Release-Proxy (Anmeldung, Rechte und Fristen)
+        run: node --experimental-strip-types services/release-proxy/test/konto-kern.test.mjs
+      - name: Release-Proxy (Anmeldung, Krypto und Gerätebeweis)
+        run: node --experimental-strip-types services/release-proxy/test/konto-krypto.test.mjs
+      - name: Release-Proxy (Anmeldung, Konten-DO)
+        run: node --experimental-strip-types services/release-proxy/test/konto-do.test.mjs
+      - name: Release-Proxy (Anmeldung, Zugang und Gate)
+        run: node --experimental-strip-types services/release-proxy/test/konto-zugang.test.mjs
+      - name: Release-Proxy (Anmeldung, Launcher-API, Anmeldeseite, Google)
+        run: node --experimental-strip-types services/release-proxy/test/konto-routen.test.mjs
+      - name: Release-Proxy (Q&A-Relay, Freigabe, alter Schlüssel, Blind-Relay)
+        run: node --experimental-strip-types services/release-proxy/test/qa-relay.test.mjs
 
       # Zoom-Slots (Spec 11.1, 11.9): reine Entscheidungslogik der Bridge in C++, ohne SDK-Header, mit dem g++ des
       # Runners (Annahme AN16, der erste Lauf belegt sie). Ohne Compiler endet der Schritt mit Rückgabe 2, nie still grün.

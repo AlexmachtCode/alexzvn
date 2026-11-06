@@ -1,6 +1,7 @@
 // Erste geführte Anleitung: Einrichtung im Launcher (Spec docs/superpowers/specs/2026-10-17-gefuehrte-anleitungen-design.md,
-// Abschnitt 5). Texte wörtlich aus der Texttabelle des Plans (9.1: A1–A48, 9.3: L1–L14, L15 ab P14); sie gehen vor dem
-// Release zur Owner-Freigabe. Ändert sich ein gesprochener Text, entsteht seine Ansage neu (Prüfung „zu jedem Text eine Ansage“).
+// Abschnitt 5). Texte wörtlich aus der Texttabelle des Plans (9.1: A1–A48, 9.3: L1–L14, L15 ab P14); seit der Anmeldung (Plan
+// 2026-10-21-launcher-anmeldung-teil1, P33) ersetzen A49–A55, L16 und L17 Kapitel 1, A28 und A32. Sie gehen vor dem Release
+// zur Owner-Freigabe. Ändert sich ein gesprochener Text, entsteht seine Ansage neu (Prüfung „zu jedem Text eine Ansage“).
 //
 // Nur Daten und `import type` (G5): Vite, der Launcher-Selbsttest (node --experimental-strip-types) und das Erzeuger-Skript
 // der Ansagen laden diese Datei gleichermaßen. Bedingungen sind Daten, nie Funktionen (EP2); ihre Namen liefert der
@@ -22,17 +23,18 @@ export const LAUNCHER_ANLEITUNG_TEXTE = {
   optionShowDa: 'Die Show ist da',
   /** L4: Option in k5.bestaetigen (Entscheidung `companionVerbunden`). */
   optionCompanion: 'Companion ist verbunden',
-  /** L5–L8: direkte Aktionen der Kapitelübersicht (Bestand der Checkliste, Klick des Bedieners). */
+  /** L16 (Anmeldung P33), L6–L8: direkte Aktionen der Kapitelübersicht (Klick des Bedieners). */
   aktion: {
-    k1: (fertig: boolean): string => (fertig ? 'Ändern' : 'Einrichten'),
+    k1: (fertig: boolean): string => (fertig ? 'Konto' : 'Anmelden'),
     k2: (fertig: boolean): string => (fertig ? 'Werkzeugkasten' : 'Auswählen'),
     k3: 'Verbund öffnen',
     k4: 'Vorlage wählen',
     k5: 'Prüfen',
   },
-  /** L9, L10: Detailzeilen der Kapitelübersicht (Bestand der Checkliste; L10 ohne „Tool(s)“). */
+  /** L17 (Anmeldung P33), L10: Detailzeilen der Kapitelübersicht (L10 ohne „Tool(s)“). */
   detail: {
-    k1: (quelle: 'proxy' | 'github'): string => (quelle === 'proxy' ? 'Aktiv: Firmen-Proxy.' : 'Aktiv: GitHub.'),
+    k1: (kurzName: string, stufe: string, offlineBis: string | null): string =>
+      (offlineBis === null ? `Angemeldet als ${kurzName} · ${stufe}.` : `Angemeldet als ${kurzName} · offline bis ${offlineBis}.`),
     k2: (n: number): string =>
       n === 1 ? '1 Tool installiert, weitere jederzeit im Werkzeugkasten.' : `${n} Tools installiert, weitere jederzeit im Werkzeugkasten.`,
   },
@@ -54,8 +56,8 @@ export const LAUNCHER_ANLEITUNG_TEXTE = {
 /** Die 20 Ziel-Kennungen der Anleitung in der Reihenfolge der Texttabelle (für Test und Doku, EP10). */
 export const ZIEL_KENNUNGEN: readonly string[] = [
   'kopf.erste-schritte',
-  'kopf.einstellungen',
-  'einstellungen.zugang',
+  'kopf.konto',
+  'anmeldung.code',
   'reiter.werkzeugkasten',
   'werkzeugkasten.kategorien',
   'werkzeugkasten.installieren',
@@ -121,27 +123,28 @@ export const EINRICHTUNG: Anleitung = {
     {
       id: 'k1',
       titel: 'Anmelden',
-      kurz: 'Proxy-Schlüssel oder GitHub-Zugang hinterlegen, damit Tools installiert und aktualisiert werden können.',
-      erledigt: 'Dieser Rechner ist schon mit der Release-Quelle verbunden. Du kannst gleich weitermachen.',
-      erledigtWenn: { zustand: 'quelleVerbunden' },
+      // Anmeldung P33 (EP27): Kapitel 1 liest die Sitzung (angemeldet), nicht mehr die Release-Quelle.
+      kurz: 'Mit deinem Konto anmelden, damit du Tools installieren und aktualisieren kannst.',
+      erledigt: 'Auf diesem Rechner bist du schon angemeldet. Du kannst gleich weitermachen.',
+      erledigtWenn: { zustand: 'angemeldet' },
       brauchtNicht: true,
       schritte: [
         {
-          id: 'k1.einstellungen',
+          id: 'k1.anmelden',
           art: 'handeln',
-          ziel: 'kopf.einstellungen',
+          ziel: 'kopf.konto',
           zielFehlt: KOPF_FEHLT,
-          erledigtWenn: { zustand: 'einstellungenOffen' },
-          text: 'Damit der Launcher Tools laden kann, braucht er eine Verbindung zur Release-Quelle. Öffne dazu die Einstellungen.',
+          erledigtWenn: { zustand: 'anmeldungOffen' },
+          text: 'Damit der Launcher Tools laden kann, meldest du dich einmal an. Klicke oben rechts auf „Anmelden“.',
         },
         {
-          id: 'k1.zugang',
+          id: 'k1.bestaetigen',
           art: 'handeln',
-          ziel: 'einstellungen.zugang',
-          zielFehlt: 'Öffne zuerst oben die Einstellungen.',
+          ziel: 'anmeldung.code',
+          zielFehlt: 'Klicke zuerst oben rechts auf „Anmelden“.',
           ueberspringenHinweis: true,
-          erledigtWenn: { zustand: 'quelleVerbunden' },
-          text: 'Trage hier den Proxy-Schlüssel oder deinen GitHub-Zugang ein und klicke auf „Speichern“. Ohne Internet geht das nicht; dann überspringe diesen Schritt.',
+          erledigtWenn: { zustand: 'angemeldet' },
+          text: 'Melde dich im Browser an und bestätige dort, wenn er denselben Code zeigt. Ohne Internet geht das nicht; dann überspringe diesen Schritt.',
         },
       ],
     },
@@ -269,7 +272,7 @@ export const EINRICHTUNG: Anleitung = {
           art: 'entscheiden',
           giltWenn: ROLLE_SLAVE,
           optionen: [{ knopf: LAUNCHER_ANLEITUNG_TEXTE.optionShowDa, entscheidung: 'showVomMaster' }],
-          text: 'An diesem Rechner kommt die Show vom Master; iveo und Tokens bleiben dort. Die Anleitung kann das hier nicht selbst sehen: Zeigen deine Tools die Show des Masters?',
+          text: 'An diesem Rechner kommt die Show vom Master; iveo gleicht der Master ab. Die Anleitung kann das hier nicht selbst sehen: Zeigen deine Tools die Show des Masters?',
         },
         {
           id: 'k4.vorlage',
@@ -303,7 +306,7 @@ export const EINRICHTUNG: Anleitung = {
           ziel: 'editor.iveo',
           zielFehlt: EDITOR_FEHLT,
           giltWenn: NICHT_SLAVE,
-          text: 'Arbeitest du mit einem iveo-Event, bindest du es hier mit Token und Event an. Ohne iveo klickst du einfach auf „Weiter“.',
+          text: 'Arbeitest du mit einem iveo-Event, wählst du es hier aus; die Freigabe kommt mit deiner Anmeldung. Ohne iveo klickst du einfach auf „Weiter“.',
         },
         {
           id: 'k4.speichern',

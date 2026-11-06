@@ -15,6 +15,7 @@ import { openShow } from './show';
 import { ablageBeenden, setIveoEmitter, iveoStateKv } from './iveo-sync';
 import { startLauncherControlServer, stopLauncherControlServer, pushLauncherControlState } from './control-server';
 import { starteVerbund } from './verbund';
+import { starteKonto, stoppeKonto } from './konto/huelle';
 
 declare const __dirname: string;
 
@@ -65,6 +66,10 @@ if (setupSingleInstance(() => createWindow())) {
     // P3 (#61): ein evtl. vorhandenes Klartext-Token aus settings.json einmalig
     // verschlüsselt neu ablegen (OS-Keychain). Vor dem ersten Token-Gebrauch.
     migrateTokenAtRest();
+    starteKonto({ emit: (e) => emitAppEvent(e), log: runtime.log, appDataDir: app.getPath('appData') });
+    // Anmeldung (Plan P21, G5): Gerät, gespeicherte Sitzung, Start-Prüfung und Tür-Dienst laufen im Hintergrund; starteKonto
+    // kehrt sofort zurück, der Start wartet nie auf das Netz (Spec 2 Anti-Ziel). Die Abrufe unten nehmen schon die
+    // gespeicherte Sitzung mit (P22).
     initManifest(); // lokalen Manifest-Cache laden, bevor das Fenster Tools abfragt
     initChangelog(); // dito für die App-Patchnotes
     initCookbook(); // dito für die Kochbuch-Rezepte
@@ -96,6 +101,8 @@ if (setupSingleInstance(() => createWindow())) {
     app.on('before-quit', () => {
       stopLauncherControlServer();
       ablageBeenden();
+      // Anmeldung (P21, EP8): Takt aus, Tür-Datei löschen — nur angestoßen, nie abgewartet.
+      stoppeKonto();
     });
     registerIpc();
     createWindow();

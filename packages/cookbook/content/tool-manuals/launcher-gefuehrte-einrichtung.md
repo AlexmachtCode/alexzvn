@@ -9,7 +9,7 @@ tags: [launcher, einrichtung, erste-schritte, anleitung, onboarding, verbund, co
 relatedTools: []
 prerequisites:
   - JM Launcher ab 0.17.0
-  - Internet für Kapitel 1 und 2 (Release-Quelle, Downloads)
+  - Internet für Kapitel 1 und 2 (Anmeldung, Downloads)
   - Für Kapitel 3 im Verbund ein zweiter Rechner mit Launcher ab 0.17.0 (sonst überspringen)
   - Für Kapitel 5 Companion (sonst „Brauche ich nicht“)
 equipmentOwner: jm
@@ -29,7 +29,7 @@ summary: "Der Launcher führt beim ersten Start wie ein Spiele-Tutorial in sechs
 - Auf einem Rechner, der den Launcher schon kannte, startet sie nicht von selbst; der Knopf zeigt eine Sitzung lang „Neu: geführte Einrichtung“.
 
 ### Die sechs Kapitel
-- **1 Anmelden:** Release-Quelle (Proxy-Schlüssel oder GitHub-Zugang). Im installierten Launcher ist sie schon verbunden; das Kapitel zeigt dann „Schon erledigt“.
+- **1 Anmelden:** Mit deinem Konto anmelden (Kollegen mit Google, Externe mit E-Mail und Passwort), dann im Browser den Code bestätigen. Bis dahin bleibt das Kapitel offen; ohne Internet überspringen.
 - **2 Tools installieren:** Werkzeugkasten, Katalog mit Kategorien und Suche, „Installieren“.
 - **3 Rolle im Verbund wählen und koppeln:** allein arbeiten, Master sein oder mit einem Master verbinden und koppeln.
 - **4 Erste Show anlegen und an ein iveo-Event binden:** Vorlage wählen, Namen geben, iveo optional, speichern. Am Rechner mit „Mit Master verbinden“ kommt die Show vom Master; dort bestätigst du nur „Die Show ist da“.
@@ -64,12 +64,12 @@ summary: "Der Launcher führt beim ersten Start wie ein Spiele-Tutorial in sechs
 
 | Risiko | Gegenmaßnahme |
 | --- | --- |
-| Nichts ist hervorgehoben, unter dem Text der Sprechblase steht, was fehlt (zum Beispiel „Öffne zuerst oben die Einstellungen.“ oder „Ich sehe den Knopf oben rechts gerade nicht. Zieh das Fenster breiter.“) | Genau das tun: den genannten Dialog oder Reiter öffnen bzw. das Fenster größer ziehen; dann ist das Bedienelement hervorgehoben |
+| Nichts ist hervorgehoben, unter dem Text der Sprechblase steht, was fehlt (zum Beispiel „Klicke zuerst oben rechts auf „Anmelden“.“ oder „Ich sehe den Knopf oben rechts gerade nicht. Zieh das Fenster breiter.“) | Genau das tun: den genannten Dialog oder Reiter öffnen bzw. das Fenster größer ziehen; dann ist das Bedienelement hervorgehoben |
 | „In dieser Fassung gibt es keine Stimme.“ | Kein Fehler: Launcher 0.17.0 hat noch keine Stimme; alle Texte stehen in der Sprechblase |
 | „Zu diesem Text gibt es keine Ansage.“ oder „Die Ansage konnte nicht abgespielt werden.“ (erst in einer Fassung mit Stimme) | Der Text gilt weiter; Fall mit Version und Schritt über „Feedback senden“ melden |
 | „Der Fortschritt kann auf diesem Rechner nicht gelesen werden. Die Anleitung startet deshalb nicht von selbst.“ | Die Anleitung läuft trotzdem über „Erste Schritte“, merkt sich den Stand aber nur bis zum Beenden; Profil und Rechte des Benutzerkontos prüfen |
 | „Der Fortschritt kann auf diesem Rechner nicht gemerkt werden.“ (unter jeder Sprechblase) | Die Anleitung läuft, merkt sich den Stand aber nur bis zum Beenden; Profil und Rechte des Benutzerkontos prüfen |
-| „Der gemerkte Fortschritt war unlesbar; die Anleitung beginnt neu.“ | Über „Erste Schritte“ neu durchgehen: Was der Launcher selbst sieht (Quelle, Tools, Rolle, gestartete Show), hat sofort wieder einen Haken; Bestätigungen wie „Companion ist verbunden“ oder „Die Show ist da“ neu geben |
+| „Der gemerkte Fortschritt war unlesbar; die Anleitung beginnt neu.“ | Über „Erste Schritte“ neu durchgehen: Was der Launcher selbst sieht (Anmeldung, Tools, Rolle, gestartete Show), hat sofort wieder einen Haken; Bestätigungen wie „Companion ist verbunden“ oder „Die Show ist da“ neu geben |
 | „Der Fortschritt stammt von einer neueren Fassung und bleibt unverändert.“ | Ein neuerer Launcher hat ihn geschrieben (zum Beispiel vor einem Zurückstufen); die Anleitung läuft über „Erste Schritte“, merkt sich hier aber nichts. Mit dem neueren Launcher weitermachen |
 | Kapitel 3 oder 5 ohne zweiten Rechner bzw. ohne Companion | „Überspringen“ (bleibt offen) oder „Brauche ich nicht“ |
 | Kapitel 4 am Rechner mit „Mit Master verbinden“ | Die Show kommt vom Master; „Die Show ist da“ erst klicken, wenn die Tools sie zeigen |

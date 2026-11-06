@@ -8,11 +8,15 @@
 //    entschlüsselt sie lokal und quittiert sie (Löschen im Worker).
 //
 // Der Worker sieht nie Klartext (Blind-Relay, siehe docs/qa/external-submission.md).
-// Der Renderer sieht weder Private Key noch Proxy-Key — alles bleibt im Main.
+// Der Renderer sieht weder Private Key noch Freigabe noch Proxy-Key — alles bleibt im Main.
+// Zugang (Anmeldung im Launcher, Teil 1, P30): Die Admin-Routen /qa/:id bekommen ihre Kopfzeile aus zugangsKopf
+// (Freigabe des Launchers als Bearer, im Übergang der alte Proxy-Key); welcher Zugang gilt, entscheidet index.ts (QR1).
 import { safeStorage } from 'electron';
 import { webcrypto } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { type QaFreigabe, type QaZugang, QA_TEXT, RelayFehler, fehlerCode, geheimnisDatei, hatVerworfen, leseGeheimnisse, zugangsKopf } from './cloud-zugang';
+import { raeumeTempReste, schreibeAtomar } from './datei-atomar';
 
 const { subtle } = webcrypto;
 const enc = new TextEncoder();
@@ -27,11 +31,15 @@ export interface CloudCfg {
   pressOpen: boolean;
 }
 
-/** Geheimnisse (verschlüsselt at-rest): Event-Schlüsselpaar + Proxy-Key. */
+/**
+ * Geheimnisse (verschlüsselt at-rest): Event-Schlüsselpaar, Freigabe des Launchers (befristet, 72 h, nur für ihr Event)
+ * und der alte Proxy-Key (nur im Übergang; die erste gültige Freigabe leert ihn, das Schlüsselpaar bleibt, QR3).
+ */
 export interface CloudSecrets {
   publicJwk: JsonWebKey | null;
   privateJwk: JsonWebKey | null;
   proxyKey: string;
+  freigabe: QaFreigabe | null;
 }
 
 /** Eine entschlüsselte, abgeholte Einreichung (bereit für die Queue). */
@@ -45,31 +53,44 @@ export interface IngestItem {
   contact?: string;
 }
 
-const EMPTY: CloudSecrets = { publicJwk: null, privateJwk: null, proxyKey: '' };
+const EMPTY: CloudSecrets = { publicJwk: null, privateJwk: null, proxyKey: '', freigabe: null };
 
 function secretPath(userDataDir: string): string {
   return join(userDataDir, 'qa.cloud.secret');
 }
 
 /** Geheimnisse laden (via safeStorage entschlüsseln). Fehlt/defekt → leer. */
-export function loadSecrets(userDataDir: string): CloudSecrets {
+export function loadSecrets(userDataDir: string, log?: (meldung: string) => void): CloudSecrets {
+  // Reste abgestürzter Schreibvorgänge (ohne Schlüsselspeicher im Klartext) entfernen, bevor etwas gelesen wird.
+  raeumeTempReste(secretPath(userDataDir));
   try {
     const raw = readFileSync(secretPath(userDataDir));
     const text = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(raw) : raw.toString('utf8');
-    const obj = JSON.parse(text) as Partial<CloudSecrets>;
-    return { publicJwk: obj.publicJwk ?? null, privateJwk: obj.privateJwk ?? null, proxyKey: obj.proxyKey ?? '' };
+    // Z1-L3: Key und Freigabe nur aus \x21-\x7e (leseGeheimnisse); Altlast mit CR/LF/NUL wird verworfen und nicht wieder gespeichert.
+    const roh: unknown = JSON.parse(text);
+    const s = leseGeheimnisse(roh);
+    if (hatVerworfen(roh, s)) {
+      try {
+        saveSecrets(userDataDir, s);
+      } catch (e) {
+        log?.(`Q&A: Geheimnisse nicht gespeichert (${(e as Error).name})`);
+      }
+    }
+    return s;
   } catch {
     return { ...EMPTY };
   }
 }
 
-/** Geheimnisse speichern (via safeStorage verschlüsselt, wenn verfügbar). */
+/**
+ * Geheimnisse speichern: mit Schlüsselspeicher nur verschlüsselt (safeStorage); ohne bleibt die Freigabe nur im Speicher und
+ * das Schlüsselpaar steht wie in Q&A 0.5.0 im Klartext (geheimnisDatei in cloud-zugang.ts, dort im Verhalten getestet; G6).
+ */
 export function saveSecrets(userDataDir: string, s: CloudSecrets): void {
-  const text = JSON.stringify(s);
-  const buf = safeStorage.isEncryptionAvailable()
-    ? safeStorage.encryptString(text)
-    : Buffer.from(text, 'utf8');
-  writeFileSync(secretPath(userDataDir), buf);
+  schreibeAtomar(secretPath(userDataDir), geheimnisDatei(s, {
+    verfuegbar: () => safeStorage.isEncryptionAvailable(),
+    verschluesseln: (text) => safeStorage.encryptString(text),
+  }));
 }
 
 /** Frisches Event-Schlüsselpaar (RSA-OAEP-2048) als JWKs. */
@@ -124,13 +145,16 @@ export function pressUrl(cfg: CloudCfg): string {
   return cfg.proxyUrl && cfg.eventId ? `${base(cfg)}/press` : '';
 }
 
+// RelayFehler und fehlerCode leben im reinen Modul cloud-zugang.ts (dort im Verhalten getestet, Z1-L3 AR85).
+export { RelayFehler };
+
 /** Event im Relay öffnen/aktualisieren (Public Key + Presse-Code-Hash + Flags). */
-export async function openEvent(cfg: CloudCfg, secrets: CloudSecrets, retentionSec = 60 * 60 * 24 * 2): Promise<void> {
-  if (!secrets.publicJwk) throw new Error('Kein Event-Schlüssel — erst „Neues Event".');
+export async function openEvent(cfg: CloudCfg, secrets: CloudSecrets, zugang: QaZugang, retentionSec = 60 * 60 * 24 * 2): Promise<void> {
+  if (!secrets.publicJwk) throw new Error(QA_TEXT.keinSchluessel);
   const pressCodeHash = cfg.pressCode ? await sha256Hex(cfg.pressCode) : '';
   const res = await fetch(base(cfg), {
     method: 'POST',
-    headers: { 'X-Proxy-Key': secrets.proxyKey, 'content-type': 'application/json' },
+    headers: { ...zugangsKopf(zugang), 'content-type': 'application/json' },
     body: JSON.stringify({
       pubJwk: secrets.publicJwk,
       pressCodeHash,
@@ -139,14 +163,14 @@ export async function openEvent(cfg: CloudCfg, secrets: CloudSecrets, retentionS
       retentionSec,
     }),
   });
-  if (!res.ok) throw new Error(`Öffnen fehlgeschlagen (HTTP ${res.status})`);
+  if (!res.ok) throw new RelayFehler(`Öffnen fehlgeschlagen (HTTP ${res.status})`, res.status, await fehlerCode(res));
 }
 
 /** Offene Einreichungen abholen + entschlüsseln (ohne zu quittieren). */
-export async function pollPending(cfg: CloudCfg, secrets: CloudSecrets): Promise<IngestItem[]> {
+export async function pollPending(cfg: CloudCfg, secrets: CloudSecrets, zugang: QaZugang): Promise<IngestItem[]> {
   if (!secrets.privateJwk) return [];
-  const res = await fetch(`${base(cfg)}/pending`, { headers: { 'X-Proxy-Key': secrets.proxyKey } });
-  if (!res.ok) throw new Error(`Abruf fehlgeschlagen (HTTP ${res.status})`);
+  const res = await fetch(`${base(cfg)}/pending`, { headers: zugangsKopf(zugang) });
+  if (!res.ok) throw new RelayFehler(`Abruf fehlgeschlagen (HTTP ${res.status})`, res.status, await fehlerCode(res));
   const data = (await res.json()) as { items?: Array<{ id: string; channel: string; at: number; blob: { ek: string; iv: string; ct: string } }> };
   const out: IngestItem[] = [];
   for (const it of data.items ?? []) {
@@ -168,18 +192,20 @@ export async function pollPending(cfg: CloudCfg, secrets: CloudSecrets): Promise
   return out;
 }
 
-/** Abgeholte Einreichungen quittieren (Löschen im Relay). */
-export async function ackItems(cfg: CloudCfg, secrets: CloudSecrets, ids: string[]): Promise<void> {
+/** Abgeholte Einreichungen quittieren (Löschen im Relay); ein Fehler wird gemeldet (Q10, QR8). */
+export async function ackItems(cfg: CloudCfg, zugang: QaZugang, ids: string[]): Promise<void> {
   if (!ids.length) return;
-  await fetch(`${base(cfg)}/ack`, {
+  const res = await fetch(`${base(cfg)}/ack`, {
     method: 'POST',
-    headers: { 'X-Proxy-Key': secrets.proxyKey, 'content-type': 'application/json' },
+    headers: { ...zugangsKopf(zugang), 'content-type': 'application/json' },
     body: JSON.stringify({ ids }),
   });
+  if (!res.ok) throw new RelayFehler(QA_TEXT.quittierenFehler(res.status), res.status, await fehlerCode(res));
 }
 
-/** Alle Event-Daten im Relay löschen (Ende des Events, DSGVO). */
-export async function purgeEvent(cfg: CloudCfg, secrets: CloudSecrets): Promise<void> {
+/** Alle Event-Daten im Relay löschen (Ende des Events, DSGVO); ein Fehler wird gemeldet (Q10, QR8). */
+export async function purgeEvent(cfg: CloudCfg, zugang: QaZugang): Promise<void> {
   if (!cfg.proxyUrl || !cfg.eventId) return;
-  await fetch(base(cfg), { method: 'DELETE', headers: { 'X-Proxy-Key': secrets.proxyKey } });
+  const res = await fetch(base(cfg), { method: 'DELETE', headers: zugangsKopf(zugang) });
+  if (!res.ok) throw new RelayFehler(QA_TEXT.loeschenFehler(res.status), res.status, await fehlerCode(res));
 }

@@ -12,7 +12,11 @@ import {
   type Zustand,
 } from '@jm/ui/anleitung';
 import { ANLEITUNG_SCHLUESSEL, EINRICHTUNG, STIMME_SCHLUESSEL } from '@/anleitung/einrichtung';
-import { anleitungsEingang, erzeugeAnleitungsTreiber, type AnleitungsEingang } from '@/lib/anleitung-zustand';
+import { kurzName } from '@shared/konto';
+import {
+  anleitungsEingang, anleitungsKonto, erzeugeAnleitungsTreiber, type AnleitungsEingang, type KontoLage,
+} from '@/lib/anleitung-zustand';
+import { useKonto } from './konto';
 import { useTools } from './tools';
 import { useVerbund } from './verbund';
 
@@ -77,6 +81,15 @@ function leseStimmeAn(): boolean {
 /** Abos einmal je Fenster. */
 let abonniert = false;
 
+/**
+ * Anmeldung P33 (EP27): Konto und Anmelde-Dialog für Kapitel 1. Den Kurznamen rechnet src/shared/konto.ts (eine Quelle, K2);
+ * useKonto nur hier in der Funktion, nie auf Modulebene (Zyklus konto → tools → anleitung).
+ */
+function kontoLage(): KontoLage {
+  const k = useKonto.getState();
+  return { konto: anleitungsKonto(k.ansicht, kurzName), anmeldungOffen: k.anmeldungOffen };
+}
+
 export const useAnleitung = create<AnleitungStore>((set, get) => {
   // Die Entscheidungen trifft der Treiber (rein, im Selbsttest geprüft); der Store reicht ihm, was er braucht.
   const treiber = erzeugeAnleitungsTreiber({
@@ -100,6 +113,8 @@ export const useAnleitung = create<AnleitungStore>((set, get) => {
       treiber.pruefe();
     });
     useVerbund.subscribe(() => treiber.pruefe());
+    // Anmeldung P33: Anmelden, Abmelden und der Anmelde-Dialog haken Kapitel 1 von selbst ab bzw. führen weiter.
+    useKonto.subscribe(() => treiber.pruefe());
     window.addEventListener('focus', () => void get().ladeSteuerebene());
   }
 
@@ -126,7 +141,7 @@ export const useAnleitung = create<AnleitungStore>((set, get) => {
     toolEreignis: (name) => treiber.ereignis({ art: 'toolEreignis', name }),
     zustand: () => treiber.zustand(),
     // Den Eingang baut nur anleitungsEingang (rein, im Launcher-Selbsttest als Kreuz geprüft; G9).
-    eingang: () => anleitungsEingang(useTools.getState(), useVerbund.getState(), get().steuerebene),
+    eingang: () => anleitungsEingang(useTools.getState(), useVerbund.getState(), get().steuerebene, kontoLage()),
     ladeSteuerebene: async () => {
       try {
         const status = await window.jmps.getControlStatus();

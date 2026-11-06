@@ -29,6 +29,7 @@ import { REMOTE_PAGE } from './remote-page';
 import {
   type CloudCfg,
   type CloudSecrets,
+  RelayFehler,
   ackItems,
   generateKeypair,
   loadSecrets,
@@ -40,6 +41,20 @@ import {
   saveSecrets,
   streamUrl,
 } from './cloud';
+import { holeFreigabe, type FreigabeGrund } from '@jm/app-runtime/freigabe';
+import {
+  type QaZugang,
+  QA_TEXT,
+  altKeyEntfernen,
+  effektiveProxyUrl,
+  erneuernFaellig,
+  leseFreigabe,
+  nachAblehnung,
+  nachOeffnen,
+  versuchErlaubt,
+  waehleZugang,
+  zugangsZeile,
+} from './cloud-zugang';
 
 declare const __dirname: string;
 
@@ -66,12 +81,22 @@ let entries: QaEntry[] = [];
 let remoteRunning = false;
 let remoteUrls: string[] = [];
 
-// Externe Einreichung (Cloud-Relay, #166). Secrets (Private Key + Proxy-Key)
+// Externe Einreichung (Cloud-Relay, #166). Secrets (Private Key, Freigabe des Launchers, alter Proxy-Key im Übergang)
 // leben nur hier im Main, nie im Renderer. Erst in whenReady() geladen (safeStorage).
-let cloudSecrets: CloudSecrets = { publicJwk: null, privateJwk: null, proxyKey: '' };
+let cloudSecrets: CloudSecrets = { publicJwk: null, privateJwk: null, proxyKey: '', freigabe: null };
 let cloudTimer: ReturnType<typeof setInterval> | null = null;
 let cloudError: string | null = null;
 let cloudLastPollAt: number | null = null;
+// Zugang zum Relay (Anmeldung im Launcher, Teil 1, P30; Verhalten QR1–QR8): letzter Versuch beim Launcher und sein
+// Grund, ob der Worker den alten Proxy-Key abgelehnt hat, ob der alte Key in diesem Lauf gelöscht wurde und für welches
+// Event das Relay mit dem aktuellen Zugang geöffnet ist.
+let freigabeGrund: FreigabeGrund | null = null;
+let freigabeDetail: string | null = null;
+let freigabeVersuchAm: number | null = null;
+let freigabeLaeuft: Promise<void> | null = null;
+let altKeyAbgelehnt = false;
+let altKeyGeloescht = false;
+let geoeffnetFuer: string | null = null;
 
 const coupling = new Coupling(() => broadcastLinks());
 
@@ -95,7 +120,8 @@ function resourcePath(filename: string): string {
 function cloudCfg(): CloudCfg {
   const c = getConfig();
   return {
-    proxyUrl: c.proxyUrl,
+    // Leeres Feld → Worker der Suite (Spec 3, EP22); eingetragen nur für Entwicklung und Fehlersuche.
+    proxyUrl: effektiveProxyUrl(c.proxyUrl),
     eventId: c.eventId,
     pressCode: c.pressCode,
     streamOpen: c.streamOpen,
@@ -106,18 +132,39 @@ function cloudCfg(): CloudCfg {
 function buildCloudInfo(): QaCloudInfo {
   const c = getConfig();
   const cfg = cloudCfg();
-  const configured = !!(c.proxyUrl && c.eventId && cloudSecrets.publicJwk && cloudSecrets.proxyKey);
+  const jetzt = Date.now();
+  // Bereit mit Server-Adresse (Vorgabe), Event und Schlüsselpaar; den Zugang (Freigabe oder alter Key) holt der Takt
+  // nach dem Anschalten (EP22, QR4). Darum hängen „configured“ und der An-Knopf nicht am Key.
+  const configured = !!(cfg.proxyUrl && c.eventId && cloudSecrets.publicJwk);
+  const zugang = aktuellerZugang(jetzt);
+  const f = cloudSecrets.freigabe;
+  const zeile = zugangsZeile({
+    zugang,
+    letzterGrund: freigabeGrund,
+    jetzt,
+    eventDa: !!(c.eventId && cloudSecrets.publicJwk),
+    extern: cloudTimer != null,
+    altKeyAbgelehnt,
+    detail: freigabeDetail,
+    freigabeAbgelaufen: !!(f && f.ziel === c.eventId && f.bis <= jetzt),
+  });
   return {
     enabled: cloudTimer != null,
     configured,
     eventId: c.eventId,
-    proxyUrl: c.proxyUrl,
+    proxyUrl: cfg.proxyUrl,
     streamUrl: streamUrl(cfg),
     pressUrl: pressUrl(cfg),
     pressCode: c.pressCode,
     streamOpen: c.streamOpen,
     pressOpen: c.pressOpen,
     hasKey: !!cloudSecrets.proxyKey,
+    zugang: {
+      art: zugang.art,
+      zeile: zeile.text,
+      ton: zeile.ton,
+      hinweis: altKeyGeloescht && !cloudSecrets.proxyKey ? QA_TEXT.keyGeloescht : null,
+    },
     lastError: cloudError,
     lastPollAt: cloudLastPollAt,
   };
@@ -173,13 +220,107 @@ function broadcast(): void {
   persistEntries();
 }
 
+/** Eine Zeile ins Log (für loadSecrets; die Zeile trägt nie ein Geheimnis, nur einen Fehlernamen). */
+function logInfo(meldung: string): void {
+  getLog().info(meldung);
+}
+
+// ── Externe Einreichung: Zugang (Anmeldung im Launcher, Teil 1, P30) ──
+/** QR1: gültige Freigabe für dieses Event vor altem Key vor keinem; einen abgelehnten Key nie wieder (QR5). */
+function aktuellerZugang(jetzt = Date.now()): QaZugang {
+  return waehleZugang({
+    freigabe: cloudSecrets.freigabe,
+    proxyKey: altKeyAbgelehnt ? '' : cloudSecrets.proxyKey,
+    eventId: getConfig().eventId,
+    jetzt,
+  });
+}
+
+/**
+ * QR2: Freigabe beim Launcher holen, wenn sie fällig ist (keine, anderes Event, weniger als 24 h Rest), höchstens alle
+ * 30 s und nie doppelt. Erfolg → in qa.cloud.secret; die erste gültige Freigabe leert den alten Proxy-Key, das
+ * Schlüsselpaar bleibt (QR3, Meldung Q6b). Misserfolg → Grund merken; eine alte Freigabe gilt bis zu ihrem Ablauf.
+ * Kein Token im Log (G4).
+ */
+function freigabeHolen(): Promise<void> {
+  if (freigabeLaeuft) return freigabeLaeuft;
+  const eventId = getConfig().eventId;
+  const jetzt = Date.now();
+  if (!erneuernFaellig(cloudSecrets.freigabe, eventId, jetzt) || !versuchErlaubt(freigabeVersuchAm, jetzt)) {
+    return Promise.resolve();
+  }
+  freigabeVersuchAm = jetzt;
+  freigabeLaeuft = (async () => {
+    const e = await holeFreigabe({ appId: 'jm-qa', zweck: 'qa-relay', ziel: eventId }, { appDataDir: app.getPath('appData') });
+    if (getConfig().eventId !== eventId) return; // inzwischen „Neues Event“ (QR6): Ergebnis verwerfen
+    if (e.ok) {
+      const hatteKey = !!cloudSecrets.proxyKey;
+      const f = leseFreigabe({ token: e.freigabe, bis: e.bis, ziel: eventId, konto: { name: e.konto.name, stufe: e.konto.stufe } });
+      if (!f) {
+        // Unbrauchbares Token (Zeichen außerhalb \x21-\x7e, bis nicht endlich): wie ein Fehler des Launchers behandeln.
+        if (freigabeGrund !== 'fehler') getLog().info('Q&A: keine Freigabe vom Launcher (fehler)');
+        freigabeGrund = 'fehler';
+        freigabeDetail = null;
+        return;
+      }
+      cloudSecrets = { ...cloudSecrets, freigabe: f, proxyKey: '' };
+      try {
+        saveSecrets(app.getPath('userData'), cloudSecrets);
+      } catch (e) {
+        getLog().info(`Q&A: Geheimnisse nicht gespeichert (${(e as Error).name})`);
+      }
+      freigabeGrund = null;
+      freigabeDetail = null;
+      if (hatteKey) altKeyGeloescht = true;
+      getLog().info(`Q&A: Freigabe vom Launcher für ${eventId} bis ${new Date(e.bis).toISOString()}${hatteKey ? ', alter Proxy-Key gelöscht' : ''}`);
+    } else {
+      if (freigabeGrund !== e.grund) getLog().info(`Q&A: keine Freigabe vom Launcher (${e.grund})`);
+      freigabeGrund = e.grund;
+      freigabeDetail = e.detail ?? null;
+    }
+  })().finally(() => {
+    freigabeLaeuft = null;
+  });
+  return freigabeLaeuft;
+}
+
 // ── Externe Einreichung: Poll / Ingest (#166) ─────────────────────────────────
-/** Abgeholte, entschlüsselte Einreichungen in die Moderations-Queue übernehmen. */
+/**
+ * Ein Takt (alle 5 s): Freigabe bei Bedarf holen, Event mit dem aktuellen Zugang öffnen, Einreichungen abholen und
+ * quittieren. Ohne Zugang pausiert das Abholen; Extern bleibt an und die Zeile sagt, worauf Q&A wartet (QR4).
+ */
 async function cloudPollTick(): Promise<void> {
   const cfg = cloudCfg();
   if (!cfg.proxyUrl || !cfg.eventId) return;
+  let zugang: QaZugang = { art: 'keiner' };
   try {
-    const items = await pollPending(cfg, cloudSecrets);
+    await freigabeHolen();
+    // Während des Wartens kann „Aus“, „Event beenden“ oder „Neues Event“ gekommen sein: dann kein Relay-Aufruf mehr.
+    if (!cloudTimer || getConfig().eventId !== cfg.eventId) {
+      broadcast();
+      return;
+    }
+    zugang = aktuellerZugang();
+    if (zugang.art === 'keiner') {
+      broadcast();
+      return;
+    }
+    if (geoeffnetFuer !== cfg.eventId) {
+      await openEvent(cfg, cloudSecrets, zugang);
+      // Z1-L3: War „Aus“ während des POST schon durch, schließt nachOeffnen die Kanäle wieder (best effort) und der Takt endet.
+      if (
+        !(await nachOeffnen({
+          nochAn: () => cloudTimer != null,
+          eventGleich: () => getConfig().eventId === cfg.eventId,
+          schliessen: () => openEvent({ ...cfg, streamOpen: false, pressOpen: false }, cloudSecrets, zugang),
+        }))
+      ) {
+        broadcast();
+        return;
+      }
+      geoeffnetFuer = cfg.eventId;
+    }
+    const items = await pollPending(cfg, cloudSecrets, zugang);
     cloudError = null;
     cloudLastPollAt = Date.now();
     if (items.length) {
@@ -204,21 +345,58 @@ async function cloudPollTick(): Promise<void> {
       }
       // Im Relay quittieren (löschen) — auch bereits bekannte, damit sie nicht
       // erneut geliefert werden.
-      await ackItems(cfg, cloudSecrets, acked);
+      await ackItems(cfg, zugang, acked);
       broadcast();
     } else {
       broadcast();
     }
   } catch (err) {
     cloudError = (err as Error).message;
+    const folge = nachAblehnung(zugang.art, err instanceof RelayFehler ? err.status : 0);
+    if (folge === 'freigabe-verwerfen') {
+      // QR5: Der Worker lehnt die Freigabe ab → verwerfen; der nächste Takt holt eine neue beim Launcher (Q11).
+      // Nur die Freigabe verwerfen, die abgelehnt wurde: eine inzwischen erneuerte bleibt.
+      if (zugang.art === 'freigabe' && cloudSecrets.freigabe?.token === zugang.f.token) {
+        cloudSecrets = { ...cloudSecrets, freigabe: null };
+        try {
+          saveSecrets(app.getPath('userData'), cloudSecrets);
+        } catch (e) {
+          getLog().info(`Q&A: Geheimnisse nicht gespeichert (${(e as Error).name})`);
+        }
+      }
+      geoeffnetFuer = null;
+      cloudError = QA_TEXT.freigabeAbgelehnt;
+    } else if (folge === 'key-abgelehnt') {
+      // QR5: alter Key nach der Frist → nicht wiederholen, ab jetzt nur noch die Freigabe (Q6d).
+      // Nur für den Key, der noch der gespeicherte ist: qa:setProxyKey kann ihn während des Wartens ersetzt haben (AR85).
+      if (zugang.art === 'alter-key' && cloudSecrets.proxyKey.trim() === zugang.key) {
+        altKeyAbgelehnt = true;
+      }
+      geoeffnetFuer = null;
+      cloudError = QA_TEXT.keyAbgelehnt;
+      // Z1-L3 (OE5): Betrifft die Ablehnung den Key selbst (401 mit nicht-angemeldet oder alter-key-abgelaufen), löschen wir ihn
+      // auch in qa.cloud.secret; sonst schickte Q&A ihn nach jedem Neustart wieder. Ein Fehler beim Speichern ist kein Absturz.
+      const status = err instanceof RelayFehler ? err.status : 0;
+      const code = err instanceof RelayFehler ? err.code : null;
+      const ohneKey = altKeyEntfernen(cloudSecrets, zugang, status, code);
+      if (ohneKey !== cloudSecrets) {
+        cloudSecrets = ohneKey;
+        try {
+          saveSecrets(app.getPath('userData'), cloudSecrets);
+        } catch (e) {
+          getLog().info(`Q&A: Geheimnisse nicht gespeichert (${(e as Error).name})`);
+        }
+      }
+    }
     broadcast();
   }
 }
 
-function startCloudPoll(): void {
-  if (cloudTimer) return;
+/** Takt starten; das Ergebnis des ersten Takts (Freigabe, Öffnen, Abruf) steht im Zustand, bevor der Aufrufer antwortet. */
+function startCloudPoll(): Promise<void> {
+  if (cloudTimer) return Promise.resolve();
   cloudTimer = setInterval(() => void cloudPollTick(), 5000);
-  void cloudPollTick();
+  return cloudPollTick();
 }
 function stopCloudPoll(): void {
   if (cloudTimer) {
@@ -227,56 +405,68 @@ function stopCloudPoll(): void {
   }
 }
 
-/** Externe Einreichung starten/stoppen: Event öffnen + Polling. */
+/**
+ * Externe Einreichung starten/stoppen. „An“ bleibt an, auch wenn Zugang oder Öffnen noch fehlen: der Takt versucht es
+ * weiter und die Zeile sagt, warum (EP22, QR4). Abgeschaltet wird nur hier mit „Aus“ und mit „Event beenden“.
+ */
 async function cloudEnable(enabled: boolean): Promise<void> {
   patchConfig({ cloudEnabled: enabled });
   cloudError = null;
   if (enabled) {
     const cfg = cloudCfg();
-    if (!cfg.proxyUrl || !cfg.eventId || !cloudSecrets.publicJwk || !cloudSecrets.proxyKey) {
-      cloudError = 'Nicht vollständig konfiguriert (Proxy-URL, Key, Event fehlen).';
-      patchConfig({ cloudEnabled: false });
+    if (!cfg.proxyUrl || !cfg.eventId || !cloudSecrets.publicJwk) {
+      cloudError = QA_TEXT.keinEvent;
       broadcast();
       return;
     }
-    try {
-      await openEvent(cfg, cloudSecrets);
-      startCloudPoll();
-    } catch (err) {
-      cloudError = (err as Error).message;
-      patchConfig({ cloudEnabled: false });
-    }
+    geoeffnetFuer = null;
+    await startCloudPoll();
   } else {
     stopCloudPoll();
     // Kanäle schließen (Best effort), damit ohne Polling nichts mehr angenommen wird.
-    try {
-      await openEvent({ ...cloudCfg(), streamOpen: false, pressOpen: false }, cloudSecrets);
-    } catch {
-      /* offline o. ä. — egal */
+    const zugang = aktuellerZugang();
+    if (zugang.art !== 'keiner') {
+      try {
+        await openEvent({ ...cloudCfg(), streamOpen: false, pressOpen: false }, cloudSecrets, zugang);
+      } catch {
+        /* offline o. ä. — egal */
+      }
     }
+    geoeffnetFuer = null;
   }
   broadcast();
 }
 
-/** Neues Event erzeugen: frische Event-ID + Schlüsselpaar (alte Daten aufgeben). */
+/** Neues Event erzeugen: frische Event-ID + Schlüsselpaar (alte Daten aufgeben); die Freigabe galt dem alten (QR6). */
 async function cloudGenerateEvent(): Promise<void> {
   const { publicJwk, privateJwk } = await generateKeypair();
-  cloudSecrets = { ...cloudSecrets, publicJwk, privateJwk };
-  saveSecrets(app.getPath('userData'), cloudSecrets);
+  cloudSecrets = { ...cloudSecrets, publicJwk, privateJwk, freigabe: null };
+  try {
+    saveSecrets(app.getPath('userData'), cloudSecrets);
+  } catch (e) {
+    getLog().info(`Q&A: Geheimnisse nicht gespeichert (${(e as Error).name})`);
+  }
   patchConfig({ eventId: randomEventId() });
   cloudError = null;
+  freigabeGrund = null;
+  freigabeDetail = null;
+  freigabeVersuchAm = null;
+  geoeffnetFuer = null;
   broadcast();
 }
 
-/** Event-Daten im Relay löschen (Ende des Events). Stoppt auch das Polling. */
+/** Event-Daten im Relay löschen (Ende des Events). Stoppt auch das Polling; ohne Zugang fragt Q&A vorher den Launcher. */
 async function cloudPurge(): Promise<void> {
   stopCloudPoll();
   patchConfig({ cloudEnabled: false });
   try {
-    await purgeEvent(cloudCfg(), cloudSecrets);
+    await freigabeHolen();
+    await purgeEvent(cloudCfg(), aktuellerZugang());
+    cloudError = null;
   } catch (err) {
     cloudError = (err as Error).message;
   }
+  geoeffnetFuer = null;
   broadcast();
 }
 
@@ -504,21 +694,28 @@ function registerIpc(): void {
     if (typeof patch.streamOpen === 'boolean') allowed.streamOpen = patch.streamOpen;
     if (typeof patch.pressOpen === 'boolean') allowed.pressOpen = patch.pressOpen;
     patchConfig(allowed);
-    // Läuft das Event bereits, Änderungen (Flags/Code) sofort hochschieben.
+    // Läuft das Event bereits, Änderungen (Flags/Code, Server-Adresse) sofort hochschieben: der Takt öffnet neu.
     if (cloudTimer && cloudSecrets.publicJwk) {
-      try {
-        await openEvent(cloudCfg(), cloudSecrets);
-        cloudError = null;
-      } catch (err) {
-        cloudError = (err as Error).message;
-      }
+      geoeffnetFuer = null;
+      await cloudPollTick();
     }
     broadcast();
     return buildState();
   });
   ipcMain.handle('qa:setProxyKey', (_e, key: string) => {
+    // Alter Proxy-Key nur im Übergang (Spec 10, EP22); ein neu eingetragener Key wird wieder versucht.
+    // Nur sichtbare ASCII-Zeichen (\x21-\x7e): sonst wirft fetch beim Kopfzeilenbau und trägt den Wert in die Fehlermeldung;
+    // ein anderer Key wird wie ein leeres Feld behandelt (Key entfernt).
+    if (!/^[\x21-\x7e]*$/.test(String(key || '').trim())) key = '';
     cloudSecrets = { ...cloudSecrets, proxyKey: String(key || '').trim() };
-    saveSecrets(app.getPath('userData'), cloudSecrets);
+    try {
+      saveSecrets(app.getPath('userData'), cloudSecrets);
+    } catch (e) {
+      getLog().info(`Q&A: Geheimnisse nicht gespeichert (${(e as Error).name})`);
+    }
+    altKeyAbgelehnt = false;
+    altKeyGeloescht = false;
+    geoeffnetFuer = null;
     broadcast();
     return buildState();
   });
@@ -629,7 +826,7 @@ if (!gotLock) {
   app.whenReady().then(() => {
     // Gespeicherte Queue + Cloud-Geheimnisse laden (safeStorage ist erst jetzt bereit).
     loadEntries();
-    cloudSecrets = loadSecrets(app.getPath('userData'));
+    cloudSecrets = loadSecrets(app.getPath('userData'), logInfo);
     registerIpc();
     createMainWindow();
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
