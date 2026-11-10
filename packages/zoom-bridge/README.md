@@ -501,6 +501,15 @@ an (Abschnitt 8).
 **Ersatzbild und Halten.** Kommt 200 ms kein Bild, sendet der Slot sein Ersatzbild:
 `transparent` (UYVA mit Alpha 0, höchstens alle 100 ms), `black`, `white` oder
 `freeze` (die Kopie des letzten Bildes dieses Ziels; ohne Kopie transparent).
+**Schonfrist (#285/#286, seit Connect 0.4.1):** Teilnehmer- und Sprecher-Slots, deren
+Kamera Zoom als an meldet, warten 2 s (`TEILNEHMER_SCHONFRIST_MS`). Bis dahin senden sie
+nichts zusätzlich, und der NDI-Empfänger hält das letzte Bild; erst dann kommen
+Ersatzbild und `fallback/noFrames`. Vorher wurde jede Lücke ab 200 ms im Zoom-Strom zu
+einem schwarzen Bild auf dem Programm (08.11.: 164 Aussetzer, 138 davon kürzer als 2 s).
+Meldet Zoom die Kamera als aus oder läuft ein `bufferMismatch`, bleibt es bei 200 ms.
+Damit „Kamera aus“ auch ohne `videoStatus` nach 200 ms greift, fragt die Bridge in der
+Schonfrist ab 200 ms einmal je Lücke `IsVideoOn()` (vorher geschah das beim Übergang
+nach 200 ms). Die Attrappe bildet weder die 200 ms noch die Schonfrist nach.
 Freigabe-Slots senden die Kopie des letzten Bildes ihrer Freigabe (`sent` = `held`)
 und wechseln den Zustand erst nach 2 s ohne Bild. Eine Kopie eines früheren Ziels
 geht nie hinaus. Was der Sender gerade zusätzlich schickt, sagt `sent` in jedem

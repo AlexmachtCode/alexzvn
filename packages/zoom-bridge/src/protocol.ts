@@ -74,7 +74,8 @@ export const SLOT_SENT = ['none', 'transparent', 'freeze', 'black', 'white', 'he
 export type SlotSent = (typeof SLOT_SENT)[number];
 /**
  * Warum sich der Zustand eines Slots zuletzt geaendert hat (6.3), genau 20 Werte. Kernregel: eine Ursache, ein Name.
- * 'noFrames' (seit 200 ms kein Bild, Zoom meldet die Kamera aber als an) ist ausdruecklich nicht 'cameraOff'; ebenso ist
+ * 'noFrames' (seit 2 s kein Bild, Zoom meldet die Kamera aber als an; bis Connect 0.4.0 nach 200 ms, Schonfrist seit
+ * #285/#286) ist ausdruecklich nicht 'cameraOff'; ebenso ist
  * 'meetingEnded' nicht 'command' und 'privilegeRevoked' keins von beiden (gemessen am Abo je Teilnehmer, 13.08.2026 und
  * Stage 4b; der Altweg samt diesen Kommentaren ist mit Plan B, Task B23 entfernt, nachzulesen in der Git-Historie).
  */

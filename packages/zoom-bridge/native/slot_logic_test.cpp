@@ -441,24 +441,24 @@ void pb16_ersatzbild_tabelle() {
   l.letztesErsatzMs = at(1000);
   e = bildEntscheidung(l, bildKopie);
   CHECK(e.sent == Sent::Held && e.jetztSenden);
-  // Ersatzbilder hoechstens alle 100 ms; Art nach Einstellung.
+  // Ersatzbilder hoechstens alle 100 ms; Art nach Einstellung (Teilnehmer: nach der Schonfrist, #285/#286).
   const Fallback arten[3] = {Fallback::Transparent, Fallback::Black, Fallback::White};
   const Sent erwartet[3] = {Sent::Transparent, Sent::Black, Sent::White};
   for (int i = 0; i < 3; ++i) {
-    l = lage(SlotMode::Participant, arten[i], SlotState::Fallback, Grund::noFrames, 1300);
-    l.letztesErsatzMs = at(1201);
+    l = lage(SlotMode::Participant, arten[i], SlotState::Fallback, Grund::noFrames, 3300);
+    l.letztesErsatzMs = at(3201);
     e = bildEntscheidung(l, bild);
     CHECK(e.sent == erwartet[i] && !e.jetztSenden);
-    l.letztesErsatzMs = at(1200);
+    l.letztesErsatzMs = at(3200);
     e = bildEntscheidung(l, bild);
     CHECK(e.sent == erwartet[i] && e.jetztSenden);
   }
   // freeze mit Kopie dieses Ziels: Kopie; ohne: wie transparent (T60).
-  l = lage(SlotMode::Participant, Fallback::Freeze, SlotState::Fallback, Grund::noFrames, 1300);
+  l = lage(SlotMode::Participant, Fallback::Freeze, SlotState::Fallback, Grund::noFrames, 3300);
   CHECK(bildEntscheidung(l, bildKopie).sent == Sent::Freeze);
   CHECK(bildEntscheidung(l, bild).sent == Sent::Transparent);
   // Kopie im Teilnehmer-Slot ist nie held; Freigabe ohne bestehende Freigabe auch nicht.
-  l = lage(SlotMode::Participant, Fallback::White, SlotState::Fallback, Grund::noFrames, 1300);
+  l = lage(SlotMode::Participant, Fallback::White, SlotState::Fallback, Grund::noFrames, 3300);
   CHECK(bildEntscheidung(l, bildKopie).sent == Sent::White);
   l = lage(SlotMode::Share, Fallback::Black, SlotState::Live, Grund::frames, 1300);
   l.freigabeBesteht = false;
@@ -496,14 +496,19 @@ void pb16_kreuzprodukt() {
     int jetzt;
     SlotState zustand;
     Sent soll[4];       // je Ersatzbild in der Reihenfolge der Aufzaehlung: transparent, freeze, black, white
+    bool personNichts;  // #285/#286: Teilnehmer/Sprecher (Kamera laut Zoom an) senden in der Schonfrist nichts
   };
   // Tabelle 6.12 ohne die held-Zeile; die steht unten (Freigabe-Slot, Freigabe besteht, Kopie dieses Ziels, Bild alt).
-  const Zeile zeilen[5] = {
-      {"starting ohne Bild", false, -1, false, 5300, SlotState::Starting, {TR, TR, SW, WS}},
-      {"Ziel 0", true, -1, false, 5300, SlotState::Fallback, {TR, TR, SW, WS}},
-      {"altes Bild ohne Kopie", false, 1000, false, 1300, SlotState::Fallback, {TR, TR, SW, WS}},
-      {"altes Bild mit Kopie", false, 1000, true, 1300, SlotState::Fallback, {TR, FZ, SW, WS}},
-      {"Bild juenger als 200 ms", false, 1000, true, 1199, SlotState::Live, {NI, NI, NI, NI}},
+  // „altes Bild“ = aelter als die Schonfrist der Teilnehmer/Sprecher (2 s, #285/#286); 300 ms alt ist nur fuer
+  // Freigabe-Slots alt.
+  const Zeile zeilen[7] = {
+      {"starting ohne Bild", false, -1, false, 5300, SlotState::Starting, {TR, TR, SW, WS}, false},
+      {"Ziel 0", true, -1, false, 5300, SlotState::Fallback, {TR, TR, SW, WS}, false},
+      {"altes Bild ohne Kopie", false, 1000, false, 3300, SlotState::Fallback, {TR, TR, SW, WS}, false},
+      {"altes Bild mit Kopie", false, 1000, true, 3300, SlotState::Fallback, {TR, FZ, SW, WS}, false},
+      {"Bild 300 ms alt ohne Kopie", false, 1000, false, 1300, SlotState::Live, {TR, TR, SW, WS}, true},
+      {"Bild 300 ms alt mit Kopie", false, 1000, true, 1300, SlotState::Live, {TR, FZ, SW, WS}, true},
+      {"Bild juenger als 200 ms", false, 1000, true, 1199, SlotState::Live, {NI, NI, NI, NI}, false},
   };
   const SlotMode modi[3] = {SlotMode::Participant, SlotMode::Speaker, SlotMode::Share};
   for (const Zeile& z : zeilen) {
@@ -516,8 +521,9 @@ void pb16_kreuzprodukt() {
           BildLage l = lage(m, f, z.zustand, Grund::frames, z.jetzt);
           if (z.zielNull) l.ziel = 0;
           l.freigabeBesteht = besteht;
-          const bool held = m == SlotMode::Share && !z.zielNull && besteht && z.kopie && z.soll[fi] != NI;
-          pruefeSent(m, f, z.lage, besteht, bildEntscheidung(l, stand).sent, held ? Sent::Held : z.soll[fi]);
+          const Sent soll = z.personNichts && m != SlotMode::Share ? NI : z.soll[fi];
+          const bool held = m == SlotMode::Share && !z.zielNull && besteht && z.kopie && soll != NI;
+          pruefeSent(m, f, z.lage, besteht, bildEntscheidung(l, stand).sent, held ? Sent::Held : soll);
         }
       }
     }
@@ -540,7 +546,8 @@ void pb23_riegel() {
 }
 
 void pb24_grund_nach_200ms() {
-  std::printf("PB24 Grund nach 200 ms ohne Bild: cameraOff nur, wenn Zoom es meldet; sonst noFrames; nie fuer SHARE\n");
+  std::printf("PB24 Grund ohne Bild: cameraOff nach 200 ms nur, wenn Zoom es meldet; sonst noFrames nach der Schonfrist "
+              "(2 s, #285/#286); nie fuer SHARE\n");
   const ZielStand bild = zielMitBild(0, 1000, false);
   BildLage l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Live, Grund::frames, 1199);
   l.kameraAusLautZoom = true;
@@ -549,9 +556,10 @@ void pb24_grund_nach_200ms() {
   BildEntscheidung e = bildEntscheidung(l, bild);
   CHECK(e.zustandAendern && e.zustand == SlotState::Fallback && e.grund == Grund::cameraOff);
   l.kameraAusLautZoom = false;
+  l.jetzt = at(3000);
   e = bildEntscheidung(l, bild);
   CHECK(e.zustandAendern && e.zustand == SlotState::Fallback && e.grund == Grund::noFrames);
-  l = lage(SlotMode::Speaker, Fallback::Transparent, SlotState::Live, Grund::frames, 1500);
+  l = lage(SlotMode::Speaker, Fallback::Transparent, SlotState::Live, Grund::frames, 3000);
   e = bildEntscheidung(l, bild);
   CHECK(e.grund == Grund::noFrames);
   // RawData_Off vor dem ersten Bild dieses Ziels: kein Grund, keine Abfrage.
@@ -1532,6 +1540,86 @@ void af15_rueckrufe_im_flug() {
   CHECK(rueckrufeAbwarten(z, uhr, jetzt, pause));   // auch bei abgelaufener Frist true, wenn keiner mehr fliegt
 }
 
+void s285_schonfrist_ohne_bild() {
+  std::printf("#285/#286 Schonfrist: Kamera laut Zoom an, kein Bild -> 2 s nichts senden (Empfaenger haelt das letzte Bild), "
+              "erst dann Ersatzbild und fallback/noFrames; Kamera aus und bufferMismatch wie bisher nach 200 ms\n");
+  const ZielStand bild = zielMitBild(0, 1000, false);
+  const ZielStand bildKopie = zielMitBild(0, 1000, true);
+  // Teilnehmer: 200 ms und 1999 ms nach dem letzten Bild weder Ersatzbild noch Zustandswechsel.
+  BildLage l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Live, Grund::frames, 1200);
+  BildEntscheidung e = bildEntscheidung(l, bild);
+  CHECK(e.sent == Sent::None && !e.jetztSenden && !e.zustandAendern);
+  l.jetzt = at(2999);
+  e = bildEntscheidung(l, bild);
+  CHECK(e.sent == Sent::None && !e.jetztSenden && !e.zustandAendern);
+  // Ab 2 s: Ersatzbild nach Einstellung und fallback/noFrames.
+  l.jetzt = at(3000);
+  e = bildEntscheidung(l, bild);
+  CHECK(e.sent == Sent::Transparent && e.jetztSenden);
+  CHECK(e.zustandAendern && e.zustand == SlotState::Fallback && e.grund == Grund::noFrames);
+  // Sprecher-Slot genauso.
+  l = lage(SlotMode::Speaker, Fallback::Black, SlotState::Live, Grund::frames, 1500);
+  e = bildEntscheidung(l, bild);
+  CHECK(e.sent == Sent::None && !e.zustandAendern);
+  l.jetzt = at(3000);
+  e = bildEntscheidung(l, bild);
+  CHECK(e.sent == Sent::Black && e.zustandAendern && e.grund == Grund::noFrames);
+  // „eingefroren“ mit Kopie: in der Schonfrist nichts (der Empfaenger haelt), danach die Kopie.
+  l = lage(SlotMode::Participant, Fallback::Freeze, SlotState::Live, Grund::frames, 1500);
+  CHECK(bildEntscheidung(l, bildKopie).sent == Sent::None);
+  l.jetzt = at(3000);
+  CHECK(bildEntscheidung(l, bildKopie).sent == Sent::Freeze);
+  // Meldet Zoom die Kamera als aus, gilt die Schonfrist nicht: ab 200 ms Ersatzbild und fallback/cameraOff.
+  l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Live, Grund::frames, 1200);
+  l.kameraAusLautZoom = true;
+  e = bildEntscheidung(l, bild);
+  CHECK(e.sent == Sent::Transparent && e.jetztSenden);
+  CHECK(e.zustandAendern && e.zustand == SlotState::Fallback && e.grund == Grund::cameraOff);
+  // Kommt die Meldung „Kamera aus“ mitten in der Schonfrist, sofort Ersatzbild und cameraOff.
+  l.jetzt = at(1700);
+  e = bildEntscheidung(l, bild);
+  CHECK(e.sent == Sent::Transparent && e.zustandAendern && e.grund == Grund::cameraOff);
+  // Ein laufender bufferMismatch bleibt bei 200 ms.
+  l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Live, Grund::frames, 1300);
+  l.bufferMismatch = true;
+  e = bildEntscheidung(l, bild);
+  CHECK(e.sent == Sent::Transparent && e.zustandAendern && e.grund == Grund::bufferMismatch);
+}
+
+void s285_kamera_fragen_in_der_schonfrist() {
+  std::printf("#285/#286 Schonfrist: ab 200 ms ohne Bild einmal je Luecke Zoom fragen (IsVideoOn), damit Kamera aus "
+              "wie bisher nach 200 ms greift\n");
+  const ZielStand bild = zielMitBild(0, 1000, false);
+  BildLage l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Live, Grund::frames, 1199);
+  CHECK(!bildEntscheidung(l, bild).kameraFragen);   // juenger als 200 ms
+  l.jetzt = at(1200);
+  CHECK(bildEntscheidung(l, bild).kameraFragen);    // ab 200 ms
+  l.jetzt = at(2999);
+  CHECK(bildEntscheidung(l, bild).kameraFragen);    // bis zum Ende der Schonfrist
+  l.kameraGefragt = true;
+  CHECK(!bildEntscheidung(l, bild).kameraFragen);   // in dieser Luecke schon gefragt
+  l = lage(SlotMode::Speaker, Fallback::Transparent, SlotState::Live, Grund::frames, 1500);
+  CHECK(bildEntscheidung(l, bild).kameraFragen);
+  // Nach der Schonfrist fragt der Zustandswechsel selbst (video.cpp, wie bisher), nicht diese Meldung.
+  l.jetzt = at(3000);
+  CHECK(!bildEntscheidung(l, bild).kameraFragen);
+  // Kamera laut Zoom schon aus, laufender bufferMismatch, Freigabe, Ziel 0, vor dem ersten Bild: nie fragen.
+  l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Live, Grund::frames, 1500);
+  l.kameraAusLautZoom = true;
+  CHECK(!bildEntscheidung(l, bild).kameraFragen);
+  l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Live, Grund::frames, 1500);
+  l.bufferMismatch = true;
+  CHECK(!bildEntscheidung(l, bild).kameraFragen);
+  l = lage(SlotMode::Share, Fallback::Transparent, SlotState::Live, Grund::frames, 1500);
+  CHECK(!bildEntscheidung(l, bild).kameraFragen);
+  l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Fallback, Grund::participantLeft, 1500);
+  l.ziel = 0;
+  CHECK(!bildEntscheidung(l, bild).kameraFragen);
+  const ZielStand neu = zielMitBild(5000, -1, false);
+  l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Starting, Grund::targetChanged, 5300);
+  CHECK(!bildEntscheidung(l, neu).kameraFragen);
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -1595,6 +1683,8 @@ int main() {
   af8_fehler_vor_slot();
   af11_audio_unavailable_ohne_ton();
   af15_rueckrufe_im_flug();
+  s285_schonfrist_ohne_bild();
+  s285_kamera_fragen_in_der_schonfrist();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;

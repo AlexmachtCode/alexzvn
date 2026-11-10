@@ -521,6 +521,10 @@ inline constexpr int64_t BILD_NACHLAUF_MS = 200;            // Ersatzbild bzw. H
 inline constexpr int64_t FREIGABE_ZUSTAND_MS = 2000;        // Zustand eines Freigabe-Slots erst nach 2 s (6.9, W1)
 inline constexpr int64_t TAKT_ERSATZBILD_MS = 100;          // Ersatzbild hoechstens alle 100 ms
 inline constexpr int64_t TAKT_HALTEN_MS = 200;              // Kopie beim Halten hoechstens alle 200 ms
+// #285/#286 (Owner 10.11.2026, „max 2 s“): Teilnehmer/Sprecher, Zoom meldet die Kamera als an, aber kein Bild -> so
+// lange nichts zusaetzlich senden (der NDI-Empfaenger haelt das letzte Bild), erst danach Ersatzbild und
+// fallback/noFrames. Gemessen 08.11.: 138 von 164 Aussetzern kuerzer als 2 s; mit 200 ms war jeder ein schwarzes Bild.
+inline constexpr int64_t TEILNEHMER_SCHONFRIST_MS = 2000;
 
 /** Eingang der Bild-Entscheidung, je Slot und Herzschlag (videoTick, 6.6 Nr. 6). */
 struct BildLage {
@@ -531,6 +535,7 @@ struct BildLage {
   bool freigabePausiert = false;      // die gezeigte Freigabe ist pausiert
   bool kameraAusLautZoom = false;     // videoStatus Video_OFF/Video_Mute_ByHost oder IsVideoOn() = false (6.7)
   bool bufferMismatch = false;        // laufender Puffer-Fehler dieses Ziels (bleibt als Grund stehen)
+  bool kameraGefragt = false;         // #285/#286: in dieser Bildluecke wurde Zoom schon gefragt (IsVideoOn)
   SlotState zustand = SlotState::Starting;
   Grund grund = Grund::command;
   int64_t letztesErsatzMs = 0;        // Zeit des letzten Ersatz- bzw. Halte-Bildes; 0 = noch keins
@@ -547,6 +552,8 @@ struct BildEntscheidung {
   bool zustandAendern = false;
   SlotState zustand = SlotState::Starting;
   Grund grund = Grund::command;
+  // #285/#286: in der Schonfrist ab 200 ms ohne Bild Zoom fragen (IsVideoOn), einmal je Luecke (kameraGefragt).
+  bool kameraFragen = false;
 };
 
 /** Art des Ersatzbilds (Tabelle 6.12): freeze ohne Kopie dieses Ziels wie transparent (T60). */
@@ -580,8 +587,14 @@ inline BildEntscheidung bildEntscheidung(const BildLage& l, const ZielStand& z) 
   if (l.zustand == SlotState::Off) return e;
   const bool hatBild = z.bildSeitUmhaengen;
   const int64_t seitBild = hatBild && l.jetzt > z.lastFrameMs ? l.jetzt - z.lastFrameMs : 0;
-  const bool frisch = hatBild && seitBild < BILD_NACHLAUF_MS;
   const bool freigabe = l.modus == SlotMode::Share;
+  // #285/#286: nur der Fall, der sonst fallback/noFrames wuerde, bekommt die Schonfrist; Kamera aus und ein laufender
+  // bufferMismatch bleiben bei 200 ms, Freigabe-Slots halten ohnehin (unten).
+  const bool schonfrist = !freigabe && !l.kameraAusLautZoom && !l.bufferMismatch;
+  const bool frisch = hatBild && seitBild < (schonfrist ? TEILNEHMER_SCHONFRIST_MS : BILD_NACHLAUF_MS);
+  // Bisher fragte video.cpp beim Uebergang nach 200 ms, ob Zoom die Kamera als aus meldet; in der Schonfrist gibt es
+  // diesen Uebergang erst nach 2 s. Darum hier ab 200 ms einmal je Luecke fragen: Kamera aus bleibt bei 200 ms.
+  e.kameraFragen = schonfrist && frisch && l.ziel != 0 && !l.kameraGefragt && seitBild >= BILD_NACHLAUF_MS;
 
   if (frisch) e.sent = Sent::None;
   else if (freigabe && l.ziel != 0 && l.freigabeBesteht && z.kopieGueltig) e.sent = Sent::Held;

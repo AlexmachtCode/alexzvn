@@ -170,6 +170,7 @@ struct Slot {
   // --- nur Hauptthread ---
   int64_t letztesErsatzMs = 0;
   bool kameraAus = false;                  // Zoom meldet die Kamera des Ziels als aus (videoStatus, IsVideoOn)
+  int64_t kameraGefragtBildMs = -1;        // #285/#286: lastFrameMs der Bildluecke, in der IsVideoOn() schon gefragt wurde
   int resSet = -1, resGot = -1;            // 6.11; -1 = noch nicht gesetzt
   int rawType = -1;                        // getRawDataType() nach dem Setzen der Aufloesung; -1 = keins
   int shareRate = 0, shareCh = 0;          // Format des Computertons (shareAudioRate/-Ch)
@@ -1338,9 +1339,20 @@ void ersatzbildTick(Slot& s, int64_t jetzt) {
   lage.freigabeBesteht = dieseFreigabe;
   lage.freigabePausiert = dieseFreigabe && gezeigt->paused;
   lage.kameraAusLautZoom = s.kameraAus;
+  lage.kameraGefragt = s.kameraGefragtBildMs == z.lastFrameMs;
   lage.letztesErsatzMs = s.letztesErsatzMs;
   lage.jetzt = jetzt;
   BildEntscheidung e = bildEntscheidung(lage, z);
+  if (e.kameraFragen && !rendererSperre()) {
+    // #285/#286: In der Schonfrist (2 s) gibt es den Uebergang nach 200 ms nicht mehr; damit Kamera aus wie bisher
+    // nach 200 ms greift, einmal je Luecke fragen. Waehrend der Sperre weder fragen noch merken (wie kameraAn, F13).
+    s.kameraGefragtBildMs = z.lastFrameMs;
+    if (!kameraAn(lage.ziel)) {
+      s.kameraAus = true;
+      lage.kameraAusLautZoom = true;
+      e = bildEntscheidung(lage, z);
+    }
+  }
   if (e.zustandAendern && lage.modus != SlotMode::Share && !lage.kameraAusLautZoom && !kameraAn(lage.ziel)) {
     // Uebergang nach 200 ms ohne Bild: Zoom fragen, bevor ein Grund steht (6.12).
     s.kameraAus = true;
