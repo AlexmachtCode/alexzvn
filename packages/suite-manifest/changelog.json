@@ -1690,6 +1690,15 @@
     "name": "JM Connect",
     "entries": [
       {
+        "version": "0.4.1",
+        "date": "2026-11-10",
+        "notes": [
+          "Zoom-Slots: Kurze Aussetzer im Zoom-Bild ergeben kein schwarzes Bild mehr. Bleibt das Bild einer Person mit eingeschalteter Kamera aus, bleibt bis zu 2 Sekunden das letzte Bild stehen; erst danach kommt das Ersatzbild.",
+          "Schaltet die Person die Kamera aus, kommt das Ersatzbild wie bisher nach 0,2 Sekunden, verlässt sie das Meeting, wie bisher sofort; Bildschirmfreigaben verhalten sich unverändert.",
+          "Gilt für Teilnehmer- und Sprecher-Slots unter Windows; das Mac-Paket ist inhaltlich unverändert."
+        ]
+      },
+      {
         "version": "0.4.0",
         "date": "2026-11-02",
         "notes": [

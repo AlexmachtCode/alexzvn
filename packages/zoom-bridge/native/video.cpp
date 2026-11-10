@@ -170,6 +170,7 @@ struct Slot {
   // --- nur Hauptthread ---
   int64_t letztesErsatzMs = 0;
   bool kameraAus = false;                  // Zoom meldet die Kamera des Ziels als aus (videoStatus, IsVideoOn)
+  int64_t kameraGefragtBildMs = -1;        // #285/#286: lastFrameMs der Bildluecke, in der IsVideoOn() schon gefragt wurde
   int resSet = -1, resGot = -1;            // 6.11; -1 = noch nicht gesetzt
   int rawType = -1;                        // getRawDataType() nach dem Setzen der Aufloesung; -1 = keins
   int shareRate = 0, shareCh = 0;          // Format des Computertons (shareAudioRate/-Ch)
@@ -1320,6 +1321,16 @@ void ersatzbildTick(Slot& s, int64_t jetzt) {
     lastW = abo.ziel.lastW;
     lastH = abo.ziel.lastH;
   }
+  // #285/#286 (Review 10.11., Befund 1): eine Zeile je Bildluecke, in der nach 200 ms bei Kamera an gefragt wurde, sobald
+  // wieder ein Bild dieses Ziels da ist. Ohne sie bliebe eine ueberbrueckte Luecke unsichtbar (kein Zustand, kein sent).
+  if (s.kameraGefragtBildMs > 0 && z.lastFrameMs != s.kameraGefragtBildMs) {
+    const int64_t luecke = bildLueckeMs(s.kameraGefragtBildMs, z);
+    if (luecke >= 0) {
+      emitLog(L"Slot " + std::to_wstring(s.nr) + L": Bildluecke " + std::to_wstring(luecke) +
+              L" ms (bei 200 ms Kamera laut Zoom an; Schonfrist " + std::to_wstring(TEILNEHMER_SCHONFRIST_MS) + L" ms)");
+    }
+    s.kameraGefragtBildMs = -1;
+  }
   // RawData_Off nach dem ersten Bild dieses Ziels: nur die Abfrage IsVideoOn() (6.7). Waehrend der Renderer-Sperre
   // wartet sie (Abschluss-Fix F13, M7): der Merker bleibt stehen, gefragt wird nach der Sperre.
   if (z.rawOffGesehen && !rendererSperre()) {
@@ -1338,11 +1349,23 @@ void ersatzbildTick(Slot& s, int64_t jetzt) {
   lage.freigabeBesteht = dieseFreigabe;
   lage.freigabePausiert = dieseFreigabe && gezeigt->paused;
   lage.kameraAusLautZoom = s.kameraAus;
+  lage.kameraGefragt = s.kameraGefragtBildMs == z.lastFrameMs;
   lage.letztesErsatzMs = s.letztesErsatzMs;
   lage.jetzt = jetzt;
   BildEntscheidung e = bildEntscheidung(lage, z);
+  if (e.kameraFragen && !rendererSperre()) {
+    // #285/#286: In der Schonfrist (2 s) gibt es den Uebergang nach 200 ms nicht mehr; damit Kamera aus wie bisher
+    // nach 200 ms greift, einmal je Luecke fragen. Waehrend der Sperre weder fragen noch merken (wie kameraAn, F13).
+    s.kameraGefragtBildMs = z.lastFrameMs;
+    if (!kameraAn(lage.ziel)) {
+      s.kameraAus = true;
+      lage.kameraAusLautZoom = true;
+      e = bildEntscheidung(lage, z);
+    }
+  }
   if (e.zustandAendern && lage.modus != SlotMode::Share && !lage.kameraAusLautZoom && !kameraAn(lage.ziel)) {
-    // Uebergang nach 200 ms ohne Bild: Zoom fragen, bevor ein Grund steht (6.12).
+    // Uebergang ohne Bild (200 ms bei Kamera aus/bufferMismatch, sonst nach der Schonfrist 2 s): Zoom fragen, bevor ein
+    // Grund steht (6.12).
     s.kameraAus = true;
     lage.kameraAusLautZoom = true;
     e = bildEntscheidung(lage, z);
