@@ -509,7 +509,12 @@ einem schwarzen Bild auf dem Programm (08.11.: 164 Aussetzer, 138 davon kürzer 
 Meldet Zoom die Kamera als aus oder läuft ein `bufferMismatch`, bleibt es bei 200 ms.
 Damit „Kamera aus“ auch ohne `videoStatus` nach 200 ms greift, fragt die Bridge in der
 Schonfrist ab 200 ms einmal je Lücke `IsVideoOn()` (vorher geschah das beim Übergang
-nach 200 ms). Die Attrappe bildet weder die 200 ms noch die Schonfrist nach.
+nach 200 ms). Die Schonfrist gilt nur aus `live`; steht der Slot schon auf `fallback`,
+bleibt das Ersatzbild. Damit überbrückte Lücken sichtbar bleiben, schreibt die Bridge je
+solcher Lücke beim nächsten Bild desselben Ziels eine Zeile `Slot <n>: Bildluecke <ms> ms
+(bei 200 ms Kamera laut Zoom an; Schonfrist 2000 ms)` ins Log; nach einem Umhängen
+mitten in der Lücke entfällt sie. Die Attrappe bildet weder die 200 ms noch die
+Schonfrist nach.
 Freigabe-Slots senden die Kopie des letzten Bildes ihrer Freigabe (`sent` = `held`)
 und wechseln den Zustand erst nach 2 s ohne Bild. Eine Kopie eines früheren Ziels
 geht nie hinaus. Was der Sender gerade zusätzlich schickt, sagt `sent` in jedem

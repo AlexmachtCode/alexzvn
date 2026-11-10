@@ -1584,6 +1584,12 @@ void s285_schonfrist_ohne_bild() {
   l.bufferMismatch = true;
   e = bildEntscheidung(l, bild);
   CHECK(e.sent == Sent::Transparent && e.zustandAendern && e.grund == Grund::bufferMismatch);
+  // Nur aus live (Review 10.11., Befund 3): steht der Slot schon auf fallback/cameraOff und meldet Zoom die Kamera binnen
+  // 2 s nach dem letzten Bild wieder als an, bleibt das Ersatzbild (kein „fallback mit sent none“), Grund wie bisher noFrames.
+  l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Fallback, Grund::cameraOff, 1500);
+  e = bildEntscheidung(l, bild);
+  CHECK(e.sent == Sent::Transparent && e.jetztSenden && !e.kameraFragen);
+  CHECK(e.zustandAendern && e.zustand == SlotState::Fallback && e.grund == Grund::noFrames);
 }
 
 void s285_kamera_fragen_in_der_schonfrist() {
@@ -1618,6 +1624,18 @@ void s285_kamera_fragen_in_der_schonfrist() {
   const ZielStand neu = zielMitBild(5000, -1, false);
   l = lage(SlotMode::Participant, Fallback::Transparent, SlotState::Starting, Grund::targetChanged, 5300);
   CHECK(!bildEntscheidung(l, neu).kameraFragen);
+}
+
+void s285_bildluecke_fuer_das_log() {
+  std::printf("#285/#286 Logzeile (Review 10.11., Befund 1): Laenge der Bildluecke, sobald wieder ein Bild DIESES Ziels da "
+              "ist; sonst -1\n");
+  CHECK(bildLueckeMs(-1, zielMitBild(0, 1640, false)) == -1);        // kein Merker
+  CHECK(bildLueckeMs(0, zielMitBild(0, 1640, false)) == -1);         // kein Merker (Grundwert)
+  CHECK(bildLueckeMs(1000, zielMitBild(0, 1000, false)) == -1);      // noch kein neues Bild
+  CHECK(bildLueckeMs(1000, zielMitBild(0, 1640, false)) == 640);     // Luecke 640 ms, ueberbrueckt
+  CHECK(bildLueckeMs(1000, zielMitBild(0, 3500, false)) == 2500);    // laenger als die Schonfrist: Laenge trotzdem
+  CHECK(bildLueckeMs(1000, zielMitBild(1500, 1700, false)) == -1);   // dazwischen umgehaengt, Bild des neuen Ziels
+  CHECK(bildLueckeMs(1000, zielMitBild(1500, -1, false)) == -1);     // umgehaengt, noch kein Bild
 }
 
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
@@ -1685,6 +1703,7 @@ int main() {
   af15_rueckrufe_im_flug();
   s285_schonfrist_ohne_bild();
   s285_kamera_fragen_in_der_schonfrist();
+  s285_bildluecke_fuer_das_log();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;
