@@ -18,20 +18,24 @@ interface Lage {
   geladen: GeladeneEinstellungen;
   show?: RecShowSettings | null;
   altGain?: string | null;
+  /** Läuft mitten im Laden: hier kommt z. B. eine Show-Vorgabe per Deep-Link herein. */
+  beimLaden?: (showPush: (s: RecShowSettings) => void) => void;
 }
 let n = 0;
 async function starte(lage: Lage) {
   const gespeichert: RecEinstellungen[] = [];
   const gain: number[] = [];
+  let showPush: (s: RecShowSettings) => void = () => {};
   const api = {
     platform: 'win32',
     listDevices: async () => lage.devices,
     setGain: async (db: number) => { gain.push(db); },
     onLevels: () => () => {}, onState: () => () => {}, onNotice: () => () => {},
-    onRemoteCommand: () => () => {}, onShowSettings: () => () => {},
+    onRemoteCommand: () => () => {},
+    onShowSettings: (cb: (s: RecShowSettings) => void) => { showPush = cb; return () => {}; },
     takeShowSettings: async () => lage.show ?? null,
     settings: {
-      load: async () => lage.geladen,
+      load: async () => { await Promise.resolve(); lage.beimLaden?.(showPush); return lage.geladen; },
       save: (e: RecEinstellungen) => { gespeichert.push(JSON.parse(JSON.stringify(e))); },
     },
   };
@@ -130,6 +134,18 @@ const VOLL: RecEinstellungen = {
   ck('7: Vorauswahl Dante mit Gerätevorgabe', s.deviceIndex === 7 && s.channels === 2 && s.sampleRate === 48000);
   ck('7: alte Verstärkung übernommen', s.gainDb === 9);
   ck('7: keine Hinweise', s.hinweisEingang === null && s.hinweisOrdner === null);
+}
+
+// --- 8. Show-Vorgabe kommt per Deep-Link WÄHREND des Startens (Review-Befund): darf nicht von den
+//        gemerkten Werten überschrieben werden.
+{
+  const t = await starte({
+    devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: true },
+    beimLaden: (push) => push({ sampleRate: 44100, fileName: 'Live-Show' }),
+  });
+  const s = t.useRec.getState();
+  ck('8: Show-Samplerate aus dem Deep-Link gilt', s.sampleRate === 44100);
+  ck('8: Show-Dateiname aus dem Deep-Link gilt', s.fileName === 'Live-Show');
 }
 
 console.log(`\nstore: ${pass} ok, ${fail} FAIL`);

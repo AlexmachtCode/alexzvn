@@ -154,8 +154,15 @@ export const useRec = create<RecStore>((set, get) => {
             break;
         }
       });
-      // Show-Voreinstellungen, die zur Laufzeit per Deep-Link ankommen.
-      window.jmrec.onShowSettings(applyShowSettings);
+      // Show-Voreinstellungen, die zur Laufzeit per Deep-Link ankommen. Kommt eine noch während
+      // des Wiederherstellens, wird sie gehalten und danach angewandt — sonst überschrieben die
+      // gemerkten Werte sie (#291, Review).
+      let wiederhergestellt = false;
+      let frueheShow: RecShowSettings | null = null;
+      window.jmrec.onShowSettings((s) => {
+        if (wiederhergestellt) applyShowSettings(s);
+        else frueheShow = { ...(frueheShow ?? {}), ...s };
+      });
 
       // Gemerkte Einstellungen (#291). Reihenfolge: gemerkt → Show schlägt gemerkt.
       const { einstellungen: e, ordnerDa } = await window.jmrec.settings.load();
@@ -194,6 +201,8 @@ export const useRec = create<RecStore>((set, get) => {
       // anwenden, damit die Show channels/sampleRate überschreibt (nicht umgekehrt).
       const pending = await window.jmrec.takeShowSettings();
       if (pending) applyShowSettings(pending);
+      if (frueheShow) applyShowSettings(frueheShow); // jünger als der Kaltstart-Puffer
+      wiederhergestellt = true;
       set({ loading: false });
       starteMerken();
     },
