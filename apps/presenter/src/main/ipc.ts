@@ -26,6 +26,7 @@ import {
   goto,
   next,
   prev,
+  setSchleife,
   setScreen,
   startPresentation,
   stopPresentation,
@@ -220,6 +221,7 @@ export function registerIpc(): void {
   ipcMain.handle('present:prev', () => prev());
   ipcMain.handle('present:stop', () => stopPresentation());
   ipcMain.handle('present:setScreen', (_e, mode: ScreenMode) => setScreen(mode));
+  ipcMain.handle('present:setSchleife', (_e, an: boolean) => setSchleife(an === true));
   ipcMain.handle('present:displays', () => getDisplays());
   ipcMain.handle('present:assignAudience', (_e, displayId: number) =>
     moveAudienceToDisplay(displayId),

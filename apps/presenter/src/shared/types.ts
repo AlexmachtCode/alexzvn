@@ -47,6 +47,27 @@ export interface Slide {
   notes: string;
   hidden: boolean;
   overlays: Overlay[];
+  /** #293: eigener Übergang beim Hereinkommen dieser Folie; fehlt/null = wie alle. */
+  uebergang?: Uebergang | null;
+  /** #293: eigene Standzeit in der Schleife (Sekunden); fehlt/null = wie alle. */
+  standzeitSek?: number | null;
+}
+
+/** #293: Art des Folienwechsels auf der Publikumsansicht. */
+export type UebergangsArt = 'schnitt' | 'blende';
+
+export interface Uebergang {
+  art: UebergangsArt;
+  /** Dauer der Überblendung; bei Schnitt ohne Wirkung. */
+  dauerMs: number;
+}
+
+/** #293: Wiedergabe-Einstellungen für alle Folien (Reiter „Übergänge“). */
+export interface Wiedergabe {
+  uebergang: Uebergang;
+  /** Schleife: blättert nach der Standzeit selbst weiter, nach der letzten Folie zur ersten. */
+  schleife: boolean;
+  standzeitSek: number;
 }
 
 /** The editable project document (serialised into a .jmpres ZIP). */
@@ -55,6 +76,8 @@ export interface ProjectDoc {
   name: string;
   slides: Slide[];
   sources: SourceMeta[];
+  /** #293; fehlt in Projekten vor 0.11.0 → Vorgabe (Schnitt, keine Schleife). */
+  wiedergabe?: Wiedergabe;
 }
 
 /** Audience screen mode — normal slide, or a full black/white pause screen. */
@@ -66,6 +89,10 @@ export interface PresentationState {
   index: number; // index into the visible-slide list
   total: number; // number of visible slides
   screen: ScreenMode; // black/white pause screen (B/W keys, remote, buttons)
+  /** #293: Schleife gerade an (live in der Referentenansicht umschaltbar). */
+  schleife?: boolean;
+  /** #293: Zeitpunkt (epoch ms) des nächsten Selbst-Weiterblätterns; null = keiner geplant. */
+  schleifeBisMs?: number | null;
 }
 
 /**
@@ -77,6 +104,8 @@ export interface PresentationPayload {
   sources: Record<string, { kind: SourceKind; bytes: Uint8Array }>;
   images: Record<string, Uint8Array>; // overlay image assets by id
   startIndex: number;
+  /** #293: Übergang + Schleife des Projekts (die Folien tragen ihre eigenen Abweichungen). */
+  wiedergabe?: Wiedergabe;
 }
 
 export interface DisplayInfo {
@@ -263,6 +292,8 @@ export interface JmprApi {
     stop: () => Promise<void>;
     /** Set the audience pause screen (black/white/live); 'live' shows the slide. */
     setScreen: (mode: ScreenMode) => Promise<void>;
+    /** #293: Schleife live an-/ausschalten (Referentenansicht). */
+    setSchleife: (an: boolean) => Promise<void>;
     /** List displays + which one holds the audience window. */
     displays: () => Promise<DisplayInfo[]>;
     /** Move the audience window to a given display (fullscreen). */

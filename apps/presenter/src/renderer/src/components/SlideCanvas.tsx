@@ -11,13 +11,15 @@ interface Props {
   /** Base raster width in px — pick by usage (thumb ~320, current ~1280, audience ~1920). */
   maxWidth?: number;
   className?: string;
+  /** #293: gerufen, sobald die Folie gemalt ist (Publikumsansicht: erst dann blenden/umschalten). */
+  onGemalt?: () => void;
 }
 
 /**
  * Display-only slide renderer. Rasterises the base page (cached) and composites
  * overlays via the shared painter, then letterboxes inside its parent.
  */
-export function SlideCanvas({ slide, withOverlays = true, maxWidth = 1280, className }: Props) {
+export function SlideCanvas({ slide, withOverlays = true, maxWidth = 1280, className, onGemalt }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(false);
 
@@ -44,8 +46,12 @@ export function SlideCanvas({ slide, withOverlays = true, maxWidth = 1280, class
           ctx.clearRect(0, 0, base.width, base.height);
           ctx.drawImage(base.canvas, 0, 0);
         }
+        onGemalt?.();
       } catch {
-        if (!cancelled) setFailed(true);
+        if (!cancelled) {
+          setFailed(true);
+          onGemalt?.(); // auch ein Fehler darf den Wechsel nicht festhalten
+        }
       }
     })();
     return () => {

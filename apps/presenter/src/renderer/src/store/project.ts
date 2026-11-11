@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { ImportedFile, Overlay, ProjectDoc, Slide, SourceMeta } from '@shared/types';
+import type { ImportedFile, Overlay, ProjectDoc, Slide, SourceMeta, Uebergang, Wiedergabe } from '@shared/types';
+import { normiereUebergang, normiereWiedergabe } from '../../../shared/wiedergabe';
 import { uid } from '@/lib/ids';
 import { clearAssets, getSource, getImageBytes, putImage, putSource } from '@/lib/assets';
 import { clearPdfCaches, pdfPageCount } from '@/lib/pdf';
@@ -72,6 +73,12 @@ interface ProjectState {
   remove: (id: string) => void;
   setTitle: (id: string, title: string) => void;
   setNotes: (id: string, notes: string) => void;
+  /** #293: Übergang/Schleife für alle Folien ändern. */
+  setWiedergabe: (patch: Partial<Wiedergabe>) => void;
+  /** #293: eigener Übergang einer Folie; null = wie alle. */
+  setSlideUebergang: (id: string, u: Uebergang | null) => void;
+  /** #293: eigene Standzeit einer Folie (Sekunden); null = wie alle. */
+  setSlideStandzeit: (id: string, sek: number | null) => void;
 
   // overlay ops
   addTextOverlay: (slideId: string) => void;
@@ -301,6 +308,23 @@ export const useProject = create<ProjectState>((set, get) => ({
     set({ doc: replaceSlide(get().doc, id, (s) => ({ ...s, title })), dirty: true }),
   setNotes: (id, notes) =>
     set({ doc: replaceSlide(get().doc, id, (s) => ({ ...s, notes })), dirty: true }),
+  setWiedergabe: (patch) => {
+    const alt = normiereWiedergabe(get().doc.wiedergabe);
+    set({ doc: { ...get().doc, wiedergabe: normiereWiedergabe({ ...alt, ...patch }) }, dirty: true });
+  },
+  setSlideUebergang: (id, u) =>
+    set({
+      doc: replaceSlide(get().doc, id, (s) => ({ ...s, uebergang: u ? normiereUebergang(u) : null })),
+      dirty: true,
+    }),
+  setSlideStandzeit: (id, sek) =>
+    set({
+      doc: replaceSlide(get().doc, id, (s) => ({
+        ...s,
+        standzeitSek: sek == null || !Number.isFinite(sek) ? null : Math.max(1, Math.min(3600, sek)),
+      })),
+      dirty: true,
+    }),
 
   addTextOverlay: (slideId) => {
     const overlay: Overlay = {
@@ -383,6 +407,6 @@ export const useProject = create<ProjectState>((set, get) => ({
         }
       }
     }
-    return { slides: visible, sources, images, startIndex };
+    return { slides: visible, sources, images, startIndex, wiedergabe: normiereWiedergabe(doc.wiedergabe) };
   },
 }));

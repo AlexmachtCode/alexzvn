@@ -6,11 +6,40 @@ import {
   openPresenterWindow,
   setPresentationClosedHandler,
 } from './windows';
+import { naechsterIndex, normiereWiedergabe, standzeitFuer, WIEDERGABE_VORGABE } from '../shared/wiedergabe';
+import type { Wiedergabe } from '@shared/types';
 
 // The main process owns the live presentation so presenter + audience windows
 // (separate renderers) always agree on the current slide.
 let payload: PresentationPayload | null = null;
 let state: PresentationState = { active: false, index: 0, total: 0, screen: 'live' };
+
+// #293: Wiedergabe des laufenden Projekts + Timer der Schleife. Der Timer lebt hier im Main,
+// damit Tastatur, Fernbedienung und Companion dieselbe Schleife sehen und neu starten.
+let wiedergabe: Wiedergabe = WIEDERGABE_VORGABE;
+let schleifenTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Nächstes Selbst-Weiterblättern planen — bei jeder Zustandsänderung neu: Hand-Navigation startet
+ * die Standzeit neu, Schwarz-/Weißbild und „Schleife aus“ halten an, eine Folie allein blättert nicht.
+ */
+function planeSchleife(): void {
+  if (schleifenTimer) {
+    clearTimeout(schleifenTimer);
+    schleifenTimer = null;
+  }
+  const slide = payload?.slides[state.index];
+  if (!state.active || !state.schleife || state.screen !== 'live' || state.total < 2 || !slide) {
+    state = { ...state, schleifeBisMs: null };
+    return;
+  }
+  const ms = standzeitFuer(slide, wiedergabe) * 1000;
+  state = { ...state, schleifeBisMs: Date.now() + ms };
+  schleifenTimer = setTimeout(() => {
+    schleifenTimer = null;
+    goto(naechsterIndex(state.index, state.total, true));
+  }, ms);
+}
 
 // Monotonic revision, bumped on every state change. Network consumers (the stage
 // display) use it to know when to refetch the rendered slide image (#38, 2b).
@@ -31,6 +60,7 @@ function clampIndex(i: number): number {
 }
 
 function publish(): void {
+  planeSchleife();
   rev++;
   broadcastAll('present:state', state);
   for (const cb of listeners) cb();
@@ -75,11 +105,14 @@ export function startPresentation(
   audienceDisplayId: number | null,
 ): void {
   payload = next;
+  wiedergabe = normiereWiedergabe(next.wiedergabe);
   state = {
     active: true,
     index: clampIndexFor(next.slides.length, next.startIndex),
     total: next.slides.length,
     screen: 'live',
+    schleife: wiedergabe.schleife,
+    schleifeBisMs: null,
   };
   openPresenterWindow();
   openAudienceWindow(audienceDisplayId);
@@ -102,7 +135,8 @@ export function goto(index: number): void {
 }
 
 export function next(): void {
-  goto(state.index + 1);
+  // Mit Schleife geht es nach der letzten Folie wieder zur ersten (#293).
+  goto(naechsterIndex(state.index, state.total, state.schleife === true));
 }
 
 export function prev(): void {
@@ -114,6 +148,13 @@ export function setScreen(mode: ScreenMode): void {
   if (!state.active) return;
   const nextMode: ScreenMode = state.screen === mode ? 'live' : mode;
   state = { ...state, screen: nextMode };
+  publish();
+}
+
+/** #293: Schleife live an-/ausschalten (Referentenansicht). */
+export function setSchleife(an: boolean): void {
+  if (!state.active) return;
+  state = { ...state, schleife: an };
   publish();
 }
 

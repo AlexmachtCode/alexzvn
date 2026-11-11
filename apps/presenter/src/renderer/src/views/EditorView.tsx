@@ -2,6 +2,9 @@ import { Toolbar } from '@/components/Toolbar';
 import { SlideList } from '@/components/SlideList';
 import { EditorStage } from '@/components/EditorStage';
 import { Inspector } from '@/components/Inspector';
+import { UebergaengePanel } from '@/components/UebergaengePanel';
+import { useState } from 'react';
+import type { Slide } from '@shared/types';
 import { useProject } from '@/store/project';
 
 export function EditorView() {
@@ -54,10 +57,40 @@ export function EditorView() {
             )}
           </section>
           <aside className="border-l border-[var(--border)]/60 min-h-0">
-            {selected && <Inspector slide={selected} />}
+            {selected && <RechteSpalte slide={selected} />}
           </aside>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Rechte Spalte mit Reitern: „Folie“ (Titel, Notizen, Overlays) und „Übergänge“ (#293). */
+function RechteSpalte({ slide }: { slide: Slide }) {
+  const [reiter, setReiter] = useState<'folie' | 'uebergaenge'>('folie');
+  const tab = (id: 'folie' | 'uebergaenge', text: string) => (
+    <button
+      type="button"
+      onClick={() => setReiter(id)}
+      className={
+        'flex-1 h-10 text-xs font-bold uppercase tracking-[0.12em] border-b-2 transition-colors ' +
+        (reiter === id
+          ? 'border-[var(--primary)] text-[var(--foreground)]'
+          : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]')
+      }
+    >
+      {text}
+    </button>
+  );
+  return (
+    <div className="h-full flex flex-col min-h-0">
+      <div className="flex border-b border-[var(--border)]/60 px-2">
+        {tab('folie', 'Folie')}
+        {tab('uebergaenge', 'Übergänge')}
+      </div>
+      <div className="flex-1 min-h-0">
+        {reiter === 'folie' ? <Inspector slide={slide} /> : <UebergaengePanel slide={slide} />}
+      </div>
     </div>
   );
 }
