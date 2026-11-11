@@ -81,7 +81,7 @@
   - kaputt/fremd: `Die Datei ist keine Recorder-Preset-Datei.`
   - Version > 1: `Die Datei stammt aus einer neueren Recorder-Version – bitte den Recorder aktualisieren.`
   - leer: `Die Datei enthält keine gültigen Presets.`
-- [ ] **Step 4:** `npx tsx test/presets.test.ts && npx tsx test/einstellungen.test.ts` → alles ok
+- [ ] **Step 4:** `tsx test/presets.test.ts` hinten an das `selftest`-Skript in `apps/recorder/package.json` hängen; `npm run selftest -w @jm/recorder` → alles ok
 - [ ] **Step 5: Commit** `feat(recorder): Preset-Regeln – Normieren, Vergleichen, Namen, Zusammenführen, Dateiformat`
 
 ### Task 2: Ablage + Import/Export im Main
@@ -117,7 +117,7 @@
   - `exportieren`: `dialog.showSaveDialog(win, { defaultPath: 'Recorder-Presets.jmrec-presets', filters: [{ name: 'Recorder-Presets', extensions: ['jmrec-presets'] }] })`, abgebrochen → `{ ok:false }`, sonst schreiben → `{ ok:true, meldung: 'N Presets exportiert: <Pfad>' }`; leere Liste → `{ ok:false, error:'Keine Presets zum Exportieren.' }`
   - `importieren`: `showOpenDialog` (Filter `.jmrec-presets` + „Alle Dateien“), `statSync().size > EXPORT_MAX_BYTES` → `error 'Die Datei ist zu groß für eine Preset-Datei.'`, sonst `importiere(…)` mit `frage` = `showMessageBox(win, { type:'question', buttons:['Überschreiben','Beide behalten','Abbrechen'], defaultId:1, cancelId:2, message:'N Preset(s) gibt es schon: „A“, „B“', detail:'Überschreiben ersetzt die vorhandenen. Beide behalten legt die neuen als „Name (2)“ an.' })`; bei `ok` speichern
   - Meldungstexte: `N Preset(s) importiert` + ` (M ersetzt)` + `, K ungültige übersprungen`
-- [ ] **Step 4:** `npx tsx test/presets-datei.test.ts` → ok; `npm run typecheck -w @jm/recorder` → 0 Fehler
+- [ ] **Step 4:** `tsx test/presets-datei.test.ts` hinten an das `selftest`-Skript hängen; `npm run selftest -w @jm/recorder` → ok; `npm run typecheck -w @jm/recorder` → 0 Fehler
 - [ ] **Step 5: Commit** `feat(recorder): Presets ablegen, exportieren, importieren (Main + IPC)`
 
 ### Task 3: Store — anwenden, speichern, löschen, merken
@@ -209,13 +209,13 @@ recorder.ts:
 - [ ] **Step 1: Failing tests** `stille.test.ts` (reine Uhr, Zeiten von Hand):
   - `istLoopback('Lautsprecher (Realtek) [Loopback]')`, nicht `'Mikrofon (Realtek)'`
   - sr 1000, Start 0: `block(10, 10)===0`; Blöcke alle 10 ms bis 1000 → nie > 0; `fehlend(1005)===0`
-  - Pause: letzter Block bei 1000 (gesamt 1000 Frames), `fehlend(1300)===300`, nach `aufgefuellt(300)` → `fehlend(1350)===50`; dann `block(10, 2000)` → `990`
+  - Pause: letzter Block bei 1000 (gesamt 1000 Frames), `fehlend(1300)===300`, nach `aufgefuellt(300)` → `fehlend(1350)===50` (nur abgefragt, nicht aufgefüllt); dann `block(10, 2000)` → `690` (= 2000 − 10 − 1300)
   - Kein Block je (Review 3): `fehlend(600)===600`
   - Uhr vorgehend (mehr geschrieben als erwartet) → nie negativ
   - `recorder.test.ts`: Attrappe `listDevices` liefert Gerät 5 „Lautsprecher (Realtek) [Loopback]“ und Gerät 0 „Mikrofon“; Loopback, sr 1000, 2 ch: 1 Block (10 Frames), 700 ms echt warten, 1 Block, Stopp → Datenlänge / 8 zwischen 650 und 800 Frames; dasselbe mit Gerät 0 → genau 20 Frames
 - [ ] **Step 2:** `npx tsx test/stille.test.ts` → FAIL
 - [ ] **Step 3: Implement** wie oben
-- [ ] **Step 4:** `npm run selftest -w @jm/recorder` → alles ok; Selftest-Skript um `presets.test.ts`, `presets-datei.test.ts`, `stille.test.ts` erweitert; CI-Schritt-Name in `ci-checks.yml` → `Recorder (Folgedateien, Überschreibschutz, Einstellungen, Presets, Loopback-Stille)`
+- [ ] **Step 4:** `npm run selftest -w @jm/recorder` → alles ok; Selftest-Skript um `stille.test.ts` erweitert (`presets.test.ts` und `presets-datei.test.ts` tragen Task 1 und 2 selbst ein); CI-Schritt-Name in `ci-checks.yml` → `Recorder (Folgedateien, Überschreibschutz, Einstellungen, Presets, Loopback-Stille)`
 - [ ] **Step 5: Commit** `feat(recorder): Loopback-Eingänge – Stille in Echtzeit auffüllen`
 
 ### Task 6: Prüfstand, Version, Release
