@@ -35,6 +35,8 @@ ck('Samplerate außerhalb 8000…384000 fällt weg', normiereEinstellungen({ sam
 ck('Dauer nie negativ', normiereEinstellungen({ scheduleDurationMin: -5 }).scheduleDurationMin === 0);
 ck('leerer Dateiname bleibt (= Zeitstempel)', normiereEinstellungen({ fileName: '' }).fileName === '');
 
+ck('Preset-Name bleibt, Unsinn fällt weg', normiereEinstellungen({ preset: 'Dante' }).preset === 'Dante' && !('preset' in normiereEinstellungen({ preset: 5 })));
+
 // --- findeEingang: Name UND Treiber müssen stimmen, die Nummer ist egal.
 const geraete = [
   { index: 0, name: 'Mikrofon (Realtek)', hostApiName: 'MME', maxInputChannels: 2, defaultSampleRate: 44100 },
