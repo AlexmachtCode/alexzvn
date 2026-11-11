@@ -1,5 +1,5 @@
 // Preset-Ablage und Import im Main (ohne Electron). npm run selftest -w @jm/recorder
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { importiere, ladePresets, speicherePresets } from '../src/main/presets';
@@ -27,6 +27,13 @@ const gespeichert = speicherePresets(datei, [preset('Zeta', 2), preset('Alpha', 
 ck('speicherePresets: gibt sortierte Liste zurück', gleich(namen(gespeichert), ['Alpha', 'Zeta']));
 ck('ladePresets: gleiche Liste wie gespeichert', gleich(ladePresets(datei), gespeichert));
 ck('speicherePresets: keine .tmp übrig', !readdirSync(dir).some((f) => f.endsWith('.tmp')) && !existsSync(`${datei}.tmp`));
+
+// Dateiformat { version, presets }
+const handDatei = join(dir, 'hand.json');
+writeFileSync(handDatei, JSON.stringify({ version: 1, presets: [preset('Zwei', 2), preset('Eins', 8)] }), 'utf8');
+ck('ladePresets: von Hand geschriebenes { version, presets } wird gelesen', gleich(namen(ladePresets(handDatei)), ['Eins', 'Zwei']));
+const geschrieben = JSON.parse(readFileSync(datei, 'utf8')) as { version?: unknown; presets?: unknown };
+ck('speicherePresets: Datei ist { version: 1, presets: [...] }', geschrieben.version === 1 && Array.isArray(geschrieben.presets));
 
 // Import
 const A = preset('A', 2);

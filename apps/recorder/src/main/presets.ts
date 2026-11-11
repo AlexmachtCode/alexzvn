@@ -3,13 +3,14 @@ import { dirname } from 'node:path';
 import type { KonfliktWahl, PresetDateiErgebnis, RecPreset } from '@shared/types';
 import { fuehreZusammen, leseExportDatei, normierePreset, sortiere } from '../shared/presets';
 
-/** Gemerkte Presets lesen. Fehlt die Datei oder ist sie kaputt: leere Liste. */
+/** Gemerkte Presets lesen (Datei: `{ version: 1, presets }`). Fehlt die Datei oder ist sie kaputt: leere Liste. */
 export function ladePresets(datei: string): RecPreset[] {
   try {
     const raw: unknown = JSON.parse(readFileSync(datei, 'utf8'));
-    if (!Array.isArray(raw)) return [];
+    const eintraege = raw && typeof raw === 'object' ? (raw as { presets?: unknown }).presets : undefined;
+    if (!Array.isArray(eintraege)) return [];
     const liste: RecPreset[] = [];
-    for (const eintrag of raw) {
+    for (const eintrag of eintraege) {
       const p = normierePreset(eintrag);
       if (p && !liste.some((v) => v.name === p.name)) liste.push(p);
     }
@@ -29,7 +30,7 @@ export function speicherePresets(datei: string, liste: RecPreset[]): RecPreset[]
   const sortiert = sortiere(sauber);
   mkdirSync(dirname(datei), { recursive: true });
   const tmp = `${datei}.tmp`;
-  writeFileSync(tmp, JSON.stringify(sortiert, null, 2), 'utf8');
+  writeFileSync(tmp, JSON.stringify({ version: 1, presets: sortiert }, null, 2), 'utf8');
   renameSync(tmp, datei);
   return sortiert;
 }
