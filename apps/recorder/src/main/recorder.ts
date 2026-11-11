@@ -1,6 +1,6 @@
 import type { BrowserWindow } from 'electron';
 import path from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import type * as AudioNS from '@jm/audio';
 import type {
   ArmInput,
@@ -12,6 +12,7 @@ import type {
   ScheduleInput,
 } from '@shared/types';
 import { MultiWavWriter, WavWriter } from './wav';
+import { freierBasisname } from './dateiname';
 
 // Lazy-Load des nativen Addons: das Fenster startet auch ohne gebautes @jm/audio
 // (z. B. im Codespace). Erst beim ersten Geräte-/Aufnahme-Zugriff geladen.
@@ -206,7 +207,10 @@ export function startRecording(input: RecordInput): OpResult {
     }
     state.scheduledStartAt = null;
     mkdirSync(input.dir, { recursive: true });
-    const base = input.fileName?.trim() ? sanitize(input.fileName) : defaultName();
+    const gewuenscht = input.fileName?.trim() ? sanitize(input.fileName) : defaultName();
+    // Nie überschreiben (#291): Gibt es die Datei schon, läuft die Aufnahme als Name-2, Name-3 …
+    const base = freierBasisname(input.dir, gewuenscht, existsSync);
+    if (base !== gewuenscht) notice(`„${gewuenscht}.wav“ gibt es schon – die Aufnahme läuft als „${base}.wav“.`);
     const filePath = path.join(input.dir, `${base}.wav`);
     writer = new WavWriter(filePath, state.channels, state.sampleRate);
     // Optional zusätzlich jede Spur einzeln in einen Unterordner (Issue #20). Bei
@@ -247,6 +251,7 @@ export function stopRecording(): RecordResult {
     return {
       ok: true,
       filePath,
+      files: res.files,
       bytes: res.bytes,
       durationSec: res.durationSec,
       channels: state.channels,
@@ -350,12 +355,11 @@ export function cancelSchedule(): void {
   if (had) notice('Planung abgebrochen.');
 }
 
-/** Beim Fenster-Schließen/Beenden: Timer lösen + Eingang schließen. */
+/**
+ * Beim Fenster-Schließen/Beenden: wie disarm() — eine laufende Aufnahme wird abgeschlossen
+ * (Kopf mit echter Länge, #291; vorher blieb er auf 0 und viele Player hielten die Datei für
+ * leer), Timer gelöst, Eingang geschlossen.
+ */
 export function shutdown(): void {
-  clearTimers();
-  try {
-    if (audioMod && inited) audioMod.stopInput();
-  } catch {
-    // ignore
-  }
+  disarm();
 }

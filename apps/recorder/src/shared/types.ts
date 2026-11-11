@@ -50,6 +50,8 @@ export interface OpResult {
 
 export interface RecordResult extends OpResult {
   filePath?: string;
+  /** Alle geschriebenen Dateien: `filePath` und ab 4 GB die Folgedateien `Name_002.wav` … (#291). */
+  files?: string[];
   bytes?: number;
   durationSec?: number;
   channels?: number;

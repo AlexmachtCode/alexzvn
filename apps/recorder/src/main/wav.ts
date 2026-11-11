@@ -2,24 +2,48 @@ import { closeSync, openSync, writeSync } from 'node:fs';
 import path from 'node:path';
 
 /**
+ * Größte data-Länge je Datei. Der Kopf speichert `36 + data` als vorzeichenlose 32-Bit-Zahl;
+ * darüber warf `writeUInt32LE` beim Stopp (#291: bei 8 Kanälen nach ~47 Minuten). 64 KiB Abstand
+ * zu 4 GiB halten die Datei (44 Byte Kopf + data) auch unter der FAT32-Grenze (USB-Sticks).
+ */
+export const MAX_DATA_BYTES = 0xffff0000;
+
+/** `Name.wav` → `Name_002.wav` für n = 2, 3 …; n = 1 ist die Datei selbst. */
+export function folgeDatei(filePath: string, n: number): string {
+  if (n <= 1) return filePath;
+  const ext = path.extname(filePath);
+  return `${filePath.slice(0, filePath.length - ext.length)}_${String(n).padStart(3, '0')}${ext}`;
+}
+
+/**
  * Schlanker WAV-Writer (32-bit float, IEEE, mehrkanalig, interleaved). Verlustfrei
  * — die Audio-Frames sind bereits float. Öffnet in Reaper/Audacity. fd-basiert,
  * damit der Header am Ende mit den echten Größen gepatcht werden kann.
  *
- * Limitierung v0.1: Standard-WAV (32-bit-Größenfelder) → max ~4 GB pro Datei.
- * RF64/W64 für längere Mehrkanal-Mitschnitte kommt in v0.2.
+ * Standard-WAV (32-bit-Größenfelder): Erreicht eine Datei `maxDataBytes`, wird ihr Kopf
+ * geschrieben, sie geschlossen und eine Folgedatei begonnen (`folgeDatei`). Jede Datei ist
+ * eine vollständige WAV, die jedes Programm liest; geteilt wird nur an Frame-Grenzen.
  */
 export class WavWriter {
   private fd: number;
-  private dataBytes = 0;
+  /** data-Bytes der gerade offenen Datei. */
+  private segBytes = 0;
+  /** data-Bytes über alle Dateien. */
+  private totalBytes = 0;
+  private readonly maxSegBytes: number;
+  private readonly blockAlign: number;
+  private readonly files: string[];
   readonly channels: number;
   readonly sampleRate: number;
 
-  constructor(filePath: string, channels: number, sampleRate: number) {
+  constructor(filePath: string, channels: number, sampleRate: number, maxDataBytes = MAX_DATA_BYTES) {
     this.channels = channels;
     this.sampleRate = sampleRate;
-    this.fd = openSync(filePath, 'w');
-    writeSync(this.fd, this.header(0)); // Platzhalter-Header
+    this.blockAlign = channels * 4;
+    this.maxSegBytes = Math.floor(maxDataBytes / this.blockAlign) * this.blockAlign;
+    if (this.maxSegBytes <= 0) throw new Error('WAV-Grenze kleiner als ein Frame.');
+    this.files = [filePath];
+    this.fd = this.oeffne(filePath);
   }
 
   /** planar [ch0:frames][ch1:frames]… → interleaved float32 LE anhängen. */
@@ -32,20 +56,48 @@ export class WavWriter {
         o += 4;
       }
     }
-    writeSync(this.fd, buf);
-    this.dataBytes += buf.length;
+    let off = 0;
+    while (off < buf.length) {
+      // Erst wechseln, wenn wirklich weitere Daten kommen: genau an der Grenze bleibt keine leere Folgedatei.
+      if (this.segBytes >= this.maxSegBytes) this.naechsteDatei();
+      const n = Math.min(buf.length - off, this.maxSegBytes - this.segBytes);
+      let geschrieben = 0;
+      while (geschrieben < n) geschrieben += writeSync(this.fd, buf, off + geschrieben, n - geschrieben);
+      off += n;
+      this.segBytes += n;
+      this.totalBytes += n;
+    }
   }
 
   /** Header mit echten Größen überschreiben + Datei schließen. */
-  finalize(): { bytes: number; durationSec: number } {
-    const header = this.header(this.dataBytes);
+  finalize(): { bytes: number; durationSec: number; files: string[] } {
+    this.schliesse();
+    const frames = this.totalBytes / this.blockAlign;
+    return {
+      bytes: this.totalBytes + 44 * this.files.length,
+      durationSec: this.sampleRate ? frames / this.sampleRate : 0,
+      files: [...this.files],
+    };
+  }
+
+  private oeffne(p: string): number {
+    const fd = openSync(p, 'w');
+    writeSync(fd, this.header(0)); // Platzhalter-Header
+    return fd;
+  }
+
+  private schliesse(): void {
+    const header = this.header(this.segBytes);
     writeSync(this.fd, header, 0, header.length, 0); // an Offset 0
     closeSync(this.fd);
-    const frames = this.dataBytes / (this.channels * 4);
-    return {
-      bytes: this.dataBytes + 44,
-      durationSec: this.sampleRate ? frames / this.sampleRate : 0,
-    };
+  }
+
+  private naechsteDatei(): void {
+    this.schliesse();
+    const p = folgeDatei(this.files[0], this.files.length + 1);
+    this.files.push(p);
+    this.fd = this.oeffne(p);
+    this.segBytes = 0;
   }
 
   private header(dataBytes: number): Buffer {
@@ -73,12 +125,13 @@ export class WavWriter {
 /**
  * Schreibt zusätzlich jede Spur als eigene Mono-WAV in einen Ordner (Issue #20).
  * Demultiplext die planaren Frames ([ch0:frames][ch1:frames]…) auf je einen
- * WavWriter pro Kanal — parallel zur kombinierten Mehrkanal-Datei.
+ * WavWriter pro Kanal — parallel zur kombinierten Mehrkanal-Datei. Jede Spur teilt
+ * an derselben Grenze in eigene Folgedateien (`Name-Spur01_002.wav`).
  */
 export class MultiWavWriter {
   private readonly writers: WavWriter[];
 
-  constructor(dir: string, baseName: string, channels: number, sampleRate: number) {
+  constructor(dir: string, baseName: string, channels: number, sampleRate: number, maxDataBytes = MAX_DATA_BYTES) {
     this.writers = Array.from(
       { length: channels },
       (_, c) =>
@@ -86,6 +139,7 @@ export class MultiWavWriter {
           path.join(dir, `${baseName}-Spur${String(c + 1).padStart(2, '0')}.wav`),
           1,
           sampleRate,
+          maxDataBytes,
         ),
     );
   }
