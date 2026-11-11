@@ -37,6 +37,16 @@ export function gleicheWerte(a: RecEinstellungen, b: RecEinstellungen): boolean 
   return JSON.stringify(presetWerte(a)) === JSON.stringify(presetWerte(b));
 }
 
+/**
+ * Gleich, soweit das Preset etwas festlegt? Verglichen werden nur die Felder, die `presetWerte(preset)`
+ * enthält — ein Preset ohne Ordner oder Eingang lässt diese Werte frei.
+ */
+export function gleicheDefinierteWerte(aktuell: RecEinstellungen, preset: RecEinstellungen): boolean {
+  const a = presetWerte(aktuell) as unknown as Record<string, unknown>;
+  const p = presetWerte(preset) as unknown as Record<string, unknown>;
+  return Object.keys(p).every((k) => JSON.stringify(a[k]) === JSON.stringify(p[k]));
+}
+
 /** Name, der noch nicht vergeben ist: „Name“, sonst „Name (2)“, „Name (3)“ … (max. 60 Zeichen). */
 export function freierPresetName(name: string, vergeben: readonly string[] | { has(name: string): boolean }): string {
   const belegt = Array.isArray(vergeben) ? new Set<string>(vergeben) : (vergeben as { has(name: string): boolean });

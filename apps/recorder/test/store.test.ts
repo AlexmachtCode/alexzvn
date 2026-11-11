@@ -383,5 +383,90 @@ const offenWieGezeigt = (s: { state: RecorderState; deviceIndex: number | null; 
   ck('18: aktivesPreset = gespeicherter Name', t.useRec.getState().aktivesPreset === n);
 }
 
+// --- 19. Preset ohne Ordner: „(geändert)“ vergleicht nur, was das Preset kennt.
+{
+  const t = await starte({
+    devices: [DANTE, FOCUS], geladen: { einstellungen: { dir: 'D:\\VA' }, ordnerDa: true },
+    presets: [{ name: 'OhneDir', werte: pv({ dir: undefined, eingang: undefined }) }],
+  });
+  await t.useRec.getState().presetAnwenden('OhneDir');
+  const s = t.useRec.getState();
+  ck('19: Ordner blieb, Preset aktiv', s.dir === 'D:\\VA' && s.aktivesPreset === 'OhneDir');
+  ck('19: Preset ohne dir/eingang -> nicht geändert', t.presetGeaendert(s) === false);
+  s.setSampleRate(96000);
+  ck('19: anderer sampleRate -> geändert', t.presetGeaendert(t.useRec.getState()) === true);
+}
+
+// --- 20. Vorbehalt + Bedienung: setChannels beendet den Vorbehalt, gemerkt wird der gewählte Eingang.
+{
+  const t = await starte({ devices: [MME, FOCUS], geladen: { einstellungen: VOLL, ordnerDa: true } });
+  t.useRec.getState().setChannels(4);
+  await warte(t.MERK_MS + 50);
+  const g = t.gespeichert.at(-1);
+  ck('20: gemerkt wird der gewählte Eingang mit 4 Kanälen', g?.eingang?.name === FOCUS.name && g.channels === 4);
+}
+{
+  const t = await starte({ devices: [MME, FOCUS], geladen: { einstellungen: VOLL, ordnerDa: true } });
+  t.useRec.getState().setSampleRate(32000);
+  await warte(t.MERK_MS + 50);
+  const g = t.gespeichert.at(-1);
+  ck('20: setSampleRate beendet den Vorbehalt auch', g?.eingang?.name === FOCUS.name && g.sampleRate === 32000);
+}
+
+// --- 21. Show-Vorgaben mit Kanälen/Samplerate lassen den Vorbehalt stehen.
+{
+  const t = await starte({ devices: [MME, FOCUS], geladen: { einstellungen: VOLL, ordnerDa: true }, show: { channels: 4, sampleRate: 44100 } });
+  const s = t.useRec.getState();
+  ck('21: Show-Werte gelten', s.channels === 4 && s.sampleRate === 44100);
+  s.setFileName('Show-Tag');
+  await warte(t.MERK_MS + 50);
+  const g = t.gespeichert.at(-1);
+  ck('21: gemerkt bleibt der fehlende Eingang (Vorbehalt steht)', g?.eingang?.name === DANTE.name);
+  ck('21: Hinweis zum fehlenden Eingang bleibt', (t.useRec.getState().hinweisEingang ?? '').includes(DANTE.name));
+}
+
+// --- 22. „— kein Preset —“ streicht ein wartendes Anwenden.
+{
+  const t = await starte({
+    devices: [DANTE, FOCUS, MME], geladen: ersterStart, armVerzoegerungMs: 30,
+    presets: [{ name: 'Fo', werte: pv() }, { name: 'Mi', werte: MI }],
+  });
+  t.setzeZustand({ status: 'armed', device: 7, channels: 2, sampleRate: 48000 });
+  const a = t.useRec.getState().presetAnwenden('Fo');
+  const b = t.useRec.getState().presetAnwenden('Mi');
+  t.useRec.getState().presetAbwaehlen();
+  ck('22: aktivesPreset sofort null', t.useRec.getState().aktivesPreset === null);
+  await Promise.all([a, b]);
+  const geraete = (t.aufrufe.arm as { device: number }[]).map((x) => x.device);
+  ck(`22: das wartende B läuft nicht (arm: ${geraete.join(',')})`, geraete.join(',') === '3');
+  ck('22: aktivesPreset bleibt null', t.useRec.getState().aktivesPreset === null);
+}
+
+// --- 23. Neu öffnen kommt VOR der Ordnerabfrage (ein unerreichbares NAS hält den Gerätewechsel nicht auf).
+{
+  const t = await starte({ devices: [DANTE, FOCUS], geladen: ersterStart, presets: [{ name: 'Fo', werte: pv() }] });
+  let antworte: (v: boolean) => void = () => {};
+  (globalThis as unknown as { window: { jmrec: { ordnerDa: (d: string) => Promise<boolean> } } }).window.jmrec.ordnerDa =
+    () => new Promise<boolean>((r) => { antworte = r; });
+  t.setzeZustand({ status: 'armed', device: 7, channels: 2, sampleRate: 48000 });
+  const lauf = t.useRec.getState().presetAnwenden('Fo');
+  await warte(20);
+  ck('23: arm lief, bevor ordnerDa antwortet', t.aufrufe.arm.length === 1);
+  antworte(false);
+  await lauf;
+  const s = t.useRec.getState();
+  ck('23: danach Ordner-Hinweis + Meldung', (s.hinweisOrdner ?? '').includes('E:\\Show') && s.notice === 'Preset „Fo“ angewendet. Eingang neu geöffnet.');
+}
+
+// --- 24. Show-Zielordner im Netzwerk: Hinweis nennt den Pfad; lokaler Ordner nimmt ihn weg.
+{
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: true }, show: { dir: '\\\\nas\\x' } });
+  const s = t.useRec.getState();
+  ck('24: Ordner gesetzt', s.dir === '\\\\nas\\x');
+  ck('24: Hinweis nennt den Pfad', s.hinweisOrdner === 'Zielordner aus der Show liegt im Netzwerk: \\\\nas\\x – nur verwenden, wenn dieser Ordner bekannt ist.');
+  const l = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: false }, show: { dir: 'E:\\Show' } });
+  ck('24: lokaler Show-Ordner -> kein Hinweis', l.useRec.getState().hinweisOrdner === null);
+}
+
 console.log(`\nstore: ${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);

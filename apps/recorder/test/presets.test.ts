@@ -1,6 +1,6 @@
 // Preset-Regeln: Normieren, Vergleichen, Namen, Zusammenführen, Dateiformat. npm run selftest -w @jm/recorder
 import {
-  baueExportDatei, fuehreZusammen, freierPresetName, gleicheWerte, istNetzwerkPfad, leseExportDatei,
+  baueExportDatei, fuehreZusammen, freierPresetName, gleicheDefinierteWerte, gleicheWerte, istNetzwerkPfad, leseExportDatei,
   normierePreset, presetWerte, sortiere,
 } from '../src/shared/presets';
 import type { RecPreset } from '../src/shared/types';
@@ -43,6 +43,15 @@ ck('werte ohne preset-Feld', !('preset' in (normierePreset({ name: 'A', werte: {
 ck('gleich trotz anderer Schlüsselreihenfolge', gleicheWerte(voll, { gainDb: 6, scheduleDurationMin: 90, separateTracks: true, fileName: 'Plenum', dir: 'D:\\Aufnahmen', sampleRate: 48000, channels: 16, eingang: { hostApiName: 'ASIO', name: 'Dante Virtual Soundcard (x64)' } }));
 ck('anderer sampleRate → ungleich', !gleicheWerte(voll, { ...voll, sampleRate: 44100 }));
 ck('nur preset verschieden → gleich', gleicheWerte({ ...voll, preset: 'A' }, { ...voll, preset: 'B' }));
+
+// --- gleicheDefinierteWerte: nur die Felder, die das Preset kennt
+const { dir: _d, eingang: _e, ...ohneOrdner } = voll;
+ck('definiert: Preset ohne dir, anderer Ordner → gleich', gleicheDefinierteWerte({ ...voll, dir: 'X:\\Anders' }, ohneOrdner));
+ck('definiert: Preset ohne eingang, anderer Eingang → gleich', gleicheDefinierteWerte({ ...voll, eingang: { name: 'Andere', hostApiName: 'MME' } }, ohneOrdner));
+ck('definiert: anderer sampleRate → ungleich', !gleicheDefinierteWerte({ ...voll, sampleRate: 44100 }, ohneOrdner));
+ck('definiert: anderer Eingang bei Preset mit eingang → ungleich', !gleicheDefinierteWerte({ ...voll, eingang: { name: 'Andere', hostApiName: 'MME' } }, voll));
+ck('definiert: gleicher Eingang, andere Schlüsselreihenfolge → gleich', gleicheDefinierteWerte(voll, { ...voll, eingang: { hostApiName: 'ASIO', name: 'Dante Virtual Soundcard (x64)' } }));
+ck('definiert: leeres Preset → immer gleich', gleicheDefinierteWerte(voll, {}));
 
 // --- freierPresetName
 ck('A belegt → A (2)', freierPresetName('A', ['A']) === 'A (2)');

@@ -8,7 +8,7 @@ import type {
   RecShowSettings,
 } from '@shared/types';
 import { findeEingang } from '../../../shared/einstellungen';
-import { gleicheWerte, PRESET_NAME_MAX, presetWerte } from '../../../shared/presets';
+import { gleicheDefinierteWerte, istNetzwerkPfad, PRESET_NAME_MAX, presetWerte } from '../../../shared/presets';
 
 const IDLE: RecorderState = {
   status: 'idle',
@@ -160,19 +160,6 @@ export const useRec = create<RecStore>((set, get) => {
       if (w.channels) get().setChannels(d ? Math.min(w.channels, d.maxInputChannels) : w.channels);
       if (w.sampleRate) get().setSampleRate(w.sampleRate);
     }
-    if (w.dir) {
-      let da = true;
-      try {
-        da = await window.jmrec.ordnerDa(w.dir);
-      } catch {
-        // nicht prüfbar → nicht als fehlend melden
-      }
-      set({
-        hinweisOrdner: da
-          ? null
-          : `Zielordner des Presets „${name}“ nicht erreichbar: ${w.dir} — neuen Ordner wählen und das Preset neu speichern.`,
-      });
-    }
     // Offener Eingang, der nicht dem Soll entspricht → neu öffnen. Maßgeblich ist der Ist-Zustand
     // vom Main, nicht „vorher/nachher“ im Renderer.
     let neu = '';
@@ -186,6 +173,20 @@ export const useRec = create<RecStore>((set, get) => {
       await get().disarm();
       offen = await get().arm();
       neu = ' Eingang neu geöffnet.';
+    }
+    // Erst nach dem Gerätewechsel: ein unerreichbares NAS hält das Neuöffnen nicht auf.
+    if (w.dir) {
+      let da = true;
+      try {
+        da = await window.jmrec.ordnerDa(w.dir);
+      } catch {
+        // nicht prüfbar → nicht als fehlend melden
+      }
+      set({
+        hinweisOrdner: da
+          ? null
+          : `Zielordner des Presets „${name}“ nicht erreichbar: ${w.dir} — neuen Ordner wählen und das Preset neu speichern.`,
+      });
     }
     // Scheitert das Neuöffnen, steht dessen Fehlertext schon in `notice` — nicht überschreiben.
     set({
@@ -262,7 +263,10 @@ export const useRec = create<RecStore>((set, get) => {
       }
     },
 
-    presetAbwaehlen: () => set({ aktivesPreset: null }),
+    presetAbwaehlen: () => {
+      anwendenNr++; // ein wartendes Anwenden entfällt; ein laufendes endet noch
+      set({ aktivesPreset: null });
+    },
 
     presetsExportieren: async () => {
       try {
@@ -285,14 +289,22 @@ export const useRec = create<RecStore>((set, get) => {
     },
 
     init: async () => {
-      // Show-Integration (C3): geprüfte Voreinstellungen aus der .jmshow auf den
-      // Store anwenden. channels/sampleRate über die Setter (clampen).
+      // Show-Integration (C3): geprüfte Voreinstellungen aus der .jmshow auf den Store anwenden.
+      // channels/sampleRate mit derselben Begrenzung wie die Setter, aber direkt: ein Vorbehalt
+      // auf einen fehlenden Eingang bleibt stehen.
       const applyShowSettings = (s: RecShowSettings): void => {
-        if (typeof s.dir === 'string') set({ dir: s.dir, hinweisOrdner: null });
+        if (typeof s.dir === 'string') {
+          set({
+            dir: s.dir,
+            hinweisOrdner: istNetzwerkPfad(s.dir)
+              ? `Zielordner aus der Show liegt im Netzwerk: ${s.dir} – nur verwenden, wenn dieser Ordner bekannt ist.`
+              : null,
+          });
+        }
         if (typeof s.fileName === 'string') set({ fileName: s.fileName });
         if (typeof s.separateTracks === 'boolean') set({ separateTracks: s.separateTracks });
-        if (typeof s.channels === 'number') get().setChannels(s.channels);
-        if (typeof s.sampleRate === 'number') get().setSampleRate(s.sampleRate);
+        if (typeof s.channels === 'number') set({ channels: Math.max(1, Math.floor(s.channels) || 1) });
+        if (typeof s.sampleRate === 'number') set({ sampleRate: Math.max(8000, Math.floor(s.sampleRate) || 48000) });
       };
       if (subscribed) return;
       subscribed = true;
@@ -415,8 +427,15 @@ export const useRec = create<RecStore>((set, get) => {
         hinweisEingang: null,
       });
     },
-    setChannels: (n) => set({ channels: Math.max(1, Math.floor(n) || 1) }),
-    setSampleRate: (n) => set({ sampleRate: Math.max(8000, Math.floor(n) || 48000) }),
+    // Wer Kanäle oder Samplerate selbst setzt, beendet den Vorbehalt auf den fehlenden Eingang.
+    setChannels: (n) => {
+      vorbehalt = null;
+      set({ channels: Math.max(1, Math.floor(n) || 1) });
+    },
+    setSampleRate: (n) => {
+      vorbehalt = null;
+      set({ sampleRate: Math.max(8000, Math.floor(n) || 48000) });
+    },
     setFileName: (fileName) => set({ fileName }),
     setSeparateTracks: (separateTracks) => set({ separateTracks }),
     setScheduleStart: (scheduleStart) => set({ scheduleStart }),
@@ -529,10 +548,10 @@ export function aktuelleWerte(s: RecStore): RecEinstellungen {
   return e;
 }
 
-/** Weichen die aktuellen Werte vom aktiven Preset ab? Ohne aktives (oder gelöschtes) Preset: nein. */
+/** Weichen die aktuellen Werte vom aktiven Preset ab (nur in dessen gespeicherten Feldern)? Ohne aktives (oder gelöschtes) Preset: nein. */
 export function presetGeaendert(s: RecStore): boolean {
   const p = s.aktivesPreset ? s.presets.find((x) => x.name === s.aktivesPreset) : undefined;
-  return !!p && !gleicheWerte(aktuelleWerte(s), p.werte);
+  return !!p && !gleicheDefinierteWerte(aktuelleWerte(s), p.werte);
 }
 
 /**
