@@ -76,6 +76,10 @@ export const IPC = {
   zoomErneut: 'jmc:zoom-erneut',
   /** invoke: Meldung weg, Nummer, Kenncode und gemerkte Quellen leeren → void. */
   zoomSchliessen: 'jmc:zoom-schliessen',
+  /** invoke: gemerktes Meeting (#290) → { nummer, kenncodeGespeichert, kenncodeNichtGespeichert }; nie der Kenncode. */
+  zoomLetztesMeeting: 'jmc:zoom-letztes-meeting',
+  /** invoke: gemerktes Meeting vergessen (#290) → void. */
+  zoomVergessen: 'jmc:zoom-vergessen',
   /** invoke: Meldung quittieren → void. */
   zoomMeldungWeg: 'jmc:zoom-meldung-weg',
   // ── Zoom-Slots (Connect 0.4.0, Spec 7.9). Die Hülle prüft jede Nutzlast mit pruefeSlotEingabe (main/zoom/slot-eingabe.ts);

@@ -87,7 +87,9 @@ interface Probe {
   befehle(startNr?: number): Array<Record<string, unknown>>;
   ereignisse: Array<{ startNr: number; ev: BridgeEvent }>;
   /** Einstellungs-Attrappe; `slots` = gespeicherte Zoom-Slots (Plan B, Task B12; die Slot-Fälle stehen in zoom-slots.test.ts). */
-  einst: { anzeigename: string; versatzMs: number; laufzeit: { dir: string; fassung: string; eingerichtetAm: string } | null; slots: ZoomSlotEinstellung[] };
+  einst: { anzeigename: string; versatzMs: number; laufzeit: { dir: string; fassung: string; eingerichtetAm: string } | null; slots: ZoomSlotEinstellung[];
+    /** Ablage des letzten Meetings (#290) und die Nummern/Kenncodes, mit denen der Kern meetingMerken() rief. */
+    gemerkt: { nummer: string; kenncode: string | null } | null; merkAufrufe: Array<{ nummer: string; kenncode: string }>; vergessenAufrufe: number };
   zugangGespeichert: ZugangDaten[];
   /** Werte, mit denen der Kern sdkSchluessel.speichern() aufrief (nur im Test sichtbar). */
   sdkSchluesselGespeichert: string[];
@@ -139,6 +141,9 @@ interface BaueOptionen {
   versatzSpeichernLiefert?: boolean;
   /** Ändert die Sitzung, die der Kern von der Bridge liest (z. B. einen Teilnehmer in den Warteraum setzen). */
   sitzung?: (s: Session, startNr: number) => Session;
+  /** Schon gemerktes Meeting beim Start des Kerns (#290); `speichertKenncode: false` = keine Verschlüsselung (safeStorage fehlt). */
+  gemerkt?: { nummer: string; kenncode: string | null };
+  keineVerschluesselung?: boolean;
 }
 
 function baueKern(o: BaueOptionen = {}): Probe {
@@ -157,7 +162,8 @@ function baueKern(o: BaueOptionen = {}): Probe {
   const sdkSchluesselGespeichert: string[] = [];
   let sdkSchluesselGeloescht = 0;
   let versatzNurSitzung = false;
-  const einst: Probe['einst'] = { anzeigename: o.anzeigename ?? ANZEIGENAME_VORGABE, versatzMs: o.versatzMs ?? 0, laufzeit: null, slots: [] };
+  const einst: Probe['einst'] = { anzeigename: o.anzeigename ?? ANZEIGENAME_VORGABE, versatzMs: o.versatzMs ?? 0, laufzeit: null, slots: [],
+    gemerkt: o.gemerkt ? { ...o.gemerkt } : null, merkAufrufe: [], vergessenAufrufe: 0 };
   let zugang: ZugangStand = {
     daten: { clientId: 'test-id-1234', clientSecret: 'test-secret' },
     herkunft: 'stored',
@@ -237,6 +243,18 @@ function baueKern(o: BaueOptionen = {}): Probe {
       versatzNurSitzung: () => versatzNurSitzung,
       setzeLaufzeit: (v) => {
         einst.laufzeit = { ...v };
+      },
+      // Letztes Meeting (#290): Ablage im Objekt; ohne Verschlüsselung bleibt nur die Nummer.
+      letztesMeeting: () => (einst.gemerkt ? { ...einst.gemerkt } : null),
+      meetingMerken: (n, k) => {
+        einst.merkAufrufe.push({ nummer: n, kenncode: k });
+        const ok = !o.keineVerschluesselung && k !== '';
+        einst.gemerkt = { nummer: n.trim(), kenncode: ok ? k : null };
+        return { kenncodeGespeichert: ok };
+      },
+      meetingVergessen: () => {
+        einst.vergessenAufrufe++;
+        einst.gemerkt = null;
       },
       // Zoom-Slots (Plan B, Task B12): im Arbeitsspeicher, Schreiben gelingt immer; Vorgaben wie fehlende Felder (Spec 7.2).
       slots: () => einst.slots.map((s) => ({ ...s })),
@@ -1014,6 +1032,70 @@ console.log('— Beitritt (Fall 1 zweiter Teil, 2, 5, 8, 24c), Review Focus 1 un
   ck('… keine Zeile mit „•••“ zwischen Einzelzeichen', !p.logs.some((z) => /•••.•••/.test(z)));
   const echo = p.logs.find((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"join"'));
   ck('… die Echo-Zeile ist lesbar, die Nummer maskiert', echo !== undefined && echo.includes('"passcode":""') && echo.includes('"meetingId":"•••"'));
+  await p.aufraeumen();
+}
+// ── Letztes Meeting merken (#290) ──
+console.log('— Letztes Meeting (#290)');
+{
+  const p = baueKern();
+  ck('leer: nichts gemerkt', JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: null, kenncodeGespeichert: false, kenncodeNichtGespeichert: false }));
+  ck('Beitreten merkt Nummer und Kenncode', await insMeeting(p) && p.einst.merkAufrufe.length === 1
+    && p.einst.merkAufrufe[0].nummer === NUMMER && p.einst.merkAufrufe[0].kenncode === KENNCODE);
+  ck('… letztesMeeting: Nummer, Kenncode gespeichert (ohne Kenncode im Objekt)',
+    JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: NUMMER, kenncodeGespeichert: true, kenncodeNichtGespeichert: false }));
+  await p.kern.verlassen();
+  p.kern.schliessen();
+  ck('… nach Schließen: Gemerktes bleibt, erneutMoeglich false',
+    p.kern.letztesMeeting().nummer === NUMMER && p.kern.letztesMeeting().kenncodeGespeichert && !p.kern.abbild().erneutMoeglich);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ gemerkt: { nummer: NUMMER, kenncode: KENNCODE } });
+  ck('Kern erbt das Gemerkte aus der Ablage', p.kern.letztesMeeting().nummer === NUMMER && p.kern.letztesMeeting().kenncodeGespeichert);
+  const gespaced = NUMMER.slice(0, 3) + ' ' + NUMMER.slice(3, 6) + ' ' + NUMMER.slice(6);
+  const r = await p.kern.beitreten({ nummer: gespaced, kenncode: '', anzeigename: 'JM Connect' });
+  ck('leerer Kenncode + gleiche Nummer (andere Schreibweise) → join mit gemerktem Kenncode',
+    ok(r) && await bis(() => p.kern.kurz().zustand === 'im_meeting') && p.befehle(1).find((x) => x.cmd === 'join')?.passcode === KENNCODE);
+  ck('… Kenncode bleibt gemerkt, Nummer in neuer Schreibweise',
+    p.einst.gemerkt?.kenncode === KENNCODE && p.einst.gemerkt?.nummer === gespaced.trim() && p.kern.letztesMeeting().kenncodeGespeichert);
+  const alles = JSON.stringify(p.kern.abbild()) + JSON.stringify(p.kern.stateKv()) + JSON.stringify(p.kern.kurz());
+  ck('… gemerkte Nummer/Kenncode nicht in Abbild/STATE/Kurzform', !alles.includes(NUMMER) && !alles.includes(KENNCODE));
+  ck('… keine Logzeile enthält Nummer oder Kenncode', !p.logs.some((z) => z.includes(NUMMER) || z.includes(KENNCODE)));
+  const echo = p.logs.find((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"join"'));
+  ck('… Bridge-stderr mit dem gemerkten Kenncode erscheint maskiert', echo !== undefined && echo.includes('•••') && !echo.includes(KENNCODE));
+  // Vergessen im Meeting: Meeting läuft weiter, Gemerktes leer.
+  p.kern.vergessen();
+  ck('vergessen() im Meeting: läuft weiter, Ablage geleert, Anzeige leer',
+    p.kern.kurz().zustand === 'im_meeting' && p.einst.vergessenAufrufe === 1 && p.einst.gemerkt === null
+    && JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: null, kenncodeGespeichert: false, kenncodeNichtGespeichert: false })
+    && p.kern.abbild().erneutMoeglich);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ gemerkt: { nummer: NUMMER, kenncode: KENNCODE } });
+  const andere = '8'.repeat(10);
+  const r = await p.kern.beitreten({ nummer: andere, kenncode: '', anzeigename: 'JM Connect' });
+  ck('andere Nummer + leerer Kenncode → passcode leer, Gemerktes ersetzt',
+    ok(r) && await bis(() => p.kern.kurz().zustand === 'im_meeting') && p.befehle(1).find((x) => x.cmd === 'join')?.passcode === ''
+    && p.einst.gemerkt?.nummer === andere && p.einst.gemerkt?.kenncode === null
+    && JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: andere, kenncodeGespeichert: false, kenncodeNichtGespeichert: false }));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ gemerkt: { nummer: NUMMER, kenncode: KENNCODE } });
+  const r = await p.kern.beitreten({ nummer: 'abc', kenncode: 'x', anzeigename: 'JM Connect' });
+  ck('ungültige Nummer → nichts gemerkt', text(r) === KT.N0 && p.einst.merkAufrufe.length === 0 && p.kern.letztesMeeting().nummer === NUMMER);
+  const r2 = await p.kern.beitreten({ nummer: NUMMER, kenncode: 'x', anzeigename: '' });
+  ck('ungültiger Name → nichts gemerkt', text(r2) === KT.N0b && p.einst.merkAufrufe.length === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ keineVerschluesselung: true });
+  ck('ohne Verschlüsselung: Beitritt klappt', await insMeeting(p));
+  ck('… kenncodeNichtGespeichert, Nummer gemerkt',
+    JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: NUMMER, kenncodeGespeichert: true, kenncodeNichtGespeichert: true }));
+  p.kern.vergessen();
+  ck('… vergessen() setzt kenncodeNichtGespeichert zurück', !p.kern.letztesMeeting().kenncodeNichtGespeichert && p.kern.letztesMeeting().nummer === null);
   await p.aufraeumen();
 }
 {

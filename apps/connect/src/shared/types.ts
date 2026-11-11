@@ -379,6 +379,9 @@ export interface JmConnectApi {
   zoomVersatz: (p: { ms: number }) => Promise<ZoomErgebnis>;
   zoomErneut: () => Promise<ZoomErgebnis>;
   zoomSchliessen: () => Promise<void>;
+  /** Das gemerkte Meeting (#290): nur die Nummer; der Kenncode kommt nie zurück. */
+  zoomLetztesMeeting: () => Promise<{ nummer: string | null; kenncodeGespeichert: boolean; kenncodeNichtGespeichert: boolean }>;
+  zoomVergessen: () => Promise<void>;
   zoomMeldungWeg: () => Promise<void>;
   // ── Zoom-Slots (Connect 0.4.0, Spec 7.9). Jede Nutzlast geht als Ganzes durch die Preload; die Hülle prüft sie.
   zoomSlotAnlegen: () => Promise<ZoomErgebnis & { nr?: number }>;

@@ -180,6 +180,11 @@ export interface ZoomKernAbhaengigkeiten {
     /** Der geltende Versatz steht nur im Arbeitsspeicher (N4b.3 Nr. 4). */
     versatzNurSitzung(): boolean;
     setzeLaufzeit(v: { dir: string; fassung: string; eingerichtetAm: string }): void;
+    /** Letztes Meeting (#290): bleibt über „Schließen“ und Neustart; der Kenncode nur verschlüsselt (`null` = keiner/nicht lesbar). */
+    letztesMeeting(): { nummer: string; kenncode: string | null } | null;
+    /** `kenncodeGespeichert` false = Kenncode nicht auf der Platte (z. B. keine Verschlüsselung). */
+    meetingMerken(nummer: string, kenncode: string): { kenncodeGespeichert: boolean };
+    meetingVergessen(): void;
     // Zoom-Slots (Slot-Spec 7.2, 7.10; Plan B, Task B12). Jedes setze…() liefert true = gespeichert, false = gilt nur für diese
     // Sitzung (T92). Der Kern übergibt setzeSlots nur dauerhafte Slots, `anNurMeeting` als `an: false` (slotsFuerPlatte).
     slots(): ZoomSlotEinstellung[];
@@ -243,6 +248,10 @@ export interface ZoomKern {
   pruefen(): Promise<ZoomErgebnis>;
   beitreten(e: { nummer: string; kenncode: string; anzeigename: string }): Promise<ZoomErgebnis>;
   erneut(): Promise<ZoomErgebnis>;
+  /** Das gemerkte Meeting (#290): nur die Nummer, der Kenncode verlässt den Main nie. */
+  letztesMeeting(): { nummer: string | null; kenncodeGespeichert: boolean; kenncodeNichtGespeichert: boolean };
+  /** Gemerktes Meeting vergessen (#290); ein laufendes Meeting und „Erneut beitreten“ bleiben unberührt. */
+  vergessen(): void;
   verlassen(): Promise<void>;
   /**
    * Spec 6.8 „Abbrechen“, nur Z11 (Folge wartet oder läuft): Zeitgeber löschen, Versuchs-Bridge stop(), Zustand
@@ -460,6 +469,9 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   /** Nur im Arbeitsspeicher (Spec 5.7). */
   let nummer: { eingabe: string; normiert: string } | null = null;
   let kenncode: string | null = null;
+  // Das gemerkte Meeting (#290): einmal beim Erzeugen gelesen, danach vom Kern selbst geführt; unabhängig von nummer/kenncode.
+  let gemerkt: { nummer: string; kenncode: string | null } | null = d.einstellungen.letztesMeeting();
+  let kenncodeNichtGespeichert = false;
   /**
    * Wiederbeitritts-Folge (6.4), nur in `abriss`: gesetzt heißt Z11. `naechsterUm` nur in der Wartezeit vor einem
    * Versuch, `letzte` = Meldung des letzten gescheiterten Versuchs (R2; bis dahin der Anlass des Abrisses, beide stehen zusätzlich im Log), `beginn` = Start des laufenden Versuchs.
@@ -1208,7 +1220,16 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   // ── Bridge starten und stoppen (Spec 5.2, 6.2 Startfolge, 6.9) ───────────
   function geheimnisse(): string[] {
-    return [kenncode ?? '', nummer?.eingabe ?? '', nummer?.normiert ?? '', jwt ?? ''];
+    const g = gemerkt;
+    let gNormiert = '';
+    if (g) {
+      try {
+        gNormiert = normalizeMeetingId(g.nummer);
+      } catch {
+        // keine gültige Nummer: nur die Eingabe selbst maskieren
+      }
+    }
+    return [kenncode ?? '', nummer?.eingabe ?? '', nummer?.normiert ?? '', jwt ?? '', g?.nummer ?? '', gNormiert, g?.kenncode ?? ''];
   }
 
   function beiLog(zeile: string): void {
@@ -1579,12 +1600,36 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const name = e.anzeigename.trim();
     if (name.length < 1 || name.length > 64) return { ok: false, text: KT.N0b };
     d.einstellungen.setzeAnzeigename(name);
+    // Leeres Feld + dieselbe Nummer (egal wie geschrieben) → gemerkter Kenncode; sonst leer (#290).
+    let wirksam = e.kenncode;
+    if (wirksam === '' && gemerkt) {
+      let gleich = false;
+      try {
+        gleich = normalizeMeetingId(gemerkt.nummer) === normiert;
+      } catch {
+        gleich = false;
+      }
+      if (gleich) wirksam = gemerkt.kenncode ?? '';
+    }
+    const merk = d.einstellungen.meetingMerken(e.nummer, wirksam);
+    gemerkt = { nummer: e.nummer.trim(), kenncode: wirksam === '' ? null : wirksam };
+    kenncodeNichtGespeichert = wirksam !== '' && !merk.kenncodeGespeichert;
     nummer = { eingabe: e.nummer, normiert };
-    kenncode = e.kenncode;
+    kenncode = wirksam;
     sitzungsEnde('beitritt');
     // N4b.3 Nr. 6, L15: Hinweise gehören zum letzten Meeting; „Erneut beitreten“ behält sie.
     hinweise.length = 0;
     return starteBeitritt();
+  }
+
+  function letztesMeeting(): { nummer: string | null; kenncodeGespeichert: boolean; kenncodeNichtGespeichert: boolean } {
+    return { nummer: gemerkt?.nummer ?? null, kenncodeGespeichert: !!gemerkt?.kenncode, kenncodeNichtGespeichert };
+  }
+
+  function vergessen(): void {
+    d.einstellungen.meetingVergessen();
+    gemerkt = null;
+    kenncodeNichtGespeichert = false;
   }
 
   async function erneut(): Promise<ZoomErgebnis> {
@@ -2958,6 +3003,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     pruefen,
     beitreten,
     erneut,
+    letztesMeeting,
+    vergessen,
     verlassen,
     abbrechen,
     slotAnlegen,

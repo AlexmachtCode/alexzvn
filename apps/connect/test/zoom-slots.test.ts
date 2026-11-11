@@ -218,6 +218,9 @@ function baueKern(o: BaueOptionen = {}): Probe {
       },
       versatzNurSitzung: () => einst.versatzNurSitzung,
       setzeLaufzeit: () => {},
+      letztesMeeting: () => null,
+      meetingMerken: () => ({ kenncodeGespeichert: false }),
+      meetingVergessen: () => {},
       slots: () => einst.slots.map((s) => ({ ...s })),
       setzeSlots: (s) => {
         einst.schreibvorgaenge += 1;

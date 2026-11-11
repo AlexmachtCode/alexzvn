@@ -27,6 +27,9 @@ import {
   setzeZoomVersatzMs,
   setzeZoomVorschau,
   zoomAnzeigename,
+  zoomLetztesMeeting,
+  zoomMeetingMerken,
+  zoomMeetingVergessen,
   zoomSlots,
   zoomSlotsUeber5,
   zoomSlotVorgaben,
@@ -96,6 +99,9 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
         setzeVersatzMs: setzeZoomVersatzMs,
         versatzNurSitzung: zoomVersatzNurSitzung,
         setzeLaufzeit: setzeZoomLaufzeit,
+        letztesMeeting: zoomLetztesMeeting,
+        meetingMerken: zoomMeetingMerken,
+        meetingVergessen: zoomMeetingVergessen,
         // Zoom-Slots (Slot-Spec 7.2, 7.10; Plan B, Task B12): gelesen und geschrieben nur über settings.ts.
         slots: zoomSlots,
         setzeSlots: setzeZoomSlots,
@@ -259,6 +265,9 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
 
   ipcMain.handle(IPC.zoomErneut, (): Promise<ZoomErgebnis> => k.erneut());
   ipcMain.handle(IPC.zoomSchliessen, (): void => k.schliessen());
+  // Das gemerkte Meeting (#290): nur Nummer und zwei Flaggen, nie der Kenncode.
+  ipcMain.handle(IPC.zoomLetztesMeeting, () => k.letztesMeeting());
+  ipcMain.handle(IPC.zoomVergessen, (): void => k.vergessen());
   ipcMain.handle(IPC.zoomMeldungWeg, (): void => k.meldungWeg());
 
   // Mehrere Texte verweisen auf „Details im Log“ (Spec 8.7).

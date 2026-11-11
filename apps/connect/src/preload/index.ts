@@ -97,6 +97,9 @@ const api: JmConnectApi = {
   zoomVersatz: (p) => ipcRenderer.invoke(IPC.zoomVersatz, { ms: p.ms }) as Promise<ZoomErgebnis>,
   zoomErneut: () => ipcRenderer.invoke(IPC.zoomErneut) as Promise<ZoomErgebnis>,
   zoomSchliessen: () => ipcRenderer.invoke(IPC.zoomSchliessen) as Promise<void>,
+  zoomLetztesMeeting: () =>
+    ipcRenderer.invoke(IPC.zoomLetztesMeeting) as Promise<{ nummer: string | null; kenncodeGespeichert: boolean; kenncodeNichtGespeichert: boolean }>,
+  zoomVergessen: () => ipcRenderer.invoke(IPC.zoomVergessen) as Promise<void>,
   zoomMeldungWeg: () => ipcRenderer.invoke(IPC.zoomMeldungWeg) as Promise<void>,
   // ── Zoom-Slots (Spec 7.9, 11.11 KF5): jede Nutzlast als Ganzes, nie feldweise; prüfen tut die Hülle (pruefeSlotEingabe).
   // Ohne Nutzlast geht {} hinüber, damit die Hülle auch diese Kanäle prüft.
