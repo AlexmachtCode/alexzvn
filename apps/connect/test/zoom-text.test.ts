@@ -2257,6 +2257,15 @@ console.log('— B21: Eingabe der Teilnehmerliste je Person (Spec 10.10)');
       === (normName(x) === normName(y))));
 }
 
+{
+  const { KENNCODE_GESPEICHERT, VERGESSEN, VERGESSEN_TITEL, KENNCODE_NICHT_GESPEICHERT } = await import('../src/shared/zoom-text');
+  ck('#290: Platzhalter des gemerkten Kenncodes', KENNCODE_GESPEICHERT === 'Kenncode gespeichert');
+  ck('#290: Knopf „Vergessen“', VERGESSEN === 'Vergessen');
+  ck('#290: Titel des Knopfs „Vergessen“', VERGESSEN_TITEL === 'Gemerkte Meeting-Nummer und Kenncode löschen');
+  ck('#290: Zeile, wenn der Kenncode nicht gespeichert wird',
+    KENNCODE_NICHT_GESPEICHERT === 'Kenncode wird auf diesem PC nicht gespeichert (keine Windows-Verschlüsselung).');
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

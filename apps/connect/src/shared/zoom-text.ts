@@ -1434,4 +1434,10 @@ export const BEDIEN_TEXT = {
 /** Kennzeichen je Kandidat der Doppelname-Auswahl (7.5): die Bestandstexte der Teilnehmerliste (OFP3, `ZoomCard.tsx:388-393`). */
 export const KANDIDAT_KENNZEICHEN = { kameraAus: 'Kamera aus', host: 'Host', imWarteraum: 'im Warteraum' };
 
+/** #290: Beitrittsformular – gemerktes Meeting (Kenncode bleibt im Hauptprozess). */
+export const KENNCODE_GESPEICHERT = 'Kenncode gespeichert';
+export const VERGESSEN = 'Vergessen';
+export const VERGESSEN_TITEL = 'Gemerkte Meeting-Nummer und Kenncode löschen';
+export const KENNCODE_NICHT_GESPEICHERT = 'Kenncode wird auf diesem PC nicht gespeichert (keine Windows-Verschlüsselung).';
+
 // ── ENDE DER SLOT-ANZEIGEN (neue Regeln direkt darüber einfügen) ──
