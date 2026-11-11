@@ -131,8 +131,8 @@ for (const [name, zuerst] of [['StauBloecke', false], ['StauWaechter', true]] as
   const b = readFileSync(join(dir, 'Alt.wav'));
   const s = new Float32Array(b.buffer.slice(b.byteOffset + 44, b.byteOffset + b.length));
   const erster = s.findIndex((v) => v !== 0) / 2;
-  ck(`Alt: erster echter Frame bei ${erster} ≈ Stille ${stilleMs} ms (nicht danach)`, Math.abs(erster - stilleMs) <= 80);
+  ck(`Alt: erster echter Frame bei ${erster} ≈ Stille ${stilleMs} ms (nicht danach)`, erster >= stilleMs - 150 && erster <= stilleMs + 20);
 }
 
-console.log(`\nrecorder:${pass} ok, ${fail} FAIL`);
+console.log(`\nrecorder: ${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);

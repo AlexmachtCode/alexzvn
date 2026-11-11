@@ -8,7 +8,7 @@ import type {
   RecShowSettings,
 } from '@shared/types';
 import { findeEingang } from '../../../shared/einstellungen';
-import { gleicheDefinierteWerte, istNetzwerkPfad, PRESET_NAME_MAX, presetWerte } from '../../../shared/presets';
+import { gleicheDefinierteWerte, istNetzwerkPfad, PRESET_NAME_MAX, presetWerte, saeubereAnzeige } from '../../../shared/presets';
 
 const IDLE: RecorderState = {
   status: 'idle',
@@ -111,6 +111,10 @@ let vorbehalt: { eingang: GemerkterEingang; channels?: number; sampleRate?: numb
 let anwendenKette: Promise<void> | null = null;
 let anwendenNr = 0;
 
+/** Begrenzungen für Kanäle und Samplerate — Setter und Show-Vorgaben benutzen dieselben. */
+const kanaele = (n: number): number => Math.max(1, Math.floor(n) || 1);
+const rate = (n: number): number => Math.max(8000, Math.floor(n) || 48000);
+
 function eingangsText(e: GemerkterEingang): string {
   return `„${e.name}“ (${e.hostApiName})`;
 }
@@ -170,8 +174,13 @@ export const useRec = create<RecStore>((set, get) => {
       ist.status === 'armed' &&
       (ist.device !== soll.deviceIndex || ist.channels !== soll.channels || ist.sampleRate !== soll.sampleRate)
     ) {
-      await get().disarm();
-      offen = await get().arm();
+      try {
+        await get().disarm();
+        offen = await get().arm();
+      } catch (e) {
+        offen = false;
+        set({ notice: (e as Error).message });
+      }
       neu = ' Eingang neu geöffnet.';
     }
     // Erst nach dem Gerätewechsel: ein unerreichbares NAS hält das Neuöffnen nicht auf.
@@ -297,14 +306,23 @@ export const useRec = create<RecStore>((set, get) => {
           set({
             dir: s.dir,
             hinweisOrdner: istNetzwerkPfad(s.dir)
-              ? `Zielordner aus der Show liegt im Netzwerk: ${s.dir} – nur verwenden, wenn dieser Ordner bekannt ist.`
+              ? `Zielordner aus der Show liegt im Netzwerk: ${saeubereAnzeige(s.dir)} – nur verwenden, wenn dieser Ordner bekannt ist.`
               : null,
           });
         }
         if (typeof s.fileName === 'string') set({ fileName: s.fileName });
         if (typeof s.separateTracks === 'boolean') set({ separateTracks: s.separateTracks });
-        if (typeof s.channels === 'number') set({ channels: Math.max(1, Math.floor(s.channels) || 1) });
-        if (typeof s.sampleRate === 'number') set({ sampleRate: Math.max(8000, Math.floor(s.sampleRate) || 48000) });
+        // Show schlägt gemerkt: auch im Vorbehalt (fehlender Eingang) gelten die Show-Werte, wenn er zurückkommt.
+        if (typeof s.channels === 'number') {
+          const c = kanaele(s.channels);
+          set({ channels: c });
+          if (vorbehalt) vorbehalt = { ...vorbehalt, channels: c };
+        }
+        if (typeof s.sampleRate === 'number') {
+          const r = rate(s.sampleRate);
+          set({ sampleRate: r });
+          if (vorbehalt) vorbehalt = { ...vorbehalt, sampleRate: r };
+        }
       };
       if (subscribed) return;
       subscribed = true;
@@ -429,12 +447,18 @@ export const useRec = create<RecStore>((set, get) => {
     },
     // Wer Kanäle oder Samplerate selbst setzt, beendet den Vorbehalt auf den fehlenden Eingang.
     setChannels: (n) => {
-      vorbehalt = null;
-      set({ channels: Math.max(1, Math.floor(n) || 1) });
+      if (vorbehalt) {
+        vorbehalt = null;
+        set({ hinweisEingang: null });
+      }
+      set({ channels: kanaele(n) });
     },
     setSampleRate: (n) => {
-      vorbehalt = null;
-      set({ sampleRate: Math.max(8000, Math.floor(n) || 48000) });
+      if (vorbehalt) {
+        vorbehalt = null;
+        set({ hinweisEingang: null });
+      }
+      set({ sampleRate: rate(n) });
     },
     setFileName: (fileName) => set({ fileName }),
     setSeparateTracks: (separateTracks) => set({ separateTracks }),

@@ -7,7 +7,7 @@ import type { ArmInput, GeladeneEinstellungen, KonfliktWahl, NetzWahl, PresetDat
 import * as rec from './recorder';
 import { ladeEinstellungen, speichereEinstellungen } from './einstellungen';
 import { importiere, ladePresets, netzwerkHinweis, speicherePresets } from './presets';
-import { baueExportDatei, EXPORT_MAX_BYTES, normierePreset } from '../shared/presets';
+import { baueExportDatei, EXPORT_MAX_BYTES, normierePreset, saeubereAnzeige } from '../shared/presets';
 
 /** Gemerkte Einstellungen (#291) — eine Datei je Windows-Benutzer, überlebt Updates. */
 function einstellungsDatei(): string {
@@ -112,7 +112,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
         buttons: ['Überschreiben', 'Beide behalten', 'Abbrechen'],
         defaultId: 1,
         cancelId: 2,
-        message: `${konflikte.length} ${konflikte.length === 1 ? 'Preset gibt' : 'Presets gibt'} es schon: ${konflikte.map((k) => `„${k}“`).join(', ')}`,
+        message: `${konflikte.length} ${konflikte.length === 1 ? 'Preset gibt' : 'Presets gibt'} es schon: ${konflikte.map((k) => `„${saeubereAnzeige(k)}“`).join(', ')}`,
         detail: 'Überschreiben ersetzt die vorhandenen. Beide behalten legt die neuen als „Name (2)“ an.',
       };
       const m = win ? await dialog.showMessageBox(win, opt) : await dialog.showMessageBox(opt);

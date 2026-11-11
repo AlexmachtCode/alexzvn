@@ -1,7 +1,7 @@
 // Preset-Regeln: Normieren, Vergleichen, Namen, Zusammenführen, Dateiformat. npm run selftest -w @jm/recorder
 import {
   baueExportDatei, fuehreZusammen, freierPresetName, gleicheDefinierteWerte, gleicheWerte, istNetzwerkPfad, leseExportDatei,
-  normierePreset, presetWerte, sortiere,
+  netzwerkServer, normierePreset, presetWerte, saeubereAnzeige, sortiere,
 } from '../src/shared/presets';
 import type { RecPreset } from '../src/shared/types';
 
@@ -116,6 +116,21 @@ ck('kein Netzwerkpfad: leer', !istNetzwerkPfad(''));
 const viele = Array.from({ length: 501 }, (_, i): RecPreset => ({ name: `P${i}`, werte: {} }));
 ck('baueExportDatei: 501 Presets wirft', wirft(() => baueExportDatei(viele, new Date(0)), 'Zu viele Presets für eine Datei (höchstens 500).'));
 ck('baueExportDatei: 500 Presets gehen', baueExportDatei(viele.slice(0, 500), new Date(0)).length > 0);
+
+// Anzeige säubern + Servername (Netzwerk-Rückfrage)
+{
+  const zeichen = [0x202e, 0x200b, 0x2028, 0x2029, 0xfeff, 0x85, 0x7f, 0x0a, 0x00].map((c) => String.fromCodePoint(c)).join('');
+  const roh = `a${zeichen}b`;
+  const sauber = saeubereAnzeige(roh);
+  ck('saeubereAnzeige: keine Cc/Cf/Zl/Zp mehr, Länge gleich', !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(sauber) && sauber.length === roh.length && sauber.startsWith('a') && sauber.endsWith('b'));
+  ck('saeubereAnzeige: normaler Text unverändert', saeubereAnzeige('Küche – Ünï') === 'Küche – Ünï');
+  ck('netzwerkServer: //srv/b', netzwerkServer('//srv/b') === 'srv');
+  ck('netzwerkServer: UNC mit Backslashes', netzwerkServer('\\\\srv\\a') === 'srv');
+  ck('netzwerkServer: \\\\?\\UNC\\srv\\x', netzwerkServer('\\\\?\\UNC\\srv\\x') === 'srv');
+  ck('netzwerkServer: unc klein', netzwerkServer('\\\\?\\unc\\srv2\\x') === 'srv2');
+  ck('netzwerkServer: ohne Namen', netzwerkServer('\\\\') === '(ohne Namen)');
+  ck('netzwerkServer: \\\\?\\C:\\x -> null', netzwerkServer('\\\\?\\C:\\x') === null);
+}
 
 console.log(`\npresets: ${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);

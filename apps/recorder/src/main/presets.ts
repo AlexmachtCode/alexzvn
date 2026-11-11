@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, win32 } from 'node:path';
 import type { KonfliktWahl, NetzWahl, PresetDateiErgebnis, RecPreset } from '@shared/types';
-import { fuehreZusammen, istNetzwerkPfad, leseExportDatei, normierePreset, sortiere } from '../shared/presets';
+import { fuehreZusammen, istNetzwerkPfad, leseExportDatei, netzwerkServer, normierePreset, saeubereAnzeige, sortiere } from '../shared/presets';
 
 /** Einträge prüfen; bei doppeltem Namen gewinnt der erste. */
 function eindeutig(eintraege: unknown[]): RecPreset[] {
@@ -103,19 +103,29 @@ export async function importiere(
   return { ok: true, presets: liste, meldung: `${meldung}.`, ...(netzwerk.length > 0 && !ohneOrdner ? { netzwerk } : {}) };
 }
 
-/** Steuerzeichen (Zeilenumbruch, NUL …) im Dialogtext wären fälschbar → Leerzeichen. */
-const ohneSteuerzeichen = (t: string): string => t.replace(/[\x00-\x1f\x7f]/g, ' ');
+const ZEILEN_MAX = 10;
+const ZEICHEN_MAX = 200;
 
-/** Rückfrage vor dem Übernehmen: je Preset eine Zeile „Name“ → Pfad. */
+/** Für den Dialog: gesäubert (Zeichen, die den Text fälschen könnten) und auf 200 Zeichen gekürzt. */
+const kurz = (t: string): string => {
+  const s = saeubereAnzeige(t);
+  return s.length > ZEICHEN_MAX ? `${s.slice(0, ZEICHEN_MAX)}…` : s;
+};
+
+/** Rückfrage vor dem Übernehmen: erst die Server, dann je Preset eine Zeile „Name“ → Pfad (höchstens 10). */
 export function netzwerkHinweis(netzwerk: { name: string; dir: string }[]): { message: string; detail: string } {
   const n = netzwerk.length;
+  // Jeder Server einmal, in Reihenfolge des Auftretens; ohne erkennbaren Server der Pfad selbst.
+  const server = [...new Set(netzwerk.map((p) => kurz(netzwerkServer(p.dir) ?? p.dir)))];
+  const zeilen = netzwerk.slice(0, ZEILEN_MAX).map((p) => `„${kurz(p.name)}“ → ${kurz(p.dir)}`);
+  if (n > ZEILEN_MAX) zeilen.push(`… und ${n - ZEILEN_MAX} weitere`);
   return {
     message:
       n === 1
         ? '1 importiertes Preset nimmt in einem Netzwerkordner auf'
         : `${n} importierte Presets nehmen in einem Netzwerkordner auf`,
     detail:
-      netzwerk.map((p) => `„${ohneSteuerzeichen(p.name)}“ → ${ohneSteuerzeichen(p.dir)}`).join('\n') +
+      `Server: ${server.join(', ')}\n${zeilen.join('\n')}` +
       '\n\nNur übernehmen, wenn dieser Ordner bekannt ist – beim Anwenden meldet sich Windows bei diesem Server an.',
   };
 }

@@ -404,6 +404,7 @@ const offenWieGezeigt = (s: { state: RecorderState; deviceIndex: number | null; 
   await warte(t.MERK_MS + 50);
   const g = t.gespeichert.at(-1);
   ck('20: gemerkt wird der gewählte Eingang mit 4 Kanälen', g?.eingang?.name === FOCUS.name && g.channels === 4);
+  ck('20: Banner zum fehlenden Eingang weg', t.useRec.getState().hinweisEingang === null);
 }
 {
   const t = await starte({ devices: [MME, FOCUS], geladen: { einstellungen: VOLL, ordnerDa: true } });
@@ -411,6 +412,7 @@ const offenWieGezeigt = (s: { state: RecorderState; deviceIndex: number | null; 
   await warte(t.MERK_MS + 50);
   const g = t.gespeichert.at(-1);
   ck('20: setSampleRate beendet den Vorbehalt auch', g?.eingang?.name === FOCUS.name && g.sampleRate === 32000);
+  ck('20: Banner weg (setSampleRate)', t.useRec.getState().hinweisEingang === null);
 }
 
 // --- 21. Show-Vorgaben mit Kanälen/Samplerate lassen den Vorbehalt stehen.
@@ -466,6 +468,32 @@ const offenWieGezeigt = (s: { state: RecorderState; deviceIndex: number | null; 
   ck('24: Hinweis nennt den Pfad', s.hinweisOrdner === 'Zielordner aus der Show liegt im Netzwerk: \\\\nas\\x – nur verwenden, wenn dieser Ordner bekannt ist.');
   const l = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: false }, show: { dir: 'E:\\Show' } });
   ck('24: lokaler Show-Ordner -> kein Hinweis', l.useRec.getState().hinweisOrdner === null);
+}
+
+// --- 25. Show-Werte wandern in den Vorbehalt: gemerkt wird der Show-Wert, und er gilt, wenn der Eingang zurückkommt.
+{
+  const lage: Lage = { devices: [MME, FOCUS], geladen: { einstellungen: VOLL, ordnerDa: true }, show: { channels: 4, sampleRate: 44100 } };
+  const t = await starte(lage);
+  t.useRec.getState().setFileName('Show-Tag');
+  await warte(t.MERK_MS + 50);
+  const g = t.gespeichert.at(-1);
+  ck('25: gemerkt: Dante mit Show-Kanälen/-Samplerate', g?.eingang?.name === DANTE.name && g.channels === 4 && g.sampleRate === 44100);
+  lage.devices = [MME, FOCUS, { ...DANTE, index: 12 }];
+  await t.useRec.getState().refreshDevices();
+  const s2 = t.useRec.getState();
+  ck('25: nach Aktualisieren Dante mit 4 / 44100', s2.deviceIndex === 12 && s2.channels === 4 && s2.sampleRate === 44100);
+}
+
+// --- 26. Schließen/Öffnen wirft beim Anwenden: Meldung mit Fehlertext, Ordner-Hinweis trotzdem, Promise löst auf.
+{
+  const t = await starte({ devices: [DANTE, FOCUS], geladen: ersterStart, presets: [{ name: 'Fo', werte: pv() }], ordnerDa: false });
+  (globalThis as unknown as { window: { jmrec: { disarm: () => Promise<unknown> } } }).window.jmrec.disarm =
+    async () => { throw new Error('kaputt'); };
+  t.setzeZustand({ status: 'armed', device: 7, channels: 2, sampleRate: 48000 });
+  await t.useRec.getState().presetAnwenden('Fo');
+  const s = t.useRec.getState();
+  ck('26: Ordner-Hinweis gesetzt', (s.hinweisOrdner ?? '').includes('E:\\Show'));
+  ck('26: Meldung mit Fehlertext', s.notice === 'Preset „Fo“ angewendet – der Eingang ließ sich nicht wieder öffnen: kaputt');
 }
 
 console.log(`\nstore: ${pass} ok, ${fail} FAIL`);

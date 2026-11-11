@@ -363,10 +363,13 @@ export function stopRecording(): RecordResult {
     };
   } catch (e) {
     writer = null;
-    if (multiWriter) {
-      multiWriter.finalize();
-      multiWriter = null;
+    // Auch hier darf ein Fehler beim Schließen der Einzelspuren den Rest nicht verhindern.
+    try {
+      multiWriter?.finalize();
+    } catch {
+      // schon im Fehlerfall — nichts weiter zu tun
     }
+    multiWriter = null;
     state.status = 'armed';
     emitState();
     return { ok: false, error: (e as Error).message };

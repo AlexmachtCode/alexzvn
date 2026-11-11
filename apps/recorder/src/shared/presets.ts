@@ -63,6 +63,18 @@ export function istNetzwerkPfad(dir: string): boolean {
   return /^[\\/]{2}/.test(dir);
 }
 
+/** Text für Dialoge/Hinweise: Steuer-, Format- und Zeilentrennzeichen (auch Bidi, Nullbreite, BOM) → Leerzeichen. */
+export function saeubereAnzeige(t: string): string {
+  return t.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ');
+}
+
+/** Servername eines Netzwerkpfads (`\\srv\x`, `//srv/x`, `\\?\UNC\srv\x`); kein Server erkennbar → null. */
+export function netzwerkServer(dir: string): string | null {
+  const m = /^[\\/]{2}(?:[?.][\\/]UNC[\\/])?([^\\/]*)/i.exec(dir);
+  if (!m || m[1] === '?') return null;
+  return m[1] === '' ? '(ohne Namen)' : m[1];
+}
+
 /**
  * Neue Presets in die vorhandenen einarbeiten; Ergebnis ist sortiert. `uebernommen` = die
  * hinzugefügten und ersetzten Presets unter ihrem endgültigen Namen (nach „Name (2)“).

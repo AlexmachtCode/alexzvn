@@ -110,10 +110,10 @@ ck('ladePresets: doppelt -> erster gewinnt', gleich(ladePresets(join(dir, 'doppe
 // Warnung im Dialog: Einzahl/Mehrzahl, je Preset eine Zeile.
 const h1 = netzwerkHinweis([{ name: 'A', dir: NETZ_A }]);
 ck('Hinweis Einzahl', h1.message === '1 importiertes Preset nimmt in einem Netzwerkordner auf');
-ck('Hinweis nennt Name und Pfad', h1.detail === `„A“ → ${NETZ_A}\n\nNur übernehmen, wenn dieser Ordner bekannt ist – beim Anwenden meldet sich Windows bei diesem Server an.`);
+ck('Hinweis nennt Server, Name und Pfad', h1.detail === `Server: srv\n„A“ → ${NETZ_A}\n\nNur übernehmen, wenn dieser Ordner bekannt ist – beim Anwenden meldet sich Windows bei diesem Server an.`);
 const h2 = netzwerkHinweis([{ name: 'A', dir: NETZ_A }, { name: 'B', dir: '//srv/b' }]);
 ck('Hinweis Mehrzahl', h2.message === '2 importierte Presets nehmen in einem Netzwerkordner auf');
-ck('Hinweis: eine Zeile je Preset', h2.detail.startsWith(`„A“ → ${NETZ_A}\n„B“ → //srv/b\n\n`));
+ck('Hinweis: eine Zeile je Preset', h2.detail.startsWith(`Server: srv\n„A“ → ${NETZ_A}\n„B“ → //srv/b\n\n`));
 
 // Netzwerk-Rückfrage vor dem Ergebnis: Übernehmen / Ohne Ordner / Abbrechen.
 netzGefragt = null;
@@ -144,8 +144,30 @@ ck('ohne+Beide: „A“ unverändert', r.presets?.find((p) => p.name === 'A')?.w
 
 // Steuerzeichen in Name/Pfad werden im Dialogtext zu Leerzeichen
 const hz = netzwerkHinweis([{ name: 'A\nB\x00', dir: '\\\\srv\\a\r\nx' }]);
-ck('Hinweis: kein Zeilenumbruch im Namen/Pfad', hz.detail.split('\n').length === 3 && !/[\x00-\x09\x0b-\x1f\x7f]/.test(hz.detail) && hz.detail.startsWith('„A B “ → \\\\srv\\a  x\n\n'));
-ck('Hinweis: neuer Schlusssatz', h1.detail.endsWith('Nur übernehmen, wenn dieser Ordner bekannt ist – beim Anwenden meldet sich Windows bei diesem Server an.'));
+ck('Hinweis: kein Zeilenumbruch im Namen/Pfad', hz.detail.split('\n').length === 4 && !/[\x00-\x09\x0b-\x1f\x7f]/.test(hz.detail) && hz.detail.startsWith('Server: srv\n„A B “ → \\\\srv\\a  x\n\n'));
+// Unicode-Fälschungen (Bidi, Nullbreite, Zeilentrenner) werden ebenfalls ersetzt, Zeilenzahl bleibt
+{
+  const cp = (c: number): string => String.fromCodePoint(c);
+  const hu = netzwerkHinweis([{ name: `A${cp(0x202e)}B`, dir: `\\\\srv\\a${cp(0x200b)}${cp(0x2028)}x` }]);
+  ck('Hinweis: keine Cc/Cf/Zl/Zp', !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(hu.detail.replace(/\n/g, '')));
+  ck('Hinweis: Zeilenzahl unverändert (4)', hu.detail.split('\n').length === 4);
+}
+// Server einmal, in Reihenfolge; Pfade ohne Servernamen mit dem Pfad selbst
+{
+  const hs = netzwerkHinweis([{ name: 'A', dir: '\\\\srv\\a' }, { name: 'B', dir: '//srv/b' }, { name: 'C', dir: '\\\\zeta\\c' }, { name: 'D', dir: '\\\\?\\C:\\x' }]);
+  ck('Hinweis: Server einmal, Reihenfolge, Pfad ohne Server', hs.detail.split('\n')[0] === 'Server: srv, zeta, \\\\?\\C:\\x');
+}
+// Mehr als 10 Presets: 10 Zeilen + „… und N weitere“; lange Namen/Pfade gekürzt
+{
+  const zwoelf = Array.from({ length: 12 }, (_, i) => ({ name: `P${i}`, dir: `\\\\srv\\d${i}` }));
+  const hm = netzwerkHinweis(zwoelf);
+  const zeilen = hm.detail.split('\n');
+  ck('Hinweis: 12 Presets -> 10 Zeilen + „… und 2 weitere“', zeilen.filter((z) => z.startsWith('„')).length === 10 && zeilen.includes('… und 2 weitere'));
+  const lang = netzwerkHinweis([{ name: 'N'.repeat(500), dir: `\\\\srv\\${'p'.repeat(500)}` }]);
+  const zl = lang.detail.split('\n')[1];
+  ck('Hinweis: lange Zeile gekürzt mit „…“', zl.includes('…') && zl.length < 450);
+}
+ck('Hinweis: neuer Schlusssatz',h1.detail.endsWith('Nur übernehmen, wenn dieser Ordner bekannt ist – beim Anwenden meldet sich Windows bei diesem Server an.'));
 
 // Ablage-Schutz: Datei aus neuerer Version wird nicht überschrieben
 const v2 = join(dir, 'v2.json');
