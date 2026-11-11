@@ -83,7 +83,7 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 - JM Rundown kennt die Zoom-Aktionen erst ab seinem nächsten Release.
 
 ### Logs und Datenschutz
-- JM Connect schreibt Meeting-Nummer und Kenncode nie auf die Platte, nie ins Log und nie in den Companion-Status. Nach einem Neustart von Connect müssen sie neu eingegeben werden.
+- JM Connect merkt sich die Meeting-Nummer des letzten Beitritts im Klartext in connect-settings.json (%APPDATA%\JM Connect), den Kenncode nur mit der Windows-Verschlüsselung. Beides steht nach „Schließen“ und nach einem Neustart wieder bereit, bis neue Daten eingetragen werden; „Vergessen“ löscht beides. Ins Log und in den Companion-Status kommen Meeting-Nummer und Kenncode nie.
 - Das Log nennt Zoom-Teilnehmer und Browser-Gäste nur mit ihrer Kennung, nie mit dem Anzeigenamen, und Slots nur mit Nummer und Modus. Karte, Companion-Variable zoom_slot{n}_target und NDI-Namen zeigen die Namen weiter.
 - Teilnehmer-Slots speichern den Anzeigenamen ihrer Person am Rechner (in connect-settings.json unter %APPDATA%\JM Connect), damit der Slot sie im nächsten Meeting wiederfindet. Vorübergehende Slots (ZOOM_LOAD) und Namen aus einer Umbenennung im Meeting speichert Connect nie.
 - „Messwerte kopieren“ legt die Messwerte ohne Teilnehmer- und ohne NDI-Namen in die Zwischenablage (Slots als Nummer und Modus, Personen als Kennung).
@@ -139,7 +139,7 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 - Die Anmeldung von Connect am Raum gilt 8 Stunden ab dem letzten „Raum öffnen“. Reißt die Verbindung danach ab, versucht Connect es für die Bedienung nicht weiter („Verbindung zum Raum beendet: …“): dann „Raum öffnen“ wählen, nicht „Raum schließen“. „Raum öffnen“ meldet Connect neu an, ohne einen verteilten Link ungültig zu machen; die Gäste bleiben im Raum.
 ### Nachbereitung
 - „Meeting verlassen“ (bei laufenden Slots fragt der Knopf einmal nach) oder Connect über das Tray beenden. Beides verlässt das Meeting sauber; die Zoom-Quellen verschwinden aus dem Switcher. Gespeicherte Slots bleiben samt Einstellungen für das nächste Meeting; vorübergehende sind weg, und per ZOOM_LOAD nur für dieses Meeting eingeschaltete Slots sind wieder aus.
-- Nach einer Fehlermeldung leert „Schließen“ Meeting-Nummer und Kenncode; vorübergehende Slots verschwinden dabei.
+- Nach einer Fehlermeldung schließt „Schließen“ die Meldung; die gemerkte Meeting-Nummer steht danach wieder im Feld, vorübergehende Slots verschwinden.
 - Bei Störungen „Logordner öffnen“ und main.log sichern. Es enthält weder Teilnehmernamen noch Kenncode noch Meeting-Nummer.
 
 ## Profi-Tipps
