@@ -168,8 +168,11 @@ function schreibeStille(n: number): void {
   }
 }
 
-function stilleBisJetzt(): void {
-  if (uhr && state.status === 'recording') schreibeStille(uhr.fehlend(Date.now()));
+// Wächter: `fehlend` (bestätigt die Pause). Stopp/Abbau: `fehlendBeimStopp` (echter letzter Block).
+function stilleBisJetzt(beimStopp = false): void {
+  if (!uhr || state.status !== 'recording') return;
+  const jetzt = Date.now();
+  schreibeStille(beimStopp ? uhr.fehlendBeimStopp(jetzt) : uhr.fehlend(jetzt));
 }
 
 function stopWaechter(): void {
@@ -244,7 +247,7 @@ export function arm(input: ArmInput): OpResult {
 export function disarm(): void {
   stopWaechter();
   try {
-    stilleBisJetzt(); // Lücke bis zum Ende füllen, bevor der Writer schließt
+    stilleBisJetzt(true); // Lücke bis zum Ende füllen, bevor der Writer schließt
   } catch {
     // Fehler ignorieren: finalize und stopInput müssen immer laufen
   }
@@ -264,7 +267,11 @@ export function disarm(): void {
     writer = null;
   }
   if (multiWriter) {
-    multiWriter.finalize();
+    try {
+      multiWriter.finalize();
+    } catch {
+      // ignore: der Eingang muss trotzdem schließen
+    }
     multiWriter = null;
   }
   try {
@@ -331,7 +338,7 @@ export function stopRecording(): RecordResult {
   state.scheduledStopAt = null;
   const filePath = state.filePath ?? '';
   try {
-    stilleBisJetzt(); // Lücke bis zum Stopp füllen
+    stilleBisJetzt(true); // Lücke bis zum Stopp füllen
   } catch {
     // weiter mit finalize
   }
