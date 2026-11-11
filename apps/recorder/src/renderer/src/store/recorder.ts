@@ -76,7 +76,8 @@ interface RecStore {
   setScheduleDurationMin: (n: number) => void;
   setGain: (db: number) => void;
   pickDir: () => Promise<void>;
-  arm: () => Promise<void>;
+  /** true = Eingang offen, false = nicht geöffnet (Grund steht in `notice`). */
+  arm: () => Promise<boolean>;
   disarm: () => Promise<void>;
   record: () => Promise<void>;
   stop: () => Promise<void>;
@@ -187,16 +188,23 @@ export const useRec = create<RecStore>((set, get) => {
       }
       // Offener Eingang, der sich ändert → neu öffnen, sonst liefe er mit den alten Werten weiter.
       let neu = '';
+      let offen = true;
       const jetzt = get();
       if (
         jetzt.state.status === 'armed' &&
         (jetzt.deviceIndex !== vorher.deviceIndex || jetzt.channels !== vorher.channels || jetzt.sampleRate !== vorher.sampleRate)
       ) {
         await get().disarm();
-        await get().arm();
+        offen = await get().arm();
         neu = ' Eingang neu geöffnet.';
       }
-      set({ aktivesPreset: name, notice: `Preset „${name}“ angewendet.${neu}` });
+      // Scheitert das Neuöffnen, steht dessen Fehlertext schon in `notice` — nicht überschreiben.
+      set({
+        aktivesPreset: name,
+        notice: offen
+          ? `Preset „${name}“ angewendet.${neu}`
+          : `Preset „${name}“ angewendet – der Eingang ließ sich nicht wieder öffnen: ${get().notice ?? ''}`,
+      });
     },
 
     presetSpeichern: async (name) => {
@@ -402,10 +410,11 @@ export const useRec = create<RecStore>((set, get) => {
       const { deviceIndex, channels, sampleRate } = get();
       if (deviceIndex == null) {
         set({ notice: 'Kein Eingang gewählt.' });
-        return;
+        return false;
       }
       const res = await window.jmrec.arm({ device: deviceIndex, channels, sampleRate });
       if (!res.ok) set({ notice: res.error ?? 'Eingang konnte nicht geöffnet werden.' });
+      return res.ok;
     },
 
     disarm: async () => {

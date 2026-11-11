@@ -24,6 +24,8 @@ interface Lage {
   presets?: RecPreset[];
   /** Antwort von ordnerDa (Standard: true). */
   ordnerDa?: boolean;
+  /** Antwort von arm (Standard: ok). */
+  armErgebnis?: { ok: boolean; error?: string };
   exportErgebnis?: PresetDateiErgebnis;
   importErgebnis?: PresetDateiErgebnis;
   /** Lässt die jeweilige presets-Funktion ablehnen. */
@@ -46,7 +48,7 @@ async function starte(lage: Lage) {
     onRemoteCommand: () => () => {},
     onShowSettings: (cb: (s: RecShowSettings) => void) => { showPush = cb; return () => {}; },
     takeShowSettings: async () => lage.show ?? null,
-    arm: async (a: unknown) => { aufrufe.arm.push(a); return { ok: true }; },
+    arm: async (a: unknown) => { aufrufe.arm.push(a); return lage.armErgebnis ?? { ok: true }; },
     disarm: async () => { aufrufe.disarm++; return { ok: true }; },
     ordnerDa: async (d: string) => { aufrufe.ordnerDa.push(d); return lage.ordnerDa ?? true; },
     presets: {
@@ -234,6 +236,17 @@ const ersterStart: GeladeneEinstellungen = { einstellungen: {}, ordnerDa: null }
   ck('11: Kanäle auf Gerät begrenzt', s.channels === 8);
   ck('11: disarm 1x, arm 1x mit Gerät 3 / 8 Kanälen', t.aufrufe.disarm === 1 && t.aufrufe.arm.length === 1 && a?.device === 3 && a.channels === 8);
   ck('11: Meldung nennt das Neuöffnen', s.notice === 'Preset „Fo“ angewendet. Eingang neu geöffnet.');
+}
+
+// --- 11b. Neu öffnen scheitert -> keine Erfolgsmeldung, Fehlertext bleibt, Preset trotzdem aktiv.
+{
+  const t = await starte({ devices: [DANTE, FOCUS], geladen: ersterStart, presets: [{ name: 'Fo', werte: pv() }], armErgebnis: { ok: false, error: 'Gerät belegt' } });
+  t.setzeZustand({ status: 'armed', device: 7, channels: 2, sampleRate: 48000 });
+  await t.useRec.getState().presetAnwenden('Fo');
+  const s = t.useRec.getState();
+  ck('11b: Meldung nennt Scheitern + Fehlertext', (s.notice ?? '').includes('nicht wieder öffnen') && (s.notice ?? '').includes('Gerät belegt'));
+  ck('11b: keine Erfolgsmeldung', !(s.notice ?? '').includes('Eingang neu geöffnet'));
+  ck('11b: Preset bleibt aktiv', s.aktivesPreset === 'Fo');
 }
 
 // --- 12. Offener Eingang, nur der Dateiname ändert sich -> kein Neuöffnen.
