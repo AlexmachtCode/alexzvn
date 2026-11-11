@@ -564,6 +564,16 @@
     "name": "JM Presenter",
     "entries": [
       {
+        "version": "0.11.0",
+        "date": "2026-11-11",
+        "notes": [
+          "Neuer Reiter „Übergänge“ im Editor neben „Folie“: Schnitt oder Überblendung mit einstellbarer Dauer für alle Folien, und für jede Folie ein eigener Übergang, wenn sie anders hereinkommen soll.",
+          "Schleife: Der Presenter blättert nach einer Standzeit selbst weiter und beginnt nach der letzten Folie wieder von vorn, etwa für Pausen- oder Foyer-Schleifen. Die Standzeit gilt für alle Folien, einzelne Folien können eine eigene bekommen.",
+          "In der Referentenansicht schaltet der Knopf „Schleife“ live an und aus und zeigt, wann die nächste Folie kommt. Wer von Hand blättert, startet die Standzeit neu; Schwarz- und Weißbild halten die Schleife an.",
+          "Übergänge und Schleife werden in der Projektdatei gespeichert. Ältere Projekte öffnen wie bisher, mit Schnitt und ohne Schleife."
+        ]
+      },
+      {
         "version": "0.10.1",
         "date": "2026-10-08",
         "notes": [
