@@ -119,6 +119,9 @@ export interface RecPreset {
 /** Wahl bei gleichnamigen Presets beim Import. */
 export type KonfliktWahl = 'ueberschreiben' | 'beide' | 'abbrechen';
 
+/** Wahl beim Import, wenn Presets in einen Netzwerkordner aufnehmen würden. */
+export type NetzWahl = 'uebernehmen' | 'ohne' | 'abbrechen';
+
 /** Ergebnis von Preset-Import/-Export über den Dateidialog. */
 export interface PresetDateiErgebnis {
   ok: boolean;

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
-import type { ArmInput, GeladeneEinstellungen, KonfliktWahl, PresetDateiErgebnis, RecordInput, RecPreset, ScheduleInput } from '@shared/types';
+import type { ArmInput, GeladeneEinstellungen, KonfliktWahl, NetzWahl, PresetDateiErgebnis, RecordInput, RecPreset, ScheduleInput } from '@shared/types';
 import * as rec from './recorder';
 import { ladeEinstellungen, speichereEinstellungen } from './einstellungen';
 import { importiere, ladePresets, netzwerkHinweis, speicherePresets } from './presets';
@@ -118,19 +118,24 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       const m = win ? await dialog.showMessageBox(win, opt) : await dialog.showMessageBox(opt);
       return (['ueberschreiben', 'beide', 'abbrechen'] as const)[m.response] ?? 'abbrechen';
     };
-    const erg = await importiere(ladePresets(presetDatei()), text, frage);
+    const netzFrage = async (netzwerk: { name: string; dir: string }[]): Promise<NetzWahl> => {
+      const opt = {
+        type: 'warning' as const,
+        buttons: ['Übernehmen', 'Ohne Netzwerkordner übernehmen', 'Abbrechen'],
+        defaultId: 1,
+        cancelId: 2,
+        ...netzwerkHinweis(netzwerk),
+      };
+      const m = win ? await dialog.showMessageBox(win, opt) : await dialog.showMessageBox(opt);
+      return (['uebernehmen', 'ohne', 'abbrechen'] as const)[m.response] ?? 'abbrechen';
+    };
+    const erg = await importiere(ladePresets(presetDatei()), text, frage, netzFrage);
     if (!erg.ok || !erg.presets) return erg;
     let gespeichert: RecPreset[];
     try {
       gespeichert = speicherePresets(presetDatei(), erg.presets);
     } catch (err) {
       return { ok: false, error: `Presets nicht gespeichert: ${(err as Error).message}` };
-    }
-    // Netzwerkordner unübersehbar nennen — die Meldungszeile allein ist nach 5 s weg.
-    if (erg.netzwerk?.length) {
-      const opt = { type: 'warning' as const, buttons: ['OK'], defaultId: 0, ...netzwerkHinweis(erg.netzwerk) };
-      if (win) await dialog.showMessageBox(win, opt);
-      else await dialog.showMessageBox(opt);
     }
     return { ...erg, presets: gespeichert };
   });

@@ -3,6 +3,7 @@ import {
   baueExportDatei, fuehreZusammen, freierPresetName, gleicheWerte, istNetzwerkPfad, leseExportDatei,
   normierePreset, presetWerte, sortiere,
 } from '../src/shared/presets';
+import type { RecPreset } from '../src/shared/types';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -101,6 +102,11 @@ ck('Netzwerkpfad: \\\\?\\UNC\\srv\\x', istNetzwerkPfad('\\\\?\\UNC\\srv\\x'));
 ck('kein Netzwerkpfad: D:\\x', !istNetzwerkPfad('D:\\x'));
 ck('kein Netzwerkpfad: \\x', !istNetzwerkPfad('\\x'));
 ck('kein Netzwerkpfad: leer', !istNetzwerkPfad(''));
+
+// Export-Grenze: dieselbe Obergrenze wie beim Import
+const viele = Array.from({ length: 501 }, (_, i): RecPreset => ({ name: `P${i}`, werte: {} }));
+ck('baueExportDatei: 501 Presets wirft', wirft(() => baueExportDatei(viele, new Date(0)), 'Zu viele Presets für eine Datei (höchstens 500).'));
+ck('baueExportDatei: 500 Presets gehen', baueExportDatei(viele.slice(0, 500), new Date(0)).length > 0);
 
 console.log(`\npresets: ${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);

@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, win32 } from 'node:path';
-import type { KonfliktWahl, PresetDateiErgebnis, RecPreset } from '@shared/types';
+import type { KonfliktWahl, NetzWahl, PresetDateiErgebnis, RecPreset } from '@shared/types';
 import { fuehreZusammen, istNetzwerkPfad, leseExportDatei, normierePreset, sortiere } from '../shared/presets';
 
 /** Einträge prüfen; bei doppeltem Namen gewinnt der erste. */
@@ -31,6 +31,11 @@ export function ladePresets(datei: string): RecPreset[] {
 
 /** Presets geprüft und sortiert schreiben (Zwischendatei + Umbenennen). Gibt die gespeicherte Liste zurück. */
 export function speicherePresets(datei: string, liste: RecPreset[]): RecPreset[] {
+  // Datei aus neuerer Version nicht überschreiben (lesbar + version > 1); unlesbar oder fehlend → schreiben.
+  let vorhanden: unknown;
+  try { vorhanden = JSON.parse(readFileSync(datei, 'utf8')); } catch { vorhanden = undefined; }
+  const v = vorhanden && typeof vorhanden === 'object' ? (vorhanden as { version?: unknown }).version : undefined;
+  if (typeof v === 'number' && v > 1) throw new Error('Die Preset-Datei stammt aus einer neueren Recorder-Version – nicht überschrieben.');
   const sortiert = sortiere(eindeutig(liste));
   mkdirSync(dirname(datei), { recursive: true });
   const tmp = `${datei}.tmp`;
@@ -42,12 +47,13 @@ export function speicherePresets(datei: string, liste: RecPreset[]): RecPreset[]
 /**
  * Exportdatei in die vorhandenen Presets einarbeiten. Fasst keine Datei an: bei `ok` steht die
  * neue, sortierte Liste in `presets` und der Aufrufer speichert sie. `frage` wird nur bei
- * gleichnamigen Presets gefragt.
+ * gleichnamigen Presets gefragt, `netzFrage` nur bei Netzwerkordnern (nach den endgültigen Namen).
  */
 export async function importiere(
   vorhanden: RecPreset[],
   text: string,
   frage: (konflikte: string[]) => Promise<KonfliktWahl>,
+  netzFrage: (netzwerk: { name: string; dir: string }[]) => Promise<NetzWahl>,
 ): Promise<PresetDateiErgebnis> {
   let gelesen: ReturnType<typeof leseExportDatei>;
   try {
@@ -67,20 +73,40 @@ export async function importiere(
   if (konflikte.length) wahl = await frage(konflikte);
   if (wahl === 'abbrechen') return { ok: false };
 
-  const { liste, hinzu, ersetzt, uebernommen } = fuehreZusammen(vorhanden, neu, wahl);
+  const zusammen = fuehreZusammen(vorhanden, neu, wahl);
+  const { hinzu, ersetzt, uebernommen } = zusammen;
+  let liste = zusammen.liste;
   // Netzwerkordner: beim Anwenden meldet sich Windows bei diesem Server an → ausdrücklich nennen.
   const netzwerk = uebernommen.flatMap((p) =>
     p.werte.dir !== undefined && istNetzwerkPfad(p.werte.dir) ? [{ name: p.name, dir: p.werte.dir }] : [],
   );
+  let ohneOrdner = false;
+  if (netzwerk.length > 0) {
+    const netzWahl = await netzFrage(netzwerk);
+    if (netzWahl === 'abbrechen') return { ok: false };
+    if (netzWahl === 'ohne') {
+      // Nur die genannten Presets (endgültige Namen) verlieren den Ordner, alle anderen bleiben.
+      const namen = new Set(netzwerk.map((p) => p.name));
+      liste = liste.map((p) => {
+        if (!namen.has(p.name)) return p;
+        const { dir: _weg, ...rest } = p.werte;
+        return { name: p.name, werte: rest };
+      });
+      ohneOrdner = true;
+    }
+  }
   const n = hinzu + ersetzt;
   let meldung = `${n} ${n === 1 ? 'Preset' : 'Presets'} importiert`;
   if (ersetzt > 0) meldung += ` (${ersetzt} ersetzt)`;
   if (gelesen.uebersprungen > 0) meldung += `, ${gelesen.uebersprungen} ungültige übersprungen`;
-  if (netzwerk.length > 0) meldung += ` – ${netzwerk.length} davon mit Netzwerkordner`;
-  return { ok: true, presets: liste, meldung: `${meldung}.`, ...(netzwerk.length > 0 ? { netzwerk } : {}) };
+  if (netzwerk.length > 0) meldung += ohneOrdner ? ` – ${netzwerk.length} ohne Netzwerkordner übernommen` : ` – ${netzwerk.length} davon mit Netzwerkordner`;
+  return { ok: true, presets: liste, meldung: `${meldung}.`, ...(netzwerk.length > 0 && !ohneOrdner ? { netzwerk } : {}) };
 }
 
-/** Warnung nach dem Import: je Preset eine Zeile „Name“ → Pfad. */
+/** Steuerzeichen (Zeilenumbruch, NUL …) im Dialogtext wären fälschbar → Leerzeichen. */
+const ohneSteuerzeichen = (t: string): string => t.replace(/[\x00-\x1f\x7f]/g, ' ');
+
+/** Rückfrage vor dem Übernehmen: je Preset eine Zeile „Name“ → Pfad. */
 export function netzwerkHinweis(netzwerk: { name: string; dir: string }[]): { message: string; detail: string } {
   const n = netzwerk.length;
   return {
@@ -89,7 +115,7 @@ export function netzwerkHinweis(netzwerk: { name: string; dir: string }[]): { me
         ? '1 importiertes Preset nimmt in einem Netzwerkordner auf'
         : `${n} importierte Presets nehmen in einem Netzwerkordner auf`,
     detail:
-      netzwerk.map((p) => `„${p.name}“ → ${p.dir}`).join('\n') +
-      '\n\nNur anwenden, wenn dieser Ordner bekannt ist – beim Anwenden meldet sich Windows bei diesem Server an.',
+      netzwerk.map((p) => `„${ohneSteuerzeichen(p.name)}“ → ${ohneSteuerzeichen(p.dir)}`).join('\n') +
+      '\n\nNur übernehmen, wenn dieser Ordner bekannt ist – beim Anwenden meldet sich Windows bei diesem Server an.',
   };
 }

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { importiere, ladePresets, netzwerkHinweis, speicherePresets } from '../src/main/presets';
 import { baueExportDatei } from '../src/shared/presets';
-import type { KonfliktWahl, RecPreset } from '../src/shared/types';
+import type { KonfliktWahl, NetzWahl, RecPreset } from '../src/shared/types';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -42,49 +42,52 @@ const B = preset('B', 4);
 const C = preset('C', 6);
 const datText = (l: RecPreset[]): string => baueExportDatei(l, new Date('2026-11-11T10:00:00Z'));
 let gefragt: string[] | null = null;
+let netzGefragt: { name: string; dir: string }[] | null = null;
+const netzMit = (w: NetzWahl) => async (n: { name: string; dir: string }[]): Promise<NetzWahl> => { netzGefragt = n; return w; };
 const frageMit = (w: KonfliktWahl) => async (k: string[]): Promise<KonfliktWahl> => { gefragt = k; return w; };
 
 gefragt = null;
-let r = await importiere([A], datText([B]), frageMit('beide'));
+let r = await importiere([A], datText([B]), frageMit('beide'), netzMit('uebernehmen'));
 ck('ohne Konflikt: ok, A+B', r.ok && gleich(namen(r.presets), ['A', 'B']));
 ck('ohne Konflikt: frage nicht aufgerufen', gefragt === null);
 ck('ohne Konflikt: Meldung „1 Preset importiert“', (r.meldung ?? '').includes('1 Preset importiert'));
 
 gefragt = null;
-r = await importiere([A], datText([A2, C]), frageMit('beide'));
+r = await importiere([A], datText([A2, C]), frageMit('beide'), netzMit('uebernehmen'));
 ck('beide: frage bekam [A]', gleich(gefragt, ['A']));
 ck('beide: Namen A, A (2), C', r.ok && gleich(namen(r.presets), ['A', 'A (2)', 'C']));
 
-r = await importiere([A], datText([A2, C]), frageMit('ueberschreiben'));
+r = await importiere([A], datText([A2, C]), frageMit('ueberschreiben'), netzMit('uebernehmen'));
 ck('ueberschreiben: A hat Werte von A2', r.ok && r.presets?.find((p) => p.name === 'A')?.werte.channels === 16);
 ck('ueberschreiben: Meldung „1 ersetzt“', (r.meldung ?? '').includes('1 ersetzt'));
 
-r = await importiere([A], datText([A2, C]), frageMit('abbrechen'));
+r = await importiere([A], datText([A2, C]), frageMit('abbrechen'), netzMit('uebernehmen'));
 ck('abbrechen: ok false, kein error', !r.ok && r.error === undefined);
 
-r = await importiere([A], 'Müll', frageMit('beide'));
+r = await importiere([A], 'Müll', frageMit('beide'), netzMit('uebernehmen'));
 ck('Müll: ok false, error nennt Preset-Datei', !r.ok && (r.error ?? '').includes('keine Recorder-Preset-Datei'));
 
 const mitKaputt = JSON.stringify({ format: 'jm-recorder-presets', version: 1, presets: [B, { name: '' }] });
-r = await importiere([A], mitKaputt, frageMit('beide'));
+r = await importiere([A], mitKaputt, frageMit('beide'), netzMit('uebernehmen'));
 ck('übersprungen: Meldung nennt „übersprungen“', r.ok && (r.meldung ?? '').includes('1 ungültige übersprungen'));
 
 // Netzwerkordner: der Import nennt jedes übernommene Preset mit Netzwerkpfad unter seinem endgültigen Namen.
 const mitDir = (name: string, d: string): RecPreset => ({ name, werte: { dir: d } });
 const NETZ_A = '\\\\srv\\a';
-r = await importiere([], datText([mitDir('Netz1', NETZ_A), mitDir('Netz2', '//srv/b'), mitDir('Lokal', 'D:\\x')]), frageMit('beide'));
+const NETZ_B = '\\\\srv\\b';
+r = await importiere([], datText([mitDir('Netz1', NETZ_A), mitDir('Netz2', '//srv/b'), mitDir('Lokal', 'D:\\x')]), frageMit('beide'), netzMit('uebernehmen'));
 ck('netzwerk: genau die zwei Netzwerkpfade', r.ok && gleich(r.netzwerk, [{ name: 'Netz1', dir: NETZ_A }, { name: 'Netz2', dir: '//srv/b' }]));
 ck('netzwerk: Meldung nennt sie', r.meldung === '3 Presets importiert – 2 davon mit Netzwerkordner.');
 
-r = await importiere([preset('A', 2)], datText([mitDir('A', NETZ_A)]), frageMit('beide'));
+r = await importiere([preset('A', 2)], datText([mitDir('A', NETZ_A)]), frageMit('beide'), netzMit('uebernehmen'));
 ck('netzwerk: „Beide behalten“ nennt „A (2)“', r.ok && gleich(r.netzwerk, [{ name: 'A (2)', dir: NETZ_A }]));
-r = await importiere([preset('A', 2)], datText([mitDir('A', NETZ_A)]), frageMit('ueberschreiben'));
+r = await importiere([preset('A', 2)], datText([mitDir('A', NETZ_A)]), frageMit('ueberschreiben'), netzMit('uebernehmen'));
 ck('netzwerk: ersetztes Preset genannt', r.ok && gleich(r.netzwerk, [{ name: 'A', dir: NETZ_A }]));
 
-r = await importiere([mitDir('Alt', NETZ_A)], datText([mitDir('Neu', 'D:\\x')]), frageMit('beide'));
+r = await importiere([mitDir('Alt', NETZ_A)], datText([mitDir('Neu', 'D:\\x')]), frageMit('beide'), netzMit('uebernehmen'));
 ck('netzwerk: ohne Netzwerkpfad im Import kein Feld (vorhandene zählen nicht)', r.ok && !('netzwerk' in r) && r.meldung === '1 Preset importiert.');
 
-r = await importiere([preset('A', 2)], datText([mitDir('A', NETZ_A)]), frageMit('abbrechen'));
+r = await importiere([preset('A', 2)], datText([mitDir('A', NETZ_A)]), frageMit('abbrechen'), netzMit('uebernehmen'));
 ck('netzwerk: Abbrechen -> nichts', !r.ok && r.netzwerk === undefined && r.presets === undefined);
 
 // Relativer Zielordner aus fremder Datei: das Feld fällt weg, der Rest bleibt gültig.
@@ -92,7 +95,7 @@ r = await importiere([], datText([
   { name: 'Rel', werte: { dir: 'Aufnahmen\\Tag1', channels: 4 } },
   { name: 'Punkt', werte: { dir: '.\\x' } },
   mitDir('Abs', 'D:\\x'),
-]), frageMit('beide'));
+]), frageMit('beide'), netzMit('uebernehmen'));
 const rel = r.presets?.find((p) => p.name === 'Rel');
 ck('relativer dir fällt weg, Rest bleibt', r.ok && rel !== undefined && !('dir' in rel.werte) && rel.werte.channels === 4);
 ck('.\\x fällt weg', r.ok && gleich(r.presets?.find((p) => p.name === 'Punkt')?.werte, {}));
@@ -107,10 +110,53 @@ ck('ladePresets: doppelt -> erster gewinnt', gleich(ladePresets(join(dir, 'doppe
 // Warnung im Dialog: Einzahl/Mehrzahl, je Preset eine Zeile.
 const h1 = netzwerkHinweis([{ name: 'A', dir: NETZ_A }]);
 ck('Hinweis Einzahl', h1.message === '1 importiertes Preset nimmt in einem Netzwerkordner auf');
-ck('Hinweis nennt Name und Pfad', h1.detail === `„A“ → ${NETZ_A}\n\nNur anwenden, wenn dieser Ordner bekannt ist – beim Anwenden meldet sich Windows bei diesem Server an.`);
+ck('Hinweis nennt Name und Pfad', h1.detail === `„A“ → ${NETZ_A}\n\nNur übernehmen, wenn dieser Ordner bekannt ist – beim Anwenden meldet sich Windows bei diesem Server an.`);
 const h2 = netzwerkHinweis([{ name: 'A', dir: NETZ_A }, { name: 'B', dir: '//srv/b' }]);
 ck('Hinweis Mehrzahl', h2.message === '2 importierte Presets nehmen in einem Netzwerkordner auf');
 ck('Hinweis: eine Zeile je Preset', h2.detail.startsWith(`„A“ → ${NETZ_A}\n„B“ → //srv/b\n\n`));
+
+// Netzwerk-Rückfrage vor dem Ergebnis: Übernehmen / Ohne Ordner / Abbrechen.
+netzGefragt = null;
+r = await importiere([], datText([mitDir('Netz1', NETZ_A), mitDir('Lokal', 'D:\\x')]), frageMit('beide'), netzMit('uebernehmen'));
+ck('netzFrage: bekam genau die Netzwerk-Presets', gleich(netzGefragt, [{ name: 'Netz1', dir: NETZ_A }]));
+ck('uebernehmen: Ordner bleibt, netzwerk gesetzt', r.ok && r.presets?.find((p) => p.name === 'Netz1')?.werte.dir === NETZ_A && r.netzwerk?.length === 1);
+
+netzGefragt = null;
+r = await importiere([], datText([mitDir('Lokal', 'D:\\x'), B]), frageMit('beide'), netzMit('abbrechen'));
+ck('keine Netzwerkpfade: netzFrage nicht gerufen', netzGefragt === null && r.ok);
+
+r = await importiere([], datText([mitDir('Netz1', NETZ_A), mitDir('Lokal', 'D:\\x')]), frageMit('beide'), netzMit('abbrechen'));
+ck('netz abbrechen: ok false ohne Fehler', !r.ok && r.error === undefined && r.presets === undefined);
+
+r = await importiere([], datText([mitDir('Netz1', NETZ_A), mitDir('Lokal', 'D:\\x')]), frageMit('beide'), netzMit('ohne'));
+ck('ohne: Netzwerk-Preset verliert dir, Lokal behält ihn', r.ok && !('dir' in (r.presets?.find((p) => p.name === 'Netz1')?.werte ?? {})) && r.presets?.find((p) => p.name === 'Lokal')?.werte.dir === 'D:\\x');
+ck('ohne: kein netzwerk-Feld, Meldung nennt „ohne Netzwerkordner“', r.ok && !('netzwerk' in r) && r.meldung === '2 Presets importiert – 1 ohne Netzwerkordner übernommen.');
+
+// „ohne“ + Überschreiben: das ersetzte Preset verliert den Ordner
+r = await importiere([mitDir('A', 'D:\\alt'), mitDir('Z', NETZ_A)], datText([mitDir('A', NETZ_A)]), frageMit('ueberschreiben'), netzMit('ohne'));
+ck('ohne+Überschreiben: A ohne dir', r.ok && !('dir' in (r.presets?.find((p) => p.name === 'A')?.werte ?? {})));
+ck('ohne+Überschreiben: vorhandenes Z mit Netzwerkpfad unangetastet', r.presets?.find((p) => p.name === 'Z')?.werte.dir === NETZ_A);
+
+// „ohne“ + Beide behalten: „A (2)“ ohne Ordner, „A“ unverändert
+r = await importiere([mitDir('A', NETZ_B)], datText([mitDir('A', NETZ_A)]), frageMit('beide'), netzMit('ohne'));
+ck('ohne+Beide: „A (2)“ ohne dir', r.ok && !('dir' in (r.presets?.find((p) => p.name === 'A (2)')?.werte ?? {})));
+ck('ohne+Beide: „A“ unverändert', r.presets?.find((p) => p.name === 'A')?.werte.dir === NETZ_B);
+
+// Steuerzeichen in Name/Pfad werden im Dialogtext zu Leerzeichen
+const hz = netzwerkHinweis([{ name: 'A\nB\x00', dir: '\\\\srv\\a\r\nx' }]);
+ck('Hinweis: kein Zeilenumbruch im Namen/Pfad', hz.detail.split('\n').length === 3 && !/[\x00-\x09\x0b-\x1f\x7f]/.test(hz.detail) && hz.detail.startsWith('„A B “ → \\\\srv\\a  x\n\n'));
+ck('Hinweis: neuer Schlusssatz', h1.detail.endsWith('Nur übernehmen, wenn dieser Ordner bekannt ist – beim Anwenden meldet sich Windows bei diesem Server an.'));
+
+// Ablage-Schutz: Datei aus neuerer Version wird nicht überschrieben
+const v2 = join(dir, 'v2.json');
+const v2Text = JSON.stringify({ version: 2, presets: [preset('Neu', 1)] });
+writeFileSync(v2, v2Text, 'utf8');
+let v2Fehler = '';
+try { speicherePresets(v2, [preset('X', 1)]); } catch (e) { v2Fehler = (e as Error).message; }
+ck('speicherePresets: v2-Datei -> wirft', v2Fehler === 'Die Preset-Datei stammt aus einer neueren Recorder-Version – nicht überschrieben.');
+ck('speicherePresets: v2-Datei unverändert', readFileSync(v2, 'utf8') === v2Text && !existsSync(`${v2}.tmp`));
+speicherePresets(muell, [preset('Heil', 1)]);
+ck('speicherePresets: kaputte Datei wird ersetzt', gleich(namen(ladePresets(muell)), ['Heil']));
 
 console.log(`\npresets-datei: ${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);

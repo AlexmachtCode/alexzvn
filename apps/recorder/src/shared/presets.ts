@@ -84,6 +84,7 @@ export function fuehreZusammen(
 
 /** Exportdatei als JSON-Text. */
 export function baueExportDatei(liste: RecPreset[], jetzt: Date): string {
+  if (liste.length > EXPORT_MAX_PRESETS) throw new Error(`Zu viele Presets für eine Datei (höchstens ${EXPORT_MAX_PRESETS}).`);
   return JSON.stringify({ format: EXPORT_FORMAT, version: 1, exportiert: jetzt.toISOString(), presets: liste }, null, 2);
 }
 
