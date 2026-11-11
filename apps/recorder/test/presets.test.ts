@@ -1,6 +1,6 @@
 // Preset-Regeln: Normieren, Vergleichen, Namen, Zusammenführen, Dateiformat. npm run selftest -w @jm/recorder
 import {
-  baueExportDatei, fuehreZusammen, freierPresetName, gleicheDefinierteWerte, gleicheWerte, istNetzwerkPfad, leseExportDatei,
+  baueExportDatei, fuehreZusammen, freierPresetName, gleicheDefinierteWerte, gleicheWerte, istErlaubterOrdner, istNetzwerkPfad, leseExportDatei,
   netzwerkServer, normierePreset, presetWerte, saeubereAnzeige, sortiere,
 } from '../src/shared/presets';
 import type { RecPreset } from '../src/shared/types';
@@ -130,6 +130,9 @@ ck('baueExportDatei: 500 Presets gehen', baueExportDatei(viele.slice(0, 500), ne
   ck('netzwerkServer: unc klein', netzwerkServer('\\\\?\\unc\\srv2\\x') === 'srv2');
   ck('netzwerkServer: ohne Namen', netzwerkServer('\\\\') === '(ohne Namen)');
   ck('netzwerkServer: \\\\?\\C:\\x -> null', netzwerkServer('\\\\?\\C:\\x') === null);
+  // Erlaubte Ordner: nur Laufwerk oder übliche Freigabe, nichts Besonderes von Windows.
+  for (const d of ['D:\\Aufnahmen', 'd:/x', '\\\\nas\\aufnahmen', '//nas/aufnahmen/VA']) ck(`istErlaubterOrdner: ${d} ja`, istErlaubterOrdner(d));
+  for (const d of ['relativ\\ordner', '\\\\?\\C:\\x', '\\\\.\\pipe\\x', '\\\\?\\GLOBALROOT\\Device\\Mup\\srv\\s', '\\\\?\\UNC\\srv\\s', '\\\\srv', '\\\\srv\\', '']) ck(`istErlaubterOrdner: ${d} nein`, !istErlaubterOrdner(d));
 }
 
 console.log(`\npresets: ${pass} ok, ${fail} FAIL`);

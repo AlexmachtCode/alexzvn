@@ -101,6 +101,15 @@ ck('relativer dir fällt weg, Rest bleibt', r.ok && rel !== undefined && !('dir'
 ck('.\\x fällt weg', r.ok && gleich(r.presets?.find((p) => p.name === 'Punkt')?.werte, {}));
 ck('absoluter dir bleibt', r.presets?.find((p) => p.name === 'Abs')?.werte.dir === 'D:\\x');
 
+// Windows-Sonderpfade (Pipe, GLOBALROOT): Feld fällt weg, keine Netzwerk-Rückfrage.
+netzGefragt = null;
+r = await importiere([], datText([
+  { name: 'Pipe', werte: { dir: '\\\\.\\pipe\\x', channels: 2 } },
+  mitDir('Root', '\\\\?\\GLOBALROOT\\Device\\Mup\\srv\\s'),
+]), frageMit('beide'), netzMit('uebernehmen'));
+ck('Sonderpfade: beide importiert ohne dir', r.ok && r.presets?.length === 2 && r.presets.every((p) => !('dir' in p.werte)));
+ck('Sonderpfade: keine Netzwerk-Rückfrage', netzGefragt === null && r.netzwerk === undefined);
+
 // Doppelte Namen in der Ablage: der erste gewinnt (Laden wie Speichern).
 const doppelt = speicherePresets(join(dir, 'doppelt.json'), [preset('X', 1), preset('X', 2), preset('Y', 3)]);
 ck('speicherePresets: doppelt -> erster gewinnt', gleich(doppelt, [preset('X', 1), preset('Y', 3)]));

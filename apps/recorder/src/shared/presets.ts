@@ -63,6 +63,11 @@ export function istNetzwerkPfad(dir: string): boolean {
   return /^[\\/]{2}/.test(dir);
 }
 
+/** Nur Laufwerkspfad (`D:\x`) oder übliche Freigabe (`\\srv\share`); `\\?\…`, `\\.\…`, `\\srv` und Relatives nicht. */
+export function istErlaubterOrdner(dir: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(dir) || /^[\\/]{2}[^\\/?.][^\\/]*[\\/][^\\/]+/.test(dir);
+}
+
 /** Text für Dialoge/Hinweise: Steuer-, Format- und Zeilentrennzeichen (auch Bidi, Nullbreite, BOM) → Leerzeichen. */
 export function saeubereAnzeige(t: string): string {
   return t.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ');

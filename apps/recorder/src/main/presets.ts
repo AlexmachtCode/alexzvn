@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, win32 } from 'node:path';
+import { dirname } from 'node:path';
 import type { KonfliktWahl, NetzWahl, PresetDateiErgebnis, RecPreset } from '@shared/types';
-import { fuehreZusammen, istNetzwerkPfad, leseExportDatei, netzwerkServer, normierePreset, saeubereAnzeige, sortiere } from '../shared/presets';
+import { fuehreZusammen, istErlaubterOrdner, istNetzwerkPfad, leseExportDatei, netzwerkServer, normierePreset, saeubereAnzeige, sortiere } from '../shared/presets';
 
 /** Einträge prüfen; bei doppeltem Namen gewinnt der erste. */
 function eindeutig(eintraege: unknown[]): RecPreset[] {
@@ -61,9 +61,9 @@ export async function importiere(
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
-  // Relativer Zielordner aus fremder Datei hinge vom Arbeitsverzeichnis ab → Feld weg, Rest bleibt.
+  // Nur Laufwerks- und übliche Netzwerkordner; Relatives und Windows-Sonderpfade aus fremder Datei → Feld weg, Rest bleibt.
   const neu = gelesen.presets.map((p): RecPreset => {
-    if (p.werte.dir === undefined || win32.isAbsolute(p.werte.dir)) return p;
+    if (p.werte.dir === undefined || istErlaubterOrdner(p.werte.dir)) return p;
     const { dir: _weg, ...rest } = p.werte;
     return { name: p.name, werte: rest };
   });
