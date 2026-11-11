@@ -389,6 +389,18 @@
     "name": "JM Audio Recorder",
     "entries": [
       {
+        "version": "0.8.0",
+        "date": "2026-11-11",
+        "notes": [
+          "Der Recorder merkt sich alle Einstellungen über einen Neustart hinweg: Eingang, Kanäle, Samplerate, Zielordner, Dateiname, Einzelspuren, Verstärkung und Aufnahmedauer. Die geplante Startzeit nicht, weil sie am nächsten Tag in der Vergangenheit liegt.",
+          "Fehlt der gemerkte Eingang beim Start, etwa weil Dante Virtual Soundcard noch nicht läuft, oder ist der Zielordner nicht erreichbar, bleibt oben ein Hinweis stehen. Nach dem Start des Geräts findet „Geräte aktualisieren“ den Eingang wieder.",
+          "Aufnahmen werden nie mehr überschrieben: Gibt es den Dateinamen schon, läuft die Aufnahme als Name-2, Name-3 und so weiter.",
+          "Lange Aufnahmen: Ab knapp 4 GB beginnt der Recorder automatisch eine Folgedatei (Name_002.wav, Name_003.wav …), die jedes Programm abspielt. Bisher ging das Stoppen ab 4 GB schief, bei 8 Kanälen nach etwa 47 Minuten, und die Datei blieb unbrauchbar.",
+          "Wird der Recorder während einer Aufnahme geschlossen, wird die Datei jetzt ordentlich abgeschlossen. Bisher hielten viele Player sie danach für leer.",
+          "Wichtig für dieses Update: nicht während einer laufenden Aufnahme installieren. Der Installer beendet den Recorder, und die Version davor schließt die Datei dabei nicht ab."
+        ]
+      },
+      {
         "version": "0.7.0",
         "date": "2026-07-05",
         "notes": [

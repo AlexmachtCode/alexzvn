@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-10T15:53:42.338Z",
+  "updatedAt": "2026-11-11T14:20:14.804Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -115,7 +115,7 @@
       "category": "Ingest",
       "appId": "gmbh.jakobs.recorder",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.7.0",
+      "latestVersion": "0.8.0",
       "platforms": {
         "mac": {
           "artifact": "JM Audio Recorder-${version}-mac-${arch}.dmg",
