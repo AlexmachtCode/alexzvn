@@ -26,6 +26,8 @@ interface Lage {
   ordnerDa?: boolean;
   /** Antwort von arm (Standard: ok). */
   armErgebnis?: { ok: boolean; error?: string };
+  /** arm antwortet erst nach dieser Zeit (ms). */
+  armVerzoegerungMs?: number;
   exportErgebnis?: PresetDateiErgebnis;
   importErgebnis?: PresetDateiErgebnis;
   /** Lässt die jeweilige presets-Funktion ablehnen. */
@@ -48,8 +50,15 @@ async function starte(lage: Lage) {
     onRemoteCommand: () => () => {},
     onShowSettings: (cb: (s: RecShowSettings) => void) => { showPush = cb; return () => {}; },
     takeShowSettings: async () => lage.show ?? null,
-    arm: async (a: unknown) => { aufrufe.arm.push(a); return lage.armErgebnis ?? { ok: true }; },
-    disarm: async () => { aufrufe.disarm++; return { ok: true }; },
+    // arm/disarm schieben den Ist-Zustand wie der Main (emitState): offen mit den Werten oder zu.
+    arm: async (a: { device: number; channels: number; sampleRate: number }) => {
+      aufrufe.arm.push(a);
+      if (lage.armVerzoegerungMs) await warte(lage.armVerzoegerungMs);
+      const erg = lage.armErgebnis ?? { ok: true };
+      pushState({ ...ZU, ...(erg.ok ? { status: 'armed' as const, ...a } : {}) });
+      return erg;
+    },
+    disarm: async () => { aufrufe.disarm++; pushState({ ...ZU }); return { ok: true }; },
     ordnerDa: async (d: string) => { aufrufe.ordnerDa.push(d); return lage.ordnerDa ?? true; },
     presets: {
       list: async () => { if (fehler.list) throw new Error(fehler.list); return ablage; },
@@ -85,10 +94,10 @@ async function starte(lage: Lage) {
     gespeichert, gain, aufrufe, MERK_MS: mod.MERK_VERZOEGERUNG_MS as number,
     presetGeaendert: mod.presetGeaendert as (s: unknown) => boolean,
     /** Schiebt einen Zustand vom Main herein, wie onState es täte. */
-    setzeZustand: (z: Partial<RecorderState>) =>
-      pushState({ status: 'idle', device: null, channels: 0, sampleRate: 0, filePath: null, recordedSec: 0, ...z }),
+    setzeZustand: (z: Partial<RecorderState>) => pushState({ ...ZU, ...z }),
   };
 }
+const ZU: RecorderState = { status: 'idle', device: null, channels: 0, sampleRate: 0, filePath: null, recordedSec: 0 };
 
 const VOLL: RecEinstellungen = {
   eingang: { name: DANTE.name, hostApiName: 'ASIO' },
@@ -326,6 +335,52 @@ const ersterStart: GeladeneEinstellungen = { einstellungen: {}, ordnerDa: null }
   const ir = await starte({ devices: [DANTE], geladen: ersterStart, presetFehler: { importieren: 'boom' } });
   await ir.useRec.getState().presetsImportieren();
   ck('16: Import-Ablehnung', ir.useRec.getState().notice === 'Import fehlgeschlagen: boom');
+}
+
+// --- 17. Presets schnell hintereinander (Pfeiltasten auf der Auswahl): nacheinander angewendet,
+//         am Ende ist offen, was die Oberfläche zeigt; das aktive Preset steht sofort.
+const MI = pv({ eingang: { name: MME.name, hostApiName: 'MME' }, channels: 2, sampleRate: 44100 });
+const DA = pv({ eingang: { name: DANTE.name, hostApiName: 'ASIO' }, channels: 2, sampleRate: 48000 });
+const offenWieGezeigt = (s: { state: RecorderState; deviceIndex: number | null; channels: number; sampleRate: number }): boolean =>
+  s.state.status === 'armed' && s.state.device === s.deviceIndex && s.state.channels === s.channels && s.state.sampleRate === s.sampleRate;
+{
+  const t = await starte({
+    devices: [DANTE, FOCUS, MME], geladen: ersterStart, armVerzoegerungMs: 30,
+    presets: [{ name: 'Fo', werte: pv() }, { name: 'Mi', werte: MI }],
+  });
+  t.setzeZustand({ status: 'armed', device: 7, channels: 2, sampleRate: 48000 });
+  const erst = t.useRec.getState().presetAnwenden('Fo');
+  ck('17: aktivesPreset sofort gesetzt, kein „(geändert)“', t.useRec.getState().aktivesPreset === 'Fo' && t.presetGeaendert(t.useRec.getState()) === false);
+  const dann = t.useRec.getState().presetAnwenden('Mi');
+  await Promise.all([erst, dann]);
+  const s = t.useRec.getState();
+  const letzter = t.aufrufe.arm.at(-1) as { device: number } | undefined;
+  ck('17: aktivesPreset = zweites', s.aktivesPreset === 'Mi');
+  ck('17: letzter arm mit dem Gerät des zweiten', letzter?.device === 0);
+  ck('17: offen ist, was die Oberfläche zeigt', offenWieGezeigt(s));
+}
+{
+  // Drei hintereinander, während das erste noch öffnet: das mittlere wartende entfällt.
+  const t = await starte({
+    devices: [DANTE, FOCUS, MME], geladen: ersterStart, armVerzoegerungMs: 30,
+    presets: [{ name: 'Fo', werte: pv() }, { name: 'Mi', werte: MI }, { name: 'Da', werte: DA }],
+  });
+  t.setzeZustand({ status: 'armed', device: 7, channels: 2, sampleRate: 48000 });
+  const s0 = t.useRec.getState();
+  await Promise.all([s0.presetAnwenden('Fo'), s0.presetAnwenden('Mi'), s0.presetAnwenden('Da')]);
+  const s = t.useRec.getState();
+  const geraete = (t.aufrufe.arm as { device: number }[]).map((a) => a.device);
+  ck(`17: überholtes wartendes Preset entfällt (arm: ${geraete.join(',')})`, geraete.join(',') === '3,7');
+  ck('17: am Ende das letzte Preset, offen wie gezeigt', s.aktivesPreset === 'Da' && offenWieGezeigt(s));
+}
+
+// --- 18. Langer Name: gekürzt wie im Main, das aktive Preset trägt den gespeicherten Namen.
+{
+  const t = await starte({ devices: [DANTE], geladen: ersterStart });
+  await t.useRec.getState().presetSpeichern(`  ${'a'.repeat(59)} ${'b'.repeat(10)}`);
+  const n = t.aufrufe.speichern[0]?.name;
+  ck('18: Name auf 60 Zeichen gekürzt und getrimmt', n === 'a'.repeat(59));
+  ck('18: aktivesPreset = gespeicherter Name', t.useRec.getState().aktivesPreset === n);
 }
 
 console.log(`\nstore: ${pass} ok, ${fail} FAIL`);

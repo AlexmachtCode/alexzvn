@@ -21,10 +21,17 @@ export function PresetLeiste() {
 
   const [modus, setModus] = useState<Modus>('aus');
   const [name, setName] = useState('');
+  // Lösch-Rückfrage gilt dem Preset, für das sie geöffnet wurde.
+  const [loeschZiel, setLoeschZiel] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const gesperrt = loading || status === 'recording' || geplant != null;
+
+  // Wechselt das aktive Preset während der Lösch-Rückfrage, schließt sie (kein Zustand ohne Knöpfe).
+  useEffect(() => {
+    if (modus === 'loeschen' && aktiv !== loeschZiel) setModus('aus');
+  }, [modus, aktiv, loeschZiel]);
 
   // Menü schließt bei Klick daneben; Listener nur, solange es offen ist.
   useEffect(() => {
@@ -87,6 +94,19 @@ export function PresetLeiste() {
           </select>
         </label>
 
+        {/* Die schon gewählte Option erneut wählen feuert kein `change` — daher ein eigener Knopf. */}
+        {geaendert && !gesperrt && aktiv && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            title="Preset neu anwenden – Änderungen verwerfen"
+            onClick={() => void anwenden(aktiv)}
+          >
+            Zurücksetzen
+          </Button>
+        )}
+
         {modus === 'aus' && (
           <div className="flex items-center gap-2">
             <Button type="button" size="sm" variant="outline" onClick={oeffneSpeichern}>
@@ -97,7 +117,10 @@ export function PresetLeiste() {
               size="sm"
               variant="outline"
               disabled={!aktiv}
-              onClick={() => setModus('loeschen')}
+              onClick={() => {
+                setLoeschZiel(aktiv);
+                setModus('loeschen');
+              }}
             >
               Löschen
             </Button>
@@ -176,15 +199,15 @@ export function PresetLeiste() {
           </div>
         )}
 
-        {modus === 'loeschen' && aktiv && (
+        {modus === 'loeschen' && loeschZiel && (
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">{`Preset „${aktiv}“ löschen?`}</span>
+            <span className="text-sm font-semibold">{`Preset „${loeschZiel}“ löschen?`}</span>
             <Button
               type="button"
               size="sm"
               variant="outline"
               onClick={() => {
-                void loeschen(aktiv);
+                void loeschen(loeschZiel);
                 schliessen();
               }}
             >

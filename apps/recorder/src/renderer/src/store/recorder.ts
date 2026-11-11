@@ -8,7 +8,7 @@ import type {
   RecShowSettings,
 } from '@shared/types';
 import { findeEingang } from '../../../shared/einstellungen';
-import { gleicheWerte, presetWerte } from '../../../shared/presets';
+import { gleicheWerte, PRESET_NAME_MAX, presetWerte } from '../../../shared/presets';
 
 const IDLE: RecorderState = {
   status: 'idle',
@@ -104,6 +104,13 @@ let subscribed = false;
  */
 let vorbehalt: { eingang: GemerkterEingang; channels?: number; sampleRate?: number } | null = null;
 
+/**
+ * Preset-Anwenden läuft nacheinander: Pfeiltasten/Buchstaben auf der Auswahl feuern je Schritt.
+ * `anwendenKette` = Ende des zuletzt angestellten Laufs (null = keiner läuft).
+ */
+let anwendenKette: Promise<void> | null = null;
+let anwendenNr = 0;
+
 function eingangsText(e: GemerkterEingang): string {
   return `„${e.name}“ (${e.hostApiName})`;
 }
@@ -114,6 +121,78 @@ export const useRec = create<RecStore>((set, get) => {
     get().selectDevice(d.index);
     if (channels) set({ channels: Math.max(1, Math.min(channels, d.maxInputChannels)) });
     if (sampleRate) get().setSampleRate(sampleRate);
+  };
+
+  /** Ein Preset anwenden (läuft nur über die Kette in `presetAnwenden`). */
+  const wendeAn = async (name: string): Promise<void> => {
+    const p = get().presets.find((x) => x.name === name);
+    if (!p) return;
+    const st = get().state;
+    if (st.status === 'recording' || st.scheduledStartAt != null) {
+      set({ notice: 'Während einer laufenden oder geplanten Aufnahme lässt sich kein Preset anwenden.' });
+      return;
+    }
+    const w = p.werte;
+    // Aktives Preset und Werte im selben synchronen Schritt, vor jedem await — sonst blitzt
+    // „(geändert)“ auf und das Merken schriebe die neuen Werte unter dem alten Namen.
+    set({ aktivesPreset: name });
+    // Ordner, Dateiname, Einzelspuren, Dauer, Verstärkung — fehlendes Feld = aktueller Wert bleibt.
+    if (typeof w.dir === 'string') set({ dir: w.dir });
+    if (typeof w.fileName === 'string') set({ fileName: w.fileName });
+    if (typeof w.separateTracks === 'boolean') set({ separateTracks: w.separateTracks });
+    if (typeof w.scheduleDurationMin === 'number') get().setScheduleDurationMin(w.scheduleDurationMin);
+    if (typeof w.gainDb === 'number') get().setGain(w.gainDb);
+    // Eingang samt Kanälen + Samplerate; fehlt das Gerät, bleibt es gemerkt (wie beim Start).
+    if (w.eingang) {
+      const d = findeEingang(get().devices, w.eingang);
+      if (d) {
+        waehleGemerkt(d, w.channels, w.sampleRate);
+      } else {
+        vorbehalt = { eingang: w.eingang, channels: w.channels, sampleRate: w.sampleRate };
+        set({
+          hinweisEingang:
+            `Eingang des Presets „${name}“ nicht gefunden: ${eingangsText(w.eingang)}.` +
+            ' Gerät/Treiber starten und „Geräte aktualisieren“ drücken.',
+        });
+      }
+    } else {
+      const d = get().devices.find((x) => x.index === get().deviceIndex);
+      if (w.channels) get().setChannels(d ? Math.min(w.channels, d.maxInputChannels) : w.channels);
+      if (w.sampleRate) get().setSampleRate(w.sampleRate);
+    }
+    if (w.dir) {
+      let da = true;
+      try {
+        da = await window.jmrec.ordnerDa(w.dir);
+      } catch {
+        // nicht prüfbar → nicht als fehlend melden
+      }
+      set({
+        hinweisOrdner: da
+          ? null
+          : `Zielordner des Presets „${name}“ nicht erreichbar: ${w.dir} — neuen Ordner wählen und das Preset neu speichern.`,
+      });
+    }
+    // Offener Eingang, der nicht dem Soll entspricht → neu öffnen. Maßgeblich ist der Ist-Zustand
+    // vom Main, nicht „vorher/nachher“ im Renderer.
+    let neu = '';
+    let offen = true;
+    const soll = get();
+    const ist = soll.state;
+    if (
+      ist.status === 'armed' &&
+      (ist.device !== soll.deviceIndex || ist.channels !== soll.channels || ist.sampleRate !== soll.sampleRate)
+    ) {
+      await get().disarm();
+      offen = await get().arm();
+      neu = ' Eingang neu geöffnet.';
+    }
+    // Scheitert das Neuöffnen, steht dessen Fehlertext schon in `notice` — nicht überschreiben.
+    set({
+      notice: offen
+        ? `Preset „${name}“ angewendet.${neu}`
+        : `Preset „${name}“ angewendet – der Eingang ließ sich nicht wieder öffnen: ${get().notice ?? ''}`,
+    });
   };
 
   return {
@@ -139,76 +218,25 @@ export const useRec = create<RecStore>((set, get) => {
     setNotice: (notice) => set({ notice }),
     hinweiseSchliessen: () => set({ hinweisEingang: null, hinweisOrdner: null }),
 
-    presetAnwenden: async (name) => {
-      const p = get().presets.find((x) => x.name === name);
-      if (!p) return;
-      const st = get().state;
-      if (st.status === 'recording' || st.scheduledStartAt != null) {
-        set({ notice: 'Während einer laufenden oder geplanten Aufnahme lässt sich kein Preset anwenden.' });
-        return;
-      }
-      const w = p.werte;
-      const vorher = { deviceIndex: get().deviceIndex, channels: get().channels, sampleRate: get().sampleRate };
-      // Ordner, Dateiname, Einzelspuren, Dauer, Verstärkung — fehlendes Feld = aktueller Wert bleibt.
-      if (typeof w.dir === 'string') set({ dir: w.dir });
-      if (typeof w.fileName === 'string') set({ fileName: w.fileName });
-      if (typeof w.separateTracks === 'boolean') set({ separateTracks: w.separateTracks });
-      if (typeof w.scheduleDurationMin === 'number') get().setScheduleDurationMin(w.scheduleDurationMin);
-      if (typeof w.gainDb === 'number') get().setGain(w.gainDb);
-      // Eingang samt Kanälen + Samplerate; fehlt das Gerät, bleibt es gemerkt (wie beim Start).
-      if (w.eingang) {
-        const d = findeEingang(get().devices, w.eingang);
-        if (d) {
-          waehleGemerkt(d, w.channels, w.sampleRate);
-        } else {
-          vorbehalt = { eingang: w.eingang, channels: w.channels, sampleRate: w.sampleRate };
-          set({
-            hinweisEingang:
-              `Eingang des Presets „${name}“ nicht gefunden: ${eingangsText(w.eingang)}.` +
-              ' Gerät/Treiber starten und „Geräte aktualisieren“ drücken.',
-          });
-        }
-      } else {
-        const d = get().devices.find((x) => x.index === get().deviceIndex);
-        if (w.channels) get().setChannels(d ? Math.min(w.channels, d.maxInputChannels) : w.channels);
-        if (w.sampleRate) get().setSampleRate(w.sampleRate);
-      }
-      if (w.dir) {
-        let da = true;
-        try {
-          da = await window.jmrec.ordnerDa(w.dir);
-        } catch {
-          // nicht prüfbar → nicht als fehlend melden
-        }
-        set({
-          hinweisOrdner: da
-            ? null
-            : `Zielordner des Presets „${name}“ nicht erreichbar: ${w.dir} — neuen Ordner wählen und das Preset neu speichern.`,
+    presetAnwenden: (name) => {
+      const nr = ++anwendenNr;
+      // Läuft gerade keins, sofort (die Werte stehen dann synchron); sonst hinten anstellen.
+      // Wer wartet und von einem neueren Aufruf überholt wird, entfällt.
+      const lauf = anwendenKette
+        ? anwendenKette.then(() => (nr === anwendenNr ? wendeAn(name) : undefined))
+        : wendeAn(name);
+      const kette: Promise<void> = lauf
+        .catch(() => {})
+        .then(() => {
+          if (anwendenKette === kette) anwendenKette = null;
         });
-      }
-      // Offener Eingang, der sich ändert → neu öffnen, sonst liefe er mit den alten Werten weiter.
-      let neu = '';
-      let offen = true;
-      const jetzt = get();
-      if (
-        jetzt.state.status === 'armed' &&
-        (jetzt.deviceIndex !== vorher.deviceIndex || jetzt.channels !== vorher.channels || jetzt.sampleRate !== vorher.sampleRate)
-      ) {
-        await get().disarm();
-        offen = await get().arm();
-        neu = ' Eingang neu geöffnet.';
-      }
-      // Scheitert das Neuöffnen, steht dessen Fehlertext schon in `notice` — nicht überschreiben.
-      set({
-        aktivesPreset: name,
-        notice: offen
-          ? `Preset „${name}“ angewendet.${neu}`
-          : `Preset „${name}“ angewendet – der Eingang ließ sich nicht wieder öffnen: ${get().notice ?? ''}`,
-      });
+      anwendenKette = kette;
+      return lauf;
     },
 
     presetSpeichern: async (name) => {
-      const n = name.trim();
+      // Wie der Main kürzt (normierePreset) — sonst passte das aktive Preset zu keinem gespeicherten.
+      const n = name.trim().slice(0, PRESET_NAME_MAX).trim();
       if (!n) {
         set({ notice: 'Bitte einen Namen für das Preset eingeben.' });
         return;
