@@ -87,6 +87,13 @@ const kaputt = leseExportDatei(JSON.stringify({
 const kw = kaputt.presets[0].werte;
 ck('Werte aus Datei werden normiert', kw.gainDb === 24 && kw.sampleRate === undefined && kw.channels === 1);
 
+// --- höchstens 500 Presets je Datei
+const datei = (n: number): string => JSON.stringify({
+  format: 'jm-recorder-presets', version: 1, presets: Array.from({ length: n }, (_, i) => ({ name: `P${i}` })),
+});
+ck('501 Presets wirft', wirft(() => leseExportDatei(datei(501)), 'Die Datei enthält zu viele Presets (höchstens 500).'));
+ck('500 Presets gehen', leseExportDatei(datei(500)).presets.length === 500);
+
 // --- Netzwerkpfade (der Import nennt sie ausdrücklich)
 ck('Netzwerkpfad: \\\\srv\\x', istNetzwerkPfad('\\\\srv\\x'));
 ck('Netzwerkpfad: //srv/x', istNetzwerkPfad('//srv/x'));

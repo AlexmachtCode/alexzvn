@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
 import type { ArmInput, GeladeneEinstellungen, KonfliktWahl, PresetDateiErgebnis, RecordInput, RecPreset, ScheduleInput } from '@shared/types';
@@ -43,7 +44,16 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     }
   });
 
-  ipcMain.handle('fs:ordnerDa', (_e, dir: unknown) => typeof dir === 'string' && dir !== '' && existsSync(dir));
+  // Asynchron: ein unerreichbares NAS blockiert sonst den Hauptprozess (und damit die Aufnahme).
+  ipcMain.handle('fs:ordnerDa', async (_e, dir: unknown): Promise<boolean> => {
+    if (typeof dir !== 'string' || dir === '') return false;
+    try {
+      await stat(dir);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 
   ipcMain.handle('presets:list', (): RecPreset[] => ladePresets(presetDatei()));
   ipcMain.handle('presets:speichern', (_e, raw: unknown): RecPreset[] => {

@@ -87,6 +87,23 @@ ck('netzwerk: ohne Netzwerkpfad im Import kein Feld (vorhandene zählen nicht)',
 r = await importiere([preset('A', 2)], datText([mitDir('A', NETZ_A)]), frageMit('abbrechen'));
 ck('netzwerk: Abbrechen -> nichts', !r.ok && r.netzwerk === undefined && r.presets === undefined);
 
+// Relativer Zielordner aus fremder Datei: das Feld fällt weg, der Rest bleibt gültig.
+r = await importiere([], datText([
+  { name: 'Rel', werte: { dir: 'Aufnahmen\\Tag1', channels: 4 } },
+  { name: 'Punkt', werte: { dir: '.\\x' } },
+  mitDir('Abs', 'D:\\x'),
+]), frageMit('beide'));
+const rel = r.presets?.find((p) => p.name === 'Rel');
+ck('relativer dir fällt weg, Rest bleibt', r.ok && rel !== undefined && !('dir' in rel.werte) && rel.werte.channels === 4);
+ck('.\\x fällt weg', r.ok && gleich(r.presets?.find((p) => p.name === 'Punkt')?.werte, {}));
+ck('absoluter dir bleibt', r.presets?.find((p) => p.name === 'Abs')?.werte.dir === 'D:\\x');
+
+// Doppelte Namen in der Ablage: der erste gewinnt (Laden wie Speichern).
+const doppelt = speicherePresets(join(dir, 'doppelt.json'), [preset('X', 1), preset('X', 2), preset('Y', 3)]);
+ck('speicherePresets: doppelt -> erster gewinnt', gleich(doppelt, [preset('X', 1), preset('Y', 3)]));
+writeFileSync(join(dir, 'doppelt2.json'), JSON.stringify({ version: 1, presets: [preset('X', 1), preset('X', 2)] }), 'utf8');
+ck('ladePresets: doppelt -> erster gewinnt', gleich(ladePresets(join(dir, 'doppelt2.json')), [preset('X', 1)]));
+
 // Warnung im Dialog: Einzahl/Mehrzahl, je Preset eine Zeile.
 const h1 = netzwerkHinweis([{ name: 'A', dir: NETZ_A }]);
 ck('Hinweis Einzahl', h1.message === '1 importiertes Preset nimmt in einem Netzwerkordner auf');

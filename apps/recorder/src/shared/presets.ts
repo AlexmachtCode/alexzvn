@@ -4,10 +4,12 @@ import type { RecEinstellungen, RecPreset } from './types';
 export const PRESET_NAME_MAX = 60;
 export const EXPORT_FORMAT = 'jm-recorder-presets';
 export const EXPORT_MAX_BYTES = 1_000_000;
+export const EXPORT_MAX_PRESETS = 500;
 
 const FEHLER_FREMD = 'Die Datei ist keine Recorder-Preset-Datei.';
 const FEHLER_NEU = 'Die Datei stammt aus einer neueren Recorder-Version – bitte den Recorder aktualisieren.';
 const FEHLER_LEER = 'Die Datei enthält keine gültigen Presets.';
+const FEHLER_VIELE = `Die Datei enthält zu viele Presets (höchstens ${EXPORT_MAX_PRESETS}).`;
 
 /** Einstellungen eines Presets: wie `normiereEinstellungen`, aber ohne das Feld `preset`. */
 export function presetWerte(raw: unknown): RecEinstellungen {
@@ -94,13 +96,19 @@ export function leseExportDatei(text: string): { presets: RecPreset[]; ueberspru
   if (r.format !== EXPORT_FORMAT || typeof r.version !== 'number') throw new Error(FEHLER_FREMD);
   if (r.version > 1) throw new Error(FEHLER_NEU);
   if (!Array.isArray(r.presets)) throw new Error(FEHLER_FREMD);
+  if (r.presets.length > EXPORT_MAX_PRESETS) throw new Error(FEHLER_VIELE);
 
   const presets: RecPreset[] = [];
+  const namen = new Set<string>();
   let uebersprungen = 0;
   for (const eintrag of r.presets) {
     const p = normierePreset(eintrag);
-    if (!p || presets.some((v) => v.name === p.name)) uebersprungen++;
-    else presets.push(p);
+    if (!p || namen.has(p.name)) {
+      uebersprungen++;
+    } else {
+      namen.add(p.name);
+      presets.push(p);
+    }
   }
   if (!presets.length) throw new Error(FEHLER_LEER);
   return { presets, uebersprungen };
