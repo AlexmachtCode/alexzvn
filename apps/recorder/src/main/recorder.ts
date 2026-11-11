@@ -180,7 +180,13 @@ function waechterTakt(): void {
   if (Date.now() - letzterBlockMs < STILLE_PAUSE_MS) return;
   send('recorder:levels', { peaks: new Array(state.channels).fill(0) });
   if (state.status === 'recording') {
-    stilleBisJetzt();
+    try {
+      stilleBisJetzt();
+    } catch (e) {
+      // Schreibfehler: Auffüllen für diese Aufnahme beenden, nur EINE Meldung (kein Spam im 100-ms-Takt).
+      uhr = null;
+      notice(`Stille konnte nicht in die Datei geschrieben werden: ${(e as Error).message}`);
+    }
     emitState();
   }
 }
@@ -222,7 +228,11 @@ export function arm(input: ArmInput): OpResult {
 
 export function disarm(): void {
   stopWaechter();
-  stilleBisJetzt(); // Lücke bis zum Ende füllen, bevor der Writer schließt
+  try {
+    stilleBisJetzt(); // Lücke bis zum Ende füllen, bevor der Writer schließt
+  } catch {
+    // Fehler ignorieren: finalize und stopInput müssen immer laufen
+  }
   uhr = null;
   loopback = false;
   letzterBlockMs = 0;
@@ -307,7 +317,11 @@ export function stopRecording(): RecordResult {
   const filePath = state.filePath ?? '';
   try {
     stilleBisJetzt(); // Lücke bis zum Stopp füllen
-    uhr = null;
+  } catch {
+    // weiter mit finalize
+  }
+  uhr = null;
+  try {
     const res = writer.finalize();
     writer = null;
     if (multiWriter) {
