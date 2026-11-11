@@ -4,7 +4,7 @@
 // (ZoomErgebnis.text, abbild.meldung). Der Kenncode lebt hier nur bis zum Klick auf „Beitreten“ (Spec 5.7).
 // Bewusst NICHT wiederverwendet: PttButton, GuestActions, PhaseBadge (kein Tally, kein Talkback, keine Phasen).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ZoomAbbild, ZoomErgebnis, ZoomParticipant } from '@shared/types';
+import type { ZoomAbbild, ZoomErgebnis, ZoomLetztesMeeting, ZoomParticipant } from '@shared/types';
 import {
   einrichtungsTextArt,
   kartenZeile,
@@ -26,7 +26,8 @@ import {
   KANDIDAT_KENNZEICHEN,
   KENNCODE_GESPEICHERT,
   KENNCODE_NICHT_GESPEICHERT,
-  kenncodePlatzhalterZeigen,
+  KENNCODE_SITZUNG,
+  kenncodePlatzhalter,
   SLOT_FELD,
   VERGESSEN,
   VERGESSEN_TITEL,
@@ -229,12 +230,13 @@ export function ZoomCard(): JSX.Element {
   const [jetzt, setJetzt] = useState(() => Date.now());
   const [nummer, setNummer] = useState('');
   const [kenncode, setKenncode] = useState('');
-  /** #290: das gemerkte Meeting; den Kenncode selbst kennt die Karte nie, nur ob einer gespeichert ist. */
-  const [letztes, setLetztes] = useState<{
-    nummer: string | null;
-    kenncodeGespeichert: boolean;
-    kenncodeNichtGespeichert: boolean;
-  } | null>(null);
+  /** #290: das gemerkte Meeting; den Kenncode selbst kennt die Karte nie, nur ob der Kern einen hält. */
+  const [letztes, setLetztes] = useState<ZoomLetztesMeeting | null>(null);
+  /**
+   * „Vergessen“ scheiterte an der Platte (TEXT_VERGESSEN_FEHLER): Der Kern hat nichts mehr gemerkt, der Knopf bleibt trotzdem,
+   * damit „Bitte erneut versuchen“ einen Weg hat. Ein gelungenes „Vergessen“ hebt das auf.
+   */
+  const [vergessenErneut, setVergessenErneut] = useState(false);
   /** null = noch nicht angefasst, dann gilt der gespeicherte Anzeigename aus dem Abbild. */
   const [anzeigename, setAnzeigename] = useState<string | null>(null);
   /** null = unverändert, dann gilt der gespeicherte Versatz aus dem Abbild. */
@@ -270,10 +272,22 @@ export function ZoomCard(): JSX.Element {
     };
   }, []);
 
+  // Abrufe des gemerkten Meetings: Nur die Antwort auf die neueste Anfrage zählt (eine ältere, später eintreffende hielte einen
+  // überholten Stand), und nach dem Aushängen setzt keine mehr etwas.
+  const letztesAbruf = useRef(0);
+  const eingehaengt = useRef(true);
+  useEffect(() => {
+    eingehaengt.current = true;
+    return () => {
+      eingehaengt.current = false;
+    };
+  }, []);
   const holeLetztes = useCallback((): void => {
+    const abruf = ++letztesAbruf.current;
     window.jmconnect
       .zoomLetztesMeeting()
       .then((l) => {
+        if (!eingehaengt.current || abruf !== letztesAbruf.current) return;
         setLetztes(l);
         // Vorfüllen nur, wenn das Feld leer ist: eine laufende Eingabe bleibt unberührt.
         if (l.nummer) setNummer((alt) => (alt === '' ? (l.nummer as string) : alt));
@@ -378,23 +392,25 @@ export function ZoomCard(): JSX.Element {
     );
   };
 
-  const kenncodeGemerkt = kenncodePlatzhalterZeigen(nummer, kenncode, letztes);
+  const platzhalter = kenncodePlatzhalter(nummer, kenncode, letztes);
+  const kenncodePlatzhalterText =
+    platzhalter === 'gespeichert' ? KENNCODE_GESPEICHERT : platzhalter === 'sitzung' ? KENNCODE_SITZUNG : undefined;
 
-  const vergessen = async (): Promise<void> => {
-    setLaeuft((l) => new Set(l).add('vergessen'));
-    try {
-      await window.jmconnect.zoomVergessen();
-      setNummer('');
-      setKenncode('');
-      setLetztes(null);
+  // „Vergessen“ nicht, während ein Beitritt oder „Schließen“ läuft; „Beitreten“ nicht, während „Vergessen“ läuft.
+  const vergessenGesperrt = laeuft.has('vergessen') || laeuft.has('beitreten') || laeuft.has('schliessen');
+  const beitretenGesperrt = kn.beitretenGesperrt || laeuft.has('beitreten') || laeuft.has('vergessen');
+
+  const vergessen = (): void => {
+    // fuehreAus zeigt ein Scheitern (TEXT_VERGESSEN_FEHLER oder einen IPC-Fehler) am Ort „beitritt“; die Felder bleiben dann.
+    void fuehreAus('vergessen', 'beitritt', () => window.jmconnect.zoomVergessen()).then((r) => {
+      setVergessenErneut(!r.ok);
+      if (r.ok) {
+        setNummer('');
+        setKenncode('');
+        setLetztes(null);
+      }
       holeLetztes();
-    } finally {
-      setLaeuft((l) => {
-        const n2 = new Set(l);
-        n2.delete('vergessen');
-        return n2;
-      });
-    }
+    });
   };
 
   const verlassen = (): void => {
@@ -693,7 +709,7 @@ export function ZoomCard(): JSX.Element {
           className="mb-3 grid gap-2 sm:grid-cols-3"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!kn.beitretenGesperrt && !laeuft.has('beitreten')) beitreten();
+            if (!beitretenGesperrt) beitreten();
           }}
         >
           <label className="text-xs text-neutral-400">
@@ -712,7 +728,7 @@ export function ZoomCard(): JSX.Element {
               type="password"
               value={kenncode}
               onChange={(e) => setKenncode(e.target.value)}
-              placeholder={kenncodeGemerkt ? KENNCODE_GESPEICHERT : undefined}
+              placeholder={kenncodePlatzhalterText}
               autoComplete="off"
               className={`${INP} mt-1 border-neutral-700`}
             />
@@ -730,15 +746,15 @@ export function ZoomCard(): JSX.Element {
             />
           </label>
           <div className="flex items-center gap-3 sm:col-span-3">
-            <button type="submit" disabled={kn.beitretenGesperrt || laeuft.has('beitreten')} className={GELB}>
+            <button type="submit" disabled={beitretenGesperrt} className={GELB}>
               Beitreten
             </button>
-            {letztes?.nummer && (
+            {(letztes?.nummer || vergessenErneut) && (
               <button
                 type="button"
                 title={VERGESSEN_TITEL}
-                disabled={laeuft.has('vergessen')}
-                onClick={() => void vergessen()}
+                disabled={vergessenGesperrt}
+                onClick={vergessen}
                 className={RAND}
               >
                 {VERGESSEN}

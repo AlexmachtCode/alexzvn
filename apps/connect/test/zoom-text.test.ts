@@ -2258,22 +2258,38 @@ console.log('— B21: Eingabe der Teilnehmerliste je Person (Spec 10.10)');
 }
 
 {
-  const { KENNCODE_GESPEICHERT, VERGESSEN, VERGESSEN_TITEL, KENNCODE_NICHT_GESPEICHERT } = await import('../src/shared/zoom-text');
-  ck('#290: Platzhalter des gemerkten Kenncodes', KENNCODE_GESPEICHERT === 'Kenncode gespeichert');
-  ck('#290: Knopf „Vergessen“', VERGESSEN === 'Vergessen');
-  ck('#290: Titel des Knopfs „Vergessen“', VERGESSEN_TITEL === 'Gemerkte Meeting-Nummer und Kenncode löschen');
-  ck('#290: Zeile, wenn der Kenncode nicht gespeichert wird',
-    KENNCODE_NICHT_GESPEICHERT === 'Kenncode wird auf diesem PC nicht gespeichert (keine Windows-Verschlüsselung).');
+  const zt: Record<string, unknown> = await import('../src/shared/zoom-text');
+  ck('#290: Platzhalter des gemerkten Kenncodes', zt.KENNCODE_GESPEICHERT === 'Kenncode gespeichert');
+  ck('#290: Platzhalter des nur für diese Sitzung gemerkten Kenncodes (Abschluss-Korrektur 3)',
+    zt.KENNCODE_SITZUNG === 'Kenncode für diese Sitzung gemerkt');
+  ck('#290: Knopf „Vergessen“', zt.VERGESSEN === 'Vergessen');
+  ck('#290: Titel des Knopfs „Vergessen“', zt.VERGESSEN_TITEL === 'Gemerkte Meeting-Nummer und Kenncode löschen');
+  ck('#290: Zeile, wenn der Kenncode nicht gespeichert wird (neutral: keine Verschlüsselung oder Schreibfehler, Abschluss-Korrektur 4)',
+    zt.KENNCODE_NICHT_GESPEICHERT === 'Kenncode gilt nur für diese Sitzung – er wird auf diesem PC nicht gespeichert.');
+  ck('#290: „Vergessen“ scheitert an der Platte (Abschluss-Korrektur 5)',
+    zt.TEXT_VERGESSEN_FEHLER === 'Die gemerkten Einwahldaten ließen sich nicht von der Platte löschen – nach einem Neustart wären sie wieder da. Bitte erneut versuchen.');
 }
 
 {
-  const { kenncodePlatzhalterZeigen } = await import('../src/shared/zoom-text');
+  // Abschluss-Korrektur 3: dreiwertig; Leerzeichen UND Bindestriche wie normalizeMeetingId.
+  const zt: Record<string, unknown> = await import('../src/shared/zoom-text');
+  type Letztes = { nummer: string | null; kenncodeGespeichert: boolean; kenncodeNichtGespeichert: boolean } | null;
+  const f = zt.kenncodePlatzhalter as ((n: string, k: string, l: Letztes) => 'gespeichert' | 'sitzung' | null) | undefined;
+  const P = (n: string, k: string, l: Letztes): unknown => (typeof f === 'function' ? f(n, k, l) : 'fehlt');
   const L = { nummer: '123 456 7890', kenncodeGespeichert: true, kenncodeNichtGespeichert: false };
-  ck('#290: Platzhalter gezeigt bei gleicher Nummer mit anderen Leerzeichen', kenncodePlatzhalterZeigen('1234567890', '', L) && kenncodePlatzhalterZeigen(' 123  4567 890 ', '', L));
-  ck('#290: Platzhalter nicht bei anderer Nummer im Feld', !kenncodePlatzhalterZeigen('123 456 7891', '', L));
-  ck('#290: Platzhalter nicht bei gefülltem Kenncode-Feld', !kenncodePlatzhalterZeigen('1234567890', 'x', L));
-  ck('#290: Platzhalter nicht ohne Verschlüsselung (kenncodeNichtGespeichert)', !kenncodePlatzhalterZeigen('1234567890', '', { ...L, kenncodeNichtGespeichert: true }));
-  ck('#290: Platzhalter nicht ohne gespeicherten Kenncode oder ohne Gemerktes', !kenncodePlatzhalterZeigen('1234567890', '', { ...L, kenncodeGespeichert: false }) && !kenncodePlatzhalterZeigen('1234567890', '', null) && !kenncodePlatzhalterZeigen('', '', { ...L, nummer: null }));
+  ck('#290: kenncodePlatzhalter → gespeichert bei gleicher Nummer mit anderen Leerzeichen',
+    P('1234567890', '', L) === 'gespeichert' && P(' 123  4567 890 ', '', L) === 'gespeichert');
+  ck('#290: … „123 456 7890“ gegen „123-456-7890“ → nicht null (Bindestriche wie normalizeMeetingId)',
+    P('123-456-7890', '', L) === 'gespeichert' && P('123 456 7890', '', { ...L, nummer: '123-456-7890' }) === 'gespeichert');
+  ck('#290: … sitzung, wenn der Kenncode nur für diese Sitzung gilt (kenncodeNichtGespeichert)',
+    P('1234567890', '', { ...L, kenncodeNichtGespeichert: true }) === 'sitzung');
+  ck('#290: … null bei anderer Nummer im Feld', P('123 456 7891', '', L) === null);
+  ck('#290: … null bei gefülltem Kenncode-Feld', P('1234567890', 'x', L) === null && P('1234567890', 'x', { ...L, kenncodeNichtGespeichert: true }) === null);
+  ck('#290: … null ohne gehaltenen Kenncode', P('1234567890', '', { ...L, kenncodeGespeichert: false }) === null
+    && P('1234567890', '', { ...L, kenncodeGespeichert: false, kenncodeNichtGespeichert: true }) === null);
+  ck('#290: … null ohne Gemerktes oder ohne gemerkte Nummer', P('1234567890', '', null) === null && P('', '', { ...L, nummer: null }) === null
+    && P('1234567890', '', { ...L, nummer: '' }) === null);
+  ck('#290: kenncodePlatzhalterZeigen ist ersetzt (ein Name, eine Regel)', zt.kenncodePlatzhalterZeigen === undefined);
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

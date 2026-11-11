@@ -220,7 +220,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
       setzeLaufzeit: () => {},
       letztesMeeting: () => null,
       meetingMerken: () => ({ kenncodeGespeichert: false }),
-      meetingVergessen: () => {},
+      meetingVergessen: () => true,
       slots: () => einst.slots.map((s) => ({ ...s })),
       setzeSlots: (s) => {
         einst.schreibvorgaenge += 1;

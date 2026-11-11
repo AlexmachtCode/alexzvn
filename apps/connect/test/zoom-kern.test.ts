@@ -38,6 +38,7 @@ import {
   stateKvAus,
   TEXT_A4_SCHREIBFEHLER,
   TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT,
+  TEXT_VERGESSEN_FEHLER,
   TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT,
   zoomZ,
 } from '../src/shared/zoom-text';
@@ -144,6 +145,11 @@ interface BaueOptionen {
   /** Schon gemerktes Meeting beim Start des Kerns (#290); `speichertKenncode: false` = keine Verschlüsselung (safeStorage fehlt). */
   gemerkt?: { nummer: string; kenncode: string | null };
   keineVerschluesselung?: boolean;
+  /** Abschluss-Korrektur 1: letztesMeeting() bzw. meetingMerken() werfen (Einstellungsdatei, Verschlüsselung). */
+  letztesWirft?: boolean;
+  merkenWirft?: boolean;
+  /** Abschluss-Korrektur 5: Was meetingVergessen() meldet; false = steht noch in der Einstellungsdatei. Vorgabe true. */
+  vergessenLiefert?: boolean;
 }
 
 function baueKern(o: BaueOptionen = {}): Probe {
@@ -245,16 +251,22 @@ function baueKern(o: BaueOptionen = {}): Probe {
         einst.laufzeit = { ...v };
       },
       // Letztes Meeting (#290): Ablage im Objekt; ohne Verschlüsselung bleibt nur die Nummer.
-      letztesMeeting: () => (einst.gemerkt ? { ...einst.gemerkt } : null),
+      letztesMeeting: () => {
+        if (o.letztesWirft) throw new Error('Einstellungsdatei nicht lesbar');
+        return einst.gemerkt ? { ...einst.gemerkt } : null;
+      },
       meetingMerken: (n, k) => {
         einst.merkAufrufe.push({ nummer: n, kenncode: k });
+        if (o.merkenWirft) throw new Error('Verschlüsselung gescheitert');
         const ok = !o.keineVerschluesselung && k !== '';
         einst.gemerkt = { nummer: n.trim(), kenncode: ok ? k : null };
         return { kenncodeGespeichert: ok };
       },
       meetingVergessen: () => {
         einst.vergessenAufrufe++;
-        einst.gemerkt = null;
+        const geloescht = o.vergessenLiefert ?? true;
+        if (geloescht) einst.gemerkt = null;
+        return geloescht;
       },
       // Zoom-Slots (Plan B, Task B12): im Arbeitsspeicher, Schreiben gelingt immer; Vorgaben wie fehlende Felder (Spec 7.2).
       slots: () => einst.slots.map((s) => ({ ...s })),
@@ -1096,6 +1108,62 @@ console.log('— Letztes Meeting (#290)');
     JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: NUMMER, kenncodeGespeichert: true, kenncodeNichtGespeichert: true }));
   p.kern.vergessen();
   ck('… vergessen() setzt kenncodeNichtGespeichert zurück', !p.kern.letztesMeeting().kenncodeNichtGespeichert && p.kern.letztesMeeting().nummer === null);
+  await p.aufraeumen();
+}
+// Abschluss-Korrektur 1: Ein Fehler der Einstellungen blockiert das Beitreten nie.
+{
+  const p = baueKern({ merkenWirft: true });
+  let beigetreten = false;
+  try {
+    beigetreten = await insMeeting(p);
+  } catch {
+    beigetreten = false; // ein Wurf bis hierher ist genau der Fehler, den Korrektur 1 behebt
+  }
+  ck('K1: meetingMerken wirft → Beitritt klappt trotzdem, join gesendet',
+    beigetreten && p.einst.merkAufrufe.length === 1 && p.befehle(1).find((x) => x.cmd === 'join')?.passcode === KENNCODE);
+  ck('K1: … zählt als nicht gespeichert: der Kern hält den Kenncode nur für diese Sitzung',
+    JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: NUMMER, kenncodeGespeichert: true, kenncodeNichtGespeichert: true }));
+  await p.aufraeumen();
+}
+{
+  let p: Probe | null = null;
+  try {
+    p = baueKern({ letztesWirft: true });
+  } catch {
+    p = null;
+  }
+  ck('K1: letztesMeeting wirft beim Erzeugen → der Kern entsteht, nichts gemerkt', p !== null
+    && JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: null, kenncodeGespeichert: false, kenncodeNichtGespeichert: false }));
+  if (p) {
+    ck('K1: … Beitritt klappt', await insMeeting(p));
+    await p.aufraeumen();
+  }
+}
+// Abschluss-Korrektur 2: Eine Nummer, die gueltigeLetzteNummer verwirft (65 Zeichen), merkt auch der Kern nicht.
+{
+  const p = baueKern({ gemerkt: { nummer: NUMMER, kenncode: KENNCODE } });
+  const lang = '7'.repeat(65);
+  const r = await p.kern.beitreten({ nummer: lang, kenncode: 'x', anzeigename: 'JM Connect' });
+  ck('K2: Nummer mit 65 Zeichen → Beitritt läuft, die Einstellungen werden gefragt (sie löschen beide Felder)',
+    ok(r) && p.einst.merkAufrufe.length === 1 && p.einst.merkAufrufe[0].nummer === lang);
+  ck('K2: … der Kern merkt nichts: weder die neue noch die alte Nummer',
+    JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: null, kenncodeGespeichert: false, kenncodeNichtGespeichert: false }));
+  await p.aufraeumen();
+}
+// Abschluss-Korrektur 5: „Vergessen“ meldet, wenn die Daten noch auf der Platte stehen.
+{
+  const p = baueKern({ gemerkt: { nummer: NUMMER, kenncode: KENNCODE } });
+  // `| undefined`: bis Korrektur 5 lieferte vergessen() nichts; so scheitert der Fall sauber statt mit einem Wurf.
+  const r = p.kern.vergessen() as ZoomErgebnis | undefined;
+  ck('K5: vergessen() gelingt → ok', r?.ok === true && p.einst.vergessenAufrufe === 1 && p.kern.letztesMeeting().nummer === null);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ gemerkt: { nummer: NUMMER, kenncode: KENNCODE }, vergessenLiefert: false });
+  const r = p.kern.vergessen() as ZoomErgebnis | undefined;
+  ck('K5: meetingVergessen liefert false → ok:false mit TEXT_VERGESSEN_FEHLER', r !== undefined && text(r) === TEXT_VERGESSEN_FEHLER);
+  ck('K5: … die Speicherkopie ist trotzdem leer', JSON.stringify(p.kern.letztesMeeting())
+    === JSON.stringify({ nummer: null, kenncodeGespeichert: false, kenncodeNichtGespeichert: false }));
   await p.aufraeumen();
 }
 {

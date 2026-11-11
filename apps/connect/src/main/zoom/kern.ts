@@ -41,6 +41,7 @@ import type {
   ZoomErgebnis,
   ZoomErlaubnis,
   ZoomKurz,
+  ZoomLetztesMeeting,
   ZoomMangel,
   ZoomMesswerte,
   ZoomParticipant,
@@ -69,6 +70,7 @@ import {
   stateKvAus,
   TEXT_A4_SCHREIBFEHLER,
   TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT,
+  TEXT_VERGESSEN_FEHLER,
   TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT,
   UNBEKANNT,
   WIEDERBEITRITT_VERSUCHE,
@@ -120,7 +122,7 @@ import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFe
 import { SDK_PAKET } from './sdk-paket';
 import { deuteZoomBefehl, ladeZiel, type SlotSchalter } from './fernsteuerung';
 import {
-  istSlotAufloesung, istSprecherSignal, neuerSlot, pruefeHaltezeit, pruefeNdiName, slotsFuerPlatte, uebergangsNdiName,
+  gueltigeLetzteNummer, istSlotAufloesung, istSprecherSignal, neuerSlot, pruefeHaltezeit, pruefeNdiName, slotsFuerPlatte, uebergangsNdiName,
 } from './einstellungen';
 import {
   ERSATZBILD_ZU_BRIDGE,
@@ -180,11 +182,15 @@ export interface ZoomKernAbhaengigkeiten {
     /** Der geltende Versatz steht nur im Arbeitsspeicher (N4b.3 Nr. 4). */
     versatzNurSitzung(): boolean;
     setzeLaufzeit(v: { dir: string; fassung: string; eingerichtetAm: string }): void;
-    /** Letztes Meeting (#290): bleibt über „Schließen“ und Neustart; der Kenncode nur verschlüsselt (`null` = keiner/nicht lesbar). */
+    /**
+     * Letztes Meeting (#290): bleibt über „Schließen“ und Neustart; der Kenncode nur verschlüsselt (`null` = keiner/nicht lesbar).
+     * Ein Wurf hier oder in meetingMerken blockiert den Kern nie (zählt als nichts gemerkt bzw. nicht gespeichert).
+     */
     letztesMeeting(): { nummer: string; kenncode: string | null } | null;
-    /** `kenncodeGespeichert` false = Kenncode nicht auf der Platte (z. B. keine Verschlüsselung). */
+    /** `kenncodeGespeichert` false = Kenncode nicht auf der Platte (keine Verschlüsselung, Verschlüsselungs- oder Schreibfehler). */
     meetingMerken(nummer: string, kenncode: string): { kenncodeGespeichert: boolean };
-    meetingVergessen(): void;
+    /** Wie zugang.loeschen(): `false` = steht noch in der Einstellungsdatei (nicht schreibbar). */
+    meetingVergessen(): boolean;
     // Zoom-Slots (Slot-Spec 7.2, 7.10; Plan B, Task B12). Jedes setze…() liefert true = gespeichert, false = gilt nur für diese
     // Sitzung (T92). Der Kern übergibt setzeSlots nur dauerhafte Slots, `anNurMeeting` als `an: false` (slotsFuerPlatte).
     slots(): ZoomSlotEinstellung[];
@@ -249,9 +255,12 @@ export interface ZoomKern {
   beitreten(e: { nummer: string; kenncode: string; anzeigename: string }): Promise<ZoomErgebnis>;
   erneut(): Promise<ZoomErgebnis>;
   /** Das gemerkte Meeting (#290): nur die Nummer, der Kenncode verlässt den Main nie. */
-  letztesMeeting(): { nummer: string | null; kenncodeGespeichert: boolean; kenncodeNichtGespeichert: boolean };
-  /** Gemerktes Meeting vergessen (#290); ein laufendes Meeting und „Erneut beitreten“ bleiben unberührt. */
-  vergessen(): void;
+  letztesMeeting(): ZoomLetztesMeeting;
+  /**
+   * Gemerktes Meeting vergessen (#290); ein laufendes Meeting und „Erneut beitreten“ bleiben unberührt. Die Speicherkopie ist
+   * danach immer leer; `ok: false` (TEXT_VERGESSEN_FEHLER), wenn die Daten noch auf der Platte stehen.
+   */
+  vergessen(): ZoomErgebnis;
   verlassen(): Promise<void>;
   /**
    * Spec 6.8 „Abbrechen“, nur Z11 (Folge wartet oder läuft): Zeitgeber löschen, Versuchs-Bridge stop(), Zustand
@@ -470,7 +479,13 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let nummer: { eingabe: string; normiert: string } | null = null;
   let kenncode: string | null = null;
   // Das gemerkte Meeting (#290): einmal beim Erzeugen gelesen, danach vom Kern selbst geführt; unabhängig von nummer/kenncode.
-  let gemerkt: { nummer: string; kenncode: string | null } | null = d.einstellungen.letztesMeeting();
+  // Wirft das Lesen, gilt „nichts gemerkt“: Das Gemerkte ist eine Bequemlichkeit und darf den Kern nie verhindern.
+  let gemerkt: { nummer: string; kenncode: string | null } | null = null;
+  try {
+    gemerkt = d.einstellungen.letztesMeeting();
+  } catch {
+    gemerkt = null;
+  }
   let kenncodeNichtGespeichert = false;
   /**
    * Wiederbeitritts-Folge (6.4), nur in `abriss`: gesetzt heißt Z11. `naechsterUm` nur in der Wartezeit vor einem
@@ -1611,9 +1626,17 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       }
       if (gleich) wirksam = gemerkt.kenncode ?? '';
     }
-    const merk = d.einstellungen.meetingMerken(e.nummer, wirksam);
-    gemerkt = { nummer: e.nummer.trim(), kenncode: wirksam === '' ? null : wirksam };
-    kenncodeNichtGespeichert = wirksam !== '' && !merk.kenncodeGespeichert;
+    // Merken ist eine Bequemlichkeit: Ein Wurf (Datei, Verschlüsselung) blockiert den Beitritt nie, er zählt als nicht gespeichert.
+    let merk: { kenncodeGespeichert: boolean };
+    try {
+      merk = d.einstellungen.meetingMerken(e.nummer, wirksam);
+    } catch {
+      merk = { kenncodeGespeichert: false };
+    }
+    // Dieselbe Regel wie settings.ts: Eine Nummer, die gueltigeLetzteNummer verwirft, merkt auch der Kern nicht (die Datei löscht beide Felder).
+    const gemerkteNummer = gueltigeLetzteNummer(e.nummer);
+    gemerkt = gemerkteNummer === null ? null : { nummer: gemerkteNummer, kenncode: wirksam === '' ? null : wirksam };
+    kenncodeNichtGespeichert = gemerkt !== null && wirksam !== '' && !merk.kenncodeGespeichert;
     nummer = { eingabe: e.nummer, normiert };
     kenncode = wirksam;
     sitzungsEnde('beitritt');
@@ -1622,14 +1645,21 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     return starteBeitritt();
   }
 
-  function letztesMeeting(): { nummer: string | null; kenncodeGespeichert: boolean; kenncodeNichtGespeichert: boolean } {
+  function letztesMeeting(): ZoomLetztesMeeting {
     return { nummer: gemerkt?.nummer ?? null, kenncodeGespeichert: !!gemerkt?.kenncode, kenncodeNichtGespeichert };
   }
 
-  function vergessen(): void {
-    d.einstellungen.meetingVergessen();
+  function vergessen(): ZoomErgebnis {
+    // Die Speicherkopie ist in jedem Fall leer; ob die Platte folgte, sagt das Ergebnis (Muster zugangLoeschen).
     gemerkt = null;
     kenncodeNichtGespeichert = false;
+    let geloescht: boolean;
+    try {
+      geloescht = d.einstellungen.meetingVergessen();
+    } catch {
+      geloescht = false;
+    }
+    return geloescht ? { ok: true } : { ok: false, text: TEXT_VERGESSEN_FEHLER };
   }
 
   async function erneut(): Promise<ZoomErgebnis> {

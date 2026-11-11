@@ -292,23 +292,51 @@ export function zoomLetztesMeeting(): { nummer: string; kenncode: string | null 
   return { nummer, kenncode: decryptKey(st.zoomLetzterKenncodeEnc) };
 }
 
-/** `kenncodeGespeichert`: der Kenncode liegt verschlüsselt auf der Platte. Wirft nie. */
+/**
+ * `kenncodeGespeichert`: der Kenncode liegt verschlüsselt auf der Platte. Wirft nie: Ein Fehler beim Verschlüsseln darf das
+ * Beitreten nicht blockieren, dann bleibt nur die Nummer. Eine ungültige Nummer (gueltigeLetzteNummer) löscht beide Felder.
+ */
 export function zoomMeetingMerken(nummer: string, kenncode: string): { kenncodeGespeichert: boolean } {
   const next = read();
-  next.zoomLetzteNummer = nummer.trim();
-  const verschluesseln = kenncode !== '' && safeStorage.isEncryptionAvailable();
-  if (verschluesseln) next.zoomLetzterKenncodeEnc = safeStorage.encryptString(kenncode).toString('base64');
-  else delete next.zoomLetzterKenncodeEnc;
-  if (write(next)) return { kenncodeGespeichert: verschluesseln };
+  const n = gueltigeLetzteNummer(nummer);
+  if (n === null) {
+    // Nichts Altes stehen lassen: Nummer und Kenncode von früher gehörten nicht zu diesem Beitritt.
+    delete next.zoomLetzteNummer;
+    delete next.zoomLetzterKenncodeEnc;
+    if (!write(next)) getLog().warn('[zoom] Das letzte Meeting konnte nicht entfernt werden.');
+    return { kenncodeGespeichert: false };
+  }
+  next.zoomLetzteNummer = n;
+  let verschluesselt = false;
+  if (kenncode !== '') {
+    try {
+      if (safeStorage.isEncryptionAvailable()) {
+        next.zoomLetzterKenncodeEnc = safeStorage.encryptString(kenncode).toString('base64');
+        verschluesselt = true;
+      }
+    } catch {
+      getLog().warn('[zoom] Kenncode ließ sich nicht verschlüsseln – nur die Nummer gespeichert.');
+    }
+  }
+  // Nie ein alter Kenncode zur neuen Nummer.
+  if (!verschluesselt) delete next.zoomLetzterKenncodeEnc;
+  if (write(next)) return { kenncodeGespeichert: verschluesselt };
   getLog().warn('[zoom] Das letzte Meeting konnte nicht gespeichert werden.');
   return { kenncodeGespeichert: false };
 }
 
-export function zoomMeetingVergessen(): void {
+/**
+ * Wie zoomZugangLoeschen: `true` = von der Platte gelöscht oder nichts da; `false` = Nummer oder Kenncode stehen noch in der
+ * (nicht schreibbaren) Einstellungsdatei und kämen nach einem Neustart wieder. Das muss der Kern sagen.
+ */
+export function zoomMeetingVergessen(): boolean {
   const next = read();
+  const aufPlatte = next.zoomLetzteNummer !== undefined || next.zoomLetzterKenncodeEnc !== undefined;
   delete next.zoomLetzteNummer;
   delete next.zoomLetzterKenncodeEnc;
-  if (!write(next)) getLog().warn('[zoom] Das letzte Meeting konnte nicht entfernt werden.');
+  const geschrieben = write(next);
+  if (!geschrieben && aufPlatte) getLog().warn('[zoom] Das letzte Meeting konnte nicht entfernt werden.');
+  return geschrieben || !aufPlatte;
 }
 
 /** Ungültig oder fehlend → Vorgabe „JM Connect“ (G4). */

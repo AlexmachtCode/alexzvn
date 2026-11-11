@@ -290,6 +290,15 @@ export interface ZoomSlotLage {
 
 export type ZoomErgebnis = { ok: true } | { ok: false; text: string };
 
+/** Das gemerkte Meeting (#290), wie es den Main verlässt: nur die Nummer und zwei Flaggen, nie der Kenncode. */
+export interface ZoomLetztesMeeting {
+  nummer: string | null;
+  /** Der Kern hält einen Kenncode (dauerhaft gespeichert ODER nur für diese Sitzung). */
+  kenncodeGespeichert: boolean;
+  /** Der zuletzt eingegebene Kenncode ließ sich nicht dauerhaft speichern. */
+  kenncodeNichtGespeichert: boolean;
+}
+
 /** Antwort von zoomSlotStart und zoomSlotAusPerson (Spec 7.4, 7.9): ab dem 6. eingeschalteten Slot ohne Zustimmung T40. */
 export type ZoomStartErgebnis = ZoomErgebnis | { ok: false; nachfrage: true; text: string };
 /** Vorschaubild eines Slots (Spec 7.7): Push jmc:zoom-vorschau-bild, nie im Abbild, nie im Log. */
@@ -380,8 +389,9 @@ export interface JmConnectApi {
   zoomErneut: () => Promise<ZoomErgebnis>;
   zoomSchliessen: () => Promise<void>;
   /** Das gemerkte Meeting (#290): nur die Nummer; der Kenncode kommt nie zurück. */
-  zoomLetztesMeeting: () => Promise<{ nummer: string | null; kenncodeGespeichert: boolean; kenncodeNichtGespeichert: boolean }>;
-  zoomVergessen: () => Promise<void>;
+  zoomLetztesMeeting: () => Promise<ZoomLetztesMeeting>;
+  /** `ok: false` mit Text, wenn die Einwahldaten noch auf der Platte stehen (nicht schreibbar). */
+  zoomVergessen: () => Promise<ZoomErgebnis>;
   zoomMeldungWeg: () => Promise<void>;
   // ── Zoom-Slots (Connect 0.4.0, Spec 7.9). Jede Nutzlast geht als Ganzes durch die Preload; die Hülle prüft sie.
   zoomSlotAnlegen: () => Promise<ZoomErgebnis & { nr?: number }>;

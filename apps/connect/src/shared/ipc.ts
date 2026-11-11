@@ -78,7 +78,7 @@ export const IPC = {
   zoomSchliessen: 'jmc:zoom-schliessen',
   /** invoke: gemerktes Meeting (#290) → { nummer, kenncodeGespeichert, kenncodeNichtGespeichert }; nie der Kenncode. */
   zoomLetztesMeeting: 'jmc:zoom-letztes-meeting',
-  /** invoke: gemerktes Meeting vergessen (#290) → void. */
+  /** invoke: gemerktes Meeting vergessen (#290) → ZoomErgebnis (ok: false, wenn es noch auf der Platte steht). */
   zoomVergessen: 'jmc:zoom-vergessen',
   /** invoke: Meldung quittieren → void. */
   zoomMeldungWeg: 'jmc:zoom-meldung-weg',

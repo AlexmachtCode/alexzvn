@@ -16,6 +16,8 @@ import type {
   TonQuelle, ZoomBefehlErgebnis, ZoomSlotAufloesung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotZustand, ZoomSprecherSignal,
   ZoomZustand,
 } from './types';
+// #290: das gemerkte Meeting (eine Form für Kern, Preload, Karte und Platzhalter-Regel).
+import type { ZoomLetztesMeeting } from './types';
 
 // Plan C (C9): Zählweise und STATE-Wert der NDI-Lage für Tray-Zeile und Tooltip (rein, ohne electron).
 import { ndiStateKv, ndiZahlen } from '../main/ndi-lage';
@@ -1436,19 +1438,31 @@ export const KANDIDAT_KENNZEICHEN = { kameraAus: 'Kamera aus', host: 'Host', imW
 
 /** #290: Beitrittsformular – gemerktes Meeting (Kenncode bleibt im Hauptprozess). */
 export const KENNCODE_GESPEICHERT = 'Kenncode gespeichert';
+/** Platzhalter, wenn der Kern den Kenncode hält, er aber nicht auf der Platte liegt (keine Verschlüsselung oder Schreibfehler). */
+export const KENNCODE_SITZUNG = 'Kenncode für diese Sitzung gemerkt';
 export const VERGESSEN = 'Vergessen';
 export const VERGESSEN_TITEL = 'Gemerkte Meeting-Nummer und Kenncode löschen';
-export const KENNCODE_NICHT_GESPEICHERT = 'Kenncode wird auf diesem PC nicht gespeichert (keine Windows-Verschlüsselung).';
+/** Neutral: deckt fehlende Verschlüsselung UND einen Schreibfehler ab. */
+export const KENNCODE_NICHT_GESPEICHERT = 'Kenncode gilt nur für diese Sitzung – er wird auf diesem PC nicht gespeichert.';
+/** „Vergessen“, aber die Einstellungsdatei war nicht schreibbar: Die Daten stehen noch auf der Platte. */
+export const TEXT_VERGESSEN_FEHLER =
+  'Die gemerkten Einwahldaten ließen sich nicht von der Platte löschen – nach einem Neustart wären sie wieder da. Bitte erneut versuchen.';
 
-/** #290: Platzhalter „Kenncode gespeichert“ nur, wenn der Kenncode leer ist, einer gespeichert ist (mit Windows-Verschlüsselung) und das Nummernfeld das Gemerkte zeigt (ohne Leerzeichen verglichen). */
-export function kenncodePlatzhalterZeigen(
+/**
+ * #290: Platzhalter des Kenncode-Felds. `null` (kein Platzhalter), wenn nichts gemerkt ist, das Kenncode-Feld nicht leer ist, der
+ * Kern keinen Kenncode hält oder das Nummernfeld nicht das Gemerkte zeigt (verglichen ohne Leerzeichen und Bindestriche, dieselbe
+ * Regel wie normalizeMeetingId). Sonst 'sitzung' (KENNCODE_SITZUNG), wenn der Kenncode nicht dauerhaft gespeichert ist, und
+ * 'gespeichert' (KENNCODE_GESPEICHERT).
+ */
+export function kenncodePlatzhalter(
   feldNummer: string,
   feldKenncode: string,
-  letztes: { nummer: string | null; kenncodeGespeichert: boolean; kenncodeNichtGespeichert: boolean } | null,
-): boolean {
-  if (!letztes || !letztes.nummer || feldKenncode !== '') return false;
-  if (!letztes.kenncodeGespeichert || letztes.kenncodeNichtGespeichert) return false;
-  return feldNummer.replace(/\s+/g, '') === letztes.nummer.replace(/\s+/g, '');
+  letztes: ZoomLetztesMeeting | null,
+): 'gespeichert' | 'sitzung' | null {
+  if (!letztes || !letztes.nummer || feldKenncode !== '' || !letztes.kenncodeGespeichert) return null;
+  const ohneTrenner = (s: string): string => s.replace(/[\s-]/g, '');
+  if (ohneTrenner(feldNummer) !== ohneTrenner(letztes.nummer)) return null;
+  return letztes.kenncodeNichtGespeichert ? 'sitzung' : 'gespeichert';
 }
 
 // ── ENDE DER SLOT-ANZEIGEN (neue Regeln direkt darüber einfügen) ──

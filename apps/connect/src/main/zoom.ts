@@ -267,7 +267,8 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
   ipcMain.handle(IPC.zoomSchliessen, (): void => k.schliessen());
   // Das gemerkte Meeting (#290): nur Nummer und zwei Flaggen, nie der Kenncode.
   ipcMain.handle(IPC.zoomLetztesMeeting, () => k.letztesMeeting());
-  ipcMain.handle(IPC.zoomVergessen, (): void => k.vergessen());
+  // `ok: false` mit TEXT_VERGESSEN_FEHLER, wenn die Einstellungsdatei nicht schreibbar war.
+  ipcMain.handle(IPC.zoomVergessen, (): ZoomErgebnis => k.vergessen());
   ipcMain.handle(IPC.zoomMeldungWeg, (): void => k.meldungWeg());
 
   // Mehrere Texte verweisen auf „Details im Log“ (Spec 8.7).
