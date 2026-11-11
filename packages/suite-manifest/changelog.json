@@ -389,6 +389,16 @@
     "name": "JM Audio Recorder",
     "entries": [
       {
+        "version": "0.9.1",
+        "date": "2026-11-11",
+        "notes": [
+          "Import von Presets: Nimmt ein Preset in einem Netzwerkordner auf, fragt der Recorder jetzt vor dem Übernehmen: übernehmen, ohne Netzwerkordner übernehmen oder abbrechen.",
+          "System Sound: Kurze Hänger des Rechners, etwa beim Schreiben auf einen langsamen USB-Stick, verschieben den Ton nicht mehr gegen die echte Zeit. Eine Aufnahme, die in Stille endet, bleibt auch nach so einem Hänger vollständig.",
+          "Presets: „(geändert)“ erscheint nur noch, wenn sich ein im Preset gespeicherter Wert geändert hat. „Kein Preset“ hält einen noch wartenden Wechsel an, und ein Gerätewechsel wartet nicht mehr auf einen langsam erreichbaren Netzwerkordner.",
+          "Fehlt der gemerkte Eingang, gelten Änderungen an Kanälen und Samplerate jetzt für den gewählten Eingang und werden gemerkt. Kommt der Zielordner aus einer Show und liegt im Netzwerk, zeigt der Recorder das oben an."
+        ]
+      },
+      {
         "version": "0.9.0",
         "date": "2026-11-11",
         "notes": [
