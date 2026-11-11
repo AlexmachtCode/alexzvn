@@ -20,6 +20,9 @@ export function usePresentation(): { slides: Slide[] | null; state: Presentation
     let off = (): void => undefined;
     void (async () => {
       const payload = await window.jmpr.present.getPayload();
+      // Zustand VOR den Folien holen und beides im selben Schritt setzen: sonst zeigte die
+      // Publikumsansicht kurz Folie 1 und blendete dann zur Startfolie über (#293, Review).
+      const start = await window.jmpr.present.getState();
       if (payload) {
         clearPdfCaches();
         clearAssets();
@@ -28,7 +31,7 @@ export function usePresentation(): { slides: Slide[] | null; state: Presentation
         setSlides(payload.slides);
         setWiedergabe(normiereWiedergabe(payload.wiedergabe));
       }
-      setState(await window.jmpr.present.getState());
+      setState(start);
       off = window.jmpr.present.onState(setState);
     })();
     return () => off();

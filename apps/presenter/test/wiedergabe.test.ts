@@ -49,6 +49,12 @@ ck('Folie mit eigenem Übergang → ihrer', w.uebergangFuer(folie('a', { ueberga
 ck('Folie ohne eigene Standzeit → global', w.standzeitFuer(folie('a'), glob) === 10);
 ck('Folie mit eigener Standzeit → ihre', w.standzeitFuer(folie('a', { standzeitSek: 25 }), glob) === 25);
 
+// Werte einzelner Folien kommen ungeprüft aus der Projektdatei (Security-Review): nie Dauerfeuer.
+ck('kaputte Standzeit 0 → mindestens 1 s', w.standzeitFuer(folie('a', { standzeitSek: 0 }), glob) === 1);
+ck('Standzeit als Text → global', w.standzeitFuer(folie('a', { standzeitSek: 'abc' as unknown as number }), glob) === 10);
+ck('riesige Standzeit → höchstens 1 h', w.standzeitFuer(folie('a', { standzeitSek: 1e12 }), glob) === 3600);
+ck('kaputter Übergang je Folie → geprüft', JSON.stringify(w.uebergangFuer(folie('a', { uebergang: { art: 'x', dauerMs: -5 } as never }), glob)) === JSON.stringify({ art: 'schnitt', dauerMs: 100 }));
+
 ck('weiter: mitten drin +1', w.naechsterIndex(1, 3, false) === 2);
 ck('weiter: letzte Folie ohne Schleife bleibt', w.naechsterIndex(2, 3, false) === 2);
 ck('weiter: letzte Folie mit Schleife → erste', w.naechsterIndex(2, 3, true) === 0);

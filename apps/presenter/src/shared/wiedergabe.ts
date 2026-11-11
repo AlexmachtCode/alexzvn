@@ -37,14 +37,20 @@ export function normiereWiedergabe(raw: unknown): Wiedergabe {
   };
 }
 
-/** Übergang beim Hereinkommen dieser Folie: ihr eigener, sonst der für alle. */
+/**
+ * Übergang beim Hereinkommen dieser Folie: ihr eigener, sonst der für alle. Der Wert der Folie kommt
+ * ungeprüft aus der Projektdatei — deshalb hier geprüft.
+ */
 export function uebergangFuer(slide: Slide, w: Wiedergabe): Uebergang {
-  return slide.uebergang ?? w.uebergang;
+  return slide.uebergang ? normiereUebergang(slide.uebergang, w.uebergang) : w.uebergang;
 }
 
-/** Standzeit dieser Folie in der Schleife (Sekunden): ihre eigene, sonst die für alle. */
+/**
+ * Standzeit dieser Folie in der Schleife (Sekunden): ihre eigene, sonst die für alle. Geprüft und
+ * begrenzt, damit ein kaputter Wert die Schleife nie im Dauerfeuer blättern lässt.
+ */
 export function standzeitFuer(slide: Slide, w: Wiedergabe): number {
-  return slide.standzeitSek ?? w.standzeitSek;
+  return zahl(slide.standzeitSek, STANDZEIT_MIN_SEK, STANDZEIT_MAX_SEK, w.standzeitSek);
 }
 
 /** Nächste Folie: mit Schleife nach der letzten wieder die erste, sonst bleibt die letzte stehen. */

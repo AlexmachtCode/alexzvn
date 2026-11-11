@@ -65,8 +65,12 @@ export function AudienceView() {
         setSchichten((alt) => alt.map((x) => (x.key === s.key ? { ...x, sichtbar: true } : x))),
       ),
     );
-    // Sicherung, falls transitionend ausbleibt (z. B. Fenster verdeckt).
-    setTimeout(() => fertig(s.key), s.blendeMs + 300);
+    // Sicherung, falls transitionend ausbleibt (z. B. Fenster verdeckt, rAF gedrosselt): neue Folie
+    // auf jeden Fall zeigen, DANN die alten entfernen — sonst bliebe Schwarz stehen (Review).
+    setTimeout(() => {
+      setSchichten((alt) => alt.map((x) => (x.key === s.key ? { ...x, sichtbar: true } : x)));
+      fertig(s.key);
+    }, s.blendeMs + 300);
   };
 
   // Pause screens cover the slide entirely (B/W keys, remote, presenter buttons).
