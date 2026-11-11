@@ -504,9 +504,9 @@ export function ZoomCard(): JSX.Element {
               <button
                 onClick={() => {
                   // #290 löst N4b.3 Nr. 5 ab: „Schließen“ leert das Feld; der Abruf beim Wechsel nach „bereit“ füllt es mit dem frisch geholten gemerkten Meeting
-                  // (`letztes` kann während des Meetings noch das vorherige halten).
+                  // (`letztes` kann während des Meetings noch das vorherige halten). Im Z2-Fall bleibt der Zustand `bereit`: dann holt erst der Abruf nach dem Aufruf.
                   setNummer('');
-                  void fuehreAus('schliessen', 'karte', () => ohneText(window.jmconnect.zoomSchliessen()));
+                  void fuehreAus('schliessen', 'karte', () => ohneText(window.jmconnect.zoomSchliessen())).then(() => holeLetztes());
                 }}
                 className={RAND}
               >
