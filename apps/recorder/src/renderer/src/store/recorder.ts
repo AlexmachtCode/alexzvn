@@ -3,10 +3,12 @@ import type {
   AudioDevice,
   GemerkterEingang,
   RecEinstellungen,
+  RecPreset,
   RecorderState,
   RecShowSettings,
 } from '@shared/types';
 import { findeEingang } from '../../../shared/einstellungen';
+import { gleicheWerte, PRESET_NAME_MAX, presetWerte } from '../../../shared/presets';
 
 const IDLE: RecorderState = {
   status: 'idle',
@@ -58,6 +60,10 @@ interface RecStore {
   /** Bleibt stehen, bis es sich erledigt: gemerkter Zielordner beim Start nicht erreichbar (#291). */
   hinweisOrdner: string | null;
   loading: boolean;
+  /** Gespeicherte Presets (Namen sortiert, wie der Main sie liefert). */
+  presets: RecPreset[];
+  /** Name des zuletzt angewendeten/gespeicherten Presets; null = „— kein Preset —“. */
+  aktivesPreset: string | null;
 
   init: () => Promise<void>;
   refreshDevices: () => Promise<void>;
@@ -70,7 +76,8 @@ interface RecStore {
   setScheduleDurationMin: (n: number) => void;
   setGain: (db: number) => void;
   pickDir: () => Promise<void>;
-  arm: () => Promise<void>;
+  /** true = Eingang offen, false = nicht geöffnet (Grund steht in `notice`). */
+  arm: () => Promise<boolean>;
   disarm: () => Promise<void>;
   record: () => Promise<void>;
   stop: () => Promise<void>;
@@ -78,6 +85,14 @@ interface RecStore {
   cancelSchedule: () => Promise<void>;
   setNotice: (s: string | null) => void;
   hinweiseSchliessen: () => void;
+  presetAnwenden: (name: string) => Promise<void>;
+  /** Überschreibt ohne Rückfrage — die fragt die UI. */
+  presetSpeichern: (name: string) => Promise<void>;
+  presetLoeschen: (name: string) => Promise<void>;
+  /** „— kein Preset —“: die Werte bleiben, nur der Bezug fällt weg. */
+  presetAbwaehlen: () => void;
+  presetsExportieren: () => Promise<void>;
+  presetsImportieren: () => Promise<void>;
 }
 
 let subscribed = false;
@@ -89,6 +104,13 @@ let subscribed = false;
  */
 let vorbehalt: { eingang: GemerkterEingang; channels?: number; sampleRate?: number } | null = null;
 
+/**
+ * Preset-Anwenden läuft nacheinander: Pfeiltasten/Buchstaben auf der Auswahl feuern je Schritt.
+ * `anwendenKette` = Ende des zuletzt angestellten Laufs (null = keiner läuft).
+ */
+let anwendenKette: Promise<void> | null = null;
+let anwendenNr = 0;
+
 function eingangsText(e: GemerkterEingang): string {
   return `„${e.name}“ (${e.hostApiName})`;
 }
@@ -99,6 +121,78 @@ export const useRec = create<RecStore>((set, get) => {
     get().selectDevice(d.index);
     if (channels) set({ channels: Math.max(1, Math.min(channels, d.maxInputChannels)) });
     if (sampleRate) get().setSampleRate(sampleRate);
+  };
+
+  /** Ein Preset anwenden (läuft nur über die Kette in `presetAnwenden`). */
+  const wendeAn = async (name: string): Promise<void> => {
+    const p = get().presets.find((x) => x.name === name);
+    if (!p) return;
+    const st = get().state;
+    if (st.status === 'recording' || st.scheduledStartAt != null) {
+      set({ notice: 'Während einer laufenden oder geplanten Aufnahme lässt sich kein Preset anwenden.' });
+      return;
+    }
+    const w = p.werte;
+    // Aktives Preset und Werte im selben synchronen Schritt, vor jedem await — sonst blitzt
+    // „(geändert)“ auf und das Merken schriebe die neuen Werte unter dem alten Namen.
+    set({ aktivesPreset: name });
+    // Ordner, Dateiname, Einzelspuren, Dauer, Verstärkung — fehlendes Feld = aktueller Wert bleibt.
+    if (typeof w.dir === 'string') set({ dir: w.dir });
+    if (typeof w.fileName === 'string') set({ fileName: w.fileName });
+    if (typeof w.separateTracks === 'boolean') set({ separateTracks: w.separateTracks });
+    if (typeof w.scheduleDurationMin === 'number') get().setScheduleDurationMin(w.scheduleDurationMin);
+    if (typeof w.gainDb === 'number') get().setGain(w.gainDb);
+    // Eingang samt Kanälen + Samplerate; fehlt das Gerät, bleibt es gemerkt (wie beim Start).
+    if (w.eingang) {
+      const d = findeEingang(get().devices, w.eingang);
+      if (d) {
+        waehleGemerkt(d, w.channels, w.sampleRate);
+      } else {
+        vorbehalt = { eingang: w.eingang, channels: w.channels, sampleRate: w.sampleRate };
+        set({
+          hinweisEingang:
+            `Eingang des Presets „${name}“ nicht gefunden: ${eingangsText(w.eingang)}.` +
+            ' Gerät/Treiber starten und „Geräte aktualisieren“ drücken.',
+        });
+      }
+    } else {
+      const d = get().devices.find((x) => x.index === get().deviceIndex);
+      if (w.channels) get().setChannels(d ? Math.min(w.channels, d.maxInputChannels) : w.channels);
+      if (w.sampleRate) get().setSampleRate(w.sampleRate);
+    }
+    if (w.dir) {
+      let da = true;
+      try {
+        da = await window.jmrec.ordnerDa(w.dir);
+      } catch {
+        // nicht prüfbar → nicht als fehlend melden
+      }
+      set({
+        hinweisOrdner: da
+          ? null
+          : `Zielordner des Presets „${name}“ nicht erreichbar: ${w.dir} — neuen Ordner wählen und das Preset neu speichern.`,
+      });
+    }
+    // Offener Eingang, der nicht dem Soll entspricht → neu öffnen. Maßgeblich ist der Ist-Zustand
+    // vom Main, nicht „vorher/nachher“ im Renderer.
+    let neu = '';
+    let offen = true;
+    const soll = get();
+    const ist = soll.state;
+    if (
+      ist.status === 'armed' &&
+      (ist.device !== soll.deviceIndex || ist.channels !== soll.channels || ist.sampleRate !== soll.sampleRate)
+    ) {
+      await get().disarm();
+      offen = await get().arm();
+      neu = ' Eingang neu geöffnet.';
+    }
+    // Scheitert das Neuöffnen, steht dessen Fehlertext schon in `notice` — nicht überschreiben.
+    set({
+      notice: offen
+        ? `Preset „${name}“ angewendet.${neu}`
+        : `Preset „${name}“ angewendet – der Eingang ließ sich nicht wieder öffnen: ${get().notice ?? ''}`,
+    });
   };
 
   return {
@@ -118,9 +212,77 @@ export const useRec = create<RecStore>((set, get) => {
     hinweisEingang: null,
     hinweisOrdner: null,
     loading: true,
+    presets: [],
+    aktivesPreset: null,
 
     setNotice: (notice) => set({ notice }),
     hinweiseSchliessen: () => set({ hinweisEingang: null, hinweisOrdner: null }),
+
+    presetAnwenden: (name) => {
+      const nr = ++anwendenNr;
+      // Läuft gerade keins, sofort (die Werte stehen dann synchron); sonst hinten anstellen.
+      // Wer wartet und von einem neueren Aufruf überholt wird, entfällt.
+      const lauf = anwendenKette
+        ? anwendenKette.then(() => (nr === anwendenNr ? wendeAn(name) : undefined))
+        : wendeAn(name);
+      const kette: Promise<void> = lauf
+        .catch(() => {})
+        .then(() => {
+          if (anwendenKette === kette) anwendenKette = null;
+        });
+      anwendenKette = kette;
+      return lauf;
+    },
+
+    presetSpeichern: async (name) => {
+      // Wie der Main kürzt (normierePreset) — sonst passte das aktive Preset zu keinem gespeicherten.
+      const n = name.trim().slice(0, PRESET_NAME_MAX).trim();
+      if (!n) {
+        set({ notice: 'Bitte einen Namen für das Preset eingeben.' });
+        return;
+      }
+      try {
+        const presets = await window.jmrec.presets.speichern({ name: n, werte: presetWerte(aktuelleWerte(get())) });
+        set({ presets, aktivesPreset: n, notice: `Preset „${n}“ gespeichert.` });
+      } catch (e) {
+        set({ notice: `Preset konnte nicht gespeichert werden: ${(e as Error).message}` });
+      }
+    },
+
+    presetLoeschen: async (name) => {
+      try {
+        const presets = await window.jmrec.presets.loeschen(name);
+        set({
+          presets,
+          aktivesPreset: get().aktivesPreset === name ? null : get().aktivesPreset,
+          notice: `Preset „${name}“ gelöscht.`,
+        });
+      } catch (e) {
+        set({ notice: `Preset konnte nicht gelöscht werden: ${(e as Error).message}` });
+      }
+    },
+
+    presetAbwaehlen: () => set({ aktivesPreset: null }),
+
+    presetsExportieren: async () => {
+      try {
+        const r = await window.jmrec.presets.exportieren();
+        if (r.ok) set({ notice: r.meldung ?? null });
+        else if (r.error) set({ notice: r.error });
+      } catch (e) {
+        set({ notice: `Export fehlgeschlagen: ${(e as Error).message}` });
+      }
+    },
+
+    presetsImportieren: async () => {
+      try {
+        const r = await window.jmrec.presets.importieren();
+        if (r.ok) set({ presets: r.presets ?? get().presets, notice: r.meldung ?? null });
+        else if (r.error) set({ notice: r.error });
+      } catch (e) {
+        set({ notice: `Import fehlgeschlagen: ${(e as Error).message}` });
+      }
+    },
 
     init: async () => {
       // Show-Integration (C3): geprüfte Voreinstellungen aus der .jmshow auf den
@@ -177,6 +339,14 @@ export const useRec = create<RecStore>((set, get) => {
             ? `Gemerkter Zielordner nicht erreichbar: ${e.dir} — Laufwerk prüfen oder neuen Ordner wählen.`
             : null,
       });
+      // Presets + das zuletzt aktive — VOR dem Merken, damit der Start nichts speichert.
+      let presets: RecPreset[] = [];
+      try {
+        presets = await window.jmrec.presets.list();
+      } catch {
+        // Presets sind Beiwerk — der Start darf daran nicht scheitern
+      }
+      set({ presets, aktivesPreset: e.preset && presets.some((p) => p.name === e.preset) ? e.preset : null });
       // Main startet bei 0 dB → gemerkte Verstärkung hineinspiegeln.
       void window.jmrec.setGain(get().gainDb);
 
@@ -268,10 +438,11 @@ export const useRec = create<RecStore>((set, get) => {
       const { deviceIndex, channels, sampleRate } = get();
       if (deviceIndex == null) {
         set({ notice: 'Kein Eingang gewählt.' });
-        return;
+        return false;
       }
       const res = await window.jmrec.arm({ device: deviceIndex, channels, sampleRate });
       if (!res.ok) set({ notice: res.error ?? 'Eingang konnte nicht geöffnet werden.' });
+      return res.ok;
     },
 
     disarm: async () => {
@@ -337,7 +508,7 @@ export const useRec = create<RecStore>((set, get) => {
 });
 
 /** Was gemerkt wird (#291). Ein beim Start fehlender Eingang bleibt gemerkt, bis jemand selbst wählt. */
-function schnappschuss(s: RecStore): RecEinstellungen {
+export function aktuelleWerte(s: RecStore): RecEinstellungen {
   const d = s.devices.find((x) => x.index === s.deviceIndex);
   const e: RecEinstellungen = {
     eingang: d ? { name: d.name, hostApiName: d.hostApiName } : undefined,
@@ -348,6 +519,7 @@ function schnappschuss(s: RecStore): RecEinstellungen {
     separateTracks: s.separateTracks,
     gainDb: s.gainDb,
     scheduleDurationMin: s.scheduleDurationMin,
+    preset: s.aktivesPreset ?? undefined,
   };
   if (vorbehalt) {
     e.eingang = vorbehalt.eingang;
@@ -357,12 +529,18 @@ function schnappschuss(s: RecStore): RecEinstellungen {
   return e;
 }
 
+/** Weichen die aktuellen Werte vom aktiven Preset ab? Ohne aktives (oder gelöschtes) Preset: nein. */
+export function presetGeaendert(s: RecStore): boolean {
+  const p = s.aktivesPreset ? s.presets.find((x) => x.name === s.aktivesPreset) : undefined;
+  return !!p && !gleicheWerte(aktuelleWerte(s), p.werte);
+}
+
 /**
  * Ab jetzt jede Änderung merken. Erst nach dem Wiederherstellen gestartet — sonst überschriebe
  * der leere Anfangszustand die Datei. Vor dem Schließen wird eine wartende Änderung sofort geschrieben.
  */
 function starteMerken(): void {
-  let zuletzt = JSON.stringify(schnappschuss(useRec.getState()));
+  let zuletzt = JSON.stringify(aktuelleWerte(useRec.getState()));
   let wartet: ReturnType<typeof setTimeout> | null = null;
   const schreibe = (): void => {
     if (wartet) clearTimeout(wartet);
@@ -370,7 +548,7 @@ function starteMerken(): void {
     window.jmrec.settings.save(JSON.parse(zuletzt) as RecEinstellungen);
   };
   useRec.subscribe((s) => {
-    const jetzt = JSON.stringify(schnappschuss(s));
+    const jetzt = JSON.stringify(aktuelleWerte(s));
     if (jetzt === zuletzt) return; // z. B. nur Pegel/Zustand geändert
     zuletzt = jetzt;
     if (wartet) clearTimeout(wartet);

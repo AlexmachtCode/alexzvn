@@ -78,8 +78,8 @@ jobs:
       # Zoom Stage 4a (Spec 12.6). Keiner dieser Tests lädt Electron oder braucht das Zoom-SDK.
       - name: Zoom-Bridge (Protokoll, Zustand, Attrappe — ohne SDK)
         run: npm run selftest -w @jm/zoom-bridge
-      # #291: WAV-Folgedateien, Überschreibschutz, gemerkte Einstellungen. Attrappe statt @jm/audio, ohne Electron.
-      - name: Recorder (Folgedateien, Überschreibschutz, gemerkte Einstellungen)
+      # #291: WAV-Folgedateien, Überschreibschutz, gemerkte Einstellungen, Presets, Loopback-Stille. Attrappe statt @jm/audio, ohne Electron.
+      - name: Recorder (Folgedateien, Überschreibschutz, Einstellungen, Presets, Loopback-Stille)
         run: npm run selftest -w @jm/recorder
       - name: Connect (Zoom-Kern gegen die Attrappe, Laufzeit, Statustexte)
         run: npm run selftest -w @jm/connect

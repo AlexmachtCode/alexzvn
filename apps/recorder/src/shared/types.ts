@@ -106,6 +106,27 @@ export interface RecEinstellungen {
   separateTracks?: boolean;
   gainDb?: number;
   scheduleDurationMin?: number;
+  /** Name des zuletzt angewandten/gespeicherten Presets — nur in der Einstellungsdatei, nie in `werte`. */
+  preset?: string;
+}
+
+/** Benannter Satz Einstellungen (Preset), ohne das Feld `preset`. */
+export interface RecPreset {
+  name: string;
+  werte: RecEinstellungen;
+}
+
+/** Wahl bei gleichnamigen Presets beim Import. */
+export type KonfliktWahl = 'ueberschreiben' | 'beide' | 'abbrechen';
+
+/** Ergebnis von Preset-Import/-Export über den Dateidialog. */
+export interface PresetDateiErgebnis {
+  ok: boolean;
+  error?: string;
+  presets?: RecPreset[];
+  meldung?: string;
+  /** Import: übernommene Presets, die in einen Netzwerkordner aufnehmen (endgültiger Name). Leer → fehlt. */
+  netzwerk?: { name: string; dir: string }[];
 }
 
 /** Ergebnis von `settings.load()`: die Einstellungen und ob der gemerkte Zielordner da ist. */
@@ -151,4 +172,14 @@ export interface JmrecApi {
     load: () => Promise<GeladeneEinstellungen>;
     save: (e: RecEinstellungen) => void;
   };
+  /** Gespeicherte Presets. Alle Aufrufe geben die neue, sortierte Liste zurück. */
+  presets: {
+    list: () => Promise<RecPreset[]>;
+    speichern: (p: RecPreset) => Promise<RecPreset[]>;
+    loeschen: (name: string) => Promise<RecPreset[]>;
+    exportieren: () => Promise<PresetDateiErgebnis>;
+    importieren: () => Promise<PresetDateiErgebnis>;
+  };
+  /** Gibt es den Ordner? (z. B. Zielordner eines Presets) */
+  ordnerDa: (dir: string) => Promise<boolean>;
 }

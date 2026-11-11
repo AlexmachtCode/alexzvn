@@ -1,14 +1,22 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
-import type { ArmInput, GeladeneEinstellungen, RecordInput, ScheduleInput } from '@shared/types';
+import type { ArmInput, GeladeneEinstellungen, KonfliktWahl, PresetDateiErgebnis, RecordInput, RecPreset, ScheduleInput } from '@shared/types';
 import * as rec from './recorder';
 import { ladeEinstellungen, speichereEinstellungen } from './einstellungen';
+import { importiere, ladePresets, netzwerkHinweis, speicherePresets } from './presets';
+import { baueExportDatei, EXPORT_MAX_BYTES, normierePreset } from '../shared/presets';
 
 /** Gemerkte Einstellungen (#291) — eine Datei je Windows-Benutzer, überlebt Updates. */
 function einstellungsDatei(): string {
   return join(app.getPath('userData'), 'recorder-settings.json');
+}
+
+/** Gespeicherte Presets — eine Datei je Windows-Benutzer, neben den Einstellungen. */
+function presetDatei(): string {
+  return join(app.getPath('userData'), 'recorder-presets.json');
 }
 
 export function registerIpc(getWin: () => BrowserWindow | null): void {
@@ -34,6 +42,97 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     } catch (err) {
       getLog().error(`Einstellungen nicht gespeichert: ${(err as Error).message}`);
     }
+  });
+
+  // Asynchron: ein unerreichbares NAS blockiert sonst den Hauptprozess (und damit die Aufnahme).
+  ipcMain.handle('fs:ordnerDa', async (_e, dir: unknown): Promise<boolean> => {
+    if (typeof dir !== 'string' || dir === '') return false;
+    try {
+      await stat(dir);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle('presets:list', (): RecPreset[] => ladePresets(presetDatei()));
+  ipcMain.handle('presets:speichern', (_e, raw: unknown): RecPreset[] => {
+    const liste = ladePresets(presetDatei());
+    const p = normierePreset(raw);
+    if (!p) return liste;
+    const i = liste.findIndex((v) => v.name === p.name);
+    if (i < 0) liste.push(p);
+    else liste[i] = p;
+    return speicherePresets(presetDatei(), liste);
+  });
+  ipcMain.handle('presets:loeschen', (_e, name: string): RecPreset[] =>
+    speicherePresets(presetDatei(), ladePresets(presetDatei()).filter((p) => p.name !== name)),
+  );
+  ipcMain.handle('presets:exportieren', async (): Promise<PresetDateiErgebnis> => {
+    const liste = ladePresets(presetDatei());
+    if (!liste.length) return { ok: false, error: 'Keine Presets zum Exportieren.' };
+    const win = getWin();
+    const opts = {
+      defaultPath: 'Recorder-Presets.jmrec-presets',
+      filters: [{ name: 'Recorder-Presets', extensions: ['jmrec-presets'] }],
+    };
+    const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+    if (r.canceled || !r.filePath) return { ok: false };
+    try {
+      writeFileSync(r.filePath, baueExportDatei(liste, new Date()), 'utf8');
+    } catch (err) {
+      return { ok: false, error: `Export fehlgeschlagen: ${(err as Error).message}` };
+    }
+    const n = liste.length;
+    return { ok: true, meldung: `${n} ${n === 1 ? 'Preset' : 'Presets'} exportiert: ${r.filePath}` };
+  });
+  ipcMain.handle('presets:importieren', async (): Promise<PresetDateiErgebnis> => {
+    const win = getWin();
+    const opts = {
+      properties: ['openFile' as const],
+      filters: [
+        { name: 'Recorder-Presets', extensions: ['jmrec-presets'] },
+        { name: 'Alle Dateien', extensions: ['*'] },
+      ],
+    };
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    if (r.canceled || r.filePaths.length === 0) return { ok: false };
+    let text: string;
+    try {
+      if (statSync(r.filePaths[0]).size > EXPORT_MAX_BYTES) {
+        return { ok: false, error: 'Die Datei ist zu groß für eine Preset-Datei.' };
+      }
+      text = readFileSync(r.filePaths[0], 'utf8');
+    } catch (err) {
+      return { ok: false, error: `Datei nicht lesbar: ${(err as Error).message}` };
+    }
+    const frage = async (konflikte: string[]): Promise<KonfliktWahl> => {
+      const opt = {
+        type: 'question' as const,
+        buttons: ['Überschreiben', 'Beide behalten', 'Abbrechen'],
+        defaultId: 1,
+        cancelId: 2,
+        message: `${konflikte.length} ${konflikte.length === 1 ? 'Preset gibt' : 'Presets gibt'} es schon: ${konflikte.map((k) => `„${k}“`).join(', ')}`,
+        detail: 'Überschreiben ersetzt die vorhandenen. Beide behalten legt die neuen als „Name (2)“ an.',
+      };
+      const m = win ? await dialog.showMessageBox(win, opt) : await dialog.showMessageBox(opt);
+      return (['ueberschreiben', 'beide', 'abbrechen'] as const)[m.response] ?? 'abbrechen';
+    };
+    const erg = await importiere(ladePresets(presetDatei()), text, frage);
+    if (!erg.ok || !erg.presets) return erg;
+    let gespeichert: RecPreset[];
+    try {
+      gespeichert = speicherePresets(presetDatei(), erg.presets);
+    } catch (err) {
+      return { ok: false, error: `Presets nicht gespeichert: ${(err as Error).message}` };
+    }
+    // Netzwerkordner unübersehbar nennen — die Meldungszeile allein ist nach 5 s weg.
+    if (erg.netzwerk?.length) {
+      const opt = { type: 'warning' as const, buttons: ['OK'], defaultId: 0, ...netzwerkHinweis(erg.netzwerk) };
+      if (win) await dialog.showMessageBox(win, opt);
+      else await dialog.showMessageBox(opt);
+    }
+    return { ...erg, presets: gespeichert };
   });
 
   ipcMain.handle('dialog:pickDir', async () => {

@@ -2,6 +2,7 @@ import type { AudioDevice, GemerkterEingang, RecEinstellungen } from './types';
 
 const GAIN_MIN = -12;
 const GAIN_MAX = 24;
+const PRESET_MAX = 60;
 
 function zahl(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
@@ -31,6 +32,7 @@ export function normiereEinstellungen(raw: unknown): RecEinstellungen {
   if (g !== undefined) e.gainDb = Math.max(GAIN_MIN, Math.min(GAIN_MAX, Math.round(g)));
   const d = zahl(r.scheduleDurationMin);
   if (d !== undefined) e.scheduleDurationMin = Math.max(0, Math.floor(d));
+  if (typeof r.preset === 'string' && r.preset) e.preset = r.preset.slice(0, PRESET_MAX);
   return e;
 }
 
