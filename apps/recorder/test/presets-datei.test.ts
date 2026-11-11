@@ -2,7 +2,7 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { importiere, ladePresets, speicherePresets } from '../src/main/presets';
+import { importiere, ladePresets, netzwerkHinweis, speicherePresets } from '../src/main/presets';
 import { baueExportDatei } from '../src/shared/presets';
 import type { KonfliktWahl, RecPreset } from '../src/shared/types';
 
@@ -68,6 +68,32 @@ ck('Müll: ok false, error nennt Preset-Datei', !r.ok && (r.error ?? '').include
 const mitKaputt = JSON.stringify({ format: 'jm-recorder-presets', version: 1, presets: [B, { name: '' }] });
 r = await importiere([A], mitKaputt, frageMit('beide'));
 ck('übersprungen: Meldung nennt „übersprungen“', r.ok && (r.meldung ?? '').includes('1 ungültige übersprungen'));
+
+// Netzwerkordner: der Import nennt jedes übernommene Preset mit Netzwerkpfad unter seinem endgültigen Namen.
+const mitDir = (name: string, d: string): RecPreset => ({ name, werte: { dir: d } });
+const NETZ_A = '\\\\srv\\a';
+r = await importiere([], datText([mitDir('Netz1', NETZ_A), mitDir('Netz2', '//srv/b'), mitDir('Lokal', 'D:\\x')]), frageMit('beide'));
+ck('netzwerk: genau die zwei Netzwerkpfade', r.ok && gleich(r.netzwerk, [{ name: 'Netz1', dir: NETZ_A }, { name: 'Netz2', dir: '//srv/b' }]));
+ck('netzwerk: Meldung nennt sie', r.meldung === '3 Presets importiert – 2 davon mit Netzwerkordner.');
+
+r = await importiere([preset('A', 2)], datText([mitDir('A', NETZ_A)]), frageMit('beide'));
+ck('netzwerk: „Beide behalten“ nennt „A (2)“', r.ok && gleich(r.netzwerk, [{ name: 'A (2)', dir: NETZ_A }]));
+r = await importiere([preset('A', 2)], datText([mitDir('A', NETZ_A)]), frageMit('ueberschreiben'));
+ck('netzwerk: ersetztes Preset genannt', r.ok && gleich(r.netzwerk, [{ name: 'A', dir: NETZ_A }]));
+
+r = await importiere([mitDir('Alt', NETZ_A)], datText([mitDir('Neu', 'D:\\x')]), frageMit('beide'));
+ck('netzwerk: ohne Netzwerkpfad im Import kein Feld (vorhandene zählen nicht)', r.ok && !('netzwerk' in r) && r.meldung === '1 Preset importiert.');
+
+r = await importiere([preset('A', 2)], datText([mitDir('A', NETZ_A)]), frageMit('abbrechen'));
+ck('netzwerk: Abbrechen -> nichts', !r.ok && r.netzwerk === undefined && r.presets === undefined);
+
+// Warnung im Dialog: Einzahl/Mehrzahl, je Preset eine Zeile.
+const h1 = netzwerkHinweis([{ name: 'A', dir: NETZ_A }]);
+ck('Hinweis Einzahl', h1.message === '1 importiertes Preset nimmt in einem Netzwerkordner auf');
+ck('Hinweis nennt Name und Pfad', h1.detail === `„A“ → ${NETZ_A}\n\nNur anwenden, wenn dieser Ordner bekannt ist – beim Anwenden meldet sich Windows bei diesem Server an.`);
+const h2 = netzwerkHinweis([{ name: 'A', dir: NETZ_A }, { name: 'B', dir: '//srv/b' }]);
+ck('Hinweis Mehrzahl', h2.message === '2 importierte Presets nehmen in einem Netzwerkordner auf');
+ck('Hinweis: eine Zeile je Preset', h2.detail.startsWith(`„A“ → ${NETZ_A}\n„B“ → //srv/b\n\n`));
 
 console.log(`\npresets-datei: ${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);

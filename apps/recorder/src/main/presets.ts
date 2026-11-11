@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { KonfliktWahl, PresetDateiErgebnis, RecPreset } from '@shared/types';
-import { fuehreZusammen, leseExportDatei, normierePreset, sortiere } from '../shared/presets';
+import { fuehreZusammen, istNetzwerkPfad, leseExportDatei, normierePreset, sortiere } from '../shared/presets';
 
 /** Gemerkte Presets lesen (Datei: `{ version: 1, presets }`). Fehlt die Datei oder ist sie kaputt: leere Liste. */
 export function ladePresets(datei: string): RecPreset[] {
@@ -56,10 +56,29 @@ export async function importiere(
   if (konflikte.length) wahl = await frage(konflikte);
   if (wahl === 'abbrechen') return { ok: false };
 
-  const { liste, hinzu, ersetzt } = fuehreZusammen(vorhanden, gelesen.presets, wahl);
+  const { liste, hinzu, ersetzt, uebernommen } = fuehreZusammen(vorhanden, gelesen.presets, wahl);
+  // Netzwerkordner: beim Anwenden meldet sich Windows bei diesem Server an → ausdrücklich nennen.
+  const netzwerk = uebernommen.flatMap((p) =>
+    p.werte.dir !== undefined && istNetzwerkPfad(p.werte.dir) ? [{ name: p.name, dir: p.werte.dir }] : [],
+  );
   const n = hinzu + ersetzt;
   let meldung = `${n} ${n === 1 ? 'Preset' : 'Presets'} importiert`;
   if (ersetzt > 0) meldung += ` (${ersetzt} ersetzt)`;
   if (gelesen.uebersprungen > 0) meldung += `, ${gelesen.uebersprungen} ungültige übersprungen`;
-  return { ok: true, presets: liste, meldung: `${meldung}.` };
+  if (netzwerk.length > 0) meldung += ` – ${netzwerk.length} davon mit Netzwerkordner`;
+  return { ok: true, presets: liste, meldung: `${meldung}.`, ...(netzwerk.length > 0 ? { netzwerk } : {}) };
+}
+
+/** Warnung nach dem Import: je Preset eine Zeile „Name“ → Pfad. */
+export function netzwerkHinweis(netzwerk: { name: string; dir: string }[]): { message: string; detail: string } {
+  const n = netzwerk.length;
+  return {
+    message:
+      n === 1
+        ? '1 importiertes Preset nimmt in einem Netzwerkordner auf'
+        : `${n} importierte Presets nehmen in einem Netzwerkordner auf`,
+    detail:
+      netzwerk.map((p) => `„${p.name}“ → ${p.dir}`).join('\n') +
+      '\n\nNur anwenden, wenn dieser Ordner bekannt ist – beim Anwenden meldet sich Windows bei diesem Server an.',
+  };
 }

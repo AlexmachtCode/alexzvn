@@ -1,6 +1,6 @@
 // Preset-Regeln: Normieren, Vergleichen, Namen, Zusammenführen, Dateiformat. npm run selftest -w @jm/recorder
 import {
-  baueExportDatei, fuehreZusammen, freierPresetName, gleicheWerte, leseExportDatei,
+  baueExportDatei, fuehreZusammen, freierPresetName, gleicheWerte, istNetzwerkPfad, leseExportDatei,
   normierePreset, presetWerte, sortiere,
 } from '../src/shared/presets';
 
@@ -86,6 +86,14 @@ const kaputt = leseExportDatei(JSON.stringify({
 }));
 const kw = kaputt.presets[0].werte;
 ck('Werte aus Datei werden normiert', kw.gainDb === 24 && kw.sampleRate === undefined && kw.channels === 1);
+
+// --- Netzwerkpfade (der Import nennt sie ausdrücklich)
+ck('Netzwerkpfad: \\\\srv\\x', istNetzwerkPfad('\\\\srv\\x'));
+ck('Netzwerkpfad: //srv/x', istNetzwerkPfad('//srv/x'));
+ck('Netzwerkpfad: \\\\?\\UNC\\srv\\x', istNetzwerkPfad('\\\\?\\UNC\\srv\\x'));
+ck('kein Netzwerkpfad: D:\\x', !istNetzwerkPfad('D:\\x'));
+ck('kein Netzwerkpfad: \\x', !istNetzwerkPfad('\\x'));
+ck('kein Netzwerkpfad: leer', !istNetzwerkPfad(''));
 
 console.log(`\npresets: ${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);

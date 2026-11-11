@@ -5,7 +5,7 @@ import { getLog } from '@jm/app-runtime';
 import type { ArmInput, GeladeneEinstellungen, KonfliktWahl, PresetDateiErgebnis, RecordInput, RecPreset, ScheduleInput } from '@shared/types';
 import * as rec from './recorder';
 import { ladeEinstellungen, speichereEinstellungen } from './einstellungen';
-import { importiere, ladePresets, speicherePresets } from './presets';
+import { importiere, ladePresets, netzwerkHinweis, speicherePresets } from './presets';
 import { baueExportDatei, EXPORT_MAX_BYTES, normierePreset } from '../shared/presets';
 
 /** Gemerkte Einstellungen (#291) — eine Datei je Windows-Benutzer, überlebt Updates. */
@@ -110,11 +110,19 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
     };
     const erg = await importiere(ladePresets(presetDatei()), text, frage);
     if (!erg.ok || !erg.presets) return erg;
+    let gespeichert: RecPreset[];
     try {
-      return { ...erg, presets: speicherePresets(presetDatei(), erg.presets) };
+      gespeichert = speicherePresets(presetDatei(), erg.presets);
     } catch (err) {
       return { ok: false, error: `Presets nicht gespeichert: ${(err as Error).message}` };
     }
+    // Netzwerkordner unübersehbar nennen — die Meldungszeile allein ist nach 5 s weg.
+    if (erg.netzwerk?.length) {
+      const opt = { type: 'warning' as const, buttons: ['OK'], defaultId: 0, ...netzwerkHinweis(erg.netzwerk) };
+      if (win) await dialog.showMessageBox(win, opt);
+      else await dialog.showMessageBox(opt);
+    }
+    return { ...erg, presets: gespeichert };
   });
 
   ipcMain.handle('dialog:pickDir', async () => {

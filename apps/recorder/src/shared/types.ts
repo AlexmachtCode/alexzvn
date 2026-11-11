@@ -125,6 +125,8 @@ export interface PresetDateiErgebnis {
   error?: string;
   presets?: RecPreset[];
   meldung?: string;
+  /** Import: übernommene Presets, die in einen Netzwerkordner aufnehmen (endgültiger Name). Leer → fehlt. */
+  netzwerk?: { name: string; dir: string }[];
 }
 
 /** Ergebnis von `settings.load()`: die Einstellungen und ob der gemerkte Zielordner da ist. */

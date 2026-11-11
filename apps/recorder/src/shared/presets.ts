@@ -36,39 +36,48 @@ export function gleicheWerte(a: RecEinstellungen, b: RecEinstellungen): boolean 
 }
 
 /** Name, der noch nicht vergeben ist: „Name“, sonst „Name (2)“, „Name (3)“ … (max. 60 Zeichen). */
-export function freierPresetName(name: string, vergeben: string[]): string {
-  if (!vergeben.includes(name)) return name;
+export function freierPresetName(name: string, vergeben: readonly string[] | { has(name: string): boolean }): string {
+  const belegt = Array.isArray(vergeben) ? new Set<string>(vergeben) : (vergeben as { has(name: string): boolean });
+  if (!belegt.has(name)) return name;
   for (let n = 2; ; n++) {
     const endung = ` (${n})`;
     const kandidat = name.slice(0, PRESET_NAME_MAX - endung.length) + endung;
-    if (!vergeben.includes(kandidat)) return kandidat;
+    if (!belegt.has(kandidat)) return kandidat;
   }
 }
 
-/** Neue Presets in die vorhandenen einarbeiten; Ergebnis ist sortiert. */
+/** Netzwerkpfad (`\\srv\share`, `//srv/share`, `\\?\UNC\…`)? Ein einzelnes `\` ist keiner. */
+export function istNetzwerkPfad(dir: string): boolean {
+  return /^[\\/]{2}/.test(dir);
+}
+
+/**
+ * Neue Presets in die vorhandenen einarbeiten; Ergebnis ist sortiert. `uebernommen` = die
+ * hinzugefügten und ersetzten Presets unter ihrem endgültigen Namen (nach „Name (2)“).
+ */
 export function fuehreZusammen(
   vorhanden: RecPreset[],
   neu: RecPreset[],
   wahl: 'ueberschreiben' | 'beide',
-): { liste: RecPreset[]; hinzu: number; ersetzt: number } {
-  let liste = [...vorhanden];
+): { liste: RecPreset[]; hinzu: number; ersetzt: number; uebernommen: RecPreset[] } {
+  const nachName = new Map(vorhanden.map((p) => [p.name, p]));
+  const uebernommen: RecPreset[] = [];
   let hinzu = 0;
   let ersetzt = 0;
   for (const p of neu) {
-    const i = liste.findIndex((v) => v.name === p.name);
-    if (i < 0) {
-      liste.push(p);
+    let q = p;
+    if (!nachName.has(p.name)) {
       hinzu++;
     } else if (wahl === 'ueberschreiben') {
-      liste[i] = p;
       ersetzt++;
     } else {
-      liste.push({ name: freierPresetName(p.name, liste.map((v) => v.name)), werte: p.werte });
+      q = { name: freierPresetName(p.name, nachName), werte: p.werte };
       hinzu++;
     }
+    nachName.set(q.name, q);
+    uebernommen.push(q);
   }
-  liste = sortiere(liste);
-  return { liste, hinzu, ersetzt };
+  return { liste: sortiere([...nachName.values()]), hinzu, ersetzt, uebernommen };
 }
 
 /** Exportdatei als JSON-Text. */
