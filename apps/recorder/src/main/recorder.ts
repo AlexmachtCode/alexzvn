@@ -54,6 +54,8 @@ let loopback = false;
 let uhr: StilleUhr | null = null;
 let waechter: ReturnType<typeof setInterval> | null = null;
 let letzterBlockMs = 0;
+// Letzter Wächtertakt: liegt er ≥ STILLE_PAUSE_MS zurück, hing die Ereignisschleife (Stau, keine Stille).
+let letzterTaktMs = 0;
 // Aufnahme-Verstärkung (#94): linearer Faktor, der je Audioblock VOR Pegel-
 // messung und Schreiben angewandt wird → der Meter zeigt den verstärkten Pegel.
 let gainFactor = 1;
@@ -147,6 +149,8 @@ function onFrames(planar: Float32Array, channels: number, frames: number): void 
     peaks = new Array(channels).fill(0);
     lastEmit = now;
   }
+  // Nach dem Schreiben: ein langsames writeSync (USB-Stick, NAS) zählt nicht als Pause.
+  letzterBlockMs = Date.now();
 }
 
 // Nullen in Stücken ≤ 1 s an beide Writer; zählt recordedSec und die Uhr mit.
@@ -177,7 +181,17 @@ function stopWaechter(): void {
 
 // Wächter: bleiben Blöcke aus, fällt der Pegel auf 0 und die Aufnahme füllt Stille auf.
 function waechterTakt(): void {
-  if (Date.now() - letzterBlockMs < STILLE_PAUSE_MS) return;
+  const jetzt = Date.now();
+  const stau = jetzt - letzterTaktMs >= STILLE_PAUSE_MS;
+  letzterTaktMs = jetzt;
+  if (stau) {
+    // Die Ereignisschleife hing: die Blöcke dieser Zeit liegen gepuffert und kommen gleich.
+    // Grundlinie neu, in diesem Takt weder auffüllen noch Null-Pegel.
+    letzterBlockMs = jetzt;
+    uhr?.weiter(jetzt);
+    return;
+  }
+  if (jetzt - letzterBlockMs < STILLE_PAUSE_MS) return;
   send('recorder:levels', { peaks: new Array(state.channels).fill(0) });
   if (state.status === 'recording') {
     try {
@@ -207,6 +221,7 @@ export function arm(input: ArmInput): OpResult {
     }
     letzterBlockMs = Date.now();
     if (loopback) {
+      letzterTaktMs = Date.now();
       waechter = setInterval(waechterTakt, STILLE_TAKT_MS);
       waechter.unref?.();
     }

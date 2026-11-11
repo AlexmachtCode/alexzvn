@@ -24,6 +24,14 @@ a.aufgefuellt(300);
 ck('nach Auffüllen: fehlend(1350) = 50', a.fehlend(1350) === 50);
 ck('Block nach langer Pause: 690', a.block(10, 2000) === 690);
 
+// Stau im Hauptprozess: gepufferte Blöcke kommen nach einer Lücke, ohne dass der Wächter sie
+// als Stille bestätigt hat → keine Stille davor.
+const s = new StilleUhr(1000, 0);
+for (let t = 10; t <= 1000; t += 10) s.block(10, t);
+ck('Stau: Block nach unbestätigter Lücke = 0', s.block(10, 1400) === 0);
+s.weiter(2000);
+ck('weiter: neue Grundlinie, fehlend(2100) = 0', s.fehlend(2100) === 0);
+
 // Kein Block je.
 ck('kein Block je: fehlend(600) = 600', new StilleUhr(1000, 0).fehlend(600) === 600);
 

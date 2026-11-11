@@ -15,6 +15,9 @@ export function istLoopback(name: string): boolean {
 export class StilleUhr {
   private geschrieben = 0; // Frames in der Datei (echt + Stille)
   private letzterBlockMs: number;
+  // Hat der Wächter die Pause bei laufendem Hauptprozess gesehen? Sonst kann eine Lücke auch ein
+  // Stau sein: das Addon puffert die Blöcke ohne Zeitstempel, sie kommen danach auf einen Schlag.
+  private bestaetigt = false;
 
   constructor(
     private readonly sampleRate: number,
@@ -27,19 +30,29 @@ export class StilleUhr {
     return Math.floor(((jetztMs - this.startMs) / 1000) * this.sampleRate);
   }
 
-  /** Echter Block kommt an: wie viele Stille-Frames fehlen VOR ihm? Zählt `frames` dazu. */
+  /**
+   * Echter Block kommt an: wie viele Stille-Frames fehlen VOR ihm? Nur nach einer vom Wächter
+   * bestätigten Pause (`fehlend`), sonst 0. Zählt `frames` dazu.
+   */
   block(frames: number, jetztMs: number): number {
-    const pause = jetztMs - this.letzterBlockMs;
+    const n = this.bestaetigt ? Math.max(0, this.erwartet(jetztMs) - frames - this.geschrieben) : 0;
+    this.bestaetigt = false;
     this.letzterBlockMs = jetztMs;
-    const n = pause < STILLE_PAUSE_MS ? 0 : Math.max(0, this.erwartet(jetztMs) - frames - this.geschrieben);
     this.geschrieben += frames;
     return n;
   }
 
-  /** Wächter/Stopp: fehlende Stille-Frames; 0, solange Blöcke fließen. */
+  /** Wächter/Stopp: fehlende Stille-Frames; 0, solange Blöcke fließen. Eine Pause gilt damit als bestätigt. */
   fehlend(jetztMs: number): number {
     if (jetztMs - this.letzterBlockMs < STILLE_PAUSE_MS) return 0;
+    this.bestaetigt = true;
     return Math.max(0, this.erwartet(jetztMs) - this.geschrieben);
+  }
+
+  /** Nach einem Stau im Hauptprozess: Grundlinie neu, die Lücke ist keine Stille. */
+  weiter(jetztMs: number): void {
+    this.letzterBlockMs = jetztMs;
+    this.bestaetigt = false;
   }
 
   /** Stille wurde geschrieben. */
