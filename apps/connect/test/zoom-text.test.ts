@@ -2266,6 +2266,16 @@ console.log('— B21: Eingabe der Teilnehmerliste je Person (Spec 10.10)');
     KENNCODE_NICHT_GESPEICHERT === 'Kenncode wird auf diesem PC nicht gespeichert (keine Windows-Verschlüsselung).');
 }
 
+{
+  const { kenncodePlatzhalterZeigen } = await import('../src/shared/zoom-text');
+  const L = { nummer: '123 456 7890', kenncodeGespeichert: true, kenncodeNichtGespeichert: false };
+  ck('#290: Platzhalter gezeigt bei gleicher Nummer mit anderen Leerzeichen', kenncodePlatzhalterZeigen('1234567890', '', L) && kenncodePlatzhalterZeigen(' 123  4567 890 ', '', L));
+  ck('#290: Platzhalter nicht bei anderer Nummer im Feld', !kenncodePlatzhalterZeigen('123 456 7891', '', L));
+  ck('#290: Platzhalter nicht bei gefülltem Kenncode-Feld', !kenncodePlatzhalterZeigen('1234567890', 'x', L));
+  ck('#290: Platzhalter nicht ohne Verschlüsselung (kenncodeNichtGespeichert)', !kenncodePlatzhalterZeigen('1234567890', '', { ...L, kenncodeNichtGespeichert: true }));
+  ck('#290: Platzhalter nicht ohne gespeicherten Kenncode oder ohne Gemerktes', !kenncodePlatzhalterZeigen('1234567890', '', { ...L, kenncodeGespeichert: false }) && !kenncodePlatzhalterZeigen('1234567890', '', null) && !kenncodePlatzhalterZeigen('', '', { ...L, nummer: null }));
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

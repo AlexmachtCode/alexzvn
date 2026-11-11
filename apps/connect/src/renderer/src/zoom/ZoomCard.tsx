@@ -26,6 +26,7 @@ import {
   KANDIDAT_KENNZEICHEN,
   KENNCODE_GESPEICHERT,
   KENNCODE_NICHT_GESPEICHERT,
+  kenncodePlatzhalterZeigen,
   SLOT_FELD,
   VERGESSEN,
   VERGESSEN_TITEL,
@@ -377,11 +378,7 @@ export function ZoomCard(): JSX.Element {
     );
   };
 
-  const kenncodeGemerkt =
-    kenncode === '' &&
-    !!letztes?.kenncodeGespeichert &&
-    !!letztes.nummer &&
-    nummer.replace(/\s+/g, '') === letztes.nummer.replace(/\s+/g, '');
+  const kenncodeGemerkt = kenncodePlatzhalterZeigen(nummer, kenncode, letztes);
 
   const vergessen = async (): Promise<void> => {
     setLaeuft((l) => new Set(l).add('vergessen'));
@@ -506,8 +503,9 @@ export function ZoomCard(): JSX.Element {
             {mk.schliessen && (
               <button
                 onClick={() => {
-                  // #290 löst N4b.3 Nr. 5 ab: „Schließen“ setzt das Nummernfeld auf das gemerkte Meeting (leer, wenn nichts gemerkt ist).
-                  setNummer(letztes?.nummer ?? '');
+                  // #290 löst N4b.3 Nr. 5 ab: „Schließen“ leert das Feld; der Abruf beim Wechsel nach „bereit“ füllt es mit dem frisch geholten gemerkten Meeting
+                  // (`letztes` kann während des Meetings noch das vorherige halten).
+                  setNummer('');
                   void fuehreAus('schliessen', 'karte', () => ohneText(window.jmconnect.zoomSchliessen()));
                 }}
                 className={RAND}

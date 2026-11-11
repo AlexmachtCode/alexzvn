@@ -1440,4 +1440,15 @@ export const VERGESSEN = 'Vergessen';
 export const VERGESSEN_TITEL = 'Gemerkte Meeting-Nummer und Kenncode löschen';
 export const KENNCODE_NICHT_GESPEICHERT = 'Kenncode wird auf diesem PC nicht gespeichert (keine Windows-Verschlüsselung).';
 
+/** #290: Platzhalter „Kenncode gespeichert“ nur, wenn der Kenncode leer ist, einer gespeichert ist (mit Windows-Verschlüsselung) und das Nummernfeld das Gemerkte zeigt (ohne Leerzeichen verglichen). */
+export function kenncodePlatzhalterZeigen(
+  feldNummer: string,
+  feldKenncode: string,
+  letztes: { nummer: string | null; kenncodeGespeichert: boolean; kenncodeNichtGespeichert: boolean } | null,
+): boolean {
+  if (!letztes || !letztes.nummer || feldKenncode !== '') return false;
+  if (!letztes.kenncodeGespeichert || letztes.kenncodeNichtGespeichert) return false;
+  return feldNummer.replace(/\s+/g, '') === letztes.nummer.replace(/\s+/g, '');
+}
+
 // ── ENDE DER SLOT-ANZEIGEN (neue Regeln direkt darüber einfügen) ──
