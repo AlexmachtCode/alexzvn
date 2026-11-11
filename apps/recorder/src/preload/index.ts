@@ -6,11 +6,13 @@ import type {
   JmrecApi,
   Levels,
   OpResult,
+  PresetDateiErgebnis,
   RecorderRemoteCommand,
   RecordInput,
   RecordResult,
   RecorderState,
   RecEinstellungen,
+  RecPreset,
   RecShowSettings,
   ScheduleInput,
 } from '@shared/types';
@@ -63,6 +65,14 @@ const api: JmrecApi = {
     load: () => ipcRenderer.invoke('settings:load') as Promise<GeladeneEinstellungen>,
     save: (e: RecEinstellungen) => ipcRenderer.send('settings:save', e),
   },
+  presets: {
+    list: () => ipcRenderer.invoke('presets:list') as Promise<RecPreset[]>,
+    speichern: (p: RecPreset) => ipcRenderer.invoke('presets:speichern', p) as Promise<RecPreset[]>,
+    loeschen: (name: string) => ipcRenderer.invoke('presets:loeschen', name) as Promise<RecPreset[]>,
+    exportieren: () => ipcRenderer.invoke('presets:exportieren') as Promise<PresetDateiErgebnis>,
+    importieren: () => ipcRenderer.invoke('presets:importieren') as Promise<PresetDateiErgebnis>,
+  },
+  ordnerDa: (dir: string) => ipcRenderer.invoke('fs:ordnerDa', dir) as Promise<boolean>,
 };
 
 if (process.contextIsolated) {

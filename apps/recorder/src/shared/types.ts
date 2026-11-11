@@ -170,4 +170,14 @@ export interface JmrecApi {
     load: () => Promise<GeladeneEinstellungen>;
     save: (e: RecEinstellungen) => void;
   };
+  /** Gespeicherte Presets. Alle Aufrufe geben die neue, sortierte Liste zurück. */
+  presets: {
+    list: () => Promise<RecPreset[]>;
+    speichern: (p: RecPreset) => Promise<RecPreset[]>;
+    loeschen: (name: string) => Promise<RecPreset[]>;
+    exportieren: () => Promise<PresetDateiErgebnis>;
+    importieren: () => Promise<PresetDateiErgebnis>;
+  };
+  /** Gibt es den Ordner? (z. B. Zielordner eines Presets) */
+  ordnerDa: (dir: string) => Promise<boolean>;
 }

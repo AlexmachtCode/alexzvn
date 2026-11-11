@@ -17,7 +17,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "selftest": "tsx test/wav.test.ts && tsx test/dateiname.test.ts && tsx test/recorder.test.ts && tsx test/einstellungen.test.ts && tsx test/store.test.ts && tsx test/presets.test.ts",
+    "selftest": "tsx test/wav.test.ts && tsx test/dateiname.test.ts && tsx test/recorder.test.ts && tsx test/einstellungen.test.ts && tsx test/store.test.ts && tsx test/presets.test.ts && tsx test/presets-datei.test.ts",
     "prepackage": "node tools/bundle-audio.mjs",
     "dist": "electron-vite build && npm run prepackage && electron-builder",
     "dist:dir": "electron-vite build && electron-builder --dir",
