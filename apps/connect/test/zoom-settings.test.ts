@@ -278,5 +278,64 @@ ck('Zugang: Entfernen bei schreibbarer Datei → true, Feld weg', s.zoomZugangLo
   g.__mock.userData = wurzel;
 }
 
+// ── #290: letztes Meeting merken (Nummer + verschlüsselter Kenncode) ──
+{
+  const e = await import('../src/main/zoom/einstellungen');
+  const ordner = mkdtempSync(join(tmpdir(), 'jmc-290-'));
+  const dat = join(ordner, 'connect-settings.json');
+  const inhalt = (): string => readFileSync(dat, 'utf8');
+  g.__mock.userData = ordner;
+  g.__mock.verschluesselung = true;
+
+  ck('290: gueltigeLetzteNummer: getrimmt 1–64, sonst null',
+    e.gueltigeLetzteNummer(' 123 456 ') === '123 456' && e.gueltigeLetzteNummer('') === null && e.gueltigeLetzteNummer('   ') === null
+      && e.gueltigeLetzteNummer(5) === null && e.gueltigeLetzteNummer(undefined) === null
+      && e.gueltigeLetzteNummer('1'.repeat(64)) === '1'.repeat(64) && e.gueltigeLetzteNummer('1'.repeat(65)) === null);
+  ck('290: ohne Datei → null', s.zoomLetztesMeeting() === null);
+
+  ck('290: merken mit Schlüsselbund → kenncodeGespeichert true', s.zoomMeetingMerken(' 123 456 7890 ', 'Geheim-Kenncode').kenncodeGespeichert === true);
+  const m = s.zoomLetztesMeeting();
+  ck('290: … lesen: Nummer getrimmt, Kenncode entschlüsselt', m?.nummer === '123 456 7890' && m.kenncode === 'Geheim-Kenncode');
+  ck('290: … Datei enthält KEINEN Klartext-Kenncode, aber zoomLetzterKenncodeEnc', !inhalt().includes('Geheim-Kenncode') && inhalt().includes('zoomLetzterKenncodeEnc'));
+
+  g.__mock.verschluesselung = false;
+  ck('290: ohne Schlüsselbund → kenncodeGespeichert false', s.zoomMeetingMerken('555 666', 'Anderer-Code').kenncodeGespeichert === false);
+  ck('290: … Nummer da, kein zoomLetzterKenncodeEnc, kein Klartext', inhalt().includes('555 666') && !inhalt().includes('zoomLetzterKenncodeEnc') && !inhalt().includes('Anderer-Code'));
+  ck('290: … lesen: Nummer, Kenncode null', s.zoomLetztesMeeting()?.nummer === '555 666' && s.zoomLetztesMeeting()?.kenncode === null);
+
+  g.__mock.verschluesselung = true;
+  s.zoomMeetingMerken('111 222', 'Code-1');
+  ck('290: leerer Kenncode → Feld gelöscht, Nummer bleibt, false',
+    s.zoomMeetingMerken('111 222', '').kenncodeGespeichert === false && !inhalt().includes('zoomLetzterKenncodeEnc') && s.zoomLetztesMeeting()?.kenncode === null);
+
+  s.zoomMeetingMerken('111 222', 'Code-2');
+  g.__mock.verschluesselung = false;
+  ck('290: ohne Schlüsselbund lesen → Kenncode null, Nummer da', s.zoomLetztesMeeting()?.nummer === '111 222' && s.zoomLetztesMeeting()?.kenncode === null);
+  g.__mock.verschluesselung = true;
+
+  s.zoomMeetingVergessen();
+  ck('290: vergessen → beide Felder weg, lesen null', !inhalt().includes('zoomLetzteNummer') && !inhalt().includes('zoomLetzterKenncodeEnc') && s.zoomLetztesMeeting() === null);
+
+  // Schreibfehler: still, nie werfen
+  s.zoomMeetingMerken('777 888', 'Code-3');
+  g.__mock.userData = kaputt;
+  let geworfen = false, rueck: { kenncodeGespeichert: boolean } | undefined;
+  try { rueck = s.zoomMeetingMerken('999', 'Code-4'); s.zoomMeetingVergessen(); } catch { geworfen = true; }
+  ck('290: Schreibfehler → nie werfen, kenncodeGespeichert false', !geworfen && rueck?.kenncodeGespeichert === false);
+
+  // unlesbare Datei → null
+  const ordnerK = mkdtempSync(join(tmpdir(), 'jmc-290-kaputt-'));
+  writeFileSync(join(ordnerK, 'connect-settings.json'), '{ kaputt');
+  g.__mock.userData = ordnerK;
+  ck('290: unlesbare Datei → null', s.zoomLetztesMeeting() === null);
+
+  // Enc ohne Nummer → null
+  const ordnerE = mkdtempSync(join(tmpdir(), 'jmc-290-enc-'));
+  writeFileSync(join(ordnerE, 'connect-settings.json'), JSON.stringify({ zoomLetzterKenncodeEnc: Buffer.from('E:x').toString('base64') }));
+  g.__mock.userData = ordnerE;
+  ck('290: Kenncode ohne Nummer → null', s.zoomLetztesMeeting() === null);
+  g.__mock.userData = wurzel;
+}
+
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

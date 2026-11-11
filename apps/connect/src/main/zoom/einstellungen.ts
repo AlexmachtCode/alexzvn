@@ -25,6 +25,13 @@ export function gueltigerAnzeigename(v: unknown): string | null {
   return t.length >= 1 && t.length <= 64 ? t : null;
 }
 
+/** Zuletzt benutzte Meeting-Nummer (#290): String, getrimmt, 1 bis 64 Zeichen, sonst `null`. */
+export function gueltigeLetzteNummer(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  return t.length >= 1 && t.length <= 64 ? t : null;
+}
+
 /** Ganze Zahl 0 bis 1000 (G4), sonst `null`. Der Aufrufer setzt dann 0. */
 export function gueltigerVersatz(v: unknown): number | null {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1000 ? v : null;
