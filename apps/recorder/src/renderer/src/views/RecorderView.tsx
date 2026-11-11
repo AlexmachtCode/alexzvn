@@ -15,6 +15,9 @@ export function RecorderView() {
   const peaks = useRec((s) => s.peaks);
   const gainDb = useRec((s) => s.gainDb);
   const setGain = useRec((s) => s.setGain);
+  const hinweisEingang = useRec((s) => s.hinweisEingang);
+  const hinweisOrdner = useRec((s) => s.hinweisOrdner);
+  const hinweiseSchliessen = useRec((s) => s.hinweiseSchliessen);
 
   const selectDevice = useRec((s) => s.selectDevice);
   const setChannels = useRec((s) => s.setChannels);
@@ -48,6 +51,27 @@ export function RecorderView() {
           Geräte aktualisieren
         </Button>
       </div>
+
+      {/* Gemerkte Einstellungen, die beim Start nicht passten (#291) — bleibt, bis es erledigt ist. */}
+      {(hinweisEingang || hinweisOrdner) && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-[var(--radius-lg)] border border-amber-500/60 bg-amber-500/10 px-4 py-3 text-sm"
+        >
+          <div className="flex-1 flex flex-col gap-1 font-semibold">
+            {hinweisEingang && <p>{hinweisEingang}</p>}
+            {hinweisOrdner && <p>{hinweisOrdner}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={hinweiseSchliessen}
+            title="Hinweis schließen"
+            className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] leading-none text-lg"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Eingang */}
       <Card className="p-6">

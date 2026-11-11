@@ -50,6 +50,8 @@ export interface OpResult {
 
 export interface RecordResult extends OpResult {
   filePath?: string;
+  /** Alle geschriebenen Dateien: `filePath` und ab 4 GB die Folgedateien `Name_002.wav` … (#291). */
+  files?: string[];
   bytes?: number;
   durationSec?: number;
   channels?: number;
@@ -84,6 +86,35 @@ export interface RecShowSettings {
   sampleRate?: number;
 }
 
+/** Eingang, wie er gemerkt wird: über Name + Treiber, nie über die PortAudio-Nummer (#291). */
+export interface GemerkterEingang {
+  name: string;
+  hostApiName: string;
+}
+
+/**
+ * Gemerkte Einstellungen (#291), im Main als `recorder-settings.json` unter userData abgelegt.
+ * Alle Felder optional — was fehlt, nimmt die Vorgabe. Die Startzeit des Zeitplans fehlt mit
+ * Absicht: ein festes Datum liegt am nächsten Tag in der Vergangenheit.
+ */
+export interface RecEinstellungen {
+  eingang?: GemerkterEingang;
+  channels?: number;
+  sampleRate?: number;
+  dir?: string;
+  fileName?: string;
+  separateTracks?: boolean;
+  gainDb?: number;
+  scheduleDurationMin?: number;
+}
+
+/** Ergebnis von `settings.load()`: die Einstellungen und ob der gemerkte Zielordner da ist. */
+export interface GeladeneEinstellungen {
+  einstellungen: RecEinstellungen;
+  /** null = kein Zielordner gemerkt. */
+  ordnerDa: boolean | null;
+}
+
 /** Shape, die der Preload auf `window.jmrec` legt. */
 export interface JmrecApi {
   platform: NodeJS.Platform;
@@ -115,4 +146,9 @@ export interface JmrecApi {
   takeShowSettings: () => Promise<RecShowSettings | null>;
   /** Show-Integration (C3): Voreinstellungen, die zur Laufzeit per Deep-Link ankommen. Liefert Unsubscribe. */
   onShowSettings: (cb: (s: RecShowSettings) => void) => () => void;
+  /** Gemerkte Einstellungen (#291). `save` wartet nicht — es muss auch beim Schließen noch durchgehen. */
+  settings: {
+    load: () => Promise<GeladeneEinstellungen>;
+    save: (e: RecEinstellungen) => void;
+  };
 }

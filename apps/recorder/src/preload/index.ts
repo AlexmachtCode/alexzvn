@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   ArmInput,
   AudioDevice,
+  GeladeneEinstellungen,
   JmrecApi,
   Levels,
   OpResult,
@@ -9,6 +10,7 @@ import type {
   RecordInput,
   RecordResult,
   RecorderState,
+  RecEinstellungen,
   RecShowSettings,
   ScheduleInput,
 } from '@shared/types';
@@ -56,6 +58,10 @@ const api: JmrecApi = {
     const listener = (_e: unknown, s: RecShowSettings): void => cb(s);
     ipcRenderer.on('recorder:show-settings', listener);
     return () => ipcRenderer.off('recorder:show-settings', listener);
+  },
+  settings: {
+    load: () => ipcRenderer.invoke('settings:load') as Promise<GeladeneEinstellungen>,
+    save: (e: RecEinstellungen) => ipcRenderer.send('settings:save', e),
   },
 };
 
