@@ -26,7 +26,8 @@ export function PresenterView() {
   }
 
   const current = slides[state.index] ?? null;
-  const next = slides[state.index + 1] ?? null;
+  // Mit Schleife folgt auf die letzte Folie wieder die erste (#293).
+  const next = slides[state.index + 1] ?? (state.schleife && slides.length > 1 ? slides[0] : null);
   const audienceDisplay = displays.find((d) => d.current);
 
   const doJump = (): void => {
@@ -77,6 +78,7 @@ export function PresenterView() {
           >
             ⬜
           </HeaderBtn>
+          <SchleifenKnopf schleife={state.schleife === true} bisMs={state.schleifeBisMs ?? null} />
           <HeaderBtn onClick={() => void window.jmpr.present.toggleAudienceFullscreen()}>Vollbild</HeaderBtn>
           <HeaderBtn onClick={() => setShowGrid((v) => !v)} active={showGrid}>
             Übersicht
@@ -191,6 +193,26 @@ export function PresenterView() {
 function Label({ children }: { children: React.ReactNode }) {
   return (
     <div className="text-[10px] uppercase tracking-[0.14em] text-white/45 font-bold mb-1.5">{children}</div>
+  );
+}
+
+/** #293: Schleife live an/aus, mit Countdown bis zum nächsten Selbst-Weiterblättern. */
+function SchleifenKnopf({ schleife, bisMs }: { schleife: boolean; bisMs: number | null }) {
+  const [jetzt, setJetzt] = useState(() => Date.now());
+  useEffect(() => {
+    if (!schleife || bisMs == null) return;
+    const id = setInterval(() => setJetzt(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [schleife, bisMs]);
+  const rest = schleife && bisMs != null ? Math.max(0, Math.ceil((bisMs - jetzt) / 1000)) : null;
+  return (
+    <HeaderBtn
+      onClick={() => void window.jmpr.present.setSchleife(!schleife)}
+      active={schleife}
+      title={schleife ? 'Schleife anhalten' : 'Schleife starten: blättert nach der Standzeit selbst weiter'}
+    >
+      ⟳ Schleife{rest != null ? ` · ${rest} s` : schleife ? ' · steht' : ''}
+    </HeaderBtn>
   );
 }
 

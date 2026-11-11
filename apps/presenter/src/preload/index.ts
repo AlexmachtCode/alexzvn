@@ -61,6 +61,7 @@ const api: JmprApi = {
     prev: () => ipcRenderer.invoke('present:prev') as Promise<void>,
     stop: () => ipcRenderer.invoke('present:stop') as Promise<void>,
     setScreen: (mode) => ipcRenderer.invoke('present:setScreen', mode) as Promise<void>,
+    setSchleife: (an) => ipcRenderer.invoke('present:setSchleife', an) as Promise<void>,
     displays: () => ipcRenderer.invoke('present:displays'),
     assignAudience: (displayId) =>
       ipcRenderer.invoke('present:assignAudience', displayId) as Promise<void>,
