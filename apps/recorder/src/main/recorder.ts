@@ -13,6 +13,7 @@ import type {
 } from '@shared/types';
 import { MultiWavWriter, WavWriter } from './wav';
 import { freierBasisname } from './dateiname';
+import { istLoopback, StilleUhr, STILLE_PAUSE_MS, STILLE_TAKT_MS } from './stille';
 
 // Lazy-Load des nativen Addons: das Fenster startet auch ohne gebautes @jm/audio
 // (z. B. im Codespace). Erst beim ersten Geräte-/Aufnahme-Zugriff geladen.
@@ -48,6 +49,11 @@ let writer: WavWriter | null = null;
 let multiWriter: MultiWavWriter | null = null;
 let peaks: number[] = [];
 let lastEmit = 0;
+// Loopback-Eingänge: kein Block in Stille → Uhr + Wächter füllen die Lücken auf.
+let loopback = false;
+let uhr: StilleUhr | null = null;
+let waechter: ReturnType<typeof setInterval> | null = null;
+let letzterBlockMs = 0;
 // Aufnahme-Verstärkung (#94): linearer Faktor, der je Audioblock VOR Pegel-
 // messung und Schreiben angewandt wird → der Meter zeigt den verstärkten Pegel.
 let gainFactor = 1;
@@ -105,6 +111,7 @@ export function listDevices(): AudioDevice[] {
 // Läuft je Audioblock (TSFN → Node-Loop): Pegel sammeln, ggf. schreiben,
 // gedrosselt Pegel/State an den Renderer senden.
 function onFrames(planar: Float32Array, channels: number, frames: number): void {
+  letzterBlockMs = Date.now();
   // Gain zuerst auf den ganzen Block anwenden (in place) → Pegel + Datei zeigen/
   // schreiben den verstärkten Ton. 32-bit-Float-WAV behält Werte >1 (kein Hard-
   // Clip in der Datei); der Meter warnt rot ab ~0 dBFS.
@@ -123,6 +130,11 @@ function onFrames(planar: Float32Array, channels: number, frames: number): void 
   }
 
   if (state.status === 'recording' && writer) {
+    // Loopback: erst die fehlende Stille vor diesem Block, dann der echte Block.
+    if (uhr) {
+      const n = uhr.block(frames, letzterBlockMs);
+      if (n > 0) schreibeStille(n);
+    }
     writer.writeBlock(planar, channels, frames);
     multiWriter?.writeBlock(planar, channels, frames);
     state.recordedSec += frames / (state.sampleRate || 1);
@@ -137,6 +149,42 @@ function onFrames(planar: Float32Array, channels: number, frames: number): void 
   }
 }
 
+// Nullen in Stücken ≤ 1 s an beide Writer; zählt recordedSec und die Uhr mit.
+function schreibeStille(n: number): void {
+  if (!writer || n <= 0) return;
+  let rest = n;
+  while (rest > 0) {
+    const k = Math.min(rest, Math.max(1, state.sampleRate));
+    const nullen = new Float32Array(state.channels * k);
+    writer.writeBlock(nullen, state.channels, k);
+    multiWriter?.writeBlock(nullen, state.channels, k);
+    state.recordedSec += k / (state.sampleRate || 1);
+    uhr?.aufgefuellt(k);
+    rest -= k;
+  }
+}
+
+function stilleBisJetzt(): void {
+  if (uhr && state.status === 'recording') schreibeStille(uhr.fehlend(Date.now()));
+}
+
+function stopWaechter(): void {
+  if (waechter) {
+    clearInterval(waechter);
+    waechter = null;
+  }
+}
+
+// Wächter: bleiben Blöcke aus, fällt der Pegel auf 0 und die Aufnahme füllt Stille auf.
+function waechterTakt(): void {
+  if (Date.now() - letzterBlockMs < STILLE_PAUSE_MS) return;
+  send('recorder:levels', { peaks: new Array(state.channels).fill(0) });
+  if (state.status === 'recording') {
+    stilleBisJetzt();
+    emitState();
+  }
+}
+
 export function arm(input: ArmInput): OpResult {
   try {
     if (state.status !== 'idle') disarm();
@@ -144,6 +192,18 @@ export function arm(input: ArmInput): OpResult {
       { device: input.device, channels: input.channels, sampleRate: input.sampleRate },
       onFrames,
     );
+    // Loopback-Erkennung am Gerätenamen; ein Fehler beim Nachschlagen heißt: kein Loopback.
+    try {
+      const dev = engine().listDevices().find((d) => d.index === input.device);
+      loopback = dev ? istLoopback(dev.name) : false;
+    } catch {
+      loopback = false;
+    }
+    letzterBlockMs = Date.now();
+    if (loopback) {
+      waechter = setInterval(waechterTakt, STILLE_TAKT_MS);
+      waechter.unref?.();
+    }
     state.status = 'armed';
     state.device = input.device;
     state.channels = input.channels;
@@ -161,6 +221,11 @@ export function arm(input: ArmInput): OpResult {
 }
 
 export function disarm(): void {
+  stopWaechter();
+  stilleBisJetzt(); // Lücke bis zum Ende füllen, bevor der Writer schließt
+  uhr = null;
+  loopback = false;
+  letzterBlockMs = 0;
   clearTimers(); // geplante Aufnahmen verfallen mit dem Eingang
   state.scheduledStartAt = null;
   state.scheduledStopAt = null;
@@ -222,6 +287,7 @@ export function startRecording(input: RecordInput): OpResult {
     }
     state.filePath = filePath;
     state.recordedSec = 0;
+    uhr = loopback ? new StilleUhr(state.sampleRate, Date.now()) : null;
     state.status = 'recording';
     emitState();
     return { ok: true };
@@ -240,6 +306,8 @@ export function stopRecording(): RecordResult {
   state.scheduledStopAt = null;
   const filePath = state.filePath ?? '';
   try {
+    stilleBisJetzt(); // Lücke bis zum Stopp füllen
+    uhr = null;
     const res = writer.finalize();
     writer = null;
     if (multiWriter) {

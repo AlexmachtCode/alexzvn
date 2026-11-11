@@ -16,7 +16,10 @@ let aufFrames: Frames | null = null;
 let gestoppt = 0;
 const attrappe = {
   init: () => {},
-  listDevices: () => [],
+  listDevices: () => [
+    { index: 0, name: 'Mikrofon (Realtek)', hostApiName: 'WASAPI', maxInputChannels: 2, defaultSampleRate: 48000 },
+    { index: 5, name: 'Lautsprecher (Realtek) [Loopback]', hostApiName: 'WASAPI', maxInputChannels: 2, defaultSampleRate: 48000 },
+  ],
   openInput: (_o: unknown, cb: Frames) => { aufFrames = cb; },
   stopInput: () => { gestoppt++; aufFrames = null; },
 };
@@ -48,6 +51,24 @@ rec.shutdown();
 ck('shutdown: Kopf trägt 10 Frames × 8 Byte', dataLaenge(join(dir, 'Abbruch.wav')) === 80);
 ck('shutdown: Eingang geschlossen', gestoppt > vorher);
 ck('shutdown: Zustand idle', rec.getState().status === 'idle');
+
+// --- Loopback (Windows liefert in Stille KEINE Blöcke): Lücke wird als echte Stille aufgefüllt.
+const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+async function luecke(device: number, name: string): Promise<number> {
+  ck(`arm ${name}`, rec.arm({ device, channels: 2, sampleRate: 1000 }).ok);
+  ck(`start ${name}`, rec.startRecording({ dir, fileName: name }).ok);
+  aufFrames!(new Float32Array(2 * 10), 2, 10);
+  await warte(700);
+  aufFrames!(new Float32Array(2 * 10), 2, 10);
+  const res = rec.stopRecording();
+  ck(`stopp ${name}`, res.ok);
+  rec.disarm();
+  return dataLaenge(join(dir, `${name}.wav`)) / 8;
+}
+const loopFrames = await luecke(5, 'Loop');
+ck(`Loopback: 700 ms Pause gefüllt (${loopFrames} Frames)`, loopFrames >= 650 && loopFrames <= 800);
+const mikFrames = await luecke(0, 'Mik');
+ck(`Nicht-Loopback: genau 20 Frames (${mikFrames})`, mikFrames === 20);
 
 console.log(`\nrecorder: ${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);
