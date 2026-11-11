@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Badge, Button, Card, cn } from '@jm/ui';
 import { useRec } from '@/store/recorder';
+import { PresetLeiste } from '@/components/PresetLeiste';
 import { basename, dbfsLabel, formatClock, meterColor, meterPct } from '@/lib/format';
 
 export function RecorderView() {
@@ -51,6 +52,8 @@ export function RecorderView() {
           Geräte aktualisieren
         </Button>
       </div>
+
+      <PresetLeiste />
 
       {/* Gemerkte Einstellungen, die beim Start nicht passten (#291) — bleibt, bis es erledigt ist. */}
       {(hinweisEingang || hinweisOrdner) && (
