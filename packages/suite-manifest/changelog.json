@@ -389,6 +389,16 @@
     "name": "JM Audio Recorder",
     "entries": [
       {
+        "version": "0.9.0",
+        "date": "2026-11-11",
+        "notes": [
+          "Presets: Alle Einstellungen für einen Einsatz lassen sich unter einem Namen speichern und mit einem Klick wieder abrufen, etwa „Mehrspur-Dante“, „Interface“ oder „System Sound“. Ein Preset enthält Eingang, Kanäle, Samplerate, Zielordner, Dateiname, Einzelspuren, Verstärkung und Aufnahmedauer. Die Leiste dafür steht ganz oben.",
+          "Wird nach dem Abrufen etwas verändert, zeigt die Auswahl „(geändert)“, und „Zurücksetzen“ holt die gespeicherten Werte zurück. Speichern unter demselben Namen fragt vor dem Überschreiben. Ist der Eingang offen und braucht das Preset ein anderes Gerät, schließt der Recorder ihn und öffnet ihn mit den neuen Werten wieder. Während einer laufenden oder geplanten Aufnahme ist die Auswahl gesperrt.",
+          "Über „⋯“ lassen sich alle Presets als Datei exportieren und auf einem anderen Rechner importieren. Gibt es dort schon ein Preset gleichen Namens, fragt der Recorder: überschreiben oder beide behalten. Fehlt dort das Gerät oder der Zielordner, erscheint ein Hinweis. Presets, die in einen Netzwerkordner aufnehmen, nennt der Import ausdrücklich.",
+          "System-Sound-Aufnahmen (Eingänge mit „[Loopback]“) sind jetzt so lang wie die echte Zeit. Windows liefert bei Stille keine Daten. Bisher fehlten die stillen Stellen in der Datei, 3 Sekunden Stille ergaben 0 Sekunden Aufnahme, und die Aufnahme lief gegenüber dem Video auseinander. Jetzt füllt der Recorder diese Stellen mit echter Stille."
+        ]
+      },
+      {
         "version": "0.8.0",
         "date": "2026-11-11",
         "notes": [

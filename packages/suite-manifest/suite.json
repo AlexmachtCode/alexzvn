@@ -115,7 +115,7 @@
       "category": "Ingest",
       "appId": "gmbh.jakobs.recorder",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.8.0",
+      "latestVersion": "0.9.0",
       "platforms": {
         "mac": {
           "artifact": "JM Audio Recorder-${version}-mac-${arch}.dmg",
