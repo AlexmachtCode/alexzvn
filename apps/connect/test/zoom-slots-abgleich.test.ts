@@ -328,11 +328,25 @@ console.log('— Task 1 · #287: Person im NDI-Namen beim Start');
   ck('#287: laufender Teilnehmer-Slot, neue Person, Schalter an → nur nameMerken/aendern, kein starten/stoppen',
     abgleich([aslot(ben, sitzungNach(sitzung({ gewaehlteId: ANNA, zeigteSchon: true }), 'personGeaendert'), laeuft('participant', ANNA))], T, { personImNdiNamen: true })
       === j([{ art: 'nameMerken', nr: 1, gewaehlteId: BEN }, { art: 'aendern', nr: 1, befehl: { cmd: 'slotSet', slot: 1, id: BEN } }]));
+  // Fix-Runde 1 (Ruling): Der Startname steht in der Sitzung, bis der Slot aus ist; ein automatischer Neustart nimmt ihn, egal
+  // wie Schalter und Person jetzt stehen. Ohne Startnamen (erster Start, nach „Stopp“) wie bisher.
+  const mitStartname = (an: boolean, e = ben): unknown => startNdi([aslot(e, { startName: 'Zoom 1 (Anna)' })], an);
+  ck('#287 Startname: gesetzt → starten mit ihm, Person inzwischen Ben, Schalter an oder aus',
+    mitStartname(true) === 'Zoom 1 (Anna)' && mitStartname(false) === 'Zoom 1 (Anna)');
+  ck('#287 Startname: … auch nach einem Moduswechsel (der Name bleibt, bis der Slot aus ist)',
+    mitStartname(true, einstellung({ person: 'Ben', modus: 'sprecher' })) === 'Zoom 1 (Anna)');
+  ck('#287 Startname: null → wie bisher aus Schalter und Person', startNdi([aslot(ben, { startName: null })], true) === 'Zoom 1 (Ben)'
+    && startNdi([aslot(ben, { startName: null })], false) === 'Zoom 1');
+  ck('#287 Startname: ändert nichts an einem laufenden Slot (nur aendern, kein starten)',
+    abgleich([aslot(ben, { startName: 'Zoom 1 (Anna)' }, laeuft('participant', ANNA))], T, { personImNdiNamen: true })
+      === j([{ art: 'nameMerken', nr: 1, gewaehlteId: BEN }, { art: 'aendern', nr: 1, befehl: { cmd: 'slotSet', slot: 1, id: BEN } }]));
 }
 
 console.log('— B2 · 7.3 Nr. 2, 5, 7, 8: Sitzung nach einem Ereignis (RR1, RR7, RR9)');
 {
-  const voll: SlotSitzung = { gewaehlteId: ANNA, wegSeq: 2, personJetzt: 'Annabelle', liefSchon: true, zeigteSchon: true, fehlerstand: 'gescheitert', frist: true };
+  const voll: SlotSitzung = {
+    gewaehlteId: ANNA, wegSeq: 2, personJetzt: 'Annabelle', liefSchon: true, zeigteSchon: true, fehlerstand: 'gescheitert', frist: true, startName: 'Zoom 1 (Anna)',
+  };
   const LEER = j(SITZUNG_LEER);
   const ohneKennungen = { gewaehlteId: null, wegSeq: null, personJetzt: null };
   const SOLL: Array<[SitzungsEreignis, SlotSitzung]> = [
@@ -345,12 +359,17 @@ console.log('— B2 · 7.3 Nr. 2, 5, 7, 8: Sitzung nach einem Ereignis (RR1, RR7
     ['entzug', voll],
     ['personGeaendert', { ...voll, ...ohneKennungen, zeigteSchon: false }],
     ['modusGeaendert', { ...voll, zeigteSchon: false }],
-    ['stoppStart', { ...voll, fehlerstand: null, frist: false }],
+    // #287 (Ruling Fix-Runde 1): „Stopp“/„Start“ des Bedieners lässt den Startnamen fallen; alle anderen außer den Sitzungsenden behalten ihn.
+    ['stoppStart', { ...voll, fehlerstand: null, frist: false, startName: null }],
   ];
   for (const [ereignis, soll] of SOLL) ck(`B2 sitzungNach ${ereignis}`, j(sitzungNach(voll, ereignis)) === j(soll));
   ck('B2 sitzungNach: die Tabelle deckt alle 14 Ereignisse', new Set(SOLL.map(([e]) => e)).size === 14);
-  ck('B2 SITZUNG_LEER: alles null bzw. false', LEER === j({ gewaehlteId: null, wegSeq: null, personJetzt: null, liefSchon: false, zeigteSchon: false, fehlerstand: null, frist: false }));
-  ck('B2 sitzungNach ändert die Eingabe nicht', j(voll) === j({ gewaehlteId: ANNA, wegSeq: 2, personJetzt: 'Annabelle', liefSchon: true, zeigteSchon: true, fehlerstand: 'gescheitert', frist: true }));
+  ck('B2 SITZUNG_LEER: alles null bzw. false', LEER === j({
+    gewaehlteId: null, wegSeq: null, personJetzt: null, liefSchon: false, zeigteSchon: false, fehlerstand: null, frist: false, startName: null,
+  }));
+  ck('B2 sitzungNach ändert die Eingabe nicht', j(voll) === j({
+    gewaehlteId: ANNA, wegSeq: 2, personJetzt: 'Annabelle', liefSchon: true, zeigteSchon: true, fehlerstand: 'gescheitert', frist: true, startName: 'Zoom 1 (Anna)',
+  }));
   const ENDE: SitzungsEreignis[] = ['meetingEnde', 'verlassen', 'schliessen', 'beitritt', 'beenden', 'mangel'];
   const ANDERE: SitzungsEreignis[] = ['neueBridge', 'entzug', 'z10Roster', 'z11', 'erneut', 'personGeaendert', 'modusGeaendert', 'stoppStart'];
   ck('B2 Nr. 8: vorübergehender Slot zu jedem Sitzungsende → loeschen', ENDE.every((e) => slotEndetMitMeeting({ voruebergehend: true, anNurMeeting: false }, e) === 'loeschen'));

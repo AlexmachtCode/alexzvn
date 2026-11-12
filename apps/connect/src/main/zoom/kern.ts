@@ -2217,8 +2217,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
    * I-3 (Nachtrag B) mit #287: Der NDI-Name, den ein Sender dieses Slots tragen muss, damit er zum Slot gehört. Ein bekannter
    * Sender behält den Namen, mit dem er startete (Personenwechsel und Schalter benennen nie um). Ohne Sender gilt der Name des
    * zuletzt gesendeten, noch offenen slotOn, solange der Slot seither nicht umbenannt wurde: Eine späte Antwort auf ein älteres
-   * slotOn mit anderem Namen bleibt fremd. Sonst der NDI-Name des Slots. Nie aus den Einstellungen von jetzt neu gebildet.
-   * Ohne „Person im NDI-Namen“ ist das immer `x.e.ndiName` (ein Sender ist nur bei ausgeschaltetem Slot ohne Sender umbenennbar).
+   * slotOn mit anderem Namen bleibt fremd. Sonst (kein offenes slotOn, oder der Slot wurde danach umbenannt) der NDI-Name des
+   * Slots. Nie aus den Einstellungen von jetzt neu gebildet. Wer gilt, hängt also nicht am heutigen Stand des Schalters: Nach
+   * „Schalter aus“ trägt ein laufender Sender weiter „NDI-Name (Person)“. `x.e.ndiName` ist es, wenn das maßgebliche slotOn
+   * ohne Person im Namen hinausging, keins offen ist oder der Slot seither umbenannt wurde.
    */
   function senderNameFuer(x: SlotIntern): string {
     if (x.bridge !== null) return x.bridge.ndi;
@@ -2408,6 +2410,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // Nachtrag B (I-1, I-2): Der Abgleich hat den Befehl eben aus x.e gebaut; bis zur Antwort kann die Bridge einen Sender bauen.
     // #287: dazu der gesendete Name (mit „Person im NDI-Namen“ „NDI-Name (Person)“); nur hier, nie im Log.
     x.slotOnOffen.push({ e: { ...x.e }, ndi: befehl.ndi });
+    // #287 (Ruling Fix-Runde 1): Das erste slotOn seit dem Einschalten legt den Startnamen fest; automatische Neustarts nehmen ihn.
+    if (x.s.startName === null) x.s = { ...x.s, startName: befehl.ndi };
     d.log(`[zoom] Slot ${x.e.nr} startet (${x.e.modus})`);
     const gen = aktiveGen;
     x.frist = zeitgeber(f.aboAntwortMs, () => {
@@ -2906,6 +2910,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (treffer.length === 0) return { kennung: 'f5', text: FT.F5(name) };
     for (const x of treffer) {
       x.e = { ...x.e, an: false };
+      // #287: Ausschalten lässt den Startnamen fallen (wie „Stopp“ an der Kachel über sitzungNach 'stoppStart').
+      x.s = { ...x.s, startName: null };
       x.anNurMeeting = false;
       x.loeschen = x.voruebergehend;
       d.log(`[zoom] Slot ${x.e.nr} per Companion ausgeschaltet`);

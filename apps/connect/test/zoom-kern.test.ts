@@ -2686,6 +2686,21 @@ const PERSON_IM_TEXT = /(?<![\p{L}\p{N}])(?:Anna|Ben)(?![\p{L}\p{N}])/u;
   await p.aufraeumen();
 }
 {
+  // Review Task 2, Minor 3: wie K2, aber per Handwahl (slotPersonWaehlen) statt Slot-Änderung.
+  const p = baueKern({ personImNdiNamen: true });
+  await insMeeting(p);
+  const nr = p.kern.slotAnlegen().nr ?? 0;
+  ck('#287 K2b (Handwahl): Slot läuft als „Zoom 1 (Anna)“', ok(p.kern.slotAendern(nr, { person: 'Anna' })) && ok(p.kern.slotStart(nr, true))
+    && (await bis(() => meldete(p, nr, 'Zoom 1 (Anna)') && slotZustand(p, nr) === 'zeigt', 4000)));
+  ck('… Handwahl Ben → genau ein slotSet mit Bens Kennung', ok(p.kern.slotPersonWaehlen(nr, BEN))
+    && p.gesendet.filter((c) => c.cmd === 'slotSet').length === 1 && p.gesendet.some((c) => c.cmd === 'slotSet' && c.id === BEN));
+  ck('… die Bridge zeigt Ben unter „Zoom 1 (Anna)“, der Slot behält den Sender; kein slotOff, kein zweites slotOn, kein fremder Sender',
+    (await bis(() => meldete(p, nr, 'Zoom 1 (Anna)', BEN) && p.kern.kurz().slotKurz.find((s) => s.nr === nr)?.ziel === 'Ben' && slotZustand(p, nr) === 'zeigt', 4000))
+    && (await warte(300), zaehleCmd(p, 'slotOff') === 0) && slotOns(p).length === 1 && !p.logs.some((z) => z.includes('fremder Sender'))
+    && !p.logs.some((z) => PERSON_IM_TEXT.test(z)));
+  await p.aufraeumen();
+}
+{
   const p = baueKern();
   ck('#287 K4: Schalter aus (Vorgabe) → abbild().personImNdiNamen false', p.kern.abbild().personImNdiNamen === false);
   await insMeeting(p);

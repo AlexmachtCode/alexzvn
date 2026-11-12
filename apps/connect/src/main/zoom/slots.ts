@@ -172,11 +172,17 @@ export interface SlotSitzung {
   fehlerstand: SlotFehlerstand | null;
   /** `slotOn` gesendet, die Antwortfrist läuft (Nr. 2). */
   frist: boolean;
+  /**
+   * #287: der NDI-Name des ersten slotOn seit dem Einschalten (der Kern setzt ihn beim Senden). Jeder automatische Neustart
+   * (Entzug, neue Bridge, Z11) startet wieder unter ihm, egal wie Person und Schalter „Person im NDI-Namen“ jetzt stehen: Der
+   * Mischer verliert nie eine Quelle. Er fällt mit „Stopp“/„Start“ des Bedieners und mit jedem Sitzungsende.
+   */
+  startName: string | null;
 }
 
 /** Stand zu Beginn jeder Sitzung und nach jedem Sitzungsende (sitzungNach). */
 export const SITZUNG_LEER: Readonly<SlotSitzung> = {
-  gewaehlteId: null, wegSeq: null, personJetzt: null, liefSchon: false, zeigteSchon: false, fehlerstand: null, frist: false,
+  gewaehlteId: null, wegSeq: null, personJetzt: null, liefSchon: false, zeigteSchon: false, fehlerstand: null, frist: false, startName: null,
 };
 
 /** Teilnehmer ohne die eigene Zeile der Bridge. `folge`: Beitrittsfolge (Einträge aus `roster` 0, jedes `joined` die nächste Zahl). */
@@ -297,7 +303,9 @@ export function planeSlotAbgleich(e: AbgleichEingabe): AbgleichHandlung[] {
       continue;
     }
     if (z !== null && z.gewaehlteId !== x.s.gewaehlteId) aus.push({ art: 'nameMerken', nr, gewaehlteId: z.gewaehlteId });
-    const ndi = e.personImNdiNamen && x.e.modus === 'teilnehmer' ? ndiNameMitPerson(x.e.ndiName, x.e.person) : x.e.ndiName;
+    // #287: Ein automatischer Neustart nimmt den Startnamen; nur ohne ihn (erster Start, nach „Stopp“) gilt der Stand von jetzt.
+    const ndi = x.s.startName
+      ?? (e.personImNdiNamen && x.e.modus === 'teilnehmer' ? ndiNameMitPerson(x.e.ndiName, x.e.person) : x.e.ndiName);
     aus.push({ art: 'starten', nr, befehl: slotOnBefehl(x.e, z?.ziel ?? 0, ndi) });
   }
   return aus;
@@ -320,7 +328,8 @@ function istSitzungsende(ereignis: SitzungsEreignis): boolean {
  *   gelten nicht mehr (`gewaehlteId`, `wegSeq`, `personJetzt`); `liefSchon`/`zeigteSchon` bleiben (Fortsetzung).
  * - Neues `roster` nach Z10: nur die Kennungen fallen. Entzug: nichts fällt.
  * - Person geändert: Kennungen und `zeigteSchon` fallen; Modus geändert: `zeigteSchon` fällt.
- * - „Stopp“/„Start“ dieses Slots: Fehlerstand und Frist fallen.
+ * - „Stopp“/„Start“ dieses Slots: Fehlerstand, Frist und der Startname (#287) fallen.
+ * - Der Startname bleibt bei allem außer „Stopp“/„Start“ und den Sitzungsenden (#287, Ruling Fix-Runde 1).
  */
 export function sitzungNach(s: SlotSitzung, ereignis: SitzungsEreignis): SlotSitzung {
   if (istSitzungsende(ereignis)) return { ...SITZUNG_LEER };
@@ -336,7 +345,7 @@ export function sitzungNach(s: SlotSitzung, ereignis: SitzungsEreignis): SlotSit
     case 'modusGeaendert':
       return { ...s, zeigteSchon: false };
     case 'stoppStart':
-      return { ...s, fehlerstand: null, frist: false };
+      return { ...s, fehlerstand: null, frist: false, startName: null };
     default:
       return { ...s }; // 'entzug'
   }
