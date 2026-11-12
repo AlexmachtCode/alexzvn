@@ -54,6 +54,7 @@ interface Stored {
   zoomSlotVorgaben?: unknown;
   /** `{ signal, haltezeitMs }`; fehlt = sprecherVideo, 1000. */
   zoomSprecher?: unknown;
+  /** Schalter „Person im NDI-Namen“ (#287); fehlt = aus. */
   zoomPersonImNdiNamen?: unknown;
   /** Schalter „Vorschau“; fehlt = an. */
   zoomVorschau?: unknown;

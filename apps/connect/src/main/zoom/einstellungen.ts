@@ -168,13 +168,15 @@ export function uebergangsNdiName(anzeigename: string, belegt: readonly string[]
  * Name, mit dem ein Teilnehmer-Slot beim Einschalten an die Bridge geht, wenn „Person im NDI-Namen“ an ist (#287):
  * „NDI-Name (Person)“. Person: „:“ → Leerzeichen, Steuerzeichen weg, Rand-Leerraum getrimmt, auf den Rest der 60 Code-Punkte
  * gekürzt (nie mitten in einem Ersatzpaar). Leere Person, kein Platz für mindestens ein Zeichen oder die Person steht
- * schon im Slotnamen (NFC, ohne Groß-/Kleinschreibung) → der Slotname unverändert. Das Ergebnis besteht immer ndiNameFormFehler.
+ * schon als ganze Wörter im Slotnamen steht (NFC, ohne Groß-/Kleinschreibung; Grenze = Rand oder Zeichen, das kein Buchstabe/keine Ziffer ist) → der Slotname unverändert. Das Ergebnis besteht immer ndiNameFormFehler.
  */
 export function ndiNameMitPerson(ndiName: string, person: string): string {
   const roh = person.replace(/:/g, ' ').replace(STEUERZEICHEN_ALLE, '').trim();
   if (roh === '') return ndiName;
   const norm = (s: string): string => s.normalize('NFC').toLocaleLowerCase('de');
-  if (norm(ndiName).includes(norm(roh))) return ndiName;
+  const wort = '[\\p{L}\\p{N}]';
+  const imName = new RegExp(`(?<!${wort})${norm(roh).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!${wort})`, 'u');
+  if (imName.test(norm(ndiName))) return ndiName;
   const platz = NDI_NAME_MAX - codePunkte(ndiName) - 3;
   if (platz < 1) return ndiName;
   const kurz = kuerze(roh, platz).trim();

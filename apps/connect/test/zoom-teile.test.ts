@@ -276,6 +276,12 @@ console.log('— SDK-Schlüssel von Hand: Nutzlast-Prüfung (IPC, Spec SDK nachl
   ck('#287: Slotname mit 56 Code-Punkten → ein Zeichen der Person passt', mp('x'.repeat(56), 'Anna') === `${'x'.repeat(56)} (A)`);
   ck('#287: Slotname enthält die Person schon (NFC, ohne Groß-/Kleinschreibung) → unverändert',
     mp('JM Connect – Zoom Anna', 'anna') === 'JM Connect – Zoom Anna' && mp('Zoom Ana\u{301}', 'AN\u{c1}') === 'Zoom Ana\u{301}');
+  ck('#287: nur ganze Wörter gelten als schon enthalten: „Hannah“ + „Anna“ und „Zoom 1“ + „o“ bekommen den Zusatz',
+    mp('Hannah', 'Anna') === 'Hannah (Anna)' && mp('Zoom 1', 'o') === 'Zoom 1 (o)');
+  ck('#287: ganzes Wort (auch mehrere Wörter, Klammer am Rand) → unverändert',
+    mp('JM Connect – Zoom Anna', 'anna') === 'JM Connect – Zoom Anna' && mp('Podium Anna Müller (2)', 'Anna Müller') === 'Podium Anna Müller (2)');
+  ck('#287: Regex-Zeichen in der Person sind wörtlich: „A.b“ trifft „Axb“ nicht, „(x“ stürzt nicht ab',
+    mp('Axb', 'A.b') === 'Axb (A.b)' && mp('Zoom 1', '(x') === 'Zoom 1 ((x)');
   ck('#287: Ergebnis hat nie einen Formfehler (Slotname bleibt, wenn der zusammengesetzte Name ungültig wäre)',
     ['Anna', ':::', 'Dr.:X', 'a'.repeat(200), '😀'.repeat(100)].every((pn) => [mp('Zoom 1', pn), mp('x'.repeat(58), pn), mp('S', pn)]
       .every((n) => n.trim() !== '' && e.codePunkte(n) <= 60 && !n.includes(':') && !/\p{Cc}/u.test(n) && !/\p{Cs}/u.test(n))));
