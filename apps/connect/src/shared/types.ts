@@ -188,6 +188,8 @@ export interface ZoomAbbild {
   /** Vorgaben für neue Slots und Sprecher-Einstellungen (Spec 7.6). */
   vorgaben: ZoomSlotVorgaben;
   sprecher: ZoomSprecherEinstellung;
+  /** Schalter „Person im NDI-Namen“ (#287): Teilnehmer-Slots starten als „NDI-Name (Person)“; Vorgabe aus. */
+  personImNdiNamen: boolean;
   /** Schalter „Vorschau“ (7.7); `vorschauVerfuegbar` false nach previewUnavailable (T57). */
   vorschauAn: boolean;
   vorschauVerfuegbar: boolean;
@@ -290,6 +292,15 @@ export interface ZoomSlotLage {
 
 export type ZoomErgebnis = { ok: true } | { ok: false; text: string };
 
+/** Das gemerkte Meeting (#290), wie es den Main verlässt: nur die Nummer und zwei Flaggen, nie der Kenncode. */
+export interface ZoomLetztesMeeting {
+  nummer: string | null;
+  /** Der Kern hält einen Kenncode (dauerhaft gespeichert ODER nur für diese Sitzung). */
+  kenncodeGespeichert: boolean;
+  /** Der zuletzt eingegebene Kenncode ließ sich nicht dauerhaft speichern. */
+  kenncodeNichtGespeichert: boolean;
+}
+
 /** Antwort von zoomSlotStart und zoomSlotAusPerson (Spec 7.4, 7.9): ab dem 6. eingeschalteten Slot ohne Zustimmung T40. */
 export type ZoomStartErgebnis = ZoomErgebnis | { ok: false; nachfrage: true; text: string };
 /** Vorschaubild eines Slots (Spec 7.7): Push jmc:zoom-vorschau-bild, nie im Abbild, nie im Log. */
@@ -379,6 +390,10 @@ export interface JmConnectApi {
   zoomVersatz: (p: { ms: number }) => Promise<ZoomErgebnis>;
   zoomErneut: () => Promise<ZoomErgebnis>;
   zoomSchliessen: () => Promise<void>;
+  /** Das gemerkte Meeting (#290): nur die Nummer; der Kenncode kommt nie zurück. */
+  zoomLetztesMeeting: () => Promise<ZoomLetztesMeeting>;
+  /** `ok: false` mit Text, wenn die Einwahldaten noch auf der Platte stehen (nicht schreibbar). */
+  zoomVergessen: () => Promise<ZoomErgebnis>;
   zoomMeldungWeg: () => Promise<void>;
   // ── Zoom-Slots (Connect 0.4.0, Spec 7.9). Jede Nutzlast geht als Ganzes durch die Preload; die Hülle prüft sie.
   zoomSlotAnlegen: () => Promise<ZoomErgebnis & { nr?: number }>;
@@ -390,6 +405,8 @@ export interface JmConnectApi {
   zoomSlotVorgaben: (p: ZoomSlotVorgaben) => Promise<ZoomErgebnis>;
   zoomSprecher: (p: ZoomSprecherEinstellung) => Promise<ZoomErgebnis>;
   zoomVorschauSchalten: (p: { an: boolean }) => Promise<ZoomErgebnis>;
+  /** Schalter „Person im NDI-Namen“ (#287); gilt ab dem nächsten Start eines Teilnehmer-Slots. */
+  zoomPersonImNdiNamen: (p: { an: boolean }) => Promise<ZoomErgebnis>;
   /** Messwerte ohne Teilnehmer- und NDI-Namen für die Zwischenablage (7.8). */
   zoomMesswerteText: () => Promise<string>;
   zoomSlotBehalten: (p: { nr: number }) => Promise<ZoomErgebnis>;

@@ -76,6 +76,10 @@ export const IPC = {
   zoomErneut: 'jmc:zoom-erneut',
   /** invoke: Meldung weg, Nummer, Kenncode und gemerkte Quellen leeren → void. */
   zoomSchliessen: 'jmc:zoom-schliessen',
+  /** invoke: gemerktes Meeting (#290) → { nummer, kenncodeGespeichert, kenncodeNichtGespeichert }; nie der Kenncode. */
+  zoomLetztesMeeting: 'jmc:zoom-letztes-meeting',
+  /** invoke: gemerktes Meeting vergessen (#290) → ZoomErgebnis (ok: false, wenn es noch auf der Platte steht). */
+  zoomVergessen: 'jmc:zoom-vergessen',
   /** invoke: Meldung quittieren → void. */
   zoomMeldungWeg: 'jmc:zoom-meldung-weg',
   // ── Zoom-Slots (Connect 0.4.0, Spec 7.9). Die Hülle prüft jede Nutzlast mit pruefeSlotEingabe (main/zoom/slot-eingabe.ts);
@@ -98,6 +102,8 @@ export const IPC = {
   zoomSprecher: 'jmc:zoom-sprecher',
   /** invoke: { an } → ZoomErgebnis (Schalter „Vorschau“). */
   zoomVorschauSchalten: 'jmc:zoom-vorschau-schalten',
+  /** invoke: { an } → ZoomErgebnis (Schalter „Person im NDI-Namen“, #287). */
+  zoomPersonImNdiNamen: 'jmc:zoom-person-im-ndi-namen',
   /** invoke: {} → string (Messwerte ohne Teilnehmer- und NDI-Namen, 7.8). */
   zoomMesswerteText: 'jmc:zoom-messwerte-text',
   /** invoke: { nr } → ZoomErgebnis („Behalten“, 7.2). */

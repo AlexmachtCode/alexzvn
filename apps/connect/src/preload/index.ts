@@ -10,6 +10,7 @@ import type {
   TrayCommand,
   ZoomAbbild,
   ZoomErgebnis,
+  ZoomLetztesMeeting,
 } from '@shared/types';
 import { IPC, PEER_CONNECT, PEER_FRAME_PORT, PEER_PROGRAM_PORT } from '@shared/ipc';
 
@@ -97,6 +98,8 @@ const api: JmConnectApi = {
   zoomVersatz: (p) => ipcRenderer.invoke(IPC.zoomVersatz, { ms: p.ms }) as Promise<ZoomErgebnis>,
   zoomErneut: () => ipcRenderer.invoke(IPC.zoomErneut) as Promise<ZoomErgebnis>,
   zoomSchliessen: () => ipcRenderer.invoke(IPC.zoomSchliessen) as Promise<void>,
+  zoomLetztesMeeting: () => ipcRenderer.invoke(IPC.zoomLetztesMeeting) as Promise<ZoomLetztesMeeting>,
+  zoomVergessen: () => ipcRenderer.invoke(IPC.zoomVergessen) as Promise<ZoomErgebnis>,
   zoomMeldungWeg: () => ipcRenderer.invoke(IPC.zoomMeldungWeg) as Promise<void>,
   // ── Zoom-Slots (Spec 7.9, 11.11 KF5): jede Nutzlast als Ganzes, nie feldweise; prüfen tut die Hülle (pruefeSlotEingabe).
   // Ohne Nutzlast geht {} hinüber, damit die Hülle auch diese Kanäle prüft.
@@ -109,6 +112,7 @@ const api: JmConnectApi = {
   zoomSlotVorgaben: (p) => ipcRenderer.invoke(IPC.zoomSlotVorgaben, p),
   zoomSprecher: (p) => ipcRenderer.invoke(IPC.zoomSprecher, p),
   zoomVorschauSchalten: (p) => ipcRenderer.invoke(IPC.zoomVorschauSchalten, p),
+  zoomPersonImNdiNamen: (p) => ipcRenderer.invoke(IPC.zoomPersonImNdiNamen, p),
   zoomMesswerteText: () => ipcRenderer.invoke(IPC.zoomMesswerteText, {}),
   zoomSlotBehalten: (p) => ipcRenderer.invoke(IPC.zoomSlotBehalten, p),
   onZoomVorschauBild: (cb) => {

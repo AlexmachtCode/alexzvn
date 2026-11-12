@@ -18,6 +18,7 @@ import { ANZEIGENAME_VORGABE } from './zoom/kern';
 import {
   gueltigerAnzeigename,
   gueltigerVersatz,
+  gueltigeLetzteNummer,
   normiereSlots,
   normiereSprecher,
   normiereVorgaben,
@@ -53,10 +54,16 @@ interface Stored {
   zoomSlotVorgaben?: unknown;
   /** `{ signal, haltezeitMs }`; fehlt = sprecherVideo, 1000. */
   zoomSprecher?: unknown;
+  /** Schalter „Person im NDI-Namen“ (#287); fehlt = aus. */
+  zoomPersonImNdiNamen?: unknown;
   /** Schalter „Vorschau“; fehlt = an. */
   zoomVorschau?: unknown;
   /** Zustimmung zu mehr als 5 eingeschalteten Slots (E4); fehlt = aus. */
   zoomSlotsUeber5?: unknown;
+  /** Zuletzt benutzte Meeting-Nummer (#290); bleibt, bis eine neue eingegeben wird. */
+  zoomLetzteNummer?: string;
+  /** Kenncode dazu, safeStorage-verschlüsselt, base64. Nie im Klartext; ohne Schlüsselbund fehlt er. */
+  zoomLetzterKenncodeEnc?: string;
 }
 
 /** Nur belegt, wenn kein OS-Schlüsselbund da ist: dann lebt der Key nur für diese Sitzung. */
@@ -275,6 +282,65 @@ export function zoomZugangLoeschen(): boolean {
   return geschrieben || !aufPlatte;
 }
 
+// ── Letztes Meeting (#290) ──────────────────────────────────────────────────────────────────
+// Nummer im Klartext, Kenncode nur verschlüsselt (safeStorage); ohne Schlüsselbund bleibt nur die Nummer.
+// Kein Zwischenspeicher hier (der Kern hält ihn). Nie Nummer oder Kenncode ins Log.
+
+/** `null`, wenn keine gültige Nummer gespeichert ist; Kenncode `null`, wenn keiner da oder nicht entschlüsselbar. */
+export function zoomLetztesMeeting(): { nummer: string; kenncode: string | null } | null {
+  const st = read();
+  const nummer = gueltigeLetzteNummer(st.zoomLetzteNummer);
+  if (nummer === null) return null;
+  return { nummer, kenncode: decryptKey(st.zoomLetzterKenncodeEnc) };
+}
+
+/**
+ * `kenncodeGespeichert`: der Kenncode liegt verschlüsselt auf der Platte. Wirft nie: Ein Fehler beim Verschlüsseln darf das
+ * Beitreten nicht blockieren, dann bleibt nur die Nummer. Eine ungültige Nummer (gueltigeLetzteNummer) löscht beide Felder.
+ */
+export function zoomMeetingMerken(nummer: string, kenncode: string): { kenncodeGespeichert: boolean } {
+  const next = read();
+  const n = gueltigeLetzteNummer(nummer);
+  if (n === null) {
+    // Nichts Altes stehen lassen: Nummer und Kenncode von früher gehörten nicht zu diesem Beitritt.
+    delete next.zoomLetzteNummer;
+    delete next.zoomLetzterKenncodeEnc;
+    if (!write(next)) getLog().warn('[zoom] Das letzte Meeting konnte nicht entfernt werden.');
+    return { kenncodeGespeichert: false };
+  }
+  next.zoomLetzteNummer = n;
+  let verschluesselt = false;
+  if (kenncode !== '') {
+    try {
+      if (safeStorage.isEncryptionAvailable()) {
+        next.zoomLetzterKenncodeEnc = safeStorage.encryptString(kenncode).toString('base64');
+        verschluesselt = true;
+      }
+    } catch {
+      getLog().warn('[zoom] Kenncode ließ sich nicht verschlüsseln – nur die Nummer gespeichert.');
+    }
+  }
+  // Nie ein alter Kenncode zur neuen Nummer.
+  if (!verschluesselt) delete next.zoomLetzterKenncodeEnc;
+  if (write(next)) return { kenncodeGespeichert: verschluesselt };
+  getLog().warn('[zoom] Das letzte Meeting konnte nicht gespeichert werden.');
+  return { kenncodeGespeichert: false };
+}
+
+/**
+ * Wie zoomZugangLoeschen: `true` = von der Platte gelöscht oder nichts da; `false` = Nummer oder Kenncode stehen noch in der
+ * (nicht schreibbaren) Einstellungsdatei und kämen nach einem Neustart wieder. Das muss der Kern sagen.
+ */
+export function zoomMeetingVergessen(): boolean {
+  const next = read();
+  const aufPlatte = next.zoomLetzteNummer !== undefined || next.zoomLetzterKenncodeEnc !== undefined;
+  delete next.zoomLetzteNummer;
+  delete next.zoomLetzterKenncodeEnc;
+  const geschrieben = write(next);
+  if (!geschrieben && aufPlatte) getLog().warn('[zoom] Das letzte Meeting konnte nicht entfernt werden.');
+  return geschrieben || !aufPlatte;
+}
+
 /** Ungültig oder fehlend → Vorgabe „JM Connect“ (G4). */
 export function zoomAnzeigename(): string {
   return zoomAnzeigenameSitzung ?? gueltigerAnzeigename(read().zoomAnzeigename) ?? ANZEIGENAME_VORGABE;
@@ -387,6 +453,7 @@ export function zoomSdkSchluesselLoeschen(): boolean {
 let zoomSlotsSitzung: ZoomSlotEinstellung[] | null = null;
 let zoomSlotVorgabenSitzung: ZoomSlotVorgaben | null = null;
 let zoomSprecherSitzung: ZoomSprecherEinstellung | null = null;
+let zoomPersonImNdiNamenSitzung: boolean | null = null;
 let zoomVorschauSitzung: boolean | null = null;
 let zoomSlotsUeber5Sitzung: boolean | null = null;
 /** Zahl der beim Lesen verworfenen Slots (T91); bleibt bis zum Beenden, auch wenn ein späteres Schreiben die Datei bereinigt. */
@@ -449,6 +516,20 @@ export function setzeZoomSprecher(s: ZoomSprecherEinstellung): boolean {
   return ok;
 }
 
+/** Schalter „Person im NDI-Namen“ (#287); nur ein gespeichertes `true` schaltet ein, sonst aus. */
+export function zoomPersonImNdiNamen(): boolean {
+  if (zoomPersonImNdiNamenSitzung !== null) return zoomPersonImNdiNamenSitzung;
+  return read().zoomPersonImNdiNamen === true;
+}
+
+export function setzeZoomPersonImNdiNamen(an: boolean): boolean {
+  const ok = schreibeFeld((st) => {
+    st.zoomPersonImNdiNamen = an;
+  });
+  zoomPersonImNdiNamenSitzung = ok ? null : an;
+  return ok;
+}
+
 /** Schalter „Vorschau“ (7.7); fehlt = an. */
 export function zoomVorschau(): boolean {
   if (zoomVorschauSitzung !== null) return zoomVorschauSitzung;
@@ -486,6 +567,6 @@ export function setzeZoomSlotsUeber5(an: boolean): boolean {
  */
 export function einstellungsLage(): { gesichert: string | null; verworfen: number; nurSitzung: boolean } {
   const nurSitzung = zoomSlotsSitzung !== null || zoomSlotVorgabenSitzung !== null || zoomSprecherSitzung !== null
-    || zoomVorschauSitzung !== null || zoomSlotsUeber5Sitzung !== null;
+    || zoomPersonImNdiNamenSitzung !== null || zoomVorschauSitzung !== null || zoomSlotsUeber5Sitzung !== null;
   return { gesichert: gesichertAls, verworfen: zoomSlotsVerworfen, nurSitzung };
 }

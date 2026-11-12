@@ -188,18 +188,18 @@ console.log('— B1 · Abbildungen und slotOnBefehl (6.2, 7.3 Nr. 2, Nr. 9)');
     tonArt: 'person', computerton: false, ohneKamera: false,
   });
   ck('B1 slotOnBefehl Teilnehmer: alle Felder aus der Einstellung, id = Ziel',
-    flach(slotOnBefehl(abweichend, BEN)) === flach({
+    flach(slotOnBefehl(abweichend, BEN, abweichend.ndiName)) === flach({
       cmd: 'slotOn', slot: 7, ndi: 'Bühne links', mode: 'participant', id: BEN, resolution: '1080p', audio: 'person', shareAudio: false,
       fallback: 'white', showNoVideo: false,
     }));
-  ck('B1 slotOnBefehl Teilnehmer ohne Ziel: id 0', slotOnBefehl(einstellung(), 0).id === 0);
+  ck('B1 slotOnBefehl Teilnehmer ohne Ziel: id 0', slotOnBefehl(einstellung(), 0, 'Zoom 1').id === 0);
   ck('B1 slotOnBefehl Sprecher: ohne id (die Bridge wählt), Mischton, Computerton, Ersatzbild eingefroren',
-    flach(slotOnBefehl(einstellung({ nr: 2, ndiName: 'Sprecher', modus: 'sprecher', ersatzbild: 'eingefroren', aufloesung: '360p' }), ANNA)) === flach({
+    flach(slotOnBefehl(einstellung({ nr: 2, ndiName: 'Sprecher', modus: 'sprecher', ersatzbild: 'eingefroren', aufloesung: '360p' }), ANNA, 'Sprecher')) === flach({
       cmd: 'slotOn', slot: 2, ndi: 'Sprecher', mode: 'speaker', resolution: '360p', audio: 'mix', shareAudio: true, fallback: 'freeze',
       showNoVideo: true,
     }));
   ck('B1 slotOnBefehl Freigabe: ohne id, Ton aus, Computerton an, schwarz',
-    flach(slotOnBefehl(einstellung({ nr: 16, ndiName: 'Folien', modus: 'freigabe', tonAn: false, ersatzbild: 'schwarz' }), 0)) === flach({
+    flach(slotOnBefehl(einstellung({ nr: 16, ndiName: 'Folien', modus: 'freigabe', tonAn: false, ersatzbild: 'schwarz' }), 0, 'Folien')) === flach({
       cmd: 'slotOn', slot: 16, ndi: 'Folien', mode: 'share', resolution: '720p', audio: 'off', shareAudio: true, fallback: 'black',
       showNoVideo: true,
     }));
@@ -215,7 +215,7 @@ function aslot(e: ZoomSlotEinstellung, s: Partial<SlotSitzung> = {}, bridge: Abg
 }
 const laeuft = (mode: 'participant' | 'speaker' | 'share', target: number): AbgleichSlot['bridge'] => ({ laeuft: true, imAbbau: false, mode, target });
 function abgleich(slots: AbgleichSlot[], teilnehmer: AbgleichTeilnehmer[], x: Partial<AbgleichEingabe> = {}): string {
-  return j(planeSlotAbgleich({ meeting: 'im_meeting', erlaubnis: 'ja', ueber5: false, teilnehmer, slots, ...x }));
+  return j(planeSlotAbgleich({ meeting: 'im_meeting', erlaubnis: 'ja', ueber5: false, personImNdiNamen: false, teilnehmer, slots, ...x }));
 }
 const ziel = (x: Partial<ZielErgebnis>): string =>
   flach({ ziel: 0, gewaehlteId: null, doppelt: 1, zweifel: false, imWarteraum: false, keinePerson: false, wahl: null, ...x });
@@ -224,7 +224,7 @@ console.log('— B2 · 7.3 Nr. 1–4, 9, 10: starten, stoppen, zurückstellen');
 {
   const anna = einstellung();
   const T = [t(ANNA, 'Anna'), t(BEN, 'Ben')];
-  const start = j([{ art: 'nameMerken', nr: 1, gewaehlteId: ANNA }, { art: 'starten', nr: 1, befehl: slotOnBefehl(anna, ANNA) }]);
+  const start = j([{ art: 'nameMerken', nr: 1, gewaehlteId: ANNA }, { art: 'starten', nr: 1, befehl: slotOnBefehl(anna, ANNA, anna.ndiName) }]);
   ck('B2 7.3 Nr. 1: nicht im Meeting → nichts', abgleich([aslot(anna)], T, { meeting: 'warteraum' }) === '[]' && abgleich([aslot(anna)], T, { meeting: 'abriss' }) === '[]');
   ck('B2 7.3 Nr. 1: Erlaubnis nicht „ja“ → nichts', ([null, 'offen', 'abgelehnt', 'abgelaufen', 'entzogen'] as const).every((erlaubnis) => abgleich([aslot(anna)], T, { erlaubnis }) === '[]'));
   ck('B2 7.3 Nr. 2: eingeschaltet, läuft nicht → nameMerken (Anna eindeutig), dann starten mit allen Feldern', abgleich([aslot(anna)], T) === start);
@@ -253,8 +253,8 @@ console.log('— B2 · 7.3 Nr. 1–4, 9, 10: starten, stoppen, zurückstellen');
   const sprecher = einstellung({ nr: 2, ndiName: 'Sprecher', modus: 'sprecher' });
   const folien = einstellung({ nr: 3, ndiName: 'Folien', modus: 'freigabe' });
   ck('B2 7.3 Nr. 9: Sprecher- und Freigabe-Slots starten ohne Ziel und ohne nameMerken',
-    abgleich([aslot(sprecher), aslot(folien)], T) === j([{ art: 'starten', nr: 2, befehl: slotOnBefehl(sprecher, 0) }, { art: 'starten', nr: 3, befehl: slotOnBefehl(folien, 0) }])
-      && !('id' in slotOnBefehl(sprecher, 0)));
+    abgleich([aslot(sprecher), aslot(folien)], T) === j([{ art: 'starten', nr: 2, befehl: slotOnBefehl(sprecher, 0, sprecher.ndiName) }, { art: 'starten', nr: 3, befehl: slotOnBefehl(folien, 0, folien.ndiName) }])
+      && !('id' in slotOnBefehl(sprecher, 0, sprecher.ndiName)));
   ck('B2 7.3 Nr. 9: laufende Sprecher- und Freigabe-Slots werden nie umgehängt',
     abgleich([aslot(sprecher, {}, laeuft('speaker', BEN)), aslot(folien, {}, laeuft('share', 101))], T) === '[]');
 }
@@ -309,12 +309,44 @@ console.log('— B2 · 7.3 Nr. 5, 6: Ziel eines Teilnehmer-Slots, (a), (b), (c),
   ck('B2 Nr. 5 im Abgleich: Bridge meldet noch einen anderen Modus → nichts (Moduswechsel unterwegs)',
     abgleich([aslot(anna, {}, laeuft('speaker', BEN))], [t(ANNA, 'Anna'), t(BEN, 'Ben')]) === '[]');
   ck('B2 Nr. 5 im Abgleich: Doppelname beim Start → Ziel 0, kein nameMerken',
-    abgleich([aslot(anna)], [t(ANNA, 'Anna'), t(ANNA_NEU, 'Anna', 1)]) === j([{ art: 'starten', nr: 1, befehl: slotOnBefehl(anna, 0) }]));
+    abgleich([aslot(anna)], [t(ANNA, 'Anna'), t(ANNA_NEU, 'Anna', 1)]) === j([{ art: 'starten', nr: 1, befehl: slotOnBefehl(anna, 0, anna.ndiName) }]));
+}
+
+console.log('— Task 1 · #287: Person im NDI-Namen beim Start');
+{
+  const anna = einstellung();
+  const T = [t(ANNA, 'Anna'), t(BEN, 'Ben')];
+  const startNdi = (slots: AbgleichSlot[], an: boolean): unknown =>
+    planeSlotAbgleich({ meeting: 'im_meeting', erlaubnis: 'ja', ueber5: false, personImNdiNamen: an, teilnehmer: T, slots })
+      .flatMap((h) => (h.art === 'starten' ? [h.befehl.ndi] : []))[0];
+  ck('#287: slotOnBefehl setzt den übergebenen Namen ein, nicht ndiName', slotOnBefehl(anna, ANNA, 'Zoom 1 (Anna)').ndi === 'Zoom 1 (Anna)');
+  ck('#287: Teilnehmer-Slot „Zoom 1“, Person „Anna“, Schalter an → ndi „Zoom 1 (Anna)“', startNdi([aslot(anna)], true) === 'Zoom 1 (Anna)');
+  ck('#287: derselbe Slot, Schalter aus → „Zoom 1“', startNdi([aslot(anna)], false) === 'Zoom 1');
+  ck('#287: Sprecher- und Freigabe-Slot, Schalter an → Slotname', startNdi([aslot(einstellung({ nr: 2, ndiName: 'Sprecher', modus: 'sprecher' }))], true) === 'Sprecher'
+    && startNdi([aslot(einstellung({ nr: 3, ndiName: 'Folien', modus: 'freigabe' }))], true) === 'Folien');
+  const ben = einstellung({ person: 'Ben' });
+  ck('#287: laufender Teilnehmer-Slot, neue Person, Schalter an → nur nameMerken/aendern, kein starten/stoppen',
+    abgleich([aslot(ben, sitzungNach(sitzung({ gewaehlteId: ANNA, zeigteSchon: true }), 'personGeaendert'), laeuft('participant', ANNA))], T, { personImNdiNamen: true })
+      === j([{ art: 'nameMerken', nr: 1, gewaehlteId: BEN }, { art: 'aendern', nr: 1, befehl: { cmd: 'slotSet', slot: 1, id: BEN } }]));
+  // Fix-Runde 1 (Ruling): Der Startname steht in der Sitzung, bis der Slot aus ist; ein automatischer Neustart nimmt ihn, egal
+  // wie Schalter und Person jetzt stehen. Ohne Startnamen (erster Start, nach „Stopp“) wie bisher.
+  const mitStartname = (an: boolean, e = ben): unknown => startNdi([aslot(e, { startName: 'Zoom 1 (Anna)' })], an);
+  ck('#287 Startname: gesetzt → starten mit ihm, Person inzwischen Ben, Schalter an oder aus',
+    mitStartname(true) === 'Zoom 1 (Anna)' && mitStartname(false) === 'Zoom 1 (Anna)');
+  ck('#287 Startname: … auch nach einem Moduswechsel (der Name bleibt, bis der Slot aus ist)',
+    mitStartname(true, einstellung({ person: 'Ben', modus: 'sprecher' })) === 'Zoom 1 (Anna)');
+  ck('#287 Startname: null → wie bisher aus Schalter und Person', startNdi([aslot(ben, { startName: null })], true) === 'Zoom 1 (Ben)'
+    && startNdi([aslot(ben, { startName: null })], false) === 'Zoom 1');
+  ck('#287 Startname: ändert nichts an einem laufenden Slot (nur aendern, kein starten)',
+    abgleich([aslot(ben, { startName: 'Zoom 1 (Anna)' }, laeuft('participant', ANNA))], T, { personImNdiNamen: true })
+      === j([{ art: 'nameMerken', nr: 1, gewaehlteId: BEN }, { art: 'aendern', nr: 1, befehl: { cmd: 'slotSet', slot: 1, id: BEN } }]));
 }
 
 console.log('— B2 · 7.3 Nr. 2, 5, 7, 8: Sitzung nach einem Ereignis (RR1, RR7, RR9)');
 {
-  const voll: SlotSitzung = { gewaehlteId: ANNA, wegSeq: 2, personJetzt: 'Annabelle', liefSchon: true, zeigteSchon: true, fehlerstand: 'gescheitert', frist: true };
+  const voll: SlotSitzung = {
+    gewaehlteId: ANNA, wegSeq: 2, personJetzt: 'Annabelle', liefSchon: true, zeigteSchon: true, fehlerstand: 'gescheitert', frist: true, startName: 'Zoom 1 (Anna)',
+  };
   const LEER = j(SITZUNG_LEER);
   const ohneKennungen = { gewaehlteId: null, wegSeq: null, personJetzt: null };
   const SOLL: Array<[SitzungsEreignis, SlotSitzung]> = [
@@ -327,12 +359,17 @@ console.log('— B2 · 7.3 Nr. 2, 5, 7, 8: Sitzung nach einem Ereignis (RR1, RR7
     ['entzug', voll],
     ['personGeaendert', { ...voll, ...ohneKennungen, zeigteSchon: false }],
     ['modusGeaendert', { ...voll, zeigteSchon: false }],
-    ['stoppStart', { ...voll, fehlerstand: null, frist: false }],
+    // #287 (Ruling Fix-Runde 1): „Stopp“/„Start“ des Bedieners lässt den Startnamen fallen; alle anderen außer den Sitzungsenden behalten ihn.
+    ['stoppStart', { ...voll, fehlerstand: null, frist: false, startName: null }],
   ];
   for (const [ereignis, soll] of SOLL) ck(`B2 sitzungNach ${ereignis}`, j(sitzungNach(voll, ereignis)) === j(soll));
   ck('B2 sitzungNach: die Tabelle deckt alle 14 Ereignisse', new Set(SOLL.map(([e]) => e)).size === 14);
-  ck('B2 SITZUNG_LEER: alles null bzw. false', LEER === j({ gewaehlteId: null, wegSeq: null, personJetzt: null, liefSchon: false, zeigteSchon: false, fehlerstand: null, frist: false }));
-  ck('B2 sitzungNach ändert die Eingabe nicht', j(voll) === j({ gewaehlteId: ANNA, wegSeq: 2, personJetzt: 'Annabelle', liefSchon: true, zeigteSchon: true, fehlerstand: 'gescheitert', frist: true }));
+  ck('B2 SITZUNG_LEER: alles null bzw. false', LEER === j({
+    gewaehlteId: null, wegSeq: null, personJetzt: null, liefSchon: false, zeigteSchon: false, fehlerstand: null, frist: false, startName: null,
+  }));
+  ck('B2 sitzungNach ändert die Eingabe nicht', j(voll) === j({
+    gewaehlteId: ANNA, wegSeq: 2, personJetzt: 'Annabelle', liefSchon: true, zeigteSchon: true, fehlerstand: 'gescheitert', frist: true, startName: 'Zoom 1 (Anna)',
+  }));
   const ENDE: SitzungsEreignis[] = ['meetingEnde', 'verlassen', 'schliessen', 'beitritt', 'beenden', 'mangel'];
   const ANDERE: SitzungsEreignis[] = ['neueBridge', 'entzug', 'z10Roster', 'z11', 'erneut', 'personGeaendert', 'modusGeaendert', 'stoppStart'];
   ck('B2 Nr. 8: vorübergehender Slot zu jedem Sitzungsende → loeschen', ENDE.every((e) => slotEndetMitMeeting({ voruebergehend: true, anNurMeeting: false }, e) === 'loeschen'));

@@ -45,7 +45,7 @@ function abbild(a: Omit<Partial<ZoomAbbild>, 'kurz'> & { kurz?: Partial<ZoomKurz
     anzeigename: 'Regie Süd',
     versatz: { gewuenschtMs: 0, bestaetigtMs: null, nurSitzung: false },
     teilnehmer: [], slots: [], vorgaben: { aufloesung: '720p', tonAn: true }, sprecher: { signal: 'sprecherVideo', haltezeitMs: 1000 },
-    vorschauAn: true, vorschauVerfuegbar: true, vorschauDetail: null, ueber5: false, messwerte: { bridge: null, slots: [], freigaben: null, sprecherSignale: [] },
+    personImNdiNamen: false, vorschauAn: true, vorschauVerfuegbar: true, vorschauDetail: null, ueber5: false, messwerte: { bridge: null, slots: [], freigaben: null, sprecherSignale: [] },
     einstellungen: { nurSitzung: false, gesichert: null }, abriss: null, meldung: null, hinweise: [],
     erneutMoeglich: false, pruefungLaeuft: false, abbauLaeuft: false,
     ...rest,
@@ -1882,7 +1882,7 @@ console.log('— B8 · ST30–ST42, ST87, ST96, ST96b, ST98 wörtlich; Teilnehme
 console.log('— B9 · ST5–ST9, ST48, ST49, ST61–ST73, ST77, ST80–ST86, ST95 wörtlich; S7.5 Bedientexte (OFP2); Kennzeichen (OFP3)');
 {
   const {
-    BEDIEN_TEXT, KANDIDAT_KENNZEICHEN, MAC_ZEILE, MESS_TEXT, SLOT_FELD, slotKartenZeile, slotTrayZeile, SPRECHER_TEXT, verlassenFrage,
+    BEDIEN_TEXT, KANDIDAT_KENNZEICHEN, MAC_ZEILE, MESS_TEXT, PERSON_IM_NDI_NAMEN_TOOLTIP, SLOT_FELD, slotKartenZeile, slotTrayZeile, SPRECHER_TEXT, verlassenFrage,
   } = await import('../src/shared/zoom-text');
   type SE = import('../src/shared/zoom-text').SlotStatusEingabe;
   const zahlen = (n: number, k: number, o: number, e: number, gestopptEntzug: number) => ({ n, k, o, e, a: 7, gestopptEntzug });
@@ -1969,10 +1969,14 @@ console.log('— B9 · ST5–ST9, ST48, ST49, ST61–ST73, ST77, ST80–ST86, ST
   const BEDIEN: Array<[keyof typeof BEDIEN_TEXT, string]> = [
     ['zoomSlots', 'Zoom-Slots'], ['slotHinzufuegen', 'Slot hinzufügen'], ['vorgaben', 'Vorgaben …'], ['vorschau', 'Vorschau'],
     ['sprecherEinstellungen', 'Sprecher-Einstellungen …'], ['messwerte', 'Messwerte'], ['messwerteKopieren', 'Messwerte kopieren'],
-    ['behalten', 'Behalten'], ['loeschen', 'Löschen'],
+    ['behalten', 'Behalten'], ['loeschen', 'Löschen'], ['personImNdiNamen', 'Person im NDI-Namen'],
   ];
   for (const [k, soll] of BEDIEN) ck(`S7.5 Bedientext „${soll}“ wörtlich (OFP2)`, BEDIEN_TEXT[k] === soll);
-  ck('S7.5 genau neun Bedientexte (OFP2)', Object.keys(BEDIEN_TEXT).length === 9);
+  ck('S7.5 genau zehn Bedientexte (OFP2, #287)', Object.keys(BEDIEN_TEXT).length === 10);
+  ck('#287 Tooltip „Person im NDI-Namen“ nennt Beispiel, Dauer und Personenwechsel', PERSON_IM_NDI_NAMEN_TOOLTIP.includes('Zoom 1 (Anna Müller)') && PERSON_IM_NDI_NAMEN_TOOLTIP.includes('bis der Slot aus ist') && PERSON_IM_NDI_NAMEN_TOOLTIP.includes('nicht um'));
+  ck('#287 Tooltip „Person im NDI-Namen“ sagt ehrlich, wann der Name neu gebildet wird, und verspricht kein „nie“',
+    PERSON_IM_NDI_NAMEN_TOOLTIP.includes('Nach Meeting-Ende, neuem Beitritt oder Neustart von Connect wird der Name neu gebildet') && !/nie/.test(PERSON_IM_NDI_NAMEN_TOOLTIP));
+  ck('#287 keine ASCII-Anführungszeichen in Beschriftung und Tooltip', !BEDIEN_TEXT.personImNdiNamen.includes('"') && !PERSON_IM_NDI_NAMEN_TOOLTIP.includes('"'));
   ck('OFP3 Kennzeichen der Doppelname-Auswahl wie in der Teilnehmerliste: „Kamera aus“, „Host“, „im Warteraum“',
     JSON.stringify(KANDIDAT_KENNZEICHEN) === JSON.stringify({ kameraAus: 'Kamera aus', host: 'Host', imWarteraum: 'im Warteraum' }));
   // SlotZahlen aus B1 ist an `zahlen` übergebbar (sonst scheitert die Typprüfung dieses Tests)
@@ -2255,6 +2259,41 @@ console.log('— B21: Eingabe der Teilnehmerliste je Person (Spec 10.10)');
   ck('B21 10.10: Namensvergleich wie normName im Kern, für alle Paare',
     paare.every(([x, y]) => (teilnehmerSlotEingabe({ name: x, imWarteraum: false, slotNrn: [] }, [lage(1, 'teilnehmer', y, null)]).suchend.length === 1)
       === (normName(x) === normName(y))));
+}
+
+{
+  const zt: Record<string, unknown> = await import('../src/shared/zoom-text');
+  ck('#290: Platzhalter des gemerkten Kenncodes', zt.KENNCODE_GESPEICHERT === 'Kenncode gespeichert');
+  ck('#290: Platzhalter des nur für diese Sitzung gemerkten Kenncodes (Abschluss-Korrektur 3)',
+    zt.KENNCODE_SITZUNG === 'Kenncode für diese Sitzung gemerkt');
+  ck('#290: Knopf „Vergessen“', zt.VERGESSEN === 'Vergessen');
+  ck('#290: Titel des Knopfs „Vergessen“', zt.VERGESSEN_TITEL === 'Gemerkte Meeting-Nummer und Kenncode löschen');
+  ck('#290: Zeile, wenn der Kenncode nicht gespeichert wird (neutral: keine Verschlüsselung oder Schreibfehler, Abschluss-Korrektur 4)',
+    zt.KENNCODE_NICHT_GESPEICHERT === 'Kenncode gilt nur für diese Sitzung – er wird auf diesem PC nicht gespeichert.');
+  ck('#290: „Vergessen“ scheitert an der Platte (Abschluss-Korrektur 5)',
+    zt.TEXT_VERGESSEN_FEHLER === 'Die gemerkten Einwahldaten ließen sich nicht von der Platte löschen – nach einem Neustart wären sie wieder da. Bitte erneut versuchen.');
+}
+
+{
+  // Abschluss-Korrektur 3: dreiwertig; Leerzeichen UND Bindestriche wie normalizeMeetingId.
+  const zt: Record<string, unknown> = await import('../src/shared/zoom-text');
+  type Letztes = { nummer: string | null; kenncodeGespeichert: boolean; kenncodeNichtGespeichert: boolean } | null;
+  const f = zt.kenncodePlatzhalter as ((n: string, k: string, l: Letztes) => 'gespeichert' | 'sitzung' | null) | undefined;
+  const P = (n: string, k: string, l: Letztes): unknown => (typeof f === 'function' ? f(n, k, l) : 'fehlt');
+  const L = { nummer: '123 456 7890', kenncodeGespeichert: true, kenncodeNichtGespeichert: false };
+  ck('#290: kenncodePlatzhalter → gespeichert bei gleicher Nummer mit anderen Leerzeichen',
+    P('1234567890', '', L) === 'gespeichert' && P(' 123  4567 890 ', '', L) === 'gespeichert');
+  ck('#290: … „123 456 7890“ gegen „123-456-7890“ → nicht null (Bindestriche wie normalizeMeetingId)',
+    P('123-456-7890', '', L) === 'gespeichert' && P('123 456 7890', '', { ...L, nummer: '123-456-7890' }) === 'gespeichert');
+  ck('#290: … sitzung, wenn der Kenncode nur für diese Sitzung gilt (kenncodeNichtGespeichert)',
+    P('1234567890', '', { ...L, kenncodeNichtGespeichert: true }) === 'sitzung');
+  ck('#290: … null bei anderer Nummer im Feld', P('123 456 7891', '', L) === null);
+  ck('#290: … null bei gefülltem Kenncode-Feld', P('1234567890', 'x', L) === null && P('1234567890', 'x', { ...L, kenncodeNichtGespeichert: true }) === null);
+  ck('#290: … null ohne gehaltenen Kenncode', P('1234567890', '', { ...L, kenncodeGespeichert: false }) === null
+    && P('1234567890', '', { ...L, kenncodeGespeichert: false, kenncodeNichtGespeichert: true }) === null);
+  ck('#290: … null ohne Gemerktes oder ohne gemerkte Nummer', P('1234567890', '', null) === null && P('', '', { ...L, nummer: null }) === null
+    && P('1234567890', '', { ...L, nummer: '' }) === null);
+  ck('#290: kenncodePlatzhalterZeigen ist ersetzt (ein Name, eine Regel)', zt.kenncodePlatzhalterZeigen === undefined);
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

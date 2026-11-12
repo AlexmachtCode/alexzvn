@@ -3,8 +3,8 @@
 // @shared/zoom-text (dieselbe Quelle wie Tray und Kopfzeile), Fehlertexte aus dem Main
 // (ZoomErgebnis.text, abbild.meldung). Der Kenncode lebt hier nur bis zum Klick auf „Beitreten“ (Spec 5.7).
 // Bewusst NICHT wiederverwendet: PttButton, GuestActions, PhaseBadge (kein Tally, kein Talkback, keine Phasen).
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ZoomAbbild, ZoomErgebnis, ZoomParticipant } from '@shared/types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ZoomAbbild, ZoomErgebnis, ZoomLetztesMeeting, ZoomParticipant } from '@shared/types';
 import {
   einrichtungsTextArt,
   kartenZeile,
@@ -22,7 +22,16 @@ import {
 } from '@shared/zoom-text';
 
 // Zoom-Slots (Connect 0.4.0, Task B21): Slot-Bereich, Angabe je Teilnehmerzeile, Nachfrage ab dem 6. Slot. Texte aus @shared/zoom-text.
-import { KANDIDAT_KENNZEICHEN, SLOT_FELD } from '@shared/zoom-text';
+import {
+  KANDIDAT_KENNZEICHEN,
+  KENNCODE_GESPEICHERT,
+  KENNCODE_NICHT_GESPEICHERT,
+  KENNCODE_SITZUNG,
+  kenncodePlatzhalter,
+  SLOT_FELD,
+  VERGESSEN,
+  VERGESSEN_TITEL,
+} from '@shared/zoom-text';
 import { SlotBereich, TeilnehmerSlotAngabe } from './SlotBereich';
 import { NachfrageZeile } from './SlotKachel';
 import { istNachfrage, type SlotAufrufe, type SlotNachfrage, type SlotOrt } from './SlotEinstellungen';
@@ -221,6 +230,13 @@ export function ZoomCard(): JSX.Element {
   const [jetzt, setJetzt] = useState(() => Date.now());
   const [nummer, setNummer] = useState('');
   const [kenncode, setKenncode] = useState('');
+  /** #290: das gemerkte Meeting; den Kenncode selbst kennt die Karte nie, nur ob der Kern einen hält. */
+  const [letztes, setLetztes] = useState<ZoomLetztesMeeting | null>(null);
+  /**
+   * „Vergessen“ scheiterte an der Platte (TEXT_VERGESSEN_FEHLER): Der Kern hat nichts mehr gemerkt, der Knopf bleibt trotzdem,
+   * damit „Bitte erneut versuchen“ einen Weg hat. Ein gelungenes „Vergessen“ hebt das auf.
+   */
+  const [vergessenErneut, setVergessenErneut] = useState(false);
   /** null = noch nicht angefasst, dann gilt der gespeicherte Anzeigename aus dem Abbild. */
   const [anzeigename, setAnzeigename] = useState<string | null>(null);
   /** null = unverändert, dann gilt der gespeicherte Versatz aus dem Abbild. */
@@ -255,6 +271,40 @@ export function ZoomCard(): JSX.Element {
       aus();
     };
   }, []);
+
+  // Abrufe des gemerkten Meetings: Nur die Antwort auf die neueste Anfrage zählt (eine ältere, später eintreffende hielte einen
+  // überholten Stand), und nach dem Aushängen setzt keine mehr etwas.
+  const letztesAbruf = useRef(0);
+  const eingehaengt = useRef(true);
+  useEffect(() => {
+    eingehaengt.current = true;
+    return () => {
+      eingehaengt.current = false;
+    };
+  }, []);
+  const holeLetztes = useCallback((): void => {
+    const abruf = ++letztesAbruf.current;
+    window.jmconnect
+      .zoomLetztesMeeting()
+      .then((l) => {
+        if (!eingehaengt.current || abruf !== letztesAbruf.current) return;
+        setLetztes(l);
+        // Vorfüllen nur, wenn das Feld leer ist: eine laufende Eingabe bleibt unberührt.
+        if (l.nummer) setNummer((alt) => (alt === '' ? (l.nummer as string) : alt));
+      })
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    holeLetztes();
+  }, [holeLetztes]);
+  // Nach jedem Wechsel nach bereit/fehler (z. B. nach „Schließen“) neu holen.
+  const zustandJetzt = abbild?.kurz.zustand;
+  const zustandVorher = useRef(zustandJetzt);
+  useEffect(() => {
+    const vorher = zustandVorher.current;
+    zustandVorher.current = zustandJetzt;
+    if (vorher !== zustandJetzt && (zustandJetzt === 'bereit' || zustandJetzt === 'fehler')) holeLetztes();
+  }, [zustandJetzt, holeLetztes]);
 
   // Countdown der Statuszeile (Z11): nur ticken, solange ein Zeitpunkt ansteht.
   const naechsterUm = abbild?.abriss?.naechsterUm ?? null;
@@ -340,6 +390,27 @@ export function ZoomCard(): JSX.Element {
     void fuehreAus('beitreten', 'beitritt', () =>
       window.jmconnect.zoomBeitreten({ nummer, kenncode: code, anzeigename: name }),
     );
+  };
+
+  const platzhalter = kenncodePlatzhalter(nummer, kenncode, letztes);
+  const kenncodePlatzhalterText =
+    platzhalter === 'gespeichert' ? KENNCODE_GESPEICHERT : platzhalter === 'sitzung' ? KENNCODE_SITZUNG : undefined;
+
+  // „Vergessen“ nicht, während ein Beitritt oder „Schließen“ läuft; „Beitreten“ nicht, während „Vergessen“ läuft.
+  const vergessenGesperrt = laeuft.has('vergessen') || laeuft.has('beitreten') || laeuft.has('schliessen');
+  const beitretenGesperrt = kn.beitretenGesperrt || laeuft.has('beitreten') || laeuft.has('vergessen');
+
+  const vergessen = (): void => {
+    // fuehreAus zeigt ein Scheitern (TEXT_VERGESSEN_FEHLER oder einen IPC-Fehler) am Ort „beitritt“; die Felder bleiben dann.
+    void fuehreAus('vergessen', 'beitritt', () => window.jmconnect.zoomVergessen()).then((r) => {
+      setVergessenErneut(!r.ok);
+      if (r.ok) {
+        setNummer('');
+        setKenncode('');
+        setLetztes(null);
+      }
+      holeLetztes();
+    });
   };
 
   const verlassen = (): void => {
@@ -448,9 +519,10 @@ export function ZoomCard(): JSX.Element {
             {mk.schliessen && (
               <button
                 onClick={() => {
-                  // N4b.3 Nr. 5: „Schließen“ leert auch das Nummernfeld der Karte (der Kenncode ist seit dem Klick auf „Beitreten“ leer).
+                  // #290 löst N4b.3 Nr. 5 ab: „Schließen“ leert das Feld; der Abruf beim Wechsel nach „bereit“ füllt es mit dem frisch geholten gemerkten Meeting
+                  // (`letztes` kann während des Meetings noch das vorherige halten). Im Z2-Fall bleibt der Zustand `bereit`: dann holt erst der Abruf nach dem Aufruf.
                   setNummer('');
-                  void fuehreAus('schliessen', 'karte', () => ohneText(window.jmconnect.zoomSchliessen()));
+                  void fuehreAus('schliessen', 'karte', () => ohneText(window.jmconnect.zoomSchliessen())).then(() => holeLetztes());
                 }}
                 className={RAND}
               >
@@ -637,7 +709,7 @@ export function ZoomCard(): JSX.Element {
           className="mb-3 grid gap-2 sm:grid-cols-3"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!kn.beitretenGesperrt && !laeuft.has('beitreten')) beitreten();
+            if (!beitretenGesperrt) beitreten();
           }}
         >
           <label className="text-xs text-neutral-400">
@@ -656,9 +728,13 @@ export function ZoomCard(): JSX.Element {
               type="password"
               value={kenncode}
               onChange={(e) => setKenncode(e.target.value)}
+              placeholder={kenncodePlatzhalterText}
               autoComplete="off"
               className={`${INP} mt-1 border-neutral-700`}
             />
+            {letztes?.kenncodeNichtGespeichert && (
+              <span className="mt-1 block text-neutral-500">{KENNCODE_NICHT_GESPEICHERT}</span>
+            )}
           </label>
           <label className="text-xs text-neutral-400">
             Anzeigename in Zoom
@@ -670,9 +746,20 @@ export function ZoomCard(): JSX.Element {
             />
           </label>
           <div className="flex items-center gap-3 sm:col-span-3">
-            <button type="submit" disabled={kn.beitretenGesperrt || laeuft.has('beitreten')} className={GELB}>
+            <button type="submit" disabled={beitretenGesperrt} className={GELB}>
               Beitreten
             </button>
+            {(letztes?.nummer || vergessenErneut) && (
+              <button
+                type="button"
+                title={VERGESSEN_TITEL}
+                disabled={vergessenGesperrt}
+                onClick={vergessen}
+                className={RAND}
+              >
+                {VERGESSEN}
+              </button>
+            )}
             {antwortText('beitritt') && <span className="text-xs text-red-300">{antwortText('beitritt')}</span>}
           </div>
         </form>
