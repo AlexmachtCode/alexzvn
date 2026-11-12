@@ -251,6 +251,35 @@ ck('Zugang: Entfernen bei schreibbarer Datei → true, Feld weg', s.zoomZugangLo
   g.__mock.userData = wurzel;
 }
 
+// ── Task 1 (#287): Schalter „Person im NDI-Namen“ in connect-settings.json ──
+{
+  const ordner = mkdtempSync(join(tmpdir(), 'jmc-287-'));
+  const datei = join(ordner, 'connect-settings.json');
+  const inD = (): Record<string, unknown> => JSON.parse(readFileSync(datei, 'utf8')) as Record<string, unknown>;
+  g.__mock.userData = ordner;
+  ck('#287: ohne Datei → aus', s.zoomPersonImNdiNamen() === false);
+  for (const roh of ['"ja"', '1', 'null', '"true"', '0']) {
+    writeFileSync(datei, `{ "zoomPersonImNdiNamen": ${roh} }`);
+    ck(`#287: gespeichert ${roh} (kein Boolean true) → aus`, s.zoomPersonImNdiNamen() === false);
+  }
+  writeFileSync(datei, '{ "zoomLetzteNummer": "12345", "zoomSlotsFassung": 1, "zoomSlots": [], "zoomVorschau": false }');
+  ck('#287: Feld fehlt in vorhandener Datei → aus', s.zoomPersonImNdiNamen() === false);
+  ck('#287: setzeZoomPersonImNdiNamen(true) → true (geschrieben), liest an, Datei trägt „zoomPersonImNdiNamen“: true',
+    s.setzeZoomPersonImNdiNamen(true) === true && s.zoomPersonImNdiNamen() === true && inD().zoomPersonImNdiNamen === true
+      && /"zoomPersonImNdiNamen": true/.test(readFileSync(datei, 'utf8')));
+  ck('#287: … andere Felder bleiben unverändert', inD().zoomLetzteNummer === '12345' && inD().zoomSlotsFassung === 1
+    && Array.isArray(inD().zoomSlots) && inD().zoomVorschau === false);
+  ck('#287: … wieder aus → false in der Datei', s.setzeZoomPersonImNdiNamen(false) === true && s.zoomPersonImNdiNamen() === false && inD().zoomPersonImNdiNamen === false);
+  g.__mock.userData = kaputt;
+  ck('#287: Schreiben scheitert → false, der Wert gilt für die Sitzung, einstellungsLage meldet nurSitzung',
+    s.setzeZoomPersonImNdiNamen(true) === false && s.zoomPersonImNdiNamen() === true && s.einstellungsLage().nurSitzung === true);
+  g.__mock.userData = ordner;
+  ck('#287: Platte wieder schreibbar → true, die Platte gilt, nicht mehr nur Sitzung',
+    s.setzeZoomPersonImNdiNamen(true) === true && inD().zoomPersonImNdiNamen === true && s.einstellungsLage().nurSitzung === false);
+  s.setzeZoomPersonImNdiNamen(false);
+  g.__mock.userData = wurzel;
+}
+
 // ── Nachtrag B zu Plan B: T92 aus settings.ts abgeleitet (NB9), NDI-Name nur aus Leerraum (NB5) ──
 {
   const e = await import('../src/main/zoom/einstellungen');

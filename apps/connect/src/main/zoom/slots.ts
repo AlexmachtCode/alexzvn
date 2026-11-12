@@ -7,6 +7,7 @@ import type {
   ZoomErlaubnis, ZoomSlotEinstellung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotZustand, ZoomSprecherSignal, ZoomZustand,
 } from '../../shared/types';
 import { BETRIEBSGROESSE } from '../../shared/zoom-text';
+import { ndiNameMitPerson } from './einstellungen';
 import { normName } from './teilnehmer';
 
 /** Fehlerstand eines Slots (Spec 7.3 Nr. 2, 3): Ein Slot mit Fehlerstand startet nicht von selbst neu. */
@@ -136,13 +137,14 @@ export const SIGNAL_ZU_BRIDGE: Record<ZoomSprecherSignal, SpeakerSignal> = {
 /**
  * `slotOn` mit allen Feldern (Spec 6.2, 7.3 Nr. 2), Ton über tonFuerBridge. `id` nur im Modus Teilnehmer (0 = kein Ziel);
  * Sprecher- und Freigabe-Slots wählen ihr Ziel in der Bridge (7.3 Nr. 9). Keine Kennung ist 0: ANNAHME AN10, teils belegt.
+ * `ndi` ist der Name, mit dem der Sender startet (ndiName oder, mit „Person im NDI-Namen“, ndiNameMitPerson; #287).
  */
-export function slotOnBefehl(e: ZoomSlotEinstellung, ziel: number): Extract<Command, { cmd: 'slotOn' }> {
+export function slotOnBefehl(e: ZoomSlotEinstellung, ziel: number, ndi: string): Extract<Command, { cmd: 'slotOn' }> {
   const ton = tonFuerBridge(e);
   return {
     cmd: 'slotOn',
     slot: e.nr,
-    ndi: e.ndiName,
+    ndi,
     mode: MODUS_ZU_BRIDGE[e.modus],
     ...(e.modus === 'teilnehmer' ? { id: ziel } : {}),
     resolution: e.aufloesung,
@@ -195,6 +197,8 @@ export interface AbgleichEingabe {
   meeting: ZoomZustand;
   erlaubnis: ZoomErlaubnis | null;
   ueber5: boolean;
+  /** Schalter „Person im NDI-Namen“ (#287): Teilnehmer-Slots starten als „NDI-Name (Person)“. */
+  personImNdiNamen: boolean;
   teilnehmer: readonly AbgleichTeilnehmer[];
   slots: readonly AbgleichSlot[];
 }
@@ -293,7 +297,8 @@ export function planeSlotAbgleich(e: AbgleichEingabe): AbgleichHandlung[] {
       continue;
     }
     if (z !== null && z.gewaehlteId !== x.s.gewaehlteId) aus.push({ art: 'nameMerken', nr, gewaehlteId: z.gewaehlteId });
-    aus.push({ art: 'starten', nr, befehl: slotOnBefehl(x.e, z?.ziel ?? 0) });
+    const ndi = e.personImNdiNamen && x.e.modus === 'teilnehmer' ? ndiNameMitPerson(x.e.ndiName, x.e.person) : x.e.ndiName;
+    aus.push({ art: 'starten', nr, befehl: slotOnBefehl(x.e, z?.ziel ?? 0, ndi) });
   }
   return aus;
 }

@@ -2406,6 +2406,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       meeting: zustand,
       erlaubnis: zustand === 'im_meeting' ? erlaubnis : null,
       ueber5: d.einstellungen.ueber5(),
+      personImNdiNamen: false, // Task 2 verdrahtet den Schalter
       teilnehmer: aktiveSitzung() !== null ? abgleichTeilnehmer() : [],
       slots: [...slots.values()].map((x) => ({
         e: x.e,

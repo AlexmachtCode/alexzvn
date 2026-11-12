@@ -260,6 +260,25 @@ console.log('— SDK-Schlüssel von Hand: Nutzlast-Prüfung (IPC, Spec SDK nachl
   const uebergang = ['Moderation: Anna', ' A', 'A ', lang].map((n) => ({ ...e.neuerSlot(1, V, []), ndiName: e.uebergangsNdiName(n, []) }));
   ck('B3 PK35: normiereSlot verwirft einen so angelegten Slot nicht und ändert seinen Namen nicht',
     uebergang.every((s) => e.normiereSlot(s)?.ndiName === s.ndiName) && uebergang[0].ndiName === `${P}Moderation  Anna`);
+  console.log('— Task 1 · ndiNameMitPerson (#287)');
+  const mp = e.ndiNameMitPerson;
+  ck('#287: „Zoom 1“ + „Anna Müller“ → „Zoom 1 (Anna Müller)“', mp('Zoom 1', 'Anna Müller') === 'Zoom 1 (Anna Müller)');
+  ck('#287: Person leer, nur Leerraum, nur Steuerzeichen → Slotname allein',
+    mp('Zoom 1', '') === 'Zoom 1' && mp('Zoom 1', '   ') === 'Zoom 1' && mp('Zoom 1', '\x07') === 'Zoom 1');
+  ck('#287: „:“ wird Leerzeichen, Steuerzeichen weg, Rand-Leerraum getrimmt', mp('Zoom 1', ' Dr.:Anna\x07 ') === 'Zoom 1 (Dr. Anna)');
+  const lang80 = mp('S', 'a'.repeat(80));
+  ck('#287: 80 Zeichen Person → genau 60 Code-Punkte, Klammer bleibt zu', e.codePunkte(lang80) === 60 && lang80.endsWith('a)') && lang80.startsWith('S ('));
+  const emoji = mp('S', '😀'.repeat(70));
+  ck('#287: Astral-Zeichen nicht zerteilt: 60 Code-Punkte, nur ganze Emojis zwischen den Klammern, endet auf „)“',
+    e.codePunkte(emoji) === 60 && emoji.endsWith(')') && emoji === `S (${'😀'.repeat(56)})` && !/\p{Cs}/u.test(emoji));
+  const s57 = 'x'.repeat(57);
+  ck('#287: Slotname mit 57 Code-Punkten → kein Platz, unverändert', mp(s57, 'Anna') === s57);
+  ck('#287: Slotname mit 56 Code-Punkten → ein Zeichen der Person passt', mp('x'.repeat(56), 'Anna') === `${'x'.repeat(56)} (A)`);
+  ck('#287: Slotname enthält die Person schon (NFC, ohne Groß-/Kleinschreibung) → unverändert',
+    mp('JM Connect – Zoom Anna', 'anna') === 'JM Connect – Zoom Anna' && mp('Zoom Ana\u{301}', 'AN\u{c1}') === 'Zoom Ana\u{301}');
+  ck('#287: Ergebnis hat nie einen Formfehler (Slotname bleibt, wenn der zusammengesetzte Name ungültig wäre)',
+    ['Anna', ':::', 'Dr.:X', 'a'.repeat(200), '😀'.repeat(100)].every((pn) => [mp('Zoom 1', pn), mp('x'.repeat(58), pn), mp('S', pn)]
+      .every((n) => n.trim() !== '' && e.codePunkte(n) <= 60 && !n.includes(':') && !/\p{Cc}/u.test(n) && !/\p{Cs}/u.test(n))));
 
   console.log('— B3 · NDI-Namensprüfung (PK24 rein, E26)');
   const andere = [{ nr: 5, ndiName: 'Bühne' }, { nr: 3, ndiName: 'Zoom 3' }, { nr: 9, ndiName: 'ZOOM 3' }];

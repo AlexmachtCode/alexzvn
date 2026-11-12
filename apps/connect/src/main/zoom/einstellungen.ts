@@ -165,6 +165,25 @@ export function uebergangsNdiName(anzeigename: string, belegt: readonly string[]
 }
 
 /**
+ * Name, mit dem ein Teilnehmer-Slot beim Einschalten an die Bridge geht, wenn „Person im NDI-Namen“ an ist (#287):
+ * „NDI-Name (Person)“. Person: „:“ → Leerzeichen, Steuerzeichen weg, Rand-Leerraum getrimmt, auf den Rest der 60 Code-Punkte
+ * gekürzt (nie mitten in einem Ersatzpaar). Leere Person, kein Platz für mindestens ein Zeichen oder die Person steht
+ * schon im Slotnamen (NFC, ohne Groß-/Kleinschreibung) → der Slotname unverändert. Das Ergebnis besteht immer ndiNameFormFehler.
+ */
+export function ndiNameMitPerson(ndiName: string, person: string): string {
+  const roh = person.replace(/:/g, ' ').replace(STEUERZEICHEN_ALLE, '').trim();
+  if (roh === '') return ndiName;
+  const norm = (s: string): string => s.normalize('NFC').toLocaleLowerCase('de');
+  if (norm(ndiName).includes(norm(roh))) return ndiName;
+  const platz = NDI_NAME_MAX - codePunkte(ndiName) - 3;
+  if (platz < 1) return ndiName;
+  const kurz = kuerze(roh, platz).trim();
+  if (kurz === '') return ndiName;
+  const name = `${ndiName} (${kurz})`;
+  return ndiNameFormFehler(name) === null ? name : ndiName;
+}
+
+/**
  * Neuer Slot (Spec 7.6, 0.22, 0.28): Modus Teilnehmer, keine Person, Ersatzbild transparent, Tonart Mischton, Computerton
  * an, ohne Kamera an, Start aus, Auflösung und Ton aus den Vorgaben; NDI-Name „Zoom {nr}“, bei Kollision „Zoom {nr} (2)“ …
  * „Als Slot laden“ und `zoom_load` (Task B13) setzen danach Person, Übergangsnamen und Start-Taste.

@@ -54,6 +54,7 @@ interface Stored {
   zoomSlotVorgaben?: unknown;
   /** `{ signal, haltezeitMs }`; fehlt = sprecherVideo, 1000. */
   zoomSprecher?: unknown;
+  zoomPersonImNdiNamen?: unknown;
   /** Schalter „Vorschau“; fehlt = an. */
   zoomVorschau?: unknown;
   /** Zustimmung zu mehr als 5 eingeschalteten Slots (E4); fehlt = aus. */
@@ -451,6 +452,7 @@ export function zoomSdkSchluesselLoeschen(): boolean {
 let zoomSlotsSitzung: ZoomSlotEinstellung[] | null = null;
 let zoomSlotVorgabenSitzung: ZoomSlotVorgaben | null = null;
 let zoomSprecherSitzung: ZoomSprecherEinstellung | null = null;
+let zoomPersonImNdiNamenSitzung: boolean | null = null;
 let zoomVorschauSitzung: boolean | null = null;
 let zoomSlotsUeber5Sitzung: boolean | null = null;
 /** Zahl der beim Lesen verworfenen Slots (T91); bleibt bis zum Beenden, auch wenn ein späteres Schreiben die Datei bereinigt. */
@@ -513,6 +515,20 @@ export function setzeZoomSprecher(s: ZoomSprecherEinstellung): boolean {
   return ok;
 }
 
+/** Schalter „Person im NDI-Namen“ (#287); nur ein gespeichertes `true` schaltet ein, sonst aus. */
+export function zoomPersonImNdiNamen(): boolean {
+  if (zoomPersonImNdiNamenSitzung !== null) return zoomPersonImNdiNamenSitzung;
+  return read().zoomPersonImNdiNamen === true;
+}
+
+export function setzeZoomPersonImNdiNamen(an: boolean): boolean {
+  const ok = schreibeFeld((st) => {
+    st.zoomPersonImNdiNamen = an;
+  });
+  zoomPersonImNdiNamenSitzung = ok ? null : an;
+  return ok;
+}
+
 /** Schalter „Vorschau“ (7.7); fehlt = an. */
 export function zoomVorschau(): boolean {
   if (zoomVorschauSitzung !== null) return zoomVorschauSitzung;
@@ -550,6 +566,6 @@ export function setzeZoomSlotsUeber5(an: boolean): boolean {
  */
 export function einstellungsLage(): { gesichert: string | null; verworfen: number; nurSitzung: boolean } {
   const nurSitzung = zoomSlotsSitzung !== null || zoomSlotVorgabenSitzung !== null || zoomSprecherSitzung !== null
-    || zoomVorschauSitzung !== null || zoomSlotsUeber5Sitzung !== null;
+    || zoomPersonImNdiNamenSitzung !== null || zoomVorschauSitzung !== null || zoomSlotsUeber5Sitzung !== null;
   return { gesichert: gesichertAls, verworfen: zoomSlotsVerworfen, nurSitzung };
 }
