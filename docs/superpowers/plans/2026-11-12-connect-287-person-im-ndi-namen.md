@@ -33,7 +33,7 @@
 2. Schalter umlegen, während Slots laufen: kein laufender Sender wird gestoppt oder neu gestartet; erst der nächste Start nimmt den neuen Stand.
 3. Kein Personenname in irgendeiner `d.log`-Zeile, auch nicht in Fehlerpfaden (`slotNameTaken`, fremder Sender, Fristablauf).
 4. Namensränder: Person leer, Person nur Leerraum/Steuerzeichen, Person mit „:“, Slotname schon 57+ Code-Punkte, Slotname enthält die Person schon (Übergangsnamen „JM Connect – Zoom Anna“), Emoji/Astral-Zeichen beim Kürzen.
-5. Neue Bridge / „Erneut beitreten“ / Z11: Slots starten mit dem Namen aus dem jetzigen Stand; eine späte Antwort auf ein slotOn mit anderem Namen bleibt „fremd“ (bestehende I-3-Tests grün).
+5. Neue Bridge / „Erneut beitreten“ / Z11 / Entzug+Wiedererteilung: Ein eingeschalteter Slot startet mit seinem STARTNAMEN neu (Name vom Einschalten, auch wenn Person oder Schalter sich seither geändert haben); eine späte Antwort auf ein slotOn mit anderem Namen bleibt „fremd“ (bestehende I-3-Tests grün). *(Geändert 12.11. nach Task-2-Review: der ursprüngliche Wortlaut „Name aus dem jetzigen Stand“ widersprach der Owner-Beschreibung.)*
 
 ---
 
@@ -87,7 +87,7 @@
   - K4: Schalter aus (Vorgabe) → `slotOn.ndi === e.ndiName` wie bisher; die bestehenden I-3-Tests (späte Antwort mit altem Namen = fremd) bleiben grün.
   - K5: `abbild().personImNdiNamen` folgt dem Schalter; kein Log-Eintrag enthält „Anna“ (alle `d.log`-Zeilen der Tests K1–K3 prüfen).
 - [ ] **Step 2: Run** `npx tsx test/zoom-kern.test.ts` → FAIL.
-- [ ] **Step 3: Implement** — der erwartete Name eines Senders ist das `ndi` des `slotOn`, das ihn angelegt hat: beim Senden mit dem Eintrag in `slotOnOffen` ablegen, beim Übernehmen am Sender behalten, und die I-3-Prüfung vergleicht `e.ndi` damit (neuer Sender: mit dem ältesten offenen slotOn; laufender Sender: mit seinem gemerkten Namen). `planeSlotAbgleich` bekommt `personImNdiNamen: d.einstellungen.personImNdiNamen()`. Schalter umlegen ruft den Abgleich nicht zum Neustart laufender Slots auf.
+- [ ] **Step 3: Implement** — der erwartete Name eines Senders ist das `ndi` des `slotOn`, das ihn angelegt hat: beim Senden mit dem Eintrag in `slotOnOffen` ablegen, beim Übernehmen am Sender behalten, und die I-3-Prüfung vergleicht `e.ndi` damit (neuer Sender: mit dem ältesten offenen slotOn; laufender Sender: mit seinem gemerkten Namen). `planeSlotAbgleich` bekommt `personImNdiNamen: d.einstellungen.personImNdiNamen()`. Schalter umlegen ruft den Abgleich nicht zum Neustart laufender Slots auf. *(Umgesetzt 12.11. als `senderNameFuer`: bekannter Sender → sein Startname; ohne Sender → das NEUESTE offene slotOn, solange der Slot seither nicht umbenannt wurde, sonst `x.e.ndiName` — „ältestes“ brach NB2/NB7/R15. Dazu `SlotSitzung.startName`: bleibt bei neueBridge/z11/erneut/entzug/z10Roster/personGeaendert/modusGeaendert, fällt bei Sitzungsende, stoppStart, Bediener-Aus, zoom_unload.)*
 - [ ] **Step 4: Run** → PASS; dann `npm run selftest -w @jm/connect` und `npm run typecheck -w @jm/connect` → grün.
 - [ ] **Step 5: Commit** `feat(connect): Kern merkt den gesendeten NDI-Namen, Schalter „Person im NDI-Namen“ (#287)`
 
