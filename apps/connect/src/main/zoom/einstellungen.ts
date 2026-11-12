@@ -171,8 +171,9 @@ export function uebergangsNdiName(anzeigename: string, belegt: readonly string[]
  * schon als ganze Wörter im Slotnamen steht (NFC, ohne Groß-/Kleinschreibung; Grenze = Rand oder Zeichen, das kein Buchstabe/keine Ziffer ist) → der Slotname unverändert. Das Ergebnis besteht immer ndiNameFormFehler.
  */
 export function ndiNameMitPerson(ndiName: string, person: string): string {
-  const roh = person.replace(/:/g, ' ').replace(STEUERZEICHEN_ALLE, '').trim();
-  if (roh === '') return ndiName;
+  const roh = person.replace(/:/g, ' ').replace(STEUERZEICHEN_ALLE, '').replace(/\p{Cs}/gu, '').trim();
+  // Nur Format-Zeichen (U+200B, U+FEFF …) übrig: kein Buchstabe, keine Ziffer, kein Symbol → wie leer.
+  if (roh === '' || !/[\p{L}\p{N}\p{S}]/u.test(roh)) return ndiName;
   const norm = (s: string): string => s.normalize('NFC').toLocaleLowerCase('de');
   const wort = '[\\p{L}\\p{N}]';
   const imName = new RegExp(`(?<!${wort})${norm(roh).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!${wort})`, 'u');

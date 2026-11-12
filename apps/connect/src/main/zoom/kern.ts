@@ -2535,7 +2535,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       }
       return;
     }
-    x.s = sitzungNach(x.s, 'stoppStart');
+    // #287: „EIN“ an einem schon eingeschalteten Slot (Companion) ist kein Aus/Ein: der Startname bleibt, sonst baute der
+    // Neustart den Namen neu und der Mischer verlöre die Quelle. Aus und echtes Aus→Ein bilden den Namen neu.
+    const startName = an && x.e.an ? x.s.startName : null;
+    x.s = { ...sitzungNach(x.s, 'stoppStart'), startName };
     fristBeantwortet(x);
     fehlerWeg(x);
     x.e = { ...x.e, an };

@@ -1,7 +1,8 @@
 // Zoom-Slots in Connect als reine Funktionen (Spec 7.1, 7.3, 10.1): Zustand eines Slots nach der Vorrangfolge,
 // Offenheit und Zählung (n, k, o, e), Ton-Abbildung und Befehlsbau. Plan B, Task B2 ergänzt den Slot-Abgleich (ersetzt
-// soll.ts ab Task B12). Ohne Electron (G-B2): Laufzeit-Importe nur relativ; Bridge-Typen und -Konstanten nur aus
-// @jm/zoom-bridge/protocol. Der Kern (kern.ts) ruft diese Funktionen und führt aus, was sie ergeben.
+// soll.ts ab Task B12). Ohne Electron (G-B2): Laufzeit-Importe nur relativ (./einstellungen
+// für ndiNameMitPerson zieht @jm/zoom-bridge mit, ohne Electron). Bridge-Typen und -Konstanten aus @jm/zoom-bridge/protocol.
+// Der Kern (kern.ts) ruft diese Funktionen und führt aus, was sie ergeben.
 import type { Command, SlotAudioSetting, SlotFallback, SlotMode, SlotReason, SlotState, SpeakerSignal } from '@jm/zoom-bridge/protocol';
 import type {
   ZoomErlaubnis, ZoomSlotEinstellung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotZustand, ZoomSprecherSignal, ZoomZustand,

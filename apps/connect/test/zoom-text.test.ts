@@ -1974,6 +1974,8 @@ console.log('— B9 · ST5–ST9, ST48, ST49, ST61–ST73, ST77, ST80–ST86, ST
   for (const [k, soll] of BEDIEN) ck(`S7.5 Bedientext „${soll}“ wörtlich (OFP2)`, BEDIEN_TEXT[k] === soll);
   ck('S7.5 genau zehn Bedientexte (OFP2, #287)', Object.keys(BEDIEN_TEXT).length === 10);
   ck('#287 Tooltip „Person im NDI-Namen“ nennt Beispiel, Dauer und Personenwechsel', PERSON_IM_NDI_NAMEN_TOOLTIP.includes('Zoom 1 (Anna Müller)') && PERSON_IM_NDI_NAMEN_TOOLTIP.includes('bis der Slot aus ist') && PERSON_IM_NDI_NAMEN_TOOLTIP.includes('nicht um'));
+  ck('#287 Tooltip „Person im NDI-Namen“ sagt ehrlich, wann der Name neu gebildet wird, und verspricht kein „nie“',
+    PERSON_IM_NDI_NAMEN_TOOLTIP.includes('Nach Meeting-Ende, neuem Beitritt oder Neustart von Connect wird der Name neu gebildet') && !/nie/.test(PERSON_IM_NDI_NAMEN_TOOLTIP));
   ck('#287 keine ASCII-Anführungszeichen in Beschriftung und Tooltip', !BEDIEN_TEXT.personImNdiNamen.includes('"') && !PERSON_IM_NDI_NAMEN_TOOLTIP.includes('"'));
   ck('OFP3 Kennzeichen der Doppelname-Auswahl wie in der Teilnehmerliste: „Kamera aus“, „Host“, „im Warteraum“',
     JSON.stringify(KANDIDAT_KENNZEICHEN) === JSON.stringify({ kameraAus: 'Kamera aus', host: 'Host', imWarteraum: 'im Warteraum' }));

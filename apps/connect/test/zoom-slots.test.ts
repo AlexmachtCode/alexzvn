@@ -2258,6 +2258,20 @@ const KEIN_NAME_IM_LOG = (p: Probe): boolean => !p.logs.some((z) => /(?<![\p{L}\
     slots: [slotEinst(1, { person: 'Anna', an: true })], personImNdiNamen: true, stell: () => ({ FAKE_ENTZUG_MS: '2000', FAKE_ERTEILUNG_MS: '800' }),
   });
   await insMeeting(p);
+  ck('#287 Startname (Companion ON bei schon an): Slot 1 läuft als „Zoom 1 (Anna)“, dann Person Ben', (await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000))
+    && ok(p.kern.slotAendern(1, { person: 'Ben' })) && (await bis(() => sender(p).get(1)?.target === BEN, 2000)));
+  ck('… Entzug, dann Companion „zoom_slot 1 ON“ am schon eingeschalteten Slot: der Neustart geht weiter als „Zoom 1 (Anna)“',
+    (await bis(() => lage(p, 1)?.zustand !== 'zeigt', 4000))
+    // ON alle 20 ms, bis der Neustart läuft: mindestens ein Aufruf trifft den Slot ohne Sender (dort lief früher stoppStart)
+    && (await bis(() => { p.kern.steuerbefehl({ verb: 'zoom_slot', args: ['1', 'ON'] }); return startNamen(p).length === 2; }, 8000))
+    && (await bis(() => lage(p, 1)?.zustand === 'zeigt', 8000)) && startNamen(p).length === 2 && startNamen(p)[1] === 'Zoom 1 (Anna)');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true })], personImNdiNamen: true, stell: () => ({ FAKE_ENTZUG_MS: '2000', FAKE_ERTEILUNG_MS: '800' }),
+  });
+  await insMeeting(p);
   ck('#287 Startname (Schalter aus): Slot 1 läuft als „Zoom 1 (Anna)“', (await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000))
     && startNamen(p).join('|') === 'Zoom 1 (Anna)');
   ck('… Schalter aus, während er läuft → kein Befehl', ok(p.kern.personImNdiNamenSetzen(false)) && (await warte(200), slotGesendet(p, 1, 1).length === 1));

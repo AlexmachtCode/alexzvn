@@ -286,6 +286,14 @@ console.log('— SDK-Schlüssel von Hand: Nutzlast-Prüfung (IPC, Spec SDK nachl
     ['Anna', ':::', 'Dr.:X', 'a'.repeat(200), '😀'.repeat(100)].every((pn) => [mp('Zoom 1', pn), mp('x'.repeat(58), pn), mp('S', pn)]
       .every((n) => n.trim() !== '' && e.codePunkte(n) <= 60 && !n.includes(':') && !/\p{Cc}/u.test(n) && !/\p{Cs}/u.test(n))));
 
+  const lose = String.fromCharCode(0xd800);
+  ck('#287: Person nur aus Format-Zeichen (U+200B, U+FEFF) gilt als leer → Slotname allein',
+    mp('Zoom 1', '\u{200B}') === 'Zoom 1' && mp('Zoom 1', '\u{FEFF}\u{200B}') === 'Zoom 1');
+  ck('#287: einzelnes Ersatzzeichen in der Person fällt weg: „Anna“ + U+D800 → „Zoom 1 (Anna)“; nur Ersatzzeichen → Slotname',
+    mp('Zoom 1', `Anna${lose}`) === 'Zoom 1 (Anna)' && mp('Zoom 1', lose) === 'Zoom 1');
+  ck('#287: Ergebnis enthält nie ein einzelnes Ersatzzeichen', [`Anna${lose}`, `${lose}${lose}`, `${lose}Anna${lose}`, `😀${lose}`]
+    .every((pn) => !/\p{Cs}/u.test(mp('Zoom 1', pn)) && ![...mp('Zoom 1', pn)].some((c) => c.length === 1 && c.charCodeAt(0) >= 0xd800 && c.charCodeAt(0) <= 0xdfff)));
+
   console.log('— B3 · NDI-Namensprüfung (PK24 rein, E26)');
   const andere = [{ nr: 5, ndiName: 'Bühne' }, { nr: 3, ndiName: 'Zoom 3' }, { nr: 9, ndiName: 'ZOOM 3' }];
   const fehler = (name: string, nr = 1): string | null => e.pruefeNdiName(name, nr, andere, []).fehler;

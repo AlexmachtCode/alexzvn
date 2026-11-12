@@ -1436,7 +1436,7 @@ export const BEDIEN_TEXT = {
 
 /** #287: Tooltip des Schalters „Person im NDI-Namen“ (Owner-Beschreibung 12.11.2026). */
 export const PERSON_IM_NDI_NAMEN_TOOLTIP =
-  'Teilnehmer-Slots heißen beim Einschalten „‹NDI-Name› (‹Person›)“, z. B. „Zoom 1 (Anna Müller)“ – so sieht man im Mischer, wer auf welcher Quelle liegt. Der Name gilt, bis der Slot aus ist: Ein Personenwechsel benennt die Quelle nicht um. Gilt für Slots, die danach eingeschaltet werden; Sprecher- und Freigabe-Slots bleiben unverändert.';
+  'Teilnehmer-Slots heißen beim Einschalten „‹NDI-Name› (‹Person›)“, z. B. „Zoom 1 (Anna Müller)“ – so sieht man im Mischer, wer auf welcher Quelle liegt. Der Name bleibt, bis der Slot aus ist – auch wenn Connect die Verbindung zum Meeting neu aufbaut; ein Personenwechsel benennt die Quelle nicht um. Nach Meeting-Ende, neuem Beitritt oder Neustart von Connect wird der Name neu gebildet. Gilt für Slots, die danach eingeschaltet werden; Sprecher- und Freigabe-Slots bleiben unverändert.';
 
 /** Kennzeichen je Kandidat der Doppelname-Auswahl (7.5): die Bestandstexte der Teilnehmerliste (OFP3, `ZoomCard.tsx:388-393`). */
 export const KANDIDAT_KENNZEICHEN = { kameraAus: 'Kamera aus', host: 'Host', imWarteraum: 'im Warteraum' };
