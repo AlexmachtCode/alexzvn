@@ -1732,6 +1732,16 @@
     "name": "JM Connect",
     "entries": [
       {
+        "version": "0.4.2",
+        "date": "2026-11-12",
+        "notes": [
+          "Zoom: Connect merkt sich die Einwahldaten des letzten Meetings – Meeting-Nummer und Kenncode –, bis neue eingetragen werden. Nach „Schließen“ und nach einem Neustart steht die Nummer wieder im Feld; der Kenncode wird nicht angezeigt, das Feld zeigt „Kenncode gespeichert“, und „Beitreten“ nutzt ihn.",
+          "Die Nummer liegt in den Connect-Einstellungen auf diesem PC, der Kenncode nur mit der Windows-Verschlüsselung – nie in der Show-Datei, im Protokoll oder im Companion-Status. Lässt sich der Kenncode nicht dauerhaft speichern, gilt er nur bis zum Beenden, und Connect sagt das. „Vergessen“ löscht die gemerkten Daten.",
+          "Zoom-Slots: Neuer Schalter „Person im NDI-Namen“ (Vorgabe aus). Ist er an, heißen Teilnehmer-Slots beim Einschalten „‹NDI-Name› (‹Person›)“, z. B. „Zoom 1 (Anna Müller)“ – so sieht man beim Einrichten im Mischer, wer auf welcher Quelle liegt. Der Name bleibt, bis der Slot aus ist, auch wenn Connect die Verbindung zum Meeting neu aufbaut; ein Personenwechsel benennt die Quelle nicht um. Wer den Schalter einschaltet, ordnet die Mischer-Eingänge einmal neu zu.",
+          "Gilt unter Windows (Zoom gibt es nur dort); das Mac-Paket ist inhaltlich unverändert."
+        ]
+      },
+      {
         "version": "0.4.1",
         "date": "2026-11-10",
         "notes": [
