@@ -72,6 +72,8 @@ interface SlotEinstellungen {
   schreibvorgaenge: number;
   vorgaben: ZoomSlotVorgaben;
   sprecher: ZoomSprecherEinstellung;
+  /** Schalter „Person im NDI-Namen“ (#287). */
+  personImNdiNamen: boolean;
   vorschau: boolean;
   ueber5: boolean;
   /** Bild-Versatz (zoom_delay, 6.7): gespeicherter Wert und „nur diese Sitzung“ nach einem Schreibfehler (L14). */
@@ -84,7 +86,7 @@ interface SlotEinstellungen {
   nurSitzung: Set<SlotFeld>;
 }
 /** Die Slot-Felder der Einstellungsdatei mit eigenem Setter (Spec 7.2). */
-type SlotFeld = 'slots' | 'vorgaben' | 'sprecher' | 'vorschau' | 'ueber5';
+type SlotFeld = 'slots' | 'vorgaben' | 'sprecher' | 'personImNdiNamen' | 'vorschau' | 'ueber5';
 interface Probe {
   kern: ZoomKern;
   logs: string[];
@@ -116,6 +118,8 @@ interface BaueOptionen {
   slots?: ZoomSlotEinstellung[];
   vorgaben?: ZoomSlotVorgaben;
   sprecher?: ZoomSprecherEinstellung;
+  /** Schalter „Person im NDI-Namen“ (#287); fehlt = aus. */
+  personImNdiNamen?: boolean;
   vorschau?: boolean;
   ueber5?: boolean;
   /** Was die Setter der Slot-Felder melden; false = Einstellungsdatei nicht schreibbar (nur diese Sitzung, T92). */
@@ -148,6 +152,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
     schreibvorgaenge: 0,
     vorgaben: o.vorgaben ?? { aufloesung: '720p', tonAn: true },
     sprecher: o.sprecher ?? { signal: 'sprecherVideo', haltezeitMs: 1000 },
+    personImNdiNamen: o.personImNdiNamen ?? false,
     vorschau: o.vorschau ?? true,
     ueber5: o.ueber5 ?? false,
     versatzMs: 0,
@@ -239,6 +244,12 @@ function baueKern(o: BaueOptionen = {}): Probe {
         const ok = geschrieben('sprecher');
         if (ok) einst.sprecher = { ...s };
         return ok;
+      },
+      personImNdiNamen: () => einst.personImNdiNamen,
+      setzePersonImNdiNamen: (an) => {
+        // Wie settings.ts: Scheitert das Schreiben, gilt der Wert für diese Sitzung (T92).
+        einst.personImNdiNamen = an;
+        return geschrieben('personImNdiNamen');
       },
       vorschau: () => einst.vorschau,
       setzeVorschau: (an) => {
@@ -626,10 +637,13 @@ console.log('— KF3 (Hülle) · main/zoom.ts gibt dem Kern die Slot-Felder aus 
   const huelle = readFileSync(new URL('../src/main/zoom.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const VERDRAHTUNG = [
     'slots: zoomSlots,', 'setzeSlots: setzeZoomSlots,', 'vorgaben: zoomSlotVorgaben,', 'setzeVorgaben: setzeZoomSlotVorgaben,',
-    'sprecher: zoomSprecher,', 'setzeSprecher: setzeZoomSprecher,', 'vorschau: zoomVorschau,', 'setzeVorschau: setzeZoomVorschau,',
+    'sprecher: zoomSprecher,', 'setzeSprecher: setzeZoomSprecher,',
+    // #287: Schalter „Person im NDI-Namen“; gleicher Typ wie vorschau/ueber5, darum ebenfalls wörtlich.
+    'personImNdiNamen: zoomPersonImNdiNamen,', 'setzePersonImNdiNamen: setzeZoomPersonImNdiNamen,',
+    'vorschau: zoomVorschau,', 'setzeVorschau: setzeZoomVorschau,',
     'ueber5: zoomSlotsUeber5,', 'setzeUeber5: setzeZoomSlotsUeber5,', 'einstellungsLage,',
   ];
-  ck('KF3 (Hülle): die elf Zeilen der Slot-Felder stehen wörtlich und in dieser Folge in erzeugeZoomKern({ einstellungen })',
+  ck('KF3 (Hülle): die dreizehn Zeilen der Slot-Felder stehen wörtlich und in dieser Folge in erzeugeZoomKern({ einstellungen })',
     huelle.includes(VERDRAHTUNG.map((z) => `        ${z}`).join('\n')));
 }
 
@@ -2186,6 +2200,22 @@ console.log('— NB2/NB7 · Slot-Wahrheit: kein Sender, den Connect nicht kennt;
     (await bis(() => sender(p).size === 1 && sender(p).get(1)?.ndi === 'Bühne Anna' && sender(p).get(1)?.target === ANNA && lage(p, 1)?.zustand === 'zeigt', 5000))
     && (await warte(300), zaehle(p, 'slotOff', 1) === 1)
     && p.ereignisse.some((x) => x.ev.ev === 'slot' && (x.ev as unknown as { ndi: string }).ndi === 'Zoom 1'));
+  await p.aufraeumen();
+}
+{
+  // #287 (Review Focus 5): wie (10), aber nur die Person wechselt. Der Name eines Senders ist der seines slotOn; ohne bekannten
+  // Sender gilt das zuletzt gesendete slotOn. Die späte Antwort auf das ältere mit anderem Namen bleibt fremd.
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], personImNdiNamen: true, stell: () => ({ FAKE_SLOT_SPAET: '1:500' }) });
+  await insMeeting(p);
+  await bis(() => zaehle(p, 'slotOn', 1) === 1, 2000);
+  ck('#287 (NB2/NB7 (10) mit Person): das slotOn „Zoom 1 (Anna)“ ist im Flug; „Stopp“, Person Ben und „Start“ → slotOn „Zoom 1 (Ben)“',
+    slotGesendet(p, 1, 1)[0]?.ndi === 'Zoom 1 (Anna)' && ok(p.kern.slotStart(1, false)) && ok(p.kern.slotAendern(1, { person: 'Ben' }))
+    && ok(p.kern.slotStart(1, true)) && slotGesendet(p, 1, 1)[1]?.cmd === 'slotOn' && slotGesendet(p, 1, 1)[1]?.ndi === 'Zoom 1 (Ben)');
+  ck('… die späte Antwort trägt „Zoom 1 (Anna)“ → genau ein slotOff; am Ende läuft genau ein Sender „Zoom 1 (Ben)“ mit Ben',
+    (await bis(() => sender(p).size === 1 && sender(p).get(1)?.ndi === 'Zoom 1 (Ben)' && sender(p).get(1)?.target === BEN && lage(p, 1)?.zustand === 'zeigt', 5000))
+    && (await warte(300), zaehle(p, 'slotOff', 1) === 1)
+    && p.ereignisse.some((x) => x.ev.ev === 'slot' && (x.ev as unknown as { ndi: string }).ndi === 'Zoom 1 (Anna)'));
+  ck('… keine Logzeile nennt Anna oder Ben', !p.logs.some((z) => /(?<![\p{L}\p{N}])(?:Anna|Ben)(?![\p{L}\p{N}])/u.test(z)));
   await p.aufraeumen();
 }
 console.log('— NB8 · Gegenfall ohne Verzögerung: ein normaler Start bleibt bei genau einem slotOn je Slot');

@@ -112,6 +112,7 @@ const api: JmConnectApi = {
   zoomSlotVorgaben: (p) => ipcRenderer.invoke(IPC.zoomSlotVorgaben, p),
   zoomSprecher: (p) => ipcRenderer.invoke(IPC.zoomSprecher, p),
   zoomVorschauSchalten: (p) => ipcRenderer.invoke(IPC.zoomVorschauSchalten, p),
+  zoomPersonImNdiNamen: (p) => ipcRenderer.invoke(IPC.zoomPersonImNdiNamen, p),
   zoomMesswerteText: () => ipcRenderer.invoke(IPC.zoomMesswerteText, {}),
   zoomSlotBehalten: (p) => ipcRenderer.invoke(IPC.zoomSlotBehalten, p),
   onZoomVorschauBild: (cb) => {

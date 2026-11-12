@@ -188,6 +188,8 @@ export interface ZoomAbbild {
   /** Vorgaben für neue Slots und Sprecher-Einstellungen (Spec 7.6). */
   vorgaben: ZoomSlotVorgaben;
   sprecher: ZoomSprecherEinstellung;
+  /** Schalter „Person im NDI-Namen“ (#287): Teilnehmer-Slots starten als „NDI-Name (Person)“; Vorgabe aus. */
+  personImNdiNamen: boolean;
   /** Schalter „Vorschau“ (7.7); `vorschauVerfuegbar` false nach previewUnavailable (T57). */
   vorschauAn: boolean;
   vorschauVerfuegbar: boolean;
@@ -403,6 +405,8 @@ export interface JmConnectApi {
   zoomSlotVorgaben: (p: ZoomSlotVorgaben) => Promise<ZoomErgebnis>;
   zoomSprecher: (p: ZoomSprecherEinstellung) => Promise<ZoomErgebnis>;
   zoomVorschauSchalten: (p: { an: boolean }) => Promise<ZoomErgebnis>;
+  /** Schalter „Person im NDI-Namen“ (#287); gilt ab dem nächsten Start eines Teilnehmer-Slots. */
+  zoomPersonImNdiNamen: (p: { an: boolean }) => Promise<ZoomErgebnis>;
   /** Messwerte ohne Teilnehmer- und NDI-Namen für die Zwischenablage (7.8). */
   zoomMesswerteText: () => Promise<string>;
   zoomSlotBehalten: (p: { nr: number }) => Promise<ZoomErgebnis>;

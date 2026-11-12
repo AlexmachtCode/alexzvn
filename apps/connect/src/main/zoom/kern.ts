@@ -199,6 +199,9 @@ export interface ZoomKernAbhaengigkeiten {
     setzeVorgaben(v: ZoomSlotVorgaben): boolean;
     sprecher(): ZoomSprecherEinstellung;
     setzeSprecher(s: ZoomSprecherEinstellung): boolean;
+    /** Schalter „Person im NDI-Namen“ (#287): Teilnehmer-Slots starten als „NDI-Name (Person)“; Vorgabe aus. */
+    personImNdiNamen(): boolean;
+    setzePersonImNdiNamen(an: boolean): boolean;
     vorschau(): boolean;
     setzeVorschau(an: boolean): boolean;
     ueber5(): boolean;
@@ -289,6 +292,11 @@ export interface ZoomKern {
   vorgabenSetzen(v: ZoomSlotVorgaben): ZoomErgebnis;
   /** Sprecher-Einstellungen (7.6): Signal und Haltezeit (T74 bei ungültiger Haltezeit); gespeichert, `speakerConfig` an die Bridge. */
   sprecherSetzen(s: ZoomSprecherEinstellung): ZoomErgebnis;
+  /**
+   * Schalter „Person im NDI-Namen“ (#287): gespeichert (Schreibfehler → T92). Kein Befehl an die Bridge: Laufende Sender behalten
+   * ihren Namen, erst der nächste Start eines Teilnehmer-Slots nimmt den neuen Stand.
+   */
+  personImNdiNamenSetzen(an: boolean): ZoomErgebnis;
   /** Schalter „Vorschau“ (7.7): gespeichert; `previewMode {on: Schalter und Fenster sichtbar}` an die Bridge. */
   vorschauSetzen(an: boolean): ZoomErgebnis;
   /** Hauptfenster sichtbar und nicht minimiert (hide, show, minimize, restore; 7.7); ändert `previewMode`. */
@@ -348,7 +356,11 @@ interface SlotIntern {
   voruebergehend: boolean;
   anNurMeeting: boolean;
   s: SlotSitzung;
-  bridge: { gen: number; state: SlotState; mode: SlotMode; target: number; share: number; reason: SlotReason; sent: SlotSent } | null;
+  /**
+   * `ndi` (#287): der Name, mit dem der Sender startete (das `ndi` seines slotOn). Jede weitere Meldung dieses Senders muss ihn
+   * tragen (I-3); Personenwechsel und Schalter „Person im NDI-Namen“ ändern ihn nie.
+   */
+  bridge: { gen: number; state: SlotState; mode: SlotMode; target: number; share: number; reason: SlotReason; sent: SlotSent; ndi: string } | null;
   /** `slotOff` gesendet, das `slot off` der Bridge steht aus (SZ9). */
   slotOffGesendet: boolean;
   /** Antwortfrist des gesendeten `slotOn` (10 s, 7.3 Nr. 2). */
@@ -376,9 +388,10 @@ interface SlotIntern {
   /**
    * Nachtrag B (I-1, I-2): die Einstellungen, aus denen jedes gesendete und noch unbeantwortete `slotOn` gebaut wurde, älteste
    * zuerst (die Bridge beantwortet sie der Reihe nach: mit einem Sender oder einem Fehler mit dieser Nummer). Solange eins offen
-   * ist, kann die Bridge noch einen Sender bauen; „Stopp“ und das Ende der Antwortfrist ändern daran nichts.
+   * ist, kann die Bridge noch einen Sender bauen; „Stopp“ und das Ende der Antwortfrist ändern daran nichts. `ndi` (#287): der
+   * Name, mit dem das slotOn hinausging (mit „Person im NDI-Namen“ nicht der NDI-Name des Slots).
    */
-  slotOnOffen: ZoomSlotEinstellung[];
+  slotOnOffen: Array<{ e: ZoomSlotEinstellung; ndi: string }>;
   /** I-1: Die Einstellung, die die Bridge für den laufenden Sender zuletzt bekam (`slotOn` oder `slotSet`); null ohne Sender. */
   gesendet: ZoomSlotEinstellung | null;
 }
@@ -823,6 +836,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       slots: slotRohLagen().map((r) => slotLage(r, z)),
       vorgaben: d.einstellungen.vorgaben(),
       sprecher: d.einstellungen.sprecher(),
+      personImNdiNamen: d.einstellungen.personImNdiNamen(),
       vorschauAn: d.einstellungen.vorschau(),
       vorschauVerfuegbar,
       vorschauDetail,
@@ -2199,6 +2213,19 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     sprecherLoggen(e);
   }
 
+  /**
+   * I-3 (Nachtrag B) mit #287: Der NDI-Name, den ein Sender dieses Slots tragen muss, damit er zum Slot gehört. Ein bekannter
+   * Sender behält den Namen, mit dem er startete (Personenwechsel und Schalter benennen nie um). Ohne Sender gilt der Name des
+   * zuletzt gesendeten, noch offenen slotOn, solange der Slot seither nicht umbenannt wurde: Eine späte Antwort auf ein älteres
+   * slotOn mit anderem Namen bleibt fremd. Sonst der NDI-Name des Slots. Nie aus den Einstellungen von jetzt neu gebildet.
+   * Ohne „Person im NDI-Namen“ ist das immer `x.e.ndiName` (ein Sender ist nur bei ausgeschaltetem Slot ohne Sender umbenennbar).
+   */
+  function senderNameFuer(x: SlotIntern): string {
+    if (x.bridge !== null) return x.bridge.ndi;
+    const neuestes = x.slotOnOffen.at(-1);
+    return neuestes !== undefined && neuestes.e.ndiName === x.e.ndiName ? neuestes.ndi : x.e.ndiName;
+  }
+
   function slotEreignis(e: SlotEreignis): void {
     const x = slots.get(e.slot);
     // I-2, I-3 (Nachtrag B): Für eine Nummer ohne Connect-Slot oder mit fremdem Sender gibt es keine Lage, nur slotOff bzw. das
@@ -2225,7 +2252,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       return;
     }
     const vorher = x.bridge;
-    if (e.ndi !== x.e.ndiName) {
+    if (e.ndi !== senderNameFuer(x)) {
       // I-3 (Nachtrag B): Ein Sender mit anderem NDI-Namen gehört nicht zu diesem Slot (etwa die späte Antwort auf ein slotOn mit
       // dem alten Namen). Er wird nicht übernommen; ohne bekannten Sender ist er die Antwort auf das älteste offene slotOn.
       if (vorher === null) x.slotOnOffen.shift();
@@ -2235,13 +2262,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       return;
     }
     // I-1: Die erste Antwort übernimmt die Einstellung des ältesten offenen slotOn; danach zieht nachziehen() nach.
-    if (vorher === null) x.gesendet = x.slotOnOffen.shift() ?? { ...x.e };
+    if (vorher === null) x.gesendet = x.slotOnOffen.shift()?.e ?? { ...x.e };
     // NB13: Kommt der Sender nach der Frist doch noch, gilt „keine Antwort“ nicht mehr (sonst startete er nach seinem Ende nie neu).
     if (x.s.fehlerstand === 'keine_antwort') x.s = { ...x.s, fehlerstand: null };
     // 10.7 (B55): neues Ziel, neue Freigabe oder neuer Modus → Messzeile neu; ohne Bild gilt die letzte Größe (T51c).
     if (vorher !== null && (vorher.target !== e.target || vorher.share !== e.share || vorher.mode !== e.mode)) x.mess = null;
     else if (e.state !== 'live' && x.mess?.geliefert) x.mess = { geliefert: null, zuletzt: { b: x.mess.geliefert.b, h: x.mess.geliefert.h } };
-    x.bridge = { gen: aktiveGen, state: e.state, mode: e.mode, target: e.target, share: e.share, reason: e.reason, sent: e.sent };
+    // #287: e.ndi ist nach der Prüfung oben der Name, mit dem der Sender startete; er bleibt am Sender.
+    x.bridge = { gen: aktiveGen, state: e.state, mode: e.mode, target: e.target, share: e.share, reason: e.reason, sent: e.sent, ndi: e.ndi };
     if (e.mode === 'speaker' && e.target !== 0 && e.target !== letzterSprecher) {
       letzterSprecher = e.target;
       sprecherWechsel = [...sprecherWechsel, Date.now()].slice(-SPRECHER_SIGNALE_MAX);
@@ -2378,7 +2406,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function startSenden(x: SlotIntern, befehl: Extract<Command, { cmd: 'slotOn' }>): void {
     if (!sende(befehl)) return;
     // Nachtrag B (I-1, I-2): Der Abgleich hat den Befehl eben aus x.e gebaut; bis zur Antwort kann die Bridge einen Sender bauen.
-    x.slotOnOffen.push({ ...x.e });
+    // #287: dazu der gesendete Name (mit „Person im NDI-Namen“ „NDI-Name (Person)“); nur hier, nie im Log.
+    x.slotOnOffen.push({ e: { ...x.e }, ndi: befehl.ndi });
     d.log(`[zoom] Slot ${x.e.nr} startet (${x.e.modus})`);
     const gen = aktiveGen;
     x.frist = zeitgeber(f.aboAntwortMs, () => {
@@ -2406,7 +2435,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       meeting: zustand,
       erlaubnis: zustand === 'im_meeting' ? erlaubnis : null,
       ueber5: d.einstellungen.ueber5(),
-      personImNdiNamen: false, // Task 2 verdrahtet den Schalter
+      // #287: gilt nur für Starts; laufende Sender behalten ihren Namen (senderNameFuer).
+      personImNdiNamen: d.einstellungen.personImNdiNamen(),
       teilnehmer: aktiveSitzung() !== null ? abgleichTeilnehmer() : [],
       slots: [...slots.values()].map((x) => ({
         e: x.e,
@@ -2604,6 +2634,18 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // 7.6: jede Änderung geht sofort an die Bridge (ohne Bridge kommt sie mit der nächsten Startfolge).
     sende({ cmd: 'speakerConfig', signal: SIGNAL_ZU_BRIDGE[s.signal], holdMs: s.haltezeitMs });
     d.log(`[zoom] Sprecher: ${s.signal}, Haltezeit ${s.haltezeitMs} ms`);
+    abbildGeaendert();
+    return { ok: true };
+  }
+
+  /**
+   * #287: Schalter „Person im NDI-Namen“ speichern (Schreibfehler → T92 wie bei den übrigen Slot-Feldern). Bewusst kein Befehl
+   * an die Bridge und kein Abgleich: Ein laufender Sender wird nie umbenannt, gestoppt oder neu gestartet; erst der nächste Start
+   * eines Teilnehmer-Slots bildet seinen Namen nach dem neuen Stand.
+   */
+  function personImNdiNamenSetzen(an: boolean): ZoomErgebnis {
+    schreibErgebnis(d.einstellungen.setzePersonImNdiNamen(an));
+    d.log(`[zoom] Person im NDI-Namen ${an ? 'an' : 'aus'}`);
     abbildGeaendert();
     return { ok: true };
   }
@@ -3047,6 +3089,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     slotBehalten,
     vorgabenSetzen,
     sprecherSetzen,
+    personImNdiNamenSetzen,
     vorschauSetzen,
     fensterSichtbar,
     messwerteText,

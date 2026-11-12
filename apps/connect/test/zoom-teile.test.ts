@@ -354,6 +354,7 @@ console.log('— SDK-Schlüssel von Hand: Nutzlast-Prüfung (IPC, Spec SDK nachl
     ['vorgaben', { aufloesung: '360p', tonAn: false }],
     ['sprecher', { signal: 'tonAktiv', haltezeitMs: 5100 }],
     ['vorschau', { an: false }],
+    ['personImNdiNamen', { an: true }],
     ['messwerte', {}],
     ['behalten', { nr: 5 }],
   ];
@@ -375,11 +376,14 @@ console.log('— SDK-Schlüssel von Hand: Nutzlast-Prüfung (IPC, Spec SDK nachl
     ['sprecher', { signal: 'laut', haltezeitMs: 1000 }], ['sprecher', { signal: 'tonAktiv', haltezeitMs: '1000' }],
     ['sprecher', { signal: 'tonAktiv', haltezeitMs: Number.NaN }],
     ['vorschau', { an: 1 }], ['messwerte', { x: 1 }], ['behalten', { nr: null }],
+    ['personImNdiNamen', { an: 'ja' }], ['personImNdiNamen', {}], ['personImNdiNamen', { an: true, person: 'Anna' }],
   ];
   for (const [kanal, roh] of schlecht) ck(`B3 KF6 ${kanal} ungültig: ${j(roh)}`, j(pruefeSlotEingabe(kanal, roh)) === j({ ok: false }));
-  const kanaele: SlotKanal[] = ['anlegen', 'aendern', 'loeschen', 'start', 'ausPerson', 'person', 'vorgaben', 'sprecher', 'vorschau', 'messwerte', 'behalten'];
-  ck('B3 KF6: kein Objekt ist für keinen der elf Kanäle gültig',
-    kanaele.length === 11 && kanaele.every((k) => [undefined, null, 'x', 3, [], [{}]].every((roh) => !pruefeSlotEingabe(k, roh).ok)));
+  const kanaele: SlotKanal[] = [
+    'anlegen', 'aendern', 'loeschen', 'start', 'ausPerson', 'person', 'vorgaben', 'sprecher', 'vorschau', 'personImNdiNamen', 'messwerte', 'behalten',
+  ];
+  ck('B3 KF6: kein Objekt ist für keinen der zwölf Kanäle gültig',
+    kanaele.length === 12 && kanaele.every((k) => [undefined, null, 'x', 3, [], [{}]].every((roh) => !pruefeSlotEingabe(k, roh).ok)));
 }
 
 // ── Plan B, Task B5: Fernsteuer-Deutung der Slot-Verben (Spec 8.3, E25; erweitert den 4b-Block deuteZoomBefehl) ──
@@ -469,6 +473,7 @@ console.log('— B20: IPC der Zoom-Slots, Preload als Ganzes, Hülle nur über p
     ['zoomSlotVorgaben', 'jmc:zoom-slot-vorgaben', 'vorgaben', 'k.vorgabenSetzen(e.wert)'],
     ['zoomSprecher', 'jmc:zoom-sprecher', 'sprecher', 'k.sprecherSetzen(e.wert)'],
     ['zoomVorschauSchalten', 'jmc:zoom-vorschau-schalten', 'vorschau', 'k.vorschauSetzen(e.wert.an)'],
+    ['zoomPersonImNdiNamen', 'jmc:zoom-person-im-ndi-namen', 'personImNdiNamen', 'k.personImNdiNamenSetzen(e.wert.an)'],
     ['zoomMesswerteText', 'jmc:zoom-messwerte-text', 'messwerte', 'k.messwerteText()'],
     ['zoomSlotBehalten', 'jmc:zoom-slot-behalten', 'behalten', 'k.slotBehalten(e.wert.nr)'],
   ];
@@ -491,8 +496,8 @@ console.log('— B20: IPC der Zoom-Slots, Preload als Ganzes, Hülle nur über p
         && h.includes(`    return e.ok ? ${aufruf} : ${name === 'zoomMesswerteText' ? "''" : 'NICHTS'};\n`)
         && !h.includes('feld(p'));
   }
-  ck('B20 7.9: genau zwölf Slot-Kanäle in shared/ipc.ts (elf invoke, ein Push)',
-    (ipc.match(/^ {2}zoom(Slot\w+|Sprecher|VorschauSchalten|MesswerteText|VorschauBild): 'jmc:/gm) ?? []).length === 12
+  ck('B20 7.9: genau dreizehn Slot-Kanäle in shared/ipc.ts (zwölf invoke, ein Push; #287 „Person im NDI-Namen“ eingerechnet)',
+    (ipc.match(/^ {2}zoom(Slot\w+|Sprecher|VorschauSchalten|PersonImNdiNamen|MesswerteText|VorschauBild): 'jmc:/gm) ?? []).length === 13
       && ipc.includes(`  zoomVorschauBild: 'jmc:zoom-vorschau-bild',`));
   ck('B20 7.7: Preload abonniert den Push zoomVorschauBild und gibt ein Unsubscribe zurück',
     preload.includes('    ipcRenderer.on(IPC.zoomVorschauBild, listener);\n    return () => ipcRenderer.off(IPC.zoomVorschauBild, listener);'));

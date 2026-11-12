@@ -20,6 +20,7 @@ import {
   proxyUrl,
   setzeZoomAnzeigename,
   setzeZoomLaufzeit,
+  setzeZoomPersonImNdiNamen,
   setzeZoomSlots,
   setzeZoomSlotsUeber5,
   setzeZoomSlotVorgaben,
@@ -30,6 +31,7 @@ import {
   zoomLetztesMeeting,
   zoomMeetingMerken,
   zoomMeetingVergessen,
+  zoomPersonImNdiNamen,
   zoomSlots,
   zoomSlotsUeber5,
   zoomSlotVorgaben,
@@ -109,6 +111,8 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
         setzeVorgaben: setzeZoomSlotVorgaben,
         sprecher: zoomSprecher,
         setzeSprecher: setzeZoomSprecher,
+        personImNdiNamen: zoomPersonImNdiNamen,
+        setzePersonImNdiNamen: setzeZoomPersonImNdiNamen,
         vorschau: zoomVorschau,
         setzeVorschau: setzeZoomVorschau,
         ueber5: zoomSlotsUeber5,
@@ -247,6 +251,10 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
   ipcMain.handle(IPC.zoomVorschauSchalten, (_e, p: unknown) => {
     const e = pruefeSlotEingabe('vorschau', p);
     return e.ok ? k.vorschauSetzen(e.wert.an) : NICHTS;
+  });
+  ipcMain.handle(IPC.zoomPersonImNdiNamen, (_e, p: unknown) => {
+    const e = pruefeSlotEingabe('personImNdiNamen', p);
+    return e.ok ? k.personImNdiNamenSetzen(e.wert.an) : NICHTS;
   });
   ipcMain.handle(IPC.zoomMesswerteText, (_e, p: unknown) => {
     const e = pruefeSlotEingabe('messwerte', p);

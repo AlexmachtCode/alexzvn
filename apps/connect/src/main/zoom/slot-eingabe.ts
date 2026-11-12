@@ -13,7 +13,7 @@ const KENNUNG_MAX = 0xffffffff;
 
 export type SlotKanal =
   | 'anlegen' | 'aendern' | 'loeschen' | 'start' | 'ausPerson' | 'person' | 'vorgaben' | 'sprecher' | 'vorschau' | 'messwerte'
-  | 'behalten';
+  | 'behalten' | 'personImNdiNamen';
 /** Teilmenge der Felder von ZoomSlotEinstellung ohne `nr` und `an` (Kanal `zoomSlotAendern`, 7.9). */
 export type SlotAenderung = Partial<Omit<ZoomSlotEinstellung, 'nr' | 'an'>>;
 /** Geprüfte Nutzlast je Kanal (Spec 7.9). */
@@ -29,6 +29,8 @@ export interface SlotEingabeWert {
   vorschau: { an: boolean };
   messwerte: Record<string, never>;
   behalten: { nr: number };
+  /** Schalter „Person im NDI-Namen“ (#287). */
+  personImNdiNamen: { an: boolean };
 }
 
 const istObjekt = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -85,6 +87,7 @@ function pruefe(kanal: SlotKanal, roh: unknown): SlotEingabeWert[SlotKanal] | nu
         ? { signal, haltezeitMs }
         : null;
     case 'vorschau':
+    case 'personImNdiNamen':
       return nurFelder(roh, ['an']) && istBool(an) ? { an } : null;
   }
 }

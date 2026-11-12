@@ -45,7 +45,7 @@ function abbild(a: Omit<Partial<ZoomAbbild>, 'kurz'> & { kurz?: Partial<ZoomKurz
     anzeigename: 'Regie Süd',
     versatz: { gewuenschtMs: 0, bestaetigtMs: null, nurSitzung: false },
     teilnehmer: [], slots: [], vorgaben: { aufloesung: '720p', tonAn: true }, sprecher: { signal: 'sprecherVideo', haltezeitMs: 1000 },
-    vorschauAn: true, vorschauVerfuegbar: true, vorschauDetail: null, ueber5: false, messwerte: { bridge: null, slots: [], freigaben: null, sprecherSignale: [] },
+    personImNdiNamen: false, vorschauAn: true, vorschauVerfuegbar: true, vorschauDetail: null, ueber5: false, messwerte: { bridge: null, slots: [], freigaben: null, sprecherSignale: [] },
     einstellungen: { nurSitzung: false, gesichert: null }, abriss: null, meldung: null, hinweise: [],
     erneutMoeglich: false, pruefungLaeuft: false, abbauLaeuft: false,
     ...rest,

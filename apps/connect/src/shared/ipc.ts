@@ -102,6 +102,8 @@ export const IPC = {
   zoomSprecher: 'jmc:zoom-sprecher',
   /** invoke: { an } → ZoomErgebnis (Schalter „Vorschau“). */
   zoomVorschauSchalten: 'jmc:zoom-vorschau-schalten',
+  /** invoke: { an } → ZoomErgebnis (Schalter „Person im NDI-Namen“, #287). */
+  zoomPersonImNdiNamen: 'jmc:zoom-person-im-ndi-namen',
   /** invoke: {} → string (Messwerte ohne Teilnehmer- und NDI-Namen, 7.8). */
   zoomMesswerteText: 'jmc:zoom-messwerte-text',
   /** invoke: { nr } → ZoomErgebnis („Behalten“, 7.2). */

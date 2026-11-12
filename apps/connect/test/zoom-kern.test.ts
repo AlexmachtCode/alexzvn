@@ -90,7 +90,11 @@ interface Probe {
   /** Einstellungs-Attrappe; `slots` = gespeicherte Zoom-Slots (Plan B, Task B12; die Slot-Fälle stehen in zoom-slots.test.ts). */
   einst: { anzeigename: string; versatzMs: number; laufzeit: { dir: string; fassung: string; eingerichtetAm: string } | null; slots: ZoomSlotEinstellung[];
     /** Ablage des letzten Meetings (#290) und die Nummern/Kenncodes, mit denen der Kern meetingMerken() rief. */
-    gemerkt: { nummer: string; kenncode: string | null } | null; merkAufrufe: Array<{ nummer: string; kenncode: string }>; vergessenAufrufe: number };
+    gemerkt: { nummer: string; kenncode: string | null } | null; merkAufrufe: Array<{ nummer: string; kenncode: string }>; vergessenAufrufe: number;
+    /** Schalter „Person im NDI-Namen“ (#287). */
+    personImNdiNamen: boolean };
+  /** Befehle, die der Kern an die Bridge gab (nach sendeFilter), im Testprozess mitgeschrieben: sofort, ohne die Datei der Attrappe. */
+  gesendet: Array<Record<string, unknown>>;
   zugangGespeichert: ZugangDaten[];
   /** Werte, mit denen der Kern sdkSchluessel.speichern() aufrief (nur im Test sichtbar). */
   sdkSchluesselGespeichert: string[];
@@ -150,6 +154,10 @@ interface BaueOptionen {
   merkenWirft?: boolean;
   /** Abschluss-Korrektur 5: Was meetingVergessen() meldet; false = steht noch in der Einstellungsdatei. Vorgabe true. */
   vergessenLiefert?: boolean;
+  /** Schalter „Person im NDI-Namen“ beim Start des Kerns (#287); Vorgabe aus. */
+  personImNdiNamen?: boolean;
+  /** Was setzePersonImNdiNamen() meldet; false = Einstellungsdatei nicht schreibbar (nur diese Sitzung, T92). Vorgabe true. */
+  personImNdiNamenSpeichernLiefert?: boolean;
 }
 
 function baueKern(o: BaueOptionen = {}): Probe {
@@ -168,8 +176,10 @@ function baueKern(o: BaueOptionen = {}): Probe {
   const sdkSchluesselGespeichert: string[] = [];
   let sdkSchluesselGeloescht = 0;
   let versatzNurSitzung = false;
+  let personNurSitzung = false;
+  const gesendet: Probe['gesendet'] = [];
   const einst: Probe['einst'] = { anzeigename: o.anzeigename ?? ANZEIGENAME_VORGABE, versatzMs: o.versatzMs ?? 0, laufzeit: null, slots: [],
-    gemerkt: o.gemerkt ? { ...o.gemerkt } : null, merkAufrufe: [], vergessenAufrufe: 0 };
+    gemerkt: o.gemerkt ? { ...o.gemerkt } : null, merkAufrufe: [], vergessenAufrufe: 0, personImNdiNamen: o.personImNdiNamen ?? false };
   let zugang: ZugangStand = {
     daten: { clientId: 'test-id-1234', clientSecret: 'test-secret' },
     herkunft: 'stored',
@@ -199,6 +209,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
       start: () => (o.startFehler ? Promise.reject(o.startFehler()) : b.start()),
       send: (cmd) => {
         if (o.sendeFilter && !o.sendeFilter(cmd)) return;
+        gesendet.push({ ...cmd } as Record<string, unknown>);
         b.send(cmd);
       },
       stop: () => b.stop(),
@@ -278,11 +289,18 @@ function baueKern(o: BaueOptionen = {}): Probe {
       setzeVorgaben: () => true,
       sprecher: () => ({ signal: 'sprecherVideo', haltezeitMs: 1000 }),
       setzeSprecher: () => true,
+      // #287: Schalter „Person im NDI-Namen“; scheitert das Schreiben, gilt er nur für diese Sitzung (wie settings.ts, T92).
+      personImNdiNamen: () => einst.personImNdiNamen,
+      setzePersonImNdiNamen: (an) => {
+        einst.personImNdiNamen = an;
+        personNurSitzung = !(o.personImNdiNamenSpeichernLiefert ?? true);
+        return !personNurSitzung;
+      },
       vorschau: () => true,
       setzeVorschau: () => true,
       ueber5: () => false,
       setzeUeber5: () => true,
-      einstellungsLage: () => ({ gesichert: null, verworfen: 0 }),
+      einstellungsLage: () => ({ gesichert: null, verworfen: 0, nurSitzung: personNurSitzung }),
     },
     sdkSchluessel: {
       lesen: () => ({ ...sdkSchluessel }),
@@ -317,6 +335,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
     kurze,
     ereignisse,
     einst,
+    gesendet,
     zugangGespeichert,
     sdkSchluesselGespeichert,
     sdkSchluesselGeloescht: () => sdkSchluesselGeloescht,
@@ -2611,6 +2630,78 @@ console.log('— Fix-Welle: Ausnahme in der Startfolge eines Wiederbeitritts-Ver
 
 // ── Plan B, Task B5 bis B12: Die Slot-Verben beantwortete der Kern mit F7. Seit Task B13 führt er sie aus (PK13 in
 // zoom-slots.test.ts); ein unbekanntes Verb bleibt F7 (ebenda). ──
+
+// ── #287 „Person im NDI-Namen“ (Plan 2026-11-12, Task 2): Der Kern merkt je Sender den Namen seines slotOn ──
+console.log('— #287 · Person im NDI-Namen: gesendeter Name je Sender, Schalter ohne Neustart, kein Name im Log (K1–K5)');
+/** slotOn-Befehle an die Bridge in Reihenfolge (Mitschrieb im Testprozess). */
+const slotOns = (p: Probe): Array<Record<string, unknown>> => p.gesendet.filter((c) => c.cmd === 'slotOn');
+const zaehleCmd = (p: Probe, cmd: string): number => p.gesendet.filter((c) => c.cmd === cmd).length;
+/** Die Bridge meldete für Slot `nr` einen Sender unter diesem NDI-Namen (mit `ziel`: und mit diesem Ziel). */
+function meldete(p: Probe, nr: number, ndi: string, ziel?: number): boolean {
+  return p.ereignisse.some(({ ev }) => {
+    const e = ev as unknown as { ev: string; slot: number; state: string; ndi: string; target: number };
+    return e.ev === 'slot' && e.slot === nr && e.state !== 'off' && e.ndi === ndi && (ziel === undefined || e.target === ziel);
+  });
+}
+const slotZustand = (p: Probe, nr: number): string | undefined => p.kern.abbild().slots.find((s) => s.einstellung.nr === nr)?.zustand;
+/** Ein Personenname als ganzes Wort (die Attrappe hat Anna und Ben im Meeting). */
+const PERSON_IM_TEXT = /(?<![\p{L}\p{N}])(?:Anna|Ben)(?![\p{L}\p{N}])/u;
+{
+  const p = baueKern({ personImNdiNamen: true });
+  ck('#287 K5: abbild().personImNdiNamen folgt der Einstellung (an)', p.kern.abbild().personImNdiNamen === true);
+  await insMeeting(p);
+  const nr = p.kern.slotAnlegen().nr ?? 0;
+  ck('#287 K1: Schalter an, Teilnehmer-Slot „Zoom 1“ mit Person Anna eingeschaltet', nr === 1 && ok(p.kern.slotAendern(nr, { person: 'Anna' }))
+    && ok(p.kern.slotStart(nr, true)));
+  ck('… das slotOn trägt „Zoom 1 (Anna)“ und zielt auf Anna', slotOns(p).length === 1 && slotOns(p)[0]?.ndi === 'Zoom 1 (Anna)' && slotOns(p)[0]?.id === ANNA);
+  ck('… die Bridge meldet den Sender unter diesem Namen, der Slot übernimmt ihn und zeigt Anna',
+    await bis(() => meldete(p, nr, 'Zoom 1 (Anna)') && slotZustand(p, nr) === 'zeigt', 4000));
+  ck('… kein slotOff, kein fremder Sender', (await warte(300), zaehleCmd(p, 'slotOff') === 0) && slotZustand(p, nr) === 'zeigt'
+    && !p.logs.some((z) => z.includes('fremder Sender')));
+
+  ck('#287 K2: Person per Slot-Änderung auf Ben, während der Slot läuft', ok(p.kern.slotAendern(nr, { person: 'Ben' })));
+  ck('… die Bridge zeigt Ben weiter unter „Zoom 1 (Anna)“, der Slot behält den Sender (Ziel Ben)',
+    await bis(() => meldete(p, nr, 'Zoom 1 (Anna)', BEN) && p.kern.kurz().slotKurz.find((s) => s.nr === nr)?.ziel === 'Ben'
+      && slotZustand(p, nr) === 'zeigt', 4000));
+  ck('… kein slotOff, kein neues slotOn, nur ein slotSet mit Bens Kennung', (await warte(300), zaehleCmd(p, 'slotOff') === 0) && slotOns(p).length === 1
+    && p.gesendet.some((c) => c.cmd === 'slotSet' && c.id === BEN) && !p.logs.some((z) => z.includes('fremder Sender')));
+
+  const vorher = p.gesendet.length;
+  ck('#287 K3: Schalter aus, während der Slot läuft → ok, gespeichert, Abbild folgt (K5)', ok(p.kern.personImNdiNamenSetzen(false))
+    && p.einst.personImNdiNamen === false && p.kern.abbild().personImNdiNamen === false);
+  ck('… kein Befehl an die Bridge, der Sender läuft weiter', (await warte(300), p.gesendet.length === vorher) && slotZustand(p, nr) === 'zeigt');
+  ck('… „Stopp“: genau ein slotOff, der Sender ist weg', ok(p.kern.slotStart(nr, false)) && (await bis(() => slotZustand(p, nr) === 'aus', 3000))
+    && zaehleCmd(p, 'slotOff') === 1);
+  ck('… „Start“: das neue slotOn trägt „Zoom 1“ (der Schalter gilt ab dem nächsten Start), der Slot zeigt Ben', ok(p.kern.slotStart(nr, true))
+    && slotOns(p).length === 2 && slotOns(p)[1]?.ndi === 'Zoom 1' && slotOns(p)[1]?.id === BEN
+    && (await bis(() => meldete(p, nr, 'Zoom 1') && slotZustand(p, nr) === 'zeigt', 4000)));
+  ck('… Schalter wieder an, „Stopp“ und „Start“ → „Zoom 1 (Ben)“ (die Person von jetzt), kein fremder Sender',
+    ok(p.kern.personImNdiNamenSetzen(true)) && ok(p.kern.slotStart(nr, false)) && (await bis(() => slotZustand(p, nr) === 'aus', 3000))
+    && ok(p.kern.slotStart(nr, true)) && slotOns(p)[2]?.ndi === 'Zoom 1 (Ben)'
+    && (await bis(() => meldete(p, nr, 'Zoom 1 (Ben)') && slotZustand(p, nr) === 'zeigt', 4000))
+    && (await warte(300), zaehleCmd(p, 'slotOff') === 2) && !p.logs.some((z) => z.includes('fremder Sender')));
+  ck('#287 K5: keine Logzeile aus K1–K3 nennt Anna oder Ben', p.logs.length > 0 && !p.logs.some((z) => PERSON_IM_TEXT.test(z)));
+  ck('… die Echo-Zeile der Attrappe zum slotOn steht nur maskiert im Log (die Prüfung oben greift)',
+    p.logs.some((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"slotOn"') && z.includes('"ndi":"Zoom 1 (‹Name›)"')));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  ck('#287 K4: Schalter aus (Vorgabe) → abbild().personImNdiNamen false', p.kern.abbild().personImNdiNamen === false);
+  await insMeeting(p);
+  const nr = p.kern.slotAnlegen().nr ?? 0;
+  ck('… Teilnehmer-Slot mit Anna → das slotOn trägt den NDI-Namen des Slots wie bisher', ok(p.kern.slotAendern(nr, { person: 'Anna' }))
+    && ok(p.kern.slotStart(nr, true)) && slotOns(p)[0]?.ndi === 'Zoom 1');
+  ck('… der Slot zeigt Anna, kein slotOff', (await bis(() => slotZustand(p, nr) === 'zeigt', 4000)) && (await warte(300), zaehleCmd(p, 'slotOff') === 0));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ personImNdiNamenSpeichernLiefert: false });
+  ck('#287 K5 (Schreibfehler): Schalter an → ok, gilt für diese Sitzung (T92 und die Logzeile), das Abbild zeigt an',
+    ok(p.kern.personImNdiNamenSetzen(true)) && p.kern.abbild().personImNdiNamen === true && p.kern.abbild().einstellungen.nurSitzung === true
+    && p.logs.includes('[zoom] Slots nur für diese Sitzung gemerkt (Einstellungsdatei nicht schreibbar)'));
+  await p.aufraeumen();
+}
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
