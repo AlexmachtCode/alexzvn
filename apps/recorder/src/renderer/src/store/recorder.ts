@@ -8,7 +8,7 @@ import type {
   RecShowSettings,
 } from '@shared/types';
 import { findeEingang } from '../../../shared/einstellungen';
-import { gleicheWerte, PRESET_NAME_MAX, presetWerte } from '../../../shared/presets';
+import { gleicheDefinierteWerte, istNetzwerkPfad, PRESET_NAME_MAX, presetWerte, saeubereAnzeige } from '../../../shared/presets';
 
 const IDLE: RecorderState = {
   status: 'idle',
@@ -111,6 +111,10 @@ let vorbehalt: { eingang: GemerkterEingang; channels?: number; sampleRate?: numb
 let anwendenKette: Promise<void> | null = null;
 let anwendenNr = 0;
 
+/** Begrenzungen für Kanäle und Samplerate — Setter und Show-Vorgaben benutzen dieselben. */
+const kanaele = (n: number): number => Math.max(1, Math.floor(n) || 1);
+const rate = (n: number): number => Math.max(8000, Math.floor(n) || 48000);
+
 function eingangsText(e: GemerkterEingang): string {
   return `„${e.name}“ (${e.hostApiName})`;
 }
@@ -160,6 +164,26 @@ export const useRec = create<RecStore>((set, get) => {
       if (w.channels) get().setChannels(d ? Math.min(w.channels, d.maxInputChannels) : w.channels);
       if (w.sampleRate) get().setSampleRate(w.sampleRate);
     }
+    // Offener Eingang, der nicht dem Soll entspricht → neu öffnen. Maßgeblich ist der Ist-Zustand
+    // vom Main, nicht „vorher/nachher“ im Renderer.
+    let neu = '';
+    let offen = true;
+    const soll = get();
+    const ist = soll.state;
+    if (
+      ist.status === 'armed' &&
+      (ist.device !== soll.deviceIndex || ist.channels !== soll.channels || ist.sampleRate !== soll.sampleRate)
+    ) {
+      try {
+        await get().disarm();
+        offen = await get().arm();
+      } catch (e) {
+        offen = false;
+        set({ notice: (e as Error).message });
+      }
+      neu = ' Eingang neu geöffnet.';
+    }
+    // Erst nach dem Gerätewechsel: ein unerreichbares NAS hält das Neuöffnen nicht auf.
     if (w.dir) {
       let da = true;
       try {
@@ -172,20 +196,6 @@ export const useRec = create<RecStore>((set, get) => {
           ? null
           : `Zielordner des Presets „${name}“ nicht erreichbar: ${w.dir} — neuen Ordner wählen und das Preset neu speichern.`,
       });
-    }
-    // Offener Eingang, der nicht dem Soll entspricht → neu öffnen. Maßgeblich ist der Ist-Zustand
-    // vom Main, nicht „vorher/nachher“ im Renderer.
-    let neu = '';
-    let offen = true;
-    const soll = get();
-    const ist = soll.state;
-    if (
-      ist.status === 'armed' &&
-      (ist.device !== soll.deviceIndex || ist.channels !== soll.channels || ist.sampleRate !== soll.sampleRate)
-    ) {
-      await get().disarm();
-      offen = await get().arm();
-      neu = ' Eingang neu geöffnet.';
     }
     // Scheitert das Neuöffnen, steht dessen Fehlertext schon in `notice` — nicht überschreiben.
     set({
@@ -262,7 +272,10 @@ export const useRec = create<RecStore>((set, get) => {
       }
     },
 
-    presetAbwaehlen: () => set({ aktivesPreset: null }),
+    presetAbwaehlen: () => {
+      anwendenNr++; // ein wartendes Anwenden entfällt; ein laufendes endet noch
+      set({ aktivesPreset: null });
+    },
 
     presetsExportieren: async () => {
       try {
@@ -285,14 +298,31 @@ export const useRec = create<RecStore>((set, get) => {
     },
 
     init: async () => {
-      // Show-Integration (C3): geprüfte Voreinstellungen aus der .jmshow auf den
-      // Store anwenden. channels/sampleRate über die Setter (clampen).
+      // Show-Integration (C3): geprüfte Voreinstellungen aus der .jmshow auf den Store anwenden.
+      // channels/sampleRate mit derselben Begrenzung wie die Setter, aber direkt: ein Vorbehalt
+      // auf einen fehlenden Eingang bleibt stehen.
       const applyShowSettings = (s: RecShowSettings): void => {
-        if (typeof s.dir === 'string') set({ dir: s.dir, hinweisOrdner: null });
+        if (typeof s.dir === 'string') {
+          set({
+            dir: s.dir,
+            hinweisOrdner: istNetzwerkPfad(s.dir)
+              ? `Zielordner aus der Show liegt im Netzwerk: ${saeubereAnzeige(s.dir)} – nur verwenden, wenn dieser Ordner bekannt ist.`
+              : null,
+          });
+        }
         if (typeof s.fileName === 'string') set({ fileName: s.fileName });
         if (typeof s.separateTracks === 'boolean') set({ separateTracks: s.separateTracks });
-        if (typeof s.channels === 'number') get().setChannels(s.channels);
-        if (typeof s.sampleRate === 'number') get().setSampleRate(s.sampleRate);
+        // Show schlägt gemerkt: auch im Vorbehalt (fehlender Eingang) gelten die Show-Werte, wenn er zurückkommt.
+        if (typeof s.channels === 'number') {
+          const c = kanaele(s.channels);
+          set({ channels: c });
+          if (vorbehalt) vorbehalt = { ...vorbehalt, channels: c };
+        }
+        if (typeof s.sampleRate === 'number') {
+          const r = rate(s.sampleRate);
+          set({ sampleRate: r });
+          if (vorbehalt) vorbehalt = { ...vorbehalt, sampleRate: r };
+        }
       };
       if (subscribed) return;
       subscribed = true;
@@ -415,8 +445,21 @@ export const useRec = create<RecStore>((set, get) => {
         hinweisEingang: null,
       });
     },
-    setChannels: (n) => set({ channels: Math.max(1, Math.floor(n) || 1) }),
-    setSampleRate: (n) => set({ sampleRate: Math.max(8000, Math.floor(n) || 48000) }),
+    // Wer Kanäle oder Samplerate selbst setzt, beendet den Vorbehalt auf den fehlenden Eingang.
+    setChannels: (n) => {
+      if (vorbehalt) {
+        vorbehalt = null;
+        set({ hinweisEingang: null });
+      }
+      set({ channels: kanaele(n) });
+    },
+    setSampleRate: (n) => {
+      if (vorbehalt) {
+        vorbehalt = null;
+        set({ hinweisEingang: null });
+      }
+      set({ sampleRate: rate(n) });
+    },
     setFileName: (fileName) => set({ fileName }),
     setSeparateTracks: (separateTracks) => set({ separateTracks }),
     setScheduleStart: (scheduleStart) => set({ scheduleStart }),
@@ -529,10 +572,10 @@ export function aktuelleWerte(s: RecStore): RecEinstellungen {
   return e;
 }
 
-/** Weichen die aktuellen Werte vom aktiven Preset ab? Ohne aktives (oder gelöschtes) Preset: nein. */
+/** Weichen die aktuellen Werte vom aktiven Preset ab (nur in dessen gespeicherten Feldern)? Ohne aktives (oder gelöschtes) Preset: nein. */
 export function presetGeaendert(s: RecStore): boolean {
   const p = s.aktivesPreset ? s.presets.find((x) => x.name === s.aktivesPreset) : undefined;
-  return !!p && !gleicheWerte(aktuelleWerte(s), p.werte);
+  return !!p && !gleicheDefinierteWerte(aktuelleWerte(s), p.werte);
 }
 
 /**

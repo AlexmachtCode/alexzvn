@@ -3,11 +3,11 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
-import type { ArmInput, GeladeneEinstellungen, KonfliktWahl, PresetDateiErgebnis, RecordInput, RecPreset, ScheduleInput } from '@shared/types';
+import type { ArmInput, GeladeneEinstellungen, KonfliktWahl, NetzWahl, PresetDateiErgebnis, RecordInput, RecPreset, ScheduleInput } from '@shared/types';
 import * as rec from './recorder';
 import { ladeEinstellungen, speichereEinstellungen } from './einstellungen';
 import { importiere, ladePresets, netzwerkHinweis, speicherePresets } from './presets';
-import { baueExportDatei, EXPORT_MAX_BYTES, normierePreset } from '../shared/presets';
+import { baueExportDatei, EXPORT_MAX_BYTES, normierePreset, saeubereAnzeige } from '../shared/presets';
 
 /** Gemerkte Einstellungen (#291) — eine Datei je Windows-Benutzer, überlebt Updates. */
 function einstellungsDatei(): string {
@@ -112,25 +112,30 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
         buttons: ['Überschreiben', 'Beide behalten', 'Abbrechen'],
         defaultId: 1,
         cancelId: 2,
-        message: `${konflikte.length} ${konflikte.length === 1 ? 'Preset gibt' : 'Presets gibt'} es schon: ${konflikte.map((k) => `„${k}“`).join(', ')}`,
+        message: `${konflikte.length} ${konflikte.length === 1 ? 'Preset gibt' : 'Presets gibt'} es schon: ${konflikte.map((k) => `„${saeubereAnzeige(k)}“`).join(', ')}`,
         detail: 'Überschreiben ersetzt die vorhandenen. Beide behalten legt die neuen als „Name (2)“ an.',
       };
       const m = win ? await dialog.showMessageBox(win, opt) : await dialog.showMessageBox(opt);
       return (['ueberschreiben', 'beide', 'abbrechen'] as const)[m.response] ?? 'abbrechen';
     };
-    const erg = await importiere(ladePresets(presetDatei()), text, frage);
+    const netzFrage = async (netzwerk: { name: string; dir: string }[]): Promise<NetzWahl> => {
+      const opt = {
+        type: 'warning' as const,
+        buttons: ['Übernehmen', 'Ohne Netzwerkordner übernehmen', 'Abbrechen'],
+        defaultId: 1,
+        cancelId: 2,
+        ...netzwerkHinweis(netzwerk),
+      };
+      const m = win ? await dialog.showMessageBox(win, opt) : await dialog.showMessageBox(opt);
+      return (['uebernehmen', 'ohne', 'abbrechen'] as const)[m.response] ?? 'abbrechen';
+    };
+    const erg = await importiere(ladePresets(presetDatei()), text, frage, netzFrage);
     if (!erg.ok || !erg.presets) return erg;
     let gespeichert: RecPreset[];
     try {
       gespeichert = speicherePresets(presetDatei(), erg.presets);
     } catch (err) {
       return { ok: false, error: `Presets nicht gespeichert: ${(err as Error).message}` };
-    }
-    // Netzwerkordner unübersehbar nennen — die Meldungszeile allein ist nach 5 s weg.
-    if (erg.netzwerk?.length) {
-      const opt = { type: 'warning' as const, buttons: ['OK'], defaultId: 0, ...netzwerkHinweis(erg.netzwerk) };
-      if (win) await dialog.showMessageBox(win, opt);
-      else await dialog.showMessageBox(opt);
     }
     return { ...erg, presets: gespeichert };
   });

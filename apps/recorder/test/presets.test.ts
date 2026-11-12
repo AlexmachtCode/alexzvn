@@ -1,8 +1,9 @@
 // Preset-Regeln: Normieren, Vergleichen, Namen, Zusammenführen, Dateiformat. npm run selftest -w @jm/recorder
 import {
-  baueExportDatei, fuehreZusammen, freierPresetName, gleicheWerte, istNetzwerkPfad, leseExportDatei,
-  normierePreset, presetWerte, sortiere,
+  baueExportDatei, fuehreZusammen, freierPresetName, gleicheDefinierteWerte, gleicheWerte, istErlaubterOrdner, istNetzwerkPfad, leseExportDatei,
+  netzwerkServer, normierePreset, presetWerte, saeubereAnzeige, sortiere,
 } from '../src/shared/presets';
+import type { RecPreset } from '../src/shared/types';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -42,6 +43,15 @@ ck('werte ohne preset-Feld', !('preset' in (normierePreset({ name: 'A', werte: {
 ck('gleich trotz anderer Schlüsselreihenfolge', gleicheWerte(voll, { gainDb: 6, scheduleDurationMin: 90, separateTracks: true, fileName: 'Plenum', dir: 'D:\\Aufnahmen', sampleRate: 48000, channels: 16, eingang: { hostApiName: 'ASIO', name: 'Dante Virtual Soundcard (x64)' } }));
 ck('anderer sampleRate → ungleich', !gleicheWerte(voll, { ...voll, sampleRate: 44100 }));
 ck('nur preset verschieden → gleich', gleicheWerte({ ...voll, preset: 'A' }, { ...voll, preset: 'B' }));
+
+// --- gleicheDefinierteWerte: nur die Felder, die das Preset kennt
+const { dir: _d, eingang: _e, ...ohneOrdner } = voll;
+ck('definiert: Preset ohne dir, anderer Ordner → gleich', gleicheDefinierteWerte({ ...voll, dir: 'X:\\Anders' }, ohneOrdner));
+ck('definiert: Preset ohne eingang, anderer Eingang → gleich', gleicheDefinierteWerte({ ...voll, eingang: { name: 'Andere', hostApiName: 'MME' } }, ohneOrdner));
+ck('definiert: anderer sampleRate → ungleich', !gleicheDefinierteWerte({ ...voll, sampleRate: 44100 }, ohneOrdner));
+ck('definiert: anderer Eingang bei Preset mit eingang → ungleich', !gleicheDefinierteWerte({ ...voll, eingang: { name: 'Andere', hostApiName: 'MME' } }, voll));
+ck('definiert: gleicher Eingang, andere Schlüsselreihenfolge → gleich', gleicheDefinierteWerte(voll, { ...voll, eingang: { hostApiName: 'ASIO', name: 'Dante Virtual Soundcard (x64)' } }));
+ck('definiert: leeres Preset → immer gleich', gleicheDefinierteWerte(voll, {}));
 
 // --- freierPresetName
 ck('A belegt → A (2)', freierPresetName('A', ['A']) === 'A (2)');
@@ -101,6 +111,29 @@ ck('Netzwerkpfad: \\\\?\\UNC\\srv\\x', istNetzwerkPfad('\\\\?\\UNC\\srv\\x'));
 ck('kein Netzwerkpfad: D:\\x', !istNetzwerkPfad('D:\\x'));
 ck('kein Netzwerkpfad: \\x', !istNetzwerkPfad('\\x'));
 ck('kein Netzwerkpfad: leer', !istNetzwerkPfad(''));
+
+// Export-Grenze: dieselbe Obergrenze wie beim Import
+const viele = Array.from({ length: 501 }, (_, i): RecPreset => ({ name: `P${i}`, werte: {} }));
+ck('baueExportDatei: 501 Presets wirft', wirft(() => baueExportDatei(viele, new Date(0)), 'Zu viele Presets für eine Datei (höchstens 500).'));
+ck('baueExportDatei: 500 Presets gehen', baueExportDatei(viele.slice(0, 500), new Date(0)).length > 0);
+
+// Anzeige säubern + Servername (Netzwerk-Rückfrage)
+{
+  const zeichen = [0x202e, 0x200b, 0x2028, 0x2029, 0xfeff, 0x85, 0x7f, 0x0a, 0x00].map((c) => String.fromCodePoint(c)).join('');
+  const roh = `a${zeichen}b`;
+  const sauber = saeubereAnzeige(roh);
+  ck('saeubereAnzeige: keine Cc/Cf/Zl/Zp mehr, Länge gleich', !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(sauber) && sauber.length === roh.length && sauber.startsWith('a') && sauber.endsWith('b'));
+  ck('saeubereAnzeige: normaler Text unverändert', saeubereAnzeige('Küche – Ünï') === 'Küche – Ünï');
+  ck('netzwerkServer: //srv/b', netzwerkServer('//srv/b') === 'srv');
+  ck('netzwerkServer: UNC mit Backslashes', netzwerkServer('\\\\srv\\a') === 'srv');
+  ck('netzwerkServer: \\\\?\\UNC\\srv\\x', netzwerkServer('\\\\?\\UNC\\srv\\x') === 'srv');
+  ck('netzwerkServer: unc klein', netzwerkServer('\\\\?\\unc\\srv2\\x') === 'srv2');
+  ck('netzwerkServer: ohne Namen', netzwerkServer('\\\\') === '(ohne Namen)');
+  ck('netzwerkServer: \\\\?\\C:\\x -> null', netzwerkServer('\\\\?\\C:\\x') === null);
+  // Erlaubte Ordner: nur Laufwerk oder übliche Freigabe, nichts Besonderes von Windows.
+  for (const d of ['D:\\Aufnahmen', 'd:/x', '\\\\nas\\aufnahmen', '//nas/aufnahmen/VA']) ck(`istErlaubterOrdner: ${d} ja`, istErlaubterOrdner(d));
+  for (const d of ['relativ\\ordner', '\\\\?\\C:\\x', '\\\\.\\pipe\\x', '\\\\?\\GLOBALROOT\\Device\\Mup\\srv\\s', '\\\\?\\UNC\\srv\\s', '\\\\srv', '\\\\srv\\', '']) ck(`istErlaubterOrdner: ${d} nein`, !istErlaubterOrdner(d));
+}
 
 console.log(`\npresets: ${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);

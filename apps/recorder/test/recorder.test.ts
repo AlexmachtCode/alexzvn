@@ -116,5 +116,23 @@ for (const [name, zuerst] of [['StauBloecke', false], ['StauWaechter', true]] as
   ck(`${name}: genau 41 Blöcke, nichts eingeschoben (${s.length / 2} Frames)`, s.length === 2 * 410);
 }
 
+// --- Alte Bestätigung (Review): Wächter bestätigt echte Stille, dann hängt der Hauptprozess 400 ms,
+// danach kommt echtes Audio VOR dem nächsten Wächtertakt. Der Stau darf nicht als Stille davor stehen.
+{
+  ck('arm Alt', rec.arm({ device: 5, channels: 2, sampleRate: 1000 }).ok);
+  ck('start Alt', rec.startRecording({ dir, fileName: 'Alt' }).ok);
+  const t0 = Date.now();
+  await warte(450); // echte Stille, der Wächter füllt auf
+  haengen(400);
+  const stilleMs = Date.now() - t0 - 400; // gemessene Stille vor dem Stau (ohne die 400 ms)
+  for (let i = 0; i < 40; i++) aufFrames!(echt(10), 2, 10);
+  ck('stopp Alt', rec.stopRecording().ok);
+  rec.disarm();
+  const b = readFileSync(join(dir, 'Alt.wav'));
+  const s = new Float32Array(b.buffer.slice(b.byteOffset + 44, b.byteOffset + b.length));
+  const erster = s.findIndex((v) => v !== 0) / 2;
+  ck(`Alt: erster echter Frame bei ${erster} ≈ Stille ${stilleMs} ms (nicht danach)`, erster >= stilleMs - 150 && erster <= stilleMs + 20);
+}
+
 console.log(`\nrecorder: ${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);

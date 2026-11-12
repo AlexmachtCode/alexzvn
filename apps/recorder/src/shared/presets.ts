@@ -37,6 +37,16 @@ export function gleicheWerte(a: RecEinstellungen, b: RecEinstellungen): boolean 
   return JSON.stringify(presetWerte(a)) === JSON.stringify(presetWerte(b));
 }
 
+/**
+ * Gleich, soweit das Preset etwas festlegt? Verglichen werden nur die Felder, die `presetWerte(preset)`
+ * enthält — ein Preset ohne Ordner oder Eingang lässt diese Werte frei.
+ */
+export function gleicheDefinierteWerte(aktuell: RecEinstellungen, preset: RecEinstellungen): boolean {
+  const a = presetWerte(aktuell) as unknown as Record<string, unknown>;
+  const p = presetWerte(preset) as unknown as Record<string, unknown>;
+  return Object.keys(p).every((k) => JSON.stringify(a[k]) === JSON.stringify(p[k]));
+}
+
 /** Name, der noch nicht vergeben ist: „Name“, sonst „Name (2)“, „Name (3)“ … (max. 60 Zeichen). */
 export function freierPresetName(name: string, vergeben: readonly string[] | { has(name: string): boolean }): string {
   const belegt = Array.isArray(vergeben) ? new Set<string>(vergeben) : (vergeben as { has(name: string): boolean });
@@ -51,6 +61,23 @@ export function freierPresetName(name: string, vergeben: readonly string[] | { h
 /** Netzwerkpfad (`\\srv\share`, `//srv/share`, `\\?\UNC\…`)? Ein einzelnes `\` ist keiner. */
 export function istNetzwerkPfad(dir: string): boolean {
   return /^[\\/]{2}/.test(dir);
+}
+
+/** Nur Laufwerkspfad (`D:\x`) oder übliche Freigabe (`\\srv\share`); `\\?\…`, `\\.\…`, `\\srv` und Relatives nicht. */
+export function istErlaubterOrdner(dir: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(dir) || /^[\\/]{2}[^\\/?.][^\\/]*[\\/][^\\/]+/.test(dir);
+}
+
+/** Text für Dialoge/Hinweise: Steuer-, Format- und Zeilentrennzeichen (auch Bidi, Nullbreite, BOM) → Leerzeichen. */
+export function saeubereAnzeige(t: string): string {
+  return t.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ');
+}
+
+/** Servername eines Netzwerkpfads (`\\srv\x`, `//srv/x`, `\\?\UNC\srv\x`); kein Server erkennbar → null. */
+export function netzwerkServer(dir: string): string | null {
+  const m = /^[\\/]{2}(?:[?.][\\/]UNC[\\/])?([^\\/]*)/i.exec(dir);
+  if (!m || m[1] === '?') return null;
+  return m[1] === '' ? '(ohne Namen)' : m[1];
 }
 
 /**
@@ -84,6 +111,7 @@ export function fuehreZusammen(
 
 /** Exportdatei als JSON-Text. */
 export function baueExportDatei(liste: RecPreset[], jetzt: Date): string {
+  if (liste.length > EXPORT_MAX_PRESETS) throw new Error(`Zu viele Presets für eine Datei (höchstens ${EXPORT_MAX_PRESETS}).`);
   return JSON.stringify({ format: EXPORT_FORMAT, version: 1, exportiert: jetzt.toISOString(), presets: liste }, null, 2);
 }
 
