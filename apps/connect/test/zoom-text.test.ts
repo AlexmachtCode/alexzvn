@@ -1882,7 +1882,7 @@ console.log('— B8 · ST30–ST42, ST87, ST96, ST96b, ST98 wörtlich; Teilnehme
 console.log('— B9 · ST5–ST9, ST48, ST49, ST61–ST73, ST77, ST80–ST86, ST95 wörtlich; S7.5 Bedientexte (OFP2); Kennzeichen (OFP3)');
 {
   const {
-    BEDIEN_TEXT, KANDIDAT_KENNZEICHEN, MAC_ZEILE, MESS_TEXT, SLOT_FELD, slotKartenZeile, slotTrayZeile, SPRECHER_TEXT, verlassenFrage,
+    BEDIEN_TEXT, KANDIDAT_KENNZEICHEN, MAC_ZEILE, MESS_TEXT, PERSON_IM_NDI_NAMEN_TOOLTIP, SLOT_FELD, slotKartenZeile, slotTrayZeile, SPRECHER_TEXT, verlassenFrage,
   } = await import('../src/shared/zoom-text');
   type SE = import('../src/shared/zoom-text').SlotStatusEingabe;
   const zahlen = (n: number, k: number, o: number, e: number, gestopptEntzug: number) => ({ n, k, o, e, a: 7, gestopptEntzug });
@@ -1969,10 +1969,12 @@ console.log('— B9 · ST5–ST9, ST48, ST49, ST61–ST73, ST77, ST80–ST86, ST
   const BEDIEN: Array<[keyof typeof BEDIEN_TEXT, string]> = [
     ['zoomSlots', 'Zoom-Slots'], ['slotHinzufuegen', 'Slot hinzufügen'], ['vorgaben', 'Vorgaben …'], ['vorschau', 'Vorschau'],
     ['sprecherEinstellungen', 'Sprecher-Einstellungen …'], ['messwerte', 'Messwerte'], ['messwerteKopieren', 'Messwerte kopieren'],
-    ['behalten', 'Behalten'], ['loeschen', 'Löschen'],
+    ['behalten', 'Behalten'], ['loeschen', 'Löschen'], ['personImNdiNamen', 'Person im NDI-Namen'],
   ];
   for (const [k, soll] of BEDIEN) ck(`S7.5 Bedientext „${soll}“ wörtlich (OFP2)`, BEDIEN_TEXT[k] === soll);
-  ck('S7.5 genau neun Bedientexte (OFP2)', Object.keys(BEDIEN_TEXT).length === 9);
+  ck('S7.5 genau zehn Bedientexte (OFP2, #287)', Object.keys(BEDIEN_TEXT).length === 10);
+  ck('#287 Tooltip „Person im NDI-Namen“ nennt Beispiel, Dauer und Personenwechsel', PERSON_IM_NDI_NAMEN_TOOLTIP.includes('Zoom 1 (Anna Müller)') && PERSON_IM_NDI_NAMEN_TOOLTIP.includes('bis der Slot aus ist') && PERSON_IM_NDI_NAMEN_TOOLTIP.includes('nicht um'));
+  ck('#287 keine ASCII-Anführungszeichen in Beschriftung und Tooltip', !BEDIEN_TEXT.personImNdiNamen.includes('"') && !PERSON_IM_NDI_NAMEN_TOOLTIP.includes('"'));
   ck('OFP3 Kennzeichen der Doppelname-Auswahl wie in der Teilnehmerliste: „Kamera aus“, „Host“, „im Warteraum“',
     JSON.stringify(KANDIDAT_KENNZEICHEN) === JSON.stringify({ kameraAus: 'Kamera aus', host: 'Host', imWarteraum: 'im Warteraum' }));
   // SlotZahlen aus B1 ist an `zahlen` übergebbar (sonst scheitert die Typprüfung dieses Tests)

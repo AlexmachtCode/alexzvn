@@ -1431,7 +1431,12 @@ export const BEDIEN_TEXT = {
   messwerteKopieren: 'Messwerte kopieren',
   behalten: 'Behalten',
   loeschen: 'Löschen',
+  personImNdiNamen: 'Person im NDI-Namen',
 };
+
+/** #287: Tooltip des Schalters „Person im NDI-Namen“ (Owner-Beschreibung 12.11.2026). */
+export const PERSON_IM_NDI_NAMEN_TOOLTIP =
+  'Teilnehmer-Slots heißen beim Einschalten „‹NDI-Name› (‹Person›)“, z. B. „Zoom 1 (Anna Müller)“ – so sieht man im Mischer, wer auf welcher Quelle liegt. Der Name gilt, bis der Slot aus ist: Ein Personenwechsel benennt die Quelle nicht um. Gilt für Slots, die danach eingeschaltet werden; Sprecher- und Freigabe-Slots bleiben unverändert.';
 
 /** Kennzeichen je Kandidat der Doppelname-Auswahl (7.5): die Bestandstexte der Teilnehmerliste (OFP3, `ZoomCard.tsx:388-393`). */
 export const KANDIDAT_KENNZEICHEN = { kameraAus: 'Kamera aus', host: 'Host', imWarteraum: 'im Warteraum' };

@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { SLOT_NR_MAX, SLOT_RESOLUTIONS } from '@jm/zoom-bridge/protocol';
 import type { ZoomAbbild, ZoomParticipant, ZoomSlotAufloesung, ZoomSprecherEinstellung, ZoomSprecherSignal } from '@shared/types';
 import {
-  BEDIEN_TEXT, EINSTELLUNG_TEXT, HALTEZEIT_UNGUELTIG, SLOT_FELD, SLOT_TEXT, SPRECHER_TEXT, TEXT_A4_SCHREIBFEHLER,
+  BEDIEN_TEXT, EINSTELLUNG_TEXT, HALTEZEIT_UNGUELTIG, PERSON_IM_NDI_NAMEN_TOOLTIP, SLOT_FELD, SLOT_TEXT, SPRECHER_TEXT, TEXT_A4_SCHREIBFEHLER,
   slotKopfZeile, teilnehmerSlotAngabe, teilnehmerSlotEingabe,
 } from '@shared/zoom-text';
 import { AntwortZeile, SlotKachel, type GemerkteVorschau } from './SlotKachel';
@@ -202,6 +202,20 @@ export function SlotBereich({ a, aufrufe }: { a: ZoomAbbild; aufrufe: SlotAufruf
           />
           {BEDIEN_TEXT.vorschau}
         </label>
+        <MitTooltip titel={PERSON_IM_NDI_NAMEN_TOOLTIP}>
+          <label className="flex items-center gap-1 text-xs text-neutral-300">
+            <input
+              type="checkbox"
+              checked={a.personImNdiNamen}
+              disabled={aufrufe.laeuft.has('personImNdiNamen')}
+              onChange={(ev) => {
+                const an = ev.target.checked;
+                void aufrufe.fuehreAus('personImNdiNamen', 'slots', () => window.jmconnect.zoomPersonImNdiNamen({ an }));
+              }}
+            />
+            {BEDIEN_TEXT.personImNdiNamen}
+          </label>
+        </MitTooltip>
         <button onClick={() => setSprecherAuf((v) => !v)} className={STIL.rand}>
           {BEDIEN_TEXT.sprecherEinstellungen}
         </button>
