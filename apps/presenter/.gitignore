@@ -2,3 +2,5 @@ node_modules
 out
 release
 *.tsbuildinfo
+release-pruefbau
+release-mac-pruef

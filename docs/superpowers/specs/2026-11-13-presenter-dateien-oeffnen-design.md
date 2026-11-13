@@ -223,3 +223,8 @@ Tag-Push im COP-Fenster 18:00–06:00 Berlin.
 - Genaue Sammelzeit beim Bündeln.
 - Wie das Absperren der Navigation das Neuladen in der Entwicklung zulässt.
 - Aufbau von `installer.nsh` im Einzelnen, solange die Einträge oben stimmen.
+
+## Nachtrag zu §5 (beim Bauen entschieden)
+
+- **ProgID** ist `${APP_ID}.pdf` (also `gmbh.jakobs.presenter.pdf`) statt `JMPresenter.pdf`. So überschreibt ein Prüfbau mit eigener `appId` nichts vom echten Presenter. Überall, wo oben `JMPresenter.pdf` steht, gilt dieser Name.
+- **macOS** läuft über `mac.extendInfo.CFBundleDocumentTypes` (mit `LSHandlerRank: Alternate` und `LSItemContentTypes: [com.adobe.pdf]`) statt über `mac.fileAssociations`, weil electron-builder 24.13.3 dort kein `LSItemContentTypes` kennt. Das wirkt ebenfalls nur auf dem Mac.

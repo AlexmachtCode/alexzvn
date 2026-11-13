@@ -29,6 +29,13 @@ mac:
   icon: build/icon.png
   hardenedRuntime: false
   gatekeeperAssess: false
+  extendInfo:
+    CFBundleDocumentTypes:
+      - CFBundleTypeName: PDF
+        CFBundleTypeRole: Viewer
+        LSHandlerRank: Alternate
+        LSItemContentTypes: [com.adobe.pdf]
+        CFBundleTypeExtensions: [pdf]
 
 win:
   target:
@@ -43,6 +50,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   shortcutName: JM Presenter
   createDesktopShortcut: false
+  include: build/installer.nsh
 
 publish:
   provider: github
