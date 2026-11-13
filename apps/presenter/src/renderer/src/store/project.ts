@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import type { ImportedFile, Overlay, ProjectDoc, Slide, SourceMeta, Uebergang, Wiedergabe } from '@shared/types';
+import type { GeladeneDateien, ImportedFile, Overlay, ProjectDoc, Slide, SourceMeta, Uebergang, Wiedergabe } from '@shared/types';
+import type { OeffnenModus } from '../../../shared/dateien';
+import { aufbauHinweise, wieOeffnen } from '../../../shared/dateien';
 import { normiereUebergang, normiereWiedergabe } from '../../../shared/wiedergabe';
 import { uid } from '@/lib/ids';
 import { clearAssets, getSource, getImageBytes, putImage, putSource } from '@/lib/assets';
@@ -42,6 +44,8 @@ interface ProjectState {
   error: string | null;
   /** Neutral, dismissible info message (distinct from the red error banner). */
   notice: string | null;
+  /** Abgelegte Dateien, zu denen noch die Frage „ersetzen oder anhängen?“ offen ist. */
+  frage: { files: ImportedFile[] } | null;
 
   // selection
   select: (id: string | null) => void;
@@ -56,6 +60,9 @@ interface ProjectState {
    */
   ingestImportedFiles: (files: ImportedFile[], replace?: boolean) => Promise<void>;
   importOffice: () => Promise<void>;
+  /** Vom Hauptprozess geladene Dateien nach `modus` öffnen (Drop, Doppelklick, PRESENTER OPEN). */
+  oeffneGeladene: (g: GeladeneDateien, modus: OeffnenModus) => Promise<void>;
+  beantworteFrage: (wahl: 'ersetzen' | 'anhaengen' | 'abbrechen') => Promise<void>;
   newProject: () => void;
   openProject: () => Promise<void>;
   /** Projekt aus rohen .jmpres-Bytes laden (manuell oder via Show-Deep-Link). */
@@ -102,6 +109,7 @@ export const useProject = create<ProjectState>((set, get) => ({
   busy: { active: false, label: '' },
   error: null,
   notice: null,
+  frage: null,
 
   select: (id) => set({ selectedId: id, selectedOverlayId: null }),
   selectOverlay: (id) => set({ selectedOverlayId: id }),
@@ -124,14 +132,20 @@ export const useProject = create<ProjectState>((set, get) => ({
       const baseDoc = replace ? emptyDoc() : get().doc;
       const newSources: SourceMeta[] = [];
       const newSlides: Slide[] = [];
+      let hinweis: string | null = null;
       for (const f of files) {
         const sourceId = uid('src');
         const base = stripExt(f.name);
         if (f.kind === 'pdf') {
           const count = await pdfPageCount(sourceId, f.bytes);
           newSources.push({ id: sourceId, kind: 'pdf', name: f.name, pageCount: count });
+          const auf = aufbauHinweise(f.animations, count, !!f.expanded);
+          if (auf.hinweis) hinweis = auf.hinweis;
           for (let p = 0; p < count; p += 1) {
-            newSlides.push(makeSlide(sourceId, p, count > 1 ? `${base} ${p + 1}` : base));
+            const slide = makeSlide(sourceId, p, count > 1 ? `${base} ${p + 1}` : base);
+            const notiz = auf.notizen[p];
+            if (notiz) slide.notes = notiz;
+            newSlides.push(slide);
           }
         } else {
           putSource(sourceId, 'image', f.bytes);
@@ -149,6 +163,7 @@ export const useProject = create<ProjectState>((set, get) => ({
         dirty: true,
         selectedId: replace ? (newSlides[0]?.id ?? null) : (get().selectedId ?? newSlides[0]?.id ?? null),
         selectedOverlayId: replace ? null : get().selectedOverlayId,
+        ...(hinweis ? { notice: hinweis } : {}),
       });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
@@ -165,42 +180,46 @@ export const useProject = create<ProjectState>((set, get) => ({
         if (res.error && res.error !== 'Abgebrochen.') set({ error: res.error });
         return;
       }
-      const sourceId = uid('src');
-      const base = stripExt(res.name ?? 'Dokument');
-      const count = await pdfPageCount(sourceId, res.bytes);
-      const doc = get().doc;
-      const newSlides: Slide[] = [];
-      // Map the original deck's on-click builds onto the flattened slides. The
-      // mapping is 1 PDF page per PPTX slide, so only annotate when the counts
-      // line up — otherwise we'd risk tagging the wrong slide.
-      const anim = res.animations;
-      const builds = anim && anim.perSlide.length === count ? anim.perSlide : null;
-      for (let p = 0; p < count; p += 1) {
-        const slide = makeSlide(sourceId, p, count > 1 ? `${base} ${p + 1}` : base);
-        if (builds && builds[p] > 0) {
-          slide.notes = `▸ Original-Animation: ${builds[p]} Aufbau-Klick(s) auf dieser Folie.`;
-        }
-        newSlides.push(slide);
-      }
-      set({
-        doc: {
-          ...doc,
-          sources: [...doc.sources, { id: sourceId, kind: 'pdf', name: base, pageCount: count }],
-          slides: [...doc.slides, ...newSlides],
-        },
-        dirty: true,
-        selectedId: get().selectedId ?? newSlides[0]?.id ?? null,
-        notice: res.expanded
-          ? `Aufbau-Animationen als Einzelschritte importiert — ${count} Schritt-Folien (experimentell).`
-          : anim && anim.animatedSlides > 0
-            ? `${anim.animatedSlides} Folie(n) hatten Aufbau-Animationen (${anim.totalBuilds} Klicks) — als Notiz vermerkt.`
-            : null,
-      });
+      await get().ingestImportedFiles(
+        [{ name: res.name ?? 'Dokument.pdf', kind: 'pdf', bytes: res.bytes, animations: res.animations, expanded: res.expanded }],
+        false,
+      );
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
     } finally {
       set({ busy: { active: false, label: '' } });
     }
+  },
+
+  oeffneGeladene: async (g, modus) => {
+    if (g.projekt) {
+      const s = get();
+      if (modus !== 'ersetzen' && s.dirty && s.doc.slides.length > 0) {
+        const ok = window.confirm(
+          `Aktuelle Präsentation verwerfen und „${g.projekt.name}“ öffnen? Nicht gespeicherte Änderungen gehen verloren.`,
+        );
+        if (!ok) return;
+      }
+      get().openProjectFromBytes(g.projekt.bytes);
+    } else if (g.files.length) {
+      const wie = wieOeffnen(modus, get().doc.slides.length > 0);
+      if (wie === 'ersetzen') await get().ingestImportedFiles(g.files, true);
+      else if (wie === 'anhaengen') await get().ingestImportedFiles(g.files, false);
+      else {
+        const bisher = get().frage?.files ?? [];
+        const neu = g.files.filter((f) => !bisher.some((b) => b.name === f.name && b.bytes.length === f.bytes.length));
+        set({ frage: { files: [...bisher, ...neu] } });
+      }
+    }
+    // Zuletzt: ingest/open setzen `error` sonst wieder auf null.
+    if (g.hinweise.length) set({ error: g.hinweise.join(' · ') });
+  },
+
+  beantworteFrage: async (wahl) => {
+    const frage = get().frage;
+    set({ frage: null });
+    if (!frage || wahl === 'abbrechen') return;
+    await get().ingestImportedFiles(frage.files, wahl === 'ersetzen');
   },
 
   newProject: () => {

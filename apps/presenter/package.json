@@ -15,7 +15,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "selftest": "node --experimental-strip-types test/suite-state.test.ts && tsx test/wiedergabe.test.ts && tsx test/dateien.test.ts",
+    "selftest": "node --experimental-strip-types test/suite-state.test.ts && tsx test/wiedergabe.test.ts && tsx test/dateien.test.ts && tsx test/dateien-laden.test.ts",
     "dist": "electron-vite build && electron-builder",
     "dist:dir": "electron-vite build && electron-builder --dir",
     "dist:win": "electron-vite build && electron-builder --win",

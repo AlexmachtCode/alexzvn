@@ -236,6 +236,18 @@ export function getEditorWindow(): BrowserWindow | null {
   return editorWindow;
 }
 
+/** An das Editor-Fenster senden — wartet, falls es noch lädt (z. B. direkt nach Start). */
+export function sendeAnEditor(channel: string, payload: unknown): boolean {
+  const win = getEditorWindow();
+  if (!win) return false;
+  if (win.webContents.isLoading()) {
+    win.webContents.once('did-finish-load', () => win.webContents.send(channel, payload));
+  } else {
+    win.webContents.send(channel, payload);
+  }
+  return true;
+}
+
 export function hasPresentationWindows(): boolean {
   return (
     (presenterWindow != null && !presenterWindow.isDestroyed()) ||

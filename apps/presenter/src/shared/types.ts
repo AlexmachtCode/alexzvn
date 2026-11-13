@@ -1,5 +1,6 @@
 // Shared domain + IPC types for JM Presenter.
 // Used by the main process, the preload bridge and the renderer.
+import type { OeffnenModus } from './dateien';
 
 export type ViewName = 'editor' | 'presenter' | 'audience';
 
@@ -121,15 +122,24 @@ export interface ImportedFile {
   name: string;
   kind: SourceKind;
   bytes: Uint8Array;
+  /** Nur bei Office-Importen: Aufbau-Animationen der .pptx. */
+  animations?: OfficeAnimations;
+  /** Nur bei Office-Importen: Aufbau-Schritte sind schon als Seiten enthalten. */
+  expanded?: boolean;
 }
 
-/**
- * Push vom Hauptprozess (PRESENTER OPEN, Issue #81): importierte Dateien als
- * Präsentation vorlegen. `replace` = vorhandenes Projekt ersetzen (frisches Deck).
- */
-export interface OpenFilesPayload {
+/** Ergebnis des gemeinsamen Lade-Wegs im Hauptprozess (Drop, Doppelklick, PRESENTER OPEN). */
+export interface GeladeneDateien {
   files: ImportedFile[];
-  replace: boolean;
+  /** Eine einzeln abgelegte .jmpres-Datei. */
+  projekt: { name: string; bytes: Uint8Array } | null;
+  /** Lesbare Meldungen zu Übersprungenem/Fehlgeschlagenem. */
+  hinweise: string[];
+}
+
+/** Push vom Hauptprozess (Kanal `project:openFiles`): Dateien nach `modus` öffnen. */
+export interface OpenFilesPayload extends GeladeneDateien {
+  modus: OeffnenModus;
 }
 
 /** On-click build animations read from a .pptx (LibreOffice flattens them away). */
@@ -268,6 +278,8 @@ export interface JmprApi {
      *  `expandBuilds` is set, .pptx on-click animations are split into per-step
      *  slides (experimental; falls back to the flat conversion on any doubt). */
     importOffice: (expandBuilds?: boolean) => Promise<OfficeImportResult>;
+    /** Dateien per Pfad laden (Drag & Drop): PDF, Bild, Office, einzelne .jmpres. */
+    importPaths: (pfade: string[], expandBuilds: boolean) => Promise<GeladeneDateien>;
     /** Open a .jmpres project; returns the raw zip bytes. */
     openProject: () => Promise<{ name: string; bytes: Uint8Array } | null>;
     /** Save .jmpres project bytes to disk (save dialog). */

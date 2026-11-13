@@ -20,7 +20,7 @@ if (view === 'editor') {
   // PRESENTER OPEN (Issue #81): vom Hauptprozess gelesene PDF/Bild/Office-Dateien
   // als (frische) Präsentation vorlegen.
   window.jmpr?.files?.onOpenFiles?.((p) => {
-    void useProject.getState().ingestImportedFiles(p.files, p.replace);
+    void useProject.getState().oeffneGeladene(p, p.modus);
   });
 }
 

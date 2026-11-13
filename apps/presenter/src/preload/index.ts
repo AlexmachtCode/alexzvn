@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  GeladeneDateien,
   ImportedFile,
   JmprApi,
   NetInterface,
@@ -29,6 +30,8 @@ const api: JmprApi = {
     importImage: () => ipcRenderer.invoke('files:importImage') as Promise<ImportedFile | null>,
     importOffice: (expandBuilds?: boolean) =>
       ipcRenderer.invoke('files:importOffice', expandBuilds) as Promise<OfficeImportResult>,
+    importPaths: (pfade, expandBuilds) =>
+      ipcRenderer.invoke('files:importPaths', pfade, expandBuilds) as Promise<GeladeneDateien>,
     openProject: () =>
       ipcRenderer.invoke('files:openProject') as Promise<{
         name: string;

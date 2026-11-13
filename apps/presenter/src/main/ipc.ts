@@ -2,6 +2,7 @@ import { app, dialog, ipcMain } from 'electron';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type {
+  GeladeneDateien,
   ImportedFile,
   OfficeImportResult,
   PresentationPayload,
@@ -10,9 +11,9 @@ import type {
   SourceKind,
   TimerSyncConfig,
 } from '@shared/types';
-import { convertOfficeBytesToPdf, convertOfficeToPdf, countPdfPages } from './office/convert';
-import { analyzePptxAnimations } from './office/pptx-animations';
-import { expandPptxBuildSteps } from './office/pptx-expand';
+import { IMAGE_EXT, OFFICE_EXT } from '@shared/dateien';
+import { ladeDateien } from './dateien-laden';
+import { importOfficeFile } from './office/import';
 import {
   broadcastAll,
   getDisplays,
@@ -47,8 +48,6 @@ import {
   shutdownTimer,
 } from './timer-sync';
 import { loadTimerConfig, saveTimerConfig } from './timer-config';
-
-const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
 
 function kindFor(filePath: string): SourceKind {
   return path.extname(filePath).toLowerCase() === '.pdf' ? 'pdf' : 'image';
@@ -107,7 +106,7 @@ export function registerIpc(): void {
         filters: [
           {
             name: 'Office-Dokumente',
-            extensions: ['pptx', 'ppt', 'odp', 'docx', 'doc', 'odt', 'rtf'],
+            extensions: [...OFFICE_EXT].map((e) => e.slice(1)),
           },
         ],
       };
@@ -117,40 +116,17 @@ export function registerIpc(): void {
       if (result.canceled || result.filePaths.length === 0) {
         return { ok: false, error: 'Abgebrochen.' };
       }
-      const inputPath = result.filePaths[0];
-      const base = path.basename(inputPath, path.extname(inputPath));
+      return importOfficeFile(result.filePaths[0], !!expandBuilds);
+    },
+  );
 
-      // Flat conversion is the always-correct baseline.
-      const baseline = await convertOfficeToPdf(inputPath);
-      if (!baseline.ok || !/\.pptx$/i.test(inputPath)) return baseline;
-
-      let animations;
-      try {
-        animations = analyzePptxAnimations(new Uint8Array(await readFile(inputPath))) ?? undefined;
-      } catch {
-        animations = undefined;
+  ipcMain.handle(
+    'files:importPaths',
+    (_e, pfade: unknown, expandBuilds: unknown): Promise<GeladeneDateien> => {
+      if (!Array.isArray(pfade) || !pfade.every((p) => typeof p === 'string')) {
+        return Promise.resolve({ files: [], projekt: null, hinweise: [] });
       }
-      if (!animations || animations.animatedSlides === 0) return baseline;
-
-      // EXPERIMENTAL: split on-click builds into per-step slides. Only adopt the
-      // expanded conversion if it succeeds AND its page count matches exactly —
-      // otherwise keep the flat baseline so import never silently breaks.
-      if (expandBuilds) {
-        try {
-          const expanded = expandPptxBuildSteps(new Uint8Array(await readFile(inputPath)));
-          if (expanded) {
-            const conv = await convertOfficeBytesToPdf(expanded.bytes, base);
-            if (conv.ok && conv.bytes && countPdfPages(conv.bytes) === expanded.pages) {
-              return { ...conv, name: baseline.name, expanded: true };
-            }
-          }
-        } catch {
-          // fall through to baseline
-        }
-      }
-
-      baseline.animations = animations;
-      return baseline;
+      return ladeDateien(pfade as string[], { expandBuilds: expandBuilds === true });
     },
   );
 
