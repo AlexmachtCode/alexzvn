@@ -2,7 +2,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 // Vite emits the worker as an asset and gives us its URL.
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { getSource, putSource } from './assets';
+import { getSource, putSource, removeSource } from './assets';
 import { bytesToBlob } from './bytes';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -45,11 +45,20 @@ function loadImage(sourceId: string): Promise<ImageBitmap> {
   return task;
 }
 
-/** Number of pages in a freshly imported PDF (bytes are registered first). */
+/**
+ * Number of pages in a freshly imported PDF (bytes are registered first). Kann pdf.js sie nicht
+ * lesen (beschädigt, leer, kennwortgeschützt), bleibt nichts registriert und der Fehler geht weiter.
+ */
 export async function pdfPageCount(id: string, bytes: Uint8Array): Promise<number> {
   putSource(id, 'pdf', bytes);
-  const doc = await loadDoc(id);
-  return doc.numPages;
+  try {
+    const doc = await loadDoc(id);
+    return doc.numPages;
+  } catch (err) {
+    docCache.delete(id);
+    removeSource(id);
+    throw err;
+  }
 }
 
 function newCanvas(w: number, h: number): HTMLCanvasElement {
@@ -115,15 +124,20 @@ async function renderBaseUncached(
   return { canvas, width: canvas.width, height: canvas.height, aspect };
 }
 
-/** Drop cached docs/bitmaps (e.g. when loading a new project). */
-export function clearPdfCaches(): void {
-  for (const task of docCache.values()) {
+/**
+ * Drop cached docs/bitmaps (e.g. when loading a new project). `behalte` = Quellen, deren
+ * Dokumente bleiben (beim Ersetzen die frisch gelesenen).
+ */
+export function clearPdfCaches(behalte?: ReadonlySet<string>): void {
+  for (const [id, task] of [...docCache]) {
+    if (behalte?.has(id)) continue;
     void task.then((doc) => doc.destroy()).catch(() => undefined);
+    docCache.delete(id);
   }
-  docCache.clear();
-  for (const task of imageCache.values()) {
+  for (const [id, task] of [...imageCache]) {
+    if (behalte?.has(id)) continue;
     void task.then((bmp) => bmp.close()).catch(() => undefined);
+    imageCache.delete(id);
   }
-  imageCache.clear();
   baseCache.clear();
 }
