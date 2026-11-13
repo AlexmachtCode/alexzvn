@@ -44,13 +44,31 @@ const baseWebPreferences = {
   nodeIntegration: false,
 } as const;
 
+/** Nur diese Adressen darf der Editor an das System weitergeben (Standardbrowser, Mail). */
+const EXTERN_ERLAUBT: ReadonlySet<string> = new Set(['https:', 'http:', 'mailto:']);
+
+function externErlaubt(url: string): boolean {
+  try {
+    return EXTERN_ERLAUBT.has(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
 // Keine Seite des Presenters navigiert absichtlich (kein location.href, kein <a href>
 // im Renderer). Neu laden meldet Electron aber als will-navigate auf die eigene Adresse
 // (gemessen, Electron 33) und bleibt darum erlaubt. Alles andere – etwa eine
 // fallengelassene Datei, die der Renderer nicht abfängt – würde das Fenster wegnavigieren.
-function sperreNavigation(win: BrowserWindow): void {
+// Ebenso öffnet keine Seite je ein eigenes Fenster (window.open, Links mit Umschalt/Mittelklick).
+// Nur der Editor (`extern`) gibt Web- und Mail-Adressen ans System; file:, Programme und
+// eigene Protokolle werden nie weitergegeben.
+function sperreNavigation(win: BrowserWindow, extern = false): void {
   win.webContents.on('will-navigate', (e) => {
     if (e.url !== win.webContents.getURL()) e.preventDefault();
+  });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (extern && externErlaubt(url)) void shell.openExternal(url);
+    return { action: 'deny' };
   });
 }
 
@@ -85,12 +103,8 @@ export function createEditorWindow(): BrowserWindow {
     webPreferences: baseWebPreferences,
   });
 
-  sperreNavigation(win);
+  sperreNavigation(win, true);
   win.on('ready-to-show', () => win.show());
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
-    return { action: 'deny' };
-  });
   win.on('closed', () => {
     editorWindow = null;
   });

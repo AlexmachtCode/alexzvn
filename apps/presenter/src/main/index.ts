@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import { initAppRuntime } from '@jm/app-runtime';
 import { registerIpc } from './ipc';
-import { createEditorWindow } from './windows';
+import { createEditorWindow, getEditorWindow } from './windows';
 import { handleShowDeepLink, flushPendingShowProject } from './show-open';
 import { startControlServer, stopControlServer } from './control-server';
 import { oeffneStartDateien, registriereDateiOeffnen } from './datei-oeffnen';
@@ -21,7 +21,9 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    const win = BrowserWindow.getAllWindows()[0];
+    // Bevorzugt den Editor: während einer Show ist das erste Fenster oft Referent oder Publikum.
+    const editor = getEditorWindow();
+    const win = editor && !editor.isDestroyed() ? editor : BrowserWindow.getAllWindows()[0];
     if (win) {
       if (win.isMinimized()) win.restore();
       win.show();
