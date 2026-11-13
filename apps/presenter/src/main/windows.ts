@@ -44,6 +44,16 @@ const baseWebPreferences = {
   nodeIntegration: false,
 } as const;
 
+// Keine Seite des Presenters navigiert absichtlich (kein location.href, kein <a href>
+// im Renderer). Neu laden meldet Electron aber als will-navigate auf die eigene Adresse
+// (gemessen, Electron 33) und bleibt darum erlaubt. Alles andere – etwa eine
+// fallengelassene Datei, die der Renderer nicht abfängt – würde das Fenster wegnavigieren.
+function sperreNavigation(win: BrowserWindow): void {
+  win.webContents.on('will-navigate', (e) => {
+    if (e.url !== win.webContents.getURL()) e.preventDefault();
+  });
+}
+
 export function createEditorWindow(): BrowserWindow {
   if (editorWindow && !editorWindow.isDestroyed()) {
     if (editorWindow.isMinimized()) editorWindow.restore();
@@ -75,6 +85,7 @@ export function createEditorWindow(): BrowserWindow {
     webPreferences: baseWebPreferences,
   });
 
+  sperreNavigation(win);
   win.on('ready-to-show', () => win.show());
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
@@ -112,6 +123,7 @@ export function openPresenterWindow(): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: baseWebPreferences,
   });
+  sperreNavigation(win);
   win.on('ready-to-show', () => win.show());
   win.on('closed', () => {
     presenterWindow = null;
@@ -152,6 +164,7 @@ export function openAudienceWindow(displayId: number | null): BrowserWindow {
     fullscreenable: true,
     webPreferences: baseWebPreferences,
   });
+  sperreNavigation(win);
   win.on('ready-to-show', () => {
     win.show();
     win.setFullScreen(true);

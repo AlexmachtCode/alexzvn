@@ -592,21 +592,97 @@ async function gruppeAblage({ exe, d }) {
   });
 }
 
+const FREMDE_SEITE = 'file:///C:/Windows/win.ini';
+
+/** Löst eine Navigation aus, die die Seite selbst anstößt (Ablegen per CDP navigiert nicht, gemessen). */
+async function seitenNavigation(ziel) {
+  const vorher = await aktuelleUrl(ziel);
+  await auswerten(ziel, `void (location.href = ${JSON.stringify(FREMDE_SEITE)})`).catch(() => {});
+  await pause(1_000);
+  return { vorher, nachher: await aktuelleUrl(ziel) };
+}
+
+async function ablegenUndPruefen(ziel, pfade) {
+  const vorher = await aktuelleUrl(ziel);
+  const { x, y } = await auswerten(ziel, imDom(domMitte));
+  await auswerten(ziel, imDom(domZiehenMitschreiben));
+  await ablegen(ziel, pfade, x, y);
+  await pause(1_000);
+  const nachher = await aktuelleUrl(ziel);
+  // Sonst misst der Fall nichts: Das Ziehen muss die Seite mit Dateien erreicht haben.
+  const gesehen = await gezogen(ziel);
+  return { vorher, nachher, gesehen };
+}
+
+const domKlickePraesentieren = () => {
+  const k = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('▶ Präsentieren'));
+  if (!k || k.disabled) return false;
+  k.click();
+  return true;
+};
+
 async function gruppeNavigation({ exe, d }) {
-  await mitApp('navigation', exe, [], async (_app, ed) => {
+  await mitApp('navigation', exe, [], async (app, ed) => {
     await fall('Ablegen aufs leere Editor-Fenster lässt die Seite stehen', async () => {
-      const vorher = await aktuelleUrl(ed);
-      const { x, y } = await auswerten(ed, imDom(domMitte));
-      await auswerten(ed, imDom(domZiehenMitschreiben));
-      await ablegen(ed, [d.a], x, y);
-      await pause(1_000);
-      const nachher = await aktuelleUrl(ed);
+      const { vorher, nachher, gesehen } = await ablegenUndPruefen(ed, [d.a]);
       console.log(`      URL vorher:  ${vorher}`);
       console.log(`      URL nachher: ${nachher}`);
       erwarte(nachher === vorher, 'Seite ist weg-navigiert');
-      // Sonst misst der Fall nichts: Das Ziehen muss die Seite mit Dateien erreicht haben.
-      const gesehen = await gezogen(ed);
       erwarte(gesehen.includes('dragenter:Files'), `Ziehen kam nicht an (Messung ungültig): ${JSON.stringify(gesehen)}`);
+    });
+
+    let referent = null;
+    let publikum = null;
+    await fall('Präsentation starten: Deck per Ablegen füllen, ▶ Präsentieren, beide Fenster erscheinen', async () => {
+      const { x, y } = await auswerten(ed, imDom(domMitte));
+      await ablegen(ed, [d.a], x, y);
+      const n = await bisWert(() => folienZahl(ed), (v) => v === 2);
+      erwarte(n === 2, `Folien · ${n ?? '–'} statt 2`);
+      erwarte(await warteBis(() => auswerten(ed, imDom(domKlickePraesentieren)), 10_000), 'Knopf „▶ Präsentieren“ nicht bedienbar');
+      referent = await oeffneZiel(app, 'view=presenter');
+      publikum = await oeffneZiel(app, 'view=audience');
+      for (const z of [referent, publikum]) {
+        const bereit = await warteBis(() => auswerten(z, `document.readyState === 'complete' && !!window.jmpr`), 20_000);
+        erwarte(bereit, `${z.url} wird nicht fertig`);
+      }
+    });
+
+    for (const [name, hole] of [['Referent', () => referent], ['Publikum', () => publikum]]) {
+      await fall(`${name}: eins.pdf ablegen → Adresse gleich, Präsentation weiter aktiv, Index gleich`, async () => {
+        const z = hole();
+        if (!z) ueberspringe('Fenster fehlt (Präsentation nicht gestartet)');
+        const vorher = await auswerten(z, 'window.jmpr.present.getState()');
+        erwarte(vorher?.active === true, `Präsentation nicht aktiv: ${JSON.stringify(vorher)}`);
+        const r = await ablegenUndPruefen(z, [d.eins]);
+        erwarte(r.nachher === r.vorher, `Seite ist weg-navigiert: ${r.nachher}`);
+        erwarte(r.gesehen.includes('dragenter:Files'), `Ziehen kam nicht an (Messung ungültig): ${JSON.stringify(r.gesehen)}`);
+        const nachher = await auswerten(z, 'window.jmpr.present.getState()');
+        erwarte(nachher?.active === true, `Präsentation nicht mehr aktiv: ${JSON.stringify(nachher)}`);
+        erwarte(nachher.index === vorher.index, `Index ${nachher.index} statt ${vorher.index}`);
+      });
+
+      await fall(`${name}: Seitennavigation auf eine fremde Adresse wird abgewiesen`, async () => {
+        const z = hole();
+        if (!z) ueberspringe('Fenster fehlt (Präsentation nicht gestartet)');
+        const { vorher, nachher } = await seitenNavigation(z);
+        erwarte(nachher === vorher, `Seite navigiert: ${nachher}`);
+      });
+    }
+
+    // Zuletzt: Gelingt die Navigation (ohne Sperre), ist der Editor danach weg.
+    await fall('Editor: Seitennavigation auf eine fremde Adresse wird abgewiesen', async () => {
+      const { vorher, nachher } = await seitenNavigation(ed);
+      erwarte(nachher === vorher, `Seite navigiert: ${nachher}`);
+    });
+
+    await fall('Editor: Neu laden geht weiter → view=editor wieder da', async () => {
+      await auswerten(ed, 'window.__vorNeuladen = 1');
+      await auswerten(ed, 'void location.reload()').catch(() => {});
+      const ok = await warteBis(
+        () => auswerten(ed, `window.__vorNeuladen === undefined && document.readyState === 'complete' && location.href.includes('view=editor') && !!window.jmpr && !!document.querySelector('header')`),
+        20_000,
+      );
+      erwarte(ok, `nach dem Neuladen: ${await aktuelleUrl(ed)} unerwartet=${JSON.stringify(ed.unerwartet)} ${JSON.stringify(await auswerten(ed, '[window.__vorNeuladen, document.readyState, !!window.jmpr, !!document.querySelector("header")]').catch((e) => String(e)))}`);
     });
   });
 }
