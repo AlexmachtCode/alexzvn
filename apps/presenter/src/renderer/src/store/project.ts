@@ -192,6 +192,8 @@ export const useProject = create<ProjectState>((set, get) => ({
   },
 
   oeffneGeladene: async (g, modus) => {
+    // PRESENTER OPEN legt ein neues Deck hin; eine alte Frage legte sonst ihre Dateien darauf.
+    if (modus === 'ersetzen') set({ frage: null });
     if (g.projekt) {
       const s = get();
       if (modus !== 'ersetzen' && s.dirty && s.doc.slides.length > 0) {

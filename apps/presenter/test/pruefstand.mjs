@@ -108,12 +108,16 @@ process.on('exit', () => {
 });
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => process.exit(130));
 
-/** Startet die Exe mit Remote-Debugging. Umgebung ohne ELECTRON_RUN_AS_NODE. */
-function starteApp(exe, args = []) {
-  const env = Object.fromEntries(
+/** Umgebung ohne ELECTRON_RUN_AS_NODE (sonst startet die Exe als reines Node). */
+function appUmgebung() {
+  return Object.fromEntries(
     Object.entries(process.env).filter(([k]) => k.toUpperCase() !== 'ELECTRON_RUN_AS_NODE'),
   );
-  const kind = spawn(exe, [`--remote-debugging-port=${PORT}`, ...args], { env, stdio: 'ignore' });
+}
+
+/** Startet die Exe mit Remote-Debugging. */
+function starteApp(exe, args = []) {
+  const kind = spawn(exe, [`--remote-debugging-port=${PORT}`, ...args], { env: appUmgebung(), stdio: 'ignore' });
   const app = { pid: kind.pid, ziele: [], beendet: null };
   kind.on('exit', (code, signal) => {
     app.beendet = `Code ${code ?? signal}`;
@@ -132,6 +136,33 @@ async function beendeApp(app) {
   // Erst wenn alle Prozesse weg sind, ist der Single-Instance-Lock frei.
   const weg = await warteBis(() => !presenterLaeuft(), 15_000, 250);
   if (!weg) throw new Error('Presenter-Prozesse laufen nach taskkill weiter');
+}
+
+/**
+ * Startet die Exe noch einmal mit `args`, wie Windows bei Doppelklick/„Öffnen mit“: OHNE
+ * Remote-Debugging. Sie reicht ihre Kommandozeile an die laufende App weiter und beendet sich
+ * selbst (Single-Instance-Lock). Wartet, bis sie weg ist.
+ */
+async function zweiteInstanz(exe, args) {
+  const kind = spawn(exe, args, { env: appUmgebung(), stdio: 'ignore' });
+  const app = { pid: kind.pid, ziele: [], beendet: null };
+  if (kind.pid) laufende.add(app);
+  const ende = await new Promise((res) => {
+    const t = setTimeout(() => res(null), 15_000);
+    kind.on('exit', (code, signal) => {
+      clearTimeout(t);
+      res(`Code ${code ?? signal}`);
+    });
+    kind.on('error', (e) => {
+      clearTimeout(t);
+      res(e.message);
+    });
+  });
+  laufende.delete(app);
+  if (ende === null) {
+    if (kind.pid) toeteBaum(kind.pid);
+    throw new Error('zweite Instanz beendet sich nicht (Single-Instance-Lock?)');
+  }
 }
 
 /** Startet die App, öffnet den Editor, führt `fn(app, editor)` aus, beendet die App immer. */
@@ -433,6 +464,7 @@ async function baueTestdateien() {
     mp4: p('film.mp4'),
     ordner: p('ordner'),
     projekt: p('Projekt.jmpres'),
+    show: p('show.jmshow'),
   };
   fs.writeFileSync(d.a, await pdf(2));
   fs.writeFileSync(d.eins, eins);
@@ -453,6 +485,11 @@ async function baueTestdateien() {
   fs.writeFileSync(
     d.projekt,
     zipSync({ 'manifest.json': strToU8(JSON.stringify(manifest)), 'sources/src1': eins }, { level: 0 }),
+  );
+  // Format wie packages/show; das Dokument relativ zur Show-Datei
+  fs.writeFileSync(
+    d.show,
+    JSON.stringify({ schemaVersion: 1, name: 'Prüfstand', tools: [{ appId: 'jm-presenter', document: 'Projekt.jmpres' }] }),
   );
   return d;
 }
@@ -687,9 +724,168 @@ async function gruppeNavigation({ exe, d }) {
   });
 }
 
+const FRAGE_SATZ = 'Im Presenter liegt schon eine Präsentation.';
+const VERLUST_SATZ = 'Beim Ersetzen gehen nicht gespeicherte Änderungen verloren.';
+
+/** Die offene Frage „ersetzen oder anhängen?“ (Titel = ihr zugänglicher Name), sonst null. */
+function domFrage() {
+  const boxen = document.querySelectorAll('[role="dialog"]');
+  if (!boxen.length) return null;
+  const box = boxen[0];
+  const kopfId = box.getAttribute('aria-labelledby');
+  const fokus = document.activeElement;
+  return {
+    anzahl: boxen.length,
+    titel: (kopfId && document.getElementById(kopfId)?.textContent.trim()) || '',
+    text: box.textContent,
+    knoepfe: [...box.querySelectorAll('button')].map((b) => b.textContent.trim()),
+    fokus: fokus && box.contains(fokus) ? fokus.textContent.trim() : null,
+  };
+}
+
+function domKlickeInFrage(text) {
+  const k = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === text);
+  if (!k || k.disabled) return false;
+  k.click();
+  return true;
+}
+
+function domKlickeAusblenden() {
+  const k = document.querySelector('button[title="Ausblenden"]');
+  if (!k) return false;
+  k.click();
+  return true;
+}
+
+const frage = (ziel) => auswerten(ziel, imDom(domFrage));
+const keineFrage = async (ziel) =>
+  (await frage(ziel)) === null && !(await auswerten(ziel, imDom(domEnthaelt, FRAGE_SATZ)));
+
+async function drueckeEscape(ziel) {
+  for (const type of ['rawKeyDown', 'keyUp']) {
+    await ziel.send('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  }
+}
+
+async function gruppeDoppelklick({ exe, d }) {
+  await mitApp('doppelklick', exe, [d.maerz], async (app, ed) => {
+    /** Zweite Instanz mit `pfad` (wie ein Doppelklick); liefert die Frage, sobald eine da ist. */
+    const zweitesOeffnen = async (pfad) => {
+      await zweiteInstanz(exe, [pfad]);
+      return bisWert(() => frage(ed), (v) => v !== null);
+    };
+    const klicke = async (text) => erwarte(await auswerten(ed, imDom(domKlickeInFrage, text)), `kein Knopf „${text}“ in der Frage`);
+
+    await fall('Start mit „Präsentation März.PDF“ als Argument → Folien · 1, keine Frage', async () => {
+      const n = await bisWert(() => folienZahl(ed), (v) => v === 1);
+      erwarte(n === 1, `Folien · ${n ?? '–'} statt 1`);
+      erwarte(await keineFrage(ed), `Frage im Fenster: ${JSON.stringify(await frage(ed))}`);
+    });
+
+    await fall('zweite Instanz mit a.pdf → Frage „a.pdf“ öffnen, Knöpfe Ersetzen/Anhängen/Abbrechen, Fokus auf Anhängen, Folien · 1', async () => {
+      const f = await zweitesOeffnen(d.a);
+      erwarte(f?.titel === '„a.pdf“ öffnen', `Titel „${f?.titel ?? '(keine Frage)'}“`);
+      erwarte(f.text.includes(FRAGE_SATZ), `Text: „${f.text}“`);
+      erwarte(JSON.stringify(f.knoepfe) === JSON.stringify(['Ersetzen', 'Anhängen', 'Abbrechen']), `Knöpfe ${JSON.stringify(f.knoepfe)}`);
+      erwarte(f.fokus === 'Anhängen', `Fokus auf ${f.fokus ?? '(nichts in der Frage)'}`);
+      const n = await folienZahl(ed);
+      erwarte(n === 1, `Folien · ${n ?? '–'} statt 1`);
+    });
+
+    await fall('Frage offen: zweite Instanz mit b.png, dann noch einmal a.pdf → dieselbe EINE Frage „2 Dateien öffnen“', async () => {
+      await zweiteInstanz(exe, [d.png]);
+      await zweiteInstanz(exe, [d.a]);
+      let f = await bisWert(() => frage(ed), (v) => v?.titel === '2 Dateien öffnen');
+      erwarte(f?.titel === '2 Dateien öffnen', `Titel „${f?.titel ?? '(keine Frage)'}“`);
+      // Nach der Sammelzeit ist auch die zweite a.pdf sicher angekommen (und darf nichts ändern).
+      await pause(1_500);
+      f = await frage(ed);
+      erwarte(f?.anzahl === 1, `${f?.anzahl ?? 0} Fragen im Fenster`);
+      erwarte(f.titel === '2 Dateien öffnen', `danach Titel „${f.titel}“`);
+    });
+
+    await fall('Anhängen → Folien · 4 (2 Seiten + Bild), Frage weg', async () => {
+      await klicke('Anhängen');
+      const n = await bisWert(() => folienZahl(ed), (v) => v === 4);
+      erwarte(n === 4, `Folien · ${n ?? '–'} statt 4`);
+      erwarte(await keineFrage(ed), 'Frage bleibt stehen');
+    });
+
+    await fall('Show-Link per zweiter Instanz → lädt weiter Projekt.jmpres (Folien · 1), keine Frage, keine Fehlerzeile', async () => {
+      await zweiteInstanz(exe, [`jmps://open?show=${encodeURIComponent(d.show)}`]);
+      const n = await bisWert(() => folienZahl(ed), (v) => v === 1);
+      erwarte(n === 1, `Folien · ${n ?? '–'} statt 1`);
+      // Würde der Link als Datei genommen, käme das erst nach der Sammelzeit an.
+      await pause(1_500);
+      erwarte(await keineFrage(ed), `Frage im Fenster: ${JSON.stringify(await frage(ed))}`);
+      const f = await fehlerZeile(ed);
+      erwarte(f === '', `Fehlerzeile: „${f}“`);
+    });
+
+    // Über den Brief hinaus: Ohne diesen Fall bewiese der nächste nichts, denn jedes
+    // importierte Deck gilt schon als ungespeichert. Das Show-Projekt ist frisch geladen.
+    await fall('ungeändertes Projekt: a.pdf + eins.pdf → „2 PDFs öffnen“ ohne Verlust-Hinweis, Escape schließt, Folien · 1', async () => {
+      await zweiteInstanz(exe, [d.a]);
+      await zweiteInstanz(exe, [d.eins]);
+      const f = await bisWert(() => frage(ed), (v) => v?.titel === '2 PDFs öffnen');
+      erwarte(f?.titel === '2 PDFs öffnen', `Titel „${f?.titel ?? '(keine Frage)'}“`);
+      erwarte(f.text.includes(FRAGE_SATZ), `Text: „${f.text}“`);
+      erwarte(!f.text.includes(VERLUST_SATZ), `Verlust-Hinweis ohne Änderung: „${f.text}“`);
+      await drueckeEscape(ed);
+      erwarte(await warteBis(() => keineFrage(ed), 3_000), 'Escape schließt die Frage nicht');
+      await pause(300);
+      const n = await folienZahl(ed);
+      erwarte(n === 1, `Folien · ${n ?? '–'} statt 1`);
+    });
+
+    await fall('Folie ausgeblendet (ungespeichert): a.pdf → Verlust-Hinweis; Abbrechen → Folien · 1; erneut, Ersetzen → Folien · 2 ohne weitere Rückfrage', async () => {
+      erwarte(await auswerten(ed, imDom(domKlickeAusblenden)), 'kein Knopf „Ausblenden“');
+      let f = await zweitesOeffnen(d.a);
+      erwarte(f?.text.includes(VERLUST_SATZ), `ohne Verlust-Hinweis: „${f?.text ?? '(keine Frage)'}“`);
+      await klicke('Abbrechen');
+      erwarte(await warteBis(() => keineFrage(ed), 3_000), 'Frage bleibt nach Abbrechen');
+      await pause(300);
+      let n = await folienZahl(ed);
+      erwarte(n === 1, `nach Abbrechen Folien · ${n ?? '–'} statt 1`);
+
+      const unerwartetVorher = ed.unerwartet.length;
+      f = await zweitesOeffnen(d.a);
+      erwarte(f !== null, 'keine Frage beim zweiten Mal');
+      await klicke('Ersetzen');
+      n = await bisWert(() => folienZahl(ed), (v) => v === 2);
+      erwarte(n === 2, `nach Ersetzen Folien · ${n ?? '–'} statt 2`);
+      const neu = ed.unerwartet.slice(unerwartetVorher);
+      erwarte(neu.length === 0, `weitere Rückfrage: „${neu.join(' | ')}“`);
+    });
+
+    await fall('Präsentation läuft: a.pdf per zweiter Instanz, Ersetzen → Publikum behält seine Folienzahl', async () => {
+      const { x, y } = await auswerten(ed, imDom(domMitte));
+      await ablegen(ed, [d.png], x, y);
+      let n = await bisWert(() => folienZahl(ed), (v) => v === 3);
+      erwarte(n === 3, `vor dem Präsentieren Folien · ${n ?? '–'} statt 3`);
+      erwarte(await warteBis(() => auswerten(ed, imDom(domKlickePraesentieren)), 10_000), 'Knopf „▶ Präsentieren“ nicht bedienbar');
+      const publikum = await oeffneZiel(app, 'view=audience');
+      const zahl = () => auswerten(publikum, 'window.jmpr.present.getPayload().then((p) => p?.slides.length ?? null)');
+      const vorher = await bisWert(zahl, (v) => typeof v === 'number', 20_000);
+      erwarte(vorher === 3, `Publikum hat ${vorher ?? '–'} Folien statt 3`);
+
+      const f = await zweitesOeffnen(d.a);
+      erwarte(f !== null, 'keine Frage');
+      await klicke('Ersetzen');
+      n = await bisWert(() => folienZahl(ed), (v) => v === 2);
+      erwarte(n === 2, `Editor: Folien · ${n ?? '–'} statt 2`);
+      const nachher = await zahl();
+      erwarte(nachher === vorher, `Publikum hat ${nachher ?? '–'} Folien statt ${vorher}`);
+      const s = await auswerten(publikum, 'window.jmpr.present.getState()');
+      erwarte(s?.active === true, `Präsentation nicht mehr aktiv: ${JSON.stringify(s)}`);
+    });
+  });
+}
+
 const GRUPPEN = {
   ablage: gruppeAblage,
   navigation: gruppeNavigation,
+  doppelklick: gruppeDoppelklick,
 };
 
 // ---------------------------------------------------------------- Ablauf

@@ -4,6 +4,7 @@ import { EditorStage } from '@/components/EditorStage';
 import { Inspector } from '@/components/Inspector';
 import { UebergaengePanel } from '@/components/UebergaengePanel';
 import { DateiAblage } from '@/components/DateiAblage';
+import { OeffnenFrage } from '@/components/OeffnenFrage';
 import { useState } from 'react';
 import type { Slide } from '@shared/types';
 import { useProject } from '@/store/project';
@@ -20,49 +21,53 @@ export function EditorView() {
   const selected = slides.find((s) => s.id === selectedId) ?? null;
 
   return (
-    <DateiAblage className="h-full flex flex-col">
-      <Toolbar />
+    <>
+      <DateiAblage className="h-full flex flex-col">
+        <Toolbar />
 
-      {error && (
-        <div className="flex items-center justify-between gap-4 px-4 py-2 bg-[var(--destructive)]/15 border-b border-[var(--destructive)]/40 text-sm">
-          <span className="text-[var(--destructive)]">{error}</span>
-          <button type="button" onClick={() => setError(null)} className="text-xs opacity-70 hover:opacity-100">
-            schließen
-          </button>
-        </div>
-      )}
+        {error && (
+          <div className="flex items-center justify-between gap-4 px-4 py-2 bg-[var(--destructive)]/15 border-b border-[var(--destructive)]/40 text-sm">
+            <span className="text-[var(--destructive)]">{error}</span>
+            <button type="button" onClick={() => setError(null)} className="text-xs opacity-70 hover:opacity-100">
+              schließen
+            </button>
+          </div>
+        )}
 
-      {notice && (
-        <div className="flex items-center justify-between gap-4 px-4 py-2 bg-[var(--primary)]/10 border-b border-[var(--primary)]/30 text-sm">
-          <span className="text-[var(--foreground)]">▸ {notice}</span>
-          <button type="button" onClick={() => setNotice(null)} className="text-xs opacity-70 hover:opacity-100">
-            schließen
-          </button>
-        </div>
-      )}
+        {notice && (
+          <div className="flex items-center justify-between gap-4 px-4 py-2 bg-[var(--primary)]/10 border-b border-[var(--primary)]/30 text-sm">
+            <span className="text-[var(--foreground)]">▸ {notice}</span>
+            <button type="button" onClick={() => setNotice(null)} className="text-xs opacity-70 hover:opacity-100">
+              schließen
+            </button>
+          </div>
+        )}
 
-      {slides.length === 0 ? (
-        <EmptyState onImport={() => void importDocs()} onOffice={() => void importOffice()} />
-      ) : (
-        <div className="flex-1 min-h-0 grid grid-cols-[260px_minmax(0,1fr)_320px] overflow-hidden">
-          <aside className="border-r border-[var(--border)]/60 min-h-0 min-w-0">
-            <SlideList />
-          </aside>
-          <section className="min-h-0 min-w-0 flex flex-col bg-[var(--background)]">
-            {selected ? (
-              <EditorStage slide={selected} />
-            ) : (
-              <div className="flex-1 grid place-items-center text-[var(--muted-foreground)] text-sm">
-                Folie auswählen
-              </div>
-            )}
-          </section>
-          <aside className="border-l border-[var(--border)]/60 min-h-0">
-            {selected && <RechteSpalte slide={selected} />}
-          </aside>
-        </div>
-      )}
-    </DateiAblage>
+        {slides.length === 0 ? (
+          <EmptyState onImport={() => void importDocs()} onOffice={() => void importOffice()} />
+        ) : (
+          <div className="flex-1 min-h-0 grid grid-cols-[260px_minmax(0,1fr)_320px] overflow-hidden">
+            <aside className="border-r border-[var(--border)]/60 min-h-0 min-w-0">
+              <SlideList />
+            </aside>
+            <section className="min-h-0 min-w-0 flex flex-col bg-[var(--background)]">
+              {selected ? (
+                <EditorStage slide={selected} />
+              ) : (
+                <div className="flex-1 grid place-items-center text-[var(--muted-foreground)] text-sm">
+                  Folie auswählen
+                </div>
+              )}
+            </section>
+            <aside className="border-l border-[var(--border)]/60 min-h-0">
+              {selected && <RechteSpalte slide={selected} />}
+            </aside>
+          </div>
+        )}
+      </DateiAblage>
+      {/* Neben der Ablage, nicht darin: Dateien, die auf die offene Frage fallen, hängen nichts an. */}
+      <OeffnenFrage />
+    </>
   );
 }
 

@@ -4,6 +4,7 @@ import { registerIpc } from './ipc';
 import { createEditorWindow } from './windows';
 import { handleShowDeepLink, flushPendingShowProject } from './show-open';
 import { startControlServer, stopControlServer } from './control-server';
+import { oeffneStartDateien, registriereDateiOeffnen } from './datei-oeffnen';
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
 // onDeepLink fängt Show-Links bei laufender App (second-instance/open-url) ab;
@@ -29,10 +30,13 @@ if (!gotLock) {
       createEditorWindow();
     }
   });
+  // Doppelklick / „Öffnen mit“ (#299): Dateipfade aus argv bzw. open-file (Mac, auch vor ready).
+  registriereDateiOeffnen();
 
   app.whenReady().then(() => {
     registerIpc();
     createEditorWindow();
+    oeffneStartDateien();
     // Show-Dokument nachliefern bzw. Start-Deep-Link (App per Show gestartet)
     // verarbeiten — lädt das in der .jmshow referenzierte .jmpres.
     flushPendingShowProject();
