@@ -33,7 +33,7 @@ registerHooks({
   },
 });
 
-const { ladeDateien, pruefeImportPfade } = await import('../src/main/dateien-laden');
+const { ladeDateien, lesefehlerText, pruefeImportPfade } = await import('../src/main/dateien-laden');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmpr-laden-'));
 const pdfBytes = new TextEncoder().encode('%PDF-1.4');
@@ -64,11 +64,21 @@ try {
   r = await ladeDateien([p('Kaputt.docx')], { expandBuilds: false });
   ck('Office-Fehler → Hinweis', r.files.length === 0 && JSON.stringify(r.hinweise) === JSON.stringify(['„Kaputt.docx“: LibreOffice nicht gefunden.']));
 
-  // Lesefehler
+  // Lesefehler: kurze deutsche Texte statt roher Node-Meldungen
   r = await ladeDateien([p('fehlt.pdf')], { expandBuilds: false });
-  ck('fehlende Datei → Hinweis', r.files.length === 0 && r.hinweise.length === 1 && r.hinweise[0].startsWith('„fehlt.pdf“ konnte nicht geladen werden: '));
+  ck('fehlende Datei → „wurde nicht gefunden.“', r.files.length === 0 && JSON.stringify(r.hinweise) === JSON.stringify(['„fehlt.pdf“ wurde nicht gefunden.']));
   r = await ladeDateien([p('ordner.pdf')], { expandBuilds: false });
-  ck('Ordner statt Datei → Hinweis', r.files.length === 0 && r.hinweise.length === 1 && r.hinweise[0].startsWith('„ordner.pdf“ konnte nicht geladen werden: '));
+  ck('Ordner statt Datei → „ist ein Ordner.“', r.files.length === 0 && JSON.stringify(r.hinweise) === JSON.stringify(['„ordner.pdf“ ist ein Ordner.']));
+  r = await ladeDateien([p('weg.jmpres')], { expandBuilds: false });
+  ck('fehlendes Projekt → „wurde nicht gefunden.“', r.projekt === null && JSON.stringify(r.hinweise) === JSON.stringify(['„weg.jmpres“ wurde nicht gefunden.']));
+  const fehlerMit = (code: string) => Object.assign(new Error(`${code}: roh`), { code });
+  ck('EACCES → kein Zugriff', lesefehlerText('a.pdf', fehlerMit('EACCES')) === '„a.pdf“: kein Zugriff.');
+  ck('EPERM → kein Zugriff', lesefehlerText('a.pdf', fehlerMit('EPERM')) === '„a.pdf“: kein Zugriff.');
+  ck('EBUSY → gesperrt', lesefehlerText('a.pdf', fehlerMit('EBUSY')) === '„a.pdf“ ist gerade gesperrt.');
+  ck('ENOENT/EISDIR', lesefehlerText('a.pdf', fehlerMit('ENOENT')) === '„a.pdf“ wurde nicht gefunden.'
+    && lesefehlerText('a.pdf', fehlerMit('EISDIR')) === '„a.pdf“ ist ein Ordner.');
+  ck('anderer Fehler → wie bisher mit Meldung', lesefehlerText('a.pdf', fehlerMit('EIO')) === '„a.pdf“ konnte nicht geladen werden: EIO: roh');
+  ck('kein Error-Objekt', lesefehlerText('a.pdf', 'x') === '„a.pdf“ konnte nicht geladen werden: x');
 
   // Projekt
   r = await ladeDateien([p('S.jmpres')], { expandBuilds: false });

@@ -3,17 +3,25 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { GeladeneDateien, ImportedFile } from '@shared/types';
-import { dateiName, hinweiseAusOrdnung, ordneDateien } from '../shared/dateien';
+import { dateiName, hinweiseAusOrdnung, MAX_PFADE_JE_AUFRUF, ordneDateien } from '../shared/dateien';
 import { importOfficeFile } from './office/import';
 
-export const MAX_IMPORT_PFADE = 200;
+/** Lesefehler als kurzer deutscher Satz; Unbekanntes wie bisher mit der Meldung des Systems. */
+export function lesefehlerText(name: string, e: unknown): string {
+  const code = (e as { code?: unknown } | null)?.code;
+  if (code === 'ENOENT') return `„${name}“ wurde nicht gefunden.`;
+  if (code === 'EACCES' || code === 'EPERM') return `„${name}“: kein Zugriff.`;
+  if (code === 'EISDIR') return `„${name}“ ist ein Ordner.`;
+  if (code === 'EBUSY') return `„${name}“ ist gerade gesperrt.`;
+  return `„${name}“ konnte nicht geladen werden: ${e instanceof Error ? e.message : String(e)}`;
+}
 
 /**
  * Prüft die vom Renderer gelieferten Pfade: Array aus Strings, höchstens 200
  * (sonst null); nicht absolute Einträge entfallen. UNC-/Netzpfade bleiben erlaubt.
  */
 export function pruefeImportPfade(pfade: unknown): string[] | null {
-  if (!Array.isArray(pfade) || pfade.length > MAX_IMPORT_PFADE) return null;
+  if (!Array.isArray(pfade) || pfade.length > MAX_PFADE_JE_AUFRUF) return null;
   if (!pfade.every((p) => typeof p === 'string')) return null;
   return (pfade as string[]).filter((p) => path.isAbsolute(p));
 }
@@ -32,7 +40,7 @@ export async function ladeDateien(
     try {
       projekt = { name, bytes: new Uint8Array(await readFile(ordnung.projekt)) };
     } catch (e) {
-      hinweise.push(`„${name}“ konnte nicht geladen werden: ${(e as Error).message}`);
+      hinweise.push(lesefehlerText(name, e));
     }
   }
 
@@ -58,7 +66,7 @@ export async function ladeDateien(
         files.push({ name, kind: art, bytes: new Uint8Array(await readFile(pfad)) });
       }
     } catch (e) {
-      hinweise.push(`„${name}“ konnte nicht geladen werden: ${(e as Error).message}`);
+      hinweise.push(lesefehlerText(name, e));
     }
   }
 
