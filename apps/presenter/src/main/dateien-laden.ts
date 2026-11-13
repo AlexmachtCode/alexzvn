@@ -6,6 +6,18 @@ import type { GeladeneDateien, ImportedFile } from '@shared/types';
 import { dateiName, hinweiseAusOrdnung, ordneDateien } from '../shared/dateien';
 import { importOfficeFile } from './office/import';
 
+export const MAX_IMPORT_PFADE = 200;
+
+/**
+ * Prüft die vom Renderer gelieferten Pfade: Array aus Strings, höchstens 200
+ * (sonst null); nicht absolute Einträge entfallen. UNC-/Netzpfade bleiben erlaubt.
+ */
+export function pruefeImportPfade(pfade: unknown): string[] | null {
+  if (!Array.isArray(pfade) || pfade.length > MAX_IMPORT_PFADE) return null;
+  if (!pfade.every((p) => typeof p === 'string')) return null;
+  return (pfade as string[]).filter((p) => path.isAbsolute(p));
+}
+
 export async function ladeDateien(
   pfade: readonly string[],
   opts: { expandBuilds: boolean },

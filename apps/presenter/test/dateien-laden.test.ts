@@ -33,7 +33,7 @@ registerHooks({
   },
 });
 
-const { ladeDateien } = await import('../src/main/dateien-laden');
+const { ladeDateien, pruefeImportPfade } = await import('../src/main/dateien-laden');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmpr-laden-'));
 const pdfBytes = new TextEncoder().encode('%PDF-1.4');
@@ -79,6 +79,16 @@ try {
   // Reihenfolge
   r = await ladeDateien([p('b.PNG'), p('Deck.pptx'), p('a.pdf')], { expandBuilds: false });
   ck('Reihenfolge bleibt', r.files.map((f) => f.name).join('|') === 'b.PNG|Deck.pdf|a.pdf');
+  // Eingabeprüfung für files:importPaths
+  const abs = p('a.pdf');
+  ck('kein Array → null', pruefeImportPfade('x') === null && pruefeImportPfade(undefined) === null);
+  ck('Nicht-String → null', pruefeImportPfade([abs, 5]) === null);
+  ck('201 Pfade → null', pruefeImportPfade(Array.from({ length: 201 }, () => abs)) === null);
+  ck('200 Pfade ok', pruefeImportPfade(Array.from({ length: 200 }, () => abs))?.length === 200);
+  ck('relativer Pfad entfällt', JSON.stringify(pruefeImportPfade(['a.pdf', abs])) === JSON.stringify([abs]));
+  const unc = '\\\\nas\\share\\a.pdf';
+  // path.isAbsolute kennt UNC nur unter Windows; dort läuft die Zielanwendung.
+  ck('UNC-Pfad bleibt', process.platform !== 'win32' || pruefeImportPfade([unc])?.[0] === unc);
 } finally {
   fs.rmSync(dir, { recursive: true, force: true });
 }

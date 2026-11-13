@@ -12,7 +12,7 @@ import type {
   TimerSyncConfig,
 } from '@shared/types';
 import { IMAGE_EXT, OFFICE_EXT } from '@shared/dateien';
-import { ladeDateien } from './dateien-laden';
+import { ladeDateien, pruefeImportPfade } from './dateien-laden';
 import { importOfficeFile } from './office/import';
 import {
   broadcastAll,
@@ -122,11 +122,13 @@ export function registerIpc(): void {
 
   ipcMain.handle(
     'files:importPaths',
-    (_e, pfade: unknown, expandBuilds: unknown): Promise<GeladeneDateien> => {
-      if (!Array.isArray(pfade) || !pfade.every((p) => typeof p === 'string')) {
-        return Promise.resolve({ files: [], projekt: null, hinweise: [] });
-      }
-      return ladeDateien(pfade as string[], { expandBuilds: expandBuilds === true });
+    (e, pfade: unknown, expandBuilds: unknown): Promise<GeladeneDateien> => {
+      const leer = { files: [], projekt: null, hinweise: [] };
+      // Nur das Editor-Fenster darf Dateien per Pfad laden (alle Fenster teilen den Preload).
+      if (e.sender !== getEditorWindow()?.webContents) return Promise.resolve(leer);
+      const geprueft = pruefeImportPfade(pfade);
+      if (!geprueft) return Promise.resolve(leer);
+      return ladeDateien(geprueft, { expandBuilds: expandBuilds === true });
     },
   );
 
