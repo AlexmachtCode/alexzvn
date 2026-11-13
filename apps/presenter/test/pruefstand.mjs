@@ -16,18 +16,24 @@
 // Gepackte und installierte App teilen Single-Instance-Lock und userData: Läuft
 // schon ein JM Presenter, bricht der Prüfstand ab, statt still mit der falschen
 // App zu reden. Er beendet nur Prozessbäume, die er selbst gestartet hat.
+// Ausnahme Gruppe `steuerbefehl`: Sie startet die App mit eigenem USERPROFILE im
+// Testordner (appData/userData dort) und einer offenen Steuer-Konfiguration nur für
+// 127.0.0.1; die echte Steuer-Konfiguration des Rechners bleibt ungelesen und unberührt.
 // Windows, Node ≥ 22 (globales WebSocket); pdf-lib und fflate aus dem Workspace.
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFHexString } from 'pdf-lib';
 import { strToU8, zipSync } from 'fflate';
 
 const HIER = path.dirname(fileURLToPath(import.meta.url));
 const BILD = 'JM Presenter.exe';
 const PORT = 9333;
+/** TCP-Steuerserver der App (src/main/control-server.ts). */
+const STEUER_PORT = 8728;
 const LIBREOFFICE = 'C:\\Program Files\\LibreOffice';
 const PNG_1X1 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -108,16 +114,21 @@ process.on('exit', () => {
 });
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => process.exit(130));
 
-/** Umgebung ohne ELECTRON_RUN_AS_NODE (sonst startet die Exe als reines Node). */
-function appUmgebung() {
-  return Object.fromEntries(
-    Object.entries(process.env).filter(([k]) => k.toUpperCase() !== 'ELECTRON_RUN_AS_NODE'),
-  );
+/**
+ * Umgebung ohne ELECTRON_RUN_AS_NODE (sonst startet die Exe als reines Node), dazu `extra`
+ * (Schlüssel ohne Rücksicht auf Groß-/Kleinschreibung ersetzt).
+ */
+function appUmgebung(extra = {}) {
+  const weg = new Set(['ELECTRON_RUN_AS_NODE', ...Object.keys(extra).map((k) => k.toUpperCase())]);
+  return {
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !weg.has(k.toUpperCase()))),
+    ...extra,
+  };
 }
 
 /** Startet die Exe mit Remote-Debugging. */
-function starteApp(exe, args = []) {
-  const kind = spawn(exe, [`--remote-debugging-port=${PORT}`, ...args], { env: appUmgebung(), stdio: 'ignore' });
+function starteApp(exe, args = [], extra = {}) {
+  const kind = spawn(exe, [`--remote-debugging-port=${PORT}`, ...args], { env: appUmgebung(extra), stdio: 'ignore' });
   const app = { pid: kind.pid, ziele: [], beendet: null };
   kind.on('exit', (code, signal) => {
     app.beendet = `Code ${code ?? signal}`;
@@ -143,8 +154,8 @@ async function beendeApp(app) {
  * Remote-Debugging. Sie reicht ihre Kommandozeile an die laufende App weiter und beendet sich
  * selbst (Single-Instance-Lock). Wartet, bis sie weg ist.
  */
-async function zweiteInstanz(exe, args) {
-  const kind = spawn(exe, args, { env: appUmgebung(), stdio: 'ignore' });
+async function zweiteInstanz(exe, args, extra = {}) {
+  const kind = spawn(exe, args, { env: appUmgebung(extra), stdio: 'ignore' });
   const app = { pid: kind.pid, ziele: [], beendet: null };
   if (kind.pid) laufende.add(app);
   const ende = await new Promise((res) => {
@@ -166,8 +177,8 @@ async function zweiteInstanz(exe, args) {
 }
 
 /** Startet die App, öffnet den Editor, führt `fn(app, editor)` aus, beendet die App immer. */
-async function mitApp(gruppe, exe, args, fn) {
-  const app = starteApp(exe, args);
+async function mitApp(gruppe, exe, args, fn, extra = {}) {
+  const app = starteApp(exe, args, extra);
   try {
     const editor = await oeffneEditor(app);
     await fn(app, editor);
@@ -422,6 +433,16 @@ function domZiehenMitschreiben() {
 
 const gezogen = (ziel) => auswerten(ziel, 'window.__pruefstandZiehen ?? []');
 
+/** Legt eine in der Seite erzeugte Datei (ohne Pfad auf der Platte) in der Fenstermitte ab. */
+function domLegeOhnePfadAb(name) {
+  const dt = new DataTransfer();
+  dt.items.add(new File([new Uint8Array([37, 80, 68, 70, 45])], name, { type: 'application/pdf' }));
+  const ziel = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+  if (!ziel || !dt.types.includes('Files')) return false;
+  ziel.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  return true;
+}
+
 function domFolienMitten() {
   return [...document.querySelectorAll('aside [draggable="true"]')].map((e) => {
     const r = e.getBoundingClientRect();
@@ -445,6 +466,29 @@ async function aktuelleUrl(ziel) {
 
 // ---------------------------------------------------------------- Testdateien
 
+/**
+ * Ein PDF mit Kennwort (Standard-Sicherheit, R2). pdf-lib verschlüsselt nicht; es reicht ein
+ * /Encrypt-Eintrag, dessen /U nicht zum leeren Kennwort passt: pdf.js verlangt dann ein
+ * Kennwort (PasswordException „No password given“, gemessen mit pdfjs-dist 4.10).
+ */
+async function geschuetztesPdf() {
+  const doc = await PDFDocument.create();
+  doc.addPage([480, 270]);
+  const ctx = doc.context;
+  const sicherheit = ctx.obj({
+    Filter: 'Standard',
+    V: 1,
+    R: 2,
+    O: PDFHexString.of('11'.repeat(32)),
+    U: PDFHexString.of('22'.repeat(32)),
+    P: -4,
+  });
+  ctx.trailerInfo.Encrypt = ctx.register(sicherheit);
+  const id = PDFHexString.of('0123456789abcdef0123456789abcdef');
+  ctx.trailerInfo.ID = ctx.obj([id, id]);
+  return doc.save({ useObjectStreams: false });
+}
+
 async function baueTestdateien() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmpr-pruefstand-'));
   const p = (name) => path.join(dir, name);
@@ -465,6 +509,11 @@ async function baueTestdateien() {
     ordner: p('ordner'),
     projekt: p('Projekt.jmpres'),
     show: p('show.jmshow'),
+    kaputt: p('kaputt.pdf'),
+    geschuetzt: p('geschuetzt.pdf'),
+    /** 201 Bilder: eins mehr, als der Hauptprozess je Aufruf annimmt. */
+    viele: Array.from({ length: 201 }, (_, i) => p(path.join('viele', `bild-${String(i + 1).padStart(3, '0')}.png`))),
+    profil: p('profil'),
   };
   fs.writeFileSync(d.a, await pdf(2));
   fs.writeFileSync(d.eins, eins);
@@ -473,6 +522,11 @@ async function baueTestdateien() {
   fs.writeFileSync(d.rtf, '{\\rtf1\\ansi Hallo}');
   fs.writeFileSync(d.mp4, Uint8Array.of(0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50));
   fs.mkdirSync(d.ordner);
+  // 0 Byte: pdf.js meldet „The PDF file is empty“.
+  fs.writeFileSync(d.kaputt, new Uint8Array(0));
+  fs.writeFileSync(d.geschuetzt, await geschuetztesPdf());
+  fs.mkdirSync(p('viele'));
+  for (const v of d.viele) fs.writeFileSync(v, Buffer.from(PNG_1X1, 'base64'));
   // Format wie src/renderer/src/lib/project-file.ts
   const manifest = {
     schemaVersion: 1,
@@ -499,6 +553,12 @@ async function baueTestdateien() {
 async function gruppeAblage({ exe, d }) {
   await mitApp('ablage', exe, [], async (_app, ed) => {
     const { x, y } = await auswerten(ed, imDom(domMitte));
+
+    // Seiten-JS darf keine Pfade an den Hauptprozess schicken; der Preload holt sie selbst.
+    await fall('Hauptwelt ohne Pfad-Kanal: window.jmpr.files.importPaths und .pfadFuer gibt es nicht', async () => {
+      const typen = await auswerten(ed, '[typeof window.jmpr.files.importPaths, typeof window.jmpr.files.pfadFuer]');
+      erwarte(JSON.stringify(typen) === '["undefined","undefined"]', `importPaths/pfadFuer: ${typen.join(' / ')}`);
+    });
 
     await fall('leerer Editor: a.pdf (2 Seiten) + b.png ablegen → Folien · 3, keine Fehlerzeile', async () => {
       erwarte((await folienZahl(ed)) === null, 'Editor ist nicht leer');
@@ -558,7 +618,10 @@ async function gruppeAblage({ exe, d }) {
       erwarte(n === vorher + 1, `Folien · ${n ?? '–'} statt ${vorher + 1}`);
     });
 
-    await fall('Folie 1 auf Folie 3 ziehen (ohne Dateien) → keine Ablege-Fläche, Folienzahl gleich', async () => {
+    // Kein Umsortier-Test: CDP kann kein dragstart auslösen, die Folienliste sieht also kein
+    // eigenes Ziehen. Geprüft wird nur, dass Ziehen OHNE Dateien (text/plain, wie beim
+    // Umsortieren) keine Ablege-Fläche zeigt und nichts importiert.
+    await fall('Ziehen ohne Dateien (text/plain, von Folie 1 nach Folie 3) → keine Ablege-Fläche, Folienzahl gleich', async () => {
       const vorher = await folienZahl(ed);
       const m = await auswerten(ed, imDom(domFolienMitten));
       erwarte(m.length >= 3, `nur ${m.length} Folien in der Liste`);
@@ -626,6 +689,60 @@ async function gruppeAblage({ exe, d }) {
       erwarte(n === vorher + 2, `Folien · ${n ?? '–'} statt ${vorher + 2}`);
       erwarte(f?.includes(soll), `Fehlerzeile: „${f}“`);
     });
+
+    await fall('a.pdf + kaputt.pdf (0 Byte) + b.png → Folien +3, Fehlerzeile nennt „kaputt.pdf“', async () => {
+      const vorher = await folienZahl(ed);
+      await ablegen(ed, [d.a, d.kaputt, d.png], x, y);
+      const n = await bisWert(() => folienZahl(ed), (v) => v === vorher + 3);
+      const soll = '„kaputt.pdf“ konnte nicht gelesen werden (beschädigt oder kennwortgeschützt).';
+      const f = await bisWert(() => fehlerZeile(ed), (v) => v?.includes(soll), 5_000);
+      erwarte(n === vorher + 3, `Folien · ${n ?? '–'} statt ${vorher + 3}, Fehlerzeile „${f}“`);
+      erwarte(f?.includes(soll), `Fehlerzeile: „${f}“`);
+    });
+
+    await fall('geschuetzt.pdf (Kennwort) + b.png → Folien +1, Fehlerzeile nennt „geschuetzt.pdf“', async () => {
+      const vorher = await folienZahl(ed);
+      await ablegen(ed, [d.geschuetzt, d.png], x, y);
+      const n = await bisWert(() => folienZahl(ed), (v) => v === vorher + 1);
+      const soll = '„geschuetzt.pdf“ konnte nicht gelesen werden (beschädigt oder kennwortgeschützt).';
+      const f = await bisWert(() => fehlerZeile(ed), (v) => v?.includes(soll), 5_000);
+      erwarte(n === vorher + 1, `Folien · ${n ?? '–'} statt ${vorher + 1}, Fehlerzeile „${f}“`);
+      erwarte(f?.includes(soll), `Fehlerzeile: „${f}“`);
+    });
+
+    // Hinweise des Hauptprozesses (nicht unterstützt) und des Editors (nicht lesbar) stehen zusammen.
+    await fall('film.mp4 + kaputt.pdf + b.png → Folien +1, Fehlerzeile nennt film.mp4 UND „kaputt.pdf“', async () => {
+      const vorher = await folienZahl(ed);
+      await ablegen(ed, [d.mp4, d.kaputt, d.png], x, y);
+      const n = await bisWert(() => folienZahl(ed), (v) => v === vorher + 1);
+      const soll = 'Nicht unterstützt, übersprungen: film.mp4 · „kaputt.pdf“ konnte nicht gelesen werden (beschädigt oder kennwortgeschützt).';
+      const f = await bisWert(() => fehlerZeile(ed), (v) => v === soll, 5_000);
+      erwarte(n === vorher + 1, `Folien · ${n ?? '–'} statt ${vorher + 1}`);
+      erwarte(f === soll, `Fehlerzeile: „${f}“`);
+    });
+
+    // Eine Datei aus dem Browser oder einer Mail hat keinen Pfad. CDP-Ablegen liefert immer
+    // Pfade; darum hier ein drop-Ereignis mit einer in der Seite erzeugten Datei.
+    await fall('Datei ohne Pfad (z. B. aus dem Browser) → Folienzahl gleich, Fehlerzeile „Ohne Dateipfad, übersprungen: mail.pdf …“', async () => {
+      const vorher = await folienZahl(ed);
+      erwarte(await auswerten(ed, imDom(domLegeOhnePfadAb, 'mail.pdf')), 'drop-Ereignis ließ sich nicht auslösen');
+      const soll = 'Ohne Dateipfad, übersprungen: mail.pdf (bitte zuerst speichern und dann hineinziehen).';
+      const f = await bisWert(() => fehlerZeile(ed), (v) => v?.includes(soll), 5_000);
+      erwarte(f?.includes(soll), `Fehlerzeile: „${f}“`);
+      await pause(300);
+      const n = await folienZahl(ed);
+      erwarte(n === vorher, `Folien · ${n ?? '–'} statt ${vorher}`);
+    });
+
+    // Zuletzt: danach hat das Deck über 200 Folien.
+    await fall('201 Bilder auf einmal ablegen → alle kommen an (Folien +201), keine Fehlerzeile', async () => {
+      const vorher = await folienZahl(ed);
+      await ablegen(ed, d.viele, x, y);
+      const n = await bisWert(() => folienZahl(ed), (v) => v === vorher + 201, 30_000, 250);
+      const f = await fehlerZeile(ed);
+      erwarte(n === vorher + 201, `Folien · ${n ?? '–'} statt ${vorher + 201}, Fehlerzeile „${f}“`);
+      erwarte(f === '', `Fehlerzeile: „${f}“`);
+    });
   });
 }
 
@@ -658,9 +775,27 @@ const domKlickePraesentieren = () => {
   return true;
 };
 
+/** Seiten (Fenster) der App laut /json/list. */
+async function seiten() {
+  return (await zielListe()).filter((t) => t.type === 'page');
+}
+
+/** `window.open(url)` mit Nutzergeste (sonst könnte ein Popup-Blocker statt der App entscheiden). */
+async function fensterOeffnen(ziel, url) {
+  const r = await ziel.send('Runtime.evaluate', {
+    expression: `window.open(${JSON.stringify(url)}) === null`,
+    userGesture: true,
+    returnByValue: true,
+  });
+  return r.result?.value;
+}
+
+// Die Fälle „… ablegen → Adresse gleich“ sind Regressionswachen, KEIN Beweis für den
+// Navigations-Wächter: Ablegen per CDP löst in Electron 33 nie eine Navigation aus (gemessen
+// vor dem Wächter, Ruling R6). Den Wächter beweisen die Fälle „Seitennavigation … abgewiesen“.
 async function gruppeNavigation({ exe, d }) {
   await mitApp('navigation', exe, [], async (app, ed) => {
-    await fall('Ablegen aufs leere Editor-Fenster lässt die Seite stehen', async () => {
+    await fall('leerer Editor: Ablegen per CDP → Adresse gleich (Regressionswache, kein Wächter-Beweis)', async () => {
       const { vorher, nachher, gesehen } = await ablegenUndPruefen(ed, [d.a]);
       console.log(`      URL vorher:  ${vorher}`);
       console.log(`      URL nachher: ${nachher}`);
@@ -685,7 +820,7 @@ async function gruppeNavigation({ exe, d }) {
     });
 
     for (const [name, hole] of [['Referent', () => referent], ['Publikum', () => publikum]]) {
-      await fall(`${name}: eins.pdf ablegen → Adresse gleich, Präsentation weiter aktiv, Index gleich`, async () => {
+      await fall(`${name}: eins.pdf ablegen → Präsentation weiter aktiv, Index gleich, Adresse gleich (Regressionswache)`, async () => {
         const z = hole();
         if (!z) ueberspringe('Fenster fehlt (Präsentation nicht gestartet)');
         const vorher = await auswerten(z, 'window.jmpr.present.getState()');
@@ -703,6 +838,17 @@ async function gruppeNavigation({ exe, d }) {
         if (!z) ueberspringe('Fenster fehlt (Präsentation nicht gestartet)');
         const { vorher, nachher } = await seitenNavigation(z);
         erwarte(nachher === vorher, `Seite navigiert: ${nachher}`);
+      });
+
+      await fall(`${name}: window.open('https://example.org') öffnet kein Fenster`, async () => {
+        const z = hole();
+        if (!z) ueberspringe('Fenster fehlt (Präsentation nicht gestartet)');
+        const vorher = (await seiten()).map((t) => t.id);
+        const abgewiesen = await fensterOeffnen(z, 'https://example.org');
+        await pause(1_000);
+        const neu = (await seiten()).filter((t) => !vorher.includes(t.id));
+        erwarte(neu.length === 0, `neue Seite(n): ${neu.map((t) => t.url || '(leer)').join(', ')}`);
+        erwarte(abgewiesen === true, 'window.open lieferte ein Fenster');
       });
     }
 
@@ -765,6 +911,28 @@ async function drueckeEscape(ziel) {
   for (const type of ['rawKeyDown', 'keyUp']) {
     await ziel.send('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   }
+}
+
+/**
+ * Beendet eine laufende Präsentation, startet sie neu mit ▶ Präsentieren und prüft das Paket fürs
+ * Publikum: so viele Folien wie im Editor, jede mit den Bytes ihrer Quelle. Fehlen die Quellen,
+ * bleiben Vorschau und Publikum schwarz, und Speichern verliert die PDFs.
+ */
+async function praesentiereUndPruefeQuellen(ed) {
+  if ((await auswerten(ed, 'window.jmpr.present.getState()'))?.active) {
+    await auswerten(ed, 'window.jmpr.present.stop()');
+    const aus = await warteBis(async () => (await auswerten(ed, 'window.jmpr.present.getState()'))?.active === false, 10_000);
+    erwarte(aus, 'laufende Präsentation endet nicht');
+  }
+  const n = await folienZahl(ed);
+  erwarte(await warteBis(() => auswerten(ed, imDom(domKlickePraesentieren)), 10_000), 'Knopf „▶ Präsentieren“ nicht bedienbar');
+  const p = await bisWert(
+    () => auswerten(ed, 'window.jmpr.present.getPayload().then((p) => p && { folien: p.slides.length, mitQuelle: p.slides.filter((s) => p.sources[s.sourceId]?.bytes?.length > 0).length })'),
+    (v) => v != null,
+    10_000,
+  );
+  erwarte(p?.folien === n, `Publikum bekommt ${p?.folien ?? '–'} Folien statt ${n}`);
+  erwarte(p.mitQuelle === p.folien, `nur ${p.mitQuelle} von ${p.folien} Folien mit Quelle (Vorschau/Publikum schwarz)`);
 }
 
 async function gruppeDoppelklick({ exe, d }) {
@@ -913,13 +1081,165 @@ async function gruppeDoppelklick({ exe, d }) {
       erwarte(fehler === '', `Fehlerzeile: „${fehler}“`);
       await klicke('Abbrechen');
     });
+
+    // Ein Show-Link legt ein neues Projekt hin; eine alte Frage legte ihre Dateien sonst darauf.
+    await fall('Frage offen, dann Show-Link → Frage weg, Projekt.jmpres geladen (Folien · 1), keine Fehlerzeile', async () => {
+      const f = await zweitesOeffnen(d.png);
+      erwarte(f?.titel === '„b.png“ öffnen', `Titel „${f?.titel ?? '(keine Frage)'}“`);
+      await zweiteInstanz(exe, [`jmps://open?show=${encodeURIComponent(d.show)}`]);
+      const n = await bisWert(() => folienZahl(ed), (v) => v === 1);
+      erwarte(n === 1, `Folien · ${n ?? '–'} statt 1`);
+      erwarte(await warteBis(() => keineFrage(ed), 3_000), `Frage bleibt stehen: ${JSON.stringify(await frage(ed))}`);
+      const fehler = await fehlerZeile(ed);
+      erwarte(fehler === '', `Fehlerzeile: „${fehler}“`);
+    });
+
+    // Ersetzen ist ein Tausch: Erst wenn die neue Datei gelesen ist, geht das alte Deck.
+    for (const [datei, art] of [[d.kaputt, '0 Byte'], [d.geschuetzt, 'Kennwort']]) {
+      const name = path.basename(datei);
+      await fall(`${name} (${art}) per zweiter Instanz, Ersetzen → Deck bleibt (Folienzahl gleich), Fehlerzeile nennt „${name}“`, async () => {
+        // Unabhängig vom Fall davor: eine dort stehen gebliebene Frage hätte diese Datei geschluckt.
+        if (await frage(ed)) {
+          await klicke('Abbrechen');
+          erwarte(await warteBis(() => keineFrage(ed), 3_000), 'alte Frage lässt sich nicht schließen');
+        }
+        const vorher = await folienZahl(ed);
+        const f = await zweitesOeffnen(datei);
+        erwarte(f?.titel === `„${name}“ öffnen`, `Titel „${f?.titel ?? '(keine Frage)'}“`);
+        await klicke('Ersetzen');
+        const soll = `„${name}“ konnte nicht gelesen werden (beschädigt oder kennwortgeschützt).`;
+        const fehler = await bisWert(() => fehlerZeile(ed), (v) => v?.includes(soll), 5_000);
+        const n = await folienZahl(ed);
+        erwarte(fehler?.includes(soll), `Fehlerzeile: „${fehler}“`);
+        erwarte(n === vorher, `Folien · ${n ?? '–'} statt ${vorher}`);
+      });
+    }
+
+    await fall('nach gescheitertem Ersetzen: ▶ Präsentieren gibt dem Publikum jede Folie samt Quelle', async () => {
+      await praesentiereUndPruefeQuellen(ed);
+    });
   });
+}
+
+/**
+ * Eigenes Benutzerprofil für die App: Mit umgelenktem USERPROFILE liegen appData und userData
+ * der gepackten App darin (gemessen). Dort eine OFFENE Steuer-Konfiguration nur für 127.0.0.1 –
+ * die echte Konfiguration des Rechners (TLS + Anmeldung) wird weder gelesen noch geändert.
+ */
+function steuerProfil(d) {
+  const suite = path.join(d.profil, 'AppData', 'Roaming', 'JM Production Suite');
+  fs.mkdirSync(suite, { recursive: true });
+  fs.mkdirSync(path.join(d.profil, 'AppData', 'Local'), { recursive: true });
+  fs.writeFileSync(path.join(suite, 'control.json'), JSON.stringify({ mode: 'open', bindHost: '127.0.0.1' }));
+  return { USERPROFILE: d.profil };
+}
+
+/**
+ * Schickt eine Zeile an den Steuerserver. Nur an einen OFFENEN Server (Begrüßung „STATE …“);
+ * fordert er eine Anmeldung, wird der Fall übersprungen, ohne etwas zu senden.
+ */
+async function steuerbefehl(zeile, ms = 15_000) {
+  const ende = Date.now() + ms;
+  for (;;) {
+    try {
+      return await new Promise((res, rej) => {
+        const s = net.connect(STEUER_PORT, '127.0.0.1');
+        let puffer = '';
+        const t = setTimeout(() => {
+          s.destroy();
+          rej(new Error('keine Begrüßung vom Steuerserver'));
+        }, 5_000);
+        s.setEncoding('utf8');
+        s.on('data', (teil) => {
+          puffer += teil;
+          if (!puffer.includes('\n')) return;
+          clearTimeout(t);
+          const erste = puffer.split('\n')[0];
+          if (!erste.startsWith('STATE')) {
+            // Dann gilt NICHT die Testkonfiguration (Umlenkung greift nicht): nichts senden.
+            s.destroy();
+            rej(new Ueberspringen(`Steuerserver verlangt Anmeldung (Begrüßung „${erste.slice(0, 12)}…“) – Testprofil greift nicht`));
+            return;
+          }
+          s.end(`${zeile}\n`, () => res());
+        });
+        s.on('error', (e) => {
+          clearTimeout(t);
+          rej(e);
+        });
+      });
+    } catch (e) {
+      // Der Server startet erst nach dem Editor-Fenster: Verbindungsfehler eine Weile wiederholen.
+      if (e instanceof Ueberspringen || Date.now() > ende) throw e;
+      await pause(250);
+    }
+  }
+}
+
+async function gruppeSteuerbefehl({ exe, d }) {
+  const umgebung = steuerProfil(d);
+  await mitApp('steuerbefehl', exe, [], async (_app, ed) => {
+    const oeffne = (pfad) => steuerbefehl(`PRESENTER OPEN ${pfad}`);
+    const klicke = async (text) => erwarte(await auswerten(ed, imDom(domKlickeInFrage, text)), `kein Knopf „${text}“ in der Frage`);
+
+    await fall('PRESENTER OPEN a.pdf ins leere Deck → Folien · 2, keine Frage', async () => {
+      erwarte((await folienZahl(ed)) === null, 'Editor ist nicht leer');
+      await oeffne(d.a);
+      const n = await bisWert(() => folienZahl(ed), (v) => v === 2);
+      erwarte(n === 2, `Folien · ${n ?? '–'} statt 2`);
+      erwarte(await keineFrage(ed), `Frage im Fenster: ${JSON.stringify(await frage(ed))}`);
+    });
+
+    await fall('PRESENTER OPEN Projekt.jmpres aufs ungespeicherte Deck → Projekt geladen (Folien · 1), keine Rückfrage', async () => {
+      const unerwartetVorher = ed.unerwartet.length;
+      await oeffne(d.projekt);
+      const n = await bisWert(() => folienZahl(ed), (v) => v === 1);
+      erwarte(n === 1, `Folien · ${n ?? '–'} statt 1`);
+      const titel = await bisWert(() => auswerten(ed, imDom(domAusgewaehlterTitel)), (v) => v === 'Projektfolie', 3_000);
+      erwarte(titel === 'Projektfolie', `ausgewählt ist „${titel}“ statt „Projektfolie“`);
+      const neu = ed.unerwartet.slice(unerwartetVorher);
+      erwarte(neu.length === 0, `Rückfrage: „${neu.join(' | ')}“`);
+    });
+
+    await fall('PRESENTER OPEN a.pdf aufs gefüllte Deck → ersetzt ohne Frage (Folien · 2)', async () => {
+      await oeffne(d.a);
+      const n = await bisWert(() => folienZahl(ed), (v) => v === 2);
+      erwarte(n === 2, `Folien · ${n ?? '–'} statt 2`);
+      erwarte(await keineFrage(ed), `Frage im Fenster: ${JSON.stringify(await frage(ed))}`);
+      const titel = await auswerten(ed, imDom(domAusgewaehlterTitel));
+      erwarte(titel === 'a 1', `ausgewählt ist „${titel}“ statt „a 1“`);
+    });
+
+    await fall('Frage offen (b.png per zweiter Instanz), dann PRESENTER OPEN eins.pdf → Frage weg, Folien · 1', async () => {
+      await zweiteInstanz(exe, [d.png], umgebung);
+      const f = await bisWert(() => frage(ed), (v) => v !== null);
+      erwarte(f?.titel === '„b.png“ öffnen', `Titel „${f?.titel ?? '(keine Frage)'}“`);
+      await oeffne(d.eins);
+      const n = await bisWert(() => folienZahl(ed), (v) => v === 1);
+      erwarte(n === 1, `Folien · ${n ?? '–'} statt 1`);
+      erwarte(await warteBis(() => keineFrage(ed), 3_000), `Frage bleibt stehen: ${JSON.stringify(await frage(ed))}`);
+    });
+
+    await fall('PRESENTER OPEN kaputt.pdf → Deck bleibt (Folien · 1, Quelle da), Fehlerzeile nennt „kaputt.pdf“', async () => {
+      await oeffne(d.kaputt);
+      const soll = '„kaputt.pdf“ konnte nicht gelesen werden (beschädigt oder kennwortgeschützt).';
+      const fehler = await bisWert(() => fehlerZeile(ed), (v) => v?.includes(soll), 5_000);
+      const n = await folienZahl(ed);
+      erwarte(n === 1, `Folien · ${n ?? '–'} statt 1`);
+      // PRESENTER OPEN fragt nie.
+      erwarte(await keineFrage(ed), `Frage im Fenster: ${JSON.stringify(await frage(ed))}`);
+      // Erst die Quellen, dann der Text: so zeigt ein Fehlschlag beides getrennt.
+      await praesentiereUndPruefeQuellen(ed);
+      erwarte(fehler?.includes(soll), `Fehlerzeile: „${fehler}“`);
+    });
+  }, umgebung);
 }
 
 const GRUPPEN = {
   ablage: gruppeAblage,
   navigation: gruppeNavigation,
   doppelklick: gruppeDoppelklick,
+  steuerbefehl: gruppeSteuerbefehl,
 };
 
 // ---------------------------------------------------------------- Ablauf
@@ -959,7 +1279,8 @@ try {
     await GRUPPEN[g]({ exe: opt.exe, d: dateien });
   }
 } finally {
-  fs.rmSync(dateien.dir, { recursive: true, force: true });
+  // Die App hält Dateien im Testprofil evtl. noch kurz nach dem Beenden.
+  fs.rmSync(dateien.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
 }
 console.log(`pruefstand: ${stand.ok} ok, ${stand.fail} FAIL, ${stand.skip} übersprungen`);
 process.exit(stand.fail ? 1 : 0);
