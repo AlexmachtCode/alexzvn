@@ -50,8 +50,13 @@ export function allImageIds(): string[] {
   return [...images.keys()];
 }
 
-export function clearAssets(): void {
-  sources.clear();
+export function removeSource(id: string): void {
+  sources.delete(id);
+}
+
+/** Alles verwerfen; `behalte` = Quellen, die bleiben (beim Ersetzen die frisch gelesenen). */
+export function clearAssets(behalte?: ReadonlySet<string>): void {
+  for (const id of [...sources.keys()]) if (!behalte?.has(id)) sources.delete(id);
   images.clear();
   for (const url of imageUrls.values()) URL.revokeObjectURL(url);
   imageUrls.clear();

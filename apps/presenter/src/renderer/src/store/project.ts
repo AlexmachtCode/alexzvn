@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import type { ImportedFile, Overlay, ProjectDoc, Slide, SourceMeta, Uebergang, Wiedergabe } from '@shared/types';
+import type { GeladeneDateien, ImportedFile, Overlay, ProjectDoc, Slide, SourceMeta, Uebergang, Wiedergabe } from '@shared/types';
+import type { OeffnenModus } from '../../../shared/dateien';
+import { aufbauHinweise, wieOeffnen } from '../../../shared/dateien';
 import { normiereUebergang, normiereWiedergabe } from '../../../shared/wiedergabe';
 import { uid } from '@/lib/ids';
 import { clearAssets, getSource, getImageBytes, putImage, putSource } from '@/lib/assets';
@@ -42,6 +44,8 @@ interface ProjectState {
   error: string | null;
   /** Neutral, dismissible info message (distinct from the red error banner). */
   notice: string | null;
+  /** Abgelegte Dateien, zu denen noch die Frage „ersetzen oder anhängen?“ offen ist. */
+  frage: { files: ImportedFile[] } | null;
 
   // selection
   select: (id: string | null) => void;
@@ -53,9 +57,14 @@ interface ProjectState {
    * Bereits gelesene Dateien (PDF/Bild) als Quellen+Folien einpflegen. `replace`
    * ersetzt das aktuelle Projekt (frisches Deck) — genutzt vom PRESENTER-OPEN-
    * Steuerbefehl; `importDocs` ruft es mit replace=false (anhängen).
+   * Unlesbare PDFs landen mit Namen in `error`, die übrigen Dateien kommen trotzdem an.
+   * Ersetzt wird erst, wenn mindestens eine Datei lesbar war; sonst bleibt das Deck.
    */
   ingestImportedFiles: (files: ImportedFile[], replace?: boolean) => Promise<void>;
   importOffice: () => Promise<void>;
+  /** Vom Hauptprozess geladene Dateien nach `modus` öffnen (Drop, Doppelklick, PRESENTER OPEN). */
+  oeffneGeladene: (g: GeladeneDateien, modus: OeffnenModus) => Promise<void>;
+  beantworteFrage: (wahl: 'ersetzen' | 'anhaengen' | 'abbrechen') => Promise<void>;
   newProject: () => void;
   openProject: () => Promise<void>;
   /** Projekt aus rohen .jmpres-Bytes laden (manuell oder via Show-Deep-Link). */
@@ -94,6 +103,19 @@ function replaceSlide(doc: ProjectDoc, id: string, fn: (s: Slide) => Slide): Pro
   return { ...doc, slides: doc.slides.map((s) => (s.id === id ? fn(s) : s)) };
 }
 
+// Lieferungen (Doppelklick, PRESENTER OPEN, Ablegen) und Importe nach einer Antwort laufen
+// nacheinander. Beim Kaltstart kommen mehrere Lieferungen direkt hintereinander; ohne Reihe
+// sähe jede noch den leeren Editor und ersetzte, während die erste noch importiert – deren
+// Quellen wären danach gelöscht, die Dateien der zweiten still verloren.
+let reihe: Promise<void> = Promise.resolve();
+
+function nacheinander(schritt: () => Promise<void>): Promise<void> {
+  const lauf = reihe.then(schritt);
+  // Ein fehlgeschlagener Schritt hält die Reihe nicht an; der Aufrufer sieht den Fehler weiter.
+  reihe = lauf.catch(() => undefined);
+  return lauf;
+}
+
 export const useProject = create<ProjectState>((set, get) => ({
   doc: emptyDoc(),
   selectedId: null,
@@ -102,6 +124,7 @@ export const useProject = create<ProjectState>((set, get) => ({
   busy: { active: false, label: '' },
   error: null,
   notice: null,
+  frage: null,
 
   select: (id) => set({ selectedId: id, selectedOverlayId: null }),
   selectOverlay: (id) => set({ selectedOverlayId: id }),
@@ -116,22 +139,32 @@ export const useProject = create<ProjectState>((set, get) => ({
   ingestImportedFiles: async (files, replace = false) => {
     set({ busy: { active: true, label: replace ? 'Lade Präsentation…' : 'Importiere…' }, error: null });
     try {
-      // replace = frisches Deck: alte Quellen-Caches leeren (wie newProject).
-      if (replace) {
-        clearPdfCaches();
-        clearAssets();
-      }
-      const baseDoc = replace ? emptyDoc() : get().doc;
+      // Erst alles Neue unter frischen IDs lesen; das offene Deck bleibt bis dahin unberührt.
+      // Eine unlesbare Datei (beschädigt, kennwortgeschützt) hält die anderen nicht auf.
       const newSources: SourceMeta[] = [];
       const newSlides: Slide[] = [];
+      const fehler: string[] = [];
+      let hinweis: string | null = null;
       for (const f of files) {
         const sourceId = uid('src');
         const base = stripExt(f.name);
         if (f.kind === 'pdf') {
-          const count = await pdfPageCount(sourceId, f.bytes);
+          let count: number;
+          try {
+            count = await pdfPageCount(sourceId, f.bytes);
+          } catch (err) {
+            console.warn(`PDF „${f.name}“ nicht lesbar:`, err);
+            fehler.push(`„${f.name}“ konnte nicht gelesen werden (beschädigt oder kennwortgeschützt).`);
+            continue;
+          }
           newSources.push({ id: sourceId, kind: 'pdf', name: f.name, pageCount: count });
+          const auf = aufbauHinweise(f.animations, count, !!f.expanded);
+          if (auf.hinweis) hinweis = auf.hinweis;
           for (let p = 0; p < count; p += 1) {
-            newSlides.push(makeSlide(sourceId, p, count > 1 ? `${base} ${p + 1}` : base));
+            const slide = makeSlide(sourceId, p, count > 1 ? `${base} ${p + 1}` : base);
+            const notiz = auf.notizen[p];
+            if (notiz) slide.notes = notiz;
+            newSlides.push(slide);
           }
         } else {
           putSource(sourceId, 'image', f.bytes);
@@ -139,17 +172,30 @@ export const useProject = create<ProjectState>((set, get) => ({
           newSlides.push(makeSlide(sourceId, 0, base));
         }
       }
-      const merged: ProjectDoc = {
-        ...baseDoc,
-        sources: [...baseDoc.sources, ...newSources],
-        slides: [...baseDoc.slides, ...newSlides],
-      };
-      set({
-        doc: merged,
-        dirty: true,
-        selectedId: replace ? (newSlides[0]?.id ?? null) : (get().selectedId ?? newSlides[0]?.id ?? null),
-        selectedOverlayId: replace ? null : get().selectedOverlayId,
-      });
+      // Ist gar nichts lesbar, bleibt das offene Deck, wie es ist – auch beim Ersetzen.
+      if (newSources.length) {
+        if (replace) {
+          // Ersetzen = Tausch: erst jetzt die alten Quellen verwerfen (wie newProject), die neuen bleiben.
+          const neu = new Set(newSources.map((s) => s.id));
+          clearPdfCaches(neu);
+          clearAssets(neu);
+        }
+        const baseDoc = replace ? emptyDoc() : get().doc;
+        const merged: ProjectDoc = {
+          ...baseDoc,
+          sources: [...baseDoc.sources, ...newSources],
+          slides: [...baseDoc.slides, ...newSlides],
+        };
+        set({
+          doc: merged,
+          dirty: true,
+          selectedId: replace ? (newSlides[0]?.id ?? null) : (get().selectedId ?? newSlides[0]?.id ?? null),
+          selectedOverlayId: replace ? null : get().selectedOverlayId,
+          // Beim Ersetzen gehört ein alter Hinweis (z. B. zu Animationen) zum verworfenen Deck.
+          ...(replace ? { notice: hinweis } : hinweis ? { notice: hinweis } : {}),
+        });
+      }
+      if (fehler.length) set({ error: fehler.join(' · ') });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -165,42 +211,56 @@ export const useProject = create<ProjectState>((set, get) => ({
         if (res.error && res.error !== 'Abgebrochen.') set({ error: res.error });
         return;
       }
-      const sourceId = uid('src');
-      const base = stripExt(res.name ?? 'Dokument');
-      const count = await pdfPageCount(sourceId, res.bytes);
-      const doc = get().doc;
-      const newSlides: Slide[] = [];
-      // Map the original deck's on-click builds onto the flattened slides. The
-      // mapping is 1 PDF page per PPTX slide, so only annotate when the counts
-      // line up — otherwise we'd risk tagging the wrong slide.
-      const anim = res.animations;
-      const builds = anim && anim.perSlide.length === count ? anim.perSlide : null;
-      for (let p = 0; p < count; p += 1) {
-        const slide = makeSlide(sourceId, p, count > 1 ? `${base} ${p + 1}` : base);
-        if (builds && builds[p] > 0) {
-          slide.notes = `▸ Original-Animation: ${builds[p]} Aufbau-Klick(s) auf dieser Folie.`;
-        }
-        newSlides.push(slide);
-      }
-      set({
-        doc: {
-          ...doc,
-          sources: [...doc.sources, { id: sourceId, kind: 'pdf', name: base, pageCount: count }],
-          slides: [...doc.slides, ...newSlides],
-        },
-        dirty: true,
-        selectedId: get().selectedId ?? newSlides[0]?.id ?? null,
-        notice: res.expanded
-          ? `Aufbau-Animationen als Einzelschritte importiert — ${count} Schritt-Folien (experimentell).`
-          : anim && anim.animatedSlides > 0
-            ? `${anim.animatedSlides} Folie(n) hatten Aufbau-Animationen (${anim.totalBuilds} Klicks) — als Notiz vermerkt.`
-            : null,
-      });
+      await get().ingestImportedFiles(
+        [{ name: res.name ?? 'Dokument.pdf', kind: 'pdf', bytes: res.bytes, animations: res.animations, expanded: res.expanded }],
+        false,
+      );
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
     } finally {
       set({ busy: { active: false, label: '' } });
     }
+  },
+
+  oeffneGeladene: (g, modus) =>
+    nacheinander(async () => {
+      // PRESENTER OPEN und Show-Links legen ein neues Deck hin; eine alte Frage legte sonst ihre Dateien darauf.
+      if (modus === 'ersetzen') set({ frage: null });
+      // Was der Editor selbst nicht lesen konnte (kaputte PDF, defektes Projekt).
+      let eigene: string | null = null;
+      if (g.projekt) {
+        const s = get();
+        if (modus !== 'ersetzen' && s.dirty && s.doc.slides.length > 0) {
+          const ok = window.confirm(
+            `Aktuelle Präsentation verwerfen und „${g.projekt.name}“ öffnen? Nicht gespeicherte Änderungen gehen verloren.`,
+          );
+          if (!ok) return;
+        }
+        get().openProjectFromBytes(g.projekt.bytes);
+        eigene = get().error;
+      } else if (g.files.length) {
+        const wie = wieOeffnen(modus, get().doc.slides.length > 0);
+        if (wie === 'fragen') {
+          const bisher = get().frage?.files ?? [];
+          const neu = g.files.filter((f) => !bisher.some((b) => b.name === f.name && b.bytes.length === f.bytes.length));
+          set({ frage: { files: [...bisher, ...neu] } });
+        } else {
+          await get().ingestImportedFiles(g.files, wie === 'ersetzen');
+          eigene = get().error;
+        }
+      }
+      // Zuletzt, und zusammen: ingest/open setzen `error` zu Beginn auf null.
+      const alle = eigene ? [...g.hinweise, eigene] : g.hinweise;
+      if (alle.length) set({ error: alle.join(' · ') });
+    }),
+
+  beantworteFrage: (wahl) => {
+    // Sofort schließen: Die Antwort gilt genau den Dateien, die die Frage zeigt. Eine Lieferung,
+    // die noch in der Reihe wartet, stellt danach ihre eigene Frage, statt still mitzugehen.
+    const frage = get().frage;
+    set({ frage: null });
+    if (!frage || wahl === 'abbrechen') return Promise.resolve();
+    return nacheinander(() => get().ingestImportedFiles(frage.files, wahl === 'ersetzen'));
   },
 
   newProject: () => {

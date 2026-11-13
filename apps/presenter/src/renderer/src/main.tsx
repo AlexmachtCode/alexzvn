@@ -14,13 +14,16 @@ const view = window.jmpr?.view ?? 'editor';
 // Show-Integration (B4): ein vom Launcher per Deep-Link angefordertes .jmpres-
 // Dokument im Editor-Fenster laden. Nur die Editor-Ansicht empfängt das Event.
 if (view === 'editor') {
+  // Über die Reihe der Lieferungen und als „ersetzen“: ohne Rückfrage wie bisher, aber nie
+  // mitten in einen laufenden Import, und eine offene Frage verfällt (sonst legte eine spätere
+  // Antwort ihre Dateien ins Show-Projekt).
   window.jmpr?.files?.onOpenProject?.((p) => {
-    useProject.getState().openProjectFromBytes(p.bytes);
+    void useProject.getState().oeffneGeladene({ files: [], projekt: p, hinweise: [] }, 'ersetzen');
   });
   // PRESENTER OPEN (Issue #81): vom Hauptprozess gelesene PDF/Bild/Office-Dateien
   // als (frische) Präsentation vorlegen.
   window.jmpr?.files?.onOpenFiles?.((p) => {
-    void useProject.getState().ingestImportedFiles(p.files, p.replace);
+    void useProject.getState().oeffneGeladene(p, p.modus);
   });
 }
 
