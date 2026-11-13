@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { ladeInPortionen } from '../shared/dateien';
 import type {
+  AbgelegteDateien,
   GeladeneDateien,
   ImportedFile,
   JmprApi,
@@ -21,6 +23,32 @@ function parseView(): ViewName {
   return 'editor';
 }
 
+/**
+ * Abgelegte Dateien laden (#298). Die Pfade holt NUR der Preload (isolierte Welt) per
+ * webUtils: Seiten-JS kann kein File mit erfundenem Pfad bauen, also auch keine beliebigen
+ * Pfade (oder UNC-Freigaben) lesen lassen. Der Hauptprozess prüft trotzdem weiter
+ * (Absender Editor, absolute Pfade, höchstens 200 je Aufruf).
+ */
+async function importiereAbgelegte(files: File[], expandBuilds: boolean): Promise<AbgelegteDateien> {
+  const pfade: string[] = [];
+  const ohnePfad: string[] = [];
+  for (const f of Array.isArray(files) ? files : []) {
+    let pfad = '';
+    try {
+      pfad = webUtils.getPathForFile(f);
+    } catch {
+      // kein File (TypeError) → wie eine Datei ohne Pfad
+    }
+    if (pfad) pfade.push(pfad);
+    else ohnePfad.push(typeof f?.name === 'string' && f.name ? f.name : '(ohne Namen)');
+  }
+  const g = await ladeInPortionen(
+    pfade,
+    (teil) => ipcRenderer.invoke('files:importPaths', teil, expandBuilds === true) as Promise<GeladeneDateien>,
+  );
+  return { ...g, ohnePfad };
+}
+
 const api: JmprApi = {
   platform: process.platform,
   view: parseView(),
@@ -30,9 +58,7 @@ const api: JmprApi = {
     importImage: () => ipcRenderer.invoke('files:importImage') as Promise<ImportedFile | null>,
     importOffice: (expandBuilds?: boolean) =>
       ipcRenderer.invoke('files:importOffice', expandBuilds) as Promise<OfficeImportResult>,
-    importPaths: (pfade, expandBuilds) =>
-      ipcRenderer.invoke('files:importPaths', pfade, expandBuilds) as Promise<GeladeneDateien>,
-    pfadFuer: (file) => webUtils.getPathForFile(file),
+    importiereAbgelegte,
     openProject: () =>
       ipcRenderer.invoke('files:openProject') as Promise<{
         name: string;

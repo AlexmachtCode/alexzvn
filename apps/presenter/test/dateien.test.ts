@@ -56,5 +56,48 @@ ck('aufbau: seitenzahl passt nicht → keine notizen', d.aufbauHinweise(anim, 4,
 ck('aufbau: aufgeteilt', d.aufbauHinweise(undefined, 7, true).hinweis === 'Aufbau-Animationen als Einzelschritte importiert — 7 Schritt-Folien (experimentell).');
 ck('aufbau: nichts', d.aufbauHinweise(undefined, 2, false).hinweis === null);
 
+ck('ohne pfad: hinweis', d.hinweisOhnePfad(['mail.pdf', 'Bild.png'])
+  === 'Ohne Dateipfad, übersprungen: mail.pdf, Bild.png (bitte zuerst speichern und dann hineinziehen).');
+ck('ohne pfad: nichts', d.hinweisOhnePfad([]) === null);
+
+// Portionen: der Hauptprozess nimmt höchstens MAX_PFADE_JE_AUFRUF Pfade je Aufruf.
+const aufrufe: string[][] = [];
+const lader = async (teil: string[]) => {
+  aufrufe.push(teil);
+  return {
+    files: teil.filter((p) => !p.includes('fehlt')).map((p) => ({ name: p, kind: 'image' as const, bytes: Uint8Array.of(1) })),
+    projekt: teil.length === 1 && teil[0].endsWith('.jmpres') ? { name: teil[0], bytes: Uint8Array.of(2) } : null,
+    hinweise: teil.filter((p) => p.includes('fehlt')).map((p) => `„${p}“ wurde nicht gefunden.`),
+  };
+};
+ck('portionen: grenze ist 200', d.MAX_PFADE_JE_AUFRUF === 200);
+let r = await d.ladeInPortionen([], lader);
+ck('portionen: leer → kein aufruf', aufrufe.length === 0 && r.files.length === 0 && r.projekt === null && r.hinweise.length === 0);
+r = await d.ladeInPortionen(['S.jmpres'], lader);
+ck('portionen: bis zur grenze EIN aufruf, projekt bleibt', aufrufe.length === 1 && r.projekt?.name === 'S.jmpres');
+aufrufe.length = 0;
+const bilder = (n: number) => Array.from({ length: n }, (_, i) => `b${i}.png`);
+r = await d.ladeInPortionen(bilder(3), lader, 3);
+ck('portionen: genau max → ein aufruf', aufrufe.length === 1 && r.files.length === 3);
+aufrufe.length = 0;
+r = await d.ladeInPortionen([...bilder(4), 'Video.mp4', 'fehlt.png', 'S.jmpres'], lader, 3);
+ck('portionen: darüber in teilen ≤ max, nacheinander, ohne fremde/projekt', JSON.stringify(aufrufe)
+  === JSON.stringify([['b0.png', 'b1.png', 'b2.png'], ['b3.png', 'fehlt.png']]));
+ck('portionen: alle dateien in reihenfolge', r.files.map((f) => f.name).join() === 'b0.png,b1.png,b2.png,b3.png');
+ck('portionen: projekt nie allein → übersprungen', r.projekt === null);
+ck('portionen: hinweise aus ordnung + aus jedem teil', JSON.stringify(r.hinweise) === JSON.stringify([
+  'Nicht unterstützt, übersprungen: Video.mp4', 'Projektdatei nur einzeln ablegen, übersprungen: S.jmpres', '„fehlt.png“ wurde nicht gefunden.']));
+aufrufe.length = 0;
+r = await d.ladeInPortionen(bilder(201), lader);
+ck('portionen: 201 → 200 + 1', aufrufe.map((a) => a.length).join() === '200,1' && r.files.length === 201);
+let laufend = 0, hoechstens = 0;
+await d.ladeInPortionen(bilder(7), async (teil) => {
+  laufend++; hoechstens = Math.max(hoechstens, laufend);
+  await warte(5);
+  laufend--;
+  return lader(teil);
+}, 3);
+ck('portionen: nie zwei aufrufe gleichzeitig', hoechstens === 1);
+
 console.log(`\ndateien: ${pass} ok, ${fail} FAIL`);
 process.exit(fail ? 1 : 0);

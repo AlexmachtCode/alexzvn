@@ -1,6 +1,7 @@
 import { useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { cn } from '@jm/ui';
-import type { GeladeneDateien } from '@shared/types';
+import type { AbgelegteDateien } from '@shared/types';
+import { hinweisOhnePfad } from '../../../shared/dateien';
 import { useProject } from '@/store/project';
 import { getExpandPptxBuilds } from '@/lib/settings';
 
@@ -9,26 +10,28 @@ function bringtDateien(e: DragEvent): boolean {
   return Array.from(e.dataTransfer.types).includes('Files');
 }
 
-/** Abgelegte Dateien im Hauptprozess laden und hinten anhängen (#298). */
+/** Abgelegte Dateien im Hauptprozess laden und hinten anhängen (#298). Fehler landen in der Fehlerzeile. */
 async function legeAb(dateien: File[]): Promise<void> {
-  const pfade = dateien.map((f) => window.jmpr.files.pfadFuer(f)).filter((p) => p.length > 0);
-  if (!pfade.length) return;
-  const { busy, setNotice } = useProject.getState();
-  if (busy.active) {
-    setNotice('Import läuft noch – bitte danach erneut ablegen.');
-    return;
-  }
-  useProject.setState({ busy: { active: true, label: 'Lade Dateien…' }, error: null, notice: null });
-  let geladen: GeladeneDateien;
   try {
-    geladen = await window.jmpr.files.importPaths(pfade, getExpandPptxBuilds());
+    if (!dateien.length) return;
+    const { busy, setNotice } = useProject.getState();
+    if (busy.active) {
+      setNotice('Import läuft noch – bitte danach erneut ablegen.');
+      return;
+    }
+    useProject.setState({ busy: { active: true, label: 'Lade Dateien…' }, error: null, notice: null });
+    let geladen: AbgelegteDateien;
+    try {
+      geladen = await window.jmpr.files.importiereAbgelegte(dateien, getExpandPptxBuilds());
+    } finally {
+      useProject.setState({ busy: { active: false, label: '' } });
+    }
+    const { ohnePfad, ...g } = geladen;
+    const ohne = hinweisOhnePfad(ohnePfad);
+    await useProject.getState().oeffneGeladene({ ...g, hinweise: ohne ? [ohne, ...g.hinweise] : g.hinweise }, 'anhaengen');
   } catch (err) {
     useProject.setState({ error: err instanceof Error ? err.message : String(err) });
-    return;
-  } finally {
-    useProject.setState({ busy: { active: false, label: '' } });
   }
-  await useProject.getState().oeffneGeladene(geladen, 'anhaengen');
 }
 
 /**

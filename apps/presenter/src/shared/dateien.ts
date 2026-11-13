@@ -1,12 +1,15 @@
 // #298/#299: reine Regeln zum Öffnen von Dateien (Drag & Drop, Doppelklick, „Öffnen mit“).
 // Wird auch im Renderer gebündelt: keine Node-/Electron-Importe.
-import type { OfficeAnimations } from './types';
+import type { GeladeneDateien, ImportedFile, OfficeAnimations } from './types';
 
 export type DateiArt = 'pdf' | 'image' | 'office' | 'projekt';
 export type OeffnenModus = 'ersetzen' | 'anhaengen' | 'fragen';
 
 /** Ruhezeit, nach der gesammelte Dateien als EIN Vorgang abgegeben werden. */
 export const SAMMEL_MS = 500;
+
+/** Höchstens so viele Pfade nimmt der Hauptprozess (`files:importPaths`) je Aufruf an. */
+export const MAX_PFADE_JE_AUFRUF = 200;
 
 export const IMAGE_EXT: ReadonlySet<string> = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
 export const OFFICE_EXT: ReadonlySet<string> = new Set(['.pptx', '.ppt', '.odp', '.docx', '.doc', '.odt', '.rtf']);
@@ -66,6 +69,37 @@ export function hinweiseAusOrdnung(o: DateiOrdnung): string[] {
     hinweise.push(`Projektdatei nur einzeln ablegen, übersprungen: ${o.projektUebersprungen.map(dateiName).join(', ')}`);
   }
   return hinweise;
+}
+
+/** Hinweis für abgelegte Dateien ohne Pfad auf der Platte (aus dem Browser oder einer Mail gezogen). */
+export function hinweisOhnePfad(namen: readonly string[]): string | null {
+  if (!namen.length) return null;
+  return `Ohne Dateipfad, übersprungen: ${namen.join(', ')} (bitte zuerst speichern und dann hineinziehen).`;
+}
+
+/**
+ * Lädt beliebig viele Pfade über `laden`, das höchstens `max` je Aufruf annimmt, nie still
+ * nichts (#298). Bis `max` geht alles in einem Aufruf. Darüber ordnet diese Funktion selbst
+ * (eine Projektdatei ist dann nie allein, sie wird übersprungen) und lädt nur die
+ * importierbaren Pfade, in Portionen nacheinander.
+ */
+export async function ladeInPortionen(
+  pfade: readonly string[],
+  laden: (teil: string[]) => Promise<GeladeneDateien>,
+  max = MAX_PFADE_JE_AUFRUF,
+): Promise<GeladeneDateien> {
+  if (!pfade.length) return { files: [], projekt: null, hinweise: [] };
+  if (pfade.length <= max) return laden([...pfade]);
+  const ordnung = ordneDateien(pfade);
+  const files: ImportedFile[] = [];
+  const hinweise = hinweiseAusOrdnung(ordnung);
+  const importieren = ordnung.importieren.map((i) => i.pfad);
+  for (let i = 0; i < importieren.length; i += max) {
+    const g = await laden(importieren.slice(i, i + max));
+    files.push(...g.files);
+    hinweise.push(...g.hinweise);
+  }
+  return { files, projekt: null, hinweise };
 }
 
 /** Dateipfade aus der Kommandozeile: ohne Schalter, Links und den Wert von `--show`. */

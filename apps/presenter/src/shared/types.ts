@@ -137,6 +137,12 @@ export interface GeladeneDateien {
   hinweise: string[];
 }
 
+/** Ergebnis von `files.importiereAbgelegte`: dazu die Namen abgelegter Dateien ohne Pfad. */
+export interface AbgelegteDateien extends GeladeneDateien {
+  /** Aus Browser/Mail gezogen: keine Datei auf der Platte, darum übersprungen. */
+  ohnePfad: string[];
+}
+
 /** Push vom Hauptprozess (Kanal `project:openFiles`): Dateien nach `modus` öffnen. */
 export interface OpenFilesPayload extends GeladeneDateien {
   modus: OeffnenModus;
@@ -278,10 +284,12 @@ export interface JmprApi {
      *  `expandBuilds` is set, .pptx on-click animations are split into per-step
      *  slides (experimental; falls back to the flat conversion on any doubt). */
     importOffice: (expandBuilds?: boolean) => Promise<OfficeImportResult>;
-    /** Dateien per Pfad laden (Drag & Drop): PDF, Bild, Office, einzelne .jmpres. */
-    importPaths: (pfade: string[], expandBuilds: boolean) => Promise<GeladeneDateien>;
-    /** Pfad einer abgelegten Datei (Electron `webUtils`); leer, wenn es keinen gibt. */
-    pfadFuer: (file: File) => string;
+    /**
+     * Abgelegte Dateien laden (Drag & Drop, #298): PDF, Bild, Office, einzelne .jmpres. Die
+     * Pfade holt der Preload selbst (`webUtils.getPathForFile`) – Seiten-JS kann keinen Pfad
+     * vorgeben. Mehr als 200 Dateien gehen in Portionen.
+     */
+    importiereAbgelegte: (files: File[], expandBuilds: boolean) => Promise<AbgelegteDateien>;
     /** Open a .jmpres project; returns the raw zip bytes. */
     openProject: () => Promise<{ name: string; bytes: Uint8Array } | null>;
     /** Save .jmpres project bytes to disk (save dialog). */
