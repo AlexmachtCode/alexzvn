@@ -3,6 +3,7 @@ import { SlideList } from '@/components/SlideList';
 import { EditorStage } from '@/components/EditorStage';
 import { Inspector } from '@/components/Inspector';
 import { UebergaengePanel } from '@/components/UebergaengePanel';
+import { DateiAblage } from '@/components/DateiAblage';
 import { useState } from 'react';
 import type { Slide } from '@shared/types';
 import { useProject } from '@/store/project';
@@ -19,7 +20,7 @@ export function EditorView() {
   const selected = slides.find((s) => s.id === selectedId) ?? null;
 
   return (
-    <div className="h-full flex flex-col">
+    <DateiAblage className="h-full flex flex-col">
       <Toolbar />
 
       {error && (
@@ -61,7 +62,7 @@ export function EditorView() {
           </aside>
         </div>
       )}
-    </div>
+    </DateiAblage>
   );
 }
 
@@ -102,8 +103,9 @@ function EmptyState({ onImport, onOffice }: { onImport: () => void; onOffice: ()
         <div className="text-5xl mb-4">🖥️</div>
         <h2 className="text-xl font-extrabold">Präsentation aufbauen</h2>
         <p className="mt-2 text-sm text-[var(--muted-foreground)] leading-relaxed">
-          Importiere PDFs, Bilder oder Office-Dokumente. Ordne die Folien neu, ergänze Titel,
-          Notizen und Overlays — und präsentiere mit Referenten- und Publikumsansicht.
+          Importiere PDFs, Bilder oder Office-Dokumente – oder zieh sie einfach hierher. Ordne die
+          Folien neu, ergänze Titel, Notizen und Overlays — und präsentiere mit Referenten- und
+          Publikumsansicht.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
           <button

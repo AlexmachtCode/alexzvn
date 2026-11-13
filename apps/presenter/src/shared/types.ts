@@ -280,6 +280,8 @@ export interface JmprApi {
     importOffice: (expandBuilds?: boolean) => Promise<OfficeImportResult>;
     /** Dateien per Pfad laden (Drag & Drop): PDF, Bild, Office, einzelne .jmpres. */
     importPaths: (pfade: string[], expandBuilds: boolean) => Promise<GeladeneDateien>;
+    /** Pfad einer abgelegten Datei (Electron `webUtils`); leer, wenn es keinen gibt. */
+    pfadFuer: (file: File) => string;
     /** Open a .jmpres project; returns the raw zip bytes. */
     openProject: () => Promise<{ name: string; bytes: Uint8Array } | null>;
     /** Save .jmpres project bytes to disk (save dialog). */

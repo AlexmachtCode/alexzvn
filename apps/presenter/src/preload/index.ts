@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
   GeladeneDateien,
   ImportedFile,
@@ -32,6 +32,7 @@ const api: JmprApi = {
       ipcRenderer.invoke('files:importOffice', expandBuilds) as Promise<OfficeImportResult>,
     importPaths: (pfade, expandBuilds) =>
       ipcRenderer.invoke('files:importPaths', pfade, expandBuilds) as Promise<GeladeneDateien>,
+    pfadFuer: (file) => webUtils.getPathForFile(file),
     openProject: () =>
       ipcRenderer.invoke('files:openProject') as Promise<{
         name: string;
