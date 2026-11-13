@@ -7,10 +7,20 @@
 # Schreibt nur unter HKCU; die Deinstallation laeuft auch bei FAIL (finally).
 $ErrorActionPreference = 'Stop'
 $script:fails = 0
+$instDir = Join-Path $env:LOCALAPPDATA "Programs\$Produkt"
+# Schutz VOR allem anderen: Der finally-Block unten deinstalliert $Produkt. Nie den echten
+# Presenter, nie eine Installation, die es vor dem Lauf schon gab.
+if ($Produkt -eq 'JM Presenter' -or $AppId -eq 'gmbh.jakobs.presenter') {
+  Write-Host "ABBRUCH: '$Produkt' / '$AppId' ist der echte Presenter. Nur mit einem Pruefbau (eigenes productName und appId) aufrufen."
+  exit 2
+}
+if (Test-Path -LiteralPath $instDir) {
+  Write-Host "ABBRUCH: $instDir gibt es schon. Das Skript deinstalliert am Ende; eine vorhandene Installation fasst es nicht an."
+  exit 2
+}
 $Installer = (Resolve-Path -LiteralPath $Installer).Path
 $progId = "$AppId.pdf"
 $exe = "$Produkt.exe"
-$instDir = Join-Path $env:LOCALAPPDATA "Programs\$Produkt"
 $uninst = Join-Path $instDir "Uninstall $Produkt.exe"
 $classes = 'HKCU:\Software\Classes'
 $caps = "HKCU:\Software\Jakobs Medien\$Produkt\Capabilities"
