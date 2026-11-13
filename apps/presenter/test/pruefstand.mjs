@@ -879,6 +879,40 @@ async function gruppeDoppelklick({ exe, d }) {
       const s = await auswerten(publikum, 'window.jmpr.present.getState()');
       erwarte(s?.active === true, `Präsentation nicht mehr aktiv: ${JSON.stringify(s)}`);
     });
+
+    // Beim Kaltstart hält der Hauptprozess Lieferungen zurück, bis der Editor geladen ist, und
+    // schickt sie dann direkt hintereinander. Nachgestellt, ohne auf Zeit zu wetten: Editor neu
+    // laden und vor dem ersten Skript anhalten (Debugger), zwei getrennte Lieferungen auslösen
+    // (Abstand > Sammelzeit), dann weiterlaufen lassen.
+    await fall('zwei Lieferungen direkt hintereinander in den leeren Editor → a.pdf lädt (Folien · 2), b.png fragt', async () => {
+      await ed.send('Debugger.enable');
+      const { breakpointId } = await ed.send('Debugger.setInstrumentationBreakpoint', { instrumentation: 'beforeScriptExecution' });
+      try {
+        const angehalten = ed.warteAuf('Debugger.paused', 15_000);
+        await ed.send('Page.reload');
+        await angehalten;
+        await zweiteInstanz(exe, [d.a]);
+        await pause(1_500);
+        await zweiteInstanz(exe, [d.png]);
+        await pause(1_500);
+      } finally {
+        await ed.send('Debugger.removeBreakpoint', { breakpointId }).catch(() => {});
+        await ed.send('Debugger.resume').catch(() => {});
+        await ed.send('Debugger.disable').catch(() => {});
+      }
+      const bereit = await warteBis(
+        () => auswerten(ed, `document.readyState === 'complete' && !!window.jmpr && !!document.querySelector('header')`),
+        20_000,
+      );
+      erwarte(bereit, 'Editor wird nach dem Neuladen nicht fertig');
+      const f = await bisWert(() => frage(ed), (v) => v?.titel === '„b.png“ öffnen');
+      const n = await bisWert(() => folienZahl(ed), (v) => v === 2);
+      const fehler = await fehlerZeile(ed);
+      erwarte(f?.titel === '„b.png“ öffnen', `Frage „${f?.titel ?? '(keine)'}“ bei Folien · ${n ?? '–'}, Fehlerzeile „${fehler}“`);
+      erwarte(n === 2, `Folien · ${n ?? '–'} statt 2`);
+      erwarte(fehler === '', `Fehlerzeile: „${fehler}“`);
+      await klicke('Abbrechen');
+    });
   });
 }
 

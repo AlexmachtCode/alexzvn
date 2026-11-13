@@ -101,6 +101,19 @@ function replaceSlide(doc: ProjectDoc, id: string, fn: (s: Slide) => Slide): Pro
   return { ...doc, slides: doc.slides.map((s) => (s.id === id ? fn(s) : s)) };
 }
 
+// Lieferungen (Doppelklick, PRESENTER OPEN, Ablegen) und Importe nach einer Antwort laufen
+// nacheinander. Beim Kaltstart kommen mehrere Lieferungen direkt hintereinander; ohne Reihe
+// sähe jede noch den leeren Editor und ersetzte, während die erste noch importiert – deren
+// Quellen wären danach gelöscht, die Dateien der zweiten still verloren.
+let reihe: Promise<void> = Promise.resolve();
+
+function nacheinander(schritt: () => Promise<void>): Promise<void> {
+  const lauf = reihe.then(schritt);
+  // Ein fehlgeschlagener Schritt hält die Reihe nicht an; der Aufrufer sieht den Fehler weiter.
+  reihe = lauf.catch(() => undefined);
+  return lauf;
+}
+
 export const useProject = create<ProjectState>((set, get) => ({
   doc: emptyDoc(),
   selectedId: null,
@@ -191,37 +204,40 @@ export const useProject = create<ProjectState>((set, get) => ({
     }
   },
 
-  oeffneGeladene: async (g, modus) => {
-    // PRESENTER OPEN legt ein neues Deck hin; eine alte Frage legte sonst ihre Dateien darauf.
-    if (modus === 'ersetzen') set({ frage: null });
-    if (g.projekt) {
-      const s = get();
-      if (modus !== 'ersetzen' && s.dirty && s.doc.slides.length > 0) {
-        const ok = window.confirm(
-          `Aktuelle Präsentation verwerfen und „${g.projekt.name}“ öffnen? Nicht gespeicherte Änderungen gehen verloren.`,
-        );
-        if (!ok) return;
+  oeffneGeladene: (g, modus) =>
+    nacheinander(async () => {
+      // PRESENTER OPEN legt ein neues Deck hin; eine alte Frage legte sonst ihre Dateien darauf.
+      if (modus === 'ersetzen') set({ frage: null });
+      if (g.projekt) {
+        const s = get();
+        if (modus !== 'ersetzen' && s.dirty && s.doc.slides.length > 0) {
+          const ok = window.confirm(
+            `Aktuelle Präsentation verwerfen und „${g.projekt.name}“ öffnen? Nicht gespeicherte Änderungen gehen verloren.`,
+          );
+          if (!ok) return;
+        }
+        get().openProjectFromBytes(g.projekt.bytes);
+      } else if (g.files.length) {
+        const wie = wieOeffnen(modus, get().doc.slides.length > 0);
+        if (wie === 'ersetzen') await get().ingestImportedFiles(g.files, true);
+        else if (wie === 'anhaengen') await get().ingestImportedFiles(g.files, false);
+        else {
+          const bisher = get().frage?.files ?? [];
+          const neu = g.files.filter((f) => !bisher.some((b) => b.name === f.name && b.bytes.length === f.bytes.length));
+          set({ frage: { files: [...bisher, ...neu] } });
+        }
       }
-      get().openProjectFromBytes(g.projekt.bytes);
-    } else if (g.files.length) {
-      const wie = wieOeffnen(modus, get().doc.slides.length > 0);
-      if (wie === 'ersetzen') await get().ingestImportedFiles(g.files, true);
-      else if (wie === 'anhaengen') await get().ingestImportedFiles(g.files, false);
-      else {
-        const bisher = get().frage?.files ?? [];
-        const neu = g.files.filter((f) => !bisher.some((b) => b.name === f.name && b.bytes.length === f.bytes.length));
-        set({ frage: { files: [...bisher, ...neu] } });
-      }
-    }
-    // Zuletzt: ingest/open setzen `error` sonst wieder auf null.
-    if (g.hinweise.length) set({ error: g.hinweise.join(' · ') });
-  },
+      // Zuletzt: ingest/open setzen `error` sonst wieder auf null.
+      if (g.hinweise.length) set({ error: g.hinweise.join(' · ') });
+    }),
 
-  beantworteFrage: async (wahl) => {
+  beantworteFrage: (wahl) => {
+    // Sofort schließen: Die Antwort gilt genau den Dateien, die die Frage zeigt. Eine Lieferung,
+    // die noch in der Reihe wartet, stellt danach ihre eigene Frage, statt still mitzugehen.
     const frage = get().frage;
     set({ frage: null });
-    if (!frage || wahl === 'abbrechen') return;
-    await get().ingestImportedFiles(frage.files, wahl === 'ersetzen');
+    if (!frage || wahl === 'abbrechen') return Promise.resolve();
+    return nacheinander(() => get().ingestImportedFiles(frage.files, wahl === 'ersetzen'));
   },
 
   newProject: () => {
