@@ -5,6 +5,7 @@ import type {
   GeladeneDateien,
   ImportedFile,
   JmprApi,
+  NdiStatus,
   NetInterface,
   OfficeImportResult,
   OpenFilesPayload,
@@ -19,8 +20,15 @@ import type {
 
 function parseView(): ViewName {
   const v = new URLSearchParams(location.search).get('view');
-  if (v === 'presenter' || v === 'audience') return v;
+  if (v === 'presenter' || v === 'audience' || v === 'ndi') return v;
   return 'editor';
+}
+
+const view = parseView();
+
+// NDI-Fenster (#303): Den Bild-Port aus dem Main an die Seite weiterreichen (Titler-Muster) – nur dort.
+if (view === 'ndi') {
+  ipcRenderer.on('jmpr:ndi-port', (e) => window.postMessage('jmpr:ndi-port', '*', e.ports));
 }
 
 /**
@@ -51,7 +59,7 @@ async function importiereAbgelegte(files: File[], expandBuilds: boolean): Promis
 
 const api: JmprApi = {
   platform: process.platform,
-  view: parseView(),
+  view,
 
   files: {
     importDocs: () => ipcRenderer.invoke('files:importDocs') as Promise<ImportedFile[]>,
@@ -126,6 +134,22 @@ const api: JmprApi = {
       ipcRenderer.on('timer:state', listener);
       return () => ipcRenderer.off('timer:state', listener);
     },
+  },
+
+  ndi: {
+    status: () => ipcRenderer.invoke('ndi:status') as Promise<NdiStatus>,
+    setzeAn: (an) => ipcRenderer.invoke('ndi:setzeAn', an) as Promise<NdiStatus>,
+    onStatus: (cb) => {
+      const listener = (_event: unknown, s: NdiStatus) => cb(s);
+      ipcRenderer.on('ndi:status', listener);
+      return () => ipcRenderer.off('ndi:status', listener);
+    },
+    onPayload: (cb) => {
+      const listener = (_event: unknown, p: PresentationPayload | null) => cb(p);
+      ipcRenderer.on('present:payload', listener);
+      return () => ipcRenderer.off('present:payload', listener);
+    },
+    fensterBereit: () => ipcRenderer.send('ndi:fensterBereit'),
   },
 };
 

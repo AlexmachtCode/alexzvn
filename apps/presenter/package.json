@@ -15,7 +15,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "selftest": "node --experimental-strip-types test/suite-state.test.ts && tsx test/wiedergabe.test.ts && tsx test/publikumsbild.test.ts && tsx test/dateien.test.ts && tsx test/dateien-laden.test.ts && tsx test/ndi-sender-kern.test.ts && tsx test/release-weg.test.ts",
+    "selftest": "node --experimental-strip-types test/suite-state.test.ts && tsx test/wiedergabe.test.ts && tsx test/publikumsbild.test.ts && tsx test/dateien.test.ts && tsx test/dateien-laden.test.ts && tsx test/ndi-sender-kern.test.ts && tsx test/ndi-ausgang.test.ts && tsx test/release-weg.test.ts",
     "prepackage": "node tools/bundle-ndi.mjs",
     "dist": "electron-vite build && npm run prepackage && electron-builder",
     "dist:dir": "electron-vite build && npm run prepackage && electron-builder --dir",

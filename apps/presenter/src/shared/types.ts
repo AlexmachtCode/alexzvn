@@ -2,7 +2,8 @@
 // Used by the main process, the preload bridge and the renderer.
 import type { OeffnenModus } from './dateien';
 
-export type ViewName = 'editor' | 'presenter' | 'audience';
+/** `ndi` = verstecktes Fenster, das das Publikumsbild für den NDI-Ausgang zeichnet (#303). */
+export type ViewName = 'editor' | 'presenter' | 'audience' | 'ndi';
 
 export type SourceKind = 'pdf' | 'image';
 
@@ -269,6 +270,22 @@ export interface TimerSyncConfig {
   port: number;
 }
 
+// ---- NDI-Ausgang (#303) ----
+
+/** `startet`: Sender-Prozess lädt; `sendet`: Quelle steht im Netz; `nicht-verfuegbar`: siehe `grund`. */
+export type NdiLage = 'aus' | 'startet' | 'sendet' | 'nicht-verfuegbar';
+
+/** Zustand des NDI-Ausgangs, vom Hauptprozess an alle Fenster gemeldet. */
+export interface NdiStatus {
+  /** Der gemerkte Schalter. */
+  an: boolean;
+  lage: NdiLage;
+  /** Verbundene NDI-Empfänger (etwa jede Sekunde vom Sender). */
+  empfaenger: number;
+  /** Warum NDI nicht verfügbar ist, sonst null. */
+  grund: string | null;
+}
+
 /** The window API exposed on `window.jmpr`. */
 export interface JmprApi {
   platform: NodeJS.Platform;
@@ -346,5 +363,17 @@ export interface JmprApi {
     apply: (config: TimerSyncConfig) => Promise<TimerSyncConfig>;
     /** Subscribe to live timer-state pushes. */
     onState: (cb: (s: TimerSource) => void) => () => void;
+  };
+
+  /** NDI-Ausgang des Publikumsbilds (#303, nur Windows). */
+  ndi: {
+    status(): Promise<NdiStatus>;
+    /** Schalter setzen und merken; liefert den neuen Zustand. */
+    setzeAn(an: boolean): Promise<NdiStatus>;
+    onStatus(cb: (s: NdiStatus) => void): () => void;
+    /** Nur das NDI-Fenster: neues Präsentations-Payload (null = gestoppt). */
+    onPayload(cb: (p: PresentationPayload | null) => void): () => void;
+    /** Nur das NDI-Fenster: geladen, bereit für den Bild-Port. */
+    fensterBereit(): void;
   };
 }

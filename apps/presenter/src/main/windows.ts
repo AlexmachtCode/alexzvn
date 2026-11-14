@@ -1,6 +1,7 @@
 import { app, BrowserWindow, screen, shell } from 'electron';
 import path, { join } from 'node:path';
 import type { DisplayInfo, ViewName } from '@shared/types';
+import { NDI_BREITE, NDI_HOEHE } from '../shared/ndi';
 
 declare const __dirname: string;
 
@@ -9,6 +10,18 @@ const preloadPath = join(__dirname, '../preload/index.cjs');
 let editorWindow: BrowserWindow | null = null;
 let presenterWindow: BrowserWindow | null = null;
 let audienceWindow: BrowserWindow | null = null;
+/** Verstecktes Fenster des NDI-Ausgangs (#303); nie sichtbar, kein Bedienfenster. */
+let ndiWindow: BrowserWindow | null = null;
+
+const istOffen = (win: BrowserWindow | null): boolean => win != null && !win.isDestroyed();
+
+/**
+ * Das versteckte NDI-Fenster hielte die App sonst am Leben (kein window-all-closed, Single-Instance-Lock
+ * bleibt, NDI sendet weiter): Ist nach einem `closed` keins der sichtbaren Fenster mehr offen, geht es mit.
+ */
+function schliesseNdiOhneSichtbare(): void {
+  if (!istOffen(editorWindow) && !istOffen(presenterWindow) && !istOffen(audienceWindow)) closeNdiWindow();
+}
 
 // Invoked when a presentation window is closed by the user, so the hub can end
 // the presentation cleanly. Registered by present.ts to avoid an import cycle.
@@ -107,6 +120,7 @@ export function createEditorWindow(): BrowserWindow {
   win.on('ready-to-show', () => win.show());
   win.on('closed', () => {
     editorWindow = null;
+    schliesseNdiOhneSichtbare();
   });
 
   loadView(win, 'editor');
@@ -142,6 +156,7 @@ export function openPresenterWindow(): BrowserWindow {
   win.on('closed', () => {
     presenterWindow = null;
     onPresentationWindowClosed?.();
+    schliesseNdiOhneSichtbare();
   });
   loadView(win, 'presenter');
   presenterWindow = win;
@@ -186,6 +201,7 @@ export function openAudienceWindow(displayId: number | null): BrowserWindow {
   win.on('closed', () => {
     audienceWindow = null;
     onPresentationWindowClosed?.();
+    schliesseNdiOhneSichtbare();
   });
   loadView(win, 'audience');
   audienceWindow = win;
@@ -230,6 +246,46 @@ export async function captureAudience(maxWidth = 1280): Promise<Buffer | null> {
   }
 }
 
+/**
+ * Verstecktes NDI-Fenster (#303): zeichnet das Publikumsbild ein zweites Mal für den NDI-Ausgang.
+ * Ein offenes wird zurückgegeben. Ohne Drosselung im Hintergrund, sonst stockte der Zeichentakt.
+ */
+export function openNdiWindow(): BrowserWindow {
+  if (ndiWindow && !ndiWindow.isDestroyed()) return ndiWindow;
+  const win = new BrowserWindow({
+    width: NDI_BREITE,
+    height: NDI_HOEHE,
+    show: false,
+    skipTaskbar: true,
+    title: 'JM Presenter · NDI',
+    webPreferences: { ...baseWebPreferences, backgroundThrottling: false },
+  });
+  sperreNavigation(win);
+  win.on('closed', () => {
+    // Nur den eigenen Verweis löschen: nach schnellem Aus/An zeigt er schon aufs neue Fenster.
+    if (ndiWindow === win) ndiWindow = null;
+  });
+  loadView(win, 'ndi');
+  ndiWindow = win;
+  return win;
+}
+
+/** Verweis SOFORT weg, dann schließen – ein schnelles Wieder-Einschalten bekommt so nie das schließende Fenster. */
+export function closeNdiWindow(): void {
+  const win = ndiWindow;
+  ndiWindow = null;
+  if (win && !win.isDestroyed()) win.close();
+}
+
+export function getNdiWindow(): BrowserWindow | null {
+  return ndiWindow && !ndiWindow.isDestroyed() ? ndiWindow : null;
+}
+
+/** Nur an das NDI-Fenster (z. B. `present:payload`); ohne offenes Fenster nichts. */
+export function sendeAnNdi(channel: string, payload: unknown): void {
+  getNdiWindow()?.webContents.send(channel, payload);
+}
+
 export function closePresentationWindows(): void {
   if (audienceWindow && !audienceWindow.isDestroyed()) audienceWindow.close();
   if (presenterWindow && !presenterWindow.isDestroyed()) presenterWindow.close();
@@ -252,9 +308,9 @@ export function getDisplays(): DisplayInfo[] {
   }));
 }
 
-/** Broadcast an IPC message to every live window. */
+/** Broadcast an IPC message to every live window (das NDI-Fenster eingeschlossen, #303). */
 export function broadcastAll(channel: string, payload: unknown): void {
-  for (const win of [editorWindow, presenterWindow, audienceWindow]) {
+  for (const win of [editorWindow, presenterWindow, audienceWindow, ndiWindow]) {
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
   }
 }

@@ -18,9 +18,11 @@ import {
   broadcastAll,
   getDisplays,
   getEditorWindow,
+  getNdiWindow,
   moveAudienceToDisplay,
   toggleAudienceFullscreen,
 } from './windows';
+import { beendeNdi, initNdiAusgang, ndiFensterBereit, ndiStatus, setzeNdiAn } from './ndi/ausgang';
 import {
   getPayload,
   getState,
@@ -239,8 +241,20 @@ export function registerIpc(): void {
   // Restore the persisted timer connection on launch.
   applyTimerConfig(loadTimerConfig());
 
+  // ---- NDI-Ausgang (#303) ----
+
+  ipcMain.handle('ndi:status', () => ndiStatus());
+  ipcMain.handle('ndi:setzeAn', (_e, an: unknown) => setzeNdiAn(an === true));
+  // Den Bild-Port bekommt nur das NDI-Fenster (alle Fenster teilen den Preload).
+  ipcMain.on('ndi:fensterBereit', (e) => {
+    if (e.sender === getNdiWindow()?.webContents) ndiFensterBereit();
+  });
+  // Gemerkter Schalter: ist er an, entstehen Sender und NDI-Fenster schon jetzt.
+  initNdiAusgang();
+
   app.on('will-quit', () => {
     shutdownRemote();
     shutdownTimer();
+    beendeNdi();
   });
 }

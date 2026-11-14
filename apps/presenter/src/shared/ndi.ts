@@ -1,4 +1,6 @@
-// NDI-Ausgang (#303): Konstanten und Nachrichten zwischen Main und Utility-Prozess. Nur Typen und Zahlen.
+// NDI-Ausgang (#303): Konstanten, Nachrichten zwischen Main und Utility-Prozess, Grundzustand des Schalters.
+// Ohne Laufzeit-Importe – Main, Utility und Renderer laden diese Datei.
+import type { NdiStatus } from './types';
 
 /** Quellname; das NDI-SDK hängt den Rechnernamen an. */
 export const NDI_NAME = 'JM Presenter';
@@ -18,3 +20,11 @@ export type VomSender =
   | { type: 'bereit' }
   | { type: 'fehler'; grund: string }
   | { type: 'stat'; empfaenger: number };
+
+/** Schalter aus – Vorgabe und Zustand nach dem Ausschalten. */
+export const NDI_STATUS_AUS: NdiStatus = { an: false, lage: 'aus', empfaenger: 0, grund: null };
+
+/** Kommt gerade ein Bild bei den NDI-Empfängern an? */
+export function ndiLiefertBild(s: NdiStatus): boolean {
+  return s.an && s.lage === 'sendet';
+}

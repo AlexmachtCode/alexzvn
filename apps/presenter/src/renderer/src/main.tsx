@@ -27,14 +27,17 @@ if (view === 'editor') {
   });
 }
 
-createRoot(root).render(
-  <StrictMode>
-    {view === 'presenter' ? (
-      <PresenterView />
-    ) : view === 'audience' ? (
-      <AudienceView />
-    ) : (
-      <EditorView />
-    )}
-  </StrictMode>,
-);
+// Das versteckte NDI-Fenster (#303) bekommt keinen React-Baum; seine Zeichenansicht hängt sich hier ein.
+if (view !== 'ndi') {
+  createRoot(root).render(
+    <StrictMode>
+      {view === 'presenter' ? (
+        <PresenterView />
+      ) : view === 'audience' ? (
+        <AudienceView />
+      ) : (
+        <EditorView />
+      )}
+    </StrictMode>,
+  );
+}
