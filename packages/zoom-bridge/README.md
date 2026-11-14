@@ -532,27 +532,36 @@ und ohne einen der Ziel-0-Gründe `participantLeft`, `noTarget`, `speakerNone`,
 `shareNone` (`slotlogic::istZiel0Grund`); sonst geht `transparent` hinaus. Dafür bekommt
 `ersatzArt` Modus, Ziel und Grund mit; sie wirken nur bei `tile`. Die vier bisherigen
 Ersatzbilder entscheiden für jeden Grund bitgleich wie vorher (Logik-Test über alle
-7 372 800 Kombinationen gegen `ersatzArt`/`bildEntscheidung` von `e5fd1c8343`).
+7 372 800 Kombinationen gegen `ersatzArt`/`bildEntscheidung` von `e5fd1c8343`, ein
+zweites Raster gleicher Größe zeigt, dass sie `kameraAnMs` nicht lesen).
 
 | Lage (Slot mit `tile`) | Zustand/Grund | `sent` | Hinweis „Bild unterbrochen“ |
 | --- | --- | --- | --- |
 | Bilder kommen | `live/frames` | `none` (Livebild) | — |
 | Lücke kürzer als die Schonfrist (Kamera laut Zoom an) | `live/frames` | `none` | — |
-| Kamera laut Zoom aus, auch direkt nach der Zuweisung | `fallback/cameraOff` (Sprecher auch `speakerNoVideo`) | `tile` | nein |
+| Kamera laut Zoom aus, auch direkt nach der Zuweisung oder aus `fallback/noFrames` | `fallback/cameraOff` (Sprecher auch `speakerNoVideo`) | `tile` | nein |
 | Kamera laut Zoom an, Bild länger als 2 s aus | `fallback/noFrames` | `tile` | ja |
 | Zugewiesen, noch kein erstes Bild | `starting` | `tile` | nein |
 | … 2 s nach dem Umhängen noch immer kein Bild (Kamera laut Zoom an) | `fallback/noFrames` bzw. `fallback/bufferMismatch` | `tile` | ja |
-| Puffer-Fehler, `subscribe` gescheitert | `fallback/bufferMismatch`, `fallback/subscribeFailed` | `tile` | ja |
+| Kamera wieder an, noch kein neues Bild: in den ersten 2 s danach | bleibt (`fallback/cameraOff`) | `tile` | nein |
+| … und 2 s danach noch immer kein Bild | `fallback/noFrames` bzw. `fallback/bufferMismatch` | `tile` | ja |
+| Puffer-Fehler (nach dem ersten Bild schon nach 200 ms), `subscribe` gescheitert | `fallback/bufferMismatch`, `fallback/subscribeFailed` | `tile` | ja |
 | Person geht, kein Ziel, kein Sprecher | `fallback/participantLeft`, `noTarget`, `speakerNone` | `transparent`, sofort | — |
 | Freigabe-Slot | wie bei `transparent` | `transparent` bzw. `held` | — |
 | Slot aus | `off` | `none` | — |
 
-**Die 2-s-Regel** gilt nur bei `tile`: Ein Teilnehmer- oder Sprecher-Slot in `starting`,
-dessen Kamera Zoom als an meldet, wechselt `TEILNEHMER_SCHONFRIST_MS` (2 s) nach dem
-Umhängen ohne erstes Bild auf `fallback/noFrames` (bei laufendem Puffer-Fehler
-`fallback/bufferMismatch`). Bis dahin zeigt er die Kachel ohne Hinweis, so blitzt
-„Bild unterbrochen“ nicht bei jeder Zuweisung auf. Meldet Zoom die Kamera als aus, gilt
-wie bisher gleich `fallback/cameraOff` (F6). Der Hinweis hängt allein am gemeldeten
+**Die 2-s-Regel** gilt nur bei `tile`: Ein Teilnehmer- oder Sprecher-Slot, dessen Kamera
+Zoom als an meldet, wechselt erst `TEILNEHMER_SCHONFRIST_MS` (2 s) ohne Bild auf
+`fallback/noFrames` (bei laufendem Puffer-Fehler `fallback/bufferMismatch`). Die 2 s
+zählen ab dem Späteren von letztem Bild (vor dem ersten Bild: Umhängen) und dem
+Zeitpunkt, zu dem Zoom die Kamera zuletzt von aus auf an gemeldet hat
+(`BildLage::kameraAnMs`; 0 = unbekannt, dann zählen Bild bzw. Umhängen). Bis dahin
+zeigt der Slot die Kachel ohne Hinweis, so blitzt „Bild unterbrochen“ weder bei der
+Zuweisung noch gleich nach dem Einschalten der Kamera auf. Meldet Zoom die Kamera als
+aus, gilt sofort `fallback/cameraOff`, aus `starting` (F6) wie aus `fallback/noFrames`,
+`bufferMismatch` oder `command`, auch bei laufendem Puffer-Fehler.
+`fallback/subscribeFailed`, `fallback/speakerNoVideo` und die Ziel-0-Gründe bleiben
+vor dem ersten Bild stehen. Der Hinweis hängt allein am gemeldeten
 Grund **nach** der Entscheidung: genau `noFrames`, `bufferMismatch` und
 `subscribeFailed` (`slotlogic::kachelHinweis`; Gegenstück `TILE_NOTICE_REASONS` und
 `tileNotice()` in `src/protocol.ts`, der Selbsttest gleicht beide ab). Die Attrappe
