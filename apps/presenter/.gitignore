@@ -4,3 +4,4 @@ release
 *.tsbuildinfo
 release-pruefbau
 release-mac-pruef
+resources/bin
