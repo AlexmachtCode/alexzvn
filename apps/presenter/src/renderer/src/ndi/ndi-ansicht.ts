@@ -40,11 +40,16 @@ let takt: ReturnType<typeof setTimeout> | null = null;
 let ctx: CanvasRenderingContext2D | null = null;
 const gemeldet = new Set<string>();
 
-/** Jede Art Fehler nur einmal ins Log – der Takt läuft weiter. */
+/**
+ * Jede Art Fehler nur einmal ins Log – der Takt läuft weiter. Als EIN Text: der Main reicht `[ndi]`-Zeilen ins
+ * App-Log weiter und bekommt nur den Text; pdf.js wirft Objekte ohne Error-Klasse, die sonst „[object Object]“ hießen.
+ */
 function meldeEinmal(was: string, err: unknown): void {
   if (gemeldet.has(was)) return;
   gemeldet.add(was);
-  console.error(`[ndi] ${was}:`, err);
+  const e = err as { name?: unknown; message?: unknown } | null;
+  const grund = e && typeof e === 'object' && typeof e.message === 'string' ? `${String(e.name ?? 'Fehler')}: ${e.message}` : String(err);
+  console.error(`[ndi] ${was}: ${grund}`);
 }
 
 /** Neuer Schichtenstapel; die Bilder verdrängter Schichten gleich freigeben (je Schicht bis zu 8 MB). */
@@ -72,7 +77,9 @@ function aktualisieren(): void {
   const e = naechsteSchicht(schichten[schichten.length - 1]?.slide.id ?? null, aktuelleFolie(state, slides), wiedergabe);
   if (e.art === 'leeren') {
     setzeSchichten([]);
-  } else if (e.art === 'neu') {
+  } else if (e.art === 'neu' && state.active) {
+    // Gestoppt bleibt NDI transparent (bildArt → leer): nichts zusammensetzen. Beim Stoppen springt der Index auf 0,
+    // und gleich danach räumt das null-Payload Quellen und PDF-Dokumente mitten im Malen weg.
     zaehler += 1;
     const s: Schicht = { key: zaehler, slide: e.slide, blendeMs: e.blendeMs, bereitAbMs: null, bild: null, rechteck: null };
     setzeSchichten([...schichten.slice(-MAX_ALTE_SCHICHTEN), s]);
@@ -127,7 +134,9 @@ async function zusammensetzen(s: Schicht): Promise<void> {
     // Wie SlideCanvas: ein Fehler hält den Wechsel nicht fest – die Schicht gilt als gemalt, nur ohne Bild.
     s.bild = null;
     s.rechteck = null;
-    meldeEinmal('Folie nicht gemalt', err);
+    // Verdrängt, während sie gemalt wurde (Stopp, neue Präsentation): kein Fehler – die einmalige Meldung bleibt
+    // für einen echten.
+    if (schichten.includes(s)) meldeEinmal('Folie nicht gemalt', err);
   }
   if (!schichten.includes(s)) {
     s.bild?.close(); // inzwischen verdrängt (neue Präsentation, schnell weitergeklickt)

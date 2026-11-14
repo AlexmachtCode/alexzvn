@@ -34,7 +34,7 @@ export function clearOverlayBitmaps(): void {
   overlayBitmaps.clear();
 }
 
-export const FONT_FAMILY ='"Manrope Variable", ui-sans-serif, system-ui, sans-serif';
+export const FONT_FAMILY = '"Manrope Variable", ui-sans-serif, system-ui, sans-serif';
 
 function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   const out: string[] = [];

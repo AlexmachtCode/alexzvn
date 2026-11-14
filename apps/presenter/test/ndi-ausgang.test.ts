@@ -118,8 +118,9 @@ const alle = [];
 const schliessend = new Set();
 export class BrowserWindow {
   constructor(opts) {
-    this.opts = opts; this.zu = {}; this.weg = false; this.gesendet = []; this.suche = null;
-    this.webContents = { on() {}, setWindowOpenHandler() {}, getURL: () => '', send: (c, x) => this.gesendet.push([c, x]) };
+    this.opts = opts; this.zu = {}; this.wcZu = {}; this.weg = false; this.gesendet = []; this.suche = null;
+    this.webContents = { on: (e, cb) => { (this.wcZu[e] ??= []).push(cb); }, setWindowOpenHandler() {}, getURL: () => '',
+      send: (c, x) => this.gesendet.push([c, x]) };
     alle.push(this);
   }
   static getAllWindows() { return alle.filter((w) => !w.weg); }
@@ -285,6 +286,7 @@ try {
   type ScheinFenster = {
     opts: { show?: boolean; width?: number; height?: number; skipTaskbar?: boolean; title?: string; webPreferences?: Record<string, unknown> };
     gesendet: [string, unknown][]; suche: string | null; isDestroyed(): boolean; close(): void;
+    wcZu: Record<string, ((...a: unknown[]) => void)[]>;
   };
   const el = (await import('electron')) as unknown as { BrowserWindow: { getAllWindows(): ScheinFenster[]; raeumeAuf(): void } };
   const wm = (await import('../src/main/windows')) as unknown as {
@@ -319,6 +321,33 @@ try {
   ck('Publikum zu, Referent offen → NDI bleibt', !n4.isDestroyed());
   ref.close(); el.BrowserWindow.raeumeAuf();
   ck('letztes sichtbares Fenster (Referent) zu → NDI-Fenster geht mit', n4.isDestroyed() && el.BrowserWindow.getAllWindows().length === 0);
+
+  // Diagnose des versteckten Fensters: nur seine [ndi]-Warnungen/-Fehler ins Main-Log, dieselbe Zeile höchstens alle 10 s.
+  const warnZeilen: string[] = [];
+  const echtesWarn = console.warn; const echtesNow = Date.now;
+  console.warn = (...x: unknown[]) => { warnZeilen.push(x.map(String).join(' ')); };
+  let uhr = 1_000_000; Date.now = () => uhr;
+  try {
+    const e5 = wm.createEditorWindow(); const n5 = wm.openNdiWindow();
+    const meld = (stufe: number, text: string): void => { for (const cb of n5.wcZu['console-message'] ?? []) cb({}, stufe, text, 1, 'x.js'); };
+    const l0 = logZeilen.length;
+    meld(3, '[ndi] Folie nicht gemalt: Error: kaputt');
+    ck('NDI-Fenster: [ndi]-Fehler landet im Main-Log, gekennzeichnet als [ndi-bild]', eq(logZeilen.slice(l0), ['[ndi-bild] Folie nicht gemalt: Error: kaputt']));
+    meld(3, '[ndi] Folie nicht gemalt: Error: kaputt'); uhr += 9_999; meld(3, '[ndi] Folie nicht gemalt: Error: kaputt');
+    ck('… dieselbe Zeile binnen 10 s kein zweites Mal', logZeilen.length === l0 + 1);
+    meld(3, '[ndi] Zeichnen fehlgeschlagen: Error: x');
+    ck('… eine andere Zeile schon', logZeilen.length === l0 + 2 && logZeilen.at(-1) === '[ndi-bild] Zeichnen fehlgeschlagen: Error: x');
+    uhr += 1; meld(3, '[ndi] Folie nicht gemalt: Error: kaputt');
+    ck('… nach 10 s wieder', logZeilen.length === l0 + 3);
+    meld(2, '[ndi] Warnung');
+    ck('… Warnung als Warnung', eq(warnZeilen, ['[ndi-bild] Warnung']));
+    meld(1, '[ndi] nur Info'); meld(3, 'Uncaught TypeError: fremd'); meld(3, 'vorne [ndi] mitten');
+    ck('… ohne [ndi]-Präfix oder unter Warnstufe nichts', logZeilen.length === l0 + 3 && warnZeilen.length === 1);
+    ck('… nur das NDI-Fenster wird abgehört', !(e5.wcZu['console-message']?.length) && (n5.wcZu['console-message']?.length ?? 0) === 1);
+    e5.close(); el.BrowserWindow.raeumeAuf();
+  } finally {
+    console.warn = echtesWarn; Date.now = echtesNow;
+  }
 
   // ---- Das echte sender-process.ts: Wurf beim init NACH dem Fork (Grund für stoppeSender im catch) ----
   fs.writeFileSync(path.join(dir, 'ndi-sender.cjs'), '');

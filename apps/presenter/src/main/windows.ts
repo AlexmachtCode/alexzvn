@@ -246,6 +246,28 @@ export async function captureAudience(maxWidth = 1280): Promise<Buffer | null> {
   }
 }
 
+/** Dieselbe Diagnosezeile des NDI-Fensters höchstens so oft ins Main-Log. */
+const NDI_LOG_ABSTAND_MS = 10_000;
+
+/**
+ * Die `[ndi]`-Warnungen und -Fehler des versteckten NDI-Fensters stünden sonst nur in dessen DevTools, die niemand
+ * öffnet. Sie gehen ins Main-Log, gekennzeichnet als `[ndi-bild]`; dieselbe Zeile höchstens alle 10 s.
+ */
+function reicheNdiDiagnoseWeiter(win: BrowserWindow): void {
+  const zuletzt = new Map<string, number>();
+  win.webContents.on('console-message', (_e, stufe, text) => {
+    if (stufe < 2 || !text.startsWith('[ndi]')) return; // 2 = warning, 3 = error
+    const jetzt = Date.now();
+    const vorher = zuletzt.get(text);
+    if (vorher !== undefined && jetzt - vorher < NDI_LOG_ABSTAND_MS) return;
+    if (zuletzt.size >= 100) zuletzt.clear(); // keine wachsende Liste bei immer neuen Zeilen
+    zuletzt.set(text, jetzt);
+    const zeile = `[ndi-bild]${text.slice('[ndi]'.length)}`;
+    if (stufe >= 3) console.error(zeile);
+    else console.warn(zeile);
+  });
+}
+
 /**
  * Verstecktes NDI-Fenster (#303): zeichnet das Publikumsbild ein zweites Mal für den NDI-Ausgang.
  * Ein offenes wird zurückgegeben. Ohne Drosselung im Hintergrund, sonst stockte der Zeichentakt.
@@ -261,6 +283,7 @@ export function openNdiWindow(): BrowserWindow {
     webPreferences: { ...baseWebPreferences, backgroundThrottling: false },
   });
   sperreNavigation(win);
+  reicheNdiDiagnoseWeiter(win);
   win.on('closed', () => {
     // Nur den eigenen Verweis löschen: nach schnellem Aus/An zeigt er schon aufs neue Fenster.
     if (ndiWindow === win) ndiWindow = null;
