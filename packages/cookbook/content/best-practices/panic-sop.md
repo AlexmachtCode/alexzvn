@@ -148,6 +148,7 @@ Sie dient als Notfallreferenz für alle Operator.
 - [ ] In JM Connect die Zeile des Slots lesen („Wartet auf …“, „Kamera aus“, „Zoom liefert gerade kein Bild“).
 - [ ] Host im Zoom-Client: Gast aus dem Warteraum zulassen.
 - [ ] Gast bitten, die Kamera aus- und wieder einzuschalten.
+- [ ] Dunkle Fläche ohne Namen? In JM Connect die Zeile des Slots lesen; bleibt es so, das Ersatzbild des Slots auf „schwarz“ oder „transparent“ stellen (wirkt sofort, ohne die Quelle neu zu starten).
 
 ---
 
