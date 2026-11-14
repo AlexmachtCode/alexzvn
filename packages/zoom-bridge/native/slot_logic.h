@@ -704,8 +704,12 @@ inline BildEntscheidung bildEntscheidung(const BildLage& l, const ZielStand& z) 
       sollGrund = Grund::cameraOff;
     } else if (hatBild && l.bufferMismatch && l.kameraAnMs <= z.lastFrameMs) {
       // Task 7 (Entscheidung 2): die 200 ms nur, wenn Zoom die Kamera nicht erst nach dem letzten Bild wieder angemeldet
-      // hat. Sonst ist der Merker bufferMismatch alt (aus der Zeit vor „Kamera aus“) und liesse den Hinweis gleich
+      // hat. Sonst ist der Merker bufferMismatch alt (aus der Zeit vor „Kamera aus“) und ließe den Hinweis gleich
       // nach dem Einschalten aufblitzen; dann gilt die Frist ab „Kamera an“, nach 2 s fallback/bufferMismatch (unten).
+      // Ein schmaler Fall bleibt dabei bewusst (Review T7): live, dann nur noch falsch geformte Bilder (bufferMismatch),
+      // und Zoom meldet die Kamera binnen 200 ms nach dem letzten passenden Bild aus und wieder an - dann steht der Slot
+      // bis zu 2 s auf live/frames, während schon die Kachel hinausgeht (sent tile, ohne Hinweis); danach
+      // fallback/bufferMismatch mit Hinweis.
       sollGrund = Grund::bufferMismatch;
     } else if (kachelFrist) {
       return e;

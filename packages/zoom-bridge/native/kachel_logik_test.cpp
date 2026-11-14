@@ -279,6 +279,52 @@ void t_stand_bildauftrag_offen() {
   s.fertig(neu, s.grundflaeche(4, 2));                           // fertig: nichts läuft mehr
   CHECK(!s.bildAuftragOffen(s.soll(A, true, 4, 2)));
 }
+void t_stand_nie_fremdes_profil() {
+  // Task 7, Review IMPORTANT 1: das gelesene Profil gilt nur für sein Ziel. Ist für ziel noch keins gelesen (etwa
+  // während der Renderer-Sperre nach einem Umhängen), gibt es keins – nie Name oder Bild eines anderen.
+  KachelStand s;
+  CHECK(s.profilFuer(A) == nullptr && !s.soll(A, false, 4, 2).mitProfilbild);   // noch nichts gelesen
+  s.profilGelesen(A, MIT);
+  CHECK(s.profilFuer(A) != nullptr && s.profilFuer(A)->name == MIT.name && s.profilFuer(A)->profilbild == MIT.profilbild);
+  CHECK(s.profilFuer(B) == nullptr);                             // A gehört nicht zu B
+  CHECK(!s.soll(B, false, 4, 2).mitProfilbild);                  // Bs Schlüssel trägt As Profilbild nicht
+  CHECK(s.soll(A, false, 4, 2).mitProfilbild);
+  s.profilVeraltet(A);                                           // veraltet, aber dieselbe Person: bleibt brauchbar
+  CHECK(s.profilFuer(A) != nullptr);
+  s.leeren();
+  CHECK(s.profilFuer(A) == nullptr);
+}
+void t_stand_nicht_gefunden_wiederholt() {
+  // Task 7, Review MINOR 5: kennt Zoom das Ziel gerade nicht (GetUserByUserID leer), zählt das nicht als gelesen;
+  // gefragt wird wieder nach PROFIL_WIEDERHOLEN_MS (kein SDK-Aufruf je Herzschlag), ein anderes Ziel sofort.
+  KachelStand s;
+  CHECK(s.profilJetztLesen(A, at(1000)));
+  s.profilNichtGefunden(A, at(1000));
+  CHECK(s.profilFuer(A) == nullptr && s.profilLesenNoetig(A));
+  CHECK(!s.profilJetztLesen(A, at(1000 + PROFIL_WIEDERHOLEN_MS - 1)) && s.profilJetztLesen(A, at(1000 + PROFIL_WIEDERHOLEN_MS)));
+  CHECK(s.profilJetztLesen(B, at(1001)));                        // anderes Ziel: sofort
+  CHECK(PROFIL_WIEDERHOLEN_MS >= 500);                           // höchstens zweimal je Sekunde und Slot
+  s.profilGelesen(A, MIT);
+  CHECK(!s.profilJetztLesen(A, at(1001)));                       // gelesen: nichts mehr zu tun
+  s.profilVeraltet(A);
+  CHECK(s.profilJetztLesen(A, at(1002)));                        // ein Merker nach dem Lesen fragt sofort
+}
+void t_stand_verwerfen_ohne_speichern() {
+  // Task 7, Review MINOR 3: steht die gewünschte Kachel schon im Puffer, beendet das späte Ergebnis eines Auftrags
+  // für eine andere Kachel nur den Auftrag – es ersetzt die richtige Kachel nicht.
+  KachelStand s;
+  s.profilGelesen(A, MIT);
+  const KachelSchluessel k0 = s.soll(A, false, 4, 2);
+  const auto p = std::make_shared<const std::vector<uint8_t>>(i420Bytes(4, 2), uint8_t{1});
+  s.gestartet(k0, at(0));
+  s.fertig(k0, p);
+  const KachelSchluessel k1 = s.soll(A, true, 4, 2);
+  s.gestartet(k1, at(100));
+  s.verwerfen(k0);                                               // ein anderer Schlüssel beendet den Auftrag nicht
+  CHECK(s.laeuft(k1));
+  s.verwerfen(k1);
+  CHECK(!s.laeuft(k1) && s.hat(k0) && s.puffer() == p && !s.fristAbgelaufen(at(99999)) && !s.hat(k1));
+}
 void t_grundflaeche_auch_ausserhalb_des_zeichners() {
   // Task 7 (Review Task 6, Hinweis 3): unter 16 und über 4096 Bildpunkten zeichnet kachelZeichnen nichts; der Slot
   // sendet dann die dunkle Fläche in genau dieser (geraden) Größe – sie passt zur I420-Prüfung von sendKachel.
@@ -311,6 +357,9 @@ int main() {
   t_stand_frist();
   t_stand_fehler_einmal();
   t_stand_bildauftrag_offen();
+  t_stand_nie_fremdes_profil();
+  t_stand_nicht_gefunden_wiederholt();
+  t_stand_verwerfen_ohne_speichern();
   t_grundflaeche_auch_ausserhalb_des_zeichners();
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;

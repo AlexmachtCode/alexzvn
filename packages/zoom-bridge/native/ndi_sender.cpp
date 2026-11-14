@@ -308,7 +308,7 @@ int NdiSender::releaseDueLocked(bool nachlauf) {
       return;
     }
     if (b.art == Bildart::Kachel) {
-      // Eine Kachel ohne Puffer legt die Warteschlange nie ab (pushKachel, pushBild, #306); die Senke prueft trotzdem
+      // Eine Kachel ohne Puffer legt die Warteschlange nie ab (pushKachel, pushBild, #306); die Senke prüft trotzdem
       // selbst, statt sich darauf zu verlassen.
       if (b.kachel) {
         NDIlib_video_frame_v2_t k;

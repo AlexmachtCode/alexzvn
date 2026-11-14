@@ -378,6 +378,8 @@ inline bool operator==(const KachelSchluessel& a, const KachelSchluessel& b) {
 inline constexpr int64_t KACHEL_WARTEN_MS = 50;
 /** Nach so vielen Millisekunden gibt ein laufender Zeichenauftrag auf (erst das Profilbild, dann die Initialen). */
 inline constexpr int64_t KACHEL_FRIST_MS = 2000;
+/** Kennt Zoom ein Ziel gerade nicht (kein Nutzer), fragt der Slot frühestens nach so vielen Millisekunden wieder. */
+inline constexpr int64_t PROFIL_WIEDERHOLEN_MS = 1000;
 
 using Puffer = std::shared_ptr<const std::vector<uint8_t>>;
 
@@ -391,6 +393,23 @@ class KachelStand {
   /** Muss das Profil von ziel (neu) gelesen werden? Vor dem ersten Lesen, nach profilVeraltet, bei anderem Ziel. */
   bool profilLesenNoetig(unsigned ziel) const { return !gelesen_ || veraltet_ || ziel != profilZiel_; }
 
+  /**
+   * Soll der Slot das Profil von ziel jetzt lesen? Wie profilLesenNoetig, aber nach profilNichtGefunden für dieses
+   * Ziel erst wieder ab PROFIL_WIEDERHOLEN_MS - kein SDK-Aufruf je Herzschlag.
+   */
+  bool profilJetztLesen(unsigned ziel, int64_t jetzt) const {
+    return profilLesenNoetig(ziel) && !(nichtGefundenZiel_ == ziel && jetzt < nichtGefundenBis_);
+  }
+
+  /**
+   * Zoom kennt ziel gerade nicht (kein Nutzer zur Kennung): das zählt NICHT als gelesen - der Stand bleibt, wie er
+   * war, und gefragt wird nach PROFIL_WIEDERHOLEN_MS wieder (profilJetztLesen).
+   */
+  void profilNichtGefunden(unsigned ziel, int64_t jetzt) {
+    nichtGefundenZiel_ = ziel;
+    nichtGefundenBis_ = jetzt + PROFIL_WIEDERHOLEN_MS;
+  }
+
   /** Ein frisch gelesenes Profil; zaehlt den Profilstand hoch (neuer Stand = neu zeichnen, neuer Versuch). */
   void profilGelesen(unsigned ziel, Profil p) {
     profilZiel_ = ziel;
@@ -398,7 +417,16 @@ class KachelStand {
     ++profilStand_;
     gelesen_ = true;
     veraltet_ = false;
+    nichtGefundenZiel_ = 0;
+    nichtGefundenBis_ = 0;
   }
+
+  /**
+   * Das gelesene Profil, wenn es zu ziel gehört (auch wenn es als veraltet markiert ist: dieselbe Person); sonst
+   * nullptr - nie Name oder Bild eines anderen Ziels, etwa nach einem Umhängen während der Renderer-Sperre, in der
+   * nicht gelesen wird. Der Zeiger gilt bis zum nächsten profilGelesen bzw. leeren().
+   */
+  const Profil* profilFuer(unsigned ziel) const { return gelesen_ && profilZiel_ == ziel ? &profil_ : nullptr; }
 
   /** Zoom meldet eine Aenderung an Teilnehmer id (0 = alle): das Profil muss neu gelesen werden. */
   void profilVeraltet(unsigned id) {
@@ -407,7 +435,10 @@ class KachelStand {
 
   const Profil& profil() const { return profil_; }
 
-  /** Die Kachel, die jetzt stehen soll; das Profilbild zaehlt, solange der Pfad nicht leer und der Stand nicht aufgegeben ist. */
+  /**
+   * Die Kachel, die jetzt stehen soll; das Profilbild zählt, solange das gelesene Profil zu ziel gehört, der Pfad
+   * nicht leer und der Stand nicht aufgegeben ist.
+   */
   KachelSchluessel soll(unsigned ziel, bool hinweis, int w, int h) const {
     KachelSchluessel k;
     k.ziel = ziel;
@@ -415,7 +446,8 @@ class KachelStand {
     k.hinweis = hinweis;
     k.w = w;
     k.h = h;
-    k.mitProfilbild = !profil_.profilbild.empty() && aufgegebenStand_ != profilStand_;
+    // Nur das Profilbild DIESES Ziels zählt (profilFuer): ein Profil eines anderen Ziels trägt kein Bild in den Schlüssel.
+    k.mitProfilbild = profilFuer(ziel) != nullptr && !profil_.profilbild.empty() && aufgegebenStand_ != profilStand_;
     return k;
   }
 
@@ -425,8 +457,8 @@ class KachelStand {
   bool laeuft(const KachelSchluessel& k) const { return laufend_ && laufSchluessel_ == k; }
 
   /**
-   * Laeuft (oder haengt) ein Auftrag MIT Profilbild fuer dasselbe Ziel und denselben Profilstand wie k, und will k
-   * ebenfalls das Profilbild? Dann kommt kein zweiter Auftrag: jeder haengende Lesezugriff hielte sonst einen Thread
+   * Läuft (oder hängt) ein Auftrag MIT Profilbild für dasselbe Ziel und denselben Profilstand wie k, und will k
+   * ebenfalls das Profilbild? Dann kommt kein zweiter Auftrag: jeder hängende Lesezugriff hielte sonst einen Thread
    * mehr an derselben Datei. Die Frist des laufenden Auftrags gilt weiter; nach ihr ist das Bild dieses Stands
    * aufgegeben (fristAblauf), und k kommt ohne Profilbild.
    */
@@ -449,6 +481,14 @@ class KachelStand {
   void fertig(const KachelSchluessel& k, Puffer i420) {
     puffer_ = std::move(i420);
     pufferSchluessel_ = k;
+    if (laufend_ && laufSchluessel_ == k) laufend_ = false;
+  }
+
+  /**
+   * Das Ergebnis des Auftrags k wird nicht gebraucht (die gewünschte Kachel steht schon im Puffer): beendet den
+   * laufenden Auftrag, wenn er k gilt, und lässt Puffer und alles andere, wie es ist - anders als fertig().
+   */
+  void verwerfen(const KachelSchluessel& k) {
     if (laufend_ && laufSchluessel_ == k) laufend_ = false;
   }
 
@@ -520,6 +560,8 @@ class KachelStand {
   uint64_t profilStand_ = 0;   // steigt nur, auch ueber leeren() hinweg (siehe dort)
   bool gelesen_ = false;       // gibt es seit dem Grundzustand ein gelesenes Profil?
   bool veraltet_ = false;
+  unsigned nichtGefundenZiel_ = 0;   // profilNichtGefunden: für dieses Ziel …
+  int64_t nichtGefundenBis_ = 0;     // … erst ab hier wieder fragen
   uint64_t aufgegebenStand_ = 0;
   uint64_t gemeldetStand_ = 0;
   bool laufend_ = false;

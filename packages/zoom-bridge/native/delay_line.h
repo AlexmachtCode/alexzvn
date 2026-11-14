@@ -114,7 +114,7 @@ class DelayLine {
    * Ein Ersatzbild ohne Bilddaten (Schwarz, Weiss, Transparent) laeuft durch DIESELBE Warteschlange wie echte
    * Bilder - sonst ueberholte es die noch wartenden Bilder, und die Quelle zeigte Schwarz, bevor die letzten Bilder
    * vor dem Kamera-Aus durch sind. I420 traegt Bilddaten und geht nur ueber pushFrame: pushBild(Bildart::I420, ...)
-   * legt nichts ab. Ebenso die Kachel (#306): sie traegt einen Puffer und geht nur ueber pushKachel - sonst laege ein
+   * legt nichts ab. Ebenso die Kachel (#306): sie trägt einen Puffer und geht nur über pushKachel - sonst läge ein
    * Frame ohne Verweis in der Warteschlange.
    */
   int pushBild(Bildart art, int w, int h, TimePoint arrival) {

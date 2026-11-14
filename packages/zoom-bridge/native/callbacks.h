@@ -74,9 +74,11 @@ struct MerkerFreigabe { unsigned user = 0; unsigned share = 0; int status = 0; i
  */
 struct MerkerSprecher { int signal = 0; std::vector<unsigned> ids; };
 /**
- * Zoom-Kachel (#306): Name oder Profilbild eines Teilnehmers haben sich geaendert (onUserNamesChanged,
+ * Zoom-Kachel (#306): Name oder Profilbild eines Teilnehmers haben sich geändert (onUserNamesChanged,
  * onInMeetingUserAvatarPathUpdated) bzw. der Host blendet Profilbilder ein oder aus
  * (onParticipantProfilePictureStatusChange). id 0 = alle. Nur die Kennung - das Profil liest der Slot selbst.
+ * „Alle“ steht nie in der gedeckelten Warteschlange, sondern als klebendes Merkzeichen (geht nie verloren);
+ * callbacksTakeProfil liefert es zuerst, als MerkerProfil{0}.
  */
 struct MerkerProfil { unsigned id = 0; };
 

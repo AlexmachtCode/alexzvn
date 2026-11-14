@@ -133,8 +133,8 @@ constexpr long long kSpeakerHoldMaxMs = 5000;
 void slotsKamera(unsigned id, int videoStatus);
 
 /**
- * Profil-Merker (Zoom-Kachel, #306): Name oder Profilbild von Teilnehmer id haben sich geaendert, id 0 = alle (der
- * Host blendet Profilbilder ein oder aus). Jeder Slot ausser Freigabe liest das Profil beim naechsten Zeichnen neu.
+ * Profil-Merker (Zoom-Kachel, #306): Name oder Profilbild von Teilnehmer id haben sich geändert, id 0 = alle (der
+ * Host blendet Profilbilder ein oder aus). Jeder Slot außer Freigabe liest das Profil beim nächsten Zeichnen neu.
  */
 void slotsProfil(unsigned id);
 

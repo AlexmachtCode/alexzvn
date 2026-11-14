@@ -3340,6 +3340,21 @@ console.log('\nZoom-Kachel (#306): Anbindung');
   const iSperre = fuer.indexOf('rendererSperre()');
   assert(iSperre >= 0 && fuer.indexOf('profilLesen(') > iSperre,
     '#306 kachelFuer fragt die Renderer-Sperre, bevor es das Profil liest (kein SDK-Aufruf, während Zoom trennt)');
+  // Review T7, MINOR 5: kennt Zoom das Ziel nicht, gilt das Profil nicht als gelesen; neu gefragt höchstens je
+  // PROFIL_WIEDERHOLEN_MS (KachelStand), nie je Herzschlag.
+  assert(/s\.kachel\.profilJetztLesen\(\s*ziel\s*,\s*jetzt\s*\)/.test(fuer) && /s\.kachel\.profilNichtGefunden\(\s*ziel\s*,\s*jetzt\s*\)/.test(fuer)
+      && /\*\s*gefunden\s*=/.test(profil),
+    '#306 kachelFuer: ein nicht gefundener Teilnehmer zählt nicht als gelesen und wird gedrosselt neu gefragt');
+  // Review T7, IMPORTANT 1: nie Name oder Bild eines anderen Ziels - gezeichnet wird nur mit dem Profil DIESES Ziels
+  // (profilFuer(ziel)), sonst kein Auftrag (Überbrückung nur aus einer Kachel dieses Ziels, sonst dunkle Fläche).
+  assert(/const\s+kachel::Profil\s*\*\s*profil\s*=\s*s\.kachel\.profilFuer\(\s*ziel\s*\)\s*;/.test(fuer)
+      && /profil\s*!=\s*nullptr\s*&&\s*!\s*s\.kachel\.hat\(k\)/.test(fuer) && !fuer.includes('s.kachel.profil()')
+      && /a\.name\s*=\s*profil->name\s*;/.test(fuer),
+    '#306 kachelFuer zeichnet nur mit dem Profil dieses Ziels (profilFuer), nie mit dem eines anderen');
+  const inMeeting = rumpf(video, 'void slotsInMeeting()');
+  assert(/s->kachel\.leeren\(\)\s*;\s*s->kachelJob\.reset\(\)\s*;/.test(inMeeting)
+      && inMeeting.indexOf('s->kachel.leeren()') < inMeeting.indexOf('abbauAusfuehren('),
+    '#306 slotsInMeeting: mit den Kennungen (Wiederverbindung) beginnt jede Kachel neu - kein Profil einer alten Kennung');
   // Entscheidung 5: fristAblauf bekommt die Größe des LAUFENDEN Auftrags (sein Schlüssel), nicht die gerade verlangte.
   assert(/const\s+kachel::KachelSchluessel\s+lauf\s*=\s*s\.kachelJob->schluessel\s*;/.test(fuer) && fuer.includes('fristAblauf(lauf.w, lauf.h)'),
     '#306 kachelFuer gibt fristAblauf die Größe des laufenden Auftrags (lauf = s.kachelJob->schluessel)');
@@ -3349,12 +3364,20 @@ console.log('\nZoom-Kachel (#306): Anbindung');
   assert(/else\s+if\s*\(\s*!\s*s\.kachel\.hat\(k\)\s*&&\s*s\.kachelJob\s*&&\s*s\.kachel\.fristAbgelaufen\(jetzt\)\s*\)/.test(fuer),
     '#306 kachelFuer: die Frist greift nur, solange der Slot auf den laufenden Auftrag wartet (die gewünschte Kachel fehlt)');
   // Review Task 6, Hinweis 3: läuft das Warten ab (kachelWarten false), geht die Überbrückung bzw. die dunkle Fläche hinaus.
-  const iWarten = fuer.search(/\bbool\s+(\w+)\s*=\s*kachelWarten\(\s*\*s\.kachelJob\s*,\s*g_kachelWartenUs\s*\/\s*1000\s*\)/);
-  const warteVar = /\bbool\s+(\w+)\s*=\s*kachelWarten\(/.exec(fuer)?.[1] ?? '';
+  // Review T7, MINOR 2: unter einer Zeitgeber-Auflösung (16 ms, ohne timeBeginPeriod) Restguthaben nicht mehr warten,
+  // nur nachsehen - ein abgelaufenes wait_for kommt bis zu 15,6 ms zu spät zurück.
+  const iWarten = fuer.search(/\bbool\s+(\w+)\s*=\s*g_kachelWartenUs\s*>=\s*kZeitgeberUs\s*\?\s*kachelWarten\(\s*\*s\.kachelJob\s*,\s*g_kachelWartenUs\s*\/\s*1000\s*\)\s*:\s*kachelFertig\(\s*\*s\.kachelJob\s*\)/);
+  const warteVar = /\bbool\s+(\w+)\s*=\s*g_kachelWartenUs\b/.exec(fuer)?.[1] ?? '';
   assert(iWarten >= 0 && new RegExp(`if\\s*\\(\\s*${warteVar}\\s*\\)\\s*kachelUebernehmen\\(`).test(fuer.slice(iWarten))
       && fuer.lastIndexOf('ueberbrueckung(') > iWarten && fuer.lastIndexOf('grundflaeche(') > fuer.lastIndexOf('ueberbrueckung('),
     '#306 kachelFuer: ohne fertiges Ergebnis nach kachelWarten die Überbrückung, sonst die dunkle Fläche');
+  assert(/constexpr\s+int64_t\s+kZeitgeberUs\s*=\s*16000\s*;/.test(video),
+    '#306 kachelFuer wartet nur mit mindestens einer Zeitgeber-Auflösung (16 ms) Restguthaben, sonst nur kachelFertig');
   const uebernehmen = rumpf(video, 'void kachelUebernehmen(');
+  // Review T7, MINOR 3: ein spätes Ergebnis für eine andere Kachel ersetzt eine schon richtige nicht.
+  const iVerwerfen = uebernehmen.search(/if\s*\(\s*s\.kachel\.hat\(soll\)\s*&&\s*!\s*\(\s*k\s*==\s*soll\s*\)\s*\)\s*\{\s*s\.kachel\.verwerfen\(k\)\s*;/);
+  assert(iVerwerfen >= 0 && iVerwerfen < uebernehmen.indexOf('s.kachel.fertig('),
+    '#306 kachelUebernehmen: steht die gewünschte Kachel schon im Puffer, beendet ein Ergebnis für eine andere nur den Auftrag (verwerfen)');
   const iOhneBild = uebernehmen.search(/if\s*\(\s*!\s*e\.i420\s*\)/);
   assert(iOhneBild >= 0 && iOhneBild < uebernehmen.indexOf('e.fehler') && uebernehmen.indexOf('grundflaeche(', iOhneBild) > iOhneBild
       && uebernehmen.includes('e.dauerUs') && uebernehmen.includes('s.kachel.fehlerMelden()'),
@@ -3406,9 +3429,18 @@ console.log('\nZoom-Kachel (#306): Anbindung');
   const cb = nativ('callbacks.cpp', true);
   const einreihen = /merkerEinreihen\(\s*g_merkerProfil\s*,/;
   assert(einreihen.test(rumpf(cb, 'void ParticipantsListener::onUserNamesChanged('))
-      && einreihen.test(rumpf(cb, 'void ParticipantsListener::onInMeetingUserAvatarPathUpdated('))
-      && /merkerEinreihen\(\s*g_merkerProfil\s*,\s*MerkerProfil\{\s*0\s*\}\s*\)/.test(rumpf(cb, 'void ParticipantsListener::onParticipantProfilePictureStatusChange(')),
-    '#306 onUserNamesChanged, onInMeetingUserAvatarPathUpdated und onParticipantProfilePictureStatusChange (MerkerProfil{0} = alle) reihen den Profil-Merker ein');
+      && einreihen.test(rumpf(cb, 'void ParticipantsListener::onInMeetingUserAvatarPathUpdated(')),
+    '#306 onUserNamesChanged und onInMeetingUserAvatarPathUpdated reihen den Profil-Merker ein');
+  // Review T7, MINOR 6: „alle“ (der Host blendet Profilbilder aus oder ein) geht nie in der gedeckelten Warteschlange
+  // verloren - ein klebendes Merkzeichen wie g_inMeetingOffen, callbacksTakeProfil nimmt es zuerst als MerkerProfil{0}.
+  const alle = rumpf(cb, 'void ParticipantsListener::onParticipantProfilePictureStatusChange(');
+  const nehmenProfil = rumpf(cb, 'bool callbacksTakeProfil(MerkerProfil* out)');
+  assert(/g_profilAlleOffen\s*=\s*true\s*;/.test(alle) && !/merkerEinreihen\(/.test(alle)
+      && /std::atomic<bool>\s+g_profilAlleOffen\s*\{\s*false\s*\}\s*;/.test(cb)
+      && nehmenProfil.indexOf('g_profilAlleOffen.exchange(false)') >= 0
+      && nehmenProfil.indexOf('g_profilAlleOffen.exchange(false)') < nehmenProfil.indexOf('merkerNehmen(g_merkerProfil')
+      && /MerkerProfil\{\s*0\s*\}/.test(nehmenProfil),
+    '#306 onParticipantProfilePictureStatusChange setzt das klebende Merkzeichen „alle“; callbacksTakeProfil liefert es zuerst als MerkerProfil{0}');
   const kopf = nativ('callbacks.h');
   const leer = (methode: string) => new RegExp(`\\b${methode}\\s*\\([^)]*\\)\\s*override\\s*\\{\\s*\\}`).test(kopf);
   const deklariert = (methode: string) => new RegExp(`\\bvoid\\s+${methode}\\s*\\([^)]*\\)\\s*override\\s*;`).test(kopf);
