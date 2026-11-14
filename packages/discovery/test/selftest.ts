@@ -2,7 +2,7 @@
 // Deckt die mDNS-Annoncen-Signatur ab (reines node:crypto, kein bonjour-Import).
 import { readFileSync } from 'node:fs';
 import { signAdvertisement, verifyAdvertisement, assessAdvertisement } from '../src/sign.ts';
-import { neuesBonjour } from '../src/bonjour.ts';
+import { neuesBonjour, haengeMdnsFehlerwegAn } from '../src/bonjour.ts';
 
 let failed = 0;
 function ok(cond: boolean, msg: string): void {
@@ -144,6 +144,23 @@ function sendefehlerAusloesen(b: any, fehler: Error): boolean {
   console.warn = alteWarn;
   ok(!warf, "neuesBonjour ohne onError: mdns-'error' wirft nicht");
   b.destroy();
+}
+// Bibliotheks-Update: fehlt `server` oder `mdns`, darf das Anhängen des Fehlerwegs nie werfen.
+{
+  const alteWarn = console.warn;
+  const warnungen: string[] = [];
+  console.warn = (m: unknown) => void warnungen.push(String(m));
+  let warf = false;
+  try {
+    haengeMdnsFehlerwegAn({}, () => {});
+    haengeMdnsFehlerwegAn({ server: {} }, () => {});
+    haengeMdnsFehlerwegAn(null, () => {});
+  } catch {
+    warf = true;
+  }
+  console.warn = alteWarn;
+  ok(!warf, 'haengeMdnsFehlerwegAn: Attrappe ohne server/mdns wirft nicht');
+  ok(warnungen.length === 3 && warnungen.every((w) => w.includes('[discovery] mDNS-Fehlerweg nicht anhängbar')), 'haengeMdnsFehlerwegAn: warnt je Fall');
 }
 // Durchreichen: advertise()/discover() müssen ihr opts.onError an neuesBonjour geben
 // (die Instanz ist von außen nicht greifbar → Quelltext-Check beider Aufrufstellen).
