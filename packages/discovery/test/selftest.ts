@@ -1,6 +1,7 @@
 // Mini-Selbsttest (kein Framework): node --experimental-strip-types test/selftest.ts
 // Deckt die mDNS-Annoncen-Signatur ab (reines node:crypto, kein bonjour-Import).
 import { signAdvertisement, verifyAdvertisement, assessAdvertisement } from '../src/sign.ts';
+import { neuesBonjour } from '../src/bonjour.ts';
 
 let failed = 0;
 function ok(cond: boolean, msg: string): void {
@@ -64,6 +65,54 @@ ok(verifyAdvertisement(KEY, id, 'nicht-hex') === false, 'verifyAdvertisement leh
 {
   const t = assessAdvertisement(KEY, id, sig, true);
   ok(t.accept && t.verified, 'assess Phase 2 (strict): gültig signierte weiterhin akzeptiert');
+}
+
+// ── neuesBonjour: mDNS-Sendefehler dürfen NIE werfen (Absturz 02.11.2026) ──────
+// bonjour-service ruft bei nicht sendbarer Antwort (z. B. Netz kurz weg:
+// `send EHOSTUNREACH 224.0.0.251:5353`) server.errorCallback — Standard: `throw err`
+// → uncaughtException → App-Absturz. Wir lösen genau diesen Weg aus.
+{
+  const fehler = new Error('send EHOSTUNREACH 224.0.0.251:5353');
+  const empfangen: Error[] = [];
+  const b = neuesBonjour((e) => empfangen.push(e));
+  let warf = false;
+  try {
+    (b as any).server.errorCallback(fehler);
+  } catch {
+    warf = true;
+  }
+  ok(!warf, 'neuesBonjour: Sendefehler wirft nicht');
+  ok(empfangen.length === 1 && empfangen[0] === fehler, 'neuesBonjour: onError bekommt genau diesen Fehler');
+  b.destroy();
+}
+{
+  const b = neuesBonjour();
+  const alteWarn = console.warn;
+  const warnungen: string[] = [];
+  console.warn = (m: unknown) => void warnungen.push(String(m));
+  let warf = false;
+  try {
+    (b as any).server.errorCallback(new Error('send EHOSTUNREACH 224.0.0.251:5353'));
+  } catch {
+    warf = true;
+  }
+  console.warn = alteWarn;
+  ok(!warf, 'neuesBonjour ohne onError: wirft nicht');
+  ok(warnungen.some((w) => w.includes('[discovery] mDNS-Fehler (ignoriert)') && w.includes('EHOSTUNREACH')), 'neuesBonjour ohne onError: warnt per console.warn');
+  b.destroy();
+}
+{
+  const b = neuesBonjour(() => {
+    throw new Error('onError selbst kaputt');
+  });
+  let warf = false;
+  try {
+    (b as any).server.errorCallback(new Error('send EHOSTUNREACH 224.0.0.251:5353'));
+  } catch {
+    warf = true;
+  }
+  ok(!warf, 'neuesBonjour: werfender onError dringt nicht nach außen');
+  b.destroy();
 }
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`);
