@@ -389,13 +389,14 @@ using Puffer = std::shared_ptr<const std::vector<uint8_t>>;
 class KachelStand {
  public:
   /** Muss das Profil von ziel (neu) gelesen werden? Vor dem ersten Lesen, nach profilVeraltet, bei anderem Ziel. */
-  bool profilLesenNoetig(unsigned ziel) const { return profilStand_ == 0 || veraltet_ || ziel != profilZiel_; }
+  bool profilLesenNoetig(unsigned ziel) const { return !gelesen_ || veraltet_ || ziel != profilZiel_; }
 
   /** Ein frisch gelesenes Profil; zaehlt den Profilstand hoch (neuer Stand = neu zeichnen, neuer Versuch). */
   void profilGelesen(unsigned ziel, Profil p) {
     profilZiel_ = ziel;
     profil_ = std::move(p);
     ++profilStand_;
+    gelesen_ = true;
     veraltet_ = false;
   }
 
@@ -423,6 +424,7 @@ class KachelStand {
   /** Laeuft fuer genau diese Kachel gerade ein Zeichenauftrag? */
   bool laeuft(const KachelSchluessel& k) const { return laufend_ && laufSchluessel_ == k; }
 
+  /** Beginnt einen Auftrag und setzt die Frist neu; wer ihn schon laufen hat, fragt vorher mit laeuft() nach. */
   void gestartet(const KachelSchluessel& k, int64_t jetzt) {
     laufend_ = true;
     laufSchluessel_ = k;
@@ -449,7 +451,7 @@ class KachelStand {
     if (!laufend_) return;
     const KachelSchluessel k = laufSchluessel_;
     if (k.mitProfilbild) {
-      aufgegebenStand_ = profilStand_;
+      aufgegebenStand_ = k.profilStand;   // der versuchte Stand, nicht ein inzwischen neuerer
       laufend_ = false;
     } else {
       fertig(k, grundflaeche(w, h));
@@ -472,7 +474,7 @@ class KachelStand {
     return puffer_;
   }
 
-  /** Die dunkle Flaeche der Groesse w x h; bleibt, bis eine andere Groesse verlangt wird. */
+  /** Die dunkle Flaeche der Groesse w x h; bleibt, bis eine andere Groesse verlangt wird. Die Referenz gilt nur bis zum nächsten Aufruf mit anderer Größe bzw. bis leeren(). */
   const Puffer& grundflaeche(int w, int h) {
     if (grund_ == nullptr || grundW_ != w || grundH_ != h) {
       grund_ = std::make_shared<const std::vector<uint8_t>>(grundkachelI420(w, h));
@@ -491,12 +493,21 @@ class KachelStand {
   }
 
   /** Zurueck in den Grundzustand (Slot geschlossen). */
-  void leeren() { *this = KachelStand(); }
+  void leeren() {
+    // Der Standzaehler laeuft weiter: ein spaetes Ergebnis eines Auftrags aus der Zeit vor leeren() darf nie zu
+    // einem Schluessel nach dem Wiederoeffnen passen. Alles andere kommt in den Grundzustand; gemeldet und
+    // aufgegeben wird auf den aktuellen Stand gesetzt bzw. geloescht, der naechste Stand versucht das Bild neu.
+    const uint64_t stand = profilStand_;
+    *this = KachelStand();
+    profilStand_ = stand;
+    gemeldetStand_ = stand;
+  }
 
  private:
   unsigned profilZiel_ = 0;
   Profil profil_;
-  uint64_t profilStand_ = 0;   // 0 = noch nie gelesen
+  uint64_t profilStand_ = 0;   // steigt nur, auch ueber leeren() hinweg (siehe dort)
+  bool gelesen_ = false;       // gibt es seit dem Grundzustand ein gelesenes Profil?
   bool veraltet_ = false;
   uint64_t aufgegebenStand_ = 0;
   uint64_t gemeldetStand_ = 0;

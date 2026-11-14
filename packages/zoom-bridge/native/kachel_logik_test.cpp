@@ -202,8 +202,33 @@ void t_stand_ablauf() {
   CHECK(t.ueberbrueckung(A, 4, 2) == p && t.ueberbrueckung(B, 4, 2) == nullptr && t.ueberbrueckung(A, 8, 2) == nullptr);
   const KachelSchluessel kh = t.soll(A, true, 4, 2);
   t.gestartet(kh, at(4000));
-  t.fertig(k, p);                                                // spaetes Ergebnis eines alten Auftrags
-  CHECK(t.laeuft(kh) && !t.hat(kh));
+  const auto q = std::make_shared<const std::vector<uint8_t>>(i420Bytes(4, 2), uint8_t{2});
+  t.fertig(k, q);                                                // spaetes Ergebnis eines alten Auftrags
+  CHECK(t.laeuft(kh) && !t.hat(kh) && t.hat(k) && t.puffer() == q);   // "fertig speichert immer": q ueberschreibt p
+}
+void t_stand_leeren_monoton() {
+  KachelStand s;
+  s.profilGelesen(A, MIT);
+  const KachelSchluessel k = s.soll(A, false, 4, 2);
+  s.gestartet(k, at(0));
+  s.leeren();
+  CHECK(s.profilLesenNoetig(A) && s.profilLesenNoetig(B) && !s.fehlerMelden());
+  s.profilGelesen(A, MIT);
+  const KachelSchluessel k2 = s.soll(A, false, 4, 2);
+  CHECK(!(k2 == k) && k2.mitProfilbild);
+  s.gestartet(k2, at(10));
+  const auto q = std::make_shared<const std::vector<uint8_t>>(i420Bytes(4, 2), uint8_t{3});
+  s.fertig(k, q);                                                // spaetes Ergebnis aus der Zeit vor leeren()
+  CHECK(!s.hat(k2) && s.laeuft(k2));
+}
+void t_stand_frist_neuer_stand() {
+  KachelStand s;
+  s.profilGelesen(A, MIT);
+  const KachelSchluessel k = s.soll(A, false, 4, 2);
+  s.gestartet(k, at(0));
+  s.profilGelesen(A, MIT);                                       // neuer Stand, noch kein Auftrag dafuer
+  s.fristAblauf(4, 2);
+  CHECK(!s.laeuft(k) && s.soll(A, false, 4, 2).mitProfilbild);   // aufgegeben wurde der versuchte Stand, nicht der neue
 }
 void t_stand_frist() {
   KachelStand f;
@@ -246,6 +271,8 @@ int main() {
   t_i420();
   t_stand_profil();
   t_stand_ablauf();
+  t_stand_leeren_monoton();
+  t_stand_frist_neuer_stand();
   t_stand_frist();
   t_stand_fehler_einmal();
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
