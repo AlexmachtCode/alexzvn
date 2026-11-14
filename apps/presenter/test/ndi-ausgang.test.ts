@@ -13,16 +13,29 @@ function ck(name: string, cond: boolean): void {
   if (cond) { pass++; console.log(`  ok  ${name}`); } else { fail++; console.log(`FAIL  ${name}`); }
 }
 const eq = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+/** Eingespeiste Fristen (statt 10 s Start-Frist und 60 s Absturz-Fenster). */
+const FRIST = 40, ABSTURZ = 60;
 
 type Schein = { once(e: string, cb: () => void): void; isDestroyed(): boolean; webContents: object };
 type Meldungen = { bereit(): void; fehler(g: string): void; empfaenger(n: number): void; beendet(c: number): void };
+type FakeKind = { getoetet: number };
 const g = globalThis as unknown as {
-  __w: { aktuell: Schein | null; offen: number; zu: number; closed: (() => void) | null; anNdi: [string, unknown][]; status: unknown[] };
-  __s: { m: Meldungen | null; gestartet: number; gestoppt: number; verbunden: number; datei: boolean; wirft: boolean };
+  __w: {
+    aktuell: Schein | null; offen: number; zu: number; closed: (() => void) | null; absturz: ((grund: string) => void) | null;
+    anNdi: [string, unknown][]; status: unknown[];
+  };
+  __s: { m: Meldungen | null; gestartet: number; gestoppt: number; verbunden: number; datei: boolean; wirft: boolean; kindLaeuft: boolean };
+  __sp: { initWirft: boolean; kinder: FakeKind[] };
+  __app: Record<string, () => void>;
+  __ipc: { zu: string[]; initWirft: boolean };
   __userData: string;
 };
-const w = (g.__w = { aktuell: null, offen: 0, zu: 0, closed: null, anNdi: [], status: [] });
-const s = (g.__s = { m: null, gestartet: 0, gestoppt: 0, verbunden: 0, datei: true, wirft: false });
+const w = (g.__w = { aktuell: null, offen: 0, zu: 0, closed: null, absturz: null, anNdi: [], status: [] });
+const s = (g.__s = { m: null, gestartet: 0, gestoppt: 0, verbunden: 0, datei: true, wirft: false, kindLaeuft: false });
+g.__sp = { initWirft: false, kinder: [] };
+g.__app = {};
+g.__ipc = { zu: [], initWirft: false };
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmpr-ndi-'));
 g.__userData = dir;
 const datei = path.join(dir, 'ndi-config.json');
@@ -36,7 +49,10 @@ const FENSTER = `
 const w = globalThis.__w;
 export function openNdiWindow() {
   if (!w.aktuell) {
-    w.aktuell = { once: (e, cb) => { if (e === 'closed') w.closed = cb; }, isDestroyed: () => false, webContents: {} };
+    const webContents = {
+      on: (e, cb) => { if (e === 'render-process-gone') w.absturz = (grund) => cb({}, { reason: grund, exitCode: 1 }); },
+    };
+    w.aktuell = { once: (e, cb) => { if (e === 'closed') w.closed = cb; }, isDestroyed: () => false, webContents };
     w.offen++;
   }
   return w.aktuell;
@@ -48,17 +64,54 @@ export function broadcastAll(c, x) { if (c === 'ndi:status') w.status.push(x); }
 export function closePresentationWindows() {}
 export function openAudienceWindow() {}
 export function openPresenterWindow() {}
-export function setPresentationClosedHandler() {}`;
+export function setPresentationClosedHandler() {}
+export function getDisplays() { return []; }
+export function getEditorWindow() { return null; }
+export function moveAudienceToDisplay() {}
+export function toggleAudienceFullscreen() { return false; }`;
+// Sender-Attrappe: `wirft` = Wurf beim init NACH dem Fork – das Kind läuft dann schon.
 const SENDER = `
 const s = globalThis.__s;
-export function starteSender(m) { s.m = m; s.gestartet++; if (s.wirft) throw new Error('fork scheitert\\nDetails'); return s.datei; }
+export function starteSender(m) {
+  s.m = m; s.gestartet++;
+  if (s.wirft) { s.kindLaeuft = true; throw new Error('init scheitert\\nDetails'); }
+  if (s.datei) s.kindLaeuft = true;
+  return s.datei;
+}
 export function verbindeFenster() { s.verbunden++; }
-export function stoppeSender() { s.gestoppt++; }`;
+export function stoppeSender() { s.gestoppt++; s.kindLaeuft = false; }`;
+// Für ipc.ts (letzter Teil): alles, was registerIpc außer NDI braucht, als stumme Attrappe.
+const IPC_TEILE: Record<string, string> = {
+  './dateien-laden': 'export function ladeDateien() {} export function pruefeImportPfade() { return null; }',
+  './office/import': 'export function importOfficeFile() {}',
+  '@shared/dateien': 'export const IMAGE_EXT = new Set(); export const OFFICE_EXT = new Set();',
+  './remote': `export function applyRemoteConfig() {} export function getRemoteStatus() {} export function listInterfaces() { return []; }
+    export function setRemoteStatusHandler() {} export function shutdownRemote() { globalThis.__ipc.zu.push('remote'); }`,
+  './remote-config': 'export function loadRemoteConfig() { return { enabled: false }; } export function saveRemoteConfig() {}',
+  './timer-sync': `export function applyTimerConfig() {} export function getTimerConfig() {} export function getTimerState() {}
+    export function setTimerStateHandler() {} export function shutdownTimer() { globalThis.__ipc.zu.push('timer'); }`,
+  './timer-config': 'export function loadTimerConfig() { return {}; } export function saveTimerConfig() {}',
+  './ndi/ausgang': `export function beendeNdi() { globalThis.__ipc.zu.push('ndi'); } export function ndiFensterBereit() {}
+    export function ndiStatus() {} export function setzeNdiAn() {}
+    export function initNdiAusgang() { if (globalThis.__ipc.initWirft) throw new Error('init wirft'); }`,
+};
 // Für config.ts reicht `app`; das echte windows.ts (zweiter Teil) braucht dazu Fenster und Bildschirm.
 // Ein Fenster schließt wie in Electron erst später: close() merkt vor, raeumeAuf() feuert die `closed`.
 const ELECTRON = `
-export const app = { getPath: () => globalThis.__userData, isPackaged: false };
+export const app = { getPath: () => globalThis.__userData, isPackaged: false, on: (e, cb) => { globalThis.__app[e] = cb; } };
 export const shell = { openExternal() {} };
+export const dialog = {};
+export const ipcMain = { handle() {}, on() {} };
+// Echter sender-process.ts: fork liefert ein Schein-Kind; \`initWirft\` lässt das init-postMessage werfen.
+export const utilityProcess = {
+  fork() {
+    const k = { getoetet: 0, on() {}, kill() { k.getoetet++; },
+      postMessage(m) { if (m && m.type === 'init' && globalThis.__sp.initWirft) throw new Error('init scheitert'); } };
+    globalThis.__sp.kinder.push(k);
+    return k;
+  },
+};
+export class MessageChannelMain { constructor() { this.port1 = {}; this.port2 = { on() {}, start() {}, close() {} }; } }
 const anzeige = { id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 }, bounds: { x: 0, y: 0, width: 1920, height: 1080 } };
 export const screen = { getPrimaryDisplay: () => anzeige, getAllDisplays: () => [anzeige] };
 const alle = [];
@@ -88,6 +141,7 @@ const ATTRAPPEN: Record<string, [string, string]> = {
   '../windows': ['mock:windows', FENSTER],
   './sender-process': ['mock:sender', SENDER],
   electron: ['mock:electron', ELECTRON],
+  ...Object.fromEntries(Object.entries(IPC_TEILE).map(([spec, q]) => [spec, [`mock:ipc:${spec}`, q] as [string, string]])),
 };
 const QUELLEN = new Map(Object.values(ATTRAPPEN));
 registerHooks({
@@ -120,7 +174,7 @@ try {
   ck('ohne Datei → aus', eq(cfg.ladeNdiConfig(), { an: false }));
   fs.writeFileSync(datei, 'kaputt'); ck('Müll → aus', eq(cfg.ladeNdiConfig(), { an: false }));
   fs.writeFileSync(datei, '{"an":"ja"}'); ck('kein echtes true → aus', eq(cfg.ladeNdiConfig(), { an: false }));
-  fs.writeFileSync(datei, '{"an":true}'); a.initNdiAusgang();
+  fs.writeFileSync(datei, '{"an":true}'); a.initNdiAusgang({ startFristMs: FRIST, absturzFensterMs: ABSTURZ });
   ck('gemerkt an → Sender und Fenster ab App-Start', s.gestartet === 1 && w.offen === 1 && a.ndiStatus().lage === 'startet');
   ck('startet → noch kein Bild', !a.ndiLiefert() && w.status.length === 1);
   s.m!.bereit(); ck('bereit → sendet, liefert Bild', a.ndiStatus().lage === 'sendet' && a.ndiLiefert());
@@ -159,13 +213,71 @@ try {
   const gestoppt = s.gestoppt; w.aktuell = null; w.closed!(); ck('NDI-Fenster zu (letztes Fenster geschlossen) → Sender gestoppt', s.gestoppt > gestoppt);
   a.setzeNdiAn(false); s.datei = false; const offen = w.offen; a.setzeNdiAn(true);
   ck('Sender-Datei fehlt → nicht verfügbar, kein Fenster', a.ndiStatus().grund === 'NDI-Sender fehlt im Paket.' && w.offen === offen);
-  a.setzeNdiAn(false); s.datei = true; s.wirft = true; a.setzeNdiAn(true);
-  ck('Sender-Start wirft → nicht verfügbar mit erster Zeile, kein Fenster', a.ndiStatus().grund === 'NDI-Sender startet nicht: fork scheitert' && w.offen === offen);
+  a.setzeNdiAn(false); s.datei = true; s.wirft = true; const logWurf = logZeilen.length; a.setzeNdiAn(true);
+  ck('Sender-Start wirft → nicht verfügbar mit erster Zeile, kein Fenster', a.ndiStatus().grund === 'NDI-Sender startet nicht: init scheitert' && w.offen === offen);
+  ck('Wurf beim init nach dem Fork → kein laufendes Kind, genau eine [ndi]-Zeile', !s.kindLaeuft && logZeilen.length === logWurf + 1);
   a.setzeNdiAn(false); s.wirft = false; Object.defineProperty(process, 'platform', { value: 'darwin' }); const st = s.gestartet; a.setzeNdiAn(true);
   ck('Mac → nicht verfügbar, kein Sender', a.ndiStatus().grund === 'NDI-Ausgang gibt es nur unter Windows.' && s.gestartet === st);
   ck('jeder Übergang nach „nicht verfügbar“ → eine Log-Zeile', logZeilen.length === 5 && logZeilen.every((z) => z.startsWith('[ndi] nicht verfügbar:')));
   ck('ndiLiefertBild nur bei an + sendet', ndi.ndiLiefertBild({ an: true, lage: 'sendet', empfaenger: 0, grund: null }) && !ndi.ndiLiefertBild({ an: false, lage: 'sendet', empfaenger: 0, grund: null }) && !ndi.ndiLiefertBild({ an: true, lage: 'startet', empfaenger: 0, grund: null }));
   ck('NDI_STATUS_AUS', eq(ndi.NDI_STATUS_AUS, { an: false, lage: 'aus', empfaenger: 0, grund: null }));
+
+  // ---- Härtung: Start-Frist (eingespeist statt 10 s) ----
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  a.setzeNdiAn(false);
+  let log0 = logZeilen.length;
+  a.setzeNdiAn(true); const mFrist = s.m!;
+  ck('Start → startet, Kind läuft', a.ndiStatus().lage === 'startet' && s.kindLaeuft);
+  await warte(FRIST * 2 + 20);
+  ck('weder bereit noch fehler binnen Frist → nicht verfügbar „NDI-Sender antwortet nicht.“',
+    a.ndiStatus().lage === 'nicht-verfuegbar' && a.ndiStatus().grund === 'NDI-Sender antwortet nicht.');
+  ck('… Sender beendet, genau eine [ndi]-Zeile', !s.kindLaeuft && eq(logZeilen.slice(log0), ['[ndi] nicht verfügbar: NDI-Sender antwortet nicht.']));
+  mFrist.bereit(); ck('spätes bereit nach Ablauf → ignoriert', a.ndiStatus().lage === 'nicht-verfuegbar');
+  a.setzeNdiAn(true); s.m!.bereit(); await warte(FRIST * 2 + 20);
+  ck('bereit vor Ablauf → sendet bleibt', a.ndiStatus().lage === 'sendet' && s.kindLaeuft);
+  a.setzeNdiAn(false); log0 = logZeilen.length; a.setzeNdiAn(true); s.m!.fehler('Addon fehlt'); await warte(FRIST * 2 + 20);
+  ck('fehler vor Ablauf → nur dessen Zeile', a.ndiStatus().grund === 'Addon fehlt' && logZeilen.length === log0 + 1);
+  a.setzeNdiAn(false); log0 = logZeilen.length; a.setzeNdiAn(true); a.setzeNdiAn(false); await warte(FRIST * 2 + 20);
+  ck('aus vor Ablauf → keine Frist-Meldung', a.ndiStatus().lage === 'aus' && logZeilen.length === log0);
+
+  // ---- Härtung: Renderer des NDI-Fensters stirbt (render-process-gone) ----
+  a.setzeNdiAn(true); s.m!.bereit(); a.ndiFensterBereit();
+  p.startPresentation(payload, null);
+  ck('Ausgang vor dem Absturz: sendet, Präsentation läuft', a.ndiStatus().lage === 'sendet' && p.getState().active);
+  const [o0, z0, st0b, sp0, v0] = [w.offen, w.zu, s.gestartet, s.gestoppt, s.verbunden];
+  log0 = logZeilen.length;
+  const absturzAlt = w.absturz; const closedAlt = w.closed!;
+  absturzAlt?.('crashed');
+  ck('Absturz → eine [ndi]-Zeile mit Grund', eq(logZeilen.slice(log0), ['[ndi] NDI-Bild abgestürzt: crashed']));
+  ck('Absturz → NDI-Fenster zu und neu, Sender läuft weiter',
+    w.zu === z0 + 1 && w.offen === o0 + 1 && s.gestartet === st0b && s.gestoppt === sp0 && s.kindLaeuft);
+  ck('Absturz → startet, bis das neue Fenster bereit ist', a.ndiStatus().lage === 'startet' && !a.ndiLiefert());
+  closedAlt(); ck('closed des abgestürzten Fensters beendet den Sender nicht', s.gestoppt === sp0 && s.kindLaeuft);
+  absturzAlt?.('crashed'); ck('Nachzügler des alten Fensters ändert nichts', logZeilen.length === log0 + 1 && w.offen === o0 + 1);
+  const anNdiVor = w.anNdi.length; p.next();
+  ck('neues Fenster holt das laufende Payload selbst, kein Doppel', w.anNdi.length === anNdiVor);
+  a.ndiFensterBereit();
+  ck('neues Fenster bereit → neuer Port, sendet', s.verbunden === v0 + 1 && a.ndiStatus().lage === 'sendet');
+  p.stopPresentation(); ck('Payload-Weitergabe geht ans neue Fenster', eq(w.anNdi.at(-1), ['present:payload', null]));
+  const o1b = w.offen; log0 = logZeilen.length;
+  w.absturz?.('oom');
+  ck('zweiter Absturz binnen Frist → nicht verfügbar „NDI-Bild abgestürzt.“',
+    a.ndiStatus().lage === 'nicht-verfuegbar' && a.ndiStatus().grund === 'NDI-Bild abgestürzt.');
+  ck('… kein neues Fenster, Sender gestoppt', w.offen === o1b && w.aktuell === null && !s.kindLaeuft);
+  ck('… Zeilen: Absturz mit Grund, dann nicht verfügbar',
+    eq(logZeilen.slice(log0), ['[ndi] NDI-Bild abgestürzt: oom', '[ndi] nicht verfügbar: NDI-Bild abgestürzt.']));
+  a.setzeNdiAn(true); s.m!.bereit(); a.ndiFensterBereit(); await warte(ABSTURZ + 30);
+  const o2b = w.offen; w.absturz?.('crashed');
+  ck('Absturz nach Ablauf des Absturz-Fensters → wieder neu geöffnet', w.offen === o2b + 1 && a.ndiStatus().lage === 'startet');
+  a.setzeNdiAn(false); a.setzeNdiAn(true); s.m!.bereit(); a.ndiFensterBereit();
+  const o3b = w.offen; w.absturz?.('crashed');
+  ck('nach Aus zählt ein Absturz wieder als erster', w.offen === o3b + 1 && a.ndiStatus().lage === 'startet');
+  a.setzeNdiAn(false); a.setzeNdiAn(true); s.m!.fehler('Addon fehlt');
+  const o4b = w.offen; w.absturz?.('crashed');
+  ck('Absturz bei totem Sender → Fenster neu, Status bleibt „nicht verfügbar“', w.offen === o4b + 1 && a.ndiStatus().grund === 'Addon fehlt');
+  a.ndiFensterBereit(); a.setzeNdiAn(true); s.m!.bereit();
+  ck('… Neustart danach mit schon bereitem Fenster → sendet', a.ndiStatus().lage === 'sendet');
+  a.setzeNdiAn(false);
 
   // ---- Das echte windows.ts: NDI-Fenster, Rundruf, App-Ende mit dem letzten sichtbaren Fenster ----
   Object.defineProperty(process, 'platform', { value: 'win32' });
@@ -207,6 +319,26 @@ try {
   ck('Publikum zu, Referent offen → NDI bleibt', !n4.isDestroyed());
   ref.close(); el.BrowserWindow.raeumeAuf();
   ck('letztes sichtbares Fenster (Referent) zu → NDI-Fenster geht mit', n4.isDestroyed() && el.BrowserWindow.getAllWindows().length === 0);
+
+  // ---- Das echte sender-process.ts: Wurf beim init NACH dem Fork (Grund für stoppeSender im catch) ----
+  fs.writeFileSync(path.join(dir, 'ndi-sender.cjs'), '');
+  const sp = await import('../src/main/ndi/sender-process');
+  g.__sp.initWirft = true;
+  const stumm = { bereit() {}, fehler() {}, empfaenger() {}, beendet() {} };
+  let spWurf = false;
+  try { sp.starteSender(stumm); } catch { spWurf = true; }
+  const kind = g.__sp.kinder.at(-1);
+  ck('echter Sender: Wurf beim init → Kind schon geforkt, noch nicht beendet', spWurf && kind?.getoetet === 0);
+  sp.stoppeSender(); ck('… stoppeSender beendet genau dieses Kind', kind?.getoetet === 1);
+
+  // ---- ipc.ts: ein Wurf in initNdiAusgang überspringt das Aufräumen bei will-quit nicht ----
+  g.__ipc.initWirft = true;
+  const ipc = await import('../src/main/ipc');
+  try { ipc.registerIpc(); } catch { /* Wurf darf durchgehen – will-quit muss trotzdem stehen */ }
+  const willQuit = g.__app['will-quit'];
+  willQuit?.();
+  ck('initNdiAusgang wirft → will-quit steht und räumt Fernsteuerung, Timer, NDI auf',
+    typeof willQuit === 'function' && eq(g.__ipc.zu, ['remote', 'timer', 'ndi']));
 } finally {
   console.error = echtesError;
   fs.rmSync(dir, { recursive: true, force: true });

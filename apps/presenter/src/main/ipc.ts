@@ -249,12 +249,14 @@ export function registerIpc(): void {
   ipcMain.on('ndi:fensterBereit', (e) => {
     if (e.sender === getNdiWindow()?.webContents) ndiFensterBereit();
   });
-  // Gemerkter Schalter: ist er an, entstehen Sender und NDI-Fenster schon jetzt.
-  initNdiAusgang();
 
   app.on('will-quit', () => {
     shutdownRemote();
     shutdownTimer();
     beendeNdi();
   });
+
+  // Gemerkter Schalter: ist er an, entstehen Sender und NDI-Fenster schon jetzt. Erst NACH will-quit, damit ein
+  // Wurf hier das Aufräumen von Fernsteuerung und Timer nicht überspringt.
+  initNdiAusgang();
 }
