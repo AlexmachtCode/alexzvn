@@ -80,7 +80,7 @@ void t_initialen() {
   CHECK(ini(u"Анна Петрова") == u"АП");              CHECK(ini(u"张伟") == u"张");
   CHECK(ini(u"jean-luc picard") == u"JP");           CHECK(ini(u"O\u0308mer") == u"O\u0308");
   CHECK(ini(u"łukasz ćwik") == u"ŁĆ");               CHECK(ini(u"ÿves") == u"\u0178");
-  CHECK(ini(u"ς") == u"Σ");                          CHECK(ini(u"ά") == u"\u0386");
+  CHECK(ini(u"ς") == u"Σ");                          CHECK(ini(u"ά") == u"\u0386");  CHECK(ini(u"ı") == u"I");
   CHECK(ini(u"") == u"");  CHECK(ini(u" \u00A0\u3000") == u"");  CHECK(ini(u"\U0001F3A4\U0001F3AC") == u"");
 }
 void t_farbe() {
@@ -157,7 +157,7 @@ void t_i420() {
   std::vector<uint32_t> farben(std::begin(PALETTE), std::end(PALETTE));
   farben.push_back(HINTERGRUND);
   farben.push_back(0xFFFFFF);
-  for (const uint32_t f : farben) {                         // Rundreise, gemessen: hoechstens 1 je Kanal
+  for (const uint32_t f : farben) {                         // Rundreise, gemessen: höchstens 2 je Kanal
     std::vector<uint8_t> bgr;
     const auto y = yuv(f);
     i420ZuBgr(y.data(), 4, 2, &bgr);

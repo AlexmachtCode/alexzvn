@@ -58,9 +58,9 @@ inline uint32_t gross(uint32_t c) {
   if (c >= 'a' && c <= 'z') return c - 0x20;
   if (c >= 0x00E0 && c <= 0x00FE) return c == 0x00F7 ? c : c - 0x20;
   if (c == 0x00FF) return 0x0178;
+  if (c == 0x0131) return 0x0049;   // vor der Bereichsregel: ı (ungerade) wird I, nicht İ
   if ((c >= 0x0100 && c <= 0x0137) || (c >= 0x014A && c <= 0x0177)) return (c % 2 == 1) ? c - 1 : c;
   if ((c >= 0x0139 && c <= 0x0148) || (c >= 0x0179 && c <= 0x017E)) return (c % 2 == 0) ? c - 1 : c;
-  if (c == 0x0131) return 0x0049;
   if (c >= 0x03B1 && c <= 0x03C9) return c == 0x03C2 ? 0x03A3 : c - 0x20;
   if (c == 0x03AC) return 0x0386;
   if (c >= 0x03AD && c <= 0x03AF) return c - 0x03AD + 0x0388;
