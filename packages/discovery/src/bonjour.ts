@@ -24,6 +24,6 @@ export function neuesBonjour(onError?: (e: Error) => void): Bonjour {
   // Zweiter Absturzweg: multicast-dns emittiert 'error' bei EACCES/EADDRINUSE/Bind-Fehlern
   // (z. B. Port 5353 belegt); bonjour-service hängt dafür keinen Listener an → ohne
   // diesen wäre es eine uncaughtException.
-  bonjour.server.mdns.on('error', behandeln);
+  (bonjour as any).server.mdns.on('error', behandeln); // server ist in den Typen private
   return bonjour;
 }
