@@ -1,6 +1,6 @@
 {
   "name": "@jm/connect",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "description": "JM Connect — Remote-Zuschaltungen (Green Room) für hybride Konferenzen: Remote-Gäste per Browser → NDI-Quelle in der Suite",
   "author": "Jakobs Medien GmbH",
