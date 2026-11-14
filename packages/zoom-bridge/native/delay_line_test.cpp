@@ -306,6 +306,22 @@ void test_kachel_verweis_306() {
   CHECK(p.use_count() == 1 && d.size() == 0);
 }
 
+void test_kachel_nur_ueber_pushkachel_306() {
+  std::printf("#306 Bildart Kachel nur mit Puffer: pushBild(Kachel) legt nichts ab (sonst ein Frame ohne Verweis)\n");
+  DelayLine d;
+  CHECK(d.pushBild(Bildart::Kachel, kW, kH, at(0)) == 0);
+  CHECK(d.size() == 0);
+  pushBild(d, 1, 10);
+  CHECK(d.pushBild(Bildart::Kachel, kW, kH, at(20)) == 0);
+  CHECK(d.size() == 1);
+  bool ohneVerweis = false;
+  const auto senke = [&](const DelayLine::Frame& f) {
+    if (f.art == Bildart::Kachel && !f.kachel) ohneVerweis = true;
+  };
+  d.release(at(1000), milliseconds(500), senke);
+  CHECK(!ohneVerweis && d.size() == 0);
+}
+
 int main() {
   test_nicht_vor_der_zeit();
   test_reihenfolge_mit_schwarzbild();
@@ -323,6 +339,7 @@ int main() {
   test_leeren();
   test_bildarten_pb18();
   test_kachel_verweis_306();
+  test_kachel_nur_ueber_pushkachel_306();
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;
 }

@@ -1984,6 +1984,76 @@ void s306_kachel_grund_folgt_der_kamera() {
   CHECK(e.sent == Sent::Tile && e.zustandAendern && e.grund == Grund::noFrames);
 }
 
+void s306_kein_blitz_nach_altem_puffer_fehler() {
+  std::printf("#306 Zoom-Kachel (Task 7, Entscheidung 2): ein alter bufferMismatch laesst den Hinweis nach Kamera "
+              "an nicht aufblitzen - live, Puffer-Fehler, Kamera aus, Kamera an\n");
+  const Fallback K = Fallback::Tile;
+  const ZielStand bild = zielMitBild(0, 1000, false);   // letztes passendes Bild bei 1000
+  // live, ab 1000 nur noch falsch geformte Bilder: nach 200 ms fallback/bufferMismatch (wie bisher).
+  BildLage l = lage(SlotMode::Participant, K, SlotState::Live, Grund::frames, 1300);
+  l.bufferMismatch = true;
+  BildEntscheidung e = bildEntscheidung(l, bild);
+  CHECK(e.sent == Sent::Tile && e.zustandAendern && e.grund == Grund::bufferMismatch);
+  // Kamera aus: fallback/cameraOff, der Merker bufferMismatch bleibt stehen (er faellt erst mit dem naechsten Bild).
+  l = lage(SlotMode::Participant, K, SlotState::Fallback, Grund::bufferMismatch, 1500);
+  l.bufferMismatch = true;
+  l.kameraAusLautZoom = true;
+  e = bildEntscheidung(l, bild);
+  CHECK(e.zustandAendern && e.grund == Grund::cameraOff && !kachelHinweis(e.grund));
+  // Kamera an bei 3000, noch kein Bild: kein Hinweis gleich danach (vorher sofort fallback/bufferMismatch).
+  l = lage(SlotMode::Participant, K, SlotState::Fallback, Grund::cameraOff, 3100);
+  l.bufferMismatch = true;
+  l.kameraAnMs = at(3000);
+  e = bildEntscheidung(l, bild);
+  CHECK(e.sent == Sent::Tile && !e.zustandAendern && !kachelHinweis(e.grund));
+  l.jetzt = at(4999);
+  CHECK(!bildEntscheidung(l, bild).zustandAendern);
+  // 2 s nach Kamera an noch immer kein passendes Bild: jetzt fallback/bufferMismatch mit Hinweis.
+  l.jetzt = at(5000);
+  e = bildEntscheidung(l, bild);
+  CHECK(e.sent == Sent::Tile && e.zustandAendern && e.grund == Grund::bufferMismatch && kachelHinweis(e.grund));
+  // Meldete Zoom „Kamera an“ vor dem letzten Bild, bleibt es bei den 200 ms.
+  l = lage(SlotMode::Participant, K, SlotState::Live, Grund::frames, 1300);
+  l.bufferMismatch = true;
+  l.kameraAnMs = at(900);
+  CHECK(bildEntscheidung(l, bild).grund == Grund::bufferMismatch);
+  l.kameraAnMs = at(1000);   // gleichzeitig: ebenso
+  CHECK(bildEntscheidung(l, bild).grund == Grund::bufferMismatch);
+}
+
+void s306_kamera_an_nur_an_der_flanke() {
+  std::printf("#306 kameraLautZoom (Task 7, Entscheidung 1): kameraAnMs merkt nur die Flanke Kamera aus -> an\n");
+  bool aus = false;
+  int64_t anMs = 0;
+  kameraLautZoom(aus, anMs, false, at(100));   // an -> an: kein Wechsel
+  CHECK(!aus && anMs == 0);
+  kameraLautZoom(aus, anMs, true, at(200));    // an -> aus
+  CHECK(aus && anMs == 0);
+  kameraLautZoom(aus, anMs, true, at(300));    // aus -> aus
+  CHECK(aus && anMs == 0);
+  kameraLautZoom(aus, anMs, false, at(400));   // aus -> an: die Flanke
+  CHECK(!aus && anMs == at(400));
+  kameraLautZoom(aus, anMs, false, at(500));   // jedes weitere videoStatus Video_ON verschiebt nichts
+  CHECK(!aus && anMs == at(400));
+  kameraLautZoom(aus, anMs, true, at(600));
+  kameraLautZoom(aus, anMs, false, at(700));
+  CHECK(!aus && anMs == at(700));
+}
+
+void s306_kachel_groesse_gerade() {
+  std::printf("#306 kachelGroesse (Task 7, Entscheidung 4): Livebild-Groesse nur positiv und gerade, sonst die "
+              "Nennaufloesung des Slots\n");
+  const auto gleich = [](BildGroesse g, int w, int h) { return g.w == w && g.h == h; };
+  CHECK(gleich(kachelGroesse(1280, 720, 1920, 1080), 1280, 720));
+  CHECK(gleich(kachelGroesse(360, 640, 1280, 720), 360, 640));       // Hochkant bleibt
+  CHECK(gleich(kachelGroesse(8, 8, 1280, 720), 8, 8));               // klein, aber gerade: dunkle Flaeche in dieser Groesse
+  CHECK(gleich(kachelGroesse(641, 360, 1280, 720), 1280, 720));
+  CHECK(gleich(kachelGroesse(640, 361, 1280, 720), 1280, 720));
+  CHECK(gleich(kachelGroesse(0, 720, 640, 360), 640, 360));
+  CHECK(gleich(kachelGroesse(-2, 4, 640, 360), 640, 360));
+  CHECK(gleich(kachelGroesse(1, 1, 1920, 1080), 1920, 1080));
+}
+
 void s306_kachel_waechter_jenseits_2s() {
   std::printf("#306 Zoom-Kachel (Review 1): Waechter der 2-s-Regel jenseits von 2 s - starting mit Kamera aus, "
               "subscribeFailed, speakerNoVideo\n");
@@ -2064,7 +2134,9 @@ void s306_kachel_raster() {
                   } else if (!inFrist) {
                     const Grund soll = l.bufferMismatch ? Grund::bufferMismatch : Grund::noFrames;
                     if (!(e.sent == art && fallbackMit && e.grund == soll)) verstoss = "2 s ohne Bild ohne noFrames/bufferMismatch";
-                  } else if (hatBild && l.bufferMismatch) {
+                  } else if (hatBild && l.bufferMismatch && l.kameraAnMs <= z.lastFrameMs) {
+                    // Task 7, Entscheidung 2: die 200 ms gelten nur, wenn Zoom die Kamera nicht erst nach dem letzten
+                    // Bild wieder angemeldet hat; sonst läuft die Frist ab „Kamera an“ (letzter Zweig).
                     if (ersatz && !(fallbackMit && e.grund == Grund::bufferMismatch)) verstoss = "Puffer-Fehler nicht nach 200 ms";
                   } else if (e.zustandAendern) {
                     verstoss = "Zustand in der Frist geaendert (Hinweis blitzt auf)";
@@ -2223,6 +2295,9 @@ int main() {
   s306_kachel_tabelle();
   s306_hinweis_gruende();
   s306_kachel_grund_folgt_der_kamera();
+  s306_kein_blitz_nach_altem_puffer_fehler();
+  s306_kamera_an_nur_an_der_flanke();
+  s306_kachel_groesse_gerade();
   s306_kachel_waechter_jenseits_2s();
   s306_kachel_raster();
   s306_alte_ignorieren_kamera_an();

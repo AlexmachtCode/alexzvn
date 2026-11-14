@@ -73,6 +73,12 @@ struct MerkerFreigabe { unsigned user = 0; unsigned share = 0; int status = 0; i
  * geschrieben (Restpunkt R-e der Nachpruefung).
  */
 struct MerkerSprecher { int signal = 0; std::vector<unsigned> ids; };
+/**
+ * Zoom-Kachel (#306): Name oder Profilbild eines Teilnehmers haben sich geaendert (onUserNamesChanged,
+ * onInMeetingUserAvatarPathUpdated) bzw. der Host blendet Profilbilder ein oder aus
+ * (onParticipantProfilePictureStatusChange). id 0 = alle. Nur die Kennung - das Profil liest der Slot selbst.
+ */
+struct MerkerProfil { unsigned id = 0; };
 
 /** INMEETING kam seit dem letzten Nehmen (nimmt und loescht, exchange). */
 bool callbacksTakeInMeeting();
@@ -80,6 +86,7 @@ bool callbacksTakeTeilnehmer(MerkerTeilnehmer* out);
 bool callbacksTakeKamera(MerkerKamera* out);
 bool callbacksTakeFreigabe(MerkerFreigabe* out);
 bool callbacksTakeSprecher(MerkerSprecher* out);
+bool callbacksTakeProfil(MerkerProfil* out);
 /** Uebergelaufene Merker seit Prozessstart (ein verlorenes Zoom-Ereignis je Zaehler). */
 uint64_t merkerVerworfen();
 
@@ -148,8 +155,9 @@ class ParticipantsListener : public IMeetingParticipantsCtrlEvent {
   void onAllowParticipantsShareWhiteBoardNotification(bool) override {}
   void onRequestLocalRecordingPrivilegeChanged(LocalRecordingRequestPrivilegeStatus) override {}
   void onAllowParticipantsRequestCloudRecording(bool) override {}
-  void onInMeetingUserAvatarPathUpdated(unsigned int) override {}
-  void onParticipantProfilePictureStatusChange(bool) override {}
+  // Zoom-Kachel (#306): beide reihen nur den Profil-Merker ein (callbacks.cpp).
+  void onInMeetingUserAvatarPathUpdated(unsigned int userID) override;
+  void onParticipantProfilePictureStatusChange(bool bHidden) override;
   void onFocusModeStateChanged(bool) override {}
   void onFocusModeShareTypeChanged(FocusModeShareType) override {}
   void onBotAuthorizerRelationChanged(unsigned int) override {}

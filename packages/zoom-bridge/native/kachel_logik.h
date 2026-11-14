@@ -424,6 +424,17 @@ class KachelStand {
   /** Laeuft fuer genau diese Kachel gerade ein Zeichenauftrag? */
   bool laeuft(const KachelSchluessel& k) const { return laufend_ && laufSchluessel_ == k; }
 
+  /**
+   * Laeuft (oder haengt) ein Auftrag MIT Profilbild fuer dasselbe Ziel und denselben Profilstand wie k, und will k
+   * ebenfalls das Profilbild? Dann kommt kein zweiter Auftrag: jeder haengende Lesezugriff hielte sonst einen Thread
+   * mehr an derselben Datei. Die Frist des laufenden Auftrags gilt weiter; nach ihr ist das Bild dieses Stands
+   * aufgegeben (fristAblauf), und k kommt ohne Profilbild.
+   */
+  bool bildAuftragOffen(const KachelSchluessel& k) const {
+    return laufend_ && laufSchluessel_.mitProfilbild && k.mitProfilbild && laufSchluessel_.ziel == k.ziel &&
+           laufSchluessel_.profilStand == k.profilStand;
+  }
+
   /** Beginnt einen Auftrag und setzt die Frist neu; wer ihn schon laufen hat, fragt vorher mit laeuft() nach. */
   void gestartet(const KachelSchluessel& k, int64_t jetzt) {
     laufend_ = true;

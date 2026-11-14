@@ -256,6 +256,41 @@ void t_stand_fehler_einmal() {
   f.leeren();
   CHECK(f.puffer() == nullptr && f.speicherBytes() == 0 && f.profilLesenNoetig(A));
 }
+void t_stand_bildauftrag_offen() {
+  // Task 7 (Review Task 6, Hinweis 1): solange ein Auftrag MIT Profilbild für dieses Ziel und diesen Profilstand
+  // läuft oder hängt, kommt kein zweiter mit Profilbild – sonst hinge je Schlüsselwechsel ein Thread mehr an der Datei.
+  KachelStand s;
+  s.profilGelesen(A, MIT);
+  const KachelSchluessel k = s.soll(A, false, 4, 2);
+  CHECK(!s.bildAuftragOffen(k));                                 // kein Auftrag
+  s.gestartet(k, at(0));
+  const KachelSchluessel kh = s.soll(A, true, 4, 2);             // der Hinweis wechselt, der Auftrag hängt
+  CHECK(s.bildAuftragOffen(kh) && s.bildAuftragOffen(s.soll(A, false, 8, 2)));
+  CHECK(!s.bildAuftragOffen(s.soll(B, false, 4, 2)));            // anderes Ziel, anderes Bild
+  s.fristAblauf(4, 2);                                           // Frist um: das Profilbild dieses Stands ist aufgegeben
+  const KachelSchluessel ohne = s.soll(A, true, 4, 2);
+  CHECK(!ohne.mitProfilbild && !s.bildAuftragOffen(ohne));
+  s.gestartet(ohne, at(2000));                                   // ein Auftrag ohne Profilbild sperrt nichts
+  CHECK(!s.bildAuftragOffen(s.soll(A, false, 4, 2)));
+  s.profilGelesen(A, MIT);                                       // neuer Profilstand: das Bild darf neu versucht werden
+  const KachelSchluessel neu = s.soll(A, false, 4, 2);
+  CHECK(neu.mitProfilbild && !s.bildAuftragOffen(neu));
+  s.gestartet(neu, at(3000));
+  s.fertig(neu, s.grundflaeche(4, 2));                           // fertig: nichts läuft mehr
+  CHECK(!s.bildAuftragOffen(s.soll(A, true, 4, 2)));
+}
+void t_grundflaeche_auch_ausserhalb_des_zeichners() {
+  // Task 7 (Review Task 6, Hinweis 3): unter 16 und über 4096 Bildpunkten zeichnet kachelZeichnen nichts; der Slot
+  // sendet dann die dunkle Fläche in genau dieser (geraden) Größe – sie passt zur I420-Prüfung von sendKachel.
+  const int groessen[4][2] = {{2, 2}, {8, 8}, {14, 16}, {4098, 2}};
+  for (const auto& g : groessen) {
+    KachelStand s;
+    const Puffer p = s.grundflaeche(g[0], g[1]);
+    const size_t y = static_cast<size_t>(g[0]) * static_cast<size_t>(g[1]);
+    CHECK(p != nullptr && p->size() == y + 2 * static_cast<size_t>(g[0] / 2) * static_cast<size_t>(g[1] / 2) &&
+          (*p)[0] == 46 && (*p)[y - 1] == 46 && (*p)[y] == 128 && p->back() == 128);
+  }
+}
 
 }  // namespace
 
@@ -275,6 +310,8 @@ int main() {
   t_stand_frist_neuer_stand();
   t_stand_frist();
   t_stand_fehler_einmal();
+  t_stand_bildauftrag_offen();
+  t_grundflaeche_auch_ausserhalb_des_zeichners();
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;
 }

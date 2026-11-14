@@ -590,6 +590,33 @@ inline bool kachelHinweis(Grund g) {
 }
 
 /**
+ * #306 (Task 7): Zoom meldet die Kamera des Ziels als aus (aus = true) bzw. an. Setzt „Kamera aus laut Zoom“ und merkt
+ * NUR an der Flanke aus -> an die Zeit in kameraAnMs (BildLage::kameraAnMs); jedes weitere „an“ verschiebt nichts.
+ * Das Umhängen setzt beides selbst zurück (kameraAus false, kameraAnMs 0), nicht über diese Funktion.
+ */
+inline void kameraLautZoom(bool& kameraAus, int64_t& kameraAnMs, bool aus, int64_t jetzt) {
+  if (kameraAus && !aus) kameraAnMs = jetzt;
+  kameraAus = aus;
+}
+
+/** Breite und Höhe eines Bildes in Bildpunkten. */
+struct BildGroesse {
+  int w = 0;
+  int h = 0;
+};
+
+/**
+ * #306 (Task 7): Größe der Zoom-Kachel. w/h kommen wie bei den anderen Ersatzbildern: Größe des letzten Livebilds
+ * dieses Ziels, ohne eines die Nennauflösung des Slots (video.cpp, ersatzbildTick). Die Kachel ist I420 mit halber
+ * Farbauflösung und braucht in beiden Richtungen positive, gerade Maße (kachel::i420Bytes, bgraZuI420); passt das
+ * Livebild nicht, gilt die Nennauflösung (nennW x nennH, immer gerade) als Paar - nie nur eine Seite.
+ */
+inline BildGroesse kachelGroesse(int w, int h, int nennW, int nennH) {
+  if (w > 0 && h > 0 && w % 2 == 0 && h % 2 == 0) return BildGroesse{w, h};
+  return BildGroesse{nennW, nennH};
+}
+
+/**
  * Art des Ersatzbilds (Tabelle 6.12): freeze ohne Kopie dieses Ziels wie transparent (T60).
  * #306: tile (Zoom-Kachel) nur mit Ziel, außerhalb der Freigabe und ohne Ziel-0-Grund, sonst wie transparent. Modus,
  * Ziel und Grund wirken nur bei tile; die vier anderen Ersatzbilder entscheiden wie bisher allein nach der Kopie.
@@ -627,7 +654,8 @@ inline Sent ersatzArt(Fallback f, bool kopieDiesesZiels, SlotMode modus, unsigne
  *   starting und fallback mit jedem Grund außer subscribeFailed, speakerNoVideo und den Ziel-0-Gründen; nach dem ersten
  *   Bild jeder Zustand:
  *     Kamera laut Zoom aus -> fallback/cameraOff (geht einem laufenden bufferMismatch vor, wie F6);
- *     nach dem ersten Bild ein laufender bufferMismatch -> fallback/bufferMismatch nach 200 ms (wie bisher);
+ *     nach dem ersten Bild ein laufender bufferMismatch -> fallback/bufferMismatch nach 200 ms (wie bisher), außer Zoom
+ *       hat die Kamera erst nach dem letzten Bild wieder angemeldet (kameraAnMs > lastFrameMs): dann die Frist;
  *     in der Frist (< TEILNEHMER_SCHONFRIST_MS, 2 s) -> unverändert, aus live sent none (Schonfrist);
  *     danach -> fallback/noFrames bzw. fallback/bufferMismatch.
  */
@@ -674,7 +702,10 @@ inline BildEntscheidung bildEntscheidung(const BildLage& l, const ZielStand& z) 
     if (!neuBewerten) return e;
     if (l.kameraAusLautZoom) {
       sollGrund = Grund::cameraOff;
-    } else if (hatBild && l.bufferMismatch) {
+    } else if (hatBild && l.bufferMismatch && l.kameraAnMs <= z.lastFrameMs) {
+      // Task 7 (Entscheidung 2): die 200 ms nur, wenn Zoom die Kamera nicht erst nach dem letzten Bild wieder angemeldet
+      // hat. Sonst ist der Merker bufferMismatch alt (aus der Zeit vor „Kamera aus“) und liesse den Hinweis gleich
+      // nach dem Einschalten aufblitzen; dann gilt die Frist ab „Kamera an“, nach 2 s fallback/bufferMismatch (unten).
       sollGrund = Grund::bufferMismatch;
     } else if (kachelFrist) {
       return e;

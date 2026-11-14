@@ -545,7 +545,7 @@ zweites Raster gleicher Größe zeigt, dass sie `kameraAnMs` nicht lesen).
 | … 2 s nach dem Umhängen noch immer kein Bild (Kamera laut Zoom an) | `fallback/noFrames` bzw. `fallback/bufferMismatch` | `tile` | ja |
 | Kamera wieder an, noch kein neues Bild: in den ersten 2 s danach | bleibt (`fallback/cameraOff`) | `tile` | nein |
 | … und 2 s danach noch immer kein Bild | `fallback/noFrames` bzw. `fallback/bufferMismatch` | `tile` | ja |
-| Puffer-Fehler (nach dem ersten Bild schon nach 200 ms), `subscribe` gescheitert | `fallback/bufferMismatch`, `fallback/subscribeFailed` | `tile` | ja |
+| Puffer-Fehler (nach dem ersten Bild schon nach 200 ms; meldete Zoom die Kamera erst nach dem letzten Bild wieder an, erst 2 s danach), `subscribe` gescheitert | `fallback/bufferMismatch`, `fallback/subscribeFailed` | `tile` | ja |
 | Person geht, kein Ziel, kein Sprecher | `fallback/participantLeft`, `noTarget`, `speakerNone` | `transparent`, sofort | — |
 | Freigabe-Slot | wie bei `transparent` | `transparent` bzw. `held` | — |
 | Slot aus | `off` | `none` | — |
@@ -566,7 +566,41 @@ Grund **nach** der Entscheidung: genau `noFrames`, `bufferMismatch` und
 `subscribeFailed` (`slotlogic::kachelHinweis`; Gegenstück `TILE_NOTICE_REASONS` und
 `tileNotice()` in `src/protocol.ts`, der Selbsttest gleicht beide ab). Die Attrappe
 sendet `tile` mit Ziel außerhalb der Freigabe, sonst `transparent`; die 2-s-Regel bildet
-sie wie die Schonfrist nicht nach.
+sie wie die Schonfrist nicht nach. Den Zeitpunkt „Kamera an“ merkt sich der Slot nur an
+der Flanke aus → an (`slotlogic::kameraLautZoom`, aus `videoStatus` und `IsVideoOn()`);
+das Umhängen setzt ihn auf 0. Ein `bufferMismatch` aus der Zeit vor „Kamera aus“ gilt nach
+dem Wiedereinschalten erst nach den 2 s, sonst blitzte der Hinweis gleich danach auf.
+
+**Die Kachel im Slot: Profil, Merker, Senden.** Gezeichnet wird nie auf dem Hauptthread:
+`kachelFuer` (`native/video.cpp`) startet einen Zeichenauftrag (`kachelStarten`,
+`native/kachel.cpp`) und wartet höchstens 50 ms (`KACHEL_WARTEN_MS`) — zusammen für alle
+Slots eines Herzschlags, nicht je Slot. Bis das Ergebnis da ist, geht die letzte Kachel
+derselben Person in derselben Größe hinaus, sonst die dunkle Grundfläche (#232323), nie
+`transparent`. Gezeichnet wird je Zustandswechsel einmal (Schlüssel: Ziel, Profilstand,
+Hinweis, Größe, mit oder ohne Profilbild), nie je Bild. Die Größe folgt der Regel der
+anderen Ersatzbilder (letztes Livebild dieses Ziels, sonst Nennauflösung des Slots), aber
+nur positiv und gerade (I420 mit halber Farbauflösung); sonst gilt die Nennauflösung
+(`slotlogic::kachelGroesse`). Unter 16 oder über 4096 Bildpunkten zeichnet der Zeichner
+nichts; dann kommt die dunkle Fläche in genau dieser Größe.
+Das Profil (Anzeigename `GetUserName`, Profilbild `GetAvatarPath`) liest der Slot beim
+ersten Zeichnen, bei jedem neuen Ziel und nach einem Profil-Merker, nie während der
+Renderer-Sperre. Blendet der Host die Profilbilder aus
+(`IsParticipantProfilePicturesHidden`), zeigt die Kachel Initialen. Die Merker kommen aus
+`onUserNamesChanged`, `onInMeetingUserAvatarPathUpdated` (Kennung) und
+`onParticipantProfilePictureStatusChange` (alle) über die Warteschlange `g_merkerProfil`
+(höchstens 1024, Überlauf in `bridgeStats.merkerVerworfen`); die Hauptschleife nimmt sie
+nach dem Sprecher-Merker (`slotsProfil`), dann wird beim nächsten Zeichnen neu gelesen.
+Hängt das Lesen eines Profilbilds, gibt der Slot es nach 2 s (`KACHEL_FRIST_MS`) für
+diesen Profilstand auf und zeichnet Initialen; solange ein Auftrag mit Profilbild für
+diese Person und diesen Profilstand läuft, startet er keinen zweiten mit Profilbild
+(`KachelStand::bildAuftragOffen`), damit je hängender Datei höchstens ein Thread wartet.
+Logzeilen (stderr, nie Name oder Pfad): `Slot <n>: Zoom-Kachel <w>x<h> in <ms> ms
+gezeichnet (mit Profilbild|Initialen)` — die Dauer misst der Zeichner selbst —, einmal je
+Profilstand `Slot <n>: Profilbild nicht verwendet (<art>, HRESULT 0x…) - Initialen`,
+`Slot <n>: Zoom-Kachel nach 2000 ms nicht fertig - neu ohne Profilbild` (ohne Profilbild:
+`… - dunkle Fläche`) und `Slot <n>: Zoom-Kachel nicht gezeichnet (HRESULT 0x…) - dunkle
+Fläche`. Steht der Slot nicht mehr auf `tile` oder zeigt er eine Freigabe, gibt er Kachel
+und Auftrag frei. `slotStats.memKb` zählt die Kachel mit.
 
 **Ton je Slot.** Drei Arten kommen über das eine Ton-Abo des Meetings: Ton je Person,
 Mischton und Computerton einer Freigabe. Die reine Funktion `tonZiele` ordnet jedes
@@ -601,7 +635,8 @@ steht in `slotStats` (`w`, `h`, `fps`, `resSet`, `resGot`). Die HD-Einstellungen
 Zoom liest die Bridge nur, sie ändert sie nie.
 
 **Speicher je Slot.** `slotStats.memKb` zählt Versatz-Warteschlange, Kopie, Vorschau
-und Ersatzbild-Puffer des Slots. Gerechnet sind für die Versatz-Warteschlange bei
+und Ersatzbild-Puffer des Slots, seit #306 auch die Zoom-Kachel (fertige Kachel und
+dunkle Grundfläche, je höchstens ein I420-Bild). Gerechnet sind für die Versatz-Warteschlange bei
 1080p und 1000 ms rund 94 MB je Slot, bei 16 Slots bis 1,5 GB (Spec RS6);
 Freigabe-Slots haben keinen Versatz.
 

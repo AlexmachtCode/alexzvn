@@ -308,9 +308,13 @@ int NdiSender::releaseDueLocked(bool nachlauf) {
       return;
     }
     if (b.art == Bildart::Kachel) {
-      NDIlib_video_frame_v2_t k;
-      fillFrame(k, b.kachel->data(), b.w, b.h);
-      NDIlib_send_send_video_v2(send_, &k);
+      // Eine Kachel ohne Puffer legt die Warteschlange nie ab (pushKachel, pushBild, #306); die Senke prueft trotzdem
+      // selbst, statt sich darauf zu verlassen.
+      if (b.kachel) {
+        NDIlib_video_frame_v2_t k;
+        fillFrame(k, b.kachel->data(), b.w, b.h);
+        NDIlib_send_send_video_v2(send_, &k);
+      }
       return;
     }
     NDIlib_video_frame_v2_t f;

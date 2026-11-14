@@ -131,6 +131,10 @@ void merkerNehmen() {
   while (callbacksTakeFreigabe(&f)) slotsFreigabe(f);
   MerkerSprecher s;
   while (callbacksTakeSprecher(&s)) slotsSprecher(s);
+  // Zoom-Kachel (#306): Name oder Profilbild geaendert, Profilbilder ein/aus - die Slots lesen das Profil beim
+  // naechsten Zeichnen neu (gelesen wird erst dort, hier nur markiert).
+  MerkerProfil p;
+  while (callbacksTakeProfil(&p)) slotsProfil(p.id);
 }
 
 // --- Feldleser der Slot-Befehle (Gliederung 3.2, A-EP11) ----------------------------
