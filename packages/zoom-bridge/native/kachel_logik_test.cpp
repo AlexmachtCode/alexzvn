@@ -227,7 +227,7 @@ void t_stand_frist_neuer_stand() {
   const KachelSchluessel k = s.soll(A, false, 4, 2);
   s.gestartet(k, at(0));
   s.profilGelesen(A, MIT);                                       // neuer Stand, noch kein Auftrag dafuer
-  s.fristAblauf(4, 2);
+  s.fristAblauf();
   CHECK(!s.laeuft(k) && s.soll(A, false, 4, 2).mitProfilbild);   // aufgegeben wurde der versuchte Stand, nicht der neue
 }
 void t_stand_frist() {
@@ -235,15 +235,38 @@ void t_stand_frist() {
   f.profilGelesen(A, MIT);
   const KachelSchluessel kf = f.soll(A, false, 4, 2);
   f.gestartet(kf, at(0));
-  f.fristAblauf(4, 2);
+  f.fristAblauf();
   const KachelSchluessel ko = f.soll(A, false, 4, 2);
   CHECK(!ko.mitProfilbild && !f.laeuft(kf) && !f.hat(ko));      // neuer Auftrag ohne Profilbild
   f.gestartet(ko, at(2000));
-  f.fristAblauf(4, 2);
-  CHECK(f.hat(ko) && f.puffer() == f.grundflaeche(4, 2));        // aufgegeben: dunkle Flaeche, kein weiterer Auftrag
+  CHECK(!f.fristAbgelaufen(at(3999)) && f.fristAbgelaufen(at(4000)));
+  f.fristAblauf();
+  // Abschlussprüfung M2: ohne Profilbild bleibt der Auftrag stehen (er hängt an keiner Datei); nur das Warten auf ihn
+  // ist vorbei - die Frist meldet sich nicht noch einmal, ein zweiter Auftrag für denselben Schlüssel kommt nicht
+  // (laeuft), und bis zum Ergebnis zeigt der Slot die dunkle Fläche bzw. die Überbrückung.
+  CHECK(f.laeuft(ko) && !f.hat(ko) && !f.fristAbgelaufen(at(4000)) && !f.fristAbgelaufen(at(60000)));
   CHECK(*f.grundflaeche(4, 2) == grundkachelI420(4, 2) && f.grundflaeche(4, 2) == f.grundflaeche(4, 2));
   f.profilGelesen(A, MIT);
   CHECK(f.soll(A, false, 4, 2).mitProfilbild);                   // neuer Profilstand versucht das Bild wieder
+}
+void t_stand_spaetes_ergebnis_ohne_profilbild() {
+  // Abschlussprüfung M2: spätes Ergebnis ohne Profilbild wird übernommen. Vorher legte die Frist die dunkle Fläche
+  // als Ergebnis ab, hat(k) blieb wahr, und die echte Kachel kam nie mehr an, bis sich der Schlüssel änderte.
+  KachelStand s;
+  s.profilGelesen(A, {u"Anna", u""});
+  const KachelSchluessel k = s.soll(A, false, 4, 2);
+  CHECK(!k.mitProfilbild);
+  s.gestartet(k, at(0));
+  CHECK(s.fristAbgelaufen(at(2000)));
+  s.fristAblauf();
+  CHECK(s.laeuft(k) && !s.hat(k) && !s.fristAbgelaufen(at(2001)));   // einmal gemeldet, Auftrag läuft weiter
+  CHECK(!s.bildAuftragOffen(k) && s.ueberbrueckung(A, 4, 2) == nullptr);
+  const auto p = std::make_shared<const std::vector<uint8_t>>(i420Bytes(4, 2), uint8_t{9});
+  s.fertig(k, p);                                                // das späte Ergebnis
+  CHECK(s.hat(k) && s.puffer() == p && !s.laeuft(k));
+  const KachelSchluessel kh = s.soll(A, true, 4, 2);             // ein neuer Auftrag setzt die Frist wieder scharf
+  s.gestartet(kh, at(70000));
+  CHECK(!s.fristAbgelaufen(at(71999)) && s.fristAbgelaufen(at(72000)));
 }
 void t_stand_fehler_einmal() {
   KachelStand f;
@@ -267,7 +290,7 @@ void t_stand_bildauftrag_offen() {
   const KachelSchluessel kh = s.soll(A, true, 4, 2);             // der Hinweis wechselt, der Auftrag hängt
   CHECK(s.bildAuftragOffen(kh) && s.bildAuftragOffen(s.soll(A, false, 8, 2)));
   CHECK(!s.bildAuftragOffen(s.soll(B, false, 4, 2)));            // anderes Ziel, anderes Bild
-  s.fristAblauf(4, 2);                                           // Frist um: das Profilbild dieses Stands ist aufgegeben
+  s.fristAblauf();                                           // Frist um: das Profilbild dieses Stands ist aufgegeben
   const KachelSchluessel ohne = s.soll(A, true, 4, 2);
   CHECK(!ohne.mitProfilbild && !s.bildAuftragOffen(ohne));
   s.gestartet(ohne, at(2000));                                   // ein Auftrag ohne Profilbild sperrt nichts
@@ -355,6 +378,7 @@ int main() {
   t_stand_leeren_monoton();
   t_stand_frist_neuer_stand();
   t_stand_frist();
+  t_stand_spaetes_ergebnis_ohne_profilbild();
   t_stand_fehler_einmal();
   t_stand_bildauftrag_offen();
   t_stand_nie_fremdes_profil();

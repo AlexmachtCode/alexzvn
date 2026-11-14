@@ -217,6 +217,8 @@ struct Slot {
   kachel::KachelStand kachel;
   std::shared_ptr<KachelJob> kachelJob;
   bool kachelBenutzt = false;
+  // Für dieses Ziel steht „Teilnehmer unbekannt“ schon im Protokoll (Abschlussprüfung M3 a); das Umhängen setzt 0.
+  unsigned kachelUnbekanntZiel = 0;
 
   Abo& abo() { return *abos.front(); }
 
@@ -594,6 +596,7 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         abo.umhaengGeneration.fetch_add(1);   // nach dem Ziel: wer die neue Generation liest, liest auch das neue Ziel
         s.kameraAus = false;
         s.kameraAnMs = 0;            // #306: ein neues Ziel hat noch kein „Kamera an“ (die 2 s zählen ab dem Umhängen)
+        s.kachelUnbekanntZiel = 0;   // #306: „Teilnehmer unbekannt“ darf für das neue Ziel wieder ins Protokoll
         s.gapOffen = true;           // die Luecke beginnt neu (6.10, Nachbesserung a3)
         s.gapErstesBildMs = 0;
         abschlussHier = true;
@@ -1420,8 +1423,16 @@ kachel::Puffer kachelFuer(Slot& s, unsigned ziel, bool hinweis, int w, int h, in
   if (!rendererSperre() && s.kachel.profilJetztLesen(ziel, jetzt)) {
     bool gefunden = false;
     kachel::Profil gelesen = profilLesen(ziel, &gefunden);
-    if (gefunden) s.kachel.profilGelesen(ziel, std::move(gelesen));
-    else s.kachel.profilNichtGefunden(ziel, jetzt);
+    if (gefunden) {
+      s.kachel.profilGelesen(ziel, std::move(gelesen));
+    } else {
+      s.kachel.profilNichtGefunden(ziel, jetzt);
+      // Abschlussprüfung M3 a: eine Logzeile je Slot und Ziel, nicht je Wiederholung; das Umhängen setzt sie zurück.
+      if (s.kachelUnbekanntZiel != ziel) {
+        s.kachelUnbekanntZiel = ziel;
+        emitLog(L"Slot " + std::to_wstring(s.nr) + L": Teilnehmer unbekannt - dunkle Fläche");
+      }
+    }
   }
   // 2. Welche Kachel jetzt stehen soll, und das Profil dazu - nur, wenn es zu DIESEM Ziel gelesen ist (nach einem
   //    Umhängen in der Renderer-Sperre bzw. bevor Zoom das Ziel kennt, ist es das des alten Ziels oder keins).
@@ -1444,25 +1455,32 @@ kachel::Puffer kachelFuer(Slot& s, unsigned ziel, bool hinweis, int w, int h, in
     a.h = h;
     s.kachelJob = kachelStarten(std::move(a), k);
     s.kachel.gestartet(k, jetzt);   // erst nach !laeuft(k): gestartet setzt die Frist neu
+    // Gewartet wird nur für die erste Kachel einer Person in dieser Größe (Abschlussprüfung M1): das Warten hält die
+    // ganze Hauptschleife an, auch Ton, Stille und Bild-Versatz aller Slots. Gibt es schon eine Überbrückung (Hinweis
+    // an/aus, neues Profilbild, Umbenennung, Sprecherwechsel zurück), geht sie sofort hinaus, und das Ergebnis holt 3.
+    // im nächsten Herzschlag ab.
+    const bool ohneBruecke = s.kachel.ueberbrueckung(ziel, w, h) == nullptr;
     const long long w0 = qpcJetzt();
-    const bool da = g_kachelWartenUs >= kZeitgeberUs ? kachelWarten(*s.kachelJob, g_kachelWartenUs / 1000) : kachelFertig(*s.kachelJob);
+    const bool da = ohneBruecke && g_kachelWartenUs >= kZeitgeberUs ? kachelWarten(*s.kachelJob, g_kachelWartenUs / 1000)
+                                                                    : kachelFertig(*s.kachelJob);
     const int64_t gewartet = static_cast<int64_t>(qpcUs(w0, qpcJetzt()));
     g_kachelWartenUs = gewartet < g_kachelWartenUs ? g_kachelWartenUs - gewartet : 0;
     // Nicht fertig (kachelWarten false): unten Überbrückung bzw. dunkle Fläche, das Ergebnis holt 3. später ab.
     if (da) kachelUebernehmen(s, k);
   } else if (!s.kachel.hat(k) && s.kachelJob && s.kachel.fristAbgelaufen(jetzt)) {
     // 5. Der Slot wartet auf den laufenden Auftrag (laeuft(k) oder bildAuftragOffen(k) - sonst hätte 4. einen neuen
-    //    gestartet - bzw. auf das Profil dieses Ziels), und der Auftrag ist nach KACHEL_FRIST_MS nicht fertig. Mit
-    //    Profilbild: dieses Bild ist für seinen Stand aufgegeben, der nächste Auftrag kommt ohne. Ohne: die dunkle
-    //    Fläche gilt als Ergebnis. Die Größe ist die des LAUFENDEN Auftrags (sein Schlüssel), nicht die gerade
-    //    verlangte (Entscheidung 5). Steht die gewünschte Kachel schon im Puffer, bleibt ein hängender Auftrag für eine
-    //    andere Kachel unangetastet: er ersetzte sonst die richtige Kachel durch die dunkle Fläche bzw. die Initialen.
+    //    gestartet - bzw. auf das Profil dieses Ziels), und der Auftrag ist nach KACHEL_FRIST_MS nicht fertig - gemeldet
+    //    wird das einmal je Auftrag (fristAbgelaufen). Mit Profilbild: dieses Bild ist für seinen Stand aufgegeben, der
+    //    Slot lässt den Auftrag los, der nächste kommt ohne. Ohne Profilbild (Abschlussprüfung M2): der Auftrag hängt
+    //    an keiner Datei, er ist nur langsam - der Slot behält ihn, zeigt bis dahin die Überbrückung bzw. die dunkle
+    //    Fläche, und 3. übernimmt das späte Ergebnis. Steht die gewünschte Kachel schon im Puffer, bleibt ein hängender
+    //    Auftrag für eine andere Kachel unangetastet: er ersetzte sonst die richtige Kachel durch die Initialen.
     const kachel::KachelSchluessel lauf = s.kachelJob->schluessel;
     const bool mitBild = lauf.mitProfilbild;
     emitLog(L"Slot " + std::to_wstring(s.nr) + L": Zoom-Kachel nach " + std::to_wstring(kachel::KACHEL_FRIST_MS) +
-            (mitBild ? L" ms nicht fertig - neu ohne Profilbild" : L" ms nicht fertig - dunkle Fläche"));
-    s.kachel.fristAblauf(lauf.w, lauf.h);
-    s.kachelJob.reset();
+            (mitBild ? L" ms nicht fertig - neu ohne Profilbild" : L" ms nicht fertig - bis dahin dunkle Fläche"));
+    s.kachel.fristAblauf();
+    if (mitBild) s.kachelJob.reset();
   }
   // 6. Was jetzt hinausgeht: die fertige Kachel, sonst die Überbrückung (nur eine Kachel DIESES Ziels, also nie mit
   //    einem fremden Profil gezeichnet), sonst die dunkle Fläche (Zeiger als Kopie).

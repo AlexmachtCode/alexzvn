@@ -472,6 +472,7 @@ class KachelStand {
     laufend_ = true;
     laufSchluessel_ = k;
     start_ = jetzt;
+    fristVorbei_ = false;
   }
 
   /**
@@ -492,20 +493,27 @@ class KachelStand {
     if (laufend_ && laufSchluessel_ == k) laufend_ = false;
   }
 
-  bool fristAbgelaufen(int64_t jetzt) const { return laufend_ && jetzt - start_ >= KACHEL_FRIST_MS; }
+  /** Ist die Frist des laufenden Auftrags um? Höchstens einmal je Auftrag (nach fristAblauf nicht mehr). */
+  bool fristAbgelaufen(int64_t jetzt) const {
+    return laufend_ && !fristVorbei_ && jetzt - start_ >= KACHEL_FRIST_MS;
+  }
 
   /**
    * Die Frist des laufenden Auftrags ist um. Mit Profilbild: dieses Profilbild ist aufgegeben, der Auftrag weg (der
-   * naechste kommt ohne Bild). Ohne Profilbild: dunkle Grundflaeche als Ergebnis, kein weiterer Auftrag.
+   * nächste kommt ohne Bild). Ohne Profilbild (Abschlussprüfung M2): der Auftrag läuft weiter - er hängt an keiner
+   * Datei, er ist nur langsam -, nur das Warten auf ihn ist vorbei. Die Frist meldet sich nicht noch einmal, ein
+   * zweiter Auftrag für denselben Schlüssel kommt nicht (laeuft), bis dahin zeigt der Slot die Überbrückung bzw. die
+   * dunkle Fläche, und das späte Ergebnis wird mit fertig() übernommen. Bis Task 7 legte dieser Zweig die dunkle Fläche
+   * als Ergebnis ab; hat(k) blieb dann wahr, und die echte Kachel kam nie an, bis sich der Schlüssel änderte.
    */
-  void fristAblauf(int w, int h) {
+  void fristAblauf() {
     if (!laufend_) return;
     const KachelSchluessel k = laufSchluessel_;
     if (k.mitProfilbild) {
       aufgegebenStand_ = k.profilStand;   // der versuchte Stand, nicht ein inzwischen neuerer
       laufend_ = false;
     } else {
-      fertig(k, grundflaeche(w, h));
+      fristVorbei_ = true;
     }
   }
 
@@ -567,6 +575,7 @@ class KachelStand {
   bool laufend_ = false;
   KachelSchluessel laufSchluessel_;
   int64_t start_ = 0;
+  bool fristVorbei_ = false;   // die Frist des laufenden Auftrags (ohne Profilbild) ist schon gemeldet
   Puffer puffer_;
   KachelSchluessel pufferSchluessel_;
   Puffer grund_;

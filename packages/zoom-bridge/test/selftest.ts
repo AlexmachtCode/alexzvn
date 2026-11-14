@@ -3355,9 +3355,15 @@ console.log('\nZoom-Kachel (#306): Anbindung');
   assert(/s->kachel\.leeren\(\)\s*;\s*s->kachelJob\.reset\(\)\s*;/.test(inMeeting)
       && inMeeting.indexOf('s->kachel.leeren()') < inMeeting.indexOf('abbauAusfuehren('),
     '#306 slotsInMeeting: mit den Kennungen (Wiederverbindung) beginnt jede Kachel neu - kein Profil einer alten Kennung');
-  // Entscheidung 5: fristAblauf bekommt die Größe des LAUFENDEN Auftrags (sein Schlüssel), nicht die gerade verlangte.
-  assert(/const\s+kachel::KachelSchluessel\s+lauf\s*=\s*s\.kachelJob->schluessel\s*;/.test(fuer) && fuer.includes('fristAblauf(lauf.w, lauf.h)'),
-    '#306 kachelFuer gibt fristAblauf die Größe des laufenden Auftrags (lauf = s.kachelJob->schluessel)');
+  // Abschlussprüfung M2: nach der Frist lässt der Slot nur einen Auftrag MIT Profilbild los; einer ohne bleibt stehen,
+  // sein spätes Ergebnis übernimmt Schritt 3 (fristAblauf() legt keine dunkle Fläche mehr als Ergebnis ab).
+  assert(/const\s+kachel::KachelSchluessel\s+lauf\s*=\s*s\.kachelJob->schluessel\s*;/.test(fuer)
+      && /s\.kachel\.fristAblauf\(\)\s*;\s*if\s*\(\s*mitBild\s*\)\s*s\.kachelJob\.reset\(\)\s*;/.test(fuer),
+    '#306 kachelFuer: nach der Frist nur einen Auftrag mit Profilbild loslassen, einer ohne bleibt für sein spätes Ergebnis');
+  // Abschlussprüfung M3 a: kennt Zoom die Kennung nicht, eine Logzeile je Slot und Ziel (nicht je Wiederholung).
+  assert(/if\s*\(\s*s\.kachelUnbekanntZiel\s*!=\s*ziel\s*\)\s*\{\s*s\.kachelUnbekanntZiel\s*=\s*ziel\s*;\s*emitLog\(/.test(fuer)
+      && fuer.indexOf('s.kachelUnbekanntZiel') > fuer.indexOf('profilNichtGefunden('),
+    '#306 kachelFuer: „Teilnehmer unbekannt“ einmal je Slot und Ziel, nach profilNichtGefunden');
   // Review Task 6, Hinweis 1: kein zweiter Auftrag mit Profilbild für Ziel und Profilstand, solange einer läuft oder hängt.
   assert(/!\s*s\.kachel\.hat\(k\)\s*&&\s*!\s*s\.kachel\.laeuft\(k\)\s*&&\s*!\s*s\.kachel\.bildAuftragOffen\(k\)/.test(fuer),
     '#306 kachelFuer startet nur ohne fertige, laufende oder hängende Kachel mit Profilbild desselben Stands (bildAuftragOffen)');
@@ -3366,8 +3372,13 @@ console.log('\nZoom-Kachel (#306): Anbindung');
   // Review Task 6, Hinweis 3: läuft das Warten ab (kachelWarten false), geht die Überbrückung bzw. die dunkle Fläche hinaus.
   // Review T7, MINOR 2: unter einer Zeitgeber-Auflösung (16 ms, ohne timeBeginPeriod) Restguthaben nicht mehr warten,
   // nur nachsehen - ein abgelaufenes wait_for kommt bis zu 15,6 ms zu spät zurück.
-  const iWarten = fuer.search(/\bbool\s+(\w+)\s*=\s*g_kachelWartenUs\s*>=\s*kZeitgeberUs\s*\?\s*kachelWarten\(\s*\*s\.kachelJob\s*,\s*g_kachelWartenUs\s*\/\s*1000\s*\)\s*:\s*kachelFertig\(\s*\*s\.kachelJob\s*\)/);
-  const warteVar = /\bbool\s+(\w+)\s*=\s*g_kachelWartenUs\b/.exec(fuer)?.[1] ?? '';
+  // Abschlussprüfung M1: gewartet wird nur, wenn es keine Überbrückung dieser Person in dieser Größe gibt - das Warten
+  // hält die ganze Hauptschleife an, auch den Ton aller Slots; mit Überbrückung kauft es nichts.
+  const brueckeVar = /\bconst\s+bool\s+(\w+)\s*=\s*s\.kachel\.ueberbrueckung\(\s*ziel\s*,\s*w\s*,\s*h\s*\)\s*==\s*nullptr\s*;/.exec(fuer)?.[1] ?? '\\b$^';
+  const iWarten = fuer.search(new RegExp(`\\bbool\\s+(\\w+)\\s*=\\s*${brueckeVar}\\s*&&\\s*g_kachelWartenUs\\s*>=\\s*kZeitgeberUs\\s*\\?\\s*kachelWarten\\(\\s*\\*s\\.kachelJob\\s*,\\s*g_kachelWartenUs\\s*\\/\\s*1000\\s*\\)\\s*:\\s*kachelFertig\\(\\s*\\*s\\.kachelJob\\s*\\)`));
+  const warteVar = new RegExp(`\\bbool\\s+(\\w+)\\s*=\\s*${brueckeVar}\\s*&&`).exec(fuer)?.[1] ?? '';
+  assert(iWarten >= 0,
+    '#306 kachelFuer wartet nur ohne Überbrückung (ueberbrueckung(ziel, w, h) == nullptr), sonst nur kachelFertig');
   assert(iWarten >= 0 && new RegExp(`if\\s*\\(\\s*${warteVar}\\s*\\)\\s*kachelUebernehmen\\(`).test(fuer.slice(iWarten))
       && fuer.lastIndexOf('ueberbrueckung(') > iWarten && fuer.lastIndexOf('grundflaeche(') > fuer.lastIndexOf('ueberbrueckung('),
     '#306 kachelFuer: ohne fertiges Ergebnis nach kachelWarten die Überbrückung, sonst die dunkle Fläche');
@@ -3384,8 +3395,8 @@ console.log('\nZoom-Kachel (#306): Anbindung');
     '#306 kachelUebernehmen prüft i420 vor fehler, zeigt ohne Bild die dunkle Fläche, nennt die Zeichendauer (dauerUs) und meldet Profilbild-Fehler einmal');
   const videoMitTexten = cppOhneKommentare(paketDateiOderLeer('native', 'video.cpp'));
   assert(['": Zoom-Kachel nicht gezeichnet (HRESULT "', '") - dunkle Fläche"', '" ms gezeichnet"', '": Profilbild nicht verwendet ("',
-    '" ms nicht fertig - neu ohne Profilbild"'].every((t) => videoMitTexten.includes(`L${t}`)),
-    '#306 video.cpp: die Logzeilen der Kachel (gezeichnet, nicht gezeichnet, Profilbild nicht verwendet, Frist)');
+    '" ms nicht fertig - neu ohne Profilbild"', '": Teilnehmer unbekannt - dunkle Fläche"'].every((t) => videoMitTexten.includes(`L${t}`)),
+    '#306 video.cpp: die Logzeilen der Kachel (gezeichnet, nicht gezeichnet, Profilbild nicht verwendet, Frist, Teilnehmer unbekannt)');
   const tick = rumpf(video, 'void ersatzbildTick(');
   const iTile = tick.indexOf('case Sent::Tile:');
   const tileFall = iTile < 0 ? '' : tick.slice(iTile, tick.indexOf('break;', iTile));
@@ -3410,6 +3421,8 @@ console.log('\nZoom-Kachel (#306): Anbindung');
       (video.match(/\bkameraLautZoom\(/g) ?? []).length >= 4,
     '#306 kameraAus steht nur in der Slot-Vorgabe und beim Umhängen (dort auch kameraAnMs = 0); sonst setzt ihn kameraLautZoom');
   if (zuweisungen.length !== 2) console.error(`      kameraAus = in video.cpp, Zeilen ${zuweisungen.join(', ')}`);
+  assert(/\bs\.kachelUnbekanntZiel\s*=\s*0\s*;/.test(zielStandNeu) && /\bunsigned\s+kachelUnbekanntZiel\s*=\s*0\s*;/.test(slotStruktur),
+    '#306 das Umhängen setzt den Merker „Teilnehmer unbekannt gemeldet“ zurück (ZielStandNeu)');
   assert(/s\.kachel\.speicherBytes\(\)/.test(rumpf(video, 'void slotStatsMelden(')),
     '#306 slotStats.memKb zählt den Speicher der Kachel mit');
   assert(/s->kachel\.profilVeraltet\(id\)/.test(rumpf(video, 'void slotsProfil(unsigned id)')),

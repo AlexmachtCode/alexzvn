@@ -577,7 +577,11 @@ dem Wiedereinschalten erst nach den 2 s, sonst blitzte der Hinweis gleich danach
 Zeitgeber-Auflösung — zusammen für alle Slots eines Herzschlags, nicht je Slot. Die Bridge
 ruft kein `timeBeginPeriod`; ein abgelaufenes Warten kehrt darum bis zu 15,6 ms später
 zurück. Mit weniger als 16 ms Restguthaben wartet sie nicht mehr, sie sieht nur nach, ob der
-Auftrag fertig ist. Bis das Ergebnis da ist, geht die letzte Kachel derselben Person in
+Auftrag fertig ist. Gewartet wird nur für die erste Kachel einer Person in dieser Größe: das
+Warten hält die ganze Hauptschleife an, auch Ton, Stille und Bild-Versatz aller Slots. Gibt
+es schon eine Kachel dieser Person in dieser Größe (Hinweis an/aus, neues Profilbild,
+Umbenennung, Sprecherwechsel zurück), geht sie sofort weiter hinaus, und das neue Ergebnis
+kommt im nächsten Herzschlag. Bis das Ergebnis da ist, geht die letzte Kachel derselben Person in
 derselben Größe hinaus, sonst die dunkle Grundfläche (#232323), nie `transparent`.
 Gezeichnet wird je Zustandswechsel einmal (Schlüssel: Ziel, Profilstand, Hinweis, Größe,
 mit oder ohne Profilbild), nie je Bild; ein spätes Ergebnis für eine andere Kachel ersetzt
@@ -590,11 +594,13 @@ Das Profil (Anzeigename `GetUserName`, Profilbild `GetAvatarPath`) liest der Slo
 ersten Zeichnen, bei jedem neuen Ziel und nach einem Profil-Merker, nie während der
 Renderer-Sperre. **Nie zeigt die Kachel Name oder Bild eines anderen Ziels:** gezeichnet
 wird nur mit dem Profil, das zu diesem Ziel gelesen ist (`KachelStand::profilFuer`).
-Hängt der Slot während der Renderer-Sperre auf eine neue Person um, oder kennt Zoom die
-Kennung (noch) nicht, sendet er bis zum Lesen eine Kachel dieser Person in derselben Größe,
+Hängt der Slot kurz vor einer Renderer-Sperre auf eine neue Person um (während der Sperre
+wird ein Umhängen nur vorgemerkt) und fällt das erste Zeichnen der Kachel in die Sperre,
+oder kennt Zoom die Kennung (noch) nicht, sendet er bis zum Lesen eine Kachel dieser Person in derselben Größe,
 wenn er schon eine hat, sonst die dunkle Fläche. Ein nicht gefundener Teilnehmer (`GetUserByUserID`
 leer) zählt nicht als gelesen; der Slot fragt frühestens nach 1 s wieder
-(`PROFIL_WIEDERHOLEN_MS`), nie je Herzschlag. Blendet der Host die Profilbilder aus
+(`PROFIL_WIEDERHOLEN_MS`), nie je Herzschlag, und schreibt einmal je Ziel `Slot <n>:
+Teilnehmer unbekannt - dunkle Fläche` ins Log (nach einem Umhängen wieder). Blendet der Host die Profilbilder aus
 (`IsParticipantProfilePicturesHidden`), zeigt die Kachel Initialen. Die Merker kommen aus
 `onUserNamesChanged` und `onInMeetingUserAvatarPathUpdated` (je Kennung, über die
 Warteschlange `g_merkerProfil`, höchstens 1024, Überlauf in `bridgeStats.merkerVerworfen`)
@@ -602,7 +608,10 @@ und aus `onParticipantProfilePictureStatusChange` (alle; ein klebendes Merkzeich
 verloren geht). Die Hauptschleife nimmt sie nach dem Sprecher-Merker (`slotsProfil`), dann
 wird beim nächsten Zeichnen neu gelesen.
 Hängt das Lesen eines Profilbilds, gibt der Slot es nach 2 s (`KACHEL_FRIST_MS`) für
-diesen Profilstand auf und zeichnet Initialen; solange ein Auftrag mit Profilbild für
+diesen Profilstand auf und zeichnet Initialen. Ist ein Auftrag ohne Profilbild nach 2 s nicht
+fertig (er hängt an keiner Datei, er ist nur langsam), behält der Slot ihn, zeigt bis dahin
+die letzte Kachel derselben Person bzw. die dunkle Fläche und übernimmt das späte Ergebnis;
+die Frist meldet sich je Auftrag einmal. Solange ein Auftrag mit Profilbild für
 diese Person und diesen Profilstand läuft, startet er keinen zweiten mit Profilbild
 (`KachelStand::bildAuftragOffen`) — je Slot, Ziel und Profilstand wartet so höchstens ein
 Thread. Ein neuer Profilstand oder ein neues Ziel kann einen weiteren starten.
@@ -610,7 +619,7 @@ Logzeilen (stderr, nie Name oder Pfad): `Slot <n>: Zoom-Kachel <w>x<h> in <ms> m
 gezeichnet (mit Profilbild|Initialen)` — die Dauer misst der Zeichner selbst —, einmal je
 Profilstand `Slot <n>: Profilbild nicht verwendet (<art>, HRESULT 0x…) - Initialen`,
 `Slot <n>: Zoom-Kachel nach 2000 ms nicht fertig - neu ohne Profilbild` (ohne Profilbild:
-`… - dunkle Fläche`) und `Slot <n>: Zoom-Kachel nicht gezeichnet (HRESULT 0x…) - dunkle
+`… - bis dahin dunkle Fläche`), `Slot <n>: Teilnehmer unbekannt - dunkle Fläche` und `Slot <n>: Zoom-Kachel nicht gezeichnet (HRESULT 0x…) - dunkle
 Fläche`. Steht der Slot nicht mehr auf `tile` oder zeigt er eine Freigabe, gibt er Kachel
 und Auftrag frei. `slotStats.memKb` zählt die Kachel mit; `slotStats.workUs` enthält bei
 `tile` auch das Warten der Hauptschleife auf einen Zeichenauftrag (höchstens das Guthaben
