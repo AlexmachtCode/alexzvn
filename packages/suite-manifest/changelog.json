@@ -1742,6 +1742,15 @@
     "name": "JM Connect",
     "entries": [
       {
+        "version": "0.4.3",
+        "date": "2026-11-14",
+        "notes": [
+          "Stabilität: Connect stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist. Connect schreibt den Fehler ins Protokoll und läuft weiter. (Absturz vom 02.11.)",
+          "Rechtsklick in ein Eingabefeld – z. B. Meeting-Nummer oder Kenncode – öffnet jetzt ein Menü mit Ausschneiden, Kopieren und Einfügen. (#301)",
+          "Gilt für Windows und Mac."
+        ]
+      },
+      {
         "version": "0.4.2",
         "date": "2026-11-12",
         "notes": [

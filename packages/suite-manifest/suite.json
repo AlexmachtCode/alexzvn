@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-13T17:38:53.745Z",
+  "updatedAt": "2026-11-14T13:49:35.280Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -472,7 +472,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.connect",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.4.2",
+      "latestVersion": "0.4.3",
       "platforms": {
         "mac": {
           "artifact": "JM Connect-${version}-mac-${arch}.dmg",
