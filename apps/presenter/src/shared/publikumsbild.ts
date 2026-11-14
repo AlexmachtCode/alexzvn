@@ -20,7 +20,10 @@ export function aktuelleFolie(state: PresentationState, slides: readonly Slide[]
   return slides?.[state.index] ?? null;
 }
 
-/** Pause Schwarz/Weiß deckt alles; ohne Folie oder gestoppt bleibt das Bild leer. */
+/**
+ * Pause Schwarz/Weiß deckt alles; ohne Folie oder gestoppt bleibt das Bild leer (NDI-Weg: ganz transparent,
+ * auch wenn noch eine Schicht steht). Die Publikumsansicht zeigt bei „leer“ wie bisher ihren Schichtenstapel.
+ */
 export function bildArt(state: PresentationState, folie: Slide | null): BildArt {
   if (!state.active) return 'leer';
   if (state.screen === 'black') return 'schwarz';

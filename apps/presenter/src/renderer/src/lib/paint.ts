@@ -28,7 +28,13 @@ export async function ensureOverlayBitmaps(slides: Slide[]): Promise<void> {
   );
 }
 
-export const FONT_FAMILY = '"Manrope Variable", ui-sans-serif, system-ui, sans-serif';
+/** Alle vorab dekodierten Overlay-Bilder schließen und vergessen (#303: neue Präsentation im NDI-Fenster). */
+export function clearOverlayBitmaps(): void {
+  for (const bmp of overlayBitmaps.values()) bmp.close();
+  overlayBitmaps.clear();
+}
+
+export const FONT_FAMILY ='"Manrope Variable", ui-sans-serif, system-ui, sans-serif';
 
 function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   const out: string[] = [];

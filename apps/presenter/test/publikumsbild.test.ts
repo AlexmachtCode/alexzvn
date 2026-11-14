@@ -26,6 +26,7 @@ ck('Weißbild', pb.bildArt(live(0, 'white'), a) === 'weiss');
 ck('Folie', pb.bildArt(live(0), a) === 'folie');
 ck('keine Folie → leer', pb.bildArt(live(0), null) === 'leer');
 ck('gestoppt → leer, auch mit Folie', pb.bildArt(aus, a) === 'leer');
+ck('gestoppt → leer, auch bei gemerkter Pause', pb.bildArt({ ...aus, screen: 'black' }, a) === 'leer' && pb.bildArt({ ...aus, screen: 'white' }, a) === 'leer');
 ck('erste Folie ohne Übergang', eq(pb.naechsteSchicht(null, a, W), { art: 'neu', slide: a, blendeMs: 0 }));
 ck('gleiche Folie bleibt', pb.naechsteSchicht('a', a, W).art === 'bleibt');
 ck('nächste mit Blende des Projekts', eq(pb.naechsteSchicht('a', b, W), { art: 'neu', slide: b, blendeMs: 800 }));
@@ -39,6 +40,7 @@ const pruefeAnsicht = (name: string, text: string) => {
   ck(`${name} entscheidet den Übergang nicht selbst`, !text.includes('uebergangFuer('));
 };
 pruefeAnsicht('Publikumsansicht', quelle('../src/renderer/src/views/AudienceView.tsx'));
+pruefeAnsicht('NDI-Ansicht', quelle('../src/renderer/src/ndi/ndi-ansicht.ts'));
 
 console.log(`\n${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);
