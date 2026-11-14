@@ -93,8 +93,8 @@ Zustandsmaschine und die Prozess-Schicht (`Bridge`) gegen eine Attrappe
 
 `logik-test` (`scripts/logik-test.mjs`, seit Connect 0.4.0) prüft die
 Entscheidungslogik der Slots in C++ ohne SDK: Es übersetzt die Prüfprogramme
-`native/slot_logic_test.cpp`, `native/audio_mix_test.cpp` und
-`native/delay_line_test.cpp` direkt mit dem Compiler (ohne CMake) in einen
+`native/slot_logic_test.cpp`, `native/audio_mix_test.cpp`,
+`native/delay_line_test.cpp` und `native/kachel_logik_test.cpp` direkt mit dem Compiler (ohne CMake) in einen
 Temp-Ordner und startet sie. Es braucht also einen C++-Compiler, aber weder Zoom-
 noch NDI-SDK: `g++` oder `clang++` mit `-std=c++17 -Wall -Werror`, unter Windows
 `cl /W4 /WX` über `vswhere` und `VsDevCmd.bat`. Die CI fährt es im Job

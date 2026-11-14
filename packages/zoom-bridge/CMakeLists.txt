@@ -80,3 +80,6 @@ target_compile_options(slot-logic-test PRIVATE /utf-8)
 # Mischer der Mischer-Slots (Spec 6.13), ebenso rein.
 add_executable(audio-mix-test native/audio_mix_test.cpp)
 target_compile_options(audio-mix-test PRIVATE /utf-8)
+# Inhalte der Zoom-Kachel (#306): Initialen, Farbe, Kuerzung, Masse, I420 - ebenso rein.
+add_executable(kachel-logik-test native/kachel_logik_test.cpp)
+target_compile_options(kachel-logik-test PRIVATE /utf-8)
