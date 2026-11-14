@@ -12,7 +12,7 @@ import { initNdiProgram, programmHandlung, stopProgram } from './ndi-program';
 import { createPeerWindow, destroyPeerWindow, getPeerWindow } from './peer-window';
 import { setNdiControlState, startControlServer, stopControlServer } from './control-server';
 import { kontextMenueVorlage } from './kontextmenue';
-import { createTray,destroyTray, setTrayStatus } from './tray';
+import { createTray, destroyTray, setTrayStatus } from './tray';
 import { handleShowDeepLink } from './show-open';
 import { startPresenterLink, stopPresenterLink } from './presenter-link';
 import { startZoom, verdrahteZoomFenster, zoomBeenden, zoomGastLabelsGeaendert, zoomLaeuft, zoomSteuerbefehl, zoomVerlassen } from './zoom';
