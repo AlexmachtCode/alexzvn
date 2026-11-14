@@ -2116,6 +2116,18 @@ console.log('— NB8 · Slot-Wahrheit: was sich während des slotOn ändert, geh
   await p.aufraeumen();
 }
 
+console.log('— #306 · Ersatzbild „Zoom-Kachel“ geht als fallback tile an die Bridge');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true, ersatzbild: 'kachel' })] });
+  await insMeeting(p);
+  ck('#306: das erste slotOn trägt fallback tile', await bis(() => zaehle(p, 'slotOn', 1) >= 1, 2000) && slotGesendet(p, 1, 1)[0]?.fallback === 'tile');
+  ck('#306: die Bridge lehnt es nicht ab (kein slotBadFallback)', await bis(() => meldeteSender(p, 1), 3000)
+    && !p.ereignisse.some((x) => x.ev.ev === 'error' && (x.ev as unknown as { code: string }).code === 'slotBadFallback'));
+  const erstes = p.ereignisse.find((x) => x.ev.ev === 'slot' && (x.ev as unknown as { slot: number }).slot === 1);
+  ck('#306: das erste slot-Ereignis von Slot 1 meldet sent tile', (erstes?.ev as unknown as { sent?: string } | undefined)?.sent === 'tile');
+  await p.aufraeumen();
+}
+
 console.log('— NB2/NB7 · Slot-Wahrheit: kein Sender, den Connect nicht kennt; die Nummer bleibt bis slot off reserviert (I-2 bis I-6)');
 {
   const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_SLOT_SPAET: '1:500' }) });

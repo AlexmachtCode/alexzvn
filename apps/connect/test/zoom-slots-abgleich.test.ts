@@ -180,7 +180,8 @@ console.log('— B1 · 7.1 Ton-Abbildung (KF8) und „Ton eingeschaltet“ (8.2)
 console.log('— B1 · Abbildungen und slotOnBefehl (6.2, 7.3 Nr. 2, Nr. 9)');
 {
   ck('B1 MODUS_ZU_BRIDGE', j(MODUS_ZU_BRIDGE) === j({ teilnehmer: 'participant', sprecher: 'speaker', freigabe: 'share' }));
-  ck('B1 ERSATZBILD_ZU_BRIDGE', j(ERSATZBILD_ZU_BRIDGE) === j({ transparent: 'transparent', eingefroren: 'freeze', schwarz: 'black', weiss: 'white' }));
+  ck('B1 ERSATZBILD_ZU_BRIDGE', j(ERSATZBILD_ZU_BRIDGE) === j({ transparent: 'transparent', eingefroren: 'freeze', schwarz: 'black', weiss: 'white', kachel: 'tile' }));
+  ck('#306 slotOnBefehl: Ersatzbild kachel → fallback tile', slotOnBefehl(einstellung({ ersatzbild: 'kachel' }), ANNA, 'Zoom 1').fallback === 'tile');
   ck('B1 SIGNAL_ZU_BRIDGE', j(SIGNAL_ZU_BRIDGE) === j({ sprecherVideo: 'speakerVideo', aktivesVideo: 'activeVideo', tonAktiv: 'activeAudio' }));
   // Konstruktor-Rundlauf: jedes Feld weicht von der Vorgabe eines neuen Slots ab und muss im Befehl ankommen.
   const abweichend = einstellung({

@@ -52,6 +52,7 @@ function Flaeche({ art, jpeg }: { art: VorschauFlaeche['art']; jpeg: string | nu
   if (art === 'schachbrett') return <div className="h-full w-full" style={SCHACHBRETT} />;
   if (art === 'schwarz') return <div className="h-full w-full bg-black" />;
   if (art === 'weiss') return <div className="h-full w-full bg-white" />;
+  if (art === 'kachel') return <div className="h-full w-full bg-[#232323]" />;
   return null;
 }
 

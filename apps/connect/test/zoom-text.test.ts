@@ -1099,11 +1099,20 @@ console.log('— B6 · ST1–ST4, ST10–ST29e, ST60, ST97 wörtlich');
       'Anna: Zoom liefert gerade kein Bild · Ersatzbild transparent · Slot 3 zeigt dieselbe Quelle; ob Zoom zwei Abos derselben Quelle zugleich beliefert, ist noch nicht gemessen.'],
     ['T97 an T20c', k({ ...freigabe, grund: 'subscribeFailed', aboFehlerName: 'SDKERR_INTERNAL_ERROR', andererSlot: 7 }),
       'Freigabe von Carla: Zoom hat das Abo abgelehnt (SDKERR_INTERNAL_ERROR) · Ersatzbild transparent. Für einen neuen Versuch „Stopp“ und wieder „Start“. · Slot 7 zeigt dieselbe Quelle; ob Zoom zwei Abos derselben Quelle zugleich beliefert, ist noch nicht gemessen.'],
+    ['T19 Zoom-Kachel', k({ grund: 'cameraOff', gesendet: 'tile', ersatzbild: 'kachel' }), 'Anna: Kamera aus · Ersatzbild Zoom-Kachel'],
+    ['T19b Zoom-Kachel', k({ grund: 'noFrames', gesendet: 'tile', ersatzbild: 'kachel' }), 'Anna: Zoom liefert gerade kein Bild · Ersatzbild Zoom-Kachel (Bild unterbrochen)'],
+    ['T20 Zoom-Kachel', k({ grund: 'targetChanged', gesendet: 'tile', ersatzbild: 'kachel' }), 'Anna: erstes Bild steht noch aus · Ersatzbild Zoom-Kachel'],
+    ['T20b Zoom-Kachel', k({ grund: 'bufferMismatch', gesendet: 'tile', ersatzbild: 'kachel' }), 'Anna: fehlerhafte Bilder verworfen · Ersatzbild Zoom-Kachel (Bild unterbrochen)'],
+    ['T20c Zoom-Kachel', k({ grund: 'subscribeFailed', aboFehlerName: 'SDKERR_INTERNAL_ERROR', gesendet: 'tile', ersatzbild: 'kachel' }),
+      'Anna: Zoom hat das Abo abgelehnt (SDKERR_INTERNAL_ERROR) · Ersatzbild Zoom-Kachel (Bild unterbrochen). Für einen neuen Versuch „Stopp“ und wieder „Start“.'],
+    ['T16 Zoom-Kachel, Person weg', k({ grund: 'participantLeft', gesendet: 'transparent', ersatzbild: 'kachel' }), 'Wartet auf Anna · Ersatzbild transparent'],
+    ['T27 Zoom-Kachel', k({ ...sprecher, grund: 'speakerNoVideo', gesendet: 'tile', ersatzbild: 'kachel' }), 'Ben (Sprecher): Kamera aus · Ersatzbild Zoom-Kachel'],
+    ['T29c Zoom-Kachel in der Freigabe', k({ ...freigabe, zielName: null, grund: 'shareNone', gesendet: 'transparent', ersatzbild: 'kachel' }), 'Wartet auf eine Bildschirmfreigabe · Ersatzbild transparent'],
   ];
   for (const [id, ist, soll] of SOLL) ck(`S${id} wörtlich`, ist === soll);
   ck('ST1, ST2, ST3 Modus-Namen wörtlich', JSON.stringify(MODUS_NAME) === JSON.stringify({ teilnehmer: 'Teilnehmer', sprecher: 'Aktiver Sprecher', freigabe: 'Bildschirmfreigabe' }));
   ck('ST4 Ersatzbild-Namen (Einstellung und sent) und Feldname wörtlich',
-    JSON.stringify(ERSATZBILD_NAME) === JSON.stringify({ transparent: 'transparent', freeze: 'eingefroren', black: 'schwarz', white: 'weiß', eingefroren: 'eingefroren', schwarz: 'schwarz', weiss: 'weiß' })
+    JSON.stringify(ERSATZBILD_NAME) === JSON.stringify({ transparent: 'transparent', freeze: 'eingefroren', black: 'schwarz', white: 'weiß', tile: 'Zoom-Kachel', eingefroren: 'eingefroren', schwarz: 'schwarz', weiss: 'weiß', kachel: 'Zoom-Kachel' })
       && ERSATZBILD_FELD === 'Ersatzbild');
   const quelle = readFileSync(new URL('../src/shared/zoom-text.ts', import.meta.url), 'utf8');
   ck('Quelltext-Wächter: zoom-text.ts schreibt „mehr als 5“ (T22) nicht als Literal, T22 kommt aus BETRIEBSGROESSE', !quelle.includes('mehr als 5'));
@@ -1174,7 +1183,8 @@ console.log('— B6 · Zustandszeile 10.2 als Kreuzprodukt (10.5) mit den Wahrhe
     T29c: (art: string): string => `Wartet auf eine Bildschirmfreigabe · ${art}`,
     T60: 'Ersatzbild eingefroren (kein gespeichertes Bild, darum transparent)',
     T97: (m: number): string => ` · Slot ${m} zeigt dieselbe Quelle; ob Zoom zwei Abos derselben Quelle zugleich beliefert, ist noch nicht gemessen.`,
-    ART: { transparent: 'transparent', freeze: 'eingefroren', black: 'schwarz', white: 'weiß' } as Record<string, string>,
+    ART: { transparent: 'transparent', freeze: 'eingefroren', black: 'schwarz', white: 'weiß', tile: 'Zoom-Kachel' } as Record<string, string>,
+    T61: 'Ersatzbild Zoom-Kachel (Bild unterbrochen)',
   };
 
   const IM = new Set<ZoomZ>(['Z6', 'Z7', 'Z7b', 'Z8', 'Z9', 'Z9b']);
@@ -1185,10 +1195,10 @@ console.log('— B6 · Zustandszeile 10.2 als Kreuzprodukt (10.5) mit den Wahrhe
     Z1a: S.T11a, Z1b: S.T11a, Z2: S.T11b, Z3: S.T11c, Z4: S.T11c, Z5a: S.T11h, Z5b: S.T11h, Z10: S.T11d, Z11: S.T11e, Z12: S.T11f, Z13: S.T11g,
   };
   const MODI: Modus[] = ['teilnehmer', 'sprecher', 'freigabe'];
-  const ERSATZBILDER: Ersatzbild[] = ['transparent', 'eingefroren', 'schwarz', 'weiss'];
+  const ERSATZBILDER: Ersatzbild[] = ['transparent', 'eingefroren', 'schwarz', 'weiss', 'kachel'];
   const ZIEL0: Grund[] = ['noTarget', 'participantLeft', 'speakerNone', 'shareNone'];   // 6.10 Schritt 3
   const MIT_ZIEL: Grund[] = SLOT_REASONS.filter((g) => !ZIEL0.includes(g));
-  const ERSATZ_SENT: Sent[] = ['transparent', 'freeze', 'black', 'white'];             // SZ6 sendet ein Ersatzbild (6.12)
+  const ERSATZ_SENT: Sent[] = ['transparent', 'freeze', 'black', 'white', 'tile'];             // SZ6 sendet ein Ersatzbild (6.12)
   const NAMEN = ['Carla', 'Ben', 'Anna'];
   const KLARTEXT = 'Der Slot ließ sich nicht aufbauen (SLOT_SENDER_FAILED). Details im Log.';
   const ABO = 'SDKERR_INTERNAL_ERROR';
@@ -1258,7 +1268,8 @@ console.log('— B6 · Zustandszeile 10.2 als Kreuzprodukt (10.5) mit den Wahrhe
     }
     if (f.zustand === 'gehalten') return f.grund === 'sharePaused' ? ['T29', S.T29(p)] : ['T29b', S.T29b(p)];
     // SZ6 (Regeln 6–10)
-    const art = f.ersatzbild === 'eingefroren' && f.gesendet === 'transparent' ? S.T60 : `Ersatzbild ${S.ART[f.gesendet ?? '']}`;
+    const art = f.ersatzbild === 'eingefroren' && f.gesendet === 'transparent' ? S.T60
+      : f.gesendet === 'tile' && ['noFrames', 'bufferMismatch', 'subscribeFailed'].includes(f.grund ?? '') ? S.T61 : `Ersatzbild ${S.ART[f.gesendet ?? '']}`;
     const g = f.grund;
     const t97 = f.andererSlot !== null && (g === 'noFrames' || g === 'subscribeFailed') ? S.T97(f.andererSlot) : '';
     const ohneZiel = g !== null && ZIEL0.includes(g);
@@ -1301,6 +1312,8 @@ console.log('— B6 · Zustandszeile 10.2 als Kreuzprodukt (10.5) mit den Wahrhe
       wenn: (t) => t.includes('Ersatzbild'),
       dann: (f, _z, t) => f.zustand === 'ersatz' && (f.ersatzbild === 'eingefroren' && f.gesendet === 'transparent'
         ? t.includes(S.T60) : t.includes(`Ersatzbild ${S.ART[f.gesendet ?? '']}`) && !t.includes('darum transparent')) },
+    { name: '„(Bild unterbrochen)“ nur mit sent tile und Grund noFrames, bufferMismatch oder subscribeFailed',
+      wenn: (t) => t.includes('(Bild unterbrochen)'), dann: (f) => f.gesendet === 'tile' && ['noFrames', 'bufferMismatch', 'subscribeFailed'].includes(f.grund ?? '') },
     { name: '„Wartet auf {Person} ·“ (T16) nur, wenn die Person nicht da ist (Ziel 0, nicht im Warteraum, eindeutig)',
       wenn: (t) => t.startsWith('Wartet auf Anna · '), dann: (f, ziel0) => ziel0 && !f.imWarteraum && f.doppelt <= 1 && !f.zweifel },
     { name: '„(im Warteraum)“ (T17) nur, wenn die Person im Warteraum ist', wenn: (t) => t.includes('(im Warteraum)'), dann: (f) => f.imWarteraum },
@@ -1361,6 +1374,19 @@ console.log('— B6 · Zustandszeile 10.2 als Kreuzprodukt (10.5) mit den Wahrhe
     'T15', 'T16', 'T17', 'T18', 'T19', 'T19b', 'T20', 'T20b', 'T20c', 'T21', 'T22', 'T23', 'T24', 'T25', 'T26', 'T27', 'T27b', 'T28', 'T28b',
     'T29', 'T29b', 'T29d', 'T29e', 'T29c'];
   ck('10.5 Kachel: jede Zeile aus 9.2 (40) kommt im Kreuzprodukt vor', ALLE_IDS.every((id) => gesehen.has(id)) && gesehen.size === ALLE_IDS.length);
+}
+
+console.log('— #306 · Auswahl der Ersatzbilder je Modus');
+{
+  const { ersatzbildAuswahl } = await import('../src/shared/zoom-text');
+  const paare = (l: { text: string; waehlbar: boolean }[]) => JSON.stringify(l.map((o) => [o.text, o.waehlbar]));
+  const letzte = <T>(l: T[]): T => l[l.length - 1];
+  ck('#306 Auswahl Teilnehmer: fünf, alle wählbar', paare(ersatzbildAuswahl('teilnehmer', 'transparent'))
+    === JSON.stringify([['transparent', true], ['eingefroren', true], ['schwarz', true], ['weiß', true], ['Zoom-Kachel', true]]));
+  ck('#306 Auswahl Sprecher: Zoom-Kachel wählbar', letzte(ersatzbildAuswahl('sprecher', 'schwarz')).wert === 'kachel');
+  ck('#306 Auswahl Freigabe: ohne Zoom-Kachel', ersatzbildAuswahl('freigabe', 'schwarz').length === 4);
+  ck('#306 Auswahl Freigabe mit gespeicherter Kachel: gesperrt und ehrlich benannt',
+    JSON.stringify(letzte(ersatzbildAuswahl('freigabe', 'kachel'))) === JSON.stringify({ wert: 'kachel', text: 'Zoom-Kachel (bei Bildschirmfreigabe transparent)', waehlbar: false }));
 }
 
 console.log('— B6 · Fehlerzeile der Kachel (10.9)');
@@ -1481,6 +1507,7 @@ console.log('— B7 · ST50–ST58i, ST75, ST75b, ST76 wörtlich; Messbeispiele 
     ['SZ6, sent freeze → letzte Vorschau dieses Ziels mit T53', v({ zustand: 'ersatz', gesendet: 'freeze', frisch: false }), F('letzte', 'eingefroren')],
     ['SZ6, sent freeze ohne letzte Vorschau → leere Fläche mit T53, nie Schachbrett (RR4)',
       v({ zustand: 'ersatz', gesendet: 'freeze', letzteDiesesZiels: false }), F('leer', 'eingefroren')],
+    ['SZ6, sent tile → Zoom-Kachel', v({ zustand: 'ersatz', gesendet: 'tile' }), F('kachel', 'Zoom-Kachel')],
     ['SZ9 → letzte Fläche, abgeblendet', v({ zustand: 'stoppt' }), F('abgeblendet')],
     ['Schalter aus geht vor „nicht verfügbar“ (Tabellenfolge 7.7)', v({ schalterAn: false, verfuegbar: false, detail: '0x1' }), F('leer', null, 'Vorschau aus')],
   ];

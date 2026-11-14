@@ -128,7 +128,7 @@ export function tonEingeschaltet(e: Pick<ZoomSlotEinstellung, 'tonAn' | 'modus' 
 export const MODUS_ZU_BRIDGE: Record<ZoomSlotModus, SlotMode> = { teilnehmer: 'participant', sprecher: 'speaker', freigabe: 'share' };
 /** Ersatzbild in Connect → `fallback` der Bridge (Spec 3, 6.12). */
 export const ERSATZBILD_ZU_BRIDGE: Record<ZoomSlotErsatzbild, SlotFallback> = {
-  transparent: 'transparent', eingefroren: 'freeze', schwarz: 'black', weiss: 'white',
+  transparent: 'transparent', eingefroren: 'freeze', schwarz: 'black', weiss: 'white', kachel: 'tile',
 };
 /** Sprecher-Signal in Connect → `signal` von `speakerConfig` (Spec 3, 7.6). */
 export const SIGNAL_ZU_BRIDGE: Record<ZoomSprecherSignal, SpeakerSignal> = {
