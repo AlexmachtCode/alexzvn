@@ -1,6 +1,6 @@
 // NDI-Ausgang (#303): Konstanten, Nachrichten zwischen Main und Utility-Prozess, Grundzustand des Schalters.
 // Ohne Laufzeit-Importe – Main, Utility und Renderer laden diese Datei.
-import type { NdiStatus } from './types';
+import type { NdiStatus, StartZiel } from './types';
 
 /** Quellname; das NDI-SDK hängt den Rechnernamen an. */
 export const NDI_NAME = 'JM Presenter';
@@ -35,4 +35,21 @@ export function ndiSchalterText(s: NdiStatus): string {
 /** Kommt gerade ein Bild bei den NDI-Empfängern an? */
 export function ndiLiefertBild(s: NdiStatus): boolean {
   return s.an && s.lage === 'sendet';
+}
+
+/**
+ * Main: Start-Ziel aus dem Renderer prüfen. „Keiner – nur NDI“ gilt nur, solange NDI ein Bild liefert – sonst gäbe
+ * es eine Präsentation ohne jede Ausgabe, also automatischer Bildschirm. Eine endliche Zahl bleibt, alles andere `null`.
+ */
+export function pruefeStartZiel(roh: unknown, ndiLiefert: boolean): StartZiel {
+  if (roh === 'keiner') return ndiLiefert ? 'keiner' : null;
+  return typeof roh === 'number' && Number.isFinite(roh) ? roh : null;
+}
+
+/**
+ * Werkzeugleiste: Ziel für „Präsentation starten“. „Keiner – nur NDI“ nur, solange NDI ein Bild liefert; ist NDI aus
+ * oder ausgefallen, gilt wieder die bisherige Bildschirmwahl.
+ */
+export function startZielFuer(nurNdi: boolean, status: NdiStatus, bildschirm: number | null): StartZiel {
+  return nurNdi && ndiLiefertBild(status) ? 'keiner' : bildschirm;
 }

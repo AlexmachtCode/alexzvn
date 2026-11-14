@@ -286,6 +286,12 @@ export interface NdiStatus {
   grund: string | null;
 }
 
+/**
+ * Wohin „Präsentation starten“ das Publikumsbild gibt: Bildschirm-ID, `null` = automatisch (zweiter Bildschirm,
+ * sonst der Haupt-), `'keiner'` = kein Publikumsfenster, das Bild geht nur über NDI (#303).
+ */
+export type StartZiel = number | null | 'keiner';
+
 /** The window API exposed on `window.jmpr`. */
 export interface JmprApi {
   platform: NodeJS.Platform;
@@ -320,8 +326,8 @@ export interface JmprApi {
   };
 
   present: {
-    /** Hand the payload to the main process and open presenter + audience windows. */
-    start: (payload: PresentationPayload, audienceDisplayId: number | null) => Promise<void>;
+    /** Hand the payload to the main process and open presenter + audience windows (bei `'keiner'` nur die Referentenansicht). */
+    start: (payload: PresentationPayload, ziel: StartZiel) => Promise<void>;
     /** Fetch the active payload (presenter/audience windows call this on load). */
     getPayload: () => Promise<PresentationPayload | null>;
     getState: () => Promise<PresentationState>;

@@ -1,4 +1,4 @@
-import type { PresentationPayload, PresentationState, ScreenMode } from '@shared/types';
+import type { PresentationPayload, PresentationState, ScreenMode, StartZiel } from '@shared/types';
 import {
   broadcastAll,
   closePresentationWindows,
@@ -100,10 +100,7 @@ export function getRemoteView(): {
   };
 }
 
-export function startPresentation(
-  next: PresentationPayload,
-  audienceDisplayId: number | null,
-): void {
+export function startPresentation(next: PresentationPayload, ziel: StartZiel): void {
   payload = next;
   wiedergabe = normiereWiedergabe(next.wiedergabe);
   state = {
@@ -115,7 +112,8 @@ export function startPresentation(
     schleifeBisMs: null,
   };
   openPresenterWindow();
-  openAudienceWindow(audienceDisplayId);
+  // „Keiner – nur NDI“ (#303): kein Publikumsfenster, das Bild geht allein über NDI.
+  if (ziel !== 'keiner') openAudienceWindow(ziel);
   // Windows pull the payload via present:getPayload once their renderer loads;
   // the initial state is broadcast as soon as they subscribe (they also call
   // present:getState on mount).

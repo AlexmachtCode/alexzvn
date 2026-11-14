@@ -23,19 +23,19 @@ type FakeKind = { getoetet: number };
 const g = globalThis as unknown as {
   __w: {
     aktuell: Schein | null; offen: number; zu: number; closed: (() => void) | null; absturz: ((grund: string) => void) | null;
-    anNdi: [string, unknown][]; status: unknown[];
+    anNdi: [string, unknown][]; status: unknown[]; publikum: unknown[];
   };
   __s: { m: Meldungen | null; gestartet: number; gestoppt: number; verbunden: number; datei: boolean; wirft: boolean; kindLaeuft: boolean };
   __sp: { initWirft: boolean; kinder: FakeKind[] };
   __app: Record<string, () => void>;
-  __ipc: { zu: string[]; initWirft: boolean };
+  __ipc: { zu: string[]; initWirft: boolean; liefert: boolean; h: Record<string, (...a: unknown[]) => unknown> };
   __userData: string;
 };
-const w = (g.__w = { aktuell: null, offen: 0, zu: 0, closed: null, absturz: null, anNdi: [], status: [] });
+const w = (g.__w = { aktuell: null, offen: 0, zu: 0, closed: null, absturz: null, anNdi: [], status: [], publikum: [] });
 const s = (g.__s = { m: null, gestartet: 0, gestoppt: 0, verbunden: 0, datei: true, wirft: false, kindLaeuft: false });
 g.__sp = { initWirft: false, kinder: [] };
 g.__app = {};
-g.__ipc = { zu: [], initWirft: false };
+g.__ipc = { zu: [], initWirft: false, liefert: false, h: {} };
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmpr-ndi-'));
 g.__userData = dir;
 const datei = path.join(dir, 'ndi-config.json');
@@ -62,7 +62,7 @@ export function getNdiWindow() { return w.aktuell; }
 export function sendeAnNdi(c, x) { w.anNdi.push([c, x]); }
 export function broadcastAll(c, x) { if (c === 'ndi:status') w.status.push(x); }
 export function closePresentationWindows() {}
-export function openAudienceWindow() {}
+export function openAudienceWindow(ziel) { w.publikum.push(ziel); }
 export function openPresenterWindow() {}
 export function setPresentationClosedHandler() {}
 export function getDisplays() { return []; }
@@ -92,7 +92,7 @@ const IPC_TEILE: Record<string, string> = {
     export function setTimerStateHandler() {} export function shutdownTimer() { globalThis.__ipc.zu.push('timer'); }`,
   './timer-config': 'export function loadTimerConfig() { return {}; } export function saveTimerConfig() {}',
   './ndi/ausgang': `export function beendeNdi() { globalThis.__ipc.zu.push('ndi'); } export function ndiFensterBereit() {}
-    export function ndiStatus() {} export function setzeNdiAn() {}
+    export function ndiStatus() {} export function setzeNdiAn() {} export function ndiLiefert() { return globalThis.__ipc.liefert; }
     export function initNdiAusgang() { if (globalThis.__ipc.initWirft) throw new Error('init wirft'); }`,
 };
 // Für config.ts reicht `app`; das echte windows.ts (zweiter Teil) braucht dazu Fenster und Bildschirm.
@@ -101,7 +101,7 @@ const ELECTRON = `
 export const app = { getPath: () => globalThis.__userData, isPackaged: false, on: (e, cb) => { globalThis.__app[e] = cb; } };
 export const shell = { openExternal() {} };
 export const dialog = {};
-export const ipcMain = { handle() {}, on() {} };
+export const ipcMain = { handle(k, f) { globalThis.__ipc.h[k] = f; }, on() {} };
 // Echter sender-process.ts: fork liefert ein Schein-Kind; \`initWirft\` lässt das init-postMessage werfen.
 export const utilityProcess = {
   fork() {
@@ -236,6 +236,12 @@ try {
   mFrist.bereit(); ck('spätes bereit nach Ablauf → ignoriert', a.ndiStatus().lage === 'nicht-verfuegbar');
   a.setzeNdiAn(true); s.m!.bereit(); await warte(FRIST * 2 + 20);
   ck('bereit vor Ablauf → sendet bleibt', a.ndiStatus().lage === 'sendet' && s.kindLaeuft);
+  // Review Focus 5: „Keiner – nur NDI“ läuft, dann fällt NDI aus bzw. wird ausgeschaltet → die Präsentation läuft weiter.
+  p.startPresentation(payload, 'keiner'); s.m!.fehler('Addon fehlt');
+  ck('nur NDI: Sender fällt aus → Präsentation läuft weiter', a.ndiStatus().lage === 'nicht-verfuegbar' && p.getState().active);
+  a.setzeNdiAn(true); s.m!.bereit(); a.setzeNdiAn(false);
+  ck('nur NDI: NDI aus → Präsentation läuft weiter', a.ndiStatus().lage === 'aus' && p.getState().active);
+  p.stopPresentation();
   a.setzeNdiAn(false); log0 = logZeilen.length; a.setzeNdiAn(true); s.m!.fehler('Addon fehlt'); await warte(FRIST * 2 + 20);
   ck('fehler vor Ablauf → nur dessen Zeile', a.ndiStatus().grund === 'Addon fehlt' && logZeilen.length === log0 + 1);
   a.setzeNdiAn(false); log0 = logZeilen.length; a.setzeNdiAn(true); a.setzeNdiAn(false); await warte(FRIST * 2 + 20);
@@ -368,6 +374,17 @@ try {
   willQuit?.();
   ck('initNdiAusgang wirft → will-quit steht und räumt Fernsteuerung, Timer, NDI auf',
     typeof willQuit === 'function' && eq(g.__ipc.zu, ['remote', 'timer', 'ndi']));
+
+  // ---- ipc.ts present:start: „Keiner – nur NDI“ nur, solange NDI ein Bild liefert ----
+  const start = g.__ipc.h['present:start'];
+  const pub0 = w.publikum.length;
+  g.__ipc.liefert = true; start?.({}, payload, 'keiner');
+  ck('present:start „keiner“, NDI liefert → Präsentation ohne Publikumsfenster', p.getState().active && w.publikum.length === pub0);
+  p.stopPresentation();
+  g.__ipc.liefert = false; start?.({}, payload, 'keiner'); p.stopPresentation();
+  start?.({}, payload, 7); p.stopPresentation();
+  start?.({}, payload, 'Unsinn'); p.stopPresentation();
+  ck('present:start: „keiner“ ohne NDI → automatisch, Bildschirm-ID bleibt, Unsinn → automatisch', eq(w.publikum.slice(pub0), [null, 7, null]));
 } finally {
   console.error = echtesError;
   fs.rmSync(dir, { recursive: true, force: true });

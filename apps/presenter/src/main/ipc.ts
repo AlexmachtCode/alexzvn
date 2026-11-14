@@ -22,7 +22,8 @@ import {
   moveAudienceToDisplay,
   toggleAudienceFullscreen,
 } from './windows';
-import { beendeNdi, initNdiAusgang, ndiFensterBereit, ndiStatus, setzeNdiAn } from './ndi/ausgang';
+import { beendeNdi, initNdiAusgang, ndiFensterBereit, ndiLiefert, ndiStatus, setzeNdiAn } from './ndi/ausgang';
+import { pruefeStartZiel } from '../shared/ndi';
 import {
   getPayload,
   getState,
@@ -188,12 +189,10 @@ export function registerIpc(): void {
 
   // ---- Presentation control ----
 
-  ipcMain.handle(
-    'present:start',
-    (_e, payload: PresentationPayload, audienceDisplayId: number | null) => {
-      startPresentation(payload, audienceDisplayId);
-    },
-  );
+  // „Keiner – nur NDI“ (#303) nur, solange NDI ein Bild liefert – sonst automatischer Bildschirm.
+  ipcMain.handle('present:start', (_e, payload: PresentationPayload, ziel: unknown) => {
+    startPresentation(payload, pruefeStartZiel(ziel, ndiLiefert()));
+  });
   ipcMain.handle('present:getPayload', () => getPayload());
   ipcMain.handle('present:getState', () => getState());
   ipcMain.handle('present:goto', (_e, index: number) => goto(index));

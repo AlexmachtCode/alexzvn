@@ -30,6 +30,9 @@ export function PresenterView() {
   // Mit Schleife folgt auf die letzte Folie wieder die erste (#293).
   const next = slides[state.index + 1] ?? (state.schleife && slides.length > 1 ? slides[0] : null);
   const audienceDisplay = displays.find((d) => d.current);
+  // „Keiner – nur NDI“ (#303): ohne Publikumsfenster ist kein Bildschirm `current`. Ein leeres Feld heißt dagegen nur
+  // „Bildschirme noch nicht geladen“ – es gibt immer mindestens einen.
+  const nurNdi = displays.length > 0 && !audienceDisplay;
 
   const doJump = (): void => {
     const n = Number(jump);
@@ -54,16 +57,23 @@ export function PresenterView() {
         <div className="h-8 w-px bg-white/15" />
         <div className="flex items-center gap-2">
           <select
-            value={audienceDisplay?.id ?? ''}
+            value={nurNdi ? 'keiner' : audienceDisplay?.id ?? ''}
+            disabled={nurNdi}
             onChange={(e) => e.target.value && void window.jmpr.present.assignAudience(Number(e.target.value))}
             title="Publikums-Bildschirm"
             className="h-8 max-w-[170px] rounded-md bg-white/10 border border-white/15 px-2 text-xs"
           >
-            {displays.map((d) => (
-              <option key={d.id} value={d.id} className="text-black">
-                {d.label}
+            {nurNdi ? (
+              <option value="keiner" className="text-black">
+                Keiner – nur NDI
               </option>
-            ))}
+            ) : (
+              displays.map((d) => (
+                <option key={d.id} value={d.id} className="text-black">
+                  {d.label}
+                </option>
+              ))
+            )}
           </select>
           <NdiSchalter variante="referent" />
           <HeaderBtn

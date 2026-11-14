@@ -89,8 +89,8 @@ const api: JmprApi = {
   },
 
   present: {
-    start: (payload: PresentationPayload, audienceDisplayId) =>
-      ipcRenderer.invoke('present:start', payload, audienceDisplayId) as Promise<void>,
+    start: (payload: PresentationPayload, ziel) =>
+      ipcRenderer.invoke('present:start', payload, ziel) as Promise<void>,
     getPayload: () =>
       ipcRenderer.invoke('present:getPayload') as Promise<PresentationPayload | null>,
     getState: () => ipcRenderer.invoke('present:getState') as Promise<PresentationState>,

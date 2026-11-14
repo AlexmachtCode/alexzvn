@@ -4,6 +4,8 @@ import type { DisplayInfo, PresentationState, TimerSyncConfig } from '@shared/ty
 import { useProject } from '@/store/project';
 import { NdiSchalter } from '@/components/NdiSchalter';
 import { getExpandPptxBuilds, setExpandPptxBuilds } from '@/lib/settings';
+import { useNdiStatus } from '@/lib/useNdiStatus';
+import { ndiLiefertBild, startZielFuer } from '../../../shared/ndi';
 
 const btn =
   'h-9 px-3 rounded-md text-sm font-semibold whitespace-nowrap border border-[var(--border)] bg-[var(--card)] ' +
@@ -25,6 +27,10 @@ export function Toolbar() {
 
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [audienceDisplay, setAudienceDisplay] = useState<number | null>(null);
+  // „Keiner – nur NDI“ (#303): eigener Schalter, `audienceDisplay` bleibt die bisherige Bildschirmwahl.
+  const [nurNdi, setNurNdi] = useState(false);
+  const { status: ndi } = useNdiStatus();
+  const nurNdiWaehlbar = ndiLiefertBild(ndi);
   const [showSettings, setShowSettings] = useState(false);
   const [expandBuilds, setExpandBuildsState] = useState(getExpandPptxBuilds());
   const [timerCfg, setTimerCfg] = useState<TimerSyncConfig | null>(null);
@@ -54,6 +60,11 @@ export function Toolbar() {
     };
   }, []);
 
+  // Liefert NDI kein Bild mehr (aus, ausgefallen), gilt wieder die bisherige Bildschirmwahl.
+  useEffect(() => {
+    if (!nurNdiWaehlbar) setNurNdi(false);
+  }, [nurNdiWaehlbar]);
+
   const applyTimer = (patch: Partial<TimerSyncConfig>): void => {
     if (!timerCfg) return;
     const next = { ...timerCfg, ...patch };
@@ -74,7 +85,7 @@ export function Toolbar() {
       visible.findIndex((s) => s.id === selectedId),
     );
     const payload = buildPayload(startIndex);
-    await window.jmpr.present.start(payload, audienceDisplay);
+    await window.jmpr.present.start(payload, startZielFuer(nurNdi, ndi, audienceDisplay));
   };
 
   // Frisch beginnen, ohne die App zu schließen (Issue #40): leert das Projekt,
@@ -148,8 +159,15 @@ export function Toolbar() {
         )}
 
         <select
-          value={audienceDisplay ?? ''}
-          onChange={(e) => setAudienceDisplay(e.target.value ? Number(e.target.value) : null)}
+          value={nurNdi ? 'keiner' : audienceDisplay ?? ''}
+          onChange={(e) => {
+            if (e.target.value === 'keiner') {
+              setNurNdi(true);
+              return;
+            }
+            setNurNdi(false);
+            setAudienceDisplay(e.target.value ? Number(e.target.value) : null);
+          }}
           title="Publikums-Bildschirm"
           className="h-9 max-w-[200px] rounded-md bg-[var(--card)] border border-[var(--border)] px-2 text-xs"
         >
@@ -158,6 +176,11 @@ export function Toolbar() {
               {d.label}
             </option>
           ))}
+          {window.jmpr.platform === 'win32' && (
+            <option value="keiner" disabled={!nurNdiWaehlbar}>
+              Keiner – nur NDI
+            </option>
+          )}
         </select>
 
         <NdiSchalter variante="editor" />
