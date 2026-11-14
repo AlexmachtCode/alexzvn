@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, Menu, session } from 'electron';
 import { join } from 'node:path';
 import { getLog, initAppRuntime } from '@jm/app-runtime';
 import { createMainWindow, getMainWindow, resourcePath, setupSingleInstance } from '@jm/electron-kit';
@@ -11,6 +11,7 @@ import { gastHandlung, initNdiGuests, tearDownAll } from './ndi-guests';
 import { initNdiProgram, programmHandlung, stopProgram } from './ndi-program';
 import { createPeerWindow, destroyPeerWindow, getPeerWindow } from './peer-window';
 import { setNdiControlState, startControlServer, stopControlServer } from './control-server';
+import { kontextMenueVorlage } from './kontextmenue';
 import { createTray, destroyTray, setTrayStatus } from './tray';
 import { handleShowDeepLink } from './show-open';
 import { startPresenterLink, stopPresenterLink } from './presenter-link';
@@ -80,6 +81,15 @@ function showOrCreateWindow(): void {
     createWindow();
   }
 }
+
+// Rechtsklick-Menü Ausschneiden/Kopieren/Einfügen in allen bearbeitbaren Feldern (#301). Einmal, bevor Fenster entstehen:
+// deckt Hauptfenster (createMainWindow) und Peer-Fenster (peer-window.ts) ab.
+app.on('browser-window-created', (_e, win) => {
+  win.webContents.on('context-menu', (_ev, params) => {
+    const v = kontextMenueVorlage(params);
+    if (v) Menu.buildFromTemplate(v).popup({ window: win });
+  });
+});
 
 if (setupSingleInstance(() => showOrCreateWindow())) {
   app.whenReady().then(async () => {
