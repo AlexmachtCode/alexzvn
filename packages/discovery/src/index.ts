@@ -1,4 +1,4 @@
-import { Bonjour } from 'bonjour-service';
+import { neuesBonjour } from './bonjour';
 import { signAdvertisement, assessAdvertisement } from './sign';
 
 /** Strukturelle Teilmenge eines Bonjour-Service — nur was wir wirklich lesen. */
@@ -20,6 +20,8 @@ interface MdnsService {
 // Verallgemeinert das mDNS-Muster aus apps/studio-control auf die ganze Suite.
 // Nutzt node-gebundene Multicast-Sockets → nur im Main-Prozess verwenden.
 // ─────────────────────────────────────────────────────────────────────────────
+
+export { neuesBonjour };
 
 const SERVICE_TYPE = 'jmps'; // → _jmps._tcp
 
@@ -83,8 +85,13 @@ export function advertise(opts: {
    * unsignierte Annonce wie bisher.
    */
   signKey?: string;
+  /**
+   * Rückruf für mDNS-Fehler (z. B. `send EHOSTUNREACH` bei Netzausfall). Wirft nie
+   * nach außen; ohne Angabe wird per `console.warn` protokolliert.
+   */
+  onError?: (e: Error) => void;
 }): Advertiser {
-  const bonjour = new Bonjour();
+  const bonjour = neuesBonjour(opts.onError);
   const sig = opts.signKey
     ? { sig: signAdvertisement(opts.signKey, { appId: opts.appId, role: opts.role, port: opts.port }) }
     : {};
@@ -153,9 +160,14 @@ export function discover(
      * signiert ausgeliefert ist — sonst verschwinden legitime Alt-Tools. Default `false`.
      */
     strict?: boolean;
+    /**
+     * Rückruf für mDNS-Fehler (z. B. `send EHOSTUNREACH` bei Netzausfall). Wirft nie
+     * nach außen; ohne Angabe wird per `console.warn` protokolliert.
+     */
+    onError?: (e: Error) => void;
   } = {},
 ): Discovery {
-  const bonjour = new Bonjour();
+  const bonjour = neuesBonjour(opts.onError);
   const found = new Map<string, DiscoveredService>();
   const key = (d: DiscoveredService): string => `${d.appId}@${d.host}:${d.port}`;
   const emit = (): void => onChange([...found.values()]);
