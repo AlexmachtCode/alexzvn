@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -164,6 +165,73 @@ void t_i420() {
   }
 }
 
+constexpr unsigned A = 16778240, B = 16778241;
+const Profil MIT{u"Anna Müller", u"C:\\p.png"};
+int64_t at(int ms) { return static_cast<int64_t>(ms); }
+
+void t_stand_profil() {
+  KachelStand s;
+  CHECK(s.profilLesenNoetig(A));
+  s.profilGelesen(A, MIT);
+  CHECK(!s.profilLesenNoetig(A) && s.profilLesenNoetig(B));
+  s.profilVeraltet(B);
+  CHECK(!s.profilLesenNoetig(A));
+  s.profilVeraltet(A);
+  CHECK(s.profilLesenNoetig(A));
+  s.profilGelesen(A, MIT);
+  s.profilVeraltet(0);
+  CHECK(s.profilLesenNoetig(A));
+  s.profilGelesen(A, MIT);
+  const KachelSchluessel k = s.soll(A, false, 1280, 720);
+  CHECK(k.mitProfilbild && !(k == s.soll(A, true, 1280, 720)) && !(k == s.soll(A, false, 640, 360)) && !(k == s.soll(B, false, 1280, 720)));
+  s.profilGelesen(A, MIT);
+  CHECK(!(k == s.soll(A, false, 1280, 720)));                    // neuer Profilstand zeichnet neu
+  s.profilGelesen(A, {u"Anna", u""});
+  CHECK(!s.soll(A, false, 1280, 720).mitProfilbild);
+}
+void t_stand_ablauf() {
+  KachelStand t;
+  t.profilGelesen(A, MIT);
+  const KachelSchluessel k = t.soll(A, false, 4, 2);
+  CHECK(!t.hat(k) && !t.laeuft(k));
+  t.gestartet(k, at(1000));
+  CHECK(t.laeuft(k) && !t.hat(k) && !t.fristAbgelaufen(at(2999)) && t.fristAbgelaufen(at(3000)));
+  const auto p = std::make_shared<const std::vector<uint8_t>>(i420Bytes(4, 2), uint8_t{1});
+  t.fertig(k, p);
+  CHECK(t.hat(k) && !t.laeuft(k) && t.puffer() == p && !t.fristAbgelaufen(at(9000)));
+  CHECK(t.ueberbrueckung(A, 4, 2) == p && t.ueberbrueckung(B, 4, 2) == nullptr && t.ueberbrueckung(A, 8, 2) == nullptr);
+  const KachelSchluessel kh = t.soll(A, true, 4, 2);
+  t.gestartet(kh, at(4000));
+  t.fertig(k, p);                                                // spaetes Ergebnis eines alten Auftrags
+  CHECK(t.laeuft(kh) && !t.hat(kh));
+}
+void t_stand_frist() {
+  KachelStand f;
+  f.profilGelesen(A, MIT);
+  const KachelSchluessel kf = f.soll(A, false, 4, 2);
+  f.gestartet(kf, at(0));
+  f.fristAblauf(4, 2);
+  const KachelSchluessel ko = f.soll(A, false, 4, 2);
+  CHECK(!ko.mitProfilbild && !f.laeuft(kf) && !f.hat(ko));      // neuer Auftrag ohne Profilbild
+  f.gestartet(ko, at(2000));
+  f.fristAblauf(4, 2);
+  CHECK(f.hat(ko) && f.puffer() == f.grundflaeche(4, 2));        // aufgegeben: dunkle Flaeche, kein weiterer Auftrag
+  CHECK(*f.grundflaeche(4, 2) == grundkachelI420(4, 2) && f.grundflaeche(4, 2) == f.grundflaeche(4, 2));
+  f.profilGelesen(A, MIT);
+  CHECK(f.soll(A, false, 4, 2).mitProfilbild);                   // neuer Profilstand versucht das Bild wieder
+}
+void t_stand_fehler_einmal() {
+  KachelStand f;
+  f.profilGelesen(A, MIT);
+  CHECK(f.fehlerMelden() && !f.fehlerMelden());
+  f.profilGelesen(A, MIT);
+  CHECK(f.fehlerMelden());
+  f.fertig(f.soll(A, false, 4, 2), f.grundflaeche(4, 2));
+  CHECK(f.speicherBytes() == i420Bytes(4, 2));                   // Puffer und Grundflaeche sind hier derselbe
+  f.leeren();
+  CHECK(f.puffer() == nullptr && f.speicherBytes() == 0 && f.profilLesenNoetig(A));
+}
+
 }  // namespace
 
 int main() {
@@ -176,6 +244,10 @@ int main() {
   t_profilbild();
   t_fehlername();
   t_i420();
+  t_stand_profil();
+  t_stand_ablauf();
+  t_stand_frist();
+  t_stand_fehler_einmal();
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;
 }

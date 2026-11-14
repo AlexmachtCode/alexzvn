@@ -17,7 +17,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace kachel {
@@ -347,5 +349,164 @@ inline void i420ZuBgr(const uint8_t* i420, int w, int h, std::vector<uint8_t>* b
     }
   }
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Zeichen-Ablauf je Slot
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Name und Profilbild-Pfad eines Teilnehmers, wie der Slot sie aus Zoom liest. */
+struct Profil {
+  std::u16string name;
+  std::u16string profilbild;
+};
+
+/** Alles, was die gezeichnete Kachel bestimmt; gleicher Schluessel = gleiches Bild, nichts neu zu zeichnen. */
+struct KachelSchluessel {
+  unsigned ziel = 0;
+  uint64_t profilStand = 0;
+  bool hinweis = false;
+  int w = 0, h = 0;
+  bool mitProfilbild = false;
+};
+
+inline bool operator==(const KachelSchluessel& a, const KachelSchluessel& b) {
+  return a.ziel == b.ziel && a.profilStand == b.profilStand && a.hinweis == b.hinweis && a.w == b.w && a.h == b.h &&
+         a.mitProfilbild == b.mitProfilbild;
+}
+
+/** So lange wartet die Hauptschleife hoechstens auf einen Zeichenauftrag. */
+inline constexpr int64_t KACHEL_WARTEN_MS = 50;
+/** Nach so vielen Millisekunden gibt ein laufender Zeichenauftrag auf (erst das Profilbild, dann die Initialen). */
+inline constexpr int64_t KACHEL_FRIST_MS = 2000;
+
+using Puffer = std::shared_ptr<const std::vector<uint8_t>>;
+
+/**
+ * Zustand der Kachel eines Slots: gelesenes Profil, laufender Zeichenauftrag samt Frist, fertiger Puffer und dunkle
+ * Grundflaeche. Keine Uhr: die Zeit kommt nur als Parameter. Gezeichnet wird je Zustandswechsel einmal; wer
+ * zeichnet, steht anderswo.
+ */
+class KachelStand {
+ public:
+  /** Muss das Profil von ziel (neu) gelesen werden? Vor dem ersten Lesen, nach profilVeraltet, bei anderem Ziel. */
+  bool profilLesenNoetig(unsigned ziel) const { return profilStand_ == 0 || veraltet_ || ziel != profilZiel_; }
+
+  /** Ein frisch gelesenes Profil; zaehlt den Profilstand hoch (neuer Stand = neu zeichnen, neuer Versuch). */
+  void profilGelesen(unsigned ziel, Profil p) {
+    profilZiel_ = ziel;
+    profil_ = std::move(p);
+    ++profilStand_;
+    veraltet_ = false;
+  }
+
+  /** Zoom meldet eine Aenderung an Teilnehmer id (0 = alle): das Profil muss neu gelesen werden. */
+  void profilVeraltet(unsigned id) {
+    if (id == 0 || id == profilZiel_) veraltet_ = true;
+  }
+
+  const Profil& profil() const { return profil_; }
+
+  /** Die Kachel, die jetzt stehen soll; das Profilbild zaehlt, solange der Pfad nicht leer und der Stand nicht aufgegeben ist. */
+  KachelSchluessel soll(unsigned ziel, bool hinweis, int w, int h) const {
+    KachelSchluessel k;
+    k.ziel = ziel;
+    k.profilStand = profilStand_;
+    k.hinweis = hinweis;
+    k.w = w;
+    k.h = h;
+    k.mitProfilbild = !profil_.profilbild.empty() && aufgegebenStand_ != profilStand_;
+    return k;
+  }
+
+  /** Steht genau diese Kachel schon im Puffer? */
+  bool hat(const KachelSchluessel& k) const { return puffer_ != nullptr && pufferSchluessel_ == k; }
+  /** Laeuft fuer genau diese Kachel gerade ein Zeichenauftrag? */
+  bool laeuft(const KachelSchluessel& k) const { return laufend_ && laufSchluessel_ == k; }
+
+  void gestartet(const KachelSchluessel& k, int64_t jetzt) {
+    laufend_ = true;
+    laufSchluessel_ = k;
+    start_ = jetzt;
+  }
+
+  /**
+   * Ein Zeichenauftrag ist fertig. Das Bild gilt immer als jüngster Puffer; beendet wird der laufende Auftrag nur,
+   * wenn das Ergebnis zu ihm gehoert (das spaete Ergebnis eines alten Auftrags laesst den neuen weiterlaufen).
+   */
+  void fertig(const KachelSchluessel& k, Puffer i420) {
+    puffer_ = std::move(i420);
+    pufferSchluessel_ = k;
+    if (laufend_ && laufSchluessel_ == k) laufend_ = false;
+  }
+
+  bool fristAbgelaufen(int64_t jetzt) const { return laufend_ && jetzt - start_ >= KACHEL_FRIST_MS; }
+
+  /**
+   * Die Frist des laufenden Auftrags ist um. Mit Profilbild: dieses Profilbild ist aufgegeben, der Auftrag weg (der
+   * naechste kommt ohne Bild). Ohne Profilbild: dunkle Grundflaeche als Ergebnis, kein weiterer Auftrag.
+   */
+  void fristAblauf(int w, int h) {
+    if (!laufend_) return;
+    const KachelSchluessel k = laufSchluessel_;
+    if (k.mitProfilbild) {
+      aufgegebenStand_ = profilStand_;
+      laufend_ = false;
+    } else {
+      fertig(k, grundflaeche(w, h));
+    }
+  }
+
+  /** Darf der Fehler dieses Profilstands ins Protokoll? Hoechstens einmal je Profilstand. */
+  bool fehlerMelden() {
+    if (gemeldetStand_ == profilStand_) return false;
+    gemeldetStand_ = profilStand_;
+    return true;
+  }
+
+  Puffer puffer() const { return puffer_; }
+
+  /** Der Puffer als Ueberbrueckung, solange der naechste gezeichnet wird: nur fuer dasselbe Ziel und dieselbe Groesse. */
+  Puffer ueberbrueckung(unsigned ziel, int w, int h) const {
+    if (puffer_ == nullptr || pufferSchluessel_.ziel != ziel || pufferSchluessel_.w != w || pufferSchluessel_.h != h)
+      return nullptr;
+    return puffer_;
+  }
+
+  /** Die dunkle Flaeche der Groesse w x h; bleibt, bis eine andere Groesse verlangt wird. */
+  const Puffer& grundflaeche(int w, int h) {
+    if (grund_ == nullptr || grundW_ != w || grundH_ != h) {
+      grund_ = std::make_shared<const std::vector<uint8_t>>(grundkachelI420(w, h));
+      grundW_ = w;
+      grundH_ = h;
+    }
+    return grund_;
+  }
+
+  /** Bytes der gehaltenen Bilder; Puffer und Grundflaeche zaehlen einmal, wenn sie dasselbe sind. */
+  size_t speicherBytes() const {
+    size_t n = 0;
+    if (puffer_ != nullptr) n += puffer_->size();
+    if (grund_ != nullptr && grund_ != puffer_) n += grund_->size();
+    return n;
+  }
+
+  /** Zurueck in den Grundzustand (Slot geschlossen). */
+  void leeren() { *this = KachelStand(); }
+
+ private:
+  unsigned profilZiel_ = 0;
+  Profil profil_;
+  uint64_t profilStand_ = 0;   // 0 = noch nie gelesen
+  bool veraltet_ = false;
+  uint64_t aufgegebenStand_ = 0;
+  uint64_t gemeldetStand_ = 0;
+  bool laufend_ = false;
+  KachelSchluessel laufSchluessel_;
+  int64_t start_ = 0;
+  Puffer puffer_;
+  KachelSchluessel pufferSchluessel_;
+  Puffer grund_;
+  int grundW_ = 0, grundH_ = 0;
+};
 
 }  // namespace kachel
