@@ -24,6 +24,14 @@ export type VomSender =
 /** Schalter aus – Vorgabe und Zustand nach dem Ausschalten. */
 export const NDI_STATUS_AUS: NdiStatus = { an: false, lage: 'aus', empfaenger: 0, grund: null };
 
+/** Beschriftung des NDI-Schalters (Werkzeugleiste und Referentenansicht). */
+export function ndiSchalterText(s: NdiStatus): string {
+  if (s.lage === 'nicht-verfuegbar') return 'NDI nicht verfügbar';
+  if (s.lage === 'startet') return 'NDI startet …';
+  if (s.lage === 'sendet') return `NDI ● an · ${s.empfaenger} Empfänger`;
+  return 'NDI aus';
+}
+
 /** Kommt gerade ein Bild bei den NDI-Empfängern an? */
 export function ndiLiefertBild(s: NdiStatus): boolean {
   return s.an && s.lage === 'sendet';

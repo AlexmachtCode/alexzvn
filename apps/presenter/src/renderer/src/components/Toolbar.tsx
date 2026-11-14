@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Logo, cn, dragRegion, noDragRegion, isElectronMac } from '@jm/ui';
 import type { DisplayInfo, PresentationState, TimerSyncConfig } from '@shared/types';
 import { useProject } from '@/store/project';
+import { NdiSchalter } from '@/components/NdiSchalter';
 import { getExpandPptxBuilds, setExpandPptxBuilds } from '@/lib/settings';
 
 const btn =
@@ -158,6 +159,8 @@ export function Toolbar() {
             </option>
           ))}
         </select>
+
+        <NdiSchalter variante="editor" />
 
         <div className="relative">
           <button

@@ -3,6 +3,7 @@ import { cn } from '@jm/ui';
 import type { DisplayInfo } from '@shared/types';
 import { SlideCanvas } from '@/components/SlideCanvas';
 import { Clock } from '@/components/Clock';
+import { NdiSchalter } from '@/components/NdiSchalter';
 import { RemotePanel } from '@/components/RemotePanel';
 import { TimerBar } from '@/components/TimerBar';
 import { usePresentation, usePresenterKeys } from '@/lib/usePresentation';
@@ -64,6 +65,7 @@ export function PresenterView() {
               </option>
             ))}
           </select>
+          <NdiSchalter variante="referent" />
           <HeaderBtn
             onClick={() => void window.jmpr.present.setScreen('black')}
             active={state.screen === 'black'}
