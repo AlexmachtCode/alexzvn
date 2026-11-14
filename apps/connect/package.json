@@ -14,7 +14,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "selftest": "tsx test/zoom-text.test.ts && tsx test/zoom-laufzeit.test.ts && tsx test/zoom-teile.test.ts && tsx test/zoom-kern.test.ts && tsx test/zoom-settings.test.ts && tsx test/sdk-laden.test.ts && tsx test/control-state.test.ts && tsx test/zoom-slots-abgleich.test.ts && tsx test/zoom-slots.test.ts && tsx test/ndi-lage.test.ts && tsx test/ndi-text.test.ts && tsx test/tray-symbol.test.ts && node test/after-pack.test.mjs && node test/pruefe-mac-paket.test.mjs && node test/bundle-ndi.test.mjs",
+    "selftest": "tsx test/zoom-text.test.ts && tsx test/zoom-laufzeit.test.ts && tsx test/zoom-teile.test.ts && tsx test/zoom-kern.test.ts && tsx test/zoom-settings.test.ts && tsx test/sdk-laden.test.ts && tsx test/control-state.test.ts && tsx test/zoom-slots-abgleich.test.ts && tsx test/zoom-slots.test.ts && tsx test/ndi-lage.test.ts && tsx test/ndi-text.test.ts && tsx test/tray-symbol.test.ts && tsx test/kontextmenue.test.ts &&node test/after-pack.test.mjs && node test/pruefe-mac-paket.test.mjs && node test/bundle-ndi.test.mjs",
     "rebuild:native": "electron-rebuild --only @jm/ndi",
     "rebuild:native:mac": "node tools/ndi-universal.mjs",
     "prepackage": "node tools/bundle-ndi.mjs && node tools/bundle-zoom-bridge.mjs",
