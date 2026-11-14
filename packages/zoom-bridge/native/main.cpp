@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <cstring>
 #include <windows.h>
+#include <shellapi.h>   // CommandLineToArgvW (Sonderweg --kachel-muster)
 #include "emit.h"
 #include "session.h"
 #include "ndi_sender.h"
@@ -27,6 +28,7 @@
 #include "callbacks.h"
 #include "audio.h"
 #include "preview.h"
+#include "kachel.h"
 
 namespace {
 
@@ -481,6 +483,28 @@ int main(int argc, char** argv) {
     std::fflush(stdout);
     TerminateProcess(GetCurrentProcess(), 0);
     return 0;
+  }
+
+  // Sonderweg Musterkacheln (#306): `zoom-bridge.exe --kachel-muster <ordner>` zeichnet die 21 Musterkacheln der
+  // Zoom-Kachel als PNG in den Ordner und geht (test/kachel-probe.mjs prüft sie, der Owner sieht sie sich an).
+  // Ruft keine Zoom-Funktion auf und macht keinen NDI-Sender auf – braucht beide DLLs aber zum Laden, wie oben.
+  // Der Ordner kommt aus CommandLineToArgvW (UTF-16), nicht aus argv: dort stünde er in der ANSI-Codepage, und
+  // ein Zeichen außerhalb davon käme verfälscht an. Ausstieg über TerminateProcess aus demselben Grund wie beim
+  // --ndi-selftest: ohne InitSDK stürzt ein gewöhnliches return mit 0xC0000409 ab.
+  if (argc > 1 && std::string(argv[1]) == "--kachel-muster") {
+    int anzahl = 0;
+    LPWSTR* argumente = CommandLineToArgvW(GetCommandLineW(), &anzahl);
+    int rc = 2;
+    if (argumente == nullptr || anzahl < 3 || argumente[2][0] == L'\0') {
+      emitLog(L"Kachel-Muster: kein Zielordner angegeben - Aufruf: zoom-bridge.exe --kachel-muster <Ordner>");
+    } else {
+      rc = kachelMuster(argumente[2]);
+    }
+    if (argumente != nullptr) LocalFree(argumente);
+    std::fflush(stdout);
+    std::fflush(stderr);
+    TerminateProcess(GetCurrentProcess(), static_cast<UINT>(rc));
+    return rc;
   }
 
   std::thread reader(readStdin);

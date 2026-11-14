@@ -27,7 +27,8 @@
     "video-limit": "node test/video-limit.mjs",
     "video-stress": "node test/video-stress.mjs",
     "bool-probe": "node test/bool-probe.mjs",
-    "delay-probe": "node test/delay-probe.mjs"
+    "delay-probe": "node test/delay-probe.mjs",
+    "kachel-probe": "node test/kachel-probe.mjs"
   },
   "devDependencies": {
     "@jm/ndi": "*",

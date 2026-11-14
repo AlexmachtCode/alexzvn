@@ -3279,6 +3279,52 @@ console.log('\nZoom-Kachel (#306): Hinweis-Gründe in slot_logic.h gegen protoco
       `A4 ${datei} läuft in npm run slot-test (Ziel und Programm)`);
   }
 }
+console.log('\nZoom-Kachel (#306): Zeichner');
+{
+  // Gezeichnet wird auf einem eigenen, losgelösten Thread mit eigener COM-Wohnung (MTA), nie auf dem Hauptthread
+  // der Bridge: ein hängendes Profilbild (Netzlaufwerk) darf die Hauptschleife nicht halten, sie wartet höchstens
+  // 50 ms. Texte geleert: die JSON-Zeilen in kachelMuster tragen Klammern, die rumpf() sonst mitzählte.
+  const zeichner = cppOhneKommentare(paketDateiOderLeer('native', 'kachel.cpp'), true);
+  assert(rumpf(zeichner, 'KachelErgebnis kachelZeichnen(').includes('CoInitializeEx(nullptr, COINIT_MULTITHREADED)'),
+    '#306 kachelZeichnen initialisiert COM auf seinem Thread selbst als MTA');
+  assert(rumpf(zeichner, 'std::shared_ptr<KachelJob> kachelStarten(').includes('.detach()'),
+    '#306 kachelStarten zeichnet auf einem losgelösten Thread (.detach())');
+  // Wie PT6 d für Namen, hier für Dateipfade: keine emitLog-Anweisung in kachel.cpp führt einen Pfad-Bezeichner.
+  const pfadBezeichner = /pfad|ordner|profilbild|datei|path/i;
+  let logs = 0;
+  const mitPfad: number[] = [];
+  const aufruf = /(?<!void\s)\bemitLog\s*\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = aufruf.exec(zeichner)) !== null) {
+    logs++;
+    if (pfadBezeichner.test(zeichner.slice(m.index, zeichner.indexOf(';', m.index)))) {
+      mitPfad.push(zeichner.slice(0, m.index).split('\n').length);
+    }
+  }
+  assert(logs >= 3 && mitPfad.length === 0, '#306 kachel.cpp: die emitLog-Anweisungen (mindestens 3) führen keinen Dateipfad');
+  if (mitPfad.length > 0) console.error(`      Zeilen: ${mitPfad.join(', ')}`);
+}
+{
+  const cmake = paketDateiOderLeer('CMakeLists.txt').replace(/#[^\n]*/g, '');
+  const quellen = /add_executable\(zoom-bridge\b([^)]*)\)/.exec(cmake)?.[1] ?? '';
+  assert(/(^|\s)native\/kachel\.cpp(\s|$)/.test(quellen), '#306 CMake baut native/kachel.cpp in zoom-bridge.exe');
+  const linken = /target_link_libraries\(zoom-bridge\b([^)]*)\)/.exec(cmake)?.[1] ?? '';
+  assert(/\bd2d1\b/.test(linken) && /\bdwrite\b/.test(linken), '#306 zoom-bridge.exe linkt d2d1 und dwrite');
+}
+{
+  // Sonderweg --kachel-muster: vor dem stdin-Leser, Ausstieg über TerminateProcess (ohne InitSDK stürzt ein
+  // gewöhnliches return mit 0xC0000409 ab, Begründung am Zweig --ndi-selftest). Der Kopf ist ein Text, der Rumpf
+  // wird darum in der Fassung mit geleerten Texten gezählt (gleiche Länge, gleiche Stellen).
+  const mitTexten = cppOhneKommentare(paketDateiOderLeer('native', 'main.cpp'));
+  const leer = cppOhneKommentare(paketDateiOderLeer('native', 'main.cpp'), true);
+  const stelle = mitTexten.indexOf('"--kachel-muster"');
+  const zweig = stelle < 0 ? '' : rumpf(leer.slice(stelle), '"');
+  assert(stelle > mitTexten.indexOf('"--ndi-selftest"') && stelle < mitTexten.indexOf('std::thread reader(readStdin)'),
+    '#306 main.cpp: Zweig "--kachel-muster" nach --ndi-selftest, vor dem stdin-Leser');
+  assert(zweig.includes('CommandLineToArgvW(') && zweig.includes('kachelMuster(') && zweig.includes('TerminateProcess('),
+    '#306 main.cpp: der Zweig liest den Ordner mit CommandLineToArgvW, ruft kachelMuster und endet mit TerminateProcess');
+}
+
 console.log('\nZoom-Slots — Freigabe-Namen in slot_logic.h (Plan A, Task A5; A-EP4):');
 {
   const logik = cppOhneKommentare(paketDateiOderLeer('native', 'slot_logic.h'));

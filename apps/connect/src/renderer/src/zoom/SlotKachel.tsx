@@ -52,6 +52,8 @@ function Flaeche({ art, jpeg }: { art: VorschauFlaeche['art']; jpeg: string | nu
   if (art === 'schachbrett') return <div className="h-full w-full" style={SCHACHBRETT} />;
   if (art === 'schwarz') return <div className="h-full w-full bg-black" />;
   if (art === 'weiss') return <div className="h-full w-full bg-white" />;
+  // #232323 ist der Grund der Zoom-Kachel in der Bridge (kachel::HINTERGRUND in packages/zoom-bridge/native/kachel_logik.h,
+  // gemalt in native/kachel.cpp) – ändert sich die eine Farbe, die andere mit.
   if (art === 'kachel') return <div className="h-full w-full bg-[#232323]" />;
   return null;
 }

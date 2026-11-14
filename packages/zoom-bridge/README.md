@@ -855,6 +855,7 @@ npm run ndi-probe -w @jm/zoom-bridge
 npm run command-probe -w @jm/zoom-bridge
 npm run delay-probe -w @jm/zoom-bridge     # Bild-Versatz, siehe Abschnitt 8
 npm run delay-test -w @jm/zoom-bridge      # Warteschlange des Versatzes, ohne .exe
+npm run kachel-probe -w @jm/zoom-bridge    # Musterkacheln der Zoom-Kachel (#306), siehe unten
 ```
 
 `test/ndi-probe.mjs` belegt **ohne Zoom, ohne Meeting und ohne Anmeldung**,
@@ -871,6 +872,24 @@ Zoom-SDK-Importbibliothek gebunden, und der Windows-Lader löst das beim
 Prozessstart auf, vor `main()` — ohne den Pfad scheitert der Start mit
 `STATUS_DLL_NOT_FOUND` (0xC0000135), einem Zoom-Einrichtungsfehler, der sich
 sonst als NDI-Problem tarnen würde.
+
+**Musterkacheln der Zoom-Kachel (#306).** `zoom-bridge.exe --kachel-muster <Ordner>`
+zeichnet ohne Zoom-Anmeldung, ohne Meeting und ohne NDI-Sender die 21 Musterkacheln
+(360p, 720p, 1080p je mit Profilbild, mit Initialen, mit langem Namen und mit
+„Bild unterbrochen“; kaputtes, zu großes und fehlendes Profilbild; Hochformat
+360 × 640, 4:3 und 320 × 180; Chinesisch, Arabisch, nur Emoji) mit demselben
+Zeichner wie im Slot, wandelt sie in I420 und zurück — genau das Bild, das der
+Mischer sieht — und legt sie als PNG in den Ordner. `test/kachel-probe.mjs
+[--exe <Pfad>] [<Ordner>]` (Vorgabe: `%TEMP%\jm-kachel-muster-<pid>`) prüft
+Exitcode und Schlusszeile, Dateien samt Maßen aus dem IHDR, dass die drei
+kaputten Profilbilder je eine Logzeile „Profilbild nicht verwendet (…)“
+schreiben und bytegleich wie die Initialen-Kachel aussehen, und dass keine
+Logzeile einen Namen oder Dateinamen nennt. Ob die Kacheln **richtig aussehen**
+(Kreis rund, Name lesbar, gekürzt nur mit „…“, Chinesisch und Arabisch ohne
+Kästchen, Hinweis nicht über dem Schild), sieht nur ein Mensch: den Ordner
+öffnen und ansehen. Der Ordner bleibt nach dem Lauf stehen. Wie die anderen
+Prüfstände braucht der Lauf `%ZOOM_SDK_DIR%\x64\bin` und die NDI-Laufzeit im
+`PATH` (die Probe sorgt für beides).
 
 **Der Messlauf.** `npm run video-limit -w @jm/zoom-bridge` (braucht ein echtes
 Meeting mit mehreren fremden Teilnehmern, deren Kameras an sind) misst, wie
