@@ -91,7 +91,13 @@ export function PresenterView() {
             ⬜
           </HeaderBtn>
           <SchleifenKnopf schleife={state.schleife === true} bisMs={state.schleifeBisMs ?? null} />
-          <HeaderBtn onClick={() => void window.jmpr.present.toggleAudienceFullscreen()}>Vollbild</HeaderBtn>
+          <HeaderBtn
+            onClick={() => void window.jmpr.present.toggleAudienceFullscreen()}
+            disabled={nurNdi}
+            title={nurNdi ? 'Kein Publikumsfenster – Bild nur über NDI' : undefined}
+          >
+            Vollbild
+          </HeaderBtn>
           <HeaderBtn onClick={() => setShowGrid((v) => !v)} active={showGrid}>
             Übersicht
           </HeaderBtn>
@@ -234,20 +240,24 @@ function HeaderBtn({
   active,
   danger,
   title,
+  disabled,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   active?: boolean;
   danger?: boolean;
   title?: string;
+  /** Gesperrt, aber mit Tooltip (darum ohne pointer-events-none). */
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
+      disabled={disabled}
       className={cn(
-        'h-8 px-3 rounded-md text-xs font-semibold border transition-colors',
+        'h-8 px-3 rounded-md text-xs font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
         danger
           ? 'border-[var(--destructive)]/60 text-[var(--destructive)] hover:bg-[var(--destructive)]/15'
           : active

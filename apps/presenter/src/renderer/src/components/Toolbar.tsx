@@ -5,7 +5,7 @@ import { useProject } from '@/store/project';
 import { NdiSchalter } from '@/components/NdiSchalter';
 import { getExpandPptxBuilds, setExpandPptxBuilds } from '@/lib/settings';
 import { useNdiStatus } from '@/lib/useNdiStatus';
-import { ndiLiefertBild, startZielFuer } from '../../../shared/ndi';
+import { ndiLiefertBild, nurNdiBehalten, startZielFuer } from '../../../shared/ndi';
 
 const btn =
   'h-9 px-3 rounded-md text-sm font-semibold whitespace-nowrap border border-[var(--border)] bg-[var(--card)] ' +
@@ -31,6 +31,7 @@ export function Toolbar() {
   const [nurNdi, setNurNdi] = useState(false);
   const { status: ndi } = useNdiStatus();
   const nurNdiWaehlbar = ndiLiefertBild(ndi);
+  const nurNdiBleibt = nurNdiBehalten(ndi);
   const [showSettings, setShowSettings] = useState(false);
   const [expandBuilds, setExpandBuildsState] = useState(getExpandPptxBuilds());
   const [timerCfg, setTimerCfg] = useState<TimerSyncConfig | null>(null);
@@ -60,10 +61,11 @@ export function Toolbar() {
     };
   }, []);
 
-  // Liefert NDI kein Bild mehr (aus, ausgefallen), gilt wieder die bisherige Bildschirmwahl.
+  // Liefert NDI dauerhaft kein Bild (aus, nicht verfügbar), gilt wieder die bisherige Bildschirmwahl; ein
+  // vorübergehendes „startet“ behält „Keiner“.
   useEffect(() => {
-    if (!nurNdiWaehlbar) setNurNdi(false);
-  }, [nurNdiWaehlbar]);
+    if (!nurNdiBleibt) setNurNdi(false);
+  }, [nurNdiBleibt]);
 
   const applyTimer = (patch: Partial<TimerSyncConfig>): void => {
     if (!timerCfg) return;
@@ -177,7 +179,7 @@ export function Toolbar() {
             </option>
           ))}
           {window.jmpr.platform === 'win32' && (
-            <option value="keiner" disabled={!nurNdiWaehlbar}>
+            <option value="keiner" disabled={!nurNdiWaehlbar && !nurNdi}>
               Keiner – nur NDI
             </option>
           )}

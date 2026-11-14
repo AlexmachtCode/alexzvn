@@ -58,6 +58,14 @@ ck('nur NDI gewählt, NDI aus → bisherige Bildschirmwahl', n.startZielFuer(tru
 ck('nur NDI gewählt, NDI ausgefallen → bisherige Bildschirmwahl', n.startZielFuer(true, { ...sendet, lage: 'nicht-verfuegbar', grund: 'x' }, 5) === 5);
 ck('nur NDI gewählt, NDI startet noch → bisherige Bildschirmwahl', n.startZielFuer(true, { ...sendet, lage: 'startet' }, 5) === 5);
 ck('nicht gewählt → Bildschirm', n.startZielFuer(false, sendet, null) === null && n.startZielFuer(false, sendet, 5) === 5);
+// Die Wahl „Keiner“ fällt nur, wenn NDI dauerhaft nicht liefert; ein vorübergehendes „startet“ behält sie
+// (der Start selbst prüft weiter über startZielFuer).
+ck('Wahl behalten: sendet', n.nurNdiBehalten(sendet) === true);
+ck('Wahl behalten: startet (Start-Phase, Neuaufbau nach Bild-Absturz)', n.nurNdiBehalten({ ...sendet, lage: 'startet' }) === true);
+ck('Wahl zurück: aus', n.nurNdiBehalten({ ...sendet, an: false, lage: 'aus' }) === false);
+ck('Wahl zurück: nicht verfügbar', n.nurNdiBehalten({ ...sendet, lage: 'nicht-verfuegbar', grund: 'x' }) === false);
+ck('Wahl zurück: Schalter aus (an: false)', n.nurNdiBehalten({ ...sendet, an: false }) === false);
+ck('Wahl zurück: Schalter aus, Lage noch startet', n.nurNdiBehalten({ ...sendet, an: false, lage: 'startet' }) === false);
 
 // --- Start im Main
 p.startPresentation(payload, 'keiner');
