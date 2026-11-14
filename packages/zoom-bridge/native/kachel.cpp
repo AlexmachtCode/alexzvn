@@ -20,6 +20,7 @@
 #include <cwchar>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <new>
 #include <string>
 #include <system_error>
@@ -249,9 +250,11 @@ void zeichnen(const KachelAuftrag& a, KachelErgebnis* e) {
 
   ComPtr<IDWriteTextLayout> hinweisText;
   if (SUCCEEDED(hr) && a.hinweis) {
-    static const std::u16string kHinweis = u"Bild unterbrochen";
-    hr = dw->CreateTextLayout(breit(kHinweis), static_cast<UINT32>(kHinweis.size()), hinweisSchrift.Get(),
-                              static_cast<float>(w), kWeit, &hinweisText);
+    // Ein Feld ohne Destruktor, kein statischer std::u16string: ein losgelöster Zeichen-Thread kann beim
+    // Prozessende noch zeichnen, während die CRT statische Objekte schon abbaut – dieses hier gibt es bis zuletzt.
+    static constexpr char16_t kHinweis[] = u"Bild unterbrochen";
+    hr = dw->CreateTextLayout(reinterpret_cast<const wchar_t*>(kHinweis), static_cast<UINT32>(std::size(kHinweis) - 1),
+                              hinweisSchrift.Get(), static_cast<float>(w), kWeit, &hinweisText);
     if (SUCCEEDED(hr)) hr = hinweisText->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
   }
   if (FAILED(hr)) {
@@ -467,7 +470,8 @@ constexpr MusterFall kFaelle[] = {
     {L"720p-kaputtes-profilbild", 1280, 720, kNormal, L"_kaputt.jpg", false},
     {L"720p-riesiges-profilbild", 1280, 720, kNormal, L"_riesig.png", false},
     {L"720p-fehlendes-profilbild", 1280, 720, kNormal, L"_fehlt.png", false},
-    {L"360x640-initialen", 360, 640, kNormal, nullptr, false},
+    // Langer Name im Hochformat: in 16:9 passt er überall ungekürzt, hier wird er mit „…“ gekürzt (Initialen PW).
+    {L"360x640-initialen", 360, 640, kLang, nullptr, false},
     {L"640x480-mit-profilbild", 640, 480, kNormal, kBild, false},
     {L"320x180-initialen", 320, 180, kNormal, nullptr, false},
     {L"720p-chinesisch", 1280, 720, u"张伟", nullptr, false},

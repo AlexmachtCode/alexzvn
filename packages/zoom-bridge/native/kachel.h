@@ -24,7 +24,11 @@
 #pragma pop_macro("max")
 #pragma pop_macro("min")
 
-/** Was gezeichnet werden soll; Name und Pfad UTF-16 wie von Zoom. Leerer Pfad = ohne Profilbild. */
+/**
+ * Was gezeichnet werden soll; Name und Pfad UTF-16 wie von Zoom. Leerer Pfad = ohne Profilbild.
+ * Größengrenzen: w und h je 16 bis 4096. Außerhalb liefert kachelZeichnen kein Bild (i420 == nullptr, hresult
+ * E_INVALIDARG) – darunter ist nichts lesbar, darüber liefert Zoom nicht; der Aufrufer zeigt die dunkle Grundfläche.
+ */
 struct KachelAuftrag {
   std::u16string name;
   std::u16string profilbild;
