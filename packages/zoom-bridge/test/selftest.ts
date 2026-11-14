@@ -3344,8 +3344,12 @@ console.log('\nNativer Teil — A9 NDI-Sender: UYVA, Weiß, Transparent, Kopie, 
   const freigabe = rumpf(sender, 'int NdiSender::releaseDueLocked(');
   assert(freigabe.includes('versatzMsLocked()') && !freigabe.includes('ndiVideoDelayMs()'),
     'A9 ohne Versatz: releaseDueLocked rechnet mit versatzMsLocked(), nicht mit dem globalen Wert');
-  assert(['Bildart::Schwarz', 'Bildart::Weiss', 'Bildart::Transparent'].every((a) => freigabe.includes(a)),
-    'A9 Bildarten: die Warteschlange gibt Schwarz, Weiß und Transparent als eigene Bildart aus');
+  assert(['Bildart::Schwarz', 'Bildart::Weiss', 'Bildart::Transparent', 'Bildart::Kachel'].every((a) => freigabe.includes(a)),
+    'A9 Bildarten: die Warteschlange gibt Schwarz, Weiß, Transparent und Kachel als eigene Bildart aus');
+  const kachel = rumpf(sender, 'void NdiSender::sendKachel(');
+  const iKachel = kachel.search(/if\s*\(\s*ohneVersatz_\s*\|\|/);
+  assert(iKachel >= 0 && kachel.indexOf('pushKachel(') > iKachel && freigabe.includes('b.kachel'),
+    '#306 sendKachel sendet mit ohneVersatz_ direkt, vor jedem pushKachel; releaseDueLocked gibt Bildart::Kachel aus b.kachel aus');
   const delay = nativ('delay_line.h');
   assert(!/\bbool\s+black\b/.test(delay) && !/\bpushBlack\s*\(/.test(delay) && !/\bpushBlack\s*\(|\.black\b/.test(sender),
     'A9 Bildarten: Frame::black und pushBlack sind entfernt, der Sender liest nur Frame::art');

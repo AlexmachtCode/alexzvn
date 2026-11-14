@@ -8,6 +8,7 @@
 #include "delay_line.h"
 
 #include <cstdio>
+#include <memory>
 #include <vector>
 
 namespace {
@@ -41,11 +42,12 @@ std::vector<uint8_t> bild(uint8_t kennung) {
   return b;
 }
 
-// Was am Ausgang ankam: Kennung je Bild, 0xFF fuer ein Schwarzbild.
+// Was am Ausgang ankam: Kennung je Bild, 0xFF fuer ein Schwarzbild, 0xEE fuer eine Kachel.
 struct Ausgang {
   std::vector<int> kennungen;
   void operator()(const DelayLine::Frame& f) {
-    kennungen.push_back(f.art == Bildart::Schwarz ? 0xFF : f.data.at(0));
+    if (f.art == Bildart::Kachel) kennungen.push_back(0xEE);
+    else kennungen.push_back(f.art == Bildart::Schwarz ? 0xFF : f.data.at(0));
   }
 };
 
@@ -272,6 +274,38 @@ void test_bildarten_pb18() {
 
 }  // namespace
 
+void test_kachel_verweis_306() {
+  std::printf("#306 Bildart Kachel: Verweis statt Kopie, Reihenfolge bleibt, kein Puffer bleibt haengen\n");
+  DelayLine d;
+  const auto p = std::make_shared<const std::vector<uint8_t>>(kLen, uint8_t{46});
+  pushBild(d, 1, 0);
+  CHECK(d.pushKachel(p, kW, kH, at(10)) == 0);
+  pushBild(d, 2, 20);
+  CHECK(d.pushKachel(nullptr, kW, kH, at(30)) == 0);
+  CHECK(d.pushKachel(std::make_shared<const std::vector<uint8_t>>(kLen - 1), kW, kH, at(31)) == 0);
+  CHECK(d.size() == 3);
+  CHECK(p.use_count() == 2);                      // genau ein Verweis in der Warteschlange
+  std::vector<Bildart> arten;
+  bool verweis = false;
+  const auto senke = [&](const DelayLine::Frame& f) {
+    arten.push_back(f.art);
+    if (f.art == Bildart::Kachel) verweis = f.kachel.get() == p.get() && f.data.empty();
+  };
+  d.release(at(510), milliseconds(500), senke);
+  d.release(at(520), milliseconds(500), senke);
+  d.release(at(530), milliseconds(500), senke);
+  CHECK((arten == std::vector<Bildart>{Bildart::I420, Bildart::Kachel, Bildart::I420}));
+  CHECK(verweis);
+  CHECK(p.use_count() == 1);                      // weder Warteschlange noch Vorrat halten ihn
+  for (int i = 0; i < 5; ++i) d.pushKachel(p, kW, kH, at(600 + i));
+  Ausgang a;
+  CHECK(d.release(at(1200), milliseconds(500), a).dropped == 4);   // Schwall-Regel wie bei Bildern
+  CHECK(p.use_count() == 1);
+  d.pushKachel(p, kW, kH, at(1300));
+  d.clear();
+  CHECK(p.use_count() == 1 && d.size() == 0);
+}
+
 int main() {
   test_nicht_vor_der_zeit();
   test_reihenfolge_mit_schwarzbild();
@@ -288,6 +322,7 @@ int main() {
   test_vorrat_ist_gedeckelt();
   test_leeren();
   test_bildarten_pb18();
+  test_kachel_verweis_306();
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;
 }
