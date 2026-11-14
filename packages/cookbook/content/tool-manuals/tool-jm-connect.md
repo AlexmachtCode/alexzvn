@@ -18,7 +18,7 @@ equipmentOwner: jm
 crewRoles:
   - Media Operator (Zuschaltungen)
   - Host im Zoom-Client (lässt zu, erteilt die Aufnahme-Erlaubnis)
-lastReviewed: 2026-10-20
+lastReviewed: 2026-11-14
 owner: tech@jakobsmedien.com
 summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: bis zu 16 Zoom-Slots mit eigenem NDI-Namen zeigen je eine Person, den aktiven Sprecher oder die neueste Bildschirmfreigabe. Zoom wird einmal je PC eingerichtet, das Meeting muss im eigenen Zoom-Konto liegen. Nach einem Abriss tritt Connect selbst wieder bei und startet die eingeschalteten Slots neu. Fernsteuerbar per Companion über Port 8737. Unter macOS mit NDI, aber ohne Zoom; NDI-Ausfälle zeigt Connect an der Gastzeile, am Programm-Abzeichen, im Tray und in Companion."
 ---
@@ -56,7 +56,7 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 ### Zoom-Slots (kurz)
 - Ein Slot ist ein fester Platz mit Nummer (1 bis 16) und eigenem NDI-Namen. Im Switcher ist er eine NDI-Quelle, die bestehen bleibt, auch wenn sich ändert, wen der Slot zeigt.
 - Modus je Slot: „Teilnehmer“ (eine gewählte Person), „Aktiver Sprecher“ (wer gerade spricht, nie JM Connect selbst) oder „Bildschirmfreigabe“ (die neueste laufende Freigabe; bei Pause oder stehendem Bildschirm bleibt das letzte Bild stehen).
-- Je Slot: Auflösung („360p“, „720p“, „1080p“), Ersatzbild, solange Zoom kein Bild liefert („transparent“, „eingefroren“, „schwarz“, „weiß“), Ton an oder aus mit der Tonart „Mischton“ (alle Mikrofone des Meetings) oder „Person“ (nur die gezeigte Person, nur im Modus Teilnehmer), bei Bildschirmfreigaben zusätzlich „Computerton der Freigabe“.
+- Je Slot: Auflösung („360p“, „720p“, „1080p“), Ersatzbild, solange Zoom kein Bild liefert („transparent“, „eingefroren“, „schwarz“, „weiß“, „Zoom-Kachel“ – nur Teilnehmer und Aktiver Sprecher: dunkle Kachel wie in Zoom mit Profilbild oder Initialen und Anzeigename; liefert Zoom trotz Kamera an kein Bild, steht „Bild unterbrochen“ darauf; verlässt die Person das Meeting, ist der Slot sofort transparent), Ton an oder aus mit der Tonart „Mischton“ (alle Mikrofone des Meetings) oder „Person“ (nur die gezeigte Person, nur im Modus Teilnehmer), bei Bildschirmfreigaben zusätzlich „Computerton der Freigabe“.
 - Gespeicherte Slots bleiben samt Einstellungen am Rechner und starten im Meeting von selbst, sobald sie eingeschaltet sind und der Host die Aufnahme-Erlaubnis erteilt hat. Vorübergehende Slots (per Companion ZOOM_LOAD) gelten nur bis zum Ende des Meetings.
 
 ### NDI-Anzeige (kurz)
@@ -126,9 +126,10 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 - Jede Kachel sagt im Klartext, was der Slot zeigt, zum Beispiel „Zeigt Anna.“, „Wartet auf Anna · Ersatzbild transparent“ oder „Anna: Kamera aus · Ersatzbild transparent“; darunter Auflösung und Bildrate („720p · Zoom liefert 1280×720 · 30 Bilder/s“), den Ton und gegebenenfalls einen Fehler.
 - Name doppelt im Meeting: Die Kachel zeigt „Name doppelt: „Anna“ ist 2-mal im Meeting. Bitte unten die richtige Person wählen. · Ersatzbild transparent“; unter „Welche Person?“ die richtige wählen. Connect hängt nie von selbst auf eine Person gleichen Namens um: lieber ein Handgriff als die falsche Person auf Sendung.
 - Modus am laufenden Slot wechseln: unter „Einstellungen“ den Modus wählen; die Quelle bleibt im Switcher bestehen, nur das Bild wechselt. Ebenso wirken Person, Auflösung, Ersatzbild und Ton sofort, ohne Neustart der Quelle.
+- Für den Downstage-Monitor „Zoom-Kachel“ wählen: Die Redner sehen, ob ein Remote-Gast da ist – Kachel = im Meeting (Kamera aus bzw. Bild unterbrochen), leer = nicht im Meeting.
 - Verbindung weg: Erst versucht Zoom selbst, neu zu verbinden („Verbindung unterbrochen …“). Gelingt das nicht, tritt Connect mit bis zu 5 Versuchen neu bei (nach 2, 5, 10, 20 und 30 s, mit Countdown in der Karte). „Abbrechen“ beendet die Versuche, „Erneut beitreten“ startet später mit denselben Daten.
 - Nach dem Wiederbeitritt muss der Host gegebenenfalls wieder zulassen und die Aufnahme-Erlaubnis erteilen. Dann startet Connect alle eingeschalteten Slots von selbst, mit denselben Einstellungen und demselben NDI-Namen; unter „Hinweise“ steht „Wieder im Meeting. … laufen wieder.“
-- Verlässt die gezeigte Person das Meeting, zeigt der Slot sein Ersatzbild („Wartet auf Anna · Ersatzbild transparent“), und zoom_alarm steht auf 1. Kommt sie zurück, zeigt der Slot sie wieder, ohne dass die Quelle im Switcher verschwindet (bei eindeutigem Namen).
+- Verlässt die gezeigte Person das Meeting, zeigt der Slot sein Ersatzbild (bei „Zoom-Kachel“ sofort transparent) („Wartet auf Anna · Ersatzbild transparent“), und zoom_alarm steht auf 1. Kommt sie zurück, zeigt der Slot sie wieder, ohne dass die Quelle im Switcher verschwindet (bei eindeutigem Namen).
 - Ein Slot auf eine Person, die in diesem Meeting nicht dabei ist, wartet still auf sie und hebt zoom_alarm nicht. Braucht ein Slot einen Eingriff (Name doppelt, Aufbau gescheitert, keine Antwort der Zoom-Bridge, Abo abgelehnt), nennt seine Kachel Grund und Handgriff, und zoom_alarm und zoom_slot{n}_alarm stehen auf 1.
 - Entzieht der Host die Aufnahme-Erlaubnis, stoppt Connect sofort Bild und Ton aller Slots („Gestoppt: Der Host hat die Aufnahme-Erlaubnis entzogen. …“). Erteilt er sie wieder, startet Connect die eingeschalteten Slots von selbst.
 - Companion: Die Slot-Befehle wirken wie Start-Taste, Modus, Person und Ton der Kachel, nur ohne Nachfrage: Wird damit der 6. oder ein weiterer Slot eingeschaltet, schaltet Connect ihn ein und meldet „Companion: … Slot eingeschaltet — mehr als 5 sind nicht gemessen.“ (zoom_cmd f8). Ein per ZOOM_LOAD angelegter Slot trägt an der Kachel das Kennzeichen „vorübergehend“ mit dem Knopf „Behalten“; „Behalten“ macht ihn zu einem gespeicherten Slot. Leuchtet „letzter Zoom-Befehl abgelehnt“, steht der Grund unter „Hinweise“ in der Karte.
@@ -211,6 +212,7 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 | „Keine Person gewählt · Ersatzbild …“ | Teilnehmer-Slot ohne Person. Unter „Einstellungen“ bei „Person“ den Anzeigenamen eintragen. |
 | „…: Kamera aus · Ersatzbild …“ | Zoom meldet die Kamera der Person als aus. Kein Fehler; der Slot zeigt wieder Bild, sobald die Kamera an ist. |
 | „…: Zoom liefert gerade kein Bild · Ersatzbild …“ | Zoom liefert kein Bild, obwohl die Kamera als an gilt (Netz der Person oder Zoom selbst). Abwarten; bleibt es, die Person bitten, die Kamera aus- und wieder einzuschalten. |
+| „… · Ersatzbild Zoom-Kachel (Bild unterbrochen)“ | Die Person ist im Meeting, Zoom meldet die Kamera als an, liefert aber seit über 2 Sekunden kein oder nur fehlerhaftes Bild. Abwarten; bleibt es, die Person bitten, die Kamera aus- und wieder einzuschalten. |
 | „…: erstes Bild steht noch aus · Ersatzbild …“ | Der Slot ist gestartet oder hat umgeschaltet, das erste Bild kommt noch. Bleibt es länger, die Messwerte ansehen. |
 | „…: Zoom hat das Abo abgelehnt (…) · Ersatzbild …. Für einen neuen Versuch „Stopp“ und wieder „Start“.“ | Zoom hat das Bild dieses Slots verweigert (Grund in Klammern). Connect versucht es nicht von selbst neu. „Stopp“, dann „Start“; scheitert es wieder, einen Slot weniger betreiben und „Messwerte kopieren“ sichern. |
 | „Keine Antwort der Zoom-Bridge. Für einen neuen Versuch „Stopp“ und wieder „Start“.“ | Die Zoom-Bridge hat das Starten dieses Slots nicht binnen 10 s beantwortet. „Stopp“, dann „Start“; bleibt die Antwort aus, „Logordner öffnen“ und main.log sichern. |
