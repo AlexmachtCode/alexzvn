@@ -303,7 +303,7 @@ Absturz behandelt.
 | `join` | `meetingId`, `passcode`, `displayName` | Tritt dem Meeting bei. |
 | `leave` | — | Verlässt das Meeting, bleibt aber angemeldet. Baut **vorher** alle Slots ab (jeder meldet sich einzeln, Ton vor Bild, siehe Abschnitt 7; bis 0.3.0 alle Video-Abos). |
 | `quit` | — | Beendet `zoom-bridge.exe` sauber. |
-| `slotOn` | `slot` (1–16), `ndi` (fertiger NDI-Name, höchstens 60 Code-Punkte, ohne `:`), `mode` (`participant`/`speaker`/`share`), `id` (nur `participant`; fehlt oder 0 = kein Ziel), `resolution` (`360p`/`720p`/`1080p`), `audio` (`mix`/`person`/`off`), `shareAudio` (Bool), `fallback` (`transparent`/`freeze`/`black`/`white`), `showNoVideo` (Bool) | Legt den Slot mit seinem festen NDI-Sender an und hängt ihn auf das erste Ziel seines Modus — **Einzelheiten in Abschnitt 7**. Der erste Fehler der Prüffolge gewinnt; angelegt wird dann nichts. |
+| `slotOn` | `slot` (1–16), `ndi` (fertiger NDI-Name, höchstens 60 Code-Punkte, ohne `:`), `mode` (`participant`/`speaker`/`share`), `id` (nur `participant`; fehlt oder 0 = kein Ziel), `resolution` (`360p`/`720p`/`1080p`), `audio` (`mix`/`person`/`off`), `shareAudio` (Bool), `fallback` (`transparent`/`freeze`/`black`/`white`/`tile`; `tile` = Zoom-Kachel, nur Teilnehmer/Sprecher, #306), `showNoVideo` (Bool) | Legt den Slot mit seinem festen NDI-Sender an und hängt ihn auf das erste Ziel seines Modus — **Einzelheiten in Abschnitt 7**. Der erste Fehler der Prüffolge gewinnt; angelegt wird dann nichts. |
 | `slotSet` | `slot`, dazu beliebig viele von `mode`, `id`, `resolution`, `audio`, `shareAudio`, `fallback`, `showNoVideo` | Prüft erst alle Felder, ändert dann; höchstens ein Umhängen. Der Sender bleibt. |
 | `slotOff` | `slot` | Baut den Slot ab und schließt seinen Sender. |
 | `speakerConfig` | `signal` (`speakerVideo`/`activeVideo`/`activeAudio`), `holdMs` (0–5000) | Signal und Haltezeit für alle Sprecher-Slots; braucht kein `init`. |
@@ -524,6 +524,40 @@ ersten Bild als aus (`videoStatus`), steht der Slot gleich auf `fallback/cameraO
 auch im Sprecher-Slot, wie in der Attrappe und im Sinn von Spec 6.10 Schritt 7 (gleich
 T19, nicht T20). Spec 6.12 nennt diesen Fall nicht unter den Ausnahmen, in denen der
 Zustand vor dem ersten Bild nicht `starting` bleibt; maßgeblich ist hier das Verhalten.
+
+**Zoom-Kachel (`tile`, #306).** Das fünfte Ersatzbild gilt nur für Teilnehmer- und
+Sprecher-Slots; im Modus Freigabe verhält sich `tile` wie `transparent`. Die Kachel
+(`sent` = `tile`) steht dort, wo sonst das Ersatzbild stünde, aber nur mit Ziel ≠ 0
+und ohne einen der Ziel-0-Gründe `participantLeft`, `noTarget`, `speakerNone`,
+`shareNone` (`slotlogic::istZiel0Grund`); sonst geht `transparent` hinaus. Dafür bekommt
+`ersatzArt` Modus, Ziel und Grund mit; sie wirken nur bei `tile`. Die vier bisherigen
+Ersatzbilder entscheiden für jeden Grund bitgleich wie vorher (Logik-Test über alle
+7 372 800 Kombinationen gegen `ersatzArt`/`bildEntscheidung` von `e5fd1c8343`).
+
+| Lage (Slot mit `tile`) | Zustand/Grund | `sent` | Hinweis „Bild unterbrochen“ |
+| --- | --- | --- | --- |
+| Bilder kommen | `live/frames` | `none` (Livebild) | — |
+| Lücke kürzer als die Schonfrist (Kamera laut Zoom an) | `live/frames` | `none` | — |
+| Kamera laut Zoom aus, auch direkt nach der Zuweisung | `fallback/cameraOff` (Sprecher auch `speakerNoVideo`) | `tile` | nein |
+| Kamera laut Zoom an, Bild länger als 2 s aus | `fallback/noFrames` | `tile` | ja |
+| Zugewiesen, noch kein erstes Bild | `starting` | `tile` | nein |
+| … 2 s nach dem Umhängen noch immer kein Bild (Kamera laut Zoom an) | `fallback/noFrames` bzw. `fallback/bufferMismatch` | `tile` | ja |
+| Puffer-Fehler, `subscribe` gescheitert | `fallback/bufferMismatch`, `fallback/subscribeFailed` | `tile` | ja |
+| Person geht, kein Ziel, kein Sprecher | `fallback/participantLeft`, `noTarget`, `speakerNone` | `transparent`, sofort | — |
+| Freigabe-Slot | wie bei `transparent` | `transparent` bzw. `held` | — |
+| Slot aus | `off` | `none` | — |
+
+**Die 2-s-Regel** gilt nur bei `tile`: Ein Teilnehmer- oder Sprecher-Slot in `starting`,
+dessen Kamera Zoom als an meldet, wechselt `TEILNEHMER_SCHONFRIST_MS` (2 s) nach dem
+Umhängen ohne erstes Bild auf `fallback/noFrames` (bei laufendem Puffer-Fehler
+`fallback/bufferMismatch`). Bis dahin zeigt er die Kachel ohne Hinweis, so blitzt
+„Bild unterbrochen“ nicht bei jeder Zuweisung auf. Meldet Zoom die Kamera als aus, gilt
+wie bisher gleich `fallback/cameraOff` (F6). Der Hinweis hängt allein am gemeldeten
+Grund **nach** der Entscheidung: genau `noFrames`, `bufferMismatch` und
+`subscribeFailed` (`slotlogic::kachelHinweis`; Gegenstück `TILE_NOTICE_REASONS` und
+`tileNotice()` in `src/protocol.ts`, der Selbsttest gleicht beide ab). Die Attrappe
+sendet `tile` mit Ziel außerhalb der Freigabe, sonst `transparent`; die 2-s-Regel bildet
+sie wie die Schonfrist nicht nach.
 
 **Ton je Slot.** Drei Arten kommen über das eine Ton-Abo des Meetings: Ton je Person,
 Mischton und Computerton einer Freigabe. Die reine Funktion `tonZiele` ordnet jedes

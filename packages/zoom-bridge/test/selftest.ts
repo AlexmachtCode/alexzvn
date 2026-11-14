@@ -2599,7 +2599,7 @@ console.log('\nNativer Teil — Quelltext-Waechter (Stage 4b):');
 import {
   AUDIO_ABO_FEHLER, SHARE_TYPE_NAMES, SHARING_STATUS_NAMES, SLOT_AUDIO_REASONS, SLOT_AUDIO_SETTINGS, SLOT_AUDIO_SOURCES,
   SLOT_ERROR_KEYS, SLOT_FALLBACKS, SLOT_MODES, SLOT_NR_MAX, SLOT_REASONS, SLOT_RESOLUTIONS, SLOT_SENT, SLOT_STATES,
-  SPEAKER_HOLD_MAX_MS, SPEAKER_SIGNALS, type Command,
+  SPEAKER_HOLD_MAX_MS, SPEAKER_SIGNALS, TILE_NOTICE_REASONS, tileNotice, type Command,
 } from '../src/protocol.ts';
 import type { SlotAudioSub, SlotSub } from '../src/state.ts';
 import type {
@@ -2623,9 +2623,11 @@ console.log('\nA1 protocol — Slot-Kataloge (Spec 6.2–6.4, Gliederung 3.1):')
   assert(liste(SLOT_RESOLUTIONS) === '360p,720p,1080p' && SLOT_RESOLUTIONS.every((r) => (VIDEO_RESOLUTIONS as readonly string[]).includes(r)),
     'A1 6.11: SLOT_RESOLUTIONS 360p, 720p, 1080p, eine Teilmenge von VIDEO_RESOLUTIONS');
   assert(liste(SLOT_AUDIO_SETTINGS) === 'off,mix,person', 'A1 6.2: SLOT_AUDIO_SETTINGS off, mix, person');
-  assert(liste(SLOT_FALLBACKS) === 'transparent,freeze,black,white', 'A1 6.2: SLOT_FALLBACKS transparent, freeze, black, white');
+  assert(liste(SLOT_FALLBACKS) === 'transparent,freeze,black,white,tile',
+    'A1 6.2 + #306: SLOT_FALLBACKS transparent, freeze, black, white, tile');
   assert(liste(SLOT_STATES) === 'starting,live,fallback,held,off', 'A1 6.3: SLOT_STATES starting, live, fallback, held, off');
-  assert(SLOT_SENT.length === 6 && liste(SLOT_SENT) === 'none,transparent,freeze,black,white,held', 'A1 6.12: SLOT_SENT hat 6 Werte');
+  assert(SLOT_SENT.length === 7 && liste(SLOT_SENT) === 'none,transparent,freeze,black,white,held,tile',
+    'A1 6.12 + #306: SLOT_SENT hat 7 Werte, tile hinten');
   assert(SLOT_REASONS.length === 20 && new Set(SLOT_REASONS).size === 20, 'A1 6.3: SLOT_REASONS hat genau 20 verschiedene Werte');
   assert(SLOT_REASONS.includes('noFrames') && SLOT_REASONS.includes('cameraOff'),
     'A1 6.3: noFrames steht neben cameraOff (zwei Ursachen, zwei Namen)');
@@ -2833,8 +2835,8 @@ console.log('\nA2 Attrappe — Prüffolge aus test/slot-pruefung-faelle.json (Gl
   // stderr je Befehl: Die Attrappe schreibt „ATTRAPPE empfing: <zeile>“ vor jeder Antwort (init und auth zuerst).
   const empfang = stderr.flatMap((z, i) => (z.startsWith('ATTRAPPE empfing: ') ? [i] : []));
   const abschnitt = (n: number): string[] => stderr.slice(empfang[n + 2], empfang[n + 3] ?? stderr.length);
-  // A11 ergänzt zwei Fälle mit einer Auflösung über 1080p (Nachbesserung a3, NB-a3-5).
-  assert(faelle.length === 58 && empfang.length === faelle.length + 2, 'A2 A-EP12: die Falltabelle hat 58 Fälle, jeder kam an');
+  // A11 ergänzt zwei Fälle mit einer Auflösung über 1080p (Nachbesserung a3, NB-a3-5); #306 zwei mit fallback tile/kachel.
+  assert(faelle.length === 60 && empfang.length === faelle.length + 2, 'A2 A-EP12: die Falltabelle hat 60 Fälle, jeder kam an');
   faelle.forEach((f, n) => {
     const a = antworten[n] ?? [];
     const erste = a[0] ?? {};
@@ -3219,6 +3221,14 @@ console.log('\nZoom-Slots — slot_logic.h gegen protocol.ts (Plan A, Task A4; A
       `A4 enum class ${aufz} folgt ${katalogName} in derselben Reihenfolge`,
     );
   }
+}
+console.log('\nZoom-Kachel (#306): Hinweis-Gründe in slot_logic.h gegen protocol.ts');
+{
+  const koerper = rumpf(cppOhneKommentare(paketDateiOderLeer('native', 'slot_logic.h')), 'inline bool kachelHinweis(');
+  const gruende = [...koerper.matchAll(/Grund::(\w+)/g)].map((m) => m[1]).join(',');
+  assert(gruende === TILE_NOTICE_REASONS.join(',') && gruende === 'noFrames,bufferMismatch,subscribeFailed',
+    '#306 kachelHinweis nennt genau TILE_NOTICE_REASONS, in derselben Reihenfolge');
+  assert(tileNotice('noFrames') && tileNotice('subscribeFailed') && !tileNotice('cameraOff') && !tileNotice(null), '#306 tileNotice');
 }
 {
   // G-A2: die reine Logik bindet nur die C++-Standardbibliothek ein (kein windows.h, kein Zoom-, kein NDI-Header)

@@ -16,7 +16,7 @@ const SLOT_NR_MAX = 16;
 const SLOT_MODES = ['participant', 'speaker', 'share'];
 const SLOT_RESOLUTIONS = ['360p', '720p', '1080p'];
 const SLOT_AUDIO_SETTINGS = ['off', 'mix', 'person'];
-const SLOT_FALLBACKS = ['transparent', 'freeze', 'black', 'white'];
+const SLOT_FALLBACKS = ['transparent', 'freeze', 'black', 'white', 'tile'];
 const SPEAKER_SIGNALS = ['speakerVideo', 'activeVideo', 'activeAudio'];
 const SPEAKER_HOLD_MAX_MS = 5000;
 const SHARE_TYPE_NAMES = ['unknown', 'as', 'ds', 'wb', 'airhost', 'camera', 'data', 'videoFile', 'frame', 'document', 'computerAudio'];
@@ -443,7 +443,11 @@ const scripts = {
     let vorschauTakt = null;
 
     const kameraIstAus = (id) => kameraAus.has(id) || teilnehmer.get(id)?.videoOn === false;
-    const ersatzArt = (s) => (s.fallback === 'freeze' ? (s.kopie ? 'freeze' : 'transparent') : s.fallback);
+    // #306: tile (Zoom-Kachel) nur mit Ziel und außerhalb der Freigabe, sonst transparent. Die 2-s-Regel der Kachel
+    // (starting ohne erstes Bild -> fallback/noFrames) bildet die Attrappe nicht nach, wie schon die Schonfrist.
+    const ersatzArt = (s) => (s.fallback === 'tile'
+      ? (s.mode !== 'share' && s.target !== 0 ? 'tile' : 'transparent')
+      : (s.fallback === 'freeze' ? (s.kopie ? 'freeze' : 'transparent') : s.fallback));
     // Ziel-0-Grund (6.10 Schritt 3, Nachfix W7): der Grund des Aufrufs, wenn er schon "kein Ziel" sagt, sonst nach Modus.
     const ziel0Grund = (mode, grund) => (['participantLeft', 'noTarget', 'speakerNone', 'shareNone'].includes(grund)
       ? grund
