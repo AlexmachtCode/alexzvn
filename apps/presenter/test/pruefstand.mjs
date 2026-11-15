@@ -109,10 +109,14 @@ function toeteBaum(pid) {
   }
 }
 
-/** Vom Prüfstand gestartete Apps; werden auch bei Fehlern und Strg+C beendet. */
+/**
+ * Vom Prüfstand gestartete Apps; werden auch bei Fehlern und Strg+C beendet – aber nur, solange ihr Prozess noch
+ * läuft (`beendet === null`): Die PID eines beendeten Prozesses kann Windows schon neu vergeben haben, und
+ * `taskkill /T` träfe dann einen fremden Prozessbaum.
+ */
 const laufende = new Set();
 process.on('exit', () => {
-  for (const app of laufende) toeteBaum(app.pid);
+  for (const app of laufende) if (app.beendet === null) toeteBaum(app.pid);
 });
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => process.exit(130));
 
@@ -146,7 +150,8 @@ function starteApp(exe, args, extra) {
 
 async function beendeApp(app) {
   for (const ziel of app.ziele) ziel.schliesse();
-  if (app.pid) toeteBaum(app.pid);
+  // Hat sich die App schon selbst beendet (Fälle 11 und 14), gehört die PID evtl. schon einem fremden Prozess.
+  if (app.pid && app.beendet === null) toeteBaum(app.pid);
   laufende.delete(app);
   // Erst wenn alle Prozesse weg sind, ist der Single-Instance-Lock frei.
   const weg = await warteBis(() => !presenterLaeuft(), 15_000, 250);
@@ -1507,6 +1512,37 @@ function fensterSichtbar(titel) {
   return zeile ? zeile.startsWith('1|') : null;
 }
 
+/**
+ * Wartet höchstens `ms`, bis das Fenster mit `titel` gefunden ist (der per CDP gesetzte Titel kommt verzögert an).
+ * Liefert `{ wert: true | false | null, fehler: null }` oder `{ wert: undefined, fehler }`, wenn die Abfrage selbst
+ * scheitert – ein kaputtes Messgerät darf nie als Befund über die App erscheinen.
+ */
+async function messeFenster(titel, ms) {
+  let fehler = null;
+  const wert = await bisWert(
+    () => {
+      try {
+        const v = fensterSichtbar(titel);
+        fehler = null;
+        return v;
+      } catch (e) {
+        fehler = String(e?.message ?? e).split(/\r?\n/)[0];
+        return undefined;
+      }
+    },
+    (v) => typeof v === 'boolean',
+    ms,
+  );
+  return { wert, fehler };
+}
+
+/** Prüft eine Fenster-Messung: erst ob gemessen wurde, dann den Befund. */
+function erwarteFenster(messung, soll, was) {
+  erwarte(messung.wert !== undefined, `Messung gescheitert (Fenster-Abfrage per PowerShell/user32): ${messung.fehler}`);
+  const ist = messung.wert === null ? 'nicht gefunden' : messung.wert ? 'sichtbar' : 'unsichtbar';
+  erwarte(messung.wert === soll, `${was} ${ist}`);
+}
+
 /** @electron/asar aus dem Workspace (über electron-builder); ohne Kopf-Zwischenspeicher, die Archive ändern sich. */
 function asarModul() {
   const asar = createRequire(import.meta.url)('@electron/asar');
@@ -1767,22 +1803,20 @@ async function ndiNeustart(exe, d, ndi, umgebung) {
       const bildFenster = await oeffneZiel(app, 'view=ndi');
       const marke = 'JM Presenter NDI-Pruefstand';
       await auswerten(bildFenster, `document.title = ${JSON.stringify(marke)}`);
-      const vorher = await bisWert(() => fensterSichtbar(marke), (v) => v !== null, 5_000);
-      console.log(`      view=ndi: document.visibilityState „${await auswerten(bildFenster, 'document.visibilityState')}“, Fenster ${vorher ? 'sichtbar' : 'unsichtbar'}`);
-      erwarte(vorher === false, `Fenster des NDI-Bilds vorher ${vorher === null ? 'nicht gefunden' : 'sichtbar'}`);
+      const vorher = await messeFenster(marke, 5_000);
+      console.log(`      view=ndi: document.visibilityState „${await auswerten(bildFenster, 'document.visibilityState')}“, Fenster-Messung ${JSON.stringify(vorher)}`);
+      erwarteFenster(vorher, false, 'Fenster des NDI-Bilds vorher');
       await auswerten(ed, 'void window.close()', 5_000).catch(() => {});
       erwarte(await warteBis(async () => !(await seiteMit('view=editor')), 5_000), 'Editor bleibt offen');
       const p = await praesentation(referent);
       erwarte(p?.active === true, `Präsentation ${JSON.stringify(p)}`);
       await zweiteInstanz(exe, [], umgebung);
       await pause(1_000);
-      const nachher = fensterSichtbar(marke);
-      erwarte(nachher === false, `Fenster des NDI-Bilds nach der zweiten Instanz ${nachher === null ? 'nicht gefunden' : 'sichtbar'}`);
+      erwarteFenster(await messeFenster(marke, 2_000), false, 'Fenster des NDI-Bilds nach der zweiten Instanz');
       // Gegenprobe: Dieselbe Messung sieht ein gezeigtes Fenster (sonst bewiese „unsichtbar“ nichts).
       const gegen = 'JM Presenter Referent-Pruefstand';
       await auswerten(referent, `document.title = ${JSON.stringify(gegen)}`);
-      const referentSichtbar = await bisWert(() => fensterSichtbar(gegen), (v) => v !== null, 5_000);
-      erwarte(referentSichtbar === true, `Gegenprobe: Referentenfenster ${referentSichtbar === null ? 'nicht gefunden' : 'unsichtbar'}`);
+      erwarteFenster(await messeFenster(gegen, 5_000), true, 'Gegenprobe: Referentenfenster');
       await auswerten(referent, 'void window.jmpr.present.stop()', 5_000).catch(() => {});
       erwarte(await warteBis(() => !presenterLaeuft(), 15_000, 250), 'Presenter-Prozess läuft weiter (NDI-Fenster hält die App?)');
     });

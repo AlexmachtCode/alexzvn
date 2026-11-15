@@ -15,8 +15,10 @@ export type NdiSendeModul = Pick<typeof NdiApi, 'init' | 'createSender' | 'sendV
 const ersteZeile = (e: unknown): string => String((e as { message?: unknown })?.message ?? e).split(/\r?\n/)[0];
 
 /**
- * Empfänger aus `connections()`: Das NDI-SDK zählt je Empfänger ZWEI Verbindungen (gemessen mit NDI 6 auf
- * Windows: 0 → 2 → 4 → 2 → 0 bei 0/1/2/1/0 Empfängern). Eine ungerade Zahl rundet auf, damit ein verbundener
+ * Empfänger aus `connections()`. Gemessen am 15.11.2026 auf dem Entwicklungsrechner (NDI 6, Windows) mit
+ * Empfängern über `@jm/ndi` auf DEMSELBEN Rechner: je Empfänger zwei Verbindungen (0 → 2 → 4 → 2 → 0 bei
+ * 0/1/2/1/0 Empfängern). Fremde Empfänger (OBS, vMix, TriCaster) und Empfänger auf anderen Rechnern sind nicht
+ * gemessen – das prüft die Hand-Abnahme (Task 10). Eine ungerade Zahl rundet auf, damit ein verbundener
  * Empfänger nie als 0 erscheint.
  */
 export function empfaengerZahl(verbindungen: number): number {

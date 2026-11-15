@@ -7,8 +7,8 @@
 //   Bilder <n> von <25·N> (<fps> fps), längste Lücke <x> ms, Lücken über 80 ms: <k>
 // Exit 1 bei n < 25·N − 2 oder k > 0; Exit 2, wenn nicht gemessen werden kann (@jm/ndi fehlt, keine oder mehrere
 // passende Quellen, kein Bild). Der Prüfstand (Gruppe `ndi`) ruft `zaehleBilder` direkt auf.
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
-import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
@@ -93,7 +93,13 @@ function messe(opt) {
   } catch (e) {
     abbruch(`@jm/ndi lässt sich nicht laden: ${String(e?.message ?? e).split(/\r?\n/)[0]}`);
   }
-  ndi.init();
+  let laeuft = false;
+  try {
+    laeuft = ndi.init();
+  } catch (e) {
+    abbruch(`NDI-Laufzeit startet nicht: ${String(e?.message ?? e).split(/\r?\n/)[0]}`);
+  }
+  if (!laeuft) abbruch('NDI-Laufzeit startet nicht (ndi.init() liefert false) – CPU oder NDI-Laufzeit prüfen');
   try {
     const quelle = findeQuelle(ndi, opt.quelle);
     if (!ndi.createReceiver(quelle)) abbruch(`keine Verbindung zu „${quelle}“`);
@@ -114,7 +120,24 @@ function messe(opt) {
   }
 }
 
-// CLI nur, wenn die Datei direkt gestartet wird (nicht beim Import durch den Prüfstand).
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+/**
+ * Direkt gestartet (nicht vom Prüfstand importiert)? Node bildet die URL des Einstiegs aus dem ECHTEN Pfad: Über
+ * eine Junction, einen Symlink oder `subst` gestartet, stimmt `argv[1]` sonst nicht überein, und die CLI täte
+ * still nichts mit Exit 0. Darum beide Seiten auflösen, unter Windows ohne Rücksicht auf Groß-/Kleinschreibung.
+ */
+function direktGestartet() {
+  if (!process.argv[1]) return false;
+  let start;
+  let hier;
+  try {
+    start = fs.realpathSync(process.argv[1]);
+    hier = fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+  return process.platform === 'win32' ? start.toLowerCase() === hier.toLowerCase() : start === hier;
+}
+
+if (direktGestartet()) {
   process.exit(messe(leseArgumente(process.argv.slice(2))));
 }
