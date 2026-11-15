@@ -14,6 +14,15 @@ export type NdiSendeModul = Pick<typeof NdiApi, 'init' | 'createSender' | 'sendV
 
 const ersteZeile = (e: unknown): string => String((e as { message?: unknown })?.message ?? e).split(/\r?\n/)[0];
 
+/**
+ * Empfänger aus `connections()`: Das NDI-SDK zählt je Empfänger ZWEI Verbindungen (gemessen mit NDI 6 auf
+ * Windows: 0 → 2 → 4 → 2 → 0 bei 0/1/2/1/0 Empfängern). Eine ungerade Zahl rundet auf, damit ein verbundener
+ * Empfänger nie als 0 erscheint.
+ */
+export function empfaengerZahl(verbindungen: number): number {
+  return Number.isFinite(verbindungen) && verbindungen > 0 ? Math.ceil(verbindungen / 2) : 0;
+}
+
 export function starteNdiSenderKern(
   port: KernPort,
   ladeNdi: () => Promise<NdiSendeModul>,
@@ -40,7 +49,7 @@ export function starteNdiSenderKern(
     try {
       ndi.sendVideoBGRA(letztes, NDI_BREITE, NDI_HOEHE, NDI_FPS, 1);
       gesendet++;
-      if (gesendet % NDI_FPS === 0) melde({ type: 'stat', empfaenger: ndi.connections() });
+      if (gesendet % NDI_FPS === 0) melde({ type: 'stat', empfaenger: empfaengerZahl(ndi.connections()) });
     } catch (err) {
       beendeTakt();
       melde({ type: 'fehler', grund: ersteZeile(err) });

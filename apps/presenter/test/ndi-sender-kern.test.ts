@@ -24,7 +24,7 @@ function attrappenPort() {
   };
 }
 
-function attrappenNdi(opt: { initWirft?: boolean; dauerMs?: number } = {}) {
+function attrappenNdi(opt: { initWirft?: boolean; dauerMs?: number; verbindungen?: number } = {}) {
   const log = {
     init: 0, namen: [] as string[], gesendet: [] as Uint8Array[], format: [] as number[], destroy: 0,
   };
@@ -36,7 +36,7 @@ function attrappenNdi(opt: { initWirft?: boolean; dauerMs?: number } = {}) {
       log.gesendet.push(buf.slice());
       log.format = [w, h, fpsN ?? 0, fpsD ?? 0];
     },
-    connections: () => 2,
+    connections: () => opt.verbindungen ?? 2,
     destroy: () => { log.destroy++; },
   };
   return { log, modul };
@@ -67,7 +67,9 @@ const vor = n3.log.gesendet.length; await warte(2000);
 const neu = n3.log.gesendet.slice(vor);
 ck('Standbild: 2 s → 48 bis 52 Sendungen', neu.length >= 48 && neu.length <= 52);
 ck('wiederholt das letzte Bild', neu.slice(2).every((b) => b[0] === 7));
-ck('Empfängerzahl etwa jede Sekunde', p3.raus.filter((m) => m.type === 'stat' && m.empfaenger === 2).length >= 1);
+// Gemessen (Task 8, NDI 6): ein Empfänger = 2 Verbindungen laut connections() (0 → 2 → 4 bei 0/1/2 Empfängern).
+ck('Empfängerzahl etwa jede Sekunde, 2 Verbindungen = 1 Empfänger', p3.raus.filter((m) => m.type === 'stat' && m.empfaenger === 1).length >= 1);
+ck('stat meldet nie die rohe Verbindungszahl', !p3.raus.some((m) => m.type === 'stat' && m.empfaenger === 2));
 p3.rein({ type: 'bild', buffer: new ArrayBuffer(100) }); await warte(100);
 ck('falsche Größe verworfen (nativer Code läse sonst über das Ende)', n3.log.gesendet.at(-1)![0] === 7);
 p3.rein({ type: 'stop' }); const n = n3.log.gesendet.length; await warte(200);
@@ -82,6 +84,16 @@ const vor4 = n4.log.gesendet.length; await warte(2000);
 const zaehl4 = n4.log.gesendet.length - vor4;
 ck('langsames Senden: 2 s → 48 bis 52 Sendungen', zaehl4 >= 48 && zaehl4 <= 52);
 p4.rein({ type: 'stop' });
+
+// Verbindungen → Empfänger: je Empfänger zwei Verbindungen; eine ungerade Zahl rundet auf, damit ein
+// verbundener Empfänger nie als 0 erscheint.
+ck('Empfänger aus Verbindungen: 0/1/2/3/4/5 → 0/1/1/2/2/3', eq([0, 1, 2, 3, 4, 5].map(k.empfaengerZahl), [0, 1, 1, 2, 2, 3]));
+ck('Empfänger aus Verbindungen: Unsinn → 0', eq([-1, NaN, Infinity].map(k.empfaengerZahl), [0, 0, 0]));
+const p5 = attrappenPort(); const n5 = attrappenNdi({ verbindungen: 4 });
+k.starteNdiSenderKern(p5.port, async () => n5.modul, 40);
+p5.rein({ type: 'init' }); await warte(1200);
+ck('4 Verbindungen → stat empfaenger 2', p5.raus.some((m) => m.type === 'stat' && m.empfaenger === 2) && !p5.raus.some((m) => m.type === 'stat' && m.empfaenger === 4));
+p5.rein({ type: 'stop' });
 
 console.log(`\n${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);
