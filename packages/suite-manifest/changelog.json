@@ -584,6 +584,17 @@
     "name": "JM Presenter",
     "entries": [
       {
+        "version": "0.13.0",
+        "date": "2026-11-15",
+        "notes": [
+          "Neu: NDI-Ausgang (Windows). Der Presenter gibt sein Publikumsbild zusätzlich als NDI-Quelle „JM Presenter“ aus, 1920×1080 mit 25 Bildern pro Sekunde. Was die Folie nicht ausfüllt, ist durchsichtig: Ein Hochkant-Bild vom Handy lässt sich in OBS, vMix oder TriCaster direkt über das Livebild legen, ohne Zuschneiden. (#303)",
+          "Eingeschaltet wird NDI mit dem Knopf „NDI“ in der Werkzeugleiste oder in der Referentenansicht; er zeigt, wie viele Empfänger verbunden sind. Der Presenter merkt sich die Einstellung und startet NDI beim nächsten Mal von selbst.",
+          "Übergänge, Einblendungen und Weißbild erscheinen in NDI wie auf dem Bildschirm. Schwarzbild und eine beendete Präsentation sind in NDI durchsichtig, damit nichts Schwarzes über dem Livebild liegt.",
+          "Ohne zweiten Bildschirm: Bei eingeschaltetem NDI gibt es im Feld „Publikums-Bildschirm“ den Eintrag „Keiner – nur NDI“. Dann öffnet „Präsentieren“ nur die Referentenansicht, und das Bild geht allein über NDI.",
+          "Auf dem Mac gibt es den NDI-Ausgang noch nicht; dort zeigt der Knopf „NDI nicht verfügbar“."
+        ]
+      },
+      {
         "version": "0.12.0",
         "date": "2026-11-13",
         "notes": [
