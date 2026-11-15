@@ -6,7 +6,7 @@
 // nur Plattform und Sender-Datei. Auf dem Mac startet so nie ein Sender, unter Windows wird ein fehlendes
 // Addon gemeldet statt abzustürzen.
 import type { NdiStatus, PresentationPayload } from '@shared/types';
-import { NDI_STATUS_AUS, ndiLiefertBild } from '../../shared/ndi';
+import { NDI_STATUS_AUS } from '../../shared/ndi';
 import { getPayload, subscribe } from '../present';
 import { broadcastAll, closeNdiWindow, getNdiWindow, openNdiWindow, sendeAnNdi } from '../windows';
 import { ladeNdiConfig, speichereNdiConfig } from './config';
@@ -16,9 +16,14 @@ import type { SenderMeldungen } from './sender-process';
 const NUR_WINDOWS = 'NDI-Ausgang gibt es nur unter Windows.';
 const SENDER_FEHLT = 'NDI-Sender fehlt im Paket.';
 const ANTWORTET_NICHT = 'NDI-Sender antwortet nicht.';
+const BILD_ANTWORTET_NICHT = 'NDI-Bild antwortet nicht.';
 const BILD_ABGESTUERZT = 'NDI-Bild abgestürzt.';
 
-/** So lange darf der Sender nach dem Start schweigen, bevor er als gescheitert gilt (weder `bereit` noch `fehler`). */
+/**
+ * So lange darf ein Start dauern – der erste wie der Neuaufbau mit einem Ersatzfenster nach einem Absturz: Bis dahin
+ * müssen der Sender (`bereit`) UND das neue NDI-Fenster (`ndi:fensterBereit`) sich gemeldet haben, sonst gilt der
+ * Start als gescheitert. So bleibt `startet` immer begrenzt.
+ */
 const START_FRIST_MS = 10_000;
 /** Stürzt das NDI-Bild in dieser Zeit ein zweites Mal ab, wird es nicht wieder geöffnet. */
 const ABSTURZ_FENSTER_MS = 60_000;
@@ -36,8 +41,8 @@ let gemerkt: PresentationPayload | null = null;
 let startFrist: ReturnType<typeof setTimeout> | null = null;
 /** Der laufende Sender hat `bereit` gemeldet. */
 let senderBereit = false;
-/** Ein Ersatzfenster nach einem Absturz ist noch nicht bereit – bis dahin zeigt NDI kein aktuelles Bild. */
-let ersatzWartet = false;
+/** Das aktuelle NDI-Fenster (jedes neue, nicht nur ein Ersatz) hat sich noch nicht gemeldet – bis dahin kein Bild. */
+let fensterWartet = false;
 /** Zeitpunkt des letzten Absturzes des NDI-Bilds (Date.now), null = keiner seit dem letzten Aus. */
 let letzterAbsturz: number | null = null;
 
@@ -59,14 +64,29 @@ function nichtVerfuegbar(an: boolean, grund: string): void {
   setzeStatus({ an, lage: 'nicht-verfuegbar', empfaenger: 0, grund });
 }
 
-/** `sendet` erst, wenn der Sender bereit ist und kein Ersatzfenster mehr wartet; sonst ehrlich `startet`. */
+/**
+ * `sendet` erst, wenn der Sender bereit ist UND das NDI-Fenster sich gemeldet hat – dann endet auch die Start-Frist.
+ * Sonst ehrlich `startet`.
+ */
 function zeigeLauf(): void {
-  if (laeuft()) setzeStatus({ ...status, lage: senderBereit && !ersatzWartet ? 'sendet' : 'startet' });
+  if (!laeuft()) return;
+  const fertig = senderBereit && !fensterWartet;
+  if (fertig) beendeStartFrist();
+  setzeStatus({ ...status, lage: fertig ? 'sendet' : 'startet' });
 }
 
 function beendeStartFrist(): void {
   if (startFrist) clearTimeout(startFrist);
   startFrist = null;
+}
+
+/** Start-Frist (neu) setzen; bei Ablauf ist der Start gescheitert – Grund je nachdem, wer sich nicht gemeldet hat. */
+function starteFrist(): void {
+  beendeStartFrist();
+  startFrist = setTimeout(() => {
+    startFrist = null;
+    senderEnde(senderBereit ? BILD_ANTWORTET_NICHT : ANTWORTET_NICHT);
+  }, startFristMs);
 }
 
 /** Sender und Start-Frist beenden (der Status bleibt dem Aufrufer überlassen). */
@@ -76,13 +96,21 @@ function stoppeLauf(): void {
   stoppeSender();
 }
 
+/** Sender, Start-Frist UND NDI-Fenster beenden (der Status bleibt dem Aufrufer überlassen). */
+function beendeAlles(): void {
+  stoppeLauf();
+  closeNdiWindow();
+  fensterWartet = false;
+}
+
 /**
- * Toter Sender (Takt steht nach `fehler`, der Prozess ist weg oder antwortet nicht): Prozess nie weiterlaufen
- * lassen. Das NDI-Fenster bleibt offen – ein Neustart verbindet es sofort neu.
+ * Toter Sender (Takt steht nach `fehler`, der Prozess ist weg oder antwortet nicht) oder ein Start, der binnen der
+ * Frist nicht fertig wird: Prozess nie weiterlaufen lassen, und auch das NDI-Fenster schließen – es zeichnete sonst
+ * jede Folie und jede Blende weiter und schickte sie ins Leere. Ein Neustart (Schalter an) öffnet ein frisches Fenster.
  */
 function senderEnde(grund: string): void {
   if (!laeuft()) return; // Nachzügler nach Aus oder nach dem ersten Ende
-  stoppeLauf();
+  beendeAlles();
   nichtVerfuegbar(true, grund);
 }
 
@@ -90,7 +118,6 @@ function meldungen(): SenderMeldungen {
   return {
     bereit: () => {
       if (status.lage !== 'startet' || senderBereit) return; // spätes `bereit` nach Ablauf der Frist: ignoriert
-      beendeStartFrist();
       senderBereit = true;
       zeigeLauf();
     },
@@ -102,8 +129,14 @@ function meldungen(): SenderMeldungen {
   };
 }
 
-/** Neues NDI-Fenster; es meldet sich selbst per ndi:fensterBereit, dann bekommt es den Port. */
+/**
+ * Neues NDI-Fenster (erster Start oder Ersatz nach einem Absturz). Es meldet sich selbst per ndi:fensterBereit, dann
+ * bekommt es den Port; bis dahin heißt der Zustand `startet`, und die Start-Frist läuft (neu).
+ */
 function oeffneFenster(): void {
+  fensterWartet = true;
+  starteFrist();
+  zeigeLauf();
   const win = openNdiWindow();
   win.once('closed', () => {
     // Nach schnellem Aus/An oder einem Absturz gehört der laufende Sender schon zum neuen Fenster.
@@ -117,25 +150,20 @@ function oeffneFenster(): void {
 /**
  * Der Renderer des NDI-Fensters ist weg: Fenster schließen und neu öffnen wie bei Aus/An (neuer Port, das
  * neue Fenster holt das laufende Payload). Der Sender läuft weiter, damit die Quelle im Netz bleibt; bis das
- * neue Fenster bereit ist, heißt der Zustand `startet`. Ein zweiter Absturz binnen ABSTURZ_FENSTER_MS öffnet
- * nicht wieder, sondern meldet „nicht verfügbar“.
+ * neue Fenster bereit ist, heißt der Zustand `startet` – höchstens bis zum Ende der Start-Frist. Ein zweiter
+ * Absturz binnen ABSTURZ_FENSTER_MS öffnet nicht wieder, sondern meldet „nicht verfügbar“.
  */
 function bildAbgestuerzt(grund: string): void {
   console.error('[ndi] NDI-Bild abgestürzt:', grund);
   const jetzt = Date.now();
   const wieder = letzterAbsturz !== null && jetzt - letzterAbsturz < absturzFensterMs;
   letzterAbsturz = jetzt;
-  closeNdiWindow();
   if (wieder) {
-    stoppeLauf();
-    ersatzWartet = false;
-    nichtVerfuegbar(true, BILD_ABGESTUERZT);
+    senderEnde(BILD_ABGESTUERZT);
     return;
   }
-  if (!status.an) return;
+  closeNdiWindow();
   gemerkt = getPayload();
-  ersatzWartet = true;
-  zeigeLauf();
   oeffneFenster();
 }
 
@@ -159,18 +187,7 @@ function starte(): void {
   senderBereit = false;
   setzeStatus({ an: true, lage: 'startet', empfaenger: 0, grund: null });
   gemerkt = getPayload();
-  beendeStartFrist();
-  startFrist = setTimeout(() => {
-    startFrist = null;
-    senderEnde(ANTWORTET_NICHT);
-  }, startFristMs);
-  const offen = getNdiWindow();
-  if (offen) {
-    verbindeFenster(offen); // Neustart nach einem Fehler: das Fenster steht schon
-    return;
-  }
-  ersatzWartet = false;
-  oeffneFenster();
+  oeffneFenster(); // ein NDI-Fenster steht hier nie: Aus und jedes Ende schließen es
 }
 
 /**
@@ -201,9 +218,7 @@ export function ndiStatus(): NdiStatus {
 export function setzeNdiAn(an: boolean): NdiStatus {
   speichereNdiConfig({ an });
   if (!an) {
-    stoppeLauf();
-    closeNdiWindow();
-    ersatzWartet = false;
+    beendeAlles();
     letzterAbsturz = null;
     setzeStatus(NDI_STATUS_AUS);
   } else if (!laeuft()) {
@@ -212,17 +227,11 @@ export function setzeNdiAn(an: boolean): NdiStatus {
   return status;
 }
 
-/** Kommt gerade ein Bild bei den NDI-Empfängern an? */
-export function ndiLiefert(): boolean {
-  return ndiLiefertBild(status);
-}
-
-/** Das NDI-Fenster ist geladen: Bild-Port verbinden, wenn ein Sender läuft. */
+/** Das NDI-Fenster ist geladen: Bild-Port verbinden; ist auch der Sender bereit, heißt es jetzt `sendet`. */
 export function ndiFensterBereit(): void {
   const win = getNdiWindow();
-  if (!win) return;
-  ersatzWartet = false;
-  if (!laeuft()) return;
+  if (!win || !laeuft()) return;
+  fensterWartet = false;
   verbindeFenster(win);
   zeigeLauf();
 }

@@ -22,8 +22,8 @@ import {
   moveAudienceToDisplay,
   toggleAudienceFullscreen,
 } from './windows';
-import { beendeNdi, initNdiAusgang, ndiFensterBereit, ndiLiefert, ndiStatus, setzeNdiAn } from './ndi/ausgang';
-import { pruefeStartZiel } from '../shared/ndi';
+import { beendeNdi, initNdiAusgang, ndiFensterBereit, ndiStatus, setzeNdiAn } from './ndi/ausgang';
+import { nurNdiBehalten, pruefeStartZiel } from '../shared/ndi';
 import {
   getPayload,
   getState,
@@ -189,9 +189,10 @@ export function registerIpc(): void {
 
   // ---- Presentation control ----
 
-  // „Keiner – nur NDI“ (#303) nur, solange NDI ein Bild liefert – sonst automatischer Bildschirm.
+  // „Keiner – nur NDI“ (#303), solange NDI an ist und sendet oder (begrenzt durch die Start-Frist) startet – wie die
+  // Werkzeugleiste; sonst automatischer Bildschirm.
   ipcMain.handle('present:start', (_e, payload: PresentationPayload, ziel: unknown) => {
-    startPresentation(payload, pruefeStartZiel(ziel, ndiLiefert()));
+    startPresentation(payload, pruefeStartZiel(ziel, nurNdiBehalten(ndiStatus())));
   });
   ipcMain.handle('present:getPayload', () => getPayload());
   ipcMain.handle('present:getState', () => getState());

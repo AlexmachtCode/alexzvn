@@ -38,28 +38,30 @@ export function ndiLiefertBild(s: NdiStatus): boolean {
 }
 
 /**
- * Main: Start-Ziel aus dem Renderer prüfen. „Keiner – nur NDI“ gilt nur, solange NDI ein Bild liefert – sonst gäbe
- * es eine Präsentation ohne jede Ausgabe, also automatischer Bildschirm. Eine endliche Zahl bleibt, alles andere `null`.
+ * Main: Start-Ziel aus dem Renderer prüfen. „Keiner – nur NDI“ gilt nur, solange `nurNdi` (der Main nimmt
+ * `nurNdiBehalten` seines Status) – sonst gäbe es eine Präsentation ohne jede Ausgabe, also automatischer Bildschirm.
+ * Eine endliche Zahl bleibt, alles andere `null`.
  */
-export function pruefeStartZiel(roh: unknown, ndiLiefert: boolean): StartZiel {
-  if (roh === 'keiner') return ndiLiefert ? 'keiner' : null;
+export function pruefeStartZiel(roh: unknown, nurNdi: boolean): StartZiel {
+  if (roh === 'keiner') return nurNdi ? 'keiner' : null;
   return typeof roh === 'number' && Number.isFinite(roh) ? roh : null;
 }
 
 /**
- * Werkzeugleiste: Bleibt die Wahl „Keiner – nur NDI“ stehen? Sie fällt erst auf die Bildschirmwahl zurück, wenn NDI
- * dauerhaft nicht liefert (aus, nicht verfügbar, Schalter aus). Ein vorübergehendes „startet“ – Start-Phase oder
- * Neuaufbau nach einem Absturz des NDI-Bilds – behält sie; ob wirklich ohne Bildschirm gestartet wird, entscheidet
- * im Moment des Starts weiter `startZielFuer`.
+ * Bleibt die Wahl „Keiner – nur NDI“ stehen – und startet „Präsentation starten“ damit ohne Publikumsfenster
+ * (Werkzeugleiste und Main)? Erst wenn NDI dauerhaft nicht liefert (aus, nicht verfügbar, Schalter aus), gilt wieder
+ * die Bildschirmwahl. Ein vorübergehendes „startet“ – Start-Phase oder Neuaufbau nach einem Absturz des NDI-Bilds –
+ * behält sie: Es ist durch die Start-Frist des Ausgangs begrenzt (danach „nicht verfügbar“), und wer „Keiner“ sieht,
+ * bekommt so nie ein Vollbild auf einem Bildschirm.
  */
 export function nurNdiBehalten(s: NdiStatus): boolean {
   return s.an && (s.lage === 'sendet' || s.lage === 'startet');
 }
 
 /**
- * Werkzeugleiste: Ziel für „Präsentation starten“. „Keiner – nur NDI“ nur, solange NDI ein Bild liefert; ist NDI aus
- * oder ausgefallen, gilt wieder die bisherige Bildschirmwahl.
+ * Werkzeugleiste: Ziel für „Präsentation starten“. „Keiner – nur NDI“, solange die Wahl stehen bleibt (siehe
+ * `nurNdiBehalten`, also auch während „startet“); ist NDI aus oder ausgefallen, gilt wieder die bisherige Bildschirmwahl.
  */
 export function startZielFuer(nurNdi: boolean, status: NdiStatus, bildschirm: number | null): StartZiel {
-  return nurNdi && ndiLiefertBild(status) ? 'keiner' : bildschirm;
+  return nurNdi && nurNdiBehalten(status) ? 'keiner' : bildschirm;
 }

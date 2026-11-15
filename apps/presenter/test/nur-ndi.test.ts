@@ -56,7 +56,9 @@ const sendet: NdiStatus = { an: true, lage: 'sendet', empfaenger: 0, grund: null
 ck('nur NDI gewählt, NDI sendet → keiner', n.startZielFuer(true, sendet, 5) === 'keiner');
 ck('nur NDI gewählt, NDI aus → bisherige Bildschirmwahl', n.startZielFuer(true, { ...sendet, an: false, lage: 'aus' }, 5) === 5);
 ck('nur NDI gewählt, NDI ausgefallen → bisherige Bildschirmwahl', n.startZielFuer(true, { ...sendet, lage: 'nicht-verfuegbar', grund: 'x' }, 5) === 5);
-ck('nur NDI gewählt, NDI startet noch → bisherige Bildschirmwahl', n.startZielFuer(true, { ...sendet, lage: 'startet' }, 5) === 5);
+// „startet“ ist durch die Start-Frist begrenzt (10 s, danach „nicht verfügbar“): Wer „Keiner“ sieht, bekommt kein Publikumsfenster.
+ck('nur NDI gewählt, NDI startet → keiner', n.startZielFuer(true, { ...sendet, lage: 'startet' }, 5) === 'keiner');
+ck('nur NDI gewählt, Schalter aus, Lage noch startet → bisherige Bildschirmwahl', n.startZielFuer(true, { ...sendet, an: false, lage: 'startet' }, 5) === 5);
 ck('nicht gewählt → Bildschirm', n.startZielFuer(false, sendet, null) === null && n.startZielFuer(false, sendet, 5) === 5);
 // Die Wahl „Keiner“ fällt nur, wenn NDI dauerhaft nicht liefert; ein vorübergehendes „startet“ behält sie
 // (der Start selbst prüft weiter über startZielFuer).
@@ -84,6 +86,10 @@ const ausgefallen: NdiStatus = { ...sendet, lage: 'nicht-verfuegbar', grund: 'x'
 const aus: NdiStatus = { an: false, lage: 'aus', empfaenger: 0, grund: null };
 p.startPresentation(payload, n.pruefeStartZiel(n.startZielFuer(true, sendet, 5), true)); p.stopPresentation();
 ck('nur NDI über Auswahl und Main-Prüfung → kein Publikumsfenster', g.__w.publikum.length === 2);
+// Start in den 1–2 s nach einem Absturz des NDI-Bilds (Ersatzfenster, „startet“), die Auswahl zeigt „Keiner“.
+const startet: NdiStatus = { ...sendet, lage: 'startet' };
+p.startPresentation(payload, n.pruefeStartZiel(n.startZielFuer(true, startet, 5), n.nurNdiBehalten(startet))); p.stopPresentation();
+ck('Start während „startet“ mit „Keiner“ → kein Publikumsfenster', g.__w.publikum.length === 2);
 p.startPresentation(payload, n.pruefeStartZiel(n.startZielFuer(true, ausgefallen, 5), false)); p.stopPresentation();
 p.startPresentation(payload, n.pruefeStartZiel(n.startZielFuer(true, aus, 5), false)); p.stopPresentation();
 ck('nächster Start nach NDI-Ausfall bzw. -Aus → wieder der gewählte Bildschirm', eq(g.__w.publikum.slice(2), [5, 5]));

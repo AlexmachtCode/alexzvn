@@ -6,7 +6,7 @@ import { registerHooks } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { PresentationPayload } from '../src/shared/types';
+import type { NdiLage, NdiStatus, PresentationPayload } from '../src/shared/types';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -28,14 +28,14 @@ const g = globalThis as unknown as {
   __s: { m: Meldungen | null; gestartet: number; gestoppt: number; verbunden: number; datei: boolean; wirft: boolean; kindLaeuft: boolean };
   __sp: { initWirft: boolean; kinder: FakeKind[] };
   __app: Record<string, () => void>;
-  __ipc: { zu: string[]; initWirft: boolean; liefert: boolean; h: Record<string, (...a: unknown[]) => unknown> };
+  __ipc: { zu: string[]; initWirft: boolean; status: NdiStatus; h: Record<string, (...a: unknown[]) => unknown> };
   __userData: string;
 };
 const w = (g.__w = { aktuell: null, offen: 0, zu: 0, closed: null, absturz: null, anNdi: [], status: [], publikum: [] });
 const s = (g.__s = { m: null, gestartet: 0, gestoppt: 0, verbunden: 0, datei: true, wirft: false, kindLaeuft: false });
 g.__sp = { initWirft: false, kinder: [] };
 g.__app = {};
-g.__ipc = { zu: [], initWirft: false, liefert: false, h: {} };
+g.__ipc = { zu: [], initWirft: false, status: { an: false, lage: 'aus', empfaenger: 0, grund: null }, h: {} };
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmpr-ndi-'));
 g.__userData = dir;
 const datei = path.join(dir, 'ndi-config.json');
@@ -57,7 +57,7 @@ export function openNdiWindow() {
   }
   return w.aktuell;
 }
-export function closeNdiWindow() { w.zu++; w.aktuell = null; }
+export function closeNdiWindow() { if (w.aktuell) w.zu++; w.aktuell = null; }
 export function getNdiWindow() { return w.aktuell; }
 export function sendeAnNdi(c, x) { w.anNdi.push([c, x]); }
 export function broadcastAll(c, x) { if (c === 'ndi:status') w.status.push(x); }
@@ -92,7 +92,7 @@ const IPC_TEILE: Record<string, string> = {
     export function setTimerStateHandler() {} export function shutdownTimer() { globalThis.__ipc.zu.push('timer'); }`,
   './timer-config': 'export function loadTimerConfig() { return {}; } export function saveTimerConfig() {}',
   './ndi/ausgang': `export function beendeNdi() { globalThis.__ipc.zu.push('ndi'); } export function ndiFensterBereit() {}
-    export function ndiStatus() {} export function setzeNdiAn() {} export function ndiLiefert() { return globalThis.__ipc.liefert; }
+    export function ndiStatus() { return globalThis.__ipc.status; } export function setzeNdiAn() {}
     export function initNdiAusgang() { if (globalThis.__ipc.initWirft) throw new Error('init wirft'); }`,
 };
 // Für config.ts reicht `app`; das echte windows.ts (zweiter Teil) braucht dazu Fenster und Bildschirm.
@@ -162,6 +162,8 @@ const cfg = await import('../src/main/ndi/config');
 const a = await import('../src/main/ndi/ausgang');
 const p = await import('../src/main/present');
 const ndi = await import('../src/shared/ndi');
+/** Kommt gerade ein Bild bei den NDI-Empfängern an? */
+const liefert = (): boolean => ndi.ndiLiefertBild(a.ndiStatus());
 
 const folie = (id: string, pageIndex: number) => ({ id, sourceId: 'q', pageIndex, title: id, notes: '', hidden: false, overlays: [] });
 const payload: PresentationPayload = {
@@ -177,23 +179,25 @@ try {
   fs.writeFileSync(datei, '{"an":"ja"}'); ck('kein echtes true → aus', eq(cfg.ladeNdiConfig(), { an: false }));
   fs.writeFileSync(datei, '{"an":true}'); a.initNdiAusgang({ startFristMs: FRIST, absturzFensterMs: ABSTURZ });
   ck('gemerkt an → Sender und Fenster ab App-Start', s.gestartet === 1 && w.offen === 1 && a.ndiStatus().lage === 'startet');
-  ck('startet → noch kein Bild', !a.ndiLiefert() && w.status.length === 1);
-  s.m!.bereit(); ck('bereit → sendet, liefert Bild', a.ndiStatus().lage === 'sendet' && a.ndiLiefert());
+  ck('startet → noch kein Bild', !liefert() && w.status.length === 1);
+  s.m!.bereit();
+  ck('Erststart: Sender bereit, Fenster noch nicht → bleibt startet, kein Bild', a.ndiStatus().lage === 'startet' && !liefert() && s.verbunden === 0);
+  a.ndiFensterBereit();
+  ck('… Fenster bereit → Port verbunden, sendet, liefert Bild', s.verbunden === 1 && a.ndiStatus().lage === 'sendet' && liefert());
   const vor = w.status.length; s.m!.empfaenger(2); s.m!.empfaenger(2);
   ck('Empfängerzahl einmal gemeldet', a.ndiStatus().empfaenger === 2 && w.status.length === vor + 1);
   ck('Status-Push trägt den Stand', eq(w.status.at(-1), { an: true, lage: 'sendet', empfaenger: 2, grund: null }));
-  a.ndiFensterBereit(); ck('Fenster bereit → Port verbunden', s.verbunden === 1);
   p.startPresentation(payload, null); p.next();
   ck('Präsentationsstart → Folien genau einmal ans NDI-Fenster', w.anNdi.filter(([c, x]) => c === 'present:payload' && x === payload).length === 1);
   p.stopPresentation(); ck('Stopp → null ans NDI-Fenster', eq(w.anNdi.at(-1), ['present:payload', null]));
   const gestopptVorFehler = s.gestoppt;
   s.m!.fehler('Addon fehlt');
-  ck('Fehler → nicht verfügbar mit Grund, kein Wurf', a.ndiStatus().lage === 'nicht-verfuegbar' && a.ndiStatus().grund!.includes('Addon fehlt') && !a.ndiLiefert());
-  ck('Fehler → toter Sender wird beendet, Fenster bleibt', s.gestoppt === gestopptVorFehler + 1 && w.zu === 0 && w.aktuell !== null);
+  ck('Fehler → nicht verfügbar mit Grund, kein Wurf', a.ndiStatus().lage === 'nicht-verfuegbar' && a.ndiStatus().grund!.includes('Addon fehlt') && !liefert());
+  ck('Fehler → toter Sender wird beendet, NDI-Fenster zu (es zeichnete sonst weiter ins Leere)', s.gestoppt === gestopptVorFehler + 1 && w.zu === 1 && w.aktuell === null);
   ck('Fehler → eine Log-Zeile [ndi]', logZeilen.length === 1 && logZeilen[0].startsWith('[ndi]') && logZeilen[0].includes('Addon fehlt'));
   s.m!.beendet(1);
   ck('Nachzügler nach dem Fehler ändert nichts', a.ndiStatus().grund === 'Addon fehlt' && logZeilen.length === 1);
-  a.ndiFensterBereit(); ck('Fenster bereit ohne Sender → kein Port', s.verbunden === 1);
+  a.ndiFensterBereit(); ck('Nachzügler „Fenster bereit“ ohne Sender und Fenster → kein Port', s.verbunden === 1);
   p.startPresentation(payload, null); ck('Präsentation unberührt', p.getState().active); p.stopPresentation();
   a.setzeNdiAn(false);
   ck('aus → Sender gestoppt, Fenster zu, gemerkt', s.gestoppt >= 1 && w.zu === 1 && a.ndiStatus().lage === 'aus' && eq(JSON.parse(fs.readFileSync(datei, 'utf8')), { an: false }));
@@ -207,9 +211,9 @@ try {
   p.stopPresentation(); ck('Stopp nach dem Einschalten → null ans NDI-Fenster', eq(w.anNdi.at(-1), ['present:payload', null]));
   const st0 = s.gestartet; a.setzeNdiAn(true); ck('an, wenn schon gestartet → kein zweiter Sender', s.gestartet === st0);
   s.m!.beendet(3);
-  ck('Sender endet → nicht verfügbar', a.ndiStatus().lage === 'nicht-verfuegbar' && a.ndiStatus().grund === 'NDI-Sender beendet (Code 3).');
+  ck('Sender endet → nicht verfügbar, NDI-Fenster zu', a.ndiStatus().lage === 'nicht-verfuegbar' && a.ndiStatus().grund === 'NDI-Sender beendet (Code 3).' && w.aktuell === null);
   const [o1, st1, v1] = [w.offen, s.gestartet, s.verbunden]; a.setzeNdiAn(true);
-  ck('Neustart bei offenem Fenster: neuer Sender, kein zweites Fenster, Port sofort', s.gestartet === st1 + 1 && w.offen === o1 && s.verbunden === v1 + 1);
+  ck('Neustart nach dem Ende: neuer Sender, neues Fenster, Port erst, wenn es sich meldet', s.gestartet === st1 + 1 && w.offen === o1 + 1 && s.verbunden === v1);
   ck('Neustart → startet', a.ndiStatus().lage === 'startet' && a.ndiStatus().grund === null);
   const gestoppt = s.gestoppt; w.aktuell = null; w.closed!(); ck('NDI-Fenster zu (letztes Fenster geschlossen) → Sender gestoppt', s.gestoppt > gestoppt);
   a.setzeNdiAn(false); s.datei = false; const offen = w.offen; a.setzeNdiAn(true);
@@ -232,10 +236,10 @@ try {
   await warte(FRIST * 2 + 20);
   ck('weder bereit noch fehler binnen Frist → nicht verfügbar „NDI-Sender antwortet nicht.“',
     a.ndiStatus().lage === 'nicht-verfuegbar' && a.ndiStatus().grund === 'NDI-Sender antwortet nicht.');
-  ck('… Sender beendet, genau eine [ndi]-Zeile', !s.kindLaeuft && eq(logZeilen.slice(log0), ['[ndi] nicht verfügbar: NDI-Sender antwortet nicht.']));
+  ck('… Sender beendet, Fenster zu, genau eine [ndi]-Zeile', !s.kindLaeuft && w.aktuell === null && eq(logZeilen.slice(log0), ['[ndi] nicht verfügbar: NDI-Sender antwortet nicht.']));
   mFrist.bereit(); ck('spätes bereit nach Ablauf → ignoriert', a.ndiStatus().lage === 'nicht-verfuegbar');
-  a.setzeNdiAn(true); s.m!.bereit(); await warte(FRIST * 2 + 20);
-  ck('bereit vor Ablauf → sendet bleibt', a.ndiStatus().lage === 'sendet' && s.kindLaeuft);
+  a.setzeNdiAn(true); s.m!.bereit(); a.ndiFensterBereit(); await warte(FRIST * 2 + 20);
+  ck('Sender und Fenster bereit vor Ablauf → sendet bleibt', a.ndiStatus().lage === 'sendet' && s.kindLaeuft);
   // Review Focus 5: „Keiner – nur NDI“ läuft, dann fällt NDI aus bzw. wird ausgeschaltet → die Präsentation läuft weiter.
   p.startPresentation(payload, 'keiner'); s.m!.fehler('Addon fehlt');
   ck('nur NDI: Sender fällt aus → Präsentation läuft weiter', a.ndiStatus().lage === 'nicht-verfuegbar' && p.getState().active);
@@ -246,6 +250,16 @@ try {
   ck('fehler vor Ablauf → nur dessen Zeile', a.ndiStatus().grund === 'Addon fehlt' && logZeilen.length === log0 + 1);
   a.setzeNdiAn(false); log0 = logZeilen.length; a.setzeNdiAn(true); a.setzeNdiAn(false); await warte(FRIST * 2 + 20);
   ck('aus vor Ablauf → keine Frist-Meldung', a.ndiStatus().lage === 'aus' && logZeilen.length === log0);
+  // `sendet` erst, wenn Sender UND Fenster bereit sind, gleich in welcher Reihenfolge; die Frist läuft, bis beides da ist.
+  a.setzeNdiAn(true); const vFb = s.verbunden; a.ndiFensterBereit();
+  ck('Fenster vor dem Sender bereit → Port schon verbunden, bleibt startet', s.verbunden === vFb + 1 && a.ndiStatus().lage === 'startet');
+  s.m!.bereit(); ck('… dann Sender bereit → sendet', a.ndiStatus().lage === 'sendet');
+  a.setzeNdiAn(false); log0 = logZeilen.length; const zFb = w.zu; a.setzeNdiAn(true); s.m!.bereit(); await warte(FRIST * 2 + 20);
+  ck('Sender bereit, Fenster meldet sich nie → nach der Frist nicht verfügbar „NDI-Bild antwortet nicht.“',
+    a.ndiStatus().lage === 'nicht-verfuegbar' && a.ndiStatus().grund === 'NDI-Bild antwortet nicht.');
+  ck('… genau eine [ndi]-Zeile, Fenster zu, Sender beendet',
+    eq(logZeilen.slice(log0), ['[ndi] nicht verfügbar: NDI-Bild antwortet nicht.']) && w.aktuell === null && w.zu === zFb + 1 && !s.kindLaeuft);
+  a.setzeNdiAn(false);
 
   // ---- Härtung: Renderer des NDI-Fensters stirbt (render-process-gone) ----
   a.setzeNdiAn(true); s.m!.bereit(); a.ndiFensterBereit();
@@ -258,7 +272,7 @@ try {
   ck('Absturz → eine [ndi]-Zeile mit Grund', eq(logZeilen.slice(log0), ['[ndi] NDI-Bild abgestürzt: crashed']));
   ck('Absturz → NDI-Fenster zu und neu, Sender läuft weiter',
     w.zu === z0 + 1 && w.offen === o0 + 1 && s.gestartet === st0b && s.gestoppt === sp0 && s.kindLaeuft);
-  ck('Absturz → startet, bis das neue Fenster bereit ist', a.ndiStatus().lage === 'startet' && !a.ndiLiefert());
+  ck('Absturz → startet, bis das neue Fenster bereit ist', a.ndiStatus().lage === 'startet' && !liefert());
   closedAlt(); ck('closed des abgestürzten Fensters beendet den Sender nicht', s.gestoppt === sp0 && s.kindLaeuft);
   absturzAlt?.('crashed'); ck('Nachzügler des alten Fensters ändert nichts', logZeilen.length === log0 + 1 && w.offen === o0 + 1);
   const anNdiVor = w.anNdi.length; p.next();
@@ -276,14 +290,21 @@ try {
   a.setzeNdiAn(true); s.m!.bereit(); a.ndiFensterBereit(); await warte(ABSTURZ + 30);
   const o2b = w.offen; w.absturz?.('crashed');
   ck('Absturz nach Ablauf des Absturz-Fensters → wieder neu geöffnet', w.offen === o2b + 1 && a.ndiStatus().lage === 'startet');
+  log0 = logZeilen.length; const zEf = w.zu; await warte(FRIST * 2 + 20);
+  ck('Ersatzfenster meldet sich nie → nach der Frist nicht verfügbar „NDI-Bild antwortet nicht.“',
+    a.ndiStatus().lage === 'nicht-verfuegbar' && a.ndiStatus().grund === 'NDI-Bild antwortet nicht.');
+  ck('… genau eine [ndi]-Zeile, Ersatzfenster zu, Sender beendet',
+    eq(logZeilen.slice(log0), ['[ndi] nicht verfügbar: NDI-Bild antwortet nicht.']) && w.aktuell === null && w.zu === zEf + 1 && !s.kindLaeuft);
   a.setzeNdiAn(false); a.setzeNdiAn(true); s.m!.bereit(); a.ndiFensterBereit();
   const o3b = w.offen; w.absturz?.('crashed');
   ck('nach Aus zählt ein Absturz wieder als erster', w.offen === o3b + 1 && a.ndiStatus().lage === 'startet');
   a.setzeNdiAn(false); a.setzeNdiAn(true); s.m!.fehler('Addon fehlt');
   const o4b = w.offen; w.absturz?.('crashed');
-  ck('Absturz bei totem Sender → Fenster neu, Status bleibt „nicht verfügbar“', w.offen === o4b + 1 && a.ndiStatus().grund === 'Addon fehlt');
-  a.ndiFensterBereit(); a.setzeNdiAn(true); s.m!.bereit();
-  ck('… Neustart danach mit schon bereitem Fenster → sendet', a.ndiStatus().lage === 'sendet');
+  ck('Absturz-Nachzügler des mit dem Sender geschlossenen Fensters → kein neues Fenster, Status bleibt „nicht verfügbar“',
+    w.offen === o4b && w.aktuell === null && a.ndiStatus().grund === 'Addon fehlt');
+  a.setzeNdiAn(true);
+  ck('… Neustart danach → neuer Sender, neues Fenster, startet', w.offen === o4b + 1 && a.ndiStatus().lage === 'startet');
+  s.m!.bereit(); a.ndiFensterBereit(); ck('… sendet, sobald beide bereit sind', a.ndiStatus().lage === 'sendet');
   a.setzeNdiAn(false);
 
   // ---- Das echte windows.ts: NDI-Fenster, Rundruf, App-Ende mit dem letzten sichtbaren Fenster ----
@@ -375,16 +396,23 @@ try {
   ck('initNdiAusgang wirft → will-quit steht und räumt Fernsteuerung, Timer, NDI auf',
     typeof willQuit === 'function' && eq(g.__ipc.zu, ['remote', 'timer', 'ndi']));
 
-  // ---- ipc.ts present:start: „Keiner – nur NDI“ nur, solange NDI ein Bild liefert ----
+  // ---- ipc.ts present:start: „Keiner – nur NDI“, solange NDI an ist und sendet oder (durch die Start-Frist begrenzt) startet ----
   const start = g.__ipc.h['present:start'];
+  const ndiSt = (an: boolean, lage: NdiLage): NdiStatus => ({ an, lage, empfaenger: 0, grund: lage === 'nicht-verfuegbar' ? 'x' : null });
   const pub0 = w.publikum.length;
-  g.__ipc.liefert = true; start?.({}, payload, 'keiner');
-  ck('present:start „keiner“, NDI liefert → Präsentation ohne Publikumsfenster', p.getState().active && w.publikum.length === pub0);
+  g.__ipc.status = ndiSt(true, 'sendet'); start?.({}, payload, 'keiner');
+  ck('present:start „keiner“, NDI sendet → Präsentation ohne Publikumsfenster', p.getState().active && w.publikum.length === pub0);
   p.stopPresentation();
-  g.__ipc.liefert = false; start?.({}, payload, 'keiner'); p.stopPresentation();
+  g.__ipc.status = ndiSt(true, 'startet'); start?.({}, payload, 'keiner');
+  ck('present:start „keiner“, NDI startet (z. B. Ersatzfenster nach Absturz) → nur NDI, kein Publikumsfenster', p.getState().active && w.publikum.length === pub0);
+  p.stopPresentation();
+  g.__ipc.status = ndiSt(true, 'nicht-verfuegbar'); start?.({}, payload, 'keiner'); p.stopPresentation();
+  g.__ipc.status = ndiSt(false, 'aus'); start?.({}, payload, 'keiner'); p.stopPresentation();
+  g.__ipc.status = ndiSt(false, 'startet'); start?.({}, payload, 'keiner'); p.stopPresentation();
   start?.({}, payload, 7); p.stopPresentation();
   start?.({}, payload, 'Unsinn'); p.stopPresentation();
-  ck('present:start: „keiner“ ohne NDI → automatisch, Bildschirm-ID bleibt, Unsinn → automatisch', eq(w.publikum.slice(pub0), [null, 7, null]));
+  ck('present:start: „keiner“ bei nicht verfügbar, aus oder Schalter aus → automatisch, Bildschirm-ID bleibt, Unsinn → automatisch',
+    eq(w.publikum.slice(pub0), [null, null, null, 7, null]));
 } finally {
   console.error = echtesError;
   fs.rmSync(dir, { recursive: true, force: true });
