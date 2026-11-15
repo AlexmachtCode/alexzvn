@@ -220,6 +220,27 @@ void NdiSender::sendErsatz(Bildart art, int width, int height) {
   meldeVerworfen(verworfen);
 }
 
+void NdiSender::sendKachel(std::shared_ptr<const std::vector<uint8_t>> i420, int width, int height) {
+  int verworfen = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!send_ || !i420 || width <= 0 || height <= 0) return;
+    const size_t erwartet = static_cast<size_t>(width) * static_cast<size_t>(height) +
+                            2 * static_cast<size_t>(width / 2) * static_cast<size_t>(height / 2);
+    if (i420->size() != erwartet) return;
+    if (ohneVersatz_ || (versatzMsLocked() == 0 && delay_.size() == 0)) {
+      NDIlib_video_frame_v2_t f;
+      fillFrame(f, i420->data(), width, height);
+      NDIlib_send_send_video_v2(send_, &f);
+      return;
+    }
+    const int verdraengt = delay_.pushKachel(std::move(i420), width, height, DelayLine::Clock::now());
+    zaehler_.verworfen += static_cast<unsigned int>(verdraengt);
+    verworfen = verdraengt + releaseDueLocked(false);
+  }
+  meldeVerworfen(verworfen);
+}
+
 void NdiSender::sendBlack(int width, int height) { sendErsatz(Bildart::Schwarz, width, height); }
 
 void NdiSender::sendWhite(int width, int height) { sendErsatz(Bildart::Weiss, width, height); }
@@ -284,6 +305,16 @@ int NdiSender::releaseDueLocked(bool nachlauf) {
     }
     if (b.art == Bildart::Transparent) {
       sendTransparentLocked(b.w, b.h);
+      return;
+    }
+    if (b.art == Bildart::Kachel) {
+      // Eine Kachel ohne Puffer legt die Warteschlange nie ab (pushKachel, pushBild, #306); die Senke prüft trotzdem
+      // selbst, statt sich darauf zu verlassen.
+      if (b.kachel) {
+        NDIlib_video_frame_v2_t k;
+        fillFrame(k, b.kachel->data(), b.w, b.h);
+        NDIlib_send_send_video_v2(send_, &k);
+      }
       return;
     }
     NDIlib_video_frame_v2_t f;

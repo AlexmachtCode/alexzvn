@@ -64,13 +64,19 @@ export type SlotResolution = (typeof SLOT_RESOLUTIONS)[number];
 /** Feld `audio` von slotOn/slotSet: kein Meeting-Ton, Mischton oder Ton der gezeigten Person (Ton-Abbildung 7.1). */
 export const SLOT_AUDIO_SETTINGS = ['off', 'mix', 'person'] as const;
 export type SlotAudioSetting = (typeof SLOT_AUDIO_SETTINGS)[number];
-/** Ersatzbild, solange kein Bild des Ziels kommt (6.12). */
-export const SLOT_FALLBACKS = ['transparent', 'freeze', 'black', 'white'] as const;
+/**
+ * Ersatzbild, solange kein Bild des Ziels kommt (6.12). 'tile' = Zoom-Kachel (#306), nur Teilnehmer/Sprecher; im
+ * Modus share verhält es sich wie 'transparent'.
+ */
+export const SLOT_FALLBACKS = ['transparent', 'freeze', 'black', 'white', 'tile'] as const;
 export type SlotFallback = (typeof SLOT_FALLBACKS)[number];
 export const SLOT_STATES = ['starting', 'live', 'fallback', 'held', 'off'] as const;
 export type SlotState = (typeof SLOT_STATES)[number];
-/** Was der Sender ZUSAETZLICH zu Zooms Bildern schickt (6.12); 'none' heisst: nur Zooms Bilder. */
-export const SLOT_SENT = ['none', 'transparent', 'freeze', 'black', 'white', 'held'] as const;
+/**
+ * Was der Sender ZUSAETZLICH zu Zooms Bildern schickt (6.12); 'none' heisst: nur Zooms Bilder. 'tile' = Zoom-Kachel
+ * (#306), nur Teilnehmer/Sprecher.
+ */
+export const SLOT_SENT = ['none', 'transparent', 'freeze', 'black', 'white', 'held', 'tile'] as const;
 export type SlotSent = (typeof SLOT_SENT)[number];
 /**
  * Warum sich der Zustand eines Slots zuletzt geaendert hat (6.3), genau 20 Werte. Kernregel: eine Ursache, ein Name.
@@ -85,6 +91,16 @@ export const SLOT_REASONS = [
   'resolutionChanged', 'bufferMismatch', 'subscribeFailed', 'meetingEnded', 'privilegeRevoked',
 ] as const;
 export type SlotReason = (typeof SLOT_REASONS)[number];
+/**
+ * Zoom-Kachel (#306): bei diesen Gründen zeigt die Kachel den Hinweis „Bild unterbrochen“ (Bild war da oder wird
+ * erwartet, kommt aber nicht). Connect leitet den Hinweis allein aus dem gemeldeten Grund ab.
+ * Gegenstück: slotlogic::kachelHinweis (native/slot_logic.h); der Selbsttest gleicht beide ab.
+ */
+export const TILE_NOTICE_REASONS = ['noFrames', 'bufferMismatch', 'subscribeFailed'] as const satisfies readonly SlotReason[];
+/** true = die Kachel zeigt bei diesem Grund „Bild unterbrochen“ (#306); null = kein Grund. */
+export function tileNotice(reason: SlotReason | null): boolean {
+  return reason !== null && (TILE_NOTICE_REASONS as readonly string[]).includes(reason);
+}
 /**
  * Warum sich der Ton eines Slots zuletzt geaendert hat (6.3), genau 12 Werte. 'audioUnavailable' ist ein eigener Wert
  * neben 'command': 'command' heisst "der Ton ist aus, weil so eingestellt", 'audioUnavailable' "Ton gewollt, aber

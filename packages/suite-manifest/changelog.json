@@ -1742,6 +1742,24 @@
     "name": "JM Connect",
     "entries": [
       {
+        "version": "0.4.4",
+        "date": "2026-11-15",
+        "notes": [
+          "Neues Ersatzbild „Zoom-Kachel“ für Zoom-Slots im Modus Teilnehmer und Aktiver Sprecher: Solange kein Kamerabild kommt, zeigt der Slot eine Kachel wie in Zoom – Profilbild oder Initialen und den Anzeigenamen. Liefert Zoom trotz Kamera an kein Bild, steht „Bild unterbrochen“ darauf. Verlässt die Person das Meeting, ist der Slot sofort transparent. Gedacht für den Downstage-Monitor: Redner sehen, ob ein Remote-Gast da ist. (#306)",
+          "Die bisherigen Ersatzbilder (transparent, eingefroren, schwarz, weiß) verhalten sich unverändert.",
+          "Nur Windows (Zoom-Slots gibt es nur dort); das Mac-Paket ist inhaltlich unverändert."
+        ]
+      },
+      {
+        "version": "0.4.3",
+        "date": "2026-11-14",
+        "notes": [
+          "Stabilität: Connect stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist. Connect schreibt den Fehler ins Protokoll und läuft weiter. (Absturz vom 02.11.)",
+          "Rechtsklick in ein Eingabefeld – z. B. Meeting-Nummer oder Kenncode – öffnet jetzt ein Menü mit Ausschneiden, Kopieren und Einfügen. (#301)",
+          "Gilt für Windows und Mac."
+        ]
+      },
+      {
         "version": "0.4.2",
         "date": "2026-11-12",
         "notes": [

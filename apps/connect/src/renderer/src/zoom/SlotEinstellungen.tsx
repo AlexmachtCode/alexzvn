@@ -7,7 +7,7 @@ import { SLOT_RESOLUTIONS } from '@jm/zoom-bridge/protocol';
 import type {
   ZoomErgebnis, ZoomParticipant, ZoomSlotAufloesung, ZoomSlotEinstellung, ZoomSlotErsatzbild, ZoomSlotLage, ZoomSlotModus,
 } from '@shared/types';
-import { BEDIEN_TEXT, ERSATZBILD_FELD, ERSATZBILD_NAME, loeschenFrage, MODUS_NAME, SLOT_FELD, SLOT_TEXT } from '@shared/zoom-text';
+import { BEDIEN_TEXT, ersatzbildAuswahl, ERSATZBILD_FELD, loeschenFrage, MODUS_NAME, SLOT_FELD, SLOT_TEXT } from '@shared/zoom-text';
 
 /** Wo eine abgelehnte Antwort erscheint: 'slots' = Kopf des Slot-Bereichs, sonst Kachel bzw. Zeile der Teilnehmerliste (7.5). */
 export type SlotOrt = 'slots' | `slot:${number}` | `zeile:${number}`;
@@ -49,8 +49,6 @@ export function Kennzeichen({ children }: { children: string }): JSX.Element {
   return <span className="rounded-full bg-neutral-800 px-2 py-0.5 text-[11px] font-semibold text-neutral-300">{children}</span>;
 }
 
-/** Die vier Ersatzbild-Einstellungen in der Reihenfolge von T4 (Werte, keine Texte; die Namen liefert ERSATZBILD_NAME). */
-const ERSATZBILDER: readonly ZoomSlotErsatzbild[] = ['transparent', 'eingefroren', 'schwarz', 'weiss'];
 type Aenderung = Partial<Omit<ZoomSlotEinstellung, 'nr' | 'an'>>;
 
 /**
@@ -178,9 +176,9 @@ export function SlotEinstellungen({
             onChange={(ev) => void aendere({ ersatzbild: ev.target.value as ZoomSlotErsatzbild })}
             className={STIL.inp}
           >
-            {ERSATZBILDER.map((b) => (
-              <option key={b} value={b}>
-                {ERSATZBILD_NAME[b]}
+            {ersatzbildAuswahl(e.modus, e.ersatzbild).map((o) => (
+              <option key={o.wert} value={o.wert} disabled={!o.waehlbar}>
+                {o.text}
               </option>
             ))}
           </select>

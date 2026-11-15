@@ -22,6 +22,10 @@
 #include "callbacks.h"
 #include "audio.h"
 #include "preview.h"
+// Zoom-Kachel (#306): Zeichenaufträge (kachelStarten/kachelWarten/kachelFertig) und der KachelStand je Slot.
+// kachel.h bindet kachel_logik.h selbst ohne die Makros min/max ein.
+#include "kachel.h"
+#include <cwchar>
 // Mischer Mischton + Computerton (reine Logik, Block a2). min/max wie bei slot_logic.h.
 #pragma push_macro("min")
 #pragma push_macro("max")
@@ -170,6 +174,9 @@ struct Slot {
   // --- nur Hauptthread ---
   int64_t letztesErsatzMs = 0;
   bool kameraAus = false;                  // Zoom meldet die Kamera des Ziels als aus (videoStatus, IsVideoOn)
+  // #306: Bridge-Uhr (ms), zu der Zoom die Kamera des Ziels zuletzt von aus auf an meldete (BildLage::kameraAnMs);
+  // 0 = kein solcher Wechsel seit dem Umhängen. Gesetzt nur an der Flanke (slotlogic::kameraLautZoom).
+  int64_t kameraAnMs = 0;
   int64_t kameraGefragtBildMs = -1;        // #285/#286: lastFrameMs der Bildluecke, in der IsVideoOn() schon gefragt wurde
   int resSet = -1, resGot = -1;            // 6.11; -1 = noch nicht gesetzt
   int rawType = -1;                        // getRawDataType() nach dem Setzen der Aufloesung; -1 = keins
@@ -204,6 +211,14 @@ struct Slot {
   // Sprecher-Slot: die Wahl dieses Slots (6.8), neu bei Einschalten, Moduswechsel auf
   // Sprecher und Wechsel des Signals, je aus der Erinnerung vorbelegt.
   std::unique_ptr<SprecherWahl> wahl;
+  // Zoom-Kachel (#306): gelesenes Profil, fertige Kachel, Grundfläche und Frist (reine Logik, kachel_logik.h) sowie
+  // der laufende Zeichenauftrag. Den Auftrag hält sein Thread selbst mit; lässt der Slot ihn los (Frist, leeren,
+  // neuer Auftrag, Slot zu), kommt sein Ergebnis nie mehr an. kachelBenutzt: seit dem letzten Leeren lief kachelFuer.
+  kachel::KachelStand kachel;
+  std::shared_ptr<KachelJob> kachelJob;
+  bool kachelBenutzt = false;
+  // Für dieses Ziel steht „Teilnehmer unbekannt“ schon im Protokoll (Abschlussprüfung M3 a); das Umhängen setzt 0.
+  unsigned kachelUnbekanntZiel = 0;
 
   Abo& abo() { return *abos.front(); }
 
@@ -580,6 +595,8 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         abo.target = lauf.ziel;
         abo.umhaengGeneration.fetch_add(1);   // nach dem Ziel: wer die neue Generation liest, liest auch das neue Ziel
         s.kameraAus = false;
+        s.kameraAnMs = 0;            // #306: ein neues Ziel hat noch kein „Kamera an“ (die 2 s zählen ab dem Umhängen)
+        s.kachelUnbekanntZiel = 0;   // #306: „Teilnehmer unbekannt“ darf für das neue Ziel wieder ins Protokoll
         s.gapOffen = true;           // die Luecke beginnt neu (6.10, Nachbesserung a3)
         s.gapErstesBildMs = 0;
         abschlussHier = true;
@@ -590,7 +607,7 @@ void planAusfuehren(Slot& s, UmhaengLauf& lauf, const UmhaengPlan& plan) {
         vorschauLeeren(s.nr);
         break;
       case UmhaengSchritt::IsVideoOnFragen:
-        if (lauf.ziel != 0 && !kameraAn(lauf.ziel)) s.kameraAus = true;
+        if (lauf.ziel != 0 && !kameraAn(lauf.ziel)) kameraLautZoom(s.kameraAus, s.kameraAnMs, true, jetztMs());
         break;
       case UmhaengSchritt::SlotMelden: {
         SlotState z = plan.zustand;
@@ -1305,6 +1322,174 @@ void stilleSenden(Slot& s, int64_t jetzt) {
   if (s.tonZustand == TonZustand::Live) tonMelden(s, TonZustand::Silent, TonGrund::gap);
 }
 
+// --- Zoom-Kachel im Slot (#306) -------------------------------------------------------
+// Gezeichnet wird NIE hier: kachelFuer startet einen Zeichenauftrag auf einem eigenen Thread (kachelStarten,
+// kachel.cpp) und wartet höchstens KACHEL_WARTEN_MS; bis das Ergebnis da ist, geht die letzte Kachel derselben
+// Person und Größe hinaus (Überbrückung), sonst die dunkle Grundfläche - nie transparent. Je Zustandswechsel
+// (Schlüssel: Ziel, Profilstand, Hinweis, Größe, mit/ohne Profilbild) einmal, nie je Bild. Alles hier läuft auf dem
+// Hauptthread; den Auftrag liest er erst, nachdem kachelFertig/kachelWarten unter dessen Sperre „fertig“ sah.
+// Keine Logzeile nennt Name oder Pfad (PT6 d, Wächter in test/selftest.ts). Nie Name oder Bild eines anderen Ziels
+// (Review T7): gezeichnet wird nur mit dem Profil, das zu diesem Ziel gelesen ist (KachelStand::profilFuer).
+
+static_assert(sizeof(wchar_t) == 2, "Zooms zchar_t (wchar_t) ist UTF-16 und geht ohne Umweg in std::u16string");
+
+// Wartezeit auf Zeichenaufträge je Herzschlag, zusammen höchstens KACHEL_WARTEN_MS (Mikrosekunden) plus eine
+// Zeitgeber-Auflösung. Zeichnen mehrere Slots im selben Herzschlag neu, wartet nur, wer noch Guthaben hat; die anderen
+// senden die Überbrückung und holen ihr Ergebnis im nächsten Herzschlag ab. slotsTick setzt das Guthaben je Durchlauf
+// zurück. Nur Hauptthread.
+int64_t g_kachelWartenUs = 0;
+// Auflösung des Windows-Zeitgebers ohne timeBeginPeriod (15,6 ms), aufgerundet (Review T7): ein wait_for, das
+// abläuft, kehrt bis zu so viel später zurück. Mit weniger Restguthaben wird nicht mehr gewartet, nur nachgesehen -
+// so überzieht höchstens das erste Warten eines Herzschlags, um höchstens eine Auflösung.
+constexpr int64_t kZeitgeberUs = 16000;
+
+std::wstring hexHr(long hr) {
+  wchar_t text[16];
+  std::swprintf(text, 16, L"0x%08lX", static_cast<unsigned long>(hr));
+  return text;
+}
+
+// Name und Profilbild-Pfad von Teilnehmer id, als Kopie (Zoom nennt keine Lebensdauer der Zeiger); blendet der Host
+// die Profilbilder aus, ohne Pfad (Initialen). *gefunden = false: kein Regler oder kein Nutzer zu dieser Kennung -
+// dann ist das leere Ergebnis KEIN Profil (Review T7, MINOR 5: der Slot fragt gedrosselt wieder, statt eine namenlose
+// Kachel als gelesen zu merken). Ruft das SDK: nur Hauptthread, nie während der Renderer-Sperre (kachelFuer fragt sie
+// vorher, wie kameraAn).
+kachel::Profil profilLesen(unsigned id, bool* gefunden) {
+  kachel::Profil p;
+  IMeetingParticipantsController* ctrl = participantsCtrl();
+  IUserInfo* u = (ctrl != nullptr && id != 0) ? ctrl->GetUserByUserID(id) : nullptr;
+  *gefunden = u != nullptr;
+  if (u == nullptr) return p;
+  const zchar_t* anzeige = u->GetUserName();
+  if (anzeige != nullptr) p.name = reinterpret_cast<const char16_t*>(anzeige);
+  if (!ctrl->IsParticipantProfilePicturesHidden()) {
+    const zchar_t* bild = u->GetAvatarPath();
+    if (bild != nullptr) p.profilbild = reinterpret_cast<const char16_t*>(bild);
+  }
+  return p;
+}
+
+// Übernimmt das Ergebnis des fertigen Auftrags, den der Slot hält (s.kachelJob; kachelFertig/kachelWarten war wahr,
+// das Ergebnis ist ohne Sperre lesbar, kachel.h), in den KachelStand und lässt den Auftrag los. Nur für den eigenen
+// Auftrag: einer, den der Slot losgelassen hat, füllt nie wieder einen Puffer (Entscheidung 5). soll = die Kachel, die
+// jetzt stehen soll: steht sie schon im Puffer, ersetzt das Ergebnis einer anderen sie nicht (Review T7, MINOR 3).
+// Der Fehler eines älteren Profilstands als soll.profilStand geht nicht mehr ins Protokoll, ein Fehler höchstens einmal
+// je Stand (fehlerMelden, erst nach gelesenem Profil - einen Auftrag mit Pfad gibt es erst dann).
+void kachelUebernehmen(Slot& s, const kachel::KachelSchluessel& soll) {
+  const kachel::KachelSchluessel k = s.kachelJob->schluessel;
+  if (s.kachel.hat(soll) && !(k == soll)) {
+    // Die richtige Kachel läuft schon: das späte Ergebnis beendet nur den Auftrag (kein Neuzeichnen, kein falsches Bild).
+    s.kachel.verwerfen(k);
+    s.kachelJob.reset();
+    return;
+  }
+  const KachelErgebnis& e = s.kachelJob->ergebnis;
+  // ZUERST i420 (Vertrag des Zeichners, kachel.h): ohne Bild ist fehler kein Befund des Profilbilds.
+  if (!e.i420) {
+    // Zeichnen gescheitert, auch bei einer Größe unter 16 oder über 4096 Bildpunkten (kachel.cpp): die dunkle
+    // Grundfläche in genau dieser Größe. Der Zeiger als Kopie - die Referenz aus grundflaeche() gilt nur bis zum
+    // nächsten Aufruf mit anderer Größe.
+    const kachel::Puffer flaeche = s.kachel.grundflaeche(k.w, k.h);
+    s.kachel.fertig(k, flaeche);
+    emitLog(L"Slot " + std::to_wstring(s.nr) + L": Zoom-Kachel nicht gezeichnet (HRESULT " + hexHr(e.hresult) +
+            L") - dunkle Fläche");
+  } else {
+    s.kachel.fertig(k, e.i420);
+    const bool mitBild = k.mitProfilbild && e.fehler == kachel::ProfilbildFehler::Keiner;
+    // Die Dauer misst der Zeichner selbst (dauerUs, ohne das Warten der Hauptschleife): so steht im Protokoll, was
+    // eine Kachel auf diesem Rechner kostet (isolierte DirectWrite-Fabrik je Zeichnen, Task 6).
+    emitLog(L"Slot " + std::to_wstring(s.nr) + L": Zoom-Kachel " + std::to_wstring(k.w) + L"x" + std::to_wstring(k.h) +
+            L" in " + std::to_wstring(e.dauerUs / 1000) + L" ms gezeichnet" + (mitBild ? L" (mit Profilbild)" : L" (Initialen)"));
+    if (e.fehler != kachel::ProfilbildFehler::Keiner && e.fehler != kachel::ProfilbildFehler::KeinPfad &&
+        k.profilStand == soll.profilStand && s.kachel.fehlerMelden()) {
+      const char* fehlerText = kachel::fehlerName(e.fehler);
+      const std::wstring art(fehlerText, fehlerText + std::strlen(fehlerText));
+      emitLog(L"Slot " + std::to_wstring(s.nr) + L": Profilbild nicht verwendet (" + art + L", HRESULT " + hexHr(e.hresult) +
+              L") - Initialen");
+    }
+  }
+  s.kachelJob.reset();
+}
+
+// Die Kachel, die Slot s jetzt senden soll (w/h positiv und gerade, kachelGroesse), für Ziel ziel, mit oder ohne
+// Hinweis „Bild unterbrochen“. Liefert immer einen Puffer der Größe w x h: die fertige Kachel, sonst die letzte
+// Kachel derselben Person und Größe, sonst die dunkle Grundfläche. Hält die Hauptschleife höchstens das
+// Guthaben g_kachelWartenUs auf (zusammen KACHEL_WARTEN_MS je Herzschlag, plus eine Zeitgeber-Auflösung).
+kachel::Puffer kachelFuer(Slot& s, unsigned ziel, bool hinweis, int w, int h, int64_t jetzt) {
+  s.kachelBenutzt = true;
+  // 1. Profil lesen, wenn nötig (erstes Mal, anderes Ziel, Merker aus slotsProfil) - nie während der Renderer-Sperre:
+  //    Zoom trennt oder verbindet neu (wie kameraAn, Abschluss-Fix F13); gelesen wird nach der Sperre. Kennt Zoom das
+  //    Ziel nicht, zählt das nicht als gelesen; gefragt wird frühestens nach PROFIL_WIEDERHOLEN_MS wieder.
+  if (!rendererSperre() && s.kachel.profilJetztLesen(ziel, jetzt)) {
+    bool gefunden = false;
+    kachel::Profil gelesen = profilLesen(ziel, &gefunden);
+    if (gefunden) {
+      s.kachel.profilGelesen(ziel, std::move(gelesen));
+    } else {
+      s.kachel.profilNichtGefunden(ziel, jetzt);
+      // Abschlussprüfung M3 a: eine Logzeile je Slot und Ziel, nicht je Wiederholung; das Umhängen setzt sie zurück.
+      if (s.kachelUnbekanntZiel != ziel) {
+        s.kachelUnbekanntZiel = ziel;
+        emitLog(L"Slot " + std::to_wstring(s.nr) + L": Teilnehmer unbekannt - dunkle Fläche");
+      }
+    }
+  }
+  // 2. Welche Kachel jetzt stehen soll, und das Profil dazu - nur, wenn es zu DIESEM Ziel gelesen ist (nach einem
+  //    Umhängen in der Renderer-Sperre bzw. bevor Zoom das Ziel kennt, ist es das des alten Ziels oder keins).
+  const kachel::KachelSchluessel k = s.kachel.soll(ziel, hinweis, w, h);
+  const kachel::Profil* profil = s.kachel.profilFuer(ziel);
+  // 3. Ist der eigene Auftrag fertig, sein Ergebnis übernehmen (galt er einer anderen Kachel und fehlt die gewünschte,
+  //    dient es als Überbrückung; steht die gewünschte schon, beendet es nur den Auftrag).
+  if (s.kachelJob && kachelFertig(*s.kachelJob)) kachelUebernehmen(s, k);
+  if (profil != nullptr && !s.kachel.hat(k) && !s.kachel.laeuft(k) && !s.kachel.bildAuftragOffen(k)) {
+    // 4. Neuer Auftrag, nur mit dem Profil dieses Ziels. Läuft (oder hängt) noch einer MIT Profilbild für dieses Ziel
+    //    und diesen Stand, kommt keiner (bildAuftragOffen, Review Task 6): sonst hinge je Schlüsselwechsel ein Thread
+    //    mehr an derselben Datei; dessen Frist (5.) gibt das Bild auf, danach kommt die Kachel ohne Profilbild. Ein
+    //    laufender Auftrag für eine andere Kachel wird losgelassen; sein Thread zeichnet zu Ende, das Ergebnis liest
+    //    niemand.
+    KachelAuftrag a;
+    a.name = profil->name;
+    if (k.mitProfilbild) a.profilbild = profil->profilbild;
+    a.hinweis = hinweis;
+    a.w = w;
+    a.h = h;
+    s.kachelJob = kachelStarten(std::move(a), k);
+    s.kachel.gestartet(k, jetzt);   // erst nach !laeuft(k): gestartet setzt die Frist neu
+    // Gewartet wird nur für die erste Kachel einer Person in dieser Größe (Abschlussprüfung M1): das Warten hält die
+    // ganze Hauptschleife an, auch Ton, Stille und Bild-Versatz aller Slots. Gibt es schon eine Überbrückung (Hinweis
+    // an/aus, neues Profilbild, Umbenennung, Sprecherwechsel zurück), geht sie sofort hinaus, und das Ergebnis holt 3.
+    // im nächsten Herzschlag ab.
+    const bool ohneBruecke = s.kachel.ueberbrueckung(ziel, w, h) == nullptr;
+    const long long w0 = qpcJetzt();
+    const bool da = ohneBruecke && g_kachelWartenUs >= kZeitgeberUs ? kachelWarten(*s.kachelJob, g_kachelWartenUs / 1000)
+                                                                    : kachelFertig(*s.kachelJob);
+    const int64_t gewartet = static_cast<int64_t>(qpcUs(w0, qpcJetzt()));
+    g_kachelWartenUs = gewartet < g_kachelWartenUs ? g_kachelWartenUs - gewartet : 0;
+    // Nicht fertig (kachelWarten false): unten Überbrückung bzw. dunkle Fläche, das Ergebnis holt 3. später ab.
+    if (da) kachelUebernehmen(s, k);
+  } else if (!s.kachel.hat(k) && s.kachelJob && s.kachel.fristAbgelaufen(jetzt)) {
+    // 5. Der Slot wartet auf den laufenden Auftrag (laeuft(k) oder bildAuftragOffen(k) - sonst hätte 4. einen neuen
+    //    gestartet - bzw. auf das Profil dieses Ziels), und der Auftrag ist nach KACHEL_FRIST_MS nicht fertig - gemeldet
+    //    wird das einmal je Auftrag (fristAbgelaufen). Mit Profilbild: dieses Bild ist für seinen Stand aufgegeben, der
+    //    Slot lässt den Auftrag los, der nächste kommt ohne. Ohne Profilbild (Abschlussprüfung M2): der Auftrag hängt
+    //    an keiner Datei, er ist nur langsam - der Slot behält ihn, zeigt bis dahin die Überbrückung bzw. die dunkle
+    //    Fläche, und 3. übernimmt das späte Ergebnis. Steht die gewünschte Kachel schon im Puffer, bleibt ein hängender
+    //    Auftrag für eine andere Kachel unangetastet: er ersetzte sonst die richtige Kachel durch die Initialen.
+    const kachel::KachelSchluessel lauf = s.kachelJob->schluessel;
+    const bool mitBild = lauf.mitProfilbild;
+    emitLog(L"Slot " + std::to_wstring(s.nr) + L": Zoom-Kachel nach " + std::to_wstring(kachel::KACHEL_FRIST_MS) +
+            (mitBild ? L" ms nicht fertig - neu ohne Profilbild" : L" ms nicht fertig - bis dahin dunkle Fläche"));
+    s.kachel.fristAblauf();
+    if (mitBild) s.kachelJob.reset();
+  }
+  // 6. Was jetzt hinausgeht: die fertige Kachel, sonst die Überbrückung (nur eine Kachel DIESES Ziels, also nie mit
+  //    einem fremden Profil gezeichnet), sonst die dunkle Fläche (Zeiger als Kopie).
+  if (s.kachel.hat(k)) return s.kachel.puffer();
+  kachel::Puffer bruecke = s.kachel.ueberbrueckung(ziel, w, h);
+  if (bruecke) return bruecke;
+  return s.kachel.grundflaeche(w, h);
+}
+
 // --- Ersatzbild-Herzschlag (Spec 6.12) -----------------------------------------------
 
 void ersatzbildTick(Slot& s, int64_t jetzt) {
@@ -1338,7 +1523,7 @@ void ersatzbildTick(Slot& s, int64_t jetzt) {
       std::lock_guard<std::mutex> lock(s.fieldMutex);
       abo.ziel.rawOffGesehen = false;
     }
-    if (s.mode.load() != SlotMode::Share) s.kameraAus = !kameraAn(abo.target.load());
+    if (s.mode.load() != SlotMode::Share) kameraLautZoom(s.kameraAus, s.kameraAnMs, !kameraAn(abo.target.load()), jetzt);
   }
   lage.modus = s.mode.load();
   lage.fallback = s.fallback.load();
@@ -1349,6 +1534,7 @@ void ersatzbildTick(Slot& s, int64_t jetzt) {
   lage.freigabeBesteht = dieseFreigabe;
   lage.freigabePausiert = dieseFreigabe && gezeigt->paused;
   lage.kameraAusLautZoom = s.kameraAus;
+  lage.kameraAnMs = s.kameraAnMs;   // #306: nur der Weg der Zoom-Kachel liest es (2-s-Frist ab „Kamera an“)
   lage.kameraGefragt = s.kameraGefragtBildMs == z.lastFrameMs;
   lage.letztesErsatzMs = s.letztesErsatzMs;
   lage.jetzt = jetzt;
@@ -1358,7 +1544,7 @@ void ersatzbildTick(Slot& s, int64_t jetzt) {
     // nach 200 ms greift, einmal je Luecke fragen. Waehrend der Sperre weder fragen noch merken (wie kameraAn, F13).
     s.kameraGefragtBildMs = z.lastFrameMs;
     if (!kameraAn(lage.ziel)) {
-      s.kameraAus = true;
+      kameraLautZoom(s.kameraAus, s.kameraAnMs, true, jetzt);
       lage.kameraAusLautZoom = true;
       e = bildEntscheidung(lage, z);
     }
@@ -1366,11 +1552,20 @@ void ersatzbildTick(Slot& s, int64_t jetzt) {
   if (e.zustandAendern && lage.modus != SlotMode::Share && !lage.kameraAusLautZoom && !kameraAn(lage.ziel)) {
     // Uebergang ohne Bild (200 ms bei Kamera aus/bufferMismatch, sonst nach der Schonfrist 2 s): Zoom fragen, bevor ein
     // Grund steht (6.12).
-    s.kameraAus = true;
+    kameraLautZoom(s.kameraAus, s.kameraAnMs, true, jetzt);
     lage.kameraAusLautZoom = true;
     e = bildEntscheidung(lage, z);
   }
+  // #306: steht der Slot nicht (mehr) auf tile oder zeigt er eine Freigabe, braucht er weder Kachel noch Auftrag. Nur,
+  // wenn er eine hielt (kachelBenutzt): sonst baute leeren() je Herzschlag einen KachelStand neu (Entscheidung 6).
+  if ((lage.fallback != Fallback::Tile || lage.modus == SlotMode::Share) && s.kachelBenutzt) {
+    s.kachel.leeren();
+    s.kachelJob.reset();   // den eigenen Auftrag loslassen: sein spätes Ergebnis füllt den geleerten Stand nie wieder
+    s.kachelBenutzt = false;
+  }
   if (e.jetztSenden && e.sent != Sent::None) {
+    // Größe aller Ersatzbilder: die des letzten Livebilds DIESES Ziels (ZielStandNeu setzt lastW/lastH zurück), ohne
+    // eines je Seite die Nennauflösung des Slots (6.11).
     const int w = lastW > 0 ? lastW : nominalWidth(s.res);
     const int h = lastH > 0 ? lastH : nominalHeight(s.res);
     const long long t0 = qpcJetzt();
@@ -1380,6 +1575,14 @@ void ersatzbildTick(Slot& s, int64_t jetzt) {
       case Sent::White:       s.sender.sendWhite(w, h); break;
       case Sent::Freeze:
       case Sent::Held:        s.sender.sendCopy(s.last); break;
+      case Sent::Tile: {
+        // #306 Zoom-Kachel: dieselbe Regel, aber nur in positiver, gerader Größe (I420 mit halber Farbauflösung);
+        // sonst beide Seiten aus der Nennauflösung (Entscheidung 4, slotlogic::kachelGroesse). Hinweis „Bild
+        // unterbrochen“ nach dem Grund NACH der Entscheidung (e.grund).
+        const BildGroesse g = kachelGroesse(w, h, nominalWidth(s.res), nominalHeight(s.res));
+        s.sender.sendKachel(kachelFuer(s, lage.ziel, kachelHinweis(e.grund), g.w, g.h, jetzt), g.w, g.h);
+        break;
+      }
       case Sent::None:        break;
     }
     s.workUs.fetch_add(qpcUs(t0, qpcJetzt()));
@@ -1473,7 +1676,7 @@ void slotStatsMelden(Slot& s, int64_t jetzt) {
   pflicht("workUs", jeSekunde(work));     // Bridge-Anteil je Sekunde (ANNAHME AN4: NDI sendet synchron)
   pflicht("copyUs", jeSekunde(copy));
   pflicht("previewUs", jeSekunde(vorschauKostenUs(s.nr)));
-  pflicht("memKb", std::to_string((s.sender.speicherBytes() + kopie + vorschauSpeicherBytes(s.nr)) / 1024));
+  pflicht("memKb", std::to_string((s.sender.speicherBytes() + kopie + vorschauSpeicherBytes(s.nr) + s.kachel.speicherBytes()) / 1024));
   pflicht("resWanted", std::string("\"") + (s.res == ZoomSDKResolution_360P ? "360p" : s.res == ZoomSDKResolution_1080P ? "1080p" : "720p") + "\"");
   wenn(s.resSet >= 0, "resSet", std::to_string(s.resSet));
   wenn(s.resGot >= 0, "resGot", std::to_string(s.resGot));
@@ -1730,8 +1933,20 @@ void slotsKamera(unsigned id, int videoStatus) {
   // videoStatus-Ereignis (0.18): Video_ON = 0, Video_OFF = 1, Video_Mute_ByHost = 2.
   emitRaw("{\"ev\":\"videoStatus\",\"id\":" + std::to_string(id) + ",\"videoOn\":" + (videoStatus == Video_ON ? "true" : "false") +
           ",\"mutedByHost\":" + (videoStatus == Video_Mute_ByHost ? "true" : "false") + "}");
+  const int64_t jetzt = jetztMs();
   for (auto& [nr, s] : g_slots) {
-    if (s->mode.load() != SlotMode::Share && s->abo().target.load() == id) s->kameraAus = videoStatus != Video_ON;
+    // Jedes videoStatus schreibt den Stand neu; kameraAnMs (#306) merkt nur die Flanke aus -> an (kameraLautZoom).
+    if (s->mode.load() != SlotMode::Share && s->abo().target.load() == id) {
+      kameraLautZoom(s->kameraAus, s->kameraAnMs, videoStatus != Video_ON, jetzt);
+    }
+  }
+}
+
+void slotsProfil(unsigned id) {
+  // Zoom-Kachel (#306): nur markieren - gelesen wird beim nächsten Zeichnen (kachelFuer), nie während der
+  // Renderer-Sperre. Freigabe-Slots zeigen keine Kachel.
+  for (auto& [nr, s] : g_slots) {
+    if (s->mode.load() != SlotMode::Share) s->kachel.profilVeraltet(id);
   }
 }
 
@@ -1772,6 +1987,14 @@ void slotsInMeeting() {
   // Kennungen wechseln nach einer Wiederverbindung (6.5): Sperre loesen, Halteliste
   // abbauen, eigene Kennung neu, Erinnerung und Freigaben leeren und neu befuellen, dann
   // jeden Slot neu zuordnen - die Reihenfolge gibt abbauPlan (6.15, PB20).
+  // Zoom-Kachel (#306, Review T7): mit den Kennungen gelten auch Profil und Kachel je Kennung nicht mehr - eine alte
+  // Kennung könnte jetzt jemand anderem gehören. Jeder Slot beginnt seine Kachel neu (gelesen wird beim nächsten
+  // Zeichnen); den eigenen Auftrag lässt er los.
+  for (auto& [nr, s] : g_slots) {
+    s->kachel.leeren();
+    s->kachelJob.reset();
+    s->kachelBenutzt = false;
+  }
   abbauAusfuehren(Kette::InMeetingErneut, Grund::command);
 }
 
@@ -1903,6 +2126,8 @@ void slotsMeetingEnded() { abbauAusfuehren(Kette::MeetingEnde, Grund::meetingEnd
 // Kartensperre: alle Mutationen laufen auf diesem Thread.
 void slotsTick() {
   const int64_t jetzt = jetztMs();
+  // Zoom-Kachel (#306): alle Slots zusammen warten in diesem Durchlauf höchstens KACHEL_WARTEN_MS auf Zeichenaufträge.
+  g_kachelWartenUs = kachel::KACHEL_WARTEN_MS * 1000;
   unsigned int verworfen = 0;
   if (audioTakeOverflowReport(&verworfen)) {
     emitRaw(std::string("{\"ev\":\"error\",\"where\":\"audio\",\"code\":\"audioQueueOverflow\",\"dropped\":") +
