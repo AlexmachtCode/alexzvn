@@ -23,19 +23,19 @@ type FakeKind = { getoetet: number };
 const g = globalThis as unknown as {
   __w: {
     aktuell: Schein | null; offen: number; zu: number; closed: (() => void) | null; absturz: ((grund: string) => void) | null;
-    anNdi: [string, unknown][]; status: unknown[]; publikum: unknown[];
+    anNdi: [string, unknown][]; status: unknown[]; publikum: unknown[]; oeffnenWirft: boolean;
   };
   __s: { m: Meldungen | null; gestartet: number; gestoppt: number; verbunden: number; datei: boolean; wirft: boolean; kindLaeuft: boolean };
   __sp: { initWirft: boolean; kinder: FakeKind[] };
   __app: Record<string, () => void>;
-  __ipc: { zu: string[]; initWirft: boolean; status: NdiStatus; h: Record<string, (...a: unknown[]) => unknown> };
+  __ipc: { zu: string[]; initWirft: boolean; status: NdiStatus; gescheitert: string[]; h: Record<string, (...a: unknown[]) => unknown> };
   __userData: string;
 };
-const w = (g.__w = { aktuell: null, offen: 0, zu: 0, closed: null, absturz: null, anNdi: [], status: [], publikum: [] });
+const w = (g.__w = { aktuell: null, offen: 0, zu: 0, closed: null, absturz: null, anNdi: [], status: [], publikum: [], oeffnenWirft: false });
 const s = (g.__s = { m: null, gestartet: 0, gestoppt: 0, verbunden: 0, datei: true, wirft: false, kindLaeuft: false });
 g.__sp = { initWirft: false, kinder: [] };
 g.__app = {};
-g.__ipc = { zu: [], initWirft: false, status: { an: false, lage: 'aus', empfaenger: 0, grund: null }, h: {} };
+g.__ipc = { zu: [], initWirft: false, status: { an: false, lage: 'aus', empfaenger: 0, grund: null }, gescheitert: [], h: {} };
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmpr-ndi-'));
 g.__userData = dir;
 const datei = path.join(dir, 'ndi-config.json');
@@ -48,16 +48,20 @@ console.error = (...a: unknown[]) => { logZeilen.push(a.map(String).join(' ')); 
 const FENSTER = `
 const w = globalThis.__w;
 export function openNdiWindow() {
+  if (w.oeffnenWirft) throw new Error('Fenster geht nicht\\nDetails');
   if (!w.aktuell) {
     const webContents = {
       on: (e, cb) => { if (e === 'render-process-gone') w.absturz = (grund) => cb({}, { reason: grund, exitCode: 1 }); },
     };
-    w.aktuell = { once: (e, cb) => { if (e === 'closed') w.closed = cb; }, isDestroyed: () => false, webContents };
+    const fenster = { zuRueckruf: null, isDestroyed: () => false, webContents,
+      once: (e, cb) => { if (e === 'closed') { w.closed = cb; fenster.zuRueckruf = cb; } } };
+    w.aktuell = fenster;
     w.offen++;
   }
   return w.aktuell;
 }
-export function closeNdiWindow() { if (w.aktuell) w.zu++; w.aktuell = null; }
+// Wie windows.ts mit destroy(): Verweis weg, dann kommt \`closed\` noch WÄHREND des Aufrufs (gemessen, Electron 33.4.11).
+export function closeNdiWindow() { const alt = w.aktuell; w.aktuell = null; if (alt) { w.zu++; alt.zuRueckruf?.(); } }
 export function getNdiWindow() { return w.aktuell; }
 export function sendeAnNdi(c, x) { w.anNdi.push([c, x]); }
 export function broadcastAll(c, x) { if (c === 'ndi:status') w.status.push(x); }
@@ -92,21 +96,32 @@ const IPC_TEILE: Record<string, string> = {
     export function setTimerStateHandler() {} export function shutdownTimer() { globalThis.__ipc.zu.push('timer'); }`,
   './timer-config': 'export function loadTimerConfig() { return {}; } export function saveTimerConfig() {}',
   './ndi/ausgang': `export function beendeNdi() { globalThis.__ipc.zu.push('ndi'); } export function ndiFensterBereit() {}
+    export function ndiStartGescheitert(e) { globalThis.__ipc.gescheitert.push(String(e?.message ?? e)); }
     export function ndiStatus() { return globalThis.__ipc.status; } export function setzeNdiAn() {}
     export function initNdiAusgang() { if (globalThis.__ipc.initWirft) throw new Error('init wirft'); }`,
+  // Nur für index.ts (letzter Teil): Laufzeit, Show-Links, Steuerserver, Doppelklick – stumm.
+  '@jm/app-runtime': 'export function initAppRuntime() { return { initialDeepLink: null }; }',
+  './show-open': 'export function handleShowDeepLink() {} export function flushPendingShowProject() {}',
+  './control-server': 'export async function startControlServer() {} export function stopControlServer() {}',
+  './datei-oeffnen': 'export function oeffneStartDateien() {} export function registriereDateiOeffnen() {}',
 };
 // Für config.ts reicht `app`; das echte windows.ts (zweiter Teil) braucht dazu Fenster und Bildschirm.
 // Ein Fenster schließt wie in Electron erst später: close() merkt vor, raeumeAuf() feuert die `closed`.
 const ELECTRON = `
-export const app = { getPath: () => globalThis.__userData, isPackaged: false, on: (e, cb) => { globalThis.__app[e] = cb; } };
+import { EventEmitter } from 'node:events';
+export const app = { getPath: () => globalThis.__userData, isPackaged: false, on: (e, cb) => { globalThis.__app[e] = cb; },
+  requestSingleInstanceLock: () => true, quit() {},
+  // whenReady: den Rückruf merken, der Test ruft ihn selbst (ein Wurf darin bliebe sonst eine unbehandelte Ablehnung).
+  whenReady: () => ({ then: (cb) => { globalThis.__app.bereit = cb; } }) };
 export const shell = { openExternal() {} };
 export const dialog = {};
 export const ipcMain = { handle(k, f) { globalThis.__ipc.h[k] = f; }, on() {} };
-// Echter sender-process.ts: fork liefert ein Schein-Kind; \`initWirft\` lässt das init-postMessage werfen.
+// Echter sender-process.ts: fork liefert ein Schein-Kind (ein EventEmitter wie das echte – 'error' ohne Zuhörer
+// wirft); \`initWirft\` lässt das init-postMessage werfen.
 export const utilityProcess = {
   fork() {
-    const k = { getoetet: 0, on() {}, kill() { k.getoetet++; },
-      postMessage(m) { if (m && m.type === 'init' && globalThis.__sp.initWirft) throw new Error('init scheitert'); } };
+    const k = Object.assign(new EventEmitter(), { getoetet: 0, kill() { k.getoetet++; },
+      postMessage(m) { if (m && m.type === 'init' && globalThis.__sp.initWirft) throw new Error('init scheitert'); } });
     globalThis.__sp.kinder.push(k);
     return k;
   },
@@ -119,6 +134,7 @@ const schliessend = new Set();
 export class BrowserWindow {
   constructor(opts) {
     this.opts = opts; this.zu = {}; this.wcZu = {}; this.weg = false; this.gesendet = []; this.suche = null;
+    this.schliessen = 0; this.zerstoert = 0; this.gezeigt = 0; this.fokus = 0;
     this.webContents = { on: (e, cb) => { (this.wcZu[e] ??= []).push(cb); }, setWindowOpenHandler() {}, getURL: () => '',
       send: (c, x) => this.gesendet.push([c, x]) };
     alle.push(this);
@@ -135,7 +151,17 @@ export class BrowserWindow {
   loadURL() { return Promise.resolve(); }
   loadFile(_p, o) { this.suche = o?.search ?? null; return Promise.resolve(); }
   isDestroyed() { return this.weg; }
-  close() { if (!this.weg) schliessend.add(this); }
+  isMinimized() { return false; }
+  restore() {}
+  show() { this.gezeigt++; }
+  focus() { this.fokus++; }
+  close() { this.schliessen++; if (!this.weg) schliessend.add(this); }
+  // Gemessen (Electron 33.4.11): destroy() feuert \`closed\` noch im Aufruf, danach isDestroyed() und weg aus getAllWindows.
+  destroy() {
+    if (this.weg) return;
+    this.zerstoert++; this.weg = true; schliessend.delete(this);
+    for (const cb of this.zu.closed ?? []) cb();
+  }
 }`;
 const ATTRAPPEN: Record<string, [string, string]> = {
   './windows': ['mock:windows', FENSTER],
@@ -147,6 +173,8 @@ const ATTRAPPEN: Record<string, [string, string]> = {
 const QUELLEN = new Map(Object.values(ATTRAPPEN));
 registerHooks({
   resolve(spec, ctx, next) {
+    // index.ts bekommt das echte windows.ts (Editor beim Start, zweite Instanz); alle anderen die Attrappe.
+    if (spec === './windows' && ctx.parentURL?.includes('/src/main/index.ts')) return next(spec, ctx);
     const a = ATTRAPPEN[spec];
     if (a) return { url: a[0], shortCircuit: true };
     return next(spec, ctx);
@@ -307,19 +335,35 @@ try {
   s.m!.bereit(); a.ndiFensterBereit(); ck('… sendet, sobald beide bereit sind', a.ndiStatus().lage === 'sendet');
   a.setzeNdiAn(false);
 
+  // ---- Härtung: initNdiAusgang wirft beim App-Start (hier: das NDI-Fenster lässt sich nicht öffnen) ----
+  fs.writeFileSync(datei, '{"an":true}'); w.oeffnenWirft = true;
+  const stI = s.gestartet; let initWurf: unknown = null;
+  try { a.initNdiAusgang({ startFristMs: FRIST, absturzFensterMs: ABSTURZ }); } catch (e) { initWurf = e; }
+  w.oeffnenWirft = false;
+  ck('initNdiAusgang: Fenster lässt sich nicht öffnen → Wurf geht an den Aufrufer, Sender läuft schon', initWurf instanceof Error && s.gestartet === stI + 1 && s.kindLaeuft);
+  const gescheitert = (a as { ndiStartGescheitert?: (e: unknown) => void }).ndiStartGescheitert;
+  log0 = logZeilen.length; gescheitert?.(initWurf);
+  ck('ndiStartGescheitert → nicht verfügbar mit erster Zeile, Sender beendet, kein Fenster',
+    typeof gescheitert === 'function' && a.ndiStatus().lage === 'nicht-verfuegbar' && a.ndiStatus().an
+    && a.ndiStatus().grund === 'NDI-Ausgang startet nicht: Fenster geht nicht' && !s.kindLaeuft && w.aktuell === null);
+  await warte(FRIST * 2 + 20);
+  ck('… genau eine [ndi]-Zeile, auch nach Ablauf der Frist', eq(logZeilen.slice(log0), ['[ndi] nicht verfügbar: NDI-Ausgang startet nicht: Fenster geht nicht']));
+  a.setzeNdiAn(false);
+
   // ---- Das echte windows.ts: NDI-Fenster, Rundruf, App-Ende mit dem letzten sichtbaren Fenster ----
   Object.defineProperty(process, 'platform', { value: 'win32' });
   (globalThis as { __dirname?: string }).__dirname = dir; // windows.ts ist CJS-gebaut und rechnet mit __dirname
   type ScheinFenster = {
     opts: { show?: boolean; width?: number; height?: number; skipTaskbar?: boolean; title?: string; webPreferences?: Record<string, unknown> };
-    gesendet: [string, unknown][]; suche: string | null; isDestroyed(): boolean; close(): void;
-    wcZu: Record<string, ((...a: unknown[]) => void)[]>;
+    gesendet: [string, unknown][]; suche: string | null; isDestroyed(): boolean; close(): void; destroy(): void;
+    wcZu: Record<string, ((...a: unknown[]) => void)[]>; schliessen: number; zerstoert: number; gezeigt: number; fokus: number;
   };
   const el = (await import('electron')) as unknown as { BrowserWindow: { getAllWindows(): ScheinFenster[]; raeumeAuf(): void } };
   const wm = (await import('../src/main/windows')) as unknown as {
     openNdiWindow(): ScheinFenster; closeNdiWindow(): void; getNdiWindow(): ScheinFenster | null; sendeAnNdi(c: string, x: unknown): void;
     broadcastAll(c: string, x: unknown): void; createEditorWindow(): ScheinFenster; openPresenterWindow(): ScheinFenster;
-    openAudienceWindow(id: number | null): ScheinFenster;
+    openAudienceWindow(id: number | null): ScheinFenster; getEditorWindow(): ScheinFenster | null;
+    istNdiFenster?(win: ScheinFenster): boolean;
   };
   const n1 = wm.openNdiWindow();
   ck('NDI-Fenster: versteckt, 1920×1080, ohne Taskleiste, ohne Drosselung, Sandbox, Ansicht ndi',
@@ -332,9 +376,12 @@ try {
   ck('Rundruf erreicht auch das NDI-Fenster', eq(n1.gesendet[0], ['ndi:status', 1]) && eq(e1.gesendet, [['ndi:status', 1]]));
   ck('sendeAnNdi nur ans NDI-Fenster', eq(n1.gesendet[1], ['present:payload', 2]));
   wm.closeNdiWindow();
-  ck('closeNdiWindow: Verweis sofort weg, noch vor closed', wm.getNdiWindow() === null && !n1.isDestroyed());
+  ck('closeNdiWindow: Verweis weg und destroy() statt close() – hängt nicht am Renderer des Fensters',
+    wm.getNdiWindow() === null && n1.isDestroyed() && n1.zerstoert === 1 && n1.schliessen === 0);
   const n2 = wm.openNdiWindow(); el.BrowserWindow.raeumeAuf();
   ck('schnelles Aus/An: closed des alten Fensters löscht den neuen Verweis nicht', n1.isDestroyed() && wm.getNdiWindow() === n2 && n2 !== n1);
+  ck('istNdiFenster: jedes NDI-Fenster, auch ein früheres – kein anderes',
+    wm.istNdiFenster?.(n1) === true && wm.istNdiFenster?.(n2) === true && wm.istNdiFenster?.(e1) === false);
   wm.closeNdiWindow(); wm.sendeAnNdi('present:payload', 3); el.BrowserWindow.raeumeAuf();
   ck('ohne NDI-Fenster: sendeAnNdi still', n2.gesendet.length === 0);
   const n3 = wm.openNdiWindow();
@@ -349,7 +396,7 @@ try {
   ref.close(); el.BrowserWindow.raeumeAuf();
   ck('letztes sichtbares Fenster (Referent) zu → NDI-Fenster geht mit', n4.isDestroyed() && el.BrowserWindow.getAllWindows().length === 0);
 
-  // Diagnose des versteckten Fensters: nur seine [ndi]-Warnungen/-Fehler ins Main-Log, dieselbe Zeile höchstens alle 10 s.
+  // Diagnose des versteckten Fensters: jeder Fehler und jede [ndi]-Warnung ins Main-Log, dieselbe Zeile höchstens alle 10 s.
   const warnZeilen: string[] = [];
   const echtesWarn = console.warn; const echtesNow = Date.now;
   console.warn = (...x: unknown[]) => { warnZeilen.push(x.map(String).join(' ')); };
@@ -368,8 +415,14 @@ try {
     ck('… nach 10 s wieder', logZeilen.length === l0 + 3);
     meld(2, '[ndi] Warnung');
     ck('… Warnung als Warnung', eq(warnZeilen, ['[ndi-bild] Warnung']));
-    meld(1, '[ndi] nur Info'); meld(3, 'Uncaught TypeError: fremd'); meld(3, 'vorne [ndi] mitten');
-    ck('… ohne [ndi]-Präfix oder unter Warnstufe nichts', logZeilen.length === l0 + 3 && warnZeilen.length === 1);
+    meld(1, '[ndi] nur Info'); meld(2, 'fremde Warnung');
+    ck('… Info und Warnung ohne [ndi]-Präfix: nichts', logZeilen.length === l0 + 3 && warnZeilen.length === 1);
+    meld(3, 'Uncaught TypeError: fremd');
+    ck('… jeder Fehler des NDI-Fensters landet im Main-Log, [ndi]-Präfix ergänzt', eq(logZeilen.slice(l0 + 3), ['[ndi-bild] Uncaught TypeError: fremd']));
+    meld(3, 'Uncaught TypeError: fremd'); uhr += 5_000; meld(3, 'Uncaught TypeError: fremd');
+    ck('… auch er höchstens alle 10 s (ein Fehler je Bild flutet das Log nicht)', logZeilen.length === l0 + 4);
+    meld(3, 'vorne [ndi] mitten');
+    ck('… [ndi] mitten im Text ist kein Präfix', logZeilen.length === l0 + 5 && logZeilen.at(-1) === '[ndi-bild] vorne [ndi] mitten');
     ck('… nur das NDI-Fenster wird abgehört', !(e5.wcZu['console-message']?.length) && (n5.wcZu['console-message']?.length ?? 0) === 1);
     e5.close(); el.BrowserWindow.raeumeAuf();
   } finally {
@@ -386,11 +439,24 @@ try {
   const kind = g.__sp.kinder.at(-1);
   ck('echter Sender: Wurf beim init → Kind schon geforkt, noch nicht beendet', spWurf && kind?.getoetet === 0);
   sp.stoppeSender(); ck('… stoppeSender beendet genau dieses Kind', kind?.getoetet === 1);
+  // Ein V8-Fatalfehler im Kind kommt als 'error' (danach 'exit'); ohne Zuhörer würfe der Emitter im Main.
+  g.__sp.initWirft = false;
+  const beendet3: number[] = [];
+  sp.starteSender({ ...stumm, beendet: (c: number) => { beendet3.push(c); } });
+  const k3 = g.__sp.kinder.at(-1) as unknown as { emit(e: string, ...x: unknown[]): boolean };
+  const l3 = logZeilen.length; let fatalWurf = false;
+  try { k3.emit('error', 'FatalError', 'v8::internal::Heap', 'Bericht'); } catch { fatalWurf = true; }
+  ck('echter Sender: FatalError des Kinds → kein Wurf im Main, eine [ndi]-Zeile mit Art und Ort',
+    !fatalWurf && logZeilen.length === l3 + 1 && logZeilen[l3].startsWith('[ndi] NDI-Sender') && logZeilen[l3].includes('FatalError') && logZeilen[l3].includes('v8::internal::Heap'));
+  k3.emit('exit', 134);
+  ck('… das folgende exit meldet das Ende wie sonst', eq(beendet3, [134]));
 
-  // ---- ipc.ts: ein Wurf in initNdiAusgang überspringt das Aufräumen bei will-quit nicht ----
+  // ---- ipc.ts: ein Wurf in initNdiAusgang wird gefangen und überspringt das Aufräumen bei will-quit nicht ----
   g.__ipc.initWirft = true;
   const ipc = await import('../src/main/ipc');
-  try { ipc.registerIpc(); } catch { /* Wurf darf durchgehen – will-quit muss trotzdem stehen */ }
+  let ipcWurf = false;
+  try { ipc.registerIpc(); } catch { ipcWurf = true; }
+  ck('initNdiAusgang wirft → registerIpc wirft nicht, der Wurf geht an ndiStartGescheitert', !ipcWurf && eq(g.__ipc.gescheitert, ['init wirft']));
   const willQuit = g.__app['will-quit'];
   willQuit?.();
   ck('initNdiAusgang wirft → will-quit steht und räumt Fernsteuerung, Timer, NDI auf',
@@ -413,6 +479,29 @@ try {
   start?.({}, payload, 'Unsinn'); p.stopPresentation();
   ck('present:start: „keiner“ bei nicht verfügbar, aus oder Schalter aus → automatisch, Bildschirm-ID bleibt, Unsinn → automatisch',
     eq(w.publikum.slice(pub0), [null, null, null, 7, null]));
+
+  // ---- index.ts mit dem echten windows.ts: Editor trotz Wurf in initNdiAusgang; die zweite Instanz holt nie ein NDI-Fenster ----
+  g.__ipc.gescheitert = [];
+  await import('../src/main/index');
+  const bereit = g.__app.bereit; let bereitWurf = false;
+  try { bereit?.(); } catch { bereitWurf = true; }
+  const ed = wm.getEditorWindow();
+  ck('App-Start: initNdiAusgang wirft → Editor öffnet trotzdem, Wurf an ndiStartGescheitert',
+    typeof bereit === 'function' && !bereitWurf && ed !== null && !ed.isDestroyed() && eq(g.__ipc.gescheitert, ['init wirft']));
+  const zweite = g.__app['second-instance'];
+  const n6 = wm.openNdiWindow(); zweite?.();
+  ck('zweite Instanz, Editor offen → Editor nach vorn, NDI-Fenster nicht', ed !== null && ed.fokus === 1 && n6.gezeigt === 0 && n6.fokus === 0);
+  const ref6 = wm.openPresenterWindow(); ed?.close(); el.BrowserWindow.raeumeAuf();
+  wm.closeNdiWindow(); zweite?.(); el.BrowserWindow.raeumeAuf();
+  ck('zweite Instanz, Editor zu, NDI-Fenster schließt gerade → Referent nach vorn, NDI-Fenster nicht', ref6.gezeigt === 1 && n6.gezeigt === 0 && n6.fokus === 0);
+  const n7 = wm.openNdiWindow();
+  n7.close = () => {}; n7.destroy = () => {}; // Fenster hängt: weder close() noch destroy() kommen an
+  wm.closeNdiWindow(); ref6.close(); el.BrowserWindow.raeumeAuf();
+  const nurHaengend = eq(el.BrowserWindow.getAllWindows().map((x) => x === n7), [true]);
+  zweite?.();
+  const ed2 = wm.getEditorWindow();
+  ck('zweite Instanz, nur ein hängendes NDI-Fenster übrig → nie nach vorn, neuer Editor',
+    nurHaengend && n7.gezeigt === 0 && n7.fokus === 0 && ed2 !== null && ed2 !== ed && !ed2.isDestroyed());
 } finally {
   console.error = echtesError;
   fs.rmSync(dir, { recursive: true, force: true });

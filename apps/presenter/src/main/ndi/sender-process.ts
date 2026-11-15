@@ -44,6 +44,11 @@ export function starteSender(m: SenderMeldungen): boolean {
     else if (d.type === 'fehler') m.fehler(String(d.grund ?? ''));
     else if (d.type === 'stat' && typeof d.empfaenger === 'number') m.empfaenger(d.empfaenger);
   });
+  // Ein V8-Fatalfehler im Kind kommt als 'error', danach 'exit' (das meldet das Ende). Ohne Zuhörer würfe der
+  // Emitter im Main – die App-Laufzeit schriebe dann einen falschen Absturzbericht.
+  k.on('error', (typ: string, ort: string) => {
+    console.error('[ndi] NDI-Sender: schwerer Fehler im Prozess:', typ, ort);
+  });
   k.on('exit', (code: number) => {
     if (kind !== k) return; // von stoppeSender beendet oder schon ersetzt
     kind = null;

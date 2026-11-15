@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import { initAppRuntime } from '@jm/app-runtime';
 import { registerIpc } from './ipc';
-import { createEditorWindow, getEditorWindow, getNdiWindow } from './windows';
+import { createEditorWindow, getEditorWindow, istNdiFenster } from './windows';
 import { handleShowDeepLink, flushPendingShowProject } from './show-open';
 import { startControlServer, stopControlServer } from './control-server';
 import { oeffneStartDateien, registriereDateiOeffnen } from './datei-oeffnen';
@@ -22,12 +22,13 @@ if (!gotLock) {
 } else {
   app.on('second-instance', () => {
     // Bevorzugt den Editor: während einer Show ist das erste Fenster oft Referent oder Publikum.
-    // Nie das versteckte NDI-Fenster (#303) – das ist kein Bedienfenster; ist nur es offen, kommt ein Editor.
+    // Nie ein verstecktes NDI-Fenster (#303), auch kein schließendes oder hängendes – das ist kein Bedienfenster;
+    // ist sonst keins offen, kommt ein Editor.
     const editor = getEditorWindow();
     const win =
       editor && !editor.isDestroyed()
         ? editor
-        : BrowserWindow.getAllWindows().find((w) => w !== getNdiWindow());
+        : BrowserWindow.getAllWindows().find((w) => !istNdiFenster(w));
     if (win) {
       if (win.isMinimized()) win.restore();
       win.show();

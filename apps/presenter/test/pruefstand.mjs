@@ -1842,11 +1842,13 @@ async function ndiFehlt(exe, d, umgebung) {
   });
   if (kopie) {
     await mitApp('ndi (App C)', kopie, [], async (app, ed) => {
-      await fall('15 Start ohne NDI → Knopf „NDI nicht verfügbar“ binnen 10 s; ▶ Präsentieren mit a.pdf → view=presenter und view=audience; App lebt nach 5 s', async () => {
+      await fall('15 Start ohne NDI → Knopf „NDI nicht verfügbar“ binnen 10 s, Fenster view=ndi geht mit dem Sender zu; ▶ Präsentieren mit a.pdf → view=presenter und view=audience; App lebt nach 5 s', async () => {
         const k = await bisWert(() => ndiKnopf(ed), (v) => v === 'NDI nicht verfügbar', 10_000);
         const s = await ndiStatus(ed);
         erwarte(k === 'NDI nicht verfügbar', `Knopf „${k}“, Status ${JSON.stringify(s)}`);
         console.log(`      Grund: ${s?.grund}`);
+        // Endet der Sender, schließt auch das NDI-Fenster – es zeichnete sonst jede Folie weiter und schickte sie ins Leere.
+        erwarte(await warteBis(async () => !(await seiteMit('view=ndi')), 5_000), 'Fenster view=ndi bleibt offen, obwohl der Sender tot ist');
         const { x, y } = await auswerten(ed, imDom(domMitte));
         await ablegen(ed, [d.a], x, y);
         const n = await bisWert(() => folienZahl(ed), (v) => v === 2);

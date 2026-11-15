@@ -12,6 +12,8 @@ let presenterWindow: BrowserWindow | null = null;
 let audienceWindow: BrowserWindow | null = null;
 /** Verstecktes Fenster des NDI-Ausgangs (#303); nie sichtbar, kein Bedienfenster. */
 let ndiWindow: BrowserWindow | null = null;
+/** Jedes je geöffnete NDI-Fenster – auch eines, auf das `ndiWindow` nicht mehr zeigt (schließend, hängend). */
+const ndiFenster = new WeakSet<BrowserWindow>();
 
 const istOffen = (win: BrowserWindow | null): boolean => win != null && !win.isDestroyed();
 
@@ -250,13 +252,17 @@ export async function captureAudience(maxWidth = 1280): Promise<Buffer | null> {
 const NDI_LOG_ABSTAND_MS = 10_000;
 
 /**
- * Die `[ndi]`-Warnungen und -Fehler des versteckten NDI-Fensters stünden sonst nur in dessen DevTools, die niemand
- * öffnet. Sie gehen ins Main-Log, gekennzeichnet als `[ndi-bild]`; dieselbe Zeile höchstens alle 10 s.
+ * Fehler und Warnungen des versteckten NDI-Fensters stünden sonst nur in dessen DevTools, die niemand öffnet. Jeder
+ * Fehler (auch ein unerwarteter wie „Uncaught TypeError …“; fehlt der `[ndi]`-Präfix, wird er ergänzt) und jede
+ * `[ndi]`-Warnung gehen ins Main-Log, gekennzeichnet als `[ndi-bild]`; dieselbe Zeile höchstens alle 10 s, damit ein
+ * Fehler je Bild das Log nicht flutet.
  */
 function reicheNdiDiagnoseWeiter(win: BrowserWindow): void {
   const zuletzt = new Map<string, number>();
-  win.webContents.on('console-message', (_e, stufe, text) => {
-    if (stufe < 2 || !text.startsWith('[ndi]')) return; // 2 = warning, 3 = error
+  win.webContents.on('console-message', (_e, stufe, roh) => {
+    const mitPraefix = roh.startsWith('[ndi]');
+    if (stufe < 2 || (stufe === 2 && !mitPraefix)) return; // 2 = warning, 3 = error
+    const text = mitPraefix ? roh : `[ndi] ${roh}`;
     const jetzt = Date.now();
     const vorher = zuletzt.get(text);
     if (vorher !== undefined && jetzt - vorher < NDI_LOG_ABSTAND_MS) return;
@@ -290,14 +296,25 @@ export function openNdiWindow(): BrowserWindow {
   });
   loadView(win, 'ndi');
   ndiWindow = win;
+  ndiFenster.add(win);
   return win;
 }
 
-/** Verweis SOFORT weg, dann schließen – ein schnelles Wieder-Einschalten bekommt so nie das schließende Fenster. */
+/** Ist `win` ein NDI-Fenster (auch ein früheres)? So eines holt nichts nach vorn – es ist kein Bedienfenster. */
+export function istNdiFenster(win: BrowserWindow): boolean {
+  return ndiFenster.has(win);
+}
+
+/**
+ * Verweis SOFORT weg, dann zerstören – ein schnelles Wieder-Einschalten bekommt so nie das alte Fenster. `destroy()`
+ * statt `close()`: Das NDI-Fenster hat keine Entlade-Logik, und `close()` hinge an seinem Renderer (abgestürzt oder
+ * hängend). Gemessen (Electron 33.4.11): `closed` kommt dabei noch während des Aufrufs, danach ist das Fenster
+ * zerstört und aus getAllWindows verschwunden.
+ */
 export function closeNdiWindow(): void {
   const win = ndiWindow;
   ndiWindow = null;
-  if (win && !win.isDestroyed()) win.close();
+  if (win && !win.isDestroyed()) win.destroy();
 }
 
 export function getNdiWindow(): BrowserWindow | null {

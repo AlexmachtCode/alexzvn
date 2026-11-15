@@ -22,7 +22,7 @@ import {
   moveAudienceToDisplay,
   toggleAudienceFullscreen,
 } from './windows';
-import { beendeNdi, initNdiAusgang, ndiFensterBereit, ndiStatus, setzeNdiAn } from './ndi/ausgang';
+import { beendeNdi, initNdiAusgang, ndiFensterBereit, ndiStartGescheitert, ndiStatus, setzeNdiAn } from './ndi/ausgang';
 import { nurNdiBehalten, pruefeStartZiel } from '../shared/ndi';
 import {
   getPayload,
@@ -257,6 +257,11 @@ export function registerIpc(): void {
   });
 
   // Gemerkter Schalter: ist er an, entstehen Sender und NDI-Fenster schon jetzt. Erst NACH will-quit, damit ein
-  // Wurf hier das Aufräumen von Fernsteuerung und Timer nicht überspringt.
-  initNdiAusgang();
+  // Wurf hier das Aufräumen von Fernsteuerung und Timer nicht überspringt. Und gefangen: index.ts öffnet den Editor
+  // erst nach registerIpc – ein Wurf kostete sonst den Editor, und die App hielte den Single-Instance-Lock ohne Fenster.
+  try {
+    initNdiAusgang();
+  } catch (err) {
+    ndiStartGescheitert(err);
+  }
 }

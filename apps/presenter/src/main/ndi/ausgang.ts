@@ -5,6 +5,7 @@
 // Ob Addon und NDI-Laufzeit da sind, prüft der Utility-Prozess beim Laden (Meldung `fehler`); der Main prüft
 // nur Plattform und Sender-Datei. Auf dem Mac startet so nie ein Sender, unter Windows wird ein fehlendes
 // Addon gemeldet statt abzustürzen.
+import type { BrowserWindow } from 'electron';
 import type { NdiStatus, PresentationPayload } from '@shared/types';
 import { NDI_STATUS_AUS } from '../../shared/ndi';
 import { getPayload, subscribe } from '../present';
@@ -45,6 +46,11 @@ let senderBereit = false;
 let fensterWartet = false;
 /** Zeitpunkt des letzten Absturzes des NDI-Bilds (Date.now), null = keiner seit dem letzten Aus. */
 let letzterAbsturz: number | null = null;
+/**
+ * NDI-Fenster, die der Ausgang selbst schließt (Aus, Ende des Senders, Ersatz nach einem Absturz, Start gescheitert).
+ * Ihr `closed` – mit destroy() noch während des Schließens – beendet keinen Sender; beim Ersatz läuft er weiter.
+ */
+const selbstGeschlossen = new WeakSet<BrowserWindow>();
 
 const ersteZeile = (e: unknown): string => String((e as { message?: unknown })?.message ?? e).split(/\r?\n/)[0];
 const laeuft = (): boolean => status.lage === 'startet' || status.lage === 'sendet';
@@ -96,10 +102,17 @@ function stoppeLauf(): void {
   stoppeSender();
 }
 
+/** Das NDI-Fenster selbst schließen (siehe selbstGeschlossen). */
+function schliesseFenster(): void {
+  const win = getNdiWindow();
+  if (win) selbstGeschlossen.add(win);
+  closeNdiWindow();
+}
+
 /** Sender, Start-Frist UND NDI-Fenster beenden (der Status bleibt dem Aufrufer überlassen). */
 function beendeAlles(): void {
   stoppeLauf();
-  closeNdiWindow();
+  schliesseFenster();
   fensterWartet = false;
 }
 
@@ -139,8 +152,8 @@ function oeffneFenster(): void {
   zeigeLauf();
   const win = openNdiWindow();
   win.once('closed', () => {
-    // Nach schnellem Aus/An oder einem Absturz gehört der laufende Sender schon zum neuen Fenster.
-    if (getNdiWindow() === null) stoppeLauf();
+    // Nur ein Fenster, das jemand anderes schließt (windows.ts mit dem letzten sichtbaren Fenster), beendet den Lauf.
+    if (!selbstGeschlossen.has(win) && getNdiWindow() === null) stoppeLauf();
   });
   win.webContents.on('render-process-gone', (_e, details) => {
     if (getNdiWindow() === win) bildAbgestuerzt(details.reason);
@@ -162,7 +175,7 @@ function bildAbgestuerzt(grund: string): void {
     senderEnde(BILD_ABGESTUERZT);
     return;
   }
-  closeNdiWindow();
+  schliesseFenster();
   gemerkt = getPayload();
   oeffneFenster();
 }
@@ -208,6 +221,15 @@ export function initNdiAusgang(opt: { startFristMs?: number; absturzFensterMs?: 
     sendeAnNdi('present:payload', p);
   });
   if (ladeNdiConfig().an) starte();
+}
+
+/**
+ * initNdiAusgang hat geworfen (ipc.ts fängt es, damit der Editor trotzdem öffnet): Sender, Frist und Fenster weg,
+ * Schalter „nicht verfügbar“ – genau eine Log-Zeile `[ndi] …`.
+ */
+export function ndiStartGescheitert(err: unknown): void {
+  beendeAlles();
+  nichtVerfuegbar(ladeNdiConfig().an, `NDI-Ausgang startet nicht: ${ersteZeile(err)}`);
 }
 
 export function ndiStatus(): NdiStatus {
