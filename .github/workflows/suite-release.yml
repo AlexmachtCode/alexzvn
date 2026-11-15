@@ -13,6 +13,24 @@ on:
       - "*-v*.*.*"
 
 jobs:
+  # Presenter ab 0.13.0 (#303): Das Windows-Paket mit NDI baut der Owner lokal; die CI baut nur das Mac-Paket ohne NDI.
+  # Job-`if` kennt matrix nicht, darum die Plattformliste aus diesem Job.
+  plan:
+    name: Plattformen bestimmen
+    runs-on: ubuntu-latest
+    outputs:
+      os: ${{ steps.os.outputs.os }}
+    steps:
+      - id: os
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          case "$TAG" in
+            presenter-v*) echo 'os=["macos-latest"]' >> "$GITHUB_OUTPUT" ;;
+            *) echo 'os=["macos-latest","windows-latest"]' >> "$GITHUB_OUTPUT" ;;
+          esac
+
   release:
     name: ${{ matrix.os }}
     # Tools mit nativen Addons werden NICHT in CI gebaut (lizenzierte, nicht
@@ -32,11 +50,14 @@ jobs:
     # NUR das öffentliche ZIP, nie das KOMPLETT-Paket (packages/zoom-bridge/README.md
     # Abschnitt 10). Mit dem Job entfällt auch bump-manifest (needs: release): die
     # Bridge ist kein Katalog-Tool in suite.json.
+    # presenter ab 0.13.0: Windows lokal mit NDI (#303), hier nur macOS — die
+    # Plattformliste kommt aus dem Job `plan`.
+    needs: plan
     if: ${{ !startsWith(github.ref_name, 'ndi-screen-capture-v') && !startsWith(github.ref_name, 'switcher-v') && !startsWith(github.ref_name, 'recorder-v') && !startsWith(github.ref_name, 'titler-v') && !startsWith(github.ref_name, 'transcribe-v') && !startsWith(github.ref_name, 'caption-v') && !startsWith(github.ref_name, 'daw-v') && !startsWith(github.ref_name, 'connect-v') && !startsWith(github.ref_name, 'zoom-bridge-v') }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: ${{ fromJSON(needs.plan.outputs.os) }}
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -143,10 +164,12 @@ jobs:
   # Native Tools (ndi-screen-capture/switcher/recorder/daw/titler/transcribe/connect)
   # bauen lokal und sind oben per `if` ausgenommen → deren Version bumpt man lokal:
   #   node scripts/bump-manifest.mjs <app> <version>
+  # presenter: latestVersion zieht der Owner lokal nach, wenn exe und beide dmg am
+  # Release hängen (die CI kennt nur die dmg; ein Bump hier käme vor der exe).
   bump-manifest:
     name: Bump suite.json
     needs: release
-    if: ${{ needs.release.result == 'success' }}
+    if: ${{ needs.release.result == 'success' && !startsWith(github.ref_name, 'presenter-v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

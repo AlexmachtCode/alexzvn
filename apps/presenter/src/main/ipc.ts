@@ -18,9 +18,12 @@ import {
   broadcastAll,
   getDisplays,
   getEditorWindow,
+  getNdiWindow,
   moveAudienceToDisplay,
   toggleAudienceFullscreen,
 } from './windows';
+import { beendeNdi, initNdiAusgang, ndiFensterBereit, ndiStartGescheitert, ndiStatus, setzeNdiAn } from './ndi/ausgang';
+import { nurNdiBehalten, pruefeStartZiel } from '../shared/ndi';
 import {
   getPayload,
   getState,
@@ -186,12 +189,11 @@ export function registerIpc(): void {
 
   // ---- Presentation control ----
 
-  ipcMain.handle(
-    'present:start',
-    (_e, payload: PresentationPayload, audienceDisplayId: number | null) => {
-      startPresentation(payload, audienceDisplayId);
-    },
-  );
+  // „Keiner – nur NDI“ (#303), solange NDI an ist und sendet oder (begrenzt durch die Start-Frist) startet – wie die
+  // Werkzeugleiste; sonst automatischer Bildschirm.
+  ipcMain.handle('present:start', (_e, payload: PresentationPayload, ziel: unknown) => {
+    startPresentation(payload, pruefeStartZiel(ziel, nurNdiBehalten(ndiStatus())));
+  });
   ipcMain.handle('present:getPayload', () => getPayload());
   ipcMain.handle('present:getState', () => getState());
   ipcMain.handle('present:goto', (_e, index: number) => goto(index));
@@ -239,8 +241,27 @@ export function registerIpc(): void {
   // Restore the persisted timer connection on launch.
   applyTimerConfig(loadTimerConfig());
 
+  // ---- NDI-Ausgang (#303) ----
+
+  ipcMain.handle('ndi:status', () => ndiStatus());
+  ipcMain.handle('ndi:setzeAn', (_e, an: unknown) => setzeNdiAn(an === true));
+  // Den Bild-Port bekommt nur das NDI-Fenster (alle Fenster teilen den Preload).
+  ipcMain.on('ndi:fensterBereit', (e) => {
+    if (e.sender === getNdiWindow()?.webContents) ndiFensterBereit();
+  });
+
   app.on('will-quit', () => {
     shutdownRemote();
     shutdownTimer();
+    beendeNdi();
   });
+
+  // Gemerkter Schalter: ist er an, entstehen Sender und NDI-Fenster schon jetzt. Erst NACH will-quit, damit ein
+  // Wurf hier das Aufräumen von Fernsteuerung und Timer nicht überspringt. Und gefangen: index.ts öffnet den Editor
+  // erst nach registerIpc – ein Wurf kostete sonst den Editor, und die App hielte den Single-Instance-Lock ohne Fenster.
+  try {
+    initNdiAusgang();
+  } catch (err) {
+    ndiStartGescheitert(err);
+  }
 }

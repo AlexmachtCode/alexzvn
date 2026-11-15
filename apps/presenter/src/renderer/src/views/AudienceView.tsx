@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Slide } from '@shared/types';
 import { SlideCanvas } from '@/components/SlideCanvas';
 import { usePresentation, usePresenterKeys } from '@/lib/usePresentation';
-import { uebergangFuer } from '../../../shared/wiedergabe';
+import { aktuelleFolie, bildArt, naechsteSchicht, MAX_ALTE_SCHICHTEN } from '../../../shared/publikumsbild';
 
 /** Eine gestapelte Folie. Die oberste ist die aktuelle; darunter bleibt die alte, bis der Wechsel fertig ist. */
 interface Schicht {
@@ -18,30 +18,19 @@ export function AudienceView() {
   const { slides, state, wiedergabe } = usePresentation();
   usePresenterKeys(true);
 
-  const current = slides?.[state.index] ?? null;
+  const current = aktuelleFolie(state, slides);
   const [schichten, setSchichten] = useState<Schicht[]>([]);
   const zaehler = useRef(0);
 
   // #293: Neue Folie oben auflegen. Der Übergang gehört zur hereinkommenden Folie (wie in PowerPoint);
   // die allererste Folie kommt ohne Übergang.
   useEffect(() => {
-    if (!current) {
-      setSchichten([]);
-      return;
-    }
     setSchichten((alt) => {
-      const oben = alt[alt.length - 1];
-      if (oben && oben.slide.id === current.id) return alt;
-      const u = uebergangFuer(current, wiedergabe);
+      const e = naechsteSchicht(alt[alt.length - 1]?.slide.id ?? null, current, wiedergabe);
+      if (e.art === 'leeren') return [];
+      if (e.art === 'bleibt') return alt;
       zaehler.current += 1;
-      const neu: Schicht = {
-        key: zaehler.current,
-        slide: current,
-        blendeMs: oben && u.art === 'blende' ? u.dauerMs : 0,
-        sichtbar: false,
-      };
-      // Beim schnellen Weiterklicken höchstens zwei alte Schichten halten.
-      return [...alt.slice(-2), neu];
+      return [...alt.slice(-MAX_ALTE_SCHICHTEN), { key: zaehler.current, slide: e.slide, blendeMs: e.blendeMs, sichtbar: false }];
     });
   }, [current, wiedergabe]);
 
@@ -74,10 +63,11 @@ export function AudienceView() {
   };
 
   // Pause screens cover the slide entirely (B/W keys, remote, presenter buttons).
-  if (state.screen === 'black') {
+  const art = bildArt(state, current);
+  if (art === 'schwarz') {
     return <div className="h-full w-full bg-black" />;
   }
-  if (state.screen === 'white') {
+  if (art === 'weiss') {
     return <div className="h-full w-full bg-white" />;
   }
 

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { EditorView } from './views/EditorView';
 import { PresenterView } from './views/PresenterView';
 import { AudienceView } from './views/AudienceView';
+import { starteNdiAnsicht } from './ndi/ndi-ansicht';
 import { useProject } from './store/project';
 import './globals.css';
 
@@ -27,14 +28,19 @@ if (view === 'editor') {
   });
 }
 
-createRoot(root).render(
-  <StrictMode>
-    {view === 'presenter' ? (
-      <PresenterView />
-    ) : view === 'audience' ? (
-      <AudienceView />
-    ) : (
-      <EditorView />
-    )}
-  </StrictMode>,
-);
+// Das versteckte NDI-Fenster (#303) bekommt keinen React-Baum, nur seine Zeichenansicht.
+if (view === 'ndi') {
+  starteNdiAnsicht();
+} else {
+  createRoot(root).render(
+    <StrictMode>
+      {view === 'presenter' ? (
+        <PresenterView />
+      ) : view === 'audience' ? (
+        <AudienceView />
+      ) : (
+        <EditorView />
+      )}
+    </StrictMode>,
+  );
+}

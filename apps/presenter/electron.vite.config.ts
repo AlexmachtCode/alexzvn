@@ -27,10 +27,16 @@ export default defineConfig({
     resolve: { alias: sharedAlias },
     build: {
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/main/index.ts') },
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          // Entry des utilityProcess (nativer NDI-Sender, #303) → out/main/ndi-sender.cjs.
+          'ndi-sender': resolve(__dirname, 'src/utility/ndi-sender.ts'),
+        },
         output: {
           format: 'cjs',
           entryFileNames: '[name].cjs',
+          // Das Paket ist "type": "module": ein gemeinsamer Chunk mit .js wäre ESM, und require scheiterte zur Laufzeit.
+          chunkFileNames: 'chunks/[name]-[hash].cjs',
         },
       },
     },

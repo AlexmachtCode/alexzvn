@@ -3,6 +3,7 @@ import { cn } from '@jm/ui';
 import type { DisplayInfo } from '@shared/types';
 import { SlideCanvas } from '@/components/SlideCanvas';
 import { Clock } from '@/components/Clock';
+import { NdiSchalter } from '@/components/NdiSchalter';
 import { RemotePanel } from '@/components/RemotePanel';
 import { TimerBar } from '@/components/TimerBar';
 import { usePresentation, usePresenterKeys } from '@/lib/usePresentation';
@@ -29,6 +30,9 @@ export function PresenterView() {
   // Mit Schleife folgt auf die letzte Folie wieder die erste (#293).
   const next = slides[state.index + 1] ?? (state.schleife && slides.length > 1 ? slides[0] : null);
   const audienceDisplay = displays.find((d) => d.current);
+  // „Keiner – nur NDI“ (#303): ohne Publikumsfenster ist kein Bildschirm `current`. Ein leeres Feld heißt dagegen nur
+  // „Bildschirme noch nicht geladen“ – es gibt immer mindestens einen.
+  const nurNdi = displays.length > 0 && !audienceDisplay;
 
   const doJump = (): void => {
     const n = Number(jump);
@@ -53,17 +57,25 @@ export function PresenterView() {
         <div className="h-8 w-px bg-white/15" />
         <div className="flex items-center gap-2">
           <select
-            value={audienceDisplay?.id ?? ''}
+            value={nurNdi ? 'keiner' : audienceDisplay?.id ?? ''}
+            disabled={nurNdi}
             onChange={(e) => e.target.value && void window.jmpr.present.assignAudience(Number(e.target.value))}
             title="Publikums-Bildschirm"
             className="h-8 max-w-[170px] rounded-md bg-white/10 border border-white/15 px-2 text-xs"
           >
-            {displays.map((d) => (
-              <option key={d.id} value={d.id} className="text-black">
-                {d.label}
+            {nurNdi ? (
+              <option value="keiner" className="text-black">
+                Keiner – nur NDI
               </option>
-            ))}
+            ) : (
+              displays.map((d) => (
+                <option key={d.id} value={d.id} className="text-black">
+                  {d.label}
+                </option>
+              ))
+            )}
           </select>
+          <NdiSchalter variante="referent" />
           <HeaderBtn
             onClick={() => void window.jmpr.present.setScreen('black')}
             active={state.screen === 'black'}
@@ -79,7 +91,13 @@ export function PresenterView() {
             ⬜
           </HeaderBtn>
           <SchleifenKnopf schleife={state.schleife === true} bisMs={state.schleifeBisMs ?? null} />
-          <HeaderBtn onClick={() => void window.jmpr.present.toggleAudienceFullscreen()}>Vollbild</HeaderBtn>
+          <HeaderBtn
+            onClick={() => void window.jmpr.present.toggleAudienceFullscreen()}
+            disabled={nurNdi}
+            title={nurNdi ? 'Kein Publikumsfenster – Bild nur über NDI' : undefined}
+          >
+            Vollbild
+          </HeaderBtn>
           <HeaderBtn onClick={() => setShowGrid((v) => !v)} active={showGrid}>
             Übersicht
           </HeaderBtn>
@@ -222,20 +240,24 @@ function HeaderBtn({
   active,
   danger,
   title,
+  disabled,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   active?: boolean;
   danger?: boolean;
   title?: string;
+  /** Gesperrt, aber mit Tooltip (darum ohne pointer-events-none). */
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
+      disabled={disabled}
       className={cn(
-        'h-8 px-3 rounded-md text-xs font-semibold border transition-colors',
+        'h-8 px-3 rounded-md text-xs font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
         danger
           ? 'border-[var(--destructive)]/60 text-[var(--destructive)] hover:bg-[var(--destructive)]/15'
           : active
