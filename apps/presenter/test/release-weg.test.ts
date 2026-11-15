@@ -1,6 +1,8 @@
 // #303: Bündelkette des NDI-Ausgangs (nur Windows). npm run selftest -w @jm/presenter
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -40,6 +42,38 @@ const code = /from\s+['"]@jm\/ndi['"]|import\(\s*['"]@jm\/ndi['"]\s*\)|require\(
 const treffer = alleTs('../src/').filter((f) =>
   readFileSync(f, 'utf8').split(/\r?\n/).some((z) => code.test(z) && !/^\s*(import type |\/\/|\*)/.test(z)));
 ck('@jm/ndi nur in src/utility/ndi-sender.ts geladen', treffer.length === 1 && treffer[0].endsWith(join('utility', 'ndi-sender.ts')));
+
+// Lizenztext der Drittbibliotheken in der NDI-Laufzeit (NDI-SDK-Lizenz Abschnitt 3, Connect-Spec LP4): liegt im
+// Windows-Paket neben der DLL. Vorbild apps/connect/tools/bundle-ndi.mjs.
+const bundle = lies('../tools/bundle-ndi.mjs');
+ck('bundle-ndi legt den Lizenztext neben die DLL', bundle.includes("name: 'Processing.NDI.Lib.Licenses.txt'")
+  && bundle.includes("join(sdk, 'Bin', 'x64', 'Processing.NDI.Lib.Licenses.txt')"));
+// Echter Lauf gegen einen SDK-Ordner mit DLL, aber ohne Lizenztext. Windows: Abbruch, der den Lizenztext nennt, bevor
+// etwas nach resources/bin/win kopiert ist. Sonst (Mac-CI): übersprungen wie bisher, ebenfalls ohne Kopie.
+const binWin = pfad('../resources/bin/win');
+const binStand = (): string => (existsSync(binWin)
+  ? readdirSync(binWin).sort().map((n) => { const s = statSync(join(binWin, n)); return `${n}:${s.size}:${s.mtimeMs}`; }).join('|')
+  : 'fehlt');
+const sdkAttrappe = mkdtempSync(join(tmpdir(), 'jm-presenter-ndi-sdk-'));
+try {
+  mkdirSync(join(sdkAttrappe, 'Bin', 'x64'), { recursive: true });
+  writeFileSync(join(sdkAttrappe, 'Bin', 'x64', 'Processing.NDI.Lib.x64.dll'), 'Attrappe');
+  const vorher = binStand();
+  const lauf = spawnSync(process.execPath, [pfad('../tools/bundle-ndi.mjs')], {
+    env: { ...process.env, NDI_SDK_DIR: sdkAttrappe },
+    encoding: 'utf8',
+  });
+  const ausgabe = `${lauf.stdout ?? ''}${lauf.stderr ?? ''}`;
+  if (process.platform === 'win32') {
+    ck('bundle-ndi ohne Lizenztext: Abbruch mit Hinweis, nichts kopiert',
+      lauf.status !== 0 && ausgabe.includes('Processing.NDI.Lib.Licenses.txt') && binStand() === vorher);
+  } else {
+    ck('bundle-ndi außerhalb Windows: übersprungen wie bisher, nichts kopiert', lauf.status === 0
+      && ausgabe.includes('[bundle-ndi] Nur Windows: Mac-Presenter ohne NDI (#303) – übersprungen.') && binStand() === vorher);
+  }
+} finally {
+  rmSync(sdkAttrappe, { recursive: true, force: true });
+}
 
 // Release-Weg ab 0.13.0: Windows mit NDI baut der Owner lokal, die CI nur das Mac-Paket.
 const wf = lies('../../../.github/workflows/suite-release.yml');

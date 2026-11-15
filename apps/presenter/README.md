@@ -88,6 +88,8 @@ npm run dist:mac          # DMG (macOS, arm64 + x64, ohne NDI)
   NDI-Laufzeit (`Processing.NDI.Lib.x64.dll` aus `NDI_SDK_DIR`) nach
   `resources/bin/win/`. Ohne `NDI_SDK_DIR` bricht der Bau ab
   („NDI_SDK_DIR nicht gesetzt“) – ein Windows-Paket ohne NDI entsteht nie still.
+  Der Lizenztext der NDI-Laufzeit liegt im Paket, in
+  `resources\bin\win\Processing.NDI.Lib.Licenses.txt` (fehlt er im SDK, bricht der Bau ebenfalls ab).
 
   ```powershell
   $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"

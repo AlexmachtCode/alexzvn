@@ -2,12 +2,14 @@
 // resources/bin/win/ – von dort lädt @jm/ndi sie zur Laufzeit:
 //   1. das gebaute native Addon (@jm/ndi → jm_ndi.node)
 //   2. die NDI-Runtime-Lib (Processing.NDI.Lib.x64.dll)
-// Beide sind gitignored und werden pro Build frisch bereitgestellt. Muster: apps/titler/tools/bundle-ndi.mjs.
+//   3. ihr Lizenztext (Processing.NDI.Lib.Licenses.txt, Drittbibliotheken der Laufzeit; NDI-SDK-Lizenz Abschnitt 3,
+//      Connect-Spec LP4) – liegt im Paket neben der DLL. Vorbild: apps/connect/tools/bundle-ndi.mjs.
+// Alle sind gitignored und werden pro Build frisch bereitgestellt. Muster: apps/titler/tools/bundle-ndi.mjs.
 // Nur Windows (#303): Das Mac-Paket baut die CI ohne NDI.
 //
-// Braucht ein gebautes Addon + gesetztes NDI_SDK_DIR. Fehlt eins davon, bricht der Lauf ab: ein Windows-Paket
-// ohne NDI darf nie still entstehen.
-import { existsSync, mkdirSync, copyFileSync } from 'node:fs';
+// Braucht ein gebautes Addon + gesetztes NDI_SDK_DIR. Fehlt eine Quelle oder ist sie leer, bricht der Lauf ab, bevor
+// etwas kopiert ist: ein Windows-Paket ohne NDI oder ohne Lizenztext darf nie still entstehen.
+import { existsSync, mkdirSync, copyFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,7 +27,6 @@ if (!sdk) {
 }
 
 const destDir = join(appRoot, 'resources', 'bin', 'win');
-mkdirSync(destDir, { recursive: true });
 
 const sources = [
   {
@@ -36,12 +37,20 @@ const sources = [
     name: 'Processing.NDI.Lib.x64.dll',
     src: join(sdk, 'Bin', 'x64', 'Processing.NDI.Lib.x64.dll'),
   },
+  {
+    name: 'Processing.NDI.Lib.Licenses.txt',
+    src: join(sdk, 'Bin', 'x64', 'Processing.NDI.Lib.Licenses.txt'),
+  },
 ];
 
+// Erst alle Quellen prüfen, dann kopieren: Bei einem Abbruch liegt nichts Halbes in resources/bin/win.
+const fehlen = sources.filter(({ src }) => !existsSync(src) || !statSync(src).isFile() || statSync(src).size === 0);
+if (fehlen.length) {
+  throw new Error(`[bundle-ndi] Quelle fehlt oder ist leer: ${fehlen.map(({ name, src }) => `${name} (${src})`).join(', ')}`);
+}
+
+mkdirSync(destDir, { recursive: true });
 for (const { name, src } of sources) {
-  if (!existsSync(src)) {
-    throw new Error(`[bundle-ndi] Quelle für ${name} nicht gefunden: ${src}`);
-  }
   const dest = join(destDir, name);
   copyFileSync(src, dest);
   console.log(`bundled ${name} → ${dest}`);
