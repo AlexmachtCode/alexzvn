@@ -1791,9 +1791,10 @@ async function ndiNeustart(exe, d, ndi, umgebung) {
 
 /** App C, Fall 15: Kopie ohne NDI mit gemerktem Schalter „an“ – kein Absturz, Präsentation geht. */
 async function ndiFehlt(exe, d, umgebung) {
-  const original = fingerabdruck(exe);
+  let original = null;
   let kopie = null;
   await fall('15 Kopie ohne NDI: resources/bin/win weg, @jm/ndi nicht in app.asar; Schalter im Profil gemerkt an', async () => {
+    original = fingerabdruck(exe); // im Fall: einem Paket ohne NDI fehlt resources/bin/win, das ist ein FAIL, kein Abbruch
     const config = path.join(d.ndiProfil, 'AppData', 'Roaming', '@jm', 'presenter', 'ndi-config.json');
     const gemerkt = JSON.parse(fs.readFileSync(config, 'utf8'));
     erwarte(gemerkt.an === true, `ndi-config.json: ${JSON.stringify(gemerkt)}`);
@@ -1827,6 +1828,7 @@ async function ndiFehlt(exe, d, umgebung) {
     }, umgebung);
   }
   await fall('15 Original release/win-unpacked unberührt (app.asar samt @jm/ndi, resources/bin/win)', async () => {
+    erwarte(original, 'Original vorher nicht gemessen');
     const nachher = fingerabdruck(exe);
     erwarte(JSON.stringify(nachher) === JSON.stringify(original), `vorher ${JSON.stringify(original)}, nachher ${JSON.stringify(nachher)}`);
     erwarte(nachher.ndiImAsar && nachher.bin.includes('jm_ndi.node'), `Original ohne NDI: ${JSON.stringify(nachher)}`);
