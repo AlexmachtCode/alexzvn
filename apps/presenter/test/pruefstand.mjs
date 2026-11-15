@@ -1,33 +1,35 @@
-// Prüfstand für den GEPACKTEN Presenter (#298/#299): startet die Exe mit
+// Prüfstand für den GEPACKTEN Presenter (#298/#299, NDI #303): startet die Exe mit
 // Remote-Debugging, steuert sie per Chrome DevTools Protocol und legt echte
-// Dateien ab (`Input.dispatchDragEvent` mit `data.files`).
+// Dateien ab (`Input.dispatchDragEvent` mit `data.files`). Die Gruppe `ndi`
+// empfängt die NDI-Quelle der App mit `@jm/ndi` und prüft die Bildpunkte.
 //
-//   npm run dist:dir
+//   npm run dist:dir          (Windows: mit NDI_SDK_DIR, bündelt NDI ins Paket)
 //   node test/pruefstand.mjs [--exe <pfad>] [--nur <gruppe,…>]
-//
-// electron liegt ans Workspace-Root gehoistet; electron-builder findet die Version lokal
-// dann nicht (CI schreibt sie in die Config). Lokal also, in Git Bash:
-//   npm run dist:dir -- -c.electronVersion=$(node -p "require('electron/package.json').version") -c.npmRebuild=false
 //
 // Gruppen: siehe GRUPPEN unten. Ausgabe je Fall „  ok  …“ / „FAIL  …“ /
 // „skip  … (Grund)“, zuletzt die Summe. Exit 1 bei FAIL, Exit 2, wenn der
 // Prüfstand gar nicht laufen kann.
 //
-// Gepackte und installierte App teilen Single-Instance-Lock und userData: Läuft
-// schon ein JM Presenter, bricht der Prüfstand ab, statt still mit der falschen
-// App zu reden. Er beendet nur Prozessbäume, die er selbst gestartet hat.
-// Ausnahme Gruppe `steuerbefehl`: Sie startet die App mit eigenem USERPROFILE im
-// Testordner (appData/userData dort) und einer offenen Steuer-Konfiguration nur für
-// 127.0.0.1; die echte Steuer-Konfiguration des Rechners bleibt ungelesen und unberührt.
-// Windows, Node ≥ 22 (globales WebSocket); pdf-lib und fflate aus dem Workspace.
+// Jede Gruppe startet die App mit eigenem USERPROFILE im Testordner (appData und
+// userData liegen dann dort, gemessen) und einer offenen Steuer-Konfiguration nur für
+// 127.0.0.1. Das echte Profil des Rechners (%APPDATA%\@jm\presenter, auch die echte
+// Steuer-Konfiguration mit TLS und Anmeldung) wird weder gelesen noch geändert; ohne
+// eigenes Profil startet der Prüfstand keine App. Zweite Instanzen bekommen dasselbe
+// Profil, sonst griffe der Single-Instance-Lock nicht. Läuft schon ein JM Presenter,
+// bricht der Prüfstand trotzdem ab (gleicher Prozessname, Steuer- und Debug-Port), statt
+// still mit der falschen App zu reden. Er beendet nur Prozessbäume, die er selbst gestartet hat.
+// Windows, Node ≥ 22 (globales WebSocket); pdf-lib, fflate, @jm/ndi und @electron/asar
+// (über electron-builder) aus dem Workspace.
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PDFDocument, PDFHexString } from 'pdf-lib';
-import { strToU8, zipSync } from 'fflate';
+import { PDFDocument, PDFHexString, rgb } from 'pdf-lib';
+import { strToU8, zipSync, zlibSync } from 'fflate';
+import { zaehleBilder } from './ndi-messung.mjs';
 
 const HIER = path.dirname(fileURLToPath(import.meta.url));
 const BILD = 'JM Presenter.exe';
@@ -116,9 +118,11 @@ for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => p
 
 /**
  * Umgebung ohne ELECTRON_RUN_AS_NODE (sonst startet die Exe als reines Node), dazu `extra`
- * (Schlüssel ohne Rücksicht auf Groß-/Kleinschreibung ersetzt).
+ * (Schlüssel ohne Rücksicht auf Groß-/Kleinschreibung ersetzt). `extra` muss ein eigenes
+ * Profil setzen (siehe eigenesProfil): Ohne liefe die App im echten Profil des Rechners.
  */
 function appUmgebung(extra = {}) {
+  if (!extra.USERPROFILE) throw new Error('App nur mit eigenem USERPROFILE starten (echtes Profil nie anfassen)');
   const weg = new Set(['ELECTRON_RUN_AS_NODE', ...Object.keys(extra).map((k) => k.toUpperCase())]);
   return {
     ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !weg.has(k.toUpperCase()))),
@@ -127,7 +131,7 @@ function appUmgebung(extra = {}) {
 }
 
 /** Startet die Exe mit Remote-Debugging. */
-function starteApp(exe, args = [], extra = {}) {
+function starteApp(exe, args, extra) {
   const kind = spawn(exe, [`--remote-debugging-port=${PORT}`, ...args], { env: appUmgebung(extra), stdio: 'ignore' });
   const app = { pid: kind.pid, ziele: [], beendet: null };
   kind.on('exit', (code, signal) => {
@@ -152,9 +156,10 @@ async function beendeApp(app) {
 /**
  * Startet die Exe noch einmal mit `args`, wie Windows bei Doppelklick/„Öffnen mit“: OHNE
  * Remote-Debugging. Sie reicht ihre Kommandozeile an die laufende App weiter und beendet sich
- * selbst (Single-Instance-Lock). Wartet, bis sie weg ist.
+ * selbst (Single-Instance-Lock). Wartet, bis sie weg ist. `extra` = dasselbe Profil wie die
+ * laufende App, sonst findet sie deren Lock nicht und startet als erste Instanz.
  */
-async function zweiteInstanz(exe, args, extra = {}) {
+async function zweiteInstanz(exe, args, extra) {
   const kind = spawn(exe, args, { env: appUmgebung(extra), stdio: 'ignore' });
   const app = { pid: kind.pid, ziele: [], beendet: null };
   if (kind.pid) laufende.add(app);
@@ -176,10 +181,14 @@ async function zweiteInstanz(exe, args, extra = {}) {
   }
 }
 
-/** Startet die App, öffnet den Editor, führt `fn(app, editor)` aus, beendet die App immer. */
-async function mitApp(gruppe, exe, args, fn, extra = {}) {
-  const app = starteApp(exe, args, extra);
+/**
+ * Startet die App mit dem Profil `extra` (eigenesProfil), öffnet den Editor, führt `fn(app, editor)`
+ * aus, beendet die App immer.
+ */
+async function mitApp(gruppe, exe, args, fn, extra) {
+  let app = null;
   try {
+    app = starteApp(exe, args, extra);
     const editor = await oeffneEditor(app);
     await fn(app, editor);
   } catch (e) {
@@ -187,12 +196,26 @@ async function mitApp(gruppe, exe, args, fn, extra = {}) {
     console.log(`FAIL  ${gruppe}: ${e instanceof Error ? e.message : String(e)}`);
   } finally {
     try {
-      await beendeApp(app);
+      if (app) await beendeApp(app);
     } catch (e) {
       stand.fail++;
       console.log(`FAIL  ${gruppe}: ${e.message}`);
     }
   }
+}
+
+/**
+ * Eigenes Benutzerprofil unter `dir`: Mit umgelenktem USERPROFILE liegen appData und userData der
+ * gepackten App darin (gemessen). Dort eine OFFENE Steuer-Konfiguration nur für 127.0.0.1 – ohne sie
+ * lauschte der Steuerserver offen auf allen Adressen. Die echte Konfiguration des Rechners (TLS +
+ * Anmeldung) wird weder gelesen noch geändert.
+ */
+function eigenesProfil(dir) {
+  const suite = path.join(dir, 'AppData', 'Roaming', 'JM Production Suite');
+  fs.mkdirSync(suite, { recursive: true });
+  fs.mkdirSync(path.join(dir, 'AppData', 'Local'), { recursive: true });
+  fs.writeFileSync(path.join(suite, 'control.json'), JSON.stringify({ mode: 'open', bindHost: '127.0.0.1' }));
+  return { USERPROFILE: dir };
 }
 
 // ---------------------------------------------------------------- CDP
@@ -489,6 +512,53 @@ async function geschuetztesPdf() {
   return doc.save({ useObjectStreams: false });
 }
 
+/** Ein PDF mit einer Seite `breite`×`hoehe`, ganz in `farbe` gefüllt. */
+async function gefuelltesPdf(breite, hoehe, farbe) {
+  const doc = await PDFDocument.create();
+  doc.addPage([breite, hoehe]).drawRectangle({ x: 0, y: 0, width: breite, height: hoehe, color: farbe });
+  return doc.save();
+}
+
+/** CRC-32 wie in PNG (Polynom 0xEDB88320). */
+function crc32(bytes) {
+  let c = ~0;
+  for (const b of bytes) {
+    c ^= b;
+    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+  }
+  return ~c >>> 0;
+}
+
+function pngBlock(typ, daten) {
+  const kopf = Buffer.alloc(8);
+  kopf.writeUInt32BE(daten.length, 0);
+  kopf.write(typ, 4, 'latin1');
+  const pruefsumme = Buffer.alloc(4);
+  pruefsumme.writeUInt32BE(crc32(Buffer.concat([kopf.subarray(4), daten])), 0);
+  return Buffer.concat([kopf, daten, pruefsumme]);
+}
+
+/** RGBA-PNG (8 Bit, ohne Zeilenfilter); `zeile(y)` liefert [r, g, b, a] für die ganze Zeile y. */
+function rgbaPng(breite, hoehe, zeile) {
+  const laenge = 1 + breite * 4; // Filterbyte 0 + Bildpunkte
+  const roh = new Uint8Array(laenge * hoehe);
+  for (let y = 0; y < hoehe; y++) {
+    const farbe = zeile(y);
+    for (let x = 0; x < breite; x++) roh.set(farbe, y * laenge + 1 + x * 4);
+  }
+  const kopf = Buffer.alloc(13); // Bittiefe 8, Farbtyp 6 (RGBA), Kompression/Filter/Zeilensprung 0
+  kopf.writeUInt32BE(breite, 0);
+  kopf.writeUInt32BE(hoehe, 4);
+  kopf[8] = 8;
+  kopf[9] = 6;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngBlock('IHDR', kopf),
+    pngBlock('IDAT', Buffer.from(zlibSync(roh))),
+    pngBlock('IEND', Buffer.alloc(0)),
+  ]);
+}
+
 async function baueTestdateien() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmpr-pruefstand-'));
   const p = (name) => path.join(dir, name);
@@ -514,6 +584,12 @@ async function baueTestdateien() {
     /** 201 Bilder: eins mehr, als der Hauptprozess je Aufruf annimmt. */
     viele: Array.from({ length: 201 }, (_, i) => p(path.join('viele', `bild-${String(i + 1).padStart(3, '0')}.png`))),
     profil: p('profil'),
+    // NDI (#303)
+    quer: p('quer.pdf'),
+    hoch: p('hoch.pdf'),
+    bild: p('bild.png'),
+    ndiProjekt: p('ndi.jmpres'),
+    ndiProfil: p('ndi-profil'),
   };
   fs.writeFileSync(d.a, await pdf(2));
   fs.writeFileSync(d.eins, eins);
@@ -545,12 +621,42 @@ async function baueTestdateien() {
     d.show,
     JSON.stringify({ schemaVersion: 1, name: 'Prüfstand', tools: [{ appId: 'jm-presenter', document: 'Projekt.jmpres' }] }),
   );
+  // NDI (#303): quer (schwarz, füllt 16:9), hoch (weiß, schmaler), Bild oben rot deckend, unten durchsichtig.
+  const quer = await gefuelltesPdf(480, 270, rgb(0, 0, 0));
+  const hoch = await gefuelltesPdf(270, 480, rgb(1, 1, 1));
+  const bild = rgbaPng(900, 1600, (y) => (y < 800 ? [255, 0, 0, 255] : [0, 0, 0, 0]));
+  fs.writeFileSync(d.quer, quer);
+  fs.writeFileSync(d.hoch, hoch);
+  fs.writeFileSync(d.bild, bild);
+  const ndiManifest = {
+    schemaVersion: 1,
+    name: 'NDI',
+    sources: [
+      { id: 'quer', kind: 'pdf', name: 'quer.pdf', pageCount: 1 },
+      { id: 'hoch', kind: 'pdf', name: 'hoch.pdf', pageCount: 1 },
+      { id: 'bild', kind: 'image', name: 'bild.png', pageCount: 1 },
+    ],
+    slides: [
+      { id: 'n1', sourceId: 'quer', pageIndex: 0, title: 'quer', notes: '', hidden: false, overlays: [] },
+      { id: 'n2', sourceId: 'hoch', pageIndex: 0, title: 'hoch', notes: '', hidden: false, overlays: [] },
+      { id: 'n3', sourceId: 'bild', pageIndex: 0, title: 'Bild', notes: '', hidden: false, overlays: [] },
+    ],
+    wiedergabe: { uebergang: { art: 'blende', dauerMs: 1000 }, schleife: false, standzeitSek: 10 },
+  };
+  fs.writeFileSync(
+    d.ndiProjekt,
+    zipSync(
+      { 'manifest.json': strToU8(JSON.stringify(ndiManifest)), 'sources/quer': quer, 'sources/hoch': hoch, 'sources/bild': bild },
+      { level: 0 },
+    ),
+  );
   return d;
 }
 
 // ---------------------------------------------------------------- Gruppen
 
 async function gruppeAblage({ exe, d }) {
+  const umgebung = eigenesProfil(path.join(d.dir, 'profil-ablage'));
   await mitApp('ablage', exe, [], async (_app, ed) => {
     const { x, y } = await auswerten(ed, imDom(domMitte));
 
@@ -743,7 +849,7 @@ async function gruppeAblage({ exe, d }) {
       erwarte(n === vorher + 201, `Folien · ${n ?? '–'} statt ${vorher + 201}, Fehlerzeile „${f}“`);
       erwarte(f === '', `Fehlerzeile: „${f}“`);
     });
-  });
+  }, umgebung);
 }
 
 const FREMDE_SEITE = 'file:///C:/Windows/win.ini';
@@ -794,6 +900,7 @@ async function fensterOeffnen(ziel, url) {
 // Navigations-Wächter: Ablegen per CDP löst in Electron 33 nie eine Navigation aus (gemessen
 // vor dem Wächter, Ruling R6). Den Wächter beweisen die Fälle „Seitennavigation … abgewiesen“.
 async function gruppeNavigation({ exe, d }) {
+  const umgebung = eigenesProfil(path.join(d.dir, 'profil-navigation'));
   await mitApp('navigation', exe, [], async (app, ed) => {
     await fall('leerer Editor: Ablegen per CDP → Adresse gleich (Regressionswache, kein Wächter-Beweis)', async () => {
       const { vorher, nachher, gesehen } = await ablegenUndPruefen(ed, [d.a]);
@@ -867,7 +974,7 @@ async function gruppeNavigation({ exe, d }) {
       );
       erwarte(ok, `nach dem Neuladen: ${await aktuelleUrl(ed)} unerwartet=${JSON.stringify(ed.unerwartet)} ${JSON.stringify(await auswerten(ed, '[window.__vorNeuladen, document.readyState, !!window.jmpr, !!document.querySelector("header")]').catch((e) => String(e)))}`);
     });
-  });
+  }, umgebung);
 }
 
 const FRAGE_SATZ = 'Im Presenter liegt schon eine Präsentation.';
@@ -936,10 +1043,13 @@ async function praesentiereUndPruefeQuellen(ed) {
 }
 
 async function gruppeDoppelklick({ exe, d }) {
+  const umgebung = eigenesProfil(path.join(d.dir, 'profil-doppelklick'));
+  /** Zweite Instanz mit `args` im Profil der laufenden App. */
+  const zweite = (args) => zweiteInstanz(exe, args, umgebung);
   await mitApp('doppelklick', exe, [d.maerz], async (app, ed) => {
     /** Zweite Instanz mit `pfad` (wie ein Doppelklick); liefert die Frage, sobald eine da ist. */
     const zweitesOeffnen = async (pfad) => {
-      await zweiteInstanz(exe, [pfad]);
+      await zweite([pfad]);
       return bisWert(() => frage(ed), (v) => v !== null);
     };
     const klicke = async (text) => erwarte(await auswerten(ed, imDom(domKlickeInFrage, text)), `kein Knopf „${text}“ in der Frage`);
@@ -961,8 +1071,8 @@ async function gruppeDoppelklick({ exe, d }) {
     });
 
     await fall('Frage offen: zweite Instanz mit b.png, dann noch einmal a.pdf → dieselbe EINE Frage „2 Dateien öffnen“', async () => {
-      await zweiteInstanz(exe, [d.png]);
-      await zweiteInstanz(exe, [d.a]);
+      await zweite([d.png]);
+      await zweite([d.a]);
       let f = await bisWert(() => frage(ed), (v) => v?.titel === '2 Dateien öffnen');
       erwarte(f?.titel === '2 Dateien öffnen', `Titel „${f?.titel ?? '(keine Frage)'}“`);
       // Nach der Sammelzeit ist auch die zweite a.pdf sicher angekommen (und darf nichts ändern).
@@ -980,7 +1090,7 @@ async function gruppeDoppelklick({ exe, d }) {
     });
 
     await fall('Show-Link per zweiter Instanz → lädt weiter Projekt.jmpres (Folien · 1), keine Frage, keine Fehlerzeile', async () => {
-      await zweiteInstanz(exe, [`jmps://open?show=${encodeURIComponent(d.show)}`]);
+      await zweite([`jmps://open?show=${encodeURIComponent(d.show)}`]);
       const n = await bisWert(() => folienZahl(ed), (v) => v === 1);
       erwarte(n === 1, `Folien · ${n ?? '–'} statt 1`);
       // Würde der Link als Datei genommen, käme das erst nach der Sammelzeit an.
@@ -993,8 +1103,8 @@ async function gruppeDoppelklick({ exe, d }) {
     // Über den Brief hinaus: Ohne diesen Fall bewiese der nächste nichts, denn jedes
     // importierte Deck gilt schon als ungespeichert. Das Show-Projekt ist frisch geladen.
     await fall('ungeändertes Projekt: a.pdf + eins.pdf → „2 PDFs öffnen“ ohne Verlust-Hinweis, Escape schließt, Folien · 1', async () => {
-      await zweiteInstanz(exe, [d.a]);
-      await zweiteInstanz(exe, [d.eins]);
+      await zweite([d.a]);
+      await zweite([d.eins]);
       const f = await bisWert(() => frage(ed), (v) => v?.titel === '2 PDFs öffnen');
       erwarte(f?.titel === '2 PDFs öffnen', `Titel „${f?.titel ?? '(keine Frage)'}“`);
       erwarte(f.text.includes(FRAGE_SATZ), `Text: „${f.text}“`);
@@ -1059,9 +1169,9 @@ async function gruppeDoppelklick({ exe, d }) {
         const angehalten = ed.warteAuf('Debugger.paused', 15_000);
         await ed.send('Page.reload');
         await angehalten;
-        await zweiteInstanz(exe, [d.a]);
+        await zweite([d.a]);
         await pause(1_500);
-        await zweiteInstanz(exe, [d.png]);
+        await zweite([d.png]);
         await pause(1_500);
       } finally {
         await ed.send('Debugger.removeBreakpoint', { breakpointId }).catch(() => {});
@@ -1086,7 +1196,7 @@ async function gruppeDoppelklick({ exe, d }) {
     await fall('Frage offen, dann Show-Link → Frage weg, Projekt.jmpres geladen (Folien · 1), keine Fehlerzeile', async () => {
       const f = await zweitesOeffnen(d.png);
       erwarte(f?.titel === '„b.png“ öffnen', `Titel „${f?.titel ?? '(keine Frage)'}“`);
-      await zweiteInstanz(exe, [`jmps://open?show=${encodeURIComponent(d.show)}`]);
+      await zweite([`jmps://open?show=${encodeURIComponent(d.show)}`]);
       const n = await bisWert(() => folienZahl(ed), (v) => v === 1);
       erwarte(n === 1, `Folien · ${n ?? '–'} statt 1`);
       erwarte(await warteBis(() => keineFrage(ed), 3_000), `Frage bleibt stehen: ${JSON.stringify(await frage(ed))}`);
@@ -1118,20 +1228,7 @@ async function gruppeDoppelklick({ exe, d }) {
     await fall('nach gescheitertem Ersetzen: ▶ Präsentieren gibt dem Publikum jede Folie samt Quelle', async () => {
       await praesentiereUndPruefeQuellen(ed);
     });
-  });
-}
-
-/**
- * Eigenes Benutzerprofil für die App: Mit umgelenktem USERPROFILE liegen appData und userData
- * der gepackten App darin (gemessen). Dort eine OFFENE Steuer-Konfiguration nur für 127.0.0.1 –
- * die echte Konfiguration des Rechners (TLS + Anmeldung) wird weder gelesen noch geändert.
- */
-function steuerProfil(d) {
-  const suite = path.join(d.profil, 'AppData', 'Roaming', 'JM Production Suite');
-  fs.mkdirSync(suite, { recursive: true });
-  fs.mkdirSync(path.join(d.profil, 'AppData', 'Local'), { recursive: true });
-  fs.writeFileSync(path.join(suite, 'control.json'), JSON.stringify({ mode: 'open', bindHost: '127.0.0.1' }));
-  return { USERPROFILE: d.profil };
+  }, umgebung);
 }
 
 /**
@@ -1177,7 +1274,7 @@ async function steuerbefehl(zeile, ms = 15_000) {
 }
 
 async function gruppeSteuerbefehl({ exe, d }) {
-  const umgebung = steuerProfil(d);
+  const umgebung = eigenesProfil(d.profil);
   await mitApp('steuerbefehl', exe, [], async (_app, ed) => {
     const oeffne = (pfad) => steuerbefehl(`PRESENTER OPEN ${pfad}`);
     const klicke = async (text) => erwarte(await auswerten(ed, imDom(domKlickeInFrage, text)), `kein Knopf „${text}“ in der Frage`);
@@ -1235,11 +1332,536 @@ async function gruppeSteuerbefehl({ exe, d }) {
   }, umgebung);
 }
 
+// ---------------------------------------------------------------- NDI (#303)
+// Der Prüfstand empfängt die NDI-Quelle der App selbst (@jm/ndi). `receive()` blockiert: Während einer
+// Messung ruht der CDP-Verkehr, darum steht dabei nie eine CDP-Antwort aus.
+
+const NDI_ENDUNG = '(JM Presenter)';
+/** FourCC „BGRA“ (Bytes B, G, R, A). */
+const FOURCC_BGRA = 0x41524742;
+/** Die drei Messpunkte: Ecke oben links, Mitte, Ecke unten rechts. */
+const MESSPUNKTE = [[5, 5], [960, 540], [1915, 1075]];
+/** Bildfolie (bild.png 900×1600 → 608×1080 mittig): oben rot, unten durchsichtig, daneben frei. */
+const BILD_PUNKTE = [[960, 270], [960, 810], [100, 540]];
+/**
+ * „Ganz durchsichtig“ nach der Bildfolie: die Messpunkte plus das rote (960,270). Die drei Messpunkte allein
+ * sind schon auf der Bildfolie durchsichtig – ohne den vierten bewiese der Fall nichts.
+ */
+const LEER_PUNKTE = [...MESSPUNKTE, [960, 270]];
+const KEINER = 'Keiner – nur NDI';
+const NDI_AN_1 = 'NDI ● an · 1 Empfänger';
+const NUR_NDI_TITEL = 'Kein Publikumsfenster – Bild nur über NDI';
+
+/** Bildpunkt (x, y) eines NDI-Bilds als [b, g, r, a]; Zeilen über lineStride. */
+function pixel(bild, x, y) {
+  const o = y * bild.lineStride + x * 4;
+  return [bild.data[o], bild.data[o + 1], bild.data[o + 2], bild.data[o + 3]];
+}
+
+/**
+ * NDI überträgt verlustbehaftet (YUV): Ohne Presenter, Sender und Empfänger nur über @jm/ndi, kam Schwarz
+ * [0,0,0,255] als [1,0,1,255] an, Grau 64 als [65,64,65], Grau 200 als [200,200,201]; Alpha 0 und 255 blieben
+ * genau (gemessen 15.11.2026, NDI 6). Farbkanäle darum ±2, Alpha exakt.
+ */
+const NDI_TOLERANZ = 2;
+const pixelEtwa = (bild, x, y, soll) =>
+  pixel(bild, x, y).every((v, i) => (i === 3 ? v === soll[3] : Math.abs(v - soll[i]) <= NDI_TOLERANZ));
+const durchsichtig = (bild, punkte) => punkte.every(([x, y]) => pixel(bild, x, y)[3] === 0);
+const zeigtBildfolie = (b) => pixelEtwa(b, 960, 270, [0, 0, 255, 255]) && durchsichtig(b, [[960, 810], [100, 540]]);
+
+/** Für Meldungen: „(x,y)=[b,g,r,a] …“. */
+function messwerte(bild, punkte = MESSPUNKTE) {
+  if (!bild) return '(kein Bild)';
+  return punkte.map(([x, y]) => `(${x},${y})=[${pixel(bild, x, y).join(',')}]`).join(' ');
+}
+
+/** Leert die Warteschlange des Empfängers und wartet höchstens `ms` auf das nächste Videobild. Blockiert. */
+function frischesBild(ndi, ms = 2_000) {
+  while (ndi.receive(0) !== null) {
+    // ältere Bilder verwerfen
+  }
+  const ende = Date.now() + ms;
+  while (Date.now() < ende) {
+    const f = ndi.receive(100);
+    if (f?.type === 'video') return f;
+  }
+  return null;
+}
+
+/** Holt frische Bilder, bis `passt(bild)`; liefert das letzte Bild (auch nach Ablauf, null = gar keins). Blockiert. */
+function bisBild(ndi, passt, ms) {
+  const ende = Date.now() + ms;
+  let bild = null;
+  for (;;) {
+    bild = frischesBild(ndi, Math.max(100, ende - Date.now())) ?? bild;
+    if ((bild && passt(bild)) || Date.now() >= ende) return bild;
+  }
+}
+
+/** Die Quelle DIESES Rechners: endet auf „(JM Presenter)“, beginnt mit dem Rechnernamen (groß/klein egal). */
+function eigeneQuelle(ndi, ms) {
+  const rechner = os.hostname().toLowerCase();
+  const ende = Date.now() + ms;
+  for (;;) {
+    const q = ndi.findSources(500).find((s) => s.endsWith(NDI_ENDUNG) && s.toLowerCase().startsWith(rechner));
+    if (q || Date.now() >= ende) return q ?? null;
+  }
+}
+
+/** Sucht die eigene Quelle, verbindet den Empfänger neu und wartet aufs erste Bild; wirft, wenn nichts kommt. */
+function verbindeNdi(ndi, ms = 10_000) {
+  const quelle = eigeneQuelle(ndi, ms);
+  erwarte(quelle, `keine NDI-Quelle „${os.hostname()} ${NDI_ENDUNG}“ nach ${ms} ms`);
+  erwarte(ndi.createReceiver(quelle), `kein Empfänger für „${quelle}“`);
+  const bild = frischesBild(ndi, ms);
+  erwarte(bild, `von „${quelle}“ kommt binnen ${ms} ms kein Bild`);
+  return { quelle, bild };
+}
+
+function domAuswahl() {
+  const s = document.querySelector('select[title="Publikums-Bildschirm"]');
+  if (!s) return null;
+  return {
+    wert: s.value,
+    text: s.selectedOptions[0]?.textContent.trim() ?? '',
+    optionen: [...s.options].map((o) => ({ wert: o.value, text: o.textContent.trim(), gesperrt: o.disabled })),
+  };
+}
+
+/** Setzt das Auswahlfeld (React): nativer value-Setter, dann ein sprudelndes change-Ereignis. */
+function domWaehle(wert) {
+  const s = document.querySelector('select[title="Publikums-Bildschirm"]');
+  if (!s) return false;
+  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(s, wert);
+  s.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
+}
+
+/** Der NDI-Knopf ist der Knopf, dessen Text mit „NDI“ beginnt; `klicken` drückt ihn, wenn er bedienbar ist. */
+function domNdiKnopf(klicken) {
+  const k = [...document.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith('NDI'));
+  if (!k) return null;
+  const vorher = { text: k.textContent.trim(), gesperrt: k.disabled };
+  if (klicken && !k.disabled) k.click();
+  return vorher;
+}
+
+function domVollbild() {
+  const k = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Vollbild');
+  return k ? { gesperrt: k.disabled, titel: k.title } : null;
+}
+
+const ndiStatus = (ziel) => auswerten(ziel, 'window.jmpr.ndi.status()');
+const bisLage = (ziel, lage, ms) => bisWert(() => ndiStatus(ziel), (s) => s?.lage === lage, ms);
+const ndiKnopf = async (ziel) => (await auswerten(ziel, imDom(domNdiKnopf, false)))?.text ?? null;
+const auswahl = (ziel) => auswerten(ziel, imDom(domAuswahl));
+const praesentation = (ziel) => auswerten(ziel, 'window.jmpr.present.getState()');
+const seiteMit = async (teil) => (await seiten()).find((t) => t.url.includes(teil)) ?? null;
+
+async function fensterFertig(ziel) {
+  const ok = await warteBis(() => auswerten(ziel, `document.readyState === 'complete' && !!window.jmpr`), 20_000);
+  erwarte(ok, `${ziel.url} wird nicht fertig`);
+}
+
+/** Nur lesen (user32): je Top-Level-Fenster der JM-Presenter-Prozesse eine Zeile „1|Titel“ (sichtbar) oder „0|Titel“. */
+const FENSTER_PS = `
+$ProgressPreference = 'SilentlyContinue'
+Add-Type @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class JmprFenster {
+  delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  public static List<string> Liste(HashSet<uint> pids) {
+    var aus = new List<string>();
+    EnumWindows((h, l) => {
+      uint pid;
+      GetWindowThreadProcessId(h, out pid);
+      if (!pids.Contains(pid)) return true;
+      var titel = new StringBuilder(256);
+      GetWindowText(h, titel, 256);
+      if (titel.Length > 0) aus.Add((IsWindowVisible(h) ? "1|" : "0|") + titel.ToString());
+      return true;
+    }, IntPtr.Zero);
+    return aus;
+  }
+}
+'@
+$pids = New-Object 'System.Collections.Generic.HashSet[uint32]'
+Get-Process -Name 'JM Presenter' -ErrorAction SilentlyContinue | ForEach-Object { [void]$pids.Add([uint32]$_.Id) }
+[JmprFenster]::Liste($pids) | ForEach-Object { $_ }
+`;
+
+/** Ist das Fenster mit dem (ASCII-)Titel `titel` wirklich sichtbar? true/false, null = kein solches Fenster. */
+function fensterSichtbar(titel) {
+  const aus = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(FENSTER_PS, 'utf16le').toString('base64')], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'], // Fortschritts-CLIXML der PowerShell nicht in die Prüfstand-Ausgabe
+  });
+  const zeile = aus.split(/\r?\n/).find((z) => z.slice(2) === titel);
+  return zeile ? zeile.startsWith('1|') : null;
+}
+
+/** @electron/asar aus dem Workspace (über electron-builder); ohne Kopf-Zwischenspeicher, die Archive ändern sich. */
+function asarModul() {
+  const asar = createRequire(import.meta.url)('@electron/asar');
+  asar.uncacheAll();
+  return asar;
+}
+
+/** Was am Original nach dem Fall 15 noch genauso sein muss. */
+function fingerabdruck(exe) {
+  const res = path.join(path.dirname(exe), 'resources');
+  const archiv = path.join(res, 'app.asar');
+  const st = fs.statSync(archiv);
+  const eintraege = asarModul().listPackage(archiv).map((f) => f.replace(/\\/g, '/'));
+  return {
+    asar: `${st.size} Byte, ${st.mtime.toISOString()}`,
+    ndiImAsar: eintraege.includes('/node_modules/@jm/ndi/index.js'),
+    bin: fs.readdirSync(path.join(res, 'bin', 'win')).sort().join(', '),
+  };
+}
+
+/**
+ * Kopie der gepackten App unter `ziel` ohne NDI: resources/bin/win gelöscht, @jm/ndi aus app.asar entfernt
+ * (extractAll, löschen, createPackage). Das Original bleibt unberührt. Liefert die Exe der Kopie.
+ */
+async function kopieOhneNdi(exe, ziel) {
+  fs.cpSync(path.dirname(exe), ziel, { recursive: true });
+  fs.rmSync(path.join(ziel, 'resources', 'bin', 'win'), { recursive: true });
+  const archiv = path.join(ziel, 'resources', 'app.asar');
+  const entpackt = `${ziel}-app`;
+  asarModul().extractAll(archiv, entpackt);
+  const paket = path.join(entpackt, 'node_modules', '@jm', 'ndi');
+  erwarte(fs.existsSync(paket), 'node_modules/@jm/ndi fehlt schon in der app.asar der Kopie');
+  fs.rmSync(paket, { recursive: true });
+  await asarModul().createPackage(entpackt, archiv);
+  fs.rmSync(entpackt, { recursive: true });
+  return path.join(ziel, path.basename(exe));
+}
+
+/** App A, Fälle 1–11: Start mit ndi.jmpres, NDI einschalten, „Keiner – nur NDI“, Bildpunkte, Absturz, Aus/An, Ende. */
+async function ndiMitProjekt(exe, d, ndi, umgebung) {
+  await mitApp('ndi (App A)', exe, [d.ndiProjekt], async (app, ed) => {
+    await fall('1 erster Start: ndi.jmpres geladen (Folien · 3), Status { an: false, lage: aus }, kein Fenster view=ndi, Knopf „NDI aus“', async () => {
+      const n = await bisWert(() => folienZahl(ed), (v) => v === 3);
+      erwarte(n === 3, `Folien · ${n ?? '–'} statt 3`);
+      const s = await ndiStatus(ed);
+      erwarte(s?.an === false && s.lage === 'aus', `Status ${JSON.stringify(s)}`);
+      erwarte(!(await seiteMit('view=ndi')), 'Fenster view=ndi ist schon da');
+      const k = await bisWert(() => ndiKnopf(ed), (v) => v === 'NDI aus', 5_000);
+      erwarte(k === 'NDI aus', `Knopf „${k}“`);
+    });
+
+    await fall('2 setzeAn(true) → binnen 10 s sendet, view=ndi da, Quelle gefunden; Bild 1920×1080, BGRA, 25/1, an den Messpunkten durchsichtig; ndi-config.json im Testprofil', async () => {
+      await auswerten(ed, 'window.jmpr.ndi.setzeAn(true)');
+      const s = await bisLage(ed, 'sendet', 10_000);
+      erwarte(s?.lage === 'sendet', `Status ${JSON.stringify(s)}`);
+      erwarte(await seiteMit('view=ndi'), 'kein Fenster view=ndi');
+      const { quelle, bild } = verbindeNdi(ndi);
+      console.log(`      Quelle: ${quelle}`);
+      erwarte(bild.width === 1920 && bild.height === 1080, `Bild ${bild.width}×${bild.height}`);
+      erwarte(bild.fourCC === FOURCC_BGRA, `FourCC 0x${bild.fourCC.toString(16)} statt BGRA`);
+      erwarte(bild.fpsN === 25 && bild.fpsD === 1, `Bildrate ${bild.fpsN}/${bild.fpsD}`);
+      erwarte(durchsichtig(bild, MESSPUNKTE), `ohne Präsentation nicht durchsichtig: ${messwerte(bild)}`);
+      const config = path.join(d.ndiProfil, 'AppData', 'Roaming', '@jm', 'presenter', 'ndi-config.json');
+      erwarte(fs.existsSync(config), `${config} fehlt – userData nicht im Testprofil?`);
+    });
+
+    await fall(`3 Knopf zeigt „${NDI_AN_1}“ binnen 5 s`, async () => {
+      const k = await bisWert(() => ndiKnopf(ed), (v) => v === NDI_AN_1, 5_000);
+      erwarte(k === NDI_AN_1, `Knopf „${k}“`);
+    });
+
+    let referent = null;
+    let bildschirm = null;
+    /** Referentenansicht, gemessen sobald sie fertig ist (Fall 4), geprüft im eigenen Fall. */
+    const imReferenten = { knopf: null, editorKnopf: null, vollbild: null };
+    await fall('4 Auswahl „Keiner – nur NDI“, ▶ Präsentieren → view=presenter, nach 3 s kein view=audience; NDI (960,540) schwarz deckend, (5,5) deckend', async () => {
+      bildschirm = (await auswahl(ed))?.wert ?? null;
+      erwarte(/^\d+$/.test(bildschirm ?? ''), `vorher kein Bildschirm gewählt: „${bildschirm}“`);
+      const waehlbar = (a) => a?.optionen.some((o) => o.text === KEINER && !o.gesperrt);
+      const w = await bisWert(() => auswahl(ed), waehlbar, 5_000);
+      erwarte(waehlbar(w), `„${KEINER}“ nicht wählbar: ${JSON.stringify(w?.optionen)}`);
+      erwarte(await auswerten(ed, imDom(domWaehle, 'keiner')), 'kein Auswahlfeld „Publikums-Bildschirm“');
+      const a = await bisWert(() => auswahl(ed), (v) => v?.text === KEINER, 3_000);
+      erwarte(a?.text === KEINER, `Auswahl zeigt „${a?.text}“`);
+      erwarte(await warteBis(() => auswerten(ed, imDom(domKlickePraesentieren)), 10_000), 'Knopf „▶ Präsentieren“ nicht bedienbar');
+      const start = Date.now();
+      referent = await oeffneZiel(app, 'view=presenter', 15_000);
+      await fensterFertig(referent);
+      imReferenten.editorKnopf = await ndiKnopf(ed);
+      imReferenten.knopf = await bisWert(() => ndiKnopf(referent), (v) => v === imReferenten.editorKnopf, 2_000);
+      imReferenten.vollbild = await bisWert(() => auswerten(referent, imDom(domVollbild)), (v) => v != null, 2_000);
+      await pause(Math.max(0, start + 3_000 - Date.now()));
+      erwarte(!(await seiteMit('view=audience')), 'Publikumsfenster view=audience ist offen');
+      const bild = frischesBild(ndi);
+      erwarte(bild && pixelEtwa(bild, 960, 540, [0, 0, 0, 255]) && pixel(bild, 5, 5)[3] === 255, `NDI ${messwerte(bild)}`);
+    });
+
+    await fall(`4 Referentenansicht: NDI-Knopf binnen 2 s wie im Editor („${NDI_AN_1}“), „Vollbild“ gesperrt mit „${NUR_NDI_TITEL}“`, async () => {
+      const { knopf, editorKnopf, vollbild } = imReferenten;
+      erwarte(editorKnopf === NDI_AN_1 && knopf === editorKnopf, `Referent „${knopf}“, Editor „${editorKnopf}“`);
+      erwarte(vollbild?.gesperrt === true && vollbild.titel === NUR_NDI_TITEL, `Vollbild ${JSON.stringify(vollbild)}`);
+    });
+
+    await fall('5 present.next() → in 1,5 s mindestens 5 Bilder mit (960,540)-Blau zwischen 10 und 245 (Blende); danach (960,540) weiß deckend, (100,540) durchsichtig', async () => {
+      await auswerten(ed, 'window.jmpr.present.next()');
+      const blau = [];
+      const ende = Date.now() + 1_500;
+      while (Date.now() < ende) {
+        const f = ndi.receive(100);
+        if (f?.type === 'video') blau.push(pixel(f, 960, 540)[0]);
+      }
+      const zwischen = blau.filter((b) => b > 10 && b < 245).length;
+      console.log(`      Blende: ${zwischen} von ${blau.length} Bildern dazwischen`);
+      erwarte(zwischen >= 5, `nur ${zwischen} Zwischenbilder (Blau je Bild: ${blau.join(' ')})`);
+      const hochkant = (b) => pixelEtwa(b, 960, 540, [255, 255, 255, 255]) && durchsichtig(b, [[100, 540]]);
+      const bild = bisBild(ndi, hochkant, 3_000);
+      erwarte(bild && hochkant(bild), `NDI ${messwerte(bild, [[960, 540], [100, 540]])}`);
+    });
+
+    // „Nach 1,5 s“ = Blende (1 s) plus Verzug des NDI-Wegs; danach höchstens 1 s Nachlauf.
+    await fall('6 present.next() (Bild) → nach 1,5 s (960,270) rot deckend, (960,810) und (100,540) durchsichtig', async () => {
+      await auswerten(ed, 'window.jmpr.present.next()');
+      await pause(1_500);
+      const bild = bisBild(ndi, zeigtBildfolie, 1_000);
+      erwarte(bild && zeigtBildfolie(bild), `NDI ${messwerte(bild, BILD_PUNKTE)}`);
+    });
+
+    await fall('7 zaehleBilder 10 s → mindestens 248 Bilder, keine Lücke über 80 ms', async () => {
+      const r = zaehleBilder(ndi, 10_000);
+      console.log(`      Bilder ${r.bilder} von 250, längste Lücke ${r.laengsteLueckeMs} ms, Lücken über 80 ms: ${r.luecken80}`);
+      erwarte(r.bilder >= 248, `nur ${r.bilder} Bilder`);
+      erwarte(r.luecken80 === 0, `${r.luecken80} Lücken über 80 ms (längste ${r.laengsteLueckeMs} ms)`);
+    });
+
+    await fall('8 Schwarzbild → durchsichtig; zurück → Bildfolie; Weißbild → (100,540) weiß deckend; zurück', async () => {
+      const schirm = (art) => auswerten(ed, `window.jmpr.present.setScreen(${JSON.stringify(art)})`);
+      await schirm('black');
+      let bild = bisBild(ndi, (b) => durchsichtig(b, LEER_PUNKTE), 3_000);
+      erwarte(bild && durchsichtig(bild, LEER_PUNKTE), `Schwarzbild: ${messwerte(bild, LEER_PUNKTE)}`);
+      await schirm('black');
+      bild = bisBild(ndi, zeigtBildfolie, 3_000);
+      erwarte(bild && zeigtBildfolie(bild), `zurück vom Schwarzbild: ${messwerte(bild, BILD_PUNKTE)}`);
+      await schirm('white');
+      const weiss = (b) => pixelEtwa(b, 100, 540, [255, 255, 255, 255]);
+      bild = bisBild(ndi, weiss, 3_000);
+      erwarte(bild && weiss(bild), `Weißbild: ${messwerte(bild, [[100, 540]])}`);
+      await schirm('white');
+      bild = bisBild(ndi, zeigtBildfolie, 3_000);
+      erwarte(bild && zeigtBildfolie(bild), `zurück vom Weißbild: ${messwerte(bild, BILD_PUNKTE)}`);
+      const p = await praesentation(ed);
+      erwarte(p?.screen === 'live', `Bildschirm-Modus ${p?.screen}`);
+    });
+
+    // Genau EIN Absturz: ein zweiter binnen 60 s hieße absichtlich „nicht verfügbar“.
+    await fall('8a NDI-Bild stürzt einmal ab (Page.crash) → binnen 10 s wieder sendet mit neuem view=ndi; Auswahl bleibt „Keiner – nur NDI“, Präsentation aktiv, kein view=audience', async () => {
+      const alt = await seiteMit('view=ndi');
+      erwarte(alt, 'kein Fenster view=ndi');
+      await auswerten(ed, 'window.__ndiLagen = []; window.jmpr.ndi.onStatus((s) => window.__ndiLagen.push(s.lage)); true');
+      const bildFenster = await oeffneZiel(app, 'view=ndi');
+      bildFenster.send('Page.crash').catch(() => {}); // antwortet nicht mehr
+      const neu = await bisWert(
+        async () => {
+          const s = await seiteMit('view=ndi');
+          return s && s.id !== alt.id && (await ndiStatus(ed))?.lage === 'sendet' ? s : null;
+        },
+        Boolean,
+        10_000,
+      );
+      const lagen = await auswerten(ed, 'window.__ndiLagen');
+      erwarte(neu, `nach 10 s kein neues view=ndi mit „sendet“ (Status-Folge ${JSON.stringify(lagen)})`);
+      erwarte(lagen.includes('startet'), `Absturz nicht über den Ersatz gelaufen (Status-Folge ${JSON.stringify(lagen)})`);
+      const a = await auswahl(ed);
+      erwarte(a?.text === KEINER, `Auswahl zeigt „${a?.text}“`);
+      const p = await praesentation(ed);
+      erwarte(p?.active === true, `Präsentation ${JSON.stringify(p)}`);
+      erwarte(!(await seiteMit('view=audience')), 'Publikumsfenster view=audience ist offen');
+      const bild = bisBild(ndi, zeigtBildfolie, 5_000);
+      erwarte(bild && zeigtBildfolie(bild), `NDI nach dem Absturz: ${messwerte(bild, BILD_PUNKTE)}`);
+    });
+
+    await fall('9 NDI-Knopf der Referentenansicht aus → binnen 2 s „NDI aus“ in Editor und Referent; Präsentation aktiv, view=presenter bleibt, Auswahl zurück auf den Bildschirm; setzeAn(true) → wieder sendet', async () => {
+      erwarte(referent, 'keine Referentenansicht');
+      const k = await auswerten(referent, imDom(domNdiKnopf, true));
+      erwarte(k && !k.gesperrt, `NDI-Knopf der Referentenansicht nicht bedienbar: ${JSON.stringify(k)}`);
+      const beide = await bisWert(
+        async () => [await ndiKnopf(ed), await ndiKnopf(referent)],
+        (v) => v?.every((t) => t === 'NDI aus'),
+        2_000,
+      );
+      erwarte(beide?.every((t) => t === 'NDI aus'), `Editor „${beide?.[0]}“, Referent „${beide?.[1]}“`);
+      const p = await praesentation(ed);
+      erwarte(p?.active === true, `Präsentation ${JSON.stringify(p)}`);
+      erwarte(await seiteMit('view=presenter'), 'Referentenansicht ist weg');
+      const a = await bisWert(() => auswahl(ed), (v) => v?.wert === bildschirm, 2_000);
+      erwarte(a?.wert === bildschirm && a.text !== KEINER, `Auswahl „${a?.text}“ (${a?.wert}) statt Bildschirm ${bildschirm}`);
+      await auswerten(ed, 'window.jmpr.ndi.setzeAn(true)');
+      const s = await bisLage(ed, 'sendet', 10_000);
+      erwarte(s?.lage === 'sendet', `Status ${JSON.stringify(s)}`);
+      // Review Focus 3: NDI an während einer Präsentation zeigt die laufende Folie (der Empfänger verbindet neu).
+      const bild = bisBild(ndi, zeigtBildfolie, 10_000);
+      erwarte(bild && zeigtBildfolie(bild), `NDI nach dem Einschalten: ${messwerte(bild, BILD_PUNKTE)}`);
+    });
+
+    await fall('10 present.stop() → binnen 2 s an den drei Messpunkten (und am roten (960,270)) durchsichtig', async () => {
+      await auswerten(ed, 'window.jmpr.present.stop()');
+      const bild = bisBild(ndi, (b) => durchsichtig(b, LEER_PUNKTE), 2_000);
+      erwarte(bild && durchsichtig(bild, LEER_PUNKTE), `NDI ${messwerte(bild, LEER_PUNKTE)}`);
+    });
+
+    await fall('11 Editor per window.close() schließen (keine Präsentation) → binnen 15 s kein Presenter-Prozess', async () => {
+      const p = await praesentation(ed);
+      erwarte(p?.active === false, `Präsentation läuft noch: ${JSON.stringify(p)}`);
+      await auswerten(ed, 'void window.close()', 5_000).catch(() => {});
+      erwarte(await warteBis(() => !presenterLaeuft(), 15_000, 250), 'Presenter-Prozess läuft weiter (NDI-Fenster hält die App?)');
+    });
+  }, umgebung);
+}
+
+/** App B, Fälle 12–14: Neustart mit gemerktem Schalter, NDI an während der Präsentation, zweite Instanz. */
+async function ndiNeustart(exe, d, ndi, umgebung) {
+  await mitApp('ndi (App B)', exe, [], async (app, ed) => {
+    await fall('12 Neustart ohne Zutun: binnen 10 s sendet, Quelle wieder da', async () => {
+      const s = await bisLage(ed, 'sendet', 10_000);
+      erwarte(s?.lage === 'sendet', `Status ${JSON.stringify(s)}`);
+      verbindeNdi(ndi);
+    });
+
+    let referent = null;
+    await fall('13 setzeAn(false); a.pdf ablegen, normal präsentieren (Publikumsfenster, „Vollbild“ bedienbar); setzeAn(true) → binnen 5 s NDI (960,540) weiß deckend', async () => {
+      await auswerten(ed, 'window.jmpr.ndi.setzeAn(false)');
+      const aus = await bisLage(ed, 'aus', 5_000);
+      erwarte(aus?.lage === 'aus', `Status ${JSON.stringify(aus)}`);
+      const { x, y } = await auswerten(ed, imDom(domMitte));
+      await ablegen(ed, [d.a], x, y);
+      const n = await bisWert(() => folienZahl(ed), (v) => v === 2);
+      erwarte(n === 2, `Folien · ${n ?? '–'} statt 2`);
+      const a = await auswahl(ed);
+      erwarte(/^\d+$/.test(a?.wert ?? ''), `kein Bildschirm gewählt: ${JSON.stringify(a)}`);
+      erwarte(await warteBis(() => auswerten(ed, imDom(domKlickePraesentieren)), 10_000), 'Knopf „▶ Präsentieren“ nicht bedienbar');
+      referent = await oeffneZiel(app, 'view=presenter', 15_000);
+      await oeffneZiel(app, 'view=audience', 15_000);
+      await fensterFertig(referent);
+      const vb = await bisWert(() => auswerten(referent, imDom(domVollbild)), (v) => v != null, 5_000);
+      erwarte(vb?.gesperrt === false && vb.titel === '', `Vollbild ${JSON.stringify(vb)}`);
+      const t0 = Date.now();
+      await auswerten(ed, 'window.jmpr.ndi.setzeAn(true)');
+      const weiss = (b) => pixelEtwa(b, 960, 540, [255, 255, 255, 255]);
+      const bild = bisBild(ndi, weiss, 5_000);
+      console.log(`      weiß nach ${Date.now() - t0} ms`);
+      erwarte(bild && weiss(bild), `NDI ${messwerte(bild)}`);
+    });
+
+    // Sichtbar heißt hier das echte Fenster (user32 IsWindowVisible), nicht document.visibilityState: Das NDI-Fenster
+    // läuft ohne Hintergrund-Drosselung und meldet „visible“, obwohl es nie gezeigt wird (gemessen 15.11.2026).
+    // Gefunden wird es über einen Prüf-Titel, den der Prüfstand per CDP setzt.
+    await fall('14 Editor per window.close() (Präsentation läuft), zweite Instanz → Fenster view=ndi bleibt unsichtbar; present.stop() im Referentenfenster → binnen 15 s kein Presenter-Prozess', async () => {
+      erwarte(referent, 'keine Referentenansicht');
+      const bildFenster = await oeffneZiel(app, 'view=ndi');
+      const marke = 'JM Presenter NDI-Pruefstand';
+      await auswerten(bildFenster, `document.title = ${JSON.stringify(marke)}`);
+      const vorher = await bisWert(() => fensterSichtbar(marke), (v) => v !== null, 5_000);
+      console.log(`      view=ndi: document.visibilityState „${await auswerten(bildFenster, 'document.visibilityState')}“, Fenster ${vorher ? 'sichtbar' : 'unsichtbar'}`);
+      erwarte(vorher === false, `Fenster des NDI-Bilds vorher ${vorher === null ? 'nicht gefunden' : 'sichtbar'}`);
+      await auswerten(ed, 'void window.close()', 5_000).catch(() => {});
+      erwarte(await warteBis(async () => !(await seiteMit('view=editor')), 5_000), 'Editor bleibt offen');
+      const p = await praesentation(referent);
+      erwarte(p?.active === true, `Präsentation ${JSON.stringify(p)}`);
+      await zweiteInstanz(exe, [], umgebung);
+      await pause(1_000);
+      const nachher = fensterSichtbar(marke);
+      erwarte(nachher === false, `Fenster des NDI-Bilds nach der zweiten Instanz ${nachher === null ? 'nicht gefunden' : 'sichtbar'}`);
+      // Gegenprobe: Dieselbe Messung sieht ein gezeigtes Fenster (sonst bewiese „unsichtbar“ nichts).
+      const gegen = 'JM Presenter Referent-Pruefstand';
+      await auswerten(referent, `document.title = ${JSON.stringify(gegen)}`);
+      const referentSichtbar = await bisWert(() => fensterSichtbar(gegen), (v) => v !== null, 5_000);
+      erwarte(referentSichtbar === true, `Gegenprobe: Referentenfenster ${referentSichtbar === null ? 'nicht gefunden' : 'unsichtbar'}`);
+      await auswerten(referent, 'void window.jmpr.present.stop()', 5_000).catch(() => {});
+      erwarte(await warteBis(() => !presenterLaeuft(), 15_000, 250), 'Presenter-Prozess läuft weiter (NDI-Fenster hält die App?)');
+    });
+  }, umgebung);
+}
+
+/** App C, Fall 15: Kopie ohne NDI mit gemerktem Schalter „an“ – kein Absturz, Präsentation geht. */
+async function ndiFehlt(exe, d, umgebung) {
+  const original = fingerabdruck(exe);
+  let kopie = null;
+  await fall('15 Kopie ohne NDI: resources/bin/win weg, @jm/ndi nicht in app.asar; Schalter im Profil gemerkt an', async () => {
+    const config = path.join(d.ndiProfil, 'AppData', 'Roaming', '@jm', 'presenter', 'ndi-config.json');
+    const gemerkt = JSON.parse(fs.readFileSync(config, 'utf8'));
+    erwarte(gemerkt.an === true, `ndi-config.json: ${JSON.stringify(gemerkt)}`);
+    const exeKopie = await kopieOhneNdi(exe, path.join(d.dir, 'ohne-ndi'));
+    const res = path.join(path.dirname(exeKopie), 'resources');
+    erwarte(!fs.existsSync(path.join(res, 'bin', 'win')), 'resources/bin/win ist noch da');
+    const eintraege = asarModul().listPackage(path.join(res, 'app.asar')).map((f) => f.replace(/\\/g, '/'));
+    erwarte(!eintraege.some((f) => f.startsWith('/node_modules/@jm/ndi')), '@jm/ndi steckt noch in app.asar');
+    erwarte(eintraege.includes('/out/main/index.cjs'), 'app.asar der Kopie ohne out/main/index.cjs');
+    kopie = exeKopie;
+  });
+  if (kopie) {
+    await mitApp('ndi (App C)', kopie, [], async (app, ed) => {
+      await fall('15 Start ohne NDI → Knopf „NDI nicht verfügbar“ binnen 10 s; ▶ Präsentieren mit a.pdf → view=presenter und view=audience; App lebt nach 5 s', async () => {
+        const k = await bisWert(() => ndiKnopf(ed), (v) => v === 'NDI nicht verfügbar', 10_000);
+        const s = await ndiStatus(ed);
+        erwarte(k === 'NDI nicht verfügbar', `Knopf „${k}“, Status ${JSON.stringify(s)}`);
+        console.log(`      Grund: ${s?.grund}`);
+        const { x, y } = await auswerten(ed, imDom(domMitte));
+        await ablegen(ed, [d.a], x, y);
+        const n = await bisWert(() => folienZahl(ed), (v) => v === 2);
+        erwarte(n === 2, `Folien · ${n ?? '–'} statt 2`);
+        erwarte(await warteBis(() => auswerten(ed, imDom(domKlickePraesentieren)), 10_000), 'Knopf „▶ Präsentieren“ nicht bedienbar');
+        await oeffneZiel(app, 'view=presenter', 15_000);
+        await oeffneZiel(app, 'view=audience', 15_000);
+        await pause(5_000);
+        erwarte(app.beendet === null && presenterLaeuft(), `App lebt nicht mehr (${app.beendet})`);
+        const p = await praesentation(ed);
+        erwarte(p?.active === true, `Präsentation ${JSON.stringify(p)}`);
+      });
+    }, umgebung);
+  }
+  await fall('15 Original release/win-unpacked unberührt (app.asar samt @jm/ndi, resources/bin/win)', async () => {
+    const nachher = fingerabdruck(exe);
+    erwarte(JSON.stringify(nachher) === JSON.stringify(original), `vorher ${JSON.stringify(original)}, nachher ${JSON.stringify(nachher)}`);
+    erwarte(nachher.ndiImAsar && nachher.bin.includes('jm_ndi.node'), `Original ohne NDI: ${JSON.stringify(nachher)}`);
+  });
+}
+
+async function gruppeNdi({ exe, d }) {
+  let ndi = null;
+  // Ohne Empfang misst die Gruppe nichts: FAIL, nie überspringen.
+  await fall('@jm/ndi lädt, NDI-Laufzeit startet (Empfang für die Messungen)', async () => {
+    const modul = createRequire(import.meta.url)('@jm/ndi');
+    erwarte(modul.init(), 'ndi.init() liefert false');
+    ndi = modul;
+  });
+  if (!ndi) return;
+  const umgebung = eigenesProfil(d.ndiProfil);
+  try {
+    await ndiMitProjekt(exe, d, ndi, umgebung);
+    await ndiNeustart(exe, d, ndi, umgebung);
+    await ndiFehlt(exe, d, umgebung);
+  } finally {
+    try {
+      ndi.destroy();
+    } catch {
+      // schon zu
+    }
+  }
+}
+
 const GRUPPEN = {
   ablage: gruppeAblage,
   navigation: gruppeNavigation,
   doppelklick: gruppeDoppelklick,
   steuerbefehl: gruppeSteuerbefehl,
+  ndi: gruppeNdi,
 };
 
 // ---------------------------------------------------------------- Ablauf
