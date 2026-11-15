@@ -23,6 +23,25 @@ mit getrennter **Referenten-** und **Publikumsansicht** über zwei Bildschirme a
   - **Freie Bildschirm-Zuweisung** des Publikumsfensters, Vollbild-Umschaltung.
   - Steuerung per Tastatur/Maus und **USB-Presenter-Clicker** (PageUp/PageDown,
     Pfeiltasten, Leertaste; `Esc` beendet).
+- **NDI-Ausgang (Windows, ab 0.13.0)** – das Publikumsbild zusätzlich als
+  NDI-Quelle **„JM Presenter“** (das NDI-SDK ergänzt den Rechnernamen),
+  1920×1080, 25 fps, BGRA mit Alphakanal.
+  - **Schalter „NDI“** in der Werkzeugleiste und in der Referentenansicht,
+    beide am selben Zustand; zeigt an/aus und die Zahl verbundener Empfänger.
+    Vorgabe aus; der Zustand wird gemerkt, nach einem Neustart startet NDI von
+    selbst. Fehlen Addon oder NDI-Laufzeit oder endet der Sender, zeigt der
+    Schalter „NDI nicht verfügbar“ (eine Log-Zeile `[ndi] …`, kein Dialog), und
+    Präsentation und Bildschirm laufen weiter. Auf dem Mac gibt es kein NDI.
+  - **„Keiner – nur NDI“** im Feld „Publikums-Bildschirm“, wählbar nur bei
+    eingeschaltetem NDI: „Präsentieren“ öffnet dann nur die Referentenansicht,
+    das Bild geht allein über NDI. Ist NDI aus oder nicht verfügbar, gilt wieder
+    die bisherige Bildschirmwahl.
+  - **Transparenz:** Was die Folie auf der 16:9-Fläche nicht ausfüllt, ist
+    durchsichtig; ein Bild mit eigener Transparenz (PNG) bleibt durchsichtig,
+    PDF-/PowerPoint-Folien bleiben deckend (weiße Seite). Übergänge,
+    Einblendungen und Weißbild wie auf dem Bildschirm; Schwarzbild, keine
+    laufende Präsentation und eine beendete Präsentation sind vollständig
+    durchsichtig.
 
 ## Architektur
 
@@ -58,9 +77,30 @@ npm install
 npm run dev               # Electron + Vite (Renderer-Port 5179)
 npm run typecheck         # node + web
 npm run build             # Production-Build nach out/
-npm run dist:win          # NSIS-Installer (Windows)
-npm run dist:mac          # DMG (macOS, arm64 + x64)
+npm run dist:win          # NSIS-Installer (Windows, nur mit NDI_SDK_DIR – siehe unten)
+npm run dist:mac          # DMG (macOS, arm64 + x64, ohne NDI)
 ```
+
+### Release-Weg (ab 0.13.0, #303)
+
+- **Windows baut der Owner lokal mit NDI.** `prepackage` (`tools/bundle-ndi.mjs`)
+  legt das gebaute Addon (`packages/ndi/build/Release/jm_ndi.node`) und die
+  NDI-Laufzeit (`Processing.NDI.Lib.x64.dll` aus `NDI_SDK_DIR`) nach
+  `resources/bin/win/`. Ohne `NDI_SDK_DIR` bricht der Bau ab
+  („NDI_SDK_DIR nicht gesetzt“) – ein Windows-Paket ohne NDI entsteht nie still.
+
+  ```powershell
+  $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
+  npm run dist:win -- --publish never   # → release/JM Presenter-<version>-win-x64.exe
+  ```
+
+- **Das Mac-Paket baut die CI ohne NDI.** Auf den Tag `presenter-v<version>`
+  baut `.github/workflows/suite-release.yml` nur `macos-latest` (Job `plan`) und
+  hängt beide DMGs (arm64, x64) an das Release; die exe lädt der Owner von Hand
+  an dasselbe Release.
+- **`latestVersion` erst nach exe + dmg.** Der automatische Katalog-Bump ist für
+  den Presenter aus; erst wenn exe und beide DMGs am Release hängen, lokal
+  `node scripts/bump-manifest.mjs presenter <version>`.
 
 In GitHub Codespaces ohne Display:
 

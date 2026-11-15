@@ -41,5 +41,14 @@ const treffer = alleTs('../src/').filter((f) =>
   readFileSync(f, 'utf8').split(/\r?\n/).some((z) => code.test(z) && !/^\s*(import type |\/\/|\*)/.test(z)));
 ck('@jm/ndi nur in src/utility/ndi-sender.ts geladen', treffer.length === 1 && treffer[0].endsWith(join('utility', 'ndi-sender.ts')));
 
+// Release-Weg ab 0.13.0: Windows mit NDI baut der Owner lokal, die CI nur das Mac-Paket.
+const wf = lies('../../../.github/workflows/suite-release.yml');
+ck('plan: Presenter nur macOS', wf.includes(`presenter-v*) echo 'os=["macos-latest"]' >> "$GITHUB_OUTPUT" ;;`));
+ck('plan: sonst macOS + Windows', wf.includes(`*) echo 'os=["macos-latest","windows-latest"]' >> "$GITHUB_OUTPUT" ;;`));
+ck('release: Liste aus plan', wf.includes('needs: plan') && wf.includes('os: ${{ fromJSON(needs.plan.outputs.os) }}'));
+const releaseIf = wf.split('\n').find((z) => z.includes("!startsWith(github.ref_name, 'ndi-screen-capture-v')"))!;
+ck('Presenter nicht vom Release-Job ausgeschlossen (Mac baut weiter)', !releaseIf.includes("'presenter-v'"));
+ck('kein Katalog-Bump für den Presenter', wf.includes("if: ${{ needs.release.result == 'success' && !startsWith(github.ref_name, 'presenter-v') }}"));
+
 console.log(`\n${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);
