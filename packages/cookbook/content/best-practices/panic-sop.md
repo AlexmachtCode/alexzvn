@@ -10,7 +10,7 @@ relatedTools: []
 prerequisites: []
 equipmentOwner: jm
 crewRoles: []
-lastReviewed: 2026-06-28
+lastReviewed: 2026-11-14
 owner: tech@jakobsmedien.com
 summary: "Notfall-SOP für kritische Störungen im laufenden Live-Betrieb mit Sofortmaßnahmen in 0–30 Sekunden."
 ---
@@ -137,6 +137,18 @@ Sie dient als Notfallreferenz für alle Operator.
 - [ ] QLC+ neu starten
 - [ ] ArtNet Node prüfen
 - [ ] DMX‑Universen neu laden
+
+### 2.8 Remote-Gast (Zoom) fehlt am Downstage-Monitor
+
+**0–5 Sekunden**
+- [ ] Kachel am DSM? Dann ist der Gast im Meeting (Kamera aus oder „Bild unterbrochen“).
+- [ ] Leer/transparent? Der Gast ist nicht (mehr) im Meeting – Regie informieren.
+
+**5–30 Sekunden**
+- [ ] In JM Connect die Zeile des Slots lesen („Wartet auf …“, „Kamera aus“, „Zoom liefert gerade kein Bild“).
+- [ ] Host im Zoom-Client: Gast aus dem Warteraum zulassen.
+- [ ] Gast bitten, die Kamera aus- und wieder einzuschalten.
+- [ ] Dunkle Fläche ohne Namen? In JM Connect die Zeile des Slots lesen; bleibt es so, das Ersatzbild des Slots auf „schwarz“ oder „transparent“ stellen (wirkt sofort, ohne die Quelle neu zu starten).
 
 ---
 

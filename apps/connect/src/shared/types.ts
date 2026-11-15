@@ -218,11 +218,11 @@ export interface ZoomAbbild {
 
 export type ZoomSlotModus = 'teilnehmer' | 'sprecher' | 'freigabe';
 export type ZoomSlotAufloesung = '360p' | '720p' | '1080p';
-export type ZoomSlotErsatzbild = 'transparent' | 'eingefroren' | 'schwarz' | 'weiss';
+export type ZoomSlotErsatzbild = 'transparent' | 'eingefroren' | 'schwarz' | 'weiss' | 'kachel';
 export type ZoomSlotTonArt = 'mischton' | 'person';
 export type ZoomSprecherSignal = 'sprecherVideo' | 'aktivesVideo' | 'tonAktiv';
 export type TonQuelle = 'mix' | 'person' | 'share' | 'mixShare' | 'none';  // wie slotAudio.source (6.3)
-// SlotReason, SlotAudioReason, SlotSent ('none' | 'transparent' | 'freeze' | 'black' | 'white' | 'held') kommen aus @jm/zoom-bridge/protocol
+// SlotReason, SlotAudioReason, SlotSent ('none' | 'transparent' | 'freeze' | 'black' | 'white' | 'held' | 'tile') kommen aus @jm/zoom-bridge/protocol
 
 /** Am Rechner gespeichert (connect-settings.json, zoomSlots). Ein Konstruktor: normiereSlot(). */
 export interface ZoomSlotEinstellung {

@@ -321,6 +321,9 @@ console.log('— SDK-Schlüssel von Hand: Nutzlast-Prüfung (IPC, Spec SDK nachl
     tonArt: 'person', computerton: false, ohneKamera: false,
   };
   ck('B3 normiereSlot: gültiger Slot bleibt Feld für Feld gleich (alle elf von der Vorgabe abweichend)', flach(e.normiereSlot(voll)) === flach(voll));
+  ck('#306 normiereSlot: jedes Ersatzbild bleibt erhalten, das Bridge-Wort „tile“ wird transparent',
+    ['transparent', 'eingefroren', 'schwarz', 'weiss', 'kachel'].every((w) => e.normiereSlot({ nr: 2, ndiName: 'Zoom 2', ersatzbild: w })?.ersatzbild === w)
+    && e.normiereSlot({ nr: 2, ndiName: 'Zoom 2', ersatzbild: 'tile' })?.ersatzbild === 'transparent');
   ck('B3 normiereSlot: genau die elf Felder, fremde fallen weg', j(Object.keys(e.normiereSlot({ ...voll, extra: 1 }) ?? {}).sort())
     === j(['an', 'aufloesung', 'computerton', 'ersatzbild', 'modus', 'ndiName', 'nr', 'ohneKamera', 'person', 'tonAn', 'tonArt']));
   ck('B3 normiereSlot: unbekannte Werte → Vorgabe eines neuen Slots (7.6)',

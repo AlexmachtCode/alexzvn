@@ -132,6 +132,12 @@ constexpr long long kSpeakerHoldMaxMs = 5000;
 /** Kamera-Merker: meldet videoStatus (0.18) und merkt "Kamera aus laut Zoom" am Ziel (6.7). */
 void slotsKamera(unsigned id, int videoStatus);
 
+/**
+ * Profil-Merker (Zoom-Kachel, #306): Name oder Profilbild von Teilnehmer id haben sich geändert, id 0 = alle (der
+ * Host blendet Profilbilder ein oder aus). Jeder Slot außer Freigabe liest das Profil beim nächsten Zeichnen neu.
+ */
+void slotsProfil(unsigned id);
+
 /** Freigabe-Merker: Liste fuettern (6.9), Rueckruf in recent, shares melden. */
 void slotsFreigabe(const MerkerFreigabe& f);
 

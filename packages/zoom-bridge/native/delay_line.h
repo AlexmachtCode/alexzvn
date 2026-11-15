@@ -3,14 +3,16 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <utility>
 #include <vector>
 
 /**
- * Art eines Bildes in der Warteschlange (Spec 6.12, 6.14, PB18): I420 traegt Zooms Bilddaten, die drei Ersatzbilder
- * tragen keine (der Sender baut sie aus seinen Puffern je Groesse). Statt nur „Bild oder Schwarz“.
+ * Art eines Bildes in der Warteschlange (Spec 6.12, 6.14, PB18, #306): I420 traegt Zooms Bilddaten, die drei Ersatzbilder
+ * Schwarz, Weiss und Transparent tragen keine (der Sender baut sie aus seinen Puffern je Groesse). Kachel traegt einen
+ * fertigen, unveraenderlichen I420-Puffer als VERWEIS (kachel), nie als Kopie. Statt nur „Bild oder Schwarz“.
  */
-enum class Bildart : uint8_t { I420, Schwarz, Weiss, Transparent };
+enum class Bildart : uint8_t { I420, Schwarz, Weiss, Transparent, Kachel };
 
 /**
  * Bild-Verzoegerung einer Zoom-Quelle (Abnahmepunkt 5, Lippensynchronitaet).
@@ -77,7 +79,8 @@ class DelayLine {
     Bildart art = Bildart::I420;
     int w = 0;
     int h = 0;
-    std::vector<uint8_t> data;   // leer bei Schwarz, Weiss und Transparent
+    std::vector<uint8_t> data;   // leer bei Schwarz, Weiss, Transparent und Kachel
+    std::shared_ptr<const std::vector<uint8_t>> kachel;   // nur bei Bildart::Kachel gesetzt
     TimePoint arrival{};
   };
 
@@ -111,14 +114,37 @@ class DelayLine {
    * Ein Ersatzbild ohne Bilddaten (Schwarz, Weiss, Transparent) laeuft durch DIESELBE Warteschlange wie echte
    * Bilder - sonst ueberholte es die noch wartenden Bilder, und die Quelle zeigte Schwarz, bevor die letzten Bilder
    * vor dem Kamera-Aus durch sind. I420 traegt Bilddaten und geht nur ueber pushFrame: pushBild(Bildart::I420, ...)
-   * legt nichts ab.
+   * legt nichts ab. Ebenso die Kachel (#306): sie trägt einen Puffer und geht nur über pushKachel - sonst läge ein
+   * Frame ohne Verweis in der Warteschlange.
    */
   int pushBild(Bildart art, int w, int h, TimePoint arrival) {
-    if (art == Bildart::I420) return 0;
+    if (art == Bildart::I420 || art == Bildart::Kachel) return 0;
     Frame f;
     f.art = art;
     f.w = w;
     f.h = h;
+    f.arrival = arrival;
+    return push(std::move(f));
+  }
+
+  /**
+   * Eine Kachel (#306) laeuft durch DIESELBE Warteschlange wie Bilder und Ersatzbilder - aus demselben Grund wie bei
+   * pushBild. Der Puffer wird NICHT kopiert: die Warteschlange haelt nur den Verweis, der mit dem Frame faellt
+   * (recycle legt ihn nicht in den Vorrat). Legt nichts ab (Rueckgabe 0), wenn `puffer` leer ist oder seine Groesse
+   * nicht der I420-Groesse w*h + 2*(w/2)*(h/2) entspricht.
+   *
+   * @return wie viele Bilder die Obergrenze dabei verdraengt hat (0 oder 1).
+   */
+  int pushKachel(std::shared_ptr<const std::vector<uint8_t>> puffer, int w, int h, TimePoint arrival) {
+    if (!puffer || w <= 0 || h <= 0) return 0;
+    const size_t erwartet = static_cast<size_t>(w) * static_cast<size_t>(h) +
+                            2 * static_cast<size_t>(w / 2) * static_cast<size_t>(h / 2);
+    if (puffer->size() != erwartet) return 0;
+    Frame f;
+    f.art = Bildart::Kachel;
+    f.w = w;
+    f.h = h;
+    f.kachel = std::move(puffer);
     f.arrival = arrival;
     return push(std::move(f));
   }

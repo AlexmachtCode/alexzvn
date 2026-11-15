@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -127,10 +128,17 @@ class NdiSender {
    * UYVY-Ebene mit 2 Byte je Bildpunkt (Zeilenabstand 2 * Breite), direkt
    * dahinter die Alpha-Ebene mit 1 Byte je Bildpunkt; Puffer 3 * B * H Byte.
    * GEHT IMMER DIREKT HINAUS, ohne Warteschlange: die Warteschlange traegt
-   * nur I420-Bilder und die vier Bildarten (delay_line.h). Ersatzbilder mit
+   * nur I420-Bilder und die fuenf Bildarten (delay_line.h). Ersatzbilder mit
    * Versatz nehmen darum sendTransparent().
    */
   void sendUYVA(const uint8_t* buf, int width, int height);
+
+  /**
+   * Sendet die Zoom-Kachel (#306): einen fertigen, unveraenderlichen I420-Puffer der Groesse width x height. Der Puffer
+   * wird NICHT kopiert - ohne Versatz geht er direkt hinaus, sonst traegt die Warteschlange nur den Verweis (Bildart
+   * Kachel). Ein leerer Verweis oder eine falsche Groesse sendet nichts.
+   */
+  void sendKachel(std::shared_ptr<const std::vector<uint8_t>> i420, int width, int height);
 
   /**
    * Sendet die Kopie `c` (Freeze, Halten; Spec 6.12) wie ein empfangenes

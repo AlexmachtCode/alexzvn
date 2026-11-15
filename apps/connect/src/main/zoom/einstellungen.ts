@@ -86,7 +86,7 @@ export function waehleZugang(e: {
 /** Erlaubte Werte je Aufzählung (Spec 7.1). Ein Record macht eine vergessene Variante zum Typfehler. */
 const MODI: Record<ZoomSlotModus, true> = { teilnehmer: true, sprecher: true, freigabe: true };
 const AUFLOESUNGEN: Record<ZoomSlotAufloesung, true> = { '360p': true, '720p': true, '1080p': true };
-const ERSATZBILDER: Record<ZoomSlotErsatzbild, true> = { transparent: true, eingefroren: true, schwarz: true, weiss: true };
+const ERSATZBILDER: Record<ZoomSlotErsatzbild, true> = { transparent: true, eingefroren: true, schwarz: true, weiss: true, kachel: true };
 const TONARTEN: Record<ZoomSlotTonArt, true> = { mischton: true, person: true };
 const SIGNALE: Record<ZoomSprecherSignal, true> = { sprecherVideo: true, aktivesVideo: true, tonAktiv: true };
 const istIn = <T extends string>(werte: Record<T, true>, v: unknown): v is T => typeof v === 'string' && Object.hasOwn(werte, v);

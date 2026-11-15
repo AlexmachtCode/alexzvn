@@ -10,7 +10,7 @@ import type {
 } from './types';
 
 // Zoom-Slots (Plan B, Block b2): eigene Importzeilen; die Typen der alten Quellen fallen mit dem Kern-Umstieg (Task B12) weg.
-import { SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
+import { SLOT_NR_MAX, tileNotice } from '@jm/zoom-bridge/protocol';
 import type { AudioState, SlotAudioReason, SlotReason, SlotSent } from '@jm/zoom-bridge/protocol';
 import type {
   TonQuelle, ZoomBefehlErgebnis, ZoomSlotAufloesung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotZustand, ZoomSprecherSignal,
@@ -626,10 +626,27 @@ export const ERSATZBILD_NAME: Record<ErsatzbildArt, string> = {
   freeze: 'eingefroren',
   black: 'schwarz',
   white: 'weiß',
+  tile: 'Zoom-Kachel',
   eingefroren: 'eingefroren',
   schwarz: 'schwarz',
   weiss: 'weiß',
+  kachel: 'Zoom-Kachel',
 };
+
+/** Reihenfolge der Auswahl im Feld „Ersatzbild“ (Werte, keine Texte; die Namen liefert ERSATZBILD_NAME). */
+const ERSATZBILD_REIHE: readonly ZoomSlotErsatzbild[] = ['transparent', 'eingefroren', 'schwarz', 'weiss', 'kachel'];
+
+/**
+ * Auswahl des Felds „Ersatzbild“ je Modus (#306): Die Zoom-Kachel gibt es nur für Teilnehmer und Sprecher. Im Modus Freigabe
+ * fehlt sie; ist sie dort noch gespeichert, steht sie gesperrt und ehrlich benannt (die Bridge sendet dann transparent).
+ */
+export function ersatzbildAuswahl(modus: ZoomSlotModus, aktuell: ZoomSlotErsatzbild): { wert: ZoomSlotErsatzbild; text: string; waehlbar: boolean }[] {
+  type Option = { wert: ZoomSlotErsatzbild; text: string; waehlbar: boolean };
+  return ERSATZBILD_REIHE.flatMap((wert): Option[] => {
+    if (wert !== 'kachel' || modus !== 'freigabe') return [{ wert, text: ERSATZBILD_NAME[wert], waehlbar: true }];
+    return aktuell === 'kachel' ? [{ wert, text: SLOT_TEXT.kachelFreigabe, waehlbar: false }] : [];
+  });
+}
 
 /** T4, Feldname (Spec 9.1). */
 export const ERSATZBILD_FELD = 'Ersatzbild';
@@ -685,6 +702,8 @@ export const KACHEL_TEXT = {
   /** „Ersatzbild {art}“ (Regel 9). */
   ersatzbild: (art: string): string => `Ersatzbild ${art}`,
   T60: 'Ersatzbild eingefroren (kein gespeichertes Bild, darum transparent)',
+  /** Zoom-Kachel bei unterbrochenem Bild (noFrames, bufferMismatch, subscribeFailed; tileNotice der Bridge). */
+  T61: 'Ersatzbild Zoom-Kachel (Bild unterbrochen)',
   T97: (m: number): string => ` · Slot ${m} zeigt dieselbe Quelle; ob Zoom zwei Abos derselben Quelle zugleich beliefert, ist noch nicht gemessen.`,
 };
 
@@ -766,7 +785,8 @@ export interface KachelEingabe {
 }
 
 /** „Ersatzbild {art}“ (Regel 9): nennt `sent`; „eingefroren“ eingestellt und transparent gesendet → T60. */
-function ersatzTeil(gesendet: SlotSent | null, ersatzbild: ZoomSlotErsatzbild): string {
+function ersatzTeil(gesendet: SlotSent | null, ersatzbild: ZoomSlotErsatzbild, grund: SlotReason | null): string {
+  if (gesendet === 'tile' && tileNotice(grund)) return KACHEL_TEXT.T61;
   if (ersatzbild === 'eingefroren' && gesendet === 'transparent') return KACHEL_TEXT.T60;
   // In SZ6 sendet die Bridge immer eine Ersatzbild-Art (6.12); ohne sie (kommt nicht vor) nennt die Zeile die Einstellung.
   const art: ErsatzbildArt = gesendet === null || gesendet === 'none' || gesendet === 'held' ? ersatzbild : gesendet;
@@ -775,7 +795,7 @@ function ersatzTeil(gesendet: SlotSent | null, ersatzbild: ZoomSlotErsatzbild): 
 
 /** SZ6 (Regeln 6–10): der Sender besteht, Zoom liefert kein Bild; die Zeile nennt den Grund und das gesendete Ersatzbild. */
 function ersatzZeile(e: KachelEingabe, person: string): string {
-  const ersatz = ersatzTeil(e.gesendet, e.ersatzbild);
+  const ersatz = ersatzTeil(e.gesendet, e.ersatzbild, e.grund);
   if (e.modus === 'teilnehmer') {
     // Regel 6, zuerst was eine Wahl braucht oder fehlt (nur ohne Ziel, 7.3 Nr. 5)
     if (e.doppelt > 1) return KACHEL_TEXT.T13(person, e.doppelt, ersatz);
@@ -1036,6 +1056,8 @@ export const SLOT_TEXT = {
   stopp: 'Stopp',
   /** T35, Tooltip am gesperrten NDI-Namen */
   nameGesperrt: 'Den NDI-Namen erst ändern, wenn der Slot ausgeschaltet ist.',
+  /** Zoom-Kachel gespeichert, aber Modus Freigabe: die Bridge sendet dort transparent. */
+  kachelFreigabe: 'Zoom-Kachel (bei Bildschirmfreigabe transparent)',
   /** T36, Tooltip am gesperrten „Löschen“ */
   loeschenGesperrt: 'Zum Löschen den Slot erst ausschalten.',
   /** T38 */
