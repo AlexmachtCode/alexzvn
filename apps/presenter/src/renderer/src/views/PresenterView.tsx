@@ -18,8 +18,28 @@ export function PresenterView() {
   const [showGrid, setShowGrid] = useState(false);
   const [showRemote, setShowRemote] = useState(false);
 
+  const [vollbild, setVollbild] = useState(false);
+
   useEffect(() => {
     void window.jmpr.present.displays().then(setDisplays);
+  }, []);
+
+  // #309: Vollbild der Referentenansicht – Stand beim Laden, danach jeder Wechsel (Knopf, F11, System).
+  useEffect(() => {
+    void window.jmpr.present.referentVollbild().then(setVollbild);
+    return window.jmpr.present.onReferentVollbild(setVollbild);
+  }, []);
+
+  // F11 nur hier (usePresenterKeys gilt auch fürs Publikum). preventDefault hält das Standardmenü von Electron ab,
+  // das F11 sonst ein zweites Mal umschalten würde (gemessen, Electron 33.4.11).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'F11') return;
+      e.preventDefault();
+      void window.jmpr.present.toggleReferentVollbild();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   if (!slides) {
@@ -45,8 +65,10 @@ export function PresenterView() {
   return (
     <div className="h-full flex flex-col bg-[#0c0c0c] text-white select-none">
       {/* header */}
-      <header className="h-16 flex items-center gap-4 px-5 border-b border-white/10">
-        <div className="flex items-baseline gap-2">
+      {/* Mindesthöhe statt fester Höhe: Bei schmalem Fenster bricht die Knopfgruppe in eine zweite Zeile um, statt
+          Knöpfe („■ Beenden“) rechts aus dem Fenster zu schieben (Review #309). */}
+      <header className="min-h-16 py-2 flex items-center gap-4 px-5 border-b border-white/10">
+        <div className="flex shrink-0 items-baseline gap-2 whitespace-nowrap">
           <span className="text-3xl font-extrabold tabular text-[var(--primary)]">{state.index + 1}</span>
           <span className="text-lg text-white/50 tabular">/ {state.total}</span>
         </div>
@@ -55,7 +77,7 @@ export function PresenterView() {
         </div>
         <Clock />
         <div className="h-8 w-px bg-white/15" />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <select
             value={nurNdi ? 'keiner' : audienceDisplay?.id ?? ''}
             disabled={nurNdi}
@@ -95,6 +117,13 @@ export function PresenterView() {
             onClick={() => void window.jmpr.present.toggleAudienceFullscreen()}
             disabled={nurNdi}
             title={nurNdi ? 'Kein Publikumsfenster – Bild nur über NDI' : undefined}
+          >
+            Publikum Vollbild
+          </HeaderBtn>
+          <HeaderBtn
+            onClick={() => void window.jmpr.present.toggleReferentVollbild()}
+            active={vollbild}
+            title="Referentenansicht im Vollbild (F11)"
           >
             Vollbild
           </HeaderBtn>
@@ -257,7 +286,7 @@ function HeaderBtn({
       title={title}
       disabled={disabled}
       className={cn(
-        'h-8 px-3 rounded-md text-xs font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+        'h-8 px-3 shrink-0 whitespace-nowrap rounded-md text-xs font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
         danger
           ? 'border-[var(--destructive)]/60 text-[var(--destructive)] hover:bg-[var(--destructive)]/15'
           : active

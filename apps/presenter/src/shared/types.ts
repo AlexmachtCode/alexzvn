@@ -270,6 +270,12 @@ export interface TimerSyncConfig {
   port: number;
 }
 
+/** #309: gemerkter Zustand der Referentenansicht (`userData/referent-config.json`). */
+export interface ReferentConfig {
+  /** Referentenfenster beim nächsten Öffnen im Vollbild. */
+  vollbild: boolean;
+}
+
 // ---- NDI-Ausgang (#303) ----
 
 /** `startet`: Sender-Prozess lädt; `sendet`: Quelle steht im Netz; `nicht-verfuegbar`: siehe `grund`. */
@@ -344,6 +350,12 @@ export interface JmprApi {
     /** Move the audience window to a given display (fullscreen). */
     assignAudience: (displayId: number) => Promise<void>;
     toggleAudienceFullscreen: () => Promise<boolean>;
+    /** #309: Referentenfenster ins Vollbild und zurück (Knopf „Vollbild“, F11); liefert den angeforderten Zustand. */
+    toggleReferentVollbild: () => Promise<boolean>;
+    /** #309: Ist das Referentenfenster gerade im Vollbild? */
+    referentVollbild: () => Promise<boolean>;
+    /** #309: Push bei jedem Wechsel des Referentenfensters (auch durch das System). */
+    onReferentVollbild: (cb: (an: boolean) => void) => () => void;
     onState: (cb: (s: PresentationState) => void) => () => void;
   };
 

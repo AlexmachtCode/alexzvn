@@ -105,6 +105,14 @@ const api: JmprApi = {
       ipcRenderer.invoke('present:assignAudience', displayId) as Promise<void>,
     toggleAudienceFullscreen: () =>
       ipcRenderer.invoke('present:toggleAudienceFullscreen') as Promise<boolean>,
+    toggleReferentVollbild: () =>
+      ipcRenderer.invoke('present:toggleReferentVollbild') as Promise<boolean>,
+    referentVollbild: () => ipcRenderer.invoke('present:referentVollbild') as Promise<boolean>,
+    onReferentVollbild: (cb) => {
+      const listener = (_event: unknown, an: boolean) => cb(an);
+      ipcRenderer.on('present:referentVollbildStand', listener);
+      return () => ipcRenderer.off('present:referentVollbildStand', listener);
+    },
     onState: (cb) => {
       const listener = (_event: unknown, s: PresentationState) => cb(s);
       ipcRenderer.on('present:state', listener);
