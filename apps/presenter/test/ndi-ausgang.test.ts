@@ -72,7 +72,9 @@ export function setPresentationClosedHandler() {}
 export function getDisplays() { return []; }
 export function getEditorWindow() { return null; }
 export function moveAudienceToDisplay() {}
-export function toggleAudienceFullscreen() { return false; }`;
+export function toggleAudienceFullscreen() { return false; }
+export function toggleReferentVollbild() { return false; }
+export function getReferentVollbild() { return false; }`;
 // Sender-Attrappe: `wirft` = Wurf beim init NACH dem Fork – das Kind läuft dann schon.
 const SENDER = `
 const s = globalThis.__s;

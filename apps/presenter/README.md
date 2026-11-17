@@ -19,8 +19,14 @@ mit getrennter **Referenten-** und **Publikumsansicht** über zwei Bildschirme a
   - **Referentenansicht**: aktuelle + nächste Folie, Notizen, Folienzähler
     (aktuell / max), **Uhr + Laufzeit-Timer**, **Folienübersicht (Grid)** und
     **„Gehe zu Folie"**.
+  - **Referentenansicht im Vollbild (ab 0.13.1, #309)**: Knopf **„Vollbild“** im
+    Kopf oder **F11** – das Fenster deckt den ganzen Bildschirm, unter Windows
+    auch die Taskleiste. Der Presenter merkt sich den Zustand (`referent-config.json`
+    in `userData`): Die nächste Präsentation öffnet die Referentenansicht wieder so.
+    `Esc` beendet weiterhin die Präsentation, nicht das Vollbild.
   - **Publikumsansicht**: nur die aktuelle Folie, formatfüllend auf Schwarz.
-  - **Freie Bildschirm-Zuweisung** des Publikumsfensters, Vollbild-Umschaltung.
+  - **Freie Bildschirm-Zuweisung** des Publikumsfensters, Vollbild-Umschaltung
+    (Knopf **„Publikum Vollbild“** in der Referentenansicht).
   - Steuerung per Tastatur/Maus und **USB-Presenter-Clicker** (PageUp/PageDown,
     Pfeiltasten, Leertaste; `Esc` beendet).
 - **NDI-Ausgang (Windows, ab 0.13.0)** – das Publikumsbild zusätzlich als

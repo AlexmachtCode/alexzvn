@@ -584,6 +584,15 @@
     "name": "JM Presenter",
     "entries": [
       {
+        "version": "0.13.1",
+        "date": "2026-11-17",
+        "notes": [
+          "Neu: Die Referentenansicht lässt sich ins Vollbild schalten – mit dem Knopf „Vollbild“ oben in der Referentenansicht oder mit F11. Sie füllt dann den ganzen Bildschirm, unter Windows auch über der Taskleiste. (#309)",
+          "Der Presenter merkt sich die Einstellung: Lief die Referentenansicht zuletzt im Vollbild, öffnet die nächste Präsentation sie wieder so, auch nach einem Neustart.",
+          "Der bisherige Knopf „Vollbild“ schaltet das Publikumsfenster und heißt jetzt „Publikum Vollbild“. Esc beendet wie bisher die Präsentation."
+        ]
+      },
+      {
         "version": "0.13.0",
         "date": "2026-11-15",
         "notes": [
