@@ -3574,6 +3574,15 @@ console.log('\nNativer Teil — A9 NDI-Sender: UYVA, Weiß, Transparent, Kopie, 
       && /if\s*\(\s*send_\s*\)\s*sendUYVALocked\(/.test(freigabe.slice(iZu)) && /if\s*\(\s*send_\s*\)\s*senke\(\s*b\s*\)/.test(freigabe)
       && anzahlIn(freigabe, /\block\.unlock\(\)/g) === 1 && anzahlIn(freigabe, /\block\.lock\(\)/g) === 1,
     '#310 releaseDueLocked: im Einpassen-Zweig lock.unlock() vor einpass::rahmenVorbereiten( und einpass::einpassen(, lock.lock() danach, dann if (send_) sendUYVALocked( - sonst öffnet nichts die Sperre');
+  // #310 Fixrunde 1 (Review Task 3): leereVersatz() und close() zählen generation_ hoch. Der Staffelhalter merkt sie
+  // nach entnehmen( und sendet nach einer Einpass-Lücke nichts mehr aus faellig_, wenn sie sich geändert hat - sonst
+  // ginge nach dem Wechsel zur Freigabe noch ein altes Personenbild hinaus („nach leereVersatz kein altes Bild“).
+  const iGenMerken = freigabe.search(/const\s+uint32_t\s+\w+\s*=\s*generation_\s*;/);
+  const iGenPruefen = freigabe.search(/if\s*\(\s*generation_\s*!=\s*\w+\s*\)\s*break\s*;/);
+  assert(/\+\+generation_\s*;/.test(rumpf(sender, 'void NdiSender::leereVersatz(')) && /\+\+generation_\s*;/.test(rumpf(sender, 'void NdiSender::close('))
+      && /\buint32_t\s+generation_\s*=\s*0\s*;/.test(nativ('ndi_sender.h'))
+      && iGenMerken > iEntnehmen && iGenMerken < iSchleife && iGenPruefen > iZu && iGenPruefen < iUyva,
+    '#310 leereVersatz und close zählen generation_ hoch; releaseDueLocked merkt sie nach entnehmen( und bricht nach lock.lock(), vor sendUYVALocked( ab, wenn sie sich geändert hat');
   const direktBedingung = (text: string): string => {
     const i = text.search(/if\s*\(\s*ohneVersatz_\s*\|\|/);
     return i < 0 ? '' : text.slice(i, text.indexOf('{', i));

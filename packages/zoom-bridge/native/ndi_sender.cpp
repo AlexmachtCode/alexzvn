@@ -279,6 +279,7 @@ void NdiSender::setOhneVersatz(bool an) {
 
 void NdiSender::leereVersatz() {
   std::lock_guard<std::mutex> lock(mutex_);
+  ++generation_;   // auch was ein Staffelhalter schon entnommen hat, geht nicht mehr hinaus (#310)
   delay_.clear();
 }
 
@@ -341,27 +342,34 @@ int NdiSender::releaseDueLocked(std::unique_lock<std::mutex>& lock, bool nachlau
   const auto jetzt = DelayLine::Clock::now();
   // Nachlauf: dieselbe Regel mit vorgezogener Uhr, genau wie DelayLine::releaseNachlauf.
   const auto r = delay_.entnehmen(nachlauf ? jetzt - DelayLine::kNachlaufKarenz : jetzt, versatz, faellig_);
-  if (nachlauf) zaehler_.imNachlauf += static_cast<unsigned int>(r.sent);
-  else zaehler_.beimEinreihen += static_cast<unsigned int>(r.sent);
   zaehler_.verworfen += static_cast<unsigned int>(r.dropped);
+  // Der Stand beim Entnehmen: aendert er sich in einer Einpass-Luecke (leereVersatz, close), gehoert der Rest von
+  // faellig_ zum alten Stand und geht nicht mehr hinaus - genau wie die von leereVersatz geleerten Bilder.
+  const uint32_t generation = generation_;
+  unsigned int ausgegeben = 0;
   ausgabeLaeuft_ = true;
   for (const DelayLine::Frame& b : faellig_) {
     if (b.art != Bildart::Einpassen) {
-      // send_ erneut pruefen: close() kann in einer Einpass-Luecke weiter oben gelaufen sein.
       if (send_) senke(b);
+      ++ausgegeben;
       continue;
     }
-    if (!send_) continue;   // geschlossen: nichts mehr einzupassen
     // Einpassen OHNE mutex_ (bis ~2 ms je Bild): ausgabeRahmen_ und faellig_ fasst solange nur der Staffelhalter an.
-    // Wer jetzt sendet, reiht ein (ausgabeLaeuft_; nur "ohne Versatz" und sendUYVA reihen nie ein). close() darf
-    // laufen - darum danach send_ erneut pruefen.
+    // Wer jetzt sendet, reiht ein (ausgabeLaeuft_; nur "ohne Versatz" und sendUYVA reihen nie ein). leereVersatz()
+    // und close() duerfen laufen - darum danach die Generation pruefen.
     lock.unlock();
     einpass::rahmenVorbereiten(ausgabeRahmen_, b.rahmenW, b.rahmenH, einpass::bildFlaeche(b.w, b.h, b.rahmenW, b.rahmenH));
     einpass::einpassen(b.data.data(), b.w, b.h, ausgabeRahmen_);
     lock.lock();
     ausgabeRahmenBytes_ = einpass::speicherBytes(ausgabeRahmen_);
+    if (generation_ != generation) break;
     if (send_) sendUYVALocked(ausgabeRahmen_.daten.data(), b.rahmenW, b.rahmenH);
+    ++ausgegeben;
   }
+  // Gezaehlt wird, was hinausging. Was nach leereVersatz/close liegen blieb, ist weder ausgegeben noch "verworfen"
+  // (meldeVerworfen nennt Versatz/Ausgabe/Zoom als Anlass - hier waere es der Moduswechsel oder der Abbau).
+  if (nachlauf) zaehler_.imNachlauf += ausgegeben;
+  else zaehler_.beimEinreihen += ausgegeben;
   delay_.zuruecklegen(faellig_);
   ausgabeLaeuft_ = false;
   return r.dropped;
@@ -435,7 +443,9 @@ void NdiSender::sendSilence(int sampleCount, int sampleRate, int channels) {
 void NdiSender::close() {
   std::lock_guard<std::mutex> lock(mutex_);
   // Wartende Bilder gehen mit dem Sender: die Quelle verschwindet ohnehin,
-  // und der Vorrat haelt bei 1080p mehrere Dutzend MB.
+  // und der Vorrat haelt bei 1080p mehrere Dutzend MB. Ebenso, was ein
+  // Staffelhalter schon entnommen hat (#310, generation_).
+  ++generation_;
   delay_.clear();
   if (!send_) return;
   NDIlib_send_destroy(send_);

@@ -177,7 +177,10 @@ class NdiSender {
    */
   void setOhneVersatz(bool an);
 
-  /** Verwirft die wartenden Bilder samt Vorrat (DelayLine::clear(), Spec 6.14). */
+  /**
+   * Verwirft die wartenden Bilder samt Vorrat (DelayLine::clear(), Spec 6.14) - auch die, die ein Staffelhalter
+   * schon entnommen, aber noch nicht gesendet hat (#310, generation_): danach geht kein Bild des alten Stands hinaus.
+   */
   void leereVersatz();
 
   /**
@@ -314,6 +317,10 @@ class NdiSender {
   einpass::Rahmen ausgabeRahmen_;
   // Dessen Speicher fuer speicherBytes(), unter mutex_ nachgefuehrt (der Rahmen selbst ist dort nicht lesbar).
   size_t ausgabeRahmenBytes_ = 0;
+  // Stand der Warteschlange (#310, Fixrunde 1), unter mutex_: leereVersatz() und close() zaehlen ihn hoch. Der
+  // Staffelhalter merkt ihn beim Entnehmen; hat er sich nach einer Einpass-Luecke geaendert, sendet er aus faellig_
+  // nichts mehr - sonst ginge nach dem Wechsel zur Freigabe noch ein altes Personenbild hinaus.
+  uint32_t generation_ = 0;
   // Wiederverwendeter Stillepuffer - aus demselben Grund wie black_: je
   // Herzschlag neu zu belegen waere 100-mal je Sekunde je Abo eine
   // Speicheranforderung fuer immer denselben Inhalt (Nullen).
