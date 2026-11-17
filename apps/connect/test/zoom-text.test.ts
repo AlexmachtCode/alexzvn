@@ -1007,12 +1007,12 @@ console.log('— B5 · ST100–ST106, SF5–SF14 wörtlich, SLOT_FEHLER_TEXT je 
   const T101 = SLOT_KT.T101('NAME_X');
   const ERWARTET: Record<string, string> = {
     slotBadNumber: T103, slotBadName: T103, slotNameTaken: SLOT_KT.T102, slotBadMode: T103, slotBadResolution: T103,
-    slotBadAudio: T103, slotBadFallback: T103, slotBadFlag: T103, slotBadTarget: T103, slotAlreadyOn: 'keine', slotNotOn: 'keine',
+    slotBadAudio: T103, slotBadFallback: T103, slotBadFrame: T103, slotBadFlag: T103, slotBadTarget: T103, slotAlreadyOn: 'keine', slotNotOn: 'keine',
     slotNoPrivilege: SLOT_KT.T100, slotReconnecting: 'keine', slotRawRecordingFailed: T101, slotSenderFailed: T101, slotRendererFailed: T101,
     slotSubscribeFailed: 'keine', slotBufferMismatch: SLOT_KT.T105(4), speakerBadSignal: T103, speakerBadHold: T103, previewUnavailable: 'keine',
   };
-  ck('SLOT_FEHLER_TEXT hat genau die 21 Schlüssel aus SLOT_ERROR_KEYS',
-    JSON.stringify(Object.keys(SLOT_FEHLER_TEXT).sort()) === JSON.stringify([...SLOT_ERROR_KEYS].sort()) && SLOT_ERROR_KEYS.length === 21);
+  ck('SLOT_FEHLER_TEXT hat genau die 22 Schlüssel aus SLOT_ERROR_KEYS',
+    JSON.stringify(Object.keys(SLOT_FEHLER_TEXT).sort()) === JSON.stringify([...SLOT_ERROR_KEYS].sort()) && SLOT_ERROR_KEYS.length === 22);
   for (const k of SLOT_ERROR_KEYS) {
     const v = SLOT_FEHLER_TEXT[k];
     ck(`SLOT_FEHLER_TEXT ${k} → ${ERWARTET[k] === 'keine' ? 'keine' : 'Text'}`, (v === 'keine' ? 'keine' : v({ name: 'NAME_X', nr: 4 })) === ERWARTET[k]);

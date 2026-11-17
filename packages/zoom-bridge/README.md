@@ -303,8 +303,8 @@ Absturz behandelt.
 | `join` | `meetingId`, `passcode`, `displayName` | Tritt dem Meeting bei. |
 | `leave` | — | Verlässt das Meeting, bleibt aber angemeldet. Baut **vorher** alle Slots ab (jeder meldet sich einzeln, Ton vor Bild, siehe Abschnitt 7; bis 0.3.0 alle Video-Abos). |
 | `quit` | — | Beendet `zoom-bridge.exe` sauber. |
-| `slotOn` | `slot` (1–16), `ndi` (fertiger NDI-Name, höchstens 60 Code-Punkte, ohne `:`), `mode` (`participant`/`speaker`/`share`), `id` (nur `participant`; fehlt oder 0 = kein Ziel), `resolution` (`360p`/`720p`/`1080p`), `audio` (`mix`/`person`/`off`), `shareAudio` (Bool), `fallback` (`transparent`/`freeze`/`black`/`white`/`tile`; `tile` = Zoom-Kachel, nur Teilnehmer/Sprecher, #306), `showNoVideo` (Bool) | Legt den Slot mit seinem festen NDI-Sender an und hängt ihn auf das erste Ziel seines Modus — **Einzelheiten in Abschnitt 7**. Der erste Fehler der Prüffolge gewinnt; angelegt wird dann nichts. |
-| `slotSet` | `slot`, dazu beliebig viele von `mode`, `id`, `resolution`, `audio`, `shareAudio`, `fallback`, `showNoVideo` | Prüft erst alle Felder, ändert dann; höchstens ein Umhängen. Der Sender bleibt. |
+| `slotOn` | `slot` (1–16), `ndi` (fertiger NDI-Name, höchstens 60 Code-Punkte, ohne `:`), `mode` (`participant`/`speaker`/`share`), `id` (nur `participant`; fehlt oder 0 = kein Ziel), `resolution` (`360p`/`720p`/`1080p`), `audio` (`mix`/`person`/`off`), `shareAudio` (Bool), `fallback` (`transparent`/`freeze`/`black`/`white`/`tile`; `tile` = Zoom-Kachel, nur Teilnehmer/Sprecher, #306), `frame` (`native`/`fit`, optional, fehlt = `native`; `fit` = Hochkant in 16:9 einpassen, nur Teilnehmer/Sprecher, #310), `showNoVideo` (Bool) | Legt den Slot mit seinem festen NDI-Sender an und hängt ihn auf das erste Ziel seines Modus — **Einzelheiten in Abschnitt 7**. Der erste Fehler der Prüffolge gewinnt; angelegt wird dann nichts. |
+| `slotSet` | `slot`, dazu beliebig viele von `mode`, `id`, `resolution`, `audio`, `shareAudio`, `fallback`, `frame`, `showNoVideo` | Prüft erst alle Felder, ändert dann; höchstens ein Umhängen. Der Sender bleibt. |
 | `slotOff` | `slot` | Baut den Slot ab und schließt seinen Sender. |
 | `speakerConfig` | `signal` (`speakerVideo`/`activeVideo`/`activeAudio`), `holdMs` (0–5000) | Signal und Haltezeit für alle Sprecher-Slots; braucht kein `init`. |
 | `previewMode` | `on` (Bool) | Vorschau aller Slots an oder aus; braucht kein `init`. |
@@ -691,7 +691,7 @@ Hauptschleife das Signal bzw. den Freigabe-Rückruf übernimmt.
 | --- | --- | --- |
 | `slotBadNumber` | `slot` unlesbar oder nicht 1–16 | – |
 | `slotBadName`, `slotNameTaken` | NDI-Name ungültig bzw. schon an einem laufenden Slot | `slot` |
-| `slotBadMode`, `slotBadResolution`, `slotBadAudio`, `slotBadFallback`, `slotBadFlag` | Feld fehlt, ist unlesbar oder unbekannt | `slot` |
+| `slotBadMode`, `slotBadResolution`, `slotBadAudio`, `slotBadFallback`, `slotBadFrame`, `slotBadFlag` | Feld fehlt, ist unlesbar oder unbekannt | `slot` |
 | `slotBadTarget` | `id` vorhanden, aber keine ganze Zahl bis `UINT_MAX` (nicht in der Spec: Ein Tippfehler soll nicht still „kein Ziel“ heißen) | `slot` |
 | `slotAlreadyOn`, `slotNotOn` | `slotOn` auf laufendem bzw. `slotSet`/`slotOff` auf nicht laufendem Slot | `slot` |
 | `slotReconnecting` | `slotOn` während der Renderer-Sperre; nichts angelegt | `slot` |

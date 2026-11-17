@@ -323,7 +323,7 @@ type FehlerEreignis = {
  */
 const AUFBAU_FEHLER: ReadonlySet<string> = new Set<SlotFehler>([
   'slotRawRecordingFailed', 'slotSenderFailed', 'slotRendererFailed', 'slotNameTaken', 'slotBadName', 'slotBadMode',
-  'slotBadResolution', 'slotBadAudio', 'slotBadFallback', 'slotBadFlag', 'slotBadTarget',
+  'slotBadResolution', 'slotBadAudio', 'slotBadFallback', 'slotBadFrame', 'slotBadFlag', 'slotBadTarget',
 ]);
 /**
  * Nachtrag B (I-2): Antworten der Bridge auf ein slotOn, die keinen Sender anlegen (6.2, Zeile slotOn): die Aufbaufehler,

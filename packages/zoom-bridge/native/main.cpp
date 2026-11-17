@@ -276,6 +276,7 @@ void handle(const std::string& line) {
     if (leseAufloesung(line, &b.res) != Lesung::Gut) { emitSlotFehler("slotBadResolution", nr); return; }
     if (leseName(line, "audio", slotlogic::AUDIO_NAMEN, &b.audio) != Lesung::Gut) { emitSlotFehler("slotBadAudio", nr); return; }
     if (leseName(line, "fallback", slotlogic::FALLBACK_NAMEN, &b.fallback) != Lesung::Gut) { emitSlotFehler("slotBadFallback", nr); return; }
+    if (leseName(line, "frame", slotlogic::BILDFORMAT_NAMEN, &b.frame) == Lesung::Schlecht) { emitSlotFehler("slotBadFrame", nr); return; }   // fehlt = native (#310)
     if (leseSchalter(line, "shareAudio", &b.shareAudio) != Lesung::Gut ||       // 5.
         leseSchalter(line, "showNoVideo", &b.showNoVideo) != Lesung::Gut) {
       emitSlotFehler("slotBadFlag", nr);
@@ -295,6 +296,7 @@ void handle(const std::string& line) {
     // auf. Ohne NDI-Namen (0.23).
     emitLog(L"Felder gelesen: slotOn " + std::to_wstring(nr) + L", Aufloesung " + breit(slotAufloesungName(b.res)) +
             L", Ersatzbild " + breit(slotlogic::FALLBACK_NAMEN[static_cast<int>(b.fallback)]) +
+            L", Format " + breit(slotlogic::BILDFORMAT_NAMEN[static_cast<int>(b.frame)]) +
             L", Computerton " + (b.shareAudio ? L"ja" : L"nein") + L", ohne Kamera " + (b.showNoVideo ? L"ja" : L"nein") +
             L", Ziel " + (b.id != 0 ? std::to_wstring(b.id) : std::wstring(L"keins")));
     slotOn(b);   // 8.-11.
@@ -318,6 +320,9 @@ void handle(const std::string& line) {
     l = leseName(line, "fallback", slotlogic::FALLBACK_NAMEN, &a.fallback);
     if (l == Lesung::Schlecht) { emitSlotFehler("slotBadFallback", nr); return; }
     a.fallbackGesetzt = l == Lesung::Gut;
+    l = leseName(line, "frame", slotlogic::BILDFORMAT_NAMEN, &a.frame);
+    if (l == Lesung::Schlecht) { emitSlotFehler("slotBadFrame", nr); return; }
+    a.frameGesetzt = l == Lesung::Gut;
     const Lesung teilen = leseSchalter(line, "shareAudio", &a.shareAudio);
     const Lesung ohneVideo = leseSchalter(line, "showNoVideo", &a.showNoVideo);
     if (teilen == Lesung::Schlecht || ohneVideo == Lesung::Schlecht) { emitSlotFehler("slotBadFlag", nr); return; }
@@ -332,6 +337,7 @@ void handle(const std::string& line) {
             (a.audioGesetzt ? L", Ton " + breit(slotlogic::AUDIO_NAMEN[static_cast<int>(a.audio)]) : std::wstring()) +
             (a.resGesetzt ? L", Aufloesung " + breit(slotAufloesungName(a.res)) : std::wstring()) +
             (a.fallbackGesetzt ? L", Ersatzbild " + breit(slotlogic::FALLBACK_NAMEN[static_cast<int>(a.fallback)]) : std::wstring()) +
+            (a.frameGesetzt ? L", Format " + breit(slotlogic::BILDFORMAT_NAMEN[static_cast<int>(a.frame)]) : std::wstring()) +
             (a.shareAudioGesetzt ? std::wstring(L", Computerton ") + (a.shareAudio ? L"ja" : L"nein") : std::wstring()) +
             (a.showNoVideoGesetzt ? std::wstring(L", ohne Kamera ") + (a.showNoVideo ? L"ja" : L"nein") : std::wstring()) +
             (a.idGesetzt ? L", Ziel " + (a.id != 0 ? std::to_wstring(a.id) : std::wstring(L"keins")) : std::wstring()));

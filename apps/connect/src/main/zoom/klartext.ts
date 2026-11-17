@@ -405,6 +405,7 @@ export const SLOT_FEHLER_TEXT: Record<SlotFehler, ((e: { name: string; nr: numbe
   slotBadResolution: (e) => SLOT_KT.T103(e.name),
   slotBadAudio: (e) => SLOT_KT.T103(e.name),
   slotBadFallback: (e) => SLOT_KT.T103(e.name),
+  slotBadFrame: (e) => SLOT_KT.T103(e.name),
   slotBadFlag: (e) => SLOT_KT.T103(e.name),
   slotBadTarget: (e) => SLOT_KT.T103(e.name),
   slotAlreadyOn: 'keine',

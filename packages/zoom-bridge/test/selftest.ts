@@ -2598,7 +2598,7 @@ console.log('\nNativer Teil — Quelltext-Waechter (Stage 4b):');
 // ── A1 · Slot-Vertrag: Kataloge, Befehle, Ereignisse, Fehlerschlüssel, Reducer, Exporte (Spec 6.2–6.4, 11.2 PT1–PT4) ──
 import {
   AUDIO_ABO_FEHLER, SHARE_TYPE_NAMES, SHARING_STATUS_NAMES, SLOT_AUDIO_REASONS, SLOT_AUDIO_SETTINGS, SLOT_AUDIO_SOURCES,
-  SLOT_ERROR_KEYS, SLOT_FALLBACKS, SLOT_MODES, SLOT_NR_MAX, SLOT_REASONS, SLOT_RESOLUTIONS, SLOT_SENT, SLOT_STATES,
+  SLOT_ERROR_KEYS, SLOT_FALLBACKS, SLOT_FRAMES, SLOT_MODES, SLOT_NR_MAX, SLOT_REASONS, SLOT_RESOLUTIONS, SLOT_SENT, SLOT_STATES,
   SPEAKER_HOLD_MAX_MS, SPEAKER_SIGNALS, TILE_NOTICE_REASONS, tileNotice, type Command,
 } from '../src/protocol.ts';
 import type { SlotAudioSub, SlotSub } from '../src/state.ts';
@@ -2625,6 +2625,7 @@ console.log('\nA1 protocol — Slot-Kataloge (Spec 6.2–6.4, Gliederung 3.1):')
   assert(liste(SLOT_AUDIO_SETTINGS) === 'off,mix,person', 'A1 6.2: SLOT_AUDIO_SETTINGS off, mix, person');
   assert(liste(SLOT_FALLBACKS) === 'transparent,freeze,black,white,tile',
     'A1 6.2 + #306: SLOT_FALLBACKS transparent, freeze, black, white, tile');
+  assert(liste(SLOT_FRAMES) === 'native,fit', 'A1 #310: SLOT_FRAMES native, fit');
   assert(liste(SLOT_STATES) === 'starting,live,fallback,held,off', 'A1 6.3: SLOT_STATES starting, live, fallback, held, off');
   assert(SLOT_SENT.length === 7 && liste(SLOT_SENT) === 'none,transparent,freeze,black,white,held,tile',
     'A1 6.12 + #306: SLOT_SENT hat 7 Werte, tile hinten');
@@ -2640,8 +2641,8 @@ console.log('\nA1 protocol — Slot-Kataloge (Spec 6.2–6.4, Gliederung 3.1):')
   assert(SHARING_STATUS_NAMES.length === 11 && SHARING_STATUS_NAMES[4] === 'otherShareBegin' && SHARING_STATUS_NAMES[9] === 'pause'
       && SHARING_STATUS_NAMES[10] === 'resume',
     'A1 A-EP4: SHARING_STATUS_NAMES hat 11 Werte, Index = enum SharingStatus (4 otherShareBegin, 9 pause, 10 resume)');
-  assert(SLOT_ERROR_KEYS.length === 21 && new Set(SLOT_ERROR_KEYS).size === 21 && SLOT_ERROR_KEYS.includes('slotBadTarget'),
-    'A1 6.4: SLOT_ERROR_KEYS hat 21 verschiedene Schlüssel, darunter slotBadTarget (A-EP2)');
+  assert(SLOT_ERROR_KEYS.length === 22 && new Set(SLOT_ERROR_KEYS).size === 22 && SLOT_ERROR_KEYS.includes('slotBadTarget'),
+    'A1 6.4: SLOT_ERROR_KEYS hat 22 verschiedene Schlüssel, darunter slotBadTarget (A-EP2)');
   assert(liste(AUDIO_ABO_FEHLER) === 'audioVoipJoinFailed,audioHelperMissing,audioSubscribeFailed', 'A1 6.4: genau drei Ton-Abo-Fehler');
 }
 
@@ -2650,11 +2651,11 @@ console.log('\nA1 protocol — Slot-Fehlerschlüssel in OWN_ERROR_NAMES (PT3):')
   const gross = (k: string): string => k.replace(/[A-Z]/g, (c) => `_${c}`).toUpperCase();
   assert(SLOT_ERROR_KEYS.every((k) => OWN_ERROR_NAMES[k] === gross(k)),
     'A1 PT3: jeder Slot-Schlüssel hat seinen Namen in Großbuchstaben (slotBadNumber → SLOT_BAD_NUMBER)');
-  assert(new Set(SLOT_ERROR_KEYS.map((k) => OWN_ERROR_NAMES[k])).size === 21, 'A1 PT3: die 21 Namen sind paarweise verschieden');
+  assert(new Set(SLOT_ERROR_KEYS.map((k) => OWN_ERROR_NAMES[k])).size === 22, 'A1 PT3: die 22 Namen sind paarweise verschieden');
   assert(SLOT_ERROR_KEYS.every((k) => (enrich({ ev: 'error', where: 'slot', code: k, slot: 1 } as WireEvent) as { name?: string }).name === gross(k)),
     'A1 PT3: enrich() löst jeden Slot-Schlüssel auf');
   assert(AUDIO_ABO_FEHLER.every((k) => OWN_ERROR_NAMES[k] !== undefined), 'A1 6.4: die drei Ton-Abo-Fehler stehen schon im Katalog');
-  assert(Object.keys(OWN_ERROR_NAMES).length === 48, 'A1 PT3: OWN_ERROR_NAMES hat 27 + 21 = 48 Schlüssel');
+  assert(Object.keys(OWN_ERROR_NAMES).length === 49, 'A1 PT3: OWN_ERROR_NAMES hat 27 + 22 = 49 Schlüssel');
 }
 
 console.log('\nA1 protocol — Slot-Befehle (6.2):');
@@ -2728,7 +2729,7 @@ console.log('\nA1 state — ein Slot-Fehler kippt die Sitzung nicht (PT2):');
 console.log('\nA1 index — Exporte des Slot-Vertrags (PT4):');
 {
   assert(paket.SLOT_NR_MAX === SLOT_NR_MAX && paket.SLOT_MODES === SLOT_MODES && paket.SLOT_RESOLUTIONS === SLOT_RESOLUTIONS
-      && paket.SLOT_AUDIO_SETTINGS === SLOT_AUDIO_SETTINGS && paket.SLOT_FALLBACKS === SLOT_FALLBACKS && paket.SLOT_STATES === SLOT_STATES
+      && paket.SLOT_AUDIO_SETTINGS === SLOT_AUDIO_SETTINGS && paket.SLOT_FALLBACKS === SLOT_FALLBACKS && paket.SLOT_FRAMES === SLOT_FRAMES && paket.SLOT_STATES === SLOT_STATES
       && paket.SLOT_SENT === SLOT_SENT && paket.SLOT_REASONS === SLOT_REASONS && paket.SLOT_AUDIO_REASONS === SLOT_AUDIO_REASONS
       && paket.SLOT_AUDIO_SOURCES === SLOT_AUDIO_SOURCES && paket.SPEAKER_SIGNALS === SPEAKER_SIGNALS
       && paket.SPEAKER_HOLD_MAX_MS === SPEAKER_HOLD_MAX_MS && paket.SHARE_TYPE_NAMES === SHARE_TYPE_NAMES
@@ -2787,7 +2788,7 @@ console.log('\nA2 Attrappe — dieselben Kataloge wie src/protocol.ts (Review Fo
   };
   const paare: [string, readonly string[]][] = [
     ['SLOT_MODES', SLOT_MODES], ['SLOT_RESOLUTIONS', SLOT_RESOLUTIONS], ['SLOT_AUDIO_SETTINGS', SLOT_AUDIO_SETTINGS],
-    ['SLOT_FALLBACKS', SLOT_FALLBACKS], ['SPEAKER_SIGNALS', SPEAKER_SIGNALS], ['SHARE_TYPE_NAMES', SHARE_TYPE_NAMES],
+    ['SLOT_FALLBACKS', SLOT_FALLBACKS], ['SLOT_FRAMES', SLOT_FRAMES], ['SPEAKER_SIGNALS', SPEAKER_SIGNALS], ['SHARE_TYPE_NAMES', SHARE_TYPE_NAMES],
   ];
   for (const [name, werte] of paare) assert(katalog(name) === werte.join(','), `A2: ${name} der Attrappe gleicht src/protocol.ts`);
   assert(new RegExp(`^const SLOT_NR_MAX = ${SLOT_NR_MAX};`, 'm').test(quelle) && new RegExp(`^const SPEAKER_HOLD_MAX_MS = ${SPEAKER_HOLD_MAX_MS};`, 'm').test(quelle),
@@ -2836,7 +2837,7 @@ console.log('\nA2 Attrappe — Prüffolge aus test/slot-pruefung-faelle.json (Gl
   const empfang = stderr.flatMap((z, i) => (z.startsWith('ATTRAPPE empfing: ') ? [i] : []));
   const abschnitt = (n: number): string[] => stderr.slice(empfang[n + 2], empfang[n + 3] ?? stderr.length);
   // A11 ergänzt zwei Fälle mit einer Auflösung über 1080p (Nachbesserung a3, NB-a3-5); #306 zwei mit fallback tile/kachel.
-  assert(faelle.length === 60 && empfang.length === faelle.length + 2, 'A2 A-EP12: die Falltabelle hat 60 Fälle, jeder kam an');
+  assert(faelle.length === 68 && empfang.length === faelle.length + 2, 'A2 A-EP12: die Falltabelle hat 68 Fälle, jeder kam an');
   faelle.forEach((f, n) => {
     const a = antworten[n] ?? [];
     const erste = a[0] ?? {};
@@ -3201,6 +3202,7 @@ console.log('\nZoom-Slots — slot_logic.h gegen protocol.ts (Plan A, Task A4; A
   const paare: [string, string, string, readonly string[]][] = [
     ['SlotMode', 'MODUS_NAMEN', 'SLOT_MODES', protokollA4.SLOT_MODES],
     ['Fallback', 'FALLBACK_NAMEN', 'SLOT_FALLBACKS', protokollA4.SLOT_FALLBACKS],
+    ['Bildformat', 'BILDFORMAT_NAMEN', 'SLOT_FRAMES', protokollA4.SLOT_FRAMES],
     ['SlotAudio', 'AUDIO_NAMEN', 'SLOT_AUDIO_SETTINGS', protokollA4.SLOT_AUDIO_SETTINGS],
     ['Sent', 'SENT_NAMEN', 'SLOT_SENT', protokollA4.SLOT_SENT],
     ['SlotState', 'ZUSTAND_NAMEN', 'SLOT_STATES', protokollA4.SLOT_STATES],
@@ -3753,7 +3755,7 @@ console.log('\nNativer Teil — A11 Slot-Verwaltung, Befehle, Umhängen (Spec 6.
   // Reihenfolge nach Spec 6.2 (Nachbesserung a1): slotNameTaken direkt nach slotBadName, und nur gegen ANDERE
   // laufende Slots (slotNameBelegt bekommt die eigene Nummer und uebergeht sie).
   const pruef = ['leseSlotNummer(', '"slotBadName"', '"slotNameTaken"', '"slotBadMode"', '"slotBadResolution"', '"slotBadAudio"',
-    '"slotBadFallback"', '"slotBadFlag"', '"slotBadTarget"', '"slotAlreadyOn"'].map((s) => zweig.indexOf(s));
+    '"slotBadFallback"', '"slotBadFrame"', '"slotBadFlag"', '"slotBadTarget"', '"slotAlreadyOn"'].map((s) => zweig.indexOf(s));
   const belegt = rumpf(nativ('video.cpp'), 'bool slotNameBelegt(');
   assert(pruef.every((i, k) => i >= 0 && (k === 0 || i > pruef[k - 1])) && iZeile > pruef[pruef.length - 1] && zweig.indexOf('slotOn(b)') > iZeile
       && /slotNameBelegt\(b\.ndi,\s*nr\)/.test(zweig) && /nr\s*!=\s*ausser\s*&&/.test(belegt),

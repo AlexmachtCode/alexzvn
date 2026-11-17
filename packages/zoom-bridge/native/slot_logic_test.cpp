@@ -59,6 +59,8 @@ void a4_namen() {
   std::printf("A4 Namen: jede Aufzaehlung findet ihren Namen am eigenen Index\n");
   CHECK(gleich(name(SlotMode::Speaker), "speaker"));
   CHECK(gleich(name(Fallback::White), "white"));
+  CHECK(gleich(name(Bildformat::Native), "native"));
+  CHECK(gleich(name(Bildformat::Fit), "fit"));
   CHECK(gleich(name(SlotAudio::Person), "person"));
   CHECK(gleich(name(Sent::Held), "held"));
   CHECK(gleich(name(SlotState::Fallback), "fallback"));

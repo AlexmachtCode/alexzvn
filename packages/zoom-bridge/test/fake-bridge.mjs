@@ -12,11 +12,13 @@ const say = (o) => process.stdout.write(`${JSON.stringify(o)}\n`);
 // Die Attrappe spricht denselben Slot-Vertrag wie die Bridge (Gliederung 3.2, 3.3, 3.5): dieselbe Pruefreihenfolge,
 // dieselben Fehlerschluessel, dieselben Ereignisse. Sie importiert nichts aus src/, weil sie als reines JavaScript
 // ohne --experimental-strip-types laeuft; der Selbsttest gleicht die Kataloge hier mit src/protocol.ts ab.
+// #310: frame ('native' | 'fit') ist auf slotOn optional (fehlt = native) und wird hier nur gespeichert, nicht angewandt.
 const SLOT_NR_MAX = 16;
 const SLOT_MODES = ['participant', 'speaker', 'share'];
 const SLOT_RESOLUTIONS = ['360p', '720p', '1080p'];
 const SLOT_AUDIO_SETTINGS = ['off', 'mix', 'person'];
 const SLOT_FALLBACKS = ['transparent', 'freeze', 'black', 'white', 'tile'];
+const SLOT_FRAMES = ['native', 'fit'];
 const SPEAKER_SIGNALS = ['speakerVideo', 'activeVideo', 'activeAudio'];
 const SPEAKER_HOLD_MAX_MS = 5000;
 const SHARE_TYPE_NAMES = ['unknown', 'as', 'ds', 'wb', 'airhost', 'camera', 'data', 'videoFile', 'frame', 'document', 'computerAudio'];
@@ -127,6 +129,7 @@ const AUSWAHLFELDER = [
   ['resolution', SLOT_RESOLUTIONS, 'slotBadResolution'],
   ['audio', SLOT_AUDIO_SETTINGS, 'slotBadAudio'],
   ['fallback', SLOT_FALLBACKS, 'slotBadFallback'],
+  ['frame', SLOT_FRAMES, 'slotBadFrame', true],
 ];
 
 /**
@@ -135,9 +138,9 @@ const AUSWAHLFELDER = [
  */
 function pruefeFelder(zeile, pflicht) {
   const werte = {};
-  for (const [name, erlaubt, code] of AUSWAHLFELDER) {
+  for (const [name, erlaubt, code, optional] of AUSWAHLFELDER) {
     const f = feld(zeile, name, 'text');
-    if (f.art === 'fehlt' && !pflicht) continue;
+    if (f.art === 'fehlt' && (!pflicht || optional)) continue;
     if (f.art !== 'gelesen' || !erlaubt.includes(f.wert)) return { fehler: code };
     werte[name] = f.wert;
   }
@@ -818,7 +821,7 @@ const scripts = {
       }
       const { id = 0, ...werte } = p.werte;
       const s = {
-        nr, ndi: ndi.wert, ...werte, target: 0, share: 0, state: 'starting', reason: 'command', sent: 'none', bild: false,
+        nr, ndi: ndi.wert, frame: 'native', ...werte, target: 0, share: 0, state: 'starting', reason: 'command', sent: 'none', bild: false,
         kopie: false, zuletzt: null, pufferGemeldet: false, zeiten: new Set(), halte: null, tonZeit: null,
         ton: { state: 'off', reason: 'command', source: 'none' },
       };
@@ -840,6 +843,7 @@ const scripts = {
       const alterWeg = tonWeg(s);
       const alteAufloesung = s.resolution;
       if (w.fallback !== undefined) s.fallback = w.fallback;
+      if (w.frame !== undefined) s.frame = w.frame;
       if (w.showNoVideo !== undefined) s.showNoVideo = w.showNoVideo;
       if (w.audio !== undefined) s.audio = w.audio;
       if (w.shareAudio !== undefined) s.shareAudio = w.shareAudio;

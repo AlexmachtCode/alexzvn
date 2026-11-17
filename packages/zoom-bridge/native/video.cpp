@@ -134,6 +134,7 @@ struct Slot {
   std::atomic<SlotAudio> audio{SlotAudio::Off};
   std::atomic<bool> shareAudio{false};
   std::atomic<Fallback> fallback{Fallback::Transparent};
+  std::atomic<Bildformat> format{Bildformat::Native};   // #310: Wirkung kommt in spaeteren Schritten
   std::atomic<bool> showNoVideo{true};
   std::atomic<bool> imAbbau{false};
   std::vector<std::unique_ptr<Abo>> abos;  // 0.4.0: genau ein Eintrag, solange der Slot laeuft
@@ -1783,6 +1784,7 @@ void slotOn(const SlotBefehl& b) {
   s.audio = b.audio;
   s.shareAudio = b.shareAudio;
   s.fallback = b.fallback;
+  s.format = b.frame;
   s.showNoVideo = b.showNoVideo;
   s.abos.push_back(std::make_unique<Abo>());
   Abo& abo = s.abo();
@@ -1837,6 +1839,7 @@ void slotSet(const SlotAenderung& a) {
   } ende{&s};
   // Reihenfolge (6.2): fallback, showNoVideo, Ton, dann hoechstens EIN Umhaengen.
   if (a.fallbackGesetzt) s.fallback = a.fallback;
+  if (a.frameGesetzt) s.format = a.frame;
   bool sprecherWechsel = false;   // N2a.6: die neue Wahl zeigt jemand anderen als das Abo; umgehaengt wird unten
   SprecherSchritt sprecher;
   if (a.showNoVideoGesetzt) {
