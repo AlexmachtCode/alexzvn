@@ -161,14 +161,15 @@ ck('Zugang: Entfernen bei schreibbarer Datei → true, Feld weg', s.zoomZugangLo
       && flach(s.zoomSprecher()) === flach({ signal: 'sprecherVideo', haltezeitMs: 1000 }) && s.zoomVorschau() === true && s.zoomSlotsUeber5() === false);
   ck('B4 7.2: einstellungsLage ohne Befund → gesichert null, verworfen 0', flach(s.einstellungsLage()) === flach({ gesichert: null, verworfen: 0, nurSitzung: false }));
 
-  // 11.5 Konstruktor-Rundlauf: jedes der elf Felder einzeln geändert, geschrieben, gelesen
+  // 11.5 Konstruktor-Rundlauf: jedes der zwölf Felder einzeln geändert, geschrieben, gelesen
   const basis = e.neuerSlot(1, V, []);
   const ABWEICHUNG: Array<[keyof Slot, Partial<Slot>]> = [
     ['nr', { nr: 16 }], ['ndiName', { ndiName: 'Bühne links' }], ['modus', { modus: 'freigabe' }], ['person', { person: 'Anna Maria' }],
     ['an', { an: true }], ['aufloesung', { aufloesung: '1080p' }], ['ersatzbild', { ersatzbild: 'schwarz' }], ['tonAn', { tonAn: false }],
     ['tonArt', { tonArt: 'person' }], ['computerton', { computerton: false }], ['ohneKamera', { ohneKamera: false }],
+    ['bildformat', { bildformat: 'einpassen' }],
   ];
-  ck('B4 11.5: der Rundlauf deckt alle elf Felder', ABWEICHUNG.length === 11 && new Set(ABWEICHUNG.map(([f]) => f)).size === 11 && Object.keys(basis).length === 11);
+  ck('B4 11.5: der Rundlauf deckt alle zwölf Felder', ABWEICHUNG.length === 12 && new Set(ABWEICHUNG.map(([f]) => f)).size === 12 && Object.keys(basis).length === 12);
   for (const [feld, a] of ABWEICHUNG) {
     const slot = { ...basis, ...a };
     ck(`B4 11.5 Rundlauf ${feld}: geschrieben, gelesen, gleich`, s.setzeZoomSlots([slot]) && flach(s.zoomSlots()) === flach([slot]));

@@ -2253,7 +2253,7 @@ console.log('— B21: Eingabe der Teilnehmerliste je Person (Spec 10.10)');
   const lage = (nr: number, modus: Modus, person: string, zielName: string | null, an = true, doppelt = 1, zweifel = false): Lage => ({
     einstellung: {
       nr, ndiName: `Zoom ${nr}`, modus, person, an, aufloesung: '720p', ersatzbild: 'transparent', tonAn: true, tonArt: 'mischton',
-      computerton: true, ohneKamera: true,
+      computerton: true, ohneKamera: true, bildformat: 'original',
     },
     voruebergehend: false, anNurMeeting: false, zustand: an ? 'zeigt' : 'aus', grund: null, gesendet: null, zielName, doppelt, zweifel,
     imWarteraum: false, wahl: null, geliefert: null, zuletzt: null, ton: 'aus', tonGrund: null, tonQuelle: 'none', tonEingestellt: 'none',

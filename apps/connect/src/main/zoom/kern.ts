@@ -125,7 +125,7 @@ import {
   gueltigeLetzteNummer, istSlotAufloesung, istSprecherSignal, neuerSlot, pruefeHaltezeit, pruefeNdiName, slotsFuerPlatte, uebergangsNdiName,
 } from './einstellungen';
 import {
-  ERSATZBILD_ZU_BRIDGE,
+  BILDFORMAT_ZU_BRIDGE, ERSATZBILD_ZU_BRIDGE,
   istOffen,
   MODUS_ZU_BRIDGE,
   planeSlotAbgleich,
@@ -2615,6 +2615,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (neu.modus !== alt.modus) set.mode = MODUS_ZU_BRIDGE[neu.modus];
     if (neu.aufloesung !== alt.aufloesung) set.resolution = neu.aufloesung;
     if (neu.ersatzbild !== alt.ersatzbild) set.fallback = ERSATZBILD_ZU_BRIDGE[neu.ersatzbild];
+    if (neu.bildformat !== alt.bildformat) set.frame = BILDFORMAT_ZU_BRIDGE[neu.bildformat];
     if (neu.ohneKamera !== alt.ohneKamera) set.showNoVideo = neu.ohneKamera;
     const tonAlt = tonFuerBridge(alt);
     const tonNeu = tonFuerBridge(neu);

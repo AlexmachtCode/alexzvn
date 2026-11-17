@@ -4,7 +4,7 @@
 import type { SlotReason } from '@jm/zoom-bridge/protocol';
 import type { ZoomErlaubnis, ZoomSlotEinstellung, ZoomSlotModus, ZoomSlotZustand } from '../src/shared/types';
 import {
-  ERSATZBILD_ZU_BRIDGE, istOffen, MODUS_ZU_BRIDGE, planeSlotAbgleich, SIGNAL_ZU_BRIDGE, SITZUNG_LEER, sitzungNach, slotEndetMitMeeting,
+  BILDFORMAT_ZU_BRIDGE, ERSATZBILD_ZU_BRIDGE, istOffen, MODUS_ZU_BRIDGE, planeSlotAbgleich, SIGNAL_ZU_BRIDGE, SITZUNG_LEER, sitzungNach, slotEndetMitMeeting,
   slotOnBefehl, slotZustand, teilnehmerZiel, tonEingeschaltet, tonFuerBridge, ueber5Nach, zaehleSlots, zeigteSchonNachLive,
   type AbgleichEingabe, type AbgleichSlot, type AbgleichTeilnehmer, type OffenEingabe, type SitzungsEreignis, type SlotSitzung,
   type SlotZustandEingabe, type ZielErgebnis,
@@ -26,7 +26,7 @@ const ANNA = 16778240, BEN = 16778241;
 function einstellung(x: Partial<ZoomSlotEinstellung> = {}): ZoomSlotEinstellung {
   return {
     nr: 1, ndiName: 'Zoom 1', modus: 'teilnehmer', person: 'Anna', an: true, aufloesung: '720p', ersatzbild: 'transparent',
-    tonAn: true, tonArt: 'mischton', computerton: true, ohneKamera: true, ...x,
+    tonAn: true, tonArt: 'mischton', computerton: true, ohneKamera: true, bildformat: 'original', ...x,
   };
 }
 /** Lage für slotZustand: eingeschaltet, im Meeting, Erlaubnis „ja“, kein Sender, keine Frist, kein Fehlerstand (= SZ11). */
@@ -181,28 +181,29 @@ console.log('— B1 · Abbildungen und slotOnBefehl (6.2, 7.3 Nr. 2, Nr. 9)');
 {
   ck('B1 MODUS_ZU_BRIDGE', j(MODUS_ZU_BRIDGE) === j({ teilnehmer: 'participant', sprecher: 'speaker', freigabe: 'share' }));
   ck('B1 ERSATZBILD_ZU_BRIDGE', j(ERSATZBILD_ZU_BRIDGE) === j({ transparent: 'transparent', eingefroren: 'freeze', schwarz: 'black', weiss: 'white', kachel: 'tile' }));
+  ck('#310 BILDFORMAT_ZU_BRIDGE', j(BILDFORMAT_ZU_BRIDGE) === j({ original: 'native', einpassen: 'fit' }));
   ck('#306 slotOnBefehl: Ersatzbild kachel → fallback tile', slotOnBefehl(einstellung({ ersatzbild: 'kachel' }), ANNA, 'Zoom 1').fallback === 'tile');
   ck('B1 SIGNAL_ZU_BRIDGE', j(SIGNAL_ZU_BRIDGE) === j({ sprecherVideo: 'speakerVideo', aktivesVideo: 'activeVideo', tonAktiv: 'activeAudio' }));
   // Konstruktor-Rundlauf: jedes Feld weicht von der Vorgabe eines neuen Slots ab und muss im Befehl ankommen.
   const abweichend = einstellung({
     nr: 7, ndiName: 'Bühne links', modus: 'teilnehmer', person: 'Ben', aufloesung: '1080p', ersatzbild: 'weiss', tonAn: true,
-    tonArt: 'person', computerton: false, ohneKamera: false,
+    tonArt: 'person', computerton: false, ohneKamera: false, bildformat: 'einpassen',
   });
   ck('B1 slotOnBefehl Teilnehmer: alle Felder aus der Einstellung, id = Ziel',
     flach(slotOnBefehl(abweichend, BEN, abweichend.ndiName)) === flach({
       cmd: 'slotOn', slot: 7, ndi: 'Bühne links', mode: 'participant', id: BEN, resolution: '1080p', audio: 'person', shareAudio: false,
-      fallback: 'white', showNoVideo: false,
+      fallback: 'white', frame: 'fit', showNoVideo: false,
     }));
   ck('B1 slotOnBefehl Teilnehmer ohne Ziel: id 0', slotOnBefehl(einstellung(), 0, 'Zoom 1').id === 0);
   ck('B1 slotOnBefehl Sprecher: ohne id (die Bridge wählt), Mischton, Computerton, Ersatzbild eingefroren',
     flach(slotOnBefehl(einstellung({ nr: 2, ndiName: 'Sprecher', modus: 'sprecher', ersatzbild: 'eingefroren', aufloesung: '360p' }), ANNA, 'Sprecher')) === flach({
       cmd: 'slotOn', slot: 2, ndi: 'Sprecher', mode: 'speaker', resolution: '360p', audio: 'mix', shareAudio: true, fallback: 'freeze',
-      showNoVideo: true,
+      frame: 'native', showNoVideo: true,
     }));
   ck('B1 slotOnBefehl Freigabe: ohne id, Ton aus, Computerton an, schwarz',
     flach(slotOnBefehl(einstellung({ nr: 16, ndiName: 'Folien', modus: 'freigabe', tonAn: false, ersatzbild: 'schwarz' }), 0, 'Folien')) === flach({
       cmd: 'slotOn', slot: 16, ndi: 'Folien', mode: 'share', resolution: '720p', audio: 'off', shareAudio: true, fallback: 'black',
-      showNoVideo: true,
+      frame: 'native', showNoVideo: true,
     }));
 }
 

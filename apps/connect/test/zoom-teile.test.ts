@@ -318,17 +318,21 @@ console.log('— SDK-Schlüssel von Hand: Nutzlast-Prüfung (IPC, Spec SDK nachl
   console.log('— B3 · normiereSlot, normiereSlots, Vorgaben, Sprecher, neuer Slot (Spec 7.2, 7.6)');
   const voll = {
     nr: 7, ndiName: 'Bühne links', modus: 'freigabe', person: 'Anna', an: true, aufloesung: '1080p', ersatzbild: 'weiss', tonAn: false,
-    tonArt: 'person', computerton: false, ohneKamera: false,
+    tonArt: 'person', computerton: false, ohneKamera: false, bildformat: 'einpassen',
   };
-  ck('B3 normiereSlot: gültiger Slot bleibt Feld für Feld gleich (alle elf von der Vorgabe abweichend)', flach(e.normiereSlot(voll)) === flach(voll));
+  ck('B3 normiereSlot: gültiger Slot bleibt Feld für Feld gleich (alle zwölf von der Vorgabe abweichend)', flach(e.normiereSlot(voll)) === flach(voll));
   ck('#306 normiereSlot: jedes Ersatzbild bleibt erhalten, das Bridge-Wort „tile“ wird transparent',
     ['transparent', 'eingefroren', 'schwarz', 'weiss', 'kachel'].every((w) => e.normiereSlot({ nr: 2, ndiName: 'Zoom 2', ersatzbild: w })?.ersatzbild === w)
     && e.normiereSlot({ nr: 2, ndiName: 'Zoom 2', ersatzbild: 'tile' })?.ersatzbild === 'transparent');
-  ck('B3 normiereSlot: genau die elf Felder, fremde fallen weg', j(Object.keys(e.normiereSlot({ ...voll, extra: 1 }) ?? {}).sort())
-    === j(['an', 'aufloesung', 'computerton', 'ersatzbild', 'modus', 'ndiName', 'nr', 'ohneKamera', 'person', 'tonAn', 'tonArt']));
+  ck('B3 normiereSlot: genau die zwölf Felder, fremde fallen weg', j(Object.keys(e.normiereSlot({ ...voll, extra: 1 }) ?? {}).sort())
+    === j(['an', 'aufloesung', 'bildformat', 'computerton', 'ersatzbild', 'modus', 'ndiName', 'nr', 'ohneKamera', 'person', 'tonAn', 'tonArt']));
   ck('B3 normiereSlot: unbekannte Werte → Vorgabe eines neuen Slots (7.6)',
     flach(e.normiereSlot({ nr: 2, ndiName: 'Zoom 2', modus: 'galerie', person: 5, an: 'ja', aufloesung: '4k', ersatzbild: 'rot', tonAn: 1, tonArt: 'stereo', computerton: null }))
-      === flach({ nr: 2, ndiName: 'Zoom 2', modus: 'teilnehmer', person: '', an: false, aufloesung: '720p', ersatzbild: 'transparent', tonAn: true, tonArt: 'mischton', computerton: true, ohneKamera: true }));
+      === flach({ nr: 2, ndiName: 'Zoom 2', modus: 'teilnehmer', person: '', an: false, aufloesung: '720p', ersatzbild: 'transparent', tonAn: true, tonArt: 'mischton', computerton: true, ohneKamera: true, bildformat: 'original' }));
+  ck('#310 normiereSlot: unbekanntes Bildformat und fehlendes → original, gültiges bleibt',
+    e.normiereSlot({ nr: 2, ndiName: 'Zoom 2', bildformat: 'quer' })?.bildformat === 'original'
+    && e.normiereSlot({ nr: 2, ndiName: 'Zoom 2' })?.bildformat === 'original'
+    && e.normiereSlot({ nr: 2, ndiName: 'Zoom 2', bildformat: 'einpassen' })?.bildformat === 'einpassen');
   ck('B3 normiereSlot: Nummer außerhalb 1–16 oder keine ganze Zahl → verworfen', [0, 17, 1.5, '3', undefined].every((nr) => e.normiereSlot({ ...voll, nr }) === null));
   ck('B3 normiereSlot: NDI-Name fehlt oder verletzt E26 → verworfen, nie still ersetzt',
     [undefined, '', 'A:B', 'A\u0001', 'x'.repeat(61), 7].every((ndiName) => e.normiereSlot({ ...voll, ndiName }) === null));
@@ -349,14 +353,14 @@ console.log('— SDK-Schlüssel von Hand: Nutzlast-Prüfung (IPC, Spec SDK nachl
       && flach(e.normiereSprecher({ signal: 'tonAktiv', haltezeitMs: 2500 })) === flach({ signal: 'tonAktiv', haltezeitMs: 2500 })
       && flach(e.normiereSprecher({ signal: 'laut', haltezeitMs: 5100 })) === flach({ signal: 'sprecherVideo', haltezeitMs: 1000 }));
   ck('B3 neuerSlot: Vorgaben 7.6 (Teilnehmer, keine Person, transparent, Mischton, Computerton an, ohne Kamera an, Start aus, „Zoom {nr}“)',
-    flach(e.neuerSlot(3, { aufloesung: '1080p', tonAn: false }, [])) === flach({ nr: 3, ndiName: 'Zoom 3', modus: 'teilnehmer', person: '', an: false, aufloesung: '1080p', ersatzbild: 'transparent', tonAn: false, tonArt: 'mischton', computerton: true, ohneKamera: true }));
+    flach(e.neuerSlot(3, { aufloesung: '1080p', tonAn: false }, [])) === flach({ nr: 3, ndiName: 'Zoom 3', modus: 'teilnehmer', person: '', an: false, aufloesung: '1080p', ersatzbild: 'transparent', tonAn: false, tonArt: 'mischton', computerton: true, ohneKamera: true, bildformat: 'original' }));
   ck('B3 neuerSlot: Kollision → „Zoom 1 (2)“, dann „ (3)“', e.neuerSlot(1, V, ['zoom 1']).ndiName === 'Zoom 1 (2)' && e.neuerSlot(1, V, ['Zoom 1', 'Zoom 1 (2)']).ndiName === 'Zoom 1 (3)');
   ck('B3 neuerSlot: geht durch normiereSlot unverändert', flach(e.normiereSlot(e.neuerSlot(16, V, []))) === flach(e.neuerSlot(16, V, [])));
 
   console.log('— B3 · pruefeSlotEingabe je Kanal (KF6, Spec 7.9)');
   const gut: Array<[SlotKanal, unknown]> = [
     ['anlegen', {}],
-    ['aendern', { nr: 2, aenderung: { ndiName: 'Bühne', modus: 'sprecher', person: 'Anna', aufloesung: '360p', ersatzbild: 'schwarz', tonAn: false, tonArt: 'person', computerton: false, ohneKamera: false } }],
+    ['aendern', { nr: 2, aenderung: { ndiName: 'Bühne', modus: 'sprecher', person: 'Anna', aufloesung: '360p', ersatzbild: 'schwarz', tonAn: false, tonArt: 'person', computerton: false, ohneKamera: false, bildformat: 'einpassen' } }],
     ['aendern', { nr: 16, aenderung: {} }],
     ['loeschen', { nr: 16 }],
     ['start', { nr: 1, an: true }], ['start', { nr: 1, an: false, trotz: true }],
@@ -375,6 +379,7 @@ console.log('— SDK-Schlüssel von Hand: Nutzlast-Prüfung (IPC, Spec SDK nachl
   }
   const schlecht: Array<[SlotKanal, unknown]> = [
     ['anlegen', { nr: 1 }],
+    ['aendern', { nr: 2, aenderung: { bildformat: 'quer' } }],
     ['aendern', { nr: 2 }], ['aendern', { nr: 2, aenderung: { nr: 3 } }], ['aendern', { nr: 2, aenderung: { an: true } }],
     ['aendern', { nr: 2, aenderung: { modus: 'galerie' } }], ['aendern', { nr: 2, aenderung: { ndiName: 5 } }],
     ['aendern', { nr: 2, aenderung: { person: 'x'.repeat(513) } }], ['aendern', { nr: 0, aenderung: {} }],
