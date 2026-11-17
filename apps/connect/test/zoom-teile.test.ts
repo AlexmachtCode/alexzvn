@@ -548,7 +548,7 @@ console.log('— B21: Zoom-Karte mit Slot-Bereich, Kachel, Einstellungen und Tei
     ...Object.values(zt.SLOT_TEXT), ...Object.values(zt.BEDIEN_TEXT), ...Object.values(zt.MODUS_NAME), ...Object.values(zt.KANDIDAT_KENNZEICHEN),
     ...Object.values(zt.SPRECHER_TEXT.signal), ...Object.values(zt.SLOT_FELD.tonArt), zt.SLOT_FELD.ndiName, zt.SLOT_FELD.modus, zt.SLOT_FELD.person,
     zt.SLOT_FELD.einstellungen, zt.SLOT_FELD.welchePerson, zt.SLOT_FELD.personPlatzhalter, zt.SLOT_FELD.computerton, zt.SLOT_FELD.ohneKamera,
-    zt.SLOT_FELD.aufloesung, zt.ERSATZBILD_FELD, zt.SLOT_FELD.ton, zt.SLOT_FELD.versatzZusatz, zt.HALTEZEIT_UNGUELTIG, zt.TEXT_A4_SCHREIBFEHLER,
+    zt.SLOT_FELD.aufloesung, zt.ERSATZBILD_FELD, zt.BILDFORMAT_FELD, ...Object.values(zt.BILDFORMAT_NAME), ...Object.values(zt.BILDFORMAT_HINWEIS), zt.SLOT_FELD.ton, zt.SLOT_FELD.versatzZusatz, zt.HALTEZEIT_UNGUELTIG, zt.TEXT_A4_SCHREIBFEHLER,
   ].filter((t): t is string => typeof t === 'string' && t.length > 0);
   const literal = (q: string, t: string): boolean => [`'${t}'`, `"${t}"`, `\`${t}\``, `>${t}<`].some((f) => q.includes(f));
   for (const [datei, q] of [['SlotBereich.tsx', bereich], ['SlotKachel.tsx', kachel], ['SlotEinstellungen.tsx', einst]] as const) {
@@ -576,6 +576,9 @@ console.log('— B21: Zoom-Karte mit Slot-Bereich, Kachel, Einstellungen und Tei
   ck('B21 7.5: Einstellungen über zoomSlotAendern; Löschen nur ausgeschaltet und nach Rückfrage T37 über zoomSlotLoeschen',
     einst.includes('window.jmconnect.zoomSlotAendern({ nr, aenderung })') && einst.includes('loeschenFrage(nr, e.ndiName)')
       && einst.includes('window.jmconnect.zoomSlotLoeschen({ nr })') && einst.includes('disabled={e.an ||'));
+  ck('#310 B21: Bildformat-Feld über aendere, gesperrt bei Freigabe, Hinweis aus bildformatHinweis',
+    einst.includes('aendere({ bildformat: ev.target.value as ZoomSlotBildformat })')
+      && einst.includes("disabled={beschaeftigt || e.modus === 'freigabe'}") && einst.includes('bildformatHinweis(e.modus)'));
   ck('B21 B-EP9: Kacheln in einem Container, zwei Spalten ab 34rem', bereich.includes('className="@container') && bereich.includes('@[34rem]:grid-cols-2'));
   const iBereich = karte.indexOf('<SlotBereich a={a} aufrufe={slotAufrufe} />');
   ck('B21 7.5: ZoomCard zeigt den Slot-Bereich vor der Teilnehmerliste; Ort kennt slot:<nr>',

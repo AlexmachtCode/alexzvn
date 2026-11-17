@@ -2326,6 +2326,25 @@ console.log('— B21: Eingabe der Teilnehmerliste je Person (Spec 10.10)');
   ck('#290: kenncodePlatzhalterZeigen ist ersetzt (ein Name, eine Regel)', zt.kenncodePlatzhalterZeigen === undefined);
 }
 
+{
+  // #310: Auswahlfeld „Bildformat“ der Slot-Einstellungen.
+  const zt: Record<string, any> = await import('../src/shared/zoom-text');
+  const EIN = 'Hochkant-Bilder mittig in 16:9, Seiten durchsichtig';
+  const FREI = 'Freigaben bleiben in ihrer eigenen Größe';
+  ck('#310: BILDFORMAT_FELD und BILDFORMAT_NAME wörtlich', zt.BILDFORMAT_FELD === 'Bildformat'
+    && zt.BILDFORMAT_NAME?.original === 'Original' && zt.BILDFORMAT_NAME?.einpassen === '16:9 einpassen');
+  ck('#310: BILDFORMAT_HINWEIS wörtlich', zt.BILDFORMAT_HINWEIS?.einpassen === EIN && zt.BILDFORMAT_HINWEIS?.freigabe === FREI);
+  ck('#310: bildformatHinweis: Freigabe → freigabe, Teilnehmer und Sprecher → einpassen',
+    typeof zt.bildformatHinweis === 'function' && zt.bildformatHinweis('freigabe') === FREI
+    && zt.bildformatHinweis('teilnehmer') === EIN && zt.bildformatHinweis('sprecher') === EIN);
+  ck('#310: BILDFORMAT_REIHE deckt jeden Wert von BILDFORMAT_NAME',
+    Array.isArray(zt.BILDFORMAT_REIHE) && zt.BILDFORMAT_NAME !== undefined
+    && [...zt.BILDFORMAT_REIHE].sort().join() === Object.keys(zt.BILDFORMAT_NAME).sort().join());
+  ck('#310: keine ASCII-Anführungszeichen in den Texten',
+    [zt.BILDFORMAT_FELD, ...Object.values(zt.BILDFORMAT_NAME ?? {}), ...Object.values(zt.BILDFORMAT_HINWEIS ?? {})]
+      .every((t) => typeof t === 'string' && !/["']/.test(t)));
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

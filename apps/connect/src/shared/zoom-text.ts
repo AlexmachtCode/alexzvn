@@ -13,7 +13,7 @@ import type {
 import { SLOT_NR_MAX, tileNotice } from '@jm/zoom-bridge/protocol';
 import type { AudioState, SlotAudioReason, SlotReason, SlotSent } from '@jm/zoom-bridge/protocol';
 import type {
-  TonQuelle, ZoomBefehlErgebnis, ZoomSlotAufloesung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotZustand, ZoomSprecherSignal,
+  TonQuelle, ZoomBefehlErgebnis, ZoomSlotAufloesung, ZoomSlotBildformat, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotZustand, ZoomSprecherSignal,
   ZoomZustand,
 } from './types';
 // #290: das gemerkte Meeting (eine Form für Kern, Preload, Karte und Platzhalter-Regel).
@@ -650,6 +650,19 @@ export function ersatzbildAuswahl(modus: ZoomSlotModus, aktuell: ZoomSlotErsatzb
 
 /** T4, Feldname (Spec 9.1). */
 export const ERSATZBILD_FELD = 'Ersatzbild';
+
+/** #310: Feldname, Namen, Reihenfolge und Hinweise des Auswahlfelds „Bildformat“. */
+export const BILDFORMAT_FELD = 'Bildformat';
+export const BILDFORMAT_NAME: Record<ZoomSlotBildformat, string> = { original: 'Original', einpassen: '16:9 einpassen' };
+export const BILDFORMAT_REIHE: readonly ZoomSlotBildformat[] = ['original', 'einpassen'];
+export const BILDFORMAT_HINWEIS = {
+  einpassen: 'Hochkant-Bilder mittig in 16:9, Seiten durchsichtig',
+  freigabe: 'Freigaben bleiben in ihrer eigenen Größe',
+} as const;
+/** #310: Hinweis am Feld; im Modus Freigabe ist es gesperrt (Freigaben behalten ihre Größe). */
+export function bildformatHinweis(modus: ZoomSlotModus): string {
+  return modus === 'freigabe' ? BILDFORMAT_HINWEIS.freigabe : BILDFORMAT_HINWEIS.einpassen;
+}
 
 /** Spec 9.2: Zustandszeile der Kachel je T-Nummer. `ersatz` ist der fertige Teil „Ersatzbild {art}“ bzw. T60 (10.2 Regel 9). */
 export const KACHEL_TEXT = {
