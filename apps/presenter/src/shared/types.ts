@@ -270,6 +270,12 @@ export interface TimerSyncConfig {
   port: number;
 }
 
+/** #309: gemerkter Zustand der Referentenansicht (`userData/referent-config.json`). */
+export interface ReferentConfig {
+  /** Referentenfenster beim nächsten Öffnen im Vollbild. */
+  vollbild: boolean;
+}
+
 // ---- NDI-Ausgang (#303) ----
 
 /** `startet`: Sender-Prozess lädt; `sendet`: Quelle steht im Netz; `nicht-verfuegbar`: siehe `grund`. */
