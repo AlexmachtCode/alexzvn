@@ -3417,6 +3417,59 @@ console.log('\nZoom-Kachel (#306): Anbindung');
     '#306 ersatzbildTick leert Kachel und Auftrag, wenn der Slot nicht (mehr) auf tile steht oder Freigabe zeigt - nur, wenn etwas zu leeren ist');
   assert(/lage\.kameraAnMs\s*=\s*s\.kameraAnMs\s*;/.test(tick),
     '#306 ersatzbildTick gibt der Bild-Entscheidung kameraAnMs des Slots mit');
+  // #310 Ersatzbilder (Plan Task 5, Präzisierungen 6 und 7): JEDER Herzschlag entscheidet neu aus der aktuellen
+  // Einstellung (s.format.load()) und Zooms letzter Größe (w, h), nie aus ausgabeW/ausgabeH - ein Wechsel im Aussetzer
+  // wirkt beim nächsten Ersatzbild (Review Focus 3). Rahmen = Nenngröße des Slots. „Original“ ruft je Fall genau, was
+  // es vor #310 rief (Original bytegleich); Held gibt es nur bei Freigabe und wird nie eingepasst (Review Focus 5).
+  const sendeBlock310 = rumpf(tick, 'if (e.jetztSenden && e.sent != Sent::None)');
+  const sentFall = (name: string): string => {
+    const i = sendeBlock310.indexOf(`case Sent::${name}:`);
+    if (i < 0) return '';
+    const j = sendeBlock310.indexOf('case Sent::', i + 1);
+    return sendeBlock310.slice(i, j < 0 ? sendeBlock310.length : j);
+  };
+  /** `if (einpassen) <fit>; else <original>;` - je Fall genau eine Wahl, der Original-Weg wie vorher. */
+  const jeFormat = (fall: string, fit: string, original: string): boolean =>
+    new RegExp(String.raw`if\s*\(\s*einpassen\s*\)\s*` + fit + String.raw`\s*;\s*else\s+` + original + String.raw`\s*;\s*break\s*;`).test(fall);
+  const iEinpassen310 = sendeBlock310.search(
+    /const\s+bool\s+einpassen\s*=\s*einpass::einpassenNoetig\(\s*s\.format\.load\(\)\s*==\s*Bildformat::Fit\s*,\s*lage\.modus\s*==\s*SlotMode::Share\s*,\s*w\s*,\s*h\s*\)\s*;/);
+  const iRahmen310 = sendeBlock310.search(/const\s+int\s+W\s*=\s*nominalWidth\(\s*s\.res\s*\)\s*;\s*const\s+int\s+H\s*=\s*nominalHeight\(\s*s\.res\s*\)\s*;/);
+  assert(iEinpassen310 > sendeBlock310.search(/const\s+int\s+h\s*=/) && iRahmen310 > 0 && iEinpassen310 < sendeBlock310.indexOf('switch (e.sent)')
+      && iRahmen310 < sendeBlock310.indexOf('switch (e.sent)')
+      && (tick.match(/einpassenNoetig\(/g) ?? []).length === 1 && !/ausgabe[WH]/.test(tick),
+    '#310 ersatzbildTick: im Sendeblock nach w/h je Herzschlag einpassen = einpassenNoetig(s.format.load() == Fit, lage.modus == Share, w, h), Rahmen W/H = Nenngröße aus s.res; kein ausgabeW/H');
+  assert(jeFormat(sentFall('Transparent'), String.raw`s\.sender\.sendTransparent\(\s*W\s*,\s*H\s*\)`, String.raw`s\.sender\.sendTransparent\(\s*w\s*,\s*h\s*\)`),
+    '#310 ersatzbildTick: case Sent::Transparent - fit sendTransparent(W, H), sonst sendTransparent(w, h)');
+  const einfarbig310 = (inhalt: string): string =>
+    String.raw`eingepasstSenden\(\s*s\.sender\s*,\s*einfarbigeQuelle\(\s*s\s*,\s*e\.sent\s*,\s*w\s*,\s*h\s*\)\s*,\s*w\s*,\s*h\s*,\s*W\s*,\s*H\s*,\s*s\.ersatzRahmen\s*,\s*` + inhalt + String.raw`\s*\)`;
+  assert(jeFormat(sentFall('Black'), einfarbig310('INHALT_SCHWARZ'), String.raw`s\.sender\.sendBlack\(\s*w\s*,\s*h\s*\)`)
+      && jeFormat(sentFall('White'), einfarbig310('INHALT_WEISS'), String.raw`s\.sender\.sendWhite\(\s*w\s*,\s*h\s*\)`),
+    '#310 ersatzbildTick: case Sent::Black/White - fit eingepasstSenden(einfarbigeQuelle(s, e.sent, w, h), …, s.ersatzRahmen, INHALT_SCHWARZ/INHALT_WEISS), sonst sendBlack(w, h)/sendWhite(w, h)');
+  assert(jeFormat(sentFall('Freeze'), String.raw`kopieEingepasstSenden\(\s*s\s*,\s*W\s*,\s*H\s*\)`, String.raw`s\.sender\.sendCopy\(\s*s\.last\s*\)`),
+    '#310 ersatzbildTick: case Sent::Freeze - fit kopieEingepasstSenden(s, W, H), sonst sendCopy(s.last)');
+  const held310 = sentFall('Held');
+  assert(/^case\s+Sent::Held:\s*s\.sender\.sendCopy\(\s*s\.last\s*\)\s*;\s*break\s*;\s*$/.test(held310.trim()) && !/eingepasst/i.test(held310),
+    '#310 ersatzbildTick: case Sent::Held eigener Fall, nur sendCopy(s.last), nie eingepasst (Freigabe)');
+  const tile310 = sentFall('Tile');
+  assert(/const\s+kachel::Puffer\s+k\s*=\s*kachelFuer\(\s*s\s*,\s*lage\.ziel\s*,\s*kachelHinweis\(e\.grund\)\s*,\s*g\.w\s*,\s*g\.h\s*,\s*jetzt\s*\)\s*;/.test(tile310)
+      && (tile310.match(/kachelFuer\(/g) ?? []).length === 1
+      && /if\s*\(\s*einpassen\s*&&\s*k\s*&&\s*k->size\(\)\s*==\s*einpass::i420Bytes\(\s*g\.w\s*,\s*g\.h\s*\)\s*\)\s*eingepasstSenden\(\s*s\.sender\s*,\s*k->data\(\)\s*,\s*g\.w\s*,\s*g\.h\s*,\s*W\s*,\s*H\s*,\s*s\.ersatzRahmen\s*,\s*0\s*\)\s*;\s*else\s+s\.sender\.sendKachel\(\s*k\s*,\s*g\.w\s*,\s*g\.h\s*\)\s*;\s*break\s*;/.test(tile310),
+    '#310 ersatzbildTick: case Sent::Tile - kachelFuer genau einmal; fit nur mit passendem Puffer (k->size() == einpass::i420Bytes(g.w, g.h)) eingepasstSenden(k->data(), g.w, g.h, W, H, s.ersatzRahmen, 0), sonst sendKachel(k, g.w, g.h)');
+  const quelle310 = rumpf(video, 'const uint8_t* einfarbigeQuelle(Slot& s, Sent art, int w, int h)');
+  assert(/if\s*\(\s*s\.ersatzQuelleArt\s*!=\s*art\s*\|\|\s*s\.ersatzQuelleW\s*!=\s*w\s*\|\|\s*s\.ersatzQuelleH\s*!=\s*h\s*\)\s*\{\s*einpass::einfarbigI420\(\s*s\.ersatzQuelle\s*,\s*w\s*,\s*h\s*,\s*static_cast<uint8_t>\(\s*art\s*==\s*Sent::White\s*\?\s*235\s*:\s*16\s*\)\s*,\s*128\s*,\s*128\s*\)\s*;\s*s\.ersatzQuelleArt\s*=\s*art\s*;\s*s\.ersatzQuelleW\s*=\s*w\s*;\s*s\.ersatzQuelleH\s*=\s*h\s*;\s*\}\s*return\s+s\.ersatzQuelle\.data\(\)\s*;/.test(quelle310),
+    '#310 einfarbigeQuelle: füllt nur bei anderer Art oder Größe neu (Y 235 Weiß, sonst 16; U/V 128), sonst dieselbe Quelle');
+  const kopie310 = rumpf(video, 'void kopieEingepasstSenden(Slot& s, int W, int H)');
+  const iKopieSperre = kopie310.search(/std::lock_guard<std::mutex>\s+lock\(\s*s\.last\.m\s*\)\s*;/);
+  const iKopieLeer = kopie310.search(/if\s*\(\s*s\.last\.i420\.empty\(\)\s*\|\|\s*s\.last\.w\s*<=\s*0\s*\|\|\s*s\.last\.h\s*<=\s*0\s*\)\s*return\s*;/);
+  const iKopieSenden = kopie310.search(/eingepasstSenden\(\s*s\.sender\s*,\s*s\.last\.i420\.data\(\)\s*,\s*s\.last\.w\s*,\s*s\.last\.h\s*,\s*W\s*,\s*H\s*,\s*s\.ersatzRahmen\s*,\s*0\s*\)\s*;/);
+  assert(iKopieSperre >= 0 && iKopieLeer > iKopieSperre && iKopieSenden > iKopieLeer,
+    '#310 kopieEingepasstSenden: hält s.last.m über dem Senden (wie sendCopy), leere Kopie nichts, dann eingepasstSenden(s.last…, W, H, s.ersatzRahmen, 0)');
+  const slotStruktur310 = rumpf(video, 'struct Slot ');
+  assert(/einpass::Rahmen\s+ersatzRahmen\s*;/.test(slotStruktur310) && /std::vector<uint8_t>\s+ersatzQuelle\s*;/.test(slotStruktur310)
+      && /Sent\s+ersatzQuelleArt\s*=\s*Sent::None\s*;/.test(slotStruktur310) && /int\s+ersatzQuelleW\s*=\s*0\s*,\s*ersatzQuelleH\s*=\s*0\s*;/.test(slotStruktur310)
+      && /constexpr\s+uint32_t\s+INHALT_SCHWARZ\s*=\s*1\s*,\s*INHALT_WEISS\s*=\s*2\s*;/.test(video)
+      && !/ersatzRahmen|ersatzQuelle/.test(rumpf(video, 'void Slot::bildAnkunft(')),
+    '#310 Slot: Ersatz-Rahmen und einfarbige Quelle (Art, Größe) nur für den Hauptthread - bildAnkunft fasst sie nie an; INHALT_SCHWARZ = 1, INHALT_WEISS = 2');
   // Entscheidung 1 (Controller): kameraAnMs merkt die Flanke Kamera aus -> an. Außer beim Umhängen (ZielStandNeu:
   // kameraAus false, kameraAnMs 0) setzt nur slotlogic::kameraLautZoom den Merker, und der prüft die Flanke selbst.
   const zuweisungen = [...video.matchAll(/\bkameraAus\s*=(?!=)/g)].map((m) => video.slice(0, m.index).split('\n').length);

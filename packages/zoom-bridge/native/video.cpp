@@ -231,6 +231,15 @@ struct Slot {
   bool kachelBenutzt = false;
   // Für dieses Ziel steht „Teilnehmer unbekannt“ schon im Protokoll (Abschlussprüfung M3 a); das Umhängen setzt 0.
   unsigned kachelUnbekanntZiel = 0;
+  // #310 Ersatz-Rahmen: der Ersatzbild-Herzschlag passt hier im Modus fit ein (eingepasstSenden, kopieEingepasstSenden).
+  // Eigener Rahmen neben liveRahmen, weil der SDK-Thread jenen gleichzeitig füllen kann; einmal mit
+  // einpass::RAHMEN_MAX_BYTES angelegt (rahmenVorbereiten). Schwarz/Weiß: einfarbige I420-Quelle in Zooms Größe, neu
+  // gefüllt nur bei anderer Art oder Größe (einfarbigeQuelle); ihr eingepasstes Ergebnis bleibt im Rahmen (Kennung
+  // INHALT_SCHWARZ/INHALT_WEISS), bis Geometrie oder Inhalt wechseln.
+  einpass::Rahmen ersatzRahmen;
+  std::vector<uint8_t> ersatzQuelle;
+  Sent ersatzQuelleArt = Sent::None;
+  int ersatzQuelleW = 0, ersatzQuelleH = 0;
 
   Abo& abo() { return *abos.front(); }
 
@@ -1523,6 +1532,32 @@ kachel::Puffer kachelFuer(Slot& s, unsigned ziel, bool hinweis, int w, int h, in
 
 // --- Ersatzbild-Herzschlag (Spec 6.12) -----------------------------------------------
 
+// #310: Kennungen der gleichbleibenden Ersatzbild-Inhalte im Ersatz-Rahmen (eingepasstSenden, inhalt != 0): steht der
+// Inhalt schon eingepasst im Rahmen gleicher Geometrie, geht er ohne neues Einpassen hinaus.
+constexpr uint32_t INHALT_SCHWARZ = 1, INHALT_WEISS = 2;
+
+// #310: die einfarbige I420-Quelle (Zooms Größe w x h) für Schwarz bzw. Weiß im Modus fit - Werte wie die Ersatzbilder
+// des Senders (Y 16 bzw. 235, U/V 128, begrenzter Bereich). Neu gefüllt nur bei anderer Art oder Größe, sonst dieselbe
+// Quelle ohne Speicheranforderung. Nur Hauptthread.
+const uint8_t* einfarbigeQuelle(Slot& s, Sent art, int w, int h) {
+  if (s.ersatzQuelleArt != art || s.ersatzQuelleW != w || s.ersatzQuelleH != h) {
+    einpass::einfarbigI420(s.ersatzQuelle, w, h, static_cast<uint8_t>(art == Sent::White ? 235 : 16), 128, 128);
+    s.ersatzQuelleArt = art;
+    s.ersatzQuelleW = w;
+    s.ersatzQuelleH = h;
+  }
+  return s.ersatzQuelle.data();
+}
+
+// #310: die Kopie des letzten Bildes (Freeze) eingepasst in W x H senden. Hält s.last.m über dem Senden wie sendCopy -
+// der Bild-Rückruf nimmt die Sperre nur per try_lock, fällt also höchstens eine Kopie aus, statt zu warten. Leere
+// Kopie: nichts (wie sendCopy). Je Herzschlag neu eingepasst (inhalt 0). Nur Hauptthread.
+void kopieEingepasstSenden(Slot& s, int W, int H) {
+  std::lock_guard<std::mutex> lock(s.last.m);
+  if (s.last.i420.empty() || s.last.w <= 0 || s.last.h <= 0) return;
+  eingepasstSenden(s.sender, s.last.i420.data(), s.last.w, s.last.h, W, H, s.ersatzRahmen, 0);
+}
+
 void ersatzbildTick(Slot& s, int64_t jetzt) {
   Abo& abo = s.abo();
   ZielStand z;
@@ -1599,19 +1634,40 @@ void ersatzbildTick(Slot& s, int64_t jetzt) {
     // eines je Seite die Nennauflösung des Slots (6.11).
     const int w = lastW > 0 ? lastW : nominalWidth(s.res);
     const int h = lastH > 0 ? lastH : nominalHeight(s.res);
+    // #310 „16:9 einpassen“: je Herzschlag neu aus der AKTUELLEN Einstellung und Zooms letzter Größe (Präzisierung 6) -
+    // ein Wechsel mitten im Aussetzer wirkt beim nächsten Ersatzbild. Rahmen = Nenngröße des Slots wie beim Livebild, so
+    // bleibt die NDI-Größe über eine Lücke gleich. Ohne einpassen ruft jeder Fall genau, was er vor #310 rief.
+    const bool einpassen = einpass::einpassenNoetig(s.format.load() == Bildformat::Fit, lage.modus == SlotMode::Share, w, h);
+    const int W = nominalWidth(s.res);
+    const int H = nominalHeight(s.res);
     const long long t0 = qpcJetzt();
     switch (e.sent) {
-      case Sent::Transparent: s.sender.sendTransparent(w, h); break;
-      case Sent::Black:       s.sender.sendBlack(w, h); break;
-      case Sent::White:       s.sender.sendWhite(w, h); break;
+      case Sent::Transparent:
+        if (einpassen) s.sender.sendTransparent(W, H);
+        else s.sender.sendTransparent(w, h);
+        break;
+      case Sent::Black:
+        if (einpassen) eingepasstSenden(s.sender, einfarbigeQuelle(s, e.sent, w, h), w, h, W, H, s.ersatzRahmen, INHALT_SCHWARZ);
+        else s.sender.sendBlack(w, h);
+        break;
+      case Sent::White:
+        if (einpassen) eingepasstSenden(s.sender, einfarbigeQuelle(s, e.sent, w, h), w, h, W, H, s.ersatzRahmen, INHALT_WEISS);
+        else s.sender.sendWhite(w, h);
+        break;
       case Sent::Freeze:
-      case Sent::Held:        s.sender.sendCopy(s.last); break;
+        if (einpassen) kopieEingepasstSenden(s, W, H);
+        else s.sender.sendCopy(s.last);
+        break;
+      case Sent::Held:        s.sender.sendCopy(s.last); break;   // nur Freigabe-Slots - nie eingepasst
       case Sent::Tile: {
         // #306 Zoom-Kachel: dieselbe Regel, aber nur in positiver, gerader Größe (I420 mit halber Farbauflösung);
         // sonst beide Seiten aus der Nennauflösung (Entscheidung 4, slotlogic::kachelGroesse). Hinweis „Bild
-        // unterbrochen“ nach dem Grund NACH der Entscheidung (e.grund).
+        // unterbrochen“ nach dem Grund NACH der Entscheidung (e.grund). #310: im Modus fit in dieser Größe gezeichnet
+        // und je Herzschlag eingepasst - nur ein Puffer genau dieser Größe (sonst sendet sendKachel nichts, wie bisher).
         const BildGroesse g = kachelGroesse(w, h, nominalWidth(s.res), nominalHeight(s.res));
-        s.sender.sendKachel(kachelFuer(s, lage.ziel, kachelHinweis(e.grund), g.w, g.h, jetzt), g.w, g.h);
+        const kachel::Puffer k = kachelFuer(s, lage.ziel, kachelHinweis(e.grund), g.w, g.h, jetzt);
+        if (einpassen && k && k->size() == einpass::i420Bytes(g.w, g.h)) eingepasstSenden(s.sender, k->data(), g.w, g.h, W, H, s.ersatzRahmen, 0);
+        else s.sender.sendKachel(k, g.w, g.h);
         break;
       }
       case Sent::None:        break;
