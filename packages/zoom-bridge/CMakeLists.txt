@@ -86,3 +86,6 @@ target_compile_options(audio-mix-test PRIVATE /utf-8)
 # Inhalte der Zoom-Kachel (#306): Initialen, Farbe, Kuerzung, Masse, I420 - ebenso rein.
 add_executable(kachel-logik-test native/kachel_logik_test.cpp)
 target_compile_options(kachel-logik-test PRIVATE /utf-8)
+# Reine 16:9-Einpassung der Hochkant-Zuschaltungen (#310): Flaeche, Achsen, I420 -> UYVA - ebenso rein.
+add_executable(bild-einpassen-test native/bild_einpassen_test.cpp)
+target_compile_options(bild-einpassen-test PRIVATE /utf-8)

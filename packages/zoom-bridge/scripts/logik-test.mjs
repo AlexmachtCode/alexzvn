@@ -5,6 +5,7 @@
 // `npm ci --ignore-scripts`).
 //
 //   npm run logik-test -w @jm/zoom-bridge
+//   npm run einpassen-messung -w @jm/zoom-bridge   (--messung: nur native/bild_einpassen_messung.cpp, mit -O2 bzw. /O2)
 //
 // Compiler in dieser Reihenfolge (GEP13): g++ (-std=c++17 -Wall -Werror), clang++ (dieselben Schalter), unter
 // Windows cl (/nologo /std:c++17 /W4 /WX /EHsc /utf-8) in der Umgebung von VsDevCmd.bat, gefunden ueber
@@ -26,10 +27,14 @@ import { fileURLToPath } from 'node:url';
 const paket = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Je Datei ein Programm mit main(). Der Selbsttest prueft, dass jede native/*_test.cpp hier steht. */
-const TESTDATEIEN = ['native/slot_logic_test.cpp', 'native/audio_mix_test.cpp', 'native/delay_line_test.cpp', 'native/kachel_logik_test.cpp'];
+const TESTDATEIEN = ['native/slot_logic_test.cpp', 'native/audio_mix_test.cpp', 'native/delay_line_test.cpp', 'native/kachel_logik_test.cpp', 'native/bild_einpassen_test.cpp'];
 
-const GNU_SCHALTER = ['-std=c++17', '-Wall', '-Werror'];
-const CL_SCHALTER = ['/nologo', '/std:c++17', '/W4', '/WX', '/EHsc', '/utf-8'];
+/** --messung (#310): statt der Testdateien nur die Zeitmessung der Einpassung, optimiert gebaut (npm run einpassen-messung). */
+const MESSUNG = process.argv.includes('--messung');
+const MESSDATEIEN = ['native/bild_einpassen_messung.cpp'];
+
+const GNU_SCHALTER = ['-std=c++17', '-Wall', '-Werror', ...(MESSUNG ? ['-O2'] : [])];
+const CL_SCHALTER = ['/nologo', '/std:c++17', '/W4', '/WX', '/EHsc', '/utf-8', ...(MESSUNG ? ['/O2'] : [])];
 const WAHLEN = ['g++', 'clang++', 'cl', 'keiner'];
 const KEIN_COMPILER = 'logik-test: kein C++-Compiler gefunden (g++, clang++, cl über vswhere).';
 /** Zeitgrenze je Pruefprogramm (sie laufen in Millisekunden; die Grenze faengt nur ein haengendes). */
@@ -110,7 +115,7 @@ const aus = join(tmpdir(), `jm-logik-test-${process.pid}`);
 mkdirSync(aus, { recursive: true });
 let rot = 0;
 try {
-  for (const datei of TESTDATEIEN) {
+  for (const datei of MESSUNG ? MESSDATEIEN : TESTDATEIEN) {
     const name = datei.split('/').pop();
     const quelle = join(paket, ...datei.split('/'));
     const programm = join(aus, name.replace(/\.cpp$/, process.platform === 'win32' ? '.exe' : ''));
@@ -134,6 +139,8 @@ try {
     }
     const summe = /(\d+) Pruefungen, (\d+) gefallen\./.exec(ausgabe);
     // Rot auch, wenn das Programm trotz gefallener Pruefungen 0 zurueckgibt: die Summenzeile zaehlt mit.
+    // Die Messung druckt ihre Zahlen immer: sie sind das Ergebnis, nicht nur die Summenzeile.
+    if (MESSUNG && !(lauf.error || lauf.status !== 0 || !summe || summe[2] !== '0')) process.stdout.write(ausgabe);
     if (lauf.error || lauf.status !== 0 || !summe || summe[2] !== '0') {
       process.stdout.write(ausgabe);
       rot++;

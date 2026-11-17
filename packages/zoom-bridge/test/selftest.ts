@@ -3235,7 +3235,7 @@ console.log('\nZoom-Kachel (#306): Hinweis-Gründe in slot_logic.h gegen protoco
   // und liest keine Uhr: jede Zeit kommt als Argument von aussen, sonst waere sie im Logik-Test nicht pruefbar.
   // Darum sind auch <chrono> und <ctime> samt ihren Uhren verboten (Nachbesserung a2, NB-a2-3).
   const UHR = /<chrono>|<ctime>|\b(steady_clock|system_clock|high_resolution_clock|GetTickCount64|GetTickCount|QueryPerformanceCounter|timeGetTime)\b|\b(time|clock)\s*\(/g;
-  for (const kopf of ['slot_logic.h', 'audio_mix.h', 'kachel_logik.h']) {
+  for (const kopf of ['slot_logic.h', 'audio_mix.h', 'kachel_logik.h', 'bild_einpassen.h']) {
     const text = cppOhneKommentare(paketDateiOderLeer('native', kopf));
     const einbindungen = [...text.matchAll(/#\s*include\s*([<"][^>"]*[>"])/g)].map((m) => m[1]);
     assert(
@@ -3278,6 +3278,10 @@ console.log('\nZoom-Kachel (#306): Hinweis-Gründe in slot_logic.h gegen protoco
     assert(slotTest.includes(`--target`) && slotTest.includes(` ${ziel}`) && slotTest.includes(`build\\Release\\${ziel}.exe`),
       `A4 ${datei} läuft in npm run slot-test (Ziel und Programm)`);
   }
+  // #310: die Zeitmessung der Einpassung ist keine _test.cpp (eigenes main, <chrono>); sie hat ihren eigenen Weg.
+  const skripte = (JSON.parse(paketDateiOderLeer('package.json')) as { scripts: Record<string, string> }).scripts;
+  assert(skripte['einpassen-messung'] === 'node scripts/logik-test.mjs --messung' && skriptText.includes(`'native/bild_einpassen_messung.cpp'`),
+    '#310 npm run einpassen-messung ruft logik-test --messung auf die Messdatei');
 }
 console.log('\nZoom-Kachel (#306): Zeichner');
 {
