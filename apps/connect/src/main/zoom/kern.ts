@@ -2158,13 +2158,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     }
   }
 
-  /** Logzeile eines Slots (7.8): Nummer, Modus, Zustand, Grund, `sent`, Messwerte, Ton und Zähler; nie ein Name (0.23). */
+  /** Logzeile eines Slots (7.8): Nummer, Modus, Zustand, Grund, `sent`, Bildformat und eingepasste NDI-Größe (`out`, #310), Messwerte, Ton und Zähler; nie ein Name (0.23). */
   function slotLogZeile(x: SlotIntern): string {
     const b = x.bridge;
     const m = messwerte.slots.find((s) => s.slot === x.e.nr);
     const w = (v: number | undefined): string => (v === undefined ? '-' : String(v));
     const teile = [
-      `${b?.state ?? 'off'}/${b?.reason ?? '-'}`, `sent ${b?.sent ?? '-'}`, `${w(m?.w)}×${w(m?.h)}`, `fps ${w(m?.fps)}`,
+      `${b?.state ?? 'off'}/${b?.reason ?? '-'}`, `sent ${b?.sent ?? '-'}`, `bildformat ${x.e.bildformat}`, `${w(m?.w)}×${w(m?.h)}`,
+      `out ${m?.outW !== undefined && m.outH !== undefined ? `${m.outW}×${m.outH}` : '-'}`, `fps ${w(m?.fps)}`,
       `fallbackFps ${w(m?.fallbackFps)}`, `workUs ${w(m?.workUs)}`, `copyUs ${w(m?.copyUs)}`, `previewUs ${w(m?.previewUs)}`,
       `memKb ${w(m?.memKb)}`, `resSet ${w(m?.resSet)}`, `resGot ${w(m?.resGot)}`, `rawType ${w(m?.rawType)}`,
       `Ton ${x.ton?.source ?? 'none'}/${x.ton?.configured ?? 'none'}`, `audioPps ${w(m?.audioPps)}`, `mixDrops ${w(m?.mixDrops)}`,
@@ -2725,6 +2726,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         copy: dezimal(m.copyUs / 1000), prev: dezimal(m.previewUs / 1000), mem: dezimal(m.memKb / 1024), res: m.resWanted,
         resSetName: m.resSet !== undefined ? sdkErrorName(m.resSet) : UNBEKANNT, resGot: u(m.resGot), pps: u(m.audioPps), md: u(m.mixDrops),
         ms: u(m.mixSilenceMs),
+        ein: m.outW !== undefined && m.outH !== undefined ? { b: m.outW, h: m.outH } : null, format: x.e.bildformat,
       }));
       z.push(MESS_TEXT.T62b({
         nr: m.slot, ub: m.userVideoW ?? null, uh: m.userVideoH ?? null, hd: b?.hdVideo ?? null, og: b?.originalSize ?? null,

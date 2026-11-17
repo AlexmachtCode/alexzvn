@@ -1585,6 +1585,20 @@ for (const tonArt of ['mischton', 'person'] as const) {
   await p.aufraeumen();
 }
 
+console.log('— #310 · Minutenzeile im Log nennt eingepasste NDI-Größe und Bildformat');
+{
+  const p = baueKern({ slots: [slotEinst(1, { modus: 'freigabe', an: true })], stell: () => ({ FAKE_TEILNEHMER: '3', FAKE_FREIGABEN: `300:${CARLA}:101:begin` }) });
+  await insMeeting(p);
+  ck('#310: Slot zeigt', await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000));
+  p.einspeisen(1, {
+    ev: 'slotStats', slot: 1, w: 720, h: 1280, fps: 25, outW: 1920, outH: 1080, fallbackFps: 0, heldFrames: 0, workUs: 0, copyUs: 0, previewUs: 0, memKb: 0,
+    resWanted: '720p', foreignFrames: 0, lateFrames: 0, tooFrequent: 0, noShareData: 0, rendererNew: 0, rendererLost: 0,
+  });
+  ck('#310: Logzeile: „720×1280 · out 1920×1080“ und „bildformat original“ nach „sent …“',
+    await bis(() => p.logs.some((z) => z.startsWith('[zoom] Slot 1 (') && / sent \S+ · bildformat original · 720×1280 · out 1920×1080 · fps /.test(z)), 3000));
+  await p.aufraeumen();
+}
+
 console.log('— PK15 · Auflösung: T50, T51, T51c; nie „0 Bilder/s“ (10.7)');
 {
   const p = baueKern({

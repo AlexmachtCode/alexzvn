@@ -1402,10 +1402,11 @@ const empfang = (r: { w: number; h: number; fps: number } | null): string => (r 
 export const MESS_TEXT = {
   T61: (p: { cpu: Messwert; sys: Messwert; mem: Messwert; q: Messwert; d: Messwert; mv: Messwert; hl: Messwert }): string =>
     `Zoom-Bridge: ${p.cpu} % eines Kerns · System ${p.sys} % · Arbeitsspeicher ${p.mem} MB · Ton-Warteschlange höchstens ${p.q} Pakete, ${p.d} verworfen · Zoom-Ereignisse verworfen ${p.mv} · zurückgehaltene Renderer ${p.hl}`,
-  /** T62; `resSetName` über `sdkErrorName`, nie als nackte Zahl (9.4). */
+  /** T62; `resSetName` über `sdkErrorName`, nie als nackte Zahl (9.4). #310: `ein` = eingepasste NDI-Größe (null = nicht eingepasst), `format` = Bildformat des Slots. */
   T62: (p: { nr: number; modus: ZoomSlotModus; b: Messwert; h: Messwert; fps: Messwert; ffps: Messwert; work: Messwert; copy: Messwert;
-    prev: Messwert; mem: Messwert; res: Messwert; resSetName: string; resGot: Messwert; pps: Messwert; md: Messwert; ms: Messwert }): string =>
-    `Slot ${p.nr} (${MODUS_NAME[p.modus]}): ${p.b}×${p.h}, ${p.fps} Bilder/s, Ersatzbilder ${p.ffps}/s · Bridge-Anteil ${p.work} ms/s (davon Kopie ${p.copy}, Vorschau ${p.prev}) · Speicher ${p.mem} MB · Auflösung ${p.res}: ${p.resSetName}, Renderer meldet ${p.resGot} · Ton ${p.pps} Pakete/s, Mischer verworfen ${p.md} ms, Stille eingefügt ${p.ms} ms`,
+    prev: Messwert; mem: Messwert; res: Messwert; resSetName: string; resGot: Messwert; pps: Messwert; md: Messwert; ms: Messwert;
+    ein: { b: number; h: number } | null; format: ZoomSlotBildformat }): string =>
+    `Slot ${p.nr} (${MODUS_NAME[p.modus]}): ${p.b}×${p.h}${p.ein !== null ? ` → NDI ${p.ein.b}×${p.ein.h} eingepasst` : ''}, ${p.fps} Bilder/s, Ersatzbilder ${p.ffps}/s · Bridge-Anteil ${p.work} ms/s (davon Kopie ${p.copy}, Vorschau ${p.prev}) · Speicher ${p.mem} MB · Auflösung ${p.res}: ${p.resSetName}, Renderer meldet ${p.resGot} · Bildformat ${BILDFORMAT_NAME[p.format]} · Ton ${p.pps} Pakete/s, Mischer verworfen ${p.md} ms, Stille eingefügt ${p.ms} ms`,
   /** T62b; fehlende Werte „unbekannt“. */
   T62b: (p: { nr: number; ub: number | null; uh: number | null; hd: boolean | null; og: boolean | null;
     rv: { w: number; h: number; fps: number } | null; rs: { w: number; h: number; fps: number } | null }): string =>
