@@ -3546,12 +3546,53 @@ console.log('\nNativer Teil — A9 NDI-Sender: UYVA, Weiß, Transparent, Kopie, 
   const freigabe = rumpf(sender, 'int NdiSender::releaseDueLocked(');
   assert(freigabe.includes('versatzMsLocked()') && !freigabe.includes('ndiVideoDelayMs()'),
     'A9 ohne Versatz: releaseDueLocked rechnet mit versatzMsLocked(), nicht mit dem globalen Wert');
-  assert(['Bildart::Schwarz', 'Bildart::Weiss', 'Bildart::Transparent', 'Bildart::Kachel'].every((a) => freigabe.includes(a)),
-    'A9 Bildarten: die Warteschlange gibt Schwarz, Weiß, Transparent und Kachel als eigene Bildart aus');
+  assert(['Bildart::Schwarz', 'Bildart::Weiss', 'Bildart::Transparent', 'Bildart::Kachel', 'Bildart::Einpassen'].every((a) => freigabe.includes(a)),
+    'A9 Bildarten: die Warteschlange gibt Schwarz, Weiß, Transparent, Kachel und Einpassen als eigene Bildart aus');
   const kachel = rumpf(sender, 'void NdiSender::sendKachel(');
   const iKachel = kachel.search(/if\s*\(\s*ohneVersatz_\s*\|\|/);
   assert(iKachel >= 0 && kachel.indexOf('pushKachel(') > iKachel && freigabe.includes('b.kachel'),
     '#306 sendKachel sendet mit ohneVersatz_ direkt, vor jedem pushKachel; releaseDueLocked gibt Bildart::Kachel aus b.kachel aus');
+  // #310 Staffel (Plan, Präzisierung 5): wer die Ausgabe hält (ausgabeLaeuft_), entnimmt unter mutex_, passt OHNE
+  // mutex_ ein und sendet wieder unter mutex_; wer sie nicht hat, reiht nur ein. Die Sperre öffnet nur der
+  // Einpassen-Zweig - ohne Einpassen-Bilder in der Schlange verhält sich „Original“ wie bisher.
+  const iWache = freigabe.search(/if\s*\(\s*ausgabeLaeuft_\s*\)\s*return\s+0\s*;/);
+  const iEntnehmen = freigabe.indexOf('entnehmen(');
+  const iStaffelAn = freigabe.search(/ausgabeLaeuft_\s*=\s*true\s*;/);
+  const iSchleife = freigabe.search(/for\s*\(\s*(const\s+)?(auto|DelayLine::Frame)\s*&\s*\w+\s*:\s*faellig_\s*\)/);
+  const iZuruecklegen = freigabe.indexOf('zuruecklegen(faellig_)');
+  const iStaffelAus = freigabe.search(/ausgabeLaeuft_\s*=\s*false\s*;/);
+  assert(iWache >= 0 && iWache < iEntnehmen && iEntnehmen < iStaffelAn && iStaffelAn < iSchleife && iSchleife < iZuruecklegen
+      && iZuruecklegen < iStaffelAus,
+    '#310 releaseDueLocked: if (ausgabeLaeuft_) return 0 vor entnehmen(, ausgabeLaeuft_ = true vor der Schleife über faellig_, = false nach zuruecklegen(faellig_)');
+  const iAuf = freigabe.indexOf('lock.unlock()');
+  const iVorbereiten = freigabe.indexOf('einpass::rahmenVorbereiten(');
+  const iEinpassen = freigabe.indexOf('einpass::einpassen(');
+  const iZu = freigabe.indexOf('lock.lock()');
+  const iUyva = freigabe.indexOf('sendUYVALocked(');
+  const anzahlIn = (text: string, muster: RegExp): number => (text.match(muster) ?? []).length;
+  assert(iAuf > iSchleife && iAuf < iVorbereiten && iVorbereiten < iEinpassen && iEinpassen < iZu && iZu < iUyva
+      && /if\s*\(\s*send_\s*\)\s*sendUYVALocked\(/.test(freigabe.slice(iZu)) && /if\s*\(\s*send_\s*\)\s*senke\(\s*b\s*\)/.test(freigabe)
+      && anzahlIn(freigabe, /\block\.unlock\(\)/g) === 1 && anzahlIn(freigabe, /\block\.lock\(\)/g) === 1,
+    '#310 releaseDueLocked: im Einpassen-Zweig lock.unlock() vor einpass::rahmenVorbereiten( und einpass::einpassen(, lock.lock() danach, dann if (send_) sendUYVALocked( - sonst öffnet nichts die Sperre');
+  const direktBedingung = (text: string): string => {
+    const i = text.search(/if\s*\(\s*ohneVersatz_\s*\|\|/);
+    return i < 0 ? '' : text.slice(i, text.indexOf('{', i));
+  };
+  const direktFrei = rumpf(sender, 'bool NdiSender::direktFrei(');
+  assert([i420, ersatz, kachel].every((r) => direktBedingung(r).includes('!ausgabeLaeuft_'))
+      && /send_\s*&&\s*\(\s*ohneVersatz_\s*\|\|/.test(direktFrei) && direktFrei.includes('!ausgabeLaeuft_'),
+    '#310 Direktweg: sendI420, sendErsatz, sendKachel und direktFrei gehen nur direkt, wenn niemand die Staffel hält (!ausgabeLaeuft_)');
+  assert(rumpf(sender, 'size_t NdiSender::speicherBytes(').includes('ausgabeRahmenBytes_'),
+    '#310 speicherBytes zählt den Ausgaberahmen (ausgabeRahmenBytes_)');
+  const mitStaffel = ['void NdiSender::sendI420(', 'void NdiSender::sendErsatz(', 'void NdiSender::sendKachel(', 'void NdiSender::pump(',
+    'void NdiSender::sendI420Einpassen('].map((k) => rumpf(sender, k));
+  assert(mitStaffel.every((r) => /std::unique_lock<std::mutex>\s+lock\(mutex_\)\s*;/.test(r) && anzahlIn(r, /releaseDueLocked\(\s*lock\s*,/g) === 1
+      && r.lastIndexOf('lock.unlock()') > r.indexOf('releaseDueLocked(') && r.indexOf('meldeVerworfen(') > r.lastIndexOf('lock.unlock()')),
+    '#310 sendI420, sendErsatz, sendKachel, pump, sendI420Einpassen: unique_lock auf mutex_, releaseDueLocked(lock, …), Verworfenes erst nach lock.unlock() gemeldet');
+  const einpassenEinreihen = rumpf(sender, 'void NdiSender::sendI420Einpassen(');
+  assert(einpassenEinreihen.includes('pushEinpassen(') && einpassenEinreihen.includes('einpass::i420Bytes(')
+      && /letzteBildBytes_\s*=/.test(einpassenEinreihen) && !einpassenEinreihen.includes('NDIlib_send_send_video_v2'),
+    '#310 sendI420Einpassen reiht immer ein (pushEinpassen, Länge einpass::i420Bytes, letzteBildBytes_) und sendet nie selbst direkt');
   const delay = nativ('delay_line.h');
   assert(!/\bbool\s+black\b/.test(delay) && !/\bpushBlack\s*\(/.test(delay) && !/\bpushBlack\s*\(|\.black\b/.test(sender),
     'A9 Bildarten: Frame::black und pushBlack sind entfernt, der Sender liest nur Frame::art');
