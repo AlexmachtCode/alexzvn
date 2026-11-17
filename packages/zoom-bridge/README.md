@@ -658,18 +658,24 @@ Freigabe leert die Versatz-Warteschlange.
 steht in `slotStats` (`w`, `h`, `fps`, `resSet`, `resGot`). Die HD-Einstellungen von
 Zoom liest die Bridge nur, sie ändert sie nie.
 
-**Bildformat (#310) bei den Ersatzbildern.** Mit `frame:"fit"` gilt das Einpassen auch für
-das Ersatzbild, das ein Livebild wiederholt (Halten, letztes Bild): Es geht in dieselbe
-16:9-Fläche der Nenngröße wie das Livebild, nicht hochkant. Einfarbige Ersatzbilder
-(schwarz, weiß) und die Kachel haben schon die Nenngröße. Mit `native` bleibt alles
-wie vorher.
+**Bildformat (#310) bei den Ersatzbildern.** Ob ein Ersatzbild eingepasst geht, entscheidet die
+Bridge je Herzschlag neu, aus der aktuellen Einstellung und Zooms letzter Größe: nur bei
+`frame:"fit"`, nur für Teilnehmer und Sprecher und nur, wenn diese Größe nicht (innerhalb
+1 %) 16:9 ist. Ein Wechsel mitten im Aussetzer wirkt also beim nächsten Ersatzbild. Der Rahmen
+hat die Nenngröße des Slots (640×360, 1280×720 oder 1920×1080), die Seiten bleiben
+transparent. Im Modus fit gilt: `transparent` geht als ganz transparentes Bild in der vollen
+Nenngröße hinaus; `black` und `white` bauen ein einfarbiges Bild in Zooms letzter Größe und
+passen es in den 16:9-Rahmen ein; `freeze` passt das letzte Livebild ein; `tile` baut die Kachel
+in Zooms letzter Größe (z. B. hochkant) und passt sie ein. Das Halten (`Sent::Held`, nur
+Freigabe-Slots) wird nie eingepasst. Mit `native` bleibt alles wie vorher.
 
 **Speicher je Slot.** `slotStats.memKb` zählt Versatz-Warteschlange, Kopie, Vorschau
 und Ersatzbild-Puffer des Slots, seit #306 auch die Zoom-Kachel (fertige Kachel und
 dunkle Grundfläche, je höchstens ein I420-Bild). Seit #310 zählt `memKb` auch die
 eingepassten Rahmen mit: den Live-Rahmen des Slots, den Ausgaberahmen des Ersatzbildes,
-die einfarbige Quelle dieses Ersatzbildes und den Rahmen im Sender (je ein UYVA-Bild in
-Nenngröße). Gerechnet sind für die Versatz-Warteschlange bei
+dessen einfarbige I420-Quelle (Größe von Zoom, nur für schwarz und weiß) und den Rahmen im
+Sender. Jeder Rahmen reserviert beim ersten Einpassen einmal Platz für ein UYVA-Bild in
+1920×1080 (rund 6,2 MB), unabhängig von der Auflösung des Slots. Gerechnet sind für die Versatz-Warteschlange bei
 1080p und 1000 ms rund 94 MB je Slot, bei 16 Slots bis 1,5 GB (Spec RS6);
 Freigabe-Slots haben keinen Versatz.
 
