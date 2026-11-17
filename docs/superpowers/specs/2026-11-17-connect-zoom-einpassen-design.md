@@ -1,6 +1,6 @@
 # Connect: Hochkant-Zuschaltungen in 16:9 einpassen (#310)
 
-**Stand:** 17.11.2026, nach Builder-Check überarbeitet; Freigabe durch den Owner steht aus. Owner-Entscheidungen im
+**Stand:** 17.11.2026, nach Builder-Check überarbeitet; vom Owner freigegeben 17.11.2026 16:25 („passt“). Owner-Entscheidungen im
 Gespräch 17.11.2026 (siehe „Entscheidungen“).
 Code-Stand der Angaben: origin/main bf45fba713. P = `packages/zoom-bridge`, C = `apps/connect`.
 
