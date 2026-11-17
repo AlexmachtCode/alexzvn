@@ -1917,6 +1917,25 @@ function domKlickeKnopfGenau(text) {
   return true;
 }
 
+/**
+ * Kopf der Referentenansicht bei der aktuellen Breite: Knöpfe rechts aus dem Fenster, zweizeilig umgebrochene Knöpfe
+ * (höher als eine Zeile, 32 px) und ob „■ Beenden“ ganz sichtbar ist (Review-Befund: der zusätzliche Knopf verdrängte ihn).
+ */
+function domKopfMass() {
+  const knoepfe = [...document.querySelectorAll('header button')];
+  const w = window.innerWidth;
+  const ausserhalb = knoepfe.filter((b) => b.getBoundingClientRect().right > w + 0.5).map((b) => b.textContent.trim());
+  const umgebrochen = knoepfe.filter((b) => b.getBoundingClientRect().height > 33).map((b) => b.textContent.trim());
+  const r = knoepfe.find((b) => b.textContent.includes('Beenden'))?.getBoundingClientRect();
+  // Folienzähler „1 / 2“ (erstes Kind des Kopfs) in EINER Zeile: Die beiden Zahlen stehen auf derselben Grundlinie.
+  const [nr, von] = [...(document.querySelector('header > div')?.querySelectorAll('span') ?? [])].map((s) => s.getBoundingClientRect());
+  const zaehlerEinzeilig = !!nr && !!von && Math.abs(nr.bottom - von.bottom) < 8;
+  return {
+    breite: w, ausserhalb, umgebrochen, zaehlerEinzeilig,
+    beenden: !!r && r.left >= 0 && r.right <= w + 0.5 && r.bottom <= window.innerHeight,
+  };
+}
+
 async function drueckeF11(ziel) {
   for (const type of ['rawKeyDown', 'keyUp']) {
     await ziel.send('Input.dispatchKeyEvent', { type, key: 'F11', code: 'F11', windowsVirtualKeyCode: 122 });
@@ -2027,6 +2046,29 @@ async function gruppeVollbild({ exe, d }) {
       await pause(1_500); // ein (falsches) Vollbild beim Öffnen käme nach ready-to-show
       const l = await vollbildLage(referent);
       erwarte(istNormal(l), `nicht normal: ${lageText(l)}`);
+    });
+
+    // 1097 px = 1920×1080 bei 175 %; 1280 px = 150 % (häufigster Laptop); 1024 = minWidth des Referentenfensters.
+    await fall('8 Kopf bei 1024, 1097 und 1280 px Breite: kein Knopf abgeschnitten oder umgebrochen, „■ Beenden“ ganz sichtbar', async () => {
+      if (!referent) ueberspringe('Referentenfenster fehlt');
+      try {
+        for (const breite of [1024, 1097, 1280]) {
+          await referent.send('Emulation.setDeviceMetricsOverride', { width: breite, height: 800, deviceScaleFactor: 1, mobile: false });
+          await pause(300);
+          const k = await auswerten(referent, imDom(domKopfMass));
+          // Zum Ansehen von Hand: PRUEFSTAND_BILDER=<Ordner> legt je Breite ein PNG der Referentenansicht ab.
+          if (process.env.PRUEFSTAND_BILDER) {
+            const { data } = await referent.send('Page.captureScreenshot', { format: 'png' });
+            fs.writeFileSync(path.join(process.env.PRUEFSTAND_BILDER, `referent-${breite}.png`), Buffer.from(data, 'base64'));
+          }
+          erwarte(Math.abs(k.breite - breite) <= 1, `Breite ${k.breite} statt ${breite} (Emulation greift nicht)`);
+          erwarte(k.beenden, `${breite} px: „■ Beenden“ nicht ganz sichtbar: ${JSON.stringify(k)}`);
+          erwarte(k.ausserhalb.length === 0 && k.umgebrochen.length === 0, `${breite} px: ${JSON.stringify(k)}`);
+          erwarte(k.zaehlerEinzeilig, `${breite} px: Folienzähler umgebrochen: ${JSON.stringify(k)}`);
+        }
+      } finally {
+        await referent.send('Emulation.clearDeviceMetricsOverride', {}).catch(() => {});
+      }
     });
   }, umgebung);
 }
