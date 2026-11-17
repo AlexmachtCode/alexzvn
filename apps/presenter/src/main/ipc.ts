@@ -19,8 +19,10 @@ import {
   getDisplays,
   getEditorWindow,
   getNdiWindow,
+  getReferentVollbild,
   moveAudienceToDisplay,
   toggleAudienceFullscreen,
+  toggleReferentVollbild,
 } from './windows';
 import { beendeNdi, initNdiAusgang, ndiFensterBereit, ndiStartGescheitert, ndiStatus, setzeNdiAn } from './ndi/ausgang';
 import { nurNdiBehalten, pruefeStartZiel } from '../shared/ndi';
@@ -207,6 +209,9 @@ export function registerIpc(): void {
     moveAudienceToDisplay(displayId),
   );
   ipcMain.handle('present:toggleAudienceFullscreen', () => toggleAudienceFullscreen());
+  // #309: Vollbild der Referentenansicht (Knopf „Vollbild“, F11); Push bei jedem Wechsel: present:referentVollbildStand.
+  ipcMain.handle('present:toggleReferentVollbild', () => toggleReferentVollbild());
+  ipcMain.handle('present:referentVollbild', () => getReferentVollbild());
 
   // ---- Network remote (phone clicker) ----
 

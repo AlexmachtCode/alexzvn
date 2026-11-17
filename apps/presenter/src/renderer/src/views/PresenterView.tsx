@@ -18,8 +18,28 @@ export function PresenterView() {
   const [showGrid, setShowGrid] = useState(false);
   const [showRemote, setShowRemote] = useState(false);
 
+  const [vollbild, setVollbild] = useState(false);
+
   useEffect(() => {
     void window.jmpr.present.displays().then(setDisplays);
+  }, []);
+
+  // #309: Vollbild der Referentenansicht – Stand beim Laden, danach jeder Wechsel (Knopf, F11, System).
+  useEffect(() => {
+    void window.jmpr.present.referentVollbild().then(setVollbild);
+    return window.jmpr.present.onReferentVollbild(setVollbild);
+  }, []);
+
+  // F11 nur hier (usePresenterKeys gilt auch fürs Publikum). preventDefault hält das Standardmenü von Electron ab,
+  // das F11 sonst ein zweites Mal umschalten würde (gemessen, Electron 33.4.11).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'F11') return;
+      e.preventDefault();
+      void window.jmpr.present.toggleReferentVollbild();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   if (!slides) {
@@ -95,6 +115,13 @@ export function PresenterView() {
             onClick={() => void window.jmpr.present.toggleAudienceFullscreen()}
             disabled={nurNdi}
             title={nurNdi ? 'Kein Publikumsfenster – Bild nur über NDI' : undefined}
+          >
+            Publikum Vollbild
+          </HeaderBtn>
+          <HeaderBtn
+            onClick={() => void window.jmpr.present.toggleReferentVollbild()}
+            active={vollbild}
+            title="Referentenansicht im Vollbild (F11)"
           >
             Vollbild
           </HeaderBtn>

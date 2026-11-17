@@ -1894,12 +1894,150 @@ async function gruppeNdi({ exe, d }) {
   }
 }
 
+// ---------------------------------------------------------------- Gruppe vollbild (#309)
+
+/**
+ * Füllt das Fenster den GANZEN Bildschirm (Taskleiste verdeckt), nicht nur die Arbeitsfläche? Bis 1 px Rundung
+ * (gebrochene Windows-Skalierung).
+ */
+function domVollbildMass() {
+  return Math.abs(window.innerWidth - screen.width) <= 1 && Math.abs(window.innerHeight - screen.height) <= 1;
+}
+
+/** Knopf mit GENAU diesem Text: { aktiv } (hervorgehoben wie „Übersicht“), oder null ohne Knopf. */
+function domKnopfGenau(text) {
+  const k = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === text);
+  return k ? { aktiv: k.className.includes('bg-[var(--primary)]') } : null;
+}
+
+function domKlickeKnopfGenau(text) {
+  const k = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === text);
+  if (!k || k.disabled) return false;
+  k.click();
+  return true;
+}
+
+async function drueckeF11(ziel) {
+  for (const type of ['rawKeyDown', 'keyUp']) {
+    await ziel.send('Input.dispatchKeyEvent', { type, key: 'F11', code: 'F11', windowsVirtualKeyCode: 122 });
+  }
+}
+
+/** Zustand des Referentenfensters: was der Main meldet, das Maß im Fenster und der Knopf „Vollbild“. */
+async function vollbildLage(referent) {
+  return {
+    main: await auswerten(referent, 'window.jmpr.present.referentVollbild()'),
+    mass: await auswerten(referent, imDom(domVollbildMass)),
+    knopf: (await auswerten(referent, imDom(domKnopfGenau, 'Vollbild')))?.aktiv ?? null,
+  };
+}
+
+const lageText = (l) => JSON.stringify(l);
+const istVoll = (l) => l?.main === true && l.mass === true && l.knopf === true;
+const istNormal = (l) => l?.main === false && l.mass === false && l.knopf === false;
+
+/** Deck sicherstellen (nach einem Neustart ist der Editor leer), ▶ Präsentieren, Referentenfenster fertig. */
+async function referentOeffnen(app, ed, d) {
+  if ((await folienZahl(ed)) !== 2) {
+    const { x, y } = await auswerten(ed, imDom(domMitte));
+    await ablegen(ed, [d.a], x, y);
+    erwarte((await bisWert(() => folienZahl(ed), (v) => v === 2)) === 2, 'Deck mit 2 Folien lädt nicht');
+  }
+  // Ein eben beendetes Referentenfenster darf nicht mehr in der Liste stehen, sonst verbände oeffneZiel das alte.
+  erwarte(await warteBis(async () => !(await zielListe()).some((t) => t.url.includes('view=presenter')), 10_000), 'altes Referentenfenster bleibt');
+  erwarte(await warteBis(() => auswerten(ed, imDom(domKlickePraesentieren)), 10_000), 'Knopf „▶ Präsentieren“ nicht bedienbar');
+  const referent = await oeffneZiel(app, 'view=presenter', 15_000);
+  await fensterFertig(referent);
+  erwarte(await warteBis(() => auswerten(referent, imDom(domKnopfGenau, 'Vollbild')).then((k) => k !== null), 10_000), 'Knopf „Vollbild“ fehlt');
+  return referent;
+}
+
+async function praesentationBeenden(ed, referent) {
+  // Escape schließt das Fenster schon beim Drücken – das Loslassen findet dann keine Verbindung mehr (gewollt).
+  await drueckeEscape(referent).catch(() => {});
+  const aus = await warteBis(async () => (await auswerten(ed, 'window.jmpr.present.getState()'))?.active === false, 10_000);
+  erwarte(aus, 'Escape beendet die Präsentation nicht');
+}
+
+async function gruppeVollbild({ exe, d }) {
+  const profil = path.join(d.dir, 'profil-vollbild');
+  const umgebung = eigenesProfil(profil);
+  const config = path.join(profil, 'AppData', 'Roaming', '@jm', 'presenter', 'referent-config.json');
+  const gemerkt = () => (fs.existsSync(config) ? JSON.parse(fs.readFileSync(config, 'utf8')) : null);
+
+  await mitApp('vollbild', exe, [], async (app, ed) => {
+    let referent = null;
+    await fall('1 Kopf der Referentenansicht: „Publikum Vollbild“ und „Vollbild“, normales Fenster beim ersten Start', async () => {
+      referent = await referentOeffnen(app, ed, d);
+      erwarte((await auswerten(referent, imDom(domKnopfGenau, 'Publikum Vollbild'))) !== null, 'Knopf „Publikum Vollbild“ fehlt');
+      const l = await vollbildLage(referent);
+      erwarte(istNormal(l), `nicht normal: ${lageText(l)}`);
+    });
+
+    await fall('2 Knopf „Vollbild“ → Referentenfenster deckt den ganzen Bildschirm, Knopf hervorgehoben', async () => {
+      if (!referent) ueberspringe('Referentenfenster fehlt');
+      erwarte(await auswerten(referent, imDom(domKlickeKnopfGenau, 'Vollbild')), 'Knopf „Vollbild“ nicht bedienbar');
+      const l = await bisWert(() => vollbildLage(referent), istVoll);
+      erwarte(istVoll(l), `kein Vollbild: ${lageText(l)}`);
+    });
+
+    await fall('3 F11 schaltet genau einmal: aus, dann wieder an', async () => {
+      if (!referent) ueberspringe('Referentenfenster fehlt');
+      await drueckeF11(referent);
+      const aus = await bisWert(() => vollbildLage(referent), istNormal);
+      erwarte(istNormal(aus), `F11 schaltet nicht aus: ${lageText(aus)}`);
+      await pause(1_000); // ein zweites (doppeltes) Umschalten käme hier
+      const still = await vollbildLage(referent);
+      erwarte(istNormal(still), `nach F11 wieder umgesprungen: ${lageText(still)}`);
+      await drueckeF11(referent);
+      const an = await bisWert(() => vollbildLage(referent), istVoll);
+      erwarte(istVoll(an), `F11 schaltet nicht an: ${lageText(an)}`);
+    });
+
+    await fall('4 referent-config.json im Testprofil merkt vollbild: true', async () => {
+      erwarte(gemerkt()?.vollbild === true, `${config}: ${JSON.stringify(gemerkt())}`);
+    });
+
+    await fall('5 Escape im Vollbild beendet; gemerkt bleibt true; nächste Präsentation öffnet im Vollbild', async () => {
+      if (!referent) ueberspringe('Referentenfenster fehlt');
+      await praesentationBeenden(ed, referent);
+      erwarte(gemerkt()?.vollbild === true, `nach Escape gemerkt: ${JSON.stringify(gemerkt())}`);
+      referent = await referentOeffnen(app, ed, d);
+      const l = await bisWert(() => vollbildLage(referent), istVoll);
+      erwarte(istVoll(l), `neue Referentenansicht nicht im Vollbild: ${lageText(l)}`);
+    });
+  }, umgebung);
+
+  await mitApp('vollbild (Neustart)', exe, [], async (app, ed) => {
+    let referent = null;
+    await fall('6 App neu gestartet (selbes Profil): Referentenansicht öffnet im Vollbild', async () => {
+      referent = await referentOeffnen(app, ed, d);
+      const l = await bisWert(() => vollbildLage(referent), istVoll);
+      erwarte(istVoll(l), `nach Neustart nicht im Vollbild: ${lageText(l)}`);
+    });
+
+    await fall('7 Knopf „Vollbild“ aus, beenden, neu präsentieren → normales Fenster', async () => {
+      if (!referent) ueberspringe('Referentenfenster fehlt');
+      erwarte(await auswerten(referent, imDom(domKlickeKnopfGenau, 'Vollbild')), 'Knopf „Vollbild“ nicht bedienbar');
+      const aus = await bisWert(() => vollbildLage(referent), istNormal);
+      erwarte(istNormal(aus), `Knopf schaltet nicht aus: ${lageText(aus)}`);
+      await praesentationBeenden(ed, referent);
+      erwarte(gemerkt()?.vollbild === false, `gemerkt: ${JSON.stringify(gemerkt())}`);
+      referent = await referentOeffnen(app, ed, d);
+      await pause(1_500); // ein (falsches) Vollbild beim Öffnen käme nach ready-to-show
+      const l = await vollbildLage(referent);
+      erwarte(istNormal(l), `nicht normal: ${lageText(l)}`);
+    });
+  }, umgebung);
+}
+
 const GRUPPEN = {
   ablage: gruppeAblage,
   navigation: gruppeNavigation,
   doppelklick: gruppeDoppelklick,
   steuerbefehl: gruppeSteuerbefehl,
   ndi: gruppeNdi,
+  vollbild: gruppeVollbild,
 };
 
 // ---------------------------------------------------------------- Ablauf

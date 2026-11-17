@@ -2,6 +2,14 @@ import { app, BrowserWindow, screen, shell } from 'electron';
 import path, { join } from 'node:path';
 import type { DisplayInfo, ViewName } from '@shared/types';
 import { NDI_BREITE, NDI_HOEHE } from '../shared/ndi';
+import { loadReferentConfig, saveReferentConfig } from './referent-config';
+import {
+  referentVollbildAnwenden,
+  referentVollbildStand,
+  referentVollbildUmschalten,
+  referentVollbildVerdrahten,
+  type VollbildSpeicher,
+} from './referent-vollbild';
 
 declare const __dirname: string;
 
@@ -154,7 +162,15 @@ export function openPresenterWindow(): BrowserWindow {
     webPreferences: baseWebPreferences,
   });
   sperreNavigation(win);
-  win.on('ready-to-show', () => win.show());
+  // #309: Vollbild der Referentenansicht – jeder Wechsel (Knopf, F11, System) wird gemerkt und an die Ansicht
+  // gemeldet; beim Öffnen gilt der gemerkte Zustand.
+  referentVollbildVerdrahten(win, referentSpeicher, (an) => {
+    if (!win.isDestroyed()) win.webContents.send('present:referentVollbildStand', an);
+  });
+  win.on('ready-to-show', () => {
+    win.show();
+    referentVollbildAnwenden(win, referentSpeicher);
+  });
   win.on('closed', () => {
     presenterWindow = null;
     onPresentationWindowClosed?.();
@@ -163,6 +179,17 @@ export function openPresenterWindow(): BrowserWindow {
   loadView(win, 'presenter');
   presenterWindow = win;
   return win;
+}
+
+const referentSpeicher: VollbildSpeicher = { lade: loadReferentConfig, speichere: saveReferentConfig };
+
+/** #309: Knopf „Vollbild“ / F11 der Referentenansicht; liefert den angeforderten Zustand. */
+export function toggleReferentVollbild(): boolean {
+  return referentVollbildUmschalten(presenterWindow);
+}
+
+export function getReferentVollbild(): boolean {
+  return referentVollbildStand(presenterWindow);
 }
 
 function displayById(id: number): Electron.Display {
