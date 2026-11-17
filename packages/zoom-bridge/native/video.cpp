@@ -1755,6 +1755,10 @@ void slotStatsMelden(Slot& s, int64_t jetzt) {
   const bool bildDa = frames > 0 && z.bildSeitUmhaengen;
   wenn(bildDa, "w", std::to_string(z.lastW));
   wenn(bildDa, "h", std::to_string(z.lastH));
+  // #310: outW/outH nur, wenn das letzte Bild des Fensters eingepasst ging (NDI-Groesse != gelieferte Groesse).
+  const bool eingepasst = bildDa && z.ausgabeW > 0 && (z.ausgabeW != z.lastW || z.ausgabeH != z.lastH);
+  wenn(eingepasst, "outW", std::to_string(z.ausgabeW));
+  wenn(eingepasst, "outH", std::to_string(z.ausgabeH));
   wenn(!bildDa && z.lastW > 0, "lastW", std::to_string(z.lastW));
   wenn(!bildDa && z.lastH > 0, "lastH", std::to_string(z.lastH));
   wenn(bildDa, "fps", std::to_string(frames * 10000 / zielMs / 10) + "." + std::to_string(frames * 10000 / zielMs % 10));
@@ -1763,7 +1767,9 @@ void slotStatsMelden(Slot& s, int64_t jetzt) {
   pflicht("workUs", jeSekunde(work));     // Bridge-Anteil je Sekunde (ANNAHME AN4: NDI sendet synchron)
   pflicht("copyUs", jeSekunde(copy));
   pflicht("previewUs", jeSekunde(vorschauKostenUs(s.nr)));
-  pflicht("memKb", std::to_string((s.sender.speicherBytes() + kopie + vorschauSpeicherBytes(s.nr) + s.kachel.speicherBytes()) / 1024));
+  // #310: Live-Rahmen, Ersatz-Ausgaberahmen und einfarbige Ersatzquelle zaehlen mit (der Rahmen des Senders steckt in sender.speicherBytes()).
+  pflicht("memKb", std::to_string((s.sender.speicherBytes() + kopie + vorschauSpeicherBytes(s.nr) + s.kachel.speicherBytes() +
+      s.liveRahmenBytes.load() + einpass::speicherBytes(s.ersatzRahmen) + s.ersatzQuelle.capacity()) / 1024));
   pflicht("resWanted", std::string("\"") + (s.res == ZoomSDKResolution_360P ? "360p" : s.res == ZoomSDKResolution_1080P ? "1080p" : "720p") + "\"");
   wenn(s.resSet >= 0, "resSet", std::to_string(s.resSet));
   wenn(s.resGot >= 0, "resGot", std::to_string(s.resGot));

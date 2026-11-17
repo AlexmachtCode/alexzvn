@@ -38,6 +38,12 @@ const FREIGABE_HALTEN_MS = 200;
 const FREIGABE_ZUSTAND_MS = 2000;
 /** Nenngroesse je Stufe (6.11); Vorgabe fuer slotStats ohne FAKE_AUFLOESUNG_GELIEFERT. */
 const NENNGROESSE = { '360p': [640, 360], '720p': [1280, 720], '1080p': [1920, 1080] };
+
+/** Ob (w, h) auf 1 % genau 16:9 ist (wie einpass::ist16zu9 in bild_einpassen.h). */
+function ist16zu9(w, h) {
+  if (!(w > 0 && h > 0)) return false;
+  return Math.abs(w * 9 - h * 16) * 100 <= h * 16;
+}
 /** ZoomSDKResolution (rawdata_renderer_interface.h:12-20) als slotStats.resGot. */
 const ZOOM_STUFE = { '360p': 2, '720p': 3, '1080p': 4 };
 /** Ein festes, gueltiges 1x1-JPEG fuer preview (mit System.Drawing erzeugt und zurueckgelesen, Plan A, Task A2). */
@@ -771,6 +777,10 @@ const scripts = {
         if (s.target !== 0) Object.assign(ev, { resSet: 0, resGot: ZOOM_STUFE[s.resolution], rawType: s.mode === 'share' ? 1 : 0 });
         if (s.state === 'live' && s.sent === 'none') Object.assign(ev, { w: s.zuletzt[0], h: s.zuletzt[1], fps: 30 });
         else if (s.zuletzt) Object.assign(ev, { lastW: s.zuletzt[0], lastH: s.zuletzt[1] });
+        // #310: eingepasst (fit, nicht 16:9, keine Freigabe): die Nenngroesse des Slots ging ins NDI.
+        if (s.state === 'live' && s.sent === 'none' && s.frame === 'fit' && s.mode !== 'share' && !ist16zu9(s.zuletzt[0], s.zuletzt[1])) {
+          Object.assign(ev, { outW: NENNGROESSE[s.resolution][0], outH: NENNGROESSE[s.resolution][1] });
+        }
         if (s.ton.state === 'live') Object.assign(ev, { audioPps: 50, audioRate: 32000, audioCh: 1 });
         say(ev);
       }

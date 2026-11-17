@@ -1018,6 +1018,8 @@ export const MESS_ZEILE = {
   T51: (res: string, b: number, h: number, fps: string): string => `${res} gewünscht · Zoom liefert ${b}×${h} · ${fps} Bilder/s`,
   T51b: (res: string): string => `${res} gewünscht · noch kein Bild`,
   T51c: (res: string, b: number, h: number): string => `${res} · zuletzt ${b}×${h} · jetzt kein Bild`,
+  /** #310: Anhang, wenn das Bild eingepasst ins NDI ging. */
+  eingepasst: (b: number, h: number): string => ` · NDI ${b}×${h} eingepasst`,
 };
 
 /** Nennhöhe je Stufe (10.7): verglichen wird die kürzere Seite des gelieferten Bildes. */
@@ -1030,6 +1032,8 @@ const NENNHOEHE: Record<ZoomSlotAufloesung, number> = { '360p': 360, '720p': 720
 export interface MessEingabe {
   zustand: ZoomSlotZustand; modus: ZoomSlotModus; stufe: ZoomSlotAufloesung;
   geliefert: { b: number; h: number; fps: number } | null; zuletzt: { b: number; h: number } | null;
+  /** #310: NDI-Größe, wenn das Bild eingepasst wurde (sonst fehlt der Anhang). */
+  eingepasst?: { b: number; h: number } | null;
 }
 
 /** Messzeile der Kachel (Spec 10.7); `null` ohne laufenden Sender, auch in SZ9 (Restrunde RR6). */
@@ -1038,7 +1042,8 @@ export function slotMessZeile(e: MessEingabe): string | null {
   const g = e.geliefert;
   if (g !== null) {
     const unter = e.modus !== 'freigabe' && Math.min(g.b, g.h) < NENNHOEHE[e.stufe];
-    return (unter ? MESS_ZEILE.T51 : MESS_ZEILE.T50)(e.stufe, g.b, g.h, dezimal(g.fps));
+    const zeile = (unter ? MESS_ZEILE.T51 : MESS_ZEILE.T50)(e.stufe, g.b, g.h, dezimal(g.fps));
+    return e.eingepasst ? zeile + MESS_ZEILE.eingepasst(e.eingepasst.b, e.eingepasst.h) : zeile;
   }
   if (e.zuletzt !== null) return MESS_ZEILE.T51c(e.stufe, e.zuletzt.b, e.zuletzt.h);
   return MESS_ZEILE.T51b(e.stufe);

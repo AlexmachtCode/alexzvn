@@ -658,9 +658,18 @@ Freigabe leert die Versatz-Warteschlange.
 steht in `slotStats` (`w`, `h`, `fps`, `resSet`, `resGot`). Die HD-Einstellungen von
 Zoom liest die Bridge nur, sie ändert sie nie.
 
+**Bildformat (#310) bei den Ersatzbildern.** Mit `frame:"fit"` gilt das Einpassen auch für
+das Ersatzbild, das ein Livebild wiederholt (Halten, letztes Bild): Es geht in dieselbe
+16:9-Fläche der Nenngröße wie das Livebild, nicht hochkant. Einfarbige Ersatzbilder
+(schwarz, weiß) und die Kachel haben schon die Nenngröße. Mit `native` bleibt alles
+wie vorher.
+
 **Speicher je Slot.** `slotStats.memKb` zählt Versatz-Warteschlange, Kopie, Vorschau
 und Ersatzbild-Puffer des Slots, seit #306 auch die Zoom-Kachel (fertige Kachel und
-dunkle Grundfläche, je höchstens ein I420-Bild). Gerechnet sind für die Versatz-Warteschlange bei
+dunkle Grundfläche, je höchstens ein I420-Bild). Seit #310 zählt `memKb` auch die
+eingepassten Rahmen mit: den Live-Rahmen des Slots, den Ausgaberahmen des Ersatzbildes,
+die einfarbige Quelle dieses Ersatzbildes und den Rahmen im Sender (je ein UYVA-Bild in
+Nenngröße). Gerechnet sind für die Versatz-Warteschlange bei
 1080p und 1000 ms rund 94 MB je Slot, bei 16 Slots bis 1,5 GB (Spec RS6);
 Freigabe-Slots haben keinen Versatz.
 
@@ -676,7 +685,9 @@ und `bridgeStats.previewOn` dasselbe sagen.
 
 **Messwerte.** `slotStats` (je Slot) und `bridgeStats` (Prozess) kommen alle 2 s.
 Felder fehlen, solange nichts gemessen ist, und nach jedem Umhängen wieder, bis ein
-Bild des neuen Ziels kam. `fallbackFps` zählt die gesendeten Ersatzbilder und die
+Bild des neuen Ziels kam. `outW`/`outH` (#310) nennen die Größe, die ins NDI ging, und
+stehen nur, wenn im Fenster ein Bild kam und das letzte davon eingepasst ging
+(Ausgabegröße ≠ `w`×`h`); bei „native“ und bei Bildern, die schon 16:9 sind, fehlen sie. `fallbackFps` zählt die gesendeten Ersatzbilder und die
 Haltebilder (Spec 6.17). `shareAudioRate` und `shareAudioCh` stehen in `slotStats`,
 nicht in `bridgeStats`; sie fehlen, solange kein Computerton angekommen ist, und
 fallen bei neuem Ton-Stand und bei neuem Eingang B des Mischers wieder weg, bis

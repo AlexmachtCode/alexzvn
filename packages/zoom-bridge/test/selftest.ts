@@ -3031,6 +3031,22 @@ console.log('\nA2 Attrappe — Messwerte, Vorschau, gelieferte Auflösung (FAKE_
     'A2 6.16: nach previewMode off kommt keine Vorschau mehr');
 }
 
+console.log('\nA2 Attrappe — #310 slotStats.outW/outH nur bei eingepasstem Bild (FAKE_AUFLOESUNG_GELIEFERT=720x1280):');
+{
+  const ev = await fahreSteuerung({ FAKE_AUFLOESUNG_GELIEFERT: '720x1280' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA, resolution: '1080p', frame: 'fit' }));
+    b.send(slotAn(2, 'JM Connect – Zoom Ben', { id: BEN, resolution: '720p', frame: 'native' }));
+    await bisEreignis(ev, () => ev.some(art('slotStats', { slot: 1, w: 720 })) && ev.some(art('slotStats', { slot: 2, w: 720 })), 6000);
+  });
+  const s1 = ev.find(art('slotStats', { slot: 1, w: 720 })) as Record<string, unknown> | undefined;
+  const s2 = ev.find(art('slotStats', { slot: 2, w: 720 })) as Record<string, unknown> | undefined;
+  assert(s1?.w === 720 && s1.h === 1280 && s1.outW === 1920 && s1.outH === 1080,
+    '#310 slotStats: fit mit 720×1280 meldet w 720, h 1280 und outW 1920, outH 1080 (Rahmen = Nenngröße 1080p)');
+  assert(s2?.w === 720 && s2.h === 1280 && !('outW' in s2) && !('outH' in s2),
+    '#310 slotStats: native meldet kein outW/outH');
+}
+
 console.log('\nA2 Attrappe — Aufbaufehler und stumme Slots (FAKE_SLOT_FEHLER, FAKE_SLOT_STUMM, PT7):');
 {
   const zeilen: string[] = [];
@@ -3819,6 +3835,13 @@ console.log('\nNativer Teil — A11 Slot-Verwaltung, Befehle, Umhängen (Spec 6.
       && sonstA11.search(/z\.ausgabeW\s*=/) > sonstA11.indexOf('bildAnnehmen(')
       && /vorschauBild\(\s*nr\s*,\s*aboZiel\s*,\s*buf\s*,\s*w\s*,\s*h\s*,\s*jetzt\s*\)\s*;/.test(ankunft),
     '#310 bildAnkunft: im Sonst-Zweig des zweiten Riegels nach bildAnnehmen z.ausgabeW/z.ausgabeH (was ins NDI ging); vorschauBild(nr, aboZiel, buf, w, h, jetzt) unverändert');
+  const statsRumpf = rumpf(nativ('video.cpp'), 'void slotStatsMelden(');
+  assert(/const\s+bool\s+eingepasst\s*=\s*bildDa\s*&&\s*z\.ausgabeW\s*>\s*0\s*&&\s*\(\s*z\.ausgabeW\s*!=\s*z\.lastW\s*\|\|\s*z\.ausgabeH\s*!=\s*z\.lastH\s*\)\s*;/.test(statsRumpf)
+      && /wenn\(\s*eingepasst\s*,\s*"outW"\s*,\s*std::to_string\(\s*z\.ausgabeW\s*\)\s*\)/.test(statsRumpf)
+      && /wenn\(\s*eingepasst\s*,\s*"outH"\s*,\s*std::to_string\(\s*z\.ausgabeH\s*\)\s*\)/.test(statsRumpf)
+      && /s\.liveRahmenBytes\.load\(\)/.test(statsRumpf) && /einpass::speicherBytes\(\s*s\.ersatzRahmen\s*\)/.test(statsRumpf)
+      && /s\.ersatzQuelle\.capacity\(\)/.test(statsRumpf),
+    '#310 slotStatsMelden: outW/outH nur mit bildDa und ausgabe ≠ lastW/lastH; memKb zählt liveRahmenBytes, ersatzRahmen und ersatzQuelle');
   const helfer = rumpf(video, 'void eingepasstSenden(');
   const iDirekt = helfer.search(/if\s*\(\s*!\s*sender\.direktFrei\(\)\s*\)\s*\{\s*sender\.sendI420Einpassen\(\s*i420\s*,\s*w\s*,\s*h\s*,\s*W\s*,\s*H\s*\)\s*;\s*return\s*;\s*\}/);
   const iHVorbereiten = helfer.search(/einpass::rahmenVorbereiten\(\s*rahmen\s*,\s*W\s*,\s*H\s*,\s*einpass::bildFlaeche\(\s*w\s*,\s*h\s*,\s*W\s*,\s*H\s*\)\s*\)\s*;/);

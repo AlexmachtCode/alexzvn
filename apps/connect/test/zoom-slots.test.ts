@@ -1617,6 +1617,21 @@ for (const [geliefert, stufe, soll] of [
   await p.aufraeumen();
 }
 
+console.log('— #310 · Messzeile nennt die eingepasste NDI-Größe; nach „Original“ verschwindet sie');
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true, aufloesung: '1080p', bildformat: 'einpassen' })],
+    stell: () => ({ FAKE_AUFLOESUNG_GELIEFERT: '720x1280' }),
+  });
+  await insMeeting(p);
+  ck('#310: einpassen und 720×1280 → „… · NDI 1920×1080 eingepasst“',
+    await bis(() => lage(p, 1)?.messText === '1080p gewünscht · Zoom liefert 720×1280 · 30 Bilder/s · NDI 1920×1080 eingepasst', 6000));
+  ck('#310: slotAendern bildformat original', ok(p.kern.slotAendern(1, { bildformat: 'original' })));
+  ck('#310: nach „Original“ ohne NDI-Teil',
+    await bis(() => lage(p, 1)?.messText === '1080p gewünscht · Zoom liefert 720×1280 · 30 Bilder/s', 6000));
+  await p.aufraeumen();
+}
+
 console.log('— PK25 · Umbenennung der gezeigten Person (B8): Kachel, gespeicherte Person, Rückkehr unter neuem und altem Namen');
 for (const rueckkehrName of ['Annette', 'Anna'] as const) {
   let umbenannt = false;

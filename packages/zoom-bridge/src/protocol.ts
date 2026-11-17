@@ -323,8 +323,9 @@ export type WireEvent =
       ev: 'slotAudio'; slot: number; state: AudioState; source: SlotAudioSource; configured: SlotAudioSource;
       reason: SlotAudioReason; sampleRate?: number; channels?: number;
     }
+  // slotStats: outW/outH (#310, Groesse, die ins NDI ging) stehen nur, wenn das letzte Bild des Fensters eingepasst ging.
   | {
-      ev: 'slotStats'; slot: number; w?: number; h?: number; lastW?: number; lastH?: number; fps?: number;
+      ev: 'slotStats'; slot: number; w?: number; h?: number; outW?: number; outH?: number; lastW?: number; lastH?: number; fps?: number;
       fallbackFps: number; heldFrames: number; workUs: number; copyUs: number; previewUs: number; memKb: number;
       resWanted: SlotResolution; resSet?: number; resGot?: number; rawType?: number; userVideoW?: number;
       userVideoH?: number; foreignFrames: number; lateFrames: number; tooFrequent: number; noShareData: number;

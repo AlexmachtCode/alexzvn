@@ -379,7 +379,11 @@ interface SlotIntern {
    * Messzeile (10.7): `geliefert` aus dem laufenden Fenster dieses Ziels (slotStats), `zuletzt` die letzte Größe dieses Ziels.
    * Fällt mit dem Sender und mit jedem `slot`-Ereignis, das Ziel, Freigabe oder Modus ändert (B55).
    */
-  mess: { geliefert: { b: number; h: number; fps: number } | null; zuletzt: { b: number; h: number } | null } | null;
+  mess: {
+    geliefert: { b: number; h: number; fps: number } | null; zuletzt: { b: number; h: number } | null;
+    /** #310: Größe, die eingepasst ins NDI ging; nur mit geliefertem Bild und outW/outH im slotStats. */
+    eingepasst: { b: number; h: number } | null;
+  } | null;
   /** Log 7.8 (B66): letzte Art `state/reason`, wann jede Art zuletzt geschrieben wurde, letzte Minutenzeile. */
   log: { art: string; zeiten: Map<string, number>; minute: number };
   /** persistentId der gezeigten Person beim Weggang ('' ohne) und der Vergleich bei ihrer Rückkehr (T62c, MS16). */
@@ -753,6 +757,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       }),
       messText: slotMessZeile({
         zustand: zst, modus: e.modus, stufe: e.aufloesung, geliefert: x.mess?.geliefert ?? null, zuletzt: x.mess?.zuletzt ?? null,
+        eingepasst: x.mess?.eingepasst ?? null,
       }),
     };
   }
@@ -2138,7 +2143,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // NB16 (Nachtrag B): ohne jede Größe im slotStats bleibt die bekannte letzte Größe dieses Ziels stehen.
     const zuletzt = geliefert !== null ? { b: geliefert.b, h: geliefert.h }
       : e.lastW !== undefined && e.lastH !== undefined ? { b: e.lastW, h: e.lastH } : x.mess?.zuletzt ?? null;
-    x.mess = { geliefert, zuletzt };
+    const eingepasst = geliefert !== null && e.outW !== undefined && e.outH !== undefined ? { b: e.outW, h: e.outH } : null;
+    x.mess = { geliefert, zuletzt, eingepasst };
     // T66: jede neue Lücke eines Sprecher-Slots.
     if (x.e.modus === 'sprecher' && e.gapMs !== undefined && letzteLueckeJe.get(e.slot) !== e.gapMs) {
       letzteLueckeJe.set(e.slot, e.gapMs);
@@ -2269,7 +2275,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (x.s.fehlerstand === 'keine_antwort') x.s = { ...x.s, fehlerstand: null };
     // 10.7 (B55): neues Ziel, neue Freigabe oder neuer Modus → Messzeile neu; ohne Bild gilt die letzte Größe (T51c).
     if (vorher !== null && (vorher.target !== e.target || vorher.share !== e.share || vorher.mode !== e.mode)) x.mess = null;
-    else if (e.state !== 'live' && x.mess?.geliefert) x.mess = { geliefert: null, zuletzt: { b: x.mess.geliefert.b, h: x.mess.geliefert.h } };
+    else if (e.state !== 'live' && x.mess?.geliefert) x.mess = { geliefert: null, zuletzt: { b: x.mess.geliefert.b, h: x.mess.geliefert.h }, eingepasst: null };
     // #287: e.ndi ist nach der Prüfung oben der Name, mit dem der Sender startete; er bleibt am Sender.
     x.bridge = { gen: aktiveGen, state: e.state, mode: e.mode, target: e.target, share: e.share, reason: e.reason, sent: e.sent, ndi: e.ndi };
     if (e.mode === 'speaker' && e.target !== 0 && e.target !== letzterSprecher) {
