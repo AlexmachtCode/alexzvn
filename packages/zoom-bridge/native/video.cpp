@@ -8,6 +8,8 @@
 #include <vector>
 #include "emit.h"
 #include "ndi_sender.h"
+// #310: Einpassen der Hochkant-Bilder in den 16:9-Rahmen (reine Logik, ohne min/max - darf nach windows.h stehen).
+#include "bild_einpassen.h"
 #include "rawdata/zoom_rawdata_api.h"
 // rawdata_renderer_interface.h (ueber video.h) FORWARD-deklariert
 // YUVRawDataI420 nur ("class YUVRawDataI420;") - die vollstaendige Klasse mit
@@ -129,16 +131,25 @@ struct Slot {
   int nr = 0;                              // 1..16, Schluessel in g_slots
   std::string ndi;                         // fester NDI-Name ab slotOn (E3)
   std::atomic<SlotMode> mode{SlotMode::Participant};
-  ZoomSDKResolution res = ZoomSDKResolution_720P;
+  // Atomar seit #310: der Bild-Rueckruf (SDK-Thread) liest daraus die Rahmengroesse des Einpassens; geschrieben wird
+  // weiter nur im Hauptthread (slotOn, slotSet).
+  std::atomic<ZoomSDKResolution> res{ZoomSDKResolution_720P};
   std::atomic<unsigned int> shareUser{0};  // wer die gezeigte Freigabe teilt (Computerton)
   std::atomic<SlotAudio> audio{SlotAudio::Off};
   std::atomic<bool> shareAudio{false};
   std::atomic<Fallback> fallback{Fallback::Transparent};
-  std::atomic<Bildformat> format{Bildformat::Native};   // #310: Wirkung kommt in spaeteren Schritten
+  std::atomic<Bildformat> format{Bildformat::Native};   // #310: fit = Hochkant in 16:9 einpassen (bildAnkunft)
   std::atomic<bool> showNoVideo{true};
   std::atomic<bool> imAbbau{false};
   std::vector<std::unique_ptr<Abo>> abos;  // 0.4.0: genau ein Eintrag, solange der Slot laeuft
   NdiSender sender;
+  // #310 Live-Rahmen: der Bild-Rueckruf passt hier ein, wenn der Sender direkt frei ist (eingepasstSenden). NUR der
+  // SDK-Thread fasst ihn an, und nur per liveRahmenM.try_lock(): kommt ein zweiter Rueckruf desselben Slots
+  // gleichzeitig (Threadfrage E15 offen), reiht dessen Bild sich ueber sendI420Einpassen ein, statt zu warten.
+  // Einmal mit einpass::RAHMEN_MAX_BYTES angelegt, danach keine Speicheranforderung je Bild.
+  einpass::Rahmen liveRahmen;
+  std::mutex liveRahmenM;
+  std::atomic<size_t> liveRahmenBytes{0};   // Speicher des Live-Rahmens (einpass::speicherBytes), fuer slotStats
 
   // Sperre NUR fuer die Feldbuchfuehrung (Regel wie bisher Sub::fieldMutex): nie
   // ueber einem Sendeaufruf, kein emit*() im Sperrblock. Eigene Sperre JE SLOT.
@@ -403,6 +414,25 @@ int nominalHeight(ZoomSDKResolution res) {
     case ZoomSDKResolution_1080P: return 1080;
     default:                      return 720;
   }
+}
+
+// #310: ein I420-Bild w x h eingepasst in den Rahmen W x H senden. Ist der Sender nicht direkt frei (Versatz, Wartende,
+// ein Staffelhalter), reiht er das ROHBILD ein und passt es beim Ausgeben selbst ein - sonst ueberholte der Rahmen die
+// wartenden Bilder. Sonst passt der Aufrufer-Thread in `rahmen` ein, ohne fremde Sperre (mutex_ des Senders ist offen),
+// und sendet direkt als UYVA. inhalt != 0 kennzeichnet einen gleichbleibenden Inhalt (Ersatzbild): steht er schon im
+// Rahmen, wird nicht neu eingepasst; 0 = immer neu (Livebild). rahmenVorbereiten setzt die Kennung bei neuer Geometrie
+// zurueck. Heisst bewusst nicht slot…: bildAnkunft ruft keine slot…-Funktion (Selbsttest AF4).
+void eingepasstSenden(NdiSender& sender, const uint8_t* i420, int w, int h, int W, int H, einpass::Rahmen& rahmen, uint32_t inhalt) {
+  if (!sender.direktFrei()) {
+    sender.sendI420Einpassen(i420, w, h, W, H);
+    return;
+  }
+  einpass::rahmenVorbereiten(rahmen, W, H, einpass::bildFlaeche(w, h, W, H));
+  if (inhalt == 0 || rahmen.inhalt != inhalt) {
+    einpass::einpassen(i420, w, h, rahmen);
+    rahmen.inhalt = inhalt;
+  }
+  sender.sendUYVA(rahmen.daten.data(), W, H);
 }
 
 ZoomSDKRawDataType rohTyp(SlotMode m) { return m == SlotMode::Share ? RAW_DATA_TYPE_SHARE : RAW_DATA_TYPE_VIDEO; }
@@ -2212,7 +2242,25 @@ void Slot::bildAnkunft(Abo& abo, YUVRawDataI420* data) {
   const unsigned quelle = data->GetSourceID();
   const bool passt = quelle == aboZiel;
   if (!passt) foreignFrames.fetch_add(1);
-  sender.sendI420(buf, w, h);
+  // #310 „16:9 einpassen“: nur Teilnehmer/Sprecher mit fit und einem Bild, das nicht schon 16:9 ist (1 %). Rahmen =
+  // Nenngroesse des Slots. Der Live-Rahmen nur per try_lock - ist er belegt, reiht der Sender das Rohbild ein und passt
+  // es beim Ausgeben ein; dieser Rueckruf wartet nie auf eine Einpassung. ausW/ausH: was ins NDI geht (ZielStand).
+  const bool einpassen = einpass::einpassenNoetig(format.load() == Bildformat::Fit, mode.load() == SlotMode::Share, w, h);
+  int ausW = w, ausH = h;
+  if (einpassen) {
+    const ZoomSDKResolution r = res.load();
+    ausW = nominalWidth(r);
+    ausH = nominalHeight(r);
+    if (liveRahmenM.try_lock()) {
+      eingepasstSenden(sender, buf, w, h, ausW, ausH, liveRahmen, 0);
+      liveRahmenBytes = einpass::speicherBytes(liveRahmen);
+      liveRahmenM.unlock();
+    } else {
+      sender.sendI420Einpassen(buf, w, h, ausW, ausH);
+    }
+  } else {
+    sender.sendI420(buf, w, h);   // „Original“: unveraendert der Weg von vorher, kein Kopieren, keine andere Groesse
+  }
   // Kopie nur bei Freeze oder Freigabe (E9), per try_lock: haelt der Herzschlag die
   // Kopie gerade zum Senden, faellt diese eine aus.
   bool kopiert = false;
@@ -2250,6 +2298,9 @@ void Slot::bildAnkunft(Abo& abo, YUVRawDataI420* data) {
       // GetSourceID() gebunden (Nachbesserung a3). bildAnnehmen fuehrt auch lastFrameMs,
       // lastW und lastH nach.
       if (bildAnnehmen(z, w, h, jetzt)) gapErstesBildMs = jetzt;
+      // #310: was dieses Bild ins NDI brachte (eingepasst: Rahmengroesse; sonst w x h).
+      z.ausgabeW = ausW;
+      z.ausgabeH = ausH;
       // Getrennt davon die Luecke (gapMs, MS13): sie endet am ersten PASSENDEN Bild; kam 2 s
       // lang keins, am ersten Bild nach Schritt 6, mit gapUngeprueft (6.10, B10 c).
       if (gapOffen && (passt || jetzt - z.retargetMs >= 2000)) {

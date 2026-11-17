@@ -482,12 +482,15 @@ struct ZielStand {
   bool rawOffGesehen = false;      // RawData_Off nach dem ersten Bild dieses Ziels (6.7)
   bool kopieGueltig = false;       // Kopie stammt von diesem Ziel (6.12)
   int64_t retargetMs = 0;          // Beginn der Luecke (6.10)
+  // #310: was zuletzt ins NDI ging (eingepasst: Nenngroesse des Rahmens, sonst lastW/lastH); 0 = noch nichts.
+  int ausgabeW = 0, ausgabeH = 0;
 };
 
 inline bool operator==(const ZielStand& a, const ZielStand& b) {
   return a.lastFrameMs == b.lastFrameMs && a.lastW == b.lastW && a.lastH == b.lastH && a.gemessen == b.gemessen &&
          a.mismatchGemeldet == b.mismatchGemeldet && a.bildSeitUmhaengen == b.bildSeitUmhaengen &&
-         a.rawOffGesehen == b.rawOffGesehen && a.kopieGueltig == b.kopieGueltig && a.retargetMs == b.retargetMs;
+         a.rawOffGesehen == b.rawOffGesehen && a.kopieGueltig == b.kopieGueltig && a.retargetMs == b.retargetMs &&
+         a.ausgabeW == b.ausgabeW && a.ausgabeH == b.ausgabeH;
 }
 inline bool operator!=(const ZielStand& a, const ZielStand& b) { return !(a == b); }
 

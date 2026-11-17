@@ -3735,6 +3735,45 @@ console.log('\nNativer Teil — A11 Slot-Verwaltung, Befehle, Umhängen (Spec 6.
   const iRiegel = ankunft.search(/riegelVerwirft\(\s*abo\.subscribed\.load\(\)\s*,\s*abo\.umhaengen\.load\(\)\s*\)/);
   assert(iRiegel >= 0 && iRiegel < ankunft.indexOf('sendI420(') && /lateFrames\.fetch_add\(1\)/.test(ankunft),
     'A11 6.10: der Riegel verwirft Bilder ohne subscribed oder während des Umhängens vor dem Senden und zählt lateFrames');
+  // #310 Livebild (Plan Task 4): nach dem Riegel entscheidet bildAnkunft mit einpassenNoetig (Freigabe nie, 16:9 nie).
+  // Eingepasst wird in den eigenen Live-Rahmen NUR per try_lock (sonst reiht der Sender das Rohbild ein, nie wartend),
+  // in der Nenngröße aus res.load(). „Original“ bleibt sender.sendI420(buf, w, h); die Vorschau bekommt das Rohbild.
+  const iNoetig = ankunft.search(
+    /einpass::einpassenNoetig\(\s*format\.load\(\)\s*==\s*Bildformat::Fit\s*,\s*mode\.load\(\)\s*==\s*SlotMode::Share\s*,\s*w\s*,\s*h\s*\)/);
+  const iResLaden = ankunft.search(/const\s+ZoomSDKResolution\s+(\w+)\s*=\s*res\.load\(\)\s*;\s*ausW\s*=\s*nominalWidth\(\s*\1\s*\)\s*;\s*ausH\s*=\s*nominalHeight\(\s*\1\s*\)\s*;/);
+  const iTryLock = ankunft.search(/if\s*\(\s*liveRahmenM\.try_lock\(\)\s*\)\s*\{/);
+  const iEingepasst = ankunft.search(/eingepasstSenden\(\s*sender\s*,\s*buf\s*,\s*w\s*,\s*h\s*,\s*ausW\s*,\s*ausH\s*,\s*liveRahmen\s*,\s*0\s*\)\s*;/);
+  const iRahmenBytes = ankunft.search(/liveRahmenBytes\s*=\s*einpass::speicherBytes\(\s*liveRahmen\s*\)\s*;/);
+  const iRahmenFrei = ankunft.search(/liveRahmenM\.unlock\(\)\s*;/);
+  const iSonstEinreihen = ankunft.search(/\}\s*else\s*\{?\s*sender\.sendI420Einpassen\(\s*buf\s*,\s*w\s*,\s*h\s*,\s*ausW\s*,\s*ausH\s*\)\s*;/);
+  const iOriginal = ankunft.search(/\}\s*else\s*\{?\s*sender\.sendI420\(\s*buf\s*,\s*w\s*,\s*h\s*\)\s*;/);
+  assert(iNoetig > iRiegel && iResLaden > iNoetig && iTryLock > iResLaden && iEingepasst > iTryLock && iRahmenBytes > iEingepasst
+      && iRahmenFrei > iRahmenBytes && iSonstEinreihen > iRahmenFrei && iOriginal > iSonstEinreihen
+      && (ankunft.match(/\bsendI420\(/g) ?? []).length === 1 && (ankunft.match(/liveRahmenM\.try_lock\(\)/g) ?? []).length === 1
+      && (ankunft.match(/liveRahmenM\.unlock\(\)/g) ?? []).length === 1,
+    '#310 bildAnkunft: nach dem Riegel einpassenNoetig(format Fit, mode Share, w, h); Rahmen = Nenngröße aus res.load(); liveRahmenM.try_lock() vor eingepasstSenden( und unlock, sonst sendI420Einpassen(; „Original“ bleibt sender.sendI420(buf, w, h)');
+  const slotStruktur = rumpf(video, 'struct Slot ');
+  assert(/std::atomic<ZoomSDKResolution>\s+res\{ZoomSDKResolution_720P\}\s*;/.test(slotStruktur)
+      && /einpass::Rahmen\s+liveRahmen\s*;/.test(slotStruktur) && /std::mutex\s+liveRahmenM\s*;/.test(slotStruktur)
+      && /std::atomic<size_t>\s+liveRahmenBytes\{0\}\s*;/.test(slotStruktur)
+      && !/liveRahmenM\.lock\(\)|\b(lock_guard|unique_lock|scoped_lock)\b[^;]*\bliveRahmenM\b/.test(video)
+      && /#include\s+"bild_einpassen\.h"/.test(nativ('video.cpp')),
+    '#310 Slot: res atomar (SDK-Thread liest die Nenngröße), Live-Rahmen mit eigener Sperre nur per try_lock, liveRahmenBytes atomar; video.cpp bindet bild_einpassen.h ein');
+  const iSpaetA11 = ankunft.indexOf('spaet = true;');
+  const nachSpaetA11 = iSpaetA11 < 0 ? '' : ankunft.slice(iSpaetA11 + 'spaet = true;'.length);
+  const sonstA11 = /^\s*\}\s*else\s*\{/.test(nachSpaetA11) ? rumpf(nachSpaetA11, 'else') : '';
+  assert(/z\.ausgabeW\s*=\s*ausW\s*;\s*z\.ausgabeH\s*=\s*ausH\s*;/.test(sonstA11)
+      && sonstA11.search(/z\.ausgabeW\s*=/) > sonstA11.indexOf('bildAnnehmen(')
+      && /vorschauBild\(\s*nr\s*,\s*aboZiel\s*,\s*buf\s*,\s*w\s*,\s*h\s*,\s*jetzt\s*\)\s*;/.test(ankunft),
+    '#310 bildAnkunft: im Sonst-Zweig des zweiten Riegels nach bildAnnehmen z.ausgabeW/z.ausgabeH (was ins NDI ging); vorschauBild(nr, aboZiel, buf, w, h, jetzt) unverändert');
+  const helfer = rumpf(video, 'void eingepasstSenden(');
+  const iDirekt = helfer.search(/if\s*\(\s*!\s*sender\.direktFrei\(\)\s*\)\s*\{\s*sender\.sendI420Einpassen\(\s*i420\s*,\s*w\s*,\s*h\s*,\s*W\s*,\s*H\s*\)\s*;\s*return\s*;\s*\}/);
+  const iHVorbereiten = helfer.search(/einpass::rahmenVorbereiten\(\s*rahmen\s*,\s*W\s*,\s*H\s*,\s*einpass::bildFlaeche\(\s*w\s*,\s*h\s*,\s*W\s*,\s*H\s*\)\s*\)\s*;/);
+  const iHInhalt = helfer.search(/if\s*\(\s*inhalt\s*==\s*0\s*\|\|\s*rahmen\.inhalt\s*!=\s*inhalt\s*\)\s*\{\s*einpass::einpassen\(\s*i420\s*,\s*w\s*,\s*h\s*,\s*rahmen\s*\)\s*;\s*rahmen\.inhalt\s*=\s*inhalt\s*;\s*\}/);
+  const iHSenden = helfer.search(/sender\.sendUYVA\(\s*rahmen\.daten\.data\(\)\s*,\s*W\s*,\s*H\s*\)\s*;/);
+  assert(video.includes('void eingepasstSenden(NdiSender& sender, const uint8_t* i420, int w, int h, int W, int H, einpass::Rahmen& rahmen, uint32_t inhalt)')
+      && iDirekt >= 0 && iHVorbereiten > iDirekt && iHInhalt > iHVorbereiten && iHSenden > iHInhalt,
+    '#310 eingepasstSenden: !direktFrei() → sendI420Einpassen( und zurück; sonst einpass::rahmenVorbereiten( (bildFlaeche) vor einpass::einpassen( (nur neuer Inhalt) vor sendUYVA(');
   // 6.10 „Erstes Bild danach“ (Nachbesserung a3, NB-a3-1): bildSeitUmhaengen und live/frames am ERSTEN Bild, das den
   // Riegel passiert - über bildAnnehmen() aus A6 (PB23), nie an GetSourceID() gebunden. Die Lücke (gapMs, MS13) endet
   // getrennt davon am ersten passenden Bild, sonst nach 2 s am ersten Bild nach Schritt 6 (gapUngeprueft).

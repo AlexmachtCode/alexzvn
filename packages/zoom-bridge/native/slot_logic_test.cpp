@@ -2227,6 +2227,23 @@ void s306_ziel0grund_wie_bisher() {
   }
 }
 
+void zielstand_ausgabe_310() {
+  std::printf("#310 ZielStand: ausgabeW/ausgabeH (was zuletzt ins NDI ging) zaehlen im Vergleich, zielStandNeu leert sie\n");
+  ZielStand z;
+  z.ausgabeW = 1920;
+  z.ausgabeH = 1080;
+  CHECK(z != ZielStand{});
+  // Jedes der beiden Felder fuer sich (operator== vergisst keins).
+  ZielStand nurW;
+  nurW.ausgabeW = 1920;
+  CHECK(nurW != ZielStand{});
+  ZielStand nurH;
+  nurH.ausgabeH = 1080;
+  CHECK(nurH != ZielStand{});
+  zielStandNeu(z, at(5));
+  CHECK(z.ausgabeW == 0 && z.ausgabeH == 0);
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -2304,6 +2321,7 @@ int main() {
   s306_kachel_raster();
   s306_alte_ignorieren_kamera_an();
   s306_ziel0grund_wie_bisher();
+  zielstand_ausgabe_310();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;
