@@ -22,6 +22,7 @@
 #include "emit.h"
 #include "session.h"
 #include "ndi_sender.h"
+#include "bild_einpassen.h"   // --ndi-selftest: eingepasste Pruefrahmen (#310)
 #include "video.h"
 // Nur fuer callbacksTakeMeetingEndTeardown(): der Abbau nach dem Meeting-Ende
 // gehoert in diese Schleife, nicht in den Rueckruf (Begruendung unten).
@@ -409,10 +410,11 @@ void handle(const std::string& line) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  // Diagnose-Sonderweg: baut NUR einen NDI-Sender auf, schickt zwei Sekunden
-  // Schwarz und geht. RUFT keine Zoom-Funktion auf - kein InitSDK, keine
-  // Anmeldung, kein Beitritt. Beantwortet die Frage "traegt NDI auf diesem
-  // Rechner ueberhaupt?" getrennt von der Frage "funktioniert Zoom?".
+  // Diagnose-Sonderweg: baut NUR einen NDI-Sender auf, schickt rund fuenf
+  // Sekunden Schwarz, Stille und (#310) eingepasste Rahmen und geht. RUFT
+  // keine Zoom-Funktion auf - kein InitSDK, keine Anmeldung, kein Beitritt.
+  // Beantwortet die Frage "traegt NDI auf diesem Rechner ueberhaupt?"
+  // getrennt von der Frage "funktioniert Zoom?".
   //
   // BERICHTIGT (Nachbesserung Runde 1, Befund 2): "ruft keine Zoom-Funktion
   // auf" ist NICHT dasselbe wie "braucht Zoom nicht". zoom-bridge.exe ist
@@ -479,12 +481,33 @@ int main(int argc, char** argv) {
     // der Pruefstand meldete dann "kein Ton angekommen" fuer eine Quelle, die
     // tatsaechlich gesendet hat. Ein falscher Befund waere schlimmer als gar
     // kein Test.
+    //
+    // #310: der Selbsttest belegt auch das Einpassen am ECHTEN NDI-Ausgang
+    // (test/ndi-probe.mjs, Rueckgabe 7) - beide Wege, die video.cpp nimmt
+    // (dort je nach direktFrei() der eine ODER der andere, hier beide je
+    // Durchlauf auf derselben Quelle): ein fertiger 1920x1080-Rahmen (Grau, Y 128) geht ueber sendUYVA() DIREKT
+    // hinaus; ein 360x640-Rohbild (hell, Y 200) geht ueber sendI420Einpassen()
+    // durch die Warteschlange und wird beim Ausgeben vom Staffelhalter in
+    // 1280x720 eingepasst. Die 100 ms Versatz schicken auch das Schwarz durch
+    // die Warteschlange, damit Staffel und Ersatzbild sich dort begegnen.
+    // Zwei Groessen, damit der Empfaenger die Wege auseinanderhalten kann.
+    ndiSetVideoDelayMs(100);
+    std::vector<uint8_t> q1;
+    einpass::einfarbigI420(q1, 720, 1280, 128, 128, 128);
+    einpass::Rahmen direkt;
+    einpass::rahmenVorbereiten(direkt, 1920, 1080, einpass::bildFlaeche(720, 1280, 1920, 1080));
+    einpass::einpassen(q1.data(), 720, 1280, direkt);
+    std::vector<uint8_t> q2;
+    einpass::einfarbigI420(q2, 360, 640, 200, 128, 128);
     for (int i = 0; i < 150; ++i) {
-      s.sendBlack(640, 360);
+      s.sendBlack(640, 360);                                 // mit Versatz: durch die Warteschlange
+      s.sendUYVA(direkt.daten.data(), 1920, 1080);           // Direktweg
+      s.sendI420Einpassen(q2.data(), 360, 640, 1280, 720);   // Versatzweg mit Staffel
       // 10 ms Stille je Bild-Durchlauf. Der Selbsttest belegt damit BEIDE
       // Wege derselben Quelle - eine Quelle, die Bild wirbt und beim Ton
       // schweigt, saehe im Netz genauso aus wie eine funktionierende.
       s.sendSilence(480, 48000, 1);
+      s.pump();
       Sleep(33);
     }
     s.close();

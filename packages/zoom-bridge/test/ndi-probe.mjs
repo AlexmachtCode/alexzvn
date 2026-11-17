@@ -2,7 +2,10 @@
 // Prueft OHNE Zoom, OHNE Meeting und OHNE Anmeldung, dass die Bridge einen
 // NDI-Sender aufmacht, den ein anderer Prozess auch FINDET. Sucht mit dem
 // bestehenden Addon aus packages/ndi - das ist ein unabhaengiger Zeuge:
-// derselbe Code, mit dem der Switcher seine Quellen findet.
+// derselbe Code, mit dem der Switcher seine Quellen findet. Seit #310 prueft
+// derselbe Zeuge auch die EINGEPASSTEN Bilder (16:9-Rahmen mit durchsichtigen
+// Seiten), die --ndi-selftest direkt und ueber den Versatzweg sendet - siehe
+// Rueckgabe 7 unten.
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { binPath } from '../src/bridge.ts';
@@ -76,6 +79,17 @@ const child = spawn(binPath(), ['--ndi-selftest'], {
 //       werden konnte. Wer 5 liest, sucht im Audio-Pfad; wer 6 liest, sucht
 //       in der NDI-Empfaenger-Anlage - unterschiedliche Stellen, darum
 //       unterschiedliche Zahlen.
+//   7 - Quelle gefunden UND Ton angekommen, aber ein eingepasstes Bild (#310)
+//       fehlt oder stimmt nicht. --ndi-selftest sendet je Durchlauf einen
+//       fertigen 1920x1080-Rahmen DIREKT (sendUYVA) und ein 360x640-Rohbild
+//       ueber den VERSATZWEG (sendI420Einpassen, Rahmen 1280x720, Staffel).
+//       Ein Bild gilt, wenn es als BGRA ankommt und in der mittleren Zeile
+//       an den Seiten (x = 8 und x = Breite - 9) durchsichtig, in der Mitte
+//       (x = Breite / 2) deckend ist - siehe ALPHA_* unten. Eigene Zahl, NICHT
+//       5: 5 sucht im Tonweg, 7 im Bildweg des Einpassens (Rahmen, Alpha,
+//       Staffel) - Ton und Verbindung sind bei 7 bereits belegt.
+//       Ausgewertet NACH 5 und 6: fehlt der Ton oder die Verbindung, sagt ein
+//       fehlendes Bild nichts Eigenes mehr.
 let sawSending = false;
 let sawNdiInitFailed = false;
 let sawVideoSenderFailed = false;
@@ -130,10 +144,99 @@ for (let i = 0; i < 8 && !gefundenName; i++) {
   }
 }
 
+// Bildpruefung (#310, Rueckgabe 7). Der Empfaenger in @jm/ndi fordert
+// NDIlib_recv_color_format_BGRX_BGRA an; Alpha ist Byte 3 jedes
+// 4-Byte-Bildpunkts, Zeile ueber lineStride. GEMESSEN 17.11.2026: auch das
+// I420-Schwarz 640x360 (ohne Alpha gesendet) kommt als BGRA an, nicht als
+// BGRX - die FourCC allein belegt also KEIN Alpha. Belegt wird es erst durch
+// die durchsichtigen Seiten (ALPHA_RAND_MAX).
+const FOURCC_BGRA = 0x41524742;
+// ANNAHME (Brief): NDI komprimiert Alpha verlustbehaftet - Seiten gelten bis
+// 8 als durchsichtig, die Mitte ab 247 als deckend. Die Messwerte stehen in
+// jeder Ausgabe, damit eine Abweichung sichtbar wird, statt still zu passen.
+const ALPHA_RAND_MAX = 8;
+const ALPHA_MITTE_MIN = 247;
+// Je Rahmengroesse: wie viele Bilder kamen, die erste Messung, die erste
+// FALSCHE Messung. Ein falsches Bild unter richtigen bleibt falsch.
+const bilder = new Map([
+  ['1920x1080', { gesehen: 0, erste: null, falsch: null }],
+  ['1280x720', { gesehen: 0, erste: null, falsch: null }],
+]);
+// Was sonst ankam (Groesse + Format) - nur fuer die Fehlermeldung: "kam
+// nicht" und "kam in anderer Groesse" sind verschiedene Befunde.
+const andereBilder = new Set();
+
+function fourCCName(c) {
+  return String.fromCharCode(c & 0xff, (c >>> 8) & 0xff, (c >>> 16) & 0xff, (c >>> 24) & 0xff);
+}
+
+function bildMessen(f) {
+  const zeile = Math.floor(f.height / 2) * f.lineStride;
+  const mitteX = Math.floor(f.width / 2);
+  const alpha = (x) => f.data[zeile + x * 4 + 3];
+  const m = zeile + mitteX * 4;
+  return {
+    fourCC: f.fourCC,
+    links: alpha(8),
+    mitteX,
+    mitte: alpha(mitteX),
+    rechtsX: f.width - 9,
+    rechts: alpha(f.width - 9),
+    bgr: [f.data[m], f.data[m + 1], f.data[m + 2]],
+  };
+}
+
+function messungStimmt(m) {
+  return (
+    m.fourCC === FOURCC_BGRA && m.links <= ALPHA_RAND_MAX && m.rechts <= ALPHA_RAND_MAX && m.mitte >= ALPHA_MITTE_MIN
+  );
+}
+
+function messText(m) {
+  return (
+    `${fourCCName(m.fourCC)}, Alpha x=8: ${m.links}, x=${m.mitteX}: ${m.mitte}, x=${m.rechtsX}: ${m.rechts}; ` +
+    `BGR x=${m.mitteX}: ${m.bgr.join('/')}`
+  );
+}
+
+function bildPruefen(f) {
+  const groesse = `${f.width}x${f.height}`;
+  const e = bilder.get(groesse);
+  if (!e) {
+    andereBilder.add(`${groesse} ${fourCCName(f.fourCC)}`);
+    return;
+  }
+  const m = bildMessen(f);
+  e.gesehen++;
+  if (!e.erste) {
+    e.erste = m;
+    console.log(`  bild ${groesse}: ${messText(m)}`);
+  }
+  if (!messungStimmt(m) && !e.falsch) {
+    e.falsch = m;
+    if (e.gesehen > 1) console.log(`  bild ${groesse} (Bild ${e.gesehen}) FALSCH: ${messText(m)}`);
+  }
+}
+
+function alleBilderGeprueft() {
+  for (const e of bilder.values()) if (e.gesehen === 0) return false;
+  return true;
+}
+
+// Ein Text je Groesse: Messwert des (ersten falschen bzw. ersten) Bildes oder
+// "nicht empfangen" samt dem, was stattdessen kam.
+function bildBefund(groesse, e) {
+  if (e.gesehen === 0) {
+    const sonst = andereBilder.size ? [...andereBilder].join(', ') : 'nichts';
+    return `nicht empfangen; empfangen wurde: ${sonst}`;
+  }
+  return `${messText(e.falsch ?? e.erste)}; ${e.gesehen} Bild(er) ${groesse}`;
+}
+
 // Tonpruefung: NUR moeglich, waehrend das Kind noch sendet - darum HIER, vor
 // dem Warten auf das Prozessende (exitPromise) weiter unten. Ohne das waere
 // der Sender laengst zu (TerminateProcess), bevor wir auch nur verbunden
-// haetten.
+// haetten. Dasselbe gilt seit #310 fuer die Bildpruefung oben.
 let tonGesehen = false;
 // Getrennt von tonGesehen gehalten: "nicht verbunden bekommen" (Code 6) und
 // "verbunden, aber stumm" (Code 5) sind zwei verschiedene Ursachen und
@@ -154,18 +257,20 @@ if (gefundenName) {
     console.error(`\n  createReceiver('${gefundenName}') ist fehlgeschlagen: ${receiverFehler}`);
   }
   if (empfangBereit) {
-    // Bis zu 20 * 250 ms = 5 s Budget, bricht frueher ab, sobald ein
-    // Ton-Frame da ist. So grosszuegig, weil die Suche oben schon bis zu 2 s
-    // gekostet haben kann (150-Durchlaeufe-Kommentar oben) - ein zu knappes
-    // Budget wuerde einer Quelle, die tatsaechlich sendet, faelschlich
-    // "stumm" vorwerfen. Video-Frames werden dabei einfach uebergangen
-    // (nicht ausgewertet) - es geht hier nur um den Tonweg.
-    for (let i = 0; i < 20 && !tonGesehen; i++) {
+    // Bis zu 40 * 250 ms Budget (#310: frueher 20, nur Ton), bricht frueher
+    // ab, sobald Ton UND je ein Bild beider Einpass-Groessen geprueft sind.
+    // So grosszuegig, weil die Suche oben schon bis zu 2 s gekostet haben
+    // kann (150-Durchlaeufe-Kommentar oben) - ein zu knappes Budget wuerde
+    // einer Quelle, die tatsaechlich sendet, faelschlich "stumm" oder "ohne
+    // Bild" vorwerfen. receive() kehrt zurueck, sobald EIN Frame da ist; die
+    // 40 zaehlen also Frames (Ton, Schwarz 640x360, beide Rahmen), nicht 10 s.
+    for (let i = 0; i < 40 && !(tonGesehen && alleBilderGeprueft()); i++) {
       const f = ndi.receive(250);
-      if (f && f.type === 'audio') {
+      if (f && f.type === 'audio' && !tonGesehen) {
         tonGesehen = true;
         console.log(`  audio: ${f.sampleRate} Hz, ${f.channels} Kanal/Kanaele, ${f.samples} Abtastwerte`);
       }
+      if (f && f.type === 'video') bildPruefen(f);
     }
     // Nicht offen lassen: der Prozess endet zwar gleich danach, aber ein
     // Receiver, der nie geschlossen wird, ist ein Aufraeum-Schritt, der
@@ -179,7 +284,21 @@ const exitCode = await exitPromise;
 
 if (gefundenName) {
   if (tonGesehen) {
-    console.log(`\nOK — die Quelle "${ERWARTET}" war auffindbar UND hat Ton geliefert.`);
+    // Rueckgabe 7 (#310): erst hier, nach Verbindung (6) und Ton (5) - beide
+    // sind belegt, sobald tonGesehen gilt.
+    const falsch = [...bilder].filter(([, e]) => e.gesehen === 0 || e.falsch);
+    if (falsch.length > 0) {
+      const teile = falsch.map(
+        ([groesse, e]) => `eingepasstes Bild ${groesse} fehlt oder stimmt nicht (${bildBefund(groesse, e)})`,
+      );
+      console.error(`\nTEILWEISE — die Quelle "${ERWARTET}" hat Ton geliefert, aber ${teile.join('; ')}.`);
+      process.exit(7);
+    }
+    const ok = [...bilder].map(([groesse, e]) => `${groesse}: ${bildBefund(groesse, e)}`);
+    console.log(
+      `\nOK — die Quelle "${ERWARTET}" war auffindbar und hat Ton UND beide eingepassten Bilder geliefert ` +
+        `(${ok.join(' | ')}).`,
+    );
     process.exit(0);
   }
   // !== null, NICHT der blosse Wahrheitswert (Schlusspruefung, M15): ein
