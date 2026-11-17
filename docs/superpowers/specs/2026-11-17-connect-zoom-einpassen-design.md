@@ -1,6 +1,7 @@
 # Connect: Hochkant-Zuschaltungen in 16:9 einpassen (#310)
 
-**Stand:** 17.11.2026, Entwurf. Owner-Entscheidungen im Gespräch 17.11.2026 (siehe „Entscheidungen“).
+**Stand:** 17.11.2026, nach Builder-Check überarbeitet; Freigabe durch den Owner steht aus. Owner-Entscheidungen im
+Gespräch 17.11.2026 (siehe „Entscheidungen“).
 Code-Stand der Angaben: origin/main bf45fba713. P = `packages/zoom-bridge`, C = `apps/connect`.
 
 ## Absicht
@@ -33,7 +34,10 @@ Ziel: Eine Hochkant-Quelle ist ohne Handarbeit im Mischer nutzbar und bleibt es,
      daneben ist durchsichtig (Alpha 0). Gesendet als UYVA. Bilder, die schon 16:9 sind, gehen unverändert raus
      (Größe und Format wie heute).
 2. Ein gedrehtes Handy liefert damit immer ein 16:9-Bild: hochkant eingepasst im Rahmen, quer unverändert.
-   Der Mischer muss nichts zuschneiden; der Eingang füllt sich in beiden Fällen ohne Rand.
+   Der Mischer muss nichts zuschneiden; der Eingang füllt sich in beiden Fällen ohne Rand. **Größe und Format
+   springen dabei** (gemessener Fall, 1080p-Slot: hochkant 1920×1080 UYVA, quer 1280×720 I420) – vom Owner so
+   angenommen (17.11., Variante 1), weil der Mischer der Crew (TriCaster; vMix ebenso) jede 16:9-Quelle formatfüllend
+   einpasst. Im Testmeeting am TriCaster ansehen (Formatwechsel mit gleichzeitigem Größenwechsel ist neu).
 3. Im Modus „16:9 einpassen“ gehen auch Ersatzbilder (transparent, eingefroren, schwarz, weiß, Zoom-Kachel) durch
    dieselbe Einpassung: Sie nehmen genau die Fläche ein, die das Livebild hatte; das Format springt beim Aussetzer
    nicht. „Transparent“ bleibt vollständig durchsichtig.
@@ -64,7 +68,9 @@ Ziel: Eine Hochkant-Quelle ist ohne Handarbeit im Mischer nutzbar und bleibt es,
 
 | Ansatz | Bewertung |
 |---|---|
-| **1 – Fester Rahmen in Slot-Auflösung, nur Nicht-16:9 wird eingepasst, eigener glättender Skalierer in der Bridge** | **Gewählt (Owner 17.11.).** Konstante, kalkulierbare NDI-Größe; Rechenarbeit nur im Bildbereich (bei 1080p rund 608×1080 Bildpunkte je Hochkantbild); keine neue Abhängigkeit. |
+| **1 – Fester Rahmen in Slot-Auflösung, nur Nicht-16:9 wird eingepasst, eigener glättender Skalierer in der Bridge** | **Gewählt (Owner 17.11.).** NDI-Größe nie über der Slot-Auflösung; Rechenarbeit nur im Bildbereich (bei 1080p rund 608×1080 Bildpunkte je Hochkantbild); keine neue Abhängigkeit. Beim Drehen springt die Größe zwischen Rahmen und Zooms 16:9-Größe (Owner angenommen). |
+| 1b – Im Modus „einpassen“ jedes Bild auf Slot-Größe und UYVA (auch 16:9) | Verworfen (Owner 17.11.): feste Größe, aber jedes Bild umrechnen/vergrößern, etwa dreifache Last. |
+| 1c – Rahmen nach der langen Seite von Zooms Lieferung | Verworfen (Owner 17.11.): Größe bleibt beim Drehen, aber Hochkant wird kleiner (405×720) und im Mischer unschärfer. |
 | 2 – Rahmen um das Bild herum ohne Skalieren (Höhe = gelieferte Höhe, z. B. 2276×1280) | Verworfen: bis zu dreimal so große NDI-Bilder (NDI-Codieren, Bandbreite bei 5 Slots), Größe springt mit Zooms Lieferung. |
 | 3 – Wie 1, Skalieren/Umwandeln mit libyuv | Nur als Rückfall, falls die Messung von 1 nicht reicht: schnellste Lösung, aber neue Abhängigkeit mit Lizenz im Bau der Bridge. |
 | Zuschneiden im Mischer | Verworfen: genau die Handarbeit, die die Crew loswerden will. |
@@ -75,6 +81,7 @@ Ziel: Eine Hochkant-Quelle ist ohne Handarbeit im Mischer nutzbar und bleibt es,
 - Nur „16:9 einpassen, Ränder durchsichtig“, kein Füllen; Vorgabe „Original“, Wahl je Slot.
 - Ansatz 1; libyuv erst, wenn die Messung nicht reicht.
 - Ersatzbild, eingefrorenes Bild und Zoom-Kachel bekommen im Modus „einpassen“ dieselbe Rahmengröße.
+- Größen-/Formatsprung beim Drehen wird angenommen (Variante 1 nach dem Builder-Check); Mischer der Crew: TriCaster.
 
 ## Entwurf
 
@@ -93,7 +100,13 @@ Ziel: Eine Hochkant-Quelle ist ohne Handarbeit im Mischer nutzbar und bleibt es,
   mit `BILDFORMAT_NAMEN` in slot_logic.h nach dem Muster `Fallback`/`FALLBACK_NAMEN`; Logzeile „Felder gelesen“
   um „Format …“ ergänzen (Prüfstände command-probe/bool-probe nachziehen).
 - Am Slot ein `std::atomic<Bildformat> format` (Muster `fallback`, video.cpp:136), damit `bildAnkunft` es lesen
-  kann; `slotSet` speichert es wie `fallback` (video.cpp:1839) ohne Neuabo.
+  kann; `slotSet` speichert es wie `fallback` (video.cpp:1839) ohne Neuabo. Die Rahmengröße hängt an `Slot::res`,
+  das heute nur der Hauptthread liest (video.cpp:132) – für `bildAnkunft` atomar machen bzw. die Rahmengröße als
+  eigenen atomaren Wert führen.
+- **Nur Teilnehmer- und Sprecher-Slots.** Im Modus Freigabe bietet die Oberfläche die Einstellung nicht an
+  (ausgegraut mit Hinweis), und die Bridge ignoriert `fit` für Freigabe-Slots (Freigaben haben ihre eigene Größe,
+  MS1; eine 16:10-Freigabe würde sonst verkleinert und Text unscharf). Wird ein Slot auf Freigabe umgestellt, bleibt
+  der gespeicherte Wert erhalten, wirkt aber nicht.
 
 ### Die Einpassung (rein, testbar)
 
@@ -119,7 +132,7 @@ Der Name darf nicht mit `slot` beginnen: Der Selbsttest verbietet in `bildAnkunf
 
 In `bildAnkunft` (SDK-Thread, vor `sendI420`, außerhalb jeder Sperre – video.cpp:2212):
 
-- `format == Original` **oder** `ist16zu9(w, h)` → wie heute `sendI420(buf, w, h)`.
+- `format == Original` **oder** Freigabe-Slot **oder** `ist16zu9(w, h)` → wie heute `sendI420(buf, w, h)`.
 - sonst → `einpassen` in den Live-Rahmen des Slots (eigener Puffer, nur dieser Thread schreibt ihn) und
   `sender.sendUyvaBild(rahmen, W, H)`.
 - Die Abfrage des Riegels muss vor dem Senden bleiben (selftest.ts:3676-3681); `vorschauBild(nr, aboZiel, buf, w, h, …)`
@@ -129,19 +142,26 @@ In `bildAnkunft` (SDK-Thread, vor `sendI420`, außerhalb jeder Sperre – video.
 
 ### Sender und Bild-Versatz
 
-- Neue Methode `NdiSender::sendUyvaBild(const uint8_t*, int W, int H)`: ohne Versatz direkt `fillFrameUyva`
-  (wie `sendI420`), mit Versatz Kopie in die Warteschlange.
-- `delay_line.h`: neue `Bildart::Uyva` mit Daten (Länge `3·W·H`); `releaseDueLocked` sendet sie über
-  `fillFrameUyva`; `speicherBytes` zählt die echte Länge statt der I420-Schätzung (ndi_sender.cpp:158, 272).
-  Selbsttest-Regex der Bildart-Liste (selftest.ts:3518-3550) nachziehen.
+- **Ohne Versatz** (Vorgabe 0 ms, laut Log im Betrieb so): `bildAnkunft` passt in den Live-Rahmen ein und ruft
+  eine neue Methode `NdiSender::sendUyvaBild(const uint8_t*, int W, int H)`, die direkt über `fillFrameUyva` sendet
+  (wie `sendI420` ohne Versatz).
+- **Mit Versatz** wartet in der Warteschlange das **Rohbild** (I420, Zooms Größe) mit einem Merker „einpassen in
+  W×H“ – nicht der fertige Rahmen: Der wäre bei 1080p ~6,2 MB je Bild statt ~1,4 MB, bei 1 s Versatz über 150 MB je
+  Slot. Eingepasst wird beim Ausgeben im Hauptthread (`pump`) in einen Rahmen des Hauptthreads, **außerhalb der
+  Sender-Sperre**: fällige Bilder unter der Sperre aus der Warteschlange nehmen, einpassen ohne Sperre, senden unter
+  der Sperre. Dafür `releaseDueLocked`/`pump` umbauen (ndi_sender.cpp:278, 295-325); die Reihenfolge der Bilder
+  bleibt.
+- `delay_line.h`: neue Bildart für „Rohbild, einpassen“ (Daten wie `I420`, dazu W×H des Rahmens);
+  `speicherBytes` zählt weiter Rohbild-Bytes. Selbsttest-Regex der Bildart-Liste (selftest.ts:3518-3550) nachziehen.
 - Ein Formatwechsel mitten im Lauf leert die Warteschlange nicht: Jedes Bild trägt seine Art.
 
 ### Ersatzbilder (Hauptthread, `ersatzbildTick`, video.cpp:1495-1610)
 
 Im Modus „einpassen“, wenn das letzte Livebild eingepasst war (`ausgabe` ≠ Zooms Größe):
 
-- **eingefroren / gehalten:** die I420-Kopie `last` bleibt Rohbild (kein teureres Kopieren pro Bild); beim Senden
-  wird sie mit derselben Einpassung in einen **eigenen** Rahmen des Hauptthreads eingepasst.
+- **eingefroren:** die I420-Kopie `last` bleibt Rohbild (kein teureres Kopieren pro Bild); beim Senden
+  wird sie mit derselben Einpassung in einen **eigenen** Rahmen des Hauptthreads eingepasst. („Gehalten“ gibt es nur
+  bei Freigabe-Slots und bleibt unverändert.)
 - **schwarz / weiß:** das I420-Ersatzbild in Zooms letzter Größe wird eingepasst – die Bildfläche ist schwarz bzw.
   weiß, die Seiten bleiben durchsichtig (Ergebnis je Größe zwischenspeichern).
 - **Zoom-Kachel:** wie heute in der Livegröße gezeichnet (`kachelGroesse`), dann eingepasst.
@@ -160,7 +180,9 @@ Im Modus „einpassen“, wenn das letzte Livebild eingepasst war (`ausgabe` ≠
 
 `SlotEinstellungen.tsx` (C/src/renderer/src/zoom/SlotEinstellungen.tsx:155-185): drittes Auswahlfeld
 „Bildformat“ in der Zeile mit Auflösung und Ersatzbild, Werte „Original“ und „16:9 einpassen“, mit Hinweis
-„Hochkant-Bilder mittig in 16:9, Seiten durchsichtig“. Texte in zoom-text.ts mit neuen Nummern.
+„Hochkant-Bilder mittig in 16:9, Seiten durchsichtig“. Im Modus Freigabe ausgegraut mit Hinweis „Freigaben bleiben
+in ihrer eigenen Größe“ (Muster der sperrbaren Ersatzbild-Optionen, `ersatzbildAuswahl`). Texte in zoom-text.ts mit
+neuen Nummern.
 
 ## Messen (Leistungsgrenze)
 
@@ -197,7 +219,9 @@ Vorher Testmeeting (Stufe 2). Changelog-Texte legt die Sitzung dem Owner vor.
 ## Calls der Sitzung (zur Prüfung)
 
 - `frame` auf slotOn optional (fehlt = native) statt Pflicht wie `fallback` – ältere Aufrufer bleiben gültig.
-- Gilt in allen drei Modi (Teilnehmer, Sprecher, Freigabe): Eine 16:10-Bildschirmfreigabe wird ebenso eingepasst.
+- Nur Teilnehmer und Sprecher, nicht Freigabe (Builder-Check: Freigaben würden verkleinert, Text unscharf).
+- Mit Bild-Versatz wartet das Rohbild, eingepasst wird beim Ausgeben außerhalb der Sender-Sperre (Builder-Check:
+  fertige Rahmen kosteten > 150 MB je Slot).
 - 16:9-Erkennung mit 1 % Spielraum.
 - Ersatzbilder nehmen im Modus „einpassen“ die Fläche des Livebilds ein (schwarz = schwarze Bildfläche, Seiten
   durchsichtig), nicht den ganzen Rahmen.
@@ -210,3 +234,6 @@ Vorher Testmeeting (Stufe 2). Changelog-Texte legt die Sitzung dem Owner vor.
 
 - Genaue Aufteilung von `bild_einpassen.h` (Hilfsfunktionen, Festkomma-Stellen).
 - Ob die Zeitmessung ein eigenes npm-Skript bekommt oder in `logik-test` einen Messschalter.
+- Name des neuen Fehlerschlüssels (Muster der vorhandenen `SLOT_ERROR_KEYS`).
+- Puffergröße des Live-Rahmens so, dass er nie neu angelegt wird (größte Slot-Auflösung).
+- Verhalten, wenn die Einstellung während eines Aussetzers wechselt (nächstes Ersatzbild folgt der neuen Einstellung).
