@@ -39,6 +39,13 @@ const STEUER_PORT = 8728;
 const LIBREOFFICE = 'C:\\Program Files\\LibreOffice';
 const PNG_1X1 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+// #313: 64×32 grün (#20a040), einmalig erzeugt mit ffmpeg 8.1:
+//   ffmpeg -f lavfi -i "color=c=0x20a040:s=64x32" -frames:v 1 -c:v libaom-av1 -still-picture 1 g.avif
+//   ffmpeg -f lavfi -i "color=c=0x20a040:s=64x32" -frames:v 1 -c:v libwebp g.webp
+const AVIF_GRUEN =
+  'AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAAD5bWV0YQAAAAAAAAAvaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAFBpY3R1cmVIYW5kbGVyAAAAAA5waXRtAAAAAAABAAAAHmlsb2MAAAAARAAAAQABAAAAAQAAASEAAAAbAAAAKGlpbmYAAAAAAAEAAAAaaW5mZQIAAAAAAQAAYXYwMUNvbG9yAAAAAGppcHJwAAAAS2lwY28AAAAUaXNwZQAAAAAAAABAAAAAIAAAABBwaXhpAAAAAAMICAgAAAAMYXYxQ4EADAAAAAATY29scm5jbHgAAgACAAIAAAAAF2lwbWEAAAAAAAAAAQABBAECgwQAAAAjbWRhdAoGGBU/+2AQMhEYAAAAUAAAAAs9MtpHIlKwKw==';
+const WEBP_GRUEN =
+  'UklGRkwAAABXRUJQVlA4IEAAAABwAwCdASpAACAAPpFIn0ulpCKhpAgAsBIJZwB2AABB0RX0SAAA/t+AP/iF3sbb//8gx289vO/Da58v37xwAAAA';
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -595,6 +602,13 @@ async function baueTestdateien() {
     bild: p('bild.png'),
     ndiProjekt: p('ndi.jmpres'),
     ndiProfil: p('ndi-profil'),
+    // Bildformate (#313)
+    svg21: p('zwei-zu-eins.svg'),
+    svgHoch: p('hoch.svg'),
+    svgExtern: p('extern.svg'),
+    avif: p('gruen.avif'),
+    webp: p('gruen.webp'),
+    svgProjekt: p('svg-projekt.jmpres'),
   };
   fs.writeFileSync(d.a, await pdf(2));
   fs.writeFileSync(d.eins, eins);
@@ -652,6 +666,35 @@ async function baueTestdateien() {
     d.ndiProjekt,
     zipSync(
       { 'manifest.json': strToU8(JSON.stringify(ndiManifest)), 'sources/quer': quer, 'sources/hoch': hoch, 'sources/bild': bild },
+      { level: 0 },
+    ),
+  );
+  // Bildformate (#313): SVG 2:1 links rot / rechts blau; SVG nur mit viewBox 1:2 grün; SVG mit externem Bild
+  // und Skript (blau); AVIF und WebP 64×32 grün; Projekt mit SVG-Quelle OHNE Endung im Namen und grünem SVG-Overlay.
+  const svg21 = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">'
+    + '<rect width="100" height="100" fill="#d02020"/><rect x="100" width="100" height="100" fill="#2040d0"/></svg>\n';
+  const svgGruen = '<?xml version="1.0" encoding="UTF-8"?>\n<!-- nur viewBox -->\n'
+    + '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 200"><rect width="100" height="200" fill="#20a040"/></svg>\n';
+  const svgExtern = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#2040d0"/>'
+    + '<image href="https://example.invalid/x.png" width="50" height="50"/><script>throw new Error("svg-skript")</script></svg>\n';
+  fs.writeFileSync(d.svg21, svg21);
+  fs.writeFileSync(d.svgHoch, svgGruen);
+  fs.writeFileSync(d.svgExtern, svgExtern);
+  fs.writeFileSync(d.avif, Buffer.from(AVIF_GRUEN, 'base64'));
+  fs.writeFileSync(d.webp, Buffer.from(WEBP_GRUEN, 'base64'));
+  const svgManifest = {
+    schemaVersion: 1,
+    name: 'SVG',
+    sources: [{ id: 'q', kind: 'image', name: 'quelle.bin', pageCount: 1 }],
+    slides: [{
+      id: 'v1', sourceId: 'q', pageIndex: 0, title: 'SVG', notes: '', hidden: false,
+      overlays: [{ id: 'o1', kind: 'image', x: 0.375, y: 0.25, w: 0.25, h: 0.5, rotation: 0, imageId: 'logo' }],
+    }],
+  };
+  fs.writeFileSync(
+    d.svgProjekt,
+    zipSync(
+      { 'manifest.json': strToU8(JSON.stringify(svgManifest)), 'sources/q': strToU8(svg21), 'images/logo': strToU8(svgGruen) },
       { level: 0 },
     ),
   );
@@ -2073,6 +2116,124 @@ async function gruppeVollbild({ exe, d }) {
   }, umgebung);
 }
 
+// ---------------------------------------------------------------- Bildformate (#313)
+
+/**
+ * Bühnen-Canvas (EditorStage): Größe, Anteil bunter Punkte, Mittelfarbe je Hälfte (nur bunte Punkte).
+ * Durchsichtig zählt als leer: ein nie gezeichneter Canvas (300×150, alles 0) ist NICHT bunt.
+ */
+function domBuehne() {
+  const c = document.querySelector('canvas.bg-white');
+  if (!c || !c.width || !c.height) return null;
+  const g = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  const weiss = (i) => g[i + 3] === 0 || (g[i] >= 245 && g[i + 1] >= 245 && g[i + 2] >= 245);
+  const haelfte = (x0, x1) => {
+    let n = 0, r = 0, gr = 0, b = 0;
+    for (let y = 0; y < c.height; y++) {
+      for (let x = x0; x < x1; x++) {
+        const i = (y * c.width + x) * 4;
+        if (!weiss(i)) { n++; r += g[i]; gr += g[i + 1]; b += g[i + 2]; }
+      }
+    }
+    return n ? [Math.round(r / n), Math.round(gr / n), Math.round(b / n)] : null;
+  };
+  let bunt = 0;
+  for (let i = 0; i < g.length; i += 4) if (!weiss(i)) bunt++;
+  return { breite: c.width, hoehe: c.height, bunt: bunt / (g.length / 4), links: haelfte(0, c.width >> 1), rechts: haelfte(c.width >> 1, c.width) };
+}
+
+/** Overlay-Bild im Editor (<img>) und die Mittelpunkte der gezeichneten Vorschauen (SlideCanvas, nicht die Bühne). */
+function domOverlayBild() {
+  const img = document.querySelector('div.cursor-move img');
+  const bild = img ? { geladen: img.complete && img.naturalWidth > 0, w: img.naturalWidth, h: img.naturalHeight } : null;
+  const mitten = [];
+  for (const c of document.querySelectorAll('canvas:not(.bg-white)')) {
+    if (!c.width || !c.height) continue;
+    const ctx = c.getContext('2d');
+    if (!ctx) continue;
+    const p = ctx.getImageData(c.width >> 1, c.height >> 1, 1, 1).data;
+    mitten.push([p[0], p[1], p[2]]);
+  }
+  return { bild, mitten };
+}
+
+const istRot = (f) => !!f && f[0] > 150 && f[1] < 90 && f[2] < 90;
+const istBlau = (f) => !!f && f[2] > 150 && f[0] < 90;
+const istGruen = (f) => !!f && f[1] > 120 && f[0] < 90 && f[2] < 110;
+
+async function gruppeBildformate({ exe, d }) {
+  let nr = 0;
+  /** Frische App, Datei ablegen, auf eine Folie und eine gezeichnete Bühne warten. */
+  const legeAb = async (datei, pruefe) => {
+    nr += 1;
+    await mitApp('bildformate', exe, [], async (_app, ed) => {
+      const { x, y } = await auswerten(ed, imDom(domMitte));
+      await ablegen(ed, [datei], x, y);
+      const n = await bisWert(() => folienZahl(ed), (v) => v === 1, 15_000);
+      const f = await fehlerZeile(ed);
+      const b = await bisWert(() => auswerten(ed, imDom(domBuehne)), (v) => v?.bunt > 0.05, 10_000);
+      await pruefe({ ed, n, f, b });
+    }, eigenesProfil(path.join(d.dir, `profil-bildformate-${nr}`)));
+  };
+  const seite = (b, soll) => b && Math.abs(b.breite / b.hoehe / soll - 1) <= 0.03;
+
+  await legeAb(d.svg21, async ({ n, f, b }) => {
+    await fall('zwei-zu-eins.svg (width/height) → 1 Folie, Bühne 2:1, links rot, rechts blau', async () => {
+      erwarte(n === 1 && f === '', `Folien · ${n ?? '–'}, Fehlerzeile „${f}“`);
+      erwarte(seite(b, 2) && istRot(b.links) && istBlau(b.rechts), `Bühne: ${JSON.stringify(b)}`);
+    });
+  });
+  await legeAb(d.svgHoch, async ({ n, f, b }) => {
+    await fall('hoch.svg (nur viewBox, XML-Kopf, Kommentar) → Bühne 1:2, grün', async () => {
+      erwarte(n === 1 && f === '', `Folien · ${n ?? '–'}, Fehlerzeile „${f}“`);
+      erwarte(seite(b, 0.5) && istGruen(b.links) && istGruen(b.rechts), `Bühne: ${JSON.stringify(b)}`);
+    });
+  });
+  await legeAb(d.svgExtern, async ({ ed, n, f, b }) => {
+    await fall('extern.svg (externes Bild + Skript) → Folie blau, App bedienbar', async () => {
+      erwarte(n === 1 && f === '', `Folien · ${n ?? '–'}, Fehlerzeile „${f}“`);
+      erwarte(seite(b, 2) && istBlau(b.links) && istBlau(b.rechts), `Bühne: ${JSON.stringify(b)}`);
+      erwarte((await auswerten(ed, '1 + 1')) === 2, 'Editor antwortet nicht mehr');
+    });
+  });
+  await legeAb(d.avif, async ({ n, f, b }) => {
+    await fall('gruen.avif → 1 Folie, Bühne 2:1, grün', async () => {
+      erwarte(n === 1 && f === '', `Folien · ${n ?? '–'}, Fehlerzeile „${f}“`);
+      erwarte(seite(b, 2) && istGruen(b.links) && istGruen(b.rechts), `Bühne: ${JSON.stringify(b)}`);
+    });
+  });
+  await legeAb(d.webp, async ({ n, f, b }) => {
+    await fall('gruen.webp → 1 Folie, Bühne 2:1, grün', async () => {
+      erwarte(n === 1 && f === '', `Folien · ${n ?? '–'}, Fehlerzeile „${f}“`);
+      erwarte(seite(b, 2) && istGruen(b.links) && istGruen(b.rechts), `Bühne: ${JSON.stringify(b)}`);
+    });
+  });
+  await legeAb(d.svgProjekt, async ({ ed, n, f, b }) => {
+    await fall('svg-projekt.jmpres: SVG-Quelle ohne Endung im Namen → Bühne 2:1 rot/blau', async () => {
+      erwarte(n === 1 && f === '', `Folien · ${n ?? '–'}, Fehlerzeile „${f}“`);
+      erwarte(seite(b, 2) && istRot(b.links) && istBlau(b.rechts), `Bühne: ${JSON.stringify(b)}`);
+    });
+    await fall('… SVG-Overlay: <img> im Editor geladen, gezeichnete Vorschau zeigt es in der Mitte (grün)', async () => {
+      const o = await bisWert(() => auswerten(ed, imDom(domOverlayBild)), (v) => v?.bild?.geladen && v.mitten.some(istGruen), 10_000);
+      erwarte(o?.bild?.geladen, `Overlay-<img>: ${JSON.stringify(o?.bild)}`);
+      erwarte(o?.mitten.some(istGruen), `Vorschau-Mitten: ${JSON.stringify(o?.mitten)}`);
+    });
+  });
+  // Echte Dateien von Hand (nicht im Repo): JMPR_ECHTE_BILDER=<pfad>;<pfad>…
+  const echte = (process.env.JMPR_ECHTE_BILDER ?? '').split(';').filter(Boolean);
+  if (!echte.length) {
+    await fall('echte Bilddateien (JMPR_ECHTE_BILDER)', async () => ueberspringe('JMPR_ECHTE_BILDER nicht gesetzt'));
+  }
+  for (const datei of echte) {
+    await legeAb(datei, async ({ n, f, b }) => {
+      await fall(`echte Datei ${path.basename(datei)} → 1 Folie, Bühne nicht leer`, async () => {
+        erwarte(n === 1 && f === '', `Folien · ${n ?? '–'}, Fehlerzeile „${f}“`);
+        erwarte(b?.bunt > 0.05, `Bühne: ${JSON.stringify(b)}`);
+      });
+    });
+  }
+}
+
 const GRUPPEN = {
   ablage: gruppeAblage,
   navigation: gruppeNavigation,
@@ -2080,6 +2241,7 @@ const GRUPPEN = {
   steuerbefehl: gruppeSteuerbefehl,
   ndi: gruppeNdi,
   vollbild: gruppeVollbild,
+  bildformate: gruppeBildformate,
 };
 
 // ---------------------------------------------------------------- Ablauf
