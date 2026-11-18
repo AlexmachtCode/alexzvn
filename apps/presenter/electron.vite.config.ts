@@ -29,6 +29,10 @@ export default defineConfig({
     resolve: { alias: sharedAlias },
     build: {
       rollupOptions: {
+        // #317: optionale Native-Beschleuniger von ws NICHT bündeln. Gebündelt würden sie zu einem leeren Modul, ws hielte
+        // sie für vorhanden und würfe beim ersten Senden „bufferUtil.mask is not a function“ (gemessen 18.11.2026 an der
+        // gepackten App). Extern schlägt das require zur Laufzeit fehl und ws nimmt seinen reinen JS-Weg.
+        external: ['bufferutil', 'utf-8-validate'],
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           // Entry des utilityProcess (nativer NDI-Sender, #303) → out/main/ndi-sender.cjs.
