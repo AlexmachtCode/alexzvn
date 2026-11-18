@@ -4,6 +4,9 @@
 // einem Blob ohne Typ) – SVG nicht. Der Renderer rastert SVG darum selbst
 // (`renderer/src/lib/bild-dekodieren.ts`) und braucht dafür: ist es SVG, und in welcher Größe?
 
+/** Ohne diesen Typ zeigt Chromium ein SVG in `<img>` nicht an (SVG wird nie am Inhalt erschnüffelt). */
+export const SVG_MIME = 'image/svg+xml';
+
 /** Größter Rahmen, in den ein SVG gerastert wird (Vektor → auf dem 4K-Ausgang scharf). */
 export const SVG_RASTER_MAX_BREITE = 3840;
 export const SVG_RASTER_MAX_HOEHE = 2160;

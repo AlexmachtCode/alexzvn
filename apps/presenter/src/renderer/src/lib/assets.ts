@@ -1,3 +1,4 @@
+import { istSvg, SVG_MIME } from '@shared/bildformat';
 import type { SourceKind } from '@shared/types';
 import { bytesToBlob } from './bytes';
 
@@ -37,7 +38,8 @@ export function imageObjectUrl(id: string): string | undefined {
   if (cached) return cached;
   const bytes = images.get(id);
   if (!bytes) return undefined;
-  const url = URL.createObjectURL(bytesToBlob(bytes));
+  // #313: ein SVG zeigt das <img> im Editor nur mit seinem Typ; die übrigen Formate erkennt Chromium selbst.
+  const url = URL.createObjectURL(bytesToBlob(bytes, istSvg(bytes) ? SVG_MIME : undefined));
   imageUrls.set(id, url);
   return url;
 }

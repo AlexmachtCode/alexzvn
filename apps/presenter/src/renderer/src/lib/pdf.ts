@@ -3,7 +3,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 // Vite emits the worker as an asset and gives us its URL.
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { getSource, putSource, removeSource } from './assets';
-import { bytesToBlob } from './bytes';
+import { bildDekodieren } from './bild-dekodieren';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -40,7 +40,7 @@ function loadImage(sourceId: string): Promise<ImageBitmap> {
   if (cached) return cached;
   const entry = getSource(sourceId);
   if (!entry) return Promise.reject(new Error(`No image source for ${sourceId}`));
-  const task = createImageBitmap(bytesToBlob(entry.bytes));
+  const task = bildDekodieren(entry.bytes);
   imageCache.set(sourceId, task);
   return task;
 }
