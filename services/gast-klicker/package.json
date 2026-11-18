@@ -1,0 +1,6 @@
+{
+  "name": "jm-gast-klicker",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare-Worker des Gast-Klickers (#317): Remote-Gäste schalten Folien im JM Presenter weiter. Kein Workspace (Wurzel listet nur apps/* und packages/*)."
+}
