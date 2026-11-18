@@ -27,6 +27,13 @@ export default defineConfig({
       }),
     ],
     resolve: { alias: sharedAlias },
+    // #317 (Sicherheitsprüfung 18.11.): ws soll die Native-Beschleuniger gar nicht erst anfordern. Ein offenes
+    // require('bufferutil') suchte zur Laufzeit in übergeordneten Ordnern bis zum node_modules-Ordner im Wurzelverzeichnis
+    // des Laufwerks (dort kann jeder Benutzer etwas ablegen). Mit den Schaltern von ws fällt das require als toter Code weg (Prüfstand gastklicker).
+    define: {
+      'process.env.WS_NO_BUFFER_UTIL': JSON.stringify('1'),
+      'process.env.WS_NO_UTF_8_VALIDATE': JSON.stringify('1'),
+    },
     build: {
       rollupOptions: {
         // #317: optionale Native-Beschleuniger von ws NICHT bündeln. Gebündelt würden sie zu einem leeren Modul, ws hielte

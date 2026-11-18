@@ -2399,6 +2399,15 @@ async function gruppeGastklicker({ exe, d }) {
   const status = (ed) => auswerten(ed, 'window.jmpr.gastKlicker.status()');
   const index = (ed) => auswerten(ed, 'window.jmpr.present.getState().then((s) => s.index)');
   let link = null;
+  // Sicherheitsprüfung 18.11.: ein offenes require('bufferutil') sucht zur Laufzeit in übergeordneten Ordnern bis
+  // C:\node_modules (dort kann jeder Benutzer anlegen) → ws darf die Beschleuniger gar nicht erst anfordern.
+  await fall('Main-Bundle der gepackten App fordert bufferutil/utf-8-validate nicht an', async () => {
+    const archiv = path.join(path.dirname(exe), 'resources', 'app.asar');
+    const main = asarModul().extractFile(archiv, path.join('out', 'main', 'index.cjs')).toString('utf8');
+    erwarte(main.includes('jm-gast-klicker'), 'Gast-Klicker fehlt im Main-Bundle (Messung ungültig)');
+    const treffer = main.match(/require\(["'](bufferutil|utf-8-validate)["']\)/g) ?? [];
+    erwarte(treffer.length === 0, `gefunden: ${treffer.join(', ')}`);
+  });
   try {
     await mitApp('gastklicker', exe, [], async (app, ed) => {
       let raum = null;
