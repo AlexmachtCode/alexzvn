@@ -20,7 +20,7 @@ Routen: `GET /k/<raum>` (Gast-Seite), `GET /k/<raum>/ws` (Gast), `GET /h/<raum>/
   der ersten WebSocket-Nachricht, nie in der URL; gespeichert wird nur sein SHA-256.
 - Über den Dienst geht nur „vor“/„zurück“; der Presenter prüft Pause und laufende Präsentation selbst.
 - Drossel 150 ms je Gast, höchstens 30 Gäste, Gast-Nachrichten ≤ 256 Byte, Bilder nur vom Presenter ≤ 256 KB,
-  höchstens 3 unangemeldete Presenter-Verbindungen (10 s), Verfall 7 Tage nach der letzten Presenter-Verbindung.
+  höchstens 20 unangemeldete Presenter-Verbindungen (älteste fliegt zuerst, 10 s), Verfall 7 Tage nach der letzten Presenter-Verbindung.
 - Folienbilder liegen nur im Speicher des Durable Objects, nie dauerhaft.
 
 ## Tests

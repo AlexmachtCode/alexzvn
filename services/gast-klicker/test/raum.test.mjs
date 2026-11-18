@@ -159,7 +159,7 @@ check('Presenter unbekannt → null', lesePresenterNachricht(JSON.stringify({ t:
 check('raumAusGeheimnis Vektor a', (await raumAusGeheimnis(GEHEIM)) === RAUM_A);
 check('raumAusGeheimnis Vektor b', (await raumAusGeheimnis(ANDERS)) === RAUM_B);
 check('raumAusGeheimnis passt zu RAUM_RE', RAUM_RE.test(RAUM_A) && RAUM_RE.test(RAUM_B));
-check('Konstanten wartende Presenter', MAX_WARTENDE_PRESENTER === 3 && WARTE_PRESENTER_MS === 10_000);
+check('Konstanten wartende Presenter', MAX_WARTENDE_PRESENTER === 20 && WARTE_PRESENTER_MS === 10_000);
 check('sha256Hex', (await sha256Hex('abc')) === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 
 // ---------------------------------------------------------------- Raum
@@ -290,14 +290,18 @@ check('sha256Hex', (await sha256Hex('abc')) === 'ba7816bf8f01cfea414140de5dae222
     await raum.nimmPresenterAn(ws, RAUM_A);
     wartend.push(ws);
   }
-  check('3 unangemeldete Presenter-Verbindungen angenommen', wartend.every((w) => w.code === null));
-  const vierte = neuesWs();
-  await raum.nimmPresenterAn(vierte, RAUM_A);
-  check('4. unangemeldete Presenter-Verbindung abgewiesen', vierte.code === 4429);
+  check('20 unangemeldete Presenter-Verbindungen angenommen', wartend.every((w) => w.code === null));
+  ctx.uhr += 1;
+  const echt = neuesWs();
+  await raum.nimmPresenterAn(echt, RAUM_A);
+  check('Grenze erreicht: neue Verbindung bleibt, älteste wartende fliegt', echt.code === null && wartend[0].code === 4429 && wartend.slice(1).every((w) => w.code === null));
+  await raum.webSocketMessage(echt, JSON.stringify({ t: 'hallo', geheimnis: GEHEIM }));
+  check('volle Warteliste sperrt den echten Presenter nicht aus', letzte(echt, 'ok') !== undefined);
   ctx.uhr += WARTE_PRESENTER_MS + 1;
   const spaet = neuesWs();
   await raum.nimmPresenterAn(spaet, RAUM_A);
-  check('nach 10 s ohne hallo: alte wartende geschlossen', wartend.every((w) => w.code === 4408) && spaet.code === null);
+  check('nach 10 s ohne hallo: alte wartende geschlossen', wartend.slice(1).every((w) => w.code === 4408) && spaet.code === null);
+  check('angemeldeter Presenter bleibt beim Aufräumen', echt.code === null);
   await raum.webSocketMessage(spaet, JSON.stringify({ t: 'hallo', geheimnis: GEHEIM }));
   check('neue Verbindung meldet sich danach an', letzte(spaet, 'ok') !== undefined);
 }

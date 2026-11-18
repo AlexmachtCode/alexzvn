@@ -19,8 +19,13 @@ export const MAX_GAESTE = 30;
 export const MAX_GAST_BYTES = 256;
 export const MAX_BILD_BYTES = 262144;
 export const VERFALL_MS = 7 * 24 * 3600 * 1000;
-/** Höchstens so viele Presenter-Verbindungen ohne `hallo` gleichzeitig; ältere als WARTE_PRESENTER_MS fliegen raus. */
-export const MAX_WARTENDE_PRESENTER = 3;
+/**
+ * Höchstens so viele Presenter-Verbindungen ohne `hallo` gleichzeitig; ältere als WARTE_PRESENTER_MS fliegen raus.
+ * Ist die Grenze erreicht, fliegt die ÄLTESTE wartende — nie die neue: sonst könnte jemand mit dem öffentlichen
+ * Link die Warteplätze belegen und den echten Presenter aussperren (Sicherheitsprüfung 18.11.). Der echte Presenter
+ * schickt `hallo` sofort nach dem Öffnen und ist damit nach Millisekunden nicht mehr „wartend“.
+ */
+export const MAX_WARTENDE_PRESENTER = 20;
 export const WARTE_PRESENTER_MS = 10_000;
 
 const RAUM_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
@@ -209,13 +214,15 @@ export class KlickRaum {
 
   async nimmPresenterAn(ws, raumId) {
     const jetzt = this.jetzt();
-    let wartend = 0;
+    const wartend = [];
     for (const alt of this.ctx.getWebSockets('presenter')) {
       const a = this.anhang(alt);
       if (a.bestaetigt === true || a.weg) continue;
       if (jetzt - (a.seitMs ?? 0) > WARTE_PRESENTER_MS) this.schliesse(alt, 4408, 'kein hallo');
-      else wartend++;
+      else wartend.push({ ws: alt, seit: a.seitMs ?? 0 });
     }
+    wartend.sort((x, y) => x.seit - y.seit);
+    while (wartend.length >= MAX_WARTENDE_PRESENTER) this.schliesse(wartend.shift().ws, 4429, 'zu viele');
     this.ctx.acceptWebSocket(ws, ['presenter']);
     ws.serializeAttachment({
       rolle: 'presenter',
@@ -223,7 +230,6 @@ export class KlickRaum {
       raum: typeof raumId === 'string' && RAUM_RE.test(raumId) ? raumId : null,
       seitMs: jetzt,
     });
-    if (wartend >= MAX_WARTENDE_PRESENTER) this.schliesse(ws, 4429, 'zu viele');
   }
 
   async webSocketMessage(ws, msg) {
