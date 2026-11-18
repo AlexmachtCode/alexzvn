@@ -25,7 +25,7 @@ summary: "Folien aus PDF/PowerPoint aufbereiten und mit getrennter Referenten- u
 
 ### Voraussetzungen
 - JM Presenter installiert (über den Launcher)
-- Ein Foliendokument: **.pdf**, **Bilder**, ein **Office-Format** (PPTX/PPT/ODP/DOCX/…) oder ein editierbares **.jmpres**-Projekt
+- Ein Foliendokument: **.pdf**, **Bilder** (PNG, JPEG, WebP, GIF, BMP, AVIF, SVG), ein **Office-Format** (PPTX/PPT/ODP/DOCX/…) oder ein editierbares **.jmpres**-Projekt
 - **LibreOffice** (`soffice`) installiert — nur nötig für den Office-Import (Office → PDF)
 - Zweiter Monitor/Beamer für die Publikumsansicht (Vollbild)
 - Optional: Handy im WLAN als Clicker (PIN), JM Timer für den Countdown, Companion/Rundown
