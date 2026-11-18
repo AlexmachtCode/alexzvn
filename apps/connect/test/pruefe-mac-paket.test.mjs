@@ -383,9 +383,9 @@ try {
     const M = NDI_LESESTAND_MAC;
     assert(L.kennzeichen === '6.3.2.0' && L.lizenz === '11ae13ae038d5af06d2fd5f9e55cbbdb97e75d2526656a0dbaa4dafcb7bf48e6'
       && L.doku === 'e9d3a84ece970f3181b23cdef6433cb205e940d28abe61d4d9d1e7477a81cc6b' && Object.isFrozen(L)
-      && M.kennzeichen === '5aa101a01b00494724c60b7e1e15b5d1743bf9c68b61739c22ac54932dde95fb' && M.lizenz === '11ae13ae038d5af06d2fd5f9e55cbbdb97e75d2526656a0dbaa4dafcb7bf48e6'
-      && M.doku === 'e9d3a84ece970f3181b23cdef6433cb205e940d28abe61d4d9d1e7477a81cc6b' && Object.isFrozen(M),
-    'C14 E54 Lesestand Windows 6.3.2.0 mit Lizenz 11ae13ae… und Doku e9d3a84e…, Lesestand Mac 5aa101a0… (Paket), Lizenz und Doku gleich Windows, eingefroren');
+      && M.kennzeichen === '4e0781be36a46d50224e2af6c483db8e26c1606870d18e80b906ab3b0f6fbb30' && M.lizenz === '11ae13ae038d5af06d2fd5f9e55cbbdb97e75d2526656a0dbaa4dafcb7bf48e6'
+      && M.doku === 'bc761220cf644a5cbb747605122bb26c55e6060674fb8f4c9824a1826eeaba71' && Object.isFrozen(M),
+    'C14 E54 Lesestand Windows 6.3.2.0 mit Lizenz 11ae13ae… und Doku e9d3a84e…, Lesestand Mac 4e0781be… (Paket 6.4.0.2, 18.11.2026), Lizenz gleich Windows, Doku bc761220…, eingefroren');
     const h = (c) => c.repeat(64);
     const stand = { kennzeichen: h('a'), lizenz: h('b'), doku: h('c') };
     const gleich = pruefeNdiLesestand({ ...stand, datum: '10.04.2026' }, stand);
