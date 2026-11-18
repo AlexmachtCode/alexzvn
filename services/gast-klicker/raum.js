@@ -19,6 +19,11 @@ export const MAX_GAESTE = 30;
 export const MAX_GAST_BYTES = 256;
 export const MAX_BILD_BYTES = 262144;
 export const VERFALL_MS = 7 * 24 * 3600 * 1000;
+/** Höchstens so viele Presenter-Verbindungen ohne `hallo` gleichzeitig; ältere als WARTE_PRESENTER_MS fliegen raus. */
+export const MAX_WARTENDE_PRESENTER = 3;
+export const WARTE_PRESENTER_MS = 10_000;
+
+const RAUM_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
 
 const MAX_PRESENTER_TEXT = 4096;
 const GEHEIMNIS_RE = /^[a-f0-9]{64}$/;
@@ -74,6 +79,17 @@ export async function sha256Hex(text) {
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * Raum-Kennung aus dem Host-Geheimnis: die ersten 12 Byte von SHA-256("jm-gast-klicker/raum/v1:" + geheimnis),
+ * je Byte ein Zeichen aus [0-9a-z] (Byte mod 36). Damit kann nur, wer das Geheimnis kennt, den Raum hinter einem
+ * Link beanspruchen — auch nach dem Verfall eines Raums (Sicherheitsprüfung 18.11.). Der Presenter rechnet
+ * dieselbe Formel (apps/presenter/src/shared/gast-klicker.ts); Testvektoren in beiden Selbsttests.
+ */
+export async function raumAusGeheimnis(geheimnis) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`jm-gast-klicker/raum/v1:${geheimnis}`));
+  return [...new Uint8Array(d).subarray(0, 12)].map((b) => RAUM_ALPHABET[b % 36]).join('');
+}
+
 export class KlickRaum {
   constructor(ctx, env) {
     this.ctx = ctx;
@@ -87,15 +103,19 @@ export class KlickRaum {
     return typeof this.ctx.jetzt === 'function' ? this.ctx.jetzt() : Date.now();
   }
 
-  /** Workers-Einstieg: WebSocket annehmen, Rolle aus `x-rolle` (setzt worker.js). */
+  /** Workers-Einstieg: WebSocket annehmen, Rolle aus `x-rolle`, Raum-Kennung aus `x-raum` (setzt worker.js). */
   async fetch(request) {
     const rolle = request.headers.get('x-rolle');
     const upgrade = (request.headers.get('Upgrade') ?? '').toLowerCase();
     if (upgrade !== 'websocket' || (rolle !== 'gast' && rolle !== 'presenter')) return new Response(null, { status: 426 });
     const [client, server] = Object.values(new WebSocketPair());
     if (rolle === 'gast') await this.nimmGastAn(server);
-    else await this.nimmPresenterAn(server);
+    else await this.nimmPresenterAn(server, request.headers.get('x-raum'));
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  gesperrt(fn) {
+    return typeof this.ctx.blockConcurrencyWhile === 'function' ? this.ctx.blockConcurrencyWhile(fn) : fn();
   }
 
   async raumAktiv() {
@@ -187,9 +207,23 @@ export class KlickRaum {
     this.meldeGaeste();
   }
 
-  async nimmPresenterAn(ws) {
+  async nimmPresenterAn(ws, raumId) {
+    const jetzt = this.jetzt();
+    let wartend = 0;
+    for (const alt of this.ctx.getWebSockets('presenter')) {
+      const a = this.anhang(alt);
+      if (a.bestaetigt === true || a.weg) continue;
+      if (jetzt - (a.seitMs ?? 0) > WARTE_PRESENTER_MS) this.schliesse(alt, 4408, 'kein hallo');
+      else wartend++;
+    }
     this.ctx.acceptWebSocket(ws, ['presenter']);
-    ws.serializeAttachment({ rolle: 'presenter', bestaetigt: false });
+    ws.serializeAttachment({
+      rolle: 'presenter',
+      bestaetigt: false,
+      raum: typeof raumId === 'string' && RAUM_RE.test(raumId) ? raumId : null,
+      seitMs: jetzt,
+    });
+    if (wartend >= MAX_WARTENDE_PRESENTER) this.schliesse(ws, 4429, 'zu viele');
   }
 
   async webSocketMessage(ws, msg) {
@@ -216,15 +250,21 @@ export class KlickRaum {
     if (!m) return;
     if (a.bestaetigt !== true) {
       if (m.t !== 'hallo') return;
+      const passt = a.raum !== null && a.raum !== undefined && (await raumAusGeheimnis(m.geheimnis)) === a.raum;
       const hash = await sha256Hex(m.geheimnis);
-      const gespeichert = await this.ctx.storage.get('hash');
-      if (gespeichert && gespeichert !== hash) {
+      // Lesen-Vergleichen-Schreiben ohne fremde Ereignisse dazwischen (Sicherheitsprüfung 18.11.).
+      const angenommen = passt && (await this.gesperrt(async () => {
+        const gespeichert = await this.ctx.storage.get('hash');
+        if (gespeichert && gespeichert !== hash) return false;
+        if (!gespeichert) await this.ctx.storage.put('hash', hash);
+        await this.ctx.storage.delete('geschlossen');
+        return true;
+      }));
+      if (!angenommen) {
         this.sende(ws, { t: 'abgelehnt' });
         this.schliesse(ws, 4403, 'abgelehnt');
         return;
       }
-      if (!gespeichert) await this.ctx.storage.put('hash', hash);
-      await this.ctx.storage.delete('geschlossen');
       for (const alt of this.ctx.getWebSockets('presenter')) {
         if (alt !== ws && this.anhang(alt).bestaetigt === true && !this.anhang(alt).weg) this.schliesse(alt, 4409, 'ersetzt');
       }

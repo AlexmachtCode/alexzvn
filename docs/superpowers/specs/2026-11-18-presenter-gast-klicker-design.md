@@ -86,8 +86,11 @@ Kein Rechner am Stand öffnet einen Port. Der Dienst speichert keine Folien daue
   - `GET /h/<raum>/ws` → WebSocket Presenter. Das Host-Geheimnis kommt in der **ersten Nachricht**, nicht in
     der URL (taucht so in keinem Log auf).
   - Alles andere → 404.
-- **Raum und Geheimnis:** Der Presenter erzeugt die Raum-Kennung (12 Zeichen aus `[a-z0-9]`, Zufall aus
-  `crypto`) und ein Host-Geheimnis (32 Byte hex). Der DO merkt sich beim ersten Presenter-Kontakt den SHA-256 des
+- **Raum und Geheimnis:** Der Presenter erzeugt ein Host-Geheimnis (32 Byte hex) und leitet daraus die
+  Raum-Kennung ab (12 Zeichen aus `[a-z0-9]`: erste 12 Byte von SHA-256(`jm-gast-klicker/raum/v1:` + Geheimnis),
+  je Byte `Alphabet[byte mod 36]`). *(Geändert nach der Sicherheitsprüfung 18.11.: vorher Zufallskennung — dann
+  hätte nach dem Verfall eines Raums jeder mit dem alten Link ihn neu beanspruchen können.)* Der DO prüft beim
+  `hallo`, dass das Geheimnis zu genau diesem Raum gehört. Der DO merkt sich beim ersten Presenter-Kontakt den SHA-256 des
   Geheimnisses (Vertrauen beim ersten Mal); danach wird jeder Presenter mit anderem Geheimnis abgewiesen. Ein
   neuer Presenter mit richtigem Geheimnis ersetzt eine alte Presenter-Verbindung (Neustart, Netzwechsel).
 - **Verfall:** DO-Alarm löscht den Raum 7 Tage nach der letzten Presenter-Verbindung (ein Link hält eine

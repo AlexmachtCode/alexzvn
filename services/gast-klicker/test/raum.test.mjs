@@ -10,8 +10,11 @@ import {
   MAX_GAST_BYTES,
   RAUM_RE,
   VERFALL_MS,
+  MAX_WARTENDE_PRESENTER,
+  WARTE_PRESENTER_MS,
   leseGastNachricht,
   lesePresenterNachricht,
+  raumAusGeheimnis,
   sha256Hex,
 } from '../raum.js';
 
@@ -53,6 +56,10 @@ function neuerCtx() {
       async setAlarm(ms) {
         ctx.alarmBei = ms;
       },
+    },
+    async blockConcurrencyWhile(fn) {
+      ctx.gesperrt = (ctx.gesperrt ?? 0) + 1;
+      return fn();
     },
     acceptWebSocket(ws, tags = []) {
       ws.offen = true;
@@ -101,9 +108,12 @@ const ANDERS = 'b'.repeat(64);
 const STAND = (o = {}) => JSON.stringify({ t: 'stand', aktiv: true, index: 0, total: 3, screen: 'live', pausiert: false, ...o });
 const CMD = (dir = 'next') => JSON.stringify({ t: 'cmd', dir });
 
-async function presenter(raum, geheimnis = GEHEIM) {
+const RAUM_A = '530qlojw1124'; // raumAusGeheimnis('a'×64), unabhängig per node:crypto gerechnet
+const RAUM_B = 'vhy6gurjrplw'; // raumAusGeheimnis('b'×64)
+
+async function presenter(raum, geheimnis = GEHEIM, raumId = RAUM_A) {
   const ws = neuesWs();
-  await raum.nimmPresenterAn(ws);
+  await raum.nimmPresenterAn(ws, raumId);
   await raum.webSocketMessage(ws, JSON.stringify({ t: 'hallo', geheimnis }));
   return ws;
 }
@@ -146,6 +156,10 @@ check('Presenter Bild 262145 Byte → null', lesePresenterNachricht(new ArrayBuf
 check('Presenter Bild leer → null', lesePresenterNachricht(new ArrayBuffer(0)) === null);
 check('Presenter Bild als Uint8Array', lesePresenterNachricht(new Uint8Array([0xff, 0xd8, 1]))?.t === 'bild');
 check('Presenter unbekannt → null', lesePresenterNachricht(JSON.stringify({ t: 'goto', index: 3 })) === null);
+check('raumAusGeheimnis Vektor a', (await raumAusGeheimnis(GEHEIM)) === RAUM_A);
+check('raumAusGeheimnis Vektor b', (await raumAusGeheimnis(ANDERS)) === RAUM_B);
+check('raumAusGeheimnis passt zu RAUM_RE', RAUM_RE.test(RAUM_A) && RAUM_RE.test(RAUM_B));
+check('Konstanten wartende Presenter', MAX_WARTENDE_PRESENTER === 3 && WARTE_PRESENTER_MS === 10_000);
 check('sha256Hex', (await sha256Hex('abc')) === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 
 // ---------------------------------------------------------------- Raum
@@ -163,12 +177,12 @@ check('sha256Hex', (await sha256Hex('abc')) === 'ba7816bf8f01cfea414140de5dae222
   check('Alarm auf Verfall gesetzt', ctx.alarmBei === ctx.uhr + VERFALL_MS && ctx.daten.get('letzterPresenterMs') === ctx.uhr);
   check('Geheimnis selbst nicht gespeichert', ![...ctx.daten.values()].includes(GEHEIM));
 
-  const falsch = await presenter(raum, ANDERS);
+  const falsch = await presenter(raum, ANDERS, RAUM_A);
   check('falsches Geheimnis abgelehnt', letzte(falsch, 'abgelehnt') !== undefined && falsch.code === 4403 && letzte(falsch, 'ok') === undefined);
   check('alter Presenter bleibt nach Fehlversuch', p.code === null);
 
   const vorHallo = neuesWs();
-  await raum.nimmPresenterAn(vorHallo);
+  await raum.nimmPresenterAn(vorHallo, RAUM_A);
   await raum.webSocketMessage(vorHallo, STAND({ index: 2 }));
   const g0 = await gast(raum);
   check('Presenter-Nachrichten vor hallo verworfen', letzte(g0, 'stand')?.index === 0);
@@ -253,6 +267,39 @@ check('sha256Hex', (await sha256Hex('abc')) === 'ba7816bf8f01cfea414140de5dae222
   check('hallo mit gleichem Geheimnis öffnet geschlossenen Raum wieder', letzte(wieder, 'ok') !== undefined && !ctx.daten.get('geschlossen'));
   const g3 = await gast(raum);
   check('nach Wiederöffnen Gast angenommen', g3.code === null);
+}
+
+{
+  const { ctx, raum } = neuerRaum();
+  const fremd = await presenter(raum, ANDERS, RAUM_A);
+  check('Geheimnis passt nicht zur Raum-Kennung → abgelehnt, Raum bleibt frei', letzte(fremd, 'abgelehnt') !== undefined && fremd.code === 4403 && !ctx.daten.has('hash'));
+  const echt = await presenter(raum, GEHEIM, RAUM_A);
+  check('danach beansprucht der richtige Presenter', letzte(echt, 'ok') !== undefined);
+  check('Beanspruchen läuft gesperrt (blockConcurrencyWhile)', (ctx.gesperrt ?? 0) >= 1);
+  const ohneRaum = neuesWs();
+  await raum.nimmPresenterAn(ohneRaum, undefined);
+  await raum.webSocketMessage(ohneRaum, JSON.stringify({ t: 'hallo', geheimnis: GEHEIM }));
+  check('Presenter ohne Raum-Kennung abgelehnt', letzte(ohneRaum, 'ok') === undefined && ohneRaum.code === 4403);
+}
+
+{
+  const { ctx, raum } = neuerRaum();
+  const wartend = [];
+  for (let i = 0; i < MAX_WARTENDE_PRESENTER; i++) {
+    const ws = neuesWs();
+    await raum.nimmPresenterAn(ws, RAUM_A);
+    wartend.push(ws);
+  }
+  check('3 unangemeldete Presenter-Verbindungen angenommen', wartend.every((w) => w.code === null));
+  const vierte = neuesWs();
+  await raum.nimmPresenterAn(vierte, RAUM_A);
+  check('4. unangemeldete Presenter-Verbindung abgewiesen', vierte.code === 4429);
+  ctx.uhr += WARTE_PRESENTER_MS + 1;
+  const spaet = neuesWs();
+  await raum.nimmPresenterAn(spaet, RAUM_A);
+  check('nach 10 s ohne hallo: alte wartende geschlossen', wartend.every((w) => w.code === 4408) && spaet.code === null);
+  await raum.webSocketMessage(spaet, JSON.stringify({ t: 'hallo', geheimnis: GEHEIM }));
+  check('neue Verbindung meldet sich danach an', letzte(spaet, 'ok') !== undefined);
 }
 
 {
