@@ -2,6 +2,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 // Vite emits the worker as an asset and gives us its URL.
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { istSvg } from '@shared/bildformat';
 import { getSource, putSource, removeSource } from './assets';
 import { bildDekodieren } from './bild-dekodieren';
 
@@ -106,6 +107,14 @@ async function renderBaseUncached(
     const h = w / aspect;
     const canvas = newCanvas(w, h);
     const ctx = canvas.getContext('2d')!;
+    // #313 (Owner 18.11., Entscheid a): SVG-FOLIEN stehen auf Weiß wie PDF-Seiten – so, wie der Editor sie zeigt.
+    // Diagramme/Logos ohne Hintergrund wären sonst im Publikum schwarz auf schwarz. Overlays (paint.ts) bleiben
+    // durchsichtig, andere Bildformate (PNG mit Alpha fürs NDI-Keying) auch.
+    const entry = getSource(sourceId);
+    if (entry && istSvg(entry.bytes)) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     return { canvas, width: canvas.width, height: canvas.height, aspect };
   }

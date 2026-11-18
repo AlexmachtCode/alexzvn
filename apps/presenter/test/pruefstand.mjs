@@ -609,6 +609,7 @@ async function baueTestdateien() {
     avif: p('gruen.avif'),
     webp: p('gruen.webp'),
     svgProjekt: p('svg-projekt.jmpres'),
+    svgHalb: p('halb-durchsichtig.svg'),
   };
   fs.writeFileSync(d.a, await pdf(2));
   fs.writeFileSync(d.eins, eins);
@@ -680,6 +681,8 @@ async function baueTestdateien() {
   fs.writeFileSync(d.svg21, svg21);
   fs.writeFileSync(d.svgHoch, svgGruen);
   fs.writeFileSync(d.svgExtern, svgExtern);
+  // Owner 18.11. (a): SVG-FOLIEN bekommen Weiß wie im Editor; rechts hat dieses SVG nichts (durchsichtig).
+  fs.writeFileSync(d.svgHalb, '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="100" height="100" fill="#d02020"/></svg>\n');
   fs.writeFileSync(d.avif, Buffer.from(AVIF_GRUEN, 'base64'));
   fs.writeFileSync(d.webp, Buffer.from(WEBP_GRUEN, 'base64'));
   const svgManifest = {
@@ -2142,6 +2145,13 @@ function domBuehne() {
   return { breite: c.width, hoehe: c.height, bunt: bunt / (g.length / 4), links: haelfte(0, c.width >> 1), rechts: haelfte(c.width >> 1, c.width) };
 }
 
+/** Ein Bildpunkt der Bühne an der relativen Stelle (fx, fy) als [r, g, b, a]. */
+function domBuehnePunkt(fx, fy) {
+  const c = document.querySelector('canvas.bg-white');
+  if (!c || !c.width || !c.height) return null;
+  return [...c.getContext('2d').getImageData(Math.floor(c.width * fx), Math.floor(c.height * fy), 1, 1).data];
+}
+
 /** Overlay-Bild im Editor (<img>) und die Mittelpunkte der gezeichneten Vorschauen (SlideCanvas, nicht die Bühne). */
 function domOverlayBild() {
   const img = document.querySelector('div.cursor-move img');
@@ -2194,6 +2204,15 @@ async function gruppeBildformate({ exe, d }) {
       erwarte(n === 1 && f === '', `Folien · ${n ?? '–'}, Fehlerzeile „${f}“`);
       erwarte(seite(b, 2) && istBlau(b.links) && istBlau(b.rechts), `Bühne: ${JSON.stringify(b)}`);
       erwarte((await auswerten(ed, '1 + 1')) === 2, 'Editor antwortet nicht mehr');
+    });
+  });
+  await legeAb(d.svgHalb, async ({ ed, n, f, b }) => {
+    await fall('halb-durchsichtig.svg als Folie → rechts WEISS deckend (wie im Editor, Owner-Entscheid a), links rot', async () => {
+      erwarte(n === 1 && f === '', `Folien · ${n ?? '–'}, Fehlerzeile „${f}“`);
+      const rechts = await auswerten(ed, imDom(domBuehnePunkt, 0.75, 0.5));
+      const links = await auswerten(ed, imDom(domBuehnePunkt, 0.25, 0.5));
+      erwarte(JSON.stringify(rechts) === '[255,255,255,255]', `rechts ${JSON.stringify(rechts)} statt weiß deckend`);
+      erwarte(istRot(links) && links[3] === 255, `links ${JSON.stringify(links)}; Bühne ${JSON.stringify(b)}`);
     });
   });
   await legeAb(d.avif, async ({ n, f, b }) => {
