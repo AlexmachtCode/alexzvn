@@ -5,7 +5,7 @@ import { bytesToBlob } from './bytes';
  * #313: EIN Weg vom Bild-Byte zum ImageBitmap – für Folien (`pdf.ts`) und Overlays (`paint.ts`).
  *
  * PNG, JPEG, WebP, GIF, BMP und AVIF erkennt Chromium selbst am Inhalt. SVG nicht: es wird über
- * ein `<img>` mit Typ `image/svg+xml` geladen und in fester Größe gerastert (in 3840×2160
+ * ein `<img>` mit Typ `image/svg+xml` geladen und in fester Größe gerastert (in 1920×1080
  * eingepasst, `svgRasterGroesse`). In `<img>` führt Chromium keine Skripte eines SVG aus und lädt
  * keine externen Ressourcen nach.
  */

@@ -7,9 +7,13 @@
 /** Ohne diesen Typ zeigt Chromium ein SVG in `<img>` nicht an (SVG wird nie am Inhalt erschnüffelt). */
 export const SVG_MIME = 'image/svg+xml';
 
-/** Größter Rahmen, in den ein SVG gerastert wird (Vektor → auf dem 4K-Ausgang scharf). */
-export const SVG_RASTER_MAX_BREITE = 3840;
-export const SVG_RASTER_MAX_HOEHE = 2160;
+/**
+ * Größter Rahmen, in den ein SVG gerastert wird. 1920×1080, weil kein Abnehmer breiter zeichnet:
+ * Publikum (`SlideCanvas maxWidth 1920`), NDI (1920×1080) und das PDF-Ersatzraster (1920). 4K kostete
+ * je Folie und Fenster das Vierfache an Speicher (33 statt 8 MB) ohne sichtbaren Gewinn (Gesamtprüfung #313).
+ */
+export const SVG_RASTER_MAX_BREITE = 1920;
+export const SVG_RASTER_MAX_HOEHE = 1080;
 
 /** So viel vom Dateianfang entscheidet, ob es SVG ist. */
 const ERKENNEN_BYTES = 4096;
@@ -114,8 +118,8 @@ export function svgSeitenverhaeltnis(text: string): number | null {
 }
 
 /**
- * Rastergröße für ein SVG: in 3840×2160 eingepasst, Seitenverhältnis bleibt; ohne verwertbare
- * Größe 16:9 (also 3840×2160). Jede Seite mindestens 1 px.
+ * Rastergröße für ein SVG: in 1920×1080 eingepasst, Seitenverhältnis bleibt; ohne verwertbare
+ * Größe 16:9 (also 1920×1080). Jede Seite mindestens 1 px.
  */
 export function svgRasterGroesse(bytes: Uint8Array): { breite: number; hoehe: number } {
   const v = svgSeitenverhaeltnis(anfangAlsText(bytes, GROESSE_BYTES)) ?? SVG_RASTER_MAX_BREITE / SVG_RASTER_MAX_HOEHE;

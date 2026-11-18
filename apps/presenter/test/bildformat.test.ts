@@ -32,16 +32,16 @@ ck('kaputte viewBox → null', b.svgSeitenverhaeltnis('<svg viewBox="0 0 0 10">'
 ck('height-Attribut eines Kindes zählt nicht', b.svgSeitenverhaeltnis('<svg viewBox="0 0 10 10"><rect width="5" height="1"/></svg>') === 1);
 ck('Vorspann vor dem Wurzelelement', b.svgSeitenverhaeltnis('<?xml version="1.0"?><!-- width="9" --><svg width="4" height="2">') === 2);
 
-// svgRasterGroesse – in 3840×2160 eingepasst
-ck('Konstanten', b.SVG_RASTER_MAX_BREITE === 3840 && b.SVG_RASTER_MAX_HOEHE === 2160);
-ck('2:1 → 3840×1920', gr('<svg width="200" height="100"/>') === '{"breite":3840,"hoehe":1920}', gr('<svg width="200" height="100"/>'));
-ck('1:2 → 1080×2160', gr('<svg viewBox="0 0 100 200"/>') === '{"breite":1080,"hoehe":2160}', gr('<svg viewBox="0 0 100 200"/>'));
-ck('ohne Angabe → 3840×2160', gr('<svg/>') === '{"breite":3840,"hoehe":2160}', gr('<svg/>'));
-ck('16:9 → 3840×2160', gr('<svg width="1920" height="1080"/>') === '{"breite":3840,"hoehe":2160}');
+// svgRasterGroesse – in 1920×1080 eingepasst (breitester Abnehmer: Publikum, NDI, PDF-Raster)
+ck('Konstanten', b.SVG_RASTER_MAX_BREITE === 1920 && b.SVG_RASTER_MAX_HOEHE === 1080);
+ck('2:1 → 1920×960', gr('<svg width="200" height="100"/>') === '{"breite":1920,"hoehe":960}', gr('<svg width="200" height="100"/>'));
+ck('1:2 → 540×1080', gr('<svg viewBox="0 0 100 200"/>') === '{"breite":540,"hoehe":1080}', gr('<svg viewBox="0 0 100 200"/>'));
+ck('ohne Angabe → 1920×1080', gr('<svg/>') === '{"breite":1920,"hoehe":1080}', gr('<svg/>'));
+ck('16:9 → 1920×1080', gr('<svg width="1920" height="1080"/>') === '{"breite":1920,"hoehe":1080}');
 const schmal = b.svgRasterGroesse(enc('<svg width="1" height="1000"/>'));
-ck('1×1000 → 2160 hoch, mindestens 1 breit', schmal.hoehe === 2160 && schmal.breite >= 1, JSON.stringify(schmal));
+ck('1×1000 → 1080 hoch, mindestens 1 breit', schmal.hoehe === 1080 && schmal.breite >= 1, JSON.stringify(schmal));
 const flach = b.svgRasterGroesse(enc('<svg width="100000" height="1"/>'));
-ck('100000×1 → 3840 breit, mindestens 1 hoch', flach.breite === 3840 && flach.hoehe >= 1, JSON.stringify(flach));
+ck('100000×1 → 1920 breit, mindestens 1 hoch', flach.breite === 1920 && flach.hoehe >= 1, JSON.stringify(flach));
 
 console.log(`bildformat: ${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);

@@ -27,7 +27,7 @@ Ein Bild wird als Quelle `kind: 'image'` mit seinen Bytes gespeichert und an zwe
 
 - **Eine Endungsliste:** `shared/dateien.ts IMAGE_EXT` bekommt `.avif` und `.svg` und ist die einzige Liste; `main/ipc.ts` und `main/control-open.ts` nutzen sie, die Dialogfilter werden aus ihr gebildet (damit zeigen die Dialoge auch GIF/BMP, die beim Ablegen schon gingen).
 - **Ein Dekodier-Helfer** für Folien und Overlays: erkennt SVG **am Inhalt** (nicht an der Endung – Projektdateien `.jmpres` tragen nur Bytes), alles andere wie bisher per `createImageBitmap(Blob)`.
-- **Rastergröße SVG:** in **3840×2160** eingepasst, Seitenverhältnis bleibt (Vektor → auf 4K-Ausgang scharf). Seitenverhältnis aus `width`/`height` des Wurzelelements (Zahl oder `px`), sonst aus `viewBox`, sonst 16:9. Ein SVG ohne verwertbare Größe wird also 3840×2160 gerastert.
+- **Rastergröße SVG:** in **1920×1080** eingepasst, Seitenverhältnis bleibt. *(Geändert nach der Gesamtprüfung am 18.11.: ursprünglich 3840×2160 „für 4K-Ausgänge“ – aber kein Abnehmer zeichnet breiter als 1920 px: Publikum `SlideCanvas maxWidth 1920`, NDI 1920×1080, PDF-Ersatzraster 1920. 4K kostete je Folie und Fenster 33 statt 8 MB ohne sichtbaren Gewinn.)* Seitenverhältnis aus `width`/`height` des Wurzelelements (Zahl oder `px`), sonst aus `viewBox`, sonst 16:9. Ein SVG ohne verwertbare Größe wird also 3840×2160 gerastert.
 - **Erkennung SVG:** erste 4 KiB als Text; nach BOM/Leerraum, XML-Kopf, Kommentaren und DOCTYPE muss `<svg` stehen. Gezippte `.svgz` sind nicht dabei.
 - Fehler beim Dekodieren verhalten sich wie heute (Folie bleibt leer bzw. Overlay entfällt, Fehler im bestehenden Weg).
 
