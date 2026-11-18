@@ -584,6 +584,17 @@
     "name": "JM Presenter",
     "entries": [
       {
+        "version": "0.14.0",
+        "date": "2026-11-18",
+        "notes": [
+          "Neu: Gast-Klicker übers Internet. Remote-Gäste, etwa per Zoom zugeschaltet, schalten ihre Folien selbst weiter, während die Präsentation lokal im Presenter läuft: Link im Browser öffnen, „Next“/„Back“ oder Pfeiltasten, dazu ein kleines Bild der aktuellen Folie. Beim Gast muss nichts installiert werden. (#317)",
+          "Einschalten im Fenster „Fernsteuerung“ unter „Gast-Klicker übers Internet“. „Für den Zoom-Chat kopieren“ legt den Link samt kurzem Hinweis in die Zwischenablage. Der Link gilt für das ganze Event und bleibt nach einem Neustart gleich.",
+          "In der Referentenansicht zeigt „Gast-Klick ●“ den Stand; ein Klick darauf pausiert Gast-Klicks und setzt sie fort. Der eigene Clicker und die Tastatur wirken immer.",
+          "Wer den Link hat, kann vor/zurück klicken. Ist Publikum im Chat, den Link privat an den Gast schicken. „Neuer Link“ macht einen weitergegebenen Link ungültig.",
+          "Über das Internet geht nur vor/zurück, und der Presenter verbindet sich nur ausgehend. Fällt die Verbindung aus, läuft die Präsentation unverändert weiter und der Presenter verbindet von selbst neu."
+        ]
+      },
+      {
         "version": "0.13.2",
         "date": "2026-11-18",
         "notes": [
