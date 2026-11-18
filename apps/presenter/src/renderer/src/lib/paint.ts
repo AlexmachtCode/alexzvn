@@ -1,6 +1,6 @@
 import type { Overlay, Slide } from '@shared/types';
 import { getImageBytes } from './assets';
-import { bytesToBlob } from './bytes';
+import { bildDekodieren } from './bild-dekodieren';
 
 // Single source of truth for how a slide looks: base page + overlays composited
 // onto a canvas. Used by the audience window, the presenter previews and the PDF
@@ -20,7 +20,7 @@ export async function ensureOverlayBitmaps(slides: Slide[]): Promise<void> {
       const bytes = getImageBytes(id);
       if (!bytes) return;
       try {
-        overlayBitmaps.set(id, await createImageBitmap(bytesToBlob(bytes)));
+        overlayBitmaps.set(id, await bildDekodieren(bytes));
       } catch {
         // ignore undecodable image
       }

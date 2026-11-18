@@ -11,7 +11,7 @@ import type {
   SourceKind,
   TimerSyncConfig,
 } from '@shared/types';
-import { IMAGE_EXT, OFFICE_EXT } from '@shared/dateien';
+import { bildFilterEndungen, IMAGE_EXT, OFFICE_EXT } from '@shared/dateien';
 import { ladeDateien, pruefeImportPfade } from './dateien-laden';
 import { importOfficeFile } from './office/import';
 import {
@@ -74,7 +74,7 @@ export function registerIpc(): void {
       title: 'PDF oder Bilder importieren',
       properties: ['openFile', 'multiSelections'],
       filters: [
-        { name: 'Präsentationen & Bilder', extensions: ['pdf', 'png', 'jpg', 'jpeg', 'webp'] },
+        { name: 'Präsentationen & Bilder', extensions: ['pdf', ...bildFilterEndungen()] },
         { name: 'Alle Dateien', extensions: ['*'] },
       ],
     };
@@ -90,7 +90,7 @@ export function registerIpc(): void {
     const options: Electron.OpenDialogOptions = {
       title: 'Bild / Logo wählen',
       properties: ['openFile'],
-      filters: [{ name: 'Bilder', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
+      filters: [{ name: 'Bilder', extensions: bildFilterEndungen() }],
     };
     const result = win
       ? await dialog.showOpenDialog(win, options)
