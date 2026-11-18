@@ -584,6 +584,17 @@
     "name": "JM Presenter",
     "entries": [
       {
+        "version": "0.13.2",
+        "date": "2026-11-18",
+        "notes": [
+          "Neu: Der Presenter öffnet jetzt auch AVIF- und SVG-Bilder – als Folie und als Bild-Einblendung, beim Ablegen, per Doppelklick, im Datei-Dialog und über PRESENTER OPEN. (#313)",
+          "SVG-Grafiken wie Logos und Diagramme werden in Ausgabegröße gerechnet und bleiben scharf, im richtigen Seitenverhältnis.",
+          "SVG-Folien bekommen einen weißen Hintergrund wie im Editor; als Einblendung bleiben SVG-Bilder durchsichtig.",
+          "Die Datei-Dialoge zeigen jetzt alle Bildformate, die der Presenter kennt, also auch GIF und BMP.",
+          "Projekte mit SVG-Bildern brauchen auf allen Rechnern mindestens 0.13.2 – ältere Presenter zeigen solche Folien leer."
+        ]
+      },
+      {
         "version": "0.13.1",
         "date": "2026-11-17",
         "notes": [
