@@ -2219,6 +2219,48 @@ async function gruppeBildformate({ exe, d }) {
       erwarte(o?.mitten.some(istGruen), `Vorschau-Mitten: ${JSON.stringify(o?.mitten)}`);
     });
   });
+  // NDI (Gesamtprüfung #313): das NIE gezeigte NDI-Fenster rastert SVG-Folie und SVG-Overlay selbst. Folie 2:1 in
+  // 1920×1080 eingepasst = 1920×960 ab y 60: links rot, rechts blau, Mitte das grüne Overlay, oben (960,30) frei.
+  const ndi = createRequire(import.meta.url)('@jm/ndi');
+  let ndiDa = false;
+  // Ohne Empfang misst der NDI-Fall nichts: FAIL, nie überspringen (wie Gruppe ndi).
+  await fall('NDI-Laufzeit startet (Empfang für den SVG-Fall)', async () => {
+    erwarte(ndi.init(), 'ndi.init() liefert false');
+    ndiDa = true;
+  });
+  if (ndiDa) {
+    try {
+      nr += 1;
+      await mitApp('bildformate (NDI)', exe, [d.svgProjekt], async (_app, ed) => {
+        await fall('NDI: svg-projekt.jmpres nur über NDI → (480,540) rot, (1440,540) blau, (960,540) grün (Overlay), (960,30) durchsichtig', async () => {
+        const n = await bisWert(() => folienZahl(ed), (v) => v === 1, 15_000);
+        erwarte(n === 1, `Folien · ${n ?? '–'} statt 1`);
+        await auswerten(ed, 'window.jmpr.ndi.setzeAn(true)');
+        const s = await bisLage(ed, 'sendet', 10_000);
+        erwarte(s?.lage === 'sendet', `NDI-Status ${JSON.stringify(s)}`);
+        verbindeNdi(ndi);
+        const waehlbar = (a) => a?.optionen.some((o) => o.text === KEINER && !o.gesperrt);
+        erwarte(waehlbar(await bisWert(() => auswahl(ed), waehlbar, 5_000)), `„${KEINER}“ nicht wählbar`);
+        erwarte(await auswerten(ed, imDom(domWaehle, 'keiner')), 'kein Auswahlfeld „Publikums-Bildschirm“');
+        erwarte((await bisWert(() => auswahl(ed), (v) => v?.text === KEINER, 3_000))?.text === KEINER, 'Auswahl nicht „Keiner“');
+        erwarte(await warteBis(() => auswerten(ed, imDom(domKlickePraesentieren)), 10_000), 'Knopf „▶ Präsentieren“ nicht bedienbar');
+        // NDI-Byte-Folge [b, g, r, a]
+        const farbe = (b, x, y, pruefe) => { const [bl, gr, rt, a] = pixel(b, x, y); return a === 255 && pruefe(rt, gr, bl); };
+        const passt = (b) =>
+          farbe(b, 480, 540, (r, g, bl) => r > 150 && g < 90 && bl < 90)
+          && farbe(b, 1440, 540, (r, g, bl) => bl > 150 && r < 90)
+          && farbe(b, 960, 540, (r, g, bl) => g > 120 && r < 90 && bl < 110)
+          && pixel(b, 960, 30)[3] === 0;
+        const bild = bisBild(ndi, passt, 10_000);
+        erwarte(bild && passt(bild), `NDI ${messwerte(bild, [[480, 540], [1440, 540], [960, 540], [960, 30]])}`);
+        await auswerten(ed, 'window.jmpr.present.stop()').catch(() => {});
+        });
+      }, eigenesProfil(path.join(d.dir, `profil-bildformate-${nr}`)));
+    } finally {
+      try { ndi.destroy(); } catch { /* schon zu */ }
+    }
+  }
+
   // Echte Dateien von Hand (nicht im Repo): JMPR_ECHTE_BILDER=<pfad>;<pfad>…
   const echte = (process.env.JMPR_ECHTE_BILDER ?? '').split(';').filter(Boolean);
   if (!echte.length) {
