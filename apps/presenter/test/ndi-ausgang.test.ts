@@ -90,7 +90,7 @@ export function stoppeSender() { s.gestoppt++; s.kindLaeuft = false; }`;
 const IPC_TEILE: Record<string, string> = {
   './dateien-laden': 'export function ladeDateien() {} export function pruefeImportPfade() { return null; }',
   './office/import': 'export function importOfficeFile() {}',
-  '@shared/dateien': 'export const IMAGE_EXT = new Set(); export const OFFICE_EXT = new Set();',
+  '@shared/dateien': 'export const IMAGE_EXT = new Set(); export const OFFICE_EXT = new Set(); export function bildFilterEndungen() { return []; }',
   './remote': `export function applyRemoteConfig() {} export function getRemoteStatus() {} export function listInterfaces() { return []; }
     export function setRemoteStatusHandler() {} export function shutdownRemote() { globalThis.__ipc.zu.push('remote'); }`,
   './remote-config': 'export function loadRemoteConfig() { return { enabled: false }; } export function saveRemoteConfig() {}',
