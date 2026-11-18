@@ -65,6 +65,29 @@ export function fuehreAus(lage: { aktiv: boolean; pausiert: boolean }, dir: unkn
   return dir === 'next' || dir === 'prev' ? dir : null;
 }
 
+/** Text der kleinen Anzeige in der Referentenansicht; `null` = nicht anzeigen (Gast-Klicker aus). */
+export function pillenText(s: GastKlickerStatus): string | null {
+  if (!s.an) return null;
+  if (s.lage !== 'verbunden') return 'Gast-Klick getrennt';
+  return s.pausiert ? 'Gast-Klick pausiert' : 'Gast-Klick ●';
+}
+
+/** Statuszeile im Fernsteuerungs-Abschnitt. */
+export function statusText(s: GastKlickerStatus): string {
+  switch (s.lage) {
+    case 'verbunden':
+      return `verbunden · ${s.gaeste} ${s.gaeste === 1 ? 'Gast' : 'Gäste'}`;
+    case 'verbindet':
+      return 'verbindet …';
+    case 'getrennt':
+      return 'getrennt – verbindet neu';
+    case 'abgelehnt':
+      return 'abgelehnt – „Neuer Link“ drücken';
+    default:
+      return 'aus';
+  }
+}
+
 /** Wartezeit vor dem nächsten Verbindungsversuch: 1 s verdoppelnd, ±20 % gestreut, höchstens 30 s. */
 export function wartezeitMs(versuch: number, zufall: number): number {
   const basis = Math.min(30_000, 1000 * 2 ** Math.max(0, versuch));

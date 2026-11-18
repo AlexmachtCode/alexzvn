@@ -49,6 +49,22 @@ ck('wartezeitMs(10, 0.5) = 30000', sh.wartezeitMs(10, 0.5) === 30000);
 ck('wartezeitMs(10, 0.99) ≤ 30000', sh.wartezeitMs(10, 0.99) <= 30000);
 ck('wartezeitMs(0, 0) = 800', sh.wartezeitMs(0, 0) === 800);
 
+// Anzeigetexte (Fernsteuerungs-Abschnitt, Pille in der Referentenansicht)
+const S = (o: Partial<GastKlickerStatus>): GastKlickerStatus => ({ an: true, lage: 'verbunden', link: 'https://x/k/abcdefghij12', gaeste: 0, pausiert: false, ...o });
+ck('pillenText aus → null', sh.pillenText(S({ an: false, lage: 'aus' })) === null);
+ck('pillenText verbunden', sh.pillenText(S({})) === 'Gast-Klick ●');
+ck('pillenText pausiert', sh.pillenText(S({ pausiert: true })) === 'Gast-Klick pausiert');
+ck('pillenText getrennt', sh.pillenText(S({ lage: 'getrennt' })) === 'Gast-Klick getrennt');
+ck('pillenText verbindet = getrennt', sh.pillenText(S({ lage: 'verbindet' })) === 'Gast-Klick getrennt');
+ck('pillenText abgelehnt = getrennt', sh.pillenText(S({ lage: 'abgelehnt' })) === 'Gast-Klick getrennt');
+ck('statusText 2 Gäste', sh.statusText(S({ gaeste: 2 })) === 'verbunden · 2 Gäste');
+ck('statusText 1 Gast', sh.statusText(S({ gaeste: 1 })) === 'verbunden · 1 Gast');
+ck('statusText 0 Gäste', sh.statusText(S({ gaeste: 0 })) === 'verbunden · 0 Gäste');
+ck('statusText verbindet', sh.statusText(S({ lage: 'verbindet' })) === 'verbindet …');
+ck('statusText getrennt', sh.statusText(S({ lage: 'getrennt' })) === 'getrennt – verbindet neu');
+ck('statusText abgelehnt nennt Neuer Link', sh.statusText(S({ lage: 'abgelehnt' })).includes('Neuer Link'));
+ck('statusText aus', sh.statusText(S({ an: false, lage: 'aus' })) === 'aus');
+
 // ---------------------------------------------------------------- Attrappen
 type PState = { active: boolean; index: number; total: number; screen: 'live' | 'black' | 'white' };
 const g = globalThis as unknown as {

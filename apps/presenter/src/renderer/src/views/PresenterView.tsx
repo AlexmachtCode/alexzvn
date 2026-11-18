@@ -4,6 +4,7 @@ import type { DisplayInfo } from '@shared/types';
 import { SlideCanvas } from '@/components/SlideCanvas';
 import { Clock } from '@/components/Clock';
 import { NdiSchalter } from '@/components/NdiSchalter';
+import { GastKlickerPille } from '@/components/GastKlickerPille';
 import { RemotePanel } from '@/components/RemotePanel';
 import { TimerBar } from '@/components/TimerBar';
 import { usePresentation, usePresenterKeys } from '@/lib/usePresentation';
@@ -98,6 +99,7 @@ export function PresenterView() {
             )}
           </select>
           <NdiSchalter variante="referent" />
+          <GastKlickerPille />
           <HeaderBtn
             onClick={() => void window.jmpr.present.setScreen('black')}
             active={state.screen === 'black'}

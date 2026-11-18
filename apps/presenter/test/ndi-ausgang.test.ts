@@ -63,6 +63,8 @@ export function openNdiWindow() {
 // Wie windows.ts mit destroy(): Verweis weg, dann kommt \`closed\` noch WÄHREND des Aufrufs (gemessen, Electron 33.4.11).
 export function closeNdiWindow() { const alt = w.aktuell; w.aktuell = null; if (alt) { w.zu++; alt.zuRueckruf?.(); } }
 export function getNdiWindow() { return w.aktuell; }
+// #317: ipc.ts lädt den Gast-Klicker (Vorschau der Folie); hier ohne Bild.
+export async function captureVorschau() { return null; }
 export function sendeAnNdi(c, x) { w.anNdi.push([c, x]); }
 export function broadcastAll(c, x) { if (c === 'ndi:status') w.status.push(x); }
 export function closePresentationWindows() {}
@@ -102,7 +104,7 @@ const IPC_TEILE: Record<string, string> = {
     export function ndiStatus() { return globalThis.__ipc.status; } export function setzeNdiAn() {}
     export function initNdiAusgang() { if (globalThis.__ipc.initWirft) throw new Error('init wirft'); }`,
   // Nur für index.ts (letzter Teil): Laufzeit, Show-Links, Steuerserver, Doppelklick – stumm.
-  '@jm/app-runtime': 'export function initAppRuntime() { return { initialDeepLink: null }; }',
+  '@jm/app-runtime': 'export function initAppRuntime() { return { initialDeepLink: null }; } export function getLog() { return { info() {}, warn() {}, error() {} }; }',
   './show-open': 'export function handleShowDeepLink() {} export function flushPendingShowProject() {}',
   './control-server': 'export async function startControlServer() {} export function stopControlServer() {}',
   './datei-oeffnen': 'export function oeffneStartDateien() {} export function registriereDateiOeffnen() {}',

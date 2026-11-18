@@ -46,6 +46,14 @@ import {
 } from './remote';
 import { loadRemoteConfig, saveRemoteConfig } from './remote-config';
 import {
+  applyGastKlicker,
+  getGastKlickerStatus,
+  initGastKlicker,
+  neuerGastLink,
+  setGastKlickerStatusHandler,
+  setzeGastPause,
+} from './gast-klicker';
+import {
   applyTimerConfig,
   getTimerConfig,
   getTimerState,
@@ -229,6 +237,15 @@ export function registerIpc(): void {
   // Restore the persisted remote on launch (operator enabled it once).
   const saved = loadRemoteConfig();
   if (saved.enabled) void applyRemoteConfig(saved);
+
+  // ---- #317 Gast-Klicker übers Internet (ausgehend zum Cloud-Dienst, nur vor/zurück) ----
+  setGastKlickerStatusHandler((status) => broadcastAll('gastKlicker:status', status));
+  ipcMain.handle('gastKlicker:status', () => getGastKlickerStatus());
+  ipcMain.handle('gastKlicker:setzeAn', (_e, an: unknown) => applyGastKlicker(an === true));
+  ipcMain.handle('gastKlicker:pause', (_e, an: unknown) => setzeGastPause(an === true));
+  ipcMain.handle('gastKlicker:neuerLink', () => neuerGastLink());
+  // War er beim letzten Beenden an, verbindet er gleich wieder (gleicher Link).
+  initGastKlicker();
 
   // ---- Timer sync (live countdown from JM Timer) ----
 
