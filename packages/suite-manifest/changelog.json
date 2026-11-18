@@ -1763,7 +1763,7 @@
     "entries": [
       {
         "version": "0.4.5",
-        "date": "2026-11-17",
+        "date": "2026-11-18",
         "notes": [
           "Zoom-Slots: Neue Einstellung „Bildformat“ je Slot. „16:9 einpassen“ setzt Hochkant-Bilder – etwa ein Handy im Hochformat – mittig in ein 16:9-Bild in der Auflösung des Slots; die Seiten sind durchsichtig. Der Bildmischer muss nichts mehr zuschneiden, auch wenn die Person das Handy dreht. Bilder, die schon 16:9 sind, gehen unverändert hinaus. (#310)",
           "Im Modus „16:9 einpassen“ nehmen auch die Ersatzbilder (eingefroren, schwarz, weiß, Zoom-Kachel) die Fläche des Livebilds ein; „transparent“ bleibt ganz durchsichtig. Die Messzeile der Kachel nennt zusätzlich, was ins NDI geht, z. B. „NDI 1920×1080 eingepasst“.",
