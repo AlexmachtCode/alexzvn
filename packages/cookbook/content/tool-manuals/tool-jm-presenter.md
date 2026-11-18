@@ -82,8 +82,8 @@ summary: "Folien aus PDF/PowerPoint aufbereiten und mit getrennter Referenten- u
 | Handy/Clicker meldet 401 | Falsche/fehlende PIN — PIN am Handy eingeben; dieselbe PIN im Stage Display |
 | Kein Bild auf dem Beamer | Publikumsfenster geöffnet + richtiger Monitor? Vollbild aktiv? |
 | Countdown bleibt leer | JM Timer läuft und ist auf 7777 erreichbar, Timer-Sync aktiv? |
-| Gast sieht „Presenter offline“ / Anzeige „Gast-Klick getrennt“ | Internet am Präsentationsrechner prüfen; der Presenter verbindet von selbst neu. Bis dahin weiter wie gewohnt selbst klicken |
-| Gast sieht „This link is not active“ | Gast-Klicker ist aus oder es gibt einen neuen Link – Gast-Klicker einschalten bzw. den aktuellen Link schicken |
+| Gast sieht „Presenter offline“ / Anzeige „Gast-Klick getrennt“ | Gast-Klicker eingeschaltet? Internet am Präsentationsrechner prüfen; der Presenter verbindet von selbst neu. Bis dahin weiter wie gewohnt selbst klicken |
+| Gast sieht „This link is not active“ | Der Link ist veraltet (inzwischen „Neuer Link“ erzeugt), war noch nie verbunden oder 7 Tage unbenutzt – im Fenster Fernsteuerung den aktuellen Link kopieren, dem Gast schicken, Gast lädt die Seite neu |
 | Companion steuert nicht | Port 8728 offen? `jm-presenter-ctl` (ctl=1) im mDNS? |
 
 ## Checklisten

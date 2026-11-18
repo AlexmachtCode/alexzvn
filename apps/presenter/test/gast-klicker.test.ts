@@ -62,19 +62,19 @@ ck('statusText 1 Gast', sh.statusText(S({ gaeste: 1 })) === 'verbunden · 1 Gast
 ck('statusText 0 Gäste', sh.statusText(S({ gaeste: 0 })) === 'verbunden · 0 Gäste');
 ck('statusText verbindet', sh.statusText(S({ lage: 'verbindet' })) === 'verbindet …');
 ck('statusText getrennt', sh.statusText(S({ lage: 'getrennt' })) === 'getrennt – verbindet neu');
-ck('statusText abgelehnt nennt Neuer Link', sh.statusText(S({ lage: 'abgelehnt' })).includes('Neuer Link'));
+ck('statusText abgelehnt rät zum Aus- und Einschalten, nicht zu Neuer Link', sh.statusText(S({ lage: 'abgelehnt' })).includes('aus- und wieder einschalten') && !sh.statusText(S({ lage: 'abgelehnt' })).includes('Neuer Link'));
 ck('statusText aus', sh.statusText(S({ an: false, lage: 'aus' })) === 'aus');
 
 // ---------------------------------------------------------------- Attrappen
 type PState = { active: boolean; index: number; total: number; screen: 'live' | 'black' | 'white' };
 const g = globalThis as unknown as {
-  __p: { cbs: Set<() => void>; state: PState; nexts: number; prevs: number };
-  __win: { erfasst: number; bild: Buffer | null };
+  __p: { cbs: Set<() => void>; state: PState; nexts: number; prevs: number; stateWirft: boolean };
+  __win: { erfasst: number; bild: Buffer | null; wirft: boolean };
   __log: string[];
   __userData: string;
 };
-g.__p = { cbs: new Set(), state: { active: false, index: 0, total: 0, screen: 'live' }, nexts: 0, prevs: 0 };
-g.__win = { erfasst: 0, bild: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(2000)]) };
+g.__p = { cbs: new Set(), state: { active: false, index: 0, total: 0, screen: 'live' }, nexts: 0, prevs: 0, stateWirft: false };
+g.__win = { erfasst: 0, bild: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(2000)]), wirft: false };
 g.__log = [];
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmpr-gk-'));
 g.__userData = dir;
@@ -86,10 +86,14 @@ const aendere = (s: Partial<PState>): void => {
 const QUELLEN: Record<string, string> = {
   'mock:present': `const p = globalThis.__p;
 export function subscribe(cb) { p.cbs.add(cb); return () => p.cbs.delete(cb); }
-export function getState() { return p.state; }
+export function getState() { if (p.stateWirft) throw new Error('getState kaputt'); return p.state; }
 export function next() { p.nexts++; }
 export function prev() { p.prevs++; }`,
-  'mock:windows': `export async function captureVorschau() { globalThis.__win.erfasst++; return globalThis.__win.bild; }`,
+  'mock:windows': `export async function captureVorschau() {
+  globalThis.__win.erfasst++;
+  if (globalThis.__win.wirft) throw new Error('capture kaputt');
+  return globalThis.__win.bild;
+}`,
   'mock:electron': `export const app = { getPath: () => globalThis.__userData };`,
   'mock:runtime': `const l = (...a) => globalThis.__log.push(a.join(' '));
 export function getLog() { return { info: l, warn: l, error: l }; }`,
@@ -117,6 +121,7 @@ registerHooks({
 type Verb = { ws: WsSocket; raum: string; auth: string | undefined; nachrichten: (string | Buffer)[] };
 const verbindungen: Verb[] = [];
 let antwort: 'ok' | 'abgelehnt' = 'ok';
+let pongAntwort = true;
 let server: WebSocketServer | null = null;
 let port = 0;
 function starteServer(p: number): Promise<void> {
@@ -134,6 +139,7 @@ function starteServer(p: number): Promise<void> {
         v.nachrichten.push(bin ? daten : daten.toString());
         if (bin) return;
         const o = JSON.parse(daten.toString()) as { t: string };
+        if (o.t === 'ping' && pongAntwort) ws.send(JSON.stringify({ t: 'pong' }));
         if (o.t === 'hallo') {
           ws.send(JSON.stringify({ t: antwort }));
           if (antwort === 'abgelehnt') ws.close(4403);
@@ -162,6 +168,7 @@ process.env.JMPR_GAST_KLICKER_URL = `http://127.0.0.1:${port}`;
 
 // ---------------------------------------------------------------- Client
 const gk = await import('../src/main/gast-klicker');
+gk.setzeHerzschlagZeiten(300, 300); // statt 20 s / 10 s
 const meldungen: GastKlickerStatus[] = [];
 gk.setGastKlickerStatusHandler((s) => meldungen.push(s));
 const st = (): GastKlickerStatus => gk.getGastKlickerStatus();
@@ -195,15 +202,33 @@ ck('Änderung → Stand mit aktiv/total', json(letzteV()).some((m) => m.t === 's
 await bis(() => binaer(letzteV()).length > 0, 2000);
 const bild = binaer(letzteV())[0];
 ck('Folienwechsel → nach ~300 ms ein Binärbild (FF D8)', bild !== undefined && bild[0] === 0xff && bild[1] === 0xd8);
+// Gesamtprüfung: schwere PDF-Seiten brauchen > 300 ms → nach ~1,5 s noch einmal erfassen; gleiches Bild nicht doppelt.
+await bis(() => g.__win.erfasst >= 2, 2500);
+ck('Nachfass-Erfassung nach ~1,5 s', g.__win.erfasst === 2);
+ck('gleiches Nachfass-Bild nicht doppelt gesendet', binaer(letzteV()).length === 1);
+g.__win.bild = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe1]), Buffer.alloc(2000)]);
+aendere({ index: 1 });
+await bis(() => g.__win.erfasst >= 3, 1000);
+g.__win.bild = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe2]), Buffer.alloc(2000)]);
+await bis(() => binaer(letzteV()).length >= 3, 2500);
+ck('anderes Nachfass-Bild wird nachgeschickt', binaer(letzteV()).length === 3 && binaer(letzteV())[2][3] === 0xe2);
+aendere({ index: 0 });
+await warte(1800);
 const erfasstNachErstem = g.__win.erfasst;
 
 sende(letzteV(), { t: 'cmd', dir: 'next' });
 await bis(() => g.__p.nexts === 1);
 ck('cmd next bei aktiver Präsentation → next() einmal', g.__p.nexts === 1);
 ck('Log-Zeile je Gast-Klick', g.__log.some((z) => z.includes('[gast-klicker] next')));
+// Gesamtprüfung: viele Verbindungen eines Skripts → im Presenter höchstens ein Gast-Kommando je 150 ms (alle Gäste).
+sende(letzteV(), { t: 'cmd', dir: 'next' });
+await warte(100);
+ck('zweites Gast-Kommando binnen 150 ms verworfen', g.__p.nexts === 1);
+await warte(100);
 sende(letzteV(), { t: 'cmd', dir: 'prev' });
 await bis(() => g.__p.prevs === 1);
-ck('cmd prev → prev()', g.__p.prevs === 1);
+ck('cmd prev nach 150 ms → prev()', g.__p.prevs === 1);
+await warte(200);
 sende(letzteV(), { t: 'cmd', dir: 'goto' });
 await warte(100);
 ck('cmd goto ignoriert', g.__p.nexts === 1 && g.__p.prevs === 1);
@@ -217,16 +242,49 @@ await warte(150);
 ck('pausiert → kein next()', g.__p.nexts === 1);
 gk.setzeGastPause(false);
 
+await warte(1800);
+const vorGleich = g.__win.erfasst;
 aendere({});
-await warte(450);
-ck('gleicher Stand → kein neues Bild', g.__win.erfasst === erfasstNachErstem);
+await warte(1800);
+ck('gleicher Stand → kein neues Bild', g.__win.erfasst === vorGleich);
 aendere({ index: 1 });
 aendere({ index: 2 });
-await warte(450);
-ck('schnelle Folge → ein Bild für den letzten Stand', g.__win.erfasst === erfasstNachErstem + 1);
+await warte(1800);
+ck('schnelle Folge → Erfassen nur für den letzten Stand (300 ms + Nachfassen)', g.__win.erfasst === vorGleich + 2);
+const standVorBitte = json(letzteV()).filter((m) => m.t === 'stand').length;
 sende(letzteV(), { t: 'bildBitte' });
-await bis(() => g.__win.erfasst === erfasstNachErstem + 2);
-ck('bildBitte → Bild sofort, auch bei gleichem Stand', g.__win.erfasst === erfasstNachErstem + 2);
+await bis(() => g.__win.erfasst === vorGleich + 3);
+ck('bildBitte → Bild sofort, auch bei gleichem Stand', g.__win.erfasst === vorGleich + 3);
+// Gesamtprüfung (Critical): nach Hibernation kennt der Raum den Stand nicht mehr → bildBitte beantwortet auch den Stand.
+await bis(() => json(letzteV()).filter((m) => m.t === 'stand').length > standVorBitte, 1000);
+ck('bildBitte → Stand mitgeschickt', json(letzteV()).filter((m) => m.t === 'stand').length > standVorBitte);
+sende(letzteV(), { t: 'bildBitte' });
+sende(letzteV(), { t: 'bildBitte' });
+await warte(300);
+ck('bildBitte gedrosselt (höchstens 1 Erfassung je Sekunde)', g.__win.erfasst === vorGleich + 3);
+void erfasstNachErstem;
+
+// Gesamtprüfung: Fehler im Gast-Klicker dürfen die lokale Folien-Weiterschaltung nie stören.
+let unbehandelt = 0;
+const zaehle = (): void => { unbehandelt++; };
+process.on('unhandledRejection', zaehle);
+g.__win.wirft = true;
+aendere({ index: 1 });
+await warte(1800);
+g.__win.wirft = false;
+ck('Erfassen wirft → keine unbehandelte Ablehnung, weiter verbunden', unbehandelt === 0 && st().lage === 'verbunden');
+g.__p.stateWirft = true;
+let geworfen = false;
+try {
+  for (const cb of g.__p.cbs) cb();
+} catch {
+  geworfen = true;
+}
+g.__p.stateWirft = false;
+ck('Fehler im Stand-Senden dringt nicht in present.publish()', !geworfen);
+process.off('unhandledRejection', zaehle);
+aendere({ index: 0 });
+await warte(1800);
 
 sende(letzteV(), { t: 'gaeste', n: 3 });
 await bis(() => st().gaeste === 3);
@@ -242,6 +300,20 @@ await starteServer(port);
 await bis(() => st().lage === 'verbunden', 6000);
 ck('Dienst wieder da → wieder verbunden', st().lage === 'verbunden');
 ck('Neuverbindung schickt hallo mit gleichem Geheimnis', verbindungen.length > anzahlVorher && json(letzteV())[0]?.geheimnis === geheimnisVorher);
+// Gesamtprüfung: Diagnose vor Ort – Trennung mit Code und Wiederverbindung stehen im Log.
+ck('Log: getrennt mit Code', g.__log.some((z) => /\[gast-klicker\] getrennt \(Code \d+/.test(z)));
+ck('Log: wieder verbunden', g.__log.some((z) => z.includes('[gast-klicker] verbunden')));
+
+// Gesamtprüfung: still abgerissene Verbindung (kein close) → Herzschlag merkt es, Presenter verbindet neu.
+ck('Herzschlag: Ping kommt an', await bis(() => json(letzteV()).some((m) => m.t === 'ping'), 1500));
+const vorStumm = verbindungen.length;
+pongAntwort = false;
+await bis(() => st().lage === 'getrennt', 2500);
+ck('Herzschlag: ohne Pong → getrennt', st().lage === 'getrennt');
+ck('Log: keine Antwort auf Ping', g.__log.some((z) => z.includes('[gast-klicker] keine Antwort')));
+pongAntwort = true;
+await bis(() => st().lage === 'verbunden' && verbindungen.length > vorStumm, 6000);
+ck('Herzschlag: danach wieder verbunden', st().lage === 'verbunden' && verbindungen.length > vorStumm);
 
 const datei = path.join(dir, 'gast-klicker.json');
 const gespeichert = JSON.parse(fs.readFileSync(datei, 'utf8')) as Record<string, unknown>;

@@ -3223,11 +3223,11 @@
           },
           {
             "risk": "Gast sieht „Presenter offline“ / Anzeige „Gast-Klick getrennt“",
-            "remedy": "Internet am Präsentationsrechner prüfen; der Presenter verbindet von selbst neu. Bis dahin weiter wie gewohnt selbst klicken"
+            "remedy": "Gast-Klicker eingeschaltet? Internet am Präsentationsrechner prüfen; der Presenter verbindet von selbst neu. Bis dahin weiter wie gewohnt selbst klicken"
           },
           {
             "risk": "Gast sieht „This link is not active“",
-            "remedy": "Gast-Klicker ist aus oder es gibt einen neuen Link – Gast-Klicker einschalten bzw. den aktuellen Link schicken"
+            "remedy": "Der Link ist veraltet (inzwischen „Neuer Link“ erzeugt), war noch nie verbunden oder 7 Tage unbenutzt – im Fenster Fernsteuerung den aktuellen Link kopieren, dem Gast schicken, Gast lädt die Seite neu"
           },
           {
             "risk": "Companion steuert nicht",

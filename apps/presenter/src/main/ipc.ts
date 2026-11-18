@@ -45,6 +45,7 @@ import {
   shutdownRemote,
 } from './remote';
 import { loadRemoteConfig, saveRemoteConfig } from './remote-config';
+import { getLog } from '@jm/app-runtime';
 import {
   applyGastKlicker,
   getGastKlickerStatus,
@@ -244,8 +245,6 @@ export function registerIpc(): void {
   ipcMain.handle('gastKlicker:setzeAn', (_e, an: unknown) => applyGastKlicker(an === true));
   ipcMain.handle('gastKlicker:pause', (_e, an: unknown) => setzeGastPause(an === true));
   ipcMain.handle('gastKlicker:neuerLink', () => neuerGastLink());
-  // War er beim letzten Beenden an, verbindet er gleich wieder (gleicher Link).
-  initGastKlicker();
 
   // ---- Timer sync (live countdown from JM Timer) ----
 
@@ -285,5 +284,13 @@ export function registerIpc(): void {
     initNdiAusgang();
   } catch (err) {
     ndiStartGescheitert(err);
+  }
+
+  // #317: War der Gast-Klicker beim letzten Beenden an, verbindet er gleich wieder (gleicher Link). Ganz zuletzt und
+  // gefangen – aus demselben Grund wie oben: ein Wurf kostete sonst den Editor (Gesamtprüfung 18.11.).
+  try {
+    initGastKlicker();
+  } catch (err) {
+    getLog().warn(`[gast-klicker] Start fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

@@ -33,6 +33,8 @@ const RAUM_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
 const MAX_PRESENTER_TEXT = 4096;
 const GEHEIMNIS_RE = /^[a-f0-9]{64}$/;
 const SCREENS = new Set(['live', 'black', 'white']);
+const PING = '{"t":"ping"}';
+const PONG = '{"t":"pong"}';
 const LEERER_STAND = { aktiv: false, index: 0, total: 0, screen: 'live', pausiert: false };
 
 const istGanzzahl = (v) => Number.isInteger(v) && v >= 0;
@@ -73,6 +75,8 @@ export function lesePresenterNachricht(roh) {
       return { t: 'stand', aktiv: o.aktiv, index: o.index, total: o.total, screen: o.screen, pausiert: o.pausiert };
     case 'schliessen':
       return { t: 'schliessen' };
+    case 'ping':
+      return { t: 'ping' };
     default:
       return null;
   }
@@ -113,6 +117,11 @@ export class KlickRaum {
     // Nur im Speicher der Instanz: nach dem Aufwachen aus der Hibernation leer (dann holt bildBitte das Bild neu).
     this.stand = null;
     this.bild = null;
+    // Herzschlag des Presenters (Gesamtprüfung 18.11.): Workers beantwortet den App-Ping selbst, ohne die Instanz
+    // aus der Hibernation zu wecken. Ohne Workers-Laufzeit (Selbsttest, Prüfstand) antwortet presenterNachricht.
+    if (typeof this.ctx.setWebSocketAutoResponse === 'function' && typeof globalThis.WebSocketRequestResponsePair === 'function') {
+      this.ctx.setWebSocketAutoResponse(new globalThis.WebSocketRequestResponsePair(PING, PONG));
+    }
   }
 
   jetzt() {
@@ -185,8 +194,22 @@ export class KlickRaum {
     });
   }
 
+  /**
+   * Letzter Stand des Presenters. Liegt zusätzlich im Anhang der bestätigten Presenter-Verbindung: Workers verdrängt
+   * eine ruhende Instanz (Hibernation), die Verbindungen bleiben, der Konstruktor läuft neu — ohne diesen Rückgriff
+   * sähe ein neuer Gast „keine Präsentation“ mit gesperrten Knöpfen (Gesamtprüfung 18.11.). Anhänge sind auf 2 KB
+   * begrenzt, der Stand ist winzig; das Bild holt `bildBitte` neu.
+   */
+  aktuellerStand() {
+    if (this.stand) return this.stand;
+    const p = this.presenter();
+    const gemerkt = p ? this.anhang(p).stand : null;
+    if (gemerkt && typeof gemerkt === 'object') this.stand = gemerkt;
+    return this.stand;
+  }
+
   standFuerGast() {
-    return { t: 'stand', ...(this.stand ?? LEERER_STAND), presenter: Boolean(this.presenter()) };
+    return { t: 'stand', ...(this.aktuellerStand() ?? LEERER_STAND), presenter: Boolean(this.presenter()) };
   }
 
   anAlleGaeste(obj) {
@@ -261,7 +284,7 @@ export class KlickRaum {
     a.zuletztMs = jetzt;
     ws.serializeAttachment(a);
     const p = this.presenter();
-    if (!p || this.stand?.pausiert === true) return;
+    if (!p || this.aktuellerStand()?.pausiert === true) return;
     this.sende(p, { t: 'cmd', dir: m.dir });
   }
 
@@ -303,9 +326,18 @@ export class KlickRaum {
       return;
     }
     switch (m.t) {
+      case 'ping':
+        try {
+          ws.send(PONG);
+        } catch {
+          /* weg */
+        }
+        return;
       case 'stand': {
         const { t: _t, ...stand } = m;
         this.stand = stand;
+        a.stand = stand;
+        ws.serializeAttachment(a);
         this.anAlleGaeste(this.standFuerGast());
         return;
       }
@@ -320,6 +352,8 @@ export class KlickRaum {
         }
         return;
       case 'schliessen':
+        delete a.stand;
+        ws.serializeAttachment(a);
         await this.ctx.storage.put('geschlossen', true);
         this.stand = null;
         this.bild = null;

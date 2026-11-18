@@ -82,7 +82,7 @@ export function statusText(s: GastKlickerStatus): string {
     case 'getrennt':
       return 'getrennt – verbindet neu';
     case 'abgelehnt':
-      return 'abgelehnt – „Neuer Link“ drücken';
+      return 'abgelehnt – Gast-Klicker aus- und wieder einschalten';
     default:
       return 'aus';
   }

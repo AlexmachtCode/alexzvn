@@ -110,6 +110,8 @@ const GEHEIM = 'a'.repeat(64);
 const ANDERS = 'b'.repeat(64);
 const STAND = (o = {}) => JSON.stringify({ t: 'stand', aktiv: true, index: 0, total: 3, screen: 'live', pausiert: false, ...o });
 const CMD = (dir = 'next') => JSON.stringify({ t: 'cmd', dir });
+const PING = '{"t":"ping"}';
+const PONG = '{"t":"pong"}';
 
 const RAUM_A = '530qlojw1124'; // raumAusGeheimnis('a'×64), unabhängig per node:crypto gerechnet
 const RAUM_B = 'vhy6gurjrplw'; // raumAusGeheimnis('b'×64)
@@ -340,6 +342,46 @@ check('sha256Hex', (await sha256Hex('abc')) === 'ba7816bf8f01cfea414140de5dae222
   ctx.alarmBei = null;
   await raum.alarm();
   check('alarm bei verbundenem Presenter verschiebt nur', ctx.daten.has('hash') && ctx.alarmBei === ctx.uhr + VERFALL_MS);
+}
+
+{
+  // Gesamtprüfung 18.11. (Critical): Hibernation. Workers verdrängt die Instanz, die Verbindungen bleiben; beim
+  // nächsten Ereignis läuft der Konstruktor neu. Nachgestellt mit einer FRISCHEN KlickRaum-Instanz auf demselben ctx.
+  const { ctx, raum } = neuerRaum();
+  const p = await presenter(raum);
+  await raum.webSocketMessage(p, STAND({ index: 4, total: 12 }));
+  const wach = new KlickRaum(ctx, {});
+  const g = await gast(wach);
+  const st = letzte(g, 'stand');
+  check('nach Hibernation: neuer Gast bekommt den Stand (aktiv, 5/12)', st?.aktiv === true && st.index === 4 && st.total === 12 && st.presenter === true);
+  await wach.webSocketMessage(p, STAND({ index: 4, total: 12, pausiert: true }));
+  const wach2 = new KlickRaum(ctx, {});
+  ctx.uhr += 1000;
+  const vorher = alle(p, 'cmd').length;
+  await wach2.webSocketMessage(g, CMD('next'));
+  check('nach Hibernation: pausiert bleibt pausiert (cmd verworfen)', alle(p, 'cmd').length === vorher);
+  const g2 = await gast(wach2);
+  check('nach Hibernation: Pause im Stand für neuen Gast', letzte(g2, 'stand')?.pausiert === true);
+}
+
+{
+  // Herzschlag (Gesamtprüfung 18.11.): App-Ping des Presenters; in Workers antwortet setWebSocketAutoResponse, ohne
+  // den Raum zu wecken – hier (ohne Auto-Antwort) antwortet der Raum selbst.
+  check('Presenter ping wird gelesen', lesePresenterNachricht(PING)?.t === 'ping');
+  const { raum } = neuerRaum();
+  const p = await presenter(raum);
+  await raum.webSocketMessage(p, PING);
+  check('Presenter ping → pong', p.gesendet.includes(PONG));
+  const g = await gast(raum);
+  await raum.webSocketMessage(g, PING);
+  check('Gast ping → kein pong (nur Presenter)', !g.gesendet.includes(PONG));
+  const ctxAuto = neuerCtx();
+  let paar = null;
+  ctxAuto.setWebSocketAutoResponse = (x) => { paar = x; };
+  globalThis.WebSocketRequestResponsePair = class { constructor(anfrage, antwort) { this.anfrage = anfrage; this.antwort = antwort; } };
+  new KlickRaum(ctxAuto, {});
+  delete globalThis.WebSocketRequestResponsePair;
+  check('Auto-Antwort ping → pong eingerichtet (Workers)', paar?.anfrage === PING && paar?.antwort === PONG);
 }
 
 console.log(`raum: ${passed} ok, ${failed} FAIL`);
