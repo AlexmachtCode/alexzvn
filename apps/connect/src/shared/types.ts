@@ -220,6 +220,7 @@ export type ZoomSlotModus = 'teilnehmer' | 'sprecher' | 'freigabe';
 export type ZoomSlotAufloesung = '360p' | '720p' | '1080p';
 export type ZoomSlotErsatzbild = 'transparent' | 'eingefroren' | 'schwarz' | 'weiss' | 'kachel';
 export type ZoomSlotTonArt = 'mischton' | 'person';
+export type ZoomSlotBildformat = 'original' | 'einpassen';  // #310: Hochkant-Bilder unverändert oder in 16:9 mit durchsichtigen Seiten
 export type ZoomSprecherSignal = 'sprecherVideo' | 'aktivesVideo' | 'tonAktiv';
 export type TonQuelle = 'mix' | 'person' | 'share' | 'mixShare' | 'none';  // wie slotAudio.source (6.3)
 // SlotReason, SlotAudioReason, SlotSent ('none' | 'transparent' | 'freeze' | 'black' | 'white' | 'held' | 'tile') kommen aus @jm/zoom-bridge/protocol
@@ -237,6 +238,7 @@ export interface ZoomSlotEinstellung {
   tonArt: ZoomSlotTonArt;           // Vorgabe 'mischton'
   computerton: boolean;             // nur Freigabe, Vorgabe true (O4); eigener Schalter (Abbildung tonFuerBridge, main/zoom/slots.ts)
   ohneKamera: boolean;              // nur Sprecher: „Teilnehmer ohne Kamera zeigen“, Vorgabe true (0.28)
+  bildformat: ZoomSlotBildformat;   // #310, Vorgabe 'original'; Bridge-Feld `frame` (native/fit)
 }
 export interface ZoomSlotVorgaben { aufloesung: ZoomSlotAufloesung; tonAn: boolean }  // Vorgabe 720p, Ton an
 export interface ZoomSprecherEinstellung { signal: ZoomSprecherSignal; haltezeitMs: number } // Vorgabe sprecherVideo, 1000

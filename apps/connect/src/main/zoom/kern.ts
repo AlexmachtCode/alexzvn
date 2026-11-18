@@ -125,7 +125,7 @@ import {
   gueltigeLetzteNummer, istSlotAufloesung, istSprecherSignal, neuerSlot, pruefeHaltezeit, pruefeNdiName, slotsFuerPlatte, uebergangsNdiName,
 } from './einstellungen';
 import {
-  ERSATZBILD_ZU_BRIDGE,
+  BILDFORMAT_ZU_BRIDGE, ERSATZBILD_ZU_BRIDGE,
   istOffen,
   MODUS_ZU_BRIDGE,
   planeSlotAbgleich,
@@ -323,7 +323,7 @@ type FehlerEreignis = {
  */
 const AUFBAU_FEHLER: ReadonlySet<string> = new Set<SlotFehler>([
   'slotRawRecordingFailed', 'slotSenderFailed', 'slotRendererFailed', 'slotNameTaken', 'slotBadName', 'slotBadMode',
-  'slotBadResolution', 'slotBadAudio', 'slotBadFallback', 'slotBadFlag', 'slotBadTarget',
+  'slotBadResolution', 'slotBadAudio', 'slotBadFallback', 'slotBadFrame', 'slotBadFlag', 'slotBadTarget',
 ]);
 /**
  * Nachtrag B (I-2): Antworten der Bridge auf ein slotOn, die keinen Sender anlegen (6.2, Zeile slotOn): die Aufbaufehler,
@@ -379,7 +379,11 @@ interface SlotIntern {
    * Messzeile (10.7): `geliefert` aus dem laufenden Fenster dieses Ziels (slotStats), `zuletzt` die letzte Größe dieses Ziels.
    * Fällt mit dem Sender und mit jedem `slot`-Ereignis, das Ziel, Freigabe oder Modus ändert (B55).
    */
-  mess: { geliefert: { b: number; h: number; fps: number } | null; zuletzt: { b: number; h: number } | null } | null;
+  mess: {
+    geliefert: { b: number; h: number; fps: number } | null; zuletzt: { b: number; h: number } | null;
+    /** #310: Größe, die eingepasst ins NDI ging; nur mit geliefertem Bild und outW/outH im slotStats. */
+    eingepasst: { b: number; h: number } | null;
+  } | null;
   /** Log 7.8 (B66): letzte Art `state/reason`, wann jede Art zuletzt geschrieben wurde, letzte Minutenzeile. */
   log: { art: string; zeiten: Map<string, number>; minute: number };
   /** persistentId der gezeigten Person beim Weggang ('' ohne) und der Vergleich bei ihrer Rückkehr (T62c, MS16). */
@@ -753,6 +757,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       }),
       messText: slotMessZeile({
         zustand: zst, modus: e.modus, stufe: e.aufloesung, geliefert: x.mess?.geliefert ?? null, zuletzt: x.mess?.zuletzt ?? null,
+        eingepasst: x.mess?.eingepasst ?? null,
       }),
     };
   }
@@ -2138,7 +2143,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // NB16 (Nachtrag B): ohne jede Größe im slotStats bleibt die bekannte letzte Größe dieses Ziels stehen.
     const zuletzt = geliefert !== null ? { b: geliefert.b, h: geliefert.h }
       : e.lastW !== undefined && e.lastH !== undefined ? { b: e.lastW, h: e.lastH } : x.mess?.zuletzt ?? null;
-    x.mess = { geliefert, zuletzt };
+    const eingepasst = geliefert !== null && e.outW !== undefined && e.outH !== undefined ? { b: e.outW, h: e.outH } : null;
+    x.mess = { geliefert, zuletzt, eingepasst };
     // T66: jede neue Lücke eines Sprecher-Slots.
     if (x.e.modus === 'sprecher' && e.gapMs !== undefined && letzteLueckeJe.get(e.slot) !== e.gapMs) {
       letzteLueckeJe.set(e.slot, e.gapMs);
@@ -2152,13 +2158,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     }
   }
 
-  /** Logzeile eines Slots (7.8): Nummer, Modus, Zustand, Grund, `sent`, Messwerte, Ton und Zähler; nie ein Name (0.23). */
+  /** Logzeile eines Slots (7.8): Nummer, Modus, Zustand, Grund, `sent`, Bildformat und eingepasste NDI-Größe (`out`, #310), Messwerte, Ton und Zähler; nie ein Name (0.23). */
   function slotLogZeile(x: SlotIntern): string {
     const b = x.bridge;
     const m = messwerte.slots.find((s) => s.slot === x.e.nr);
     const w = (v: number | undefined): string => (v === undefined ? '-' : String(v));
     const teile = [
-      `${b?.state ?? 'off'}/${b?.reason ?? '-'}`, `sent ${b?.sent ?? '-'}`, `${w(m?.w)}×${w(m?.h)}`, `fps ${w(m?.fps)}`,
+      `${b?.state ?? 'off'}/${b?.reason ?? '-'}`, `sent ${b?.sent ?? '-'}`, `bildformat ${x.e.bildformat}`, `${w(m?.w)}×${w(m?.h)}`,
+      `out ${m?.outW !== undefined && m.outH !== undefined ? `${m.outW}×${m.outH}` : '-'}`, `fps ${w(m?.fps)}`,
       `fallbackFps ${w(m?.fallbackFps)}`, `workUs ${w(m?.workUs)}`, `copyUs ${w(m?.copyUs)}`, `previewUs ${w(m?.previewUs)}`,
       `memKb ${w(m?.memKb)}`, `resSet ${w(m?.resSet)}`, `resGot ${w(m?.resGot)}`, `rawType ${w(m?.rawType)}`,
       `Ton ${x.ton?.source ?? 'none'}/${x.ton?.configured ?? 'none'}`, `audioPps ${w(m?.audioPps)}`, `mixDrops ${w(m?.mixDrops)}`,
@@ -2269,7 +2276,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (x.s.fehlerstand === 'keine_antwort') x.s = { ...x.s, fehlerstand: null };
     // 10.7 (B55): neues Ziel, neue Freigabe oder neuer Modus → Messzeile neu; ohne Bild gilt die letzte Größe (T51c).
     if (vorher !== null && (vorher.target !== e.target || vorher.share !== e.share || vorher.mode !== e.mode)) x.mess = null;
-    else if (e.state !== 'live' && x.mess?.geliefert) x.mess = { geliefert: null, zuletzt: { b: x.mess.geliefert.b, h: x.mess.geliefert.h } };
+    else if (e.state !== 'live' && x.mess?.geliefert) x.mess = { geliefert: null, zuletzt: { b: x.mess.geliefert.b, h: x.mess.geliefert.h }, eingepasst: null };
     // #287: e.ndi ist nach der Prüfung oben der Name, mit dem der Sender startete; er bleibt am Sender.
     x.bridge = { gen: aktiveGen, state: e.state, mode: e.mode, target: e.target, share: e.share, reason: e.reason, sent: e.sent, ndi: e.ndi };
     if (e.mode === 'speaker' && e.target !== 0 && e.target !== letzterSprecher) {
@@ -2615,6 +2622,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (neu.modus !== alt.modus) set.mode = MODUS_ZU_BRIDGE[neu.modus];
     if (neu.aufloesung !== alt.aufloesung) set.resolution = neu.aufloesung;
     if (neu.ersatzbild !== alt.ersatzbild) set.fallback = ERSATZBILD_ZU_BRIDGE[neu.ersatzbild];
+    if (neu.bildformat !== alt.bildformat) set.frame = BILDFORMAT_ZU_BRIDGE[neu.bildformat];
     if (neu.ohneKamera !== alt.ohneKamera) set.showNoVideo = neu.ohneKamera;
     const tonAlt = tonFuerBridge(alt);
     const tonNeu = tonFuerBridge(neu);
@@ -2718,6 +2726,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         copy: dezimal(m.copyUs / 1000), prev: dezimal(m.previewUs / 1000), mem: dezimal(m.memKb / 1024), res: m.resWanted,
         resSetName: m.resSet !== undefined ? sdkErrorName(m.resSet) : UNBEKANNT, resGot: u(m.resGot), pps: u(m.audioPps), md: u(m.mixDrops),
         ms: u(m.mixSilenceMs),
+        ein: m.outW !== undefined && m.outH !== undefined ? { b: m.outW, h: m.outH } : null, format: x.e.bildformat,
       }));
       z.push(MESS_TEXT.T62b({
         nr: m.slot, ub: m.userVideoW ?? null, uh: m.userVideoH ?? null, hd: b?.hdVideo ?? null, og: b?.originalSize ?? null,

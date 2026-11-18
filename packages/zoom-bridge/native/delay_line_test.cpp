@@ -322,6 +322,105 @@ void test_kachel_nur_ueber_pushkachel_306() {
   CHECK(!ohneVerweis && d.size() == 0);
 }
 
+// #310: ein Rohbild „einpassen in 16 x 9“ (Rahmengroesse klein, nur als Merker - die Warteschlange passt nichts ein).
+int einpassBild(DelayLine& d, uint8_t kennung, int ms) {
+  const auto b = bild(kennung);
+  return d.pushEinpassen(b.data(), kLen, kW, kH, 16, 9, at(ms));
+}
+
+// Kennungen der entnommenen Bilder, wie Ausgang sie am Ausgang von release() sieht.
+std::vector<int> kennungenVon(const std::vector<DelayLine::Frame>& aus) {
+  Ausgang a;
+  for (const auto& f : aus) a(f);
+  return a.kennungen;
+}
+
+void test_einpassen_traegt_rahmen_310() {
+  std::printf("#310 Bildart Einpassen: traegt Rohbild (Kopie) und Rahmengroesse bis zum Ausgang\n");
+  DelayLine d;
+  auto b = bild(5);
+  CHECK(d.pushEinpassen(b.data(), kLen, kW, kH, 16, 9, at(0)) == 0);
+  b[0] = 99;   // Zoom ueberschreibt seinen Puffer mit dem naechsten Bild
+  Bildart art = Bildart::I420;
+  int w = 0, h = 0, rahmenW = 0, rahmenH = 0, kennung = 0;
+  const auto r = d.release(at(100), milliseconds(0), [&](const DelayLine::Frame& f) {
+    art = f.art; w = f.w; h = f.h; rahmenW = f.rahmenW; rahmenH = f.rahmenH; kennung = f.data.at(0);
+  });
+  CHECK(r.sent == 1);
+  CHECK(art == Bildart::Einpassen);
+  CHECK(w == 4);
+  CHECK(h == 2);
+  CHECK(rahmenW == 16);
+  CHECK(rahmenH == 9);
+  CHECK(kennung == 5);
+}
+
+void test_einpassen_nur_ueber_pusheinpassen_310() {
+  std::printf("#310 Bildart Einpassen nur mit Bilddaten und Rahmengroesse: pushBild(Einpassen) und Rahmen 0 legen nichts ab\n");
+  DelayLine d;
+  const auto b = bild(1);
+  CHECK(d.pushBild(Bildart::Einpassen, 4, 2, at(0)) == 0);
+  CHECK(d.pushEinpassen(b.data(), kLen, kW, kH, 0, 9, at(0)) == 0);
+  CHECK(d.pushEinpassen(b.data(), kLen, kW, kH, 16, 0, at(0)) == 0);
+  CHECK(d.pushEinpassen(b.data(), kLen - 1, kW, kH, 16, 9, at(0)) == 0);   // Laenge passt nicht zu w x h
+  CHECK(d.size() == 0);
+}
+
+void test_einpassen_reihenfolge_310() {
+  std::printf("#310 entnehmen: I420, Einpassen und Schwarz kommen in Ankunftsreihenfolge heraus\n");
+  DelayLine d;
+  pushBild(d, 1, 0);
+  einpassBild(d, 2, 10);
+  d.pushBild(Bildart::Schwarz, kW, kH, at(20));
+  std::vector<DelayLine::Frame> aus;
+  auto r = d.entnehmen(at(500), milliseconds(100), aus);
+  CHECK((kennungenVon(aus) == std::vector<int>{1, 2, 0xFF}));
+  CHECK(r.sent == 3);
+  CHECK(r.dropped == 0);
+  CHECK(d.size() == 0);
+  d.zuruecklegen(aus);
+  einpassBild(d, 3, 30);
+  pushBild(d, 4, 40);
+  r = d.entnehmen(at(500), milliseconds(100), aus);
+  CHECK((kennungenVon(aus) == std::vector<int>{3, 4}));
+  CHECK(r.sent == 2);
+}
+
+void test_entnehmen_wie_release_310() {
+  std::printf("#310 entnehmen folgt derselben Faelligkeits- und Schwallregel wie release\n");
+  DelayLine a, b;
+  for (int i = 0; i < 10; ++i) {
+    pushBild(a, static_cast<uint8_t>(i + 1), i * 10);
+    pushBild(b, static_cast<uint8_t>(i + 1), i * 10);
+  }
+  pushBild(a, 42, 900);
+  pushBild(b, 42, 900);
+  Ausgang ausRelease;
+  const auto ra = a.release(at(600), milliseconds(500), ausRelease);
+  std::vector<DelayLine::Frame> aus;
+  const auto rb = b.entnehmen(at(600), milliseconds(500), aus);
+  CHECK(ausRelease.kennungen == std::vector<int>{10});
+  CHECK(kennungenVon(aus) == std::vector<int>{10});
+  CHECK(ra.sent == 1 && rb.sent == 1);
+  CHECK(ra.dropped == 9 && rb.dropped == 9);
+  CHECK(a.size() == 1 && b.size() == 1);   // das Bild von 900 ms wartet in beiden weiter
+}
+
+void test_zuruecklegen_fuellt_vorrat_310() {
+  std::printf("#310 zuruecklegen gibt die Puffer der entnommenen Bilder in den Vorrat\n");
+  DelayLine d;
+  pushBild(d, 1, 0);
+  einpassBild(d, 2, 10);
+  d.pushBild(Bildart::Schwarz, kW, kH, at(20));
+  std::vector<DelayLine::Frame> aus;
+  d.entnehmen(at(100), milliseconds(0), aus);
+  CHECK(aus.size() == 3);
+  CHECK(d.spareBuffers() == 0);
+  d.zuruecklegen(aus);
+  CHECK(d.spareBuffers() == 2);   // das Schwarzbild hat keinen Puffer
+  CHECK(aus.empty());
+}
+
 int main() {
   test_nicht_vor_der_zeit();
   test_reihenfolge_mit_schwarzbild();
@@ -340,6 +439,11 @@ int main() {
   test_bildarten_pb18();
   test_kachel_verweis_306();
   test_kachel_nur_ueber_pushkachel_306();
+  test_einpassen_traegt_rahmen_310();
+  test_einpassen_nur_ueber_pusheinpassen_310();
+  test_einpassen_reihenfolge_310();
+  test_entnehmen_wie_release_310();
+  test_zuruecklegen_fuellt_vorrat_310();
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;
 }

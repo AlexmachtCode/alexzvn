@@ -1007,12 +1007,12 @@ console.log('— B5 · ST100–ST106, SF5–SF14 wörtlich, SLOT_FEHLER_TEXT je 
   const T101 = SLOT_KT.T101('NAME_X');
   const ERWARTET: Record<string, string> = {
     slotBadNumber: T103, slotBadName: T103, slotNameTaken: SLOT_KT.T102, slotBadMode: T103, slotBadResolution: T103,
-    slotBadAudio: T103, slotBadFallback: T103, slotBadFlag: T103, slotBadTarget: T103, slotAlreadyOn: 'keine', slotNotOn: 'keine',
+    slotBadAudio: T103, slotBadFallback: T103, slotBadFrame: T103, slotBadFlag: T103, slotBadTarget: T103, slotAlreadyOn: 'keine', slotNotOn: 'keine',
     slotNoPrivilege: SLOT_KT.T100, slotReconnecting: 'keine', slotRawRecordingFailed: T101, slotSenderFailed: T101, slotRendererFailed: T101,
     slotSubscribeFailed: 'keine', slotBufferMismatch: SLOT_KT.T105(4), speakerBadSignal: T103, speakerBadHold: T103, previewUnavailable: 'keine',
   };
-  ck('SLOT_FEHLER_TEXT hat genau die 21 Schlüssel aus SLOT_ERROR_KEYS',
-    JSON.stringify(Object.keys(SLOT_FEHLER_TEXT).sort()) === JSON.stringify([...SLOT_ERROR_KEYS].sort()) && SLOT_ERROR_KEYS.length === 21);
+  ck('SLOT_FEHLER_TEXT hat genau die 22 Schlüssel aus SLOT_ERROR_KEYS',
+    JSON.stringify(Object.keys(SLOT_FEHLER_TEXT).sort()) === JSON.stringify([...SLOT_ERROR_KEYS].sort()) && SLOT_ERROR_KEYS.length === 22);
   for (const k of SLOT_ERROR_KEYS) {
     const v = SLOT_FEHLER_TEXT[k];
     ck(`SLOT_FEHLER_TEXT ${k} → ${ERWARTET[k] === 'keine' ? 'keine' : 'Text'}`, (v === 'keine' ? 'keine' : v({ name: 'NAME_X', nr: 4 })) === ERWARTET[k]);
@@ -1429,6 +1429,9 @@ console.log('— B7 · ST50–ST58i, ST75, ST75b, ST76 wörtlich; Messbeispiele 
     ['T51', m({ stufe: '1080p' }), '1080p gewünscht · Zoom liefert 1280×720 · 25 Bilder/s'],
     ['T51b', m({ geliefert: null, zuletzt: null }), '720p gewünscht · noch kein Bild'],
     ['T51c', m({ geliefert: null }), '720p · zuletzt 1280×720 · jetzt kein Bild'],
+    ['#310 eingepasst', m({ stufe: '1080p', geliefert: { b: 720, h: 1280, fps: 23.5 }, eingepasst: { b: 1920, h: 1080 } }), '1080p gewünscht · Zoom liefert 720×1280 · 23,5 Bilder/s · NDI 1920×1080 eingepasst'],
+    ['#310 ohne Bild kein NDI-Teil', m({ geliefert: null, eingepasst: { b: 1920, h: 1080 } }), '720p · zuletzt 1280×720 · jetzt kein Bild'],
+    ['#310 nicht eingepasst', m({ eingepasst: null }), '720p · Zoom liefert 1280×720 · 25 Bilder/s'],
     ['T50 (Bildrate mit Nachkommastelle)', m({ geliefert: { b: 1280, h: 720, fps: 12.5 } }), '720p · Zoom liefert 1280×720 · 12,5 Bilder/s'],
     ['T52', VORSCHAU_TEXT.T52, 'Vorschau ohne Bild-Versatz, etwa 2 Bilder pro Sekunde.'],
     ['T53', VORSCHAU_TEXT.T53, 'eingefroren'],
@@ -1931,8 +1934,11 @@ console.log('— B9 · ST5–ST9, ST48, ST49, ST61–ST73, ST77, ST80–ST86, ST
     ['T61', MESS_TEXT.T61({ cpu: '12,5', sys: '3,1', mem: 412, q: 37, d: 0, mv: 2, hl: 1 }),
       'Zoom-Bridge: 12,5 % eines Kerns · System 3,1 % · Arbeitsspeicher 412 MB · Ton-Warteschlange höchstens 37 Pakete, 0 verworfen · Zoom-Ereignisse verworfen 2 · zurückgehaltene Renderer 1'],
     ['T62', MESS_TEXT.T62({ nr: 3, modus: 'sprecher', b: 1280, h: 720, fps: 25, ffps: 0, work: '4,2', copy: '0,8', prev: '1,1', mem: 18, res: '720p',
-      resSetName: 'SDKERR_SUCCESS', resGot: 2, pps: 50, md: 0, ms: 40 }),
-      'Slot 3 (Aktiver Sprecher): 1280×720, 25 Bilder/s, Ersatzbilder 0/s · Bridge-Anteil 4,2 ms/s (davon Kopie 0,8, Vorschau 1,1) · Speicher 18 MB · Auflösung 720p: SDKERR_SUCCESS, Renderer meldet 2 · Ton 50 Pakete/s, Mischer verworfen 0 ms, Stille eingefügt 40 ms'],
+      resSetName: 'SDKERR_SUCCESS', resGot: 2, pps: 50, md: 0, ms: 40, ein: null, format: 'original' }),
+      'Slot 3 (Aktiver Sprecher): 1280×720, 25 Bilder/s, Ersatzbilder 0/s · Bridge-Anteil 4,2 ms/s (davon Kopie 0,8, Vorschau 1,1) · Speicher 18 MB · Auflösung 720p: SDKERR_SUCCESS, Renderer meldet 2 · Bildformat Original · Ton 50 Pakete/s, Mischer verworfen 0 ms, Stille eingefügt 40 ms'],
+    ['T62 (eingepasst, #310)', MESS_TEXT.T62({ nr: 3, modus: 'sprecher', b: 720, h: 1280, fps: 25, ffps: 0, work: '4,2', copy: '0,8', prev: '1,1', mem: 18, res: '1080p',
+      resSetName: 'SDKERR_SUCCESS', resGot: 2, pps: 50, md: 0, ms: 40, ein: { b: 1920, h: 1080 }, format: 'einpassen' }),
+      'Slot 3 (Aktiver Sprecher): 720×1280 → NDI 1920×1080 eingepasst, 25 Bilder/s, Ersatzbilder 0/s · Bridge-Anteil 4,2 ms/s (davon Kopie 0,8, Vorschau 1,1) · Speicher 18 MB · Auflösung 1080p: SDKERR_SUCCESS, Renderer meldet 2 · Bildformat 16:9 einpassen · Ton 50 Pakete/s, Mischer verworfen 0 ms, Stille eingefügt 40 ms'],
     ['T62b', MESS_TEXT.T62b({ nr: 2, ub: 1280, uh: 720, hd: true, og: false, rv: { w: 1280, h: 720, fps: 30 }, rs: { w: 1920, h: 1080, fps: 12.5 } }),
       'Slot 2: Zoom nennt als Videogröße 1280×720 · HD-Video an · Originalgröße aus · Meeting empfängt Video 1280×720, 30 Bilder/s, Freigabe 1920×1080, 12,5 Bilder/s'],
     ['T62b (fehlende Werte)', MESS_TEXT.T62b({ nr: 2, ub: null, uh: 720, hd: null, og: null, rv: null, rs: null }),
@@ -2253,7 +2259,7 @@ console.log('— B21: Eingabe der Teilnehmerliste je Person (Spec 10.10)');
   const lage = (nr: number, modus: Modus, person: string, zielName: string | null, an = true, doppelt = 1, zweifel = false): Lage => ({
     einstellung: {
       nr, ndiName: `Zoom ${nr}`, modus, person, an, aufloesung: '720p', ersatzbild: 'transparent', tonAn: true, tonArt: 'mischton',
-      computerton: true, ohneKamera: true,
+      computerton: true, ohneKamera: true, bildformat: 'original',
     },
     voruebergehend: false, anNurMeeting: false, zustand: an ? 'zeigt' : 'aus', grund: null, gesendet: null, zielName, doppelt, zweifel,
     imWarteraum: false, wahl: null, geliefert: null, zuletzt: null, ton: 'aus', tonGrund: null, tonQuelle: 'none', tonEingestellt: 'none',
@@ -2321,6 +2327,25 @@ console.log('— B21: Eingabe der Teilnehmerliste je Person (Spec 10.10)');
   ck('#290: … null ohne Gemerktes oder ohne gemerkte Nummer', P('1234567890', '', null) === null && P('', '', { ...L, nummer: null }) === null
     && P('1234567890', '', { ...L, nummer: '' }) === null);
   ck('#290: kenncodePlatzhalterZeigen ist ersetzt (ein Name, eine Regel)', zt.kenncodePlatzhalterZeigen === undefined);
+}
+
+{
+  // #310: Auswahlfeld „Bildformat“ der Slot-Einstellungen.
+  const zt: Record<string, any> = await import('../src/shared/zoom-text');
+  const EIN = 'Hochkant-Bilder mittig in 16:9, Seiten durchsichtig';
+  const FREI = 'Freigaben bleiben in ihrer eigenen Größe';
+  ck('#310: BILDFORMAT_FELD und BILDFORMAT_NAME wörtlich', zt.BILDFORMAT_FELD === 'Bildformat'
+    && zt.BILDFORMAT_NAME?.original === 'Original' && zt.BILDFORMAT_NAME?.einpassen === '16:9 einpassen');
+  ck('#310: BILDFORMAT_HINWEIS wörtlich', zt.BILDFORMAT_HINWEIS?.einpassen === EIN && zt.BILDFORMAT_HINWEIS?.freigabe === FREI);
+  ck('#310: bildformatHinweis: Freigabe → freigabe, Teilnehmer und Sprecher → einpassen',
+    typeof zt.bildformatHinweis === 'function' && zt.bildformatHinweis('freigabe') === FREI
+    && zt.bildformatHinweis('teilnehmer') === EIN && zt.bildformatHinweis('sprecher') === EIN);
+  ck('#310: BILDFORMAT_REIHE deckt jeden Wert von BILDFORMAT_NAME',
+    Array.isArray(zt.BILDFORMAT_REIHE) && zt.BILDFORMAT_NAME !== undefined
+    && [...zt.BILDFORMAT_REIHE].sort().join() === Object.keys(zt.BILDFORMAT_NAME).sort().join());
+  ck('#310: keine ASCII-Anführungszeichen in den Texten',
+    [zt.BILDFORMAT_FELD, ...Object.values(zt.BILDFORMAT_NAME ?? {}), ...Object.values(zt.BILDFORMAT_HINWEIS ?? {})]
+      .every((t) => typeof t === 'string' && !/["']/.test(t)));
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

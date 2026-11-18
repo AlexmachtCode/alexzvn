@@ -43,6 +43,7 @@ struct SlotBefehl {
   slotlogic::SlotAudio audio = slotlogic::SlotAudio::Off;
   bool shareAudio = false;
   slotlogic::Fallback fallback = slotlogic::Fallback::Transparent;
+  slotlogic::Bildformat frame = slotlogic::Bildformat::Native;   // #310; fehlt = native
   bool showNoVideo = true;
 };
 
@@ -55,6 +56,7 @@ struct SlotAenderung {
   bool audioGesetzt = false;       slotlogic::SlotAudio audio = slotlogic::SlotAudio::Off;
   bool shareAudioGesetzt = false;  bool shareAudio = false;
   bool fallbackGesetzt = false;    slotlogic::Fallback fallback = slotlogic::Fallback::Transparent;
+  bool frameGesetzt = false;       slotlogic::Bildformat frame = slotlogic::Bildformat::Native;
   bool showNoVideoGesetzt = false; bool showNoVideo = true;
 };
 

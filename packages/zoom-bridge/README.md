@@ -303,8 +303,8 @@ Absturz behandelt.
 | `join` | `meetingId`, `passcode`, `displayName` | Tritt dem Meeting bei. |
 | `leave` | — | Verlässt das Meeting, bleibt aber angemeldet. Baut **vorher** alle Slots ab (jeder meldet sich einzeln, Ton vor Bild, siehe Abschnitt 7; bis 0.3.0 alle Video-Abos). |
 | `quit` | — | Beendet `zoom-bridge.exe` sauber. |
-| `slotOn` | `slot` (1–16), `ndi` (fertiger NDI-Name, höchstens 60 Code-Punkte, ohne `:`), `mode` (`participant`/`speaker`/`share`), `id` (nur `participant`; fehlt oder 0 = kein Ziel), `resolution` (`360p`/`720p`/`1080p`), `audio` (`mix`/`person`/`off`), `shareAudio` (Bool), `fallback` (`transparent`/`freeze`/`black`/`white`/`tile`; `tile` = Zoom-Kachel, nur Teilnehmer/Sprecher, #306), `showNoVideo` (Bool) | Legt den Slot mit seinem festen NDI-Sender an und hängt ihn auf das erste Ziel seines Modus — **Einzelheiten in Abschnitt 7**. Der erste Fehler der Prüffolge gewinnt; angelegt wird dann nichts. |
-| `slotSet` | `slot`, dazu beliebig viele von `mode`, `id`, `resolution`, `audio`, `shareAudio`, `fallback`, `showNoVideo` | Prüft erst alle Felder, ändert dann; höchstens ein Umhängen. Der Sender bleibt. |
+| `slotOn` | `slot` (1–16), `ndi` (fertiger NDI-Name, höchstens 60 Code-Punkte, ohne `:`), `mode` (`participant`/`speaker`/`share`), `id` (nur `participant`; fehlt oder 0 = kein Ziel), `resolution` (`360p`/`720p`/`1080p`), `audio` (`mix`/`person`/`off`), `shareAudio` (Bool), `fallback` (`transparent`/`freeze`/`black`/`white`/`tile`; `tile` = Zoom-Kachel, nur Teilnehmer/Sprecher, #306), `frame` (`native`/`fit`, optional, fehlt = `native`; `fit` = Hochkant in 16:9 einpassen, nur Teilnehmer/Sprecher, #310), `showNoVideo` (Bool) | Legt den Slot mit seinem festen NDI-Sender an und hängt ihn auf das erste Ziel seines Modus — **Einzelheiten in Abschnitt 7**. Der erste Fehler der Prüffolge gewinnt; angelegt wird dann nichts. |
+| `slotSet` | `slot`, dazu beliebig viele von `mode`, `id`, `resolution`, `audio`, `shareAudio`, `fallback`, `frame`, `showNoVideo` | Prüft erst alle Felder, ändert dann; höchstens ein Umhängen. Der Sender bleibt. |
 | `slotOff` | `slot` | Baut den Slot ab und schließt seinen Sender. |
 | `speakerConfig` | `signal` (`speakerVideo`/`activeVideo`/`activeAudio`), `holdMs` (0–5000) | Signal und Haltezeit für alle Sprecher-Slots; braucht kein `init`. |
 | `previewMode` | `on` (Bool) | Vorschau aller Slots an oder aus; braucht kein `init`. |
@@ -658,9 +658,24 @@ Freigabe leert die Versatz-Warteschlange.
 steht in `slotStats` (`w`, `h`, `fps`, `resSet`, `resGot`). Die HD-Einstellungen von
 Zoom liest die Bridge nur, sie ändert sie nie.
 
+**Bildformat (#310) bei den Ersatzbildern.** Ob ein Ersatzbild eingepasst geht, entscheidet die
+Bridge je Herzschlag neu, aus der aktuellen Einstellung und Zooms letzter Größe: nur bei
+`frame:"fit"`, nur für Teilnehmer und Sprecher und nur, wenn diese Größe nicht (innerhalb
+1 %) 16:9 ist. Ein Wechsel mitten im Aussetzer wirkt also beim nächsten Ersatzbild. Der Rahmen
+hat die Nenngröße des Slots (640×360, 1280×720 oder 1920×1080), die Seiten bleiben
+transparent. Im Modus fit gilt: `transparent` geht als ganz transparentes Bild in der vollen
+Nenngröße hinaus; `black` und `white` bauen ein einfarbiges Bild in Zooms letzter Größe und
+passen es in den 16:9-Rahmen ein; `freeze` passt das letzte Livebild ein; `tile` baut die Kachel
+in Zooms letzter Größe (z. B. hochkant) und passt sie ein. Das Halten (`Sent::Held`, nur
+Freigabe-Slots) wird nie eingepasst. Mit `native` bleibt alles wie vorher.
+
 **Speicher je Slot.** `slotStats.memKb` zählt Versatz-Warteschlange, Kopie, Vorschau
 und Ersatzbild-Puffer des Slots, seit #306 auch die Zoom-Kachel (fertige Kachel und
-dunkle Grundfläche, je höchstens ein I420-Bild). Gerechnet sind für die Versatz-Warteschlange bei
+dunkle Grundfläche, je höchstens ein I420-Bild). Seit #310 zählt `memKb` auch die
+eingepassten Rahmen mit: den Live-Rahmen des Slots, den Ausgaberahmen des Ersatzbildes,
+dessen einfarbige I420-Quelle (Größe von Zoom, nur für schwarz und weiß) und den Rahmen im
+Sender. Jeder Rahmen reserviert beim ersten Einpassen einmal Platz für ein UYVA-Bild in
+1920×1080 (rund 6,2 MB), unabhängig von der Auflösung des Slots. Gerechnet sind für die Versatz-Warteschlange bei
 1080p und 1000 ms rund 94 MB je Slot, bei 16 Slots bis 1,5 GB (Spec RS6);
 Freigabe-Slots haben keinen Versatz.
 
@@ -676,7 +691,9 @@ und `bridgeStats.previewOn` dasselbe sagen.
 
 **Messwerte.** `slotStats` (je Slot) und `bridgeStats` (Prozess) kommen alle 2 s.
 Felder fehlen, solange nichts gemessen ist, und nach jedem Umhängen wieder, bis ein
-Bild des neuen Ziels kam. `fallbackFps` zählt die gesendeten Ersatzbilder und die
+Bild des neuen Ziels kam. `outW`/`outH` (#310) nennen die Größe, die ins NDI ging, und
+stehen nur, wenn im Fenster ein Bild kam und das letzte davon eingepasst ging
+(Ausgabegröße ≠ `w`×`h`); bei „native“ und bei Bildern, die schon 16:9 sind, fehlen sie. `fallbackFps` zählt die gesendeten Ersatzbilder und die
 Haltebilder (Spec 6.17). `shareAudioRate` und `shareAudioCh` stehen in `slotStats`,
 nicht in `bridgeStats`; sie fehlen, solange kein Computerton angekommen ist, und
 fallen bei neuem Ton-Stand und bei neuem Eingang B des Mischers wieder weg, bis
@@ -691,7 +708,7 @@ Hauptschleife das Signal bzw. den Freigabe-Rückruf übernimmt.
 | --- | --- | --- |
 | `slotBadNumber` | `slot` unlesbar oder nicht 1–16 | – |
 | `slotBadName`, `slotNameTaken` | NDI-Name ungültig bzw. schon an einem laufenden Slot | `slot` |
-| `slotBadMode`, `slotBadResolution`, `slotBadAudio`, `slotBadFallback`, `slotBadFlag` | Feld fehlt, ist unlesbar oder unbekannt | `slot` |
+| `slotBadMode`, `slotBadResolution`, `slotBadAudio`, `slotBadFallback`, `slotBadFrame`, `slotBadFlag` | Feld fehlt, ist unlesbar oder unbekannt | `slot` |
 | `slotBadTarget` | `id` vorhanden, aber keine ganze Zahl bis `UINT_MAX` (nicht in der Spec: Ein Tippfehler soll nicht still „kein Ziel“ heißen) | `slot` |
 | `slotAlreadyOn`, `slotNotOn` | `slotOn` auf laufendem bzw. `slotSet`/`slotOff` auf nicht laufendem Slot | `slot` |
 | `slotReconnecting` | `slotOn` während der Renderer-Sperre; nichts angelegt | `slot` |

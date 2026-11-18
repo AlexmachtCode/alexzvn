@@ -4,7 +4,7 @@
 // Gültig → `wert` ist eine neue Kopie mit genau den bekannten Feldern; die Hülle gibt sie unverändert an den Kern (KF5).
 import { SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
 import type { ZoomSlotEinstellung, ZoomSlotVorgaben, ZoomSprecherEinstellung } from '../../shared/types';
-import { istSlotAufloesung, istSlotErsatzbild, istSlotModus, istSlotTonArt, istSprecherSignal } from './einstellungen';
+import { istSlotAufloesung, istSlotBildformat, istSlotErsatzbild, istSlotModus, istSlotTonArt, istSprecherSignal } from './einstellungen';
 
 /** Obergrenze je Zeichenkette (NDI-Name, Person); alles darüber ist keine Eingabe der Karte. */
 export const SLOT_TEXT_MAX = 512;
@@ -44,7 +44,7 @@ const istTrotz = (v: unknown): v is boolean | undefined => v === undefined || ty
 /** Je änderbares Feld die Formprüfung; `nr` und `an` sind nicht änderbar (7.9). */
 const AENDERBAR: { [K in keyof SlotAenderung]-?: (v: unknown) => boolean } = {
   ndiName: istText, modus: istSlotModus, person: istText, aufloesung: istSlotAufloesung, ersatzbild: istSlotErsatzbild,
-  tonAn: istBool, tonArt: istSlotTonArt, computerton: istBool, ohneKamera: istBool,
+  tonAn: istBool, tonArt: istSlotTonArt, computerton: istBool, ohneKamera: istBool, bildformat: istSlotBildformat,
 };
 
 function aenderung(roh: unknown): SlotAenderung | null {

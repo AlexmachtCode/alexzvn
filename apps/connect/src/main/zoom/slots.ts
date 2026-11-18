@@ -3,9 +3,9 @@
 // soll.ts ab Task B12). Ohne Electron (G-B2): Laufzeit-Importe nur relativ (./einstellungen
 // für ndiNameMitPerson zieht @jm/zoom-bridge mit, ohne Electron). Bridge-Typen und -Konstanten aus @jm/zoom-bridge/protocol.
 // Der Kern (kern.ts) ruft diese Funktionen und führt aus, was sie ergeben.
-import type { Command, SlotAudioSetting, SlotFallback, SlotMode, SlotReason, SlotState, SpeakerSignal } from '@jm/zoom-bridge/protocol';
+import type { Command, SlotAudioSetting, SlotFallback, SlotFrame, SlotMode, SlotReason, SlotState, SpeakerSignal } from '@jm/zoom-bridge/protocol';
 import type {
-  ZoomErlaubnis, ZoomSlotEinstellung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotZustand, ZoomSprecherSignal, ZoomZustand,
+  ZoomErlaubnis, ZoomSlotBildformat, ZoomSlotEinstellung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotZustand, ZoomSprecherSignal, ZoomZustand,
 } from '../../shared/types';
 import { BETRIEBSGROESSE } from '../../shared/zoom-text';
 import { ndiNameMitPerson } from './einstellungen';
@@ -130,6 +130,8 @@ export const MODUS_ZU_BRIDGE: Record<ZoomSlotModus, SlotMode> = { teilnehmer: 'p
 export const ERSATZBILD_ZU_BRIDGE: Record<ZoomSlotErsatzbild, SlotFallback> = {
   transparent: 'transparent', eingefroren: 'freeze', schwarz: 'black', weiss: 'white', kachel: 'tile',
 };
+/** Bildformat in Connect → `frame` der Bridge (#310). */
+export const BILDFORMAT_ZU_BRIDGE: Record<ZoomSlotBildformat, SlotFrame> = { original: 'native', einpassen: 'fit' };
 /** Sprecher-Signal in Connect → `signal` von `speakerConfig` (Spec 3, 7.6). */
 export const SIGNAL_ZU_BRIDGE: Record<ZoomSprecherSignal, SpeakerSignal> = {
   sprecherVideo: 'speakerVideo', aktivesVideo: 'activeVideo', tonAktiv: 'activeAudio',
@@ -152,6 +154,7 @@ export function slotOnBefehl(e: ZoomSlotEinstellung, ziel: number, ndi: string):
     audio: ton.audio,
     shareAudio: ton.shareAudio,
     fallback: ERSATZBILD_ZU_BRIDGE[e.ersatzbild],
+    frame: BILDFORMAT_ZU_BRIDGE[e.bildformat],
     showNoVideo: e.ohneKamera,
   };
 }

@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <Processing.NDI.Lib.h>
+#include "bild_einpassen.h"
 #include "delay_line.h"
 
 /**
@@ -98,8 +99,25 @@ class NdiSender {
    * eintreffenden Bild - die Quelle behaelt so Zooms eigenen Bildtakt statt
    * des 15-ms-Rasters der Hauptschleife. Bei 0 und leerer Warteschlange ist
    * das GENAU der Weg von vor Punkt 5 (Stage-2-Abnahme bleibt gueltig).
+   * Gibt gerade ein anderer Thread wartende Bilder aus (Staffel, #310), reiht
+   * sich das Bild ein, statt sie zu ueberholen.
    */
   void sendI420(const uint8_t* buf, int width, int height);
+
+  /**
+   * Ob ein Bild JETZT direkt hinausginge, ohne Warteschlange (#310): Sender offen und entweder "ohne Versatz" oder
+   * Versatz 0, nichts wartet und niemand haelt die Staffel. Dann passt der Aufrufer selbst ein und sendet ueber
+   * sendUYVA(); sonst nimmt er sendI420Einpassen(). Nur ein Momentbild - der Aufrufer haelt die Sperre danach nicht.
+   */
+  bool direktFrei();
+
+  /**
+   * Reiht ein Rohbild „einpassen“ (#310) ein: eine KOPIE des I420-Bildes w x h (Laenge einpass::i420Bytes) mit der
+   * Rahmengroesse rahmenW x rahmenH, IMMER durch die Warteschlange (Bildart::Einpassen), auch bei Versatz 0. Danach
+   * gibt es aus, was faellig ist - eingepasst wird beim Ausgeben in den Ausgaberahmen des Senders, ausserhalb von
+   * mutex_ (releaseDueLocked). Haelt ein anderer Thread die Staffel, kehrt der Aufruf nach dem Einreihen sofort zurueck.
+   */
+  void sendI420Einpassen(const uint8_t* i420, int w, int h, int rahmenW, int rahmenH);
 
   /**
    * Sendet ein schwarzes I420-Vollbild dieser Groesse. Mit Bild-Versatz
@@ -128,8 +146,11 @@ class NdiSender {
    * UYVY-Ebene mit 2 Byte je Bildpunkt (Zeilenabstand 2 * Breite), direkt
    * dahinter die Alpha-Ebene mit 1 Byte je Bildpunkt; Puffer 3 * B * H Byte.
    * GEHT IMMER DIREKT HINAUS, ohne Warteschlange: die Warteschlange traegt
-   * nur I420-Bilder und die fuenf Bildarten (delay_line.h). Ersatzbilder mit
-   * Versatz nehmen darum sendTransparent().
+   * keine UYVA-Bilder (delay_line.h). Ersatzbilder mit Versatz nehmen darum
+   * sendTransparent(). #310: der Direktweg des eingepassten Rahmens - nur
+   * wenn direktFrei(); sonst reiht der Aufrufer das ROHBILD ueber
+   * sendI420Einpassen() ein (ein fertiger 1080p-Rahmen waere ~6,2 MB statt
+   * ~1,4 MB je wartendem Bild, Spec #310).
    */
   void sendUYVA(const uint8_t* buf, int width, int height);
 
@@ -156,14 +177,17 @@ class NdiSender {
    */
   void setOhneVersatz(bool an);
 
-  /** Verwirft die wartenden Bilder samt Vorrat (DelayLine::clear(), Spec 6.14). */
+  /**
+   * Verwirft die wartenden Bilder samt Vorrat (DelayLine::clear(), Spec 6.14) - auch die, die ein Staffelhalter
+   * schon entnommen, aber noch nicht gesendet hat (#310, generation_): danach geht kein Bild des alten Stands hinaus.
+   */
   void leereVersatz();
 
   /**
    * Belegter Speicher dieses Senders in Byte: wartende Bilder und Vorrat der
    * Versatz-Warteschlange (geschaetzt aus der Groesse des letzten I420-Bildes,
-   * delay_line.h zaehlt keine Bytes) und die drei Ersatzbild-Puffer. Fuer
-   * slotStats.memKb (Spec 6.17).
+   * delay_line.h zaehlt keine Bytes), die drei Ersatzbild-Puffer und der
+   * Ausgaberahmen des Einpassens (#310). Fuer slotStats.memKb (Spec 6.17).
    */
   size_t speicherBytes();
 
@@ -244,13 +268,22 @@ class NdiSender {
 
   /**
    * Gibt aus delay_ aus, was jetzt faellig ist - `nachlauf` waehlt die Regel
-   * (releaseNachlauf mit Karenz statt release). Der Aufrufer MUSS mutex_
-   * halten - Ausgeben UND Senden liegen in EINER kritischen Sektion, sonst
-   * koennten Rueckruf-Thread und Hauptschleife zwei Bilder in vertauschter
-   * Reihenfolge senden. Schreibt die Zaehler fort.
+   * (mit Karenz, wie DelayLine::releaseNachlauf). Der Aufrufer MUSS mutex_
+   * ueber `lock` halten und haelt sie auch nach der Rueckkehr wieder. Schreibt
+   * die Zaehler fort.
+   *
+   * DIE STAFFEL (#310): wer ausgibt, setzt ausgabeLaeuft_ und gibt die
+   * entnommenen Bilder (faellig_) in Reihenfolge aus. Fuer Bildart::Einpassen
+   * oeffnet er mutex_, passt in ausgabeRahmen_ ein und sendet wieder unter
+   * mutex_ - so wartet kein Zoom-Rueckruf auf eine Einpassung. Solange er die
+   * Staffel haelt, entnimmt niemand sonst (Rueckgabe 0, das Bild bleibt fuer
+   * den naechsten Anstoss liegen) und sendI420, Ersatzbilder und Kachel gehen
+   * nicht direkt hinaus, sondern reihen sich ein - sie ueberholen ihn nicht.
+   * Ausgenommen: "ohne Versatz" und sendUYVA(), die nie einreihen. Ohne
+   * Einpassen-Bilder in der Warteschlange bleibt mutex_ zu.
    * @return wie viele Bilder verworfen wurden.
    */
-  int releaseDueLocked(bool nachlauf);
+  int releaseDueLocked(std::unique_lock<std::mutex>& lock, bool nachlauf);
 
   NDIlib_send_instance_t send_ = nullptr;
   // Die wartenden Bilder bei Bild-Versatz. Leer, solange der Versatz 0 ist.
@@ -274,6 +307,20 @@ class NdiSender {
   bool ohneVersatz_ = false;
   // Groesse des letzten I420-Bildes in der Warteschlange, fuer speicherBytes().
   size_t letzteBildBytes_ = 0;
+  // Staffel (#310, releaseDueLocked), unter mutex_: true, solange ein Thread entnommene Bilder ausgibt.
+  bool ausgabeLaeuft_ = false;
+  // Die entnommenen Bilder des Staffelhalters. Unter mutex_ gefuellt und geleert; dazwischen liest NUR der
+  // Staffelhalter sie, auch ohne mutex_ (sonst fasst sie niemand an, solange ausgabeLaeuft_ gilt).
+  std::vector<DelayLine::Frame> faellig_;
+  // Der Ausgaberahmen des Einpassens: NUR der Staffelhalter schreibt und liest ihn, ohne mutex_. Einmal mit
+  // einpass::RAHMEN_MAX_BYTES angelegt (rahmenVorbereiten), danach keine Speicheranforderung je Bild.
+  einpass::Rahmen ausgabeRahmen_;
+  // Dessen Speicher fuer speicherBytes(), unter mutex_ nachgefuehrt (der Rahmen selbst ist dort nicht lesbar).
+  size_t ausgabeRahmenBytes_ = 0;
+  // Stand der Warteschlange (#310, Fixrunde 1), unter mutex_: leereVersatz() und close() zaehlen ihn hoch. Der
+  // Staffelhalter merkt ihn beim Entnehmen; hat er sich nach einer Einpass-Luecke geaendert, sendet er aus faellig_
+  // nichts mehr - sonst ginge nach dem Wechsel zur Freigabe noch ein altes Personenbild hinaus.
+  uint32_t generation_ = 0;
   // Wiederverwendeter Stillepuffer - aus demselben Grund wie black_: je
   // Herzschlag neu zu belegen waere 100-mal je Sekunde je Abo eine
   // Speicheranforderung fuer immer denselben Inhalt (Nullen).

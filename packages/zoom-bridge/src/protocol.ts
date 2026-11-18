@@ -70,6 +70,12 @@ export type SlotAudioSetting = (typeof SLOT_AUDIO_SETTINGS)[number];
  */
 export const SLOT_FALLBACKS = ['transparent', 'freeze', 'black', 'white', 'tile'] as const;
 export type SlotFallback = (typeof SLOT_FALLBACKS)[number];
+/**
+ * Bildformat des Slots (#310): 'native' = das Bild wie Zoom es liefert, 'fit' = Hochkant in 16:9 einpassen. Gilt nur
+ * für Teilnehmer/Sprecher, bei share ohne Wirkung; auf slotOn optional, fehlt = 'native'.
+ */
+export const SLOT_FRAMES = ['native', 'fit'] as const;
+export type SlotFrame = (typeof SLOT_FRAMES)[number];
 export const SLOT_STATES = ['starting', 'live', 'fallback', 'held', 'off'] as const;
 export type SlotState = (typeof SLOT_STATES)[number];
 /**
@@ -139,7 +145,7 @@ export type SharingStatusName = (typeof SHARING_STATUS_NAMES)[number];
  * Nachtrag D (M8): slotBadFlag meldet auch `previewMode` mit unlesbarem `on`, dann ohne `slot`.
  */
 export const SLOT_ERROR_KEYS = [
-  'slotBadNumber', 'slotBadName', 'slotNameTaken', 'slotBadMode', 'slotBadResolution', 'slotBadAudio', 'slotBadFallback',
+  'slotBadNumber', 'slotBadName', 'slotNameTaken', 'slotBadMode', 'slotBadResolution', 'slotBadAudio', 'slotBadFallback', 'slotBadFrame',
   'slotBadFlag', 'slotBadTarget', 'slotAlreadyOn', 'slotNotOn', 'slotNoPrivilege', 'slotReconnecting',
   'slotRawRecordingFailed', 'slotSenderFailed', 'slotRendererFailed', 'slotSubscribeFailed', 'slotBufferMismatch',
   'speakerBadSignal', 'speakerBadHold', 'previewUnavailable',
@@ -170,6 +176,7 @@ const SLOT_ERROR_NAMES: Record<SlotFehler, string> = {
   slotBadResolution: 'SLOT_BAD_RESOLUTION',
   slotBadAudio: 'SLOT_BAD_AUDIO',
   slotBadFallback: 'SLOT_BAD_FALLBACK',
+  slotBadFrame: 'SLOT_BAD_FRAME',
   slotBadFlag: 'SLOT_BAD_FLAG',
   slotBadTarget: 'SLOT_BAD_TARGET',
   slotAlreadyOn: 'SLOT_ALREADY_ON',
@@ -211,7 +218,8 @@ export type Command =
   //     wie \n) oder einer \u-Folge im Rohtext -> slotBadName
   //  3. Name gleich dem eines ANDEREN laufenden Slots (Bytevergleich) -> slotNameTaken (Spec 6.2: direkt nach dem Namen)
   //  4. mode, resolution, audio, fallback fehlend, unlesbar oder unbekannt -> slotBadMode, slotBadResolution,
-  //     slotBadAudio, slotBadFallback (in dieser Reihenfolge)
+  //     slotBadAudio, slotBadFallback (in dieser Reihenfolge); danach frame vorhanden, aber unlesbar oder unbekannt
+  //     -> slotBadFrame (fehlt = native)
   //  5. shareAudio oder showNoVideo fehlend oder unlesbar -> slotBadFlag
   //  6. id vorhanden, aber kein Ganzzahl-Literal von 0 bis UINT_MAX -> slotBadTarget; fehlt id oder ist es 0: kein Ziel
   //  7. Slot laeuft schon -> slotAlreadyOn
@@ -223,11 +231,11 @@ export type Command =
   // previewMode: on unlesbar -> slotBadFlag (ohne slot). speakerConfig und previewMode brauchen kein init.
   | {
       cmd: 'slotOn'; slot: number; ndi: string; mode: SlotMode; id?: number; resolution: SlotResolution;
-      audio: SlotAudioSetting; shareAudio: boolean; fallback: SlotFallback; showNoVideo: boolean;
+      audio: SlotAudioSetting; shareAudio: boolean; fallback: SlotFallback; frame?: SlotFrame; showNoVideo: boolean;
     }
   | {
       cmd: 'slotSet'; slot: number; mode?: SlotMode; id?: number; resolution?: SlotResolution; audio?: SlotAudioSetting;
-      shareAudio?: boolean; fallback?: SlotFallback; showNoVideo?: boolean;
+      shareAudio?: boolean; fallback?: SlotFallback; frame?: SlotFrame; showNoVideo?: boolean;
     }
   | { cmd: 'slotOff'; slot: number }
   | { cmd: 'speakerConfig'; signal: SpeakerSignal; holdMs: number }
@@ -315,8 +323,9 @@ export type WireEvent =
       ev: 'slotAudio'; slot: number; state: AudioState; source: SlotAudioSource; configured: SlotAudioSource;
       reason: SlotAudioReason; sampleRate?: number; channels?: number;
     }
+  // slotStats: outW/outH (#310, Groesse, die ins NDI ging) stehen nur, wenn das letzte Bild des Fensters eingepasst ging.
   | {
-      ev: 'slotStats'; slot: number; w?: number; h?: number; lastW?: number; lastH?: number; fps?: number;
+      ev: 'slotStats'; slot: number; w?: number; h?: number; outW?: number; outH?: number; lastW?: number; lastH?: number; fps?: number;
       fallbackFps: number; heldFrames: number; workUs: number; copyUs: number; previewUs: number; memKb: number;
       resWanted: SlotResolution; resSet?: number; resGot?: number; rawType?: number; userVideoW?: number;
       userVideoH?: number; foreignFrames: number; lateFrames: number; tooFrequent: number; noShareData: number;

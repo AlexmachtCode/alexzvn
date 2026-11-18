@@ -37,6 +37,7 @@ enum class TonGrund : uint8_t {                                                 
 enum class TonQuelle : uint8_t { Mix, Person, Share, MixShare, None };             // SLOT_AUDIO_SOURCES
 enum class TonZustand : uint8_t { Waiting, Live, Silent, Off };                    // AUDIO_STATES
 enum class Signal : uint8_t { SpeakerVideo, ActiveVideo, ActiveAudio };            // SPEAKER_SIGNALS
+enum class Bildformat : uint8_t { Native, Fit };                                   // SLOT_FRAMES (#310)
 
 inline constexpr const char* MODUS_NAMEN[3] = {"participant", "speaker", "share"};
 // #306: "tile" = Zoom-Kachel (nur Teilnehmer/Sprecher; im Modus Freigabe wie "transparent"), hinten angehängt.
@@ -56,6 +57,8 @@ inline constexpr const char* TONGRUND_NAMEN[12] = {
 inline constexpr const char* TONQUELLE_NAMEN[5] = {"mix", "person", "share", "mixShare", "none"};
 inline constexpr const char* TONZUSTAND_NAMEN[4] = {"waiting", "live", "silent", "off"};
 inline constexpr const char* SIGNAL_NAMEN[3] = {"speakerVideo", "activeVideo", "activeAudio"};
+// #310: "native" = Bild wie von Zoom, "fit" = Hochkant in 16:9 einpassen.
+inline constexpr const char* BILDFORMAT_NAMEN[2] = {"native", "fit"};
 
 // Jede Tabelle hat genau so viele Eintraege, wie ihre Aufzaehlung Werte hat (der letzte Wert + 1).
 static_assert(static_cast<int>(SlotMode::Share) + 1 == 3, "MODUS_NAMEN");
@@ -68,6 +71,7 @@ static_assert(static_cast<int>(TonGrund::privilegeRevoked) + 1 == 12, "TONGRUND_
 static_assert(static_cast<int>(TonQuelle::None) + 1 == 5, "TONQUELLE_NAMEN");
 static_assert(static_cast<int>(TonZustand::Off) + 1 == 4, "TONZUSTAND_NAMEN");
 static_assert(static_cast<int>(Signal::ActiveAudio) + 1 == 3, "SIGNAL_NAMEN");
+static_assert(static_cast<int>(Bildformat::Fit) + 1 == 2, "BILDFORMAT_NAMEN");
 
 inline const char* name(SlotMode v) { return MODUS_NAMEN[static_cast<int>(v)]; }
 inline const char* name(Fallback v) { return FALLBACK_NAMEN[static_cast<int>(v)]; }
@@ -79,6 +83,7 @@ inline const char* name(TonGrund v) { return TONGRUND_NAMEN[static_cast<int>(v)]
 inline const char* name(TonQuelle v) { return TONQUELLE_NAMEN[static_cast<int>(v)]; }
 inline const char* name(TonZustand v) { return TONZUSTAND_NAMEN[static_cast<int>(v)]; }
 inline const char* name(Signal v) { return SIGNAL_NAMEN[static_cast<int>(v)]; }
+inline const char* name(Bildformat v) { return BILDFORMAT_NAMEN[static_cast<int>(v)]; }
 
 // ---- Aktiver Sprecher (Spec 6.8, E19; Task A4) -----------------------------------------------------------
 
@@ -477,12 +482,15 @@ struct ZielStand {
   bool rawOffGesehen = false;      // RawData_Off nach dem ersten Bild dieses Ziels (6.7)
   bool kopieGueltig = false;       // Kopie stammt von diesem Ziel (6.12)
   int64_t retargetMs = 0;          // Beginn der Luecke (6.10)
+  // #310: was zuletzt ins NDI ging (eingepasst: Nenngroesse des Rahmens, sonst lastW/lastH); 0 = noch nichts.
+  int ausgabeW = 0, ausgabeH = 0;
 };
 
 inline bool operator==(const ZielStand& a, const ZielStand& b) {
   return a.lastFrameMs == b.lastFrameMs && a.lastW == b.lastW && a.lastH == b.lastH && a.gemessen == b.gemessen &&
          a.mismatchGemeldet == b.mismatchGemeldet && a.bildSeitUmhaengen == b.bildSeitUmhaengen &&
-         a.rawOffGesehen == b.rawOffGesehen && a.kopieGueltig == b.kopieGueltig && a.retargetMs == b.retargetMs;
+         a.rawOffGesehen == b.rawOffGesehen && a.kopieGueltig == b.kopieGueltig && a.retargetMs == b.retargetMs &&
+         a.ausgabeW == b.ausgabeW && a.ausgabeH == b.ausgabeH;
 }
 inline bool operator!=(const ZielStand& a, const ZielStand& b) { return !(a == b); }
 

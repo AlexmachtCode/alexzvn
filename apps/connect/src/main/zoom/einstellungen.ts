@@ -4,7 +4,7 @@
 import { readCredentials } from '@jm/zoom-bridge';
 import { SLOT_NR_MAX, SPEAKER_HOLD_MAX_MS } from '@jm/zoom-bridge/protocol';
 import type {
-  ZoomSlotAufloesung, ZoomSlotEinstellung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotVorgaben, ZoomSprecherEinstellung,
+  ZoomSlotAufloesung, ZoomSlotBildformat, ZoomSlotEinstellung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotVorgaben, ZoomSprecherEinstellung,
   ZoomSprecherSignal,
 } from '../../shared/types';
 import { HALTEZEIT_UNGUELTIG, NDI_NAME_MAX, NDI_NAME_TEXT } from '../../shared/zoom-text';
@@ -88,12 +88,14 @@ const MODI: Record<ZoomSlotModus, true> = { teilnehmer: true, sprecher: true, fr
 const AUFLOESUNGEN: Record<ZoomSlotAufloesung, true> = { '360p': true, '720p': true, '1080p': true };
 const ERSATZBILDER: Record<ZoomSlotErsatzbild, true> = { transparent: true, eingefroren: true, schwarz: true, weiss: true, kachel: true };
 const TONARTEN: Record<ZoomSlotTonArt, true> = { mischton: true, person: true };
+const BILDFORMATE: Record<ZoomSlotBildformat, true> = { original: true, einpassen: true };
 const SIGNALE: Record<ZoomSprecherSignal, true> = { sprecherVideo: true, aktivesVideo: true, tonAktiv: true };
 const istIn = <T extends string>(werte: Record<T, true>, v: unknown): v is T => typeof v === 'string' && Object.hasOwn(werte, v);
 export const istSlotModus = (v: unknown): v is ZoomSlotModus => istIn(MODI, v);
 export const istSlotAufloesung = (v: unknown): v is ZoomSlotAufloesung => istIn(AUFLOESUNGEN, v);
 export const istSlotErsatzbild = (v: unknown): v is ZoomSlotErsatzbild => istIn(ERSATZBILDER, v);
 export const istSlotTonArt = (v: unknown): v is ZoomSlotTonArt => istIn(TONARTEN, v);
+export const istSlotBildformat = (v: unknown): v is ZoomSlotBildformat => istIn(BILDFORMATE, v);
 export const istSprecherSignal = (v: unknown): v is ZoomSprecherSignal => istIn(SIGNALE, v);
 const istObjekt = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -194,7 +196,7 @@ export function ndiNameMitPerson(ndiName: string, person: string): string {
 export function neuerSlot(nr: number, v: ZoomSlotVorgaben, belegteNamen: readonly string[]): ZoomSlotEinstellung {
   return {
     nr, ndiName: freierName(`Zoom ${nr}`, belegteNamen), modus: 'teilnehmer', person: '', an: false, aufloesung: v.aufloesung,
-    ersatzbild: 'transparent', tonAn: v.tonAn, tonArt: 'mischton', computerton: true, ohneKamera: true,
+    ersatzbild: 'transparent', tonAn: v.tonAn, tonArt: 'mischton', computerton: true, ohneKamera: true, bildformat: 'original',
   };
 }
 
@@ -202,11 +204,11 @@ export function neuerSlot(nr: number, v: ZoomSlotVorgaben, belegteNamen: readonl
  * Der eine Konstruktor von ZoomSlotEinstellung (Spec 7.2 „Lesen“, 7.10): unbekannte oder fehlende Werte → Vorgabe eines
  * neuen Slots (7.6). Verworfen (`null`) wird ein Eintrag ohne Nummer 1–16 oder ohne gültigen NDI-Namen (E26): Ein
  * ungültiger Name wird nicht still ersetzt, sonst verlöre ein Bildmischer-Eingang seine Quelle (T91 nennt die Zahl).
- * Genau die elf Felder; fremde fallen weg.
+ * Genau die zwölf Felder; fremde fallen weg.
  */
 export function normiereSlot(roh: unknown): ZoomSlotEinstellung | null {
   if (!istObjekt(roh)) return null;
-  const { nr, ndiName, modus, person, an, aufloesung, ersatzbild, tonAn, tonArt, computerton, ohneKamera } = roh;
+  const { nr, ndiName, modus, person, an, aufloesung, ersatzbild, tonAn, tonArt, computerton, ohneKamera, bildformat } = roh;
   if (typeof nr !== 'number' || !Number.isInteger(nr) || nr < 1 || nr > SLOT_NR_MAX) return null;
   if (typeof ndiName !== 'string' || ndiNameFormFehler(ndiName) !== null) return null;
   return {
@@ -221,6 +223,7 @@ export function normiereSlot(roh: unknown): ZoomSlotEinstellung | null {
     tonArt: istSlotTonArt(tonArt) ? tonArt : 'mischton',
     computerton: typeof computerton === 'boolean' ? computerton : true,
     ohneKamera: typeof ohneKamera === 'boolean' ? ohneKamera : true,
+    bildformat: istSlotBildformat(bildformat) ? bildformat : 'original',
   };
 }
 

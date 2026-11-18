@@ -22,6 +22,7 @@
 #include "emit.h"
 #include "session.h"
 #include "ndi_sender.h"
+#include "bild_einpassen.h"   // --ndi-selftest: eingepasste Pruefrahmen (#310)
 #include "video.h"
 // Nur fuer callbacksTakeMeetingEndTeardown(): der Abbau nach dem Meeting-Ende
 // gehoert in diese Schleife, nicht in den Rueckruf (Begruendung unten).
@@ -276,6 +277,7 @@ void handle(const std::string& line) {
     if (leseAufloesung(line, &b.res) != Lesung::Gut) { emitSlotFehler("slotBadResolution", nr); return; }
     if (leseName(line, "audio", slotlogic::AUDIO_NAMEN, &b.audio) != Lesung::Gut) { emitSlotFehler("slotBadAudio", nr); return; }
     if (leseName(line, "fallback", slotlogic::FALLBACK_NAMEN, &b.fallback) != Lesung::Gut) { emitSlotFehler("slotBadFallback", nr); return; }
+    if (leseName(line, "frame", slotlogic::BILDFORMAT_NAMEN, &b.frame) == Lesung::Schlecht) { emitSlotFehler("slotBadFrame", nr); return; }   // fehlt = native (#310)
     if (leseSchalter(line, "shareAudio", &b.shareAudio) != Lesung::Gut ||       // 5.
         leseSchalter(line, "showNoVideo", &b.showNoVideo) != Lesung::Gut) {
       emitSlotFehler("slotBadFlag", nr);
@@ -295,6 +297,7 @@ void handle(const std::string& line) {
     // auf. Ohne NDI-Namen (0.23).
     emitLog(L"Felder gelesen: slotOn " + std::to_wstring(nr) + L", Aufloesung " + breit(slotAufloesungName(b.res)) +
             L", Ersatzbild " + breit(slotlogic::FALLBACK_NAMEN[static_cast<int>(b.fallback)]) +
+            L", Format " + breit(slotlogic::BILDFORMAT_NAMEN[static_cast<int>(b.frame)]) +
             L", Computerton " + (b.shareAudio ? L"ja" : L"nein") + L", ohne Kamera " + (b.showNoVideo ? L"ja" : L"nein") +
             L", Ziel " + (b.id != 0 ? std::to_wstring(b.id) : std::wstring(L"keins")));
     slotOn(b);   // 8.-11.
@@ -318,6 +321,9 @@ void handle(const std::string& line) {
     l = leseName(line, "fallback", slotlogic::FALLBACK_NAMEN, &a.fallback);
     if (l == Lesung::Schlecht) { emitSlotFehler("slotBadFallback", nr); return; }
     a.fallbackGesetzt = l == Lesung::Gut;
+    l = leseName(line, "frame", slotlogic::BILDFORMAT_NAMEN, &a.frame);
+    if (l == Lesung::Schlecht) { emitSlotFehler("slotBadFrame", nr); return; }
+    a.frameGesetzt = l == Lesung::Gut;
     const Lesung teilen = leseSchalter(line, "shareAudio", &a.shareAudio);
     const Lesung ohneVideo = leseSchalter(line, "showNoVideo", &a.showNoVideo);
     if (teilen == Lesung::Schlecht || ohneVideo == Lesung::Schlecht) { emitSlotFehler("slotBadFlag", nr); return; }
@@ -332,6 +338,7 @@ void handle(const std::string& line) {
             (a.audioGesetzt ? L", Ton " + breit(slotlogic::AUDIO_NAMEN[static_cast<int>(a.audio)]) : std::wstring()) +
             (a.resGesetzt ? L", Aufloesung " + breit(slotAufloesungName(a.res)) : std::wstring()) +
             (a.fallbackGesetzt ? L", Ersatzbild " + breit(slotlogic::FALLBACK_NAMEN[static_cast<int>(a.fallback)]) : std::wstring()) +
+            (a.frameGesetzt ? L", Format " + breit(slotlogic::BILDFORMAT_NAMEN[static_cast<int>(a.frame)]) : std::wstring()) +
             (a.shareAudioGesetzt ? std::wstring(L", Computerton ") + (a.shareAudio ? L"ja" : L"nein") : std::wstring()) +
             (a.showNoVideoGesetzt ? std::wstring(L", ohne Kamera ") + (a.showNoVideo ? L"ja" : L"nein") : std::wstring()) +
             (a.idGesetzt ? L", Ziel " + (a.id != 0 ? std::to_wstring(a.id) : std::wstring(L"keins")) : std::wstring()));
@@ -403,10 +410,11 @@ void handle(const std::string& line) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  // Diagnose-Sonderweg: baut NUR einen NDI-Sender auf, schickt zwei Sekunden
-  // Schwarz und geht. RUFT keine Zoom-Funktion auf - kein InitSDK, keine
-  // Anmeldung, kein Beitritt. Beantwortet die Frage "traegt NDI auf diesem
-  // Rechner ueberhaupt?" getrennt von der Frage "funktioniert Zoom?".
+  // Diagnose-Sonderweg: baut NUR einen NDI-Sender auf, schickt rund fuenf
+  // Sekunden Schwarz, Stille und (#310) eingepasste Rahmen und geht. RUFT
+  // keine Zoom-Funktion auf - kein InitSDK, keine Anmeldung, kein Beitritt.
+  // Beantwortet die Frage "traegt NDI auf diesem Rechner ueberhaupt?"
+  // getrennt von der Frage "funktioniert Zoom?".
   //
   // BERICHTIGT (Nachbesserung Runde 1, Befund 2): "ruft keine Zoom-Funktion
   // auf" ist NICHT dasselbe wie "braucht Zoom nicht". zoom-bridge.exe ist
@@ -473,12 +481,33 @@ int main(int argc, char** argv) {
     // der Pruefstand meldete dann "kein Ton angekommen" fuer eine Quelle, die
     // tatsaechlich gesendet hat. Ein falscher Befund waere schlimmer als gar
     // kein Test.
+    //
+    // #310: der Selbsttest belegt auch das Einpassen am ECHTEN NDI-Ausgang
+    // (test/ndi-probe.mjs, Rueckgabe 7) - beide Wege, die video.cpp nimmt
+    // (dort je nach direktFrei() der eine ODER der andere, hier beide je
+    // Durchlauf auf derselben Quelle): ein fertiger 1920x1080-Rahmen (Grau, Y 128) geht ueber sendUYVA() DIREKT
+    // hinaus; ein 360x640-Rohbild (hell, Y 200) geht ueber sendI420Einpassen()
+    // durch die Warteschlange und wird beim Ausgeben vom Staffelhalter in
+    // 1280x720 eingepasst. Die 100 ms Versatz schicken auch das Schwarz durch
+    // die Warteschlange, damit Staffel und Ersatzbild sich dort begegnen.
+    // Zwei Groessen, damit der Empfaenger die Wege auseinanderhalten kann.
+    ndiSetVideoDelayMs(100);
+    std::vector<uint8_t> q1;
+    einpass::einfarbigI420(q1, 720, 1280, 128, 128, 128);
+    einpass::Rahmen direkt;
+    einpass::rahmenVorbereiten(direkt, 1920, 1080, einpass::bildFlaeche(720, 1280, 1920, 1080));
+    einpass::einpassen(q1.data(), 720, 1280, direkt);
+    std::vector<uint8_t> q2;
+    einpass::einfarbigI420(q2, 360, 640, 200, 128, 128);
     for (int i = 0; i < 150; ++i) {
-      s.sendBlack(640, 360);
+      s.sendBlack(640, 360);                                 // mit Versatz: durch die Warteschlange
+      s.sendUYVA(direkt.daten.data(), 1920, 1080);           // Direktweg
+      s.sendI420Einpassen(q2.data(), 360, 640, 1280, 720);   // Versatzweg mit Staffel
       // 10 ms Stille je Bild-Durchlauf. Der Selbsttest belegt damit BEIDE
       // Wege derselben Quelle - eine Quelle, die Bild wirbt und beim Ton
       // schweigt, saehe im Netz genauso aus wie eine funktionierende.
       s.sendSilence(480, 48000, 1);
+      s.pump();
       Sleep(33);
     }
     s.close();

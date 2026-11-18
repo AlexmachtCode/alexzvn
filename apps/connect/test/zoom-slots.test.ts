@@ -62,7 +62,7 @@ wache.unref();
 function slotEinst(nr: number, teil: Partial<ZoomSlotEinstellung> = {}): ZoomSlotEinstellung {
   return {
     nr, ndiName: `Zoom ${nr}`, modus: 'teilnehmer', person: '', an: false, aufloesung: '720p', ersatzbild: 'transparent',
-    tonAn: true, tonArt: 'mischton', computerton: true, ohneKamera: true, ...teil,
+    tonAn: true, tonArt: 'mischton', computerton: true, ohneKamera: true, bildformat: 'original', ...teil,
   };
 }
 
@@ -383,12 +383,12 @@ console.log('— PK2 · Beitritt mit Teilnehmer-Slot „Anna“ und Sprecher-Slo
   ck('… Slot 1: alle Felder aus der Einstellung, Ziel Anna, Ton nach der Abbildung 7.1',
     JSON.stringify(eins) === JSON.stringify({
       cmd: 'slotOn', slot: 1, ndi: 'Zoom 1', mode: 'participant', id: ANNA, resolution: '720p', audio: 'mix', shareAudio: true,
-      fallback: 'transparent', showNoVideo: true,
+      fallback: 'transparent', frame: 'native', showNoVideo: true,
     }));
   ck('… Slot 2: Modus speaker ohne Ziel (die Bridge wählt), 1080p, schwarz',
     JSON.stringify(zwei) === JSON.stringify({
       cmd: 'slotOn', slot: 2, ndi: 'Zoom 2', mode: 'speaker', resolution: '1080p', audio: 'mix', shareAudio: true, fallback: 'black',
-      showNoVideo: true,
+      frame: 'native', showNoVideo: true,
     }));
   ck('… n = 2 (Teilnehmer zeigt, Sprecher mit Ersatzbild), k = 1', await bis(() => p.kern.kurz().slotsLaufen === 2 && p.kern.kurz().slotsErsatz === 1, 3000));
   const kv = p.kern.stateKv();
@@ -561,13 +561,13 @@ console.log('— PK33 · Quelltext: kein Zweig mehr für video und audio (Altweg
 console.log('— KF1 · slotLage(): jedes Feld aus der Lage (Rundlauf mit abweichenden Werten)');
 {
   const besonders = slotEinst(1, {
-    ndiName: 'Bühne links', person: 'Anna', an: true, aufloesung: '1080p', ersatzbild: 'schwarz', tonArt: 'person', computerton: false, ohneKamera: false,
+    ndiName: 'Bühne links', person: 'Anna', an: true, aufloesung: '1080p', ersatzbild: 'schwarz', tonArt: 'person', computerton: false, ohneKamera: false, bildformat: 'einpassen',
   });
   const p = baueKern({ slots: [besonders, slotEinst(2, { person: 'Anna', an: true, tonAn: false })] });
   await insMeeting(p);
   ck('KF1: beide Slots zeigen Anna', await bis(() => lage(p, 1)?.zustand === 'zeigt' && lage(p, 2)?.zustand === 'zeigt' && lage(p, 1)?.ton === 'live', 3000));
   const l = lage(p, 1);
-  ck('… einstellung: alle elf Felder wie gespeichert', JSON.stringify(l?.einstellung) === JSON.stringify(besonders));
+  ck('… einstellung: alle zwölf Felder wie gespeichert', JSON.stringify(l?.einstellung) === JSON.stringify(besonders));
   ck('… zustand zeigt, grund frames, gesendet none, zielName Anna', l?.zustand === 'zeigt' && l.grund === 'frames' && l.gesendet === 'none' && l.zielName === 'Anna');
   ck('… doppelt 1, kein Zweifel, nicht im Warteraum, keine Wahl', l?.doppelt === 1 && !l.zweifel && !l.imWarteraum && l.wahl === null);
   ck('… Ton: live/packets, gemessen und eingestellt „person“', l?.ton === 'live' && l.tonGrund === 'packets' && l.tonQuelle === 'person'
@@ -1585,6 +1585,20 @@ for (const tonArt of ['mischton', 'person'] as const) {
   await p.aufraeumen();
 }
 
+console.log('— #310 · Minutenzeile im Log nennt eingepasste NDI-Größe und Bildformat');
+{
+  const p = baueKern({ slots: [slotEinst(1, { modus: 'freigabe', an: true })], stell: () => ({ FAKE_TEILNEHMER: '3', FAKE_FREIGABEN: `300:${CARLA}:101:begin` }) });
+  await insMeeting(p);
+  ck('#310: Slot zeigt', await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000));
+  p.einspeisen(1, {
+    ev: 'slotStats', slot: 1, w: 720, h: 1280, fps: 25, outW: 1920, outH: 1080, fallbackFps: 0, heldFrames: 0, workUs: 0, copyUs: 0, previewUs: 0, memKb: 0,
+    resWanted: '720p', foreignFrames: 0, lateFrames: 0, tooFrequent: 0, noShareData: 0, rendererNew: 0, rendererLost: 0,
+  });
+  ck('#310: Logzeile: „720×1280 · out 1920×1080“ und „bildformat original“ nach „sent …“',
+    await bis(() => p.logs.some((z) => z.startsWith('[zoom] Slot 1 (') && / sent \S+ · bildformat original · 720×1280 · out 1920×1080 · fps /.test(z)), 3000));
+  await p.aufraeumen();
+}
+
 console.log('— PK15 · Auflösung: T50, T51, T51c; nie „0 Bilder/s“ (10.7)');
 {
   const p = baueKern({
@@ -1614,6 +1628,21 @@ for (const [geliefert, stufe, soll] of [
   const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true, aufloesung: stufe })], stell: () => ({ FAKE_AUFLOESUNG_GELIEFERT: geliefert }) });
   await insMeeting(p);
   ck(`PK15: ${stufe} und ${geliefert} → T50`, await bis(() => lage(p, 1)?.messText === soll, 4000));
+  await p.aufraeumen();
+}
+
+console.log('— #310 · Messzeile nennt die eingepasste NDI-Größe; nach „Original“ verschwindet sie');
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true, aufloesung: '1080p', bildformat: 'einpassen' })],
+    stell: () => ({ FAKE_AUFLOESUNG_GELIEFERT: '720x1280' }),
+  });
+  await insMeeting(p);
+  ck('#310: einpassen und 720×1280 → „… · NDI 1920×1080 eingepasst“',
+    await bis(() => lage(p, 1)?.messText === '1080p gewünscht · Zoom liefert 720×1280 · 30 Bilder/s · NDI 1920×1080 eingepasst', 6000));
+  ck('#310: slotAendern bildformat original', ok(p.kern.slotAendern(1, { bildformat: 'original' })));
+  ck('#310: nach „Original“ ohne NDI-Teil',
+    await bis(() => lage(p, 1)?.messText === '1080p gewünscht · Zoom liefert 720×1280 · 30 Bilder/s', 6000));
   await p.aufraeumen();
 }
 
@@ -2113,6 +2142,20 @@ console.log('— NB8 · Slot-Wahrheit: was sich während des slotOn ändert, geh
     await bis(() => p.ereignisse.some((x) => x.ev.ev === 'slot' && (x.ev as unknown as { slot: number }).slot === 1
       && (x.ev as unknown as { reason: string }).reason === 'resolutionChanged' && (x.ev as unknown as { sent: string }).sent === 'black')
       && sender(p).get(1)?.state === 'live', 3000) && (await warte(300), zaehle(p, 'slotSet', 1) === 1));
+  await p.aufraeumen();
+}
+
+console.log('— #310 · Bildformat am laufenden Slot: nur slotSet {frame}, kein Neuabo, kein Umbenennen');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })] });
+  await insMeeting(p);
+  ck('#310: Slot 1 zeigt Anna', await bis(() => lage(p, 1)?.text === 'Zeigt Anna.', 3000));
+  ck('… auf einpassen: slotSet nur mit frame fit, kein zweites slotOn, kein slotOff, Name bleibt',
+    ok(p.kern.slotAendern(1, { bildformat: 'einpassen' })) && (await bisSlotSet(p, 1, { cmd: 'slotSet', slot: 1, frame: 'fit' }))
+    && zaehle(p, 'slotOn', 1) === 1 && zaehle(p, 'slotOff', 1) === 0 && sender(p).get(1)?.ndi === 'Zoom 1');
+  ck('… zurück auf original: slotSet nur mit frame native, weiterhin ein slotOn',
+    ok(p.kern.slotAendern(1, { bildformat: 'original' })) && (await bisSlotSet(p, 1, { cmd: 'slotSet', slot: 1, frame: 'native' }))
+    && zaehle(p, 'slotOn', 1) === 1 && zaehle(p, 'slotOff', 1) === 0);
   await p.aufraeumen();
 }
 

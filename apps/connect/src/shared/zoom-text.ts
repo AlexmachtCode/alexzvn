@@ -13,7 +13,7 @@ import type {
 import { SLOT_NR_MAX, tileNotice } from '@jm/zoom-bridge/protocol';
 import type { AudioState, SlotAudioReason, SlotReason, SlotSent } from '@jm/zoom-bridge/protocol';
 import type {
-  TonQuelle, ZoomBefehlErgebnis, ZoomSlotAufloesung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotZustand, ZoomSprecherSignal,
+  TonQuelle, ZoomBefehlErgebnis, ZoomSlotAufloesung, ZoomSlotBildformat, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotZustand, ZoomSprecherSignal,
   ZoomZustand,
 } from './types';
 // #290: das gemerkte Meeting (eine Form für Kern, Preload, Karte und Platzhalter-Regel).
@@ -651,6 +651,19 @@ export function ersatzbildAuswahl(modus: ZoomSlotModus, aktuell: ZoomSlotErsatzb
 /** T4, Feldname (Spec 9.1). */
 export const ERSATZBILD_FELD = 'Ersatzbild';
 
+/** #310: Feldname, Namen, Reihenfolge und Hinweise des Auswahlfelds „Bildformat“. */
+export const BILDFORMAT_FELD = 'Bildformat';
+export const BILDFORMAT_NAME: Record<ZoomSlotBildformat, string> = { original: 'Original', einpassen: '16:9 einpassen' };
+export const BILDFORMAT_REIHE: readonly ZoomSlotBildformat[] = ['original', 'einpassen'];
+export const BILDFORMAT_HINWEIS = {
+  einpassen: 'Hochkant-Bilder mittig in 16:9, Seiten durchsichtig',
+  freigabe: 'Freigaben bleiben in ihrer eigenen Größe',
+} as const;
+/** #310: Hinweis am Feld; im Modus Freigabe ist es gesperrt (Freigaben behalten ihre Größe). */
+export function bildformatHinweis(modus: ZoomSlotModus): string {
+  return modus === 'freigabe' ? BILDFORMAT_HINWEIS.freigabe : BILDFORMAT_HINWEIS.einpassen;
+}
+
 /** Spec 9.2: Zustandszeile der Kachel je T-Nummer. `ersatz` ist der fertige Teil „Ersatzbild {art}“ bzw. T60 (10.2 Regel 9). */
 export const KACHEL_TEXT = {
   T10: 'Ausgeschaltet.',
@@ -1018,6 +1031,8 @@ export const MESS_ZEILE = {
   T51: (res: string, b: number, h: number, fps: string): string => `${res} gewünscht · Zoom liefert ${b}×${h} · ${fps} Bilder/s`,
   T51b: (res: string): string => `${res} gewünscht · noch kein Bild`,
   T51c: (res: string, b: number, h: number): string => `${res} · zuletzt ${b}×${h} · jetzt kein Bild`,
+  /** #310: Anhang, wenn das Bild eingepasst ins NDI ging. */
+  eingepasst: (b: number, h: number): string => ` · NDI ${b}×${h} eingepasst`,
 };
 
 /** Nennhöhe je Stufe (10.7): verglichen wird die kürzere Seite des gelieferten Bildes. */
@@ -1030,6 +1045,8 @@ const NENNHOEHE: Record<ZoomSlotAufloesung, number> = { '360p': 360, '720p': 720
 export interface MessEingabe {
   zustand: ZoomSlotZustand; modus: ZoomSlotModus; stufe: ZoomSlotAufloesung;
   geliefert: { b: number; h: number; fps: number } | null; zuletzt: { b: number; h: number } | null;
+  /** #310: NDI-Größe, wenn das Bild eingepasst wurde (sonst fehlt der Anhang). */
+  eingepasst?: { b: number; h: number } | null;
 }
 
 /** Messzeile der Kachel (Spec 10.7); `null` ohne laufenden Sender, auch in SZ9 (Restrunde RR6). */
@@ -1038,7 +1055,8 @@ export function slotMessZeile(e: MessEingabe): string | null {
   const g = e.geliefert;
   if (g !== null) {
     const unter = e.modus !== 'freigabe' && Math.min(g.b, g.h) < NENNHOEHE[e.stufe];
-    return (unter ? MESS_ZEILE.T51 : MESS_ZEILE.T50)(e.stufe, g.b, g.h, dezimal(g.fps));
+    const zeile = (unter ? MESS_ZEILE.T51 : MESS_ZEILE.T50)(e.stufe, g.b, g.h, dezimal(g.fps));
+    return e.eingepasst ? zeile + MESS_ZEILE.eingepasst(e.eingepasst.b, e.eingepasst.h) : zeile;
   }
   if (e.zuletzt !== null) return MESS_ZEILE.T51c(e.stufe, e.zuletzt.b, e.zuletzt.h);
   return MESS_ZEILE.T51b(e.stufe);
@@ -1384,10 +1402,11 @@ const empfang = (r: { w: number; h: number; fps: number } | null): string => (r 
 export const MESS_TEXT = {
   T61: (p: { cpu: Messwert; sys: Messwert; mem: Messwert; q: Messwert; d: Messwert; mv: Messwert; hl: Messwert }): string =>
     `Zoom-Bridge: ${p.cpu} % eines Kerns · System ${p.sys} % · Arbeitsspeicher ${p.mem} MB · Ton-Warteschlange höchstens ${p.q} Pakete, ${p.d} verworfen · Zoom-Ereignisse verworfen ${p.mv} · zurückgehaltene Renderer ${p.hl}`,
-  /** T62; `resSetName` über `sdkErrorName`, nie als nackte Zahl (9.4). */
+  /** T62; `resSetName` über `sdkErrorName`, nie als nackte Zahl (9.4). #310: `ein` = eingepasste NDI-Größe (null = nicht eingepasst), `format` = Bildformat des Slots. */
   T62: (p: { nr: number; modus: ZoomSlotModus; b: Messwert; h: Messwert; fps: Messwert; ffps: Messwert; work: Messwert; copy: Messwert;
-    prev: Messwert; mem: Messwert; res: Messwert; resSetName: string; resGot: Messwert; pps: Messwert; md: Messwert; ms: Messwert }): string =>
-    `Slot ${p.nr} (${MODUS_NAME[p.modus]}): ${p.b}×${p.h}, ${p.fps} Bilder/s, Ersatzbilder ${p.ffps}/s · Bridge-Anteil ${p.work} ms/s (davon Kopie ${p.copy}, Vorschau ${p.prev}) · Speicher ${p.mem} MB · Auflösung ${p.res}: ${p.resSetName}, Renderer meldet ${p.resGot} · Ton ${p.pps} Pakete/s, Mischer verworfen ${p.md} ms, Stille eingefügt ${p.ms} ms`,
+    prev: Messwert; mem: Messwert; res: Messwert; resSetName: string; resGot: Messwert; pps: Messwert; md: Messwert; ms: Messwert;
+    ein: { b: number; h: number } | null; format: ZoomSlotBildformat }): string =>
+    `Slot ${p.nr} (${MODUS_NAME[p.modus]}): ${p.b}×${p.h}${p.ein !== null ? ` → NDI ${p.ein.b}×${p.ein.h} eingepasst` : ''}, ${p.fps} Bilder/s, Ersatzbilder ${p.ffps}/s · Bridge-Anteil ${p.work} ms/s (davon Kopie ${p.copy}, Vorschau ${p.prev}) · Speicher ${p.mem} MB · Auflösung ${p.res}: ${p.resSetName}, Renderer meldet ${p.resGot} · Bildformat ${BILDFORMAT_NAME[p.format]} · Ton ${p.pps} Pakete/s, Mischer verworfen ${p.md} ms, Stille eingefügt ${p.ms} ms`,
   /** T62b; fehlende Werte „unbekannt“. */
   T62b: (p: { nr: number; ub: number | null; uh: number | null; hd: boolean | null; og: boolean | null;
     rv: { w: number; h: number; fps: number } | null; rs: { w: number; h: number; fps: number } | null }): string =>
