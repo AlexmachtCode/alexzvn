@@ -17,6 +17,7 @@ Routen: `GET /k/<raum>` (Gast-Seite), `GET /k/<raum>/ws` (Gast), `GET /h/<raum>/
 
 - Die Raum-Kennung (12 Zeichen `[a-z0-9]`) ist aus dem Host-Geheimnis des Presenters abgeleitet
   (`raumAusGeheimnis`): nur wer das Geheimnis kennt, kann den Raum hinter einem Link öffnen. Das Geheimnis kommt in
+  einem Header beim Verbindungsaufbau (`Authorization: Bearer …`, Worker und DO prüfen es vor dem Annehmen) und in
   der ersten WebSocket-Nachricht, nie in der URL; gespeichert wird nur sein SHA-256.
 - Über den Dienst geht nur „vor“/„zurück“; der Presenter prüft Pause und laufende Präsentation selbst.
 - Drossel 150 ms je Gast, höchstens 30 Gäste, Gast-Nachrichten ≤ 256 Byte, Bilder nur vom Presenter ≤ 256 KB,

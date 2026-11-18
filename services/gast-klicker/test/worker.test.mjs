@@ -29,7 +29,14 @@ const env = {
         get(id) {
           return {
             fetch(req) {
-              aufrufe.push({ id, rolle: req.headers.get('x-rolle'), raum: req.headers.get('x-raum'), upgrade: req.headers.get('Upgrade') });
+              aufrufe.push({
+                id,
+                rolle: req.headers.get('x-rolle'),
+                raum: req.headers.get('x-raum'),
+                geheimnis: req.headers.get('x-geheimnis'),
+                auth: req.headers.get('authorization'),
+                upgrade: req.headers.get('Upgrade'),
+              });
               return new Response('do', { status: 200 });
             },
           };
@@ -41,6 +48,9 @@ const env = {
 
 const BASIS = 'https://jm-gast-klicker.jm-production-suite.workers.dev';
 const RAUM = 'abcdefghij12';
+const GEHEIM = 'a'.repeat(64);
+const RAUM_A = '530qlojw1124'; // raumAusGeheimnis('a'×64)
+const AUTH = { Upgrade: 'websocket', Authorization: `Bearer ${GEHEIM}` };
 const hole = (pfad, init = {}) => worker.fetch(new Request(BASIS + pfad, init), env);
 
 check('KlickRaum wird exportiert', typeof KlickRaum === 'function');
@@ -109,15 +119,25 @@ for (const [pfad, init, name] of [
   check('Gast-ws erreicht den DO', r.status === 200 && ziel?.rolle === 'gast' && ziel?.id === `id:${RAUM}`);
   check('DO in EU-Jurisdiction', aufrufe.some((a) => a.jurisdiction === 'eu'));
   aufrufe.length = 0;
-  await hole(`/h/${RAUM}/ws`, { headers: { Upgrade: 'websocket' } });
+  const ohne = await hole(`/h/${RAUM_A}/ws`, { headers: { Upgrade: 'websocket' } });
+  check('Presenter-ws ohne Authorization → 401, DO nicht erreicht', ohne.status === 401 && aufrufe.length === 0);
+  const kaputt = await hole(`/h/${RAUM_A}/ws`, { headers: { Upgrade: 'websocket', Authorization: 'Bearer xyz' } });
+  check('Presenter-ws mit kaputtem Geheimnis → 401', kaputt.status === 401 && aufrufe.length === 0);
+  const fremd = await hole(`/h/${RAUM}/ws`, { headers: AUTH });
+  check('Presenter-ws: Geheimnis passt nicht zum Raum → 403, DO nicht erreicht', fremd.status === 403 && aufrufe.length === 0);
+  await hole(`/h/${RAUM_A}/ws`, { headers: AUTH });
   const pz = aufrufe.find((a) => a.rolle !== undefined);
   check('Presenter-ws erreicht den DO als presenter', pz?.rolle === 'presenter');
-  check('Presenter-ws trägt die Raum-Kennung (x-raum)', pz?.raum === RAUM);
+  check('Presenter-ws trägt die Raum-Kennung (x-raum)', pz?.raum === RAUM_A);
+  check('Presenter-ws reicht das Geheimnis als x-geheimnis weiter, ohne Authorization', pz?.geheimnis === GEHEIM && pz?.auth === null);
   aufrufe.length = 0;
-  await hole(`/k/${RAUM}/ws`, { headers: { Upgrade: 'websocket', 'x-rolle': 'presenter', 'x-raum': 'zzzzzzzzzzzz' } });
+  await hole(`/k/${RAUM}/ws`, {
+    headers: { Upgrade: 'websocket', 'x-rolle': 'presenter', 'x-raum': 'zzzzzzzzzzzz', 'x-geheimnis': GEHEIM },
+  });
   const gz = aufrufe.find((a) => a.rolle !== undefined);
   check('fremder x-rolle-Header wird überschrieben', gz?.rolle === 'gast');
   check('fremder x-raum-Header wird überschrieben', gz?.raum === RAUM);
+  check('fremder x-geheimnis-Header wird beim Gast entfernt', gz?.geheimnis === null);
 }
 
 console.log(`worker: ${passed} ok, ${failed} FAIL`);

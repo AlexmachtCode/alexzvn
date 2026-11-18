@@ -95,6 +95,17 @@ export async function raumAusGeheimnis(geheimnis) {
   return [...new Uint8Array(d).subarray(0, 12)].map((b) => RAUM_ALPHABET[b % 36]).join('');
 }
 
+/**
+ * Darf eine Presenter-Verbindung zu `raumId` überhaupt angenommen werden? Nur mit dem Geheimnis, aus dem die
+ * Kennung abgeleitet ist — geprüft VOR dem Annehmen des WebSockets (Worker und DO), damit Verbindungen ohne
+ * Geheimnis nie einen Platz belegen (Sicherheitsprüfung 18.11.: sonst Aussperren über die Warteliste).
+ */
+export async function presenterDarVerbinden(raumId, geheimnis) {
+  if (typeof raumId !== 'string' || !RAUM_RE.test(raumId)) return false;
+  if (typeof geheimnis !== 'string' || !GEHEIMNIS_RE.test(geheimnis)) return false;
+  return (await raumAusGeheimnis(geheimnis)) === raumId;
+}
+
 export class KlickRaum {
   constructor(ctx, env) {
     this.ctx = ctx;
@@ -113,6 +124,9 @@ export class KlickRaum {
     const rolle = request.headers.get('x-rolle');
     const upgrade = (request.headers.get('Upgrade') ?? '').toLowerCase();
     if (upgrade !== 'websocket' || (rolle !== 'gast' && rolle !== 'presenter')) return new Response(null, { status: 426 });
+    if (rolle === 'presenter' && !(await presenterDarVerbinden(request.headers.get('x-raum'), request.headers.get('x-geheimnis')))) {
+      return new Response(null, { status: 403 });
+    }
     const [client, server] = Object.values(new WebSocketPair());
     if (rolle === 'gast') await this.nimmGastAn(server);
     else await this.nimmPresenterAn(server, request.headers.get('x-raum'));
@@ -271,6 +285,10 @@ export class KlickRaum {
         this.schliesse(ws, 4403, 'abgelehnt');
         return;
       }
+      // Während der awaits kann die Verbindung verdrängt oder getrennt worden sein: dann nicht mehr anmelden.
+      const frisch = this.anhang(ws);
+      if (frisch.weg) return;
+      Object.assign(a, frisch);
       for (const alt of this.ctx.getWebSockets('presenter')) {
         if (alt !== ws && this.anhang(alt).bestaetigt === true && !this.anhang(alt).weg) this.schliesse(alt, 4409, 'ersetzt');
       }

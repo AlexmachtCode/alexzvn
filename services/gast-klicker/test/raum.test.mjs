@@ -14,6 +14,7 @@ import {
   WARTE_PRESENTER_MS,
   leseGastNachricht,
   lesePresenterNachricht,
+  presenterDarVerbinden,
   raumAusGeheimnis,
   sha256Hex,
 } from '../raum.js';
@@ -82,18 +83,20 @@ function neuesWs() {
     code: null,
     anhang: null,
     send(d) {
-      if (!this.offen) throw new Error('geschlossen');
+      if (!this.offen || this.zu) throw new Error("geschlossen");
       this.gesendet.push(d);
     },
+    // Wie in Workers: eine geschlossene Verbindung bleibt in getWebSockets, bis das Schließen abgeschlossen ist;
+    // senden geht nicht mehr. Der Raum muss sie selbst (über `weg`) ausblenden.
     close(code) {
-      this.code = code ?? 1000;
-      this.offen = false;
+      if (this.code === null) this.code = code ?? 1000;
+      this.zu = true;
     },
     serializeAttachment(a) {
       this.anhang = structuredClone(a);
     },
     deserializeAttachment() {
-      return this.anhang;
+      return this.anhang === null ? null : structuredClone(this.anhang); // wie Workers: jedes Lesen eine Kopie
     },
   };
 }
@@ -159,6 +162,11 @@ check('Presenter unbekannt → null', lesePresenterNachricht(JSON.stringify({ t:
 check('raumAusGeheimnis Vektor a', (await raumAusGeheimnis(GEHEIM)) === RAUM_A);
 check('raumAusGeheimnis Vektor b', (await raumAusGeheimnis(ANDERS)) === RAUM_B);
 check('raumAusGeheimnis passt zu RAUM_RE', RAUM_RE.test(RAUM_A) && RAUM_RE.test(RAUM_B));
+check('presenterDarVerbinden: passendes Geheimnis', (await presenterDarVerbinden(RAUM_A, GEHEIM)) === true);
+check('presenterDarVerbinden: fremdes Geheimnis', (await presenterDarVerbinden(RAUM_A, ANDERS)) === false);
+check('presenterDarVerbinden: ohne Geheimnis', (await presenterDarVerbinden(RAUM_A, null)) === false && (await presenterDarVerbinden(RAUM_A, undefined)) === false);
+check('presenterDarVerbinden: kaputtes Geheimnis', (await presenterDarVerbinden(RAUM_A, 'A'.repeat(64))) === false);
+check('presenterDarVerbinden: kaputter Raum', (await presenterDarVerbinden('x', GEHEIM)) === false && (await presenterDarVerbinden(null, GEHEIM)) === false);
 check('Konstanten wartende Presenter', MAX_WARTENDE_PRESENTER === 20 && WARTE_PRESENTER_MS === 10_000);
 check('sha256Hex', (await sha256Hex('abc')) === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 
@@ -280,6 +288,16 @@ check('sha256Hex', (await sha256Hex('abc')) === 'ba7816bf8f01cfea414140de5dae222
   await raum.nimmPresenterAn(ohneRaum, undefined);
   await raum.webSocketMessage(ohneRaum, JSON.stringify({ t: 'hallo', geheimnis: GEHEIM }));
   check('Presenter ohne Raum-Kennung abgelehnt', letzte(ohneRaum, 'ok') === undefined && ohneRaum.code === 4403);
+}
+
+{
+  const { raum } = neuerRaum();
+  const ws = neuesWs();
+  await raum.nimmPresenterAn(ws, RAUM_A);
+  const laeuft = raum.webSocketMessage(ws, JSON.stringify({ t: 'hallo', geheimnis: GEHEIM }));
+  await raum.webSocketClose(ws, 1006, 'weg', false);
+  await laeuft;
+  check('Verbindung weg während hallo → nicht angemeldet', raum.presenter() === undefined && letzte(ws, 'ok') === undefined);
 }
 
 {

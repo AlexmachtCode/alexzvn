@@ -7,7 +7,7 @@
 //
 // Eigener Worker, bewusst getrennt vom Suite-Proxy (services/release-proxy): der läuft live mit dem Stand der
 // Launcher-Anmeldung aus einem eigenen Branch; ein gemeinsamer Deploy würde ihn zurückdrehen.
-import { KlickRaum, RAUM_RE } from './raum.js';
+import { KlickRaum, RAUM_RE, presenterDarVerbinden } from './raum.js';
 import { gastSeiteHtml } from './gast-seite.js';
 
 export { KlickRaum };
@@ -43,11 +43,21 @@ export default {
     const [, art, raum, ws] = m;
     if (!ws) return art === 'k' ? seite(raum, url) : leer(404);
     if ((request.headers.get('Upgrade') ?? '').toLowerCase() !== 'websocket') return leer(426);
+    const headers = new Headers(request.headers);
+    headers.delete('x-geheimnis');
+    headers.delete('authorization');
+    if (art === 'h') {
+      // Presenter beweist schon beim Verbindungsaufbau, dass sein Geheimnis zu GENAU diesem Raum gehört
+      // (Header, nie in der URL). Ohne Beweis kein WebSocket und kein Aufwecken des DO.
+      const m2 = /^Bearer ([a-f0-9]{64})$/.exec(request.headers.get('authorization') ?? '');
+      if (!m2) return leer(401);
+      if (!(await presenterDarVerbinden(raum, m2[1]))) return leer(403);
+      headers.set('x-geheimnis', m2[1]);
+    }
     const ns = env.KLICK_RAUM.jurisdiction('eu');
     const stub = ns.get(ns.idFromName(raum));
-    const headers = new Headers(request.headers);
     headers.set('x-rolle', art === 'k' ? 'gast' : 'presenter');
-    // Der DO kennt seinen Namen nicht; der Presenter muss beweisen, dass sein Geheimnis zu GENAU diesem Raum gehört.
+    // Der DO kennt seinen Namen nicht; er prüft Geheimnis und Raum selbst noch einmal.
     headers.set('x-raum', raum);
     return stub.fetch(new Request(request, { headers }));
   },
