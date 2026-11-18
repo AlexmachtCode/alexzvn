@@ -275,6 +275,25 @@ export async function captureAudience(maxWidth = 1280): Promise<Buffer | null> {
   }
 }
 
+/**
+ * #317: Vorschau der aktuellen Folie für den Gast-Klicker — Publikumsfenster, sonst (Präsentation nur über NDI) das
+ * versteckte NDI-Fenster, sonst nichts. JPEG, höchstens `maxBreite` breit.
+ */
+export async function captureVorschau(maxBreite = 640): Promise<Buffer | null> {
+  const publikum = await captureAudience(maxBreite);
+  if (publikum) return publikum;
+  const win = getNdiWindow();
+  if (!win) return null;
+  try {
+    const img = await win.webContents.capturePage();
+    if (img.isEmpty()) return null;
+    const skaliert = img.getSize().width > maxBreite ? img.resize({ width: maxBreite }) : img;
+    return skaliert.toJPEG(72);
+  } catch {
+    return null;
+  }
+}
+
 /** Dieselbe Diagnosezeile des NDI-Fensters höchstens so oft ins Main-Log. */
 const NDI_LOG_ABSTAND_MS = 10_000;
 

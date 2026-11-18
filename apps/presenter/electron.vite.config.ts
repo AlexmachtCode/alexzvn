@@ -21,6 +21,8 @@ export default defineConfig({
           'fflate',
           '@jm/discovery',
           'bonjour-service',
+          // #317 Gast-Klicker: WebSocket-Client im Main (reines JS; optionale Native-Beschleuniger fehlen still).
+          'ws',
         ],
       }),
     ],
