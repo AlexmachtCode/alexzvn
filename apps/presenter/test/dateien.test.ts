@@ -10,6 +10,11 @@ const d = await import('../src/shared/dateien');
 
 ck('pdf groß', d.dateiArt('C:\\Docs\\Präsentation März.PDF') === 'pdf');
 ck('bild', d.dateiArt('/x/logo.webp') === 'image' && d.dateiArt('a.BMP') === 'image');
+// #313: AVIF und SVG; EINE Endungsliste, aus der auch die Dialogfilter kommen.
+ck('avif + svg sind Bilder', d.dateiArt('C:\\x\\Foto.AVIF') === 'image' && d.dateiArt('/x/Logo.svg') === 'image');
+ck('endungsliste genau', [...d.IMAGE_EXT].join(' ') === '.png .jpg .jpeg .webp .gif .bmp .avif .svg');
+ck('filterendungen ohne punkt', d.bildFilterEndungen().join(',') === 'png,jpg,jpeg,webp,gif,bmp,avif,svg');
+ck('svgz bleibt fremd', d.dateiArt('a.svgz') === null);
 ck('office', d.dateiArt('deck.pptx') === 'office' && d.dateiArt('brief.rtf') === 'office');
 ck('projekt', d.dateiArt('show.jmpres') === 'projekt');
 ck('ohne endung / fremd', d.dateiArt('C:\\Ordner') === null && d.dateiArt('film.mp4') === null && d.dateiArt('x.jmshow') === null);

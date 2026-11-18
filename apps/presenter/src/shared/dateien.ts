@@ -11,8 +11,17 @@ export const SAMMEL_MS = 500;
 /** Höchstens so viele Pfade nimmt der Hauptprozess (`files:importPaths`) je Aufruf an. */
 export const MAX_PFADE_JE_AUFRUF = 200;
 
-export const IMAGE_EXT: ReadonlySet<string> = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
+/**
+ * Die EINE Liste der Bild-Endungen (#313): Ablegen, Doppelklick, PRESENTER OPEN, Dialoge.
+ * AVIF dekodiert Chromium selbst; SVG rastert der Renderer (`lib/bild-dekodieren.ts`).
+ */
+export const IMAGE_EXT: ReadonlySet<string> = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif', '.svg']);
 export const OFFICE_EXT: ReadonlySet<string> = new Set(['.pptx', '.ppt', '.odp', '.docx', '.doc', '.odt', '.rtf']);
+
+/** Bild-Endungen ohne Punkt für die Filter der Datei-Dialoge, Reihenfolge wie `IMAGE_EXT`. */
+export function bildFilterEndungen(): string[] {
+  return [...IMAGE_EXT].map((e) => e.slice(1));
+}
 
 /** Letztes Pfadsegment, trennt an `/` und `\`. */
 export function dateiName(pfad: string): string {
