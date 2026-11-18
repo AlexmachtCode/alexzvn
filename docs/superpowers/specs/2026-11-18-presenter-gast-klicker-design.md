@@ -93,12 +93,17 @@ Kein Rechner am Stand öffnet einen Port. Der Dienst speichert keine Folien daue
 - **Verfall:** DO-Alarm löscht den Raum 7 Tage nach der letzten Presenter-Verbindung (ein Link hält eine
   Event-Woche).
 - **Nachrichten** (JSON mit Feld `t`; Bilder als Binärnachricht):
-  - Presenter → DO: `{t:'hallo', geheimnis}` (erste Nachricht), `{t:'stand', aktiv, index, total, pausiert}`,
-    Binär = JPEG der aktuellen Folie.
+  - Presenter → DO: `{t:'hallo', geheimnis}` (erste Nachricht), `{t:'stand', aktiv, index, total, screen,
+    pausiert}` (`screen` = `live`/`black`/`white` aus `present.ts`), Binär = JPEG der aktuellen Folie,
+    `{t:'schliessen'}` (vor „Neuer Link“ an den alten Raum: Raum gilt danach als nicht aktiv).
   - DO → Presenter: `{t:'ok'}` / `{t:'abgelehnt'}`, `{t:'cmd', dir:'next'|'prev'}`, `{t:'gaeste', n}`,
     `{t:'bildBitte'}`.
   - Gast → DO: `{t:'cmd', dir:'next'|'prev'}`.
-  - DO → Gast: `{t:'stand', aktiv, index, total, pausiert, presenter: true|false}`, Binär = JPEG.
+  - DO → Gast: `{t:'stand', aktiv, index, total, screen, pausiert, presenter: true|false}`, Binär = JPEG,
+    `{t:'nichtAktiv'}` (danach schließt der DO die Verbindung).
+- **Nicht beanspruchte oder geschlossene Räume:** Ein Gast, der einen Raum öffnet, den noch nie ein Presenter
+  beansprucht hat (oder der geschlossen/verfallen ist), bekommt `nichtAktiv`; der DO legt dafür nichts an.
+  *(Entscheidung nach Builder-Check: Gäste beanspruchen nie einen Raum; nur der Presenter mit Geheimnis.)*
 - **Regeln im DO**
   - Gast-Kommandos gehen nur weiter, wenn ein Presenter verbunden ist und `pausiert` nicht gesetzt ist; der
     Presenter prüft trotzdem selbst noch einmal (er ist maßgeblich).
@@ -130,23 +135,31 @@ Kein Rechner am Stand öffnet einen Port. Der Dienst speichert keine Folien daue
 - Nach einem Klick leuchtet der Knopf, bis ein neuer Stand kommt; kommt nach 3 s keiner, Hinweis
   „Klick nicht bestätigt – Verbindung prüfen“.
 - Zustände: verbunden · Presenter offline („Niki schaltet gerade weiter“ / sinngemäß englisch) · pausiert
-  („Die Regie schaltet gerade“) · keine Präsentation aktiv · Verbindung weg (automatisch neu verbinden).
+  („Die Regie schaltet gerade“) · keine Präsentation aktiv · Bildschirm schwarz/weiß (Hinweis unter dem Bild) ·
+  Link nicht aktiv (nach `nichtAktiv`; kein erneutes Verbinden) · Verbindung weg (automatisch neu verbinden).
+- Das Vorschaubild zeigt, was das Publikum sieht — auch Schwarz/Weiß. *(Entscheidung nach Builder-Check: ehrlich
+  statt eigener Render-Weg.)*
 - Sprache: Deutsch bei `navigator.language` de*, sonst Englisch.
 - Kein externes Laden (Schriften, Skripte); funktioniert auf Handy und Laptop.
 
 ### 5.4 Presenter
 
 - **Neues Modul `src/main/gast-klicker.ts`** im Main-Prozess:
-  - WebSocket-Client über das Paket `ws` (als eigene Abhängigkeit eintragen; liegt über `socket.io-client`
-    bereits im Lockfile).
+  - WebSocket-Client über das Paket `ws` 8.x (als eigene Abhängigkeit eintragen, Version wie im Lockfile:
+    8.20.1, liegt über `socket.io-client` bereits dort). Prüfen, dass die gepackte App `ws` enthält
+    (Prüfstand läuft gegen die gepackte App).
   - Verbinden, `hallo` mit Geheimnis senden, bei Trennung neu verbinden (1 s, verdoppelnd bis 30 s, zufällig
     gestreut); Statusänderungen an die Fenster melden.
-  - `subscribe()` aus `present.ts`: bei jeder Änderung Stand senden; ~300 ms nach einem Folienwechsel Vorschau
-    erfassen und senden (gleiche Folie nicht doppelt). Quelle: Publikumsfenster (`captureAudience`), sonst
-    NDI-Fenster (Präsentation nur über NDI), sonst kein Bild (Gast sieht dann nur „Slide n / m“). Breite 640 px,
-    JPEG.
-  - Eingehendes `cmd`: nur ausführen, wenn eine Präsentation aktiv und nicht pausiert ist → `next()` / `prev()`.
-    Eine Log-Zeile je Gast-Klick (`[gast-klicker] next`), keine Namen/IPs.
+  - `subscribe()` aus `present.ts`: bei **jeder** Änderung Stand senden — auch bei Nikis eigenen Klicks, beim
+    automatischen Weiterschalten (Schleife/Timer) und bei Schwarz/Weiß; ~300 ms nach einer Änderung von Folie
+    oder `screen` einmal Vorschau erfassen und senden (gleicher Stand nicht doppelt; kein wiederholtes Erfassen
+    für Animationen/Videos). Quelle: Publikumsfenster (`captureAudience`), sonst NDI-Fenster (Präsentation nur
+    über NDI; dafür eine Erfass-Funktion für das NDI-Fenster in `windows.ts` ergänzen — ob `capturePage` am
+    versteckten Fenster ein Bild liefert, misst der Prüfstand), sonst kein Bild (Gast sieht nur „Slide n / m“).
+    Breite 640 px, JPEG.
+  - Eingehendes `cmd`: nur ausführen, wenn eine Präsentation aktiv und nicht pausiert ist → `next()` / `prev()`
+    mit ihrem bestehenden Verhalten (z. B. am Ende ohne Schleife: nichts). Eine Log-Zeile je Gast-Klick
+    (`[gast-klicker] next`), keine Namen/IPs.
   - Basis-URL fest `https://jm-gast-klicker.jm-production-suite.workers.dev`, für Tests per Umgebungsvariable
     `JMPR_GAST_KLICKER_URL` überschreibbar.
 - **Einstellungen** (persistiert wie `remote-config`): `an`, `raum`, `geheimnis`. `pausiert` wird nicht
@@ -189,7 +202,10 @@ Kein Rechner am Stand öffnet einen Port. Der Dienst speichert keine Folien daue
 
 ### 5.7 Auslieferung
 
-1. Worker-Deploy `jm-gast-klicker` (Owner-OK).
+1. Worker-Deploy `jm-gast-klicker` (Owner-OK). Vorher `wrangler whoami`: Anmeldedaten liegen auf diesem Rechner
+   (OAuth mit Erneuerung, zuletzt 17.11.); verlangt wrangler eine neue Anmeldung, ist das ein Owner-Schritt im
+   Browser. Konto hat Workers Paid, SQLite-DOs laufen dort schon (`ConnectRoom`), Subdomain
+   `jm-production-suite.workers.dev` existiert.
 2. Presenter **0.14.0** (neue Funktion): Changelog zur Owner-Freigabe, Handbuch-Abschnitt im Kochbuch
    (`tool-jm-presenter.md`, Cookbook-CRLF-Falle beachten), Release per `freigabe.ps1` im Fenster.
 3. Merge erst nach dem Release.
@@ -197,7 +213,9 @@ Kein Rechner am Stand öffnet einen Port. Der Dienst speichert keine Folien daue
 ## 6. Dem Builder überlassen
 
 Dateiaufteilung im Worker, genaue Texte der Gast-Seite (im Sinn von 5.3), Platzierung der Anzeige in der
-Referentenansicht, Backoff-Details, Form des Stand-in-Dienstes im Prüfstand.
+Referentenansicht und ob sie über einen eigenen IPC-Kanal oder den vorhandenen Status läuft, Backoff-Details, Form
+des Stand-in-Dienstes im Prüfstand. Kein zusätzliches Nachrichten-Budget je Raum über Drossel und Kappungen hinaus
+(Restrisiko nach 5.5 akzeptiert).
 
 ## 7. Danach (Stufe B, nach der COP)
 
