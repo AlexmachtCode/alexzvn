@@ -1,6 +1,7 @@
 // Shared domain + IPC types for JM Presenter.
 // Used by the main process, the preload bridge and the renderer.
 import type { OeffnenModus } from './dateien';
+import type { GastKlickerStatus } from './gast-klicker';
 
 /** `ndi` = verstecktes Fenster, das das Publikumsbild für den NDI-Ausgang zeichnet (#303). */
 export type ViewName = 'editor' | 'presenter' | 'audience' | 'ndi';
@@ -369,6 +370,15 @@ export interface JmprApi {
     apply: (config: RemoteConfig) => Promise<RemoteStatus>;
     /** Subscribe to live status changes (start/stop/error). */
     onStatus: (cb: (s: RemoteStatus) => void) => () => void;
+  };
+
+  /** #317 Gast-Klicker übers Internet (Remote-Gäste schalten selbst weiter). */
+  gastKlicker: {
+    status: () => Promise<GastKlickerStatus>;
+    setzeAn: (an: boolean) => Promise<GastKlickerStatus>;
+    pause: (an: boolean) => Promise<GastKlickerStatus>;
+    neuerLink: () => Promise<GastKlickerStatus>;
+    onStatus: (cb: (s: GastKlickerStatus) => void) => () => void;
   };
 
   /** Live timer sync (countdown mirrored from JM Timer over the LAN). */

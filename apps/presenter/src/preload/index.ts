@@ -17,6 +17,7 @@ import type {
   TimerSyncConfig,
   ViewName,
 } from '@shared/types';
+import type { GastKlickerStatus } from '../shared/gast-klicker';
 
 function parseView(): ViewName {
   const v = new URLSearchParams(location.search).get('view');
@@ -129,6 +130,19 @@ const api: JmprApi = {
       const listener = (_event: unknown, s: RemoteStatus) => cb(s);
       ipcRenderer.on('remote:status', listener);
       return () => ipcRenderer.off('remote:status', listener);
+    },
+  },
+
+  // #317 Gast-Klicker übers Internet
+  gastKlicker: {
+    status: () => ipcRenderer.invoke('gastKlicker:status') as Promise<GastKlickerStatus>,
+    setzeAn: (an: boolean) => ipcRenderer.invoke('gastKlicker:setzeAn', an === true) as Promise<GastKlickerStatus>,
+    pause: (an: boolean) => ipcRenderer.invoke('gastKlicker:pause', an === true) as Promise<GastKlickerStatus>,
+    neuerLink: () => ipcRenderer.invoke('gastKlicker:neuerLink') as Promise<GastKlickerStatus>,
+    onStatus: (cb) => {
+      const listener = (_event: unknown, s: GastKlickerStatus) => cb(s);
+      ipcRenderer.on('gastKlicker:status', listener);
+      return () => ipcRenderer.off('gastKlicker:status', listener);
     },
   },
 

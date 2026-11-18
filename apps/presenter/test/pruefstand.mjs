@@ -26,7 +26,7 @@ import { createRequire } from 'node:module';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PDFDocument, PDFHexString, rgb } from 'pdf-lib';
 import { strToU8, zipSync, zlibSync } from 'fflate';
 import { zaehleBilder } from './ndi-messung.mjs';
@@ -2295,6 +2295,229 @@ async function gruppeBildformate({ exe, d }) {
   }
 }
 
+// ---------------------------------------------------------------- Gast-Klicker (#317)
+
+/**
+ * Stand-in für den Cloud-Dienst: die ECHTE Raumlogik (services/gast-klicker/raum.js) hinter einem lokalen
+ * WebSocket-Server, mit der Attrappe des DO-Kontexts wie im Selbsttest. `raeume` überlebt einen Neustart des
+ * Servers (wie der Durable Object einen Ausfall der Verbindung).
+ */
+async function starteKlickDienst(raeume, port = 0) {
+  const { WebSocketServer } = createRequire(import.meta.url)('ws');
+  const { KlickRaum, presenterDarVerbinden } = await import(
+    pathToFileURL(path.join(HIER, '..', '..', '..', 'services', 'gast-klicker', 'raum.js')).href
+  );
+  const http = await import('node:http');
+  const holeRaum = (id) => {
+    if (!raeume.has(id)) {
+      const daten = new Map();
+      const huellen = [];
+      const ctx = {
+        storage: {
+          get: async (k) => daten.get(k),
+          put: async (k, v) => void daten.set(k, v),
+          delete: async (k) => daten.delete(k),
+          deleteAll: async () => daten.clear(),
+          setAlarm: async () => {},
+        },
+        blockConcurrencyWhile: async (fn) => fn(),
+        acceptWebSocket: (h, tags = []) => huellen.push({ h, tags }),
+        getWebSockets: (tag) => huellen.filter((e) => !e.h.weg && (!tag || e.tags.includes(tag))).map((e) => e.h),
+      };
+      raeume.set(id, new KlickRaum(ctx, {}));
+    }
+    return raeume.get(id);
+  };
+  const server = http.createServer((_req, res) => res.writeHead(404).end());
+  const wss = new WebSocketServer({ noServer: true });
+  server.on('upgrade', async (req, sock, kopf) => {
+    const m = /^\/(k|h)\/([a-z0-9]{12})\/ws$/.exec(req.url ?? '');
+    if (!m) return sock.destroy();
+    const [, art, id] = m;
+    if (art === 'h') {
+      const a = /^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization ?? '');
+      if (!a || !(await presenterDarVerbinden(id, a[1]))) {
+        sock.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+        return;
+      }
+    }
+    wss.handleUpgrade(req, sock, kopf, async (ws) => {
+      const raum = holeRaum(id);
+      let anhang;
+      const h = {
+        weg: false,
+        send: (d) => ws.send(d),
+        close: (code) => ws.close(code),
+        serializeAttachment: (x) => void (anhang = structuredClone(x)),
+        deserializeAttachment: () => (anhang === undefined ? null : structuredClone(anhang)),
+      };
+      ws.on('message', (d, bin) => {
+        const b = d;
+        void raum.webSocketMessage(h, bin ? b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) : b.toString());
+      });
+      ws.on('close', (code) => {
+        void raum.webSocketClose(h, code, '', true).finally(() => (h.weg = true));
+      });
+      if (art === 'k') await raum.nimmGastAn(h);
+      else await raum.nimmPresenterAn(h, id);
+    });
+  });
+  await new Promise((res) => server.listen(port, '127.0.0.1', res));
+  return {
+    port: server.address().port,
+    stop: () =>
+      new Promise((res) => {
+        for (const c of wss.clients) c.terminate();
+        server.close(() => res());
+      }),
+  };
+}
+
+/** Gast per WebSocket (Node ≥ 22: globales WebSocket); sammelt Stand-Nachrichten und Bilder. */
+function gastVerbinden(port, raum) {
+  const g = { staende: [], bilder: [], nichtAktiv: false, offen: false };
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/k/${raum}/ws`);
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => (g.offen = true);
+  ws.onmessage = (e) => {
+    if (typeof e.data !== 'string') return g.bilder.push(new Uint8Array(e.data));
+    const m = JSON.parse(e.data);
+    if (m.t === 'stand') g.staende.push(m);
+    if (m.t === 'nichtAktiv') g.nichtAktiv = true;
+  };
+  g.klick = (dir) => ws.send(JSON.stringify({ t: 'cmd', dir }));
+  g.zu = () => ws.close();
+  g.stand = () => g.staende.at(-1);
+  return g;
+}
+
+async function gruppeGastklicker({ exe, d }) {
+  const raeume = new Map();
+  let dienst = await starteKlickDienst(raeume);
+  const port = dienst.port;
+  const umgebung = { ...eigenesProfil(path.join(d.dir, 'profil-gastklicker')), JMPR_GAST_KLICKER_URL: `http://127.0.0.1:${port}` };
+  const status = (ed) => auswerten(ed, 'window.jmpr.gastKlicker.status()');
+  const index = (ed) => auswerten(ed, 'window.jmpr.present.getState().then((s) => s.index)');
+  let link = null;
+  // Sicherheitsprüfung 18.11.: ein offenes require('bufferutil') sucht zur Laufzeit in übergeordneten Ordnern bis
+  // C:\node_modules (dort kann jeder Benutzer anlegen) → ws darf die Beschleuniger gar nicht erst anfordern.
+  await fall('Main-Bundle der gepackten App fordert bufferutil/utf-8-validate nicht an', async () => {
+    const archiv = path.join(path.dirname(exe), 'resources', 'app.asar');
+    const main = asarModul().extractFile(archiv, path.join('out', 'main', 'index.cjs')).toString('utf8');
+    erwarte(main.includes('jm-gast-klicker'), 'Gast-Klicker fehlt im Main-Bundle (Messung ungültig)');
+    const treffer = main.match(/require\(["'](bufferutil|utf-8-validate)["']\)/g) ?? [];
+    erwarte(treffer.length === 0, `gefunden: ${treffer.join(', ')}`);
+  });
+  try {
+    await mitApp('gastklicker', exe, [], async (app, ed) => {
+      let raum = null;
+      await fall('Einschalten → binnen 5 s verbunden, Link …/k/<12 Zeichen>', async () => {
+        await auswerten(ed, 'window.jmpr.gastKlicker.setzeAn(true)');
+        const s = await bisWert(() => status(ed), (v) => v?.lage === 'verbunden', 5_000);
+        erwarte(s?.lage === 'verbunden', `Status ${JSON.stringify(s)}`);
+        const m = /\/k\/([a-z0-9]{12})$/.exec(s.link ?? '');
+        erwarte(m, `Link ${s.link}`);
+        raum = m[1];
+        link = s.link;
+      });
+      if (!raum) return;
+
+      let gast = null;
+      await fall('Präsentation (2 Folien) läuft, Gast verbindet → Stand total 2, presenter:true; Status 1 Gast', async () => {
+        const { x, y } = await auswerten(ed, imDom(domMitte));
+        await ablegen(ed, [d.a], x, y);
+        const n = await bisWert(() => folienZahl(ed), (v) => v === 2);
+        erwarte(n === 2, `Folien · ${n ?? '–'} statt 2`);
+        erwarte(await warteBis(() => auswerten(ed, imDom(domKlickePraesentieren)), 10_000), 'Knopf „▶ Präsentieren“ nicht bedienbar');
+        await oeffneZiel(app, 'view=audience');
+        gast = gastVerbinden(port, raum);
+        const st = await bisWert(async () => gast.stand(), (v) => v?.aktiv === true && v.total === 2, 5_000);
+        erwarte(st?.presenter === true && st.total === 2, `Gast-Stand ${JSON.stringify(st)}`);
+        const s = await bisWert(() => status(ed), (v) => v?.gaeste === 1, 3_000);
+        erwarte(s?.gaeste === 1, `Status ${JSON.stringify(s)}`);
+      });
+      if (!gast) return;
+
+      await fall('Gast „next“ → binnen 2 s Folie 2 (Index 1), Gast-Stand index 1, Vorschaubild ≥ 1000 Byte (FF D8)', async () => {
+        const bilderVorher = gast.bilder.length;
+        gast.klick('next');
+        const i = await bisWert(() => index(ed), (v) => v === 1, 2_000);
+        erwarte(i === 1, `Index ${i}`);
+        const st = await bisWert(async () => gast.stand(), (v) => v?.index === 1, 2_000);
+        erwarte(st?.index === 1, `Gast-Stand ${JSON.stringify(st)}`);
+        const ok = await warteBis(async () => gast.bilder.length > bilderVorher, 3_000);
+        const b = gast.bilder.at(-1);
+        erwarte(ok && b.length >= 1000 && b[0] === 0xff && b[1] === 0xd8, `Bild ${b?.length ?? 'keins'} Byte`);
+      });
+
+      await fall('Pause → Gast „prev“ wirkt nicht (1,5 s), Gast-Stand pausiert; fortsetzen → „prev“ wirkt', async () => {
+        await auswerten(ed, 'window.jmpr.gastKlicker.pause(true)');
+        const p = await bisWert(async () => gast.stand(), (v) => v?.pausiert === true, 2_000);
+        erwarte(p?.pausiert === true, `Gast-Stand ${JSON.stringify(p)}`);
+        gast.klick('prev');
+        await pause(1_500);
+        erwarte((await index(ed)) === 1, 'Index hat sich trotz Pause geändert');
+        await auswerten(ed, 'window.jmpr.gastKlicker.pause(false)');
+        await bisWert(async () => gast.stand(), (v) => v?.pausiert === false, 2_000);
+        gast.klick('prev');
+        const i = await bisWert(() => index(ed), (v) => v === 0, 2_000);
+        erwarte(i === 0, `Index ${i} nach Fortsetzen`);
+      });
+
+      await fall('Dienst weg → „getrennt“, App reagiert; Dienst wieder da → binnen 10 s verbunden', async () => {
+        await dienst.stop();
+        const s = await bisWert(() => status(ed), (v) => v?.lage === 'getrennt', 5_000);
+        erwarte(s?.lage === 'getrennt', `Status ${JSON.stringify(s)}`);
+        erwarte((await auswerten(ed, 'window.jmpr.present.getState().then((s) => s.active)')) === true, 'Präsentation läuft nicht mehr');
+        dienst = await starteKlickDienst(raeume, port);
+        const s2 = await bisWert(() => status(ed), (v) => v?.lage === 'verbunden', 10_000);
+        erwarte(s2?.lage === 'verbunden', `Status ${JSON.stringify(s2)}`);
+      });
+      gast.zu();
+      await auswerten(ed, 'window.jmpr.present.stop()').catch(() => {});
+    }, umgebung);
+
+    await mitApp('gastklicker (Neustart)', exe, [], async (_app, ed) => {
+      await fall('App neu gestartet (gleiches Profil) → gleicher Link, verbindet von selbst', async () => {
+        const s = await bisWert(() => status(ed), (v) => v?.lage === 'verbunden', 10_000);
+        erwarte(s?.lage === 'verbunden' && s.link === link, `Status ${JSON.stringify(s)}, vorher ${link}`);
+      });
+
+      await fall('Nur NDI (Publikum „Keiner“): Gast „next“ → Index 1; Vorschau aus dem NDI-Fenster', async () => {
+        const raum = /\/k\/([a-z0-9]{12})$/.exec(link)[1];
+        const { x, y } = await auswerten(ed, imDom(domMitte));
+        await ablegen(ed, [d.a], x, y);
+        erwarte((await bisWert(() => folienZahl(ed), (v) => v === 2)) === 2, 'Folien nicht geladen');
+        await auswerten(ed, 'window.jmpr.ndi.setzeAn(true)');
+        const n = await bisLage(ed, 'sendet', 10_000);
+        erwarte(n?.lage === 'sendet', `NDI-Status ${JSON.stringify(n)}`);
+        const waehlbar = (a) => a?.optionen.some((o) => o.text === KEINER && !o.gesperrt);
+        erwarte(waehlbar(await bisWert(() => auswahl(ed), waehlbar, 5_000)), `„${KEINER}“ nicht wählbar`);
+        erwarte(await auswerten(ed, imDom(domWaehle, 'keiner')), 'kein Auswahlfeld „Publikums-Bildschirm“');
+        erwarte(await warteBis(() => auswerten(ed, imDom(domKlickePraesentieren)), 10_000), 'Knopf „▶ Präsentieren“ nicht bedienbar');
+        const gast = gastVerbinden(port, raum);
+        try {
+          await bisWert(async () => gast.stand(), (v) => v?.aktiv === true, 5_000);
+          const bilderVorher = gast.bilder.length;
+          gast.klick('next');
+          const i = await bisWert(() => index(ed), (v) => v === 1, 3_000);
+          erwarte(i === 1, `Index ${i}`);
+          const da = await warteBis(async () => gast.bilder.length > bilderVorher, 3_000);
+          const b = gast.bilder.at(-1);
+          if (!da) ueberspringe('NDI-Fenster liefert kein capturePage-Bild (gemessen: kein Bild binnen 3 s)');
+          erwarte(b.length >= 1000 && b[0] === 0xff && b[1] === 0xd8, `Bild ${b.length} Byte`);
+        } finally {
+          gast.zu();
+          await auswerten(ed, 'window.jmpr.present.stop()').catch(() => {});
+          await auswerten(ed, 'window.jmpr.ndi.setzeAn(false)').catch(() => {});
+        }
+      });
+    }, umgebung);
+  } finally {
+    await dienst.stop();
+  }
+}
+
 const GRUPPEN = {
   ablage: gruppeAblage,
   navigation: gruppeNavigation,
@@ -2303,6 +2526,7 @@ const GRUPPEN = {
   ndi: gruppeNdi,
   vollbild: gruppeVollbild,
   bildformate: gruppeBildformate,
+  gastklicker: gruppeGastklicker,
 };
 
 // ---------------------------------------------------------------- Ablauf

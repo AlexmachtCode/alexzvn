@@ -21,12 +21,25 @@ export default defineConfig({
           'fflate',
           '@jm/discovery',
           'bonjour-service',
+          // #317 Gast-Klicker: WebSocket-Client im Main (reines JS; optionale Native-Beschleuniger fehlen still).
+          'ws',
         ],
       }),
     ],
     resolve: { alias: sharedAlias },
+    // #317 (Sicherheitsprüfung 18.11.): ws soll die Native-Beschleuniger gar nicht erst anfordern. Ein offenes
+    // require('bufferutil') suchte zur Laufzeit in übergeordneten Ordnern bis zum node_modules-Ordner im Wurzelverzeichnis
+    // des Laufwerks (dort kann jeder Benutzer etwas ablegen). Mit den Schaltern von ws fällt das require als toter Code weg (Prüfstand gastklicker).
+    define: {
+      'process.env.WS_NO_BUFFER_UTIL': JSON.stringify('1'),
+      'process.env.WS_NO_UTF_8_VALIDATE': JSON.stringify('1'),
+    },
     build: {
       rollupOptions: {
+        // #317: optionale Native-Beschleuniger von ws NICHT bündeln. Gebündelt würden sie zu einem leeren Modul, ws hielte
+        // sie für vorhanden und würfe beim ersten Senden „bufferUtil.mask is not a function“ (gemessen 18.11.2026 an der
+        // gepackten App). Extern schlägt das require zur Laufzeit fehl und ws nimmt seinen reinen JS-Weg.
+        external: ['bufferutil', 'utf-8-validate'],
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           // Entry des utilityProcess (nativer NDI-Sender, #303) → out/main/ndi-sender.cjs.

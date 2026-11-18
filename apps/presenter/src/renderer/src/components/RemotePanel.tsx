@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import type { NetInterface, RemoteConfig, RemoteStatus } from '@shared/types';
+import { GastKlickerAbschnitt } from './GastKlickerAbschnitt';
 
 /**
  * Operator panel for the phone clicker: toggle the LAN server on/off, pick which
@@ -125,6 +126,8 @@ export function RemotePanel({ onClose }: { onClose: () => void }) {
         )}
 
         {running && status?.url && <Pairing url={status.url} pin={status.pin} />}
+
+        <GastKlickerAbschnitt />
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { registerIpc } from './ipc';
 import { createEditorWindow, getEditorWindow, istNdiFenster } from './windows';
 import { handleShowDeepLink, flushPendingShowProject } from './show-open';
 import { startControlServer, stopControlServer } from './control-server';
+import { shutdownGastKlicker } from './gast-klicker';
 import { oeffneStartDateien, registriereDateiOeffnen } from './datei-oeffnen';
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
@@ -56,7 +57,10 @@ if (!gotLock) {
     });
   });
 
-  app.on('before-quit', () => stopControlServer());
+  app.on('before-quit', () => {
+    stopControlServer();
+    shutdownGastKlicker();
+  });
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

@@ -1,0 +1,16 @@
+# JM Gast-Klicker (#317) — eigener Worker, getrennt vom Suite-Proxy (services/release-proxy).
+# Deploy aus DIESEM Ordner: npx wrangler@4 deploy   (nur mit Owner-OK; Konto jm-production-suite, Workers Paid)
+# URL: https://jm-gast-klicker.jm-production-suite.workers.dev
+name = "jm-gast-klicker"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+workers_dev = true
+
+# Ein KlickRaum je Event-Link (Raum-Kennung aus dem Host-Geheimnis abgeleitet), EU-Jurisdiction im Worker.
+[[durable_objects.bindings]]
+name = "KLICK_RAUM"
+class_name = "KlickRaum"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["KlickRaum"]
