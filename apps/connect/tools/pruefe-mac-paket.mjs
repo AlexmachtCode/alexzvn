@@ -253,11 +253,15 @@ export const NDI_LESESTAND_WINDOWS = Object.freeze({
  * Mac: gemessen im Probelauf connect-mac.yml am 02.11.2026 (Lauf 41447312071 an 60be310bfd, Paket Install_NDI_SDK_v6_Apple.pkg, Laufzeit 6.3.2.0),
  * vom Owner am 02.11.2026 freigegeben. Das Kennzeichen ist unter macOS die SHA-256 des Pakets; Lizenz und Doku sind gleich der
  * Windows-Lesung (LQ21, LQ22; die Lesart AN36 trägt).
+ * Nachgezogen am 18.11.2026 (Owner-OK 18:44, „1.“): NDI lieferte ab 18.11. das Apple-SDK 6.4.0.2 (Paket 4e0781be…, Lauf
+ * 44353679875 brach ab). Lizenz unverändert (gleich Windows, 11ae13ae… vom 04.11.2026); Doku neu (bc761220…), Abschnitt 3
+ * (Licensing) und 4 (Software Distribution) gegen die Windows-Lesung e9d3a84e… verglichen: wortgleich bis auf Seitenzahlen
+ * und ein Leerzeichen; neu sind nur die technischen Kapitel 15.5 und 15.6 (Empfang).
  */
 export const NDI_LESESTAND_MAC = Object.freeze({
-  kennzeichen: '5aa101a01b00494724c60b7e1e15b5d1743bf9c68b61739c22ac54932dde95fb',
+  kennzeichen: '4e0781be36a46d50224e2af6c483db8e26c1606870d18e80b906ab3b0f6fbb30',
   lizenz: '11ae13ae038d5af06d2fd5f9e55cbbdb97e75d2526656a0dbaa4dafcb7bf48e6',
-  doku: 'e9d3a84ece970f3181b23cdef6433cb205e940d28abe61d4d9d1e7477a81cc6b',
+  doku: 'bc761220cf644a5cbb747605122bb26c55e6060674fb8f4c9824a1826eeaba71',
 });
 
 /**
