@@ -1,9 +1,19 @@
 # JM Production Suite — Roadmap
 
-> **Lebendes Dokument.** Aktualisieren, nicht neu bauen. Stand: **2026-11-07**.
+> **Lebendes Dokument.** Aktualisieren, nicht neu bauen. Stand: **2026-11-19**.
 > Zwei Leitprojekte: die **Zoom-Einbindung (Welle 6.7)**, Abschnitt 1, und seit dem 30.09. der
 > **Master-Launcher / Suite im Netz**, Abschnitt 1b. Dazu seit dem 21.10. die **Launcher-Anmeldung**, Abschnitt 1c.
 > Alles andere läuft in den Parallel-Spuren (Abschnitt 2).
+>
+> **Nachgeführt am 2026-11-19, gemessen an `main` 957c2fb951, an den Releases, an den GitHub-Issues und an den Branches.**
+> Während der COP31 (09.–20.11.) kamen 14 Releases, alle aus Meldungen der Crew: Connect 0.4.1–0.4.5, Presenter
+> 0.11.0–0.14.0, Recorder 0.8.0–0.9.1, dazu der Worker `services/gast-klicker` (Anhang). Alles andere blieb liegen.
+> **Der Plan für die Zeit nach der COP steht in Abschnitt 3, vom Owner am 19.11. freigegeben.**
+>
+> ⚑ **Release-Fenster während der COP31:** Updates nur 18–06 Uhr (Berlin), an Off-Tagen, die der Owner nennt, auch tagsüber.
+> Das Fenster endet mit dem 20.11. (Owner 19.11.); danach gilt wieder nur: Release mit Owner-OK.
+>
+> <details><summary>Kopf vom 2026-11-07 (überholt, stehen gelassen)</summary>
 >
 > **Nachgeführt am 2026-11-07, gemessen an `main` fb91177202, an den Releases, am Katalog, an den GitHub-Issues und an den
 > Branches.** Der Stand vom 16.10. war wieder in beide Richtungen veraltet: Titler-Pilot, iveo-Paket, Geführte Anleitungen,
@@ -11,7 +21,10 @@
 > Abschnitt 3.
 >
 > ⛔ **Vor der COP31 (ab 09.11.2026) wird nichts ausgeliefert** (Owner 06.11.), damit die Kolleginnen und Kollegen vor der
-> Veranstaltung keine neuen Stände bekommen.
+> Veranstaltung keine neuen Stände bekommen. *(19.11.: Während der COP kamen trotzdem Releases, jeweils auf Meldung der Crew
+> und mit Owner-OK.)*
+>
+> </details>
 >
 > <details><summary>Kopf vom 2026-10-08 (überholt, stehen gelassen)</summary>
 >
@@ -185,8 +198,14 @@ Zoom-Teilnehmer bekommen **kein Tally**, **kein privates Talkback/IFB** und **ke
   NDI-Name, Auflösung, Ersatzbild, Ton, Status, Vorschau und Messwerte; dazu NDI auf dem Mac und sichtbare NDI-Ausfälle.
   🟡 Owner-Abnahme nach [`ABNAHME-0.4.0.md`](../apps/connect/ABNAHME-0.4.0.md) offen (die Ergebnis-Spalte ist leer, 54
   Punkte); die Mac-DMGs gingen mit Owner-OK ungetestet raus.
-- 🔵 **Zoom-Slots, Stufe 2 = Connect 0.5.0:** Galerie, Dolmetscher-Ton, fps-Wahl, QoS, Logo als Ersatzbild (Owner 16.10.,
-  aus #257–#262). Noch kein Plan.
+- ✅ **Während der COP31: Connect 0.4.1–0.4.5** (10.–18.11.), alles aus Meldungen der Crew: kurze Aussetzer im Zoom-Bild
+  ergeben kein Schwarzbild mehr (0.4.1) · Einwahldaten merken und „Person im NDI-Namen“ (0.4.2) · kein Absturz mehr, wenn das
+  Netz wegbricht oder mDNS blockiert ist, dazu Rechtsklick-Menü in Eingabefeldern (0.4.3) · Ersatzbild „Zoom-Kachel“ (0.4.4) ·
+  Bildformat „16:9 einpassen“ für Hochkant-Bilder (0.4.5). Einzelheiten im Anhang.
+- ⚪ **Zoom-Slots, Stufe 2** (bis 19.11. als „= Connect 0.5.0“ geführt): Galerie, Dolmetscher-Ton, fps-Wahl, QoS, Logo als
+  Ersatzbild (Owner 16.10., aus #257–#262). Noch kein Plan. **19.11.:** Nach dem Plan in Abschnitt 3 bekommt Connect 0.5.0 die
+  Anmeldung Teil 2; Stufe 2 kommt danach (Block 5), die Versionsnummer ist offen. #257–#262 sind seit dem 13.11. geschlossen,
+  für Stufe 2 gibt es damit kein offenes Issue.
 - 🟡 **Meetings fremder Zoom-Konten.** Der Spike auf `spike/zoom-obf` trägt: OAuth über die Proxy-Weiterleitung, das OBF-Token
   kommt an und wirkt in eigenen Meetings. In fremden Meetings antwortet Zoom mit Fehler 63, weil die App nicht veröffentlicht
   ist. Dafür braucht es das **Marketplace-Review**. Die Unterlagen liegen auf dem Spike-Branch unter `docs/zoom-marketplace/`.
@@ -254,8 +273,8 @@ Spec `docs/superpowers/specs/2026-10-17-launcher-anmeldung-design.md`, Plan Teil
 
 | Teil | Inhalt | Stand |
 |---|---|---|
-| **1 · Konten** | Anmeldung im Launcher mit dem Firmenkonto oder per Einladung und Passwort, Abmelden und Entzug, Q&A-Einreichungen von außen über das Konto statt über einen Schlüssel; Ziel **Launcher 0.18.0** und **Q&A 0.6.0** | 🟡 umgesetzt; der Proxy-Teil ist seit dem 05.11. ausgerollt (Nachbesserung 06.11.), alte Launcher arbeiten unverändert weiter. **Owner-Abnahme am 06.11.:** alle Schritte bestanden außer 14, 15 und dem Rest von 21; die hängen am iveo-Server (HTTP 500 beim Laden der Events, der iveo-Entwickler prüft). Gefunden und behoben während der Abnahme: die Google-Anmeldung scheiterte unter der Workers-Laufzeit (`redirect: 'error'` wirft dort), und die Logzeile beim iveo-Fehler nannte weder Status noch Request-ID. ⏸ **Release zurückgestellt bis nach der COP31** (Owner 06.11., vorläufig, Owner meldet sich nach Absprache). |
-| **2 · Connect und Zoom** | Cloud-Raum, Zoom-Zugang und „Zoom-SDK laden“ über die Anmeldung statt über eigene Schlüssel; braucht auch ein Launcher-Release | ⚪ Bestandsaufnahme fertig (05.11.); Plan erst nach Release und Merge von Teil 1 |
+| **1 · Konten** | Anmeldung im Launcher mit dem Firmenkonto oder per Einladung und Passwort, Abmelden und Entzug, Q&A-Einreichungen von außen über das Konto statt über einen Schlüssel; Ziel **Launcher 0.18.0** und **Q&A 0.6.0** | 🟡 umgesetzt; der Proxy-Teil ist seit dem 05.11. ausgerollt (Nachbesserung 06.11.), alte Launcher arbeiten unverändert weiter. **Owner-Abnahme am 06.11.:** alle Schritte bestanden außer 14, 15 und dem Rest von 21; die hängen am iveo-Server (HTTP 500 beim Laden der Events, der iveo-Entwickler prüft). Gefunden und behoben während der Abnahme: die Google-Anmeldung scheiterte unter der Workers-Laufzeit (`redirect: 'error'` wirft dort), und die Logzeile beim iveo-Fehler nannte weder Status noch Request-ID. ⏸ **Release zurückgestellt bis nach der COP31** (Owner 06.11., vorläufig, Owner meldet sich nach Absprache). 🔵 **19.11.: Block 1 des Plans in Abschnitt 3.** `main` ist seit der Branch-Basis (05.11.) 210 Commits weiter; beide Seiten ändern dieselben Dateien nur an vier Stellen (`ci-checks.yml`, `suite-release.yml`, `package-lock.json`, `packages/cookbook/cookbook.json`). Ob der iveo-Fehler noch besteht, ist unbekannt (letzte Logzeile 12.11.). |
+| **2 · Connect und Zoom** | Cloud-Raum, Zoom-Zugang und „Zoom-SDK laden“ über die Anmeldung statt über eigene Schlüssel; braucht auch ein Launcher-Release | ⚪ Bestandsaufnahme fertig (05.11.); Plan erst nach Release und Merge von Teil 1. **19.11.:** Die Bestandsaufnahme ist gegen Connect 0.4.0 gemessen, seitdem kamen 0.4.1–0.4.5 → vor dem Plan nachmessen (Block 3; Ziel Connect 0.5.0 + Launcher 0.19.0) |
 
 ⚑ **Bis zum Merge von Teil 1 läuft der Proxy im Stand des Branches**, `main` kennt die Konten noch nicht. Ein Proxy-Deploy
 (auch ein Notfall-Fix während der COP31) muss darum von `docs/launcher-anmeldung` kommen, nie von `main`.
@@ -359,6 +378,11 @@ Es war der zweite Fall dieser Falle nach JM Connect — der Selbsttest von `@jm/
   | [`packages/master-link/ABNAHME-2b.md`](../packages/master-link/ABNAHME-2b.md) | 0 von 14 | ✅ Owner-Test 16.10. ohne Fehler (Absatz) |
   | [`docs/ux/ABNAHME-UX-Welle-0.md`](ux/ABNAHME-UX-Welle-0.md) | 0 von 19 | ✅ Owner 17.10. (Absatz) |
   | [`apps/launcher/ABNAHME-gefuehrte-anleitungen.md`](../apps/launcher/ABNAHME-gefuehrte-anleitungen.md) | 2 von 23 | ✅ Owner 21.10. („abgenommen“), Befund Scrollen in 0.17.0 behoben |
+
+- **Owner 19.11. (Plan in Abschnitt 3, Block 0):** Was während der COP31 im Einsatz lief, gilt als abgenommen. Einzeln geprüft
+  wird nur, was dort nie benutzt wurde, etwa die Mac-Teile oder die Zoom-Kachel mit echten Teilnehmern. Welche Punkte das
+  sind, klärt Block 0 mit dem Owner. Betrifft die offenen Zeilen oben und die Hand-Abnahmen der COP-Releases (Presenter 0.12.0
+  und 0.13.0, Recorder 0.8.0, Connect 0.4.1).
 
 ### Lane C — Security & Betrieb
 
@@ -499,10 +523,17 @@ nächsten Switcher-Änderung zu erledigen.
 
 </details>
 
-### Lane F — Tools nachziehen und Live-Sicherheit (Vorschlag vom 06.11., nichts beschlossen)
+### Lane F — Tools nachziehen und Live-Sicherheit (Vorschlag vom 06.11., eingeordnet am 19.11.)
 
 Am 06.11.2026 hat der Owner eine Analyse der ganzen Suite bekommen. Seine Antwort („finde aber alle deine punkte spannend“)
-ist Interesse, **keine Freigabe**. Die Punkte sind am Code gelesen, nicht ausprobiert:
+ist Interesse, **keine Freigabe**. Die Punkte sind am Code gelesen, nicht ausprobiert. **Seit dem 19.11. stehen sie in den
+Blöcken des Plans in Abschnitt 3**, vom Owner freigegeben; der Block steht jeweils am Punkt.
+
+- **mDNS-Absturz-Fix fehlt in sieben Tools** (neu, 19.11. an den Tags gemessen): `neuesBonjour(onError)` in
+  `packages/discovery/src/bonjour.ts` (seit 14.11.) steckt nur in Connect ab 0.4.3 und Presenter ab 0.13.0. Launcher 0.17.1,
+  Timer 0.14.0, Rundown 0.8.0, Q&A 0.5.0, Battle 0.3.0, Prompter 0.6.0 und Stage Display 0.5.0 können bei einem Netzfehler
+  weiter abstürzen (beim Launcher auf dem Mac in den Logs zu #313 gesehen). → Block 1 (Launcher, Q&A), Block 2 (übrige).
+  Q&A, Battle, Prompter und Stage Display hatten seit dem 05.07. keinen Release.
 
 - **Live-Sicherheit als eigene Spur.** Die UX-Spec lässt die Bedienlogik ausdrücklich unverändert (U6, Abschnitt 10). Auch
   nach allen Wellen blieben also: stille Fehler, Ein-Klick-Schäden auf Sendung, Wiederanlauf, Show-Bereitschaft,
@@ -512,12 +543,16 @@ ist Interesse, **keine Freigabe**. Die Punkte sind am Code gelesen, nicht auspro
   besser gezielt und zusammen mit den NDI- und GPL-Pflichten (Lane C).
 - **Recorder** (`recorder-v0.7.0`, seitdem kein Commit): Der Dateikopf bleibt bis zum Stopp auf Länge 0; Fenster schließen
   schließt die Datei nicht ab; über 4 GiB wirft der Stopp `ERR_OUT_OF_RANGE` (47 min bei 8 Kanälen, 186 min bei Stereo,
-  32 Bit/48 kHz); es gibt keine Prüfung des freien Plattenplatzes.
+  32 Bit/48 kHz); es gibt keine Prüfung des freien Plattenplatzes. **19.11. nachgemessen:** Folgedatei ab knapp 4 GB und
+  sauberes Abschließen beim Schließen kamen mit Recorder 0.8.0 (11.11., #291) ✅. Eine Prüfung des freien Plattenplatzes steht
+  auch in 0.9.1 nicht im Code → Block 5. Ob der Dateikopf weiter bis zum Stopp auf Länge 0 bleibt, ist nicht nachgemessen.
 - **Stage Display** (`stage-display-v0.5.0`, seitdem kein Commit): Die Ad-hoc-Nachricht erscheint in beiden
-  Presenter-Ansichten nicht, ohne Meldung.
+  Presenter-Ansichten nicht, ohne Meldung. → Block 2.
+- **Titler: NDI-Lizenztext** fehlt der Auslieferung weiter (beim Presenter-NDI-Ausgang #303 aufgefallen). → Block 2.
 - **Stage Display mit NDI-Quelle** (Owner-Idee 06.11.): Streifen oben mit Uhr, Programmpunkt oder Nachricht und Countdown, das
   NDI-Bild ungekürzt darunter. Spec `docs/superpowers/specs/2026-11-06-stage-display-ndi-design.md` vom Owner freigegeben
   („passt“), liegt nur lokal auf `docs/stage-display-ndi`. Plan erst nach der COP und nach dem Nachziehen der Tools.
+  → Block 5; den Branch sichert Block 0.
 - **Transcribe-Katalog:** Der Katalog nennt 0.3.0, veröffentlicht ist 0.2.0; zu 0.3.0 gibt es nur einen Release-Entwurf ohne
   Tag. **Nachgemessen 07.11.:** kein Update ins Leere, denn Launcher und Proxy überspringen Entwürfe
   (`apps/launcher/src/main/release-wahl.ts`, `services/release-proxy/paketwahl.js`). Nur die Kachel eines nicht installierten
@@ -525,18 +560,89 @@ ist Interesse, **keine Freigabe**. Die Punkte sind am Code gelesen, nicht auspro
   der Entwurf 0.3.0 wird gelöscht (✅ gelöscht 07.11.). Der Katalog nennt weiter 0.3.0, bis 0.3.1 kommt oder er zurückgesetzt
   wird.
 - **Mac-Stufe 2** (Titler, Caption, Transcribe auf dem Mac, mit NDI- und whisper-Pflichten; Mac F6/F7 vom 20.10.):
-  Bestandsaufnahme 02.11., Owner-Fragen O1–O6 offen; zurückgestellt, die Anmeldung geht vor.
+  Bestandsaufnahme 02.11., Owner-Fragen O1–O6 offen; zurückgestellt, die Anmeldung geht vor. → Block 5.
 - **Update-Sicherheit:** In einer kleinen, verzerrten Stichprobe aus den Feldmeldungen fielen 15 von 87 stillen Updates auf
   den interaktiven Installer zurück. Ursache ungeprüft. Die naheliegende Vermutung „ein offenes Tool sperrt die Datei“ passt
-  schlecht, weil die NSIS-Vorlage von electron-builder laufende Tools vor der Installation beendet.
+  schlecht, weil die NSIS-Vorlage von electron-builder laufende Tools vor der Installation beendet. → Block 5.
+- **Live-Sicherheit** (erster Punkt oben) → Block 4, zusammen mit UX-Welle 1; Grundlage sind die Rückmeldungen der Crew aus
+  Block 0.
 
-Vorgeschlagene Reihenfolge nach der COP (vom Owner nicht bestätigt): 1. Roadmap und Issues aufräumen · 2. Anmeldung Teil 1
+~~Vorgeschlagene Reihenfolge nach der COP (vom Owner nicht bestätigt): 1. Roadmap und Issues aufräumen · 2. Anmeldung Teil 1
 und 2 · 3. Tools nachziehen (Recorder-Fix, Mac-Stufe 2, NDI-/GPL-Pflichten) · 4. Live-Sicherheit mit UX-Welle 1 ·
-5. Show-Bereitschaft, dann Update-Sicherheit.
+5. Show-Bereitschaft, dann Update-Sicherheit.~~ Überholt am 19.11.: Die Reihenfolge steht in Abschnitt 3 (Owner-Freigabe).
+Anders als hier vorgeschlagen kommt Anmeldung Teil 2 erst mit der Connect-Runde (Block 3), Mac-Stufe 2 erst in Block 5.
 
 ---
 
 ## 3 · Was läuft wann
+
+### Plan nach der COP31 (Owner-Freigabe 19.11.2026)
+
+Der Owner hat am 19.11. den Weg **„Fundament zuerst“** gewählt und den Plan unten freigegeben („passt“). Die Blöcke laufen
+der Reihe nach. Vor jedem Block wird neu gemessen, denn Connect, Presenter und Recorder haben sich während der COP stark
+verändert. Release, Merge, Push, Tag, Deploy, Secret und jede Änderung an Issues nur mit frischem Owner-OK.
+
+**Verworfen:**
+
+- **„Wünsche zuerst“** (Connect-Runde und #317 Stufe B vor der Anmeldung): Der Proxy liefe noch länger nur vom Branch der
+  Anmeldung (Abschnitt 1c), und Connect ginge zweimal durch Bau und Abnahme, einmal für die Wünsche und einmal für Teil 2.
+- **UX-Relaunch ganz vorn:** Welle 1 ändert Q&A, und Q&A 0.6.0 gehört zur Anmeldung Teil 1. Erst die Anmeldung, dann der Umbau.
+
+**Block 0 · COP-Nachlauf** (direkt nach dem 20.11.)
+
+- **Rückmeldungen der Crew** einsammeln: Was hat gehakt, was hat gefehlt, wo wurde es knapp? Daraus entsteht in Block 4 die
+  Live-Sicherheit. *Owner:* die Momente, die auf der COP am meisten wehgetan haben.
+- **Abnahmen:** Was auf der COP im Einsatz lief, gilt als abgenommen; einzeln geprüft wird nur, was dort nie benutzt wurde
+  (Lane B). Offen sind heute Connect 0.4.0, Master-Link 2a und 2b R1, das iveo-Paket, Presenter 0.12/0.13 und Recorder 0.8.
+- **Ruckel-Test** zu „Teilnehmer zittern“ beim Bridge-Beitritt (18.11.): T1 Bridge im Meeting ohne Slot, T2 Slot mit 360p,
+  T3 Slot aus. Geht nur, solange die Crew noch einen Rechner im Meeting hat, sonst beim nächsten Testmeeting.
+- **Issues prüfen** (Abschnitt 4: 12 offen, darunter #256, #280, #208) und ein neues Issue für #317 Stufe B anlegen.
+- **Sichern:** `spike/zoom-obf` und `docs/stage-display-ndi` gibt es nur auf dem Entwicklungsrechner. *Owner:* wohin, als
+  Bündel-Datei auf OneDrive oder per Push. Ein Push von `spike/zoom-obf` macht die Marketplace-Unterlagen im öffentlichen
+  Repo sichtbar.
+
+**Block 1 · Anmeldung Teil 1** (Launcher 0.18.0 + Q&A 0.6.0, Abschnitt 1c)
+
+- Branch `docs/launcher-anmeldung` auf `main` nachziehen, CI grün, neuer Abnahme-Bau.
+- iveo einmal abfragen (*mit Owner-OK*). Läuft es, die Abnahme-Schritte 14, 15 und den Rest von 21 nachholen. Läuft es nicht,
+  kommt vorab Launcher 0.17.2 nur mit dem mDNS-Absturz-Fix (Lane F), und die Anmeldung wartet.
+- *Owner:* Safari-Version, „ja“ zu den Changelog-Texten, „los“ für den Release.
+- Danach Merge von #282 und die Übergangsfrist der alten Schlüssel (`ALTKEY_BIS` = Release-Tag + 30 Tage). Ab dem Merge darf
+  der Proxy wieder von `main` deployt werden.
+
+**Block 2 · Auffrisch-Runde**
+
+- Timer, Rundown, Battle, Prompter und Stage Display bekommen den mDNS-Absturz-Fix (Lane F).
+- Battle, Prompter und Stage Display hatten seit dem 05.07. keinen Release. Sie nehmen alles mit, was sich seitdem in den
+  gemeinsamen Paketen geändert hat, deshalb bekommt jedes einen kurzen Probelauf.
+- Stage Display: die Nachricht, die in den Presenter-Ansichten nicht erscheint. Titler: NDI-Lizenztext beilegen.
+- Presenter-Prüfstand: die vier roten NDI-Fälle (4, 13, 14, 15) klären.
+
+**Block 3 · Connect-Runde**
+
+- **0.4.6:** Die Slot-Anzeige springt außerhalb eines Meetings nicht mehr zurück. Ton-Limiter (Entwurf und Plan fertig, Branch
+  `feat/connect-ton-limiter`); die Grenze legt der Owner in einem Testmeeting fest. Dazu, was T1–T3 ergeben.
+- **0.5.0:** Anmeldung Teil 2 mit Launcher 0.19.0 (Abschnitt 1c). Connect holt den Zoom-Zugang dann über die Anmeldung, die
+  alten Schlüssel laufen 30 Tage später aus. Vorher die Bestandsaufnahme vom 05.11. gegen Connect 0.4.5 nachmessen.
+- **#317 Stufe B** (Spotlight): Entwurf in diesem Block, gebaut mit 0.5.0 oder danach.
+
+**Block 4 · UX-Relaunch Welle 1 + Live-Sicherheit**
+
+- Switcher, Timer, Rundown, Q&A, Battle nach der UX-Spec, keine neue Spec (Owner 17.10., Lane E). Die fünf Apps sind seit dem
+  05.11. unverändert, die Plan-Grundlage hält.
+- Die Live-Sicherheit (Lane F) hängt daran: ein kurzes eigenes Brainstorming mit den Rückmeldungen aus Block 0, dann ein
+  gemeinsamer Plan.
+- Für Welle 2 Connect, Presenter und Recorder neu aufnehmen.
+
+**Block 5 · Danach** (Reihenfolge wird geklärt, wenn es so weit ist)
+
+- #314 Audio-Switch · Stage Display mit NDI-Quelle (Spec freigegeben) · Mac-Stufe 2 · Zoom-Slots Stufe 2 (Abschnitt 1) ·
+  SRT-Hub (Owner 19.11.: „haben erstmal einen anderen weg für srt, das machen wir in ruhe später“; Entwurf auf `docs/srt-hub`,
+  nicht freigegeben) · Master-Link 2c · Update-Sicherheit · Recorder: Prüfung des freien Plattenplatzes und die 0.9.2-Liste
+  (PR #296) · UX-Wellen 2 und 3.
+
+**Bleibt geparkt** (Abschnitt 5): Repo privat · Installer-Signierung C3 (#245) · Stimm-Update der Anleitungen ·
+Zoom-Marketplace (Owner-Entscheide E1–E6, Abschnitt 1).
 
 ### Release-Reihenfolge (Owner-Freigabe 09.10.2026)
 
@@ -548,16 +654,28 @@ Release, Merge und Push nur mit Owner-Okay.
 | 1 | ✅ **Connect 0.3.0** + Companion-Modul 0.2.0 (Zoom 4b), **released 12.10.2026** (`connect-v0.3.0`, PR #251) | Owner-Abnahme nach `apps/connect/ABNAHME-0.3.0.md` (läuft, Test in der Suite seit 09.10.); M18/M19 ins Handbuch; Notes freigeben | ca. 1 h nach dem Abnahme-Ergebnis: Handbuch, Version, Changelog, Bau, Merge, Tag auf dem Merge-Commit, Pre-Release (so gelebt: Bau `f2cb025c99`, Tag auf dem Merge `2df1f79357`) |
 | 2 | ✅ **Master-Link 2b R2**: Launcher 0.15.0, Timer 0.14.0, Titler 0.11.0, Rundown 0.8.0, **released 13.10.2026** (PR #254), Owner-Test 16.10. ohne Fehler | Merge von 4b; Plan auf den neuen `main` neu aufsetzen und nachmessen | ca. 1–2 h Nachmessen, 6–8 h Umsetzung (Hintergrund, auch über Nacht); dann Zwei-Rechner-Abnahme, Freigabe der R2-Texte und -Notes |
 | 3 | ✅ **UX Welle 0 sichtbar**: Titler-Pilot als **Titler 0.12.0, released 17.10.2026** (PR #267) | R2 released und gemergt (beide ändern den Titler) | Plan ca. 3 h (kann schon während der R2-Umsetzung entstehen), Umsetzung ca. 5 h, dann Owner-Durchsicht |
-| 4 | **UX Welle 1**: Switcher, Timer, Rundown, Q&A, Battle, gesammelt | Titler-Pilot abgenommen | Plan je Welle, vorher je App die Funktionsliste; im Switcher O2 (auf Sendung und gesperrt) |
+| 4 | **UX Welle 1**: Switcher, Timer, Rundown, Q&A, Battle, gesammelt · 19.11.: Block 4 des Plans oben | Titler-Pilot abgenommen | Plan je Welle, vorher je App die Funktionsliste; im Switcher O2 (auf Sendung und gesperrt) |
 | 5 | **UX Wellen 2 und 3**: übrige Tools, zuletzt der Launcher | jeweils die Welle davor | wie Welle 1 |
 | 6 | ✅ **Connect 0.4.0** + Companion-Modul 0.3.0, **released 02.11.2026** (Pre-Release `connect-v0.4.0` auf `57079b5889`, Katalog-Bump `edfe029f8d`; Owner-Abnahme nach `apps/connect/ABNAHME-0.4.0.md` offen): Zoom-Slots (Teilnehmer, aktiver Sprecher, Bildschirmfreigabe als feste NDI-Quellen, #227, #247), NDI auf dem Mac, NDI-Ausfälle sichtbar, Green Room bei getrennter Raumverbindung, Tray „Raum schließen“ behoben, kleines Menüleisten-Symbol (#277) | Pläne A–C fertig und geprüft, auf `main` (02.11.2026); Mac-Lesestand vom Owner freigegeben (02.11.); Mac-Probelauf `connect-mac.yml` grün; Notes vom Owner freigegeben (02.11.) | Merge (auf `main`), Tag `connect-v0.4.0` auf dem Merge-Commit, Pre-Release mit EXE und Modul, DMGs aus `connect-mac.yml`, dann Katalog-Bump; danach Owner-Abnahme nach `apps/connect/ABNAHME-0.4.0.md` am Pre-Release (Mac-Teil ungetestet freigegeben, Owner 02.11.) |
 | 7 | ✅ **iveo-Paket**: Launcher 0.16.0 + Titler 0.12.1, **released 19.10.2026** (PR #268): Organisationen in den Bauchbinden, Speaker-Daten alle 5 Minuten, iveo-Standard-Adresse auf Production, Anhänge, Side-Event-Ordner, Connect auf dem Mac | Titler-Pilot released (Titler 0.12.1 setzt darauf auf) | Owner-Abnahme nach `apps/launcher/ABNAHME-iveo-paket.md` offen |
 | 8 | ✅ **Mac-Stufe 1**: Editor 0.5.0 für macOS (arm64 und Intel) aus dem bestehenden Tag nachgebaut, **20.10.2026** (Workflow „Mac-Nachbau“, PR #272/#273), mit FFmpeg-Lizenzbeilagen | Owner-Entscheide Mac F1–F8 (20.10.) | Owner 20.10.: „mac download klappt super“ |
 | 9 | ✅ **Geführte Anleitungen**: Launcher 0.17.0 (Einrichtung als Schritt-für-Schritt-Anleitung im Launcher, ohne Stimme) und 0.17.1 (Dialoge scrollen bei kleinem Fenster), **released 21.10.2026** (PR #274/#275) | Owner-Abnahme 21.10. | Stimm-Update später (Abschnitt 5) |
-| 10 | ⏸ **Launcher-Anmeldung Teil 1**: Launcher 0.18.0 + Q&A 0.6.0 (Abschnitt 1c) | Abnahme-Schritte 14, 15 und Rest von 21 (warten auf iveo); Freigabe der Changelog-Texte; Owner-„los“ | **zurückgestellt bis nach der COP31** (Owner 06.11., vorläufig) |
+| 10 | ⏸ **Launcher-Anmeldung Teil 1**: Launcher 0.18.0 + Q&A 0.6.0 (Abschnitt 1c) | Abnahme-Schritte 14, 15 und Rest von 21 (warten auf iveo); Freigabe der Changelog-Texte; Owner-„los“ | **zurückgestellt bis nach der COP31** (Owner 06.11., vorläufig) · 19.11.: Block 1 des Plans oben |
+| 11 | ✅ **COP31-Releases** (10.–18.11.): Connect 0.4.1–0.4.5, Presenter 0.11.0–0.14.0, Recorder 0.8.0–0.9.1, Worker `jm-gast-klicker` | Meldungen der Crew | je Release einzeln mit Owner-OK; Einzelheiten im Anhang |
 
 Realistisch: Connect 0.3.0 am Tag der bestandenen Abnahme; R2 direkt danach, zur Abnahme am Folgetag; der Titler-Pilot
 nach dem R2-Release. Zwischen 2 und 3 läuft nichts parallel außer dem Schreiben des Pilot-Plans.
+
+**Stand 2026-11-19:**
+
+- ✅ **Erledigt seit dem 07.11.:** 14 COP-Releases (Zeile 11, Anhang) · Worker `jm-gast-klicker` für den Gast-Klicker des
+  Presenters 0.14.0 (#317 Stufe A) · 32 Issues geschlossen (Abschnitt 4).
+- 🔵 **Als Nächstes:** der Plan oben, Block 0 bis 5 der Reihe nach.
+- 🟡 **Beim Owner:** die Punkte mit *Owner* im Plan, dazu weiter Messwerte aus der Abnahme Connect 0.3.0 · Bild-Versatz-Wert
+  (Abschnitt 1) · Zoom-Review E1–E6 · Mac-Fragen O1–O6.
+
+<details>
+<summary>Stand 2026-11-07 (überholt, stehen gelassen)</summary>
 
 **Stand 2026-11-07:**
 
@@ -575,6 +693,8 @@ nach dem R2-Release. Zwischen 2 und 3 läuft nichts parallel außer dem Schreibe
   die übrigen Issue-Vorschläge (Abschnitt 4: kurze Tests für #256, #236, #277, #279).
 - ⚪ **Später:** 2c, Fernstart, Show-Zentrale · Connect 0.5.0 · App-Designer-Welle 3 · C3 · Stimm-Update der Anleitungen ·
   Stage Display mit NDI-Quelle.
+
+</details>
 
 <details>
 <summary>Stand 2026-10-16 (überholt, stehen gelassen)</summary>
@@ -666,6 +786,26 @@ nach dem R2-Release. Zwischen 2 und 3 läuft nichts parallel außer dem Schreibe
 
 ## 4 · Issue-Hygiene (Aufräum-Empfehlung)
 
+### Stand 2026-11-19: 12 offene Issues (an GitHub gezählt, nicht einzeln am Code geprüft)
+
+- **Seit dem 07.11. geschlossen, 32:** zwölf ältere, alle am 13.11.: [#227](https://github.com/AlexmachtCode/alexzvn/issues/227),
+  [#236](https://github.com/AlexmachtCode/alexzvn/issues/236), [#247](https://github.com/AlexmachtCode/alexzvn/issues/247),
+  [#257](https://github.com/AlexmachtCode/alexzvn/issues/257)–[#262](https://github.com/AlexmachtCode/alexzvn/issues/262),
+  [#277](https://github.com/AlexmachtCode/alexzvn/issues/277), [#278](https://github.com/AlexmachtCode/alexzvn/issues/278),
+  [#279](https://github.com/AlexmachtCode/alexzvn/issues/279). Dazu 20 Meldungen aus der COP31 (#284–#317), je mit dem
+  Release, der sie behebt.
+- **Offen:** [#314](https://github.com/AlexmachtCode/alexzvn/issues/314) Audio-Switch (neu, 18.11.) ·
+  [#280](https://github.com/AlexmachtCode/alexzvn/issues/280) Prompter · [#276](https://github.com/AlexmachtCode/alexzvn/issues/276)
+  Screenshot · [#256](https://github.com/AlexmachtCode/alexzvn/issues/256) Connect auf dem Mac ·
+  [#246](https://github.com/AlexmachtCode/alexzvn/issues/246) CORS · [#245](https://github.com/AlexmachtCode/alexzvn/issues/245) C3 ·
+  [#232](https://github.com/AlexmachtCode/alexzvn/issues/232), [#230](https://github.com/AlexmachtCode/alexzvn/issues/230),
+  [#200](https://github.com/AlexmachtCode/alexzvn/issues/200) App Designer · [#213](https://github.com/AlexmachtCode/alexzvn/issues/213)
+  Battle · [#208](https://github.com/AlexmachtCode/alexzvn/issues/208), [#164](https://github.com/AlexmachtCode/alexzvn/issues/164)
+  Interpreter.
+- ⚑ **Arbeit ohne Issue:** #317 Stufe B (Spotlight) und Zoom-Slots Stufe 2 (Galerie, fps, Dolmetscherton, QoS, Logo). Ihre Issues
+  (#317, #257–#262) sind geschlossen. Für #317 Stufe B kommt ein neues Issue (Abschnitt 3, Block 0).
+- Durchsicht der zwölf offenen im Block 0, Vorschläge wie unten, geschlossen wird nur mit Owner-OK.
+
 ### Stand 2026-11-07: 29 offene Issues, jedes am Code und am Tag geprüft; 6 geschlossen, 23 offen
 
 Geschlossen wird nur mit Owner-OK, jedes Issue einzeln. ⚠️ Deutschsprachige PR-Texte schließen Issues nicht automatisch.
@@ -738,10 +878,29 @@ alle anderen Apps haben eine. Darum zeigt der App Designer das Electron-Symbol.
   Owner 20.10.: „später angehen“.
 - **Kleine Folgepunkte des Launchers 0.17.x:** den Layout-Prüfblock härten (gegenläufige Klassen, Unterkomponenten) und
   `findeZiel` ohne Scroll-Vorfahren.
+- **Repo privat stellen** (geprüft am 25.10.): Das Repo ist ein Fork, das müsste zuerst gelöst werden; außerdem holt die
+  Mac-CI den Tag ohne Anmeldedaten. Laut Plan vom 19.11. (Abschnitt 3) bleibt das geparkt, ebenso C3, das Stimm-Update und
+  der Zoom-Marketplace.
 
 ---
 
 ## Anhang · Ausgeliefert
+
+### Während der COP31 (nachgetragen am 2026-11-19, an den Releases gemessen)
+
+Alle als Pre-Release, alle auf Meldung der Crew, je mit Owner-OK.
+
+- **JM Connect** `0.4.1` (10.11., #285/#286/#289: kurze Aussetzer im Zoom-Bild ergeben kein Schwarzbild mehr) · `0.4.2`
+  (12.11., #290/#287: Einwahldaten merken, „Person im NDI-Namen“) · `0.4.3` (14.11.: kein Absturz bei Netzfehler oder
+  blockiertem mDNS, Rechtsklick-Menü in Eingabefeldern, #301) · `0.4.4` (15.11., #306: Ersatzbild „Zoom-Kachel“) ·
+  `0.4.5` (18.11., #310: Bildformat „16:9 einpassen“ für Hochkant-Bilder). Companion-Modul unverändert 0.3.0.
+- **Presenter** `0.11.0` (11.11., #293: Loop und Art der Überblendung) · `0.12.0` (13.11., #298/#299: Drag & Drop, PDFs über
+  „Öffnen mit“) · `0.13.0` (15.11., #303: NDI-Ausgang unter Windows, mit dem mDNS-Fix) · `0.13.1` (17.11., #309: Vollbild-
+  Referentenansicht) · `0.13.2` (18.11., #313: AVIF und SVG) · `0.14.0` (18.11., #317 Stufe A: Gast-Klicker).
+- **Recorder** `0.8.0` (11.11., #291: Einstellungen bleiben erhalten, Folgedatei ab knapp 4 GB, sauberes Abschließen beim
+  Schließen) · `0.9.0` (11.11.: Presets mit Export/Import, System Sound in Echtzeit) · `0.9.1` (11.11.: Nachbesserungen an
+  Presets und System Sound).
+- **Worker** `jm-gast-klicker` (`services/gast-klicker`, 18.11.) für den Gast-Klicker des Presenters 0.14.0.
 
 ### Seit dem 2026-10-08 (nachgetragen am 2026-11-07, an den Releases gemessen)
 
