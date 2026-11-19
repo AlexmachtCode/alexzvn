@@ -11,7 +11,7 @@
 > **Der Plan für die Zeit nach der COP steht in Abschnitt 3, vom Owner am 19.11. freigegeben.**
 >
 > ⚑ **Release-Fenster während der COP31:** Updates nur 18–06 Uhr (Berlin), an Off-Tagen, die der Owner nennt, auch tagsüber.
-> Dass das Fenster mit dem 20.11. endet, ist eine Annahme, vom Owner nicht bestätigt.
+> Das Fenster endet mit dem 20.11. (Owner 19.11.); danach gilt wieder nur: Release mit Owner-OK.
 >
 > <details><summary>Kopf vom 2026-11-07 (überholt, stehen gelassen)</summary>
 >
