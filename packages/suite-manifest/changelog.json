@@ -495,12 +495,12 @@
     "entries": [
       {
         "version": "0.11.0",
-        "date": "JJJJ-MM-TT",
+        "date": "2026-11-20",
         "notes": [
           "Lizenz: Der Lizenztext der NDI-Laufzeit liegt jetzt im Paket.",
           "Stabilität: Der Switcher stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
-          "Verbund: Der Switcher verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher; der Master zeigt Switcher dann bei diesem Rechner. Ohne Kopplung ändert sich nichts.",
-          "Protokoll: Der Switcher hebt seine Logzeilen jetzt 14 Tage auf und löscht ältere selbst."
+          "Verbund: Ist dieser Rechner im Verbund gekoppelt, meldet sich der Switcher von selbst beim Master an, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Logdateien und Logzeilen, die älter als 14 Tage sind, löscht der Switcher jetzt selbst."
         ]
       },
       {
@@ -809,7 +809,7 @@
     "entries": [
       {
         "version": "0.14.1",
-        "date": "JJJJ-MM-TT",
+        "date": "2026-11-20",
         "notes": [
           "Stabilität: Der Timer stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist."
         ]
@@ -1092,11 +1092,11 @@
     "entries": [
       {
         "version": "0.4.0",
-        "date": "JJJJ-MM-TT",
+        "date": "2026-11-20",
         "notes": [
           "Lizenz: Der Lizenztext der NDI-Laufzeit liegt jetzt im Paket.",
-          "Verbund: NDI Screen Capture verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher; der Master zeigt NDI Screen Capture dann bei diesem Rechner. Ohne Kopplung ändert sich nichts.",
-          "Protokoll: NDI Screen Capture hebt seine Logzeilen jetzt 14 Tage auf und löscht ältere selbst."
+          "Verbund: Ist dieser Rechner im Verbund gekoppelt, meldet sich NDI Screen Capture von selbst beim Master an, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Logdateien und Logzeilen, die älter als 14 Tage sind, löscht NDI Screen Capture jetzt selbst."
         ]
       },
       {
@@ -1137,12 +1137,12 @@
     "entries": [
       {
         "version": "0.6.0",
-        "date": "JJJJ-MM-TT",
+        "date": "2026-11-20",
         "notes": [
           "Die Nachricht an die Bühne erscheint jetzt auch, wenn das Stage Display die Folien aus dem Presenter zeigt (Referenten- und Hauptansicht), mittig in der Kopfzeile. Bisher fehlte sie dort. Zu lange Nachrichten werden mit „…“ gekürzt.",
           "Stabilität: Das Stage Display stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
-          "Verbund: Das Stage Display verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher; der Master zeigt Stage Display dann bei diesem Rechner. Ohne Kopplung ändert sich nichts.",
-          "Protokoll: Das Stage Display hebt seine Logzeilen jetzt 14 Tage auf und löscht ältere selbst."
+          "Verbund: Ist dieser Rechner im Verbund gekoppelt, meldet sich das Stage Display von selbst beim Master an, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Logdateien und Logzeilen, die älter als 14 Tage sind, löscht das Stage Display jetzt selbst."
         ]
       },
       {
@@ -1220,11 +1220,11 @@
     "entries": [
       {
         "version": "0.7.0",
-        "date": "JJJJ-MM-TT",
+        "date": "2026-11-20",
         "notes": [
           "Stabilität: Der Prompter stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
-          "Verbund: Der Prompter verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher; der Master zeigt Prompter dann bei diesem Rechner. Ohne Kopplung ändert sich nichts.",
-          "Protokoll: Der Prompter hebt seine Logzeilen jetzt 14 Tage auf und löscht ältere selbst."
+          "Verbund: Ist dieser Rechner im Verbund gekoppelt, meldet sich der Prompter von selbst beim Master an, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Logdateien und Logzeilen, die älter als 14 Tage sind, löscht der Prompter jetzt selbst."
         ]
       },
       {
@@ -1288,7 +1288,7 @@
     "entries": [
       {
         "version": "0.12.2",
-        "date": "JJJJ-MM-TT",
+        "date": "2026-11-20",
         "notes": [
           "Lizenz: Der Lizenztext der NDI-Laufzeit liegt jetzt im Paket.",
           "Stabilität: Der Titler stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist."
@@ -1635,7 +1635,7 @@
     "entries": [
       {
         "version": "0.8.1",
-        "date": "JJJJ-MM-TT",
+        "date": "2026-11-20",
         "notes": [
           "Stabilität: Der Rundown stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist."
         ]
@@ -1789,11 +1789,11 @@
     "entries": [
       {
         "version": "0.4.0",
-        "date": "JJJJ-MM-TT",
+        "date": "2026-11-20",
         "notes": [
           "Stabilität: Battle stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
-          "Verbund: Battle verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher; der Master zeigt Battle dann bei diesem Rechner. Ohne Kopplung ändert sich nichts.",
-          "Protokoll: Battle hebt seine Logzeilen jetzt 14 Tage auf und löscht ältere selbst."
+          "Verbund: Ist dieser Rechner im Verbund gekoppelt, meldet sich Battle von selbst beim Master an, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Logdateien und Logzeilen, die älter als 14 Tage sind, löscht Battle jetzt selbst."
         ]
       },
       {
@@ -1835,12 +1835,12 @@
     "entries": [
       {
         "version": "0.5.0",
-        "date": "JJJJ-MM-TT",
+        "date": "2026-11-20",
         "notes": [
           "Lizenz: Der Lizenztext der NDI-Laufzeit liegt jetzt im Paket.",
           "Stabilität: Caption stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
-          "Verbund: Caption verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher; der Master zeigt Caption dann bei diesem Rechner. Ohne Kopplung ändert sich nichts.",
-          "Protokoll: Caption hebt seine Logzeilen jetzt 14 Tage auf und löscht ältere selbst."
+          "Verbund: Ist dieser Rechner im Verbund gekoppelt, meldet sich Caption von selbst beim Master an, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Logdateien und Logzeilen, die älter als 14 Tage sind, löscht Caption jetzt selbst."
         ]
       },
       {
