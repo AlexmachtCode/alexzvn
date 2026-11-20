@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Geändert werden nur `packages/zoom-bridge/**` und (Task 5) die Connect-Version. Kein TypeScript in Connect, keine Oberfläche, kein Schalter, keine neue Einstellung.
+- Geändert werden nur `packages/zoom-bridge/**` und (Task 5) die Connect-Version. Kein TypeScript in Connect, keine Oberfläche, kein Schalter, keine neue Einstellung. **Ausnahme ab 20.11. (Owner „deine Empfehlung“):** Task 6 ändert `apps/connect/src/main/zoom/kern.ts` (`slotAendern`) und `apps/connect/test/zoom-kern.test.ts`; Release als **Connect 0.4.6** (Connect steht bei 0.4.5).
 - `reference_level` bleibt `0`.
 - Unterhalb der Grenze gehen Abtastwerte **bitgenau** durch (Verstärkung exakt 1).
 - Keine zusätzliche Latenz: keine Vorausschau, kein Puffern über Pakete hinweg.
@@ -248,7 +248,30 @@ git commit -m "feat(zoom-bridge): Limiter-Grenze aus dem Testmeeting, Pegel geme
 
 ---
 
-### Task 5: Release-Vorbereitung Connect 0.4.3
+### Task 6 (Zusatz 20.11.): Slot-Anzeige springt ohne Bridge nicht mehr zurück
+
+Befund (gemessen 18.11. an der gepackten Connect 0.4.5, eigenes Profil, kein Meeting): „Bildformat“ und „Ersatzbild“ umgestellt →
+die Einstellungsdatei hat sofort den neuen Wert, die Auswahl zeigt 5–9,5 s den alten, nach Neuladen den neuen. Ursache:
+`slotAendern` (`apps/connect/src/main/zoom/kern.ts:2581`) speichert und ruft `abgleichen()`; das kehrt bei `aktiveBridge === null`
+sofort zurück (`:2481`), ohne `abbildGeaendert()`. Im Meeting zieht die Anzeige nach, davor erst beim nächsten anderen Anlass.
+Gilt für alle Slot-Felder.
+
+**Files:**
+- Modify: `apps/connect/src/main/zoom/kern.ts` (`slotAendern`, ein Aufruf `abbildGeaendert()` nach dem Speichern bzw. am Ende des
+  Erfolgswegs; `abbildGeaendert` drosselt selbst auf `abbildTaktMs`)
+- Test: `apps/connect/test/zoom-kern.test.ts` (Attrappe mit `onAbbild: (a) => abbilder.push(a)`, Muster ab Z. ~321)
+
+**Interfaces:** keine neuen. `slotAendern(nr, aenderung): ZoomErgebnis` bleibt.
+
+- [ ] **Step 1: Failing test** — Kern ohne Bridge (kein Meeting, keine Prüfung gestartet) anlegen; `slotAendern(1, { ersatzbild: ‹anderer Wert als vorher› })`; den Zeitgeber der Attrappe über `abbildTaktMs` hinaus laufen lassen. Erwartet: das LETZTE Abbild in `abbilder` zeigt für Slot 1 den neuen Ersatzbild-Wert. Zweiter Fall: `slotAendern(1, { bildformat: … })` ebenso. Dritter Fall (Gegenprobe): ein abgelehntes `slotAendern` (z. B. unbekannter Slot → `{ ok: false }`) erzeugt KEIN neues Abbild.
+- [ ] **Step 2: Rot sehen** — Run: `cd "C:/Users/alexk/alexzvn/.claude/worktrees/connect-ton-limiter/apps/connect" && npx tsx test/zoom-kern.test.ts`; Expected: die beiden neuen Fälle FAIL (Abbild fehlt oder zeigt den alten Wert), die Gegenprobe ok.
+- [ ] **Step 3: Fix** — in `slotAendern` nach dem erfolgreichen Speichern `abbildGeaendert()` aufrufen (nicht in `abgleichen`, dessen Frühausstieg bleibt).
+- [ ] **Step 4: Grün sehen** — dieselbe Datei ganz grün, dann `npm run selftest -w @jm/connect` Exit 0 und `npm run typecheck -w @jm/connect` Exit 0.
+- [ ] **Step 5: Commit** — `git add apps/connect/src/main/zoom/kern.ts apps/connect/test/zoom-kern.test.ts`, `git status --short` lesen, Commit `fix(connect): Slot-Einstellungen erscheinen sofort, auch ohne laufende Bridge` mit der Co-Authored-By-Zeile.
+
+---
+
+### Task 5: Release-Vorbereitung Connect 0.4.6 (20.11.: statt 0.4.3; Zeilen unten sinngemäß mit 0.4.6, Changelog zusätzlich mit dem Slot-Fix aus Task 6)
 
 **Files:**
 - Modify: `apps/connect/package.json` (`version`), `package-lock.json`
