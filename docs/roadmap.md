@@ -1,6 +1,9 @@
 # JM Production Suite — Roadmap
 
-> **Lebendes Dokument.** Aktualisieren, nicht neu bauen. Stand: **2026-11-19**.
+> **Lebendes Dokument.** Aktualisieren, nicht neu bauen. Stand: **2026-11-20**.
+>
+> ✅ **20.11.: Anmeldung Teil 1 released** (Launcher 0.18.0 + Q&A 0.6.0, Abschnitt 1c), die alten Schlüssel gelten bis zum
+> 20.12.2026. Block 1 des Plans in Abschnitt 3 ist damit durch.
 > Zwei Leitprojekte: die **Zoom-Einbindung (Welle 6.7)**, Abschnitt 1, und seit dem 30.09. der
 > **Master-Launcher / Suite im Netz**, Abschnitt 1b. Dazu seit dem 21.10. die **Launcher-Anmeldung**, Abschnitt 1c.
 > Alles andere läuft in den Parallel-Spuren (Abschnitt 2).
@@ -273,11 +276,13 @@ Spec `docs/superpowers/specs/2026-10-17-launcher-anmeldung-design.md`, Plan Teil
 
 | Teil | Inhalt | Stand |
 |---|---|---|
-| **1 · Konten** | Anmeldung im Launcher mit dem Firmenkonto oder per Einladung und Passwort, Abmelden und Entzug, Q&A-Einreichungen von außen über das Konto statt über einen Schlüssel; Ziel **Launcher 0.18.0** und **Q&A 0.6.0** | 🟡 umgesetzt; der Proxy-Teil ist seit dem 05.11. ausgerollt (Nachbesserung 06.11.), alte Launcher arbeiten unverändert weiter. **Owner-Abnahme am 06.11.:** alle Schritte bestanden außer 14, 15 und dem Rest von 21; die hängen am iveo-Server (HTTP 500 beim Laden der Events, der iveo-Entwickler prüft). Gefunden und behoben während der Abnahme: die Google-Anmeldung scheiterte unter der Workers-Laufzeit (`redirect: 'error'` wirft dort), und die Logzeile beim iveo-Fehler nannte weder Status noch Request-ID. ⏸ **Release zurückgestellt bis nach der COP31** (Owner 06.11., vorläufig, Owner meldet sich nach Absprache). 🔵 **19.11.: Block 1 des Plans in Abschnitt 3.** `main` ist seit der Branch-Basis (05.11.) 210 Commits weiter; beide Seiten ändern dieselben Dateien nur an vier Stellen (`ci-checks.yml`, `suite-release.yml`, `package-lock.json`, `packages/cookbook/cookbook.json`). Ob der iveo-Fehler noch besteht, ist unbekannt (letzte Logzeile 12.11.). |
+| **1 · Konten** | Anmeldung im Launcher mit dem Firmenkonto oder per Einladung und Passwort, Abmelden und Entzug, Q&A-Einreichungen von außen über das Konto statt über einen Schlüssel; Ziel **Launcher 0.18.0** und **Q&A 0.6.0** | ✅ **released 20.11.2026** als `launcher-v0.18.0` und `qa-v0.6.0` (PR #282, Merge `ad7b69c9a2`, Tags einzeln). Übergangsfrist der alten Schlüssel `ALTKEY_BIS = 2026-12-20` live (PR #321, Worker-Deploy von `main`, Version `e6413a0d`): ab dann gilt der alte `PROXY_KEY` nicht mehr für Katalog, Installieren, Updates, Kochbuch, Feedback, KI-Entwurf und Q&A; alte Launcher können sich weiter selbst aktualisieren, Connect ist nicht betroffen (Teil 2). Abnahme-Schritte 14, 15 und Rest von 21 vom Owner hingenommen (20.11.: der iveo-Entwickler behebt den Fehler, absehbar keine Produktion mit iveo-Events; bis dahin können Admins keine iveo-Events zentral hinterlegen). 🟡 Offen beim Owner: Schritt 18 (alter Launcher aktualisiert sich selbst), Schritt 20 (Release-DMG), Safari-Version. Mit dem Merge kam der mDNS-Absturz-Fix in beide Tools. *Verlauf:* 🟡 umgesetzt; der Proxy-Teil ist seit dem 05.11. ausgerollt (Nachbesserung 06.11.), alte Launcher arbeiten unverändert weiter. **Owner-Abnahme am 06.11.:** alle Schritte bestanden außer 14, 15 und dem Rest von 21; die hängen am iveo-Server (HTTP 500 beim Laden der Events, der iveo-Entwickler prüft). Gefunden und behoben während der Abnahme: die Google-Anmeldung scheiterte unter der Workers-Laufzeit (`redirect: 'error'` wirft dort), und die Logzeile beim iveo-Fehler nannte weder Status noch Request-ID. ⏸ **Release zurückgestellt bis nach der COP31** (Owner 06.11., vorläufig, Owner meldet sich nach Absprache). 🔵 **19.11.: Block 1 des Plans in Abschnitt 3.** `main` ist seit der Branch-Basis (05.11.) 210 Commits weiter; beide Seiten ändern dieselben Dateien nur an vier Stellen (`ci-checks.yml`, `suite-release.yml`, `package-lock.json`, `packages/cookbook/cookbook.json`). Ob der iveo-Fehler noch besteht, ist unbekannt (letzte Logzeile 12.11.). |
 | **2 · Connect und Zoom** | Cloud-Raum, Zoom-Zugang und „Zoom-SDK laden“ über die Anmeldung statt über eigene Schlüssel; braucht auch ein Launcher-Release | ⚪ Bestandsaufnahme fertig (05.11.); Plan erst nach Release und Merge von Teil 1. **19.11.:** Die Bestandsaufnahme ist gegen Connect 0.4.0 gemessen, seitdem kamen 0.4.1–0.4.5 → vor dem Plan nachmessen (Block 3; Ziel Connect 0.5.0 + Launcher 0.19.0) |
 
-⚑ **Bis zum Merge von Teil 1 läuft der Proxy im Stand des Branches**, `main` kennt die Konten noch nicht. Ein Proxy-Deploy
-(auch ein Notfall-Fix während der COP31) muss darum von `docs/launcher-anmeldung` kommen, nie von `main`.
+✅ **Seit dem Merge von Teil 1 (20.11.) kommt ein Proxy-Deploy wieder von `main`.** Der Branch `docs/launcher-anmeldung` ist
+gelöscht. *(Bis dahin galt: ~~Bis zum Merge von Teil 1 läuft der Proxy im Stand des Branches, `main` kennt die Konten noch
+nicht. Ein Proxy-Deploy (auch ein Notfall-Fix während der COP31) muss darum von `docs/launcher-anmeldung` kommen, nie von
+`main`.~~)*
 
 ---
 
@@ -533,7 +538,11 @@ Blöcken des Plans in Abschnitt 3**, vom Owner freigegeben; der Block steht jewe
   `packages/discovery/src/bonjour.ts` (seit 14.11.) steckt nur in Connect ab 0.4.3 und Presenter ab 0.13.0. Launcher 0.17.1,
   Timer 0.14.0, Rundown 0.8.0, Q&A 0.5.0, Battle 0.3.0, Prompter 0.6.0 und Stage Display 0.5.0 können bei einem Netzfehler
   weiter abstürzen (beim Launcher auf dem Mac in den Logs zu #313 gesehen). → Block 1 (Launcher, Q&A), Block 2 (übrige).
-  Q&A, Battle, Prompter und Stage Display hatten seit dem 05.07. keinen Release.
+  Q&A, Battle, Prompter und Stage Display hatten seit dem 05.07. keinen Release. **20.11.:** Launcher 0.18.0 und Q&A 0.6.0
+  tragen ihn ✅ (beide nutzen `@jm/discovery`); offen bleiben Timer, Rundown, Battle, Prompter und Stage Display (Block 2).
+- **Presenter-Selbsttest „Standbild: 2 s → 48 bis 52 Sendungen“** (neu, 20.11.): zählt gesendete Bilder gegen die Uhr und
+  war am 20.11. in 2 von 4 CI-Läufen rot, beide Male ohne Änderung am Presenter; ein neu gestarteter Job lief grün. Er hält
+  jeden PR auf. → Block 2.
 
 - **Live-Sicherheit als eigene Spur.** Die UX-Spec lässt die Bedienlogik ausdrücklich unverändert (U6, Abschnitt 10). Auch
   nach allen Wellen blieben also: stille Fehler, Ein-Klick-Schäden auf Sendung, Wiederanlauf, Show-Bereitschaft,
@@ -601,7 +610,13 @@ verändert. Release, Merge, Push, Tag, Deploy, Secret und jede Änderung an Issu
   Bündel-Datei auf OneDrive oder per Push. Ein Push von `spike/zoom-obf` macht die Marketplace-Unterlagen im öffentlichen
   Repo sichtbar.
 
-**Block 1 · Anmeldung Teil 1** (Launcher 0.18.0 + Q&A 0.6.0, Abschnitt 1c)
+**Block 1 · Anmeldung Teil 1** (Launcher 0.18.0 + Q&A 0.6.0, Abschnitt 1c) — ✅ **erledigt 20.11.**
+
+✅ `main` per Merge in den Branch geholt (nicht rebased, damit die Commit-Nummern im Abnahme-Protokoll gültig bleiben), CI grün,
+Abnahme-Bau, Owner-Probelauf, „los“ → Merge #282, Tags einzeln, `ALTKEY_BIS = 2026-12-20` per PR #321 und Deploy von `main`.
+Die iveo-Schritte hat der Owner hingenommen, der Vorab-Weg mit Launcher 0.17.2 entfiel. Gefunden unterwegs: Die Log-Verbesserung
+A3 vom 06.11. verletzte die Log-Schutzprüfung im vollen Launcher-Selbsttest (lief damals nur gegen `selftest:konto`), behoben
+vor dem Release. Geplant war:
 
 - Branch `docs/launcher-anmeldung` auf `main` nachziehen, CI grün, neuer Abnahme-Bau.
 - iveo einmal abfragen (*mit Owner-OK*). Läuft es, die Abnahme-Schritte 14, 15 und den Rest von 21 nachholen. Läuft es nicht,
@@ -617,6 +632,7 @@ verändert. Release, Merge, Push, Tag, Deploy, Secret und jede Änderung an Issu
   gemeinsamen Paketen geändert hat, deshalb bekommt jedes einen kurzen Probelauf.
 - Stage Display: die Nachricht, die in den Presenter-Ansichten nicht erscheint. Titler: NDI-Lizenztext beilegen.
 - Presenter-Prüfstand: die vier roten NDI-Fälle (4, 13, 14, 15) klären.
+- *Ergänzt 20.11.:* den zeitabhängigen Presenter-Selbsttest „Standbild: 2 s → 48 bis 52 Sendungen“ robust machen (Lane F).
 
 **Block 3 · Connect-Runde**
 
@@ -660,11 +676,23 @@ Release, Merge und Push nur mit Owner-Okay.
 | 7 | ✅ **iveo-Paket**: Launcher 0.16.0 + Titler 0.12.1, **released 19.10.2026** (PR #268): Organisationen in den Bauchbinden, Speaker-Daten alle 5 Minuten, iveo-Standard-Adresse auf Production, Anhänge, Side-Event-Ordner, Connect auf dem Mac | Titler-Pilot released (Titler 0.12.1 setzt darauf auf) | Owner-Abnahme nach `apps/launcher/ABNAHME-iveo-paket.md` offen |
 | 8 | ✅ **Mac-Stufe 1**: Editor 0.5.0 für macOS (arm64 und Intel) aus dem bestehenden Tag nachgebaut, **20.10.2026** (Workflow „Mac-Nachbau“, PR #272/#273), mit FFmpeg-Lizenzbeilagen | Owner-Entscheide Mac F1–F8 (20.10.) | Owner 20.10.: „mac download klappt super“ |
 | 9 | ✅ **Geführte Anleitungen**: Launcher 0.17.0 (Einrichtung als Schritt-für-Schritt-Anleitung im Launcher, ohne Stimme) und 0.17.1 (Dialoge scrollen bei kleinem Fenster), **released 21.10.2026** (PR #274/#275) | Owner-Abnahme 21.10. | Stimm-Update später (Abschnitt 5) |
-| 10 | ⏸ **Launcher-Anmeldung Teil 1**: Launcher 0.18.0 + Q&A 0.6.0 (Abschnitt 1c) | Abnahme-Schritte 14, 15 und Rest von 21 (warten auf iveo); Freigabe der Changelog-Texte; Owner-„los“ | **zurückgestellt bis nach der COP31** (Owner 06.11., vorläufig) · 19.11.: Block 1 des Plans oben |
+| 10 | ✅ **Launcher-Anmeldung Teil 1**: Launcher 0.18.0 + Q&A 0.6.0 (Abschnitt 1c), **released 20.11.2026** (PR #282; `ALTKEY_BIS` 2026-12-20 per PR #321) | Abnahme-Schritte 14, 15 und Rest von 21 (warten auf iveo); Freigabe der Changelog-Texte; Owner-„los“ | **zurückgestellt bis nach der COP31** (Owner 06.11., vorläufig) · 19.11.: Block 1 des Plans oben |
 | 11 | ✅ **COP31-Releases** (10.–18.11.): Connect 0.4.1–0.4.5, Presenter 0.11.0–0.14.0, Recorder 0.8.0–0.9.1, Worker `jm-gast-klicker` | Meldungen der Crew | je Release einzeln mit Owner-OK; Einzelheiten im Anhang |
 
 Realistisch: Connect 0.3.0 am Tag der bestandenen Abnahme; R2 direkt danach, zur Abnahme am Folgetag; der Titler-Pilot
 nach dem R2-Release. Zwischen 2 und 3 läuft nichts parallel außer dem Schreiben des Pilot-Plans.
+
+**Stand 2026-11-20:**
+
+- ✅ **Erledigt:** Block 1, Anmeldung Teil 1 released (Zeile 10) · Aufgeräumt: Arbeitsordner und Protokoll der Anmeldung
+  archiviert, `docs/launcher-anmeldung` sowie die Hilfsbranches `z1/worker`, `z3/worker`, `z3/auf-z2` gelöscht (Abschnitt 4).
+- 🔵 **Als Nächstes:** Block 2, die Auffrisch-Runde (Owner 20.11.: „in deiner empfehlung weiter“). Block 0 läuft nebenher,
+  sobald die Rückmeldungen der Crew da sind.
+- 🟡 **Beim Owner:** Abnahme-Schritte 18 und 20 der Anmeldung, Safari-Version · die Punkte mit *Owner* in Block 0 · weiter
+  Messwerte aus der Abnahme Connect 0.3.0 · Bild-Versatz-Wert (Abschnitt 1) · Zoom-Review E1–E6 · Mac-Fragen O1–O6.
+
+<details>
+<summary>Stand 2026-11-19 (überholt, stehen gelassen)</summary>
 
 **Stand 2026-11-19:**
 
@@ -673,6 +701,8 @@ nach dem R2-Release. Zwischen 2 und 3 läuft nichts parallel außer dem Schreibe
 - 🔵 **Als Nächstes:** der Plan oben, Block 0 bis 5 der Reihe nach.
 - 🟡 **Beim Owner:** die Punkte mit *Owner* im Plan, dazu weiter Messwerte aus der Abnahme Connect 0.3.0 · Bild-Versatz-Wert
   (Abschnitt 1) · Zoom-Review E1–E6 · Mac-Fragen O1–O6.
+
+</details>
 
 <details>
 <summary>Stand 2026-11-07 (überholt, stehen gelassen)</summary>
@@ -836,6 +866,9 @@ alle anderen Apps haben eine. Darum zeigt der App Designer das Electron-Symbol.
   Kopie**; ein Push würde die Unterlagen im öffentlichen Repo sichtbar machen, darum vorerst nicht) · `docs/stage-display-ndi`
   (freigegebene Spec, 2 Commits) · `z1/worker`, `z3/worker`, `z3/auf-z2` (als Squash in `docs/launcher-anmeldung` → nach
   dessen Merge löschbar).
+- ✅ **20.11.:** `docs/launcher-anmeldung` nach dem Merge lokal und auf GitHub gelöscht. `z1/worker`, `z3/worker` und `z3/auf-z2`
+  gelöscht, vorher als Bündel-Datei gesichert (`sdd-archiv/2026-11-20-anmeldung-z1-z3-branches.bundle` im Projektordner des
+  Entwicklungsrechners). Nur lokal bleiben `spike/zoom-obf` und `docs/stage-display-ndi` (Block 0).
 
 ### Stand 2026-10-08 (stehen gelassen)
 
@@ -885,6 +918,12 @@ alle anderen Apps haben eine. Darum zeigt der App Designer das Electron-Symbol.
 ---
 
 ## Anhang · Ausgeliefert
+
+### Nach der COP31 (nachgetragen am 2026-11-20)
+
+- **Launcher** `0.18.0` und **Q&A** `0.6.0` (20.11., Anmeldung Teil 1, PR #282): Anmeldung im Launcher mit Google-Firmenkonto
+  oder Einladung, Admin-Maske, Q&A extern über die Freigabe des Launchers, dazu der mDNS-Absturz-Fix aus `main`.
+- **Release-Proxy** (20.11., PR #321): Übergangsfrist der alten Schlüssel bis zum 20.12.2026, Deploy von `main`.
 
 ### Während der COP31 (nachgetragen am 2026-11-19, an den Releases gemessen)
 
