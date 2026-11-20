@@ -1587,26 +1587,6 @@ async function run() {
         && soll(zweiterOhne, 404, 'vorgang-unbekannt') && soll(zweiterMitE, 404, 'vorgang-unbekannt'));
   }
 
-  // ── Ende der Fälle ──
-
-  // P16 10.1: Fehlerform und Cache-Kopf aller Antworten dieses Laufs.
-  {
-    const texte = new Set([...Object.values(FEHLER_TEXT), ...Object.values(KONFLIKT_TEXT), 'zu viele Anfragen']);
-    const falsch = fehlerAntworten.filter((a) => (a.kopf.get('content-type') || '').startsWith('application/json') && !(a.daten && texte.has(a.daten.error) && typeof a.daten.code === 'string'));
-    check(`P16 10.1: jede JSON-Fehlerantwort unter /konto/ hat { error: Text S…, code } (${fehlerAntworten.length} Antworten)`, fehlerAntworten.length > 20 && falsch.length === 0);
-    for (const a of falsch.slice(0, 3)) realLog(`     ${a.pfad}: ${a.text.slice(0, 120)}`);
-    const konto = jsonAntworten.filter((a) => a.pfad.startsWith('/konto/'));
-    check(`P16 10.1: jede JSON-Antwort unter /konto/ mit cache-control no-store (${konto.length} Antworten)`,
-      konto.length > 50 && konto.every((a) => a.kopf.get('cache-control') === 'no-store'));
-  }
-
-  // P16 G4: kein Geheimnis in der Konsole (läuft als letzter Fall über das ganze Protokoll).
-  {
-    const alles = protokoll.join('\n');
-    const treffer = geheim.filter((g) => typeof g === 'string' && g.length >= 6 && alles.includes(g));
-    check(`P16 G4: Konsole ohne Sitzung, Freigabe, Abholgeheimnis, Code, Passwort, Einladungscode, iveo-Token, Schlüssel (${geheim.length} Werte)`,
-      treffer.length === 0 && !alles.includes('jm1.'));
-  }
   // T1 OT1: Freigaben für Connect, Ziel je Zweck, Rechte (OF1, OF4, OT4)
   {
     const env = umgebung();
@@ -1631,6 +1611,27 @@ async function run() {
       { name: 'connect-raum mit Ziel abc', a: await fr(await s({}), 'connect-raum', 'abc'), s: [400, 'ungueltig'] },
       { name: 'zoom-sdk mit Fassung', a: await fr(await s({}), 'zoom-sdk', '7.1.5.43953'), s: [400, 'ungueltig'] },
     ], (x) => (x.s.length === 1 ? (x.a.status === 200 ? null : `ist ${ist(x.a)}`) : (soll(x.a, ...x.s) ? null : `ist ${ist(x.a)}`)));
+  }
+
+  // ── Ende der Fälle ──
+
+  // P16 10.1: Fehlerform und Cache-Kopf aller Antworten dieses Laufs.
+  {
+    const texte = new Set([...Object.values(FEHLER_TEXT), ...Object.values(KONFLIKT_TEXT), 'zu viele Anfragen']);
+    const falsch = fehlerAntworten.filter((a) => (a.kopf.get('content-type') || '').startsWith('application/json') && !(a.daten && texte.has(a.daten.error) && typeof a.daten.code === 'string'));
+    check(`P16 10.1: jede JSON-Fehlerantwort unter /konto/ hat { error: Text S…, code } (${fehlerAntworten.length} Antworten)`, fehlerAntworten.length > 20 && falsch.length === 0);
+    for (const a of falsch.slice(0, 3)) realLog(`     ${a.pfad}: ${a.text.slice(0, 120)}`);
+    const konto = jsonAntworten.filter((a) => a.pfad.startsWith('/konto/'));
+    check(`P16 10.1: jede JSON-Antwort unter /konto/ mit cache-control no-store (${konto.length} Antworten)`,
+      konto.length > 50 && konto.every((a) => a.kopf.get('cache-control') === 'no-store'));
+  }
+
+  // P16 G4: kein Geheimnis in der Konsole (läuft als letzter Fall über das ganze Protokoll).
+  {
+    const alles = protokoll.join('\n');
+    const treffer = geheim.filter((g) => typeof g === 'string' && g.length >= 6 && alles.includes(g));
+    check(`P16 G4: Konsole ohne Sitzung, Freigabe, Abholgeheimnis, Code, Passwort, Einladungscode, iveo-Token, Schlüssel (${geheim.length} Werte)`,
+      treffer.length === 0 && !alles.includes('jm1.'));
   }
   // Z1-W2 [T] G4: das Protokoll oben schneidet nur warn und error mit (der Harness druckt selbst über console.log). Darum zusätzlich
   // ein Quelltext-Wächter: keine Datei der Anmeldung im Worker ruft console.log, console.info oder console.debug.
