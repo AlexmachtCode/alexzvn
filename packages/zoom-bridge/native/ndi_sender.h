@@ -6,6 +6,14 @@
 #include <vector>
 #include <Processing.NDI.Lib.h>
 #include "bild_einpassen.h"
+// min/max-Makros aus windows.h stoeren <algorithm> in audio_limiter.h (wie bei audio_mix.h in video.cpp).
+#pragma push_macro("min")
+#pragma push_macro("max")
+#undef min
+#undef max
+#include "audio_limiter.h"
+#pragma pop_macro("max")
+#pragma pop_macro("min")
 #include "delay_line.h"
 
 /**
@@ -219,12 +227,15 @@ class NdiSender {
 
   /**
    * Sendet interleaved PCM16 - genau die Form, die Zoom liefert, und genau
-   * die, die NDI nimmt (NDIlib_audio_frame_interleaved_16s_t). Keine
-   * Umrechnung, kein Umpacken.
+   * die, die NDI nimmt (NDIlib_audio_frame_interleaved_16s_t). Begrenzt auf
+   * slotlogic::kTonGrenzeDbfs, darunter bitgenau (Ton-Limiter, kein Vorlauf).
    *
    * @param sampleCount Abtastwerte JE KANAL, nicht insgesamt.
    */
   void sendAudio(const int16_t* samples, int sampleCount, int sampleRate, int channels);
+
+  /** Gibt das Pegelfenster des Limiters seit dem letzten Abholen zurueck und beginnt ein neues. */
+  slotlogic::PegelFenster takePegel();
 
   /** Sendet Nulldaten desselben Formats - der Stille-Herzschlag. */
   void sendSilence(int sampleCount, int sampleRate, int channels);
@@ -325,4 +336,7 @@ class NdiSender {
   // Herzschlag neu zu belegen waere 100-mal je Sekunde je Abo eine
   // Speicheranforderung fuer immer denselben Inhalt (Nullen).
   std::vector<int16_t> silence_;
+  // Ton-Limiter und sein wiederverwendeter Arbeitspuffer (sendAudio), beide unter mutex_.
+  slotlogic::TonLimiter limiter_{slotlogic::kTonGrenzeDbfs};
+  std::vector<int16_t> limitPuffer_;
 };
