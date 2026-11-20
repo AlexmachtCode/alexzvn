@@ -14,6 +14,7 @@
 // brauchen die Workers-Runtime (miniflare) und sind hier bewusst nicht abgedeckt.
 import { readFileSync } from 'node:fs';
 import worker from '../worker.js';
+import { makeKontoNs } from './konto-attrappen.mjs';
 
 let passed = 0;
 let failed = 0;
@@ -308,7 +309,9 @@ async function run() {
         },
       }),
     };
+    // Der alte Schlüssel öffnet einen Raum erst nach der Inhaber-Prüfung im Konten-DO (Anmeldung Teil 2): ohne KONTO gäbe es 503.
     const env = { ...baseEnv, CONNECT_ROOM: ns };
+    env.KONTO = makeKontoNs(env);
     const forged = { 'x-connect-admin': '1', 'X-Connect-Admin': '1', 'x-connect-room': 'fremd-raum', 'X-CONNECT-ROOM': 'fremd-raum' };
 
     // Gast (GET state) schickt die Kopfzeilen selbst mit.

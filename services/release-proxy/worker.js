@@ -152,7 +152,7 @@ export default {
     // Remote-Zuschaltung (Welle 6). Wie Q&A: öffentliche Routen (Gast-Seite/state/ice/ws) sind
     // vor dem PROXY_KEY-Gate erreichbar; die Admin-Routen (open/close) prüft das Modul selbst.
     // `null` = kein Connect-Pfad → normal weiter.
-    const conn = await handleConnect(request, env, url);
+    const conn = await handleConnect(request, env, url, ctx);
     if (conn) return conn;
 
     // Zoom-SDK nachladen (JM Connect 0.2.2). VOR dem PROXY_KEY-Gate: Die Route prüft ihren eigenen

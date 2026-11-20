@@ -11,7 +11,7 @@ import { altKeyMerkerGroesse, altKeyMerkerLeeren, ALTKEY_MERKER_MAX } from '../k
 import { funktionFuerRoute } from '../konto-kern.js';
 import { sha256B64url, signiere } from '../konto-krypto.js';
 import { FEHLER_TEXT, ipHash, KONTO_RL, launcherSelbstUpdate, selbstUpdateLiefern, zugangPruefen } from '../konto-zugang.js';
-import { abschluss, check, makeRateLimit, makeRLBindungen, pruefeFaelle, RL_TABELLE, testSchluessel } from './konto-attrappen.mjs';
+import { abschluss, check, makeKontoNs, makeRateLimit, makeRLBindungen, pruefeFaelle, RL_TABELLE, testSchluessel } from './konto-attrappen.mjs';
 
 // Warn- und Fehlerlog mitschneiden (erwartet, und für die Prüfung auf Geheimnisse).
 const protokoll = [];
@@ -284,12 +284,12 @@ async function run() {
   // P15 G10: Connect prüft in Teil 1 weiter selbst gegen PROXY_KEY, auch nach ALTKEY_BIS.
   {
     const ns = { jurisdiction() { return ns; }, idFromName: () => ({}), get: () => ({ fetch: async () => new Response('{"ok":true}', { status: 200 }) }) };
-    const env = { ...ENV, ALTKEY_BIS: NACH, CONNECT_ROOM: ns };
+    const env = { ...ENV, ALTKEY_BIS: NACH, CONNECT_ROOM: ns, KONTO: makeKontoNs({ ...ENV }) };
     const r1 = await worker.fetch(req('/connect/room-1', { method: 'POST', body: { secretHex: 'a'.repeat(64) }, kopf: { 'X-Proxy-Key': PROXY } }), env);
     const r2 = await worker.fetch(req('/connect/room-1', { method: 'POST', body: {} }), env);
     const b2 = await r2.json();
-    check('P15 G10: POST /connect/room-1 mit altem Key nach ALTKEY_BIS → erreicht den Raum (200) wie heute', r1.status === 200);
-    check('P15 G10: POST /connect/room-1 ohne Key → 401 unauthorized wie heute', r2.status === 401 && b2.error === 'unauthorized');
+    check('T3 OT5: POST /connect/room-1 mit altem Key nach ALTKEY_BIS → 200 (Connect-Frist leer)', r1.status === 200);
+    check('T3: ohne Key → 401 nicht-angemeldet', r2.status === 401 && b2.code === 'nicht-angemeldet');
   }
 
   // P15 EP25: Katalog, Patch Notes und Kochbuch hängen an einer Sitzung → private statt public.
@@ -619,7 +619,7 @@ async function run() {
     // mit nur limit und period; period nur 10 oder 60; die Namen in KONTO_RL (konto-zugang.js) sind genau diese sieben.
     const rlTabellen = tabellen.filter((t) => t.kopf.startsWith('ratelimits'));
     const rlEintraege = [];
-    let rlAufbauOk = rlTabellen.length === 14;
+    let rlAufbauOk = rlTabellen.length === Object.keys(RL_TABELLE).length * 2;
     for (let i = 0; i + 1 < rlTabellen.length; i += 2) {
       const [a, s] = [rlTabellen[i], rlTabellen[i + 1]];
       if (a.kopf !== 'ratelimits' || !a.feld || !nurSchluessel(a, ['name', 'namespace_id']) || s.kopf !== 'ratelimits.simple' || s.feld || !nurSchluessel(s, ['limit', 'period'])) {
@@ -632,9 +632,9 @@ async function run() {
       rlEintraege.push([wert(a, 'name').replace(/^"|"$/g, ''), wert(a, 'namespace_id').replace(/^"|"$/g, ''), Number(wert(s, 'limit')), Number(wert(s, 'period'))]);
     }
     const rlSoll = Object.entries(RL_TABELLE).map(([n, t]) => [n, t.namespaceId, t.grenze, t.period]);
-    check('Z1-W2 AR70: wrangler.toml hat genau sieben [[ratelimits]] mit [ratelimits.simple] (Name, namespace_id, limit, period wie die Tabelle), period 10 oder 60; KONTO_RL nennt genau diese Namen',
+    check('Z1-W2 AR70: wrangler.toml hat genau die [[ratelimits]] aus RL_TABELLE mit [ratelimits.simple] (Name, namespace_id, limit, period wie die Tabelle), period 10 oder 60; KONTO_RL nennt genau diese Namen',
       rlAufbauOk && JSON.stringify(rlEintraege) === JSON.stringify(rlSoll) && rlEintraege.every(([, , l, p]) => Number.isInteger(l) && l > 0 && (p === 10 || p === 60))
-        && new Set(rlEintraege.map((e) => e[0])).size === 7 && new Set(rlEintraege.map((e) => e[1])).size === 7
+        && new Set(rlEintraege.map((e) => e[0])).size === rlSoll.length && new Set(rlEintraege.map((e) => e[1])).size === rlSoll.length
         && JSON.stringify(Object.values(KONTO_RL).sort()) === JSON.stringify(rlSoll.map((e) => e[0]).sort()));
     // ALTKEY_BIS mit derselben Regel wie der Worker: ein unlesbarer Wert (z. B. 2026-12-32) hieße dort still „unbefristet“ (EP9).
     const { alterKeyGilt } = await import('../konto-kern.js');
@@ -673,8 +673,8 @@ async function run() {
         && JSON.stringify(laeufeAus(yml('- name: A', "  if: always()", `  run: ${lauf}`))) === '["konto-kern","bedingt"]'
         && JSON.stringify(laeufeAus(yml('- name: A', '  continue-on-error: true', `  run: ${lauf}`))) === '["konto-kern","bedingt"]'
         && JSON.stringify(laeufeAus(yml('# - if: x', '- name: A', `  run: ${lauf}`))) === '["konto-kern"]');
-    check('P20 EP24: ci-checks.yml startet die Proxy-Tests in dieser Reihenfolge: worker, konto-kern, konto-krypto, konto-do, konto-zugang, konto-routen, qa-relay',
-      JSON.stringify(laeufe) === JSON.stringify(['worker', 'konto-kern', 'konto-krypto', 'konto-do', 'konto-zugang', 'konto-routen', 'qa-relay']));
+    check('P20 EP24: ci-checks.yml startet die Proxy-Tests in dieser Reihenfolge: worker, konto-kern, konto-krypto, konto-do, konto-zugang, konto-routen, qa-relay, connect-zugang',
+      JSON.stringify(laeufe) === JSON.stringify(['worker', 'konto-kern', 'konto-krypto', 'konto-do', 'konto-zugang', 'konto-routen', 'qa-relay', 'connect-zugang']));
   }
 
   // Z2 (AR85 c): fehlt PROXY_KEY oder ist er leer bzw. unbrauchbar, lässt sich ein mitgeschickter alter Schlüssel nicht prüfen: 503

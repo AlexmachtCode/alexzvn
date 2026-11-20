@@ -217,7 +217,7 @@ export function makeKV() {
 }
 
 /**
- * Die sieben Rate-Limit-Bindungen der Anmeldung (AR70, wrangler.toml [[ratelimits]]): Name → namespace_id, Grenze je Periode
+ * Die Rate-Limit-Bindungen der Anmeldung (AR70, wrangler.toml [[ratelimits]]): Name → namespace_id, Grenze je Periode
  * (60 s) und die Route. Die Tabelle steht hier EINMAL; der Wächter in konto-zugang.test.mjs vergleicht sie mit wrangler.toml.
  */
 export const RL_TABELLE = Object.freeze({
@@ -228,6 +228,7 @@ export const RL_TABELLE = Object.freeze({
   KONTO_RL_PASSWORT: { namespaceId: '7305', grenze: 10, period: 60 },
   KONTO_RL_SELBSTUPDATE: { namespaceId: '7306', grenze: 20, period: 60 },
   KONTO_RL_QAALT: { namespaceId: '7307', grenze: 60, period: 60 },
+  KONTO_RL_CONNECTALT: { namespaceId: '7308', grenze: 20, period: 60 },
 });
 
 /**
@@ -255,7 +256,7 @@ export function makeRateLimit(grenze, { wirft = null } = {}) {
   return b;
 }
 
-/** Alle sieben Bindungen mit den Grenzen aus RL_TABELLE; `ueberschreibe` ersetzt einzelne (oder lässt sie mit undefined weg). */
+/** Alle Bindungen mit den Grenzen aus RL_TABELLE; `ueberschreibe` ersetzt einzelne (oder lässt sie mit undefined weg). */
 export function makeRLBindungen(ueberschreibe = {}) {
   const env = {};
   for (const [name, t] of Object.entries(RL_TABELLE)) env[name] = makeRateLimit(t.grenze);
