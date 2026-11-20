@@ -29,7 +29,7 @@
 - **Texte:** jeder neue oder geänderte sichtbare Text steht wörtlich in der Texttabelle (unten) und wird so verwendet; nur „ “ (nie ASCII `"`) in Nutzertexten; echte Umlaute; Datum `TT.MM.JJJJ`, Uhrzeit `HH:MM`.
 - **Nativer Code:** `packages/zoom-bridge/native/**` wird nicht angefasst; falls doch, Logtexte nur ASCII.
 - **Geheimnisse:** kein JWT, keine Freigabe (`jm1.…`), kein Secret, kein alter Schlüssel in Log, Fehlermeldung, Abbild, IPC-Antwort oder Show; Testwerte entstehen zur Laufzeit oder sind offensichtlich unecht (`test-…`), nie hochentropische Literale (gitleaks).
-- **Git:** ein Commit je Aufgabe (Task 21 ohne Commit), Botschaft ASCII im Stil `feat(proxy): …`, `feat(launcher): …`, `feat(connect): …`, `docs(…): …`, letzte Zeile `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; nie auf `main` committen; `git add` nur mit expliziten Pfaden, danach `git status --short` lesen; kein `git add -A`, kein Push, Tag, Merge, Deploy, Release.
+- **Git:** ein Commit je Aufgabe (Task 9 und 17 je zwei: die Version als eigener Commit; Task 21 ohne Commit), Botschaft ASCII im Stil `feat(proxy): …`, `feat(launcher): …`, `feat(connect): …`, `docs(…): …`, letzte Zeile `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; nie auf `main` committen; `git add` nur mit expliziten Pfaden, danach `git status --short` lesen; kein `git add -A`, kein Push, Tag, Merge, Deploy, Release.
 - **Läufe (immer aus `C:/Users/alexk/alexzvn/.claude/worktrees/anmeldung-teil2`, Laufwerksbuchstabe groß):** Worker `node --experimental-strip-types services/release-proxy/test/<datei>.test.mjs` → `‹n› passed, 0 failed`; Bauprobe `node services/release-proxy/tools/bauprobe.mjs` → Exit 0; Launcher `npm run selftest:konto -w @jm/launcher` bzw. einzeln `cd apps/launcher && npx tsx test/<datei>.test.ts` → `‹n› ok, 0 fehlgeschlagen.`, dazu `npm run selftest -w @jm/launcher`; Connect einzeln `cd apps/connect && npx tsx test/<datei>.test.ts` → `‹n› ok, 0 fehlgeschlagen.` (zoom-kern: `…, 0 fehlgeschlagen, ‹k› übersprungen.`), ganz `npm run selftest -w @jm/connect` (rund 170 s, nur im letzten Step einer Connect-Aufgabe); Typprüfung `npm run typecheck -w @jm/launcher` bzw. `-w @jm/connect` → 0 `error TS`; Kochbuch `npm run cookbook:build && npm run cookbook:check`.
 - **Windows-Umgebung:** In der Shell ist `ELECTRON_RUN_AS_NODE=1` gesetzt; kein Test startet Electron, Connect-Tests ersetzen `electron` und `@jm/app-runtime` per `registerHooks` (Muster `apps/connect/test/zoom-settings.test.ts:3-42`).
 - **tsx und Node 22:** neue `.js`-Dateien nur unter `services/release-proxy/` (dort `package.json` mit `"type": "module"`, Commit `2d7a376f25`); in Launcher und Connect nur `.ts`. Vor dem ersten Lauf prüfen, dass `node_modules` im Worktree liegt (sonst `npm ci --ignore-scripts` genau dort).
@@ -69,6 +69,21 @@ Jede Aufgabe braucht nur, was davor fertig ist. Phase B hängt nur an Task 1 (ge
 - **E8 Kurze Raum-IDs (N4):** gesäuberte ID mit 1–5 Zeichen → `‹id›-‹die ersten 6 Hex-Zeichen von SHA-256(id)›`; 0 Zeichen bleibt leer (Zufalls-ID wie heute), ab 6 Zeichen unverändert.
 - **E9 M4 ausführbar machen (Owner 20.11. 20:21: Weg über den Worker, kein Secret auf dem PC):** `POST /zoom/jwt` nimmt optional den JSON-Rumpf `{ "ttlS": n }` mit ganzer Zahl `n` 1800–43 200 an (ohne Rumpf oder ohne `ttlS`: 43 200; andere Werte, kein JSON → 400 `{ code: 'ungueltige-laufzeit' }`); eine kürzere Laufzeit gibt einem Freigabe-Inhaber nichts zusätzlich. Connect liest die Entwicklungsvariable `JMPS_ZOOM_JWT_TTL_S` (ganze Zahl 1800–43 200) und schickt sie als `ttlS` mit; dann kein JWT aus dem RAM und kein Erneuerungs-Zeitgeber, jeder Bedarf holt neu. Connect signiert mit dieser Variable nie lokal. (Ursprünglicher Planer-Vorschlag, verworfen: lokal signieren mit den Zugangsdaten aus der Umgebung.)
 - **E10 Zugangs-Altlasten (OT9):** `proxyKeyEnc` fällt beim Erhalt der ersten gültigen `connect-raum`-Freigabe, `zoomSdkKeyEnc` nach dem ersten Link mit Freigabe, `zoomZugangEnc` nach dem ersten `auth` mit Code 0 und Server-JWT; je einmal ein Hinweis (CZ5, ZA6, ZA5). Lehnt der Worker einen alten Schlüssel mit 401 `nicht-angemeldet` oder `alter-key-abgelaufen` ab, löscht Connect ihn ebenfalls (Muster Q&A OE5): nach dem Stichtag kein Rückfall.
+
+### Preflight-Rulings (20.11.)
+
+Vom Controller am 20.11. angenommen (`.superpowers/sdd/2026-11-20-anmeldung-teil2/preflight.md`, Befunde 1–10):
+
+- **P1 (N2):** `zweckDarf` prüft für `zoom-sdk` zuerst `darf({ ...stand, jm: true }, 'zoom')`, dann die JM-Markierung; ein Externer mit Zoom-Freigabe auf einem Nicht-JM-Rechner bekommt `kein-jm-rechner` (CG8) — Task 1 (Interfaces, Erzeuger der Falltabelle), Task 8 (gleiche Regel); Task 20 Schritt 5 bleibt.
+- **P2:** `holeLink` liefert auch bei 401 den Code aus dem Körper (E10 an `/zoom-sdk`); `ZoomCard.tsx` (`TEXT_S11`, Zweig `ohneSchluessel`) gehört zu Task 13 — Task 13.
+- **P3:** Feld `ZoomAbbild.einrichtung.zugang.unlesbar` statt des Mangels `zugang_unlesbar`; `zoom-text.ts:518` und `ZoomCard.tsx:376` ziehen in Task 15 mit, ZU3 liest das Feld — Task 15, 16.
+- **P4:** `zoom-teile.test.ts`: Importe `:4-5` und Blöcke `:149-178` raus (`:111-121` bleibt); `klartext.ts` (A1–A3, A5, A7, S18) in Task 16; `enc()` direkt nach dem Import von `settings` — Task 11, 16.
+- **P5:** Der Wächter T11 G9 erlaubt Laufzeit-Importe nur aus `./regeln`, nie `electron` — Task 11.
+- **P6 (E9):** mit `devTtlS` kein JWT aus dem RAM (auch nicht in Schritt 4), ZA11 nur bei Quelle `server`, README und Entwicklerdoku nennen den Rumpf `ttlS` — Task 14, 10, 7, 19.
+- **P7:** T14 RF1 erwartet den Zeitgeber auf 35 970 000 ms — Task 14.
+- **P8:** Testgerüst: `jetzt: T0`, `sp`/`kid1`, synchrones `logEintraege` (Task 2); in `worker.test.mjs` nur die Fabriken der Attrappen, gezählt mit dem eigenen `check` (Task 4); Kopf von `zoom-jwt.test.mjs`, Rot = `ERR_MODULE_NOT_FOUND` (Task 6).
+- **P9:** Rot in Task 3 neu gefasst, `RL_TABELLE` in Schritt 1, `:621`; Rot-Läufe mit `;` statt `&&` (Task 8, 9, 11, 12, 13, 15, 16); T14-Wert siehe P7; Global erlaubt je zwei Commits in Task 9 und 17; Task 21 zählt alle Commits.
+- **P10:** Das Prüfskript in Task 18 bekommt eine feste Zuordnung Text → Datei; Zeilen „entfällt“ prüft es auf Abwesenheit — Task 18.
 
 ---
 
@@ -185,13 +200,13 @@ Die Aufgaben setzen diese Texte wörtlich um. **Tor:** Die Freigabe durch den Ow
   - `ZWECK_FUNKTION = { 'qa-relay': 'qa', 'connect-raum': 'connect-raum', 'zoom-jwt': 'zoom', 'zoom-sdk': 'zoom' }`
   - `ZIEL_ZOOM_JWT = 'meeting-sdk'`, `ZIEL_ZOOM_SDK = 'win-x64'`
   - `ZWECK_ZIEL: Readonly<Record<Zweck, RegExp>>` = `qa-relay` `/^[A-Za-z0-9_-]{1,128}$/`, `connect-raum` `/^[A-Za-z0-9_-]{6,64}$/`, `zoom-jwt` `/^meeting-sdk$/`, `zoom-sdk` `/^win-x64$/`
-  - `zweckDarf(stand, zweck, { jetzt }): 'ja' | 'kein-recht' | 'kein-jm-rechner'` — unbekannter Zweck oder `darf(stand, ZWECK_FUNKTION[zweck])` falsch → `'kein-recht'`; sonst `zoom-sdk` mit `stand.jm !== true` → `'kein-jm-rechner'`; sonst `'ja'`
+  - `zweckDarf(stand, zweck, { jetzt }): 'ja' | 'kein-recht' | 'kein-jm-rechner'` — unbekannter Zweck → `'kein-recht'`; `zoom-sdk` (P1, N2): `darf({ ...stand, jm: true }, 'zoom')` falsch → `'kein-recht'`, sonst `stand.jm !== true` → `'kein-jm-rechner'`, sonst `'ja'`; jeder andere Zweck: `darf(stand, ZWECK_FUNKTION[zweck])` falsch → `'kein-recht'`, sonst `'ja'`
   - `POST /konto/freigabe`: 400 `unbekannter-zweck` | 400 `ungueltig` (Ziel passt nicht auf `ZWECK_ZIEL[zweck]`) | 403 `kein-recht` (jedes `zweckDarf` ≠ `'ja'`) | 200 `{ freigabe, bis }`
   - Testhelfer `testSitzung(schluessel, { stufe='kollege', tools=[], zoom=stufe!=='externer', jm=true, plattform='win', kid='k-test', gid='g-test', jetzt, exp=jetzt+3600_000 }): Promise<string>` (Claims wie `kontoStand`, `email 'test@example.org'`, `name 'Test Person'`, `art 'passwort'`, `events []`, `zoomBis null`, `kontoBis null`, `angemeldetSeit jetzt`) und `testFreigabe(schluessel, { zweck, ziel, kid='k-test', gid='g-test', jetzt, exp=jetzt+259_200_000 }): Promise<string>` (`{v:1, typ:'freigabe', zweck, ziel, kid, gid, iat: jetzt, exp}`)
 
 - [ ] **Step 1: Falltabelle erzeugen (Wegwerf-Skript nur im Scratchpad, nicht committen)**
 
-Die Tabelle ist die gemeinsame Wahrheit für Worker (Task 1) und Launcher (Task 8). Regel = Entwurf „Zwecke und Ziele“, OF1, OF4, OT4:
+Die Tabelle ist die gemeinsame Wahrheit für Worker (Task 1) und Launcher (Task 8). Regel = Entwurf „Zwecke und Ziele“, OF1, OF4, OT4, N2 (P1):
 
 ```js
 // node erzeuge.mjs > services/release-proxy/test/zweck-faelle.json
@@ -201,9 +216,10 @@ const soll = (z, s) => {
   const intern = s.stufe !== 'externer';
   if (z === 'qa-relay') return intern || s.tools.includes('qa') ? 'ja' : 'kein-recht';
   if (z === 'connect-raum') return intern || s.tools.includes('connect-raum') ? 'ja' : 'kein-recht';
-  const zoom = s.plattform === 'win' && (intern || (s.zoom && s.jm));
-  if (!zoom) return 'kein-recht';
-  return z === 'zoom-sdk' && !s.jm ? 'kein-jm-rechner' : 'ja';
+  if (z === 'zoom-jwt') return s.plattform === 'win' && (intern || (s.zoom && s.jm)) ? 'ja' : 'kein-recht';
+  const zoomAufJm = s.plattform === 'win' && (intern || s.zoom); // zoom-sdk (P1): dürfte er auf einem JM-Rechner?
+  if (!zoomAufJm) return 'kein-recht';
+  return s.jm ? 'ja' : 'kein-jm-rechner';
 };
 const f = [];
 for (const z of Z) {
@@ -326,19 +342,19 @@ check('T2 OT7: loesen nur durch den Inhaber; danach bindet eine fremde Freigabe 
     && (await ci({ raumHash: HEX('a'), kidHash: HEX('1'), gidHash: HEX('7'), loesen: true })).http === 200
     && (await ci({ raumHash: HEX('a'), kidHash: HEX('8'), gidHash: HEX('9') })).neu === true);
 check('T2 OT7: connect- und qa-Inhaber getrennt (gleicher Hash): ein gebundener Raum bindet kein Q&A-Event',
-  (await rufeDo(sp, 'qa-inhaber', { eventHash: HEX('a'), kidHash: HEX('5'), gidHash: HEX('6'), bisMs: T0 + TAG })).neu === true);
+  (await rufeDo(sp, 'qa-inhaber', { jetzt: T0, eventHash: HEX('a'), kidHash: HEX('5'), gidHash: HEX('6'), bisMs: T0 + TAG })).neu === true);
 check('T2 OT5: Übersicht nennt die Connect-Frist: leer → ohne-ende, 2027-01-19 → bis 2027-01-19T00:00:00.000Z, 2027-13-01 → unlesbar',
   (await ueb({})).altKey.connect.diagnose === 'ohne-ende'
     && (await ueb({ ALTKEY_CONNECT_BIS: '2027-01-19' })).altKey.connect.bis === '2027-01-19T00:00:00.000Z'
     && (await ueb({ ALTKEY_CONNECT_BIS: '2027-13-01' })).altKey.connect.diagnose === 'unlesbar');
 check('T2 R2: zoom-jwt-protokoll schreibt genau einen Eintrag mit E-Mail, kid, gid; leere kid → 400',
-  (await rufeDo(sp, 'zoom-jwt-protokoll', { kid: kid1, gid: 'g-test' })).ok === true
+  (await rufeDo(sp, 'zoom-jwt-protokoll', { jetzt: T0, kid: kid1, gid: 'g-test' })).ok === true
     && logEintraege().filter((e) => e.was === 'zoom-jwt').length === 1
     && JSON.stringify(logEintraege().find((e) => e.was === 'zoom-jwt').details) === JSON.stringify({ kid: kid1, gid: 'g-test' })
-    && (await rufeDo(sp, 'zoom-jwt-protokoll', { kid: '', gid: 'g-test' })).http === 400);
+    && (await rufeDo(sp, 'zoom-jwt-protokoll', { jetzt: T0, kid: '', gid: 'g-test' })).http === 400);
 ```
 
-`ci(b)` = `rufeDo(sp, 'connect-inhaber', { bisMs: T0 + 25 * 3600_000, ...b })`; `ueb(envMehr)` ruft `admin-uebersicht` eines Admins in einem Speicher mit `envMehr`; `logEintraege()` liest `ctx.storage.list({ prefix: 'log:' })`.
+`sp` und `ctx` kommen aus `neuerSpeicher({})` mit einem angelegten Konto, `kid1` = dessen kid (P8); `ci(b)` = `rufeDo(sp, 'connect-inhaber', { jetzt: T0, bisMs: T0 + 25 * 3600_000, ...b })` (ohne `jetzt` nähme der DO `Date.now()`, und jede Bindung mit `bisMs` um T0 wäre beim Lesen verfallen); `ueb(envMehr)` ruft `admin-uebersicht` eines Admins mit `jetzt: T0` in einem Speicher mit `envMehr`; `logEintraege()` = `[...ctx.daten].filter(([k]) => k.startsWith('log:')).map(([, v]) => v)` (synchron; `ctx.storage.list` ist asynchron).
 
 - [ ] **Step 2: Laufen lassen, Rot sehen**
 
@@ -371,7 +387,7 @@ git commit -m "feat(proxy): Konten-DO mit Raum-Inhaber, Alt-Key-Gruppe connect, 
 - Modify: `services/release-proxy/wrangler.toml:55-60`, nach `:107` (Eintrag `KONTO_RL_CONNECTALT`)
 - Modify: `services/release-proxy/tools/bauprobe.mjs:35-44`, `:58` (Zeile in `RL_SOLL`, Befundtext ohne Zahl)
 - Modify: `services/release-proxy/test/konto-attrappen.mjs:223-231` (`RL_TABELLE`), `:258` (Kommentar ohne Zahl)
-- Modify: `services/release-proxy/test/konto-zugang.test.mjs:283-291` (P15 G10), `:636-640` (Name und Zählung ohne feste Zahl), `:676-677` (CI-Liste)
+- Modify: `services/release-proxy/test/konto-zugang.test.mjs:283-291` (P15 G10), `:621` und `:636-640` (Name und Zählung ohne feste Zahl), `:676-677` (CI-Liste)
 - Modify: `.github/workflows/ci-checks.yml:136-137` (neuer Schritt nach Q&A-Relay)
 - Create: `services/release-proxy/test/connect-zugang.test.mjs`
 
@@ -416,16 +432,16 @@ check('T3 R1: connect-relay.js hat kein keyOk und keinen Vergleich mit === env.P
 abschluss();
 ```
 
-Die fünf Prüfungen mit `…` bauen ihre Anfragen nach demselben Muster (`auf(id, { 'X-Proxy-Key': 'test-proxy-key' })`, `uhr.stelle(…)`, `env.ALTKEY_CONNECT_BIS`, `ctx.fertig()` und `ctx.storage` des Konten-DO für die Zählung). In `konto-zugang.test.mjs:283-291` die Prüfungen auf `T3 OT5: POST /connect/room-1 mit altem Key nach ALTKEY_BIS → 200 (Connect-Frist leer)` und `T3: ohne Key → 401 nicht-angemeldet` umstellen (`KONTO: makeKontoNs(env)` dazu, `b2.code === 'nicht-angemeldet'`). Die Ratelimit-Prüfung (`:636`) heißt `Z1-W2 AR70: wrangler.toml hat genau die [[ratelimits]] aus RL_TABELLE …` und vergleicht `size` mit `Object.keys(RL_TABELLE).length`. Die CI-Liste (`:676-677`) endet mit `'qa-relay', 'connect-zugang'`.
+Die fünf Prüfungen mit `…` bauen ihre Anfragen nach demselben Muster (`auf(id, { 'X-Proxy-Key': 'test-proxy-key' })`, `uhr.stelle(…)`, `env.ALTKEY_CONNECT_BIS`, `ctx.fertig()` und `ctx.storage` des Konten-DO für die Zählung). In `konto-zugang.test.mjs:283-291` die Prüfungen auf `T3 OT5: POST /connect/room-1 mit altem Key nach ALTKEY_BIS → 200 (Connect-Frist leer)` und `T3: ohne Key → 401 nicht-angemeldet` umstellen (`KONTO: makeKontoNs(env)` dazu, `b2.code === 'nicht-angemeldet'`). Die Ratelimit-Prüfung (`:636`) heißt `Z1-W2 AR70: wrangler.toml hat genau die [[ratelimits]] aus RL_TABELLE …` und vergleicht `size` mit `Object.keys(RL_TABELLE).length`; `rlAufbauOk` (`:621`, heute `=== 14`) vergleicht mit `Object.keys(RL_TABELLE).length * 2`. `RL_TABELLE` in `konto-attrappen.mjs` bekommt schon hier `KONTO_RL_CONNECTALT: { namespaceId: '7308', grenze: 20, period: 60 }` (die Erwartung; P9). Die CI-Liste (`:676-677`) endet mit `'qa-relay', 'connect-zugang'`.
 
 - [ ] **Step 2: Laufen lassen, Rot sehen**
 
-Run: `node --experimental-strip-types services/release-proxy/test/connect-zugang.test.mjs`
-Expected: FAIL bei allen `T3 …` außer `T3: ohne Kopf` (heute 401 ohne `code`); dazu `konto-zugang.test.mjs` FAIL bei der Ratelimit- und der CI-Prüfung.
+Run: `node --experimental-strip-types services/release-proxy/test/connect-zugang.test.mjs`, einzeln `node --experimental-strip-types services/release-proxy/test/konto-zugang.test.mjs`
+Expected: FAIL bei allen `T3 …` (auch der Fall „ohne Kopf“: heute 401 ohne `code`); dazu `konto-zugang.test.mjs` FAIL bei `T3: ohne Key → 401 nicht-angemeldet`, bei der Ratelimit- und bei der CI-Prüfung.
 
 - [ ] **Step 3: Zugang, Drossel, Bindung und Konfiguration umsetzen**
 
-`connect-relay.js` nach Interfaces; `sha256Hex` wie `qa-relay.js:363-366`; der Kommentar `:9-10` und `:48-51` nennt „Sitzung, Freigabe oder alter Schlüssel bis ALTKEY_CONNECT_BIS (zugangPruefen)“. `wrangler.toml`: Eintrag nach `KONTO_RL_QAALT` mit Kommentar `# KONTO_RL_CONNECTALT: /connect/:raum (Öffnen, Schließen) mit dem alten Schlüssel, vor der Inhaber-Prüfung im Konten-DO`; der Kopfkommentar (`:55-60`) sagt „diese Einträge“ statt „diese sieben Einträge“. `bauprobe.mjs` `RL_SOLL` um `['KONTO_RL_CONNECTALT', '7308', 20, 60]`, Befundtext „genau die Einträge KONTO_RL_* aus RL_SOLL“. `RL_TABELLE` entsprechend. CI-Schritt:
+`connect-relay.js` nach Interfaces; `sha256Hex` wie `qa-relay.js:363-366`; der Kommentar `:9-10` und `:48-51` nennt „Sitzung, Freigabe oder alter Schlüssel bis ALTKEY_CONNECT_BIS (zugangPruefen)“. `wrangler.toml`: Eintrag nach `KONTO_RL_QAALT` mit Kommentar `# KONTO_RL_CONNECTALT: /connect/:raum (Öffnen, Schließen) mit dem alten Schlüssel, vor der Inhaber-Prüfung im Konten-DO`; der Kopfkommentar (`:55-60`) sagt „diese Einträge“ statt „diese sieben Einträge“. `bauprobe.mjs` `RL_SOLL` um `['KONTO_RL_CONNECTALT', '7308', 20, 60]`, Befundtext „genau die Einträge KONTO_RL_* aus RL_SOLL“ (`RL_TABELLE` ist seit Step 1 ergänzt). CI-Schritt:
 
 ```yaml
       - name: Release-Proxy (Connect-Raum über die Anmeldung, Bindung, alter Schlüssel)
@@ -449,7 +465,7 @@ git commit -m "feat(proxy): Cloud-Raum ueber Freigabe connect-raum, Raum-Bindung
 
 **Files:**
 - Modify: `services/release-proxy/worker.js:14-16` (Vertragskommentar), `:158-161` (`ctx` durchreichen), `:443-460` (`handleZoomSdk`)
-- Test: `services/release-proxy/test/worker.test.mjs` (neuer Block nach dem Zoom-SDK-Block, vor dessen Aufräumen der Konsole)
+- Test: `services/release-proxy/test/worker.test.mjs` (Import der Fabriken aus `./konto-attrappen.mjs` im Kopf; neuer Block am Ende des Zoom-SDK-Blocks, vor dessen Aufräumen der Konsole)
 
 **Interfaces:**
 - Consumes: `zugangPruefen` mit `zweck` (Task 3), `altKeyZaehlen` und `FEHLER_TEXT` (Task 2), `alterKeyGilt`, `ZIEL_ZOOM_SDK` (Task 1).
@@ -472,7 +488,7 @@ check('T4 OT5: ZOOM_SDK_KEY: Frist leer → 200; vor 2027-01-19 → 200; ab 2027
 check('T4 OT5: angenommener ZOOM_SDK_KEY wird in Gruppe connect gezählt (ein DO-Aufruf altkey-zaehlen nach waitUntil)', …);
 ```
 
-`zEnvT` = bisheriges `zEnv` plus `KONTO_SCHLUESSEL: KS`, `KONTO: makeKontoNs(…)`, `KONTO_UHR: uhr`; die `…`-Prüfungen stellen `ALTKEY_CONNECT_BIS` und `uhr` und schicken `X-Zoom-Sdk-Key: 'sdk-geheim-test'` wie die bestehenden Prüfungen ab `:377`.
+Gerüst (P8): Der Block steht innerhalb des Zoom-SDK-Blocks (`FASSUNG`, `zEnv`, fetch-Stub). `worker.test.mjs` importiert aus `./konto-attrappen.mjs` nur die Fabriken `testFreigabe, testSitzung, testSchluessel, makeKontoNs, makeUhr, makeWaitCtx`, nie `check`, `pruefeFaelle` oder `abschluss` (die zählen in die Summe der Attrappen, nicht in die von `worker.test.mjs`, und `check` gibt es dort schon); `pruefeFaelle` ist ein lokaler async-Helfer der Datei, der über ihr eigenes `check` zählt. `KS = testSchluessel()`, `uhr = makeUhr()`, `zCtx = makeWaitCtx()`. `zEnvT` = bisheriges `zEnv` plus `KONTO_SCHLUESSEL: KS`, `KONTO_UHR: uhr`, danach `zEnvT.KONTO = makeKontoNs(zEnvT)`; die `…`-Prüfungen stellen `ALTKEY_CONNECT_BIS` und `uhr` und schicken `X-Zoom-Sdk-Key: 'sdk-geheim-test'` wie die bestehenden Prüfungen ab `:377`.
 
 - [ ] **Step 2: Laufen lassen, Rot sehen**
 
@@ -575,7 +591,7 @@ git commit -m "feat(proxy): Zoom-JWT im Worker signieren, byte-gleich zu buildJw
 - Modify: `services/release-proxy/konto-zugang.js:103-112` (`KONTO_RL.zoomJwt`)
 - Modify: `services/release-proxy/wrangler.toml` (Eintrag `KONTO_RL_ZOOMJWT` nach `KONTO_RL_CONNECTALT`)
 - Modify: `services/release-proxy/tools/bauprobe.mjs` (`RL_SOLL`), `services/release-proxy/test/konto-attrappen.mjs` (`RL_TABELLE`)
-- Test: `services/release-proxy/test/zoom-jwt.test.mjs` (Block vor `abschluss()`)
+- Test: `services/release-proxy/test/zoom-jwt.test.mjs` (Kopf erweitert, Block vor `abschluss()`)
 
 **Interfaces:**
 - Consumes: `signiereZoomJwt`, `zoomZugangBrauchbar` (Task 5); `zugangPruefen` mit `zweck` (Task 3); `drosselBindung`, `kontoAktion`, `kontoJetzt`, `abgelehnt`; DO `zoom-jwt-protokoll` (Task 2); `ZIEL_ZOOM_JWT` (Task 1).
@@ -584,6 +600,8 @@ git commit -m "feat(proxy): Zoom-JWT im Worker signieren, byte-gleich zu buildJw
   - `KONTO_RL.zoomJwt = 'KONTO_RL_ZOOMJWT'`; `wrangler.toml` `namespace_id = "7309"`, `limit = 30`, `period = 60`.
 
 - [ ] **Step 1: Die failing tests schreiben**
+
+Kopf der Datei erweitern (P8, Muster `qa-relay.test.mjs:8-13`): `import worker from '../worker.js'`, `import { zoomJwtLaufzeit } from '../zoom-relay.js'`, aus `./konto-attrappen.mjs` zusätzlich `makeKontoNs, makeRLBindungen, makeUhr, makeWaitCtx, testFreigabe, testSitzung, testSchluessel`; `KS = testSchluessel()`, `uhr = makeUhr()`, `ctx = makeWaitCtx()`; Mitschnitt `protokoll` von `console.warn` und `console.log`, gesetzt vor dem ersten Aufruf des Workers. Danach vor `abschluss()`:
 
 ```js
 const jwtEnv = { KONTO_SCHLUESSEL: KS, ZOOM_CLIENT_ID: 'test-id-1234', ZOOM_CLIENT_SECRET: 'test-secret-5678', ...makeRLBindungen(), KONTO_UHR: uhr };
@@ -626,7 +644,7 @@ check('T6 G4: weder JWT noch Freigabe noch Secret im Mitschnitt der Konsole', !p
 - [ ] **Step 2: Laufen lassen, Rot sehen**
 
 Run: `node --experimental-strip-types services/release-proxy/test/zoom-jwt.test.mjs`
-Expected: FAIL bei allen `T6 …` (Route fehlt: der Gate antwortet 401/403).
+Expected: Abbruch mit `ERR_MODULE_NOT_FOUND` für `../zoom-relay.js` (statischer Import im Kopf; auch die T5-Prüfungen laufen dann nicht).
 
 - [ ] **Step 3: Route, Drossel und Konfiguration umsetzen**
 
@@ -690,7 +708,7 @@ Expected: FAIL bei `T7 EP9, G4 …` (Namen fehlen in `wrangler.toml`) und bei de
         run: node --experimental-strip-types services/release-proxy/test/connect-do.test.mjs
 ```
 
-README: Abschnitt „Zoom-SDK nachladen“ nennt beide Wege (Freigabe `zoom-sdk`, alter `X-Zoom-Sdk-Key` bis `ALTKEY_CONNECT_BIS`); `:165-166` und `:182` sagen, dass `/connect/*` und `/zoom-sdk/*` seit Teil 2 über `zugangPruefen` prüfen und die Connect-Frist erst nach dem Release von Connect 0.5.0 gesetzt wird; der neue Abschnitt listet: Zwecke und Ziele, `POST /zoom/jwt` (Antwort, Fehler, Drossel), Raum-Bindung (E3), die Secrets, die zwei neuen Drosseln, die Reihenfolge der Deploys (N1–N5) und den Satz „Die Secrets setzt der Controller mit Freigabe des Owners; kein Wert steht im Repo oder im Chat.“ `worker.js:18-25` nennt die zwei neuen Secrets.
+README: Abschnitt „Zoom-SDK nachladen“ nennt beide Wege (Freigabe `zoom-sdk`, alter `X-Zoom-Sdk-Key` bis `ALTKEY_CONNECT_BIS`); `:165-166` und `:182` sagen, dass `/connect/*` und `/zoom-sdk/*` seit Teil 2 über `zugangPruefen` prüfen und die Connect-Frist erst nach dem Release von Connect 0.5.0 gesetzt wird; der neue Abschnitt listet: Zwecke und Ziele, `POST /zoom/jwt` (Antwort, Fehler, Drossel; optionaler Rumpf `{ "ttlS": n }` mit ganzer Zahl 1800–43 200, sonst 400 `ungueltige-laufzeit`, E9), Raum-Bindung (E3), die Secrets, die zwei neuen Drosseln, die Reihenfolge der Deploys (N1–N5) und den Satz „Die Secrets setzt der Controller mit Freigabe des Owners; kein Wert steht im Repo oder im Chat.“ `worker.js:18-25` nennt die zwei neuen Secrets.
 
 - [ ] **Step 4: Laufen lassen, Grün sehen**
 
@@ -720,7 +738,7 @@ git commit -m "docs(proxy): Secrets ZOOM_CLIENT_ID/SECRET, Connect-Frist und Tei
 - Consumes: `services/release-proxy/test/zweck-faelle.json` (Task 1); `FreigabeErgebnis` (`@jm/app-runtime/freigabe`).
 - Produces:
   - `type Zweck = 'qa-relay' | 'connect-raum' | 'zoom-jwt' | 'zoom-sdk'`; `ZWECK_FUNKTION: Readonly<Record<Zweck, Funktion>>` wie am Worker
-  - `zweckDarf(stand: KontoStand | null, zweck: string, k: { jetzt: number }): 'ja' | 'kein-recht' | 'kein-jm-rechner'` — gleiche Regel wie Task 1
+  - `zweckDarf(stand: KontoStand | null, zweck: string, k: { jetzt: number }): 'ja' | 'kein-recht' | 'kein-jm-rechner'` — gleiche Regel wie Task 1 (mit P1: `zoom-sdk` erst `darf({ ...stand, jm: true }, 'zoom')`, dann die JM-Markierung)
   - `AltKeyZeile.gruppe: 'katalog' | 'qa' | 'connect'`; `AdminUebersicht.altKey.connect?: { bis: string | null; diagnose: 'ohne-ende' | 'unlesbar' | null }`
   - `ZWECKE` = `{ 'qa-relay': {funktion:'qa', zielNoetig:true, apps:['jm-qa']}, 'connect-raum': {funktion:'connect-raum', zielNoetig:true, apps:['jm-connect']}, 'zoom-jwt': {funktion:'zoom', zielNoetig:true, apps:['jm-connect']}, 'zoom-sdk': {funktion:'zoom', zielNoetig:true, apps:['jm-connect']} }`
   - Freigabe-Stelle: `zweckDarf` → `'kein-recht'` ⇒ `{ ok: false, grund: 'kein-recht' }`; `'kein-jm-rechner'` ⇒ `{ ok: false, grund: 'kein-recht', detail: 'kein-jm-rechner' }`, Logzeile `Freigabe: zoom-sdk für jm-connect abgelehnt (kein JM-Rechner)`; nie beim Worker.
@@ -759,7 +777,7 @@ ck('T8 G4: keine Logzeile nennt ein Token oder ein Ziel', zeilen.every((z) => !z
 
 - [ ] **Step 2: Laufen lassen, Rot sehen**
 
-Run: `cd apps/launcher && npx tsx test/konto-rechte.test.ts && npx tsx test/konto-tuer.test.ts`
+Run: `cd apps/launcher && npx tsx test/konto-rechte.test.ts; npx tsx test/konto-tuer.test.ts`
 Expected: Abbruch beim Import von `zweckDarf` bzw. FAIL bei `T8 …` und bei der Pin-Prüfung von `ZWECKE`.
 
 - [ ] **Step 3: Typen, `zweckDarf` und Freigabe-Stelle umsetzen**
@@ -828,7 +846,7 @@ kreuz('T9 OT5: alte Connects erscheinen mit Gruppenname', [['Zeile', alteLaunche
 
 - [ ] **Step 2: Laufen lassen, Rot sehen**
 
-Run: `cd apps/launcher && npx tsx test/konto-anzeige.test.ts && npx tsx test/konto-admin.test.ts`, dann `npm run selftest -w @jm/launcher`
+Run: `cd apps/launcher && npx tsx test/konto-anzeige.test.ts; npx tsx test/konto-admin.test.ts`, dann `npm run selftest -w @jm/launcher`
 Expected: FAIL bei den geänderten Wortlautzeilen, bei `T9 …` und bei den drei geänderten Quelltext-Wächtern.
 
 - [ ] **Step 3: Texte, Ansichten und Rezept umsetzen**
@@ -888,7 +906,7 @@ git commit -m "chore(launcher): Version 0.19.0 (Anmeldung Teil 2)" -m "Co-Author
   - `grundText(zweck: ConnectZweck, g: FreigabeGrund, detail?: string | null): string` (CG1–CG10); `jwtGrundText(g: JwtGrund, detail?: string | null): string` (FreigabeGrund → `grundText('zoom-jwt', …)`, sonst ZA8–ZA10)
   - `ZUGANG_TEXT` (Schlüssel, die spätere Aufgaben benutzen): `cloudFreigabe(name, stufe, datum, zeit)` CZ1, `cloudAltKey` CZ2, `cloudAltAbgelehnt` CZ3, `cloudNochNicht` CZ4, `cloudGeloescht` CZ5, `cloudEnv` CZ6, `raumNicht(grund)` CZ7, `raumVergeben` CZ8, `raumFreigabeAbgelehnt` CZ9, `altProxyKey` CZ10, `anmeldungServer(name, stufe, datum, zeit)` ZA1, `anmeldungLokal` ZA2, `anmeldungKeine(grund)` ZA3, `anmeldungNochNicht` ZA4, `zugangGeloescht` ZA5, `sdkGeloescht` ZA6, `ohneAnmeldung(grund)` ZA7, `serverAbgelehnt` ZA8, `nichtEingerichtet` ZA9, `serverFehler(detail)` ZA10, `entwicklungTtl(n)` ZA11
   - `cloudZeile(l: ZugangsLage, jetzt: number): { text: string; ton: 'ok' | 'warn' | 'fehler' }` — Freigabe: CZ1 (`ok`), mit `letzterGrund` und weniger als 24 h Rest CZ1 + Leerzeichen + Grund (`warn`); alter Key: CZ2 (`warn`), mit `letzterGrund` + Leerzeichen + Grund; keiner: `altAbgelehnt` → CZ3 (`fehler`), sonst mit `letzterGrund` der Grund allein (Ton nach der Regel unten), sonst CZ4 (`ok`); danach `geloescht` → + Leerzeichen + CZ5, `altHerkunft === 'env'` → + Leerzeichen + CZ6
-  - `anmeldungZeile(l: ZoomAnmeldungLage, jetzt: number): { text: string; ton: 'ok' | 'warn' | 'fehler' }` — `server`: ZA1 (`ok`); `lokal`: ZA2 (`warn`), mit `grund` + Leerzeichen + `jwtGrundText`; `keine`: mit `grund` ZA3(`jwtGrundText`) (Ton nach der Regel unten), ohne `grund` ZA4 (`ok`); danach `geloescht` → + Leerzeichen + ZA5, `devTtlS !== null` → + Leerzeichen + ZA11
+  - `anmeldungZeile(l: ZoomAnmeldungLage, jetzt: number): { text: string; ton: 'ok' | 'warn' | 'fehler' }` — `server`: ZA1 (`ok`); `lokal`: ZA2 (`warn`), mit `grund` + Leerzeichen + `jwtGrundText`; `keine`: mit `grund` ZA3(`jwtGrundText`) (Ton nach der Regel unten), ohne `grund` ZA4 (`ok`); danach `geloescht` → + Leerzeichen + ZA5, `devTtlS !== null` und `quelle === 'server'` → + Leerzeichen + ZA11 (P6: bei `lokal` und `keine` nie ZA11)
   - Vorübergehend (Ton `warn`) sind `kein-launcher`, `niemand-angemeldet`, `abgelaufen`, `server-nicht-erreichbar`, `server-fehler`; alle übrigen Gründe Ton `fehler`
 
 - [ ] **Step 1: Die failing tests schreiben**
@@ -945,6 +963,7 @@ kreuz('T10 G7: Zeile Zoom-Anmeldung (Quelle × Grund × gelöscht × Entwicklung
   ['keine, Server-Fehler', anmeldungZeile(alage({ quelle: 'keine', versucht: true, grund: 'server-fehler', detail: 'HTTP 502' }), J),
     'Zoom-Anmeldung: Der Server hat kein Zoom-Anmelde-Token geliefert (HTTP 502). Ich versuche es beim nächsten Beitritt erneut.|warn'],
   ['Entwicklung', anmeldungZeile(alage({ quelle: 'server', devTtlS: 1860 }), J).text.endsWith(' Entwicklungsmodus: JMPS_ZOOM_JWT_TTL_S gesetzt, der Server stellt das Zoom-Anmelde-Token mit 1860 s Laufzeit aus.'), true],
+  ['Entwicklung, lokal (P6)', anmeldungZeile(alage({ quelle: 'lokal', devTtlS: 1860 }), J).text.includes('Entwicklungsmodus'), false],
 ]);
 ck('T10: kein Text enthält ASCII-Anführungszeichen', alleTexte().every((t) => !t.includes('"')));
 ```
@@ -1012,8 +1031,10 @@ ck('T11 OT9: zoom-sdk: Altlast fällt erst mit bestaetigt() (true genau einmal),
 ck('T11 QR5: 403 auf eine Freigabe → verworfen, nächster zugang() holt sofort neu', …);
 ck('T11 OE5, OT8: 401 alter-key-abgelaufen auf den alten Key → altAbgelehnt, Key gelöscht, danach keiner (kein Rückfall)', …);
 ck('T11 G4: tokens() nennt alle gehaltenen Freigaben; keine Logzeile enthält jm1.', …);
-ck('T11 G9: halter.ts importiert nur Typen; huelle.ts schreibt nur die Ausgabe von geheimnisDatei',
-  !/^import (?!type)/m.test(read('src/main/zugang/halter.ts')) && read('src/main/zugang/huelle.ts').includes('geheimnisDatei(') && !/writeFileSync\([^)]*JSON\.stringify/.test(read('src/main/zugang/huelle.ts')));
+ck('T11 G9: halter.ts importiert zur Laufzeit nur aus ./regeln, nie electron; huelle.ts schreibt nur die Ausgabe von geheimnisDatei',
+  read('src/main/zugang/halter.ts').split('\n').filter((l) => /^import (?!type)/.test(l)).every((l) => l.includes("from './regeln'"))
+    && !read('src/main/zugang/halter.ts').includes("'electron'")
+    && read('src/main/zugang/huelle.ts').includes('geheimnisDatei(') && !/writeFileSync\([^)]*JSON\.stringify/.test(read('src/main/zugang/huelle.ts')));
 ```
 
 Jede `…`-Prüfung baut sich ihren Halter mit `halter({ … })`, stellt die Uhr über `o.jetzt` und vergleicht `aufrufe`, `geloescht`, `lage(…)` und die Rückgaben mit den Werten im Namen.
@@ -1028,11 +1049,11 @@ ck('T11 Spec 184, N1: nach den drei Löschungen steht keins von proxyKeyEnc, zoo
   !('proxyKeyEnc' in nach) && !('zoomZugangEnc' in nach) && !('zoomSdkKeyEnc' in nach) && nach.zoomLetzteNummer === '123 456' && 'zoomLetzterKenncodeEnc' in nach);
 ```
 
-`enc(t)` = `Buffer.from('E:' + t).toString('base64')` (die Attrappe von `safeStorage`).
+`enc(t)` = `Buffer.from('E:' + t).toString('base64')` (die Attrappe von `safeStorage`), definiert direkt nach `const s = await import('../src/main/settings')` (`zoom-settings.test.ts:47`), damit Task 16 es weiter oben nutzen kann (P4, sonst TDZ).
 
 - [ ] **Step 2: Laufen lassen, Rot sehen**
 
-Run: `cd apps/connect && npx tsx test/zugang-halter.test.ts && npx tsx test/zoom-settings.test.ts`
+Run: `cd apps/connect && npx tsx test/zugang-halter.test.ts; npx tsx test/zoom-settings.test.ts`
 Expected: Abbruch beim Import von `halter`; der Settings-Block ist schon grün (er belegt, dass die Löschwege genügen).
 
 - [ ] **Step 3: Halter, Hülle und Start umsetzen**
@@ -1110,7 +1131,7 @@ ck('T12 Spec 166, E7: ipc.ts nimmt keinen neuen Proxy-Key an; App.tsx hat kein F
 
 - [ ] **Step 2: Laufen lassen, Rot sehen**
 
-Run: `cd apps/connect && npx tsx test/raum-zugang.test.ts && npx tsx test/ndi-text.test.ts`
+Run: `cd apps/connect && npx tsx test/raum-zugang.test.ts; npx tsx test/ndi-text.test.ts`
 Expected: Abbruch beim Import von `raum-id` bzw. FAIL bei T146 und der Schlüsselliste.
 
 - [ ] **Step 3: Raum, Status, Karte umsetzen**
@@ -1138,14 +1159,15 @@ git commit -m "feat(connect): Cloud-Raum mit Freigabe, kurze Raum-IDs auffuellen
 - Modify: `apps/connect/src/main/zoom/klartext.ts:56-58` (S11 raus, S12b neu), Text-Zuordnung von `ladeFehlerText`
 - Modify: `apps/connect/src/main/zoom.ts:100-103` (`halter: zugangsHalter()`)
 - Modify: `apps/connect/src/shared/zoom-text.ts:44-46` (`TEXT_S11` raus), `:534-575` (`sdkLaden: 'frei' | 'gesperrt'`)
+- Modify: `apps/connect/src/renderer/src/zoom/ZoomCard.tsx:16` (Import `TEXT_S11` raus), `:380` (`ladenTitel` ohne Zweig `ohneSchluessel`) (P2)
 - Test: `apps/connect/test/sdk-laden.test.ts:180-270`; `apps/connect/test/zoom-kern.test.ts:163-320` (Attrappe), `:1905-1960`, `:2125-2150`; `apps/connect/test/zoom-text.test.ts:13`, `:474`, `:534`, `:696`, `:718-720`
 
 **Interfaces:**
 - Consumes: `ZugangsHalter` (Task 11), `ZIEL_ZOOM_SDK`, `zugangsKopf`, `grundText`, `ZUGANG_TEXT.sdkGeloescht` (ZA6) (Task 10); Worker `/zoom-sdk` (Task 4).
 - Produces:
-  - `holeLink(e: { base: string; kopf: Record<string, string>; fassung: string; signal: AbortSignal; werkzeuge?: Partial<LadeWerkzeuge> }): Promise<LinkErgebnis>`; 401 → `{ ok: false, art: 'schluessel' }`; 403 → `{ ok: false, art: 'verweigert', code: string | null }` (Code aus dem Körper); sonst wie heute
+  - `holeLink(e: { base: string; kopf: Record<string, string>; fassung: string; signal: AbortSignal; werkzeuge?: Partial<LadeWerkzeuge> }): Promise<LinkErgebnis>`; 401 → `{ ok: false, art: 'schluessel', code: string | null }`; 403 → `{ ok: false, art: 'verweigert', code: string | null }` (Code je aus dem Körper; P2: bei 401 trägt er `sitzung-abgelaufen`, `nicht-angemeldet` oder `alter-key-abgelaufen`, E10); sonst wie heute
   - `ZoomKernAbhaengigkeiten.halter: Pick<ZugangsHalter, 'zugang' | 'antwort' | 'bestaetigt' | 'lage' | 'tokens'>`
-  - `sdkLaden()`: Sperre und `fehler → schliessen` wie heute, kein S11 mehr; `ladeAblauf` holt `await d.halter.zugang('zoom-sdk', ZIEL_ZOOM_SDK)` in der Phase `link` (nach dem Setzen von `ladung`); `keiner` → mit `const lage = d.halter.lage('zoom-sdk')` `ende(grundText('zoom-sdk', lage.letzterGrund ?? 'kein-launcher', lage.detail), …)` (N2 bei `detail === 'kein-jm-rechner'`); Antwort 401/403 → `d.halter.antwort('zoom-sdk', w, status, code)`, Text S12 (alter Key) bzw. S12b (Freigabe) bzw. `grundText(... 'kein-recht' ...)` bei 403; nach `link.ok` → `if (d.halter.bestaetigt('zoom-sdk', w)) hinweis(ZA6)`
+  - `sdkLaden()`: Sperre und `fehler → schliessen` wie heute, kein S11 mehr; `ladeAblauf` holt `await d.halter.zugang('zoom-sdk', ZIEL_ZOOM_SDK)` in der Phase `link` (nach dem Setzen von `ladung`); `keiner` → mit `const lage = d.halter.lage('zoom-sdk')` `ende(grundText('zoom-sdk', lage.letzterGrund ?? 'kein-launcher', lage.detail), …)` (N2 bei `detail === 'kein-jm-rechner'`); Antwort 401/403 → `d.halter.antwort('zoom-sdk', w, status, code)` mit `code` aus dem `LinkErgebnis` (bei 401 und 403), Text S12 (alter Key) bzw. S12b (Freigabe) bzw. `grundText(... 'kein-recht' ...)` bei 403; nach `link.ok` → `if (d.halter.bestaetigt('zoom-sdk', w)) hinweis(ZA6)`
   - `ZoomKnoepfe.sdkLaden: 'frei' | 'gesperrt'`
 
 - [ ] **Step 1: Die failing tests schreiben**
@@ -1153,7 +1175,7 @@ git commit -m "feat(connect): Cloud-Raum mit Freigabe, kurze Raum-IDs auffuellen
 `sdk-laden.test.ts`: die Prüfungen an `:189` und `:259-263` schicken `kopf: { Authorization: 'Bearer jm1.test-sdk' }` und erwarten diesen Kopf (und keinen `X-Zoom-Sdk-Key`); neu:
 
 ```ts
-ck('T13: 403 mit {"code":"kein-recht"} → art verweigert, code kein-recht; 401 → schluessel', …);
+ck('T13: 403 mit {"code":"kein-recht"} → art verweigert, code kein-recht; 401 mit {"code":"alter-key-abgelaufen"} → art schluessel, code alter-key-abgelaufen; 401 ohne Körper → code null', …);
 ck('T13 OT10: alter Weg im Übergang: kopf {X-Zoom-Sdk-Key: sdk-test} geht genau so hinaus', …);
 ```
 
@@ -1167,13 +1189,14 @@ ck('T13 4.4: die Freigabe wird erst nach dem Setzen von ladung geholt (zweiter K
 ck('T13 OT9: erster Link mit Freigabe → bestaetigt einmal, Hinweis ZA6 einmal; zweites Laden ohne neuen Hinweis', …);
 ck('T13 QR5: 401 auf die Freigabe → halter.antwort(zoom-sdk, …, 401), Text S12b', …);
 ck('T13 OT10: alter Schlüssel im Übergang → holeLink bekommt X-Zoom-Sdk-Key; 401 → S12 wie bisher', …);
+ck('T13 E10 (P2): 401 alter-key-abgelaufen auf den alten Schlüssel → halter.antwort(zoom-sdk, alter-key, 401, alter-key-abgelaufen)', …);
 ```
 
 `:2125-2150` (Ergebnisse S15/S12 nach „Eintragen“): Vorbereitung über die Halter-Option statt `sdkSchluesselEintragen`. `zoom-text.test.ts`: `TEXT_S11` aus Import und Tabellen (`:474`, `:534`, `:718-720`) entfernen; `:696` erwartet `zoomKnoepfe(mit('none', …)).sdkLaden === 'frei'`.
 
 - [ ] **Step 2: Laufen lassen, Rot sehen**
 
-Run: `cd apps/connect && npx tsx test/sdk-laden.test.ts && npx tsx test/zoom-kern.test.ts && npx tsx test/zoom-text.test.ts`
+Run: `cd apps/connect && npx tsx test/sdk-laden.test.ts; npx tsx test/zoom-kern.test.ts; npx tsx test/zoom-text.test.ts`
 Expected: FAIL bei den geänderten und neuen `T13 …`-Prüfungen (tsx prüft keine Typen; die Typprüfung folgt in Step 4).
 
 - [ ] **Step 3: Kopf statt Schlüssel, Kern und Knöpfe umsetzen**
@@ -1188,7 +1211,7 @@ Expected: je `… 0 fehlgeschlagen…`; 0 `error TS`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/connect/src/main/zoom/sdk-laden.ts apps/connect/src/main/zoom/kern.ts apps/connect/src/main/zoom/klartext.ts apps/connect/src/main/zoom.ts apps/connect/src/shared/zoom-text.ts apps/connect/test/sdk-laden.test.ts apps/connect/test/zoom-kern.test.ts apps/connect/test/zoom-text.test.ts
+git add apps/connect/src/main/zoom/sdk-laden.ts apps/connect/src/main/zoom/kern.ts apps/connect/src/main/zoom/klartext.ts apps/connect/src/main/zoom.ts apps/connect/src/shared/zoom-text.ts apps/connect/src/renderer/src/zoom/ZoomCard.tsx apps/connect/test/sdk-laden.test.ts apps/connect/test/zoom-kern.test.ts apps/connect/test/zoom-text.test.ts
 git status --short
 git commit -m "feat(connect): Zoom-SDK laden mit Freigabe zoom-sdk, Absage auf Nicht-JM-Rechnern (N2), SDK-Schluessel nur im Uebergang (Anmeldung Teil 2)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -1208,7 +1231,7 @@ git commit -m "feat(connect): Zoom-SDK laden mit Freigabe zoom-sdk, Absage auf N
   - `erzeugeJwtQuelle(d: { halter: Pick<ZugangsHalter, 'zugang' | 'antwort' | 'lage'>; holeServerJwt(token: string, ttlS: number | null): Promise<{ ok: true; jwt: string; gueltigS: number } | { ok: false; status: number; code: string | null }>; lokal: { lesen(): { daten: { clientId: string; clientSecret: string } | null; herkunft: ProxyKeySource }; loeschen(): boolean }; signiereLokal(z: { clientId: string; clientSecret: string }, ttlS: number): string; devTtlS: number | null; brauchtJwt(): boolean; jetzt(): number; zeitgeber(ms: number, fn: () => void): unknown; loescheZeitgeber(t: unknown): void; log(z: string): void; geaendert(): void }): JwtQuelle`
   - `holeServerJwt(base: string, token: string, ttlS: number | null, f?: typeof fetch): Promise<…>` — `POST ‹base›/zoom/jwt`, `Authorization: Bearer`, bei `ttlS !== null` Rumpf `{"ttlS":‹n›}` mit `content-type: application/json` (sonst ohne Rumpf), `redirect: 'manual'`, nur HTTPS (HTTP nur `127.0.0.1`/`localhost`), Zeitlimit 10 s; Antwort ohne Text `jwt` oder ohne ganze Zahl `gueltigS` > 0 → `{ ok: false, status: 502, code: null }`; Netzfehler → `{ ok: false, status: 0, code: null }`
   - `devTtl(env: Record<string, string | undefined>): number | null` — `JMPS_ZOOM_JWT_TTL_S` als ganze Zahl 1800–43 200, sonst `null`
-  - Reihenfolge in `hole()` (ein laufender Abruf für alle Aufrufer): (1) entfällt (E9: mit `devTtlS` wird nie lokal signiert); (2) JWT im RAM mit Rest ≥ 2 h → es — nicht bei `devTtlS !== null`; (3) `halter.zugang('zoom-jwt', ZIEL_ZOOM_JWT)` → Freigabe → Server mit `ttlS = devTtlS`: Erfolg → halten mit `bis = jetzt + gueltigS × 1000`, Zeitgeber auf `bis − 2 h` (feuert nur, wenn `brauchtJwt()`, und holt dann neu; bei `devTtlS !== null` kein Zeitgeber); 401/403 → `halter.antwort(…)`, Grund `server-abgelehnt`; 503 mit Code `nicht-eingerichtet` → `nicht-eingerichtet`; sonst `server-fehler` mit Detail `HTTP ‹status›` bzw. `Netz`; (4) JWT im RAM mit Rest ≥ 5 min → es; (5) lokale Daten → lokal mit 43 200 s (Übergang); (6) Fehler mit dem Grund aus (3) bzw. `halter.lage('zoom-jwt').letzterGrund ?? 'kein-launcher'`. `angemeldet('server')` löscht lokale Daten mit Herkunft `stored`/`session` genau einmal (→ `true`); `'lokal'` nie. Logzeilen nennen nie JWT oder Token, nur Herkunft und `bis` als ISO.
+  - Reihenfolge in `hole()` (ein laufender Abruf für alle Aufrufer): (1) entfällt (E9: mit `devTtlS` wird nie lokal signiert); (2) JWT im RAM mit Rest ≥ 2 h → es — nicht bei `devTtlS !== null`; (3) `halter.zugang('zoom-jwt', ZIEL_ZOOM_JWT)` → Freigabe → Server mit `ttlS = devTtlS`: Erfolg → halten mit `bis = jetzt + gueltigS × 1000`, Zeitgeber auf `bis − 2 h` (feuert nur, wenn `brauchtJwt()`, und holt dann neu; bei `devTtlS !== null` kein Zeitgeber); 401/403 → `halter.antwort(…)`, Grund `server-abgelehnt`; 503 mit Code `nicht-eingerichtet` → `nicht-eingerichtet`; sonst `server-fehler` mit Detail `HTTP ‹status›` bzw. `Netz`; (4) JWT im RAM mit Rest ≥ 5 min → es — nicht bei `devTtlS !== null` (E9, P6); (5) lokale Daten → lokal mit 43 200 s (Übergang); (6) Fehler mit dem Grund aus (3) bzw. `halter.lage('zoom-jwt').letzterGrund ?? 'kein-launcher'`. `angemeldet('server')` löscht lokale Daten mit Herkunft `stored`/`session` genau einmal (→ `true`); `'lokal'` nie. Logzeilen nennen nie JWT oder Token, nur Herkunft und `bis` als ISO.
 
 - [ ] **Step 1: Die failing tests schreiben**
 
@@ -1221,7 +1244,7 @@ const q = (o: Partial<Opt> = {}) => { /* Attrappen: halter.zugang zählt und lie
   ck('T14 OT2: erster Bedarf: Freigabe und JWT vom Server; zweiter Bedarf aus dem RAM, ohne Abruf',
     a.ok && b.ok && a.jwt === 'test.jwt.1' && b.jwt === a.jwt && x.server.length === 1 && x.zugang.length === 1 && a.herkunft === 'server' && a.bis === uhr + 43_170_000);
 }
-ck('T14 RF1: Uhr 3 h vor oder nach: bis = lokale Uhr + gueltigS; ein Zeitgeber auf bis − 2 h = 36 370 000 ms', …);
+ck('T14 RF1: Uhr 3 h vor oder nach: bis = lokale Uhr + gueltigS; ein Zeitgeber auf bis − 2 h = 35 970 000 ms', …);
 ck('T14 OT2: unter 2 h Rest → neues JWT; Zeitgeber feuert nur bei brauchtJwt() true', …);
 {
   const x = q();
@@ -1233,7 +1256,7 @@ ck('T14 OT10: Freigabe nicht zu bekommen (unbekannter-zweck), lokale Daten → l
 ck('T14 OT8: weder Freigabe noch lokale Daten → ok false mit Grund kein-launcher, kein signiereLokal', …);
 ck('T14 QR5: 401 vom Server → halter.antwort(zoom-jwt, …, 401), Grund server-abgelehnt; 503 nicht-eingerichtet → nicht-eingerichtet', …);
 ck('T14 OT9: angemeldet(server) löscht gespeicherte Daten genau einmal (true, dann false); lokal und Umgebung nie', …);
-ck('T14 E9, M4: devTtlS 1860 → jeder Bedarf holt beim Server mit ttlS 1860 (zweiter Bedarf nicht aus dem RAM), kein Zeitgeber, lage.devTtlS 1860; auch mit lokalen Daten nie signiereLokal, solange der Server liefert', …);
+ck('T14 E9, M4: devTtlS 1860 → jeder Bedarf holt beim Server mit ttlS 1860 (zweiter Bedarf nicht aus dem RAM), kein Zeitgeber, lage.devTtlS 1860; auch mit lokalen Daten nie signiereLokal, solange der Server liefert; Server weg mit devTtlS → kein JWT aus dem RAM (P6)', …);
 ck('devTtl: 1800 und 43200 gelten, 1799, 43201, 2e3x, leer → null', devTtl({ JMPS_ZOOM_JWT_TTL_S: '1800' }) === 1800 && devTtl({ JMPS_ZOOM_JWT_TTL_S: '43200' }) === 43_200
   && [ '1799', '43201', '2e3x', '' ].every((v) => devTtl({ JMPS_ZOOM_JWT_TTL_S: v }) === null) && devTtl({}) === null);
 ck('T14 G4: keine Logzeile enthält test.jwt. oder jm1.; geheimnisse() nennt das gehaltene JWT', …);
@@ -1265,18 +1288,20 @@ git commit -m "feat(connect): Zoom-JWT vom Worker, nur im RAM, Erneuern unter 2 
 ### Task 15: Kern: JWT vor dem Start, neue Zustände statt `zugang_fehlt`, Masken
 
 **Files:**
-- Modify: `apps/connect/src/main/zoom/kern.ts:9-12` (Kopf), `:167-176` (Abhängigkeit `jwt`), `:240-300` (`ZoomKern` um `zugangGeaendert()`, `brauchtJwt()`), `:820-836` (`abbild().einrichtung.anmeldung`), `:908-918` (`bestimmeMaengel`), `:1256-1267` (`geheimnisse`), `:1343-1346` (`auth` → `angemeldet`), `:1366-1382` (JWT vor S-c), `:1454-1462` (S-d nimmt das geholte JWT)
+- Modify: `apps/connect/src/main/zoom/kern.ts:9-12` (Kopf), `:167-176` (Abhängigkeit `jwt`), `:240-300` (`ZoomKern` um `zugangGeaendert()`, `brauchtJwt()`), `:820-836` (`abbild().einrichtung.anmeldung`, `einrichtung.zugang.unlesbar` aus `d.zugang.lesen().unlesbar`, P3), `:908-918` (`bestimmeMaengel`), `:1256-1267` (`geheimnisse`), `:1343-1346` (`auth` → `angemeldet`), `:1366-1382` (JWT vor S-c), `:1454-1462` (S-d nimmt das geholte JWT)
 - Modify: `apps/connect/src/main/zoom/klartext.ts:197-207` (`authMeldung(code, herkunft)`), `:236-248` (`mangelText`), `:281-292` (`VersuchsAusgang`), `:310-330` (`istEndgueltig`); Texte B9s, B10s
-- Modify: `apps/connect/src/shared/types.ts:97-102` (`ZoomMangel`), `ZoomAbbild.einrichtung` (`anmeldung: { text: string; ton: 'ok' | 'warn' | 'fehler' }`)
-- Modify: `apps/connect/src/shared/zoom-text.ts:110-114` (`MANGEL_GRUND`)
+- Modify: `apps/connect/src/shared/types.ts:97-102` (`ZoomMangel`), `ZoomAbbild.einrichtung` (`anmeldung: { text: string; ton: 'ok' | 'warn' | 'fehler' }`, `zugang.unlesbar: boolean`)
+- Modify: `apps/connect/src/shared/zoom-text.ts:110-114` (`MANGEL_GRUND`), `:518` (`zugangZeile` liest `einrichtung.zugang.unlesbar` statt `maengel.includes('zugang_unlesbar')`, P3)
+- Modify: `apps/connect/src/renderer/src/zoom/ZoomCard.tsx:376` (`zugangEntfernbar` über `einrichtung.zugang.unlesbar`, P3)
 - Modify: `apps/connect/src/main/zoom.ts:95-145` (`erzeugeJwtQuelle` mit `holeServerJwt(proxyUrl(), …)`, `zoomZugangLesen`/`zoomZugangLoeschen`, `buildJwt`, `devTtl(process.env)`, `brauchtJwt: () => kern?.brauchtJwt() ?? false`, `geaendert: () => kern?.zugangGeaendert()`; `beiZugangsAenderung(() => kern?.zugangGeaendert())`)
-- Test: `apps/connect/test/zoom-kern.test.ts:163-320` (Attrappe `jwt`), `:436-530`, `:821-825`, `:2185-2186`, neuer Block vor der Ende-Marke; `apps/connect/test/zoom-text.test.ts:83`, `:216`, `:437`, `:635`, `:821`
+- Test: `apps/connect/test/zoom-kern.test.ts:163-320` (Attrappe `jwt`), `:436-530`, `:821-825`, `:2185-2186`, neuer Block vor der Ende-Marke; `apps/connect/test/zoom-text.test.ts:40` (Helfer `abbild()` mit `zugang.unlesbar: false`), `:83`, `:216`, `:437`, `:635`, `:821`
 
 **Interfaces:**
 - Consumes: `JwtQuelle`, `JwtHerkunft`, `holeServerJwt`, `devTtl` (Task 14); `anmeldungZeile`, `jwtGrundText`, `ZUGANG_TEXT` (Task 10); `halter.tokens()` (Task 13).
 - Produces:
   - `ZoomKernAbhaengigkeiten.jwt: JwtQuelle`; `ZoomKern.zugangGeaendert(): void` (Abbild neu), `ZoomKern.brauchtJwt(): boolean` (Zustand `startet`, `tritt_bei`, `warteraum`, `im_meeting`, `abriss`)
   - `ZoomMangel = 'sdk_fehlt' | 'sdk_defekt' | 'bridge_fehlt'`
+  - `ZoomAbbild.einrichtung.zugang.unlesbar: boolean` (P3; ersetzt den Mangel `zugang_unlesbar`); bauende Stellen: `abbild()` in `kern.ts:820-836` und der Testhelfer `abbild()` in `zoom-text.test.ts:40` (Global „Konstruktoren greppen“); Leser: `zugangZeile` (`zoom-text.ts:518`), `ZoomCard.tsx:376`, ab Task 16 ZU3 und `zugangEntfernbar`
   - `VersuchsAusgang` `{ art: 'zugang'; grund: JwtGrund }`; `istEndgueltig`: `zugang` vorübergehend bei `kein-launcher`, `server-nicht-erreichbar`, `server-fehler`, sonst endgültig
   - `starteBridge()`: nach S-b `const j = await d.jwt.hole()`; `!j.ok` → `{ ok: false, meldung: { text: ZUGANG_TEXT.ohneAnmeldung(jwtGrundText(j.grund, j.detail)), detail: j.grund }, mangel: null, ausgang: { art: 'zugang', grund: j.grund } }` (kein `mangelFolgen`, Nummer und Kenncode bleiben); `jwt = j.jwt` und `jwtHerkunft = j.herkunft` vor S-c
   - `auth` mit Code 0 → `if (d.jwt.angemeldet(jwtHerkunft)) hinweis(ZA5)`; Code ≠ 0 → `authMeldung(code, jwtHerkunft)` (1, 2 → B9s; 11 → B10s bei `server`)
@@ -1300,16 +1325,16 @@ ck('T15 8.7: Bridge-Logzeile mit test-jwt-server und jm1.test-sdk → beide als 
 ck('T15: Einrichtung zeigt die Zeile Zoom-Anmeldung aus anmeldungZeile (ZA1 bei Server-Lage)', p.kern.abbild().einrichtung.anmeldung.text.startsWith('Zoom-Anmeldung über den Launcher (Maria S. · Kollege)'));
 ```
 
-`zoom-text.test.ts:216` erwartet `MANGEL_GRUND` mit genau `sdk_fehlt`, `sdk_defekt`, `bridge_fehlt`; `:83`, `:437`, `:635`, `:821` nutzen `['sdk_fehlt']` statt `zugang_fehlt`.
+`zoom-text.test.ts:216` erwartet `MANGEL_GRUND` mit genau `sdk_fehlt`, `sdk_defekt`, `bridge_fehlt`; `:83`, `:437`, `:635`, `:821` nutzen `['sdk_fehlt']` statt `zugang_fehlt`; Fälle, die „unlesbar“ über `maengel: ['zugang_unlesbar']` bauen, setzen stattdessen `einrichtung.zugang.unlesbar: true` (P3).
 
 - [ ] **Step 2: Laufen lassen, Rot sehen**
 
-Run: `cd apps/connect && npx tsx test/zoom-kern.test.ts && npx tsx test/zoom-text.test.ts`
+Run: `cd apps/connect && npx tsx test/zoom-kern.test.ts; npx tsx test/zoom-text.test.ts`
 Expected: FAIL bei den `T15 …`-Prüfungen und den geänderten Mängel-Erwartungen; die G2-Prüfungen (`:1567-1613`) bleiben `ok`.
 
 - [ ] **Step 3: Kern, Klartexte, Typen und Hülle umsetzen**
 
-Nach Interfaces. `kern.ts:9-12` sagt: „Das JWT kommt aus der JWT-Quelle (Server über den Launcher, im Übergang lokal); es geht nur per stdin an die Bridge, kein Secret erreicht den Kindprozess.“ `bestimmeMaengel` liest `d.zugang` weiter nur für die Übergangszeile im Abbild.
+Nach Interfaces. `kern.ts:9-12` sagt: „Das JWT kommt aus der JWT-Quelle (Server über den Launcher, im Übergang lokal); es geht nur per stdin an die Bridge, kein Secret erreicht den Kindprozess.“ `bestimmeMaengel` liest `d.zugang` weiter nur für die Übergangszeile im Abbild; „unlesbar“ steht ab hier nur noch in `einrichtung.zugang.unlesbar` (P3).
 
 - [ ] **Step 4: Laufen lassen, Grün sehen**
 
@@ -1319,7 +1344,7 @@ Expected: je `… 0 fehlgeschlagen…`; 0 `error TS`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/connect/src/main/zoom/kern.ts apps/connect/src/main/zoom/klartext.ts apps/connect/src/main/zoom.ts apps/connect/src/shared/types.ts apps/connect/src/shared/zoom-text.ts apps/connect/test/zoom-kern.test.ts apps/connect/test/zoom-text.test.ts
+git add apps/connect/src/main/zoom/kern.ts apps/connect/src/main/zoom/klartext.ts apps/connect/src/main/zoom.ts apps/connect/src/shared/types.ts apps/connect/src/shared/zoom-text.ts apps/connect/src/renderer/src/zoom/ZoomCard.tsx apps/connect/test/zoom-kern.test.ts apps/connect/test/zoom-text.test.ts
 git status --short
 git commit -m "feat(connect): JWT vor dem Bridge-Start aus der JWT-Quelle, Zugang kein Einrichtungsmangel mehr, Masken fuer Freigaben (Anmeldung Teil 2)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -1327,26 +1352,27 @@ git commit -m "feat(connect): JWT vor dem Bridge-Start aus der JWT-Quelle, Zugan
 ### Task 16: Zoom-Karte und IPC ohne Eingaben für alte Werte
 
 **Files:**
-- Modify: `apps/connect/src/main/zoom/kern.ts:165-176` (`zugang` ohne `speichern`, `sdkSchluessel` ohne `speichern`), `:250-256` (Schnittstelle), `:1120-1167` (`zugangWaehlen`, `zugangUebernehmen`, `zugangEintragen` raus), `:1182-1201` (`sdkSchluesselEintragen` raus), `:3090-3094`
+- Modify: `apps/connect/src/main/zoom/kern.ts:165-176` (`zugang` ohne `speichern`, `sdkSchluessel` ohne `speichern`), `:250-256` (Schnittstelle), `:1120-1167` (`zugangWaehlen`, `zugangUebernehmen`, `zugangEintragen` raus), `:1182-1201` (`sdkSchluesselEintragen` raus), `:3090-3094`, `:822` (`einrichtung.zugang.text` ohne A5; „unlesbar“ trägt `einrichtung.zugang.unlesbar`, die Zeile ZU3 baut `zugangZeile`, P4)
 - Delete: `apps/connect/src/main/zoom/zugang-eingabe.ts`, `apps/connect/src/main/zoom/sdk-schluessel-eingabe.ts`
+- Modify: `apps/connect/src/main/zoom/klartext.ts:47-53` und `:71` (A1, A2, A3, A5, A7, S18 raus, A4 und A6 bleiben; Zeile „entfällt“ der Texttabelle, P4)
 - Modify: `apps/connect/src/main/zoom.ts:12-13`, `:38-48` (Importe), `:100-101`, `:149-175` (drei Kanäle raus)
 - Modify: `apps/connect/src/main/settings.ts:238-267` (`zoomZugangSpeichern` raus), Funktion `zoomSdkSchluesselSpeichern` raus
 - Modify: `apps/connect/src/shared/ipc.ts:55-63`, `apps/connect/src/preload/index.ts:86-92`, `apps/connect/src/renderer/src/jmconnect.d.ts` (drei Kanäle raus)
 - Modify: `apps/connect/src/renderer/src/zoom/ZoomCard.tsx:47` (ZS1), `:96-225` (`ZugangEingabe`, `SchluesselEingabe` raus), `:605-690` (Zeilen)
 - Modify: `apps/connect/src/shared/zoom-text.ts:488-528` (`zugangZeile` → ZU1/ZU3, `sdkSchluesselZeile` → ZU2; `null` = keine Zeile)
-- Test: `apps/connect/test/zoom-kern.test.ts:486-667`, `:1490-1560`, `:1950-1955`; `apps/connect/test/zoom-teile.test.ts:111-121`; `apps/connect/test/zoom-settings.test.ts:50-60`, `:90-142`; `apps/connect/test/zoom-text.test.ts`
+- Test: `apps/connect/test/zoom-kern.test.ts:486-667`, `:1490-1560`, `:1950-1955`; `apps/connect/test/zoom-teile.test.ts:4-5` (Importe der gelöschten Module raus), `:149-178` (Blöcke „Zugangsdaten von Hand“ und „SDK-Schlüssel von Hand“ raus), neuer Wächter vor „ENDE DER FÄLLE“ (`:627`), `:111-121` bleibt (P4); `apps/connect/test/zoom-settings.test.ts:50-60`, `:90-142`; `apps/connect/test/zoom-text.test.ts`
 
 **Interfaces:**
 - Consumes: alles aus Task 13 und 15.
 - Produces:
-  - `zugangZeile(a: ZoomAbbild): string | null` — `stored` → ZU1, `session` → TEXT_A4 bzw. TEXT_A4_SCHREIBFEHLER, `env` → TEXT_A6, unlesbar → ZU3, `none` → `null`
+  - `zugangZeile(a: ZoomAbbild): string | null` — `einrichtung.zugang.unlesbar` (Task 15, P3) → ZU3 (geht vor), `stored` → ZU1, `session` → TEXT_A4 bzw. TEXT_A4_SCHREIBFEHLER, `env` → TEXT_A6, `none` → `null`
   - `sdkSchluesselZeile(a: ZoomAbbild): string | null` — `stored`/`session` → ZU2, `env` → `SDK-Schlüssel: aus der Umgebung`, `none` → `null`
-  - `ZoomKnoepfe.zugangEntfernbar: boolean` (nur `stored`, `session`, unlesbar)
+  - `ZoomKnoepfe.zugangEntfernbar: boolean` (nur `stored`, `session` oder `einrichtung.zugang.unlesbar`)
   - Kern behält `zugangLoeschen()` und `sdkSchluesselLoeschen()` unverändert
 
 - [ ] **Step 1: Die failing tests schreiben**
 
-`zoom-text.test.ts`:
+`zoom-text.test.ts` (`mitZugang(herkunft, clientId?, unlesbar?)` setzt `einrichtung.zugang` samt `unlesbar` aus Task 15):
 
 ```ts
 kreuz('T16 E7: Übergangszeilen nur mit altem Wert (Herkunft × unlesbar)', [
@@ -1359,7 +1385,7 @@ kreuz('T16 E7: Übergangszeilen nur mit altem Wert (Herkunft × unlesbar)', [
 ]);
 ```
 
-Neuer Quelltext-Wächter in `zoom-teile.test.ts` (ersetzt `:111-121`):
+Neuer Quelltext-Wächter in `zoom-teile.test.ts` vor der Marke „ENDE DER FÄLLE“ (`:627`); die Importe `:4-5` und die Blöcke `:149-178` entfallen, `:111-121` bleibt (P4):
 
 ```ts
 ck('T16 Spec 22, 166: kein Eintragen oder Wählen alter Werte mehr in Kern, Hülle, IPC, Preload, Karte und Einstellungen',
@@ -1373,7 +1399,7 @@ In `zoom-kern.test.ts` entfallen die Blöcke, die die entfernten Wege prüfen (`
 
 - [ ] **Step 2: Laufen lassen, Rot sehen**
 
-Run: `cd apps/connect && npx tsx test/zoom-text.test.ts && npx tsx test/zoom-teile.test.ts`
+Run: `cd apps/connect && npx tsx test/zoom-text.test.ts; npx tsx test/zoom-teile.test.ts`
 Expected: FAIL bei `T16 …`.
 
 - [ ] **Step 3: Eingabewege entfernen, Karte umbauen**
@@ -1388,7 +1414,7 @@ Expected: jede Summenzeile `0 fehlgeschlagen`; 0 `error TS`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/connect/src/main/zoom/kern.ts apps/connect/src/main/zoom.ts apps/connect/src/main/settings.ts apps/connect/src/shared/ipc.ts apps/connect/src/preload/index.ts apps/connect/src/renderer/src/jmconnect.d.ts apps/connect/src/renderer/src/zoom/ZoomCard.tsx apps/connect/src/shared/zoom-text.ts apps/connect/test/zoom-kern.test.ts apps/connect/test/zoom-teile.test.ts apps/connect/test/zoom-settings.test.ts apps/connect/test/zoom-text.test.ts
+git add apps/connect/src/main/zoom/kern.ts apps/connect/src/main/zoom/klartext.ts apps/connect/src/main/zoom.ts apps/connect/src/main/settings.ts apps/connect/src/shared/ipc.ts apps/connect/src/preload/index.ts apps/connect/src/renderer/src/jmconnect.d.ts apps/connect/src/renderer/src/zoom/ZoomCard.tsx apps/connect/src/shared/zoom-text.ts apps/connect/test/zoom-kern.test.ts apps/connect/test/zoom-teile.test.ts apps/connect/test/zoom-settings.test.ts apps/connect/test/zoom-text.test.ts
 git rm apps/connect/src/main/zoom/zugang-eingabe.ts apps/connect/src/main/zoom/sdk-schluessel-eingabe.ts
 git status --short
 git commit -m "feat(connect): keine Eingabe alter Schluessel und Zugangsdaten mehr, Zeilen nur im Uebergang (Anmeldung Teil 2)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -1453,7 +1479,7 @@ git commit -m "chore(connect): Version 0.5.0 (Anmeldung Teil 2)" -m "Co-Authored
 
 - [ ] **Step 1: Prüfskript schreiben (Scratchpad, nicht committen)**
 
-`pruefe-texte.mjs` liest `docs/anmeldung-teil2-texte.md`, nimmt aus jeder Tabellenzeile mit Nr. aus T1–T4 die Spalte „Text“, ersetzt Platzhalter ‹…› durch einen regulären Ausdruck `.+?` und sucht jeden Text in den Dateien der Spalte „Ort“; dazu `JSON.parse` von `changelog.json` und die Prüfung, dass kein Changelog-Text ein ASCII `"` enthält und jeder Text aus T5 genau einmal vorkommt. Ausgabe: fehlende Nummern, Exit 1 bei einem Fehlenden.
+`pruefe-texte.mjs` liest `docs/anmeldung-teil2-texte.md`, nimmt aus jeder Tabellenzeile mit Nr. aus T1–T4 die Spalte „Text“, ersetzt Platzhalter ‹…› durch einen regulären Ausdruck `.+?` (alle übrigen Sonderzeichen wie Klammern escapet, `\|` in R1b entschärft) und sucht jeden Text in der Datei nach dieser festen Zuordnung (P10; T3 hat keine Spalte „Ort“, die T4-Spalte „Ort“ nennt keine Datei): T1 → `services/release-proxy/konto-zugang.js`; T2 → `apps/launcher/src/renderer/src/lib/konto-dialog.ts`, `apps/launcher/src/renderer/src/lib/admin-ansicht.ts`, `packages/cookbook/content/tool-manuals/launcher-anmeldung.md`; T3 sowie CZ1–CZ10 und ZA1–ZA11 → `apps/connect/src/main/zugang/regeln.ts`; B9s, B10s, S12b → `apps/connect/src/main/zoom/klartext.ts`; T146 → `apps/connect/src/shared/ndi-text.ts`; ZU1–ZU3 → `apps/connect/src/shared/zoom-text.ts`; ZS1 → `apps/connect/src/renderer/src/zoom/ZoomCard.tsx`. Zeilen „entfällt“ prüft es auf Abwesenheit des genannten Schlüssels in der zugeordneten Datei (etwa `S11:` in `klartext.ts`, `connectTeil1` in `admin-ansicht.ts`, `connect:` in `ZOOM_TEXTE`); dazu `JSON.parse` von `changelog.json` und die Prüfung, dass kein Changelog-Text ein ASCII `"` enthält und jeder Text aus T5 genau einmal vorkommt. Ausgabe: fehlende Nummern, Exit 1 bei einem Fehlenden.
 
 - [ ] **Step 2: Laufen lassen, Rot sehen**
 
@@ -1496,7 +1522,7 @@ Expected: `df96395472 chore(manifest): connect latestVersion → 0.4.6 [skip ci]
 
 - [ ] **Step 2: `docs/anmeldung.md` nachziehen**
 
-`:20-22`: Teil 2 ist mit Launcher 0.19.0 und Connect 0.5.0 gebaut; `:105`: „Zoom-Freigabe und Cloud-Raum wirken in Connect ab 0.5.0“; `:129`, `:131`: „(Teil 2)“ entfällt; `:136`: Reihenfolge `/qa/*`, `/connect/*`, `/zoom-sdk`, `/zoom/jwt`, `/konto/*`, …; `:203-204`: die drei Zwecke mit Zielen und JM-Prüfung; `:236-237`: `connect-relay.js` prüft über `zugangPruefen`, `ALTKEY_CONNECT_BIS` wird nach dem Release gesetzt; `:245`: Connect hält keinen Key mehr. Neuer Abschnitt: Zwecke und Ziele, Raum-Bindung (E3), `POST /zoom/jwt` (E4, E5), Connect-Module (`zugang/regeln.ts`, `zugang/halter.ts`, `zugang/huelle.ts`, `zoom/jwt-quelle.ts`, `raum-id.ts`), Übergang und OT9, Entwicklungsvariablen (`JMPS_PROXY_KEY`, `ZOOM_SDK_CLIENT_*`, `JMPS_ZOOM_SDK_KEY`, `JMPS_ZOOM_JWT_TTL_S`), Tests je Datei.
+`:20-22`: Teil 2 ist mit Launcher 0.19.0 und Connect 0.5.0 gebaut; `:105`: „Zoom-Freigabe und Cloud-Raum wirken in Connect ab 0.5.0“; `:129`, `:131`: „(Teil 2)“ entfällt; `:136`: Reihenfolge `/qa/*`, `/connect/*`, `/zoom-sdk`, `/zoom/jwt`, `/konto/*`, …; `:203-204`: die drei Zwecke mit Zielen und JM-Prüfung; `:236-237`: `connect-relay.js` prüft über `zugangPruefen`, `ALTKEY_CONNECT_BIS` wird nach dem Release gesetzt; `:245`: Connect hält keinen Key mehr. Neuer Abschnitt: Zwecke und Ziele, Raum-Bindung (E3), `POST /zoom/jwt` (E4, E5; optionaler Rumpf `{ "ttlS": n }` mit ganzer Zahl 1800–43 200, sonst 400 `ungueltige-laufzeit`, E9), Connect-Module (`zugang/regeln.ts`, `zugang/halter.ts`, `zugang/huelle.ts`, `zoom/jwt-quelle.ts`, `raum-id.ts`), Übergang und OT9, Entwicklungsvariablen (`JMPS_PROXY_KEY`, `ZOOM_SDK_CLIENT_*`, `JMPS_ZOOM_SDK_KEY`, `JMPS_ZOOM_JWT_TTL_S`), Tests je Datei.
 
 - [ ] **Step 3: Spec-Nachträge als datierte Notizen (alter Text bleibt stehen)**
 
@@ -1578,7 +1604,7 @@ Expected: alle Summenzeilen ohne Fehlschlag (`0 fehlgeschlagen`, `0 failed`, `AL
 - [ ] **Step 3: Geheimnis- und Grenz-Wächter**
 
 Run: `git diff df96395472 --stat -- packages/app-runtime apps/qa packages/zoom-bridge` und `git grep -n "ZOOM_SDK_CLIENT\|ZOOM_CLIENT_SECRET\s*=\s*\"" -- services/release-proxy/wrangler.toml` und `git log df96395472..HEAD --format=%B | grep -c "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`
-Expected: leere Ausgabe für die ersten beiden Befehle; die Zahl gleich der Zahl der Commits seit `df96395472` ohne den Entwurfs-Commit.
+Expected: leere Ausgabe für die ersten beiden Befehle; die Zahl gleich der Zahl aller Commits seit `df96395472` (auch 15b1411e5d, 6d84dc5ebe, 3d8ba67842 und der Nachtrag der Preflight-Befunde tragen die Zeile, P9).
 
 ---
 
