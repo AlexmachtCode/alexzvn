@@ -69,3 +69,9 @@ Ganzzahl- oder Gleitkommarechnung, genaue Rückkehrkurve, Aufbau des 10-s-Fenste
 - Kein Schalter: eine abschaltbare Notbremse wird im Zweifel abgeschaltet; Rückweg ist die Vorversion.
 - Startwert −6 dBFS, vor dem Release per Testmeeting ersetzt.
 - Werte vor dem Limiter messen, damit die Zeile zeigt, was aus dem Meeting kam.
+
+## Nachtrag 20.11.2026 (Owner-Entscheidungen bei der Wiederaufnahme)
+
+- Release als **Connect 0.4.6** (0.4.3 bis 0.4.5 sind inzwischen vergeben), zusammen mit dem Fix „Slot-Einstellungen erscheinen sofort, auch ohne laufende Bridge“.
+- Owner 20.11. 16:39: **vorläufiger fester Wert −6 dBFS, keine Einstellung.** Das Testmeeting (Abnahme 2 und 3 oben) entfällt vorerst; die endgültige Grenze kommt per Folge-Release aus den Pegelzeilen echter Einsätze. Abnahme 2 und 3 gelten damit für dieses Folge-Release, nicht für 0.4.6. Der Text oben bleibt als Stand vom 14.11. stehen.
+- Die Abnahmeliste der Bridge (`packages/zoom-bridge/ABNAHME-STAGE3.md`, „Pegel plausibel?“) hat dazu einen Nachtrag: ab 0.4.6 zeigt der NDI-Monitor nie mehr über −6 dBFS, gemessen wird über die Pegelzeile.

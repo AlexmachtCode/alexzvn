@@ -17,7 +17,7 @@
 
 namespace slotlogic {
 
-/** Grenze in dBFS. PLATZHALTER, bis ein Testmeeting den Zoom-Pegel gemessen hat. */
+/** Grenze in dBFS. VORLAEUFIG fest (Owner 20.11.2026): gilt, bis die Pegelzeilen echter Einsaetze den Zoom-Pegel zeigen; die endgueltige Grenze kommt per Folge-Release (das fruehere Testmeeting entfaellt vorerst). */
 constexpr double kTonGrenzeDbfs = -6.0;
 /** Rueckkehr der Absenkung: 6 dB in 150 ms. */
 constexpr double kRueckkehrDbJeSekunde = 40.0;

@@ -311,6 +311,8 @@ Im NDI-Monitor die Aussteuerungsanzeige während normalen Sprechens ansehen.
 `reference_level = 0` ist NDI-seitig belegt, Zoom-seitig **angenommen**. Diese Anzeige ist die
 einzige Messung, die die Annahme prüft.
 
+**Nachtrag 20.11.2026 (Connect 0.4.6, Ton-Limiter):** Ab 0.4.6 begrenzt die Bridge jeden Slot auf −6 dBFS (`kTonGrenzeDbfs`, vorläufig). Die Aussteuerungsanzeige im NDI-Monitor kann deshalb nie mehr über −6 dBFS zeigen: „dauerhaft am Anschlag (0 dBFS)“ tritt nicht mehr auf, und ein zu heißer Zoom-Ton sähe dort „plausibel“ aus. Die Tabelle oben gilt nur für Fassungen vor 0.4.6. Ab 0.4.6 misst die Logzeile `Ton-Pegel Slot N` (alle 10 s je Slot, die erste nach 1 s als `[ANLAUF]`); ihre Werte stammen **vor** dem Limiter. Deutung: greift der Limiter bei normaler Sprache ein (Spitze zwischen −6 und −1 dBFS, `Vollausschlag 0`), ist die Grenze zu niedrig → im Folge-Release anheben; `Vollausschlag` größer 0 heißt, der Ton kam schon aus Zoom übersteuert. Ein Eingriff zählt mit seiner Rückkehr (6 dB in 150 ms) etwa 15 Pakete: „griff in X Paketen ein“ geteilt durch 15 ≈ Zahl der Ereignisse. Auf dem Mischer-Weg (Freigabe mit Mischton und Computerton) misst die Zeile die Summe nach dem Mischer, nicht Zoom allein.
+
 ---
 
 ## Wenn etwas schiefgeht
