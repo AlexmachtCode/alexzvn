@@ -11,8 +11,9 @@
 //           oder X-Proxy-Key: <PROXY_KEY> bis ALTKEY_BIS (Übergang, EP9); /tools/launcher/latest ohne Kopf (EP10)
 //   → 200 { version, assets: { <platform>: { url, size, fileName } } }
 //
-//   GET /zoom-sdk/:fassung              (JM Connect 0.2.2, KEIN Proxy-Key)
-//   Header: X-Zoom-Sdk-Key: <ZOOM_SDK_KEY>
+//   GET /zoom-sdk/:fassung              (JM Connect, KEIN Proxy-Key)
+//   Header: Authorization: Bearer <Freigabe jm1.… Zweck zoom-sdk, Ziel win-x64>   (Anmeldung im Launcher, konto-zugang.js)
+//           oder X-Zoom-Sdk-Key: <ZOOM_SDK_KEY> bis ALTKEY_CONNECT_BIS (Übergang; leer = unbefristet), danach 401 alter-key-abgelaufen
 //   → 200 { fassung, url, size }        (url = kurzlebiger, signierter Storage-Link des ZIP)
 //
 // Secrets (verschlüsselt, via `wrangler secret put` oder Dashboard):
@@ -35,8 +36,8 @@ import { handleConnect, ConnectRoom } from './connect-relay.js';
 // Paketwahl für /tools/:id/latest (iveo-Paket, Spec 10.5): eigenes Modul, das auch Test und Trockenlauf laden.
 import { keinPaketFehler, waehleRelease } from './paketwahl.js';
 // Anmeldung im Launcher (Plan Teil 1, P15): Zugang zu den Tool-Routen (Sitzung, Freigabe, alter Schlüssel mit Frist).
-import { funktionFuerRoute } from './konto-kern.js';
-import { kontoJetzt, launcherSelbstUpdate, selbstUpdateLiefern, zugangPruefen } from './konto-zugang.js';
+import { alterKeyGilt, funktionFuerRoute, ZIEL_ZOOM_SDK } from './konto-kern.js';
+import { altKeyZaehlen, FEHLER_TEXT, kontoJetzt, launcherSelbstUpdate, selbstUpdateLiefern, zugangPruefen } from './konto-zugang.js';
 // Anmeldung im Launcher (Plan Teil 1, P16): Launcher-API, Anmeldeseite und Google-Anmeldung unter /konto/.
 import { handleKonto } from './konto-relay.js';
 // Konten-DO der Anmeldung (EP1; Bindung KONTO, Migration v2).
@@ -158,7 +159,7 @@ export default {
     // Zoom-SDK nachladen (JM Connect 0.2.2). VOR dem PROXY_KEY-Gate: Die Route prüft ihren eigenen
     // Schlüssel ZOOM_SDK_KEY. Der Proxy-Key scheidet dafür aus, er steckt in öffentlichen Installern.
     const zoomSdk = url.pathname.match(/^\/zoom-sdk\/([^/]*)\/?$/);
-    if (zoomSdk) return handleZoomSdk(request, env, zoomSdk[1]);
+    if (zoomSdk) return handleZoomSdk(request, env, zoomSdk[1], ctx);
 
     // Anmeldung im Launcher (Plan Teil 1, P16): Launcher-API, Anmeldeseite und Google-Anmeldung unter /konto/. Jede Route
     // prüft selbst (Sitzung, Abholgeheimnis, Seitentoken); `null` = kein Konto-Pfad → normal weiter.
@@ -440,7 +441,7 @@ const ZOOM_SDK_FASSUNG = /^\d+\.\d+\.\d+\.\d+$/;
  * Jede Fehleinrichtung (Secret fehlt, Token ohne Zugriff, Asset fehlt) hinterlässt eine Zeile im
  * Worker-Log, sonst sähe Connect nur 401/404 und nennte eine falsche Ursache. Von Fehlern nur der Name.
  */
-async function handleZoomSdk(request, env, fassung) {
+async function handleZoomSdk(request, env, fassung, ctx) {
   let rl;
   try {
     rl = await rateLimit(env, 'zoomsdk', clientIp(request), LIMITS.zoomsdk.rlMax, LIMITS.zoomsdk.rlWindowSec);
@@ -451,9 +452,22 @@ async function handleZoomSdk(request, env, fassung) {
   }
   if (!rl.ok) return tooMany(rl.retryAfter);
   if (request.method !== 'GET' || !ZOOM_SDK_FASSUNG.test(fassung)) return json({ error: 'not_found' }, 404);
-  if (!env.ZOOM_SDK_KEY) console.warn('zoom-sdk: Secret ZOOM_SDK_KEY fehlt — jede Anfrage endet mit 401');
-  if (!(await zoomSdkSchluesselPasst(request.headers.get('X-Zoom-Sdk-Key'), env.ZOOM_SDK_KEY))) {
-    return json({ error: 'unauthorized' }, 401);
+  const jetzt = kontoJetzt(env);
+  const auth = request.headers.get('Authorization') || '';
+  if (/^Bearer\s+jm1\./i.test(auth)) {
+    // Anmeldung Teil 2: nur eine Freigabe mit Zweck zoom-sdk und Ziel win-x64 (JM-Rechner prüft das Ausstellen); zoom-jwt reicht nicht.
+    const zugang = await zugangPruefen(request, env, { funktion: 'zoom', zweck: 'zoom-sdk', gruppe: null, ziel: ZIEL_ZOOM_SDK, jetzt, ctx });
+    if (!zugang.ok) return json({ error: zugang.error, code: zugang.code }, zugang.status);
+  } else {
+    if (!env.ZOOM_SDK_KEY) console.warn('zoom-sdk: Secret ZOOM_SDK_KEY fehlt — jede Anfrage endet mit 401');
+    if (!(await zoomSdkSchluesselPasst(request.headers.get('X-Zoom-Sdk-Key'), env.ZOOM_SDK_KEY))) {
+      return json({ error: 'unauthorized' }, 401);
+    }
+    // Der alte Schlüssel gilt wie der PROXY_KEY an /connect bis ALTKEY_CONNECT_BIS (Gruppe connect), danach nur noch die Freigabe.
+    if (!alterKeyGilt(env, 'connect', jetzt).gilt) {
+      return json({ error: FEHLER_TEXT['alter-key-abgelaufen'], code: 'alter-key-abgelaufen' }, 401);
+    }
+    altKeyZaehlen(request, env, ctx, 'connect', jetzt);
   }
   const repo = env.ZOOM_SDK_REPO || ZOOM_SDK_REPO_VORGABE;
   try {
