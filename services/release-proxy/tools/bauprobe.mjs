@@ -41,6 +41,7 @@ const RL_SOLL = [
   ['KONTO_RL_SELBSTUPDATE', '7306', 20, 60],
   ['KONTO_RL_QAALT', '7307', 60, 60],
   ['KONTO_RL_CONNECTALT', '7308', 20, 60],
+  ['KONTO_RL_ZOOMJWT', '7309', 30, 60],
 ];
 const rlTab = tabellen.filter((t) => t.kopf.startsWith('ratelimits'));
 const rlIst = [];

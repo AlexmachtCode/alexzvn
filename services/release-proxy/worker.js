@@ -40,6 +40,8 @@ import { alterKeyGilt, funktionFuerRoute, ZIEL_ZOOM_SDK } from './konto-kern.js'
 import { altKeyZaehlen, FEHLER_TEXT, kontoJetzt, launcherSelbstUpdate, selbstUpdateLiefern, zugangPruefen } from './konto-zugang.js';
 // Anmeldung im Launcher (Plan Teil 1, P16): Launcher-API, Anmeldeseite und Google-Anmeldung unter /konto/.
 import { handleKonto } from './konto-relay.js';
+// Zoom-JWT fuer JM Connect (Anmeldung Teil 2): POST /zoom/jwt mit Freigabe zoom-jwt.
+import { handleZoomJwt } from './zoom-relay.js';
 // Konten-DO der Anmeldung (EP1; Bindung KONTO, Migration v2).
 import { KontoSpeicher } from './konto-do.js';
 
@@ -160,6 +162,10 @@ export default {
     // Schlüssel ZOOM_SDK_KEY. Der Proxy-Key scheidet dafür aus, er steckt in öffentlichen Installern.
     const zoomSdk = url.pathname.match(/^\/zoom-sdk\/([^/]*)\/?$/);
     if (zoomSdk) return handleZoomSdk(request, env, zoomSdk[1], ctx);
+
+    // Zoom-JWT (Anmeldung Teil 2): nur eine Freigabe zoom-jwt, eigene Drossel; `null` = kein /zoom/jwt-Pfad -> normal weiter.
+    const zoomJwt = await handleZoomJwt(request, env, url, ctx);
+    if (zoomJwt) return zoomJwt;
 
     // Anmeldung im Launcher (Plan Teil 1, P16): Launcher-API, Anmeldeseite und Google-Anmeldung unter /konto/. Jede Route
     // prüft selbst (Sitzung, Abholgeheimnis, Seitentoken); `null` = kein Konto-Pfad → normal weiter.

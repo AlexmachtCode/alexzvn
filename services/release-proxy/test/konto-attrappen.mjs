@@ -229,6 +229,7 @@ export const RL_TABELLE = Object.freeze({
   KONTO_RL_SELBSTUPDATE: { namespaceId: '7306', grenze: 20, period: 60 },
   KONTO_RL_QAALT: { namespaceId: '7307', grenze: 60, period: 60 },
   KONTO_RL_CONNECTALT: { namespaceId: '7308', grenze: 20, period: 60 },
+  KONTO_RL_ZOOMJWT: { namespaceId: '7309', grenze: 30, period: 60 },
 });
 
 /**

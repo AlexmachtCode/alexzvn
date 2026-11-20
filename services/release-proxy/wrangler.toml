@@ -117,6 +117,14 @@ namespace_id = "7308"
   limit = 20
   period = 60
 
+# KONTO_RL_ZOOMJWT: POST /zoom/jwt (Connect holt das JWT je Start der Bridge; mehrere Rechner hinter einer IP)
+[[ratelimits]]
+name = "KONTO_RL_ZOOMJWT"
+namespace_id = "7309"
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
 # Optionale Secrets für die Remote-Zuschaltung (verschlüsselt via `wrangler secret put`):
 #   RTC_SFU_APP_ID / RTC_SFU_APP_TOKEN     Cloudflare-Realtime-SFU-App (Medien). Fehlen sie, läuft
 #                                          der Raum im „Signalling-only"-Modus (Warteraum/Freigabe/

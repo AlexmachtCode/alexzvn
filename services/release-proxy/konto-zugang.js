@@ -113,6 +113,8 @@ export const KONTO_RL = Object.freeze({
   qaAlt: 'KONTO_RL_QAALT',
   /** Connect-Raum-Routen mit dem öffentlichen alten Schlüssel, vor der Inhaber-Prüfung im Konten-DO (Anmeldung Teil 2, R1). */
   connectAlt: 'KONTO_RL_CONNECTALT',
+  /** POST /zoom/jwt je IP: Connect holt das JWT je Start der Bridge (Anmeldung Teil 2, R2). */
+  zoomJwt: 'KONTO_RL_ZOOMJWT',
 });
 
 /** Periode aller Bindungen in Sekunden (`period = 60`); so lange dauert es höchstens, bis eine gedrosselte IP wieder darf (Retry-After). */
