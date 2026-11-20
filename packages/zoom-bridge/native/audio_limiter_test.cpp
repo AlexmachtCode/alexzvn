@@ -10,6 +10,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 #include <vector>
 
 namespace {
@@ -137,6 +138,64 @@ void l9_slots_unabhaengig() {
   for (int16_t v : b) CHECK(v == 1000);
 }
 
+/** Fenster wie in p1: Spitze 8192 (-12 dBFS), Mittel -12 dBFS, 100 Pakete ohne Eingriff. */
+PegelFenster normalesFenster() {
+  PegelFenster f;
+  f.spitze = 8192;
+  f.werte = 32000;
+  f.summeQuadrate = 8192.0 * 8192.0 * 32000.0;
+  f.pakete = 100;
+  return f;
+}
+
+void p1_normal() {
+  std::printf("p1_normal\n");
+  CHECK(pegelZeile(4, false, normalesFenster()) ==
+        L"Ton-Pegel Slot 4 [Dauerbetrieb]: Spitze -12,0 dBFS, Mittel -12,0 dBFS, "
+        L"Vollausschlag 0 Abtastwerte, Limiter griff in 0 von 100 Paketen ein, staerkste Absenkung 0,0 dB.");
+}
+
+void p2_anlauf() {
+  std::printf("p2_anlauf\n");
+  const std::wstring z = pegelZeile(4, true, normalesFenster());
+  const std::wstring anfang = L"Ton-Pegel Slot 4 [ANLAUF]: Spitze -12,0 dBFS";
+  CHECK(z.compare(0, anfang.size(), anfang) == 0);
+}
+
+void p3_eingriff() {
+  std::printf("p3_eingriff\n");
+  PegelFenster f;
+  f.spitze = 32768;
+  f.werte = 1000;
+  f.summeQuadrate = 1000.0 * 3276.8 * 3276.8;
+  f.vollausschlag = 2;
+  f.pakete = 1000;
+  f.paketeMitEingriff = 1;
+  f.staerksteAbsenkungDb = 6.0012;
+  CHECK(pegelZeile(1, false, f) ==
+        L"Ton-Pegel Slot 1 [Dauerbetrieb]: Spitze 0,0 dBFS, Mittel -20,0 dBFS, "
+        L"Vollausschlag 2 Abtastwerte, Limiter griff in 1 von 1000 Paketen ein, staerkste Absenkung 6,0 dB.");
+}
+
+void p4_keine_minus_null() {
+  std::printf("p4_keine_minus_null\n");
+  PegelFenster f = normalesFenster();
+  f.spitze = 32767;   // -0,0003 dBFS
+  CHECK(pegelZeile(4, false, f).find(L"Spitze 0,0 dBFS") != std::wstring::npos);
+}
+
+void p5_stille() {
+  std::printf("p5_stille\n");
+  PegelFenster f;
+  f.pakete = 50;
+  CHECK(pegelZeile(2, false, f) == L"Ton-Pegel Slot 2 [Dauerbetrieb]: Stille (alle Abtastwerte 0) in 50 Paketen.");
+}
+
+void p6_leer() {
+  std::printf("p6_leer\n");
+  CHECK(pegelZeile(3, false, PegelFenster{}).empty());
+}
+
 // ── ENDE DER FALLFUNKTIONEN (neue Funktionen direkt darüber einfügen) ──
 }  // namespace
 
@@ -150,6 +209,12 @@ int main() {
   l7_messung();
   l8_messung_vor_dem_limiter();
   l9_slots_unabhaengig();
+  p1_normal();
+  p2_anlauf();
+  p3_eingriff();
+  p4_keine_minus_null();
+  p5_stille();
+  p6_leer();
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
   std::printf("\n%d Pruefungen, %d gefallen.\n", g_run, g_fail);
   return g_fail == 0 ? 0 : 1;

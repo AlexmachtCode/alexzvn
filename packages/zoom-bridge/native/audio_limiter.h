@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <string>
 
 namespace slotlogic {
 
@@ -99,5 +100,29 @@ class TonLimiter {
   int kanaele_ = 0;
   PegelFenster fenster_;
 };
+
+/** Zahl mit Dezimalkomma und genau einer Nachkommastelle, ohne Locale. lround auf Zehntel macht aus -0,04 ein 0,0. */
+inline std::wstring komma1(double x) {
+  const long z = std::lround(x * 10.0);
+  const long a = z < 0 ? -z : z;
+  return std::wstring(z < 0 ? L"-" : L"") + std::to_wstring(a / 10) + L"," + std::to_wstring(a % 10);
+}
+
+/** Eine Logzeile je Slot aus dem Pegelfenster (nur ASCII); leer, wenn im Fenster kein Paket kam. */
+inline std::wstring pegelZeile(int slot, bool anlauf, const PegelFenster& f) {
+  if (f.pakete == 0) return std::wstring();
+  std::wstring z = std::wstring(L"Ton-Pegel Slot ") + std::to_wstring(slot) +
+                   (anlauf ? L" [ANLAUF]: " : L" [Dauerbetrieb]: ");
+  if (f.spitze == 0) {
+    return z + L"Stille (alle Abtastwerte 0) in " + std::to_wstring(f.pakete) + L" Paketen.";
+  }
+  const double spitzeDb = 20.0 * std::log10(static_cast<double>(f.spitze) / 32768.0);
+  const double mittelDb =
+      f.werte > 0 ? 10.0 * std::log10(f.summeQuadrate / static_cast<double>(f.werte) / (32768.0 * 32768.0)) : 0.0;
+  return z + L"Spitze " + komma1(spitzeDb) + L" dBFS, Mittel " + komma1(mittelDb) + L" dBFS, Vollausschlag " +
+         std::to_wstring(f.vollausschlag) + L" Abtastwerte, Limiter griff in " + std::to_wstring(f.paketeMitEingriff) +
+         L" von " + std::to_wstring(f.pakete) + L" Paketen ein, staerkste Absenkung " +
+         komma1(f.staerksteAbsenkungDb) + L" dB.";
+}
 
 }  // namespace slotlogic
