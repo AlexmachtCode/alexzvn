@@ -1117,6 +1117,16 @@
     "name": "JM Stage Display",
     "entries": [
       {
+        "version": "0.6.0",
+        "date": "JJJJ-MM-TT",
+        "notes": [
+          "Die Nachricht an die Bühne erscheint jetzt auch, wenn das Stage Display die Folien aus dem Presenter zeigt (Referenten- und Hauptansicht), mittig in der Kopfzeile. Bisher fehlte sie dort. Zu lange Nachrichten werden mit „…“ gekürzt.",
+          "Stabilität: Das Stage Display stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
+          "Verbund: Das Stage Display verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher; der Master zeigt Stage Display dann bei diesem Rechner. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Das Stage Display hebt seine Logzeilen jetzt 14 Tage auf und löscht ältere selbst."
+        ]
+      },
+      {
         "version": "0.5.0",
         "date": "2026-07-05",
         "notes": [
@@ -1189,6 +1199,15 @@
     "app": "prompter",
     "name": "JM Prompter",
     "entries": [
+      {
+        "version": "0.7.0",
+        "date": "JJJJ-MM-TT",
+        "notes": [
+          "Stabilität: Der Prompter stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
+          "Verbund: Der Prompter verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher; der Master zeigt Prompter dann bei diesem Rechner. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Der Prompter hebt seine Logzeilen jetzt 14 Tage auf und löscht ältere selbst."
+        ]
+      },
       {
         "version": "0.6.0",
         "date": "2026-07-05",
@@ -1741,6 +1760,15 @@
     "app": "battle",
     "name": "JM Battle",
     "entries": [
+      {
+        "version": "0.4.0",
+        "date": "JJJJ-MM-TT",
+        "notes": [
+          "Stabilität: Battle stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
+          "Verbund: Battle verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher; der Master zeigt Battle dann bei diesem Rechner. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Battle hebt seine Logzeilen jetzt 14 Tage auf und löscht ältere selbst."
+        ]
+      },
       {
         "version": "0.3.0",
         "date": "2026-07-05",
