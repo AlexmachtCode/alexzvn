@@ -314,7 +314,7 @@ export function alteLauncherZeilen(u: AdminUebersicht): string[] {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(z.tag);
     const tag = m ? `${m[3]}.${m[2]}.${m[1]}` : z.tag;
     // Z1: eine Gruppe, die dieser Launcher nicht kennt (neuerer Worker), erscheint mit ihrer Kennung statt als „undefined“.
-    const gruppe = Object.hasOwn(REITER_TEXTE.gruppe, z.gruppe) ? REITER_TEXTE.gruppe[z.gruppe] : String(z.gruppe);
+    const gruppe = Object.hasOwn(REITER_TEXTE.gruppe, z.gruppe) ? REITER_TEXTE.gruppe[z.gruppe as 'katalog' | 'qa'] : String(z.gruppe);
     return REITER_TEXTE.alteZeile(tag, gruppe, z.plattform, z.anzahl, zeitText(z.zuletzt));
   });
 }

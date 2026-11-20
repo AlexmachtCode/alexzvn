@@ -2,13 +2,16 @@
 // Anmeldung im Launcher (Teil 1) · gemeinsame Typen und Rechte (Plan 10.5; Spec 4.2, 5, 9.1; EP16).
 // Main und Renderer laden diese Datei. Sie hat darum keinen einzigen Import: nur Typen und reine Funktionen (G9).
 // `darf` folgt denselben Regeln wie services/release-proxy/konto-kern.js; test/konto-rechte.test.ts prüft beide an
-// derselben Falltabelle (services/release-proxy/test/rechte-faelle.json). `kurzName` ist wortgleich mit dem Worker.
+// derselben Falltabelle (services/release-proxy/test/rechte-faelle.json); `zweckDarf` (Teil 2) an einer zweiten
+// (services/release-proxy/test/zweck-faelle.json). `kurzName` ist wortgleich mit dem Worker.
 // Alle Zeiten sind Unix-ms.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type Stufe = 'admin' | 'kollege' | 'externer';
 export type Werkzeug = 'connect-raum' | 'qa' | 'iveo';
 export type Anmeldeart = 'google' | 'passwort';
+/** Zwecke einer Freigabe (Teil 2: drei für JM Connect). */
+export type Zweck = 'qa-relay' | 'connect-raum' | 'zoom-jwt' | 'zoom-sdk';
 export type Funktion = 'launcher-update' | 'katalog' | 'kochbuch' | 'feedback' | 'ki-entwurf' | 'connect-raum' | 'zoom' | 'qa' | 'iveo' | 'admin';
 export interface KontoStand {
   kid: string; email: string; name: string; art: Anmeldeart; stufe: Stufe; tools: Werkzeug[]; events: string[];
@@ -49,9 +52,10 @@ export interface AdminAnfrage { id: string; kid: string; name: string; email: st
   gid: string; rechnerName: string; jm: boolean; plattform: 'win' | 'mac'; zustand: 'offen' | 'freigegeben' | 'abgelehnt'; am: number }
 export interface AdminGeraet { gid: string; name: string; plattform: 'win' | 'mac'; arch: string; version: string; jm: boolean;
   ersterKontakt: number; letzterKontakt: number; letztesKonto: string | null }
-export interface AltKeyZeile { tag: string; gruppe: 'katalog' | 'qa'; plattform: string; anzahl: number; zuletzt: number }
+export interface AltKeyZeile { tag: string; gruppe: 'katalog' | 'qa' | 'connect'; plattform: string; anzahl: number; zuletzt: number }
 export interface AdminUebersicht { zugaenge: AdminZugang[]; iveo: AdminIveoEvent[]; anfragen: AdminAnfrage[]; geraete: AdminGeraet[];
-  altKey: { bis: string | null; diagnose: 'ohne-ende' | 'unlesbar' | null; zeilen: AltKeyZeile[] } }
+  altKey: { bis: string | null; diagnose: 'ohne-ende' | 'unlesbar' | null; zeilen: AltKeyZeile[];
+    connect?: { bis: string | null; diagnose: 'ohne-ende' | 'unlesbar' | null } } }
 export type AdminAktion =
   | { aktion: 'zugang-speichern'; kid: string; stufe: Stufe; tools: Werkzeug[]; events: string[]; bis: number | null; zoomBis: number | null }
   | { aktion: 'einladen'; email: string; name: string; tools: Werkzeug[]; events: string[]; bis: number }
@@ -100,6 +104,25 @@ export function darf(stand: KontoStand | null, f: Funktion, k: { event?: string;
     default:
       return false;
   }
+}
+
+/** Welche Funktion ein Zweck verlangt (wie ZWECK_FUNKTION am Worker). */
+export const ZWECK_FUNKTION: Readonly<Record<Zweck, Funktion>> = {
+  'qa-relay': 'qa', 'connect-raum': 'connect-raum', 'zoom-jwt': 'zoom', 'zoom-sdk': 'zoom',
+};
+
+/**
+ * Darf dieser Stand diesen Zweck (Teil 2, OT4)? Gleiche Regel wie `zweckDarf` am Worker. Unbekannter Zweck: kein Recht.
+ * `zoom-sdk` braucht außerdem einen JM-Rechner: erst „dürfte er Zoom auf einem JM-Rechner?“ (P1), sonst `kein-recht`;
+ * dann die Markierung des Geräts, sonst `kein-jm-rechner`.
+ */
+export function zweckDarf(stand: KontoStand | null, zweck: string, k: { jetzt: number }): 'ja' | 'kein-recht' | 'kein-jm-rechner' {
+  if (typeof zweck !== 'string' || !Object.prototype.hasOwnProperty.call(ZWECK_FUNKTION, zweck)) return 'kein-recht';
+  if (zweck === 'zoom-sdk') {
+    if (!stand || typeof stand !== 'object' || !darf({ ...stand, jm: true }, 'zoom', k)) return 'kein-recht';
+    return stand.jm !== true ? 'kein-jm-rechner' : 'ja';
+  }
+  return darf(stand, ZWECK_FUNKTION[zweck as Zweck], k) ? 'ja' : 'kein-recht';
 }
 
 /** Vorname plus Initial des letzten Worts („Maria S.“); ein Wort bleibt; ohne Namen der Teil der E-Mail vor dem @. */
