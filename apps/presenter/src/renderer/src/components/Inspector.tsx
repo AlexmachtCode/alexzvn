@@ -2,8 +2,8 @@ import { cn } from '@jm/ui';
 import type { Overlay, Slide } from '@shared/types';
 import { useProject } from '@/store/project';
 
-const labelCls = 'text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)] font-bold';
-const inputCls =
+export const labelCls = 'text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)] font-bold';
+export const inputCls =
   'w-full rounded-md bg-[var(--card)] border border-[var(--border)] px-2.5 py-1.5 text-sm ' +
   'outline-none focus:border-[var(--primary)]';
 
@@ -161,7 +161,7 @@ function OverlayInspector({ slide, overlay }: { slide: Slide; overlay: Overlay }
   );
 }
 
-function SegBtn({
+export function SegBtn({
   children,
   active,
   onClick,

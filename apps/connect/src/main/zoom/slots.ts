@@ -1,12 +1,14 @@
 // Zoom-Slots in Connect als reine Funktionen (Spec 7.1, 7.3, 10.1): Zustand eines Slots nach der Vorrangfolge,
 // Offenheit und Zählung (n, k, o, e), Ton-Abbildung und Befehlsbau. Plan B, Task B2 ergänzt den Slot-Abgleich (ersetzt
-// soll.ts ab Task B12). Ohne Electron (G-B2): Laufzeit-Importe nur relativ; Bridge-Typen und -Konstanten nur aus
-// @jm/zoom-bridge/protocol. Der Kern (kern.ts) ruft diese Funktionen und führt aus, was sie ergeben.
-import type { Command, SlotAudioSetting, SlotFallback, SlotMode, SlotReason, SlotState, SpeakerSignal } from '@jm/zoom-bridge/protocol';
+// soll.ts ab Task B12). Ohne Electron (G-B2): Laufzeit-Importe nur relativ (./einstellungen
+// für ndiNameMitPerson zieht @jm/zoom-bridge mit, ohne Electron). Bridge-Typen und -Konstanten aus @jm/zoom-bridge/protocol.
+// Der Kern (kern.ts) ruft diese Funktionen und führt aus, was sie ergeben.
+import type { Command, SlotAudioSetting, SlotFallback, SlotFrame, SlotMode, SlotReason, SlotState, SpeakerSignal } from '@jm/zoom-bridge/protocol';
 import type {
-  ZoomErlaubnis, ZoomSlotEinstellung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotZustand, ZoomSprecherSignal, ZoomZustand,
+  ZoomErlaubnis, ZoomSlotBildformat, ZoomSlotEinstellung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotZustand, ZoomSprecherSignal, ZoomZustand,
 } from '../../shared/types';
 import { BETRIEBSGROESSE } from '../../shared/zoom-text';
+import { ndiNameMitPerson } from './einstellungen';
 import { normName } from './teilnehmer';
 
 /** Fehlerstand eines Slots (Spec 7.3 Nr. 2, 3): Ein Slot mit Fehlerstand startet nicht von selbst neu. */
@@ -126,8 +128,10 @@ export function tonEingeschaltet(e: Pick<ZoomSlotEinstellung, 'tonAn' | 'modus' 
 export const MODUS_ZU_BRIDGE: Record<ZoomSlotModus, SlotMode> = { teilnehmer: 'participant', sprecher: 'speaker', freigabe: 'share' };
 /** Ersatzbild in Connect → `fallback` der Bridge (Spec 3, 6.12). */
 export const ERSATZBILD_ZU_BRIDGE: Record<ZoomSlotErsatzbild, SlotFallback> = {
-  transparent: 'transparent', eingefroren: 'freeze', schwarz: 'black', weiss: 'white',
+  transparent: 'transparent', eingefroren: 'freeze', schwarz: 'black', weiss: 'white', kachel: 'tile',
 };
+/** Bildformat in Connect → `frame` der Bridge (#310). */
+export const BILDFORMAT_ZU_BRIDGE: Record<ZoomSlotBildformat, SlotFrame> = { original: 'native', einpassen: 'fit' };
 /** Sprecher-Signal in Connect → `signal` von `speakerConfig` (Spec 3, 7.6). */
 export const SIGNAL_ZU_BRIDGE: Record<ZoomSprecherSignal, SpeakerSignal> = {
   sprecherVideo: 'speakerVideo', aktivesVideo: 'activeVideo', tonAktiv: 'activeAudio',
@@ -136,19 +140,21 @@ export const SIGNAL_ZU_BRIDGE: Record<ZoomSprecherSignal, SpeakerSignal> = {
 /**
  * `slotOn` mit allen Feldern (Spec 6.2, 7.3 Nr. 2), Ton über tonFuerBridge. `id` nur im Modus Teilnehmer (0 = kein Ziel);
  * Sprecher- und Freigabe-Slots wählen ihr Ziel in der Bridge (7.3 Nr. 9). Keine Kennung ist 0: ANNAHME AN10, teils belegt.
+ * `ndi` ist der Name, mit dem der Sender startet (ndiName oder, mit „Person im NDI-Namen“, ndiNameMitPerson; #287).
  */
-export function slotOnBefehl(e: ZoomSlotEinstellung, ziel: number): Extract<Command, { cmd: 'slotOn' }> {
+export function slotOnBefehl(e: ZoomSlotEinstellung, ziel: number, ndi: string): Extract<Command, { cmd: 'slotOn' }> {
   const ton = tonFuerBridge(e);
   return {
     cmd: 'slotOn',
     slot: e.nr,
-    ndi: e.ndiName,
+    ndi,
     mode: MODUS_ZU_BRIDGE[e.modus],
     ...(e.modus === 'teilnehmer' ? { id: ziel } : {}),
     resolution: e.aufloesung,
     audio: ton.audio,
     shareAudio: ton.shareAudio,
     fallback: ERSATZBILD_ZU_BRIDGE[e.ersatzbild],
+    frame: BILDFORMAT_ZU_BRIDGE[e.bildformat],
     showNoVideo: e.ohneKamera,
   };
 }
@@ -170,11 +176,17 @@ export interface SlotSitzung {
   fehlerstand: SlotFehlerstand | null;
   /** `slotOn` gesendet, die Antwortfrist läuft (Nr. 2). */
   frist: boolean;
+  /**
+   * #287: der NDI-Name des ersten slotOn seit dem Einschalten (der Kern setzt ihn beim Senden). Jeder automatische Neustart
+   * (Entzug, neue Bridge, Z11) startet wieder unter ihm, egal wie Person und Schalter „Person im NDI-Namen“ jetzt stehen: Der
+   * Mischer verliert nie eine Quelle. Er fällt mit „Stopp“/„Start“ des Bedieners und mit jedem Sitzungsende.
+   */
+  startName: string | null;
 }
 
 /** Stand zu Beginn jeder Sitzung und nach jedem Sitzungsende (sitzungNach). */
 export const SITZUNG_LEER: Readonly<SlotSitzung> = {
-  gewaehlteId: null, wegSeq: null, personJetzt: null, liefSchon: false, zeigteSchon: false, fehlerstand: null, frist: false,
+  gewaehlteId: null, wegSeq: null, personJetzt: null, liefSchon: false, zeigteSchon: false, fehlerstand: null, frist: false, startName: null,
 };
 
 /** Teilnehmer ohne die eigene Zeile der Bridge. `folge`: Beitrittsfolge (Einträge aus `roster` 0, jedes `joined` die nächste Zahl). */
@@ -195,6 +207,8 @@ export interface AbgleichEingabe {
   meeting: ZoomZustand;
   erlaubnis: ZoomErlaubnis | null;
   ueber5: boolean;
+  /** Schalter „Person im NDI-Namen“ (#287): Teilnehmer-Slots starten als „NDI-Name (Person)“. */
+  personImNdiNamen: boolean;
   teilnehmer: readonly AbgleichTeilnehmer[];
   slots: readonly AbgleichSlot[];
 }
@@ -293,7 +307,10 @@ export function planeSlotAbgleich(e: AbgleichEingabe): AbgleichHandlung[] {
       continue;
     }
     if (z !== null && z.gewaehlteId !== x.s.gewaehlteId) aus.push({ art: 'nameMerken', nr, gewaehlteId: z.gewaehlteId });
-    aus.push({ art: 'starten', nr, befehl: slotOnBefehl(x.e, z?.ziel ?? 0) });
+    // #287: Ein automatischer Neustart nimmt den Startnamen; nur ohne ihn (erster Start, nach „Stopp“) gilt der Stand von jetzt.
+    const ndi = x.s.startName
+      ?? (e.personImNdiNamen && x.e.modus === 'teilnehmer' ? ndiNameMitPerson(x.e.ndiName, x.e.person) : x.e.ndiName);
+    aus.push({ art: 'starten', nr, befehl: slotOnBefehl(x.e, z?.ziel ?? 0, ndi) });
   }
   return aus;
 }
@@ -315,7 +332,8 @@ function istSitzungsende(ereignis: SitzungsEreignis): boolean {
  *   gelten nicht mehr (`gewaehlteId`, `wegSeq`, `personJetzt`); `liefSchon`/`zeigteSchon` bleiben (Fortsetzung).
  * - Neues `roster` nach Z10: nur die Kennungen fallen. Entzug: nichts fällt.
  * - Person geändert: Kennungen und `zeigteSchon` fallen; Modus geändert: `zeigteSchon` fällt.
- * - „Stopp“/„Start“ dieses Slots: Fehlerstand und Frist fallen.
+ * - „Stopp“/„Start“ dieses Slots: Fehlerstand, Frist und der Startname (#287) fallen.
+ * - Der Startname bleibt bei allem außer „Stopp“/„Start“ und den Sitzungsenden (#287, Ruling Fix-Runde 1).
  */
 export function sitzungNach(s: SlotSitzung, ereignis: SitzungsEreignis): SlotSitzung {
   if (istSitzungsende(ereignis)) return { ...SITZUNG_LEER };
@@ -331,7 +349,7 @@ export function sitzungNach(s: SlotSitzung, ereignis: SitzungsEreignis): SlotSit
     case 'modusGeaendert':
       return { ...s, zeigteSchon: false };
     case 'stoppStart':
-      return { ...s, fehlerstand: null, frist: false };
+      return { ...s, fehlerstand: null, frist: false, startName: null };
     default:
       return { ...s }; // 'entzug'
   }

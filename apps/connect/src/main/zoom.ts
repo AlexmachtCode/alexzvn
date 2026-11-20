@@ -20,6 +20,7 @@ import {
   proxyUrl,
   setzeZoomAnzeigename,
   setzeZoomLaufzeit,
+  setzeZoomPersonImNdiNamen,
   setzeZoomSlots,
   setzeZoomSlotsUeber5,
   setzeZoomSlotVorgaben,
@@ -27,6 +28,10 @@ import {
   setzeZoomVersatzMs,
   setzeZoomVorschau,
   zoomAnzeigename,
+  zoomLetztesMeeting,
+  zoomMeetingMerken,
+  zoomMeetingVergessen,
+  zoomPersonImNdiNamen,
   zoomSlots,
   zoomSlotsUeber5,
   zoomSlotVorgaben,
@@ -96,6 +101,9 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
         setzeVersatzMs: setzeZoomVersatzMs,
         versatzNurSitzung: zoomVersatzNurSitzung,
         setzeLaufzeit: setzeZoomLaufzeit,
+        letztesMeeting: zoomLetztesMeeting,
+        meetingMerken: zoomMeetingMerken,
+        meetingVergessen: zoomMeetingVergessen,
         // Zoom-Slots (Slot-Spec 7.2, 7.10; Plan B, Task B12): gelesen und geschrieben nur über settings.ts.
         slots: zoomSlots,
         setzeSlots: setzeZoomSlots,
@@ -103,6 +111,8 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
         setzeVorgaben: setzeZoomSlotVorgaben,
         sprecher: zoomSprecher,
         setzeSprecher: setzeZoomSprecher,
+        personImNdiNamen: zoomPersonImNdiNamen,
+        setzePersonImNdiNamen: setzeZoomPersonImNdiNamen,
         vorschau: zoomVorschau,
         setzeVorschau: setzeZoomVorschau,
         ueber5: zoomSlotsUeber5,
@@ -242,6 +252,10 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
     const e = pruefeSlotEingabe('vorschau', p);
     return e.ok ? k.vorschauSetzen(e.wert.an) : NICHTS;
   });
+  ipcMain.handle(IPC.zoomPersonImNdiNamen, (_e, p: unknown) => {
+    const e = pruefeSlotEingabe('personImNdiNamen', p);
+    return e.ok ? k.personImNdiNamenSetzen(e.wert.an) : NICHTS;
+  });
   ipcMain.handle(IPC.zoomMesswerteText, (_e, p: unknown) => {
     const e = pruefeSlotEingabe('messwerte', p);
     return e.ok ? k.messwerteText() : '';
@@ -259,6 +273,10 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
 
   ipcMain.handle(IPC.zoomErneut, (): Promise<ZoomErgebnis> => k.erneut());
   ipcMain.handle(IPC.zoomSchliessen, (): void => k.schliessen());
+  // Das gemerkte Meeting (#290): nur Nummer und zwei Flaggen, nie der Kenncode.
+  ipcMain.handle(IPC.zoomLetztesMeeting, () => k.letztesMeeting());
+  // `ok: false` mit TEXT_VERGESSEN_FEHLER, wenn die Einstellungsdatei nicht schreibbar war.
+  ipcMain.handle(IPC.zoomVergessen, (): ZoomErgebnis => k.vergessen());
   ipcMain.handle(IPC.zoomMeldungWeg, (): void => k.meldungWeg());
 
   // Mehrere Texte verweisen auf „Details im Log“ (Spec 8.7).

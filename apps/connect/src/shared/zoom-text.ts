@@ -10,12 +10,14 @@ import type {
 } from './types';
 
 // Zoom-Slots (Plan B, Block b2): eigene Importzeilen; die Typen der alten Quellen fallen mit dem Kern-Umstieg (Task B12) weg.
-import { SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
+import { SLOT_NR_MAX, tileNotice } from '@jm/zoom-bridge/protocol';
 import type { AudioState, SlotAudioReason, SlotReason, SlotSent } from '@jm/zoom-bridge/protocol';
 import type {
-  TonQuelle, ZoomBefehlErgebnis, ZoomSlotAufloesung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotZustand, ZoomSprecherSignal,
+  TonQuelle, ZoomBefehlErgebnis, ZoomSlotAufloesung, ZoomSlotBildformat, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotZustand, ZoomSprecherSignal,
   ZoomZustand,
 } from './types';
+// #290: das gemerkte Meeting (eine Form für Kern, Preload, Karte und Platzhalter-Regel).
+import type { ZoomLetztesMeeting } from './types';
 
 // Plan C (C9): Zählweise und STATE-Wert der NDI-Lage für Tray-Zeile und Tooltip (rein, ohne electron).
 import { ndiStateKv, ndiZahlen } from '../main/ndi-lage';
@@ -624,13 +626,43 @@ export const ERSATZBILD_NAME: Record<ErsatzbildArt, string> = {
   freeze: 'eingefroren',
   black: 'schwarz',
   white: 'weiß',
+  tile: 'Zoom-Kachel',
   eingefroren: 'eingefroren',
   schwarz: 'schwarz',
   weiss: 'weiß',
+  kachel: 'Zoom-Kachel',
 };
+
+/** Reihenfolge der Auswahl im Feld „Ersatzbild“ (Werte, keine Texte; die Namen liefert ERSATZBILD_NAME). */
+const ERSATZBILD_REIHE: readonly ZoomSlotErsatzbild[] = ['transparent', 'eingefroren', 'schwarz', 'weiss', 'kachel'];
+
+/**
+ * Auswahl des Felds „Ersatzbild“ je Modus (#306): Die Zoom-Kachel gibt es nur für Teilnehmer und Sprecher. Im Modus Freigabe
+ * fehlt sie; ist sie dort noch gespeichert, steht sie gesperrt und ehrlich benannt (die Bridge sendet dann transparent).
+ */
+export function ersatzbildAuswahl(modus: ZoomSlotModus, aktuell: ZoomSlotErsatzbild): { wert: ZoomSlotErsatzbild; text: string; waehlbar: boolean }[] {
+  type Option = { wert: ZoomSlotErsatzbild; text: string; waehlbar: boolean };
+  return ERSATZBILD_REIHE.flatMap((wert): Option[] => {
+    if (wert !== 'kachel' || modus !== 'freigabe') return [{ wert, text: ERSATZBILD_NAME[wert], waehlbar: true }];
+    return aktuell === 'kachel' ? [{ wert, text: SLOT_TEXT.kachelFreigabe, waehlbar: false }] : [];
+  });
+}
 
 /** T4, Feldname (Spec 9.1). */
 export const ERSATZBILD_FELD = 'Ersatzbild';
+
+/** #310: Feldname, Namen, Reihenfolge und Hinweise des Auswahlfelds „Bildformat“. */
+export const BILDFORMAT_FELD = 'Bildformat';
+export const BILDFORMAT_NAME: Record<ZoomSlotBildformat, string> = { original: 'Original', einpassen: '16:9 einpassen' };
+export const BILDFORMAT_REIHE: readonly ZoomSlotBildformat[] = ['original', 'einpassen'];
+export const BILDFORMAT_HINWEIS = {
+  einpassen: 'Hochkant-Bilder mittig in 16:9, Seiten durchsichtig',
+  freigabe: 'Freigaben bleiben in ihrer eigenen Größe',
+} as const;
+/** #310: Hinweis am Feld; im Modus Freigabe ist es gesperrt (Freigaben behalten ihre Größe). */
+export function bildformatHinweis(modus: ZoomSlotModus): string {
+  return modus === 'freigabe' ? BILDFORMAT_HINWEIS.freigabe : BILDFORMAT_HINWEIS.einpassen;
+}
 
 /** Spec 9.2: Zustandszeile der Kachel je T-Nummer. `ersatz` ist der fertige Teil „Ersatzbild {art}“ bzw. T60 (10.2 Regel 9). */
 export const KACHEL_TEXT = {
@@ -683,6 +715,8 @@ export const KACHEL_TEXT = {
   /** „Ersatzbild {art}“ (Regel 9). */
   ersatzbild: (art: string): string => `Ersatzbild ${art}`,
   T60: 'Ersatzbild eingefroren (kein gespeichertes Bild, darum transparent)',
+  /** Zoom-Kachel bei unterbrochenem Bild (noFrames, bufferMismatch, subscribeFailed; tileNotice der Bridge). */
+  T61: 'Ersatzbild Zoom-Kachel (Bild unterbrochen)',
   T97: (m: number): string => ` · Slot ${m} zeigt dieselbe Quelle; ob Zoom zwei Abos derselben Quelle zugleich beliefert, ist noch nicht gemessen.`,
 };
 
@@ -764,7 +798,8 @@ export interface KachelEingabe {
 }
 
 /** „Ersatzbild {art}“ (Regel 9): nennt `sent`; „eingefroren“ eingestellt und transparent gesendet → T60. */
-function ersatzTeil(gesendet: SlotSent | null, ersatzbild: ZoomSlotErsatzbild): string {
+function ersatzTeil(gesendet: SlotSent | null, ersatzbild: ZoomSlotErsatzbild, grund: SlotReason | null): string {
+  if (gesendet === 'tile' && tileNotice(grund)) return KACHEL_TEXT.T61;
   if (ersatzbild === 'eingefroren' && gesendet === 'transparent') return KACHEL_TEXT.T60;
   // In SZ6 sendet die Bridge immer eine Ersatzbild-Art (6.12); ohne sie (kommt nicht vor) nennt die Zeile die Einstellung.
   const art: ErsatzbildArt = gesendet === null || gesendet === 'none' || gesendet === 'held' ? ersatzbild : gesendet;
@@ -773,7 +808,7 @@ function ersatzTeil(gesendet: SlotSent | null, ersatzbild: ZoomSlotErsatzbild): 
 
 /** SZ6 (Regeln 6–10): der Sender besteht, Zoom liefert kein Bild; die Zeile nennt den Grund und das gesendete Ersatzbild. */
 function ersatzZeile(e: KachelEingabe, person: string): string {
-  const ersatz = ersatzTeil(e.gesendet, e.ersatzbild);
+  const ersatz = ersatzTeil(e.gesendet, e.ersatzbild, e.grund);
   if (e.modus === 'teilnehmer') {
     // Regel 6, zuerst was eine Wahl braucht oder fehlt (nur ohne Ziel, 7.3 Nr. 5)
     if (e.doppelt > 1) return KACHEL_TEXT.T13(person, e.doppelt, ersatz);
@@ -996,6 +1031,8 @@ export const MESS_ZEILE = {
   T51: (res: string, b: number, h: number, fps: string): string => `${res} gewünscht · Zoom liefert ${b}×${h} · ${fps} Bilder/s`,
   T51b: (res: string): string => `${res} gewünscht · noch kein Bild`,
   T51c: (res: string, b: number, h: number): string => `${res} · zuletzt ${b}×${h} · jetzt kein Bild`,
+  /** #310: Anhang, wenn das Bild eingepasst ins NDI ging. */
+  eingepasst: (b: number, h: number): string => ` · NDI ${b}×${h} eingepasst`,
 };
 
 /** Nennhöhe je Stufe (10.7): verglichen wird die kürzere Seite des gelieferten Bildes. */
@@ -1008,6 +1045,8 @@ const NENNHOEHE: Record<ZoomSlotAufloesung, number> = { '360p': 360, '720p': 720
 export interface MessEingabe {
   zustand: ZoomSlotZustand; modus: ZoomSlotModus; stufe: ZoomSlotAufloesung;
   geliefert: { b: number; h: number; fps: number } | null; zuletzt: { b: number; h: number } | null;
+  /** #310: NDI-Größe, wenn das Bild eingepasst wurde (sonst fehlt der Anhang). */
+  eingepasst?: { b: number; h: number } | null;
 }
 
 /** Messzeile der Kachel (Spec 10.7); `null` ohne laufenden Sender, auch in SZ9 (Restrunde RR6). */
@@ -1016,7 +1055,8 @@ export function slotMessZeile(e: MessEingabe): string | null {
   const g = e.geliefert;
   if (g !== null) {
     const unter = e.modus !== 'freigabe' && Math.min(g.b, g.h) < NENNHOEHE[e.stufe];
-    return (unter ? MESS_ZEILE.T51 : MESS_ZEILE.T50)(e.stufe, g.b, g.h, dezimal(g.fps));
+    const zeile = (unter ? MESS_ZEILE.T51 : MESS_ZEILE.T50)(e.stufe, g.b, g.h, dezimal(g.fps));
+    return e.eingepasst ? zeile + MESS_ZEILE.eingepasst(e.eingepasst.b, e.eingepasst.h) : zeile;
   }
   if (e.zuletzt !== null) return MESS_ZEILE.T51c(e.stufe, e.zuletzt.b, e.zuletzt.h);
   return MESS_ZEILE.T51b(e.stufe);
@@ -1034,6 +1074,8 @@ export const SLOT_TEXT = {
   stopp: 'Stopp',
   /** T35, Tooltip am gesperrten NDI-Namen */
   nameGesperrt: 'Den NDI-Namen erst ändern, wenn der Slot ausgeschaltet ist.',
+  /** Zoom-Kachel gespeichert, aber Modus Freigabe: die Bridge sendet dort transparent. */
+  kachelFreigabe: 'Zoom-Kachel (bei Bildschirmfreigabe transparent)',
   /** T36, Tooltip am gesperrten „Löschen“ */
   loeschenGesperrt: 'Zum Löschen den Slot erst ausschalten.',
   /** T38 */
@@ -1360,10 +1402,11 @@ const empfang = (r: { w: number; h: number; fps: number } | null): string => (r 
 export const MESS_TEXT = {
   T61: (p: { cpu: Messwert; sys: Messwert; mem: Messwert; q: Messwert; d: Messwert; mv: Messwert; hl: Messwert }): string =>
     `Zoom-Bridge: ${p.cpu} % eines Kerns · System ${p.sys} % · Arbeitsspeicher ${p.mem} MB · Ton-Warteschlange höchstens ${p.q} Pakete, ${p.d} verworfen · Zoom-Ereignisse verworfen ${p.mv} · zurückgehaltene Renderer ${p.hl}`,
-  /** T62; `resSetName` über `sdkErrorName`, nie als nackte Zahl (9.4). */
+  /** T62; `resSetName` über `sdkErrorName`, nie als nackte Zahl (9.4). #310: `ein` = eingepasste NDI-Größe (null = nicht eingepasst), `format` = Bildformat des Slots. */
   T62: (p: { nr: number; modus: ZoomSlotModus; b: Messwert; h: Messwert; fps: Messwert; ffps: Messwert; work: Messwert; copy: Messwert;
-    prev: Messwert; mem: Messwert; res: Messwert; resSetName: string; resGot: Messwert; pps: Messwert; md: Messwert; ms: Messwert }): string =>
-    `Slot ${p.nr} (${MODUS_NAME[p.modus]}): ${p.b}×${p.h}, ${p.fps} Bilder/s, Ersatzbilder ${p.ffps}/s · Bridge-Anteil ${p.work} ms/s (davon Kopie ${p.copy}, Vorschau ${p.prev}) · Speicher ${p.mem} MB · Auflösung ${p.res}: ${p.resSetName}, Renderer meldet ${p.resGot} · Ton ${p.pps} Pakete/s, Mischer verworfen ${p.md} ms, Stille eingefügt ${p.ms} ms`,
+    prev: Messwert; mem: Messwert; res: Messwert; resSetName: string; resGot: Messwert; pps: Messwert; md: Messwert; ms: Messwert;
+    ein: { b: number; h: number } | null; format: ZoomSlotBildformat }): string =>
+    `Slot ${p.nr} (${MODUS_NAME[p.modus]}): ${p.b}×${p.h}${p.ein !== null ? ` → NDI ${p.ein.b}×${p.ein.h} eingepasst` : ''}, ${p.fps} Bilder/s, Ersatzbilder ${p.ffps}/s · Bridge-Anteil ${p.work} ms/s (davon Kopie ${p.copy}, Vorschau ${p.prev}) · Speicher ${p.mem} MB · Auflösung ${p.res}: ${p.resSetName}, Renderer meldet ${p.resGot} · Bildformat ${BILDFORMAT_NAME[p.format]} · Ton ${p.pps} Pakete/s, Mischer verworfen ${p.md} ms, Stille eingefügt ${p.ms} ms`,
   /** T62b; fehlende Werte „unbekannt“. */
   T62b: (p: { nr: number; ub: number | null; uh: number | null; hd: boolean | null; og: boolean | null;
     rv: { w: number; h: number; fps: number } | null; rs: { w: number; h: number; fps: number } | null }): string =>
@@ -1429,9 +1472,43 @@ export const BEDIEN_TEXT = {
   messwerteKopieren: 'Messwerte kopieren',
   behalten: 'Behalten',
   loeschen: 'Löschen',
+  personImNdiNamen: 'Person im NDI-Namen',
 };
+
+/** #287: Tooltip des Schalters „Person im NDI-Namen“ (Owner-Beschreibung 12.11.2026). */
+export const PERSON_IM_NDI_NAMEN_TOOLTIP =
+  'Teilnehmer-Slots heißen beim Einschalten „‹NDI-Name› (‹Person›)“, z. B. „Zoom 1 (Anna Müller)“ – so sieht man im Mischer, wer auf welcher Quelle liegt. Der Name bleibt, bis der Slot aus ist – auch wenn Connect die Verbindung zum Meeting neu aufbaut; ein Personenwechsel benennt die Quelle nicht um. Nach Meeting-Ende, neuem Beitritt oder Neustart von Connect wird der Name neu gebildet. Gilt für Slots, die danach eingeschaltet werden; Sprecher- und Freigabe-Slots bleiben unverändert.';
 
 /** Kennzeichen je Kandidat der Doppelname-Auswahl (7.5): die Bestandstexte der Teilnehmerliste (OFP3, `ZoomCard.tsx:388-393`). */
 export const KANDIDAT_KENNZEICHEN = { kameraAus: 'Kamera aus', host: 'Host', imWarteraum: 'im Warteraum' };
+
+/** #290: Beitrittsformular – gemerktes Meeting (Kenncode bleibt im Hauptprozess). */
+export const KENNCODE_GESPEICHERT = 'Kenncode gespeichert';
+/** Platzhalter, wenn der Kern den Kenncode hält, er aber nicht auf der Platte liegt (keine Verschlüsselung oder Schreibfehler). */
+export const KENNCODE_SITZUNG = 'Kenncode für diese Sitzung gemerkt';
+export const VERGESSEN = 'Vergessen';
+export const VERGESSEN_TITEL = 'Gemerkte Meeting-Nummer und Kenncode löschen';
+/** Neutral: deckt fehlende Verschlüsselung UND einen Schreibfehler ab. */
+export const KENNCODE_NICHT_GESPEICHERT = 'Kenncode gilt nur für diese Sitzung – er wird auf diesem PC nicht gespeichert.';
+/** „Vergessen“, aber die Einstellungsdatei war nicht schreibbar: Die Daten stehen noch auf der Platte. */
+export const TEXT_VERGESSEN_FEHLER =
+  'Die gemerkten Einwahldaten ließen sich nicht von der Platte löschen – nach einem Neustart wären sie wieder da. Bitte erneut versuchen.';
+
+/**
+ * #290: Platzhalter des Kenncode-Felds. `null` (kein Platzhalter), wenn nichts gemerkt ist, das Kenncode-Feld nicht leer ist, der
+ * Kern keinen Kenncode hält oder das Nummernfeld nicht das Gemerkte zeigt (verglichen ohne Leerzeichen und Bindestriche, dieselbe
+ * Regel wie normalizeMeetingId). Sonst 'sitzung' (KENNCODE_SITZUNG), wenn der Kenncode nicht dauerhaft gespeichert ist, und
+ * 'gespeichert' (KENNCODE_GESPEICHERT).
+ */
+export function kenncodePlatzhalter(
+  feldNummer: string,
+  feldKenncode: string,
+  letztes: ZoomLetztesMeeting | null,
+): 'gespeichert' | 'sitzung' | null {
+  if (!letztes || !letztes.nummer || feldKenncode !== '' || !letztes.kenncodeGespeichert) return null;
+  const ohneTrenner = (s: string): string => s.replace(/[\s-]/g, '');
+  if (ohneTrenner(feldNummer) !== ohneTrenner(letztes.nummer)) return null;
+  return letztes.kenncodeNichtGespeichert ? 'sitzung' : 'gespeichert';
+}
 
 // ── ENDE DER SLOT-ANZEIGEN (neue Regeln direkt darüber einfügen) ──

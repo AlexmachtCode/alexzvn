@@ -4,7 +4,7 @@
 // Gültig → `wert` ist eine neue Kopie mit genau den bekannten Feldern; die Hülle gibt sie unverändert an den Kern (KF5).
 import { SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
 import type { ZoomSlotEinstellung, ZoomSlotVorgaben, ZoomSprecherEinstellung } from '../../shared/types';
-import { istSlotAufloesung, istSlotErsatzbild, istSlotModus, istSlotTonArt, istSprecherSignal } from './einstellungen';
+import { istSlotAufloesung, istSlotBildformat, istSlotErsatzbild, istSlotModus, istSlotTonArt, istSprecherSignal } from './einstellungen';
 
 /** Obergrenze je Zeichenkette (NDI-Name, Person); alles darüber ist keine Eingabe der Karte. */
 export const SLOT_TEXT_MAX = 512;
@@ -13,7 +13,7 @@ const KENNUNG_MAX = 0xffffffff;
 
 export type SlotKanal =
   | 'anlegen' | 'aendern' | 'loeschen' | 'start' | 'ausPerson' | 'person' | 'vorgaben' | 'sprecher' | 'vorschau' | 'messwerte'
-  | 'behalten';
+  | 'behalten' | 'personImNdiNamen';
 /** Teilmenge der Felder von ZoomSlotEinstellung ohne `nr` und `an` (Kanal `zoomSlotAendern`, 7.9). */
 export type SlotAenderung = Partial<Omit<ZoomSlotEinstellung, 'nr' | 'an'>>;
 /** Geprüfte Nutzlast je Kanal (Spec 7.9). */
@@ -29,6 +29,8 @@ export interface SlotEingabeWert {
   vorschau: { an: boolean };
   messwerte: Record<string, never>;
   behalten: { nr: number };
+  /** Schalter „Person im NDI-Namen“ (#287). */
+  personImNdiNamen: { an: boolean };
 }
 
 const istObjekt = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -42,7 +44,7 @@ const istTrotz = (v: unknown): v is boolean | undefined => v === undefined || ty
 /** Je änderbares Feld die Formprüfung; `nr` und `an` sind nicht änderbar (7.9). */
 const AENDERBAR: { [K in keyof SlotAenderung]-?: (v: unknown) => boolean } = {
   ndiName: istText, modus: istSlotModus, person: istText, aufloesung: istSlotAufloesung, ersatzbild: istSlotErsatzbild,
-  tonAn: istBool, tonArt: istSlotTonArt, computerton: istBool, ohneKamera: istBool,
+  tonAn: istBool, tonArt: istSlotTonArt, computerton: istBool, ohneKamera: istBool, bildformat: istSlotBildformat,
 };
 
 function aenderung(roh: unknown): SlotAenderung | null {
@@ -85,6 +87,7 @@ function pruefe(kanal: SlotKanal, roh: unknown): SlotEingabeWert[SlotKanal] | nu
         ? { signal, haltezeitMs }
         : null;
     case 'vorschau':
+    case 'personImNdiNamen':
       return nurFelder(roh, ['an']) && istBool(an) ? { an } : null;
   }
 }

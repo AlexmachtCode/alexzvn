@@ -1,3 +1,4 @@
+import { istSvg, SVG_MIME } from '@shared/bildformat';
 import type { SourceKind } from '@shared/types';
 import { bytesToBlob } from './bytes';
 
@@ -37,7 +38,8 @@ export function imageObjectUrl(id: string): string | undefined {
   if (cached) return cached;
   const bytes = images.get(id);
   if (!bytes) return undefined;
-  const url = URL.createObjectURL(bytesToBlob(bytes));
+  // #313: ein SVG zeigt das <img> im Editor nur mit seinem Typ; die übrigen Formate erkennt Chromium selbst.
+  const url = URL.createObjectURL(bytesToBlob(bytes, istSvg(bytes) ? SVG_MIME : undefined));
   imageUrls.set(id, url);
   return url;
 }
@@ -50,8 +52,13 @@ export function allImageIds(): string[] {
   return [...images.keys()];
 }
 
-export function clearAssets(): void {
-  sources.clear();
+export function removeSource(id: string): void {
+  sources.delete(id);
+}
+
+/** Alles verwerfen; `behalte` = Quellen, die bleiben (beim Ersetzen die frisch gelesenen). */
+export function clearAssets(behalte?: ReadonlySet<string>): void {
+  for (const id of [...sources.keys()]) if (!behalte?.has(id)) sources.delete(id);
   images.clear();
   for (const url of imageUrls.values()) URL.revokeObjectURL(url);
   imageUrls.clear();

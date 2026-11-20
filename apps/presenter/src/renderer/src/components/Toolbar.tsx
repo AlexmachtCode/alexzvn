@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import { Logo, cn, dragRegion, noDragRegion, isElectronMac } from '@jm/ui';
 import type { DisplayInfo, PresentationState, TimerSyncConfig } from '@shared/types';
 import { useProject } from '@/store/project';
+import { NdiSchalter } from '@/components/NdiSchalter';
 import { getExpandPptxBuilds, setExpandPptxBuilds } from '@/lib/settings';
+import { useNdiStatus } from '@/lib/useNdiStatus';
+import { ndiLiefertBild, nurNdiBehalten, startZielFuer } from '../../../shared/ndi';
 
 const btn =
   'h-9 px-3 rounded-md text-sm font-semibold whitespace-nowrap border border-[var(--border)] bg-[var(--card)] ' +
@@ -24,6 +27,11 @@ export function Toolbar() {
 
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [audienceDisplay, setAudienceDisplay] = useState<number | null>(null);
+  // „Keiner – nur NDI“ (#303): eigener Schalter, `audienceDisplay` bleibt die bisherige Bildschirmwahl.
+  const [nurNdi, setNurNdi] = useState(false);
+  const { status: ndi } = useNdiStatus();
+  const nurNdiWaehlbar = ndiLiefertBild(ndi);
+  const nurNdiBleibt = nurNdiBehalten(ndi);
   const [showSettings, setShowSettings] = useState(false);
   const [expandBuilds, setExpandBuildsState] = useState(getExpandPptxBuilds());
   const [timerCfg, setTimerCfg] = useState<TimerSyncConfig | null>(null);
@@ -53,6 +61,12 @@ export function Toolbar() {
     };
   }, []);
 
+  // Liefert NDI dauerhaft kein Bild (aus, nicht verfügbar), gilt wieder die bisherige Bildschirmwahl; ein
+  // vorübergehendes „startet“ behält „Keiner“.
+  useEffect(() => {
+    if (!nurNdiBleibt) setNurNdi(false);
+  }, [nurNdiBleibt]);
+
   const applyTimer = (patch: Partial<TimerSyncConfig>): void => {
     if (!timerCfg) return;
     const next = { ...timerCfg, ...patch };
@@ -73,7 +87,7 @@ export function Toolbar() {
       visible.findIndex((s) => s.id === selectedId),
     );
     const payload = buildPayload(startIndex);
-    await window.jmpr.present.start(payload, audienceDisplay);
+    await window.jmpr.present.start(payload, startZielFuer(nurNdi, ndi, audienceDisplay));
   };
 
   // Frisch beginnen, ohne die App zu schließen (Issue #40): leert das Projekt,
@@ -147,8 +161,15 @@ export function Toolbar() {
         )}
 
         <select
-          value={audienceDisplay ?? ''}
-          onChange={(e) => setAudienceDisplay(e.target.value ? Number(e.target.value) : null)}
+          value={nurNdi ? 'keiner' : audienceDisplay ?? ''}
+          onChange={(e) => {
+            if (e.target.value === 'keiner') {
+              setNurNdi(true);
+              return;
+            }
+            setNurNdi(false);
+            setAudienceDisplay(e.target.value ? Number(e.target.value) : null);
+          }}
           title="Publikums-Bildschirm"
           className="h-9 max-w-[200px] rounded-md bg-[var(--card)] border border-[var(--border)] px-2 text-xs"
         >
@@ -157,7 +178,14 @@ export function Toolbar() {
               {d.label}
             </option>
           ))}
+          {window.jmpr.platform === 'win32' && (
+            <option value="keiner" disabled={!nurNdiWaehlbar && !nurNdi}>
+              Keiner – nur NDI
+            </option>
+          )}
         </select>
+
+        <NdiSchalter variante="editor" />
 
         <div className="relative">
           <button

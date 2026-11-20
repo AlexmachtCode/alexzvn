@@ -3,6 +3,8 @@ import { cn } from '@jm/ui';
 import type { DisplayInfo } from '@shared/types';
 import { SlideCanvas } from '@/components/SlideCanvas';
 import { Clock } from '@/components/Clock';
+import { NdiSchalter } from '@/components/NdiSchalter';
+import { GastKlickerPille } from '@/components/GastKlickerPille';
 import { RemotePanel } from '@/components/RemotePanel';
 import { TimerBar } from '@/components/TimerBar';
 import { usePresentation, usePresenterKeys } from '@/lib/usePresentation';
@@ -17,8 +19,28 @@ export function PresenterView() {
   const [showGrid, setShowGrid] = useState(false);
   const [showRemote, setShowRemote] = useState(false);
 
+  const [vollbild, setVollbild] = useState(false);
+
   useEffect(() => {
     void window.jmpr.present.displays().then(setDisplays);
+  }, []);
+
+  // #309: Vollbild der Referentenansicht – Stand beim Laden, danach jeder Wechsel (Knopf, F11, System).
+  useEffect(() => {
+    void window.jmpr.present.referentVollbild().then(setVollbild);
+    return window.jmpr.present.onReferentVollbild(setVollbild);
+  }, []);
+
+  // F11 nur hier (usePresenterKeys gilt auch fürs Publikum). preventDefault hält das Standardmenü von Electron ab,
+  // das F11 sonst ein zweites Mal umschalten würde (gemessen, Electron 33.4.11).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'F11') return;
+      e.preventDefault();
+      void window.jmpr.present.toggleReferentVollbild();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   if (!slides) {
@@ -26,8 +48,12 @@ export function PresenterView() {
   }
 
   const current = slides[state.index] ?? null;
-  const next = slides[state.index + 1] ?? null;
+  // Mit Schleife folgt auf die letzte Folie wieder die erste (#293).
+  const next = slides[state.index + 1] ?? (state.schleife && slides.length > 1 ? slides[0] : null);
   const audienceDisplay = displays.find((d) => d.current);
+  // „Keiner – nur NDI“ (#303): ohne Publikumsfenster ist kein Bildschirm `current`. Ein leeres Feld heißt dagegen nur
+  // „Bildschirme noch nicht geladen“ – es gibt immer mindestens einen.
+  const nurNdi = displays.length > 0 && !audienceDisplay;
 
   const doJump = (): void => {
     const n = Number(jump);
@@ -40,8 +66,10 @@ export function PresenterView() {
   return (
     <div className="h-full flex flex-col bg-[#0c0c0c] text-white select-none">
       {/* header */}
-      <header className="h-16 flex items-center gap-4 px-5 border-b border-white/10">
-        <div className="flex items-baseline gap-2">
+      {/* Mindesthöhe statt fester Höhe: Bei schmalem Fenster bricht die Knopfgruppe in eine zweite Zeile um, statt
+          Knöpfe („■ Beenden“) rechts aus dem Fenster zu schieben (Review #309). */}
+      <header className="min-h-16 py-2 flex items-center gap-4 px-5 border-b border-white/10">
+        <div className="flex shrink-0 items-baseline gap-2 whitespace-nowrap">
           <span className="text-3xl font-extrabold tabular text-[var(--primary)]">{state.index + 1}</span>
           <span className="text-lg text-white/50 tabular">/ {state.total}</span>
         </div>
@@ -50,19 +78,28 @@ export function PresenterView() {
         </div>
         <Clock />
         <div className="h-8 w-px bg-white/15" />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <select
-            value={audienceDisplay?.id ?? ''}
+            value={nurNdi ? 'keiner' : audienceDisplay?.id ?? ''}
+            disabled={nurNdi}
             onChange={(e) => e.target.value && void window.jmpr.present.assignAudience(Number(e.target.value))}
             title="Publikums-Bildschirm"
             className="h-8 max-w-[170px] rounded-md bg-white/10 border border-white/15 px-2 text-xs"
           >
-            {displays.map((d) => (
-              <option key={d.id} value={d.id} className="text-black">
-                {d.label}
+            {nurNdi ? (
+              <option value="keiner" className="text-black">
+                Keiner – nur NDI
               </option>
-            ))}
+            ) : (
+              displays.map((d) => (
+                <option key={d.id} value={d.id} className="text-black">
+                  {d.label}
+                </option>
+              ))
+            )}
           </select>
+          <NdiSchalter variante="referent" />
+          <GastKlickerPille />
           <HeaderBtn
             onClick={() => void window.jmpr.present.setScreen('black')}
             active={state.screen === 'black'}
@@ -77,7 +114,21 @@ export function PresenterView() {
           >
             ⬜
           </HeaderBtn>
-          <HeaderBtn onClick={() => void window.jmpr.present.toggleAudienceFullscreen()}>Vollbild</HeaderBtn>
+          <SchleifenKnopf schleife={state.schleife === true} bisMs={state.schleifeBisMs ?? null} />
+          <HeaderBtn
+            onClick={() => void window.jmpr.present.toggleAudienceFullscreen()}
+            disabled={nurNdi}
+            title={nurNdi ? 'Kein Publikumsfenster – Bild nur über NDI' : undefined}
+          >
+            Publikum Vollbild
+          </HeaderBtn>
+          <HeaderBtn
+            onClick={() => void window.jmpr.present.toggleReferentVollbild()}
+            active={vollbild}
+            title="Referentenansicht im Vollbild (F11)"
+          >
+            Vollbild
+          </HeaderBtn>
           <HeaderBtn onClick={() => setShowGrid((v) => !v)} active={showGrid}>
             Übersicht
           </HeaderBtn>
@@ -194,26 +245,50 @@ function Label({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** #293: Schleife live an/aus, mit Countdown bis zum nächsten Selbst-Weiterblättern. */
+function SchleifenKnopf({ schleife, bisMs }: { schleife: boolean; bisMs: number | null }) {
+  const [jetzt, setJetzt] = useState(() => Date.now());
+  useEffect(() => {
+    if (!schleife || bisMs == null) return;
+    const id = setInterval(() => setJetzt(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [schleife, bisMs]);
+  const rest = schleife && bisMs != null ? Math.max(0, Math.ceil((bisMs - jetzt) / 1000)) : null;
+  return (
+    <HeaderBtn
+      onClick={() => void window.jmpr.present.setSchleife(!schleife)}
+      active={schleife}
+      title={schleife ? 'Schleife anhalten' : 'Schleife starten: blättert nach der Standzeit selbst weiter'}
+    >
+      ⟳ Schleife{rest != null ? ` · ${rest} s` : schleife ? ' · steht' : ''}
+    </HeaderBtn>
+  );
+}
+
 function HeaderBtn({
   children,
   onClick,
   active,
   danger,
   title,
+  disabled,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   active?: boolean;
   danger?: boolean;
   title?: string;
+  /** Gesperrt, aber mit Tooltip (darum ohne pointer-events-none). */
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
+      disabled={disabled}
       className={cn(
-        'h-8 px-3 rounded-md text-xs font-semibold border transition-colors',
+        'h-8 px-3 shrink-0 whitespace-nowrap rounded-md text-xs font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
         danger
           ? 'border-[var(--destructive)]/60 text-[var(--destructive)] hover:bg-[var(--destructive)]/15'
           : active

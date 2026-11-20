@@ -38,6 +38,7 @@ import {
   stateKvAus,
   TEXT_A4_SCHREIBFEHLER,
   TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT,
+  TEXT_VERGESSEN_FEHLER,
   TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT,
   zoomZ,
 } from '../src/shared/zoom-text';
@@ -87,7 +88,13 @@ interface Probe {
   befehle(startNr?: number): Array<Record<string, unknown>>;
   ereignisse: Array<{ startNr: number; ev: BridgeEvent }>;
   /** Einstellungs-Attrappe; `slots` = gespeicherte Zoom-Slots (Plan B, Task B12; die Slot-Fälle stehen in zoom-slots.test.ts). */
-  einst: { anzeigename: string; versatzMs: number; laufzeit: { dir: string; fassung: string; eingerichtetAm: string } | null; slots: ZoomSlotEinstellung[] };
+  einst: { anzeigename: string; versatzMs: number; laufzeit: { dir: string; fassung: string; eingerichtetAm: string } | null; slots: ZoomSlotEinstellung[];
+    /** Ablage des letzten Meetings (#290) und die Nummern/Kenncodes, mit denen der Kern meetingMerken() rief. */
+    gemerkt: { nummer: string; kenncode: string | null } | null; merkAufrufe: Array<{ nummer: string; kenncode: string }>; vergessenAufrufe: number;
+    /** Schalter „Person im NDI-Namen“ (#287). */
+    personImNdiNamen: boolean };
+  /** Befehle, die der Kern an die Bridge gab (nach sendeFilter), im Testprozess mitgeschrieben: sofort, ohne die Datei der Attrappe. */
+  gesendet: Array<Record<string, unknown>>;
   zugangGespeichert: ZugangDaten[];
   /** Werte, mit denen der Kern sdkSchluessel.speichern() aufrief (nur im Test sichtbar). */
   sdkSchluesselGespeichert: string[];
@@ -139,6 +146,18 @@ interface BaueOptionen {
   versatzSpeichernLiefert?: boolean;
   /** Ändert die Sitzung, die der Kern von der Bridge liest (z. B. einen Teilnehmer in den Warteraum setzen). */
   sitzung?: (s: Session, startNr: number) => Session;
+  /** Schon gemerktes Meeting beim Start des Kerns (#290); `speichertKenncode: false` = keine Verschlüsselung (safeStorage fehlt). */
+  gemerkt?: { nummer: string; kenncode: string | null };
+  keineVerschluesselung?: boolean;
+  /** Abschluss-Korrektur 1: letztesMeeting() bzw. meetingMerken() werfen (Einstellungsdatei, Verschlüsselung). */
+  letztesWirft?: boolean;
+  merkenWirft?: boolean;
+  /** Abschluss-Korrektur 5: Was meetingVergessen() meldet; false = steht noch in der Einstellungsdatei. Vorgabe true. */
+  vergessenLiefert?: boolean;
+  /** Schalter „Person im NDI-Namen“ beim Start des Kerns (#287); Vorgabe aus. */
+  personImNdiNamen?: boolean;
+  /** Was setzePersonImNdiNamen() meldet; false = Einstellungsdatei nicht schreibbar (nur diese Sitzung, T92). Vorgabe true. */
+  personImNdiNamenSpeichernLiefert?: boolean;
 }
 
 function baueKern(o: BaueOptionen = {}): Probe {
@@ -157,7 +176,10 @@ function baueKern(o: BaueOptionen = {}): Probe {
   const sdkSchluesselGespeichert: string[] = [];
   let sdkSchluesselGeloescht = 0;
   let versatzNurSitzung = false;
-  const einst: Probe['einst'] = { anzeigename: o.anzeigename ?? ANZEIGENAME_VORGABE, versatzMs: o.versatzMs ?? 0, laufzeit: null, slots: [] };
+  let personNurSitzung = false;
+  const gesendet: Probe['gesendet'] = [];
+  const einst: Probe['einst'] = { anzeigename: o.anzeigename ?? ANZEIGENAME_VORGABE, versatzMs: o.versatzMs ?? 0, laufzeit: null, slots: [],
+    gemerkt: o.gemerkt ? { ...o.gemerkt } : null, merkAufrufe: [], vergessenAufrufe: 0, personImNdiNamen: o.personImNdiNamen ?? false };
   let zugang: ZugangStand = {
     daten: { clientId: 'test-id-1234', clientSecret: 'test-secret' },
     herkunft: 'stored',
@@ -187,6 +209,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
       start: () => (o.startFehler ? Promise.reject(o.startFehler()) : b.start()),
       send: (cmd) => {
         if (o.sendeFilter && !o.sendeFilter(cmd)) return;
+        gesendet.push({ ...cmd } as Record<string, unknown>);
         b.send(cmd);
       },
       stop: () => b.stop(),
@@ -238,6 +261,24 @@ function baueKern(o: BaueOptionen = {}): Probe {
       setzeLaufzeit: (v) => {
         einst.laufzeit = { ...v };
       },
+      // Letztes Meeting (#290): Ablage im Objekt; ohne Verschlüsselung bleibt nur die Nummer.
+      letztesMeeting: () => {
+        if (o.letztesWirft) throw new Error('Einstellungsdatei nicht lesbar');
+        return einst.gemerkt ? { ...einst.gemerkt } : null;
+      },
+      meetingMerken: (n, k) => {
+        einst.merkAufrufe.push({ nummer: n, kenncode: k });
+        if (o.merkenWirft) throw new Error('Verschlüsselung gescheitert');
+        const ok = !o.keineVerschluesselung && k !== '';
+        einst.gemerkt = { nummer: n.trim(), kenncode: ok ? k : null };
+        return { kenncodeGespeichert: ok };
+      },
+      meetingVergessen: () => {
+        einst.vergessenAufrufe++;
+        const geloescht = o.vergessenLiefert ?? true;
+        if (geloescht) einst.gemerkt = null;
+        return geloescht;
+      },
       // Zoom-Slots (Plan B, Task B12): im Arbeitsspeicher, Schreiben gelingt immer; Vorgaben wie fehlende Felder (Spec 7.2).
       slots: () => einst.slots.map((s) => ({ ...s })),
       setzeSlots: (s) => {
@@ -248,11 +289,18 @@ function baueKern(o: BaueOptionen = {}): Probe {
       setzeVorgaben: () => true,
       sprecher: () => ({ signal: 'sprecherVideo', haltezeitMs: 1000 }),
       setzeSprecher: () => true,
+      // #287: Schalter „Person im NDI-Namen“; scheitert das Schreiben, gilt er nur für diese Sitzung (wie settings.ts, T92).
+      personImNdiNamen: () => einst.personImNdiNamen,
+      setzePersonImNdiNamen: (an) => {
+        einst.personImNdiNamen = an;
+        personNurSitzung = !(o.personImNdiNamenSpeichernLiefert ?? true);
+        return !personNurSitzung;
+      },
       vorschau: () => true,
       setzeVorschau: () => true,
       ueber5: () => false,
       setzeUeber5: () => true,
-      einstellungsLage: () => ({ gesichert: null, verworfen: 0 }),
+      einstellungsLage: () => ({ gesichert: null, verworfen: 0, nurSitzung: personNurSitzung }),
     },
     sdkSchluessel: {
       lesen: () => ({ ...sdkSchluessel }),
@@ -287,6 +335,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
     kurze,
     ereignisse,
     einst,
+    gesendet,
     zugangGespeichert,
     sdkSchluesselGespeichert,
     sdkSchluesselGeloescht: () => sdkSchluesselGeloescht,
@@ -1014,6 +1063,126 @@ console.log('— Beitritt (Fall 1 zweiter Teil, 2, 5, 8, 24c), Review Focus 1 un
   ck('… keine Zeile mit „•••“ zwischen Einzelzeichen', !p.logs.some((z) => /•••.•••/.test(z)));
   const echo = p.logs.find((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"join"'));
   ck('… die Echo-Zeile ist lesbar, die Nummer maskiert', echo !== undefined && echo.includes('"passcode":""') && echo.includes('"meetingId":"•••"'));
+  await p.aufraeumen();
+}
+// ── Letztes Meeting merken (#290) ──
+console.log('— Letztes Meeting (#290)');
+{
+  const p = baueKern();
+  ck('leer: nichts gemerkt', JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: null, kenncodeGespeichert: false, kenncodeNichtGespeichert: false }));
+  ck('Beitreten merkt Nummer und Kenncode', await insMeeting(p) && p.einst.merkAufrufe.length === 1
+    && p.einst.merkAufrufe[0].nummer === NUMMER && p.einst.merkAufrufe[0].kenncode === KENNCODE);
+  ck('… letztesMeeting: Nummer, Kenncode gespeichert (ohne Kenncode im Objekt)',
+    JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: NUMMER, kenncodeGespeichert: true, kenncodeNichtGespeichert: false }));
+  await p.kern.verlassen();
+  p.kern.schliessen();
+  ck('… nach Schließen: Gemerktes bleibt, erneutMoeglich false',
+    p.kern.letztesMeeting().nummer === NUMMER && p.kern.letztesMeeting().kenncodeGespeichert && !p.kern.abbild().erneutMoeglich);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ gemerkt: { nummer: NUMMER, kenncode: KENNCODE } });
+  ck('Kern erbt das Gemerkte aus der Ablage', p.kern.letztesMeeting().nummer === NUMMER && p.kern.letztesMeeting().kenncodeGespeichert);
+  const gespaced = NUMMER.slice(0, 3) + ' ' + NUMMER.slice(3, 6) + ' ' + NUMMER.slice(6);
+  const r = await p.kern.beitreten({ nummer: gespaced, kenncode: '', anzeigename: 'JM Connect' });
+  ck('leerer Kenncode + gleiche Nummer (andere Schreibweise) → join mit gemerktem Kenncode',
+    ok(r) && await bis(() => p.kern.kurz().zustand === 'im_meeting') && p.befehle(1).find((x) => x.cmd === 'join')?.passcode === KENNCODE);
+  ck('… Kenncode bleibt gemerkt, Nummer in neuer Schreibweise',
+    p.einst.gemerkt?.kenncode === KENNCODE && p.einst.gemerkt?.nummer === gespaced.trim() && p.kern.letztesMeeting().kenncodeGespeichert);
+  const alles = JSON.stringify(p.kern.abbild()) + JSON.stringify(p.kern.stateKv()) + JSON.stringify(p.kern.kurz());
+  ck('… gemerkte Nummer/Kenncode nicht in Abbild/STATE/Kurzform', !alles.includes(NUMMER) && !alles.includes(KENNCODE));
+  ck('… keine Logzeile enthält Nummer oder Kenncode', !p.logs.some((z) => z.includes(NUMMER) || z.includes(KENNCODE)));
+  const echo = p.logs.find((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"join"'));
+  ck('… Bridge-stderr mit dem gemerkten Kenncode erscheint maskiert', echo !== undefined && echo.includes('•••') && !echo.includes(KENNCODE));
+  // Vergessen im Meeting: Meeting läuft weiter, Gemerktes leer.
+  p.kern.vergessen();
+  ck('vergessen() im Meeting: läuft weiter, Ablage geleert, Anzeige leer',
+    p.kern.kurz().zustand === 'im_meeting' && p.einst.vergessenAufrufe === 1 && p.einst.gemerkt === null
+    && JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: null, kenncodeGespeichert: false, kenncodeNichtGespeichert: false })
+    && p.kern.abbild().erneutMoeglich);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ gemerkt: { nummer: NUMMER, kenncode: KENNCODE } });
+  const andere = '8'.repeat(10);
+  const r = await p.kern.beitreten({ nummer: andere, kenncode: '', anzeigename: 'JM Connect' });
+  ck('andere Nummer + leerer Kenncode → passcode leer, Gemerktes ersetzt',
+    ok(r) && await bis(() => p.kern.kurz().zustand === 'im_meeting') && p.befehle(1).find((x) => x.cmd === 'join')?.passcode === ''
+    && p.einst.gemerkt?.nummer === andere && p.einst.gemerkt?.kenncode === null
+    && JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: andere, kenncodeGespeichert: false, kenncodeNichtGespeichert: false }));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ gemerkt: { nummer: NUMMER, kenncode: KENNCODE } });
+  const r = await p.kern.beitreten({ nummer: 'abc', kenncode: 'x', anzeigename: 'JM Connect' });
+  ck('ungültige Nummer → nichts gemerkt', text(r) === KT.N0 && p.einst.merkAufrufe.length === 0 && p.kern.letztesMeeting().nummer === NUMMER);
+  const r2 = await p.kern.beitreten({ nummer: NUMMER, kenncode: 'x', anzeigename: '' });
+  ck('ungültiger Name → nichts gemerkt', text(r2) === KT.N0b && p.einst.merkAufrufe.length === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ keineVerschluesselung: true });
+  ck('ohne Verschlüsselung: Beitritt klappt', await insMeeting(p));
+  ck('… kenncodeNichtGespeichert, Nummer gemerkt',
+    JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: NUMMER, kenncodeGespeichert: true, kenncodeNichtGespeichert: true }));
+  p.kern.vergessen();
+  ck('… vergessen() setzt kenncodeNichtGespeichert zurück', !p.kern.letztesMeeting().kenncodeNichtGespeichert && p.kern.letztesMeeting().nummer === null);
+  await p.aufraeumen();
+}
+// Abschluss-Korrektur 1: Ein Fehler der Einstellungen blockiert das Beitreten nie.
+{
+  const p = baueKern({ merkenWirft: true });
+  let beigetreten = false;
+  try {
+    beigetreten = await insMeeting(p);
+  } catch {
+    beigetreten = false; // ein Wurf bis hierher ist genau der Fehler, den Korrektur 1 behebt
+  }
+  ck('K1: meetingMerken wirft → Beitritt klappt trotzdem, join gesendet',
+    beigetreten && p.einst.merkAufrufe.length === 1 && p.befehle(1).find((x) => x.cmd === 'join')?.passcode === KENNCODE);
+  ck('K1: … zählt als nicht gespeichert: der Kern hält den Kenncode nur für diese Sitzung',
+    JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: NUMMER, kenncodeGespeichert: true, kenncodeNichtGespeichert: true }));
+  await p.aufraeumen();
+}
+{
+  let p: Probe | null = null;
+  try {
+    p = baueKern({ letztesWirft: true });
+  } catch {
+    p = null;
+  }
+  ck('K1: letztesMeeting wirft beim Erzeugen → der Kern entsteht, nichts gemerkt', p !== null
+    && JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: null, kenncodeGespeichert: false, kenncodeNichtGespeichert: false }));
+  if (p) {
+    ck('K1: … Beitritt klappt', await insMeeting(p));
+    await p.aufraeumen();
+  }
+}
+// Abschluss-Korrektur 2: Eine Nummer, die gueltigeLetzteNummer verwirft (65 Zeichen), merkt auch der Kern nicht.
+{
+  const p = baueKern({ gemerkt: { nummer: NUMMER, kenncode: KENNCODE } });
+  const lang = '7'.repeat(65);
+  const r = await p.kern.beitreten({ nummer: lang, kenncode: 'x', anzeigename: 'JM Connect' });
+  ck('K2: Nummer mit 65 Zeichen → Beitritt läuft, die Einstellungen werden gefragt (sie löschen beide Felder)',
+    ok(r) && p.einst.merkAufrufe.length === 1 && p.einst.merkAufrufe[0].nummer === lang);
+  ck('K2: … der Kern merkt nichts: weder die neue noch die alte Nummer',
+    JSON.stringify(p.kern.letztesMeeting()) === JSON.stringify({ nummer: null, kenncodeGespeichert: false, kenncodeNichtGespeichert: false }));
+  await p.aufraeumen();
+}
+// Abschluss-Korrektur 5: „Vergessen“ meldet, wenn die Daten noch auf der Platte stehen.
+{
+  const p = baueKern({ gemerkt: { nummer: NUMMER, kenncode: KENNCODE } });
+  // `| undefined`: bis Korrektur 5 lieferte vergessen() nichts; so scheitert der Fall sauber statt mit einem Wurf.
+  const r = p.kern.vergessen() as ZoomErgebnis | undefined;
+  ck('K5: vergessen() gelingt → ok', r?.ok === true && p.einst.vergessenAufrufe === 1 && p.kern.letztesMeeting().nummer === null);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ gemerkt: { nummer: NUMMER, kenncode: KENNCODE }, vergessenLiefert: false });
+  const r = p.kern.vergessen() as ZoomErgebnis | undefined;
+  ck('K5: meetingVergessen liefert false → ok:false mit TEXT_VERGESSEN_FEHLER', r !== undefined && text(r) === TEXT_VERGESSEN_FEHLER);
+  ck('K5: … die Speicherkopie ist trotzdem leer', JSON.stringify(p.kern.letztesMeeting())
+    === JSON.stringify({ nummer: null, kenncodeGespeichert: false, kenncodeNichtGespeichert: false }));
   await p.aufraeumen();
 }
 {
@@ -2461,6 +2630,93 @@ console.log('— Fix-Welle: Ausnahme in der Startfolge eines Wiederbeitritts-Ver
 
 // ── Plan B, Task B5 bis B12: Die Slot-Verben beantwortete der Kern mit F7. Seit Task B13 führt er sie aus (PK13 in
 // zoom-slots.test.ts); ein unbekanntes Verb bleibt F7 (ebenda). ──
+
+// ── #287 „Person im NDI-Namen“ (Plan 2026-11-12, Task 2): Der Kern merkt je Sender den Namen seines slotOn ──
+console.log('— #287 · Person im NDI-Namen: gesendeter Name je Sender, Schalter ohne Neustart, kein Name im Log (K1–K5)');
+/** slotOn-Befehle an die Bridge in Reihenfolge (Mitschrieb im Testprozess). */
+const slotOns = (p: Probe): Array<Record<string, unknown>> => p.gesendet.filter((c) => c.cmd === 'slotOn');
+const zaehleCmd = (p: Probe, cmd: string): number => p.gesendet.filter((c) => c.cmd === cmd).length;
+/** Die Bridge meldete für Slot `nr` einen Sender unter diesem NDI-Namen (mit `ziel`: und mit diesem Ziel). */
+function meldete(p: Probe, nr: number, ndi: string, ziel?: number): boolean {
+  return p.ereignisse.some(({ ev }) => {
+    const e = ev as unknown as { ev: string; slot: number; state: string; ndi: string; target: number };
+    return e.ev === 'slot' && e.slot === nr && e.state !== 'off' && e.ndi === ndi && (ziel === undefined || e.target === ziel);
+  });
+}
+const slotZustand = (p: Probe, nr: number): string | undefined => p.kern.abbild().slots.find((s) => s.einstellung.nr === nr)?.zustand;
+/** Ein Personenname als ganzes Wort (die Attrappe hat Anna und Ben im Meeting). */
+const PERSON_IM_TEXT = /(?<![\p{L}\p{N}])(?:Anna|Ben)(?![\p{L}\p{N}])/u;
+{
+  const p = baueKern({ personImNdiNamen: true });
+  ck('#287 K5: abbild().personImNdiNamen folgt der Einstellung (an)', p.kern.abbild().personImNdiNamen === true);
+  await insMeeting(p);
+  const nr = p.kern.slotAnlegen().nr ?? 0;
+  ck('#287 K1: Schalter an, Teilnehmer-Slot „Zoom 1“ mit Person Anna eingeschaltet', nr === 1 && ok(p.kern.slotAendern(nr, { person: 'Anna' }))
+    && ok(p.kern.slotStart(nr, true)));
+  ck('… das slotOn trägt „Zoom 1 (Anna)“ und zielt auf Anna', slotOns(p).length === 1 && slotOns(p)[0]?.ndi === 'Zoom 1 (Anna)' && slotOns(p)[0]?.id === ANNA);
+  ck('… die Bridge meldet den Sender unter diesem Namen, der Slot übernimmt ihn und zeigt Anna',
+    await bis(() => meldete(p, nr, 'Zoom 1 (Anna)') && slotZustand(p, nr) === 'zeigt', 4000));
+  ck('… kein slotOff, kein fremder Sender', (await warte(300), zaehleCmd(p, 'slotOff') === 0) && slotZustand(p, nr) === 'zeigt'
+    && !p.logs.some((z) => z.includes('fremder Sender')));
+
+  ck('#287 K2: Person per Slot-Änderung auf Ben, während der Slot läuft', ok(p.kern.slotAendern(nr, { person: 'Ben' })));
+  ck('… die Bridge zeigt Ben weiter unter „Zoom 1 (Anna)“, der Slot behält den Sender (Ziel Ben)',
+    await bis(() => meldete(p, nr, 'Zoom 1 (Anna)', BEN) && p.kern.kurz().slotKurz.find((s) => s.nr === nr)?.ziel === 'Ben'
+      && slotZustand(p, nr) === 'zeigt', 4000));
+  ck('… kein slotOff, kein neues slotOn, nur ein slotSet mit Bens Kennung', (await warte(300), zaehleCmd(p, 'slotOff') === 0) && slotOns(p).length === 1
+    && p.gesendet.some((c) => c.cmd === 'slotSet' && c.id === BEN) && !p.logs.some((z) => z.includes('fremder Sender')));
+
+  const vorher = p.gesendet.length;
+  ck('#287 K3: Schalter aus, während der Slot läuft → ok, gespeichert, Abbild folgt (K5)', ok(p.kern.personImNdiNamenSetzen(false))
+    && p.einst.personImNdiNamen === false && p.kern.abbild().personImNdiNamen === false);
+  ck('… kein Befehl an die Bridge, der Sender läuft weiter', (await warte(300), p.gesendet.length === vorher) && slotZustand(p, nr) === 'zeigt');
+  ck('… „Stopp“: genau ein slotOff, der Sender ist weg', ok(p.kern.slotStart(nr, false)) && (await bis(() => slotZustand(p, nr) === 'aus', 3000))
+    && zaehleCmd(p, 'slotOff') === 1);
+  ck('… „Start“: das neue slotOn trägt „Zoom 1“ (der Schalter gilt ab dem nächsten Start), der Slot zeigt Ben', ok(p.kern.slotStart(nr, true))
+    && slotOns(p).length === 2 && slotOns(p)[1]?.ndi === 'Zoom 1' && slotOns(p)[1]?.id === BEN
+    && (await bis(() => meldete(p, nr, 'Zoom 1') && slotZustand(p, nr) === 'zeigt', 4000)));
+  ck('… Schalter wieder an, „Stopp“ und „Start“ → „Zoom 1 (Ben)“ (die Person von jetzt), kein fremder Sender',
+    ok(p.kern.personImNdiNamenSetzen(true)) && ok(p.kern.slotStart(nr, false)) && (await bis(() => slotZustand(p, nr) === 'aus', 3000))
+    && ok(p.kern.slotStart(nr, true)) && slotOns(p)[2]?.ndi === 'Zoom 1 (Ben)'
+    && (await bis(() => meldete(p, nr, 'Zoom 1 (Ben)') && slotZustand(p, nr) === 'zeigt', 4000))
+    && (await warte(300), zaehleCmd(p, 'slotOff') === 2) && !p.logs.some((z) => z.includes('fremder Sender')));
+  ck('#287 K5: keine Logzeile aus K1–K3 nennt Anna oder Ben', p.logs.length > 0 && !p.logs.some((z) => PERSON_IM_TEXT.test(z)));
+  ck('… die Echo-Zeile der Attrappe zum slotOn steht nur maskiert im Log (die Prüfung oben greift)',
+    p.logs.some((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"slotOn"') && z.includes('"ndi":"Zoom 1 (‹Name›)"')));
+  await p.aufraeumen();
+}
+{
+  // Review Task 2, Minor 3: wie K2, aber per Handwahl (slotPersonWaehlen) statt Slot-Änderung.
+  const p = baueKern({ personImNdiNamen: true });
+  await insMeeting(p);
+  const nr = p.kern.slotAnlegen().nr ?? 0;
+  ck('#287 K2b (Handwahl): Slot läuft als „Zoom 1 (Anna)“', ok(p.kern.slotAendern(nr, { person: 'Anna' })) && ok(p.kern.slotStart(nr, true))
+    && (await bis(() => meldete(p, nr, 'Zoom 1 (Anna)') && slotZustand(p, nr) === 'zeigt', 4000)));
+  ck('… Handwahl Ben → genau ein slotSet mit Bens Kennung', ok(p.kern.slotPersonWaehlen(nr, BEN))
+    && p.gesendet.filter((c) => c.cmd === 'slotSet').length === 1 && p.gesendet.some((c) => c.cmd === 'slotSet' && c.id === BEN));
+  ck('… die Bridge zeigt Ben unter „Zoom 1 (Anna)“, der Slot behält den Sender; kein slotOff, kein zweites slotOn, kein fremder Sender',
+    (await bis(() => meldete(p, nr, 'Zoom 1 (Anna)', BEN) && p.kern.kurz().slotKurz.find((s) => s.nr === nr)?.ziel === 'Ben' && slotZustand(p, nr) === 'zeigt', 4000))
+    && (await warte(300), zaehleCmd(p, 'slotOff') === 0) && slotOns(p).length === 1 && !p.logs.some((z) => z.includes('fremder Sender'))
+    && !p.logs.some((z) => PERSON_IM_TEXT.test(z)));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern();
+  ck('#287 K4: Schalter aus (Vorgabe) → abbild().personImNdiNamen false', p.kern.abbild().personImNdiNamen === false);
+  await insMeeting(p);
+  const nr = p.kern.slotAnlegen().nr ?? 0;
+  ck('… Teilnehmer-Slot mit Anna → das slotOn trägt den NDI-Namen des Slots wie bisher', ok(p.kern.slotAendern(nr, { person: 'Anna' }))
+    && ok(p.kern.slotStart(nr, true)) && slotOns(p)[0]?.ndi === 'Zoom 1');
+  ck('… der Slot zeigt Anna, kein slotOff', (await bis(() => slotZustand(p, nr) === 'zeigt', 4000)) && (await warte(300), zaehleCmd(p, 'slotOff') === 0));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ personImNdiNamenSpeichernLiefert: false });
+  ck('#287 K5 (Schreibfehler): Schalter an → ok, gilt für diese Sitzung (T92 und die Logzeile), das Abbild zeigt an',
+    ok(p.kern.personImNdiNamenSetzen(true)) && p.kern.abbild().personImNdiNamen === true && p.kern.abbild().einstellungen.nurSitzung === true
+    && p.logs.includes('[zoom] Slots nur für diese Sitzung gemerkt (Einstellungsdatei nicht schreibbar)'));
+  await p.aufraeumen();
+}
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);

@@ -1,7 +1,10 @@
 // Shared domain + IPC types for JM Presenter.
 // Used by the main process, the preload bridge and the renderer.
+import type { OeffnenModus } from './dateien';
+import type { GastKlickerStatus } from './gast-klicker';
 
-export type ViewName = 'editor' | 'presenter' | 'audience';
+/** `ndi` = verstecktes Fenster, das das Publikumsbild für den NDI-Ausgang zeichnet (#303). */
+export type ViewName = 'editor' | 'presenter' | 'audience' | 'ndi';
 
 export type SourceKind = 'pdf' | 'image';
 
@@ -47,6 +50,27 @@ export interface Slide {
   notes: string;
   hidden: boolean;
   overlays: Overlay[];
+  /** #293: eigener Übergang beim Hereinkommen dieser Folie; fehlt/null = wie alle. */
+  uebergang?: Uebergang | null;
+  /** #293: eigene Standzeit in der Schleife (Sekunden); fehlt/null = wie alle. */
+  standzeitSek?: number | null;
+}
+
+/** #293: Art des Folienwechsels auf der Publikumsansicht. */
+export type UebergangsArt = 'schnitt' | 'blende';
+
+export interface Uebergang {
+  art: UebergangsArt;
+  /** Dauer der Überblendung; bei Schnitt ohne Wirkung. */
+  dauerMs: number;
+}
+
+/** #293: Wiedergabe-Einstellungen für alle Folien (Reiter „Übergänge“). */
+export interface Wiedergabe {
+  uebergang: Uebergang;
+  /** Schleife: blättert nach der Standzeit selbst weiter, nach der letzten Folie zur ersten. */
+  schleife: boolean;
+  standzeitSek: number;
 }
 
 /** The editable project document (serialised into a .jmpres ZIP). */
@@ -55,6 +79,8 @@ export interface ProjectDoc {
   name: string;
   slides: Slide[];
   sources: SourceMeta[];
+  /** #293; fehlt in Projekten vor 0.11.0 → Vorgabe (Schnitt, keine Schleife). */
+  wiedergabe?: Wiedergabe;
 }
 
 /** Audience screen mode — normal slide, or a full black/white pause screen. */
@@ -66,6 +92,10 @@ export interface PresentationState {
   index: number; // index into the visible-slide list
   total: number; // number of visible slides
   screen: ScreenMode; // black/white pause screen (B/W keys, remote, buttons)
+  /** #293: Schleife gerade an (live in der Referentenansicht umschaltbar). */
+  schleife?: boolean;
+  /** #293: Zeitpunkt (epoch ms) des nächsten Selbst-Weiterblätterns; null = keiner geplant. */
+  schleifeBisMs?: number | null;
 }
 
 /**
@@ -77,6 +107,8 @@ export interface PresentationPayload {
   sources: Record<string, { kind: SourceKind; bytes: Uint8Array }>;
   images: Record<string, Uint8Array>; // overlay image assets by id
   startIndex: number;
+  /** #293: Übergang + Schleife des Projekts (die Folien tragen ihre eigenen Abweichungen). */
+  wiedergabe?: Wiedergabe;
 }
 
 export interface DisplayInfo {
@@ -92,15 +124,30 @@ export interface ImportedFile {
   name: string;
   kind: SourceKind;
   bytes: Uint8Array;
+  /** Nur bei Office-Importen: Aufbau-Animationen der .pptx. */
+  animations?: OfficeAnimations;
+  /** Nur bei Office-Importen: Aufbau-Schritte sind schon als Seiten enthalten. */
+  expanded?: boolean;
 }
 
-/**
- * Push vom Hauptprozess (PRESENTER OPEN, Issue #81): importierte Dateien als
- * Präsentation vorlegen. `replace` = vorhandenes Projekt ersetzen (frisches Deck).
- */
-export interface OpenFilesPayload {
+/** Ergebnis des gemeinsamen Lade-Wegs im Hauptprozess (Drop, Doppelklick, PRESENTER OPEN). */
+export interface GeladeneDateien {
   files: ImportedFile[];
-  replace: boolean;
+  /** Eine einzeln abgelegte .jmpres-Datei. */
+  projekt: { name: string; bytes: Uint8Array } | null;
+  /** Lesbare Meldungen zu Übersprungenem/Fehlgeschlagenem. */
+  hinweise: string[];
+}
+
+/** Ergebnis von `files.importiereAbgelegte`: dazu die Namen abgelegter Dateien ohne Pfad. */
+export interface AbgelegteDateien extends GeladeneDateien {
+  /** Aus Browser/Mail gezogen: keine Datei auf der Platte, darum übersprungen. */
+  ohnePfad: string[];
+}
+
+/** Push vom Hauptprozess (Kanal `project:openFiles`): Dateien nach `modus` öffnen. */
+export interface OpenFilesPayload extends GeladeneDateien {
+  modus: OeffnenModus;
 }
 
 /** On-click build animations read from a .pptx (LibreOffice flattens them away). */
@@ -224,6 +271,34 @@ export interface TimerSyncConfig {
   port: number;
 }
 
+/** #309: gemerkter Zustand der Referentenansicht (`userData/referent-config.json`). */
+export interface ReferentConfig {
+  /** Referentenfenster beim nächsten Öffnen im Vollbild. */
+  vollbild: boolean;
+}
+
+// ---- NDI-Ausgang (#303) ----
+
+/** `startet`: Sender-Prozess lädt; `sendet`: Quelle steht im Netz; `nicht-verfuegbar`: siehe `grund`. */
+export type NdiLage = 'aus' | 'startet' | 'sendet' | 'nicht-verfuegbar';
+
+/** Zustand des NDI-Ausgangs, vom Hauptprozess an alle Fenster gemeldet. */
+export interface NdiStatus {
+  /** Der gemerkte Schalter. */
+  an: boolean;
+  lage: NdiLage;
+  /** Verbundene NDI-Empfänger (etwa jede Sekunde vom Sender). */
+  empfaenger: number;
+  /** Warum NDI nicht verfügbar ist, sonst null. */
+  grund: string | null;
+}
+
+/**
+ * Wohin „Präsentation starten“ das Publikumsbild gibt: Bildschirm-ID, `null` = automatisch (zweiter Bildschirm,
+ * sonst der Haupt-), `'keiner'` = kein Publikumsfenster, das Bild geht nur über NDI (#303).
+ */
+export type StartZiel = number | null | 'keiner';
+
 /** The window API exposed on `window.jmpr`. */
 export interface JmprApi {
   platform: NodeJS.Platform;
@@ -239,6 +314,12 @@ export interface JmprApi {
      *  `expandBuilds` is set, .pptx on-click animations are split into per-step
      *  slides (experimental; falls back to the flat conversion on any doubt). */
     importOffice: (expandBuilds?: boolean) => Promise<OfficeImportResult>;
+    /**
+     * Abgelegte Dateien laden (Drag & Drop, #298): PDF, Bild, Office, einzelne .jmpres. Die
+     * Pfade holt der Preload selbst (`webUtils.getPathForFile`) – Seiten-JS kann keinen Pfad
+     * vorgeben. Mehr als 200 Dateien gehen in Portionen.
+     */
+    importiereAbgelegte: (files: File[], expandBuilds: boolean) => Promise<AbgelegteDateien>;
     /** Open a .jmpres project; returns the raw zip bytes. */
     openProject: () => Promise<{ name: string; bytes: Uint8Array } | null>;
     /** Save .jmpres project bytes to disk (save dialog). */
@@ -252,8 +333,8 @@ export interface JmprApi {
   };
 
   present: {
-    /** Hand the payload to the main process and open presenter + audience windows. */
-    start: (payload: PresentationPayload, audienceDisplayId: number | null) => Promise<void>;
+    /** Hand the payload to the main process and open presenter + audience windows (bei `'keiner'` nur die Referentenansicht). */
+    start: (payload: PresentationPayload, ziel: StartZiel) => Promise<void>;
     /** Fetch the active payload (presenter/audience windows call this on load). */
     getPayload: () => Promise<PresentationPayload | null>;
     getState: () => Promise<PresentationState>;
@@ -263,11 +344,19 @@ export interface JmprApi {
     stop: () => Promise<void>;
     /** Set the audience pause screen (black/white/live); 'live' shows the slide. */
     setScreen: (mode: ScreenMode) => Promise<void>;
+    /** #293: Schleife live an-/ausschalten (Referentenansicht). */
+    setSchleife: (an: boolean) => Promise<void>;
     /** List displays + which one holds the audience window. */
     displays: () => Promise<DisplayInfo[]>;
     /** Move the audience window to a given display (fullscreen). */
     assignAudience: (displayId: number) => Promise<void>;
     toggleAudienceFullscreen: () => Promise<boolean>;
+    /** #309: Referentenfenster ins Vollbild und zurück (Knopf „Vollbild“, F11); liefert den angeforderten Zustand. */
+    toggleReferentVollbild: () => Promise<boolean>;
+    /** #309: Ist das Referentenfenster gerade im Vollbild? */
+    referentVollbild: () => Promise<boolean>;
+    /** #309: Push bei jedem Wechsel des Referentenfensters (auch durch das System). */
+    onReferentVollbild: (cb: (an: boolean) => void) => () => void;
     onState: (cb: (s: PresentationState) => void) => () => void;
   };
 
@@ -283,6 +372,15 @@ export interface JmprApi {
     onStatus: (cb: (s: RemoteStatus) => void) => () => void;
   };
 
+  /** #317 Gast-Klicker übers Internet (Remote-Gäste schalten selbst weiter). */
+  gastKlicker: {
+    status: () => Promise<GastKlickerStatus>;
+    setzeAn: (an: boolean) => Promise<GastKlickerStatus>;
+    pause: (an: boolean) => Promise<GastKlickerStatus>;
+    neuerLink: () => Promise<GastKlickerStatus>;
+    onStatus: (cb: (s: GastKlickerStatus) => void) => () => void;
+  };
+
   /** Live timer sync (countdown mirrored from JM Timer over the LAN). */
   timer: {
     /** Current live timer state (connected + countdown snapshot). */
@@ -293,5 +391,17 @@ export interface JmprApi {
     apply: (config: TimerSyncConfig) => Promise<TimerSyncConfig>;
     /** Subscribe to live timer-state pushes. */
     onState: (cb: (s: TimerSource) => void) => () => void;
+  };
+
+  /** NDI-Ausgang des Publikumsbilds (#303, nur Windows). */
+  ndi: {
+    status(): Promise<NdiStatus>;
+    /** Schalter setzen und merken; liefert den neuen Zustand. */
+    setzeAn(an: boolean): Promise<NdiStatus>;
+    onStatus(cb: (s: NdiStatus) => void): () => void;
+    /** Nur das NDI-Fenster: neues Präsentations-Payload (null = gestoppt). */
+    onPayload(cb: (p: PresentationPayload | null) => void): () => void;
+    /** Nur das NDI-Fenster: geladen, bereit für den Bild-Port. */
+    fensterBereit(): void;
   };
 }

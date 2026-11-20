@@ -2,8 +2,9 @@ import * as pdfjsLib from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 // Vite emits the worker as an asset and gives us its URL.
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { getSource, putSource } from './assets';
-import { bytesToBlob } from './bytes';
+import { istSvg } from '@shared/bildformat';
+import { getSource, putSource, removeSource } from './assets';
+import { bildDekodieren } from './bild-dekodieren';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -40,16 +41,25 @@ function loadImage(sourceId: string): Promise<ImageBitmap> {
   if (cached) return cached;
   const entry = getSource(sourceId);
   if (!entry) return Promise.reject(new Error(`No image source for ${sourceId}`));
-  const task = createImageBitmap(bytesToBlob(entry.bytes));
+  const task = bildDekodieren(entry.bytes);
   imageCache.set(sourceId, task);
   return task;
 }
 
-/** Number of pages in a freshly imported PDF (bytes are registered first). */
+/**
+ * Number of pages in a freshly imported PDF (bytes are registered first). Kann pdf.js sie nicht
+ * lesen (beschädigt, leer, kennwortgeschützt), bleibt nichts registriert und der Fehler geht weiter.
+ */
 export async function pdfPageCount(id: string, bytes: Uint8Array): Promise<number> {
   putSource(id, 'pdf', bytes);
-  const doc = await loadDoc(id);
-  return doc.numPages;
+  try {
+    const doc = await loadDoc(id);
+    return doc.numPages;
+  } catch (err) {
+    docCache.delete(id);
+    removeSource(id);
+    throw err;
+  }
 }
 
 function newCanvas(w: number, h: number): HTMLCanvasElement {
@@ -97,6 +107,14 @@ async function renderBaseUncached(
     const h = w / aspect;
     const canvas = newCanvas(w, h);
     const ctx = canvas.getContext('2d')!;
+    // #313 (Owner 18.11., Entscheid a): SVG-FOLIEN stehen auf Weiß wie PDF-Seiten – so, wie der Editor sie zeigt.
+    // Diagramme/Logos ohne Hintergrund wären sonst im Publikum schwarz auf schwarz. Overlays (paint.ts) bleiben
+    // durchsichtig, andere Bildformate (PNG mit Alpha fürs NDI-Keying) auch.
+    const entry = getSource(sourceId);
+    if (entry && istSvg(entry.bytes)) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     return { canvas, width: canvas.width, height: canvas.height, aspect };
   }
@@ -115,15 +133,20 @@ async function renderBaseUncached(
   return { canvas, width: canvas.width, height: canvas.height, aspect };
 }
 
-/** Drop cached docs/bitmaps (e.g. when loading a new project). */
-export function clearPdfCaches(): void {
-  for (const task of docCache.values()) {
+/**
+ * Drop cached docs/bitmaps (e.g. when loading a new project). `behalte` = Quellen, deren
+ * Dokumente bleiben (beim Ersetzen die frisch gelesenen).
+ */
+export function clearPdfCaches(behalte?: ReadonlySet<string>): void {
+  for (const [id, task] of [...docCache]) {
+    if (behalte?.has(id)) continue;
     void task.then((doc) => doc.destroy()).catch(() => undefined);
+    docCache.delete(id);
   }
-  docCache.clear();
-  for (const task of imageCache.values()) {
+  for (const [id, task] of [...imageCache]) {
+    if (behalte?.has(id)) continue;
     void task.then((bmp) => bmp.close()).catch(() => undefined);
+    imageCache.delete(id);
   }
-  imageCache.clear();
   baseCache.clear();
 }

@@ -93,8 +93,8 @@ Zustandsmaschine und die Prozess-Schicht (`Bridge`) gegen eine Attrappe
 
 `logik-test` (`scripts/logik-test.mjs`, seit Connect 0.4.0) prüft die
 Entscheidungslogik der Slots in C++ ohne SDK: Es übersetzt die Prüfprogramme
-`native/slot_logic_test.cpp`, `native/audio_mix_test.cpp` und
-`native/delay_line_test.cpp` direkt mit dem Compiler (ohne CMake) in einen
+`native/slot_logic_test.cpp`, `native/audio_mix_test.cpp`,
+`native/delay_line_test.cpp` und `native/kachel_logik_test.cpp` direkt mit dem Compiler (ohne CMake) in einen
 Temp-Ordner und startet sie. Es braucht also einen C++-Compiler, aber weder Zoom-
 noch NDI-SDK: `g++` oder `clang++` mit `-std=c++17 -Wall -Werror`, unter Windows
 `cl /W4 /WX` über `vswhere` und `VsDevCmd.bat`. Die CI fährt es im Job
@@ -303,8 +303,8 @@ Absturz behandelt.
 | `join` | `meetingId`, `passcode`, `displayName` | Tritt dem Meeting bei. |
 | `leave` | — | Verlässt das Meeting, bleibt aber angemeldet. Baut **vorher** alle Slots ab (jeder meldet sich einzeln, Ton vor Bild, siehe Abschnitt 7; bis 0.3.0 alle Video-Abos). |
 | `quit` | — | Beendet `zoom-bridge.exe` sauber. |
-| `slotOn` | `slot` (1–16), `ndi` (fertiger NDI-Name, höchstens 60 Code-Punkte, ohne `:`), `mode` (`participant`/`speaker`/`share`), `id` (nur `participant`; fehlt oder 0 = kein Ziel), `resolution` (`360p`/`720p`/`1080p`), `audio` (`mix`/`person`/`off`), `shareAudio` (Bool), `fallback` (`transparent`/`freeze`/`black`/`white`), `showNoVideo` (Bool) | Legt den Slot mit seinem festen NDI-Sender an und hängt ihn auf das erste Ziel seines Modus — **Einzelheiten in Abschnitt 7**. Der erste Fehler der Prüffolge gewinnt; angelegt wird dann nichts. |
-| `slotSet` | `slot`, dazu beliebig viele von `mode`, `id`, `resolution`, `audio`, `shareAudio`, `fallback`, `showNoVideo` | Prüft erst alle Felder, ändert dann; höchstens ein Umhängen. Der Sender bleibt. |
+| `slotOn` | `slot` (1–16), `ndi` (fertiger NDI-Name, höchstens 60 Code-Punkte, ohne `:`), `mode` (`participant`/`speaker`/`share`), `id` (nur `participant`; fehlt oder 0 = kein Ziel), `resolution` (`360p`/`720p`/`1080p`), `audio` (`mix`/`person`/`off`), `shareAudio` (Bool), `fallback` (`transparent`/`freeze`/`black`/`white`/`tile`; `tile` = Zoom-Kachel, nur Teilnehmer/Sprecher, #306), `frame` (`native`/`fit`, optional, fehlt = `native`; `fit` = Hochkant in 16:9 einpassen, nur Teilnehmer/Sprecher, #310), `showNoVideo` (Bool) | Legt den Slot mit seinem festen NDI-Sender an und hängt ihn auf das erste Ziel seines Modus — **Einzelheiten in Abschnitt 7**. Der erste Fehler der Prüffolge gewinnt; angelegt wird dann nichts. |
+| `slotSet` | `slot`, dazu beliebig viele von `mode`, `id`, `resolution`, `audio`, `shareAudio`, `fallback`, `frame`, `showNoVideo` | Prüft erst alle Felder, ändert dann; höchstens ein Umhängen. Der Sender bleibt. |
 | `slotOff` | `slot` | Baut den Slot ab und schließt seinen Sender. |
 | `speakerConfig` | `signal` (`speakerVideo`/`activeVideo`/`activeAudio`), `holdMs` (0–5000) | Signal und Haltezeit für alle Sprecher-Slots; braucht kein `init`. |
 | `previewMode` | `on` (Bool) | Vorschau aller Slots an oder aus; braucht kein `init`. |
@@ -501,6 +501,20 @@ an (Abschnitt 8).
 **Ersatzbild und Halten.** Kommt 200 ms kein Bild, sendet der Slot sein Ersatzbild:
 `transparent` (UYVA mit Alpha 0, höchstens alle 100 ms), `black`, `white` oder
 `freeze` (die Kopie des letzten Bildes dieses Ziels; ohne Kopie transparent).
+**Schonfrist (#285/#286, seit Connect 0.4.1):** Teilnehmer- und Sprecher-Slots, deren
+Kamera Zoom als an meldet, warten 2 s (`TEILNEHMER_SCHONFRIST_MS`). Bis dahin senden sie
+nichts zusätzlich, und der NDI-Empfänger hält das letzte Bild; erst dann kommen
+Ersatzbild und `fallback/noFrames`. Vorher wurde jede Lücke ab 200 ms im Zoom-Strom zu
+einem schwarzen Bild auf dem Programm (08.11.: 164 Aussetzer, 138 davon kürzer als 2 s).
+Meldet Zoom die Kamera als aus oder läuft ein `bufferMismatch`, bleibt es bei 200 ms.
+Damit „Kamera aus“ auch ohne `videoStatus` nach 200 ms greift, fragt die Bridge in der
+Schonfrist ab 200 ms einmal je Lücke `IsVideoOn()` (vorher geschah das beim Übergang
+nach 200 ms). Die Schonfrist gilt nur aus `live`; steht der Slot schon auf `fallback`,
+bleibt das Ersatzbild. Damit überbrückte Lücken sichtbar bleiben, schreibt die Bridge je
+solcher Lücke beim nächsten Bild desselben Ziels eine Zeile `Slot <n>: Bildluecke <ms> ms
+(bei 200 ms Kamera laut Zoom an; Schonfrist 2000 ms)` ins Log; nach einem Umhängen
+mitten in der Lücke entfällt sie. Die Attrappe bildet weder die 200 ms noch die
+Schonfrist nach.
 Freigabe-Slots senden die Kopie des letzten Bildes ihrer Freigabe (`sent` = `held`)
 und wechseln den Zustand erst nach 2 s ohne Bild. Eine Kopie eines früheren Ziels
 geht nie hinaus. Was der Sender gerade zusätzlich schickt, sagt `sent` in jedem
@@ -510,6 +524,107 @@ ersten Bild als aus (`videoStatus`), steht der Slot gleich auf `fallback/cameraO
 auch im Sprecher-Slot, wie in der Attrappe und im Sinn von Spec 6.10 Schritt 7 (gleich
 T19, nicht T20). Spec 6.12 nennt diesen Fall nicht unter den Ausnahmen, in denen der
 Zustand vor dem ersten Bild nicht `starting` bleibt; maßgeblich ist hier das Verhalten.
+
+**Zoom-Kachel (`tile`, #306).** Das fünfte Ersatzbild gilt nur für Teilnehmer- und
+Sprecher-Slots; im Modus Freigabe verhält sich `tile` wie `transparent`. Die Kachel
+(`sent` = `tile`) steht dort, wo sonst das Ersatzbild stünde, aber nur mit Ziel ≠ 0
+und ohne einen der Ziel-0-Gründe `participantLeft`, `noTarget`, `speakerNone`,
+`shareNone` (`slotlogic::istZiel0Grund`); sonst geht `transparent` hinaus. Dafür bekommt
+`ersatzArt` Modus, Ziel und Grund mit; sie wirken nur bei `tile`. Die vier bisherigen
+Ersatzbilder entscheiden für jeden Grund bitgleich wie vorher (Logik-Test über alle
+7 372 800 Kombinationen gegen `ersatzArt`/`bildEntscheidung` von `e5fd1c8343`, ein
+zweites Raster gleicher Größe zeigt, dass sie `kameraAnMs` nicht lesen).
+
+| Lage (Slot mit `tile`) | Zustand/Grund | `sent` | Hinweis „Bild unterbrochen“ |
+| --- | --- | --- | --- |
+| Bilder kommen | `live/frames` | `none` (Livebild) | — |
+| Lücke kürzer als die Schonfrist (Kamera laut Zoom an) | `live/frames` | `none` | — |
+| Kamera laut Zoom aus, auch direkt nach der Zuweisung oder aus `fallback/noFrames` | `fallback/cameraOff` (Sprecher auch `speakerNoVideo`) | `tile` | nein |
+| Kamera laut Zoom an, Bild länger als 2 s aus | `fallback/noFrames` | `tile` | ja |
+| Zugewiesen, noch kein erstes Bild | `starting` | `tile` | nein |
+| … 2 s nach dem Umhängen noch immer kein Bild (Kamera laut Zoom an) | `fallback/noFrames` bzw. `fallback/bufferMismatch` | `tile` | ja |
+| Kamera wieder an, noch kein neues Bild: in den ersten 2 s danach | bleibt (`fallback/cameraOff`) | `tile` | nein |
+| … und 2 s danach noch immer kein Bild | `fallback/noFrames` bzw. `fallback/bufferMismatch` | `tile` | ja |
+| Puffer-Fehler (nach dem ersten Bild schon nach 200 ms; meldete Zoom die Kamera erst nach dem letzten Bild wieder an, erst 2 s danach), `subscribe` gescheitert | `fallback/bufferMismatch`, `fallback/subscribeFailed` | `tile` | ja |
+| Person geht, kein Ziel, kein Sprecher | `fallback/participantLeft`, `noTarget`, `speakerNone` | `transparent`, sofort | — |
+| Freigabe-Slot | wie bei `transparent` | `transparent` bzw. `held` | — |
+| Slot aus | `off` | `none` | — |
+
+**Die 2-s-Regel** gilt nur bei `tile`: Ein Teilnehmer- oder Sprecher-Slot, dessen Kamera
+Zoom als an meldet, wechselt erst `TEILNEHMER_SCHONFRIST_MS` (2 s) ohne Bild auf
+`fallback/noFrames` (bei laufendem Puffer-Fehler `fallback/bufferMismatch`). Die 2 s
+zählen ab dem Späteren von letztem Bild (vor dem ersten Bild: Umhängen) und dem
+Zeitpunkt, zu dem Zoom die Kamera zuletzt von aus auf an gemeldet hat
+(`BildLage::kameraAnMs`; 0 = unbekannt, dann zählen Bild bzw. Umhängen). Bis dahin
+zeigt der Slot die Kachel ohne Hinweis, so blitzt „Bild unterbrochen“ weder bei der
+Zuweisung noch gleich nach dem Einschalten der Kamera auf. Meldet Zoom die Kamera als
+aus, gilt sofort `fallback/cameraOff`, aus `starting` (F6) wie aus `fallback/noFrames`,
+`bufferMismatch` oder `command`, auch bei laufendem Puffer-Fehler.
+`fallback/subscribeFailed`, `fallback/speakerNoVideo` und die Ziel-0-Gründe bleiben
+vor dem ersten Bild stehen. Der Hinweis hängt allein am gemeldeten
+Grund **nach** der Entscheidung: genau `noFrames`, `bufferMismatch` und
+`subscribeFailed` (`slotlogic::kachelHinweis`; Gegenstück `TILE_NOTICE_REASONS` und
+`tileNotice()` in `src/protocol.ts`, der Selbsttest gleicht beide ab). Die Attrappe
+sendet `tile` mit Ziel außerhalb der Freigabe, sonst `transparent`; die 2-s-Regel bildet
+sie wie die Schonfrist nicht nach. Den Zeitpunkt „Kamera an“ merkt sich der Slot nur an
+der Flanke aus → an (`slotlogic::kameraLautZoom`, aus `videoStatus` und `IsVideoOn()`);
+das Umhängen setzt ihn auf 0. Ein `bufferMismatch` aus der Zeit vor „Kamera aus“ gilt nach
+dem Wiedereinschalten erst nach den 2 s, sonst blitzte der Hinweis gleich danach auf.
+
+**Die Kachel im Slot: Profil, Merker, Senden.** Gezeichnet wird nie auf dem Hauptthread:
+`kachelFuer` (`native/video.cpp`) startet einen Zeichenauftrag (`kachelStarten`,
+`native/kachel.cpp`) und wartet höchstens 50 ms (`KACHEL_WARTEN_MS`) plus eine
+Zeitgeber-Auflösung — zusammen für alle Slots eines Herzschlags, nicht je Slot. Die Bridge
+ruft kein `timeBeginPeriod`; ein abgelaufenes Warten kehrt darum bis zu 15,6 ms später
+zurück. Mit weniger als 16 ms Restguthaben wartet sie nicht mehr, sie sieht nur nach, ob der
+Auftrag fertig ist. Gewartet wird nur für die erste Kachel einer Person in dieser Größe: das
+Warten hält die ganze Hauptschleife an, auch Ton, Stille und Bild-Versatz aller Slots. Gibt
+es schon eine Kachel dieser Person in dieser Größe (Hinweis an/aus, neues Profilbild,
+Umbenennung, Sprecherwechsel zurück), geht sie sofort weiter hinaus, und das neue Ergebnis
+kommt im nächsten Herzschlag. Bis das Ergebnis da ist, geht die letzte Kachel derselben Person in
+derselben Größe hinaus, sonst die dunkle Grundfläche (#232323), nie `transparent`.
+Gezeichnet wird je Zustandswechsel einmal (Schlüssel: Ziel, Profilstand, Hinweis, Größe,
+mit oder ohne Profilbild), nie je Bild; ein spätes Ergebnis für eine andere Kachel ersetzt
+eine schon richtige nicht (`KachelStand::verwerfen`). Die Größe folgt der Regel der
+anderen Ersatzbilder (letztes Livebild dieses Ziels, sonst Nennauflösung des Slots), aber
+nur positiv und gerade (I420 mit halber Farbauflösung); sonst gilt die Nennauflösung
+(`slotlogic::kachelGroesse`). Unter 16 oder über 4096 Bildpunkten zeichnet der Zeichner
+nichts; dann kommt die dunkle Fläche in genau dieser Größe.
+Das Profil (Anzeigename `GetUserName`, Profilbild `GetAvatarPath`) liest der Slot beim
+ersten Zeichnen, bei jedem neuen Ziel und nach einem Profil-Merker, nie während der
+Renderer-Sperre. **Nie zeigt die Kachel Name oder Bild eines anderen Ziels:** gezeichnet
+wird nur mit dem Profil, das zu diesem Ziel gelesen ist (`KachelStand::profilFuer`).
+Hängt der Slot kurz vor einer Renderer-Sperre auf eine neue Person um (während der Sperre
+wird ein Umhängen nur vorgemerkt) und fällt das erste Zeichnen der Kachel in die Sperre,
+oder kennt Zoom die Kennung (noch) nicht, sendet er bis zum Lesen eine Kachel dieser Person in derselben Größe,
+wenn er schon eine hat, sonst die dunkle Fläche. Ein nicht gefundener Teilnehmer (`GetUserByUserID`
+leer) zählt nicht als gelesen; der Slot fragt frühestens nach 1 s wieder
+(`PROFIL_WIEDERHOLEN_MS`), nie je Herzschlag, und schreibt einmal je Ziel `Slot <n>:
+Teilnehmer unbekannt - dunkle Fläche` ins Log (nach einem Umhängen wieder). Blendet der Host die Profilbilder aus
+(`IsParticipantProfilePicturesHidden`), zeigt die Kachel Initialen. Die Merker kommen aus
+`onUserNamesChanged` und `onInMeetingUserAvatarPathUpdated` (je Kennung, über die
+Warteschlange `g_merkerProfil`, höchstens 1024, Überlauf in `bridgeStats.merkerVerworfen`)
+und aus `onParticipantProfilePictureStatusChange` (alle; ein klebendes Merkzeichen, das nie
+verloren geht). Die Hauptschleife nimmt sie nach dem Sprecher-Merker (`slotsProfil`), dann
+wird beim nächsten Zeichnen neu gelesen.
+Hängt das Lesen eines Profilbilds, gibt der Slot es nach 2 s (`KACHEL_FRIST_MS`) für
+diesen Profilstand auf und zeichnet Initialen. Ist ein Auftrag ohne Profilbild nach 2 s nicht
+fertig (er hängt an keiner Datei, er ist nur langsam), behält der Slot ihn, zeigt bis dahin
+die letzte Kachel derselben Person bzw. die dunkle Fläche und übernimmt das späte Ergebnis;
+die Frist meldet sich je Auftrag einmal. Solange ein Auftrag mit Profilbild für
+diese Person und diesen Profilstand läuft, startet er keinen zweiten mit Profilbild
+(`KachelStand::bildAuftragOffen`) — je Slot, Ziel und Profilstand wartet so höchstens ein
+Thread. Ein neuer Profilstand oder ein neues Ziel kann einen weiteren starten.
+Logzeilen (stderr, nie Name oder Pfad): `Slot <n>: Zoom-Kachel <w>x<h> in <ms> ms
+gezeichnet (mit Profilbild|Initialen)` — die Dauer misst der Zeichner selbst —, einmal je
+Profilstand `Slot <n>: Profilbild nicht verwendet (<art>, HRESULT 0x…) - Initialen`,
+`Slot <n>: Zoom-Kachel nach 2000 ms nicht fertig - neu ohne Profilbild` (ohne Profilbild:
+`… - bis dahin dunkle Fläche`), `Slot <n>: Teilnehmer unbekannt - dunkle Fläche` und `Slot <n>: Zoom-Kachel nicht gezeichnet (HRESULT 0x…) - dunkle
+Fläche`. Steht der Slot nicht mehr auf `tile` oder zeigt er eine Freigabe, gibt er Kachel
+und Auftrag frei. `slotStats.memKb` zählt die Kachel mit; `slotStats.workUs` enthält bei
+`tile` auch das Warten der Hauptschleife auf einen Zeichenauftrag (höchstens das Guthaben
+oben) und das Übernehmen des Ergebnisses, nicht das Zeichnen selbst (das läuft auf dem
+eigenen Thread).
 
 **Ton je Slot.** Drei Arten kommen über das eine Ton-Abo des Meetings: Ton je Person,
 Mischton und Computerton einer Freigabe. Die reine Funktion `tonZiele` ordnet jedes
@@ -543,8 +658,24 @@ Freigabe leert die Versatz-Warteschlange.
 steht in `slotStats` (`w`, `h`, `fps`, `resSet`, `resGot`). Die HD-Einstellungen von
 Zoom liest die Bridge nur, sie ändert sie nie.
 
+**Bildformat (#310) bei den Ersatzbildern.** Ob ein Ersatzbild eingepasst geht, entscheidet die
+Bridge je Herzschlag neu, aus der aktuellen Einstellung und Zooms letzter Größe: nur bei
+`frame:"fit"`, nur für Teilnehmer und Sprecher und nur, wenn diese Größe nicht (innerhalb
+1 %) 16:9 ist. Ein Wechsel mitten im Aussetzer wirkt also beim nächsten Ersatzbild. Der Rahmen
+hat die Nenngröße des Slots (640×360, 1280×720 oder 1920×1080), die Seiten bleiben
+transparent. Im Modus fit gilt: `transparent` geht als ganz transparentes Bild in der vollen
+Nenngröße hinaus; `black` und `white` bauen ein einfarbiges Bild in Zooms letzter Größe und
+passen es in den 16:9-Rahmen ein; `freeze` passt das letzte Livebild ein; `tile` baut die Kachel
+in Zooms letzter Größe (z. B. hochkant) und passt sie ein. Das Halten (`Sent::Held`, nur
+Freigabe-Slots) wird nie eingepasst. Mit `native` bleibt alles wie vorher.
+
 **Speicher je Slot.** `slotStats.memKb` zählt Versatz-Warteschlange, Kopie, Vorschau
-und Ersatzbild-Puffer des Slots. Gerechnet sind für die Versatz-Warteschlange bei
+und Ersatzbild-Puffer des Slots, seit #306 auch die Zoom-Kachel (fertige Kachel und
+dunkle Grundfläche, je höchstens ein I420-Bild). Seit #310 zählt `memKb` auch die
+eingepassten Rahmen mit: den Live-Rahmen des Slots, den Ausgaberahmen des Ersatzbildes,
+dessen einfarbige I420-Quelle (Größe von Zoom, nur für schwarz und weiß) und den Rahmen im
+Sender. Jeder Rahmen reserviert beim ersten Einpassen einmal Platz für ein UYVA-Bild in
+1920×1080 (rund 6,2 MB), unabhängig von der Auflösung des Slots. Gerechnet sind für die Versatz-Warteschlange bei
 1080p und 1000 ms rund 94 MB je Slot, bei 16 Slots bis 1,5 GB (Spec RS6);
 Freigabe-Slots haben keinen Versatz.
 
@@ -560,7 +691,9 @@ und `bridgeStats.previewOn` dasselbe sagen.
 
 **Messwerte.** `slotStats` (je Slot) und `bridgeStats` (Prozess) kommen alle 2 s.
 Felder fehlen, solange nichts gemessen ist, und nach jedem Umhängen wieder, bis ein
-Bild des neuen Ziels kam. `fallbackFps` zählt die gesendeten Ersatzbilder und die
+Bild des neuen Ziels kam. `outW`/`outH` (#310) nennen die Größe, die ins NDI ging, und
+stehen nur, wenn im Fenster ein Bild kam und das letzte davon eingepasst ging
+(Ausgabegröße ≠ `w`×`h`); bei „native“ und bei Bildern, die schon 16:9 sind, fehlen sie. `fallbackFps` zählt die gesendeten Ersatzbilder und die
 Haltebilder (Spec 6.17). `shareAudioRate` und `shareAudioCh` stehen in `slotStats`,
 nicht in `bridgeStats`; sie fehlen, solange kein Computerton angekommen ist, und
 fallen bei neuem Ton-Stand und bei neuem Eingang B des Mischers wieder weg, bis
@@ -575,7 +708,7 @@ Hauptschleife das Signal bzw. den Freigabe-Rückruf übernimmt.
 | --- | --- | --- |
 | `slotBadNumber` | `slot` unlesbar oder nicht 1–16 | – |
 | `slotBadName`, `slotNameTaken` | NDI-Name ungültig bzw. schon an einem laufenden Slot | `slot` |
-| `slotBadMode`, `slotBadResolution`, `slotBadAudio`, `slotBadFallback`, `slotBadFlag` | Feld fehlt, ist unlesbar oder unbekannt | `slot` |
+| `slotBadMode`, `slotBadResolution`, `slotBadAudio`, `slotBadFallback`, `slotBadFrame`, `slotBadFlag` | Feld fehlt, ist unlesbar oder unbekannt | `slot` |
 | `slotBadTarget` | `id` vorhanden, aber keine ganze Zahl bis `UINT_MAX` (nicht in der Spec: Ein Tippfehler soll nicht still „kein Ziel“ heißen) | `slot` |
 | `slotAlreadyOn`, `slotNotOn` | `slotOn` auf laufendem bzw. `slotSet`/`slotOff` auf nicht laufendem Slot | `slot` |
 | `slotReconnecting` | `slotOn` während der Renderer-Sperre; nichts angelegt | `slot` |
@@ -798,6 +931,7 @@ npm run ndi-probe -w @jm/zoom-bridge
 npm run command-probe -w @jm/zoom-bridge
 npm run delay-probe -w @jm/zoom-bridge     # Bild-Versatz, siehe Abschnitt 8
 npm run delay-test -w @jm/zoom-bridge      # Warteschlange des Versatzes, ohne .exe
+npm run kachel-probe -w @jm/zoom-bridge    # Musterkacheln der Zoom-Kachel (#306), siehe unten
 ```
 
 `test/ndi-probe.mjs` belegt **ohne Zoom, ohne Meeting und ohne Anmeldung**,
@@ -814,6 +948,24 @@ Zoom-SDK-Importbibliothek gebunden, und der Windows-Lader löst das beim
 Prozessstart auf, vor `main()` — ohne den Pfad scheitert der Start mit
 `STATUS_DLL_NOT_FOUND` (0xC0000135), einem Zoom-Einrichtungsfehler, der sich
 sonst als NDI-Problem tarnen würde.
+
+**Musterkacheln der Zoom-Kachel (#306).** `zoom-bridge.exe --kachel-muster <Ordner>`
+zeichnet ohne Zoom-Anmeldung, ohne Meeting und ohne NDI-Sender die 21 Musterkacheln
+(360p, 720p, 1080p je mit Profilbild, mit Initialen, mit langem Namen und mit
+„Bild unterbrochen“; kaputtes, zu großes und fehlendes Profilbild; Hochformat
+360 × 640, 4:3 und 320 × 180; Chinesisch, Arabisch, nur Emoji) mit demselben
+Zeichner wie im Slot, wandelt sie in I420 und zurück — genau das Bild, das der
+Mischer sieht — und legt sie als PNG in den Ordner. `test/kachel-probe.mjs
+[--exe <Pfad>] [<Ordner>]` (Vorgabe: `%TEMP%\jm-kachel-muster-<pid>`) prüft
+Exitcode und Schlusszeile, Dateien samt Maßen aus dem IHDR, dass die drei
+kaputten Profilbilder je eine Logzeile „Profilbild nicht verwendet (…)“
+schreiben und bytegleich wie die Initialen-Kachel aussehen, und dass keine
+Logzeile einen Namen oder Dateinamen nennt. Ob die Kacheln **richtig aussehen**
+(Kreis rund, Name lesbar, gekürzt nur mit „…“, Chinesisch und Arabisch ohne
+Kästchen, Hinweis nicht über dem Schild), sieht nur ein Mensch: den Ordner
+öffnen und ansehen. Der Ordner bleibt nach dem Lauf stehen. Wie die anderen
+Prüfstände braucht der Lauf `%ZOOM_SDK_DIR%\x64\bin` und die NDI-Laufzeit im
+`PATH` (die Probe sorgt für beides).
 
 **Der Messlauf.** `npm run video-limit -w @jm/zoom-bridge` (braucht ein echtes
 Meeting mit mehreren fremden Teilnehmern, deren Kameras an sind) misst, wie

@@ -1,9 +1,11 @@
 import { app, BrowserWindow } from 'electron';
 import { initAppRuntime } from '@jm/app-runtime';
 import { registerIpc } from './ipc';
-import { createEditorWindow } from './windows';
+import { createEditorWindow, getEditorWindow, istNdiFenster } from './windows';
 import { handleShowDeepLink, flushPendingShowProject } from './show-open';
 import { startControlServer, stopControlServer } from './control-server';
+import { shutdownGastKlicker } from './gast-klicker';
+import { oeffneStartDateien, registriereDateiOeffnen } from './datei-oeffnen';
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
 // onDeepLink fängt Show-Links bei laufender App (second-instance/open-url) ab;
@@ -20,7 +22,14 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    const win = BrowserWindow.getAllWindows()[0];
+    // Bevorzugt den Editor: während einer Show ist das erste Fenster oft Referent oder Publikum.
+    // Nie ein verstecktes NDI-Fenster (#303), auch kein schließendes oder hängendes – das ist kein Bedienfenster;
+    // ist sonst keins offen, kommt ein Editor.
+    const editor = getEditorWindow();
+    const win =
+      editor && !editor.isDestroyed()
+        ? editor
+        : BrowserWindow.getAllWindows().find((w) => !istNdiFenster(w));
     if (win) {
       if (win.isMinimized()) win.restore();
       win.show();
@@ -29,10 +38,13 @@ if (!gotLock) {
       createEditorWindow();
     }
   });
+  // Doppelklick / „Öffnen mit“ (#299): Dateipfade aus argv bzw. open-file (Mac, auch vor ready).
+  registriereDateiOeffnen();
 
   app.whenReady().then(() => {
     registerIpc();
     createEditorWindow();
+    oeffneStartDateien();
     // Show-Dokument nachliefern bzw. Start-Deep-Link (App per Show gestartet)
     // verarbeiten — lädt das in der .jmshow referenzierte .jmpres.
     flushPendingShowProject();
@@ -45,7 +57,10 @@ if (!gotLock) {
     });
   });
 
-  app.on('before-quit', () => stopControlServer());
+  app.on('before-quit', () => {
+    stopControlServer();
+    shutdownGastKlicker();
+  });
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

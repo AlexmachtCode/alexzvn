@@ -41,6 +41,7 @@ import type {
   ZoomErgebnis,
   ZoomErlaubnis,
   ZoomKurz,
+  ZoomLetztesMeeting,
   ZoomMangel,
   ZoomMesswerte,
   ZoomParticipant,
@@ -69,6 +70,7 @@ import {
   stateKvAus,
   TEXT_A4_SCHREIBFEHLER,
   TEXT_SDK_SCHLUESSEL_NUR_SITZUNG_ENTFERNT,
+  TEXT_VERGESSEN_FEHLER,
   TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT,
   UNBEKANNT,
   WIEDERBEITRITT_VERSUCHE,
@@ -120,10 +122,10 @@ import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFe
 import { SDK_PAKET } from './sdk-paket';
 import { deuteZoomBefehl, ladeZiel, type SlotSchalter } from './fernsteuerung';
 import {
-  istSlotAufloesung, istSprecherSignal, neuerSlot, pruefeHaltezeit, pruefeNdiName, slotsFuerPlatte, uebergangsNdiName,
+  gueltigeLetzteNummer, istSlotAufloesung, istSprecherSignal, neuerSlot, pruefeHaltezeit, pruefeNdiName, slotsFuerPlatte, uebergangsNdiName,
 } from './einstellungen';
 import {
-  ERSATZBILD_ZU_BRIDGE,
+  BILDFORMAT_ZU_BRIDGE, ERSATZBILD_ZU_BRIDGE,
   istOffen,
   MODUS_ZU_BRIDGE,
   planeSlotAbgleich,
@@ -180,6 +182,15 @@ export interface ZoomKernAbhaengigkeiten {
     /** Der geltende Versatz steht nur im Arbeitsspeicher (N4b.3 Nr. 4). */
     versatzNurSitzung(): boolean;
     setzeLaufzeit(v: { dir: string; fassung: string; eingerichtetAm: string }): void;
+    /**
+     * Letztes Meeting (#290): bleibt über „Schließen“ und Neustart; der Kenncode nur verschlüsselt (`null` = keiner/nicht lesbar).
+     * Ein Wurf hier oder in meetingMerken blockiert den Kern nie (zählt als nichts gemerkt bzw. nicht gespeichert).
+     */
+    letztesMeeting(): { nummer: string; kenncode: string | null } | null;
+    /** `kenncodeGespeichert` false = Kenncode nicht auf der Platte (keine Verschlüsselung, Verschlüsselungs- oder Schreibfehler). */
+    meetingMerken(nummer: string, kenncode: string): { kenncodeGespeichert: boolean };
+    /** Wie zugang.loeschen(): `false` = steht noch in der Einstellungsdatei (nicht schreibbar). */
+    meetingVergessen(): boolean;
     // Zoom-Slots (Slot-Spec 7.2, 7.10; Plan B, Task B12). Jedes setze…() liefert true = gespeichert, false = gilt nur für diese
     // Sitzung (T92). Der Kern übergibt setzeSlots nur dauerhafte Slots, `anNurMeeting` als `an: false` (slotsFuerPlatte).
     slots(): ZoomSlotEinstellung[];
@@ -188,6 +199,9 @@ export interface ZoomKernAbhaengigkeiten {
     setzeVorgaben(v: ZoomSlotVorgaben): boolean;
     sprecher(): ZoomSprecherEinstellung;
     setzeSprecher(s: ZoomSprecherEinstellung): boolean;
+    /** Schalter „Person im NDI-Namen“ (#287): Teilnehmer-Slots starten als „NDI-Name (Person)“; Vorgabe aus. */
+    personImNdiNamen(): boolean;
+    setzePersonImNdiNamen(an: boolean): boolean;
     vorschau(): boolean;
     setzeVorschau(an: boolean): boolean;
     ueber5(): boolean;
@@ -243,6 +257,13 @@ export interface ZoomKern {
   pruefen(): Promise<ZoomErgebnis>;
   beitreten(e: { nummer: string; kenncode: string; anzeigename: string }): Promise<ZoomErgebnis>;
   erneut(): Promise<ZoomErgebnis>;
+  /** Das gemerkte Meeting (#290): nur die Nummer, der Kenncode verlässt den Main nie. */
+  letztesMeeting(): ZoomLetztesMeeting;
+  /**
+   * Gemerktes Meeting vergessen (#290); ein laufendes Meeting und „Erneut beitreten“ bleiben unberührt. Die Speicherkopie ist
+   * danach immer leer; `ok: false` (TEXT_VERGESSEN_FEHLER), wenn die Daten noch auf der Platte stehen.
+   */
+  vergessen(): ZoomErgebnis;
   verlassen(): Promise<void>;
   /**
    * Spec 6.8 „Abbrechen“, nur Z11 (Folge wartet oder läuft): Zeitgeber löschen, Versuchs-Bridge stop(), Zustand
@@ -271,6 +292,11 @@ export interface ZoomKern {
   vorgabenSetzen(v: ZoomSlotVorgaben): ZoomErgebnis;
   /** Sprecher-Einstellungen (7.6): Signal und Haltezeit (T74 bei ungültiger Haltezeit); gespeichert, `speakerConfig` an die Bridge. */
   sprecherSetzen(s: ZoomSprecherEinstellung): ZoomErgebnis;
+  /**
+   * Schalter „Person im NDI-Namen“ (#287): gespeichert (Schreibfehler → T92). Kein Befehl an die Bridge: Laufende Sender behalten
+   * ihren Namen, erst der nächste Start eines Teilnehmer-Slots nimmt den neuen Stand.
+   */
+  personImNdiNamenSetzen(an: boolean): ZoomErgebnis;
   /** Schalter „Vorschau“ (7.7): gespeichert; `previewMode {on: Schalter und Fenster sichtbar}` an die Bridge. */
   vorschauSetzen(an: boolean): ZoomErgebnis;
   /** Hauptfenster sichtbar und nicht minimiert (hide, show, minimize, restore; 7.7); ändert `previewMode`. */
@@ -297,7 +323,7 @@ type FehlerEreignis = {
  */
 const AUFBAU_FEHLER: ReadonlySet<string> = new Set<SlotFehler>([
   'slotRawRecordingFailed', 'slotSenderFailed', 'slotRendererFailed', 'slotNameTaken', 'slotBadName', 'slotBadMode',
-  'slotBadResolution', 'slotBadAudio', 'slotBadFallback', 'slotBadFlag', 'slotBadTarget',
+  'slotBadResolution', 'slotBadAudio', 'slotBadFallback', 'slotBadFrame', 'slotBadFlag', 'slotBadTarget',
 ]);
 /**
  * Nachtrag B (I-2): Antworten der Bridge auf ein slotOn, die keinen Sender anlegen (6.2, Zeile slotOn): die Aufbaufehler,
@@ -330,7 +356,11 @@ interface SlotIntern {
   voruebergehend: boolean;
   anNurMeeting: boolean;
   s: SlotSitzung;
-  bridge: { gen: number; state: SlotState; mode: SlotMode; target: number; share: number; reason: SlotReason; sent: SlotSent } | null;
+  /**
+   * `ndi` (#287): der Name, mit dem der Sender startete (das `ndi` seines slotOn). Jede weitere Meldung dieses Senders muss ihn
+   * tragen (I-3); Personenwechsel und Schalter „Person im NDI-Namen“ ändern ihn nie.
+   */
+  bridge: { gen: number; state: SlotState; mode: SlotMode; target: number; share: number; reason: SlotReason; sent: SlotSent; ndi: string } | null;
   /** `slotOff` gesendet, das `slot off` der Bridge steht aus (SZ9). */
   slotOffGesendet: boolean;
   /** Antwortfrist des gesendeten `slotOn` (10 s, 7.3 Nr. 2). */
@@ -349,7 +379,11 @@ interface SlotIntern {
    * Messzeile (10.7): `geliefert` aus dem laufenden Fenster dieses Ziels (slotStats), `zuletzt` die letzte Größe dieses Ziels.
    * Fällt mit dem Sender und mit jedem `slot`-Ereignis, das Ziel, Freigabe oder Modus ändert (B55).
    */
-  mess: { geliefert: { b: number; h: number; fps: number } | null; zuletzt: { b: number; h: number } | null } | null;
+  mess: {
+    geliefert: { b: number; h: number; fps: number } | null; zuletzt: { b: number; h: number } | null;
+    /** #310: Größe, die eingepasst ins NDI ging; nur mit geliefertem Bild und outW/outH im slotStats. */
+    eingepasst: { b: number; h: number } | null;
+  } | null;
   /** Log 7.8 (B66): letzte Art `state/reason`, wann jede Art zuletzt geschrieben wurde, letzte Minutenzeile. */
   log: { art: string; zeiten: Map<string, number>; minute: number };
   /** persistentId der gezeigten Person beim Weggang ('' ohne) und der Vergleich bei ihrer Rückkehr (T62c, MS16). */
@@ -358,9 +392,10 @@ interface SlotIntern {
   /**
    * Nachtrag B (I-1, I-2): die Einstellungen, aus denen jedes gesendete und noch unbeantwortete `slotOn` gebaut wurde, älteste
    * zuerst (die Bridge beantwortet sie der Reihe nach: mit einem Sender oder einem Fehler mit dieser Nummer). Solange eins offen
-   * ist, kann die Bridge noch einen Sender bauen; „Stopp“ und das Ende der Antwortfrist ändern daran nichts.
+   * ist, kann die Bridge noch einen Sender bauen; „Stopp“ und das Ende der Antwortfrist ändern daran nichts. `ndi` (#287): der
+   * Name, mit dem das slotOn hinausging (mit „Person im NDI-Namen“ nicht der NDI-Name des Slots).
    */
-  slotOnOffen: ZoomSlotEinstellung[];
+  slotOnOffen: Array<{ e: ZoomSlotEinstellung; ndi: string }>;
   /** I-1: Die Einstellung, die die Bridge für den laufenden Sender zuletzt bekam (`slotOn` oder `slotSet`); null ohne Sender. */
   gesendet: ZoomSlotEinstellung | null;
 }
@@ -460,6 +495,15 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   /** Nur im Arbeitsspeicher (Spec 5.7). */
   let nummer: { eingabe: string; normiert: string } | null = null;
   let kenncode: string | null = null;
+  // Das gemerkte Meeting (#290): einmal beim Erzeugen gelesen, danach vom Kern selbst geführt; unabhängig von nummer/kenncode.
+  // Wirft das Lesen, gilt „nichts gemerkt“: Das Gemerkte ist eine Bequemlichkeit und darf den Kern nie verhindern.
+  let gemerkt: { nummer: string; kenncode: string | null } | null = null;
+  try {
+    gemerkt = d.einstellungen.letztesMeeting();
+  } catch {
+    gemerkt = null;
+  }
+  let kenncodeNichtGespeichert = false;
   /**
    * Wiederbeitritts-Folge (6.4), nur in `abriss`: gesetzt heißt Z11. `naechsterUm` nur in der Wartezeit vor einem
    * Versuch, `letzte` = Meldung des letzten gescheiterten Versuchs (R2; bis dahin der Anlass des Abrisses, beide stehen zusätzlich im Log), `beginn` = Start des laufenden Versuchs.
@@ -713,6 +757,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       }),
       messText: slotMessZeile({
         zustand: zst, modus: e.modus, stufe: e.aufloesung, geliefert: x.mess?.geliefert ?? null, zuletzt: x.mess?.zuletzt ?? null,
+        eingepasst: x.mess?.eingepasst ?? null,
       }),
     };
   }
@@ -796,6 +841,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       slots: slotRohLagen().map((r) => slotLage(r, z)),
       vorgaben: d.einstellungen.vorgaben(),
       sprecher: d.einstellungen.sprecher(),
+      personImNdiNamen: d.einstellungen.personImNdiNamen(),
       vorschauAn: d.einstellungen.vorschau(),
       vorschauVerfuegbar,
       vorschauDetail,
@@ -1208,7 +1254,16 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   // ── Bridge starten und stoppen (Spec 5.2, 6.2 Startfolge, 6.9) ───────────
   function geheimnisse(): string[] {
-    return [kenncode ?? '', nummer?.eingabe ?? '', nummer?.normiert ?? '', jwt ?? ''];
+    const g = gemerkt;
+    let gNormiert = '';
+    if (g) {
+      try {
+        gNormiert = normalizeMeetingId(g.nummer);
+      } catch {
+        // keine gültige Nummer: nur die Eingabe selbst maskieren
+      }
+    }
+    return [kenncode ?? '', nummer?.eingabe ?? '', nummer?.normiert ?? '', jwt ?? '', g?.nummer ?? '', gNormiert, g?.kenncode ?? ''];
   }
 
   function beiLog(zeile: string): void {
@@ -1579,12 +1634,51 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const name = e.anzeigename.trim();
     if (name.length < 1 || name.length > 64) return { ok: false, text: KT.N0b };
     d.einstellungen.setzeAnzeigename(name);
+    // Leeres Feld + dieselbe Nummer (egal wie geschrieben) → gemerkter Kenncode; sonst leer (#290).
+    let wirksam = e.kenncode;
+    if (wirksam === '' && gemerkt) {
+      let gleich = false;
+      try {
+        gleich = normalizeMeetingId(gemerkt.nummer) === normiert;
+      } catch {
+        gleich = false;
+      }
+      if (gleich) wirksam = gemerkt.kenncode ?? '';
+    }
+    // Merken ist eine Bequemlichkeit: Ein Wurf (Datei, Verschlüsselung) blockiert den Beitritt nie, er zählt als nicht gespeichert.
+    let merk: { kenncodeGespeichert: boolean };
+    try {
+      merk = d.einstellungen.meetingMerken(e.nummer, wirksam);
+    } catch {
+      merk = { kenncodeGespeichert: false };
+    }
+    // Dieselbe Regel wie settings.ts: Eine Nummer, die gueltigeLetzteNummer verwirft, merkt auch der Kern nicht (die Datei löscht beide Felder).
+    const gemerkteNummer = gueltigeLetzteNummer(e.nummer);
+    gemerkt = gemerkteNummer === null ? null : { nummer: gemerkteNummer, kenncode: wirksam === '' ? null : wirksam };
+    kenncodeNichtGespeichert = gemerkt !== null && wirksam !== '' && !merk.kenncodeGespeichert;
     nummer = { eingabe: e.nummer, normiert };
-    kenncode = e.kenncode;
+    kenncode = wirksam;
     sitzungsEnde('beitritt');
     // N4b.3 Nr. 6, L15: Hinweise gehören zum letzten Meeting; „Erneut beitreten“ behält sie.
     hinweise.length = 0;
     return starteBeitritt();
+  }
+
+  function letztesMeeting(): ZoomLetztesMeeting {
+    return { nummer: gemerkt?.nummer ?? null, kenncodeGespeichert: !!gemerkt?.kenncode, kenncodeNichtGespeichert };
+  }
+
+  function vergessen(): ZoomErgebnis {
+    // Die Speicherkopie ist in jedem Fall leer; ob die Platte folgte, sagt das Ergebnis (Muster zugangLoeschen).
+    gemerkt = null;
+    kenncodeNichtGespeichert = false;
+    let geloescht: boolean;
+    try {
+      geloescht = d.einstellungen.meetingVergessen();
+    } catch {
+      geloescht = false;
+    }
+    return geloescht ? { ok: true } : { ok: false, text: TEXT_VERGESSEN_FEHLER };
   }
 
   async function erneut(): Promise<ZoomErgebnis> {
@@ -2049,7 +2143,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // NB16 (Nachtrag B): ohne jede Größe im slotStats bleibt die bekannte letzte Größe dieses Ziels stehen.
     const zuletzt = geliefert !== null ? { b: geliefert.b, h: geliefert.h }
       : e.lastW !== undefined && e.lastH !== undefined ? { b: e.lastW, h: e.lastH } : x.mess?.zuletzt ?? null;
-    x.mess = { geliefert, zuletzt };
+    const eingepasst = geliefert !== null && e.outW !== undefined && e.outH !== undefined ? { b: e.outW, h: e.outH } : null;
+    x.mess = { geliefert, zuletzt, eingepasst };
     // T66: jede neue Lücke eines Sprecher-Slots.
     if (x.e.modus === 'sprecher' && e.gapMs !== undefined && letzteLueckeJe.get(e.slot) !== e.gapMs) {
       letzteLueckeJe.set(e.slot, e.gapMs);
@@ -2063,13 +2158,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     }
   }
 
-  /** Logzeile eines Slots (7.8): Nummer, Modus, Zustand, Grund, `sent`, Messwerte, Ton und Zähler; nie ein Name (0.23). */
+  /** Logzeile eines Slots (7.8): Nummer, Modus, Zustand, Grund, `sent`, Bildformat und eingepasste NDI-Größe (`out`, #310), Messwerte, Ton und Zähler; nie ein Name (0.23). */
   function slotLogZeile(x: SlotIntern): string {
     const b = x.bridge;
     const m = messwerte.slots.find((s) => s.slot === x.e.nr);
     const w = (v: number | undefined): string => (v === undefined ? '-' : String(v));
     const teile = [
-      `${b?.state ?? 'off'}/${b?.reason ?? '-'}`, `sent ${b?.sent ?? '-'}`, `${w(m?.w)}×${w(m?.h)}`, `fps ${w(m?.fps)}`,
+      `${b?.state ?? 'off'}/${b?.reason ?? '-'}`, `sent ${b?.sent ?? '-'}`, `bildformat ${x.e.bildformat}`, `${w(m?.w)}×${w(m?.h)}`,
+      `out ${m?.outW !== undefined && m.outH !== undefined ? `${m.outW}×${m.outH}` : '-'}`, `fps ${w(m?.fps)}`,
       `fallbackFps ${w(m?.fallbackFps)}`, `workUs ${w(m?.workUs)}`, `copyUs ${w(m?.copyUs)}`, `previewUs ${w(m?.previewUs)}`,
       `memKb ${w(m?.memKb)}`, `resSet ${w(m?.resSet)}`, `resGot ${w(m?.resGot)}`, `rawType ${w(m?.rawType)}`,
       `Ton ${x.ton?.source ?? 'none'}/${x.ton?.configured ?? 'none'}`, `audioPps ${w(m?.audioPps)}`, `mixDrops ${w(m?.mixDrops)}`,
@@ -2124,6 +2220,21 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     sprecherLoggen(e);
   }
 
+  /**
+   * I-3 (Nachtrag B) mit #287: Der NDI-Name, den ein Sender dieses Slots tragen muss, damit er zum Slot gehört. Ein bekannter
+   * Sender behält den Namen, mit dem er startete (Personenwechsel und Schalter benennen nie um). Ohne Sender gilt der Name des
+   * zuletzt gesendeten, noch offenen slotOn, solange der Slot seither nicht umbenannt wurde: Eine späte Antwort auf ein älteres
+   * slotOn mit anderem Namen bleibt fremd. Sonst (kein offenes slotOn, oder der Slot wurde danach umbenannt) der NDI-Name des
+   * Slots. Nie aus den Einstellungen von jetzt neu gebildet. Wer gilt, hängt also nicht am heutigen Stand des Schalters: Nach
+   * „Schalter aus“ trägt ein laufender Sender weiter „NDI-Name (Person)“. `x.e.ndiName` ist es, wenn das maßgebliche slotOn
+   * ohne Person im Namen hinausging, keins offen ist oder der Slot seither umbenannt wurde.
+   */
+  function senderNameFuer(x: SlotIntern): string {
+    if (x.bridge !== null) return x.bridge.ndi;
+    const neuestes = x.slotOnOffen.at(-1);
+    return neuestes !== undefined && neuestes.e.ndiName === x.e.ndiName ? neuestes.ndi : x.e.ndiName;
+  }
+
   function slotEreignis(e: SlotEreignis): void {
     const x = slots.get(e.slot);
     // I-2, I-3 (Nachtrag B): Für eine Nummer ohne Connect-Slot oder mit fremdem Sender gibt es keine Lage, nur slotOff bzw. das
@@ -2150,7 +2261,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       return;
     }
     const vorher = x.bridge;
-    if (e.ndi !== x.e.ndiName) {
+    if (e.ndi !== senderNameFuer(x)) {
       // I-3 (Nachtrag B): Ein Sender mit anderem NDI-Namen gehört nicht zu diesem Slot (etwa die späte Antwort auf ein slotOn mit
       // dem alten Namen). Er wird nicht übernommen; ohne bekannten Sender ist er die Antwort auf das älteste offene slotOn.
       if (vorher === null) x.slotOnOffen.shift();
@@ -2160,13 +2271,14 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       return;
     }
     // I-1: Die erste Antwort übernimmt die Einstellung des ältesten offenen slotOn; danach zieht nachziehen() nach.
-    if (vorher === null) x.gesendet = x.slotOnOffen.shift() ?? { ...x.e };
+    if (vorher === null) x.gesendet = x.slotOnOffen.shift()?.e ?? { ...x.e };
     // NB13: Kommt der Sender nach der Frist doch noch, gilt „keine Antwort“ nicht mehr (sonst startete er nach seinem Ende nie neu).
     if (x.s.fehlerstand === 'keine_antwort') x.s = { ...x.s, fehlerstand: null };
     // 10.7 (B55): neues Ziel, neue Freigabe oder neuer Modus → Messzeile neu; ohne Bild gilt die letzte Größe (T51c).
     if (vorher !== null && (vorher.target !== e.target || vorher.share !== e.share || vorher.mode !== e.mode)) x.mess = null;
-    else if (e.state !== 'live' && x.mess?.geliefert) x.mess = { geliefert: null, zuletzt: { b: x.mess.geliefert.b, h: x.mess.geliefert.h } };
-    x.bridge = { gen: aktiveGen, state: e.state, mode: e.mode, target: e.target, share: e.share, reason: e.reason, sent: e.sent };
+    else if (e.state !== 'live' && x.mess?.geliefert) x.mess = { geliefert: null, zuletzt: { b: x.mess.geliefert.b, h: x.mess.geliefert.h }, eingepasst: null };
+    // #287: e.ndi ist nach der Prüfung oben der Name, mit dem der Sender startete; er bleibt am Sender.
+    x.bridge = { gen: aktiveGen, state: e.state, mode: e.mode, target: e.target, share: e.share, reason: e.reason, sent: e.sent, ndi: e.ndi };
     if (e.mode === 'speaker' && e.target !== 0 && e.target !== letzterSprecher) {
       letzterSprecher = e.target;
       sprecherWechsel = [...sprecherWechsel, Date.now()].slice(-SPRECHER_SIGNALE_MAX);
@@ -2303,7 +2415,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   function startSenden(x: SlotIntern, befehl: Extract<Command, { cmd: 'slotOn' }>): void {
     if (!sende(befehl)) return;
     // Nachtrag B (I-1, I-2): Der Abgleich hat den Befehl eben aus x.e gebaut; bis zur Antwort kann die Bridge einen Sender bauen.
-    x.slotOnOffen.push({ ...x.e });
+    // #287: dazu der gesendete Name (mit „Person im NDI-Namen“ „NDI-Name (Person)“); nur hier, nie im Log.
+    x.slotOnOffen.push({ e: { ...x.e }, ndi: befehl.ndi });
+    // #287 (Ruling Fix-Runde 1): Das erste slotOn seit dem Einschalten legt den Startnamen fest; automatische Neustarts nehmen ihn.
+    if (x.s.startName === null) x.s = { ...x.s, startName: befehl.ndi };
     d.log(`[zoom] Slot ${x.e.nr} startet (${x.e.modus})`);
     const gen = aktiveGen;
     x.frist = zeitgeber(f.aboAntwortMs, () => {
@@ -2331,6 +2446,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       meeting: zustand,
       erlaubnis: zustand === 'im_meeting' ? erlaubnis : null,
       ueber5: d.einstellungen.ueber5(),
+      // #287: gilt nur für Starts; laufende Sender behalten ihren Namen (senderNameFuer).
+      personImNdiNamen: d.einstellungen.personImNdiNamen(),
       teilnehmer: aktiveSitzung() !== null ? abgleichTeilnehmer() : [],
       slots: [...slots.values()].map((x) => ({
         e: x.e,
@@ -2425,7 +2542,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       }
       return;
     }
-    x.s = sitzungNach(x.s, 'stoppStart');
+    // #287: „EIN“ an einem schon eingeschalteten Slot (Companion) ist kein Aus/Ein: der Startname bleibt, sonst baute der
+    // Neustart den Namen neu und der Mischer verlöre die Quelle. Aus und echtes Aus→Ein bilden den Namen neu.
+    const startName = an && x.e.an ? x.s.startName : null;
+    x.s = { ...sitzungNach(x.s, 'stoppStart'), startName };
     fristBeantwortet(x);
     fehlerWeg(x);
     x.e = { ...x.e, an };
@@ -2502,6 +2622,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (neu.modus !== alt.modus) set.mode = MODUS_ZU_BRIDGE[neu.modus];
     if (neu.aufloesung !== alt.aufloesung) set.resolution = neu.aufloesung;
     if (neu.ersatzbild !== alt.ersatzbild) set.fallback = ERSATZBILD_ZU_BRIDGE[neu.ersatzbild];
+    if (neu.bildformat !== alt.bildformat) set.frame = BILDFORMAT_ZU_BRIDGE[neu.bildformat];
     if (neu.ohneKamera !== alt.ohneKamera) set.showNoVideo = neu.ohneKamera;
     const tonAlt = tonFuerBridge(alt);
     const tonNeu = tonFuerBridge(neu);
@@ -2528,6 +2649,18 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     // 7.6: jede Änderung geht sofort an die Bridge (ohne Bridge kommt sie mit der nächsten Startfolge).
     sende({ cmd: 'speakerConfig', signal: SIGNAL_ZU_BRIDGE[s.signal], holdMs: s.haltezeitMs });
     d.log(`[zoom] Sprecher: ${s.signal}, Haltezeit ${s.haltezeitMs} ms`);
+    abbildGeaendert();
+    return { ok: true };
+  }
+
+  /**
+   * #287: Schalter „Person im NDI-Namen“ speichern (Schreibfehler → T92 wie bei den übrigen Slot-Feldern). Bewusst kein Befehl
+   * an die Bridge und kein Abgleich: Ein laufender Sender wird nie umbenannt, gestoppt oder neu gestartet; erst der nächste Start
+   * eines Teilnehmer-Slots bildet seinen Namen nach dem neuen Stand.
+   */
+  function personImNdiNamenSetzen(an: boolean): ZoomErgebnis {
+    schreibErgebnis(d.einstellungen.setzePersonImNdiNamen(an));
+    d.log(`[zoom] Person im NDI-Namen ${an ? 'an' : 'aus'}`);
     abbildGeaendert();
     return { ok: true };
   }
@@ -2593,6 +2726,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         copy: dezimal(m.copyUs / 1000), prev: dezimal(m.previewUs / 1000), mem: dezimal(m.memKb / 1024), res: m.resWanted,
         resSetName: m.resSet !== undefined ? sdkErrorName(m.resSet) : UNBEKANNT, resGot: u(m.resGot), pps: u(m.audioPps), md: u(m.mixDrops),
         ms: u(m.mixSilenceMs),
+        ein: m.outW !== undefined && m.outH !== undefined ? { b: m.outW, h: m.outH } : null, format: x.e.bildformat,
       }));
       z.push(MESS_TEXT.T62b({
         nr: m.slot, ub: m.userVideoW ?? null, uh: m.userVideoH ?? null, hd: b?.hdVideo ?? null, og: b?.originalSize ?? null,
@@ -2788,6 +2922,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (treffer.length === 0) return { kennung: 'f5', text: FT.F5(name) };
     for (const x of treffer) {
       x.e = { ...x.e, an: false };
+      // #287: Ausschalten lässt den Startnamen fallen (wie „Stopp“ an der Kachel über sitzungNach 'stoppStart').
+      x.s = { ...x.s, startName: null };
       x.anNurMeeting = false;
       x.loeschen = x.voruebergehend;
       d.log(`[zoom] Slot ${x.e.nr} per Companion ausgeschaltet`);
@@ -2958,6 +3094,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     pruefen,
     beitreten,
     erneut,
+    letztesMeeting,
+    vergessen,
     verlassen,
     abbrechen,
     slotAnlegen,
@@ -2969,6 +3107,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     slotBehalten,
     vorgabenSetzen,
     sprecherSetzen,
+    personImNdiNamenSetzen,
     vorschauSetzen,
     fensterSichtbar,
     messwerteText,

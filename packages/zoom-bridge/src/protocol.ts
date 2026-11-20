@@ -64,17 +64,30 @@ export type SlotResolution = (typeof SLOT_RESOLUTIONS)[number];
 /** Feld `audio` von slotOn/slotSet: kein Meeting-Ton, Mischton oder Ton der gezeigten Person (Ton-Abbildung 7.1). */
 export const SLOT_AUDIO_SETTINGS = ['off', 'mix', 'person'] as const;
 export type SlotAudioSetting = (typeof SLOT_AUDIO_SETTINGS)[number];
-/** Ersatzbild, solange kein Bild des Ziels kommt (6.12). */
-export const SLOT_FALLBACKS = ['transparent', 'freeze', 'black', 'white'] as const;
+/**
+ * Ersatzbild, solange kein Bild des Ziels kommt (6.12). 'tile' = Zoom-Kachel (#306), nur Teilnehmer/Sprecher; im
+ * Modus share verhält es sich wie 'transparent'.
+ */
+export const SLOT_FALLBACKS = ['transparent', 'freeze', 'black', 'white', 'tile'] as const;
 export type SlotFallback = (typeof SLOT_FALLBACKS)[number];
+/**
+ * Bildformat des Slots (#310): 'native' = das Bild wie Zoom es liefert, 'fit' = Hochkant in 16:9 einpassen. Gilt nur
+ * für Teilnehmer/Sprecher, bei share ohne Wirkung; auf slotOn optional, fehlt = 'native'.
+ */
+export const SLOT_FRAMES = ['native', 'fit'] as const;
+export type SlotFrame = (typeof SLOT_FRAMES)[number];
 export const SLOT_STATES = ['starting', 'live', 'fallback', 'held', 'off'] as const;
 export type SlotState = (typeof SLOT_STATES)[number];
-/** Was der Sender ZUSAETZLICH zu Zooms Bildern schickt (6.12); 'none' heisst: nur Zooms Bilder. */
-export const SLOT_SENT = ['none', 'transparent', 'freeze', 'black', 'white', 'held'] as const;
+/**
+ * Was der Sender ZUSAETZLICH zu Zooms Bildern schickt (6.12); 'none' heisst: nur Zooms Bilder. 'tile' = Zoom-Kachel
+ * (#306), nur Teilnehmer/Sprecher.
+ */
+export const SLOT_SENT = ['none', 'transparent', 'freeze', 'black', 'white', 'held', 'tile'] as const;
 export type SlotSent = (typeof SLOT_SENT)[number];
 /**
  * Warum sich der Zustand eines Slots zuletzt geaendert hat (6.3), genau 20 Werte. Kernregel: eine Ursache, ein Name.
- * 'noFrames' (seit 200 ms kein Bild, Zoom meldet die Kamera aber als an) ist ausdruecklich nicht 'cameraOff'; ebenso ist
+ * 'noFrames' (seit 2 s kein Bild, Zoom meldet die Kamera aber als an; bis Connect 0.4.0 nach 200 ms, Schonfrist seit
+ * #285/#286) ist ausdruecklich nicht 'cameraOff'; ebenso ist
  * 'meetingEnded' nicht 'command' und 'privilegeRevoked' keins von beiden (gemessen am Abo je Teilnehmer, 13.08.2026 und
  * Stage 4b; der Altweg samt diesen Kommentaren ist mit Plan B, Task B23 entfernt, nachzulesen in der Git-Historie).
  */
@@ -84,6 +97,16 @@ export const SLOT_REASONS = [
   'resolutionChanged', 'bufferMismatch', 'subscribeFailed', 'meetingEnded', 'privilegeRevoked',
 ] as const;
 export type SlotReason = (typeof SLOT_REASONS)[number];
+/**
+ * Zoom-Kachel (#306): bei diesen Gründen zeigt die Kachel den Hinweis „Bild unterbrochen“ (Bild war da oder wird
+ * erwartet, kommt aber nicht). Connect leitet den Hinweis allein aus dem gemeldeten Grund ab.
+ * Gegenstück: slotlogic::kachelHinweis (native/slot_logic.h); der Selbsttest gleicht beide ab.
+ */
+export const TILE_NOTICE_REASONS = ['noFrames', 'bufferMismatch', 'subscribeFailed'] as const satisfies readonly SlotReason[];
+/** true = die Kachel zeigt bei diesem Grund „Bild unterbrochen“ (#306); null = kein Grund. */
+export function tileNotice(reason: SlotReason | null): boolean {
+  return reason !== null && (TILE_NOTICE_REASONS as readonly string[]).includes(reason);
+}
 /**
  * Warum sich der Ton eines Slots zuletzt geaendert hat (6.3), genau 12 Werte. 'audioUnavailable' ist ein eigener Wert
  * neben 'command': 'command' heisst "der Ton ist aus, weil so eingestellt", 'audioUnavailable' "Ton gewollt, aber
@@ -122,7 +145,7 @@ export type SharingStatusName = (typeof SHARING_STATUS_NAMES)[number];
  * Nachtrag D (M8): slotBadFlag meldet auch `previewMode` mit unlesbarem `on`, dann ohne `slot`.
  */
 export const SLOT_ERROR_KEYS = [
-  'slotBadNumber', 'slotBadName', 'slotNameTaken', 'slotBadMode', 'slotBadResolution', 'slotBadAudio', 'slotBadFallback',
+  'slotBadNumber', 'slotBadName', 'slotNameTaken', 'slotBadMode', 'slotBadResolution', 'slotBadAudio', 'slotBadFallback', 'slotBadFrame',
   'slotBadFlag', 'slotBadTarget', 'slotAlreadyOn', 'slotNotOn', 'slotNoPrivilege', 'slotReconnecting',
   'slotRawRecordingFailed', 'slotSenderFailed', 'slotRendererFailed', 'slotSubscribeFailed', 'slotBufferMismatch',
   'speakerBadSignal', 'speakerBadHold', 'previewUnavailable',
@@ -153,6 +176,7 @@ const SLOT_ERROR_NAMES: Record<SlotFehler, string> = {
   slotBadResolution: 'SLOT_BAD_RESOLUTION',
   slotBadAudio: 'SLOT_BAD_AUDIO',
   slotBadFallback: 'SLOT_BAD_FALLBACK',
+  slotBadFrame: 'SLOT_BAD_FRAME',
   slotBadFlag: 'SLOT_BAD_FLAG',
   slotBadTarget: 'SLOT_BAD_TARGET',
   slotAlreadyOn: 'SLOT_ALREADY_ON',
@@ -194,7 +218,8 @@ export type Command =
   //     wie \n) oder einer \u-Folge im Rohtext -> slotBadName
   //  3. Name gleich dem eines ANDEREN laufenden Slots (Bytevergleich) -> slotNameTaken (Spec 6.2: direkt nach dem Namen)
   //  4. mode, resolution, audio, fallback fehlend, unlesbar oder unbekannt -> slotBadMode, slotBadResolution,
-  //     slotBadAudio, slotBadFallback (in dieser Reihenfolge)
+  //     slotBadAudio, slotBadFallback (in dieser Reihenfolge); danach frame vorhanden, aber unlesbar oder unbekannt
+  //     -> slotBadFrame (fehlt = native)
   //  5. shareAudio oder showNoVideo fehlend oder unlesbar -> slotBadFlag
   //  6. id vorhanden, aber kein Ganzzahl-Literal von 0 bis UINT_MAX -> slotBadTarget; fehlt id oder ist es 0: kein Ziel
   //  7. Slot laeuft schon -> slotAlreadyOn
@@ -206,11 +231,11 @@ export type Command =
   // previewMode: on unlesbar -> slotBadFlag (ohne slot). speakerConfig und previewMode brauchen kein init.
   | {
       cmd: 'slotOn'; slot: number; ndi: string; mode: SlotMode; id?: number; resolution: SlotResolution;
-      audio: SlotAudioSetting; shareAudio: boolean; fallback: SlotFallback; showNoVideo: boolean;
+      audio: SlotAudioSetting; shareAudio: boolean; fallback: SlotFallback; frame?: SlotFrame; showNoVideo: boolean;
     }
   | {
       cmd: 'slotSet'; slot: number; mode?: SlotMode; id?: number; resolution?: SlotResolution; audio?: SlotAudioSetting;
-      shareAudio?: boolean; fallback?: SlotFallback; showNoVideo?: boolean;
+      shareAudio?: boolean; fallback?: SlotFallback; frame?: SlotFrame; showNoVideo?: boolean;
     }
   | { cmd: 'slotOff'; slot: number }
   | { cmd: 'speakerConfig'; signal: SpeakerSignal; holdMs: number }
@@ -298,8 +323,9 @@ export type WireEvent =
       ev: 'slotAudio'; slot: number; state: AudioState; source: SlotAudioSource; configured: SlotAudioSource;
       reason: SlotAudioReason; sampleRate?: number; channels?: number;
     }
+  // slotStats: outW/outH (#310, Groesse, die ins NDI ging) stehen nur, wenn das letzte Bild des Fensters eingepasst ging.
   | {
-      ev: 'slotStats'; slot: number; w?: number; h?: number; lastW?: number; lastH?: number; fps?: number;
+      ev: 'slotStats'; slot: number; w?: number; h?: number; outW?: number; outH?: number; lastW?: number; lastH?: number; fps?: number;
       fallbackFps: number; heldFrames: number; workUs: number; copyUs: number; previewUs: number; memKb: number;
       resWanted: SlotResolution; resSet?: number; resGot?: number; rawType?: number; userVideoW?: number;
       userVideoH?: number; foreignFrames: number; lateFrames: number; tooFrequent: number; noShareData: number;

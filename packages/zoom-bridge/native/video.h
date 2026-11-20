@@ -43,6 +43,7 @@ struct SlotBefehl {
   slotlogic::SlotAudio audio = slotlogic::SlotAudio::Off;
   bool shareAudio = false;
   slotlogic::Fallback fallback = slotlogic::Fallback::Transparent;
+  slotlogic::Bildformat frame = slotlogic::Bildformat::Native;   // #310; fehlt = native
   bool showNoVideo = true;
 };
 
@@ -55,6 +56,7 @@ struct SlotAenderung {
   bool audioGesetzt = false;       slotlogic::SlotAudio audio = slotlogic::SlotAudio::Off;
   bool shareAudioGesetzt = false;  bool shareAudio = false;
   bool fallbackGesetzt = false;    slotlogic::Fallback fallback = slotlogic::Fallback::Transparent;
+  bool frameGesetzt = false;       slotlogic::Bildformat frame = slotlogic::Bildformat::Native;
   bool showNoVideoGesetzt = false; bool showNoVideo = true;
 };
 
@@ -131,6 +133,12 @@ constexpr long long kSpeakerHoldMaxMs = 5000;
 
 /** Kamera-Merker: meldet videoStatus (0.18) und merkt "Kamera aus laut Zoom" am Ziel (6.7). */
 void slotsKamera(unsigned id, int videoStatus);
+
+/**
+ * Profil-Merker (Zoom-Kachel, #306): Name oder Profilbild von Teilnehmer id haben sich geändert, id 0 = alle (der
+ * Host blendet Profilbilder ein oder aus). Jeder Slot außer Freigabe liest das Profil beim nächsten Zeichnen neu.
+ */
+void slotsProfil(unsigned id);
 
 /** Freigabe-Merker: Liste fuettern (6.9), Rueckruf in recent, shares melden. */
 void slotsFreigabe(const MerkerFreigabe& f);

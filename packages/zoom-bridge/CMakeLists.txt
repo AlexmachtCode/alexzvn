@@ -51,13 +51,16 @@ add_executable(zoom-bridge
   native/video.cpp
   native/audio.cpp
   native/preview.cpp
+  native/kachel.cpp
 )
 
 target_include_directories(zoom-bridge PRIVATE "${ZOOM_HEADERS}" "${NDI_HEADERS}")
 # user32: die Bridge pumpt selbst Win32-Nachrichten (PeekMessage/Dispatch) -
 # ohne eigene Schleife kommt kein einziger SDK-Rueckruf an.
 # windowscodecs und ole32: die Vorschau kodiert JPEG mit WIC auf einem COM-Thread (Spec 6.16).
-target_link_libraries(zoom-bridge PRIVATE "${ZOOM_IMPLIB}" "${NDI_IMPLIB}" user32 windowscodecs ole32)
+# d2d1 und dwrite: die Zoom-Kachel (#306) zeichnet mit Direct2D und DirectWrite (native/kachel.cpp).
+# shell32: CommandLineToArgvW im Sonderweg --kachel-muster (der Ordner kommt als UTF-16, nicht als ANSI-argv).
+target_link_libraries(zoom-bridge PRIVATE "${ZOOM_IMPLIB}" "${NDI_IMPLIB}" user32 windowscodecs ole32 d2d1 dwrite shell32)
 target_compile_definitions(zoom-bridge PRIVATE UNICODE _UNICODE WIN32)
 # NACHBESSERUNG (Runde 1, Befund 3): /utf-8 setzt Quell- UND Ausfuehrungs-
 # zeichensatz explizit auf UTF-8 (sonst MSVC-Vorgabe: Ausfuehrungszeichensatz
@@ -80,3 +83,9 @@ target_compile_options(slot-logic-test PRIVATE /utf-8)
 # Mischer der Mischer-Slots (Spec 6.13), ebenso rein.
 add_executable(audio-mix-test native/audio_mix_test.cpp)
 target_compile_options(audio-mix-test PRIVATE /utf-8)
+# Inhalte der Zoom-Kachel (#306): Initialen, Farbe, Kuerzung, Masse, I420 - ebenso rein.
+add_executable(kachel-logik-test native/kachel_logik_test.cpp)
+target_compile_options(kachel-logik-test PRIVATE /utf-8)
+# Reine 16:9-Einpassung der Hochkant-Zuschaltungen (#310): Flaeche, Achsen, I420 -> UYVA - ebenso rein.
+add_executable(bild-einpassen-test native/bild_einpassen_test.cpp)
+target_compile_options(bild-einpassen-test PRIVATE /utf-8)

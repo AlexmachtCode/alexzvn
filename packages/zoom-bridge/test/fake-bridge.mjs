@@ -12,11 +12,13 @@ const say = (o) => process.stdout.write(`${JSON.stringify(o)}\n`);
 // Die Attrappe spricht denselben Slot-Vertrag wie die Bridge (Gliederung 3.2, 3.3, 3.5): dieselbe Pruefreihenfolge,
 // dieselben Fehlerschluessel, dieselben Ereignisse. Sie importiert nichts aus src/, weil sie als reines JavaScript
 // ohne --experimental-strip-types laeuft; der Selbsttest gleicht die Kataloge hier mit src/protocol.ts ab.
+// #310: frame ('native' | 'fit') ist auf slotOn optional (fehlt = native) und wird hier nur gespeichert, nicht angewandt.
 const SLOT_NR_MAX = 16;
 const SLOT_MODES = ['participant', 'speaker', 'share'];
 const SLOT_RESOLUTIONS = ['360p', '720p', '1080p'];
 const SLOT_AUDIO_SETTINGS = ['off', 'mix', 'person'];
-const SLOT_FALLBACKS = ['transparent', 'freeze', 'black', 'white'];
+const SLOT_FALLBACKS = ['transparent', 'freeze', 'black', 'white', 'tile'];
+const SLOT_FRAMES = ['native', 'fit'];
 const SPEAKER_SIGNALS = ['speakerVideo', 'activeVideo', 'activeAudio'];
 const SPEAKER_HOLD_MAX_MS = 5000;
 const SHARE_TYPE_NAMES = ['unknown', 'as', 'ds', 'wb', 'airhost', 'camera', 'data', 'videoFile', 'frame', 'document', 'computerAudio'];
@@ -36,6 +38,12 @@ const FREIGABE_HALTEN_MS = 200;
 const FREIGABE_ZUSTAND_MS = 2000;
 /** Nenngroesse je Stufe (6.11); Vorgabe fuer slotStats ohne FAKE_AUFLOESUNG_GELIEFERT. */
 const NENNGROESSE = { '360p': [640, 360], '720p': [1280, 720], '1080p': [1920, 1080] };
+
+/** Ob (w, h) auf 1 % genau 16:9 ist (wie einpass::ist16zu9 in bild_einpassen.h). */
+function ist16zu9(w, h) {
+  if (!(w > 0 && h > 0)) return false;
+  return Math.abs(w * 9 - h * 16) * 100 <= h * 16;
+}
 /** ZoomSDKResolution (rawdata_renderer_interface.h:12-20) als slotStats.resGot. */
 const ZOOM_STUFE = { '360p': 2, '720p': 3, '1080p': 4 };
 /** Ein festes, gueltiges 1x1-JPEG fuer preview (mit System.Drawing erzeugt und zurueckgelesen, Plan A, Task A2). */
@@ -127,6 +135,7 @@ const AUSWAHLFELDER = [
   ['resolution', SLOT_RESOLUTIONS, 'slotBadResolution'],
   ['audio', SLOT_AUDIO_SETTINGS, 'slotBadAudio'],
   ['fallback', SLOT_FALLBACKS, 'slotBadFallback'],
+  ['frame', SLOT_FRAMES, 'slotBadFrame', true],
 ];
 
 /**
@@ -135,9 +144,9 @@ const AUSWAHLFELDER = [
  */
 function pruefeFelder(zeile, pflicht) {
   const werte = {};
-  for (const [name, erlaubt, code] of AUSWAHLFELDER) {
+  for (const [name, erlaubt, code, optional] of AUSWAHLFELDER) {
     const f = feld(zeile, name, 'text');
-    if (f.art === 'fehlt' && !pflicht) continue;
+    if (f.art === 'fehlt' && (!pflicht || optional)) continue;
     if (f.art !== 'gelesen' || !erlaubt.includes(f.wert)) return { fehler: code };
     werte[name] = f.wert;
   }
@@ -443,7 +452,11 @@ const scripts = {
     let vorschauTakt = null;
 
     const kameraIstAus = (id) => kameraAus.has(id) || teilnehmer.get(id)?.videoOn === false;
-    const ersatzArt = (s) => (s.fallback === 'freeze' ? (s.kopie ? 'freeze' : 'transparent') : s.fallback);
+    // #306: tile (Zoom-Kachel) nur mit Ziel und außerhalb der Freigabe, sonst transparent. Die 2-s-Regel der Kachel
+    // (starting ohne erstes Bild -> fallback/noFrames) bildet die Attrappe nicht nach, wie schon die Schonfrist.
+    const ersatzArt = (s) => (s.fallback === 'tile'
+      ? (s.mode !== 'share' && s.target !== 0 ? 'tile' : 'transparent')
+      : (s.fallback === 'freeze' ? (s.kopie ? 'freeze' : 'transparent') : s.fallback));
     // Ziel-0-Grund (6.10 Schritt 3, Nachfix W7): der Grund des Aufrufs, wenn er schon "kein Ziel" sagt, sonst nach Modus.
     const ziel0Grund = (mode, grund) => (['participantLeft', 'noTarget', 'speakerNone', 'shareNone'].includes(grund)
       ? grund
@@ -764,6 +777,10 @@ const scripts = {
         if (s.target !== 0) Object.assign(ev, { resSet: 0, resGot: ZOOM_STUFE[s.resolution], rawType: s.mode === 'share' ? 1 : 0 });
         if (s.state === 'live' && s.sent === 'none') Object.assign(ev, { w: s.zuletzt[0], h: s.zuletzt[1], fps: 30 });
         else if (s.zuletzt) Object.assign(ev, { lastW: s.zuletzt[0], lastH: s.zuletzt[1] });
+        // #310: eingepasst (fit, nicht 16:9, keine Freigabe): die Nenngroesse des Slots ging ins NDI.
+        if (s.state === 'live' && s.sent === 'none' && s.frame === 'fit' && s.mode !== 'share' && !ist16zu9(s.zuletzt[0], s.zuletzt[1])) {
+          Object.assign(ev, { outW: NENNGROESSE[s.resolution][0], outH: NENNGROESSE[s.resolution][1] });
+        }
         if (s.ton.state === 'live') Object.assign(ev, { audioPps: 50, audioRate: 32000, audioCh: 1 });
         say(ev);
       }
@@ -814,7 +831,7 @@ const scripts = {
       }
       const { id = 0, ...werte } = p.werte;
       const s = {
-        nr, ndi: ndi.wert, ...werte, target: 0, share: 0, state: 'starting', reason: 'command', sent: 'none', bild: false,
+        nr, ndi: ndi.wert, frame: 'native', ...werte, target: 0, share: 0, state: 'starting', reason: 'command', sent: 'none', bild: false,
         kopie: false, zuletzt: null, pufferGemeldet: false, zeiten: new Set(), halte: null, tonZeit: null,
         ton: { state: 'off', reason: 'command', source: 'none' },
       };
@@ -836,6 +853,7 @@ const scripts = {
       const alterWeg = tonWeg(s);
       const alteAufloesung = s.resolution;
       if (w.fallback !== undefined) s.fallback = w.fallback;
+      if (w.frame !== undefined) s.frame = w.frame;
       if (w.showNoVideo !== undefined) s.showNoVideo = w.showNoVideo;
       if (w.audio !== undefined) s.audio = w.audio;
       if (w.shareAudio !== undefined) s.shareAudio = w.shareAudio;

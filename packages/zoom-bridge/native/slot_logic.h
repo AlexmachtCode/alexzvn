@@ -21,9 +21,9 @@ namespace slotlogic {
 // ---- Aufzaehlungen und Namen (Gliederung 3.1; Task A4) ----------------------------------------------------
 
 enum class SlotMode : uint8_t { Participant, Speaker, Share };                     // SLOT_MODES
-enum class Fallback : uint8_t { Transparent, Freeze, Black, White };               // SLOT_FALLBACKS
+enum class Fallback : uint8_t { Transparent, Freeze, Black, White, Tile };         // SLOT_FALLBACKS
 enum class SlotAudio : uint8_t { Off, Mix, Person };                               // SLOT_AUDIO_SETTINGS
-enum class Sent : uint8_t { None, Transparent, Freeze, Black, White, Held };       // SLOT_SENT
+enum class Sent : uint8_t { None, Transparent, Freeze, Black, White, Held, Tile }; // SLOT_SENT
 enum class SlotState : uint8_t { Starting, Live, Fallback, Held, Off };            // SLOT_STATES
 enum class Grund : uint8_t {                                                       // SLOT_REASONS (20)
   command, frames, noTarget, participantLeft, cameraOff, noFrames, speakerNone, speakerNoVideo,
@@ -37,11 +37,13 @@ enum class TonGrund : uint8_t {                                                 
 enum class TonQuelle : uint8_t { Mix, Person, Share, MixShare, None };             // SLOT_AUDIO_SOURCES
 enum class TonZustand : uint8_t { Waiting, Live, Silent, Off };                    // AUDIO_STATES
 enum class Signal : uint8_t { SpeakerVideo, ActiveVideo, ActiveAudio };            // SPEAKER_SIGNALS
+enum class Bildformat : uint8_t { Native, Fit };                                   // SLOT_FRAMES (#310)
 
 inline constexpr const char* MODUS_NAMEN[3] = {"participant", "speaker", "share"};
-inline constexpr const char* FALLBACK_NAMEN[4] = {"transparent", "freeze", "black", "white"};
+// #306: "tile" = Zoom-Kachel (nur Teilnehmer/Sprecher; im Modus Freigabe wie "transparent"), hinten angehängt.
+inline constexpr const char* FALLBACK_NAMEN[5] = {"transparent", "freeze", "black", "white", "tile"};
 inline constexpr const char* AUDIO_NAMEN[3] = {"off", "mix", "person"};
-inline constexpr const char* SENT_NAMEN[6] = {"none", "transparent", "freeze", "black", "white", "held"};
+inline constexpr const char* SENT_NAMEN[7] = {"none", "transparent", "freeze", "black", "white", "held", "tile"};
 inline constexpr const char* ZUSTAND_NAMEN[5] = {"starting", "live", "fallback", "held", "off"};
 inline constexpr const char* GRUND_NAMEN[20] = {
   "command", "frames", "noTarget", "participantLeft", "cameraOff", "noFrames", "speakerNone", "speakerNoVideo",
@@ -55,18 +57,21 @@ inline constexpr const char* TONGRUND_NAMEN[12] = {
 inline constexpr const char* TONQUELLE_NAMEN[5] = {"mix", "person", "share", "mixShare", "none"};
 inline constexpr const char* TONZUSTAND_NAMEN[4] = {"waiting", "live", "silent", "off"};
 inline constexpr const char* SIGNAL_NAMEN[3] = {"speakerVideo", "activeVideo", "activeAudio"};
+// #310: "native" = Bild wie von Zoom, "fit" = Hochkant in 16:9 einpassen.
+inline constexpr const char* BILDFORMAT_NAMEN[2] = {"native", "fit"};
 
 // Jede Tabelle hat genau so viele Eintraege, wie ihre Aufzaehlung Werte hat (der letzte Wert + 1).
 static_assert(static_cast<int>(SlotMode::Share) + 1 == 3, "MODUS_NAMEN");
-static_assert(static_cast<int>(Fallback::White) + 1 == 4, "FALLBACK_NAMEN");
+static_assert(static_cast<int>(Fallback::Tile) + 1 == 5, "FALLBACK_NAMEN");
 static_assert(static_cast<int>(SlotAudio::Person) + 1 == 3, "AUDIO_NAMEN");
-static_assert(static_cast<int>(Sent::Held) + 1 == 6, "SENT_NAMEN");
+static_assert(static_cast<int>(Sent::Tile) + 1 == 7, "SENT_NAMEN");
 static_assert(static_cast<int>(SlotState::Off) + 1 == 5, "ZUSTAND_NAMEN");
 static_assert(static_cast<int>(Grund::privilegeRevoked) + 1 == 20, "GRUND_NAMEN");
 static_assert(static_cast<int>(TonGrund::privilegeRevoked) + 1 == 12, "TONGRUND_NAMEN");
 static_assert(static_cast<int>(TonQuelle::None) + 1 == 5, "TONQUELLE_NAMEN");
 static_assert(static_cast<int>(TonZustand::Off) + 1 == 4, "TONZUSTAND_NAMEN");
 static_assert(static_cast<int>(Signal::ActiveAudio) + 1 == 3, "SIGNAL_NAMEN");
+static_assert(static_cast<int>(Bildformat::Fit) + 1 == 2, "BILDFORMAT_NAMEN");
 
 inline const char* name(SlotMode v) { return MODUS_NAMEN[static_cast<int>(v)]; }
 inline const char* name(Fallback v) { return FALLBACK_NAMEN[static_cast<int>(v)]; }
@@ -78,6 +83,7 @@ inline const char* name(TonGrund v) { return TONGRUND_NAMEN[static_cast<int>(v)]
 inline const char* name(TonQuelle v) { return TONQUELLE_NAMEN[static_cast<int>(v)]; }
 inline const char* name(TonZustand v) { return TONZUSTAND_NAMEN[static_cast<int>(v)]; }
 inline const char* name(Signal v) { return SIGNAL_NAMEN[static_cast<int>(v)]; }
+inline const char* name(Bildformat v) { return BILDFORMAT_NAMEN[static_cast<int>(v)]; }
 
 // ---- Aktiver Sprecher (Spec 6.8, E19; Task A4) -----------------------------------------------------------
 
@@ -476,12 +482,15 @@ struct ZielStand {
   bool rawOffGesehen = false;      // RawData_Off nach dem ersten Bild dieses Ziels (6.7)
   bool kopieGueltig = false;       // Kopie stammt von diesem Ziel (6.12)
   int64_t retargetMs = 0;          // Beginn der Luecke (6.10)
+  // #310: was zuletzt ins NDI ging (eingepasst: Nenngroesse des Rahmens, sonst lastW/lastH); 0 = noch nichts.
+  int ausgabeW = 0, ausgabeH = 0;
 };
 
 inline bool operator==(const ZielStand& a, const ZielStand& b) {
   return a.lastFrameMs == b.lastFrameMs && a.lastW == b.lastW && a.lastH == b.lastH && a.gemessen == b.gemessen &&
          a.mismatchGemeldet == b.mismatchGemeldet && a.bildSeitUmhaengen == b.bildSeitUmhaengen &&
-         a.rawOffGesehen == b.rawOffGesehen && a.kopieGueltig == b.kopieGueltig && a.retargetMs == b.retargetMs;
+         a.rawOffGesehen == b.rawOffGesehen && a.kopieGueltig == b.kopieGueltig && a.retargetMs == b.retargetMs &&
+         a.ausgabeW == b.ausgabeW && a.ausgabeH == b.ausgabeH;
 }
 inline bool operator!=(const ZielStand& a, const ZielStand& b) { return !(a == b); }
 
@@ -489,6 +498,17 @@ inline bool operator!=(const ZielStand& a, const ZielStand& b) { return !(a == b
 inline void zielStandNeu(ZielStand& z, int64_t jetzt) {
   z = ZielStand{};
   z.retargetMs = jetzt;
+}
+
+/**
+ * #285/#286 (Review 10.11., Befund 1): Laenge einer Bildluecke fuer die Logzeile. lueckeAbMs = lastFrameMs des letzten
+ * Bildes vor der Luecke (der Merker, den die Kamera-Abfrage der Schonfrist nach 200 ms setzt). Kam seither ein Bild
+ * DIESES Ziels, ist die Luecke die Zeit zwischen den beiden Bildern; sonst -1 (kein Merker, noch kein neues Bild oder
+ * dazwischen umgehaengt).
+ */
+inline int64_t bildLueckeMs(int64_t lueckeAbMs, const ZielStand& z) {
+  if (lueckeAbMs <= 0 || !z.bildSeitUmhaengen || z.retargetMs > lueckeAbMs || z.lastFrameMs <= lueckeAbMs) return -1;
+  return z.lastFrameMs - lueckeAbMs;
 }
 
 /** Riegel (6.10, I3): Bild und RawData_On/Off werden verworfen, solange nicht abonniert oder beim Umhaengen. */
@@ -521,6 +541,10 @@ inline constexpr int64_t BILD_NACHLAUF_MS = 200;            // Ersatzbild bzw. H
 inline constexpr int64_t FREIGABE_ZUSTAND_MS = 2000;        // Zustand eines Freigabe-Slots erst nach 2 s (6.9, W1)
 inline constexpr int64_t TAKT_ERSATZBILD_MS = 100;          // Ersatzbild hoechstens alle 100 ms
 inline constexpr int64_t TAKT_HALTEN_MS = 200;              // Kopie beim Halten hoechstens alle 200 ms
+// #285/#286 (Owner 10.11.2026, „max 2 s“): Teilnehmer/Sprecher, Zoom meldet die Kamera als an, aber kein Bild -> so
+// lange nichts zusaetzlich senden (der NDI-Empfaenger haelt das letzte Bild), erst danach Ersatzbild und
+// fallback/noFrames. Gemessen 08.11.: 138 von 164 Aussetzern kuerzer als 2 s; mit 200 ms war jeder ein schwarzes Bild.
+inline constexpr int64_t TEILNEHMER_SCHONFRIST_MS = 2000;
 
 /** Eingang der Bild-Entscheidung, je Slot und Herzschlag (videoTick, 6.6 Nr. 6). */
 struct BildLage {
@@ -531,10 +555,15 @@ struct BildLage {
   bool freigabePausiert = false;      // die gezeigte Freigabe ist pausiert
   bool kameraAusLautZoom = false;     // videoStatus Video_OFF/Video_Mute_ByHost oder IsVideoOn() = false (6.7)
   bool bufferMismatch = false;        // laufender Puffer-Fehler dieses Ziels (bleibt als Grund stehen)
+  bool kameraGefragt = false;         // #285/#286: in dieser Bildluecke wurde Zoom schon gefragt (IsVideoOn)
   SlotState zustand = SlotState::Starting;
   Grund grund = Grund::command;
   int64_t letztesErsatzMs = 0;        // Zeit des letzten Ersatz- bzw. Halte-Bildes; 0 = noch keins
   int64_t jetzt = 0;
+  // #306, nur der Weg der Zoom-Kachel liest es: Bridge-Uhr (ms), zu der Zoom die Kamera dieses Ziels zuletzt von aus
+  // auf an gemeldet hat (videoStatus Video_ON bzw. IsVideoOn() = true, nachdem kameraAusLautZoom galt); 0 = kein
+  // solcher Wechsel bekannt. Ein Wert vor dem Umhängen bzw. vor dem letzten Bild wirkt nicht (es zählt das Spätere).
+  int64_t kameraAnMs = 0;
 };
 
 /**
@@ -547,14 +576,66 @@ struct BildEntscheidung {
   bool zustandAendern = false;
   SlotState zustand = SlotState::Starting;
   Grund grund = Grund::command;
+  // #285/#286: in der Schonfrist ab 200 ms ohne Bild Zoom fragen (IsVideoOn), einmal je Luecke (kameraGefragt).
+  bool kameraFragen = false;
 };
 
-/** Art des Ersatzbilds (Tabelle 6.12): freeze ohne Kopie dieses Ziels wie transparent (T60). */
-inline Sent ersatzArt(Fallback f, bool kopieDiesesZiels) {
+/**
+ * Die Gründe, die ein Umhängen auf Ziel 0 setzt (6.10 Schritt 3, Nachfix W7; ziel0Grund unten nutzt sie, die Attrappe
+ * führt dieselbe Liste): der Slot zeigt niemanden.
+ */
+inline bool istZiel0Grund(Grund g) {
+  return g == Grund::participantLeft || g == Grund::noTarget || g == Grund::speakerNone || g == Grund::shareNone;
+}
+
+/**
+ * #306: zeigt die Zoom-Kachel bei diesem Grund den Hinweis „Bild unterbrochen“? Gefragt wird mit dem Grund NACH der
+ * Entscheidung (BildEntscheidung::grund). Gegenstück: TILE_NOTICE_REASONS in src/protocol.ts (der Selbsttest liest die
+ * Gründe aus diesem Rumpf und gleicht sie in derselben Reihenfolge ab).
+ */
+inline bool kachelHinweis(Grund g) {
+  return g == Grund::noFrames || g == Grund::bufferMismatch || g == Grund::subscribeFailed;
+}
+
+/**
+ * #306 (Task 7): Zoom meldet die Kamera des Ziels als aus (aus = true) bzw. an. Setzt „Kamera aus laut Zoom“ und merkt
+ * NUR an der Flanke aus -> an die Zeit in kameraAnMs (BildLage::kameraAnMs); jedes weitere „an“ verschiebt nichts.
+ * Das Umhängen setzt beides selbst zurück (kameraAus false, kameraAnMs 0), nicht über diese Funktion.
+ */
+inline void kameraLautZoom(bool& kameraAus, int64_t& kameraAnMs, bool aus, int64_t jetzt) {
+  if (kameraAus && !aus) kameraAnMs = jetzt;
+  kameraAus = aus;
+}
+
+/** Breite und Höhe eines Bildes in Bildpunkten. */
+struct BildGroesse {
+  int w = 0;
+  int h = 0;
+};
+
+/**
+ * #306 (Task 7): Größe der Zoom-Kachel. w/h kommen wie bei den anderen Ersatzbildern: Größe des letzten Livebilds
+ * dieses Ziels, ohne eines die Nennauflösung des Slots (video.cpp, ersatzbildTick). Die Kachel ist I420 mit halber
+ * Farbauflösung und braucht in beiden Richtungen positive, gerade Maße (kachel::i420Bytes, bgraZuI420); passt das
+ * Livebild nicht, gilt die Nennauflösung (nennW x nennH, immer gerade) als Paar - nie nur eine Seite.
+ */
+inline BildGroesse kachelGroesse(int w, int h, int nennW, int nennH) {
+  if (w > 0 && h > 0 && w % 2 == 0 && h % 2 == 0) return BildGroesse{w, h};
+  return BildGroesse{nennW, nennH};
+}
+
+/**
+ * Art des Ersatzbilds (Tabelle 6.12): freeze ohne Kopie dieses Ziels wie transparent (T60).
+ * #306: tile (Zoom-Kachel) nur mit Ziel, außerhalb der Freigabe und ohne Ziel-0-Grund, sonst wie transparent. Modus,
+ * Ziel und Grund wirken nur bei tile; die vier anderen Ersatzbilder entscheiden wie bisher allein nach der Kopie.
+ */
+inline Sent ersatzArt(Fallback f, bool kopieDiesesZiels, SlotMode modus, unsigned ziel, Grund grund) {
   switch (f) {
     case Fallback::Black: return Sent::Black;
     case Fallback::White: return Sent::White;
     case Fallback::Freeze: return kopieDiesesZiels ? Sent::Freeze : Sent::Transparent;
+    case Fallback::Tile:
+      return modus != SlotMode::Share && ziel != 0 && !istZiel0Grund(grund) ? Sent::Tile : Sent::Transparent;
     case Fallback::Transparent: break;
   }
   return Sent::Transparent;
@@ -567,11 +648,24 @@ inline Sent ersatzArt(Fallback f, bool kopieDiesesZiels) {
  *   der Zustand bleibt dabei live; erst nach 2 s held/sharePaused bzw. held/shareStill, ohne Kopie
  *   fallback/sharePaused bzw. fallback/noFrames. Nie cameraOff.
  * - Teilnehmer/Sprecher: nach 200 ms ohne Bild fallback/cameraOff, wenn Zoom die Kamera als aus meldet, sonst
- *   fallback/noFrames; ein laufender bufferMismatch bleibt.
+ *   fallback/noFrames; ein laufender bufferMismatch bleibt. Seit #285/#286 (0.4.1): aus live bei Kamera an und ohne
+ *   bufferMismatch erst nach TEILNEHMER_SCHONFRIST_MS (2 s) Ersatzbild und fallback/noFrames, bis dahin none; ab
+ *   200 ms meldet kameraFragen, dass Zoom einmal je Luecke nach der Kamera gefragt werden soll.
  * - Vor dem ersten Bild bleibt der Zustand (starting, oder cameraOff aus 6.10 Schritt 7); einzige Ausnahme: Freigabe
  *   pausiert und 2 s seit dem Umhaengen -> fallback/sharePaused. Ziel 0: Zustand setzt das Umhaengen.
  *   Seit dem Abschluss-Fix: Teilnehmer/Sprecher aus starting mit Kamera laut Zoom aus -> gleich fallback/cameraOff (F6);
  *   fallback/subscribeFailed bleibt auch im Freigabe-Slot stehen (F5).
+ * - #306 Zoom-Kachel (nur fallback tile, nur Teilnehmer/Sprecher; eigener Zweig, die anderen vier Ersatzbilder bleiben
+ *   bitgleich, Logik-Tests s306_alte_ersatzbilder_bitgleich und s306_alte_ignorieren_kamera_an). Die Frist zählt ab dem
+ *   Späteren von letztem Bild (vor dem ersten: Umhängen) und BildLage::kameraAnMs; so blitzt „Bild unterbrochen“
+ *   (kachelHinweis) weder bei der Zuweisung noch gleich nach dem Einschalten der Kamera auf. Neu bewertet werden
+ *   starting und fallback mit jedem Grund außer subscribeFailed, speakerNoVideo und den Ziel-0-Gründen; nach dem ersten
+ *   Bild jeder Zustand:
+ *     Kamera laut Zoom aus -> fallback/cameraOff (geht einem laufenden bufferMismatch vor, wie F6);
+ *     nach dem ersten Bild ein laufender bufferMismatch -> fallback/bufferMismatch nach 200 ms (wie bisher), außer Zoom
+ *       hat die Kamera erst nach dem letzten Bild wieder angemeldet (kameraAnMs > lastFrameMs): dann die Frist;
+ *     in der Frist (< TEILNEHMER_SCHONFRIST_MS, 2 s) -> unverändert, aus live sent none (Schonfrist);
+ *     danach -> fallback/noFrames bzw. fallback/bufferMismatch.
  */
 inline BildEntscheidung bildEntscheidung(const BildLage& l, const ZielStand& z) {
   BildEntscheidung e;
@@ -580,12 +674,24 @@ inline BildEntscheidung bildEntscheidung(const BildLage& l, const ZielStand& z) 
   if (l.zustand == SlotState::Off) return e;
   const bool hatBild = z.bildSeitUmhaengen;
   const int64_t seitBild = hatBild && l.jetzt > z.lastFrameMs ? l.jetzt - z.lastFrameMs : 0;
-  const bool frisch = hatBild && seitBild < BILD_NACHLAUF_MS;
   const bool freigabe = l.modus == SlotMode::Share;
+  // #285/#286: nur der Fall, der sonst fallback/noFrames wuerde, bekommt die Schonfrist, und nur aus live (Review
+  // 10.11., Befund 3: sonst „fallback mit sent none“); Kamera aus und ein laufender bufferMismatch bleiben bei 200 ms,
+  // Freigabe-Slots halten ohnehin (unten).
+  const bool schonfrist = !freigabe && l.zustand == SlotState::Live && !l.kameraAusLautZoom && !l.bufferMismatch;
+  // #306 (nur Kachel): die Frist zählt ab dem Späteren von letztem Bild bzw. Umhängen und „Kamera an“ (Kopfkommentar).
+  const bool kachel = l.fallback == Fallback::Tile && !freigabe;
+  const int64_t kachelLueckeAb = std::max(hatBild ? z.lastFrameMs : z.retargetMs, l.kameraAnMs);
+  const bool kachelFrist = kachel && l.jetzt - kachelLueckeAb < TEILNEHMER_SCHONFRIST_MS;
+  const bool frisch = hatBild && (seitBild < (schonfrist ? TEILNEHMER_SCHONFRIST_MS : BILD_NACHLAUF_MS) ||
+                                  (schonfrist && kachelFrist));
+  // Bisher fragte video.cpp beim Uebergang nach 200 ms, ob Zoom die Kamera als aus meldet; in der Schonfrist gibt es
+  // diesen Uebergang erst nach 2 s. Darum hier ab 200 ms einmal je Luecke fragen: Kamera aus bleibt bei 200 ms.
+  e.kameraFragen = schonfrist && frisch && l.ziel != 0 && !l.kameraGefragt && seitBild >= BILD_NACHLAUF_MS;
 
   if (frisch) e.sent = Sent::None;
   else if (freigabe && l.ziel != 0 && l.freigabeBesteht && z.kopieGueltig) e.sent = Sent::Held;
-  else e.sent = ersatzArt(l.fallback, z.kopieGueltig);
+  else e.sent = ersatzArt(l.fallback, z.kopieGueltig, l.modus, l.ziel, l.grund);
   if (e.sent != Sent::None) {
     const int64_t takt = e.sent == Sent::Held ? TAKT_HALTEN_MS : TAKT_ERSATZBILD_MS;
     e.jetztSenden = l.letztesErsatzMs <= 0 || l.jetzt - l.letztesErsatzMs >= takt;
@@ -594,7 +700,32 @@ inline BildEntscheidung bildEntscheidung(const BildLage& l, const ZielStand& z) 
   if (l.ziel == 0 || frisch) return e;
   SlotState soll = l.zustand;
   Grund sollGrund = l.grund;
-  if (!freigabe) {
+  if (kachel) {
+    // #306: der Weg der Zoom-Kachel (Kopfkommentar). Vor dem ersten Bild bleiben subscribeFailed, speakerNoVideo und die
+    // Ziel-0-Gründe stehen, ebenso ein Zustand außer starting/fallback.
+    const bool grundBleibt =
+        l.grund == Grund::subscribeFailed || l.grund == Grund::speakerNoVideo || istZiel0Grund(l.grund);
+    const bool neuBewerten =
+        hatBild || l.zustand == SlotState::Starting || (l.zustand == SlotState::Fallback && !grundBleibt);
+    if (!neuBewerten) return e;
+    if (l.kameraAusLautZoom) {
+      sollGrund = Grund::cameraOff;
+    } else if (hatBild && l.bufferMismatch && l.kameraAnMs <= z.lastFrameMs) {
+      // Task 7 (Entscheidung 2): die 200 ms nur, wenn Zoom die Kamera nicht erst nach dem letzten Bild wieder angemeldet
+      // hat. Sonst ist der Merker bufferMismatch alt (aus der Zeit vor „Kamera aus“) und ließe den Hinweis gleich
+      // nach dem Einschalten aufblitzen; dann gilt die Frist ab „Kamera an“, nach 2 s fallback/bufferMismatch (unten).
+      // Ein schmaler Fall bleibt dabei bewusst (Review T7): live, dann nur noch falsch geformte Bilder (bufferMismatch),
+      // und Zoom meldet die Kamera binnen 200 ms nach dem letzten passenden Bild aus und wieder an - dann steht der Slot
+      // bis zu 2 s auf live/frames, während schon die Kachel hinausgeht (sent tile, ohne Hinweis); danach
+      // fallback/bufferMismatch mit Hinweis.
+      sollGrund = Grund::bufferMismatch;
+    } else if (kachelFrist) {
+      return e;
+    } else {
+      sollGrund = l.bufferMismatch ? Grund::bufferMismatch : Grund::noFrames;
+    }
+    soll = SlotState::Fallback;
+  } else if (!freigabe) {
     if (!hatBild) {
       // Abschluss-Fix F6 (Ruling, B31, wie die Attrappe): meldet Zoom die Kamera des Ziels vor dem ersten Bild als aus
       // (videoStatus), gilt gleich fallback/cameraOff (T19, nicht T20) - auch im Sprecher-Slot. Nur aus starting: ein
@@ -877,15 +1008,7 @@ inline constexpr int ZU_OFT_WIEDERHOLUNGEN = 3;        // 18: hoechstens dreimal
  * Modus. modeChanged, targetChanged und resolutionChanged stehen so nie mit Ziel 0.
  */
 inline Grund ziel0Grund(Grund aufruf, SlotMode modus) {
-  switch (aufruf) {
-    case Grund::participantLeft:
-    case Grund::noTarget:
-    case Grund::speakerNone:
-    case Grund::shareNone:
-      return aufruf;
-    default:
-      break;
-  }
+  if (istZiel0Grund(aufruf)) return aufruf;   // #306: eine Liste der Ziel-0-Gründe (Logik-Test s306_ziel0grund_wie_bisher)
   switch (modus) {
     case SlotMode::Speaker: return Grund::speakerNone;
     case SlotMode::Share: return Grund::shareNone;

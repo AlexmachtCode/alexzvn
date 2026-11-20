@@ -50,6 +50,8 @@ export interface OpResult {
 
 export interface RecordResult extends OpResult {
   filePath?: string;
+  /** Alle geschriebenen Dateien: `filePath` und ab 4 GB die Folgedateien `Name_002.wav` … (#291). */
+  files?: string[];
   bytes?: number;
   durationSec?: number;
   channels?: number;
@@ -84,6 +86,59 @@ export interface RecShowSettings {
   sampleRate?: number;
 }
 
+/** Eingang, wie er gemerkt wird: über Name + Treiber, nie über die PortAudio-Nummer (#291). */
+export interface GemerkterEingang {
+  name: string;
+  hostApiName: string;
+}
+
+/**
+ * Gemerkte Einstellungen (#291), im Main als `recorder-settings.json` unter userData abgelegt.
+ * Alle Felder optional — was fehlt, nimmt die Vorgabe. Die Startzeit des Zeitplans fehlt mit
+ * Absicht: ein festes Datum liegt am nächsten Tag in der Vergangenheit.
+ */
+export interface RecEinstellungen {
+  eingang?: GemerkterEingang;
+  channels?: number;
+  sampleRate?: number;
+  dir?: string;
+  fileName?: string;
+  separateTracks?: boolean;
+  gainDb?: number;
+  scheduleDurationMin?: number;
+  /** Name des zuletzt angewandten/gespeicherten Presets — nur in der Einstellungsdatei, nie in `werte`. */
+  preset?: string;
+}
+
+/** Benannter Satz Einstellungen (Preset), ohne das Feld `preset`. */
+export interface RecPreset {
+  name: string;
+  werte: RecEinstellungen;
+}
+
+/** Wahl bei gleichnamigen Presets beim Import. */
+export type KonfliktWahl = 'ueberschreiben' | 'beide' | 'abbrechen';
+
+/** Wahl beim Import, wenn Presets in einen Netzwerkordner aufnehmen würden. */
+export type NetzWahl = 'uebernehmen' | 'ohne' | 'abbrechen';
+
+/** Ergebnis von Preset-Import/-Export über den Dateidialog. */
+export interface PresetDateiErgebnis {
+  ok: boolean;
+  error?: string;
+  presets?: RecPreset[];
+  meldung?: string;
+  /** Import: übernommene Presets, die in einen Netzwerkordner aufnehmen (endgültiger Name). Leer → fehlt. */
+  netzwerk?: { name: string; dir: string }[];
+}
+
+/** Ergebnis von `settings.load()`: die Einstellungen und ob der gemerkte Zielordner da ist. */
+export interface GeladeneEinstellungen {
+  einstellungen: RecEinstellungen;
+  /** null = kein Zielordner gemerkt. */
+  ordnerDa: boolean | null;
+}
+
 /** Shape, die der Preload auf `window.jmrec` legt. */
 export interface JmrecApi {
   platform: NodeJS.Platform;
@@ -115,4 +170,19 @@ export interface JmrecApi {
   takeShowSettings: () => Promise<RecShowSettings | null>;
   /** Show-Integration (C3): Voreinstellungen, die zur Laufzeit per Deep-Link ankommen. Liefert Unsubscribe. */
   onShowSettings: (cb: (s: RecShowSettings) => void) => () => void;
+  /** Gemerkte Einstellungen (#291). `save` wartet nicht — es muss auch beim Schließen noch durchgehen. */
+  settings: {
+    load: () => Promise<GeladeneEinstellungen>;
+    save: (e: RecEinstellungen) => void;
+  };
+  /** Gespeicherte Presets. Alle Aufrufe geben die neue, sortierte Liste zurück. */
+  presets: {
+    list: () => Promise<RecPreset[]>;
+    speichern: (p: RecPreset) => Promise<RecPreset[]>;
+    loeschen: (name: string) => Promise<RecPreset[]>;
+    exportieren: () => Promise<PresetDateiErgebnis>;
+    importieren: () => Promise<PresetDateiErgebnis>;
+  };
+  /** Gibt es den Ordner? (z. B. Zielordner eines Presets) */
+  ordnerDa: (dir: string) => Promise<boolean>;
 }

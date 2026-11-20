@@ -9,6 +9,8 @@ export const VORSCHAU_TEXT = {
   T52: 'Vorschau ohne Bild-Versatz, etwa 2 Bilder pro Sekunde.',
   /** T53: Kennzeichen bei `sent = freeze`. */
   T53: 'eingefroren',
+  /** T53b: Kennzeichen bei `sent = tile`. */
+  T53b: 'Zoom-Kachel',
   /** T54: Kennzeichen in SZ5. */
   T54: 'gehalten',
   /** T55: kein Sender. */
@@ -33,7 +35,7 @@ export interface VorschauEingabe {
 
 /** Was die Kachel malt: das frische Bild, das letzte Bild dieses Ziels, leer, ein Ersatzbild oder die letzte Fläche abgeblendet. */
 export type VorschauFlaeche = {
-  art: 'bild' | 'letzte' | 'leer' | 'schachbrett' | 'schwarz' | 'weiss' | 'abgeblendet'; kennzeichen: string | null; text: string | null;
+  art: 'bild' | 'letzte' | 'leer' | 'schachbrett' | 'schwarz' | 'weiss' | 'kachel' | 'abgeblendet'; kennzeichen: string | null; text: string | null;
 };
 
 const flaeche = (art: VorschauFlaeche['art'], kennzeichen: string | null = null, text: string | null = null): VorschauFlaeche =>
@@ -48,6 +50,8 @@ function ersatzFlaeche(e: VorschauEingabe): VorschauFlaeche {
       return flaeche('schwarz');
     case 'white':
       return flaeche('weiss');
+    case 'tile':
+      return flaeche('kachel', VORSCHAU_TEXT.T53b);
     case 'freeze':
       // Die Kopie entsteht in der Bridge unabhängig von der Vorschau: nie ein Schachbrett (Restrunde RR4).
       return flaeche(e.letzteDiesesZiels ? 'letzte' : 'leer', VORSCHAU_TEXT.T53);

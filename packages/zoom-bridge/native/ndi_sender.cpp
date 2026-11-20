@@ -137,29 +137,46 @@ void meldeVerworfen(int n) {
 }  // namespace
 
 void NdiSender::sendI420(const uint8_t* buf, int width, int height) {
-  int verworfen = 0;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!send_ || !buf || width <= 0 || height <= 0) return;
-    const int versatz = versatzMsLocked();
-    // "ohne Versatz" (Freigabe-Slots, Spec 6.14): immer direkt, nie pushFrame.
-    if (ohneVersatz_ || (versatz == 0 && delay_.size() == 0)) {
-      NDIlib_video_frame_v2_t f;
-      fillFrame(f, buf, width, height);
-      // Kehrt erst zurueck, wenn der Puffer ausgelesen ist - deshalb duerfen
-      // wir Zooms Puffer direkt durchreichen, ohne AddRef().
-      NDIlib_send_send_video_v2(send_, &f);
-      return;
-    }
-    // Groesse aus Breite x Hoehe, nicht aus GetBufferLen(): der Bild-Rueckruf
-    // (video.cpp) hat genau diese Gleichheit schon geprueft und verwirft jedes
-    // Bild, bei dem sie nicht gilt.
-    const size_t len = static_cast<size_t>(width) * height * 3 / 2;
-    letzteBildBytes_ = len;
-    const int verdraengt = delay_.pushFrame(buf, len, width, height, DelayLine::Clock::now());
-    zaehler_.verworfen += static_cast<unsigned int>(verdraengt);
-    verworfen = verdraengt + releaseDueLocked(false);
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (!send_ || !buf || width <= 0 || height <= 0) return;
+  const int versatz = versatzMsLocked();
+  // "ohne Versatz" (Freigabe-Slots, Spec 6.14): immer direkt, nie pushFrame. Haelt ein anderer Thread die Staffel
+  // (#310), reiht sich das Bild ein - sonst ueberholte es die Bilder, die er gerade ausgibt.
+  if (ohneVersatz_ || (versatz == 0 && delay_.size() == 0 && !ausgabeLaeuft_)) {
+    NDIlib_video_frame_v2_t f;
+    fillFrame(f, buf, width, height);
+    // Kehrt erst zurueck, wenn der Puffer ausgelesen ist - deshalb duerfen
+    // wir Zooms Puffer direkt durchreichen, ohne AddRef().
+    NDIlib_send_send_video_v2(send_, &f);
+    return;
   }
+  // Groesse aus Breite x Hoehe, nicht aus GetBufferLen(): der Bild-Rueckruf
+  // (video.cpp) hat genau diese Gleichheit schon geprueft und verwirft jedes
+  // Bild, bei dem sie nicht gilt.
+  const size_t len = static_cast<size_t>(width) * height * 3 / 2;
+  letzteBildBytes_ = len;
+  const int verdraengt = delay_.pushFrame(buf, len, width, height, DelayLine::Clock::now());
+  zaehler_.verworfen += static_cast<unsigned int>(verdraengt);
+  const int verworfen = verdraengt + releaseDueLocked(lock, false);
+  lock.unlock();
+  meldeVerworfen(verworfen);
+}
+
+bool NdiSender::direktFrei() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return send_ && (ohneVersatz_ || (versatzMsLocked() == 0 && delay_.size() == 0 && !ausgabeLaeuft_));
+}
+
+void NdiSender::sendI420Einpassen(const uint8_t* i420, int w, int h, int rahmenW, int rahmenH) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (!send_ || !i420 || w <= 0 || h <= 0 || rahmenW <= 0 || rahmenH <= 0) return;
+  // Immer durch die Warteschlange, auch bei Versatz 0: eingepasst wird nur beim Ausgeben, ausserhalb von mutex_.
+  const size_t len = einpass::i420Bytes(w, h);
+  letzteBildBytes_ = len;
+  const int verdraengt = delay_.pushEinpassen(i420, len, w, h, rahmenW, rahmenH, DelayLine::Clock::now());
+  zaehler_.verworfen += static_cast<unsigned int>(verdraengt);
+  const int verworfen = verdraengt + releaseDueLocked(lock, false);
+  lock.unlock();
   meldeVerworfen(verworfen);
 }
 
@@ -203,20 +220,37 @@ void NdiSender::sendTransparentLocked(int width, int height) {
 int NdiSender::versatzMsLocked() const { return ohneVersatz_ ? 0 : ndiVideoDelayMs(); }
 
 void NdiSender::sendErsatz(Bildart art, int width, int height) {
-  int verworfen = 0;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!send_ || width <= 0 || height <= 0) return;
-    if (ohneVersatz_ || (versatzMsLocked() == 0 && delay_.size() == 0)) {
-      if (art == Bildart::Weiss) sendWhiteLocked(width, height);
-      else if (art == Bildart::Transparent) sendTransparentLocked(width, height);
-      else sendBlackLocked(width, height);
-      return;
-    }
-    const int verdraengt = delay_.pushBild(art, width, height, DelayLine::Clock::now());
-    zaehler_.verworfen += static_cast<unsigned int>(verdraengt);
-    verworfen = verdraengt + releaseDueLocked(false);
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (!send_ || width <= 0 || height <= 0) return;
+  if (ohneVersatz_ || (versatzMsLocked() == 0 && delay_.size() == 0 && !ausgabeLaeuft_)) {
+    if (art == Bildart::Weiss) sendWhiteLocked(width, height);
+    else if (art == Bildart::Transparent) sendTransparentLocked(width, height);
+    else sendBlackLocked(width, height);
+    return;
   }
+  const int verdraengt = delay_.pushBild(art, width, height, DelayLine::Clock::now());
+  zaehler_.verworfen += static_cast<unsigned int>(verdraengt);
+  const int verworfen = verdraengt + releaseDueLocked(lock, false);
+  lock.unlock();
+  meldeVerworfen(verworfen);
+}
+
+void NdiSender::sendKachel(std::shared_ptr<const std::vector<uint8_t>> i420, int width, int height) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (!send_ || !i420 || width <= 0 || height <= 0) return;
+  const size_t erwartet = static_cast<size_t>(width) * static_cast<size_t>(height) +
+                          2 * static_cast<size_t>(width / 2) * static_cast<size_t>(height / 2);
+  if (i420->size() != erwartet) return;
+  if (ohneVersatz_ || (versatzMsLocked() == 0 && delay_.size() == 0 && !ausgabeLaeuft_)) {
+    NDIlib_video_frame_v2_t f;
+    fillFrame(f, i420->data(), width, height);
+    NDIlib_send_send_video_v2(send_, &f);
+    return;
+  }
+  const int verdraengt = delay_.pushKachel(std::move(i420), width, height, DelayLine::Clock::now());
+  zaehler_.verworfen += static_cast<unsigned int>(verdraengt);
+  const int verworfen = verdraengt + releaseDueLocked(lock, false);
+  lock.unlock();
   meldeVerworfen(verworfen);
 }
 
@@ -245,22 +279,22 @@ void NdiSender::setOhneVersatz(bool an) {
 
 void NdiSender::leereVersatz() {
   std::lock_guard<std::mutex> lock(mutex_);
+  ++generation_;   // auch was ein Staffelhalter schon entnommen hat, geht nicht mehr hinaus (#310)
   delay_.clear();
 }
 
 size_t NdiSender::speicherBytes() {
   std::lock_guard<std::mutex> lock(mutex_);
-  return (delay_.size() + delay_.spareBuffers()) * letzteBildBytes_ + black_.capacity() + white_.capacity() +
-         transparent_.capacity();
+  // faellig_: Bilder, die der Staffelhalter gerade ausgibt (#310) - weder in der Warteschlange noch im Vorrat.
+  return (delay_.size() + delay_.spareBuffers() + faellig_.size()) * letzteBildBytes_ + black_.capacity() +
+         white_.capacity() + transparent_.capacity() + ausgabeRahmenBytes_;
 }
 
 void NdiSender::pump() {
-  int verworfen = 0;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!send_ || delay_.size() == 0) return;
-    verworfen = releaseDueLocked(true);
-  }
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (!send_ || delay_.size() == 0) return;
+  const int verworfen = releaseDueLocked(lock, true);
+  lock.unlock();
   meldeVerworfen(verworfen);
 }
 
@@ -271,7 +305,10 @@ NdiSender::DelayZaehler NdiSender::takeDelayZaehler() {
   return z;
 }
 
-int NdiSender::releaseDueLocked(bool nachlauf) {
+int NdiSender::releaseDueLocked(std::unique_lock<std::mutex>& lock, bool nachlauf) {
+  // Ein anderer Thread haelt die Staffel (#310) und gibt gerade aus - nichts entnehmen. Das eben eingereihte Bild geht
+  // beim naechsten Anstoss (naechstes Bild oder Nachlauf); so wartet niemand auf eine fremde Einpassung.
+  if (ausgabeLaeuft_) return 0;
   const auto versatz = std::chrono::milliseconds(versatzMsLocked());
   const auto senke = [this](const DelayLine::Frame& b) {
     if (b.art == Bildart::Schwarz) {
@@ -286,6 +323,16 @@ int NdiSender::releaseDueLocked(bool nachlauf) {
       sendTransparentLocked(b.w, b.h);
       return;
     }
+    if (b.art == Bildart::Kachel) {
+      // Eine Kachel ohne Puffer legt die Warteschlange nie ab (pushKachel, pushBild, #306); die Senke prüft trotzdem
+      // selbst, statt sich darauf zu verlassen.
+      if (b.kachel) {
+        NDIlib_video_frame_v2_t k;
+        fillFrame(k, b.kachel->data(), b.w, b.h);
+        NDIlib_send_send_video_v2(send_, &k);
+      }
+      return;
+    }
     NDIlib_video_frame_v2_t f;
     fillFrame(f, b.data.data(), b.w, b.h);
     // Synchron: kehrt erst zurueck, wenn NDI den Puffer ausgelesen hat -
@@ -293,10 +340,38 @@ int NdiSender::releaseDueLocked(bool nachlauf) {
     NDIlib_send_send_video_v2(send_, &f);
   };
   const auto jetzt = DelayLine::Clock::now();
-  const auto r = nachlauf ? delay_.releaseNachlauf(jetzt, versatz, senke) : delay_.release(jetzt, versatz, senke);
-  if (nachlauf) zaehler_.imNachlauf += static_cast<unsigned int>(r.sent);
-  else zaehler_.beimEinreihen += static_cast<unsigned int>(r.sent);
+  // Nachlauf: dieselbe Regel mit vorgezogener Uhr, genau wie DelayLine::releaseNachlauf.
+  const auto r = delay_.entnehmen(nachlauf ? jetzt - DelayLine::kNachlaufKarenz : jetzt, versatz, faellig_);
   zaehler_.verworfen += static_cast<unsigned int>(r.dropped);
+  // Der Stand beim Entnehmen: aendert er sich in einer Einpass-Luecke (leereVersatz, close), gehoert der Rest von
+  // faellig_ zum alten Stand und geht nicht mehr hinaus - genau wie die von leereVersatz geleerten Bilder.
+  const uint32_t generation = generation_;
+  unsigned int ausgegeben = 0;
+  ausgabeLaeuft_ = true;
+  for (const DelayLine::Frame& b : faellig_) {
+    if (b.art != Bildart::Einpassen) {
+      if (send_) senke(b);
+      ++ausgegeben;
+      continue;
+    }
+    // Einpassen OHNE mutex_ (bis ~2 ms je Bild): ausgabeRahmen_ und faellig_ fasst solange nur der Staffelhalter an.
+    // Wer jetzt sendet, reiht ein (ausgabeLaeuft_; nur "ohne Versatz" und sendUYVA reihen nie ein). leereVersatz()
+    // und close() duerfen laufen - darum danach die Generation pruefen.
+    lock.unlock();
+    einpass::rahmenVorbereiten(ausgabeRahmen_, b.rahmenW, b.rahmenH, einpass::bildFlaeche(b.w, b.h, b.rahmenW, b.rahmenH));
+    einpass::einpassen(b.data.data(), b.w, b.h, ausgabeRahmen_);
+    lock.lock();
+    ausgabeRahmenBytes_ = einpass::speicherBytes(ausgabeRahmen_);
+    if (generation_ != generation) break;
+    if (send_) sendUYVALocked(ausgabeRahmen_.daten.data(), b.rahmenW, b.rahmenH);
+    ++ausgegeben;
+  }
+  // Gezaehlt wird, was hinausging. Was nach leereVersatz/close liegen blieb, ist weder ausgegeben noch "verworfen"
+  // (meldeVerworfen nennt Versatz/Ausgabe/Zoom als Anlass - hier waere es der Moduswechsel oder der Abbau).
+  if (nachlauf) zaehler_.imNachlauf += ausgegeben;
+  else zaehler_.beimEinreihen += ausgegeben;
+  delay_.zuruecklegen(faellig_);
+  ausgabeLaeuft_ = false;
   return r.dropped;
 }
 
@@ -368,7 +443,9 @@ void NdiSender::sendSilence(int sampleCount, int sampleRate, int channels) {
 void NdiSender::close() {
   std::lock_guard<std::mutex> lock(mutex_);
   // Wartende Bilder gehen mit dem Sender: die Quelle verschwindet ohnehin,
-  // und der Vorrat haelt bei 1080p mehrere Dutzend MB.
+  // und der Vorrat haelt bei 1080p mehrere Dutzend MB. Ebenso, was ein
+  // Staffelhalter schon entnommen hat (#310, generation_).
+  ++generation_;
   delay_.clear();
   if (!send_) return;
   NDIlib_send_destroy(send_);

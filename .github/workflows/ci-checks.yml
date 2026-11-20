@@ -86,6 +86,9 @@ jobs:
       # Zoom Stage 4a (Spec 12.6). Keiner dieser Tests lädt Electron oder braucht das Zoom-SDK.
       - name: Zoom-Bridge (Protokoll, Zustand, Attrappe — ohne SDK)
         run: npm run selftest -w @jm/zoom-bridge
+      # #291: WAV-Folgedateien, Überschreibschutz, gemerkte Einstellungen, Presets, Loopback-Stille. Attrappe statt @jm/audio, ohne Electron.
+      - name: Recorder (Folgedateien, Überschreibschutz, Einstellungen, Presets, Loopback-Stille)
+        run: npm run selftest -w @jm/recorder
       - name: Connect (Zoom-Kern gegen die Attrappe, Laufzeit, Statustexte)
         run: npm run selftest -w @jm/connect
       # Zoom Stage 4b (Spec 12.6, 17.2 Nr. 2/3, N4b.2). Das Companion-Modul liegt außerhalb der
@@ -124,6 +127,11 @@ jobs:
         run: node --experimental-strip-types services/release-proxy/test/konto-routen.test.mjs
       - name: Release-Proxy (Q&A-Relay, Freigabe, alter Schlüssel, Blind-Relay)
         run: node --experimental-strip-types services/release-proxy/test/qa-relay.test.mjs
+
+      # Gast-Klicker (#317): Raumlogik des Durable Objects mit Attrappen-Kontext und Worker-Routen/Gast-Seite mit
+      # Attrappen-Bindung, ohne Cloudflare und ohne node_modules.
+      - name: Gast-Klicker (Raumlogik, Routen, Gast-Seite)
+        run: node services/gast-klicker/test/raum.test.mjs && node services/gast-klicker/test/worker.test.mjs
 
       # Zoom-Slots (Spec 11.1, 11.9): reine Entscheidungslogik der Bridge in C++, ohne SDK-Header, mit dem g++ des
       # Runners (Annahme AN16, der erste Lauf belegt sie). Ohne Compiler endet der Schritt mit Rückgabe 2, nie still grün.

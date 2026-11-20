@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-05T00:00:00.000Z",
+  "updatedAt": "2026-11-14T00:00:00.000Z",
   "recipes": [
     {
       "id": "award-gala",
@@ -1493,7 +1493,7 @@
         "Media Operator (Zuschaltungen)",
         "Host im Zoom-Client (lässt zu, erteilt die Aufnahme-Erlaubnis)"
       ],
-      "lastReviewed": "2026-10-20",
+      "lastReviewed": "2026-11-14",
       "owner": "tech@jakobsmedien.com",
       "summary": "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: bis zu 16 Zoom-Slots mit eigenem NDI-Namen zeigen je eine Person, den aktiven Sprecher oder die neueste Bildschirmfreigabe. Zoom wird einmal je PC eingerichtet, das Meeting muss im eigenen Zoom-Konto liegen. Nach einem Abriss tritt Connect selbst wieder bei und startet die eingeschalteten Slots neu. Fernsteuerbar per Companion über Port 8737. Unter macOS mit NDI, aber ohne Zoom; NDI-Ausfälle zeigt Connect an der Gastzeile, am Programm-Abzeichen, im Tray und in Companion.",
       "blocks": {
@@ -1540,7 +1540,7 @@
             "items": [
               "Ein Slot ist ein fester Platz mit Nummer (1 bis 16) und eigenem NDI-Namen. Im Switcher ist er eine NDI-Quelle, die bestehen bleibt, auch wenn sich ändert, wen der Slot zeigt.",
               "Modus je Slot: „Teilnehmer“ (eine gewählte Person), „Aktiver Sprecher“ (wer gerade spricht, nie JM Connect selbst) oder „Bildschirmfreigabe“ (die neueste laufende Freigabe; bei Pause oder stehendem Bildschirm bleibt das letzte Bild stehen).",
-              "Je Slot: Auflösung („360p“, „720p“, „1080p“), Ersatzbild, solange Zoom kein Bild liefert („transparent“, „eingefroren“, „schwarz“, „weiß“), Ton an oder aus mit der Tonart „Mischton“ (alle Mikrofone des Meetings) oder „Person“ (nur die gezeigte Person, nur im Modus Teilnehmer), bei Bildschirmfreigaben zusätzlich „Computerton der Freigabe“.",
+              "Je Slot: Auflösung („360p“, „720p“, „1080p“), Ersatzbild, solange Zoom kein Bild liefert („transparent“, „eingefroren“, „schwarz“, „weiß“, „Zoom-Kachel“ – nur Teilnehmer und Aktiver Sprecher: dunkle Kachel wie in Zoom mit Profilbild oder Initialen und Anzeigename; liefert Zoom trotz Kamera an kein Bild, steht „Bild unterbrochen“ darauf; verlässt die Person das Meeting, ist der Slot sofort transparent (nach dem eingestellten Bild-Versatz)), Bildformat („Original“ oder „16:9 einpassen“ – nur Teilnehmer und Aktiver Sprecher: Hochkant-Bilder, etwa ein Handy im Hochformat, stehen mittig in einem 16:9-Bild in der Auflösung des Slots, die Seiten sind durchsichtig; dreht die Person das Handy, wechselt die Quelle zwischen diesem Rahmen und Zooms Querformat; Bildschirmfreigaben bleiben in ihrer eigenen Größe), Ton an oder aus mit der Tonart „Mischton“ (alle Mikrofone des Meetings) oder „Person“ (nur die gezeigte Person, nur im Modus Teilnehmer), bei Bildschirmfreigaben zusätzlich „Computerton der Freigabe“.",
               "Gespeicherte Slots bleiben samt Einstellungen am Rechner und starten im Meeting von selbst, sobald sie eingeschaltet sind und der Host die Aufnahme-Erlaubnis erteilt hat. Vorübergehende Slots (per Companion ZOOM_LOAD) gelten nur bis zum Ende des Meetings."
             ]
           },
@@ -1576,7 +1576,7 @@
           {
             "title": "Logs und Datenschutz",
             "items": [
-              "JM Connect schreibt Meeting-Nummer und Kenncode nie auf die Platte, nie ins Log und nie in den Companion-Status. Nach einem Neustart von Connect müssen sie neu eingegeben werden.",
+              "JM Connect merkt sich die Meeting-Nummer des letzten Beitritts im Klartext in connect-settings.json (%APPDATA%\\JM Connect), den Kenncode nur mit der Windows-Verschlüsselung. Beides steht nach „Schließen“ und nach einem Neustart wieder bereit, bis neue Daten eingetragen werden; „Vergessen“ löscht beides. Ins Log und in den Companion-Status kommen Meeting-Nummer und Kenncode nie.",
               "Das Log nennt Zoom-Teilnehmer und Browser-Gäste nur mit ihrer Kennung, nie mit dem Anzeigenamen, und Slots nur mit Nummer und Modus. Karte, Companion-Variable zoom_slot{n}_target und NDI-Namen zeigen die Namen weiter.",
               "Teilnehmer-Slots speichern den Anzeigenamen ihrer Person am Rechner (in connect-settings.json unter %APPDATA%\\JM Connect), damit der Slot sie im nächsten Meeting wiederfindet. Vorübergehende Slots (ZOOM_LOAD) und Namen aus einer Umbenennung im Meeting speichert Connect nie.",
               "„Messwerte kopieren“ legt die Messwerte ohne Teilnehmer- und ohne NDI-Namen in die Zwischenablage (Slots als Nummer und Modus, Personen als Kennung).",
@@ -1615,6 +1615,7 @@
             "Zoom-Slots anlegen (geht auch ohne Meeting): „Slot hinzufügen“, an der Kachel „Einstellungen“ aufklappen und „NDI-Name“ (so heißt die Quelle im Switcher, 1 bis 60 Zeichen, ohne Doppelpunkt), „Modus“, „Person“ (nur Teilnehmer: der Anzeigename in Zoom), „Auflösung“, „Ersatzbild“ und „Ton“ setzen. Jede Änderung wird sofort gespeichert und wirkt im Meeting sofort.",
             "Mit „Start“ den Slot einschalten, mit „Stopp“ aus. Den NDI-Namen ändern und den Slot löschen geht nur bei ausgeschaltetem Slot.",
             "Im Kopf der Zoom-Slots: „Vorgaben …“ legt Auflösung und Ton für neue Slots fest, „Sprecher-Einstellungen …“ das Sprecher-Signal und die Haltezeit (0 bis 5 s; so lange muss jemand sprechen, bevor der Sprecher-Slot wechselt), der Schalter „Vorschau“ die Vorschau aller Kacheln.",
+            "Schalter „Person im NDI-Namen“ im Kopf der Zoom-Slots (Vorgabe: aus): Nur Teilnehmer-Slots heißen dann „‹NDI-Name› (‹Person›)“, z. B. „Zoom 1 (Anna Müller)“, damit man im Mischer sieht, wer auf welcher Quelle liegt. Der Name wird beim Einschalten des Slots gebildet und bleibt, bis der Slot aus ist – auch wenn Connect die Verbindung zum Meeting neu aufbaut (Wiederverbindung, Aufnahme-Erlaubnis entzogen und wieder erteilt). Ein Personenwechsel (Kachel oder Companion) benennt die Quelle nicht um; der Name kann dann veraltet sein. Nach Meeting-Ende, neuem Beitritt, Stopp und Start des Slots oder Neustart von Connect wird der Name neu gebildet, und zwar aus Person und Schalter von dann. Wer den Mischer auf diese Namen einrichtet, lässt Schalter und Personen bis zum Ende der Show stehen. Nach dem Einschalten des Schalters müssen bestehende Mischer-Eingänge einmal neu zugeordnet werden, weil die Quelle unter ihrem bisherigen Namen nicht mehr zu finden ist. Die Person wird so gekürzt, dass der Name höchstens 60 Zeichen hat; passt sie nicht mehr dazu oder steht sie schon im NDI-Namen, bleibt der NDI-Name allein. Ein Doppelpunkt wird zum Leerzeichen. Sprecher- und Freigabe-Slots bleiben unverändert.",
             "Nach dem Update von 0.3.0 ist die Slot-Liste leer („Noch keine Slots. …“). Ein Switcher-Eingang aus 0.3.0 („JM Connect – Zoom <Name>“) bekommt sein Bild wieder, wenn die Person im Meeting mit „Als Slot laden“ geladen wird: Der Slot bekommt den bisherigen NDI-Namen.",
             "Vor der Show mit dem Host absprechen: „JM Connect“ aus dem Warteraum zulassen und die Aufnahme-Erlaubnis erteilen, nach einem Wiederbeitritt gegebenenfalls erneut. Kopfhörer bereitlegen."
           ],
@@ -1625,9 +1626,10 @@
             "Jede Kachel sagt im Klartext, was der Slot zeigt, zum Beispiel „Zeigt Anna.“, „Wartet auf Anna · Ersatzbild transparent“ oder „Anna: Kamera aus · Ersatzbild transparent“; darunter Auflösung und Bildrate („720p · Zoom liefert 1280×720 · 30 Bilder/s“), den Ton und gegebenenfalls einen Fehler.",
             "Name doppelt im Meeting: Die Kachel zeigt „Name doppelt: „Anna“ ist 2-mal im Meeting. Bitte unten die richtige Person wählen. · Ersatzbild transparent“; unter „Welche Person?“ die richtige wählen. Connect hängt nie von selbst auf eine Person gleichen Namens um: lieber ein Handgriff als die falsche Person auf Sendung.",
             "Modus am laufenden Slot wechseln: unter „Einstellungen“ den Modus wählen; die Quelle bleibt im Switcher bestehen, nur das Bild wechselt. Ebenso wirken Person, Auflösung, Ersatzbild und Ton sofort, ohne Neustart der Quelle.",
+            "Für den Downstage-Monitor „Zoom-Kachel“ wählen: Die Redner sehen, ob ein Remote-Gast da ist – Kachel = im Meeting (Kamera aus bzw. Bild unterbrochen), leer = nicht im Meeting.",
             "Verbindung weg: Erst versucht Zoom selbst, neu zu verbinden („Verbindung unterbrochen …“). Gelingt das nicht, tritt Connect mit bis zu 5 Versuchen neu bei (nach 2, 5, 10, 20 und 30 s, mit Countdown in der Karte). „Abbrechen“ beendet die Versuche, „Erneut beitreten“ startet später mit denselben Daten.",
             "Nach dem Wiederbeitritt muss der Host gegebenenfalls wieder zulassen und die Aufnahme-Erlaubnis erteilen. Dann startet Connect alle eingeschalteten Slots von selbst, mit denselben Einstellungen und demselben NDI-Namen; unter „Hinweise“ steht „Wieder im Meeting. … laufen wieder.“",
-            "Verlässt die gezeigte Person das Meeting, zeigt der Slot sein Ersatzbild („Wartet auf Anna · Ersatzbild transparent“), und zoom_alarm steht auf 1. Kommt sie zurück, zeigt der Slot sie wieder, ohne dass die Quelle im Switcher verschwindet (bei eindeutigem Namen).",
+            "Verlässt die gezeigte Person das Meeting, zeigt der Slot sein Ersatzbild („Wartet auf Anna · Ersatzbild transparent“; bei „Zoom-Kachel“ sofort transparent, nach dem eingestellten Bild-Versatz), und zoom_alarm steht auf 1. Kommt sie zurück, zeigt der Slot sie wieder, ohne dass die Quelle im Switcher verschwindet (bei eindeutigem Namen).",
             "Ein Slot auf eine Person, die in diesem Meeting nicht dabei ist, wartet still auf sie und hebt zoom_alarm nicht. Braucht ein Slot einen Eingriff (Name doppelt, Aufbau gescheitert, keine Antwort der Zoom-Bridge, Abo abgelehnt), nennt seine Kachel Grund und Handgriff, und zoom_alarm und zoom_slot{n}_alarm stehen auf 1.",
             "Entzieht der Host die Aufnahme-Erlaubnis, stoppt Connect sofort Bild und Ton aller Slots („Gestoppt: Der Host hat die Aufnahme-Erlaubnis entzogen. …“). Erteilt er sie wieder, startet Connect die eingeschalteten Slots von selbst.",
             "Companion: Die Slot-Befehle wirken wie Start-Taste, Modus, Person und Ton der Kachel, nur ohne Nachfrage: Wird damit der 6. oder ein weiterer Slot eingeschaltet, schaltet Connect ihn ein und meldet „Companion: … Slot eingeschaltet — mehr als 5 sind nicht gemessen.“ (zoom_cmd f8). Ein per ZOOM_LOAD angelegter Slot trägt an der Kachel das Kennzeichen „vorübergehend“ mit dem Knopf „Behalten“; „Behalten“ macht ihn zu einem gespeicherten Slot. Leuchtet „letzter Zoom-Befehl abgelehnt“, steht der Grund unter „Hinweise“ in der Karte.",
@@ -1639,7 +1641,7 @@
           ],
           "nach": [
             "„Meeting verlassen“ (bei laufenden Slots fragt der Knopf einmal nach) oder Connect über das Tray beenden. Beides verlässt das Meeting sauber; die Zoom-Quellen verschwinden aus dem Switcher. Gespeicherte Slots bleiben samt Einstellungen für das nächste Meeting; vorübergehende sind weg, und per ZOOM_LOAD nur für dieses Meeting eingeschaltete Slots sind wieder aus.",
-            "Nach einer Fehlermeldung leert „Schließen“ Meeting-Nummer und Kenncode; vorübergehende Slots verschwinden dabei.",
+            "Nach einer Fehlermeldung schließt „Schließen“ die Meldung; die gemerkte Meeting-Nummer steht danach wieder im Feld, vorübergehende Slots verschwinden.",
             "Bei Störungen „Logordner öffnen“ und main.log sichern. Es enthält weder Teilnehmernamen noch Kenncode noch Meeting-Nummer."
           ]
         },
@@ -1853,6 +1855,10 @@
             "remedy": "Zoom liefert kein Bild, obwohl die Kamera als an gilt (Netz der Person oder Zoom selbst). Abwarten; bleibt es, die Person bitten, die Kamera aus- und wieder einzuschalten."
           },
           {
+            "risk": "„… · Ersatzbild Zoom-Kachel (Bild unterbrochen)“",
+            "remedy": "Die Person ist im Meeting, Zoom meldet die Kamera als an, liefert aber seit über 2 Sekunden kein Bild, nur fehlerhafte Bilder oder Zoom hat das Abo abgelehnt. Abwarten; bleibt es, die Person bitten, die Kamera aus- und wieder einzuschalten."
+          },
+          {
             "risk": "„…: erstes Bild steht noch aus · Ersatzbild …“",
             "remedy": "Der Slot ist gestartet oder hat umgeschaltet, das erste Bild kommt noch. Bleibt es länger, die Messwerte ansehen."
           },
@@ -2006,7 +2012,7 @@
           },
           {
             "risk": "„Programm kommt an, die Weitergabe an die Gäste hängt“",
-            "remedy": "Das Programm kommt vom Switcher an, aber das interne Medienfenster nimmt keine Bilder ab; die Gäste sehen ein stehendes Programm. Abwarten; bleibt es, „Logordner öffnen“ und main.log sichern. Einen Knopf dafür gibt es nicht: Nur Connect neu starten baut das Medienfenster neu auf, und das kostet viel. Alle NDI-Quellen und das Programm setzen aus; Gäste, die schon eingelassen sind, bekommen danach keine NDI-Quelle für ihre Kamera zurück (siehe die Zeile „NDI: keine Quelle“); unter Windows verlässt Connect dabei das Zoom-Meeting, danach Meeting-Nummer und Kenncode neu eingeben, vom Host zulassen und die Aufnahme-Erlaubnis erneut erteilen lassen. Darum nur, wenn der Rückkanal wichtiger ist als die Gast-Quellen, etwa zwischen zwei Programmteilen. Die verteilten Links gelten danach nur weiter, wenn vor „Raum öffnen“ dieselbe `.jmshow` geöffnet ist (der Knopf heißt dann „Raum „…“ öffnen“); ohne `.jmshow` öffnet Connect einen neuen Raum, und jeder Gast braucht einen neuen Link. „Raum schließen“ ist kein Ausweg, es macht jeden verteilten Link ungültig."
+            "remedy": "Das Programm kommt vom Switcher an, aber das interne Medienfenster nimmt keine Bilder ab; die Gäste sehen ein stehendes Programm. Abwarten; bleibt es, „Logordner öffnen“ und main.log sichern. Einen Knopf dafür gibt es nicht: Nur Connect neu starten baut das Medienfenster neu auf, und das kostet viel. Alle NDI-Quellen und das Programm setzen aus; Gäste, die schon eingelassen sind, bekommen danach keine NDI-Quelle für ihre Kamera zurück (siehe die Zeile „NDI: keine Quelle“); unter Windows verlässt Connect dabei das Zoom-Meeting, danach erneut beitreten (die gemerkte Meeting-Nummer steht im Feld, der Kenncode ist gespeichert), vom Host zulassen und die Aufnahme-Erlaubnis erneut erteilen lassen. Darum nur, wenn der Rückkanal wichtiger ist als die Gast-Quellen, etwa zwischen zwei Programmteilen. Die verteilten Links gelten danach nur weiter, wenn vor „Raum öffnen“ dieselbe `.jmshow` geöffnet ist (der Knopf heißt dann „Raum „…“ öffnen“); ohne `.jmshow` öffnet Connect einen neuen Raum, und jeder Gast braucht einen neuen Link. „Raum schließen“ ist kein Ausweg, es macht jeden verteilten Link ungültig."
           },
           {
             "risk": "„Programm: Öffnen gescheitert (…) · neuer Versuch folgt“",
@@ -3277,7 +3283,8 @@
         "Foliendokument (.pdf, PowerPoint/Office, Bilder oder .jmpres)",
         "LibreOffice installiert (nur für Office-Import PPTX/DOCX …)",
         "Zweiter Monitor/Beamer für die Publikumsansicht",
-        "Optional Handy im WLAN als Clicker (mit PIN)"
+        "Optional Handy im WLAN als Clicker (mit PIN)",
+        "Optional Internet am Präsentationsrechner für den Gast-Klicker (Remote-Gäste schalten selbst weiter)"
       ],
       "equipmentOwner": "jm",
       "crewRoles": [
@@ -3292,7 +3299,7 @@
             "title": "Voraussetzungen",
             "items": [
               "JM Presenter installiert (über den Launcher)",
-              "Ein Foliendokument: **.pdf**, **Bilder**, ein **Office-Format** (PPTX/PPT/ODP/DOCX/…) oder ein editierbares **.jmpres**-Projekt",
+              "Ein Foliendokument: **.pdf**, **Bilder** (PNG, JPEG, WebP, GIF, BMP, AVIF, SVG), ein **Office-Format** (PPTX/PPT/ODP/DOCX/…) oder ein editierbares **.jmpres**-Projekt",
               "**LibreOffice** (`soffice`) installiert — nur nötig für den Office-Import (Office → PDF)",
               "Zweiter Monitor/Beamer für die Publikumsansicht (Vollbild)",
               "Optional: Handy im WLAN als Clicker (PIN), JM Timer für den Countdown, Companion/Rundown"
@@ -3303,7 +3310,8 @@
             "items": [
               "Port **8728** (TCP-Zeilenprotokoll): Steuerport für Companion / Rundown. Auto-Discovery über mDNS (`jm-presenter-ctl`, TXT `ctl=1`).",
               "Port **7330** (HTTP/SSE): Handy-Clicker + Live-Folienbild — optional per **4-stelliger PIN** geschützt. Wird auch von JM Stage Display als Referenten-Feed genutzt.",
-              "Port **7777** (socket.io, ausgehend): liest den JM-Timer-Countdown und spiegelt ihn in Referenten-/Publikumsansicht."
+              "Port **7777** (socket.io, ausgehend): liest den JM-Timer-Countdown und spiegelt ihn in Referenten-/Publikumsansicht.",
+              "**Gast-Klicker** (HTTPS/WebSocket, nur ausgehend zu `jm-gast-klicker.jm-production-suite.workers.dev`): kein eingehender Port nötig."
             ]
           },
           {
@@ -3325,12 +3333,14 @@
             "Optional **Overlays** je Folie setzen (Text/Logo/Bauchbinde, frei positioniert).",
             "**Publikumsansicht** auf den Beamer/zweiten Monitor legen (Vollbild); die **Referentenansicht** bleibt beim Operator (aktuelle + nächste Folie, Notizen).",
             "Handy-Clicker aktivieren: Port/Interface wählen, **PIN** setzen, QR/URL ans Handy geben.",
-            "Fernsteuerung: Companion/Rundown auf Port 8728; JM Timer für den Countdown verbinden (7777)."
+            "Fernsteuerung: Companion/Rundown auf Port 8728; JM Timer für den Countdown verbinden (7777).",
+            "**Gast-Klicker übers Internet** (für Remote-Gäste, z. B. per Zoom): im Fenster **Fernsteuerung** den Abschnitt „Gast-Klicker“ einschalten, **„Für den Zoom-Chat kopieren“** und den Link einmal in den Chat stellen (ein Link je Event; er bleibt nach einem Neustart gleich). Der Gast öffnet ihn im Browser, sieht ein kleines Bild der aktuellen Folie und klickt **Next/Back** oder nutzt die Pfeiltasten – ohne Installation."
           ],
           "waehrend": [
             "Navigieren mit `NEXT`/`PREV` (lokal, Handy oder Companion). `GOTO` springt gezielt.",
             "`BLACK`/`WHITE` für Pausen/Umbau, `LIVE` holt die Folie zurück.",
-            "Referentenansicht im Blick behalten: Notizen + nächste Folie + Countdown; das Publikum sieht nur die saubere Folie."
+            "Referentenansicht im Blick behalten: Notizen + nächste Folie + Countdown; das Publikum sieht nur die saubere Folie.",
+            "Gast-Klicker: Die Anzeige **„Gast-Klick ●“** in der Referentenansicht pausiert Gast-Klicks per Klick (**„Gast-Klick pausiert“**) und setzt sie fort. Der eigene Clicker und die Tastatur wirken immer."
           ],
           "nach": [
             "`STOP` beendet die Präsentation; Projekt (.jmpres) sichern, falls Overlays/Anpassungen erhalten bleiben sollen."
@@ -3356,6 +3366,14 @@
           {
             "risk": "Countdown bleibt leer",
             "remedy": "JM Timer läuft und ist auf 7777 erreichbar, Timer-Sync aktiv?"
+          },
+          {
+            "risk": "Gast sieht „Presenter offline“ / Anzeige „Gast-Klick getrennt“",
+            "remedy": "Gast-Klicker eingeschaltet? Internet am Präsentationsrechner prüfen; der Presenter verbindet von selbst neu. Bis dahin weiter wie gewohnt selbst klicken"
+          },
+          {
+            "risk": "Gast sieht „This link is not active“",
+            "remedy": "Der Link ist veraltet (inzwischen „Neuer Link“ erzeugt), war noch nie verbunden oder 7 Tage unbenutzt – im Fenster Fernsteuerung den aktuellen Link kopieren, dem Gast schicken, Gast lädt die Seite neu"
           },
           {
             "risk": "Companion steuert nicht",
@@ -3387,6 +3405,7 @@
           "Office vorab importieren und als **.jmpres** speichern — der LibreOffice-Wandlungsschritt passiert dann einmal in Ruhe, nicht unter Live-Druck.",
           "Notizen in der Quelldatei pflegen — sie erscheinen in der Referentenansicht und (optional) auf dem JM Stage Display als Confidence-Monitor.",
           "Handy-Clicker mit **PIN** betreiben, sonst kann jeder im WLAN weiterklicken. Dieselbe PIN braucht das Stage Display für den Folien-Feed.",
+          "Gast-Klicker: Wer den Link hat, kann vor/zurück klicken. Ist Publikum im Zoom-Chat, den Link **privat** an den Gast schicken. Wurde ein Link weitergegeben, im Fenster Fernsteuerung **„Neuer Link“** – der alte wirkt dann nicht mehr.",
           "`BLACK` auf einen Companion-Button — schneller sauberer „Vorhang\" zwischen zwei Programmpunkten.",
           "Über eine **`.jmshow`** öffnet der Presenter sein `.jmpres` automatisch; das Stage Display zieht Referenten-Feed + PIN aus derselben Show."
         ]
@@ -4887,7 +4906,7 @@
       "prerequisites": [],
       "equipmentOwner": "jm",
       "crewRoles": [],
-      "lastReviewed": "2026-06-28",
+      "lastReviewed": "2026-11-14",
       "owner": "tech@jakobsmedien.com",
       "summary": "Notfall-SOP für kritische Störungen im laufenden Live-Betrieb mit Sofortmaßnahmen in 0–30 Sekunden.",
       "blocks": {
@@ -4900,7 +4919,7 @@
         "troubleshooting": [],
         "checklists": []
       },
-      "markdown": "# Emergency SOP – Live-Ausfälle\n\n*Jakobs Medien GmbH – Media Operations*\n\n---\n\n## Zweck\n\nDiese SOP beschreibt die **sofortigen Maßnahmen (0–30 Sekunden)** bei kritischen\nFehlern während einer Live‑Produktion.\n\nSie dient als Notfallreferenz für alle Operator.\n\n---\n\n## 1. Grundprinzipien (0–5 Sekunden)\n\n- **Ruhe bewahren**\n\n- **Nicht mehrere Dinge gleichzeitig ändern**\n\n- **Backup aktivieren, bevor Fehler gesucht wird** - **Regie sofort informieren**\n\n---\n\n## 2. Kritische Fehler & Sofortmaßnahmen\n\n---\n\n### 2.1 Kein Bild (Black Screen) – *höchste Priorität*\n**0–5 Sekunden**\n\n- [ ] Auf Backup‑Quelle schalten (TriCaster: „Backup Cam“ oder „Fallback Input“)\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n\n- [ ] Kumo Salvo „Standard“ laden\n\n- [ ] SDI‑Kabel prüfen (Sitz / Locking)\n- [ ] TriCaster Input neu zuweisen\n\n- [ ] Kamera neu starten (falls PTZ)\n\n---\n\n### 2.2 Kein Ton – *zweithöchste Priorität*\n**0–5 Sekunden**\n\n- [ ] Backup‑Audio aktivieren (SQ‑5: „Backup Mix“)\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n- [ ] Mikrofon prüfen (Batterie / Mute)\n- [ ] Dante Receive 15/16 prüfen\n- [ ] SQ‑5 Input aktivieren\n- [ ] Fader hoch / Mute aus\n\n---\n\n### 2.3 PTZ Kamera eingefroren / offline\n**0–5 Sekunden**\n- [ ] Auf andere Kamera schalten\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n- [ ] PoE++ prüfen\n- [ ] PTZ Control Center neu starten\n- [ ] Preset neu laden\n- [ ] Kamera pingen (192.168.10.20–23)\n\n---\n\n### 2.4 Unreal / Virtual Set ausgefallen\n\n**0–5 Sekunden**\n\n- [ ] Auf Standard‑Kamera schalten\n\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n\n- [ ] Decklink Output neu aktivieren\n- [ ] Unreal Szene neu laden\n- [ ] Routing zur Kumo prüfen\n\n---\n\n### 2.5 NDI komplett instabil / Ausfall\n**0–5 Sekunden**\n- [ ] Auf SDI‑Backup‑Signal schalten\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n- [ ] Switch prüfen\n- [ ] NDI‑Quellen deaktivieren\n- [ ] VLAN prüfen\n- [ ] TriCaster Input neu laden\n\n---\n\n### 2.6 Funkstrecke tot / massives Rauschen\n**0–5 Sekunden**\n- [ ] Backup‑Mikrofon geben (Handsender)\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n- [ ] Frequenz wechseln\n- [ ] Sender neu koppeln\n- [ ] Antennen ausrichten\n\n---\n\n### 2.7 Licht komplett ausgefallen\n**0–5 Sekunden**\n- [ ] ISO / Gain an Kamera erhöhen\n- [ ] Regie informieren\n**5–30 Sekunden**\n- [ ] QLC+ neu starten\n- [ ] ArtNet Node prüfen\n- [ ] DMX‑Universen neu laden\n\n---\n\n## 3. Systemweite Notfallmaßnahmen\n### 3.1 TriCaster hängt / Freeze\n**0–5 Sekunden**\n- [ ] Auf Backup‑Quelle schalten\n- [ ] Regie informieren\n**5–30 Sekunden**\n- [ ] TriCaster neu starten\n- [ ] Session neu laden\n- [ ] Control Surface neu verbinden\n\n---\n\n### 3.2 Kreuzschiene (Kumo) reagiert nicht\n**0–5 Sekunden**\n\n- [ ] Backup‑Routing im TriCaster nutzen\n\n- [ ] Regie informieren\n\n- **5–30 Sekunden**\n\n- [ ] Kumo Web‑GUI neu laden\n\n- [ ] Salvo „Standard“ erneut ausführen\n\n- [ ] Gerät neu starten (falls möglich)\n\n---\n\n## 4. Kommunikation (immer)\n\n- [ ] Regie sofort informieren\n\n- [ ] Projektleitung informieren\n\n- [ ] Moderation nur informieren, wenn absolut nötig\n\n- [ ] Keine technischen Details an Gäste kommunizieren\n\n---\n\n## 5. Nach dem Notfall (Post‑Emergency)\n\n- [ ] Fehler dokumentieren\n\n- [ ] Ursache"
+      "markdown": "# Emergency SOP – Live-Ausfälle\n\n*Jakobs Medien GmbH – Media Operations*\n\n---\n\n## Zweck\n\nDiese SOP beschreibt die **sofortigen Maßnahmen (0–30 Sekunden)** bei kritischen\nFehlern während einer Live‑Produktion.\n\nSie dient als Notfallreferenz für alle Operator.\n\n---\n\n## 1. Grundprinzipien (0–5 Sekunden)\n\n- **Ruhe bewahren**\n\n- **Nicht mehrere Dinge gleichzeitig ändern**\n\n- **Backup aktivieren, bevor Fehler gesucht wird** - **Regie sofort informieren**\n\n---\n\n## 2. Kritische Fehler & Sofortmaßnahmen\n\n---\n\n### 2.1 Kein Bild (Black Screen) – *höchste Priorität*\n**0–5 Sekunden**\n\n- [ ] Auf Backup‑Quelle schalten (TriCaster: „Backup Cam“ oder „Fallback Input“)\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n\n- [ ] Kumo Salvo „Standard“ laden\n\n- [ ] SDI‑Kabel prüfen (Sitz / Locking)\n- [ ] TriCaster Input neu zuweisen\n\n- [ ] Kamera neu starten (falls PTZ)\n\n---\n\n### 2.2 Kein Ton – *zweithöchste Priorität*\n**0–5 Sekunden**\n\n- [ ] Backup‑Audio aktivieren (SQ‑5: „Backup Mix“)\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n- [ ] Mikrofon prüfen (Batterie / Mute)\n- [ ] Dante Receive 15/16 prüfen\n- [ ] SQ‑5 Input aktivieren\n- [ ] Fader hoch / Mute aus\n\n---\n\n### 2.3 PTZ Kamera eingefroren / offline\n**0–5 Sekunden**\n- [ ] Auf andere Kamera schalten\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n- [ ] PoE++ prüfen\n- [ ] PTZ Control Center neu starten\n- [ ] Preset neu laden\n- [ ] Kamera pingen (192.168.10.20–23)\n\n---\n\n### 2.4 Unreal / Virtual Set ausgefallen\n\n**0–5 Sekunden**\n\n- [ ] Auf Standard‑Kamera schalten\n\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n\n- [ ] Decklink Output neu aktivieren\n- [ ] Unreal Szene neu laden\n- [ ] Routing zur Kumo prüfen\n\n---\n\n### 2.5 NDI komplett instabil / Ausfall\n**0–5 Sekunden**\n- [ ] Auf SDI‑Backup‑Signal schalten\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n- [ ] Switch prüfen\n- [ ] NDI‑Quellen deaktivieren\n- [ ] VLAN prüfen\n- [ ] TriCaster Input neu laden\n\n---\n\n### 2.6 Funkstrecke tot / massives Rauschen\n**0–5 Sekunden**\n- [ ] Backup‑Mikrofon geben (Handsender)\n- [ ] Regie informieren\n\n**5–30 Sekunden**\n- [ ] Frequenz wechseln\n- [ ] Sender neu koppeln\n- [ ] Antennen ausrichten\n\n---\n\n### 2.7 Licht komplett ausgefallen\n**0–5 Sekunden**\n- [ ] ISO / Gain an Kamera erhöhen\n- [ ] Regie informieren\n**5–30 Sekunden**\n- [ ] QLC+ neu starten\n- [ ] ArtNet Node prüfen\n- [ ] DMX‑Universen neu laden\n\n### 2.8 Remote-Gast (Zoom) fehlt am Downstage-Monitor\n\n**0–5 Sekunden**\n- [ ] Kachel am DSM? Dann ist der Gast im Meeting (Kamera aus oder „Bild unterbrochen“).\n- [ ] Leer/transparent? Der Gast ist nicht (mehr) im Meeting – Regie informieren.\n\n**5–30 Sekunden**\n- [ ] In JM Connect die Zeile des Slots lesen („Wartet auf …“, „Kamera aus“, „Zoom liefert gerade kein Bild“).\n- [ ] Host im Zoom-Client: Gast aus dem Warteraum zulassen.\n- [ ] Gast bitten, die Kamera aus- und wieder einzuschalten.\n- [ ] Dunkle Fläche ohne Namen? In JM Connect die Zeile des Slots lesen; bleibt es so, das Ersatzbild des Slots auf „schwarz“ oder „transparent“ stellen (wirkt sofort, ohne die Quelle neu zu starten).\n\n---\n\n## 3. Systemweite Notfallmaßnahmen\n### 3.1 TriCaster hängt / Freeze\n**0–5 Sekunden**\n- [ ] Auf Backup‑Quelle schalten\n- [ ] Regie informieren\n**5–30 Sekunden**\n- [ ] TriCaster neu starten\n- [ ] Session neu laden\n- [ ] Control Surface neu verbinden\n\n---\n\n### 3.2 Kreuzschiene (Kumo) reagiert nicht\n**0–5 Sekunden**\n\n- [ ] Backup‑Routing im TriCaster nutzen\n\n- [ ] Regie informieren\n\n- **5–30 Sekunden**\n\n- [ ] Kumo Web‑GUI neu laden\n\n- [ ] Salvo „Standard“ erneut ausführen\n\n- [ ] Gerät neu starten (falls möglich)\n\n---\n\n## 4. Kommunikation (immer)\n\n- [ ] Regie sofort informieren\n\n- [ ] Projektleitung informieren\n\n- [ ] Moderation nur informieren, wenn absolut nötig\n\n- [ ] Keine technischen Details an Gäste kommunizieren\n\n---\n\n## 5. Nach dem Notfall (Post‑Emergency)\n\n- [ ] Fehler dokumentieren\n\n- [ ] Ursache"
     },
     {
       "id": "panik-flowchart",

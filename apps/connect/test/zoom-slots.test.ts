@@ -62,7 +62,7 @@ wache.unref();
 function slotEinst(nr: number, teil: Partial<ZoomSlotEinstellung> = {}): ZoomSlotEinstellung {
   return {
     nr, ndiName: `Zoom ${nr}`, modus: 'teilnehmer', person: '', an: false, aufloesung: '720p', ersatzbild: 'transparent',
-    tonAn: true, tonArt: 'mischton', computerton: true, ohneKamera: true, ...teil,
+    tonAn: true, tonArt: 'mischton', computerton: true, ohneKamera: true, bildformat: 'original', ...teil,
   };
 }
 
@@ -72,6 +72,8 @@ interface SlotEinstellungen {
   schreibvorgaenge: number;
   vorgaben: ZoomSlotVorgaben;
   sprecher: ZoomSprecherEinstellung;
+  /** Schalter „Person im NDI-Namen“ (#287). */
+  personImNdiNamen: boolean;
   vorschau: boolean;
   ueber5: boolean;
   /** Bild-Versatz (zoom_delay, 6.7): gespeicherter Wert und „nur diese Sitzung“ nach einem Schreibfehler (L14). */
@@ -84,7 +86,7 @@ interface SlotEinstellungen {
   nurSitzung: Set<SlotFeld>;
 }
 /** Die Slot-Felder der Einstellungsdatei mit eigenem Setter (Spec 7.2). */
-type SlotFeld = 'slots' | 'vorgaben' | 'sprecher' | 'vorschau' | 'ueber5';
+type SlotFeld = 'slots' | 'vorgaben' | 'sprecher' | 'personImNdiNamen' | 'vorschau' | 'ueber5';
 interface Probe {
   kern: ZoomKern;
   logs: string[];
@@ -116,6 +118,8 @@ interface BaueOptionen {
   slots?: ZoomSlotEinstellung[];
   vorgaben?: ZoomSlotVorgaben;
   sprecher?: ZoomSprecherEinstellung;
+  /** Schalter „Person im NDI-Namen“ (#287); fehlt = aus. */
+  personImNdiNamen?: boolean;
   vorschau?: boolean;
   ueber5?: boolean;
   /** Was die Setter der Slot-Felder melden; false = Einstellungsdatei nicht schreibbar (nur diese Sitzung, T92). */
@@ -148,6 +152,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
     schreibvorgaenge: 0,
     vorgaben: o.vorgaben ?? { aufloesung: '720p', tonAn: true },
     sprecher: o.sprecher ?? { signal: 'sprecherVideo', haltezeitMs: 1000 },
+    personImNdiNamen: o.personImNdiNamen ?? false,
     vorschau: o.vorschau ?? true,
     ueber5: o.ueber5 ?? false,
     versatzMs: 0,
@@ -218,6 +223,9 @@ function baueKern(o: BaueOptionen = {}): Probe {
       },
       versatzNurSitzung: () => einst.versatzNurSitzung,
       setzeLaufzeit: () => {},
+      letztesMeeting: () => null,
+      meetingMerken: () => ({ kenncodeGespeichert: false }),
+      meetingVergessen: () => true,
       slots: () => einst.slots.map((s) => ({ ...s })),
       setzeSlots: (s) => {
         einst.schreibvorgaenge += 1;
@@ -236,6 +244,12 @@ function baueKern(o: BaueOptionen = {}): Probe {
         const ok = geschrieben('sprecher');
         if (ok) einst.sprecher = { ...s };
         return ok;
+      },
+      personImNdiNamen: () => einst.personImNdiNamen,
+      setzePersonImNdiNamen: (an) => {
+        // Wie settings.ts: Scheitert das Schreiben, gilt der Wert für diese Sitzung (T92).
+        einst.personImNdiNamen = an;
+        return geschrieben('personImNdiNamen');
       },
       vorschau: () => einst.vorschau,
       setzeVorschau: (an) => {
@@ -369,12 +383,12 @@ console.log('— PK2 · Beitritt mit Teilnehmer-Slot „Anna“ und Sprecher-Slo
   ck('… Slot 1: alle Felder aus der Einstellung, Ziel Anna, Ton nach der Abbildung 7.1',
     JSON.stringify(eins) === JSON.stringify({
       cmd: 'slotOn', slot: 1, ndi: 'Zoom 1', mode: 'participant', id: ANNA, resolution: '720p', audio: 'mix', shareAudio: true,
-      fallback: 'transparent', showNoVideo: true,
+      fallback: 'transparent', frame: 'native', showNoVideo: true,
     }));
   ck('… Slot 2: Modus speaker ohne Ziel (die Bridge wählt), 1080p, schwarz',
     JSON.stringify(zwei) === JSON.stringify({
       cmd: 'slotOn', slot: 2, ndi: 'Zoom 2', mode: 'speaker', resolution: '1080p', audio: 'mix', shareAudio: true, fallback: 'black',
-      showNoVideo: true,
+      frame: 'native', showNoVideo: true,
     }));
   ck('… n = 2 (Teilnehmer zeigt, Sprecher mit Ersatzbild), k = 1', await bis(() => p.kern.kurz().slotsLaufen === 2 && p.kern.kurz().slotsErsatz === 1, 3000));
   const kv = p.kern.stateKv();
@@ -547,13 +561,13 @@ console.log('— PK33 · Quelltext: kein Zweig mehr für video und audio (Altweg
 console.log('— KF1 · slotLage(): jedes Feld aus der Lage (Rundlauf mit abweichenden Werten)');
 {
   const besonders = slotEinst(1, {
-    ndiName: 'Bühne links', person: 'Anna', an: true, aufloesung: '1080p', ersatzbild: 'schwarz', tonArt: 'person', computerton: false, ohneKamera: false,
+    ndiName: 'Bühne links', person: 'Anna', an: true, aufloesung: '1080p', ersatzbild: 'schwarz', tonArt: 'person', computerton: false, ohneKamera: false, bildformat: 'einpassen',
   });
   const p = baueKern({ slots: [besonders, slotEinst(2, { person: 'Anna', an: true, tonAn: false })] });
   await insMeeting(p);
   ck('KF1: beide Slots zeigen Anna', await bis(() => lage(p, 1)?.zustand === 'zeigt' && lage(p, 2)?.zustand === 'zeigt' && lage(p, 1)?.ton === 'live', 3000));
   const l = lage(p, 1);
-  ck('… einstellung: alle elf Felder wie gespeichert', JSON.stringify(l?.einstellung) === JSON.stringify(besonders));
+  ck('… einstellung: alle zwölf Felder wie gespeichert', JSON.stringify(l?.einstellung) === JSON.stringify(besonders));
   ck('… zustand zeigt, grund frames, gesendet none, zielName Anna', l?.zustand === 'zeigt' && l.grund === 'frames' && l.gesendet === 'none' && l.zielName === 'Anna');
   ck('… doppelt 1, kein Zweifel, nicht im Warteraum, keine Wahl', l?.doppelt === 1 && !l.zweifel && !l.imWarteraum && l.wahl === null);
   ck('… Ton: live/packets, gemessen und eingestellt „person“', l?.ton === 'live' && l.tonGrund === 'packets' && l.tonQuelle === 'person'
@@ -623,10 +637,13 @@ console.log('— KF3 (Hülle) · main/zoom.ts gibt dem Kern die Slot-Felder aus 
   const huelle = readFileSync(new URL('../src/main/zoom.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const VERDRAHTUNG = [
     'slots: zoomSlots,', 'setzeSlots: setzeZoomSlots,', 'vorgaben: zoomSlotVorgaben,', 'setzeVorgaben: setzeZoomSlotVorgaben,',
-    'sprecher: zoomSprecher,', 'setzeSprecher: setzeZoomSprecher,', 'vorschau: zoomVorschau,', 'setzeVorschau: setzeZoomVorschau,',
+    'sprecher: zoomSprecher,', 'setzeSprecher: setzeZoomSprecher,',
+    // #287: Schalter „Person im NDI-Namen“; gleicher Typ wie vorschau/ueber5, darum ebenfalls wörtlich.
+    'personImNdiNamen: zoomPersonImNdiNamen,', 'setzePersonImNdiNamen: setzeZoomPersonImNdiNamen,',
+    'vorschau: zoomVorschau,', 'setzeVorschau: setzeZoomVorschau,',
     'ueber5: zoomSlotsUeber5,', 'setzeUeber5: setzeZoomSlotsUeber5,', 'einstellungsLage,',
   ];
-  ck('KF3 (Hülle): die elf Zeilen der Slot-Felder stehen wörtlich und in dieser Folge in erzeugeZoomKern({ einstellungen })',
+  ck('KF3 (Hülle): die dreizehn Zeilen der Slot-Felder stehen wörtlich und in dieser Folge in erzeugeZoomKern({ einstellungen })',
     huelle.includes(VERDRAHTUNG.map((z) => `        ${z}`).join('\n')));
 }
 
@@ -1568,6 +1585,20 @@ for (const tonArt of ['mischton', 'person'] as const) {
   await p.aufraeumen();
 }
 
+console.log('— #310 · Minutenzeile im Log nennt eingepasste NDI-Größe und Bildformat');
+{
+  const p = baueKern({ slots: [slotEinst(1, { modus: 'freigabe', an: true })], stell: () => ({ FAKE_TEILNEHMER: '3', FAKE_FREIGABEN: `300:${CARLA}:101:begin` }) });
+  await insMeeting(p);
+  ck('#310: Slot zeigt', await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000));
+  p.einspeisen(1, {
+    ev: 'slotStats', slot: 1, w: 720, h: 1280, fps: 25, outW: 1920, outH: 1080, fallbackFps: 0, heldFrames: 0, workUs: 0, copyUs: 0, previewUs: 0, memKb: 0,
+    resWanted: '720p', foreignFrames: 0, lateFrames: 0, tooFrequent: 0, noShareData: 0, rendererNew: 0, rendererLost: 0,
+  });
+  ck('#310: Logzeile: „720×1280 · out 1920×1080“ und „bildformat original“ nach „sent …“',
+    await bis(() => p.logs.some((z) => z.startsWith('[zoom] Slot 1 (') && / sent \S+ · bildformat original · 720×1280 · out 1920×1080 · fps /.test(z)), 3000));
+  await p.aufraeumen();
+}
+
 console.log('— PK15 · Auflösung: T50, T51, T51c; nie „0 Bilder/s“ (10.7)');
 {
   const p = baueKern({
@@ -1597,6 +1628,21 @@ for (const [geliefert, stufe, soll] of [
   const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true, aufloesung: stufe })], stell: () => ({ FAKE_AUFLOESUNG_GELIEFERT: geliefert }) });
   await insMeeting(p);
   ck(`PK15: ${stufe} und ${geliefert} → T50`, await bis(() => lage(p, 1)?.messText === soll, 4000));
+  await p.aufraeumen();
+}
+
+console.log('— #310 · Messzeile nennt die eingepasste NDI-Größe; nach „Original“ verschwindet sie');
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true, aufloesung: '1080p', bildformat: 'einpassen' })],
+    stell: () => ({ FAKE_AUFLOESUNG_GELIEFERT: '720x1280' }),
+  });
+  await insMeeting(p);
+  ck('#310: einpassen und 720×1280 → „… · NDI 1920×1080 eingepasst“',
+    await bis(() => lage(p, 1)?.messText === '1080p gewünscht · Zoom liefert 720×1280 · 30 Bilder/s · NDI 1920×1080 eingepasst', 6000));
+  ck('#310: slotAendern bildformat original', ok(p.kern.slotAendern(1, { bildformat: 'original' })));
+  ck('#310: nach „Original“ ohne NDI-Teil',
+    await bis(() => lage(p, 1)?.messText === '1080p gewünscht · Zoom liefert 720×1280 · 30 Bilder/s', 6000));
   await p.aufraeumen();
 }
 
@@ -2099,6 +2145,32 @@ console.log('— NB8 · Slot-Wahrheit: was sich während des slotOn ändert, geh
   await p.aufraeumen();
 }
 
+console.log('— #310 · Bildformat am laufenden Slot: nur slotSet {frame}, kein Neuabo, kein Umbenennen');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })] });
+  await insMeeting(p);
+  ck('#310: Slot 1 zeigt Anna', await bis(() => lage(p, 1)?.text === 'Zeigt Anna.', 3000));
+  ck('… auf einpassen: slotSet nur mit frame fit, kein zweites slotOn, kein slotOff, Name bleibt',
+    ok(p.kern.slotAendern(1, { bildformat: 'einpassen' })) && (await bisSlotSet(p, 1, { cmd: 'slotSet', slot: 1, frame: 'fit' }))
+    && zaehle(p, 'slotOn', 1) === 1 && zaehle(p, 'slotOff', 1) === 0 && sender(p).get(1)?.ndi === 'Zoom 1');
+  ck('… zurück auf original: slotSet nur mit frame native, weiterhin ein slotOn',
+    ok(p.kern.slotAendern(1, { bildformat: 'original' })) && (await bisSlotSet(p, 1, { cmd: 'slotSet', slot: 1, frame: 'native' }))
+    && zaehle(p, 'slotOn', 1) === 1 && zaehle(p, 'slotOff', 1) === 0);
+  await p.aufraeumen();
+}
+
+console.log('— #306 · Ersatzbild „Zoom-Kachel“ geht als fallback tile an die Bridge');
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true, ersatzbild: 'kachel' })] });
+  await insMeeting(p);
+  ck('#306: das erste slotOn trägt fallback tile', await bis(() => zaehle(p, 'slotOn', 1) >= 1, 2000) && slotGesendet(p, 1, 1)[0]?.fallback === 'tile');
+  ck('#306: die Bridge lehnt es nicht ab (kein slotBadFallback)', await bis(() => meldeteSender(p, 1), 3000)
+    && !p.ereignisse.some((x) => x.ev.ev === 'error' && (x.ev as unknown as { code: string }).code === 'slotBadFallback'));
+  const erstes = p.ereignisse.find((x) => x.ev.ev === 'slot' && (x.ev as unknown as { slot: number }).slot === 1);
+  ck('#306: das erste slot-Ereignis von Slot 1 meldet sent tile', (erstes?.ev as unknown as { sent?: string } | undefined)?.sent === 'tile');
+  await p.aufraeumen();
+}
+
 console.log('— NB2/NB7 · Slot-Wahrheit: kein Sender, den Connect nicht kennt; die Nummer bleibt bis slot off reserviert (I-2 bis I-6)');
 {
   const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], stell: () => ({ FAKE_SLOT_SPAET: '1:500' }) });
@@ -2183,6 +2255,122 @@ console.log('— NB2/NB7 · Slot-Wahrheit: kein Sender, den Connect nicht kennt;
     (await bis(() => sender(p).size === 1 && sender(p).get(1)?.ndi === 'Bühne Anna' && sender(p).get(1)?.target === ANNA && lage(p, 1)?.zustand === 'zeigt', 5000))
     && (await warte(300), zaehle(p, 'slotOff', 1) === 1)
     && p.ereignisse.some((x) => x.ev.ev === 'slot' && (x.ev as unknown as { ndi: string }).ndi === 'Zoom 1'));
+  await p.aufraeumen();
+}
+{
+  // #287 (Review Focus 5): wie (10), aber nur die Person wechselt. Der Name eines Senders ist der seines slotOn; ohne bekannten
+  // Sender gilt das zuletzt gesendete slotOn. Die späte Antwort auf das ältere mit anderem Namen bleibt fremd.
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], personImNdiNamen: true, stell: () => ({ FAKE_SLOT_SPAET: '1:500' }) });
+  await insMeeting(p);
+  await bis(() => zaehle(p, 'slotOn', 1) === 1, 2000);
+  ck('#287 (NB2/NB7 (10) mit Person): das slotOn „Zoom 1 (Anna)“ ist im Flug; „Stopp“, Person Ben und „Start“ → slotOn „Zoom 1 (Ben)“',
+    slotGesendet(p, 1, 1)[0]?.ndi === 'Zoom 1 (Anna)' && ok(p.kern.slotStart(1, false)) && ok(p.kern.slotAendern(1, { person: 'Ben' }))
+    && ok(p.kern.slotStart(1, true)) && slotGesendet(p, 1, 1)[1]?.cmd === 'slotOn' && slotGesendet(p, 1, 1)[1]?.ndi === 'Zoom 1 (Ben)');
+  ck('… die späte Antwort trägt „Zoom 1 (Anna)“ → genau ein slotOff; am Ende läuft genau ein Sender „Zoom 1 (Ben)“ mit Ben',
+    (await bis(() => sender(p).size === 1 && sender(p).get(1)?.ndi === 'Zoom 1 (Ben)' && sender(p).get(1)?.target === BEN && lage(p, 1)?.zustand === 'zeigt', 5000))
+    && (await warte(300), zaehle(p, 'slotOff', 1) === 1)
+    && p.ereignisse.some((x) => x.ev.ev === 'slot' && (x.ev as unknown as { ndi: string }).ndi === 'Zoom 1 (Anna)'));
+  ck('… keine Logzeile nennt Anna oder Ben', !p.logs.some((z) => /(?<![\p{L}\p{N}])(?:Anna|Ben)(?![\p{L}\p{N}])/u.test(z)));
+  await p.aufraeumen();
+}
+{
+  // #287 (Review Task 2, Minor 2): Rückfall in senderNameFuer. Wurde der Slot seit dem offenen slotOn umbenannt und nicht neu
+  // gestartet, gilt der neue NDI-Name des Slots: Die späte Antwort mit dem Namen des slotOn bleibt fremd und wird nie übernommen.
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], personImNdiNamen: true, stell: () => ({ FAKE_SLOT_SPAET: '1:500' }) });
+  await insMeeting(p);
+  await bis(() => zaehle(p, 'slotOn', 1) === 1, 2000);
+  ck('#287 (Umbenennen ohne Neustart): „Stopp“ und NDI-Name „Bühne“, während „Zoom 1 (Anna)“ im Flug ist; kein „Start“',
+    slotGesendet(p, 1, 1)[0]?.ndi === 'Zoom 1 (Anna)' && ok(p.kern.slotStart(1, false)) && ok(p.kern.slotAendern(1, { ndiName: 'Bühne' })));
+  ck('… die späte Antwort ist fremd: genau ein slotOff über „fremder Sender“, nie übernommen (kein liefSchon), die Bridge hält am Ende keinen Sender',
+    (await bis(() => meldeteSender(p, 1) && sender(p).size === 0, 4000)) && (await warte(300), zaehle(p, 'slotOff', 1) === 1)
+    && p.logs.some((z) => z.startsWith('[zoom] Slot 1: fremder Sender')) && !p.logs.includes('[zoom] Slot 1 wird gestoppt')
+    && lage(p, 1)?.liefSchon === false && lage(p, 1)?.zustand === 'aus' && zaehle(p, 'slotOn', 1) === 1);
+  await p.aufraeumen();
+}
+
+// ── #287, Fix-Runde 1 (Ruling): Der Name vom Einschalten bleibt über automatische Neustarts stehen, bis der Slot aus ist ──
+console.log('— #287 · Startname: Entzug, Schalter, Z11 behalten ihn; „Stopp“/„Start“ und Meeting-Ende bilden ihn neu');
+/** ndi der slotOn an Slot `nr` (alle Bridges), in Reihenfolge. */
+const startNamen = (p: Probe, nr = 1): string[] => slotGesendet(p, undefined, nr).filter((c) => c.cmd === 'slotOn').map((c) => String(c.ndi));
+const KEIN_NAME_IM_LOG = (p: Probe): boolean => !p.logs.some((z) => /(?<![\p{L}\p{N}])(?:Anna|Ben)(?![\p{L}\p{N}])/u.test(z));
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true })], personImNdiNamen: true, stell: () => ({ FAKE_ENTZUG_MS: '2000', FAKE_ERTEILUNG_MS: '800' }),
+  });
+  await insMeeting(p);
+  ck('#287 Startname (Entzug): Slot 1 läuft als „Zoom 1 (Anna)“', (await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000))
+    && startNamen(p).join('|') === 'Zoom 1 (Anna)');
+  ck('… Person Ben am laufenden Slot → nur slotSet, die Bridge zeigt Ben', ok(p.kern.slotAendern(1, { person: 'Ben' }))
+    && (await bis(() => sender(p).get(1)?.target === BEN, 2000)) && startNamen(p).length === 1);
+  ck('… Entzug und Wiedererteilung: der automatische Neustart geht wieder als „Zoom 1 (Anna)“, mit Ben als Ziel, der Slot zeigt Ben',
+    (await bis(() => startNamen(p).length === 2 && lage(p, 1)?.zustand === 'zeigt' && sender(p).get(1)?.target === BEN, 6000))
+    && startNamen(p)[1] === 'Zoom 1 (Anna)' && slotGesendet(p, 1, 1).filter((c) => c.cmd === 'slotOn')[1]?.id === BEN
+    && sender(p).get(1)?.ndi === 'Zoom 1 (Anna)' && KEIN_NAME_IM_LOG(p));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true })], personImNdiNamen: true, stell: () => ({ FAKE_ENTZUG_MS: '2000', FAKE_ERTEILUNG_MS: '800' }),
+  });
+  await insMeeting(p);
+  ck('#287 Startname (Companion ON bei schon an): Slot 1 läuft als „Zoom 1 (Anna)“, dann Person Ben', (await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000))
+    && ok(p.kern.slotAendern(1, { person: 'Ben' })) && (await bis(() => sender(p).get(1)?.target === BEN, 2000)));
+  ck('… Entzug, dann Companion „zoom_slot 1 ON“ am schon eingeschalteten Slot: der Neustart geht weiter als „Zoom 1 (Anna)“',
+    (await bis(() => lage(p, 1)?.zustand !== 'zeigt', 4000))
+    // ON alle 20 ms, bis der Neustart läuft: mindestens ein Aufruf trifft den Slot ohne Sender (dort lief früher stoppStart)
+    && (await bis(() => { p.kern.steuerbefehl({ verb: 'zoom_slot', args: ['1', 'ON'] }); return startNamen(p).length === 2; }, 8000))
+    && (await bis(() => lage(p, 1)?.zustand === 'zeigt', 8000)) && startNamen(p).length === 2 && startNamen(p)[1] === 'Zoom 1 (Anna)');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true })], personImNdiNamen: true, stell: () => ({ FAKE_ENTZUG_MS: '2000', FAKE_ERTEILUNG_MS: '800' }),
+  });
+  await insMeeting(p);
+  ck('#287 Startname (Schalter aus): Slot 1 läuft als „Zoom 1 (Anna)“', (await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000))
+    && startNamen(p).join('|') === 'Zoom 1 (Anna)');
+  ck('… Schalter aus, während er läuft → kein Befehl', ok(p.kern.personImNdiNamenSetzen(false)) && (await warte(200), slotGesendet(p, 1, 1).length === 1));
+  ck('… Entzug und Wiedererteilung: der automatische Neustart bleibt „Zoom 1 (Anna)“ (nicht „Zoom 1“)',
+    (await bis(() => startNamen(p).length === 2 && lage(p, 1)?.zustand === 'zeigt', 6000)) && startNamen(p)[1] === 'Zoom 1 (Anna)'
+    && sender(p).get(1)?.ndi === 'Zoom 1 (Anna)');
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true })], personImNdiNamen: true,
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '1800' } : {}),
+  });
+  await insMeeting(p);
+  ck('#287 Startname (Z11): Slot 1 läuft als „Zoom 1 (Anna)“, dann Person Ben', (await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000))
+    && ok(p.kern.slotAendern(1, { person: 'Ben' })) && (await bis(() => sender(p).get(1)?.target === BEN, 2000)));
+  ck('… nach dem Abriss baut die neue Bridge den Slot wieder als „Zoom 1 (Anna)“ (Ziel Ben)',
+    (await bis(() => p.starts() === 2 && slotGesendet(p, 2, 1).some((c) => c.cmd === 'slotOn') && lage(p, 1)?.zustand === 'zeigt', 8000))
+    && slotGesendet(p, 2, 1).find((c) => c.cmd === 'slotOn')?.ndi === 'Zoom 1 (Anna)' && slotGesendet(p, 2, 1).find((c) => c.cmd === 'slotOn')?.id === BEN
+    && sender(p, 2).get(1)?.ndi === 'Zoom 1 (Anna)' && KEIN_NAME_IM_LOG(p));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ slots: [slotEinst(1, { person: 'Anna', an: true })], personImNdiNamen: true });
+  await insMeeting(p);
+  ck('#287 Startname (Stopp/Start): Slot 1 läuft als „Zoom 1 (Anna)“, dann Person Ben', (await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000))
+    && ok(p.kern.slotAendern(1, { person: 'Ben' })));
+  ck('… „Stopp“ des Bedieners, dann „Start“ → „Zoom 1 (Ben)“', ok(p.kern.slotStart(1, false)) && (await bis(() => lage(p, 1)?.zustand === 'aus', 3000))
+    && ok(p.kern.slotStart(1, true)) && startNamen(p).join('|') === 'Zoom 1 (Anna)|Zoom 1 (Ben)'
+    && (await bis(() => lage(p, 1)?.zustand === 'zeigt' && sender(p).get(1)?.ndi === 'Zoom 1 (Ben)', 3000)));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    slots: [slotEinst(1, { person: 'Anna', an: true })], personImNdiNamen: true,
+    stell: (n): Record<string, string> => (n === 1 ? { FAKE_MEETING_ENDE_MS: '2000' } : {}),
+  });
+  await insMeeting(p);
+  ck('#287 Startname (Meeting-Ende): Slot 1 läuft als „Zoom 1 (Anna)“, dann Person Ben', (await bis(() => lage(p, 1)?.zustand === 'zeigt', 3000))
+    && ok(p.kern.slotAendern(1, { person: 'Ben' })));
+  ck('… nach dem Meeting-Ende und einem neuen Beitritt startet der Slot als „Zoom 1 (Ben)“',
+    (await bis(() => p.kern.kurz().zustand === 'bereit', 5000)) && (await insMeeting(p))
+    && (await bis(() => slotGesendet(p, 2, 1).some((c) => c.cmd === 'slotOn'), 3000))
+    && slotGesendet(p, 2, 1).find((c) => c.cmd === 'slotOn')?.ndi === 'Zoom 1 (Ben)');
   await p.aufraeumen();
 }
 console.log('— NB8 · Gegenfall ohne Verzögerung: ein normaler Start bleibt bei genau einem slotOn je Slot');

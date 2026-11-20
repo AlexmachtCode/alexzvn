@@ -45,7 +45,7 @@ function abbild(a: Omit<Partial<ZoomAbbild>, 'kurz'> & { kurz?: Partial<ZoomKurz
     anzeigename: 'Regie Süd',
     versatz: { gewuenschtMs: 0, bestaetigtMs: null, nurSitzung: false },
     teilnehmer: [], slots: [], vorgaben: { aufloesung: '720p', tonAn: true }, sprecher: { signal: 'sprecherVideo', haltezeitMs: 1000 },
-    vorschauAn: true, vorschauVerfuegbar: true, vorschauDetail: null, ueber5: false, messwerte: { bridge: null, slots: [], freigaben: null, sprecherSignale: [] },
+    personImNdiNamen: false, vorschauAn: true, vorschauVerfuegbar: true, vorschauDetail: null, ueber5: false, messwerte: { bridge: null, slots: [], freigaben: null, sprecherSignale: [] },
     einstellungen: { nurSitzung: false, gesichert: null }, abriss: null, meldung: null, hinweise: [],
     erneutMoeglich: false, pruefungLaeuft: false, abbauLaeuft: false,
     ...rest,
@@ -1007,12 +1007,12 @@ console.log('— B5 · ST100–ST106, SF5–SF14 wörtlich, SLOT_FEHLER_TEXT je 
   const T101 = SLOT_KT.T101('NAME_X');
   const ERWARTET: Record<string, string> = {
     slotBadNumber: T103, slotBadName: T103, slotNameTaken: SLOT_KT.T102, slotBadMode: T103, slotBadResolution: T103,
-    slotBadAudio: T103, slotBadFallback: T103, slotBadFlag: T103, slotBadTarget: T103, slotAlreadyOn: 'keine', slotNotOn: 'keine',
+    slotBadAudio: T103, slotBadFallback: T103, slotBadFrame: T103, slotBadFlag: T103, slotBadTarget: T103, slotAlreadyOn: 'keine', slotNotOn: 'keine',
     slotNoPrivilege: SLOT_KT.T100, slotReconnecting: 'keine', slotRawRecordingFailed: T101, slotSenderFailed: T101, slotRendererFailed: T101,
     slotSubscribeFailed: 'keine', slotBufferMismatch: SLOT_KT.T105(4), speakerBadSignal: T103, speakerBadHold: T103, previewUnavailable: 'keine',
   };
-  ck('SLOT_FEHLER_TEXT hat genau die 21 Schlüssel aus SLOT_ERROR_KEYS',
-    JSON.stringify(Object.keys(SLOT_FEHLER_TEXT).sort()) === JSON.stringify([...SLOT_ERROR_KEYS].sort()) && SLOT_ERROR_KEYS.length === 21);
+  ck('SLOT_FEHLER_TEXT hat genau die 22 Schlüssel aus SLOT_ERROR_KEYS',
+    JSON.stringify(Object.keys(SLOT_FEHLER_TEXT).sort()) === JSON.stringify([...SLOT_ERROR_KEYS].sort()) && SLOT_ERROR_KEYS.length === 22);
   for (const k of SLOT_ERROR_KEYS) {
     const v = SLOT_FEHLER_TEXT[k];
     ck(`SLOT_FEHLER_TEXT ${k} → ${ERWARTET[k] === 'keine' ? 'keine' : 'Text'}`, (v === 'keine' ? 'keine' : v({ name: 'NAME_X', nr: 4 })) === ERWARTET[k]);
@@ -1099,11 +1099,20 @@ console.log('— B6 · ST1–ST4, ST10–ST29e, ST60, ST97 wörtlich');
       'Anna: Zoom liefert gerade kein Bild · Ersatzbild transparent · Slot 3 zeigt dieselbe Quelle; ob Zoom zwei Abos derselben Quelle zugleich beliefert, ist noch nicht gemessen.'],
     ['T97 an T20c', k({ ...freigabe, grund: 'subscribeFailed', aboFehlerName: 'SDKERR_INTERNAL_ERROR', andererSlot: 7 }),
       'Freigabe von Carla: Zoom hat das Abo abgelehnt (SDKERR_INTERNAL_ERROR) · Ersatzbild transparent. Für einen neuen Versuch „Stopp“ und wieder „Start“. · Slot 7 zeigt dieselbe Quelle; ob Zoom zwei Abos derselben Quelle zugleich beliefert, ist noch nicht gemessen.'],
+    ['T19 Zoom-Kachel', k({ grund: 'cameraOff', gesendet: 'tile', ersatzbild: 'kachel' }), 'Anna: Kamera aus · Ersatzbild Zoom-Kachel'],
+    ['T19b Zoom-Kachel', k({ grund: 'noFrames', gesendet: 'tile', ersatzbild: 'kachel' }), 'Anna: Zoom liefert gerade kein Bild · Ersatzbild Zoom-Kachel (Bild unterbrochen)'],
+    ['T20 Zoom-Kachel', k({ grund: 'targetChanged', gesendet: 'tile', ersatzbild: 'kachel' }), 'Anna: erstes Bild steht noch aus · Ersatzbild Zoom-Kachel'],
+    ['T20b Zoom-Kachel', k({ grund: 'bufferMismatch', gesendet: 'tile', ersatzbild: 'kachel' }), 'Anna: fehlerhafte Bilder verworfen · Ersatzbild Zoom-Kachel (Bild unterbrochen)'],
+    ['T20c Zoom-Kachel', k({ grund: 'subscribeFailed', aboFehlerName: 'SDKERR_INTERNAL_ERROR', gesendet: 'tile', ersatzbild: 'kachel' }),
+      'Anna: Zoom hat das Abo abgelehnt (SDKERR_INTERNAL_ERROR) · Ersatzbild Zoom-Kachel (Bild unterbrochen). Für einen neuen Versuch „Stopp“ und wieder „Start“.'],
+    ['T16 Zoom-Kachel, Person weg', k({ grund: 'participantLeft', gesendet: 'transparent', ersatzbild: 'kachel' }), 'Wartet auf Anna · Ersatzbild transparent'],
+    ['T27 Zoom-Kachel', k({ ...sprecher, grund: 'speakerNoVideo', gesendet: 'tile', ersatzbild: 'kachel' }), 'Ben (Sprecher): Kamera aus · Ersatzbild Zoom-Kachel'],
+    ['T29c Zoom-Kachel in der Freigabe', k({ ...freigabe, zielName: null, grund: 'shareNone', gesendet: 'transparent', ersatzbild: 'kachel' }), 'Wartet auf eine Bildschirmfreigabe · Ersatzbild transparent'],
   ];
   for (const [id, ist, soll] of SOLL) ck(`S${id} wörtlich`, ist === soll);
   ck('ST1, ST2, ST3 Modus-Namen wörtlich', JSON.stringify(MODUS_NAME) === JSON.stringify({ teilnehmer: 'Teilnehmer', sprecher: 'Aktiver Sprecher', freigabe: 'Bildschirmfreigabe' }));
   ck('ST4 Ersatzbild-Namen (Einstellung und sent) und Feldname wörtlich',
-    JSON.stringify(ERSATZBILD_NAME) === JSON.stringify({ transparent: 'transparent', freeze: 'eingefroren', black: 'schwarz', white: 'weiß', eingefroren: 'eingefroren', schwarz: 'schwarz', weiss: 'weiß' })
+    JSON.stringify(ERSATZBILD_NAME) === JSON.stringify({ transparent: 'transparent', freeze: 'eingefroren', black: 'schwarz', white: 'weiß', tile: 'Zoom-Kachel', eingefroren: 'eingefroren', schwarz: 'schwarz', weiss: 'weiß', kachel: 'Zoom-Kachel' })
       && ERSATZBILD_FELD === 'Ersatzbild');
   const quelle = readFileSync(new URL('../src/shared/zoom-text.ts', import.meta.url), 'utf8');
   ck('Quelltext-Wächter: zoom-text.ts schreibt „mehr als 5“ (T22) nicht als Literal, T22 kommt aus BETRIEBSGROESSE', !quelle.includes('mehr als 5'));
@@ -1174,7 +1183,8 @@ console.log('— B6 · Zustandszeile 10.2 als Kreuzprodukt (10.5) mit den Wahrhe
     T29c: (art: string): string => `Wartet auf eine Bildschirmfreigabe · ${art}`,
     T60: 'Ersatzbild eingefroren (kein gespeichertes Bild, darum transparent)',
     T97: (m: number): string => ` · Slot ${m} zeigt dieselbe Quelle; ob Zoom zwei Abos derselben Quelle zugleich beliefert, ist noch nicht gemessen.`,
-    ART: { transparent: 'transparent', freeze: 'eingefroren', black: 'schwarz', white: 'weiß' } as Record<string, string>,
+    ART: { transparent: 'transparent', freeze: 'eingefroren', black: 'schwarz', white: 'weiß', tile: 'Zoom-Kachel' } as Record<string, string>,
+    T61: 'Ersatzbild Zoom-Kachel (Bild unterbrochen)',
   };
 
   const IM = new Set<ZoomZ>(['Z6', 'Z7', 'Z7b', 'Z8', 'Z9', 'Z9b']);
@@ -1185,10 +1195,10 @@ console.log('— B6 · Zustandszeile 10.2 als Kreuzprodukt (10.5) mit den Wahrhe
     Z1a: S.T11a, Z1b: S.T11a, Z2: S.T11b, Z3: S.T11c, Z4: S.T11c, Z5a: S.T11h, Z5b: S.T11h, Z10: S.T11d, Z11: S.T11e, Z12: S.T11f, Z13: S.T11g,
   };
   const MODI: Modus[] = ['teilnehmer', 'sprecher', 'freigabe'];
-  const ERSATZBILDER: Ersatzbild[] = ['transparent', 'eingefroren', 'schwarz', 'weiss'];
+  const ERSATZBILDER: Ersatzbild[] = ['transparent', 'eingefroren', 'schwarz', 'weiss', 'kachel'];
   const ZIEL0: Grund[] = ['noTarget', 'participantLeft', 'speakerNone', 'shareNone'];   // 6.10 Schritt 3
   const MIT_ZIEL: Grund[] = SLOT_REASONS.filter((g) => !ZIEL0.includes(g));
-  const ERSATZ_SENT: Sent[] = ['transparent', 'freeze', 'black', 'white'];             // SZ6 sendet ein Ersatzbild (6.12)
+  const ERSATZ_SENT: Sent[] = ['transparent', 'freeze', 'black', 'white', 'tile'];             // SZ6 sendet ein Ersatzbild (6.12)
   const NAMEN = ['Carla', 'Ben', 'Anna'];
   const KLARTEXT = 'Der Slot ließ sich nicht aufbauen (SLOT_SENDER_FAILED). Details im Log.';
   const ABO = 'SDKERR_INTERNAL_ERROR';
@@ -1258,7 +1268,8 @@ console.log('— B6 · Zustandszeile 10.2 als Kreuzprodukt (10.5) mit den Wahrhe
     }
     if (f.zustand === 'gehalten') return f.grund === 'sharePaused' ? ['T29', S.T29(p)] : ['T29b', S.T29b(p)];
     // SZ6 (Regeln 6–10)
-    const art = f.ersatzbild === 'eingefroren' && f.gesendet === 'transparent' ? S.T60 : `Ersatzbild ${S.ART[f.gesendet ?? '']}`;
+    const art = f.ersatzbild === 'eingefroren' && f.gesendet === 'transparent' ? S.T60
+      : f.gesendet === 'tile' && ['noFrames', 'bufferMismatch', 'subscribeFailed'].includes(f.grund ?? '') ? S.T61 : `Ersatzbild ${S.ART[f.gesendet ?? '']}`;
     const g = f.grund;
     const t97 = f.andererSlot !== null && (g === 'noFrames' || g === 'subscribeFailed') ? S.T97(f.andererSlot) : '';
     const ohneZiel = g !== null && ZIEL0.includes(g);
@@ -1301,6 +1312,8 @@ console.log('— B6 · Zustandszeile 10.2 als Kreuzprodukt (10.5) mit den Wahrhe
       wenn: (t) => t.includes('Ersatzbild'),
       dann: (f, _z, t) => f.zustand === 'ersatz' && (f.ersatzbild === 'eingefroren' && f.gesendet === 'transparent'
         ? t.includes(S.T60) : t.includes(`Ersatzbild ${S.ART[f.gesendet ?? '']}`) && !t.includes('darum transparent')) },
+    { name: '„(Bild unterbrochen)“ nur mit sent tile und Grund noFrames, bufferMismatch oder subscribeFailed',
+      wenn: (t) => t.includes('(Bild unterbrochen)'), dann: (f) => f.gesendet === 'tile' && ['noFrames', 'bufferMismatch', 'subscribeFailed'].includes(f.grund ?? '') },
     { name: '„Wartet auf {Person} ·“ (T16) nur, wenn die Person nicht da ist (Ziel 0, nicht im Warteraum, eindeutig)',
       wenn: (t) => t.startsWith('Wartet auf Anna · '), dann: (f, ziel0) => ziel0 && !f.imWarteraum && f.doppelt <= 1 && !f.zweifel },
     { name: '„(im Warteraum)“ (T17) nur, wenn die Person im Warteraum ist', wenn: (t) => t.includes('(im Warteraum)'), dann: (f) => f.imWarteraum },
@@ -1363,6 +1376,19 @@ console.log('— B6 · Zustandszeile 10.2 als Kreuzprodukt (10.5) mit den Wahrhe
   ck('10.5 Kachel: jede Zeile aus 9.2 (40) kommt im Kreuzprodukt vor', ALLE_IDS.every((id) => gesehen.has(id)) && gesehen.size === ALLE_IDS.length);
 }
 
+console.log('— #306 · Auswahl der Ersatzbilder je Modus');
+{
+  const { ersatzbildAuswahl } = await import('../src/shared/zoom-text');
+  const paare = (l: { text: string; waehlbar: boolean }[]) => JSON.stringify(l.map((o) => [o.text, o.waehlbar]));
+  const letzte = <T>(l: T[]): T => l[l.length - 1];
+  ck('#306 Auswahl Teilnehmer: fünf, alle wählbar', paare(ersatzbildAuswahl('teilnehmer', 'transparent'))
+    === JSON.stringify([['transparent', true], ['eingefroren', true], ['schwarz', true], ['weiß', true], ['Zoom-Kachel', true]]));
+  ck('#306 Auswahl Sprecher: Zoom-Kachel wählbar', letzte(ersatzbildAuswahl('sprecher', 'schwarz')).wert === 'kachel');
+  ck('#306 Auswahl Freigabe: ohne Zoom-Kachel', ersatzbildAuswahl('freigabe', 'schwarz').length === 4);
+  ck('#306 Auswahl Freigabe mit gespeicherter Kachel: gesperrt und ehrlich benannt',
+    JSON.stringify(letzte(ersatzbildAuswahl('freigabe', 'kachel'))) === JSON.stringify({ wert: 'kachel', text: 'Zoom-Kachel (bei Bildschirmfreigabe transparent)', waehlbar: false }));
+}
+
 console.log('— B6 · Fehlerzeile der Kachel (10.9)');
 {
   const { kachelFehlerZeile } = await import('../src/shared/zoom-text');
@@ -1403,6 +1429,9 @@ console.log('— B7 · ST50–ST58i, ST75, ST75b, ST76 wörtlich; Messbeispiele 
     ['T51', m({ stufe: '1080p' }), '1080p gewünscht · Zoom liefert 1280×720 · 25 Bilder/s'],
     ['T51b', m({ geliefert: null, zuletzt: null }), '720p gewünscht · noch kein Bild'],
     ['T51c', m({ geliefert: null }), '720p · zuletzt 1280×720 · jetzt kein Bild'],
+    ['#310 eingepasst', m({ stufe: '1080p', geliefert: { b: 720, h: 1280, fps: 23.5 }, eingepasst: { b: 1920, h: 1080 } }), '1080p gewünscht · Zoom liefert 720×1280 · 23,5 Bilder/s · NDI 1920×1080 eingepasst'],
+    ['#310 ohne Bild kein NDI-Teil', m({ geliefert: null, eingepasst: { b: 1920, h: 1080 } }), '720p · zuletzt 1280×720 · jetzt kein Bild'],
+    ['#310 nicht eingepasst', m({ eingepasst: null }), '720p · Zoom liefert 1280×720 · 25 Bilder/s'],
     ['T50 (Bildrate mit Nachkommastelle)', m({ geliefert: { b: 1280, h: 720, fps: 12.5 } }), '720p · Zoom liefert 1280×720 · 12,5 Bilder/s'],
     ['T52', VORSCHAU_TEXT.T52, 'Vorschau ohne Bild-Versatz, etwa 2 Bilder pro Sekunde.'],
     ['T53', VORSCHAU_TEXT.T53, 'eingefroren'],
@@ -1481,6 +1510,7 @@ console.log('— B7 · ST50–ST58i, ST75, ST75b, ST76 wörtlich; Messbeispiele 
     ['SZ6, sent freeze → letzte Vorschau dieses Ziels mit T53', v({ zustand: 'ersatz', gesendet: 'freeze', frisch: false }), F('letzte', 'eingefroren')],
     ['SZ6, sent freeze ohne letzte Vorschau → leere Fläche mit T53, nie Schachbrett (RR4)',
       v({ zustand: 'ersatz', gesendet: 'freeze', letzteDiesesZiels: false }), F('leer', 'eingefroren')],
+    ['SZ6, sent tile → Zoom-Kachel', v({ zustand: 'ersatz', gesendet: 'tile' }), F('kachel', 'Zoom-Kachel')],
     ['SZ9 → letzte Fläche, abgeblendet', v({ zustand: 'stoppt' }), F('abgeblendet')],
     ['Schalter aus geht vor „nicht verfügbar“ (Tabellenfolge 7.7)', v({ schalterAn: false, verfuegbar: false, detail: '0x1' }), F('leer', null, 'Vorschau aus')],
   ];
@@ -1882,7 +1912,7 @@ console.log('— B8 · ST30–ST42, ST87, ST96, ST96b, ST98 wörtlich; Teilnehme
 console.log('— B9 · ST5–ST9, ST48, ST49, ST61–ST73, ST77, ST80–ST86, ST95 wörtlich; S7.5 Bedientexte (OFP2); Kennzeichen (OFP3)');
 {
   const {
-    BEDIEN_TEXT, KANDIDAT_KENNZEICHEN, MAC_ZEILE, MESS_TEXT, SLOT_FELD, slotKartenZeile, slotTrayZeile, SPRECHER_TEXT, verlassenFrage,
+    BEDIEN_TEXT, KANDIDAT_KENNZEICHEN, MAC_ZEILE, MESS_TEXT, PERSON_IM_NDI_NAMEN_TOOLTIP, SLOT_FELD, slotKartenZeile, slotTrayZeile, SPRECHER_TEXT, verlassenFrage,
   } = await import('../src/shared/zoom-text');
   type SE = import('../src/shared/zoom-text').SlotStatusEingabe;
   const zahlen = (n: number, k: number, o: number, e: number, gestopptEntzug: number) => ({ n, k, o, e, a: 7, gestopptEntzug });
@@ -1904,8 +1934,11 @@ console.log('— B9 · ST5–ST9, ST48, ST49, ST61–ST73, ST77, ST80–ST86, ST
     ['T61', MESS_TEXT.T61({ cpu: '12,5', sys: '3,1', mem: 412, q: 37, d: 0, mv: 2, hl: 1 }),
       'Zoom-Bridge: 12,5 % eines Kerns · System 3,1 % · Arbeitsspeicher 412 MB · Ton-Warteschlange höchstens 37 Pakete, 0 verworfen · Zoom-Ereignisse verworfen 2 · zurückgehaltene Renderer 1'],
     ['T62', MESS_TEXT.T62({ nr: 3, modus: 'sprecher', b: 1280, h: 720, fps: 25, ffps: 0, work: '4,2', copy: '0,8', prev: '1,1', mem: 18, res: '720p',
-      resSetName: 'SDKERR_SUCCESS', resGot: 2, pps: 50, md: 0, ms: 40 }),
-      'Slot 3 (Aktiver Sprecher): 1280×720, 25 Bilder/s, Ersatzbilder 0/s · Bridge-Anteil 4,2 ms/s (davon Kopie 0,8, Vorschau 1,1) · Speicher 18 MB · Auflösung 720p: SDKERR_SUCCESS, Renderer meldet 2 · Ton 50 Pakete/s, Mischer verworfen 0 ms, Stille eingefügt 40 ms'],
+      resSetName: 'SDKERR_SUCCESS', resGot: 2, pps: 50, md: 0, ms: 40, ein: null, format: 'original' }),
+      'Slot 3 (Aktiver Sprecher): 1280×720, 25 Bilder/s, Ersatzbilder 0/s · Bridge-Anteil 4,2 ms/s (davon Kopie 0,8, Vorschau 1,1) · Speicher 18 MB · Auflösung 720p: SDKERR_SUCCESS, Renderer meldet 2 · Bildformat Original · Ton 50 Pakete/s, Mischer verworfen 0 ms, Stille eingefügt 40 ms'],
+    ['T62 (eingepasst, #310)', MESS_TEXT.T62({ nr: 3, modus: 'sprecher', b: 720, h: 1280, fps: 25, ffps: 0, work: '4,2', copy: '0,8', prev: '1,1', mem: 18, res: '1080p',
+      resSetName: 'SDKERR_SUCCESS', resGot: 2, pps: 50, md: 0, ms: 40, ein: { b: 1920, h: 1080 }, format: 'einpassen' }),
+      'Slot 3 (Aktiver Sprecher): 720×1280 → NDI 1920×1080 eingepasst, 25 Bilder/s, Ersatzbilder 0/s · Bridge-Anteil 4,2 ms/s (davon Kopie 0,8, Vorschau 1,1) · Speicher 18 MB · Auflösung 1080p: SDKERR_SUCCESS, Renderer meldet 2 · Bildformat 16:9 einpassen · Ton 50 Pakete/s, Mischer verworfen 0 ms, Stille eingefügt 40 ms'],
     ['T62b', MESS_TEXT.T62b({ nr: 2, ub: 1280, uh: 720, hd: true, og: false, rv: { w: 1280, h: 720, fps: 30 }, rs: { w: 1920, h: 1080, fps: 12.5 } }),
       'Slot 2: Zoom nennt als Videogröße 1280×720 · HD-Video an · Originalgröße aus · Meeting empfängt Video 1280×720, 30 Bilder/s, Freigabe 1920×1080, 12,5 Bilder/s'],
     ['T62b (fehlende Werte)', MESS_TEXT.T62b({ nr: 2, ub: null, uh: 720, hd: null, og: null, rv: null, rs: null }),
@@ -1969,10 +2002,14 @@ console.log('— B9 · ST5–ST9, ST48, ST49, ST61–ST73, ST77, ST80–ST86, ST
   const BEDIEN: Array<[keyof typeof BEDIEN_TEXT, string]> = [
     ['zoomSlots', 'Zoom-Slots'], ['slotHinzufuegen', 'Slot hinzufügen'], ['vorgaben', 'Vorgaben …'], ['vorschau', 'Vorschau'],
     ['sprecherEinstellungen', 'Sprecher-Einstellungen …'], ['messwerte', 'Messwerte'], ['messwerteKopieren', 'Messwerte kopieren'],
-    ['behalten', 'Behalten'], ['loeschen', 'Löschen'],
+    ['behalten', 'Behalten'], ['loeschen', 'Löschen'], ['personImNdiNamen', 'Person im NDI-Namen'],
   ];
   for (const [k, soll] of BEDIEN) ck(`S7.5 Bedientext „${soll}“ wörtlich (OFP2)`, BEDIEN_TEXT[k] === soll);
-  ck('S7.5 genau neun Bedientexte (OFP2)', Object.keys(BEDIEN_TEXT).length === 9);
+  ck('S7.5 genau zehn Bedientexte (OFP2, #287)', Object.keys(BEDIEN_TEXT).length === 10);
+  ck('#287 Tooltip „Person im NDI-Namen“ nennt Beispiel, Dauer und Personenwechsel', PERSON_IM_NDI_NAMEN_TOOLTIP.includes('Zoom 1 (Anna Müller)') && PERSON_IM_NDI_NAMEN_TOOLTIP.includes('bis der Slot aus ist') && PERSON_IM_NDI_NAMEN_TOOLTIP.includes('nicht um'));
+  ck('#287 Tooltip „Person im NDI-Namen“ sagt ehrlich, wann der Name neu gebildet wird, und verspricht kein „nie“',
+    PERSON_IM_NDI_NAMEN_TOOLTIP.includes('Nach Meeting-Ende, neuem Beitritt oder Neustart von Connect wird der Name neu gebildet') && !/nie/.test(PERSON_IM_NDI_NAMEN_TOOLTIP));
+  ck('#287 keine ASCII-Anführungszeichen in Beschriftung und Tooltip', !BEDIEN_TEXT.personImNdiNamen.includes('"') && !PERSON_IM_NDI_NAMEN_TOOLTIP.includes('"'));
   ck('OFP3 Kennzeichen der Doppelname-Auswahl wie in der Teilnehmerliste: „Kamera aus“, „Host“, „im Warteraum“',
     JSON.stringify(KANDIDAT_KENNZEICHEN) === JSON.stringify({ kameraAus: 'Kamera aus', host: 'Host', imWarteraum: 'im Warteraum' }));
   // SlotZahlen aus B1 ist an `zahlen` übergebbar (sonst scheitert die Typprüfung dieses Tests)
@@ -2222,7 +2259,7 @@ console.log('— B21: Eingabe der Teilnehmerliste je Person (Spec 10.10)');
   const lage = (nr: number, modus: Modus, person: string, zielName: string | null, an = true, doppelt = 1, zweifel = false): Lage => ({
     einstellung: {
       nr, ndiName: `Zoom ${nr}`, modus, person, an, aufloesung: '720p', ersatzbild: 'transparent', tonAn: true, tonArt: 'mischton',
-      computerton: true, ohneKamera: true,
+      computerton: true, ohneKamera: true, bildformat: 'original',
     },
     voruebergehend: false, anNurMeeting: false, zustand: an ? 'zeigt' : 'aus', grund: null, gesendet: null, zielName, doppelt, zweifel,
     imWarteraum: false, wahl: null, geliefert: null, zuletzt: null, ton: 'aus', tonGrund: null, tonQuelle: 'none', tonEingestellt: 'none',
@@ -2255,6 +2292,60 @@ console.log('— B21: Eingabe der Teilnehmerliste je Person (Spec 10.10)');
   ck('B21 10.10: Namensvergleich wie normName im Kern, für alle Paare',
     paare.every(([x, y]) => (teilnehmerSlotEingabe({ name: x, imWarteraum: false, slotNrn: [] }, [lage(1, 'teilnehmer', y, null)]).suchend.length === 1)
       === (normName(x) === normName(y))));
+}
+
+{
+  const zt: Record<string, unknown> = await import('../src/shared/zoom-text');
+  ck('#290: Platzhalter des gemerkten Kenncodes', zt.KENNCODE_GESPEICHERT === 'Kenncode gespeichert');
+  ck('#290: Platzhalter des nur für diese Sitzung gemerkten Kenncodes (Abschluss-Korrektur 3)',
+    zt.KENNCODE_SITZUNG === 'Kenncode für diese Sitzung gemerkt');
+  ck('#290: Knopf „Vergessen“', zt.VERGESSEN === 'Vergessen');
+  ck('#290: Titel des Knopfs „Vergessen“', zt.VERGESSEN_TITEL === 'Gemerkte Meeting-Nummer und Kenncode löschen');
+  ck('#290: Zeile, wenn der Kenncode nicht gespeichert wird (neutral: keine Verschlüsselung oder Schreibfehler, Abschluss-Korrektur 4)',
+    zt.KENNCODE_NICHT_GESPEICHERT === 'Kenncode gilt nur für diese Sitzung – er wird auf diesem PC nicht gespeichert.');
+  ck('#290: „Vergessen“ scheitert an der Platte (Abschluss-Korrektur 5)',
+    zt.TEXT_VERGESSEN_FEHLER === 'Die gemerkten Einwahldaten ließen sich nicht von der Platte löschen – nach einem Neustart wären sie wieder da. Bitte erneut versuchen.');
+}
+
+{
+  // Abschluss-Korrektur 3: dreiwertig; Leerzeichen UND Bindestriche wie normalizeMeetingId.
+  const zt: Record<string, unknown> = await import('../src/shared/zoom-text');
+  type Letztes = { nummer: string | null; kenncodeGespeichert: boolean; kenncodeNichtGespeichert: boolean } | null;
+  const f = zt.kenncodePlatzhalter as ((n: string, k: string, l: Letztes) => 'gespeichert' | 'sitzung' | null) | undefined;
+  const P = (n: string, k: string, l: Letztes): unknown => (typeof f === 'function' ? f(n, k, l) : 'fehlt');
+  const L = { nummer: '123 456 7890', kenncodeGespeichert: true, kenncodeNichtGespeichert: false };
+  ck('#290: kenncodePlatzhalter → gespeichert bei gleicher Nummer mit anderen Leerzeichen',
+    P('1234567890', '', L) === 'gespeichert' && P(' 123  4567 890 ', '', L) === 'gespeichert');
+  ck('#290: … „123 456 7890“ gegen „123-456-7890“ → nicht null (Bindestriche wie normalizeMeetingId)',
+    P('123-456-7890', '', L) === 'gespeichert' && P('123 456 7890', '', { ...L, nummer: '123-456-7890' }) === 'gespeichert');
+  ck('#290: … sitzung, wenn der Kenncode nur für diese Sitzung gilt (kenncodeNichtGespeichert)',
+    P('1234567890', '', { ...L, kenncodeNichtGespeichert: true }) === 'sitzung');
+  ck('#290: … null bei anderer Nummer im Feld', P('123 456 7891', '', L) === null);
+  ck('#290: … null bei gefülltem Kenncode-Feld', P('1234567890', 'x', L) === null && P('1234567890', 'x', { ...L, kenncodeNichtGespeichert: true }) === null);
+  ck('#290: … null ohne gehaltenen Kenncode', P('1234567890', '', { ...L, kenncodeGespeichert: false }) === null
+    && P('1234567890', '', { ...L, kenncodeGespeichert: false, kenncodeNichtGespeichert: true }) === null);
+  ck('#290: … null ohne Gemerktes oder ohne gemerkte Nummer', P('1234567890', '', null) === null && P('', '', { ...L, nummer: null }) === null
+    && P('1234567890', '', { ...L, nummer: '' }) === null);
+  ck('#290: kenncodePlatzhalterZeigen ist ersetzt (ein Name, eine Regel)', zt.kenncodePlatzhalterZeigen === undefined);
+}
+
+{
+  // #310: Auswahlfeld „Bildformat“ der Slot-Einstellungen.
+  const zt: Record<string, any> = await import('../src/shared/zoom-text');
+  const EIN = 'Hochkant-Bilder mittig in 16:9, Seiten durchsichtig';
+  const FREI = 'Freigaben bleiben in ihrer eigenen Größe';
+  ck('#310: BILDFORMAT_FELD und BILDFORMAT_NAME wörtlich', zt.BILDFORMAT_FELD === 'Bildformat'
+    && zt.BILDFORMAT_NAME?.original === 'Original' && zt.BILDFORMAT_NAME?.einpassen === '16:9 einpassen');
+  ck('#310: BILDFORMAT_HINWEIS wörtlich', zt.BILDFORMAT_HINWEIS?.einpassen === EIN && zt.BILDFORMAT_HINWEIS?.freigabe === FREI);
+  ck('#310: bildformatHinweis: Freigabe → freigabe, Teilnehmer und Sprecher → einpassen',
+    typeof zt.bildformatHinweis === 'function' && zt.bildformatHinweis('freigabe') === FREI
+    && zt.bildformatHinweis('teilnehmer') === EIN && zt.bildformatHinweis('sprecher') === EIN);
+  ck('#310: BILDFORMAT_REIHE deckt jeden Wert von BILDFORMAT_NAME',
+    Array.isArray(zt.BILDFORMAT_REIHE) && zt.BILDFORMAT_NAME !== undefined
+    && [...zt.BILDFORMAT_REIHE].sort().join() === Object.keys(zt.BILDFORMAT_NAME).sort().join());
+  ck('#310: keine ASCII-Anführungszeichen in den Texten',
+    [zt.BILDFORMAT_FELD, ...Object.values(zt.BILDFORMAT_NAME ?? {}), ...Object.values(zt.BILDFORMAT_HINWEIS ?? {})]
+      .every((t) => typeof t === 'string' && !/["']/.test(t)));
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

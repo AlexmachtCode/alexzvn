@@ -2598,8 +2598,8 @@ console.log('\nNativer Teil — Quelltext-Waechter (Stage 4b):');
 // ── A1 · Slot-Vertrag: Kataloge, Befehle, Ereignisse, Fehlerschlüssel, Reducer, Exporte (Spec 6.2–6.4, 11.2 PT1–PT4) ──
 import {
   AUDIO_ABO_FEHLER, SHARE_TYPE_NAMES, SHARING_STATUS_NAMES, SLOT_AUDIO_REASONS, SLOT_AUDIO_SETTINGS, SLOT_AUDIO_SOURCES,
-  SLOT_ERROR_KEYS, SLOT_FALLBACKS, SLOT_MODES, SLOT_NR_MAX, SLOT_REASONS, SLOT_RESOLUTIONS, SLOT_SENT, SLOT_STATES,
-  SPEAKER_HOLD_MAX_MS, SPEAKER_SIGNALS, type Command,
+  SLOT_ERROR_KEYS, SLOT_FALLBACKS, SLOT_FRAMES, SLOT_MODES, SLOT_NR_MAX, SLOT_REASONS, SLOT_RESOLUTIONS, SLOT_SENT, SLOT_STATES,
+  SPEAKER_HOLD_MAX_MS, SPEAKER_SIGNALS, TILE_NOTICE_REASONS, tileNotice, type Command,
 } from '../src/protocol.ts';
 import type { SlotAudioSub, SlotSub } from '../src/state.ts';
 import type {
@@ -2623,9 +2623,12 @@ console.log('\nA1 protocol — Slot-Kataloge (Spec 6.2–6.4, Gliederung 3.1):')
   assert(liste(SLOT_RESOLUTIONS) === '360p,720p,1080p' && SLOT_RESOLUTIONS.every((r) => (VIDEO_RESOLUTIONS as readonly string[]).includes(r)),
     'A1 6.11: SLOT_RESOLUTIONS 360p, 720p, 1080p, eine Teilmenge von VIDEO_RESOLUTIONS');
   assert(liste(SLOT_AUDIO_SETTINGS) === 'off,mix,person', 'A1 6.2: SLOT_AUDIO_SETTINGS off, mix, person');
-  assert(liste(SLOT_FALLBACKS) === 'transparent,freeze,black,white', 'A1 6.2: SLOT_FALLBACKS transparent, freeze, black, white');
+  assert(liste(SLOT_FALLBACKS) === 'transparent,freeze,black,white,tile',
+    'A1 6.2 + #306: SLOT_FALLBACKS transparent, freeze, black, white, tile');
+  assert(liste(SLOT_FRAMES) === 'native,fit', 'A1 #310: SLOT_FRAMES native, fit');
   assert(liste(SLOT_STATES) === 'starting,live,fallback,held,off', 'A1 6.3: SLOT_STATES starting, live, fallback, held, off');
-  assert(SLOT_SENT.length === 6 && liste(SLOT_SENT) === 'none,transparent,freeze,black,white,held', 'A1 6.12: SLOT_SENT hat 6 Werte');
+  assert(SLOT_SENT.length === 7 && liste(SLOT_SENT) === 'none,transparent,freeze,black,white,held,tile',
+    'A1 6.12 + #306: SLOT_SENT hat 7 Werte, tile hinten');
   assert(SLOT_REASONS.length === 20 && new Set(SLOT_REASONS).size === 20, 'A1 6.3: SLOT_REASONS hat genau 20 verschiedene Werte');
   assert(SLOT_REASONS.includes('noFrames') && SLOT_REASONS.includes('cameraOff'),
     'A1 6.3: noFrames steht neben cameraOff (zwei Ursachen, zwei Namen)');
@@ -2638,8 +2641,8 @@ console.log('\nA1 protocol — Slot-Kataloge (Spec 6.2–6.4, Gliederung 3.1):')
   assert(SHARING_STATUS_NAMES.length === 11 && SHARING_STATUS_NAMES[4] === 'otherShareBegin' && SHARING_STATUS_NAMES[9] === 'pause'
       && SHARING_STATUS_NAMES[10] === 'resume',
     'A1 A-EP4: SHARING_STATUS_NAMES hat 11 Werte, Index = enum SharingStatus (4 otherShareBegin, 9 pause, 10 resume)');
-  assert(SLOT_ERROR_KEYS.length === 21 && new Set(SLOT_ERROR_KEYS).size === 21 && SLOT_ERROR_KEYS.includes('slotBadTarget'),
-    'A1 6.4: SLOT_ERROR_KEYS hat 21 verschiedene Schlüssel, darunter slotBadTarget (A-EP2)');
+  assert(SLOT_ERROR_KEYS.length === 22 && new Set(SLOT_ERROR_KEYS).size === 22 && SLOT_ERROR_KEYS.includes('slotBadTarget'),
+    'A1 6.4: SLOT_ERROR_KEYS hat 22 verschiedene Schlüssel, darunter slotBadTarget (A-EP2)');
   assert(liste(AUDIO_ABO_FEHLER) === 'audioVoipJoinFailed,audioHelperMissing,audioSubscribeFailed', 'A1 6.4: genau drei Ton-Abo-Fehler');
 }
 
@@ -2648,11 +2651,11 @@ console.log('\nA1 protocol — Slot-Fehlerschlüssel in OWN_ERROR_NAMES (PT3):')
   const gross = (k: string): string => k.replace(/[A-Z]/g, (c) => `_${c}`).toUpperCase();
   assert(SLOT_ERROR_KEYS.every((k) => OWN_ERROR_NAMES[k] === gross(k)),
     'A1 PT3: jeder Slot-Schlüssel hat seinen Namen in Großbuchstaben (slotBadNumber → SLOT_BAD_NUMBER)');
-  assert(new Set(SLOT_ERROR_KEYS.map((k) => OWN_ERROR_NAMES[k])).size === 21, 'A1 PT3: die 21 Namen sind paarweise verschieden');
+  assert(new Set(SLOT_ERROR_KEYS.map((k) => OWN_ERROR_NAMES[k])).size === 22, 'A1 PT3: die 22 Namen sind paarweise verschieden');
   assert(SLOT_ERROR_KEYS.every((k) => (enrich({ ev: 'error', where: 'slot', code: k, slot: 1 } as WireEvent) as { name?: string }).name === gross(k)),
     'A1 PT3: enrich() löst jeden Slot-Schlüssel auf');
   assert(AUDIO_ABO_FEHLER.every((k) => OWN_ERROR_NAMES[k] !== undefined), 'A1 6.4: die drei Ton-Abo-Fehler stehen schon im Katalog');
-  assert(Object.keys(OWN_ERROR_NAMES).length === 48, 'A1 PT3: OWN_ERROR_NAMES hat 27 + 21 = 48 Schlüssel');
+  assert(Object.keys(OWN_ERROR_NAMES).length === 49, 'A1 PT3: OWN_ERROR_NAMES hat 27 + 22 = 49 Schlüssel');
 }
 
 console.log('\nA1 protocol — Slot-Befehle (6.2):');
@@ -2726,7 +2729,7 @@ console.log('\nA1 state — ein Slot-Fehler kippt die Sitzung nicht (PT2):');
 console.log('\nA1 index — Exporte des Slot-Vertrags (PT4):');
 {
   assert(paket.SLOT_NR_MAX === SLOT_NR_MAX && paket.SLOT_MODES === SLOT_MODES && paket.SLOT_RESOLUTIONS === SLOT_RESOLUTIONS
-      && paket.SLOT_AUDIO_SETTINGS === SLOT_AUDIO_SETTINGS && paket.SLOT_FALLBACKS === SLOT_FALLBACKS && paket.SLOT_STATES === SLOT_STATES
+      && paket.SLOT_AUDIO_SETTINGS === SLOT_AUDIO_SETTINGS && paket.SLOT_FALLBACKS === SLOT_FALLBACKS && paket.SLOT_FRAMES === SLOT_FRAMES && paket.SLOT_STATES === SLOT_STATES
       && paket.SLOT_SENT === SLOT_SENT && paket.SLOT_REASONS === SLOT_REASONS && paket.SLOT_AUDIO_REASONS === SLOT_AUDIO_REASONS
       && paket.SLOT_AUDIO_SOURCES === SLOT_AUDIO_SOURCES && paket.SPEAKER_SIGNALS === SPEAKER_SIGNALS
       && paket.SPEAKER_HOLD_MAX_MS === SPEAKER_HOLD_MAX_MS && paket.SHARE_TYPE_NAMES === SHARE_TYPE_NAMES
@@ -2785,7 +2788,7 @@ console.log('\nA2 Attrappe — dieselben Kataloge wie src/protocol.ts (Review Fo
   };
   const paare: [string, readonly string[]][] = [
     ['SLOT_MODES', SLOT_MODES], ['SLOT_RESOLUTIONS', SLOT_RESOLUTIONS], ['SLOT_AUDIO_SETTINGS', SLOT_AUDIO_SETTINGS],
-    ['SLOT_FALLBACKS', SLOT_FALLBACKS], ['SPEAKER_SIGNALS', SPEAKER_SIGNALS], ['SHARE_TYPE_NAMES', SHARE_TYPE_NAMES],
+    ['SLOT_FALLBACKS', SLOT_FALLBACKS], ['SLOT_FRAMES', SLOT_FRAMES], ['SPEAKER_SIGNALS', SPEAKER_SIGNALS], ['SHARE_TYPE_NAMES', SHARE_TYPE_NAMES],
   ];
   for (const [name, werte] of paare) assert(katalog(name) === werte.join(','), `A2: ${name} der Attrappe gleicht src/protocol.ts`);
   assert(new RegExp(`^const SLOT_NR_MAX = ${SLOT_NR_MAX};`, 'm').test(quelle) && new RegExp(`^const SPEAKER_HOLD_MAX_MS = ${SPEAKER_HOLD_MAX_MS};`, 'm').test(quelle),
@@ -2833,8 +2836,8 @@ console.log('\nA2 Attrappe — Prüffolge aus test/slot-pruefung-faelle.json (Gl
   // stderr je Befehl: Die Attrappe schreibt „ATTRAPPE empfing: <zeile>“ vor jeder Antwort (init und auth zuerst).
   const empfang = stderr.flatMap((z, i) => (z.startsWith('ATTRAPPE empfing: ') ? [i] : []));
   const abschnitt = (n: number): string[] => stderr.slice(empfang[n + 2], empfang[n + 3] ?? stderr.length);
-  // A11 ergänzt zwei Fälle mit einer Auflösung über 1080p (Nachbesserung a3, NB-a3-5).
-  assert(faelle.length === 58 && empfang.length === faelle.length + 2, 'A2 A-EP12: die Falltabelle hat 58 Fälle, jeder kam an');
+  // A11 ergänzt zwei Fälle mit einer Auflösung über 1080p (Nachbesserung a3, NB-a3-5); #306 zwei mit fallback tile/kachel.
+  assert(faelle.length === 68 && empfang.length === faelle.length + 2, 'A2 A-EP12: die Falltabelle hat 68 Fälle, jeder kam an');
   faelle.forEach((f, n) => {
     const a = antworten[n] ?? [];
     const erste = a[0] ?? {};
@@ -3028,6 +3031,22 @@ console.log('\nA2 Attrappe — Messwerte, Vorschau, gelieferte Auflösung (FAKE_
     'A2 6.16: nach previewMode off kommt keine Vorschau mehr');
 }
 
+console.log('\nA2 Attrappe — #310 slotStats.outW/outH nur bei eingepasstem Bild (FAKE_AUFLOESUNG_GELIEFERT=720x1280):');
+{
+  const ev = await fahreSteuerung({ FAKE_AUFLOESUNG_GELIEFERT: '720x1280' }, async (b, ev) => {
+    await imMeeting(b, ev);
+    b.send(slotAn(1, 'JM Connect – Zoom Anna', { id: ANNA, resolution: '1080p', frame: 'fit' }));
+    b.send(slotAn(2, 'JM Connect – Zoom Ben', { id: BEN, resolution: '720p', frame: 'native' }));
+    await bisEreignis(ev, () => ev.some(art('slotStats', { slot: 1, w: 720 })) && ev.some(art('slotStats', { slot: 2, w: 720 })), 6000);
+  });
+  const s1 = ev.find(art('slotStats', { slot: 1, w: 720 })) as Record<string, unknown> | undefined;
+  const s2 = ev.find(art('slotStats', { slot: 2, w: 720 })) as Record<string, unknown> | undefined;
+  assert(s1?.w === 720 && s1.h === 1280 && s1.outW === 1920 && s1.outH === 1080,
+    '#310 slotStats: fit mit 720×1280 meldet w 720, h 1280 und outW 1920, outH 1080 (Rahmen = Nenngröße 1080p)');
+  assert(s2?.w === 720 && s2.h === 1280 && !('outW' in s2) && !('outH' in s2),
+    '#310 slotStats: native meldet kein outW/outH');
+}
+
 console.log('\nA2 Attrappe — Aufbaufehler und stumme Slots (FAKE_SLOT_FEHLER, FAKE_SLOT_STUMM, PT7):');
 {
   const zeilen: string[] = [];
@@ -3199,6 +3218,7 @@ console.log('\nZoom-Slots — slot_logic.h gegen protocol.ts (Plan A, Task A4; A
   const paare: [string, string, string, readonly string[]][] = [
     ['SlotMode', 'MODUS_NAMEN', 'SLOT_MODES', protokollA4.SLOT_MODES],
     ['Fallback', 'FALLBACK_NAMEN', 'SLOT_FALLBACKS', protokollA4.SLOT_FALLBACKS],
+    ['Bildformat', 'BILDFORMAT_NAMEN', 'SLOT_FRAMES', protokollA4.SLOT_FRAMES],
     ['SlotAudio', 'AUDIO_NAMEN', 'SLOT_AUDIO_SETTINGS', protokollA4.SLOT_AUDIO_SETTINGS],
     ['Sent', 'SENT_NAMEN', 'SLOT_SENT', protokollA4.SLOT_SENT],
     ['SlotState', 'ZUSTAND_NAMEN', 'SLOT_STATES', protokollA4.SLOT_STATES],
@@ -3220,12 +3240,20 @@ console.log('\nZoom-Slots — slot_logic.h gegen protocol.ts (Plan A, Task A4; A
     );
   }
 }
+console.log('\nZoom-Kachel (#306): Hinweis-Gründe in slot_logic.h gegen protocol.ts');
+{
+  const koerper = rumpf(cppOhneKommentare(paketDateiOderLeer('native', 'slot_logic.h')), 'inline bool kachelHinweis(');
+  const gruende = [...koerper.matchAll(/Grund::(\w+)/g)].map((m) => m[1]).join(',');
+  assert(gruende === TILE_NOTICE_REASONS.join(',') && gruende === 'noFrames,bufferMismatch,subscribeFailed',
+    '#306 kachelHinweis nennt genau TILE_NOTICE_REASONS, in derselben Reihenfolge');
+  assert(tileNotice('noFrames') && tileNotice('subscribeFailed') && !tileNotice('cameraOff') && !tileNotice(null), '#306 tileNotice');
+}
 {
   // G-A2: die reine Logik bindet nur die C++-Standardbibliothek ein (kein windows.h, kein Zoom-, kein NDI-Header)
   // und liest keine Uhr: jede Zeit kommt als Argument von aussen, sonst waere sie im Logik-Test nicht pruefbar.
   // Darum sind auch <chrono> und <ctime> samt ihren Uhren verboten (Nachbesserung a2, NB-a2-3).
   const UHR = /<chrono>|<ctime>|\b(steady_clock|system_clock|high_resolution_clock|GetTickCount64|GetTickCount|QueryPerformanceCounter|timeGetTime)\b|\b(time|clock)\s*\(/g;
-  for (const kopf of ['slot_logic.h', 'audio_mix.h']) {
+  for (const kopf of ['slot_logic.h', 'audio_mix.h', 'kachel_logik.h', 'bild_einpassen.h']) {
     const text = cppOhneKommentare(paketDateiOderLeer('native', kopf));
     const einbindungen = [...text.matchAll(/#\s*include\s*([<"][^>"]*[>"])/g)].map((m) => m[1]);
     assert(
@@ -3268,7 +3296,260 @@ console.log('\nZoom-Slots — slot_logic.h gegen protocol.ts (Plan A, Task A4; A
     assert(slotTest.includes(`--target`) && slotTest.includes(` ${ziel}`) && slotTest.includes(`build\\Release\\${ziel}.exe`),
       `A4 ${datei} läuft in npm run slot-test (Ziel und Programm)`);
   }
+  // #310: die Zeitmessung der Einpassung ist keine _test.cpp (eigenes main, <chrono>); sie hat ihren eigenen Weg.
+  const skripte = (JSON.parse(paketDateiOderLeer('package.json')) as { scripts: Record<string, string> }).scripts;
+  assert(skripte['einpassen-messung'] === 'node scripts/logik-test.mjs --messung' && skriptText.includes(`'native/bild_einpassen_messung.cpp'`),
+    '#310 npm run einpassen-messung ruft logik-test --messung auf die Messdatei');
 }
+console.log('\nZoom-Kachel (#306): Zeichner');
+{
+  // Gezeichnet wird auf einem eigenen, losgelösten Thread mit eigener COM-Wohnung (MTA), nie auf dem Hauptthread
+  // der Bridge: ein hängendes Profilbild (Netzlaufwerk) darf die Hauptschleife nicht halten, sie wartet höchstens
+  // 50 ms. Texte geleert: die JSON-Zeilen in kachelMuster tragen Klammern, die rumpf() sonst mitzählte.
+  const zeichner = cppOhneKommentare(paketDateiOderLeer('native', 'kachel.cpp'), true);
+  assert(rumpf(zeichner, 'KachelErgebnis kachelZeichnen(').includes('CoInitializeEx(nullptr, COINIT_MULTITHREADED)'),
+    '#306 kachelZeichnen initialisiert COM auf seinem Thread selbst als MTA');
+  assert(rumpf(zeichner, 'std::shared_ptr<KachelJob> kachelStarten(').includes('.detach()'),
+    '#306 kachelStarten zeichnet auf einem losgelösten Thread (.detach())');
+  // Wie PT6 d für Namen, hier für Dateipfade: keine emitLog-Anweisung in kachel.cpp führt einen Pfad-Bezeichner.
+  const pfadBezeichner = /pfad|ordner|profilbild|datei|path/i;
+  let logs = 0;
+  const mitPfad: number[] = [];
+  const aufruf = /(?<!void\s)\bemitLog\s*\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = aufruf.exec(zeichner)) !== null) {
+    logs++;
+    if (pfadBezeichner.test(zeichner.slice(m.index, zeichner.indexOf(';', m.index)))) {
+      mitPfad.push(zeichner.slice(0, m.index).split('\n').length);
+    }
+  }
+  assert(logs >= 3 && mitPfad.length === 0, '#306 kachel.cpp: die emitLog-Anweisungen (mindestens 3) führen keinen Dateipfad');
+  if (mitPfad.length > 0) console.error(`      Zeilen: ${mitPfad.join(', ')}`);
+}
+{
+  const cmake = paketDateiOderLeer('CMakeLists.txt').replace(/#[^\n]*/g, '');
+  const quellen = /add_executable\(zoom-bridge\b([^)]*)\)/.exec(cmake)?.[1] ?? '';
+  assert(/(^|\s)native\/kachel\.cpp(\s|$)/.test(quellen), '#306 CMake baut native/kachel.cpp in zoom-bridge.exe');
+  const linken = /target_link_libraries\(zoom-bridge\b([^)]*)\)/.exec(cmake)?.[1] ?? '';
+  assert(/\bd2d1\b/.test(linken) && /\bdwrite\b/.test(linken), '#306 zoom-bridge.exe linkt d2d1 und dwrite');
+}
+{
+  // Sonderweg --kachel-muster: vor dem stdin-Leser, Ausstieg über TerminateProcess (ohne InitSDK stürzt ein
+  // gewöhnliches return mit 0xC0000409 ab, Begründung am Zweig --ndi-selftest). Der Kopf ist ein Text, der Rumpf
+  // wird darum in der Fassung mit geleerten Texten gezählt (gleiche Länge, gleiche Stellen).
+  const mitTexten = cppOhneKommentare(paketDateiOderLeer('native', 'main.cpp'));
+  const leer = cppOhneKommentare(paketDateiOderLeer('native', 'main.cpp'), true);
+  const stelle = mitTexten.indexOf('"--kachel-muster"');
+  const zweig = stelle < 0 ? '' : rumpf(leer.slice(stelle), '"');
+  assert(stelle > mitTexten.indexOf('"--ndi-selftest"') && stelle < mitTexten.indexOf('std::thread reader(readStdin)'),
+    '#306 main.cpp: Zweig "--kachel-muster" nach --ndi-selftest, vor dem stdin-Leser');
+  assert(zweig.includes('CommandLineToArgvW(') && zweig.includes('kachelMuster(') && zweig.includes('TerminateProcess('),
+    '#306 main.cpp: der Zweig liest den Ordner mit CommandLineToArgvW, ruft kachelMuster und endet mit TerminateProcess');
+}
+console.log('\nZoom-Kachel (#306): Anbindung');
+{
+  // Der Slot liest das Profil, startet den Zeichenauftrag und sendet die Kachel; gezeichnet wird nie auf dem
+  // Hauptthread (kachelZeichnen steht in video.cpp nicht, nur kachelStarten). Texte geleert: Logzeilen mit
+  // Klammern zählten sonst in rumpf() mit.
+  const video = nativ('video.cpp', true);
+  assert(video.includes('kachelStarten(') && !video.includes('kachelZeichnen('),
+    '#306 video.cpp startet Zeichenaufträge (kachelStarten) und zeichnet nie selbst (kein kachelZeichnen): gezeichnet wird nie auf dem Hauptthread');
+  const profil = rumpf(video, 'kachel::Profil profilLesen(');
+  assert(['GetAvatarPath(', 'GetUserName(', 'IsParticipantProfilePicturesHidden('].every((f) => profil.includes(f)),
+    '#306 profilLesen liest Name (GetUserName), Profilbild (GetAvatarPath) und ob der Host Profilbilder ausblendet');
+  // Puffer ist kachel::Puffer (Namensraum, kachel_logik.h), kein Typ in KachelStand.
+  const fuer = rumpf(video, 'kachel::Puffer kachelFuer(');
+  const iSperre = fuer.indexOf('rendererSperre()');
+  assert(iSperre >= 0 && fuer.indexOf('profilLesen(') > iSperre,
+    '#306 kachelFuer fragt die Renderer-Sperre, bevor es das Profil liest (kein SDK-Aufruf, während Zoom trennt)');
+  // Review T7, MINOR 5: kennt Zoom das Ziel nicht, gilt das Profil nicht als gelesen; neu gefragt höchstens je
+  // PROFIL_WIEDERHOLEN_MS (KachelStand), nie je Herzschlag.
+  assert(/s\.kachel\.profilJetztLesen\(\s*ziel\s*,\s*jetzt\s*\)/.test(fuer) && /s\.kachel\.profilNichtGefunden\(\s*ziel\s*,\s*jetzt\s*\)/.test(fuer)
+      && /\*\s*gefunden\s*=/.test(profil),
+    '#306 kachelFuer: ein nicht gefundener Teilnehmer zählt nicht als gelesen und wird gedrosselt neu gefragt');
+  // Review T7, IMPORTANT 1: nie Name oder Bild eines anderen Ziels - gezeichnet wird nur mit dem Profil DIESES Ziels
+  // (profilFuer(ziel)), sonst kein Auftrag (Überbrückung nur aus einer Kachel dieses Ziels, sonst dunkle Fläche).
+  assert(/const\s+kachel::Profil\s*\*\s*profil\s*=\s*s\.kachel\.profilFuer\(\s*ziel\s*\)\s*;/.test(fuer)
+      && /profil\s*!=\s*nullptr\s*&&\s*!\s*s\.kachel\.hat\(k\)/.test(fuer) && !fuer.includes('s.kachel.profil()')
+      && /a\.name\s*=\s*profil->name\s*;/.test(fuer),
+    '#306 kachelFuer zeichnet nur mit dem Profil dieses Ziels (profilFuer), nie mit dem eines anderen');
+  const inMeeting = rumpf(video, 'void slotsInMeeting()');
+  assert(/s->kachel\.leeren\(\)\s*;\s*s->kachelJob\.reset\(\)\s*;/.test(inMeeting)
+      && inMeeting.indexOf('s->kachel.leeren()') < inMeeting.indexOf('abbauAusfuehren('),
+    '#306 slotsInMeeting: mit den Kennungen (Wiederverbindung) beginnt jede Kachel neu - kein Profil einer alten Kennung');
+  // Abschlussprüfung M2: nach der Frist lässt der Slot nur einen Auftrag MIT Profilbild los; einer ohne bleibt stehen,
+  // sein spätes Ergebnis übernimmt Schritt 3 (fristAblauf() legt keine dunkle Fläche mehr als Ergebnis ab).
+  assert(/const\s+kachel::KachelSchluessel\s+lauf\s*=\s*s\.kachelJob->schluessel\s*;/.test(fuer)
+      && /s\.kachel\.fristAblauf\(\)\s*;\s*if\s*\(\s*mitBild\s*\)\s*s\.kachelJob\.reset\(\)\s*;/.test(fuer),
+    '#306 kachelFuer: nach der Frist nur einen Auftrag mit Profilbild loslassen, einer ohne bleibt für sein spätes Ergebnis');
+  // Abschlussprüfung M3 a: kennt Zoom die Kennung nicht, eine Logzeile je Slot und Ziel (nicht je Wiederholung).
+  assert(/if\s*\(\s*s\.kachelUnbekanntZiel\s*!=\s*ziel\s*\)\s*\{\s*s\.kachelUnbekanntZiel\s*=\s*ziel\s*;\s*emitLog\(/.test(fuer)
+      && fuer.indexOf('s.kachelUnbekanntZiel') > fuer.indexOf('profilNichtGefunden('),
+    '#306 kachelFuer: „Teilnehmer unbekannt“ einmal je Slot und Ziel, nach profilNichtGefunden');
+  // Review Task 6, Hinweis 1: kein zweiter Auftrag mit Profilbild für Ziel und Profilstand, solange einer läuft oder hängt.
+  assert(/!\s*s\.kachel\.hat\(k\)\s*&&\s*!\s*s\.kachel\.laeuft\(k\)\s*&&\s*!\s*s\.kachel\.bildAuftragOffen\(k\)/.test(fuer),
+    '#306 kachelFuer startet nur ohne fertige, laufende oder hängende Kachel mit Profilbild desselben Stands (bildAuftragOffen)');
+  assert(/else\s+if\s*\(\s*!\s*s\.kachel\.hat\(k\)\s*&&\s*s\.kachelJob\s*&&\s*s\.kachel\.fristAbgelaufen\(jetzt\)\s*\)/.test(fuer),
+    '#306 kachelFuer: die Frist greift nur, solange der Slot auf den laufenden Auftrag wartet (die gewünschte Kachel fehlt)');
+  // Review Task 6, Hinweis 3: läuft das Warten ab (kachelWarten false), geht die Überbrückung bzw. die dunkle Fläche hinaus.
+  // Review T7, MINOR 2: unter einer Zeitgeber-Auflösung (16 ms, ohne timeBeginPeriod) Restguthaben nicht mehr warten,
+  // nur nachsehen - ein abgelaufenes wait_for kommt bis zu 15,6 ms zu spät zurück.
+  // Abschlussprüfung M1: gewartet wird nur, wenn es keine Überbrückung dieser Person in dieser Größe gibt - das Warten
+  // hält die ganze Hauptschleife an, auch den Ton aller Slots; mit Überbrückung kauft es nichts.
+  const brueckeVar = /\bconst\s+bool\s+(\w+)\s*=\s*s\.kachel\.ueberbrueckung\(\s*ziel\s*,\s*w\s*,\s*h\s*\)\s*==\s*nullptr\s*;/.exec(fuer)?.[1] ?? '\\b$^';
+  const iWarten = fuer.search(new RegExp(`\\bbool\\s+(\\w+)\\s*=\\s*${brueckeVar}\\s*&&\\s*g_kachelWartenUs\\s*>=\\s*kZeitgeberUs\\s*\\?\\s*kachelWarten\\(\\s*\\*s\\.kachelJob\\s*,\\s*g_kachelWartenUs\\s*\\/\\s*1000\\s*\\)\\s*:\\s*kachelFertig\\(\\s*\\*s\\.kachelJob\\s*\\)`));
+  const warteVar = new RegExp(`\\bbool\\s+(\\w+)\\s*=\\s*${brueckeVar}\\s*&&`).exec(fuer)?.[1] ?? '';
+  assert(iWarten >= 0,
+    '#306 kachelFuer wartet nur ohne Überbrückung (ueberbrueckung(ziel, w, h) == nullptr), sonst nur kachelFertig');
+  assert(iWarten >= 0 && new RegExp(`if\\s*\\(\\s*${warteVar}\\s*\\)\\s*kachelUebernehmen\\(`).test(fuer.slice(iWarten))
+      && fuer.lastIndexOf('ueberbrueckung(') > iWarten && fuer.lastIndexOf('grundflaeche(') > fuer.lastIndexOf('ueberbrueckung('),
+    '#306 kachelFuer: ohne fertiges Ergebnis nach kachelWarten die Überbrückung, sonst die dunkle Fläche');
+  assert(/constexpr\s+int64_t\s+kZeitgeberUs\s*=\s*16000\s*;/.test(video),
+    '#306 kachelFuer wartet nur mit mindestens einer Zeitgeber-Auflösung (16 ms) Restguthaben, sonst nur kachelFertig');
+  const uebernehmen = rumpf(video, 'void kachelUebernehmen(');
+  // Review T7, MINOR 3: ein spätes Ergebnis für eine andere Kachel ersetzt eine schon richtige nicht.
+  const iVerwerfen = uebernehmen.search(/if\s*\(\s*s\.kachel\.hat\(soll\)\s*&&\s*!\s*\(\s*k\s*==\s*soll\s*\)\s*\)\s*\{\s*s\.kachel\.verwerfen\(k\)\s*;/);
+  assert(iVerwerfen >= 0 && iVerwerfen < uebernehmen.indexOf('s.kachel.fertig('),
+    '#306 kachelUebernehmen: steht die gewünschte Kachel schon im Puffer, beendet ein Ergebnis für eine andere nur den Auftrag (verwerfen)');
+  const iOhneBild = uebernehmen.search(/if\s*\(\s*!\s*e\.i420\s*\)/);
+  assert(iOhneBild >= 0 && iOhneBild < uebernehmen.indexOf('e.fehler') && uebernehmen.indexOf('grundflaeche(', iOhneBild) > iOhneBild
+      && uebernehmen.includes('e.dauerUs') && uebernehmen.includes('s.kachel.fehlerMelden()'),
+    '#306 kachelUebernehmen prüft i420 vor fehler, zeigt ohne Bild die dunkle Fläche, nennt die Zeichendauer (dauerUs) und meldet Profilbild-Fehler einmal');
+  const videoMitTexten = cppOhneKommentare(paketDateiOderLeer('native', 'video.cpp'));
+  assert(['": Zoom-Kachel nicht gezeichnet (HRESULT "', '") - dunkle Fläche"', '" ms gezeichnet"', '": Profilbild nicht verwendet ("',
+    '" ms nicht fertig - neu ohne Profilbild"', '": Teilnehmer unbekannt - dunkle Fläche"'].every((t) => videoMitTexten.includes(`L${t}`)),
+    '#306 video.cpp: die Logzeilen der Kachel (gezeichnet, nicht gezeichnet, Profilbild nicht verwendet, Frist, Teilnehmer unbekannt)');
+  const tick = rumpf(video, 'void ersatzbildTick(');
+  const iTile = tick.indexOf('case Sent::Tile:');
+  const tileFall = iTile < 0 ? '' : tick.slice(iTile, tick.indexOf('break;', iTile));
+  assert(tileFall.includes('sendKachel(') && tileFall.includes('kachelFuer(') && tileFall.includes('kachelHinweis(e.grund)'),
+    '#306 ersatzbildTick: case Sent::Tile sendet die Kachel aus kachelFuer, der Hinweis aus kachelHinweis(e.grund)');
+  // Entscheidung 4: gezeichnet wird nur in positiver, gerader Größe; sonst die Nennauflösung des Slots.
+  assert(/kachelGroesse\(\s*w\s*,\s*h\s*,\s*nominalWidth\(s\.res\)\s*,\s*nominalHeight\(s\.res\)\s*\)/.test(tileFall),
+    '#306 ersatzbildTick: die Kachel-Größe kommt aus kachelGroesse (gerade, sonst Nennauflösung)');
+  // Entscheidung 6: geleert wird nur, wenn der Slot eine Kachel hielt (kein Neuaufbau je Herzschlag).
+  assert(/\(\s*lage\.fallback\s*!=\s*Fallback::Tile\s*\|\|\s*lage\.modus\s*==\s*SlotMode::Share\s*\)\s*&&\s*s\.kachelBenutzt/.test(tick)
+      && /s\.kachel\.leeren\(\)\s*;\s*s\.kachelJob\.reset\(\)\s*;/.test(tick),
+    '#306 ersatzbildTick leert Kachel und Auftrag, wenn der Slot nicht (mehr) auf tile steht oder Freigabe zeigt - nur, wenn etwas zu leeren ist');
+  assert(/lage\.kameraAnMs\s*=\s*s\.kameraAnMs\s*;/.test(tick),
+    '#306 ersatzbildTick gibt der Bild-Entscheidung kameraAnMs des Slots mit');
+  // #310 Ersatzbilder (Plan Task 5, Präzisierungen 6 und 7): JEDER Herzschlag entscheidet neu aus der aktuellen
+  // Einstellung (s.format.load()) und Zooms letzter Größe (w, h), nie aus ausgabeW/ausgabeH - ein Wechsel im Aussetzer
+  // wirkt beim nächsten Ersatzbild (Review Focus 3). Rahmen = Nenngröße des Slots. „Original“ ruft je Fall genau, was
+  // es vor #310 rief (Original bytegleich); Held gibt es nur bei Freigabe und wird nie eingepasst (Review Focus 5).
+  const sendeBlock310 = rumpf(tick, 'if (e.jetztSenden && e.sent != Sent::None)');
+  const sentFall = (name: string): string => {
+    const i = sendeBlock310.indexOf(`case Sent::${name}:`);
+    if (i < 0) return '';
+    const j = sendeBlock310.indexOf('case Sent::', i + 1);
+    return sendeBlock310.slice(i, j < 0 ? sendeBlock310.length : j);
+  };
+  /** `if (einpassen) <fit>; else <original>;` - je Fall genau eine Wahl, der Original-Weg wie vorher. */
+  const jeFormat = (fall: string, fit: string, original: string): boolean =>
+    new RegExp(String.raw`if\s*\(\s*einpassen\s*\)\s*` + fit + String.raw`\s*;\s*else\s+` + original + String.raw`\s*;\s*break\s*;`).test(fall);
+  const iEinpassen310 = sendeBlock310.search(
+    /const\s+bool\s+einpassen\s*=\s*einpass::einpassenNoetig\(\s*s\.format\.load\(\)\s*==\s*Bildformat::Fit\s*,\s*lage\.modus\s*==\s*SlotMode::Share\s*,\s*w\s*,\s*h\s*\)\s*;/);
+  const iRahmen310 = sendeBlock310.search(/const\s+int\s+W\s*=\s*nominalWidth\(\s*s\.res\s*\)\s*;\s*const\s+int\s+H\s*=\s*nominalHeight\(\s*s\.res\s*\)\s*;/);
+  assert(iEinpassen310 > sendeBlock310.search(/const\s+int\s+h\s*=/) && iRahmen310 > 0 && iEinpassen310 < sendeBlock310.indexOf('switch (e.sent)')
+      && iRahmen310 < sendeBlock310.indexOf('switch (e.sent)')
+      && (tick.match(/einpassenNoetig\(/g) ?? []).length === 1 && !/ausgabe[WH]/.test(tick),
+    '#310 ersatzbildTick: im Sendeblock nach w/h je Herzschlag einpassen = einpassenNoetig(s.format.load() == Fit, lage.modus == Share, w, h), Rahmen W/H = Nenngröße aus s.res; kein ausgabeW/H');
+  assert(jeFormat(sentFall('Transparent'), String.raw`s\.sender\.sendTransparent\(\s*W\s*,\s*H\s*\)`, String.raw`s\.sender\.sendTransparent\(\s*w\s*,\s*h\s*\)`),
+    '#310 ersatzbildTick: case Sent::Transparent - fit sendTransparent(W, H), sonst sendTransparent(w, h)');
+  const einfarbig310 = (inhalt: string): string =>
+    String.raw`eingepasstSenden\(\s*s\.sender\s*,\s*einfarbigeQuelle\(\s*s\s*,\s*e\.sent\s*,\s*w\s*,\s*h\s*\)\s*,\s*w\s*,\s*h\s*,\s*W\s*,\s*H\s*,\s*s\.ersatzRahmen\s*,\s*` + inhalt + String.raw`\s*\)`;
+  assert(jeFormat(sentFall('Black'), einfarbig310('INHALT_SCHWARZ'), String.raw`s\.sender\.sendBlack\(\s*w\s*,\s*h\s*\)`)
+      && jeFormat(sentFall('White'), einfarbig310('INHALT_WEISS'), String.raw`s\.sender\.sendWhite\(\s*w\s*,\s*h\s*\)`),
+    '#310 ersatzbildTick: case Sent::Black/White - fit eingepasstSenden(einfarbigeQuelle(s, e.sent, w, h), …, s.ersatzRahmen, INHALT_SCHWARZ/INHALT_WEISS), sonst sendBlack(w, h)/sendWhite(w, h)');
+  assert(jeFormat(sentFall('Freeze'), String.raw`kopieEingepasstSenden\(\s*s\s*,\s*W\s*,\s*H\s*\)`, String.raw`s\.sender\.sendCopy\(\s*s\.last\s*\)`),
+    '#310 ersatzbildTick: case Sent::Freeze - fit kopieEingepasstSenden(s, W, H), sonst sendCopy(s.last)');
+  const held310 = sentFall('Held');
+  assert(/^case\s+Sent::Held:\s*s\.sender\.sendCopy\(\s*s\.last\s*\)\s*;\s*break\s*;\s*$/.test(held310.trim()) && !/eingepasst/i.test(held310),
+    '#310 ersatzbildTick: case Sent::Held eigener Fall, nur sendCopy(s.last), nie eingepasst (Freigabe)');
+  const tile310 = sentFall('Tile');
+  assert(/const\s+kachel::Puffer\s+k\s*=\s*kachelFuer\(\s*s\s*,\s*lage\.ziel\s*,\s*kachelHinweis\(e\.grund\)\s*,\s*g\.w\s*,\s*g\.h\s*,\s*jetzt\s*\)\s*;/.test(tile310)
+      && (tile310.match(/kachelFuer\(/g) ?? []).length === 1
+      && /if\s*\(\s*einpassen\s*&&\s*k\s*&&\s*k->size\(\)\s*==\s*einpass::i420Bytes\(\s*g\.w\s*,\s*g\.h\s*\)\s*\)\s*eingepasstSenden\(\s*s\.sender\s*,\s*k->data\(\)\s*,\s*g\.w\s*,\s*g\.h\s*,\s*W\s*,\s*H\s*,\s*s\.ersatzRahmen\s*,\s*0\s*\)\s*;\s*else\s+s\.sender\.sendKachel\(\s*k\s*,\s*g\.w\s*,\s*g\.h\s*\)\s*;\s*break\s*;/.test(tile310),
+    '#310 ersatzbildTick: case Sent::Tile - kachelFuer genau einmal; fit nur mit passendem Puffer (k->size() == einpass::i420Bytes(g.w, g.h)) eingepasstSenden(k->data(), g.w, g.h, W, H, s.ersatzRahmen, 0), sonst sendKachel(k, g.w, g.h)');
+  const quelle310 = rumpf(video, 'const uint8_t* einfarbigeQuelle(Slot& s, Sent art, int w, int h)');
+  assert(/if\s*\(\s*s\.ersatzQuelleArt\s*!=\s*art\s*\|\|\s*s\.ersatzQuelleW\s*!=\s*w\s*\|\|\s*s\.ersatzQuelleH\s*!=\s*h\s*\)\s*\{\s*einpass::einfarbigI420\(\s*s\.ersatzQuelle\s*,\s*w\s*,\s*h\s*,\s*static_cast<uint8_t>\(\s*art\s*==\s*Sent::White\s*\?\s*235\s*:\s*16\s*\)\s*,\s*128\s*,\s*128\s*\)\s*;\s*s\.ersatzQuelleArt\s*=\s*art\s*;\s*s\.ersatzQuelleW\s*=\s*w\s*;\s*s\.ersatzQuelleH\s*=\s*h\s*;\s*\}\s*return\s+s\.ersatzQuelle\.data\(\)\s*;/.test(quelle310),
+    '#310 einfarbigeQuelle: füllt nur bei anderer Art oder Größe neu (Y 235 Weiß, sonst 16; U/V 128), sonst dieselbe Quelle');
+  const kopie310 = rumpf(video, 'void kopieEingepasstSenden(Slot& s, int W, int H)');
+  const iKopieSperre = kopie310.search(/std::lock_guard<std::mutex>\s+lock\(\s*s\.last\.m\s*\)\s*;/);
+  const iKopieLeer = kopie310.search(/if\s*\(\s*s\.last\.i420\.empty\(\)\s*\|\|\s*s\.last\.w\s*<=\s*0\s*\|\|\s*s\.last\.h\s*<=\s*0\s*\)\s*return\s*;/);
+  const iKopieSenden = kopie310.search(/eingepasstSenden\(\s*s\.sender\s*,\s*s\.last\.i420\.data\(\)\s*,\s*s\.last\.w\s*,\s*s\.last\.h\s*,\s*W\s*,\s*H\s*,\s*s\.ersatzRahmen\s*,\s*0\s*\)\s*;/);
+  assert(iKopieSperre >= 0 && iKopieLeer > iKopieSperre && iKopieSenden > iKopieLeer,
+    '#310 kopieEingepasstSenden: hält s.last.m über dem Senden (wie sendCopy), leere Kopie nichts, dann eingepasstSenden(s.last…, W, H, s.ersatzRahmen, 0)');
+  const slotStruktur310 = rumpf(video, 'struct Slot ');
+  assert(/einpass::Rahmen\s+ersatzRahmen\s*;/.test(slotStruktur310) && /std::vector<uint8_t>\s+ersatzQuelle\s*;/.test(slotStruktur310)
+      && /Sent\s+ersatzQuelleArt\s*=\s*Sent::None\s*;/.test(slotStruktur310) && /int\s+ersatzQuelleW\s*=\s*0\s*,\s*ersatzQuelleH\s*=\s*0\s*;/.test(slotStruktur310)
+      && /constexpr\s+uint32_t\s+INHALT_SCHWARZ\s*=\s*1\s*,\s*INHALT_WEISS\s*=\s*2\s*;/.test(video)
+      && !/ersatzRahmen|ersatzQuelle/.test(rumpf(video, 'void Slot::bildAnkunft(')),
+    '#310 Slot: Ersatz-Rahmen und einfarbige Quelle (Art, Größe) nur für den Hauptthread - bildAnkunft fasst sie nie an; INHALT_SCHWARZ = 1, INHALT_WEISS = 2');
+  // Entscheidung 1 (Controller): kameraAnMs merkt die Flanke Kamera aus -> an. Außer beim Umhängen (ZielStandNeu:
+  // kameraAus false, kameraAnMs 0) setzt nur slotlogic::kameraLautZoom den Merker, und der prüft die Flanke selbst.
+  const zuweisungen = [...video.matchAll(/\bkameraAus\s*=(?!=)/g)].map((m) => video.slice(0, m.index).split('\n').length);
+  const zielStandNeu = rumpf(video.slice(video.indexOf('case UmhaengSchritt::ZielStandNeu:')), 'case UmhaengSchritt::ZielStandNeu:');
+  const slotStruktur = rumpf(video, 'struct Slot ');
+  assert(zuweisungen.length === 2 && /\bkameraAus\s*=\s*false\s*;/.test(slotStruktur) &&
+      /\bkameraAus\s*=\s*false\s*;/.test(zielStandNeu) && /\bkameraAnMs\s*=\s*0\s*;/.test(zielStandNeu) &&
+      (video.match(/\bkameraLautZoom\(/g) ?? []).length >= 4,
+    '#306 kameraAus steht nur in der Slot-Vorgabe und beim Umhängen (dort auch kameraAnMs = 0); sonst setzt ihn kameraLautZoom');
+  if (zuweisungen.length !== 2) console.error(`      kameraAus = in video.cpp, Zeilen ${zuweisungen.join(', ')}`);
+  assert(/\bs\.kachelUnbekanntZiel\s*=\s*0\s*;/.test(zielStandNeu) && /\bunsigned\s+kachelUnbekanntZiel\s*=\s*0\s*;/.test(slotStruktur),
+    '#306 das Umhängen setzt den Merker „Teilnehmer unbekannt gemeldet“ zurück (ZielStandNeu)');
+  assert(/s\.kachel\.speicherBytes\(\)/.test(rumpf(video, 'void slotStatsMelden(')),
+    '#306 slotStats.memKb zählt den Speicher der Kachel mit');
+  assert(/s->kachel\.profilVeraltet\(id\)/.test(rumpf(video, 'void slotsProfil(unsigned id)')),
+    '#306 slotsProfil markiert das Profil der Slots als veraltet');
+  // Wie für kachel.cpp: keine emitLog-Anweisung in video.cpp führt einen Dateipfad-Bezeichner (Namen prüft PT6 d).
+  const pfadBezeichner = /pfad|ordner|profilbild|datei|path/i;
+  const mitPfad: number[] = [];
+  const aufruf = /(?<!void\s)\bemitLog\s*\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = aufruf.exec(video)) !== null) {
+    if (pfadBezeichner.test(video.slice(m.index, video.indexOf(';', m.index)))) mitPfad.push(video.slice(0, m.index).split('\n').length);
+  }
+  assert(mitPfad.length === 0, '#306 video.cpp: keine emitLog-Anweisung führt einen Dateipfad');
+  if (mitPfad.length > 0) console.error(`      Zeilen: ${mitPfad.join(', ')}`);
+}
+{
+  const cb = nativ('callbacks.cpp', true);
+  const einreihen = /merkerEinreihen\(\s*g_merkerProfil\s*,/;
+  assert(einreihen.test(rumpf(cb, 'void ParticipantsListener::onUserNamesChanged('))
+      && einreihen.test(rumpf(cb, 'void ParticipantsListener::onInMeetingUserAvatarPathUpdated(')),
+    '#306 onUserNamesChanged und onInMeetingUserAvatarPathUpdated reihen den Profil-Merker ein');
+  // Review T7, MINOR 6: „alle“ (der Host blendet Profilbilder aus oder ein) geht nie in der gedeckelten Warteschlange
+  // verloren - ein klebendes Merkzeichen wie g_inMeetingOffen, callbacksTakeProfil nimmt es zuerst als MerkerProfil{0}.
+  const alle = rumpf(cb, 'void ParticipantsListener::onParticipantProfilePictureStatusChange(');
+  const nehmenProfil = rumpf(cb, 'bool callbacksTakeProfil(MerkerProfil* out)');
+  assert(/g_profilAlleOffen\s*=\s*true\s*;/.test(alle) && !/merkerEinreihen\(/.test(alle)
+      && /std::atomic<bool>\s+g_profilAlleOffen\s*\{\s*false\s*\}\s*;/.test(cb)
+      && nehmenProfil.indexOf('g_profilAlleOffen.exchange(false)') >= 0
+      && nehmenProfil.indexOf('g_profilAlleOffen.exchange(false)') < nehmenProfil.indexOf('merkerNehmen(g_merkerProfil')
+      && /MerkerProfil\{\s*0\s*\}/.test(nehmenProfil),
+    '#306 onParticipantProfilePictureStatusChange setzt das klebende Merkzeichen „alle“; callbacksTakeProfil liefert es zuerst als MerkerProfil{0}');
+  const kopf = nativ('callbacks.h');
+  const leer = (methode: string) => new RegExp(`\\b${methode}\\s*\\([^)]*\\)\\s*override\\s*\\{\\s*\\}`).test(kopf);
+  const deklariert = (methode: string) => new RegExp(`\\bvoid\\s+${methode}\\s*\\([^)]*\\)\\s*override\\s*;`).test(kopf);
+  assert(['onInMeetingUserAvatarPathUpdated', 'onParticipantProfilePictureStatusChange'].every((f) => !leer(f) && deklariert(f)),
+    '#306 callbacks.h: onInMeetingUserAvatarPathUpdated und onParticipantProfilePictureStatusChange haben keinen leeren Rumpf mehr');
+  assert(/struct\s+MerkerProfil\s*\{\s*unsigned\s+id\s*=\s*0\s*;\s*\}\s*;/.test(kopf) && /\bbool\s+callbacksTakeProfil\(\s*MerkerProfil\s*\*\s*out\s*\)\s*;/.test(kopf),
+    '#306 callbacks.h: MerkerProfil { unsigned id = 0; } und callbacksTakeProfil(MerkerProfil* out)');
+  const nehmen = rumpf(nativ('main.cpp', true), 'void merkerNehmen()');
+  assert(nehmen.indexOf('callbacksTakeProfil(') > nehmen.indexOf('callbacksTakeSprecher(') && nehmen.indexOf('callbacksTakeSprecher(') >= 0
+      && nehmen.includes('slotsProfil('),
+    '#306 merkerNehmen nimmt den Profil-Merker nach dem Sprecher-Merker und ruft slotsProfil');
+}
+{
+  // Entscheidung 3 (Controller, Task-3-Review): die Senke der Warteschlange sendet eine Kachel nur mit Puffer.
+  const freigabe = rumpf(nativ('ndi_sender.cpp'), 'int NdiSender::releaseDueLocked(');
+  const iKachel = freigabe.indexOf('Bildart::Kachel');
+  const zweig = iKachel < 0 ? '' : freigabe.slice(iKachel, freigabe.indexOf('return;', iKachel));
+  assert(/if\s*\(\s*b\.kachel\s*\)/.test(zweig) && zweig.search(/if\s*\(\s*b\.kachel\s*\)/) < zweig.indexOf('b.kachel->data()'),
+    '#306 releaseDueLocked: die Kachel geht nur mit Puffer hinaus (if (b.kachel) vor b.kachel->data())');
+}
+
 console.log('\nZoom-Slots — Freigabe-Namen in slot_logic.h (Plan A, Task A5; A-EP4):');
 {
   const logik = cppOhneKommentare(paketDateiOderLeer('native', 'slot_logic.h'));
@@ -3334,8 +3615,62 @@ console.log('\nNativer Teil — A9 NDI-Sender: UYVA, Weiß, Transparent, Kopie, 
   const freigabe = rumpf(sender, 'int NdiSender::releaseDueLocked(');
   assert(freigabe.includes('versatzMsLocked()') && !freigabe.includes('ndiVideoDelayMs()'),
     'A9 ohne Versatz: releaseDueLocked rechnet mit versatzMsLocked(), nicht mit dem globalen Wert');
-  assert(['Bildart::Schwarz', 'Bildart::Weiss', 'Bildart::Transparent'].every((a) => freigabe.includes(a)),
-    'A9 Bildarten: die Warteschlange gibt Schwarz, Weiß und Transparent als eigene Bildart aus');
+  assert(['Bildart::Schwarz', 'Bildart::Weiss', 'Bildart::Transparent', 'Bildart::Kachel', 'Bildart::Einpassen'].every((a) => freigabe.includes(a)),
+    'A9 Bildarten: die Warteschlange gibt Schwarz, Weiß, Transparent, Kachel und Einpassen als eigene Bildart aus');
+  const kachel = rumpf(sender, 'void NdiSender::sendKachel(');
+  const iKachel = kachel.search(/if\s*\(\s*ohneVersatz_\s*\|\|/);
+  assert(iKachel >= 0 && kachel.indexOf('pushKachel(') > iKachel && freigabe.includes('b.kachel'),
+    '#306 sendKachel sendet mit ohneVersatz_ direkt, vor jedem pushKachel; releaseDueLocked gibt Bildart::Kachel aus b.kachel aus');
+  // #310 Staffel (Plan, Präzisierung 5): wer die Ausgabe hält (ausgabeLaeuft_), entnimmt unter mutex_, passt OHNE
+  // mutex_ ein und sendet wieder unter mutex_; wer sie nicht hat, reiht nur ein. Die Sperre öffnet nur der
+  // Einpassen-Zweig - ohne Einpassen-Bilder in der Schlange verhält sich „Original“ wie bisher.
+  const iWache = freigabe.search(/if\s*\(\s*ausgabeLaeuft_\s*\)\s*return\s+0\s*;/);
+  const iEntnehmen = freigabe.indexOf('entnehmen(');
+  const iStaffelAn = freigabe.search(/ausgabeLaeuft_\s*=\s*true\s*;/);
+  const iSchleife = freigabe.search(/for\s*\(\s*(const\s+)?(auto|DelayLine::Frame)\s*&\s*\w+\s*:\s*faellig_\s*\)/);
+  const iZuruecklegen = freigabe.indexOf('zuruecklegen(faellig_)');
+  const iStaffelAus = freigabe.search(/ausgabeLaeuft_\s*=\s*false\s*;/);
+  assert(iWache >= 0 && iWache < iEntnehmen && iEntnehmen < iStaffelAn && iStaffelAn < iSchleife && iSchleife < iZuruecklegen
+      && iZuruecklegen < iStaffelAus,
+    '#310 releaseDueLocked: if (ausgabeLaeuft_) return 0 vor entnehmen(, ausgabeLaeuft_ = true vor der Schleife über faellig_, = false nach zuruecklegen(faellig_)');
+  const iAuf = freigabe.indexOf('lock.unlock()');
+  const iVorbereiten = freigabe.indexOf('einpass::rahmenVorbereiten(');
+  const iEinpassen = freigabe.indexOf('einpass::einpassen(');
+  const iZu = freigabe.indexOf('lock.lock()');
+  const iUyva = freigabe.indexOf('sendUYVALocked(');
+  const anzahlIn = (text: string, muster: RegExp): number => (text.match(muster) ?? []).length;
+  assert(iAuf > iSchleife && iAuf < iVorbereiten && iVorbereiten < iEinpassen && iEinpassen < iZu && iZu < iUyva
+      && /if\s*\(\s*send_\s*\)\s*sendUYVALocked\(/.test(freigabe.slice(iZu)) && /if\s*\(\s*send_\s*\)\s*senke\(\s*b\s*\)/.test(freigabe)
+      && anzahlIn(freigabe, /\block\.unlock\(\)/g) === 1 && anzahlIn(freigabe, /\block\.lock\(\)/g) === 1,
+    '#310 releaseDueLocked: im Einpassen-Zweig lock.unlock() vor einpass::rahmenVorbereiten( und einpass::einpassen(, lock.lock() danach, dann if (send_) sendUYVALocked( - sonst öffnet nichts die Sperre');
+  // #310 Fixrunde 1 (Review Task 3): leereVersatz() und close() zählen generation_ hoch. Der Staffelhalter merkt sie
+  // nach entnehmen( und sendet nach einer Einpass-Lücke nichts mehr aus faellig_, wenn sie sich geändert hat - sonst
+  // ginge nach dem Wechsel zur Freigabe noch ein altes Personenbild hinaus („nach leereVersatz kein altes Bild“).
+  const iGenMerken = freigabe.search(/const\s+uint32_t\s+\w+\s*=\s*generation_\s*;/);
+  const iGenPruefen = freigabe.search(/if\s*\(\s*generation_\s*!=\s*\w+\s*\)\s*break\s*;/);
+  assert(/\+\+generation_\s*;/.test(rumpf(sender, 'void NdiSender::leereVersatz(')) && /\+\+generation_\s*;/.test(rumpf(sender, 'void NdiSender::close('))
+      && /\buint32_t\s+generation_\s*=\s*0\s*;/.test(nativ('ndi_sender.h'))
+      && iGenMerken > iEntnehmen && iGenMerken < iSchleife && iGenPruefen > iZu && iGenPruefen < iUyva,
+    '#310 leereVersatz und close zählen generation_ hoch; releaseDueLocked merkt sie nach entnehmen( und bricht nach lock.lock(), vor sendUYVALocked( ab, wenn sie sich geändert hat');
+  const direktBedingung = (text: string): string => {
+    const i = text.search(/if\s*\(\s*ohneVersatz_\s*\|\|/);
+    return i < 0 ? '' : text.slice(i, text.indexOf('{', i));
+  };
+  const direktFrei = rumpf(sender, 'bool NdiSender::direktFrei(');
+  assert([i420, ersatz, kachel].every((r) => direktBedingung(r).includes('!ausgabeLaeuft_'))
+      && /send_\s*&&\s*\(\s*ohneVersatz_\s*\|\|/.test(direktFrei) && direktFrei.includes('!ausgabeLaeuft_'),
+    '#310 Direktweg: sendI420, sendErsatz, sendKachel und direktFrei gehen nur direkt, wenn niemand die Staffel hält (!ausgabeLaeuft_)');
+  assert(rumpf(sender, 'size_t NdiSender::speicherBytes(').includes('ausgabeRahmenBytes_'),
+    '#310 speicherBytes zählt den Ausgaberahmen (ausgabeRahmenBytes_)');
+  const mitStaffel = ['void NdiSender::sendI420(', 'void NdiSender::sendErsatz(', 'void NdiSender::sendKachel(', 'void NdiSender::pump(',
+    'void NdiSender::sendI420Einpassen('].map((k) => rumpf(sender, k));
+  assert(mitStaffel.every((r) => /std::unique_lock<std::mutex>\s+lock\(mutex_\)\s*;/.test(r) && anzahlIn(r, /releaseDueLocked\(\s*lock\s*,/g) === 1
+      && r.lastIndexOf('lock.unlock()') > r.indexOf('releaseDueLocked(') && r.indexOf('meldeVerworfen(') > r.lastIndexOf('lock.unlock()')),
+    '#310 sendI420, sendErsatz, sendKachel, pump, sendI420Einpassen: unique_lock auf mutex_, releaseDueLocked(lock, …), Verworfenes erst nach lock.unlock() gemeldet');
+  const einpassenEinreihen = rumpf(sender, 'void NdiSender::sendI420Einpassen(');
+  assert(einpassenEinreihen.includes('pushEinpassen(') && einpassenEinreihen.includes('einpass::i420Bytes(')
+      && /letzteBildBytes_\s*=/.test(einpassenEinreihen) && !einpassenEinreihen.includes('NDIlib_send_send_video_v2'),
+    '#310 sendI420Einpassen reiht immer ein (pushEinpassen, Länge einpass::i420Bytes, letzteBildBytes_) und sendet nie selbst direkt');
   const delay = nativ('delay_line.h');
   assert(!/\bbool\s+black\b/.test(delay) && !/\bpushBlack\s*\(/.test(delay) && !/\bpushBlack\s*\(|\.black\b/.test(sender),
     'A9 Bildarten: Frame::black und pushBlack sind entfernt, der Sender liest nur Frame::art');
@@ -3469,6 +3804,52 @@ console.log('\nNativer Teil — A11 Slot-Verwaltung, Befehle, Umhängen (Spec 6.
   const iRiegel = ankunft.search(/riegelVerwirft\(\s*abo\.subscribed\.load\(\)\s*,\s*abo\.umhaengen\.load\(\)\s*\)/);
   assert(iRiegel >= 0 && iRiegel < ankunft.indexOf('sendI420(') && /lateFrames\.fetch_add\(1\)/.test(ankunft),
     'A11 6.10: der Riegel verwirft Bilder ohne subscribed oder während des Umhängens vor dem Senden und zählt lateFrames');
+  // #310 Livebild (Plan Task 4): nach dem Riegel entscheidet bildAnkunft mit einpassenNoetig (Freigabe nie, 16:9 nie).
+  // Eingepasst wird in den eigenen Live-Rahmen NUR per try_lock (sonst reiht der Sender das Rohbild ein, nie wartend),
+  // in der Nenngröße aus res.load(). „Original“ bleibt sender.sendI420(buf, w, h); die Vorschau bekommt das Rohbild.
+  const iNoetig = ankunft.search(
+    /einpass::einpassenNoetig\(\s*format\.load\(\)\s*==\s*Bildformat::Fit\s*,\s*mode\.load\(\)\s*==\s*SlotMode::Share\s*,\s*w\s*,\s*h\s*\)/);
+  const iResLaden = ankunft.search(/const\s+ZoomSDKResolution\s+(\w+)\s*=\s*res\.load\(\)\s*;\s*ausW\s*=\s*nominalWidth\(\s*\1\s*\)\s*;\s*ausH\s*=\s*nominalHeight\(\s*\1\s*\)\s*;/);
+  const iTryLock = ankunft.search(/if\s*\(\s*liveRahmenM\.try_lock\(\)\s*\)\s*\{/);
+  const iEingepasst = ankunft.search(/eingepasstSenden\(\s*sender\s*,\s*buf\s*,\s*w\s*,\s*h\s*,\s*ausW\s*,\s*ausH\s*,\s*liveRahmen\s*,\s*0\s*\)\s*;/);
+  const iRahmenBytes = ankunft.search(/liveRahmenBytes\s*=\s*einpass::speicherBytes\(\s*liveRahmen\s*\)\s*;/);
+  const iRahmenFrei = ankunft.search(/liveRahmenM\.unlock\(\)\s*;/);
+  const iSonstEinreihen = ankunft.search(/\}\s*else\s*\{?\s*sender\.sendI420Einpassen\(\s*buf\s*,\s*w\s*,\s*h\s*,\s*ausW\s*,\s*ausH\s*\)\s*;/);
+  const iOriginal = ankunft.search(/\}\s*else\s*\{?\s*sender\.sendI420\(\s*buf\s*,\s*w\s*,\s*h\s*\)\s*;/);
+  assert(iNoetig > iRiegel && iResLaden > iNoetig && iTryLock > iResLaden && iEingepasst > iTryLock && iRahmenBytes > iEingepasst
+      && iRahmenFrei > iRahmenBytes && iSonstEinreihen > iRahmenFrei && iOriginal > iSonstEinreihen
+      && (ankunft.match(/\bsendI420\(/g) ?? []).length === 1 && (ankunft.match(/liveRahmenM\.try_lock\(\)/g) ?? []).length === 1
+      && (ankunft.match(/liveRahmenM\.unlock\(\)/g) ?? []).length === 1,
+    '#310 bildAnkunft: nach dem Riegel einpassenNoetig(format Fit, mode Share, w, h); Rahmen = Nenngröße aus res.load(); liveRahmenM.try_lock() vor eingepasstSenden( und unlock, sonst sendI420Einpassen(; „Original“ bleibt sender.sendI420(buf, w, h)');
+  const slotStruktur = rumpf(video, 'struct Slot ');
+  assert(/std::atomic<ZoomSDKResolution>\s+res\{ZoomSDKResolution_720P\}\s*;/.test(slotStruktur)
+      && /einpass::Rahmen\s+liveRahmen\s*;/.test(slotStruktur) && /std::mutex\s+liveRahmenM\s*;/.test(slotStruktur)
+      && /std::atomic<size_t>\s+liveRahmenBytes\{0\}\s*;/.test(slotStruktur)
+      && !/liveRahmenM\.lock\(\)|\b(lock_guard|unique_lock|scoped_lock)\b[^;]*\bliveRahmenM\b/.test(video)
+      && /#include\s+"bild_einpassen\.h"/.test(nativ('video.cpp')),
+    '#310 Slot: res atomar (SDK-Thread liest die Nenngröße), Live-Rahmen mit eigener Sperre nur per try_lock, liveRahmenBytes atomar; video.cpp bindet bild_einpassen.h ein');
+  const iSpaetA11 = ankunft.indexOf('spaet = true;');
+  const nachSpaetA11 = iSpaetA11 < 0 ? '' : ankunft.slice(iSpaetA11 + 'spaet = true;'.length);
+  const sonstA11 = /^\s*\}\s*else\s*\{/.test(nachSpaetA11) ? rumpf(nachSpaetA11, 'else') : '';
+  assert(/z\.ausgabeW\s*=\s*ausW\s*;\s*z\.ausgabeH\s*=\s*ausH\s*;/.test(sonstA11)
+      && sonstA11.search(/z\.ausgabeW\s*=/) > sonstA11.indexOf('bildAnnehmen(')
+      && /vorschauBild\(\s*nr\s*,\s*aboZiel\s*,\s*buf\s*,\s*w\s*,\s*h\s*,\s*jetzt\s*\)\s*;/.test(ankunft),
+    '#310 bildAnkunft: im Sonst-Zweig des zweiten Riegels nach bildAnnehmen z.ausgabeW/z.ausgabeH (was ins NDI ging); vorschauBild(nr, aboZiel, buf, w, h, jetzt) unverändert');
+  const statsRumpf = rumpf(nativ('video.cpp'), 'void slotStatsMelden(');
+  assert(/const\s+bool\s+eingepasst\s*=\s*bildDa\s*&&\s*z\.ausgabeW\s*>\s*0\s*&&\s*\(\s*z\.ausgabeW\s*!=\s*z\.lastW\s*\|\|\s*z\.ausgabeH\s*!=\s*z\.lastH\s*\)\s*;/.test(statsRumpf)
+      && /wenn\(\s*eingepasst\s*,\s*"outW"\s*,\s*std::to_string\(\s*z\.ausgabeW\s*\)\s*\)/.test(statsRumpf)
+      && /wenn\(\s*eingepasst\s*,\s*"outH"\s*,\s*std::to_string\(\s*z\.ausgabeH\s*\)\s*\)/.test(statsRumpf)
+      && /s\.liveRahmenBytes\.load\(\)/.test(statsRumpf) && /einpass::speicherBytes\(\s*s\.ersatzRahmen\s*\)/.test(statsRumpf)
+      && /s\.ersatzQuelle\.capacity\(\)/.test(statsRumpf),
+    '#310 slotStatsMelden: outW/outH nur mit bildDa und ausgabe ≠ lastW/lastH; memKb zählt liveRahmenBytes, ersatzRahmen und ersatzQuelle');
+  const helfer = rumpf(video, 'void eingepasstSenden(');
+  const iDirekt = helfer.search(/if\s*\(\s*!\s*sender\.direktFrei\(\)\s*\)\s*\{\s*sender\.sendI420Einpassen\(\s*i420\s*,\s*w\s*,\s*h\s*,\s*W\s*,\s*H\s*\)\s*;\s*return\s*;\s*\}/);
+  const iHVorbereiten = helfer.search(/einpass::rahmenVorbereiten\(\s*rahmen\s*,\s*W\s*,\s*H\s*,\s*einpass::bildFlaeche\(\s*w\s*,\s*h\s*,\s*W\s*,\s*H\s*\)\s*\)\s*;/);
+  const iHInhalt = helfer.search(/if\s*\(\s*inhalt\s*==\s*0\s*\|\|\s*rahmen\.inhalt\s*!=\s*inhalt\s*\)\s*\{\s*einpass::einpassen\(\s*i420\s*,\s*w\s*,\s*h\s*,\s*rahmen\s*\)\s*;\s*rahmen\.inhalt\s*=\s*inhalt\s*;\s*\}/);
+  const iHSenden = helfer.search(/sender\.sendUYVA\(\s*rahmen\.daten\.data\(\)\s*,\s*W\s*,\s*H\s*\)\s*;/);
+  assert(video.includes('void eingepasstSenden(NdiSender& sender, const uint8_t* i420, int w, int h, int W, int H, einpass::Rahmen& rahmen, uint32_t inhalt)')
+      && iDirekt >= 0 && iHVorbereiten > iDirekt && iHInhalt > iHVorbereiten && iHSenden > iHInhalt,
+    '#310 eingepasstSenden: !direktFrei() → sendI420Einpassen( und zurück; sonst einpass::rahmenVorbereiten( (bildFlaeche) vor einpass::einpassen( (nur neuer Inhalt) vor sendUYVA(');
   // 6.10 „Erstes Bild danach“ (Nachbesserung a3, NB-a3-1): bildSeitUmhaengen und live/frames am ERSTEN Bild, das den
   // Riegel passiert - über bildAnnehmen() aus A6 (PB23), nie an GetSourceID() gebunden. Die Lücke (gapMs, MS13) endet
   // getrennt davon am ersten passenden Bild, sonst nach 2 s am ersten Bild nach Schritt 6 (gapUngeprueft).
@@ -3539,7 +3920,7 @@ console.log('\nNativer Teil — A11 Slot-Verwaltung, Befehle, Umhängen (Spec 6.
   // Reihenfolge nach Spec 6.2 (Nachbesserung a1): slotNameTaken direkt nach slotBadName, und nur gegen ANDERE
   // laufende Slots (slotNameBelegt bekommt die eigene Nummer und uebergeht sie).
   const pruef = ['leseSlotNummer(', '"slotBadName"', '"slotNameTaken"', '"slotBadMode"', '"slotBadResolution"', '"slotBadAudio"',
-    '"slotBadFallback"', '"slotBadFlag"', '"slotBadTarget"', '"slotAlreadyOn"'].map((s) => zweig.indexOf(s));
+    '"slotBadFallback"', '"slotBadFrame"', '"slotBadFlag"', '"slotBadTarget"', '"slotAlreadyOn"'].map((s) => zweig.indexOf(s));
   const belegt = rumpf(nativ('video.cpp'), 'bool slotNameBelegt(');
   assert(pruef.every((i, k) => i >= 0 && (k === 0 || i > pruef[k - 1])) && iZeile > pruef[pruef.length - 1] && zweig.indexOf('slotOn(b)') > iZeile
       && /slotNameBelegt\(b\.ndi,\s*nr\)/.test(zweig) && /nr\s*!=\s*ausser\s*&&/.test(belegt),

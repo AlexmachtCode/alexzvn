@@ -29,6 +29,13 @@ mac:
   icon: build/icon.png
   hardenedRuntime: false
   gatekeeperAssess: false
+  extendInfo:
+    CFBundleDocumentTypes:
+      - CFBundleTypeName: PDF
+        CFBundleTypeRole: Viewer
+        LSHandlerRank: Alternate
+        LSItemContentTypes: [com.adobe.pdf]
+        CFBundleTypeExtensions: [pdf]
 
 win:
   target:
@@ -43,9 +50,16 @@ nsis:
   allowToChangeInstallationDirectory: true
   shortcutName: JM Presenter
   createDesktopShortcut: false
+  include: build/installer.nsh
 
 publish:
   provider: github
   owner: AlexmachtCode
   repo: alexzvn
   private: true
+
+# NDI (#303): Das Windows-Paket baut der Owner LOKAL mit gebündeltem NDI (bundle-ndi.mjs → resources/bin/win),
+# das Mac-Paket die CI ohne NDI. electron ist ans Workspace-Root gehoistet → Version hier; npmRebuild aus, weil
+# das Addon nicht von electron-builder gebaut wird. electronVersion bei Electron-Upgrade nachziehen.
+electronVersion: 33.4.11
+npmRebuild: false

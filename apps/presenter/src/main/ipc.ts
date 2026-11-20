@@ -2,6 +2,7 @@ import { app, dialog, ipcMain } from 'electron';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type {
+  GeladeneDateien,
   ImportedFile,
   OfficeImportResult,
   PresentationPayload,
@@ -10,22 +11,28 @@ import type {
   SourceKind,
   TimerSyncConfig,
 } from '@shared/types';
-import { convertOfficeBytesToPdf, convertOfficeToPdf, countPdfPages } from './office/convert';
-import { analyzePptxAnimations } from './office/pptx-animations';
-import { expandPptxBuildSteps } from './office/pptx-expand';
+import { bildFilterEndungen, IMAGE_EXT, OFFICE_EXT } from '@shared/dateien';
+import { ladeDateien, pruefeImportPfade } from './dateien-laden';
+import { importOfficeFile } from './office/import';
 import {
   broadcastAll,
   getDisplays,
   getEditorWindow,
+  getNdiWindow,
+  getReferentVollbild,
   moveAudienceToDisplay,
   toggleAudienceFullscreen,
+  toggleReferentVollbild,
 } from './windows';
+import { beendeNdi, initNdiAusgang, ndiFensterBereit, ndiStartGescheitert, ndiStatus, setzeNdiAn } from './ndi/ausgang';
+import { nurNdiBehalten, pruefeStartZiel } from '../shared/ndi';
 import {
   getPayload,
   getState,
   goto,
   next,
   prev,
+  setSchleife,
   setScreen,
   startPresentation,
   stopPresentation,
@@ -38,6 +45,15 @@ import {
   shutdownRemote,
 } from './remote';
 import { loadRemoteConfig, saveRemoteConfig } from './remote-config';
+import { getLog } from '@jm/app-runtime';
+import {
+  applyGastKlicker,
+  getGastKlickerStatus,
+  initGastKlicker,
+  neuerGastLink,
+  setGastKlickerStatusHandler,
+  setzeGastPause,
+} from './gast-klicker';
 import {
   applyTimerConfig,
   getTimerConfig,
@@ -46,8 +62,6 @@ import {
   shutdownTimer,
 } from './timer-sync';
 import { loadTimerConfig, saveTimerConfig } from './timer-config';
-
-const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
 
 function kindFor(filePath: string): SourceKind {
   return path.extname(filePath).toLowerCase() === '.pdf' ? 'pdf' : 'image';
@@ -69,7 +83,7 @@ export function registerIpc(): void {
       title: 'PDF oder Bilder importieren',
       properties: ['openFile', 'multiSelections'],
       filters: [
-        { name: 'Präsentationen & Bilder', extensions: ['pdf', 'png', 'jpg', 'jpeg', 'webp'] },
+        { name: 'Präsentationen & Bilder', extensions: ['pdf', ...bildFilterEndungen()] },
         { name: 'Alle Dateien', extensions: ['*'] },
       ],
     };
@@ -85,7 +99,7 @@ export function registerIpc(): void {
     const options: Electron.OpenDialogOptions = {
       title: 'Bild / Logo wählen',
       properties: ['openFile'],
-      filters: [{ name: 'Bilder', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
+      filters: [{ name: 'Bilder', extensions: bildFilterEndungen() }],
     };
     const result = win
       ? await dialog.showOpenDialog(win, options)
@@ -106,7 +120,7 @@ export function registerIpc(): void {
         filters: [
           {
             name: 'Office-Dokumente',
-            extensions: ['pptx', 'ppt', 'odp', 'docx', 'doc', 'odt', 'rtf'],
+            extensions: [...OFFICE_EXT].map((e) => e.slice(1)),
           },
         ],
       };
@@ -116,40 +130,19 @@ export function registerIpc(): void {
       if (result.canceled || result.filePaths.length === 0) {
         return { ok: false, error: 'Abgebrochen.' };
       }
-      const inputPath = result.filePaths[0];
-      const base = path.basename(inputPath, path.extname(inputPath));
+      return importOfficeFile(result.filePaths[0], !!expandBuilds);
+    },
+  );
 
-      // Flat conversion is the always-correct baseline.
-      const baseline = await convertOfficeToPdf(inputPath);
-      if (!baseline.ok || !/\.pptx$/i.test(inputPath)) return baseline;
-
-      let animations;
-      try {
-        animations = analyzePptxAnimations(new Uint8Array(await readFile(inputPath))) ?? undefined;
-      } catch {
-        animations = undefined;
-      }
-      if (!animations || animations.animatedSlides === 0) return baseline;
-
-      // EXPERIMENTAL: split on-click builds into per-step slides. Only adopt the
-      // expanded conversion if it succeeds AND its page count matches exactly —
-      // otherwise keep the flat baseline so import never silently breaks.
-      if (expandBuilds) {
-        try {
-          const expanded = expandPptxBuildSteps(new Uint8Array(await readFile(inputPath)));
-          if (expanded) {
-            const conv = await convertOfficeBytesToPdf(expanded.bytes, base);
-            if (conv.ok && conv.bytes && countPdfPages(conv.bytes) === expanded.pages) {
-              return { ...conv, name: baseline.name, expanded: true };
-            }
-          }
-        } catch {
-          // fall through to baseline
-        }
-      }
-
-      baseline.animations = animations;
-      return baseline;
+  ipcMain.handle(
+    'files:importPaths',
+    (e, pfade: unknown, expandBuilds: unknown): Promise<GeladeneDateien> => {
+      const leer = { files: [], projekt: null, hinweise: [] };
+      // Nur das Editor-Fenster darf Dateien per Pfad laden (alle Fenster teilen den Preload).
+      if (e.sender !== getEditorWindow()?.webContents) return Promise.resolve(leer);
+      const geprueft = pruefeImportPfade(pfade);
+      if (!geprueft) return Promise.resolve(leer);
+      return ladeDateien(geprueft, { expandBuilds: expandBuilds === true });
     },
   );
 
@@ -207,12 +200,11 @@ export function registerIpc(): void {
 
   // ---- Presentation control ----
 
-  ipcMain.handle(
-    'present:start',
-    (_e, payload: PresentationPayload, audienceDisplayId: number | null) => {
-      startPresentation(payload, audienceDisplayId);
-    },
-  );
+  // „Keiner – nur NDI“ (#303), solange NDI an ist und sendet oder (begrenzt durch die Start-Frist) startet – wie die
+  // Werkzeugleiste; sonst automatischer Bildschirm.
+  ipcMain.handle('present:start', (_e, payload: PresentationPayload, ziel: unknown) => {
+    startPresentation(payload, pruefeStartZiel(ziel, nurNdiBehalten(ndiStatus())));
+  });
   ipcMain.handle('present:getPayload', () => getPayload());
   ipcMain.handle('present:getState', () => getState());
   ipcMain.handle('present:goto', (_e, index: number) => goto(index));
@@ -220,11 +212,15 @@ export function registerIpc(): void {
   ipcMain.handle('present:prev', () => prev());
   ipcMain.handle('present:stop', () => stopPresentation());
   ipcMain.handle('present:setScreen', (_e, mode: ScreenMode) => setScreen(mode));
+  ipcMain.handle('present:setSchleife', (_e, an: boolean) => setSchleife(an === true));
   ipcMain.handle('present:displays', () => getDisplays());
   ipcMain.handle('present:assignAudience', (_e, displayId: number) =>
     moveAudienceToDisplay(displayId),
   );
   ipcMain.handle('present:toggleAudienceFullscreen', () => toggleAudienceFullscreen());
+  // #309: Vollbild der Referentenansicht (Knopf „Vollbild“, F11); Push bei jedem Wechsel: present:referentVollbildStand.
+  ipcMain.handle('present:toggleReferentVollbild', () => toggleReferentVollbild());
+  ipcMain.handle('present:referentVollbild', () => getReferentVollbild());
 
   // ---- Network remote (phone clicker) ----
 
@@ -243,6 +239,13 @@ export function registerIpc(): void {
   const saved = loadRemoteConfig();
   if (saved.enabled) void applyRemoteConfig(saved);
 
+  // ---- #317 Gast-Klicker übers Internet (ausgehend zum Cloud-Dienst, nur vor/zurück) ----
+  setGastKlickerStatusHandler((status) => broadcastAll('gastKlicker:status', status));
+  ipcMain.handle('gastKlicker:status', () => getGastKlickerStatus());
+  ipcMain.handle('gastKlicker:setzeAn', (_e, an: unknown) => applyGastKlicker(an === true));
+  ipcMain.handle('gastKlicker:pause', (_e, an: unknown) => setzeGastPause(an === true));
+  ipcMain.handle('gastKlicker:neuerLink', () => neuerGastLink());
+
   // ---- Timer sync (live countdown from JM Timer) ----
 
   // Push live timer state to all windows so the presenter readout updates even
@@ -259,8 +262,35 @@ export function registerIpc(): void {
   // Restore the persisted timer connection on launch.
   applyTimerConfig(loadTimerConfig());
 
+  // ---- NDI-Ausgang (#303) ----
+
+  ipcMain.handle('ndi:status', () => ndiStatus());
+  ipcMain.handle('ndi:setzeAn', (_e, an: unknown) => setzeNdiAn(an === true));
+  // Den Bild-Port bekommt nur das NDI-Fenster (alle Fenster teilen den Preload).
+  ipcMain.on('ndi:fensterBereit', (e) => {
+    if (e.sender === getNdiWindow()?.webContents) ndiFensterBereit();
+  });
+
   app.on('will-quit', () => {
     shutdownRemote();
     shutdownTimer();
+    beendeNdi();
   });
+
+  // Gemerkter Schalter: ist er an, entstehen Sender und NDI-Fenster schon jetzt. Erst NACH will-quit, damit ein
+  // Wurf hier das Aufräumen von Fernsteuerung und Timer nicht überspringt. Und gefangen: index.ts öffnet den Editor
+  // erst nach registerIpc – ein Wurf kostete sonst den Editor, und die App hielte den Single-Instance-Lock ohne Fenster.
+  try {
+    initNdiAusgang();
+  } catch (err) {
+    ndiStartGescheitert(err);
+  }
+
+  // #317: War der Gast-Klicker beim letzten Beenden an, verbindet er gleich wieder (gleicher Link). Ganz zuletzt und
+  // gefangen – aus demselben Grund wie oben: ein Wurf kostete sonst den Editor (Gesamtprüfung 18.11.).
+  try {
+    initGastKlicker();
+  } catch (err) {
+    getLog().warn(`[gast-klicker] Start fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }

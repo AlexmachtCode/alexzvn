@@ -3,14 +3,18 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <utility>
 #include <vector>
 
 /**
- * Art eines Bildes in der Warteschlange (Spec 6.12, 6.14, PB18): I420 traegt Zooms Bilddaten, die drei Ersatzbilder
- * tragen keine (der Sender baut sie aus seinen Puffern je Groesse). Statt nur „Bild oder Schwarz“.
+ * Art eines Bildes in der Warteschlange (Spec 6.12, 6.14, PB18, #306): I420 traegt Zooms Bilddaten, die drei Ersatzbilder
+ * Schwarz, Weiss und Transparent tragen keine (der Sender baut sie aus seinen Puffern je Groesse). Kachel traegt einen
+ * fertigen, unveraenderlichen I420-Puffer als VERWEIS (kachel), nie als Kopie. Statt nur „Bild oder Schwarz“.
+ * Einpassen (#310) traegt wie I420 Zooms Bilddaten als Kopie (das ROHBILD, ~1,4 MB bei 1080p statt ~6,2 MB fuer den
+ * fertigen UYVA-Rahmen) und dazu die Rahmengroesse rahmenW x rahmenH; eingepasst wird erst beim Ausgeben (NdiSender).
  */
-enum class Bildart : uint8_t { I420, Schwarz, Weiss, Transparent };
+enum class Bildart : uint8_t { I420, Schwarz, Weiss, Transparent, Kachel, Einpassen };
 
 /**
  * Bild-Verzoegerung einer Zoom-Quelle (Abnahmepunkt 5, Lippensynchronitaet).
@@ -77,8 +81,11 @@ class DelayLine {
     Bildart art = Bildart::I420;
     int w = 0;
     int h = 0;
-    std::vector<uint8_t> data;   // leer bei Schwarz, Weiss und Transparent
+    std::vector<uint8_t> data;   // leer bei Schwarz, Weiss, Transparent und Kachel
+    std::shared_ptr<const std::vector<uint8_t>> kachel;   // nur bei Bildart::Kachel gesetzt
     TimePoint arrival{};
+    int rahmenW = 0;   // nur bei Bildart::Einpassen: Groesse des UYVA-Rahmens, in den das Rohbild w x h kommt
+    int rahmenH = 0;
   };
 
   struct Released {
@@ -95,31 +102,61 @@ class DelayLine {
    * @return wie viele Bilder die Obergrenze dabei verdraengt hat (0 oder 1).
    */
   int pushFrame(const uint8_t* buf, size_t len, int w, int h, TimePoint arrival) {
-    Frame f;
-    f.w = w;
-    f.h = h;
-    f.arrival = arrival;
-    if (!spare_.empty()) {
-      f.data = std::move(spare_.back());
-      spare_.pop_back();
-    }
-    f.data.assign(buf, buf + len);
-    return push(std::move(f));
+    return push(kopie(buf, len, w, h, arrival));
   }
 
   /**
    * Ein Ersatzbild ohne Bilddaten (Schwarz, Weiss, Transparent) laeuft durch DIESELBE Warteschlange wie echte
    * Bilder - sonst ueberholte es die noch wartenden Bilder, und die Quelle zeigte Schwarz, bevor die letzten Bilder
    * vor dem Kamera-Aus durch sind. I420 traegt Bilddaten und geht nur ueber pushFrame: pushBild(Bildart::I420, ...)
-   * legt nichts ab.
+   * legt nichts ab. Ebenso die Kachel (#306): sie trägt einen Puffer und geht nur über pushKachel - sonst läge ein
+   * Frame ohne Verweis in der Warteschlange. Und Einpassen (#310) nur ueber pushEinpassen (Bilddaten + Rahmen).
    */
   int pushBild(Bildart art, int w, int h, TimePoint arrival) {
-    if (art == Bildart::I420) return 0;
+    if (art == Bildart::I420 || art == Bildart::Kachel || art == Bildart::Einpassen) return 0;
     Frame f;
     f.art = art;
     f.w = w;
     f.h = h;
     f.arrival = arrival;
+    return push(std::move(f));
+  }
+
+  /**
+   * Eine Kachel (#306) laeuft durch DIESELBE Warteschlange wie Bilder und Ersatzbilder - aus demselben Grund wie bei
+   * pushBild. Der Puffer wird NICHT kopiert: die Warteschlange haelt nur den Verweis, der mit dem Frame faellt
+   * (recycle legt ihn nicht in den Vorrat). Legt nichts ab (Rueckgabe 0), wenn `puffer` leer ist oder seine Groesse
+   * nicht der I420-Groesse w*h + 2*(w/2)*(h/2) entspricht.
+   *
+   * @return wie viele Bilder die Obergrenze dabei verdraengt hat (0 oder 1).
+   */
+  int pushKachel(std::shared_ptr<const std::vector<uint8_t>> puffer, int w, int h, TimePoint arrival) {
+    if (!puffer || w <= 0 || h <= 0) return 0;
+    if (puffer->size() != i420Laenge(w, h)) return 0;
+    Frame f;
+    f.art = Bildart::Kachel;
+    f.w = w;
+    f.h = h;
+    f.kachel = std::move(puffer);
+    f.arrival = arrival;
+    return push(std::move(f));
+  }
+
+  /**
+   * Ein Rohbild „einpassen“ (#310): eine KOPIE wie pushFrame (Puffer aus dem Vorrat), dazu die Groesse des
+   * UYVA-Rahmens, in den der Sender es erst beim Ausgeben einpasst. Legt nichts ab (Rueckgabe 0) ohne Puffer, bei
+   * w, h, rahmenW oder rahmenH <= 0 oder wenn `len` nicht der I420-Groesse w*h + 2*(w/2)*(h/2) entspricht: die
+   * Einpassung liest spaeter genau so viel - ausserhalb der Sender-Sperre.
+   *
+   * @return wie viele Bilder die Obergrenze dabei verdraengt hat (0 oder 1).
+   */
+  int pushEinpassen(const uint8_t* buf, size_t len, int w, int h, int rahmenW, int rahmenH, TimePoint arrival) {
+    if (!buf || w <= 0 || h <= 0 || rahmenW <= 0 || rahmenH <= 0) return 0;
+    if (len != i420Laenge(w, h)) return 0;
+    Frame f = kopie(buf, len, w, h, arrival);
+    f.art = Bildart::Einpassen;
+    f.rahmenW = rahmenW;
+    f.rahmenH = rahmenH;
     return push(std::move(f));
   }
 
@@ -132,18 +169,8 @@ class DelayLine {
    */
   template <class Sink>
   Released release(TimePoint now, std::chrono::milliseconds delay, Sink&& sink) {
-    size_t faellig = 0;
-    while (faellig < queue_.size() && queue_[faellig].arrival + delay <= now) ++faellig;
-
     Released r;
-    if (faellig > kMaxBurst) {
-      for (size_t i = 0; i + 1 < faellig; ++i) {
-        recycle(std::move(queue_.front()));
-        queue_.pop_front();
-        ++r.dropped;
-      }
-      faellig = 1;
-    }
+    const size_t faellig = faelligAbzaehlen(now, delay, r);
     for (size_t i = 0; i < faellig; ++i) {
       Frame f = std::move(queue_.front());
       queue_.pop_front();
@@ -152,6 +179,35 @@ class DelayLine {
       recycle(std::move(f));
     }
     return r;
+  }
+
+  /**
+   * Wie release(), aber ohne Senke (#310): haengt die auszugebenden Bilder in Ankunftsreihenfolge an `aus` (erwartet
+   * leer). DIESELBE Faelligkeits- und Schwallregel - ein gemeinsamer Helfer (faelligAbzaehlen), keine zweite Regel.
+   * Fuer den Sender, der zwischen Entnehmen und Senden seine Sperre oeffnet (Einpassen ausserhalb der Sperre). Die
+   * Puffer gehoeren danach `aus`; in den Vorrat gehen sie mit zuruecklegen(). Der Nachlauf entnimmt mit
+   * `now - kNachlaufKarenz`, genau wie releaseNachlauf().
+   */
+  Released entnehmen(TimePoint now, std::chrono::milliseconds delay, std::vector<Frame>& aus) {
+    Released r;
+    const size_t faellig = faelligAbzaehlen(now, delay, r);
+    // Hoechstens kMaxBurst je Aufruf: einmal angefordert, danach entnimmt jeder Aufruf ohne Speicheranforderung.
+    if (aus.capacity() < kMaxBurst) aus.reserve(kMaxBurst);
+    for (size_t i = 0; i < faellig; ++i) {
+      aus.push_back(std::move(queue_.front()));
+      queue_.pop_front();
+      ++r.sent;
+    }
+    return r;
+  }
+
+  /**
+   * Gibt die Puffer entnommener Bilder in den Vorrat zurueck (Deckel kMaxSpare, wie nach release()); `aus` ist
+   * danach leer. Auch nach clear() zulaessig: dann liegen danach hoechstens kMaxSpare Puffer im Vorrat.
+   */
+  void zuruecklegen(std::vector<Frame>& aus) {
+    for (Frame& f : aus) recycle(std::move(f));
+    aus.clear();
   }
 
   /**
@@ -180,6 +236,44 @@ class DelayLine {
   }
 
  private:
+  /** I420-Groesse w x h: Y-Ebene plus zwei Viertel-Ebenen (abgerundet wie Zoom und einpass::i420Bytes). */
+  static size_t i420Laenge(int w, int h) {
+    return static_cast<size_t>(w) * static_cast<size_t>(h) + 2 * static_cast<size_t>(w / 2) * static_cast<size_t>(h / 2);
+  }
+
+  /** Ein Frame mit einer KOPIE von buf, der Puffer wo moeglich aus dem Vorrat (pushFrame, pushEinpassen). */
+  Frame kopie(const uint8_t* buf, size_t len, int w, int h, TimePoint arrival) {
+    Frame f;
+    f.w = w;
+    f.h = h;
+    f.arrival = arrival;
+    if (!spare_.empty()) {
+      f.data = std::move(spare_.back());
+      spare_.pop_back();
+    }
+    f.data.assign(buf, buf + len);
+    return f;
+  }
+
+  /**
+   * Die Faelligkeits- und Schwallregel fuer release() UND entnehmen(): zaehlt die vorn in der Warteschlange faelligen
+   * Bilder (Ankunft + Versatz <= jetzt) und verwirft bei mehr als kMaxBurst alle bis auf das juengste (in den Vorrat,
+   * gezaehlt in r.dropped). @return wie viele Bilder vorn jetzt auszugeben sind (hoechstens kMaxBurst).
+   */
+  size_t faelligAbzaehlen(TimePoint now, std::chrono::milliseconds delay, Released& r) {
+    size_t faellig = 0;
+    while (faellig < queue_.size() && queue_[faellig].arrival + delay <= now) ++faellig;
+    if (faellig > kMaxBurst) {
+      for (size_t i = 0; i + 1 < faellig; ++i) {
+        recycle(std::move(queue_.front()));
+        queue_.pop_front();
+        ++r.dropped;
+      }
+      faellig = 1;
+    }
+    return faellig;
+  }
+
   int push(Frame&& f) {
     int verdraengt = 0;
     if (queue_.size() >= kMaxQueue) {

@@ -4,7 +4,7 @@
 import { readCredentials } from '@jm/zoom-bridge';
 import { SLOT_NR_MAX, SPEAKER_HOLD_MAX_MS } from '@jm/zoom-bridge/protocol';
 import type {
-  ZoomSlotAufloesung, ZoomSlotEinstellung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotVorgaben, ZoomSprecherEinstellung,
+  ZoomSlotAufloesung, ZoomSlotBildformat, ZoomSlotEinstellung, ZoomSlotErsatzbild, ZoomSlotModus, ZoomSlotTonArt, ZoomSlotVorgaben, ZoomSprecherEinstellung,
   ZoomSprecherSignal,
 } from '../../shared/types';
 import { HALTEZEIT_UNGUELTIG, NDI_NAME_MAX, NDI_NAME_TEXT } from '../../shared/zoom-text';
@@ -20,6 +20,13 @@ export interface GespeicherterZugang {
 
 /** 1 bis 64 Zeichen nach `trim` (G4), sonst `null`. Der Aufrufer setzt dann die Vorgabe „JM Connect“. */
 export function gueltigerAnzeigename(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  return t.length >= 1 && t.length <= 64 ? t : null;
+}
+
+/** Zuletzt benutzte Meeting-Nummer (#290): String, getrimmt, 1 bis 64 Zeichen, sonst `null`. */
+export function gueltigeLetzteNummer(v: unknown): string | null {
   if (typeof v !== 'string') return null;
   const t = v.trim();
   return t.length >= 1 && t.length <= 64 ? t : null;
@@ -79,14 +86,16 @@ export function waehleZugang(e: {
 /** Erlaubte Werte je Aufzählung (Spec 7.1). Ein Record macht eine vergessene Variante zum Typfehler. */
 const MODI: Record<ZoomSlotModus, true> = { teilnehmer: true, sprecher: true, freigabe: true };
 const AUFLOESUNGEN: Record<ZoomSlotAufloesung, true> = { '360p': true, '720p': true, '1080p': true };
-const ERSATZBILDER: Record<ZoomSlotErsatzbild, true> = { transparent: true, eingefroren: true, schwarz: true, weiss: true };
+const ERSATZBILDER: Record<ZoomSlotErsatzbild, true> = { transparent: true, eingefroren: true, schwarz: true, weiss: true, kachel: true };
 const TONARTEN: Record<ZoomSlotTonArt, true> = { mischton: true, person: true };
+const BILDFORMATE: Record<ZoomSlotBildformat, true> = { original: true, einpassen: true };
 const SIGNALE: Record<ZoomSprecherSignal, true> = { sprecherVideo: true, aktivesVideo: true, tonAktiv: true };
 const istIn = <T extends string>(werte: Record<T, true>, v: unknown): v is T => typeof v === 'string' && Object.hasOwn(werte, v);
 export const istSlotModus = (v: unknown): v is ZoomSlotModus => istIn(MODI, v);
 export const istSlotAufloesung = (v: unknown): v is ZoomSlotAufloesung => istIn(AUFLOESUNGEN, v);
 export const istSlotErsatzbild = (v: unknown): v is ZoomSlotErsatzbild => istIn(ERSATZBILDER, v);
 export const istSlotTonArt = (v: unknown): v is ZoomSlotTonArt => istIn(TONARTEN, v);
+export const istSlotBildformat = (v: unknown): v is ZoomSlotBildformat => istIn(BILDFORMATE, v);
 export const istSprecherSignal = (v: unknown): v is ZoomSprecherSignal => istIn(SIGNALE, v);
 const istObjekt = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -158,6 +167,28 @@ export function uebergangsNdiName(anzeigename: string, belegt: readonly string[]
 }
 
 /**
+ * Name, mit dem ein Teilnehmer-Slot beim Einschalten an die Bridge geht, wenn „Person im NDI-Namen“ an ist (#287):
+ * „NDI-Name (Person)“. Person: „:“ → Leerzeichen, Steuerzeichen weg, Rand-Leerraum getrimmt, auf den Rest der 60 Code-Punkte
+ * gekürzt (nie mitten in einem Ersatzpaar). Leere Person, kein Platz für mindestens ein Zeichen oder die Person steht
+ * schon als ganze Wörter im Slotnamen steht (NFC, ohne Groß-/Kleinschreibung; Grenze = Rand oder Zeichen, das kein Buchstabe/keine Ziffer ist) → der Slotname unverändert. Das Ergebnis besteht immer ndiNameFormFehler.
+ */
+export function ndiNameMitPerson(ndiName: string, person: string): string {
+  const roh = person.replace(/:/g, ' ').replace(STEUERZEICHEN_ALLE, '').replace(/\p{Cs}/gu, '').trim();
+  // Nur Format-Zeichen (U+200B, U+FEFF …) übrig: kein Buchstabe, keine Ziffer, kein Symbol → wie leer.
+  if (roh === '' || !/[\p{L}\p{N}\p{S}]/u.test(roh)) return ndiName;
+  const norm = (s: string): string => s.normalize('NFC').toLocaleLowerCase('de');
+  const wort = '[\\p{L}\\p{N}]';
+  const imName = new RegExp(`(?<!${wort})${norm(roh).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!${wort})`, 'u');
+  if (imName.test(norm(ndiName))) return ndiName;
+  const platz = NDI_NAME_MAX - codePunkte(ndiName) - 3;
+  if (platz < 1) return ndiName;
+  const kurz = kuerze(roh, platz).trim();
+  if (kurz === '') return ndiName;
+  const name = `${ndiName} (${kurz})`;
+  return ndiNameFormFehler(name) === null ? name : ndiName;
+}
+
+/**
  * Neuer Slot (Spec 7.6, 0.22, 0.28): Modus Teilnehmer, keine Person, Ersatzbild transparent, Tonart Mischton, Computerton
  * an, ohne Kamera an, Start aus, Auflösung und Ton aus den Vorgaben; NDI-Name „Zoom {nr}“, bei Kollision „Zoom {nr} (2)“ …
  * „Als Slot laden“ und `zoom_load` (Task B13) setzen danach Person, Übergangsnamen und Start-Taste.
@@ -165,7 +196,7 @@ export function uebergangsNdiName(anzeigename: string, belegt: readonly string[]
 export function neuerSlot(nr: number, v: ZoomSlotVorgaben, belegteNamen: readonly string[]): ZoomSlotEinstellung {
   return {
     nr, ndiName: freierName(`Zoom ${nr}`, belegteNamen), modus: 'teilnehmer', person: '', an: false, aufloesung: v.aufloesung,
-    ersatzbild: 'transparent', tonAn: v.tonAn, tonArt: 'mischton', computerton: true, ohneKamera: true,
+    ersatzbild: 'transparent', tonAn: v.tonAn, tonArt: 'mischton', computerton: true, ohneKamera: true, bildformat: 'original',
   };
 }
 
@@ -173,11 +204,11 @@ export function neuerSlot(nr: number, v: ZoomSlotVorgaben, belegteNamen: readonl
  * Der eine Konstruktor von ZoomSlotEinstellung (Spec 7.2 „Lesen“, 7.10): unbekannte oder fehlende Werte → Vorgabe eines
  * neuen Slots (7.6). Verworfen (`null`) wird ein Eintrag ohne Nummer 1–16 oder ohne gültigen NDI-Namen (E26): Ein
  * ungültiger Name wird nicht still ersetzt, sonst verlöre ein Bildmischer-Eingang seine Quelle (T91 nennt die Zahl).
- * Genau die elf Felder; fremde fallen weg.
+ * Genau die zwölf Felder; fremde fallen weg.
  */
 export function normiereSlot(roh: unknown): ZoomSlotEinstellung | null {
   if (!istObjekt(roh)) return null;
-  const { nr, ndiName, modus, person, an, aufloesung, ersatzbild, tonAn, tonArt, computerton, ohneKamera } = roh;
+  const { nr, ndiName, modus, person, an, aufloesung, ersatzbild, tonAn, tonArt, computerton, ohneKamera, bildformat } = roh;
   if (typeof nr !== 'number' || !Number.isInteger(nr) || nr < 1 || nr > SLOT_NR_MAX) return null;
   if (typeof ndiName !== 'string' || ndiNameFormFehler(ndiName) !== null) return null;
   return {
@@ -192,6 +223,7 @@ export function normiereSlot(roh: unknown): ZoomSlotEinstellung | null {
     tonArt: istSlotTonArt(tonArt) ? tonArt : 'mischton',
     computerton: typeof computerton === 'boolean' ? computerton : true,
     ohneKamera: typeof ohneKamera === 'boolean' ? ohneKamera : true,
+    bildformat: istSlotBildformat(bildformat) ? bildformat : 'original',
   };
 }
 

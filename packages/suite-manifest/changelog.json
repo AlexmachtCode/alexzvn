@@ -389,6 +389,38 @@
     "name": "JM Audio Recorder",
     "entries": [
       {
+        "version": "0.9.1",
+        "date": "2026-11-11",
+        "notes": [
+          "Import von Presets: Nimmt ein Preset in einem Netzwerkordner auf, fragt der Recorder jetzt vor dem Übernehmen: übernehmen, ohne Netzwerkordner übernehmen oder abbrechen.",
+          "System Sound: Kurze Hänger des Rechners, etwa beim Schreiben auf einen langsamen USB-Stick, verschieben den Ton nicht mehr gegen die echte Zeit. Eine Aufnahme, die in Stille endet, bleibt auch nach so einem Hänger vollständig.",
+          "Presets: „(geändert)“ erscheint nur noch, wenn sich ein im Preset gespeicherter Wert geändert hat. „Kein Preset“ hält einen noch wartenden Wechsel an, und ein Gerätewechsel wartet nicht mehr auf einen langsam erreichbaren Netzwerkordner.",
+          "Fehlt der gemerkte Eingang, gelten Änderungen an Kanälen und Samplerate jetzt für den gewählten Eingang und werden gemerkt. Kommt der Zielordner aus einer Show und liegt im Netzwerk, zeigt der Recorder das oben an."
+        ]
+      },
+      {
+        "version": "0.9.0",
+        "date": "2026-11-11",
+        "notes": [
+          "Presets: Alle Einstellungen für einen Einsatz lassen sich unter einem Namen speichern und mit einem Klick wieder abrufen, etwa „Mehrspur-Dante“, „Interface“ oder „System Sound“. Ein Preset enthält Eingang, Kanäle, Samplerate, Zielordner, Dateiname, Einzelspuren, Verstärkung und Aufnahmedauer. Die Leiste dafür steht ganz oben.",
+          "Wird nach dem Abrufen etwas verändert, zeigt die Auswahl „(geändert)“, und „Zurücksetzen“ holt die gespeicherten Werte zurück. Speichern unter demselben Namen fragt vor dem Überschreiben. Ist der Eingang offen und braucht das Preset ein anderes Gerät, schließt der Recorder ihn und öffnet ihn mit den neuen Werten wieder. Während einer laufenden oder geplanten Aufnahme ist die Auswahl gesperrt.",
+          "Über „⋯“ lassen sich alle Presets als Datei exportieren und auf einem anderen Rechner importieren. Gibt es dort schon ein Preset gleichen Namens, fragt der Recorder: überschreiben oder beide behalten. Fehlt dort das Gerät oder der Zielordner, erscheint ein Hinweis. Presets, die in einen Netzwerkordner aufnehmen, nennt der Import ausdrücklich.",
+          "System-Sound-Aufnahmen (Eingänge mit „[Loopback]“) sind jetzt so lang wie die echte Zeit. Windows liefert bei Stille keine Daten. Bisher fehlten die stillen Stellen in der Datei, 3 Sekunden Stille ergaben 0 Sekunden Aufnahme, und die Aufnahme lief gegenüber dem Video auseinander. Jetzt füllt der Recorder diese Stellen mit echter Stille."
+        ]
+      },
+      {
+        "version": "0.8.0",
+        "date": "2026-11-11",
+        "notes": [
+          "Der Recorder merkt sich alle Einstellungen über einen Neustart hinweg: Eingang, Kanäle, Samplerate, Zielordner, Dateiname, Einzelspuren, Verstärkung und Aufnahmedauer. Die geplante Startzeit nicht, weil sie am nächsten Tag in der Vergangenheit liegt.",
+          "Fehlt der gemerkte Eingang beim Start, etwa weil Dante Virtual Soundcard noch nicht läuft, oder ist der Zielordner nicht erreichbar, bleibt oben ein Hinweis stehen. Nach dem Start des Geräts findet „Geräte aktualisieren“ den Eingang wieder.",
+          "Aufnahmen werden nie mehr überschrieben: Gibt es den Dateinamen schon, läuft die Aufnahme als Name-2, Name-3 und so weiter.",
+          "Lange Aufnahmen: Ab knapp 4 GB beginnt der Recorder automatisch eine Folgedatei (Name_002.wav, Name_003.wav …), die jedes Programm abspielt. Bisher ging das Stoppen ab 4 GB schief, bei 8 Kanälen nach etwa 47 Minuten, und die Datei blieb unbrauchbar.",
+          "Wird der Recorder während einer Aufnahme geschlossen, wird die Datei jetzt ordentlich abgeschlossen. Bisher hielten viele Player sie danach für leer.",
+          "Wichtig für dieses Update: nicht während einer laufenden Aufnahme installieren. Der Installer beendet den Recorder, und die Version davor schließt die Datei dabei nicht ab."
+        ]
+      },
+      {
         "version": "0.7.0",
         "date": "2026-07-05",
         "notes": [
@@ -551,6 +583,68 @@
     "app": "presenter",
     "name": "JM Presenter",
     "entries": [
+      {
+        "version": "0.14.0",
+        "date": "2026-11-18",
+        "notes": [
+          "Neu: Gast-Klicker übers Internet. Remote-Gäste, etwa per Zoom zugeschaltet, schalten ihre Folien selbst weiter, während die Präsentation lokal im Presenter läuft: Link im Browser öffnen, „Next“/„Back“ oder Pfeiltasten, dazu ein kleines Bild der aktuellen Folie. Beim Gast muss nichts installiert werden. (#317)",
+          "Einschalten im Fenster „Fernsteuerung“ unter „Gast-Klicker übers Internet“. „Für den Zoom-Chat kopieren“ legt den Link samt kurzem Hinweis in die Zwischenablage. Der Link gilt für das ganze Event und bleibt nach einem Neustart gleich.",
+          "In der Referentenansicht zeigt „Gast-Klick ●“ den Stand; ein Klick darauf pausiert Gast-Klicks und setzt sie fort. Der eigene Clicker und die Tastatur wirken immer.",
+          "Wer den Link hat, kann vor/zurück klicken. Ist Publikum im Chat, den Link privat an den Gast schicken. „Neuer Link“ macht einen weitergegebenen Link ungültig.",
+          "Über das Internet geht nur vor/zurück, und der Presenter verbindet sich nur ausgehend. Fällt die Verbindung aus, läuft die Präsentation unverändert weiter und der Presenter verbindet von selbst neu."
+        ]
+      },
+      {
+        "version": "0.13.2",
+        "date": "2026-11-18",
+        "notes": [
+          "Neu: Der Presenter öffnet jetzt auch AVIF- und SVG-Bilder – als Folie und als Bild-Einblendung, beim Ablegen, per Doppelklick, im Datei-Dialog und über PRESENTER OPEN. (#313)",
+          "SVG-Grafiken wie Logos und Diagramme werden in Ausgabegröße gerechnet und bleiben scharf, im richtigen Seitenverhältnis.",
+          "SVG-Folien bekommen einen weißen Hintergrund wie im Editor; als Einblendung bleiben SVG-Bilder durchsichtig.",
+          "Die Datei-Dialoge zeigen jetzt alle Bildformate, die der Presenter kennt, also auch GIF und BMP.",
+          "Projekte mit SVG-Bildern brauchen auf allen Rechnern mindestens 0.13.2 – ältere Presenter zeigen solche Folien leer."
+        ]
+      },
+      {
+        "version": "0.13.1",
+        "date": "2026-11-17",
+        "notes": [
+          "Neu: Die Referentenansicht lässt sich ins Vollbild schalten – mit dem Knopf „Vollbild“ oben in der Referentenansicht oder mit F11. Sie füllt dann den ganzen Bildschirm, unter Windows auch über der Taskleiste. (#309)",
+          "Der Presenter merkt sich die Einstellung: Lief die Referentenansicht zuletzt im Vollbild, öffnet die nächste Präsentation sie wieder so, auch nach einem Neustart.",
+          "Der bisherige Knopf „Vollbild“ schaltet das Publikumsfenster und heißt jetzt „Publikum Vollbild“. Esc beendet wie bisher die Präsentation."
+        ]
+      },
+      {
+        "version": "0.13.0",
+        "date": "2026-11-15",
+        "notes": [
+          "Neu: NDI-Ausgang (Windows). Der Presenter gibt sein Publikumsbild zusätzlich als NDI-Quelle „JM Presenter“ aus, 1920×1080 mit 25 Bildern pro Sekunde. Was die Folie nicht ausfüllt, ist durchsichtig: Ein Hochkant-Bild vom Handy lässt sich in OBS, vMix oder TriCaster direkt über das Livebild legen, ohne Zuschneiden. (#303)",
+          "Eingeschaltet wird NDI mit dem Knopf „NDI“ in der Werkzeugleiste oder in der Referentenansicht; er zeigt, wie viele Empfänger verbunden sind. Der Presenter merkt sich die Einstellung und startet NDI beim nächsten Mal von selbst.",
+          "Übergänge, Einblendungen und Weißbild erscheinen in NDI wie auf dem Bildschirm. Schwarzbild und eine beendete Präsentation sind in NDI durchsichtig, damit nichts Schwarzes über dem Livebild liegt.",
+          "Ohne zweiten Bildschirm: Bei eingeschaltetem NDI gibt es im Feld „Publikums-Bildschirm“ den Eintrag „Keiner – nur NDI“. Dann öffnet „Präsentieren“ nur die Referentenansicht, und das Bild geht allein über NDI.",
+          "Auf dem Mac gibt es den NDI-Ausgang noch nicht; dort zeigt der Knopf „NDI nicht verfügbar“."
+        ]
+      },
+      {
+        "version": "0.12.0",
+        "date": "2026-11-13",
+        "notes": [
+          "Dateien hineinziehen: PDFs, Bilder und PowerPoint- oder andere Office-Dokumente lassen sich direkt aus dem Explorer oder Finder in den Editor ziehen, auch mehrere auf einmal. Sie werden hinten an die Folien angehängt; Dateien, die der Presenter nicht kennt oder nicht lesen kann, werden übersprungen und in der Fehlerzeile genannt.",
+          "PDFs per Doppelklick: Der Presenter steht jetzt beim Rechtsklick auf ein PDF unter „Öffnen mit“ und lässt sich als Standard-App für PDFs wählen (Windows: „Andere App auswählen“ › „Immer“ oder Einstellungen › Standard-Apps; Mac: Informationen › „Öffnen mit“ › „Alle ändern“). Von selbst macht er sich nicht zum PDF-Programm.",
+          "Liegt im Presenter schon eine Präsentation, fragt er beim Öffnen per Doppelklick nach: Ersetzen, Anhängen oder Abbrechen. Mehrere zugleich geöffnete PDFs kommen in eine gemeinsame Frage; ist der Editor leer, wird direkt geladen. Lässt sich ein PDF nicht laden, bleibt die bisherige Präsentation unverändert.",
+          "Eine laufende Präsentation bleibt bei alldem unberührt, und eine versehentlich auf Referenten- oder Publikumsansicht fallen gelassene Datei bewirkt nichts."
+        ]
+      },
+      {
+        "version": "0.11.0",
+        "date": "2026-11-11",
+        "notes": [
+          "Neuer Reiter „Übergänge“ im Editor neben „Folie“: Schnitt oder Überblendung mit einstellbarer Dauer für alle Folien, und für jede Folie ein eigener Übergang, wenn sie anders hereinkommen soll.",
+          "Schleife: Der Presenter blättert nach einer Standzeit selbst weiter und beginnt nach der letzten Folie wieder von vorn, etwa für Pausen- oder Foyer-Schleifen. Die Standzeit gilt für alle Folien, einzelne Folien können eine eigene bekommen.",
+          "In der Referentenansicht schaltet der Knopf „Schleife“ live an und aus und zeigt, wann die nächste Folie kommt. Wer von Hand blättert, startet die Standzeit neu; Schwarz- und Weißbild halten die Schleife an.",
+          "Übergänge und Schleife werden in der Projektdatei gespeichert. Ältere Projekte öffnen wie bisher, mit Schnitt und ohne Schleife."
+        ]
+      },
       {
         "version": "0.10.1",
         "date": "2026-10-08",
@@ -1689,6 +1783,53 @@
     "app": "connect",
     "name": "JM Connect",
     "entries": [
+      {
+        "version": "0.4.5",
+        "date": "2026-11-18",
+        "notes": [
+          "Zoom-Slots: Neue Einstellung „Bildformat“ je Slot. „16:9 einpassen“ setzt Hochkant-Bilder – etwa ein Handy im Hochformat – mittig in ein 16:9-Bild in der Auflösung des Slots; die Seiten sind durchsichtig. Der Bildmischer muss nichts mehr zuschneiden, auch wenn die Person das Handy dreht. Bilder, die schon 16:9 sind, gehen unverändert hinaus. (#310)",
+          "Im Modus „16:9 einpassen“ nehmen auch die Ersatzbilder (eingefroren, schwarz, weiß, Zoom-Kachel) die Fläche des Livebilds ein; „transparent“ bleibt ganz durchsichtig. Die Messzeile der Kachel nennt zusätzlich, was ins NDI geht, z. B. „NDI 1920×1080 eingepasst“.",
+          "Vorgabe bleibt „Original“: bestehende Slots verhalten sich unverändert. Gilt für Teilnehmer- und Sprecher-Slots; Bildschirmfreigaben bleiben in ihrer eigenen Größe. Dreht die Person das Handy, wechselt die Quelle zwischen dem 16:9-Rahmen und Zooms Querformat; TriCaster und vMix passen beides formatfüllend ein.",
+          "Nur Windows (Zoom-Slots gibt es nur dort); das Mac-Paket ist inhaltlich unverändert."
+        ]
+      },
+      {
+        "version": "0.4.4",
+        "date": "2026-11-15",
+        "notes": [
+          "Neues Ersatzbild „Zoom-Kachel“ für Zoom-Slots im Modus Teilnehmer und Aktiver Sprecher: Solange kein Kamerabild kommt, zeigt der Slot eine Kachel wie in Zoom – Profilbild oder Initialen und den Anzeigenamen. Liefert Zoom trotz Kamera an kein Bild, steht „Bild unterbrochen“ darauf. Verlässt die Person das Meeting, ist der Slot sofort transparent. Gedacht für den Downstage-Monitor: Redner sehen, ob ein Remote-Gast da ist. (#306)",
+          "Die bisherigen Ersatzbilder (transparent, eingefroren, schwarz, weiß) verhalten sich unverändert.",
+          "Nur Windows (Zoom-Slots gibt es nur dort); das Mac-Paket ist inhaltlich unverändert."
+        ]
+      },
+      {
+        "version": "0.4.3",
+        "date": "2026-11-14",
+        "notes": [
+          "Stabilität: Connect stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist. Connect schreibt den Fehler ins Protokoll und läuft weiter. (Absturz vom 02.11.)",
+          "Rechtsklick in ein Eingabefeld – z. B. Meeting-Nummer oder Kenncode – öffnet jetzt ein Menü mit Ausschneiden, Kopieren und Einfügen. (#301)",
+          "Gilt für Windows und Mac."
+        ]
+      },
+      {
+        "version": "0.4.2",
+        "date": "2026-11-12",
+        "notes": [
+          "Zoom: Connect merkt sich die Einwahldaten des letzten Meetings – Meeting-Nummer und Kenncode –, bis neue eingetragen werden. Nach „Schließen“ und nach einem Neustart steht die Nummer wieder im Feld; der Kenncode wird nicht angezeigt, das Feld zeigt „Kenncode gespeichert“, und „Beitreten“ nutzt ihn.",
+          "Die Nummer liegt in den Connect-Einstellungen auf diesem PC, der Kenncode nur mit der Windows-Verschlüsselung – nie in der Show-Datei, im Protokoll oder im Companion-Status. Lässt sich der Kenncode nicht dauerhaft speichern, gilt er nur bis zum Beenden, und Connect sagt das. „Vergessen“ löscht die gemerkten Daten.",
+          "Zoom-Slots: Neuer Schalter „Person im NDI-Namen“ (Vorgabe aus). Ist er an, heißen Teilnehmer-Slots beim Einschalten „‹NDI-Name› (‹Person›)“, z. B. „Zoom 1 (Anna Müller)“ – so sieht man beim Einrichten im Mischer, wer auf welcher Quelle liegt. Der Name bleibt, bis der Slot aus ist, auch wenn Connect die Verbindung zum Meeting neu aufbaut; ein Personenwechsel benennt die Quelle nicht um. Wer den Schalter einschaltet, ordnet die Mischer-Eingänge einmal neu zu.",
+          "Gilt unter Windows (Zoom gibt es nur dort); das Mac-Paket ist inhaltlich unverändert."
+        ]
+      },
+      {
+        "version": "0.4.1",
+        "date": "2026-11-10",
+        "notes": [
+          "Zoom-Slots: Kurze Aussetzer im Zoom-Bild ergeben kein schwarzes Bild mehr. Bleibt das Bild einer Person mit eingeschalteter Kamera aus, bleibt bis zu 2 Sekunden das letzte Bild stehen; erst danach kommt das Ersatzbild.",
+          "Schaltet die Person die Kamera aus, kommt das Ersatzbild wie bisher nach 0,2 Sekunden, verlässt sie das Meeting, wie bisher sofort; Bildschirmfreigaben verhalten sich unverändert.",
+          "Gilt für Teilnehmer- und Sprecher-Slots unter Windows; das Mac-Paket ist inhaltlich unverändert."
+        ]
+      },
       {
         "version": "0.4.0",
         "date": "2026-11-02",

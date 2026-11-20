@@ -28,7 +28,7 @@ namespace {
 ParticipantsListener g_participantsListener;
 
 // --- Merker der Slots (Spec 6.5) ---------------------------------------------------
-// Eine Sperre fuer alle vier Warteschlangen: die Rueckrufe halten sie nur fuer ein
+// Eine Sperre für alle fünf Warteschlangen: die Rückrufe halten sie nur für ein
 // push_back, die Hauptschleife nur fuer ein pop_front - nie ueber einem SDK- oder
 // NDI-Aufruf und nie ueber emitRaw/emitLog.
 std::mutex g_merkerMutex;
@@ -36,6 +36,11 @@ std::deque<MerkerTeilnehmer> g_merkerTeilnehmer;
 std::deque<MerkerKamera> g_merkerKamera;
 std::deque<MerkerFreigabe> g_merkerFreigabe;
 std::deque<MerkerSprecher> g_merkerSprecher;
+std::deque<MerkerProfil> g_merkerProfil;   // Zoom-Kachel (#306): Name oder Profilbild eines Teilnehmers geändert
+// Zoom-Kachel (#306, Review T7): der Host blendet die Profilbilder aus oder ein - gilt für alle. Ein klebendes
+// Merkzeichen wie g_inMeetingOffen statt eines Eintrags in der gedeckelten Warteschlange: es geht nie verloren, und
+// zwei Meldungen vor dem nächsten Nehmen verlangen dieselbe Arbeit.
+std::atomic<bool> g_profilAlleOffen{false};
 std::atomic<uint64_t> g_merkerVerworfen{0};
 // INMEETING kam (6.6 Nr. 4: zuerst dieser Merker). Ein Merkzeichen statt einer
 // Warteschlange: zwei INMEETING vor dem naechsten Nehmen verlangen dieselbe Arbeit.
@@ -79,6 +84,15 @@ bool callbacksTakeTeilnehmer(MerkerTeilnehmer* out) { return merkerNehmen(g_merk
 bool callbacksTakeKamera(MerkerKamera* out) { return merkerNehmen(g_merkerKamera, out); }
 bool callbacksTakeFreigabe(MerkerFreigabe* out) { return merkerNehmen(g_merkerFreigabe, out); }
 bool callbacksTakeSprecher(MerkerSprecher* out) { return merkerNehmen(g_merkerSprecher, out); }
+bool callbacksTakeProfil(MerkerProfil* out) {
+  if (out == nullptr) return false;
+  // Zuerst „alle“ (nimmt und löscht, exchange), dann die einzelnen Kennungen.
+  if (g_profilAlleOffen.exchange(false)) {
+    *out = MerkerProfil{0};
+    return true;
+  }
+  return merkerNehmen(g_merkerProfil, out);
+}
 uint64_t merkerVerworfen() { return g_merkerVerworfen.load(); }
 bool callbacksRendererSperre() { return g_rendererSperre.load(); }
 void callbacksRendererSperreLoesen() { g_rendererSperre = false; }
@@ -316,12 +330,27 @@ void ParticipantsListener::onUserLeft(IList<unsigned int>* ids, const zchar_t*) 
 void ParticipantsListener::onUserNamesChanged(IList<unsigned int>* ids) {
   if (ids == nullptr) return;
   for (int i = 0; i < ids->GetCount(); ++i) {
+    // Zoom-Kachel (#306): die Kachel dieses Teilnehmers zeigt den neuen Namen - der Slot liest das Profil in der
+    // Hauptschleife neu. Vor der Abfrage unten: auch wer gerade nicht abfragbar ist, bekommt den Merker.
+    merkerEinreihen(g_merkerProfil, MerkerProfil{ids->GetItem(i)});
     IUserInfo* u = participantsCtrl() ? participantsCtrl()->GetUserByUserID(ids->GetItem(i)) : nullptr;
     if (u == nullptr) continue;
     const zchar_t* n = u->GetUserName();
     emitRaw("{\"ev\":\"renamed\",\"id\":" + std::to_string(ids->GetItem(i)) +
             ",\"name\":\"" + jsonEscape(n ? n : L"") + "\"}");
   }
+}
+
+void ParticipantsListener::onInMeetingUserAvatarPathUpdated(unsigned int userID) {
+  // Zoom-Kachel (#306): das Profilbild kam (oft erst nach dem Beitritt) oder hat sich geändert. Nur der Merker.
+  merkerEinreihen(g_merkerProfil, MerkerProfil{userID});
+}
+
+void ParticipantsListener::onParticipantProfilePictureStatusChange(bool /*bHidden*/) {
+  // Zoom-Kachel (#306): der Host blendet die Profilbilder aus oder wieder ein - gilt für alle (MerkerProfil{0} beim
+  // Nehmen). Klebend, nie in der gedeckelten Warteschlange (Review T7). Ob sie ausgeblendet sind, liest der Slot
+  // selbst (IsParticipantProfilePicturesHidden), nicht aus diesem Wert.
+  g_profilAlleOffen = true;
 }
 
 void RecordingListener::onRecordPrivilegeChanged(bool bCanRec) {

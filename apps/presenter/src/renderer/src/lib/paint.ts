@@ -1,6 +1,6 @@
 import type { Overlay, Slide } from '@shared/types';
 import { getImageBytes } from './assets';
-import { bytesToBlob } from './bytes';
+import { bildDekodieren } from './bild-dekodieren';
 
 // Single source of truth for how a slide looks: base page + overlays composited
 // onto a canvas. Used by the audience window, the presenter previews and the PDF
@@ -20,12 +20,18 @@ export async function ensureOverlayBitmaps(slides: Slide[]): Promise<void> {
       const bytes = getImageBytes(id);
       if (!bytes) return;
       try {
-        overlayBitmaps.set(id, await createImageBitmap(bytesToBlob(bytes)));
+        overlayBitmaps.set(id, await bildDekodieren(bytes));
       } catch {
         // ignore undecodable image
       }
     }),
   );
+}
+
+/** Alle vorab dekodierten Overlay-Bilder schließen und vergessen (#303: neue Präsentation im NDI-Fenster). */
+export function clearOverlayBitmaps(): void {
+  for (const bmp of overlayBitmaps.values()) bmp.close();
+  overlayBitmaps.clear();
 }
 
 export const FONT_FAMILY = '"Manrope Variable", ui-sans-serif, system-ui, sans-serif';
