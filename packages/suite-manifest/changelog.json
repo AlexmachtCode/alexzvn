@@ -798,6 +798,13 @@
     "name": "JM Timer",
     "entries": [
       {
+        "version": "0.14.1",
+        "date": "JJJJ-MM-TT",
+        "notes": [
+          "Stabilität: Der Timer stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist."
+        ]
+      },
+      {
         "version": "0.14.0",
         "date": "2026-10-13",
         "notes": [
@@ -1580,6 +1587,13 @@
     "app": "rundown",
     "name": "JM Rundown",
     "entries": [
+      {
+        "version": "0.8.1",
+        "date": "JJJJ-MM-TT",
+        "notes": [
+          "Stabilität: Der Rundown stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist."
+        ]
+      },
       {
         "version": "0.8.0",
         "date": "2026-10-13",
