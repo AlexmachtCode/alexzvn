@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 const paket = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Je Datei ein Programm mit main(). Der Selbsttest prueft, dass jede native/*_test.cpp hier steht. */
-const TESTDATEIEN = ['native/slot_logic_test.cpp', 'native/audio_mix_test.cpp', 'native/delay_line_test.cpp', 'native/kachel_logik_test.cpp', 'native/bild_einpassen_test.cpp'];
+const TESTDATEIEN = ['native/slot_logic_test.cpp', 'native/audio_mix_test.cpp', 'native/delay_line_test.cpp', 'native/kachel_logik_test.cpp', 'native/bild_einpassen_test.cpp', 'native/audio_limiter_test.cpp'];
 
 /** --messung (#310): statt der Testdateien nur die Zeitmessung der Einpassung, optimiert gebaut (npm run einpassen-messung). */
 const MESSUNG = process.argv.includes('--messung');
