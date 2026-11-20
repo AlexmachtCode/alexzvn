@@ -673,8 +673,8 @@ async function run() {
         && JSON.stringify(laeufeAus(yml('- name: A', "  if: always()", `  run: ${lauf}`))) === '["konto-kern","bedingt"]'
         && JSON.stringify(laeufeAus(yml('- name: A', '  continue-on-error: true', `  run: ${lauf}`))) === '["konto-kern","bedingt"]'
         && JSON.stringify(laeufeAus(yml('# - if: x', '- name: A', `  run: ${lauf}`))) === '["konto-kern"]');
-    check('P20 EP24: ci-checks.yml startet die Proxy-Tests in dieser Reihenfolge: worker, konto-kern, konto-krypto, konto-do, konto-zugang, konto-routen, qa-relay, connect-zugang',
-      JSON.stringify(laeufe) === JSON.stringify(['worker', 'konto-kern', 'konto-krypto', 'konto-do', 'konto-zugang', 'konto-routen', 'qa-relay', 'connect-zugang']));
+    check('P20 EP24: ci-checks.yml startet die Proxy-Tests in dieser Reihenfolge: worker, konto-kern, konto-krypto, konto-do, konto-zugang, konto-routen, qa-relay, connect-zugang, zoom-jwt',
+      JSON.stringify(laeufe) === JSON.stringify(['worker', 'konto-kern', 'konto-krypto', 'konto-do', 'konto-zugang', 'konto-routen', 'qa-relay', 'connect-zugang', 'zoom-jwt']));
   }
 
   // Z2 (AR85 c): fehlt PROXY_KEY oder ist er leer bzw. unbrauchbar, lässt sich ein mitgeschickter alter Schlüssel nicht prüfen: 503
