@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-20T15:04:05.543Z",
+  "updatedAt": "2026-11-20T15:08:48.237Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -262,7 +262,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.prompter",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.6.0",
+      "latestVersion": "0.7.0",
       "platforms": {
         "mac": {
           "artifact": "JM Prompter-${version}-mac-${arch}.dmg",
