@@ -2718,6 +2718,32 @@ const PERSON_IM_TEXT = /(?<![\p{L}\p{N}])(?:Anna|Ben)(?![\p{L}\p{N}])/u;
   await p.aufraeumen();
 }
 
+console.log('— Slot-Einstellungen erscheinen sofort im Abbild, auch ohne laufende Bridge (Connect 0.4.6)');
+{
+  const p = baueKern({ fristen: { abbildTaktMs: 0 } });
+  const nr = p.kern.slotAnlegen().nr ?? 0;
+  await warte(50);
+  const einstellung = (): { ersatzbild?: string; bildformat?: string } | undefined =>
+    p.abbilder.at(-1)?.slots.find((s) => s.einstellung.nr === nr)?.einstellung;
+  const altE = p.kern.abbild().slots.find((s) => s.einstellung.nr === nr)?.einstellung.ersatzbild;
+  const neuE = altE === 'schwarz' ? 'weiss' : 'schwarz';
+  const vorE = p.abbilder.length;
+  ck('ohne Bridge: slotAendern(ersatzbild) ok', ok(p.kern.slotAendern(nr, { ersatzbild: neuE as 'schwarz' })));
+  await warte(50);
+  ck('… ein neues Abbild kommt, das letzte zeigt den neuen Ersatzbild-Wert', p.abbilder.length > vorE && einstellung()?.ersatzbild === neuE);
+  const altF = p.kern.abbild().slots.find((s) => s.einstellung.nr === nr)?.einstellung.bildformat;
+  const neuF = altF === 'einpassen' ? 'original' : 'einpassen';
+  const vorF = p.abbilder.length;
+  ck('ohne Bridge: slotAendern(bildformat) ok', ok(p.kern.slotAendern(nr, { bildformat: neuF as 'original' })));
+  await warte(50);
+  ck('… ein neues Abbild kommt, das letzte zeigt das neue Bildformat', p.abbilder.length > vorF && einstellung()?.bildformat === neuF);
+  const vorX = p.abbilder.length;
+  ck('abgelehnt (unbekannter Slot): ok false', !ok(p.kern.slotAendern(999, { ersatzbild: 'weiss' })));
+  await warte(50);
+  ck('… kein neues Abbild', p.abbilder.length === vorX);
+  await p.aufraeumen();
+}
+
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen, ${skip} übersprungen.`);
 process.exit(fail === 0 ? 0 : 1);

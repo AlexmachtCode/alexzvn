@@ -1888,6 +1888,16 @@
     "name": "JM Connect",
     "entries": [
       {
+        "version": "0.4.6",
+        "date": "2026-11-20",
+        "notes": [
+          "Zoom-Slots: Ton-Begrenzer (Limiter) je Slot. Kommt aus dem Meeting ein Ton über −6 dBFS – etwa Klatschen oder jemand spricht direkt ins Mikrofon –, senkt Connect ihn sofort auf diese Grenze und regelt danach weich zurück. Leiserer Ton geht unverändert hinaus. Damit kommen aus Zoom keine plötzlichen Vollausschläge mehr am Mischpult an. Die Grenze ist vorläufig fest eingestellt.",
+          "Das Protokoll nennt jetzt alle 10 Sekunden je Slot den Tonpegel aus dem Meeting: Spitze, Mittel, Übersteuerung und wie oft und wie stark der Begrenzer eingegriffen hat. Aus diesen Werten echter Einsätze legen wir die endgültige Grenze fest.",
+          "Slot-Einstellungen wie Bildformat oder Ersatzbild erscheinen jetzt sofort in der Auswahl, auch wenn kein Meeting läuft. Bisher sprang die Anzeige für einige Sekunden auf den alten Wert zurück.",
+          "Nur Windows (Zoom-Slots gibt es nur dort); das Mac-Paket ist inhaltlich unverändert."
+        ]
+      },
+      {
         "version": "0.4.5",
         "date": "2026-11-18",
         "notes": [

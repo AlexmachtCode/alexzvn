@@ -5,6 +5,7 @@
 // nicht garantiert.
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <string>
 
 namespace {
@@ -413,7 +414,16 @@ void NdiSender::sendAudioLocked(const int16_t* samples, int sampleCount, int sam
 void NdiSender::sendAudio(const int16_t* samples, int sampleCount, int sampleRate, int channels) {
   if (samples == nullptr || sampleCount <= 0 || channels <= 0) return;
   std::lock_guard<std::mutex> lock(mutex_);
-  sendAudioLocked(samples, sampleCount, sampleRate, channels);
+  const size_t n = static_cast<size_t>(sampleCount) * static_cast<size_t>(channels);
+  if (limitPuffer_.size() < n) limitPuffer_.resize(n);
+  std::memcpy(limitPuffer_.data(), samples, n * sizeof(int16_t));
+  limiter_.verarbeite(limitPuffer_.data(), sampleCount, sampleRate, channels);
+  sendAudioLocked(limitPuffer_.data(), sampleCount, sampleRate, channels);
+}
+
+slotlogic::PegelFenster NdiSender::takePegel() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return limiter_.abholen();
 }
 
 void NdiSender::sendSilence(int sampleCount, int sampleRate, int channels) {

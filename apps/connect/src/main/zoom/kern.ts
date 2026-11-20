@@ -2605,6 +2605,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     }
     gastWarnung(nr, warnung);
     abgleichen();
+    // abgleichen() kehrt ohne Bridge sofort zurück; die Anzeige soll trotzdem sofort die neue Einstellung zeigen (gedrosselt).
+    abbildGeaendert();
     return { ok: true };
   }
 

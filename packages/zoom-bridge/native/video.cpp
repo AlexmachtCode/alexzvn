@@ -34,6 +34,7 @@
 #undef min
 #undef max
 #include "audio_mix.h"
+#include "audio_limiter.h"
 #pragma pop_macro("max")
 #pragma pop_macro("min")
 
@@ -189,6 +190,9 @@ struct Slot {
   // #306: Bridge-Uhr (ms), zu der Zoom die Kamera des Ziels zuletzt von aus auf an meldete (BildLage::kameraAnMs);
   // 0 = kein solcher Wechsel seit dem Umhängen. Gesetzt nur an der Flanke (slotlogic::kameraLautZoom).
   int64_t kameraAnMs = 0;
+  // Pegelfenster des Mischer-Wegs (Ton-Limiter): Beginn (0 = kein Fenster offen) und Nummer, wie audioMessFenster.
+  int64_t pegelMischBeginnMs = 0;
+  int pegelMischFenster = 0;
   int64_t kameraGefragtBildMs = -1;        // #285/#286: lastFrameMs der Bildluecke, in der IsVideoOn() schon gefragt wurde
   int resSet = -1, resGot = -1;            // 6.11; -1 = noch nicht gesetzt
   int rawType = -1;                        // getRawDataType() nach dem Setzen der Aufloesung; -1 = keins
@@ -1260,11 +1264,21 @@ void mischerEinspeisen(Slot& s, const AudioPacket& p, Weg weg, int64_t jetzt) {
   s.ton.lastAudioMs = jetzt;
 }
 
+// Pegelzeile des Limiters (eine je Fenster und Slot); nichts, wenn im Fenster kein Paket kam.
+void tonPegelMelden(const Slot& s, const slotlogic::PegelFenster& f, bool anlauf) {
+  const std::wstring z = slotlogic::pegelZeile(s.nr, anlauf, f);
+  if (!z.empty()) emitLog(z);
+}
+
 // Mischer-Ausgabe je Herzschlag (6.13, B17): genau die verstrichene Zeit in 10-ms-
 // Schritten, nie mehr Ton als Wanduhrzeit. Raten-Unterschied: nur der Computerton,
 // slotAudio rateMismatch (T76).
 void mischerAusgeben(Slot& s, int64_t jetzt) {
-  if (tonWeg(s.mode.load(), s.audio.load(), s.shareAudio.load()) != TonQuelle::MixShare) return;
+  if (tonWeg(s.mode.load(), s.audio.load(), s.shareAudio.load()) != TonQuelle::MixShare) {
+    s.pegelMischBeginnMs = 0;
+    s.pegelMischFenster = 0;
+    return;
+  }
   std::vector<int16_t> aus;
   const int n = s.mix.ausgabe(jetzt, aus);
   if (s.mix.rateMismatch() && !s.rateMismatchGemeldet && !s.tonAudioUnavailable) {
@@ -1274,7 +1288,16 @@ void mischerAusgeben(Slot& s, int64_t jetzt) {
   if (n <= 0) return;
   // Nachtrag N2b.3: im Format, in dem ausgabe() geschrieben hat (rate()/kanaele(), n Abtastwerte je Kanal) - ein
   // daneben gefuehrtes Format beschriftete die Abtastwerte falsch (Tempo, Tonhoehe, Kanaele). n > 0 heisst: Format da.
+  if (s.pegelMischBeginnMs == 0) {
+    s.sender.takePegel();   // neues Fenster: was der Limiter vorher (anderer Weg) sammelte, gehoert nicht hierher
+    s.pegelMischBeginnMs = jetzt;
+  }
   s.sender.sendAudio(aus.data(), n, s.mix.rate(), s.mix.kanaele());
+  if (jetzt - s.pegelMischBeginnMs >= (s.pegelMischFenster == 0 ? 1000 : 10000)) {
+    tonPegelMelden(s, s.sender.takePegel(), s.pegelMischFenster == 0);
+    ++s.pegelMischFenster;
+    s.pegelMischBeginnMs = jetzt;
+  }
   if (s.tonZustand != TonZustand::Live && !s.tonAudioUnavailable) tonMelden(s, TonZustand::Live, TonGrund::packets);
 }
 
@@ -1282,6 +1305,12 @@ void mischerAusgeben(Slot& s, int64_t jetzt) {
 // falsche einmal je Ton-Stand (audioBufferMismatch mit slot, 6.4).
 void paketSenden(Slot& s, const AudioPacket& p, int64_t jetzt) {
   if (!pufferPasst(s, p)) return;
+  bool neuesFenster = false;
+  {
+    std::lock_guard<std::mutex> lock(s.fieldMutex);
+    neuesFenster = s.ton.audioMessBeginnMs == 0;
+  }
+  if (neuesFenster) s.sender.takePegel();   // ausserhalb von fieldMutex; verwirft, was vor dem Fenster gesammelt wurde
   s.sender.sendAudio(p.samples.data(), p.sampleCount, p.sampleRate, p.channels);
   TonStand fertig;
   bool messungFertig = false, erstes = false;
@@ -1322,7 +1351,10 @@ void paketSenden(Slot& s, const AudioPacket& p, int64_t jetzt) {
       !(s.audio.load() == SlotAudio::Person && s.mode.load() != SlotMode::Participant)) {
     tonMelden(s, TonZustand::Live, TonGrund::packets);
   }
-  if (messungFertig) tonMessungMelden(s, fertig, spanne, erstes);
+  if (messungFertig) {
+    tonMessungMelden(s, fertig, spanne, erstes);
+    tonPegelMelden(s, s.sender.takePegel(), erstes);
+  }
 }
 
 // Gemessene Quelle (6.3, slotAudio.source): was im letzten 500-ms-Fenster hinausging.
