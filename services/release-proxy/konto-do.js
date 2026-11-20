@@ -406,6 +406,9 @@ export class KontoSpeicher {
     for (const [key, q] of await st.list({ prefix: 'qa:' })) {
       if (!q || !(q.bis >= jetzt)) await st.delete(key);
     }
+    for (const [key, c] of await st.list({ prefix: 'connect:' })) {
+      if (!c || !(c.bis >= jetzt)) await st.delete(key);
+    }
     for (const [key, g] of await st.list({ prefix: 'geraet:' })) {
       if (!g || !(g.letzterKontakt + GERAET_MS > jetzt)) await st.delete(key);
     }

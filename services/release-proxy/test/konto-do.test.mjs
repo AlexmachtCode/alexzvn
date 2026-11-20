@@ -2418,6 +2418,16 @@ async function run() {
       check('Z3 M5: der Alarm löscht qa:-Einträge mit bis < jetzt und lässt bis = jetzt stehen', gleich([...ctx.daten.keys()].filter((k) => k.startsWith('qa:')), [`qa:${h('c')}`]) === null);
     }
 
+    // M5 (T2): der Tages-Alarm räumt auch abgelaufene Connect-Raum-Bindungen ab, gültige bleiben
+    {
+      const uhr = makeUhr(T0);
+      const { speicher, ctx } = neuerSpeicher({ KONTO_UHR: uhr });
+      await ctx.storage.put(`connect:${h('b')}`, { kidHash: h('1'), gidHash: h('2'), bis: T0 - 1 });
+      await ctx.storage.put(`connect:${h('c')}`, { kidHash: h('1'), gidHash: h('2'), bis: T0 });
+      await speicher.alarm();
+      check('T2 M5: der Alarm löscht connect:-Einträge mit bis < jetzt und lässt bis = jetzt stehen', gleich([...ctx.daten.keys()].filter((k) => k.startsWith('connect:')), [`connect:${h('c')}`]) === null);
+    }
+
     // M1: Zwischen dem Lesen und dem letzten Schreiben in qaInhaber steht nur Speicher-Zugriff (Eingangs-Tor)
     {
       const quelle = readFileSync(new URL('../konto-do.js', import.meta.url), 'utf8');
