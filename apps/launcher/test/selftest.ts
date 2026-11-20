@@ -3182,8 +3182,11 @@ await (async () => {
   // AA6, G4: Code und Schritt nur an den Renderer, nie ins Log; Logzeilen ohne Stand, E-Mail oder Token.
   const logZeilen = [...huelle.matchAll(/\.(?:info|warn|error)\((`[^`]*`|'[^']*')\)/g)].map((m) => m[1]);
   // Geprüft wird, was eingesetzt wird (${…}): Schritt, Code, Sitzung, Token, E-Mail, Stand, Geheimnis dürfen nie hinein.
+  // Ausnahmen sind nur der Fehlercode des Clients und A3 (Abnahme 06.11.): iveoLadefehlerDiagnose setzt denselben Fehlercode ein,
+  // dazu nur den HTTP-Status (Zahl) und die Request-ID (geprüfte Zeichen); deren Ausgabe prüft konto-huelle.test.ts.
+  const logErlaubt = new Set(["f.code ?? 'fehler'", 'iveoLadefehlerDiagnose(f.code, e)']);
   const logMitGeheimnis = logZeilen.flatMap((z) => [...z.matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1]))
-    .filter((a) => a !== "f.code ?? 'fehler'" && /schritt|token|sitzung|email|abhol|geheim|\bstand\b|\.code\b|^\s*[st]\s*$/i.test(a));
+    .filter((a) => !logErlaubt.has(a) && /schritt|token|sitzung|email|abhol|geheim|\bstand\b|\.code\b|^\s*[st]\s*$/i.test(a));
   ck(`P21 AA6, G4: der Anmelde-Schritt geht nur an den Renderer; keine Logzeile setzt Code, Sitzung, Token oder E-Mail ein (${logZeilen.length} Logzeilen)${logMitGeheimnis.length ? ` — ${logMitGeheimnis.join(' | ')}` : ''}`,
     huelle.includes("    melde: (schritt) => emit({ type: 'anmeldung-changed', schritt }),") && logZeilen.length >= 5 && logMitGeheimnis.length === 0);
   ck('P21 EP26: „Anmelden“ startet den Ablauf nur ohne gültige Sitzung (ein Konto je Rechner)',
