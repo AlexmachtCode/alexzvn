@@ -6,7 +6,7 @@ import type { AdminUebersicht, AdminZugang, KontoAnsicht, KontoFehlerCode, Konto
 import {
   ADMIN_TEXTE, adminKnopfSichtbar, einladeFormular, einladungsAnzeige, fehlerText, feldDatum, formularAusZugang, ladeFehlerText,
   loeschFrage, verlaengertBis, zugangDetails, zugangFormular, zugangZeilen,
-  REITER_TEXTE, alteLauncherZeilen, altKeyText, anfrageFreigabe, anfrageZeilen, geraeteZeilen, iveoHinterlegen, iveoZeilen,
+  REITER_TEXTE, alteLauncherZeilen, altKeyTexte, anfrageFreigabe, anfrageZeilen, geraeteZeilen, iveoHinterlegen, iveoZeilen,
   adminNachAktion, loeschenSchliesstDetail, vorauswahlNachLaden,
 } from '../src/renderer/src/lib/admin-ansicht';
 import { datumText } from '../src/renderer/src/lib/konto-anzeige';
@@ -166,7 +166,7 @@ function ansicht(zustand: KontoZustand, s: KontoStand | null): KontoAnsicht {
 // --- P26 9.4: Texte M1–M29 wörtlich, ohne ASCII-Anführungszeichen ----------------------------------------------------------
 {
   const T = ADMIN_TEXTE;
-  kreuz('P26 9.4: M1–M29, M48 wörtlich', [
+  kreuz('P26 9.4: M1–M29 wörtlich', [
     ['M1', `${T.titel} / ${T.oeffnen}`, 'Admin-Maske / Admin-Maske öffnen'],
     ['M2', Object.values(T.reiter).join(' / '), 'Zugänge / iveo-Events / Anfragen / Geräte'],
     ['M4', `${T.laedt} / ${T.ladeFehler('G')} / ${T.neuLaden}`, 'Lade … / Die Admin-Maske konnte nicht geladen werden: G. / Erneut laden'],
@@ -183,7 +183,6 @@ function ansicht(zustand: KontoZustand, s: KontoStand | null): KontoAnsicht {
     ['M21', [T.einladen, `${T.feldEmail}, ${T.feldName}`, T.einladenKnopf].join(' / '), '+ Externen einladen / E-Mail, Name / Einladen'],
     ['M27', T.bisFehlt, 'Externe brauchen ein Datum für „Zugang bis“.'],
     ['M29', T.keineZugaenge, 'Noch keine Zugänge. Kollegen erscheinen nach ihrer ersten Anmeldung.'],
-    ['M48 (Teil 1, EP34)', T.connectTeil1, 'Connect nutzt Cloud-Raum und Zoom-Freigabe erst mit einem kommenden Update; bis dahin gilt in Connect alles wie bisher.'],
   ]);
   const alle: string[] = [];
   const sammle = (x: unknown): void => {
@@ -266,13 +265,33 @@ function ansicht(zustand: KontoZustand, s: KontoStand | null): KontoAnsicht {
   const mitFrist = (bis: string | null, diagnose: 'ohne-ende' | 'unlesbar' | null): string => {
     const x = uebersicht([]);
     x.altKey = { bis, diagnose, zeilen: [] };
-    return altKeyText(x);
+    return altKeyTexte(x)[0];
   };
-  kreuz('P27 EP9, M44: Frist des alten Schlüssels; ohne oder unlesbar als Diagnose „ohne Enddatum“', [
-    ['mit Datum', mitFrist('2026-12-01', null), 'Alter Schlüssel angenommen bis 01.12.2026.'],
-    ['ohne Ende', mitFrist(null, 'ohne-ende'), 'Alter Schlüssel ohne Enddatum angenommen.'],
-    ['unlesbar', mitFrist('kaputt', 'unlesbar'), 'Alter Schlüssel ohne Enddatum angenommen.'],
+  kreuz('P27 EP9, M44a: Frist des alten Schlüssels; ohne oder unlesbar als Diagnose „ohne Enddatum“', [
+    ['mit Datum', mitFrist('2026-12-01', null), 'Alter Schlüssel für Katalog, Updates und Q&A angenommen bis 01.12.2026.'],
+    ['ohne Ende', mitFrist(null, 'ohne-ende'), 'Alter Schlüssel für Katalog, Updates und Q&A ohne Enddatum angenommen.'],
+    ['unlesbar', mitFrist('kaputt', 'unlesbar'), 'Alter Schlüssel für Katalog, Updates und Q&A ohne Enddatum angenommen.'],
   ]);
+  // T9 OT5: zweite Zeile M44b für die Connect-Frist (Regel wie M44a); ohne Schlüssel `connect` (älterer Worker) nur eine Zeile.
+  const mitFrist2 = (bis: string | null, connect: { bis: string | null; diagnose: 'ohne-ende' | 'unlesbar' | null } | undefined): AdminUebersicht => {
+    const x = uebersicht([]);
+    x.altKey = { bis, diagnose: bis ? null : 'ohne-ende', zeilen: [], ...(connect ? { connect } : {}) };
+    return x;
+  };
+  const mitZeile = (gruppe: string): AdminUebersicht => {
+    const x = uebersicht([]);
+    x.altKey.zeilen = [{ tag: '2026-10-21', gruppe: gruppe as 'qa', plattform: 'win-x64', anzahl: 3, zuletzt: new Date(2026, 9, 21, 8, 30).getTime() }];
+    return x;
+  };
+  kreuz('T9 OT5: altKeyTexte — Katalog-Frist und Connect-Frist', [
+    ['beide gesetzt', altKeyTexte(mitFrist2('2026-12-20T00:00:00.000Z', { bis: '2027-01-19T00:00:00.000Z', diagnose: null })).join(' | '),
+      'Alter Schlüssel für Katalog, Updates und Q&A angenommen bis 20.12.2026. | Alter Schlüssel für Connect (Cloud-Raum, Zoom-SDK) angenommen bis 19.01.2027.'],
+    ['Connect leer', altKeyTexte(mitFrist2('2026-12-20T00:00:00.000Z', { bis: null, diagnose: 'ohne-ende' }))[1], 'Alter Schlüssel für Connect (Cloud-Raum, Zoom-SDK) ohne Enddatum angenommen.'],
+    ['Connect unlesbar', altKeyTexte(mitFrist2(null, { bis: null, diagnose: 'unlesbar' })).length, 2],
+    ['Connect unlesbar, Text', altKeyTexte(mitFrist2(null, { bis: 'kaputt', diagnose: 'unlesbar' }))[1], 'Alter Schlüssel für Connect (Cloud-Raum, Zoom-SDK) ohne Enddatum angenommen.'],
+    ['Worker ohne connect', altKeyTexte(mitFrist2('2026-12-20T00:00:00.000Z', undefined)).length, 1],
+  ]);
+  kreuz('T9 OT5: alte Connects erscheinen mit Gruppenname', [['Zeile', alteLauncherZeilen(mitZeile('connect'))[0], '21.10.2026 · Connect (Cloud-Raum, Zoom-SDK) · win-x64: 3 Anfragen, zuletzt 08:30']]);
   const alt = uebersicht([]);
   alt.altKey.zeilen = [
     { tag: '2026-10-20', gruppe: 'katalog', plattform: 'win/x64', anzahl: 12, zuletzt: new Date(2026, 9, 20, 17, 5).getTime() },
@@ -310,7 +329,7 @@ function ansicht(zustand: KontoZustand, s: KontoStand | null): KontoAnsicht {
   ]);
 }
 
-// --- P27 9.4: Texte M30–M47 wörtlich, ohne ASCII-Anführungszeichen -----------------------------------------------------------
+// --- P27 9.4: Texte M30–M46 wörtlich, ohne ASCII-Anführungszeichen -----------------------------------------------------------
 {
   const T = REITER_TEXTE;
   kreuz('P27 9.4: M30–M47 wörtlich', [
@@ -324,10 +343,11 @@ function ansicht(zustand: KontoZustand, s: KontoStand | null): KontoAnsicht {
     ['M41', T.warnungKeinJm, 'Achtung: kein JM-Rechner. Die Freigabe wirkt dort nicht.'],
     ['M42', [T.freigeben, T.ablehnen, T.keineAnfragen].join(' / '), 'Freigeben bis … / Ablehnen / Keine offenen Anfragen.'],
     ['M43', [T.spalteRechner, T.spalteKonto, T.spalteKontakt, T.spalteVersion, T.spaltePlattform, T.spalteJm].join(' / '), 'Rechner / zuletzt angemeldet / letzter Kontakt / Version / Plattform / JM-Rechner'],
-    ['M44', `${T.altKeyBis('D')} / ${T.altKeyOhneEnde}`, 'Alter Schlüssel angenommen bis D. / Alter Schlüssel ohne Enddatum angenommen.'],
+    ['M44a', `${T.altKeyBis('D')} / ${T.altKeyOhneEnde}`, 'Alter Schlüssel für Katalog, Updates und Q&A angenommen bis D. / Alter Schlüssel für Katalog, Updates und Q&A ohne Enddatum angenommen.'],
+    ['M44b', `${T.altKeyConnectBis('D')} / ${T.altKeyConnectOhneEnde}`, 'Alter Schlüssel für Connect (Cloud-Raum, Zoom-SDK) angenommen bis D. / Alter Schlüssel für Connect (Cloud-Raum, Zoom-SDK) ohne Enddatum angenommen.'],
     ['M45', [T.alteLauncher, T.alteZeile('D', 'G', 'P', 4, 'Z'), T.keineAlten].join(' / '), 'Alte Launcher (ohne Anmeldung) / D · G · P: 4 Anfragen, zuletzt Z / Keine Anfragen mit dem alten Schlüssel.'],
-    ['M46', Object.values(T.gruppe).join(' / '), 'Katalog und Updates / Q&A extern'],
-    ['M47', T.connect, 'Für Connect gilt der alte Schlüssel weiter, bis Connect die Anmeldung nutzt.'],
+    ['M46', Object.values(T.gruppe).join(' / '), 'Katalog und Updates / Q&A extern / Connect (Cloud-Raum, Zoom-SDK)'],
+    ['M47, M48 entfallen', `${'connect' in T} ${'connectTeil1' in ADMIN_TEXTE}`, 'false false'],
   ]);
   const alle: string[] = [];
   const sammle = (x: unknown): void => {

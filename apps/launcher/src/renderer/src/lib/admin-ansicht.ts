@@ -37,8 +37,6 @@ export const ADMIN_TEXTE = {
   /** M27 */ bisFehlt: 'Externe brauchen ein Datum für „Zugang bis“.',
   /** M28 */ domain: 'Kollegen von jakobsmedien.com melden sich mit Google an; für sie braucht es keine Einladung.',
   /** M29 */ keineZugaenge: 'Noch keine Zugänge. Kollegen erscheinen nach ihrer ersten Anmeldung.',
-  /** M48 (nur Teil 1, EP34; Reiter Zugänge bei Externen und Reiter Anfragen) */
-  connectTeil1: 'Connect nutzt Cloud-Raum und Zoom-Freigabe erst mit einem kommenden Update; bis dahin gilt in Connect alles wie bisher.',
   /** M49 (Z1, OE2): Hinterlegen mit einer iveo-Adresse außerhalb der festen Liste */
   iveoBasisUnbekannt: 'Diese iveo-Adresse ist nicht freigegeben. Erlaubt sind Production (app.my-iveo.de) und Staging (staging-dev.my-iveo.de).',
   /** M50 (Z1): Einladen mit einer E-Mail-Adresse ohne gültiges Format */
@@ -231,12 +229,14 @@ export const REITER_TEXTE = {
   /** M42 */ freigeben: 'Freigeben bis …', ablehnen: 'Ablehnen', keineAnfragen: 'Keine offenen Anfragen.',
   /** M43 */ spalteRechner: 'Rechner', spalteKonto: 'zuletzt angemeldet', spalteKontakt: 'letzter Kontakt', spalteVersion: 'Version',
   spaltePlattform: 'Plattform', spalteJm: 'JM-Rechner',
-  /** M44 */ altKeyBis: (d: string): string => `Alter Schlüssel angenommen bis ${d}.`, altKeyOhneEnde: 'Alter Schlüssel ohne Enddatum angenommen.',
+  /** M44a */ altKeyBis: (d: string): string => `Alter Schlüssel für Katalog, Updates und Q&A angenommen bis ${d}.`,
+  altKeyOhneEnde: 'Alter Schlüssel für Katalog, Updates und Q&A ohne Enddatum angenommen.',
+  /** M44b */ altKeyConnectBis: (d: string): string => `Alter Schlüssel für Connect (Cloud-Raum, Zoom-SDK) angenommen bis ${d}.`,
+  altKeyConnectOhneEnde: 'Alter Schlüssel für Connect (Cloud-Raum, Zoom-SDK) ohne Enddatum angenommen.',
   /** M45 */ alteLauncher: 'Alte Launcher (ohne Anmeldung)',
   alteZeile: (tag: string, gruppe: string, plattform: string, n: number, zeit: string): string => `${tag} · ${gruppe} · ${plattform}: ${n} Anfragen, zuletzt ${zeit}`,
   keineAlten: 'Keine Anfragen mit dem alten Schlüssel.',
-  /** M46 */ gruppe: { katalog: 'Katalog und Updates', qa: 'Q&A extern' } as Readonly<Record<'katalog' | 'qa', string>>,
-  /** M47 */ connect: 'Für Connect gilt der alte Schlüssel weiter, bis Connect die Anmeldung nutzt.',
+  /** M46 */ gruppe: { katalog: 'Katalog und Updates', qa: 'Q&A extern', connect: 'Connect (Cloud-Raum, Zoom-SDK)' } as Readonly<Record<'katalog' | 'qa' | 'connect', string>>,
   /** M51 (Z2 Fixrunde 2, AR94 N1): Rechnername nach der Erlaubnisliste leer; der Wortlaut von B27 ohne „Rechner:“ */
   keinName: '(kein Name gemeldet)',
 } as const;
@@ -299,11 +299,18 @@ export function geraeteZeilen(u: AdminUebersicht): Array<{ gid: string; rechner:
     }));
 }
 
-/** M44 (EP9): Frist des alten Schlüssels; ohne oder mit unlesbarem Enddatum die Diagnose „ohne Enddatum“. */
-export function altKeyText(u: AdminUebersicht): string {
-  const m = u.altKey.bis === null ? null : /^(\d{4})-(\d{2})-(\d{2})/.exec(u.altKey.bis);
-  if (u.altKey.diagnose !== null || !m) return REITER_TEXTE.altKeyOhneEnde;
-  return REITER_TEXTE.altKeyBis(`${m[3]}.${m[2]}.${m[1]}`);
+/** M44a, M44b (EP9, OT5): Fristen der alten Schlüssel; ohne oder mit unlesbarem Enddatum die Diagnose „ohne Enddatum“. */
+function fristText(f: { bis: string | null; diagnose: 'ohne-ende' | 'unlesbar' | null }, bis: (d: string) => string, ohneEnde: string): string {
+  const m = f.bis === null ? null : /^(\d{4})-(\d{2})-(\d{2})/.exec(f.bis);
+  if (f.diagnose !== null || !m) return ohneEnde;
+  return bis(`${m[3]}.${m[2]}.${m[1]}`);
+}
+
+/** Erste Zeile: Katalog, Updates und Q&A (M44a); zweite Zeile: Connect (M44b), nur wenn der Worker die Connect-Frist mitschickt. */
+export function altKeyTexte(u: AdminUebersicht): string[] {
+  const zeilen = [fristText(u.altKey, REITER_TEXTE.altKeyBis, REITER_TEXTE.altKeyOhneEnde)];
+  if (u.altKey.connect) zeilen.push(fristText(u.altKey.connect, REITER_TEXTE.altKeyConnectBis, REITER_TEXTE.altKeyConnectOhneEnde));
+  return zeilen;
 }
 
 /** M45, M46 (OF2, OFP2): Anfragen alter Launcher je Tag, Gruppe und Plattform, neueste zuerst; ohne IP. */
@@ -314,7 +321,7 @@ export function alteLauncherZeilen(u: AdminUebersicht): string[] {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(z.tag);
     const tag = m ? `${m[3]}.${m[2]}.${m[1]}` : z.tag;
     // Z1: eine Gruppe, die dieser Launcher nicht kennt (neuerer Worker), erscheint mit ihrer Kennung statt als „undefined“.
-    const gruppe = Object.hasOwn(REITER_TEXTE.gruppe, z.gruppe) ? REITER_TEXTE.gruppe[z.gruppe as 'katalog' | 'qa'] : String(z.gruppe);
+    const gruppe = Object.hasOwn(REITER_TEXTE.gruppe, z.gruppe) ? REITER_TEXTE.gruppe[z.gruppe] : String(z.gruppe);
     return REITER_TEXTE.alteZeile(tag, gruppe, z.plattform, z.anzahl, zeitText(z.zuletzt));
   });
 }

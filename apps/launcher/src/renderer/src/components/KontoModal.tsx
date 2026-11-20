@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { Button, Card, cn, noDragRegion } from '@jm/ui';
 import { kontoKopf, sitzungGueltig } from '@/lib/konto-anzeige';
 import {
-  KONTO_TEXTE, ZOOM_TEXTE, abmeldeFrage, ausgabeZeilen, hinweisZeilen, kontoKnoepfe, kontoZeilen, zoomConnectHinweis, zoomFehlerText,
+  KONTO_TEXTE, ZOOM_TEXTE, abmeldeFrage, ausgabeZeilen, hinweisZeilen, kontoKnoepfe, kontoZeilen, zoomFehlerText,
   zoomFormular, zoomHinweis, zoomKnopfSichtbar, zoomStand, zustandsZeile,
 } from '@/lib/konto-dialog';
 import { useKonto } from '@/store/konto';
@@ -65,7 +65,6 @@ export function KontoModal(): React.JSX.Element | null {
   const zStand = zoomStand(ansicht);
   const zKnopf = zoomKnopfSichtbar(ansicht, jetzt);
   // Z11 (EP34): Connect nutzt die Zoom-Freigabe erst mit Teil 2 — der Satz steht direkt unter den Zeilen.
-  const zConnect = zoomConnectHinweis(ansicht);
   const toolName = (appId: string): string => tools.find((t) => t.id === appId)?.name ?? appId;
 
   const senden = async (): Promise<void> => {
@@ -122,9 +121,6 @@ export function KontoModal(): React.JSX.Element | null {
                   </Fragment>
                 ))}
               </dl>
-            )}
-            {zConnect && (
-              <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">{zConnect}</p>
             )}
 
             {(zKnopf || zStand) && (

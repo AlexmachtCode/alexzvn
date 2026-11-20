@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { AdminUebersicht } from '@shared/konto';
-import { REITER_TEXTE, altKeyText, alteLauncherZeilen, fehlerText, geraeteZeilen } from '@/lib/admin-ansicht';
+import { REITER_TEXTE, altKeyTexte, alteLauncherZeilen, fehlerText, geraeteZeilen } from '@/lib/admin-ansicht';
 import { useKonto } from '@/store/konto';
 
 /**
@@ -28,8 +28,9 @@ export function AdminGeraete({ daten }: { daten: AdminUebersicht }): React.JSX.E
   return (
     <div className="mt-4 flex flex-col gap-4 text-xs">
       <div className="flex flex-col gap-1 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-2">
-        <p role="status">{altKeyText(daten)}</p>
-        <p className="text-[var(--muted-foreground)]">{REITER_TEXTE.connect}</p>
+        {altKeyTexte(daten).map((z) => (
+          <p key={z} role="status">{z}</p>
+        ))}
       </div>
       {meldung && (
         <p role="alert" className="rounded-[var(--radius)] border border-[var(--border)] px-3 py-2">

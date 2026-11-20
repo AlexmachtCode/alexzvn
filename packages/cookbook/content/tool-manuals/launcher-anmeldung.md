@@ -45,7 +45,7 @@ summary: "Einmal im Launcher anmelden, dann hat jedes Tool, was es braucht: Inst
 ### Während (Betrieb)
 - Die Anmeldung gilt bis zum nächsten Start des Launchers; beim Start prüft er sie im Hintergrund. Ohne Internet gilt sie weiter, oben steht dann „offline“, im Konto-Dialog das Datum, bis zu dem sie gilt (höchstens 30 Tage nach der letzten Prüfung beim Server; läuft der Launcher so lange, prüft er vorher von selbst neu).
 - Entzieht ein Admin den Zugang, läuft alles weiter, was schon läuft; beim nächsten Start ist der Rechner abgemeldet. Oben steht dann „Zugang entzogen“.
-- **Zoom anfragen (Externe):** im Konto-Dialog „Zoom anfragen“, Zweck oder Event und den Zeitraum eintragen, „Anfrage senden“. Ein Admin gibt frei. Connect nutzt die Freigabe erst mit einem kommenden Update (bis dahin gilt Zoom in Connect wie bisher); danach wirkt sie ab dem nächsten Start des Launchers und nur auf einem JM-Rechner unter Windows. Kollegen brauchen keine Anfrage.
+- **Zoom anfragen (Externe):** im Konto-Dialog „Zoom anfragen“, Zweck oder Event und den Zeitraum eintragen, „Anfrage senden“. Ein Admin gibt frei. Die Freigabe wirkt ab dem nächsten Start des Launchers und nur auf einem JM-Rechner unter Windows. Kollegen brauchen keine Anfrage.
 - **Admins** öffnen die Admin-Maske über „Admin-Maske öffnen“ in den Einstellungen oder im Konto-Dialog: Zugänge, iveo-Events, Anfragen, Geräte. Ein Punkt am Zahnrad zeigt offene Zoom-Anfragen. Scheidet ein Kollege aus, sperren Admins seinen Zugang sofort (Zugang löschen); ohne Sperre muss er sich spätestens 90 Tage nach seiner letzten Anmeldung mit Google neu anmelden und kommt dann nicht mehr herein.
 
 ### Nachbereitung
@@ -71,7 +71,7 @@ summary: "Einmal im Launcher anmelden, dann hat jedes Tool, was es braucht: Inst
 | Oben steht „Anmeldung abgelaufen“ | 30 Tage ohne Prüfung beim Server, der Zugang ist abgelaufen oder die letzte Anmeldung mit Google ist 90 Tage her: neu anmelden bzw. einen Admin nach einer Verlängerung fragen |
 | Oben steht „Zugang entzogen“ | Einen Admin fragen; was läuft, läuft weiter |
 | Oben steht „Anmelden nicht möglich“ | Auf diesem Rechner gibt es keinen sicheren Schlüsselspeicher; Benutzerkonto und Betriebssystem prüfen lassen |
-| Zoom-Freigabe wirkt nicht | Connect nutzt Zoom-Freigaben erst mit einem kommenden Update; danach wirken sie nach dem nächsten Start und nur auf JM-Rechnern unter Windows. Der Konto-Dialog sagt, ob der Rechner ein JM-Rechner ist |
+| Zoom-Freigabe wirkt nicht | Sie wirkt erst nach dem nächsten Start des Launchers und nur auf JM-Rechnern unter Windows. Der Konto-Dialog sagt, ob der Rechner ein JM-Rechner ist |
 | JM Q&A: „Kein Launcher mit Anmeldung gefunden. Starte den Launcher und melde dich dort an.“ | Launcher starten und anmelden; Q&A versucht es von selbst weiter |
 
 ## Checklisten
