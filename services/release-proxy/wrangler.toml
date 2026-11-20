@@ -144,7 +144,8 @@ KONTO_JURISDICTION = "eu"
 # Worker den alten Schlüssel für Katalog, Installieren, Updates, Kochbuch, Feedback, KI-Entwurf und Q&A ab (S4). Fehlt der
 # Wert, gilt er unbefristet, und der Reiter Geräte der Admin-Maske zeigt das. Den Wert setzt der Controller nach dem
 # Release (Release + 30 Tage, OF2); ein unlesbarer Wert hieße ebenfalls unbefristet, die Bauprobe meldet ihn (Exit 1):
-# ALTKEY_BIS = "JJJJ-MM-TT"
+# Gesetzt am 2026-11-20 (Release Launcher 0.18.0 / Q&A 0.6.0 am 2026-11-20 + 30 Tage, Owner-OK):
+ALTKEY_BIS = "2026-12-20"
 # Eigene Frist für die Connect-Routen (EP9): bleibt in Teil 1 leer, Connect 0.3.0/0.4.0 kennt nur den Proxy-Key. Sie läuft
 # erst ab dem Release von Teil 2 (dann 30 Tage):
 # ALTKEY_CONNECT_BIS = "JJJJ-MM-TT"
