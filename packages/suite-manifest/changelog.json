@@ -494,6 +494,16 @@
     "name": "JM Switcher",
     "entries": [
       {
+        "version": "0.11.0",
+        "date": "2026-11-20",
+        "notes": [
+          "Lizenz: Der Lizenztext der NDI-Laufzeit liegt jetzt im Paket.",
+          "Stabilität: Der Switcher stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
+          "Verbund: Ist dieser Rechner im Verbund gekoppelt, meldet sich der Switcher von selbst beim Master an, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Logdateien und Logzeilen, die älter als 14 Tage sind, löscht der Switcher jetzt selbst."
+        ]
+      },
+      {
         "version": "0.10.0",
         "date": "2026-08-07",
         "notes": [
@@ -798,6 +808,13 @@
     "name": "JM Timer",
     "entries": [
       {
+        "version": "0.14.1",
+        "date": "2026-11-20",
+        "notes": [
+          "Stabilität: Der Timer stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist."
+        ]
+      },
+      {
         "version": "0.14.0",
         "date": "2026-10-13",
         "notes": [
@@ -1074,6 +1091,15 @@
     "name": "JM NDI Screen Capture",
     "entries": [
       {
+        "version": "0.4.0",
+        "date": "2026-11-20",
+        "notes": [
+          "Lizenz: Der Lizenztext der NDI-Laufzeit liegt jetzt im Paket.",
+          "Verbund: Ist dieser Rechner im Verbund gekoppelt, meldet sich NDI Screen Capture von selbst beim Master an, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Logdateien und Logzeilen, die älter als 14 Tage sind, löscht NDI Screen Capture jetzt selbst."
+        ]
+      },
+      {
         "version": "0.3.1",
         "date": "2026-07-10",
         "notes": [
@@ -1109,6 +1135,16 @@
     "app": "stage-display",
     "name": "JM Stage Display",
     "entries": [
+      {
+        "version": "0.6.0",
+        "date": "2026-11-20",
+        "notes": [
+          "Die Nachricht an die Bühne erscheint jetzt auch, wenn das Stage Display die Folien aus dem Presenter zeigt (Referenten- und Hauptansicht), mittig in der Kopfzeile. Bisher fehlte sie dort. Zu lange Nachrichten werden mit „…“ gekürzt.",
+          "Stabilität: Das Stage Display stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
+          "Verbund: Ist dieser Rechner im Verbund gekoppelt, meldet sich das Stage Display von selbst beim Master an, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Logdateien und Logzeilen, die älter als 14 Tage sind, löscht das Stage Display jetzt selbst."
+        ]
+      },
       {
         "version": "0.5.0",
         "date": "2026-07-05",
@@ -1183,6 +1219,15 @@
     "name": "JM Prompter",
     "entries": [
       {
+        "version": "0.7.0",
+        "date": "2026-11-20",
+        "notes": [
+          "Stabilität: Der Prompter stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
+          "Verbund: Ist dieser Rechner im Verbund gekoppelt, meldet sich der Prompter von selbst beim Master an, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Logdateien und Logzeilen, die älter als 14 Tage sind, löscht der Prompter jetzt selbst."
+        ]
+      },
+      {
         "version": "0.6.0",
         "date": "2026-07-05",
         "notes": [
@@ -1241,6 +1286,14 @@
     "app": "titler",
     "name": "JM Titler",
     "entries": [
+      {
+        "version": "0.12.2",
+        "date": "2026-11-20",
+        "notes": [
+          "Lizenz: Der Lizenztext der NDI-Laufzeit liegt jetzt im Paket.",
+          "Stabilität: Der Titler stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist."
+        ]
+      },
       {
         "version": "0.12.1",
         "date": "2026-10-19",
@@ -1581,6 +1634,13 @@
     "name": "JM Rundown",
     "entries": [
       {
+        "version": "0.8.1",
+        "date": "2026-11-20",
+        "notes": [
+          "Stabilität: Der Rundown stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist."
+        ]
+      },
+      {
         "version": "0.8.0",
         "date": "2026-10-13",
         "notes": [
@@ -1728,6 +1788,15 @@
     "name": "JM Battle",
     "entries": [
       {
+        "version": "0.4.0",
+        "date": "2026-11-20",
+        "notes": [
+          "Stabilität: Battle stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
+          "Verbund: Ist dieser Rechner im Verbund gekoppelt, meldet sich Battle von selbst beim Master an, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Logdateien und Logzeilen, die älter als 14 Tage sind, löscht Battle jetzt selbst."
+        ]
+      },
+      {
         "version": "0.3.0",
         "date": "2026-07-05",
         "notes": [
@@ -1764,6 +1833,16 @@
     "app": "caption",
     "name": "JM Caption",
     "entries": [
+      {
+        "version": "0.5.0",
+        "date": "2026-11-20",
+        "notes": [
+          "Lizenz: Der Lizenztext der NDI-Laufzeit liegt jetzt im Paket.",
+          "Stabilität: Caption stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
+          "Verbund: Ist dieser Rechner im Verbund gekoppelt, meldet sich Caption von selbst beim Master an, auch ohne laufenden Launcher. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Logdateien und Logzeilen, die älter als 14 Tage sind, löscht Caption jetzt selbst."
+        ]
+      },
       {
         "version": "0.4.0",
         "date": "2026-08-04",

@@ -36,7 +36,7 @@ git pull
 
 # Umgebungsvariablen für die Bundle-Skripte (prepackage):
 $env:NDI_SDK_DIR     = "C:\Program Files\NDI\NDI 6 SDK"        # enthält Bin\x64\Processing.NDI.Lib.x64.dll
-$env:WHISPER_DIR     = "C:\tools\whisper-bin-x64"             # whisper-cli.exe + DLLs
+$env:WHISPER_DIR     = "C:\tools\whisper-bin-x64\Release"     # whisper-cli.exe + DLLs (liegen im Unterordner Release; 20.11.2026 nachgemessen)
 $env:WHISPER_MODEL_BASE = "C:\tools\models\ggml-base.bin"     # Basismodell
 
 # Baut Renderer/Main/Preload (+ ndi-sender.cjs), staged whisper + ffmpeg + NDI,

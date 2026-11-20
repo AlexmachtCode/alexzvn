@@ -1497,8 +1497,8 @@ function domNdiKnopf(klicken) {
   return vorher;
 }
 
-function domVollbild() {
-  const k = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Vollbild');
+function domPublikumVollbild() {
+  const k = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Publikum Vollbild');
   return k ? { gesperrt: k.disabled, titel: k.title } : null;
 }
 
@@ -1679,17 +1679,17 @@ async function ndiMitProjekt(exe, d, ndi, umgebung) {
       await fensterFertig(referent);
       imReferenten.editorKnopf = await ndiKnopf(ed);
       imReferenten.knopf = await bisWert(() => ndiKnopf(referent), (v) => v === imReferenten.editorKnopf, 2_000);
-      imReferenten.vollbild = await bisWert(() => auswerten(referent, imDom(domVollbild)), (v) => v != null, 2_000);
+      imReferenten.vollbild = await bisWert(() => auswerten(referent, imDom(domPublikumVollbild)), (v) => v != null, 2_000);
       await pause(Math.max(0, start + 3_000 - Date.now()));
       erwarte(!(await seiteMit('view=audience')), 'Publikumsfenster view=audience ist offen');
       const bild = frischesBild(ndi);
       erwarte(bild && pixelEtwa(bild, 960, 540, [0, 0, 0, 255]) && pixel(bild, 5, 5)[3] === 255, `NDI ${messwerte(bild)}`);
     });
 
-    await fall(`4 Referentenansicht: NDI-Knopf binnen 2 s wie im Editor („${NDI_AN_1}“), „Vollbild“ gesperrt mit „${NUR_NDI_TITEL}“`, async () => {
+    await fall(`4 Referentenansicht: NDI-Knopf binnen 2 s wie im Editor („${NDI_AN_1}“), „Publikum Vollbild“ gesperrt mit „${NUR_NDI_TITEL}“`, async () => {
       const { knopf, editorKnopf, vollbild } = imReferenten;
       erwarte(editorKnopf === NDI_AN_1 && knopf === editorKnopf, `Referent „${knopf}“, Editor „${editorKnopf}“`);
-      erwarte(vollbild?.gesperrt === true && vollbild.titel === NUR_NDI_TITEL, `Vollbild ${JSON.stringify(vollbild)}`);
+      erwarte(vollbild?.gesperrt === true && vollbild.titel === NUR_NDI_TITEL, `Publikum Vollbild ${JSON.stringify(vollbild)}`);
     });
 
     await fall('5 present.next() → in 1,5 s mindestens 5 Bilder mit (960,540)-Blau zwischen 10 und 245 (Blende); danach (960,540) weiß deckend, (100,540) durchsichtig', async () => {
@@ -1817,7 +1817,7 @@ async function ndiNeustart(exe, d, ndi, umgebung) {
     });
 
     let referent = null;
-    await fall('13 setzeAn(false); a.pdf ablegen, normal präsentieren (Publikumsfenster, „Vollbild“ bedienbar); setzeAn(true) → binnen 5 s NDI (960,540) weiß deckend', async () => {
+    await fall('13 setzeAn(false); a.pdf ablegen, normal präsentieren (Publikumsfenster, „Publikum Vollbild“ bedienbar); setzeAn(true) → binnen 5 s NDI (960,540) weiß deckend', async () => {
       await auswerten(ed, 'window.jmpr.ndi.setzeAn(false)');
       const aus = await bisLage(ed, 'aus', 5_000);
       erwarte(aus?.lage === 'aus', `Status ${JSON.stringify(aus)}`);
@@ -1831,8 +1831,8 @@ async function ndiNeustart(exe, d, ndi, umgebung) {
       referent = await oeffneZiel(app, 'view=presenter', 15_000);
       await oeffneZiel(app, 'view=audience', 15_000);
       await fensterFertig(referent);
-      const vb = await bisWert(() => auswerten(referent, imDom(domVollbild)), (v) => v != null, 5_000);
-      erwarte(vb?.gesperrt === false && vb.titel === '', `Vollbild ${JSON.stringify(vb)}`);
+      const vb = await bisWert(() => auswerten(referent, imDom(domPublikumVollbild)), (v) => v != null, 5_000);
+      erwarte(vb?.gesperrt === false && vb.titel === '', `Publikum Vollbild ${JSON.stringify(vb)}`);
       const t0 = Date.now();
       await auswerten(ed, 'window.jmpr.ndi.setzeAn(true)');
       const weiss = (b) => pixelEtwa(b, 960, 540, [255, 255, 255, 255]);
@@ -1844,7 +1844,10 @@ async function ndiNeustart(exe, d, ndi, umgebung) {
     // Sichtbar heißt hier das echte Fenster (user32 IsWindowVisible), nicht document.visibilityState: Das NDI-Fenster
     // läuft ohne Hintergrund-Drosselung und meldet „visible“, obwohl es nie gezeigt wird (gemessen 15.11.2026).
     // Gefunden wird es über einen Prüf-Titel, den der Prüfstand per CDP setzt.
-    await fall('14 Editor per window.close() (Präsentation läuft), zweite Instanz → Fenster view=ndi bleibt unsichtbar; present.stop() im Referentenfenster → binnen 15 s kein Presenter-Prozess', async () => {
+    await fall('14 (Voraussetzung: NDI an bis „sendet“) Editor per window.close() (Präsentation läuft), zweite Instanz → Fenster view=ndi bleibt unsichtbar; present.stop() im Referentenfenster → binnen 15 s kein Presenter-Prozess', async () => {
+      await auswerten(ed, 'window.jmpr.ndi.setzeAn(true)');
+      const s = await bisLage(ed, 'sendet', 10_000);
+      erwarte(s?.lage === 'sendet', `Voraussetzung NDI an: Status ${JSON.stringify(s)}`);
       erwarte(referent, 'keine Referentenansicht');
       const bildFenster = await oeffneZiel(app, 'view=ndi');
       const marke = 'JM Presenter NDI-Pruefstand';

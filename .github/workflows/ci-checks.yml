@@ -70,6 +70,14 @@ jobs:
       # #228 und #231: reine Node-Tests, ohne Electron und ohne DOM.
       - name: Presenter (Suite-Status, On Air nur in der Präsentation)
         run: npm run selftest -w @jm/presenter
+      - name: Stage Display (Nachricht in allen drei Ansichten)
+        run: npm run selftest -w @jm/stage-display
+      - name: Caption (Audio-Helfer, NDI-Lizenztext im Bündel)
+        run: npm run selftest -w @jm/caption
+      - name: Switcher (Ausgabe-Qualität, NDI-Lizenztext im Bündel)
+        run: npm run selftest -w @jm/switcher
+      - name: NDI Screen Capture (NDI-Lizenztext im Bündel)
+        run: npm run selftest -w @jm/ndi-screen-capture
       - name: Appkit (Spiellogik, Variable umbenennen)
         run: npm run selftest -w @jm/appkit
       - name: App Designer (Raster, Variablen im Store)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { cn } from '@jm/ui';
 import {
   getCountdownRemaining,
@@ -9,6 +9,7 @@ import {
   type StageState,
 } from '@shared/types';
 import { formatClock, formatHMS, formatWall } from '@/lib/format';
+import { buehnenNachricht, type BuehnenNachricht } from '@/lib/nachricht';
 
 /**
  * Geteilte Bühnen-Darstellung — identisch in der Operator-Vorschau und im
@@ -45,10 +46,7 @@ export function StageScreen({ state, now }: { state: StageState; now: number }) 
         : timer.colors.normal
     : '#ffffff';
 
-  const adHoc = config.message.trim();
-  const timerMsg = w.timer ? timer.message.trim() : '';
-  const message = adHoc || timerMsg;
-  const blinking = !adHoc && timer.blinking;
+  const nachricht = buehnenNachricht(state);
 
   return (
     <div
@@ -115,13 +113,12 @@ export function StageScreen({ state, now }: { state: StageState; now: number }) 
       )}
 
       {/* Nachricht */}
-      {w.message && message && (
-        <div
-          className={cn('absolute inset-x-0 top-[76%] px-[5%] text-center font-extrabold', blinking && 'jm-blink')}
-          style={{ fontSize: '4.5cqh', color: blinking ? '#F61C56' : '#FFE819', wordBreak: 'break-word' }}
-        >
-          {message}
-        </div>
+      {nachricht && (
+        <NachrichtZeile
+          nachricht={nachricht}
+          className="absolute inset-x-0 top-[76%] px-[5%] text-center"
+          style={{ fontSize: '4.5cqh', wordBreak: 'break-word' }}
+        />
       )}
 
       {/* Up Next unten */}
@@ -184,6 +181,26 @@ function SlideImage({ url, className }: { url: string; className?: string }) {
   return <img src={shown} alt="" className={cn('object-contain', className)} draggable={false} />;
 }
 
+/** Eine Bühnen-Nachricht: gelb, bei blinkender Timer-Nachricht rot und blinkend. */
+function NachrichtZeile({
+  nachricht,
+  className,
+  style,
+}: {
+  nachricht: BuehnenNachricht;
+  className: string;
+  style?: CSSProperties;
+}) {
+  return (
+    <div
+      className={cn(className, 'font-extrabold', nachricht.blinkt && 'jm-blink')}
+      style={{ ...style, color: nachricht.blinkt ? '#F61C56' : '#FFE819' }}
+    >
+      {nachricht.text}
+    </div>
+  );
+}
+
 /** Compact countdown + clock + PGM header shared by the presenter screens. */
 function PresenterHeader({ state, now }: { state: StageState; now: number }) {
   const { config, timer, switcher } = state;
@@ -200,11 +217,19 @@ function PresenterHeader({ state, now }: { state: StageState; now: number }) {
         ? timer.colors.warning
         : timer.colors.normal
     : '#ffffff';
+  const nachricht = buehnenNachricht(state);
   return (
     <div className="flex items-center justify-between" style={{ fontVariantNumeric: 'tabular-nums' }}>
       <div className="font-extrabold text-white/80" style={{ fontSize: '4cqh' }}>
         {formatClock(now)}
       </div>
+      {nachricht && (
+        <NachrichtZeile
+          nachricht={nachricht}
+          className="min-w-0 flex-1 truncate px-[2cqw] text-center"
+          style={{ fontSize: '3.6cqh' }}
+        />
+      )}
       <div className="flex items-center gap-[1.5cqw]">
         {w.switcher && switcher.connected && (
           <span className="rounded bg-white/12 px-[1.2cqh] py-[0.4cqh] font-extrabold" style={{ fontSize: '2.4cqh' }}>

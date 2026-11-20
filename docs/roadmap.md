@@ -276,7 +276,7 @@ Spec `docs/superpowers/specs/2026-10-17-launcher-anmeldung-design.md`, Plan Teil
 
 | Teil | Inhalt | Stand |
 |---|---|---|
-| **1 · Konten** | Anmeldung im Launcher mit dem Firmenkonto oder per Einladung und Passwort, Abmelden und Entzug, Q&A-Einreichungen von außen über das Konto statt über einen Schlüssel; Ziel **Launcher 0.18.0** und **Q&A 0.6.0** | ✅ **released 20.11.2026** als `launcher-v0.18.0` und `qa-v0.6.0` (PR #282, Merge `ad7b69c9a2`, Tags einzeln). Übergangsfrist der alten Schlüssel `ALTKEY_BIS = 2026-12-20` live (PR #321, Worker-Deploy von `main`, Version `e6413a0d`): ab dann gilt der alte `PROXY_KEY` nicht mehr für Katalog, Installieren, Updates, Kochbuch, Feedback, KI-Entwurf und Q&A; alte Launcher können sich weiter selbst aktualisieren, Connect ist nicht betroffen (Teil 2). Abnahme-Schritte 14, 15 und Rest von 21 vom Owner hingenommen (20.11.: der iveo-Entwickler behebt den Fehler, absehbar keine Produktion mit iveo-Events; bis dahin können Admins keine iveo-Events zentral hinterlegen). 🟡 Offen beim Owner: Schritt 18 (alter Launcher aktualisiert sich selbst), Schritt 20 (Release-DMG), Safari-Version. Mit dem Merge kam der mDNS-Absturz-Fix in beide Tools. *Verlauf:* 🟡 umgesetzt; der Proxy-Teil ist seit dem 05.11. ausgerollt (Nachbesserung 06.11.), alte Launcher arbeiten unverändert weiter. **Owner-Abnahme am 06.11.:** alle Schritte bestanden außer 14, 15 und dem Rest von 21; die hängen am iveo-Server (HTTP 500 beim Laden der Events, der iveo-Entwickler prüft). Gefunden und behoben während der Abnahme: die Google-Anmeldung scheiterte unter der Workers-Laufzeit (`redirect: 'error'` wirft dort), und die Logzeile beim iveo-Fehler nannte weder Status noch Request-ID. ⏸ **Release zurückgestellt bis nach der COP31** (Owner 06.11., vorläufig, Owner meldet sich nach Absprache). 🔵 **19.11.: Block 1 des Plans in Abschnitt 3.** `main` ist seit der Branch-Basis (05.11.) 210 Commits weiter; beide Seiten ändern dieselben Dateien nur an vier Stellen (`ci-checks.yml`, `suite-release.yml`, `package-lock.json`, `packages/cookbook/cookbook.json`). Ob der iveo-Fehler noch besteht, ist unbekannt (letzte Logzeile 12.11.). |
+| **1 · Konten** | Anmeldung im Launcher mit dem Firmenkonto oder per Einladung und Passwort, Abmelden und Entzug, Q&A-Einreichungen von außen über das Konto statt über einen Schlüssel; Ziel **Launcher 0.18.0** und **Q&A 0.6.0** | ✅ **released 20.11.2026** als `launcher-v0.18.0` und `qa-v0.6.0` (PR #282, Merge `ad7b69c9a2`, Tags einzeln). Übergangsfrist der alten Schlüssel `ALTKEY_BIS = 2026-12-20` live (PR #321, Worker-Deploy von `main`, Version `e6413a0d`): ab dann gilt der alte `PROXY_KEY` nicht mehr für Katalog, Installieren, Updates, Kochbuch, Feedback, KI-Entwurf und Q&A; alte Launcher können sich weiter selbst aktualisieren, Connect ist nicht betroffen (Teil 2). Abnahme-Schritte 14, 15 und Rest von 21 vom Owner hingenommen (20.11.: der iveo-Entwickler behebt den Fehler, absehbar keine Produktion mit iveo-Events; bis dahin können Admins keine iveo-Events zentral hinterlegen). ✅ **Abnahme durch (Owner 20.11. 15:34)**, offen nur der iveo-Fehler beim iveo-Entwickler. *(Vorher offen: Schritt 18, Schritt 20, Safari-Version.)* Mit dem Merge kam der mDNS-Absturz-Fix in beide Tools. *Verlauf:* 🟡 umgesetzt; der Proxy-Teil ist seit dem 05.11. ausgerollt (Nachbesserung 06.11.), alte Launcher arbeiten unverändert weiter. **Owner-Abnahme am 06.11.:** alle Schritte bestanden außer 14, 15 und dem Rest von 21; die hängen am iveo-Server (HTTP 500 beim Laden der Events, der iveo-Entwickler prüft). Gefunden und behoben während der Abnahme: die Google-Anmeldung scheiterte unter der Workers-Laufzeit (`redirect: 'error'` wirft dort), und die Logzeile beim iveo-Fehler nannte weder Status noch Request-ID. ⏸ **Release zurückgestellt bis nach der COP31** (Owner 06.11., vorläufig, Owner meldet sich nach Absprache). 🔵 **19.11.: Block 1 des Plans in Abschnitt 3.** `main` ist seit der Branch-Basis (05.11.) 210 Commits weiter; beide Seiten ändern dieselben Dateien nur an vier Stellen (`ci-checks.yml`, `suite-release.yml`, `package-lock.json`, `packages/cookbook/cookbook.json`). Ob der iveo-Fehler noch besteht, ist unbekannt (letzte Logzeile 12.11.). |
 | **2 · Connect und Zoom** | Cloud-Raum, Zoom-Zugang und „Zoom-SDK laden“ über die Anmeldung statt über eigene Schlüssel; braucht auch ein Launcher-Release | ⚪ Bestandsaufnahme fertig (05.11.); Plan erst nach Release und Merge von Teil 1. **19.11.:** Die Bestandsaufnahme ist gegen Connect 0.4.0 gemessen, seitdem kamen 0.4.1–0.4.5 → vor dem Plan nachmessen (Block 3; Ziel Connect 0.5.0 + Launcher 0.19.0) |
 
 ✅ **Seit dem Merge von Teil 1 (20.11.) kommt ein Proxy-Deploy wieder von `main`.** Der Branch `docs/launcher-anmeldung` ist
@@ -625,7 +625,13 @@ vor dem Release. Geplant war:
 - Danach Merge von #282 und die Übergangsfrist der alten Schlüssel (`ALTKEY_BIS` = Release-Tag + 30 Tage). Ab dem Merge darf
   der Proxy wieder von `main` deployt werden.
 
-**Block 2 · Auffrisch-Runde**
+**Block 2 · Auffrisch-Runde** — 🟡 **gebaut 20.11., Releases laufen** (Spec `docs/superpowers/specs/2026-11-20-auffrisch-runde-design.md`,
+Plan `docs/superpowers/plans/2026-11-20-auffrisch-runde.md`, 8 Tasks je mit Prüfung, Gesamtprüfung ohne kritische oder wichtige
+Befunde). Versionen: Timer 0.14.1, Rundown 0.8.1, Battle 0.4.0, Prompter 0.7.0, Stage Display 0.6.0, Titler 0.12.2,
+Caption 0.5.0, Switcher 0.11.0, NDI Screen Capture 0.4.0. Gemessen dabei: auch Titler, Caption und Switcher fehlte der
+mDNS-Fix; Caption, Switcher und NDI Screen Capture bekommen erstmals Master-Link und Log-Aufräumen. NDI-Prüfstand (Gruppe `ndi`)
+20 ok, Rauchtest Battle, Prompter, Stage Display bestanden. Offen danach: NDI-Laufzeit und `jm_ndi.node` von NDI Screen
+Capture aus dem öffentlichen Repo nehmen (eigener Schritt, Owner 20.11.).
 
 - Timer, Rundown, Battle, Prompter und Stage Display bekommen den mDNS-Absturz-Fix (Lane F).
 - Battle, Prompter und Stage Display hatten seit dem 05.07. keinen Release. Sie nehmen alles mit, was sich seitdem in den
@@ -686,9 +692,10 @@ nach dem R2-Release. Zwischen 2 und 3 läuft nichts parallel außer dem Schreibe
 
 - ✅ **Erledigt:** Block 1, Anmeldung Teil 1 released (Zeile 10) · Aufgeräumt: Arbeitsordner und Protokoll der Anmeldung
   archiviert, `docs/launcher-anmeldung` sowie die Hilfsbranches `z1/worker`, `z3/worker`, `z3/auf-z2` gelöscht (Abschnitt 4).
-- 🔵 **Als Nächstes:** Block 2, die Auffrisch-Runde (Owner 20.11.: „in deiner empfehlung weiter“). Block 0 läuft nebenher,
-  sobald die Rückmeldungen der Crew da sind.
-- 🟡 **Beim Owner:** Abnahme-Schritte 18 und 20 der Anmeldung, Safari-Version · die Punkte mit *Owner* in Block 0 · weiter
+- ✅ **Abnahme Anmeldung Teil 1 durch** (Owner 20.11. 15:34), offen nur der iveo-Fehler, der beim iveo-Entwickler liegt.
+- 🟡 **Läuft:** Block 2, die Auffrisch-Runde, gebaut und geprüft, Releases am 20.11. (Owner 20.11.: „in deiner empfehlung
+  weiter“). Block 0 läuft nebenher, sobald die Rückmeldungen der Crew da sind.
+- 🟡 **Beim Owner:** die Punkte mit *Owner* in Block 0 · weiter
   Messwerte aus der Abnahme Connect 0.3.0 · Bild-Versatz-Wert (Abschnitt 1) · Zoom-Review E1–E6 · Mac-Fragen O1–O6.
 
 <details>
