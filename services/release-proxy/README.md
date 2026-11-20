@@ -185,12 +185,13 @@ Passwort und Einladungscode; den Rechner bestätigen sie mit dem Code, den der L
   alten Schlüssels; fehlt der Wert, gilt der Schlüssel unbefristet, und der Reiter Geräte der Admin-Maske zeigt das als
   Diagnose; einen unlesbaren Wert meldet die Bauprobe mit Exit 1), `ALTKEY_CONNECT_BIS` (Frist für die Connect-Routen, erst nach dem Release von Connect 0.5.0 gesetzt, siehe Teil 2).
 - **Drosseln der Anmeldung (`[[ratelimits]]`):** Die Drosseln der Routen unter `/konto/`, die des Launcher-Selbst-Updates ohne
-  Zugang und die der Q&A-Admin-Routen mit dem alten Schlüssel zählen nicht in KV, sondern in Rate-Limit-Bindungen der Workers (Teil 1: sieben, Teil 2 fügt zwei hinzu) (KV erlaubt ein Schreiben je Schlüssel und
+  Zugang und die der Q&A-Admin-Routen mit dem alten Schlüssel zählen nicht in KV, sondern in neun Rate-Limit-Bindungen der Workers (KV erlaubt ein Schreiben je Schlüssel und
   Sekunde, das gäbe hinter einer gemeinsamen Büro-IP Fehlschläge). Sie stehen in `wrangler.toml`, je Grenze eine Bindung, gezählt
   je IP-Hash und Cloudflare-Standort, also ungefähr: `KONTO_RL_VORGANG` (Vorgang anlegen, 20 je Minute), `KONTO_RL_ABHOLEN`
   (Abholen, 600), `KONTO_RL_ABBRECHEN` (60), `KONTO_RL_GOOGLE` (Weiter zu Google und Rückkehr, 60), `KONTO_RL_PASSWORT` (10),
-  `KONTO_RL_SELBSTUPDATE` (20) und `KONTO_RL_QAALT` (Q&A-Admin-Routen mit dem alten Schlüssel, vor dem Konten-DO, 60). Die
-  Bindungen verlangen wrangler ab 4.36.0. Ihre `namespace_id` 7301 bis 7307 müssen im
+  `KONTO_RL_SELBSTUPDATE` (20), `KONTO_RL_QAALT` (Q&A-Admin-Routen mit dem alten Schlüssel, vor dem Konten-DO, 60),
+  `KONTO_RL_CONNECTALT` (alter Schlüssel an `/connect`, 7308, 20 je 60 s; Teil 2) und `KONTO_RL_ZOOMJWT` (`POST /zoom/jwt`, 7309,
+  30 je 60 s; Teil 2). Die Bindungen verlangen wrangler ab 4.36.0. Ihre `namespace_id` 7301 bis 7309 müssen im
   Cloudflare-Konto eindeutig sein; eine dort schon vergebene Zahl ließe zwei Bindungen einen Zähler teilen. Fehlt eine Bindung
   oder wirft sie, warnt der Worker im Log und lässt die Route offen; die Drossel erzeugt nie einen 5xx. Bei Überschreitung
   antworten die Routen wie bisher mit `429` und `Retry-After: 60`. Das KV `RATELIMIT` bleibt für Feedback, Kochbuch-Entwurf,
@@ -230,9 +231,14 @@ die Anmeldung im Launcher an; der alte `PROXY_KEY` an `/connect` und der `ZOOM_S
   `KONTO_RL_ZOOMJWT` (7309, 30 je 60 s); damit gibt es neun Bindungen.
 - **Stichtag:** `ALTKEY_CONNECT_BIS` bleibt leer (unbefristet), bis Connect 0.5.0 released ist; dann Release + 30 Tage in einem
   eigenen Schritt mit Owner-OK. Die Bauprobe meldet ihn als „nicht gesetzt (unbefristet)“, solange er fehlt.
-- **Reihenfolge der Deploys (N1 bis N5):** (1) Worker mit den neuen Routen deployen, Secrets und Drosseln vorher bereit, alter
-  Schlüssel gilt weiter; (2) Launcher 0.19.0 mit den Freigaben releasen; (3) Connect 0.5.0 releasen; (4) erst danach
-  `ALTKEY_CONNECT_BIS` setzen und deployen; (5) nach Ablauf der Frist den alten Schlüssel rotieren.
+- **Reihenfolge nach der Umsetzung (N1 bis N5), nur Controller und Owner, je mit Owner-OK:** (N1) Worker-Deploy: Trockenlauf und
+  Bauprobe, ungemergte Proxy-Commits prüfen; `ZOOM_CLIENT_ID` und `ZOOM_CLIENT_SECRET` setzen (Werte nie im Chat, nie im Repo;
+  vorher prüfen, dass kein Leerraum am Rand steht); `ALTKEY_CONNECT_BIS` bleibt leer; danach Connect 0.4.6 kurz gegenprüfen (Raum,
+  SDK, Zoom). (N2) Launcher 0.19.0 releasen. (N3) Connect 0.5.0 releasen, nach der Owner-Abnahme. (N4) Stichtag setzen:
+  `ALTKEY_CONNECT_BIS` = Release-Datum von Connect 0.5.0 + 30 Tage in `wrangler.toml`, Bauprobe zeigt das Datum lesbar, Deploy.
+  (N5) Am Stichtag: vorher klären, ob Zoom das Neu-Erzeugen des Client-Secrets der Meeting-SDK-App erlaubt; dann das Client-Secret
+  bei Zoom rotieren, das Worker-Secret `ZOOM_CLIENT_SECRET` tauschen, die Zugangsdaten-Dateien in der JM-Ablage löschen und die
+  Worker-Secrets `PROXY_KEY` und `ZOOM_SDK_KEY` löschen (nicht rotieren).
 - **Tests:** zusätzlich `connect-zugang`, `zoom-jwt` und `connect-do` (ConnectRoom-DO, SFU-Vermittlung); alle laufen in `ci-checks.yml`.
 
 Lokaler Test (ohne Deploy): `node services/release-proxy/test/worker.test.mjs`.
