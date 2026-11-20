@@ -16,7 +16,7 @@
 //   `abschluss()` druckt `‹n› passed, ‹m› failed` und beendet mit Exit 1 bei Fehlern.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { KontoSpeicher } from '../konto-do.js';
-import { beweisText, geraetIdAus } from '../konto-krypto.js';
+import { beweisText, geraetIdAus, signiere } from '../konto-krypto.js';
 
 let passed = 0;
 let failed = 0;
@@ -309,6 +309,21 @@ export async function testGeraet(o = {}) {
       return { gid, ts, sig: b64url(sig) };
     },
   };
+}
+
+/** Signierte Sitzung für Tests ohne DO; Claims wie `kontoStand` (Standard: Kollege auf einem JM-Rechner unter Windows). */
+export async function testSitzung(schluessel, o = {}) {
+  const { stufe = 'kollege', tools = [], jetzt, plattform = 'win', jm = true, kid = 'k-test', gid = 'g-test' } = o;
+  const { zoom = stufe !== 'externer', exp = jetzt + 3600_000 } = o;
+  return signiere(schluessel, {
+    v: 1, typ: 'sitzung', kid, email: 'test@example.org', name: 'Test Person', art: 'passwort', stufe, tools, events: [],
+    zoom, zoomBis: null, jm, plattform, gid, iat: jetzt, exp, kontoBis: null, angemeldetSeit: jetzt,
+  });
+}
+
+/** Signierte Freigabe für Tests ohne Worker-Route (Claims wie `POST /konto/freigabe`). */
+export async function testFreigabe(schluessel, { zweck, ziel, kid = 'k-test', gid = 'g-test', jetzt, exp = jetzt + 259_200_000 }) {
+  return signiere(schluessel, { v: 1, typ: 'freigabe', zweck, ziel, kid, gid, iat: jetzt, exp });
 }
 
 export function neuerSpeicher(env = {}) {

@@ -10,7 +10,7 @@ import worker from '../worker.js';
 import { handleKonto } from '../konto-relay.js';
 import { pruefeToken } from '../konto-krypto.js';
 import { FEHLER_TEXT, KONFLIKT_TEXT } from '../konto-zugang.js';
-import { abschluss, check, makeKontoNs, makeKV, makeRateLimit, makeRLBindungen, makeUhr, makeWaitCtx, pruefeFaelle, rufeDo, testGeraet, testSchluessel } from './konto-attrappen.mjs';
+import { abschluss, check, makeKontoNs, makeKV, makeRateLimit, makeRLBindungen, makeUhr, makeWaitCtx, pruefeFaelle, rufeDo, testGeraet, testSchluessel, testSitzung } from './konto-attrappen.mjs';
 import { sha256B64url } from '../konto-krypto.js';
 
 // Konsole mitschneiden: erwartete Warnungen und die Prüfung „kein Geheimnis im Log“ am Ende.
@@ -292,7 +292,7 @@ async function run() {
     check('P16 6.2, 6.3: Freigabe läuft 72 h, auch über „Zugang bis“ hinaus (Externer mit qa, Zugang noch 10 h)', k.status === 200 && k.daten.bis === uhr() + 72 * 3600_000);
     const faelle = [
       { name: 'Externer ohne Werkzeug qa', a: await api(env, 'POST', '/konto/freigabe', { sitzung: ohneQa.sitzung, body: { zweck: 'qa-relay', ziel: 'qa-event-1' } }), s: [403, 'kein-recht'] },
-      { name: 'unbekannter Zweck', a: await api(env, 'POST', '/konto/freigabe', { sitzung: karl.sitzung, body: { zweck: 'zoom-jwt', ziel: 'x1' } }), s: [400, 'unbekannter-zweck'] },
+      { name: 'unbekannter Zweck', a: await api(env, 'POST', '/konto/freigabe', { sitzung: karl.sitzung, body: { zweck: 'zoom-xyz', ziel: 'x1' } }), s: [400, 'unbekannter-zweck'] },
       { name: 'Ziel fehlt', a: await api(env, 'POST', '/konto/freigabe', { sitzung: karl.sitzung, body: { zweck: 'qa-relay' } }), s: [400, 'ungueltig'] },
       { name: 'Ziel mit Leerzeichen', a: await api(env, 'POST', '/konto/freigabe', { sitzung: karl.sitzung, body: { zweck: 'qa-relay', ziel: 'a b' } }), s: [400, 'ungueltig'] },
       { name: 'ohne Sitzung', a: await api(env, 'POST', '/konto/freigabe', { body: { zweck: 'qa-relay', ziel: 'qa-event-1' } }), s: [401, 'nicht-angemeldet'] },
@@ -1606,6 +1606,31 @@ async function run() {
     const treffer = geheim.filter((g) => typeof g === 'string' && g.length >= 6 && alles.includes(g));
     check(`P16 G4: Konsole ohne Sitzung, Freigabe, Abholgeheimnis, Code, Passwort, Einladungscode, iveo-Token, Schlüssel (${geheim.length} Werte)`,
       treffer.length === 0 && !alles.includes('jm1.'));
+  }
+  // T1 OT1: Freigaben für Connect, Ziel je Zweck, Rechte (OF1, OF4, OT4)
+  {
+    const env = umgebung();
+    const uhr = env.KONTO_UHR;
+    const s = (o) => testSitzung(SCHLUESSEL, { jetzt: uhr(), ...o });
+    const fr = async (sitzung, zweck, ziel) => api(env, 'POST', '/konto/freigabe', { sitzung, body: { zweck, ziel } });
+    const ok = await fr(await s({ stufe: 'kollege', jm: false }), 'zoom-jwt', 'meeting-sdk');
+    const c = await pruefeToken(SCHLUESSEL, ok.daten.freigabe, 'freigabe', uhr());
+    check('T1 OT1: Kollege auf Nicht-JM-Rechner bekommt zoom-jwt (OF1): 200, Ziel meeting-sdk, bis = jetzt + 72 h',
+      ok.status === 200 && c.zweck === 'zoom-jwt' && c.ziel === 'meeting-sdk' && ok.daten.bis === uhr() + 259_200_000);
+    await pruefeFaelle('T1 OT1, OT4: Freigaben für Connect', [
+      { name: 'Admin connect-raum cop31-tag1', a: await fr(await s({ stufe: 'admin' }), 'connect-raum', 'cop31-tag1'), s: [200] },
+      { name: 'Externer mit Werkzeug connect-raum', a: await fr(await s({ stufe: 'externer', tools: ['connect-raum'] }), 'connect-raum', 'cop31-tag1'), s: [200] },
+      { name: 'Kollege JM zoom-sdk', a: await fr(await s({ jm: true }), 'zoom-sdk', 'win-x64'), s: [200] },
+      { name: 'Externer Zoom-Freigabe JM zoom-jwt', a: await fr(await s({ stufe: 'externer', zoom: true, jm: true }), 'zoom-jwt', 'meeting-sdk'), s: [200] },
+      { name: 'Externer ohne Werkzeug connect-raum', a: await fr(await s({ stufe: 'externer' }), 'connect-raum', 'cop31-tag1'), s: [403, 'kein-recht'] },
+      { name: 'Externer ohne Zoom-Freigabe zoom-jwt', a: await fr(await s({ stufe: 'externer', zoom: false, jm: true }), 'zoom-jwt', 'meeting-sdk'), s: [403, 'kein-recht'] },
+      { name: 'Externer Freigabe, Nicht-JM zoom-jwt', a: await fr(await s({ stufe: 'externer', zoom: true, jm: false }), 'zoom-jwt', 'meeting-sdk'), s: [403, 'kein-recht'] },
+      { name: 'Kollege Mac zoom-jwt', a: await fr(await s({ plattform: 'mac' }), 'zoom-jwt', 'meeting-sdk'), s: [403, 'kein-recht'] },
+      { name: 'Kollege Nicht-JM zoom-sdk', a: await fr(await s({ jm: false }), 'zoom-sdk', 'win-x64'), s: [403, 'kein-recht'] },
+      { name: 'zoom-jwt mit Ziel x1', a: await fr(await s({}), 'zoom-jwt', 'x1'), s: [400, 'ungueltig'] },
+      { name: 'connect-raum mit Ziel abc', a: await fr(await s({}), 'connect-raum', 'abc'), s: [400, 'ungueltig'] },
+      { name: 'zoom-sdk mit Fassung', a: await fr(await s({}), 'zoom-sdk', '7.1.5.43953'), s: [400, 'ungueltig'] },
+    ], (x) => (x.s.length === 1 ? (x.a.status === 200 ? null : `ist ${ist(x.a)}`) : (soll(x.a, ...x.s) ? null : `ist ${ist(x.a)}`)));
   }
   // Z1-W2 [T] G4: das Protokoll oben schneidet nur warn und error mit (der Harness druckt selbst über console.log). Darum zusätzlich
   // ein Quelltext-Wächter: keine Datei der Anmeldung im Worker ruft console.log, console.info oder console.debug.
