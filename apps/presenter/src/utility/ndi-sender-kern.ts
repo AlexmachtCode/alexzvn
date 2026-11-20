@@ -25,10 +25,27 @@ export function empfaengerZahl(verbindungen: number): number {
   return Number.isFinite(verbindungen) && verbindungen > 0 ? Math.ceil(verbindungen / 2) : 0;
 }
 
+/** Uhr des Sendetakts: im Release die echte, im Selbsttest eine simulierte. */
+export interface KernUhr {
+  /** Monotone Zeit in ms. */
+  jetzt(): number;
+  /** Ruft fn nach ms ms auf; liefert eine Marke für abbrechen(). */
+  planen(fn: () => void, ms: number): unknown;
+  abbrechen(marke: unknown): void;
+}
+
+/** performance.now(), setTimeout, clearTimeout: genau das, was der Kern bisher direkt nutzte. */
+export const echteUhr: KernUhr = {
+  jetzt: () => performance.now(),
+  planen: (fn, ms) => setTimeout(fn, ms),
+  abbrechen: (marke) => clearTimeout(marke as ReturnType<typeof setTimeout>),
+};
+
 export function starteNdiSenderKern(
   port: KernPort,
   ladeNdi: () => Promise<NdiSendeModul>,
   taktMs: number = NDI_TAKT_MS,
+  uhr: KernUhr = echteUhr,
 ): void {
   const melde = (m: VomSender): void => port.postMessage(m);
   let ndi: NdiSendeModul | null = null;
@@ -37,11 +54,11 @@ export function starteNdiSenderKern(
   let letztes: Uint8Array = new Uint8Array(NDI_BILD_BYTES); // alles 0 = vollständig transparent
   let gesendet = 0;
   let soll = 0;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let timer: unknown = null;
 
   const beendeTakt = (): void => {
     beendet = true;
-    if (timer) clearTimeout(timer);
+    if (timer !== null) uhr.abbrechen(timer);
     timer = null;
   };
 
@@ -59,9 +76,9 @@ export function starteNdiSenderKern(
     }
     // Driftfrei: der Sollzeitpunkt wandert um feste Takte; liegt er weit zurück, wird nicht im Stoß nachgeholt.
     soll += taktMs;
-    const jetzt = performance.now();
+    const jetzt = uhr.jetzt();
     if (jetzt - soll > 2 * taktMs) soll = jetzt;
-    timer = setTimeout(tick, Math.max(0, soll - jetzt));
+    timer = uhr.planen(tick, Math.max(0, soll - jetzt));
   };
 
   const starte = async (): Promise<void> => {
@@ -79,7 +96,7 @@ export function starteNdiSenderKern(
       return;
     }
     melde({ type: 'bereit' });
-    soll = performance.now();
+    soll = uhr.jetzt();
     tick();
   };
 
