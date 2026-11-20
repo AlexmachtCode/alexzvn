@@ -70,6 +70,8 @@ jobs:
       # #228 und #231: reine Node-Tests, ohne Electron und ohne DOM.
       - name: Presenter (Suite-Status, On Air nur in der Präsentation)
         run: npm run selftest -w @jm/presenter
+      - name: Stage Display (Nachricht in allen drei Ansichten)
+        run: npm run selftest -w @jm/stage-display
       - name: Appkit (Spiellogik, Variable umbenennen)
         run: npm run selftest -w @jm/appkit
       - name: App Designer (Raster, Variablen im Store)

@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.web.json",
+  "compilerOptions": { "composite": false, "types": ["node"] },
+  "include": [
+    "test/**/*.ts",
+    "test/**/*.tsx",
+    "src/renderer/src/**/*.ts",
+    "src/renderer/src/**/*.tsx",
+    "src/shared/**/*.ts"
+  ]
+}
