@@ -19,7 +19,7 @@
 - **Zwecke:** `connect-raum` → Funktion `connect-raum`, Gruppe `connect`, Ziel = Raum-ID nach `^[A-Za-z0-9_-]{6,64}$` (`ID_RE`); `zoom-jwt` → Funktion `zoom`, Ziel fest `meeting-sdk`; `zoom-sdk` → Funktion `zoom` und JM-Rechner (alle Stufen), Ziel fest `win-x64`; `qa-relay` unverändert (Ziel `^[A-Za-z0-9_-]{1,128}$`).
 - **Freigabe-Laufzeit:** jeder Zweck 72 h = `259_200_000` ms (`FREIGABE_MS`); appId `jm-connect`.
 - **JM-Prüfung für `zoom-sdk`:** beim Ausstellen auf beiden Seiten (Launcher `freigaben.ts`, Worker `/konto/freigabe`), weil die Freigabe-Claims `{v, typ, zweck, ziel, kid, gid, iat, exp}` kein `jm` tragen.
-- **Zoom-JWT:** HS256, Kopf `{"alg":"HS256","typ":"JWT"}`, Nutzlast `{"appKey","iat","exp","tokenExp"}` in genau dieser Reihenfolge, `iat` = ⌊jetzt s⌋ − 30, `exp` = `tokenExp` = `iat` + 43 200 (12 h); kein `mn`, keine `role`; byte-gleich zu `packages/zoom-bridge/src/jwt.ts` `buildJwt` bei gleichen Eingaben.
+- **Zoom-JWT:** HS256, Kopf `{"alg":"HS256","typ":"JWT"}`, Nutzlast `{"appKey","iat","exp","tokenExp"}` in genau dieser Reihenfolge, `iat` = ⌊jetzt s⌋ − 30, `exp` = `tokenExp` = `iat` + 43 200 (12 h; nur auf Anfrage mit Rumpf `ttlS` 1800–43 200 kürzer, E9/M4); kein `mn`, keine `role`; byte-gleich zu `packages/zoom-bridge/src/jwt.ts` `buildJwt` bei gleichen Eingaben.
 - **JWT in Connect:** nur im RAM; vor dem Spawn der Bridge (vor S-c) geholt; erneuert, wenn weniger als 2 h = `7_200_000` ms Rest bleiben; Rest gemessen an `gueltigS` der Worker-Antwort, nicht an `exp` gegen die lokale Uhr.
 - **Worker-Secrets:** neu `ZOOM_CLIENT_ID` und `ZOOM_CLIENT_SECRET` (nur beschrieben, nie gesetzt, nie in `[vars]`); kein neuer Name mit `ZOOM_SDK_`; `PROXY_KEY` und `ZOOM_SDK_KEY` bleiben bis zum Stichtag.
 - **Stichtag:** `ALTKEY_CONNECT_BIS` bleibt in diesem Plan leer (unbefristet); er gilt später für `PROXY_KEY` an `/connect` und `ZOOM_SDK_KEY` an `/zoom-sdk`.
@@ -67,7 +67,7 @@ Jede Aufgabe braucht nur, was davor fertig ist. Phase B hängt nur an Task 1 (ge
 - **E6 Drosseln:** 20/min für den alten Schlüssel an `/connect` (Connect öffnet selten), 30/min für `/zoom/jwt` je IP (mehrere Rechner hinter einer Büro-IP).
 - **E7 Alte Werte in Connect 0.5.0:** nur noch anzeigen und entfernen, nie neu eintragen; Zeilen erscheinen nur, solange ein alter Wert da ist („Felder nur im Übergang“, Spec 166). Umgebungsvariablen bleiben für Entwicklung und Test und stehen als Diagnose da.
 - **E8 Kurze Raum-IDs (N4):** gesäuberte ID mit 1–5 Zeichen → `‹id›-‹die ersten 6 Hex-Zeichen von SHA-256(id)›`; 0 Zeichen bleibt leer (Zufalls-ID wie heute), ab 6 Zeichen unverändert.
-- **E9 M4 ausführbar machen:** Entwicklungsvariable `JMPS_ZOOM_JWT_TTL_S` (ganze Zahl 1800–43 200). Ist sie gesetzt und liegen lokale Zugangsdaten vor (Umgebung), signiert Connect das JWT lokal mit dieser Laufzeit; das ergibt dieselben Bytes wie der Worker mit derselben Laufzeit. Siehe Offene Punkte.
+- **E9 M4 ausführbar machen (Owner 20.11. 20:21: Weg über den Worker, kein Secret auf dem PC):** `POST /zoom/jwt` nimmt optional den JSON-Rumpf `{ "ttlS": n }` mit ganzer Zahl `n` 1800–43 200 an (ohne Rumpf oder ohne `ttlS`: 43 200; andere Werte, kein JSON → 400 `{ code: 'ungueltige-laufzeit' }`); eine kürzere Laufzeit gibt einem Freigabe-Inhaber nichts zusätzlich. Connect liest die Entwicklungsvariable `JMPS_ZOOM_JWT_TTL_S` (ganze Zahl 1800–43 200) und schickt sie als `ttlS` mit; dann kein JWT aus dem RAM und kein Erneuerungs-Zeitgeber, jeder Bedarf holt neu. Connect signiert mit dieser Variable nie lokal. (Ursprünglicher Planer-Vorschlag, verworfen: lokal signieren mit den Zugangsdaten aus der Umgebung.)
 - **E10 Zugangs-Altlasten (OT9):** `proxyKeyEnc` fällt beim Erhalt der ersten gültigen `connect-raum`-Freigabe, `zoomSdkKeyEnc` nach dem ersten Link mit Freigabe, `zoomZugangEnc` nach dem ersten `auth` mit Code 0 und Server-JWT; je einmal ein Hinweis (CZ5, ZA6, ZA5). Lehnt der Worker einen alten Schlüssel mit 401 `nicht-angemeldet` oder `alter-key-abgelaufen` ab, löscht Connect ihn ebenfalls (Muster Q&A OE5): nach dem Stichtag kein Rückfall.
 
 ---
@@ -142,7 +142,7 @@ Die Aufgaben setzen diese Texte wörtlich um. **Tor:** Die Freigabe durch den Ow
 | ZA8 | 10 | Grund `server-abgelehnt` | Der Server hat die Freigabe für Zoom abgelehnt. Ich hole beim nächsten Versuch eine neue beim Launcher. |
 | ZA9 | 10 | Grund `nicht-eingerichtet` | Die Zoom-Anmeldung ist auf dem Server nicht eingerichtet. Sag einem Admin Bescheid. |
 | ZA10 | 10 | Grund `server-fehler` | Der Server hat kein Zoom-Anmelde-Token geliefert (‹Detail›). Ich versuche es beim nächsten Beitritt erneut. |
-| ZA11 | 10 | Zusatz, Entwicklung (E9) | Entwicklungsmodus: JMPS_ZOOM_JWT_TTL_S gesetzt (‹n› s), Anmeldung mit den lokalen Zugangsdaten. |
+| ZA11 | 10 | Zusatz, Entwicklung (E9) | Entwicklungsmodus: JMPS_ZOOM_JWT_TTL_S gesetzt, der Server stellt das Zoom-Anmelde-Token mit ‹n› s Laufzeit aus. |
 | B9s | 15 | `klartext.ts` | Zoom hat die Anmeldung abgelehnt: Die Zoom-Zugangsdaten auf dem Server stimmen nicht (‹Result›). Sag einem Admin Bescheid. |
 | B10s | 15 | `klartext.ts` | Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token vom Server passt nicht (AUTHRET_JWTTOKENWRONG). Meist geht die Uhr dieses PCs falsch; sonst stimmen die Zugangsdaten auf dem Server nicht. |
 | S12b | 13 | `klartext.ts`, 401 auf Freigabe an `/zoom-sdk` | Der Server hat die Freigabe für „Zoom-SDK laden“ abgelehnt. Bitte noch einmal versuchen; Connect holt eine neue beim Launcher. |
@@ -580,7 +580,7 @@ git commit -m "feat(proxy): Zoom-JWT im Worker signieren, byte-gleich zu buildJw
 **Interfaces:**
 - Consumes: `signiereZoomJwt`, `zoomZugangBrauchbar` (Task 5); `zugangPruefen` mit `zweck` (Task 3); `drosselBindung`, `kontoAktion`, `kontoJetzt`, `abgelehnt`; DO `zoom-jwt-protokoll` (Task 2); `ZIEL_ZOOM_JWT` (Task 1).
 - Produces:
-  - `handleZoomJwt(request, env, url, ctx): Promise<Response | null>` — `null` für jeden anderen Pfad als `/zoom/jwt`. Reihenfolge: Methode ≠ POST → 404 `{ error: 'not found' }`; Drossel `KONTO_RL_ZOOMJWT` → 429 `{ error: 'zu viele Anfragen', code: 'zu-viele' }`, `Retry-After: 60`; `zugangPruefen({ funktion: 'zoom', zweck: 'zoom-jwt', gruppe: null, ziel: ZIEL_ZOOM_JWT, jetzt, ctx })`; `!zoomZugangBrauchbar(env.ZOOM_CLIENT_ID, env.ZOOM_CLIENT_SECRET)` → `console.warn('zoom-jwt: Secret ZOOM_CLIENT_ID oder ZOOM_CLIENT_SECRET fehlt oder hat Leerraum')`, 503 `{ error: FEHLER_TEXT['nicht-eingerichtet'], code: 'nicht-eingerichtet' }`; signieren; `ctx.waitUntil(kontoAktion(env, 'zoom-jwt-protokoll', { kid, gid }))` mit Warnung nur mit dem Fehlernamen; 200 `{ jwt, exp, gueltigS: exp - Math.floor(jetzt / 1000) }`, Kopf `cache-control: no-store`.
+  - `handleZoomJwt(request, env, url, ctx): Promise<Response | null>` — `null` für jeden anderen Pfad als `/zoom/jwt`. Reihenfolge: Methode ≠ POST → 404 `{ error: 'not found' }`; Drossel `KONTO_RL_ZOOMJWT` → 429 `{ error: 'zu viele Anfragen', code: 'zu-viele' }`, `Retry-After: 60`; `zugangPruefen({ funktion: 'zoom', zweck: 'zoom-jwt', gruppe: null, ziel: ZIEL_ZOOM_JWT, jetzt, ctx })`; `!zoomZugangBrauchbar(env.ZOOM_CLIENT_ID, env.ZOOM_CLIENT_SECRET)` → `console.warn('zoom-jwt: Secret ZOOM_CLIENT_ID oder ZOOM_CLIENT_SECRET fehlt oder hat Leerraum')`, 503 `{ error: FEHLER_TEXT['nicht-eingerichtet'], code: 'nicht-eingerichtet' }`; Laufzeit aus dem Rumpf (E9, `zoomJwtLaufzeit(text: string): number | null` exportiert: leerer Rumpf oder JSON ohne `ttlS` → 43 200; `ttlS` ganze Zahl 1800–43 200 → sie; sonst `null` → 400 `{ error: 'ungültige Laufzeit', code: 'ungueltige-laufzeit' }`); signieren mit `ttlSeconds` = Laufzeit; `ctx.waitUntil(kontoAktion(env, 'zoom-jwt-protokoll', { kid, gid }))` mit Warnung nur mit dem Fehlernamen; 200 `{ jwt, exp, gueltigS: exp - Math.floor(jetzt / 1000) }`, Kopf `cache-control: no-store`.
   - `KONTO_RL.zoomJwt = 'KONTO_RL_ZOOMJWT'`; `wrangler.toml` `namespace_id = "7309"`, `limit = 30`, `period = 60`.
 
 - [ ] **Step 1: Die failing tests schreiben**
@@ -609,6 +609,14 @@ await pruefeFaelle('T6 RF4: Secret fehlt oder mit Leerraum → 503 nicht-eingeri
   { name: 'ID mit Leerzeichen vorn', env: { ZOOM_CLIENT_ID: ' test-id-1234' } },
 ], async (x) => { const r = await post({ Authorization: `Bearer ${fJ}` }, { ...jwtEnv, ...x.env }); return r.status === 503 && (await r.json()).code === 'nicht-eingerichtet' ? null : `ist ${r.status}`; });
 check('T6 RF4: … Warnung „zoom-jwt: Secret ZOOM_CLIENT_ID oder ZOOM_CLIENT_SECRET fehlt oder hat Leerraum“, ohne Wert', …);
+const kurz = await worker.fetch(new Request('https://proxy.test/zoom/jwt', { method: 'POST', headers: { 'CF-Connecting-IP': '9.9.9.9', Authorization: `Bearer ${fJ}`, 'content-type': 'application/json' }, body: '{"ttlS":1860}' }), jwtEnv, ctx);
+const dk = await kurz.json();
+check('T6 E9, M4: Rumpf {ttlS 1860} → 200, gueltigS 1830, JWT byte-gleich zu buildJwt mit ttlSeconds 1860',
+  kurz.status === 200 && dk.gueltigS === 1830 && dk.jwt === buildJwt({ clientId: 'test-id-1234', clientSecret: 'test-secret-5678', now: Math.floor(uhr() / 1000), ttlSeconds: 1860 }));
+check('T6 E9: zoomJwtLaufzeit: leer und {} → 43200; 1800 und 43200 gelten; 1799, 43201, 1860.5, "1860", kein JSON → null',
+  zoomJwtLaufzeit('') === 43_200 && zoomJwtLaufzeit('{}') === 43_200 && zoomJwtLaufzeit('{"ttlS":1800}') === 1800 && zoomJwtLaufzeit('{"ttlS":43200}') === 43_200
+    && ['{"ttlS":1799}', '{"ttlS":43201}', '{"ttlS":1860.5}', '{"ttlS":"1860"}', 'kein json'].every((t) => zoomJwtLaufzeit(t) === null));
+check('T6 E9: Rumpf {ttlS 1799} → 400 ungueltige-laufzeit, kein JWT, kein Protokolleintrag', …);
 check('T6 R2: Drossel KONTO_RL_ZOOMJWT: 31. Anfrage je IP → 429 Retry-After 60; ohne Bindung Warnung und offen', …);
 check('T6 R2: nach ctx.fertig() genau ein Protokolleintrag zoom-jwt mit kid k-test und gid g-test', …);
 check('T6: Konten-DO wirft beim Protokoll → trotzdem 200, Warnung nur mit dem Fehlernamen', …);
@@ -936,7 +944,7 @@ kreuz('T10 G7: Zeile Zoom-Anmeldung (Quelle × Grund × gelöscht × Entwicklung
     'Zoom-Anmeldung: Die Zoom-Anmeldung ist auf dem Server nicht eingerichtet. Sag einem Admin Bescheid.|fehler'],
   ['keine, Server-Fehler', anmeldungZeile(alage({ quelle: 'keine', versucht: true, grund: 'server-fehler', detail: 'HTTP 502' }), J),
     'Zoom-Anmeldung: Der Server hat kein Zoom-Anmelde-Token geliefert (HTTP 502). Ich versuche es beim nächsten Beitritt erneut.|warn'],
-  ['Entwicklung', anmeldungZeile(alage({ quelle: 'lokal', devTtlS: 1860 }), J).text.endsWith(' Entwicklungsmodus: JMPS_ZOOM_JWT_TTL_S gesetzt (1860 s), Anmeldung mit den lokalen Zugangsdaten.'), true],
+  ['Entwicklung', anmeldungZeile(alage({ quelle: 'server', devTtlS: 1860 }), J).text.endsWith(' Entwicklungsmodus: JMPS_ZOOM_JWT_TTL_S gesetzt, der Server stellt das Zoom-Anmelde-Token mit 1860 s Laufzeit aus.'), true],
 ]);
 ck('T10: kein Text enthält ASCII-Anführungszeichen', alleTexte().every((t) => !t.includes('"')));
 ```
@@ -1197,10 +1205,10 @@ git commit -m "feat(connect): Zoom-SDK laden mit Freigabe zoom-sdk, Absage auf N
   - `JWT_ERNEUERN_VOR_MS = 7_200_000`; `JWT_MIN_REST_MS = 300_000`
   - `type JwtHerkunft = 'server' | 'lokal'`; `type JwtErgebnis = { ok: true; jwt: string; bis: number; herkunft: JwtHerkunft } | { ok: false; grund: JwtGrund; detail: string | null }`
   - `interface JwtQuelle { hole(): Promise<JwtErgebnis>; angemeldet(h: JwtHerkunft): boolean; lage(): ZoomAnmeldungLage; geheimnisse(): string[]; stoppe(): void }`
-  - `erzeugeJwtQuelle(d: { halter: Pick<ZugangsHalter, 'zugang' | 'antwort' | 'lage'>; holeServerJwt(token: string): Promise<{ ok: true; jwt: string; gueltigS: number } | { ok: false; status: number; code: string | null }>; lokal: { lesen(): { daten: { clientId: string; clientSecret: string } | null; herkunft: ProxyKeySource }; loeschen(): boolean }; signiereLokal(z: { clientId: string; clientSecret: string }, ttlS: number): string; lokalTtlS: number | null; brauchtJwt(): boolean; jetzt(): number; zeitgeber(ms: number, fn: () => void): unknown; loescheZeitgeber(t: unknown): void; log(z: string): void; geaendert(): void }): JwtQuelle`
-  - `holeServerJwt(base: string, token: string, f?: typeof fetch): Promise<…>` — `POST ‹base›/zoom/jwt`, `Authorization: Bearer`, `redirect: 'manual'`, nur HTTPS (HTTP nur `127.0.0.1`/`localhost`), Zeitlimit 10 s; Antwort ohne Text `jwt` oder ohne ganze Zahl `gueltigS` > 0 → `{ ok: false, status: 502, code: null }`; Netzfehler → `{ ok: false, status: 0, code: null }`
+  - `erzeugeJwtQuelle(d: { halter: Pick<ZugangsHalter, 'zugang' | 'antwort' | 'lage'>; holeServerJwt(token: string, ttlS: number | null): Promise<{ ok: true; jwt: string; gueltigS: number } | { ok: false; status: number; code: string | null }>; lokal: { lesen(): { daten: { clientId: string; clientSecret: string } | null; herkunft: ProxyKeySource }; loeschen(): boolean }; signiereLokal(z: { clientId: string; clientSecret: string }, ttlS: number): string; devTtlS: number | null; brauchtJwt(): boolean; jetzt(): number; zeitgeber(ms: number, fn: () => void): unknown; loescheZeitgeber(t: unknown): void; log(z: string): void; geaendert(): void }): JwtQuelle`
+  - `holeServerJwt(base: string, token: string, ttlS: number | null, f?: typeof fetch): Promise<…>` — `POST ‹base›/zoom/jwt`, `Authorization: Bearer`, bei `ttlS !== null` Rumpf `{"ttlS":‹n›}` mit `content-type: application/json` (sonst ohne Rumpf), `redirect: 'manual'`, nur HTTPS (HTTP nur `127.0.0.1`/`localhost`), Zeitlimit 10 s; Antwort ohne Text `jwt` oder ohne ganze Zahl `gueltigS` > 0 → `{ ok: false, status: 502, code: null }`; Netzfehler → `{ ok: false, status: 0, code: null }`
   - `devTtl(env: Record<string, string | undefined>): number | null` — `JMPS_ZOOM_JWT_TTL_S` als ganze Zahl 1800–43 200, sonst `null`
-  - Reihenfolge in `hole()` (ein laufender Abruf für alle Aufrufer): (1) `lokalTtlS !== null` und lokale Daten → lokal mit dieser Laufzeit; (2) JWT im RAM mit Rest ≥ 2 h → es; (3) `halter.zugang('zoom-jwt', ZIEL_ZOOM_JWT)` → Freigabe → Server: Erfolg → halten mit `bis = jetzt + gueltigS × 1000`, Zeitgeber auf `bis − 2 h` (feuert nur, wenn `brauchtJwt()`, und holt dann neu); 401/403 → `halter.antwort(…)`, Grund `server-abgelehnt`; 503 mit Code `nicht-eingerichtet` → `nicht-eingerichtet`; sonst `server-fehler` mit Detail `HTTP ‹status›` bzw. `Netz`; (4) JWT im RAM mit Rest ≥ 5 min → es; (5) lokale Daten → lokal mit 43 200 s (Übergang); (6) Fehler mit dem Grund aus (3) bzw. `halter.lage('zoom-jwt').letzterGrund ?? 'kein-launcher'`. `angemeldet('server')` löscht lokale Daten mit Herkunft `stored`/`session` genau einmal (→ `true`); `'lokal'` nie. Logzeilen nennen nie JWT oder Token, nur Herkunft und `bis` als ISO.
+  - Reihenfolge in `hole()` (ein laufender Abruf für alle Aufrufer): (1) entfällt (E9: mit `devTtlS` wird nie lokal signiert); (2) JWT im RAM mit Rest ≥ 2 h → es — nicht bei `devTtlS !== null`; (3) `halter.zugang('zoom-jwt', ZIEL_ZOOM_JWT)` → Freigabe → Server mit `ttlS = devTtlS`: Erfolg → halten mit `bis = jetzt + gueltigS × 1000`, Zeitgeber auf `bis − 2 h` (feuert nur, wenn `brauchtJwt()`, und holt dann neu; bei `devTtlS !== null` kein Zeitgeber); 401/403 → `halter.antwort(…)`, Grund `server-abgelehnt`; 503 mit Code `nicht-eingerichtet` → `nicht-eingerichtet`; sonst `server-fehler` mit Detail `HTTP ‹status›` bzw. `Netz`; (4) JWT im RAM mit Rest ≥ 5 min → es; (5) lokale Daten → lokal mit 43 200 s (Übergang); (6) Fehler mit dem Grund aus (3) bzw. `halter.lage('zoom-jwt').letzterGrund ?? 'kein-launcher'`. `angemeldet('server')` löscht lokale Daten mit Herkunft `stored`/`session` genau einmal (→ `true`); `'lokal'` nie. Logzeilen nennen nie JWT oder Token, nur Herkunft und `bis` als ISO.
 
 - [ ] **Step 1: Die failing tests schreiben**
 
@@ -1225,11 +1233,11 @@ ck('T14 OT10: Freigabe nicht zu bekommen (unbekannter-zweck), lokale Daten → l
 ck('T14 OT8: weder Freigabe noch lokale Daten → ok false mit Grund kein-launcher, kein signiereLokal', …);
 ck('T14 QR5: 401 vom Server → halter.antwort(zoom-jwt, …, 401), Grund server-abgelehnt; 503 nicht-eingerichtet → nicht-eingerichtet', …);
 ck('T14 OT9: angemeldet(server) löscht gespeicherte Daten genau einmal (true, dann false); lokal und Umgebung nie', …);
-ck('T14 E9, M4: lokalTtlS 1860 mit lokalen Daten → signiereLokal mit 1860, lage.devTtlS 1860, auch wenn eine Freigabe da ist', …);
+ck('T14 E9, M4: devTtlS 1860 → jeder Bedarf holt beim Server mit ttlS 1860 (zweiter Bedarf nicht aus dem RAM), kein Zeitgeber, lage.devTtlS 1860; auch mit lokalen Daten nie signiereLokal, solange der Server liefert', …);
 ck('devTtl: 1800 und 43200 gelten, 1799, 43201, 2e3x, leer → null', devTtl({ JMPS_ZOOM_JWT_TTL_S: '1800' }) === 1800 && devTtl({ JMPS_ZOOM_JWT_TTL_S: '43200' }) === 43_200
   && [ '1799', '43201', '2e3x', '' ].every((v) => devTtl({ JMPS_ZOOM_JWT_TTL_S: v }) === null) && devTtl({}) === null);
 ck('T14 G4: keine Logzeile enthält test.jwt. oder jm1.; geheimnisse() nennt das gehaltene JWT', …);
-ck('T14: holeServerJwt: POST ‹base›/zoom/jwt mit Bearer und redirect manual; http://beispiel → kein Abruf; Antwort ohne gueltigS → status 502', …);
+ck('T14: holeServerJwt: POST ‹base›/zoom/jwt mit Bearer und redirect manual; mit ttlS 1860 Rumpf {"ttlS":1860} und content-type application/json, mit null ohne Rumpf; http://beispiel → kein Abruf; Antwort ohne gueltigS → status 502', …);
 ```
 
 - [ ] **Step 2: Laufen lassen, Rot sehen**
@@ -1528,7 +1536,7 @@ git commit -m "docs(anmeldung): Teil 2 in Entwicklerdoku, Nachtraege zu #290 in 
 
 Aufbau wie `apps/launcher/ABNAHME-anmeldung.md:1-20` (Voraussetzungen, Rechner, Schritte mit erwartetem Text, Ankreuzfeld). Voraussetzungen: Worker nach N1 mit `ZOOM_CLIENT_ID`/`ZOOM_CLIENT_SECRET`, `ALTKEY_CONNECT_BIS` leer; Launcher 0.19.0 und Connect 0.5.0 als Abnahme-Bau; Rechner A (JM-Rechner, Windows, Kollege), Rechner B (Windows ohne JM-Markierung, Externer mit Connect-Werkzeug und Zoom-Freigabe, und einmal Kollege), Rechner C (Mac), Rechner D (Connect 0.4.6 mit altem Proxy-Key, SDK-Schlüssel, Zugangsdaten). Schritte mindestens:
 1. A: Launcher anmelden, Connect starten → Zeile „Zoom-Anmeldung“ ZA4; Beitritt in ein Testmeeting über das Server-JWT → im Meeting; Zeile ZA1; Hinweis ZA5, wenn vorher alte Zugangsdaten da waren; `connect-settings.json` ohne `zoomZugangEnc`, mit `zoomLetzteNummer`.
-2. A: **M4** — Launcher schließen; in einer Eingabeaufforderung `set ZOOM_SDK_CREDENTIALS=‹Datei aus der JM-Ablage›` und `set JMPS_ZOOM_JWT_TTL_S=1860`, Connect aus dieser Eingabeaufforderung starten (Zeile ZA2 mit ZA11); beitreten und das Meeting 40 Minuten halten (über das Ende des JWT nach 31 Minuten hinaus); erwartet und zu notieren: bleibt das Meeting stehen, kommen Bild und Ton weiter, was steht im Log um Minute 31. Danach Variablen schließen (Fenster zu), Ergebnis in diese Datei.
+2. A: **M4** — Launcher angemeldet lassen; in einer Eingabeaufforderung `set JMPS_ZOOM_JWT_TTL_S=1860` (keine Zugangsdaten, kein Secret auf dem Rechner; der Worker stellt das kurze JWT aus, E9), Connect aus dieser Eingabeaufforderung starten (Zeile ZA1 mit ZA11); beitreten und das Meeting 40 Minuten halten (über das Ende des JWT nach 31 Minuten hinaus); erwartet und zu notieren: bleibt das Meeting stehen, kommen Bild und Ton weiter, was steht im Log um Minute 31. Danach Variablen schließen (Fenster zu), Ergebnis in diese Datei.
 3. A: Connect neu starten bei geschlossenem Launcher → Beitritt gelingt mit gehaltener Freigabe (CL-C2).
 4. A: „Zoom-SDK laden“ → lädt; Hinweis ZA6, wenn ein alter SDK-Schlüssel da war.
 5. B (Externer, Nicht-JM): „Zoom-SDK laden“ → CG8 wörtlich, SDK-Ordner wählen geht; Zoom-Beitritt → CG7b (kein JM-Rechner, Externer); als Kollege auf B: Zoom-Beitritt geht (OF1), „Zoom-SDK laden“ → CG8.
@@ -1622,5 +1630,7 @@ Expected: leere Ausgabe für die ersten beiden Befehle; die Zahl gleich der Zahl
 
 **Offene Punkte für den Owner**
 
-1. **M4 mit lokalen Zugangsdaten (E9):** Für M4 braucht der JM-Rechner einmal die Zugangsdaten-Datei aus der Ablage als Umgebungsvariable (nur für die Dauer des Tests, nichts wird gespeichert). Empfehlung: so, vor der Rotation (N5); alternativ müsste der Worker eine kurze Laufzeit anbieten, was eine zweite Konfiguration im Betrieb hieße.
-2. **Raum-Bindung endet mit „Raum schließen“ (E3):** Der Entwurf sagt „bis zum Raum-Verfall“; der Plan zählt das Schließen durch den Inhaber als Verfall, damit ein anderer Kollege dieselbe Show am nächsten Tag öffnen kann. Empfehlung: so lassen; ohne diese Regel wäre ein Show-Raum nach dem Schließen 25 Stunden für alle anderen Konten und Rechner gesperrt.
+Beide am 20.11.2026 20:21 vom Owner entschieden („alles mit deiner Empfehlung“):
+
+1. **M4 (E9):** ~~mit lokalen Zugangsdaten~~ → **über den Worker**: `POST /zoom/jwt` nimmt optional `ttlS` 1800–43 200; Connect schickt `JMPS_ZOOM_JWT_TTL_S` mit. Kein Secret auf dem Rechner, M4 geht auch nach der Rotation (Task 6, 10, 14, 20 angepasst).
+2. **Raum-Bindung endet mit „Raum schließen“ (E3):** so, wie der Plan es vorsieht.
