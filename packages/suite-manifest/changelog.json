@@ -494,6 +494,16 @@
     "name": "JM Switcher",
     "entries": [
       {
+        "version": "0.11.0",
+        "date": "JJJJ-MM-TT",
+        "notes": [
+          "Lizenz: Der Lizenztext der NDI-Laufzeit liegt jetzt im Paket.",
+          "Stabilität: Der Switcher stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
+          "Verbund: Der Switcher verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher; der Master zeigt Switcher dann bei diesem Rechner. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Der Switcher hebt seine Logzeilen jetzt 14 Tage auf und löscht ältere selbst."
+        ]
+      },
+      {
         "version": "0.10.0",
         "date": "2026-08-07",
         "notes": [
@@ -1081,6 +1091,15 @@
     "name": "JM NDI Screen Capture",
     "entries": [
       {
+        "version": "0.4.0",
+        "date": "JJJJ-MM-TT",
+        "notes": [
+          "Lizenz: Der Lizenztext der NDI-Laufzeit liegt jetzt im Paket.",
+          "Verbund: NDI Screen Capture verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher; der Master zeigt NDI Screen Capture dann bei diesem Rechner. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: NDI Screen Capture hebt seine Logzeilen jetzt 14 Tage auf und löscht ältere selbst."
+        ]
+      },
+      {
         "version": "0.3.1",
         "date": "2026-07-10",
         "notes": [
@@ -1267,6 +1286,14 @@
     "app": "titler",
     "name": "JM Titler",
     "entries": [
+      {
+        "version": "0.12.2",
+        "date": "JJJJ-MM-TT",
+        "notes": [
+          "Lizenz: Der Lizenztext der NDI-Laufzeit liegt jetzt im Paket.",
+          "Stabilität: Der Titler stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist."
+        ]
+      },
       {
         "version": "0.12.1",
         "date": "2026-10-19",
@@ -1806,6 +1833,16 @@
     "app": "caption",
     "name": "JM Caption",
     "entries": [
+      {
+        "version": "0.5.0",
+        "date": "JJJJ-MM-TT",
+        "notes": [
+          "Lizenz: Der Lizenztext der NDI-Laufzeit liegt jetzt im Paket.",
+          "Stabilität: Caption stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist.",
+          "Verbund: Caption verbindet sich von selbst mit dem Master, sobald dieser Rechner im Verbund gekoppelt ist, auch ohne laufenden Launcher; der Master zeigt Caption dann bei diesem Rechner. Ohne Kopplung ändert sich nichts.",
+          "Protokoll: Caption hebt seine Logzeilen jetzt 14 Tage auf und löscht ältere selbst."
+        ]
+      },
       {
         "version": "0.4.0",
         "date": "2026-08-04",
