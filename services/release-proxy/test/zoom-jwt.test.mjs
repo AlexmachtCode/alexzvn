@@ -84,7 +84,7 @@ await ctx.fertig();
 check('T6 E9: Rumpf {ttlS 1799} → 400 ungueltige-laufzeit, kein JWT, kein Protokolleintrag',
   schlecht.status === 400 && ds.code === 'ungueltige-laufzeit' && ds.error === 'ungültige Laufzeit' && ds.jwt === undefined && eintraege().length === vorBad);
 check('T6 R2: nach ctx.fertig() genau ein Protokolleintrag zoom-jwt mit kid k-test und gid g-test',
-  vorBad >= 1 && eintraege().every((e) => e.details && e.details.kid === 'k-test' && e.details.gid === 'g-test'));
+  [a, kurz].filter((r) => r.status === 200).length === 2 && vorBad === 2 && eintraege().length === 2 && eintraege().every((e) => e.details && e.details.kid === 'k-test' && e.details.gid === 'g-test'));
 // Drossel: eigene Zähler, damit die übrigen Fälle sie nicht stören.
 const rlEnv = { ...jwtEnv, ...makeRLBindungen() };
 const rlCodes = [];
