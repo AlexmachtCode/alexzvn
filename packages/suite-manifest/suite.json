@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-18T19:09:11.958Z",
+  "updatedAt": "2026-11-20T10:26:36.476Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -388,7 +388,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.qa",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.5.0",
+      "latestVersion": "0.6.0",
       "platforms": {
         "mac": {
           "artifact": "JM QA-${version}-mac-${arch}.dmg",
