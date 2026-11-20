@@ -33,8 +33,8 @@ import { fallText, kreuz, pruefeFaelle, vergleiche } from './hilfe';
   const paket = JSON.parse(leseText('package.json'));
   gleich(
     paket.scripts.selftest,
-    'tsx test/selftest.ts && tsx --tsconfig tsconfig.test.json test/ui/selftest.ts',
-    'Werkzeug: selftest ruft beide Läufe (alter Selbsttest mit eigenem Zähler, dann die Oberfläche)',
+    'tsx test/selftest.ts && tsx --tsconfig tsconfig.test.json test/ui/selftest.ts && node test/bundle-ndi.test.mjs',
+    'Werkzeug: selftest ruft alle drei Läufe (alter Selbsttest mit eigenem Zähler, dann die Oberfläche, dann das NDI-Bündel)',
   );
   ok(
     paket.scripts.typecheck === 'npm run typecheck:node && npm run typecheck:web && npm run typecheck:test' &&
