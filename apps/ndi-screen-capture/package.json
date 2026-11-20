@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
+    "selftest": "node test/bundle-ndi.test.mjs",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
