@@ -153,7 +153,8 @@ const p6 = attrappenPort(); const n6 = attrappenNdi();
 k.starteNdiSenderKern(p6.port, async () => n6.modul, 40);
 p6.rein({ type: 'init' }); await warte(300);
 p6.rein({ type: 'stop' });
-ck('Standard ist die echte Uhr: ohne Uhr-Argument mindestens 1 Sendung in 300 ms', n6.log.gesendet.length >= 1);
+// Die erste Sendung läuft synchron in starte; erst die zweite beweist, dass echteUhr.planen feuert.
+ck('Standard ist die echte Uhr: ohne Uhr-Argument plant sie und sendet in 300 ms nach (mindestens 2 Sendungen)', n6.log.gesendet.length >= 2);
 
 console.log(`\n${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);
