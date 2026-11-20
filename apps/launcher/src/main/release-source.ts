@@ -1,5 +1,7 @@
 import type { Platform, ToolManifest } from '@jm/suite-manifest';
-import { resolveProxy, resolveProxyKey, resolveToken } from './settings';
+import { resolveProxy, resolveToken } from './settings';
+import { zugangDa, zugangsKopfFuer } from './konto/huelle';
+import { redirectFuer } from './konto/worker-client';
 import { holeAlleSeiten, RELEASES_PRO_SEITE } from './release-liste';
 import { proxyAntwortAuswerten, waehleRelease, type PaketWahl, type ReleaseEintrag } from './release-wahl';
 
@@ -122,7 +124,8 @@ class GithubReleaseSource implements ReleaseSource {
 /**
  * Interner Proxy (Cloudflare Worker): hält das GitHub-Token serverseitig und
  * liefert pro Tool Version + signierte, auth-freie Download-URL. Der Client weist
- * sich mit dem Proxy-Key aus und übergibt Plattform/Architektur, damit das
+ * sich mit dem Zugangskopf aus (Anmeldung P22: Sitzung, sonst Entwicklungs-Schlüssel;
+ * beim Selbst-Update keiner) und übergibt Plattform/Architektur, damit das
  * richtige Asset gewählt wird.
  * GET {base}/tools/{id}/latest?platform=<mac|win>&arch=<arm64|x64>
  *   → { version, assets: { <platform>: {url,size,fileName} } }
@@ -130,7 +133,7 @@ class GithubReleaseSource implements ReleaseSource {
 class ProxyReleaseSource implements ReleaseSource {
   constructor(
     private readonly base: string,
-    private readonly key: string,
+    private readonly kopf: (url: string) => Promise<Record<string, string>>,
   ) {}
 
   private async query(
@@ -141,11 +144,14 @@ class ProxyReleaseSource implements ReleaseSource {
     const url =
       `${this.base.replace(/\/$/, '')}/tools/${tool.id}/latest` +
       `?platform=${platform}&arch=${archToken()}`;
+    const kopf = await this.kopf(url);
+    // Z1: mit Sitzung oder Schlüssel im Kopf keine Weiterleitung (redirectFuer).
     const res = await fetch(url, {
-      headers: { Accept: 'application/json', 'X-Proxy-Key': this.key },
+      headers: { Accept: 'application/json', ...kopf },
+      redirect: redirectFuer(kopf),
     });
     // Der Fehlertext des Proxys bleibt erhalten, z. B. „Proxy 404: kein Release von connect mit einem Paket für macOS
-    // (x64)“ (Spec 10.4, 11.5 F2–F6); der Proxy-Key steht in keiner Meldung.
+    // (x64)“ (Spec 10.4, 11.5 F2–F6); Sitzung und Schlüssel stehen in keiner Meldung.
     return proxyAntwortAuswerten(res, platform);
   }
 
@@ -169,14 +175,23 @@ class ProxyReleaseSource implements ReleaseSource {
 }
 
 /**
- * Wählt die aktive Release-Quelle: Proxy bevorzugt (kein GitHub-Token im Client,
- * nur ein niederwertiger Proxy-Key), sonst GitHub-PAT, sonst keine.
+ * Release-Quelle der Tools (Anmeldung P22, Spec 9.1, EP12): der Worker, wenn eine Sitzung nutzbar oder ein
+ * Entwicklungs-Schlüssel gesetzt ist — den Kopf baut zugangsKopfFuer je Abruf frisch (die Sitzung erneuert sich bei
+ * Bedarf, R7) —, sonst der GitHub-Zugang (gespeichert nur bis zur ersten Anmeldung, P32), sonst keine.
  */
 export function getReleaseSource(): ReleaseSource | null {
   const proxy = resolveProxy();
-  const proxyKey = resolveProxyKey();
-  if (proxy && proxyKey) return new ProxyReleaseSource(proxy, proxyKey);
+  if (proxy && zugangDa()) return new ProxyReleaseSource(proxy, zugangsKopfFuer);
   const token = resolveToken();
   if (token) return new GithubReleaseSource(token);
   return null;
+}
+
+/**
+ * Selbst-Update (Spec 9.1, EP10, N11): /tools/launcher/latest beantwortet der Worker ohne Anmeldung. Diese Quelle schickt
+ * darum keinen Kopf, auch angemeldet nicht — Prüfung und Download laufen auf jedem Rechner gleich.
+ */
+export function getLauncherUpdateSource(): ReleaseSource | null {
+  const proxy = resolveProxy();
+  return proxy ? new ProxyReleaseSource(proxy, async () => ({})) : null;
 }

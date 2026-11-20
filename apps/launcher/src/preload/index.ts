@@ -10,8 +10,6 @@ import type {
   InstallProgress,
   IveoBindInput,
   IveoBindResult,
-  IveoDiscoverInput,
-  IveoDiscoverResult,
   IveoDownloadInput,
   IveoMaterialsInput,
   IveoMaterialsResult,
@@ -20,6 +18,11 @@ import type {
   IveoSwitchInput,
   JmpsApi,
   KoppelAntwort,
+  KontoAdminAktionAntwort,
+  KontoAdminAntwort,
+  KontoIveoEvent,
+  KontoIveoEventsAntwort,
+  KontoZoomAntwort,
   LauncherUpdate,
   ManualEndpoint,
   PresenceRecord,
@@ -35,6 +38,7 @@ import type {
   VerbundStand,
 } from '@shared/types';
 import type { Show } from '@jm/show';
+import type { AnmeldeSchritt, KontoAnsicht } from '@shared/konto';
 
 const api: JmpsApi = {
   platform: process.platform,
@@ -72,10 +76,7 @@ const api: JmpsApi = {
   submitFeedback: (input: FeedbackInput) => invoke<ActionResult>('feedback:submit', input),
   submitRecipeDraft: (input: RecipeDraftInput) =>
     invoke<RecipeDraftResult>('cookbook:draft', input),
-  discoverIveoEvents: (input: IveoDiscoverInput) =>
-    invoke<IveoDiscoverResult>('iveo:discover', input),
   bindIveoEvent: (input: IveoBindInput) => invoke<IveoBindResult>('iveo:bind', input),
-  hasIveoBaseToken: (baseUrl?: string) => invoke<boolean>('iveo:hasBaseToken', baseUrl),
   listIveoSideEvents: (input?: IveoSideEventsInput) =>
     invoke<IveoSideEventsResult>('iveo:listSideEvents', input ?? {}),
   switchIveoSideEvent: (input: IveoSwitchInput) => invoke<ActionResult>('iveo:switchSideEvent', input),
@@ -86,6 +87,7 @@ const api: JmpsApi = {
   anhangOrdnerStand: () => invoke<AnhangOrdnerStand>('iveo:anhangOrdner'),
   setzeAnhangOrdner: (input: { an: boolean }) => invoke<AnhangOrdnerStand>('iveo:setzeAnhangOrdner', input),
   oeffneAnhangOrdner: (input: { programId?: string }) => invoke<ActionResult>('iveo:oeffneAnhangOrdner', input),
+  iveoAbgleichHier: (a: { key: string; an: boolean }) => invoke<{ ok: boolean }>('iveo:abgleichHier', a),
   getVerbund: () => invoke<VerbundStand>('verbund:get'),
   setzeVerbundRolle: (rolle: VerbundRolle) => invoke<VerbundStand>('verbund:rolle', rolle),
   setzeRechnerName: (name: string) => invoke<VerbundStand>('verbund:rechnerName', name),
@@ -104,6 +106,19 @@ const api: JmpsApi = {
   trenneVerbund: () => invoke<VerbundStand>('verbund:trennen'),
   neueRechnerKennung: () => invoke<VerbundStand>('verbund:neueKennung'),
   setzeFesteMasterAdresse: (adresse: string | null) => invoke<VerbundStand>('verbund:festeAdresse', adresse),
+  // Anmeldung (Plan P21, 10.7): keine Antwort enthält eine Sitzung, eine Freigabe oder ein iveo-Token.
+  kontoAnsicht: () => invoke<KontoAnsicht>('konto:ansicht'),
+  kontoAnmelden: () => invoke<AnmeldeSchritt>('konto:anmelden'),
+  kontoAnmeldeSchritt: () => invoke<AnmeldeSchritt>('konto:anmeldeSchritt'),
+  kontoAnmeldenAbbrechen: () => invoke<AnmeldeSchritt>('konto:anmeldenAbbrechen'),
+  kontoAdresseKopieren: () => invoke<boolean>('konto:adresseKopieren'),
+  kontoAbmelden: () => invoke<KontoAnsicht>('konto:abmelden'),
+  kontoLage: () => invoke<KontoAnsicht>('konto:lage'),
+  kontoZoomAnfragen: (a) => invoke<KontoZoomAntwort>('konto:zoomAnfragen', a),
+  kontoAdminUebersicht: () => invoke<KontoAdminAntwort>('konto:adminUebersicht'),
+  kontoAdminAktion: (a) => invoke<KontoAdminAktionAntwort>('konto:adminAktion', a),
+  kontoIveoEventsLaden: (a) => invoke<KontoIveoEventsAntwort>('konto:iveoEventsLaden', a),
+  kontoIveoEvents: () => invoke<KontoIveoEvent[]>('konto:iveoEvents'),
   onProgress: (cb) => listen<InstallProgress>('suite:progress', cb),
   onAppEvent: (cb) => listen<AppEvent>('app:event', cb),
 };

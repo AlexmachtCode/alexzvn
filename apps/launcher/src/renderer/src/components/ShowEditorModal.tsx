@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Button, Card, cn } from '@jm/ui';
 import type { Show } from '@jm/show';
-import type { IveoEventStub, IveoProgramRef, IveoProgramTaxonomy } from '@shared/types';
+import type { IveoProgramRef, IveoProgramTaxonomy, KontoIveoEvent } from '@shared/types';
 import { useTools } from '@/store/tools';
+import { useKonto } from '@/store/konto';
+import { IVEO_TEXTE, editorEventWahl, editorIveoLage } from '@/lib/konto-zugang';
 import {
-  basisUrlPlatzhalter,
   baueGespeicherteShow,
   bindMeldung,
   bindungAusEditor,
@@ -52,8 +53,8 @@ export function ShowEditorModal() {
   const saveShow = useTools((s) => s.saveShow);
   const editorSeed = useTools((s) => s.editorSeed);
   const clearEditorSeed = useTools((s) => s.clearEditorSeed);
-  // iveo-Paket, T7: der Platzhalter der Basis-URL nennt die Standardadresse dieses Rechners (settings.iveoBaseUrl).
-  const settings = useTools((s) => s.settings);
+  // Anmeldung P28 (Spec 6.4, EP13): die iveo-Events kommen aus dem Konto (kontoIveoEvents) — kein Token, keine Basis-URL hier.
+  const ansicht = useKonto((s) => s.ansicht);
 
   const [name, setName] = useState('');
   const [entries, setEntries] = useState<Record<string, Entry>>({});
@@ -74,11 +75,11 @@ export function ShowEditorModal() {
   // Formularstands. Inline-Meldung und „Trotzdem speichern“ gelten nur, solange das Formular genau diesen Stand zeigt.
   const [ablehnung, setAblehnung] = useState<{ text: string; schluessel: string } | null>(null);
 
-  // iveo-Event-Bindung (#11). Token bleibt nur transient hier im Feld; der Main-
-  // Prozess legt ihn beim Binden verschlüsselt ab und gibt ihn NIE zurück.
-  const [iveoToken, setIveoToken] = useState('');
+  // iveo-Event-Bindung (#11), Anmeldung P28 (Spec 6.4, EP13, EP14): gewählt wird ein Event des Kontos über seinen Schlüssel
+  // ‹Basis›|‹Slug›; das Token kennt nur der Main (Speicher der Anmeldung), nie der Renderer. iveoBaseUrl ist die Adresse der
+  // geladenen Show und wählt beim Bearbeiten ihr Event vor.
   const [iveoBaseUrl, setIveoBaseUrl] = useState('');
-  const [iveoEvents, setIveoEvents] = useState<IveoEventStub[] | null>(null);
+  const [kontoEvents, setKontoEvents] = useState<KontoIveoEvent[] | null>(null);
   const [iveoSelected, setIveoSelected] = useState('');
   const [iveoBinding, setIveoBinding] = useState<EditorBindung | null>(null);
   const [iveoBusy, setIveoBusy] = useState(false);
@@ -94,10 +95,6 @@ export function ShowEditorModal() {
   // Bauchbinden = dessen Speaker. Leer = Tages-/Listenmodus.
   const [iveoProgramId, setIveoProgramId] = useState('');
   const [iveoProgramList, setIveoProgramList] = useState<IveoProgramRef[]>([]);
-  // C4: Ist für die im Feld stehende Basis-URL schon ein Token gemerkt? Dann darf
-  // das Token-Feld leer bleiben — der Main-Prozess nutzt den gespeicherten (nie im Renderer).
-  const [iveoBaseTokenSaved, setIveoBaseTokenSaved] = useState(false);
-  const [iveoAdresseUngueltig, setIveoAdresseUngueltig] = useState(false);
 
   // Szenario-Start (B2): einen vom Szenario-Picker gesetzten Seed einmalig ins
   // Formular übernehmen (Tools vorwählen, Ablauf/Redezeit/Runden vorbefüllen) und
@@ -121,31 +118,23 @@ export function ShowEditorModal() {
     clearEditorSeed();
   }, [open, editorSeed, clearEditorSeed]);
 
-  // C4: prüfen, ob für die aktuelle Basis-URL schon ein Token hinterlegt ist
-  // (nur Boolean — der Token-Wert bleibt im Main-Prozess). Erlaubt „Events laden"
-  // und „Ablauf übernehmen" mit leerem Feld für ein weiteres Event derselben Org.
+  // Anmeldung P28 (I5–I5c): die Events des Kontos bei jedem Öffnen und nach jeder Änderung der Anmeldung holen — nur Schlüssel,
+  // Basis, Slug und Name, nie ein Token. Ein Fehler zählt wie „keine Events“ (I5c), nie wie „angemeldet mit Events“.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     void window.jmps
-      .hasIveoBaseToken(iveoBaseUrl.trim() || undefined)
-      .then((has) => {
-        if (cancelled) return;
-        setIveoBaseTokenSaved(has);
-        setIveoAdresseUngueltig(false);
+      .kontoIveoEvents()
+      .then((events) => {
+        if (!cancelled) setKontoEvents(events);
       })
-      // Ungültige Adresse im Feld (Main wirft beim Normalisieren): kein gemerkter Token, kein Absturz. Die Wächter in
-      // discoverIveo/bindIveo lassen dann an Main durch, damit der Nutzer den T8-Text zur Adresse sieht statt
-      // „Token erforderlich“ (G8).
       .catch(() => {
-        if (cancelled) return;
-        setIveoBaseTokenSaved(false);
-        setIveoAdresseUngueltig(true);
+        if (!cancelled) setKontoEvents([]);
       });
     return () => {
       cancelled = true;
     };
-  }, [open, iveoBaseUrl]);
+  }, [open, ansicht]);
 
   if (!open) return null;
 
@@ -154,6 +143,9 @@ export function ShowEditorModal() {
   const canSave = selectedCount > 0 && !busy;
   // Side-Event-Auswahl auf den gewählten Tag eingrenzen (sonst alle Programme).
   const dayPrograms = iveoProgramList.filter((p) => !iveoDay || p.day === iveoDay);
+  // Anmeldung P28: Lage des iveo-Blocks (I5b, I5c) und das gewählte Event (Schlüssel) — aus den reinen Helfern.
+  const lage = editorIveoLage(ansicht, kontoEvents);
+  const eventWahl = editorEventWahl(kontoEvents ?? [], iveoSelected, iveoBaseUrl, iveoBinding?.event ?? null);
 
   const setEntry = (id: string, patch: Partial<Entry>): void =>
     setEntries((prev) => ({
@@ -174,46 +166,20 @@ export function ShowEditorModal() {
   const removeAblaufRow = (i: number): void =>
     setAblauf((rows) => rows.filter((_, idx) => idx !== i));
 
-  /** Token prüfen + lesbare Events auflisten (Token wird noch nicht gespeichert). */
-  const discoverIveo = async (): Promise<void> => {
-    if (!iveoToken.trim() && !iveoBaseTokenSaved && !iveoAdresseUngueltig) {
-      setIveoMsg('Bitte iveo-Token einfügen.');
-      return;
-    }
-    setIveoBusy(true);
-    setIveoMsg(null);
-    try {
-      const res = await window.jmps.discoverIveoEvents({
-        token: iveoToken.trim(),
-        baseUrl: iveoBaseUrl.trim() || undefined,
-      });
-      if (!res.ok) {
-        setIveoEvents(null);
-        setIveoMsg(res.error ?? 'Verbindung fehlgeschlagen.');
-        return;
-      }
-      const events = res.events ?? [];
-      setIveoEvents(events);
-      if (events.length) setIveoSelected(events[0].slug);
-      setIveoMsg(events.length ? `${events.length} Event(s) lesbar.` : 'Token gültig, aber keine Events im Scope.');
-    } finally {
-      setIveoBusy(false);
-    }
-  };
-
   /**
-   * Gewähltes Event binden: Token verschlüsselt ablegen + (gefilterten) Ablauf
-   * übernehmen. `override` erlaubt es, ein gerade geändertes Filter-Kriterium sofort
+   * Gewähltes Event binden (Anmeldung P28, IV4: das Token nimmt der Main aus dem Speicher der Anmeldung und setzt „Abgleich
+   * hier“) + (gefilterten) Ablauf übernehmen. `override` erlaubt es, ein gerade geändertes Filter-Kriterium sofort
    * anzuwenden (React-State ist beim onChange noch nicht aktualisiert).
    */
   const bindIveo = async (
     override: Partial<{ typeSlug: string; formatSlug: string; day: string; excludeBlockers: boolean; programId: string }> = {},
   ): Promise<void> => {
-    const event = iveoSelected.trim();
-    if ((!iveoToken.trim() && !iveoBaseTokenSaved && !iveoAdresseUngueltig) || !event) {
-      setIveoMsg('Token und Event erforderlich.');
+    const gewaehlt = (kontoEvents ?? []).find((e) => e.key === eventWahl) ?? null;
+    if (!gewaehlt) {
+      setIveoMsg(IVEO_TEXTE.waehlen);
       return;
     }
+    const event = gewaehlt.slug;
     const typeSlug = override.typeSlug ?? iveoTypeSlug;
     const formatSlug = override.formatSlug ?? iveoFormatSlug;
     const day = override.day ?? iveoDay;
@@ -223,8 +189,7 @@ export function ShowEditorModal() {
     setIveoMsg(null);
     try {
       const res = await window.jmps.bindIveoEvent({
-        token: iveoToken.trim(),
-        baseUrl: iveoBaseUrl.trim() || undefined,
+        baseUrl: gewaehlt.basis,
         event,
         typeSlug: typeSlug || undefined,
         formatSlug: formatSlug || undefined,
@@ -236,8 +201,6 @@ export function ShowEditorModal() {
         setIveoMsg(res.error ?? 'Ablauf konnte nicht geladen werden.');
         return;
       }
-      // Der Bind hat den Token basis-weit gemerkt (Main) → Feld darf künftig leer bleiben.
-      setIveoBaseTokenSaved(true);
       // Kennungen, Durchreich-Felder (F1) und die sekundengenaue Dauer laufen mit (Spec 3.3, 7.5).
       const rows = zeilenAusAblauf(res.ablauf);
       setAblauf(rows);
@@ -255,10 +218,11 @@ export function ShowEditorModal() {
             ...(day ? { day } : {}),
             ...(excludeBlockers ? { excludeBlockers: true } : {}),
           };
-      // iveo-Paket, Spec 7.4 (E16): die beim Binden genutzte Adresse, sonst das Feld — jede neue Bindung trägt ihre Adresse.
+      // iveo-Paket, Spec 7.4 (E16), Anmeldung P28: die beim Binden genutzte Adresse, sonst die Basis des gewählten Events —
+      // jede neue Bindung trägt ihre Adresse.
       setIveoBinding({
         ...bound,
-        baseUrl: bindungsAdresse(res.baseUrl, iveoBaseUrl),
+        baseUrl: bindungsAdresse(res.baseUrl, gewaehlt.basis),
         ...(speakers.length ? { speakers } : {}),
         ...(res.sideEvents?.length ? { sideEvents: res.sideEvents } : {}),
         ...(Object.keys(filter).length ? { filter } : {}),
@@ -316,9 +280,7 @@ export function ShowEditorModal() {
     setBattleB('');
     setBattleRounds('');
     setQaSpeak('');
-    setIveoToken('');
     setIveoBaseUrl('');
-    setIveoEvents(null);
     setIveoSelected('');
     setIveoBinding(null);
     setIveoMsg(null);
@@ -347,8 +309,8 @@ export function ShowEditorModal() {
     const { path, show } = r;
     resetForm();
     setEditPath(path);
-    // iveo-Paket, Spec 7.4 (E16): das Feld zeigt die gespeicherte Adresse der Show (resetForm hat es geleert). Sonst
-    // bänden „Events laden“ und jeder Filter- oder Tageswechsel gegen die Standardadresse dieses Rechners.
+    // iveo-Paket, Spec 7.4 (E16), Anmeldung P28: die gespeicherte Adresse der Show (resetForm hat sie geleert) wählt mit dem
+    // Slug das Event des Kontos vor; Filter- und Tageswechsel binden dann gegen die Adresse der Show.
     setIveoBaseUrl(editorAdresseAusShow(show));
     // Unverändert festhalten: Speichern überschreibt nur, was das Formular zeigt (Spec 7.5).
     setGeladen(show);
@@ -459,51 +421,27 @@ export function ShowEditorModal() {
           />
         </label>
 
-        {/* iveo-Event (#11): Ablauf + Metadaten aus der Eventplattform übernehmen.
-            Das per-Event-Token bleibt verschlüsselt im Launcher — nie in der Show. */}
+        {/* iveo-Event (#11): Ablauf + Metadaten aus der Eventplattform übernehmen. Anmeldung P28 (Spec 6.4, EP13, EP14): die
+            Events kommen aus dem Konto, das Token kennt nur der Main — kein Token-Feld und keine Basis-URL hier. */}
         <div className="mt-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-3" data-anleitung="editor.iveo">
           <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
-            iveo-Event (optional)
+            {IVEO_TEXTE.bezeichner}
           </span>
-          <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-            Token pro Event aus iveo einfügen → Ablauf wird unten übernommen und während der
-            Show live nachgezogen. Das Token bleibt verschlüsselt im Launcher, nie in der Show-Datei.
-          </p>
           <div className="mt-2 flex flex-col gap-2">
-            <input
-              type="password"
-              value={iveoToken}
-              placeholder={iveoBaseTokenSaved ? 'Token gemerkt — leer lassen zum Wiederverwenden' : 'iveo-Token (iveo_live_…)'}
-              autoComplete="off"
-              onChange={(e) => setIveoToken(e.target.value)}
-              className={cn(inputCls, 'h-8 px-2.5 text-xs')}
-            />
-            {iveoBaseTokenSaved && (
-              <span className="text-[10px] text-[var(--muted-foreground)]">
-                ✓ Token für diese Basis gemerkt — Feld leer lassen, um es für ein weiteres Event
-                derselben Veranstaltung wiederzuverwenden.
-              </span>
-            )}
-            <div className="flex items-center gap-2">
-              <input
-                value={iveoBaseUrl}
-                placeholder={basisUrlPlatzhalter(settings?.iveoBaseUrl)}
-                onChange={(e) => setIveoBaseUrl(e.target.value)}
-                className={cn(inputCls, 'h-8 flex-1 px-2.5 text-xs')}
-              />
-              <Button size="sm" variant="outline" disabled={iveoBusy} onClick={() => void discoverIveo()}>
-                {iveoBusy ? '…' : 'Events laden'}
-              </Button>
-            </div>
-            {iveoEvents && iveoEvents.length > 0 && (
+            {lage.text && <p className="text-[11px] text-[var(--muted-foreground)]">{lage.text}</p>}
+            {lage.fall === 'auswahl' && (
               <div className="flex items-center gap-2">
                 <select
-                  value={iveoSelected}
+                  aria-label={IVEO_TEXTE.bezeichner}
+                  value={eventWahl}
                   onChange={(e) => setIveoSelected(e.target.value)}
                   className={cn(inputCls, 'h-8 min-w-0 flex-1 px-2 text-xs')}
                 >
-                  {iveoEvents.map((ev) => (
-                    <option key={ev.id} value={ev.slug}>
+                  <option value="" disabled>
+                    {IVEO_TEXTE.waehlen}
+                  </option>
+                  {(kontoEvents ?? []).map((ev) => (
+                    <option key={ev.key} value={ev.key}>
                       {ev.name}
                     </option>
                   ))}
@@ -512,12 +450,15 @@ export function ShowEditorModal() {
                   size="sm"
                   variant="primary"
                   className="shrink-0"
-                  disabled={iveoBusy}
+                  disabled={iveoBusy || !eventWahl}
                   onClick={() => void bindIveo()}
                 >
                   Ablauf übernehmen
                 </Button>
               </div>
+            )}
+            {iveoNeuGebunden && (
+              <span className="text-[10px] text-[var(--muted-foreground)]">{IVEO_TEXTE.gebunden}</span>
             )}
             {iveoProgramTypes &&
               (iveoProgramTypes.days.length > 1 ||

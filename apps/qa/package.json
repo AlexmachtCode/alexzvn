@@ -1,6 +1,6 @@
 {
   "name": "@jm/qa",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "JM Q&A — Wortmeldungs-/Pressekonferenz-Queue: Saal-Einreichung per QR, Redezeit (Timer) + Bauchbinde (Titler) automatisch",
   "main": "out/main/index.cjs",
@@ -13,7 +13,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "selftest": "node --experimental-strip-types test/selftest.ts",
+    "selftest": "node --experimental-strip-types test/selftest.ts && node --experimental-strip-types test/cloud-zugang.test.ts",
     "dist": "electron-vite build && electron-builder",
     "dist:dir": "electron-vite build && electron-builder --dir",
     "dist:win": "electron-vite build && electron-builder --win",

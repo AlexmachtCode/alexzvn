@@ -2,12 +2,13 @@
 //
 // Hält EIN GitHub-Token serverseitig und liefert den Clients (Launcher) pro Tool
 // die neueste Version + eine zeitlich begrenzte, signierte Download-URL. Damit
-// braucht KEIN Client ein GitHub-Token. Zugriff auf den Proxy selbst wird über
-// einen einfachen Proxy-Key geschützt.
+// braucht KEIN Client ein GitHub-Token. Zugriff auf den Proxy selbst: Anmeldung im
+// Launcher (Sitzung, konto-zugang.js), im Übergang der alte Proxy-Key (EP9).
 //
 // Vertrag (entspricht ProxyReleaseSource im Launcher):
 //   GET /tools/:id/latest?platform=<mac|win>&arch=<arm64|x64>
-//   Header: X-Proxy-Key: <PROXY_KEY>   (oder Authorization: Bearer <PROXY_KEY>)
+//   Header: Authorization: Bearer <Sitzung jm1.…>   (Anmeldung im Launcher, konto-zugang.js)
+//           oder X-Proxy-Key: <PROXY_KEY> bis ALTKEY_BIS (Übergang, EP9); /tools/launcher/latest ohne Kopf (EP10)
 //   → 200 { version, assets: { <platform>: { url, size, fileName } } }
 //
 //   GET /zoom-sdk/:fassung              (JM Connect 0.2.2, KEIN Proxy-Key)
@@ -33,9 +34,16 @@ import { handleQa } from './qa-relay.js';
 import { handleConnect, ConnectRoom } from './connect-relay.js';
 // Paketwahl für /tools/:id/latest (iveo-Paket, Spec 10.5): eigenes Modul, das auch Test und Trockenlauf laden.
 import { keinPaketFehler, waehleRelease } from './paketwahl.js';
+// Anmeldung im Launcher (Plan Teil 1, P15): Zugang zu den Tool-Routen (Sitzung, Freigabe, alter Schlüssel mit Frist).
+import { funktionFuerRoute } from './konto-kern.js';
+import { kontoJetzt, launcherSelbstUpdate, selbstUpdateLiefern, zugangPruefen } from './konto-zugang.js';
+// Anmeldung im Launcher (Plan Teil 1, P16): Launcher-API, Anmeldeseite und Google-Anmeldung unter /konto/.
+import { handleKonto } from './konto-relay.js';
+// Konten-DO der Anmeldung (EP1; Bindung KONTO, Migration v2).
+import { KontoSpeicher } from './konto-do.js';
 
 // Durable-Object-Klassen müssen aus dem Worker-Haupt-Modul re-exportiert werden.
-export { ConnectRoom };
+export { ConnectRoom, KontoSpeicher };
 
 const USER_AGENT = 'JM-Suite-Release-Proxy';
 
@@ -125,7 +133,7 @@ function tooMany(retryAfter) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     // Health-Check ohne Key (verrät nichts Sensibles).
@@ -136,9 +144,9 @@ export default {
     // Q&A externe Einreichung (#166). Eigene Routing-Ebene: die ÖFFENTLICHEN
     // Einreich-Routen (Seite/submit/press/pubkey/state) müssen VOR dem PROXY_KEY-
     // Gate erreichbar sein (Zuschauer/Presse haben keinen Key); die Admin-Routen
-    // (open/pending/ack/delete) prüfen den Key im Modul selbst. `null` = kein
+    // (open/pending/ack/delete) prüfen den Zugang im Modul selbst (Freigabe oder alter Key, zugangPruefen). `null` = kein
     // Q&A-Pfad → normal weiter.
-    const qa = await handleQa(request, env, url);
+    const qa = await handleQa(request, env, url, ctx);
     if (qa) return qa;
 
     // Remote-Zuschaltung (Welle 6). Wie Q&A: öffentliche Routen (Gast-Seite/state/ice/ws) sind
@@ -152,13 +160,24 @@ export default {
     const zoomSdk = url.pathname.match(/^\/zoom-sdk\/([^/]*)\/?$/);
     if (zoomSdk) return handleZoomSdk(request, env, zoomSdk[1]);
 
-    // Ab hier: Proxy-Key Pflicht.
-    const provided =
-      request.headers.get('X-Proxy-Key') ||
-      (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-    if (!env.PROXY_KEY || provided !== env.PROXY_KEY) {
-      return json({ error: 'unauthorized' }, 401);
-    }
+    // Anmeldung im Launcher (Plan Teil 1, P16): Launcher-API, Anmeldeseite und Google-Anmeldung unter /konto/. Jede Route
+    // prüft selbst (Sitzung, Abholgeheimnis, Seitentoken); `null` = kein Konto-Pfad → normal weiter.
+    const konto = await handleKonto(request, env, url, ctx);
+    if (konto) return konto;
+
+    // Selbst-Update des Launchers (Spec 9.1): ohne Anmeldung, nur die ID launcher.
+    // EP10, EP32: Ein Release ab 0.18.0 bekommt jeder Launcher, auch ohne Zugang und nach ALTKEY_BIS (die reparierende Version);
+    // ältere nur mit Zugang (Sitzung, alter Schlüssel). /tools/jm-launcher/latest liefert dasselbe Release, bleibt aber geprüft.
+    // Gebremst mit 60 s Zwischenspeicher und Drossel je IP für Abrufe bei GitHub (selbstUpdateLiefern, unten).
+    const selbstUpdate = launcherSelbstUpdate(request.method, url.pathname);
+
+    // Ab hier: Anmeldung Pflicht (Spec 9.1, EP9): Sitzung mit Recht, sonst der alte Proxy-Key bis ALTKEY_BIS. Unbekannte
+    // Pfade prüft das Gate wie Katalog-Routen (nie offen); mit Zugang antworten sie danach wie bisher mit 404. Beim
+    // Selbst-Update entscheidet das Ergebnis erst zusammen mit der Version (EP32).
+    const jetzt = kontoJetzt(env);
+    const funktion = funktionFuerRoute(request.method, url.pathname) || 'katalog';
+    const zugang = await zugangPruefen(request, env, { funktion, gruppe: 'katalog', ziel: null, jetzt, ctx });
+    if (!zugang.ok && !selbstUpdate) return json({ error: zugang.error, code: zugang.code }, zugang.status);
 
     // Feedback (Bug/Wunsch) aus dem Launcher → serverseitig ein GitHub-Issue
     // anlegen, damit die Clients tokenlos bleiben. Braucht GITHUB_TOKEN mit
@@ -223,8 +242,9 @@ export default {
           status: 200,
           headers: {
             'content-type': 'application/json; charset=utf-8',
-            // kurz cachen; Clients holen ohnehin nur beim Start
-            'cache-control': 'public, max-age=60',
+            // kurz cachen; Clients holen ohnehin nur beim Start. private (EP25): Die Antwort hängt an einer Sitzung im
+            // Authorization-Kopf, geteilte Caches dürfen sie nicht ablegen.
+            'cache-control': 'private, max-age=60',
           },
         });
       } catch (e) {
@@ -246,7 +266,7 @@ export default {
           status: 200,
           headers: {
             'content-type': 'application/json; charset=utf-8',
-            'cache-control': 'public, max-age=60',
+            'cache-control': 'private, max-age=60',
           },
         });
       } catch (e) {
@@ -268,7 +288,7 @@ export default {
           status: 200,
           headers: {
             'content-type': 'application/json; charset=utf-8',
-            'cache-control': 'public, max-age=60',
+            'cache-control': 'private, max-age=60',
           },
         });
       } catch (e) {
@@ -301,29 +321,43 @@ export default {
     const app = id.startsWith('jm-') ? id.slice(3) : id;
     const prefix = `${app}-v`;
 
-    try {
-      const releases = await alleReleases(env);
-      // Neuestes Release mit einem Paket für diese Plattform (paketwahl.js, iveo-Paket Spec 10.5): ein x64-Mac bekommt
-      // nie ein arm64-DMG; hat das neueste Release kein Paket, das neueste ältere mit Paket.
-      const wahl = waehleRelease(releases, prefix, platform, arch);
-      if (wahl.art === 'kein-release') return json({ error: `kein Release für ${app}` }, 404);
-      if (wahl.art === 'kein-paket') return json({ error: keinPaketFehler(app, platform, arch) }, 404);
-      const asset = wahl.asset;
-
-      const signedUrl = await resolveSignedUrl(env.REPO, asset.id, env);
-      if (!signedUrl) return json({ error: 'Download-URL nicht auflösbar' }, 502);
-
-      return json({
-        version: wahl.version,
-        assets: {
-          [platform]: { url: signedUrl, size: asset.size, fileName: asset.name },
-        },
-      });
-    } catch (e) {
-      return json({ error: String((e && e.message) || e) }, 502);
+    // EP32: das Selbst-Update über Zwischenspeicher, Drossel und Versionsgrenze (konto-zugang.js); geholt wird wie für jedes Tool.
+    if (selbstUpdate) {
+      return selbstUpdateLiefern(request, env, { jetzt, zugang, platform, arch, ctx, hole: () => neuestesRelease(env, app, prefix, platform, arch) });
     }
+    return neuestesRelease(env, app, prefix, platform, arch);
   },
 };
+
+/**
+ * Neuestes Release eines Tools mit einem Paket für Plattform und Architektur und signiertem Download-Link (bis zur Anmeldung im
+ * Launcher stand das in fetch; EP32 ruft es für das Selbst-Update über den Zwischenspeicher).
+ */
+async function neuestesRelease(env, app, prefix, platform, arch) {
+  try {
+    const releases = await alleReleases(env);
+    // Neuestes Release mit einem Paket für diese Plattform (paketwahl.js, iveo-Paket Spec 10.5): ein x64-Mac bekommt
+    // nie ein arm64-DMG; hat das neueste Release kein Paket, das neueste ältere mit Paket.
+    const wahl = waehleRelease(releases, prefix, platform, arch);
+    // no-store: dieselbe URL liefert ohne Zugang 401 und mit Zugang 200 (und einen signierten Link); nichts davon darf ein Cache ablegen.
+    const keinCache = { 'cache-control': 'no-store' };
+    if (wahl.art === 'kein-release') return json({ error: `kein Release für ${app}` }, 404, keinCache);
+    if (wahl.art === 'kein-paket') return json({ error: keinPaketFehler(app, platform, arch) }, 404, keinCache);
+    const asset = wahl.asset;
+
+    const signedUrl = await resolveSignedUrl(env.REPO, asset.id, env);
+    if (!signedUrl) return json({ error: 'Download-URL nicht auflösbar' }, 502, keinCache);
+
+    return json({
+      version: wahl.version,
+      assets: {
+        [platform]: { url: signedUrl, size: asset.size, fileName: asset.name },
+      },
+    }, 200, keinCache);
+  } catch (e) {
+    return json({ error: String((e && e.message) || e) }, 502, { 'cache-control': 'no-store' });
+  }
+}
 
 // Release-Liste seitenweise. GEMESSEN am 01.10.2026: 187 Releases im Monorepo,
 // gelesen wurde nur Seite 1 (per_page=100). Die neuesten Releases von copy,

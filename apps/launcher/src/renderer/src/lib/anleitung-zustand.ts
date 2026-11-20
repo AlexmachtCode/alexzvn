@@ -2,8 +2,9 @@
 // benannten Bedingungen der Anleitungs-Datei ab. Rein und nur lesend (G3): keine Aktion, kein Fensterzugriff, kein Speicher.
 // Nur `import type` (G5): Der Launcher-Selbsttest lädt die Datei mit node --experimental-strip-types.
 //
-// Regel G7 („Anzeigen lügen nicht“): Eine Voreinstellung zählt nie. Quelle null oder 'none', Verbund-Stand null oder mit
-// Dateifehler (Rolle unbekannt, EP6), nicht geladene Steuerebene: Der zugehörige Name ist falsch.
+// Regel G7 („Anzeigen lügen nicht“): Eine Voreinstellung zählt nie. Konto null oder ohne Stand (die Ansicht vor der ersten
+// Antwort des Mains, Anmeldung P33), Verbund-Stand null oder mit Dateifehler (Rolle unbekannt, EP6), nicht geladene
+// Steuerebene: Der zugehörige Name ist falsch.
 import type {
   Anleitung,
   AnleitungSpeicher,
@@ -17,10 +18,11 @@ import type {
   Zustand,
 } from '@jm/ui/anleitung';
 import type { VerbundStand } from '@shared/types';
+import type { KontoAnsicht, KontoZustand, Stufe } from '@shared/konto';
 
 /** Zustände, die die Anleitung live liest (Bedingung `{ zustand }`). */
 export const ZUSTANDS_NAMEN = [
-  'quelleVerbunden', 'toolInstalliert', 'reiterWerkzeugkasten', 'reiterShow', 'einstellungenOffen',
+  'angemeldet', 'anmeldungOffen', 'toolInstalliert', 'reiterWerkzeugkasten', 'reiterShow', 'einstellungenOffen',
   'systemOffen', 'verbundOffen', 'szenarienOffen', 'editorOffen', 'rolleAus', 'rolleMaster', 'rolleSlave', 'slaveGekoppelt',
   'slaveVerbunden', 'steuerebeneSicher', 'steuerebeneOffen', 'showGestartet',
 ] as const;
@@ -32,7 +34,10 @@ export type ZustandsName = (typeof ZUSTANDS_NAMEN)[number];
 
 /** Was der Adapter aus Store, Verbund-Store und Lese-IPC bekommt (Block D baut es in store/anleitung.ts). */
 export interface AnleitungsEingang {
-  settings: { source: 'proxy' | 'github' | 'none' } | null;
+  /** Anmeldung P33 (EP27): Konto aus der Ansicht des Mains (anleitungsKonto); null vor der ersten Antwort (G7). */
+  konto: AnleitungsKonto | null;
+  /** Anmelde-Dialog offen (useKonto.anmeldungOffen). */
+  anmeldungOffen: boolean;
   states: Readonly<Record<string, { status: string }>>;
   view: 'catalog' | 'jmshow';
   settingsOpen: boolean;
@@ -48,10 +53,54 @@ export interface AnleitungsEingang {
   iveoActive: boolean;
 }
 
-/** Texte der Detailzeilen L9, L10 (LAUNCHER_ANLEITUNG_TEXTE.detail aus anleitung/einrichtung.ts, Abweichung B1). */
+/** Texte der Detailzeilen L17, L10 (LAUNCHER_ANLEITUNG_TEXTE.detail aus anleitung/einrichtung.ts, Abweichung B1; L17 seit P33). */
 export interface DetailTexte {
-  k1(quelle: 'proxy' | 'github'): string;
+  k1(kurzName: string, stufe: string, offlineBis: string | null): string;
   k2(n: number): string;
+}
+
+// ── Konto für Kapitel 1 (Anmeldung, Plan P33; Spec 4.1, 4.2; EP27; G7) ──
+
+/** Was Kapitel 1 vom Konto liest — ohne E-Mail, ohne Sitzung, ohne Token (G4). */
+export interface AnleitungsKonto {
+  zustand: KontoZustand;
+  kurzName: string | null;
+  stufe: Stufe | null;
+  gueltigBis: number | null;
+}
+
+/** Was der Store der Anleitung aus useKonto liest (strukturell, ohne Laufzeit-Import). */
+export interface KontoLage {
+  konto: AnleitungsKonto | null;
+  anmeldungOffen: boolean;
+}
+
+/**
+ * Konto aus der Ansicht des Mains. Den Kurznamen rechnet `kurz` (kurzName aus src/shared/konto.ts, vom Store hereingereicht):
+ * Diese Datei lädt der Launcher-Selbsttest unter strip-types und importiert darum nichts zur Laufzeit (G5).
+ */
+export function anleitungsKonto(a: KontoAnsicht | null, kurz: (name: string, email: string) => string): AnleitungsKonto | null {
+  if (a === null) return null;
+  return {
+    zustand: a.zustand,
+    kurzName: a.stand ? kurz(a.stand.name, a.stand.email) : null,
+    stufe: a.stand?.stufe ?? null,
+    gueltigBis: a.gueltigBis,
+  };
+}
+
+/** R6: Zustände mit gültiger Sitzung — dieselbe Liste wie in lib/konto-anzeige.ts (der Selbsttest hält beide gleich, P33). */
+const MIT_SITZUNG: readonly KontoZustand[] = ['pruefe', 'angemeldet', 'offline', 'server-nicht-erreichbar', 'entzogen-laeuft'];
+
+/** EP27, G7: angemeldet nur mit gültiger Sitzung UND Stand; die Ansicht vor der ersten Antwort („pruefe“ ohne Stand) zählt nie. */
+function kontoAngemeldet(k: AnleitungsKonto | null): k is AnleitungsKonto & { kurzName: string; stufe: Stufe } {
+  return k !== null && k.kurzName !== null && k.stufe !== null && MIT_SITZUNG.includes(k.zustand);
+}
+
+/** TT.MM.JJJJ in Ortszeit des Rechners (G2). */
+function datumText(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
 }
 
 /** Installiert zählt wie in der Checkliste: jeder Status außer 'not-installed' (auch 'update-available', EP5). */
@@ -65,7 +114,8 @@ export function anleitungsZustand(e: AnleitungsEingang): Record<ZustandsName, bo
   const rolle = v !== null && (v.dateiFehler ?? null) === null ? v.rolle : null;
   const gekoppelt = rolle === 'slave' && v?.slave?.gekoppelt === true;
   return {
-    quelleVerbunden: e.settings !== null && (e.settings.source === 'proxy' || e.settings.source === 'github'),
+    angemeldet: kontoAngemeldet(e.konto),
+    anmeldungOffen: e.anmeldungOffen,
     toolInstalliert: installiert(e.states) > 0,
     reiterWerkzeugkasten: e.view === 'catalog',
     reiterShow: e.view === 'jmshow',
@@ -103,11 +153,21 @@ export function produktionLaeuft(e: AnleitungsEingang): boolean {
   return e.laufendeTools > 0 || e.showLaunch || e.iveoActive || verbundFolgt(e.verbund);
 }
 
-/** Detailzeilen der Kapitelübersicht (L9, L10, Bestand der Checkliste): nur mit Daten, sonst kein Eintrag. */
-export function kapitelDetails(e: AnleitungsEingang, texte: DetailTexte): Partial<Record<string, string>> {
+/**
+ * Detailzeilen der Kapitelübersicht (L17, L10): nur mit Daten, sonst kein Eintrag. L17 nur angemeldet (wie Kapitel 1); offline
+ * bzw. Server nicht erreichbar mit dem Datum, bis zu dem die Anmeldung gilt. `stufen` sind die Wörter aus K5 (STUFE_TEXT).
+ */
+export function kapitelDetails(
+  e: AnleitungsEingang,
+  texte: DetailTexte,
+  stufen: Readonly<Record<Stufe, string>>,
+): Partial<Record<string, string>> {
   const d: Partial<Record<string, string>> = {};
-  const quelle = e.settings?.source;
-  if (quelle === 'proxy' || quelle === 'github') d.k1 = texte.k1(quelle);
+  const k = e.konto;
+  if (kontoAngemeldet(k)) {
+    const offline = k.zustand === 'offline' || k.zustand === 'server-nicht-erreichbar';
+    d.k1 = texte.k1(k.kurzName, stufen[k.stufe], offline && k.gueltigBis !== null ? datumText(k.gueltigBis) : null);
+  }
   const n = installiert(e.states);
   if (n > 0) d.k2 = texte.k2(n);
   return d;
@@ -139,7 +199,6 @@ export function neueToolEreignisse(
 
 /** Was der Store der Anleitung aus useTools liest: nur die Felder, die der Eingang braucht (strukturell, ohne Laufzeit-Import). */
 export interface LauncherLage {
-  settings: { source: 'proxy' | 'github' | 'none' } | null;
   states: Readonly<Record<string, { status: string }>>;
   view: 'catalog' | 'jmshow';
   settingsOpen: boolean;
@@ -164,9 +223,16 @@ export interface VerbundLage {
  * Master mit Beziehern) und ob Kapitel 3, 5 und 6 abhaken können; eine Voreinstellung bleibt eine (null bleibt null, G7).
  * Der Launcher-Selbsttest prüft die Abbildung als Kreuz (P12).
  */
-export function anleitungsEingang(t: LauncherLage, v: VerbundLage, steuerebene: 'open' | 'secure' | null): AnleitungsEingang {
+export function anleitungsEingang(
+  t: LauncherLage,
+  v: VerbundLage,
+  steuerebene: 'open' | 'secure' | null,
+  k: KontoLage,
+): AnleitungsEingang {
   return {
-    settings: t.settings ? { source: t.settings.source } : null,
+    // Anmeldung P33 (EP27): Konto und Anmelde-Dialog aus useKonto, unverändert (eine Voreinstellung bleibt eine, G7).
+    konto: k.konto,
+    anmeldungOffen: k.anmeldungOffen,
     states: t.states,
     view: t.view,
     settingsOpen: t.settingsOpen,

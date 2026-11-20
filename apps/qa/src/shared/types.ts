@@ -74,9 +74,10 @@ export interface QaRemoteInfo {
 export interface QaCloudInfo {
   /** Polling aktiv (Einreichungen werden abgeholt). */
   enabled: boolean;
-  /** Grundkonfiguration vollständig (Proxy-URL + Key + Event-ID + Schlüssel). */
+  /** Grundkonfiguration vollständig (Server-Adresse + Event-ID + Schlüsselpaar); der Zugang zählt nicht (EP22). */
   configured: boolean;
   eventId: string;
+  /** Wirksame Server-Adresse (die Vorgabe, wenn das Feld leer ist; Spec 3). */
   proxyUrl: string;
   /** Öffentliche Einreich-URL (Stream) — für QR im Livestream. */
   streamUrl: string;
@@ -85,8 +86,13 @@ export interface QaCloudInfo {
   pressCode: string;
   streamOpen: boolean;
   pressOpen: boolean;
-  /** Ob ein Proxy-Key hinterlegt ist (Wert wird NIE an den Renderer gegeben). */
+  /** Ob ein alter Proxy-Key hinterlegt ist (nur im Übergang; Wert wird NIE an den Renderer gegeben). */
   hasKey: boolean;
+  /**
+   * Zugang zum Relay (Anmeldung im Launcher, Teil 1; Vertrag 10.9): Art, Zeile (Texte Q2–Q6, Q12; leer = keine Zeile)
+   * mit Ton, dazu der Hinweis Q6b, nachdem die erste Freigabe in diesem Lauf den alten Key gelöscht hat. Nie die Freigabe.
+   */
+  zugang: { art: 'freigabe' | 'alter-key' | 'keiner'; zeile: string; ton: 'ok' | 'warn' | 'fehler'; hinweis: string | null };
   lastError: string | null;
   lastPollAt: number | null;
 }

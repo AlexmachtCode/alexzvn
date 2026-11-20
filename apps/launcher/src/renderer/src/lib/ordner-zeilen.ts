@@ -17,7 +17,7 @@ export const ORDNER_ZEILEN_TEXTE = {
   schalter: 'Anhänge in Side-Event-Ordnern ablegen', // T26
   ordnerOeffnen: 'Ordner öffnen', // T30
   rolleSlave: 'Dieser Rechner hat die Rolle „Mit Master verbinden“ und legt keine Anhänge ab.', // T32
-  keinToken: 'Anhänge lädt nur der Launcher mit dem iveo-Token dieser Show.', // T33
+  keinToken: 'Anhänge legt nur der Rechner ab, der diese Show mit iveo abgleicht.', // T33, seit der Anmeldung I13 (Abgleich hier statt Token)
   ausgeschaltet: 'Ablage in Side-Event-Ordnern ausgeschaltet.', // T34
   showDateiFehlt: 'Show-Datei am Öffnungspfad nicht gefunden oder nicht lesbar. Ablage pausiert, bis sie wieder da ist.', // T35
   nichtAnlegbar: (name: string, code: string, gegen: string): string => `Ordner „${name}“ nicht anlegbar (${code}). Nächster Versuch gegen ${gegen}.`, // T36

@@ -20,8 +20,8 @@ import {
 } from '@jm/iveo';
 import {
   ablaufSignatur, einPunktAblauf, erzeugeKern, organisationenAusDatei, speakerNamenAusDatei, statusAusMerkern,
-  toClientError, uebernimmOwnerAusDatei, TEXT_DETAIL_VERALTET, TEXT_ORG_FEHLEN,
-  type IveoClientLike, type IveoKern, type IveoSyncStatus,
+  toClientError, uebernimmOwnerAusDatei, TEXT_DETAIL_VERALTET, TEXT_ORG_FEHLEN, TEXTE_OHNE_TOKEN,
+  type IveoClientLike, type IveoKern, type IveoSyncStatus, type KeinTokenGrund,
 } from '../src/main/iveo-abgleich-kern';
 import type { AgendaErgebnis } from '../src/main/iveo-anhaenge';
 import { schreibeShowAtomar, warteSync, type DateiSystem } from '../src/main/show-schreiben';
@@ -316,6 +316,8 @@ function umgebung(
   opt: {
     ohneToken?: boolean; melde?: boolean; schreibZeit?: string; verbundReload?: () => { andereRechner: number } | null;
     taktMs?: number; meldeAgenda?: boolean;
+    /** Anmeldung P23: Spion für token(event, baseUrl) und der Grund ohne Token (I1–I4). */
+    tokenFrage?: (event: string, baseUrl: string) => void; tokenGrund?: (event: string, baseUrl: string) => KeinTokenGrund;
   } = {},
 ): Umgebung {
   let uhr = Date.parse('2026-10-01T10:00:00.000Z');
@@ -350,7 +352,11 @@ function umgebung(
       u.clients.push(`${token}@${baseUrl}`);
       return nachgebauterClient(u.iveo);
     },
-    token: () => u.token,
+    token: (event, baseUrl) => {
+      opt.tokenFrage?.(event, baseUrl);
+      return u.token;
+    },
+    ...(opt.tokenGrund ? { tokenGrund: opt.tokenGrund } : {}),
     leseShow: (p) => {
       u.lesungen++;
       if (u.leseAus > 0) { u.leseAus--; return null; }
@@ -748,10 +754,10 @@ const mitMerker = (s: Show, seit = MERKER): Show => ({ ...s, iveo: { ...s.iveo!,
   ck('Umschalten auf die Tagesübersicht in die Zeitgrenze → ok:false mit deutschem Text', !r.ok && r.message === ZEITGRENZE);
 }
 
-// --- 9.6 Nr. 7: kein Token → „kein iveo-Token auf diesem Rechner, nur Offline-Ablauf“ -----------------------------
+// --- 9.6 Nr. 7: kein Token → Statustext (Anmeldung P23: ohne tokenGrund I1 „Abgleich läuft auf einem anderen Rechner …“) ---
 {
   const u = umgebung(agendaP1, { ohneToken: true });
-  ck('Nr. 7: kein Token beim Öffnen → Status-Text', u.status.at(-1)?.ok === false && u.status.at(-1)?.text === 'kein iveo-Token auf diesem Rechner, nur Offline-Ablauf');
+  ck('Nr. 7: kein Token beim Öffnen → Status-Text I1', u.status.at(-1)?.ok === false && u.status.at(-1)?.text === 'Abgleich läuft auf einem anderen Rechner, hier nur Offline-Ablauf');
   ck('Nr. 7: … kein aktiver Abgleich, das Panel ist trotzdem benachrichtigt', u.kern.aktiv() === null && u.aktivMeldungen === 1);
   await u.kern.abfrage();
   ck('Nr. 7: … eine Abfrage fragt iveo nicht', u.clients.length === 0 && u.iveo.abrufe.length === 0);
@@ -759,7 +765,7 @@ const mitMerker = (s: Show, seit = MERKER): Show => ({ ...s, iveo: { ...s.iveo!,
   v.token = undefined;
   await v.kern.abfrage();
   ck('Nr. 7: Token fehlt bei einer Abfrage → derselbe Text, kein Abruf',
-    v.status.at(-1)?.text === 'kein iveo-Token auf diesem Rechner, nur Offline-Ablauf' && v.clients.length === 0);
+    v.status.at(-1)?.text === 'Abgleich läuft auf einem anderen Rechner, hier nur Offline-Ablauf' && v.clients.length === 0);
   const w = umgebung(() => ({ schemaVersion: 1, name: 'Ohne iveo', tools: [], ablauf: [{ id: 'x1', label: 'Begrüßung' }] }));
   ck('Show ohne iveo: kein Abgleich, Status bleibt ok', w.kern.aktiv() === null && w.status.length === 0);
 }
@@ -904,8 +910,9 @@ const mitMerker = (s: Show, seit = MERKER): Show => ({ ...s, iveo: { ...s.iveo!,
 {
   const u = umgebung(agendaP1, { ohneToken: true });
   const r = await u.kern.umschalten({ programId: 'P2' });
-  ck('Umschalten ohne Token → abgelehnt wie bisher',
-    !r.ok && r.message === 'Kein iveo-Token für die offene Show — Live-Umschalten nicht möglich.' && u.clients.length === 0);
+  // Anmeldung P23 (I14): ohne Abgleich hier nennt die Antwort den Rechner, der abgleicht, nicht ein fehlendes Token.
+  ck('Umschalten ohne Token → abgelehnt wie bisher, Text I14',
+    !r.ok && r.message === 'Live-Umschalten nur auf dem Rechner, der die offene Show mit iveo abgleicht.' && u.clients.length === 0);
 }
 
 // --- 9.6 Nr. 8 und 7.3: Umschalten während laufender Abfrage; Umschaltungen nacheinander --------------------------
@@ -2514,6 +2521,67 @@ function p2Verknuepft(iv: NachgebautesIveo, speakers: ShowIveoSpeaker[] = [ANA])
   u.iveo.geaendert = [u.iveo.programme[0]];
   await u.kern.abfrage();
   ck('P24 8.2: Listen-Modus → keine Meldung', abrufeSeit(u, 0, 'snapshot') === 1 && u.agendaMeldungen.length === 0);
+}
+
+// --- Anmeldung P23 (Spec 6.4, 6.3; Ist-L 6; EP13, EP14; IV2, IV3; Texte I1–I4): Token über die Naht, Kern setzt neu auf ---
+{
+  // IV2: der Kern fragt das Token je Event UND Basis-URL der Bindung (Schlüssel ‹Basis›|‹Slug›, EP13).
+  const fragen: string[] = [];
+  const u = umgebung(agendaP1, { tokenFrage: (event, baseUrl) => fragen.push(`${event}@${baseUrl}`) });
+  await u.kern.abfrage();
+  ck('P23 IV2: Token je Event und Basis-URL der Bindung erfragt (Öffnen und Abfrage)',
+    fragen.length >= 2 && fragen.every((f) => f === `${EVENT}@${BASIS}`));
+  // I1–I4: die Statuszeile nennt den Grund aus der Hülle (tokenGrund).
+  const GRUENDE: Array<[KeinTokenGrund, string]> = [
+    ['kein-abgleich-hier', 'Abgleich läuft auf einem anderen Rechner, hier nur Offline-Ablauf'],
+    ['nicht-angemeldet', 'nicht angemeldet, nur Offline-Ablauf'],
+    ['nicht-hinterlegt', 'kein iveo-Token für dieses Event hinterlegt, nur Offline-Ablauf'],
+    ['noch-nicht-geladen', 'iveo-Token noch nicht geladen (Server nicht erreichbar), nur Offline-Ablauf'],
+    ['nicht-eingerichtet', 'iveo ist auf dem Server noch nicht eingerichtet, nur Offline-Ablauf'],
+  ];
+  const abw = GRUENDE.filter(([g, text]) => {
+    const v = umgebung(agendaP1, { ohneToken: true, tokenGrund: () => g });
+    return v.status.at(-1)?.text !== text || v.kern.aktiv() !== null || TEXTE_OHNE_TOKEN[g] !== text;
+  }).map(([g]) => g);
+  ck(`P23 I1–I4: ohne Token nennt die Statuszeile den Grund wörtlich (${GRUENDE.length} Fälle)${abw.length ? ` — abweichend: ${abw.join(', ')}` : ''}`,
+    abw.length === 0);
+  ck('P23 G2: I1–I4 ohne ASCII-Anführungszeichen', Object.values(TEXTE_OHNE_TOKEN).every((t) => !t.includes('"')));
+}
+{
+  // IV3 (Ist-L 6): die Tokens kommen erst nach dem Öffnen (Start offline, Show per Deep-Link) → der Kern setzt neu auf.
+  const u = umgebung(agendaP1, { ohneToken: true });
+  const vorher = { aktiv: u.kern.aktiv(), meldungen: u.aktivMeldungen };
+  u.token = TOKEN;
+  u.kern.tokensGeaendert();
+  await u.kern.abfrage();
+  ck('P23 IV3, Ist-L 6: Token nach dem Öffnen → tokensGeaendert setzt den Kern neu auf, die nächste Abfrage fragt iveo',
+    vorher.aktiv === null && u.kern.aktiv() !== null && u.aktivMeldungen === vorher.meldungen + 1
+    && u.status.at(-1)?.ok === true && u.clients.length === 1);
+  // Abmelden leert den Speicher (EP26): der Abgleich stoppt mit Grund, der Ablauf der Datei läuft offline weiter.
+  u.token = undefined;
+  u.kern.tokensGeaendert();
+  ck('P23 IV3, EP26: Token weg (Abmelden) → kein aktiver Abgleich, Statuszeile I1 (Grund aus der Hülle)',
+    u.kern.aktiv() === null && u.status.at(-1)?.text === 'Abgleich läuft auf einem anderen Rechner, hier nur Offline-Ablauf');
+}
+{
+  // Ohne Änderung nichts: kein Lesen der Datei, keine Meldung an das Panel; nur ein geänderter Grund wird neu gemeldet.
+  const u = umgebung(agendaP1);
+  const vorher = { lesungen: u.lesungen, meldungen: u.aktivMeldungen, status: u.status.length };
+  u.kern.tokensGeaendert();
+  let grund: KeinTokenGrund = 'noch-nicht-geladen';
+  const v = umgebung(agendaP1, { ohneToken: true, tokenGrund: () => grund });
+  const vLesungen = v.lesungen;
+  grund = 'nicht-hinterlegt';
+  v.kern.tokensGeaendert();
+  ck('P23 IV3: Token-Lage unverändert → nichts neu aufgesetzt; ohne Token wird nur ein geänderter Grund neu gemeldet',
+    u.lesungen === vorher.lesungen && u.aktivMeldungen === vorher.meldungen && u.status.length === vorher.status
+    && v.lesungen === vLesungen && v.status.at(-1)?.text === 'kein iveo-Token für dieses Event hinterlegt, nur Offline-Ablauf');
+  // Show ohne iveo-Bindung oder keine Show offen: tokensGeaendert tut nichts und wirft nicht.
+  const w = umgebung(() => ({ schemaVersion: 1, name: 'Ohne iveo', tools: [], ablauf: [{ id: 'x1', label: 'Begrüßung' }] }));
+  w.kern.tokensGeaendert();
+  w.kern.showGeschlossen();
+  w.kern.tokensGeaendert();
+  ck('P23 IV3: ohne iveo-Bindung oder ohne offene Show bleibt tokensGeaendert still', w.kern.aktiv() === null && w.status.length === 0);
 }
 
 // --- Zusammenfassung ---

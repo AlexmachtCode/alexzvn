@@ -32,6 +32,20 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.18.0",
+        "date": "2026-11-20",
+        "notes": [
+          "Neu: Anmeldung im Launcher. Oben rechts steht „Anmelden“. Kollegen melden sich mit ihrem Google-Konto von jakobsmedien.com an, Externe mit E-Mail, Passwort und dem Einladungscode, den sie von einem Admin bekommen. Den Rechner bestätigt man im Browser mit dem Code, den der Launcher zeigt.",
+          "Installieren, Updates, iveo und Q&A extern laufen jetzt über die Anmeldung; einen Schlüssel oder ein Token muss niemand mehr eintragen. Ohne Anmeldung laufen installierte Tools, Shows und der Verbund weiter wie bisher.",
+          "Oben rechts zeigt ein Kreis mit Initialen, wer angemeldet ist und mit welcher Stufe (Admin, Kollege, Externer). Ein Klick öffnet den Konto-Dialog mit Rechner, Stufe, den an Tools ausgegebenen Freigaben und „Abmelden“.",
+          "Für Admins: die Admin-Maske mit den Reitern Zugänge, iveo-Events, Anfragen und Geräte. Ein iveo-Event hinterlegt ein Admin einmal zentral, danach bekommen die Rechner es über die Anmeldung.",
+          "Beim ersten Anmelden löscht der Launcher einen auf dem Rechner gespeicherten GitHub-Zugang; Downloads laufen dann über die Anmeldung. Lokal gespeicherte iveo-Tokens löscht er, sobald ein Admin das Event zentral hinterlegt hat.",
+          "Das Kapitel „Anmelden“ der geführten Einrichtung führt jetzt durch die neue Anmeldung statt durch das Eintragen eines Zugangs.",
+          "Q&A extern bekommt seine Freigabe vom Launcher; dafür braucht es JM Q&A 0.6.0.",
+          "Stabilität: Der Launcher stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist."
+        ]
+      },
+      {
         "version": "0.17.1",
         "date": "2026-10-21",
         "notes": [
@@ -1649,6 +1663,17 @@
     "app": "qa",
     "name": "JM Q&A",
     "entries": [
+      {
+        "version": "0.6.0",
+        "date": "2026-11-20",
+        "notes": [
+          "Q&A extern nutzt jetzt die Anmeldung im Launcher: Q&A holt sich für jedes Event eine Freigabe vom angemeldeten Launcher auf demselben Rechner und erneuert sie selbst. Einen Proxy-Key muss man nicht mehr eintragen.",
+          "Ein externes Event lässt sich danach nur noch von dem Konto oder dem Rechner weiterführen, das es zuerst geöffnet hat.",
+          "Im Übergang gilt ein bisher eingetragener Schlüssel noch (Feld „Alter Proxy-Key (Übergang)“). Sobald Q&A eine Freigabe hat oder der Server den alten Schlüssel ablehnt, entfernt Q&A ihn selbst.",
+          "Gespeicherte Zugangsdaten schreibt Q&A unter Windows jetzt robuster, auch wenn ein anderes Programm die Datei kurz sperrt.",
+          "Stabilität: Q&A stürzt nicht mehr ab, wenn das Netzwerk kurz wegbricht oder die automatische Suche im Netz (mDNS, Port 5353) blockiert ist."
+        ]
+      },
       {
         "version": "0.5.0",
         "date": "2026-07-05",

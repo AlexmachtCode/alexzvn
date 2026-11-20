@@ -17,7 +17,11 @@ import { SideEventsPanel } from '@/components/SideEventsPanel';
 import { ShowLaunchOverlay } from '@/components/ShowLaunchOverlay';
 import { Anleitung } from '@/components/Anleitung';
 import { VerbundModal } from './components/VerbundModal';
+import { AnmeldeModal } from '@/components/AnmeldeModal';
+import { KontoModal } from '@/components/KontoModal';
+import { AdminModal } from '@/components/AdminModal';
 import { useTools } from '@/store/tools';
+import { useKonto } from '@/store/konto';
 
 export function App() {
   const notice = useTools((s) => s.notice);
@@ -28,6 +32,12 @@ export function App() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Anmeldung P24: Konto-Store einmal laden (Ansicht, Ereignisse, Lage bei Fensterfokus); unabhängig vom Laden der Tools.
+  const ladeKonto = useKonto((s) => s.lade);
+  useEffect(() => {
+    void ladeKonto();
+  }, [ladeKonto]);
 
   useEffect(() => {
     if (!notice) return;
@@ -69,6 +79,9 @@ export function App() {
       <RecipeDraftModal />
       <SystemStatusModal />
       <VerbundModal />
+      <AnmeldeModal />
+      <KontoModal />
+      <AdminModal />
       <OnboardingModal />
       <ShowEditorModal />
       <ScenarioPicker />

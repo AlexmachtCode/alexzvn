@@ -65,7 +65,7 @@ summary: "Live-Bauchbinden, Banner und Ticker als transparente NDI-Quelle — mi
 ## Profi-Tipps
 - Companion-Button „Nächster Redner": `TITLER NEXT` gefolgt von `TITLER TAKE` — ein Tastendruck holt den nächsten DataLink-Eintrag und blendet ihn ein.
 - Grafik im JM Grafiktool bauen und als `.jmtitler` „an den Titler senden" — Hintergrund + variablen-fähige Text-Slots kommen fertig gemappt an.
-- Für Konferenzen mit iveo: Speaker nie von Hand tippen — die Show materialisiert `speakers.tsv`, der Titler ruft sie per `RECALL` ab. Organisationen kommen mit (`{{organisation}}`, `{{organisationen}}`); eine Änderung in iveo erreicht die Bauchbinde in der Regel binnen etwa 5 Minuten, solange der Launcher mit dem iveo-Token dieser Show läuft und regelmäßig abfragt.
+- Für Konferenzen mit iveo: Speaker nie von Hand tippen — die Show materialisiert `speakers.tsv`, der Titler ruft sie per `RECALL` ab. Organisationen kommen mit (`{{organisation}}`, `{{organisationen}}`); eine Änderung in iveo erreicht die Bauchbinde in der Regel binnen etwa 5 Minuten, solange der Launcher läuft, der diese Show mit iveo abgleicht und regelmäßig abfragt.
 - Zweiter Bildschirm statt NDI, wenn der Mischer nur SDI/HDMI-Keying kann: Chroma-Green-Ausgabe auf den Keyer, NDI bleibt zusätzlich verfügbar.
 
 ## Pannenhilfe
@@ -76,7 +76,7 @@ summary: "Live-Bauchbinden, Banner und Ticker als transparente NDI-Quelle — mi
 | Bauchbinde hat keinen transparenten Hintergrund | NDI führt Alpha — im Mischer als NDI (nicht als Screen-Capture) einbinden; beim 2. Bildschirm den Keyer auf Chroma-Green stellen |
 | `{{variablen}}` bleiben leer | Statusleiste **DataLink**: „kein Ordner“ → unter Einstellungen › DataLink einen Ordner wählen; „Ordner fehlt“ → Ordner umbenannt oder Laufwerk weg. Spalten-/Ebenennamen passen zum Mapping? Per `RECALL <Nr.>` einen Eintrag ziehen |
 | Companion/Q&A steuert nicht | Statusleiste **Fernsteuerung**: „Port belegt“ → ein anderes Programm hält 8726; es beenden und den Titler neu starten. „bereit · 0 verbunden“ → der Titler lauscht, kein Client ist verbunden: Port 8726 in der Firewall offen? `jm-titler-ctl` im mDNS sichtbar? |
-| iveo-Speaker fehlen oder `{{organisation}}` bleibt leer | Show iveo-gebunden gestartet? Der Token liegt im Launcher (single-holder) — der Titler liest nur `speakers.tsv`. Leere Organisation: Titler ab 0.12.1 und Launcher ab 0.16.0, im Verbund auch auf dem gekoppelten Rechner? Hat der Speaker in iveo eine Organisation? |
+| iveo-Speaker fehlen oder `{{organisation}}` bleibt leer | Show iveo-gebunden gestartet? Das iveo-Token hat nur der angemeldete Launcher im Speicher (single-holder) — der Titler liest nur `speakers.tsv`. Leere Organisation: Titler ab 0.12.1 und Launcher ab 0.16.0, im Verbund auch auf dem gekoppelten Rechner? Hat der Speaker in iveo eine Organisation? |
 
 ## Checklisten
 

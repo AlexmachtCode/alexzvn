@@ -1,0 +1,302 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Zugang von JM Q&A zum Q&A-Relay des Workers (Anmeldung im Launcher, Teil 1; Plan P29, Vertrag 10.9, Verhalten 11.3;
+// Spec 3, 6.2, 6.3, 10).
+//
+// Q&A holt beim laufenden Launcher desselben Windows-Kontos eine Freigabe für sein Event (Zweck `qa-relay`, Ziel =
+// Event-ID, 72 h; @jm/app-runtime/freigabe) und hält sie in qa.cloud.secret. Der Live-Pfad Q&A → Worker läuft ohne
+// Launcher: die Freigabe geht als `Authorization: Bearer` direkt an /qa/:id. Reihenfolge des Zugangs (QR1): gültige
+// Freigabe für dieses Event, sonst der alte Proxy-Key (nur im Übergang, gilt am Worker bis ALTKEY_BIS), sonst keiner.
+// Die Zeile „Zugang“ sagt in jedem Zustand, was gilt oder worauf Q&A wartet (G7); leer heißt: keine Zeile.
+//
+// Rein (G9): kein Electron, nur ein Typ aus @jm/app-runtime/freigabe; läuft unter node --experimental-strip-types.
+// ─────────────────────────────────────────────────────────────────────────────
+import type { FreigabeGrund } from '@jm/app-runtime/freigabe';
+
+/** Adresse des Workers der Suite; gilt, wenn das Feld „Server-Adresse“ leer ist (Spec 3, EP22). */
+export const QA_VORGABE_URL = 'https://jm-suite-proxy.jm-production-suite.workers.dev';
+/** Erneuern, sobald weniger als 24 h bleiben (EP3: eine Freigabe gilt 72 h). */
+export const ERNEUERN_VOR_MS = 24 * 3600_000;
+/** Höchstens ein Versuch beim Launcher je 30 s (QR2, QR4). */
+export const FREIGABE_ABSTAND_MS = 30_000;
+
+/** Die Freigabe, wie Q&A sie in qa.cloud.secret hält (nie im Log, nie im Renderer). */
+export interface QaFreigabe { token: string; bis: number; ziel: string; konto: { name: string; stufe: string } }
+export type QaZugang = { art: 'freigabe'; f: QaFreigabe } | { art: 'alter-key'; key: string } | { art: 'keiner' };
+export interface QaZugangsLage {
+  zugang: QaZugang;
+  letzterGrund: FreigabeGrund | null;
+  jetzt: number;
+  eventDa: boolean;
+  extern: boolean;
+  altKeyAbgelehnt: boolean;
+  /** Abweichung E1: `detail` der letzten Ablehnung durch den Launcher (nur ein Code), für Q3i. */
+  detail?: string | null;
+  /** Abweichung E1: Die gespeicherte Freigabe für dieses Event ist abgelaufen (Q5). */
+  freigabeAbgelaufen?: boolean;
+}
+
+/** Texte der Texttabelle 9.10 (Q2–Q12), wörtlich. */
+export const QA_TEXT = {
+  /** Q2 */
+  freigabe: (name: string, stufe: string, datum: string, zeit: string): string =>
+    `Freigabe vom Launcher (${name} · ${stufe}), gültig bis ${datum} ${zeit}.`,
+  /** Q3i */
+  fehlgeschlagen: (detail: string): string => `Freigabe fehlgeschlagen: ${detail}`,
+  /** Q4 */
+  baldAb: (zeit: string): string => `Die Freigabe gilt noch bis ${zeit}. Für eine neue Freigabe muss der Launcher laufen.`,
+  /** Q5 */
+  abgelaufen: 'Die Freigabe ist abgelaufen. Starte den Launcher, damit Q&A eine neue bekommt.',
+  /** Q6b */
+  keyGeloescht: 'Der alte Proxy-Key wurde gelöscht; Q&A nutzt jetzt die Freigabe des Launchers.',
+  /** Q6c */
+  altKey: 'Zugang über den alten Proxy-Key (Übergang).',
+  /** Q6d */
+  keyAbgelehnt: 'Der Server nimmt den alten Proxy-Key nicht mehr an. Melde dich im Launcher an.',
+  /** Q8 */
+  keinEvent: 'Noch kein Event. Erzeuge zuerst ein Event.',
+  /** Q9 */
+  keinSchluessel: 'Kein Event-Schlüssel. Erzeuge zuerst ein Event mit „Neues Event“.',
+  /** Q10 */
+  quittierenFehler: (status: number): string => `Quittieren fehlgeschlagen (HTTP ${status})`,
+  /** Q10 */
+  loeschenFehler: (status: number): string => `Löschen im Relay fehlgeschlagen (HTTP ${status})`,
+  /** Q11 */
+  freigabeAbgelehnt: 'Der Server hat die Freigabe abgelehnt. Ich hole eine neue beim Launcher.',
+  /** Q12; der Punkt am Ende ist der Punkt des Grundes aus Q3 (kein doppelter Punkt). */
+  wartet: (grund: string): string => `Extern ist an und wartet auf eine Freigabe: ${grund}`,
+  /** Bestandstext (CloudPanel.tsx:97): Extern an, der erste Versuch beim Launcher läuft noch. */
+  verbinde: 'Verbinde …',
+} as const;
+
+/** Q3a–Q3h je Grund aus @jm/app-runtime/freigabe (Q3c für zwei Gründe); `fehler` → Q3i mit Detail. */
+export const GRUND_TEXT: Readonly<Record<Exclude<FreigabeGrund, 'fehler'>, string>> = {
+  'kein-launcher': 'Kein Launcher mit Anmeldung gefunden. Starte den Launcher und melde dich dort an.',
+  'launcher-unecht': 'Der Launcher hat sich nicht ausgewiesen. Starte den Launcher neu.',
+  'launcher-zu-alt': 'Der Launcher ist zu alt für diese Freigabe. Aktualisiere den Launcher.',
+  'unbekannter-zweck': 'Der Launcher ist zu alt für diese Freigabe. Aktualisiere den Launcher.',
+  'niemand-angemeldet': 'Im Launcher ist niemand angemeldet. Melde dich im Launcher an (oben rechts).',
+  abgelaufen: 'Die Anmeldung im Launcher ist abgelaufen. Melde dich im Launcher neu an.',
+  entzogen: 'Dein Zugang wurde beim letzten Start des Launchers nicht bestätigt. Frag einen Admin.',
+  'kein-recht': 'Dein Konto darf Q&A extern nicht nutzen. Frag einen Admin.',
+  'server-nicht-erreichbar': 'Der Server ist gerade nicht erreichbar. Ich versuche es weiter.',
+};
+
+/** Stufen-Namen (K5). */
+const STUFE_TEXT: Readonly<Record<string, string>> = { admin: 'Admin', kollege: 'Kollege', externer: 'Externer' };
+
+/** Vorübergehende Gründe (Ton „warn“); alle übrigen brauchen einen Menschen (Ton „fehler“). */
+const GRUND_VORUEBERGEHEND: readonly FreigabeGrund[] = ['kein-launcher', 'niemand-angemeldet', 'abgelaufen', 'server-nicht-erreichbar'];
+
+/** Wirksame Server-Adresse: das Feld, wenn es etwas enthält, sonst die Vorgabe. */
+export function effektiveProxyUrl(eingetragen: string): string {
+  const e = eingetragen.trim();
+  return e || QA_VORGABE_URL;
+}
+
+/** QR1: gültige Freigabe für genau dieses Event vor altem Key vor keinem. */
+export function waehleZugang(s: { freigabe: QaFreigabe | null; proxyKey: string; eventId: string; jetzt: number }): QaZugang {
+  const f = s.freigabe;
+  if (f && s.eventId && f.ziel === s.eventId && f.token && f.bis > s.jetzt) return { art: 'freigabe', f };
+  const key = s.proxyKey.trim();
+  if (key) return { art: 'alter-key', key };
+  return { art: 'keiner' };
+}
+
+/** Kopfzeilen an /qa/:id: Freigabe als Bearer, alter Key als X-Proxy-Key, sonst keine. */
+export function zugangsKopf(z: QaZugang): Record<string, string> {
+  if (z.art === 'freigabe') return { Authorization: `Bearer ${z.f.token}` };
+  if (z.art === 'alter-key') return { 'X-Proxy-Key': z.key };
+  return {};
+}
+
+/** QR2: fällig ohne Freigabe, bei anderem Ziel oder mit weniger als 24 h Rest; ohne Event nie (kein Ziel). */
+export function erneuernFaellig(f: QaFreigabe | null, eventId: string, jetzt: number): boolean {
+  if (!eventId) return false;
+  if (!f || f.ziel !== eventId) return true;
+  return f.bis - jetzt < ERNEUERN_VOR_MS;
+}
+
+/** QR2, QR4: höchstens ein Versuch beim Launcher je FREIGABE_ABSTAND_MS. */
+export function versuchErlaubt(letzterVersuch: number | null, jetzt: number): boolean {
+  return letzterVersuch === null || jetzt - letzterVersuch >= FREIGABE_ABSTAND_MS;
+}
+
+/** QR5: Antwort 401/403 des Relays → Freigabe verwerfen (Q11) bzw. alten Key nicht wiederholen (Q6d); sonst nichts. */
+export function nachAblehnung(art: QaZugang['art'], status: number): 'freigabe-verwerfen' | 'key-abgelehnt' | null {
+  if (status !== 401 && status !== 403) return null;
+  if (art === 'freigabe') return 'freigabe-verwerfen';
+  if (art === 'alter-key') return 'key-abgelehnt';
+  return null;
+}
+
+/** Normalisierer für qa.cloud.secret (G8): nur eine vollständige Freigabe, sonst null; keine fremden Felder. */
+export function leseFreigabe(roh: unknown): QaFreigabe | null {
+  if (typeof roh !== 'object' || roh === null) return null;
+  const r = roh as Record<string, unknown>;
+  const k = r.konto as Record<string, unknown> | null | undefined;
+  // Token nur aus sichtbaren ASCII-Zeichen (\x21-\x7e): alles andere macht fetch beim Bauen der Kopfzeile zum Wurf und
+  // kann den Wert in die Fehlermeldung tragen.
+  if (typeof r.token !== 'string' || !/^[\x21-\x7e]+$/.test(r.token) || typeof r.bis !== 'number' || !Number.isFinite(r.bis)) return null;
+  if (typeof r.ziel !== 'string' || !r.ziel || typeof k !== 'object' || k === null || typeof k.name !== 'string') return null;
+  if (k.stufe !== 'admin' && k.stufe !== 'kollege' && k.stufe !== 'externer') return null;
+  return { token: r.token, bis: r.bis, ziel: r.ziel, konto: { name: k.name, stufe: k.stufe } };
+}
+
+function zwei(n: number): string {
+  return String(n).padStart(2, '0');
+}
+/** TT.MM.JJJJ in Ortszeit (G2). */
+function datumText(ms: number): string {
+  const d = new Date(ms);
+  return `${zwei(d.getDate())}.${zwei(d.getMonth() + 1)}.${d.getFullYear()}`;
+}
+/** HH:MM in Ortszeit (G2). */
+function zeitText(ms: number): string {
+  const d = new Date(ms);
+  return `${zwei(d.getHours())}:${zwei(d.getMinutes())}`;
+}
+
+/** Text zu einem Grund: Q3a–Q3h, für `fehler` Q3i mit dem Detail (ohne Detail der Code selbst). */
+export function grundText(g: FreigabeGrund, detail?: string | null): string {
+  return g === 'fehler' ? QA_TEXT.fehlgeschlagen(detail || 'fehler') : GRUND_TEXT[g];
+}
+
+/**
+ * Zeile „Zugang“ (Texte Q2–Q6, Q12) als Kreuzprodukt aus Zugang × letztem Grund × Event × Extern × alter Key abgelehnt.
+ * - gültige Freigabe: Q2 (Ton ok); mit weniger als 24 h Rest und gescheitertem Erneuern Q4 (kein Launcher) bzw. Q2 und
+ *   der Grund (Ton warn);
+ * - alter Key: Q6c (warn), vom Server abgelehnt Q6d (fehler);
+ * - kein Zugang ohne Event: keine Zeile (das CloudPanel zeigt Q7), außer Q6d;
+ * - kein Zugang mit Event: mit Grund Q12 und der Grund (Extern an) bzw. der Grund allein (Extern aus), abgelaufene
+ *   Freigabe ohne Launcher Q5; ohne Grund Q6d, Q5, „Verbinde …“ (Extern an, erster Versuch läuft) oder keine Zeile.
+ */
+export function zugangsZeile(l: QaZugangsLage): { text: string; ton: 'ok' | 'warn' | 'fehler' } {
+  const z = l.zugang;
+  if (z.art === 'freigabe') {
+    const f = z.f;
+    const voll = QA_TEXT.freigabe(f.konto.name, STUFE_TEXT[f.konto.stufe] ?? f.konto.stufe, datumText(f.bis), zeitText(f.bis));
+    if (f.bis - l.jetzt >= ERNEUERN_VOR_MS || l.letzterGrund === null) return { text: voll, ton: 'ok' };
+    if (l.letzterGrund === 'kein-launcher') return { text: QA_TEXT.baldAb(zeitText(f.bis)), ton: 'warn' };
+    return { text: `${voll} ${grundText(l.letzterGrund, l.detail)}`, ton: 'warn' };
+  }
+  if (z.art === 'alter-key') {
+    return l.altKeyAbgelehnt ? { text: QA_TEXT.keyAbgelehnt, ton: 'fehler' } : { text: QA_TEXT.altKey, ton: 'warn' };
+  }
+  if (!l.eventDa) return l.altKeyAbgelehnt ? { text: QA_TEXT.keyAbgelehnt, ton: 'fehler' } : { text: '', ton: 'warn' };
+  if (l.letzterGrund !== null) {
+    if (l.freigabeAbgelaufen && l.letzterGrund === 'kein-launcher') return { text: QA_TEXT.abgelaufen, ton: 'warn' };
+    const g = grundText(l.letzterGrund, l.detail);
+    const ton = GRUND_VORUEBERGEHEND.includes(l.letzterGrund) ? 'warn' : 'fehler';
+    return { text: l.extern ? QA_TEXT.wartet(g) : g, ton };
+  }
+  if (l.altKeyAbgelehnt) return { text: QA_TEXT.keyAbgelehnt, ton: 'fehler' };
+  if (l.freigabeAbgelaufen) return { text: QA_TEXT.abgelaufen, ton: 'warn' };
+  if (l.extern) return { text: QA_TEXT.verbinde, ton: 'warn' };
+  return { text: '', ton: 'warn' };
+}
+
+/** Verschlüsseler für qa.cloud.secret (cloud.ts: safeStorage; im Test eine Attrappe). */
+export interface QaVerschluesseler { verfuegbar(): boolean; verschluesseln(text: string): Uint8Array }
+
+/**
+ * Inhalt von qa.cloud.secret (G6, Spec 12: kein dauerhaftes Geheimnis im Klartext auf dem Rechner; Nachbesserung Abschluss,
+ * sicherheit:12). Mit Schlüsselspeicher geht alles nur verschlüsselt auf die Platte. Ohne bleibt die Freigabe nur im Speicher
+ * (nach einem Neustart holt Q&A eine neue beim Launcher, der ohne Schlüsselspeicher ohnehin niemanden anmeldet); Schlüsselpaar
+ * und alter Key stehen dann wie in Q&A 0.5.0 im Klartext (Bestand #166).
+ */
+export function geheimnisDatei<T extends { freigabe: QaFreigabe | null }>(s: T, v: QaVerschluesseler): Uint8Array {
+  if (v.verfuegbar()) return v.verschluesseln(JSON.stringify(s));
+  return new TextEncoder().encode(JSON.stringify({ ...s, freigabe: null }));
+}
+
+/**
+ * Z1-L3 (OE5): Betrifft die Ablehnung des Relays den alten Key selbst? Der Worker lehnt einen alten Key nur mit 401 ab, mit dem
+ * Code `nicht-angemeldet` (Key falsch oder nicht mehr vorhanden) oder `alter-key-abgelaufen` (nach ALTKEY_BIS). Alles andere sagt
+ * nichts über den Key: ein 403 (etwa `keine-freigabe`, das Event gehört einem anderen Konto), ein 401 ohne Code (Zwischenstation).
+ */
+export function altKeyVerworfen(art: QaZugang['art'], status: number, code: string | null | undefined): boolean {
+  return art === 'alter-key' && status === 401 && (code === 'nicht-angemeldet' || code === 'alter-key-abgelaufen');
+}
+
+/** Z1-L3 (OE5): Geheimnisse ohne den alten Key, wenn der Worker genau diesen Key abgelehnt hat; sonst dasselbe Objekt. */
+export function altKeyEntfernen<T extends { proxyKey: string }>(s: T, z: QaZugang, status: number, code: string | null | undefined): T {
+  if (z.art !== 'alter-key' || !altKeyVerworfen(z.art, status, code)) return s;
+  // Nur den abgelehnten Key: ein inzwischen eingetragener anderer Key bleibt.
+  return s.proxyKey.trim() === z.key ? { ...s, proxyKey: '' } : s;
+}
+
+/** Z1-L3: ein gespeicherter alter Key nur aus \x21-\x7e (sonst trägt fetch den Wert in die Fehlermeldung), sonst leer. */
+export function leseProxyKey(roh: unknown): string {
+  if (typeof roh !== 'string') return '';
+  const k = roh.trim();
+  return /^[\x21-\x7e]+$/.test(k) ? k : '';
+}
+
+/** Normalisierer für den ganzen Inhalt von qa.cloud.secret (G8; Z1-L3: Key und Freigabe mit unzulässigen Zeichen werden verworfen). */
+export function leseGeheimnisse(roh: unknown): { publicJwk: JsonWebKey | null; privateJwk: JsonWebKey | null; proxyKey: string; freigabe: QaFreigabe | null } {
+  const o = typeof roh === 'object' && roh !== null ? (roh as Record<string, unknown>) : {};
+  return {
+    publicJwk: (o.publicJwk as JsonWebKey | null | undefined) ?? null,
+    privateJwk: (o.privateJwk as JsonWebKey | null | undefined) ?? null,
+    proxyKey: leseProxyKey(o.proxyKey),
+    freigabe: leseFreigabe(o.freigabe),
+  };
+}
+
+/**
+ * Z1-L3: Rest-Rennen „Aus“ während des Öffnens. Nach erfolgreichem Öffnen gilt: ist Extern inzwischen aus und das Event gleich,
+ * schließt Q&A die Kanäle best effort (wie beim Ausschalten, ein Fehler ist egal), sonst stünde das Event offen, ohne dass
+ * jemand abholt. → true, wenn der Takt weitermachen soll.
+ */
+export async function nachOeffnen(l: { nochAn: () => boolean; eventGleich: () => boolean; schliessen: () => Promise<void> }): Promise<boolean> {
+  const an = l.nochAn();
+  const gleich = l.eventGleich();
+  if (an && gleich) return true;
+  if (!an && gleich) {
+    try {
+      await l.schliessen();
+    } catch {
+      /* offline o. ä. — egal */
+    }
+  }
+  return false;
+}
+
+/** Fehler einer Relay-Antwort mit HTTP-Status und Code (401/403 → Freigabe verwerfen bzw. alter Key abgelehnt, QR5; Z1-L3 OE5). */
+export class RelayFehler extends Error {
+  readonly status: number;
+  /** `code` aus dem JSON-Körper der Antwort (etwa nicht-angemeldet), sonst null; nie ein Teil der Meldung. */
+  readonly code: string | null;
+  constructor(message: string, status: number, code: string | null = null) {
+    super(message);
+    this.name = 'RelayFehler';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/** Der Code einer Fehlerantwort: ein kurzer Text aus [a-z-] (1 bis 40 Zeichen) im Feld `code` eines Objekts, sonst null. */
+export function leseFehlerCode(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null) return null;
+  const c = (body as { code?: unknown }).code;
+  return typeof c === 'string' && /^[a-z-]{1,40}$/.test(c) ? c : null;
+}
+
+/** Fehlercode einer Relay-Antwort aus ihrem Körper; ein unlesbarer Körper (HTML, leer) ist kein Fehler, sondern null. */
+export async function fehlerCode(res: Response): Promise<string | null> {
+  try {
+    return leseFehlerCode(await res.json());
+  } catch {
+    return null;
+  }
+}
+
+/** Hat der Normalisierer beim Laden etwas verworfen (ein Key oder eine Freigabe, die auf der Platte stand)? Dann speichert Q&A neu. */
+export function hatVerworfen(roh: unknown, g: { proxyKey: string; freigabe: QaFreigabe | null }): boolean {
+  const o = typeof roh === 'object' && roh !== null ? (roh as Record<string, unknown>) : {};
+  const keyDa = o.proxyKey !== undefined && o.proxyKey !== null && o.proxyKey !== '';
+  const freigabeDa = o.freigabe !== undefined && o.freigabe !== null;
+  return (keyDa && g.proxyKey === '') || (freigabeDa && g.freigabe === null);
+}
+
+// ── Ende des Moduls ──

@@ -5,10 +5,11 @@
   "type": "module",
   "description": "Geteilter Main-Prozess-Runtime-Layer: zentrales Logging, Crash-Handler, jmps://-Deep-Links und Presence-Heartbeat für die JM Production Suite",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./freigabe": "./src/freigabe.ts"
   },
   "scripts": {
-    "selftest": "node --experimental-strip-types test/selftest.ts && tsx test/verbund.test.ts"
+    "selftest": "node --experimental-strip-types test/selftest.ts && tsx test/verbund.test.ts && node --experimental-strip-types test/freigabe.test.ts"
   },
   "dependencies": {
     "@jm/master-link": "*",

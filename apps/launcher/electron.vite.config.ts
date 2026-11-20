@@ -26,11 +26,6 @@ export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin({ exclude: internalPackages })],
     resolve: { alias: sharedAlias },
-    // Proxy-Key zur Build-Zeit einbacken (aus dem CI-Secret JMPS_PROXY_KEY);
-    // leer in lokalen Dev-Builds → dann greift der Token-Fallback.
-    define: {
-      __JMPS_PROXY_KEY__: JSON.stringify(process.env.JMPS_PROXY_KEY ?? ''),
-    },
     build: {
       rollupOptions: {
         input: { index: resolve(__dirname, 'src/main/index.ts') },

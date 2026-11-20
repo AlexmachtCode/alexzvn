@@ -30,11 +30,84 @@ id = "9e73a7425fb446d78ed7080a1d2fd080"
 name = "CONNECT_ROOM"
 class_name = "ConnectRoom"
 
+# Anmeldung im Launcher (Plan Teil 1, EP1): EIN Konten-DO (idFromName("konten")) für Konten, Geräte, Anmeldevorgänge,
+# Einladungen, Zoom-Anfragen, iveo-Tokens (nur verschlüsselt), Protokoll und die Zählung alter Schlüssel. SQLite-gestützt,
+# in der EU (KONTO_JURISDICTION); er entsteht beim Deploy über die Migration v2, ohne Vorab-Anlegen.
+[[durable_objects.bindings]]
+name = "KONTO"
+class_name = "KontoSpeicher"
+
 # Erste Migration des Workers (bisher keine DOs). SQLite-gestützter DO (moderner Default) — die
 # storage.put/get-API bleibt nutzbar. Bei Klassen-Umbenennung/-Entfernung neuen Tag anhängen.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["ConnectRoom"]
+
+# Anmeldung im Launcher (EP1): zweite Migration, legt den SQLite-DO KontoSpeicher an. Tags bleiben, wie sie sind.
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["KontoSpeicher"]
+
+# Drosseln der Anmeldung (Z1-W2, AR70): Rate-Limit-Bindungen der Workers statt Zähler in KV (KV erlaubt 1 Schreiben je Schlüssel
+# und Sekunde; hinter einer gemeinsamen Büro-IP und beim Abholen im 2-s-Takt gäbe das Fehlschläge). Eine Bindung je Grenze,
+# `limit` je `period` (nur 10 oder 60 Sekunden erlaubt), gezählt je Cloudflare-Standort und IP-Hash, also ungefähr. Fehlt eine
+# Bindung, warnt der Worker im Log und lässt die Route offen. Die Bauprobe und der Wächter in konto-zugang.test.mjs kennen genau
+# diese sieben Einträge. KV RATELIMIT oben bleibt für Feedback, Kochbuch-Entwurf, Zoom-SDK und Q&A unverändert.
+# KONTO_RL_VORGANG: POST /konto/vorgang
+[[ratelimits]]
+name = "KONTO_RL_VORGANG"
+namespace_id = "7301"
+  [ratelimits.simple]
+  limit = 20
+  period = 60
+
+# KONTO_RL_ABHOLEN: POST /konto/vorgang/abholen (ein Launcher fragt alle 2 s)
+[[ratelimits]]
+name = "KONTO_RL_ABHOLEN"
+namespace_id = "7302"
+  [ratelimits.simple]
+  limit = 600
+  period = 60
+
+# KONTO_RL_ABBRECHEN: POST /konto/vorgang/abbrechen
+[[ratelimits]]
+name = "KONTO_RL_ABBRECHEN"
+namespace_id = "7303"
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
+# KONTO_RL_GOOGLE: GET /konto/google und /konto/google/zurueck
+[[ratelimits]]
+name = "KONTO_RL_GOOGLE"
+namespace_id = "7304"
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
+# KONTO_RL_PASSWORT: POST /konto/passwort (die Bremse je Konto im DO bleibt)
+[[ratelimits]]
+name = "KONTO_RL_PASSWORT"
+namespace_id = "7305"
+  [ratelimits.simple]
+  limit = 10
+  period = 60
+
+# KONTO_RL_SELBSTUPDATE: GET /tools/launcher/latest ohne Zugang (nur Abrufe bei GitHub)
+[[ratelimits]]
+name = "KONTO_RL_SELBSTUPDATE"
+namespace_id = "7306"
+  [ratelimits.simple]
+  limit = 20
+  period = 60
+
+# KONTO_RL_QAALT: Q&A-Admin-Routen mit dem alten Schlüssel, vor der Inhaber-Prüfung im Konten-DO (Q&A fragt alle 5 s = 12/min)
+[[ratelimits]]
+name = "KONTO_RL_QAALT"
+namespace_id = "7307"
+  [ratelimits.simple]
+  limit = 60
+  period = 60
 
 # Optionale Secrets für die Remote-Zuschaltung (verschlüsselt via `wrangler secret put`):
 #   RTC_SFU_APP_ID / RTC_SFU_APP_TOKEN     Cloudflare-Realtime-SFU-App (Medien). Fehlen sie, läuft
@@ -63,9 +136,30 @@ MANIFEST_REF = "main"
 # Objekt-ID, bestehende Räume wären verwaist. Die MEDIEN (Realtime-SFU/TURN) deckt das nicht ab —
 # siehe docs/security/connect-datenresidenz.md.
 CONNECT_JURISDICTION = "eu"
+# EU-Datenresidenz der Konten (Anmeldung im Launcher, EP1): "eu" pinnt den Konten-DO hart auf die EU, wie
+# CONNECT_JURISDICTION die Räume. Leerstring nur für lokale Läufe ohne Jurisdictions. NICHT im Betrieb ändern: in einer
+# anderen Jurisdiction wäre es ein anderer DO, alle Konten und Geräte wären verwaist.
+KONTO_JURISDICTION = "eu"
+# Ende des alten PROXY_KEY (Spec 10, EP9) als Datum JJJJ-MM-TT (00:00 UTC) oder mit Uhrzeit und Zone. Ab dann lehnt der
+# Worker den alten Schlüssel für Katalog, Installieren, Updates, Kochbuch, Feedback, KI-Entwurf und Q&A ab (S4). Fehlt der
+# Wert, gilt er unbefristet, und der Reiter Geräte der Admin-Maske zeigt das. Den Wert setzt der Controller nach dem
+# Release (Release + 30 Tage, OF2); ein unlesbarer Wert hieße ebenfalls unbefristet, die Bauprobe meldet ihn (Exit 1):
+# ALTKEY_BIS = "JJJJ-MM-TT"
+# Eigene Frist für die Connect-Routen (EP9): bleibt in Teil 1 leer, Connect 0.3.0/0.4.0 kennt nur den Proxy-Key. Sie läuft
+# erst ab dem Release von Teil 2 (dann 30 Tage):
+# ALTKEY_CONNECT_BIS = "JJJJ-MM-TT"
 # Privates Repo mit dem Zoom-SDK-Paket für GET /zoom-sdk/:fassung (JM Connect 0.2.2). Das GITHUB_TOKEN
 # braucht darauf Contents: read, sonst antwortet GitHub 404 und die Route meldet not_found.
 ZOOM_SDK_REPO = "AlexmachtCode/jm-zoom-sdk"
+
+# Secrets der Anmeldung im Launcher (Plan Teil 1; verschlüsselt wie die übrigen, nie in [vars]; sie setzt der Controller
+# mit Freigabe des Owners, README Abschnitt „Anmeldung im Launcher (Teil 1)“):
+#   KONTO_SCHLUESSEL      32 Byte, Base64: signiert Sitzungen und Freigaben (jm1.…). Fehlt er, antworten die Pfade unter
+#                         /konto/ mit 503 (S5); ein Wechsel macht alle Sitzungen und Freigaben ungültig.
+#   IVEO_SCHLUESSEL       32 Byte, Base64: verschlüsselt hinterlegte iveo-Tokens (AES-GCM); ein Wechsel macht sie unlesbar.
+#   GOOGLE_CLIENT_ID      OAuth-Web-Client des Workspaces jakobsmedien.com („intern“), Rückkehradresse
+#   GOOGLE_CLIENT_SECRET  <Worker>/konto/google/zurueck. Fehlen sie, zeigt die Anmeldeseite nur die Passwort-Anmeldung (B6).
+#   ERSTER_ADMIN          Google-Adresse (jakobsmedien.com) des ersten Admins: immer Admin, nicht herabzustufen oder zu sperren; zählt ab seiner ersten Anmeldung, eine andere Adresse wirkt nicht (EP20).
 
 # Secrets NICHT hier eintragen — verschlüsselt setzen:
 #   npx wrangler secret put GITHUB_TOKEN      (fine-grained PAT; read-only Contents reicht

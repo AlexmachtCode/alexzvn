@@ -2,7 +2,7 @@ import { app } from 'electron';
 import type { ToolManifest, ToolState } from '@jm/suite-manifest';
 import type { LauncherUpdate } from '@shared/types';
 import { getAllStates } from './install-state';
-import { getReleaseSource, type ReleaseSource } from './release-source';
+import { getLauncherUpdateSource, getReleaseSource, type ReleaseSource } from './release-source';
 import { compareVersions } from './release-wahl';
 
 // Kurzlebiger Cache der online ermittelten Versionen, damit häufiges Neuprüfen
@@ -82,12 +82,12 @@ export function launcherManifest(tools: ToolManifest[]): ToolManifest | null {
 /**
  * Prüft, ob es eine neuere Launcher-Version gibt (Release-Tag `launcher-v*` im
  * selben Repo wie die Tools). Nutzt DIESELBE Quelle wie der eigentliche
- * Launcher-Download (`updateLauncher`) — also Proxy bevorzugt, sonst Token —,
- * damit tokenlose Clients ihre eigenen Updates ebenfalls erkennen. Liefert die
- * Info nur, wenn online eine höhere Version gefunden wird — sonst null.
+ * Launcher-Download (`updateLauncher`): getLauncherUpdateSource, ohne Anmeldung und
+ * ohne Kopf (Anmeldung P22, Spec 9.1, EP10). Liefert die Info nur, wenn online eine
+ * höhere Version gefunden wird — sonst null.
  */
 export async function checkLauncherUpdate(tools: ToolManifest[]): Promise<LauncherUpdate | null> {
-  const source = getReleaseSource();
+  const source = getLauncherUpdateSource();
   const launcher = launcherManifest(tools);
   if (!source || !launcher) return null;
   const current = app.getVersion();

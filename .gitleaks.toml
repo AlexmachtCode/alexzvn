@@ -28,4 +28,13 @@ regexes = [
   # Zoom Stage 4a: Client-ID der Zugangsdaten-Fälle in apps/connect/test/zoom-kern.test.ts
   # und im Plan docs/superpowers/plans/2026-10-02-zoom-stage4a-connect.md, der sie zitiert.
   '''^sitzung-9876$''',
+  # Launcher-Anmeldung Teil 1: erfundene Sitzungs- und Freigabe-Token der Tests in
+  # apps/launcher/test/konto-sitzung.test.ts und apps/qa/test/cloud-zugang.test.ts, dazu der Plan
+  # docs/superpowers/plans/2026-10-21-launcher-anmeldung-teil1.md, der sie zitiert.
+  '''^jm1\.test-sitzung-p21\.sig$''',
+  '''^jm1\.test\.nach-ende$''',
+  '''^jm1\.test-freigabe-p30\.sig$''',
+  # Kein Wert, sondern ein Funktionsname in apps/qa/test/cloud-zugang.test.ts, den generic-api-key
+  # hinter „neuerKey =“ für einen Schlüssel hält.
+  '''^z1\.altKeyEntfernen$''',
 ]

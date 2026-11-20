@@ -6,6 +6,8 @@ import { StatusChips, type StatusFilter } from '@/components/StatusChips';
 import { ToolCard } from '@/components/ToolCard';
 import { displayName } from '@/lib/monogram';
 import { useTools } from '@/store/tools';
+import { werkzeugkastenHinweis } from '@/lib/konto-anzeige';
+import { useKonto } from '@/store/konto';
 
 /** Suche greift erst ab dieser Länge (Issue #27). */
 const MIN_QUERY = 3;
@@ -23,6 +25,10 @@ export function ToolboxView(): React.JSX.Element {
   const loading = useTools((s) => s.loading);
   const updatingAll = useTools((s) => s.updatingAll);
   const updateAll = useTools((s) => s.updateAll);
+  // Anmeldung P24 (F5): ohne gültige Anmeldung und ohne andere Quelle sagt eine Zeile, warum Installieren nicht geht.
+  const ansicht = useKonto((s) => s.ansicht);
+  const quelle = useTools((s) => s.settings?.source ?? null);
+  const hinweis = werkzeugkastenHinweis(ansicht, quelle);
 
   const [filter, setFilter] = useState<CategoryFilter>('Alle');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('Alle');
@@ -79,6 +85,14 @@ export function ToolboxView(): React.JSX.Element {
           <p className="text-sm text-[var(--muted-foreground)] mt-1">
             {loading ? 'Lade Tools…' : `${tools.length} Tools · ${installedCount} installiert`}
           </p>
+          {hinweis && (
+            <p
+              role="status"
+              className="mt-2 text-xs rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-[var(--muted-foreground)]"
+            >
+              {hinweis}
+            </p>
+          )}
           {updateCount > 0 && (
             <div className="mt-2">
               <Button

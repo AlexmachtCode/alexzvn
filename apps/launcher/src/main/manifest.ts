@@ -3,7 +3,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SUITE } from '@jm/suite-manifest';
 import type { SuiteManifest, ToolManifest } from '@jm/suite-manifest';
-import { defaultManifestUrl, resolveManifestUrl, resolveProxy, resolveProxyKey } from './settings';
+import { defaultManifestUrl, resolveManifestUrl } from './settings';
+import { zugangsKopfFuer } from './konto/huelle';
+import { redirectFuer } from './konto/worker-client';
 
 // In-memory-Registry. Default = gebündeltes suite.json; beim Start wird ein
 // lokaler Cache geladen und optional eine remote suite.json (JMPS_MANIFEST_URL).
@@ -21,17 +23,11 @@ function manifestUrl(): string {
 }
 
 /**
- * Header für den Katalog-Fetch: Wenn die URL auf den Proxy zeigt, den (low-value)
- * Proxy-Key mitschicken, damit /suite.json key-geschützt bleibt wie der Rest.
+ * Header für den Katalog-Fetch (Anmeldung P22): Zeigt die URL auf den Worker, geht der Zugangskopf mit (Sitzung, sonst
+ * Entwicklungs-Schlüssel); an jede andere Adresse nichts. Ohne Zugang bleibt der gebündelte bzw. gecachte Katalog.
  */
-function manifestHeaders(url: string): Record<string, string> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  const proxy = resolveProxy();
-  const key = resolveProxyKey();
-  if (proxy && key && url.startsWith(proxy.replace(/\/$/, ''))) {
-    headers['X-Proxy-Key'] = key;
-  }
-  return headers;
+async function manifestHeaders(url: string): Promise<Record<string, string>> {
+  return { Accept: 'application/json', ...(await zugangsKopfFuer(url)) };
 }
 
 function isValid(value: unknown): value is SuiteManifest {
@@ -60,7 +56,9 @@ export async function refreshManifest(): Promise<boolean> {
   const url = manifestUrl();
   if (!url) return false;
   try {
-    const res = await fetch(url, { headers: manifestHeaders(url) });
+    // Z1: trägt der Kopf eine Sitzung oder einen Schlüssel, folgt der Abruf keiner Weiterleitung (redirectFuer).
+    const kopf = await manifestHeaders(url);
+    const res = await fetch(url, { headers: kopf, redirect: redirectFuer(kopf) });
     if (!res.ok) return false;
     const parsed = (await res.json()) as unknown;
     if (!isValid(parsed)) return false;

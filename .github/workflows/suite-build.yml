@@ -60,7 +60,6 @@ jobs:
         run: npm run build -w "@jm/$APP"
         env:
           APP: ${{ matrix.app }}
-          JMPS_PROXY_KEY: ${{ secrets.JMPS_PROXY_KEY }}
 
       # electron ist im Workspace ans Root gehoistet → Version in die Config
       # schreiben (shell-sicher, statt -c.electronVersion am CLI; pwsh zerlegt das).

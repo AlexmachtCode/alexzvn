@@ -56,8 +56,13 @@ export interface IveoSyncStatus {
 export interface KernAbhaengigkeiten {
   /** Client für eine Abfrage. Die Hülle setzt hier den fetchImpl mit 15-s-Zeitgrenze ein (7.0). */
   clientFabrik(token: string, baseUrl: string): IveoClientLike;
-  /** Token für dieses Event auf diesem Rechner, sonst undefined. */
-  token(event: string): string | undefined;
+  /**
+   * Token für dieses Event und die Basis-URL seiner Bindung, sonst undefined (Anmeldung P23, IV2: die Hülle liest über die
+   * Naht getIveoToken — zuerst den Speicher der Anmeldung, nur mit „Abgleich hier“).
+   */
+  token(event: string, baseUrl: string): string | undefined;
+  /** Anmeldung P23 (I1–I4): warum hier kein Token da ist. Optional; ohne sie gilt I1 (Abgleich auf einem anderen Rechner). */
+  tokenGrund?(event: string, baseUrl: string): KeinTokenGrund;
   /** Show-Datei lesen (parseShow). null = nicht lesbar. */
   leseShow(pfad: string): Show | null;
   /** Show serialisieren und atomar schreiben (show-schreiben.ts). SYNCHRON; true = geschrieben. */
@@ -111,11 +116,29 @@ export interface IveoKern {
   offeneShowGespeichert(pfad: string, neuGebunden: boolean): void;
   /** Für Panel und STATE: offene iveo-Show mit Token, sonst null. */
   aktiv(): { path: string; event: string; filter: IveoProgramFilter } | null;
+  /**
+   * Anmeldung P23 (IV3, Ist-L 6): Die Tokens haben sich geändert (geladen, nachgeladen, Abmelden, „Abgleich hier“). Wurde die
+   * offene Show ohne Token aufgesetzt und gibt es jetzt eins — oder umgekehrt —, setzt der Kern sie aus der Datei neu auf wie
+   * beim Öffnen und meldet das Panel neu; sonst höchstens einen geänderten Grund. Wirft nie.
+   */
+  tokensGeaendert(): void;
 }
 
 // ── Texte (Spec 7.6, wortgleich) ─────────────────────────────────────────────
 const TEXT_TOKEN_UNGUELTIG = 'Token ungültig oder widerrufen';
-const TEXT_KEIN_TOKEN = 'kein iveo-Token auf diesem Rechner, nur Offline-Ablauf';
+/**
+ * Anmeldung P23 (Texte I1–I4; ersetzen „kein iveo-Token auf diesem Rechner, nur Offline-Ablauf“): warum die offene Show hier
+ * ohne Live-Abgleich läuft. Den Grund liefert die Hülle (tokenGrund). I12: der Worker hat beim Laden gemeldet, dass iveo bei
+ * ihm nicht eingerichtet ist (EP31, Nachbesserung Block B).
+ */
+export type KeinTokenGrund = 'kein-abgleich-hier' | 'nicht-angemeldet' | 'nicht-hinterlegt' | 'noch-nicht-geladen' | 'nicht-eingerichtet';
+export const TEXTE_OHNE_TOKEN: Readonly<Record<KeinTokenGrund, string>> = {
+  'kein-abgleich-hier': 'Abgleich läuft auf einem anderen Rechner, hier nur Offline-Ablauf',
+  'nicht-angemeldet': 'nicht angemeldet, nur Offline-Ablauf',
+  'nicht-hinterlegt': 'kein iveo-Token für dieses Event hinterlegt, nur Offline-Ablauf',
+  'noch-nicht-geladen': 'iveo-Token noch nicht geladen (Server nicht erreichbar), nur Offline-Ablauf',
+  'nicht-eingerichtet': 'iveo ist auf dem Server noch nicht eingerichtet, nur Offline-Ablauf',
+};
 /** Spec 7.2 (Umschalten); derselbe Text, wenn eine Abfrage nicht schreiben kann. */
 const TEXT_NICHT_GESCHRIEBEN = 'Show konnte nicht geschrieben werden';
 const TEXT_SHOW_NICHT_LESBAR = 'Show-Datei nicht lesbar';
@@ -493,6 +516,8 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
   let active: AktiveShow | null = null;
   /** Pfad der offenen Show, auch ohne iveo (Spec 7.5). */
   let offenePfad: string | null = null;
+  /** Anmeldung P23 (IV3): Event und Basis-URL der Bindung der offenen Show, auch ohne Token; null ohne iveo-Bindung. */
+  let offeneBindung: { event: string; baseUrl: string } | null = null;
   /** Steigt bei Öffnen, Schließen, Umschalten und Speichern der offenen Show (7.3). */
   let generation = 0;
   let abfrageLaeuft = false;
@@ -770,20 +795,24 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
       d.meldeStatus(status);
     };
     const binding = show.iveo;
+    offeneBindung = null;
     if (!binding?.event) {
       nachStoerungOk();
       return null;
     }
-    if (!d.token(binding.event)) {
-      // Show auf einem anderen Rechner gebunden: der Ablauf aus der Datei läuft offline weiter (7.6).
-      statusGestoert(TEXT_KEIN_TOKEN);
+    const basis = binding.baseUrl || d.baseUrlStandard();
+    offeneBindung = { event: binding.event, baseUrl: basis };
+    if (!d.token(binding.event, basis)) {
+      // Kein Token hier (Anmeldung P23): Abgleich auf einem anderen Rechner, nicht angemeldet, nicht hinterlegt oder noch
+      // nicht geladen (I1–I4). Der Ablauf aus der Datei läuft offline weiter (7.6); kommen Tokens, setzt tokensGeaendert neu auf.
+      statusGestoert(keinTokenText(binding.event, basis));
       return null;
     }
     const seit = binding.syncedAt || d.jetztIso();
     active = {
       path: pfad,
       event: binding.event,
-      baseUrl: binding.baseUrl || d.baseUrlStandard(),
+      baseUrl: basis,
       lastSyncIso: seit,
       filter: { ...(binding.filter ?? {}) },
       lastSig: ablaufSignatur(show.ablauf ?? [], binding.speakers ?? [], binding.speakerVeraltetSeit, binding.sideEvents),
@@ -820,7 +849,29 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     generation++;
     active = null;
     offenePfad = null;
+    offeneBindung = null;
     statusOk();
+  }
+
+  /** Anmeldung P23 (I1–I4): Statustext ohne Token, mit dem Grund aus der Hülle; ohne tokenGrund I1. */
+  function keinTokenText(event: string, baseUrl: string): string {
+    return TEXTE_OHNE_TOKEN[d.tokenGrund?.(event, baseUrl) ?? 'kein-abgleich-hier'];
+  }
+
+  /** Anmeldung P23 (IV3, Ist-L 6): siehe IveoKern.tokensGeaendert. */
+  function tokensGeaendert(): void {
+    const b = offeneBindung;
+    if (offenePfad === null || b === null) return;
+    const tokenDa = d.token(b.event, b.baseUrl) !== undefined;
+    if (tokenDa === (active !== null)) {
+      // Lage unverändert; ohne Token kann sich der Grund geändert haben (z. B. „noch nicht geladen“ → „nicht hinterlegt“).
+      if (!tokenDa) statusGestoert(keinTokenText(b.event, b.baseUrl));
+      return;
+    }
+    const show = d.leseShow(offenePfad);
+    if (!show) return;
+    setzeAuf(offenePfad, show);
+    d.meldeAktiv();
   }
 
   async function abfrage(): Promise<void> {
@@ -831,9 +882,9 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     const gen = generation;
     abfrageLaeuft = true;
     try {
-      const tok = d.token(a.event);
+      const tok = d.token(a.event, a.baseUrl);
       if (!tok) {
-        statusGestoert(TEXT_KEIN_TOKEN);
+        statusGestoert(keinTokenText(a.event, a.baseUrl));
         return;
       }
       const client = d.clientFabrik(tok, a.baseUrl);
@@ -1228,8 +1279,9 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     // Ein wartendes Umschalten gilt für die Show, die beim ANFORDERN offen war — nicht für die beim Ausführen.
     if (active !== angefordertFuer) return { ok: false, message: TEXT_UMSCHALTEN_VERWORFEN };
     const a = active;
-    if (!a) return { ok: false, message: 'Kein iveo-Token für die offene Show — Live-Umschalten nicht möglich.' };
-    const tok = d.token(a.event);
+    // Anmeldung P23 (I14): ohne aktive Show gleicht ein anderer Rechner ab (oder keiner); das Token kann im Speicher liegen.
+    if (!a) return { ok: false, message: 'Live-Umschalten nur auf dem Rechner, der die offene Show mit iveo abgleicht.' };
+    const tok = d.token(a.event, a.baseUrl);
     if (!tok) return { ok: false, message: 'iveo-Token nicht mehr vorhanden.' };
     const gen = ++generation;
     umschaltenLaeuft = true;
@@ -1429,5 +1481,5 @@ export function erzeugeKern(d: KernAbhaengigkeiten): IveoKern {
     return active ? { path: active.path, event: active.event, filter: { ...active.filter } } : null;
   }
 
-  return { showGeoeffnet, showGeschlossen, abfrage, umschalten, offeneShowGespeichert, aktiv };
+  return { showGeoeffnet, showGeschlossen, abfrage, umschalten, offeneShowGespeichert, aktiv, tokensGeaendert };
 }
