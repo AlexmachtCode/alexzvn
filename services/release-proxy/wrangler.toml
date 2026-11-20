@@ -162,8 +162,8 @@ KONTO_JURISDICTION = "eu"
 # Release (Release + 30 Tage, OF2); ein unlesbarer Wert hieße ebenfalls unbefristet, die Bauprobe meldet ihn (Exit 1):
 # Gesetzt am 2026-11-20 (Release Launcher 0.18.0 / Q&A 0.6.0 am 2026-11-20 + 30 Tage, Owner-OK):
 ALTKEY_BIS = "2026-12-20"
-# Eigene Frist für die Connect-Routen (EP9): bleibt in Teil 1 leer, Connect 0.3.0/0.4.0 kennt nur den Proxy-Key. Sie läuft
-# erst ab dem Release von Teil 2 (dann 30 Tage):
+# Eigene Frist für die Connect-Routen (EP9, OT5): gilt für PROXY_KEY an /connect und ZOOM_SDK_KEY an /zoom-sdk. Bleibt leer bis
+# zum Release von Connect 0.5.0; dann Release + 30 Tage (eigener Schritt mit Owner-OK):
 # ALTKEY_CONNECT_BIS = "JJJJ-MM-TT"
 # Privates Repo mit dem Zoom-SDK-Paket für GET /zoom-sdk/:fassung (JM Connect 0.2.2). Das GITHUB_TOKEN
 # braucht darauf Contents: read, sonst antwortet GitHub 404 und die Route meldet not_found.
@@ -177,6 +177,12 @@ ZOOM_SDK_REPO = "AlexmachtCode/jm-zoom-sdk"
 #   GOOGLE_CLIENT_ID      OAuth-Web-Client des Workspaces jakobsmedien.com („intern“), Rückkehradresse
 #   GOOGLE_CLIENT_SECRET  <Worker>/konto/google/zurueck. Fehlen sie, zeigt die Anmeldeseite nur die Passwort-Anmeldung (B6).
 #   ERSTER_ADMIN          Google-Adresse (jakobsmedien.com) des ersten Admins: immer Admin, nicht herabzustufen oder zu sperren; zählt ab seiner ersten Anmeldung, eine andere Adresse wirkt nicht (EP20).
+#
+# Secrets der Anmeldung Teil 2 (Connect): nur beschrieben, nie in [vars], nie hier gesetzt; sie setzt der Controller mit Freigabe
+# des Owners (README Abschnitt „Anmeldung Teil 2 (Connect)“):
+#   ZOOM_CLIENT_ID      Client-ID der Meeting-SDK-App von Zoom.
+#   ZOOM_CLIENT_SECRET  Client-Secret derselben App. Beide signieren das JWT an POST /zoom/jwt; fehlen sie oder haben sie
+#                       Leerraum am Rand, antwortet die Route 503 S5 (nicht-eingerichtet). Kein Name mit ZOOM_SDK_.
 
 # Secrets NICHT hier eintragen — verschlüsselt setzen:
 #   npx wrangler secret put GITHUB_TOKEN      (fine-grained PAT; read-only Contents reicht

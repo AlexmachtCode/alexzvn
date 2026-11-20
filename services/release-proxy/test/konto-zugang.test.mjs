@@ -639,15 +639,15 @@ async function run() {
     // ALTKEY_BIS mit derselben Regel wie der Worker: ein unlesbarer Wert (z. B. 2026-12-32) hieße dort still „unbefristet“ (EP9).
     const { alterKeyGilt } = await import('../konto-kern.js');
     const alleSchluessel = tabellen.flatMap((t) => t.kv.map(([k]) => k));
-    const geheim = /^(KONTO_SCHLUESSEL|IVEO_SCHLUESSEL|GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET|ERSTER_ADMIN|PROXY_KEY|ALTKEY_CONNECT_BIS|GITHUB_TOKEN|ANTHROPIC_API_KEY|ZOOM_SDK_KEY|RTC_.*)$/;
-    const bisAlle = tabellen.flatMap((t) => t.kv.filter(([k]) => k === 'ALTKEY_BIS'));
-    const bisWert = inVars('ALTKEY_BIS');
-    const bis = bisWert.length === 1 ? /^"([^"]*)"$/.exec(bisWert[0]) : null;
-    check('P20 EP9, G4: keine Secrets in [vars], ALTKEY_CONNECT_BIS in Teil 1 nicht gesetzt, ALTKEY_BIS höchstens als lesbares Datum; alle Namen beschrieben',
-      !alleSchluessel.some((k) => geheim.test(k))
-        && (bisAlle.length === 0
-          || (bisAlle.length === 1 && bisWert.length === 1 && !!bis && /^\d{4}-\d{2}-\d{2}(T.+)?$/.test(bis[1]) && alterKeyGilt({ ALTKEY_BIS: bis[1] }, 'katalog', 0).diagnose === null))
-        && ['KONTO_SCHLUESSEL', 'IVEO_SCHLUESSEL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'ERSTER_ADMIN', 'ALTKEY_BIS', 'ALTKEY_CONNECT_BIS'].every((n) => toml.includes(n)));
+    const geheim = /^(KONTO_SCHLUESSEL|IVEO_SCHLUESSEL|GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET|ERSTER_ADMIN|PROXY_KEY|GITHUB_TOKEN|ANTHROPIC_API_KEY|ZOOM_SDK_KEY|ZOOM_CLIENT_ID|ZOOM_CLIENT_SECRET|RTC_.*)$/;
+    const lesbar = (name, gruppe) => {
+      const alle = tabellen.flatMap((t) => t.kv.filter(([k]) => k === name)); const w = inVars(name);
+      const m = w.length === 1 ? /^"([^"]*)"$/.exec(w[0]) : null;
+      return alle.length === 0 || (alle.length === 1 && !!m && /^\d{4}-\d{2}-\d{2}(T.+)?$/.test(m[1]) && alterKeyGilt({ [name]: m[1] }, gruppe, 0).diagnose === null);
+    };
+    check('T7 EP9, G4: keine Secrets in [vars] (auch ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET); ALTKEY_BIS und ALTKEY_CONNECT_BIS fehlen oder sind ein lesbares Datum; alle Namen beschrieben',
+      !alleSchluessel.some((k) => geheim.test(k)) && lesbar('ALTKEY_BIS', 'katalog') && lesbar('ALTKEY_CONNECT_BIS', 'connect')
+        && ['KONTO_SCHLUESSEL', 'IVEO_SCHLUESSEL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'ERSTER_ADMIN', 'ALTKEY_BIS', 'ALTKEY_CONNECT_BIS', 'ZOOM_CLIENT_ID', 'ZOOM_CLIENT_SECRET'].every((n) => toml.includes(n)));
     const modul = await import('../worker.js');
     const { KontoSpeicher } = await import('../konto-do.js');
     check('P20 EP1: worker.js exportiert ConnectRoom und KontoSpeicher (Durable-Object-Klassen aus wrangler.toml)',
@@ -673,8 +673,8 @@ async function run() {
         && JSON.stringify(laeufeAus(yml('- name: A', "  if: always()", `  run: ${lauf}`))) === '["konto-kern","bedingt"]'
         && JSON.stringify(laeufeAus(yml('- name: A', '  continue-on-error: true', `  run: ${lauf}`))) === '["konto-kern","bedingt"]'
         && JSON.stringify(laeufeAus(yml('# - if: x', '- name: A', `  run: ${lauf}`))) === '["konto-kern"]');
-    check('P20 EP24: ci-checks.yml startet die Proxy-Tests in dieser Reihenfolge: worker, konto-kern, konto-krypto, konto-do, konto-zugang, konto-routen, qa-relay, connect-zugang, zoom-jwt',
-      JSON.stringify(laeufe) === JSON.stringify(['worker', 'konto-kern', 'konto-krypto', 'konto-do', 'konto-zugang', 'konto-routen', 'qa-relay', 'connect-zugang', 'zoom-jwt']));
+    check('P20 EP24: ci-checks.yml startet die Proxy-Tests in dieser Reihenfolge: worker, konto-kern, konto-krypto, konto-do, konto-zugang, konto-routen, qa-relay, connect-zugang, zoom-jwt, connect-do',
+      JSON.stringify(laeufe) === JSON.stringify(['worker', 'konto-kern', 'konto-krypto', 'konto-do', 'konto-zugang', 'konto-routen', 'qa-relay', 'connect-zugang', 'zoom-jwt', 'connect-do']));
   }
 
   // Z2 (AR85 c): fehlt PROXY_KEY oder ist er leer bzw. unbrauchbar, lässt sich ein mitgeschickter alter Schlüssel nicht prüfen: 503

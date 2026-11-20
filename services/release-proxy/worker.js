@@ -21,6 +21,8 @@
 //   PROXY_KEY     gemeinsamer Key, den die Clients mitschicken
 //   ZOOM_SDK_KEY  eigener Schlüssel nur für /zoom-sdk/:fassung; steht in keinem Repo, CI-Secret
 //                 oder Build (der PROXY_KEY steckt in öffentlichen Launcher-Installern)
+//   ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET  Client-ID und -Secret der Meeting-SDK-App; signieren das JWT an POST /zoom/jwt
+//                 (ohne Leerraum am Rand, sonst 503 nicht-eingerichtet; nur beschrieben, der Controller setzt sie)
 // Variable (Klartext, in wrangler.toml [vars]):
 //   REPO          z. B. "AlexmachtCode/alexzvn"
 //   ZOOM_SDK_REPO privates Repo mit dem Zoom-SDK-Paket, Vorgabe "AlexmachtCode/jm-zoom-sdk"

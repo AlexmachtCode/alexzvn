@@ -139,6 +139,8 @@ jobs:
         run: node --experimental-strip-types services/release-proxy/test/connect-zugang.test.mjs
       - name: Release-Proxy (Zoom-JWT signieren und ausstellen)
         run: node --experimental-strip-types services/release-proxy/test/zoom-jwt.test.mjs
+      - name: Release-Proxy (ConnectRoom-DO, SFU-Vermittlung)
+        run: node --experimental-strip-types services/release-proxy/test/connect-do.test.mjs
 
       # Gast-Klicker (#317): Raumlogik des Durable Objects mit Attrappen-Kontext und Worker-Routen/Gast-Seite mit
       # Attrappen-Bindung, ohne Cloudflare und ohne node_modules.
