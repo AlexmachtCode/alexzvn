@@ -51,6 +51,9 @@ if (process.platform === 'darwin') {
   if (!lizenzen.length) throw new Error(`[bundle-ndi] keine Lizenzdatei der NDI-Laufzeit (.txt mit „licen“ im Pfad) unter ${sdk}`);
   const sha256 = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
   const { kopieren: lizenzKopien } = lizenzAuswahl(lizenzen, (rel) => sha256(join(sdk, rel)));
+  // Eine leere Lizenzdatei (0 Byte) gilt wie eine fehlende: Abbruch vor jeder Kopie.
+  const leer = lizenzKopien.filter((l) => statSync(join(sdk, l)).size === 0);
+  if (leer.length) throw new Error(`[bundle-ndi] Lizenzdatei leer: ${leer.join(', ')}`);
 
   mkdirSync(destDir, { recursive: true });
   const nodeDest = join(destDir, 'jm_ndi.node');
