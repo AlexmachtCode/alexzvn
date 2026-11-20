@@ -168,7 +168,8 @@ async function run() {
       && FEHLER_TEXT.uhr === 'Uhr des Rechners geht falsch: Datum und Uhrzeit prüfen'
       // S19 (Z1-W2, OE2) wörtlich wie der Text M49 des Launchers
       && FEHLER_TEXT['iveo-basis-unbekannt'] === 'Diese iveo-Adresse ist nicht freigegeben. Erlaubt sind Production (app.my-iveo.de) und Staging (staging-dev.my-iveo.de).'
-      && Object.keys(FEHLER_TEXT).length === 19
+      && FEHLER_TEXT['raum-vergeben'] === 'dieser Cloud-Raum gehört einem anderen Konto oder Rechner' // S20 (Anmeldung Teil 2)
+      && Object.keys(FEHLER_TEXT).length === 20
       && Object.values(FEHLER_TEXT).every((t) => !t.includes('"')));
 
   // P15 EP10: launcherSelbstUpdate nur GET und dekodierte ID genau launcher.

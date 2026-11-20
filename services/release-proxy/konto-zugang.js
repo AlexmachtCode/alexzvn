@@ -41,6 +41,8 @@ export const FEHLER_TEXT = Object.freeze({
   domain: 'Kollegen von jakobsmedien.com melden sich mit Google an', // S17
   uhr: 'Uhr des Rechners geht falsch: Datum und Uhrzeit prüfen', // S18 (EP30: Gerätebeweis außerhalb ±5 min, Task 16)
   // S19 (Z1-W2, OE2): wörtlich der Text M49 des Launchers; der Launcher zeigt ihn nach dem Code.
+  // S20 (Anmeldung Teil 2, E2): der Cloud-Raum ist an ein anderes Konto und einen anderen Rechner gebunden.
+  'raum-vergeben': 'dieser Cloud-Raum gehört einem anderen Konto oder Rechner', // S20
   'iveo-basis-unbekannt': 'Diese iveo-Adresse ist nicht freigegeben. Erlaubt sind Production (app.my-iveo.de) und Staging (staging-dev.my-iveo.de).',
 });
 
@@ -312,7 +314,7 @@ async function tokenPruefen(env, token, funktion, ziel, jetzt) {
  * OFP2: Anfragen mit altem Schlüssel je Tag, Gruppe und Plattform zählen, nach der Antwort (waitUntil); der DO speichert keine IP.
  * Z1-W1: höchstens ein DO-Aufruf je IP-Hash, Tag und Gruppe (Merker im Isolat, konto-altkey.js); die IP gibt es nur als Hash.
  */
-function altKeyZaehlen(request, env, ctx, gruppe, jetzt) {
+export function altKeyZaehlen(request, env, ctx, gruppe, jetzt) {
   if (!env.KONTO || !ctx || typeof ctx.waitUntil !== 'function') return;
   // Der alte Schlüssel steckt in öffentlichen Installern: unbekannte Routen (404) schreiben nichts in den DO.
   if (funktionFuerRoute(request.method, new URL(request.url).pathname) === null) return;
