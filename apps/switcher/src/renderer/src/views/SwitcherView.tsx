@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, cn } from '@jm/ui';
 import type { NdiStatus, NdiVideoMessage, ScreenSourceInfo } from '@shared/types';
 import { emptyContent, makeEmptyProject, type SwitcherProject } from '@shared/project';
@@ -14,6 +14,7 @@ import { OutputController, type OutputState } from '@/core/output';
 import { NdiOutputController, type NdiOutputState } from '@/core/ndiOutput';
 import { ScreenOutputController } from '@/core/screenOutput';
 import { AudioController, type AudioState } from '@/core/audio';
+import { ABSCHNITT, type FrameMeldung } from '@/lib/oberflaeche';
 import { useSettings, RESOLUTIONS } from '@/store/settings';
 
 const PALETTE = ['#1d4ed8', '#dc2626', '#16a34a', '#9333ea', '#0891b2', '#ca8a04'];
@@ -36,7 +37,14 @@ function currentPreset(l: LayerInfo): string {
   return PRESET_BY_KEY.get(rectKey(l)) ?? 'custom';
 }
 
-export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void }) {
+export interface SwitcherViewProps {
+  /** Öffnet das Einstellungs-Panel des Rahmens, wenn möglich bei einem Abschnitt. */
+  onOpenSettings: (abschnitt?: string) => void;
+  /** Meldet dem Rahmen, was Kopf, Statusleiste, Toolbar und Panel zeigen (bei jeder Änderung, nie bei Pegelschwankungen). */
+  onFrame: (frame: FrameMeldung) => void;
+}
+
+export function SwitcherView({ onOpenSettings, onFrame }: SwitcherViewProps) {
   const engineRef = useRef<SwitcherEngine | null>(null);
   if (!engineRef.current) engineRef.current = new SwitcherEngine();
   const engine = engineRef.current;
@@ -74,6 +82,18 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
   }
   const ndiOut = ndiOutRef.current;
   const [ndiOutState, setNdiOutState] = useState<NdiOutputState>(() => ndiOut.getState());
+  // Audiozustand für den Rahmen (Statusleiste): ohne den Pegel, der laufend schwankt; sonst meldete jeder Pegelwert neu.
+  const [audioFrame, setAudioFrame] = useState<AudioState>(() => ({ ...audio.getState(), level: 0 }));
+  useEffect(
+    () =>
+      audio.subscribe(() => {
+        const a = audio.getState();
+        setAudioFrame((alt) =>
+          alt.hasDevice === a.hasDevice && alt.muted === a.muted && alt.gain === a.gain && alt.error === a.error ? alt : { ...a, level: 0 },
+        );
+      }),
+    [audio],
+  );
   const [showMultiview, setShowMultiview] = useState(false);
 
   // Zweitbildschirm-Ausgabe: zeigt IMMER das Programmbild (nicht Multiview) — ein Beamer/Monitor
@@ -508,33 +528,37 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
     }
   };
 
+  // Meldung an den Rahmen: Zustände und Aktionen. Die Aktionen sind stabile Weiterleitungen an die jeweils aktuellen Abläufe
+  // (die Abläufe selbst lesen den Zustand dieses Renders), damit die Meldung nur bei Zustandsänderungen neu geht.
+  const ablauf = useRef({ toggleNdiOutput, toggleRecording, toggleStreaming, newProject, openProject, saveProject });
+  ablauf.current = { toggleNdiOutput, toggleRecording, toggleStreaming, newProject, openProject, saveProject };
+  const frameAktionen = useMemo<FrameMeldung['aktionen']>(
+    () => ({
+      toggleNdiOutput: () => ablauf.current.toggleNdiOutput(),
+      toggleRecording: () => ablauf.current.toggleRecording(),
+      toggleStreaming: () => ablauf.current.toggleStreaming(),
+      neu: () => ablauf.current.newProject(),
+      oeffnen: () => void ablauf.current.openProject(),
+      speichern: () => void ablauf.current.saveProject(false),
+      speichernUnter: () => void ablauf.current.saveProject(true),
+    }),
+    [],
+  );
+  useEffect(() => {
+    onFrame({
+      output: outputState,
+      ndi: ndiOutState,
+      audio: audioFrame,
+      canTake,
+      canAuto,
+      transitioning: state.transitioning,
+      projekt: { name: projectName, pfad: projectPath },
+      aktionen: frameAktionen,
+    });
+  }, [onFrame, outputState, ndiOutState, audioFrame, canTake, canAuto, state.transitioning, projectName, projectPath, frameAktionen]);
+
   return (
     <div className="h-full flex flex-col">
-      {/* Projekt-Leiste (#89) */}
-      <div className="shrink-0 flex items-center gap-2 px-6 py-1.5 border-b border-[var(--border)]/50 bg-[var(--card)]/20">
-        <span className="text-[10px] uppercase tracking-[0.14em] font-bold text-[var(--muted-foreground)]">
-          Projekt
-        </span>
-        <span className="text-sm font-semibold truncate max-w-[320px]" title={projectPath ?? 'Nicht gespeichert'}>
-          {projectName}
-        </span>
-        {!projectPath && <span className="text-[10px] text-[var(--muted-foreground)]">· ungespeichert</span>}
-        <div className="ml-auto flex items-center gap-1.5">
-          <Button size="sm" variant="ghost" onClick={newProject}>
-            Neu
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void openProject()}>
-            Öffnen…
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void saveProject(false)}>
-            Speichern
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void saveProject(true)}>
-            Speichern unter…
-          </Button>
-        </div>
-      </div>
-
       {/* Monitore + Transition */}
       <div className="flex-1 min-h-0 flex items-stretch gap-5 px-6 py-5">
         <Monitor label="Preview" tone="preview" canvasRef={previewRef} sceneName={previewScene?.name}>
@@ -676,7 +700,7 @@ export function SwitcherView({ onOpenSettings }: { onOpenSettings: () => void })
       )}
 
       {notice && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-5 flex justify-center px-6">
+        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--statusbar-h)+1.25rem)] flex justify-center px-6">
           <div className="pointer-events-auto rounded-[var(--radius-lg)] border border-[var(--primary)]/40 bg-[var(--card)] px-4 py-2.5 text-sm font-semibold shadow-lg max-w-2xl text-center">
             {notice}
           </div>
@@ -707,7 +731,7 @@ function OutputBar({
   onSetNdiSource: (v: 'program' | 'multiview') => void;
   onToggleNdi: () => void;
   onOpenMultiview: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (abschnitt?: string) => void;
   onToggleRecording: () => void;
   onToggleStreaming: () => void;
 }) {
@@ -786,7 +810,7 @@ function OutputBar({
         Multiview
       </button>
 
-      <AudioStrip controller={audio} onOpenSettings={onOpenSettings} />
+      <AudioStrip controller={audio} onOpenSettings={() => onOpenSettings(ABSCHNITT.audio)} />
 
       <div className="flex-1 min-w-0 text-xs">
         {hasTarget ? (
@@ -796,7 +820,7 @@ function OutputBar({
         ) : (
           <button
             type="button"
-            onClick={onOpenSettings}
+            onClick={() => onOpenSettings(ABSCHNITT.streaming)}
             className="text-[var(--muted-foreground)] hover:text-[var(--primary)] underline underline-offset-2"
           >
             Stream-Ziel in den Einstellungen festlegen →

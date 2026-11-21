@@ -23,6 +23,7 @@ import {
 } from '@jm/settings';
 import { masterLinkStatusItem, type StatusItem, type TallyButtonProps } from '@jm/ui';
 import { portBelegt, type FernsteuerungMeldung } from '@shared/fernsteuerung';
+import { RESOLUTIONS, recommendedBitrate, type ProgramResolution } from '@shared/output-quality';
 import type { DisplayInfo, MasterLinkMeldungZeile } from '@shared/types';
 import type { AudioState } from '@/core/audio';
 import type { NdiOutputState } from '@/core/ndiOutput';
@@ -69,7 +70,74 @@ export const SWITCHER_TEXTE = {
     aufnahme: 'Aufnahme',
     stream: 'Stream',
   },
+  /** Titel der tool-eigenen Panel-Abschnitte (E5; „Streaming“ hieß „Streaming (RTMP)“, „Programm-Format“ steckte in der NDI-Karte). */
+  titel: {
+    streaming: 'Streaming',
+    aufnahme: 'Aufnahme',
+    format: 'Programm-Format',
+  },
+  /** Beschriftungen und Hinweise der tool-eigenen Felder: wörtlich aus der bisherigen SettingsView. */
+  feld: {
+    rtmpZiel: 'RTMP-Ziel',
+    rtmpPlatzhalter: 'rtmp://server/app/streamkey',
+    rtmpHinweis: 'Vollständige URL inkl. Streamkey (z. B. YouTube-/Twitch-Ingest oder lokaler nginx-rtmp).',
+    streamBitrate: 'Stream-Bitrate',
+    streamBitrateHinweis: 'Video-Bitrate des H.264-Streams (x264).',
+    aufnahmeBitrate: 'Aufnahme-Bitrate',
+    aufnahmeBitrateHinweis: 'Video-Bitrate der WebM-Aufnahme.',
+    einheitKbit: 'kbit/s',
+    empfohlenFuer: 'Empfohlen für',
+    ndiQuelle: 'NDI-Quelle',
+    ndiQuelleHinweis: 'Was als NDI-Quelle ausgegeben wird',
+    quelleProgram: 'Program',
+    quelleMultiview: 'Multiview',
+    aufloesung: 'Programm-Auflösung',
+    bildrate: 'Ausgabe-Bildrate',
+    aufloesungFullHd: 'Full-HD 1080p',
+    aufloesungHd: 'HD 720p',
+    streamHinweisAufloesung: 'Auflösung:',
+    streamHinweisTon: 'Ton:',
+    tonMitQuelle: 'Programm-Ton der gewählten Audioquelle',
+    tonStille: 'stille AAC-Spur (keine Audioquelle gewählt)',
+    streamHinweisSchluss:
+      'Der Stream wird aus dem Program-Bild kodiert (libx264, zerolatency) — die Auflösung folgt der Programm-Auflösung, es wird nie hochskaliert.',
+    aufnahmeHinweis:
+      'Aufnahmen werden als WebM gespeichert (Speicherort wird beim Start abgefragt). Für MP4 die Datei im JM Media Converter umwandeln.',
+    formatHinweis:
+      'Auflösung und Bildrate gelten für alle Ausgaben — NDI, Aufnahme, RTMP und den zweiten Bildschirm. Das Programm wird in dieser Auflösung komponiert (kein Hochskalieren). 1080p ist echtes Full-HD und kostet mehr Rechenleistung; auf schwächeren Rechnern 720p wählen. Das Multiview bleibt 720p und zeigt Program + Preview groß plus alle Szenen als Kacheln mit Tally.',
+    bildrateHinweis:
+      'Eine geänderte Bildrate greift, sobald weder Aufnahme noch Sendung läuft — solange eine von beiden läuft, behält auch eine neu gestartete zweite Ausgabe die bisherige Rate.',
+  },
+  /** Projekt-Leiste in der Werkzeugleiste (E6): wörtlich aus der bisherigen Leiste im Mischer. */
+  projekt: {
+    titel: 'Projekt',
+    neu: 'Neu',
+    oeffnen: 'Öffnen…',
+    speichern: 'Speichern',
+    speichernUnter: 'Speichern unter…',
+    ungespeichert: '· ungespeichert',
+    nichtGespeichert: 'Nicht gespeichert',
+  },
 } as const;
+
+/** Name der Programm-Auflösung wie in der bisherigen Auswahl und im Hinweis. */
+export function aufloesungName(r: ProgramResolution): string {
+  return r === '1080p' ? SWITCHER_TEXTE.feld.aufloesungFullHd : SWITCHER_TEXTE.feld.aufloesungHd;
+}
+
+/** Empfehlung der Bitrate für die gewählte Auflösung, z. B. „Empfohlen für Full-HD 1080p: 6.000–12.000 kbit/s.“ */
+export function bitrateEmpfehlung(r: ProgramResolution, art: 'stream' | 'record'): string {
+  const b = recommendedBitrate(r, art);
+  const F = SWITCHER_TEXTE.feld;
+  return `${F.empfohlenFuer} ${aufloesungName(r)}: ${b.min.toLocaleString('de-DE')}–${b.max.toLocaleString('de-DE')} ${F.einheitKbit}.`;
+}
+
+/** Hinweis unter dem Streaming-Abschnitt: Auflösung, Bildrate und Ton der Sendung (wie bisher unter der Bitrate). */
+export function streamHinweis(r: ProgramResolution, fps: number, audioInputId: string): string {
+  const F = SWITCHER_TEXTE.feld;
+  const ton = audioInputId ? F.tonMitQuelle : F.tonStille;
+  return `${F.streamHinweisAufloesung} ${RESOLUTIONS[r].w}×${RESOLUTIONS[r].h} @ ${fps} fps · ${F.streamHinweisTon} ${ton}. ${F.streamHinweisSchluss}`;
+}
 
 export interface OberflaechenStand {
   /** Persistierte Einstellungen (Store). */
@@ -117,6 +185,51 @@ export interface SwitcherAktionen {
   /** Audiogeräte neu suchen (SettingsView.scanAudio). */
   scanAudio(): void;
 }
+
+/** Projekt-Aktionen der Werkzeugleiste (E6); die Abläufe bleiben in SwitcherView. */
+export interface ProjektAktionen {
+  neu(): void;
+  oeffnen(): void;
+  speichern(): void;
+  speichernUnter(): void;
+}
+
+/**
+ * Was SwitcherView dem Rahmen meldet (die Controller und das Projekt leben dort, der Rahmen zeigt sie in Kopf, Statusleiste,
+ * Toolbar und Panel): gemessene Zustände, die Eingänge der Haupttasten und die Aktionen, die der Rahmen auslösen darf.
+ */
+export interface FrameMeldung {
+  output: OutputState;
+  ndi: NdiOutputState;
+  audio: AudioState;
+  canTake: boolean;
+  canAuto: boolean;
+  transitioning: boolean;
+  projekt: { name: string; pfad: string | null };
+  aktionen: Pick<SwitcherAktionen, 'toggleNdiOutput' | 'toggleRecording' | 'toggleStreaming'> & ProjektAktionen;
+}
+
+const KEIN_ABLAUF = (): void => {};
+
+/** Frame vor der ersten Meldung der View: alles aus, ohne Wirkung der Aktionen. */
+export const FRAME_ANFANG: FrameMeldung = {
+  output: { recording: false, streaming: false, recPath: null, error: null },
+  ndi: { active: false, name: '', connections: 0, error: null },
+  audio: { hasDevice: false, muted: false, gain: 1, level: 0, error: null },
+  canTake: false,
+  canAuto: false,
+  transitioning: false,
+  projekt: { name: '', pfad: null },
+  aktionen: {
+    toggleNdiOutput: KEIN_ABLAUF,
+    toggleRecording: KEIN_ABLAUF,
+    toggleStreaming: KEIN_ABLAUF,
+    neu: KEIN_ABLAUF,
+    oeffnen: KEIN_ABLAUF,
+    speichern: KEIN_ABLAUF,
+    speichernUnter: KEIN_ABLAUF,
+  },
+};
 
 /** Zustand einer Haupttaste: Form der Titler-Taste (state + Grund); ein gesperrter Zustand trägt immer einen Grund. */
 export interface TasteZustand {
