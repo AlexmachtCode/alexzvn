@@ -3529,7 +3529,18 @@ function dialogBefunde(q: string): string[] {
     ck("RF Geräte: aktion: 'raum-freigeben' steht genau einmal, im Bestätigen-Knopf der Rückfrage; der Zeilenknopf setzt nur die Rückfrage",
       zaehle(geraete, "aktion: 'raum-freigeben'") === 1
       && geraete.indexOf("aktion: 'raum-freigeben'") > geraete.indexOf('variant="destructive"')
-      && /onClick=\{\(\) => setRueckfrage\(\{ raumHash: z\.raumHash, anzeige: z\.anzeige, frage: z\.frage \}\)\}/.test(geraete));
+      && /setRueckfrage\(\{ raumHash: z\.raumHash, anzeige: z\.anzeige, frage: z\.frage \}\);/.test(geraete));
+    // R7: ein Fehler von raum-freigeben steht im Abschnitt (eigenes role="alert"), nicht oben; Erfolg und Fehler werden vor einer neuen Aktion geleert.
+    const abschnitt = geraete.slice(geraete.indexOf('{raeume !== null && ('), geraete.indexOf('REITER_TEXTE.alteLauncher'));
+    ck('RF Geräte: der Abschnitt hat ein eigenes role="alert" mit fehlerText(r.code, \'raum-freigeben\'), die Erfolgsmeldung role="status", der Bestätigen-Knopf disabled={busy}',
+      abschnitt.includes('role="alert"') && abschnitt.includes('{raumFehler}')
+      && funktionsKoerper(geraete, 'const freigeben = async (').includes("setRaumFehler(fehlerText(r.code, 'raum-freigeben'))")
+      && !funktionsKoerper(geraete, 'const freigeben = async (').includes('setMeldung(')
+      && abschnitt.includes('<p role="status"') && /variant="destructive"\s+disabled=\{busy\}/.test(abschnitt));
+    ck('RF Geräte: der Zeilenknopf und markiere leeren Erfolg und Abschnittsfehler',
+      funktionsKoerper(geraete, 'const markiere = async (').includes('setErfolg(null);')
+      && funktionsKoerper(geraete, 'const markiere = async (').includes('setRaumFehler(null);')
+      && /onClick=\{\(\) => \{\s*setErfolg\(null\);\s*setRaumFehler\(null\);\s*setRueckfrage\(/.test(abschnitt));
   }
   ck('P27 G11: die Reiter bringen keinen eigenen Scrollbereich mit (einer je Dialog, in der Maske)',
     [iveo, anfragen, geraete].every((q) => q.length > 0 && !q.includes('overflow-y-auto'))

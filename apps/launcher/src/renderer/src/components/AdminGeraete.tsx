@@ -18,10 +18,14 @@ export function AdminGeraete({ daten }: { daten: AdminUebersicht }): React.JSX.E
   // RF7: eine Rückfrage zugleich. Die Anzeige wird beim Klick gemerkt, weil die Übersicht nach der Aktion neu lädt und die Zeile verschwinden kann.
   const [rueckfrage, setRueckfrage] = useState<{ raumHash: string; anzeige: string; frage: string } | null>(null);
   const [erfolg, setErfolg] = useState<string | null>(null);
+  // Fehler von raum-freigeben stehen im Abschnitt selbst, damit sie bei vielen Rechnern nicht außer Sicht bleiben.
+  const [raumFehler, setRaumFehler] = useState<string | null>(null);
 
   const markiere = async (gid: string, jm: boolean): Promise<void> => {
     setBusy(true);
     setMeldung(null);
+    setErfolg(null);
+    setRaumFehler(null);
     try {
       const r = await aktion({ aktion: 'geraet-markieren', gid, jm });
       if (!r.ok) setMeldung(fehlerText(r.code, 'geraet-markieren'));
@@ -33,13 +37,13 @@ export function AdminGeraete({ daten }: { daten: AdminUebersicht }): React.JSX.E
   // Der Aufruf selbst steht nur im Bestätigen-Knopf der Rückfrage (kein Weg am Dialog vorbei).
   const freigeben = async (anzeige: string, ruf: () => ReturnType<typeof aktion>): Promise<void> => {
     setBusy(true);
-    setMeldung(null);
     setErfolg(null);
+    setRaumFehler(null);
     try {
       const r = await ruf();
       setRueckfrage(null);
       if (r.ok) setErfolg(raumFreigabeMeldung(anzeige, r.ergebnis));
-      else setMeldung(fehlerText(r.code, 'raum-freigeben'));
+      else setRaumFehler(fehlerText(r.code, 'raum-freigeben'));
     } finally {
       setBusy(false);
     }
@@ -98,11 +102,25 @@ export function AdminGeraete({ daten }: { daten: AdminUebersicht }): React.JSX.E
               {erfolg}
             </p>
           )}
+          {raumFehler && (
+            <p role="alert" className="rounded-[var(--radius)] border border-[var(--border)] px-3 py-2">
+              {raumFehler}
+            </p>
+          )}
           {raeume.length === 0 && <p>{REITER_TEXTE.keineRaeume}</p>}
           {raeume.map((z) => (
             <div key={z.raumHash} className="flex items-center justify-between gap-3">
               <p>{z.text}</p>
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => setRueckfrage({ raumHash: z.raumHash, anzeige: z.anzeige, frage: z.frage })}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  setErfolg(null);
+                  setRaumFehler(null);
+                  setRueckfrage({ raumHash: z.raumHash, anzeige: z.anzeige, frage: z.frage });
+                }}
+              >
                 {REITER_TEXTE.raumFreigeben}
               </Button>
             </div>
