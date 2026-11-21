@@ -493,6 +493,22 @@ async function run() {
     check('P16 7: letzte Admin herabstufen → 409 S12a', soll(letzte, 409, 'konflikt', 'admin'));
   }
 
+  // RF Route: Cloud-Raum freigeben (Admin-Freigabe gebundener Räume)
+  {
+    const env = umgebung();
+    await ersterAdmin(env);
+    const chefin = await anmelden(env, { google: true, email: ERSTER, name: 'Chefin Test' });
+    const karl = await anmelden(env, { google: true, email: 'karl@jakobsmedien.com' });
+    const hash = 'a'.repeat(64);
+    const frei = await api(env, 'POST', '/konto/admin/aktion', { sitzung: chefin.sitzung, body: { aktion: 'raum-freigeben', raumHash: hash } });
+    const fremd = await api(env, 'POST', '/konto/admin/aktion', { sitzung: karl.sitzung, body: { aktion: 'raum-freigeben', raumHash: hash } });
+    const kaputt = await api(env, 'POST', '/konto/admin/aktion', { sitzung: chefin.sitzung, body: { aktion: 'raum-freigeben', raumHash: 'xyz' } });
+    const ue = await api(env, 'GET', '/konto/admin/uebersicht', { sitzung: chefin.sitzung });
+    check('RF Route: raum-freigeben: Admin 200 { ok, warFrei: true }; Kollege 403 kein-recht; raumHash xyz 400 ungueltig; Übersicht hat raeume als Array',
+      frei.status === 200 && frei.daten.ok === true && frei.daten.warFrei === true && soll(fremd, 403, 'kein-recht') && soll(kaputt, 400, 'ungueltig')
+        && ue.status === 200 && Array.isArray(ue.daten.raeume));
+  }
+
   // P16 8: Zoom-Anfrage nur für Externe; GET /konto/ich zeigt sie und den Admin-Punkt.
   {
     const env = umgebung();

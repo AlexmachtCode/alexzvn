@@ -218,6 +218,13 @@ die Anmeldung im Launcher an; der alte `PROXY_KEY` an `/connect` und der `ZOOM_S
 - **`/connect` und Raum-Bindung (E3):** Der Cloud-Raum geht über die Freigabe `connect-raum`; der Raum wird beim ersten Öffnen an
   das Konto bzw. den Rechner gebunden (`connect-inhaber`), bis „Raum schließen“. Ein Raum eines anderen Inhabers antwortet mit
   `raum-vergeben`. Der alte `PROXY_KEY` gilt bis `ALTKEY_CONNECT_BIS`, wird zeitkonstant verglichen und über `KONTO_RL_CONNECTALT` gedrosselt.
+- **Gespeicherte Felder der Bindung** (Konten-DO, Schlüssel `connect:<raumHash>`): `{ kidHash, gidHash, bis, raumId, kid, seit }`.
+  Schlüssel und Vergleich laufen über Hashes; `raumId` und `kid` stehen im Klartext, damit ein Admin die Räume lesen kann. Raum-IDs
+  sind Show-Namen und keine Geheimnisse; Freigabe, Sitzung, `kidHash` und `gidHash` verlassen den DO nie.
+- **Admin-Freigabe gebundener Räume:** `GET /konto/admin/uebersicht` enthält `raeume` (`{ raumHash, raumId, name, stufe, seit, bis }`,
+  nur nicht abgelaufene Bindungen; `name` und `stufe` sind `null`, wenn das Konto gelöscht ist). `POST /konto/admin/aktion` mit
+  `{ aktion: 'raum-freigeben', raumHash }` löst die Bindung und antwortet `{ ok: true, warFrei }` (`warFrei` ist `true`, wenn der Raum
+  schon frei oder abgelaufen war); ein ungültiger Hash ergibt 400 `ungueltig`, ein Nicht-Admin 403 `kein-recht`.
 - **`POST /zoom/jwt` (`zoom-relay.js`):** mit Freigabe `zoom-jwt` signiert der Worker das Zoom-JWT (HS256) mit `ZOOM_CLIENT_ID` und
   `ZOOM_CLIENT_SECRET`, byte-gleich zu `buildJwt` in `packages/zoom-bridge`. Antwort `200 { jwt, exp, gueltigS }` mit
   `Cache-Control: no-store`; Standardlaufzeit 12 Stunden. Optionaler Rumpf `{ "ttlS": n }` mit ganzer Zahl von 1800 bis 43 200

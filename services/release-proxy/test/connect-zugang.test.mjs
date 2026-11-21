@@ -51,6 +51,9 @@ const auf = (id, kopf, method = 'POST', e = env, c = ctx) =>
   );
 const bearer = (t) => ({ Authorization: `Bearer ${t}` });
 const ALT = { 'X-Proxy-Key': 'test-proxy-key' };
+async function sha256(t) {
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
 const frei = (id, o = {}) => testFreigabe(KS, { zweck: 'connect-raum', ziel: id, jetzt: uhr(), ...o });
 
 const fA = await frei('cop31-tag1');
@@ -168,6 +171,25 @@ check('T3 RF5: DELETE des Inhabers löst die Bindung; danach öffnet ein fremdes
   const ohne = await zugangPruefen(anfrage(sdk), env, { funktion: 'zoom', ziel: 'win-x64', jetzt: uhr(), ctx });
   check('T3 zweck: zugangPruefen mit zweck nimmt nur den genauen Zweck (sonst 403 kein-recht), ohne zweck wie bisher',
     mitZweck.ok === false && mitZweck.status === 403 && mitZweck.code === 'kein-recht' && richtig.ok === true && ohne.ok === true);
+}
+{
+  // RF Worker: der Konten-DO speichert Raum-ID und kid der Bindung (Admin-Freigabe); der alte Schluessel bindet weiter nie.
+  const e = { ...env };
+  e.KONTO = makeKontoNs(e);
+  const eintrag = async (id) => {
+    const h = await sha256('connect-raum|' + id);
+    for (const sp of e.KONTO.instanzen.values()) if (sp.ctx.daten.has('connect:' + h)) return sp.ctx.daten.get('connect:' + h);
+    return null;
+  };
+  const f = await frei('show-1a2b3c', { kid: 'k-rf', gid: 'g-rf' });
+  const auf2 = (id, kopf, method = 'POST') => auf(id, kopf, method, e);
+  const offen = await auf2('show-1a2b3c', bearer(f));
+  const b = await eintrag('show-1a2b3c');
+  check('RF Worker: Öffnen mit Freigabe bindet mit raumId und kid', offen.status === 200 && b !== null && b.raumId === 'show-1a2b3c' && b.kid === 'k-rf');
+  const altOffen = await auf2('show-alt-frei', ALT);
+  check('RF Worker: alter Schlüssel bindet weiter nie', altOffen.status === 200 && (await eintrag('show-alt-frei')) === null);
+  const zu = await auf2('show-1a2b3c', bearer(f), 'DELETE');
+  check('RF Worker: Schließen löst weiter', zu.status === 200 && (await eintrag('show-1a2b3c')) === null);
 }
 check('T3 R1: connect-relay.js hat kein keyOk und keinen Vergleich mit === env.PROXY_KEY', !/keyOk|===\s*env\.PROXY_KEY/.test(quelle));
 check('T3 G4: weder jm1.-Token noch alter Schlüssel noch Freigabe im Protokoll', !protokoll.join('\n').includes('jm1.') && !protokoll.join('\n').includes('test-proxy-key'));

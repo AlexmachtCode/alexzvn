@@ -153,7 +153,9 @@ function roomStub(env, id) {
 
 /**
  * E3: Der Cloud-Raum gehört dem Konto bzw. Rechner, dessen Freigabe ihn zuerst geöffnet hat (die Raum-ID ist öffentlich). Der
- * Inhaber steht im Konten-DO (Aktion connect-inhaber, Compare-and-set; nur Hashes mit eigenem Präfix, nie die ID selbst). Der
+ * Inhaber steht im Konten-DO (Aktion connect-inhaber, Compare-and-set). Die Schlüssel und der Vergleich laufen über Hashes mit
+ * eigenem Präfix; der DO speichert zusätzlich Raum-ID und kid der Bindung im Klartext, damit ein Admin einen hängengebliebenen
+ * Raum freigeben kann. Raum-IDs sind Show-Namen und keine Geheimnisse. Der
  * alte Schlüssel (kein kid/gid) öffnet nur einen freien Raum und bindet nie. `loesen` beendet die Bindung (Raum geschlossen).
  * → { ok: true } | Ablehnung 403 raum-vergeben (S20) | Ablehnung 503 nicht-eingerichtet bei jedem anderen Ausgang (nie offen)
  */
@@ -161,10 +163,11 @@ async function raumInhaber(env, id, zugang, loesen = false) {
   const kid = zugang.art === 'freigabe' ? String(zugang.claims.kid || '') : '';
   const gid = zugang.art === 'freigabe' ? String(zugang.claims.gid || '') : '';
   const jetzt = kontoJetzt(env);
-  const frage = { jetzt, raumHash: await sha256Hex(`connect-raum|${id}`), bisMs: jetzt + CONNECT.inhaberMs };
+  const frage = { jetzt, raumHash: await sha256Hex(`connect-raum|${id}`), raumId: id, bisMs: jetzt + CONNECT.inhaberMs };
   if (kid && gid) {
     frage.kidHash = await sha256Hex(`connect-inhaber|kid|${kid}`);
     frage.gidHash = await sha256Hex(`connect-inhaber|gid|${gid}`);
+    frage.kid = kid;
   }
   if (loesen) frage.loesen = true;
   let r = null;
