@@ -31,7 +31,7 @@ Meeting-Nummer und Kenncode des Testmeetings gehören nicht in die Datei.
   0.19.0, angemeldet, Rechner als JM-Rechner markiert.
 - **Wo Connect seine Einstellungen speichert:** Datei `connect-settings.json` im Ordner `%APPDATA%\JM Connect\` (Eingabe in die
   Adresszeile des Explorers). Dort prüfen die Schritte, welche Felder vorhanden sind. Nur ansehen, nie Werte daraus in diese Datei kopieren.
-- **Logdatei:** Connect schreibt `main.log` in den Unterordner `logs` des Einstellungsordners: unter Windows `%APPDATA%JM Connectlogsmain.log`, auf dem Mac `~/Library/Application Support/JM Connect/logs/main.log`. Zeilen aus dem Log nur ohne Schlüssel, Token oder Namen in diese Datei eintragen.
+- **Logdatei:** Connect schreibt `main.log` in den Unterordner `logs` des Einstellungsordners: unter Windows `%APPDATA%\JM Connect\logs\main.log`, auf dem Mac `~/Library/Application Support/JM Connect/logs/main.log`. Zeilen aus dem Log nur ohne Schlüssel, Token oder Namen in diese Datei eintragen.
 - In „Ergebnis“ steht „bestanden“, „Befund: …“ oder „entfällt (Grund)“; dazu Datum und Name.
 
 | # | Schritt | Erwartung | Ergebnis | Datum | Name |
