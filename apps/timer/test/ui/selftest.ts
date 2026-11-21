@@ -6,4 +6,7 @@ import { abschluss } from '@jm/ui/testhilfe';
 import './werkzeug.test';
 import './bruecken.test';
 import './oberflaeche.test';
+import './rahmen.test';
+import './live.test';
+import './panel.test';
 abschluss();

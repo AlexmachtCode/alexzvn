@@ -43,7 +43,18 @@ export const TIMER_TEXTE = {
   /** Sync-Pille der Kopfzeile (Topbar.tsx, title): wörtlich wie bisher. */
   sync: { label: 'Sync', verbunden: 'Verbunden mit JM Timer-Sync', offline: 'Keine Verbindung' },
   /** Speaker-Fenster (E3): Zustände der Statusleiste und Hinweis im Panel; Label und Titel sind `titel.speaker`. */
-  speaker: { offen: 'Fenster offen', zu: 'Fenster zu', hinweis: 'Öffnet auf dem zweiten Bildschirm, falls vorhanden.' },
+  speaker: {
+    offen: 'Fenster offen',
+    zu: 'Fenster zu',
+    hinweis: 'Öffnet auf dem zweiten Bildschirm, falls vorhanden.',
+    oeffnen: 'Speaker-Fenster öffnen',
+    schliessen: 'Speaker-Fenster schließen',
+    /** Knopf der Kopfmitte (Topbar.tsx): wörtlich wie bisher. */
+    knopfOffen: 'Speaker · Open',
+    knopfZu: 'Open Speaker',
+  },
+  /** Hinweis unter der Dauer im Countdown; „Delay-Karte rechts“ wurde zu „Delay“, weil die Karte nun darunter als Collapsible steht. */
+  dauerHinweis: 'Während der Timer läuft, Dauer per Delay anpassen.',
   /** Titel der tool-eigenen Panel-Abschnitte (E3, E9). */
   titel: { speaker: 'Speaker-Fenster', lan: 'LAN-Fernbedienung', farben: 'Farben' },
 } as const;
@@ -66,6 +77,24 @@ export interface OberflaechenStand {
   fernsteuerung: FernsteuerungMeldung | null | undefined;
   /** V-Zeile „Show vom Master“ für die Kopfmitte: null = Einzelplatz, undefined = offen. */
   verbund: VerbundAnzeigeZeile | null | undefined;
+}
+
+/** Aktionen des Panels (E3): der Speaker-Knopf ruft `window.jm.speaker.toggle` erst im Rückruf der View. */
+export interface TimerAktionen {
+  toggleSpeaker(): void;
+}
+
+/**
+ * Welcher Modus gezeigt wird (E9): Das Panel ist kein Modus, der Typ `Mode` bleibt (Main und Socket teilen ihn). Kommt ein
+ * unbenutzter Wert (`remote`, `settings`) an, zeigt die Oberfläche den Countdown statt eines leeren Bildschirms.
+ */
+export function anzeigeModus(mode: Mode): 'clock' | 'countdown' | 'timetable' {
+  return mode === 'clock' || mode === 'timetable' ? mode : 'countdown';
+}
+
+/** Lauf-Pille im Kopf des Countdowns und des Ablaufs: laufend ok, pausiert warn, sonst off; nie live (E8). Texte wie bisher. */
+export function laufPille(laeuft: boolean, pausiert: boolean): { state: 'ok' | 'warn' | 'off'; text: string } {
+  return laeuft ? { state: 'ok', text: 'Running' } : pausiert ? { state: 'warn', text: 'Paused' } : { state: 'off', text: 'Idle' };
 }
 
 export interface TasteZustand {

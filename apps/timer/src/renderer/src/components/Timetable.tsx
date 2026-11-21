@@ -11,10 +11,10 @@ import {
 import { useTick } from '@/lib/useTick';
 import { formatHMS } from '@/lib/time';
 import { TimerDisplay } from './TimerDisplay';
-import { SectionHeader } from './ui/SectionHeader';
-import { StatusPill } from './ui/StatusPill';
-import { Button } from '@jm/ui';
-import { Card } from '@jm/ui';
+import { Button, Card, StatusPill } from '@jm/ui';
+import { laufPille } from '@/lib/oberflaeche';
+import { HauptTasten } from '@/views/LiveBereich';
+import { ModusKopf } from './ModusKopf';
 import { TimetableRow } from './TimetableRow';
 import { XlsxImport } from './XlsxImport';
 import { DelayControls } from './DelayControls';
@@ -49,15 +49,12 @@ export function Timetable() {
       : null;
 
   const totalDuration = tt.items.reduce((sum, it) => sum + it.durationMs, 0);
-  const status = running ? 'live' : paused ? 'setup' : 'info';
-  const statusLabel = running ? 'Running' : paused ? 'Paused' : 'Idle';
+  const pille = laufPille(running, paused);
 
   return (
-    <section className="flex flex-col h-full px-2 gap-6">
-      <div className="flex items-center justify-between">
-        <SectionHeader>Timetable · Regieplan</SectionHeader>
-        <div className="flex items-center gap-2">
-          <StatusPill status={status}>{statusLabel}</StatusPill>
+    <section data-timer="modus-timetable" className="flex flex-col h-full px-2 gap-6">
+      <ModusKopf titel="Timetable · Regieplan">
+          <StatusPill state={pille.state} text={pille.text} />
           {drift.driftMs !== null && (
             <span
               className="text-xs font-extrabold tabular px-2 py-1 rounded-[var(--radius)]"
@@ -88,8 +85,7 @@ export function Timetable() {
           >
             + Item
           </Button>
-        </div>
-      </div>
+      </ModusKopf>
 
       {activeItem ? (
         <Card>
@@ -148,42 +144,13 @@ export function Timetable() {
               )}
             </div>
 
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="md"
-                  onClick={ttPrev}
-                  disabled={(tt.activeIndex ?? 0) <= 0}
-                >
-                  ← Prev
-                </Button>
-                {!running ? (
-                  <Button variant="primary" size="md" onClick={start}>
-                    {paused ? 'Resume' : 'Start'}
-                  </Button>
-                ) : (
-                  <Button variant="accent" size="md" onClick={pause}>
-                    Pause
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  size="md"
-                  onClick={reset}
-                  disabled={!running && !paused && cd.delayMs === 0}
-                >
-                  Reset
-                </Button>
-                <Button
-                  variant="primary"
-                  size="md"
-                  onClick={ttNext}
-                  disabled={(tt.activeIndex ?? 0) >= tt.items.length - 1}
-                >
-                  Next →
-                </Button>
-              </div>
+            <HauptTasten
+              stand={{ timer: { countdown: cd, timetable: tt } }}
+              mode="timetable"
+              aktionen={{ start, pause, reset, prev: ttPrev, next: ttNext }}
+            />
+
+            <div className="flex items-center justify-end">
               <Button
                 variant="ghost"
                 size="sm"
@@ -203,7 +170,7 @@ export function Timetable() {
             <div>
               <div className="text-sm font-semibold">Show nicht gestartet</div>
               <p className="text-xs text-[var(--muted-foreground)] mt-1">
-                Wähle einen Programmpunkt aus oder klicke „Start Show" — das lädt
+                Wähle einen Programmpunkt aus oder klicke „Start Show“ — das lädt
                 automatisch das erste Item.
               </p>
             </div>
@@ -220,7 +187,9 @@ export function Timetable() {
         <Card>
           <div className="p-5 flex flex-col gap-3">
             <div className="flex items-center justify-between">
-              <SectionHeader>Programmpunkte · {tt.items.length}</SectionHeader>
+              <h3 className="text-[10px] uppercase tracking-[0.14em] font-extrabold text-[var(--muted-foreground)]">
+                Programmpunkte · {tt.items.length}
+              </h3>
               <span className="text-xs text-[var(--muted-foreground)] tabular">
                 Σ {formatHMS(totalDuration)}
               </span>
@@ -277,7 +246,7 @@ function EmptyState({ onImport, onAdd }: { onImport: () => void; onAdd: () => vo
         <div className="text-xl font-semibold">Noch keine Programmpunkte</div>
         <p className="text-sm text-[var(--muted-foreground)] max-w-md">
           Lade einen Regieplan als XLSX hoch oder lege Items manuell an.
-          Beim Start einer Show kannst du dann mit „Next" durch die Punkte
+          Beim Start einer Show kannst du dann mit „Next“ durch die Punkte
           gehen — die Endzeiten kalkulieren sich automatisch.
         </p>
         <div className="flex items-center gap-2">

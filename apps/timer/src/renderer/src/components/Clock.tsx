@@ -1,7 +1,6 @@
 import { useTick } from '@/lib/useTick';
 import { TimerDisplay } from './TimerDisplay';
-import { SectionHeader } from './ui/SectionHeader';
-import { StatusPill } from './ui/StatusPill';
+import { ModusKopf } from './ModusKopf';
 
 export function Clock() {
   const now = useTick();
@@ -17,11 +16,8 @@ export function Clock() {
   });
 
   return (
-    <section className="flex flex-col h-full px-2">
-      <div className="flex items-center justify-between pb-6">
-        <SectionHeader>Real-Time Clock</SectionHeader>
-        <StatusPill status="live">Live</StatusPill>
-      </div>
+    <section data-timer="modus-clock" className="flex flex-col h-full px-2">
+      <ModusKopf titel="Real-Time Clock" />
 
       <div className="flex-1 flex flex-col items-center justify-center gap-6">
         <TimerDisplay ms={msOfDay} reactive={false} />

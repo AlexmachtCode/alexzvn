@@ -8,14 +8,12 @@ import {
 } from '@/store/timer';
 import { useTick } from '@/lib/useTick';
 import { formatHMS, parseHMS } from '@/lib/time';
-import { istEingabeZiel } from '@/lib/oberflaeche';
+import { istEingabeZiel, laufPille, TIMER_TEXTE } from '@/lib/oberflaeche';
 import { TimerDisplay } from './TimerDisplay';
-import { Button } from '@jm/ui';
-import { Input } from './ui/Input';
-import { SectionHeader } from './ui/SectionHeader';
-import { StatusPill } from './ui/StatusPill';
-import { Card } from '@jm/ui';
+import { Button, Field, StatusPill, TextInput } from '@jm/ui';
 import { DelayControls } from './DelayControls';
+import { ModusKopf } from './ModusKopf';
+import { HauptTasten } from '@/views/LiveBereich';
 
 export function Countdown() {
   const cd = useStore((s) => s.countdown);
@@ -23,6 +21,7 @@ export function Countdown() {
   const pause = useStore((s) => s.pauseCountdown);
   const reset = useStore((s) => s.resetCountdown);
   const setDuration = useStore((s) => s.setCountdownDuration);
+  const timetable = useStore((s) => s.timetable);
 
   const now = useTick();
   const remaining = getCountdownRemaining(cd, now);
@@ -62,31 +61,17 @@ export function Countdown() {
     setDuration(ms);
   }
 
-  const status = running ? 'live' : paused ? 'setup' : 'info';
-  const statusLabel = running ? 'Running' : paused ? 'Paused' : 'Idle';
+  const pille = laufPille(running, paused);
   const hasDelay = cd.delayMs !== 0;
 
   return (
-    <section className="flex flex-col h-full px-2">
-      <div className="flex items-center justify-between pb-6">
-        <SectionHeader>Countdown</SectionHeader>
-        <div className="flex items-center gap-2">
-          {hasDelay && (
-            <span
-              className="inline-flex items-center rounded-[var(--radius-sm)] px-2 py-0.5
-                         text-xs uppercase tracking-wide font-extrabold border"
-              style={{
-                color: cd.delayMs > 0 ? 'var(--destructive)' : 'var(--primary)',
-                borderColor: cd.delayMs > 0 ? 'var(--destructive)' : 'var(--primary)',
-              }}
-            >
-              Delay {cd.delayMs > 0 ? '+' : '−'}
-              {formatHMS(Math.abs(cd.delayMs))}
-            </span>
-          )}
-          <StatusPill status={status}>{statusLabel}</StatusPill>
-        </div>
-      </div>
+    <section data-timer="modus-countdown" className="flex flex-col h-full px-2">
+      <ModusKopf titel="Countdown">
+        {hasDelay && (
+          <StatusPill state={cd.delayMs > 0 ? 'warn' : 'ok'} text={`Delay ${cd.delayMs > 0 ? '+' : '−'}${formatHMS(Math.abs(cd.delayMs))}`} />
+        )}
+        <StatusPill state={pille.state} text={pille.text} />
+      </ModusKopf>
 
       <div className="flex-1 flex flex-col items-center justify-center gap-6 py-4">
         <TimerDisplay ms={remaining} reactive />
@@ -104,72 +89,54 @@ export function Countdown() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-[1320px] items-start">
-          <Card variant="nested" className="w-full">
-            <div className="p-5 flex flex-col gap-4">
-              <SectionHeader>Dauer · HH:MM:SS</SectionHeader>
-              <div className="flex items-end gap-3">
-                <Input
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onBlur={applyDraft}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') e.currentTarget.blur();
-                  }}
-                  disabled={running || paused}
-                  placeholder="00:05:00"
-                  className="flex-1 text-lg font-extrabold"
-                />
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                {[60_000, 5 * 60_000, 10 * 60_000, 15 * 60_000].map((ms) => (
-                  <Button
-                    key={ms}
-                    variant="ghost"
-                    size="sm"
-                    uppercase={false}
-                    disabled={running || paused}
-                    onClick={() => {
-                      setDuration(ms);
-                      setDraft(formatHMS(ms));
-                    }}
-                  >
-                    +{ms / 60_000} min
-                  </Button>
-                ))}
-              </div>
-              {error && <div className="text-xs text-[var(--destructive)]">{error}</div>}
-              <div className="text-xs text-[var(--muted-foreground)]">
-                Während der Timer läuft, Dauer per Delay-Karte rechts anpassen.
-              </div>
-            </div>
-          </Card>
+        <div className="w-full max-w-[640px]">
+          <HauptTasten
+            stand={{ timer: { countdown: cd, timetable } }}
+            mode="countdown"
+            aktionen={{ start, pause, reset, prev: noop, next: noop }}
+          />
+        </div>
+
+        <div className="flex w-full max-w-[640px] flex-col gap-5">
+          <Field label="Dauer · HH:MM:SS" hint={TIMER_TEXTE.dauerHinweis} error={error ?? undefined}>
+            <TextInput
+              value={draft}
+              onChange={setDraft}
+              onBlur={applyDraft}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+              }}
+              disabled={running || paused}
+              placeholder="00:05:00"
+              className="text-lg font-extrabold"
+            />
+          </Field>
+          <div className="flex gap-2 flex-wrap">
+            {[60_000, 5 * 60_000, 10 * 60_000, 15 * 60_000].map((ms) => (
+              <Button
+                key={ms}
+                variant="ghost"
+                size="sm"
+                uppercase={false}
+                disabled={running || paused}
+                onClick={() => {
+                  setDuration(ms);
+                  setDraft(formatHMS(ms));
+                }}
+              >
+                +{ms / 60_000} min
+              </Button>
+            ))}
+          </div>
 
           <DelayControls />
-        </div>
-
-        <div className="flex items-center gap-3">
-          {!running ? (
-            <Button variant="primary" size="lg" onClick={start}>
-              {paused ? 'Resume' : 'Start'}
-            </Button>
-          ) : (
-            <Button variant="accent" size="lg" onClick={pause}>
-              Pause
-            </Button>
-          )}
-          <Button variant="outline" size="lg" onClick={reset} disabled={!running && !paused && !hasDelay}>
-            Reset
-          </Button>
-        </div>
-
-        <div className="text-xs uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
-          Space · Start / Pause      R · Reset
         </div>
       </div>
     </section>
   );
 }
+
+const noop = (): void => undefined;
 
 function formatWallClock(ms: number): string {
   const d = new Date(ms);

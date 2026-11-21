@@ -1,9 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '@/store/timer';
-import { Button } from '@jm/ui';
-import { Input } from './ui/Input';
-import { Card } from '@jm/ui';
-import { SectionHeader } from './ui/SectionHeader';
+import { Button, Collapsible, Field, TextInput } from '@jm/ui';
 import { formatHMS } from '@/lib/time';
 
 const QUICK_STEPS_SEC = [-300, -60, -30, 30, 60, 300];
@@ -36,27 +33,29 @@ export function DelayControls() {
   const delaySec = Math.round(delayMs / 1000);
 
   return (
-    <Card variant="nested" className="w-full max-w-[640px]">
-      <div className="p-5 flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <SectionHeader>Delay · Live</SectionHeader>
-          <div
-            className="text-sm font-extrabold tabular tracking-wide"
-            style={{
-              color:
-                delayMs > 0
-                  ? 'var(--destructive)'
-                  : delayMs < 0
-                    ? 'var(--primary)'
-                    : 'var(--muted-foreground)',
-            }}
-            title={`${delaySec >= 0 ? '+' : ''}${delaySec} s`}
-          >
-            {formatSignedHMS(delayMs)}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-6 gap-2">
+    <Collapsible
+      title="Delay · Live"
+      persistId="timer.delay"
+      className="w-full max-w-[640px]"
+      right={
+        <span
+          className="text-sm font-extrabold tabular tracking-wide"
+          style={{
+            color:
+              delayMs > 0
+                ? 'var(--destructive)'
+                : delayMs < 0
+                  ? 'var(--primary)'
+                  : 'var(--muted-foreground)',
+          }}
+          title={`${delaySec >= 0 ? '+' : ''}${delaySec} s`}
+        >
+          {formatSignedHMS(delayMs)}
+        </span>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
           {QUICK_STEPS_SEC.map((sec) => (
             <Button
               key={sec}
@@ -73,16 +72,15 @@ export function DelayControls() {
         </div>
 
         <div className="flex items-end gap-3">
-          <div className="flex flex-col">
-            <label className="block text-xs uppercase tracking-[0.12em] text-[var(--muted-foreground)] mb-2">
-              Richtung
-            </label>
-            <div className="flex rounded-[var(--radius)] overflow-hidden border border-[var(--border)]">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-[var(--foreground)]">Richtung</span>
+            <div className="flex rounded-[var(--radius-md)] overflow-hidden border border-[var(--border)]">
               <button
                 type="button"
                 onClick={() => setPendingSign(1)}
                 aria-label="Verspätung hinzufügen"
-                className={`h-10 px-3 text-sm font-extrabold uppercase tracking-wide transition-colors ${
+                aria-pressed={pendingSign === 1}
+                className={`h-[var(--control-h)] px-3 text-sm font-extrabold uppercase tracking-wide transition-colors ${
                   pendingSign === 1
                     ? 'bg-[var(--accent)] text-[var(--foreground)]'
                     : 'bg-transparent text-[var(--muted-foreground)] hover:bg-[var(--highlight)]'
@@ -94,7 +92,8 @@ export function DelayControls() {
                 type="button"
                 onClick={() => setPendingSign(-1)}
                 aria-label="Zeit aufholen"
-                className={`h-10 px-3 text-sm font-extrabold uppercase tracking-wide transition-colors ${
+                aria-pressed={pendingSign === -1}
+                className={`h-[var(--control-h)] px-3 text-sm font-extrabold uppercase tracking-wide transition-colors ${
                   pendingSign === -1
                     ? 'bg-[var(--accent)] text-[var(--foreground)]'
                     : 'bg-transparent text-[var(--muted-foreground)] hover:bg-[var(--highlight)]'
@@ -104,17 +103,14 @@ export function DelayControls() {
               </button>
             </div>
           </div>
-          <div className="flex-1">
-            <label className="block text-xs uppercase tracking-[0.12em] text-[var(--muted-foreground)] mb-2">
-              Custom · Sekunden
-            </label>
-            <Input
+          <Field label="Custom · Sekunden" error={error ?? undefined} className="flex-1">
+            <TextInput
               type="number"
               inputMode="numeric"
               min={1}
               step={1}
               value={customSec}
-              onChange={(e) => setCustomSec(e.target.value)}
+              onChange={setCustomSec}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -124,13 +120,11 @@ export function DelayControls() {
               placeholder="60"
               className="font-extrabold"
             />
-          </div>
+          </Field>
           <Button variant="primary" size="md" onClick={applyCustom}>
             Anwenden
           </Button>
         </div>
-
-        {error && <div className="text-xs text-[var(--destructive)]">{error}</div>}
 
         {delayMs !== 0 && (
           <div className="flex justify-end pt-1">
@@ -140,7 +134,7 @@ export function DelayControls() {
           </div>
         )}
       </div>
-    </Card>
+    </Collapsible>
   );
 }
 
