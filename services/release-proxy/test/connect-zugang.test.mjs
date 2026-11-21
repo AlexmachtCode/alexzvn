@@ -191,6 +191,31 @@ check('T3 RF5: DELETE des Inhabers löst die Bindung; danach öffnet ein fremdes
   const zu = await auf2('show-1a2b3c', bearer(f), 'DELETE');
   check('RF Worker: Schließen löst weiter', zu.status === 200 && (await eintrag('show-1a2b3c')) === null);
 }
+{
+  // RF Worker: A schließt nach Freigabe und Neubindung durch B. Auf diesem Weg schützt die Vorprüfung im Worker (DELETE ohne loesen) B;
+  // der loesen-Zweig im Konten-DO wird nie erreicht.
+  const roh = raumNs();
+  const e = { ...env, CONNECT_ROOM: roh };
+  e.KONTO = makeKontoNs(e);
+  const speicherMitRaum = (h) => [...e.KONTO.instanzen.values()].find((sp) => sp.ctx.daten.has('connect:' + h));
+  const ID = 'show-nach-freigabe';
+  const fA2 = await frei(ID, { kid: 'k-a', gid: 'g-a' });
+  const fB2 = await frei(ID, { kid: 'k-b', gid: 'g-b' });
+  const aOffen = await auf(ID, bearer(fA2), 'POST', e);
+  const h = await sha256('connect-raum|' + ID);
+  const sp = speicherMitRaum(h);
+  // Freigabe des Admins: löst nur die Bindung (Wirkung von raum-freigeben auf den Eintrag).
+  sp.ctx.daten.delete('connect:' + h);
+  const bOffen = await auf(ID, bearer(fB2), 'POST', e);
+  const vorher = roh.anfragen.length;
+  const aZu = await auf(ID, bearer(fA2), 'DELETE', e);
+  const aCode = (await aZu.json()).code;
+  const bindung = sp.ctx.daten.get('connect:' + h);
+  check('RF Worker: A schließt nach Freigabe und Neubindung durch B',
+    aOffen.status === 200 && bOffen.status === 200 && aZu.status === 403 && aCode === 'raum-vergeben'
+      && roh.anfragen.length === vorher && !roh.anfragen.some((a) => a.method === 'DELETE')
+      && bindung?.kid === 'k-b' && bindung?.raumId === ID);
+}
 check('T3 R1: connect-relay.js hat kein keyOk und keinen Vergleich mit === env.PROXY_KEY', !/keyOk|===\s*env\.PROXY_KEY/.test(quelle));
 check('T3 G4: weder jm1.-Token noch alter Schlüssel noch Freigabe im Protokoll', !protokoll.join('\n').includes('jm1.') && !protokoll.join('\n').includes('test-proxy-key'));
 abschluss();

@@ -2581,6 +2581,26 @@ async function run() {
     const vonKoll = await m.aktion({ aktion: 'raum-freigeben', raumHash: HEX('a') }, T0, koll.kid);
     const ung = await frei('xyz');
     check('RF ungültiger Hash', ung.http === 400 && ung.code === 'ungueltig' && vonExt.http === 403 && vonExt.code === 'kein-recht' && vonKoll.http === 403 && vonKoll.code === 'kein-recht');
+
+    // Verlängerung: kid nennt das Konto, das zuletzt geöffnet hat (R6)
+    const erna = await legeExternenAn(m.speicher, { kid: 'k-erna', email: 'erna@firma.example', name: 'Erna Ton' });
+    await ci({ raumHash: HEX('7'), raumId: 'show-geteilt-1', kidHash: HEX('1'), gidHash: HEX('7'), kid: ext.kid });
+    const g1 = { ...gespeichert('7') };
+    const vl = await ci({ raumHash: HEX('7'), raumId: 'show-geteilt-1', kidHash: HEX('3'), gidHash: HEX('7'), kid: erna.kid });
+    const g2 = gespeichert('7');
+    const uG = await m.uebersicht(T0 + 1000);
+    check('RF Verlängerung vom selben Rechner mit anderem Konto nennt das neue Konto',
+      vl.http === 200 && vl.neu === false && g2.kid === erna.kid && g2.raumId === g1.raumId && g2.seit === g1.seit
+        && g2.kidHash === HEX('1') && g2.gidHash === HEX('7')
+        && uG.raeume.find((x) => x.raumId === 'show-geteilt-1')?.name === erna.name);
+
+    await ci({ raumHash: HEX('0'), raumId: 'show-gleich-1', kidHash: HEX('1'), gidHash: HEX('2'), kid: ext.kid });
+    let puts = 0;
+    const putAlt = m.ctx.storage.put.bind(m.ctx.storage);
+    m.ctx.storage.put = (...a) => { puts++; return putAlt(...a); };
+    const gl = await ci({ raumHash: HEX('0'), raumId: 'show-gleich-1', kidHash: HEX('1'), gidHash: HEX('2'), kid: ext.kid, jetzt: T0 + 60_000, bisMs: T0 + 25 * H + 60_000 });
+    m.ctx.storage.put = putAlt;
+    check('RF Verlängerung durch dasselbe Konto schreibt nicht ohne Zuwachs', gl.http === 200 && gl.neu === false && puts === 0);
   }
 
   // ── Ende der Fälle ──

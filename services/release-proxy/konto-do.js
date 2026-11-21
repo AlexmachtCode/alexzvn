@@ -1077,7 +1077,7 @@ export class KontoSpeicher {
    * ein Cloud-Raum von Connect? Gleiche Regeln wie `qa-inhaber` (Schlüssel `connect:<raumHash>`), Ablehnung 403 `raum-vergeben`.
    * `loesen: true` (Raum geschlossen) braucht beide Hashes: kein Inhaber → ok; kidHash ODER gidHash gleich → Eintrag gelöscht; sonst 403.
    * `raumId` (Pflicht, `^[A-Za-z0-9_-]{6,64}$`) und `kid` (1–128 Zeichen, genau dann, wenn `kidHash` da ist) stehen im Klartext im
-   * Eintrag, damit die Admin-Übersicht den Raum nennen kann; dazu `seit` (Zeit der Bindung). Eine Verlängerung behält alle drei.
+   * Eintrag, damit die Admin-Übersicht den Raum nennen kann; dazu `seit` (Zeit der Bindung). Eine Verlängerung behält `raumId` und `seit`; `kid` nennt das Konto, das zuletzt geöffnet hat.
    */
   async connectInhaber(b, jetzt) {
     const kidOk = b.kidHash === undefined ? b.kid === undefined : typeof b.kid === 'string' && b.kid.length >= 1 && b.kid.length <= 128;
@@ -1129,8 +1129,10 @@ export class KontoSpeicher {
     }
     if (!mitKid || (b.kidHash !== inhaber.kidHash && b.gidHash !== inhaber.gidHash)) return fehler(code, 403);
     // Nur bei mehr als einer halben Stunde Zuwachs schreiben: Q&A fragt alle 5 s, jedes Mal ein Schreiben wäre unnötige Last.
-    if (bis - inhaber.bis > QA_INHABER_SCHRITT_MS) {
-      inhaber = { ...inhaber, bis };
+    // Connect: `kid` nennt das Konto, das zuletzt geöffnet hat; wechselt es, wird auch ohne Zuwachs geschrieben.
+    const neueKid = zusatz && typeof zusatz.kid === 'string' && zusatz.kid.length > 0 && zusatz.kid !== inhaber.kid ? zusatz.kid : null;
+    if (neueKid !== null || bis - inhaber.bis > QA_INHABER_SCHRITT_MS) {
+      inhaber = { ...inhaber, ...(bis - inhaber.bis > QA_INHABER_SCHRITT_MS ? { bis } : {}), ...(neueKid !== null ? { kid: neueKid } : {}) };
       await st.put(key, inhaber);
     }
     return { ok: true, inhaber, neu: false };
@@ -1148,7 +1150,8 @@ export class KontoSpeicher {
    * Aktion `admin-uebersicht` `{ kid }` → AdminUebersicht (Plan 10.5): alle Zugänge (auch abgelaufene und gesperrte, nach
    * Name), iveo-Events ohne `iv`/`ct`, Zoom-Anfragen (jüngste zuerst; Rechnername, JM und Plattform vom Gerät, sonst aus der
    * Anfrage), Geräte ohne Schlüssel (`letztesKonto` = Kennung, die Maske zeigt den Namen aus `zugaenge`), alter Schlüssel mit
-   * Frist und Diagnose aus `alterKeyGilt(env, 'katalog')` und den Zeilen der Zählung (jüngster Tag zuerst). Ohne aktuellen
+   * Frist und Diagnose aus `alterKeyGilt(env, 'katalog')` und den Zeilen der Zählung (jüngster Tag zuerst), `raeume` = gültig gebundene Cloud-Räume
+   * von Connect (`raumId`, `raumHash`, Name und Stufe des Kontos oder null, `seit`, `bis`; nie kidHash oder gidHash). Ohne aktuellen
    * Admin → 403 kein-recht.
    */
   async adminUebersicht(b, jetzt) {
