@@ -394,3 +394,17 @@ Launcher: `apps/launcher/test/konto-rechte.test.ts` (`zweckDarf`) über `npm run
 (`npm run selftest -w @jm/connect`): `zugang-regeln.test.ts`, `zugang-halter.test.ts`, `raum-zugang.test.ts` (Raum-ID und Cloud-Raum
 mit Freigabe), `jwt-quelle.test.ts`, `zoom-laufzeit.test.ts`, `zoom-teile.test.ts`, `zoom-kern.test.ts`, `zoom-settings.test.ts`,
 `sdk-laden.test.ts` und die übrigen Dateien der Liste in `apps/connect/package.json`.
+
+### Admin-Freigabe gebundener Cloud-Räume (Nachtrag 21.11.)
+
+Stand wie oben: gebaut, nichts deployt. Der Nachtrag klärt, was geschieht, wenn jemand Connect ohne „Raum schließen“ beendet: Die Bindung hielte den Raum sonst bis zu 25 Stunden fest.
+
+**Bindung.** Sie speichert jetzt `{ kidHash, gidHash, bis, raumId, kid, seit }`. `raumId` und `kid` stehen im Klartext, `seit` ist der Zeitpunkt der ersten Bindung. Damit ist die frühere Festlegung „nur Hashes, nie die ID selbst“ für Connect aufgehoben, denn ohne Raum-ID kann der Admin den Raum nicht erkennen. Raum-ID und `kid` sind keine Geheimnisse; Freigabe, Sitzung, Schlüssel und die Hashes `kidHash` und `gidHash` bleiben draußen. Q&A (`qa-inhaber`) speichert weiter nur `{ kidHash, gidHash, bis }`.
+
+**`admin-uebersicht`** liefert zusätzlich `raeume`: nur gültige Bindungen, je `{ raumHash, raumId, name, stufe, seit, bis }`, nie die Hashes der Freigabe. Ist das Konto gelöscht, sind `name` und `stufe` `null`.
+
+**`raum-freigeben { raumHash }`** (Admin) löscht die Bindung und antwortet `{ ok: true, warFrei }`; `warFrei` ist `true`, wenn es keine gültige Bindung mehr gab (abgelaufen, schon freigegeben, zweiter Admin). Ein ungültiger `raumHash` ergibt 400 `ungueltig`, fehlendes Recht 403 `kein-recht`. Jede Freigabe schreibt einen Protokolleintrag `{ was: 'raum-freigeben', wen: raumId, details: { raumHash, raumId, kid, warFrei } }`, auch die zweite desselben Raums. Schließt der alte Inhaber nach der Freigabe noch „Raum schließen“, bekommt er 403 `raum-vergeben` und der neue Inhaber behält den Raum.
+
+**Launcher (0.19.0).** Der Reiter „Geräte“ der Admin-Maske hat den Abschnitt „Cloud-Räume (Connect)“ (RF1 bis RF9). Jede Zeile zeigt Raum-ID, Name, Stufe und Ende der Bindung (RF4, ohne Konto RF5) und den Knopf „Freigeben“. Davor fragt der Launcher zurück (RF7, ohne Konto RF7a). Fehlt `raeume` in der Antwort, zeigt der Launcher den Abschnitt nicht; ist `raeume` kein Array, lehnt `worker-client` die Übersicht als Serverfehler ab.
+
+**Connect (0.5.0).** CZ8 nennt die Raum-ID und den Admin-Weg (`ZUGANG_TEXT.raumVergeben(raumId)` in `regeln.ts`). Die Texte stehen in `docs/anmeldung-teil2-texte.md`, Abschnitt „Nachtrag 21.11. Admin-Freigabe“; die Abnahme in `apps/connect/ABNAHME-0.5.0.md`, Zeilen 7 und 7b.

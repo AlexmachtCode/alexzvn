@@ -37,7 +37,8 @@
         "notes": [
           "JM Connect holt Cloud-Raum, Zoom-Anmeldung und „Zoom-SDK laden“ ab Connect 0.5.0 über die Anmeldung im Launcher. Dafür braucht es diese Launcher-Version.",
           "Zoom-Freigaben für Externe wirken jetzt in Connect: ab dem nächsten Start des Launchers und nur auf JM-Rechnern unter Windows.",
-          "Der Konto-Dialog nennt unter „An Tools ausgegeben“ auch die Freigaben für Connect. Der Reiter „Geräte“ der Admin-Maske zeigt in einer eigenen Zeile, bis wann ältere Connect-Versionen ihren alten Schlüssel noch nutzen dürfen."
+          "Der Konto-Dialog nennt unter „An Tools ausgegeben“ auch die Freigaben für Connect. Der Reiter „Geräte“ der Admin-Maske zeigt in einer eigenen Zeile, bis wann ältere Connect-Versionen ihren alten Schlüssel noch nutzen dürfen.",
+          "Admins können im Reiter „Geräte“ einen Cloud-Raum von Connect freigeben, der nach einem Absturz oder Beenden ohne „Raum schließen“ noch einem anderen Konto gehört."
         ]
       },
       {

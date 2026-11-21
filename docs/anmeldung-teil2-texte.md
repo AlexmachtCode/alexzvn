@@ -72,7 +72,7 @@ Dateien: `apps/connect/src/main/zugang/regeln.ts` (CZ, ZA), `apps/connect/src/ma
 | CZ5 | Zusatz nach dem Löschen des alten Keys | Der alte Proxy-Key wurde gelöscht; Connect nutzt jetzt die Freigabe des Launchers. | – |
 | CZ6 | Zusatz, Umgebung | Entwicklungsmodus: JMPS_PROXY_KEY gesetzt. | – |
 | CZ7 | Fehler „Raum öffnen“ ohne Zugang | Raum öffnen nicht möglich: ‹Grund› | – |
-| CZ8 | Fehler 403 `raum-vergeben` | Dieser Cloud-Raum gehört gerade einem anderen Konto oder Rechner. Schließe ihn dort oder wähle im Show-Editor eine andere Raum-ID. | – |
+| CZ8 (neu) | Fehler 403 `raum-vergeben` | Dieser Cloud-Raum („‹Raum-ID›“) gehört gerade einem anderen Konto oder Rechner. Schließe ihn dort, wähle im Show-Editor eine andere Raum-ID oder bitte einen Admin, ihn im Launcher freizugeben (Admin › Geräte › Cloud-Räume). | geändert 21.11., siehe Nachtrag |
 | CZ9 | Fehler 401 auf Freigabe | Der Server hat die Freigabe abgelehnt. Ich hole eine neue beim Launcher; bitte noch einmal „Raum öffnen“. | – |
 | CZ10 | Karte, Übergangszeile | Alter Proxy-Key: hinterlegt, nur noch im Übergang. | – |
 | T146 | `ndi-text.ts`, Zeile 77 | Keine Verbindung zum Raum „‹Raum›“. Adresse und Cloud-Zugang prüfen — im Hintergrund wird weiter versucht. | – |
@@ -230,10 +230,12 @@ Fehlende Zugangsdaten: Diese Meldung gibt es nicht mehr, weil keine Zugangsdaten
 
 Verbindung zum Cloud-Raum: Die Meldung nennt jetzt die Anmeldung im Launcher statt des Proxy-Keys.
 
+Nachtrag 21.11.: Die Meldung nennt jetzt die Raum-ID, und die Zeile sagt, dass ein Admin den Raum im Launcher freigeben kann. Grund: Wer Connect ohne „Raum schließen“ beendet, hält den Raum sonst bis zum Ablauf der Bindung fest.
+
 ```
 - | „Keine Verbindung zum Raum „…“. Adresse und Proxy-Key prüfen — im Hintergrund wird weiter versucht.“ | Connect hat den Raum 8 s nach „Raum öffnen“ noch nicht erreicht. Cloud-Zugang (Adresse, Proxy-Key) und Netz prüfen. |
 + | „Keine Verbindung zum Raum „…“. Adresse und Cloud-Zugang prüfen — im Hintergrund wird weiter versucht.“ | Connect hat den Raum 8 s nach „Raum öffnen“ noch nicht erreicht. Cloud-Zugang (Zeile „Cloud-Zugang“ in der Karte) und Netz prüfen. |
-+ | „Dieser Cloud-Raum gehört gerade einem anderen Konto oder Rechner. Schließe ihn dort oder wähle im Show-Editor eine andere Raum-ID.“ | Die Raum-ID ist schon an ein anderes Konto oder einen anderen Rechner vergeben. Den Raum dort schließen oder im Show-Editor eine andere Raum-ID wählen. |
++ | „Dieser Cloud-Raum („‹Raum-ID›“) gehört gerade einem anderen Konto oder Rechner. Schließe ihn dort, wähle im Show-Editor eine andere Raum-ID oder bitte einen Admin, ihn im Launcher freizugeben (Admin › Geräte › Cloud-Räume).“ | Die Raum-ID ist schon an ein anderes Konto oder einen anderen Rechner vergeben, etwa weil dort Connect ohne „Raum schließen“ beendet wurde. Den Raum dort schließen, im Show-Editor eine andere Raum-ID wählen oder einen Admin bitten, ihn im Launcher unter Admin › Geräte › Cloud-Räume freizugeben. |
 + | „Der Server hat die Freigabe abgelehnt. Ich hole eine neue beim Launcher; bitte noch einmal „Raum öffnen“.“ | Die Freigabe für den Cloud-Raum war nicht (mehr) gültig. Noch einmal „Raum öffnen“. |
 + | „Raum öffnen nicht möglich: ‹Grund›“ | Der Grund nennt, was fehlt: Launcher nicht gestartet oder zu alt (Launcher aktualisieren, ab 0.19.0), niemand angemeldet, Anmeldung abgelaufen, kein Recht oder Server nicht erreichbar. Launcher prüfen, dort anmelden, noch einmal „Raum öffnen“. |
 ```
@@ -247,6 +249,30 @@ Checkliste „Einrichtung (einmal je PC)“: Die Prüfung auf hinterlegte Zugang
 + - [ ] Im Launcher (ab 0.19.0) angemeldet; die Zeile „Zoom-Anmeldung“ in der Zoom-Karte nennt den Launcher und ist nicht rot (vor dem ersten Beitritt „Zoom-Anmeldung über den Launcher; die Freigabe holt Connect beim ersten Beitritt.“, danach „Zoom-Anmeldung über den Launcher (‹Name› · ‹Stufe›), Freigabe gültig bis ‹Datum› ‹Zeit›.“)
 ```
 
+
+## Nachtrag 21.11. Admin-Freigabe
+
+Dateien: `apps/connect/src/main/zugang/regeln.ts` (CZ8), `apps/launcher/src/renderer/src/lib/admin-ansicht.ts` (RF1–RF9), `packages/suite-manifest/changelog.json` (CL-L4). Owner-Freigabe 21.11.2026.
+
+| Nr. | Ort | Text |
+| --- | --- | --- |
+| CZ8 (neu) | Connect, Fehler 403 `raum-vergeben` | Dieser Cloud-Raum („‹Raum-ID›“) gehört gerade einem anderen Konto oder Rechner. Schließe ihn dort, wähle im Show-Editor eine andere Raum-ID oder bitte einen Admin, ihn im Launcher freizugeben (Admin › Geräte › Cloud-Räume). |
+| RF1 | Launcher, Überschrift | Cloud-Räume (Connect) |
+| RF2 | Launcher, Erklärung | Räume, die gerade einem Konto gehören. Freigeben, wenn jemand Connect beendet hat, ohne „Raum schließen“ zu drücken. |
+| RF3 | Launcher, leere Liste | Kein Cloud-Raum ist gerade gebunden. |
+| RF4 | Launcher, Zeile | ‹Raum-ID› · ‹Name› · ‹Stufe› · gebunden bis ‹Datum› ‹Zeit› |
+| RF5 | Launcher, Zeile ohne Konto | ‹Raum-ID› · unbekanntes Konto · gebunden bis ‹Datum› ‹Zeit› |
+| RF6 | Launcher, Knopf | Freigeben |
+| RF7 | Launcher, Rückfrage | Raum „‹Raum-ID›“ von ‹Name› freigeben? Läuft der Raum dort noch, verliert ‹Name› ihn, sobald jemand anderes ihn öffnet. |
+| RF7a | Launcher, Rückfrage ohne Konto | Raum „‹Raum-ID›“ eines unbekannten Kontos freigeben? Läuft der Raum dort noch, geht er verloren, sobald jemand anderes ihn öffnet. |
+| RF8 | Launcher, Erfolg | Raum „‹Raum-ID›“ ist frei. |
+| RF9 | Launcher, war schon frei | Der Raum war schon frei. |
+| CL-L4 | Changelog Launcher 0.19.0 | Admins können im Reiter „Geräte“ einen Cloud-Raum von Connect freigeben, der nach einem Absturz oder Beenden ohne „Raum schließen“ noch einem anderen Konto gehört. |
+
+Die beiden freigegebenen Handbuch-Texte, wörtlich:
+
+- Launcher (`launcher-anmeldung.md`, nach dem Admin-Satz): Im Reiter „Geräte“ stehen unter „Cloud-Räume (Connect)“ die Cloud-Räume, die gerade einem Konto gehören. Hat jemand Connect beendet, ohne „Raum schließen“ zu drücken, gibt ein Admin den Raum dort mit „Freigeben“ frei; danach kann ihn ein anderes Konto öffnen.
+- Connect (`tool-jm-connect.md`, Pannenhilfe, rechte Zelle der Zeile CZ8): Die Raum-ID ist schon an ein anderes Konto oder einen anderen Rechner vergeben, etwa weil dort Connect ohne „Raum schließen“ beendet wurde. Den Raum dort schließen, im Show-Editor eine andere Raum-ID wählen oder einen Admin bitten, ihn im Launcher unter Admin › Geräte › Cloud-Räume freizugeben.
 
 ## Entfällt
 
@@ -267,4 +293,4 @@ Diese Texte gibt es in Connect 0.5.0 nicht mehr (Texte A4, A6, B9, B10 und S12 b
 
 ---
 
-Freigabe: ☐ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren)
+Freigabe: ☒ alle Texte wie hier (Owner 21.11.2026: T1–T5 und Handbuch „texte passen“, Nachtrag „passt“, RF7a und Handbuch-Sätze „ok“)
