@@ -220,7 +220,7 @@ die Anmeldung im Launcher an; der alte `PROXY_KEY` an `/connect` und der `ZOOM_S
   `raum-vergeben`. Der alte `PROXY_KEY` gilt bis `ALTKEY_CONNECT_BIS`, wird zeitkonstant verglichen und über `KONTO_RL_CONNECTALT` gedrosselt.
 - **Gespeicherte Felder der Bindung** (Konten-DO, Schlüssel `connect:<raumHash>`): `{ kidHash, gidHash, bis, raumId, kid, seit }`.
   Schlüssel und Vergleich laufen über Hashes; `raumId` und `kid` stehen im Klartext, damit ein Admin die Räume lesen kann. Raum-IDs
-  sind Show-Namen und keine Geheimnisse; Freigabe, Sitzung, `kidHash` und `gidHash` verlassen den DO nie.
+  sind Show-Namen und keine Geheimnisse; eine Verlängerung behält `raumId` und `seit`, und `kid` nennt das Konto, das zuletzt geöffnet hat; Freigabe, Sitzung, `kidHash` und `gidHash` erscheinen nie in der Übersicht, in einer Antwort an Clients oder im Protokoll.
 - **Admin-Freigabe gebundener Räume:** `GET /konto/admin/uebersicht` enthält `raeume` (`{ raumHash, raumId, name, stufe, seit, bis }`,
   nur nicht abgelaufene Bindungen; `name` und `stufe` sind `null`, wenn das Konto gelöscht ist). `POST /konto/admin/aktion` mit
   `{ aktion: 'raum-freigeben', raumHash }` löst die Bindung und antwortet `{ ok: true, warFrei }` (`warFrei` ist `true`, wenn der Raum
