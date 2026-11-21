@@ -597,8 +597,8 @@ console.log('— B22: Messwerte in der Karte, Kopieren ohne Namen, Zeile T95 au�
   const pfad = (rel: string): URL => new URL(`../${rel}`, import.meta.url);
   const read = (rel: string): string => readFileSync(pfad(rel), 'utf8').replace(/\r\n/g, '\n');
   ck('T16 Spec 22, 166: kein Eintragen oder Wählen alter Werte mehr in Kern, Hülle, IPC, Preload, Karte und Einstellungen',
-    ['src/main/zoom/kern.ts', 'src/main/zoom.ts', 'src/shared/ipc.ts', 'src/preload/index.ts', 'src/renderer/src/zoom/ZoomCard.tsx', 'src/main/settings.ts']
-      .every((f) => !/zugangEintragen|zugangWaehlen|sdkSchluesselEintragen|ZugangEingabe|SchluesselEingabe|zoomZugangSpeichern|zoomSdkSchluesselSpeichern/.test(read(f)))
+    ['src/main/zoom/kern.ts', 'src/main/zoom.ts', 'src/shared/ipc.ts', 'src/preload/index.ts', 'src/renderer/src/zoom/ZoomCard.tsx', 'src/main/settings.ts', 'src/shared/types.ts']
+      .every((f) => !/zugangEintragen|zugangWaehlen|sdkSchluesselEintragen|ZugangEingabe|SchluesselEingabe|zoomZugangSpeichern|zoomSdkSchluesselSpeichern/i.test(read(f)))
       && !existsSync(pfad('src/main/zoom/zugang-eingabe.ts')) && !existsSync(pfad('src/main/zoom/sdk-schluessel-eingabe.ts'))
       && read('src/renderer/src/zoom/ZoomCard.tsx').includes("'Zoom ist gesperrt, bis das Zoom-SDK eingerichtet ist.'"));
 }
