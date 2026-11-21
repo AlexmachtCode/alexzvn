@@ -3520,6 +3520,17 @@ function dialogBefunde(q: string): string[] {
   ck('P27 7, OF2, EP9, T9: Geräte — Häkchen JM-Rechner als Aktion, Fristen des alten Schlüssels (Katalog und Connect), kein Connect-Hinweis mehr, alte Launcher',
     geraete.includes("const r = await aktion({ aktion: 'geraet-markieren', gid, jm });") && geraete.includes('{altKeyTexte(daten).map((z) => (')
     && !geraete.includes('{REITER_TEXTE.connect}') && !geraete.includes('altKeyText(') && geraete.includes('{alteLauncherZeilen(daten).map((z) => ('));
+  {
+    const zaehle = (q: string, s: string): number => q.split(s).length - 1;
+    ck('RF Geräte: der Abschnitt Cloud-Räume liest raumZeilen(daten), steht zwischen Tabelle und „Alte Launcher“ und meldet über raumFreigabeMeldung',
+      geraete.includes('raumZeilen(daten)') && geraete.includes('REITER_TEXTE.raeumeTitel') && geraete.includes('REITER_TEXTE.raeumeErklaerung')
+      && geraete.includes('REITER_TEXTE.keineRaeume') && geraete.includes('raumFreigabeMeldung(')
+      && geraete.indexOf('REITER_TEXTE.raeumeTitel') > geraete.indexOf('</table>') && geraete.indexOf('REITER_TEXTE.raeumeTitel') < geraete.indexOf('REITER_TEXTE.alteLauncher'));
+    ck("RF Geräte: aktion: 'raum-freigeben' steht genau einmal, im Bestätigen-Knopf der Rückfrage; der Zeilenknopf setzt nur die Rückfrage",
+      zaehle(geraete, "aktion: 'raum-freigeben'") === 1
+      && geraete.indexOf("aktion: 'raum-freigeben'") > geraete.indexOf('variant="destructive"')
+      && /onClick=\{\(\) => setRueckfrage\(\{ raumHash: z\.raumHash, anzeige: z\.anzeige, frage: z\.frage \}\)\}/.test(geraete));
+  }
   ck('P27 G11: die Reiter bringen keinen eigenen Scrollbereich mit (einer je Dialog, in der Maske)',
     [iveo, anfragen, geraete].every((q) => q.length > 0 && !q.includes('overflow-y-auto'))
     // Fixrunde 1: kein Browser-Speicher in den Reitern (Token und Anfragen nur im Zustand).

@@ -239,6 +239,16 @@ export const REITER_TEXTE = {
   /** M46 */ gruppe: { katalog: 'Katalog und Updates', qa: 'Q&A extern', connect: 'Connect (Cloud-Raum, Zoom-SDK)' } as Readonly<Record<'katalog' | 'qa' | 'connect', string>>,
   /** M51 (Z2 Fixrunde 2, AR94 N1): Rechnername nach der Erlaubnisliste leer; der Wortlaut von B27 ohne „Rechner:“ */
   keinName: '(kein Name gemeldet)',
+  /** RF1 */ raeumeTitel: 'Cloud-Räume (Connect)',
+  /** RF2 */ raeumeErklaerung: 'Räume, die gerade einem Konto gehören. Freigeben, wenn jemand Connect beendet hat, ohne „Raum schließen“ zu drücken.',
+  /** RF3 */ keineRaeume: 'Kein Cloud-Raum ist gerade gebunden.',
+  /** RF4 */ raumZeile: (id: string, name: string, stufe: string, datum: string, zeit: string): string => `${id} · ${name} · ${stufe} · gebunden bis ${datum} ${zeit}`,
+  /** RF5 */ raumZeileOhneKonto: (id: string, datum: string, zeit: string): string => `${id} · unbekanntes Konto · gebunden bis ${datum} ${zeit}`,
+  /** RF6 */ raumFreigeben: 'Freigeben',
+  /** RF7 */ frageRaum: (id: string, name: string): string => `Raum „${id}“ von ${name} freigeben? Läuft der Raum dort noch, verliert ${name} ihn, sobald jemand anderes ihn öffnet.`,
+  /** RF7a */ frageRaumOhneKonto: (id: string): string => `Raum „${id}“ eines unbekannten Kontos freigeben? Läuft der Raum dort noch, geht er verloren, sobald jemand anderes ihn öffnet.`,
+  /** RF8 */ raumFrei: (id: string): string => `Raum „${id}“ ist frei.`,
+  /** RF9 */ raumWarFrei: 'Der Raum war schon frei.',
 } as const;
 
 /** M51 (AR94 N1): leerer oder nur aus Leerraum bestehender Rechnername → „(kein Name gemeldet)“; nur die Anzeige, die Daten bleiben. */
@@ -297,6 +307,31 @@ export function geraeteZeilen(u: AdminUebersicht): Array<{ gid: string; rechner:
       gid: g.gid, rechner: rechnerAnzeige(g.name), konto: konto(g.letztesKonto), kontakt: `${datumText(g.letzterKontakt)} ${zeitText(g.letzterKontakt)}`,
       version: g.version, plattform: `${g.plattform} · ${g.arch}`, jm: g.jm,
     }));
+}
+
+/**
+ * RF4, RF5, RF7, RF7a: gebundene Cloud-Räume von Connect, der früheste Ablauf zuerst. null, wenn der Worker kein `raeume` schickt
+ * (alter Worker; der Abschnitt entfällt). Die Raum-ID ist `raumId`, ohne sie die ersten 12 Zeichen des Hashes. Name und Stufe
+ * fehlen nur, wenn das Konto nicht mehr existiert (RF5, RF7a); ein Platzhalter-Wort steht nie im Text.
+ */
+export function raumZeilen(u: AdminUebersicht): Array<{ raumHash: string; anzeige: string; text: string; frage: string }> | null {
+  if (!u.raeume) return null;
+  return [...u.raeume]
+    .sort((x, y) => x.bis - y.bis)
+    .map((r) => {
+      const anzeige = r.raumId ?? r.raumHash.slice(0, 12);
+      const datum = datumText(r.bis);
+      const zeit = zeitText(r.bis);
+      if (r.name === null || r.stufe === null) {
+        return { raumHash: r.raumHash, anzeige, text: REITER_TEXTE.raumZeileOhneKonto(anzeige, datum, zeit), frage: REITER_TEXTE.frageRaumOhneKonto(anzeige) };
+      }
+      return { raumHash: r.raumHash, anzeige, text: REITER_TEXTE.raumZeile(anzeige, r.name, STUFE_TEXT[r.stufe], datum, zeit), frage: REITER_TEXTE.frageRaum(anzeige, r.name) };
+    });
+}
+
+/** RF8, RF9: Meldung nach „Freigeben“; `warFrei` heißt, der Raum war schon frei oder abgelaufen. */
+export function raumFreigabeMeldung(anzeige: string, e: AdminAktionErgebnis): string {
+  return e.warFrei === true ? REITER_TEXTE.raumWarFrei : REITER_TEXTE.raumFrei(anzeige);
 }
 
 /** M44a, M44b (EP9, OT5): Fristen der alten Schlüssel; ohne oder mit unlesbarem Enddatum die Diagnose „ohne Enddatum“. */

@@ -397,6 +397,7 @@ function uebergangUmgebung(o: { startMerker?: UebergangsMerker | null; schreibWi
   const huelle = les('../src/main/konto/huelle.ts');
   ck('Z1 G9, G4: huelle-kern.ts und show-offen.ts ohne electron-Import, ohne Konsole, ohne Dateizugriff',
     [kern, les('../src/main/show-offen.ts')].every((q) => !/from 'electron'|require\('electron'\)/.test(q) && !/console\./.test(q) && !/node:fs|writeFile/.test(q)));
+  ck('RF huelle: raum-freigeben in ADMIN_AKTIONEN', /const ADMIN_AKTIONEN: readonly string\[\] = \[[^\]]*'raum-freigeben'/.test(huelle));
   const admin = huelle.slice(huelle.indexOf('async function adminAktion('), huelle.indexOf('async function iveoEventsLaden('));
   ck('Z1 OE2: adminAktion weist iveo-hinterlegen mit einer Basis außerhalb der Liste VOR dem Senden ab (iveo-basis-unbekannt) und sendet die Normalform',
     admin.indexOf("a.aktion === 'iveo-hinterlegen'") > 0 && admin.indexOf('iveoHinterlegenBasis(a.basis, resolveIveoBaseUrl())') > admin.indexOf("a.aktion === 'iveo-hinterlegen'")

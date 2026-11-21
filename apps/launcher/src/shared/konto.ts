@@ -53,7 +53,9 @@ export interface AdminAnfrage { id: string; kid: string; name: string; email: st
 export interface AdminGeraet { gid: string; name: string; plattform: 'win' | 'mac'; arch: string; version: string; jm: boolean;
   ersterKontakt: number; letzterKontakt: number; letztesKonto: string | null }
 export interface AltKeyZeile { tag: string; gruppe: 'katalog' | 'qa' | 'connect'; plattform: string; anzahl: number; zuletzt: number }
-export interface AdminUebersicht { zugaenge: AdminZugang[]; iveo: AdminIveoEvent[]; anfragen: AdminAnfrage[]; geraete: AdminGeraet[];
+/** Ein gebundener Cloud-Raum von Connect (Admin-Freigabe); Name und Stufe sind null, wenn das Konto nicht mehr existiert. Nie Hashes von Freigaben. */
+export interface AdminRaum { raumHash: string; raumId: string | null; name: string | null; stufe: Stufe | null; seit: number | null; bis: number }
+export interface AdminUebersicht { zugaenge: AdminZugang[]; iveo: AdminIveoEvent[]; anfragen: AdminAnfrage[]; geraete: AdminGeraet[]; raeume?: AdminRaum[];
   altKey: { bis: string | null; diagnose: 'ohne-ende' | 'unlesbar' | null; zeilen: AltKeyZeile[];
     connect?: { bis: string | null; diagnose: 'ohne-ende' | 'unlesbar' | null } } }
 export type AdminAktion =
@@ -63,8 +65,9 @@ export type AdminAktion =
   | { aktion: 'iveo-hinterlegen'; basis: string; events: Array<{ slug: string; name: string }>; token: string }
   | { aktion: 'iveo-entfernen'; key: string }
   | { aktion: 'anfrage-freigeben'; id: string; bis: number } | { aktion: 'anfrage-ablehnen'; id: string }
-  | { aktion: 'geraet-markieren'; gid: string; jm: boolean };
-export interface AdminAktionErgebnis { ok: true; einladungscode?: string; codeBis?: number }
+  | { aktion: 'geraet-markieren'; gid: string; jm: boolean }
+  | { aktion: 'raum-freigeben'; raumHash: string };
+export interface AdminAktionErgebnis { ok: true; einladungscode?: string; codeBis?: number; warFrei?: boolean }
 
 /** K5: Namen der Stufen in Kopf, Konto-Dialog und Admin-Maske (Texttabelle 9.1). */
 export const STUFE_TEXT: Readonly<Record<Stufe, string>> = { admin: 'Admin', kollege: 'Kollege', externer: 'Externer' };

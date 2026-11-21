@@ -538,7 +538,7 @@ async function adminUebersicht(): Promise<KontoAdminAntwort> {
 }
 
 const ADMIN_AKTIONEN: readonly string[] = ['zugang-speichern', 'einladen', 'neuer-code', 'zugang-loeschen', 'entsperren',
-  'iveo-hinterlegen', 'iveo-entfernen', 'anfrage-freigeben', 'anfrage-ablehnen', 'geraet-markieren'];
+  'iveo-hinterlegen', 'iveo-entfernen', 'anfrage-freigeben', 'anfrage-ablehnen', 'geraet-markieren', 'raum-freigeben'];
 
 async function adminAktion(roh: unknown): Promise<KontoAdminAktionAntwort> {
   const a = roh as AdminAktion | null;

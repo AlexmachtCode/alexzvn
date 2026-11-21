@@ -7,10 +7,10 @@ import {
   ADMIN_TEXTE, adminKnopfSichtbar, einladeFormular, einladungsAnzeige, fehlerText, feldDatum, formularAusZugang, ladeFehlerText,
   loeschFrage, verlaengertBis, zugangDetails, zugangFormular, zugangZeilen,
   REITER_TEXTE, alteLauncherZeilen, altKeyTexte, anfrageFreigabe, anfrageZeilen, geraeteZeilen, iveoHinterlegen, iveoZeilen,
-  adminNachAktion, loeschenSchliesstDetail, vorauswahlNachLaden,
+  adminNachAktion, loeschenSchliesstDetail, vorauswahlNachLaden, raumZeilen, raumFreigabeMeldung,
 } from '../src/renderer/src/lib/admin-ansicht';
 import { datumText } from '../src/renderer/src/lib/konto-anzeige';
-import { ANMELDE_TEXTE } from '../src/renderer/src/lib/konto-dialog';
+import { ANMELDE_TEXTE, zeitText } from '../src/renderer/src/lib/konto-dialog';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -451,6 +451,62 @@ kreuz('Z1-L2: „Zugang löschen“ — Google-Konto wird gesperrt und bleibt si
     ['kein Ersetzen', v(ev, null, B), ''],
     ['leere Liste', v([], { basis: B, slug: 'cop31' }, B), ''],
   ]);
+}
+
+// --- Anmeldung Teil 2, Admin-Freigabe: Cloud-Räume (RF1–RF9, RF7a) ------------------------------------------------------------
+{
+  const T = REITER_TEXTE;
+  kreuz('RF Texte wörtlich', [
+    ['RF1', T.raeumeTitel, 'Cloud-Räume (Connect)'],
+    ['RF2', T.raeumeErklaerung, 'Räume, die gerade einem Konto gehören. Freigeben, wenn jemand Connect beendet hat, ohne „Raum schließen“ zu drücken.'],
+    ['RF3', T.keineRaeume, 'Kein Cloud-Raum ist gerade gebunden.'],
+    ['RF4', T.raumZeile('show-1a2b3c', 'Tom', 'Externer', '21.11.2026', '10:00'), 'show-1a2b3c · Tom · Externer · gebunden bis 21.11.2026 10:00'],
+    ['RF5', T.raumZeileOhneKonto('show-1a2b3c', '21.11.2026', '10:00'), 'show-1a2b3c · unbekanntes Konto · gebunden bis 21.11.2026 10:00'],
+    ['RF6', T.raumFreigeben, 'Freigeben'],
+    ['RF7', T.frageRaum('show-1a2b3c', 'Tom'), 'Raum „show-1a2b3c“ von Tom freigeben? Läuft der Raum dort noch, verliert Tom ihn, sobald jemand anderes ihn öffnet.'],
+    ['RF7a', T.frageRaumOhneKonto('show-1a2b3c'), 'Raum „show-1a2b3c“ eines unbekannten Kontos freigeben? Läuft der Raum dort noch, geht er verloren, sobald jemand anderes ihn öffnet.'],
+    ['RF8', T.raumFrei('show-1a2b3c'), 'Raum „show-1a2b3c“ ist frei.'],
+    ['RF9', T.raumWarFrei, 'Der Raum war schon frei.'],
+  ]);
+  const neue = [T.raeumeTitel, T.raeumeErklaerung, T.keineRaeume, T.raumZeile('a', 'b', 'c', 'd', 'e'), T.raumZeileOhneKonto('a', 'd', 'e'), T.raumFreigeben,
+    T.frageRaum('a', 'b'), T.frageRaumOhneKonto('a'), T.raumFrei('a'), T.raumWarFrei];
+  ck('RF Texte: kein ASCII-Anführungszeichen', neue.length === 10 && neue.every((t) => !t.includes('"')));
+  const bis1 = JETZT + 2 * TAG;
+  const bis2 = JETZT + TAG;
+  const mitRaeume = (raeume: NonNullable<AdminUebersicht['raeume']>): AdminUebersicht => ({ ...uebersicht([]), raeume });
+  const z = raumZeilen(mitRaeume([
+    { raumHash: 'h'.repeat(64), raumId: 'show-zwei', name: 'Erna', stufe: 'kollege', seit: JETZT - TAG, bis: bis1 },
+    { raumHash: 'g'.repeat(64), raumId: 'show-1a2b3c', name: 'Tom', stufe: 'externer', seit: JETZT - TAG, bis: bis2 },
+  ]));
+  kreuz('RF Zeilen', [
+    ['Reihenfolge nach bis', (z ?? []).map((r) => r.anzeige).join(','), 'show-1a2b3c,show-zwei'],
+    ['text', z?.[0]?.text ?? '', `show-1a2b3c · Tom · Externer · gebunden bis ${datumText(bis2)} ${zeitText(bis2)}`],
+    ['frage', z?.[0]?.frage ?? '', 'Raum „show-1a2b3c“ von Tom freigeben? Läuft der Raum dort noch, verliert Tom ihn, sobald jemand anderes ihn öffnet.'],
+    ['raumHash', z?.[0]?.raumHash ?? '', 'g'.repeat(64)],
+  ]);
+  const o = raumZeilen(mitRaeume([{ raumHash: 'g'.repeat(64), raumId: 'show-1a2b3c', name: null, stufe: null, seit: null, bis: bis2 }]));
+  kreuz('RF Zeilen und Rückfrage ohne Konto', [
+    ['text', o?.[0]?.text ?? '', `show-1a2b3c · unbekanntes Konto · gebunden bis ${datumText(bis2)} ${zeitText(bis2)}`],
+    ['frage', o?.[0]?.frage ?? '', 'Raum „show-1a2b3c“ eines unbekannten Kontos freigeben? Läuft der Raum dort noch, geht er verloren, sobald jemand anderes ihn öffnet.'],
+    ['kein null', String(/null/.test(`${o?.[0]?.text} ${o?.[0]?.frage}`)), 'false'],
+  ]);
+  const h = 'abcdef0123456789'.repeat(4);
+  const ohneId = raumZeilen(mitRaeume([{ raumHash: h, raumId: null, name: 'Tom', stufe: 'externer', seit: null, bis: bis2 }]));
+  kreuz('RF Raum ohne raumId', [
+    ['anzeige', ohneId?.[0]?.anzeige ?? '', h.slice(0, 12)],
+    ['text beginnt mit der Kurzform', String(ohneId?.[0]?.text.startsWith(`${h.slice(0, 12)} · Tom`)), 'true'],
+    ['kein null', String(/null/.test(`${ohneId?.[0]?.text} ${ohneId?.[0]?.frage}`)), 'false'],
+  ]);
+  kreuz('RF Worker ohne raeume', [
+    ['fehlt', String(raumZeilen(uebersicht([]))), 'null'],
+    ['leer', JSON.stringify(raumZeilen(mitRaeume([]))), '[]'],
+  ]);
+  kreuz('RF Meldung', [
+    ['frei gemacht', raumFreigabeMeldung('show-1a2b3c', { ok: true, warFrei: false }), 'Raum „show-1a2b3c“ ist frei.'],
+    ['ohne warFrei', raumFreigabeMeldung('show-1a2b3c', { ok: true }), 'Raum „show-1a2b3c“ ist frei.'],
+    ['war frei', raumFreigabeMeldung('show-1a2b3c', { ok: true, warFrei: true }), 'Der Raum war schon frei.'],
+  ]);
+  kreuz('RF Fehlertext', [['ungueltig', fehlerText('ungueltig', 'raum-freigeben'), ADMIN_TEXTE.ungueltig]]);
 }
 
 // ── Ende der Fälle (Admin-Maske) ──
