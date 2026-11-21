@@ -1681,6 +1681,7 @@ async function run() {
       const gerd = await rufeDo(m.speicher, 'konto-aus-google', { jetzt: T0, email: 'gerd@jakobsmedien.com', name: 'Gerd G' });
       await m.speicher.speichereKonto({ ...(await m.speicher.ladeKonto(gerd.kid)), zustand: 'gesperrt' });
       await m.aktion({ aktion: 'iveo-hinterlegen', basis: 'https://iveo.example', events: [await iveoEvent(S, 'tagung', 'Tagung', 'test-iveo-1')] });
+      await rufeDo(m.speicher, 'connect-inhaber', { jetzt: T0, raumHash: 'a'.repeat(64), raumId: 'show-1a2b3c', kidHash: '1'.repeat(64), gidHash: '2'.repeat(64), kid: 'k-ext', bisMs: T0 + 25 * 3600_000 });
       return { ...m, geraet, anfrage: a.anfrage.id, maria: maria.kid, gerd: gerd.kid };
     };
     const faelle = [
@@ -1695,6 +1696,7 @@ async function run() {
       { name: 'anfrage-freigeben', a: (v) => ({ aktion: 'anfrage-freigeben', id: v.anfrage, bis: T0 + 3 * TAG }), was: 'anfrage-freigeben', wen: 'technik@firma.example' },
       { name: 'anfrage-ablehnen', a: (v) => ({ aktion: 'anfrage-ablehnen', id: v.anfrage }), was: 'anfrage-ablehnen', wen: 'technik@firma.example' },
       { name: 'geraet-markieren', a: (v) => ({ aktion: 'geraet-markieren', gid: v.geraet.gid, jm: true }), was: 'geraet-markieren', wen: 'Laptop Tom' },
+      { name: 'raum-freigeben', a: () => ({ aktion: 'raum-freigeben', raumHash: 'a'.repeat(64) }), was: 'raum-freigeben', wen: 'show-1a2b3c' },
       { name: 'abgelehnt: ungültig', a: () => ({ aktion: 'zugang-speichern', kid: 'k-ext', stufe: 'chef', tools: [], events: [], bis: null, zoomBis: null }), was: null },
       { name: 'abgelehnt: kein Admin', a: () => ({ aktion: 'geraet-markieren', gid: 'x', jm: true }), von: 'k-ext', was: null },
     ];
@@ -2471,7 +2473,7 @@ async function run() {
     const HEX = (c) => c.repeat(64);
     const { speicher: sp, ctx } = neuerSpeicher({});
     const kid1 = (await legeExternenAn(sp)).kid;
-    const ci = (b) => rufeDo(sp, 'connect-inhaber', { jetzt: T0, bisMs: T0 + 25 * 3600_000, ...b });
+    const ci = (b) => rufeDo(sp, 'connect-inhaber', { jetzt: T0, bisMs: T0 + 25 * 3600_000, raumId: 'show-1a2b3c', ...(b.kidHash ? { kid: kid1 } : {}), ...b });
     const ueb = async (envMehr) => (await mitAdmin({ ERSTER_ADMIN: ERSTE, ...envMehr })).uebersicht(T0);
     const logEintraege = () => [...ctx.daten].filter(([k]) => k.startsWith('log:')).map(([, v]) => v);
     await pruefeFaelle('T2 OT7: connect-inhaber bindet die erste Freigabe, danach Konto ODER Rechner', [
@@ -2498,6 +2500,87 @@ async function run() {
         && logEintraege().filter((e) => e.was === 'zoom-jwt').length === 1
         && JSON.stringify(logEintraege().find((e) => e.was === 'zoom-jwt').details) === JSON.stringify({ kid: kid1, gid: 'g-test' })
         && (await rufeDo(sp, 'zoom-jwt-protokoll', { jetzt: T0, kid: '', gid: 'g-test' })).http === 400);
+  }
+
+  // ── RF: Admin-Freigabe gebundener Cloud-Räume (Anmeldung Teil 2, Nachtrag) ──
+  {
+    const HEX = (c) => c.repeat(64);
+    const H = 3600_000;
+    const RAUM = 'show-1a2b3c';
+    const m = await mitAdmin();
+    const ext = await legeExternenAn(m.speicher);
+    const ci = (b) => rufeDo(m.speicher, 'connect-inhaber', { jetzt: T0, bisMs: T0 + 25 * H, raumId: RAUM, ...b });
+    const bindA = (o = {}) => ci({ raumHash: HEX('a'), kidHash: HEX('1'), gidHash: HEX('2'), kid: ext.kid, ...o });
+    const log = () => [...m.ctx.daten].filter(([k]) => k.startsWith('log:')).map(([, v]) => v).filter((e) => e.was === 'raum-freigeben');
+    const frei = (raumHash, jetzt = T0) => m.aktion({ aktion: 'raum-freigeben', raumHash }, jetzt);
+    const gespeichert = (c) => m.ctx.daten.get(`connect:${HEX(c)}`);
+
+    await bindA();
+    const e1 = { ...gespeichert('a') };
+    const lang = await bindA({ jetzt: T0 + 2 * H });
+    const e2 = gespeichert('a');
+    check('RF Bindung speichert raumId, kid, seit',
+      gleich(Object.keys(e1).sort(), ['bis', 'gidHash', 'kid', 'kidHash', 'raumId', 'seit']) === null
+        && e1.seit === T0 && e1.raumId === RAUM && e1.kid === ext.kid
+        && lang.http === 200 && e2.raumId === RAUM && e2.kid === ext.kid && e2.seit === T0);
+
+    await pruefeFaelle('RF connect-inhaber prüft raumId und kid', [
+      { name: 'ohne raumId', b: { raumId: undefined } },
+      { name: 'raumId zu kurz', b: { raumId: 'kurz' } },
+      { name: 'raumId mit Schrägstrich', b: { raumId: 'a/b-123456' } },
+      { name: 'raumId mit 65 Zeichen', b: { raumId: 'x'.repeat(65) } },
+      { name: 'kidHash ohne kid', b: { kid: undefined } },
+      { name: 'kid ohne kidHash', b: { kidHash: undefined, gidHash: undefined } },
+    ], async (f) => {
+      const r = await ci({ raumHash: HEX('c'), kidHash: HEX('1'), gidHash: HEX('2'), kid: ext.kid, ...f.b });
+      return gleich([r.http, r.code, gespeichert('c')], [400, 'ungueltig', undefined]);
+    });
+    const alt = await ci({ raumHash: HEX('c') });
+    check('RF connect-inhaber: alter Schlüssel mit gültiger raumId auf freiem Raum → 200, nichts gespeichert', alt.http === 200 && gespeichert('c') === undefined);
+
+    const q = await rufeDo(m.speicher, 'qa-inhaber', { jetzt: T0, eventHash: HEX('d'), kidHash: HEX('1'), gidHash: HEX('2'), bisMs: T0 + TAG });
+    check('RF qa-inhaber unverändert', q.neu === true && gleich(Object.keys(m.ctx.daten.get(`qa:${HEX('d')}`)).sort(), ['bis', 'gidHash', 'kidHash']) === null);
+
+    await ci({ raumHash: HEX('b'), raumId: 'show-zweit-9', kidHash: HEX('3'), gidHash: HEX('4'), kid: 'k-gibts-nicht', bisMs: T0 + 3 * H });
+    const u = await m.uebersicht(T0 + 1000);
+    const ohneKonto = u.raeume.filter((x) => x.raumId === 'show-zweit-9');
+    check('RF Übersicht ohne Konto', ohneKonto.length === 1 && ohneKonto[0].name === null && ohneKonto[0].stufe === null);
+    await ci({ raumHash: HEX('e'), raumId: 'show-frueh-1', kidHash: HEX('5'), gidHash: HEX('6'), kid: ext.kid, bisMs: T0 + H });
+    const u2 = await m.uebersicht(T0 + 1000);
+    const roh = JSON.stringify(u2.raeume);
+    check('RF Übersicht listet gültige Bindungen',
+      gleich(u2.raeume.map((x) => x.raumId), ['show-frueh-1', 'show-zweit-9', RAUM]) === null
+        && u2.raeume.every((x) => gleich(Object.keys(x).sort(), ['bis', 'name', 'raumHash', 'raumId', 'seit', 'stufe']) === null)
+        && gleich(u2.raeume[0], { raumHash: HEX('e'), raumId: 'show-frueh-1', name: ext.name, stufe: 'externer', seit: T0, bis: T0 + H }) === null
+        && !roh.includes(HEX('1')) && !roh.includes(HEX('2')) && !roh.includes(HEX('5')));
+
+    await ci({ raumHash: HEX('f'), raumId: 'show-abgelaufen', kidHash: HEX('1'), gidHash: HEX('2'), kid: ext.kid, bisMs: T0 + 1000 });
+    const uAb = await m.uebersicht(T0 + 2000);
+    const rAb = await frei(HEX('f'), T0 + 2000);
+    check('RF abgelaufen', !uAb.raeume.some((x) => x.raumId === 'show-abgelaufen') && rAb.ok === true && rAb.warFrei === true && gespeichert('f') === undefined);
+
+    const r1 = await frei(HEX('a'));
+    const log1 = log().filter((e) => e.details.raumHash === HEX('a'));
+    const neuB = await ci({ raumHash: HEX('a'), kidHash: HEX('8'), gidHash: HEX('9'), kid: ext.kid, jetzt: T0 + 5 * 60_000 });
+    check('RF freigeben löst nur die Bindung', r1.ok === true && r1.warFrei === false && neuB.neu === true && gespeichert('a')?.seit === T0 + 5 * 60_000 && gespeichert('b')?.raumId === 'show-zweit-9');
+    const aZu = await ci({ raumHash: HEX('a'), kidHash: HEX('1'), gidHash: HEX('2'), kid: ext.kid, loesen: true });
+    check('RF A schließt nach Freigabe', aZu.http === 403 && aZu.code === 'raum-vergeben' && gespeichert('a')?.kidHash === HEX('8'));
+
+    const z1 = await frei(HEX('b'));
+    const z2 = await frei(HEX('b'));
+    check('RF zweimal', z1.warFrei === false && z2.warFrei === true && log().filter((e) => e.details.raumHash === HEX('b')).length === 2);
+
+    const erste = log1[0];
+    check('RF Protokoll ohne Geheimnis',
+      erste.wen === RAUM && gleich(Object.keys(erste.details).sort(), ['kid', 'raumHash', 'raumId', 'warFrei']) === null
+        && gleich(erste.details, { raumHash: HEX('a'), raumId: RAUM, kid: ext.kid, warFrei: false }) === null
+        && !JSON.stringify(erste).includes(HEX('1')) && !JSON.stringify(erste).includes(HEX('2')));
+
+    const koll = await legeExternenAn(m.speicher, { kid: 'k-kollege', email: 'koll@firma.example', stufe: 'kollege' });
+    const vonExt = await m.aktion({ aktion: 'raum-freigeben', raumHash: HEX('a') }, T0, ext.kid);
+    const vonKoll = await m.aktion({ aktion: 'raum-freigeben', raumHash: HEX('a') }, T0, koll.kid);
+    const ung = await frei('xyz');
+    check('RF ungültiger Hash', ung.http === 400 && ung.code === 'ungueltig' && vonExt.http === 403 && vonExt.code === 'kein-recht' && vonKoll.http === 403 && vonKoll.code === 'kein-recht');
   }
 
   // ── Ende der Fälle ──

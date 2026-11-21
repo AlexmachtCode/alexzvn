@@ -97,9 +97,11 @@ const K = {
   fehlEmail: (hash) => `fehl-email:${hash}`,
   /** Inhaber eines Q&A-Events (Z3): nur der SHA-256 der Event-ID mit eigenem Präfix, nie die Event-ID selbst. */
   qaInhaber: (eventHash) => `qa:${eventHash}`,
-  /** Inhaber eines Cloud-Raums von Connect (Anmeldung Teil 2): nur der SHA-256 der Raum-ID mit eigenem Präfix. */
+  /** Inhaber eines Cloud-Raums von Connect (Anmeldung Teil 2): Schlüssel nur mit dem SHA-256 der Raum-ID; der Eintrag trägt zusätzlich die Raum-ID und die Kennung des Kontos im Klartext (für die Admin-Übersicht), nie Freigabe oder Token. */
   connectInhaber: (raumHash) => `connect:${raumHash}`,
 };
+/** Format der Raum-ID von Connect, wie `ID_RE` in connect-relay.js. */
+const RAUM_ID_RE = /^[A-Za-z0-9_-]{6,64}$/;
 /** Q&A-Inhaber: so lange höchstens aufbewahren (Obergrenze für `bis`). */
 const QA_INHABER_MAX_MS = 30 * TAG_MS;
 /** `bis` eines Q&A-Inhabers wird nur verlängert, wenn es um mehr als so viel wächst. Muss kleiner sein als der Puffer des Absenders (QA.bisPufferMs, 1 h in qa-relay.js), damit `bis` nie unter Meta-Ende + Puffer − Schritt fällt (AR89). */
@@ -229,6 +231,7 @@ const ADMIN_AKTIONEN = {
   'anfrage-freigeben': 'anfrageFreigeben',
   'anfrage-ablehnen': 'anfrageAblehnen',
   'geraet-markieren': 'geraetMarkieren',
+  'raum-freigeben': 'raumFreigeben',
 };
 
 const B64URL = /^[A-Za-z0-9_-]+$/;
@@ -1070,12 +1073,19 @@ export class KontoSpeicher {
   }
 
   /**
-   * Aktion `connect-inhaber` `{ raumHash, kidHash?, gidHash?, bisMs, loesen? }` (Anmeldung Teil 2, E3): wem gehört ein Cloud-Raum
-   * von Connect? Gleiche Regeln wie `qa-inhaber` (Schlüssel `connect:<raumHash>`), Ablehnung 403 `raum-vergeben`. `loesen: true`
-   * (Raum geschlossen) braucht beide Hashes: kein Inhaber → ok; kidHash ODER gidHash gleich → Eintrag gelöscht; sonst 403.
+   * Aktion `connect-inhaber` `{ jetzt, raumHash, raumId, kidHash?, gidHash?, kid?, bisMs, loesen? }` (Anmeldung Teil 2, E3): wem gehört
+   * ein Cloud-Raum von Connect? Gleiche Regeln wie `qa-inhaber` (Schlüssel `connect:<raumHash>`), Ablehnung 403 `raum-vergeben`.
+   * `loesen: true` (Raum geschlossen) braucht beide Hashes: kein Inhaber → ok; kidHash ODER gidHash gleich → Eintrag gelöscht; sonst 403.
+   * `raumId` (Pflicht, `^[A-Za-z0-9_-]{6,64}$`) und `kid` (1–128 Zeichen, genau dann, wenn `kidHash` da ist) stehen im Klartext im
+   * Eintrag, damit die Admin-Übersicht den Raum nennen kann; dazu `seit` (Zeit der Bindung). Eine Verlängerung behält alle drei.
    */
   async connectInhaber(b, jetzt) {
-    return this.inhaberSetzen(HEX64.test(b.raumHash) ? K.connectInhaber(b.raumHash) : null, b, jetzt, 'raum-vergeben', b.loesen === true);
+    const kidOk = b.kidHash === undefined ? b.kid === undefined : typeof b.kid === 'string' && b.kid.length >= 1 && b.kid.length <= 128;
+    if (typeof b.raumId !== 'string' || !RAUM_ID_RE.test(b.raumId) || !kidOk) return fehler('ungueltig', 400);
+    return this.inhaberSetzen(HEX64.test(b.raumHash) ? K.connectInhaber(b.raumHash) : null, b, jetzt, 'raum-vergeben', b.loesen === true, {
+      raumId: b.raumId,
+      kid: b.kid ?? null,
+    });
   }
 
   /**
@@ -1089,8 +1099,8 @@ export class KontoSpeicher {
     return { ok: true };
   }
 
-  /** Gemeinsamer Kern von `qa-inhaber` und `connect-inhaber`: `key` null heißt ungültige Eingabe (Hash-Feld); `code` ist der Ablehnungscode. */
-  async inhaberSetzen(key, b, jetzt, code, loesen = false) {
+  /** Gemeinsamer Kern von `qa-inhaber` und `connect-inhaber`: `key` null heißt ungültige Eingabe (Hash-Feld); `code` ist der Ablehnungscode; `zusatz` (nur Connect) und `seit` kommen nur bei einer neuen Bindung in den Eintrag. */
+  async inhaberSetzen(key, b, jetzt, code, loesen = false, zusatz = null) {
     const mitKid = b.kidHash !== undefined;
     const mitGid = b.gidHash !== undefined;
     if (key === null || mitKid !== mitGid || (mitKid && !(HEX64.test(b.kidHash) && HEX64.test(b.gidHash))) || !Number.isFinite(b.bisMs)) {
@@ -1113,7 +1123,7 @@ export class KontoSpeicher {
     const bis = Math.min(b.bisMs, jetzt + QA_INHABER_MAX_MS);
     if (!inhaber) {
       if (!mitKid) return { ok: true, inhaber: null, neu: false };
-      inhaber = { kidHash: b.kidHash, gidHash: b.gidHash, bis };
+      inhaber = { kidHash: b.kidHash, gidHash: b.gidHash, bis, ...(zusatz ? { ...zusatz, seit: jetzt } : {}) };
       await st.put(key, inhaber);
       return { ok: true, inhaber, neu: true };
     }
@@ -1199,6 +1209,21 @@ export class KontoSpeicher {
         letztesKonto: g.letztesKonto ?? null,
       }))
       .sort((x, y) => y.letzterKontakt - x.letzterKontakt);
+    // Gebundene Cloud-Räume (nur lesen: abgelaufene löscht der Tages-Alarm). Nie kidHash/gidHash in die Antwort.
+    const raeume = [...(await st.list({ prefix: 'connect:' })).entries()]
+      .filter(([, e]) => e && e.bis >= jetzt)
+      .map(([key, e]) => {
+        const k = typeof e.kid === 'string' ? nachKid.get(e.kid) : undefined;
+        return {
+          raumHash: key.slice('connect:'.length),
+          raumId: e.raumId ?? null,
+          name: k ? k.name || k.email : null,
+          stufe: k ? this.stufeVon(k) : null,
+          seit: e.seit ?? null,
+          bis: e.bis,
+        };
+      })
+      .sort((x, y) => x.bis - y.bis || String(x.raumId).localeCompare(String(y.raumId)));
     const frist = alterKeyGilt(this.env, 'katalog', jetzt);
     const fristConnect = alterKeyGilt(this.env, 'connect', jetzt);
     const zeilen = [...(await st.list({ prefix: 'altkey:', reverse: true })).values()].map((z) => ({
@@ -1208,7 +1233,7 @@ export class KontoSpeicher {
       anzahl: z.anzahl,
       zuletzt: z.zuletzt,
     }));
-    return { ok: true, zugaenge, iveo, anfragen, geraete: geraeteListe, altKey: { bis: frist.bis, diagnose: frist.diagnose, zeilen, connect: { bis: fristConnect.bis, diagnose: fristConnect.diagnose } } };
+    return { ok: true, zugaenge, iveo, anfragen, geraete: geraeteListe, raeume, altKey: { bis: frist.bis, diagnose: frist.diagnose, zeilen, connect: { bis: fristConnect.bis, diagnose: fristConnect.diagnose } } };
   }
 
   /**
@@ -1415,6 +1440,28 @@ export class KontoSpeicher {
     await this.ctx.storage.put(K.geraet(geraet.gid), geraet);
     await this.protokolliere({ am: jetzt, wer, was: 'geraet-markieren', wen: geraet.name, details: { gid: geraet.gid, jm: a.jm } });
     return { ok: true };
+  }
+
+  /**
+   * `raum-freigeben` `{ raumHash }` → `{ ok, warFrei }`: löscht die Bindung eines Cloud-Raums von Connect (Admin-Freigabe nach einem
+   * Absturz). `warFrei` ist true, wenn es keinen gültigen Eintrag gab (keiner oder abgelaufen); gelöscht wird in beiden Fällen.
+   * Zwischen Lesen und Löschen kein await auf etwas anderes als den Speicher. Protokoll: Raum-ID und Kennung, nie die Hashes.
+   */
+  async raumFreigeben(a, wer, jetzt) {
+    if (typeof a.raumHash !== 'string' || !HEX64.test(a.raumHash)) return fehler('ungueltig', 400);
+    const st = this.ctx.storage;
+    const key = K.connectInhaber(a.raumHash);
+    const eintrag = (await st.get(key)) ?? null;
+    const warFrei = !eintrag || !(eintrag.bis >= jetzt);
+    await st.delete(key);
+    await this.protokolliere({
+      am: jetzt,
+      wer,
+      was: 'raum-freigeben',
+      wen: eintrag?.raumId ?? '',
+      details: { raumHash: a.raumHash, raumId: eintrag?.raumId ?? null, kid: eintrag?.kid ?? null, warFrei },
+    });
+    return { ok: true, warFrei };
   }
 
   // ── Ende der Methoden ──
