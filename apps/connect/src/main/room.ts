@@ -7,6 +7,7 @@
 // (`zugang/huelle`) eine Freigabe des Launchers für genau diese Raum-ID und schickt sie als Bearer. Nur im Übergang gilt
 // weiter der alte Proxy-Key (JMPS_PROXY_KEY oder hinterlegt); ohne beides wirft openRoom mit dem Grund des Launchers.
 // Die Adresse gibt der Operator in der Oberfläche ein (`settings.ts`); JMPS_PROXY_URL überschreibt sie (Dev-Workflow).
+import { getLog } from '@jm/app-runtime';
 import { mintJoinToken, randomEventSecret, randomId } from '@jm/rtc/token';
 import { dropRoomSecret, loadRoomSecret, saveRoomSecret } from './secrets';
 import { proxyKey, proxyUrl } from './settings';
@@ -56,7 +57,7 @@ export function currentRoom(): string | null {
 export async function openRoom(room?: string, nowMs = Date.now()): Promise<RoomSession> {
   const { base } = proxyConfig();
   if (!base) {
-    throw new Error('Cloud-Proxy nicht konfiguriert (JMPS_PROXY_URL).');
+    throw new Error('Cloud-Proxy nicht konfiguriert (JMPS_PROXY_URL / JMPS_PROXY_KEY).');
   }
   // Idempotent: ohne expliziten Raum den bereits offenen weiterverwenden, statt bei jedem
   // Klick einen neuen Zufallsraum zu erzeugen (sonst landen Gast und Operator in verschiedenen
@@ -146,12 +147,18 @@ export async function closeRoom(): Promise<void> {
   if (current && base) {
     try {
       const w = await zugangsHalter().zugang('connect-raum', current.room);
-      if (w.art !== 'keiner') {
+      if (w.art === 'keiner') {
+        getLog().warn('[connect] Raum schließen: kein Zugang');
+      } else {
         const res = await fetch(`${base}/connect/${encodeURIComponent(current.room)}`, { method: 'DELETE', headers: zugangsKopf('connect-raum', w) });
-        if (!res.ok) await meldeAntwort(w, res);
+        if (!res.ok) {
+          const code = await meldeAntwort(w, res);
+          getLog().warn(`[connect] Raum schließen: Proxy ${res.status}${code ? ` ${code}` : ''}`);
+        }
       }
     } catch {
-      /* Schließen ist best effort: der Raum läuft über seine Aufbewahrung ab, das lokale Secret fällt trotzdem */
+      // Best effort, aber nicht stumm: der Raum bleibt sonst bis zum Ablauf an dieses Konto gebunden. Nur ein fester Text, nie die Ausnahme (sie könnte Kopfzeilen tragen).
+      getLog().warn('[connect] Raum schließen: Ausnahme');
     }
   }
   if (current) dropRoomSecret(current.room);

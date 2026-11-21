@@ -16,7 +16,8 @@ interface Halter {
   antwort(zweck: ConnectZweck, w: ZugangsWahl, status: number, code: string | null): void;
   lage(zweck: ConnectZweck): ZugangsLage;
 }
-const g = globalThis as unknown as { __halter: Halter; __userData: string };
+const g = globalThis as unknown as { __halter: Halter; __userData: string; __logs: string[] };
+g.__logs = [];
 g.__userData = mkdtempSync(join(tmpdir(), 'jmc-raum-'));
 const LAGE: ZugangsLage = { wahl: 'keiner', konto: null, bis: null, letzterGrund: 'niemand-angemeldet', detail: null, altHerkunft: 'none', altAbgelehnt: false, versucht: true, geloescht: false };
 const halter: Halter = {
@@ -37,7 +38,7 @@ export const safeStorage = {
   decryptString: (b) => b.toString().slice(2),
 };`;
 const LOG = `const n = () => {};
-export const getLog = () => ({ error: n, warn: n, info: n });`;
+export const getLog = () => ({ error: n, warn: (...a) => globalThis.__logs.push(a.join(' ')), info: n });`;
 const HUELLE = `export const zugangsHalter = () => globalThis.__halter;
 export const beiZugangsAenderung = () => {};`;
 registerHooks({
@@ -105,13 +106,40 @@ ck('T12: Raum schließen schickt DELETE mit demselben Zugang für den offenen Ra
 zuruecksetzen();
 halter.wahl = { art: 'alter-key', key: 'test-alter-key' };
 await room.openRoom('show');
-ck('T12 OT10: ohne Freigabe, mit altem Key → X-Proxy-Key', anfragen.length === 1 && anfragen[0].headers['X-Proxy-Key'] === 'test-alter-key' && !('Authorization' in anfragen[0].headers));
+const altKeyOk = anfragen.length === 1 && anfragen[0].headers['X-Proxy-Key'] === 'test-alter-key' && !('Authorization' in anfragen[0].headers);
 await room.closeRoom();
 zuruecksetzen();
 halter.wahl = { art: 'keiner' };
 const keiner = await fehlerVon(room.openRoom('show'));
-ck('T12 OT10: ohne beides → Fehler CZ7 mit Grundtext, keine Anfrage',
-  keiner === ZUGANG_TEXT.raumNicht(grundText('connect-raum', 'niemand-angemeldet', null)) && anfragen.length === 0);
+ck('T12 OT10: ohne Freigabe, mit altem Key → X-Proxy-Key; ohne beides → Fehler CZ7 mit Grundtext, keine Anfrage',
+  altKeyOk && keiner === ZUGANG_TEXT.raumNicht(grundText('connect-raum', 'niemand-angemeldet', null)) && anfragen.length === 0);
+
+// ── Schließen scheitert: best effort, aber genau eine Logzeile ohne Geheimnis ──
+const sauber = (z: string): boolean => !z.includes('jm1.') && !z.includes('test-alter-key') && !/bearer|x-proxy-key/i.test(z);
+async function schliessenMitFehler(vorbereiten: () => void): Promise<{ wirft: boolean; zeilen: string[] }> {
+  zuruecksetzen();
+  halter.wahl = FREIGABE;
+  await room.openRoom('show');
+  zuruecksetzen();
+  g.__logs.length = 0;
+  vorbereiten();
+  let wirft = false;
+  try { await room.closeRoom(); } catch { wirft = true; }
+  return { wirft, zeilen: [...g.__logs] };
+}
+const l403 = await schliessenMitFehler(() => { antwortStatus = 403; antwortBody = { code: 'raum-vergeben' }; });
+ck('T12 Schliessen: 403 beim DELETE → eine Logzeile mit Status und Code, kein Geheimnis, kein Wurf',
+  !l403.wirft && l403.zeilen.length === 1 && l403.zeilen[0] === '[connect] Raum schließen: Proxy 403 raum-vergeben' && sauber(l403.zeilen[0]));
+const l500 = await schliessenMitFehler(() => { antwortStatus = 500; });
+ck('T12 Schliessen: 500 beim DELETE → eine Logzeile mit Status, kein Wurf', !l500.wirft && l500.zeilen.length === 1 && l500.zeilen[0] === '[connect] Raum schließen: Proxy 500' && sauber(l500.zeilen[0]));
+const lKeiner = await schliessenMitFehler(() => { halter.wahl = { art: 'keiner' }; });
+ck('T12 Schliessen: ohne Zugang → eine Logzeile, keine Anfrage, kein Wurf', !lKeiner.wirft && lKeiner.zeilen.length === 1 && lKeiner.zeilen[0] === '[connect] Raum schließen: kein Zugang' && anfragen.length === 0 && sauber(lKeiner.zeilen[0]));
+const lAusnahme = await schliessenMitFehler(() => { halter.wahl = { art: 'alter-key', key: 'test-alter-key' }; globalThis.fetch = (async () => { throw new Error('Kopf X-Proxy-Key test-alter-key'); }) as typeof fetch; });
+ck('T12 Schliessen: Ausnahme → eine Logzeile ohne die Ausnahmemeldung, kein Wurf', !lAusnahme.wirft && lAusnahme.zeilen.length === 1 && lAusnahme.zeilen[0] === '[connect] Raum schließen: Ausnahme' && sauber(lAusnahme.zeilen[0]));
+globalThis.fetch = (async (url: string, init?: { method?: string; headers?: Record<string, string> }) => {
+  anfragen.push({ url: String(url), method: init?.method ?? 'GET', headers: { ...(init?.headers ?? {}) } });
+  return new Response(JSON.stringify(antwortBody), { status: antwortStatus, headers: { 'content-type': 'application/json' } });
+}) as typeof fetch;
 
 zuruecksetzen();
 halter.wahl = FREIGABE;
