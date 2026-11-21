@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { AppShell } from '@jm/ui';
 import { enthaelt, gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
-import { SWITCHER_TEXTE, onAirKopf } from '@/lib/oberflaeche';
+import { SWITCHER_TEXTE, UNTEN_OFFEN_AB, onAirKopf, untenStartOffen } from '@/lib/oberflaeche';
 import { SwitcherRahmen } from '@/views/SwitcherOberflaeche';
 import { Werkzeugleiste } from '@/views/Werkzeugleiste';
 import { attr, basisStand, ohneKommentare, statusEintraege, tags, text } from './testzustand';
@@ -157,19 +157,37 @@ const rahmen = (anfangOffen = false): string =>
     zeile.includes('fixed') && zeile.includes('bottom-[calc(var(--statusbar-h)') && !/\bbottom-5\b/.test(zeile),
     'SW Rahmen Toast über der Statusleiste: Der Hinweis-Toast sitzt um die Höhe der Statusleiste höher (--statusbar-h), nicht auf ihr',
   );
-  // Mindesthöhe 720 (main/index.ts): Kopf + Toolbar + Statusleiste + feste Höhen des Mischers lassen den Monitoren Platz.
+  // Mindesthöhe 720 (main/index.ts) ist die Außenhöhe samt Fensterrahmen (default frame): Titelleiste 31 + unterer Rand 8 = 39 px
+  // (Windows bei 100 %; Annahme, nicht gemessen) → 681 px Inhalt. Davon gehen ab: Kopf, Toolbar, Statusleiste (sizes.css) und im
+  // Mischer Monitor-Rand, Haupttasten (Taste mit zweizeiligem Grund), Ausgabeleiste und das untere Panel (Collapsible).
   const groessen = leseText('../../packages/ui/src/tokens/sizes.css');
   const px = (name: string): number => Number(new RegExp(`--${name}:\\s*(\\d+)px`).exec(groessen)?.[1]);
   const main = leseText('src/main/index.ts');
   const minHoehe = Number(/minHeight:\s*(\d+)/.exec(main)?.[1]);
+  const rahmen39 = 31 + 8;
+  const inhalt720 = minHoehe - rahmen39;
   const toolbar = 12 + 32 + 1; // py-1.5 beidseits + Button sm (h-8) + border-b
+  const randMonitor = 40; // py-5 des Monitor-Bereichs
+  const taste = 16 + 23 + 4 + 33; // py-2 beidseits + Beschriftung 15 px (Zeile 23) + gap-1 + Grund 11 px in zwei Zeilen
+  const haupttasten = taste + 12; // pb-3
   const ausgabeLeiste = 56; // h-14
-  const unten = 300 + 1; // h-[300px] + border-t
-  const rand = 40; // py-5 des Monitor-Bereichs
-  const monitor = minHoehe - px('header-h') - toolbar - px('statusbar-h') - ausgabeLeiste - unten - rand;
+  const untenZu = 1 + 16 + 15; // border-t + py-2 beidseits + Kopfzeile des Collapsible
+  const untenOffen = untenZu + 10 + 300; // space-y-2.5 + h-[300px]
+  const fest = px('header-h') + toolbar + px('statusbar-h') + randMonitor + haupttasten + ausgabeLeiste;
+  const monitorZu = inhalt720 - fest - untenZu;
+  const monitorOffen = inhalt720 - fest - untenOffen;
+  const brauchbar = 180; // 16:9 bei 320 px Breite, gut die Hälfte der Monitorbreite (rund 500 px) im Mindestfenster 1120 px
   ok(
-    view.includes('h-[300px]') && view.includes('px-6 h-14') && monitor >= 200,
-    `SW Rahmen Mindesthöhe: bei ${minHoehe} px bleiben ${monitor} px für die Monitore (vorher 217 px mit Projekt-Leiste und 64-px-Kopf); das untere Panel bleibt fest`,
+    view.includes('h-[300px]') && view.includes('px-6 h-14') && minHoehe === 720,
+    `SW Rahmen Mindesthöhe: das untere Panel hat 300 px Inhalt, die Ausgabeleiste 56 px (Mindesthöhe ${minHoehe})`,
+  );
+  ok(
+    monitorOffen < brauchbar && monitorZu >= brauchbar,
+    `SW Rahmen Mindesthöhe: bei ${minHoehe} px außen (${inhalt720} px Inhalt) blieben bei offenem Panel ${monitorOffen} px für die Monitore (unbrauchbar, < ${brauchbar}), bei zugeklapptem ${monitorZu} px`,
+  );
+  ok(
+    !untenStartOffen(inhalt720) && untenStartOffen(UNTEN_OFFEN_AB) && UNTEN_OFFEN_AB - fest - untenOffen >= brauchbar,
+    `SW Rahmen Mindesthöhe: bei ${inhalt720} px Inhalt startet das untere Panel zu; ab ${UNTEN_OFFEN_AB} px offen bleiben ${UNTEN_OFFEN_AB - fest - untenOffen} px für die Monitore (≥ ${brauchbar})`,
   );
 }
 

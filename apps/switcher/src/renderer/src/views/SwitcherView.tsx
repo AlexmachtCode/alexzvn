@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, cn } from '@jm/ui';
+import { Button, cn, Collapsible } from '@jm/ui';
 import type { NdiStatus, NdiVideoMessage, ScreenSourceInfo } from '@shared/types';
 import { emptyContent, makeEmptyProject, type SwitcherProject } from '@shared/project';
 import {
@@ -14,7 +14,8 @@ import { OutputController, type OutputState } from '@/core/output';
 import { NdiOutputController, type NdiOutputState } from '@/core/ndiOutput';
 import { ScreenOutputController } from '@/core/screenOutput';
 import { AudioController, type AudioState } from '@/core/audio';
-import { ABSCHNITT, type FrameMeldung } from '@/lib/oberflaeche';
+import { ABSCHNITT, hauptTasten, untenStartOffen, type FrameMeldung } from '@/lib/oberflaeche';
+import { Haupttasten, liveTasten } from './LiveBereich';
 import { useSettings, RESOLUTIONS } from '@/store/settings';
 
 const PALETTE = ['#1d4ed8', '#dc2626', '#16a34a', '#9333ea', '#0891b2', '#ca8a04'];
@@ -65,6 +66,8 @@ export function SwitcherView({ onOpenSettings, onFrame }: SwitcherViewProps) {
   }
   const output = outputRef.current;
   const [outputState, setOutputState] = useState<OutputState>(() => output.getState());
+  // Startzustand des unteren Panels: offen nur, wenn die Monitore danach brauchbar groß sind (UNTEN_OFFEN_AB); ein gemerkter Zustand gilt vor ihm.
+  const [untenOffen] = useState(() => untenStartOffen(window.innerHeight));
 
   // NDI-Ausgabe (Program oder Multiview als NDI-Quelle). Die Quellwahl wird über
   // einen Ref gelesen, weil der Controller nur einmal erzeugt wird.
@@ -559,111 +562,82 @@ export function SwitcherView({ onOpenSettings, onFrame }: SwitcherViewProps) {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Monitore + Transition */}
+      {/* Live-Bereich: Monitore, darunter die vier Haupttasten (Cut, Auto + Dauer, Aufnahme, Stream) */}
       <div className="flex-1 min-h-0 flex items-stretch gap-5 px-6 py-5">
         <Monitor label="Preview" tone="preview" canvasRef={previewRef} sceneName={previewScene?.name}>
           {previewScene && previewScene.layers.length > 0 && (
             <LayerEditor scene={previewScene} sources={state.sources} engine={engine} />
           )}
         </Monitor>
-
-        <div className="shrink-0 flex flex-col items-center justify-center gap-3 w-28">
-          <button
-            type="button"
-            disabled={!canTake}
-            onClick={() => engine.cut()}
-            className={cn(
-              'w-full h-14 rounded-[var(--radius)] font-extrabold uppercase tracking-wide',
-              'border-2 border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--highlight)]',
-              'disabled:opacity-40 disabled:cursor-not-allowed transition-colors',
-            )}
-          >
-            Cut
-          </button>
-          <button
-            type="button"
-            disabled={!canAuto}
-            onClick={() => engine.auto()}
-            className={cn(
-              'w-full h-14 rounded-[var(--radius)] font-extrabold uppercase tracking-wide',
-              'bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90',
-              'disabled:opacity-40 disabled:cursor-not-allowed transition-opacity',
-            )}
-          >
-            Auto
-          </button>
-          <label className="flex flex-col items-center gap-1 text-[10px] uppercase tracking-[0.12em] font-bold text-[var(--muted-foreground)]">
-            Dauer
-            <span className="flex items-center gap-1">
-              <input
-                type="number"
-                min={0}
-                step={50}
-                value={state.autoMs}
-                onChange={(e) => engine.setAutoMs(Number(e.target.value))}
-                className="h-8 w-16 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2 text-sm text-center tabular text-[var(--foreground)]"
-              />
-              <span>ms</span>
-            </span>
-          </label>
-        </div>
-
         <Monitor label="Program" tone="program" canvasRef={programRef} sceneName={programScene?.name} />
       </div>
 
-      {/* Aufnahme / RTMP-Stream des Program-Outputs */}
+      <Haupttasten
+        tasten={liveTasten(hauptTasten({ canTake, canAuto, transitioning: state.transitioning, output: outputState, settings: { rtmpUrl } }), {
+          cut: () => engine.cut(),
+          auto: () => engine.auto(),
+          aufnahme: toggleRecording,
+          stream: toggleStreaming,
+        })}
+        autoMs={state.autoMs}
+        onAutoMs={(ms) => engine.setAutoMs(ms)}
+      />
+
+      {/* NDI-Schalter, Multiview, Pegel und Stream-Ziel; Aufnahme und Stream stehen in den Haupttasten */}
       <OutputBar
-        state={outputState}
         rtmpUrl={rtmpUrl}
         audio={audio}
         ndiState={ndiOutState}
-        ndiSource={ndiOutputSource}
-        onSetNdiSource={setNdiOutputSource}
         onToggleNdi={toggleNdiOutput}
         onOpenMultiview={() => setShowMultiview(true)}
         onOpenSettings={onOpenSettings}
-        onToggleRecording={toggleRecording}
-        onToggleStreaming={toggleStreaming}
       />
 
       {/* Szenen / Ebenen / Quellen */}
-      <div className="shrink-0 h-[300px] border-t border-[var(--border)]/60 grid grid-cols-[1fr_1.4fr_1fr] divide-x divide-[var(--border)]/60">
-        <ScenesPanel
-          scenes={state.scenes}
-          previewId={state.previewSceneId}
-          programId={state.programSceneId}
-          onSelect={(id) => engine.setPreviewScene(id)}
-          onRemove={(id) => engine.removeScene(id)}
-          onRename={(id, name) => engine.renameScene(id, name)}
-          onAdd={addScene}
-        />
-        <LayersPanel
-          scene={previewScene}
-          sources={state.sources}
-          engine={engine}
-        />
-        <SourcesPanel
-          sources={state.sources}
-          canAddLayer={previewScene != null}
-          ndiStatusById={ndiStatusById}
-          onAddColor={addColor}
-          onAddScreen={() => {
-            reconnectTargetRef.current = null;
-            setPicker(true);
-          }}
-          onAddNdi={() => setNdiPicker(true)}
-          onAddCapture={() => {
-            reconnectTargetRef.current = null;
-            setCapturePicker(true);
-          }}
-          onAddImage={() => fileInputRef.current?.click()}
-          onSetColor={(id, color) => engine.setSourceColor(id, color)}
-          onRename={(id, name) => engine.renameSource(id, name)}
-          onAddToScene={(sourceId) => previewScene && engine.addLayer(previewScene.id, sourceId)}
-          onReconnect={reconnectSource}
-          onRemove={removeSource}
-        />
-      </div>
+      <Collapsible
+        title="Szenen, Ebenen und Quellen"
+        persistId="switcher.unten"
+        defaultOpen={untenOffen}
+        className="shrink-0 border-t border-[var(--border)]/60 px-6 py-2"
+      >
+        <div className="h-[300px] rounded-[var(--radius)] border border-[var(--border)]/60 grid grid-cols-[1fr_1.4fr_1fr] divide-x divide-[var(--border)]/60">
+          <ScenesPanel
+            scenes={state.scenes}
+            previewId={state.previewSceneId}
+            programId={state.programSceneId}
+            onSelect={(id) => engine.setPreviewScene(id)}
+            onRemove={(id) => engine.removeScene(id)}
+            onRename={(id, name) => engine.renameScene(id, name)}
+            onAdd={addScene}
+          />
+          <LayersPanel
+            scene={previewScene}
+            sources={state.sources}
+            engine={engine}
+          />
+          <SourcesPanel
+            sources={state.sources}
+            canAddLayer={previewScene != null}
+            ndiStatusById={ndiStatusById}
+            onAddColor={addColor}
+            onAddScreen={() => {
+              reconnectTargetRef.current = null;
+              setPicker(true);
+            }}
+            onAddNdi={() => setNdiPicker(true)}
+            onAddCapture={() => {
+              reconnectTargetRef.current = null;
+              setCapturePicker(true);
+            }}
+            onAddImage={() => fileInputRef.current?.click()}
+            onSetColor={(id, color) => engine.setSourceColor(id, color)}
+            onRename={(id, name) => engine.renameSource(id, name)}
+            onAddToScene={(sourceId) => previewScene && engine.addLayer(previewScene.id, sourceId)}
+            onReconnect={reconnectSource}
+            onRemove={removeSource}
+          />
+        </div>
+      </Collapsible>
 
       <input
         ref={fileInputRef}
@@ -710,90 +684,37 @@ export function SwitcherView({ onOpenSettings, onFrame }: SwitcherViewProps) {
   );
 }
 
-function OutputBar({
-  state,
+/**
+ * Untere Leiste: NDI-Schalter mit Empfängerzahl, Multiview, Pegel/Mute und Stream-Ziel. Aufnahme und Stream sind Haupttasten
+ * (LiveBereich), LIVE/REC steht im Kopf (E8), die NDI-Quellwahl im Abschnitt „Programm-Format“ (E5).
+ */
+export function OutputBar({
   rtmpUrl,
   audio,
   ndiState,
-  ndiSource,
-  onSetNdiSource,
   onToggleNdi,
   onOpenMultiview,
   onOpenSettings,
-  onToggleRecording,
-  onToggleStreaming,
 }: {
-  state: OutputState;
   rtmpUrl: string;
   audio: AudioController;
   ndiState: NdiOutputState;
-  ndiSource: 'program' | 'multiview';
-  onSetNdiSource: (v: 'program' | 'multiview') => void;
   onToggleNdi: () => void;
   onOpenMultiview: () => void;
   onOpenSettings: (abschnitt?: string) => void;
-  onToggleRecording: () => void;
-  onToggleStreaming: () => void;
 }) {
-  const recName = state.recPath ? state.recPath.replace(/^.*[\\/]/, '') : null;
   const hasTarget = rtmpUrl.trim().length > 0;
   return (
     <div className="shrink-0 flex items-center gap-3 px-6 h-14 border-t border-[var(--border)]/60">
-      <button
-        type="button"
-        onClick={onToggleRecording}
-        className={cn(
-          'h-9 px-3.5 rounded-[var(--radius)] text-sm font-extrabold uppercase tracking-wide inline-flex items-center gap-2 transition-colors border-2',
-          state.recording
-            ? 'bg-[var(--destructive)] text-[var(--destructive-foreground)] border-[var(--destructive)]'
-            : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--highlight)]',
-        )}
-      >
-        <span className={cn('size-2.5 rounded-full', state.recording ? 'bg-white animate-pulse' : 'bg-[var(--destructive)]')} />
-        {state.recording ? 'Aufnahme stoppen' : 'Aufnehmen'}
-      </button>
-
-      <button
-        type="button"
-        onClick={onToggleStreaming}
-        disabled={!state.streaming && !hasTarget}
-        title={!hasTarget ? 'Stream-Ziel in den Einstellungen festlegen' : undefined}
-        className={cn(
-          'h-9 px-3.5 rounded-[var(--radius)] text-sm font-extrabold uppercase tracking-wide inline-flex items-center gap-2 transition-colors border-2 shrink-0',
-          state.streaming
-            ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]'
-            : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--highlight)] disabled:opacity-40 disabled:cursor-not-allowed',
-        )}
-      >
-        <span className={cn('size-2.5 rounded-full', state.streaming ? 'bg-white animate-pulse' : 'bg-[var(--primary)]')} />
-        {state.streaming ? 'Stream stoppen' : 'Stream starten'}
-      </button>
-
       {/* NDI-Ausgabe: Program oder Multiview als NDI-Quelle ins Studio-LAN. */}
       <div className="shrink-0 flex items-center gap-1.5">
-        <button
-          type="button"
+        <Button
+          variant={ndiState.active ? 'primary' : 'outline'}
           onClick={onToggleNdi}
           title="Program/Multiview als NDI-Quelle senden (TriCaster, vMix, OBS, NDI-Monitor)"
-          className={cn(
-            'h-9 px-3 rounded-[var(--radius)] text-sm font-extrabold uppercase tracking-wide inline-flex items-center gap-2 transition-colors border-2',
-            ndiState.active
-              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]'
-              : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--highlight)]',
-          )}
         >
-          <span className={cn('size-2.5 rounded-full', ndiState.active ? 'bg-white animate-pulse' : 'bg-[var(--primary)]')} />
           NDI
-        </button>
-        <select
-          value={ndiSource}
-          onChange={(e) => onSetNdiSource(e.target.value as 'program' | 'multiview')}
-          title="Was als NDI-Quelle ausgegeben wird"
-          className="h-9 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-1.5 text-xs font-semibold"
-        >
-          <option value="program">Program</option>
-          <option value="multiview">Multiview</option>
-        </select>
+        </Button>
         {ndiState.active && (
           <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted-foreground)] tabular">
             {ndiState.connections} ▸
@@ -801,14 +722,14 @@ function OutputBar({
         )}
       </div>
 
-      <button
-        type="button"
+      <Button
+        variant="outline"
         onClick={onOpenMultiview}
         title="Multiview anzeigen (alle Szenen + Program/Preview)"
-        className="h-9 px-3 rounded-[var(--radius)] text-sm font-bold border-2 border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--highlight)] transition-colors shrink-0"
+        className="shrink-0"
       >
         Multiview
-      </button>
+      </Button>
 
       <AudioStrip controller={audio} onOpenSettings={() => onOpenSettings(ABSCHNITT.audio)} />
 
@@ -818,23 +739,10 @@ function OutputBar({
             Ziel: <span className="font-semibold text-[var(--foreground)]">{rtmpUrl}</span>
           </span>
         ) : (
-          <button
-            type="button"
-            onClick={() => onOpenSettings(ABSCHNITT.streaming)}
-            className="text-[var(--muted-foreground)] hover:text-[var(--primary)] underline underline-offset-2"
-          >
+          <Button variant="link" size="sm" uppercase={false} onClick={() => onOpenSettings(ABSCHNITT.streaming)} className="font-normal text-[var(--muted-foreground)]">
             Stream-Ziel in den Einstellungen festlegen →
-          </button>
+          </Button>
         )}
-      </div>
-
-      <div className="shrink-0 flex items-center gap-3 text-[11px] font-bold uppercase tracking-wide">
-        {state.recording && (
-          <span className="text-[var(--destructive)] truncate max-w-[220px]" title={state.recPath ?? ''}>
-            ● REC {recName}
-          </span>
-        )}
-        {state.streaming && <span className="text-[var(--primary)]">● LIVE</span>}
       </div>
     </div>
   );
@@ -1261,19 +1169,16 @@ function LayersPanel({
                     ))}
                   </select>
                   {canKey && (
-                    <button
-                      type="button"
+                    <Button
+                      size="sm"
+                      variant={key?.enabled ? 'primary' : 'outline'}
+                      uppercase={false}
                       title="Chroma-Key (Greenscreen)"
                       onClick={() => engine.setLayerKey(scene.id, layer.id, { enabled: !key?.enabled })}
-                      className={cn(
-                        'shrink-0 h-6 px-1.5 rounded text-[10px] font-extrabold border',
-                        key?.enabled
-                          ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]'
-                          : 'border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]',
-                      )}
+                      className="shrink-0 !h-6 !px-1.5 !text-[10px]"
                     >
                       KEY
-                    </button>
+                    </Button>
                   )}
                   <button
                     type="button"
@@ -1484,24 +1389,28 @@ function SourcesPanel({
               />
             )}
             {s.offline && (
-              <button
-                type="button"
+              <Button
+                size="sm"
+                variant="outline"
+                uppercase={false}
                 title="Quelle ist offline (nach Projekt-Öffnen) — mit einer Live-Quelle neu verbinden"
                 onClick={() => onReconnect(s.id)}
-                className="shrink-0 h-7 px-2 rounded-[var(--radius)] border border-amber-500/50 text-[10px] font-bold text-amber-500 hover:bg-[var(--highlight)]"
+                className="shrink-0 !h-7 !px-2 !text-[10px] !border-[var(--warning)] !text-[var(--warning)]"
               >
                 ⚠ Neu verbinden
-              </button>
+              </Button>
             )}
-            <button
-              type="button"
+            <Button
+              size="sm"
+              variant="outline"
+              uppercase={false}
               title={canAddLayer ? 'Als Ebene in Preview-Szene' : 'Erst eine Szene wählen'}
               disabled={!canAddLayer}
               onClick={() => onAddToScene(s.id)}
-              className="shrink-0 h-7 px-2 rounded-[var(--radius)] border border-[var(--border)] text-xs font-bold hover:bg-[var(--highlight)] disabled:opacity-40"
+              className="shrink-0 !h-7 !px-2"
             >
               + Ebene
-            </button>
+            </Button>
             <button
               type="button"
               title="Quelle löschen"

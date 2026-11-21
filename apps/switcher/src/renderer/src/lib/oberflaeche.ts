@@ -64,6 +64,17 @@ export const SWITCHER_TEXTE = {
   programmAudio: 'Programm-Audio',
   onAirLive: 'LIVE',
   onAirRec: 'REC',
+  /** Haupttasten und Dauer-Feld des Live-Bereichs (E7): wörtlich die bisherigen Beschriftungen der Knöpfe. */
+  haupttaste: {
+    cut: 'Cut',
+    auto: 'Auto',
+    dauer: 'Dauer',
+    ms: 'ms',
+    aufnehmen: 'Aufnehmen',
+    aufnahmeStoppen: 'Aufnahme stoppen',
+    streamStarten: 'Stream starten',
+    streamStoppen: 'Stream stoppen',
+  },
   label: {
     ndi: 'NDI',
     audio: 'Audio',
@@ -364,7 +375,7 @@ const KEINE_AKTION: SwitcherAktionen = {
 };
 
 /** Hat der Stream ein Ziel? Leer oder nur Leerraum zählt nicht (wie `hasTarget` der heutigen Ausgabeleiste). */
-function hatStreamZiel(s: OberflaechenStand): boolean {
+function hatStreamZiel(s: { settings: Pick<SettingsState, 'rtmpUrl'> }): boolean {
   return s.settings.rtmpUrl.trim().length > 0;
 }
 
@@ -423,7 +434,9 @@ export function statusLeiste(s: OberflaechenStand): StatusItem[] {
  * Haupttasten (E7): Cut und Auto bereit oder gesperrt mit Grund; Aufnahme und Stream live, solange sie laufen. Stop ist nie
  * gesperrt; nur der Stream-Start ohne Ziel ist gesperrt. Keine Kürzel (UO5).
  */
-export function hauptTasten(s: OberflaechenStand): { cut: TasteZustand; auto: TasteZustand; aufnahme: TasteZustand; stream: TasteZustand } {
+export function hauptTasten(
+  s: Pick<OberflaechenStand, 'canTake' | 'canAuto' | 'transitioning' | 'output'> & { settings: Pick<SettingsState, 'rtmpUrl'> },
+): { cut: TasteZustand; auto: TasteZustand; aufnahme: TasteZustand; stream: TasteZustand } {
   const gesperrt = (grund: string): TasteZustand => ({ state: 'gesperrt', disabledReason: grund });
   const bereit: TasteZustand = { state: 'bereit' };
   const live: TasteZustand = { state: 'live' };
@@ -434,6 +447,22 @@ export function hauptTasten(s: OberflaechenStand): { cut: TasteZustand; auto: Ta
     aufnahme: s.output.recording ? live : bereit,
     stream: s.output.streaming ? live : hatStreamZiel(s) ? bereit : gesperrt(SWITCHER_TEXTE.keinStreamZiel),
   };
+}
+
+/**
+ * Ab dieser Höhe des Fensterinhalts (innerHeight, px) startet das untere Panel offen. Herleitung bei Mindesthöhe 720
+ * (main/index.ts): Fensterrahmen 39 px (Titelleiste 31 + Rand 8, Windows bei 100 %; Annahme, nicht gemessen) → 681 px Inhalt.
+ * Fest über dem Mischer: Kopf 44 + Toolbar 45 + Statusleiste 28 = 117 (sizes.css), im Mischer Monitor-Rand 40,
+ * Haupttasten 88 (Taste mit zweizeiligem Grund 76 + 12), Ausgabeleiste 56, Collapsible zu 32 bzw. offen 32 + 10 + 300 = 342.
+ * Offen bleiben bei 681 px nur 681 − 117 − 40 − 88 − 56 − 342 = 38 px für die Monitore, zu sind es 348 px. Brauchbar sind
+ * mindestens 180 px (16:9 bei 320 px Breite, gut die Hälfte der Monitorbreite von rund 500 px im Mindestfenster); offen
+ * reicht das ab 117 + 40 + 88 + 56 + 342 + 180 = 823 px, aufgerundet 830.
+ */
+export const UNTEN_OFFEN_AB = 830;
+
+/** Startzustand des unteren Panels (Collapsible switcher.unten): offen nur, wenn die Monitore danach noch brauchbar groß sind. */
+export function untenStartOffen(innenHoehe: number): boolean {
+  return innenHoehe >= UNTEN_OFFEN_AB;
 }
 
 /** On-Air im Kopf (E8): LIVE geht vor REC. */

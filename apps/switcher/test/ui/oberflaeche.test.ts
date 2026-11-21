@@ -401,7 +401,10 @@ function aufzeichner(): { log: unknown[]; a: SwitcherAktionen } {
   const fremd = new Set(
     [...Object.entries(settings).filter(([k]) => k.endsWith('_TEXTE')).map(([, v]) => v), MASTER_LINK_TEXTE].flatMap(flach),
   );
-  const nachgebaut = texte.filter((t) => fremd.has(t));
+  // Zufälliger Gleichklang eines Einzelworts mit anderem Zweck ist kein Nachbau: die Taste „Auto“ (Überblendung, E7) heißt wie das
+  // Wort der Peers-Zeile (Host automatisch). Jede Ausnahme braucht hier einen Grund.
+  const gleichklang = new Set<string>([SWITCHER_TEXTE.haupttaste.auto]);
+  const nachgebaut = texte.filter((t) => fremd.has(t) && !gleichklang.has(t));
   ok(fremd.size > 0 && nachgebaut.length === 0, `SW Texte nicht nachgebaut: kein SWITCHER_TEXTE-Wert gleicht einem Text aus @jm/settings oder @jm/ui${nachgebaut.length ? ` (${nachgebaut.join(' | ')})` : ''}`);
   gleich(
     [SWITCHER_TEXTE.keineSzeneInVorschau, SWITCHER_TEXTE.ueberblendungLaeuft, SWITCHER_TEXTE.keinStreamZiel],
