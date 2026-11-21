@@ -105,6 +105,8 @@ interface Probe {
   halterZugang: Array<{ zweck: string; ziel: string }>;
   halterAntworten: Array<{ zweck: string; wahl: ZugangsWahl; status: number; code: string | null }>;
   halterBestaetigt(): number;
+  /** Der Halter löscht den alten SDK-Schlüssel im selben Speicher, den der Kern liest (huelle.ts). */
+  sdkSchluesselWeg(): void;
   richteEinAufrufe(): number;
   /** Laufzeit-Ordner, den die Vorgabe von `pruefe` meldet. */
   ordner: string;
@@ -372,6 +374,9 @@ function baueKern(o: BaueOptionen = {}): Probe {
     halterZugang,
     halterAntworten,
     halterBestaetigt: () => halterBestaetigt,
+    sdkSchluesselWeg: () => {
+      if (sdkSchluessel.herkunft !== 'env') sdkSchluessel = { wert: null, herkunft: 'none' };
+    },
     ordner,
     pfade,
     starts: () => startZahl,
@@ -2003,6 +2008,41 @@ for (const [name, dienste, soll] of LADE_FEHLER) {
   await p.kern.sdkLaden();
   ck('… zweites Laden: bestaetigt wieder gefragt, aber kein neuer Hinweis', fragen === 2 && zahl() === 1);
   ck('… der Hinweis kommt auch ins Log, ohne Freigabe', p.logs.includes(`[zoom] Hinweis: ${ZUGANG_TEXT.sdkGeloescht}`) && !p.logs.join('\n').includes('jm1.'));
+  await p.aufraeumen();
+}
+{
+  // I1 (a): bestaetigt löscht den alten Schlüssel im Speicher des Kerns; das Abbild zeigt ihn danach nicht mehr als hinterlegt.
+  const p: Probe = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    halter: {
+      bestaetigt: () => {
+        p.sdkSchluesselWeg();
+        return true;
+      },
+    },
+    sdkLaden: ladeDienste({ lade: async () => ({ ok: false, art: 'pruefsumme' }) }),
+  });
+  const davor = p.kern.abbild().einrichtung.sdkSchluessel.herkunft;
+  await p.kern.sdkLaden();
+  ck('T13 I1 OT9: nach bestaetigt (Schlüssel gelöscht) zeigt das Abbild herkunft none, nicht stored',
+    davor === 'stored' && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none' );
+  await p.aufraeumen();
+}
+{
+  // I1 (b): antwort (alter-key-abgelaufen) löscht den alten Schlüssel; S12 steht nicht neben „hinterlegt“.
+  const p: Probe = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    halter: {
+      ...ALTER_KEY,
+      antwort: () => p.sdkSchluesselWeg(),
+    },
+    sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel', code: 'alter-key-abgelaufen' }) }),
+  });
+  const davor = p.kern.abbild().einrichtung.sdkSchluessel.herkunft;
+  await p.kern.sdkLaden();
+  ck('T13 I1 E10: nach antwort (alter Schlüssel gelöscht) zeigt das Abbild herkunft none, nicht stored',
+    davor === 'stored' && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none' && p.kern.abbild().einrichtung.sdk.text === KT.S12
+  );
   await p.aufraeumen();
 }
 {

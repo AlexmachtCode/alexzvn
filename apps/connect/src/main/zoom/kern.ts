@@ -1080,12 +1080,18 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         if (link.art === 'schluessel' || link.art === 'verweigert') {
           // Der Halter lernt aus der Ablehnung (Freigabe verwerfen bzw. alten Schlüssel als abgelehnt merken) vor dem Text.
           d.halter.antwort('zoom-sdk', w, link.art === 'schluessel' ? 401 : 403, link.code);
+          // Der Halter kann den alten Schlüssel dabei gelöscht haben: die Karte soll ihn nicht mehr als hinterlegt zeigen.
+          sdkSchluesselHerkunft = d.sdkSchluessel.lesen().herkunft;
           return scheitert(link.art === 'schluessel' ? (w.art === 'freigabe' ? KT.S12b : KT.S12) : ladeFehlerText(link));
         }
         return fehlschlag(link);
       }
       // OT9: der alte SDK-Schlüssel ist gelöscht, sobald eine Freigabe trug; ZA6 genau einmal.
-      if (d.halter.bestaetigt('zoom-sdk', w)) hinweis(ZUGANG_TEXT.sdkGeloescht);
+      if (d.halter.bestaetigt('zoom-sdk', w)) {
+        // bestaetigt hat den alten Schlüssel gelöscht: Herkunft neu lesen, sonst steht ZA6 neben „hinterlegt“.
+        sdkSchluesselHerkunft = d.sdkSchluessel.lesen().herkunft;
+        hinweis(ZUGANG_TEXT.sdkGeloescht);
+      }
       phase('download', 0);
       const geladen = await ld.lade({
         url: link.url,
