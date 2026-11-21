@@ -642,11 +642,11 @@ Capture aus dem öffentlichen Repo nehmen (eigener Schritt, Owner 20.11.).
 
 **Block 3 · Connect-Runde**
 
-- **0.4.6:** ✅ **released 20.11.** (Katalog `df96395472`). Die Slot-Anzeige springt außerhalb eines Meetings nicht mehr zurück. Ton-Limiter (Entwurf und Plan fertig, Branch
-  `feat/connect-ton-limiter`); die Grenze legt der Owner in einem Testmeeting fest. Dazu, was T1–T3 ergeben.
-- **0.5.0:** Anmeldung Teil 2 mit Launcher 0.19.0 (Abschnitt 1c). Connect holt den Zoom-Zugang dann über die Anmeldung, die
-  alten Schlüssel laufen 30 Tage später aus. Nachmessung gegen 0.4.6 erledigt (20.11.).
-- **#317 Stufe B** (Spotlight): Entwurf in diesem Block, gebaut mit 0.5.0 oder danach.
+- **0.4.6:** ✅ **released 20.11.** (Katalog `df96395472`). Die Slot-Anzeige springt außerhalb eines Meetings nicht mehr zurück; Ton-Limiter je Zoom-Slot bei −6 dBFS und eine
+  Pegelzeile im Log. Offen: die endgültige Grenze aus den Pegelzeilen echter Einsätze (Folge-Release) und was die Crew-Tests T1–T3 ergeben.
+- **0.5.0:** Anmeldung Teil 2 mit Launcher 0.19.0 (Abschnitt 1c). Connect holt den Zoom-Zugang dann über die Anmeldung.
+  Der Stichtag der alten Schlüssel (`ALTKEY_CONNECT_BIS`) wird erst nach dem Release mit Owner-OK gesetzt. Nachmessung gegen 0.4.6 erledigt (20.11.).
+- **#317 Stufe B** (Spotlight): Entwurf in diesem Block, gebaut nach 0.5.0 (0.5.0 enthält nur Teil 2).
 
 **Block 4 · UX-Relaunch Welle 1 + Live-Sicherheit**
 
