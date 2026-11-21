@@ -220,7 +220,7 @@ function alleTexte(): string[] {
   for (const g of ['server-abgelehnt', 'server-fehler', 'nicht-eingerichtet'] as JwtGrund[]) ts.push(jwtGrundText(g), jwtGrundText(g, 'HTTP 502'));
   const t = ZUGANG_TEXT;
   ts.push(t.cloudFreigabe('N', 'kollege', '20.11.2026', '09:00'), t.cloudAltKey, t.cloudAltAbgelehnt, t.cloudNochNicht, t.cloudGeloescht, t.cloudEnv,
-    t.raumNicht('g'), t.raumVergeben, t.raumFreigabeAbgelehnt, t.altProxyKey, t.anmeldungServer('N', 'kollege', '20.11.2026', '09:00'), t.anmeldungLokal,
+    t.raumNicht('g'), t.raumVergeben('show-1a2b3c'), t.raumFreigabeAbgelehnt, t.altProxyKey, t.anmeldungServer('N', 'kollege', '20.11.2026', '09:00'), t.anmeldungLokal,
     t.anmeldungKeine('g'), t.anmeldungNochNicht, t.zugangGeloescht, t.sdkGeloescht, t.ohneAnmeldung('g'), t.serverAbgelehnt, t.nichtEingerichtet,
     t.serverFehler('HTTP 502'), t.entwicklungTtl(1860));
   for (const w of ['freigabe', 'alter-key', 'keiner'] as const) {
@@ -241,7 +241,7 @@ ck('T10: SDK-Hinweise nutzen „ “', grundText('zoom-sdk', 'kein-recht').inclu
 ck('T10: Texte ZA6, CZ7 bis CZ10, ZA7 wörtlich',
   ZUGANG_TEXT.sdkGeloescht === 'Der alte SDK-Schlüssel wurde gelöscht; „Zoom-SDK laden“ läuft jetzt über den Launcher.'
     && ZUGANG_TEXT.raumNicht('Grund.') === 'Raum öffnen nicht möglich: Grund.'
-    && ZUGANG_TEXT.raumVergeben === 'Dieser Cloud-Raum gehört gerade einem anderen Konto oder Rechner. Schließe ihn dort oder wähle im Show-Editor eine andere Raum-ID.'
+    && ZUGANG_TEXT.raumVergeben('show-1a2b3c') === 'Dieser Cloud-Raum („show-1a2b3c“) gehört gerade einem anderen Konto oder Rechner. Schließe ihn dort, wähle im Show-Editor eine andere Raum-ID oder bitte einen Admin, ihn im Launcher freizugeben (Admin › Geräte › Cloud-Räume).'
     && ZUGANG_TEXT.raumFreigabeAbgelehnt === 'Der Server hat die Freigabe abgelehnt. Ich hole eine neue beim Launcher; bitte noch einmal „Raum öffnen“.'
     && ZUGANG_TEXT.altProxyKey === 'Alter Proxy-Key: hinterlegt, nur noch im Übergang.'
     && ZUGANG_TEXT.ohneAnmeldung('Grund.') === 'Ohne Zoom-Anmeldung kein Beitritt. Grund.');

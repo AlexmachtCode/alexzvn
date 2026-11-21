@@ -79,7 +79,7 @@ export async function openRoom(room?: string, nowMs = Date.now()): Promise<RoomS
   });
   if (!res.ok) {
     const code = await meldeAntwort(w, res);
-    if (res.status === 403 && code === 'raum-vergeben') throw new Error(ZUGANG_TEXT.raumVergeben);
+    if (res.status === 403 && code === 'raum-vergeben') throw new Error(ZUGANG_TEXT.raumVergeben(id));
     if (res.status === 401 && w.art === 'freigabe') throw new Error(ZUGANG_TEXT.raumFreigabeAbgelehnt);
     throw new Error(`Raum öffnen fehlgeschlagen (Proxy ${res.status}).`);
   }

@@ -145,8 +145,8 @@ zuruecksetzen();
 halter.wahl = FREIGABE;
 antwortStatus = 403; antwortBody = { code: 'raum-vergeben' };
 const vergeben = await fehlerVon(room.openRoom('show'));
-ck('T12 RF5: 403 raum-vergeben → Fehler CZ8 wörtlich; halter.antwort mit 403 und raum-vergeben',
-  vergeben === ZUGANG_TEXT.raumVergeben && halter.antworten.length === 1 && halter.antworten[0].status === 403
+ck('T12 RF5: 403 raum-vergeben → Fehler CZ8 wörtlich mit aufgefüllter Raum-ID; halter.antwort mit 403 und raum-vergeben',
+  vergeben === ZUGANG_TEXT.raumVergeben(raumId('show')) && vergeben.includes(raumId('show')) && halter.antworten.length === 1 && halter.antworten[0].status === 403
     && halter.antworten[0].code === 'raum-vergeben' && halter.antworten[0].w === FREIGABE && halter.antworten[0].zweck === 'connect-raum');
 
 zuruecksetzen();

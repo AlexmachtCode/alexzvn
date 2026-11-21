@@ -201,7 +201,8 @@ export const ZUGANG_TEXT = {
   /** CZ7 */
   raumNicht: (grund: string): string => `Raum öffnen nicht möglich: ${grund}`,
   /** CZ8 */
-  raumVergeben: 'Dieser Cloud-Raum gehört gerade einem anderen Konto oder Rechner. Schließe ihn dort oder wähle im Show-Editor eine andere Raum-ID.',
+  raumVergeben: (raumId: string): string =>
+    `Dieser Cloud-Raum („${raumId}“) gehört gerade einem anderen Konto oder Rechner. Schließe ihn dort, wähle im Show-Editor eine andere Raum-ID oder bitte einen Admin, ihn im Launcher freizugeben (Admin › Geräte › Cloud-Räume).`,
   /** CZ9 */
   raumFreigabeAbgelehnt: 'Der Server hat die Freigabe abgelehnt. Ich hole eine neue beim Launcher; bitte noch einmal „Raum öffnen“.',
   /** CZ10 */

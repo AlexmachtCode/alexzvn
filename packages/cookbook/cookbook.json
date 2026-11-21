@@ -2103,8 +2103,8 @@
             "remedy": "Connect hat den Raum 8 s nach „Raum öffnen“ noch nicht erreicht. Cloud-Zugang (Zeile „Cloud-Zugang“ in der Karte) und Netz prüfen."
           },
           {
-            "risk": "„Dieser Cloud-Raum gehört gerade einem anderen Konto oder Rechner. Schließe ihn dort oder wähle im Show-Editor eine andere Raum-ID.“",
-            "remedy": "Die Raum-ID ist schon an ein anderes Konto oder einen anderen Rechner vergeben. Den Raum dort schließen oder im Show-Editor eine andere Raum-ID wählen."
+            "risk": "„Dieser Cloud-Raum („‹Raum-ID›“) gehört gerade einem anderen Konto oder Rechner. Schließe ihn dort, wähle im Show-Editor eine andere Raum-ID oder bitte einen Admin, ihn im Launcher freizugeben (Admin › Geräte › Cloud-Räume).“",
+            "remedy": "Die Raum-ID ist schon an ein anderes Konto oder einen anderen Rechner vergeben, etwa weil dort Connect ohne „Raum schließen“ beendet wurde. Den Raum dort schließen, im Show-Editor eine andere Raum-ID wählen oder einen Admin bitten, ihn im Launcher unter Admin › Geräte › Cloud-Räume freizugeben."
           },
           {
             "risk": "„Der Server hat die Freigabe abgelehnt. Ich hole eine neue beim Launcher; bitte noch einmal „Raum öffnen“.“",
