@@ -116,6 +116,8 @@ Geändert in `packages/cookbook/content/tool-manuals/tool-jm-connect.md` (Handbu
 
 ### Stelle: Kopf des Handbuchs (Voraussetzungen, Stand)
 
+Voraussetzungen und Stand: Connect braucht jetzt Version 0.5.0 und den Launcher ab 0.19.0 mit Anmeldung; Zugangsdaten gehören nicht mehr dazu. Das Datum „lastReviewed“ rückt auf den Stand dieser Änderung.
+
 ```
 -   - JM Connect ab 0.4.0, installiert über den Launcher
 -   - Zoom-SDK 7.1.5.43953 (per „Zoom-SDK laden“ oder als SDK-Ordner aus der JM-Ablage)
@@ -131,6 +133,8 @@ Geändert in `packages/cookbook/content/tool-manuals/tool-jm-connect.md` (Handbu
 
 ### Stelle: Voraussetzungen
 
+Voraussetzungen im Text: Der Abschnitt nennt dieselben Neuerungen ausführlicher. Der SDK-Schlüssel und die Zoom-Zugangsdaten entfallen, weil Connect die Freigaben beim Launcher holt und der Server das Zoom-Anmelde-Token ausstellt.
+
 ```
 - - JM Connect ab Version 0.4.0, installiert über den Launcher.
 - - Zoom-SDK 7.1.5.43953: auf JM-eigenen Rechnern per Knopf „Zoom-SDK laden“ (braucht den SDK-Schlüssel), sonst als SDK-Ordner aus der JM-Ablage. Connect kopiert es einmal je PC nach %LOCALAPPDATA%\JM Connect\zoom-laufzeit (rund 315 MB).
@@ -142,6 +146,8 @@ Geändert in `packages/cookbook/content/tool-manuals/tool-jm-connect.md` (Handbu
 
 ### Stelle: Browser-Gäste (kurz)
 
+Browser-Gäste: Der Cloud-Raum braucht jetzt die Anmeldung im Launcher statt eines Cloud-Zugangs mit Schlüssel.
+
 ```
 - - Raum öffnen (braucht den Cloud-Zugang), für jeden Gast einen Link erzeugen und verschicken.
 + - Raum öffnen (braucht die Anmeldung im Launcher), für jeden Gast einen Link erzeugen und verschicken.
@@ -149,17 +155,21 @@ Geändert in `packages/cookbook/content/tool-manuals/tool-jm-connect.md` (Handbu
 
 ### Stelle: Anmeldung (ab 0.5.0)
 
+Neuer Abschnitt „Anmeldung (ab 0.5.0)“: Er erklärt, wie Connect die Freigaben beim Launcher holt, wie lange sie gelten, was die beiden Zeilen „Cloud-Zugang“ und „Zoom-Anmeldung“ zeigen und was im Übergang mit alten Werten passiert. Der dritte Punkt sagt jetzt genau, wann der Launcher gebraucht wird: nur bei einer neuen oder abgelaufenen Freigabe, nicht bei jedem neuen Beitritt.
+
 ```
 + ### Anmeldung (ab 0.5.0)
 + - Connect hält keine Dienst-Schlüssel mehr. Es holt beim Launcher (ab 0.19.0, angemeldet) kurzlebige Freigaben, jede 72 Stunden gültig: für den Cloud-Raum, für die Zoom-Anmeldung und für „Zoom-SDK laden“ (nur auf JM-Rechnern). Der Server prüft Konto und Recht.
 + - Zwei Zeilen zeigen den Stand: „Cloud-Zugang“ („Cloud-Zugang über den Launcher (‹Name› · ‹Stufe›), gültig bis ‹Datum› ‹Zeit›.“) und in der Zoom-Karte „Zoom-Anmeldung“ („Zoom-Anmeldung über den Launcher (‹Name› · ‹Stufe›), Freigabe gültig bis ‹Datum› ‹Zeit›.“). Vor dem ersten Versuch steht dort „Connect holt die Freigabe für den Cloud-Raum beim Launcher, sobald du einen Raum öffnest.“ bzw. „Zoom-Anmeldung über den Launcher; die Freigabe holt Connect beim ersten Beitritt.“
-+ - Connect hält seine Freigaben selbst und erneuert sie rechtzeitig. Ein laufendes Meeting und ein offener Raum hängen nicht am Launcher: Wird der Launcher beendet oder meldet sich dort jemand ab, läuft beides weiter; erst ein neuer Beitritt oder „Raum öffnen“ braucht wieder die Anmeldung.
++ - Connect hält seine Freigaben selbst und erneuert sie rechtzeitig: Jede Freigabe gilt 72 Stunden je Zweck und Ziel (der Cloud-Raum je Raum-ID), und Connect versucht das Erneuern ab 24 Stunden vor dem Ablauf. Ein laufendes Meeting und ein offener Raum hängen nicht am Launcher: Wird der Launcher beendet oder meldet sich dort jemand ab, läuft beides weiter. Auch ein neuer Zoom-Beitritt mit einer gehaltenen Freigabe braucht den Launcher nicht. Erst ein Raum mit anderer Raum-ID oder eine abgelaufene Freigabe braucht eine neue Freigabe, und die holt Connect beim Launcher.
 + - Übergang: Liegt auf dem Rechner noch ein alter Wert, nutzt Connect ihn weiter, damit nichts mitten im Betrieb ausfällt. Die Zeilen sagen es: „Cloud-Zugang über den alten Proxy-Key (Übergang).“ und „Zoom-Anmeldung über die alten Zugangsdaten dieses Rechners (Übergang).“ Auf der Karte steht „Alter Proxy-Key: hinterlegt, nur noch im Übergang.“. Alte Werte lassen sich nur noch entfernen, nicht mehr eintragen; mit „Entfernen“ räumt man sie weg. Sobald die Freigabe des Launchers da ist, nutzt Connect sie.
 + - Das gemerkte Meeting bleibt: Meeting-Nummer und Kenncode des letzten Beitritts merkt Connect weiter und bietet sie nach „Schließen“ und nach einem Neustart wieder an (siehe „Logs und Datenschutz“). „Entfernen“ der alten Werte berührt sie nicht.
 + 
 ```
 
 ### Stelle: Einrichtung
+
+Einrichtung: Zugangsdaten und SDK-Schlüssel werden nicht mehr eingetragen. Man meldet sich im Launcher an, „Zoom-SDK laden“ läuft darüber, und „Einrichtung prüfen“ benutzt das Token vom Server.
 
 ```
 - - Zoom-Karte, Knopf „Einrichtung“ aufklappen. Zoom bleibt gesperrt, bis Zoom-SDK und Zugangsdaten eingerichtet sind.
@@ -177,6 +187,8 @@ Geändert in `packages/cookbook/content/tool-manuals/tool-jm-connect.md` (Handbu
 
 ### Stelle: Pannenhilfe
 
+Pannenhilfe: Die alten Meldungen zu SDK-Schlüssel, Zugangsdaten und Verbindung entfallen oder gelten nur noch im Übergang; die neuen Meldungen sagen, was der Techniker jetzt tun muss.
+
 ```
 - | „Für „Zoom-SDK laden“ fehlt der SDK-Schlüssel …“ | Unter „SDK-Schlüssel“ den Schlüssel eintragen. Ihn gibt es nur für JM-eigene Rechner; sonst den SDK-Ordner wählen. |
 - | „Der Proxy hat den SDK-Schlüssel abgelehnt …“ | Der Schlüssel ist falsch. Entfernen und neu eintragen. |
@@ -186,6 +198,8 @@ Geändert in `packages/cookbook/content/tool-manuals/tool-jm-connect.md` (Handbu
 + | Mit alten Zugangsdaten: „Der Proxy hat den SDK-Schlüssel abgelehnt. Bitte den Schlüssel prüfen.“ | Nur im Übergang, solange noch ein alter SDK-Schlüssel gespeichert ist. Den alten Schlüssel „Entfernen“; „Zoom-SDK laden“ läuft danach über den Launcher. |
 ```
 
+Anmelde-Ablehnung durch Zoom: Ursache liegt jetzt meist beim Server oder an der Uhr, nicht mehr an Zugangsdaten auf dem Rechner.
+
 ```
 - | „Zoom hat die Anmeldung abgelehnt: Client-ID oder Client-Secret stimmen nicht …“ | Falsche Zugangsdaten. Datei oder Eingabe prüfen und neu hinterlegen. |
 - | „Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token passt nicht …“ | Meist falsche Zugangsdaten, sonst geht die Uhr dieses PCs falsch. Zugangsdaten prüfen, Uhrzeit synchronisieren. |
@@ -194,6 +208,8 @@ Geändert in `packages/cookbook/content/tool-manuals/tool-jm-connect.md` (Handbu
 + | „Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token vom Server passt nicht (AUTHRET_JWTTOKENWRONG). Meist geht die Uhr dieses PCs falsch; sonst stimmen die Zugangsdaten auf dem Server nicht.“ | Zuerst die Uhrzeit dieses PCs synchronisieren, dann erneut beitreten. Hilft das nicht, einen Admin informieren (Zugangsdaten auf dem Server). |
 + | Mit alten Zugangsdaten: „Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token passt nicht (AUTHRET_JWTTOKENWRONG). Meist stimmen die Zugangsdaten nicht, oder die Uhr dieses PCs geht falsch.“ | Nur im Übergang. Uhrzeit synchronisieren; sonst die alten Zugangsdaten „Entfernen“. |
 ```
+
+Fehlende Zugangsdaten: Diese Meldung gibt es nicht mehr, weil keine Zugangsdaten mehr einzutragen sind.
 
 ```
 - | „Zugangsdaten fehlen — bitte eintragen oder die Datei wählen.“ | Noch keine Zugangsdaten hinterlegt. Unter „Zugangsdaten“ eintragen oder die Datei wählen. |
@@ -212,6 +228,8 @@ Geändert in `packages/cookbook/content/tool-manuals/tool-jm-connect.md` (Handbu
 + | „Das Zoom-SDK hat die Anmeldung sofort abgewiesen …“ | Das SDK selbst lehnt ab, nicht das Netz. Details im Log; erneut beitreten, sonst das Log sichern und einen Admin informieren. |
 ```
 
+Verbindung zum Cloud-Raum: Die Meldung nennt jetzt die Anmeldung im Launcher statt des Proxy-Keys.
+
 ```
 - | „Keine Verbindung zum Raum „…“. Adresse und Proxy-Key prüfen — im Hintergrund wird weiter versucht.“ | Connect hat den Raum 8 s nach „Raum öffnen“ noch nicht erreicht. Cloud-Zugang (Adresse, Proxy-Key) und Netz prüfen. |
 + | „Keine Verbindung zum Raum „…“. Adresse und Cloud-Zugang prüfen — im Hintergrund wird weiter versucht.“ | Connect hat den Raum 8 s nach „Raum öffnen“ noch nicht erreicht. Cloud-Zugang (Zeile „Cloud-Zugang“ in der Karte) und Netz prüfen. |
@@ -222,9 +240,11 @@ Geändert in `packages/cookbook/content/tool-manuals/tool-jm-connect.md` (Handbu
 
 ### Stelle: Einrichtung (einmal je PC)
 
+Checkliste „Einrichtung (einmal je PC)“: Die Prüfung auf hinterlegte Zugangsdaten entfällt. Neu steht dort die Anmeldung im Launcher, und die Zeile „Zoom-Anmeldung“ ist nur dann zu bemängeln, wenn sie rot ist (grau ist der Normalfall, gelb ein vorübergehender Grund).
+
 ```
 - - [ ] Zugangsdaten hinterlegt (Client-ID endet auf …)
-+ - [ ] Im Launcher (ab 0.19.0) angemeldet; Zeile „Zoom-Anmeldung“ grün
++ - [ ] Im Launcher (ab 0.19.0) angemeldet; die Zeile „Zoom-Anmeldung“ in der Zoom-Karte nennt den Launcher und ist nicht rot (vor dem ersten Beitritt „Zoom-Anmeldung über den Launcher; die Freigabe holt Connect beim ersten Beitritt.“, danach „Zoom-Anmeldung über den Launcher (‹Name› · ‹Stufe›), Freigabe gültig bis ‹Datum› ‹Zeit›.“)
 ```
 
 

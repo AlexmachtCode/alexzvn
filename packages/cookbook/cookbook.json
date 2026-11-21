@@ -2140,7 +2140,7 @@
             "title": "Einrichtung (einmal je PC)",
             "items": [
               "„Zoom-SDK 7.1.5.43953 eingerichtet“",
-              "Im Launcher (ab 0.19.0) angemeldet; Zeile „Zoom-Anmeldung“ grün",
+              "Im Launcher (ab 0.19.0) angemeldet; die Zeile „Zoom-Anmeldung“ in der Zoom-Karte nennt den Launcher und ist nicht rot (vor dem ersten Beitritt „Zoom-Anmeldung über den Launcher; die Freigabe holt Connect beim ersten Beitritt.“, danach „Zoom-Anmeldung über den Launcher (‹Name› · ‹Stufe›), Freigabe gültig bis ‹Datum› ‹Zeit›.“)",
               "„Einrichtung prüfen“ meldet „Einrichtung in Ordnung …“",
               "Companion-Modul 0.3.0 mit der Rolle „JM Connect“ an Port 8737 (optional)",
               "Unter macOS: App freigegeben (Systemeinstellungen › Datenschutz & Sicherheit), Zugriff auf das lokale Netzwerk erlaubt",

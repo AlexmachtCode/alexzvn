@@ -105,7 +105,7 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 ### Anmeldung (ab 0.5.0)
 - Connect hält keine Dienst-Schlüssel mehr. Es holt beim Launcher (ab 0.19.0, angemeldet) kurzlebige Freigaben, jede 72 Stunden gültig: für den Cloud-Raum, für die Zoom-Anmeldung und für „Zoom-SDK laden“ (nur auf JM-Rechnern). Der Server prüft Konto und Recht.
 - Zwei Zeilen zeigen den Stand: „Cloud-Zugang“ („Cloud-Zugang über den Launcher (‹Name› · ‹Stufe›), gültig bis ‹Datum› ‹Zeit›.“) und in der Zoom-Karte „Zoom-Anmeldung“ („Zoom-Anmeldung über den Launcher (‹Name› · ‹Stufe›), Freigabe gültig bis ‹Datum› ‹Zeit›.“). Vor dem ersten Versuch steht dort „Connect holt die Freigabe für den Cloud-Raum beim Launcher, sobald du einen Raum öffnest.“ bzw. „Zoom-Anmeldung über den Launcher; die Freigabe holt Connect beim ersten Beitritt.“
-- Connect hält seine Freigaben selbst und erneuert sie rechtzeitig. Ein laufendes Meeting und ein offener Raum hängen nicht am Launcher: Wird der Launcher beendet oder meldet sich dort jemand ab, läuft beides weiter; erst ein neuer Beitritt oder „Raum öffnen“ braucht wieder die Anmeldung.
+- Connect hält seine Freigaben selbst und erneuert sie rechtzeitig: Jede Freigabe gilt 72 Stunden je Zweck und Ziel (der Cloud-Raum je Raum-ID), und Connect versucht das Erneuern ab 24 Stunden vor dem Ablauf. Ein laufendes Meeting und ein offener Raum hängen nicht am Launcher: Wird der Launcher beendet oder meldet sich dort jemand ab, läuft beides weiter. Auch ein neuer Zoom-Beitritt mit einer gehaltenen Freigabe braucht den Launcher nicht. Erst ein Raum mit anderer Raum-ID oder eine abgelaufene Freigabe braucht eine neue Freigabe, und die holt Connect beim Launcher.
 - Übergang: Liegt auf dem Rechner noch ein alter Wert, nutzt Connect ihn weiter, damit nichts mitten im Betrieb ausfällt. Die Zeilen sagen es: „Cloud-Zugang über den alten Proxy-Key (Übergang).“ und „Zoom-Anmeldung über die alten Zugangsdaten dieses Rechners (Übergang).“ Auf der Karte steht „Alter Proxy-Key: hinterlegt, nur noch im Übergang.“. Alte Werte lassen sich nur noch entfernen, nicht mehr eintragen; mit „Entfernen“ räumt man sie weg. Sobald die Freigabe des Launchers da ist, nutzt Connect sie.
 - Das gemerkte Meeting bleibt: Meeting-Nummer und Kenncode des letzten Beitritts merkt Connect weiter und bietet sie nach „Schließen“ und nach einem Neustart wieder an (siehe „Logs und Datenschutz“). „Entfernen“ der alten Werte berührt sie nicht.
 
@@ -294,7 +294,7 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 
 ### Einrichtung (einmal je PC)
 - [ ] „Zoom-SDK 7.1.5.43953 eingerichtet“
-- [ ] Im Launcher (ab 0.19.0) angemeldet; Zeile „Zoom-Anmeldung“ grün
+- [ ] Im Launcher (ab 0.19.0) angemeldet; die Zeile „Zoom-Anmeldung“ in der Zoom-Karte nennt den Launcher und ist nicht rot (vor dem ersten Beitritt „Zoom-Anmeldung über den Launcher; die Freigabe holt Connect beim ersten Beitritt.“, danach „Zoom-Anmeldung über den Launcher (‹Name› · ‹Stufe›), Freigabe gültig bis ‹Datum› ‹Zeit›.“)
 - [ ] „Einrichtung prüfen“ meldet „Einrichtung in Ordnung …“
 - [ ] Companion-Modul 0.3.0 mit der Rolle „JM Connect“ an Port 8737 (optional)
 - [ ] Unter macOS: App freigegeben (Systemeinstellungen › Datenschutz & Sicherheit), Zugriff auf das lokale Netzwerk erlaubt
