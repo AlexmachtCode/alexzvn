@@ -316,7 +316,7 @@ GitHub und Anthropic kommen über eine `fetch`-Attrappe, echte Sockets nur auf `
 
 Entwurf: `docs/superpowers/specs/2026-11-20-anmeldung-teil2-design.md`. Plan: `docs/superpowers/plans/2026-11-20-anmeldung-teil2.md`
 (dort die Entscheidungen E1 bis E10 und die Preflight-Rulings P1 bis P10). Versionen: Launcher 0.19.0, Connect 0.5.0; der Worker
-hat keine Version. Stand 21.11.2026: gebaut auf `feat/anmeldung-teil2`, nichts deployt, nichts veröffentlicht. Reihenfolge der
+hat keine Version. Stand 21.11.2026: gebaut auf `feat/anmeldung-teil2`; der Worker ist am 21.11. aus diesem Branch deployt (Version afef3999), Launcher 0.19.0 und Connect 0.5.0 sind nicht veröffentlicht. Reihenfolge der
 Veröffentlichung, je mit Owner-OK: Worker-Deploy (abwärtskompatibel), dann Launcher 0.19.0, dann Connect 0.5.0.
 
 **Zwecke und Ziele.** Die Tabelle steht in Abschnitt 7. Connect holt je Zweck eine Freigabe beim Launcher (`connect-raum` je
@@ -397,7 +397,7 @@ mit Freigabe), `jwt-quelle.test.ts`, `zoom-laufzeit.test.ts`, `zoom-teile.test.t
 
 ### Admin-Freigabe gebundener Cloud-Räume (Nachtrag 21.11.)
 
-Stand wie oben: gebaut, nichts deployt. Der Nachtrag klärt, was geschieht, wenn jemand Connect ohne „Raum schließen“ beendet: Die Bindung hielte den Raum sonst bis zu 25 Stunden fest.
+Stand wie oben: Worker deployt, Launcher und Connect nicht veröffentlicht. Der Nachtrag klärt, was geschieht, wenn jemand Connect ohne „Raum schließen“ beendet: Die Bindung hielte den Raum sonst bis zu 25 Stunden fest.
 
 **Bindung.** Sie speichert jetzt `{ kidHash, gidHash, bis, raumId, kid, seit }`. `raumId` und `kid` stehen im Klartext, `seit` ist der Zeitpunkt der ersten Bindung. Eine Verlängerung behält `raumId` und `seit`; `kid` nennt das Konto, das zuletzt geöffnet hat. Damit ist die frühere Festlegung „nur Hashes, nie die ID selbst“ für Connect aufgehoben, denn ohne Raum-ID kann der Admin den Raum nicht erkennen. Raum-ID und `kid` sind keine Geheimnisse; Freigabe, Sitzung, Schlüssel und die Hashes `kidHash` und `gidHash` bleiben draußen. Q&A (`qa-inhaber`) speichert weiter nur `{ kidHash, gidHash, bis }`.
 
