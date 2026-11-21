@@ -13,7 +13,6 @@ import {
   sdkLadenZeile,
   sdkSchluesselZeile,
   sdkZeile,
-  TEXT_S11,
   versatzUebernommen,
   versatzZeile,
   zoomKnoepfe,
@@ -376,8 +375,8 @@ export function ZoomCard(): JSX.Element {
     zugang.herkunft === 'stored' || zugang.herkunft === 'session' || k.maengel.includes('zugang_unlesbar');
   const antwortText = (ort: Ort): string | null => (antwort && antwort.ort === ort ? antwort.text : null);
   const einrichtungAntwort = antwortText('einrichtung');
-  // „Zoom-SDK laden“: Tooltip S10 wie die Ordnerwahl, ohne Schlüssel S11 (Spec SDK nachladen 4.5).
-  const ladenTitel = kn.sdkLaden === 'gesperrt' ? TEXT_S10 : kn.sdkLaden === 'ohneSchluessel' ? TEXT_S11 : undefined;
+  // „Zoom-SDK laden“: Tooltip S10 wie die Ordnerwahl (Spec SDK nachladen 4.5).
+  const ladenTitel = kn.sdkLaden === 'gesperrt' ? TEXT_S10 : undefined;
   // Ein Balken für beide Abschnitte: erst der Download, danach die bestehende Kopie (sdkBalken, Aufgabe 8).
   const balken = sdkBalken(sdk);
   // S17 ist ein Hinweis (grau), alles andere rot (Spec SDK nachladen 4.3) — auch als Antwort, bevor das Abbild kommt.

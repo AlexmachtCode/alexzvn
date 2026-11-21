@@ -12,6 +12,7 @@ import { zoomAktiv, zoomStateTeil } from './zoom/plattform';
 import { pruefeSlotEingabe } from './zoom/slot-eingabe';
 import { pruefeZugangEingabe } from './zoom/zugang-eingabe';
 import { pruefeSdkSchluesselEingabe } from './zoom/sdk-schluessel-eingabe';
+import { zugangsHalter } from './zugang/huelle';
 import { activeLabels } from './ndi-guests';
 import { setZoomControlState } from './control-server';
 import { aenderungsMelder } from './control-state';
@@ -94,6 +95,7 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
       pfade: { basis, ressourcen },
       zugang: { lesen: zoomZugangLesen, speichern: zoomZugangSpeichern, loeschen: zoomZugangLoeschen },
       sdkSchluessel: { lesen: zoomSdkSchluesselLesen, speichern: zoomSdkSchluesselSpeichern, loeschen: zoomSdkSchluesselLoeschen },
+      halter: zugangsHalter(),
       einstellungen: {
         anzeigename: zoomAnzeigename,
         setzeAnzeigename: setzeZoomAnzeigename,

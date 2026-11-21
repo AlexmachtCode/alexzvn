@@ -7,7 +7,7 @@ import type { SlotFehler } from '@jm/zoom-bridge/protocol';
 import { authResultName, endReason, failCodeName, failReason, SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
 import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
 import type { ZoomBefehlKennung, ZoomMangel } from '../../shared/types';
-import { BETRIEBSGROESSE, TEXT_A4, TEXT_A6, TEXT_S11, TEXT_S17 } from '../../shared/zoom-text';
+import { BETRIEBSGROESSE, TEXT_A4, TEXT_A6, TEXT_S17 } from '../../shared/zoom-text';
 import { ZOOM_FRISTEN } from './fristen';
 
 /** Text groß in der Karte, Detail klein darunter (technischer Name und Code), Spec 8. */
@@ -53,8 +53,8 @@ export const KT = {
   A7: 'Bitte Client-ID und Client-Secret eintragen, ohne Leerzeichen.',
 
   // Zoom-SDK nachladen (Spec 2026-10-06, Abschnitt 5). Platzmangel nutzt S5; {grund} ist nur ein Code, nie ein Link.
-  S11: TEXT_S11,
   S12: 'Der Proxy hat den SDK-Schlüssel abgelehnt. Bitte den Schlüssel prüfen.',
+  S12b: 'Der Server hat die Freigabe für „Zoom-SDK laden“ abgelehnt. Bitte noch einmal versuchen; Connect holt eine neue beim Launcher.',
   S13: (sekunden: number): string => {
     const minuten = Math.max(1, Math.ceil(sekunden / 60));
     return `Zu viele Versuche. Bitte in ${minuten} ${minuten === 1 ? 'Minute' : 'Minuten'} erneut versuchen.`;

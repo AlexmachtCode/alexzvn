@@ -43,8 +43,6 @@ export const TEXT_A4 = 'Nur für diese Sitzung gemerkt — auf diesem Rechner gi
 /** Text A6 (Spec 8.1). */
 export const TEXT_A6 = 'Kommt aus Umgebungsvariablen (ZOOM_SDK_…) und hat Vorrang.';
 
-/** Text S11 (Spec SDK nachladen, Abschnitt 5): Tooltip des gesperrten Knopfs „Zoom-SDK laden“; klartext.ts übernimmt ihn. */
-export const TEXT_S11 = 'Für „Zoom-SDK laden“ fehlt der SDK-Schlüssel. Bitte unter „SDK-Schlüssel“ eintragen.';
 /** Text S17: Ergebnis eines Abbruchs. Die Karte zeigt ihn als Hinweis, nicht rot (Spec SDK nachladen 4.3). */
 export const TEXT_S17 = 'Laden abgebrochen. Die bisherige Einrichtung bleibt unverändert.';
 
@@ -532,8 +530,8 @@ export interface ZoomKnoepfe {
   meldung: { erneut: boolean; schliessen: boolean; ok: boolean; logordner: boolean } | null;
   /** SDK-Ordner/Zugangsdaten wählen oder entfernen: nur Z1a, Z2 ohne Prüfung, Z13 und nie während eines Abbaus (sonst Tooltip S10). */
   einrichtungAenderbar: boolean;
-  /** „Zoom-SDK laden“ (Spec SDK nachladen 4.5): frei, gesperrt wie die Ordnerwahl (Tooltip S10) oder ohne Schlüssel (Tooltip S11). */
-  sdkLaden: 'frei' | 'gesperrt' | 'ohneSchluessel';
+  /** „Zoom-SDK laden“ (Spec SDK nachladen 4.5): frei oder gesperrt wie die Ordnerwahl (Tooltip S10). Die Freigabe holt der Kern beim Launcher. */
+  sdkLaden: 'frei' | 'gesperrt';
   /** „Abbrechen“ neben dem Ladefortschritt: solange `einrichtung.sdk.laden` steht, nicht während der Kopie. */
   sdkLadenAbbrechen: boolean;
   /** „Entfernen“ beim SDK-Schlüssel: bei hinterlegt oder Sitzung; nicht aus der Umgebung, nicht ohne Schlüssel. */
@@ -574,7 +572,7 @@ export function zoomKnoepfe(a: ZoomAbbild): ZoomKnoepfe {
   return {
     meldung,
     einrichtungAenderbar,
-    sdkLaden: !einrichtungAenderbar ? 'gesperrt' : schluessel === 'none' ? 'ohneSchluessel' : 'frei',
+    sdkLaden: einrichtungAenderbar ? 'frei' : 'gesperrt',
     sdkLadenAbbrechen: a.einrichtung.sdk.laden !== null,
     sdkSchluesselEntfernbar: schluessel === 'stored' || schluessel === 'session',
     pruefen: k.zustand === 'bereit' ? (a.pruefungLaeuft ? 'laeuft' : 'bereit') : 'aus',

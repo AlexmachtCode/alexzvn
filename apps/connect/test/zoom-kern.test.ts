@@ -31,6 +31,8 @@ import {
   type LaufzeitPruefung,
 } from '../src/main/zoom/laufzeit';
 import type { SdkLadenDienste } from '../src/main/zoom/sdk-laden';
+import type { ZugangsHalter } from '../src/main/zugang/halter';
+import { grundText, ZIEL_ZOOM_SDK, ZUGANG_TEXT, type ZugangsLage, type ZugangsWahl } from '../src/main/zugang/regeln';
 import { SDK_PAKET } from '../src/main/zoom/sdk-paket';
 import type { ProxyKeySource, ZoomAbbild, ZoomErgebnis, ZoomKurz, ZoomSlotEinstellung } from '../src/shared/types';
 import {
@@ -99,6 +101,10 @@ interface Probe {
   /** Werte, mit denen der Kern sdkSchluessel.speichern() aufrief (nur im Test sichtbar). */
   sdkSchluesselGespeichert: string[];
   sdkSchluesselGeloescht(): number;
+  /** Halter-Attrappe (Task 13): wonach der Kern fragte, was er zurückmeldete, wie oft er `bestaetigt` fragte. */
+  halterZugang: Array<{ zweck: string; ziel: string }>;
+  halterAntworten: Array<{ zweck: string; wahl: ZugangsWahl; status: number; code: string | null }>;
+  halterBestaetigt(): number;
   richteEinAufrufe(): number;
   /** Laufzeit-Ordner, den die Vorgabe von `pruefe` meldet. */
   ordner: string;
@@ -133,6 +139,10 @@ interface BaueOptionen {
   /** Was zugang.loeschen() bzw. sdkSchluessel.loeschen() meldet; false = Einstellungsdatei nicht schreibbar. Vorgabe true. */
   zugangLoeschenLiefert?: boolean;
   sdkSchluesselLoeschenLiefert?: boolean;
+  /** Halter der Freigaben (Task 13): Vorgabe liefert eine Freigabe `zoom-sdk` (Ziel win-x64); einzelne Funktionen überschreibbar. */
+  halter?: Partial<ZugangsHalter>;
+  /** Felder der Lage, die der Halter liefert (Vorgabe: Freigabe gewählt, nichts gelöscht). */
+  halterLage?: Partial<ZugangsLage>;
   /** Dienste für „Zoom-SDK laden“ (Attrappen); ohne Angabe die echten aus sdk-laden.ts gegen https://proxy.test. */
   sdkLaden?: Partial<SdkLadenDienste>;
   /** Wartezeiten vor den Wiederbeitritts-Versuchen 1–5 in ms (Spec 12.2: einspeisbar). Vorgabe hier [30, 30, 30, 30, 30]. */
@@ -175,6 +185,25 @@ function baueKern(o: BaueOptionen = {}): Probe {
   let sdkSchluessel: { wert: string | null; herkunft: ProxyKeySource } = { wert: null, herkunft: 'none', ...o.sdkSchluessel };
   const sdkSchluesselGespeichert: string[] = [];
   let sdkSchluesselGeloescht = 0;
+  const halterZugang: Probe['halterZugang'] = [];
+  const halterAntworten: Probe['halterAntworten'] = [];
+  let halterBestaetigt = 0;
+  const halter: ZugangsHalter = {
+    zugang: async (zweck, ziel) => {
+      halterZugang.push({ zweck, ziel });
+      return { art: 'freigabe', f: { zweck: 'zoom-sdk', token: 'jm1.test-sdk', bis: Date.now() + 72 * 3600_000, ziel: 'win-x64', konto: { name: 'Maria S.', stufe: 'kollege' } } };
+    },
+    antwort: (zweck, wahl, status, code) => {
+      halterAntworten.push({ zweck, wahl, status, code });
+    },
+    bestaetigt: () => {
+      halterBestaetigt += 1;
+      return false;
+    },
+    lage: () => ({ wahl: 'freigabe', konto: null, bis: null, letzterGrund: null, detail: null, altHerkunft: 'none', altAbgelehnt: false, versucht: true, geloescht: false, ...o.halterLage }),
+    tokens: () => ['jm1.test-sdk'],
+    ...o.halter,
+  };
   let versatzNurSitzung = false;
   let personNurSitzung = false;
   const gesendet: Probe['gesendet'] = [];
@@ -316,6 +345,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
         return o.sdkSchluesselLoeschenLiefert ?? true;
       },
     },
+    halter,
     gastLabels: o.gastLabels ?? (() => []),
     log: (z) => logs.push(z),
     onAbbild: (a) => abbilder.push(a),
@@ -339,6 +369,9 @@ function baueKern(o: BaueOptionen = {}): Probe {
     zugangGespeichert,
     sdkSchluesselGespeichert,
     sdkSchluesselGeloescht: () => sdkSchluesselGeloescht,
+    halterZugang,
+    halterAntworten,
+    halterBestaetigt: () => halterBestaetigt,
     ordner,
     pfade,
     starts: () => startZahl,
@@ -1713,6 +1746,8 @@ console.log('— Zoom-SDK laden (Spec SDK nachladen 4.3, 4.4; Tests 6 Kern; Revi
 const LADE_MIB = 1024 * 1024;
 const LINK = 'https://signed.test/zoom-77?sig=geheim-link';
 const SCHLUESSEL: { wert: string; herkunft: 'stored' } = { wert: 'sdk-geheim-test', herkunft: 'stored' };
+/** Halter im Übergang: keine Freigabe, nur der alte SDK-Schlüssel (OT10). */
+const ALTER_KEY: Partial<ZugangsHalter> = { zugang: async () => ({ art: 'alter-key', key: 'sdk-geheim-test' }) };
 /** Attrappen für das Laden: alles klappt, einzelne Schritte überschreibbar. */
 function ladeDienste(o: Partial<SdkLadenDienste> = {}): Partial<SdkLadenDienste> {
   return {
@@ -1813,8 +1848,10 @@ function ladeStand(p: Probe): string {
     ]));
   ck('Review Focus SDK-5: Reste des früheren Laufs waren schon vor der Platzmessung weg (A12), erst recht vor dem Link',
     resteBeimPlatz === false && resteBeimLink === false);
-  ck('… Link: Proxy-Adresse, SDK-Schlüssel, gepinnte Fassung',
-    linkEingabe?.base === 'https://proxy.test' && linkEingabe?.schluessel === 'sdk-geheim-test' && linkEingabe?.fassung === SDK_FASSUNG);
+  ck('… Link: Proxy-Adresse, Kopf mit der Freigabe, gepinnte Fassung',
+    linkEingabe?.base === 'https://proxy.test' && JSON.stringify(linkEingabe?.kopf) === JSON.stringify({ Authorization: 'Bearer jm1.test-sdk' }) && linkEingabe?.fassung === SDK_FASSUNG);
+  ck('… der Kern fragte den Halter genau einmal: zoom-sdk, Ziel win-x64',
+    JSON.stringify(p.halterZugang) === JSON.stringify([{ zweck: 'zoom-sdk', ziel: ZIEL_ZOOM_SDK }]) && ZIEL_ZOOM_SDK === 'win-x64');
   ck('… Download: Link und Größe vom Proxy, ZIP im Arbeitsordner, erwartet = SDK_PAKET',
     ladeEingabe?.url === LINK && ladeEingabe?.size === SDK_PAKET.bytes && ladeEingabe?.ziel === join(arbeitsordner(p), SDK_PAKET.datei)
       && ladeEingabe?.erwartet.sha256 === SDK_PAKET.sha256 && ladeEingabe?.erwartet.bytes === SDK_PAKET.bytes);
@@ -1835,11 +1872,11 @@ function ladeStand(p: Probe): string {
     '[zoom] Zustand einrichtung → bereit',
   ]));
   const alles = p.logs.join('\n') + JSON.stringify(p.kern.abbild()) + JSON.stringify(p.abbilder);
-  ck('… weder SDK-Schlüssel noch Link in Log oder Abbild', !alles.includes('sdk-geheim') && !alles.includes('signed.test') && !alles.includes('geheim-link'));
+  ck('… weder SDK-Schlüssel noch Freigabe noch Link in Log oder Abbild', !alles.includes('sdk-geheim') && !alles.includes('jm1.') && !alles.includes('signed.test') && !alles.includes('geheim-link'));
   await p.aufraeumen();
 }
 const LADE_FEHLER: Array<[string, Partial<SdkLadenDienste>, string]> = [
-  ['Schlüssel abgelehnt', { holeLink: async () => ({ ok: false, art: 'schluessel' }) }, KT.S12],
+  ['Freigabe abgelehnt (401)', { holeLink: async () => ({ ok: false, art: 'schluessel', code: null }) }, KT.S12b],
   ['gedrosselt 125 s', { holeLink: async () => ({ ok: false, art: 'gedrosselt', sekunden: 125 }) }, KT.S13(125)],
   ['Proxy nicht erreichbar', { holeLink: async () => ({ ok: false, art: 'proxy', grund: 'ENOTFOUND' }) }, KT.S14('ENOTFOUND')],
   ['kein passendes Paket auf dem Proxy', { holeLink: async () => ({ ok: false, art: 'fehlt' }) }, KT.S15],
@@ -1904,6 +1941,8 @@ for (const [name, dienste, soll] of LADE_FEHLER) {
 {
   let linkGefragt = false;
   const p = baueKern({
+    halter: { zugang: async () => ({ art: 'keiner' }) },
+    halterLage: { wahl: 'keiner', letzterGrund: 'kein-recht', detail: 'kein-jm-rechner' },
     sdkLaden: ladeDienste({
       holeLink: async () => {
         linkGefragt = true;
@@ -1911,11 +1950,116 @@ for (const [name, dienste, soll] of LADE_FEHLER) {
       },
     }),
   });
-  const vor = p.logs.length;
   const r = await p.kern.sdkLaden();
-  ck('ohne SDK-Schlüssel → S11, kein Link, Zustand bleibt, kein Text im Abbild',
-    text(r) === KT.S11 && !linkGefragt && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.sdk.text === null);
-  ck('… Log: nur die Abweisung', JSON.stringify(p.logs.slice(vor)) === JSON.stringify(['[zoom] Zoom-SDK laden abgewiesen: ' + KT.S11]));
+  const CG8 = grundText('zoom-sdk', 'kein-recht', 'kein-jm-rechner');
+  ck('T13 N2: kein JM-Rechner → sdk.text CG8, Zustand bleibt, kein Link',
+    text(r) === CG8 && !linkGefragt && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.sdk.text === CG8);
+  ck('… Log: Laden gescheitert mit CG8, keine Sperre danach', p.logs.includes(`[zoom] Laden des Zoom-SDK gescheitert: ${CG8}`)
+    && p.kern.abbild().einrichtung.sdk.laden === null && !p.kern.laeuft() && text(p.kern.einrichtungSperre()) === null);
+  await p.aufraeumen();
+}
+{
+  // Ohne Grund (der Halter hat nichts versucht): der Text von „kein Launcher“, nicht CG8.
+  const p = baueKern({
+    halter: { zugang: async () => ({ art: 'keiner' }) },
+    halterLage: { wahl: 'keiner', letzterGrund: null, detail: null },
+    sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'fehlt' }) }),
+  });
+  const r = await p.kern.sdkLaden();
+  ck('T13: keine Freigabe und kein Grund → CG1 (kein Launcher), Zustand bleibt', text(r) === grundText('zoom-sdk', 'kein-launcher') && p.kern.kurz().zustand === 'bereit');
+  await p.aufraeumen();
+}
+{
+  // 4.4: ladung steht, bevor irgendetwas wartet; ein zweiter Klick trifft schon die Sperre, auch während der Halter wartet.
+  let gesehen: { phase: string | undefined; zweiter: string | null } | null = null;
+  const p: Probe = baueKern({
+    halter: {
+      zugang: async () => {
+        const zweiter = await p.kern.sdkLaden();
+        gesehen = { phase: p.kern.abbild().einrichtung.sdk.laden?.phase, zweiter: text(zweiter) };
+        return { art: 'keiner' };
+      },
+    },
+    halterLage: { wahl: 'keiner', letzterGrund: 'abgelaufen' },
+    sdkLaden: ladeDienste(),
+  });
+  await p.kern.sdkLaden();
+  const g = gesehen as { phase: string | undefined; zweiter: string | null } | null;
+  ck('T13 4.4: die Freigabe wird erst nach dem Setzen von ladung geholt (zweiter Klick → S10)',
+    g !== null && g.phase === 'link' && g.zweiter === KT.S10);
+  await p.aufraeumen();
+}
+{
+  // OT9: der Halter meldet genau einmal `bestaetigt` (alter SDK-Schlüssel gelöscht): ZA6 einmal als Hinweis.
+  let fragen = 0;
+  const p = baueKern({
+    halter: { bestaetigt: () => ++fragen === 1 },
+    sdkLaden: ladeDienste({ lade: async () => ({ ok: false, art: 'pruefsumme' }) }),
+  });
+  await p.kern.sdkLaden();
+  const zahl = (): number => p.kern.abbild().hinweise.filter((h) => h === ZUGANG_TEXT.sdkGeloescht).length;
+  ck('T13 OT9: erster Link mit Freigabe → bestaetigt einmal, Hinweis ZA6 einmal; zweites Laden ohne neuen Hinweis',
+    fragen === 1 && zahl() === 1);
+  await p.kern.sdkLaden();
+  ck('… zweites Laden: bestaetigt wieder gefragt, aber kein neuer Hinweis', fragen === 2 && zahl() === 1);
+  ck('… der Hinweis kommt auch ins Log, ohne Freigabe', p.logs.includes(`[zoom] Hinweis: ${ZUGANG_TEXT.sdkGeloescht}`) && !p.logs.join('\n').includes('jm1.'));
+  await p.aufraeumen();
+}
+{
+  // Link gescheitert (nicht ok): kein `bestaetigt`, kein Hinweis.
+  const p = baueKern({ sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'fehlt' }) }) });
+  await p.kern.sdkLaden();
+  ck('T13: ohne erfolgreichen Link wird `bestaetigt` nicht gefragt', p.halterBestaetigt() === 0 && p.kern.abbild().hinweise.length === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel', code: 'sitzung-abgelaufen' }) }) });
+  const r = await p.kern.sdkLaden();
+  const a = p.halterAntworten;
+  ck('T13 QR5: 401 auf die Freigabe → halter.antwort(zoom-sdk, …, 401), Text S12b',
+    a.length === 1 && a[0].zweck === 'zoom-sdk' && a[0].wahl.art === 'freigabe' && a[0].status === 401 && a[0].code === 'sitzung-abgelaufen'
+      && text(r) === KT.S12b && p.kern.abbild().einrichtung.sdk.text === KT.S12b);
+  ck('… die Freigabe steht nirgends: Log, Abbild, Text', !(p.logs.join('\n') + JSON.stringify(p.abbilder) + String(text(r))).includes('jm1.'));
+  await p.aufraeumen();
+}
+{
+  // 403: Text je Code des Workers (CG7c, bei kein-jm-rechner CG8), `antwort` mit 403.
+  const FAELLE = [['kein-recht', grundText('zoom-sdk', 'kein-recht', 'kein-recht')], ['kein-jm-rechner', grundText('zoom-sdk', 'kein-recht', 'kein-jm-rechner')], [null, grundText('zoom-sdk', 'kein-recht', null)]] as const;
+  for (const [code, soll] of FAELLE) {
+    const p = baueKern({ sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'verweigert', code }) }) });
+    const r = await p.kern.sdkLaden();
+    ck(`T13 403 (Code ${code ?? 'keiner'}) → ${code === 'kein-jm-rechner' ? 'CG8' : 'CG7c'}, halter.antwort mit 403 und dem Code`,
+      text(r) === soll && p.kern.abbild().einrichtung.sdk.text === soll && p.halterAntworten.length === 1
+        && p.halterAntworten[0].status === 403 && p.halterAntworten[0].code === code && p.kern.kurz().zustand === 'bereit');
+    await p.aufraeumen();
+  }
+}
+{
+  let kopf: Record<string, string> | undefined;
+  const p = baueKern({
+    halter: ALTER_KEY,
+    sdkLaden: ladeDienste({
+      holeLink: async (e) => {
+        kopf = e.kopf;
+        return { ok: false, art: 'schluessel', code: null };
+      },
+    }),
+  });
+  const r = await p.kern.sdkLaden();
+  ck('T13 OT10: alter Schlüssel im Übergang → holeLink bekommt X-Zoom-Sdk-Key; 401 → S12 wie bisher',
+    JSON.stringify(kopf) === JSON.stringify({ 'X-Zoom-Sdk-Key': 'sdk-geheim-test' }) && text(r) === KT.S12 && p.kern.abbild().einrichtung.sdk.text === KT.S12);
+  ck('… der alte Schlüssel steht nirgends: Log, Abbild', !(p.logs.join('\n') + JSON.stringify(p.abbilder)).includes('sdk-geheim'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    halter: ALTER_KEY,
+    sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel', code: 'alter-key-abgelaufen' }) }),
+  });
+  const r = await p.kern.sdkLaden();
+  const a = p.halterAntworten;
+  ck('T13 E10 (P2): 401 alter-key-abgelaufen auf den alten Schlüssel → halter.antwort(zoom-sdk, alter-key, 401, alter-key-abgelaufen)',
+    a.length === 1 && a[0].zweck === 'zoom-sdk' && a[0].wahl.art === 'alter-key' && a[0].status === 401 && a[0].code === 'alter-key-abgelaufen' && text(r) === KT.S12);
   await p.aufraeumen();
 }
 {
@@ -2122,7 +2266,7 @@ for (const [name, dienste, soll] of LADE_FEHLER) {
 }
 console.log('— S12 gilt dem damaligen Schlüssel (Gesamtprüfung: Task 7 minor 3, Abnahme 0.2.2 Schritt 4 → 5)');
 {
-  const p = baueKern({ sdkSchluessel: SCHLUESSEL, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel' }) }) });
+  const p = baueKern({ sdkSchluessel: SCHLUESSEL, halter: ALTER_KEY, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel', code: null }) }) });
   await p.kern.sdkLaden();
   ck('Vorbereitung: S12 im Abbild', p.kern.abbild().einrichtung.sdk.text === KT.S12);
   ck('neuer SDK-Schlüssel nach S12 → ok, die Ablehnung steht nicht mehr im Abbild',
@@ -2143,7 +2287,7 @@ console.log('— S12 gilt dem damaligen Schlüssel (Gesamtprüfung: Task 7 minor
 }
 {
   // Ein Schlüssel aus der Umgebung hat Vorrang und gilt weiter: Ein eingetragener Wert ändert an S12 nichts.
-  const p = baueKern({ sdkSchluessel: { wert: 'sdk-test', herkunft: 'env' }, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel' }) }) });
+  const p = baueKern({ sdkSchluessel: { wert: 'sdk-test', herkunft: 'env' }, halter: ALTER_KEY, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel', code: null }) }) });
   await p.kern.sdkLaden();
   ck('Schlüssel aus der Umgebung: S12 bleibt nach einem eingetragenen Schlüssel stehen (Umgebung hat Vorrang)',
     ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-geheim-test' })) && p.kern.abbild().einrichtung.sdk.text === KT.S12);

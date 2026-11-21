@@ -10,7 +10,7 @@ import type {
 } from '../src/shared/types';
 import {
   BETRIEBSGROESSE, einrichtungsTextArt, gaesteZeile, kartenZeile, MANGEL_GRUND, sdkBalken,
-  sdkKnopf, sdkLadenZeile, sdkSchluesselZeile, sdkZeile, stateKvAus, TEXT_A4, TEXT_A4_SCHREIBFEHLER, TEXT_A6, TEXT_S11,
+  sdkKnopf, sdkLadenZeile, sdkSchluesselZeile, sdkZeile, stateKvAus, TEXT_A4, TEXT_A4_SCHREIBFEHLER, TEXT_A6,
   TEXT_S17, trayTooltip, trayVerlassenAktiv, versatzUebernommen, versatzZeile, WIEDERBEITRITT_VERSUCHE, zoomKnoepfe, zoomZ,
   zoomZeile, zugangZeile, type ZoomStatusWert, type ZoomZ,
 } from '../src/shared/zoom-text';
@@ -471,8 +471,8 @@ console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die 
     ['A7', KT.A7, 'Bitte Client-ID und Client-Secret eintragen, ohne Leerzeichen.'],
     ['A6', KT.A6, 'Kommt aus Umgebungsvariablen (ZOOM_SDK_…) und hat Vorrang.'],
     // Zoom-SDK nachladen (Spec 2026-10-06, Abschnitt 5)
-    ['S11', KT.S11, 'Für „Zoom-SDK laden“ fehlt der SDK-Schlüssel. Bitte unter „SDK-Schlüssel“ eintragen.'],
     ['S12', KT.S12, 'Der Proxy hat den SDK-Schlüssel abgelehnt. Bitte den Schlüssel prüfen.'],
+    ['S12b', KT.S12b, 'Der Server hat die Freigabe für „Zoom-SDK laden“ abgelehnt. Bitte noch einmal versuchen; Connect holt eine neue beim Launcher.'],
     ['S13', KT.S13(125), 'Zu viele Versuche. Bitte in 3 Minuten erneut versuchen.'],
     ['S14', KT.S14('ENOTFOUND'), 'Der Proxy ist nicht erreichbar (ENOTFOUND). Bitte die Netzverbindung prüfen oder den SDK-Ordner von Hand wählen.'],
     ['S15', KT.S15, 'Auf dem Proxy liegt kein passendes Zoom-SDK 7.1.5.43953. Bitte den SDK-Ordner von Hand wählen.'],
@@ -531,7 +531,7 @@ console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die 
   ck('S13: ⌈s/60⌉ Minuten, bei 1 die Einzahl (60 s → 1 Minute, 61 s → 2 Minuten, 600 s → 10), nie 0',
     KT.S13(60).includes(' in 1 Minute erneut') && KT.S13(61).includes(' in 2 Minuten erneut')
       && KT.S13(600).includes(' in 10 Minuten erneut') && KT.S13(0).includes(' in 1 Minute erneut'));
-  ck('S11 und S17 kommen aus @shared/zoom-text (die Karte zeigt sie ohne klartext.ts)', KT.S11 === TEXT_S11 && KT.S17 === TEXT_S17);
+  ck('S17 kommt aus @shared/zoom-text (die Karte zeigt ihn ohne klartext.ts)', KT.S17 === TEXT_S17);
 }
 
 console.log('— 8.3: Vorsatz + Text, ganzer Text, nie doppelt „gescheitert:“');
@@ -693,7 +693,7 @@ console.log('— Zoom-SDK laden: Zeilen und Knöpfe (Spec SDK nachladen 4.4, 4.5
     abbild({ ...extra, kurz: kz, einrichtung: { ...abbild().einrichtung, sdkSchluessel: { herkunft } } });
   ck('Z2 mit Schlüssel: „Zoom-SDK laden“ frei', zoomKnoepfe(mit('stored')).sdkLaden === 'frei');
   ck('Z1a mit Schlüssel aus der Umgebung: frei', zoomKnoepfe(mit('env', { zustand: 'einrichtung', maengel: ['sdk_fehlt'] })).sdkLaden === 'frei');
-  ck('ohne Schlüssel: gesperrt mit S11', zoomKnoepfe(mit('none', { zustand: 'einrichtung', maengel: ['sdk_fehlt'] })).sdkLaden === 'ohneSchluessel');
+  ck('T13: ohne SDK-Schlüssel: „Zoom-SDK laden“ frei (die Freigabe kommt vom Launcher)', zoomKnoepfe(mit('none', { zustand: 'einrichtung', maengel: ['sdk_fehlt'] })).sdkLaden === 'frei');
   ck('während Kopie oder Laden (Z1b): gesperrt wie die Ordnerwahl (S10)',
     zoomKnoepfe(mit('stored', { zustand: 'einrichtung', maengel: ['sdk_fehlt'], kopieLaeuft: true })).sdkLaden === 'gesperrt');
   ck('während „Einrichtung prüfen“: gesperrt (S10)', zoomKnoepfe(mit('stored', {}, { pruefungLaeuft: true })).sdkLaden === 'gesperrt');
@@ -715,9 +715,9 @@ console.log('— Zoom-SDK laden: Zeilen und Knöpfe (Spec SDK nachladen 4.4, 4.5
   ck('… während der Kopie der Kopierfortschritt wie bisher (32 %), Gesamt 0 → 0 %',
     sdkBalken(sdkMit({ dateien: 40, dateienGesamt: 153, bytes: 105_500_000, bytesGesamt: 329_657_415 }, null)) === 32
       && sdkBalken(sdkMit({ dateien: 0, dateienGesamt: 0, bytes: 0, bytesGesamt: 0 }, null)) === 0);
-  ck('S17 ist ein Hinweis (grau), S10, S11, S12, S16b und S5 sind Fehler (rot)',
+  ck('S17 ist ein Hinweis (grau), S10, S12, S12b, S16b und S5 sind Fehler (rot)',
     einrichtungsTextArt(TEXT_S17) === 'hinweis'
-      && [KT.S10, TEXT_S11, KT.S12, KT.S16b, KT.S5(872, 871)].every((t) => einrichtungsTextArt(t) === 'fehler'));
+      && [KT.S10, KT.S12, KT.S12b, KT.S16b, KT.S5(872, 871)].every((t) => einrichtungsTextArt(t) === 'fehler'));
 }
 
 // ── Aufgabe 4 (4b): zoom_cmd, Entzug, Grenze, Bild/Ton im Klartext, Versatz, Sperre im Abbau ──

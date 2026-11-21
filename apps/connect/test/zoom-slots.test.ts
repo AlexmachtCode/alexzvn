@@ -266,6 +266,14 @@ function baueKern(o: BaueOptionen = {}): Probe {
       einstellungsLage: () => ({ ...(o.einstellungsLage ?? { gesichert: null, verworfen: 0 }), nurSitzung: einst.nurSitzung.size > 0 }),
     },
     sdkSchluessel: { lesen: () => ({ wert: null, herkunft: 'none' }), speichern: () => 'stored', loeschen: () => true },
+    // Die Slot-Fälle laden kein SDK: der Halter wird nie gefragt.
+    halter: {
+      zugang: async () => ({ art: 'keiner' }),
+      antwort: () => undefined,
+      bestaetigt: () => false,
+      lage: () => ({ wahl: 'keiner', konto: null, bis: null, letzterGrund: null, detail: null, altHerkunft: 'none', altAbgelehnt: false, versucht: false, geloescht: false }),
+      tokens: () => [],
+    },
     gastLabels: o.gastLabels ?? (() => []),
     log: (z) => logs.push(z),
     onAbbild: (a) => abbilder.push(a),

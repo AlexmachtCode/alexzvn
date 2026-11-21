@@ -118,6 +118,8 @@ import {
   type LaufzeitPruefung,
   type SdkWahl,
 } from './laufzeit';
+import type { ZugangsHalter } from '../zugang/halter';
+import { grundText, ZIEL_ZOOM_SDK, ZUGANG_TEXT, zugangsKopf } from '../zugang/regeln';
 import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFehler, type SdkLadenDienste } from './sdk-laden';
 import { SDK_PAKET } from './sdk-paket';
 import { deuteZoomBefehl, ladeZiel, type SlotSchalter } from './fernsteuerung';
@@ -173,6 +175,8 @@ export interface ZoomKernAbhaengigkeiten {
   zugang: { lesen(): ZugangStand; speichern(d: ZugangDaten): 'stored' | 'session'; loeschen(): boolean };
   /** Umgebung JMPS_ZOOM_SDK_KEY > gespeichert (safeStorage) > Sitzung; speichern() bekommt den getrimmten Wert. loeschen() wie bei zugang. */
   sdkSchluessel: { lesen(): SdkSchluesselStand; speichern(wert: string): 'stored' | 'session'; loeschen(): boolean };
+  /** Freigaben des Launchers (Anmeldung Teil 2): „Zoom-SDK laden“ holt hier die Freigabe `zoom-sdk`; im Übergang liefert er den alten SDK-Schlüssel. */
+  halter: Pick<ZugangsHalter, 'zugang' | 'antwort' | 'bestaetigt' | 'lage' | 'tokens'>;
   einstellungen: {
     anzeigename(): string;
     setzeAnzeigename(n: string): void;
@@ -1004,25 +1008,21 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   // ── Zoom-SDK laden (Spec 2026-10-06, 4.3, 4.4) ───────────────────────────
   /**
-   * Schritte 1–2 hier, synchron: Sperre (S10), fehler→schliessen, Schlüssel (S11). Danach sind `ladung`,
-   * `ladeAbbruch` und `ladeLauf` gesetzt, bevor irgendetwas wartet: ein zweiter Klick trifft schon die Sperre.
+   * Schritte 1–2 hier, synchron: Sperre (S10), fehler→schliessen. Danach sind `ladung`, `ladeAbbruch` und `ladeLauf`
+   * gesetzt, bevor irgendetwas wartet (auch der Halter): ein zweiter Klick trifft schon die Sperre. Die Freigabe holt
+   * ladeAblauf in der Phase `link`.
    */
   function sdkLaden(): Promise<ZoomErgebnis> {
     const sperre = einrichtungSperre();
     if (!sperre.ok) return Promise.resolve(sperre);
     if (zustand === 'fehler') schliessen();
-    const schluessel = d.sdkSchluessel.lesen().wert;
-    if (schluessel === null) {
-      d.log('[zoom] Zoom-SDK laden abgewiesen: ' + KT.S11);
-      return Promise.resolve({ ok: false, text: KT.S11 });
-    }
     sdkFehler = null;
     const abbruch = new AbortController();
     ladeAbbruch = abbruch;
     ladung = { phase: 'link', bytes: 0, bytesGesamt: SDK_PAKET.bytes };
     d.log(`[zoom] Zoom-SDK wird geladen (${Math.round(SDK_PAKET.bytes / MIB)} MB)`);
     setzeZustand('einrichtung');
-    const lauf = ladeAblauf(schluessel, abbruch.signal).finally(() => {
+    const lauf = ladeAblauf(abbruch.signal).finally(() => {
       ladeLauf = null;
     });
     ladeLauf = lauf;
@@ -1030,7 +1030,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   /** Schritte 3–8. Jeder Ausgang räumt den Arbeitsordner (Schritt 7) und lässt die bisherige Einrichtung stehen. */
-  async function ladeAblauf(schluessel: string, signal: AbortSignal): Promise<ZoomErgebnis> {
+  async function ladeAblauf(signal: AbortSignal): Promise<ZoomErgebnis> {
     const arbeit = join(d.pfade.basis, LADE_ORDNER);
     const zip = join(arbeit, SDK_PAKET.datei);
     const entpackt = join(arbeit, 'sdk');
@@ -1066,9 +1066,26 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       } catch {
         // ungültige Adresse: holeLink meldet sie als S14
       }
+      // Die Freigabe wird bei jedem Versuch frisch gefragt (nie gemerkt) und erst hier, nach dem Setzen von `ladung`.
+      const w = await d.halter.zugang('zoom-sdk', ZIEL_ZOOM_SDK);
+      if (signal.aborted) return abgebrochen();
+      if (w.art === 'keiner') {
+        // Weder Freigabe noch alter Schlüssel: der Grund des Launchers (auf Nicht-JM-Rechnern CG8, N2) und kein Link.
+        const lage = d.halter.lage('zoom-sdk');
+        return scheitert(grundText('zoom-sdk', lage.letzterGrund ?? 'kein-launcher', lage.detail));
+      }
       d.log(`[zoom] SDK-Link angefragt bei ${host}`);
-      const link = await ld.holeLink({ base, schluessel, fassung: SDK_PAKET.fassung, signal });
-      if (!link.ok) return fehlschlag(link);
+      const link = await ld.holeLink({ base, kopf: zugangsKopf('zoom-sdk', w), fassung: SDK_PAKET.fassung, signal });
+      if (!link.ok) {
+        if (link.art === 'schluessel' || link.art === 'verweigert') {
+          // Der Halter lernt aus der Ablehnung (Freigabe verwerfen bzw. alten Schlüssel als abgelehnt merken) vor dem Text.
+          d.halter.antwort('zoom-sdk', w, link.art === 'schluessel' ? 401 : 403, link.code);
+          return scheitert(link.art === 'schluessel' ? (w.art === 'freigabe' ? KT.S12b : KT.S12) : ladeFehlerText(link));
+        }
+        return fehlschlag(link);
+      }
+      // OT9: der alte SDK-Schlüssel ist gelöscht, sobald eine Freigabe trug; ZA6 genau einmal.
+      if (d.halter.bestaetigt('zoom-sdk', w)) hinweis(ZUGANG_TEXT.sdkGeloescht);
       phase('download', 0);
       const geladen = await ld.lade({
         url: link.url,
