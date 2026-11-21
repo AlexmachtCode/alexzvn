@@ -157,14 +157,37 @@ async function dienst(o: { behandle?: (a: FreigabeAnfrage) => Promise<FreigabeEr
 {
   const c = client('ok');
   const stelle = erzeugeFreigabeStelle({ treiber: treiber('angemeldet', stand()), client: c, jetzt: () => T0, log: () => {} });
-  const zoom = await stelle.behandle({ v: 1, appId: 'jm-connect', zweck: 'zoom-jwt', ziel: 'r1' });
+  const zoom = await stelle.behandle({ v: 1, appId: 'jm-connect', zweck: 'zoom-xyz', ziel: 'r1' });
   const fremd = await stelle.behandle({ v: 1, appId: 'jm-titler', zweck: 'qa-relay', ziel: 'evt-1' });
   const proto = await stelle.behandle({ v: 1, appId: 'jm-qa', zweck: 'toString', ziel: 'evt-1' });
   const ohneZiel = await stelle.behandle({ v: 1, appId: 'jm-qa', zweck: 'qa-relay' });
   ck('P13 10.6: unbekannter Zweck (auch „toString“) und App nicht in der Liste → unbekannter-zweck; Ziel fehlt → fehler; nie beim Worker',
     grund(zoom) === 'unbekannter-zweck' && grund(fremd) === 'unbekannter-zweck' && grund(proto) === 'unbekannter-zweck'
     && grund(ohneZiel) === 'fehler' && c.aufrufe.length === 0
-    && JSON.stringify(ZWECKE) === JSON.stringify({ 'qa-relay': { funktion: 'qa', zielNoetig: true, apps: ['jm-qa'] } }));
+    && JSON.stringify(ZWECKE) === JSON.stringify({
+      'qa-relay': { funktion: 'qa', zielNoetig: true, apps: ['jm-qa'] },
+      'connect-raum': { funktion: 'connect-raum', zielNoetig: true, apps: ['jm-connect'] },
+      'zoom-jwt': { funktion: 'zoom', zielNoetig: true, apps: ['jm-connect'] },
+      'zoom-sdk': { funktion: 'zoom', zielNoetig: true, apps: ['jm-connect'] },
+    }));
+}
+
+// --- T8: Zwecke für JM Connect, JM-Prüfung für zoom-sdk ---------------------------------------------------------------------
+{
+  const c = client('ok');
+  const zeilen: string[] = [];
+  const stelle = erzeugeFreigabeStelle({ treiber: treiber('angemeldet', stand({ jm: false, plattform: 'win' })), client: c, jetzt: () => T0, log: (z) => zeilen.push(z) });
+  const raum = await stelle.behandle({ v: 1, appId: 'jm-connect', zweck: 'connect-raum', ziel: 'cop31-tag1' });
+  const jwt = await stelle.behandle({ v: 1, appId: 'jm-connect', zweck: 'zoom-jwt', ziel: 'meeting-sdk' });
+  const sdk = await stelle.behandle({ v: 1, appId: 'jm-connect', zweck: 'zoom-sdk', ziel: 'win-x64' });
+  const quer = await stelle.behandle({ v: 1, appId: 'jm-qa', zweck: 'zoom-jwt', ziel: 'meeting-sdk' });
+  ck('T8 OT1, OF1: Connect bekommt connect-raum und zoom-jwt (Kollege, Nicht-JM-Rechner); Q&A keinen Connect-Zweck',
+    raum.ok && jwt.ok && grund(quer) === 'unbekannter-zweck'
+      && JSON.stringify(c.aufrufe.map((a) => [a.zweck, a.ziel])) === '[["connect-raum","cop31-tag1"],["zoom-jwt","meeting-sdk"]]');
+  ck('T8 OT4, N2: zoom-sdk auf Windows ohne JM-Markierung → kein-recht mit detail kein-jm-rechner, nie beim Worker',
+    !sdk.ok && sdk.grund === 'kein-recht' && sdk.detail === 'kein-jm-rechner' && c.aufrufe.length === 2
+      && zeilen.includes('Freigabe: zoom-sdk für jm-connect abgelehnt (kein JM-Rechner)'));
+  ck('T8 G4: keine Logzeile nennt ein Token oder ein Ziel', zeilen.every((z) => !z.includes('jm1.') && !z.includes('cop31-tag1')));
 }
 
 // --- P13 EP8: Wiederholung, fremder Schlüssel, Zeitfenster -----------------------------------------------------------------

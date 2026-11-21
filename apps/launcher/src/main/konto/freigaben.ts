@@ -1,19 +1,23 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Anmeldung im Launcher (Teil 1) · Freigabe-Stelle (Plan 10.6, EP3, EP8; Spec 6.1, 6.2, 6.3).
 // Entscheidet, ob ein Tool eine Freigabe bekommt, und holt sie beim Worker (POST /konto/freigabe; der Worker stellt sie
-// aus den Claims der Sitzung aus, ohne neue Prüfung im Konten-Speicher). Teil 1 kennt nur den Zweck `qa-relay` für JM Q&A;
-// Teil 2 ergänzt Zwecke in ZWECKE und am Worker, ohne Kanal oder Beweis zu ändern. Ein Tool-Neustart übernimmt so den beim
+// aus den Claims der Sitzung aus, ohne neue Prüfung im Konten-Speicher). Teil 1 kannte nur den Zweck `qa-relay` für JM Q&A;
+// Teil 2: Zwecke für JM Connect (`connect-raum`, `zoom-jwt`, `zoom-sdk`); `zoom-sdk` nur auf JM-Rechnern (OT4), ohne Kanal
+// oder Beweis zu ändern. Ein Tool-Neustart übernimmt so den beim
 // Launcher-Start festgehaltenen Stand; auch bei „Zugang entzogen, Sitzung läuft“ gibt es weiter Freigaben, bis der Launcher
 // neu startet (Spec 6.1, 6.3). Jede Ausgabe wird ohne Token gemerkt (Konto-Dialog „An Tools ausgegeben“) und geloggt.
 // Kein electron-Import (G9).
 // ─────────────────────────────────────────────────────────────────────────────
 import type { FreigabeAnfrage, FreigabeErgebnis, FreigabeGrund } from '@jm/app-runtime/freigabe';
-import { darf, type Funktion, type KontoZustand } from '../../shared/konto';
+import { zweckDarf, type Funktion, type KontoZustand } from '../../shared/konto';
 import type { SitzungsTreiber } from './sitzung-kern';
 import { KontoFehler, type KontoClient } from './worker-client';
 
 export const ZWECKE: Readonly<Record<string, { funktion: Funktion; zielNoetig: boolean; apps: readonly string[] }>> = {
   'qa-relay': { funktion: 'qa', zielNoetig: true, apps: ['jm-qa'] },
+  'connect-raum': { funktion: 'connect-raum', zielNoetig: true, apps: ['jm-connect'] },
+  'zoom-jwt': { funktion: 'zoom', zielNoetig: true, apps: ['jm-connect'] },
+  'zoom-sdk': { funktion: 'zoom', zielNoetig: true, apps: ['jm-connect'] },
 };
 
 /** Ohne gültige Sitzung: welcher Grund passt zum Zustand des Treibers? */
@@ -59,7 +63,12 @@ function stelleOhneFrist(u: {
       if (u.verfallen.has(a)) return { ok: false, grund: 'server-nicht-erreichbar' };
       const ansicht = u.treiber.ansicht();
       if (!sitzung || !ansicht.stand) return { ok: false, grund: grundOhneSitzung(ansicht.zustand) };
-      if (!darf(ansicht.stand, zweck.funktion, { jetzt: u.jetzt() })) {
+      const recht = zweckDarf(ansicht.stand, a.zweck, { jetzt: u.jetzt() });
+      if (recht === 'kein-jm-rechner') {
+        u.log(`Freigabe: ${a.zweck} für ${a.appId} abgelehnt (kein JM-Rechner)`);
+        return { ok: false, grund: 'kein-recht', detail: 'kein-jm-rechner' };
+      }
+      if (recht !== 'ja') {
         u.log(`Freigabe: ${a.zweck} für ${a.appId} abgelehnt (kein Recht)`);
         return { ok: false, grund: 'kein-recht' };
       }

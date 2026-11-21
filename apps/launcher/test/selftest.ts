@@ -3433,10 +3433,10 @@ function dialogBefunde(q: string): string[] {
   ck('P25 6.1, EP26: Abmelden nur nach der Rückfrage K27 (mit offener iveo-Show K27b)',
     konto.includes('<Button variant="outline" onClick={() => setFrage(true)}>') && konto.includes('{abmeldeFrage(iveoShowOffen)}')
     && konto.includes('  const iveoShowOffen = useTools((s) => s.iveoActive !== null);') && (konto.match(/void abmelden\(\)/g) ?? []).length === 1);
-  ck('P25 8, EP34: Zoom-Anfrage nur über zoomKnopfSichtbar, Formular über zoomFormular, Hinweis Z5–Z7 über zoomHinweis, Z11 über zoomConnectHinweis',
+  ck('P25 8, EP34: Zoom-Anfrage nur über zoomKnopfSichtbar, Formular über zoomFormular, Hinweis Z5–Z7 über zoomHinweis, Z11 entfällt (kein zoomConnectHinweis mehr)',
     konto.includes('  const zKnopf = zoomKnopfSichtbar(ansicht, jetzt);') && konto.includes('    const f = zoomFormular(formular, Date.now());')
     && konto.includes('{zoomHinweis(ansicht)}') && konto.includes('      } else setMeldung(zoomFehlerText(r.code));')
-    && konto.includes('  const zConnect = zoomConnectHinweis(ansicht);') && konto.includes('            {zConnect && ('));
+    && !konto.includes('zoomConnectHinweis') && !konto.includes('zConnect'));
   ck('P25 4.2: beide Dialoge hängen in App.tsx', app.includes('      <AnmeldeModal />') && app.includes('      <KontoModal />'));
 }
 
@@ -3470,10 +3470,9 @@ function dialogBefunde(q: string): string[] {
   ck('P26 4: Löschen, neuer Code und Einladung nur über die reinen Helfer (Rückfrage, Formular, einmalige Anzeige)',
     zugaenge.includes('loeschFrage(zugang).text') && zugaenge.includes('const a = einladeFormular(einladung);')
     && zugaenge.includes('const a = zugangFormular(zugang.kid, formular);') && zugaenge.includes('einladungsAnzeige(code.name, code.ergebnis)'));
-  // EP34 (Nachbesserung Block D, spec:4): bei Externen steht unter Tools und Zoom-Freigabe, dass Connect beides erst mit Teil 2 nutzt.
-  const zoomFeld = zugaenge.indexOf('{ADMIN_TEXTE.zoomBis}');
-  ck('P26 EP34, M48: bei Externen sagt der Reiter Zugänge unter der Zoom-Freigabe, dass Connect Cloud-Raum und Zoom erst mit einem Update nutzt',
-    zoomFeld > 0 && zugaenge.indexOf('{ADMIN_TEXTE.connectTeil1}') > zoomFeld && (zugaenge.match(/ADMIN_TEXTE\.connectTeil1/g) ?? []).length === 1);
+  // T9 (Teil 2): M48 entfällt — Connect nutzt Cloud-Raum und Zoom-Freigabe jetzt.
+  ck('T9 EP34: der Reiter Zugänge nennt kein „erst mit einem Update“ mehr',
+    zugaenge.includes('{ADMIN_TEXTE.zoomBis}') && !zugaenge.includes('connectTeil1'));
   ck('P26: die Admin-Maske hängt in App.tsx', app.includes('      <AdminModal />'));
 }
 
@@ -3515,13 +3514,12 @@ function dialogBefunde(q: string): string[] {
   ck('P27 8, M41, EP15: Anfragen — Warnung für Nicht-JM-Rechner, „Freigeben bis …“ über den reinen Helfer (Tagesende), Ablehnen',
     anfragen.includes('{z.warnung && ') && anfragen.includes('const a = anfrageFreigabe(z.id, feld);')
     && anfragen.includes("onClick={() => void fuehreAus({ aktion: 'anfrage-ablehnen', id: z.id })}"));
-  // EP34 (Nachbesserung Block D, spec:4): wer hier freigibt, liest, dass Connect die Freigabe erst mit Teil 2 nutzt.
-  ck('P27 EP34, M48: der Reiter Anfragen sagt über der Liste, dass Connect Zoom-Freigaben erst mit einem Update nutzt',
-    anfragen.includes('      <p className="text-[11px] text-[var(--muted-foreground)]">{ADMIN_TEXTE.connectTeil1}</p>')
-    && anfragen.indexOf('{ADMIN_TEXTE.connectTeil1}') < anfragen.indexOf('{zeilen.map((z) => {'));
-  ck('P27 7, OF2, EP9: Geräte — Häkchen JM-Rechner als Aktion, Frist des alten Schlüssels, Hinweis zu Connect, alte Launcher',
-    geraete.includes("const r = await aktion({ aktion: 'geraet-markieren', gid, jm });") && geraete.includes('{altKeyText(daten)}')
-    && geraete.includes('{REITER_TEXTE.connect}') && geraete.includes('{alteLauncherZeilen(daten).map((z) => ('));
+  // T9 (Teil 2): M48 entfällt auch im Reiter Anfragen.
+  ck('T9 EP34: der Reiter Anfragen nennt kein „erst mit einem Update“ mehr',
+    anfragen.includes('{zeilen.map((z) => {') && !anfragen.includes('connectTeil1'));
+  ck('P27 7, OF2, EP9, T9: Geräte — Häkchen JM-Rechner als Aktion, Fristen des alten Schlüssels (Katalog und Connect), kein Connect-Hinweis mehr, alte Launcher',
+    geraete.includes("const r = await aktion({ aktion: 'geraet-markieren', gid, jm });") && geraete.includes('{altKeyTexte(daten).map((z) => (')
+    && !geraete.includes('{REITER_TEXTE.connect}') && !geraete.includes('altKeyText(') && geraete.includes('{alteLauncherZeilen(daten).map((z) => ('));
   ck('P27 G11: die Reiter bringen keinen eigenen Scrollbereich mit (einer je Dialog, in der Maske)',
     [iveo, anfragen, geraete].every((q) => q.length > 0 && !q.includes('overflow-y-auto'))
     // Fixrunde 1: kein Browser-Speicher in den Reitern (Token und Anfragen nur im Zustand).

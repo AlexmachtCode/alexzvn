@@ -61,6 +61,7 @@ Beim Ausarbeiten kamen Stellen heraus, die die Besprechung nicht abdeckte oder a
 - **Keine Zoom-DLLs im Installer**, kein Download, keine Installer-Variante (E2).
 - **Keine Meetings fremder Zoom-Konten**, kein OBF- oder ZAK-Token, keine Nutzer-Anmeldung per OAuth (E3).
 - **Kein Speichern von Meeting-Nummer oder Kenncode**, auch nicht in der `.jmshow`.
+  > **Nachtrag 20.11.2026 (Anmeldung Teil 2, N1):** Das gilt seit #290 (Connect 0.4.2, Owner-Entscheid 11.11.2026) nicht mehr; siehe Haupt-Spec der Anmeldung, Nachtrag zu Zeile 28.
 - **Kein Tally, kein Talkback/IFB, kein Mix-Minus je Zoom-Person.** Das sind Grenzen von Zoom (`docs/roadmap.md:156-159`).
 - **Keine Vorschau** der Zoom-Bilder in Connect. Die Bilder erreichen JavaScript nie (`docs/roadmap.md:23`). Das Bild sieht man im NDI-Monitor oder im Switcher.
 - **Kein Beitritt per Fernsteuerung** (E8).
@@ -475,6 +476,8 @@ Zugangsdaten folgen der Rangfolge aus `settings.ts:10-11`: Umgebung vor Gespeich
 | JWT | ja (kurz) | nein | nein | ja (stdin) | nein | nein | nein |
 | Meeting-Nummer | ja, bis „Verlassen“, „Schließen“, einem neuen Beitritt, einem Einrichtungsmangel (5.3) oder dem Ende von Connect. Nach einem Meeting-Ende durch den Host bleibt sie bis „Schließen“ (6.5), die Karte zeigt dann „Erneut beitreten“ und „Schließen“. | nein | nur im Eingabefeld, nicht persistiert | ja (stdin) | **maskiert** (8.7) | nein | nein |
 | Kenncode | ja, wie Nummer | nein | nur bis zum Klick auf „Beitreten“ | ja (stdin) | **maskiert** (8.7) | nein | nein |
+
+**Nachtrag 20.11.2026:** Spalte Platte für Nummer und Kenncode seit #290 „ja (Nummer Klartext, Kenncode verschlüsselt)“; Spalte Cloud bleibt „nein“. Client-ID und Secret liegen seit Anmeldung Teil 2 nur beim Worker (E7 aufgehoben, Haupt-Spec 110); das JWT kommt vom Worker.
 
 ---
 

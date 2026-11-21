@@ -2,8 +2,9 @@
 // rechnen, mit Windows' tar.exe entpacken. Ohne Electron, rein wie laufzeit.ts: node:-Module und relative
 // Importe. fetch, Uhr, Schreibziel, Prozessstart und Plattform sind einspeisbar (test/sdk-laden.test.ts).
 //
-// GEHEIMNISSE: Der SDK-Schlüssel geht nur in den Header X-Zoom-Sdk-Key, und nur über https (an die eigene
-// Maschine auch http). Der signierte Link geht nur in fetch. Kein Ergebnis trägt einen von beiden: `grund` ist
+// GEHEIMNISSE: Die Freigabe (Authorization) bzw. im Übergang der alte SDK-Schlüssel (X-Zoom-Sdk-Key) gehen nur als
+// Kopfzeile in `kopf`, und nur über https (an die eigene Maschine auch http). Der signierte Link geht nur in fetch.
+// Kein Ergebnis trägt einen von beiden (der Code aus dem Körper ist ein kurzer Text aus [a-z-]): `grund` ist
 // immer ein Code (ENOTFOUND, UND_ERR_SOCKET, „HTTP 503“, „Exit 1“) oder ein fester Text, nie eine
 // Fehlermeldung (die könnte den Link zitieren).
 import { spawn } from 'node:child_process';
@@ -13,6 +14,7 @@ import { open, statfs } from 'node:fs/promises';
 import { dirname, win32 } from 'node:path';
 import { KT } from './klartext';
 import { freierPlatz } from './laufzeit';
+import { grundText, leseFehlerCode } from '../zugang/regeln';
 
 /**
  * Arbeitsordner unter `zoom-laufzeit` (Spec 4.3 Schritt 4). Stört die Laufzeit nicht: pruefeLaufzeit liest nur
@@ -29,7 +31,9 @@ export const TAR_AUSGABE_MAX = 300;
 
 /** Fehlerarten (Spec 4.3); die Texte dazu liefert ladeFehlerText (Spec 5). */
 export type LadeFehler =
-  | { ok: false; art: 'schluessel' | 'fehlt' | 'pruefsumme' | 'abgebrochen' }
+  | { ok: false; art: 'fehlt' | 'pruefsumme' | 'abgebrochen' }
+  /** 401 (`schluessel`) bzw. 403 (`verweigert`) des Workers; `code` aus dem Körper (E10), sonst null. */
+  | { ok: false; art: 'schluessel' | 'verweigert'; code: string | null }
   | { ok: false; art: 'gedrosselt'; sekunden: number }
   | { ok: false; art: 'proxy' | 'unvollstaendig'; grund: string }
   /**
@@ -120,10 +124,19 @@ function wartezeit(kopf: string | null): number {
   return Number.isFinite(s) && s >= 1 ? Math.ceil(s) : WARTEN_VORGABE_S;
 }
 
-/** Spec 4.3: den kurzlebigen Link beim Proxy holen. Ein Proxy-Schlüssel wird nicht gebraucht. */
+/** Der Code der Fehlerantwort (E10): aus dem JSON-Körper, sonst null; der Körper selbst geht nirgends hin. */
+async function antwortCode(res: Response): Promise<string | null> {
+  try {
+    return leseFehlerCode(JSON.parse(await res.text()));
+  } catch {
+    return null;
+  }
+}
+
+/** Spec 4.3: den kurzlebigen Link beim Proxy holen. `kopf` trägt die Freigabe (oder im Übergang den alten SDK-Schlüssel). */
 export async function holeLink(e: {
   base: string;
-  schluessel: string;
+  kopf: Record<string, string>;
   fassung: string;
   signal: AbortSignal;
   werkzeuge?: Partial<LadeWerkzeuge>;
@@ -135,21 +148,24 @@ export async function holeLink(e: {
   } catch {
     return { ok: false, art: 'proxy', grund: 'Adresse ungültig' };
   }
-  // Der SDK-Schlüssel geht nie im Klartext übers Netz (JMPS_PROXY_URL und die Einstellung erlauben http://).
+  // Die Freigabe geht nie im Klartext übers Netz (JMPS_PROXY_URL und die Einstellung erlauben http://).
   if (ziel.protocol !== 'https:' && !(ziel.protocol === 'http:' && EIGENE_MASCHINE.has(ziel.hostname))) {
     return { ok: false, art: 'proxy', grund: 'kein HTTPS' };
   }
   try {
     const res = await w.fetch(ziel, {
-      headers: { 'X-Zoom-Sdk-Key': e.schluessel },
-      // Einer Weiterleitung nie folgen: Sie würde den Schlüssel an einen fremden Ursprung mitschicken. 'manual' statt
+      headers: e.kopf,
+      // Einer Weiterleitung nie folgen: Sie würde die Freigabe an einen fremden Ursprung mitschicken. 'manual' statt
       // 'error': Nodes fetch liefert die 3xx-Antwort selbst, der Grund heißt dann „HTTP 302“ statt „TypeError“.
       redirect: 'manual',
       signal: e.signal,
     });
     if (res.status !== 200) {
+      if (res.status === 401 || res.status === 403) {
+        const code = await antwortCode(res);
+        return res.status === 401 ? { ok: false, art: 'schluessel', code } : { ok: false, art: 'verweigert', code };
+      }
       await res.body?.cancel().catch(() => undefined);
-      if (res.status === 401) return { ok: false, art: 'schluessel' };
       if (res.status === 404) return { ok: false, art: 'fehlt' };
       if (res.status === 429) return { ok: false, art: 'gedrosselt', sekunden: wartezeit(res.headers.get('Retry-After')) };
       return { ok: false, art: 'proxy', grund: `HTTP ${res.status}` };
@@ -326,6 +342,8 @@ export function ladeFehlerText(f: LadeFehler): string {
   switch (f.art) {
     case 'schluessel':
       return KT.S12;
+    case 'verweigert':
+      return grundText('zoom-sdk', 'kein-recht', f.code);
     case 'gedrosselt':
       return KT.S13(f.sekunden);
     case 'proxy':

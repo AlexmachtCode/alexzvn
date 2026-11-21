@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, cn } from '@jm/ui';
 import type { AdminUebersicht } from '@shared/konto';
-import { ADMIN_TEXTE, REITER_TEXTE, anfrageFreigabe, anfrageZeilen, fehlerText } from '@/lib/admin-ansicht';
+import { REITER_TEXTE, anfrageFreigabe, anfrageZeilen, fehlerText } from '@/lib/admin-ansicht';
 import { useKonto } from '@/store/konto';
 
 const feldCls = cn(
@@ -39,8 +39,6 @@ export function AdminAnfragen({ daten }: { daten: AdminUebersicht }): React.JSX.
           {meldung}
         </p>
       )}
-      {/* M48 (EP34): Connect nutzt die Zoom-Freigabe erst mit Teil 2; gespeichert wird sie schon. */}
-      <p className="text-[11px] text-[var(--muted-foreground)]">{ADMIN_TEXTE.connectTeil1}</p>
       {zeilen.length === 0 && <p className="text-xs text-[var(--muted-foreground)]">{REITER_TEXTE.keineAnfragen}</p>}
       {zeilen.map((z) => {
         const feld = bisFelder[z.id] ?? z.bisFeld;

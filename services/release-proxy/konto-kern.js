@@ -1,6 +1,7 @@
 // Anmeldung im Launcher (Teil 1) · Rechte, Kontostand und Fristen (Spec 4, 5, 6.1, 9, 9.1, 10; Plan 10.2, EP9, EP16, OF1, OF4).
 // Rein und synchron, ohne Import und ohne Konsole: der Worker (konto-do.js, konto-zugang.js, konto-relay.js) und der
 // Launcher-Test (P7, apps/launcher/test/konto-rechte.test.ts) laden dieselbe Datei. Nur benannte Exporte, kein Default.
+// Teil 2: Zwecke für Connect (connect-raum, zoom-jwt, zoom-sdk) mit festen Zielen und `zweckDarf`.
 // Alle Zeiten sind Unix-ms. Die Falltabelle test/rechte-faelle.json prüft `darf` hier und im Launcher gleich.
 
 export const STUFEN = Object.freeze(['admin', 'kollege', 'externer']);
@@ -9,8 +10,18 @@ export const FUNKTIONEN = Object.freeze(['launcher-update', 'katalog', 'kochbuch
 export const SITZUNG_MAX_MS = 30 * 24 * 3600_000;
 export const VORGANG_MS = 5 * 60_000;
 export const EINLADUNG_MS = 72 * 3600_000;
-export const FREIGABE_MS = Object.freeze({ 'qa-relay': 72 * 3600_000 });
-export const ZWECK_FUNKTION = Object.freeze({ 'qa-relay': 'qa' });
+export const FREIGABE_MS = Object.freeze({ 'qa-relay': 72 * 3600_000, 'connect-raum': 72 * 3600_000, 'zoom-jwt': 72 * 3600_000, 'zoom-sdk': 72 * 3600_000 });
+export const ZWECK_FUNKTION = Object.freeze({ 'qa-relay': 'qa', 'connect-raum': 'connect-raum', 'zoom-jwt': 'zoom', 'zoom-sdk': 'zoom' });
+/** Feste Ziele der Zoom-Zwecke (Teil 2): das Ziel trägt keine Nutzereingabe. */
+export const ZIEL_ZOOM_JWT = 'meeting-sdk';
+export const ZIEL_ZOOM_SDK = 'win-x64';
+/** Erlaubte Form des Ziels je Zweck (Teil 2, 5.5). */
+export const ZWECK_ZIEL = Object.freeze({
+  'qa-relay': /^[A-Za-z0-9_-]{1,128}$/,
+  'connect-raum': /^[A-Za-z0-9_-]{6,64}$/,
+  'zoom-jwt': /^meeting-sdk$/,
+  'zoom-sdk': /^win-x64$/,
+});
 export const BREMSE = Object.freeze({ fehlversuche: 5, sperreMs: 15 * 60_000 });
 export const PROTOKOLL_MS = 365 * 24 * 3600_000;
 export const DOMAIN = 'jakobsmedien.com';
@@ -114,6 +125,21 @@ export function darf(stand, funktion, { event, jetzt } = {}) {
     default:
       return false;
   }
+}
+
+/**
+ * Darf der Stand eine Freigabe für `zweck` bekommen (Teil 2, OF1, OF4, OT4, N2)? 'ja', 'kein-recht' oder – nur für
+ * `zoom-sdk` – 'kein-jm-rechner' (Zoom wäre erlaubt, aber das Gerät ist kein JM-Rechner). Die Freigabe-Claims tragen kein `jm`,
+ * darum prüfen Launcher und Worker beim Ausstellen. Unbekannter Zweck → 'kein-recht'.
+ */
+export function zweckDarf(stand, zweck, { jetzt } = {}) {
+  if (typeof zweck !== 'string' || !Object.hasOwn(ZWECK_FUNKTION, zweck)) return 'kein-recht';
+  if (zweck === 'zoom-sdk') {
+    // P1: erst: dürfte er Zoom auf einem JM-Rechner? Dann erst die Geräteprüfung.
+    if (!stand || typeof stand !== 'object' || !darf({ ...stand, jm: true }, 'zoom', { jetzt })) return 'kein-recht';
+    return stand.jm !== true ? 'kein-jm-rechner' : 'ja';
+  }
+  return darf(stand, ZWECK_FUNKTION[zweck], { jetzt }) ? 'ja' : 'kein-recht';
 }
 
 /** Ist `email` die E-Mail aus dem Worker-Secret ERSTER_ADMIN (Groß/Klein und Leerzeichen egal, EP20)? */

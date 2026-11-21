@@ -44,6 +44,8 @@ export interface ProxyInfo {
   url: string;
   keySource: ProxyKeySource;
   configured: boolean;
+  /** Zeile „Cloud-Zugang“ (Anmeldung Teil 2): fertiger Text und Ton aus dem Main. */
+  zugang: { text: string; ton: 'ok' | 'warn' | 'fehler' };
 }
 
 /** Laufzeit-/Konfigurations-Status der App (Main → Renderer). */
@@ -53,6 +55,8 @@ export interface AppStatus {
   proxyBase: string | null;
   /** Herkunft des PROXY_KEY — nie der Key selbst. */
   proxyKeySource: ProxyKeySource;
+  /** Zeile „Cloud-Zugang“ aus dem Halter (Anmeldung Teil 2): Text und Ton, nie ein Key oder eine Freigabe. */
+  cloudZugang: { text: string; ton: 'ok' | 'warn' | 'fehler' };
   /** Steuerport (Companion/Rundown). */
   controlPort: number;
   /** Lage je Gast-NDI-Quelle (Plan C, E44): jeder Eintrag von spinUp bis tearDown, in jedem Zustand (22.3). */
@@ -97,9 +101,7 @@ export type ZoomZustand =
 export type ZoomMangel =
   | 'sdk_fehlt'        // nie eingerichtet
   | 'sdk_defekt'       // pruefeLaufzeit Schritt 1–3 gescheitert (S9)
-  | 'bridge_fehlt'     // zoom-bridge.exe fehlt in der Installation (S8)
-  | 'zugang_fehlt'     // keine Zugangsdaten (B17)
-  | 'zugang_unlesbar'; // safeStorage kann sie nicht entschlüsseln (A5)
+  | 'bridge_fehlt';    // zoom-bridge.exe fehlt in der Installation (S8)
 
 /** 'entzogen': war 'ja', dann broadcast mit canRecordRaw:false (3.2-23). */
 export type ZoomErlaubnis = 'offen' | 'ja' | 'abgelehnt' | 'abgelaufen' | 'entzogen';
@@ -174,7 +176,10 @@ export interface ZoomAbbild {
       text: string | null;
     };
     /** `grund` nur bei `session`: 'schreibfehler' = Schlüsselbund da, die Einstellungsdatei ließ sich nicht schreiben. */
-    zugang: { herkunft: ProxyKeySource; grund?: 'schreibfehler'; clientIdEnde: string | null; text: string | null };
+    /** `unlesbar`: zoomZugangEnc ist da, lässt sich aber nicht entschlüsseln (P3; früher der Mangel zugang_unlesbar). */
+    zugang: { herkunft: ProxyKeySource; grund?: 'schreibfehler'; clientIdEnde: string | null; text: string | null; unlesbar: boolean };
+    /** Zeile „Zoom-Anmeldung“ (Anmeldung Teil 2): Quelle des JWT, Grund, Löschung der alten Zugangsdaten. */
+    anmeldung: { text: string; ton: 'ok' | 'warn' | 'fehler' };
     /** Nur die Herkunft, nie der Wert (Spec SDK nachladen 4.2). */
     sdkSchluessel: { herkunft: ProxyKeySource };
   };
@@ -374,13 +379,7 @@ export interface JmConnectApi {
   zoomSdkLaden: () => Promise<ZoomErgebnis>;
   /** Bricht ein laufendes Laden ab (Phasen link bis entpacken). */
   zoomSdkLadenAbbrechen: () => Promise<void>;
-  /** Datei-Dialog für die Zugangsdaten. */
-  zoomZugangWaehlen: () => Promise<ZoomErgebnis>;
-  /** Zugangsdaten von Hand: nur hinein, es gibt keinen Weg zurück ins Fenster. */
-  zoomZugangEintragen: (p: { clientId: string; clientSecret: string }) => Promise<ZoomErgebnis>;
   zoomZugangLoeschen: () => Promise<ZoomErgebnis>;
-  /** SDK-Schlüssel für „Zoom-SDK laden“: nur hinein, es gibt keinen Weg zurück ins Fenster. */
-  zoomSdkSchluesselEintragen: (p: { schluessel: string }) => Promise<ZoomErgebnis>;
   zoomSdkSchluesselLoeschen: () => Promise<ZoomErgebnis>;
   /** „Einrichtung prüfen“: Bridge starten, anmelden, beenden, ohne Meeting. */
   zoomPruefen: () => Promise<ZoomErgebnis>;

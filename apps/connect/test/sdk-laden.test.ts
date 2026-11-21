@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SDK_FASSUNG } from '@jm/zoom-bridge/sdk';
 import { KT } from '../src/main/zoom/klartext';
+import { grundText } from '../src/main/zugang/regeln';
 import { freierPlatz } from '../src/main/zoom/laufzeit';
 import {
   entpacke,
@@ -65,7 +66,7 @@ const MINI = { bytes: PAKET.length, sha256: createHash('sha256').update(PAKET).d
 // ── Testserver ──
 type LinkModus = { status: number; kopf?: Record<string, string>; body: string } | 'haengt';
 let linkModus: LinkModus = { status: 200, body: '{}' };
-let anfragen: Array<{ pfad: string; schluessel: string | undefined; proxyKey: string | undefined }> = [];
+let anfragen: Array<{ pfad: string; schluessel: string | undefined; proxyKey: string | undefined; auth: string | undefined }> = [];
 /** /paket/endlos: was der Server gesendet hat und ob der Client die Verbindung geschlossen hat. */
 const endlos = { gesendet: 0, zu: false };
 /** /paket/beobachtet: wie /paket/haengt, merkt aber, ob der Client die Verbindung schließt. */
@@ -90,6 +91,7 @@ function route(req: IncomingMessage, res: ServerResponse): void {
     pfad,
     schluessel: req.headers['x-zoom-sdk-key'] as string | undefined,
     proxyKey: req.headers['x-proxy-key'] as string | undefined,
+    auth: req.headers.authorization,
   });
   if (pfad.startsWith('/zoom-sdk/')) {
     if (linkModus === 'haengt') return; // antwortet nie
@@ -180,17 +182,34 @@ ck('Werte wörtlich wie am hochgeladenen Asset gemessen (Plan G1)', JSON.stringi
 console.log('— Link beim Proxy (holeLink): Fehlerarten, Header, kein Proxy-Schlüssel');
 async function link(modus: LinkModus): Promise<Awaited<ReturnType<typeof holeLink>>> {
   linkModus = modus;
-  return merke(await holeLink({ base: BASIS, schluessel: 'sdk-test', fassung: SDK_FASSUNG, signal: sig() }));
+  return merke(await holeLink({ base: BASIS, kopf: { Authorization: 'Bearer jm1.test-sdk' }, fassung: SDK_FASSUNG, signal: sig() }));
 }
 {
   anfragen = [];
   const r = await link({ status: 200, body: JSON.stringify({ fassung: SDK_FASSUNG, url: `${BASIS}/paket/ok`, size: MINI.bytes }) });
   ck('200 → url und size', r.ok && r.url === `${BASIS}/paket/ok` && r.size === MINI.bytes);
-  ck('… GET /zoom-sdk/<fassung>, Schlüssel im Header X-Zoom-Sdk-Key',
-    anfragen.length === 1 && anfragen[0].pfad === `/zoom-sdk/${SDK_FASSUNG}` && anfragen[0].schluessel === 'sdk-test');
+  ck('… GET /zoom-sdk/<fassung>, Freigabe im Header Authorization, kein X-Zoom-Sdk-Key',
+    anfragen.length === 1 && anfragen[0].pfad === `/zoom-sdk/${SDK_FASSUNG}` && anfragen[0].auth === 'Bearer jm1.test-sdk' && anfragen[0].schluessel === undefined);
   ck('… ohne X-Proxy-Key', anfragen[0].proxyKey === undefined);
 }
-ck('401 → schluessel', JSON.stringify(await link({ status: 401, body: '{"error":"unauthorized"}' })) === '{"ok":false,"art":"schluessel"}');
+ck('401 → schluessel (ohne Code im Körper: code null)', JSON.stringify(await link({ status: 401, body: '{"error":"unauthorized"}' })) === '{"ok":false,"art":"schluessel","code":null}');
+ck('T13: 403 mit {"code":"kein-recht"} → art verweigert, code kein-recht; 401 mit {"code":"alter-key-abgelaufen"} → art schluessel, code alter-key-abgelaufen; 401 ohne Körper → code null',
+  JSON.stringify(await link({ status: 403, body: '{"code":"kein-recht"}' })) === '{"ok":false,"art":"verweigert","code":"kein-recht"}'
+    && JSON.stringify(await link({ status: 401, body: '{"code":"alter-key-abgelaufen"}' })) === '{"ok":false,"art":"schluessel","code":"alter-key-abgelaufen"}'
+    && JSON.stringify(await link({ status: 401, body: '' })) === '{"ok":false,"art":"schluessel","code":null}'
+    && JSON.stringify(await link({ status: 403, body: 'kein json' })) === '{"ok":false,"art":"verweigert","code":null}');
+{
+  // Der Code im Körper ist nur ein kurzer Text aus [a-z-]; alles andere (auch ein Wert, der wie ein Kopfwert aussieht) wird nicht übernommen.
+  const r = await link({ status: 403, body: JSON.stringify({ code: 'Bearer jm1.test-sdk' }) });
+  ck('T13: ein Körper-Code außerhalb von [a-z-] wird nicht übernommen (code null)', JSON.stringify(r) === '{"ok":false,"art":"verweigert","code":null}');
+}
+{
+  anfragen = [];
+  linkModus = { status: 200, body: JSON.stringify({ fassung: SDK_FASSUNG, url: `${BASIS}/paket/ok`, size: MINI.bytes }) };
+  const r = merke(await holeLink({ base: BASIS, kopf: { 'X-Zoom-Sdk-Key': 'sdk-test' }, fassung: SDK_FASSUNG, signal: sig() }));
+  ck('T13 OT10: alter Weg im Übergang: kopf {X-Zoom-Sdk-Key: sdk-test} geht genau so hinaus',
+    r.ok && anfragen.length === 1 && anfragen[0].schluessel === 'sdk-test' && anfragen[0].auth === undefined && anfragen[0].proxyKey === undefined);
+}
 ck('429 mit Retry-After 125 → gedrosselt, 125 s',
   JSON.stringify(await link({ status: 429, kopf: { 'Retry-After': '125' }, body: '{}' })) === '{"ok":false,"art":"gedrosselt","sekunden":125}');
 ck('429 ohne Retry-After → gedrosselt, 60 s',
@@ -202,17 +221,17 @@ ck('200 mit kaputtem JSON → proxy „Antwort ungültig“ (kein JS-Fehlername)
 ck('200 ohne url → proxy „Antwort ungültig“',
   JSON.stringify(await link({ status: 200, body: JSON.stringify({ size: 5 }) })) === '{"ok":false,"art":"proxy","grund":"Antwort ungültig"}');
 {
-  // Der SDK-Schlüssel geht nie im Klartext übers Netz: http nur an die eigene Maschine (wie BASIS hier).
+  // Die Freigabe geht nie im Klartext übers Netz: http nur an die eigene Maschine (wie BASIS hier).
   let gefragt = 0;
   const zaehle: typeof fetch = async () => {
     gefragt++;
     return new Response('{}', { status: 500 });
   };
-  const r = merke(await holeLink({ base: 'http://proxy.test', schluessel: 'sdk-test', fassung: SDK_FASSUNG, signal: sig(), werkzeuge: { fetch: zaehle } }));
+  const r = merke(await holeLink({ base: 'http://proxy.test', kopf: { Authorization: 'Bearer jm1.test-sdk' }, fassung: SDK_FASSUNG, signal: sig(), werkzeuge: { fetch: zaehle } }));
   ck('Proxy-Adresse mit http:// (nicht die eigene Maschine) → proxy „kein HTTPS“, keine Anfrage',
     JSON.stringify(r) === '{"ok":false,"art":"proxy","grund":"kein HTTPS"}' && gefragt === 0);
   gefragt = 0;
-  const r2 = merke(await holeLink({ base: 'keine adresse', schluessel: 'sdk-test', fassung: SDK_FASSUNG, signal: sig(), werkzeuge: { fetch: zaehle } }));
+  const r2 = merke(await holeLink({ base: 'keine adresse', kopf: { Authorization: 'Bearer jm1.test-sdk' }, fassung: SDK_FASSUNG, signal: sig(), werkzeuge: { fetch: zaehle } }));
   ck('kaputte Proxy-Adresse → proxy „Adresse ungültig“, keine Anfrage',
     JSON.stringify(r2) === '{"ok":false,"art":"proxy","grund":"Adresse ungültig"}' && gefragt === 0);
 }
@@ -221,14 +240,14 @@ ck('200 ohne url → proxy „Antwort ungültig“',
   await new Promise<void>((r) => zu.listen(0, '127.0.0.1', r));
   const port = (zu.address() as AddressInfo).port;
   await new Promise<void>((r) => zu.close(() => r()));
-  const r = merke(await holeLink({ base: `http://127.0.0.1:${port}`, schluessel: 'sdk-test', fassung: SDK_FASSUNG, signal: sig() }));
+  const r = merke(await holeLink({ base: `http://127.0.0.1:${port}`, kopf: { Authorization: 'Bearer jm1.test-sdk' }, fassung: SDK_FASSUNG, signal: sig() }));
   ck('Netzfehler (Port zu) → proxy „ECONNREFUSED“', !r.ok && r.art === 'proxy' && r.grund === 'ECONNREFUSED');
 }
 {
-  // Weiterleitung auf fremden Ursprung: der SDK-Schlüssel darf dort nie ankommen.
+  // Weiterleitung auf fremden Ursprung: die Freigabe darf dort nie ankommen.
   let gesehen: string | undefined;
   const ziel = createServer((req, res) => {
-    gesehen = req.headers['x-zoom-sdk-key'] as string | undefined;
+    gesehen = req.headers.authorization;
     res.statusCode = 200;
     res.end('{}');
   });
@@ -241,8 +260,8 @@ ck('200 ohne url → proxy „Antwort ungültig“',
   });
   await new Promise<void>((r) => quelle.listen(0, '127.0.0.1', r));
   const qPort = (quelle.address() as AddressInfo).port;
-  const r = merke(await holeLink({ base: `http://127.0.0.1:${qPort}`, schluessel: 'sdk-test', fassung: SDK_FASSUNG, signal: sig() }));
-  ck('Weiterleitung auf anderen Ursprung → proxy-Fehler, Zielserver sieht keinen Schlüssel', !r.ok && r.art === 'proxy' && gesehen === undefined);
+  const r = merke(await holeLink({ base: `http://127.0.0.1:${qPort}`, kopf: { Authorization: 'Bearer jm1.test-sdk' }, fassung: SDK_FASSUNG, signal: sig() }));
+  ck('Weiterleitung auf anderen Ursprung → proxy-Fehler, Zielserver sieht keine Freigabe', !r.ok && r.art === 'proxy' && gesehen === undefined);
   // Der Grund nennt die Weiterleitung als Code (nicht „TypeError“) und unterscheidet sich von „Antwort ungültig“,
   // das ein gefolgter Aufruf hier ergäbe (Gesamtprüfung: Task 5 minor 4 und 5).
   ck('… Grund „HTTP 302“', !r.ok && r.art === 'proxy' && r.grund === 'HTTP 302');
@@ -254,26 +273,26 @@ ck('200 ohne url → proxy „Antwort ungültig“',
 {
   // Der Produktionsweg: https an einen fremden Host (Gesamtprüfung: Task 5 minor 3). Alle Fälle oben laufen über http
   // an 127.0.0.1; eine Regression, die auch https sperrt, bliebe dort grün.
-  const gesehen: Array<{ url: string; schluessel: string | null; redirect: RequestRedirect | undefined }> = [];
+  const gesehen: Array<{ url: string; auth: string | null; redirect: RequestRedirect | undefined }> = [];
   const attrappe: typeof fetch = async (eingabe, init) => {
-    gesehen.push({ url: String(eingabe), schluessel: new Headers(init?.headers).get('X-Zoom-Sdk-Key'), redirect: init?.redirect });
+    gesehen.push({ url: String(eingabe), auth: new Headers(init?.headers).get('Authorization'), redirect: init?.redirect });
     return new Response(JSON.stringify({ fassung: SDK_FASSUNG, url: 'https://signed.test/zoom-77?sig=geheim-link', size: MINI.bytes }), { status: 200 });
   };
-  const r = await holeLink({ base: 'https://proxy.test', schluessel: 'sdk-test', fassung: SDK_FASSUNG, signal: sig(), werkzeuge: { fetch: attrappe } });
-  ck('https an einen fremden Host → genau eine Anfrage mit X-Zoom-Sdk-Key, Ergebnis aus der Antwort',
+  const r = await holeLink({ base: 'https://proxy.test', kopf: { Authorization: 'Bearer jm1.test-sdk' }, fassung: SDK_FASSUNG, signal: sig(), werkzeuge: { fetch: attrappe } });
+  ck('https an einen fremden Host → genau eine Anfrage mit Authorization, Ergebnis aus der Antwort',
     r.ok && r.url === 'https://signed.test/zoom-77?sig=geheim-link' && r.size === MINI.bytes && gesehen.length === 1
-      && gesehen[0].url === `https://proxy.test/zoom-sdk/${SDK_FASSUNG}` && gesehen[0].schluessel === 'sdk-test');
+      && gesehen[0].url === `https://proxy.test/zoom-sdk/${SDK_FASSUNG}` && gesehen[0].auth === 'Bearer jm1.test-sdk');
   ck('… eine Weiterleitung wird nicht verfolgt (redirect „manual“)', gesehen[0]?.redirect === 'manual');
   for (const base of ['http://localhost:9', 'http://[::1]:9']) {
     gesehen.length = 0;
-    const r2 = await holeLink({ base, schluessel: 'sdk-test', fassung: SDK_FASSUNG, signal: sig(), werkzeuge: { fetch: attrappe } });
+    const r2 = await holeLink({ base, kopf: { Authorization: 'Bearer jm1.test-sdk' }, fassung: SDK_FASSUNG, signal: sig(), werkzeuge: { fetch: attrappe } });
     ck(`http an die eigene Maschine (${base}) → erlaubt, genau eine Anfrage`, r2.ok && gesehen.length === 1);
   }
 }
 {
   linkModus = 'haengt';
   const ac = new AbortController();
-  const lauf = holeLink({ base: BASIS, schluessel: 'sdk-test', fassung: SDK_FASSUNG, signal: ac.signal });
+  const lauf = holeLink({ base: BASIS, kopf: { Authorization: 'Bearer jm1.test-sdk' }, fassung: SDK_FASSUNG, signal: ac.signal });
   setTimeout(() => ac.abort(), 50);
   ck('Abbruch, während der Proxy schweigt → abgebrochen', JSON.stringify(merke(await lauf)) === '{"ok":false,"art":"abgebrochen"}');
 }
@@ -530,7 +549,9 @@ if (process.platform === 'win32') {
 // ── Texte, Codes, Dienste ──
 console.log('— Zuordnung Fehlerart → Text (Spec 5), Codes, Platz');
 const ZUORDNUNG: Array<[LadeFehler, string]> = [
-  [{ ok: false, art: 'schluessel' }, KT.S12],
+  [{ ok: false, art: 'schluessel', code: null }, KT.S12],
+  [{ ok: false, art: 'verweigert', code: null }, grundText('zoom-sdk', 'kein-recht', null)],
+  [{ ok: false, art: 'verweigert', code: 'kein-jm-rechner' }, grundText('zoom-sdk', 'kein-recht', 'kein-jm-rechner')],
   [{ ok: false, art: 'gedrosselt', sekunden: 125 }, KT.S13(125)],
   [{ ok: false, art: 'proxy', grund: 'ENOTFOUND' }, KT.S14('ENOTFOUND')],
   [{ ok: false, art: 'fehlt' }, KT.S15],
@@ -615,7 +636,7 @@ console.log('— Entpacken: Fehler auf stderr, Dekodierung windows-1252 (aus 0.2
 {
   const alles = JSON.stringify(fehlerErgebnisse);
   ck('kein Fehler-Ergebnis trägt Schlüssel, Link oder Server-Adresse',
-    fehlerErgebnisse.length > 20 && !alles.includes('sdk-test') && !alles.includes('127.0.0.1') && !alles.includes('/paket/'));
+    fehlerErgebnisse.length > 20 && !alles.includes('sdk-test') && !alles.includes('jm1.') && !alles.includes('127.0.0.1') && !alles.includes('/paket/'));
 }
 server.closeAllConnections();
 await new Promise<void>((r) => server.close(() => r()));

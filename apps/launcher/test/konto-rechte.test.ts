@@ -6,7 +6,7 @@
 // Die Helfer `kreuz` und `pruefeFaelle` nutzen auch die übrigen konto-*.test.ts; die Prüfungen dieser Datei laufen nur,
 // wenn sie selbst gestartet wird (ein Import startet sie nicht).
 import { readFileSync } from 'node:fs';
-import { darf, kurzName, STUFE_TEXT, type Funktion, type KontoStand, type Stufe } from '../src/shared/konto';
+import { darf, kurzName, STUFE_TEXT, zweckDarf, type Funktion, type KontoStand, type Stufe } from '../src/shared/konto';
 import { kurzName as kurzNameWorker } from '../../../services/release-proxy/konto-kern.js';
 
 /** Kreuzprodukt benannter Achsen: kreuz({ a: [1, 2], b: ['x'] }) → [{ a: 1, b: 'x' }, { a: 2, b: 'x' }]. */
@@ -62,6 +62,14 @@ if (ALS_HAUPTDATEI) {
     return ist === f.erwartet ? null : `${f.name}: ist ${ist}, soll ${f.erwartet}`;
   });
   ck(r1.name, r1.ok);
+
+  // --- T8 OT4: zweckDarf an der zweiten gemeinsamen Falltabelle -----------------------------------------------------
+  const ZF = JSON.parse(readFileSync(new URL('../../../services/release-proxy/test/zweck-faelle.json', import.meta.url), 'utf8')) as Array<{ name: string; stand: Fall['stand']; zweck: string; erwartet: string }>;
+  const rz = pruefeFaelle('T8 OT4: zweckDarf wie der Worker, gemeinsame Tabelle zweck-faelle.json', ZF, (f) => {
+    const ist = zweckDarf(f.stand ? standAus(f.stand) : null, f.zweck, { jetzt: JETZT });
+    return ist === f.erwartet ? null : `${f.name}: ist ${ist}, soll ${f.erwartet}`;
+  });
+  ck(rz.name, rz.ok && ZF.length === 200);
 
   const FUNKTIONEN: Funktion[] = ['launcher-update', 'katalog', 'kochbuch', 'feedback', 'ki-entwurf', 'connect-raum', 'zoom', 'qa', 'iveo', 'admin'];
   const STUFEN: Stufe[] = ['admin', 'kollege', 'externer'];

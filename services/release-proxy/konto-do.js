@@ -28,7 +28,7 @@
 //
 // Uhr: `jetzt` kommt mit jeder Aktion vom Worker; fehlt es, und im Alarm, gilt `env.KONTO_UHR()` (nur Tests, EP21), sonst
 // `Date.now()`. Schlüssel im Speicher (EP1): konto:<kid>, email:<email>, geraet:<gid>, vorgang:<vid>, grab:<vid> (Z2), state:<state>,
-// iveo:<basis|slug>, anfrage:<aid>, log:<ms 13-stellig>:<zufall>, fehl:<kid>, altkey:<tag>:<gruppe>:<plattform>-<arch>.
+// iveo:<basis|slug>, qa:<eventHash>, connect:<raumHash>, anfrage:<aid>, log:<ms 13-stellig>:<zufall>, fehl:<kid>, altkey:<tag>:<gruppe>:<plattform>-<arch>.
 import {
   EINLADUNG_MS,
   PROTOKOLL_MS,
@@ -97,6 +97,8 @@ const K = {
   fehlEmail: (hash) => `fehl-email:${hash}`,
   /** Inhaber eines Q&A-Events (Z3): nur der SHA-256 der Event-ID mit eigenem Präfix, nie die Event-ID selbst. */
   qaInhaber: (eventHash) => `qa:${eventHash}`,
+  /** Inhaber eines Cloud-Raums von Connect (Anmeldung Teil 2): nur der SHA-256 der Raum-ID mit eigenem Präfix. */
+  connectInhaber: (raumHash) => `connect:${raumHash}`,
 };
 /** Q&A-Inhaber: so lange höchstens aufbewahren (Obergrenze für `bis`). */
 const QA_INHABER_MAX_MS = 30 * TAG_MS;
@@ -123,6 +125,8 @@ const AKTIONEN = {
   'iveo-fuer': 'iveoFuer',
   'altkey-zaehlen': 'altkeyZaehlen',
   'qa-inhaber': 'qaInhaber',
+  'connect-inhaber': 'connectInhaber',
+  'zoom-jwt-protokoll': 'zoomJwtProtokoll',
   'admin-uebersicht': 'adminUebersicht',
   'admin-aktion': 'adminAktion',
   // ── Ende der Aktionen ──
@@ -401,6 +405,9 @@ export class KontoSpeicher {
     }
     for (const [key, q] of await st.list({ prefix: 'qa:' })) {
       if (!q || !(q.bis >= jetzt)) await st.delete(key);
+    }
+    for (const [key, c] of await st.list({ prefix: 'connect:' })) {
+      if (!c || !(c.bis >= jetzt)) await st.delete(key);
     }
     for (const [key, g] of await st.list({ prefix: 'geraet:' })) {
       if (!g || !(g.letzterKontakt + GERAET_MS > jetzt)) await st.delete(key);
@@ -1035,11 +1042,11 @@ export class KontoSpeicher {
 
   /**
    * Aktion `altkey-zaehlen` `{ gruppe, plattform, arch }` → `{ ok }` (OF2, OFP2): zählt Anfragen mit dem alten PROXY_KEY je Tag
-   * (UTC), Gruppe (`katalog`, `qa`) und `‹plattform›-‹arch›` (`win`/`mac` und `x64`/`arm64`, sonst `unbekannt`); keine IP,
+   * (UTC), Gruppe (`katalog`, `qa`, `connect`) und `‹plattform›-‹arch›` (`win`/`mac` und `x64`/`arm64`, sonst `unbekannt`); keine IP,
    * keine Kennung des Rechners.
    */
   async altkeyZaehlen(b, jetzt) {
-    if (b.gruppe !== 'katalog' && b.gruppe !== 'qa') return fehler('ungueltig', 400);
+    if (b.gruppe !== 'katalog' && b.gruppe !== 'qa' && b.gruppe !== 'connect') return fehler('ungueltig', 400);
     const plattform = `${b.plattform === 'win' || b.plattform === 'mac' ? b.plattform : 'unbekannt'}-${b.arch === 'x64' || b.arch === 'arm64' ? b.arch : 'unbekannt'}`;
     const tag = new Date(jetzt).toISOString().slice(0, 10);
     const key = `altkey:${tag}:${b.gruppe}:${plattform}`;
@@ -1059,18 +1066,49 @@ export class KontoSpeicher {
    * `bis` (ms) ist höchstens 30 Tage nach jetzt; ein Eintrag mit bis < jetzt gilt als nicht vorhanden und wird beim Lesen gelöscht.
    */
   async qaInhaber(b, jetzt) {
+    return this.inhaberSetzen(HEX64.test(b.eventHash) ? K.qaInhaber(b.eventHash) : null, b, jetzt, 'keine-freigabe');
+  }
+
+  /**
+   * Aktion `connect-inhaber` `{ raumHash, kidHash?, gidHash?, bisMs, loesen? }` (Anmeldung Teil 2, E3): wem gehört ein Cloud-Raum
+   * von Connect? Gleiche Regeln wie `qa-inhaber` (Schlüssel `connect:<raumHash>`), Ablehnung 403 `raum-vergeben`. `loesen: true`
+   * (Raum geschlossen) braucht beide Hashes: kein Inhaber → ok; kidHash ODER gidHash gleich → Eintrag gelöscht; sonst 403.
+   */
+  async connectInhaber(b, jetzt) {
+    return this.inhaberSetzen(HEX64.test(b.raumHash) ? K.connectInhaber(b.raumHash) : null, b, jetzt, 'raum-vergeben', b.loesen === true);
+  }
+
+  /**
+   * Aktion `zoom-jwt-protokoll` `{ kid, gid }` (R2): genau ein Protokolleintrag `zoom-jwt` je ausgestelltem Zoom-JWT; nie das JWT.
+   */
+  async zoomJwtProtokoll(b, jetzt) {
+    const ok = (s) => typeof s === 'string' && s.length >= 1 && s.length <= 128;
+    if (!ok(b.kid) || !ok(b.gid)) return fehler('ungueltig', 400);
+    const konto = await this.ladeKonto(b.kid);
+    await this.protokolliere({ am: jetzt, wer: 'system', was: 'zoom-jwt', wen: konto ? konto.email : b.kid, details: { kid: b.kid, gid: b.gid } });
+    return { ok: true };
+  }
+
+  /** Gemeinsamer Kern von `qa-inhaber` und `connect-inhaber`: `key` null heißt ungültige Eingabe (Hash-Feld); `code` ist der Ablehnungscode. */
+  async inhaberSetzen(key, b, jetzt, code, loesen = false) {
     const mitKid = b.kidHash !== undefined;
     const mitGid = b.gidHash !== undefined;
-    if (!HEX64.test(b.eventHash) || mitKid !== mitGid || (mitKid && !(HEX64.test(b.kidHash) && HEX64.test(b.gidHash))) || !Number.isFinite(b.bisMs)) {
+    if (key === null || mitKid !== mitGid || (mitKid && !(HEX64.test(b.kidHash) && HEX64.test(b.gidHash))) || !Number.isFinite(b.bisMs)) {
       return fehler('ungueltig', 400);
     }
+    if (loesen && !mitKid) return fehler('ungueltig', 400);
     const st = this.ctx.storage;
-    const key = K.qaInhaber(b.eventHash);
     let inhaber = (await st.get(key)) ?? null;
     // Ab hier bis zum Schreiben kein await auf etwas anderes als den Speicher (Eingangs-Tor).
     if (inhaber && !(inhaber.bis >= jetzt)) {
       await st.delete(key);
       inhaber = null;
+    }
+    if (loesen) {
+      if (!inhaber) return { ok: true, inhaber: null, neu: false };
+      if (b.kidHash !== inhaber.kidHash && b.gidHash !== inhaber.gidHash) return fehler(code, 403);
+      await st.delete(key);
+      return { ok: true, inhaber: null, neu: false };
     }
     const bis = Math.min(b.bisMs, jetzt + QA_INHABER_MAX_MS);
     if (!inhaber) {
@@ -1079,7 +1117,7 @@ export class KontoSpeicher {
       await st.put(key, inhaber);
       return { ok: true, inhaber, neu: true };
     }
-    if (!mitKid || (b.kidHash !== inhaber.kidHash && b.gidHash !== inhaber.gidHash)) return fehler('keine-freigabe', 403);
+    if (!mitKid || (b.kidHash !== inhaber.kidHash && b.gidHash !== inhaber.gidHash)) return fehler(code, 403);
     // Nur bei mehr als einer halben Stunde Zuwachs schreiben: Q&A fragt alle 5 s, jedes Mal ein Schreiben wäre unnötige Last.
     if (bis - inhaber.bis > QA_INHABER_SCHRITT_MS) {
       inhaber = { ...inhaber, bis };
@@ -1162,6 +1200,7 @@ export class KontoSpeicher {
       }))
       .sort((x, y) => y.letzterKontakt - x.letzterKontakt);
     const frist = alterKeyGilt(this.env, 'katalog', jetzt);
+    const fristConnect = alterKeyGilt(this.env, 'connect', jetzt);
     const zeilen = [...(await st.list({ prefix: 'altkey:', reverse: true })).values()].map((z) => ({
       tag: z.tag,
       gruppe: z.gruppe,
@@ -1169,7 +1208,7 @@ export class KontoSpeicher {
       anzahl: z.anzahl,
       zuletzt: z.zuletzt,
     }));
-    return { ok: true, zugaenge, iveo, anfragen, geraete: geraeteListe, altKey: { bis: frist.bis, diagnose: frist.diagnose, zeilen } };
+    return { ok: true, zugaenge, iveo, anfragen, geraete: geraeteListe, altKey: { bis: frist.bis, diagnose: frist.diagnose, zeilen, connect: { bis: fristConnect.bis, diagnose: fristConnect.diagnose } } };
   }
 
   /**

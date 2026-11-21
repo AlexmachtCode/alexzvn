@@ -7,7 +7,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Bridge, type BridgeEvent, type Command, type Session } from '@jm/zoom-bridge';
+import { Bridge, buildJwt, type BridgeEvent, type Command, type Session } from '@jm/zoom-bridge';
 import { SDK_FASSUNG } from '@jm/zoom-bridge/sdk';
 import {
   ANZEIGENAME_VORGABE,
@@ -17,7 +17,6 @@ import {
   type LaufzeitDienste,
   type ZoomFristen,
   type ZoomKern,
-  type ZugangDaten,
   type ZugangStand,
 } from '../src/main/zoom/kern';
 import { failText, KT, VORSATZ } from '../src/main/zoom/klartext';
@@ -31,6 +30,9 @@ import {
   type LaufzeitPruefung,
 } from '../src/main/zoom/laufzeit';
 import type { SdkLadenDienste } from '../src/main/zoom/sdk-laden';
+import type { JwtErgebnis, JwtHerkunft, JwtQuelle } from '../src/main/zoom/jwt-quelle';
+import type { ZugangsHalter } from '../src/main/zugang/halter';
+import { grundText, jwtGrundText, ZIEL_ZOOM_SDK, ZUGANG_TEXT, type ZoomAnmeldungLage, type ZugangsLage, type ZugangsWahl } from '../src/main/zugang/regeln';
 import { SDK_PAKET } from '../src/main/zoom/sdk-paket';
 import type { ProxyKeySource, ZoomAbbild, ZoomErgebnis, ZoomKurz, ZoomSlotEinstellung } from '../src/shared/types';
 import {
@@ -95,10 +97,17 @@ interface Probe {
     personImNdiNamen: boolean };
   /** Befehle, die der Kern an die Bridge gab (nach sendeFilter), im Testprozess mitgeschrieben: sofort, ohne die Datei der Attrappe. */
   gesendet: Array<Record<string, unknown>>;
-  zugangGespeichert: ZugangDaten[];
-  /** Werte, mit denen der Kern sdkSchluessel.speichern() aufrief (nur im Test sichtbar). */
-  sdkSchluesselGespeichert: string[];
   sdkSchluesselGeloescht(): number;
+  /** Halter-Attrappe (Task 13): wonach der Kern fragte, was er zurückmeldete, wie oft er `bestaetigt` fragte. */
+  halterZugang: Array<{ zweck: string; ziel: string }>;
+  halterAntworten: Array<{ zweck: string; wahl: ZugangsWahl; status: number; code: string | null }>;
+  halterBestaetigt(): number;
+  /** JWT-Quelle-Attrappe (Task 15): Reihenfolge von „hole“ und „fabrik“, Zahl der hole-Aufrufe, Herkünfte der angemeldet-Aufrufe. */
+  reihenfolge: string[];
+  jwtHoleZahl(): number;
+  angemeldetAufrufe: JwtHerkunft[];
+  /** Der Halter löscht den alten SDK-Schlüssel im selben Speicher, den der Kern liest (huelle.ts). */
+  sdkSchluesselWeg(): void;
   richteEinAufrufe(): number;
   /** Laufzeit-Ordner, den die Vorgabe von `pruefe` meldet. */
   ordner: string;
@@ -113,7 +122,6 @@ interface BaueOptionen {
   /** FAKE_SCRIPT, Vorgabe 'steuerung'. */
   skript?: string;
   zugang?: Partial<ZugangStand>;
-  speichernLiefert?: 'stored' | 'session';
   laufzeit?: Partial<LaufzeitDienste>;
   fristen?: Partial<ZoomFristen>;
   gastLabels?: () => string[];
@@ -128,11 +136,21 @@ interface BaueOptionen {
   startFehler?: () => Error;
   /** SDK-Schlüssel beim Start (Spec SDK nachladen 4.2); Vorgabe: keiner. */
   sdkSchluessel?: { wert: string | null; herkunft: ProxyKeySource };
-  /** Was sdkSchluessel.speichern() meldet; Vorgabe 'stored'. */
-  sdkSchluesselLiefert?: 'stored' | 'session';
   /** Was zugang.loeschen() bzw. sdkSchluessel.loeschen() meldet; false = Einstellungsdatei nicht schreibbar. Vorgabe true. */
   zugangLoeschenLiefert?: boolean;
   sdkSchluesselLoeschenLiefert?: boolean;
+  /** Halter der Freigaben (Task 13): Vorgabe liefert eine Freigabe `zoom-sdk` (Ziel win-x64); einzelne Funktionen überschreibbar. */
+  halter?: Partial<ZugangsHalter>;
+  /** Felder der Lage, die der Halter liefert (Vorgabe: Freigabe gewählt, nichts gelöscht). */
+  halterLage?: Partial<ZugangsLage>;
+  /** JWT-Quelle (Task 15): Vorgabe liefert ein Server-JWT; einzelne Funktionen überschreibbar. */
+  jwt?: Partial<JwtQuelle>;
+  /** Herkunft des JWT, das die Vorgabe von `hole` liefert (Vorgabe 'server'). */
+  jwtHerkunft?: JwtHerkunft;
+  /** Was `angemeldet` für 'server' meldet (Vorgabe false). */
+  angemeldetLiefert?: boolean;
+  /** Felder der Lage, die die JWT-Quelle liefert (Vorgabe: Server, Maria S. · Kollege). */
+  jwtLage?: Partial<ZoomAnmeldungLage>;
   /** Dienste für „Zoom-SDK laden“ (Attrappen); ohne Angabe die echten aus sdk-laden.ts gegen https://proxy.test. */
   sdkLaden?: Partial<SdkLadenDienste>;
   /** Wartezeiten vor den Wiederbeitritts-Versuchen 1–5 in ms (Spec 12.2: einspeisbar). Vorgabe hier [30, 30, 30, 30, 30]. */
@@ -171,10 +189,46 @@ function baueKern(o: BaueOptionen = {}): Probe {
   const abbilder: ZoomAbbild[] = [];
   const kurze: ZoomKurz[] = [];
   const ereignisse: Probe['ereignisse'] = [];
-  const zugangGespeichert: ZugangDaten[] = [];
   let sdkSchluessel: { wert: string | null; herkunft: ProxyKeySource } = { wert: null, herkunft: 'none', ...o.sdkSchluessel };
-  const sdkSchluesselGespeichert: string[] = [];
   let sdkSchluesselGeloescht = 0;
+  const halterZugang: Probe['halterZugang'] = [];
+  const halterAntworten: Probe['halterAntworten'] = [];
+  let halterBestaetigt = 0;
+  const reihenfolge: string[] = [];
+  const angemeldetAufrufe: JwtHerkunft[] = [];
+  let jwtHoleZahl = 0;
+  const halter: ZugangsHalter = {
+    zugang: async (zweck, ziel) => {
+      halterZugang.push({ zweck, ziel });
+      return { art: 'freigabe', f: { zweck: 'zoom-sdk', token: 'jm1.test-sdk', bis: Date.now() + 72 * 3600_000, ziel: 'win-x64', konto: { name: 'Maria S.', stufe: 'kollege' } } };
+    },
+    antwort: (zweck, wahl, status, code) => {
+      halterAntworten.push({ zweck, wahl, status, code });
+    },
+    bestaetigt: () => {
+      halterBestaetigt += 1;
+      return false;
+    },
+    lage: () => ({ wahl: 'freigabe', konto: null, bis: null, letzterGrund: null, detail: null, altHerkunft: 'none', altAbgelehnt: false, versucht: true, geloescht: false, ...o.halterLage }),
+    tokens: () => ['jm1.test-sdk'],
+    ...o.halter,
+  };
+  const jwtVorgabe = o.jwt?.hole ?? (async () => ({ ok: true as const, jwt: 'test-jwt-server', bis: Date.now() + 43_170_000, herkunft: o.jwtHerkunft ?? ('server' as const) }));
+  const jwtQuelle: JwtQuelle = {
+    angemeldet: (h) => {
+      angemeldetAufrufe.push(h);
+      return o.angemeldetLiefert ?? false;
+    },
+    lage: () => ({ quelle: 'server', grund: null, detail: null, konto: { name: 'Maria S.', stufe: 'kollege' }, freigabeBis: Date.now() + 72 * 3600_000, devTtlS: null, versucht: true, geloescht: false, ...o.jwtLage }),
+    geheimnisse: () => ['test-jwt-server'],
+    stoppe: () => undefined,
+    ...o.jwt,
+    hole: () => {
+      jwtHoleZahl += 1;
+      reihenfolge.push('hole');
+      return jwtVorgabe();
+    },
+  };
   let versatzNurSitzung = false;
   let personNurSitzung = false;
   const gesendet: Probe['gesendet'] = [];
@@ -188,6 +242,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
   };
   const fabrik: BridgeFabrik = (opts, nr) => {
     startZahl += 1;
+    reihenfolge.push('fabrik');
     const b = new Bridge({
       ...opts,
       exePath: o.exeAusKern ? opts.exePath : process.execPath,
@@ -235,12 +290,6 @@ function baueKern(o: BaueOptionen = {}): Probe {
     pfade,
     zugang: {
       lesen: () => ({ ...zugang }),
-      speichern: (dd) => {
-        zugangGespeichert.push({ ...dd });
-        const herkunft = o.speichernLiefert ?? 'stored';
-        if (zugang.herkunft !== 'env') zugang = { daten: { ...dd }, herkunft, unlesbar: false };
-        return herkunft;
-      },
       loeschen: () => {
         if (zugang.herkunft !== 'env') zugang = { daten: null, herkunft: 'none', unlesbar: false };
         return o.zugangLoeschenLiefert ?? true;
@@ -304,18 +353,14 @@ function baueKern(o: BaueOptionen = {}): Probe {
     },
     sdkSchluessel: {
       lesen: () => ({ ...sdkSchluessel }),
-      speichern: (w) => {
-        sdkSchluesselGespeichert.push(w);
-        const herkunft = o.sdkSchluesselLiefert ?? 'stored';
-        if (sdkSchluessel.herkunft !== 'env') sdkSchluessel = { wert: w, herkunft };
-        return herkunft;
-      },
       loeschen: () => {
         sdkSchluesselGeloescht += 1;
         if (sdkSchluessel.herkunft !== 'env') sdkSchluessel = { wert: null, herkunft: 'none' };
         return o.sdkSchluesselLoeschenLiefert ?? true;
       },
     },
+    halter,
+    jwt: jwtQuelle,
     gastLabels: o.gastLabels ?? (() => []),
     log: (z) => logs.push(z),
     onAbbild: (a) => abbilder.push(a),
@@ -336,9 +381,16 @@ function baueKern(o: BaueOptionen = {}): Probe {
     ereignisse,
     einst,
     gesendet,
-    zugangGespeichert,
-    sdkSchluesselGespeichert,
     sdkSchluesselGeloescht: () => sdkSchluesselGeloescht,
+    halterZugang,
+    halterAntworten,
+    halterBestaetigt: () => halterBestaetigt,
+    reihenfolge,
+    jwtHoleZahl: () => jwtHoleZahl,
+    angemeldetAufrufe,
+    sdkSchluesselWeg: () => {
+      if (sdkSchluessel.herkunft !== 'env') sdkSchluessel = { wert: null, herkunft: 'none' };
+    },
     ordner,
     pfade,
     starts: () => startZahl,
@@ -439,7 +491,7 @@ console.log('— Mängel beim Start (Fall 1, erster Teil)');
   const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, laufzeit: { pruefe: () => ({ ok: false, mangel: 'sdk_fehlt' }) } });
   const k = p.kern.kurz();
   ck('Laufzeit fehlt + kein Zugang → einrichtung', k.zustand === 'einrichtung' && zoomZ(k) === 'Z1a');
-  ck('… Mängel in der Reihenfolge Laufzeit, Zugang', JSON.stringify(k.maengel) === '["sdk_fehlt","zugang_fehlt"]');
+  ck('… Mängel: nur noch der Laufzeit-Mangel, kein Zugangs-Mangel mehr', JSON.stringify(k.maengel) === '["sdk_fehlt"]');
   ck('… STATE zoom_status=einrichtung, zoom_alarm=0', p.kern.stateKv()?.zoom_status === 'einrichtung' && p.kern.stateKv()?.zoom_alarm === 0);
   const a = p.kern.abbild();
   ck('… SDK „fehlt“ ohne Fassung, Zugang „none“ ohne Client-ID', a.einrichtung.sdk.stand === 'fehlt' && a.einrichtung.sdk.fassung === null
@@ -465,8 +517,9 @@ console.log('— Mängel beim Start (Fall 1, erster Teil)');
 }
 {
   const p = baueKern({ zugang: { daten: null, herkunft: 'none', unlesbar: true } });
-  ck('Zugang unlesbar → Mangel zugang_unlesbar, Text A5',
-    JSON.stringify(p.kern.kurz().maengel) === '["zugang_unlesbar"]' && p.kern.abbild().einrichtung.zugang.text === KT.A5);
+  ck('Zugang unlesbar → kein Mangel mehr, steht in einrichtung.zugang.unlesbar, kein Text (die Zeile ZU3 baut die Karte)',
+    JSON.stringify(p.kern.kurz().maengel) === '[]' && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.zugang.unlesbar === true
+    && p.kern.abbild().einrichtung.zugang.text === null);
   await p.aufraeumen();
 }
 {
@@ -482,48 +535,21 @@ console.log('— Mängel beim Start (Fall 1, erster Teil)');
   await p.aufraeumen();
 }
 
-console.log('— Zugangsdaten wählen und entfernen (6.1, A1–A6)');
+console.log('— Zugangsdaten entfernen (6.1, A4, A6; Eingeben und Wählen entfallen, E7)');
 {
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
-  const dir = mkdtempSync(join(tmpdir(), 'jm-zoom-zugang-'));
-  const kaputt = join(dir, 'kaputt.json');
-  writeFileSync(kaputt, '{ "clientId": "x", "clientSecret": GEHEIM-INHALT');
-  const r1 = p.kern.zugangWaehlen(kaputt);
-  ck('kaputtes JSON → A1', text(r1) === KT.A1);
-  ck('… der Inhalt steht weder im Abbild noch im Log',
-    !JSON.stringify(p.kern.abbild()).includes('GEHEIM-INHALT') && !p.logs.some((z) => z.includes('GEHEIM-INHALT')));
-  const leer = join(dir, 'leer.json');
-  writeFileSync(leer, '{}');
-  ck('ohne Felder → A2', text(p.kern.zugangWaehlen(leer)) === KT.A2);
-  ck('fehlende Datei → A3 mit ENOENT', text(p.kern.zugangWaehlen(join(dir, 'fehlt.json'))) === KT.A3('ENOENT'));
-  ck('… der letzte Fehler steht im Abbild, nichts gespeichert',
-    p.kern.abbild().einrichtung.zugang.text === KT.A3('ENOENT') && p.zugangGespeichert.length === 0 && p.kern.kurz().zustand === 'einrichtung');
-  const gut = join(dir, 'gut.json');
-  writeFileSync(gut, '\uFEFF{"clientId":"datei-id-1234","clientSecret":"datei-secret"}');
-  const r4 = p.kern.zugangWaehlen(gut);
-  ck('gültige Datei mit BOM → ok und gespeichert', ok(r4) && p.zugangGespeichert.length === 1
-    && p.zugangGespeichert[0].clientId === 'datei-id-1234' && p.zugangGespeichert[0].clientSecret === 'datei-secret');
-  const a = p.kern.abbild();
-  ck('… Mangel weg, bereit, Client-ID endet auf 1234, kein Fehlertext',
-    a.kurz.zustand === 'bereit' && a.einrichtung.zugang.herkunft === 'stored' && a.einrichtung.zugang.clientIdEnde === '1234' && a.einrichtung.zugang.text === null);
-  ck('… Secret weder im Abbild noch im Log', !JSON.stringify(a).includes('datei-secret') && !p.logs.some((z) => z.includes('datei-secret')));
-  ck('Entfernen → Mangel zugang_fehlt, einrichtung', ok(p.kern.zugangLoeschen()) && JSON.stringify(p.kern.kurz().maengel) === '["zugang_fehlt"]'
-    && p.kern.kurz().zustand === 'einrichtung');
-  rmSync(dir, { recursive: true, force: true });
+  const p = baueKern();
+  ck('Entfernen → kein Mangel, Zustand bereit', ok(p.kern.zugangLoeschen()) && JSON.stringify(p.kern.kurz().maengel) === '[]'
+    && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.zugang.herkunft === 'none');
   await p.aufraeumen();
 }
 {
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, speichernLiefert: 'session' });
-  const dir = mkdtempSync(join(tmpdir(), 'jm-zoom-zugang-'));
-  const gut = join(dir, 'gut.json');
-  writeFileSync(gut, '{"clientId":"sitzung-9876","clientSecret":"s"}');
+  const p = baueKern({ zugang: { daten: { clientId: 'sitzung-9876', clientSecret: 's' }, herkunft: 'session' } });
   const q = baueKern({ zugang: { daten: { clientId: 'sitzung-9876', clientSecret: 's' }, herkunft: 'session', grund: 'schreibfehler' } });
   ck('session + schreibfehler → Karte nennt die Datei, nicht den Schlüsselbund',
     q.kern.abbild().einrichtung.zugang.text === TEXT_A4_SCHREIBFEHLER && q.kern.abbild().einrichtung.zugang.grund === 'schreibfehler');
   await q.aufraeumen();
-  ck('ohne Schlüsselbund → ok, Herkunft session, Text A4',
-    ok(p.kern.zugangWaehlen(gut)) && p.kern.abbild().einrichtung.zugang.herkunft === 'session' && p.kern.abbild().einrichtung.zugang.text === KT.A4);
-  rmSync(dir, { recursive: true, force: true });
+  ck('session ohne Grund → Herkunft session, Text A4',
+    p.kern.abbild().einrichtung.zugang.herkunft === 'session' && p.kern.abbild().einrichtung.zugang.text === KT.A4);
   await p.aufraeumen();
 }
 {
@@ -533,99 +559,11 @@ console.log('— Zugangsdaten wählen und entfernen (6.1, A1–A6)');
   ck('… Entfernen lässt keinen Mangel entstehen', ok(p.kern.zugangLoeschen()) && p.kern.kurz().maengel.length === 0 && p.kern.kurz().zustand === 'bereit');
   await p.aufraeumen();
 }
-
-console.log('— Datei-Weg: Logzeile unverändert (Regression)');
-for (const [herk, zeile] of [['stored', '[zoom] Zugangsdaten hinterlegt (verschlüsselt)'], ['session', '[zoom] Zugangsdaten hinterlegt (nur für diese Sitzung)']] as const) {
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, speichernLiefert: herk });
-  const dir = mkdtempSync(join(tmpdir(), 'jm-zoom-zugang-'));
-  const gut = join(dir, 'gut.json');
-  writeFileSync(gut, '{"clientId":"datei-id-1234","clientSecret":"datei-secret"}');
-  ck(`zugangWaehlen (${herk}) → Logzeile wörtlich`, ok(p.kern.zugangWaehlen(gut)) && p.logs.includes(zeile));
-  rmSync(dir, { recursive: true, force: true });
-  await p.aufraeumen();
-}
-
-console.log('— Zugangsdaten von Hand eintragen (A7, S10, A4)');
-{
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
-  const r = p.kern.zugangEintragen({ clientId: '  id-test-4321 \t', clientSecret: ' geheim-test\n' });
-  ck('Eintragen → ok, gespeichert, Werte getrimmt', ok(r) && p.zugangGespeichert.length === 1
-    && p.zugangGespeichert[0].clientId === 'id-test-4321' && p.zugangGespeichert[0].clientSecret === 'geheim-test');
-  const a = p.kern.abbild();
-  ck('… Zustand wie nach dem Datei-Weg: bereit, stored, Ende 4321, kein Fehlertext',
-    a.kurz.zustand === 'bereit' && a.einrichtung.zugang.herkunft === 'stored' && a.einrichtung.zugang.clientIdEnde === '4321' && a.einrichtung.zugang.text === null);
-  ck('… Logzeile ohne Wert, mit „von Hand, verschlüsselt“', p.logs.includes('[zoom] Zugangsdaten hinterlegt (von Hand, verschlüsselt)'));
-  ck('… weder ID noch Secret in einer Logzeile',
-    !p.logs.some((z) => z.includes('id-test-4321') || z.includes('geheim-test') || z.includes('id-test') || z.includes('geheim')));
-  ck('… Abbild: nur die letzten 4 Zeichen der ID, kein Secret',
-    !JSON.stringify(a).includes('id-test-4321') && !JSON.stringify(a).includes('geheim'));
-  await p.aufraeumen();
-}
-{
-  const falsch: Array<[string, { clientId: string; clientSecret: string }]> = [
-    ['ID leer', { clientId: '', clientSecret: 'geheim-test' }],
-    ['Secret leer', { clientId: 'id-test', clientSecret: '' }],
-    ['ID nur Leerraum', { clientId: '  \t ', clientSecret: 'geheim-test' }],
-    ['Secret nur Leerraum', { clientId: 'id-test', clientSecret: ' \n ' }],
-    ['ID mit Leerzeichen in der Mitte', { clientId: 'id test', clientSecret: 'geheim-test' }],
-    ['Secret mit Leerzeichen in der Mitte', { clientId: 'id-test', clientSecret: 'geheim test' }],
-    ['ID mit Tabulator in der Mitte', { clientId: 'id\ttest', clientSecret: 'geheim-test' }],
-    ['Secret mit Zeilenumbruch in der Mitte', { clientId: 'id-test', clientSecret: 'geheim\ntest' }],
-  ];
-  for (const [name, e] of falsch) {
-    const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
-    const r = p.kern.zugangEintragen(e);
-    ck(`${name} → A7, nichts gespeichert, Zustand bleibt`, text(r) === KT.A7 && p.zugangGespeichert.length === 0
-      && p.kern.kurz().zustand === 'einrichtung');
-    ck('… A7 ist ein Eingabefehler: kein A7 im Abbild', !JSON.stringify(p.kern.abbild()).includes(KT.A7));
-    const teile = [e.clientId, e.clientSecret, e.clientId.trim(), e.clientSecret.trim(), 'id-test', 'geheim']
-      .flatMap((w) => [w, ...w.split(/\s+/)]).filter((w) => w.length >= 3);
-    ck('… weder ID noch Secret (auch getrimmt oder in Teilen) in einer Logzeile',
-      !p.logs.some((z) => teile.some((w) => z.includes(w))));
-    await p.aufraeumen();
-  }
-}
-{
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, speichernLiefert: 'session' });
-  ck('ohne Schlüsselbund → ok, Herkunft session, Text A4, Log „nur für diese Sitzung“',
-    ok(p.kern.zugangEintragen({ clientId: 'id-test-9876', clientSecret: 'geheim-test' })) && p.kern.abbild().einrichtung.zugang.herkunft === 'session'
-    && p.kern.abbild().einrichtung.zugang.text === KT.A4 && p.logs.includes('[zoom] Zugangsdaten hinterlegt (von Hand, nur für diese Sitzung)'));
-  await p.aufraeumen();
-}
-{
-  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }) });
-  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
-  ck('Vorbereitung: Zustand fehler (B9)', p.kern.kurz().zustand === 'fehler' && p.kern.abbild().meldung !== null);
-  const r = p.kern.zugangEintragen({ clientId: 'id-test-1111', clientSecret: 'geheim-test' });
-  ck('im Zustand fehler: zuerst schließen, dann speichern → bereit, Meldung weg',
-    ok(r) && p.zugangGespeichert.length === 1 && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null);
-  await p.aufraeumen();
-}
 {
   const p = baueKern();
   ck('Vorbereitung: im Meeting', await insMeeting(p));
-  const r = p.kern.zugangEintragen({ clientId: 'id-test-2222', clientSecret: 'geheim-test' });
-  ck('während Zoom läuft → S10, nichts gespeichert, Zustand bleibt', text(r) === KT.S10 && p.zugangGespeichert.length === 0
-    && p.kern.kurz().zustand === 'im_meeting');
-  await p.aufraeumen();
-}
-{
-  const MiB = 1024 * 1024;
-  let freigabe: (e: EinrichtungsErgebnis) => void = () => {};
-  const p = baueKern({
-    laufzeit: {
-      pruefe: () => ({ ok: false, mangel: 'sdk_fehlt' }),
-      pruefeOrdner: () => ({ ok: true, bin: 'C:/SDK/x64/bin', fassung: SDK_FASSUNG, dateien: [{ pfad: 'sdk.dll', bytes: MiB }], bytesGesamt: MiB }),
-      richteEin: () => new Promise<EinrichtungsErgebnis>((resolve) => {
-        freigabe = resolve;
-      }),
-    },
-  });
-  const lauf = p.kern.sdkWaehlen('C:/SDK');
-  ck('während der SDK-Kopie → S10, nichts gespeichert',
-    text(p.kern.zugangEintragen({ clientId: 'id-test-3333', clientSecret: 'geheim-test' })) === KT.S10 && p.zugangGespeichert.length === 0);
-  freigabe({ ok: false, text: KT.S6('EIO') });
-  await lauf;
+  ck('während Zoom läuft: Zugangsdaten entfernen → S10, Zustand bleibt',
+    text(p.kern.zugangLoeschen()) === KT.S10 && p.kern.kurz().zustand === 'im_meeting' && p.kern.abbild().einrichtung.zugang.herkunft === 'stored');
   await p.aufraeumen();
 }
 
@@ -663,8 +601,7 @@ console.log('— SDK-Ordner wählen (6.1), Sperre S10, Review Focus 4');
   const zweit = await Promise.race([p.kern.sdkWaehlen('C:/SDK'), warte(1000).then((): ZoomErgebnis => ({ ok: false, text: '(keine Antwort)' }))]);
   ck('Review Focus 4: zweiter Klick während der Kopie → S10', text(zweit) === KT.S10);
   ck('… richteEin genau einmal aufgerufen', p.richteEinAufrufe() === 1);
-  ck('… Zugangsdaten wählen und entfernen ebenfalls S10',
-    text(p.kern.zugangWaehlen('C:/egal.json')) === KT.S10 && text(p.kern.zugangLoeschen()) === KT.S10);
+  ck('… Zugangsdaten entfernen ebenfalls S10', text(p.kern.zugangLoeschen()) === KT.S10);
   lzStand = { ok: true, ordner: p.ordner, ersetzt: [] };
   freigabe({
     ok: true, ordner: p.ordner,
@@ -818,9 +755,9 @@ console.log('— Bild-Versatz speichern (6.7), Schließen/Meldung in Z1/Z2 (6.8)
   await p.aufraeumen();
 }
 {
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
+  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, laufzeit: { pruefe: () => ({ ok: false, mangel: 'sdk_fehlt' }) } });
   p.kern.schliessen();
-  ck('Schließen in Z1a ändert nichts', p.kern.kurz().zustand === 'einrichtung' && JSON.stringify(p.kern.kurz().maengel) === '["zugang_fehlt"]');
+  ck('Schließen in Z1a ändert nichts', p.kern.kurz().zustand === 'einrichtung' && JSON.stringify(p.kern.kurz().maengel) === '["sdk_fehlt"]');
   await p.aufraeumen();
 }
 
@@ -877,7 +814,9 @@ console.log('— Fix-Runde 1: Diagnosen der Laufzeit ins Log (Spec 8.7)');
 // ── Aufgabe 11: Startfolge, Generationen, „Einrichtung prüfen“ ──────────────
 console.log('— Einrichtung prüfen (Fall 24, 28), Startfolge S-d');
 {
-  const p = baueKern({ versatzMs: 120 });
+  // Das JWT kommt aus der Quelle; hier ein lokal signiertes (Übergang), damit die 12 h der Signatur geprüft bleiben.
+  const lokalJwt = buildJwt({ clientId: 'test-id-1234', clientSecret: 'test-secret', ttlSeconds: 43_200 });
+  const p = baueKern({ versatzMs: 120, jwt: { hole: async () => ({ ok: true, jwt: lokalJwt, bis: Date.now() + 43_200_000, herkunft: 'lokal' }) } });
   const lauf = p.kern.pruefen();
   ck('Fall 24: während der Prüfung Zustand bereit, pruefungLaeuft, laeuft()',
     p.kern.kurz().zustand === 'bereit' && p.kern.abbild().pruefungLaeuft && p.kern.laeuft());
@@ -934,7 +873,7 @@ console.log('— Startfolge: Fehler (Fall 24b, 7, 6, B9, S9) und Umgebung (Fall 
   await p.aufraeumen();
 }
 {
-  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }) });
+  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }), jwtHerkunft: 'lokal' });
   const r = await p.kern.pruefen();
   ck('Anmeldung abgelehnt (Code 2) → B9 mit AUTHRET_KEYORSECRETWRONG', text(r) === KT.B9('AUTHRET_KEYORSECRETWRONG'));
   ck('… detail AUTHRET_KEYORSECRETWRONG (2)', p.kern.abbild().meldung?.detail === 'AUTHRET_KEYORSECRETWRONG (2)');
@@ -1005,11 +944,11 @@ async function insMeeting(p: Probe, kenncode = KENNCODE): Promise<boolean> {
 
 console.log('— Beitritt (Fall 1 zweiter Teil, 2, 5, 8, 24c), Review Focus 1 und 5');
 {
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
+  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, jwt: { hole: async () => ({ ok: false, grund: 'kein-launcher', detail: null }) } });
   const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
-  ck('Fall 1: Zugangsdaten fehlen → B17, keine Bridge', text(r) === KT.B17 && p.starts() === 0);
-  ck('… Zustand einrichtung, STATE zoom_status=einrichtung', p.kern.kurz().zustand === 'einrichtung' && p.kern.stateKv()?.zoom_status === 'einrichtung');
-  ck('… nichts im Arbeitsspeicher', !p.kern.abbild().erneutMoeglich);
+  ck('Fall 1: Zugangsdaten fehlen → ZA7 statt B17, keine Bridge', text(r) === ZUGANG_TEXT.ohneAnmeldung(jwtGrundText('kein-launcher')) && p.starts() === 0);
+  ck('… Zustand fehler (kein Einrichtungsmangel), STATE zoom_status=fehler', p.kern.kurz().zustand === 'fehler' && p.kern.stateKv()?.zoom_status === 'fehler');
+  ck('… Nummer und Kenncode bleiben: „Erneut beitreten“ möglich', p.kern.abbild().erneutMoeglich);
   await p.aufraeumen();
 }
 {
@@ -1186,7 +1125,7 @@ console.log('— Letztes Meeting (#290)');
   await p.aufraeumen();
 }
 {
-  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }) });
+  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }), jwtHerkunft: 'lokal' });
   const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
   ck('Fall 5: Anmeldung abgelehnt → B9, Zustand fehler', text(r) === KT.B9('AUTHRET_KEYORSECRETWRONG') && p.kern.kurz().zustand === 'fehler');
   ck('… kein join in der Befehlsfolge', !cmds(p).includes('join'));
@@ -1339,6 +1278,7 @@ console.log('— Meeting-Ende (Fall 19, 28), Beenden (Fall 20)');
 {
   const p = baueKern({ skript: 'stuck', fristen: { killTimeoutMs: 300 } });
   const lauf = p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  await bis(() => p.starts() === 1); // das JWT kommt vor der Bridge (Task 15): erst wenn sie läuft, gibt es etwas zu töten
   const t0 = Date.now();
   await p.kern.beenden(15_000);
   ck('Fall 20 (stuck): Ende per Kill nach killTimeoutMs', Date.now() - t0 < 2000 && p.logs.includes('[zoom] Zoom-Bridge hart beendet'));
@@ -1430,6 +1370,7 @@ console.log('— Verlassen (Fall 26, Review Focus 2) und Wiederbeitritt (Fall 16
 {
   const p = baueKern();
   const lauf = p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  await bis(() => p.starts() === 1); // das JWT kommt vor der Bridge (Task 15)
   await p.kern.verlassen();
   ck('Verlassen während startet → bereit, keine Meldung', p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null);
   ck('… der Beitritt liefert ok:false ohne Text', text(await lauf) === '');
@@ -1491,34 +1432,17 @@ if (process.platform === 'win32') {
   await p.aufraeumen();
 }
 
-console.log('— SDK-Schlüssel eintragen und entfernen (Spec SDK nachladen 4.2, S18, S10)');
+console.log('— SDK-Schlüssel entfernen (Spec SDK nachladen 4.2, S10; Eintragen entfällt, E7)');
 {
-  const p = baueKern();
-  ck('anfangs: Abbild ohne SDK-Schlüssel (none)', p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none');
-  const r = p.kern.sdkSchluesselEintragen({ schluessel: '  sdk-geheim-test \t\n' });
-  ck('Review Focus SDK-4: eingefügt mit Leerraum und Zeilenumbruch → ok, getrimmt gespeichert',
-    ok(r) && p.sdkSchluesselGespeichert.length === 1 && p.sdkSchluesselGespeichert[0] === 'sdk-geheim-test');
-  ck('… Abbild: Herkunft stored', p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'stored');
-  ck('… Logzeile ohne Wert', p.logs.includes('[zoom] SDK-Schlüssel hinterlegt (verschlüsselt)'));
-  ck('… der Wert steht weder im Log noch im Abbild',
-    !p.logs.some((z) => z.includes('sdk-geheim')) && !JSON.stringify(p.kern.abbild()).includes('sdk-geheim'));
-  ck('… Zustand unverändert (bereit)', p.kern.kurz().zustand === 'bereit');
-  for (const w of ['', '   ', 'sdk geheim', 'sdk\tgeheim', 'sdk\ngeheim', 'sdk€geheim']) {
-    ck(`${JSON.stringify(w)} → S18, nichts gespeichert`,
-      text(p.kern.sdkSchluesselEintragen({ schluessel: w })) === KT.S18 && p.sdkSchluesselGespeichert.length === 1);
-  }
-  ck('… Abweisung im Log, ohne Wert', p.logs.includes('[zoom] SDK-Schlüssel abgewiesen: ' + KT.S18) && !p.logs.some((z) => z.includes('sdk geheim')));
-  ck('… S18 ist ein Eingabefehler: nicht im Abbild', !JSON.stringify(p.kern.abbild()).includes(KT.S18));
+  const p = baueKern({ sdkSchluessel: { wert: 'sdk-geheim-test', herkunft: 'stored' } });
+  ck('anfangs: Abbild mit altem SDK-Schlüssel (stored), der Wert nirgends',
+    p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'stored' && !JSON.stringify(p.kern.abbild()).includes('sdk-geheim'));
   const l = p.kern.sdkSchluesselLoeschen();
   ck('Entfernen → ok, Herkunft none, Log', ok(l) && p.sdkSchluesselGeloescht() === 1
     && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none' && p.logs.includes('[zoom] SDK-Schlüssel entfernt'));
-  await p.aufraeumen();
-}
-{
-  const p = baueKern({ sdkSchluesselLiefert: 'session' });
-  ck('ohne Schlüsselbund: hinterlegt nur für diese Sitzung',
-    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'session'
-      && p.logs.includes('[zoom] SDK-Schlüssel hinterlegt (nur für diese Sitzung)'));
+  ck('… der Wert steht weder im Log noch im Abbild',
+    !p.logs.some((z) => z.includes('sdk-geheim')) && !JSON.stringify(p.kern.abbild()).includes('sdk-geheim'));
+  ck('… Zustand unverändert (bereit)', p.kern.kurz().zustand === 'bereit');
   await p.aufraeumen();
 }
 {
@@ -1528,20 +1452,10 @@ console.log('— SDK-Schlüssel eintragen und entfernen (Spec SDK nachladen 4.2,
   await p.aufraeumen();
 }
 {
-  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }) });
-  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
-  ck('Vorbereitung: Zustand fehler (B9)', p.kern.kurz().zustand === 'fehler');
-  const r = p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' });
-  ck('im Zustand fehler: zuerst schließen, dann speichern → bereit, Meldung weg',
-    ok(r) && p.sdkSchluesselGespeichert.length === 1 && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null);
-  await p.aufraeumen();
-}
-{
   const p = baueKern();
   ck('Vorbereitung: im Meeting', await insMeeting(p));
-  ck('während Zoom läuft: SDK-Schlüssel eintragen und entfernen → S10, nichts geändert',
-    text(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) === KT.S10 && text(p.kern.sdkSchluesselLoeschen()) === KT.S10
-      && p.sdkSchluesselGespeichert.length === 0 && p.sdkSchluesselGeloescht() === 0);
+  ck('während Zoom läuft: SDK-Schlüssel entfernen → S10, nichts geändert',
+    text(p.kern.sdkSchluesselLoeschen()) === KT.S10 && p.sdkSchluesselGeloescht() === 0);
   await p.aufraeumen();
 }
 {
@@ -1555,9 +1469,8 @@ console.log('— SDK-Schlüssel eintragen und entfernen (Spec SDK nachladen 4.2,
     },
   });
   const lauf = p.kern.sdkWaehlen('C:/SDK');
-  ck('während der SDK-Kopie: SDK-Schlüssel eintragen und entfernen → S10',
-    text(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) === KT.S10 && text(p.kern.sdkSchluesselLoeschen()) === KT.S10
-      && p.sdkSchluesselGespeichert.length === 0 && p.sdkSchluesselGeloescht() === 0);
+  ck('während der SDK-Kopie: SDK-Schlüssel entfernen → S10',
+    text(p.kern.sdkSchluesselLoeschen()) === KT.S10 && p.sdkSchluesselGeloescht() === 0);
   freigabe({ ok: false, text: KT.S6('EIO') });
   await lauf;
   await p.aufraeumen();
@@ -1713,6 +1626,8 @@ console.log('— Zoom-SDK laden (Spec SDK nachladen 4.3, 4.4; Tests 6 Kern; Revi
 const LADE_MIB = 1024 * 1024;
 const LINK = 'https://signed.test/zoom-77?sig=geheim-link';
 const SCHLUESSEL: { wert: string; herkunft: 'stored' } = { wert: 'sdk-geheim-test', herkunft: 'stored' };
+/** Halter im Übergang: keine Freigabe, nur der alte SDK-Schlüssel (OT10). */
+const ALTER_KEY: Partial<ZugangsHalter> = { zugang: async () => ({ art: 'alter-key', key: 'sdk-geheim-test' }) };
 /** Attrappen für das Laden: alles klappt, einzelne Schritte überschreibbar. */
 function ladeDienste(o: Partial<SdkLadenDienste> = {}): Partial<SdkLadenDienste> {
   return {
@@ -1813,8 +1728,10 @@ function ladeStand(p: Probe): string {
     ]));
   ck('Review Focus SDK-5: Reste des früheren Laufs waren schon vor der Platzmessung weg (A12), erst recht vor dem Link',
     resteBeimPlatz === false && resteBeimLink === false);
-  ck('… Link: Proxy-Adresse, SDK-Schlüssel, gepinnte Fassung',
-    linkEingabe?.base === 'https://proxy.test' && linkEingabe?.schluessel === 'sdk-geheim-test' && linkEingabe?.fassung === SDK_FASSUNG);
+  ck('… Link: Proxy-Adresse, Kopf mit der Freigabe, gepinnte Fassung',
+    linkEingabe?.base === 'https://proxy.test' && JSON.stringify(linkEingabe?.kopf) === JSON.stringify({ Authorization: 'Bearer jm1.test-sdk' }) && linkEingabe?.fassung === SDK_FASSUNG);
+  ck('… der Kern fragte den Halter genau einmal: zoom-sdk, Ziel win-x64',
+    JSON.stringify(p.halterZugang) === JSON.stringify([{ zweck: 'zoom-sdk', ziel: ZIEL_ZOOM_SDK }]) && ZIEL_ZOOM_SDK === 'win-x64');
   ck('… Download: Link und Größe vom Proxy, ZIP im Arbeitsordner, erwartet = SDK_PAKET',
     ladeEingabe?.url === LINK && ladeEingabe?.size === SDK_PAKET.bytes && ladeEingabe?.ziel === join(arbeitsordner(p), SDK_PAKET.datei)
       && ladeEingabe?.erwartet.sha256 === SDK_PAKET.sha256 && ladeEingabe?.erwartet.bytes === SDK_PAKET.bytes);
@@ -1835,11 +1752,11 @@ function ladeStand(p: Probe): string {
     '[zoom] Zustand einrichtung → bereit',
   ]));
   const alles = p.logs.join('\n') + JSON.stringify(p.kern.abbild()) + JSON.stringify(p.abbilder);
-  ck('… weder SDK-Schlüssel noch Link in Log oder Abbild', !alles.includes('sdk-geheim') && !alles.includes('signed.test') && !alles.includes('geheim-link'));
+  ck('… weder SDK-Schlüssel noch Freigabe noch Link in Log oder Abbild', !alles.includes('sdk-geheim') && !alles.includes('jm1.') && !alles.includes('signed.test') && !alles.includes('geheim-link'));
   await p.aufraeumen();
 }
 const LADE_FEHLER: Array<[string, Partial<SdkLadenDienste>, string]> = [
-  ['Schlüssel abgelehnt', { holeLink: async () => ({ ok: false, art: 'schluessel' }) }, KT.S12],
+  ['Freigabe abgelehnt (401)', { holeLink: async () => ({ ok: false, art: 'schluessel', code: null }) }, KT.S12b],
   ['gedrosselt 125 s', { holeLink: async () => ({ ok: false, art: 'gedrosselt', sekunden: 125 }) }, KT.S13(125)],
   ['Proxy nicht erreichbar', { holeLink: async () => ({ ok: false, art: 'proxy', grund: 'ENOTFOUND' }) }, KT.S14('ENOTFOUND')],
   ['kein passendes Paket auf dem Proxy', { holeLink: async () => ({ ok: false, art: 'fehlt' }) }, KT.S15],
@@ -1904,6 +1821,8 @@ for (const [name, dienste, soll] of LADE_FEHLER) {
 {
   let linkGefragt = false;
   const p = baueKern({
+    halter: { zugang: async () => ({ art: 'keiner' }) },
+    halterLage: { wahl: 'keiner', letzterGrund: 'kein-recht', detail: 'kein-jm-rechner' },
     sdkLaden: ladeDienste({
       holeLink: async () => {
         linkGefragt = true;
@@ -1911,11 +1830,151 @@ for (const [name, dienste, soll] of LADE_FEHLER) {
       },
     }),
   });
-  const vor = p.logs.length;
   const r = await p.kern.sdkLaden();
-  ck('ohne SDK-Schlüssel → S11, kein Link, Zustand bleibt, kein Text im Abbild',
-    text(r) === KT.S11 && !linkGefragt && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.sdk.text === null);
-  ck('… Log: nur die Abweisung', JSON.stringify(p.logs.slice(vor)) === JSON.stringify(['[zoom] Zoom-SDK laden abgewiesen: ' + KT.S11]));
+  const CG8 = grundText('zoom-sdk', 'kein-recht', 'kein-jm-rechner');
+  ck('T13 N2: kein JM-Rechner → sdk.text CG8, Zustand bleibt, kein Link',
+    text(r) === CG8 && !linkGefragt && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.sdk.text === CG8);
+  ck('… Log: Laden gescheitert mit CG8, keine Sperre danach', p.logs.includes(`[zoom] Laden des Zoom-SDK gescheitert: ${CG8}`)
+    && p.kern.abbild().einrichtung.sdk.laden === null && !p.kern.laeuft() && text(p.kern.einrichtungSperre()) === null);
+  await p.aufraeumen();
+}
+{
+  // Ohne Grund (der Halter hat nichts versucht): der Text von „kein Launcher“, nicht CG8.
+  const p = baueKern({
+    halter: { zugang: async () => ({ art: 'keiner' }) },
+    halterLage: { wahl: 'keiner', letzterGrund: null, detail: null },
+    sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'fehlt' }) }),
+  });
+  const r = await p.kern.sdkLaden();
+  ck('T13: keine Freigabe und kein Grund → CG1 (kein Launcher), Zustand bleibt', text(r) === grundText('zoom-sdk', 'kein-launcher') && p.kern.kurz().zustand === 'bereit');
+  await p.aufraeumen();
+}
+{
+  // 4.4: ladung steht, bevor irgendetwas wartet; ein zweiter Klick trifft schon die Sperre, auch während der Halter wartet.
+  let gesehen: { phase: string | undefined; zweiter: string | null } | null = null;
+  const p: Probe = baueKern({
+    halter: {
+      zugang: async () => {
+        const zweiter = await p.kern.sdkLaden();
+        gesehen = { phase: p.kern.abbild().einrichtung.sdk.laden?.phase, zweiter: text(zweiter) };
+        return { art: 'keiner' };
+      },
+    },
+    halterLage: { wahl: 'keiner', letzterGrund: 'abgelaufen' },
+    sdkLaden: ladeDienste(),
+  });
+  await p.kern.sdkLaden();
+  const g = gesehen as { phase: string | undefined; zweiter: string | null } | null;
+  ck('T13 4.4: die Freigabe wird erst nach dem Setzen von ladung geholt (zweiter Klick → S10)',
+    g !== null && g.phase === 'link' && g.zweiter === KT.S10);
+  await p.aufraeumen();
+}
+{
+  // OT9: der Halter meldet genau einmal `bestaetigt` (alter SDK-Schlüssel gelöscht): ZA6 einmal als Hinweis.
+  let fragen = 0;
+  const p = baueKern({
+    halter: { bestaetigt: () => ++fragen === 1 },
+    sdkLaden: ladeDienste({ lade: async () => ({ ok: false, art: 'pruefsumme' }) }),
+  });
+  await p.kern.sdkLaden();
+  const zahl = (): number => p.kern.abbild().hinweise.filter((h) => h === ZUGANG_TEXT.sdkGeloescht).length;
+  ck('T13 OT9: erster Link mit Freigabe → bestaetigt einmal, Hinweis ZA6 einmal; zweites Laden ohne neuen Hinweis',
+    fragen === 1 && zahl() === 1);
+  await p.kern.sdkLaden();
+  ck('… zweites Laden: bestaetigt wieder gefragt, aber kein neuer Hinweis', fragen === 2 && zahl() === 1);
+  ck('… der Hinweis kommt auch ins Log, ohne Freigabe', p.logs.includes(`[zoom] Hinweis: ${ZUGANG_TEXT.sdkGeloescht}`) && !p.logs.join('\n').includes('jm1.'));
+  await p.aufraeumen();
+}
+{
+  // I1 (a): bestaetigt löscht den alten Schlüssel im Speicher des Kerns; das Abbild zeigt ihn danach nicht mehr als hinterlegt.
+  const p: Probe = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    halter: {
+      bestaetigt: () => {
+        p.sdkSchluesselWeg();
+        return true;
+      },
+    },
+    sdkLaden: ladeDienste({ lade: async () => ({ ok: false, art: 'pruefsumme' }) }),
+  });
+  const davor = p.kern.abbild().einrichtung.sdkSchluessel.herkunft;
+  await p.kern.sdkLaden();
+  ck('T13 I1 OT9: nach bestaetigt (Schlüssel gelöscht) zeigt das Abbild herkunft none, nicht stored',
+    davor === 'stored' && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none' );
+  await p.aufraeumen();
+}
+{
+  // I1 (b): antwort (alter-key-abgelaufen) löscht den alten Schlüssel; S12 steht nicht neben „hinterlegt“.
+  const p: Probe = baueKern({
+    sdkSchluessel: SCHLUESSEL,
+    halter: {
+      ...ALTER_KEY,
+      antwort: () => p.sdkSchluesselWeg(),
+    },
+    sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel', code: 'alter-key-abgelaufen' }) }),
+  });
+  const davor = p.kern.abbild().einrichtung.sdkSchluessel.herkunft;
+  await p.kern.sdkLaden();
+  ck('T13 I1 E10: nach antwort (alter Schlüssel gelöscht) zeigt das Abbild herkunft none, nicht stored',
+    davor === 'stored' && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none' && p.kern.abbild().einrichtung.sdk.text === KT.S12
+  );
+  await p.aufraeumen();
+}
+{
+  // Link gescheitert (nicht ok): kein `bestaetigt`, kein Hinweis.
+  const p = baueKern({ sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'fehlt' }) }) });
+  await p.kern.sdkLaden();
+  ck('T13: ohne erfolgreichen Link wird `bestaetigt` nicht gefragt', p.halterBestaetigt() === 0 && p.kern.abbild().hinweise.length === 0);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel', code: 'sitzung-abgelaufen' }) }) });
+  const r = await p.kern.sdkLaden();
+  const a = p.halterAntworten;
+  ck('T13 QR5: 401 auf die Freigabe → halter.antwort(zoom-sdk, …, 401), Text S12b',
+    a.length === 1 && a[0].zweck === 'zoom-sdk' && a[0].wahl.art === 'freigabe' && a[0].status === 401 && a[0].code === 'sitzung-abgelaufen'
+      && text(r) === KT.S12b && p.kern.abbild().einrichtung.sdk.text === KT.S12b);
+  ck('… die Freigabe steht nirgends: Log, Abbild, Text', !(p.logs.join('\n') + JSON.stringify(p.abbilder) + String(text(r))).includes('jm1.'));
+  await p.aufraeumen();
+}
+{
+  // 403: Text je Code des Workers (CG7c, bei kein-jm-rechner CG8), `antwort` mit 403.
+  const FAELLE = [['kein-recht', grundText('zoom-sdk', 'kein-recht', 'kein-recht')], ['kein-jm-rechner', grundText('zoom-sdk', 'kein-recht', 'kein-jm-rechner')], [null, grundText('zoom-sdk', 'kein-recht', null)]] as const;
+  for (const [code, soll] of FAELLE) {
+    const p = baueKern({ sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'verweigert', code }) }) });
+    const r = await p.kern.sdkLaden();
+    ck(`T13 403 (Code ${code ?? 'keiner'}) → ${code === 'kein-jm-rechner' ? 'CG8' : 'CG7c'}, halter.antwort mit 403 und dem Code`,
+      text(r) === soll && p.kern.abbild().einrichtung.sdk.text === soll && p.halterAntworten.length === 1
+        && p.halterAntworten[0].status === 403 && p.halterAntworten[0].code === code && p.kern.kurz().zustand === 'bereit');
+    await p.aufraeumen();
+  }
+}
+{
+  let kopf: Record<string, string> | undefined;
+  const p = baueKern({
+    halter: ALTER_KEY,
+    sdkLaden: ladeDienste({
+      holeLink: async (e) => {
+        kopf = e.kopf;
+        return { ok: false, art: 'schluessel', code: null };
+      },
+    }),
+  });
+  const r = await p.kern.sdkLaden();
+  ck('T13 OT10: alter Schlüssel im Übergang → holeLink bekommt X-Zoom-Sdk-Key; 401 → S12 wie bisher',
+    JSON.stringify(kopf) === JSON.stringify({ 'X-Zoom-Sdk-Key': 'sdk-geheim-test' }) && text(r) === KT.S12 && p.kern.abbild().einrichtung.sdk.text === KT.S12);
+  ck('… der alte Schlüssel steht nirgends: Log, Abbild', !(p.logs.join('\n') + JSON.stringify(p.abbilder)).includes('sdk-geheim'));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({
+    halter: ALTER_KEY,
+    sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel', code: 'alter-key-abgelaufen' }) }),
+  });
+  const r = await p.kern.sdkLaden();
+  const a = p.halterAntworten;
+  ck('T13 E10 (P2): 401 alter-key-abgelaufen auf den alten Schlüssel → halter.antwort(zoom-sdk, alter-key, 401, alter-key-abgelaufen)',
+    a.length === 1 && a[0].zweck === 'zoom-sdk' && a[0].wahl.art === 'alter-key' && a[0].status === 401 && a[0].code === 'alter-key-abgelaufen' && text(r) === KT.S12);
   await p.aufraeumen();
 }
 {
@@ -1949,9 +2008,8 @@ for (const [name, dienste, soll] of LADE_FEHLER) {
   const zweit = await Promise.race([p.kern.sdkLaden(), warte(1000).then((): ZoomErgebnis => ({ ok: false, text: '(keine Antwort)' }))]);
   ck('Review Focus SDK-1: zweiter Klick auf „Zoom-SDK laden“ → S10, der Link wird nur einmal angefragt',
     text(zweit) === KT.S10 && linkAufrufe === 1);
-  ck('… SDK-Ordner wählen, Zugangsdaten entfernen und SDK-Schlüssel eintragen ebenfalls S10',
-    text(await p.kern.sdkWaehlen('C:/SDK')) === KT.S10 && text(p.kern.zugangLoeschen()) === KT.S10
-      && text(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) === KT.S10);
+  ck('… SDK-Ordner wählen und Zugangsdaten entfernen ebenfalls S10',
+    text(await p.kern.sdkWaehlen('C:/SDK')) === KT.S10 && text(p.kern.zugangLoeschen()) === KT.S10);
   ck('… SDK-Schlüssel entfernen ebenfalls S10, nichts gelöscht (Gesamtprüfung: Task 7 minor 1)',
     text(p.kern.sdkSchluesselLoeschen()) === KT.S10 && p.sdkSchluesselGeloescht() === 0);
   p.kern.sdkLadenAbbrechen();
@@ -2122,13 +2180,9 @@ for (const [name, dienste, soll] of LADE_FEHLER) {
 }
 console.log('— S12 gilt dem damaligen Schlüssel (Gesamtprüfung: Task 7 minor 3, Abnahme 0.2.2 Schritt 4 → 5)');
 {
-  const p = baueKern({ sdkSchluessel: SCHLUESSEL, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel' }) }) });
+  const p = baueKern({ sdkSchluessel: SCHLUESSEL, halter: ALTER_KEY, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel', code: null }) }) });
   await p.kern.sdkLaden();
   ck('Vorbereitung: S12 im Abbild', p.kern.abbild().einrichtung.sdk.text === KT.S12);
-  ck('neuer SDK-Schlüssel nach S12 → ok, die Ablehnung steht nicht mehr im Abbild',
-    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) && p.kern.abbild().einrichtung.sdk.text === null);
-  await p.kern.sdkLaden();
-  ck('Vorbereitung: wieder S12', p.kern.abbild().einrichtung.sdk.text === KT.S12);
   ck('SDK-Schlüssel entfernen nach S12 → die Ablehnung steht nicht mehr im Abbild',
     ok(p.kern.sdkSchluesselLoeschen()) && p.kern.abbild().einrichtung.sdk.text === null
       && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none');
@@ -2137,16 +2191,16 @@ console.log('— S12 gilt dem damaligen Schlüssel (Gesamtprüfung: Task 7 minor
 {
   const p = baueKern({ sdkSchluessel: SCHLUESSEL, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'fehlt' }) }) });
   await p.kern.sdkLaden();
-  ck('ein anderer Ladefehler (S15) bleibt nach neuem SDK-Schlüssel stehen',
-    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) && p.kern.abbild().einrichtung.sdk.text === KT.S15);
+  ck('ein anderer Ladefehler (S15) bleibt nach „Entfernen“ des SDK-Schlüssels stehen',
+    ok(p.kern.sdkSchluesselLoeschen()) && p.kern.abbild().einrichtung.sdk.text === KT.S15);
   await p.aufraeumen();
 }
 {
-  // Ein Schlüssel aus der Umgebung hat Vorrang und gilt weiter: Ein eingetragener Wert ändert an S12 nichts.
-  const p = baueKern({ sdkSchluessel: { wert: 'sdk-test', herkunft: 'env' }, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel' }) }) });
+  // Ein Schlüssel aus der Umgebung hat Vorrang und gilt weiter: Ein „Entfernen“ ändert an S12 nichts.
+  const p = baueKern({ sdkSchluessel: { wert: 'sdk-test', herkunft: 'env' }, halter: ALTER_KEY, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel', code: null }) }) });
   await p.kern.sdkLaden();
-  ck('Schlüssel aus der Umgebung: S12 bleibt nach einem eingetragenen Schlüssel stehen (Umgebung hat Vorrang)',
-    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-geheim-test' })) && p.kern.abbild().einrichtung.sdk.text === KT.S12);
+  ck('Schlüssel aus der Umgebung: S12 bleibt nach „Entfernen“ stehen (Umgebung hat Vorrang)',
+    ok(p.kern.sdkSchluesselLoeschen()) && p.kern.abbild().einrichtung.sdk.text === KT.S12 && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'env');
   await p.aufraeumen();
 }
 console.log('— Diagnose von tar.exe im Log (Gesamtprüfung: Task 5 minor 2)');
@@ -2182,8 +2236,8 @@ console.log('— Entfernen bei nicht schreibbarer Einstellungsdatei (Gesamtprüf
   const p = baueKern({ zugangLoeschenLiefert: false });
   const vor = p.logs.length;
   const r = p.kern.zugangLoeschen();
-  ck('Zugangsdaten entfernen, Datei nicht schreibbar → „nur für diese Sitzung entfernt“, Mangel zugang_fehlt',
-    text(r) === TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT && p.kern.kurz().zustand === 'einrichtung' && p.kern.kurz().maengel.includes('zugang_fehlt'));
+  ck('Zugangsdaten entfernen, Datei nicht schreibbar → „nur für diese Sitzung entfernt“, kein Mangel, bereit',
+    text(r) === TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT && p.kern.kurz().zustand === 'bereit' && p.kern.kurz().maengel.length === 0);
   ck('… die Logzeile sagt es, statt „Zugangsdaten entfernt“',
     p.logs.slice(vor).includes('[zoom] Zugangsdaten nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)')
       && !p.logs.slice(vor).includes('[zoom] Zugangsdaten entfernt'));
@@ -2741,6 +2795,122 @@ console.log('— Slot-Einstellungen erscheinen sofort im Abbild, auch ohne laufe
   ck('abgelehnt (unbekannter Slot): ok false', !ok(p.kern.slotAendern(999, { ersatzbild: 'weiss' })));
   await warte(50);
   ck('… kein neues Abbild', p.abbilder.length === vorX);
+  await p.aufraeumen();
+}
+
+// ── Task 15 (Anmeldung Teil 2): JWT aus der Quelle vor dem Start, Zugang kein Einrichtungsmangel, Masken ──
+console.log('— Task 15 · JWT vor dem Start der Bridge, Zugang ohne Mangel, B9s/B10s, Masken');
+const T15_OK: JwtErgebnis = { ok: true, jwt: 'test-jwt-server', bis: Date.now() + 43_170_000, herkunft: 'server' };
+{
+  const p = baueKern();
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  await bis(() => p.gesendet.some((c) => c.cmd === 'auth'));
+  ck('T15 R6: Beitritt holt das JWT vor dem Start der Bridge; auth bekommt genau dieses JWT',
+    ok(r) && p.reihenfolge.join(',') === 'hole,fabrik' && p.gesendet.some((c) => c.cmd === 'auth' && c.jwt === 'test-jwt-server'));
+  ck('T15: brauchtJwt() ist in den Zuständen startet bis abriss wahr, sonst falsch',
+    (await bis(() => p.kern.kurz().zustand === 'im_meeting')) && p.kern.brauchtJwt() === true);
+  await p.kern.verlassen();
+  ck('… nach dem Verlassen (bereit) falsch', p.kern.kurz().zustand === 'bereit' && p.kern.brauchtJwt() === false);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ jwt: { hole: async () => ({ ok: false, grund: 'kein-launcher', detail: null }) } });
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('T15 ➕1e: kein JWT (kein-launcher) → Zustand fehler, Meldung ZA7 mit CG1, keine Mängel, Nummer und Kenncode bleiben, „Erneut beitreten“ möglich, keine Bridge',
+    !ok(r) && p.kern.kurz().zustand === 'fehler' && p.kern.abbild().meldung?.text === 'Ohne Zoom-Anmeldung kein Beitritt. Kein Launcher mit Anmeldung gefunden. Starte den Launcher und melde dich dort an.'
+      && p.kern.kurz().maengel.length === 0 && p.kern.abbild().erneutMoeglich === true && p.starts() === 0);
+  ck('… der Kenncode „kein-launcher“ steht im detail, kein Geheimnis im Abbild', p.kern.abbild().meldung?.detail === 'kein-launcher' && !JSON.stringify(p.kern.abbild()).includes('test-jwt-server'));
+  await p.aufraeumen();
+}
+console.log('— Task 15 · 6.4 Wiederbeitritt holt das JWT je Versuch neu');
+{
+  const stell = (n: number): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : {});
+  // (a) Die Quelle liefert aus dem RAM, ohne Launcher: jeder Versuch holt zuerst das JWT, dann die Bridge.
+  const a = baueKern({ stell, jwt: { hole: async () => T15_OK } });
+  ck('T15 6.4 (a): Beitritt', await insMeeting(a));
+  const a1 = await bis(() => a.starts() === 2 && a.kern.kurz().zustand === 'im_meeting', 5000);
+  const a2 = a.reihenfolge.join(',') === 'hole,fabrik,hole,fabrik';
+  ck('… Wiederbeitritt: zweite Bridge, wieder im Meeting', a1);
+  ck('… Reihenfolge hole, fabrik, hole, fabrik', a2);
+  await a.aufraeumen();
+  // (b) server-nicht-erreichbar ist vorübergehend: der nächste Versuch kommt nach Plan, ohne dass eine Bridge entsteht.
+  let nb = 0;
+  const b = baueKern({ stell, jwt: { hole: async () => (++nb === 2 ? { ok: false, grund: 'server-nicht-erreichbar', detail: null } : T15_OK) } });
+  ck('T15 6.4 (b): Beitritt', await insMeeting(b));
+  const rb = (await bis(() => b.starts() === 2 && b.kern.kurz().zustand === 'im_meeting', 5000)) && b.jwtHoleZahl() === 3
+      && b.reihenfolge.join(',') === 'hole,fabrik,hole,hole,fabrik'
+      && b.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 gescheitert nach \d+ ms \(vorübergehend\)$/.test(z));
+  ck('… Versuch 1 scheitert vorübergehend, Versuch 2 holt das JWT neu und kommt ins Meeting', rb);
+  await b.aufraeumen();
+  // (c) kein-recht ist endgültig: die Folge endet, es entsteht keine zweite Bridge.
+  let nc = 0;
+  const c = baueKern({ stell, jwt: { hole: async () => (++nc === 2 ? { ok: false, grund: 'kein-recht', detail: null } : T15_OK) } });
+  ck('T15 6.4 (c): Beitritt', await insMeeting(c));
+  const rc = (await bis(() => c.kern.kurz().zustand === 'fehler', 5000)) && c.starts() === 1 && c.jwtHoleZahl() === 2
+      && c.kern.abbild().meldung?.text === VORSATZ.wiederbeitritt + ZUGANG_TEXT.ohneAnmeldung(jwtGrundText('kein-recht', null))
+      && c.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 gescheitert nach \d+ ms \(endgültig\)$/.test(z));
+  ck('… kein-recht → fehler mit ZA7 hinter „Wiederbeitritt abgebrochen“, endgültig, keine zweite Bridge', rc);
+  await c.aufraeumen();
+  ck('T15 6.4: Wiederbeitritt: Quelle liefert aus dem RAM ohne Launcher; server-nicht-erreichbar → nächster Versuch nach Plan; kein-recht → endgültig', a1 && a2 && rb && rc);
+}
+{
+  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, jwtLage: { quelle: 'keine' } });
+  ck('T15 5.3: ohne lokale Zugangsdaten und ohne Freigabe ist Zoom bereit (nur Laufzeit-Mängel)',
+    p.kern.kurz().zustand === 'bereit' && p.kern.kurz().maengel.length === 0 && p.kern.stateKv()?.zoom_status === 'bereit');
+  await p.aufraeumen();
+  const q = baueKern({ zugang: { daten: null, herkunft: 'none' }, laufzeit: { pruefe: () => ({ ok: false, mangel: 'sdk_fehlt' }) } });
+  ck('… mit fehlendem SDK nur der Laufzeit-Mangel', JSON.stringify(q.kern.kurz().maengel) === '["sdk_fehlt"]' && q.kern.kurz().zustand === 'einrichtung');
+  await q.aufraeumen();
+}
+{
+  const s = baueKern({ angemeldetLiefert: true });
+  ck('T15 OT9: auth 0 mit Server-JWT → angemeldet(server) einmal, Hinweis ZA5 einmal; mit lokalem JWT → angemeldet(lokal), kein Hinweis',
+    (await insMeeting(s)) && s.angemeldetAufrufe.join(',') === 'server'
+      && s.kern.abbild().hinweise.filter((h) => h === ZUGANG_TEXT.zugangGeloescht).length === 1);
+  await s.aufraeumen();
+  const l = baueKern({ jwtHerkunft: 'lokal' });
+  ck('… lokales JWT: angemeldet(lokal) einmal, kein Hinweis ZA5',
+    (await insMeeting(l)) && l.angemeldetAufrufe.join(',') === 'lokal' && !l.kern.abbild().hinweise.includes(ZUGANG_TEXT.zugangGeloescht));
+  await l.aufraeumen();
+}
+{
+  const B9S = 'Zoom hat die Anmeldung abgelehnt: Die Zoom-Zugangsdaten auf dem Server stimmen nicht (AUTHRET_KEYORSECRETWRONG). Sag einem Admin Bescheid.';
+  const B10S = 'Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token vom Server passt nicht (AUTHRET_JWTTOKENWRONG). Meist geht die Uhr dieses PCs falsch; sonst stimmen die Zugangsdaten auf dem Server nicht.';
+  const B10 = 'Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token passt nicht (AUTHRET_JWTTOKENWRONG). Meist stimmen die Zugangsdaten nicht, oder die Uhr dieses PCs geht falsch.';
+  const meld = async (code: string, herkunft: JwtHerkunft): Promise<string | null> => {
+    const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: code }), jwtHerkunft: herkunft });
+    const t = text(await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' }));
+    await p.aufraeumen();
+    return t;
+  };
+  ck('T15 B9/B10: Auth-Code 2 und 11 mit Server-JWT → B9s, B10s wörtlich; mit lokalem JWT → B9, B10 wie bisher',
+    (await meld('2', 'server')) === B9S && (await meld('11', 'server')) === B10S
+      && (await meld('2', 'lokal')) === KT.B9('AUTHRET_KEYORSECRETWRONG') && (await meld('11', 'lokal')) === B10 && KT.B10 === B10);
+}
+{
+  const p = baueKern();
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'Regie jm1.test-sdk' });
+  await bis(() => p.logs.some((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"join"')));
+  const auth = p.logs.find((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"auth"'));
+  const join = p.logs.find((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"join"'));
+  ck('T15 8.7: Bridge-Logzeile mit test-jwt-server und jm1.test-sdk → beide als •••',
+    ok(r) && auth !== undefined && auth.includes('•••') && !auth.includes('test-jwt-server')
+      && join !== undefined && join.includes('Regie •••') && !join.includes('jm1.test-sdk'));
+  const alles = JSON.stringify(p.kern.abbild()) + JSON.stringify(p.kern.stateKv()) + JSON.stringify(p.kern.kurz());
+  ck('… das JWT steht weder im Abbild noch in STATE/Kurzform, keine [zoom-bridge]-Zeile trägt es',
+    !alles.includes('test-jwt-server') && !p.logs.some((z) => z.startsWith('[zoom-bridge]') && z.includes('test-jwt-server')));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ fristen: { abbildTaktMs: 0 } });
+  const a = p.kern.abbild();
+  ck('T15: Einrichtung zeigt die Zeile Zoom-Anmeldung aus anmeldungZeile (ZA1 bei Server-Lage)',
+    a.einrichtung.anmeldung.text.startsWith('Zoom-Anmeldung über den Launcher (Maria S. · Kollege)') && a.einrichtung.anmeldung.ton === 'ok');
+  ck('… P3: unlesbar steht im Abbild (hier falsch), nicht mehr als Mangel', a.einrichtung.zugang.unlesbar === false);
+  const vor = p.abbilder.length;
+  p.kern.zugangGeaendert();
+  await warte(50);
+  ck('T15: zugangGeaendert() erzeugt ein neues Abbild', p.abbilder.length > vor);
   await p.aufraeumen();
 }
 

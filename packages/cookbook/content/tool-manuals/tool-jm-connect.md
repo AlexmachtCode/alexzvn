@@ -9,16 +9,15 @@ tags: [connect, zoom, slots, remote, gaeste, ndi, companion, wiederbeitritt, man
 relatedTools: [jm-connect, jm-switcher, jm-rundown]
 prerequisites:
   - Windows 10/11, 64 Bit (mit Zoom und NDI) oder macOS auf Apple Silicon oder Intel (mit NDI, ohne Zoom)
-  - JM Connect ab 0.4.0, installiert über den Launcher
-  - Zoom-SDK 7.1.5.43953 (per „Zoom-SDK laden“ oder als SDK-Ordner aus der JM-Ablage)
-  - Zugangsdaten der Meeting-SDK-App (Datei oder Client-ID und Client-Secret)
+  - JM Connect ab 0.5.0, installiert über den Launcher, und der Launcher ab 0.19.0, im Launcher angemeldet
+  - Zoom-SDK 7.1.5.43953 (auf JM-Rechnern per „Zoom-SDK laden“, sonst als SDK-Ordner aus der JM-Ablage)
   - Ein Zoom-Meeting im eigenen Zoom-Konto, Host im Zoom-Client
   - NDI-Switcher oder NDI-Monitor im selben Netz
 equipmentOwner: jm
 crewRoles:
   - Media Operator (Zuschaltungen)
   - Host im Zoom-Client (lässt zu, erteilt die Aufnahme-Erlaubnis)
-lastReviewed: 2026-11-14
+lastReviewed: 2026-11-21
 owner: tech@jakobsmedien.com
 summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: bis zu 16 Zoom-Slots mit eigenem NDI-Namen zeigen je eine Person, den aktiven Sprecher oder die neueste Bildschirmfreigabe. Zoom wird einmal je PC eingerichtet, das Meeting muss im eigenen Zoom-Konto liegen. Nach einem Abriss tritt Connect selbst wieder bei und startet die eingeschalteten Slots neu. Fernsteuerbar per Companion über Port 8737. Unter macOS mit NDI, aber ohne Zoom; NDI-Ausfälle zeigt Connect an der Gastzeile, am Programm-Abzeichen, im Tray und in Companion."
 ---
@@ -28,9 +27,9 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 ### Voraussetzungen
 - Windows 10/11, 64 Bit, für Zoom und NDI. macOS (Apple Silicon oder Intel, installiert über den Launcher) ab Connect 0.4.0 mit NDI: Gäste erscheinen als NDI-Quelle, und der Programm-Rückkanal mit Mix-Minus läuft wie unter Windows; Zoom gibt es unter macOS nicht. Die NDI-Laufzeit liegt im Paket; NDI Tools oder ein NDI-SDK braucht der Rechner nicht.
 - macOS, erster Start (Stand vor der Abnahme von 0.4.0): Das Mac-Paket ist nicht signiert. Meldet macOS, es könne JM Connect nicht prüfen, lässt sich die App unter „Systemeinstellungen › Datenschutz & Sicherheit“ freigeben; Rechtsklick und „Öffnen“ helfen ab macOS 15 nicht mehr. Fragt macOS nach dem Zugriff auf das lokale Netzwerk („JM Connect sendet die Gäste als NDI-Quellen ins lokale Netzwerk und empfängt dort das Programm (NDI).“), bitte erlauben; die Einstellung steht unter Systemeinstellungen › Datenschutz & Sicherheit › Lokales Netzwerk. Welche Handgriffe macOS genau verlangt und wann es fragt, ergänzt dieses Handbuch nach der Abnahme.
-- JM Connect ab Version 0.4.0, installiert über den Launcher.
-- Zoom-SDK 7.1.5.43953: auf JM-eigenen Rechnern per Knopf „Zoom-SDK laden“ (braucht den SDK-Schlüssel), sonst als SDK-Ordner aus der JM-Ablage. Connect kopiert es einmal je PC nach %LOCALAPPDATA%\JM Connect\zoom-laufzeit (rund 315 MB).
-- Zugangsdaten der Meeting-SDK-App: die Zugangsdaten-Datei (clientId, clientSecret) oder Client-ID und Client-Secret von Hand. Connect speichert sie verschlüsselt unter diesem Windows-Konto und schickt sie nie in die Cloud.
+- JM Connect ab Version 0.5.0, installiert über den Launcher, und der Launcher ab 0.19.0, im Launcher angemeldet. Connect hält selbst keine Schlüssel und Zugangsdaten mehr; es holt kurzlebige Freigaben beim Launcher (siehe „Anmeldung (ab 0.5.0)“).
+- Zoom-SDK 7.1.5.43953: auf JM-Rechnern per Knopf „Zoom-SDK laden“ (läuft über die Anmeldung im Launcher), sonst als SDK-Ordner aus der JM-Ablage („SDK-Ordner wählen …“). Connect kopiert es einmal je PC nach %LOCALAPPDATA%\JM Connect\zoom-laufzeit (rund 315 MB).
+- Zoom-Anmeldung: Connect braucht keine Zugangsdaten der Meeting-SDK-App mehr. Das Zoom-Anmelde-Token stellt der Server aus, Connect holt es über den Launcher und hält es nur im Arbeitsspeicher.
 - Ein Zoom-Meeting im eigenen Zoom-Konto der Meeting-SDK-App. Der Host sitzt im Zoom-Client auf einem zweiten Gerät.
 - Kopfhörer am Regieplatz.
 - NDI-Switcher (JM Switcher, TriCaster, vMix, OBS) oder NDI-Monitor im selben Netz.
@@ -48,7 +47,7 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 - JM Rundown kennt die Zoom-Aktionen erst ab seinem nächsten Release; bis dahin steuert er Zoom nicht.
 
 ### Browser-Gäste (kurz)
-- Raum öffnen (braucht den Cloud-Zugang), für jeden Gast einen Link erzeugen und verschicken.
+- Raum öffnen (braucht die Anmeldung im Launcher), für jeden Gast einen Link erzeugen und verschicken.
 - Gäste landen im Warteraum: prüfen und freigeben.
 - Freigegebene Gäste auf Sendung schalten. Jeder Gast ist eine eigene NDI-Quelle „JM Connect – <Name>“, ein geteilter Bildschirm eine weitere „JM Connect – <Name> (Bildschirm)“, unter Windows wie unter macOS. Ein NDI-Abzeichen an der Gastzeile zeigt den Zustand jeder Quelle.
 - Talkback (Regie ins Ohr) für alle oder per Halten-Taste für einen Gast; Programm-Rückkanal mit Mix-Minus je Gast unter Windows und macOS (er kommt über NDI vom Switcher, Quelle mit „JM Switcher“ im Namen).
@@ -103,14 +102,22 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 
 ## Schritt-für-Schritt
 
+### Anmeldung (ab 0.5.0)
+- Connect hält keine Dienst-Schlüssel mehr. Es holt beim Launcher (ab 0.19.0, angemeldet) kurzlebige Freigaben, jede 72 Stunden gültig: für den Cloud-Raum, für die Zoom-Anmeldung und für „Zoom-SDK laden“ (nur auf JM-Rechnern). Der Server prüft Konto und Recht.
+- Zwei Zeilen zeigen den Stand: „Cloud-Zugang“ („Cloud-Zugang über den Launcher (‹Name› · ‹Stufe›), gültig bis ‹Datum› ‹Zeit›.“) und in der Zoom-Karte „Zoom-Anmeldung“ („Zoom-Anmeldung über den Launcher (‹Name› · ‹Stufe›), Freigabe gültig bis ‹Datum› ‹Zeit›.“). Vor dem ersten Versuch steht dort „Connect holt die Freigabe für den Cloud-Raum beim Launcher, sobald du einen Raum öffnest.“ bzw. „Zoom-Anmeldung über den Launcher; die Freigabe holt Connect beim ersten Beitritt.“
+- Connect hält seine Freigaben selbst und erneuert sie rechtzeitig: Jede Freigabe gilt 72 Stunden je Zweck und Ziel (der Cloud-Raum je Raum-ID), und Connect versucht das Erneuern ab 24 Stunden vor dem Ablauf. Ein laufendes Meeting und ein offener Raum hängen nicht am Launcher: Wird der Launcher beendet oder meldet sich dort jemand ab, läuft beides weiter. Auch ein neuer Zoom-Beitritt mit einer gehaltenen Freigabe braucht den Launcher nicht. Erst ein Raum mit anderer Raum-ID oder eine abgelaufene Freigabe braucht eine neue Freigabe, und die holt Connect beim Launcher.
+- Übergang: Liegt auf dem Rechner noch ein alter Wert, nutzt Connect ihn weiter, damit nichts mitten im Betrieb ausfällt. Die Zeilen sagen es: „Cloud-Zugang über den alten Proxy-Key (Übergang).“ und „Zoom-Anmeldung über die alten Zugangsdaten dieses Rechners (Übergang).“ Auf der Karte steht „Alter Proxy-Key: hinterlegt, nur noch im Übergang.“. Alte Werte lassen sich nur noch entfernen, nicht mehr eintragen; mit „Entfernen“ räumt man sie weg. Sobald die Freigabe des Launchers da ist, nutzt Connect sie.
+- Das gemerkte Meeting bleibt: Meeting-Nummer und Kenncode des letzten Beitritts merkt Connect weiter und bietet sie nach „Schließen“ und nach einem Neustart wieder an (siehe „Logs und Datenschutz“). „Entfernen“ der alten Werte berührt sie nicht.
+
 ### Einrichtung
 - Unter macOS gibt es keine Zoom-Karte; die Zoom-Schritte dieses Abschnitts entfallen dort. Beim ersten Start die Hinweise unter „Voraussetzungen“ beachten (Freigabe der App, lokales Netzwerk).
 - Programm-Rückkanal: Im JM Switcher den NDI-Ausgang „JM Switcher“ einschalten. Connect sucht nach „Raum öffnen“ eine NDI-Quelle mit diesem Namen und zeigt sie über der Gästeliste („Programm ● …“).
-- Zoom-Karte, Knopf „Einrichtung“ aufklappen. Zoom bleibt gesperrt, bis Zoom-SDK und Zugangsdaten eingerichtet sind.
-- Zoom-SDK auf JM-eigenen Rechnern: unter „SDK-Schlüssel“ auf „Eintragen …“, den Schlüssel einfügen und speichern, dann „Zoom-SDK laden“ (rund 143 MB, mit Fortschritt und „Abbrechen“).
-- Zoom-SDK ohne Schlüssel: „SDK-Ordner wählen …“ und den SDK-Ordner aus der JM-Ablage wählen (den Ordner mit dem Unterordner x64\bin). Danach steht dort „Zoom-SDK 7.1.5.43953 eingerichtet“.
-- Zugangsdaten: „Datei wählen …“ oder „Eintragen …“ (Client-ID und Client-Secret). Danach steht dort „hinterlegt (Client-ID endet auf …)“.
-- „Einrichtung prüfen“ meldet sich ohne Meeting bei Zoom an. Erwartet: „Einrichtung in Ordnung: Zoom-SDK 7.1.5 (43953), Anmeldung bei Zoom erfolgreich.“
+- Vorher im Launcher (ab 0.19.0) anmelden und ihn laufen lassen. Connect holt die Freigaben dort.
+- Zoom-Karte, Knopf „Einrichtung“ aufklappen. Zoom bleibt gesperrt, bis das Zoom-SDK eingerichtet ist; Zugangsdaten gibt es nicht mehr einzutragen.
+- Zoom-SDK auf JM-Rechnern: „Zoom-SDK laden“ (rund 143 MB, mit Fortschritt und „Abbrechen“). Es läuft über die Anmeldung im Launcher; einen SDK-Schlüssel trägt niemand mehr ein.
+- Zoom-SDK auf allen anderen Rechnern: „SDK-Ordner wählen …“ und den SDK-Ordner aus der JM-Ablage wählen (den Ordner mit dem Unterordner x64\bin). Danach steht dort „Zoom-SDK 7.1.5.43953 eingerichtet“.
+- Alte Werte (Proxy-Key, Zoom-Zugangsdaten, SDK-Schlüssel) lassen sich nicht mehr eintragen. Liegt noch einer auf diesem Rechner, zeigt die Zoom-Karte eine Zeile dazu und den Knopf „Entfernen“ (siehe „Anmeldung (ab 0.5.0)“).
+- „Einrichtung prüfen“ meldet sich ohne Meeting bei Zoom an, mit dem Zoom-Anmelde-Token vom Server. Erwartet: „Einrichtung in Ordnung: Zoom-SDK 7.1.5 (43953), Anmeldung bei Zoom erfolgreich.“
 - Vor der Show den Bild-Versatz eintragen (Wert aus dem Klatschtest). Er gilt für Teilnehmer- und Sprecher-Slots, nicht für Bildschirmfreigaben. Erscheint darunter „Nur für diese Sitzung gemerkt …“, ließ sich die Einstellungsdatei nicht schreiben: Der Wert gilt bis zum Beenden von Connect und muss danach neu eingetragen werden.
 - Zoom-Slots anlegen (geht auch ohne Meeting): „Slot hinzufügen“, an der Kachel „Einstellungen“ aufklappen und „NDI-Name“ (so heißt die Quelle im Switcher, 1 bis 60 Zeichen, ohne Doppelpunkt), „Modus“, „Person“ (nur Teilnehmer: der Anzeigename in Zoom), „Auflösung“, „Ersatzbild“ und „Ton“ setzen. Jede Änderung wird sofort gespeichert und wirkt im Meeting sofort.
 - Mit „Start“ den Slot einschalten, mit „Stopp“ aus. Den NDI-Namen ändern und den Slot löschen geht nur bei ausgeschaltetem Slot.
@@ -171,8 +178,10 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 | „Dieser Connect-Installation fehlt die Zoom-Bridge …“ | Die Installation ist beschädigt. JM Connect über den Launcher neu installieren. |
 | „Die Zoom-Laufzeit auf diesem PC ist unvollständig (…)“ | Eine Datei im Laufzeit-Ordner fehlt oder ist verändert (Virenschutz, Aufräumprogramm). Den SDK-Ordner erneut wählen oder „Zoom-SDK laden“. |
 | „Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.“ | Sperre, solange ein Meeting läuft, die Zoom-Bridge noch abbaut oder das SDK geladen oder kopiert wird. Erst das Meeting verlassen oder das Ende der Kopie abwarten. |
-| „Für „Zoom-SDK laden“ fehlt der SDK-Schlüssel …“ | Unter „SDK-Schlüssel“ den Schlüssel eintragen. Ihn gibt es nur für JM-eigene Rechner; sonst den SDK-Ordner wählen. |
-| „Der Proxy hat den SDK-Schlüssel abgelehnt …“ | Der Schlüssel ist falsch. Entfernen und neu eintragen. |
+| „„Zoom-SDK laden“ gibt es nur auf JM-Rechnern. Wähle den SDK-Ordner von Hand („SDK-Ordner wählen …“) oder bitte einen Admin, diesen Rechner als JM-Rechner zu markieren.“ | Dieser Rechner gilt nicht als JM-Rechner, deshalb gibt es „Zoom-SDK laden“ hier nicht. „SDK-Ordner wählen …“ und den SDK-Ordner aus der JM-Ablage wählen, oder einen Admin bitten, den Rechner als JM-Rechner zu markieren. |
+| „Dein Konto darf das Zoom-SDK nicht laden. Wähle den SDK-Ordner von Hand („SDK-Ordner wählen …“).“ | Das Konto hat kein Recht für „Zoom-SDK laden“. Den SDK-Ordner aus der JM-Ablage von Hand wählen. |
+| „Der Server hat die Freigabe für „Zoom-SDK laden“ abgelehnt. Bitte noch einmal versuchen; Connect holt eine neue beim Launcher.“ | Die Freigabe war nicht (mehr) gültig. Noch einmal „Zoom-SDK laden“; Connect holt dann eine neue beim Launcher. |
+| Mit alten Zugangsdaten: „Der Proxy hat den SDK-Schlüssel abgelehnt. Bitte den Schlüssel prüfen.“ | Nur im Übergang, solange noch ein alter SDK-Schlüssel gespeichert ist. Den alten Schlüssel „Entfernen“; „Zoom-SDK laden“ läuft danach über den Launcher. |
 | „Der Proxy ist nicht erreichbar (…)“ | Kein Netz oder der Proxy ist gestört. Netz prüfen oder den SDK-Ordner von Hand wählen. |
 | „Auf dem Proxy liegt kein passendes Zoom-SDK …“ | Das Paket fehlt in der Ablage. Den SDK-Ordner von Hand wählen und den Owner informieren. |
 | „Das geladene Zoom-SDK ließ sich nicht entpacken …“ (auch: nicht laden, falsche Prüfsumme) | Abbruch, beschädigte Datei oder Platz, Rechte, Virenschutz, Pfadlänge (die Meldung von tar.exe steht im Log). Die alte Einrichtung bleibt. Erneut laden oder den Ordner von Hand wählen. |
@@ -182,16 +191,28 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 | „Die Zoom-Bridge hat sich beendet, bevor Zoom die Anmeldung beantwortet hat …“ | Absturz beim Start. Details im Log; erneut versuchen, sonst das SDK neu einrichten. |
 | „Die Zoom-Laufzeit meldet die Fassung …“ | Laufzeit und Connect passen nicht zusammen. Den SDK-Ordner erneut wählen. |
 | „Das Zoom-SDK ließ sich nicht starten …“ oder „Auf diesem PC läuft schon ein anderes Programm mit dem Zoom-Meeting-SDK …“ | Meist läuft noch das Einsatzpaket zoom-join. Das andere Programm beenden und erneut versuchen; sonst Details im Log. |
-| „Zoom hat die Anmeldung abgelehnt: Client-ID oder Client-Secret stimmen nicht …“ | Falsche Zugangsdaten. Datei oder Eingabe prüfen und neu hinterlegen. |
-| „Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token passt nicht …“ | Meist falsche Zugangsdaten, sonst geht die Uhr dieses PCs falsch. Zugangsdaten prüfen, Uhrzeit synchronisieren. |
+| „Zoom hat die Anmeldung abgelehnt: Die Zoom-Zugangsdaten auf dem Server stimmen nicht (‹Result›). Sag einem Admin Bescheid.“ | Die Zoom-Zugangsdaten auf dem Server sind falsch; auf diesem Rechner lässt sich nichts ändern. Einen Admin informieren. |
+| Mit alten Zugangsdaten: „Zoom hat die Anmeldung abgelehnt: Client-ID oder Client-Secret stimmen nicht (…). Bitte die Zugangsdaten prüfen.“ | Nur im Übergang, solange noch alte Zugangsdaten auf diesem Rechner liegen. Sie „Entfernen“; Connect meldet sich danach über den Launcher an. |
+| „Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token vom Server passt nicht (AUTHRET_JWTTOKENWRONG). Meist geht die Uhr dieses PCs falsch; sonst stimmen die Zugangsdaten auf dem Server nicht.“ | Zuerst die Uhrzeit dieses PCs synchronisieren, dann erneut beitreten. Hilft das nicht, einen Admin informieren (Zugangsdaten auf dem Server). |
+| Mit alten Zugangsdaten: „Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token passt nicht (AUTHRET_JWTTOKENWRONG). Meist stimmen die Zugangsdaten nicht, oder die Uhr dieses PCs geht falsch.“ | Nur im Übergang. Uhrzeit synchronisieren; sonst die alten Zugangsdaten „Entfernen“. |
 | „Das Zoom-Konto der App darf das Meeting-SDK nicht nutzen …“ | Einstellung im Zoom-Konto. Das klärt der Inhaber des Zoom-Kontos. |
 | „Zoom ist gerade nicht erreichbar …“ | Netz oder Zoom gestört. Netz prüfen, erneut versuchen. |
 | „Zoom lässt diese SDK-Fassung nicht mehr zu …“ | Zoom hat die Fassung 7.1.5 abgelöst. Es braucht einen neuen Connect-Release mit neuer SDK-Fassung; bis dahin kein Zoom. |
 | „Zu viele Anmeldungen in kurzer Zeit …“ | Zoom drosselt. Einige Minuten warten. |
 | „Zoom hat die Anmeldung abgelehnt (…)“ | Anderer Grund, Code in Klammern. Log sichern und den Owner informieren. |
 | „Zoom hat auf die Anmeldung nicht geantwortet (30 s) …“ | Keine Verbindung zu Zoom. Netz und Firewall prüfen, erneut versuchen. |
-| „Zugangsdaten fehlen — bitte eintragen oder die Datei wählen.“ | Noch keine Zugangsdaten hinterlegt. Unter „Zugangsdaten“ eintragen oder die Datei wählen. |
-| „Das Zoom-SDK hat die Anmeldung sofort abgewiesen …“ | Das SDK selbst lehnt ab, nicht das Netz. Details im Log; die Zugangsdaten neu hinterlegen. |
+| „Ohne Zoom-Anmeldung kein Beitritt. Kein Launcher mit Anmeldung gefunden. Starte den Launcher und melde dich dort an.“ | Der Launcher läuft nicht oder ist nicht erreichbar. Launcher starten, dort anmelden, erneut beitreten. |
+| „Ohne Zoom-Anmeldung kein Beitritt. Der Launcher hat sich nicht ausgewiesen. Starte den Launcher neu.“ | Connect traut dem gefundenen Programm nicht. Launcher neu starten. |
+| „Ohne Zoom-Anmeldung kein Beitritt. Der Launcher ist zu alt für Connect. Launcher aktualisieren (ab 0.19.0).“ | Der Launcher kennt die Freigaben für Connect noch nicht. Launcher auf 0.19.0 oder neuer aktualisieren. |
+| „Ohne Zoom-Anmeldung kein Beitritt. Im Launcher ist niemand angemeldet. Melde dich im Launcher an (oben rechts).“ | Im Launcher anmelden, dann erneut beitreten. |
+| „Ohne Zoom-Anmeldung kein Beitritt. Die Anmeldung im Launcher ist abgelaufen. Melde dich im Launcher neu an.“ | Im Launcher neu anmelden, dann erneut beitreten. |
+| „Ohne Zoom-Anmeldung kein Beitritt. Dein Zugang wurde beim letzten Start des Launchers nicht bestätigt. Frag einen Admin.“ | Der Zugang des Kontos ist nicht bestätigt. Einen Admin fragen. |
+| „Ohne Zoom-Anmeldung kein Beitritt. Dein Konto darf Zoom auf diesem Rechner nicht nutzen. Externe brauchen eine Zoom-Freigabe und einen JM-Rechner.“ | Das Konto hat kein Recht für Zoom auf diesem Rechner. Einen Admin fragen; Externe brauchen eine Zoom-Freigabe und einen JM-Rechner. |
+| „Ohne Zoom-Anmeldung kein Beitritt. Der Server ist gerade nicht erreichbar. Ich versuche es weiter.“ | Netz oder Server gestört. Netz prüfen; Connect versucht es weiter, danach erneut beitreten. |
+| „Der Server hat die Freigabe für Zoom abgelehnt. Ich hole beim nächsten Versuch eine neue beim Launcher.“ | Die Freigabe war nicht (mehr) gültig. Erneut beitreten; Connect holt eine neue. |
+| „Die Zoom-Anmeldung ist auf dem Server nicht eingerichtet. Sag einem Admin Bescheid.“ | Auf dem Server fehlen die Zoom-Zugangsdaten. Einen Admin informieren. |
+| „Der Server hat kein Zoom-Anmelde-Token geliefert (…). Ich versuche es beim nächsten Beitritt erneut.“ | Der Server hat kein Token geliefert. Beim nächsten Beitritt versucht Connect es erneut; bleibt es, einen Admin informieren. |
+| „Das Zoom-SDK hat die Anmeldung sofort abgewiesen …“ | Das SDK selbst lehnt ab, nicht das Netz. Details im Log; erneut beitreten, sonst das Log sichern und einen Admin informieren. |
 | „Beitritt gescheitert: falscher Kenncode.“ | Kenncode prüfen und erneut beitreten. |
 | „Beitritt gescheitert: Dieses Meeting gibt es nicht …“ | Meeting-Nummer prüfen. |
 | „… Das Meeting gehört nicht zum Zoom-Konto dieser App …“ | Harte Grenze: JM Connect kommt nur in Meetings des eigenen Zoom-Kontos. Das Meeting im eigenen Konto anlegen. |
@@ -259,7 +280,10 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 | „○ Gäste: NDI-Quelle startet …“ (Tray) | Gast-Quellen starten gerade. Kein Fehler. |
 | „JM Connect — NDI-Ausfall“ (Tooltip im Tray) | Eine Gast-Quelle ist ausgefallen, oder der Programm-Empfang hängt, startet neu oder ist ausgefallen (wie ndi_alarm). Im Fenster nachsehen. |
 | „Keine Verbindung zum Raum; Connect versucht laufend, neu zu verbinden. …“ | Die Verbindung der Bedienung zum Raum ist getrennt (Netz oder Proxy). Die Gästeliste zeigt den letzten Stand, die NDI-Abzeichen den aktuellen; Gäste steuern, Talkback, Folien und Einladen sind gesperrt. Netz prüfen und abwarten. |
-| „Keine Verbindung zum Raum „…“. Adresse und Proxy-Key prüfen — im Hintergrund wird weiter versucht.“ | Connect hat den Raum 8 s nach „Raum öffnen“ noch nicht erreicht. Cloud-Zugang (Adresse, Proxy-Key) und Netz prüfen. |
+| „Keine Verbindung zum Raum „…“. Adresse und Cloud-Zugang prüfen — im Hintergrund wird weiter versucht.“ | Connect hat den Raum 8 s nach „Raum öffnen“ noch nicht erreicht. Cloud-Zugang (Zeile „Cloud-Zugang“ in der Karte) und Netz prüfen. |
+| „Dieser Cloud-Raum gehört gerade einem anderen Konto oder Rechner. Schließe ihn dort oder wähle im Show-Editor eine andere Raum-ID.“ | Die Raum-ID ist schon an ein anderes Konto oder einen anderen Rechner vergeben. Den Raum dort schließen oder im Show-Editor eine andere Raum-ID wählen. |
+| „Der Server hat die Freigabe abgelehnt. Ich hole eine neue beim Launcher; bitte noch einmal „Raum öffnen“.“ | Die Freigabe für den Cloud-Raum war nicht (mehr) gültig. Noch einmal „Raum öffnen“. |
+| „Raum öffnen nicht möglich: ‹Grund›“ | Der Grund nennt, was fehlt: Launcher nicht gestartet oder zu alt (Launcher aktualisieren, ab 0.19.0), niemand angemeldet, Anmeldung abgelaufen, kein Recht oder Server nicht erreichbar. Launcher prüfen, dort anmelden, noch einmal „Raum öffnen“. |
 | „Verbindung zum Raum beendet: Die Anmeldung von Connect gilt 8 Stunden ab dem letzten „Raum öffnen“ und ist abgelaufen, …“ | Die Anmeldung von Connect am Raum ist abgelaufen; Connect versucht es für die Bedienung nicht weiter. „Raum öffnen“ wählen, nicht „Raum schließen“: „Raum öffnen“ meldet Connect neu an, die Gäste bleiben, und kein verteilter Link wird ungültig. „Raum schließen“ würde alle Gäste aus dem Raum werfen und jeden Link ungültig machen. Bilder und Programm-Rückkanal können kurz aussetzen. |
 | „Logordner ließ sich nicht öffnen: …“, „Lizenzbedingungen ließen sich nicht öffnen: …“ oder „ndi.video ließ sich nicht öffnen: https://ndi.video/“ | Das System hat das Öffnen abgelehnt. Den genannten Pfad bzw. die Adresse von Hand öffnen; Knopf bzw. Link bleiben für einen neuen Versuch bedienbar. |
 | Companion-Taste „letzter Zoom-Befehl abgelehnt“ leuchtet | Der Grund steht unter „Hinweise“ in der Zoom-Karte, zum Beispiel „Companion: niemand namens … im Meeting.“ Namen prüfen und die Taste erneut drücken. |
@@ -270,7 +294,7 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 
 ### Einrichtung (einmal je PC)
 - [ ] „Zoom-SDK 7.1.5.43953 eingerichtet“
-- [ ] Zugangsdaten hinterlegt (Client-ID endet auf …)
+- [ ] Im Launcher (ab 0.19.0) angemeldet; die Zeile „Zoom-Anmeldung“ in der Zoom-Karte nennt den Launcher und ist nicht rot (vor dem ersten Beitritt „Zoom-Anmeldung über den Launcher; die Freigabe holt Connect beim ersten Beitritt.“, danach „Zoom-Anmeldung über den Launcher (‹Name› · ‹Stufe›), Freigabe gültig bis ‹Datum› ‹Zeit›.“)
 - [ ] „Einrichtung prüfen“ meldet „Einrichtung in Ordnung …“
 - [ ] Companion-Modul 0.3.0 mit der Rolle „JM Connect“ an Port 8737 (optional)
 - [ ] Unter macOS: App freigegeben (Systemeinstellungen › Datenschutz & Sicherheit), Zugriff auf das lokale Netzwerk erlaubt
