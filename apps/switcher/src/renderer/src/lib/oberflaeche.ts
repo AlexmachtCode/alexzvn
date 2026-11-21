@@ -120,6 +120,14 @@ export const SWITCHER_TEXTE = {
   },
 } as const;
 
+/**
+ * Ist die Geräteliste zum Abgleichen brauchbar? Ohne Mikrofon-Berechtigung liefert enumerateDevices Einträge ohne deviceId;
+ * dann darf die Statusleiste nie „Gerät nicht gefunden“ behaupten (R6). Leer oder ohne eine id zählt als unbrauchbar.
+ */
+export function listeVerwendbar(geraete: AudioDeviceOption[]): boolean {
+  return geraete.some((g) => g.id !== '');
+}
+
 /** Name der Programm-Auflösung wie in der bisherigen Auswahl und im Hinweis. */
 export function aufloesungName(r: ProgramResolution): string {
   return r === '1080p' ? SWITCHER_TEXTE.feld.aufloesungFullHd : SWITCHER_TEXTE.feld.aufloesungHd;

@@ -11,6 +11,7 @@ import type { DisplayInfo } from '@shared/types';
 import { FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
 import {
   FRAME_ANFANG,
+  listeVerwendbar,
   onAirKopf,
   statusLeiste,
   type FrameMeldung,
@@ -22,11 +23,14 @@ import { Einstellungen } from './Einstellungen';
 import { SwitcherView } from './SwitcherView';
 import { Werkzeugleiste } from './Werkzeugleiste';
 
-/** Audio-Eingänge auflisten; bei leeren Labels kurz Permission anfordern (wie bisher in der SettingsView). */
-async function listAudioInputs(): Promise<AudioDeviceOption[]> {
+/**
+ * Audio-Eingänge auflisten. Mit `mitProbe` (Panel öffnen, Neu-Suchen) bei leeren Labels kurz Permission anfordern, wie bisher
+ * in der SettingsView; ohne (App-Start, R6) nur enumerateDevices, nie eine Berechtigungsabfrage.
+ */
+async function listAudioInputs(mitProbe: boolean): Promise<AudioDeviceOption[]> {
   let devices = await navigator.mediaDevices.enumerateDevices();
   const inputs = (): MediaDeviceInfo[] => devices.filter((d) => d.kind === 'audioinput');
-  if (inputs().length === 0 || inputs().every((d) => !d.label)) {
+  if (mitProbe && (inputs().length === 0 || inputs().every((d) => !d.label))) {
     let probe: MediaStream | null = null;
     try {
       probe = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -76,10 +80,18 @@ export function SwitcherRahmen({
 
   // Audioeingänge; undefined = noch nicht gesucht oder die Suche schlug fehl („unbekannt“).
   const [audioGeraete, setAudioGeraete] = useState<AudioDeviceOption[] | undefined>(undefined);
-  const scanAudio = (): void => {
-    void listAudioInputs().then(setAudioGeraete, () => setAudioGeraete(undefined));
+  // Start (R6): ohne Berechtigungsprobe; ist die Liste nicht brauchbar (keine ids), bleibt sie „unbekannt“.
+  // Panel öffnen und Neu-Suchen: mit Probe, wie bisher beim Öffnen der Einstellungen.
+  const scanAudio = (mitProbe = true): void => {
+    void listAudioInputs(mitProbe).then(
+      (liste) => setAudioGeraete(listeVerwendbar(liste) ? liste : undefined),
+      () => setAudioGeraete(undefined),
+    );
   };
-  useEffect(scanAudio, []);
+  useEffect(() => scanAudio(false), []);
+  useEffect(() => {
+    if (panelOffen) scanAudio(true);
+  }, [panelOffen]);
 
   // Ein Stand für Statusleiste und Panel (lib/oberflaeche.ts): beide zeigen dieselbe Ableitung.
   const stand: OberflaechenStand = {
@@ -111,7 +123,7 @@ export function SwitcherRahmen({
     toggleNdiOutput: frame.aktionen.toggleNdiOutput,
     toggleRecording: frame.aktionen.toggleRecording,
     toggleStreaming: frame.aktionen.toggleStreaming,
-    scanAudio,
+    scanAudio: () => scanAudio(true),
   };
 
   return (

@@ -3,7 +3,7 @@
 // lib/oberflaeche.ts, dahinter die tool-eigenen Abschnitte „Streaming“, „Aufnahme“ und „Programm-Format“. Render ohne Browser.
 import { REMOTE_TEXTE } from '@jm/settings';
 import { enthaelt, gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
-import { ABSCHNITT, statusLeiste, SWITCHER_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
+import { ABSCHNITT, listeVerwendbar, statusLeiste, SWITCHER_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
 import { Einstellungen } from '@/views/Einstellungen';
 import { attr, basisEinstellungen, basisStand, ohneKommentare, protokollAktionen, tags, text } from './testzustand';
 
@@ -146,4 +146,17 @@ const titel = (html: string): string[] => [...html.matchAll(/<h3[^>]*>([^<]*)<\/
     ['ABSCHNITT.streaming', 'ABSCHNITT.aufnahme', 'ABSCHNITT.format'].every((z) => code.includes(`PanelAnker id={${z}}`)),
     'SW Panel Abschnitte: die tool-eigenen Abschnitte sind PanelAnker mit den ABSCHNITT-ids',
   );
+}
+
+// ── R6: Geräteliste beim Start ohne Berechtigungsprobe ──
+{
+  gleich(listeVerwendbar([]), false, 'SW Audioliste: leere Liste ist nicht verwendbar');
+  gleich(listeVerwendbar([{ id: '', label: '' }, { id: '', label: 'x' }]), false, 'SW Audioliste: alle ids leer ist nicht verwendbar (ohne Berechtigung)');
+  gleich(listeVerwendbar([{ id: '', label: '' }, { id: 'mic1', label: '' }]), true, 'SW Audioliste: eine id vorhanden ist verwendbar');
+  const quelle = ohneKommentare(leseText('src/renderer/src/views/SwitcherOberflaeche.tsx'));
+  ok(quelle.includes('useEffect(() => scanAudio(false), [])'), 'SW Audioliste: Der Start listet ohne Probe (scanAudio(false))');
+  const fn = quelle.slice(quelle.indexOf('async function listAudioInputs'), quelle.indexOf('export function SwitcherRahmen'));
+  const probeStellen = (quelle.match(/getUserMedia/g) ?? []).length;
+  ok(probeStellen === 1 && /if \(mitProbe/.test(fn) && fn.indexOf('getUserMedia') > fn.indexOf('mitProbe'), 'SW Audioliste: getUserMedia steht nur hinter dem Schalter mitProbe');
+  ok(quelle.includes('if (panelOffen) scanAudio(true);') && quelle.includes('scanAudio: () => scanAudio(true)') && quelle.includes('mitProbe = true'), 'SW Audioliste: Panel-Öffnen und Neu-Suchen nutzen die Probe');
 }
