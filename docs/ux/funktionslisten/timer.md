@@ -1,0 +1,353 @@
+# Funktionsliste JM Timer (Suite-UX-Update, Welle 1 · Timer)
+
+Zweck (Spec `docs/superpowers/specs/2026-10-08-suite-ux-update-design.md`, Abschnitt 10 „Kein Funktionsverlust“, und
+Anhang A „Timer“): jedes Bedienelement mit Handler, jedes Tastaturkürzel, jeder Dialog und jede Einstellung des Timers,
+erhoben **vor dem Umbau** aus dem Code. Nach dem Umbau bekommt jede Zeile in der Spalte „künftig wo“ einen Haken mit dem
+Ort im neuen Aufbau; ein Punkt ohne Haken blockiert die Welle.
+
+- **Stand:** erhoben aus dem Code am 2026-11-22, Commit `210e1d9dcb` (`apps/timer` ist seither unverändert; letzter Commit
+  an der App `83cd7c0980`), Timer 0.14.1 (`apps/timer/package.json`). Nichts ausgeführt, kein Fenster geöffnet. Was nur aus
+  dem Code abgeleitet ist, steht als „abgeleitet“, Unklares als „unklar“ bzw. „nicht gemessen“.
+- **Gelesen, vollständig:** `apps/timer/src/renderer/**` außer `globals.css` (nur die Blink-Regel) und `vite-env.d.ts`
+  (`renderer/index.html`, `main.tsx`, `App.tsx`, `views/Operator.tsx`, `views/Speaker.tsx`, `components/AppShell.tsx`,
+  `components/Sidebar.tsx`, `components/Topbar.tsx`, `components/MessageBar.tsx`, `components/Clock.tsx`,
+  `components/Countdown.tsx`, `components/Timetable.tsx`, `components/TimetableRow.tsx`, `components/DelayControls.tsx`,
+  `components/AutoAdvanceSettings.tsx`, `components/ColorPicker.tsx`, `components/RemoteInfo.tsx`,
+  `components/XlsxImport.tsx`, `components/TimerDisplay.tsx`, `components/ui/StatusPill.tsx`, `store/timer.ts`,
+  `sync/client.ts`, `sync/jm.d.ts`, `sync/useAutoAdvance.ts`, `lib/useTick.ts`, `lib/xlsx.ts`), `preload/index.ts`,
+  `shared/net.ts`, `shared/verbund.ts`, `shared/show-anwenden.ts`, `shared/timer-state.ts` (Befehlstyp und Reduzierer),
+  `main/index.ts`, `main/control-server.ts`, `main/server.ts`, `main/state.ts`, `main/auth.ts`, der Block `timer` in
+  `packages/suite-control-protocol/src/capabilities.ts`. Ausschnitte: `standalone/server.ts` (nur der Kopf),
+  `packages/suite-control-protocol/src/index.ts` (nur `parseCommand`). Nicht gelesen: `lib/time.ts`,
+  `components/ui/Headline.tsx`, `components/ui/Input.tsx`, `components/ui/SectionHeader.tsx`, `shared/show-ablauf.ts`,
+  `packages/regieplan/**` (Parser und Dateiausgabe der XLSX-Funktionen), `packages/app-runtime/**`,
+  `packages/suite-control-protocol/src/server.ts` (Zeilenprotokoll und Verbindungsaufbau).
+- **künftig wo** bleibt leer. Die Spalte wird nach dem Umbau gefüllt und abgehakt.
+- **Pfade:** ohne Präfix relativ zu `apps/timer/src/renderer/src/`; `main/…`, `preload/…`, `shared/…`, `standalone/…` und
+  `renderer/…` relativ zu `apps/timer/src/`; `packages/…` und `docs/…` relativ zur Repo-Wurzel. Zeilennummern gelten für
+  `210e1d9dcb`.
+- **Zustands-Kürzel** (Spalte „Zustand (sichtbar/aktiv)“): **imm.** = immer sichtbar im Operator-Fenster, in jedem Modus ·
+  **U** = nur im Modus Clock („Uhr“) · **K** = nur im Modus Countdown · **T** = nur im Modus Timetable (**T-a** mit aktivem
+  Programmpunkt, **T-l** mit mindestens einem Programmpunkt) · **R** = nur im Modus Remote · **F** = nur im Modus Farben
+  (`mode` heißt im Code `settings`) · **dlg** = nur bei geöffnetem Import-Dialog · **Sp** = nur in der Speaker- bzw.
+  Remote-Ansicht · **Main** = Hauptprozess, ohne Oberfläche. Beim Moduswechsel wird die bisherige Modus-Komponente
+  unmountet (`views/Operator.tsx:18-22`), ihr lokaler Zustand geht verloren.
+- **Nummerierung:** fortlaufend 1–184 in den Abschnitten 1–7.
+  Zeilen je Abschnitt: 1 = 87, 2 = 18, 3 = 41, 4 = 0, 5 = 7, 6 = 18, 7 = 13; zusammen 184.
+  Die Abschnitte 8 (IPC-Übersicht), 9 (Zuordnung zu Spec 6 / Anhang A) und 10 (Befunde) haben keine nummerierten Punkte und
+  werden nicht abgehakt.
+
+---
+
+## 1 · Hauptfenster (Operator, ohne `?view=`)
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+| 1 | Fenster | Aufbau: lokaler `AppShell` mit Seitenleiste links, Kopf, Nachrichtenleiste und `<main>` (höchstens 1400 Einheiten breit); darin je `mode` genau eine Komponente (`Clock`, `Countdown`, `Timetable`, `RemoteInfo` oder `ColorPicker`). Der Baustein heißt gleich wie der `AppShell` aus `@jm/ui`, ist aber ein eigener lokaler | `useStore().mode`; `useAutoAdvance()` und der Socket-Client (`App.tsx:20`) liegen oberhalb des Modus und laufen weiter | imm. | `views/Operator.tsx:10-24`, `components/AppShell.tsx:6-20` | |
+| 2 | Fenster | Fensterhülle: 1400 mal 900, mindestens 1024 mal 640, Titel „JM Timer · Operator“, Hintergrund `#121212` (auch im hellen Theme zuerst dunkel, abgeleitet), `autoHideMenuBar`, auf dem Mac `titleBarStyle: hiddenInset`, `sandbox`, `contextIsolation` | `createOperatorWindow` | imm. | `main/index.ts:75-98` | |
+| 3 | Seitenleiste | Aufbau: 220 Einheiten breit, nur ab Breite `lg` (1024) sichtbar (`hidden lg:flex`), Kopfbereich mit Logo (26), „JM TIMER“ und „Live Production“; darunter Abschnittstitel „Modi“ | – (Anzeige) | imm.; unter 1024 Breite weg (nur im Browser möglich, das Fenster hat Mindestbreite 1024) | `components/Sidebar.tsx:25-37` | |
+| 4 | Seitenleiste | Modus „Clock“ (Hinweis „Real-Time“) | `setMode('clock')` (Store, nicht gemerkt) | imm.; aktiv = Hintergrund plus 3-Einheiten-Balken | `components/Sidebar.tsx:13`, `:44-48`, `:59-100` | |
+| 5 | Seitenleiste | Modus „Countdown“ (Hinweis „HH:MM:SS“) | `setMode('countdown')` | imm. | `components/Sidebar.tsx:14`, `:44-48` | |
+| 6 | Seitenleiste | Modus „Timetable“ (Hinweis „Regieplan“) | `setMode('timetable')` | imm. | `components/Sidebar.tsx:15`, `:44-48` | |
+| 7 | Seitenleiste | Modus „Remote“ (Hinweis „LAN“) | `setMode('remote')` | imm. | `components/Sidebar.tsx:16`, `:44-48` | |
+| 8 | Seitenleiste | Modus „Farben“ (Hinweis „Timer-States“), Modus-Kennung `settings` | `setMode('settings')` | imm. | `components/Sidebar.tsx:17`, `:44-48` | |
+| 9 | Seitenleiste | Versionszeile, fest „v0.1.0“ (das Paket ist 0.14.1) | – | imm. | `components/Sidebar.tsx:52-54` | |
+| 10 | Kopf | Ziehfläche des Kopfs (`dragRegion`), der rechte Knopfbereich davon ausgenommen (`noDragRegion`); auf dem Mac Einzug `pl-20` statt `pl-6` (`isElectronMac`) | – | imm. | `components/Topbar.tsx:35-41`, `:58` | |
+| 11 | Kopf | Logo (22), nur wenn die Seitenleiste fehlt (`lg:hidden`) | – | imm. (nur unter 1024 Breite) | `components/Topbar.tsx:51` | |
+| 12 | Kopf | Modus-Titel links: „Real-Time Clock“, „Countdown“, „Timetable“, „Remote · LAN“ bzw. „Timer Farben“ | `MODE_LABELS[mode]` | imm. | `components/Topbar.tsx:7-13`, `:52-55` | |
+| 13 | Kopf | V-Zeile (`VerbundPille`): Text gekürzt mit „…“, voller Text als Tooltip, Farbe Grün, Gelb, Rot oder gedämpft; am Einzelplatz (Wert `null`) nichts. Ohne `window.jm.verbundAnzeige` nichts | `jm.verbundAnzeige()` und `jm.onVerbundAnzeige` (Kanal `jmps:verbund-anzeige`, Abschnitt 8) | imm. | `components/Topbar.tsx:103-124`, `:92-97` | |
+| 14 | Kopf | Sync-Pille „Sync“ (Primärfarbe) bzw. „Offline“ (Rot), Tooltip „Verbunden mit JM Timer-Sync“ bzw. „Keine Verbindung“. Vor dem ersten Ereignis steht `connected` auf `false`, also „Offline“ | `store.connected` (`setConnected` vom Socket-Client, Nr. 106) | imm. | `components/Topbar.tsx:126-145`, `store/timer.ts:55` | |
+| 15 | Kopf | Knopf „Open Speaker“ bzw. „Speaker · Open“ (offen: Primärumriss) | `window.jm?.speaker.toggle()` (IPC `speaker:toggle`); Zustand aus `speaker.isOpen()` beim Mounten und `speaker.onStatus` (Kanal `speaker:status`); ohne `window.jm` wirkungslos | imm. | `components/Topbar.tsx:61-74`, `:27-32` | |
+| 16 | Kopf | Theme-Knopf „Light“ bzw. „Dark“ (zeigt das Ziel) | `useState('dark')`, Effekt setzt die Klassen `dark` und `light` auf `<html>`; nichts gespeichert; Start immer dunkel (`renderer/index.html:2`); `useTheme` aus `@jm/ui` ungenutzt | imm. | `components/Topbar.tsx:18`, `:21-25`, `:75-86` | |
+| 17 | Nachricht | Anzeige links der Leiste: Punkt plus „/ Nachricht“, grau ohne Text, Primärfarbe mit gesendetem Text, Rot und blinkender Punkt (`jm-blink`), wenn Blinken an ist | `message.text`, `message.blinking` aus dem Serverzustand | imm. | `components/MessageBar.tsx:23-24`, `:49-75`, `globals.css:54-59` | |
+| 18 | Nachricht | Eingabefeld (Platzhalter `Live-Nachricht für Speaker — z. B. "2 Minuten links" oder "Bitte zum Ende kommen"`); Rahmen in Primärfarbe, solange der Entwurf vom gesendeten Text abweicht. Ein externer Wechsel von `message.text` überschreibt den Entwurf | `setDraft` je Tastendruck; Fokusverlust sendet `commit` → `setMessage(draft)` → Befehl `msg:set`, nur wenn der Entwurf abweicht (Enter und Escape: Nr. 160, 161) | imm. | `components/MessageBar.tsx:77-101`, `:16-29`, `:19-21` | |
+| 19 | Nachricht | Knopf „Senden“ (erscheint nur bei abweichendem Entwurf) | `commit` → `msg:set` | imm.; nur bei Entwurf | `components/MessageBar.tsx:103-107` | |
+| 20 | Nachricht | Knopf „Blink“ bzw. „Blink an“ (Tooltip „Nachricht im Speaker-View blinken lassen“) | `setMessageBlink(!message.blinking)` → Befehl `msg:setBlink` | imm.; gesperrt (40 % Deckkraft, ohne Grund), solange kein gesendeter Text da ist | `components/MessageBar.tsx:109-125` | |
+| 21 | Nachricht | Knopf „Leeren“ | `handleClear`: Entwurf leeren, `clearMessage` → Befehl `msg:clear` (setzt auch Blinken zurück) | imm.; gesperrt, wenn weder Text gesendet noch Entwurf da ist | `components/MessageBar.tsx:127-140`, `:31-34` | |
+| 22 | Uhr | Anzeige: Wanduhr HH:MM:SS in der Normalfarbe (`reactive=false`), darunter das Datum lang auf Deutsch; Kopf „Real-Time Clock“ mit fester Pille „Live“ (kein Zustand, nur Beschriftung) | `useTick` (jedes Anzeigebild), `Date` des Rechners | U | `components/Clock.tsx:6-33`, `components/TimerDisplay.tsx:21-40` | |
+| 23 | Uhr | Kein Transport: keine Taste, kein Kürzel, kein Eingabefeld (die Uhr hat keine Bedienelemente) | – | U | `components/Clock.tsx:1-34` | |
+| 24 | Countdown | Kopf: Titel „Countdown“ und Statuspille „Running“ (live), „Paused“ (setup) oder „Idle“ (info) | `isCountdownRunning`, `isCountdownPaused` | K | `components/Countdown.tsx:65-67`, `:71-89` | |
+| 25 | Countdown | Delay-Pille „Delay +HH:MM:SS“ (Rot) bzw. „Delay −HH:MM:SS“ (Primärfarbe), nur bei Delay ungleich 0 | `cd.delayMs` | K | `components/Countdown.tsx:74-86` | |
+| 26 | Countdown | Live-Element: Restzeit als `TimerDisplay`, Farbe Normal, ab `warningAtSec` Warning, bei 0 oder darunter Overtime, negativ als „-HH:MM:SS“ | `getCountdownRemaining(cd, now)`, Farben aus `colors` | K | `components/Countdown.tsx:92`, `components/TimerDisplay.tsx:24-28` | |
+| 27 | Countdown | Zeile „/ Plan HH:MM:SS“ und, sobald ein Ende projiziert werden kann, „/ Endet HH:MM:SS“ (Uhrzeit) | `cd.durationMs`, `getProjectedEndMs` | K | `components/Countdown.tsx:94-105` | |
+| 28 | Countdown | Feld „Dauer · HH:MM:SS“ (Platzhalter 00:05:00): Fokusverlust übernimmt, ein ungültiger Wert zeigt „Format: HH:MM:SS“ und sendet nichts; der Entwurf folgt `durationMs` nur, solange der Countdown weder läuft noch pausiert | `applyDraft` → `parseHMS` → `setCountdownDuration` → Befehl `setDuration`; Enter, Nr. 158 | K; gesperrt, solange der Countdown läuft oder pausiert (kein sichtbarer Grund) | `components/Countdown.tsx:112-122`, `:55-63`, `:35-37` | |
+| 29 | Countdown | Vier Voreinstellungen „+1 min“, „+5 min“, „+10 min“, „+15 min“. Sie setzen die Dauer auf diesen Wert, sie addieren nichts | `setDuration(ms)` → Befehl `setDuration`, dazu Entwurf neu | K; gesperrt, solange läuft oder pausiert | `components/Countdown.tsx:124-140` | |
+| 30 | Countdown | Hinweistext „Während der Timer läuft, Dauer per Delay-Karte rechts anpassen.“ | – | K | `components/Countdown.tsx:142-144` | |
+| 31 | Countdown | Karte Delay (`DelayControls`, Zeilen Nr. 65-71) im Raster neben der Dauer-Karte | – | K | `components/Countdown.tsx:148` | |
+| 32 | Countdown | **Haupttaste Start/Pause:** eine Taste, Beschriftung „Start“, nach einer Pause „Resume“, bei laufendem Countdown „Pause“ (Farbe wechselt von Primär zu Akzent); Kürzel Leertaste (Nr. 154) | `startCountdown` → Befehl `start`; `pauseCountdown` → Befehl `pause` | K; nie gesperrt | `components/Countdown.tsx:151-160` | |
+| 33 | Countdown | **Haupttaste Reset** (Umriss); Kürzel R (Nr. 155) | `resetCountdown` → Befehl `reset` (setzt auch den Delay auf 0) | K; gesperrt, wenn der Countdown weder läuft noch pausiert und der Delay 0 ist (kein sichtbarer Grund) | `components/Countdown.tsx:161-163` | |
+| 34 | Countdown | Kürzelzeile „Space · Start / Pause      R · Reset“ (reiner Text) | – | K | `components/Countdown.tsx:166-168` | |
+| 35 | Ablauf | Kopf: Titel „Timetable · Regieplan“ und Statuspille „Running“, „Paused“ oder „Idle“ | wie Nr. 24 | T | `components/Timetable.tsx:57-60`, `:51-53` | |
+| 36 | Ablauf | Drift-Pille: „pünktlich“ (bis 30 s Abweichung), sonst „m:ss hinter Plan“ bzw. „m:ss vor Plan“ (ab 1 h „h:mm:ss“), Rot, Primärfarbe oder grau; Tooltip „Soll/Ist-Drift der Show“; nur sichtbar, wenn eine Drift berechnet werden kann | `computeDrift(tt, cd, now)` (im Renderer berechnet, kein IPC) | T | `components/Timetable.tsx:61-72`, `:302-311` | |
+| 37 | Ablauf | Knopf „XLSX importieren“ im Kopf | `setImportOpen(true)` → Dialog (Nr. 88-102) | T | `components/Timetable.tsx:73-80` | |
+| 38 | Ablauf | Knopf „+ Item“ | `ttAdd({label: 'Neuer Programmpunkt', durationMs: 5 min})` → Befehl `tt:add` | T | `components/Timetable.tsx:81-90` | |
+| 39 | Live-Karte | Karte des aktiven Punkts: „#NN · Live“, Delay-Angabe (wie Nr. 25), Titel als Überschrift, Notiz | `tt.activeIndex`, `tt.items[activeIndex]` | T-a | `components/Timetable.tsx:94-126` | |
+| 40 | Live-Karte | Live-Element: Restzeit (`TimerDisplay`, wie Nr. 26) und Zeile „/ Plan“, „/ Endet“, „/ Up next · ⟨Titel des nächsten Punkts⟩“ (nur wenn es einen nächsten gibt) | `getCountdownRemaining`, `getProjectedEndMs` | T-a | `components/Timetable.tsx:129-149` | |
+| 41 | Live-Karte | **Haupttaste „← Prev“** (Umriss) | `ttPrev` → Befehl `tt:prev` (lädt den vorherigen Punkt, Countdown auf dessen Dauer, Delay 0, läuft nicht an) | T-a; gesperrt beim ersten Punkt (kein sichtbarer Grund) | `components/Timetable.tsx:153-160` | |
+| 42 | Live-Karte | **Haupttaste Start/Resume/Pause**, Beschriftung und Handler wie Nr. 32; hat im Ablauf kein Kürzel | `startCountdown`, `pauseCountdown` | T-a; nie gesperrt | `components/Timetable.tsx:161-169` | |
+| 43 | Live-Karte | **Haupttaste Reset**, Handler und Sperre wie Nr. 33 | `resetCountdown` | T-a | `components/Timetable.tsx:170-177` | |
+| 44 | Live-Karte | **Haupttaste „Next →“** (Primärfarbe) | `ttNext` → Befehl `tt:next` (lädt den nächsten Punkt, läuft nicht an) | T-a; gesperrt beim letzten Punkt (kein sichtbarer Grund) | `components/Timetable.tsx:178-185` | |
+| 45 | Live-Karte | Knopf „Deaktivieren“ | `ttClearActive` → Befehl `tt:clearActive` (der Countdown bleibt, wie er ist) | T-a | `components/Timetable.tsx:187-194` | |
+| 46 | Live-Karte | Karte Delay (`DelayControls`, Zeilen Nr. 65-71) unter dem Transport | – | T-a | `components/Timetable.tsx:197` | |
+| 47 | Ablauf | Hinweiskarte „Show nicht gestartet“ mit Erklärtext (nennt „Start Show“); ohne aktiven Punkt gibt es im Ablauf keinen Start/Pause/Reset-Transport | – | T; Punkte da, kein aktiver | `components/Timetable.tsx:200-214` | |
+| 48 | Ablauf | Knopf „Start Show“ (lädt nur den ersten Punkt, startet den Countdown nicht) | `ttNext` → Befehl `tt:next` bei `activeIndex === null` | T; Punkte da, kein aktiver | `components/Timetable.tsx:210-212`, `shared/timer-state.ts:325-334` | |
+| 49 | Ablauf | Karte Auto-Advance (Zeilen Nr. 72-74) | – | T-l | `components/Timetable.tsx:217` | |
+| 50 | Liste | Kopf „Programmpunkte · n“ und rechts „Σ HH:MM:SS“ (Summe der Dauern); Spaltenkopf „#“, „Titel“, „Soll“, „Dauer“, „Notiz“, „Ist / Δ“, „Aktionen“; Zeilen mit Zustand erledigt (50 % Deckkraft), aktiv (hervorgehoben), kommend | `tt.items` | T-l | `components/Timetable.tsx:219-263`, `components/TimetableRow.tsx:82-89` | |
+| 51 | Zeile | Nummer NN | – | T-l | `components/TimetableRow.tsx:91-93` | |
+| 52 | Zeile | Feld Titel (Platzhalter „Programmpunkt“); Fokusverlust sendet den gekürzten Titel, wenn er sich geändert hat (auch leer); Enter, Nr. 162 | `commitLabel` → `ttUpdate(id, {label})` → Befehl `tt:update` | T-l | `components/TimetableRow.tsx:95-104`, `:43-45` | |
+| 53 | Zeile | Feld Soll (geplante Startzeit HH:MM, Platzhalter „—:—“, Tooltip „Geplante Startzeit (leer = aus der Kette)“); leer löscht die Zeit, ein ungültiger Wert zeigt „HH:MM“ und sendet nichts; Enter, Nr. 163 | `commitPlanned` → `parseTimeOfDay` aus `@jm/regieplan` → `ttUpdate(id, {plannedStartMs})` | T-l | `components/TimetableRow.tsx:106-119`, `:58-72` | |
+| 54 | Zeile | Feld Dauer (HH:MM:SS, Platzhalter 00:05:00), ungültig zeigt „HH:MM:SS“; bei aktivem Punkt mit unberührtem Countdown setzt die Änderung die Restzeit auf die neue Dauer; Enter, Nr. 164 | `commitDuration` → `ttUpdate(id, {durationMs})`; Spiegelung im Reduzierer | T-l | `components/TimetableRow.tsx:121-135`, `:46-54`, `shared/timer-state.ts:235-257` | |
+| 55 | Zeile | Feld Notiz (Platzhalter „Notiz“), ein leerer Text löscht die Notiz; Enter, Nr. 165 | `commitNote` → `ttUpdate(id, {note})` | T-l | `components/TimetableRow.tsx:137-146`, `:55-57` | |
+| 56 | Zeile | Spalte „Ist / Δ“: „Live“ beim aktiven, „Done“ beim erledigten, sonst die projizierte Startzeit HH:MM mit Abweichung (±m:ss, Rot ab 30 s hinter Plan, Primärfarbe ab 30 s vor Plan), sonst „—“ | `getProjectedSchedule`, `computeDrift` (`perItem`) | T-l | `components/TimetableRow.tsx:148-165`, `:260-278` | |
+| 57 | Zeile | Taste „↑“ (Tooltip „Nach oben“) | `ttMove(id, 'up')` → Befehl `tt:move` | T-l; gesperrt in der ersten Zeile | `components/TimetableRow.tsx:168-174` | |
+| 58 | Zeile | Taste „↓“ (Tooltip „Nach unten“) | `ttMove(id, 'down')` → Befehl `tt:move` | T-l; gesperrt in der letzten Zeile | `components/TimetableRow.tsx:175-181` | |
+| 59 | Zeile | Knopf „Load“ | `ttLoadItem(index)` → Befehl `tt:loadItem` (macht den Punkt aktiv, Countdown auf seine Dauer, Delay 0, läuft nicht an) | T-l | `components/TimetableRow.tsx:182-190`, `shared/timer-state.ts:315-323` | |
+| 60 | Zeile | Taste „✕“ (Tooltip „Löschen“), ohne Rückfrage; löscht der Befehl den aktiven Punkt, wird der Ablauf inaktiv | `ttDelete(id)` → Befehl `tt:delete` | T-l | `components/TimetableRow.tsx:191-193`, `shared/timer-state.ts:259-269` | |
+| 61 | Zeile | Feld „V“ (Verantwortlich, Platzhalter „Verantwortlich“); Enter, Nr. 166 | `commitOwner` → `ttUpdate(id, {owner})` | T-l | `components/TimetableRow.tsx:196-207`, `:73-75` | |
+| 62 | Zeile | Feld „K“ (Kategorie, Platzhalter „Kategorie“); Enter, Nr. 167 | `commitCategory` → `ttUpdate(id, {category})` | T-l | `components/TimetableRow.tsx:208-218`, `:76-78` | |
+| 63 | Ablauf | Leerer Ablauf: Karte „Noch keine Programmpunkte“ mit Erklärtext und zwei Knöpfen „XLSX importieren“ (öffnet den Dialog) und „Item anlegen“ (legt „Begrüßung“, 5 Minuten, an) | `setImportOpen(true)`; `ttAdd({label: 'Begrüßung', durationMs: 5 min})` | T; keine Punkte | `components/Timetable.tsx:264-266`, `:273-292` | |
+| 64 | Ablauf | Der Import-Dialog hängt am Modus Timetable: er wird in `Timetable` gemountet, `open` steuert die Anzeige | `importOpen` (lokal, geht beim Moduswechsel verloren) | T | `components/Timetable.tsx:42`, `:268` | |
+| 65 | Delay | Kopf „Delay · Live“ und Betrag rechts: „+HH:MM:SS“ (Rot), „-HH:MM:SS“ (Primärfarbe), „00:00:00“ (grau), Tooltip „±n s“ | `cd.delayMs` | K, T-a | `components/DelayControls.tsx:41-57`, `:11-15` | |
+| 66 | Delay | Sechs Schnelltasten „−5m“, „−1m“, „−30s“, „+30s“, „+1m“, „+5m“ (plus in Akzentfarbe, minus als Umriss) | `addDelay(sec)` → Befehl `addDelay` (verlängert bzw. verkürzt die wirksame Dauer, auch bei pausiertem Countdown) | K, T-a | `components/DelayControls.tsx:59-73`, `:9` | |
+| 67 | Delay | Umschalter „Richtung“ mit „+“ (Beschriftung für Bedienhilfen „Verspätung hinzufügen“) und „−“ („Zeit aufholen“), Start „+“ | `setPendingSign(1 oder -1)`, lokal | K, T-a | `components/DelayControls.tsx:76-106` | |
+| 68 | Delay | Feld „Custom · Sekunden“ (Zahl, Start 60, Mindestwert 1, Schritt 1); Enter wendet an, Fokusverlust nicht, Nr. 159 | `setCustomSec`, lokal | K, T-a | `components/DelayControls.tsx:107-127` | |
+| 69 | Delay | Knopf „Anwenden“; bei Wert unter 1 oder ungültig Meldung „Bitte eine positive Zahl in Sekunden eintragen.“ | `applyCustom` → `addDelay(round(sec) · Richtung)` | K, T-a | `components/DelayControls.tsx:128-133`, `:26-34` | |
+| 70 | Delay | Knopf „Delay zurücksetzen“ (nur sichtbar bei Delay ungleich 0) | `clearDelay` → Befehl `clearDelay` | K, T-a; nur bei Delay | `components/DelayControls.tsx:135-141` | |
+| 71 | Delay | Kartenrahmen: „Delay · Live“-Karte, nested, höchstens 640 Einheiten breit | – | K, T-a | `components/DelayControls.tsx:39-40` | |
+| 72 | Auto-Advance | Karte mit Titel „Auto-Advance“ und Erklärtext (springt zum nächsten Punkt, wenn der aktuelle überzogen ist; Grace-Period = tolerierte Sekunden Overtime) | – | T-l | `components/AutoAdvanceSettings.tsx:14-23` | |
+| 73 | Auto-Advance | Schalter „Auto-Advance an“ bzw. „Auto-Advance aus“ (`aria-pressed`) | `ttSetAutoAdvance(!autoAdvance)` → Befehl `tt:setAutoAdvance`; Wirkung Nr. 110 | T-l | `components/AutoAdvanceSettings.tsx:39-53` | |
+| 74 | Auto-Advance | Feld „Grace · Sekunden“ (Zahl, Mindestwert 0, Schritt 1, Breite 6 Einheiten); je Tastendruck gesendet, ungültig wird 0; der Reduzierer rundet und begrenzt auf mindestens 0 | `ttSetAutoAdvanceGrace(Number(v) oder 0)` → Befehl `tt:setAutoAdvanceGrace` | T-l; gesperrt, solange Auto-Advance aus ist (kein sichtbarer Grund) | `components/AutoAdvanceSettings.tsx:29-37`, `shared/timer-state.ts:364-367` | |
+| 75 | Remote | Kopf „Remote · LAN-Browser“ mit Pille „Sync · Verbunden“ (live) bzw. „Sync · Offline“ (Fehler) | `store.connected` | R | `components/RemoteInfo.tsx:76-81` | |
+| 76 | Remote | Karte „Speaker-View im Browser öffnen“ mit Erklärtext und dem Zusatz „Read-Only · Anzeige spiegelt 1:1 die Speaker-Fenster-Ansicht.“ | – | R | `components/RemoteInfo.tsx:83-96` | |
+| 77 | Remote | Liste der LAN-Adressen: je Adresse als Code mit Knopf „Kopieren“ (wird 1,5 s „Kopiert“); Texte „Netzwerk-Adressen werden ermittelt…“ und „Keine LAN-Adresse gefunden. Vermutlich nur Loopback verfügbar — prüfe WLAN/Netzwerk-Verbindung.“; die Liste wird alle 4 s und bei Änderung von Auth neu geholt. Ohne `window.jm.remote` leer | `jm.remote.getUrls()` (IPC `remote:getUrls`); `navigator.clipboard.writeText` (Fehler stumm) | R | `components/RemoteInfo.tsx:98-133`, `:21-45`, `:52-60` | |
+| 78 | Remote | Karte Auth (erst sichtbar, wenn `auth.get()` geantwortet hat): Titel „Auth · Token-Schutz“, Pille „Auth aktiv“ bzw. „Offen (kein Token)“, Erklärtext | `jm.auth.get()` (IPC `auth:get`) | R; nach der Antwort | `components/RemoteInfo.tsx:137-153`, `:47-50` | |
+| 79 | Remote | Tokenzeile: „Token“, der Wert (grau bei Auth aus), Knopf „Kopieren“ („Kopiert“ 1,5 s) | `copy(auth.token)` | R; Auth-Karte | `components/RemoteInfo.tsx:155-177` | |
+| 80 | Remote | Knopf „Neuen Token generieren“, ohne Rückfrage | `jm.auth.regenerate()` (IPC `auth:regenerate`) | R; Auth-Karte | `components/RemoteInfo.tsx:179-187`, `:68-72` | |
+| 81 | Remote | Knopf „Auth aktivieren“ (Primärfarbe) bzw. „Auth deaktivieren“ (Umriss) | `jm.auth.setEnabled(!enabled)` (IPC `auth:setEnabled`) | R; Auth-Karte | `components/RemoteInfo.tsx:188-194`, `:62-66` | |
+| 82 | Remote | Tipp-Text zum neuen Token (nur bei aktiver Auth) und Karte „Hinweise“ mit vier Texten (Subnetz-Hinweis, Port 7777 und Dev-Port 5173, Firewall, Auth für öffentliche Netze) | – | R | `components/RemoteInfo.tsx:197-203`, `:208-236` | |
+| 83 | Farben | Titel „Timer Farben“ und drei Vorschauen „Normal“ (5:30), „Warning“ (0:30) und „Overtime“ (−12 s) als `TimerDisplay` in Größe `preview` | `TimerDisplay` mit den gespeicherten Farben | F | `components/ColorPicker.tsx:33-43`, `:132-141` | |
+| 84 | Farben | Je Farbe (Normal „Solange genug Zeit bleibt.“, Warning „Wenn unter dem Schwellenwert.“, Overtime „Wenn der Countdown abgelaufen ist.“) eine Farbfläche mit nativem Farbwähler | `setColors({[key]: HEX})` → Befehl `setColors` je Änderung (Großbuchstaben) | F | `components/ColorPicker.tsx:21-25`, `:103-121` | |
+| 85 | Farben | Je Farbe ein Hex-Textfeld (Breite 8 Einheiten, Großschrift); jeder Tastendruck sendet den Text, ohne Prüfung (auch unvollständige Werte); der Farbwähler fällt bei ungültigem Wert auf `#FFE819` zurück | `setColors({[key]: Text})`; `normalizeHex` | F | `components/ColorPicker.tsx:122-126`, `:143-157` | |
+| 86 | Farben | Feld „Warning-Schwelle“ (Sekunden, Zahl, Mindestwert 0, Erklärtext „Sekunden, ab denen die Farbe auf Warning wechselt.“) | `setColors({warningAtSec: Number(v) oder 0})` | F | `components/ColorPicker.tsx:58-72` | |
+| 87 | Farben | Knopf „Auf JM-Defaults zurücksetzen“ (setzt `#FFE819`, `#FFB81C`, `#F61C56` und 60 s) | `setColors(DEFAULTS)` | F | `components/ColorPicker.tsx:74-83`, `:8-13` | |
+
+## 2 · Dialoge und Meldungen
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+| 88 | Import-Dialog (`fixed inset-0 z-50`, `bg-black/60`, Unschärfe) | Aufbau: eigenes Overlay mit `role=dialog` und `aria-modal`, höchstens 820 Einheiten breit; Klick auf den abgedunkelten Hintergrund schließt (Klick im Rahmen: `stopPropagation`); Escape schließt nicht; kein Fokusfang (abgeleitet, nicht gemessen); keine gemeinsame `Modal`-Komponente | `handleClose`; `open` von `Timetable` (Nr. 37, 63) | dlg | `components/XlsxImport.tsx:44`, `:91-100` | |
+| 89 | Import-Dialog | Titel „XLSX · Regieplan importieren“ und Knopf „✕“ (Beschriftung für Bedienhilfen „Schließen“) | `handleClose`: setzt Datei, Zuordnung, Fehler und Modus „Ersetzen“ zurück | dlg | `components/XlsxImport.tsx:101-111`, `:82-89` | |
+| 90 | Import-Dialog | Einleitungstext (erkennt Titel, Startzeit, Dauer und Notiz automatisch; die Vorschau aktualisiert sich sofort) | – | dlg | `components/XlsxImport.tsx:113-116` | |
+| 91 | Import-Dialog | Knopf „Datei auswählen“ öffnet das versteckte Dateifeld (`accept=.xlsx,.xls,.xlsm,.csv`); die Datei wird als Puffer gelesen und mit `inspectXlsx` untersucht (Timer: Dauer bevorzugt). Meldungen: „Die Datei enthält keine lesbaren Spalten.“, die Meldung der Ausnahme oder „Datei konnte nicht gelesen werden.“; das Feld wird danach geleert. Kein Ziehen und Ablegen | `handleFile` → `inspectXlsx` (`lib/xlsx.ts:11-13`, `inspectRegieplan` aus `@jm/regieplan`, nicht gelesen) | dlg | `components/XlsxImport.tsx:118-131`, `:46-64` | |
+| 92 | Import-Dialog | Knopf „Vorlage herunterladen“: erzeugt die Beispieldatei `JM-Timer-Regieplan-Vorlage.xlsx` (Kopfzeile und fünf Beispielzeilen) | `downloadTemplate` → `exportRegieplanXlsx` (`@jm/regieplan`, nicht gelesen) | dlg | `components/XlsxImport.tsx:132-134`, `lib/xlsx.ts:28-40` | |
+| 93 | Import-Dialog | Knopf „Ablauf exportieren“ (Tooltip „Aktuellen Ablauf als Regieplan (Excel) exportieren — z. B. für JM Rundown“): erzeugt `JM-Timer-Ablauf.xlsx` aus den aktuellen Punkten | `exportTimetable(items)` → `exportRegieplanXlsx(rowsToAoa(items))` | dlg; gesperrt ohne Programmpunkte | `components/XlsxImport.tsx:135-142`, `lib/xlsx.ts:46-50` | |
+| 94 | Import-Dialog | Dateiname der gewählten Datei, Hinweis „Noch keine Datei? Lade die Vorlage herunter, fülle sie aus und importiere sie wieder.“, Fehlerzeile (Rot) | `filename`, `error` | dlg | `components/XlsxImport.tsx:143-149` | |
+| 95 | Import-Dialog | Angaben „Tabellenblatt“ und „Kopfzeile“ („Zeile n“ bzw. „Ohne Kopfzeile (positional)“) | `inspection.sheetName`, `inspection.headerRow` | dlg; nach dem Lesen einer Datei | `components/XlsxImport.tsx:151-163` | |
+| 96 | Import-Dialog | Spalten-Zuordnung: sechs Auswahlfelder „Titel“ (Pflicht), „Startzeit“, „Dauer“ (Pflicht), „Notiz“, „Verantwortlich“, „Kategorie“; Option „— (keine)“; Optionstext „Spaltenkopf · Bsp: Beispielwert“; Pflichtfeld ohne Wert mit rotem Rahmen; Vorbelegung aus der Erkennung | `setField` → `mapping`; `extractRows` | dlg; nach dem Lesen einer Datei | `components/XlsxImport.tsx:165-177`, `:262-300`, `:66-68` | |
+| 97 | Import-Dialog | Kennzahlen „Items erkannt“, „Übersprungen“, „Gesamt-Dauer“ | `extracted.rows`, `extracted.skippedRows` | dlg; nach dem Lesen | `components/XlsxImport.tsx:179-183` | |
+| 98 | Import-Dialog | Vorschau-Tabelle der ersten 50 Zeilen (Nummer, Titel mit „V:“ und „K:“, Start, Dauer, Notiz); Texte „Keine Zeilen — prüfe die Spalten-Zuordnung (Titel und Dauer nötig).“ und „… +n weitere“ | – | dlg; nach dem Lesen | `components/XlsxImport.tsx:185-228` | |
+| 99 | Import-Dialog | Umschalter „Ersetzen“ (Start) und „Anhängen“ | `setMode('replace' oder 'append')`, lokal | dlg; nach dem Lesen | `components/XlsxImport.tsx:230-238`, `:311-334` | |
+| 100 | Import-Dialog | Hinweis „Ordne Titel und Dauer einer Spalte zu.“ (solange nicht importiert werden kann) | `canImport` = Titel und Dauer zugeordnet und mindestens eine Zeile | dlg | `components/XlsxImport.tsx:240-244`, `:70` | |
+| 101 | Import-Dialog | Knopf „Abbrechen“ | `handleClose` | dlg; nach dem Lesen | `components/XlsxImport.tsx:245-247` | |
+| 102 | Import-Dialog | Knopf „Importieren“: „Ersetzen“ sendet `ttSetAll(rows)` (Befehl `tt:setAll`: ersetzt alle Punkte, macht den Ablauf inaktiv und setzt den Countdown auf die Dauer zurück, ein laufender Countdown wird ohne Rückfrage verworfen); „Anhängen“ sendet je Zeile `ttAdd` (Befehl `tt:add`); danach schließt der Dialog | `confirmImport` | dlg; gesperrt, solange `canImport` falsch ist (Grund steht im Hinweis Nr. 100) | `components/XlsxImport.tsx:248-250`, `:72-80`, `shared/timer-state.ts:288-295` | |
+| 103 | Meldungen | Fehlertext unter dem Dauer-Feld „Format: HH:MM:SS“ (Countdown), „HH:MM:SS“ und „HH:MM“ unter den Zeilenfeldern: Rot, bleibt bis zum nächsten gültigen Wert | `error`, `plannedError` (lokal) | K bzw. T-l | `components/Countdown.tsx:141`, `components/TimetableRow.tsx:132-134`, `:116-118` | |
+| 104 | Meldungen | Es gibt keinen `window.confirm`, `window.alert` und `window.prompt` im ganzen Timer (grep über `apps/timer/src`, 0 Treffer): Löschen, Import „Ersetzen“, „Neuen Token generieren“ und „Auth“ laufen ohne Rückfrage | – | – | `apps/timer/src/**` | |
+| 105 | Meldungen | Es gibt keine Toast- oder Statusmeldung: Fehler (Verbindung weg, Befehl verworfen, Startfehler des Steuerservers) erscheinen nur als Konsolen- oder Logzeile (Nr. 106, 108, 133) oder gar nicht | `console.warn`, `getLog()` | – | `sync/client.ts:54`, `:62`, `main/index.ts:446-449` | |
+
+## 3 · Abläufe ohne eigenes Bedienelement (im Renderer und im Hauptprozess)
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+| 106 | Verbindung | Socket-Client: `App` verbindet einmal beim Start; nur Websocket, Wiederverbindung nach 200 bis 2000 ms; das Token kommt aus `?token=` der Adresse; Ereignisse `connect` und `disconnect` setzen `connected`, `state` ersetzt Countdown, Farben, Ablauf und Nachricht, `connect_error` schreibt nur eine Konsolenzeile | `connect(resolveServerUrl(), applyServerState, setConnected)` | imm. | `App.tsx:20-22`, `sync/client.ts:32-58` | |
+| 107 | Verbindung | Server-Adresse: im Electron-Fenster `window.jm.serverUrl` (`http://127.0.0.1:7777`), im Browser `Protokoll//Hostname:7777` | `resolveServerUrl` | imm. | `sync/client.ts:14-23`, `shared/net.ts:24` | |
+| 108 | Verbindung | Befehle ohne Verbindung werden verworfen (nur Konsolenzeile „dropping command“); jede Bedienung geht als `cmd` über den Socket, der Renderer rechnet nichts selbst aus | `sendCommand` | imm. | `sync/client.ts:60-66`, `store/timer.ts:67-91` | |
+| 109 | Takt | Anzeigetakt: jedes Bild neu (`requestAnimationFrame`), Zeit aus `Date.now()`; die Restzeit wird im Renderer aus Startzeit, Dauer und Delay gerechnet | `useTick` | U, K, T, Sp | `lib/useTick.ts:5-15` | |
+| 110 | Auto-Advance | `useAutoAdvance` (nur im Operator, nie im Speaker, damit `tt:next` nicht doppelt kommt): sendet `ttNext` genau einmal je aktivem Punkt, wenn Auto-Advance an ist, der Countdown läuft, es einen nächsten Punkt gibt und die Restzeit unter minus Grace gefallen ist; der Merker wird beim Wechsel des Punkts zurückgesetzt | `ttNext` → Befehl `tt:next` | imm.; unabhängig vom Modus | `sync/useAutoAdvance.ts:16-49`, `views/Operator.tsx:14` | |
+| 111 | Reduzierer | Countdown-Regeln: `start` wirkt nicht, wenn er läuft, und setzt nach einer Pause an der Restzeit fort; `pause` merkt die Restzeit; `reset` setzt auf die Dauer zurück und löscht den Delay; `addDelay` und `clearDelay` verschieben auch die gemerkte Restzeit; `setDuration` setzt zurück und macht den aktiven Punkt inaktiv | `reduce` | Main, Socket | `shared/timer-state.ts:165-222` | |
+| 112 | Reduzierer | Ablauf-Regeln: `tt:setAll`, `tt:loadItem`, `tt:next`, `tt:prev` setzen den Countdown auf die Dauer des Punkts zurück (Delay 0, läuft nicht an); `tt:replaceItems` lässt den Countdown unangetastet und folgt dem aktiven Punkt über die Kennung; `tt:delete` und `tt:move` führen den aktiven Index nach; `tt:update` einer Dauer des aktiven Punkts wirkt auf den Countdown nur, wenn er weder läuft noch pausiert; `msg:set` mit leerem Text schaltet das Blinken aus | `reduce` | Main, Socket | `shared/timer-state.ts:227-380` | |
+| 113 | Zustand | Laden beim Start: nur Dauer, Farben, Punkte, Auto-Advance, Grace und Nachrichtentext kommen aus der Datei; Delay, Lauf, aktiver Punkt und Blinken beginnen leer; fehlt die Datei oder ist sie unlesbar, gelten die Vorgaben | `loadState` | Main | `main/state.ts:19-53` | |
+| 114 | Zustand | Speichern: jede Zustandsänderung schreibt `state.json` neu und benachrichtigt alle Zuhörer; Schreibfehler werden verschluckt | `dispatch` → `persist` | Main | `main/state.ts:59-64`, `:73-96` | |
+| 115 | Server | Socket.IO-Server auf `0.0.0.0:7777`: bei jeder Verbindung der aktuelle Zustand, `cmd` wird mit `dispatch` ausgeführt und an alle gesendet, ein fehlerhafter Befehl wird nur geloggt; Zugriffsschutz: Verbindungen von der Schleife (127.0.0.1, ::1) immer, sonst nur ohne Auth oder mit passendem Token (Fehler „unauthorised“) | `startServer` | Main | `main/server.ts:116-160`, `main/auth.ts:70-83` | |
+| 116 | Server | HTTP auf demselben Port: `/health` (Antwort mit Modus), sonst die gebaute Oberfläche aus `out/renderer` mit Rückfall auf `index.html` (so liefert `/?view=remote` die Seite aus), Schutz gegen Pfade außerhalb (403), ohne gebaute Oberfläche ein 404-Text | `serveStatic` | Main | `main/server.ts:45-81`, `:93-114` | |
+| 117 | Ablauf von Hand | Jeder Befehl, der die Punkte des Ablaufs ändert (außerhalb des Verbundmodus), ersetzt die Daten eines früheren Masters wie eine eigene Show (`verbundDatenErsetzt`); im Verbundmodus bleibt der Zwischenspeicher | `ersetztVerbundDaten(cmd, imVerbundmodus())` | Main | `main/server.ts:155`, `shared/verbund.ts:47-49` | |
+| 118 | Show | Deep-Link: `parseShowDeepLink` → `applyShowFromPath(Pfad, 'initial')` (`tt:setAll` plus `setDuration`); im Verbundmodus ignoriert (Logzeile); beim Start auch für den ersten Link | `onDeepLink`, `runtime.initialDeepLink` | Main | `main/index.ts:317-327`, `:454`, `:404` | |
+| 119 | Show | Show anwenden: eigene Timer-Liste hat Vorrang vor dem Show-Ablauf; `initial` ersetzt Ablauf und setzt zurück, `reload` tauscht nur die Punkte; verschwindet der aktive Punkt, bleibt die Nummer und eine Logzeile entsteht; ein Lesefehler wird nur geloggt | `wendeTimerShowAn`, `applyShowFromPath`, `timerAktionenAusShow` | Main | `main/index.ts:338-366`, `shared/show-anwenden.ts:27-35` | |
+| 120 | Show | Folgt dem Master (Master-Link): `folgeMasterShow` nach `loadState`, Zwischenspeicher wird mit `reload` angewendet, eine neue Show mit `initial`; die Anzeige liefert die V-Zeile (Nr. 13) | `folgeMasterShow({anwenden})` | Main | `main/index.ts:427-429` | |
+| 121 | Show | `reloadCurrentShow`: liest die aktuell geladene Show neu (nicht zerstörend); im Verbundmodus ignoriert; ohne geladene Show nur eine Warnzeile im Log | `reloadCurrentShow()` | Main | `main/index.ts:373-389` | |
+| 122 | Netz | mDNS-Annonce `jm-timer` (Rolle `timer`, Port 7777, im gesicherten Modus mit Signaturschlüssel), best-effort: ein Fehler wird nur geloggt | `advertise(...)` | Main | `main/index.ts:434-441` | |
+| 123 | Fenster | Nur eine Instanz: ein zweiter Start zeigt und fokussiert das vorhandene Operator-Fenster bzw. legt es neu an | `requestSingleInstanceLock`, `second-instance` | Main | `main/index.ts:408-420` | |
+| 124 | Fenster | Schließen des Operator-Fensters versteckt es nur (der Server läuft weiter); nur „JM Timer beenden“ im Tray beendet die App; mit allen Fenstern zu bleibt die App im Tray | `win.on('close')` mit `isQuitting`, `window-all-closed` ohne Wirkung | Main | `main/index.ts:107-115`, `:464-467` | |
+| 125 | Fenster | Links in der Oberfläche öffnen im Standardbrowser und nie im Fenster | `setWindowOpenHandler` | Main | `main/index.ts:102-105` | |
+| 126 | Tray | Symbol im Infobereich (Windows `icon.ico`, sonst `tray-icon.png`, auf dem Mac als Vorlagenbild 18); Einfachklick (nicht Mac) blendet das Operator-Fenster ein oder aus | `setupTray`, `toggleOperatorWindow` | Main | `main/index.ts:247-273`, `:127-138` | |
+| 127 | Tray | Menüeintrag „Operator-Fenster anzeigen“ bzw. „Operator-Fenster verbergen“ | `toggleOperatorWindow()` | Main | `main/index.ts:201-206` | |
+| 128 | Tray | Menüeintrag „Speaker-Fenster öffnen“ bzw. „Speaker-Fenster schließen“ | `openSpeakerWindow()` oder `closeSpeakerWindow()` | Main | `main/index.ts:207-212` | |
+| 129 | Tray | Untermenü „Remote-URLs (LAN)“: je Adresse ein Eintrag, der sie im Standardbrowser öffnet; ohne Adresse „Keine LAN-Adresse gefunden“ (grau) | `shell.openExternal(url)` | Main | `main/index.ts:214-223` | |
+| 130 | Tray | Menüzeile „Status: Server läuft auf :7777“ (grau, fester Text, ohne Messung) | – | Main | `main/index.ts:225-228` | |
+| 131 | Tray | Menüeintrag „JM Timer beenden“ (zerstört beide Fenster, `app.quit()`) | `isQuitting = true` | Main | `main/index.ts:230-238` | |
+| 132 | Tray | Tooltip „JM Timer · Server :7777“, mit „ · Speaker offen“, wenn das Speaker-Fenster offen ist; das Menü wird nur bei Fensterereignissen neu gebaut (Adressen und Beschriftungen sonst veraltet, abgeleitet) | `rebuildTrayMenu()` | Main | `main/index.ts:242-244`, `:123`, `:181`, `:187` | |
+| 133 | Fernsteuerung | TCP-Steuerserver auf Port 8724 (Rolle `timer`, `controlEndpoint`) neben dem Socket.IO-Server; Startfehler und Erfolg nur als Logzeile; Zustandsänderungen gehen sofort als `STATE` an alle Clients, bei laufendem Countdown zusätzlich jede Sekunde; die Antwort auf `STATE?` liefert die Bibliothek | `startControlServer`, `server.pushState` | Main | `main/control-server.ts:105-132`, `main/index.ts:444-450` | |
+| 134 | Fernsteuerung | Verb `START` (Capability „Start“) | Befehl `start` | Main | `main/control-server.ts:68-69`, `packages/suite-control-protocol/src/capabilities.ts:182` | |
+| 135 | Fernsteuerung | Verb `STOP` (Capability „Stopp“) = Befehl `pause`, nicht Reset | Befehl `pause` | Main | `main/control-server.ts:70-72`, `packages/suite-control-protocol/src/capabilities.ts:183` | |
+| 136 | Fernsteuerung | Verb `RESET` (Capability „Reset“) | Befehl `reset` | Main | `main/control-server.ts:73-74`, `packages/suite-control-protocol/src/capabilities.ts:184` | |
+| 137 | Fernsteuerung | Verb `ADD ⟨Sekunden⟩` (Capability „Zeit addieren (s)“, −3600 bis 3600, Start 30); eine Nicht-Zahl wird verworfen, die Grenzen der Capability erzwingt der Server nicht | Befehl `addDelay` | Main | `main/control-server.ts:75-78`, `packages/suite-control-protocol/src/capabilities.ts:185` | |
+| 138 | Fernsteuerung | Verb `SET ⟨Sekunden⟩` (Capability „Zeit setzen (s)“, 0 bis 86400, Start 300); negativ wird 0, Nicht-Zahl verworfen | Befehl `setDuration` (in Millisekunden) | Main | `main/control-server.ts:79-82`, `packages/suite-control-protocol/src/capabilities.ts:186` | |
+| 139 | Fernsteuerung | Verb `GOTO ⟨Block⟩` (Capability „Block anspringen“, 1 bis 999, Start 1; 1-basiert): lädt den Punkt Nummer minus 1; ein Wert außerhalb des Ablaufs bleibt wirkungslos | Befehl `tt:loadItem` | Main | `main/control-server.ts:83-86`, `packages/suite-control-protocol/src/capabilities.ts:187` | |
+| 140 | Fernsteuerung | Verb `PAUSE` **ohne Capability-Eintrag**, gleiche Wirkung wie `STOP` | Befehl `pause` | Main | `main/control-server.ts:71` | |
+| 141 | Fernsteuerung | Verb `NEXT` **ohne Capability-Eintrag**: nächster Punkt; hängt nicht an `goto` | Befehl `tt:next` | Main | `main/control-server.ts:87-88` | |
+| 142 | Fernsteuerung | Verb `PREV` **ohne Capability-Eintrag**: vorheriger Punkt | Befehl `tt:prev` | Main | `main/control-server.ts:89-90` | |
+| 143 | Fernsteuerung | Verb `RELOAD` **ohne Capability-Eintrag** (nutzt der Launcher nach einem iveo-Update): ruft `reloadCurrentShow` über den eingereichten Rückruf (Nr. 121); ein Wert wird nicht ausgewertet | `opts.onReload` | Main | `main/control-server.ts:117-120`, `main/index.ts:445` | |
+| 144 | Fernsteuerung | Rückmeldung `STATE`: `remaining` (mm:ss, negativ mit „-“), `remaining_s`, `running`, `overrun` (Restzeit unter 0), `warning` (Restzeit über 0 bis Schwelle), `block_label` (Titel des aktiven Punkts, Leerzeichen als „_“, sonst „-“); die Capability führt Variablen `remaining`, `remaining_s`, `running`, `block_label` und die Rückmeldungen `running`, `overrun`, `warning` | `toSuiteState` | Main | `main/control-server.ts:45-63`, `packages/suite-control-protocol/src/capabilities.ts:188-199` | |
+| 145 | Fernsteuerung | Unbekannte Verben, fremde Namensräume und ungültige Zahlen werden ohne Antwort verworfen | `toTimerCommand` liefert `null` | Main | `main/control-server.ts:91-93`, `:116` | |
+| 146 | Fenster | Das Speaker-Fenster meldet Öffnen und Schließen an den Operator (`speaker:status`); der Operator zeigt es im Speaker-Knopf (Nr. 15); das Tray-Menü wird dabei neu gebaut | `webContents.send('speaker:status', …)` | Main | `main/index.ts:178-187` | |
+
+## 4 · Zusatzfenster
+
+Keine. Der Timer hat neben dem Operator-Fenster nur das Speaker-Fenster (Ausgabe, Abschnitt 5) und das Tray-Menü, das
+kein Fenster ist (Nr. 126-132); ein zweites Bedienfenster, ein Einstellungsfenster oder ein Vorschaufenster gibt es nicht
+(`main/index.ts:75-190`). Abschnitt 4 hat 0 Zeilen.
+
+## 5 · Ausgabefenster (Speaker und Remote, nur Abgrenzung, bleibt unverändert)
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+| 147 | Einstieg | Weiche am Einstiegspunkt: `?view=speaker` und `?view=remote` rendern dieselbe `SpeakerView`, alles andere (auch ohne Parameter) den Operator; das Bundle ist dasselbe, `App` verbindet in jedem Fall den Socket-Client | `detectView()` | Sp | `App.tsx:7-27` | |
+| 148 | Speaker-Fenster | Fenster „JM Timer · Speaker“: normaler Rahmen (kein `frame:false`), `fullscreenable`, Hintergrund `#121212`, Größe höchstens 1600 mal 900, öffnet auf dem zweiten Bildschirm (Arbeitsfläche des ersten Bildschirms, der nicht der Hauptbildschirm ist, sonst des Hauptbildschirms) und schaltet dort selbst auf Vollbild; keine Bildschirmwahl, kein IPC dafür | `openSpeakerWindow` | Sp | `main/index.ts:140-188` | |
+| 149 | Speaker-Ansicht | Inhalt: Logo und Statuswort links oben („Live“, „Paused“, „Real-Time“); rechts oben Sync-Pille („Sync“, „Offline“) und der einzige Knopf „Fullscreen“ bzw. „Exit Fullscreen“; Titel „#NN · Programmpunkt“ des aktiven Punkts | `store.connected`; Knopf `toggleFullscreen`: im Fenster `speaker.setFullscreen` (IPC `speaker:fullscreen`) mit `speaker.isFullscreen` (IPC `speaker:isFullscreen`), im Browser die Fullscreen-Schnittstelle | Sp | `views/Speaker.tsx:94-137`, `:42-79` | |
+| 150 | Speaker-Ansicht | Inhalt: große Zeit (Wanduhr, solange der Countdown weder läuft noch pausiert, sonst die Restzeit mit den Farben), Zeile „/ Plan“, „/ Endet“, „/ Delay ±HH:MM:SS“, die Nachricht (Primärfarbe, bei Blinken Rot und blinkend), unten „Up Next“ mit Titel und Dauer des nächsten Punkts | `SyncedState` aus dem Socket | Sp | `views/Speaker.tsx:139-207` | |
+| 151 | Speaker-Ansicht | Kein Tastenhandler, kein Befehl nach außen (die Ansicht ruft keinen Store-Befehl auf, nur Anzeige und Vollbild); sie setzt kein Theme (die Seite startet mit `class=dark`) | – | Sp | `views/Speaker.tsx:15-209`, `renderer/index.html:2` | |
+| 152 | Remote-Ansicht | `?view=remote` im Browser eines Geräts im LAN: kein `window.jm`; die Socket-Adresse folgt `hostname:7777`, das Token kommt aus `?token=` der Adresse (Adressen mit Token liefert Nr. 77); ohne Auth oder mit gültigem Token verbindet der Server; die Vollbildtaste nutzt die Browser-Schnittstelle | `resolveServerUrl`, `resolveToken`, Server-Prüfung Nr. 115 | Sp | `sync/client.ts:14-30`, `views/Speaker.tsx:42-65`, `main/server.ts:125-146` | |
+| 153 | Operator im Browser | Ohne Parameter liefert derselbe Server auch den Operator an Browser (Codespace, Entwicklung); ohne `window.jm` wirken Speaker-Knopf, Remote-Adressen und Auth dort nicht (abgeleitet aus Nr. 15, 77, 78; nicht gemessen) | `window.jm?.` | imm. | `views/Operator.tsx:10-24`, `components/RemoteInfo.tsx:24-28` | |
+
+## 6 · Tastatur (Pflichtpunkt Spec 10)
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+| 154 | Kürzel Countdown | **Leertaste:** Start/Pause (läuft er, pausiert sie, sonst startet sie); `preventDefault`; der Handler hört am `window` auf `e.code === 'Space'` und prüft keine Umschalttasten | `onKey` → `running ? pause() : start()` | K (der Handler lebt nur, solange `Countdown` gemountet ist) | `components/Countdown.tsx:39-53` | |
+| 155 | Kürzel Countdown | **R:** Reset; `preventDefault`; `e.code === 'KeyR'`, ohne Prüfung der Umschalttasten (Strg+R löst also auch Reset aus, abgeleitet, nicht gemessen) | `onKey` → `reset()` | K | `components/Countdown.tsx:46-49` | |
+| 156 | Kürzel Countdown | Ausnahme: der Handler beendet sich nur, wenn das Ziel `INPUT` oder `TEXTAREA` ist; `BUTTON`, `SELECT` und `contentEditable` sind nicht ausgenommen. Ein Knopf mit Fokus löst bei der Leertaste also Klick und Handler aus (abgeleitet, nicht gemessen) | `target.tagName` | K | `components/Countdown.tsx:41-42` | |
+| 157 | Kürzel Ablauf | Im Modus Timetable, Clock, Remote und Farben gibt es keine Kürzel; Leertaste und R wirken dort nicht, weil der Handler unmountet ist | – | T, U, R, F | `views/Operator.tsx:18-22` | |
+| 158 | Eingabe | Enter im Dauer-Feld des Countdowns: `blur()`, der Fokusverlust übernimmt die Dauer (Nr. 28) | `onKeyDown` | K | `components/Countdown.tsx:116-118` | |
+| 159 | Eingabe | Enter im Feld „Custom · Sekunden“: `preventDefault` und `applyCustom` (wendet an, ohne `blur`) | `onKeyDown` | K, T-a | `components/DelayControls.tsx:118-123` | |
+| 160 | Eingabe | Enter im Nachrichtenfeld: `commit()` und `blur()` | `onKeyDown` | imm. | `components/MessageBar.tsx:81-86` | |
+| 161 | Eingabe | Escape im Nachrichtenfeld: verwirft den Entwurf (`setDraft(message.text)`) und `blur()`; da `blur` den Entwurf sendet, geht der alte gesendete Text unverändert zurück | `onKeyDown` | imm. | `components/MessageBar.tsx:87-90` | |
+| 162 | Eingabe | Enter im Titel-Feld einer Zeile: `blur()` (Fokusverlust übernimmt) | `onKeyDown` | T-l | `components/TimetableRow.tsx:99-101` | |
+| 163 | Eingabe | Enter im Soll-Feld einer Zeile: `blur()` | `onKeyDown` | T-l | `components/TimetableRow.tsx:111` | |
+| 164 | Eingabe | Enter im Dauer-Feld einer Zeile: `blur()` | `onKeyDown` | T-l | `components/TimetableRow.tsx:126-128` | |
+| 165 | Eingabe | Enter im Notiz-Feld einer Zeile: `blur()` | `onKeyDown` | T-l | `components/TimetableRow.tsx:141-143` | |
+| 166 | Eingabe | Enter im Feld „V“ einer Zeile: `blur()` | `onKeyDown` | T-l | `components/TimetableRow.tsx:203` | |
+| 167 | Eingabe | Enter im Feld „K“ einer Zeile: `blur()` | `onKeyDown` | T-l | `components/TimetableRow.tsx:214` | |
+| 168 | Eingabe | Kein Enter- oder Escape-Handler: Hex-Felder und Warning-Schwelle (senden je Tastendruck), Grace-Feld, Import-Dialog (Escape schließt ihn nicht), Remote-Seite | – | F, T-l, dlg, R | `components/ColorPicker.tsx:122-126`, `components/XlsxImport.tsx:91-100` | |
+| 169 | Pflichtpunkt Panel | Leertaste und Escape mit Fokus im Panel. **Heute:** kein Panel (Remote und Farben sind Modi der Seitenleiste, Nr. 7, 8); ein Feld behält die Taste (der Countdown-Handler nimmt `INPUT` aus); auf einem Knopf oder Schalter im Countdown-Modus löst die Leertaste den Knopf **und** Start/Pause aus (Nr. 156); Escape hat keine Wirkung. **Künftig nach O1 (Owner-Entscheid 09.10., aus den Randbedingungen der Aufgabe, nicht gemessen):** Felder behalten ihre Tasten, Leertaste auf einem Knopf oder Schalter im Panel geht ans Tool (hier also an den Countdown-Handler, solange `Countdown` gemountet ist), Escape schließt das Panel | – | – | `components/Countdown.tsx:39-53`, `components/ColorPicker.tsx:1-157`, `components/RemoteInfo.tsx:14-239` | |
+| 170 | Tastatur nativ | Tab-Fokus; Leertaste und Enter lösen den fokussierten Knopf aus (Browser-Standard); Zeilenfelder, Auswahlfelder und Zahlfelder nehmen ihre Tasten nativ; der native Farbwähler der Farben-Seite öffnet seinen Systemdialog (nicht gemessen) | Browser | überall | – | |
+| 171 | Menü und globale Kürzel | Kein `setApplicationMenu`, `globalShortcut` oder `before-input-event` in `apps/timer/src` (grep); `Menu` wird nur für das Tray-Menü genutzt (Nr. 126-132); beide Fenster haben `autoHideMenuBar: true`. Setzt eine App kein Menü, legt Electron das Standardmenü an, dessen Kürzel (Neu laden Strg+R, Entwicklerwerkzeuge, Zoom, F11) damit abgeleitet auch hier gelten, nicht gemessen. Strg+R trifft im Countdown zusätzlich den R-Handler (Nr. 155) | – | – | `main/index.ts:1-10`, `:91`, `:159` | |
+
+## 7 · Gemerkte Zustände (localStorage, sonstige Ablage)
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+| 172 | localStorage | Kein `localStorage`, `sessionStorage`, IndexedDB und kein `persistId` (`jm.collapsible.*`) im Renderer (grep über `apps/timer/src`, 0 Treffer); der Renderer merkt sich nichts selbst | – | – | `apps/timer/src/renderer/**` | |
+| 173 | Datei im Main | `state.json` im Ordner `userData`: wird bei jeder Zustandsänderung vollständig neu geschrieben (synchron), beim Start gelesen; Lese- und Schreibfehler werden verschluckt | `loadState`, `persist` | Main | `main/state.ts:15-17`, `:19-53`, `:73-96` | |
+| 174 | Feld in `state.json` | `countdown.durationMs` (Start 300000 = 5 Minuten) | Befehl `setDuration`; UI Nr. 28, 29, Fernsteuerung `SET` | Main | `main/state.ts:79`, `shared/timer-state.ts:78-83` | |
+| 175 | Feld in `state.json` | `colors`: `normal` `#FFE819`, `warning` `#FFB81C`, `overtime` `#F61C56`, `warningAtSec` 60; beim Laden mit den Vorgaben vermischt | Befehl `setColors`; UI Nr. 84-87 | Main | `main/state.ts:80`, `:30`, `shared/timer-state.ts:69-74` | |
+| 176 | Feld in `state.json` | `timetable.items` (Titel, Dauer, Notiz, Soll, Verantwortlich, Kategorie, Kennung) | Befehle `tt:*`; UI Nr. 38, 52-63, 102 | Main | `main/state.ts:81-82`, `:32-34` | |
+| 177 | Feld in `state.json` | `timetable.autoAdvance` (Start `false`) | Befehl `tt:setAutoAdvance`; UI Nr. 73 | Main | `main/state.ts:83`, `:36-39` | |
+| 178 | Feld in `state.json` | `timetable.autoAdvanceGraceSec` (Start 5) | Befehl `tt:setAutoAdvanceGrace`; UI Nr. 74 | Main | `main/state.ts:84`, `:40-43` | |
+| 179 | Feld in `state.json` | `message.text`; das Blinken wird nicht gespeichert (beim Laden immer aus) | Befehle `msg:*`; UI Nr. 18-21 | Main | `main/state.ts:86`, `:45-48` | |
+| 180 | nicht gemerkt | Nicht gespeichert und beim Start leer: Delay, Lauf- und Pausenzustand des Countdowns, aktiver Programmpunkt, Blinken; im Renderer der Modus (`mode`, Start immer `clock`), das Theme (Start immer dunkel), Entwürfe der Felder, der Import-Dialog, die Auswahl der Spaltenzuordnung | – | – | `main/state.ts:24-29`, `:35`, `:47`, `store/timer.ts:54`, `components/Topbar.tsx:18` | |
+| 181 | Datei im Main | `auth.json` im Ordner `userData`: `enabled` (Start `false`) und `token` (32 Hexzeichen, beim ersten Start erzeugt); wird bei jeder Änderung und beim Laden geschrieben | `loadAuth`, `setAuthEnabled`, `regenerateToken`; UI Nr. 80, 81 | Main | `main/auth.ts:14-46`, `:56-68` | |
+| 182 | Speicher im Main | Pfad der aktuell geladenen Show (`currentShowPath`): nur im Arbeitsspeicher, nicht gespeichert; ohne ihn tut `RELOAD` nichts (Nr. 121) | `applyShowFromPath` | Main | `main/index.ts:53`, `:361` | |
+| 183 | Fremde Ablage | Steuerkonfiguration (`readControlConfig` auf `appData`, Signaturschlüssel für mDNS) und der Verbund-Zwischenspeicher (`@jm/app-runtime`) gehören nicht dem Timer; hier nur gelesen bzw. gerufen (nicht gelesen, abgeleitet) | `readControlConfig`, `folgeMasterShow` | Main | `main/index.ts:437`, `:427` | |
+| 184 | nicht gemerkt | Fensterposition und Größe beider Fenster werden nicht gemerkt (feste Werte im Konstruktor, abgeleitet) | – | – | `main/index.ts:81-98`, `:152-169` | |
+
+## 8 · IPC-Übersicht `window.jm` (Preload `preload/index.ts`)
+
+| Methode | Kanal | Aufrufer im Renderer | Bemerkung |
+|---|---|---|---|
+| `platform`, `versions` | – (Werte aus `process`) | **im Renderer ungenutzt** (`Topbar` nutzt `isElectronMac` aus `@jm/ui`) | |
+| `serverUrl` | – (Wert aus `PRELOAD_SERVER_URL`) | `sync/client.ts:15-17` | `http://127.0.0.1:7777`, siehe `shared/net.ts:24` |
+| `speaker.open` / `speaker.close` | `speaker:open` / `speaker:close` | **im Renderer ungenutzt** | Handler `main/index.ts:276-277`; das Tray ruft die Funktionen direkt |
+| `speaker.toggle` | `speaker:toggle` | `components/Topbar.tsx:63` | |
+| `speaker.isOpen` | `speaker:isOpen` | `components/Topbar.tsx:29` | |
+| `speaker.onStatus` | `speaker:status` (Ereignis) | `components/Topbar.tsx:30` | gesendet an den Operator beim Öffnen und Schließen |
+| `speaker.setFullscreen` / `speaker.isFullscreen` | `speaker:fullscreen` / `speaker:isFullscreen` | `views/Speaker.tsx:70`, `:48` | |
+| `remote.getUrls` | `remote:getUrls` | `components/RemoteInfo.tsx:30` | URLs mit Token, wenn Auth an ist |
+| `remote.getAddresses` | `remote:getAddresses` | **im Renderer ungenutzt** | |
+| `auth.get` / `auth.setEnabled` / `auth.regenerate` | `auth:get` / `auth:setEnabled` / `auth:regenerate` | `components/RemoteInfo.tsx:49`, `:64`, `:70` | |
+| `closeWindow` | `window:close` | **im Renderer ungenutzt** | |
+| `verbundAnzeige` / `onVerbundAnzeige` | `jmps:verbund-anzeige` (Aufruf und Ereignis, gleicher Name) | `components/Topbar.tsx:107-108` | Fehler beim Aufruf ergeben `null` |
+| (Master-Link) | `jmps:master-link` | **kein Preload-Feld, kein Renderer-Zugriff** (grep `master` in `preload/index.ts` und im Renderer: kein Treffer; der Timer-Preload hat kein `masterLink` und kein `onMasterLink`) | im Main über `initAppRuntime` bedient (abgeleitet, `packages/app-runtime/**` nicht gelesen) |
+| (Fernsteuerungs-Meldung) | – | **kein Kanal**: der Zustand des Steuerservers (Port 8724, Clients) erreicht den Renderer nicht | `startControlServer` liefert nur `ok`, `error`, `port` (`main/control-server.ts:105-107`); der Fehler steht nur im Log |
+| (Socket.IO) | `cmd` und `state` über Port 7777 | `sync/client.ts:51`, `:65` | gehört nicht zum Preload, ist aber der eigentliche Befehlsweg aller Bedienelemente |
+
+## 9 · Einstellungen nach Spec 6 / Anhang A (Zuordnung der Ist-Elemente)
+
+Die Abschnittsnamen folgen den Plan-Werten dieser App; die Spec selbst wurde dafür nicht erneut gelesen.
+
+| Abschnitt (Anhang A) | Ist-Elemente | Bemerkung (belegt) |
+|---|---|---|
+| Fernsteuerung (Companion, Port 8724) | Nr. 133-145 | im Renderer keine Anzeige, keine Einstellung; der Port ist fest (`CONTROL_PORT` `main/control-server.ts:30`); Verben ohne Capability: `PAUSE`, `NEXT`, `PREV`, `RELOAD` (Nr. 140-143) |
+| Speaker-Fenster | Nr. 15, 146, 148-151 | Knopf im Kopf und Tray-Eintrag; der Monitor wird automatisch gewählt (Nr. 148), eine Bildschirmwahl gibt es nicht |
+| LAN-Fernbedienung | Nr. 75-82, 152 | Modus „Remote“: URLs, Token, Auth an/aus, Regenerieren; ob der Server gerade lauscht, wird nicht gemeldet |
+| Farben (tool-eigen) | Nr. 83-87 | Modus „Farben“ (`settings`); Zustand `colors` aus dem Serverzustand |
+| Auto-Advance (tool-eigen) | Nr. 72-74, 110 | im Live-Bereich des Ablaufs, nicht in einer Einstellungsseite |
+| Delay (tool-eigen) | Nr. 65-71 | im Live-Bereich von Countdown und Ablauf-Karte |
+| Master-Link, Verbund | Nr. 13, 117-120 | im Renderer nur die V-Zeile; die Master-Link-Meldung selbst kommt nicht an (Abschnitt 8) |
+| Sync (Status) | Nr. 14, 75, 106 | `store.connected` vom Socket-Client; Pille im Kopf und in der Remote-Karte |
+| iveo (nur Status) | – | im Renderer keine Daten; der Ablauf kommt über `applyShowFromPath` im Main (Nr. 118-121), `currentShowPath` ist eine Main-Variable ohne IPC |
+| Ausgabe auf Bildschirm | Nr. 148 | keine Einstellung, nur die feste Regel im Main |
+| Projekt, Import | Nr. 37, 63, 88-102 | der Import-Dialog hängt am Modus Timetable |
+| Live (keine Einstellung) | Nr. 24-34, 35-62 | Countdown und Ablauf mit Haupttasten Start/Pause, Reset, Prev, Next |
+| Nachricht an den Speaker | Nr. 17-21, 160, 161 | Leiste in jedem Modus |
+
+## 10 · Befunde für den Umbau (belegt, ohne Wertung als Fehler)
+
+1. **Moduswert `Mode`:** der Typ führt fünf Werte, `'clock' | 'countdown' | 'timetable' | 'remote' | 'settings'`
+   (`store/timer.ts:11`). `remote` und `settings` sind heute Seiten der Seitenleiste (Nr. 7, 8); `views/Operator.tsx:18-22`
+   rendert je Wert genau eine Komponente. Hier steht nur der Bestand.
+2. **Falsche Versionszeile:** `components/Sidebar.tsx:53` zeigt fest „v0.1.0“, das Paket ist 0.14.1 (`apps/timer/package.json`).
+3. **Der Tastaturhandler des Countdowns nimmt nur `INPUT` und `TEXTAREA` aus** (`components/Countdown.tsx:41-42`), nicht
+   `BUTTON`, `SELECT`, `contentEditable`; er prüft keine Umschalttasten und sitzt am `window` (Nr. 154-156). Wirkung auf ein
+   künftiges Panel: abgeleitet, nicht gemessen.
+4. **Der Handler lebt nur im Modus Countdown:** beim Moduswechsel wird `Countdown` unmountet und mit ihm der Handler
+   (`views/Operator.tsx:18-22`, `components/Countdown.tsx:39-53`); im Ablauf gibt es keine Kürzel. Wäre ein Panel ein
+   weiterer `mode`, ginge der Handler beim Öffnen verloren.
+5. **Sperren ohne sichtbaren Grund:** Prev und Next am Rand (Nr. 41, 44), Reset (Nr. 33, 43), die Dauer-Felder
+   während des Laufs (Nr. 28, 29), das Grace-Feld bei Auto-Advance aus (Nr. 74) und „Blink“ ohne Text (Nr. 20) sind
+   `disabled` ohne Tooltip und ohne Text.
+6. **„Unbekannt“ erscheint als „Offline“:** `connected` beginnt mit `false` (`store/timer.ts:55`), die Pille zeigt vor dem
+   ersten Ereignis „Offline“ (Nr. 14); ein Befehl in dieser Zeit wird verworfen (Nr. 108).
+7. **Zustände, die der Renderer nicht kennt:** Lauf des Steuerservers und Zahl seiner Clients (Nr. 133, Abschnitt 8),
+   die Master-Link-Meldung (Abschnitt 8), ob der Server im LAN lauscht (Nr. 77), die Wahl des Monitors für den Speaker
+   (Nr. 148), die Show, aus der der Ablauf stammt (Nr. 182). Der Fehlerfall „Port 8724 belegt“ erscheint nur im Log
+   (`main/index.ts:446`).
+8. **Drei Fernsteuerungs-Verben und das Neuladen ohne Capability:** `PAUSE`, `NEXT`, `PREV` und `RELOAD`
+   (Nr. 140-143). `NEXT` und `PREV` sind eigene Verben und hängen nicht an `GOTO`
+   (`main/control-server.ts:83-90`); die Capability führt nur `start`, `stop`, `reset`, `add`, `set`, `goto`
+   (`packages/suite-control-protocol/src/capabilities.ts:182-187`).
+9. **Grenzen der Capability werden nicht erzwungen:** `ADD` (−3600 bis 3600) und `SET` (0 bis 86400) prüfen am Draht nur
+   auf eine endliche Zahl (Nr. 137, 138); `SET` kappt nur nach unten auf 0.
+10. **Presets „+1 min“ bis „+15 min“ setzen, sie addieren nicht** (Nr. 29); die Beschriftung trägt ein Plus.
+11. **Import „Ersetzen“ verwirft einen laufenden Countdown ohne Rückfrage:** `tt:setAll` setzt den Countdown zurück
+    (`shared/timer-state.ts:288-295`); im Timer gibt es keinen `window.confirm` (Nr. 104). Löschen, Token neu erzeugen und
+    Auth umschalten fragen ebenfalls nicht.
+12. **Texte gemischt:** englisch sind „Clock“, „Countdown“, „Timetable“, „Remote“, „Live Production“, „Running“, „Paused“,
+    „Idle“, „Start“, „Resume“, „Pause“, „Reset“, „Delay“, „Up next“, „Up Next“, „Open Speaker“, „Speaker · Open“, „Light“,
+    „Dark“, „Sync“, „Offline“, „Fullscreen“, „Exit Fullscreen“, „Done“, „Live“, „Load“; deutsch „Farben“, „Deaktivieren“,
+    „XLSX importieren“, „Plan“, „Endet“, die Erklärtexte und Fehler. Kein Texte-Modul (nicht gezählt, Stichprobe).
+13. **Rohe Farben:** `components/ColorPicker.tsx:8-13` und `:156` tragen vier Hex-Werte (Standardfarben des Timers, fachlich);
+    der Rest läuft über CSS-Variablen. Ein Treffer für `bg-black/60` in `components/XlsxImport.tsx:95`. Eine vollständige Suche
+    nach `neutral-`, `white`, `black` und `green-` wurde nicht gemacht (nicht gemessen).
+14. **Lokale Bausteine statt `@jm/ui`:** `components/AppShell.tsx`, `components/Sidebar.tsx`, `components/Topbar.tsx`,
+    `components/ui/StatusPill.tsx`, `components/ui/Input.tsx`, `components/ui/SectionHeader.tsx`, `components/ui/Headline.tsx`;
+    aus `@jm/ui` kommen nur `Logo`, `cn`, `dragRegion`, `noDragRegion`, `isElectronMac`, `Button`, `Card`. `@jm/settings` steht
+    nicht in `apps/timer/package.json` (nicht gemessen, ob nirgends sonst geladen).
+15. **Doppelte Anzeigen:** Delay erscheint in Kopfpille, Live-Karte und `DelayControls` (Nr. 25, 39, 65); der Sync-Zustand in
+    Kopf und Remote-Karte (Nr. 14, 75); das Statuswort in Countdown und Ablauf (Nr. 24, 35).
+16. **Speaker-Fenster:** Hintergrund `#121212` fest in beiden Fenstern (`main/index.ts:86`, `:157`), der erste Frame im
+    hellen Theme bleibt dunkel (abgeleitet). Der Speaker setzt kein Theme und hat keinen Theme-Knopf.
+17. **`standalone/server.ts`:** ein eigener Node-Server ohne Electron mit Kopfkommentar „npm run dev:codespace“; ein
+    solches Skript gibt es in `apps/timer/package.json` nicht (nur der Kopf der Datei gelesen, Inhalt und Befehlsregeln
+    nicht verglichen).
+18. **Nicht gemessen:** das Verhalten der nativen Farbwähler und Dateidialoge im gepackten Build, die Wirkung von Strg+R auf
+    den Countdown-Handler (Nr. 155, 171), die Höhe des Live-Bereichs bei 640 Einheiten Fensterhöhe, ob `@jm/regieplan` Datei
+    und Download selbst anstößt oder ein Fenster öffnet (Nr. 92, 93).
