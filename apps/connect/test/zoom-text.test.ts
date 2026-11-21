@@ -60,7 +60,7 @@ function status(g: number, configured: boolean, zoom: ZoomKurz | null): AppStatu
       grund: null, code: null, k: 0, empfaenger: null,
     })),
     ndiProgramm: { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: '', bereit: false },
-    presenterLinked: false, zoom,
+    presenterLinked: false, zoom, cloudZugang: { text: '', ton: 'ok' },
   };
 }
 

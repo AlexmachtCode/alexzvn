@@ -164,7 +164,7 @@ const SOLL: Array<[string, string | null | undefined, string]> = [
     'Verbindung zum Raum beendet: Die Anmeldung von Connect gilt 8 Stunden ab dem letzten „Raum öffnen“ und ist abgelaufen, Connect versucht es für die Bedienung nicht mehr. „Raum öffnen“ meldet Connect neu an, ohne einen verteilten Link ungültig zu machen; Bilder und Programm-Rückkanal können dabei kurz aussetzen.'],
   ['T144 (Zusatz bei bekanntem Raum-Zustand)', NDI_TEXT.t144Zusatz, ' Die Gästeliste zeigt den letzten Stand, die NDI-Abzeichen den aktuellen.'],
   ['T145', NDI_TEXT.t145, 'Remote-Zuschaltungen als NDI®-Quellen — Green Room'],
-  ['T146', NDI_TEXT.t146('R1'), 'Keine Verbindung zum Raum „R1“. Adresse und Proxy-Key prüfen — im Hintergrund wird weiter versucht.'],
+  ['T146', NDI_TEXT.t146('R1'), 'Keine Verbindung zum Raum „R1“. Adresse und Cloud-Zugang prüfen — im Hintergrund wird weiter versucht.'],
 ];
 for (const [id, ist, soll] of SOLL) ck(`S${id} wörtlich`, ist === soll);
 {
@@ -689,16 +689,16 @@ console.log('— C9 KF10: AppStatus über baueAppStatus (E44), Startwert APP_STA
   const zoom = { zustand: 'fehler' } as unknown as ZK;
   const s = baueAppStatus({
     configured: true, proxyBase: 'https://proxy.beispiel', proxyKeySource: 'session', controlPort: 9999,
-    ndiGaeste: [q], ndiProgramm: p, presenterLinked: true, zoom,
+    ndiGaeste: [q], ndiProgramm: p, presenterLinked: true, zoom, cloudZugang: { text: 'x', ton: 'ok' },
   });
   ck('C9 KF10: jedes Feld kommt aus einer Lage mit lauter abweichenden Werten durch',
-    gleich(s, { configured: true, proxyBase: 'https://proxy.beispiel', proxyKeySource: 'session', controlPort: 9999, ndiGaeste: [q], ndiProgramm: p, presenterLinked: true, zoom }) && s.zoom === zoom);
+    gleich(s, { configured: true, proxyBase: 'https://proxy.beispiel', proxyKeySource: 'session', controlPort: 9999, ndiGaeste: [q], ndiProgramm: p, presenterLinked: true, zoom, cloudZugang: { text: 'x', ton: 'ok' } }) && s.zoom === zoom);
   ck('C9 KF10: ndiProgramm samt hinweis kommt durch (T122)',
     s.ndiProgramm.hinweis === 'Switcher B' && s.ndiProgramm.quelle === 'REGIE (JM Switcher B)' && s.ndiProgramm.zustand === 'gescheitert'
       && s.ndiProgramm.grund === 'keinStart' && s.ndiProgramm.code === 7 && s.ndiProgramm.k === 3 && s.ndiProgramm.bereit === true);
   ck('C9 KF10: ndiGaeste mit jedem Feld der Lage (KF11)', gleich(s.ndiGaeste, [q]));
   ck('C9 E44: genau die acht Felder, ohne ndiSenders, programState, programSource',
-    gleich(Object.keys(s).sort(), ['configured', 'controlPort', 'ndiGaeste', 'ndiProgramm', 'presenterLinked', 'proxyBase', 'proxyKeySource', 'zoom']));
+    gleich(Object.keys(s).sort(), ['cloudZugang', 'configured', 'controlPort', 'ndiGaeste', 'ndiProgramm', 'presenterLinked', 'proxyBase', 'proxyKeySource', 'zoom']));
   q.zustand = 'sendet';
   p.hinweis = 'anders';
   ck('C9 KF10: die NDI-Lagen sind Kopien (eine spätere Änderung der Eingabe ändert den Status nicht)',
@@ -706,7 +706,7 @@ console.log('— C9 KF10: AppStatus über baueAppStatus (E44), Startwert APP_STA
   ck('C9 E44: APP_STATUS_START ist nichts Gemessenes: keine Gast-Quelle, Empfang aus, kein Zoom, nicht eingerichtet, Steuerport 8737',
     gleich(APP_STATUS_START, {
       configured: false, proxyBase: null, proxyKeySource: 'none', controlPort: 8737, ndiGaeste: [],
-      ndiProgramm: { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: '', bereit: false }, presenterLinked: false, zoom: null,
+      ndiProgramm: { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: '', bereit: false }, presenterLinked: false, zoom: null, cloudZugang: { text: '', ton: 'ok' },
     }));
 
   // Tray-Gästezeile und Tooltip über AppStatus (Regel R, TT): gaesteZeile/trayTooltip rechnen e/g/b/s/a und ndi_alarm aus der Lage.

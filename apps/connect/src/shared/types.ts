@@ -44,6 +44,8 @@ export interface ProxyInfo {
   url: string;
   keySource: ProxyKeySource;
   configured: boolean;
+  /** Zeile „Cloud-Zugang“ (Anmeldung Teil 2): fertiger Text und Ton aus dem Main. */
+  zugang: { text: string; ton: 'ok' | 'warn' | 'fehler' };
 }
 
 /** Laufzeit-/Konfigurations-Status der App (Main → Renderer). */
@@ -53,6 +55,8 @@ export interface AppStatus {
   proxyBase: string | null;
   /** Herkunft des PROXY_KEY — nie der Key selbst. */
   proxyKeySource: ProxyKeySource;
+  /** Zeile „Cloud-Zugang“ aus dem Halter (Anmeldung Teil 2): Text und Ton, nie ein Key oder eine Freigabe. */
+  cloudZugang: { text: string; ton: 'ok' | 'warn' | 'fehler' };
   /** Steuerport (Companion/Rundown). */
   controlPort: number;
   /** Lage je Gast-NDI-Quelle (Plan C, E44): jeder Eintrag von spinUp bis tearDown, in jedem Zustand (22.3). */
