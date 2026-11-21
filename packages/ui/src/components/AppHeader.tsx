@@ -89,6 +89,15 @@ export function AppHeader({
  * (LIVE_FLAECHE_KLASSE); sonst „bereit“ mit grünem ● und Text in Vordergrundfarbe. Nie nur Farbe.
  */
 function OnAirAnzeige({ live, label }: { live: boolean; label?: string }): React.JSX.Element {
+  // Stabile Region außen: Sie bleibt beim Wechsel live ↔ bereit erhalten, damit der Screenreader den Wechsel ansagt.
+  return (
+    <span role="status" data-bereich="onair">
+      <OnAirInhalt live={live} label={label} />
+    </span>
+  );
+}
+
+function OnAirInhalt({ live, label }: { live: boolean; label?: string }): React.JSX.Element {
   if (live) {
     return (
       <span

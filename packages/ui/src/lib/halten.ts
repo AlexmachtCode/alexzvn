@@ -11,6 +11,11 @@ export type HaltenQuelle = 'zeiger' | 'taste';
 
 export interface HaltenSteuerung {
   readonly gehalten: boolean;
+  /**
+   * Ein Druck begann unter Sperre: Der click, der darauf folgt (auch nach dem Entsperren), wirkt nicht. Gesetzt und
+   * gelöscht vom TallyButton (Druck unter Sperre / click, pointercancel, blur, frischer Druck); die Maschine selbst liest es nicht.
+   */
+  druckUnterSperre: boolean;
   druecken(quelle: HaltenQuelle): void;
   loslassen(quelle: HaltenQuelle): void;
   abbrechen(): void;
@@ -22,6 +27,7 @@ export function erzeugeHalten(r: HaltenRueckrufe): HaltenSteuerung {
   let gehaltenVon: HaltenQuelle | null = null;
   // Release zum Zeitpunkt des Drückens: Fehlt onRelease später im neuesten Satz, geht das Release nicht verloren.
   let gemerktesRelease: (() => void) | undefined;
+  let druckUnterSperre = false;
 
   const loesen = (): void => {
     gehaltenVon = null;
@@ -33,6 +39,12 @@ export function erzeugeHalten(r: HaltenRueckrufe): HaltenSteuerung {
   return {
     get gehalten(): boolean {
       return gehaltenVon !== null;
+    },
+    get druckUnterSperre(): boolean {
+      return druckUnterSperre;
+    },
+    set druckUnterSperre(wert: boolean) {
+      druckUnterSperre = wert;
     },
     druecken(quelle: HaltenQuelle): void {
       if (!rueckrufe.onPress && !rueckrufe.onRelease) return;
