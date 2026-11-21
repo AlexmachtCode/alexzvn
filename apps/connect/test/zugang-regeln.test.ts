@@ -48,6 +48,7 @@ ck('T10 QR1: Freigabe für dieses Ziel vor altem Key vor keinem; abgelehnter alt
 ck('T10 QR2: erneuern ohne Freigabe, bei anderem Ziel, unter 24 h Rest; Abstand 30 s',
   erneuernFaellig(null, 'a', J) && erneuernFaellig(F(), 'anders', J) && erneuernFaellig(F({ bis: J + 86_399_999 }), 'cop31-tag1', J)
     && !erneuernFaellig(F({ bis: J + 86_400_000 }), 'cop31-tag1', J) && versuchErlaubt(null, J) && !versuchErlaubt(J - 29_999, J) && versuchErlaubt(J - 30_000, J));
+ck('F4: versuchErlaubt: Uhr zurückgestellt (letzter in der Zukunft) → erlaubt', versuchErlaubt(J + 3 * 3_600_000, J) === true);
 ck('T10: Kopfzeilen je Zweck',
   JSON.stringify(zugangsKopf('connect-raum', { art: 'freigabe', f: F() })) === '{"Authorization":"Bearer jm1.test-a"}'
     && JSON.stringify(zugangsKopf('connect-raum', { art: 'alter-key', key: 'k1' })) === '{"X-Proxy-Key":"k1"}'

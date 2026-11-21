@@ -92,7 +92,8 @@ export function erneuernFaellig(f: ConnectFreigabe | null, ziel: string, jetzt: 
 
 /** Höchstens ein Versuch beim Launcher je FREIGABE_ABSTAND_MS. */
 export function versuchErlaubt(letzter: number | null, jetzt: number): boolean {
-  return letzter === null || jetzt - letzter >= FREIGABE_ABSTAND_MS;
+  // letzter > jetzt: die Uhr wurde zurückgestellt, das sperrt keinen neuen Versuch.
+  return letzter === null || letzter > jetzt || jetzt - letzter >= FREIGABE_ABSTAND_MS;
 }
 
 /** Kopfzeilen an den Worker: Freigabe als Bearer, alter Key je Zweck im alten Kopf, sonst keine. */

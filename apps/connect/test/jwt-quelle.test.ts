@@ -3,7 +3,7 @@ process.env.TZ = 'Europe/Berlin';
 import type { ZugangsWahl, ConnectFreigabe, ZugangsLage } from '../src/main/zugang/regeln';
 import type { ProxyKeySource } from '../src/shared/types';
 
-const { erzeugeJwtQuelle, holeServerJwt, devTtl, JWT_ERNEUERN_VOR_MS, JWT_MIN_REST_MS } = await import('../src/main/zoom/jwt-quelle');
+const { erzeugeJwtQuelle, holeServerJwt, devTtl, JWT_ERNEUERN_VOR_MS, JWT_MIN_REST_MS, JWT_WIEDERHOLEN_MS } = await import('../src/main/zoom/jwt-quelle');
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -213,6 +213,69 @@ ck('devTtl: 1800 und 43200 gelten, 1799, 43201, 2e3x, leer → null', devTtl({ J
     && aufrufe[1].init.body === undefined && h1['content-type'] === undefined
     && !c.ok && c.status === 0 && n === 2 && nach === 2 && d.ok && aufrufe.length === 3 && aufrufe[2].url === 'http://127.0.0.1:8787/zoom/jwt'
     && !e.ok && e.status === 502 && e.code === null && !g.ok && g.status === 0 && !h.ok && h.status === 503 && h.code === 'nicht-eingerichtet');
+}
+
+// Fix-Welle F2: Quelle bleibt Server, solange das Meeting das JWT braucht (auch nach `bis` laut lokaler Uhr).
+{
+  uhr = START;
+  const x = q();
+  await x.quelle.hole();
+  uhr = START + 43_170_000 + 60_000;
+  const y = q({ braucht: false });
+  uhr = START;
+  await y.quelle.hole();
+  uhr = START + 43_170_000 + 60_000;
+  const z = q({ lokal: LOKAL, server: schlecht(503) });
+  uhr = START;
+  await z.quelle.hole();
+  const lz = z.quelle.lage().quelle;
+  uhr = START + 43_170_000 + 60_000;
+  ck('F2: Server-JWT, Uhr über bis, brauchtJwt wahr → Quelle bleibt server', x.quelle.lage().quelle === 'server');
+  ck('F2: dasselbe mit brauchtJwt falsch → nicht server (wie bisher)', y.quelle.lage().quelle !== 'server');
+  ck('F2: lokal signiertes JWT bleibt lokal, nie server', lz === 'lokal' && z.quelle.lage().quelle === 'lokal');
+  uhr = START;
+}
+// Fix-Welle F3: Wiederholung nach Fehlschlag, Sperre durch stoppe().
+{
+  uhr = START;
+  const o: Partial<Opt> = {};
+  const x = q(o);
+  await x.quelle.hole();
+  const n0 = x.zeitgeber.length;
+  o.server = schlecht(500);
+  x.zeitgeber[n0 - 1].fn();
+  await new Promise((r) => setTimeout(r, 10));
+  const w = x.zeitgeber.slice(n0);
+  ck('F3: Konstante JWT_WIEDERHOLEN_MS = 300000', JWT_WIEDERHOLEN_MS === 300_000);
+  ck('F3: Erneuerung scheitert → genau ein neuer Zeitgeber mit 300000 ms', w.length === 1 && w[0].ms === 300_000);
+  o.server = gut;
+  w[0].fn();
+  await new Promise((r) => setTimeout(r, 10));
+  const w2 = x.zeitgeber.slice(n0 + 1);
+  ck('F3: danach Erfolg → Zeitgeber auf bis − 2 h', w2.length === 1 && w2[0].ms === 35_970_000);
+  const o2: Partial<Opt> = {};
+  const y = q(o2);
+  await y.quelle.hole();
+  const m0 = y.zeitgeber.length;
+  o2.server = schlecht(500);
+  o2.braucht = false;
+  y.zeitgeber[m0 - 1].fn();
+  await new Promise((r) => setTimeout(r, 10));
+  ck('F3: brauchtJwt falsch beim Feuern → kein neuer Zeitgeber', y.zeitgeber.length === m0);
+  const o3: Partial<Opt> = {};
+  const z = q(o3);
+  let frei: () => void = () => undefined;
+  const tor = new Promise<void>((r) => { frei = r; });
+  o3.server = (n) => { void tor; return gut(n); };
+  const h = z.quelle.hole();
+  z.quelle.stoppe();
+  frei();
+  await h;
+  ck('F3: stoppe() während eines laufenden hole() → danach kein Zeitgeber', z.zeitgeber.filter((t) => !t.weg).length === 0);
+  await z.quelle.hole();
+  ck('F3: stoppe() ist endgültig: auch ein späteres hole() stellt keinen Zeitgeber', z.zeitgeber.filter((t) => !t.weg).length === 0);
+  const alle = y.log.concat(x.log).join('\n');
+  ck('F3: Logzeilen ohne JWT und Freigabe', !alle.includes('test.jwt.') && !alle.includes('jm1.'));
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

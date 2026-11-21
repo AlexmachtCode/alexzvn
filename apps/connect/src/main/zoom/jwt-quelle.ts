@@ -14,6 +14,8 @@ import type { JwtGrund, ZoomAnmeldungLage } from '../zugang/regeln';
 
 /** Erneuern, sobald weniger als 2 h Rest bleiben. */
 export const JWT_ERNEUERN_VOR_MS = 7_200_000;
+/** Scheitert die Erneuerung, versucht die Quelle es nach 5 min erneut (solange das Meeting das JWT braucht). */
+export const JWT_WIEDERHOLEN_MS = 300_000;
 /** Ein gehaltenes JWT, das der Server nicht ersetzen kann, gilt noch bei mindestens 5 min Rest. */
 export const JWT_MIN_REST_MS = 300_000;
 /** Laufzeit des lokal signierten JWT (Übergang): 12 h. */
@@ -113,6 +115,8 @@ export function erzeugeJwtQuelle(d: JwtQuelleAbhaengigkeiten): JwtQuelle {
   let grund: JwtGrund | null = null;
   let detail: string | null = null;
   let geloescht = false;
+  let gestoppt = false;
+  let erneuerungen = 0;
 
   const iso = (ms: number): string => new Date(ms).toISOString();
   const dev = d.devTtlS !== null;
@@ -124,14 +128,29 @@ export function erzeugeJwtQuelle(d: JwtQuelleAbhaengigkeiten): JwtQuelle {
 
   function haltenUndPlanen(jwt: string, bis: number): void {
     ram = { jwt, bis };
+    erneuerungen++;
+    planeErneuern(Math.max(0, bis - JWT_ERNEUERN_VOR_MS - d.jetzt()));
+  }
+
+  /** Stellt den einen Zeitgeber für die erzwungene Erneuerung; nie mit devTtlS (E9), nie nach stoppe(). */
+  function planeErneuern(ms: number): void {
     stoppeZeitgeber();
-    if (dev) return; // E9: mit devTtlS gibt es nie einen Zeitgeber
-    const ms = Math.max(0, bis - JWT_ERNEUERN_VOR_MS - d.jetzt());
+    if (dev || gestoppt) return;
     timer = d.zeitgeber(ms, () => {
       timer = null;
-      if (!d.brauchtJwt()) return;
-      void hole(true).catch(() => undefined);
+      if (gestoppt || !d.brauchtJwt()) return;
+      const vorher = erneuerungen;
+      void hole(true).then(
+        () => { if (erneuerungen === vorher) wiederholen(); },
+        () => { wiederholen(); },
+      );
     });
+  }
+
+  function wiederholen(): void {
+    if (gestoppt || !d.brauchtJwt() || timer !== null) return;
+    d.log('[connect] Zoom-JWT: Erneuerung nicht gelungen, neuer Versuch in 5 min');
+    planeErneuern(JWT_WIEDERHOLEN_MS);
   }
 
   async function ablauf(erzwingen: boolean): Promise<JwtErgebnis> {
@@ -220,7 +239,8 @@ export function erzeugeJwtQuelle(d: JwtQuelleAbhaengigkeiten): JwtQuelle {
 
     lage() {
       const lg = d.halter.lage('zoom-jwt');
-      const server = zuletzt === 'server' && ram !== null && ram.bis > d.jetzt();
+      // Das Meeting braucht das JWT: die Quelle bleibt Server, auch wenn `bis` nach der lokalen Uhr verstrichen ist.
+      const server = zuletzt === 'server' && ram !== null && (ram.bis > d.jetzt() || d.brauchtJwt());
       const quelle: ZoomAnmeldungLage['quelle'] = server ? 'server' : zuletzt === 'lokal' ? 'lokal' : 'keine';
       return {
         quelle,
@@ -239,6 +259,7 @@ export function erzeugeJwtQuelle(d: JwtQuelleAbhaengigkeiten): JwtQuelle {
     },
 
     stoppe() {
+      gestoppt = true;
       stoppeZeitgeber();
     },
   };
