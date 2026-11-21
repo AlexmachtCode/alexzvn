@@ -4,6 +4,7 @@
 import { app, dialog, ipcMain, shell, type BrowserWindow, type OpenDialogOptions } from 'electron';
 import { join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
+import { buildJwt } from '@jm/zoom-bridge';
 import { resourcePath } from '@jm/electron-kit';
 import { IPC } from '@shared/ipc';
 import type { ZoomErgebnis, ZoomKurz } from '@shared/types';
@@ -12,7 +13,8 @@ import { zoomAktiv, zoomStateTeil } from './zoom/plattform';
 import { pruefeSlotEingabe } from './zoom/slot-eingabe';
 import { pruefeZugangEingabe } from './zoom/zugang-eingabe';
 import { pruefeSdkSchluesselEingabe } from './zoom/sdk-schluessel-eingabe';
-import { zugangsHalter } from './zugang/huelle';
+import { devTtl, erzeugeJwtQuelle, holeServerJwt, type JwtQuelle } from './zoom/jwt-quelle';
+import { beiZugangsAenderung, zugangsHalter } from './zugang/huelle';
 import { activeLabels } from './ndi-guests';
 import { setZoomControlState } from './control-server';
 import { aenderungsMelder } from './control-state';
@@ -54,6 +56,17 @@ declare const __dirname: string;
 const NICHTS: ZoomErgebnis = { ok: false, text: '' };
 
 let kern: ZoomKern | null = null;
+/** Die JWT-Quelle (Anmeldung Teil 2): hält das Server-JWT im RAM und erneuert es; der Kern holt es vor jedem Start der Bridge. */
+let jwtQuelle: JwtQuelle | null = null;
+
+/** Anmeldung oder Zugangsdaten haben sich geändert: Abbild neu. Läuft mitten in der Quelle oder im Halter und darf nie werfen. */
+function zugangGeaendert(): void {
+  try {
+    kern?.zugangGeaendert();
+  } catch (e) {
+    getLog().warn(`[zoom] Abbild nach Zugangsänderung nicht erneuert: ${e instanceof Error ? e.message : 'Fehler'}`);
+  }
+}
 /** Ein offener Ordner-/Datei-Dialog genügt: ein Doppelklick öffnet keinen zweiten. */
 let dialogOffen = false;
 /** Zoom-Teil des STATE an den Steuerserver, nur wenn sich einer der sieben Werte geändert hat (Spec 11.3). */
@@ -91,11 +104,25 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
   const basis = join(process.env.LOCALAPPDATA || join(app.getPath('home'), 'AppData', 'Local'), 'JM Connect', 'zoom-laufzeit');
   const ressourcen = resourcePath('', join(__dirname, '..', '..', 'resources'));
   try {
+    jwtQuelle = erzeugeJwtQuelle({
+      halter: zugangsHalter(),
+      holeServerJwt: (token, ttlS) => holeServerJwt(proxyUrl(), token, ttlS),
+      lokal: { lesen: zoomZugangLesen, loeschen: zoomZugangLoeschen },
+      signiereLokal: (z, ttlS) => buildJwt({ clientId: z.clientId, clientSecret: z.clientSecret, ttlSeconds: ttlS }),
+      devTtlS: devTtl(process.env),
+      brauchtJwt: () => kern?.brauchtJwt() ?? false,
+      jetzt: () => Date.now(),
+      zeitgeber: (ms, fn) => setTimeout(fn, ms),
+      loescheZeitgeber: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
+      log: (zeile) => getLog().info(zeile),
+      geaendert: zugangGeaendert,
+    });
     kern = erzeugeZoomKern({
       pfade: { basis, ressourcen },
       zugang: { lesen: zoomZugangLesen, speichern: zoomZugangSpeichern, loeschen: zoomZugangLoeschen },
       sdkSchluessel: { lesen: zoomSdkSchluesselLesen, speichern: zoomSdkSchluesselSpeichern, loeschen: zoomSdkSchluesselLoeschen },
       halter: zugangsHalter(),
+      jwt: jwtQuelle,
       einstellungen: {
         anzeigename: zoomAnzeigename,
         setzeAnzeigename: setzeZoomAnzeigename,
@@ -148,6 +175,8 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
     getLog().error('[zoom] Zoom-Kern ließ sich nicht anlegen:', e instanceof Error ? e.message : e);
     return;
   }
+  // Der Halter meldet jede Änderung der Freigaben (Anmeldung, Ablauf, Löschung der alten Schlüssel): die Zeile „Zoom-Anmeldung“ neu zeichnen.
+  beiZugangsAenderung(zugangGeaendert);
   // Erster STATE-Push: Der Kern meldet seinen Anfangszustand nicht über onKurz.
   meldeZoomState();
   registriereKanaele(kern, d);
@@ -317,6 +346,7 @@ export function zoomLaeuft(): boolean {
 
 /** Verlässt das Meeting und baut ab, höchstens `fristMs` lang (Spec 6.6). Ohne Kern sofort erledigt. */
 export function zoomBeenden(fristMs: number): Promise<void> {
+  jwtQuelle?.stoppe();
   if (!kern) return Promise.resolve();
   return kern.beenden(fristMs).catch((e: unknown) => {
     getLog().error('[zoom] Beenden fehlgeschlagen:', e instanceof Error ? e.message : e);

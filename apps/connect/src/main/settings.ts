@@ -224,7 +224,7 @@ function zoomGespeichertLesen(): GespeicherterZugang | null {
   return zoomGespeichert;
 }
 
-/** `unlesbar`: zoomZugangEnc ist da, lässt sich aber nicht entschlüsseln (Mangel zugang_unlesbar, A5). */
+/** `unlesbar`: zoomZugangEnc ist da, lässt sich aber nicht entschlüsseln (Abbild einrichtung.zugang.unlesbar, A5). */
 export function zoomZugangLesen(): { daten: ZoomZugangDaten | null; herkunft: ProxyKeySource; grund?: 'schreibfehler'; unlesbar: boolean } {
   const umgebung = zugangAusUmgebung(process.env);
   if (umgebung.fehler && !zoomUmgebungGewarnt) {

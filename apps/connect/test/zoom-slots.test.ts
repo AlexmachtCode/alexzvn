@@ -274,6 +274,14 @@ function baueKern(o: BaueOptionen = {}): Probe {
       lage: () => ({ wahl: 'keiner', konto: null, bis: null, letzterGrund: null, detail: null, altHerkunft: 'none', altAbgelehnt: false, versucht: false, geloescht: false }),
       tokens: () => [],
     },
+    // Das JWT kommt aus der Quelle (Anmeldung Teil 2, Task 15); die Slot-Fälle bekommen ein festes Server-JWT.
+    jwt: {
+      hole: async () => ({ ok: true, jwt: 'test-jwt-server', bis: Date.now() + 43_170_000, herkunft: 'server' }),
+      angemeldet: () => false,
+      lage: () => ({ quelle: 'server', grund: null, detail: null, konto: null, freigabeBis: null, devTtlS: null, versucht: true, geloescht: false }),
+      geheimnisse: () => ['test-jwt-server'],
+      stoppe: () => undefined,
+    },
     gastLabels: o.gastLabels ?? (() => []),
     log: (z) => logs.push(z),
     onAbbild: (a) => abbilder.push(a),

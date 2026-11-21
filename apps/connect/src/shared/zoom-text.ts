@@ -107,8 +107,6 @@ export const MANGEL_GRUND: Record<ZoomMangel, string> = {
   sdk_fehlt: 'SDK-Ordner fehlt',
   sdk_defekt: 'Zoom-Laufzeit unvollständig, bitte den SDK-Ordner erneut wählen',
   bridge_fehlt: 'Zoom-Bridge fehlt in dieser Installation, bitte JM Connect neu installieren',
-  zugang_fehlt: 'Zugangsdaten fehlen',
-  zugang_unlesbar: 'Zugangsdaten lassen sich nicht entschlüsseln, bitte erneut eintragen oder die Datei erneut wählen',
 };
 
 /** Spec 7.1: Zustand + Erlaubnis + n + k → Zeile der Tabelle; n = laufende Slots, k = Slots mit Ersatzbild (Slot-Spec 10.3). */
@@ -513,8 +511,8 @@ export function sdkKnopf(a: ZoomAbbild): 'SDK-Ordner wählen …' | 'Neu wählen
 
 /** Zugangsdaten-Zeile je Herkunft (Spec 9 Punkt 3); `unlesbar` geht vor. */
 export function zugangZeile(a: ZoomAbbild): string {
-  if (a.kurz.maengel.includes('zugang_unlesbar')) return 'Zugangsdaten: lassen sich nicht entschlüsseln';
   const z = a.einrichtung.zugang;
+  if (z.unlesbar) return 'Zugangsdaten: lassen sich nicht entschlüsseln';
   const je: Record<ProxyKeySource, string> = {
     stored: `Zugangsdaten: hinterlegt (Client-ID endet auf ${z.clientIdEnde ?? ''})`,
     session: z.grund === 'schreibfehler' ? TEXT_A4_SCHREIBFEHLER : TEXT_A4,

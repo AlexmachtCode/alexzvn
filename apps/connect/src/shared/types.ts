@@ -101,9 +101,7 @@ export type ZoomZustand =
 export type ZoomMangel =
   | 'sdk_fehlt'        // nie eingerichtet
   | 'sdk_defekt'       // pruefeLaufzeit Schritt 1–3 gescheitert (S9)
-  | 'bridge_fehlt'     // zoom-bridge.exe fehlt in der Installation (S8)
-  | 'zugang_fehlt'     // keine Zugangsdaten (B17)
-  | 'zugang_unlesbar'; // safeStorage kann sie nicht entschlüsseln (A5)
+  | 'bridge_fehlt';    // zoom-bridge.exe fehlt in der Installation (S8)
 
 /** 'entzogen': war 'ja', dann broadcast mit canRecordRaw:false (3.2-23). */
 export type ZoomErlaubnis = 'offen' | 'ja' | 'abgelehnt' | 'abgelaufen' | 'entzogen';
@@ -178,7 +176,10 @@ export interface ZoomAbbild {
       text: string | null;
     };
     /** `grund` nur bei `session`: 'schreibfehler' = Schlüsselbund da, die Einstellungsdatei ließ sich nicht schreiben. */
-    zugang: { herkunft: ProxyKeySource; grund?: 'schreibfehler'; clientIdEnde: string | null; text: string | null };
+    /** `unlesbar`: zoomZugangEnc ist da, lässt sich aber nicht entschlüsseln (P3; früher der Mangel zugang_unlesbar). */
+    zugang: { herkunft: ProxyKeySource; grund?: 'schreibfehler'; clientIdEnde: string | null; text: string | null; unlesbar: boolean };
+    /** Zeile „Zoom-Anmeldung“ (Anmeldung Teil 2): Quelle des JWT, Grund, Löschung der alten Zugangsdaten. */
+    anmeldung: { text: string; ton: 'ok' | 'warn' | 'fehler' };
     /** Nur die Herkunft, nie der Wert (Spec SDK nachladen 4.2). */
     sdkSchluessel: { herkunft: ProxyKeySource };
   };

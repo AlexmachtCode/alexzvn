@@ -372,7 +372,7 @@ export function ZoomCard(): JSX.Element {
   const frage = verlassenFrage && n > 0;
   const sperrTitel = kn.einrichtungAenderbar ? undefined : TEXT_S10;
   const zugangEntfernbar =
-    zugang.herkunft === 'stored' || zugang.herkunft === 'session' || k.maengel.includes('zugang_unlesbar');
+    zugang.herkunft === 'stored' || zugang.herkunft === 'session' || zugang.unlesbar;
   const antwortText = (ort: Ort): string | null => (antwort && antwort.ort === ort ? antwort.text : null);
   const einrichtungAntwort = antwortText('einrichtung');
   // „Zoom-SDK laden“: Tooltip S10 wie die Ordnerwahl (Spec SDK nachladen 4.5).

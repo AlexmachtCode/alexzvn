@@ -7,7 +7,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Bridge, type BridgeEvent, type Command, type Session } from '@jm/zoom-bridge';
+import { Bridge, buildJwt, type BridgeEvent, type Command, type Session } from '@jm/zoom-bridge';
 import { SDK_FASSUNG } from '@jm/zoom-bridge/sdk';
 import {
   ANZEIGENAME_VORGABE,
@@ -31,8 +31,9 @@ import {
   type LaufzeitPruefung,
 } from '../src/main/zoom/laufzeit';
 import type { SdkLadenDienste } from '../src/main/zoom/sdk-laden';
+import type { JwtErgebnis, JwtHerkunft, JwtQuelle } from '../src/main/zoom/jwt-quelle';
 import type { ZugangsHalter } from '../src/main/zugang/halter';
-import { grundText, ZIEL_ZOOM_SDK, ZUGANG_TEXT, type ZugangsLage, type ZugangsWahl } from '../src/main/zugang/regeln';
+import { grundText, jwtGrundText, ZIEL_ZOOM_SDK, ZUGANG_TEXT, type ZoomAnmeldungLage, type ZugangsLage, type ZugangsWahl } from '../src/main/zugang/regeln';
 import { SDK_PAKET } from '../src/main/zoom/sdk-paket';
 import type { ProxyKeySource, ZoomAbbild, ZoomErgebnis, ZoomKurz, ZoomSlotEinstellung } from '../src/shared/types';
 import {
@@ -105,6 +106,10 @@ interface Probe {
   halterZugang: Array<{ zweck: string; ziel: string }>;
   halterAntworten: Array<{ zweck: string; wahl: ZugangsWahl; status: number; code: string | null }>;
   halterBestaetigt(): number;
+  /** JWT-Quelle-Attrappe (Task 15): Reihenfolge von „hole“ und „fabrik“, Zahl der hole-Aufrufe, Herkünfte der angemeldet-Aufrufe. */
+  reihenfolge: string[];
+  jwtHoleZahl(): number;
+  angemeldetAufrufe: JwtHerkunft[];
   /** Der Halter löscht den alten SDK-Schlüssel im selben Speicher, den der Kern liest (huelle.ts). */
   sdkSchluesselWeg(): void;
   richteEinAufrufe(): number;
@@ -145,6 +150,14 @@ interface BaueOptionen {
   halter?: Partial<ZugangsHalter>;
   /** Felder der Lage, die der Halter liefert (Vorgabe: Freigabe gewählt, nichts gelöscht). */
   halterLage?: Partial<ZugangsLage>;
+  /** JWT-Quelle (Task 15): Vorgabe liefert ein Server-JWT; einzelne Funktionen überschreibbar. */
+  jwt?: Partial<JwtQuelle>;
+  /** Herkunft des JWT, das die Vorgabe von `hole` liefert (Vorgabe 'server'). */
+  jwtHerkunft?: JwtHerkunft;
+  /** Was `angemeldet` für 'server' meldet (Vorgabe false). */
+  angemeldetLiefert?: boolean;
+  /** Felder der Lage, die die JWT-Quelle liefert (Vorgabe: Server, Maria S. · Kollege). */
+  jwtLage?: Partial<ZoomAnmeldungLage>;
   /** Dienste für „Zoom-SDK laden“ (Attrappen); ohne Angabe die echten aus sdk-laden.ts gegen https://proxy.test. */
   sdkLaden?: Partial<SdkLadenDienste>;
   /** Wartezeiten vor den Wiederbeitritts-Versuchen 1–5 in ms (Spec 12.2: einspeisbar). Vorgabe hier [30, 30, 30, 30, 30]. */
@@ -190,6 +203,9 @@ function baueKern(o: BaueOptionen = {}): Probe {
   const halterZugang: Probe['halterZugang'] = [];
   const halterAntworten: Probe['halterAntworten'] = [];
   let halterBestaetigt = 0;
+  const reihenfolge: string[] = [];
+  const angemeldetAufrufe: JwtHerkunft[] = [];
+  let jwtHoleZahl = 0;
   const halter: ZugangsHalter = {
     zugang: async (zweck, ziel) => {
       halterZugang.push({ zweck, ziel });
@@ -206,6 +222,22 @@ function baueKern(o: BaueOptionen = {}): Probe {
     tokens: () => ['jm1.test-sdk'],
     ...o.halter,
   };
+  const jwtVorgabe = o.jwt?.hole ?? (async () => ({ ok: true as const, jwt: 'test-jwt-server', bis: Date.now() + 43_170_000, herkunft: o.jwtHerkunft ?? ('server' as const) }));
+  const jwtQuelle: JwtQuelle = {
+    angemeldet: (h) => {
+      angemeldetAufrufe.push(h);
+      return o.angemeldetLiefert ?? false;
+    },
+    lage: () => ({ quelle: 'server', grund: null, detail: null, konto: { name: 'Maria S.', stufe: 'kollege' }, freigabeBis: Date.now() + 72 * 3600_000, devTtlS: null, versucht: true, geloescht: false, ...o.jwtLage }),
+    geheimnisse: () => ['test-jwt-server'],
+    stoppe: () => undefined,
+    ...o.jwt,
+    hole: () => {
+      jwtHoleZahl += 1;
+      reihenfolge.push('hole');
+      return jwtVorgabe();
+    },
+  };
   let versatzNurSitzung = false;
   let personNurSitzung = false;
   const gesendet: Probe['gesendet'] = [];
@@ -219,6 +251,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
   };
   const fabrik: BridgeFabrik = (opts, nr) => {
     startZahl += 1;
+    reihenfolge.push('fabrik');
     const b = new Bridge({
       ...opts,
       exePath: o.exeAusKern ? opts.exePath : process.execPath,
@@ -348,6 +381,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
       },
     },
     halter,
+    jwt: jwtQuelle,
     gastLabels: o.gastLabels ?? (() => []),
     log: (z) => logs.push(z),
     onAbbild: (a) => abbilder.push(a),
@@ -374,6 +408,9 @@ function baueKern(o: BaueOptionen = {}): Probe {
     halterZugang,
     halterAntworten,
     halterBestaetigt: () => halterBestaetigt,
+    reihenfolge,
+    jwtHoleZahl: () => jwtHoleZahl,
+    angemeldetAufrufe,
     sdkSchluesselWeg: () => {
       if (sdkSchluessel.herkunft !== 'env') sdkSchluessel = { wert: null, herkunft: 'none' };
     },
@@ -477,7 +514,7 @@ console.log('— Mängel beim Start (Fall 1, erster Teil)');
   const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, laufzeit: { pruefe: () => ({ ok: false, mangel: 'sdk_fehlt' }) } });
   const k = p.kern.kurz();
   ck('Laufzeit fehlt + kein Zugang → einrichtung', k.zustand === 'einrichtung' && zoomZ(k) === 'Z1a');
-  ck('… Mängel in der Reihenfolge Laufzeit, Zugang', JSON.stringify(k.maengel) === '["sdk_fehlt","zugang_fehlt"]');
+  ck('… Mängel in der Reihenfolge Laufzeit, Zugang', JSON.stringify(k.maengel) === '["sdk_fehlt"]');
   ck('… STATE zoom_status=einrichtung, zoom_alarm=0', p.kern.stateKv()?.zoom_status === 'einrichtung' && p.kern.stateKv()?.zoom_alarm === 0);
   const a = p.kern.abbild();
   ck('… SDK „fehlt“ ohne Fassung, Zugang „none“ ohne Client-ID', a.einrichtung.sdk.stand === 'fehlt' && a.einrichtung.sdk.fassung === null
@@ -504,7 +541,8 @@ console.log('— Mängel beim Start (Fall 1, erster Teil)');
 {
   const p = baueKern({ zugang: { daten: null, herkunft: 'none', unlesbar: true } });
   ck('Zugang unlesbar → Mangel zugang_unlesbar, Text A5',
-    JSON.stringify(p.kern.kurz().maengel) === '["zugang_unlesbar"]' && p.kern.abbild().einrichtung.zugang.text === KT.A5);
+    JSON.stringify(p.kern.kurz().maengel) === '[]' && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.zugang.unlesbar === true
+    && p.kern.abbild().einrichtung.zugang.text === KT.A5);
   await p.aufraeumen();
 }
 {
@@ -535,7 +573,7 @@ console.log('— Zugangsdaten wählen und entfernen (6.1, A1–A6)');
   ck('ohne Felder → A2', text(p.kern.zugangWaehlen(leer)) === KT.A2);
   ck('fehlende Datei → A3 mit ENOENT', text(p.kern.zugangWaehlen(join(dir, 'fehlt.json'))) === KT.A3('ENOENT'));
   ck('… der letzte Fehler steht im Abbild, nichts gespeichert',
-    p.kern.abbild().einrichtung.zugang.text === KT.A3('ENOENT') && p.zugangGespeichert.length === 0 && p.kern.kurz().zustand === 'einrichtung');
+    p.kern.abbild().einrichtung.zugang.text === KT.A3('ENOENT') && p.zugangGespeichert.length === 0 && p.kern.kurz().zustand === 'bereit');
   const gut = join(dir, 'gut.json');
   writeFileSync(gut, '\uFEFF{"clientId":"datei-id-1234","clientSecret":"datei-secret"}');
   const r4 = p.kern.zugangWaehlen(gut);
@@ -545,8 +583,8 @@ console.log('— Zugangsdaten wählen und entfernen (6.1, A1–A6)');
   ck('… Mangel weg, bereit, Client-ID endet auf 1234, kein Fehlertext',
     a.kurz.zustand === 'bereit' && a.einrichtung.zugang.herkunft === 'stored' && a.einrichtung.zugang.clientIdEnde === '1234' && a.einrichtung.zugang.text === null);
   ck('… Secret weder im Abbild noch im Log', !JSON.stringify(a).includes('datei-secret') && !p.logs.some((z) => z.includes('datei-secret')));
-  ck('Entfernen → Mangel zugang_fehlt, einrichtung', ok(p.kern.zugangLoeschen()) && JSON.stringify(p.kern.kurz().maengel) === '["zugang_fehlt"]'
-    && p.kern.kurz().zustand === 'einrichtung');
+  ck('Entfernen → Mangel zugang_fehlt, einrichtung', ok(p.kern.zugangLoeschen()) && JSON.stringify(p.kern.kurz().maengel) === '[]'
+    && p.kern.kurz().zustand === 'bereit');
   rmSync(dir, { recursive: true, force: true });
   await p.aufraeumen();
 }
@@ -614,7 +652,7 @@ console.log('— Zugangsdaten von Hand eintragen (A7, S10, A4)');
     const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
     const r = p.kern.zugangEintragen(e);
     ck(`${name} → A7, nichts gespeichert, Zustand bleibt`, text(r) === KT.A7 && p.zugangGespeichert.length === 0
-      && p.kern.kurz().zustand === 'einrichtung');
+      && p.kern.kurz().zustand === 'bereit');
     ck('… A7 ist ein Eingabefehler: kein A7 im Abbild', !JSON.stringify(p.kern.abbild()).includes(KT.A7));
     const teile = [e.clientId, e.clientSecret, e.clientId.trim(), e.clientSecret.trim(), 'id-test', 'geheim']
       .flatMap((w) => [w, ...w.split(/\s+/)]).filter((w) => w.length >= 3);
@@ -858,7 +896,7 @@ console.log('— Bild-Versatz speichern (6.7), Schließen/Meldung in Z1/Z2 (6.8)
 {
   const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
   p.kern.schliessen();
-  ck('Schließen in Z1a ändert nichts', p.kern.kurz().zustand === 'einrichtung' && JSON.stringify(p.kern.kurz().maengel) === '["zugang_fehlt"]');
+  ck('Schließen in Z1a ändert nichts', p.kern.kurz().zustand === 'bereit' && JSON.stringify(p.kern.kurz().maengel) === '[]');
   await p.aufraeumen();
 }
 
@@ -915,7 +953,9 @@ console.log('— Fix-Runde 1: Diagnosen der Laufzeit ins Log (Spec 8.7)');
 // ── Aufgabe 11: Startfolge, Generationen, „Einrichtung prüfen“ ──────────────
 console.log('— Einrichtung prüfen (Fall 24, 28), Startfolge S-d');
 {
-  const p = baueKern({ versatzMs: 120 });
+  // Das JWT kommt aus der Quelle; hier ein lokal signiertes (Übergang), damit die 12 h der Signatur geprüft bleiben.
+  const lokalJwt = buildJwt({ clientId: 'test-id-1234', clientSecret: 'test-secret', ttlSeconds: 43_200 });
+  const p = baueKern({ versatzMs: 120, jwt: { hole: async () => ({ ok: true, jwt: lokalJwt, bis: Date.now() + 43_200_000, herkunft: 'lokal' }) } });
   const lauf = p.kern.pruefen();
   ck('Fall 24: während der Prüfung Zustand bereit, pruefungLaeuft, laeuft()',
     p.kern.kurz().zustand === 'bereit' && p.kern.abbild().pruefungLaeuft && p.kern.laeuft());
@@ -972,7 +1012,7 @@ console.log('— Startfolge: Fehler (Fall 24b, 7, 6, B9, S9) und Umgebung (Fall 
   await p.aufraeumen();
 }
 {
-  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }) });
+  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }), jwtHerkunft: 'lokal' });
   const r = await p.kern.pruefen();
   ck('Anmeldung abgelehnt (Code 2) → B9 mit AUTHRET_KEYORSECRETWRONG', text(r) === KT.B9('AUTHRET_KEYORSECRETWRONG'));
   ck('… detail AUTHRET_KEYORSECRETWRONG (2)', p.kern.abbild().meldung?.detail === 'AUTHRET_KEYORSECRETWRONG (2)');
@@ -1043,11 +1083,11 @@ async function insMeeting(p: Probe, kenncode = KENNCODE): Promise<boolean> {
 
 console.log('— Beitritt (Fall 1 zweiter Teil, 2, 5, 8, 24c), Review Focus 1 und 5');
 {
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
+  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, jwt: { hole: async () => ({ ok: false, grund: 'kein-launcher', detail: null }) } });
   const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
-  ck('Fall 1: Zugangsdaten fehlen → B17, keine Bridge', text(r) === KT.B17 && p.starts() === 0);
-  ck('… Zustand einrichtung, STATE zoom_status=einrichtung', p.kern.kurz().zustand === 'einrichtung' && p.kern.stateKv()?.zoom_status === 'einrichtung');
-  ck('… nichts im Arbeitsspeicher', !p.kern.abbild().erneutMoeglich);
+  ck('Fall 1: Zugangsdaten fehlen → ZA7 statt B17, keine Bridge', text(r) === ZUGANG_TEXT.ohneAnmeldung(jwtGrundText('kein-launcher')) && p.starts() === 0);
+  ck('… Zustand fehler (kein Einrichtungsmangel), STATE zoom_status=fehler', p.kern.kurz().zustand === 'fehler' && p.kern.stateKv()?.zoom_status === 'fehler');
+  ck('… Nummer und Kenncode bleiben: „Erneut beitreten“ möglich', p.kern.abbild().erneutMoeglich);
   await p.aufraeumen();
 }
 {
@@ -1224,7 +1264,7 @@ console.log('— Letztes Meeting (#290)');
   await p.aufraeumen();
 }
 {
-  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }) });
+  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }), jwtHerkunft: 'lokal' });
   const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
   ck('Fall 5: Anmeldung abgelehnt → B9, Zustand fehler', text(r) === KT.B9('AUTHRET_KEYORSECRETWRONG') && p.kern.kurz().zustand === 'fehler');
   ck('… kein join in der Befehlsfolge', !cmds(p).includes('join'));
@@ -1377,6 +1417,7 @@ console.log('— Meeting-Ende (Fall 19, 28), Beenden (Fall 20)');
 {
   const p = baueKern({ skript: 'stuck', fristen: { killTimeoutMs: 300 } });
   const lauf = p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  await bis(() => p.starts() === 1); // das JWT kommt vor der Bridge (Task 15): erst wenn sie läuft, gibt es etwas zu töten
   const t0 = Date.now();
   await p.kern.beenden(15_000);
   ck('Fall 20 (stuck): Ende per Kill nach killTimeoutMs', Date.now() - t0 < 2000 && p.logs.includes('[zoom] Zoom-Bridge hart beendet'));
@@ -1468,6 +1509,7 @@ console.log('— Verlassen (Fall 26, Review Focus 2) und Wiederbeitritt (Fall 16
 {
   const p = baueKern();
   const lauf = p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  await bis(() => p.starts() === 1); // das JWT kommt vor der Bridge (Task 15)
   await p.kern.verlassen();
   ck('Verlassen während startet → bereit, keine Meldung', p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null);
   ck('… der Beitritt liefert ok:false ohne Text', text(await lauf) === '');
@@ -2367,7 +2409,7 @@ console.log('— Entfernen bei nicht schreibbarer Einstellungsdatei (Gesamtprüf
   const vor = p.logs.length;
   const r = p.kern.zugangLoeschen();
   ck('Zugangsdaten entfernen, Datei nicht schreibbar → „nur für diese Sitzung entfernt“, Mangel zugang_fehlt',
-    text(r) === TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT && p.kern.kurz().zustand === 'einrichtung' && p.kern.kurz().maengel.includes('zugang_fehlt'));
+    text(r) === TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT && p.kern.kurz().zustand === 'bereit' && p.kern.kurz().maengel.length === 0);
   ck('… die Logzeile sagt es, statt „Zugangsdaten entfernt“',
     p.logs.slice(vor).includes('[zoom] Zugangsdaten nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)')
       && !p.logs.slice(vor).includes('[zoom] Zugangsdaten entfernt'));
@@ -2925,6 +2967,119 @@ console.log('— Slot-Einstellungen erscheinen sofort im Abbild, auch ohne laufe
   ck('abgelehnt (unbekannter Slot): ok false', !ok(p.kern.slotAendern(999, { ersatzbild: 'weiss' })));
   await warte(50);
   ck('… kein neues Abbild', p.abbilder.length === vorX);
+  await p.aufraeumen();
+}
+
+// ── Task 15 (Anmeldung Teil 2): JWT aus der Quelle vor dem Start, Zugang kein Einrichtungsmangel, Masken ──
+console.log('— Task 15 · JWT vor dem Start der Bridge, Zugang ohne Mangel, B9s/B10s, Masken');
+const T15_OK: JwtErgebnis = { ok: true, jwt: 'test-jwt-server', bis: Date.now() + 43_170_000, herkunft: 'server' };
+{
+  const p = baueKern();
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  await bis(() => p.gesendet.some((c) => c.cmd === 'auth'));
+  ck('T15 R6: Beitritt holt das JWT vor dem Start der Bridge; auth bekommt genau dieses JWT',
+    ok(r) && p.reihenfolge.join(',') === 'hole,fabrik' && p.gesendet.some((c) => c.cmd === 'auth' && c.jwt === 'test-jwt-server'));
+  ck('T15: brauchtJwt() ist in den Zuständen startet bis abriss wahr, sonst falsch',
+    (await bis(() => p.kern.kurz().zustand === 'im_meeting')) && p.kern.brauchtJwt() === true);
+  await p.kern.verlassen();
+  ck('… nach dem Verlassen (bereit) falsch', p.kern.kurz().zustand === 'bereit' && p.kern.brauchtJwt() === false);
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ jwt: { hole: async () => ({ ok: false, grund: 'kein-launcher', detail: null }) } });
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
+  ck('T15 ➕1e: kein JWT (kein-launcher) → Zustand fehler, Meldung ZA7 mit CG1, keine Mängel, Nummer und Kenncode bleiben, „Erneut beitreten“ möglich, keine Bridge',
+    !ok(r) && p.kern.kurz().zustand === 'fehler' && p.kern.abbild().meldung?.text === 'Ohne Zoom-Anmeldung kein Beitritt. Kein Launcher mit Anmeldung gefunden. Starte den Launcher und melde dich dort an.'
+      && p.kern.kurz().maengel.length === 0 && p.kern.abbild().erneutMoeglich === true && p.starts() === 0);
+  ck('… der Kenncode „kein-launcher“ steht im detail, kein Geheimnis im Abbild', p.kern.abbild().meldung?.detail === 'kein-launcher' && !JSON.stringify(p.kern.abbild()).includes('test-jwt-server'));
+  await p.aufraeumen();
+}
+console.log('— Task 15 · 6.4 Wiederbeitritt holt das JWT je Versuch neu');
+{
+  const stell = (n: number): Record<string, string> => (n === 1 ? { FAKE_VERBINDUNG_WEG_MS: '300' } : {});
+  // (a) Die Quelle liefert aus dem RAM, ohne Launcher: jeder Versuch holt zuerst das JWT, dann die Bridge.
+  const a = baueKern({ stell, jwt: { hole: async () => T15_OK } });
+  ck('T15 6.4 (a): Beitritt', await insMeeting(a));
+  ck('… Wiederbeitritt: zweite Bridge, wieder im Meeting', await bis(() => a.starts() === 2 && a.kern.kurz().zustand === 'im_meeting', 5000));
+  ck('… Reihenfolge hole, fabrik, hole, fabrik', a.reihenfolge.join(',') === 'hole,fabrik,hole,fabrik');
+  await a.aufraeumen();
+  // (b) server-nicht-erreichbar ist vorübergehend: der nächste Versuch kommt nach Plan, ohne dass eine Bridge entsteht.
+  let nb = 0;
+  const b = baueKern({ stell, jwt: { hole: async () => (++nb === 2 ? { ok: false, grund: 'server-nicht-erreichbar', detail: null } : T15_OK) } });
+  ck('T15 6.4 (b): Beitritt', await insMeeting(b));
+  ck('… Versuch 1 scheitert vorübergehend, Versuch 2 holt das JWT neu und kommt ins Meeting',
+    await bis(() => b.starts() === 2 && b.kern.kurz().zustand === 'im_meeting', 5000) && b.jwtHoleZahl() === 3
+      && b.reihenfolge.join(',') === 'hole,fabrik,hole,hole,fabrik'
+      && b.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 gescheitert nach \d+ ms \(vorübergehend\)$/.test(z)));
+  await b.aufraeumen();
+  // (c) kein-recht ist endgültig: die Folge endet, es entsteht keine zweite Bridge.
+  let nc = 0;
+  const c = baueKern({ stell, jwt: { hole: async () => (++nc === 2 ? { ok: false, grund: 'kein-recht', detail: null } : T15_OK) } });
+  ck('T15 6.4 (c): Beitritt', await insMeeting(c));
+  ck('… kein-recht → fehler mit ZA7 hinter „Wiederbeitritt abgebrochen“, endgültig, keine zweite Bridge',
+    (await bis(() => c.kern.kurz().zustand === 'fehler', 5000)) && c.starts() === 1 && c.jwtHoleZahl() === 2
+      && c.kern.abbild().meldung?.text === VORSATZ.wiederbeitritt + ZUGANG_TEXT.ohneAnmeldung(jwtGrundText('kein-recht', null))
+      && c.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 gescheitert nach \d+ ms \(endgültig\)$/.test(z)));
+  await c.aufraeumen();
+}
+{
+  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, jwtLage: { quelle: 'keine' } });
+  ck('T15 5.3: ohne lokale Zugangsdaten und ohne Freigabe ist Zoom bereit (nur Laufzeit-Mängel)',
+    p.kern.kurz().zustand === 'bereit' && p.kern.kurz().maengel.length === 0 && p.kern.stateKv()?.zoom_status === 'bereit');
+  await p.aufraeumen();
+  const q = baueKern({ zugang: { daten: null, herkunft: 'none' }, laufzeit: { pruefe: () => ({ ok: false, mangel: 'sdk_fehlt' }) } });
+  ck('… mit fehlendem SDK nur der Laufzeit-Mangel', JSON.stringify(q.kern.kurz().maengel) === '["sdk_fehlt"]' && q.kern.kurz().zustand === 'einrichtung');
+  await q.aufraeumen();
+}
+{
+  const s = baueKern({ angemeldetLiefert: true });
+  ck('T15 OT9: auth 0 mit Server-JWT → angemeldet(server) einmal, Hinweis ZA5 einmal; mit lokalem JWT → angemeldet(lokal), kein Hinweis',
+    (await insMeeting(s)) && s.angemeldetAufrufe.join(',') === 'server'
+      && s.kern.abbild().hinweise.filter((h) => h === ZUGANG_TEXT.zugangGeloescht).length === 1);
+  await s.aufraeumen();
+  const l = baueKern({ jwtHerkunft: 'lokal' });
+  ck('… lokales JWT: angemeldet(lokal) einmal, kein Hinweis ZA5',
+    (await insMeeting(l)) && l.angemeldetAufrufe.join(',') === 'lokal' && !l.kern.abbild().hinweise.includes(ZUGANG_TEXT.zugangGeloescht));
+  await l.aufraeumen();
+}
+{
+  const B9S = 'Zoom hat die Anmeldung abgelehnt: Die Zoom-Zugangsdaten auf dem Server stimmen nicht (AUTHRET_KEYORSECRETWRONG). Sag einem Admin Bescheid.';
+  const B10S = 'Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token vom Server passt nicht (AUTHRET_JWTTOKENWRONG). Meist geht die Uhr dieses PCs falsch; sonst stimmen die Zugangsdaten auf dem Server nicht.';
+  const B10 = 'Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token passt nicht (AUTHRET_JWTTOKENWRONG). Meist stimmen die Zugangsdaten nicht, oder die Uhr dieses PCs geht falsch.';
+  const meld = async (code: string, herkunft: JwtHerkunft): Promise<string | null> => {
+    const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: code }), jwtHerkunft: herkunft });
+    const t = text(await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' }));
+    await p.aufraeumen();
+    return t;
+  };
+  ck('T15 B9/B10: Auth-Code 2 und 11 mit Server-JWT → B9s, B10s wörtlich; mit lokalem JWT → B9, B10 wie bisher',
+    (await meld('2', 'server')) === B9S && (await meld('11', 'server')) === B10S
+      && (await meld('2', 'lokal')) === KT.B9('AUTHRET_KEYORSECRETWRONG') && (await meld('11', 'lokal')) === B10 && KT.B10 === B10);
+}
+{
+  const p = baueKern();
+  const r = await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'Regie jm1.test-sdk' });
+  await bis(() => p.logs.some((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"join"')));
+  const auth = p.logs.find((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"auth"'));
+  const join = p.logs.find((z) => z.startsWith('[zoom-bridge] ATTRAPPE empfing:') && z.includes('"join"'));
+  ck('T15 8.7: Bridge-Logzeile mit test-jwt-server und jm1.test-sdk → beide als •••',
+    ok(r) && auth !== undefined && auth.includes('•••') && !auth.includes('test-jwt-server')
+      && join !== undefined && join.includes('Regie •••') && !join.includes('jm1.test-sdk'));
+  const alles = JSON.stringify(p.kern.abbild()) + JSON.stringify(p.kern.stateKv()) + JSON.stringify(p.kern.kurz());
+  ck('… das JWT steht weder im Abbild noch in STATE/Kurzform, keine [zoom-bridge]-Zeile trägt es',
+    !alles.includes('test-jwt-server') && !p.logs.some((z) => z.startsWith('[zoom-bridge]') && z.includes('test-jwt-server')));
+  await p.aufraeumen();
+}
+{
+  const p = baueKern({ fristen: { abbildTaktMs: 0 } });
+  const a = p.kern.abbild();
+  ck('T15: Einrichtung zeigt die Zeile Zoom-Anmeldung aus anmeldungZeile (ZA1 bei Server-Lage)',
+    a.einrichtung.anmeldung.text.startsWith('Zoom-Anmeldung über den Launcher (Maria S. · Kollege)') && a.einrichtung.anmeldung.ton === 'ok');
+  ck('… P3: unlesbar steht im Abbild (hier falsch), nicht mehr als Mangel', a.einrichtung.zugang.unlesbar === false);
+  const vor = p.abbilder.length;
+  p.kern.zugangGeaendert();
+  await warte(50);
+  ck('T15: zugangGeaendert() erzeugt ein neues Abbild', p.abbilder.length > vor);
   await p.aufraeumen();
 }
 
