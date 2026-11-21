@@ -195,6 +195,8 @@ export function Timetable() {
               </span>
             </div>
 
+            <div className="overflow-x-auto">
+            <div className="min-w-[920px] flex flex-col gap-3">
             <div className="grid grid-cols-[36px_minmax(0,1fr)_96px_120px_minmax(0,1fr)_96px_136px] gap-3 px-4 py-2 text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)] font-extrabold">
               <span className="text-center">#</span>
               <span>Titel</span>
@@ -227,6 +229,8 @@ export function Timetable() {
                   />
                 );
               })}
+            </div>
+            </div>
             </div>
           </div>
         </Card>

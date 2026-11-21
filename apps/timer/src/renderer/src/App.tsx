@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { connect, resolveServerUrl } from '@/sync/client';
 import { useStore } from '@/store/timer';
+import { verbindungNach, type VerbindungsEreignis } from '@/lib/oberflaeche';
 import { OperatorView } from '@/views/Operator';
 import { SpeakerView } from '@/views/Speaker';
 
@@ -21,10 +22,17 @@ export function App() {
   const [verbindungBekannt, setVerbindungBekannt] = useState(false);
 
   useEffect(() => {
-    connect(resolveServerUrl(), applyServerState, (c) => {
-      setConnected(c);
+    const melde = (e: VerbindungsEreignis): void => {
+      setConnected(verbindungNach(e));
       setVerbindungBekannt(true);
-    });
+    };
+    const socket = connect(resolveServerUrl(), applyServerState, (c) => melde(c ? 'connect' : 'disconnect'));
+    // Ein gescheiterter erster Aufbau (Server aus, Port belegt, unauthorised) meldet nur connect_error, nie disconnect.
+    const onFehler = (): void => melde('connect_error');
+    socket.on('connect_error', onFehler);
+    return () => {
+      socket.off('connect_error', onFehler);
+    };
   }, [applyServerState, setConnected]);
 
   const view = detectView();

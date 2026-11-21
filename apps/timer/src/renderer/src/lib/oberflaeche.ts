@@ -97,6 +97,29 @@ export function laufPille(laeuft: boolean, pausiert: boolean): { state: 'ok' | '
   return laeuft ? { state: 'ok', text: 'Running' } : pausiert ? { state: 'warn', text: 'Paused' } : { state: 'off', text: 'Idle' };
 }
 
+/** Ereignisse des Socket-Clients, die den Verbindungszustand bestimmen (sync/client.ts, App.tsx). */
+export type VerbindungsEreignis = 'connect' | 'disconnect' | 'connect_error';
+
+/** Verbunden ist nur nach `connect`; `disconnect` und ein gescheiterter Aufbau (`connect_error`) sind offline. */
+export function verbindungNach(ereignis: VerbindungsEreignis): boolean {
+  return ereignis === 'connect';
+}
+
+/** Der Store startet mit connected=false: Vor dem ersten Ereignis ist der Zustand unbekannt (undefined), nie „offline“ oder „ok“. */
+export function anzeigeVerbindung(ereignisGehabt: boolean, connected: boolean): boolean | undefined {
+  return ereignisGehabt ? connected : undefined;
+}
+
+/** Mindestbreite einer Haupttaste in px (Label bis „← Prev“/„Resume“ plus Kürzel „Leertaste“, px-4): darunter bricht das Raster um. */
+export const TASTEN_MIN_BREITE = 160;
+
+/**
+ * Breiten der Ablauf-Liste in px (Timetable.tsx, TimetableRow.tsx): feste Spalten 36+96+120+96+136, sechs Lücken à 12 (gap-3),
+ * Innenabstand der Zeile 2×16 (px-4). Titel und Notiz brauchen je mindestens `textMin`; daraus folgt die Mindestbreite der Liste
+ * (876 + 32 = 908, aufgerundet 920). Ist das Fenster schmaler (1024 px mit Sidebar und Panel), scrollt die Liste waagerecht.
+ */
+export const ABLAUF_LAYOUT = { festSpalten: 484, luecken: 72, innenAbstand: 32, textMin: 160, listeMin: 920 } as const;
+
 export interface TasteZustand {
   state: 'bereit' | 'live' | 'gesperrt';
   disabledReason?: string;

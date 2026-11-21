@@ -11,7 +11,7 @@ import { MessageBar } from '@/components/MessageBar';
 import { Sidebar } from '@/components/Sidebar';
 import { Timetable } from '@/components/Timetable';
 import { FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE, VERBUND_QUELLE } from '@/lib/bruecken';
-import { anzeigeModus, statusLeiste, type OberflaechenStand, type TimerAktionen } from '@/lib/oberflaeche';
+import { anzeigeModus, anzeigeVerbindung, statusLeiste, type OberflaechenStand, type TimerAktionen } from '@/lib/oberflaeche';
 import { useStore } from '@/store/timer';
 import { Einstellungen } from './Einstellungen';
 import { KopfMitte } from './KopfMitte';
@@ -55,7 +55,7 @@ export function TimerOberflaeche({
   // Ein Stand für Statusleiste und Panel (lib/oberflaeche.ts): beide zeigen dieselbe Ableitung.
   const stand: OberflaechenStand = {
     timer: { countdown, timetable },
-    connected: verbindungBekannt ? connected : undefined,
+    connected: anzeigeVerbindung(verbindungBekannt, connected),
     speakerOffen,
     masterLink,
     fernsteuerung,

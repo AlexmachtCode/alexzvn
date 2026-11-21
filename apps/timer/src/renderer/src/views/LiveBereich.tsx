@@ -14,15 +14,29 @@ export interface HauptAktionen {
   next(): void;
 }
 
-/** Die Haupttasten als Props in Anzeigereihenfolge; leer für die Uhr. Ohne DOM prüfbar. */
-export function liveTasten(s: Pick<OberflaechenStand, 'timer'>, mode: 'countdown' | 'timetable', a: HauptAktionen): TallyButtonProps[] {
+export type TastenRolle = 'prev' | 'start' | 'reset' | 'next';
+
+/** Die Haupttasten mit ihrer Rolle in Anzeigereihenfolge. Die Rolle ist der React-key: Die Beschriftung wechselt (Start, Pause, Resume), der Knopf bleibt. */
+function rollenTasten(s: Pick<OberflaechenStand, 'timer'>, mode: 'countdown' | 'timetable', a: HauptAktionen): Array<[TastenRolle, TallyButtonProps]> {
   const t = hauptTasten(s, mode);
   if (t === null) return [];
   const laeuft = isCountdownRunning(s.timer.countdown);
   const start: TallyButtonProps = { ...t.start, onClick: laeuft ? a.pause : a.start };
   const reset: TallyButtonProps = { ...t.reset, onClick: a.reset };
-  if (mode === 'countdown' || !t.prev || !t.next) return [start, reset];
-  return [{ ...t.prev, onClick: a.prev }, start, reset, { ...t.next, onClick: a.next }];
+  if (mode === 'countdown' || !t.prev || !t.next) return [['start', start], ['reset', reset]];
+  return [['prev', { ...t.prev, onClick: a.prev }], ['start', start], ['reset', reset], ['next', { ...t.next, onClick: a.next }]];
+}
+
+const KEINE: HauptAktionen = { start() {}, pause() {}, reset() {}, prev() {}, next() {} };
+
+/** Die Haupttasten als Props in Anzeigereihenfolge; leer für die Uhr. Ohne DOM prüfbar. */
+export function liveTasten(s: Pick<OberflaechenStand, 'timer'>, mode: 'countdown' | 'timetable', a: HauptAktionen): TallyButtonProps[] {
+  return rollenTasten(s, mode, a).map(([, t]) => t);
+}
+
+/** Die keys der Tasten (Rollen), unabhängig von Beschriftung und Zustand. */
+export function tastenSchluessel(s: Pick<OberflaechenStand, 'timer'>, mode: 'countdown' | 'timetable'): TastenRolle[] {
+  return rollenTasten(s, mode, KEINE).map(([r]) => r);
 }
 
 export function HauptTasten({
@@ -35,9 +49,10 @@ export function HauptTasten({
   aktionen: HauptAktionen;
 }): React.JSX.Element {
   return (
-    <div data-timer="haupttasten" className={mode === 'countdown' ? 'grid w-full grid-cols-2 gap-3' : 'grid w-full grid-cols-2 gap-3 md:grid-cols-4'}>
-      {liveTasten(stand, mode, aktionen).map((taste) => (
-        <TallyButton key={taste.label} {...taste} />
+    // Containerbasiert: so viele Spalten, wie mit TASTEN_MIN_BREITE passen (vier Tasten werden im schmalen Bereich zu 2×2).
+    <div data-timer="haupttasten" className="grid w-full grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3">
+      {rollenTasten(stand, mode, aktionen).map(([rolle, taste]) => (
+        <TallyButton key={rolle} {...taste} />
       ))}
     </div>
   );
