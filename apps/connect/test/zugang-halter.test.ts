@@ -73,7 +73,7 @@ const frei = (zweck: ConnectZweck, ziel: string, token: string, bis = T + 72 * H
   const h = halter({ antwort: (a) => ({ ok: true, freigabe: `jm1.test-${a.ziel}`, bis: T + 72 * H, konto: KONTO }) });
   await h.h.zugang('connect-raum', 'raum-eins');
   const w2 = await h.h.zugang('connect-raum', 'raum-zwei');
-  ck('T11 QR2: anderer Raum → sofort neuer Versuch, Freigabe für den neuen Raum', h.aufrufe.length === 2 && w2.art === 'freigabe' && w2.f.ziel === 'raum-zwei');
+  ck('T11 QR2: anderer Raum → neuer Versuch; gleicher Raum erst unter 24 h Rest; Fehlschlag höchstens alle 30 s', h.aufrufe.length === 2 && w2.art === 'freigabe' && w2.f.ziel === 'raum-zwei');
   h.uhr.t = T + 47 * H;
   await h.h.zugang('connect-raum', 'raum-zwei');
   ck('T11 QR2: gleicher Raum mit 25 h Rest → kein Versuch', h.aufrufe.length === 2);
@@ -100,7 +100,7 @@ const frei = (zweck: ConnectZweck, ziel: string, token: string, bis = T + 72 * H
   const h = halter({ gehalten: g, antwort: nein('kein-launcher') });
   const w = await h.h.zugang('connect-raum', 'cop31-tag1');
   const l = h.h.lage('connect-raum');
-  ck('T11 6.3: Neustart mit gehaltener Freigabe (aus der Datei) → Bearer ohne holeFreigabe',
+  ck('T11 6.3: Neustart mit gehaltener Freigabe (gehalten aus der Datei) → Bearer ohne holeFreigabe',
     w.art === 'freigabe' && w.f.token === 'jm1.test-gehalten' && h.aufrufe.length === 0 && l.wahl === 'freigabe' && l.konto?.name === 'Test Person' && l.bis === T + 72 * H);
 }
 
@@ -108,11 +108,11 @@ const frei = (zweck: ConnectZweck, ziel: string, token: string, bis = T + 72 * H
   // OT10
   const mit = halter({ antwort: nein('unbekannter-zweck'), raumAlt: { wert: 'test-alt', herkunft: 'stored' } });
   const w = await mit.h.zugang('connect-raum', 'cop31-tag1');
-  ck('T11 OT10: Launcher 0.18.0 (unbekannter-zweck) mit altem Key → alter-key, lage.letzterGrund unbekannter-zweck',
-    w.art === 'alter-key' && w.key === 'test-alt' && mit.h.lage('connect-raum').letzterGrund === 'unbekannter-zweck' && mit.loeschungen.raum === 0);
   const ohne = halter({ antwort: nein('unbekannter-zweck') });
   const w2 = await ohne.h.zugang('connect-raum', 'cop31-tag1');
-  ck('T11 OT10: ohne alten Key → keiner', w2.art === 'keiner' && ohne.h.lage('connect-raum').letzterGrund === 'unbekannter-zweck');
+  ck('T11 OT10: Launcher 0.18.0 (unbekannter-zweck) mit altem Key → alter-key, lage.letzterGrund unbekannter-zweck; ohne alten Key → keiner',
+    w.art === 'alter-key' && w.key === 'test-alt' && mit.h.lage('connect-raum').letzterGrund === 'unbekannter-zweck' && mit.loeschungen.raum === 0
+      && w2.art === 'keiner' && ohne.h.lage('connect-raum').letzterGrund === 'unbekannter-zweck');
 }
 
 {
@@ -122,16 +122,16 @@ const frei = (zweck: ConnectZweck, ziel: string, token: string, bis = T + 72 * H
   h.uhr.t = T + 49 * H;
   await h.h.zugang('connect-raum', 'cop31-tag1');
   const l = h.h.lage('connect-raum');
-  ck('T11 OT9: erste connect-raum-Freigabe löscht den gespeicherten Proxy-Key genau einmal, lage.geloescht',
+  const e = halter({ antwort: ok('jm1.test-raum'), raumAlt: { wert: 'test-env', herkunft: 'env' } });
+  await e.h.zugang('connect-raum', 'cop31-tag1');
+  const le = e.h.lage('connect-raum');
+  ck('T11 OT9: erste connect-raum-Freigabe löscht den gespeicherten Proxy-Key genau einmal, lage.geloescht; aus der Umgebung nie',
     h.loeschungen.raum === 1 && l.geloescht && h.aufrufe.length === 2
+      && e.loeschungen.raum === 0 && !le.geloescht && le.altHerkunft === 'env'
       && h.logs.filter((z) => z === `[connect] Zugang: alter Proxy-Key gelöscht, Freigabe vom Launcher bis ${new Date(T + 72 * H).toISOString()}`).length === 1);
   const s = halter({ antwort: ok('jm1.test-raum'), raumAlt: { wert: 'test-sitzung', herkunft: 'session' } });
   await s.h.zugang('connect-raum', 'cop31-tag1');
   ck('T11 OT9: auch ein Sitzungs-Key fällt', s.loeschungen.raum === 1 && s.h.lage('connect-raum').geloescht);
-  const e = halter({ antwort: ok('jm1.test-raum'), raumAlt: { wert: 'test-env', herkunft: 'env' } });
-  await e.h.zugang('connect-raum', 'cop31-tag1');
-  const le = e.h.lage('connect-raum');
-  ck('T11 OT9: aus der Umgebung nie gelöscht (kein loeschen, nicht geloescht, Herkunft env bleibt)', e.loeschungen.raum === 0 && !le.geloescht && le.altHerkunft === 'env');
 }
 
 {
@@ -155,9 +155,10 @@ const frei = (zweck: ConnectZweck, ziel: string, token: string, bis = T + 72 * H
   const h = halter({ antwort: (_a, n) => ({ ok: true, freigabe: `jm1.test-n${n}`, bis: T + 72 * H, konto: KONTO }) });
   const w = await h.h.zugang('connect-raum', 'cop31-tag1');
   h.h.antwort('connect-raum', w, 403, 'kein-recht');
-  ck('T11 QR5: 403 auf eine Freigabe → verworfen und gespeichert (leer)', h.h.lage('connect-raum').wahl === 'keiner' && JSON.stringify(h.gespeichert.at(-1)) === '{}');
+  const verworfen = h.h.lage('connect-raum').wahl === 'keiner' && JSON.stringify(h.gespeichert.at(-1)) === '{}';
   const w2 = await h.h.zugang('connect-raum', 'cop31-tag1');
-  ck('T11 QR5: nächster zugang() holt sofort neu (gleiche Sekunde)', h.aufrufe.length === 2 && w2.art === 'freigabe' && w2.f.token === 'jm1.test-n2');
+  ck('T11 QR5: 403 auf eine Freigabe → verworfen, nächster zugang() holt sofort neu (gespeichert leer, gleiche Sekunde)',
+    verworfen && h.aufrufe.length === 2 && w2.art === 'freigabe' && w2.f.token === 'jm1.test-n2');
   h.h.antwort('connect-raum', w, 401, 'nicht-angemeldet');
   ck('T11 QR5: eine späte Ablehnung der alten Freigabe verwirft die neue nicht', h.h.lage('connect-raum').wahl === 'freigabe');
   h.h.antwort('connect-raum', w2, 403, 'raum-vergeben');
@@ -190,17 +191,36 @@ const frei = (zweck: ConnectZweck, ziel: string, token: string, bis = T + 72 * H
 }
 
 {
+  // Fix-Runde 1: nur der abgelehnte Key fällt, ein anderer gilt wieder
+  const h = halter({ antwort: nein('kein-launcher'), raumAlt: { wert: 'test-k1', herkunft: 'stored' } });
+  const w1 = await h.h.zugang('connect-raum', 'cop31-tag1');
+  h.h.antwort('connect-raum', w1, 401, 'nicht-angemeldet');
+  h.alt.raum = { wert: 'test-k2', herkunft: 'stored' };
+  const w2 = await h.h.zugang('connect-raum', 'cop31-tag1');
+  ck('T11 Fix1: Key K1 abgelehnt, danach K2 eingetragen → alter-key mit K2, nicht mehr abgelehnt',
+    w1.art === 'alter-key' && w2.art === 'alter-key' && w2.key === 'test-k2' && !h.h.lage('connect-raum').altAbgelehnt);
+  h.h.antwort('connect-raum', w1, 401, 'nicht-angemeldet');
+  ck('T11 Fix1: späte 401 für K1, nachdem K2 gesetzt ist → K2 bleibt (nicht gelöscht, weiter alter-key)',
+    h.loeschungen.raum === 1 && h.alt.raum.wert === 'test-k2' && (await h.h.zugang('connect-raum', 'cop31-tag1')).art === 'alter-key');
+  const e = halter({ antwort: nein('kein-launcher'), raumAlt: { wert: 'test-env', herkunft: 'env' } });
+  const we = await e.h.zugang('connect-raum', 'cop31-tag1');
+  e.h.antwort('connect-raum', we, 401, 'nicht-angemeldet');
+  ck('T11 Fix1: Key aus der Umgebung abgelehnt → wahl keiner, nicht gelöscht', (await e.h.zugang('connect-raum', 'cop31-tag1')).art === 'keiner' && e.loeschungen.raum === 0);
+}
+
+{
   // G4
   const g: GehalteneFreigaben = { 'zoom-jwt': frei('zoom-jwt', 'meeting-sdk', 'jm1.test-jwt') };
   const h = halter({ gehalten: g, antwort: (a) => ({ ok: true, freigabe: `jm1.test-${a.zweck}`, bis: T + 72 * H, konto: KONTO }), raumAlt: { wert: 'test-alt', herkunft: 'stored' } });
   await h.h.zugang('connect-raum', 'cop31-tag1');
   await h.h.zugang('zoom-sdk', 'win-x64');
   const t = h.h.tokens();
-  ck('T11 G4: tokens() nennt alle gehaltenen Freigaben', t.length === 3 && t.includes('jm1.test-connect-raum') && t.includes('jm1.test-zoom-sdk') && t.includes('jm1.test-jwt'));
   const f = halter({ antwort: nein('fehler', 'jm1.test-detail-ohne-token'), raumAlt: { wert: 'test-alt', herkunft: 'stored' } });
   await f.h.zugang('connect-raum', 'cop31-tag1');
   const alle = [...h.logs, ...f.logs];
-  ck('T11 G4: keine Logzeile enthält jm1. oder einen Schlüssel; es gibt Logzeilen', alle.length >= 2 && alle.every((z) => !z.includes('jm1.') && !z.includes('test-alt')));
+  ck('T11 G4: tokens() nennt alle gehaltenen Freigaben; keine Logzeile enthält jm1.',
+    t.length === 3 && t.includes('jm1.test-connect-raum') && t.includes('jm1.test-zoom-sdk') && t.includes('jm1.test-jwt')
+      && alle.length >= 2 && alle.every((z) => !z.includes('jm1.') && !z.includes('test-alt')));
 }
 
 {
@@ -237,6 +257,7 @@ const frei = (zweck: ConnectZweck, ziel: string, token: string, bis = T + 72 * H
     hs.split('\n').filter((l) => /^import (?!type)/.test(l)).every((l) => l.includes("from './regeln'"))
       && !hs.includes("'electron'")
       && hue.includes('geheimnisDatei(') && !/writeFileSync\([^)]*JSON\.stringify/.test(hue));
+  ck('T11 G9: huelle.ts schreibt atomar (.tmp, renameSync) mit 0o600', hue.includes('renameSync(') && hue.includes('.tmp') && hue.includes('0o600'));
   ck('T11 G9: huelle.ts nennt die Logzeile für die unlesbare Datei wörtlich',
     hue.includes('[connect] Zugang: gehaltene Freigaben nicht lesbar, Connect holt neue beim Launcher') && hue.includes('connect-zugang.bin') && hue.includes('0o600'));
 }

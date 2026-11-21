@@ -40,7 +40,8 @@ interface Stand {
   grund: FreigabeGrund | null;
   detail: string | null;
   ziel: string;
-  altAbgelehnt: boolean;
+  /** Der Wert, den der Server abgelehnt hat (nicht der jeweils aktuelle). */
+  abgelehnt: string | null;
   geloescht: boolean;
   versucht: boolean;
 }
@@ -53,11 +54,13 @@ export function erzeugeZugangsHalter(d: HalterAbhaengigkeiten): ZugangsHalter {
   }
   const stand = {} as Record<ConnectZweck, Stand>;
   for (const z of ZWECKE) {
-    stand[z] = { letzter: null, laufend: null, grund: null, detail: null, ziel: gehalten[z]?.ziel ?? '', altAbgelehnt: false, geloescht: false, versucht: false };
+    stand[z] = { letzter: null, laufend: null, grund: null, detail: null, ziel: gehalten[z]?.ziel ?? '', abgelehnt: null, geloescht: false, versucht: false };
   }
 
   // Der alte Wert gehört je Zweck genau einem Altkanal; `zoom-jwt` hat keinen.
   const altVon = (z: ConnectZweck): AltWert | null => (z === 'connect-raum' ? d.alt['connect-raum'] : z === 'zoom-sdk' ? d.alt['zoom-sdk'] : null);
+  /** Abgelehnt, solange der aktuelle Wert leer ist oder dem abgelehnten gleicht; ein anderer Key hebt es auf. */
+  const istAbgelehnt = (s: Stand, aktuell: string | null): boolean => s.abgelehnt !== null && (!aktuell || aktuell === s.abgelehnt);
   const speichern = (): void => d.speichern({ ...gehalten });
 
   async function versuch(zweck: ConnectZweck, ziel: string): Promise<void> {
@@ -110,7 +113,7 @@ export function erzeugeZugangsHalter(d: HalterAbhaengigkeiten): ZugangsHalter {
         }
       }
       if (s.laufend) await s.laufend;
-      return waehleZugang({ freigabe: gehalten[zweck] ?? null, ziel, altKey: altVon(zweck)?.lesen().wert ?? null, altAbgelehnt: s.altAbgelehnt, jetzt: d.jetzt() });
+      return waehleZugang({ freigabe: gehalten[zweck] ?? null, ziel, altKey: altVon(zweck)?.lesen().wert ?? null, altAbgelehnt: istAbgelehnt(s, altVon(zweck)?.lesen().wert ?? null), jetzt: d.jetzt() });
     },
 
     antwort(zweck, w, status, code) {
@@ -124,9 +127,11 @@ export function erzeugeZugangsHalter(d: HalterAbhaengigkeiten): ZugangsHalter {
         d.geaendert();
       } else if (was === 'key-abgelehnt') {
         const a = altVon(zweck);
-        if (!a) return;
-        s.altAbgelehnt = true;
-        if (a.lesen().herkunft !== 'env') a.loeschen();
+        if (!a || w.art !== 'alter-key') return;
+        s.abgelehnt = w.key;
+        const aktuell = a.lesen();
+        // Nur der abgelehnte Key wird gelöscht; ein inzwischen eingetragener anderer bleibt.
+        if (aktuell.wert === w.key && aktuell.herkunft !== 'env') a.loeschen();
         d.geaendert();
       }
     },
@@ -146,7 +151,7 @@ export function erzeugeZugangsHalter(d: HalterAbhaengigkeiten): ZugangsHalter {
       const s = stand[zweck];
       const f = gehalten[zweck] ?? null;
       const a = altVon(zweck)?.lesen();
-      const wahl = waehleZugang({ freigabe: f, ziel: s.ziel || f?.ziel || '', altKey: a?.wert ?? null, altAbgelehnt: s.altAbgelehnt, jetzt: d.jetzt() });
+      const wahl = waehleZugang({ freigabe: f, ziel: s.ziel || f?.ziel || '', altKey: a?.wert ?? null, altAbgelehnt: istAbgelehnt(s, a?.wert ?? null), jetzt: d.jetzt() });
       return {
         wahl: wahl.art,
         konto: f?.konto ?? null,
@@ -154,7 +159,7 @@ export function erzeugeZugangsHalter(d: HalterAbhaengigkeiten): ZugangsHalter {
         letzterGrund: s.grund,
         detail: s.detail,
         altHerkunft: a?.herkunft ?? 'none',
-        altAbgelehnt: s.altAbgelehnt,
+        altAbgelehnt: istAbgelehnt(s, a?.wert ?? null),
         versucht: s.versucht,
         geloescht: s.geloescht,
       };

@@ -1,6 +1,6 @@
 // Electron-Hülle des Halters (Anmeldung Teil 2, Task 11): verschlüsselte Datei über safeStorage, Anbindung an die Einstellungen.
 import { safeStorage } from 'electron';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
 import { holeFreigabe } from '@jm/app-runtime/freigabe';
@@ -37,7 +37,11 @@ export function starteZugang(o: { userData: string; appData: string }): ZugangsH
     speichern: (g) => {
       try {
         const inhalt = geheimnisDatei(g, { verfuegbar: () => safeStorage.isEncryptionAvailable(), verschluesseln: (t) => safeStorage.encryptString(t) });
-        if (inhalt !== null) writeFileSync(pfad, inhalt, { mode: 0o600 });
+        if (inhalt !== null) {
+          // Erst in eine Nachbardatei, dann umbenennen: ein Abbruch lässt die alte Datei heil. Ein liegengebliebenes .tmp wird nie gelesen.
+          writeFileSync(`${pfad}.tmp`, inhalt, { mode: 0o600 });
+          renameSync(`${pfad}.tmp`, pfad);
+        }
       } catch {
         getLog().warn('[connect] Zugang: gehaltene Freigaben konnten nicht gespeichert werden');
       }
