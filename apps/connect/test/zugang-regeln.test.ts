@@ -56,6 +56,10 @@ ck('T10: Kopfzeilen je Zweck',
 ck('T10 G4: leseFreigabe verwirft Token mit Steuerzeichen oder Leerraum, fremden Zweck, unendliches bis, leeres Ziel, fremde Stufe',
   leseFreigabe(F(), 'connect-raum') !== null && [{ token: 'jm1.a b' }, { token: 'jm1.a\n' }, { zweck: 'zoom-jwt' }, { bis: Infinity }, { ziel: '' }, { konto: { name: 'x', stufe: 'chef' } }]
     .every((o) => leseFreigabe({ ...F(), ...o }, 'connect-raum') === null));
+ck('T10 QR2: ohne Ziel nie fällig', erneuernFaellig(null, '', J) === false && erneuernFaellig(F(), '', J) === false);
+ck('T10: Stufe als Code an die Texte: Anzeigename Admin/Kollege/Externer',
+  ZUGANG_TEXT.cloudFreigabe('A', 'admin', 'd', 'z') === 'Cloud-Zugang über den Launcher (A · Admin), gültig bis d z.'
+    && ZUGANG_TEXT.anmeldungServer('E', 'externer', 'd', 'z') === 'Zoom-Anmeldung über den Launcher (E · Externer), Freigabe gültig bis d z.');
 ck('T10 G6: geheimnisDatei: mit Schlüsselspeicher nur die Ausgabe des Verschlüsselers; ohne → null',
   geheimnisDatei({ 'connect-raum': F() }, { verfuegbar: () => true, verschluesseln: (t) => new TextEncoder().encode('E:' + t.length) }) !== null
     && geheimnisDatei({ 'connect-raum': F() }, { verfuegbar: () => false, verschluesseln: () => { throw new Error('nie'); } }) === null);
@@ -141,17 +145,26 @@ kreuz('T10 G7: Cloud-Zeile als Kreuzprodukt (Wahl × Grund × abgelehnt × gelö
   ['alter Key, Grund fehler mit Detail', cloudZeile(lage({ wahl: 'alter-key', letzterGrund: 'fehler', detail: 'HTTP 502' }), J),
     `${PROXY_ZEILE} Freigabe fehlgeschlagen: HTTP 502|warn`],
   ['alter Key abgelehnt', cloudZeile(lage({ wahl: 'keiner', altAbgelehnt: true }), J), 'Der Server nimmt den alten Proxy-Key nicht mehr an. Melde dich im Launcher an.|fehler'],
-  ['alter Key abgelehnt, mit Grund (CZ3 gewinnt)', cloudZeile(lage({ wahl: 'keiner', altAbgelehnt: true, versucht: true, letzterGrund: 'kein-launcher' }), J),
-    'Der Server nimmt den alten Proxy-Key nicht mehr an. Melde dich im Launcher an.|fehler'],
+  ['alter Key abgelehnt, kein Launcher (CZ3 + Grund)', cloudZeile(lage({ wahl: 'keiner', altAbgelehnt: true, versucht: true, letzterGrund: 'kein-launcher' }), J),
+    'Der Server nimmt den alten Proxy-Key nicht mehr an. Melde dich im Launcher an. Kein Launcher mit Anmeldung gefunden. Starte den Launcher und melde dich dort an.|fehler'],
+  ['alter Key abgelehnt, Launcher zu alt', cloudZeile(lage({ wahl: 'keiner', altAbgelehnt: true, versucht: true, letzterGrund: 'launcher-zu-alt' }), J),
+    'Der Server nimmt den alten Proxy-Key nicht mehr an. Melde dich im Launcher an. Der Launcher ist zu alt für Connect. Launcher aktualisieren (ab 0.19.0).|fehler'],
+  ['alter Key abgelehnt, kein Recht', cloudZeile(lage({ wahl: 'keiner', altAbgelehnt: true, versucht: true, letzterGrund: 'kein-recht' }), J),
+    'Der Server nimmt den alten Proxy-Key nicht mehr an. Melde dich im Launcher an. Dein Konto darf den Cloud-Raum nicht nutzen. Frag einen Admin.|fehler'],
   ['nichts versucht', cloudZeile(lage({ wahl: 'keiner' }), J), 'Connect holt die Freigabe für den Cloud-Raum beim Launcher, sobald du einen Raum öffnest.|ok'],
   ['kein Recht', cloudZeile(lage({ wahl: 'keiner', versucht: true, letzterGrund: 'kein-recht' }), J), 'Dein Konto darf den Cloud-Raum nicht nutzen. Frag einen Admin.|fehler'],
   ['gelöscht', cloudZeile(lage({ wahl: 'freigabe', geloescht: true }), J).text.endsWith(' Der alte Proxy-Key wurde gelöscht; Connect nutzt jetzt die Freigabe des Launchers.'), true],
   ['gelöscht, ok bleibt ok', cloudZeile(lage({ wahl: 'freigabe', geloescht: true }), J).ton, 'ok'],
-  ['gelöscht, keiner', cloudZeile(lage({ wahl: 'keiner', geloescht: true }), J),
-    'Connect holt die Freigabe für den Cloud-Raum beim Launcher, sobald du einen Raum öffnest. Der alte Proxy-Key wurde gelöscht; Connect nutzt jetzt die Freigabe des Launchers.|ok'],
+  ['gelöscht, keiner: ohne CZ5', cloudZeile(lage({ wahl: 'keiner', geloescht: true }), J),
+    'Connect holt die Freigabe für den Cloud-Raum beim Launcher, sobald du einen Raum öffnest.|ok'],
+  ['keiner, kein Recht, gelöscht: ohne CZ5', cloudZeile(lage({ wahl: 'keiner', versucht: true, letzterGrund: 'kein-recht', geloescht: true }), J),
+    'Dein Konto darf den Cloud-Raum nicht nutzen. Frag einen Admin.|fehler'],
+  ['alter Key, gelöscht: ohne CZ5', cloudZeile(lage({ wahl: 'alter-key', geloescht: true }), J), `${PROXY_ZEILE}|warn`],
   ['Umgebung', cloudZeile(lage({ wahl: 'alter-key', altHerkunft: 'env' }), J).text.endsWith(' Entwicklungsmodus: JMPS_PROXY_KEY gesetzt.'), true],
-  ['Umgebung und gelöscht, Reihenfolge CZ5 vor CZ6', cloudZeile(lage({ wahl: 'alter-key', altHerkunft: 'env', geloescht: true }), J),
-    `${PROXY_ZEILE} Der alte Proxy-Key wurde gelöscht; Connect nutzt jetzt die Freigabe des Launchers. Entwicklungsmodus: JMPS_PROXY_KEY gesetzt.|warn`],
+  ['Freigabe, Umgebung und gelöscht, Reihenfolge CZ5 vor CZ6', cloudZeile(lage({ wahl: 'freigabe', altHerkunft: 'env', geloescht: true }), J),
+    'Cloud-Zugang über den Launcher (Maria S. · Kollege), gültig bis 23.11.2026 09:00. Der alte Proxy-Key wurde gelöscht; Connect nutzt jetzt die Freigabe des Launchers. Entwicklungsmodus: JMPS_PROXY_KEY gesetzt.|ok'],
+  ['alter Key, Umgebung und gelöscht: nur CZ6', cloudZeile(lage({ wahl: 'alter-key', altHerkunft: 'env', geloescht: true }), J),
+    `${PROXY_ZEILE} Entwicklungsmodus: JMPS_PROXY_KEY gesetzt.|warn`],
   ['gespeicherter Key: kein Zusatz', cloudZeile(lage({ wahl: 'alter-key', altHerkunft: 'stored' }), J), `${PROXY_ZEILE}|warn`],
   ...GRUENDE.map((g): [string, unknown, unknown] => [`keiner, versucht, ${g[0]}`,
     cloudZeile(lage({ wahl: 'keiner', versucht: true, letzterGrund: g[0], detail: 'HTTP 500' }), J), `${g[1]}|${g[2]}`]),
@@ -184,8 +197,11 @@ kreuz('T10 G7: Zeile Zoom-Anmeldung (Quelle × Grund × gelöscht × Entwicklung
     'Zoom-Anmeldung: Der Launcher hat sich nicht ausgewiesen. Starte den Launcher neu.|fehler'],
   ['keine, Fehler mit Detail', anmeldungZeile(alage({ quelle: 'keine', versucht: true, grund: 'fehler', detail: 'x1' }), J), 'Zoom-Anmeldung: Freigabe fehlgeschlagen: x1|fehler'],
   ['gelöscht', anmeldungZeile(alage({ quelle: 'server', geloescht: true }), J).text.endsWith(' Die alten Zoom-Zugangsdaten wurden gelöscht; Connect meldet sich jetzt über den Launcher bei Zoom an.'), true],
-  ['gelöscht, keine, nie versucht', anmeldungZeile(alage({ quelle: 'keine', geloescht: true }), J),
-    'Zoom-Anmeldung über den Launcher; die Freigabe holt Connect beim ersten Beitritt. Die alten Zoom-Zugangsdaten wurden gelöscht; Connect meldet sich jetzt über den Launcher bei Zoom an.|ok'],
+  ['gelöscht, keine, nie versucht: ohne ZA5', anmeldungZeile(alage({ quelle: 'keine', geloescht: true }), J),
+    'Zoom-Anmeldung über den Launcher; die Freigabe holt Connect beim ersten Beitritt.|ok'],
+  ['gelöscht, lokal: ohne ZA5', anmeldungZeile(alage({ quelle: 'lokal', geloescht: true }), J), 'Zoom-Anmeldung über die alten Zugangsdaten dieses Rechners (Übergang).|warn'],
+  ['gelöscht, keine, kein Recht: ohne ZA5', anmeldungZeile(alage({ quelle: 'keine', versucht: true, grund: 'kein-recht', geloescht: true }), J),
+    'Zoom-Anmeldung: Dein Konto darf Zoom auf diesem Rechner nicht nutzen. Externe brauchen eine Zoom-Freigabe und einen JM-Rechner.|fehler'],
   ['Entwicklung', anmeldungZeile(alage({ quelle: 'server', devTtlS: 1860 }), J).text.endsWith(' Entwicklungsmodus: JMPS_ZOOM_JWT_TTL_S gesetzt, der Server stellt das Zoom-Anmelde-Token mit 1860 s Laufzeit aus.'), true],
   ['Entwicklung und gelöscht, Reihenfolge ZA5 vor ZA11', anmeldungZeile(alage({ quelle: 'server', devTtlS: 1860, geloescht: true }), J),
     'Zoom-Anmeldung über den Launcher (Maria S. · Kollege), Freigabe gültig bis 23.11.2026 09:00. Die alten Zoom-Zugangsdaten wurden gelöscht; Connect meldet sich jetzt über den Launcher bei Zoom an. Entwicklungsmodus: JMPS_ZOOM_JWT_TTL_S gesetzt, der Server stellt das Zoom-Anmelde-Token mit 1860 s Laufzeit aus.|ok'],
@@ -202,8 +218,8 @@ function alleTexte(): string[] {
   for (const z of zwecke) for (const g of gruende) for (const d of [undefined, 'kein-jm-rechner', 'HTTP 500']) ts.push(grundText(z, g, d));
   for (const g of ['server-abgelehnt', 'server-fehler', 'nicht-eingerichtet'] as JwtGrund[]) ts.push(jwtGrundText(g), jwtGrundText(g, 'HTTP 502'));
   const t = ZUGANG_TEXT;
-  ts.push(t.cloudFreigabe('N', 'Kollege', '20.11.2026', '09:00'), t.cloudAltKey, t.cloudAltAbgelehnt, t.cloudNochNicht, t.cloudGeloescht, t.cloudEnv,
-    t.raumNicht('g'), t.raumVergeben, t.raumFreigabeAbgelehnt, t.altProxyKey, t.anmeldungServer('N', 'Kollege', '20.11.2026', '09:00'), t.anmeldungLokal,
+  ts.push(t.cloudFreigabe('N', 'kollege', '20.11.2026', '09:00'), t.cloudAltKey, t.cloudAltAbgelehnt, t.cloudNochNicht, t.cloudGeloescht, t.cloudEnv,
+    t.raumNicht('g'), t.raumVergeben, t.raumFreigabeAbgelehnt, t.altProxyKey, t.anmeldungServer('N', 'kollege', '20.11.2026', '09:00'), t.anmeldungLokal,
     t.anmeldungKeine('g'), t.anmeldungNochNicht, t.zugangGeloescht, t.sdkGeloescht, t.ohneAnmeldung('g'), t.serverAbgelehnt, t.nichtEingerichtet,
     t.serverFehler('HTTP 502'), t.entwicklungTtl(1860));
   for (const w of ['freigabe', 'alter-key', 'keiner'] as const) {

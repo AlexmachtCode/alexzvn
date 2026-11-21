@@ -35,7 +35,10 @@ export type GehalteneFreigaben = Partial<Record<ConnectZweck, ConnectFreigabe>>;
 
 export type ZugangsWahl = { art: 'freigabe'; f: ConnectFreigabe } | { art: 'alter-key'; key: string } | { art: 'keiner' };
 
-/** Lage der Zeile „Cloud-Zugang“. */
+/**
+ * Lage der Zeile „Cloud-Zugang“. Der Aufrufer baut `wahl` bei jedem Zeichnen neu über `waehleZugang(…, jetzt)`; die Zeilen
+ * prüfen den Ablauf nicht selbst.
+ */
 export interface ZugangsLage {
   wahl: ZugangsWahl['art'];
   konto: ConnectFreigabe['konto'] | null;
@@ -44,6 +47,7 @@ export interface ZugangsLage {
   detail: string | null;
   altHerkunft: ProxyKeySource;
   altAbgelehnt: boolean;
+  /** Nur Kontext: steuert die Zeile nicht. */
   versucht: boolean;
   geloescht: boolean;
 }
@@ -51,7 +55,7 @@ export interface ZugangsLage {
 /** Gründe, die nur beim Zoom-JWT hinzukommen (Antwort des Workers auf POST /zoom/jwt). */
 export type JwtGrund = FreigabeGrund | 'server-abgelehnt' | 'server-fehler' | 'nicht-eingerichtet';
 
-/** Lage der Zeile „Zoom-Anmeldung“. */
+/** Lage der Zeile „Zoom-Anmeldung“. Der Aufrufer baut `quelle` bei jedem Zeichnen neu; die Zeile prüft den Ablauf nicht selbst. */
 export interface ZoomAnmeldungLage {
   quelle: 'server' | 'lokal' | 'keine';
   grund: JwtGrund | null;
@@ -59,6 +63,7 @@ export interface ZoomAnmeldungLage {
   konto: ConnectFreigabe['konto'] | null;
   freigabeBis: number | null;
   devTtlS: number | null;
+  /** Nur Kontext: steuert die Zeile nicht. */
   versucht: boolean;
   geloescht: boolean;
 }
@@ -78,8 +83,9 @@ export function waehleZugang(s: { freigabe: ConnectFreigabe | null; ziel: string
   return { art: 'keiner' };
 }
 
-/** Fällig ohne Freigabe, bei anderem Ziel oder mit weniger als 24 h Rest. */
+/** Fällig ohne Freigabe, bei anderem Ziel oder mit weniger als 24 h Rest; ohne Ziel nie (es gäbe nichts zu holen). */
 export function erneuernFaellig(f: ConnectFreigabe | null, ziel: string, jetzt: number): boolean {
+  if (!ziel) return false;
   if (!f || f.ziel !== ziel) return true;
   return f.bis - jetzt < ERNEUERN_VOR_MS;
 }
@@ -180,7 +186,7 @@ const STUFE_TEXT: Readonly<Record<ConnectFreigabe['konto']['stufe'], string>> = 
 
 export const ZUGANG_TEXT = {
   /** CZ1 */
-  cloudFreigabe: (name: string, stufe: string, datum: string, zeit: string): string => `Cloud-Zugang über den Launcher (${name} · ${stufe}), gültig bis ${datum} ${zeit}.`,
+  cloudFreigabe: (name: string, stufe: ConnectFreigabe['konto']['stufe'], datum: string, zeit: string): string => `Cloud-Zugang über den Launcher (${name} · ${STUFE_TEXT[stufe]}), gültig bis ${datum} ${zeit}.`,
   /** CZ2 */
   cloudAltKey: 'Cloud-Zugang über den alten Proxy-Key (Übergang).',
   /** CZ3 */
@@ -200,7 +206,7 @@ export const ZUGANG_TEXT = {
   /** CZ10 */
   altProxyKey: 'Alter Proxy-Key: hinterlegt, nur noch im Übergang.',
   /** ZA1 */
-  anmeldungServer: (name: string, stufe: string, datum: string, zeit: string): string => `Zoom-Anmeldung über den Launcher (${name} · ${stufe}), Freigabe gültig bis ${datum} ${zeit}.`,
+  anmeldungServer: (name: string, stufe: ConnectFreigabe['konto']['stufe'], datum: string, zeit: string): string => `Zoom-Anmeldung über den Launcher (${name} · ${STUFE_TEXT[stufe]}), Freigabe gültig bis ${datum} ${zeit}.`,
   /** ZA2 */
   anmeldungLokal: 'Zoom-Anmeldung über die alten Zugangsdaten dieses Rechners (Übergang).',
   /** ZA3 */
@@ -263,21 +269,19 @@ function grundTon(g: JwtGrund): Ton {
   return VORUEBERGEHEND.includes(g) ? 'warn' : 'fehler';
 }
 
-function stufeText(k: ConnectFreigabe['konto'] | null): string {
-  return k ? STUFE_TEXT[k.stufe] : '';
-}
-
 /**
  * Zeile „Cloud-Zugang“ als Kreuzprodukt aus Wahl × Grund × abgelehnt × gelöscht × Umgebung.
  * Freigabe: CZ1 (ok), mit Grund und weniger als 24 h Rest CZ1 und der Grund (warn); alter Key: CZ2 (warn), mit Grund dahinter;
- * keiner: CZ3 (fehler) bei abgelehntem Key, sonst der Grund allein (Ton nach Regel), sonst CZ4 (ok). Danach CZ5 und CZ6.
+ * keiner: CZ3 (fehler) bei abgelehntem Key, mit Grund dahinter, sonst der Grund allein (Ton nach Regel), sonst CZ4 (ok). Danach
+ * CZ5 (nur bei Freigabe) und CZ6. Der Aufrufer baut `wahl` bei jedem Zeichnen neu über `waehleZugang(…, jetzt)`; die Zeile
+ * prüft den Ablauf nicht selbst.
  */
 export function cloudZeile(l: ZugangsLage, jetzt: number): { text: string; ton: Ton } {
   let text: string;
   let ton: Ton;
   if (l.wahl === 'freigabe') {
     const bis = l.bis ?? jetzt;
-    text = ZUGANG_TEXT.cloudFreigabe(l.konto?.name ?? '', stufeText(l.konto), datumText(bis), zeitText(bis));
+    text = ZUGANG_TEXT.cloudFreigabe(l.konto?.name ?? '', l.konto?.stufe ?? 'externer', datumText(bis), zeitText(bis));
     ton = 'ok';
     if (l.letzterGrund !== null && bis - jetzt < ERNEUERN_VOR_MS) {
       text = `${text} ${grundText('connect-raum', l.letzterGrund, l.detail)}`;
@@ -290,6 +294,7 @@ export function cloudZeile(l: ZugangsLage, jetzt: number): { text: string; ton: 
   } else if (l.altAbgelehnt) {
     text = ZUGANG_TEXT.cloudAltAbgelehnt;
     ton = 'fehler';
+    if (l.letzterGrund !== null) text = `${text} ${grundText('connect-raum', l.letzterGrund, l.detail)}`;
   } else if (l.letzterGrund !== null) {
     text = grundText('connect-raum', l.letzterGrund, l.detail);
     ton = grundTon(l.letzterGrund);
@@ -297,7 +302,7 @@ export function cloudZeile(l: ZugangsLage, jetzt: number): { text: string; ton: 
     text = ZUGANG_TEXT.cloudNochNicht;
     ton = 'ok';
   }
-  if (l.geloescht) text = `${text} ${ZUGANG_TEXT.cloudGeloescht}`;
+  if (l.geloescht && l.wahl === 'freigabe') text = `${text} ${ZUGANG_TEXT.cloudGeloescht}`;
   if (l.altHerkunft === 'env') text = `${text} ${ZUGANG_TEXT.cloudEnv}`;
   return { text, ton };
 }
@@ -305,14 +310,14 @@ export function cloudZeile(l: ZugangsLage, jetzt: number): { text: string; ton: 
 /**
  * Zeile „Zoom-Anmeldung“ als Kreuzprodukt aus Quelle × Grund × gelöscht × Entwicklung.
  * Server: ZA1 (ok); lokal: ZA2 (warn), mit Grund dahinter; keine: ZA3 mit dem Grund (Ton nach Regel), ohne Grund ZA4 (ok).
- * Danach ZA5, und nur bei Quelle `server` ZA11 (P6: bei `lokal` und `keine` nie).
+ * Danach ZA5 und ZA11, beide nur bei Quelle `server` (P6: bei `lokal` und `keine` nie). Der Aufrufer baut `quelle` bei jedem Zeichnen neu; die Zeile prüft den Ablauf nicht selbst.
  */
 export function anmeldungZeile(l: ZoomAnmeldungLage, jetzt: number): { text: string; ton: Ton } {
   let text: string;
   let ton: Ton;
   if (l.quelle === 'server') {
     const bis = l.freigabeBis ?? jetzt;
-    text = ZUGANG_TEXT.anmeldungServer(l.konto?.name ?? '', stufeText(l.konto), datumText(bis), zeitText(bis));
+    text = ZUGANG_TEXT.anmeldungServer(l.konto?.name ?? '', l.konto?.stufe ?? 'externer', datumText(bis), zeitText(bis));
     ton = 'ok';
   } else if (l.quelle === 'lokal') {
     text = ZUGANG_TEXT.anmeldungLokal;
@@ -325,7 +330,7 @@ export function anmeldungZeile(l: ZoomAnmeldungLage, jetzt: number): { text: str
     text = ZUGANG_TEXT.anmeldungNochNicht;
     ton = 'ok';
   }
-  if (l.geloescht) text = `${text} ${ZUGANG_TEXT.zugangGeloescht}`;
+  if (l.geloescht && l.quelle === 'server') text = `${text} ${ZUGANG_TEXT.zugangGeloescht}`;
   if (l.devTtlS !== null && l.quelle === 'server') text = `${text} ${ZUGANG_TEXT.entwicklungTtl(l.devTtlS)}`;
   return { text, ton };
 }
