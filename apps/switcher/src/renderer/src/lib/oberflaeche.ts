@@ -81,6 +81,18 @@ export const SWITCHER_TEXTE = {
     aufnahme: 'Aufnahme',
     stream: 'Stream',
   },
+  /** Erklärtexte der alten Einstellungs-Karten (R8): wörtlich aus der bisherigen SettingsView, unverändert auch dort, wo sie auf die frühere „Mischer-Leiste“ verweisen (Textfrage Z1). */
+  panelText: {
+    einleitung: 'Stream-Ziel und Qualität. Aufnahme & Stream startest du in der Mischer-Ansicht.',
+    ndi: 'So erscheint die Ausgabe im Netz (z. B. als Eingang in TriCaster, vMix, OBS oder einem NDI-Monitor). In der Mischer-Leiste wählst du, ob das Program-Bild oder das Multiview gesendet wird, und schaltest die Ausgabe live an/aus.',
+    bildschirm:
+      'Zeigt das On-Air-Programmbild formatfüllend auf dem gewählten Monitor — per HDMI direkt an Beamer, Kontrollmonitor oder Encoder. Läuft unabhängig von NDI und der Aufnahme; wähle für die Regie am besten einen anderen Monitor als den mit der Bedienoberfläche.',
+    audio:
+      'Mikro / Line-In / Capture-Ton. Wird in Aufnahme + Stream gemischt; Pegel & Mute in der Mischer-Leiste. Audio folgt (noch) nicht der Bildquelle — feste Programm-Audioquelle.',
+    fernsteuerung:
+      'Zeilenprotokoll (PREVIEW/PROGRAM/CUT/AUTO/RECORD/STREAM) für ein Stream-Deck via Bitfocus Companion — Modul: packages/companion-jm-switcher. Im Companion-Modul Host (IP dieses Rechners) + Port eintragen.',
+    monitoreAktualisieren: 'Monitore aktualisieren',
+  },
   /** Titel der tool-eigenen Panel-Abschnitte (E5; „Streaming“ hieß „Streaming (RTMP)“, „Programm-Format“ steckte in der NDI-Karte). */
   titel: {
     streaming: 'Streaming',
@@ -203,6 +215,8 @@ export interface SwitcherAktionen {
   toggleStreaming(): void;
   /** Audiogeräte neu suchen (SettingsView.scanAudio). */
   scanAudio(): void;
+  /** Monitorliste neu lesen (SettingsView.scanDisplays; R8). */
+  scanDisplays(): void;
 }
 
 /** Projekt-Aktionen der Werkzeugleiste (E6); die Abläufe bleiben in SwitcherView. */
@@ -372,6 +386,7 @@ const KEINE_AKTION: SwitcherAktionen = {
   toggleRecording: () => {},
   toggleStreaming: () => {},
   scanAudio: () => {},
+  scanDisplays: () => {},
 };
 
 /** Hat der Stream ein Ziel? Leer oder nur Leerraum zählt nicht (wie `hasTarget` der heutigen Ausgabeleiste). */

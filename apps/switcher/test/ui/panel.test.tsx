@@ -116,7 +116,8 @@ const titel = (html: string): string[] => [...html.matchAll(/<h3[^>]*>([^<]*)<\/
   ok(selects.length === 3, 'SW Panel Format: drei Auswahlfelder');
   ok(/<option value="1080p" selected/.test(formatHtml) || /<option[^>]*value="1080p"[^>]*selected/.test(formatHtml), 'SW Panel Format: die gewählte Auflösung ist markiert');
   const ndi = abschnitt(html, ABSCHNITT.ndi);
-  ok(!ndi.includes('<select') && !text(ndi).includes('Multiview'), 'SW Panel Format: Der NDI-Abschnitt hat nur Schalter und Name, die Quellwahl liegt im Programm-Format (E5)');
+  // Der wörtlich wiederhergestellte NDI-Erklärtext (R8) nennt das Multiview; die Quellwahl selbst (Auswahl und Option) bleibt im Programm-Format.
+  ok(!ndi.includes('<select') && !ndi.includes('<option') && !text(ndi).includes(SWITCHER_TEXTE.feld.ndiQuelle), 'SW Panel Format: Der NDI-Abschnitt hat nur Schalter und Name, die Quellwahl liegt im Programm-Format (E5)');
   ok(attr(tags(ndi, 'input').find((t) => attr(t, 'type') === 'text'), 'value') === 'JM Switcher', 'SW Panel Format: Der NDI-Abschnitt zeigt den Namen als Feld');
 }
 
@@ -159,4 +160,57 @@ const titel = (html: string): string[] => [...html.matchAll(/<h3[^>]*>([^<]*)<\/
   const probeStellen = (quelle.match(/getUserMedia/g) ?? []).length;
   ok(probeStellen === 1 && /if \(mitProbe/.test(fn) && fn.indexOf('getUserMedia') > fn.indexOf('mitProbe'), 'SW Audioliste: getUserMedia steht nur hinter dem Schalter mitProbe');
   ok(quelle.includes('if (panelOffen) scanAudio(true);') && quelle.includes('scanAudio: () => scanAudio(true)') && quelle.includes('mitProbe = true'), 'SW Audioliste: Panel-Öffnen und Neu-Suchen nutzen die Probe');
+}
+
+// ── R8: „Monitore aktualisieren“ und die Erklärtexte der alten Karten (Zeilen 66, 71, 75, 78, 80, 84 der Funktionsliste) ──
+{
+  const log: string[] = [];
+  const html = panel(basisStand(), log);
+  const bild = abschnitt(html, ABSCHNITT.bildschirm);
+  ok(/<button[^>]*>Monitore aktualisieren<\/button>/.test(bild), 'SW Panel Monitore aktualisieren: Der Knopf steht im Abschnitt Bildschirm');
+  ok(!abschnitt(html, ABSCHNITT.audio).includes('Monitore aktualisieren'), 'SW Panel Monitore aktualisieren: nur dort, nicht in den anderen Abschnitten');
+  gleich(log, [], 'SW Panel Monitore aktualisieren: Rendern liest die Monitore nicht');
+  // Der Knopf ruft die Aktion des Rahmens (scanDisplays); das Lesen selbst bleibt im Rahmen, das Panel hat keinen Effekt.
+  const rahmen = ohneKommentare(leseText('src/renderer/src/views/SwitcherOberflaeche.tsx'));
+  ok(
+    rahmen.includes('scanDisplays,') && rahmen.includes('window.jmswitch.screen.listDisplays()'),
+    'SW Panel Monitore aktualisieren: Die Aktion liest die Monitorliste neu über screen.listDisplays im Rahmen',
+  );
+  const code = ohneKommentare(leseText('src/renderer/src/views/Einstellungen.tsx'));
+  ok(code.includes('onClick={aktionen.scanDisplays}'), 'SW Panel Monitore aktualisieren: Der Knopf ruft aktionen.scanDisplays');
+}
+{
+  const html = panel(basisStand());
+  const t = text(html);
+  const wortlaut: ReadonlyArray<readonly [string, string]> = [
+    ['Einleitung (Zeile 66)', 'Stream-Ziel und Qualität. Aufnahme & Stream startest du in der Mischer-Ansicht.'],
+    [
+      'NDI (Zeile 71)',
+      'So erscheint die Ausgabe im Netz (z. B. als Eingang in TriCaster, vMix, OBS oder einem NDI-Monitor). In der Mischer-Leiste wählst du, ob das Program-Bild oder das Multiview gesendet wird, und schaltest die Ausgabe live an/aus.',
+    ],
+    [
+      'Zweiter Bildschirm (Zeile 78)',
+      'Zeigt das On-Air-Programmbild formatfüllend auf dem gewählten Monitor — per HDMI direkt an Beamer, Kontrollmonitor oder Encoder. Läuft unabhängig von NDI und der Aufnahme; wähle für die Regie am besten einen anderen Monitor als den mit der Bedienoberfläche.',
+    ],
+    [
+      'Audio (Zeile 80)',
+      'Mikro / Line-In / Capture-Ton. Wird in Aufnahme + Stream gemischt; Pegel & Mute in der Mischer-Leiste. Audio folgt (noch) nicht der Bildquelle — feste Programm-Audioquelle.',
+    ],
+    [
+      'Fernsteuerung (Zeile 84)',
+      'Zeilenprotokoll (PREVIEW/PROGRAM/CUT/AUTO/RECORD/STREAM) für ein Stream-Deck via Bitfocus Companion — Modul: packages/companion-jm-switcher. Im Companion-Modul Host (IP dieses Rechners) + Port eintragen.',
+    ],
+  ];
+  for (const [name, w] of wortlaut) {
+    ok(t.replace(/&amp;/g, '&').includes(w), `SW Panel Erklärtexte: ${name} wörtlich im Panel`);
+  }
+  const ids: ReadonlyArray<readonly [string, string]> = [
+    ['ndi', wortlaut[1][1]],
+    ['bildschirm', wortlaut[2][1]],
+    ['fernsteuerung', wortlaut[4][1]],
+    ['audio', wortlaut[3][1]],
+  ];
+  for (const [id, w] of ids) {
+    ok(text(abschnitt(html, id)).replace(/&amp;/g, '&').includes(w), `SW Panel Erklärtexte: der Text steht im Abschnitt ${id}`);
+  }
 }

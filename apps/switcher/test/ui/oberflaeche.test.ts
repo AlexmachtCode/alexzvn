@@ -53,6 +53,7 @@ function aufzeichner(): { log: unknown[]; a: SwitcherAktionen } {
       toggleRecording: f('toggleRecording'),
       toggleStreaming: f('toggleStreaming'),
       scanAudio: f('scanAudio'),
+      scanDisplays: f('scanDisplays'),
     },
   };
 }

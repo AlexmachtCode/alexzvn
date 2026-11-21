@@ -74,9 +74,10 @@ export function SwitcherRahmen({
   // Monitore für die Zweitbildschirm-Auswahl; undefined = noch nicht geladen oder nicht ladbar (dann „unbekannt“, nie eine
   // leere Liste, E4). Neu gelesen, wenn das Panel aufgeht, falls ein Monitor dazukam.
   const [displays, setDisplays] = useState<DisplayInfo[] | undefined>(undefined);
-  useEffect(() => {
+  const scanDisplays = (): void => {
     void window.jmswitch.screen.listDisplays().then(setDisplays, () => setDisplays(undefined));
-  }, [panelOffen]);
+  };
+  useEffect(scanDisplays, [panelOffen]);
 
   // Audioeingänge; undefined = noch nicht gesucht oder die Suche schlug fehl („unbekannt“).
   const [audioGeraete, setAudioGeraete] = useState<AudioDeviceOption[] | undefined>(undefined);
@@ -124,6 +125,7 @@ export function SwitcherRahmen({
     toggleRecording: frame.aktionen.toggleRecording,
     toggleStreaming: frame.aktionen.toggleStreaming,
     scanAudio: () => scanAudio(true),
+    scanDisplays,
   };
 
   return (

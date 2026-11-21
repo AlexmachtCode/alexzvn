@@ -91,6 +91,7 @@ export function protokollAktionen(log: string[]): SwitcherAktionen {
     toggleRecording: m('toggleRecording'),
     toggleStreaming: m('toggleStreaming'),
     scanAudio: m('scanAudio'),
+    scanDisplays: m('scanDisplays'),
   };
 }
 

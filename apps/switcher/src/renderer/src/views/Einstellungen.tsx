@@ -5,7 +5,7 @@
 // Statuseintrags). Kein window und kein Effekt (G7, G8): Das Panel ist nur offen gemountet; Fernsteuerungsabo, Monitor- und
 // Geräteliste und Steuerserver-Start bleiben in SwitcherOberflaeche und SwitcherView.
 import { AudioDeviceSection, NdiOutputSection, RemoteControlSection, ScreenOutputSection } from '@jm/settings';
-import { Field, NumberInput, PanelAnker, Select, SettingsSection, TextInput } from '@jm/ui';
+import { Button, Field, NumberInput, PanelAnker, Select, SettingsSection, TextInput } from '@jm/ui';
 import { RESOLUTIONS, type ProgramResolution } from '@shared/output-quality';
 import {
   ABSCHNITT,
@@ -29,6 +29,11 @@ export interface EinstellungenProps {
 /** Bildraten der Ausgabe (wie `OUTPUT_FPS_OPTIONS` im Store; hier ohne den Store, damit das Panel ohne zustand rendert). */
 const BILDRATEN = [25, 30, 50, 60] as const;
 
+/** Gedämpfter Erklärtext der alten Einstellungs-Karten (R8): die gemeinsamen Abschnitte haben dafür keinen eigenen Platz. */
+function Erklaerung({ children }: { children: string }): React.JSX.Element {
+  return <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">{children}</p>;
+}
+
 export function Einstellungen({ stand, aktionen }: EinstellungenProps): React.JSX.Element {
   const st = stand.settings;
   const T = SWITCHER_TEXTE;
@@ -37,10 +42,19 @@ export function Einstellungen({ stand, aktionen }: EinstellungenProps): React.JS
 
   return (
     <div className="space-y-5">
+      <Erklaerung>{T.panelText.einleitung}</Erklaerung>
       <NdiOutputSection {...ndiAbschnitt(stand, aktionen)} />
+      <Erklaerung>{T.panelText.ndi}</Erklaerung>
       <ScreenOutputSection {...bildschirmAbschnitt(stand, aktionen)} />
+      {/* R8: „Monitore aktualisieren“ und der Erklärtext der alten Karte; ScreenOutputSection hat keinen eigenen Platz dafür */}
+      <Button variant="outline" size="sm" uppercase={false} onClick={aktionen.scanDisplays}>
+        {T.panelText.monitoreAktualisieren}
+      </Button>
+      <Erklaerung>{T.panelText.bildschirm}</Erklaerung>
       <RemoteControlSection {...fernsteuerungAbschnitt(stand, aktionen)} />
+      <Erklaerung>{T.panelText.fernsteuerung}</Erklaerung>
       <AudioDeviceSection {...audioAbschnitt(stand, aktionen)} />
+      <Erklaerung>{T.panelText.audio}</Erklaerung>
 
       <PanelAnker id={ABSCHNITT.streaming}>
         <SettingsSection title={T.titel.streaming} description={streamHinweis(st.programResolution, st.outputFps, st.audioInputId)}>
