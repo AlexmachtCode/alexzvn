@@ -2517,12 +2517,12 @@ async function run() {
 
     await bindA();
     const e1 = { ...gespeichert('a') };
-    const lang = await bindA({ jetzt: T0 + 2 * H });
+    const lang = await bindA({ jetzt: T0 + 2 * H, bisMs: T0 + 27 * H });
     const e2 = gespeichert('a');
     check('RF Bindung speichert raumId, kid, seit',
       gleich(Object.keys(e1).sort(), ['bis', 'gidHash', 'kid', 'kidHash', 'raumId', 'seit']) === null
         && e1.seit === T0 && e1.raumId === RAUM && e1.kid === ext.kid
-        && lang.http === 200 && e2.raumId === RAUM && e2.kid === ext.kid && e2.seit === T0);
+        && lang.http === 200 && e2.bis === T0 + 27 * H && e2.raumId === RAUM && e2.kid === ext.kid && e2.seit === T0);
 
     await pruefeFaelle('RF connect-inhaber prüft raumId und kid', [
       { name: 'ohne raumId', b: { raumId: undefined } },
