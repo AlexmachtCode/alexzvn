@@ -46,6 +46,8 @@ function ck(name: string, cond: boolean): void {
 }
 
 const s = await import('../src/main/settings');
+/** Attrappe von safeStorage.encryptString (siehe ELECTRON oben): so liegt ein verschlüsselter Wert in der Datei. */
+const enc = (t: string): string => Buffer.from('E:' + t).toString('base64');
 const daten = { clientId: 'ID-1234', clientSecret: 'geheim' };
 
 // Schreiben klappt: wie bisher
@@ -422,6 +424,16 @@ ck('Zugang: Entfernen bei schreibbarer Datei → true, Feld weg', s.zoomZugangLo
   ck('290 K8: … die neue Datei hat zoomLetzteNummer',
     (JSON.parse(readFileSync(datS, 'utf8')) as { zoomLetzteNummer?: unknown }).zoomLetzteNummer === '123 456');
   g.__mock.userData = wurzel;
+}
+
+{
+  // T11 Spec 184, N1: die Löschwege genügen für OT9; das gemerkte Meeting bleibt.
+  g.__mock.userData = wurzel;
+  writeFileSync(join(wurzel, 'connect-settings.json'), JSON.stringify({ proxyKeyEnc: enc('test-proxy'), zoomZugangEnc: enc('{"clientId":"ID-1","clientSecret":"s"}'), zoomSdkKeyEnc: enc('sdk-test'), zoomLetzteNummer: '123 456', zoomLetzterKenncodeEnc: enc('Code-1') }));
+  s.setProxyKey(''); s.zoomZugangLoeschen(); s.zoomSdkSchluesselLoeschen();
+  const nach = JSON.parse(readFileSync(join(wurzel, 'connect-settings.json'), 'utf8'));
+  ck('T11 Spec 184, N1: nach den drei Löschungen steht keins von proxyKeyEnc, zoomZugangEnc, zoomSdkKeyEnc in der Datei; zoomLetzteNummer und zoomLetzterKenncodeEnc bleiben',
+    !('proxyKeyEnc' in nach) && !('zoomZugangEnc' in nach) && !('zoomSdkKeyEnc' in nach) && nach.zoomLetzteNummer === '123 456' && 'zoomLetzterKenncodeEnc' in nach);
 }
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
