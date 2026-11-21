@@ -1,8 +1,9 @@
 // UX Welle 1 · Switcher-Ableitungen (Aufgabe c; Spec 5.1, 6, 7.1–7.4, Anhang A „Switcher“): Statusleiste als Kreuzprodukt je Eintrag
 // mit Erwartungstabelle (E4, E5, R4), Abschnitts-Props, Haupttasten (E7), On-Air (E8), Aktionen, Texte.
 // Ohne window und ohne Electron.
+import * as settings from '@jm/settings';
 import { audioDeviceView, ndiOutputView, remoteControlView } from '@jm/settings';
-import { ordneStatus, type StatusItem } from '@jm/ui';
+import { MASTER_LINK_TEXTE, ordneStatus, type StatusItem } from '@jm/ui';
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
 import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { DisplayInfo, MasterLinkMeldungZeile } from '@shared/types';
@@ -395,6 +396,13 @@ function aufzeichner(): { log: unknown[]; a: SwitcherAktionen } {
 {
   const texte = Object.values(SWITCHER_TEXTE).flatMap((t) => (typeof t === 'string' ? [t] : Object.values(t)));
   ok(texte.length > 0 && texte.every((t) => !t.includes('"')), 'SW Texte ohne ASCII-Anführungszeichen');
+  // Texte aus @jm/settings (*_TEXTE) und @jm/ui (MASTER_LINK_TEXTE) werden nie nachgebaut: Wertegleichheit ist ein Nachbau.
+  const flach = (v: unknown): string[] => (typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(flach) : []);
+  const fremd = new Set(
+    [...Object.entries(settings).filter(([k]) => k.endsWith('_TEXTE')).map(([, v]) => v), MASTER_LINK_TEXTE].flatMap(flach),
+  );
+  const nachgebaut = texte.filter((t) => fremd.has(t));
+  ok(fremd.size > 0 && nachgebaut.length === 0, `SW Texte nicht nachgebaut: kein SWITCHER_TEXTE-Wert gleicht einem Text aus @jm/settings oder @jm/ui${nachgebaut.length ? ` (${nachgebaut.join(' | ')})` : ''}`);
   gleich(
     [SWITCHER_TEXTE.keineSzeneInVorschau, SWITCHER_TEXTE.ueberblendungLaeuft, SWITCHER_TEXTE.keinStreamZiel],
     ['Keine andere Szene in der Vorschau', 'Überblendung läuft', 'Stream-Ziel in den Einstellungen festlegen'],

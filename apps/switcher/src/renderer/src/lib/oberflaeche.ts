@@ -9,8 +9,11 @@ import {
   ABSCHNITT_TEXTE,
   audioDeviceView,
   fehlerStatus,
+  NDI_TEXTE,
   ndiOutputView,
+  REMOTE_TEXTE,
   remoteControlView,
+  SCREEN_TEXTE,
   screenOutputView,
   type AudioDeviceOption,
   type AudioDeviceSectionProps,
@@ -51,9 +54,7 @@ export const SWITCHER_TEXTE = {
   /** Statustext bei kurzer Angabe zu laufender Aufnahme oder Sendung ohne Dateinamen. */
   laeuft: 'läuft',
   keinZiel: 'kein Ziel',
-  bereit: 'bereit',
   stumm: 'stumm',
-  audioStartet: 'startet',
   /** Name des Companion-Moduls (packages/companion-jm-switcher): wörtlich aus dem heutigen Hinweis. */
   companionModul: 'jm-switcher',
   /** Name der heutigen Wahl „kein Ton“: wörtlich die bisherige Option. */
@@ -64,8 +65,6 @@ export const SWITCHER_TEXTE = {
   onAirRec: 'REC',
   label: {
     ndi: 'NDI',
-    bildschirm: 'Bildschirm',
-    fernsteuerung: 'Fernsteuerung',
     audio: 'Audio',
     aufnahme: 'Aufnahme',
     stream: 'Stream',
@@ -258,7 +257,7 @@ function audioItem(s: OberflaechenStand): StatusItem {
   const item = abschnittStatusItem(audioDeviceView(audioAbschnitt(s, KEINE_AKTION)), { group: 'tool', label: SWITCHER_TEXTE.label.audio });
   // Nur wenn Wahl und Liste stimmen (ok) und kein Fehler vorliegt, zählt die Messung des Graphen: hasDevice und muted.
   if (item.state !== 'ok') return item;
-  if (!s.audio.hasDevice) return { ...item, state: 'warn', detail: `${item.detail} · ${SWITCHER_TEXTE.audioStartet}` };
+  if (!s.audio.hasDevice) return { ...item, state: 'warn', detail: `${item.detail} · ${NDI_TEXTE.startet}` };
   if (s.audio.muted) return { ...item, state: 'warn', detail: `${item.detail} · ${SWITCHER_TEXTE.stumm}` };
   return item;
 }
@@ -280,20 +279,21 @@ function streamItem(s: OberflaechenStand): StatusItem {
   if (o.streaming) return { ...kopf, state: 'live', detail: SWITCHER_TEXTE.laeuft };
   if (o.error) return { ...kopf, state: 'error', detail: fehlerStatus(o.error).text };
   if (!hatStreamZiel(s)) return { ...kopf, state: 'off', detail: SWITCHER_TEXTE.keinZiel };
-  return { ...kopf, state: 'ok', detail: SWITCHER_TEXTE.bereit };
+  return { ...kopf, state: 'ok', detail: REMOTE_TEXTE.bereit };
 }
 
 /** Statusleiste schon in der Reihenfolge der Gruppen: verbindung, ausgabe, fernsteuerung, tool (Anhang A). */
 export function statusLeiste(s: OberflaechenStand): StatusItem[] {
   const L = SWITCHER_TEXTE.label;
+  // „Bildschirm“ und „Fernsteuerung“ sind die Titel der gemeinsamen Abschnitte (nicht nachgebaut).
   const ndi = ndiOutputView(ndiAbschnitt(s, KEINE_AKTION));
   return [
     masterLinkStatusItem(s.masterLink),
     abschnittStatusItem(ndi, { group: 'ausgabe', label: L.ndi, detail: ndi.empfaenger }),
-    abschnittStatusItem(screenOutputView(bildschirmAbschnitt(s, KEINE_AKTION)), { group: 'ausgabe', label: L.bildschirm }),
+    abschnittStatusItem(screenOutputView(bildschirmAbschnitt(s, KEINE_AKTION)), { group: 'ausgabe', label: SCREEN_TEXTE.bildschirm }),
     aufnahmeItem(s),
     streamItem(s),
-    abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s, KEINE_AKTION)), { group: 'fernsteuerung', label: L.fernsteuerung }),
+    abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s, KEINE_AKTION)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel }),
     audioItem(s),
   ];
 }
