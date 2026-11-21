@@ -73,6 +73,17 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
   );
 }
 
+// ── SW Fernsteuerung Startport: Der Switcher-Port ist einstellbar, das Start-Ereignis trägt den angeforderten Port ──
+{
+  const belegt = folge({ art: 'start', ok: false, error: BELEGT, port: 9000 });
+  gleich(belegt, { laeuft: false, port: 9000, clients: 0, fehler: BELEGT }, 'SW Fernsteuerung Startport: Startfehler mit Port 9000 ohne vorherigen Status → Port 9000');
+  ok(portBelegt(belegt), 'SW Fernsteuerung Startport: EADDRINUSE mit Startport → portBelegt');
+  gleich(folge({ art: 'start', ok: true, port: 9000 }), { laeuft: true, port: 9000, clients: 0 }, 'SW Fernsteuerung Startport: Start ok mit Port 9000 → läuft, Port 9000');
+  gleich(folge({ art: 'start', ok: false, error: BELEGT }), { laeuft: false, port: STEUER_PORT, clients: 0, fehler: BELEGT }, 'SW Fernsteuerung Startport: Start ohne Port → alter Rückfall STEUER_PORT');
+  gleich(naechsteFernsteuerung({ laeuft: true, port: 9100, clients: 1 }, { art: 'start', ok: true }), { laeuft: true, port: 9100, clients: 1 }, 'SW Fernsteuerung Startport: Start ohne Port behält den zuletzt gemeldeten Port');
+  gleich(naechsteFernsteuerung({ laeuft: true, port: 9100, clients: 1 }, { art: 'start', ok: true, port: 0 }), { laeuft: true, port: 9100, clients: 1 }, 'SW Fernsteuerung Startport: Port 0 zählt als ohne Port');
+}
+
 // ── SW Fernsteuerung Port belegt ──
 {
   const belegt = folge({ art: 'status', running: false, port: 0, clients: 0 }, { art: 'start', ok: false, error: BELEGT });
@@ -218,7 +229,7 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
   ok(leseText('src/renderer/src/store/settings.ts').includes('controlPort: DEFAULT_CONTROL_PORT,'), 'SW Wächter Steuerport: der Standard der Einstellung ist DEFAULT_CONTROL_PORT');
   ok(cs.includes("onMeldung?.({ art: 'status', ...st, modus: server?.modus() });"), 'SW Wächter Steuerport: jeder Statuswechsel des Servers wird mit wirksamem Modus gemeldet');
   ok(
-    cs.includes("meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });") && cs.includes("meldeFernsteuerung({ art: 'wurf', text: "),
+    cs.includes("meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error, port });") && cs.includes("meldeFernsteuerung({ art: 'wurf', text: "),
     'SW Wächter Steuerport: Start-Ergebnis und Wurf werden gemeldet',
   );
   ok(

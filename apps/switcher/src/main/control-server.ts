@@ -96,7 +96,7 @@ export function startControlServer(
 export async function startControlServerGemeldet(port: number): Promise<{ ok: boolean; error?: string; port?: number }> {
   try {
     const r = await startControlServer(port, meldeFernsteuerung);
-    meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });
+    meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error, port });
     return r;
   } catch (err) {
     meldeFernsteuerung({ art: 'wurf', text: (err as Error).message });

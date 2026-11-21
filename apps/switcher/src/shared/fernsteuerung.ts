@@ -7,6 +7,7 @@
 // bleiben unverändert (nur lesend). `clients` zählt jeden Steuerclient (Companion, Launcher-Health …).
 // Auf dem Draht bleibt der Kanal control:status mit ControlStatus (Ruling R1); die zwei Wandler unten übersetzen
 // laeuft ↔ running, alles andere 1:1.
+// Abweichung vom Titler: Das Start-Ereignis trägt den angeforderten Port (`port?`), weil der Switcher-Port einstellbar ist.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { ControlStatus } from './types';
 
@@ -32,7 +33,7 @@ export interface FernsteuerungMeldung {
 
 export type FernsteuerungEreignis =
   | { art: 'status'; running: boolean; port: number; clients: number; modus?: 'open' | 'secure' }
-  | { art: 'start'; ok: boolean; error?: string }
+  | { art: 'start'; ok: boolean; error?: string; port?: number }
   | { art: 'wurf'; text: string };
 
 /** Felder ohne Wert fehlen im Objekt (nie undefined); Reihenfolge laeuft, port, clients, modus, fehler. */
@@ -53,10 +54,10 @@ export function naechsteFernsteuerung(alt: FernsteuerungMeldung | undefined, e: 
   switch (e.art) {
     case 'status':
       return meldung(e.running, e.port > 0 ? e.port : altPort, e.running ? e.clients : 0, e.modus ?? alt?.modus, e.running ? undefined : alt?.fehler);
-    case 'start':
-      return e.ok
-        ? meldung(true, altPort, alt?.clients ?? 0, alt?.modus)
-        : meldung(false, altPort, 0, alt?.modus, fehlerText(e.error));
+    case 'start': {
+      const port = e.port !== undefined && e.port > 0 ? e.port : altPort;
+      return e.ok ? meldung(true, port, alt?.clients ?? 0, alt?.modus) : meldung(false, port, 0, alt?.modus, fehlerText(e.error));
+    }
     case 'wurf':
       return meldung(false, altPort, 0, alt?.modus, fehlerText(e.text));
   }
