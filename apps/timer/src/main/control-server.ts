@@ -24,6 +24,7 @@ import {
   type Command,
   type SyncedState,
 } from '@shared/timer-state';
+import type { FernsteuerungEreignis } from '@shared/fernsteuerung';
 import { dispatch, getState, subscribe } from './state';
 
 /** Eigener TCP-Steuerport (getrennt vom Socket.IO-Port 7777). */
@@ -100,6 +101,11 @@ export interface ControlServerOptions {
    * vermeiden.
    */
   onReload?: () => void;
+  /**
+   * UX Welle 1 (Spec 3.9): Statusmeldung des Servers (läuft, Port, Clients) mit wirksamem Modus, nur lesend.
+   * Der Main macht daraus die Fernsteuerungs-Meldung für die Statusleiste.
+   */
+  onMeldung?: (e: FernsteuerungEreignis) => void;
 }
 
 export function startControlServer(
@@ -112,6 +118,9 @@ export function startControlServer(
     appId: 'jm-timer',
     controlEndpoint: true,
     getState: () => toSuiteState(),
+    onStatus: (st) => {
+      opts.onMeldung?.({ art: 'status', ...st, modus: server?.modus() });
+    },
     onCommand: (cmd) => {
       if (cmd.ns !== 'timer') return;
       if (cmd.verb === 'reload') {

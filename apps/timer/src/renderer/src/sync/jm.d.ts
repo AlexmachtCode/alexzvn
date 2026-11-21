@@ -1,4 +1,5 @@
-import type { VerbundAnzeigeZeile } from '@shared/verbund';
+import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
+import type { MasterLinkMeldungZeile, VerbundAnzeigeZeile } from '@shared/verbund';
 
 declare global {
   interface Window {
@@ -30,6 +31,12 @@ declare global {
       /** Verbund-Anzeige (Master-Link Teil 2b, Spec 16.4/16.5): V-Zeile oder null (Einzelplatz). */
       verbundAnzeige: () => Promise<VerbundAnzeigeZeile | null>;
       onVerbundAnzeige: (cb: (a: VerbundAnzeigeZeile | null) => void) => () => void;
+      /** Master-Link-Zustand (UX Welle 1, Spec 3.9), lesend; null, wenn der Handler fehlt oder ablehnt. */
+      masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+      onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
+      /** Meldung des Steuerservers (Port 8724, UX Welle 1): null, solange Main noch nichts gemeldet hat. */
+      fernsteuerung: () => Promise<FernsteuerungMeldung | null>;
+      onFernsteuerung: (cb: (m: FernsteuerungMeldung | null) => void) => () => void;
     };
   }
 }
