@@ -17,6 +17,8 @@
 import type { BrowserWindow } from 'electron';
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
 import { app } from 'electron';
+import { naechsteFernsteuerung, meldungZuControlStatus, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
+import type { ControlStatus } from '@shared/types';
 import {
   parseCommand,
   switcherStateToSuite,
@@ -34,18 +36,24 @@ let lastState: SwitcherStateMsg = {
   scenes: 0,
 };
 
-export interface ControlStatus {
-  running: boolean;
-  port: number;
-  clients: number;
-}
+// UX Welle 1 (Spec 3.9, nur lesend): Die aktuelle Fernsteuerungs-Meldung. Sie wird aus jedem Statuswechsel des Servers,
+// dem Start-Ergebnis und einem Wurf fortgeschrieben und als erweiterte ControlStatus (mit modus/fehler) gesendet.
+let meldung: FernsteuerungMeldung | undefined;
 
 export function attachControlWindow(win: BrowserWindow): void {
   targetWindow = win;
 }
 
+/** Aktueller Status; solange nichts gemeldet wurde, der Grundwert (der Renderer liest ihn als „unbekannt“). */
 export function controlStatus(): ControlStatus {
+  if (meldung) return meldungZuControlStatus(meldung);
   return server?.status() ?? { running: false, port: 0, clients: 0 };
+}
+
+/** Meldung fortschreiben und an den Renderer senden. */
+export function meldeFernsteuerung(e: FernsteuerungEreignis): void {
+  meldung = naechsteFernsteuerung(meldung, e);
+  send('control:status', meldungZuControlStatus(meldung));
 }
 
 // Beim Beenden räumt stopControlServer() auf, während das Fenster schon zerstört
@@ -57,7 +65,11 @@ function send(channel: string, payload: unknown): void {
   if (!wc.isDestroyed()) wc.send(channel, payload);
 }
 
-export function startControlServer(port: number): Promise<{ ok: boolean; error?: string; port?: number }> {
+export function startControlServer(
+  port: number,
+  // UX Welle 1 (Spec 3.9): ganze Statusmeldung mit wirksamem Modus, nur lesend.
+  onMeldung?: (e: FernsteuerungEreignis) => void,
+): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   server = new SuiteControlServer({
     appDataDir: app.getPath('appData'),
@@ -70,9 +82,26 @@ export function startControlServer(port: number): Promise<{ ok: boolean; error?:
       const legacy = parseCommand(ctx.raw);
       if (legacy && legacy.type !== 'queryState') send('control:command', legacy as ControlCommand);
     },
-    onStatus: () => send('control:status', controlStatus()),
+    onStatus: (st) => {
+      onMeldung?.({ art: 'status', ...st, modus: server?.modus() });
+    },
   });
   return server.start(port);
+}
+
+/**
+ * Start mit Meldung: Status jedes Wechsels, danach das Start-Ergebnis, bei einem Wurf der Fehlertext (der Wurf wird
+ * weitergereicht wie bisher). Ablauf und Rückgabe von startControlServer bleiben gleich.
+ */
+export async function startControlServerGemeldet(port: number): Promise<{ ok: boolean; error?: string; port?: number }> {
+  try {
+    const r = await startControlServer(port, meldeFernsteuerung);
+    meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });
+    return r;
+  } catch (err) {
+    meldeFernsteuerung({ art: 'wurf', text: (err as Error).message });
+    throw err;
+  }
 }
 
 export function stopControlServer(): void {

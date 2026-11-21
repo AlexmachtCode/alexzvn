@@ -14,8 +14,9 @@
     "start:codespace": "unset ELECTRON_RUN_AS_NODE && xvfb-run -a node_modules/.bin/electron out/main/index.cjs",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "selftest": "node --experimental-strip-types test/selftest.ts && node test/bundle-ndi.test.mjs",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web && npm run typecheck:test",
+    "selftest": "node --experimental-strip-types test/selftest.ts && tsx --tsconfig tsconfig.test.json test/ui/selftest.ts && node test/bundle-ndi.test.mjs",
     "rebuild:native": "electron-rebuild --only @jm/ndi",
     "prepackage": "node tools/bundle-ndi.mjs && node tools/bundle-ffmpeg.mjs",
     "dist": "electron-vite build && npm run prepackage && electron-builder",
@@ -30,6 +31,7 @@
     "@jm/discovery": "*",
     "@jm/media": "*",
     "@jm/ndi": "*",
+    "@jm/settings": "*",
     "@jm/suite-control-protocol": "*",
     "@jm/ui": "*",
     "react": "^18.3.1",
@@ -47,6 +49,7 @@
     "electron-builder": "24.13.3",
     "electron-vite": "^2.3.0",
     "tailwindcss": "^4.0.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
   }

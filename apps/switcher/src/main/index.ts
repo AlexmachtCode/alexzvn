@@ -6,7 +6,7 @@ import { installDisplayMediaHandler } from './capture-handler';
 import { attachNdiWindow, stopNdi } from './ndi-receive';
 import { attachNdiSendWindow, stopNdiOutput } from './ndi-send';
 import { attachOutputWindow, stopOutput } from './output';
-import { attachControlWindow, startControlServer, stopControlServer } from './control-server';
+import { attachControlWindow, startControlServerGemeldet, stopControlServer } from './control-server';
 import { attachSecondScreen, stopSecondScreen } from './second-screen';
 import { handleShowDeepLink, flushPendingShowProject } from './show-open';
 
@@ -103,7 +103,7 @@ function createMainWindow(): BrowserWindow {
   // ohne den Einstellungen-Toggle). Sonst startet ihn der Renderer nach Settings.
   const envPort = Number(process.env['JMSWITCH_CONTROL_PORT']);
   if (Number.isFinite(envPort) && envPort > 0) {
-    win.webContents.once('did-finish-load', () => void startControlServer(envPort));
+    win.webContents.once('did-finish-load', () => void startControlServerGemeldet(envPort));
   }
 
   mainWindow = win;

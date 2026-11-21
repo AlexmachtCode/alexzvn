@@ -24,6 +24,6 @@
     "src/preload/**/*.ts",
     "src/utility/**/*.ts",
     "src/shared/**/*.ts",
-    "test/**/*.ts"
+    "test/*.ts"
   ]
 }
