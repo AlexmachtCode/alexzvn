@@ -514,7 +514,7 @@ console.log('— Mängel beim Start (Fall 1, erster Teil)');
   const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, laufzeit: { pruefe: () => ({ ok: false, mangel: 'sdk_fehlt' }) } });
   const k = p.kern.kurz();
   ck('Laufzeit fehlt + kein Zugang → einrichtung', k.zustand === 'einrichtung' && zoomZ(k) === 'Z1a');
-  ck('… Mängel in der Reihenfolge Laufzeit, Zugang', JSON.stringify(k.maengel) === '["sdk_fehlt"]');
+  ck('… Mängel: nur noch der Laufzeit-Mangel, kein Zugangs-Mangel mehr', JSON.stringify(k.maengel) === '["sdk_fehlt"]');
   ck('… STATE zoom_status=einrichtung, zoom_alarm=0', p.kern.stateKv()?.zoom_status === 'einrichtung' && p.kern.stateKv()?.zoom_alarm === 0);
   const a = p.kern.abbild();
   ck('… SDK „fehlt“ ohne Fassung, Zugang „none“ ohne Client-ID', a.einrichtung.sdk.stand === 'fehlt' && a.einrichtung.sdk.fassung === null
@@ -540,7 +540,7 @@ console.log('— Mängel beim Start (Fall 1, erster Teil)');
 }
 {
   const p = baueKern({ zugang: { daten: null, herkunft: 'none', unlesbar: true } });
-  ck('Zugang unlesbar → Mangel zugang_unlesbar, Text A5',
+  ck('Zugang unlesbar → kein Mangel mehr, steht in einrichtung.zugang.unlesbar, Text A5',
     JSON.stringify(p.kern.kurz().maengel) === '[]' && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.zugang.unlesbar === true
     && p.kern.abbild().einrichtung.zugang.text === KT.A5);
   await p.aufraeumen();
@@ -583,7 +583,7 @@ console.log('— Zugangsdaten wählen und entfernen (6.1, A1–A6)');
   ck('… Mangel weg, bereit, Client-ID endet auf 1234, kein Fehlertext',
     a.kurz.zustand === 'bereit' && a.einrichtung.zugang.herkunft === 'stored' && a.einrichtung.zugang.clientIdEnde === '1234' && a.einrichtung.zugang.text === null);
   ck('… Secret weder im Abbild noch im Log', !JSON.stringify(a).includes('datei-secret') && !p.logs.some((z) => z.includes('datei-secret')));
-  ck('Entfernen → Mangel zugang_fehlt, einrichtung', ok(p.kern.zugangLoeschen()) && JSON.stringify(p.kern.kurz().maengel) === '[]'
+  ck('Entfernen → kein Mangel, Zustand bereit', ok(p.kern.zugangLoeschen()) && JSON.stringify(p.kern.kurz().maengel) === '[]'
     && p.kern.kurz().zustand === 'bereit');
   rmSync(dir, { recursive: true, force: true });
   await p.aufraeumen();
@@ -894,9 +894,9 @@ console.log('— Bild-Versatz speichern (6.7), Schließen/Meldung in Z1/Z2 (6.8)
   await p.aufraeumen();
 }
 {
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
+  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, laufzeit: { pruefe: () => ({ ok: false, mangel: 'sdk_fehlt' }) } });
   p.kern.schliessen();
-  ck('Schließen in Z1a ändert nichts', p.kern.kurz().zustand === 'bereit' && JSON.stringify(p.kern.kurz().maengel) === '[]');
+  ck('Schließen in Z1a ändert nichts', p.kern.kurz().zustand === 'einrichtung' && JSON.stringify(p.kern.kurz().maengel) === '["sdk_fehlt"]');
   await p.aufraeumen();
 }
 
@@ -2408,7 +2408,7 @@ console.log('— Entfernen bei nicht schreibbarer Einstellungsdatei (Gesamtprüf
   const p = baueKern({ zugangLoeschenLiefert: false });
   const vor = p.logs.length;
   const r = p.kern.zugangLoeschen();
-  ck('Zugangsdaten entfernen, Datei nicht schreibbar → „nur für diese Sitzung entfernt“, Mangel zugang_fehlt',
+  ck('Zugangsdaten entfernen, Datei nicht schreibbar → „nur für diese Sitzung entfernt“, kein Mangel, bereit',
     text(r) === TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT && p.kern.kurz().zustand === 'bereit' && p.kern.kurz().maengel.length === 0);
   ck('… die Logzeile sagt es, statt „Zugangsdaten entfernt“',
     p.logs.slice(vor).includes('[zoom] Zugangsdaten nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)')
@@ -3000,27 +3000,30 @@ console.log('— Task 15 · 6.4 Wiederbeitritt holt das JWT je Versuch neu');
   // (a) Die Quelle liefert aus dem RAM, ohne Launcher: jeder Versuch holt zuerst das JWT, dann die Bridge.
   const a = baueKern({ stell, jwt: { hole: async () => T15_OK } });
   ck('T15 6.4 (a): Beitritt', await insMeeting(a));
-  ck('… Wiederbeitritt: zweite Bridge, wieder im Meeting', await bis(() => a.starts() === 2 && a.kern.kurz().zustand === 'im_meeting', 5000));
-  ck('… Reihenfolge hole, fabrik, hole, fabrik', a.reihenfolge.join(',') === 'hole,fabrik,hole,fabrik');
+  const a1 = await bis(() => a.starts() === 2 && a.kern.kurz().zustand === 'im_meeting', 5000);
+  const a2 = a.reihenfolge.join(',') === 'hole,fabrik,hole,fabrik';
+  ck('… Wiederbeitritt: zweite Bridge, wieder im Meeting', a1);
+  ck('… Reihenfolge hole, fabrik, hole, fabrik', a2);
   await a.aufraeumen();
   // (b) server-nicht-erreichbar ist vorübergehend: der nächste Versuch kommt nach Plan, ohne dass eine Bridge entsteht.
   let nb = 0;
   const b = baueKern({ stell, jwt: { hole: async () => (++nb === 2 ? { ok: false, grund: 'server-nicht-erreichbar', detail: null } : T15_OK) } });
   ck('T15 6.4 (b): Beitritt', await insMeeting(b));
-  ck('… Versuch 1 scheitert vorübergehend, Versuch 2 holt das JWT neu und kommt ins Meeting',
-    await bis(() => b.starts() === 2 && b.kern.kurz().zustand === 'im_meeting', 5000) && b.jwtHoleZahl() === 3
+  const rb = (await bis(() => b.starts() === 2 && b.kern.kurz().zustand === 'im_meeting', 5000)) && b.jwtHoleZahl() === 3
       && b.reihenfolge.join(',') === 'hole,fabrik,hole,hole,fabrik'
-      && b.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 gescheitert nach \d+ ms \(vorübergehend\)$/.test(z)));
+      && b.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 gescheitert nach \d+ ms \(vorübergehend\)$/.test(z));
+  ck('… Versuch 1 scheitert vorübergehend, Versuch 2 holt das JWT neu und kommt ins Meeting', rb);
   await b.aufraeumen();
   // (c) kein-recht ist endgültig: die Folge endet, es entsteht keine zweite Bridge.
   let nc = 0;
   const c = baueKern({ stell, jwt: { hole: async () => (++nc === 2 ? { ok: false, grund: 'kein-recht', detail: null } : T15_OK) } });
   ck('T15 6.4 (c): Beitritt', await insMeeting(c));
-  ck('… kein-recht → fehler mit ZA7 hinter „Wiederbeitritt abgebrochen“, endgültig, keine zweite Bridge',
-    (await bis(() => c.kern.kurz().zustand === 'fehler', 5000)) && c.starts() === 1 && c.jwtHoleZahl() === 2
+  const rc = (await bis(() => c.kern.kurz().zustand === 'fehler', 5000)) && c.starts() === 1 && c.jwtHoleZahl() === 2
       && c.kern.abbild().meldung?.text === VORSATZ.wiederbeitritt + ZUGANG_TEXT.ohneAnmeldung(jwtGrundText('kein-recht', null))
-      && c.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 gescheitert nach \d+ ms \(endgültig\)$/.test(z)));
+      && c.logs.some((z) => /^\[zoom\] Wiederbeitritt: Versuch 1 gescheitert nach \d+ ms \(endgültig\)$/.test(z));
+  ck('… kein-recht → fehler mit ZA7 hinter „Wiederbeitritt abgebrochen“, endgültig, keine zweite Bridge', rc);
   await c.aufraeumen();
+  ck('T15 6.4: Wiederbeitritt: Quelle liefert aus dem RAM ohne Launcher; server-nicht-erreichbar → nächster Versuch nach Plan; kein-recht → endgültig', a1 && a2 && rb && rc);
 }
 {
   const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, jwtLage: { quelle: 'keine' } });
