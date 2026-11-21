@@ -8,6 +8,7 @@ import {
 } from '@/store/timer';
 import { useTick } from '@/lib/useTick';
 import { formatHMS, parseHMS } from '@/lib/time';
+import { istEingabeZiel } from '@/lib/oberflaeche';
 import { TimerDisplay } from './TimerDisplay';
 import { Button } from '@jm/ui';
 import { Input } from './ui/Input';
@@ -38,8 +39,7 @@ export function Countdown() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if (istEingabeZiel(e.target)) return;
       if (e.code === 'Space') {
         e.preventDefault();
         running ? pause() : start();
