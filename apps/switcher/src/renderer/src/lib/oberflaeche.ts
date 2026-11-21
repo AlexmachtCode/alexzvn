@@ -1,0 +1,324 @@
+// Switcher-Oberfläche: reine Ableitungen (UX Welle 1, Aufgabe c; Spec 5.1, 6, 7.1–7.4, Anhang A „Switcher“). Aus dem Stand des
+// Switchers (Einstellungen, Ausgabe-, NDI- und Audiozustand, Monitorliste, Master-Link- und Fernsteuerungs-Meldung) entstehen
+// die Props der Einstellungs-Abschnitte, die Statusleiste, die Zustände der vier Haupttasten und der On-Air-Kopf. Kein window,
+// kein IPC, kein localStorage: Die Aktionen kommen als Objekt herein, die Tests laufen ohne Browser. Statusleiste und Panel
+// nutzen dieselben Ableitungen (eine Wahrheit).
+// Regeln: E4 Bildschirm, E5 NDI, E7 Haupttasten, E8 On-Air, R4 Fernsteuerung (controlEnabled zuerst).
+import {
+  abschnittStatusItem,
+  ABSCHNITT_TEXTE,
+  audioDeviceView,
+  fehlerStatus,
+  ndiOutputView,
+  remoteControlView,
+  screenOutputView,
+  type AudioDeviceOption,
+  type AudioDeviceSectionProps,
+  type NdiOutputSectionProps,
+  type RemoteControlSectionProps,
+  type ScreenOutputSectionProps,
+} from '@jm/settings';
+import { masterLinkStatusItem, type StatusItem, type TallyButtonProps } from '@jm/ui';
+import { portBelegt, type FernsteuerungMeldung } from '@shared/fernsteuerung';
+import type { DisplayInfo, MasterLinkMeldungZeile } from '@shared/types';
+import type { AudioState } from '@/core/audio';
+import type { NdiOutputState } from '@/core/ndiOutput';
+import type { OutputState } from '@/core/output';
+import type { SettingsState } from '@/store/settings';
+
+/** Abschnitts-ids = Panel-Anker (`einstellung-{id}`) = settingsSection der Statuseinträge. */
+export const ABSCHNITT = {
+  ndi: 'ndi',
+  bildschirm: 'bildschirm',
+  fernsteuerung: 'fernsteuerung',
+  audio: 'audio',
+  streaming: 'streaming',
+  aufnahme: 'aufnahme',
+  format: 'format',
+} as const;
+
+/**
+ * Feste Texte des Switchers (neue sichtbare Texte; kein ASCII-Anführungszeichen). Wörtlich übernommen aus dem Bestand:
+ * Grund des Stream-Knopfs (SwitcherView, title), Name des Companion-Moduls (SettingsView), Leerwert der Audiowahl.
+ */
+export const SWITCHER_TEXTE = {
+  /** Grund für gesperrtes Cut (E7): nach `canTake`; bei Auto auch ohne laufende Überblendung (Vorschau = Programm). */
+  keineSzeneInVorschau: 'Keine andere Szene in der Vorschau',
+  /** Grund für gesperrtes Auto (E7), nach `transitioning`. */
+  ueberblendungLaeuft: 'Überblendung läuft',
+  /** Grund für gesperrten Stream-Start ohne RTMP-Ziel: wörtlich der heutige title des Knopfs. */
+  keinStreamZiel: 'Stream-Ziel in den Einstellungen festlegen',
+  /** Statustext bei kurzer Angabe zu laufender Aufnahme oder Sendung ohne Dateinamen. */
+  laeuft: 'läuft',
+  keinZiel: 'kein Ziel',
+  bereit: 'bereit',
+  stumm: 'stumm',
+  audioStartet: 'startet',
+  /** Name des Companion-Moduls (packages/companion-jm-switcher): wörtlich aus dem heutigen Hinweis. */
+  companionModul: 'jm-switcher',
+  /** Name der heutigen Wahl „kein Ton“: wörtlich die bisherige Option. */
+  keinTon: '— Kein Ton (stille Spur) —',
+  /** Auswahl-Titel der Programm-Audioquelle in der Audio-Wahl. */
+  programmAudio: 'Programm-Audio',
+  onAirLive: 'LIVE',
+  onAirRec: 'REC',
+  label: {
+    ndi: 'NDI',
+    bildschirm: 'Bildschirm',
+    fernsteuerung: 'Fernsteuerung',
+    audio: 'Audio',
+    aufnahme: 'Aufnahme',
+    stream: 'Stream',
+  },
+} as const;
+
+export interface OberflaechenStand {
+  /** Persistierte Einstellungen (Store). */
+  settings: SettingsState;
+  /** Zustand von Aufnahme und Stream (`output.getState()`). */
+  output: OutputState;
+  /** Zustand der NDI-Ausgabe (`NdiOutputController.getState()`). */
+  ndi: NdiOutputState;
+  /** Zustand des Programm-Audios (`AudioController.getState()`). */
+  audio: AudioState;
+  /** Liste der Audioeingänge; undefined = noch nicht geladen (Gerätesuche), dann „unbekannt“. */
+  audioGeraete?: AudioDeviceOption[] | undefined;
+  /** Monitorliste aus listDisplays; undefined = noch nicht geladen (dann „unbekannt“, nie eine leere Liste, E4). */
+  displays: DisplayInfo[] | undefined;
+  /** Meldung der Master-Link-Brücke: undefined = offen, null = keine Brücke (beides „unbekannt“). */
+  masterLink: MasterLinkMeldungZeile | null | undefined;
+  /** Meldung des Steuerservers: undefined/null = noch keine Antwort (R4). */
+  fernsteuerung: FernsteuerungMeldung | null | undefined;
+  /** Es gibt eine Szene in der Vorschau (heute `previewSceneId != null`). */
+  canTake: boolean;
+  /** Auto ist möglich (Vorschau ≠ Programm, keine Überblendung). */
+  canAuto: boolean;
+  /** Eine Überblendung läuft. */
+  transitioning: boolean;
+}
+
+/** Was die Abschnitte auslösen; die View reicht Store-Setter und Ausgabe-Handler herein (Namen wie heute). */
+export interface SwitcherAktionen {
+  setRtmpUrl(v: string): void;
+  setStreamBitrateKbps(v: number): void;
+  setRecordBitrateKbps(v: number): void;
+  setControlEnabled(v: boolean): void;
+  setControlPort(v: number): void;
+  setAudioInputId(v: string): void;
+  setNdiOutputName(v: string): void;
+  setNdiOutputSource(v: 'program' | 'multiview'): void;
+  setProgramResolution(v: SettingsState['programResolution']): void;
+  setOutputFps(v: number): void;
+  setSecondScreenEnabled(v: boolean): void;
+  setSecondScreenDisplayId(v: number): void;
+  /** Schaltet die NDI-Ausgabe um (SwitcherView.toggleNdiOutput). */
+  toggleNdiOutput(): void;
+  toggleRecording(): void;
+  toggleStreaming(): void;
+  /** Audiogeräte neu suchen (SettingsView.scanAudio). */
+  scanAudio(): void;
+}
+
+/** Zustand einer Haupttaste: Form der Titler-Taste (state + Grund); ein gesperrter Zustand trägt immer einen Grund. */
+export interface TasteZustand {
+  state: TallyButtonProps['state'];
+  disabledReason?: string;
+}
+
+/** NDI-Ausgabe (E5): nur Schalter und Name; Quelle, Auflösung und Bildrate liegen im Abschnitt „Programm-Format“. */
+export function ndiAbschnitt(s: OberflaechenStand, a: SwitcherAktionen): NdiOutputSectionProps {
+  const st = s.settings;
+  const n = s.ndi;
+  return {
+    id: ABSCHNITT.ndi,
+    enabled: n.active,
+    sourceName: st.ndiOutputName,
+    // Die Empfängerzahl kommt erst nach den ersten gesendeten Bildern; 0 ist nicht von „noch keine Meldung“ zu unterscheiden,
+    // und nach dem Stopp stünde sonst die alte Zahl hinter „aus“. „sending“ bleibt leer: Der Main meldet nur „Sender-
+    // Prozess läuft“, keine Rückmeldung des Senders (→ „an (ohne Rückmeldung)“).
+    receivers: n.active && n.connections > 0 ? n.connections : undefined,
+    // Der Startfehler (NdiOutputState.error) wurde bisher nirgends angezeigt; er steht im Abschnitt und in der Statusleiste.
+    error: n.error ?? undefined,
+    capabilities: { toggle: true, rename: true },
+    // Der Abschnitt meldet den Zielzustand; die Ausgabe schaltet nur um, wenn er vom gemessenen abweicht.
+    onToggle: (an) => {
+      if (an !== n.active) a.toggleNdiOutput();
+    },
+    onRename: (name) => a.setNdiOutputName(name),
+  };
+}
+
+/** Ausgabe auf Bildschirm (E4): Ob das Ausgabefenster offen ist, meldet kein Kanal → „an (ohne Rückmeldung)“. */
+export function bildschirmAbschnitt(s: OberflaechenStand, a: SwitcherAktionen): ScreenOutputSectionProps {
+  const st = s.settings;
+  return {
+    id: ABSCHNITT.bildschirm,
+    enabled: st.secondScreenEnabled,
+    // windowOpen bleibt unbelegt (core/screenOutput.ts hat keinen Zustand).
+    screens: s.displays?.map((d) => ({ id: d.id, label: d.label, primary: d.primary })),
+    selectedId: st.secondScreenDisplayId === 0 ? null : st.secondScreenDisplayId,
+    capabilities: { toggle: true },
+    onToggle: (an) => a.setSecondScreenEnabled(an),
+    onSelect: (id) => a.setSecondScreenDisplayId(id ?? 0),
+  };
+}
+
+/**
+ * Fernsteuerung (R4): Zuerst gilt die Einstellung. Aus = der Server ist gestoppt; ein alter Fehler in der Meldung
+ * (naechsteFernsteuerung behält ihn nach dem Stopp) darf dann nicht mehr stehen. An: Meldung des Steuerservers.
+ */
+export function fernsteuerungAbschnitt(s: OberflaechenStand, a: SwitcherAktionen): RemoteControlSectionProps {
+  const st = s.settings;
+  const basis = {
+    id: ABSCHNITT.fernsteuerung,
+    port: st.controlPort,
+    enabled: st.controlEnabled,
+    companionModule: SWITCHER_TEXTE.companionModul,
+    capabilities: { portEditable: true, enableToggle: true },
+    onToggle: (an: boolean) => a.setControlEnabled(an),
+    onPortChange: (port: number) => a.setControlPort(port),
+  };
+  if (!st.controlEnabled) return { ...basis, running: false };
+  const m = s.fernsteuerung ?? undefined;
+  // Ohne Meldung: running bleibt leer → „unbekannt“ (nie „aus“ oder „bereit“).
+  if (m === undefined) return basis;
+  // EADDRINUSE nur als portInUse: Der Fehler ginge im Abschnitt vor und verdeckte „Port belegt“.
+  const belegt = portBelegt(m);
+  return {
+    ...basis,
+    running: m.laeuft,
+    mode: m.modus,
+    // Verbundene Clients zählen nur bei laufendem Server (der Abschnitt zeigt die Zahl nur bei running).
+    clients: m.laeuft ? m.clients : undefined,
+    portInUse: belegt,
+    error: m.fehler !== undefined && !belegt ? m.fehler : undefined,
+  };
+}
+
+/**
+ * Programm-Audio (eine Wahl). Fehler von getUserMedia stehen als Fehler im Abschnitt, außer das gewählte Gerät fehlt in der
+ * gemessenen Liste: Dann gilt „Gerät nicht gefunden“ (der Fehlertext des Browsers wäre dieselbe Ursache, nur unverständlicher).
+ */
+export function audioAbschnitt(s: OberflaechenStand, a: SwitcherAktionen): AudioDeviceSectionProps {
+  const wahl = s.settings.audioInputId;
+  const liste = s.audioGeraete;
+  const fehlt = wahl !== '' && liste !== undefined && !liste.some((d) => d.id === wahl);
+  return {
+    id: ABSCHNITT.audio,
+    error: s.audio.error !== null && !fehlt ? s.audio.error : undefined,
+    choices: [
+      {
+        key: 'programm',
+        label: SWITCHER_TEXTE.programmAudio,
+        direction: 'input',
+        devices: liste,
+        value: wahl,
+        // Die Option „kein Ton“ bleibt wählbar; ohne Wahl meldet der Abschnitt „kein Gerät gewählt“ (required).
+        defaultLabel: SWITCHER_TEXTE.keinTon,
+        required: true,
+        onChange: (id) => a.setAudioInputId(id),
+      },
+    ],
+    capabilities: { refresh: true },
+    onRefresh: () => a.scanAudio(),
+  };
+}
+
+const KEINE_AKTION: SwitcherAktionen = {
+  setRtmpUrl: () => {},
+  setStreamBitrateKbps: () => {},
+  setRecordBitrateKbps: () => {},
+  setControlEnabled: () => {},
+  setControlPort: () => {},
+  setAudioInputId: () => {},
+  setNdiOutputName: () => {},
+  setNdiOutputSource: () => {},
+  setProgramResolution: () => {},
+  setOutputFps: () => {},
+  setSecondScreenEnabled: () => {},
+  setSecondScreenDisplayId: () => {},
+  toggleNdiOutput: () => {},
+  toggleRecording: () => {},
+  toggleStreaming: () => {},
+  scanAudio: () => {},
+};
+
+/** Hat der Stream ein Ziel? Leer oder nur Leerraum zählt nicht (wie `hasTarget` der heutigen Ausgabeleiste). */
+function hatStreamZiel(s: OberflaechenStand): boolean {
+  return s.settings.rtmpUrl.trim().length > 0;
+}
+
+/** Dateiname der laufenden Aufnahme (wie `recName` der heutigen Ausgabeleiste). */
+function aufnahmeName(o: OutputState): string | null {
+  return o.recPath ? o.recPath.replace(/^.*[\\/]/, '') : null;
+}
+
+/** Audio-Eintrag: Abschnittsstatus, dazu zwei Zustände, die nur das Audio kennt (kein Gerät offen, stumm). */
+function audioItem(s: OberflaechenStand): StatusItem {
+  const item = abschnittStatusItem(audioDeviceView(audioAbschnitt(s, KEINE_AKTION)), { group: 'tool', label: SWITCHER_TEXTE.label.audio });
+  // Nur wenn Wahl und Liste stimmen (ok) und kein Fehler vorliegt, zählt die Messung des Graphen: hasDevice und muted.
+  if (item.state !== 'ok') return item;
+  if (!s.audio.hasDevice) return { ...item, state: 'warn', detail: `${item.detail} · ${SWITCHER_TEXTE.audioStartet}` };
+  if (s.audio.muted) return { ...item, state: 'warn', detail: `${item.detail} · ${SWITCHER_TEXTE.stumm}` };
+  return item;
+}
+
+/** Aufnahme (live nur beim Aufnehmen, Anhang A). Der Fehler ist einer für beide Ausgaben (OutputState.error). */
+function aufnahmeItem(s: OberflaechenStand): StatusItem {
+  const o = s.output;
+  const kopf = { id: 'aufnahme', group: 'ausgabe', label: SWITCHER_TEXTE.label.aufnahme, settingsSection: ABSCHNITT.aufnahme } as const;
+  if (o.recording) return { ...kopf, state: 'live', detail: aufnahmeName(o) ?? SWITCHER_TEXTE.laeuft };
+  // Es gibt nur einen Fehlerwert für Aufnahme und Stream; ein laufender Stream hat den Fehler nicht ausgelöst (Start löscht ihn).
+  if (o.error) return { ...kopf, state: 'error', detail: fehlerStatus(o.error).text };
+  return { ...kopf, state: 'off', detail: ABSCHNITT_TEXTE.aus };
+}
+
+/** Stream (live nur beim Senden; Ziel aus der Einstellung, Fehler gemeinsam mit der Aufnahme). */
+function streamItem(s: OberflaechenStand): StatusItem {
+  const o = s.output;
+  const kopf = { id: 'stream', group: 'ausgabe', label: SWITCHER_TEXTE.label.stream, settingsSection: ABSCHNITT.streaming } as const;
+  if (o.streaming) return { ...kopf, state: 'live', detail: SWITCHER_TEXTE.laeuft };
+  if (o.error) return { ...kopf, state: 'error', detail: fehlerStatus(o.error).text };
+  if (!hatStreamZiel(s)) return { ...kopf, state: 'off', detail: SWITCHER_TEXTE.keinZiel };
+  return { ...kopf, state: 'ok', detail: SWITCHER_TEXTE.bereit };
+}
+
+/** Statusleiste schon in der Reihenfolge der Gruppen: verbindung, ausgabe, fernsteuerung, tool (Anhang A). */
+export function statusLeiste(s: OberflaechenStand): StatusItem[] {
+  const L = SWITCHER_TEXTE.label;
+  const ndi = ndiOutputView(ndiAbschnitt(s, KEINE_AKTION));
+  return [
+    masterLinkStatusItem(s.masterLink),
+    abschnittStatusItem(ndi, { group: 'ausgabe', label: L.ndi, detail: ndi.empfaenger }),
+    abschnittStatusItem(screenOutputView(bildschirmAbschnitt(s, KEINE_AKTION)), { group: 'ausgabe', label: L.bildschirm }),
+    aufnahmeItem(s),
+    streamItem(s),
+    abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s, KEINE_AKTION)), { group: 'fernsteuerung', label: L.fernsteuerung }),
+    audioItem(s),
+  ];
+}
+
+/**
+ * Haupttasten (E7): Cut und Auto bereit oder gesperrt mit Grund; Aufnahme und Stream live, solange sie laufen. Stop ist nie
+ * gesperrt; nur der Stream-Start ohne Ziel ist gesperrt. Keine Kürzel (UO5).
+ */
+export function hauptTasten(s: OberflaechenStand): { cut: TasteZustand; auto: TasteZustand; aufnahme: TasteZustand; stream: TasteZustand } {
+  const gesperrt = (grund: string): TasteZustand => ({ state: 'gesperrt', disabledReason: grund });
+  const bereit: TasteZustand = { state: 'bereit' };
+  const live: TasteZustand = { state: 'live' };
+  return {
+    cut: s.canTake ? bereit : gesperrt(SWITCHER_TEXTE.keineSzeneInVorschau),
+    // Laufende Überblendung hat Vorrang; ohne sie sperrt canAuto nur bei fehlender Vorschau oder Vorschau = Programm.
+    auto: s.canAuto && !s.transitioning ? bereit : gesperrt(s.transitioning ? SWITCHER_TEXTE.ueberblendungLaeuft : SWITCHER_TEXTE.keineSzeneInVorschau),
+    aufnahme: s.output.recording ? live : bereit,
+    stream: s.output.streaming ? live : hatStreamZiel(s) ? bereit : gesperrt(SWITCHER_TEXTE.keinStreamZiel),
+  };
+}
+
+/** On-Air im Kopf (E8): LIVE geht vor REC. */
+export function onAirKopf(s: OberflaechenStand): { live: boolean; label: string } {
+  return {
+    live: s.output.streaming || s.output.recording,
+    label: s.output.streaming ? SWITCHER_TEXTE.onAirLive : SWITCHER_TEXTE.onAirRec,
+  };
+}
