@@ -17,7 +17,6 @@ import {
   type LaufzeitDienste,
   type ZoomFristen,
   type ZoomKern,
-  type ZugangDaten,
   type ZugangStand,
 } from '../src/main/zoom/kern';
 import { failText, KT, VORSATZ } from '../src/main/zoom/klartext';
@@ -98,9 +97,6 @@ interface Probe {
     personImNdiNamen: boolean };
   /** Befehle, die der Kern an die Bridge gab (nach sendeFilter), im Testprozess mitgeschrieben: sofort, ohne die Datei der Attrappe. */
   gesendet: Array<Record<string, unknown>>;
-  zugangGespeichert: ZugangDaten[];
-  /** Werte, mit denen der Kern sdkSchluessel.speichern() aufrief (nur im Test sichtbar). */
-  sdkSchluesselGespeichert: string[];
   sdkSchluesselGeloescht(): number;
   /** Halter-Attrappe (Task 13): wonach der Kern fragte, was er zurückmeldete, wie oft er `bestaetigt` fragte. */
   halterZugang: Array<{ zweck: string; ziel: string }>;
@@ -126,7 +122,6 @@ interface BaueOptionen {
   /** FAKE_SCRIPT, Vorgabe 'steuerung'. */
   skript?: string;
   zugang?: Partial<ZugangStand>;
-  speichernLiefert?: 'stored' | 'session';
   laufzeit?: Partial<LaufzeitDienste>;
   fristen?: Partial<ZoomFristen>;
   gastLabels?: () => string[];
@@ -141,8 +136,6 @@ interface BaueOptionen {
   startFehler?: () => Error;
   /** SDK-Schlüssel beim Start (Spec SDK nachladen 4.2); Vorgabe: keiner. */
   sdkSchluessel?: { wert: string | null; herkunft: ProxyKeySource };
-  /** Was sdkSchluessel.speichern() meldet; Vorgabe 'stored'. */
-  sdkSchluesselLiefert?: 'stored' | 'session';
   /** Was zugang.loeschen() bzw. sdkSchluessel.loeschen() meldet; false = Einstellungsdatei nicht schreibbar. Vorgabe true. */
   zugangLoeschenLiefert?: boolean;
   sdkSchluesselLoeschenLiefert?: boolean;
@@ -196,9 +189,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
   const abbilder: ZoomAbbild[] = [];
   const kurze: ZoomKurz[] = [];
   const ereignisse: Probe['ereignisse'] = [];
-  const zugangGespeichert: ZugangDaten[] = [];
   let sdkSchluessel: { wert: string | null; herkunft: ProxyKeySource } = { wert: null, herkunft: 'none', ...o.sdkSchluessel };
-  const sdkSchluesselGespeichert: string[] = [];
   let sdkSchluesselGeloescht = 0;
   const halterZugang: Probe['halterZugang'] = [];
   const halterAntworten: Probe['halterAntworten'] = [];
@@ -299,12 +290,6 @@ function baueKern(o: BaueOptionen = {}): Probe {
     pfade,
     zugang: {
       lesen: () => ({ ...zugang }),
-      speichern: (dd) => {
-        zugangGespeichert.push({ ...dd });
-        const herkunft = o.speichernLiefert ?? 'stored';
-        if (zugang.herkunft !== 'env') zugang = { daten: { ...dd }, herkunft, unlesbar: false };
-        return herkunft;
-      },
       loeschen: () => {
         if (zugang.herkunft !== 'env') zugang = { daten: null, herkunft: 'none', unlesbar: false };
         return o.zugangLoeschenLiefert ?? true;
@@ -368,12 +353,6 @@ function baueKern(o: BaueOptionen = {}): Probe {
     },
     sdkSchluessel: {
       lesen: () => ({ ...sdkSchluessel }),
-      speichern: (w) => {
-        sdkSchluesselGespeichert.push(w);
-        const herkunft = o.sdkSchluesselLiefert ?? 'stored';
-        if (sdkSchluessel.herkunft !== 'env') sdkSchluessel = { wert: w, herkunft };
-        return herkunft;
-      },
       loeschen: () => {
         sdkSchluesselGeloescht += 1;
         if (sdkSchluessel.herkunft !== 'env') sdkSchluessel = { wert: null, herkunft: 'none' };
@@ -402,8 +381,6 @@ function baueKern(o: BaueOptionen = {}): Probe {
     ereignisse,
     einst,
     gesendet,
-    zugangGespeichert,
-    sdkSchluesselGespeichert,
     sdkSchluesselGeloescht: () => sdkSchluesselGeloescht,
     halterZugang,
     halterAntworten,
@@ -540,9 +517,9 @@ console.log('— Mängel beim Start (Fall 1, erster Teil)');
 }
 {
   const p = baueKern({ zugang: { daten: null, herkunft: 'none', unlesbar: true } });
-  ck('Zugang unlesbar → kein Mangel mehr, steht in einrichtung.zugang.unlesbar, Text A5',
+  ck('Zugang unlesbar → kein Mangel mehr, steht in einrichtung.zugang.unlesbar, kein Text (die Zeile ZU3 baut die Karte)',
     JSON.stringify(p.kern.kurz().maengel) === '[]' && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.zugang.unlesbar === true
-    && p.kern.abbild().einrichtung.zugang.text === KT.A5);
+    && p.kern.abbild().einrichtung.zugang.text === null);
   await p.aufraeumen();
 }
 {
@@ -558,48 +535,21 @@ console.log('— Mängel beim Start (Fall 1, erster Teil)');
   await p.aufraeumen();
 }
 
-console.log('— Zugangsdaten wählen und entfernen (6.1, A1–A6)');
+console.log('— Zugangsdaten entfernen (6.1, A4, A6; Eingeben und Wählen entfallen, E7)');
 {
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
-  const dir = mkdtempSync(join(tmpdir(), 'jm-zoom-zugang-'));
-  const kaputt = join(dir, 'kaputt.json');
-  writeFileSync(kaputt, '{ "clientId": "x", "clientSecret": GEHEIM-INHALT');
-  const r1 = p.kern.zugangWaehlen(kaputt);
-  ck('kaputtes JSON → A1', text(r1) === KT.A1);
-  ck('… der Inhalt steht weder im Abbild noch im Log',
-    !JSON.stringify(p.kern.abbild()).includes('GEHEIM-INHALT') && !p.logs.some((z) => z.includes('GEHEIM-INHALT')));
-  const leer = join(dir, 'leer.json');
-  writeFileSync(leer, '{}');
-  ck('ohne Felder → A2', text(p.kern.zugangWaehlen(leer)) === KT.A2);
-  ck('fehlende Datei → A3 mit ENOENT', text(p.kern.zugangWaehlen(join(dir, 'fehlt.json'))) === KT.A3('ENOENT'));
-  ck('… der letzte Fehler steht im Abbild, nichts gespeichert',
-    p.kern.abbild().einrichtung.zugang.text === KT.A3('ENOENT') && p.zugangGespeichert.length === 0 && p.kern.kurz().zustand === 'bereit');
-  const gut = join(dir, 'gut.json');
-  writeFileSync(gut, '\uFEFF{"clientId":"datei-id-1234","clientSecret":"datei-secret"}');
-  const r4 = p.kern.zugangWaehlen(gut);
-  ck('gültige Datei mit BOM → ok und gespeichert', ok(r4) && p.zugangGespeichert.length === 1
-    && p.zugangGespeichert[0].clientId === 'datei-id-1234' && p.zugangGespeichert[0].clientSecret === 'datei-secret');
-  const a = p.kern.abbild();
-  ck('… Mangel weg, bereit, Client-ID endet auf 1234, kein Fehlertext',
-    a.kurz.zustand === 'bereit' && a.einrichtung.zugang.herkunft === 'stored' && a.einrichtung.zugang.clientIdEnde === '1234' && a.einrichtung.zugang.text === null);
-  ck('… Secret weder im Abbild noch im Log', !JSON.stringify(a).includes('datei-secret') && !p.logs.some((z) => z.includes('datei-secret')));
+  const p = baueKern();
   ck('Entfernen → kein Mangel, Zustand bereit', ok(p.kern.zugangLoeschen()) && JSON.stringify(p.kern.kurz().maengel) === '[]'
-    && p.kern.kurz().zustand === 'bereit');
-  rmSync(dir, { recursive: true, force: true });
+    && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().einrichtung.zugang.herkunft === 'none');
   await p.aufraeumen();
 }
 {
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, speichernLiefert: 'session' });
-  const dir = mkdtempSync(join(tmpdir(), 'jm-zoom-zugang-'));
-  const gut = join(dir, 'gut.json');
-  writeFileSync(gut, '{"clientId":"sitzung-9876","clientSecret":"s"}');
+  const p = baueKern({ zugang: { daten: { clientId: 'sitzung-9876', clientSecret: 's' }, herkunft: 'session' } });
   const q = baueKern({ zugang: { daten: { clientId: 'sitzung-9876', clientSecret: 's' }, herkunft: 'session', grund: 'schreibfehler' } });
   ck('session + schreibfehler → Karte nennt die Datei, nicht den Schlüsselbund',
     q.kern.abbild().einrichtung.zugang.text === TEXT_A4_SCHREIBFEHLER && q.kern.abbild().einrichtung.zugang.grund === 'schreibfehler');
   await q.aufraeumen();
-  ck('ohne Schlüsselbund → ok, Herkunft session, Text A4',
-    ok(p.kern.zugangWaehlen(gut)) && p.kern.abbild().einrichtung.zugang.herkunft === 'session' && p.kern.abbild().einrichtung.zugang.text === KT.A4);
-  rmSync(dir, { recursive: true, force: true });
+  ck('session ohne Grund → Herkunft session, Text A4',
+    p.kern.abbild().einrichtung.zugang.herkunft === 'session' && p.kern.abbild().einrichtung.zugang.text === KT.A4);
   await p.aufraeumen();
 }
 {
@@ -609,99 +559,11 @@ console.log('— Zugangsdaten wählen und entfernen (6.1, A1–A6)');
   ck('… Entfernen lässt keinen Mangel entstehen', ok(p.kern.zugangLoeschen()) && p.kern.kurz().maengel.length === 0 && p.kern.kurz().zustand === 'bereit');
   await p.aufraeumen();
 }
-
-console.log('— Datei-Weg: Logzeile unverändert (Regression)');
-for (const [herk, zeile] of [['stored', '[zoom] Zugangsdaten hinterlegt (verschlüsselt)'], ['session', '[zoom] Zugangsdaten hinterlegt (nur für diese Sitzung)']] as const) {
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, speichernLiefert: herk });
-  const dir = mkdtempSync(join(tmpdir(), 'jm-zoom-zugang-'));
-  const gut = join(dir, 'gut.json');
-  writeFileSync(gut, '{"clientId":"datei-id-1234","clientSecret":"datei-secret"}');
-  ck(`zugangWaehlen (${herk}) → Logzeile wörtlich`, ok(p.kern.zugangWaehlen(gut)) && p.logs.includes(zeile));
-  rmSync(dir, { recursive: true, force: true });
-  await p.aufraeumen();
-}
-
-console.log('— Zugangsdaten von Hand eintragen (A7, S10, A4)');
-{
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
-  const r = p.kern.zugangEintragen({ clientId: '  id-test-4321 \t', clientSecret: ' geheim-test\n' });
-  ck('Eintragen → ok, gespeichert, Werte getrimmt', ok(r) && p.zugangGespeichert.length === 1
-    && p.zugangGespeichert[0].clientId === 'id-test-4321' && p.zugangGespeichert[0].clientSecret === 'geheim-test');
-  const a = p.kern.abbild();
-  ck('… Zustand wie nach dem Datei-Weg: bereit, stored, Ende 4321, kein Fehlertext',
-    a.kurz.zustand === 'bereit' && a.einrichtung.zugang.herkunft === 'stored' && a.einrichtung.zugang.clientIdEnde === '4321' && a.einrichtung.zugang.text === null);
-  ck('… Logzeile ohne Wert, mit „von Hand, verschlüsselt“', p.logs.includes('[zoom] Zugangsdaten hinterlegt (von Hand, verschlüsselt)'));
-  ck('… weder ID noch Secret in einer Logzeile',
-    !p.logs.some((z) => z.includes('id-test-4321') || z.includes('geheim-test') || z.includes('id-test') || z.includes('geheim')));
-  ck('… Abbild: nur die letzten 4 Zeichen der ID, kein Secret',
-    !JSON.stringify(a).includes('id-test-4321') && !JSON.stringify(a).includes('geheim'));
-  await p.aufraeumen();
-}
-{
-  const falsch: Array<[string, { clientId: string; clientSecret: string }]> = [
-    ['ID leer', { clientId: '', clientSecret: 'geheim-test' }],
-    ['Secret leer', { clientId: 'id-test', clientSecret: '' }],
-    ['ID nur Leerraum', { clientId: '  \t ', clientSecret: 'geheim-test' }],
-    ['Secret nur Leerraum', { clientId: 'id-test', clientSecret: ' \n ' }],
-    ['ID mit Leerzeichen in der Mitte', { clientId: 'id test', clientSecret: 'geheim-test' }],
-    ['Secret mit Leerzeichen in der Mitte', { clientId: 'id-test', clientSecret: 'geheim test' }],
-    ['ID mit Tabulator in der Mitte', { clientId: 'id\ttest', clientSecret: 'geheim-test' }],
-    ['Secret mit Zeilenumbruch in der Mitte', { clientId: 'id-test', clientSecret: 'geheim\ntest' }],
-  ];
-  for (const [name, e] of falsch) {
-    const p = baueKern({ zugang: { daten: null, herkunft: 'none' } });
-    const r = p.kern.zugangEintragen(e);
-    ck(`${name} → A7, nichts gespeichert, Zustand bleibt`, text(r) === KT.A7 && p.zugangGespeichert.length === 0
-      && p.kern.kurz().zustand === 'bereit');
-    ck('… A7 ist ein Eingabefehler: kein A7 im Abbild', !JSON.stringify(p.kern.abbild()).includes(KT.A7));
-    const teile = [e.clientId, e.clientSecret, e.clientId.trim(), e.clientSecret.trim(), 'id-test', 'geheim']
-      .flatMap((w) => [w, ...w.split(/\s+/)]).filter((w) => w.length >= 3);
-    ck('… weder ID noch Secret (auch getrimmt oder in Teilen) in einer Logzeile',
-      !p.logs.some((z) => teile.some((w) => z.includes(w))));
-    await p.aufraeumen();
-  }
-}
-{
-  const p = baueKern({ zugang: { daten: null, herkunft: 'none' }, speichernLiefert: 'session' });
-  ck('ohne Schlüsselbund → ok, Herkunft session, Text A4, Log „nur für diese Sitzung“',
-    ok(p.kern.zugangEintragen({ clientId: 'id-test-9876', clientSecret: 'geheim-test' })) && p.kern.abbild().einrichtung.zugang.herkunft === 'session'
-    && p.kern.abbild().einrichtung.zugang.text === KT.A4 && p.logs.includes('[zoom] Zugangsdaten hinterlegt (von Hand, nur für diese Sitzung)'));
-  await p.aufraeumen();
-}
-{
-  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }) });
-  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
-  ck('Vorbereitung: Zustand fehler (B9)', p.kern.kurz().zustand === 'fehler' && p.kern.abbild().meldung !== null);
-  const r = p.kern.zugangEintragen({ clientId: 'id-test-1111', clientSecret: 'geheim-test' });
-  ck('im Zustand fehler: zuerst schließen, dann speichern → bereit, Meldung weg',
-    ok(r) && p.zugangGespeichert.length === 1 && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null);
-  await p.aufraeumen();
-}
 {
   const p = baueKern();
   ck('Vorbereitung: im Meeting', await insMeeting(p));
-  const r = p.kern.zugangEintragen({ clientId: 'id-test-2222', clientSecret: 'geheim-test' });
-  ck('während Zoom läuft → S10, nichts gespeichert, Zustand bleibt', text(r) === KT.S10 && p.zugangGespeichert.length === 0
-    && p.kern.kurz().zustand === 'im_meeting');
-  await p.aufraeumen();
-}
-{
-  const MiB = 1024 * 1024;
-  let freigabe: (e: EinrichtungsErgebnis) => void = () => {};
-  const p = baueKern({
-    laufzeit: {
-      pruefe: () => ({ ok: false, mangel: 'sdk_fehlt' }),
-      pruefeOrdner: () => ({ ok: true, bin: 'C:/SDK/x64/bin', fassung: SDK_FASSUNG, dateien: [{ pfad: 'sdk.dll', bytes: MiB }], bytesGesamt: MiB }),
-      richteEin: () => new Promise<EinrichtungsErgebnis>((resolve) => {
-        freigabe = resolve;
-      }),
-    },
-  });
-  const lauf = p.kern.sdkWaehlen('C:/SDK');
-  ck('während der SDK-Kopie → S10, nichts gespeichert',
-    text(p.kern.zugangEintragen({ clientId: 'id-test-3333', clientSecret: 'geheim-test' })) === KT.S10 && p.zugangGespeichert.length === 0);
-  freigabe({ ok: false, text: KT.S6('EIO') });
-  await lauf;
+  ck('während Zoom läuft: Zugangsdaten entfernen → S10, Zustand bleibt',
+    text(p.kern.zugangLoeschen()) === KT.S10 && p.kern.kurz().zustand === 'im_meeting' && p.kern.abbild().einrichtung.zugang.herkunft === 'stored');
   await p.aufraeumen();
 }
 
@@ -739,8 +601,7 @@ console.log('— SDK-Ordner wählen (6.1), Sperre S10, Review Focus 4');
   const zweit = await Promise.race([p.kern.sdkWaehlen('C:/SDK'), warte(1000).then((): ZoomErgebnis => ({ ok: false, text: '(keine Antwort)' }))]);
   ck('Review Focus 4: zweiter Klick während der Kopie → S10', text(zweit) === KT.S10);
   ck('… richteEin genau einmal aufgerufen', p.richteEinAufrufe() === 1);
-  ck('… Zugangsdaten wählen und entfernen ebenfalls S10',
-    text(p.kern.zugangWaehlen('C:/egal.json')) === KT.S10 && text(p.kern.zugangLoeschen()) === KT.S10);
+  ck('… Zugangsdaten entfernen ebenfalls S10', text(p.kern.zugangLoeschen()) === KT.S10);
   lzStand = { ok: true, ordner: p.ordner, ersetzt: [] };
   freigabe({
     ok: true, ordner: p.ordner,
@@ -1571,34 +1432,17 @@ if (process.platform === 'win32') {
   await p.aufraeumen();
 }
 
-console.log('— SDK-Schlüssel eintragen und entfernen (Spec SDK nachladen 4.2, S18, S10)');
+console.log('— SDK-Schlüssel entfernen (Spec SDK nachladen 4.2, S10; Eintragen entfällt, E7)');
 {
-  const p = baueKern();
-  ck('anfangs: Abbild ohne SDK-Schlüssel (none)', p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none');
-  const r = p.kern.sdkSchluesselEintragen({ schluessel: '  sdk-geheim-test \t\n' });
-  ck('Review Focus SDK-4: eingefügt mit Leerraum und Zeilenumbruch → ok, getrimmt gespeichert',
-    ok(r) && p.sdkSchluesselGespeichert.length === 1 && p.sdkSchluesselGespeichert[0] === 'sdk-geheim-test');
-  ck('… Abbild: Herkunft stored', p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'stored');
-  ck('… Logzeile ohne Wert', p.logs.includes('[zoom] SDK-Schlüssel hinterlegt (verschlüsselt)'));
-  ck('… der Wert steht weder im Log noch im Abbild',
-    !p.logs.some((z) => z.includes('sdk-geheim')) && !JSON.stringify(p.kern.abbild()).includes('sdk-geheim'));
-  ck('… Zustand unverändert (bereit)', p.kern.kurz().zustand === 'bereit');
-  for (const w of ['', '   ', 'sdk geheim', 'sdk\tgeheim', 'sdk\ngeheim', 'sdk€geheim']) {
-    ck(`${JSON.stringify(w)} → S18, nichts gespeichert`,
-      text(p.kern.sdkSchluesselEintragen({ schluessel: w })) === KT.S18 && p.sdkSchluesselGespeichert.length === 1);
-  }
-  ck('… Abweisung im Log, ohne Wert', p.logs.includes('[zoom] SDK-Schlüssel abgewiesen: ' + KT.S18) && !p.logs.some((z) => z.includes('sdk geheim')));
-  ck('… S18 ist ein Eingabefehler: nicht im Abbild', !JSON.stringify(p.kern.abbild()).includes(KT.S18));
+  const p = baueKern({ sdkSchluessel: { wert: 'sdk-geheim-test', herkunft: 'stored' } });
+  ck('anfangs: Abbild mit altem SDK-Schlüssel (stored), der Wert nirgends',
+    p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'stored' && !JSON.stringify(p.kern.abbild()).includes('sdk-geheim'));
   const l = p.kern.sdkSchluesselLoeschen();
   ck('Entfernen → ok, Herkunft none, Log', ok(l) && p.sdkSchluesselGeloescht() === 1
     && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none' && p.logs.includes('[zoom] SDK-Schlüssel entfernt'));
-  await p.aufraeumen();
-}
-{
-  const p = baueKern({ sdkSchluesselLiefert: 'session' });
-  ck('ohne Schlüsselbund: hinterlegt nur für diese Sitzung',
-    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'session'
-      && p.logs.includes('[zoom] SDK-Schlüssel hinterlegt (nur für diese Sitzung)'));
+  ck('… der Wert steht weder im Log noch im Abbild',
+    !p.logs.some((z) => z.includes('sdk-geheim')) && !JSON.stringify(p.kern.abbild()).includes('sdk-geheim'));
+  ck('… Zustand unverändert (bereit)', p.kern.kurz().zustand === 'bereit');
   await p.aufraeumen();
 }
 {
@@ -1608,20 +1452,10 @@ console.log('— SDK-Schlüssel eintragen und entfernen (Spec SDK nachladen 4.2,
   await p.aufraeumen();
 }
 {
-  const p = baueKern({ stell: () => ({ FAKE_AUTH_CODE: '2' }) });
-  await p.kern.beitreten({ nummer: NUMMER, kenncode: KENNCODE, anzeigename: 'JM Connect' });
-  ck('Vorbereitung: Zustand fehler (B9)', p.kern.kurz().zustand === 'fehler');
-  const r = p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' });
-  ck('im Zustand fehler: zuerst schließen, dann speichern → bereit, Meldung weg',
-    ok(r) && p.sdkSchluesselGespeichert.length === 1 && p.kern.kurz().zustand === 'bereit' && p.kern.abbild().meldung === null);
-  await p.aufraeumen();
-}
-{
   const p = baueKern();
   ck('Vorbereitung: im Meeting', await insMeeting(p));
-  ck('während Zoom läuft: SDK-Schlüssel eintragen und entfernen → S10, nichts geändert',
-    text(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) === KT.S10 && text(p.kern.sdkSchluesselLoeschen()) === KT.S10
-      && p.sdkSchluesselGespeichert.length === 0 && p.sdkSchluesselGeloescht() === 0);
+  ck('während Zoom läuft: SDK-Schlüssel entfernen → S10, nichts geändert',
+    text(p.kern.sdkSchluesselLoeschen()) === KT.S10 && p.sdkSchluesselGeloescht() === 0);
   await p.aufraeumen();
 }
 {
@@ -1635,9 +1469,8 @@ console.log('— SDK-Schlüssel eintragen und entfernen (Spec SDK nachladen 4.2,
     },
   });
   const lauf = p.kern.sdkWaehlen('C:/SDK');
-  ck('während der SDK-Kopie: SDK-Schlüssel eintragen und entfernen → S10',
-    text(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) === KT.S10 && text(p.kern.sdkSchluesselLoeschen()) === KT.S10
-      && p.sdkSchluesselGespeichert.length === 0 && p.sdkSchluesselGeloescht() === 0);
+  ck('während der SDK-Kopie: SDK-Schlüssel entfernen → S10',
+    text(p.kern.sdkSchluesselLoeschen()) === KT.S10 && p.sdkSchluesselGeloescht() === 0);
   freigabe({ ok: false, text: KT.S6('EIO') });
   await lauf;
   await p.aufraeumen();
@@ -2175,9 +2008,8 @@ for (const [name, dienste, soll] of LADE_FEHLER) {
   const zweit = await Promise.race([p.kern.sdkLaden(), warte(1000).then((): ZoomErgebnis => ({ ok: false, text: '(keine Antwort)' }))]);
   ck('Review Focus SDK-1: zweiter Klick auf „Zoom-SDK laden“ → S10, der Link wird nur einmal angefragt',
     text(zweit) === KT.S10 && linkAufrufe === 1);
-  ck('… SDK-Ordner wählen, Zugangsdaten entfernen und SDK-Schlüssel eintragen ebenfalls S10',
-    text(await p.kern.sdkWaehlen('C:/SDK')) === KT.S10 && text(p.kern.zugangLoeschen()) === KT.S10
-      && text(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) === KT.S10);
+  ck('… SDK-Ordner wählen und Zugangsdaten entfernen ebenfalls S10',
+    text(await p.kern.sdkWaehlen('C:/SDK')) === KT.S10 && text(p.kern.zugangLoeschen()) === KT.S10);
   ck('… SDK-Schlüssel entfernen ebenfalls S10, nichts gelöscht (Gesamtprüfung: Task 7 minor 1)',
     text(p.kern.sdkSchluesselLoeschen()) === KT.S10 && p.sdkSchluesselGeloescht() === 0);
   p.kern.sdkLadenAbbrechen();
@@ -2351,10 +2183,6 @@ console.log('— S12 gilt dem damaligen Schlüssel (Gesamtprüfung: Task 7 minor
   const p = baueKern({ sdkSchluessel: SCHLUESSEL, halter: ALTER_KEY, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel', code: null }) }) });
   await p.kern.sdkLaden();
   ck('Vorbereitung: S12 im Abbild', p.kern.abbild().einrichtung.sdk.text === KT.S12);
-  ck('neuer SDK-Schlüssel nach S12 → ok, die Ablehnung steht nicht mehr im Abbild',
-    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) && p.kern.abbild().einrichtung.sdk.text === null);
-  await p.kern.sdkLaden();
-  ck('Vorbereitung: wieder S12', p.kern.abbild().einrichtung.sdk.text === KT.S12);
   ck('SDK-Schlüssel entfernen nach S12 → die Ablehnung steht nicht mehr im Abbild',
     ok(p.kern.sdkSchluesselLoeschen()) && p.kern.abbild().einrichtung.sdk.text === null
       && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'none');
@@ -2363,16 +2191,16 @@ console.log('— S12 gilt dem damaligen Schlüssel (Gesamtprüfung: Task 7 minor
 {
   const p = baueKern({ sdkSchluessel: SCHLUESSEL, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'fehlt' }) }) });
   await p.kern.sdkLaden();
-  ck('ein anderer Ladefehler (S15) bleibt nach neuem SDK-Schlüssel stehen',
-    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-test' })) && p.kern.abbild().einrichtung.sdk.text === KT.S15);
+  ck('ein anderer Ladefehler (S15) bleibt nach „Entfernen“ des SDK-Schlüssels stehen',
+    ok(p.kern.sdkSchluesselLoeschen()) && p.kern.abbild().einrichtung.sdk.text === KT.S15);
   await p.aufraeumen();
 }
 {
-  // Ein Schlüssel aus der Umgebung hat Vorrang und gilt weiter: Ein eingetragener Wert ändert an S12 nichts.
+  // Ein Schlüssel aus der Umgebung hat Vorrang und gilt weiter: Ein „Entfernen“ ändert an S12 nichts.
   const p = baueKern({ sdkSchluessel: { wert: 'sdk-test', herkunft: 'env' }, halter: ALTER_KEY, sdkLaden: ladeDienste({ holeLink: async () => ({ ok: false, art: 'schluessel', code: null }) }) });
   await p.kern.sdkLaden();
-  ck('Schlüssel aus der Umgebung: S12 bleibt nach einem eingetragenen Schlüssel stehen (Umgebung hat Vorrang)',
-    ok(p.kern.sdkSchluesselEintragen({ schluessel: 'sdk-geheim-test' })) && p.kern.abbild().einrichtung.sdk.text === KT.S12);
+  ck('Schlüssel aus der Umgebung: S12 bleibt nach „Entfernen“ stehen (Umgebung hat Vorrang)',
+    ok(p.kern.sdkSchluesselLoeschen()) && p.kern.abbild().einrichtung.sdk.text === KT.S12 && p.kern.abbild().einrichtung.sdkSchluessel.herkunft === 'env');
   await p.aufraeumen();
 }
 console.log('— Diagnose von tar.exe im Log (Gesamtprüfung: Task 5 minor 2)');

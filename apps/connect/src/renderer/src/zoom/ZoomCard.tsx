@@ -43,7 +43,8 @@ import { Messwerte } from './Messwerte';
 // Knopf „Als Slot laden“ weiter (Task B21).
 const TEXT_S10 = 'Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.';
 const TEXT_Q13 = 'Bild-Versatz: erlaubt sind ganze Zahlen von 0 bis 1000 ms.';
-const SPERR_HINWEIS = 'Zoom ist gesperrt, bis SDK-Ordner und Zugangsdaten vollständig eingerichtet sind.';
+const SPERR_HINWEIS = 'Zoom ist gesperrt, bis das Zoom-SDK eingerichtet ist.';
+const ANMELDUNG_FARBE = { ok: 'text-neutral-300', warn: 'text-yellow-200', fehler: 'text-red-300' } as const;
 const FUSSZEILE = 'Zoom-Quellen haben kein Tally, kein Talkback und kein Mix-Minus — das sind Grenzen von Zoom.';
 
 /** Wo eine abgelehnte Antwort (ZoomErgebnis.text) erscheint; 'karte' = unter der Statuszeile, auch für unerwartete IPC-Fehler. */
@@ -87,142 +88,6 @@ function MitTooltip({ titel, children }: { titel: string | undefined; children: 
   );
 }
 
-/**
- * Zugangsdaten von Hand. Client-ID und Client-Secret stehen NUR im State dieser Komponente: Hängt sie aus
- * (Speichern, Abbrechen, Datei gewählt, Einrichtung zugeklappt), sind beide Werte und der Schalter weg.
- * A7 und andere Ablehnungen erscheinen hier am Formular, bis zum nächsten Speichern oder Zuklappen.
- */
-function ZugangEingabe({
-  gesperrt,
-  speichern,
-  zu,
-}: {
-  gesperrt: boolean;
-  speichern: (clientId: string, clientSecret: string) => Promise<ZoomErgebnis>;
-  zu: () => void;
-}): JSX.Element {
-  const [id, setId] = useState('');
-  const [secret, setSecret] = useState('');
-  const [zeigen, setZeigen] = useState(false);
-  const [fehler, setFehler] = useState<string | null>(null);
-  const absenden = (): void => {
-    if (gesperrt) return;
-    setFehler(null);
-    void speichern(id, secret).then((r) => {
-      if (r.ok) zu();
-      else setFehler(r.text || null);
-    });
-  };
-  return (
-    <form
-      className="mt-2 grid gap-2 sm:grid-cols-2"
-      onSubmit={(e) => {
-        e.preventDefault();
-        absenden();
-      }}
-    >
-      <label className="text-xs text-neutral-400">
-        Client-ID
-        <input
-          value={id}
-          onChange={(e) => setId(e.target.value)}
-          autoComplete="off"
-          spellCheck={false}
-          className={`${INP} mt-1 border-neutral-700`}
-        />
-      </label>
-      <div className="text-xs text-neutral-400">
-        <label>
-          Client-Secret
-          <input
-            type={zeigen ? 'text' : 'password'}
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            autoComplete="off"
-            spellCheck={false}
-            className={`${INP} mt-1 border-neutral-700`}
-          />
-        </label>
-        <button type="button" onClick={() => setZeigen((z) => !z)} className={`${RAND} mt-1`}>
-          {zeigen ? 'verbergen' : 'anzeigen'}
-        </button>
-      </div>
-      <div className="flex items-center gap-2 sm:col-span-2">
-        <button type="submit" disabled={gesperrt} className={GELB}>
-          Speichern
-        </button>
-        <button type="button" onClick={zu} className={RAND}>
-          Abbrechen
-        </button>
-        {fehler && <span className="text-xs text-red-300">{fehler}</span>}
-      </div>
-    </form>
-  );
-}
-
-/**
- * SDK-Schlüssel von Hand (Spec SDK nachladen 4.5). Der Wert steht NUR im State dieser Komponente: Hängt sie aus
- * (Speichern, Abbrechen, Einrichtung zugeklappt), ist er weg. S18 und andere Ablehnungen erscheinen hier am Formular.
- */
-function SchluesselEingabe({
-  gesperrt,
-  speichern,
-  zu,
-}: {
-  gesperrt: boolean;
-  speichern: (schluessel: string) => Promise<ZoomErgebnis>;
-  zu: () => void;
-}): JSX.Element {
-  const [wert, setWert] = useState('');
-  const [zeigen, setZeigen] = useState(false);
-  const [fehler, setFehler] = useState<string | null>(null);
-  const absenden = (): void => {
-    if (gesperrt) return;
-    setFehler(null);
-    void speichern(wert).then((r) => {
-      if (r.ok) zu();
-      else setFehler(r.text || null);
-    });
-  };
-  return (
-    <form
-      className="mt-2 grid gap-2"
-      onSubmit={(e) => {
-        e.preventDefault();
-        absenden();
-      }}
-    >
-      <div className="text-xs text-neutral-400">
-        <label>
-          SDK-Schlüssel
-          <input
-            type={zeigen ? 'text' : 'password'}
-            value={wert}
-            onChange={(e) => setWert(e.target.value)}
-            // Mehr nimmt der Main nicht an (pruefeSdkSchluesselEingabe): Ein längerer Text käme dort stumm als Nichts zurück.
-            maxLength={512}
-            autoComplete="off"
-            spellCheck={false}
-            className={`${INP} mt-1 border-neutral-700`}
-          />
-        </label>
-        <button type="button" onClick={() => setZeigen((z) => !z)} className={`${RAND} mt-1`}>
-          {zeigen ? 'verbergen' : 'anzeigen'}
-        </button>
-      </div>
-      <div className="flex items-center gap-2">
-        <button type="submit" disabled={gesperrt} className={GELB}>
-          Speichern
-        </button>
-        <button type="button" onClick={zu} className={RAND}>
-          Abbrechen
-        </button>
-        {fehler && <span className="text-xs text-red-300">{fehler}</span>}
-      </div>
-    </form>
-  );
-}
-
 export function ZoomCard(): JSX.Element {
   const [abbild, setAbbild] = useState<ZoomAbbild | null>(null);
   const [ladeFehler, setLadeFehler] = useState<string | null>(null);
@@ -242,10 +107,6 @@ export function ZoomCard(): JSX.Element {
   const [versatz, setVersatz] = useState<string | null>(null);
   const [versatzFehler, setVersatzFehler] = useState<string | null>(null);
   const [einrichtungAuf, setEinrichtungAuf] = useState(false);
-  /** Zugangsdaten von Hand: Eingabe offen. Die Werte selbst leben nur in `ZugangEingabe` und verschwinden mit dem Aushängen. */
-  const [handAuf, setHandAuf] = useState(false);
-  /** SDK-Schlüssel von Hand: Eingabe offen. Der Wert selbst lebt nur in `SchluesselEingabe`. */
-  const [schluesselAuf, setSchluesselAuf] = useState(false);
   const [verlassenFrage, setVerlassenFrage] = useState(false);
   const [antwort, setAntwort] = useState<{ ort: Ort; text: string } | null>(null);
   /** Nachfrage ab dem 6. Slot (Spec 7.4): T40 am Ort des Aufrufs; „Trotzdem einschalten“ wiederholt ihn mit trotz. */
@@ -319,14 +180,7 @@ export function ZoomCard(): JSX.Element {
   useEffect(() => {
     if (!verlassenMoeglich) setVerlassenFrage(false);
   }, [verlassenMoeglich]);
-  // Klappt die Einrichtung zu (von Hand oder weil der letzte Mangel weg ist), schließt auch die Handeingabe.
   const einrichtungSichtbar = (knoepfe?.einrichtungOffen ?? false) || einrichtungAuf;
-  useEffect(() => {
-    if (!einrichtungSichtbar) {
-      setHandAuf(false);
-      setSchluesselAuf(false);
-    }
-  }, [einrichtungSichtbar]);
 
   /** Führt einen Aufruf aus; ein abgelehnter mit Text erscheint am Ort `ort` (null = nirgends, weil das Abbild ihn zeigt). */
   const fuehreAus = useCallback(
@@ -366,13 +220,13 @@ export function ZoomCard(): JSX.Element {
   const k = a.kurz;
   const sdk = a.einrichtung.sdk;
   const zugang = a.einrichtung.zugang;
+  // Alte Werte sind nur noch ein Übergang (E7): Zeile und „Entfernen“ gibt es nur, solange einer vorhanden ist.
   const zugangText = zugangZeile(a);
+  const schluesselText = sdkSchluesselZeile(a);
   // Slot-Spec 7.5 Nr. 5/6: Die Verlassen-Rückfrage hängt an n = laufende Slots (T80).
   const n = k.slotsLaufen;
   const frage = verlassenFrage && n > 0;
   const sperrTitel = kn.einrichtungAenderbar ? undefined : TEXT_S10;
-  const zugangEntfernbar =
-    zugang.herkunft === 'stored' || zugang.herkunft === 'session' || zugang.unlesbar;
   const antwortText = (ort: Ort): string | null => (antwort && antwort.ort === ort ? antwort.text : null);
   const einrichtungAntwort = antwortText('einrichtung');
   // „Zoom-SDK laden“: Tooltip S10 wie die Ordnerwahl (Spec SDK nachladen 4.5).
@@ -601,69 +455,28 @@ export function ZoomCard(): JSX.Element {
             {/* S17 (abgebrochen) ist ein Hinweis, kein Fehler: grau statt rot (Spec SDK nachladen 4.3). */}
             {sdk.text && <p className={`mt-1 text-xs ${textFarbe(sdk.text)}`}>{sdk.text}</p>}
           </div>
-          <div>
+          <p className={`text-xs ${ANMELDUNG_FARBE[a.einrichtung.anmeldung.ton]}`}>{a.einrichtung.anmeldung.text}</p>
+          {schluesselText !== null && (
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm">{sdkSchluesselZeile(a)}</span>
-              <span className="flex shrink-0 gap-2">
+              <span className="text-sm">{schluesselText}</span>
+              {kn.sdkSchluesselEntfernbar && (
                 <MitTooltip titel={sperrTitel}>
                   <button
                     disabled={!kn.einrichtungAenderbar || laeuft.has('sdk-schluessel')}
-                    onClick={() => setSchluesselAuf(true)}
+                    onClick={() => void fuehreAus('sdk-schluessel', 'einrichtung', () => window.jmconnect.zoomSdkSchluesselLoeschen())}
                     className={RAND}
                   >
-                    Eintragen …
+                    Entfernen
                   </button>
                 </MitTooltip>
-                {kn.sdkSchluesselEntfernbar && (
-                  <MitTooltip titel={sperrTitel}>
-                    <button
-                      disabled={!kn.einrichtungAenderbar || laeuft.has('sdk-schluessel')}
-                      onClick={() => void fuehreAus('sdk-schluessel', 'einrichtung', () => window.jmconnect.zoomSdkSchluesselLoeschen())}
-                      className={RAND}
-                    >
-                      Entfernen
-                    </button>
-                  </MitTooltip>
-                )}
-              </span>
+              )}
             </div>
-            {schluesselAuf && (
-              <SchluesselEingabe
-                gesperrt={!kn.einrichtungAenderbar || laeuft.has('sdk-schluessel')}
-                speichern={(schluessel) =>
-                  fuehreAus('sdk-schluessel', null, () => window.jmconnect.zoomSdkSchluesselEintragen({ schluessel }))
-                }
-                zu={() => setSchluesselAuf(false)}
-              />
-            )}
-          </div>
-          <div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm">{zugangText}</span>
-              <span className="flex shrink-0 gap-2">
-                <MitTooltip titel={sperrTitel}>
-                  <button
-                    disabled={!kn.einrichtungAenderbar || laeuft.has('zugang')}
-                    onClick={() =>
-                      void fuehreAus('zugang', 'einrichtung', () => window.jmconnect.zoomZugangWaehlen()).then((r) => {
-                        if (r.ok) setHandAuf(false); // Eingabe schließt sich, ihre Werte verschwinden mit ihr
-                      })
-                    }
-                    className={RAND}
-                  >
-                    Datei wählen …
-                  </button>
-                </MitTooltip>
-                <MitTooltip titel={sperrTitel}>
-                  <button
-                    disabled={!kn.einrichtungAenderbar || laeuft.has('zugang')}
-                    onClick={() => setHandAuf(true)}
-                    className={RAND}
-                  >
-                    Eintragen …
-                  </button>
-                </MitTooltip>
-                {zugangEntfernbar && (
+          )}
+          {zugangText !== null && (
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm">{zugangText}</span>
+                {kn.zugangEntfernbar && (
                   <MitTooltip titel={sperrTitel}>
                     <button
                       disabled={!kn.einrichtungAenderbar || laeuft.has('zugang')}
@@ -674,19 +487,10 @@ export function ZoomCard(): JSX.Element {
                     </button>
                   </MitTooltip>
                 )}
-              </span>
+              </div>
+              {zugang.text && zugang.text !== zugangText && <p className="mt-1 text-xs text-red-300">{zugang.text}</p>}
             </div>
-            {handAuf && (
-              <ZugangEingabe
-                gesperrt={!kn.einrichtungAenderbar || laeuft.has('zugang')}
-                speichern={(clientId, clientSecret) =>
-                  fuehreAus('zugang', null, () => window.jmconnect.zoomZugangEintragen({ clientId, clientSecret }))
-                }
-                zu={() => setHandAuf(false)}
-              />
-            )}
-            {zugang.text && zugang.text !== zugangText && <p className="mt-1 text-xs text-red-300">{zugang.text}</p>}
-          </div>
+          )}
           {einrichtungAntwort && einrichtungAntwort !== sdk.text && einrichtungAntwort !== zugang.text && (
             <p className={`text-xs ${textFarbe(einrichtungAntwort)}`}>{einrichtungAntwort}</p>
           )}

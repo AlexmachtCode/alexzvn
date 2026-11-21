@@ -209,7 +209,6 @@ function baueKern(o: BaueOptionen = {}): Probe {
     pfade,
     zugang: {
       lesen: () => ({ daten: { clientId: 'test-id-1234', clientSecret: 'test-secret' }, herkunft: 'stored', unlesbar: false }),
-      speichern: () => 'stored',
       loeschen: () => true,
     },
     einstellungen: {
@@ -265,7 +264,7 @@ function baueKern(o: BaueOptionen = {}): Probe {
       },
       einstellungsLage: () => ({ ...(o.einstellungsLage ?? { gesichert: null, verworfen: 0 }), nurSitzung: einst.nurSitzung.size > 0 }),
     },
-    sdkSchluessel: { lesen: () => ({ wert: null, herkunft: 'none' }), speichern: () => 'stored', loeschen: () => true },
+    sdkSchluessel: { lesen: () => ({ wert: null, herkunft: 'none' }), loeschen: () => true },
     // Die Slot-Fälle laden kein SDK: der Halter wird nie gefragt.
     halter: {
       zugang: async () => ({ art: 'keiner' }),

@@ -46,13 +46,8 @@ export const KT = {
   S9: (datei: string): string =>
     `Die Zoom-Laufzeit auf diesem PC ist unvollständig (${datei}). Bitte den SDK-Ordner erneut wählen.`,
   S10: 'Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.',
-  A1: 'Die Datei ist kein gültiges JSON (Inhalt wird absichtlich nicht angezeigt).',
-  A2: 'In der Datei fehlen Client-ID oder Client-Secret (erwartet: clientId und clientSecret).',
-  A3: (code: string): string => `Die Datei lässt sich nicht lesen (${code}).`,
   A4: TEXT_A4,
-  A5: 'Die hinterlegten Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Bitte die Zugangsdaten erneut eintragen oder die Datei erneut wählen.',
   A6: TEXT_A6,
-  A7: 'Bitte Client-ID und Client-Secret eintragen, ohne Leerzeichen.',
 
   // Zoom-SDK nachladen (Spec 2026-10-06, Abschnitt 5). Platzmangel nutzt S5; {grund} ist nur ein Code, nie ein Link.
   S12: 'Der Proxy hat den SDK-Schlüssel abgelehnt. Bitte den Schlüssel prüfen.',
@@ -70,7 +65,6 @@ export const KT = {
   S16c: (grund: string): string =>
     `Das geladene Zoom-SDK ließ sich nicht entpacken (${grund}). Die bisherige Einrichtung bleibt unverändert.`,
   S17: TEXT_S17,
-  S18: 'Bitte den SDK-Schlüssel eintragen, ohne Leerzeichen.',
 
   // 8.2 Start und Anmeldung
   B1: 'zoom-bridge.exe fehlt im Laufzeit-Ordner. Bitte den SDK-Ordner erneut wählen.',

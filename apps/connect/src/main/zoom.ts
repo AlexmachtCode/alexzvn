@@ -11,8 +11,6 @@ import type { ZoomErgebnis, ZoomKurz } from '@shared/types';
 import { erzeugeZoomKern, type ZoomKern } from './zoom/kern';
 import { zoomAktiv, zoomStateTeil } from './zoom/plattform';
 import { pruefeSlotEingabe } from './zoom/slot-eingabe';
-import { pruefeZugangEingabe } from './zoom/zugang-eingabe';
-import { pruefeSdkSchluesselEingabe } from './zoom/sdk-schluessel-eingabe';
 import { devTtl, erzeugeJwtQuelle, holeServerJwt, type JwtQuelle } from './zoom/jwt-quelle';
 import { beiZugangsAenderung, zugangsHalter } from './zugang/huelle';
 import { activeLabels } from './ndi-guests';
@@ -42,12 +40,10 @@ import {
   zoomVorschau,
   zoomSdkSchluesselLesen,
   zoomSdkSchluesselLoeschen,
-  zoomSdkSchluesselSpeichern,
   zoomVersatzMs,
   zoomVersatzNurSitzung,
   zoomZugangLesen,
   zoomZugangLoeschen,
-  zoomZugangSpeichern,
 } from './settings';
 
 declare const __dirname: string;
@@ -119,8 +115,8 @@ export function startZoom(d: { getWindow: () => BrowserWindow | null; logDir: st
     });
     kern = erzeugeZoomKern({
       pfade: { basis, ressourcen },
-      zugang: { lesen: zoomZugangLesen, speichern: zoomZugangSpeichern, loeschen: zoomZugangLoeschen },
-      sdkSchluessel: { lesen: zoomSdkSchluesselLesen, speichern: zoomSdkSchluesselSpeichern, loeschen: zoomSdkSchluesselLoeschen },
+      zugang: { lesen: zoomZugangLesen, loeschen: zoomZugangLoeschen },
+      sdkSchluessel: { lesen: zoomSdkSchluesselLesen, loeschen: zoomSdkSchluesselLoeschen },
       halter: zugangsHalter(),
       jwt: jwtQuelle,
       einstellungen: {
@@ -197,32 +193,9 @@ function registriereKanaele(k: ZoomKern, d: { getWindow: () => BrowserWindow | n
   ipcMain.handle(IPC.zoomSdkLaden, (): Promise<ZoomErgebnis> => k.sdkLaden());
   ipcMain.handle(IPC.zoomSdkLadenAbbrechen, (): void => k.sdkLadenAbbrechen());
 
-  // Spec 6.1 „Zugangsdaten wählen“. Den Pfad merkt sich Connect nicht.
-  ipcMain.handle(IPC.zoomZugangWaehlen, async (): Promise<ZoomErgebnis> => {
-    const sperre = k.einrichtungSperre();
-    if (!sperre.ok) return sperre;
-    const datei = await waehlePfad(d.getWindow, {
-      properties: ['openFile'],
-      filters: [{ name: 'Zugangsdaten', extensions: ['json'] }],
-    });
-    return datei === null ? NICHTS : k.zugangWaehlen(datei);
-  });
-
-  // Zugangsdaten von Hand: Form prüfen (kein Objekt, falsche Typen, über 512 Zeichen → stumm abgewiesen),
-  // dann der Kern. Weder Antwort noch Log enthalten je einen Wert.
-  ipcMain.handle(IPC.zoomZugangEintragen, (_e, p: unknown): ZoomErgebnis => {
-    const e = pruefeZugangEingabe(p);
-    return e === null ? NICHTS : k.zugangEintragen(e);
-  });
-
   ipcMain.handle(IPC.zoomZugangLoeschen, (): ZoomErgebnis => k.zugangLoeschen());
 
-  // SDK-Schlüssel (Spec SDK nachladen 4.2): Form prüfen (über 512 Zeichen, falsche Typen → stumm abgewiesen),
-  // dann der Kern (Trimmen, S18, Sperre S10). Weder Antwort noch Log enthalten je den Wert.
-  ipcMain.handle(IPC.zoomSdkSchluesselEintragen, (_e, p: unknown): ZoomErgebnis => {
-    const e = pruefeSdkSchluesselEingabe(p);
-    return e === null ? NICHTS : k.sdkSchluesselEintragen(e);
-  });
+  // Alte Werte lassen sich nur noch entfernen (E7), nie eintragen oder wählen.
   ipcMain.handle(IPC.zoomSdkSchluesselLoeschen, (): ZoomErgebnis => k.sdkSchluesselLoeschen());
   ipcMain.handle(IPC.zoomPruefen, (): Promise<ZoomErgebnis> => k.pruefen());
 

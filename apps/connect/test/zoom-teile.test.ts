@@ -1,8 +1,6 @@
 // Teilnehmerzeilen, Einstellungen und Fernsteuer-Deutung als reine Funktionen OHNE Electron (tsx): npm run selftest -w @jm/connect
 // Spec 4 (Normierter Name, Doppelname), 5.4 und Slot-Spec 7.10 (ZoomParticipant, KF4), 5.6 (Einstellungen), 11.2 (Deutung).
 import type { Participant } from '@jm/zoom-bridge/protocol';
-import { pruefeZugangEingabe } from '../src/main/zoom/zugang-eingabe';
-import { pruefeSdkSchluesselEingabe } from '../src/main/zoom/sdk-schluessel-eingabe';
 import { baueTeilnehmer, gleicherNdiName, kameraVon, NDI_PRAEFIX, normName } from '../src/main/zoom/teilnehmer';
 
 let pass = 0, fail = 0;
@@ -144,37 +142,6 @@ console.log('— baueTeilnehmer (Spec 5.4, 7.10, 10.10; KF4: Slot-Nummern je Per
   ck('Einst: unlesbar, aber Umgebung da → kein Mangel', r5.herkunft === 'env' && r5.unlesbar === false);
   const r6 = waehleZugang({ umgebung: null, gespeichert: null, sitzung: null });
   ck('Einst: nichts hinterlegt → none', r6.herkunft === 'none' && r6.daten === null && r6.unlesbar === false);
-}
-
-console.log('— Zugangsdaten von Hand: Nutzlast-Prüfung (IPC)');
-{
-  const g = pruefeZugangEingabe({ clientId: 'id-test', clientSecret: 'geheim-test' });
-  ck('gültig → beide Werte', g !== null && g.clientId === 'id-test' && g.clientSecret === 'geheim-test');
-  ck('Werte werden hier nicht verändert (Leerraum bleibt für den Kern)',
-    pruefeZugangEingabe({ clientId: ' a ', clientSecret: '' })?.clientId === ' a ');
-  ck('kein Objekt → null', pruefeZugangEingabe(null) === null && pruefeZugangEingabe('x') === null
-    && pruefeZugangEingabe(undefined) === null && pruefeZugangEingabe(42) === null);
-  ck('fehlende Felder → null', pruefeZugangEingabe({ clientId: 'a' }) === null && pruefeZugangEingabe({ clientSecret: 'a' }) === null
-    && pruefeZugangEingabe({}) === null);
-  ck('Zahl statt String → null', pruefeZugangEingabe({ clientId: 1, clientSecret: 'a' }) === null
-    && pruefeZugangEingabe({ clientId: 'a', clientSecret: 2 }) === null);
-  ck('genau 512 Zeichen → gültig, 513 → null',
-    pruefeZugangEingabe({ clientId: 'x'.repeat(512), clientSecret: 'a' }) !== null
-    && pruefeZugangEingabe({ clientId: 'x'.repeat(513), clientSecret: 'a' }) === null
-    && pruefeZugangEingabe({ clientId: 'a', clientSecret: 'y'.repeat(513) }) === null);
-}
-
-console.log('— SDK-Schlüssel von Hand: Nutzlast-Prüfung (IPC, Spec SDK nachladen 4.2)');
-{
-  const g = pruefeSdkSchluesselEingabe({ schluessel: 'sdk-test' });
-  ck('gültig → der Wert', g !== null && g.schluessel === 'sdk-test');
-  ck('Wert wird hier nicht verändert (Leerraum bleibt für den Kern)', pruefeSdkSchluesselEingabe({ schluessel: ' a b ' })?.schluessel === ' a b ');
-  ck('leerer String ist eine Eingabe (S18 gibt der Kern)', pruefeSdkSchluesselEingabe({ schluessel: '' })?.schluessel === '');
-  ck('kein Objekt → null', pruefeSdkSchluesselEingabe(null) === null && pruefeSdkSchluesselEingabe('sdk-test') === null
-    && pruefeSdkSchluesselEingabe(undefined) === null && pruefeSdkSchluesselEingabe(42) === null);
-  ck('fehlendes Feld oder Zahl → null', pruefeSdkSchluesselEingabe({}) === null && pruefeSdkSchluesselEingabe({ schluessel: 7 }) === null);
-  ck('genau 512 Zeichen → gültig, 513 → null',
-    pruefeSdkSchluesselEingabe({ schluessel: 'x'.repeat(512) }) !== null && pruefeSdkSchluesselEingabe({ schluessel: 'x'.repeat(513) }) === null);
 }
 
 // ── Aufgabe 6 (4b): Plätze, NDI-Vorschau „(2)“, Ton aus dem Soll ──
@@ -622,6 +589,18 @@ console.log('— B22: Messwerte in der Karte, Kopieren ohne Namen, Zeile T95 au�
   ck('B22 7.11: App.tsx zeigt außerhalb von win32 an der Stelle der Karte T95 aus zoom-text.ts, nie als Literal',
     app.includes(`{window.jmconnect.platform === 'win32' ? <ZoomCard /> : <p className="mt-6 text-xs text-neutral-500">{MAC_ZEILE}</p>}`)
       && !app.includes(zt.MAC_ZEILE));
+}
+
+// ── Task 16: alte Werte lassen sich nur noch entfernen, nie eintragen oder wählen (E7) ──
+{
+  const { readFileSync, existsSync } = await import('node:fs');
+  const pfad = (rel: string): URL => new URL(`../${rel}`, import.meta.url);
+  const read = (rel: string): string => readFileSync(pfad(rel), 'utf8').replace(/\r\n/g, '\n');
+  ck('T16 Spec 22, 166: kein Eintragen oder Wählen alter Werte mehr in Kern, Hülle, IPC, Preload, Karte und Einstellungen',
+    ['src/main/zoom/kern.ts', 'src/main/zoom.ts', 'src/shared/ipc.ts', 'src/preload/index.ts', 'src/renderer/src/zoom/ZoomCard.tsx', 'src/main/settings.ts']
+      .every((f) => !/zugangEintragen|zugangWaehlen|sdkSchluesselEintragen|ZugangEingabe|SchluesselEingabe|zoomZugangSpeichern|zoomSdkSchluesselSpeichern/.test(read(f)))
+      && !existsSync(pfad('src/main/zoom/zugang-eingabe.ts')) && !existsSync(pfad('src/main/zoom/sdk-schluessel-eingabe.ts'))
+      && read('src/renderer/src/zoom/ZoomCard.tsx').includes("'Zoom ist gesperrt, bis das Zoom-SDK eingerichtet ist.'"));
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

@@ -379,13 +379,7 @@ export interface JmConnectApi {
   zoomSdkLaden: () => Promise<ZoomErgebnis>;
   /** Bricht ein laufendes Laden ab (Phasen link bis entpacken). */
   zoomSdkLadenAbbrechen: () => Promise<void>;
-  /** Datei-Dialog für die Zugangsdaten. */
-  zoomZugangWaehlen: () => Promise<ZoomErgebnis>;
-  /** Zugangsdaten von Hand: nur hinein, es gibt keinen Weg zurück ins Fenster. */
-  zoomZugangEintragen: (p: { clientId: string; clientSecret: string }) => Promise<ZoomErgebnis>;
   zoomZugangLoeschen: () => Promise<ZoomErgebnis>;
-  /** SDK-Schlüssel für „Zoom-SDK laden“: nur hinein, es gibt keinen Weg zurück ins Fenster. */
-  zoomSdkSchluesselEintragen: (p: { schluessel: string }) => Promise<ZoomErgebnis>;
   zoomSdkSchluesselLoeschen: () => Promise<ZoomErgebnis>;
   /** „Einrichtung prüfen“: Bridge starten, anmelden, beenden, ohne Meeting. */
   zoomPruefen: () => Promise<ZoomErgebnis>;

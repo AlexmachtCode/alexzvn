@@ -20,7 +20,6 @@ import { join } from 'node:path';
 import {
   Bridge,
   normalizeMeetingId,
-  readCredentials,
   type BridgeEvent,
   type BridgeOptions,
   type Command,
@@ -172,10 +171,10 @@ export interface LaufzeitDienste {
 }
 export interface ZoomKernAbhaengigkeiten {
   pfade: LaufzeitPfade;
-  /** loeschen(): für diese Sitzung immer weg; `false` = steht noch in der Einstellungsdatei (nicht schreibbar). */
-  zugang: { lesen(): ZugangStand; speichern(d: ZugangDaten): 'stored' | 'session'; loeschen(): boolean };
-  /** Umgebung JMPS_ZOOM_SDK_KEY > gespeichert (safeStorage) > Sitzung; speichern() bekommt den getrimmten Wert. loeschen() wie bei zugang. */
-  sdkSchluessel: { lesen(): SdkSchluesselStand; speichern(wert: string): 'stored' | 'session'; loeschen(): boolean };
+  /** Alte Zugangsdaten nur im Übergang (E7): nur lesen und entfernen. loeschen(): für diese Sitzung immer weg; `false` = steht noch in der Einstellungsdatei (nicht schreibbar). */
+  zugang: { lesen(): ZugangStand; loeschen(): boolean };
+  /** Alter SDK-Schlüssel nur im Übergang (E7): Umgebung JMPS_ZOOM_SDK_KEY > gespeichert (safeStorage) > Sitzung; nur lesen und entfernen. loeschen() wie bei zugang. */
+  sdkSchluessel: { lesen(): SdkSchluesselStand; loeschen(): boolean };
   /** Freigaben des Launchers (Anmeldung Teil 2): „Zoom-SDK laden“ holt hier die Freigabe `zoom-sdk`; im Übergang liefert er den alten SDK-Schlüssel. */
   halter: Pick<ZugangsHalter, 'zugang' | 'antwort' | 'bestaetigt' | 'lage' | 'tokens'>;
   /** Das Zoom-JWT (Anmeldung Teil 2): der Kern holt es vor jedem Start der Bridge; es bleibt im Arbeitsspeicher und geht nur per stdin an die Bridge. */
@@ -259,10 +258,7 @@ export interface ZoomKern {
   sdkLaden(): Promise<ZoomErgebnis>;
   /** Bricht ein laufendes Laden ab (Phasen link bis entpacken); während der Kopie wirkungslos. */
   sdkLadenAbbrechen(): void;
-  zugangWaehlen(datei: string): ZoomErgebnis;
-  zugangEintragen(e: { clientId: string; clientSecret: string }): ZoomErgebnis;
   zugangLoeschen(): ZoomErgebnis;
-  sdkSchluesselEintragen(e: { schluessel: string }): ZoomErgebnis;
   sdkSchluesselLoeschen(): ZoomErgebnis;
   versatz(e: { ms: number }): ZoomErgebnis;
   pruefen(): Promise<ZoomErgebnis>;
@@ -484,7 +480,6 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let maengel: ZoomMangel[] = [];
   let laufzeitStand: LaufzeitPruefung = lz.pruefe(d.pfade);
   let zugang: ZugangStand = { daten: null, herkunft: 'none', unlesbar: false };
-  let zugangFehler: string | null = null;
   /** Nur die Herkunft; den Wert liest erst das Laden (Spec SDK nachladen 4.2). */
   let sdkSchluesselHerkunft: ProxyKeySource = d.sdkSchluessel.lesen().herkunft;
   let sdkFehler: string | null = null;
@@ -834,10 +829,10 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     const l = laufzeitStand;
     const stand = kopie !== null ? 'kopiert' : !l.ok && l.mangel === 'sdk_fehlt' ? 'fehlt' : !l.ok && l.mangel === 'sdk_defekt' ? 'defekt' : 'ok';
     const sdkText = sdkFehler ?? (!l.ok && (l.mangel === 'sdk_defekt' || l.mangel === 'bridge_fehlt') ? mangelText(l.mangel, mangelDatei()) : null);
-    const zugangText = !zugang.daten && zugang.unlesbar ? KT.A5
-      : zugang.herkunft === 'session' ? (zugang.grund === 'schreibfehler' ? TEXT_A4_SCHREIBFEHLER : KT.A4)
+    // „unlesbar“ trägt `einrichtung.zugang.unlesbar`; die Zeile dazu baut zugangZeile (ZU3), kein Text hier.
+    const zugangText = zugang.herkunft === 'session' ? (zugang.grund === 'schreibfehler' ? TEXT_A4_SCHREIBFEHLER : KT.A4)
       : zugang.herkunft === 'env' ? KT.A6
-      : zugangFehler;
+      : null;
     const id = zugang.daten?.clientId ?? null;
     const k = kurz();
     const z = zoomZ(k);
@@ -1161,86 +1156,16 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (ladung !== null) ladeAbbruch?.abort();
   }
 
-  function zugangWaehlen(datei: string): ZoomErgebnis {
-    const sperre = einrichtungSperre();
-    if (!sperre.ok) return sperre;
-    if (zustand === 'fehler') schliessen();
-    let daten: ZugangDaten;
-    try {
-      // Mit dieser Umgebung ist die Datei die EINZIGE Quelle (jwt.ts); BOM wird vertragen,
-      // ein Parse-Fehler zitiert den Inhalt nicht.
-      daten = readCredentials({ ZOOM_SDK_CREDENTIALS: datei });
-    } catch (e) {
-      const err = e as Error & { code?: string };
-      const text = err.message.includes('kein gueltiges JSON') ? KT.A1
-        : err.message.includes('Zugangsdaten fehlen') ? KT.A2
-        : KT.A3(err.code ?? err.name);
-      zugangFehler = text;
-      d.log(`[zoom] Zugangsdaten-Datei abgewiesen: ${text}`);
-      abbildGeaendert();
-      return { ok: false, text };
-    }
-    return zugangUebernehmen(daten, 'Datei');
-  }
-
-  /** Gemeinsamer Schluss von Datei-Weg und Handeingabe: speichern, loggen (nie einen Wert), Mängel und Zustand neu. */
-  // Sperre und fehler→schliessen stehen bewusst bei den beiden Aufrufern: sonst änderte sich der Datei-Weg bei A1–A3.
-  function zugangUebernehmen(daten: ZugangDaten, weg: 'Datei' | 'Hand'): ZoomErgebnis {
-    zugangFehler = null;
-    const herkunft = d.zugang.speichern({ clientId: daten.clientId, clientSecret: daten.clientSecret });
-    const wo = herkunft === 'session' ? 'nur für diese Sitzung' : 'verschlüsselt';
-    d.log(`[zoom] Zugangsdaten hinterlegt (${weg === 'Hand' ? `von Hand, ${wo}` : wo})`);
-    bestimmeMaengel();
-    setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
-    return { ok: true };
-  }
-
-  /** Von Hand eingetragen (A7): getrimmt, ohne Leerraum in den Werten. Nichts davon in Log, Text oder Rückgabe. */
-  function zugangEintragen(e: { clientId: string; clientSecret: string }): ZoomErgebnis {
-    const sperre = einrichtungSperre();
-    if (!sperre.ok) return sperre;
-    if (zustand === 'fehler') schliessen();
-    const clientId = e.clientId.trim();
-    const clientSecret = e.clientSecret.trim();
-    if (!clientId || !clientSecret || /\s/.test(clientId) || /\s/.test(clientSecret)) {
-      // Eingabefehler, kein Zustand der hinterlegten Zugangsdaten: nur im Ergebnis, nicht im Abbild.
-      d.log('[zoom] Zugangsdaten von Hand abgewiesen: ' + KT.A7);
-      return { ok: false, text: KT.A7 };
-    }
-    return zugangUebernehmen({ clientId, clientSecret }, 'Hand');
-  }
-
   function zugangLoeschen(): ZoomErgebnis {
     const sperre = einrichtungSperre();
     if (!sperre.ok) return sperre;
     if (zustand === 'fehler') schliessen();
     // false: für diese Sitzung weg, aber noch in der Einstellungsdatei; nach einem Neustart wären sie wieder da.
     const vonPlatte = d.zugang.loeschen();
-    zugangFehler = null;
     d.log(vonPlatte ? '[zoom] Zugangsdaten entfernt' : '[zoom] Zugangsdaten nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)');
     bestimmeMaengel();
     setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
     return vonPlatte ? { ok: true } : { ok: false, text: TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT };
-  }
-
-  /** Spec SDK nachladen 4.2: getrimmt, nur druckbare ASCII-Zeichen, sonst S18 (A13). Der Wert geht nie in Log, Abbild oder Rückgabe. */
-  function sdkSchluesselEintragen(e: { schluessel: string }): ZoomErgebnis {
-    const sperre = einrichtungSperre();
-    if (!sperre.ok) return sperre;
-    if (zustand === 'fehler') schliessen();
-    const wert = e.schluessel.trim();
-    // Nur druckbare ASCII-Zeichen: kein Leerraum in der Mitte (Spec 4.2) und nichts, was kein HTTP-Header tragen kann.
-    if (!/^[\x21-\x7e]+$/.test(wert)) {
-      // Eingabefehler, kein Zustand des hinterlegten Schlüssels: nur im Ergebnis, nicht im Abbild.
-      d.log('[zoom] SDK-Schlüssel abgewiesen: ' + KT.S18);
-      return { ok: false, text: KT.S18 };
-    }
-    const herkunft = d.sdkSchluessel.speichern(wert);
-    sdkSchluesselHerkunft = d.sdkSchluessel.lesen().herkunft;
-    sdkAblehnungVergessen();
-    d.log(`[zoom] SDK-Schlüssel hinterlegt (${herkunft === 'session' ? 'nur für diese Sitzung' : 'verschlüsselt'})`);
-    abbildGeaendert();
-    return { ok: true };
   }
 
   /**
@@ -3148,10 +3073,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     sdkWaehlen,
     sdkLaden,
     sdkLadenAbbrechen,
-    zugangWaehlen,
-    zugangEintragen,
     zugangLoeschen,
-    sdkSchluesselEintragen,
     sdkSchluesselLoeschen,
     versatz,
     pruefen,

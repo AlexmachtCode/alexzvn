@@ -214,7 +214,6 @@ let zoomGespeichert: GespeicherterZugang | null | undefined;
 let zoomAnzeigenameSitzung: string | null = null;
 let zoomVersatzSitzung: number | null = null;
 let zoomUmgebungGewarnt = false;
-let zoomSitzungGewarnt = false;
 
 function zoomGespeichertLesen(): GespeicherterZugang | null {
   if (zoomGespeichert === undefined) {
@@ -224,7 +223,7 @@ function zoomGespeichertLesen(): GespeicherterZugang | null {
   return zoomGespeichert;
 }
 
-/** `unlesbar`: zoomZugangEnc ist da, lässt sich aber nicht entschlüsseln (Abbild einrichtung.zugang.unlesbar, A5). */
+/** `unlesbar`: zoomZugangEnc ist da, lässt sich aber nicht entschlüsseln (Abbild einrichtung.zugang.unlesbar, P3; Zeile ZU3). */
 export function zoomZugangLesen(): { daten: ZoomZugangDaten | null; herkunft: ProxyKeySource; grund?: 'schreibfehler'; unlesbar: boolean } {
   const umgebung = zugangAusUmgebung(process.env);
   if (umgebung.fehler && !zoomUmgebungGewarnt) {
@@ -233,37 +232,6 @@ export function zoomZugangLesen(): { daten: ZoomZugangDaten | null; herkunft: Pr
   }
   const stand = waehleZugang({ umgebung: umgebung.daten, gespeichert: zoomGespeichertLesen(), sitzung: zoomSitzung });
   return stand.herkunft === 'session' && zoomSitzungGrund ? { ...stand, grund: zoomSitzungGrund } : stand;
-}
-
-export function zoomZugangSpeichern(d: ZoomZugangDaten): 'stored' | 'session' {
-  const daten = { clientId: d.clientId, clientSecret: d.clientSecret };
-  const next = read();
-  if (safeStorage.isEncryptionAvailable()) {
-    next.zoomZugangEnc = safeStorage.encryptString(JSON.stringify(daten)).toString('base64');
-    if (write(next)) {
-      zoomSitzung = null;
-      zoomSitzungGrund = undefined;
-      zoomGespeichert = { daten, unlesbar: false };
-      return 'stored';
-    }
-    // Nichts auf der Platte: ehrlich „nur für diese Sitzung“ (A4), nicht „gespeichert“.
-    zoomGespeichert = null;
-    zoomSitzung = daten;
-    zoomSitzungGrund = 'schreibfehler';
-    return 'session';
-  }
-  // Ohne Schlüsselbund NIE im Klartext auf die Platte (Spec 5.6, E7). Ein altes, hier nicht
-  // entschlüsselbares zoomZugangEnc fliegt raus: die neue Wahl des Bedieners gilt.
-  delete next.zoomZugangEnc;
-  write(next);
-  zoomGespeichert = null;
-  zoomSitzung = daten;
-  zoomSitzungGrund = undefined;
-  if (!zoomSitzungGewarnt) {
-    zoomSitzungGewarnt = true;
-    getLog().warn('[zoom] safeStorage nicht verfügbar — die Zoom-Zugangsdaten gelten nur für diese Sitzung.');
-  }
-  return 'session';
 }
 
 /**
@@ -391,7 +359,6 @@ export function setzeZoomLaufzeit(v: { dir: string; fassung: string; eingerichte
 let zoomSdkSitzung: string | null = null;
 /** zoomSdkKeyEnc, EINMAL entschlüsselt. `undefined` = noch nicht gelesen, `null` = nichts (oder nicht entschlüsselbar). */
 let zoomSdkGespeichert: string | null | undefined;
-let zoomSdkSitzungGewarnt = false;
 
 function zoomSdkGespeichertLesen(): string | null {
   if (zoomSdkGespeichert === undefined) zoomSdkGespeichert = decryptKey(read().zoomSdkKeyEnc);
@@ -405,33 +372,6 @@ export function zoomSdkSchluesselLesen(): { wert: string | null; herkunft: Proxy
   if (gespeichert) return { wert: gespeichert, herkunft: 'stored' };
   if (zoomSdkSitzung) return { wert: zoomSdkSitzung, herkunft: 'session' };
   return { wert: null, herkunft: 'none' };
-}
-
-/** Der Kern hat getrimmt und geprüft (S18). 'session', wenn nichts auf der Platte gelandet ist. */
-export function zoomSdkSchluesselSpeichern(wert: string): 'stored' | 'session' {
-  const next = read();
-  if (safeStorage.isEncryptionAvailable()) {
-    next.zoomSdkKeyEnc = safeStorage.encryptString(wert).toString('base64');
-    if (write(next)) {
-      zoomSdkGespeichert = wert;
-      zoomSdkSitzung = null;
-      return 'stored';
-    }
-    // Nichts auf der Platte: ehrlich „nur für diese Sitzung“, und der neue Wert gilt, nicht ein alter von der Platte.
-    zoomSdkGespeichert = null;
-    zoomSdkSitzung = wert;
-    return 'session';
-  }
-  // Ohne Schlüsselbund NIE im Klartext auf die Platte; ein altes, hier nicht entschlüsselbares Feld fliegt raus.
-  delete next.zoomSdkKeyEnc;
-  write(next);
-  zoomSdkGespeichert = null;
-  zoomSdkSitzung = wert;
-  if (!zoomSdkSitzungGewarnt) {
-    zoomSdkSitzungGewarnt = true;
-    getLog().warn('[zoom] safeStorage nicht verfügbar — der SDK-Schlüssel gilt nur für diese Sitzung.');
-  }
-  return 'session';
 }
 
 /** Wie zoomZugangLoeschen: `false`, wenn der Schlüssel noch in der (nicht schreibbaren) Einstellungsdatei steht. */

@@ -480,15 +480,20 @@ export function sdkLadenZeile(l: NonNullable<ZoomAbbild['einrichtung']['sdk']['l
   }
 }
 
-/** Zeile „SDK-Schlüssel“ im Einrichtungsbereich (Spec SDK nachladen 4.5): nur die Herkunft, nie ein Wert. */
-export function sdkSchluesselZeile(a: ZoomAbbild): string {
-  const je: Record<ProxyKeySource, string> = {
-    stored: 'SDK-Schlüssel: hinterlegt',
-    session: 'SDK-Schlüssel: hinterlegt (nur für diese Sitzung)',
-    env: 'SDK-Schlüssel: aus der Umgebung',
-    none: 'SDK-Schlüssel: fehlt',
-  };
-  return je[a.einrichtung.sdkSchluessel.herkunft];
+/**
+ * Übergangszeile „SDK-Schlüssel“ (E7): Der Schlüssel kommt nicht mehr von Hand, die Zeile gibt es nur, solange noch ein
+ * alter Wert liegt; `null` = keine Zeile. Nie ein Wert, nur die Herkunft.
+ */
+export function sdkSchluesselZeile(a: ZoomAbbild): string | null {
+  switch (a.einrichtung.sdkSchluessel.herkunft) {
+    case 'stored':
+    case 'session':
+      return 'Alter SDK-Schlüssel: hinterlegt, nur noch im Übergang.';
+    case 'env':
+      return 'SDK-Schlüssel: aus der Umgebung';
+    case 'none':
+      return null;
+  }
 }
 
 /** Ein Balken für Download und Kopie (Spec SDK nachladen 4.5): Prozent 0–100, `null` = kein Balken. */
@@ -509,17 +514,23 @@ export function sdkKnopf(a: ZoomAbbild): 'SDK-Ordner wählen …' | 'Neu wählen
   return a.kurz.maengel.includes('sdk_fehlt') ? 'SDK-Ordner wählen …' : 'Neu wählen …';
 }
 
-/** Zugangsdaten-Zeile je Herkunft (Spec 9 Punkt 3); `unlesbar` geht vor. */
-export function zugangZeile(a: ZoomAbbild): string {
+/**
+ * Übergangszeile „Zugangsdaten“ (E7): alte Zugangsdaten lassen sich nur noch entfernen. `unlesbar` geht vor (ZU3),
+ * `stored` ZU1; `null` = keine Zeile (ohne alten Wert).
+ */
+export function zugangZeile(a: ZoomAbbild): string | null {
   const z = a.einrichtung.zugang;
-  if (z.unlesbar) return 'Zugangsdaten: lassen sich nicht entschlüsseln';
-  const je: Record<ProxyKeySource, string> = {
-    stored: `Zugangsdaten: hinterlegt (Client-ID endet auf ${z.clientIdEnde ?? ''})`,
-    session: z.grund === 'schreibfehler' ? TEXT_A4_SCHREIBFEHLER : TEXT_A4,
-    env: TEXT_A6,
-    none: 'Zugangsdaten: fehlen',
-  };
-  return je[z.herkunft];
+  if (z.unlesbar) return 'Alte Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Sie werden nicht mehr gebraucht; „Entfernen“ räumt sie weg.';
+  switch (z.herkunft) {
+    case 'stored':
+      return `Alte Zugangsdaten: hinterlegt (Client-ID endet auf ${z.clientIdEnde ?? ''}), nur noch im Übergang.`;
+    case 'session':
+      return z.grund === 'schreibfehler' ? TEXT_A4_SCHREIBFEHLER : TEXT_A4;
+    case 'env':
+      return TEXT_A6;
+    case 'none':
+      return null;
+  }
 }
 
 /** Welche Knöpfe die Karte zeigt bzw. freigibt (Spec 9 Punkte 2–6, Sperre 6.1). */
@@ -534,6 +545,8 @@ export interface ZoomKnoepfe {
   sdkLadenAbbrechen: boolean;
   /** „Entfernen“ beim SDK-Schlüssel: bei hinterlegt oder Sitzung; nicht aus der Umgebung, nicht ohne Schlüssel. */
   sdkSchluesselEntfernbar: boolean;
+  /** „Entfernen“ bei den alten Zugangsdaten: bei hinterlegt, Sitzung oder unlesbar; nicht aus der Umgebung, nicht ohne Wert. */
+  zugangEntfernbar: boolean;
   /** „Einrichtung prüfen“: nur in `bereit`; während der Prüfung „Prüfe …“. */
   pruefen: 'aus' | 'bereit' | 'laeuft';
   /** Beitrittsfelder in `bereit` und `fehler`. */
@@ -567,12 +580,14 @@ export function zoomKnoepfe(a: ZoomAbbild): ZoomKnoepfe {
   // L13: S10 gilt auch, solange eine gestoppte Bridge noch abbaut.
   const einrichtungAenderbar = (z === 'Z1a' || (z === 'Z2' && !a.pruefungLaeuft) || z === 'Z13') && !a.abbauLaeuft;
   const schluessel = a.einrichtung.sdkSchluessel.herkunft;
+  const zugang = a.einrichtung.zugang;
   return {
     meldung,
     einrichtungAenderbar,
     sdkLaden: einrichtungAenderbar ? 'frei' : 'gesperrt',
     sdkLadenAbbrechen: a.einrichtung.sdk.laden !== null,
     sdkSchluesselEntfernbar: schluessel === 'stored' || schluessel === 'session',
+    zugangEntfernbar: zugang.herkunft === 'stored' || zugang.herkunft === 'session' || zugang.unlesbar,
     pruefen: k.zustand === 'bereit' ? (a.pruefungLaeuft ? 'laeuft' : 'bereit') : 'aus',
     beitrittSichtbar: k.zustand === 'bereit' || k.zustand === 'fehler',
     beitretenGesperrt: a.pruefungLaeuft,

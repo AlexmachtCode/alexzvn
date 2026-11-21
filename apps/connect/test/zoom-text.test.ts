@@ -25,6 +25,14 @@ let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
   if (cond) { pass++; console.log(`  ok  ${name}`); } else { fail++; console.log(`FAIL  ${name}`); }
 }
+/** Tabelle: je Zeile [Name, Ist, Soll] (beides Text); die Zeilen laufen alle, ein Prüfpunkt je Tabelle. */
+function kreuz(name: string, zeilen: ReadonlyArray<readonly [string, string, string]>): void {
+  const falsch = zeilen.filter(([, ist, soll]) => ist !== soll);
+  if (falsch.length === 0) { pass++; console.log(`  ok  ${name} (${zeilen.length} Zeilen)`); return; }
+  fail++;
+  console.log(`FAIL  ${name}: ${falsch.length} von ${zeilen.length} weichen ab`);
+  for (const [n, ist, soll] of falsch.slice(0, 5)) console.log(`      ${n}\n        ist:  ${ist}\n        soll: ${soll}`);
+}
 
 // ── Testhilfen ──
 function kurz(z: Partial<ZoomKurz> = {}): ZoomKurz {
@@ -373,23 +381,28 @@ console.log('— Einrichtungszeilen (Spec 9 Punkt 3)');
   const bridge = abbild({ kurz: { zustand: 'einrichtung', maengel: ['bridge_fehlt'] } });
   ck('bridge_fehlt: das SDK selbst gilt als eingerichtet', sdkZeile(bridge) === 'Zoom-SDK 7.1.5.43953 eingerichtet');
 
-  const ZUGANG: Record<ProxyKeySource, string> = {
-    stored: 'Zugangsdaten: hinterlegt (Client-ID endet auf ab12)',
-    session: TEXT_A4,
-    env: TEXT_A6,
-    none: 'Zugangsdaten: fehlen',
-  };
-  for (const h of Object.keys(ZUGANG) as ProxyKeySource[]) {
-    const a = abbild({ einrichtung: { ...ohne.einrichtung, zugang: { herkunft: h, clientIdEnde: h === 'none' ? null : 'ab12', text: null, unlesbar: false } } });
-    ck(`Zugangsdaten, Herkunft ${h}: wörtlich`, zugangZeile(a) === ZUGANG[h]);
-  }
+  // Alte Zugangsdaten sind nur noch ein Übergang (E7): Zeilen gibt es nur mit altem Wert, sonst `null`.
+  const mitZugang = (herkunft: ProxyKeySource, clientId: string | null = null, unlesbar = false): ZoomAbbild =>
+    abbild({ einrichtung: { ...ohne.einrichtung, zugang: { herkunft, clientIdEnde: clientId === null ? null : clientId.slice(-4), text: null, unlesbar } } });
+  const mitSdk = (herkunft: ProxyKeySource): ZoomAbbild =>
+    abbild({ einrichtung: { ...ohne.einrichtung, sdkSchluessel: { herkunft } } });
+  kreuz('T16 E7: Übergangszeilen nur mit altem Wert (Herkunft × unlesbar)', [
+    ['stored', String(zugangZeile(mitZugang('stored', 'test-id-1234'))), 'Alte Zugangsdaten: hinterlegt (Client-ID endet auf 1234), nur noch im Übergang.'],
+    ['unlesbar', String(zugangZeile(mitZugang('none', null, true))), 'Alte Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Sie werden nicht mehr gebraucht; „Entfernen“ räumt sie weg.'],
+    ['none', String(zugangZeile(mitZugang('none'))), 'null'],
+    ['SDK stored', String(sdkSchluesselZeile(mitSdk('stored'))), 'Alter SDK-Schlüssel: hinterlegt, nur noch im Übergang.'],
+    ['SDK none', String(sdkSchluesselZeile(mitSdk('none'))), 'null'],
+    ['entfernbar env', String(zoomKnoepfe(mitZugang('env')).zugangEntfernbar), 'false'],
+  ]);
+  ck('Zugangsdaten, Herkunft session: TEXT_A4 (Übergang)', zugangZeile(mitZugang('session', 'test-id-1234')) === TEXT_A4);
+  ck('Zugangsdaten, Herkunft env: TEXT_A6 (Übergang)', zugangZeile(mitZugang('env')) === TEXT_A6);
   const schreibfehler = abbild({ einrichtung: { ...ohne.einrichtung, zugang: { herkunft: 'session', grund: 'schreibfehler', clientIdEnde: 'ab12', text: null, unlesbar: false } } });
   ck('session + schreibfehler: eigener Text, nennt keinen Schlüsselbund', zugangZeile(schreibfehler) === TEXT_A4_SCHREIBFEHLER && !TEXT_A4_SCHREIBFEHLER.includes('Schlüsselbund')
     && TEXT_A4_SCHREIBFEHLER === 'Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.');
-  const unlesbar = abbild({
-    einrichtung: { ...ohne.einrichtung, zugang: { herkunft: 'none', clientIdEnde: null, text: null, unlesbar: true } },
-  });
-  ck('zugang_unlesbar: „Zugangsdaten: lassen sich nicht entschlüsseln“', zugangZeile(unlesbar) === 'Zugangsdaten: lassen sich nicht entschlüsseln');
+  ck('unlesbar geht vor der Herkunft (ZU3)', zugangZeile(mitZugang('stored', 'test-id-1234', true)) === zugangZeile(mitZugang('none', null, true)));
+  ck('zugangEntfernbar: stored, session und unlesbar ja, env und none nein',
+    zoomKnoepfe(mitZugang('stored', 'test-id-1234')).zugangEntfernbar && zoomKnoepfe(mitZugang('session', 'test-id-1234')).zugangEntfernbar
+      && zoomKnoepfe(mitZugang('none', null, true)).zugangEntfernbar && !zoomKnoepfe(mitZugang('env')).zugangEntfernbar && !zoomKnoepfe(mitZugang('none')).zugangEntfernbar);
 }
 
 console.log('— Knöpfe der Karte je Lage (Spec 9 Punkte 2–6)');
@@ -463,12 +476,7 @@ console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die 
     ['S8', KT.S8, 'Dieser Connect-Installation fehlt die Zoom-Bridge. Bitte JM Connect neu installieren.'],
     ['S9', KT.S9('sdk.dll'), 'Die Zoom-Laufzeit auf diesem PC ist unvollständig (sdk.dll). Bitte den SDK-Ordner erneut wählen.'],
     ['S10', KT.S10, 'Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.'],
-    ['A1', KT.A1, 'Die Datei ist kein gültiges JSON (Inhalt wird absichtlich nicht angezeigt).'],
-    ['A2', KT.A2, 'In der Datei fehlen Client-ID oder Client-Secret (erwartet: clientId und clientSecret).'],
-    ['A3', KT.A3('ENOENT'), 'Die Datei lässt sich nicht lesen (ENOENT).'],
     ['A4', KT.A4, 'Nur für diese Sitzung gemerkt — auf diesem Rechner gibt es keinen Schlüsselbund.'],
-    ['A5', KT.A5, 'Die hinterlegten Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Bitte die Zugangsdaten erneut eintragen oder die Datei erneut wählen.'],
-    ['A7', KT.A7, 'Bitte Client-ID und Client-Secret eintragen, ohne Leerzeichen.'],
     ['A6', KT.A6, 'Kommt aus Umgebungsvariablen (ZOOM_SDK_…) und hat Vorrang.'],
     // Zoom-SDK nachladen (Spec 2026-10-06, Abschnitt 5)
     ['S12', KT.S12, 'Der Proxy hat den SDK-Schlüssel abgelehnt. Bitte den Schlüssel prüfen.'],
@@ -480,7 +488,6 @@ console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die 
     ['S16b', KT.S16b, 'Das geladene Zoom-SDK hat nicht die erwartete Prüfsumme und wurde verworfen. Die bisherige Einrichtung bleibt unverändert.'],
     ['S16c', KT.S16c('Exit 1'), 'Das geladene Zoom-SDK ließ sich nicht entpacken (Exit 1). Die bisherige Einrichtung bleibt unverändert.'],
     ['S17', KT.S17, 'Laden abgebrochen. Die bisherige Einrichtung bleibt unverändert.'],
-    ['S18', KT.S18, 'Bitte den SDK-Schlüssel eintragen, ohne Leerzeichen.'],
     ['B1', KT.B1, 'zoom-bridge.exe fehlt im Laufzeit-Ordner. Bitte den SDK-Ordner erneut wählen.'],
     ['B2', KT.B2('EPERM'), 'Windows hat den Start der Zoom-Bridge verhindert (Virenschutz oder Smart App Control). Detail: EPERM.'],
     ['B3', KT.B3, 'Die Zoom-Bridge ist beim Start gestorben: Eine DLL fehlt (0xC0000135). Mit den Zugangsdaten hat das nichts zu tun. Bitte den SDK-Ordner erneut wählen.'],
@@ -681,11 +688,11 @@ console.log('— Zoom-SDK laden: Zeilen und Knöpfe (Spec SDK nachladen 4.4, 4.5
         && stateKvAus(a.kurz)?.zoom_status === 'einrichtung');
   }
 
-  const SCHLUESSEL: Record<ProxyKeySource, string> = {
-    stored: 'SDK-Schlüssel: hinterlegt',
-    session: 'SDK-Schlüssel: hinterlegt (nur für diese Sitzung)',
+  const SCHLUESSEL: Record<ProxyKeySource, string | null> = {
+    stored: 'Alter SDK-Schlüssel: hinterlegt, nur noch im Übergang.',
+    session: 'Alter SDK-Schlüssel: hinterlegt, nur noch im Übergang.',
     env: 'SDK-Schlüssel: aus der Umgebung',
-    none: 'SDK-Schlüssel: fehlt',
+    none: null,
   };
   for (const h of Object.keys(SCHLUESSEL) as ProxyKeySource[]) {
     const a = abbild({ einrichtung: { ...abbild().einrichtung, sdkSchluessel: { herkunft: h } } });
