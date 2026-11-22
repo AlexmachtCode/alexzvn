@@ -82,8 +82,9 @@ export const TASTEN_DREI_BREITE = 3 * TASTEN_MIN_BREITE + 2 * 12;
 
 /**
  * Anordnung der drei Haupttasten nach Breite der Inhaltsbox des Transports (Container-Query, kein Viewport): ab 444 px eine Reihe,
- * ab 292 px GO breit oben und ◀ ▶ nebeneinander darunter, darunter gestapelt (der einzige Fall, in dem keine zwei Tasten
- * nebeneinander passen: 960-px-Fenster mit offenem Panel, Inhaltsbox 135 px).
+ * ab 292 px GO breit oben und ◀ ▶ nebeneinander darunter, darunter gestapelt mit GO zuoberst (R17; der einzige Fall, in dem
+ * keine zwei Tasten nebeneinander passen: 960-px-Fenster mit offenem Panel, Inhaltsbox 135 px). Die Reihenfolge GO zuerst
+ * macht die Klasse order-first der GO-Hülle in Transport.tsx; live.test.tsx rechnet sie je Breite nach.
  */
 export function tastenAnordnung(containerBreite: number): 'reihe' | 'go-oben' | 'gestapelt' {
   return containerBreite >= TASTEN_DREI_BREITE ? 'reihe' : containerBreite >= TASTEN_ZWEI_BREITE ? 'go-oben' : 'gestapelt';
@@ -197,8 +198,17 @@ export function fernsteuerungAbschnitt(s: OberflaechenStand): RemoteControlSecti
   };
 }
 
-/** Eine Zeile je bekannter Rolle: Host leer = automatisch (mDNS); ein Override oder ein manueller Fund zählt als manuell. */
-function peerZeile(s: OberflaechenStand, role: string): PeerRow {
+/** Rollen, die eine Aktion im Ablauf anspricht (aktiv oder nicht: die Aktion steht im Ablauf). */
+function verwendeteRollen(s: OberflaechenStand): Set<string> {
+  return new Set(s.state.doc.rows.flatMap((r) => r.actions.map((a) => a.role)));
+}
+
+/**
+ * Eine Zeile je bekannter Rolle: Host leer = automatisch (mDNS); ein Override oder ein manueller Fund zählt als manuell. Im
+ * Abschnittsstatus zählt die Zeile nur, wenn die Rolle gefunden, manuell gesetzt oder im Ablauf verwendet ist (Ruling R31); die
+ * Zeile selbst zeigt immer den gemessenen Zustand, damit sich auch ein noch nicht gefundenes Tool setzen lässt.
+ */
+function peerZeile(s: OberflaechenStand, role: string, verwendet: ReadonlySet<string>): PeerRow {
   const link = s.state.links.find((l) => l.role === role);
   const override = s.state.overrides[role];
   const cap = CAPABILITIES[role];
@@ -213,14 +223,19 @@ function peerZeile(s: OberflaechenStand, role: string): PeerRow {
     connected: link?.connected ?? false,
     // Ohne Fund und ohne Override gibt es keine Quelle: sonst stünde „Quelle gefunden“ bei einem Tool, das nie gefunden wurde.
     source: manuell ? 'manual' : link ? 'mdns' : undefined,
+    zaehlt: link !== undefined || override !== undefined || verwendet.has(role),
   };
 }
 
-/** Gegenstellen (E11): ersetzt das Modal ConnectionsPanel; Setzen schickt Host und Port, Auto entfernt den Override. */
+/**
+ * Gegenstellen (E11): ersetzt das Modal ConnectionsPanel; Setzen schickt Host und Port, Auto entfernt den Override. Die eigene
+ * Rolle „rundown“ hat keine Zeile: Der Conductor dirigiert sich nicht selbst (main/conductor.ts), sie würde nie gefunden (R31).
+ */
 export function gegenstellenAbschnitt(s: OberflaechenStand, a: RundownAktionen): PeersSectionProps {
+  const verwendet = verwendeteRollen(s);
   return {
     id: ABSCHNITT.gegenstellen,
-    peers: KNOWN_ROLES.map((role) => peerZeile(s, role)),
+    peers: KNOWN_ROLES.filter((role) => role !== 'rundown').map((role) => peerZeile(s, role, verwendet)),
     capabilities: { auto: true },
     onSet: (role, host, port) => a.setEndpoint(role, host, port),
     onAuto: (role) => a.setEndpoint(role, '', 0),

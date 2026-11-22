@@ -217,10 +217,11 @@ const quelle = (pfad: string): string => (gibtEs(pfad) ? readFileSync(aufgeloest
   const transport = quelle('components/Transport.tsx');
   ok(
     [60, 61, 62, 63, 64, 65].every((nr) => kuenftig(nr).startsWith('✓ Transport (`components/Transport.tsx`')) &&
-      transport.includes('@[292px]:order-first') &&
+      transport.includes("'order-first @[292px]:col-span-2") &&
       transport.includes('@[444px]:grid-cols-3') &&
-      transport.includes('grid-cols-1'),
-    'RD Funktionsliste Nr. 60–65: Transport in components/Transport.tsx, GO breit oben ab 292 px, eine Reihe ab 444 px, darunter gestapelt (R16, R17)',
+      transport.includes('grid-cols-1') &&
+      kuenftig(61).includes('GO zuoberst (R17)'),
+    'RD Funktionsliste Nr. 60–65: Transport in components/Transport.tsx, GO breit oben ab 292 px, eine Reihe ab 444 px, darunter gestapelt mit GO zuoberst (R16, R17)',
   );
 }
 

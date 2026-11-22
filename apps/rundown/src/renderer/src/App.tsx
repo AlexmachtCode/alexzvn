@@ -65,7 +65,7 @@ export function App() {
         ersetzbar === 0
           ? true
           : window.confirm(
-              `${rows.length} Regieplan-Punkte aus „${file.name}" gefunden.\n\n` +
+              `${rows.length} Regieplan-Punkte aus „${file.name}“ gefunden.\n\n` +
                 (state.showGemerkt
                   ? 'OK = eigene Zeilen ERSETZEN (Zeilen aus der Show bleiben)\n'
                   : 'OK = aktuellen Ablauf ERSETZEN\n') +

@@ -74,14 +74,64 @@ const transport = (state = mitZeilen, log: string[] = []): string => render(<Tra
   );
   gleich([TASTEN_ZWEI_BREITE, TASTEN_DREI_BREITE], [2 * TASTEN_MIN_BREITE + 12, 3 * TASTEN_MIN_BREITE + 24], 'RD Live Tasten: Grenzbreiten aus Mindestbreite und Lücke abgeleitet');
   ok(
-    q.includes('@container') && q.includes('@[444px]:grid-cols-3') && q.includes('@[292px]:grid-cols-2') && q.includes('@[292px]:col-span-2') && q.includes('@[292px]:order-first') && q.includes('@[444px]:order-none') && q.includes('grid-cols-1') && !/(sm|md|lg|xl):grid-cols/.test(q),
-    'RD Live Tasten: Container-Query (@container, @[292px] GO oben, @[444px] eine Reihe) mit grid-cols-1 als Basis, keine Viewport-Breakpoints; die Klassen stehen als Literal im Quelltext (Tailwind-Scan)',
+    q.includes('@container') && q.includes('@[444px]:grid-cols-3') && q.includes('@[292px]:grid-cols-2') && q.includes('@[292px]:col-span-2') && /'order-first /.test(q) && q.includes('@[444px]:order-none') && q.includes('grid-cols-1') && !/(sm|md|lg|xl):grid-cols/.test(q),
+    'RD Live Tasten: Container-Query (@container, GO zuerst unter 444 px, @[292px] GO breit, @[444px] eine Reihe) mit grid-cols-1 als Basis, keine Viewport-Breakpoints; die Klassen stehen als Literal im Quelltext (Tailwind-Scan)',
   );
   ok(TASTEN_ZWEI_BREITE === 292 && TASTEN_DREI_BREITE === 444, 'RD Live Tasten: die Literale 292 und 444 im Quelltext gleichen den Konstanten');
   const html = transport();
   ok(html.includes('@container') && html.includes('@[444px]:grid-cols-3') && html.includes('@[292px]:grid-cols-2'), 'RD Live Tasten: gerendert trägt die Hülle @container und das Raster');
   const dom = [...html.matchAll(/<button[^>]*>[\s\S]*?<\/button>/g)].map((m) => text(m[0]).slice(0, 3));
   gleich(dom, ['◀ Z', 'GOK', 'Wei'], 'RD Live Tasten: die Tab-Reihenfolge im Markup bleibt ◀, GO, ▶ (GO oben ist nur Darstellung)');
+}
+
+// ── RD Live Tasten: sichtbare Reihenfolge je Anordnung (Fund R30-1, Ruling R17: gestapelt steht GO zuoberst) ──
+{
+  // CSS order aus den Klassen der Kinder des Rasters, wie der Browser sie bei einer Containerbreite anwendet: die Klasse ohne
+  // Präfix gilt immer, @[Npx]: ab N px, die größte zutreffende Schwelle gewinnt; gleiche order behalten die Markup-Reihenfolge.
+  // Die drei Kinder des Rasters: ◀ (button), die GO-Hülle (div), ▶ (button). Nur die Hülle trägt order-Klassen.
+  const html = transport();
+  const raster = /<div data-rundown="haupttasten" class="[^"]*">([\s\S]*)<\/div><div class="flex items-end/.exec(html)?.[1] ?? '';
+  const goHuelle = /<div class="([^"]*)"><button[^>]*>[\s\S]*?GO/.exec(raster)?.[1] ?? '';
+  const knopfKlassen = tags(raster, 'button').map((t) => attr(t, 'class') ?? '');
+  ok(goHuelle !== '' && knopfKlassen.length === 3 && knopfKlassen.every((k) => !/\border-/.test(k)), 'RD Live Tasten Reihenfolge: die GO-Hülle trägt die order-Klassen, die Knöpfe selbst keine');
+  const kinder = [
+    { rolle: 'zurueck', klassen: '' },
+    { rolle: 'go', klassen: goHuelle },
+    { rolle: 'weiter', klassen: '' },
+  ];
+  const order = (klassen: string, breite: number): number => {
+    let wert = 0;
+    let schwelle = -1;
+    for (const k of klassen.split(/\s+/)) {
+      const m = /^(?:@\[(\d+)px\]:)?order-(first|last|none|\d+)$/.exec(k);
+      if (!m) continue;
+      const ab = m[1] === undefined ? 0 : Number(m[1]);
+      if (breite < ab || ab < schwelle) continue;
+      schwelle = ab;
+      wert = m[2] === 'first' ? -9999 : m[2] === 'last' ? 9999 : m[2] === 'none' ? 0 : Number(m[2]);
+    }
+    return wert;
+  };
+  const sichtbar = (breite: number): string[] =>
+    kinder
+      .map((k, i) => ({ ...k, i, o: order(k.klassen, breite) }))
+      .sort((a, b) => a.o - b.o || a.i - b.i)
+      .map((k) => k.rolle);
+  const breiten = { gestapelt: TASTEN_ZWEI_BREITE - 1, 'go-oben': TASTEN_ZWEI_BREITE, reihe: TASTEN_DREI_BREITE } as const;
+  gleich(
+    Object.entries(breiten).map(([art, b]) => [art, tastenAnordnung(b), sichtbar(b).join(' ')]),
+    [
+      ['gestapelt', 'gestapelt', 'go zurueck weiter'],
+      ['go-oben', 'go-oben', 'go zurueck weiter'],
+      ['reihe', 'reihe', 'zurueck go weiter'],
+    ],
+    'RD Live Tasten Reihenfolge: gestapelt und mit zwei Spalten steht GO zuoberst, in einer Reihe GO in der Mitte (◀ GO ▶)',
+  );
+  gleich(
+    [...new Set(Array.from({ length: 1901 }, (_, i) => `${tastenAnordnung(100 + i)}:${sichtbar(100 + i)[0]}`))].sort(),
+    ['gestapelt:go', 'go-oben:go', 'reihe:zurueck'],
+    'RD Live Tasten Reihenfolge: für jede Containerbreite 100–2000 px steht GO zuerst, außer in einer Reihe',
+  );
 }
 
 // ── RD Live Breite: die Spalte der Liste bei Mindestfenster ──

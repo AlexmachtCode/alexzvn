@@ -5,6 +5,7 @@ import * as settings from '@jm/settings';
 import { remoteControlView } from '@jm/settings';
 import { MASTER_LINK_TEXTE, ordneStatus, type StatusItem } from '@jm/ui';
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
+import { KNOWN_ROLES } from '@/lib/capabilities';
 import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { MasterLinkMeldungZeile, ToolLink, VerbundAnzeigeZeile } from '@shared/types';
 import {
@@ -151,6 +152,68 @@ const SPEAKER = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `Spr
   p.onAuto?.('timer');
   gleich(aufrufe, ['timer|1.2.3.4|8724', 'timer||0'], 'RD Gegenstellen-Abschnitt: Setzen schickt Host und Port, Auto entfernt den Override (host leer)');
   ok(p.capabilities.auto === true && p.capabilities.toggle !== true, 'RD Gegenstellen-Abschnitt: mit Auto, ohne Ein/Aus');
+}
+
+// ── RD Gegenstellen Abschnittsstatus (Fund B2, Ruling R31): gezählt werden nur gefundene, manuell gesetzte oder im Ablauf
+// verwendete Rollen; die eigene Rolle „rundown“ hat keine Zeile; die Zeilen selbst bleiben wie gemessen ──
+{
+  const a = { setEndpoint: () => {} };
+  const FUND = {
+    keiner: undefined,
+    verbunden: { connected: true, source: 'mdns' },
+    getrennt: { connected: false, source: 'mdns' },
+    manuell: { connected: false, source: 'manual' },
+  } as const;
+  const ROLLEN = [
+    ['timer', 'JM Timer'],
+    ['titler', 'JM Titler'],
+  ] as const;
+  const faelle = kreuz({
+    timer: ['keiner', 'verbunden', 'getrennt', 'manuell'],
+    timerOverride: [false, true],
+    timerVerwendet: [false, true],
+    titler: ['keiner', 'verbunden', 'getrennt', 'manuell'],
+    titlerOverride: [false, true],
+    titlerVerwendet: [false, true],
+  } as const);
+  pruefeFaelle('RD Gegenstellen Abschnittsstatus: Fund × Override × im Ablauf verwendet je Rolle → ok nur, wenn alle zählenden verbunden; ohne zählende neutral', faelle, (f) => {
+    const je = ROLLEN.map(([role, label]) => {
+      const fund = FUND[f[role]];
+      return {
+        role,
+        link: fund === undefined ? undefined : link({ role, label, host: '10.0.0.9', port: 8724, connected: fund.connected, source: fund.source }),
+        override: f[`${role}Override`],
+        verwendet: f[`${role}Verwendet`],
+      };
+    });
+    const rows = je.filter((r) => r.verwendet).map((r) => ({ id: `z-${r.role}`, label: 'Z', actions: [{ id: `a-${r.role}`, role: r.role, verb: 'start', args: [], enabled: true }] }));
+    const s = stand({
+      state: basisState({
+        doc: { schemaVersion: 2, name: 'T', rows },
+        links: je.flatMap((r) => (r.link ? [r.link] : [])),
+        overrides: Object.fromEntries(je.filter((r) => r.override).map((r) => [r.role, { host: '10.0.0.5', port: 9999 }])),
+      }),
+    });
+    const zaehlend = je.filter((r) => r.link !== undefined || r.override || r.verwendet);
+    const verbunden = zaehlend.filter((r) => r.link?.connected === true).length;
+    const soll = zaehlend.length === 0 ? 'off keine Gegenstellen' : verbunden === zaehlend.length ? 'ok verbunden' : `warn ${verbunden} von ${zaehlend.length} verbunden`;
+    const v = settings.peersView(gegenstellenAbschnitt(s, a));
+    return vergleiche(`${v.status.state} ${v.status.text}`, soll);
+  });
+  const p = gegenstellenAbschnitt(stand(), a);
+  ok(p.peers.every((r) => r.role !== 'rundown') && p.peers.length === KNOWN_ROLES.length - 1, 'RD Gegenstellen Abschnittsstatus: die eigene Rolle „rundown“ hat keine Zeile (der Conductor schließt sie aus, sie würde nie gefunden)');
+  // Gemessen in der Prüfung: Switcher und Timer verbunden, alles andere nicht gefunden → früher „2 von 15 verbunden“.
+  const gemessen = stand({
+    state: basisState({
+      links: [link(), link({ role: 'timer', label: 'JM Timer', host: '10.0.0.9', port: 8724 })],
+    }),
+  });
+  const v = settings.peersView(gegenstellenAbschnitt(gemessen, a));
+  gleich(
+    [`${v.status.state} ${v.status.text}`, v.zeilen.filter((z) => z.status.text === settings.PEERS_TEXTE.zeileNichtGefunden).length],
+    ['ok verbunden', KNOWN_ROLES.length - 3],
+    'RD Gegenstellen Abschnittsstatus: Switcher und Timer verbunden → Abschnitt „verbunden“; die übrigen Zeilen bleiben „nicht gefunden“ und lassen sich weiter setzen',
+  );
 }
 
 // ── RD Statusleiste fernsteuerung: Meldung × Modus ──

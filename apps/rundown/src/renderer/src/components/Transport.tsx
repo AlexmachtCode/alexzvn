@@ -7,8 +7,9 @@ import type { RundownNav, RundownState } from '@shared/types';
 
 // Container-Query statt Viewport: tastenAnordnung(breite) beschreibt das Raster. Die Klassen stehen als Literal da (Tailwind-Scan); 292 = TASTEN_ZWEI_BREITE, 444 = TASTEN_DREI_BREITE; gemessen wird die Inhaltsbox nach px-4.
 const RASTER = 'grid w-full grid-cols-1 gap-3 @[292px]:grid-cols-2 @[444px]:grid-cols-3';
-// GO steht breit oben, solange nur zwei Spalten da sind; im Markup bleibt die Reihenfolge ◀, GO, ▶ (Tab).
-const GO_PLATZ = '@[292px]:order-first @[292px]:col-span-2 @[444px]:order-none @[444px]:col-span-1';
+// GO steht zuoberst, solange die Tasten nicht in einer Reihe stehen: gestapelt (eine Spalte, R17) und breit über ◀ ▶ (zwei
+// Spalten); in einer Reihe in der Mitte. Im Markup bleibt die Reihenfolge ◀, GO, ▶ (Tab wie bisher).
+const GO_PLATZ = 'order-first @[292px]:col-span-2 @[444px]:order-none @[444px]:col-span-1';
 
 /** Die drei Haupttasten (Rolle als key, nie die Beschriftung), die scharfe Zeile samt Zähler und die Quittung. */
 export function Transport({ state, onNav }: { state: RundownState; onNav: (cmd: RundownNav) => void }): React.JSX.Element {

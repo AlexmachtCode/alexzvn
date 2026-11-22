@@ -34,7 +34,7 @@ export function Werkzeugleiste({ state, notice, aktionen }: WerkzeugleisteProps)
         aria-label={T.namensfeld}
         className="h-[var(--control-h)] w-56 min-w-0 rounded-[var(--radius-md)] border border-transparent bg-transparent px-2 text-sm font-semibold text-[var(--foreground)] select-text hover:border-[var(--border)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ring)]"
       />
-      {state.dirty && <span className="shrink-0 text-xs text-[var(--brand-yellow)]">{T.ungespeichert}</span>}
+      {state.dirty && <span className="shrink-0 text-xs text-[var(--primary)]">{T.ungespeichert}</span>}
       {notice && <span className="min-w-0 truncate text-xs text-[var(--muted-foreground)]" title={notice}>{notice}</span>}
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         <Button type="button" size="sm" variant="ghost" uppercase={false} onClick={aktionen.neu}>

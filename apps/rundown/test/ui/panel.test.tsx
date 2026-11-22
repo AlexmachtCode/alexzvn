@@ -47,10 +47,12 @@ const titel = (html: string): string[] => [...html.matchAll(/<h3[^>]*>([^<]*)<\/
   const html = panel(stand(), log);
   const g = abschnitt(html, ABSCHNITT.gegenstellen);
   const zeilen = [...g.matchAll(/data-rolle="([^"]*)"/g)].map((m) => m[1]);
-  gleich(zeilen, [...KNOWN_ROLES], 'RD Panel Abschnitte: Gegenstellen führt jede bekannte Rolle als eine Zeile');
+  // Die eigene Rolle „rundown“ hat keine Zeile (Ruling R31): der Conductor dirigiert sich nicht selbst.
+  const ROLLEN = KNOWN_ROLES.filter((r) => r !== 'rundown');
+  gleich(zeilen, [...ROLLEN], 'RD Panel Abschnitte: Gegenstellen führt jede bekannte Rolle außer der eigenen als eine Zeile');
   const knoepfe = tags(g, 'button').map((t) => attr(t, 'aria-label'));
-  gleich(knoepfe.filter((l) => KNOWN_ROLES.some((r) => l === PEERS_TEXTE.setzenFuer(CAPABILITIES[r].label))).length, KNOWN_ROLES.length, 'RD Panel Abschnitte: je Rolle ein Knopf Setzen');
-  gleich(knoepfe.filter((l) => KNOWN_ROLES.some((r) => l === PEERS_TEXTE.autoFuer(CAPABILITIES[r].label))).length, KNOWN_ROLES.length, 'RD Panel Abschnitte: je Rolle ein Knopf Auto (Override entfernen)');
+  gleich(knoepfe.filter((l) => ROLLEN.some((r) => l === PEERS_TEXTE.setzenFuer(CAPABILITIES[r].label))).length, ROLLEN.length, 'RD Panel Abschnitte: je Rolle ein Knopf Setzen');
+  gleich(knoepfe.filter((l) => ROLLEN.some((r) => l === PEERS_TEXTE.autoFuer(CAPABILITIES[r].label))).length, ROLLEN.length, 'RD Panel Abschnitte: je Rolle ein Knopf Auto (Override entfernen)');
   ok(text(g).includes(PEERS_TEXTE.erklaerung), 'RD Panel Abschnitte: die Erklärung (mDNS oder manuell) steht aus @jm/settings, nicht nachgebaut');
   gleich(log, [], 'RD Panel Abschnitte: Rendern löst keine Aktion aus');
   const ohneSchalter = !g.includes('role="switch"');

@@ -6,6 +6,7 @@ import { RUNDOWN_TEXTE } from '@/lib/oberflaeche';
 import { KopfMitte } from '@/views/KopfMitte';
 import { RundownOberflaeche, type RundownViewAktionen } from '@/views/RundownOberflaeche';
 import { Werkzeugleiste } from '@/views/Werkzeugleiste';
+import { tokenKontrast, tokenModus } from './hilfe';
 import { basisState, zeile, attr, bereich, ohneKommentare, statusEintraege, tags, text } from './testzustand';
 
 const KEINE: RundownViewAktionen = {
@@ -165,4 +166,44 @@ const seite = (state = mitZeilen, anfangOffen = false): string => render(<Rundow
   ok(offen.indexOf('data-rundown="spalte-editor"') < offen.indexOf('aria-label="Einstellungen"'), 'RD RowEditor bleibt: das Panel steht neben dem Inhalt, der Editor steht davor');
   ok(editor(seite(basisState())).includes('Keine Zeile gewählt.') && !editor(seite(basisState())).includes('Zeilen-Titel'), 'RD RowEditor bleibt: ohne Zeile steht „Keine Zeile gewählt.“');
   ok(ober.includes('const aendere = (d: RundownDoc): void => aktionen.setDoc(d, state.rev)'), 'RD RowEditor bleibt: jede Bearbeitung läuft über aendere mit state.rev (5.5)');
+}
+
+// ── RD Farben in Hell und Dunkel (Fund B3): „• ungespeichert“, Rand der scharfen Zeile und Ablagelinie lesbar ──
+// Gerechnet aus den Tokens von @jm/ui (wie die Ecken-Tokens im Battle, R25): Text ≥ 4,5 : 1, Linien und Ränder ≥ 3 : 1, in
+// beiden Modi. Die Werkzeugleiste liegt auf --card (AppShell), die Liste auf --background, die scharfe Zeile auf --input/70.
+{
+  const leiste = render(<Werkzeugleiste state={basisState({ dirty: true })} notice={null} aktionen={DATEI} />);
+  const marke = /<span class="([^"]*)">[^<]*ungespeichert/.exec(leiste)?.[1] ?? '';
+  ok(marke.split(/\s+/).includes('text-[var(--primary)]'), 'RD Farben: „• ungespeichert“ steht in --primary (dunkel Gelb, hell Dunkel)');
+  const liste = ohneKommentare(leseText('src/renderer/src/components/RundownList.tsx'));
+  ok(
+    liste.includes("style={isCue ? { borderColor: 'var(--primary)' } : undefined}") && liste.includes("'border-t-2 border-t-[var(--primary)]'"),
+    'RD Farben: Rand der scharfen Zeile und Ablagelinie in --primary',
+  );
+  const quellen = [liste, ohneKommentare(leseText('src/renderer/src/views/Werkzeugleiste.tsx'))];
+  ok(
+    quellen.every((q) => !/(?:text|border(?:-[trblxy])?|ring|outline|decoration)-\[var\(--brand-yellow\)\]|borderColor: 'var\(--brand-yellow\)'|color: 'var\(--brand-yellow\)'/.test(q)),
+    'RD Farben: --brand-yellow (ohne Hell-Wert) steht nirgends mehr als Schrift-, Rand- oder Linienfarbe; nur als Fläche des Abzeichens SCHARF',
+  );
+  for (const modus of ['dunkel', 'hell'] as const) {
+    const t = tokenModus(modus);
+    const text1 = tokenKontrast(t, '--primary', '--card');
+    const linieListe = tokenKontrast(t, '--primary', '--background');
+    const linieZeile = tokenKontrast(t, '--primary', '--input', 0.7, '--background');
+    ok(text1 >= 4.5, `RD Farben ${modus}: --primary auf --card (Werkzeugleiste) ≥ 4,5 (Text) · ${text1.toFixed(2)}`);
+    ok(linieListe >= 3 && linieZeile >= 3, `RD Farben ${modus}: --primary als Linie auf --background und auf der scharfen Zeile (--input/70) ≥ 3 (Grafik) · ${linieListe.toFixed(2)} / ${linieZeile.toFixed(2)}`);
+    const abzeichen = tokenKontrast(t, '--brand-dark', '--brand-yellow');
+    ok(abzeichen >= 4.5, `RD Farben ${modus}: Abzeichen SCHARF (--brand-dark auf --brand-yellow) ≥ 4,5 · ${abzeichen.toFixed(2)}`);
+  }
+  const vorher = tokenKontrast(tokenModus('hell'), '--brand-yellow', '--card');
+  ok(vorher < 1.5, `RD Farben: Gegenprobe: --brand-yellow auf --card hell erreicht nur ${vorher.toFixed(2)} : 1 (vorher unsichtbar)`);
+}
+
+// ── RD Texte: Regieplan-Rückfrage mit typografischen Anführungszeichen (Fund Q3, reiner Tausch nach R9) ──
+{
+  const app = leseText('src/renderer/src/App.tsx');
+  ok(
+    app.includes('Regieplan-Punkte aus „${file.name}“ gefunden.') && !app.includes('„${file.name}"'),
+    'RD Texte: die Regieplan-Rückfrage setzt den Dateinamen in „…“ (vorher mit ASCII-Schlusszeichen)',
+  );
 }

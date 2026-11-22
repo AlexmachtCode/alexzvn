@@ -92,13 +92,13 @@ export function RundownList({
                 }}
                 onDragEnd={endDrag}
                 onClick={() => onSelect(row.id)}
-                style={isCue ? { borderColor: 'var(--brand-yellow)' } : undefined}
+                style={isCue ? { borderColor: 'var(--primary)' } : undefined}
                 className={`${sperre.verschieben ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'} rounded-lg border px-3 py-2 ${
                   art === 'entfallen' ? 'opacity-60' : ''
                 } ${
                   isCue ? 'bg-[var(--input)]/70' : 'border-[var(--border)] bg-[var(--card)]/40 hover:bg-[var(--card)]/70'
                 } ${isSel ? 'ring-1 ring-[var(--muted-foreground)]' : ''} ${isDragging ? 'opacity-40' : ''} ${
-                  isDropTarget ? 'border-t-2 border-t-[var(--brand-yellow)]' : ''
+                  isDropTarget ? 'border-t-2 border-t-[var(--primary)]' : ''
                 }`}
               >
                 <div className="flex items-center gap-2">
