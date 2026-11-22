@@ -344,6 +344,21 @@ try {
       'PL ON AIR Wahrheitstabelle: Cue mit Vorlauf erneut gefeuert, während er klingt → live im zweiten Vorlauf; endet die alte Instanz, nicht live; der Start nimmt ihn wieder auf',
     );
   }
+
+  // ── PL Bildschirm merken (Player d1, Fix-Runde 1): setOutputDisplayId speichert nur; openOutput merkt wie bisher ──
+  {
+    neu();
+    const vorher = p().outputDisplayId;
+    p().setOutputDisplayId(3);
+    const drei = p().outputDisplayId;
+    p().setOutputDisplayId(null);
+    gleich([drei, p().outputDisplayId, [...log]], [3, null, []], 'PL Bildschirm merken: setOutputDisplayId setzt die Kennung (null = Automatisch) und ruft nichts nach außen (kein output.open, kein Befehl)');
+    await p().openOutput(5);
+    gleich([p().outputDisplayId, [...log]], [5, ['output.open']], 'PL Bildschirm merken: openOutput merkt weiter die Kennung, auf der es öffnet');
+    await p().openOutput();
+    gleich(p().outputDisplayId, 5, 'PL Bildschirm merken: openOutput ohne Kennung lässt die gemerkte stehen (wie bisher)');
+    usePlayer.setState({ outputDisplayId: vorher });
+  }
 } finally {
   // Zeitgeber räumen, dann Attrappen zurücknehmen: danach läuft nichts mehr gegen das Schein-window.
   p().showPanic();

@@ -68,6 +68,7 @@ export function PlayerOberflaeche({
   );
   const openOutput = usePlayer((s) => s.openOutput);
   const closeOutput = usePlayer((s) => s.closeOutput);
+  const setOutputDisplayId = usePlayer((s) => s.setOutputDisplayId);
   const notice = usePlayer((s) => s.notice);
   const setNotice = usePlayer((s) => s.setNotice);
 
@@ -95,12 +96,23 @@ export function PlayerOberflaeche({
   // sie auf unbekannt zurück).
   const [bildschirme, setBildschirme] = useState<ScreenOption[] | undefined>(undefined);
   useEffect(() => liesBildschirme(window.jmplay?.output?.displays, setBildschirme), []);
-  useEffect(() => (panelOffen ? liesBildschirme(window.jmplay?.output?.displays, setBildschirme) : undefined), [panelOffen]);
 
-  // Vollbild (E14): gemessen bei jeder Änderung des Ausgabezustands und nach jeder Ausgabe-Aktion, nie geraten.
+  // Vollbild (E14): gemessen bei jeder Änderung des Ausgabezustands, bei jedem Öffnen des Panels und nach jeder Ausgabe-Aktion,
+  // nie geraten (das Ausgabefenster kann das Vollbild auch ohne diese Ereignisse wechseln, z. B. F11).
   const [vollbild, setVollbild] = useState<boolean | null | undefined>(undefined);
   useEffect(() => liesVollbild(window.jmplay?.output?.isFullscreen, setVollbild), [ausgabe]);
   const vollbildNeuLesen = useCallback(() => void liesVollbild(window.jmplay?.output?.isFullscreen, setVollbild), []);
+
+  // Bei jedem Öffnen des Panels: Bildschirmliste und Vollbild frisch (beim Schließen nichts).
+  useEffect(() => {
+    if (!panelOffen) return undefined;
+    const listeAb = liesBildschirme(window.jmplay?.output?.displays, setBildschirme);
+    const vollbildAb = liesVollbild(window.jmplay?.output?.isFullscreen, setVollbild);
+    return () => {
+      listeAb();
+      vollbildAb();
+    };
+  }, [panelOffen]);
 
   // Hinweisleiste (Import, „zur Playlist hinzugefügt“): verschwindet nach 4 Sekunden (wie bisher in App.tsx).
   useEffect(() => {
@@ -121,7 +133,8 @@ export function PlayerOberflaeche({
   };
   const aktionen = baueAktionen({
     outputDisplayId: player.outputDisplayId,
-    bildschirme,
+    vollbild,
+    setOutputDisplayId,
     openOutput,
     closeOutput,
     toggleFullscreen: () => window.jmplay.output.toggleFullscreen(),

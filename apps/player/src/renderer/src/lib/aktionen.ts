@@ -2,19 +2,29 @@
 // reicht Store-Funktionen, Preload-Aufrufe und die Pad-Maschine herein. So bleiben die Abläufe in der View (auch bei
 // geschlossenem Panel) und das Panel ohne Effekte.
 //
-// Ausgabe wie im alten Dialog „Video-Ausgabe“ (ShowView.tsx bis Welle 2a): Ein Tipp auf eine Bildschirmkarte öffnete das
-// Vollbild-Ausgabefenster sofort auf diesem Bildschirm (oder zog ein offenes um) und merkte ihn. Im Panel ist das die
-// Bildschirmauswahl; anders als bei Prompter und Stage-Display speichert sie nicht nur, sie öffnet. Das Vollbild wird nach
-// jeder Ausgabe-Aktion neu gemessen (E14: nie geraten).
+// Ausgabe aus dem alten Dialog „Video-Ausgabe“ (ShowView.tsx bis Welle 2a), Fix-Runde 1 nach Ruling des Controllers: Die
+// Bildschirmauswahl im Panel speichert nur (wie Prompter und Stage-Display). Ein natives <select> meldet `change` auch auf
+// Pfeiltasten und Tippen eines Buchstabens; eine öffnende Auswahl hätte so das Programmbild mitten in der Show umgezogen.
+// Öffnen und Schließen laufen über den Ausgabeschalter, das Umziehen eines offenen Fensters über „Auf diesen Bildschirm“ mit
+// demselben Aufruf wie der alte Tipp auf die Bildschirmkarte (`openOutput(id)`). Das Vollbild wird nach jeder Ausgabe-Aktion
+// neu gemessen (E14: nie geraten), und der Vollbild-Schalter schaltet nur, wenn der Messwert vom Wunsch abweicht.
 import type { ScreenOption } from '@jm/settings';
 import type { DisplayInfo } from '@shared/types';
 import { bildschirmEtikett, type PlayerAktionen } from '@/lib/oberflaeche';
 
+/** Die Aktionen des Panels: Ausgabe, Bildschirm und Vollbild aus lib/oberflaeche.ts, dazu „Auf diesen Bildschirm“. */
+export interface EinstellungenAktionen extends PlayerAktionen {
+  /** Das offene Ausgabefenster auf den gemerkten Bildschirm ziehen (`openOutput`, wie der alte Tipp auf die Karte). */
+  ausgabeVerschieben(): void;
+}
+
 export interface AktionenQuellen {
-  /** Gewählter Ausgabe-Bildschirm aus dem Store (null = noch keiner, der Hauptprozess nimmt den primären). */
+  /** Gemerkter Ausgabe-Bildschirm aus dem Store (null = automatisch, der Hauptprozess nimmt den primären). */
   outputDisplayId: number | null;
-  /** Bildschirmliste, falls bekannt (für „Automatisch“ = der primäre Bildschirm der Liste). */
-  bildschirme: readonly ScreenOption[] | undefined;
+  /** Gemessenes Vollbild (`output:isFullscreen`); ohne Messwert (undefined, null) schaltet der Vollbild-Schalter nie. */
+  vollbild: boolean | null | undefined;
+  /** Bildschirm nur merken (Store-Setter), ohne Fenster. */
+  setOutputDisplayId(id: number | null): void;
   openOutput(displayId?: number): Promise<unknown>;
   closeOutput(): Promise<unknown>;
   toggleFullscreen(): Promise<unknown>;
@@ -22,15 +32,20 @@ export interface AktionenQuellen {
   nachAusgabe(): void;
 }
 
-export function baueAktionen(q: AktionenQuellen): PlayerAktionen {
+export function baueAktionen(q: AktionenQuellen): EinstellungenAktionen {
   const danach = (p: Promise<unknown>): void => void p.then(q.nachAusgabe, q.nachAusgabe);
+  const aufGemerktem = (): Promise<unknown> => q.openOutput(q.outputDisplayId ?? undefined);
   return {
-    // An: öffnen auf dem gewählten Bildschirm (sonst primär), wie ein Tipp auf dessen Karte; aus: „Ausgabe schließen“.
-    ausgabeUmschalten: (an) => danach(an ? q.openOutput(q.outputDisplayId ?? undefined) : q.closeOutput()),
-    // Wie der Tipp auf eine Karte: sofort öffnen bzw. umziehen. „Automatisch (Hauptmonitor)“ = die Karte des primären Bildschirms.
-    bildschirmWaehlen: (id) => danach(q.openOutput(id ?? q.bildschirme?.find((b) => b.primary)?.id)),
-    // Wie „Vollbild aus/an“: umschalten; der neue Wert kommt aus der Messung danach, nicht aus der Antwort.
-    vollbildUmschalten: () => danach(q.toggleFullscreen()),
+    // An: öffnen auf dem gemerkten Bildschirm (null → primär), wie ein Tipp auf dessen Karte; aus: „Ausgabe schließen“.
+    ausgabeUmschalten: (an) => danach(an ? aufGemerktem() : q.closeOutput()),
+    // Nur merken: kein Öffnen, kein Umziehen, kein Fokus. „Automatisch (Hauptmonitor)“ merkt null.
+    bildschirmWaehlen: (id) => q.setOutputDisplayId(id),
+    // „Auf diesen Bildschirm“: das offene Fenster auf den gemerkten Bildschirm ziehen.
+    ausgabeVerschieben: () => danach(aufGemerktem()),
+    // Wie „Vollbild aus/an“, aber nur, wenn der Messwert vom Wunsch abweicht: ein veralteter Schalter kehrt die Wirkung nie um.
+    vollbildUmschalten: (an) => {
+      if (typeof q.vollbild === 'boolean' && q.vollbild !== an) danach(q.toggleFullscreen());
+    },
   };
 }
 

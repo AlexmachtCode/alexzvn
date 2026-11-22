@@ -215,6 +215,12 @@ interface PlayerStore {
   showPanic: () => void;
   showTogglePause: () => void;
   openOutput: (displayId?: number) => Promise<void>;
+  /**
+   * Ausgabe-Bildschirm nur merken (UX Welle 2a, Player d1, Fix-Runde 1): die Bildschirmauswahl im Panel; öffnet und bewegt
+   * kein Fenster. null = automatisch (der Hauptprozess nimmt den primären). Der nächste Video-Cue oder der Ausgabeschalter
+   * öffnen darauf.
+   */
+  setOutputDisplayId: (id: number | null) => void;
   closeOutput: () => Promise<void>;
   /** Vom Ausgabefenster gemeldetes Video-Ende → ggf. Auto-Continue. */
   onOutputEnded: () => void;
@@ -595,6 +601,7 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
     }
   },
 
+  setOutputDisplayId: (id) => set({ outputDisplayId: id }),
   openOutput: async (displayId) => {
     await window.jmplay.output.open(displayId);
     if (displayId != null) set({ outputDisplayId: displayId });

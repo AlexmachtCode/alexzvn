@@ -50,7 +50,8 @@ export const PLAYER_TEXTE = {
   },
   /**
    * Video-Ausgabe (E3); Titel wie der alte Dialog „Video-Ausgabe“. `hinweis` und `primaer` sind der alte Wortlaut des Dialogs
-   * (Text unter dem Titel, Zusatz der Bildschirmkarte des primären Bildschirms); beide stehen jetzt im Panel.
+   * (Text unter dem Titel, Zusatz der Bildschirmkarte des primären Bildschirms); beide stehen jetzt im Panel. `verschieben`
+   * ist der Wortlaut des Prompters für den Knopf, der das offene Fenster auf den gewählten Bildschirm zieht (Fix-Runde 1).
    */
   ausgabe: {
     titel: 'Video-Ausgabe',
@@ -60,6 +61,7 @@ export const PLAYER_TEXTE = {
     trenner: ' · ',
     hinweis: 'Bildschirm für das Vollbild-Ausgabefenster wählen. Video-Cues erscheinen dort.',
     primaer: ' · Primär',
+    verschieben: 'Auf diesen Bildschirm',
   },
   /** Statuseintrag der Cue-Show (Name wie der Reiter). */
   show: {
@@ -168,6 +170,11 @@ export function kopfOnAir(s: Pick<OberflaechenStand, 'player' | 'pads'>): { live
  */
 export function bildschirmEtikett(d: Pick<DisplayInfo, 'label' | 'primary' | 'width' | 'height'>): string {
   return `${d.label}${d.primary ? PLAYER_TEXTE.ausgabe.primaer : ''} (${d.width}×${d.height})`;
+}
+
+/** Der Knopf „Auf diesen Bildschirm“ gilt, solange das Ausgabefenster gemessen existiert (offen oder Bildschirm fehlt); wie Prompter. */
+export function kannVerschieben(a: AusgabeZustand | null | undefined): boolean {
+  return a !== undefined && a !== null && (a.art === 'offen' || a.art === 'bildschirm-fehlt');
 }
 
 /** Das Ausgabefenster soll offen sein: Es existiert gemessen in irgendeiner Form (auch abgestürzt oder ohne Bildschirm). */
