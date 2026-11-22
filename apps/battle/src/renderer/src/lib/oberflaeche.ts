@@ -4,7 +4,6 @@
 // Kein window, kein IPC, kein localStorage: Die Tests laufen ohne Browser. Statusleiste und Panel nutzen dieselben
 // Ableitungen (eine Wahrheit). Regeln: E8 On-Air, E16 VS nie gesperrt, U6 Bedienlogik bleibt.
 import {
-  ABSCHNITT_TEXTE,
   abschnittStatusItem,
   PEERS_TEXTE,
   peerZeileStatus,
