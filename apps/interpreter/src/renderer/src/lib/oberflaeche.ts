@@ -3,9 +3,12 @@
 // Props des Geräte-Abschnitts, die Statusleiste, das ON AIR des Kopfes und die Haupttaste. Kein window, kein IPC, kein
 // localStorage, kein Store-Import: Die Tests laufen ohne Browser. Der Geräte-Abschnitt ist die eine Wahrheit: floor, dolmetscher
 // und ausgabe nehmen Zustand und Text aus der Sicht von `audioDeviceView`, nie aus eigenen Texten.
+// Aufgabe d ergänzt die Texte des Live-Bereichs und des Abschnitts „Ducking“ (Wortlaut wie bisher, nur „Überbrückt“ neu) und die
+// Tabelle der sieben Regler (Bereich, Schritt, Einheit, Hinweis wie im alten App.tsx).
 import { abschnittStatusItem, audioDeviceView, type AudioDeviceSectionProps, type AudioWahlView } from '@jm/settings';
 import { masterLinkStatusItem, unbekannt, type StatusItem } from '@jm/ui';
 import type { MasterLinkMeldungZeile } from '@shared/api';
+import type { DuckSettings } from '@shared/ducking';
 import type { EngineState } from '@/core/engine';
 
 /** Abschnitts-ids = Panel-Anker (`einstellung-{id}`) = settingsSection der Statuseinträge. `ducking` ist tool-eigen. */
@@ -36,8 +39,45 @@ export const INTERPRETER_TEXTE = {
     ausgabeKurz: 'Ausgabegerät',
     standard: 'Systemstandard',
   },
-  /** Ducking: Titel des Statuseintrags, Zustände (vorher FLOOR ABGESENKT / Floor offen, App.tsx:163) und Überbrückt (E10). */
-  ducking: { titel: 'Ducking', abgesenkt: 'abgesenkt', offen: 'offen', ueberbrueckt: 'überbrückt' },
+  /**
+   * Ducking: Titel des Statuseintrags und des Panel-Abschnitts (wie die alte Karte, App.tsx:153), Zustände des Statuseintrags und
+   * Überbrückt (E10); dazu wörtlich wie bisher Kästchen, Unterüberschrift und Knopf des Abschnitts (App.tsx:156, :172, :176).
+   */
+  ducking: {
+    titel: 'Ducking',
+    abgesenkt: 'abgesenkt',
+    offen: 'offen',
+    ueberbrueckt: 'überbrückt',
+    bypass: 'Überbrücken (zum Vergleichshören)',
+    vorverstaerkung: 'Vorverstärkung',
+    zuruecksetzen: 'Ducking-Werte zurücksetzen',
+  },
+  /**
+   * Live-Bereich: Karte „Pegel“ und Pille wörtlich wie bisher (App.tsx:138-144), Pegel mit einer Nachkommastelle bzw. „—“
+   * (App.tsx:226), Tooltip der Schwellenmarke (App.tsx:232); „Überbrückt“ neu (E10, nur bei Bypass).
+   */
+  live: {
+    pegel: 'Pegel',
+    abgesenkt: 'FLOOR ABGESENKT',
+    offen: 'Floor offen',
+    ueberbrueckt: 'Überbrückt',
+    keinPegel: '—',
+    pegelWert: (db: number) => `${db.toFixed(1)} dB`,
+    schwelle: (db: number) => `Schwelle ${db} dB`,
+  },
+  /** Regler des Abschnitts „Ducking“: Beschriftungen und Hinweise wörtlich wie bisher (App.tsx:159-168). */
+  regler: {
+    schwelle: 'Schwelle',
+    schwelleHinweis: 'Ab diesem Dolmetscher-Pegel wird der O-Ton abgesenkt.',
+    absenkung: 'Absenkung',
+    absenkungHinweis: 'Wie weit der O-Ton zurückgeht, solange gesprochen wird.',
+    attack: 'Attack',
+    attackHinweis: 'Wie schnell abgesenkt wird.',
+    release: 'Release',
+    releaseHinweis: 'Wie schnell der O-Ton zurückkommt.',
+    nachlauf: 'Nachlauf',
+    nachlaufHinweis: 'Atempausen kürzer als der Nachlauf reißen den O-Ton nicht hoch (verhindert Pumpen).',
+  },
   /** Statuseintrag von `state.error` (die Meldung selbst steht als Text). */
   fehler: { titel: 'Fehlermeldung', keiner: 'kein Fehler' },
   /**
@@ -47,6 +87,35 @@ export const INTERPRETER_TEXTE = {
    */
   ausgabeNichtVerfuegbar: 'Das gewählte Ausgabegerät ist derzeit nicht verfügbar. Der Start schlägt damit fehl.',
 } as const;
+
+/** Schlüssel eines Reglers = Feld der Ducking-Einstellungen im Store (`useSettings`, `DuckSettings`). */
+export type ReglerSchluessel = keyof DuckSettings;
+
+/** Ein Regler des Panels: Beschriftung, Einheit, Bereich und Schritt wie der alte `Slider` (Schritt-Vorgabe 1). */
+export interface Regler {
+  key: ReglerSchluessel;
+  label: string;
+  einheit: 'dB' | 'ms';
+  min: number;
+  max: number;
+  step: number;
+  hinweis?: string;
+}
+
+/** Die fünf Ducking-Regler in der Reihenfolge der alten Karte „Ducking“ (App.tsx:159-168). */
+export const DUCKING_REGLER: readonly Regler[] = [
+  { key: 'thresholdDb', label: INTERPRETER_TEXTE.regler.schwelle, einheit: 'dB', min: -70, max: -10, step: 1, hinweis: INTERPRETER_TEXTE.regler.schwelleHinweis },
+  { key: 'duckDb', label: INTERPRETER_TEXTE.regler.absenkung, einheit: 'dB', min: -40, max: 0, step: 1, hinweis: INTERPRETER_TEXTE.regler.absenkungHinweis },
+  { key: 'attackMs', label: INTERPRETER_TEXTE.regler.attack, einheit: 'ms', min: 5, max: 300, step: 5, hinweis: INTERPRETER_TEXTE.regler.attackHinweis },
+  { key: 'releaseMs', label: INTERPRETER_TEXTE.regler.release, einheit: 'ms', min: 50, max: 2000, step: 10, hinweis: INTERPRETER_TEXTE.regler.releaseHinweis },
+  { key: 'holdMs', label: INTERPRETER_TEXTE.regler.nachlauf, einheit: 'ms', min: 0, max: 1500, step: 10, hinweis: INTERPRETER_TEXTE.regler.nachlaufHinweis },
+];
+
+/** Die zwei Vorverstärkungen der alten Karte „Vorverstärkung“ (App.tsx:173-174), ohne Hinweis, Beschriftung „Floor“ und „Dolmetscher“. */
+export const VORVERSTAERKUNG_REGLER: readonly Regler[] = [
+  { key: 'floorGainDb', label: INTERPRETER_TEXTE.geraete.floorKurz, einheit: 'dB', min: -24, max: 12, step: 1 },
+  { key: 'interpreterGainDb', label: INTERPRETER_TEXTE.geraete.dolmetscher, einheit: 'dB', min: -24, max: 12, step: 1 },
+];
 
 /** Ein Gerät der gemessenen Liste (wie `DeviceInfo` des Motors: id = deviceId, label wie die alte Auswahl). */
 export interface GeraetEintrag {
