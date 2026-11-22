@@ -32,6 +32,10 @@ export const STAGE_TEXTE = {
     offen: 'offen',
     abgestuerzt: 'abgestürzt',
     trenner: ' · ',
+    /** Zweiter Öffnen-Knopf von früher (OperatorView): zieht ein offenes Fenster auf den gewählten Bildschirm. */
+    verschieben: 'Auf diesen Bildschirm',
+    /** Zusatz im Etikett des primären Bildschirms wie bisher. */
+    primaer: ' · primär',
   },
   /** Haupttaste: alter Wortlaut der Knöpfe „Vollbild-Ausgabe öffnen“ und „Ausgabe schließen“. */
   taste: { oeffnen: 'Vollbild-Ausgabe öffnen', schliessen: 'Ausgabe schließen' },
@@ -40,6 +44,37 @@ export const STAGE_TEXTE = {
     timer: 'JM Timer',
     switcher: 'JM Switcher',
     presenter: 'JM Presenter',
+  },
+  /** Live-Bereich: Überschriften und Beschriftungen wie bisher (OperatorView), die Haupttaste heißt wie unter `taste`. */
+  live: {
+    laedt: 'Lädt…',
+    vorschau: 'Vorschau',
+    nachrichtTitel: 'Nachricht (Ad-hoc, hat Vorrang vor Timer-Nachricht)',
+    nachrichtPlatzhalter: 'z. B. „Bitte Plätze einnehmen“ — leer = Timer-Nachricht',
+    elementeTitel: 'Anzeige-Elemente',
+    elemente: {
+      clock: 'Uhr',
+      timer: 'Timer/Countdown',
+      switcher: 'Switcher-Status',
+      presenter: 'Presenter (REF)',
+      message: 'Nachricht',
+    },
+  },
+  /** Hinweise der drei Quellen wie bisher (rechts neben dem Namen); PeersSection kennt keinen Hinweis. */
+  quellenHinweis: {
+    timer: 'Countdown · Programmpunkt · Nachricht (Port 7777)',
+    switcher: 'Program/Preview · REC/Stream (Companion-Port)',
+    presenter: 'Referentenansicht: Folie · Notizen · Nächste (Fernsteuerung im Presenter aktivieren, Port 7330)',
+  },
+  /** Presenter-Kopplung (tool-eigen): PIN und Anzeige, Wortlaut wie bisher. */
+  kopplung: {
+    titel: 'Presenter-Kopplung',
+    pin: 'PIN',
+    pinHinweis: 'PIN nur falls die Presenter-Fernsteuerung mit PIN läuft — sonst leer lassen',
+    anzeige: 'Anzeige',
+    ref: 'Referenzansicht',
+    main: 'Hauptansicht',
+    folienHinweis: 'Folienbild erscheint, sobald eine Präsentation läuft',
   },
   /** Nachricht: ok nur, wenn sie auf dem offenen Schirm steht; sonst steht der Grund da. */
   nachricht: {
@@ -86,7 +121,17 @@ const ROLLEN: readonly { role: Rolle; label: string; defaultPort: number }[] = [
 ];
 
 /** Schirm soll offen sein: Das Fenster existiert in irgendeiner Form (auch abgestürzt oder ohne Bildschirm). */
-const schirmSollOffen = (a: AusgabeZustand | null | undefined): boolean => a !== undefined && a !== null && a.art !== 'zu';
+export const schirmSollOffen = (a: AusgabeZustand | null | undefined): boolean => a !== undefined && a !== null && a.art !== 'zu';
+
+/** Etikett eines Bildschirms in der Auswahl, wie bisher: Name[ · primär] (Breite×Höhe). */
+export function bildschirmEtikett(d: { label: string; primary: boolean; width: number; height: number }): string {
+  return `${d.label}${d.primary ? STAGE_TEXTE.ausgabe.primaer : ''} (${d.width}×${d.height})`;
+}
+
+/** Der Knopf „Auf diesen Bildschirm“ gilt, solange das Ausgabefenster gemessen existiert (offen oder Bildschirm fehlt). */
+export function kannVerschieben(a: AusgabeZustand | null | undefined): boolean {
+  return a !== undefined && a !== null && (a.art === 'offen' || a.art === 'bildschirm-fehlt');
+}
 
 /** Ausgabe auf Bildschirm (Bühnenschirm): nur der Schalter, kein Vollbild- und kein Hintergrundfeld. */
 export function ausgabeAbschnitt(s: OberflaechenStand, a?: StageAktionen): ScreenOutputSectionProps {
