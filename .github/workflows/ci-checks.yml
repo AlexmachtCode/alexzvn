@@ -72,6 +72,8 @@ jobs:
         run: npm run selftest -w @jm/presenter
       - name: Stage Display (Nachricht in allen drei Ansichten)
         run: npm run selftest -w @jm/stage-display
+      - name: Output-Window (gemessener Fensterzustand)
+        run: npm run selftest -w @jm/output-window
       - name: Caption (Audio-Helfer, NDI-Lizenztext im Bündel)
         run: npm run selftest -w @jm/caption
       - name: Switcher (Ausgabe-Qualität, NDI-Lizenztext im Bündel, Oberfläche)

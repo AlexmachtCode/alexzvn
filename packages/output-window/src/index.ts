@@ -1,4 +1,7 @@
 import { BrowserWindow, screen } from 'electron';
+import { AUSGABE_ZU, naechsterAusgabeZustand, type AusgabeEreignis, type AusgabeZustand } from './zustand';
+
+export type { AusgabeArt, AusgabeEreignis, AusgabeZustand } from './zustand';
 
 /** Ein angeschlossener Bildschirm (für die Auswahl im UI). */
 export interface DisplayInfo {
@@ -66,12 +69,40 @@ export function listDisplays(): DisplayInfo[] {
 export class OutputWindow {
   private win: BrowserWindow | null = null;
   private readonly channel: string;
+  private zust: AusgabeZustand = AUSGABE_ZU;
+  private readonly hoerer = new Set<(z: AusgabeZustand) => void>();
+  private bildschirmHoerer = false;
 
   constructor(channel = 'output:cmd') {
     this.channel = channel;
   }
 
+  /** Gemessener Zustand des Fensters. */
+  zustand(): AusgabeZustand {
+    return this.zust;
+  }
+
+  /** Meldet jede Änderung des Zustands; gibt die Abmeldung zurück. */
+  onZustand(cb: (z: AusgabeZustand) => void): () => void {
+    this.hoerer.add(cb);
+    return () => {
+      this.hoerer.delete(cb);
+    };
+  }
+
+  private melde(e: AusgabeEreignis): void {
+    const neu = naechsterAusgabeZustand(this.zust, e);
+    if (neu.art === this.zust.art && neu.displayId === this.zust.displayId) return;
+    this.zust = neu;
+    for (const cb of [...this.hoerer]) cb(neu);
+  }
+
   open(opts: OpenOutputOptions): void {
+    // `screen` gibt es erst nach app.ready, darum erst hier (einmalig) anmelden.
+    if (!this.bildschirmHoerer) {
+      this.bildschirmHoerer = true;
+      screen.on('display-removed', (_e, d) => this.melde({ t: 'bildschirm-weg', displayId: d.id }));
+    }
     const hash = opts.hash ?? 'output';
     const displays = screen.getAllDisplays();
     const target =
@@ -89,6 +120,7 @@ export class OutputWindow {
       if (opts.url) this.win.loadURL(opts.url);
       this.win.show();
       this.win.focus();
+      this.melde({ t: 'geoeffnet', displayId: target.id, neu: false });
       return;
     }
 
@@ -111,12 +143,17 @@ export class OutputWindow {
     });
     win.on('ready-to-show', () => win.show());
     win.on('closed', () => {
+      // Ein später geöffnetes Fenster (this.win) soll das späte `closed` des alten nicht zu machen.
+      if (this.win && this.win !== win) return;
       this.win = null;
+      this.melde({ t: 'geschlossen' });
     });
+    win.webContents.on('render-process-gone', () => this.melde({ t: 'abgestuerzt' }));
     if (opts.url) win.loadURL(opts.url);
     else if (opts.rendererUrl) win.loadURL(`${opts.rendererUrl}#${hash}`);
     else if (opts.rendererFile) win.loadFile(opts.rendererFile, { hash });
     this.win = win;
+    this.melde({ t: 'geoeffnet', displayId: target.id, neu: true });
   }
 
   close(): void {

@@ -5,9 +5,13 @@
   "type": "module",
   "description": "Geteiltes Vollbild-Ausgabefenster (2. Bildschirm) für JM-Tools: Bildschirmwahl + #hash-Renderer + Befehlskanal",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./zustand": "./src/zustand.ts"
   },
   "peerDependencies": {
     "electron": ">=30"
+  },
+  "scripts": {
+    "selftest": "node --experimental-strip-types test/selftest.ts"
   }
 }
