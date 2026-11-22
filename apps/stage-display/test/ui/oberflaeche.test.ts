@@ -114,13 +114,13 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
   ] as const;
   for (const r of ROLLEN) {
     const faelle = kreuz({ geladen: [false, true], an: [false, true], verbunden: [false, true] } as const);
-    pruefeFaelle(`SD Statusleiste ${r.id}: unbekannt, aus, verbunden, getrennt (warn, nie error)`, faelle, (f) => {
+    pruefeFaelle(`SD Statusleiste ${r.id}: unbekannt, aus, verbunden, nicht gefunden (warn, nie error)`, faelle, (f) => {
       const an: [boolean, boolean, boolean] = [false, false, false];
       const v: [boolean, boolean, boolean] = [false, false, false];
       an[r.idx] = f.an;
       v[r.idx] = f.verbunden;
       const i = eintrag(stand({ stage: f.geladen ? zustand({ an, verbunden: v }) : undefined }), r.id);
-      const soll = !f.geladen ? 'off unbekannt' : !f.an ? `off ${ABSCHNITT_TEXTE.aus}` : f.verbunden ? `ok ${PEERS_TEXTE.zeileVerbunden}` : `warn ${STAGE_TEXTE.quelle.getrennt}`;
+      const soll = !f.geladen ? 'off unbekannt' : !f.an ? `off ${ABSCHNITT_TEXTE.aus}` : f.verbunden ? `ok ${PEERS_TEXTE.zeileVerbunden}` : `warn ${PEERS_TEXTE.zeileNichtGefunden}`;
       return vergleiche(sd(i), soll) ?? (i.group !== 'verbindung' || i.settingsSection !== ABSCHNITT.quellen ? 'Kopf falsch' : i.state === 'error' ? 'error' : null);
     });
   }
@@ -130,6 +130,21 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
     const items = ROLLEN.map((r) => eintrag(s, r.id));
     if (items.some((i) => i.state === 'error')) return 'error';
     return f.an ? null : items.every((i) => sd(i) === `off ${ABSCHNITT_TEXTE.aus}`) ? null : 'aus ist nicht off aus';
+  });
+}
+
+// ── SD Quellen gleich wie Abschnitt: Statuseintrag = Zeile des Panels (eine Wahrheit) ──
+{
+  const faelle = kreuz({ geladen: [false, true], an: [false, true], verbunden: [false, true], idx: [0, 1, 2] } as const);
+  pruefeFaelle('SD Quellen gleich wie Abschnitt: Zustand und Text des Eintrags gleichen der Panel-Zeile je Rolle', faelle, (f) => {
+    const an: [boolean, boolean, boolean] = [false, false, false];
+    const v: [boolean, boolean, boolean] = [false, false, false];
+    an[f.idx] = f.an;
+    v[f.idx] = f.verbunden;
+    const s = stand({ stage: f.geladen ? zustand({ an, verbunden: v }) : undefined });
+    const zeile = peersView(quellenAbschnitt(s)).zeilen[f.idx];
+    const i = eintrag(s, `quelle-${zeile.role}`);
+    return vergleiche(`${i.state} ${i.detail}`, `${zeile.status.state} ${zeile.status.text}`);
   });
 }
 

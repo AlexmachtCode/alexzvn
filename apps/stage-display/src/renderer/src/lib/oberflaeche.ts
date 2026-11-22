@@ -4,8 +4,7 @@
 // Kein window, kein IPC, kein localStorage: Die Tests laufen ohne Browser. Statusleiste und Panel nutzen dieselben
 // Ableitungen (eine Wahrheit). Der Stage-Display hat keine Fernsteuerung und kein ON AIR.
 import {
-  ABSCHNITT_TEXTE,
-  PEERS_TEXTE,
+  peerZeileStatus,
   type PeerRow,
   type PeersSectionProps,
   type ScreenOption,
@@ -41,7 +40,6 @@ export const STAGE_TEXTE = {
     timer: 'JM Timer',
     switcher: 'JM Switcher',
     presenter: 'JM Presenter',
-    getrennt: 'getrennt',
   },
   /** Nachricht: ok nur, wenn sie auf dem offenen Schirm steht; sonst steht der Grund da. */
   nachricht: {
@@ -149,13 +147,10 @@ function buehnenschirmItem(s: OberflaechenStand): StatusItem {
   }
 }
 
-/** Quelle: nicht geladen → unbekannt; aus → off „aus“; an und verbunden → ok; an und getrennt → warn (die Gegenstelle läuft vielleicht nicht). */
+/** Quelle: dieselbe Zeile wie im Panel (peerZeileStatus): nicht geladen → unbekannt, aus → off „aus“, verbunden → ok, an und nicht verbunden → warn. */
 function quelleItem(s: OberflaechenStand, r: (typeof ROLLEN)[number]): StatusItem {
-  const kopf = { id: `quelle-${r.role}`, group: 'verbindung', label: r.label, settingsSection: ABSCHNITT.quellen } as const;
-  const z = quellenZeile(s, r);
-  if (z.enabled === undefined || z.connected === undefined) return unbekannt(kopf);
-  if (!z.enabled) return { ...kopf, state: 'off', detail: ABSCHNITT_TEXTE.aus };
-  return z.connected ? { ...kopf, state: 'ok', detail: PEERS_TEXTE.zeileVerbunden } : { ...kopf, state: 'warn', detail: STAGE_TEXTE.quelle.getrennt };
+  const st = peerZeileStatus(quellenZeile(s, r));
+  return { id: `quelle-${r.role}`, group: 'verbindung', label: r.label, settingsSection: ABSCHNITT.quellen, state: st.state, detail: st.text };
 }
 
 /** Nachricht: ok nur, wenn sie wirklich auf dem offenen Schirm steht (Regeln und Trimmen wie StageScreen über buehnenNachricht). */
