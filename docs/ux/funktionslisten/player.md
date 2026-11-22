@@ -7,8 +7,8 @@ jeder gemerkte Wert des Players, erhoben **vor dem Umbau** aus dem Code. Nach de
 
 - **Stand:** erhoben aus dem Code am 2026-11-22, Commit `d7cdd79ce0`, Player 0.8.0 (`apps/player/package.json`).
   Die Nachmessung `docs/ux/welle2-nachmessung-2a.md` (Abschnitt 6) gilt für `0f589c3ee1`; `git diff 0f589c3ee1 HEAD --
-  apps/player` und `git diff d7cdd79ce0 HEAD -- apps/player` sind leer, der Code ist seither unverändert (letzter Commit an
-  der App `fe06f7625a`, 2026-07-05). Nichts ausgeführt, kein Fenster geöffnet. Was nur aus dem Code abgeleitet ist, steht
+  apps/player` und `git diff d7cdd79ce0 HEAD -- apps/player` waren zum Zeitpunkt der Erhebung (`d7cdd79ce0`) leer, der Code war seither unverändert
+  (letzter Commit an der App damals `fe06f7625a`, 2026-07-05); am Ende der Welle 2a gilt das nicht mehr. Nichts ausgeführt, kein Fenster geöffnet. Was nur aus dem Code abgeleitet ist, steht
   als „abgeleitet“, Unklares als „unklar“ bzw. „nicht gemessen“. Die Nachmessung hat in 6.1 keine Zeile mit ❌ und eine mit ✏️
   (Tally: `playing` und `paused` aus `playingCueIds` und `showPaused`; `playingCueIds` enthält auch Pre-Wait-Cues und Video-Cues
   vor dem Laden); sie steht als Nr. 105. Eine ➕-Zeile gibt es nicht (keine Commits an der App seit 08.10.). Die sieben
@@ -28,8 +28,8 @@ jeder gemerkte Wert des Players, erhoben **vor dem Umbau** aus dem Code. Nach de
   und `packages/media-library/src/db.ts:32` (Tabellen, Fremdschlüssel), `packages/ui/src/components/Button.tsx` (nur `uppercase`). Nicht gelesen:
   `packages/app-runtime/**` (Laufzeitschicht, Deep-Link-Zerlegung), `packages/show/**` (`parseShow`, `parseShowDeepLink`),
   `packages/media/**` (`probeMedia`, `spawnFfmpeg`), `packages/suite-control-protocol/src` außer den genannten Stellen
-  (Zeilenprotokoll, Verbindungsaufbau, mDNS), `packages/ui/**` sonst. Der Player hat **keinen** Testordner
-  (kein Ordner `test` in der App, 0 Tests).
+  (Zeilenprotokoll, Verbindungsaufbau, mDNS), `packages/ui/**` sonst. Der Player hatte zum Zeitpunkt der Erhebung **keinen** Testordner
+  (kein Ordner `test` in der App, 0 Tests); der Umbau legt `test/ui` an.
 - **künftig wo** ist nach dem Umbau gefüllt und abgehakt (Aufgabe e, `apps/player/test/ui/funktionsliste.test.ts`): jede Zeile
   trägt ein ✓ in genau einer Form: `✓ ‹Ort›`, `✓ unverändert (‹Datei›)`, `✓ entfällt (E…)` oder `✓ ersetzt durch ‹Ort› (E…)`.
   Orte: Rahmen, Kopf, Werkzeugleiste (Reiter), Live-Bereich Cue-Show (Standby, Transport), Fußleiste, Bibliothek,
@@ -356,10 +356,10 @@ Weitere Zuordnung:
 |---|---|---|
 | Navigation (Tabs, E14) | Nr. 1 bis 4 | Bibliothek, Soundboard, Cue-Show als `Tabs`; der Abschnitt wird weiter nicht gemerkt, die Ansichten werden beim Wechsel weiter abgebaut (Befund 7) |
 | Live-Element Cue-Show (Standby-Anzeige, Transport) | Nr. 52, 53, 54, 55, 56 | vier Haupttasten (E7: Pause/Weiter `bereit` mit wechselnder Beschriftung); GO ohne Standby-Cue, Pause/Weiter ohne laufenden Cue brauchen einen Sperrgrund; die Beschriftung „GO ⏎“ wird berichtigt (Spec 3.4), das Kürzel bleibt die Leertaste |
-| Fußleiste (Bibliothek, Soundboard) | Nr. 30, 33 | Stop und Panik mit denselben Handlern, **ohne Kürzel** (W2-10); heute fehlen sie dort ganz; `showPanic` stoppt künftig zusätzlich die Pads (W2-10, die einzige gewollte Änderung der Bedienlogik; der Tooltip „Sofort alles stoppen“ wird damit wahr, Befund 1) |
+| Fußleiste (Bibliothek, Soundboard) | Nr. 30, 33 | Stop und Panik mit denselben Handlern, **ohne Kürzel** (W2-10); heute fehlen sie dort ganz; `showPanic` stoppt künftig zusätzlich die Pads (W2-10, die vom Owner beschlossene Änderung der Bedienlogik; der Tooltip „Sofort alles stoppen“ wird damit wahr, Befund 1); die übrigen entschiedenen Änderungen stehen in den abgehakten Zeilen (Pausen-Merker Nr. 98/99, Escape in Dialogen Nr. 139, Show-Wechsel Nr. 39/42, Vollbild Nr. 60, Transport Nr. 52 bis 56, Enter Nr. 138); Owner-Frage offen: Panik in der Bibliotheks-Fußleiste stoppt die Vorschau der Bibliothek nicht |
 | `onAir` und Tally | Nr. 105 | Wahrheitstabelle Task 14 (E4: `live` bei Show spielt oder Pads spielen); die Ableitung für die Fernsteuerung bleibt Wert für Wert wie heute (Befund 6) |
 | Statuseinträge | Nr. 103, 104, 105, 59 | `master-link` (kein Zugang im Preload), `video-ausgabe` (E3, heute geglaubt), `fernsteuerung` (Port 8725, heute nicht gemeldet), `show` (Standby, laufende Cues, pausiert), `pads` (heute meldet die Pad-Maschine nichts an den Store, Nr. 101) |
-| `ScreenOutputSection` | Nr. 57, 58, 59, 60 | ein Tipp auf eine Bildschirmkarte öffnet wie heute sofort; `capabilities { toggle: true, fullscreen: ‹nur gemessen›, E14 }`: heute ist der Vollbild-Zustand geraten |
+| `ScreenOutputSection` | Nr. 57, 58, 59, 60 | die Bildschirmwahl wird nur gemerkt (Automatisch = null), der Schalter öffnet auf dem gemerkten Bildschirm, „Auf diesen Bildschirm“ zieht ein offenes Fenster um (Ruling Task 15); `capabilities { toggle: true, fullscreen: ‹nur gemessen›, E14 }`: heute ist der Vollbild-Zustand geraten |
 | `RemoteControlSection` | Nr. 104, 118, 119 | Modul „JM Player“, Port 8725 |
 | Tool-eigen: Cue-Einstellungen, Pad-Einstellungen | Nr. 62, 70 | bleiben Dialoge, laufen über `Modal` aus `@jm/ui` (Spec 5.3) |
 | Tool-eigen: Show- und Playlist-Verwaltung, Import | Nr. 41, 42, 76, 77, 10, 12, 78 | `window.prompt` und `window.confirm` bleiben Aufgabe der Funktionsliste (kein Funktionsverlust, auch wenn sie als Dialog neu gebaut werden) |

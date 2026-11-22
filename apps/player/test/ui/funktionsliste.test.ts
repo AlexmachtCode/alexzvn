@@ -607,3 +607,13 @@ ok(
   const dateien = ['App.tsx', 'views/PlayerOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Fussleiste.tsx', 'views/Einstellungen.tsx', 'views/SoundboardView.tsx', 'views/LibraryView.tsx', 'lib/aktionen.ts', 'lib/oberflaeche.ts', 'store/player.ts'];
   ok(dateien.every((d) => !/\bwindow\.(?:confirm|alert|prompt)\(/.test(quelle(d))) && (show.match(/window\.(?:confirm|prompt)\(/g) ?? []).length === 2, 'PL Funktionsliste: window.prompt und window.confirm stehen nur in der Cue-Show (je einmal), window.alert nirgends');
 }
+
+// ── Abschnitt 9 und der Kopf „Stand“ widersprechen den Haken nicht (Fix-Runde 1) ──
+{
+  const abschnitt9 = text.slice(text.indexOf('## 9 · '), text.indexOf('## 10 · '));
+  const stand = text.slice(text.indexOf('- **Stand:**'), text.indexOf('- **künftig wo**'));
+  ok(!/öffnet wie heute sofort/.test(abschnitt9) && /nur gemerkt/.test(abschnitt9) && /null/.test(abschnitt9), 'PL Funktionsliste Abschnitt 9: die Bildschirmwahl öffnet nicht sofort, sie wird nur gemerkt (Automatisch = null)');
+  ok(!/einzige gewollte Änderung/.test(abschnitt9) && /Owner-Frage/.test(abschnitt9) && /W2-10/.test(abschnitt9), 'PL Funktionsliste Abschnitt 9: Panik-Pads ist nicht „die einzige gewollte Änderung“, die offene Owner-Frage zur Vorschau steht dabei');
+  ok(/zum Zeitpunkt der Erhebung/.test(stand) && !/sind leer, der Code ist seither unverändert/.test(stand), 'PL Funktionsliste Stand: „Code unverändert“ gilt nur zum Zeitpunkt der Erhebung');
+  ok(/zum Zeitpunkt der Erhebung[^]*Testordner/.test(text.slice(text.indexOf('- **Gelesen'), text.indexOf('- **künftig wo**'))), 'PL Funktionsliste Kopf: „kein Testordner“ gilt nur zum Zeitpunkt der Erhebung');
+}
