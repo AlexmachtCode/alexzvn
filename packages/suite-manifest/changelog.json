@@ -1757,8 +1757,8 @@
         "version": "0.7.0",
         "date": "2026-11-21",
         "notes": [
-          "Neue Oberfläche: Oben die Kopfzeile mit „JM Q&A“, „N wartend“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „Nächste ▶“, „■ Beenden“ und „Saal-Einreichung“. Einstellungen, Extern und Moderation liegen jetzt im Panel hinter ⚙; Overlay, Einstellungs-Fenster und Bildschirmleiste entfallen.",
-          "Neue Statusleiste mit sechs Einträgen: Master, Extern, Kopplung Timer, Kopplung Titler, Fernsteuerung und Saal. Sie zeigt nur, was Q&A wirklich weiß; ein im Netz gefundener, aber nicht verbundener Timer oder Titler heißt „gefunden · nicht verbunden“.",
+          "Neue Oberfläche: Oben die Kopfzeile mit „JM Q&A“, „N wartend“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „Nächste ▶“, „■ Beenden“ und „Saal-Einreichung“. Einstellungen, Kopplung, Extern und Moderation liegen jetzt im Panel hinter ⚙; die Fenster „Einstellungen“ und „Verbindungen“, die Karte „Kopplung“ und die beiden Kopf-Knöpfe dazu entfallen.",
+          "Neue Statusleiste mit sechs Einträgen: Master, Extern, Kopplung Timer, Kopplung Titler, Fernsteuerung und Saal. Sie zeigt nur, was Q&A wirklich weiß; ein im Netz gefundener, aber nicht verbundener Timer oder Titler steht dort als „host:port · gefunden · nicht verbunden“.",
           "Die Saal-Einreichung ist eine Haupttaste mit Zustand („Saal-Einreichung ◉ An“ bzw. „○ Aus“). Die Zugangstexte für Fragen per Handy und per Livestream bleiben wie bisher.",
           "Zahlenfelder wie die Redezeit übernehmen den Wert bei Enter oder beim Verlassen des Feldes; Werte unter 5 setzt Q&A weiter auf 5. Bedienung und Fernsteuerung bleiben gleich, es gibt keine neuen Tastenkürzel."
         ]
@@ -1831,9 +1831,9 @@
         "version": "0.5.0",
         "date": "2026-11-21",
         "notes": [
-          "Neue Oberfläche: Oben die Kopfzeile mit „JM Battle“, „Runde n/m“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „VS“, „Voting öffnen“, „Nächste Runde ▶“ und „⧉ Clip“. Einstellungen, Verbindungen, Instant-Replay und Zurücksetzen liegen jetzt im Panel hinter ⚙; das Verbindungs-Fenster entfällt.",
+          "Neue Oberfläche: Oben die Kopfzeile mit „JM Battle“, „Runde n/m“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „VS“, „Voting öffnen“, „Nächste Runde ▶“ und „⧉ Clip“. Einstellungen, Verbindungen und Zurücksetzen liegen jetzt im Panel hinter ⚙; die Fenster „Einstellungen“ und „Verbindungen“ entfallen. Die Karte „Instant-Replay“ bleibt rechts im Live-Bereich.",
           "Neue Statusleiste mit fünf Einträgen: Master, Titler, Fernsteuerung, Publikums-Voting und Aufnahme-Quelle. Sie zeigt nur, was Battle wirklich weiß.",
-          "Gesperrte Haupttasten nennen ihren Grund, zum Beispiel „Voting-Server ist aus“ oder „keine Aufnahme-Quelle“. Ist der Titler nicht verbunden, sagt ein Hinweis unter dem VS-Knopf, dass die Bauchbinde nicht erscheint. „Battle zurücksetzen“ fragt vorher nach.",
+          "Gesperrte Haupttasten nennen ihren Grund, zum Beispiel „Voting-Server ist aus“ oder „keine Aufnahme-Quelle“. Ist der Titler nicht verbunden, sagt ein Hinweis unter dem VS-Knopf, dass die Bauchbinde nicht erscheint. Die Rückfrage beim Zurücksetzen nennt jetzt auch, dass ein laufendes VS ausgeht.",
           "Länge und Runden übernehmen den Wert bei Enter oder beim Verlassen des Feldes. Bedienung, Fernsteuerung und das VS-Bild bleiben gleich, es gibt keine neuen Tastenkürzel."
         ]
       },

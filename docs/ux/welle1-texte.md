@@ -1,6 +1,6 @@
 # UX-Update Welle 1: Texte zur Freigabe durch den Owner
 
-Zweck: Alle neuen und geänderten sichtbaren Texte der fünf umgebauten Werkzeuge (Switcher, Timer, Rundown, Q&A, Battle) zur Freigabe durch den Owner. Texte aus `@jm/ui` und `@jm/settings`, die seit Welle 0 freigegeben sind, stehen nicht hier; nur der eine neue gemeinsame Text steht unter „Gemeinsam“.
+Zweck: Alle neuen und geänderten sichtbaren Texte der fünf umgebauten Werkzeuge (Switcher, Timer, Rundown, Q&A, Battle) zur Freigabe durch den Owner. Texte der gemeinsamen Bausteine aller Tools (Oberfläche und Einstellungen), die seit Welle 0 freigegeben sind, stehen nicht hier; nur der eine neue gemeinsame Text steht unter „Gemeinsam“.
 
 Stand: Branch `feat/ux-welle1`, Code-Stand `b5a2677310`. Die Versionen sind Switcher 0.12.0, Timer 0.15.0, Rundown 0.9.0, Q&A 0.7.0 und Battle 0.5.0; das Datum der Changelog-Einträge (21.11.2026) ist ein Platzhalter und wird am Tag der Veröffentlichung gesetzt.
 
@@ -20,62 +20,63 @@ Aufbau: je Werkzeug eine Tabelle, dann „Gemeinsam“, „Ortshinweise“ (alte
 | SW6 | Statusleiste | „stumm“ |
 | SW7 | Panel (Fernsteuerung, Modulname) | „jm-switcher“ |
 | SW8 | Panel (Audio, Auswahl) | „— Kein Ton (stille Spur) —“ |
-| SW9 | Statusleiste (Audio) | „Programm-Audio“ |
-| SW10 | Kopf (Sendezustand) | „LIVE“ |
-| SW11 | Kopf (Sendezustand) | „REC“ |
-| SW12 | Haupttaste | „Cut“ |
-| SW13 | Haupttaste | „Auto“ |
-| SW14 | Haupttaste | „Dauer“ |
-| SW15 | Haupttaste | „ms“ |
-| SW16 | Haupttaste | „Aufnehmen“ |
-| SW17 | Haupttaste | „Aufnahme stoppen“ |
-| SW18 | Haupttaste | „Stream starten“ |
-| SW19 | Haupttaste | „Stream stoppen“ |
-| SW20 | Statusleiste (Titel) | „NDI“ |
-| SW21 | Statusleiste (Titel) | „Audio“ |
-| SW22 | Statusleiste (Titel) | „Aufnahme“ |
-| SW23 | Statusleiste (Titel) | „Stream“ |
-| SW24 | Panel (Einleitung) | „Stream-Ziel und Qualität. Aufnahme & Stream startest du in der Mischer-Ansicht.“ |
-| SW25 | Panel (Hinweis) | „So erscheint die Ausgabe im Netz (z. B. als Eingang in TriCaster, vMix, OBS oder einem NDI-Monitor). In der Mischer-Leiste wählst du, ob das Program-Bild oder das Multiview gesendet wird, und schaltest die Ausgabe live an/aus.“ |
-| SW26 | Panel (Hinweis) | „Zeigt das On-Air-Programmbild formatfüllend auf dem gewählten Monitor — per HDMI direkt an Beamer, Kontrollmonitor oder Encoder. Läuft unabhängig von NDI und der Aufnahme; wähle für die Regie am besten einen anderen Monitor als den mit der Bedienoberfläche.“ |
-| SW27 | Panel (Hinweis) | „Mikro / Line-In / Capture-Ton. Wird in Aufnahme + Stream gemischt; Pegel & Mute in der Mischer-Leiste. Audio folgt (noch) nicht der Bildquelle — feste Programm-Audioquelle.“ |
-| SW28 | Panel (Hinweis) | „Zeilenprotokoll (PREVIEW/PROGRAM/CUT/AUTO/RECORD/STREAM) für ein Stream-Deck via Bitfocus Companion — Modul: packages/companion-jm-switcher. Im Companion-Modul Host (IP dieses Rechners) + Port eintragen.“ |
-| SW29 | Panel (Knopf) | „Monitore aktualisieren“ |
-| SW30 | Panel (Abschnittstitel) | „Streaming“ |
-| SW31 | Panel (Abschnittstitel) | „Aufnahme“ |
-| SW32 | Panel (Abschnittstitel) | „Programm-Format“ |
-| SW33 | Panel (Feld und Hinweis) | „RTMP-Ziel“ |
-| SW34 | Panel (Feld und Hinweis) | „rtmp://server/app/streamkey“ |
-| SW35 | Panel (Feld und Hinweis) | „Vollständige URL inkl. Streamkey (z. B. YouTube-/Twitch-Ingest oder lokaler nginx-rtmp).“ |
-| SW36 | Panel (Feld und Hinweis) | „Stream-Bitrate“ |
-| SW37 | Panel (Feld und Hinweis) | „Video-Bitrate des H.264-Streams (x264).“ |
-| SW38 | Panel (Feld und Hinweis) | „Aufnahme-Bitrate“ |
-| SW39 | Panel (Feld und Hinweis) | „Video-Bitrate der WebM-Aufnahme.“ |
-| SW40 | Panel (Feld und Hinweis) | „kbit/s“ |
-| SW41 | Panel (Feld und Hinweis) | „Empfohlen für“ |
-| SW42 | Panel (Feld und Hinweis) | „NDI-Quelle“ |
-| SW43 | Panel (Feld und Hinweis) | „Was als NDI-Quelle ausgegeben wird“ |
-| SW44 | Panel (Feld und Hinweis) | „Program“ |
-| SW45 | Panel (Feld und Hinweis) | „Multiview“ |
-| SW46 | Panel (Feld und Hinweis) | „Programm-Auflösung“ |
-| SW47 | Panel (Feld und Hinweis) | „Ausgabe-Bildrate“ |
-| SW48 | Panel (Feld und Hinweis) | „Full-HD 1080p“ |
-| SW49 | Panel (Feld und Hinweis) | „HD 720p“ |
-| SW50 | Panel (Feld und Hinweis) | „Auflösung:“ |
-| SW51 | Panel (Feld und Hinweis) | „Ton:“ |
-| SW52 | Panel (Feld und Hinweis) | „Programm-Ton der gewählten Audioquelle“ |
-| SW53 | Panel (Feld und Hinweis) | „stille AAC-Spur (keine Audioquelle gewählt)“ |
-| SW54 | Panel (Feld und Hinweis) | „Der Stream wird aus dem Program-Bild kodiert (libx264, zerolatency) — die Auflösung folgt der Programm-Auflösung, es wird nie hochskaliert.“ |
-| SW55 | Panel (Feld und Hinweis) | „Aufnahmen werden als WebM gespeichert (Speicherort wird beim Start abgefragt). Für MP4 die Datei im JM Media Converter umwandeln.“ |
-| SW56 | Panel (Feld und Hinweis) | „Auflösung und Bildrate gelten für alle Ausgaben — NDI, Aufnahme, RTMP und den zweiten Bildschirm. Das Programm wird in dieser Auflösung komponiert (kein Hochskalieren). 1080p ist echtes Full-HD und kostet mehr Rechenleistung; auf schwächeren Rechnern 720p wählen. Das Multiview bleibt 720p und zeigt Program + Preview groß plus alle Szenen als Kacheln mit Tally.“ |
-| SW57 | Panel (Feld und Hinweis) | „Eine geänderte Bildrate greift, sobald weder Aufnahme noch Sendung läuft — solange eine von beiden läuft, behält auch eine neu gestartete zweite Ausgabe die bisherige Rate.“ |
-| SW58 | Werkzeugleiste (Projekt) | „Projekt“ |
-| SW59 | Werkzeugleiste (Projekt) | „Neu“ |
-| SW60 | Werkzeugleiste (Projekt) | „Öffnen…“ |
-| SW61 | Werkzeugleiste (Projekt) | „Speichern“ |
-| SW62 | Werkzeugleiste (Projekt) | „Speichern unter…“ |
-| SW63 | Werkzeugleiste (Projekt) | „· ungespeichert“ |
-| SW64 | Werkzeugleiste (Projekt) | „Nicht gespeichert“ |
+| SW9 | Panel (Audio, Auswahl-Titel) | „Programm-Audio“ |
+| SW10 | Mischer (Titel des einklappbaren unteren Bereichs) | „Szenen, Ebenen und Quellen“ |
+| SW11 | Kopf (Sendezustand) | „LIVE“ |
+| SW12 | Kopf (Sendezustand) | „REC“ |
+| SW13 | Haupttaste | „Cut“ |
+| SW14 | Haupttaste | „Auto“ |
+| SW15 | Haupttaste | „Dauer“ |
+| SW16 | Haupttaste | „ms“ |
+| SW17 | Haupttaste | „Aufnehmen“ |
+| SW18 | Haupttaste | „Aufnahme stoppen“ |
+| SW19 | Haupttaste | „Stream starten“ |
+| SW20 | Haupttaste | „Stream stoppen“ |
+| SW21 | Statusleiste (Titel) | „NDI“ |
+| SW22 | Statusleiste (Titel) | „Audio“ |
+| SW23 | Statusleiste (Titel) | „Aufnahme“ |
+| SW24 | Statusleiste (Titel) | „Stream“ |
+| SW25 | Panel (Einleitung) | „Stream-Ziel und Qualität. Aufnahme & Stream startest du in der Mischer-Ansicht.“ |
+| SW26 | Panel (Hinweis) | „So erscheint die Ausgabe im Netz (z. B. als Eingang in TriCaster, vMix, OBS oder einem NDI-Monitor). In der Mischer-Leiste wählst du, ob das Program-Bild oder das Multiview gesendet wird, und schaltest die Ausgabe live an/aus.“ |
+| SW27 | Panel (Hinweis) | „Zeigt das On-Air-Programmbild formatfüllend auf dem gewählten Monitor — per HDMI direkt an Beamer, Kontrollmonitor oder Encoder. Läuft unabhängig von NDI und der Aufnahme; wähle für die Regie am besten einen anderen Monitor als den mit der Bedienoberfläche.“ |
+| SW28 | Panel (Hinweis) | „Mikro / Line-In / Capture-Ton. Wird in Aufnahme + Stream gemischt; Pegel & Mute in der Mischer-Leiste. Audio folgt (noch) nicht der Bildquelle — feste Programm-Audioquelle.“ |
+| SW29 | Panel (Hinweis) | „Zeilenprotokoll (PREVIEW/PROGRAM/CUT/AUTO/RECORD/STREAM) für ein Stream-Deck via Bitfocus Companion — Modul: packages/companion-jm-switcher. Im Companion-Modul Host (IP dieses Rechners) + Port eintragen.“ |
+| SW30 | Panel (Knopf) | „Monitore aktualisieren“ |
+| SW31 | Panel (Abschnittstitel) | „Streaming“ |
+| SW32 | Panel (Abschnittstitel) | „Aufnahme“ |
+| SW33 | Panel (Abschnittstitel) | „Programm-Format“ |
+| SW34 | Panel (Feld und Hinweis) | „RTMP-Ziel“ |
+| SW35 | Panel (Feld und Hinweis) | „rtmp://server/app/streamkey“ |
+| SW36 | Panel (Feld und Hinweis) | „Vollständige URL inkl. Streamkey (z. B. YouTube-/Twitch-Ingest oder lokaler nginx-rtmp).“ |
+| SW37 | Panel (Feld und Hinweis) | „Stream-Bitrate“ |
+| SW38 | Panel (Feld und Hinweis) | „Video-Bitrate des H.264-Streams (x264).“ |
+| SW39 | Panel (Feld und Hinweis) | „Aufnahme-Bitrate“ |
+| SW40 | Panel (Feld und Hinweis) | „Video-Bitrate der WebM-Aufnahme.“ |
+| SW41 | Panel (Feld und Hinweis) | „kbit/s“ |
+| SW42 | Panel (Feld und Hinweis) | „Empfohlen für“ |
+| SW43 | Panel (Feld und Hinweis) | „NDI-Quelle“ |
+| SW44 | Panel (Feld und Hinweis) | „Was als NDI-Quelle ausgegeben wird“ |
+| SW45 | Panel (Feld und Hinweis) | „Program“ |
+| SW46 | Panel (Feld und Hinweis) | „Multiview“ |
+| SW47 | Panel (Feld und Hinweis) | „Programm-Auflösung“ |
+| SW48 | Panel (Feld und Hinweis) | „Ausgabe-Bildrate“ |
+| SW49 | Panel (Feld und Hinweis) | „Full-HD 1080p“ |
+| SW50 | Panel (Feld und Hinweis) | „HD 720p“ |
+| SW51 | Panel (Feld und Hinweis) | „Auflösung:“ |
+| SW52 | Panel (Feld und Hinweis) | „Ton:“ |
+| SW53 | Panel (Feld und Hinweis) | „Programm-Ton der gewählten Audioquelle“ |
+| SW54 | Panel (Feld und Hinweis) | „stille AAC-Spur (keine Audioquelle gewählt)“ |
+| SW55 | Panel (Feld und Hinweis) | „Der Stream wird aus dem Program-Bild kodiert (libx264, zerolatency) — die Auflösung folgt der Programm-Auflösung, es wird nie hochskaliert.“ |
+| SW56 | Panel (Feld und Hinweis) | „Aufnahmen werden als WebM gespeichert (Speicherort wird beim Start abgefragt). Für MP4 die Datei im JM Media Converter umwandeln.“ |
+| SW57 | Panel (Feld und Hinweis) | „Auflösung und Bildrate gelten für alle Ausgaben — NDI, Aufnahme, RTMP und den zweiten Bildschirm. Das Programm wird in dieser Auflösung komponiert (kein Hochskalieren). 1080p ist echtes Full-HD und kostet mehr Rechenleistung; auf schwächeren Rechnern 720p wählen. Das Multiview bleibt 720p und zeigt Program + Preview groß plus alle Szenen als Kacheln mit Tally.“ |
+| SW58 | Panel (Feld und Hinweis) | „Eine geänderte Bildrate greift, sobald weder Aufnahme noch Sendung läuft — solange eine von beiden läuft, behält auch eine neu gestartete zweite Ausgabe die bisherige Rate.“ |
+| SW59 | Werkzeugleiste (Projekt) | „Projekt“ |
+| SW60 | Werkzeugleiste (Projekt) | „Neu“ |
+| SW61 | Werkzeugleiste (Projekt) | „Öffnen…“ |
+| SW62 | Werkzeugleiste (Projekt) | „Speichern“ |
+| SW63 | Werkzeugleiste (Projekt) | „Speichern unter…“ |
+| SW64 | Werkzeugleiste (Projekt) | „· ungespeichert“ |
+| SW65 | Werkzeugleiste (Projekt) | „Nicht gespeichert“ |
 
 ## Timer
 
@@ -165,7 +166,7 @@ Aufbau: je Werkzeug eine Tabelle, dann „Gemeinsam“, „Ortshinweise“ (alte
 | Nr. | Ort | Text |
 | --- | --- | --- |
 | BA1 | Panel (Abschnittstitel) | „Battle“ |
-| BA2 | Panel (Abschnittstitel) | „Instant-Replay“ |
+| BA2 | Panel (Abschnittstitel) und Live-Bereich (Replay-Karte) | „Instant-Replay“ |
 | BA3 | Panel (Abschnittstitel) | „Zurücksetzen“ |
 | BA4 | Statusleiste / Karte (Voting) | „Publikums-Voting“ |
 | BA5 | Haupttaste | „Voting öffnen (Runde ‹…›)“ |
@@ -179,9 +180,9 @@ Aufbau: je Werkzeug eine Tabelle, dann „Gemeinsam“, „Ortshinweise“ (alte
 | BA13 | Haupttaste (Replay) | „schneidet …“ |
 | BA14 | Haupttaste (Sperrgrund) | „keine Aufnahme-Quelle“ |
 | BA15 | Haupttaste (Sperrgrund) | „Clip läuft“ |
-| BA16 | Panel (Replay) | „keine Quelle gewählt“ |
-| BA17 | Panel (Replay) | „Zielordner“ |
-| BA18 | Panel (Replay) | „Standard (Videos/JM Battle Clips)“ |
+| BA16 | Live-Bereich (Replay-Karte, Quelle) | „keine Quelle gewählt“ |
+| BA17 | Panel (Replay, Zielordner) | „Zielordner“ |
+| BA18 | Panel (Replay, Zielordner) | „Standard (Videos/JM Battle Clips)“ |
 | BA19 | Kopf (Mitte) | „Runde ‹…›/‹…›“ |
 | BA20 | Panel (Gegenstellen) | „Battle blendet die VS-Bauchbinde über den JM Titler ein.“ |
 | BA21 | Panel (Gegenstellen) | „gefunden:“ |
@@ -196,7 +197,7 @@ Aufbau: je Werkzeug eine Tabelle, dann „Gemeinsam“, „Ortshinweise“ (alte
 
 ## Gemeinsam
 
-Ein neuer Text im gemeinsamen Baustein `@jm/settings` (Gegenstellen), der in Rundown und Q&A erscheint. Sonst gibt es in `@jm/ui` und `@jm/settings` seit dem Stand vor Welle 1 keinen neuen sichtbaren Text.
+Ein neuer Text im gemeinsamen Baustein für die Einstellungen (Gegenstellen), der in Rundown und Q&A erscheint. Sonst gibt es in den gemeinsamen Bausteinen aller Tools seit dem Stand vor Welle 1 keinen neuen sichtbaren Text.
 
 | Nr. | Ort | Text |
 | --- | --- | --- |
@@ -204,14 +205,14 @@ Ein neuer Text im gemeinsamen Baustein `@jm/settings` (Gegenstellen), der in Run
 
 ## Ortshinweise
 
-Diese Texte sind wörtlich geblieben (schon freigegeben), nennen aber einen Ort, der sich geändert hat. Sie stehen darum nicht in den Tabellen. Bitte entscheide je Eintrag: so lassen, oder einen neuen Wortlaut vorgeben.
+Diese Texte sind wörtlich geblieben (schon freigegeben), nennen aber einen Ort, der sich geändert hat. Die Switcher-Texte stehen zusätzlich mit ihrer Nr. in der Tabelle oben; die Q&A-Texte sind freigegebene Zugangstexte, die nicht in der Tabelle stehen. Bitte entscheide je Eintrag: so lassen, oder einen neuen Wortlaut vorgeben.
 
-- Switcher, Panel Einleitung (SW-Zeile „Stream-Ziel und Qualität. …“): „Aufnahme & Stream startest du in der Mischer-Ansicht.“ Es gibt keine Ansicht „Mischer“ mehr als Reiter; die Tasten „Aufnehmen“ und „Stream starten“ sind jetzt die Haupttasten unter der Kopfzeile.
-- Switcher, Panel NDI: „In der Mischer-Leiste wählst du, ob das Program-Bild oder das Multiview gesendet wird, und schaltest die Ausgabe live an/aus.“ Die Wahl der NDI-Quelle (Program oder Multiview) liegt jetzt im Panel unter „Programm-Format“; das An- und Ausschalten der Ausgabe liegt in der Ausgabeleiste des Mischers.
-- Switcher, Panel Audio: „Pegel & Mute in der Mischer-Leiste.“ Pegel und Mute liegen in der Ausgabeleiste des Mischers.
-- Switcher, Panel Fernsteuerung: Der alte Satz zum Zeilenprotokoll und zum Companion-Modul steht jetzt zusätzlich zum Companion-Hinweis des gemeinsamen Abschnitts; der Companion-Hinweis kommt dadurch doppelt vor.
-- Q&A, Panel Saal-Einreichung: „Aus. Anschalten, damit der Saal Fragen per Handy (QR) einreichen kann.“ Das „Anschalten“ ist jetzt die Haupttaste „Saal-Einreichung ○ Aus“ im Live-Bereich, nicht mehr ein Knopf in diesem Abschnitt.
-- Q&A, Panel Extern (Q7): „Für Fragen per Livestream oder Presse: im Launcher anmelden und hier ein Event erzeugen.“ Das Event entsteht jetzt im Panel-Abschnitt „Extern“; „hier“ meint also das Panel hinter ⚙, nicht mehr ein Overlay.
+- Switcher, Panel Einleitung (SW25): „Aufnahme & Stream startest du in der Mischer-Ansicht.“ Es gibt keine Ansicht „Mischer“ mehr als Reiter; die Tasten „Aufnehmen“ und „Stream starten“ sind jetzt die Haupttasten unter der Kopfzeile.
+- Switcher, Panel NDI (SW26): „In der Mischer-Leiste wählst du, ob das Program-Bild oder das Multiview gesendet wird, und schaltest die Ausgabe live an/aus.“ Die Wahl der NDI-Quelle (Program oder Multiview) liegt jetzt im Panel unter „Programm-Format“; das An- und Ausschalten der Ausgabe liegt in der Ausgabeleiste des Mischers.
+- Switcher, Panel Audio (SW28): „Pegel & Mute in der Mischer-Leiste.“ Pegel und Mute liegen in der Ausgabeleiste des Mischers.
+- Switcher, Panel Fernsteuerung (SW29): Der alte Satz zum Zeilenprotokoll und zum Companion-Modul steht jetzt zusätzlich zum Companion-Hinweis des gemeinsamen Abschnitts; der Companion-Hinweis kommt dadurch doppelt vor.
+- Q&A, Saal-Einreichung (Karte im Live-Bereich): „Aus. Anschalten, damit der Saal Fragen per Handy (QR) einreichen kann.“ Das „Anschalten“ ist jetzt die Haupttaste „Saal-Einreichung ○ Aus“ im Live-Bereich, nicht mehr ein Knopf in der Karte.
+- Q&A, Karte Extern im Live-Bereich: „Für Fragen per Livestream oder Presse: im Launcher anmelden und hier ein Event erzeugen.“ Das Event entsteht im Panel-Abschnitt „Extern“ hinter ⚙, nicht in dieser Karte; „hier“ meint also das Panel (früher das Einstellungs-Fenster).
 - Battle: Die Einstellungshinweise (Runden, Voting, VS-Bauchbinde) stehen wörtlich weiter da, jetzt im Panel statt im Fenster „Einstellungen“.
 
 ## Changelog
@@ -232,13 +233,13 @@ Entwurf der Release-Notizen (`packages/suite-manifest/changelog.json`), wörtlic
 | CL-RD2 | Rundown 0.9.0 | „Neue Statusleiste: Master, iveo, je ein Eintrag pro gefundenem Tool und die Fernsteuerung. Ein Tool, das im Netz gefunden, aber nicht verbunden ist, heißt „gefunden · nicht verbunden“; seine Adresse steht im Panel als „gefunden: host:port“.“ |
 | CL-RD3 | Rundown 0.9.0 | „GO nennt seinen Grund, wenn keine Zeile im Ablauf ist („Keine Zeile im Ablauf“). Die Kürzel Leertaste, ↑ und ↓ stehen jetzt auf den Tasten und gelten wie bisher.“ |
 | CL-RD4 | Rundown 0.9.0 | „Das Host-Feld einer Gegenstelle ist nicht mehr mit der gefundenen Adresse vorbelegt, und „Setzen“ geht erst mit einem gültigen Port. Bedienung, Fernsteuerung und Ablaufdateien bleiben gleich.“ |
-| CL-QA1 | Q&A 0.7.0 | „Neue Oberfläche: Oben die Kopfzeile mit „JM Q&A“, „N wartend“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „Nächste ▶“, „■ Beenden“ und „Saal-Einreichung“. Einstellungen, Extern und Moderation liegen jetzt im Panel hinter ⚙; Overlay, Einstellungs-Fenster und Bildschirmleiste entfallen.“ |
-| CL-QA2 | Q&A 0.7.0 | „Neue Statusleiste mit sechs Einträgen: Master, Extern, Kopplung Timer, Kopplung Titler, Fernsteuerung und Saal. Sie zeigt nur, was Q&A wirklich weiß; ein im Netz gefundener, aber nicht verbundener Timer oder Titler heißt „gefunden · nicht verbunden“.“ |
+| CL-QA1 | Q&A 0.7.0 | „Neue Oberfläche: Oben die Kopfzeile mit „JM Q&A“, „N wartend“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „Nächste ▶“, „■ Beenden“ und „Saal-Einreichung“. Einstellungen, Kopplung, Extern und Moderation liegen jetzt im Panel hinter ⚙; die Fenster „Einstellungen“ und „Verbindungen“, die Karte „Kopplung“ und die beiden Kopf-Knöpfe dazu entfallen.“ |
+| CL-QA2 | Q&A 0.7.0 | „Neue Statusleiste mit sechs Einträgen: Master, Extern, Kopplung Timer, Kopplung Titler, Fernsteuerung und Saal. Sie zeigt nur, was Q&A wirklich weiß; ein im Netz gefundener, aber nicht verbundener Timer oder Titler steht dort als „host:port · gefunden · nicht verbunden“.“ |
 | CL-QA3 | Q&A 0.7.0 | „Die Saal-Einreichung ist eine Haupttaste mit Zustand („Saal-Einreichung ◉ An“ bzw. „○ Aus“). Die Zugangstexte für Fragen per Handy und per Livestream bleiben wie bisher.“ |
 | CL-QA4 | Q&A 0.7.0 | „Zahlenfelder wie die Redezeit übernehmen den Wert bei Enter oder beim Verlassen des Feldes; Werte unter 5 setzt Q&A weiter auf 5. Bedienung und Fernsteuerung bleiben gleich, es gibt keine neuen Tastenkürzel.“ |
-| CL-BA1 | Battle 0.5.0 | „Neue Oberfläche: Oben die Kopfzeile mit „JM Battle“, „Runde n/m“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „VS“, „Voting öffnen“, „Nächste Runde ▶“ und „⧉ Clip“. Einstellungen, Verbindungen, Instant-Replay und Zurücksetzen liegen jetzt im Panel hinter ⚙; das Verbindungs-Fenster entfällt.“ |
+| CL-BA1 | Battle 0.5.0 | „Neue Oberfläche: Oben die Kopfzeile mit „JM Battle“, „Runde n/m“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „VS“, „Voting öffnen“, „Nächste Runde ▶“ und „⧉ Clip“. Einstellungen, Verbindungen und Zurücksetzen liegen jetzt im Panel hinter ⚙; die Fenster „Einstellungen“ und „Verbindungen“ entfallen. Die Karte „Instant-Replay“ bleibt rechts im Live-Bereich.“ |
 | CL-BA2 | Battle 0.5.0 | „Neue Statusleiste mit fünf Einträgen: Master, Titler, Fernsteuerung, Publikums-Voting und Aufnahme-Quelle. Sie zeigt nur, was Battle wirklich weiß.“ |
-| CL-BA3 | Battle 0.5.0 | „Gesperrte Haupttasten nennen ihren Grund, zum Beispiel „Voting-Server ist aus“ oder „keine Aufnahme-Quelle“. Ist der Titler nicht verbunden, sagt ein Hinweis unter dem VS-Knopf, dass die Bauchbinde nicht erscheint. „Battle zurücksetzen“ fragt vorher nach.“ |
+| CL-BA3 | Battle 0.5.0 | „Gesperrte Haupttasten nennen ihren Grund, zum Beispiel „Voting-Server ist aus“ oder „keine Aufnahme-Quelle“. Ist der Titler nicht verbunden, sagt ein Hinweis unter dem VS-Knopf, dass die Bauchbinde nicht erscheint. Die Rückfrage beim Zurücksetzen nennt jetzt auch, dass ein laufendes VS ausgeht.“ |
 | CL-BA4 | Battle 0.5.0 | „Länge und Runden übernehmen den Wert bei Enter oder beim Verlassen des Feldes. Bedienung, Fernsteuerung und das VS-Bild bleiben gleich, es gibt keine neuen Tastenkürzel.“ |
 
 ## Entfällt
@@ -253,7 +254,7 @@ Sichtbare Texte, die mit dem Umbau wegfallen oder anders gesagt werden. Spalte �
 | EN4 | Switcher | Die Reiter „Mischer“ und „Einstellungen“ | Der Mischer ist immer sichtbar, die Einstellungen liegen im Panel hinter ⚙ |
 | EN5 | Switcher, Timer | „Light“ bzw. „Dark“ (Knopf in der Kopfzeile) | Schalter für Hell und Dunkel aus dem gemeinsamen Baustein; die Wahl wird jetzt gemerkt |
 | EN6 | Switcher | „Audiogerät 0“ (Ersatzbeschriftung eines unbenannten Geräts, gezählt ab 0) | „Audiogerät 1“ (gezählt ab 1) |
-| EN7 | Timer | „Real-Time Clock“, „Countdown“, „Timetable“, „Remote · LAN“, „Timer Farben“ (Titel links in der Kopfzeile je Modus) | Die Modi behalten ihre Überschriften; „Remote · LAN“ und „Timer Farben“ heißen im Panel „LAN-Fernbedienung“ und „Farben“ |
+| EN7 | Timer | „Real-Time Clock“, „Countdown“, „Timetable“, „Remote · LAN“, „Timer Farben“ (Titel links in der Kopfzeile je Modus) | Die Kopfzeile zeigt nur noch „JM Timer“. Die Modi Clock, Countdown und Timetable behalten ihre Überschriften im Inhalt („Real-Time Clock“, „Countdown“, „Timetable · Regieplan“; die Kopfzeile sagte nur „Timetable“). „Remote · LAN“ und „Timer Farben“ heißen im Panel „LAN-Fernbedienung“ und „Farben“ |
 | EN8 | Timer | Seitenleisten-Einträge „Remote“ (Hinweis „LAN“) und „Farben“ (Hinweis „Timer-States“) | Abschnitte „LAN-Fernbedienung“ und „Farben“ im Panel hinter ⚙ |
 | EN9 | Timer | „Während der Timer läuft, Dauer per Delay-Karte rechts anpassen.“ | „Während der Timer läuft, Dauer per Delay anpassen.“ (Hinweis im Countdown; die Karte „Delay“ steht jetzt unter dem Countdown) |
 | EN10 | Timer | „Space · Start / Pause      R · Reset“ (Hinweiszeile im Countdown) | Kürzel „Leertaste“ und „R“ auf den Haupttasten |
@@ -268,18 +269,20 @@ Sichtbare Texte, die mit dem Umbau wegfallen oder anders gesagt werden. Spalte �
 | EN19 | Rundown, Q&A, Battle | „verbunden host:port (mDNS)“ bzw. „(manuell)“ | „verbunden“ plus „gefunden: host:port“ bzw. „manuell: host:port“ |
 | EN20 | Rundown, Q&A, Battle | Tooltip „zurück auf Auto/mDNS“ am Knopf „Auto“ | keiner; der Knopf trägt die Bezeichnung „Auto: ‹Tool›“ für Screenreader |
 | EN21 | Rundown | Die Rückfall-Option mit dem rohen Verb im Auswahlfeld einer Aktion; die erste Option bei leerem Wert | „nicht verfügbar: ‹Verb›“ (gesperrte Option) bzw. „– bitte wählen –“ (gemeinsame Texte) |
-| EN22 | Q&A | Overlay, Bildschirmleiste und das Einstellungs-Fenster | Haupttasten im Live-Bereich und Abschnitte im Panel hinter ⚙ |
+| EN22 | Q&A | Die Fenster „Einstellungen“ und „Tool-Verbindungen“ (beide als Overlay über dem Inhalt) | Abschnitte „Redezeit und Kopplung“, „Extern“, „Moderation“ und „Gegenstellen“ im Panel hinter ⚙ |
 | EN23 | Battle | „VS-Bauchbinde mit den Namen läuft über den Titler.“ (Zeile unter dem VS-Knopf) | Statuseintrag „Titler“ und Hinweis „Titler nicht verbunden: VS wird gesetzt, die Bauchbinde erscheint aber nicht.“; im Panel der Satz „Battle blendet die VS-Bauchbinde über den JM Titler ein.“ |
 | EN24 | Battle | Kopf-Knöpfe „Verbindungen“, „Einstellungen“ und „VS“ (Titel „VS-Bauchbinde (Titler) on air“); die Fenster „Tool-Verbindungen“ und „Einstellungen“ | ⚙, Haupttaste „○ VS einblenden“ bzw. „● VS on air“ und das Panel |
 | EN25 | Battle | Im Scoreboard nur das Zeichen „▶“ als Taste | „Nächste Runde ▶“ |
+| EN26 | Q&A | Kopf-Knöpfe „Verbindungen“ und „Einstellungen“ | ⚙ in der Kopfzeile öffnet das Panel; ein Klick auf einen Eintrag der Statusleiste springt zum passenden Abschnitt |
+| EN27 | Q&A | Karte „Kopplung“ rechts im Live-Bereich: Überschrift „Kopplung“, je Tool (Timer, Titler) die Zustände „aus“, „aktiviert · nicht gefunden“ und „gekoppelt · host:port“, die Knöpfe „An“ und „Aus“ mit den Tooltips „Auto-Kopplung ausschalten“ und „Auto-Kopplung einschalten“ | Statusleisten-Einträge „Timer“ und „Titler“ (Detail „aus“, „nicht gefunden“, „host:port“ bei Verbindung bzw. „host:port · gefunden · nicht verbunden“); die Schalter „Redezeit-Timer automatisch“ und „Bauchbinde automatisch“ im Panel-Abschnitt „Redezeit und Kopplung“; der Erklärsatz „Standardmäßig aktiv: …“ steht dort als Abschnitts-Hinweis (QA15) |
 
 ## Geänderte Bedienung
 
 Keine Funktion fällt weg, aber an diesen Stellen verhält sich die Bedienung anders als bisher:
 
 - Zahlenfelder (z. B. Dauer, Redezeit, Länge, Runden, Bitraten) übernehmen den Wert bei Enter oder beim Verlassen des Feldes, nicht mehr bei jedem Tastendruck.
-- Die Pfeiltasten ↑ und ↓ ändern den Wert in Zahlenfeldern nicht mehr (Ruling R26). Das gilt schon im abgenommenen Titler und kommt aus dem gemeinsamen Zahlenfeld; ein Wiederherstellen ist für Welle 1 nicht vorgesehen.
-- Q&A, Redezeit: Eingaben unter 5 setzt Q&A beim Übernehmen weiter auf 5; es gibt weiter keine Obergrenze (R21). Ein leeres Feld wird abgewiesen und der alte Wert bleibt, früher speicherte es 5.
+- Die Pfeiltasten ↑ und ↓ ändern den Wert in Zahlenfeldern nicht mehr. Das gilt schon im abgenommenen Titler und kommt aus dem gemeinsamen Zahlenfeld; ein Wiederherstellen ist für Welle 1 nicht vorgesehen.
+- Q&A, Redezeit: Eingaben unter 5 setzt Q&A beim Übernehmen weiter auf 5; es gibt weiter keine Obergrenze. Ein leeres Feld wird abgewiesen und der alte Wert bleibt, früher speicherte es 5.
 - Das Host-Feld einer Gegenstelle (Rundown, Q&A, Battle) ist nicht mehr mit der gefundenen Adresse vorbelegt; die gefundene Adresse steht als „gefunden: host:port“ daneben. „Setzen“ ist gesperrt, bis der Port gültig ist (1 bis 65535), und nennt den Grund.
 - Switcher: Der untere Bereich „Szenen, Ebenen und Quellen“ lässt sich einklappen.
 - Timer: Delay und Auto-Advance sind einklappbare Karten unter dem Countdown.
@@ -291,7 +294,7 @@ Keine Funktion fällt weg, aber an diesen Stellen verhält sich die Bedienung an
 
 - Switcher, Audio: Die Statusleiste zeigt bei „— Kein Ton (stille Spur) —“ die Warnung „kein Gerät gewählt“, obwohl „Kein Ton“ eine bewusste Wahl sein kann. Soll das als „aus“ ohne Warnung erscheinen?
 - Switcher: Die Panel-Texte zu NDI, Audio und Einleitung (siehe Ortshinweise) nennen „Mischer-Leiste“ und „Mischer-Ansicht“. Neu formulieren oder so lassen?
-- Timer und Switcher: Die Zeilen „Live Production“ und „Video-Mischer · Program / Preview“ entfallen laut Spec („Links: Logo und Toolname“). Soll eine Untertitelzeile zurückkommen?
+- Timer und Switcher: Die Zeilen „Live Production“ und „Video-Mischer · Program / Preview“ entfallen, weil die Kopfzeile links nur Logo und Toolname zeigt. Soll eine Untertitelzeile zurückkommen?
 - Q&A: Soll der Satz „… hier ein Event erzeugen“ (Ortshinweise) umformuliert werden, weil er nun im Panel steht?
 - Battle: „Battle zurücksetzen? Runden/Stimmen werden geleert (Namen bleiben). Ein laufendes VS geht aus.“ ist die neue Rückfrage; der letzte Satz ist neu.
 
