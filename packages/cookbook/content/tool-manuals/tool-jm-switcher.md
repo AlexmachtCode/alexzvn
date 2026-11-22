@@ -34,25 +34,25 @@ summary: "Softwarebasierter Video-Mischer mit Program/Preview, NDI-/Capture-/Bil
 - Capture-Karte (SDI/HDMI)
 
 ### Netzwerk & Steuerung
-- TCP-Steuerport (Zeilenprotokoll): nicht fest verdrahtet — wird im Switcher aktiviert (Companion-/Steuerung-Einstellungen) bzw. per Umgebungsvariable JMSWITCH_CONTROL_PORT gesetzt. mDNS-Rolle switcher (jm-switcher-ctl).
+- TCP-Steuerport (Zeilenprotokoll): nicht fest verdrahtet — wird im Switcher im Panel ⚙ › Fernsteuerung aktiviert (die Statusleiste zeigt den Eintrag „Fernsteuerung“) bzw. per Umgebungsvariable JMSWITCH_CONTROL_PORT gesetzt. mDNS-Rolle switcher (jm-switcher-ctl).
 - Fern-Befehle: PREVIEW <n> | PROGRAM <n> | CUT | AUTO | RECORD | STREAM | STATE?.
 - Status-Push: STATE program, preview, recording, streaming, scenes — das Format ist rückwärtskompatibel zum alten Companion-Modul.
 
 ## Schritt-für-Schritt
 
 ### Einrichtung
-- Quellen hinzufügen (Bildschirm/Fenster, NDI, Capture-Karte)
+- Quellen hinzufügen (Bildschirm/Fenster, NDI, Capture-Karte) im unteren Bereich „Szenen, Ebenen und Quellen“ des Mischers (lässt sich einklappen)
 - Program/Preview prüfen, Reihenfolge der Quellen festlegen
-- Audioquelle zuordnen und Pegel kontrollieren
+- Audioquelle im Panel ⚙ › Audiogerät zuordnen und den Pegel in der Ausgabeleiste unter den Haupttasten kontrollieren
 - Aufnahme-Zielordner setzen
-- Für Stream: RTMP-Ziel + Stream-Key hinterlegen und Verbindung testen
-- Optional: Steuerport aktivieren und Companion verbinden (Tasten für CUT/AUTO/PROGRAM/Szenen)
+- Für Stream: RTMP-Ziel + Stream-Key im Panel ⚙ › Streaming hinterlegen und Verbindung testen (ohne Ziel ist die Haupttaste „Stream starten“ gesperrt und nennt den Grund)
+- Optional: Steuerport im Panel ⚙ › Fernsteuerung aktivieren und Companion verbinden (Tasten für CUT/AUTO/PROGRAM/Szenen)
 
 ### Während
 - Quelle in Preview wählen (PREVIEW <n>)
-- Mit CUT hart oder mit AUTO weich auf Program schalten
-- Aufnahme (RECORD) und/oder Stream (STREAM) starten
-- Stream-Status (Bitrate, Drops) und Audiopegel beobachten
+- Mit CUT hart oder mit AUTO weich auf Program schalten (Haupttasten „Cut“ und „Auto“ unter der Kopfzeile)
+- Aufnahme (RECORD) und/oder Stream (STREAM) starten (Haupttasten „Aufnehmen“ und „Stream starten“; die Kopfzeile zeigt dann „REC“ bzw. „LIVE“)
+- Stream-Status (Bitrate, Drops) und Audiopegel beobachten: Statusleiste unten (Aufnahme, Stream, Audio), der Pegel in der Ausgabeleiste
 
 ### Nachbereitung
 - Stream beenden, Aufnahme stoppen
@@ -70,9 +70,9 @@ summary: "Softwarebasierter Video-Mischer mit Program/Preview, NDI-/Capture-/Bil
 | --- | --- |
 | NDI-Quelle erscheint nicht | Gleiches Subnetz prüfen, Firewall/mDNS freigeben |
 | Kein Bild von der Capture-Karte | Treiber prüfen, Gerät nicht von anderem Programm belegt |
-| Companion steuert nicht | Steuerport im Switcher aktiviert? Gleicher Port in Companion? Gemeinsames LAN? |
+| Companion steuert nicht | Statusleiste „Fernsteuerung“ ansehen: Steuerport im Panel ⚙ › Fernsteuerung aktiviert? Gleicher Port in Companion? Gemeinsames LAN? |
 | Stream bricht ab | Bitrate senken, Upload prüfen, Backup-Uplink bereithalten |
-| Kein Ton im Stream | Audioquelle zugeordnet? Pegel/Mute prüfen |
+| Kein Ton im Stream | Audioquelle im Panel ⚙ › Audiogerät zugeordnet (Statusleiste „Audio“)? Pegel/Mute in der Ausgabeleiste prüfen |
 
 ## Checklisten
 

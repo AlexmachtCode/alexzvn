@@ -42,14 +42,14 @@ summary: "Zeilenbasierter Ablaufplan: ein GO startet pro Segment mehrere Tools g
 
 ### Einrichtung
 - Ziel-Tools starten, damit JM Rundown sie per mDNS findet (Steuer-Endpunkt jm-<tool>-ctl)
-- Rundown-Zeilen je Segment anlegen und die Aktionen pro Zeile zuordnen
-- Live-Status der gefundenen Tools prüfen (grün = ansteuerbar)
-- Optional: Companion auf Port 8731 / jm-rundown-ctl verbinden für Fern-GO
-- Als .jmrundown speichern
+- Rundown-Zeilen je Segment in der Liste anlegen („+ Zeile hinzufügen“) und die Aktionen pro Zeile im Editor rechts zuordnen („+ Aktion hinzufügen“)
+- Status der gefundenen Tools in der Statusleiste prüfen (ein Eintrag je Tool; „verbunden“ = ansteuerbar, „gefunden · nicht verbunden“ = im Netz da, aber nicht verbunden; Host und Port bei Bedarf im Panel ⚙ › Gegenstellen setzen)
+- Optional: Companion auf Port 8731 / jm-rundown-ctl verbinden für Fern-GO (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung)
+- Als .jmrundown speichern (Werkzeugleiste: Speichern)
 
 ### Während
-- Pro Segment GO drücken — feuert alle zugeordneten Aktionen gleichzeitig (lokal oder per RUNDOWN GO)
-- Live-Status / Tally im Blick behalten
+- Pro Segment die Haupttaste „GO“ drücken (oder die Leertaste) — feuert alle zugeordneten Aktionen gleichzeitig (lokal oder per RUNDOWN GO); „◀ Zurück“ und „Weiter ▶“ wählen die Zeile, ohne zu feuern
+- Statusleiste im Blick behalten (Verbindung je Tool und seine aktiven Rückmeldungen)
 - Bei Bedarf einzelne Aktionen per Override anpassen
 
 ### Nachbereitung
@@ -65,17 +65,17 @@ summary: "Zeilenbasierter Ablaufplan: ein GO startet pro Segment mehrere Tools g
 
 | Risiko | Gegenmaßnahme |
 | --- | --- |
-| Tool wird nicht gefunden | Gleiches Subnetz? Tool gestartet? mDNS/Firewall frei? Der ctl=1-Endpunkt jm-<tool>-ctl muss sichtbar sein |
-| GO feuert nicht alle Aktionen | Zuordnung je Zeile kontrollieren; Live-Status des betroffenen Tools prüfen |
-| Companion-GO ohne Wirkung | Companion zeigt auf Port 8731 (jm-rundown-ctl)? Gemeinsames LAN? |
-| Eine einzelne Aktion läuft ins Leere | Ziel-Tool neu gestartet → Port/Endpunkt erneut zuordnen |
+| Tool wird nicht gefunden | Statusleiste: Eintrag des Tools fehlt oder steht auf „nicht gefunden“. Gleiches Subnetz? Tool gestartet? mDNS/Firewall frei? Der ctl=1-Endpunkt jm-<tool>-ctl muss sichtbar sein |
+| GO feuert nicht alle Aktionen | Zuordnung je Zeile kontrollieren; Statusleiste: Eintrag des betroffenen Tools prüfen |
+| Companion-GO ohne Wirkung | Statusleiste „Fernsteuerung“ ansehen; Companion zeigt auf Port 8731 (jm-rundown-ctl)? Gemeinsames LAN? |
+| Eine einzelne Aktion läuft ins Leere | Ziel-Tool neu gestartet → Port/Endpunkt erneut zuordnen (Panel ⚙ › Gegenstellen) |
 
 ## Checklisten
 
 ### Einrichtung
 - [ ] Ziel-Tools laufen und sind gefunden (ctl=1 sichtbar)
 - [ ] Zeilen und Aktionen angelegt
-- [ ] Live-Status grün
+- [ ] Statusleiste: gefundene Tools verbunden
 - [ ] Als .jmrundown gespeichert
 
 ### Vor Live

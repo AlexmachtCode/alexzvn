@@ -38,20 +38,20 @@ summary: "BattleRap-Toolkit: zwei Kontrahenten, Runden mit Jury-Entscheid und Pu
 ## Schritt-für-Schritt
 
 ### Einrichtung
-- Kontrahenten und Runden anlegen
-- VS-Bauchbinde über JM Titler prüfen (BATTLE VS on/off blendet sie ein/aus)
-- Voting konfigurieren (Jury-Entscheid und/oder Publikum per QR, Port 7783)
-- Aufnahmequelle für den Instant-Replay verbinden
-- Optional: Companion auf Port 8734 verbinden
+- Kontrahenten (Name und Crew in den Ecken A und B) und Runden (Panel ⚙ › Battle) anlegen
+- VS-Bauchbinde über JM Titler prüfen (Statusleiste „Titler“; die Haupttaste „VS“ bzw. BATTLE VS on/off blendet sie ein/aus; ist der Titler nicht verbunden, sagt ein Hinweis unter der Taste, dass die Bauchbinde nicht erscheint)
+- Voting konfigurieren (Jury-Entscheid und/oder Publikum per QR, Port 7783): Schalter „Publikums-Voting“ im Panel ⚙ › Battle, Server mit „◉ An“ in der Karte „Publikums-Voting“ rechts im Live-Bereich; die Statusleiste zeigt „Publikums-Voting“
+- Aufnahmequelle für den Instant-Replay verbinden (Karte „Instant-Replay“ rechts im Live-Bereich, Knopf „Aufnahme …“; Zielordner im Panel ⚙ › Instant-Replay; Statusleiste „Aufnahme-Quelle“)
+- Optional: Companion auf Port 8734 verbinden (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung)
 
 ### Während
-- Runde starten, VS-Bauchbinde einblenden (BATTLE VS on)
-- Voting öffnen (BATTLE VOTING on), dann schließen (off); Sieger setzen mit BATTLE WIN a|b|tie
-- Bei Bedarf BATTLE REPLAY — letzte Sekunden aus der Aufnahme abspielen
-- Mit BATTLE NEXT in die nächste Runde
+- Runde starten, VS-Bauchbinde einblenden (Haupttaste „VS“ bzw. BATTLE VS on)
+- Voting öffnen (Haupttaste „Voting öffnen“ bzw. BATTLE VOTING on), dann schließen (off); Sieger setzen mit den Jury-Knöpfen im Scoreboard oder BATTLE WIN a|b|tie
+- Bei Bedarf Haupttaste „⧉ Clip“ bzw. BATTLE REPLAY — letzte Sekunden aus der Aufnahme abspielen
+- Mit „Nächste Runde ▶“ bzw. BATTLE NEXT in die nächste Runde
 
 ### Nachbereitung
-- Ergebnisse sichern; BATTLE RESET für das nächste Battle
+- Ergebnisse sichern; Zurücksetzen für das nächste Battle im Panel ⚙ › Zurücksetzen (die Rückfrage nennt, dass ein laufendes VS ausgeht) oder per BATTLE RESET
 
 ## Profi-Tipps
 - Voting-Fenster bewusst kurz halten (BATTLE VOTING on → off) — das hält die Dramaturgie straff.
@@ -63,10 +63,10 @@ summary: "BattleRap-Toolkit: zwei Kontrahenten, Runden mit Jury-Entscheid und Pu
 
 | Risiko | Gegenmaßnahme |
 | --- | --- |
-| QR-Voting kommt nicht an | Gäste-WLAN erreicht Port 7783 am Host? http://<host-ip>:7783/ testen |
-| VS-Bauchbinde fehlt | JM Titler im selben LAN gestartet? BATTLE VS on gesendet? |
-| Instant-Replay ist leer | Läuft die Aufnahme (Recorder) durchgehend? Quelle/Verbindung prüfen |
-| Companion steuert nicht | Port 8734 (jm-battle-ctl) erreichbar? Gemeinsames LAN? |
+| QR-Voting kommt nicht an | Server in der Karte „Publikums-Voting“ auf „◉ An“, Schalter „Publikums-Voting“ im Panel ⚙ › Battle an? Gäste-WLAN erreicht Port 7783 am Host? http://<host-ip>:7783/ testen |
+| VS-Bauchbinde fehlt | Statusleiste „Titler“ lesen; Schalter „VS-Bauchbinde automatisch“ im Panel ⚙ › Battle an? JM Titler im selben LAN gestartet? BATTLE VS on gesendet? |
+| Instant-Replay ist leer | Läuft die Aufnahme (Recorder) durchgehend? Quelle/Verbindung prüfen (Statusleiste „Aufnahme-Quelle“) |
+| Companion steuert nicht | Statusleiste „Fernsteuerung“ ansehen; Port 8734 (jm-battle-ctl) erreichbar? Gemeinsames LAN? |
 
 ## Checklisten
 

@@ -36,15 +36,15 @@ summary: "Wortmeldungs- und Frage-Queue: der Saal reicht per QR vom Handy ein (P
 ## Schritt-für-Schritt
 
 ### Einrichtung
-- QR-Einreichung aktivieren (Port 7782) — Erreichbarkeit der Einreich-Seite vom Gäste-WLAN testen
-- Moderation/Freigabe einstellen (Filter vor Veröffentlichung)
-- Kopplung mit JM Timer (Redezeit) und JM Titler (Name/Funktion) prüfen — beide im selben LAN gestartet
-- Optional: Companion auf Port 8733 verbinden (NEXT/END/EXTEND/CLEAR)
+- QR-Einreichung mit der Haupttaste „Saal-Einreichung“ im Live-Bereich aktivieren („◉ An“, Port 7782; der QR steht rechts im Live-Bereich) — Erreichbarkeit der Einreich-Seite vom Gäste-WLAN testen
+- Moderation/Freigabe im Panel ⚙ › Moderation einstellen (Filter vor Veröffentlichung)
+- Kopplung mit JM Timer (Redezeit) und JM Titler (Name/Funktion) prüfen — beide im selben LAN gestartet. Die Statusleiste zeigt „Kopplung Timer“ und „Kopplung Titler“, die Schalter dazu stehen im Panel ⚙ › Redezeit und Kopplung
+- Optional: Companion auf Port 8733 verbinden (NEXT/END/EXTEND/CLEAR; Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung)
 
 ### Während
 - Eingehende Fragen moderieren und freigeben
-- Per Klick (oder QA NEXT) jemanden ans Wort holen — Timer startet, Bauchbinde wird eingeblendet
-- Redezeit verlängern mit QA EXTEND 60; Wortbeitrag beenden mit QA END
+- Per Klick (Haupttaste „Nächste ▶“ oder QA NEXT) jemanden ans Wort holen — Timer startet, Bauchbinde wird eingeblendet
+- Redezeit verlängern mit QA EXTEND 60; Wortbeitrag beenden mit „■ Beenden“ oder QA END
 - Queue abarbeiten; QA CLEAR leert sie bei Bedarf
 
 ### Nachbereitung
@@ -60,10 +60,10 @@ summary: "Wortmeldungs- und Frage-Queue: der Saal reicht per QR vom Handy ein (P
 
 | Risiko | Gegenmaßnahme |
 | --- | --- |
-| QR-Einreichung kommt nicht an | Gäste-WLAN erreicht Port 7782 am Host? http://<host-ip>:7782/ im Browser testen |
-| Timer/Titler reagieren nicht | Beide im selben LAN gestartet? mDNS/Firewall prüfen |
-| Companion steuert nicht | Port 8733 (jm-qa-ctl) erreichbar? Gemeinsames LAN? |
-| Bauchbinde bleibt leer | Titler erreichbar? TITLER TEXT-Kopplung in den Q&A-Einstellungen aktiv? |
+| QR-Einreichung kommt nicht an | Haupttaste „Saal-Einreichung“ auf „◉ An“? Gäste-WLAN erreicht Port 7782 am Host? http://<host-ip>:7782/ im Browser testen |
+| Timer/Titler reagieren nicht | Statusleiste „Kopplung Timer“ bzw. „Kopplung Titler“ lesen (aus, nicht gefunden, gefunden · nicht verbunden). Beide im selben LAN gestartet? mDNS/Firewall prüfen |
+| Companion steuert nicht | Statusleiste „Fernsteuerung“ ansehen; Port 8733 (jm-qa-ctl) erreichbar? Gemeinsames LAN? |
+| Bauchbinde bleibt leer | Titler erreichbar? Schalter „Bauchbinde automatisch“ im Panel ⚙ › Redezeit und Kopplung an? |
 
 ## Checklisten
 

@@ -28,10 +28,10 @@ summary: "Countdown- und Produktions-Timer mit Sprecherfenster, LAN-Remote-View 
 
 ### Netzwerk & Ports
 - Port 7777 (Socket.IO/HTTP, 0.0.0.0): Operator- und Sprecherfenster, der LAN-Remote-View im Browser und JM Stage Display hängen hier dran.
-- Remote-View (Read-Only-Spiegel für iPad/Backstage-Monitor): http://<host-ip>:7777/?view=remote (Dev-Modus Port 5173). Die kopierbaren URLs stehen in der Operator-Sidebar unter „Remote".
+- Remote-View (Read-Only-Spiegel für iPad/Backstage-Monitor): http://<host-ip>:7777/?view=remote (Dev-Modus Port 5173). Die kopierbaren URLs stehen im Panel ⚙ › LAN-Fernbedienung.
 - Port 8724 (TCP-Zeilenprotokoll, getrennt von 7777): der Steuerport für Bitfocus Companion und JM Rundown.
 - mDNS: zwei Adverts — role=timer (Socket.IO, von Stage Display genutzt) und jm-timer-ctl (TXT ctl=1, von Companion automatisch gefunden).
-- Optional Token-Auth für den Remote-Zugriff (in den Einstellungen aktivierbar, Token neu generierbar).
+- Optional Token-Auth für den Remote-Zugriff (im Panel ⚙ › LAN-Fernbedienung mit „Auth aktivieren“ einschaltbar, Token dort neu generierbar).
 
 ### Fernsteuer-Befehle (TCP 8724)
 - TIMER START / TIMER STOP / TIMER RESET — Lauf steuern
@@ -43,14 +43,14 @@ summary: "Countdown- und Produktions-Timer mit Sprecherfenster, LAN-Remote-View 
 
 ### Einrichtung
 - Timetable bzw. Presets je Segment anlegen — Regieplan optional per XLSX importieren (Spalten Titel/Dauer/Notiz; Dauer als HH:MM:SS, MM:SS oder Minuten)
-- Sprecherfenster auf den Talent-Monitor schieben (Vollbild)
-- Remote-View bei Bedarf: URL aus der „Remote"-Sidebar an Backstage/iPad geben
-- Fernsteuerung: Companion auf den Steuerport 8724 zeigen lassen (Auto-Discovery über jm-timer-ctl) — oder mit JM Rundown koppeln, das denselben Port nutzt
+- Sprecherfenster mit dem Speaker-Knopf in der Kopfzeile öffnen (Statusleiste „Speaker-Fenster“, Einstellungen im Panel ⚙ › Speaker-Fenster) und auf den Talent-Monitor schieben (Vollbild)
+- Remote-View bei Bedarf: URL aus dem Panel ⚙ › LAN-Fernbedienung an Backstage/iPad geben
+- Fernsteuerung: Companion auf den Steuerport 8724 zeigen lassen (Auto-Discovery über jm-timer-ctl; Port und verbundene Clients zeigt die Statusleiste unter „Fernsteuerung“, Panel ⚙ › Fernsteuerung) — oder mit JM Rundown koppeln, das denselben Port nutzt
 
 ### Während
-- Timer starten / stoppen / zurücksetzen (lokal oder per Companion: TIMER START/STOP/RESET)
+- Timer starten / stoppen / zurücksetzen (lokal mit den Haupttasten „Start“, „Resume“/„Pause“ und „Reset“, im Countdown auch Leertaste und R; per Companion: TIMER START/STOP/RESET)
 - Nachschlag geben mit TIMER ADD 60; harte Korrektur mit TIMER SET 300
-- Kurznachricht für die Bühne einblenden; Over-Time (Rotphase) im Blick behalten
+- Kurznachricht für die Bühne einblenden (Nachrichtenleiste über dem Inhalt); Over-Time (Rotphase) im Blick behalten
 
 ### Nachbereitung
 - Timer bzw. Timetable für das nächste Segment zurücksetzen
@@ -66,8 +66,8 @@ summary: "Countdown- und Produktions-Timer mit Sprecherfenster, LAN-Remote-View 
 | Risiko | Gegenmaßnahme |
 | --- | --- |
 | Remote-View im Browser lädt nicht | Host-IP + Port 7777 erreichbar? Gleiches LAN, Firewall für 7777 frei |
-| Companion/Rundown steuert nicht | Das ist Port 8724, nicht 7777 — Steuerport offen? jm-timer-ctl im mDNS sichtbar? |
-| Remote zeigt „nicht autorisiert" | Token-Auth aktiv → Token aus den Einstellungen verwenden oder neu generieren |
+| Companion/Rundown steuert nicht | Das ist Port 8724, nicht 7777 — Steuerport offen (Statusleiste „Fernsteuerung“)? jm-timer-ctl im mDNS sichtbar? |
+| Remote zeigt „nicht autorisiert" | Token-Auth aktiv → Token aus dem Panel ⚙ › LAN-Fernbedienung verwenden oder dort neu generieren |
 | Stage Display findet den Timer nicht | role=timer-Advert (nicht der ctl-Endpunkt), gleiches Subnetz, mDNS frei |
 | Sprecherfenster auf falschem Monitor | Fenster auf den Talent-Monitor ziehen, Vollbild setzen |
 
