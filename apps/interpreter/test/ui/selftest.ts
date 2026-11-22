@@ -16,4 +16,5 @@ async function lade(name: string, modul: () => Promise<unknown>): Promise<void> 
 
 await lade('werkzeug', () => import('./werkzeug.test'));
 await lade('bruecken', () => import('./bruecken.test'));
+await lade('oberflaeche', () => import('./oberflaeche.test'));
 abschluss();
