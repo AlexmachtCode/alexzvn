@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Funktionsliste nach dem Umbau (UX Welle 2a, Prompter e; Spec 10 „Kein Funktionsverlust“). Jede der 123 Zeilen in den
 // Abschnitten 1–7 von docs/ux/funktionslisten/prompter.md ist in „künftig wo“ abgehakt: „✓ “ und ein Ort des Ortsregisters,
-// „unverändert (…)“, „entfällt (…, E…)“ oder „ersetzt durch {Ort} (…, E…)“. E-Verweise nur auf E1–E15 dieses Plans. Jede
+// „unverändert (…)“, „entfällt (…, E…)“ oder „ersetzt durch {Ort} (…, E…)“. E-Verweise nur auf E1–E16 dieses Plans. Jede
 // genannte Datei existiert, Groß- und Kleinschreibung wie im Repo. Dazu Querprüfungen gegen den Code (Kürzel und Filter,
 // Panel-Tasten nach O1, die Abläufe in den immer gemounteten Teilen statt im Panel, Tooltips R-T6a, Hook in der Wurzel R-T6b).
 // Läuft im Paketordner apps/prompter (npm run selftest -w @jm/prompter).
@@ -116,9 +116,9 @@ if (GIT_PRUEFEN && GIT === null) console.log(`PR Funktionsliste: kein git-Verlau
 
 /** Datei in Backticks: Pfad mit Endung, aufgelöst nach der Pfadregel im Kopf der Liste. */
 const PFAD = /`([A-Za-z0-9_./-]+\.(?:tsx|ts|css|html|json|md|mjs))`/g;
-/** Nur die Entscheidungen E1–E15 dieses Plans sind erlaubte Verweise. */
-const VERWEIS = /\bE(?:[1-9]|1[0-5])\b/;
-const FREMD = /\b(?:E(?:0|1[6-9]|[2-9]\d)|E\d{3,}|OF\d+)\b/;
+/** Nur die Entscheidungen E1–E16 dieses Plans sind erlaubte Verweise. */
+const VERWEIS = /\bE(?:[1-9]|1[0-6])\b/;
+const FREMD = /\b(?:E(?:0|1[7-9]|[2-9]\d)|E\d{3,}|OF\d+)\b/;
 
 interface Zeile {
   abschnitt: number;
@@ -188,7 +188,7 @@ function zeilenFehler(z: Zeile): string | null {
   const rest = k.slice(2);
   const ohneCode = k.replace(/`[^`]*`/g, '');
   if (ohneCode.includes('"')) return 'ASCII-Anführungszeichen';
-  if (FREMD.test(ohneCode)) return 'Verweis außerhalb von E1–E15';
+  if (FREMD.test(ohneCode)) return 'Verweis außerhalb von E1–E16';
   let form: string | undefined;
   if (rest.startsWith('unverändert (')) form = 'unverändert';
   else if (rest.startsWith('entfällt (')) form = 'entfällt';
@@ -262,6 +262,9 @@ const zeile = (nr: number): Zeile | undefined => alle.find((z) => z.nr === nr);
 const kuenftig = (nr: number): string => zeile(nr)?.zellen[6] ?? '';
 const quelle = (pfad: string): string => (gibtEs(pfad) ? readFileSync(aufgeloest(pfad), 'utf8') : '');
 const beginnt = (nr: number, ...orte: string[]): boolean => orte.some((o) => kuenftig(nr).startsWith(`✓ ${o}`));
+
+// ── Zeile 4: der Untertitel im Kopf entfällt nach E16, Logo und Name bleiben im Kopf ──
+ok(beginnt(4, 'Kopf') && /entfällt \(E16\)/.test(kuenftig(4)) && kuenftig(4).includes('Teleprompter'), 'PR Funktionsliste Nr. 4: Logo und Name im Kopf, der Untertitel „Teleprompter“ entfällt (E16)');
 
 // ── Pflichtzeilen Tastatur (Nr. 93–98): der Hook in der Wurzel-View, die Kürzel wie bisher, E1 keine neuen ──
 {
