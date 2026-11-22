@@ -66,6 +66,10 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
     { fall: 'pausiert, ein Pad spielt', p: spieler({ playingCueIds: [1], showPaused: true }), pads: [7], live: true },
     { fall: 'nur ein Pad', p: spieler(), pads: [7], live: true },
     { fall: 'nichts', p: spieler(), pads: [], live: false },
+    // Fix vor Prüfung: GO auf Video-Cue 2, während Video-Cue 1 lief; Video 2 endet. Die alte Video-ID bleibt in playingCueIds
+    // (Companion wie bisher), videoCue ist null. Hier steht Cue 2 (Video) für die veraltete ID.
+    { fall: 'veraltetes Video (Video-ID in playingCueIds, kein videoCue)', p: spieler({ playingCueIds: [2] }), pads: [], live: false },
+    { fall: 'Audio-Cue spielt neben veralteter Video-ID', p: spieler({ playingCueIds: [1, 2] }), pads: [], live: true },
   ];
   for (const t of tabelle) {
     const kopf = kopfOnAir(stand({ player: t.p, pads: t.pads }));
@@ -80,12 +84,22 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
     [false, false, true, false],
     'PL ON AIR Wahrheitstabelle: Store noch nicht da → Show nie live, ein gemeldetes Pad schon',
   );
+  gleich(
+    [
+      showSpielt({ player: spieler({ playingCueIds: [2] }) }),
+      eintrag(stand({ player: spieler({ playingCueIds: [2] }) }), 'show').detail,
+      eintrag(stand({ player: spieler({ playingCueIds: [1, 2] }) }), 'show').detail,
+      showSpielt({ player: spieler({ playingCueIds: [99] }) }),
+    ],
+    [false, 'Standby Cue 1 · Intro', '1 laufend', true],
+    'PL ON AIR Wahrheitstabelle: veraltete Video-ID zählt weder für ON AIR noch als laufend; Audio daneben ergibt 1 laufend; ID ohne Listeneintrag zählt (Seite an)',
+  );
 
   // Kreuzprodukt mit eigenem Orakel in Szenen-Sprache: Audio-Cue 1 (keiner, im Vorlauf, spielt), Video-Cue 2 (keiner, im
-  // Vorlauf, gestartet ohne Fortschritt, mit Fortschritt), Pause, Pads.
+  // Vorlauf, gestartet ohne Fortschritt, mit Fortschritt, veraltet = noch in playingCueIds ohne videoCue), Pause, Pads.
   const faelle = kreuz({
     audio: ['keiner', 'vorlauf', 'spielt'],
-    video: ['keiner', 'vorlauf', 'ohneFortschritt', 'mitFortschritt'],
+    video: ['keiner', 'vorlauf', 'ohneFortschritt', 'mitFortschritt', 'veraltet'],
     pausiert: [false, true],
     pads: ['undefined', 'leer', 'eins'],
   } as const);
@@ -203,8 +217,14 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
     videoOhneFortschritt: { playingCueIds: [2], videoCue: video },
     audio: { playingCueIds: [1] },
     zwei: { playingCueIds: [1, 2], videoCue: video, videoProgress: FORTSCHRITT },
+    // Fix vor Prüfung: veraltete Video-ID (Video beendet, ID noch in playingCueIds) zählt nicht als laufend.
+    veraltetesVideo: { playingCueIds: [2] },
+    audioUndVeraltet: { playingCueIds: [1, 2] },
   };
-  const ZAHL: Record<string, number> = { nichts: 0, vorlauf: 0, videoOhneFortschritt: 0, audio: 1, zwei: 2 };
+  const ZAHL: Record<string, number> = { nichts: 0, vorlauf: 0, videoOhneFortschritt: 0, audio: 1, zwei: 2, veraltetesVideo: 0, audioUndVeraltet: 1 };
+  // Ohne Cue-Liste (ohneShow) ist ID 2 nicht als Video erkennbar und zählt (Irrtum zur Seite „an“, wie das frühe Ende von
+  // showAudio.play); ein laufender Cue ohne Listeneintrag kann wirklich klingen (Vorlauf-Zeitgeber eines entfernten Cues).
+  const ZAHL_OHNE_LISTE: Record<string, number> = { ...ZAHL, veraltetesVideo: 1, audioUndVeraltet: 2 };
   const STANDBY: Record<number, string> = { 0: 'Cue 1 · Intro', 1: 'Cue 2 · m102.mp4', 2: 'Cue 3 · —', 3: '— Ende —' };
   const faelle = kreuz({ player: ['undefined', 'ohneShow', 'da'], pausiert: [false, true], lauf: Object.keys(LAUF), standby: [0, 1, 2, 3] } as const);
   pruefeFaelle('PL Statusleiste show: unbekannt, pausiert (warn), n laufend (ok, nur wirklich spielende), keine Show gewählt, sonst Standby ‹Name› (off)', faelle, (f) => {
@@ -213,7 +233,7 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
         ? undefined
         : spieler({ ...LAUF[f.lauf], showPaused: f.pausiert, standbyIndex: f.standby, ...(f.player === 'ohneShow' ? { activeShowId: null, showCues: [], standbyIndex: 0 } : {}) });
     const i = eintrag(stand({ player: p }), 'show');
-    const n = ZAHL[f.lauf];
+    const n = (f.player === 'ohneShow' ? ZAHL_OHNE_LISTE : ZAHL)[f.lauf];
     const soll =
       p === undefined
         ? 'off unbekannt'

@@ -123,18 +123,23 @@ export function standbyText(p: PlayerZustand | undefined): string {
 }
 
 /**
- * Zahl der Show-Cues, die wirklich spielen (W2-1): Audio-Cues aus playingCueIds, die weder im Vorlauf stehen noch der
- * Video-Cue sind, dazu der Video-Cue, sobald das Ausgabefenster eine Position gemeldet hat. Pause zählt hier nicht.
+ * Zahl der Show-Cues, die wirklich spielen (W2-1): IDs aus playingCueIds, die nicht im Vorlauf stehen, nicht der Video-Cue
+ * sind und deren Show-Cue kein Video ist, dazu der Video-Cue, sobald das Ausgabefenster eine Position gemeldet hat. Video
+ * zählt also nur über den Videofortschritt: Eine Video-ID, die nach dem Ende eines späteren Videos in playingCueIds
+ * stehen bleibt (Companion zählt sie weiter, U6), ist nicht auf Sendung. Eine ID ohne Eintrag in der Cue-Liste zählt
+ * (Irrtum zur Seite „an“: der Vorlauf-Zeitgeber eines entfernten Cues startet ihn trotzdem). Pause zählt hier nicht.
  */
 function spielendeCues(p: PlayerZustand): number {
   const videoId = p.videoCue?.id;
-  const audio = new Set(p.playingCueIds.filter((id) => !p.vorlaufCueIds.includes(id) && id !== videoId)).size;
+  const istVideo = (id: number): boolean => p.showCues.find((c) => c.id === id)?.media?.kind === 'video';
+  const audio = new Set(p.playingCueIds.filter((id) => !p.vorlaufCueIds.includes(id) && id !== videoId && !istVideo(id))).size;
   return audio + (p.videoCue !== null && p.videoProgress !== null ? 1 : 0);
 }
 
 /**
- * Die Show spielt wirklich (W2-1, Wahrheitstabelle Task 14): nicht pausiert und (eine ID in playingCueIds, die weder in
- * vorlaufCueIds noch die ID von videoCue ist, oder videoCue mit gemeldetem Fortschritt). Ohne Store nie.
+ * Die Show spielt wirklich (W2-1, Wahrheitstabelle Task 14, Fix vor Prüfung): nicht pausiert und (eine ID in
+ * playingCueIds, die weder in vorlaufCueIds noch die ID von videoCue ist und deren Show-Cue kein Video ist, oder videoCue
+ * mit gemeldetem Fortschritt). Ohne Store nie.
  */
 export function showSpielt(s: Pick<OberflaechenStand, 'player'>): boolean {
   const p = s.player;
@@ -214,7 +219,8 @@ function videoAusgabeItem(s: OberflaechenStand): StatusItem {
 }
 
 /**
- * Cue-Show: pausiert → warn; wirklich spielende Cues → ok „n laufend“ (Vorlauf und Video vor dem Laden zählen nicht);
+ * Cue-Show: pausiert → warn; wirklich spielende Cues → ok „n laufend“ (Vorlauf, Video vor dem Laden und veraltete Video-IDs
+ * zählen nicht);
  * keine Show gewählt → off; sonst off „Standby ‹Name›“. Ohne Store unbekannt. Nie live (ON AIR sitzt im Kopf).
  */
 function showItem(p: PlayerZustand | undefined): StatusItem {

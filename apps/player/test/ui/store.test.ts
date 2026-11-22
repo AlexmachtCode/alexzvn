@@ -262,6 +262,29 @@ try {
       'PL ON AIR Wahrheitstabelle: Stop in der Pause, dann GO mit Audio-Cue → live true (vorher pausiert und nach Stop nicht live)',
     );
   }
+
+  // ── PL ON AIR Wahrheitstabelle am echten Store: GO auf Video 2, während Video 1 läuft; Video 2 endet (veraltete ID) ──
+  {
+    neu();
+    const live = (): boolean => kopfOnAir({ player: p(), pads: [] }).live;
+    p().setStandby(1);
+    p().showGo();
+    p().onOutputTime({ currentTime: 1, duration: 10 });
+    const video1 = live();
+    p().setStandby(3);
+    p().showGo();
+    await warte(90);
+    const video2Laedt = live();
+    p().onOutputTime({ currentTime: 1, duration: 10 });
+    const video2 = live();
+    p().onOutputEnded();
+    const b = berichte[berichte.length - 1];
+    gleich(
+      [video1, video2Laedt, video2, p().playingCueIds, p().videoCue, live(), b.playing, b.playingCount],
+      [true, false, true, [12], null, false, true, 1],
+      'PL ON AIR Wahrheitstabelle: veraltetes Video → nach dem Ende von Video 2 nicht live, obwohl Video 1 noch in playingCueIds steht (Companion zählt es weiter wie bisher)',
+    );
+  }
 } finally {
   // Zeitgeber räumen, dann Attrappen zurücknehmen: danach läuft nichts mehr gegen das Schein-window.
   p().showPanic();
