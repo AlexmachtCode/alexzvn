@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { AUDIO_TEXTE, type AudioDeviceOption } from '@jm/settings';
 import { AppShell, useBrueckenWert } from '@jm/ui';
 import type { DisplayInfo } from '@shared/types';
+import { beobachteGeraetewechsel } from '@/core/audio';
 import { FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
 import {
   FRAME_ANFANG,
@@ -90,6 +91,9 @@ export function SwitcherRahmen({
     );
   };
   useEffect(() => scanAudio(false), []);
+  // Gerät ab- oder angesteckt (0.12.1): Liste neu lesen, ohne Berechtigungsprobe (R6). Fehlt das gewählte Gerät, zeigt die
+  // Statusleiste „Gerät nicht gefunden“; das Wiederverbinden macht der AudioController selbst.
+  useEffect(() => beobachteGeraetewechsel(navigator.mediaDevices, () => scanAudio(false)), []);
   useEffect(() => {
     if (panelOffen) scanAudio(true);
   }, [panelOffen]);

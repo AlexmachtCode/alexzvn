@@ -168,7 +168,7 @@ function knoepfe(html: string): Array<[string, string | undefined, string | unde
 // ── Ausgabeleiste: keine LIVE/REC-Anzeige, keine NDI-Quellwahl; Pegel und Mute bleiben ──
 {
   const audio = {
-    getState: () => ({ hasDevice: true, muted: false, gain: 1, level: 0.1, error: null }),
+    getState: () => ({ hasDevice: true, muted: false, gain: 1, level: 0.1, error: null, getrennt: false }),
     subscribe: () => () => undefined,
     setMuted: () => undefined,
     setGain: () => undefined,

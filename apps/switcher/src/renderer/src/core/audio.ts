@@ -7,6 +7,10 @@
 //
 // Fader/Mute wirken live (Gain-Node). Ein Gerätewechsel baut den Graph neu — das
 // wirkt im Output erst beim nächsten Start (MediaRecorder-Track ist fix).
+//
+// Abziehen (0.12.1): Endet die Eingangsspur des offenen Geräts, meldet der Controller `getrennt` und löst nur die Quelle.
+// Gain, Analyser und Ausgang bleiben, damit eine laufende Aufnahme oder Sendung ihre Spur behält. Meldet der Browser danach
+// ein devicechange und steht das Gerät wieder in der Liste, hängt eine neue Quelle an denselben Gain: Der Ton kommt zurück.
 
 export interface AudioState {
   hasDevice: boolean;
@@ -14,6 +18,27 @@ export interface AudioState {
   gain: number; // 0..1.5
   level: number; // 0..1 (RMS)
   error: string | null;
+  /** Die Eingangsspur des gewählten Geräts ist beendet (abgezogen) und noch nicht wieder verbunden. */
+  getrennt: boolean;
+}
+
+/** Ruft `cb` bei jedem devicechange; die Rückgabe meldet ab. Ohne mediaDevices (kein Browser) ohne Wirkung. */
+export function beobachteGeraetewechsel(md: MediaDevices | undefined, cb: () => void): () => void {
+  if (!md || typeof md.addEventListener !== 'function') return () => {};
+  const bei = (): void => cb();
+  md.addEventListener('devicechange', bei);
+  return () => md.removeEventListener('devicechange', bei);
+}
+
+function eingang(deviceId: string): MediaStreamConstraints {
+  return {
+    audio: { deviceId: { exact: deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    video: false,
+  };
+}
+
+function mediaDevices(): MediaDevices | undefined {
+  return typeof navigator === 'undefined' ? undefined : navigator.mediaDevices;
 }
 
 export class AudioController {
@@ -26,8 +51,10 @@ export class AudioController {
   private buf = new Float32Array(2048);
   private meterTimer: number | null = null;
   private currentDeviceId = '';
+  private geraeteAbmelden: (() => void) | null = null;
+  private verbindetNeu = false;
 
-  private state: AudioState = { hasDevice: false, muted: false, gain: 1, level: 0, error: null };
+  private state: AudioState = { hasDevice: false, muted: false, gain: 1, level: 0, error: null, getrennt: false };
   private listeners = new Set<() => void>();
 
   subscribe(cb: () => void): () => void {
@@ -61,18 +88,21 @@ export class AudioController {
 
   /** Eingangsgerät setzen ('' = aus). Baut den Graph (neu) auf. */
   async setDevice(deviceId: string): Promise<void> {
+    // Dieselbe Wahl nach dem Abziehen: neu öffnen, der Graph bleibt.
+    if (deviceId !== '' && deviceId === this.currentDeviceId && this.state.getrennt) {
+      await this.wiederVerbinden();
+      return;
+    }
     if (deviceId === this.currentDeviceId && (deviceId === '' || this.dest)) return;
     this.currentDeviceId = deviceId;
     this.teardownGraph();
     if (!deviceId) {
-      this.patch({ hasDevice: false, level: 0, error: null });
+      this.patch({ hasDevice: false, level: 0, error: null, getrennt: false });
       return;
     }
+    if (!this.geraeteAbmelden) this.geraeteAbmelden = beobachteGeraetewechsel(mediaDevices(), () => void this.geraeteGeaendert());
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { deviceId: { exact: deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-        video: false,
-      });
+      const stream = await navigator.mediaDevices.getUserMedia(eingang(deviceId));
       // Falls zwischenzeitlich ein anderes Gerät gewählt wurde: verwerfen.
       if (this.currentDeviceId !== deviceId) {
         stream.getTracks().forEach((t) => t.stop());
@@ -92,11 +122,75 @@ export class AudioController {
       this.source.connect(this.gainNode);
       this.gainNode.connect(this.analyser);
       this.gainNode.connect(this.dest);
+      this.beiSpurende(stream);
       this.startMeter();
-      this.patch({ hasDevice: true, error: null });
+      this.patch({ hasDevice: true, error: null, getrennt: false });
     } catch (e) {
       this.currentDeviceId = '';
-      this.patch({ hasDevice: false, error: e instanceof Error ? e.message : String(e) });
+      this.patch({ hasDevice: false, error: e instanceof Error ? e.message : String(e), getrennt: false });
+    }
+  }
+
+  /** Endet eine Spur des offenen Streams (Gerät abgezogen): nur die Quelle lösen, getrennt melden. Abgelöste Streams zählen nicht. */
+  private beiSpurende(stream: MediaStream): void {
+    for (const spur of stream.getAudioTracks()) {
+      spur.addEventListener(
+        'ended',
+        () => {
+          if (this.srcStream !== stream) return;
+          this.quelleLoesen();
+          this.patch({ hasDevice: false, getrennt: true, level: 0 });
+        },
+        { once: true },
+      );
+    }
+  }
+
+  /** Nur die Eingangsseite abbauen; Gain, Analyser und Ausgang bleiben (laufende Aufnahme und Sendung behalten ihre Spur). */
+  private quelleLoesen(): void {
+    try {
+      this.source?.disconnect();
+    } catch {
+      // egal
+    }
+    this.srcStream?.getTracks().forEach((t) => t.stop());
+    this.srcStream = null;
+    this.source = null;
+  }
+
+  /** devicechange: Ist das getrennte Gerät wieder in der Liste, neu verbinden. */
+  private async geraeteGeaendert(): Promise<void> {
+    if (!this.state.getrennt || !this.currentDeviceId) return;
+    const id = this.currentDeviceId;
+    let liste: MediaDeviceInfo[];
+    try {
+      liste = await navigator.mediaDevices.enumerateDevices();
+    } catch {
+      return;
+    }
+    if (liste.some((d) => d.kind === 'audioinput' && d.deviceId === id)) await this.wiederVerbinden();
+  }
+
+  /** Das gewählte Gerät neu öffnen und an den bestehenden Gain hängen; scheitert es, bleibt der Zustand getrennt. */
+  private async wiederVerbinden(): Promise<void> {
+    const id = this.currentDeviceId;
+    if (this.verbindetNeu || !id || !this.state.getrennt || !this.ctx || !this.gainNode) return;
+    this.verbindetNeu = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(eingang(id));
+      if (this.currentDeviceId !== id || !this.state.getrennt || !this.ctx || !this.gainNode) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      this.srcStream = stream;
+      this.source = this.ctx.createMediaStreamSource(stream);
+      this.source.connect(this.gainNode);
+      this.beiSpurende(stream);
+      this.patch({ hasDevice: true, getrennt: false, error: null });
+    } catch {
+      // Gerät noch nicht bereit: getrennt bleibt stehen, das nächste devicechange versucht es erneut.
+    } finally {
+      this.verbindetNeu = false;
     }
   }
 
@@ -152,6 +246,8 @@ export class AudioController {
   }
 
   destroy(): void {
+    this.geraeteAbmelden?.();
+    this.geraeteAbmelden = null;
     this.teardownGraph();
     void this.ctx?.close().catch(() => {});
     this.ctx = null;

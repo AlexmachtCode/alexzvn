@@ -56,6 +56,8 @@ export const SWITCHER_TEXTE = {
   laeuft: 'läuft',
   keinZiel: 'kein Ziel',
   stumm: 'stumm',
+  /** Audio-Fehler, wenn die Eingangsspur des gewählten Geräts endete (abgezogen, 0.12.1); der Abschnitt setzt „Fehler: “ davor. */
+  geraetGetrennt: 'Gerät getrennt',
   /** Name des Companion-Moduls (packages/companion-jm-switcher): wörtlich aus dem heutigen Hinweis. */
   companionModul: 'jm-switcher',
   /** Name der heutigen Wahl „kein Ton“: wörtlich die bisherige Option. */
@@ -250,7 +252,7 @@ const KEIN_ABLAUF = (): void => {};
 export const FRAME_ANFANG: FrameMeldung = {
   output: { recording: false, streaming: false, recPath: null, error: null, errorScope: null },
   ndi: { active: false, name: '', connections: 0, error: null },
-  audio: { hasDevice: false, muted: false, gain: 1, level: 0, error: null },
+  audio: { hasDevice: false, muted: false, gain: 1, level: 0, error: null, getrennt: false },
   canTake: false,
   canAuto: false,
   transitioning: false,
@@ -345,6 +347,7 @@ export function fernsteuerungAbschnitt(s: OberflaechenStand, a: SwitcherAktionen
 /**
  * Programm-Audio (eine Wahl). Fehler von getUserMedia stehen als Fehler im Abschnitt, außer das gewählte Gerät fehlt in der
  * gemessenen Liste: Dann gilt „Gerät nicht gefunden“ (der Fehlertext des Browsers wäre dieselbe Ursache, nur unverständlicher).
+ * Endete die Spur des offenen Geräts (getrennt, 0.12.1), ist das der Fehler, bis das Gerät wieder verbunden ist.
  */
 export function audioAbschnitt(s: OberflaechenStand, a: SwitcherAktionen): AudioDeviceSectionProps {
   const wahl = s.settings.audioInputId;
@@ -352,7 +355,7 @@ export function audioAbschnitt(s: OberflaechenStand, a: SwitcherAktionen): Audio
   const fehlt = wahl !== '' && liste !== undefined && !liste.some((d) => d.id === wahl);
   return {
     id: ABSCHNITT.audio,
-    error: s.audio.error !== null && !fehlt ? s.audio.error : undefined,
+    error: fehlt ? undefined : s.audio.getrennt ? SWITCHER_TEXTE.geraetGetrennt : (s.audio.error ?? undefined),
     choices: [
       {
         key: 'programm',

@@ -92,7 +92,9 @@ export function SwitcherView({ onOpenSettings, onFrame }: SwitcherViewProps) {
       audio.subscribe(() => {
         const a = audio.getState();
         setAudioFrame((alt) =>
-          alt.hasDevice === a.hasDevice && alt.muted === a.muted && alt.gain === a.gain && alt.error === a.error ? alt : { ...a, level: 0 },
+          alt.hasDevice === a.hasDevice && alt.muted === a.muted && alt.gain === a.gain && alt.error === a.error && alt.getrennt === a.getrennt
+            ? alt
+            : { ...a, level: 0 },
         );
       }),
     [audio],
