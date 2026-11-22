@@ -20,4 +20,5 @@ await lade('oberflaeche', () => import('./oberflaeche.test'));
 await lade('rahmen', () => import('./rahmen.test'));
 await lade('panel', () => import('./panel.test'));
 await lade('live', () => import('./live.test'));
+await lade('funktionsliste', () => import('./funktionsliste.test'));
 abschluss();
