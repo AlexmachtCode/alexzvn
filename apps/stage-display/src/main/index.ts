@@ -218,6 +218,7 @@ function registerIpc(): void {
   ipcMain.handle('output:open', (_e, displayId?: number) => openOutput(displayId));
   ipcMain.handle('output:close', () => output.close());
   ipcMain.handle('output:isOpen', () => output.isOpen());
+  ipcMain.handle('output:zustand', () => output.zustand());
 }
 
 function hostPort(n: ShowNetworkBinding | undefined): { host?: string; port?: number } {
@@ -298,6 +299,10 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     registerIpc();
+    // UX Welle 2a (W2-2): jede Änderung des Ausgabezustands nur an das Hauptfenster, nur lesend.
+    output.onZustand((z) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('output:zustand', z);
+    });
     createMainWindow();
     // Per Show gestartet? Quellen aus der Show verbinden (überschreibt die
     // persistierte Config), sonst normal nach persistierter Config verbinden.

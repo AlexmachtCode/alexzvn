@@ -6,6 +6,8 @@
     "test/**/*.tsx",
     "src/renderer/src/**/*.ts",
     "src/renderer/src/**/*.tsx",
-    "src/shared/**/*.ts"
+    "src/shared/**/*.ts",
+    "../../packages/ui/src",
+    "../../packages/settings/src"
   ]
 }

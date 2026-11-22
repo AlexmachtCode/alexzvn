@@ -1,3 +1,5 @@
+import type { AusgabeZustand } from '@jm/output-window/zustand';
+
 // --- Timer-Countdown-Teilmenge (kopiert aus apps/timer/src/shared/timer-state.ts,
 //     nur was der Bühnenschirm zum Live-Ticken braucht — keine App-Kopplung). ---
 
@@ -123,6 +125,18 @@ export interface DisplayInfo {
   height: number;
 }
 
+/**
+ * Master-Link-Zustand für die Statusleiste (Spec 3.9). Spiegel von MasterLinkMeldung aus @jm/app-runtime, das im Renderer
+ * nicht importierbar ist (Main-Code). Den Gleichlauf prüft die Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
+
 /** Shape, die der Preload auf `window.jmstage` legt. */
 export interface JmstageApi {
   platform: NodeJS.Platform;
@@ -130,11 +144,17 @@ export interface JmstageApi {
   /** Konfiguration (teilweise) ändern; liefert den neuen Gesamt-State. */
   setConfig: (patch: PartialStageConfig) => Promise<StageState>;
   onState: (cb: (s: StageState) => void) => () => void;
+  /** Master-Link-Zustand (Spec 3.9): Meldung oder null (Brücke fehlt oder lehnt ab → „unbekannt“). */
+  masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+  onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
   output: {
     displays: () => Promise<DisplayInfo[]>;
     open: (displayId?: number) => Promise<void>;
     close: () => Promise<void>;
     isOpen: () => Promise<boolean>;
+    /** Gemessener Zustand des Ausgabefensters (W2-2); null, wenn Main ablehnt. */
+    zustand: () => Promise<AusgabeZustand | null>;
+    onZustand: (cb: (z: AusgabeZustand) => void) => () => void;
   };
 }
 
