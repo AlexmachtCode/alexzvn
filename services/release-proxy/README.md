@@ -128,7 +128,10 @@ Die **schreibenden** Endpunkte `/feedback` (legt Issues an) und `/cookbook/draft
 `zoom-sdk-win-x64-<fassung>.zip` aus dem Release `zoom-sdk-<fassung>` im **privaten** Repo `ZOOM_SDK_REPO`
 (Vorgabe `AlexmachtCode/jm-zoom-sdk`). Der Download läuft direkt von GitHubs Storage, der Worker streamt nichts.
 
-- **Eigener Schlüssel:** Header `X-Zoom-Sdk-Key`, verglichen mit dem Secret `ZOOM_SDK_KEY` (zeitkonstant über
+- **Zwei Wege (seit Anmeldung Teil 2):** entweder eine **Freigabe** des Launchers (`Authorization: Bearer jm1.…`, Zweck
+  `zoom-sdk`, Ziel `win-x64`, nur für JM-Rechner) oder der **alte Schlüssel** im Header `X-Zoom-Sdk-Key` bis
+  `ALTKEY_CONNECT_BIS` (leer = unbefristet, danach 401 `alter-key-abgelaufen`). Der Konten-DO zählt beide Wege in der Gruppe `connect`.
+- **Alter Schlüssel:** Header `X-Zoom-Sdk-Key`, verglichen mit dem Secret `ZOOM_SDK_KEY` (zeitkonstant über
   SHA-256). Der `PROXY_KEY` gilt hier nicht, weil der Launcher ihn bis 0.17.1 in öffentliche Installer einbackte (diese
   Installer bleiben im Umlauf). Fehlt das
   Secret (oder ist es falsch benannt), antwortet die Route immer 401, und `wrangler tail` zeigt
@@ -162,8 +165,9 @@ Passwort und Einladungscode; den Rechner bestätigen sie mit dem Code, den der L
   Übergang weiter, für Katalog, Installieren, Updates, Kochbuch, Feedback, KI-Entwurf und Q&A bis `ALTKEY_BIS`; jede solche
   Anfrage zählt der Konten-DO je Tag, Gruppe und Plattform (ohne IP). `GET /tools/launcher/latest` braucht ab Launcher 0.18.0
   nichts, damit sich auch alte Launcher selbst aktualisieren (ältere Releases nur mit Zugang, ihre Installer tragen den alten
-  Schlüssel; 60 s Zwischenspeicher, Drossel je IP). `/connect/*` und `/zoom-sdk/*` prüfen wie bisher selbst: Connect bekommt die
-  Anmeldung erst mit Teil 2, bis dahin läuft für Connect keine Frist (`ALTKEY_CONNECT_BIS` bleibt leer).
+  Schlüssel; 60 s Zwischenspeicher, Drossel je IP). `/connect/*` und `/zoom-sdk/*` prüfen seit Teil 2 über `zugangPruefen`
+  (Freigabe oder alter Schlüssel); die Connect-Frist `ALTKEY_CONNECT_BIS` wird erst nach dem Release von Connect 0.5.0 gesetzt,
+  bis dahin bleibt sie leer.
 - **Launcher-API und Anmeldeseite (`konto-relay.js`, `konto-seiten.js`, `konto-google.js`):** alle Pfade unter `/konto/`:
   Vorgang anlegen, abholen und abbrechen, Sitzung erneuern, Abmelden, Lage (`/konto/ich`), Freigabe für Tools, iveo-Tokens,
   Zoom-Anfrage, Admin-Übersicht und Admin-Aktionen (JSON, Fehler als `{ error, code }`); die Anmeldeseite ohne Skript und
@@ -179,14 +183,15 @@ Passwort und Einladungscode; den Rechner bestätigen sie mit dem Code, den der L
   `KONTO_SCHLUESSEL` meldet alle Rechner ab, ein Wechsel von `IVEO_SCHLUESSEL` macht die hinterlegten iveo-Tokens unlesbar.
 - **Variablen:** `KONTO_JURISDICTION` (nicht im Betrieb ändern, sonst sind alle Konten verwaist), `ALTKEY_BIS` (Ende des
   alten Schlüssels; fehlt der Wert, gilt der Schlüssel unbefristet, und der Reiter Geräte der Admin-Maske zeigt das als
-  Diagnose; einen unlesbaren Wert meldet die Bauprobe mit Exit 1), `ALTKEY_CONNECT_BIS` (in Teil 1 nie gesetzt).
+  Diagnose; einen unlesbaren Wert meldet die Bauprobe mit Exit 1), `ALTKEY_CONNECT_BIS` (Frist für die Connect-Routen, erst nach dem Release von Connect 0.5.0 gesetzt, siehe Teil 2).
 - **Drosseln der Anmeldung (`[[ratelimits]]`):** Die Drosseln der Routen unter `/konto/`, die des Launcher-Selbst-Updates ohne
-  Zugang und die der Q&A-Admin-Routen mit dem alten Schlüssel zählen nicht in KV, sondern in sieben Rate-Limit-Bindungen der Workers (KV erlaubt ein Schreiben je Schlüssel und
+  Zugang und die der Q&A-Admin-Routen mit dem alten Schlüssel zählen nicht in KV, sondern in neun Rate-Limit-Bindungen der Workers (KV erlaubt ein Schreiben je Schlüssel und
   Sekunde, das gäbe hinter einer gemeinsamen Büro-IP Fehlschläge). Sie stehen in `wrangler.toml`, je Grenze eine Bindung, gezählt
   je IP-Hash und Cloudflare-Standort, also ungefähr: `KONTO_RL_VORGANG` (Vorgang anlegen, 20 je Minute), `KONTO_RL_ABHOLEN`
   (Abholen, 600), `KONTO_RL_ABBRECHEN` (60), `KONTO_RL_GOOGLE` (Weiter zu Google und Rückkehr, 60), `KONTO_RL_PASSWORT` (10),
-  `KONTO_RL_SELBSTUPDATE` (20) und `KONTO_RL_QAALT` (Q&A-Admin-Routen mit dem alten Schlüssel, vor dem Konten-DO, 60). Die
-  Bindungen verlangen wrangler ab 4.36.0. Ihre `namespace_id` 7301 bis 7307 müssen im
+  `KONTO_RL_SELBSTUPDATE` (20), `KONTO_RL_QAALT` (Q&A-Admin-Routen mit dem alten Schlüssel, vor dem Konten-DO, 60),
+  `KONTO_RL_CONNECTALT` (alter Schlüssel an `/connect`, 7308, 20 je 60 s; Teil 2) und `KONTO_RL_ZOOMJWT` (`POST /zoom/jwt`, 7309,
+  30 je 60 s; Teil 2). Die Bindungen verlangen wrangler ab 4.36.0. Ihre `namespace_id` 7301 bis 7309 müssen im
   Cloudflare-Konto eindeutig sein; eine dort schon vergebene Zahl ließe zwei Bindungen einen Zähler teilen. Fehlt eine Bindung
   oder wirft sie, warnt der Worker im Log und lässt die Route offen; die Drossel erzeugt nie einen 5xx. Bei Überschreitung
   antworten die Routen wie bisher mit `429` und `Retry-After: 60`. Das KV `RATELIMIT` bleibt für Feedback, Kochbuch-Entwurf,
@@ -202,6 +207,46 @@ Passwort und Einladungscode; den Rechner bestätigen sie mit dem Code, den der L
   `konto-kern`, `konto-krypto`, `konto-do`, `konto-zugang`, `konto-routen` und `qa-relay` (Attrappen in
   `test/konto-attrappen.mjs`). Die Bauprobe bündelt den Worker wie wrangler, ohne Deploy:
   `node services/release-proxy/tools/bauprobe.mjs`.
+
+## Anmeldung Teil 2 (Connect)
+Seit Teil 2 (Spec `docs/superpowers/specs/2026-11-20-anmeldung-teil2-design.md`) melden sich auch JM Connect und seine Räume über
+die Anmeldung im Launcher an; der alte `PROXY_KEY` an `/connect` und der `ZOOM_SDK_KEY` an `/zoom-sdk` gelten nur noch im Übergang.
+
+- **Zwecke und Ziele der Freigabe** (je 72 Stunden, App `jm-connect`): `connect-raum` (Funktion `connect-raum`, Gruppe `connect`,
+  Ziel = Raum-ID nach `^[A-Za-z0-9_-]{6,64}$`), `zoom-jwt` (Funktion `zoom`, Ziel fest `meeting-sdk`) und `zoom-sdk` (Funktion `zoom`
+  und nur JM-Rechner, Ziel fest `win-x64`). `qa-relay` bleibt unverändert.
+- **`/connect` und Raum-Bindung (E3):** Der Cloud-Raum geht über die Freigabe `connect-raum`; der Raum wird beim ersten Öffnen an
+  das Konto bzw. den Rechner gebunden (`connect-inhaber`), bis „Raum schließen“. Ein Raum eines anderen Inhabers antwortet mit
+  `raum-vergeben`. Der alte `PROXY_KEY` gilt bis `ALTKEY_CONNECT_BIS`, wird zeitkonstant verglichen und über `KONTO_RL_CONNECTALT` gedrosselt.
+- **Gespeicherte Felder der Bindung** (Konten-DO, Schlüssel `connect:<raumHash>`): `{ kidHash, gidHash, bis, raumId, kid, seit }`.
+  Schlüssel und Vergleich laufen über Hashes; `raumId` und `kid` stehen im Klartext, damit ein Admin die Räume lesen kann. Raum-IDs
+  sind Show-Namen und keine Geheimnisse; eine Verlängerung behält `raumId` und `seit`, und `kid` nennt das Konto, das zuletzt geöffnet hat; Freigabe, Sitzung, `kidHash` und `gidHash` erscheinen nie in der Übersicht, in einer Antwort an Clients oder im Protokoll.
+- **Admin-Freigabe gebundener Räume:** `GET /konto/admin/uebersicht` enthält `raeume` (`{ raumHash, raumId, name, stufe, seit, bis }`,
+  nur nicht abgelaufene Bindungen; `name` und `stufe` sind `null`, wenn das Konto gelöscht ist). `POST /konto/admin/aktion` mit
+  `{ aktion: 'raum-freigeben', raumHash }` löst die Bindung und antwortet `{ ok: true, warFrei }` (`warFrei` ist `true`, wenn der Raum
+  schon frei oder abgelaufen war); ein ungültiger Hash ergibt 400 `ungueltig`, ein Nicht-Admin 403 `kein-recht`.
+- **`POST /zoom/jwt` (`zoom-relay.js`):** mit Freigabe `zoom-jwt` signiert der Worker das Zoom-JWT (HS256) mit `ZOOM_CLIENT_ID` und
+  `ZOOM_CLIENT_SECRET`, byte-gleich zu `buildJwt` in `packages/zoom-bridge`. Antwort `200 { jwt, exp, gueltigS }` mit
+  `Cache-Control: no-store`; Standardlaufzeit 12 Stunden. Optionaler Rumpf `{ "ttlS": n }` mit ganzer Zahl von 1800 bis 43 200
+  (kürzer auf Anfrage, nie länger), sonst 400 `ungueltige-laufzeit` (E9). Fehlt eines der Secrets oder hat es Leerraum am Rand,
+  antwortet die Route 503 `nicht-eingerichtet`. Drossel `KONTO_RL_ZOOMJWT` (30 je 60 s je IP-Hash und Standort). Der Konten-DO
+  protokolliert jede Ausstellung (`zoom-jwt-protokoll`, nach bestem Bemühen, ohne JWT).
+- **Secrets (nur beschrieben, nie in `[vars]`):** `ZOOM_CLIENT_ID` und `ZOOM_CLIENT_SECRET` (Client-ID und Client-Secret der
+  Meeting-SDK-App von Zoom; ohne Leerzeichen oder Zeilenumbruch am Rand). `PROXY_KEY` und `ZOOM_SDK_KEY` bleiben bis zum Stichtag.
+  Die Secrets setzt der Controller mit Freigabe des Owners; kein Wert steht im Repo oder im Chat.
+- **Drosseln (`[[ratelimits]]`):** neu `KONTO_RL_CONNECTALT` (`namespace_id` 7308, 20 je 60 s, alter Schlüssel an `/connect`) und
+  `KONTO_RL_ZOOMJWT` (7309, 30 je 60 s); damit gibt es neun Bindungen.
+- **Stichtag:** `ALTKEY_CONNECT_BIS` bleibt leer (unbefristet), bis Connect 0.5.0 released ist; dann Release + 30 Tage in einem
+  eigenen Schritt mit Owner-OK. Die Bauprobe meldet ihn als „nicht gesetzt (unbefristet)“, solange er fehlt.
+- **Reihenfolge nach der Umsetzung (N1 bis N5), nur Controller und Owner, je mit Owner-OK:** (N1) Worker-Deploy: Trockenlauf und
+  Bauprobe, ungemergte Proxy-Commits prüfen; `ZOOM_CLIENT_ID` und `ZOOM_CLIENT_SECRET` setzen (Werte nie im Chat, nie im Repo;
+  vorher prüfen, dass kein Leerraum am Rand steht); `ALTKEY_CONNECT_BIS` bleibt leer; danach Connect 0.4.6 kurz gegenprüfen (Raum,
+  SDK, Zoom). (N2) Launcher 0.19.0 releasen. (N3) Connect 0.5.0 releasen, nach der Owner-Abnahme. (N4) Stichtag setzen:
+  `ALTKEY_CONNECT_BIS` = Release-Datum von Connect 0.5.0 + 30 Tage in `wrangler.toml`, Bauprobe zeigt das Datum lesbar, Deploy.
+  (N5) Am Stichtag: vorher klären, ob Zoom das Neu-Erzeugen des Client-Secrets der Meeting-SDK-App erlaubt; dann das Client-Secret
+  bei Zoom rotieren, das Worker-Secret `ZOOM_CLIENT_SECRET` tauschen, die Zugangsdaten-Dateien in der JM-Ablage löschen und die
+  Worker-Secrets `PROXY_KEY` und `ZOOM_SDK_KEY` löschen (nicht rotieren).
+- **Tests:** zusätzlich `connect-zugang`, `zoom-jwt` und `connect-do` (ConnectRoom-DO, SFU-Vermittlung); alle laufen in `ci-checks.yml`.
 
 Lokaler Test (ohne Deploy): `node services/release-proxy/test/worker.test.mjs`.
 

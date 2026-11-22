@@ -230,8 +230,6 @@ export function AdminZugaenge({ daten }: { daten: AdminUebersicht }): React.JSX.
                       {ADMIN_TEXTE.zoomBis}
                       <input type="date" className={feldCls} value={formular.zoomBis} onChange={(e) => setFormular({ ...formular, zoomBis: e.target.value })} />
                     </label>
-                    {/* M48 (EP34): Connect nutzt Cloud-Raum und Zoom-Freigabe erst mit Teil 2. */}
-                    <p className="text-[11px] text-[var(--muted-foreground)]">{ADMIN_TEXTE.connectTeil1}</p>
                   </>
                 )}
                 {frage ? (

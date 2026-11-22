@@ -240,7 +240,7 @@ export function erzeugeKontoClient(o: { basis: string; fetch: typeof fetch; zeit
     async adminUebersicht(sitzung) {
       const d = await rufe('GET', '/konto/admin/uebersicht', sitzung);
       return form(istObjekt(d) && Array.isArray(d.zugaenge) && Array.isArray(d.iveo) && Array.isArray(d.anfragen)
-        && Array.isArray(d.geraete) && istObjekt(d.altKey), d as unknown as AdminUebersicht);
+        && Array.isArray(d.geraete) && istObjekt(d.altKey) && (d.raeume === undefined || Array.isArray(d.raeume)), d as unknown as AdminUebersicht);
     },
     async adminAktion(sitzung, a) {
       const d = await rufe('POST', '/konto/admin/aktion', sitzung, a);

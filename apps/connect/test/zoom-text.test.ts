@@ -10,7 +10,7 @@ import type {
 } from '../src/shared/types';
 import {
   BETRIEBSGROESSE, einrichtungsTextArt, gaesteZeile, kartenZeile, MANGEL_GRUND, sdkBalken,
-  sdkKnopf, sdkLadenZeile, sdkSchluesselZeile, sdkZeile, stateKvAus, TEXT_A4, TEXT_A4_SCHREIBFEHLER, TEXT_A6, TEXT_S11,
+  sdkKnopf, sdkLadenZeile, sdkSchluesselZeile, sdkZeile, stateKvAus, TEXT_A4, TEXT_A4_SCHREIBFEHLER, TEXT_A6,
   TEXT_S17, trayTooltip, trayVerlassenAktiv, versatzUebernommen, versatzZeile, WIEDERBEITRITT_VERSUCHE, zoomKnoepfe, zoomZ,
   zoomZeile, zugangZeile, type ZoomStatusWert, type ZoomZ,
 } from '../src/shared/zoom-text';
@@ -24,6 +24,14 @@ import {
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
   if (cond) { pass++; console.log(`  ok  ${name}`); } else { fail++; console.log(`FAIL  ${name}`); }
+}
+/** Tabelle: je Zeile [Name, Ist, Soll] (beides Text); die Zeilen laufen alle, ein Prüfpunkt je Tabelle. */
+function kreuz(name: string, zeilen: ReadonlyArray<readonly [string, string, string]>): void {
+  const falsch = zeilen.filter(([, ist, soll]) => ist !== soll);
+  if (falsch.length === 0) { pass++; console.log(`  ok  ${name} (${zeilen.length} Zeilen)`); return; }
+  fail++;
+  console.log(`FAIL  ${name}: ${falsch.length} von ${zeilen.length} weichen ab`);
+  for (const [n, ist, soll] of falsch.slice(0, 5)) console.log(`      ${n}\n        ist:  ${ist}\n        soll: ${soll}`);
 }
 
 // ── Testhilfen ──
@@ -39,7 +47,8 @@ function abbild(a: Omit<Partial<ZoomAbbild>, 'kurz'> & { kurz?: Partial<ZoomKurz
     kurz: kurz(kz),
     einrichtung: {
       sdk: { stand: 'ok', fassung: '7.1.5.43953', kopie: null, laden: null, text: null },
-      zugang: { herkunft: 'stored', clientIdEnde: '1234', text: null },
+      zugang: { herkunft: 'stored', clientIdEnde: '1234', text: null, unlesbar: false },
+      anmeldung: { text: 'Zoom-Anmeldung über den Launcher; die Freigabe holt Connect beim ersten Beitritt.', ton: 'ok' },
       sdkSchluessel: { herkunft: 'stored' },
     },
     anzeigename: 'Regie Süd',
@@ -60,7 +69,7 @@ function status(g: number, configured: boolean, zoom: ZoomKurz | null): AppStatu
       grund: null, code: null, k: 0, empfaenger: null,
     })),
     ndiProgramm: { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: '', bereit: false },
-    presenterLinked: false, zoom,
+    presenterLinked: false, zoom, cloudZugang: { text: '', ton: 'ok' },
   };
 }
 
@@ -80,16 +89,17 @@ const s = (n: number): string => (n === 1 ? '1 Slot läuft' : `${n} Slots laufen
 const T72: Record<ZoomZ, Fall72> = {
   Z0: { lage: { zustand: 'nicht_verfuegbar' }, nk: [[0, 0]], tray: () => null, karte: () => null },
   Z1a: {
-    lage: { zustand: 'einrichtung', maengel: ['sdk_fehlt', 'zugang_fehlt'] }, nk: [[0, 0]],
+    lage: { zustand: 'einrichtung', maengel: ['sdk_fehlt'] }, nk: [[0, 0]],
     tray: () => '△ Zoom: Einrichtung unvollständig',
-    karte: () => 'Zoom ist nicht vollständig eingerichtet: SDK-Ordner fehlt · Zugangsdaten fehlen.',
+    karte: () => 'Zoom ist nicht vollständig eingerichtet: SDK-Ordner fehlt.',
   },
   Z1b: {
     lage: { zustand: 'einrichtung', maengel: ['sdk_fehlt'], kopieLaeuft: true },
     abbild: {
       einrichtung: {
         sdk: { stand: 'kopiert', fassung: null, kopie: { dateien: 40, dateienGesamt: 153, bytes: 105_500_000, bytesGesamt: 329_657_415 }, laden: null, text: null },
-        zugang: { herkunft: 'stored', clientIdEnde: '1234', text: null },
+        zugang: { herkunft: 'stored', clientIdEnde: '1234', text: null, unlesbar: false },
+        anmeldung: { text: 'Zoom-Anmeldung über den Launcher; die Freigabe holt Connect beim ersten Beitritt.', ton: 'ok' },
         sdkSchluessel: { herkunft: 'stored' },
       },
     },
@@ -213,12 +223,11 @@ const GRUND_72: Record<ZoomMangel, string> = {
   sdk_fehlt: 'SDK-Ordner fehlt',
   sdk_defekt: 'Zoom-Laufzeit unvollständig, bitte den SDK-Ordner erneut wählen',
   bridge_fehlt: 'Zoom-Bridge fehlt in dieser Installation, bitte JM Connect neu installieren',
-  zugang_fehlt: 'Zugangsdaten fehlen',
-  zugang_unlesbar: 'Zugangsdaten lassen sich nicht entschlüsseln, bitte erneut eintragen oder die Datei erneut wählen',
 };
 {
   const alle = Object.keys(GRUND_72) as ZoomMangel[];
-  ck('ZoomMangel hat 5 Werte, MANGEL_GRUND trägt alle', alle.length === 5 && Object.keys(MANGEL_GRUND).length === 5);
+  ck('ZoomMangel hat 3 Werte (sdk_fehlt, sdk_defekt, bridge_fehlt), MANGEL_GRUND trägt genau diese',
+    alle.length === 3 && Object.keys(MANGEL_GRUND).length === 3 && JSON.stringify(Object.keys(MANGEL_GRUND)) === '["sdk_fehlt","sdk_defekt","bridge_fehlt"]');
   for (const m of alle) {
     const a = abbild({ kurz: { zustand: 'einrichtung', maengel: [m] } });
     ck(`Z1a mit ${m}: Kartentext wörtlich`, kartenZeile(a, JETZT) === `Zoom ist nicht vollständig eingerichtet: ${GRUND_72[m]}.`);
@@ -372,24 +381,28 @@ console.log('— Einrichtungszeilen (Spec 9 Punkt 3)');
   const bridge = abbild({ kurz: { zustand: 'einrichtung', maengel: ['bridge_fehlt'] } });
   ck('bridge_fehlt: das SDK selbst gilt als eingerichtet', sdkZeile(bridge) === 'Zoom-SDK 7.1.5.43953 eingerichtet');
 
-  const ZUGANG: Record<ProxyKeySource, string> = {
-    stored: 'Zugangsdaten: hinterlegt (Client-ID endet auf ab12)',
-    session: TEXT_A4,
-    env: TEXT_A6,
-    none: 'Zugangsdaten: fehlen',
-  };
-  for (const h of Object.keys(ZUGANG) as ProxyKeySource[]) {
-    const a = abbild({ einrichtung: { ...ohne.einrichtung, zugang: { herkunft: h, clientIdEnde: h === 'none' ? null : 'ab12', text: null } } });
-    ck(`Zugangsdaten, Herkunft ${h}: wörtlich`, zugangZeile(a) === ZUGANG[h]);
-  }
-  const schreibfehler = abbild({ einrichtung: { ...ohne.einrichtung, zugang: { herkunft: 'session', grund: 'schreibfehler', clientIdEnde: 'ab12', text: null } } });
+  // Alte Zugangsdaten sind nur noch ein Übergang (E7): Zeilen gibt es nur mit altem Wert, sonst `null`.
+  const mitZugang = (herkunft: ProxyKeySource, clientId: string | null = null, unlesbar = false): ZoomAbbild =>
+    abbild({ einrichtung: { ...ohne.einrichtung, zugang: { herkunft, clientIdEnde: clientId === null ? null : clientId.slice(-4), text: null, unlesbar } } });
+  const mitSdk = (herkunft: ProxyKeySource): ZoomAbbild =>
+    abbild({ einrichtung: { ...ohne.einrichtung, sdkSchluessel: { herkunft } } });
+  kreuz('T16 E7: Übergangszeilen nur mit altem Wert (Herkunft × unlesbar)', [
+    ['stored', String(zugangZeile(mitZugang('stored', 'test-id-1234'))), 'Alte Zugangsdaten: hinterlegt (Client-ID endet auf 1234), nur noch im Übergang.'],
+    ['unlesbar', String(zugangZeile(mitZugang('none', null, true))), 'Alte Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Sie werden nicht mehr gebraucht; „Entfernen“ räumt sie weg.'],
+    ['none', String(zugangZeile(mitZugang('none'))), 'null'],
+    ['SDK stored', String(sdkSchluesselZeile(mitSdk('stored'))), 'Alter SDK-Schlüssel: hinterlegt, nur noch im Übergang.'],
+    ['SDK none', String(sdkSchluesselZeile(mitSdk('none'))), 'null'],
+    ['entfernbar env', String(zoomKnoepfe(mitZugang('env')).zugangEntfernbar), 'false'],
+  ]);
+  ck('Zugangsdaten, Herkunft session: TEXT_A4 (Übergang)', zugangZeile(mitZugang('session', 'test-id-1234')) === TEXT_A4);
+  ck('Zugangsdaten, Herkunft env: TEXT_A6 (Übergang)', zugangZeile(mitZugang('env')) === TEXT_A6);
+  const schreibfehler = abbild({ einrichtung: { ...ohne.einrichtung, zugang: { herkunft: 'session', grund: 'schreibfehler', clientIdEnde: 'ab12', text: null, unlesbar: false } } });
   ck('session + schreibfehler: eigener Text, nennt keinen Schlüsselbund', zugangZeile(schreibfehler) === TEXT_A4_SCHREIBFEHLER && !TEXT_A4_SCHREIBFEHLER.includes('Schlüsselbund')
     && TEXT_A4_SCHREIBFEHLER === 'Nur für diese Sitzung gemerkt — die Einstellungsdatei ließ sich nicht schreiben.');
-  const unlesbar = abbild({
-    kurz: { zustand: 'einrichtung', maengel: ['zugang_unlesbar'] },
-    einrichtung: { ...ohne.einrichtung, zugang: { herkunft: 'none', clientIdEnde: null, text: null } },
-  });
-  ck('zugang_unlesbar: „Zugangsdaten: lassen sich nicht entschlüsseln“', zugangZeile(unlesbar) === 'Zugangsdaten: lassen sich nicht entschlüsseln');
+  ck('unlesbar geht vor der Herkunft (ZU3)', zugangZeile(mitZugang('stored', 'test-id-1234', true)) === zugangZeile(mitZugang('none', null, true)));
+  ck('zugangEntfernbar: stored, session und unlesbar ja, env und none nein',
+    zoomKnoepfe(mitZugang('stored', 'test-id-1234')).zugangEntfernbar && zoomKnoepfe(mitZugang('session', 'test-id-1234')).zugangEntfernbar
+      && zoomKnoepfe(mitZugang('none', null, true)).zugangEntfernbar && !zoomKnoepfe(mitZugang('env')).zugangEntfernbar && !zoomKnoepfe(mitZugang('none')).zugangEntfernbar);
 }
 
 console.log('— Knöpfe der Karte je Lage (Spec 9 Punkte 2–6)');
@@ -434,7 +447,7 @@ console.log('— Knöpfe der Karte je Lage (Spec 9 Punkte 2–6)');
   ck('Z2 mit laufender Prüfung: Einrichtung gesperrt (S10), „Prüfe …“, Beitreten gesperrt',
     !pruefung.einrichtungAenderbar && pruefung.pruefen === 'laeuft' && pruefung.beitrittSichtbar && pruefung.beitretenGesperrt);
 
-  const z1a = zoomKnoepfe(abbild({ kurz: { zustand: 'einrichtung', maengel: ['zugang_fehlt'] } }));
+  const z1a = zoomKnoepfe(abbild({ kurz: { zustand: 'einrichtung', maengel: ['sdk_fehlt'] } }));
   ck('Z1a: kein Beitritt, Sperrhinweis, Einrichtung offen und änderbar, keine Prüfung',
     !z1a.beitrittSichtbar && z1a.sperrHinweis && z1a.einrichtungOffen && z1a.einrichtungAenderbar && z1a.pruefen === 'aus');
   const z1b = zoomKnoepfe(abbild({ kurz: { zustand: 'einrichtung', maengel: ['sdk_fehlt'], kopieLaeuft: true } }));
@@ -463,16 +476,11 @@ console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die 
     ['S8', KT.S8, 'Dieser Connect-Installation fehlt die Zoom-Bridge. Bitte JM Connect neu installieren.'],
     ['S9', KT.S9('sdk.dll'), 'Die Zoom-Laufzeit auf diesem PC ist unvollständig (sdk.dll). Bitte den SDK-Ordner erneut wählen.'],
     ['S10', KT.S10, 'Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.'],
-    ['A1', KT.A1, 'Die Datei ist kein gültiges JSON (Inhalt wird absichtlich nicht angezeigt).'],
-    ['A2', KT.A2, 'In der Datei fehlen Client-ID oder Client-Secret (erwartet: clientId und clientSecret).'],
-    ['A3', KT.A3('ENOENT'), 'Die Datei lässt sich nicht lesen (ENOENT).'],
     ['A4', KT.A4, 'Nur für diese Sitzung gemerkt — auf diesem Rechner gibt es keinen Schlüsselbund.'],
-    ['A5', KT.A5, 'Die hinterlegten Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Bitte die Zugangsdaten erneut eintragen oder die Datei erneut wählen.'],
-    ['A7', KT.A7, 'Bitte Client-ID und Client-Secret eintragen, ohne Leerzeichen.'],
     ['A6', KT.A6, 'Kommt aus Umgebungsvariablen (ZOOM_SDK_…) und hat Vorrang.'],
     // Zoom-SDK nachladen (Spec 2026-10-06, Abschnitt 5)
-    ['S11', KT.S11, 'Für „Zoom-SDK laden“ fehlt der SDK-Schlüssel. Bitte unter „SDK-Schlüssel“ eintragen.'],
     ['S12', KT.S12, 'Der Proxy hat den SDK-Schlüssel abgelehnt. Bitte den Schlüssel prüfen.'],
+    ['S12b', KT.S12b, 'Der Server hat die Freigabe für „Zoom-SDK laden“ abgelehnt. Bitte noch einmal versuchen; Connect holt eine neue beim Launcher.'],
     ['S13', KT.S13(125), 'Zu viele Versuche. Bitte in 3 Minuten erneut versuchen.'],
     ['S14', KT.S14('ENOTFOUND'), 'Der Proxy ist nicht erreichbar (ENOTFOUND). Bitte die Netzverbindung prüfen oder den SDK-Ordner von Hand wählen.'],
     ['S15', KT.S15, 'Auf dem Proxy liegt kein passendes Zoom-SDK 7.1.5.43953. Bitte den SDK-Ordner von Hand wählen.'],
@@ -480,7 +488,6 @@ console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die 
     ['S16b', KT.S16b, 'Das geladene Zoom-SDK hat nicht die erwartete Prüfsumme und wurde verworfen. Die bisherige Einrichtung bleibt unverändert.'],
     ['S16c', KT.S16c('Exit 1'), 'Das geladene Zoom-SDK ließ sich nicht entpacken (Exit 1). Die bisherige Einrichtung bleibt unverändert.'],
     ['S17', KT.S17, 'Laden abgebrochen. Die bisherige Einrichtung bleibt unverändert.'],
-    ['S18', KT.S18, 'Bitte den SDK-Schlüssel eintragen, ohne Leerzeichen.'],
     ['B1', KT.B1, 'zoom-bridge.exe fehlt im Laufzeit-Ordner. Bitte den SDK-Ordner erneut wählen.'],
     ['B2', KT.B2('EPERM'), 'Windows hat den Start der Zoom-Bridge verhindert (Virenschutz oder Smart App Control). Detail: EPERM.'],
     ['B3', KT.B3, 'Die Zoom-Bridge ist beim Start gestorben: Eine DLL fehlt (0xC0000135). Mit den Zugangsdaten hat das nichts zu tun. Bitte den SDK-Ordner erneut wählen.'],
@@ -498,7 +505,8 @@ console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die 
     ['B14', KT.B14, 'Zu viele Anmeldungen in kurzer Zeit (AUTHRET_LIMIT_EXCEEDED_EXCEPTION). Einige Minuten warten.'],
     ['B15', KT.B15('AUTHRET_UNKNOWN'), 'Zoom hat die Anmeldung abgelehnt (AUTHRET_UNKNOWN).'],
     ['B16', KT.B16, 'Zoom hat auf die Anmeldung nicht geantwortet (30 s). Netzwerk prüfen und erneut versuchen.'],
-    ['B17', KT.B17, 'Zugangsdaten fehlen — bitte eintragen oder die Datei wählen.'],
+    ['B9s', KT.B9s('AUTHRET_KEYORSECRETWRONG'), 'Zoom hat die Anmeldung abgelehnt: Die Zoom-Zugangsdaten auf dem Server stimmen nicht (AUTHRET_KEYORSECRETWRONG). Sag einem Admin Bescheid.'],
+    ['B10s', KT.B10s, 'Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token vom Server passt nicht (AUTHRET_JWTTOKENWRONG). Meist geht die Uhr dieses PCs falsch; sonst stimmen die Zugangsdaten auf dem Server nicht.'],
     ['B18', KT.B18('SDKERR_WRONG_USAGE'), 'Das Zoom-SDK hat die Anmeldung sofort abgewiesen (SDKERR_WRONG_USAGE). Mit dem Netzwerk hat das nichts zu tun. Details im Log.'],
     ['N0', KT.N0, 'Die Meeting-Nummer darf nur Ziffern enthalten (Leerzeichen und Bindestriche werden entfernt).'],
     ['N0b', KT.N0b, 'Der Anzeigename muss 1 bis 64 Zeichen lang sein.'],
@@ -531,7 +539,7 @@ console.log('— Klartexte 8.1–8.5 wörtlich (KT, mit Beispielwerten für die 
   ck('S13: ⌈s/60⌉ Minuten, bei 1 die Einzahl (60 s → 1 Minute, 61 s → 2 Minuten, 600 s → 10), nie 0',
     KT.S13(60).includes(' in 1 Minute erneut') && KT.S13(61).includes(' in 2 Minuten erneut')
       && KT.S13(600).includes(' in 10 Minuten erneut') && KT.S13(0).includes(' in 1 Minute erneut'));
-  ck('S11 und S17 kommen aus @shared/zoom-text (die Karte zeigt sie ohne klartext.ts)', KT.S11 === TEXT_S11 && KT.S17 === TEXT_S17);
+  ck('S17 kommt aus @shared/zoom-text (die Karte zeigt ihn ohne klartext.ts)', KT.S17 === TEXT_S17);
 }
 
 console.log('— 8.3: Vorsatz + Text, ganzer Text, nie doppelt „gescheitert:“');
@@ -601,6 +609,12 @@ console.log('— 8.2: Anmeldung, DLL-Tod, Spawn');
   ck('auth 2 → B9 mit AUTHRET_KEYORSECRETWRONG', a2.text === KT.B9('AUTHRET_KEYORSECRETWRONG') && a2.detail === 'AUTHRET_KEYORSECRETWRONG (2)');
   ck('auth 1 → B9 mit AUTHRET_KEYORSECRETEMPTY', authMeldung(1).text === KT.B9('AUTHRET_KEYORSECRETEMPTY'));
   ck('auth 11 → B10', authMeldung(11).text === KT.B10);
+  const s2 = authMeldung(2, 'server');
+  ck('auth 2 mit Server-JWT → B9s, detail unverändert', s2.text === KT.B9s('AUTHRET_KEYORSECRETWRONG') && s2.detail === 'AUTHRET_KEYORSECRETWRONG (2)');
+  ck('auth 1 mit Server-JWT → B9s', authMeldung(1, 'server').text === KT.B9s('AUTHRET_KEYORSECRETEMPTY'));
+  ck('auth 11 mit Server-JWT → B10s', authMeldung(11, 'server').text === KT.B10s);
+  ck('auth 2 und 11 mit lokalem JWT → B9, B10 wie bisher', authMeldung(2, 'lokal').text === KT.B9('AUTHRET_KEYORSECRETWRONG') && authMeldung(11, 'lokal').text === KT.B10);
+  ck('auth 3 mit Server-JWT → B11 wie bisher', authMeldung(3, 'server').text === KT.B11('AUTHRET_ACCOUNTNOTSUPPORT'));
   ck('auth 3 → B11', authMeldung(3).text === KT.B11('AUTHRET_ACCOUNTNOTSUPPORT'));
   ck('auth 4 → B11', authMeldung(4).text === KT.B11('AUTHRET_ACCOUNTNOTENABLESDK'));
   ck('auth 6 → B12', authMeldung(6).text === KT.B12('AUTHRET_SERVICE_BUSY'));
@@ -632,8 +646,6 @@ console.log('— Mängel → Text (6.2 Schritt 1)');
     sdk_fehlt: [null, 'Die Zoom-Laufzeit auf diesem PC ist unvollständig (jm-zoom-laufzeit.json). Bitte den SDK-Ordner erneut wählen.'],
     sdk_defekt: ['sdk.dll', 'Die Zoom-Laufzeit auf diesem PC ist unvollständig (sdk.dll). Bitte den SDK-Ordner erneut wählen.'],
     bridge_fehlt: [null, 'Dieser Connect-Installation fehlt die Zoom-Bridge. Bitte JM Connect neu installieren.'],
-    zugang_fehlt: [null, 'Zugangsdaten fehlen — bitte eintragen oder die Datei wählen.'],
-    zugang_unlesbar: [null, 'Die hinterlegten Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Bitte die Zugangsdaten erneut eintragen oder die Datei erneut wählen.'],
   };
   for (const m of Object.keys(MANGEL_TEXT) as ZoomMangel[]) {
     ck(`${m} → Text wörtlich`, mangelText(m, MANGEL_TEXT[m][0]) === MANGEL_TEXT[m][1]);
@@ -676,11 +688,11 @@ console.log('— Zoom-SDK laden: Zeilen und Knöpfe (Spec SDK nachladen 4.4, 4.5
         && stateKvAus(a.kurz)?.zoom_status === 'einrichtung');
   }
 
-  const SCHLUESSEL: Record<ProxyKeySource, string> = {
-    stored: 'SDK-Schlüssel: hinterlegt',
-    session: 'SDK-Schlüssel: hinterlegt (nur für diese Sitzung)',
+  const SCHLUESSEL: Record<ProxyKeySource, string | null> = {
+    stored: 'Alter SDK-Schlüssel: hinterlegt, nur noch im Übergang.',
+    session: 'Alter SDK-Schlüssel: hinterlegt, nur noch im Übergang.',
     env: 'SDK-Schlüssel: aus der Umgebung',
-    none: 'SDK-Schlüssel: fehlt',
+    none: null,
   };
   for (const h of Object.keys(SCHLUESSEL) as ProxyKeySource[]) {
     const a = abbild({ einrichtung: { ...abbild().einrichtung, sdkSchluessel: { herkunft: h } } });
@@ -693,7 +705,7 @@ console.log('— Zoom-SDK laden: Zeilen und Knöpfe (Spec SDK nachladen 4.4, 4.5
     abbild({ ...extra, kurz: kz, einrichtung: { ...abbild().einrichtung, sdkSchluessel: { herkunft } } });
   ck('Z2 mit Schlüssel: „Zoom-SDK laden“ frei', zoomKnoepfe(mit('stored')).sdkLaden === 'frei');
   ck('Z1a mit Schlüssel aus der Umgebung: frei', zoomKnoepfe(mit('env', { zustand: 'einrichtung', maengel: ['sdk_fehlt'] })).sdkLaden === 'frei');
-  ck('ohne Schlüssel: gesperrt mit S11', zoomKnoepfe(mit('none', { zustand: 'einrichtung', maengel: ['sdk_fehlt'] })).sdkLaden === 'ohneSchluessel');
+  ck('T13: ohne SDK-Schlüssel: „Zoom-SDK laden“ frei (die Freigabe kommt vom Launcher)', zoomKnoepfe(mit('none', { zustand: 'einrichtung', maengel: ['sdk_fehlt'] })).sdkLaden === 'frei');
   ck('während Kopie oder Laden (Z1b): gesperrt wie die Ordnerwahl (S10)',
     zoomKnoepfe(mit('stored', { zustand: 'einrichtung', maengel: ['sdk_fehlt'], kopieLaeuft: true })).sdkLaden === 'gesperrt');
   ck('während „Einrichtung prüfen“: gesperrt (S10)', zoomKnoepfe(mit('stored', {}, { pruefungLaeuft: true })).sdkLaden === 'gesperrt');
@@ -715,9 +727,9 @@ console.log('— Zoom-SDK laden: Zeilen und Knöpfe (Spec SDK nachladen 4.4, 4.5
   ck('… während der Kopie der Kopierfortschritt wie bisher (32 %), Gesamt 0 → 0 %',
     sdkBalken(sdkMit({ dateien: 40, dateienGesamt: 153, bytes: 105_500_000, bytesGesamt: 329_657_415 }, null)) === 32
       && sdkBalken(sdkMit({ dateien: 0, dateienGesamt: 0, bytes: 0, bytesGesamt: 0 }, null)) === 0);
-  ck('S17 ist ein Hinweis (grau), S10, S11, S12, S16b und S5 sind Fehler (rot)',
+  ck('S17 ist ein Hinweis (grau), S10, S12, S12b, S16b und S5 sind Fehler (rot)',
     einrichtungsTextArt(TEXT_S17) === 'hinweis'
-      && [KT.S10, TEXT_S11, KT.S12, KT.S16b, KT.S5(872, 871)].every((t) => einrichtungsTextArt(t) === 'fehler'));
+      && [KT.S10, KT.S12, KT.S12b, KT.S16b, KT.S5(872, 871)].every((t) => einrichtungsTextArt(t) === 'fehler'));
 }
 
 // ── Aufgabe 4 (4b): zoom_cmd, Entzug, Grenze, Bild/Ton im Klartext, Versatz, Sperre im Abbau ──
@@ -818,7 +830,7 @@ console.log('— 4b: Sperre S10 auch während des Abbaus (L13)');
   ck('Z13 mit abbauLaeuft: Einrichtung gesperrt, „Erneut beitreten“ bleibt',
     !zoomKnoepfe(z13).einrichtungAenderbar && zoomKnoepfe(z13).meldung?.erneut === true);
   ck('Z1a mit abbauLaeuft: Einrichtung gesperrt',
-    !zoomKnoepfe(abbild({ kurz: { zustand: 'einrichtung', maengel: ['zugang_fehlt'] }, abbauLaeuft: true })).einrichtungAenderbar);
+    !zoomKnoepfe(abbild({ kurz: { zustand: 'einrichtung', maengel: ['sdk_fehlt'] }, abbauLaeuft: true })).einrichtungAenderbar);
   ck('ohne Abbau: Z2 und Z13 wie bisher änderbar', zoomKnoepfe(abbild()).einrichtungAenderbar && zoomKnoepfe({ ...z13, abbauLaeuft: false }).einrichtungAenderbar);
 }
 
@@ -895,9 +907,11 @@ console.log('— 4b: Einordnung 6.4 (istEndgueltig: Tabelle und L5)');
   const VORUEBERGEHEND: VersuchsAusgang[] = [{ art: 'joinTimeout' }, { art: 'reconnectTimeout' }, { art: 'keineAuthAntwort' }];
   for (const a of VORUEBERGEHEND) ck(`${a.art}: vorübergehend`, !istEndgueltig(a));
   const ENDGUELTIG_SONST: VersuchsAusgang[] = [
-    { art: 'init' }, { art: 'joinFehler' }, { art: 'ndi' }, { art: 'sdkFassung' }, { art: 'spawn' }, { art: 'zugang' }, { art: 'authSofort' },
+    { art: 'init' }, { art: 'joinFehler' }, { art: 'ndi' }, { art: 'sdkFassung' }, { art: 'spawn' }, { art: 'zugang', grund: 'kein-recht' }, { art: 'authSofort' },
   ];
   for (const a of ENDGUELTIG_SONST) ck(`${a.art}: endgültig`, istEndgueltig(a));
+  for (const grund of ['kein-launcher', 'server-nicht-erreichbar', 'server-fehler'] as const) ck(`zugang ${grund}: vorübergehend`, !istEndgueltig({ art: 'zugang', grund }));
+  for (const grund of ['kein-recht', 'server-abgelehnt', 'nicht-eingerichtet', 'niemand-angemeldet'] as const) ck(`zugang ${grund}: endgültig`, istEndgueltig({ art: 'zugang', grund }));
 }
 
 console.log('— 4b: 8.6 Fernsteuer-Hinweise (Vorsatz „Companion: “) und Logtext ohne Namen');

@@ -138,6 +138,12 @@ jobs:
         run: node --experimental-strip-types services/release-proxy/test/konto-routen.test.mjs
       - name: Release-Proxy (Q&A-Relay, Freigabe, alter Schlüssel, Blind-Relay)
         run: node --experimental-strip-types services/release-proxy/test/qa-relay.test.mjs
+      - name: Release-Proxy (Connect-Raum über die Anmeldung, Bindung, alter Schlüssel)
+        run: node --experimental-strip-types services/release-proxy/test/connect-zugang.test.mjs
+      - name: Release-Proxy (Zoom-JWT signieren und ausstellen)
+        run: node --experimental-strip-types services/release-proxy/test/zoom-jwt.test.mjs
+      - name: Release-Proxy (ConnectRoom-DO, SFU-Vermittlung)
+        run: node --experimental-strip-types services/release-proxy/test/connect-do.test.mjs
 
       # Gast-Klicker (#317): Raumlogik des Durable Objects mit Attrappen-Kontext und Worker-Routen/Gast-Seite mit
       # Attrappen-Bindung, ohne Cloudflare und ohne node_modules.

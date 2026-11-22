@@ -7,7 +7,7 @@
 // Antworten: JSON mit cache-control no-store; Fehler { error: Text S…, code } (Texttabelle 9.6, EP17). Kein Token,
 // Abholgeheimnis, Code, Passwort oder Schlüssel geht ins Log oder in eine Fehlermeldung.
 import { googleBereit, googleRueckkehr, googleStartAdresse } from './konto-google.js';
-import { FREIGABE_MS, ZWECK_FUNKTION, darf, iveoBasisErlaubt, iveoSchluessel, kontoStand } from './konto-kern.js';
+import { FREIGABE_MS, ZWECK_FUNKTION, ZWECK_ZIEL, darf, iveoBasisErlaubt, iveoSchluessel, kontoStand, zweckDarf } from './konto-kern.js';
 import { BEWEIS_FENSTER_MS, iveoEntschluesseln, iveoVerschluesseln, neuerBestaetigungsCode, pruefeToken, schluesselBrauchbar, sha256B64url, signiere, zufall } from './konto-krypto.js';
 import { datumText, esc, fuelle, htmlAntwort, rueckZiel, seiteAnmelden, seiteBestaetigen, seiteMeldung, seiteWeiter } from './konto-seiten.js';
 import { KONTO_RL, abgelehnt, drosselBindung, kontoAktion, kontoJetzt, kontoStub } from './konto-zugang.js';
@@ -199,8 +199,8 @@ async function freigabe(k) {
   const zweck = typeof d.zweck === 'string' ? d.zweck : '';
   if (!Object.hasOwn(ZWECK_FUNKTION, zweck)) return fehler(abgelehnt('unbekannter-zweck', 400));
   const ziel = typeof d.ziel === 'string' ? d.ziel.trim() : '';
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(ziel)) return fehler(abgelehnt('ungueltig', 400));
-  if (!darf(stand, ZWECK_FUNKTION[zweck], { jetzt: k.jetzt })) return fehler(abgelehnt('kein-recht', 403));
+  if (!ZWECK_ZIEL[zweck].test(ziel)) return fehler(abgelehnt('ungueltig', 400));
+  if (zweckDarf(stand, zweck, { jetzt: k.jetzt }) !== 'ja') return fehler(abgelehnt('kein-recht', 403));
   const bis = k.jetzt + FREIGABE_MS[zweck];
   const claims = { v: 1, typ: 'freigabe', zweck, ziel, kid: stand.kid, gid: stand.gid, iat: k.jetzt, exp: bis };
   return json({ freigabe: await signiere(k.env.KONTO_SCHLUESSEL, claims), bis });

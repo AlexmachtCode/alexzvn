@@ -7,8 +7,10 @@ import type { SlotFehler } from '@jm/zoom-bridge/protocol';
 import { authResultName, endReason, failCodeName, failReason, SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
 import { SDK_FASSUNG, SDK_FASSUNG_BRIDGE } from '@jm/zoom-bridge/sdk';
 import type { ZoomBefehlKennung, ZoomMangel } from '../../shared/types';
-import { BETRIEBSGROESSE, TEXT_A4, TEXT_A6, TEXT_S11, TEXT_S17 } from '../../shared/zoom-text';
+import { BETRIEBSGROESSE, TEXT_A4, TEXT_A6, TEXT_S17 } from '../../shared/zoom-text';
+import type { JwtGrund } from '../zugang/regeln';
 import { ZOOM_FRISTEN } from './fristen';
+import type { JwtHerkunft } from './jwt-quelle';
 
 /** Text groß in der Karte, Detail klein darunter (technischer Name und Code), Spec 8. */
 export interface Meldungstext {
@@ -44,17 +46,12 @@ export const KT = {
   S9: (datei: string): string =>
     `Die Zoom-Laufzeit auf diesem PC ist unvollständig (${datei}). Bitte den SDK-Ordner erneut wählen.`,
   S10: 'Während Zoom läuft oder das Zoom-SDK geladen oder kopiert wird, lässt sich die Einrichtung nicht ändern.',
-  A1: 'Die Datei ist kein gültiges JSON (Inhalt wird absichtlich nicht angezeigt).',
-  A2: 'In der Datei fehlen Client-ID oder Client-Secret (erwartet: clientId und clientSecret).',
-  A3: (code: string): string => `Die Datei lässt sich nicht lesen (${code}).`,
   A4: TEXT_A4,
-  A5: 'Die hinterlegten Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Bitte die Zugangsdaten erneut eintragen oder die Datei erneut wählen.',
   A6: TEXT_A6,
-  A7: 'Bitte Client-ID und Client-Secret eintragen, ohne Leerzeichen.',
 
   // Zoom-SDK nachladen (Spec 2026-10-06, Abschnitt 5). Platzmangel nutzt S5; {grund} ist nur ein Code, nie ein Link.
-  S11: TEXT_S11,
   S12: 'Der Proxy hat den SDK-Schlüssel abgelehnt. Bitte den Schlüssel prüfen.',
+  S12b: 'Der Server hat die Freigabe für „Zoom-SDK laden“ abgelehnt. Bitte noch einmal versuchen; Connect holt eine neue beim Launcher.',
   S13: (sekunden: number): string => {
     const minuten = Math.max(1, Math.ceil(sekunden / 60));
     return `Zu viele Versuche. Bitte in ${minuten} ${minuten === 1 ? 'Minute' : 'Minuten'} erneut versuchen.`;
@@ -68,7 +65,6 @@ export const KT = {
   S16c: (grund: string): string =>
     `Das geladene Zoom-SDK ließ sich nicht entpacken (${grund}). Die bisherige Einrichtung bleibt unverändert.`,
   S17: TEXT_S17,
-  S18: 'Bitte den SDK-Schlüssel eintragen, ohne Leerzeichen.',
 
   // 8.2 Start und Anmeldung
   B1: 'zoom-bridge.exe fehlt im Laufzeit-Ordner. Bitte den SDK-Ordner erneut wählen.',
@@ -86,6 +82,10 @@ export const KT = {
   B9: (result: string): string =>
     `Zoom hat die Anmeldung abgelehnt: Client-ID oder Client-Secret stimmen nicht (${result}). Bitte die Zugangsdaten prüfen.`,
   B10: 'Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token passt nicht (AUTHRET_JWTTOKENWRONG). Meist stimmen die Zugangsdaten nicht, oder die Uhr dieses PCs geht falsch.',
+  /** B9 und B10 für ein JWT, das der Server signiert hat (Anmeldung Teil 2). */
+  B9s: (result: string): string =>
+    `Zoom hat die Anmeldung abgelehnt: Die Zoom-Zugangsdaten auf dem Server stimmen nicht (${result}). Sag einem Admin Bescheid.`,
+  B10s: 'Zoom hat die Anmeldung abgelehnt: Das Anmelde-Token vom Server passt nicht (AUTHRET_JWTTOKENWRONG). Meist geht die Uhr dieses PCs falsch; sonst stimmen die Zugangsdaten auf dem Server nicht.',
   B11: (result: string): string =>
     `Das Zoom-Konto der App darf das Meeting-SDK nicht nutzen (${result}). Das klärt der Inhaber des Zoom-Kontos.`,
   B12: (result: string): string => `Zoom ist gerade nicht erreichbar (${result}). Netzwerk prüfen und erneut versuchen.`,
@@ -93,7 +93,6 @@ export const KT = {
   B14: 'Zu viele Anmeldungen in kurzer Zeit (AUTHRET_LIMIT_EXCEEDED_EXCEPTION). Einige Minuten warten.',
   B15: (result: string): string => `Zoom hat die Anmeldung abgelehnt (${result}).`,
   B16: `Zoom hat auf die Anmeldung nicht geantwortet (${ZOOM_FRISTEN.anmeldeMs / 1000} s). Netzwerk prüfen und erneut versuchen.`,
-  B17: 'Zugangsdaten fehlen — bitte eintragen oder die Datei wählen.',
   B18: (name: string): string =>
     `Das Zoom-SDK hat die Anmeldung sofort abgewiesen (${name}). Mit dem Netzwerk hat das nichts zu tun. Details im Log.`,
 
@@ -193,12 +192,12 @@ export function endeMeldung(code: number, anzeigename: string): Meldungstext {
   return { text: KT.R6(endReason(code)), detail: null };
 }
 
-/** `auth` mit Code ≠ 0 → B9–B15 (8.2). */
-export function authMeldung(code: number): Meldungstext {
+/** `auth` mit Code ≠ 0 → B9–B15 (8.2); bei einem Server-JWT sagen 1, 2 und 11 B9s und B10s (die Zugangsdaten liegen auf dem Server). */
+export function authMeldung(code: number, herkunft: JwtHerkunft = 'lokal'): Meldungstext {
   const result = authResultName(code);
   const detail = `${result} (${code})`;
-  if (code === 1 || code === 2) return { text: KT.B9(result), detail };
-  if (code === 11) return { text: KT.B10, detail };
+  if (code === 1 || code === 2) return { text: herkunft === 'server' ? KT.B9s(result) : KT.B9(result), detail };
+  if (code === 11) return { text: herkunft === 'server' ? KT.B10s : KT.B10, detail };
   if (code === 3 || code === 4) return { text: KT.B11(result), detail };
   if (code === 6 || code === 8 || code === 9) return { text: KT.B12(result), detail };
   if (code === 10) return { text: KT.B13, detail };
@@ -235,15 +234,11 @@ export function fehlerDetail(e: { name?: string; code: number | string }): strin
 /** Text eines Einrichtungsmangels (6.2 Beitritt Schritt 1, 5.3). */
 export function mangelText(m: ZoomMangel, datei: string | null): string {
   switch (m) {
-    case 'zugang_fehlt':
-      return KT.B17;
     case 'sdk_fehlt':
     case 'sdk_defekt':
       return KT.S9(datei ?? 'jm-zoom-laufzeit.json');
     case 'bridge_fehlt':
       return KT.S8;
-    case 'zugang_unlesbar':
-      return KT.A5;
   }
 }
 
@@ -288,7 +283,7 @@ export type VersuchsAusgang =
   | { art: 'ndi' } // ndiInitFailed (Q7)
   | { art: 'sdkFassung' } // ready.sdkVersion falsch (B7)
   | { art: 'spawn' } // Spawn-Fehler (B1, B2)
-  | { art: 'zugang' } // Zugangsdaten fehlen (B17)
+  | { art: 'zugang'; grund: JwtGrund } // kein JWT aus der Quelle (ZA7)
   | { art: 'exited'; exitCode: number | null } // error exit exited; DLL-Codes → B3–B5
   | { art: 'joinTimeout' }
   | { art: 'reconnectTimeout' }
@@ -298,6 +293,9 @@ export type VersuchsAusgang =
 export const ENDGUELTIGE_FAIL_CODES: ReadonlySet<number> = new Set([
   4, 6, 7, 8, 9, 10, 12, 13, 14, 16, 23, 60, 61, 62, 63, 64, 82, 88, 89, 500, 501, 502, 503, 504, 505, 506,
 ]);
+
+/** Gründe, aus denen das JWT nicht kam und ein späterer Versuch es noch holen kann (Launcher oder Server gerade nicht da). */
+const ZUGANG_VORUEBERGEHEND: ReadonlySet<JwtGrund> = new Set<JwtGrund>(['kein-launcher', 'server-nicht-erreichbar', 'server-fehler']);
 
 /** auth-Codes, die vorübergehend sind (B12: Zoom gerade nicht erreichbar). */
 const AUTH_VORUEBERGEHEND: ReadonlySet<number> = new Set([6, 8, 9]);
@@ -325,9 +323,10 @@ export function istEndgueltig(a: VersuchsAusgang): boolean {
     case 'ndi':
     case 'sdkFassung':
     case 'spawn':
-    case 'zugang':
     case 'joinFehler':
       return true;
+    case 'zugang':
+      return !ZUGANG_VORUEBERGEHEND.has(a.grund);
   }
 }
 

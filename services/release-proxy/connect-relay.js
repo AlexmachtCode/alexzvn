@@ -7,7 +7,8 @@
 // läuft über diesen Worker/DO (dieselbe Philosophie wie das Q&A-Poll-Modell, qa-relay.js).
 //
 // ARCHITEKTUR:
-//   • Der Worker serviert die statische Gast-Seite und gate't die Admin-Routen (PROXY_KEY),
+//   • Der Worker serviert die statische Gast-Seite und gate't die Admin-Routen (Sitzung, Freigabe oder alter Schlüssel
+//     bis ALTKEY_CONNECT_BIS, zugangPruefen),
 //     dann routet er /connect/:room/* an den ConnectRoom-DO (eine Instanz je Raum).
 //   • Der DO ist autoritativ: hält Raum-Metadaten (inkl. symmetrischem Verify-Secret), die
 //     Room-State-Machine (aus @jm/rtc — dort unit-getestet) und die WebSockets (Hibernation).
@@ -31,6 +32,7 @@ import { guestTrackKind, guestTrackName } from '../../packages/rtc/src/protocol.
 import { verifyJoinToken } from '../../packages/rtc/src/token.ts';
 import { generateTurnCredentials } from '../../packages/rtc/src/turn.ts';
 import { createCloudflareSfu } from '../../packages/rtc/src/cf-sfu.ts';
+import { abgelehnt, drosselBindung, kontoAktion, kontoJetzt, KONTO_RL, zugangPruefen } from './konto-zugang.js';
 
 const ID_RE = /^[A-Za-z0-9_-]{6,64}$/;
 const HEX_SECRET_RE = /^[a-f0-9]{32,128}$/;
@@ -44,15 +46,19 @@ const CONNECT = {
   retentionMaxSec: 60 * 60 * 24, // 24 h Auto-Verfall eines Raums (DO-Alarm)
   turnTtlSec: 60 * 30, // 30 min ephemere TURN-Creds
   guestCap: 50, // harte Obergrenze gleichzeitiger Gäste je Raum
+  /** E3: Der Raum gehört seiner ersten Freigabe 25 Stunden ab der letzten Nutzung (der Konten-DO deckelt auf 30 Tage). */
+  inhaberMs: 25 * 3600_000,
 };
 
 /**
  * Routet alle `/connect/...`-Pfade. Gibt eine Response zurück oder `null`, wenn der Pfad kein
  * Connect-Pfad ist (dann macht worker.js normal weiter). Öffentliche Routen (Gast-Seite, state,
  * ice, ws) sind ABSICHTLICH vor dem globalen PROXY_KEY-Gate erreichbar; die Admin-Routen
- * (open/close) prüft der Worker hier selbst und leitet nur dann an den DO weiter.
+ * (open/close) prüft der Worker hier selbst und leitet nur dann an den DO weiter: Freigabe für genau diesen Raum (Zweck
+ * connect-raum) oder der alte PROXY_KEY bis ALTKEY_CONNECT_BIS (zugangPruefen, Vergleich in konstanter Zeit), danach die
+ * Bindung des Raums an die erste Freigabe im Konten-DO (E3). Der alte Schlüssel öffnet keinen gebundenen Raum.
  */
-export async function handleConnect(request, env, url) {
+export async function handleConnect(request, env, url, ctx) {
   const m = url.pathname.match(/^\/connect\/([^/]+)(?:\/([a-z]+))?\/?$/);
   if (!m) return null;
 
@@ -65,7 +71,20 @@ export async function handleConnect(request, env, url) {
   if (method === 'GET' && sub === '') return html(guestPage(id));
 
   const isAdmin = (method === 'POST' && sub === '') || (method === 'DELETE' && sub === '');
-  if (isAdmin && !keyOk(request, env)) return json({ error: 'unauthorized' }, 401);
+  let zugang = null;
+  if (isAdmin) {
+    zugang = await zugangPruefen(request, env, { funktion: 'connect-raum', zweck: 'connect-raum', gruppe: 'connect', ziel: id, jetzt: kontoJetzt(env), ctx });
+    if (!zugang.ok) return json({ error: zugang.error, code: zugang.code }, zugang.status);
+    // Der alte Schlüssel steht in öffentlichen Installern: je IP drosseln, bevor die Anfrage den Konten-DO erreicht (Freigaben nicht).
+    if (zugang.art === 'alter-key') {
+      const rl = await drosselBindung(request, env, KONTO_RL.connectAlt);
+      if (!rl.ok) {
+        const r = json({ error: 'zu viele Anfragen', code: 'zu-viele' }, 429);
+        r.headers.set('Retry-After', String(rl.retryAfter || 60));
+        return r;
+      }
+    }
+  }
 
   const known =
     isAdmin ||
@@ -75,6 +94,10 @@ export async function handleConnect(request, env, url) {
   // An den Raum-DO weiterreichen. Raumname + (für Admin) Admin-Marker als interne Header —
   // der DO ist nur über den Worker erreichbar und vertraut diesen Headern.
   if (!env.CONNECT_ROOM) return json({ error: 'CONNECT_ROOM DO-Bindung fehlt' }, 503);
+  if (isAdmin) {
+    const inhaber = await raumInhaber(env, id, zugang);
+    if (!inhaber.ok) return json({ error: inhaber.error, code: inhaber.code }, inhaber.status);
+  }
   let stub;
   try {
     stub = roomStub(env, id);
@@ -89,7 +112,13 @@ export async function handleConnect(request, env, url) {
   headers.delete('x-connect-room');
   headers.set('x-connect-room', id);
   if (isAdmin) headers.set('x-connect-admin', '1');
-  return stub.fetch(new Request(request, { headers }));
+  const antwort = await stub.fetch(new Request(request, { headers }));
+  // RF5: Schließt der Inhaber den Raum (DELETE, 200), endet die Bindung; ein Fehler dabei ist nur eine Warnung (sie verfällt ohnehin).
+  if (isAdmin && method === 'DELETE' && antwort.status === 200 && zugang.art === 'freigabe') {
+    const los = await raumInhaber(env, id, zugang, true);
+    if (!los.ok) console.warn(`connect-relay: Bindung beim Schließen nicht gelöst (status=${los.status})`);
+  }
+  return antwort;
 }
 
 // ── Worker-Helfer (bewusst modul-lokal, wie in qa-relay.js) ─────────────────────
@@ -122,11 +151,44 @@ function roomStub(env, id) {
   return ns.get(ns.idFromName(id));
 }
 
-function keyOk(request, env) {
-  const provided =
-    request.headers.get('X-Proxy-Key') ||
-    (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  return !!env.PROXY_KEY && provided === env.PROXY_KEY;
+/**
+ * E3: Der Cloud-Raum gehört dem Konto bzw. Rechner, dessen Freigabe ihn zuerst geöffnet hat (die Raum-ID ist öffentlich). Der
+ * Inhaber steht im Konten-DO (Aktion connect-inhaber, Compare-and-set). Die Schlüssel und der Vergleich laufen über Hashes mit
+ * eigenem Präfix; der DO speichert zusätzlich Raum-ID und kid der Bindung im Klartext, damit ein Admin einen hängengebliebenen
+ * Raum freigeben kann. Raum-IDs sind Show-Namen und keine Geheimnisse. Der
+ * alte Schlüssel (kein kid/gid) öffnet nur einen freien Raum und bindet nie. `loesen` beendet die Bindung (Raum geschlossen).
+ * → { ok: true } | Ablehnung 403 raum-vergeben (S20) | Ablehnung 503 nicht-eingerichtet bei jedem anderen Ausgang (nie offen)
+ */
+async function raumInhaber(env, id, zugang, loesen = false) {
+  const kid = zugang.art === 'freigabe' ? String(zugang.claims.kid || '') : '';
+  const gid = zugang.art === 'freigabe' ? String(zugang.claims.gid || '') : '';
+  const jetzt = kontoJetzt(env);
+  const frage = { jetzt, raumHash: await sha256Hex(`connect-raum|${id}`), raumId: id, bisMs: jetzt + CONNECT.inhaberMs };
+  if (kid && gid) {
+    frage.kidHash = await sha256Hex(`connect-inhaber|kid|${kid}`);
+    frage.gidHash = await sha256Hex(`connect-inhaber|gid|${gid}`);
+    frage.kid = kid;
+  }
+  if (loesen) frage.loesen = true;
+  let r = null;
+  try {
+    r = await kontoAktion(env, 'connect-inhaber', frage);
+  } catch (e) {
+    console.warn(`connect-relay: Inhaber-Prüfung im Konten-DO fehlgeschlagen (${e && typeof e.name === 'string' ? e.name : 'Error'})`);
+  }
+  if (r && r.ok === true) return { ok: true };
+  if (r && r.ok === false && r.status === 403 && r.code === 'raum-vergeben') return abgelehnt('raum-vergeben', 403);
+  // Eine unerwartete Antwort sichtbar machen: nur code und status, nie Werte.
+  if (r?.ok === false) {
+    const klein = (v) => ((typeof v === 'string' || typeof v === 'number') && /^[A-Za-z0-9_-]{1,40}$/.test(String(v)) ? String(v) : '?');
+    console.warn(`connect-relay: Inhaber-Prüfung vom Konten-DO abgelehnt (code=${klein(r.code)}, status=${klein(r.status)})`);
+  }
+  return abgelehnt('nicht-eingerichtet', 503);
+}
+
+async function sha256Hex(s) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 function json(obj, status = 200) {

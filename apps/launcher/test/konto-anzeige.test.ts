@@ -11,7 +11,7 @@ import {
 
 import type { AnmeldeSchritt } from '../src/shared/konto';
 import {
-  abmeldeFrage, ANMELDE_TEXTE, anmeldeAnzeige, ausgabeZeilen, hinweisZeilen, KONTO_TEXTE, kontoKnoepfe, kontoZeilen, ZOOM_TEXTE, zoomConnectHinweis,
+  abmeldeFrage, ANMELDE_TEXTE, anmeldeAnzeige, ausgabeZeilen, hinweisZeilen, KONTO_TEXTE, kontoKnoepfe, kontoZeilen, ZOOM_TEXTE,
   zoomFehlerText, zoomFormular, zoomHinweis, zoomKnopfSichtbar, zoomStand, zustandsZeile, kopierErgebnis, tagesGrenze,
 } from '../src/renderer/src/lib/konto-dialog';
 
@@ -285,20 +285,11 @@ const STUFEN_FARBEN: KopfFarbe[] = ['admin', 'kollege', 'externer'];
       pf === 'mac' ? ZOOM_TEXTE.hinweisMac : jm ? ZOOM_TEXTE.hinweisJm : ZOOM_TEXTE.hinweisKeinJm]);
   }
   kreuz('P25 8, EP18: Hinweis im Zoom-Formular Z5–Z7 (Plattform × JM-Rechner × Stufe)', hinweis);
-  // EP34 (Nachbesserung Block D, spec:4): Connect nutzt die Freigabe erst mit Teil 2 — Z11 steht genau dort, wo die Zeile „Zoom“
-  // unter Windows steht (mit Stand), nie auf dem Mac (dort sagt K24 „nicht verfügbar“) und nie ohne Stand.
-  const connect: Array<[string, string, string]> = [];
-  for (const z of ZUSTAENDE) for (const pf of ['win', 'mac'] as const) for (const st of STUFEN) {
-    const a = ansicht(z, st === null ? null : stand(st, { plattform: pf }), { plattform: pf });
-    connect.push([`${z}/${pf}/${st ?? '-'}`, String(zoomConnectHinweis(a)), st !== null && pf === 'win' ? ZOOM_TEXTE.connect : 'null']);
-  }
-  connect.push(['vor dem Laden', String(zoomConnectHinweis(null)), 'null']);
-  kreuz('P25 8, EP34: Z11 unter der Zeile Zoom — nur mit Stand und nur unter Windows', connect);
   const stand3 = (zustand: 'offen' | 'freigegeben' | 'abgelehnt'): string | null =>
     zoomStand(ansicht('angemeldet', stand('externer'), { zoomAnfrage: { id: 'z1', zustand, zweck: 'Gala', von: JETZT, bis: JETZT + 3 * TAG, am: JETZT - TAG } }));
   kreuz('P25 8: Stand der Zoom-Anfrage Z9a–Z9c mit Datum', [
     ['offen', String(stand3('offen')), `Zoom-Anfrage offen seit ${datumText(JETZT - TAG)}.`],
-    ['freigegeben', String(stand3('freigegeben')), `Zoom freigegeben bis ${datumText(JETZT + 3 * TAG)}.`],
+    ['freigegeben', String(stand3('freigegeben')), `Zoom freigegeben bis ${datumText(JETZT + 3 * TAG)}. Gilt ab dem nächsten Start des Launchers.`],
     ['abgelehnt', String(stand3('abgelehnt')), `Zoom-Anfrage abgelehnt am ${datumText(JETZT - TAG)}.`],
     ['keine', String(zoomStand(ansicht('angemeldet', stand('externer')))), 'null'],
   ]);
@@ -448,14 +439,14 @@ const STUFEN_FARBEN: KopfFarbe[] = ['admin', 'kollege', 'externer'];
     ['K26', [K.abmelden, K.neuAnmelden, K.anmelden, K.schliessen].join(' / '), 'Abmelden / Neu anmelden / Anmelden / Schließen'],
     ['K27c', `${K.jaAbmelden} / ${K.abbrechen}`, 'Abmelden / Abbrechen'],
     ['K29a', K.ausgaben, 'An Tools ausgegeben'],
-    ['K29d', K.zweck['qa-relay'], 'Q&A extern'],
+    ['K29d', ['qa-relay', 'connect-raum', 'zoom-jwt', 'zoom-sdk'].map((z) => K.zweck[z]).join(' / '), 'Q&A extern / Connect Cloud-Raum / Zoom-Anmeldung / Zoom-SDK laden'],
     ['K31', K.entwicklung('X'), 'Entwicklungsmodus: X gesetzt.'],
     ['Z1, Z2', `${Z.knopf} / ${Z.titel}`, 'Zoom anfragen / Zoom anfragen'],
     ['Z3, Z4, Z8', `${Z.zweck} / ${Z.von} / ${Z.bis} / ${Z.senden}`, 'Zweck oder Event / Von / Bis / Anfrage senden'],
-    ['Z5–Z7 (Teil 1, EP34)', `${Z.hinweisJm} / ${Z.hinweisKeinJm} / ${Z.hinweisMac}`,
-      'Dieser Rechner ist ein JM-Rechner. / Dieser Rechner ist kein JM-Rechner. Eine Freigabe gilt für Externe nur auf JM-Rechnern. / Auf dem Mac gibt es Zoom in Connect nicht. Eine Freigabe gilt nur für JM-Rechner unter Windows.'],
-    ['Z9b (Teil 1, EP34)', Z.freigegeben('D'), 'Zoom freigegeben bis D.'],
-    ['Z11 (Teil 1, EP34)', Z.connect, 'Connect nutzt Zoom-Freigaben erst mit einem kommenden Update; bis dahin gilt Zoom in Connect wie bisher.'],
+    ['Z5–Z7 (Teil 2)', `${Z.hinweisJm} / ${Z.hinweisKeinJm} / ${Z.hinweisMac}`,
+      'Dieser Rechner ist ein JM-Rechner. Eine Freigabe wirkt hier nach dem nächsten Start des Launchers. / Dieser Rechner ist kein JM-Rechner. Zoom gibt es für Externe nur auf JM-Rechnern; eine Freigabe wirkt hier nicht. / Auf dem Mac gibt es Zoom in Connect nicht. Eine Freigabe wirkt nur auf JM-Rechnern unter Windows.'],
+    ['Z9b (Teil 2)', Z.freigegeben('D'), 'Zoom freigegeben bis D. Gilt ab dem nächsten Start des Launchers.'],
+    ['Z11 entfällt', String('connect' in Z), 'false'],
     ['K40', A.titel, 'Im Browser anmelden'],
     ['K41', A.vergleichen, 'Der Browser zeigt gleich denselben Code. Bestätige dort nur, wenn er übereinstimmt.'],
     ['K42, K43', `${A.code} / ${A.frist('4:59')}`, 'Code / Gültig noch 4:59'],

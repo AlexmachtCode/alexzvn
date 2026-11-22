@@ -277,7 +277,7 @@ Spec `docs/superpowers/specs/2026-10-17-launcher-anmeldung-design.md`, Plan Teil
 | Teil | Inhalt | Stand |
 |---|---|---|
 | **1 · Konten** | Anmeldung im Launcher mit dem Firmenkonto oder per Einladung und Passwort, Abmelden und Entzug, Q&A-Einreichungen von außen über das Konto statt über einen Schlüssel; Ziel **Launcher 0.18.0** und **Q&A 0.6.0** | ✅ **released 20.11.2026** als `launcher-v0.18.0` und `qa-v0.6.0` (PR #282, Merge `ad7b69c9a2`, Tags einzeln). Übergangsfrist der alten Schlüssel `ALTKEY_BIS = 2026-12-20` live (PR #321, Worker-Deploy von `main`, Version `e6413a0d`): ab dann gilt der alte `PROXY_KEY` nicht mehr für Katalog, Installieren, Updates, Kochbuch, Feedback, KI-Entwurf und Q&A; alte Launcher können sich weiter selbst aktualisieren, Connect ist nicht betroffen (Teil 2). Abnahme-Schritte 14, 15 und Rest von 21 vom Owner hingenommen (20.11.: der iveo-Entwickler behebt den Fehler, absehbar keine Produktion mit iveo-Events; bis dahin können Admins keine iveo-Events zentral hinterlegen). ✅ **Abnahme durch (Owner 20.11. 15:34)**, offen nur der iveo-Fehler beim iveo-Entwickler. *(Vorher offen: Schritt 18, Schritt 20, Safari-Version.)* Mit dem Merge kam der mDNS-Absturz-Fix in beide Tools. *Verlauf:* 🟡 umgesetzt; der Proxy-Teil ist seit dem 05.11. ausgerollt (Nachbesserung 06.11.), alte Launcher arbeiten unverändert weiter. **Owner-Abnahme am 06.11.:** alle Schritte bestanden außer 14, 15 und dem Rest von 21; die hängen am iveo-Server (HTTP 500 beim Laden der Events, der iveo-Entwickler prüft). Gefunden und behoben während der Abnahme: die Google-Anmeldung scheiterte unter der Workers-Laufzeit (`redirect: 'error'` wirft dort), und die Logzeile beim iveo-Fehler nannte weder Status noch Request-ID. ⏸ **Release zurückgestellt bis nach der COP31** (Owner 06.11., vorläufig, Owner meldet sich nach Absprache). 🔵 **19.11.: Block 1 des Plans in Abschnitt 3.** `main` ist seit der Branch-Basis (05.11.) 210 Commits weiter; beide Seiten ändern dieselben Dateien nur an vier Stellen (`ci-checks.yml`, `suite-release.yml`, `package-lock.json`, `packages/cookbook/cookbook.json`). Ob der iveo-Fehler noch besteht, ist unbekannt (letzte Logzeile 12.11.). |
-| **2 · Connect und Zoom** | Cloud-Raum, Zoom-Zugang und „Zoom-SDK laden“ über die Anmeldung statt über eigene Schlüssel; braucht auch ein Launcher-Release | ⚪ Bestandsaufnahme fertig (05.11.); Plan erst nach Release und Merge von Teil 1. **19.11.:** Die Bestandsaufnahme ist gegen Connect 0.4.0 gemessen, seitdem kamen 0.4.1–0.4.5 → vor dem Plan nachmessen (Block 3; Ziel Connect 0.5.0 + Launcher 0.19.0) |
+| **2 · Connect und Zoom** | Cloud-Raum, Zoom-Zugang und „Zoom-SDK laden“ über die Anmeldung statt über eigene Schlüssel; braucht auch ein Launcher-Release | 🟡 Entwurf freigegeben 20.11. (`docs/superpowers/specs/2026-11-20-anmeldung-teil2-design.md`), Plan `docs/superpowers/plans/2026-11-20-anmeldung-teil2.md`, in Umsetzung auf `feat/anmeldung-teil2`; Releases Worker → Launcher 0.19.0 → Connect 0.5.0 mit Owner-OK |
 
 ✅ **Seit dem Merge von Teil 1 (20.11.) kommt ein Proxy-Deploy wieder von `main`.** Der Branch `docs/launcher-anmeldung` ist
 gelöscht. *(Bis dahin galt: ~~Bis zum Merge von Teil 1 läuft der Proxy im Stand des Branches, `main` kennt die Konten noch
@@ -625,7 +625,7 @@ vor dem Release. Geplant war:
 - Danach Merge von #282 und die Übergangsfrist der alten Schlüssel (`ALTKEY_BIS` = Release-Tag + 30 Tage). Ab dem Merge darf
   der Proxy wieder von `main` deployt werden.
 
-**Block 2 · Auffrisch-Runde** — 🟡 **gebaut 20.11., Releases laufen** (Spec `docs/superpowers/specs/2026-11-20-auffrisch-runde-design.md`,
+**Block 2 · Auffrisch-Runde** — ✅ **released 20.11.** (Spec `docs/superpowers/specs/2026-11-20-auffrisch-runde-design.md`,
 Plan `docs/superpowers/plans/2026-11-20-auffrisch-runde.md`, 8 Tasks je mit Prüfung, Gesamtprüfung ohne kritische oder wichtige
 Befunde). Versionen: Timer 0.14.1, Rundown 0.8.1, Battle 0.4.0, Prompter 0.7.0, Stage Display 0.6.0, Titler 0.12.2,
 Caption 0.5.0, Switcher 0.11.0, NDI Screen Capture 0.4.0. Gemessen dabei: auch Titler, Caption und Switcher fehlte der
@@ -642,11 +642,11 @@ Capture aus dem öffentlichen Repo nehmen (eigener Schritt, Owner 20.11.).
 
 **Block 3 · Connect-Runde**
 
-- **0.4.6:** Die Slot-Anzeige springt außerhalb eines Meetings nicht mehr zurück. Ton-Limiter (Entwurf und Plan fertig, Branch
-  `feat/connect-ton-limiter`); die Grenze legt der Owner in einem Testmeeting fest. Dazu, was T1–T3 ergeben.
-- **0.5.0:** Anmeldung Teil 2 mit Launcher 0.19.0 (Abschnitt 1c). Connect holt den Zoom-Zugang dann über die Anmeldung, die
-  alten Schlüssel laufen 30 Tage später aus. Vorher die Bestandsaufnahme vom 05.11. gegen Connect 0.4.5 nachmessen.
-- **#317 Stufe B** (Spotlight): Entwurf in diesem Block, gebaut mit 0.5.0 oder danach.
+- **0.4.6:** ✅ **released 20.11.** (Katalog `df96395472`). Die Slot-Anzeige springt außerhalb eines Meetings nicht mehr zurück; Ton-Limiter je Zoom-Slot bei −6 dBFS und eine
+  Pegelzeile im Log. Offen: die endgültige Grenze aus den Pegelzeilen echter Einsätze (Folge-Release) und was die Crew-Tests T1–T3 ergeben.
+- **0.5.0:** Anmeldung Teil 2 mit Launcher 0.19.0 (Abschnitt 1c). Connect holt den Zoom-Zugang dann über die Anmeldung.
+  Der Stichtag der alten Schlüssel (`ALTKEY_CONNECT_BIS`) wird erst nach dem Release mit Owner-OK gesetzt. Nachmessung gegen 0.4.6 erledigt (20.11.).
+- **#317 Stufe B** (Spotlight): Entwurf in diesem Block, gebaut nach 0.5.0 (0.5.0 enthält nur Teil 2).
 
 **Block 4 · UX-Relaunch Welle 1 + Live-Sicherheit**
 
@@ -694,8 +694,9 @@ nach dem R2-Release. Zwischen 2 und 3 läuft nichts parallel außer dem Schreibe
 - ✅ **Erledigt:** Block 1, Anmeldung Teil 1 released (Zeile 10) · Aufgeräumt: Arbeitsordner und Protokoll der Anmeldung
   archiviert, `docs/launcher-anmeldung` sowie die Hilfsbranches `z1/worker`, `z3/worker`, `z3/auf-z2` gelöscht (Abschnitt 4).
 - ✅ **Abnahme Anmeldung Teil 1 durch** (Owner 20.11. 15:34), offen nur der iveo-Fehler, der beim iveo-Entwickler liegt.
-- 🟡 **Läuft:** Block 2, die Auffrisch-Runde, gebaut und geprüft, Releases am 20.11. (Owner 20.11.: „in deiner empfehlung
-  weiter“). Block 0 läuft nebenher, sobald die Rückmeldungen der Crew da sind.
+- ✅ **Erledigt:** Block 2, die Auffrisch-Runde, released 20.11. (Owner 20.11.: „in deiner empfehlung weiter“).
+- 🟡 **Läuft:** Anmeldung Teil 2 (Block 3, Connect 0.5.0 mit Launcher 0.19.0), in Umsetzung auf `feat/anmeldung-teil2`, noch nichts
+  released. Block 0 läuft nebenher, sobald die Rückmeldungen der Crew da sind.
 - 🟡 **Beim Owner:** die Punkte mit *Owner* in Block 0 · weiter
   Messwerte aus der Abnahme Connect 0.3.0 · Bild-Versatz-Wert (Abschnitt 1) · Zoom-Review E1–E6 · Mac-Fragen O1–O6.
 

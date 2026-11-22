@@ -17,9 +17,10 @@ Der Live-Betrieb hängt nie an der Anmeldung: Die Prüfung beim Start läuft im 
 bisher, und was einmal ausgegeben ist (Freigaben, iveo-Tokens im Speicher), gilt bis zu seinem Ablauf bzw. bis zum Neustart des
 Launchers, auch wenn der Zugang inzwischen entzogen ist.
 
-**Teil 1 und Teil 2.** Teil 1 umfasst Worker, Launcher, Admin-Maske, Q&A und den Übergang. Connect (Cloud-Raum, Zoom-JWT vom
-Worker, „Zoom-SDK laden“ über die Sitzung) folgt in Teil 2 nach Connect 0.4.0. Bis dahin nutzt Connect seinen Proxy-Key
-unverändert; `connect-relay.js` und `/zoom-sdk` sind in Teil 1 nicht angefasst.
+**Teil 1 und Teil 2.** Teil 1 umfasst Worker, Launcher, Admin-Maske, Q&A und den Übergang. Teil 2 ist mit Launcher 0.19.0 und
+Connect 0.5.0 gebaut (Stand 21.11.2026: noch nicht veröffentlicht, nichts davon ist deployt): Connect holt Cloud-Raum,
+Zoom-JWT vom Worker und „Zoom-SDK laden“ über Freigaben des Launchers statt über eigene Schlüssel (Abschnitt 14). Connect 0.4.6
+und älter nutzen ihren Proxy-Key weiter, solange der Worker ihn annimmt (Abschnitt 9).
 
 ## 2 · Bausteine
 
@@ -102,7 +103,7 @@ bis“ begrenzt nur den Start (ein laufender Launcher behält sie bis zum Neusta
 safeStorage verschlüsselt in `settings.json` (ohne Schlüsselspeicher keine Anmeldung), den privaten Geräteschlüssel ebenso.
 
 Bei jedem Start erneuert der Launcher die Sitzung im Hintergrund (`POST /konto/sitzung` mit Gerätebeweis). Der Worker liest dabei
-den aktuellen Stand im Durable Object; was ein Admin geändert hat (Stufe, Sperre, Freigaben), wirkt damit beim nächsten Start (Zoom-Freigabe und Cloud-Raum nutzt Connect erst mit Teil 2, EP34).
+den aktuellen Stand im Durable Object; was ein Admin geändert hat (Stufe, Sperre, Freigaben), wirkt damit beim nächsten Start (Zoom-Freigabe und Cloud-Raum wirken in Connect ab 0.5.0, EP34).
 Zwischen zwei Starts prüft der Worker nur die Signatur. Ausnahme: Admin-Maske und Admin-Aktionen prüfen den aktuellen Stand sofort. Ein Google-Konto erneuert höchstens 90 Tage nach der letzten Anmeldung mit Google an diesem Rechner, danach meldet es sich neu mit Google an (Spec 4: wer ausscheidet und sein Google-Konto verliert, kommt so nicht mehr herein; OFP8); lehnt der Worker die Neuprüfung eines laufenden Launchers deshalb ab, gilt dessen Sitzung bis zu ihrem Ende weiter, und der Konto-Dialog sagt das; wer ausscheidet, wird zusätzlich sofort in der Admin-Maske gesperrt (Zugang löschen sperrt ein Google-Konto).
 
 | Zustand im Launcher | Wann | Kopf |
@@ -126,14 +127,14 @@ beide laufen dieselbe Falltabelle `services/release-proxy/test/rechte-faelle.jso
 | Launcher-Selbst-Update (`/tools/launcher/latest`) | ja, auch ohne Anmeldung (ab 0.18.0) | ja, auch ohne Anmeldung (ab 0.18.0) | ja, auch ohne Anmeldung (ab 0.18.0) |
 | Katalog, Installieren, Updates, Kochbuch, Feedback | ja | ja | ja |
 | KI-Entwurf für das Kochbuch | ja | ja | nein |
-| Q&A extern, Connect-Cloud-Raum (Teil 2) | ja | ja | nur mit dem Werkzeug |
+| Q&A extern, Connect-Cloud-Raum | ja | ja | nur mit dem Werkzeug |
 | iveo (je Event) | jedes hinterlegte Event | jedes hinterlegte Event | nur mit Werkzeug iveo und für freigegebene Events |
-| Zoom (Teil 2, nur Windows) | ja | ja | nur mit Zoom-Freigabe und auf einem JM-Rechner |
+| Zoom (nur Windows) | ja | ja | nur mit Zoom-Freigabe und auf einem JM-Rechner |
 | Admin-Maske | ja | nein | nein |
 
 ## 6 · Routen des Workers
 
-Reihenfolge in `fetch`: Health-Check, `/qa/*`, `/connect/*`, `/zoom-sdk`, `/konto/*`, `/tools/launcher/latest` (ab 0.18.0 ohne Zugang, gebremst; EP32), dann
+Reihenfolge in `fetch`: Health-Check, `/qa/*`, `/connect/*`, `/zoom-sdk`, `/zoom/jwt`, `/konto/*`, `/tools/launcher/latest` (ab 0.18.0 ohne Zugang, gebremst; EP32), dann
 die Zugangsprüfung für Feedback, Katalog, Kochbuch, KI-Entwurf und `/tools/:id/latest`. Fehler kommen als
 `{ "error": "<Text>", "code": "<Code>" }`; ohne `KONTO_SCHLUESSEL` oder Bindung `KONTO` antwortet `/konto/*` mit 503.
 
@@ -145,11 +146,12 @@ die Zugangsprüfung für Feedback, Katalog, Kochbuch, KI-Entwurf und `/tools/:id
 | POST `/konto/sitzung` | Sitzung und Gerätebeweis | Sitzung erneuern (Start-Prüfung) |
 | POST `/konto/abmelden` | Sitzung | Abmelden |
 | GET `/konto/ich` | Sitzung | Lage: Konto aktiv, Zoom-Anfrage, offene Anfragen für Admins |
-| POST `/konto/freigabe` | Sitzung | Freigabe für ein Tool (Zweck `qa-relay`, 72 h) |
+| POST `/konto/freigabe` | Sitzung | Freigabe für ein Tool (Zwecke `qa-relay`, `connect-raum`, `zoom-jwt`, `zoom-sdk`, je 72 h; Abschnitt 7) |
 | GET `/konto/iveo` | Sitzung | erlaubte iveo-Tokens (nur in den Speicher des Launchers) |
 | POST `/konto/zoom-anfrage` | Sitzung, nur Externe | Zoom anfragen |
 | GET `/konto/admin/uebersicht` | Sitzung, Admin (aktueller Stand) | Daten der Admin-Maske |
 | POST `/konto/admin/aktion` | Sitzung, Admin (aktueller Stand) | Admin-Aktion |
+| POST `/zoom/jwt` | Freigabe `zoom-jwt` (Bearer), gedrosselt | Zoom-JWT für Connect (Abschnitt 14) |
 | GET `/konto/anmelden` | öffentlich | Anmeldeseite (HTML) |
 | POST `/konto/passwort` | öffentlich, gedrosselt, Bremse je Konto | Anmeldung mit E-Mail und Passwort bzw. Einladungscode |
 | GET `/konto/google` | öffentlich | Weiter zu Google (PKCE) |
@@ -184,6 +186,8 @@ also ungefähr:
 | `KONTO_RL_PASSWORT` | `7305` | 10 | POST `/konto/passwort` (die Bremse je Konto im Durable Object bleibt) |
 | `KONTO_RL_SELBSTUPDATE` | `7306` | 20 | `/tools/launcher/latest` ohne Zugang |
 | `KONTO_RL_QAALT` | `7307` | 60 | Q&A-Admin-Routen mit dem alten Schlüssel, vor dem Aufruf des Konten-DO (Z3) |
+| `KONTO_RL_CONNECTALT` | `7308` | 20 | `/connect/:raum` (Öffnen, Schließen) mit dem alten Schlüssel, vor der Inhaber-Prüfung im Konten-DO (Teil 2) |
+| `KONTO_RL_ZOOMJWT` | `7309` | 30 | POST `/zoom/jwt` (Teil 2) |
 
 Bei Überschreitung antwortet die Route wie bisher mit 429 und `Retry-After: 60`. Fehlt eine Bindung oder wirft ihr `limit()`,
 warnt der Worker im Log (mit dem Fehlernamen) und lässt die Route offen; eine Drossel erzeugt nie einen 5xx. Die alten Routen
@@ -200,8 +204,18 @@ die Antwort. Die Freigabe ist an Zweck und Ziel gebunden (heute `qa-relay` mit d
 die Sitzung selbst. Jede Ausgabe steht im Konto-Dialog unter „An Tools ausgegeben“ und in `main.log` (ohne Token).
 
 **Grenze:** Ein anderes Programm desselben Windows-Kontos kann die Tür-Datei lesen und ist lokal nicht von einem Tool der Suite zu
-unterscheiden. Darum sind Freigaben eng (Zweck, Ziel, 72 h) und protokolliert (Owner-Frage OFP9). Teil 2 ergänzt nur Zwecke (`connect-raum`,
-`zoom-jwt`, `zoom-sdk`).
+unterscheiden. Darum sind Freigaben eng (Zweck, Ziel, 72 h) und protokolliert (Owner-Frage OFP9). Teil 2 ergänzt nur Zwecke, je 72 h
+(`FREIGABE_MS`), App-ID `jm-connect`:
+
+| Zweck | Funktion | Ziel | JM-Prüfung |
+| --- | --- | --- | --- |
+| `connect-raum` | `connect-raum` (Gruppe `connect`) | die Raum-ID (`^[A-Za-z0-9_-]{6,64}$`) | nein |
+| `zoom-jwt` | `zoom` | fest `meeting-sdk` | nein (Externe brauchen Zoom-Freigabe und JM-Rechner, Abschnitt 5) |
+| `zoom-sdk` | `zoom` | fest `win-x64` | ja, für alle Stufen: nur auf JM-Rechnern |
+
+Die JM-Prüfung für `zoom-sdk` läuft beim Ausstellen auf beiden Seiten (`zweckDarf` im Launcher in `freigaben.ts`, am Worker in
+`/konto/freigabe`), weil die Freigabe-Claims `{v, typ, zweck, ziel, kid, gid, iat, exp}` kein `jm` tragen. Auf einem Rechner ohne
+JM-Markierung antwortet der Launcher mit `{ grund: 'kein-recht', detail: 'kein-jm-rechner' }`; daran erkennt Connect den Fall.
 
 Q&A holt die Freigabe für sein Event selbst, hält sie in `qa.cloud.secret` (über einen eigenen Neustart, auch bei geschlossenem
 Launcher) und erneuert sie über den Launcher, sobald weniger als 24 Stunden bleiben. Der Live-Pfad Q&A → Worker braucht den
@@ -234,7 +248,9 @@ unbrauchbar (nicht 32 Byte Base64), antworten `GET /konto/iveo` und das Hinterle
   das Event nutzt: Konto und Rechner, nur als Hash, im Konten-DO in der EU, gesetzt per Compare-and-set (Z3). Er gilt mindestens bis
   zum Ende der Aufbewahrung des Events, höchstens 30 Tage; Einreichungen leben höchstens 60 Sekunden länger als das Event
   (Mindestdauer von KV). Für Connect
-  gilt er bis `ALTKEY_CONNECT_BIS`, die erst mit Teil 2 gesetzt wird; `connect-relay.js` prüft bis dahin selbst. Der Reiter
+  (`PROXY_KEY` an `/connect`, `ZOOM_SDK_KEY` an `/zoom-sdk`) gilt er bis `ALTKEY_CONNECT_BIS`; `connect-relay.js` prüft wie die
+  übrigen Routen über `zugangPruefen` (Vergleich in konstanter Zeit). `ALTKEY_CONNECT_BIS` ist noch nicht gesetzt (leer heißt
+  unbefristet); er wird erst nach dem Release von Connect 0.5.0 in einem eigenen Schritt mit Owner-OK gesetzt. Der Reiter
   „Geräte“ zählt Anfragen mit dem alten Schlüssel je Tag, Gruppe und Plattform (ohne IP-Adressen). Seit Z1 zählt die Anzeige
   höchstens einen Aufruf je IP-Hash, Tag und Gruppe (der Worker merkt sich den Schlüssel `Tag|Gruppe|IP-Hash` im Isolat, bis zu
   1000 Stück); die Zahl ist also eine Näherung für die Zahl der Anschlüsse, nicht der Anfragen. Fehlt `PROXY_KEY` am Worker oder
@@ -242,7 +258,8 @@ unbrauchbar (nicht 32 Byte Base64), antworten `GET /konto/iveo` und das Hinterle
   mit 401 (Z2, AR85): Q&A löscht seinen Key nur bei 401 `nicht-angemeldet` und behält ihn so bei einem Deploy ohne das Secret.
 - **Selbst-Update.** `/tools/launcher/latest` liefert ein Release ab 0.18.0 auch ohne Zugang (60 s Zwischenspeicher, Drossel je IP; EP32), ältere Releases nur mit Sitzung oder altem Schlüssel; alte Launcher aktualisieren sich darum auch nach `ALTKEY_BIS` selbst auf 0.18.0 oder neuer.
 - **Bau ohne Schlüssel.** Seit Launcher 0.18.0 backt der Bau keinen Schlüssel mehr ein (kein `define`, kein `JMPS_PROXY_KEY` in
-  `suite-release.yml` und `suite-build.yml`). Connect liest seinen Key zur Laufzeit und ist nicht betroffen.
+  `suite-release.yml` und `suite-build.yml`). Connect 0.5.0 hält keinen Dienst-Schlüssel mehr, nur im Übergang einen alten, den
+  es anzeigt und entfernt (Abschnitt 14).
 - **Nach der ersten Anmeldung** löscht der Launcher den gespeicherten GitHub-Token (Meldung „Der gespeicherte GitHub-Zugang wurde
   gelöscht; Downloads laufen jetzt über deine Anmeldung.“). Lokal gespeicherte iveo-Tokens löscht er je Event, sobald der Worker
   für dieses Event auf der Standardbasis ein Token liefert, spätestens 30 Tage nach der ersten Anmeldung, nie, solange eine iveo-Show offen ist; vorher
@@ -265,14 +282,14 @@ für die Anmeldung), `JMPS_IVEO_TOKEN` (global), `JMPS_MANIFEST_URL`, `JMPS_CHAN
 ## 11 · Einrichtung des Workers (Controller, mit Owner-Freigabe)
 
 Die Bindung `KONTO` (Klasse `KontoSpeicher`) legt die Migration `v2` beim Deploy an; `KONTO_JURISDICTION = "eu"` steht in
-`wrangler.toml`. Secrets: `KONTO_SCHLUESSEL`, `IVEO_SCHLUESSEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ERSTER_ADMIN` (E-Mail
+`wrangler.toml`. Secrets: `KONTO_SCHLUESSEL`, `IVEO_SCHLUESSEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET` (Teil 2, Abschnitt 14), `ERSTER_ADMIN` (E-Mail
 des ersten Admins, ein Google-Konto von `jakobsmedien.com`; er lässt sich in der Maske weder herabstufen noch sperren und zählt ab seiner ersten Anmeldung, eine andere Adresse wirkt nicht). Den Google-Client legt der Owner im Workspace
 `jakobsmedien.com` als intern an (Redirect `/konto/google/zurueck`). Ablauf, Trockenlauf und Reihenfolge (Worker vor dem
 Launcher-Release) stehen im Plan unter „Nach der Umsetzung“ und in `services/release-proxy/README.md`.
 
-**Rate-Limit-Bindungen.** Die sechs `[[ratelimits]]`-Einträge (Abschnitt 6) verlangen wrangler ab 4.36.0. Ihre `namespace_id` 7301
-bis 7306 müssen im Cloudflare-Konto eindeutig sein: Eine Zahl, die dort schon für eine andere Rate-Limit-Bindung vergeben ist, würde
-deren Zähler teilen. Die Bauprobe (`tools/bauprobe.mjs`) und der Wächter in `konto-zugang.test.mjs` kennen genau diese sechs Einträge.
+**Rate-Limit-Bindungen.** Die neun `[[ratelimits]]`-Einträge (Abschnitt 6) verlangen wrangler ab 4.36.0. Ihre `namespace_id` 7301
+bis 7309 müssen im Cloudflare-Konto eindeutig sein: Eine Zahl, die dort schon für eine andere Rate-Limit-Bindung vergeben ist, würde
+deren Zähler teilen. Die Bauprobe (`tools/bauprobe.mjs`) und der Wächter in `konto-zugang.test.mjs` kennen genau diese neun Einträge.
 
 ## 12 · Datenschutz und Protokoll (Spec 9, 11)
 
@@ -284,12 +301,110 @@ gelöschte Zugänge. Gelöschte Zugänge von Externen sind weg; Google-Konten we
 
 | Lauf | Befehl |
 | --- | --- |
-| Worker | `node --experimental-strip-types services/release-proxy/test/konto-kern.test.mjs` (ebenso `konto-krypto`, `konto-do`, `konto-zugang`, `konto-routen`, `qa-relay`) |
+| Worker | `node --experimental-strip-types services/release-proxy/test/konto-kern.test.mjs` (ebenso `konto-krypto`, `konto-do`, `konto-zugang`, `konto-routen`, `qa-relay`, `connect-zugang`, `connect-do`, `zoom-jwt`, `worker`) |
 | Worker-Bauprobe | `node services/release-proxy/tools/bauprobe.mjs` |
 | Launcher (rein) | `npm run selftest:konto -w @jm/launcher` |
 | Launcher (Wächter) | `npm run selftest -w @jm/launcher` |
 | App-Laufzeit (Freigabe-Client) | `npm run selftest -w @jm/app-runtime` |
 | Q&A | `npm run selftest -w @jm/qa` |
+| Connect (Teil 2) | `npm run selftest -w @jm/connect` (rund 170 s); einzeln `cd apps/connect && npx tsx test/<datei>.test.ts` |
 
 Alle Tests laufen ohne Netz und ohne Cloudflare: Der Durable Object ist eine Klasse mit einer Attrappe von `ctx.storage`, Google,
 GitHub und Anthropic kommen über eine `fetch`-Attrappe, echte Sockets nur auf `127.0.0.1`.
+
+## 14 · Teil 2: Connect über die Anmeldung
+
+Entwurf: `docs/superpowers/specs/2026-11-20-anmeldung-teil2-design.md`. Plan: `docs/superpowers/plans/2026-11-20-anmeldung-teil2.md`
+(dort die Entscheidungen E1 bis E10 und die Preflight-Rulings P1 bis P10). Versionen: Launcher 0.19.0, Connect 0.5.0; der Worker
+hat keine Version. Stand 21.11.2026: gebaut auf `feat/anmeldung-teil2`; der Worker ist am 21.11. aus diesem Branch deployt (Version afef3999), Launcher 0.19.0 und Connect 0.5.0 sind nicht veröffentlicht. Reihenfolge der
+Veröffentlichung, je mit Owner-OK: Worker-Deploy (abwärtskompatibel), dann Launcher 0.19.0, dann Connect 0.5.0.
+
+**Zwecke und Ziele.** Die Tabelle steht in Abschnitt 7. Connect holt je Zweck eine Freigabe beim Launcher (`connect-raum` je
+Raum-ID, `zoom-jwt` mit dem Ziel `meeting-sdk`, `zoom-sdk` mit dem Ziel `win-x64`) und schickt sie als `Authorization: Bearer` an
+den Worker. Reihenfolge des Zugangs: gültige Freigabe für genau dieses Ziel, sonst der alte Key (nur im Übergang), sonst keiner.
+`zweckDarf(stand, zweck, { jetzt })` gibt `ja`, `kein-recht` oder `kein-jm-rechner` zurück, zweimal gebaut (Worker in
+`konto-kern.js`, Launcher in `src/shared/konto.ts`) und an der gemeinsamen Falltabelle `services/release-proxy/test/zweck-faelle.json`
+geprüft (E1). `FUNKTIONEN` und `darf` sind unverändert.
+
+**Raum-Bindung (E3).** Die Raum-ID ist öffentlich; darum gehört der Cloud-Raum der Freigabe (Konto und Rechner, nur als Hash mit
+eigenem Präfix), die ihn zuerst öffnet. Der Konten-DO hält das mit der Aktion `connect-inhaber` (Compare-and-set, Muster
+`qa-inhaber`). Die Bindung gilt 25 Stunden ab der letzten Nutzung (Raum-Verfall 24 Stunden plus 1 Stunde Puffer, höchstens 30
+Tage) und endet mit „Raum schließen“ des Inhabers. Ein anderes Konto bekommt 403 mit dem Code `raum-vergeben` (E2). Der alte
+Schlüssel öffnet nur einen freien Raum und bindet nie; einen gebundenen Raum öffnet er nicht. Fällt die Prüfung im Konten-DO aus,
+antwortet der Worker mit 503 `nicht-eingerichtet`, nie mit einem offenen Raum.
+
+**`POST /zoom/jwt` (E4, E5, E9).** Nur eine Freigabe mit Zweck `zoom-jwt` und Ziel `meeting-sdk` (weder Sitzung noch `zoom-sdk`),
+eigene Drossel `KONTO_RL_ZOOMJWT` (30 je 60 s und IP, E6). Der Worker signiert HS256 mit `ZOOM_CLIENT_ID` und
+`ZOOM_CLIENT_SECRET`: Kopf `{"alg":"HS256","typ":"JWT"}`, Nutzlast `{"appKey","iat","exp","tokenExp"}` in dieser Reihenfolge,
+`iat` = ⌊jetzt s⌋ − 30, `exp` = `tokenExp` = `iat` + 43 200 (12 h), kein `mn`, keine `role`; die Ausgabe ist byte-gleich zu
+`buildJwt` in `packages/zoom-bridge/src/jwt.ts` (Test `zoom-jwt.test.mjs`). Antwort: `200 { jwt, exp, gueltigS }` mit `exp` in
+Unix-Sekunden und `gueltigS` = `exp` − ⌊jetzt s⌋, dazu `cache-control: no-store`. Optional nimmt die Route den JSON-Rumpf
+`{ "ttlS": n }` mit ganzer Zahl `n` von 1800 bis 43 200 und stellt das JWT dann mit kürzerer Laufzeit aus (so wird der Owner-Test
+M4 „stört ein abgelaufenes JWT ein laufendes Meeting?“ ausführbar, ohne ein Secret auf dem PC); ohne Rumpf oder ohne `ttlS` gelten
+43 200. Jeder andere Wert (keine ganze Zahl, außerhalb 1800 bis 43 200) und jeder Rumpf, der kein JSON-Objekt ist, ergibt 400 mit dem Code `ungueltige-laufzeit`. Eine
+kürzere Laufzeit gibt einem Freigabe-Inhaber nichts zusätzlich. Fehlen die Secrets oder haben sie Leerraum, antwortet die Route mit
+503 `nicht-eingerichtet`. Das Protokoll läuft über die DO-Aktion `zoom-jwt-protokoll` per `ctx.waitUntil`, best effort: es hält nur
+Konto und Rechner (`kid`, `gid`) und die Zeit fest, nie das JWT; fällt der Konten-DO aus, gibt es das JWT trotzdem, mit einer
+Warnung im Log.
+
+**Worker-Secrets und Stichtag.** Neu sind `ZOOM_CLIENT_ID` und `ZOOM_CLIENT_SECRET` (nur als Secret, nie in `[vars]`; kein neuer
+Name mit `ZOOM_SDK_`). `PROXY_KEY` und `ZOOM_SDK_KEY` bleiben bis zum Stichtag. Die neue Drossel `KONTO_RL_CONNECTALT` (20 je 60 s)
+gilt nur für den alten Schlüssel an `/connect`. Die Alt-Key-Zählung im Reiter „Geräte“ kennt die Gruppe `connect`.
+
+**Module in Connect (`apps/connect/src/main`).**
+
+| Datei | Aufgabe |
+| --- | --- |
+| `zugang/regeln.ts` | rein (nur Typ-Importe): Zwecke, Konstanten (`ERNEUERN_VOR_MS` 24 h, `FREIGABE_ABSTAND_MS` 30 s), Wahl des Zugangs, Anzeigelage und alle Texte der Zeilen „Cloud-Zugang“ und „Zoom-Anmeldung“ |
+| `zugang/halter.ts` | holt je Zweck eine Freigabe beim Launcher, hält und erneuert sie, löscht die Altlasten genau einmal; zur Laufzeit nur Importe aus `./regeln`; keine Logzeile nennt eine Freigabe |
+| `zugang/huelle.ts` | Electron-Hülle des Halters: verschlüsselte Datei `connect-zugang.bin` über safeStorage, Anbindung an die Einstellungen |
+| `zoom/jwt-quelle.ts` | Quelle des Zoom-JWT: nur im RAM, vor dem Start der Bridge geholt, erneuert bei weniger als 2 h Rest (`7_200_000` ms, gemessen an `gueltigS` der Worker-Antwort, nicht an `exp` gegen die lokale Uhr); die alten lokalen Zugangsdaten nur als Rückfall im Übergang |
+| `raum-id.ts` | bereinigt die Raum-ID und füllt kurze auf (N4, E8): 1 bis 5 Zeichen werden `‹id›-‹die ersten 6 Hex-Zeichen von SHA-256(id)›`, leer bleibt leer, ab 6 Zeichen unverändert |
+
+Der Live-Betrieb hängt nie am Launcher: gehaltene Freigaben gelten weiter, ein Wiederbeitritt nutzt das JWT aus dem RAM, und ein
+Neustart von Connect nutzt die gehaltene Freigabe.
+
+**Übergang und OT9 (E7, E10).** Alte Werte (Proxy-Key, Zoom-Zugangsdaten, SDK-Schlüssel) trägt Connect 0.5.0 nirgends mehr ein; die
+Zeilen dafür erscheinen nur, solange ein alter Wert da ist, und bieten nur Entfernen. Die Altlasten fallen einmal, je mit einem
+Hinweis: `proxyKeyEnc` nach der ersten gültigen `connect-raum`-Freigabe, `zoomSdkKeyEnc` nach dem ersten Link mit Freigabe,
+`zoomZugangEnc` nach dem ersten `auth` mit Code 0 und Server-JWT. Lehnt der Worker einen alten Schlüssel mit 401 `nicht-angemeldet`
+oder `alter-key-abgelaufen` ab, löscht Connect ihn ebenfalls (nach dem Stichtag kein Rückfall). **Das gemerkte Meeting bleibt (N1):**
+`zoomLetzteNummer` und `zoomLetzterKenncodeEnc` (Connect 0.4.2, #290) sind Meeting-, keine Dienst-Geheimnisse und werden nie
+gelöscht; der Nachweis „kein dauerhaftes Geheimnis“ prüft `proxyKeyEnc`, `zoomZugangEnc` und `zoomSdkKeyEnc`. Connect 0.5.0 mit
+Launcher 0.18.0 (`unbekannter-zweck`) oder ohne passenden Launcher zeigt „Launcher aktualisieren“ und nutzt im Übergang den alten
+Weg, solange ein alter Key oder alte Zugangsdaten da sind. Auf einem Rechner ohne JM-Markierung sagt nur „Zoom-SDK laden“ ab und
+nennt den Weg „SDK-Ordner wählen“ (N2); Zoom selbst geht dort, wo das Recht gilt.
+
+**Entwicklungsvariablen in Connect.** Sie bleiben für Entwicklung und Test und erscheinen als Diagnose („Entwicklungsmodus: …“);
+nach dem Übergang gibt es keinen Rückfall auf lokale Geheimnisse.
+
+| Variable | Wirkung |
+| --- | --- |
+| `JMPS_PROXY_KEY` | alter Proxy-Key für den Cloud-Raum (hat Vorrang vor dem gespeicherten, Herkunft `env`) |
+| `ZOOM_SDK_CLIENT_ID`, `ZOOM_SDK_CLIENT_SECRET` (oder `ZOOM_SDK_CREDENTIALS`) | alte lokale Zoom-Zugangsdaten, nur als Rückfall für ein lokal signiertes JWT |
+| `JMPS_ZOOM_SDK_KEY` | alter Schlüssel für „Zoom-SDK laden“ |
+| `JMPS_ZOOM_JWT_TTL_S` | ganze Zahl 1800 bis 43 200: Connect schickt sie als `ttlS` an `POST /zoom/jwt`; dann liegt kein JWT im RAM und es gibt keinen Erneuerungs-Zeitgeber, jeder Bedarf holt neu. Connect signiert damit nie lokal. |
+
+Die Namen der ersten drei Zeilen stehen in der Liste `GEHEIM` in `zoom/kern.ts`; sie werden aus der Umgebung des Bridge-Prozesses entfernt.
+
+**Tests je Datei.** Worker: `services/release-proxy/test/connect-zugang.test.mjs` (Cloud-Raum, Raum-Bindung, alter Schlüssel),
+`zoom-jwt.test.mjs` (Signatur byte-gleich, `/zoom/jwt`, `ttlS`), `zweck-faelle.json` (Falltabelle von `zweckDarf`, gelesen von
+`konto-kern.test.mjs` und `konto-rechte.test.ts` im Launcher), `worker.test.mjs`, `connect-do.test.mjs`.
+Launcher: `apps/launcher/test/konto-rechte.test.ts` (`zweckDarf`) über `npm run selftest:konto -w @jm/launcher`. Connect
+(`npm run selftest -w @jm/connect`): `zugang-regeln.test.ts`, `zugang-halter.test.ts`, `raum-zugang.test.ts` (Raum-ID und Cloud-Raum
+mit Freigabe), `jwt-quelle.test.ts`, `zoom-laufzeit.test.ts`, `zoom-teile.test.ts`, `zoom-kern.test.ts`, `zoom-settings.test.ts`,
+`sdk-laden.test.ts` und die übrigen Dateien der Liste in `apps/connect/package.json`.
+
+### Admin-Freigabe gebundener Cloud-Räume (Nachtrag 21.11.)
+
+Stand wie oben: Worker deployt, Launcher und Connect nicht veröffentlicht. Der Nachtrag klärt, was geschieht, wenn jemand Connect ohne „Raum schließen“ beendet: Die Bindung hielte den Raum sonst bis zu 25 Stunden fest.
+
+**Bindung.** Sie speichert jetzt `{ kidHash, gidHash, bis, raumId, kid, seit }`. `raumId` und `kid` stehen im Klartext, `seit` ist der Zeitpunkt der ersten Bindung. Eine Verlängerung behält `raumId` und `seit`; `kid` nennt das Konto, das zuletzt geöffnet hat. Damit ist die frühere Festlegung „nur Hashes, nie die ID selbst“ für Connect aufgehoben, denn ohne Raum-ID kann der Admin den Raum nicht erkennen. Raum-ID und `kid` sind keine Geheimnisse; Freigabe, Sitzung, Schlüssel und die Hashes `kidHash` und `gidHash` bleiben draußen. Q&A (`qa-inhaber`) speichert weiter nur `{ kidHash, gidHash, bis }`.
+
+**`admin-uebersicht`** liefert zusätzlich `raeume`: nur gültige Bindungen, je `{ raumHash, raumId, name, stufe, seit, bis }`, nie die Hashes der Freigabe. Ist das Konto gelöscht, sind `name` und `stufe` `null`.
+
+**`raum-freigeben { raumHash }`** (Admin) löscht die Bindung und antwortet `{ ok: true, warFrei }`; `warFrei` ist `true`, wenn es keine gültige Bindung mehr gab (abgelaufen, schon freigegeben, zweiter Admin). Ein ungültiger `raumHash` ergibt 400 `ungueltig`, fehlendes Recht 403 `kein-recht`. Jede Freigabe schreibt einen Protokolleintrag `{ was: 'raum-freigeben', wen: raumId, details: { raumHash, raumId, kid, warFrei } }`, auch die zweite desselben Raums. Hat nach der Freigabe ein anderer den Raum geöffnet und drückt der alte Inhaber danach „Raum schließen“, bekommt er 403 `raum-vergeben`, und der neue Inhaber behält den Raum. Die Freigabe löst nur die Bindung; sie trennt keine Gäste und schließt keinen laufenden Raum.
+
+**Launcher (0.19.0).** Der Reiter „Geräte“ der Admin-Maske hat den Abschnitt „Cloud-Räume (Connect)“ (RF1 bis RF9). Jede Zeile zeigt Raum-ID, Name, Stufe und Ende der Bindung (RF4, ohne Konto RF5) und den Knopf „Freigeben“. Davor fragt der Launcher zurück (RF7, ohne Konto RF7a). Fehlt `raeume` in der Antwort, zeigt der Launcher den Abschnitt nicht; ist `raeume` kein Array, lehnt `worker-client` die Übersicht als Serverfehler ab.
+
+**Connect (0.5.0).** CZ8 nennt die Raum-ID und den Admin-Weg (`ZUGANG_TEXT.raumVergeben(raumId)` in `regeln.ts`). Die Texte stehen in `docs/anmeldung-teil2-texte.md`, Abschnitt „Nachtrag 21.11. Admin-Freigabe“; die Abnahme in `apps/connect/ABNAHME-0.5.0.md`, Zeilen 7 und 7b.

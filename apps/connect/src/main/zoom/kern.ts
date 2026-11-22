@@ -9,7 +9,8 @@
 //
 // GEHEIMNISSE (Spec 5.7, 8.7): Meeting-Nummer und Kenncode leben nur in `nummer`/`kenncode`
 // und gehen nur in den join-Befehl. Jede stderr-Zeile der Bridge läuft durch `maskiere`.
-// Client-ID/Secret gehen nur in buildJwt, nie an den Kindprozess (envRemove).
+// Das JWT kommt aus der JWT-Quelle (Server über den Launcher, im Übergang lokal); es geht nur per stdin an die Bridge,
+// kein Secret erreicht den Kindprozess (envRemove).
 //
 // WIEDERBEITRITT (Spec 6.4): Ein vorübergehender Abriss im Meeting startet bis zu fünf Versuche nach
 // WIEDERBEITRITT_PLAN_S, jeder mit einer neuen Bridge; der Zustand bleibt die ganze Folge über `abriss`.
@@ -18,9 +19,7 @@
 import { join } from 'node:path';
 import {
   Bridge,
-  buildJwt,
   normalizeMeetingId,
-  readCredentials,
   type BridgeEvent,
   type BridgeOptions,
   type Command,
@@ -118,6 +117,9 @@ import {
   type LaufzeitPruefung,
   type SdkWahl,
 } from './laufzeit';
+import type { ZugangsHalter } from '../zugang/halter';
+import { anmeldungZeile, grundText, jwtGrundText, ZIEL_ZOOM_SDK, ZUGANG_TEXT, zugangsKopf } from '../zugang/regeln';
+import type { JwtHerkunft, JwtQuelle } from './jwt-quelle';
 import { fehlerCode, LADE_ORDNER, ladeFehlerText, SDK_LADEN_DIENSTE, type LadeFehler, type SdkLadenDienste } from './sdk-laden';
 import { SDK_PAKET } from './sdk-paket';
 import { deuteZoomBefehl, ladeZiel, type SlotSchalter } from './fernsteuerung';
@@ -150,7 +152,7 @@ import { WIEDERBEITRITT_PLAN_S } from './fristen';
 
 // Feste Werte (Spec 5.2) stehen ab 4b in fristen.ts (rein). kern.ts reicht sie unverändert weiter, damit zoom.ts,
 // index.ts, settings.ts und die Tests weiter von hier importieren.
-import { HINWEISE_MAX, JWT_GUELTIG_S, ZOOM_FRISTEN, type ZoomFristen } from './fristen';
+import { HINWEISE_MAX, ZOOM_FRISTEN, type ZoomFristen } from './fristen';
 export {
   ANZEIGENAME_VORGABE, AUFLOESUNG, BEENDEN_FRIST_MS, BETRIEBSGROESSE, HINWEISE_MAX, JWT_GUELTIG_S, WIEDERBEITRITT_PLAN_S, ZOOM_FRISTEN,
 } from './fristen';
@@ -169,10 +171,14 @@ export interface LaufzeitDienste {
 }
 export interface ZoomKernAbhaengigkeiten {
   pfade: LaufzeitPfade;
-  /** loeschen(): für diese Sitzung immer weg; `false` = steht noch in der Einstellungsdatei (nicht schreibbar). */
-  zugang: { lesen(): ZugangStand; speichern(d: ZugangDaten): 'stored' | 'session'; loeschen(): boolean };
-  /** Umgebung JMPS_ZOOM_SDK_KEY > gespeichert (safeStorage) > Sitzung; speichern() bekommt den getrimmten Wert. loeschen() wie bei zugang. */
-  sdkSchluessel: { lesen(): SdkSchluesselStand; speichern(wert: string): 'stored' | 'session'; loeschen(): boolean };
+  /** Alte Zugangsdaten nur im Übergang (E7): nur lesen und entfernen. loeschen(): für diese Sitzung immer weg; `false` = steht noch in der Einstellungsdatei (nicht schreibbar). */
+  zugang: { lesen(): ZugangStand; loeschen(): boolean };
+  /** Alter SDK-Schlüssel nur im Übergang (E7): Umgebung JMPS_ZOOM_SDK_KEY > gespeichert (safeStorage) > Sitzung; nur lesen und entfernen. loeschen() wie bei zugang. */
+  sdkSchluessel: { lesen(): SdkSchluesselStand; loeschen(): boolean };
+  /** Freigaben des Launchers (Anmeldung Teil 2): „Zoom-SDK laden“ holt hier die Freigabe `zoom-sdk`; im Übergang liefert er den alten SDK-Schlüssel. */
+  halter: Pick<ZugangsHalter, 'zugang' | 'antwort' | 'bestaetigt' | 'lage' | 'tokens'>;
+  /** Das Zoom-JWT (Anmeldung Teil 2): der Kern holt es vor jedem Start der Bridge; es bleibt im Arbeitsspeicher und geht nur per stdin an die Bridge. */
+  jwt: JwtQuelle;
   einstellungen: {
     anzeigename(): string;
     setzeAnzeigename(n: string): void;
@@ -239,6 +245,10 @@ export interface ZoomKernAbhaengigkeiten {
 }
 export interface ZoomKern {
   abbild(): ZoomAbbild;
+  /** Die Anmeldung oder die gespeicherten Zugangsdaten haben sich geändert (Launcher, Freigabe, Löschung): Abbild neu. */
+  zugangGeaendert(): void;
+  /** Läuft oder entsteht gerade ein Zoom-Beitritt, der das JWT braucht (startet, tritt_bei, warteraum, im_meeting, abriss)? */
+  brauchtJwt(): boolean;
   kurz(): ZoomKurz;
   stateKv(): ZoomStateKv | null;
   laeuft(): boolean;
@@ -248,10 +258,7 @@ export interface ZoomKern {
   sdkLaden(): Promise<ZoomErgebnis>;
   /** Bricht ein laufendes Laden ab (Phasen link bis entpacken); während der Kopie wirkungslos. */
   sdkLadenAbbrechen(): void;
-  zugangWaehlen(datei: string): ZoomErgebnis;
-  zugangEintragen(e: { clientId: string; clientSecret: string }): ZoomErgebnis;
   zugangLoeschen(): ZoomErgebnis;
-  sdkSchluesselEintragen(e: { schluessel: string }): ZoomErgebnis;
   sdkSchluesselLoeschen(): ZoomErgebnis;
   versatz(e: { ms: number }): ZoomErgebnis;
   pruefen(): Promise<ZoomErgebnis>;
@@ -473,7 +480,6 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   let maengel: ZoomMangel[] = [];
   let laufzeitStand: LaufzeitPruefung = lz.pruefe(d.pfade);
   let zugang: ZugangStand = { daten: null, herkunft: 'none', unlesbar: false };
-  let zugangFehler: string | null = null;
   /** Nur die Herkunft; den Wert liest erst das Laden (Spec SDK nachladen 4.2). */
   let sdkSchluesselHerkunft: ProxyKeySource = d.sdkSchluessel.lesen().herkunft;
   let sdkFehler: string | null = null;
@@ -571,6 +577,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   /** Jeder Abbruch (Verlassen, Beenden) zählt hoch; eine ältere Startfolge verwirft ihr Ergebnis. */
   let laufNr = 0;
   let jwt: string | null = null;
+  /** Woher das JWT der laufenden Startfolge kam; `auth` mit Code 0 bestätigt damit die Server-Anmeldung (OT9). */
+  let jwtHerkunft: JwtHerkunft = 'server';
   let startBeob: StartBeobachter | null = null;
 
   /** L11: Anzeigenamen fremder Teilnehmer, die der Kern in dieser Programmsitzung gesehen hat; nur im Arbeitsspeicher. */
@@ -816,13 +824,15 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   function abbild(): ZoomAbbild {
+    // Die Quelle kann die alten Zugangsdaten selbst löschen (OT9); das Abbild liest darum den aktuellen Stand.
+    zugang = d.zugang.lesen();
     const l = laufzeitStand;
     const stand = kopie !== null ? 'kopiert' : !l.ok && l.mangel === 'sdk_fehlt' ? 'fehlt' : !l.ok && l.mangel === 'sdk_defekt' ? 'defekt' : 'ok';
     const sdkText = sdkFehler ?? (!l.ok && (l.mangel === 'sdk_defekt' || l.mangel === 'bridge_fehlt') ? mangelText(l.mangel, mangelDatei()) : null);
-    const zugangText = !zugang.daten && zugang.unlesbar ? KT.A5
-      : zugang.herkunft === 'session' ? (zugang.grund === 'schreibfehler' ? TEXT_A4_SCHREIBFEHLER : KT.A4)
+    // „unlesbar“ trägt `einrichtung.zugang.unlesbar`; die Zeile dazu baut zugangZeile (ZU3), kein Text hier.
+    const zugangText = zugang.herkunft === 'session' ? (zugang.grund === 'schreibfehler' ? TEXT_A4_SCHREIBFEHLER : KT.A4)
       : zugang.herkunft === 'env' ? KT.A6
-      : zugangFehler;
+      : null;
     const id = zugang.daten?.clientId ?? null;
     const k = kurz();
     const z = zoomZ(k);
@@ -831,7 +841,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       kurz: k,
       einrichtung: {
         sdk: { stand, fassung: stand === 'ok' ? SDK_FASSUNG : null, kopie: kopie ? { ...kopie } : null, laden: ladung ? { ...ladung } : null, text: sdkText },
-        zugang: { herkunft: zugang.herkunft, ...(zugang.grund ? { grund: zugang.grund } : {}), clientIdEnde: id ? id.slice(-4) : null, text: zugangText },
+        zugang: { herkunft: zugang.herkunft, ...(zugang.grund ? { grund: zugang.grund } : {}), clientIdEnde: id ? id.slice(-4) : null, text: zugangText, unlesbar: !zugang.daten && zugang.unlesbar },
+        anmeldung: anmeldungZeile(d.jwt.lage(), Date.now()),
         sdkSchluessel: { herkunft: sdkSchluesselHerkunft },
       },
       anzeigename: d.einstellungen.anzeigename(),
@@ -859,6 +870,16 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       // L13: Eine gestoppte Bridge baut noch ab; die Karte sperrt die Einrichtung (S10).
       abbauLaeuft: stopps.size > 0,
     };
+  }
+
+  /** Die JWT-Quelle braucht das JWT, solange eine Bridge startet oder im Meeting steht (Erneuern vor Ablauf, Wiederbeitritt). */
+  function brauchtJwt(): boolean {
+    return zustand === 'startet' || zustand === 'tritt_bei' || zustand === 'warteraum' || zustand === 'im_meeting' || zustand === 'abriss';
+  }
+
+  /** Anmeldung oder gespeicherte Zugangsdaten änderten sich außerhalb des Kerns: das Abbild neu zeichnen. */
+  function zugangGeaendert(): void {
+    abbildGeaendert();
   }
 
   /** Nach jeder Änderung: Kurzform sofort (bei Änderung), Abbild höchstens alle abbildTaktMs. */
@@ -905,7 +926,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   // ── Einrichtung (Spec 5.3, 6.1) ──────────────────────────────────────────
-  /** Mängel neu bestimmen: Laufzeit-Mangel zuerst, dann Zugangs-Mangel. */
+  /** Mängel neu bestimmen: nur noch die Laufzeit (das JWT ist kein Einrichtungsmangel, es fehlt beim Beitritt als ZA7); `zugang` bleibt für die Übergangszeile im Abbild. */
   function bestimmeMaengel(neu?: LaufzeitPruefung): void {
     if (neu) {
       laufzeitStand = neu;
@@ -914,7 +935,6 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     zugang = d.zugang.lesen();
     const m: ZoomMangel[] = [];
     if (!laufzeitStand.ok) m.push(laufzeitStand.mangel);
-    if (!zugang.daten) m.push(zugang.unlesbar ? 'zugang_unlesbar' : 'zugang_fehlt');
     maengel = m;
   }
 
@@ -1004,25 +1024,21 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   // ── Zoom-SDK laden (Spec 2026-10-06, 4.3, 4.4) ───────────────────────────
   /**
-   * Schritte 1–2 hier, synchron: Sperre (S10), fehler→schliessen, Schlüssel (S11). Danach sind `ladung`,
-   * `ladeAbbruch` und `ladeLauf` gesetzt, bevor irgendetwas wartet: ein zweiter Klick trifft schon die Sperre.
+   * Schritte 1–2 hier, synchron: Sperre (S10), fehler→schliessen. Danach sind `ladung`, `ladeAbbruch` und `ladeLauf`
+   * gesetzt, bevor irgendetwas wartet (auch der Halter): ein zweiter Klick trifft schon die Sperre. Die Freigabe holt
+   * ladeAblauf in der Phase `link`.
    */
   function sdkLaden(): Promise<ZoomErgebnis> {
     const sperre = einrichtungSperre();
     if (!sperre.ok) return Promise.resolve(sperre);
     if (zustand === 'fehler') schliessen();
-    const schluessel = d.sdkSchluessel.lesen().wert;
-    if (schluessel === null) {
-      d.log('[zoom] Zoom-SDK laden abgewiesen: ' + KT.S11);
-      return Promise.resolve({ ok: false, text: KT.S11 });
-    }
     sdkFehler = null;
     const abbruch = new AbortController();
     ladeAbbruch = abbruch;
     ladung = { phase: 'link', bytes: 0, bytesGesamt: SDK_PAKET.bytes };
     d.log(`[zoom] Zoom-SDK wird geladen (${Math.round(SDK_PAKET.bytes / MIB)} MB)`);
     setzeZustand('einrichtung');
-    const lauf = ladeAblauf(schluessel, abbruch.signal).finally(() => {
+    const lauf = ladeAblauf(abbruch.signal).finally(() => {
       ladeLauf = null;
     });
     ladeLauf = lauf;
@@ -1030,7 +1046,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   /** Schritte 3–8. Jeder Ausgang räumt den Arbeitsordner (Schritt 7) und lässt die bisherige Einrichtung stehen. */
-  async function ladeAblauf(schluessel: string, signal: AbortSignal): Promise<ZoomErgebnis> {
+  async function ladeAblauf(signal: AbortSignal): Promise<ZoomErgebnis> {
     const arbeit = join(d.pfade.basis, LADE_ORDNER);
     const zip = join(arbeit, SDK_PAKET.datei);
     const entpackt = join(arbeit, 'sdk');
@@ -1066,9 +1082,32 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
       } catch {
         // ungültige Adresse: holeLink meldet sie als S14
       }
+      // Die Freigabe wird bei jedem Versuch frisch gefragt (nie gemerkt) und erst hier, nach dem Setzen von `ladung`.
+      const w = await d.halter.zugang('zoom-sdk', ZIEL_ZOOM_SDK);
+      if (signal.aborted) return abgebrochen();
+      if (w.art === 'keiner') {
+        // Weder Freigabe noch alter Schlüssel: der Grund des Launchers (auf Nicht-JM-Rechnern CG8, N2) und kein Link.
+        const lage = d.halter.lage('zoom-sdk');
+        return scheitert(grundText('zoom-sdk', lage.letzterGrund ?? 'kein-launcher', lage.detail));
+      }
       d.log(`[zoom] SDK-Link angefragt bei ${host}`);
-      const link = await ld.holeLink({ base, schluessel, fassung: SDK_PAKET.fassung, signal });
-      if (!link.ok) return fehlschlag(link);
+      const link = await ld.holeLink({ base, kopf: zugangsKopf('zoom-sdk', w), fassung: SDK_PAKET.fassung, signal });
+      if (!link.ok) {
+        if (link.art === 'schluessel' || link.art === 'verweigert') {
+          // Der Halter lernt aus der Ablehnung (Freigabe verwerfen bzw. alten Schlüssel als abgelehnt merken) vor dem Text.
+          d.halter.antwort('zoom-sdk', w, link.art === 'schluessel' ? 401 : 403, link.code);
+          // Der Halter kann den alten Schlüssel dabei gelöscht haben: die Karte soll ihn nicht mehr als hinterlegt zeigen.
+          sdkSchluesselHerkunft = d.sdkSchluessel.lesen().herkunft;
+          return scheitert(link.art === 'schluessel' ? (w.art === 'freigabe' ? KT.S12b : KT.S12) : ladeFehlerText(link));
+        }
+        return fehlschlag(link);
+      }
+      // OT9: der alte SDK-Schlüssel ist gelöscht, sobald eine Freigabe trug; ZA6 genau einmal.
+      if (d.halter.bestaetigt('zoom-sdk', w)) {
+        // bestaetigt hat den alten Schlüssel gelöscht: Herkunft neu lesen, sonst steht ZA6 neben „hinterlegt“.
+        sdkSchluesselHerkunft = d.sdkSchluessel.lesen().herkunft;
+        hinweis(ZUGANG_TEXT.sdkGeloescht);
+      }
       phase('download', 0);
       const geladen = await ld.lade({
         url: link.url,
@@ -1117,86 +1156,16 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (ladung !== null) ladeAbbruch?.abort();
   }
 
-  function zugangWaehlen(datei: string): ZoomErgebnis {
-    const sperre = einrichtungSperre();
-    if (!sperre.ok) return sperre;
-    if (zustand === 'fehler') schliessen();
-    let daten: ZugangDaten;
-    try {
-      // Mit dieser Umgebung ist die Datei die EINZIGE Quelle (jwt.ts); BOM wird vertragen,
-      // ein Parse-Fehler zitiert den Inhalt nicht.
-      daten = readCredentials({ ZOOM_SDK_CREDENTIALS: datei });
-    } catch (e) {
-      const err = e as Error & { code?: string };
-      const text = err.message.includes('kein gueltiges JSON') ? KT.A1
-        : err.message.includes('Zugangsdaten fehlen') ? KT.A2
-        : KT.A3(err.code ?? err.name);
-      zugangFehler = text;
-      d.log(`[zoom] Zugangsdaten-Datei abgewiesen: ${text}`);
-      abbildGeaendert();
-      return { ok: false, text };
-    }
-    return zugangUebernehmen(daten, 'Datei');
-  }
-
-  /** Gemeinsamer Schluss von Datei-Weg und Handeingabe: speichern, loggen (nie einen Wert), Mängel und Zustand neu. */
-  // Sperre und fehler→schliessen stehen bewusst bei den beiden Aufrufern: sonst änderte sich der Datei-Weg bei A1–A3.
-  function zugangUebernehmen(daten: ZugangDaten, weg: 'Datei' | 'Hand'): ZoomErgebnis {
-    zugangFehler = null;
-    const herkunft = d.zugang.speichern({ clientId: daten.clientId, clientSecret: daten.clientSecret });
-    const wo = herkunft === 'session' ? 'nur für diese Sitzung' : 'verschlüsselt';
-    d.log(`[zoom] Zugangsdaten hinterlegt (${weg === 'Hand' ? `von Hand, ${wo}` : wo})`);
-    bestimmeMaengel();
-    setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
-    return { ok: true };
-  }
-
-  /** Von Hand eingetragen (A7): getrimmt, ohne Leerraum in den Werten. Nichts davon in Log, Text oder Rückgabe. */
-  function zugangEintragen(e: { clientId: string; clientSecret: string }): ZoomErgebnis {
-    const sperre = einrichtungSperre();
-    if (!sperre.ok) return sperre;
-    if (zustand === 'fehler') schliessen();
-    const clientId = e.clientId.trim();
-    const clientSecret = e.clientSecret.trim();
-    if (!clientId || !clientSecret || /\s/.test(clientId) || /\s/.test(clientSecret)) {
-      // Eingabefehler, kein Zustand der hinterlegten Zugangsdaten: nur im Ergebnis, nicht im Abbild.
-      d.log('[zoom] Zugangsdaten von Hand abgewiesen: ' + KT.A7);
-      return { ok: false, text: KT.A7 };
-    }
-    return zugangUebernehmen({ clientId, clientSecret }, 'Hand');
-  }
-
   function zugangLoeschen(): ZoomErgebnis {
     const sperre = einrichtungSperre();
     if (!sperre.ok) return sperre;
     if (zustand === 'fehler') schliessen();
     // false: für diese Sitzung weg, aber noch in der Einstellungsdatei; nach einem Neustart wären sie wieder da.
     const vonPlatte = d.zugang.loeschen();
-    zugangFehler = null;
     d.log(vonPlatte ? '[zoom] Zugangsdaten entfernt' : '[zoom] Zugangsdaten nur für diese Sitzung entfernt (Einstellungsdatei nicht schreibbar)');
     bestimmeMaengel();
     setzeZustand(maengel.length ? 'einrichtung' : 'bereit');
     return vonPlatte ? { ok: true } : { ok: false, text: TEXT_ZUGANG_NUR_SITZUNG_ENTFERNT };
-  }
-
-  /** Spec SDK nachladen 4.2: getrimmt, nur druckbare ASCII-Zeichen, sonst S18 (A13). Der Wert geht nie in Log, Abbild oder Rückgabe. */
-  function sdkSchluesselEintragen(e: { schluessel: string }): ZoomErgebnis {
-    const sperre = einrichtungSperre();
-    if (!sperre.ok) return sperre;
-    if (zustand === 'fehler') schliessen();
-    const wert = e.schluessel.trim();
-    // Nur druckbare ASCII-Zeichen: kein Leerraum in der Mitte (Spec 4.2) und nichts, was kein HTTP-Header tragen kann.
-    if (!/^[\x21-\x7e]+$/.test(wert)) {
-      // Eingabefehler, kein Zustand des hinterlegten Schlüssels: nur im Ergebnis, nicht im Abbild.
-      d.log('[zoom] SDK-Schlüssel abgewiesen: ' + KT.S18);
-      return { ok: false, text: KT.S18 };
-    }
-    const herkunft = d.sdkSchluessel.speichern(wert);
-    sdkSchluesselHerkunft = d.sdkSchluessel.lesen().herkunft;
-    sdkAblehnungVergessen();
-    d.log(`[zoom] SDK-Schlüssel hinterlegt (${herkunft === 'session' ? 'nur für diese Sitzung' : 'verschlüsselt'})`);
-    abbildGeaendert();
-    return { ok: true };
   }
 
   /**
@@ -1263,7 +1232,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
         // keine gültige Nummer: nur die Eingabe selbst maskieren
       }
     }
-    return [kenncode ?? '', nummer?.eingabe ?? '', nummer?.normiert ?? '', jwt ?? '', g?.nummer ?? '', gNormiert, g?.kenncode ?? ''];
+    return [kenncode ?? '', nummer?.eingabe ?? '', nummer?.normiert ?? '', jwt ?? '', g?.nummer ?? '', gNormiert, g?.kenncode ?? '', ...d.jwt.geheimnisse(), ...d.halter.tokens()];
   }
 
   function beiLog(zeile: string): void {
@@ -1342,7 +1311,15 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     }
     if (ev.ev === 'auth') {
       const code = (ev as { code: number }).code;
-      beob.ende(code === 0 ? { ok: true } : { ok: false, meldung: authMeldung(code), ausgang: { art: 'auth', code } });
+      if (code === 0) {
+        // OT9: Die Anmeldung mit dem Server-JWT ist bestätigt; die Quelle löscht die alten lokalen Zugangsdaten genau einmal.
+        try {
+          if (d.jwt.angemeldet(jwtHerkunft)) hinweis(ZUGANG_TEXT.zugangGeloescht);
+        } catch {
+          d.log('[zoom] Die alten Zugangsdaten ließen sich nicht löschen');
+        }
+      }
+      beob.ende(code === 0 ? { ok: true } : { ok: false, meldung: authMeldung(code, jwtHerkunft), ausgang: { art: 'auth', code } });
       return;
     }
     if (ev.ev !== 'error') return;
@@ -1374,11 +1351,19 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     if (!lzErg.ok) {
       return { ok: false, meldung: { text: mangelText(lzErg.mangel, mangelDatei()), detail: null }, mangel: lzErg.mangel, ausgang: null };
     }
-    const daten = zugang.daten;
-    if (!daten) {
-      const m: ZoomMangel = zugang.unlesbar ? 'zugang_unlesbar' : 'zugang_fehlt';
-      return { ok: false, meldung: { text: mangelText(m, null), detail: null }, mangel: m, ausgang: null };
+    // Das JWT vor dem Start: ohne JWT gibt es keinen Beitritt (ZA7), aber auch keinen Einrichtungsmangel und keine Bridge.
+    const j = await d.jwt.hole();
+    if (lauf !== laufNr || beendenVersprechen !== null) return abgebrochen;
+    if (!j.ok) {
+      return {
+        ok: false,
+        meldung: { text: ZUGANG_TEXT.ohneAnmeldung(jwtGrundText(j.grund, j.detail)), detail: j.grund },
+        mangel: null,
+        ausgang: { art: 'zugang', grund: j.grund },
+      };
     }
+    jwt = j.jwt;
+    jwtHerkunft = j.herkunft;
     // S-c
     const gen = aktiveGen + 1;
     startNr += 1;
@@ -1453,7 +1438,6 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     }
     if (!beob.erledigt) {
       // S-d
-      jwt = buildJwt({ clientId: daten.clientId, clientSecret: daten.clientSecret, ttlSeconds: JWT_GUELTIG_S });
       const v = d.einstellungen.versatzMs();
       const ms = Number.isInteger(v) && v >= 0 && v <= 1000 ? v : 0;
       const sp = d.einstellungen.sprecher();
@@ -1863,7 +1847,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
   }
 
   /**
-   * Eine Ausnahme in der Startfolge eines Versuchs (lz.pruefe, Bridge-Fabrik, buildJwt, Einstellungen) beendet die Folge
+   * Eine Ausnahme in der Startfolge eines Versuchs (lz.pruefe, Bridge-Fabrik, Einstellungen) beendet die Folge
    * wie ein endgültiger Fehler. Ohne das bliebe Z11 für immer auf „läuft …“, und niemand sähe den Grund.
    */
   function versuchAusnahme(i: number, lauf: number, err: unknown): void {
@@ -3080,6 +3064,8 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
 
   return {
     abbild,
+    zugangGeaendert,
+    brauchtJwt,
     kurz,
     stateKv: () => stateKvAus(kurz()),
     laeuft,
@@ -3087,10 +3073,7 @@ export function erzeugeZoomKern(d: ZoomKernAbhaengigkeiten): ZoomKern {
     sdkWaehlen,
     sdkLaden,
     sdkLadenAbbrechen,
-    zugangWaehlen,
-    zugangEintragen,
     zugangLoeschen,
-    sdkSchluesselEintragen,
     sdkSchluesselLoeschen,
     versatz,
     pruefen,

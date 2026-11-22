@@ -407,5 +407,18 @@ ck('P9 9.1: zugangsKopf: Sitzung → Authorization, sonst Dev-Key → X-Proxy-Ke
     !/from 'electron'|require\('electron'\)/.test(quelle) && !/console\./.test(quelle) && quelle.split("'X-Proxy-Key'").length === 2);
 }
 
+// --- Anmeldung Teil 2, Admin-Freigabe: Feld raeume der Übersicht ---------------------------------------------------------
+{
+  const basis = { zugaenge: [], iveo: [], anfragen: [], geraete: [], altKey: { bis: null, diagnose: 'ohne-ende', zeilen: [] } };
+  const mit = (extra: Record<string, unknown>): KontoClient =>
+    erzeugeKontoClient({ basis: BASIS, fetch: attrappe(() => ({ status: 200, json: { ...basis, ...extra } })).fetch });
+  const kaputt = await fehlerVon(mit({ raeume: {} }).adminUebersicht(S));
+  ck('RF raeume kein Array: die Übersicht wird als Serverfehler abgelehnt', kaputt?.code === 'server');
+  const ohne = await mit({}).adminUebersicht(S);
+  ck('RF raeume fehlt: die Übersicht (alter Worker) wird angenommen', ohne.raeume === undefined);
+  const leer = await mit({ raeume: [] }).adminUebersicht(S);
+  ck('RF raeume leeres Array: angenommen', Array.isArray(leer.raeume) && leer.raeume.length === 0);
+}
+
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

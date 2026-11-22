@@ -17,7 +17,10 @@ import {
   STUFEN,
   VORGANG_MS,
   WERKZEUGE,
+  ZIEL_ZOOM_JWT,
+  ZIEL_ZOOM_SDK,
   ZWECK_FUNKTION,
+  ZWECK_ZIEL,
   alterKeyGilt,
   bremseAktiv,
   darf,
@@ -33,6 +36,7 @@ import {
   kurzName,
   normalisiereBasis,
   nachFehlversuch,
+  zweckDarf,
 } from '../konto-kern.js';
 
 let passed = 0;
@@ -385,6 +389,27 @@ async function run() {
         iveoSchluessel('https://iveo.example', 'x'.repeat(121)) === null && iveoSchluessel('https://iveo.example', '  ') === null && iveoSchluessel('https://iveo.example', 'a|b') === null &&
         iveoSchluessel('https://iveo.example', 7) === null && iveoSchluessel('a|b', 'x') === null && iveoSchluessel(undefined, 'x') === null,
     );
+  }
+
+  // ── T1 · Zwecke für Connect (Anmeldung Teil 2) ──
+  {
+    const ZFAELLE = JSON.parse(readFileSync(new URL('./zweck-faelle.json', import.meta.url), 'utf8'));
+    check('T1 OT1: Zwecke, Funktionen, Ziele und 72 h für Connect',
+      JSON.stringify(Object.keys(FREIGABE_MS)) === '["qa-relay","connect-raum","zoom-jwt","zoom-sdk"]'
+        && Object.values(FREIGABE_MS).every((ms) => ms === 3 * TAG)
+        && JSON.stringify(ZWECK_FUNKTION) === '{"qa-relay":"qa","connect-raum":"connect-raum","zoom-jwt":"zoom","zoom-sdk":"zoom"}'
+        && ZIEL_ZOOM_JWT === 'meeting-sdk' && ZIEL_ZOOM_SDK === 'win-x64');
+    pruefeFaelle('T1 5.5: Ziel je Zweck', [
+      ['connect-raum', 'abcde', false], ['connect-raum', 'abcdef', true], ['connect-raum', 'a'.repeat(64), true],
+      ['connect-raum', 'a'.repeat(65), false], ['connect-raum', 'raum.1', false], ['zoom-jwt', 'meeting-sdk', true],
+      ['zoom-jwt', 'x1', false], ['zoom-sdk', 'win-x64', true], ['zoom-sdk', '7.1.5.43953', false], ['qa-relay', 'e', true],
+    ].map(([z, ziel, soll]) => ({ name: `${z} ${ziel}`, z, ziel, soll })), (c) => gleich(ZWECK_ZIEL[c.z].test(c.ziel), c.soll));
+    check('T1 OT4: Falltabelle zweck-faelle.json: 200 Fälle, Namen einmalig, jeder Zweck ohne Stand und abgelaufen',
+      ZFAELLE.length === 200 && new Set(ZFAELLE.map((c) => c.name)).size === 200
+        && ['qa-relay', 'connect-raum', 'zoom-jwt', 'zoom-sdk'].every((z) => ZFAELLE.some((c) => c.zweck === z && c.stand === null)));
+    pruefeFaelle('T1 OT4, OF1, OF4: zweckDarf nach der Falltabelle', ZFAELLE, (c) =>
+      gleich(zweckDarf(standAus(c.stand), c.zweck, { jetzt: JETZT }), c.erwartet));
+    check('T1 OT4: unbekannter Zweck → kein-recht', zweckDarf({ ...standAus(ZFAELLE[2].stand) }, 'toString', { jetzt: JETZT }) === 'kein-recht');
   }
 
   {

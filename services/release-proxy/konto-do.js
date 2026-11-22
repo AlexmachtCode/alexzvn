@@ -28,7 +28,7 @@
 //
 // Uhr: `jetzt` kommt mit jeder Aktion vom Worker; fehlt es, und im Alarm, gilt `env.KONTO_UHR()` (nur Tests, EP21), sonst
 // `Date.now()`. Schlüssel im Speicher (EP1): konto:<kid>, email:<email>, geraet:<gid>, vorgang:<vid>, grab:<vid> (Z2), state:<state>,
-// iveo:<basis|slug>, anfrage:<aid>, log:<ms 13-stellig>:<zufall>, fehl:<kid>, altkey:<tag>:<gruppe>:<plattform>-<arch>.
+// iveo:<basis|slug>, qa:<eventHash>, connect:<raumHash>, anfrage:<aid>, log:<ms 13-stellig>:<zufall>, fehl:<kid>, altkey:<tag>:<gruppe>:<plattform>-<arch>.
 import {
   EINLADUNG_MS,
   PROTOKOLL_MS,
@@ -97,7 +97,11 @@ const K = {
   fehlEmail: (hash) => `fehl-email:${hash}`,
   /** Inhaber eines Q&A-Events (Z3): nur der SHA-256 der Event-ID mit eigenem Präfix, nie die Event-ID selbst. */
   qaInhaber: (eventHash) => `qa:${eventHash}`,
+  /** Inhaber eines Cloud-Raums von Connect (Anmeldung Teil 2): Schlüssel nur mit dem SHA-256 der Raum-ID; der Eintrag trägt zusätzlich die Raum-ID und die Kennung des Kontos im Klartext (für die Admin-Übersicht), nie Freigabe oder Token. */
+  connectInhaber: (raumHash) => `connect:${raumHash}`,
 };
+/** Format der Raum-ID von Connect, wie `ID_RE` in connect-relay.js. */
+const RAUM_ID_RE = /^[A-Za-z0-9_-]{6,64}$/;
 /** Q&A-Inhaber: so lange höchstens aufbewahren (Obergrenze für `bis`). */
 const QA_INHABER_MAX_MS = 30 * TAG_MS;
 /** `bis` eines Q&A-Inhabers wird nur verlängert, wenn es um mehr als so viel wächst. Muss kleiner sein als der Puffer des Absenders (QA.bisPufferMs, 1 h in qa-relay.js), damit `bis` nie unter Meta-Ende + Puffer − Schritt fällt (AR89). */
@@ -123,6 +127,8 @@ const AKTIONEN = {
   'iveo-fuer': 'iveoFuer',
   'altkey-zaehlen': 'altkeyZaehlen',
   'qa-inhaber': 'qaInhaber',
+  'connect-inhaber': 'connectInhaber',
+  'zoom-jwt-protokoll': 'zoomJwtProtokoll',
   'admin-uebersicht': 'adminUebersicht',
   'admin-aktion': 'adminAktion',
   // ── Ende der Aktionen ──
@@ -225,6 +231,7 @@ const ADMIN_AKTIONEN = {
   'anfrage-freigeben': 'anfrageFreigeben',
   'anfrage-ablehnen': 'anfrageAblehnen',
   'geraet-markieren': 'geraetMarkieren',
+  'raum-freigeben': 'raumFreigeben',
 };
 
 const B64URL = /^[A-Za-z0-9_-]+$/;
@@ -401,6 +408,9 @@ export class KontoSpeicher {
     }
     for (const [key, q] of await st.list({ prefix: 'qa:' })) {
       if (!q || !(q.bis >= jetzt)) await st.delete(key);
+    }
+    for (const [key, c] of await st.list({ prefix: 'connect:' })) {
+      if (!c || !(c.bis >= jetzt)) await st.delete(key);
     }
     for (const [key, g] of await st.list({ prefix: 'geraet:' })) {
       if (!g || !(g.letzterKontakt + GERAET_MS > jetzt)) await st.delete(key);
@@ -1035,11 +1045,11 @@ export class KontoSpeicher {
 
   /**
    * Aktion `altkey-zaehlen` `{ gruppe, plattform, arch }` → `{ ok }` (OF2, OFP2): zählt Anfragen mit dem alten PROXY_KEY je Tag
-   * (UTC), Gruppe (`katalog`, `qa`) und `‹plattform›-‹arch›` (`win`/`mac` und `x64`/`arm64`, sonst `unbekannt`); keine IP,
+   * (UTC), Gruppe (`katalog`, `qa`, `connect`) und `‹plattform›-‹arch›` (`win`/`mac` und `x64`/`arm64`, sonst `unbekannt`); keine IP,
    * keine Kennung des Rechners.
    */
   async altkeyZaehlen(b, jetzt) {
-    if (b.gruppe !== 'katalog' && b.gruppe !== 'qa') return fehler('ungueltig', 400);
+    if (b.gruppe !== 'katalog' && b.gruppe !== 'qa' && b.gruppe !== 'connect') return fehler('ungueltig', 400);
     const plattform = `${b.plattform === 'win' || b.plattform === 'mac' ? b.plattform : 'unbekannt'}-${b.arch === 'x64' || b.arch === 'arm64' ? b.arch : 'unbekannt'}`;
     const tag = new Date(jetzt).toISOString().slice(0, 10);
     const key = `altkey:${tag}:${b.gruppe}:${plattform}`;
@@ -1059,30 +1069,70 @@ export class KontoSpeicher {
    * `bis` (ms) ist höchstens 30 Tage nach jetzt; ein Eintrag mit bis < jetzt gilt als nicht vorhanden und wird beim Lesen gelöscht.
    */
   async qaInhaber(b, jetzt) {
+    return this.inhaberSetzen(HEX64.test(b.eventHash) ? K.qaInhaber(b.eventHash) : null, b, jetzt, 'keine-freigabe');
+  }
+
+  /**
+   * Aktion `connect-inhaber` `{ jetzt, raumHash, raumId, kidHash?, gidHash?, kid?, bisMs, loesen? }` (Anmeldung Teil 2, E3): wem gehört
+   * ein Cloud-Raum von Connect? Gleiche Regeln wie `qa-inhaber` (Schlüssel `connect:<raumHash>`), Ablehnung 403 `raum-vergeben`.
+   * `loesen: true` (Raum geschlossen) braucht beide Hashes: kein Inhaber → ok; kidHash ODER gidHash gleich → Eintrag gelöscht; sonst 403.
+   * `raumId` (Pflicht, `^[A-Za-z0-9_-]{6,64}$`) und `kid` (1–128 Zeichen, genau dann, wenn `kidHash` da ist) stehen im Klartext im
+   * Eintrag, damit die Admin-Übersicht den Raum nennen kann; dazu `seit` (Zeit der Bindung). Eine Verlängerung behält `raumId` und `seit`; `kid` nennt das Konto, das zuletzt geöffnet hat.
+   */
+  async connectInhaber(b, jetzt) {
+    const kidOk = b.kidHash === undefined ? b.kid === undefined : typeof b.kid === 'string' && b.kid.length >= 1 && b.kid.length <= 128;
+    if (typeof b.raumId !== 'string' || !RAUM_ID_RE.test(b.raumId) || !kidOk) return fehler('ungueltig', 400);
+    return this.inhaberSetzen(HEX64.test(b.raumHash) ? K.connectInhaber(b.raumHash) : null, b, jetzt, 'raum-vergeben', b.loesen === true, {
+      raumId: b.raumId,
+      kid: b.kid ?? null,
+    });
+  }
+
+  /**
+   * Aktion `zoom-jwt-protokoll` `{ kid, gid }` (R2): genau ein Protokolleintrag `zoom-jwt` je ausgestelltem Zoom-JWT; nie das JWT.
+   */
+  async zoomJwtProtokoll(b, jetzt) {
+    const ok = (s) => typeof s === 'string' && s.length >= 1 && s.length <= 128;
+    if (!ok(b.kid) || !ok(b.gid)) return fehler('ungueltig', 400);
+    const konto = await this.ladeKonto(b.kid);
+    await this.protokolliere({ am: jetzt, wer: 'system', was: 'zoom-jwt', wen: konto ? konto.email : b.kid, details: { kid: b.kid, gid: b.gid } });
+    return { ok: true };
+  }
+
+  /** Gemeinsamer Kern von `qa-inhaber` und `connect-inhaber`: `key` null heißt ungültige Eingabe (Hash-Feld); `code` ist der Ablehnungscode; `zusatz` (nur Connect) und `seit` kommen nur bei einer neuen Bindung in den Eintrag. */
+  async inhaberSetzen(key, b, jetzt, code, loesen = false, zusatz = null) {
     const mitKid = b.kidHash !== undefined;
     const mitGid = b.gidHash !== undefined;
-    if (!HEX64.test(b.eventHash) || mitKid !== mitGid || (mitKid && !(HEX64.test(b.kidHash) && HEX64.test(b.gidHash))) || !Number.isFinite(b.bisMs)) {
+    if (key === null || mitKid !== mitGid || (mitKid && !(HEX64.test(b.kidHash) && HEX64.test(b.gidHash))) || !Number.isFinite(b.bisMs)) {
       return fehler('ungueltig', 400);
     }
+    if (loesen && !mitKid) return fehler('ungueltig', 400);
     const st = this.ctx.storage;
-    const key = K.qaInhaber(b.eventHash);
     let inhaber = (await st.get(key)) ?? null;
     // Ab hier bis zum Schreiben kein await auf etwas anderes als den Speicher (Eingangs-Tor).
     if (inhaber && !(inhaber.bis >= jetzt)) {
       await st.delete(key);
       inhaber = null;
     }
+    if (loesen) {
+      if (!inhaber) return { ok: true, inhaber: null, neu: false };
+      if (b.kidHash !== inhaber.kidHash && b.gidHash !== inhaber.gidHash) return fehler(code, 403);
+      await st.delete(key);
+      return { ok: true, inhaber: null, neu: false };
+    }
     const bis = Math.min(b.bisMs, jetzt + QA_INHABER_MAX_MS);
     if (!inhaber) {
       if (!mitKid) return { ok: true, inhaber: null, neu: false };
-      inhaber = { kidHash: b.kidHash, gidHash: b.gidHash, bis };
+      inhaber = { kidHash: b.kidHash, gidHash: b.gidHash, bis, ...(zusatz ? { ...zusatz, seit: jetzt } : {}) };
       await st.put(key, inhaber);
       return { ok: true, inhaber, neu: true };
     }
-    if (!mitKid || (b.kidHash !== inhaber.kidHash && b.gidHash !== inhaber.gidHash)) return fehler('keine-freigabe', 403);
+    if (!mitKid || (b.kidHash !== inhaber.kidHash && b.gidHash !== inhaber.gidHash)) return fehler(code, 403);
     // Nur bei mehr als einer halben Stunde Zuwachs schreiben: Q&A fragt alle 5 s, jedes Mal ein Schreiben wäre unnötige Last.
-    if (bis - inhaber.bis > QA_INHABER_SCHRITT_MS) {
-      inhaber = { ...inhaber, bis };
+    // Connect: `kid` nennt das Konto, das zuletzt geöffnet hat; wechselt es, wird auch ohne Zuwachs geschrieben.
+    const neueKid = zusatz && typeof zusatz.kid === 'string' && zusatz.kid.length > 0 && zusatz.kid !== inhaber.kid ? zusatz.kid : null;
+    if (neueKid !== null || bis - inhaber.bis > QA_INHABER_SCHRITT_MS) {
+      inhaber = { ...inhaber, ...(bis - inhaber.bis > QA_INHABER_SCHRITT_MS ? { bis } : {}), ...(neueKid !== null ? { kid: neueKid } : {}) };
       await st.put(key, inhaber);
     }
     return { ok: true, inhaber, neu: false };
@@ -1100,7 +1150,8 @@ export class KontoSpeicher {
    * Aktion `admin-uebersicht` `{ kid }` → AdminUebersicht (Plan 10.5): alle Zugänge (auch abgelaufene und gesperrte, nach
    * Name), iveo-Events ohne `iv`/`ct`, Zoom-Anfragen (jüngste zuerst; Rechnername, JM und Plattform vom Gerät, sonst aus der
    * Anfrage), Geräte ohne Schlüssel (`letztesKonto` = Kennung, die Maske zeigt den Namen aus `zugaenge`), alter Schlüssel mit
-   * Frist und Diagnose aus `alterKeyGilt(env, 'katalog')` und den Zeilen der Zählung (jüngster Tag zuerst). Ohne aktuellen
+   * Frist und Diagnose aus `alterKeyGilt(env, 'katalog')` und den Zeilen der Zählung (jüngster Tag zuerst), `raeume` = gültig gebundene Cloud-Räume
+   * von Connect (`raumId`, `raumHash`, Name und Stufe des Kontos oder null, `seit`, `bis`; nie kidHash oder gidHash). Ohne aktuellen
    * Admin → 403 kein-recht.
    */
   async adminUebersicht(b, jetzt) {
@@ -1161,7 +1212,23 @@ export class KontoSpeicher {
         letztesKonto: g.letztesKonto ?? null,
       }))
       .sort((x, y) => y.letzterKontakt - x.letzterKontakt);
+    // Gebundene Cloud-Räume (nur lesen: abgelaufene löscht der Tages-Alarm). Nie kidHash/gidHash in die Antwort.
+    const raeume = [...(await st.list({ prefix: 'connect:' })).entries()]
+      .filter(([, e]) => e && e.bis >= jetzt)
+      .map(([key, e]) => {
+        const k = typeof e.kid === 'string' ? nachKid.get(e.kid) : undefined;
+        return {
+          raumHash: key.slice('connect:'.length),
+          raumId: e.raumId ?? null,
+          name: k ? k.name || k.email : null,
+          stufe: k ? this.stufeVon(k) : null,
+          seit: e.seit ?? null,
+          bis: e.bis,
+        };
+      })
+      .sort((x, y) => x.bis - y.bis || String(x.raumId).localeCompare(String(y.raumId)));
     const frist = alterKeyGilt(this.env, 'katalog', jetzt);
+    const fristConnect = alterKeyGilt(this.env, 'connect', jetzt);
     const zeilen = [...(await st.list({ prefix: 'altkey:', reverse: true })).values()].map((z) => ({
       tag: z.tag,
       gruppe: z.gruppe,
@@ -1169,7 +1236,7 @@ export class KontoSpeicher {
       anzahl: z.anzahl,
       zuletzt: z.zuletzt,
     }));
-    return { ok: true, zugaenge, iveo, anfragen, geraete: geraeteListe, altKey: { bis: frist.bis, diagnose: frist.diagnose, zeilen } };
+    return { ok: true, zugaenge, iveo, anfragen, geraete: geraeteListe, raeume, altKey: { bis: frist.bis, diagnose: frist.diagnose, zeilen, connect: { bis: fristConnect.bis, diagnose: fristConnect.diagnose } } };
   }
 
   /**
@@ -1376,6 +1443,28 @@ export class KontoSpeicher {
     await this.ctx.storage.put(K.geraet(geraet.gid), geraet);
     await this.protokolliere({ am: jetzt, wer, was: 'geraet-markieren', wen: geraet.name, details: { gid: geraet.gid, jm: a.jm } });
     return { ok: true };
+  }
+
+  /**
+   * `raum-freigeben` `{ raumHash }` → `{ ok, warFrei }`: löscht die Bindung eines Cloud-Raums von Connect (Admin-Freigabe nach einem
+   * Absturz). `warFrei` ist true, wenn es keinen gültigen Eintrag gab (keiner oder abgelaufen); gelöscht wird in beiden Fällen.
+   * Zwischen Lesen und Löschen kein await auf etwas anderes als den Speicher. Protokoll: Raum-ID und Kennung, nie die Hashes.
+   */
+  async raumFreigeben(a, wer, jetzt) {
+    if (typeof a.raumHash !== 'string' || !HEX64.test(a.raumHash)) return fehler('ungueltig', 400);
+    const st = this.ctx.storage;
+    const key = K.connectInhaber(a.raumHash);
+    const eintrag = (await st.get(key)) ?? null;
+    const warFrei = !eintrag || !(eintrag.bis >= jetzt);
+    await st.delete(key);
+    await this.protokolliere({
+      am: jetzt,
+      wer,
+      was: 'raum-freigeben',
+      wen: eintrag?.raumId ?? '',
+      details: { raumHash: a.raumHash, raumId: eintrag?.raumId ?? null, kid: eintrag?.kid ?? null, warFrei },
+    });
+    return { ok: true, warFrei };
   }
 
   // ── Ende der Methoden ──

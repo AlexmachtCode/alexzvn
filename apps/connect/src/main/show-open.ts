@@ -12,6 +12,7 @@ import { readFile } from 'node:fs/promises';
 import { parseShow, parseShowDeepLink } from '@jm/show';
 import { getLog } from '@jm/app-runtime';
 import type { ShowInfo } from '@shared/types';
+import { raumId } from './raum-id';
 
 let current: ShowInfo | null = null;
 let onChange: (show: ShowInfo | null) => void = () => {};
@@ -30,20 +31,16 @@ export function showInfo(): ShowInfo | null {
  * Show-Namen abgeleitet. Das MUSS deterministisch sein: derselbe Raum + das gespeicherte Secret
  * halten vorab verteilte Join-Links über App-Neustarts hinweg gültig.
  */
-function roomFor(show: { name: string; tools: { appId: string; settings?: Record<string, unknown> }[] }): string {
+export function roomFor(show: { name: string; tools: { appId: string; settings?: Record<string, unknown> }[] }): string {
   const ref = show.tools.find((t) => t.appId === 'jm-connect');
-  const explicit = sanitizeRoom(String(ref?.settings?.['room'] ?? ''));
+  const explicit = raumId(String(ref?.settings?.['room'] ?? ''));
   if (explicit) return explicit;
   const slug = show.name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40);
-  return slug || 'show';
-}
-
-function sanitizeRoom(room: string): string {
-  return room.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  return raumId(slug || 'show') || raumId('show');
 }
 
 /** Show-Deep-Link verarbeiten: Sprecher + Raum übernehmen und den Renderer benachrichtigen. */

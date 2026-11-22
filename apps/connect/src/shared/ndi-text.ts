@@ -74,7 +74,7 @@ export const NDI_TEXT = {
   /** nur bei bekanntem Raum-Zustand an T144 angehängt */
   t144Zusatz: ' Die Gästeliste zeigt den letzten Stand, die NDI-Abzeichen den aktuellen.',
   t145: 'Remote-Zuschaltungen als NDI®-Quellen — Green Room',
-  t146: (raum: string): string => `Keine Verbindung zum Raum „${raum}“. Adresse und Proxy-Key prüfen — im Hintergrund wird weiter versucht.`,
+  t146: (raum: string): string => `Keine Verbindung zum Raum „${raum}“. Adresse und Cloud-Zugang prüfen — im Hintergrund wird weiter versucht.`,
   /** macOS, NSLocalNetworkUsageDescription (Nachfrage von macOS); steht wörtlich in electron-builder.yml (mac.extendInfo, C-EP11). */
   t135: 'JM Connect sendet die Gäste als NDI-Quellen ins lokale Netzwerk und empfängt dort das Programm (NDI).',
 } as const;

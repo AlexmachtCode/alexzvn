@@ -1,4 +1,4 @@
-// Prüfung der Nutzlasten der Slot-Kanäle (IPC, Spec 7.9, 11.11 KF6), rein und ohne Electron (Muster zugang-eingabe.ts).
+// Prüfung der Nutzlasten der Slot-Kanäle (IPC, Spec 7.9, 11.11 KF6), rein und ohne Electron.
 // Hier wird nur die FORM geprüft: erlaubte Felder, Typen, Wertebereiche. Regeln mit Text (NDI-Name T43–T47, Haltezeit T74,
 // Nachfrage T40) prüft der Kern. Ungültig → die Hülle antwortet `{ ok: false, text: '' }` und ruft den Kern nicht (7.9).
 // Gültig → `wert` ist eine neue Kopie mit genau den bekannten Feldern; die Hülle gibt sie unverändert an den Kern (KF5).

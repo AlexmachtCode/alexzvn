@@ -18,6 +18,8 @@ import { CONTROL_PORT, pushControlState } from './control-server';
 import { initShow, showInfo } from './show-open';
 import { presenterConnected, slideCue } from './presenter-link';
 import { zoomKurz } from './zoom';
+import { beiZugangsAenderung, zugangsHalter } from './zugang/huelle';
+import { cloudZeile } from './zugang/regeln';
 
 declare const __dirname: string;
 
@@ -27,7 +29,7 @@ let onStatusChange: (s: AppStatus) => void = () => {};
 
 /** Cloud-Zugang für die Oberfläche — bewusst OHNE den Key selbst. */
 function proxyInfo(): ProxyInfo {
-  return { url: proxyUrl(), keySource: proxyKeySource(), configured: isConfigured() };
+  return { url: proxyUrl(), keySource: proxyKeySource(), configured: isConfigured(), zugang: cloudZeile(zugangsHalter().lage('connect-raum'), Date.now()) };
 }
 
 /** AppStatus aus den Messwerten des Mains, gebaut nur über baueAppStatus (Plan C, E44, KF10). */
@@ -41,6 +43,7 @@ export function currentStatus(): AppStatus {
     ndiProgramm: programmLage(),
     presenterLinked: presenterConnected(),
     zoom: zoomKurz(),
+    cloudZugang: cloudZeile(zugangsHalter().lage('connect-raum'), Date.now()),
   });
 }
 
@@ -72,6 +75,16 @@ export function registerIpc(deps: {
   getPeer = deps.getPeer;
   onStatusChange = deps.onStatusChange;
   const logDir = deps.logDir;
+
+  // Die Zugangszeile ändert sich, wenn der Halter eine Freigabe holt, erneuert oder verwirft. Der Rückruf darf nie werfen:
+  // er läuft mitten in zugang()/antwort() des Halters und würde sonst openRoom brechen.
+  beiZugangsAenderung(() => {
+    try {
+      pushStatus();
+    } catch (e) {
+      getLog().warn(`[connect] Zugangszeile konnte nicht gepusht werden: ${(e as Error).message}`);
+    }
+  });
 
   // Show-Deep-Link kann VOR dem Fenster eintreffen — deshalb zusätzlich der getShow-Abruf unten.
   initShow((show) => getWindow()?.webContents.send(IPC.showInfo, show));
@@ -108,10 +121,10 @@ export function registerIpc(deps: {
 
   ipcMain.handle(IPC.getProxy, async () => proxyInfo());
 
-  // Der Key kommt hier herein und geht nie wieder hinaus — zurück fließt nur seine Herkunft.
+  // Ein neuer Key wird nicht mehr angenommen (Anmeldung Teil 2): nur die Adresse und das Entfernen (`key === ''`) des alten.
   ipcMain.handle(IPC.setProxy, async (_e, p: { url?: string; key?: string }) => {
     if (typeof p?.url === 'string') setProxyUrl(p.url);
-    if (typeof p?.key === 'string') setProxyKey(p.key);
+    if (p?.key === '') setProxyKey('');
     pushStatus();
     return proxyInfo();
   });
