@@ -65,12 +65,34 @@ export const RECORDER_TEXTE = {
     start: (zeit: string): string => `Start ${zeit}`,
     stopp: (zeit: string): string => `Auto-Stopp ${zeit}`,
     trenner: ' · ',
+    /**
+     * Fußtext der Karte „Geplante Aufnahme“ (R9, für Z1): Zielordner, Dateiname und Spuren stehen jetzt im Panel, nicht mehr
+     * „oben“; die Schlusszeichen sind typografisch. Alt (RecorderView.tsx:400-403 bei d7cdd79ce0): „… und „Spuren einzeln"
+     * gelten wie oben eingestellt. …“
+     */
+    fusstext:
+      'Start/Stopp laufen zuverlässig im Hintergrund (auch unbeaufsichtigt). Zielordner, Dateiname und „Spuren einzeln“ gelten wie in den Einstellungen unter Ziel eingestellt. Ein manueller Stopp hebt den Auto-Stopp auf.',
   },
   /** Statuseintrag, wenn die Geräteliste leer bleibt (das Addon lädt nicht, Nachmessung 5.2). */
   audioModul: { titel: 'Audio-Modul', fehlt: 'Audio-Modul fehlt' },
   /** Meldung des Hauptprozesses (`recorder:notice`), die bis „OK“ stehen bleibt (E13). */
   meldung: { titel: 'Meldung', ok: 'OK' },
   companionModul: 'JM Audio Recorder',
+  /**
+   * Ziel (tool-eigener Abschnitt im Panel und Ziel-Anzeige im Live-Bereich): Wortlaut wie bisher (RecorderView.tsx:187-233). Neu
+   * ist nur der Titel „Ziel“; die Erläuterung der Spuren endet jetzt typografisch („““ statt ASCII-", R9, für Z1).
+   */
+  ziel: {
+    titel: 'Ziel',
+    ordner: 'Zielordner',
+    ordnerWaehlen: 'Ordner wählen…',
+    keinOrdner: 'noch keiner gewählt',
+    dateiname: 'Dateiname (optional)',
+    dateinamePlatzhalter: 'leer = Zeitstempel',
+    spuren: 'Spuren zusätzlich einzeln speichern',
+    spurenHinweis: 'je Kanal eine Mono-WAV im Unterordner „…-Spuren“',
+    imOrdnerZeigen: 'Im Ordner zeigen',
+  },
 } as const;
 
 /** Der Teil des Recorder-Stores, den die Ableitungen brauchen (der Store erfüllt ihn strukturell). */
