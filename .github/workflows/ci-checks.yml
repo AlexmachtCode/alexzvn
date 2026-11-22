@@ -74,7 +74,7 @@ jobs:
         run: npm run selftest -w @jm/stage-display
       - name: Caption (Audio-Helfer, NDI-Lizenztext im Bündel)
         run: npm run selftest -w @jm/caption
-      - name: Switcher (Ausgabe-Qualität, NDI-Lizenztext im Bündel)
+      - name: Switcher (Ausgabe-Qualität, NDI-Lizenztext im Bündel, Oberfläche)
         run: npm run selftest -w @jm/switcher
       - name: NDI Screen Capture (NDI-Lizenztext im Bündel)
         run: npm run selftest -w @jm/ndi-screen-capture
