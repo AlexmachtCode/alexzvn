@@ -110,11 +110,17 @@ const BOARD: Playlist = { id: 1, name: 'Board', kind: 'soundboard', createdAt: 0
 
 // ── PL Transport: vier TallyButtons, Gründe sichtbar, GO zeigt „Leertaste“ ──
 {
-  pruefeFaelle('PL Transport: gerendert genau vier TallyButtons GO, Pause/Weiter, Stop, Panik mit Zustand, Sperre, Grund (sichtbar und als title) und Kürzel aus transportTasten', FAELLE, (f) => {
+  pruefeFaelle('PL Transport: gerendert genau vier TallyButtons in der Reihenfolge von heute Pause/Weiter, Stop, Panik, GO mit Zustand, Sperre, Grund (sichtbar und als title) und Kürzel aus transportTasten', FAELLE, (f) => {
     const p = spielerAus(f);
     const t = transportTasten(stand(p));
     const html = render(<LiveBereich stand={stand(p)} aktionen={aktionen()} />);
-    return vergleiche(JSON.stringify(knoepfe(html)), JSON.stringify([t.go, t.pauseWeiter, t.stop, t.panik].map(erwartet)));
+    return vergleiche(JSON.stringify(knoepfe(html)), JSON.stringify([t.pauseWeiter, t.stop, t.panik, t.go].map(erwartet)));
+  });
+  // Ruling vor Prüfung: GO bleibt ganz rechts wie bisher (ShowView.tsx:188-209 auf d7cdd79ce0). Stünde Panik dort, träfe die Hand
+  // des Bedieners mitten in der Show Panik statt GO.
+  pruefeFaelle('PL Transport: GO ist in jedem Zustand die letzte Taste (ganz rechts, Spalte 4), Panik steht links daneben', FAELLE, (f) => {
+    const l = knoepfe(render(<LiveBereich stand={stand(spielerAus(f))} aktionen={aktionen()} />)).map((k) => k.label);
+    return l.length === 4 && l[3] === 'GO' && l[2] === '⛔ Panik' ? null : `Reihenfolge ${l.join(' | ')}`;
   });
   pruefeFaelle('PL Transport: gesperrt nie ohne sichtbaren Grund (aria-disabled, Grund-Zeile per aria-describedby)', FAELLE, (f) => {
     const html = render(<LiveBereich stand={stand(spielerAus(f))} aktionen={aktionen()} />);
@@ -126,24 +132,24 @@ const BOARD: Playlist = { id: 1, name: 'Board', kind: 'soundboard', createdAt: 0
   gleich(
     knoepfe(leer).map((k) => [k.label, k.state, k.grund]),
     [
-      ['GO', 'bereit', undefined],
       ['❚❚ Pause', 'gesperrt', 'Kein Cue läuft'],
       ['■ Stop', 'bereit', undefined],
       ['⛔ Panik', 'bereit', undefined],
+      ['GO', 'bereit', undefined],
     ],
-    'PL Transport: Reihenfolge GO, Pause/Weiter, Stop, Panik; ohne laufenden Cue ist Pause gesperrt und zeigt „Kein Cue läuft“',
+    'PL Transport: Reihenfolge wie bisher Pause/Weiter, Stop, Panik, GO (GO rechts); ohne laufenden Cue ist Pause gesperrt und zeigt „Kein Cue läuft“',
   );
   const ende = render(<LiveBereich stand={stand(spieler({ standbyIndex: 2 }))} aktionen={aktionen()} />);
   gleich(
-    [knoepfe(ende)[0]?.state, knoepfe(ende)[0]?.gesperrt, knoepfe(ende)[0]?.grund, text(ende).includes('Kein Standby-Cue')],
-    ['gesperrt', 'true', 'Kein Standby-Cue', true],
+    [knoepfe(ende).at(-1)?.label, knoepfe(ende).at(-1)?.state, knoepfe(ende).at(-1)?.gesperrt, knoepfe(ende).at(-1)?.grund, text(ende).includes('Kein Standby-Cue')],
+    ['GO', 'gesperrt', 'true', 'Kein Standby-Cue', true],
     'PL Transport: ohne Standby-Cue ist GO gesperrt und zeigt „Kein Standby-Cue“ sichtbar',
   );
   const pause = render(<LiveBereich stand={stand(spieler({ playingCueIds: [1], showPaused: true }))} aktionen={aktionen()} />);
-  gleich(knoepfe(pause)[1]?.label, '▶ Weiter', 'PL Transport: bei pausierter Show heißt die zweite Taste „▶ Weiter“ (E7, bereit mit wechselnder Beschriftung)');
+  gleich(knoepfe(pause)[0]?.label, '▶ Weiter', 'PL Transport: bei pausierter Show heißt die erste Taste „▶ Weiter“ (E7, bereit mit wechselnder Beschriftung)');
   gleich(
     knoepfe(leer).map((k) => k.kuerzel),
-    ['Leertaste', undefined, 'Esc', undefined],
+    [undefined, 'Esc', undefined, 'Leertaste'],
     'PL Transport: GO zeigt das Kürzel „Leertaste“, Stop „Esc“; Pause/Weiter und Panik haben keines',
   );
   ok(!text(leer).includes('⏎') && !QUELLE('views/ShowView.tsx').includes('GO ⏎'), 'PL Transport: die falsche Beschriftung „GO ⏎“ ist weg (Spec 3.4: ausgelöst wird die Leertaste)');
@@ -182,7 +188,7 @@ const BOARD: Playlist = { id: 1, name: 'Board', kind: 'soundboard', createdAt: 0
   const cueShow = inhalt(mitStore(MIT_SHOW, () => render(<PlayerOberflaeche anfangReiter="show" />)));
   gleich(
     knoepfe(cueShow).map((k) => k.label),
-    ['GO', '❚❚ Pause', '■ Stop', '⛔ Panik'],
+    ['❚❚ Pause', '■ Stop', '⛔ Panik', 'GO'],
     'PL Transport: die Cue-Show zeigt den Transport ohne Klick (Live-Element mit Standby, vier TallyButtons)',
   );
 }
@@ -191,14 +197,14 @@ const BOARD: Playlist = { id: 1, name: 'Board', kind: 'soundboard', createdAt: 0
 {
   const log: string[] = [];
   transportKnoepfe(stand(spieler({ playingCueIds: [1] })), aktionen(log)).forEach((t) => t.onClick?.());
-  gleich(log, ['showGo', 'showTogglePause', 'showStop', 'showPanic'], 'PL Transport Verdrahtung: GO → showGo, Pause/Weiter → showTogglePause, Stop → showStop, Panik → showPanic');
+  gleich(log, ['showTogglePause', 'showStop', 'showPanic', 'showGo'], 'PL Transport Verdrahtung: Pause/Weiter → showTogglePause, Stop → showStop, Panik → showPanic, GO → showGo');
 
   const baum: string[] = [];
   const gerendert = tallys(LiveBereich({ stand: stand(spieler({ playingCueIds: [1] })), aktionen: aktionen(baum) }));
   gerendert.forEach(klick);
   gleich(
     [gerendert.map((t) => t.label), baum],
-    [['GO', '❚❚ Pause', '■ Stop', '⛔ Panik'], ['showGo', 'showTogglePause', 'showStop', 'showPanic']],
+    [['❚❚ Pause', '■ Stop', '⛔ Panik', 'GO'], ['showTogglePause', 'showStop', 'showPanic', 'showGo']],
     'PL Transport Verdrahtung: die im Live-Bereich gerenderten TallyButtons rufen per Klick genau diese Aktionen',
   );
   ok(gerendert.every((t) => t.onPress === undefined && t.onRelease === undefined), 'PL Transport Verdrahtung: kein Halten, nur Klick');
@@ -209,10 +215,10 @@ const BOARD: Playlist = { id: 1, name: 'Board', kind: 'soundboard', createdAt: 0
     const l: string[] = [];
     tallys(LiveBereich({ stand: stand(p), aktionen: aktionen(l) })).forEach(klick);
     const soll = [
-      ...(p !== undefined && f.standby === 0 ? ['showGo'] : []),
       ...(p !== undefined && (p.playingCueIds.length > 0 || p.showPaused) ? ['showTogglePause'] : []),
       'showStop',
       'showPanic',
+      ...(p !== undefined && f.standby === 0 ? ['showGo'] : []),
     ];
     return vergleiche(l.join(','), soll.join(','));
   });
@@ -220,7 +226,7 @@ const BOARD: Playlist = { id: 1, name: 'Board', kind: 'soundboard', createdAt: 0
     const p = spielerAus(f);
     const t = transportTasten(stand(p));
     const ist = transportKnoepfe(stand(p), aktionen()).map(({ onClick: _k, ...rest }) => rest);
-    return vergleiche(JSON.stringify(ist), JSON.stringify([t.go, t.pauseWeiter, t.stop, t.panik]));
+    return vergleiche(JSON.stringify(ist), JSON.stringify([t.pauseWeiter, t.stop, t.panik, t.go]));
   });
 
   const show = QUELLE('views/ShowView.tsx');
@@ -259,9 +265,11 @@ const BOARD: Playlist = { id: 1, name: 'Board', kind: 'soundboard', createdAt: 0
   );
   const wrapper = tags(html, 'div').filter((d) => attr(d, 'data-player') === 'tasten');
   const stopHuelle = html.match(/<div([^>]*)><button[^>]*>(?:(?!<\/button>)[\s\S])*■ Stop/)?.[1] ?? '';
+  // Stop vor Panik; beide an derselben Stelle wie im Transport (Spalten 2 und 3). Spalte 4 bleibt frei: dort liegt in der Cue-Show
+  // GO, und Panik soll nie dort liegen, wo die Hand GO sucht (Ruling vor Prüfung).
   ok(
-    wrapper.length === 1 && /\bgrid-cols-4\b/.test(attr(wrapper[0], 'class') ?? '') && /\bcol-start-3\b/.test(stopHuelle),
-    'PL Fußleiste: Stop und Panik stehen in den Spalten 3 und 4 des Rasters, an derselben Stelle wie im Transport der Cue-Show',
+    wrapper.length === 1 && /\bgrid-cols-4\b/.test(attr(wrapper[0], 'class') ?? '') && /\bcol-start-2\b/.test(stopHuelle) && !/\bcol-start-[134]\b/.test(html),
+    'PL Fußleiste: Stop und Panik stehen in den Spalten 2 und 3 des Rasters, an derselben Stelle wie im Transport; Spalte 4 (GO in der Cue-Show) bleibt frei',
   );
   ok(/\bshrink-0\b/.test(attr(tags(html, 'div').find((d) => attr(d, 'data-player') === 'fussleiste'), 'class') ?? ''), 'PL Fußleiste: fest unten (shrink-0), der Inhalt darüber scrollt');
 

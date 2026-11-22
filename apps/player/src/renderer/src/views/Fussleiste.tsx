@@ -1,7 +1,8 @@
 // Fußleiste in Bibliothek und Soundboard (UX Welle 2a, Player d2; W2-10, E14): Stop und Panik fest unten, dieselben
 // Store-Aktionen wie im Transport der Cue-Show (showStop, showPanic; Panik stoppt seit W2-10 auch die Pads), ohne Kürzel
 // (Leertaste und Esc gelten nur in der Cue-Show). Die Cue-Show selbst hat keine Fußleiste: dort sitzen Stop und Panik im
-// Transport. Stop und Panik stehen in den Spalten 3 und 4 des Rasters, an derselben Stelle wie im Transport.
+// Transport. Stop vor Panik, in den Spalten 2 und 3 des Rasters, an derselben Stelle wie im Transport; Spalte 4 bleibt frei
+// (dort liegt in der Cue-Show GO, Panik soll nie dort liegen, wo die Hand GO sucht).
 import { useShallow } from 'zustand/react/shallow';
 import { fussleistenTasten, type OberflaechenStand } from '@/lib/oberflaeche';
 import { usePlayer } from '@/store/player';
@@ -19,7 +20,7 @@ export function fussleistenKnoepfe(s: Pick<OberflaechenStand, 'player'>, a: Fuss
 export function FussleisteAnzeige({ stand, aktionen }: { stand: Pick<OberflaechenStand, 'player'>; aktionen: FussleistenAktionen }): React.JSX.Element {
   return (
     <div data-player="fussleiste" className="shrink-0 border-t border-[var(--border)]/60 bg-[var(--card)]/50 px-5 py-3">
-      <Tasten tasten={fussleistenKnoepfe(stand, aktionen)} abSpalte3 />
+      <Tasten tasten={fussleistenKnoepfe(stand, aktionen)} abSpalte2 />
     </div>
   );
 }
