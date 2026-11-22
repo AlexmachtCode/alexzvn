@@ -164,7 +164,8 @@ KONTO_JURISDICTION = "eu"
 ALTKEY_BIS = "2026-12-20"
 # Eigene Frist für die Connect-Routen (EP9, OT5): gilt für PROXY_KEY an /connect und ZOOM_SDK_KEY an /zoom-sdk. Bleibt leer bis
 # zum Release von Connect 0.5.0; dann Release + 30 Tage (eigener Schritt mit Owner-OK):
-# ALTKEY_CONNECT_BIS = "JJJJ-MM-TT"
+# Gesetzt am 2026-11-22 (Release Connect 0.5.0 / Launcher 0.19.0 am 2026-11-22 + 30 Tage, Owner-OK):
+ALTKEY_CONNECT_BIS = "2026-12-22"
 # Privates Repo mit dem Zoom-SDK-Paket für GET /zoom-sdk/:fassung (JM Connect 0.2.2). Das GITHUB_TOKEN
 # braucht darauf Contents: read, sonst antwortet GitHub 404 und die Route meldet not_found.
 ZOOM_SDK_REPO = "AlexmachtCode/jm-zoom-sdk"
