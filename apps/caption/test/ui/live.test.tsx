@@ -1,5 +1,5 @@
 // UX Welle 2a, Caption d · Live-Bereich (Spec 3.4, 5.1; E4, E7, E9; Funktionsliste Nr. 9–12, 24–36): oben die vier Haupttasten
-// als TallyButtons (Start/Stopp, Hold, Leeren, NDI, in der Reihenfolge von heute) in grid gap-3, direkt darunter der
+// als TallyButtons in grid gap-3 (oben Start/Stopp, Hold; unten NDI wie heute links, Leeren rechts; Ruling Task 26), darunter der
 // Mikrofonfehler-Text (E9), die Hinweise (whisper fehlt, Fehler des Main), dann die große Live-Zeile mit der NDI-Vorschau,
 // die Pegelzeile und der Verlauf mit der Korrektur der jüngsten Zeile (wie heute, samt bekannter Eigenheiten). Jede Taste
 // und jedes Feld ruft dieselbe Store-Aktion wie bisher (Attrappen, Klick über die Verdrahtung des TallyButton). Render ohne
@@ -64,7 +64,7 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
   const reihe = ['data-caption="live"', 'data-caption="tasten"', 'data-caption="hinweis-whisper"', 'data-caption="hinweis-fehler"', 'data-caption="live-zeile"', 'data-caption="vorschau"', '<canvas', 'data-caption="pegel"', 'data-caption="verlauf"'];
   const pos = reihe.map((s) => m.indexOf(s));
   ok(pos.every((p, i) => p >= 0 && (i === 0 || p > pos[i - 1])), `CA Live: im Inhalt ohne Klick Tasten, Hinweise, Live-Zeile, Vorschau mit Canvas, Pegel und Verlauf (${pos.join(', ')})`);
-  gleich(tags(m, 'button').filter((t) => attr(t, 'data-state') !== undefined).length, 4, 'CA Live: genau vier TallyButtons (Start/Stopp, Hold, Leeren, NDI)');
+  gleich(tags(m, 'button').filter((t) => attr(t, 'data-state') !== undefined).length, 4, 'CA Live: genau vier TallyButtons (Start/Stopp, Hold, NDI, Leeren)');
   const tasten = (attr(tags(m, 'div').find((t) => attr(t, 'data-caption') === 'tasten'), 'class') ?? '').split(/\s+/);
   ok(['grid', 'grid-cols-2', 'gap-3', 'max-w-[30rem]'].every((k) => tasten.includes(k)), 'CA Live: die Haupttasten stehen in grid gap-3, zwei Spalten, feste Breite (gleiche Lage bei jeder Fenstergröße und offenem Panel)');
   const wurzel = (attr(tags(m, 'section').find((t) => attr(t, 'data-caption') === 'live'), 'class') ?? '').split(/\s+/);
@@ -78,10 +78,10 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
 // ── CA Live Tasten: gerendert genau hauptTasten in der Reihenfolge von heute, Gründe sichtbar ──
 {
   const faelle = kreuz({ antwort: BOOL, running: BOOL, hold: BOOL, ndiActive: BOOL, ndiSendet: BOOL, micError: [null, MIKRO_FEHLER] } as const);
-  pruefeFaelle('CA Live Tasten: vier TallyButtons Start/Stopp, Hold, Leeren, NDI mit Zustand, Sperre und Grund aus hauptTasten', faelle, (f) => {
+  pruefeFaelle('CA Live Tasten: vier TallyButtons Start/Stopp, Hold, NDI, Leeren mit Zustand, Sperre und Grund aus hauptTasten', faelle, (f) => {
     const s = stand({ caption: f.antwort ? caption({ running: f.running, hold: f.hold, status: { ndiActive: f.ndiActive, ndiSendet: f.ndiSendet } }) : undefined, micError: f.micError });
     const t = hauptTasten(s);
-    return vergleiche(JSON.stringify(knoepfe(live(s))), JSON.stringify([t.start, t.hold, t.leeren, t.ndi].map(erwartet)));
+    return vergleiche(JSON.stringify(knoepfe(live(s))), JSON.stringify([t.start, t.hold, t.ndi, t.leeren].map(erwartet)));
   });
   gleich(
     knoepfe(live(stand({ caption: undefined }))).map((k) => [k.state, k.gesperrt, k.grund]),
@@ -90,15 +90,31 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
   );
 }
 
-// ── CA Tastenfolge: wie heute (App.tsx bei d7cdd79ce0) ──
+// ── CA Tastenfolge: Plätze wie heute, keine Taste auf dem alten Platz einer anderen (Ruling Task 26) ──
 {
-  // Heute, von links nach rechts und oben nach unten: „● Start“/„■ Stopp“ (App.tsx:185-191), „Hold“/„Hold ✓“ (:192-199) und
-  // „Leeren“ (:200-205) rechts im Kopf, „○ NDI starten“/„◉ NDI an“ (:211-218) links in der NDI-Leiste darunter.
-  const HEUTE = ['Start', 'Hold', 'Leeren', 'NDI starten'];
-  gleich(knoepfe(live(stand())).map((k) => k.label), HEUTE, 'CA Tastenfolge: Start, Hold, Leeren, NDI in der Reihenfolge von heute (Start bleibt vorn, NDI hinten)');
+  // Heute (App.tsx bei d7cdd79ce0): oben im Kopf nebeneinander „● Start“/„■ Stopp“ (:185-191), „Hold“/„Hold ✓“ (:192-199) und
+  // „Leeren“ (:200-205); darunter links in der NDI-Leiste „○ NDI starten“/„◉ NDI an“ (:211-218).
+  // Neu (Ruling): 2×2, oben Start/Stopp und Hold, unten links NDI (sein alter Platz unten links), unten rechts Leeren. Der alte
+  // Platz von Leeren (oben, dritte) bleibt leer; auf dem alten NDI-Platz liegt nie Leeren (die Hand nach NDI leerte sonst die
+  // Untertitel).
+  const tastenKlasse = (attr(tags(live(stand()), 'div').find((x) => attr(x, 'data-caption') === 'tasten'), 'class') ?? '').split(/\s+/);
+  ok(tastenKlasse.includes('grid-cols-2') && !tastenKlasse.some((k) => /grid-cols-[13-9]/.test(k)), 'CA Tastenfolge: zwei Spalten in jeder Fenstergröße (kein Wechsel der Plätze)');
+  /** Platz im Raster aus der Reihenfolge im DOM: [Reihe, Spalte], Reihe 0 oben. */
+  const platz = (labels: Array<string | undefined>, label: string): [number, number] => {
+    const i = labels.indexOf(label);
+    return [Math.floor(i / 2), i % 2];
+  };
+  const labels = knoepfe(live(stand())).map((k) => k.label);
+  gleich(labels, [T.taste.start, T.taste.hold, T.taste.ndiStarten, T.taste.leeren], 'CA Tastenfolge: im Raster Start, Hold, NDI, Leeren (oben Start und Hold, unten NDI und Leeren)');
+  gleich(
+    [platz(labels, T.taste.start), platz(labels, T.taste.hold), platz(labels, T.taste.ndiStarten), platz(labels, T.taste.leeren)],
+    [[0, 0], [0, 1], [1, 0], [1, 1]],
+    'CA Tastenfolge: Start oben links, Hold oben rechts, NDI unten links (wie heute unten links), Leeren unten rechts',
+  );
+  ok(platz(labels, T.taste.leeren)[0] !== 1 || platz(labels, T.taste.leeren)[1] !== 0, 'CA Tastenfolge: Leeren liegt nie auf dem alten NDI-Platz (unten links)');
   gleich(
     knoepfe(live(stand({ caption: caption({ running: true, hold: true, status: { ndiActive: true, ndiSendet: true } }) }))).map((k) => [k.label, k.state]),
-    [[T.taste.stopp, 'live'], [T.taste.holdAn, 'bereit'], [T.taste.leeren, 'bereit'], [T.taste.ndiAn, 'live']],
+    [[T.taste.stopp, 'live'], [T.taste.holdAn, 'bereit'], [T.taste.ndiAn, 'live'], [T.taste.leeren, 'bereit']],
     'CA Tastenfolge: bei Lauf, Hold und sendendem NDI bleibt jede Taste an ihrem Platz, nur die Beschriftung wechselt (Stopp live, Hold ✓ bereit, NDI an live)',
   );
 }
@@ -112,22 +128,22 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
     const log: string[] = [];
     const s = stand({ caption: f.antwort ? caption({ running: f.running, hold: f.hold, status: { ndiActive: f.ndiActive } }) : undefined, micError: f.micError });
     for (const k of liveTasten(s, aktionen(log))) klick(k);
-    const soll = f.antwort ? [f.running ? 'stop' : 'start', `setHold:${!f.hold}`, 'clear', f.ndiActive ? 'ndiStop' : 'ndiStart:JM Caption'] : [];
+    const soll = f.antwort ? [f.running ? 'stop' : 'start', `setHold:${!f.hold}`, f.ndiActive ? 'ndiStop' : 'ndiStart:JM Caption', 'clear'] : [];
     return vergleiche(log.join(','), soll.join(','));
   });
   pruefeFaelle('CA Live Verdrahtung: liveTasten ist genau hauptTasten plus Klick (keine zweite Rechnung)', kreuz({ antwort: BOOL, running: BOOL, ndiSendet: BOOL } as const), (f) => {
     const s = stand({ caption: f.antwort ? caption({ running: f.running, status: { ndiActive: f.ndiSendet, ndiSendet: f.ndiSendet } }) : undefined });
     const t = hauptTasten(s);
-    return vergleiche(JSON.stringify(liveTasten(s, aktionen()).map(({ onClick, ...r }) => [r, typeof onClick])), JSON.stringify([t.start, t.hold, t.leeren, t.ndi].map((x) => [x, 'function'])));
+    return vergleiche(JSON.stringify(liveTasten(s, aktionen()).map(({ onClick, ...r }) => [r, typeof onClick])), JSON.stringify([t.start, t.hold, t.ndi, t.leeren].map((x) => [x, 'function'])));
   });
   // Die Tasten im gerenderten Baum sind genau liveTasten (keine toten Knöpfe).
   const log: string[] = [];
   const tallys = baum(stand({ caption: caption({ hold: true, status: { ndiActive: true } }) }), null, log).filter((e) => e.type === TallyButton);
   for (const t of tallys) klick(t.props as unknown as TallyButtonProps);
-  gleich(log, ['start', 'setHold:false', 'clear', 'ndiStop'], 'CA Live Verdrahtung: die TallyButtons im gerenderten Live-Bereich klicken start, setHold(false), clear und ndiStop');
+  gleich(log, ['start', 'setHold:false', 'ndiStop', 'clear'], 'CA Live Verdrahtung: die TallyButtons im gerenderten Live-Bereich klicken start, setHold(false), ndiStop und clear');
   const log2: string[] = [];
   for (const k of liveTasten(stand({ caption: caption({ config: { ndiName: 'Saal 2' } }) }), liveAktionen(store(log2), 'Saal 2', () => {}))) klick(k);
-  gleich(log2.at(-1), 'ndiStart:Saal 2', 'CA Live Verdrahtung: NDI starten nimmt den Quellnamen der Konfiguration (ndiStart(c.ndiName))');
+  gleich(log2[2], 'ndiStart:Saal 2', 'CA Live Verdrahtung: NDI starten nimmt den Quellnamen der Konfiguration (ndiStart(c.ndiName))');
   const ober = QUELLE('views/CaptionOberflaeche.tsx');
   ok(
     ober.includes('const { state, level, load, setLevel, setConfig, start, stop, setHold, clear, correctLast, ndiStart, ndiStop } =') &&

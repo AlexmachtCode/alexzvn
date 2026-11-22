@@ -1,5 +1,5 @@
 // Live-Bereich der Caption (UX Welle 2a, Caption d; Spec 3.4, 5.1; E4, E7, E9; Funktionsliste Nr. 9–12, 24–36): oben die vier
-// Haupttasten als TallyButtons in grid gap-3 (Start/Stopp, Hold, Leeren, NDI: die Reihenfolge von heute), direkt darunter der
+// Haupttasten als TallyButtons in grid gap-3 (oben Start/Stopp und Hold, unten NDI und Leeren; Ruling Task 26), darunter der
 // Mikrofonfehler-Text (E9) und die Hinweise (whisper fehlt, Fehler des Main), dann die große Live-Zeile mit der NDI-Vorschau,
 // die Pegelzeile und der Verlauf mit der Korrektur der jüngsten Zeile. Die Tasten haben eine feste Breite (30 rem, zwei
 // Spalten) und stehen ganz oben links: Sie liegen bei jeder Fenstergröße und bei offenem Panel an derselben Stelle, und keine
@@ -14,8 +14,10 @@ import type { LiveAktionen } from '@/lib/aktionen';
 import { CAPTION_TEXTE, hauptTasten, type OberflaechenStand } from '@/lib/oberflaeche';
 
 /**
- * Die vier Haupttasten in Anzeigereihenfolge: Start/Stopp, Hold, Leeren, NDI. Genau hauptTasten plus Klick; die Wirkung folgt
- * dem Zustand wie bisher (running ? stop : start; setHold(!hold); clear; ndiActive ? ndiStop : ndiStart). Ohne DOM prüfbar.
+ * Die vier Haupttasten in Anzeigereihenfolge im 2×2-Raster (Ruling Task 26): oben Start/Stopp und Hold, unten links NDI (wie
+ * heute unten links), unten rechts Leeren. Keine Taste liegt auf dem alten Platz einer anderen; der alte Platz von Leeren (oben,
+ * dritte) bleibt leer, und auf dem alten NDI-Platz liegt nie Leeren. Genau hauptTasten plus Klick; die Wirkung folgt dem Zustand
+ * wie bisher (running ? stop : start; setHold(!hold); ndiActive ? ndiStop : ndiStart; clear). Ohne DOM prüfbar.
  */
 export function liveTasten(s: Pick<OberflaechenStand, 'caption' | 'micError'>, a: LiveAktionen): TallyButtonProps[] {
   const t = hauptTasten(s);
@@ -26,8 +28,8 @@ export function liveTasten(s: Pick<OberflaechenStand, 'caption' | 'micError'>, a
   return [
     { ...t.start, onClick: running ? a.stop : a.start },
     { ...t.hold, onClick: () => a.hold(!hold) },
-    { ...t.leeren, onClick: a.leeren },
     { ...t.ndi, onClick: ndiActive ? a.ndiStoppen : a.ndiStarten },
+    { ...t.leeren, onClick: a.leeren },
   ];
 }
 
