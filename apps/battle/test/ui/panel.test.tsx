@@ -3,10 +3,14 @@
 // „Instant-Replay“ und „Zurücksetzen“ (mit Rückfrage). Dazu die Wächter der Farben: keine rohen Farbklassen, Ecken-Tokens in Hell und
 // Dunkel, color-mix statt Hex-Alpha. Render ohne Browser und ohne window.
 import { PEERS_TEXTE, REMOTE_TEXTE } from '@jm/settings';
-import { Button, Field, NumberInput, Toggle } from '@jm/ui';
+import { Button, Field, Toggle } from '@jm/ui';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import { readdirSync } from 'node:fs';
+import { ClipPanel } from '@/components/ClipPanel';
+import { GeklemmteZahl, klemmUebernahme } from '@/components/GeklemmteZahl';
 import { Scoreboard } from '@/components/Scoreboard';
+import { zahlEntwurfAus, zahlSchritt } from '../../../../packages/ui/src/lib/eingabe';
+import { UI_TEXTE } from '../../../../packages/ui/src/lib/texte';
 import {
   ABSCHNITT,
   BATTLE_TEXTE,
@@ -54,7 +58,13 @@ const kind = (f: { props: Record<string, unknown> }, typ: unknown): { props: Rec
   gleich([T.titel.battle, T.titel.replay, T.titel.zuruecksetzen], ['Battle', 'Instant-Replay', 'Zurücksetzen'], 'BA Panel Abschnitte: die Titel der tool-eigenen Abschnitte nach Anhang A');
   const ziele = statusLeiste(stand({ state: battleState({ links: [toolLink()] }) })).map((i) => i.settingsSection).filter((z): z is string => typeof z === 'string');
   gleich(ziele.filter((z) => !html.includes(`id="einstellung-${z}"`)), [], 'BA Panel Abschnitte: jeder Statuseintrag mit Abschnitt findet seinen Anker');
-  gleich(ziele, [ABSCHNITT.gegenstellen, ABSCHNITT.fernsteuerung, ABSCHNITT.battle, ABSCHNITT.replay], 'BA Panel Abschnitte: Titler springt in „Gegenstellen“, Fernsteuerung in ihren Abschnitt, Voting in „Battle“, Aufnahme-Quelle in „Instant-Replay“ (Master nicht)');
+  // Fund C1: nur Einträge, deren Zustand der Abschnitt ändern kann. Grundstand: Titler an (Gegenstellen), Voting-Server aus und
+  // Quelle fehlt (beides nur in der Karte zu ändern), Fernsteuerung mit festem Port: reine Anzeige.
+  gleich(ziele, [ABSCHNITT.gegenstellen], 'BA Panel Abschnitte: Kopplung Titler springt in „Gegenstellen“; Fernsteuerung, Voting (Server aus), Aufnahme-Quelle und Master nicht');
+  const abgeschaltet = statusLeiste(stand({ state: battleState({ links: [toolLink()], remote: { running: true, urls: ['http://10.0.0.2:7783'] }, config: { ...battleState().config, votingEnabled: false, autoTitler: false } }) }))
+    .map((i) => i.settingsSection)
+    .filter((z): z is string => typeof z === 'string');
+  gleich(abgeschaltet, [ABSCHNITT.battle, ABSCHNITT.battle], 'BA Panel Abschnitte: Kopplung Titler aus und Voting abgeschaltet springen in „Battle“ (dort stehen beide Schalter)');
   pruefeIdVerweise(html, 'BA Panel Abschnitte: id-Verweise gültig');
   ok(!text(html).includes('"'), 'BA Panel Abschnitte: kein ASCII-Anführungszeichen in den Texten des Panels');
 }
@@ -63,11 +73,13 @@ const kind = (f: { props: Record<string, unknown> }, typ: unknown): { props: Rec
 {
   const log: string[] = [];
   const s = stand({ state: mitConfig({ rounds: 5, votingEnabled: false, autoTitler: true }) });
-  const runden = kind(feld(s, 'Runden', log), NumberInput);
+  const runden = kind(feld(s, 'Runden', log), GeklemmteZahl);
   gleich([runden.props.value, feld(s, 'Runden').props.hint], [5, 'Anzahl der Battle-Runden.'], 'BA Panel Battle: Runden zeigt den Wert der Konfiguration, Hilfetext wörtlich wie bisher');
+  type KlemmProps = { value: number; klemme: (v: number) => number; onChange: (v: number) => void };
   const wirkt = (v: number): string => {
     const l: string[] = [];
-    (kind(feld(s, 'Runden', l), NumberInput).props.onChange as (n: number) => void)(v);
+    const p = kind(feld(s, 'Runden', l), GeklemmteZahl).props as KlemmProps;
+    p.onChange(klemmUebernahme(p.value, v, p.klemme).wert);
     return l[0];
   };
   gleich([wirkt(0), wirkt(1), wirkt(7), wirkt(99)], ['config({"rounds":1})', 'config({"rounds":1})', 'config({"rounds":7})', 'config({"rounds":20})'], 'BA Panel Battle: Runden wirken zwischen 1 und 20 geklemmt (0 → 1, 99 → 20), wie das alte Feld');
@@ -242,4 +254,59 @@ const kind = (f: { props: Record<string, unknown> }, typ: unknown): { props: Rec
   );
   const quellen = ['components/Scoreboard.tsx', 'components/Competitors.tsx', 'lib/oberflaeche.ts'].map((d) => ohneKommentare(leseText(`src/renderer/src/${d}`)));
   ok(quellen.every((q) => !/\$\{[^}]*\}[0-9a-fA-F]{2}['"`]/.test(q) && !/#3da5ff|#ff5c5c|#a3a3a3|#3f3f46|#d4d4d8/i.test(q)), 'BA Ecken-Tokens: kein Hex-Alpha (angehängte Ziffern) und keine der alten Hex-Farben mehr in Scoreboard, Ecken und Ableitungen');
+}
+
+// ── BA Zahlfelder am Klemmwert (Fund C4): Runden (1 bis 20) und Clip-Länge (mindestens 3) über den echten Feldpfad ──
+// Steht der Wert schon an der Grenze und wird jenseits übernommen, bleibt der gespeicherte Wert gleich; ohne Neuaufbau zeigte das
+// Feld die Eingabe mit „Noch nicht übernommen.“. Wie React: ein neuer Wert von außen kommt nur, wenn sich der Wert ändert.
+{
+  type KlemmProps = { value: number; klemme: (v: number) => number; onChange: (v: number) => void };
+  const durchFeld = (p: KlemmProps, log: string[], eingabe: string): { log: string[]; text: string; fehler?: string } => {
+    const getippt = zahlSchritt(zahlEntwurfAus(p.value), { art: 'tippen', text: eingabe }, {}, p.value);
+    const r = zahlSchritt(getippt.z, { art: 'uebernehmen' }, {}, p.value);
+    if (r.neuerWert === undefined) return { log, text: r.z.text, ...(r.z.fehler ? { fehler: r.z.fehler } : {}) };
+    const k = klemmUebernahme(p.value, r.neuerWert, p.klemme);
+    p.onChange(k.wert);
+    const nachher = k.neuAufbauen ? zahlEntwurfAus(p.value) : k.wert !== p.value ? zahlSchritt(r.z, { art: 'aussen', wert: k.wert }, {}, k.wert).z : r.z;
+    const z = zahlSchritt(nachher, { art: 'frist' }, {}, k.neuAufbauen ? p.value : k.wert).z;
+    return { log, text: z.text, ...(z.fehler ? { fehler: z.fehler } : {}) };
+  };
+  const runden = (wert: number, eingabe: string): ReturnType<typeof durchFeld> => {
+    const log: string[] = [];
+    return durchFeld(kind(feld(stand({ state: mitConfig({ rounds: wert }) }), 'Runden', log), GeklemmteZahl).props as KlemmProps, log, eingabe);
+  };
+  const laenge = (wert: number, eingabe: string): ReturnType<typeof durchFeld> => {
+    const log: string[] = [];
+    const baum = ClipPanel({ state: mitConfig({ clipSeconds: wert }), aktionen: { pickRecording() {}, setConfig: (p) => void log.push(`config(${JSON.stringify(p)})`) } });
+    return durchFeld((elemente(baum, (e) => e.type === GeklemmteZahl)[0]?.props ?? {}) as KlemmProps, log, eingabe);
+  };
+  gleich(
+    [runden(20, '25'), runden(1, '0'), runden(5, '25')],
+    [
+      { log: ['config({"rounds":20})'], text: '20' },
+      { log: ['config({"rounds":1})'], text: '1' },
+      { log: ['config({"rounds":20})'], text: '20' },
+    ],
+    'BA Zahlfelder am Klemmwert: Runden 25 bei 20 → das Feld zeigt 20 ohne Fehlertext (auch nach der Frist); 0 bei 1 → 1; 25 bei 5 → 20',
+  );
+  gleich(
+    [laenge(3, '1'), laenge(20, '1'), laenge(3, '45')],
+    [
+      { log: ['config({"clipSeconds":3})'], text: '3' },
+      { log: ['config({"clipSeconds":3})'], text: '3' },
+      { log: ['config({"clipSeconds":45})'], text: '45' },
+    ],
+    'BA Zahlfelder am Klemmwert: Clip-Länge 1 bei 3 → das Feld zeigt 3 ohne Fehlertext; 1 bei 20 → 3; 45 bei 3 → 45',
+  );
+  {
+    const getippt = zahlSchritt(zahlEntwurfAus(20), { art: 'tippen', text: '25' }, {}, 20);
+    const r = zahlSchritt(getippt.z, { art: 'uebernehmen' }, {}, 20);
+    const ohne = zahlSchritt(r.z, { art: 'frist' }, {}, 20).z;
+    gleich([ohne.text, ohne.fehler], ['25', UI_TEXTE.nochNichtUebernommen], 'BA Zahlfelder am Klemmwert: Gegenprobe ohne Hülle: Runden bliebe bei „25“ mit „Noch nicht übernommen.“');
+  }
+  const huelle = ohneKommentare(leseText('src/renderer/src/components/GeklemmteZahl.tsx'));
+  ok(
+    huelle.includes('const r = klemmUebernahme(value, v, klemme);') && huelle.includes('onChange(r.wert);') && huelle.includes('key={aufbau}') && huelle.includes('if (r.neuAufbauen) {'),
+    'BA Zahlfelder am Klemmwert: GeklemmteZahl übernimmt über klemmUebernahme und baut das Feld bei neuAufbauen über einen neuen key neu auf',
+  );
 }

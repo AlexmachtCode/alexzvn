@@ -1,4 +1,5 @@
-import { Button, Card, Field, NumberInput, StatusPill, type StatusState } from '@jm/ui';
+import { Button, Card, Field, StatusPill, type StatusState } from '@jm/ui';
+import { GeklemmteZahl } from '@/components/GeklemmteZahl';
 import type { BattleConfig, BattleState, ClipJob } from '@shared/types';
 import { BATTLE_TEXTE, clipQuelleText } from '@/lib/oberflaeche';
 
@@ -34,11 +35,13 @@ export function ClipPanel({ state, aktionen }: { state: BattleState; aktionen: C
           </span>
         </div>
         <Field label="Länge">
-          {/* Wie das alte Feld ohne Obergrenze: Der Klemmwert wirkt im Handler (unter 3 wird 3). */}
-          <NumberInput
+          {/* Wie das alte Feld ohne Obergrenze: Der Klemmwert wirkt beim Übernehmen (unter 3 wird 3). GeklemmteZahl zeigt danach den
+              echten Wert, auch wenn er schon bei 3 stand (C4). */}
+          <GeklemmteZahl
             value={cfg.clipSeconds}
             unit="Sekunden (letzte)"
-            onChange={(v) => aktionen.setConfig({ clipSeconds: Math.max(3, v) })}
+            klemme={(v) => Math.max(3, v)}
+            onChange={(v) => aktionen.setConfig({ clipSeconds: v })}
           />
         </Field>
       </div>

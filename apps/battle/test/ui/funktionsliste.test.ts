@@ -68,6 +68,7 @@ const GEAENDERT = [
   'App.tsx',
   'components/ClipPanel.tsx',
   'components/Competitors.tsx',
+  'components/GeklemmteZahl.tsx',
   'components/ConnectionsPanel.tsx',
   'components/RemotePanel.tsx',
   'components/Scoreboard.tsx',
@@ -556,7 +557,7 @@ ok(
     eintrag(stand(), 'voting')?.state === 'off' &&
       eintrag(stand(battleState({ remote: { running: true, urls: ['http://10.0.0.5:7783'] } })), 'voting')?.state === 'ok' &&
       eintrag(stand(mitConfig({ recordingPath: '' })), 'aufnahme-quelle')?.state === 'warn' &&
-      eintrag(stand(mitConfig({ recordingPath: 'C:/Rec/show.mp4' })), 'aufnahme-quelle')?.state === 'ok' &&
+      eintrag(stand(mitConfig({ recordingPath: 'C:/Rec/show.mp4' })), 'aufnahme-quelle')?.detail === 'eingestellt: show.mp4' &&
       kuenftig(31).includes('Aufnahme-Quelle'),
     'BA Funktionsliste Nr. 25/28/31: die Einträge voting und aufnahme-quelle bilden Server und Quelle ab',
   );
@@ -640,7 +641,7 @@ ok(
       kuenftig(41).startsWith('✓ Panel Zurücksetzen'),
     'BA Funktionsliste Nr. 32/38–41: Beschriftungen und Hinweise der Felder stehen wörtlich im Panel',
   );
-  const runden = /<NumberInput value=\{config\.rounds\}[^\n]*\/>/.exec(e)?.[0] ?? '';
+  const runden = /<GeklemmteZahl value=\{config\.rounds\}[^\n]*\/>/.exec(e)?.[0] ?? '';
   ok(
     runden !== '' &&
       !/\bmin=|\bmax=|ganzzahl/.test(runden) &&
@@ -651,7 +652,7 @@ ok(
     'BA Funktionsliste Nr. 38: Runden ohne Grenzen im Feld, Klemmwert 1 bis 20 im Handler (R21); das leere Feld wird abgewiesen (benannt)',
   );
   const clip = quelle('components/ClipPanel.tsx');
-  const laenge = /<NumberInput[\s\S]*?\/>/.exec(clip)?.[0] ?? '';
+  const laenge = /<GeklemmteZahl[\s\S]*?\/>/.exec(clip)?.[0] ?? '';
   ok(
     laenge !== '' &&
       !/\bmin=|\bmax=|ganzzahl/.test(laenge) &&

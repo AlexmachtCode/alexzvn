@@ -75,8 +75,10 @@ export const BATTLE_TEXTE = {
   vs: { an: '● VS on air', aus: '○ VS einblenden' },
   /** Hinweis unter dem VS-Knopf, wenn VS den Titler ansteuern soll (autoTitler an), der aber nicht verbunden ist (E16). */
   vsHinweis: 'Titler nicht verbunden: VS wird gesetzt, die Bauchbinde erscheint aber nicht.',
-  /** Statuseintrag „Aufnahme-Quelle“. */
-  aufnahme: { titel: 'Aufnahme-Quelle', fehlt: 'fehlt' },
+  /** Statuseintrag „Aufnahme-Quelle“: „eingestellt: ‹Name›“ sagt, dass nur die Einstellung bekannt ist, nicht ob die Datei da ist. */
+  aufnahme: { titel: 'Aufnahme-Quelle', fehlt: 'fehlt', eingestellt: (name: string): string => `eingestellt: ${name}` },
+  /** Beschriftung des Statuseintrags zum Titler: Es ist die Kopplung von Battle, nicht der Zustand des Titlers selbst. */
+  kopplungTitler: 'Kopplung Titler',
 } as const;
 
 /** Der Battle-Stand samt der gemessenen Meldungen; jede Meldung: undefined = noch keine Antwort, null = keine Brücke. */
@@ -238,35 +240,48 @@ export function titlerStatus(s: Pick<OberflaechenStand, 'state'>): StatusItem {
       : link?.source === 'mdns' && adresse
         ? `${adresse} · ${zeile.text}`
         : zeile.text;
-  return { id: 'titler', group: 'verbindung', label: roleLabel('titler'), state: zeile.state, detail, settingsSection: ABSCHNITT.gegenstellen };
+  // Sprungziel (C1): „aus“ ändert nur der Schalter „VS-Bauchbinde automatisch“ im Abschnitt Battle; sonst ändert ein Host in den
+  // Gegenstellen den Zustand.
+  return { id: 'titler', group: 'verbindung', label: BATTLE_TEXTE.kopplungTitler, state: zeile.state, detail, settingsSection: an ? ABSCHNITT.gegenstellen : ABSCHNITT.battle };
 }
 
 /**
  * Voting (state.remote, config.votingEnabled, state.votingOpen) im Gleichschritt mit der Sperre der Taste: Server aus = off
- * (die Runde spielt keine Rolle); Server an, aber `votingEnabled` aus = off „abgeschaltet“; läuft der Server ohne Adresse
- * (kein Netzwerk), warn, denn das Publikum kommt nicht heran; sonst ok mit „geschlossen“ bzw. „offen“ und der Runde. Auch
- * „geschlossen“ ist ok: Der Server läuft und das Voting ist bereit, die Runde ist nur noch nicht geöffnet.
+ * „Voting-Server ist aus“ (die Runde spielt keine Rolle); Server an, aber `votingEnabled` aus = off „abgeschaltet“; läuft der
+ * Server ohne Adresse (kein Netzwerk), warn, denn das Publikum kommt nicht heran; sonst ok mit „geschlossen“ bzw. „offen“ und der
+ * Runde. Auch „geschlossen“ ist ok: Der Server läuft und das Voting ist bereit, die Runde ist nur noch nicht geöffnet.
+ * Sprungziel (C1) nur bei „abgeschaltet“: Dort steht der Schalter „Publikums-Voting“ im Abschnitt Battle. Den Server schaltet die
+ * Karte im Live-Bereich, ein Sprung ins Panel zeigte dort nur den gleichnamigen, anderen Schalter.
  */
 function votingItem(s: Pick<OberflaechenStand, 'state'>): StatusItem {
   const T = BATTLE_TEXTE.voting;
   const { state } = s;
-  const kopf = { id: 'voting', group: 'tool', label: T.titel, settingsSection: ABSCHNITT.battle } as const;
-  if (!state.remote.running) return { ...kopf, state: 'off', detail: ABSCHNITT_TEXTE.aus };
-  if (!state.config.votingEnabled) return { ...kopf, state: 'off', detail: T.abgeschaltet };
+  const kopf = { id: 'voting', group: 'tool', label: T.titel } as const;
+  if (!state.remote.running) return { ...kopf, state: 'off', detail: T.serverAus };
+  if (!state.config.votingEnabled) return { ...kopf, state: 'off', detail: T.abgeschaltet, settingsSection: ABSCHNITT.battle };
   if (state.remote.urls.length === 0) return { ...kopf, state: 'warn', detail: T.keinNetzwerk };
   return { ...kopf, state: 'ok', detail: state.votingOpen ? T.offen(state.round) : T.geschlossen(state.round) };
 }
 
 /**
- * Aufnahme-Quelle (config.recordingPath): leer = warn „fehlt“ (der Clip-Knopf ist dann gesperrt); gesetzt = ok mit dem
- * Dateinamen allein. Der volle Pfad bleibt draußen: Er ist lang und die Leiste hat wenig Platz, der Name sagt, welche Aufnahme
- * gemeint ist (wie ClipPanel.tsx, das auch nur den Namen zeigt). Gemessen ist nur die Einstellung, nicht die Datei; darum steht
- * kein Wort wie „bereit“ dabei.
+ * Aufnahme-Quelle (config.recordingPath): leer = warn „fehlt“ (der Clip-Knopf ist dann gesperrt); gesetzt = off „eingestellt:
+ * ‹Dateiname›“. Gemessen ist nur die Einstellung, nicht ob die Datei da ist; darum nie ok (C5, Spec 7: „Gezeigt wird nur
+ * Gemessenes“). Der volle Pfad bleibt draußen: Er ist lang und die Leiste hat wenig Platz, der Name sagt, welche Aufnahme gemeint
+ * ist (wie ClipPanel.tsx, das auch nur den Namen zeigt). Reine Anzeige (C1): Die Quelle wählt der Knopf „Aufnahme …“ in der Karte
+ * Instant-Replay (E16), das Panel hat nur den Zielordner.
  */
 function aufnahmeItem(s: Pick<OberflaechenStand, 'state'>): StatusItem {
   const pfad = s.state.config.recordingPath;
-  const kopf = { id: 'aufnahme-quelle', group: 'tool', label: BATTLE_TEXTE.aufnahme.titel, settingsSection: ABSCHNITT.replay } as const;
-  return pfad === '' ? { ...kopf, state: 'warn', detail: BATTLE_TEXTE.aufnahme.fehlt } : { ...kopf, state: 'ok', detail: dateiName(pfad) };
+  const kopf = { id: 'aufnahme-quelle', group: 'tool', label: BATTLE_TEXTE.aufnahme.titel } as const;
+  return pfad === '' ? { ...kopf, state: 'warn', detail: BATTLE_TEXTE.aufnahme.fehlt } : { ...kopf, state: 'off', detail: BATTLE_TEXTE.aufnahme.eingestellt(dateiName(pfad)) };
+}
+
+/**
+ * Ein Eintrag als reine Anzeige (C1): ohne Sprungziel, weil der Abschnitt im Panel dieselbe Lage nur zeigt. Die Fernsteuerung von
+ * Battle hat einen festen Port und keinen Schalter; eingerichtet wird sie im Launcher.
+ */
+function nurAnzeige(i: StatusItem): StatusItem {
+  return { id: i.id, group: i.group, label: i.label, state: i.state, ...(i.detail !== undefined ? { detail: i.detail } : {}) };
 }
 
 /** Statusleiste (Anhang A), schon in Gruppenfolge: master-link, titler (verbindung), fernsteuerung, voting, aufnahme-quelle (tool). */
@@ -274,7 +289,7 @@ export function statusLeiste(s: OberflaechenStand): StatusItem[] {
   return [
     masterLinkStatusItem(s.masterLink),
     titlerStatus(s),
-    abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel }),
+    nurAnzeige(abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel })),
     votingItem(s),
     aufnahmeItem(s),
   ];

@@ -5,7 +5,8 @@
 // ist ein Sprungziel (PanelAnker, id wie das settingsSection des Statuseintrags). Kein window, kein Effekt, kein Store (G7, G8): Alles
 // Auslösende sind Rückrufe der View. Die Abschnitte sind Funktionen, keine Komponenten, damit der Baum ohne Browser prüfbar ist.
 import { PeersSection, RemoteControlSection } from '@jm/settings';
-import { Button, Field, NumberInput, PanelAnker, SettingsSection, Toggle, useFeld } from '@jm/ui';
+import { Button, Field, PanelAnker, SettingsSection, Toggle, useFeld } from '@jm/ui';
+import { GeklemmteZahl } from '@/components/GeklemmteZahl';
 import {
   ABSCHNITT,
   BATTLE_TEXTE,
@@ -61,8 +62,9 @@ function battleAbschnitt({ state }: OberflaechenStand, aktionen: EinstellungenAk
       <SettingsSection title={BATTLE_TEXTE.titel.battle}>
         <div className="space-y-3">
           <Field label="Runden" hint="Anzahl der Battle-Runden.">
-            {/* Wie das alte Feld: zwischen 1 und 20 geklemmt, die Zahl wirkt im Handler (0 → 1, 99 → 20). */}
-            <NumberInput value={config.rounds} onChange={(v) => aktionen.setConfig({ rounds: Math.max(1, Math.min(20, v)) })} />
+            {/* Wie das alte Feld: zwischen 1 und 20 geklemmt, die Zahl wirkt beim Übernehmen (0 → 1, 99 → 20). GeklemmteZahl zeigt
+                danach den echten Wert, auch wenn er schon an der Grenze stand (C4). */}
+            <GeklemmteZahl value={config.rounds} klemme={(v) => Math.max(1, Math.min(20, v))} onChange={(v) => aktionen.setConfig({ rounds: v })} />
           </Field>
           <Field label="Publikums-Voting" hint="Abstimmung per QR/Handy zulassen.">
             <Toggle checked={config.votingEnabled} onChange={(an) => aktionen.setConfig({ votingEnabled: an })} />

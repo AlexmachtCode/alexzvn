@@ -75,6 +75,10 @@ const clip = (status: ClipJob['status']): ClipJob => ({ id: status, status, outp
     const probleme = [
       vergleiche(i.state, soll),
       i.id === 'titler' && i.group === 'verbindung' ? null : `id/Gruppe ${i.id} ${i.group}`,
+      // Fund C2: die Kopplung von Battle, nicht der Zustand des Titlers selbst. Fund C1: „aus“ ändert nur der Schalter
+      // „VS-Bauchbinde automatisch“ im Abschnitt Battle; sonst ändert ihn ein Host in den Gegenstellen.
+      vergleiche(i.label, 'Kopplung Titler'),
+      vergleiche(i.settingsSection, f.an ? ABSCHNITT.gegenstellen : ABSCHNITT.battle),
       soll === 'ok' && adr && !(i.detail ?? '').includes(adr) ? `kein ${adr} in „${i.detail}“` : null,
       soll !== 'ok' && adr && i.state === 'ok' ? 'ok trotz fehlender Gegenstelle' : null,
       vergleiche(i.detail, TEXT[f.link][f.an ? 'an' : 'aus']),
@@ -98,8 +102,10 @@ const clip = (status: ClipJob['status']): ClipJob => ({ id: status, status, outp
     const i = eintrag(stand({ state: st }), 'voting');
     const t = hauptTasten(stand({ state: st })).voting;
     const sollTaste = !f.server ? BATTLE_TEXTE.voting.serverAus : !f.erlaubt ? BATTLE_TEXTE.voting.abgeschaltet : undefined;
+    // Fund C1: Server aus heißt „Voting-Server ist aus“ (den Server schaltet nur die Karte im Live-Bereich); ein Sprung ins Panel
+    // nur bei „abgeschaltet“, dort steht der Schalter „Publikums-Voting“.
     const sollEintrag = !f.server
-      ? `off ${settings.ABSCHNITT_TEXTE.aus}`
+      ? `off ${BATTLE_TEXTE.voting.serverAus}`
       : !f.erlaubt
         ? `off ${BATTLE_TEXTE.voting.abgeschaltet}`
         : !f.adressen
@@ -108,6 +114,8 @@ const clip = (status: ClipJob['status']): ClipJob => ({ id: status, status, outp
     return (
       vergleiche(sd(i), sollEintrag) ??
       vergleiche(i.group, 'tool') ??
+      vergleiche(i.settingsSection, f.server && !f.erlaubt ? ABSCHNITT.battle : undefined) ??
+      ('settingsSection' in i && i.settingsSection === undefined ? 'settingsSection als undefined statt abwesend' : null) ??
       vergleiche(t.state, sollTaste ? 'gesperrt' : 'bereit') ??
       vergleiche(t.disabledReason, sollTaste) ??
       vergleiche(t.label, f.offen ? BATTLE_TEXTE.voting.schliessen(2) : BATTLE_TEXTE.voting.oeffnen(2))
@@ -156,12 +164,15 @@ const clip = (status: ClipJob['status']): ClipJob => ({ id: status, status, outp
 // ── BA Statusleiste aufnahme-quelle ──
 {
   const faelle: Array<{ name: string; pfad: string; soll: string }> = [
+    // Fund C5: Gemessen ist nur die Einstellung, nicht ob die Datei da ist: „eingestellt: ‹Name›“ in off, nie ok.
     { name: 'leer', pfad: '', soll: `warn ${BATTLE_TEXTE.aufnahme.fehlt}` },
-    { name: 'Windows-Pfad', pfad: 'C:\\Aufnahmen\\Tag 1\\show.mkv', soll: 'ok show.mkv' },
-    { name: 'POSIX-Pfad', pfad: '/Users/x/show.mkv', soll: 'ok show.mkv' },
-    { name: 'nur Name', pfad: 'show.mkv', soll: 'ok show.mkv' },
+    { name: 'Windows-Pfad', pfad: 'C:\\Aufnahmen\\Tag 1\\show.mkv', soll: 'off eingestellt: show.mkv' },
+    { name: 'POSIX-Pfad', pfad: '/Users/x/show.mkv', soll: 'off eingestellt: show.mkv' },
+    { name: 'nur Name', pfad: 'show.mkv', soll: 'off eingestellt: show.mkv' },
   ];
-  pruefeFaelle('BA Statusleiste aufnahme-quelle: fehlt = warn, gesetzt = ok nur mit Dateiname', faelle, (f) => vergleiche(sd(eintrag(stand({ state: mitConfig({ recordingPath: f.pfad }) }), 'aufnahme-quelle')), f.soll));
+  pruefeFaelle('BA Statusleiste aufnahme-quelle: fehlt = warn, gesetzt = off „eingestellt: ‹Dateiname›“ (nur die Einstellung ist bekannt)', faelle, (f) => vergleiche(sd(eintrag(stand({ state: mitConfig({ recordingPath: f.pfad }) }), 'aufnahme-quelle')), f.soll));
+  // Fund C1: Die Quelle wählt der Knopf „Aufnahme …“ in der Karte Instant-Replay (E16), nicht das Panel: reine Anzeige.
+  ok(faelle.every((f) => !('settingsSection' in eintrag(stand({ state: mitConfig({ recordingPath: f.pfad }) }), 'aufnahme-quelle'))), 'BA Statusleiste aufnahme-quelle: reine Anzeige, kein Sprung ins Panel');
   gleich([eintrag(stand(), 'aufnahme-quelle').group], ['tool'], 'BA Statusleiste aufnahme-quelle: Gruppe tool');
 }
 
@@ -178,6 +189,8 @@ const clip = (status: ClipJob['status']): ClipJob => ({ id: status, status, outp
   const a = fernsteuerungAbschnitt(stand({ fernsteuerung: { laeuft: false, port: 8734, clients: 0, fehler: BELEGT } }));
   ok(a.portInUse === true && a.error === undefined && a.port === 8734, 'BA Fernsteuerung: Port belegt nur als portInUse, fester Port 8734');
   gleich(sd(eintrag(stand(), 'fernsteuerung')), 'off unbekannt', 'BA Fernsteuerung: ohne Meldung off „unbekannt“');
+  // Fund C1: Port fest, kein Schalter; der Abschnitt „Fernsteuerung“ zeigt dieselbe Lage, ändert sie aber nicht → reine Anzeige.
+  ok(faelle.every((f) => !('settingsSection' in eintrag(stand({ fernsteuerung: f.m }), 'fernsteuerung'))), 'BA Fernsteuerung: der Eintrag ist reine Anzeige (kein Sprung ins Panel, dort lässt sich nichts ändern)');
 }
 
 // ── BA Statusleiste vor erster Antwort (Spec 7.2): nichts gemessen → nie ok ──

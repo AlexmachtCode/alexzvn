@@ -89,7 +89,7 @@ const seite = (state = battleState(), anfangOffen = false): string => render(<Ba
     'BA Rahmen: die Leiste zeigt die Einträge in der Reihenfolge von ordneStatus (eine Wahrheit mit lib/oberflaeche.ts)',
   );
   const verbunden = statusEintraege(seite(battleState({ links: [toolLink()] }))).filter((e) => e[0] === 'titler');
-  gleich(verbunden, [['titler', 'ok', 'JM Titler: 10.0.0.7:8735']], 'BA Rahmen: ein verbundener Titler steht mit host:port als ok in der Leiste (E16)');
+  gleich(verbunden, [['titler', 'ok', 'Kopplung Titler: 10.0.0.7:8735']], 'BA Rahmen: ein verbundener Titler steht als „Kopplung Titler“ mit host:port als ok in der Leiste (E16, C2)');
   const aus = statusEintraege(seite(mitConfig({ autoTitler: false }))).filter((e) => e[0] === 'titler');
   gleich(aus.map((e) => e[1]), ['off'], 'BA Rahmen: bei „VS automatisch“ aus ist der Titler-Eintrag off, nie warn');
 }
