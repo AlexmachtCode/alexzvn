@@ -427,7 +427,11 @@ ok(
 {
   ok(
     !wurzel.includes('localStorage') && !panel.includes('localStorage') && !live.includes('localStorage') && !akt.includes('localStorage'),
-    'SD Funktionsliste Nr. 107/108: die Oberfläche merkt nichts selbst, alle Werte liegen weiter in der Konfigurationsdatei des Main',
+    'SD Funktionsliste Nr. 107/108 (App-Quelltext): die Oberfläche der App merkt nichts selbst, alle Werte liegen weiter in der Konfigurationsdatei des Main',
+  );
+  ok(
+    ['jm-theme', 'E5'].every((w) => kuenftig(108).includes(w)) && kuenftig(108).includes('`packages/ui/src/lib/theme.ts`') && quelle('packages/ui/src/lib/theme.ts').includes("'jm-theme'"),
+    'SD Funktionsliste Nr. 108: der Haken nennt die Ausnahme Hell/Dunkel im gemeinsamen Kopf (jm-theme in localStorage, E5)',
   );
   const typen = quelle('shared/types.ts');
   ok(
