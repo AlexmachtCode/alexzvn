@@ -18,6 +18,7 @@ import { SuiteControlServer } from '@jm/suite-control-protocol/server';
 import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 import type { RecorderRemoteCommand } from '@shared/types';
+import type { FernsteuerungEreignis } from '@shared/fernsteuerung';
 import { getState, onStateChange } from './recorder';
 
 /** Eigener TCP-Steuerport. */
@@ -70,6 +71,11 @@ function pushIfChanged(): void {
 
 export function startControlServer(
   getWin: () => BrowserWindow | null,
+  /**
+   * UX Welle 2a (Spec 3.9): Statusmeldung des Servers (läuft, Port, Clients) mit wirksamem Modus, nur lesend.
+   * Der Main macht daraus die Fernsteuerungs-Meldung für die Statusleiste.
+   */
+  onMeldung?: (e: FernsteuerungEreignis) => void,
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   getWindow = getWin;
@@ -79,6 +85,9 @@ export function startControlServer(
     appId: 'jm-recorder',
     controlEndpoint: true,
     getState: toSuiteState,
+    onStatus: (st) => {
+      onMeldung?.({ art: 'status', ...st, modus: server?.modus() });
+    },
     onCommand: (cmd) => {
       if (cmd.ns !== 'recorder') return;
       const rc = toRemoteCommand(cmd);
