@@ -1239,8 +1239,10 @@ if (!gotLock) {
       try {
         const r = await startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand, onMeldung: meldeFernsteuerung });
         meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });
+        if (!r.ok) getLog().warn(`Rundown-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
       } catch (err) {
         meldeFernsteuerung({ art: 'wurf', text: (err as Error).message });
+        getLog().warn(`Rundown-Steuerserver fehlgeschlagen: ${(err as Error).message}`);
       }
     })();
   });

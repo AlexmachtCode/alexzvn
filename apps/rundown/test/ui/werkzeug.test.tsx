@@ -1,4 +1,4 @@
-// UX Welle 1, Timer b · Werkzeug der Oberflächentests (Spec 11): tsx mit tsconfig.test.json rendert JSX aus @jm/ui und
+// UX Welle 1, Rundown b · Werkzeug der Oberflächentests (Spec 11): tsx mit tsconfig.test.json rendert JSX aus @jm/ui und
 // @jm/settings, löst die Aliase @/ und @shared/ auf und zählt mit EINEM Zähler (@jm/ui/testhilfe). Dazu statische Wächter
 // der Verdrahtung: Skripte, Abhängigkeit samt Lock-Zeile, @source für @jm/settings.
 // Arbeitsverzeichnis ist apps/rundown (npm run selftest -w @jm/rundown); leseText liest relativ dazu.

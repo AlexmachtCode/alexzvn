@@ -184,5 +184,10 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
       main.includes("meldeFernsteuerung({ art: 'wurf', text: "),
     'RD Wächter STEUER_PORT 8731: Statuswechsel, Start-Ergebnis und Wurf werden gemeldet',
   );
+  ok(
+    main.includes("if (!r.ok) getLog().warn(`Rundown-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);") &&
+      main.includes("getLog().warn(`Rundown-Steuerserver fehlgeschlagen: ${(err as Error).message}`);"),
+    'RD Wächter STEUER_PORT 8731: ein Startfehler und ein Wurf stehen weiter im Main-Log (nicht nur in der Statusleiste)',
+  );
   ok(cs.includes('return server.start(CONTROL_PORT);'), 'RD Wächter STEUER_PORT 8731: der Steuerserver startet unverändert auf CONTROL_PORT');
 }
