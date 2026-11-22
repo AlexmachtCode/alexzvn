@@ -1832,7 +1832,7 @@
         "date": "2026-11-21",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Battle“, „Runde n/m“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „VS“, „Voting öffnen“, „Nächste Runde ▶“ und „⧉ Clip“. Einstellungen, Verbindungen und Zurücksetzen liegen jetzt im Panel hinter ⚙; die Fenster „Einstellungen“ und „Verbindungen“ entfallen. Die Karte „Instant-Replay“ bleibt rechts im Live-Bereich.",
-          "Neue Statusleiste mit fünf Einträgen: Master, Titler, Fernsteuerung, Publikums-Voting und Aufnahme-Quelle. Sie zeigt nur, was Battle wirklich weiß.",
+          "Neue Statusleiste mit fünf Einträgen: Master, Kopplung Titler, Fernsteuerung, Publikums-Voting und Aufnahme-Quelle. Sie zeigt nur, was Battle wirklich weiß.",
           "Gesperrte Haupttasten nennen ihren Grund, zum Beispiel „Voting-Server ist aus“ oder „keine Aufnahme-Quelle“. Ist der Titler nicht verbunden, sagt ein Hinweis unter dem VS-Knopf, dass die Bauchbinde nicht erscheint. Die Rückfrage beim Zurücksetzen nennt jetzt auch, dass ein laufendes VS ausgeht.",
           "Länge und Runden übernehmen den Wert bei Enter oder beim Verlassen des Feldes. Bedienung, Fernsteuerung und das VS-Bild bleiben gleich, es gibt keine neuen Tastenkürzel."
         ]

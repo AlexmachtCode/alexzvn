@@ -26,6 +26,8 @@ Aufbau; ein Punkt ohne Haken blockiert die Welle.
   `apps/qa/src/`; `test/…` und `resources/…` relativ zu `apps/qa/`; `ui/…` = `packages/ui/src/components/…`; `packages/…`
   und `docs/…` relativ zur Repo-Wurzel. Zeilennummern gelten für `210e1d9dcb`. Dateien, die es nur zur Laufzeit gibt (unter
   `userData`), stehen mit ihrem Laufzeitnamen, nicht als Repo-Pfad; sie sind von der Pfadprüfung ausgenommen.
+- **Entscheidungen:** Verweise wie „R13“ oder „R18“ in „künftig wo“ nennen Entscheidungen aus der Umsetzung (R1 bis R31);
+  sie stehen in `docs/ux/welle1-entscheidungen.md`, die Entscheidungen E1 bis E18 im Plan.
 - **Zustands-Kürzel** (Spalte „Zustand (sichtbar/aktiv)“): **imm.** = immer sichtbar, sobald `state` geladen ist (davor zeigt
   die Seite nur „Lädt …“) · **A** = ein Sprecher ist am Wort (`activeId` gesetzt) · **kein A** = niemand am Wort · **W** = die
   Zeile ist ein wartender Eintrag · **F** = der Eintrag wartet auf Freigabe (`source === 'remote'` und nicht freigegeben) ·

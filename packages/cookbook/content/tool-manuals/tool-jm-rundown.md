@@ -65,7 +65,7 @@ summary: "Zeilenbasierter Ablaufplan: ein GO startet pro Segment mehrere Tools g
 
 | Risiko | Gegenmaßnahme |
 | --- | --- |
-| Tool wird nicht gefunden | Statusleiste: Eintrag des Tools fehlt oder steht auf „nicht gefunden“. Gleiches Subnetz? Tool gestartet? mDNS/Firewall frei? Der ctl=1-Endpunkt jm-<tool>-ctl muss sichtbar sein |
+| Tool wird nicht gefunden | Statusleiste: Eintrag des Tools fehlt oder ist nicht verbunden; im Panel ⚙ › Gegenstellen steht es dann auf „nicht gefunden“. Gleiches Subnetz? Tool gestartet? mDNS/Firewall frei? Der ctl=1-Endpunkt jm-<tool>-ctl muss sichtbar sein |
 | GO feuert nicht alle Aktionen | Zuordnung je Zeile kontrollieren; Statusleiste: Eintrag des betroffenen Tools prüfen |
 | Companion-GO ohne Wirkung | Statusleiste „Fernsteuerung“ ansehen; Companion zeigt auf Port 8731 (jm-rundown-ctl)? Gemeinsames LAN? |
 | Eine einzelne Aktion läuft ins Leere | Ziel-Tool neu gestartet → Port/Endpunkt erneut zuordnen (Panel ⚙ › Gegenstellen) |

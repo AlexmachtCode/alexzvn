@@ -39,7 +39,7 @@ summary: "BattleRap-Toolkit: zwei Kontrahenten, Runden mit Jury-Entscheid und Pu
 
 ### Einrichtung
 - Kontrahenten (Name und Crew in den Ecken A und B) und Runden (Panel ⚙ › Battle) anlegen
-- VS-Bauchbinde über JM Titler prüfen (Statusleiste „Titler“; die Haupttaste „VS“ bzw. BATTLE VS on/off blendet sie ein/aus; ist der Titler nicht verbunden, sagt ein Hinweis unter der Taste, dass die Bauchbinde nicht erscheint)
+- VS-Bauchbinde über JM Titler prüfen (Statusleiste „Kopplung Titler“; die Haupttaste „VS“ bzw. BATTLE VS on/off blendet sie ein/aus; ist der Titler nicht verbunden, sagt ein Hinweis unter der Taste, dass die Bauchbinde nicht erscheint)
 - Voting konfigurieren (Jury-Entscheid und/oder Publikum per QR, Port 7783): Schalter „Publikums-Voting“ im Panel ⚙ › Battle, Server mit „◉ An“ in der Karte „Publikums-Voting“ rechts im Live-Bereich; die Statusleiste zeigt „Publikums-Voting“
 - Aufnahmequelle für den Instant-Replay verbinden (Karte „Instant-Replay“ rechts im Live-Bereich, Knopf „Aufnahme …“; Zielordner im Panel ⚙ › Instant-Replay; Statusleiste „Aufnahme-Quelle“)
 - Optional: Companion auf Port 8734 verbinden (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung)
@@ -64,7 +64,7 @@ summary: "BattleRap-Toolkit: zwei Kontrahenten, Runden mit Jury-Entscheid und Pu
 | Risiko | Gegenmaßnahme |
 | --- | --- |
 | QR-Voting kommt nicht an | Server in der Karte „Publikums-Voting“ auf „◉ An“, Schalter „Publikums-Voting“ im Panel ⚙ › Battle an? Gäste-WLAN erreicht Port 7783 am Host? http://<host-ip>:7783/ testen |
-| VS-Bauchbinde fehlt | Statusleiste „Titler“ lesen; Schalter „VS-Bauchbinde automatisch“ im Panel ⚙ › Battle an? JM Titler im selben LAN gestartet? BATTLE VS on gesendet? |
+| VS-Bauchbinde fehlt | Statusleiste „Kopplung Titler“ lesen; Schalter „VS-Bauchbinde automatisch“ im Panel ⚙ › Battle an? JM Titler im selben LAN gestartet? BATTLE VS on gesendet? |
 | Instant-Replay ist leer | Läuft die Aufnahme (Recorder) durchgehend? Quelle/Verbindung prüfen (Statusleiste „Aufnahme-Quelle“) |
 | Companion steuert nicht | Statusleiste „Fernsteuerung“ ansehen; Port 8734 (jm-battle-ctl) erreichbar? Gemeinsames LAN? |
 

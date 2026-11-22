@@ -33,6 +33,8 @@ im neuen Aufbau; ein Punkt ohne Haken blockiert die Welle.
   `packages/` sind seit dann unverändert, geprüft per `git diff`). Dateien, die es nur zur Laufzeit gibt (unter `userData`
   oder `appData`: `battle.config.json`, `control.json`), stehen mit ihrem Laufzeitnamen, nicht als Repo-Pfad; sie sind von der
   Pfadprüfung ausgenommen.
+- **Entscheidungen:** Verweise wie „R13“ oder „R18“ in „künftig wo“ nennen Entscheidungen aus der Umsetzung (R1 bis R31);
+  sie stehen in `docs/ux/welle1-entscheidungen.md`, die Entscheidungen E1 bis E18 im Plan.
 - **Zustands-Kürzel** (Spalte „Zustand (sichtbar/aktiv)“): **imm.** = immer sichtbar, sobald `state` geladen ist (davor zeigt
   die Seite nur „Lädt …“) · **live** = VS on air (`state.live`) · **V** = Voting-Server läuft (`state.remote.running`) ·
   **Vo** = Voting der Runde offen (`state.votingOpen`) · **E** = alle Runden von der Jury entschieden (`decided`) · **Q** =

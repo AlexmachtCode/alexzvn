@@ -2,7 +2,7 @@
 
 Zweck: Alle neuen und geänderten sichtbaren Texte der fünf umgebauten Werkzeuge (Switcher, Timer, Rundown, Q&A, Battle) zur Freigabe durch den Owner. Texte der gemeinsamen Bausteine aller Tools (Oberfläche und Einstellungen), die seit Welle 0 freigegeben sind, stehen nicht hier; nur der eine neue gemeinsame Text steht unter „Gemeinsam“.
 
-Stand: Branch `feat/ux-welle1`, Code-Stand `e5d365082f`. Die Versionen sind Switcher 0.12.0, Timer 0.15.0, Rundown 0.9.0, Q&A 0.7.0 und Battle 0.5.0; das Datum der Changelog-Einträge (21.11.2026) ist ein Platzhalter und wird am Tag der Veröffentlichung gesetzt.
+Stand: Branch `feat/ux-welle1`, Code-Stand `c663aaa8d8` (nach der Nachbesserung der Gesamtprüfung). Die Versionen sind Switcher 0.12.0, Timer 0.15.0, Rundown 0.9.0, Q&A 0.7.0 und Battle 0.5.0; das Datum der Changelog-Einträge (21.11.2026) ist ein Platzhalter und wird am Tag der Veröffentlichung gesetzt.
 
 Lesehilfe: ‹…› steht für den Teil, der sich zur Laufzeit ändert (eine Zahl oder ein Name). Beispiel: „Runde ‹…›/‹…›“ erscheint als „Runde 2/3“. Die Nummer (z. B. SW12) nennst Du bitte bei jeder Änderung, die Du wünschst. Die Spalte „Ort“ sagt, wo der Text steht: Statusleiste (unten), Haupttaste (große Taste im Live-Bereich), Panel (Einstellungen hinter ⚙), Hinweis, Kopf (Kopfzeile).
 
@@ -37,10 +37,10 @@ Aufbau: je Werkzeug eine Tabelle, dann „Gemeinsam“, „Ortshinweise“ (alte
 | SW23 | Statusleiste (Titel) | „Aufnahme“ |
 | SW24 | Statusleiste (Titel) | „Stream“ |
 | SW25 | Panel (Einleitung) | „Stream-Ziel und Qualität. Aufnahme & Stream startest du in der Mischer-Ansicht.“ |
-| SW26 | Panel (Hinweis) | „So erscheint die Ausgabe im Netz (z. B. als Eingang in TriCaster, vMix, OBS oder einem NDI-Monitor). In der Mischer-Leiste wählst du, ob das Program-Bild oder das Multiview gesendet wird, und schaltest die Ausgabe live an/aus.“ |
+| SW26 | Panel (Hinweis; der Ort stimmt nicht mehr, die Wahl Program/Multiview liegt unter „Programm-Format“, der Schalter in der Ausgabeleiste; Owner entscheidet, siehe Ortshinweise) | „So erscheint die Ausgabe im Netz (z. B. als Eingang in TriCaster, vMix, OBS oder einem NDI-Monitor). In der Mischer-Leiste wählst du, ob das Program-Bild oder das Multiview gesendet wird, und schaltest die Ausgabe live an/aus.“ |
 | SW27 | Panel (Hinweis) | „Zeigt das On-Air-Programmbild formatfüllend auf dem gewählten Monitor — per HDMI direkt an Beamer, Kontrollmonitor oder Encoder. Läuft unabhängig von NDI und der Aufnahme; wähle für die Regie am besten einen anderen Monitor als den mit der Bedienoberfläche.“ |
 | SW28 | Panel (Hinweis) | „Mikro / Line-In / Capture-Ton. Wird in Aufnahme + Stream gemischt; Pegel & Mute in der Mischer-Leiste. Audio folgt (noch) nicht der Bildquelle — feste Programm-Audioquelle.“ |
-| SW29 | Panel (Hinweis) | „Zeilenprotokoll (PREVIEW/PROGRAM/CUT/AUTO/RECORD/STREAM) für ein Stream-Deck via Bitfocus Companion — Modul: packages/companion-jm-switcher. Im Companion-Modul Host (IP dieses Rechners) + Port eintragen.“ |
+| SW29 | Panel (Hinweis; der Modulname stimmt nicht mit dem gemeinsamen Companion-Hinweis „jm-switcher“ (SW7) überein; Owner entscheidet, siehe Ortshinweise) | „Zeilenprotokoll (PREVIEW/PROGRAM/CUT/AUTO/RECORD/STREAM) für ein Stream-Deck via Bitfocus Companion — Modul: packages/companion-jm-switcher. Im Companion-Modul Host (IP dieses Rechners) + Port eintragen.“ |
 | SW30 | Panel (Knopf) | „Monitore aktualisieren“ |
 | SW31 | Panel (Abschnittstitel) | „Streaming“ |
 | SW32 | Panel (Abschnittstitel) | „Aufnahme“ |
@@ -160,6 +160,9 @@ Aufbau: je Werkzeug eine Tabelle, dann „Gemeinsam“, „Ortshinweise“ (alte
 | QA14 | Panel (Abschnittstitel) | „Moderation“ |
 | QA15 | Panel (Hinweis) | „Standardmäßig aktiv: Redezeit (Timer) und Bauchbinde (Titler) werden beim Ans-Wort-Holen automatisch gesteuert — hier pro Werkzeug mit einem Klick umschaltbar.“ |
 | QA16 | Live-Bereich (Leertext) | „Niemand am Wort. „Nächste“ ruft die erste Wortmeldung auf.“ |
+| QA17 | Statusleiste (Kopplung, Beschriftung) | „Kopplung Timer“ |
+| QA18 | Statusleiste (Kopplung, Beschriftung) | „Kopplung Titler“ |
+| QA19 | Statusleiste (Extern, solange das Relay noch nicht geantwortet hat; wörtlich der Text der Karte Extern) | „Verbinde …“ |
 
 ## Battle
 
@@ -171,7 +174,7 @@ Aufbau: je Werkzeug eine Tabelle, dann „Gemeinsam“, „Ortshinweise“ (alte
 | BA4 | Statusleiste / Karte (Voting) | „Publikums-Voting“ |
 | BA5 | Haupttaste | „Voting öffnen (Runde ‹…›)“ |
 | BA6 | Haupttaste | „Voting offen (Runde ‹…›) — schließen“ |
-| BA7 | Haupttaste (Sperrgrund) | „Voting-Server ist aus“ |
+| BA7 | Haupttaste (Sperrgrund) und Statusleiste (Publikums-Voting, Server aus) | „Voting-Server ist aus“ |
 | BA8 | Haupttaste (Sperrgrund) | „Publikums-Voting ist abgeschaltet“ |
 | BA9 | Statusleiste (Voting) | „geschlossen (Runde ‹…›)“ |
 | BA10 | Statusleiste (Voting) | „offen (Runde ‹…›)“ |
@@ -194,6 +197,8 @@ Aufbau: je Werkzeug eine Tabelle, dann „Gemeinsam“, „Ortshinweise“ (alte
 | BA27 | Hinweis (unter VS) | „Titler nicht verbunden: VS wird gesetzt, die Bauchbinde erscheint aber nicht.“ |
 | BA28 | Statusleiste (Aufnahme-Quelle) | „Aufnahme-Quelle“ |
 | BA29 | Statusleiste (Aufnahme-Quelle) | „fehlt“ |
+| BA30 | Statusleiste (Kopplung zum Titler, Beschriftung) | „Kopplung Titler“ |
+| BA31 | Statusleiste (Aufnahme-Quelle gesetzt; bekannt ist nur die Einstellung, nicht ob die Datei da ist) | „eingestellt: ‹…›“ |
 
 ## Gemeinsam
 
@@ -210,7 +215,7 @@ Diese Texte sind wörtlich geblieben (schon freigegeben), nennen aber einen Ort,
 - Switcher, Panel Einleitung (SW25): „Aufnahme & Stream startest du in der Mischer-Ansicht.“ Es gibt keine Ansicht „Mischer“ mehr als Reiter; die Tasten „Aufnehmen“ und „Stream starten“ sind jetzt die Haupttasten unter der Kopfzeile.
 - Switcher, Panel NDI (SW26): „In der Mischer-Leiste wählst du, ob das Program-Bild oder das Multiview gesendet wird, und schaltest die Ausgabe live an/aus.“ Die Wahl der NDI-Quelle (Program oder Multiview) liegt jetzt im Panel unter „Programm-Format“; das An- und Ausschalten der Ausgabe liegt in der Ausgabeleiste des Mischers.
 - Switcher, Panel Audio (SW28): „Pegel & Mute in der Mischer-Leiste.“ Pegel und Mute liegen in der Ausgabeleiste des Mischers.
-- Switcher, Panel Fernsteuerung (SW29): Der alte Satz zum Zeilenprotokoll und zum Companion-Modul steht jetzt zusätzlich zum Companion-Hinweis des gemeinsamen Abschnitts; der Companion-Hinweis kommt dadurch doppelt vor.
+- Switcher, Panel Fernsteuerung (SW29): Der alte Satz zum Zeilenprotokoll und zum Companion-Modul steht jetzt zusätzlich zum Companion-Hinweis des gemeinsamen Abschnitts; der Companion-Hinweis kommt dadurch doppelt vor, und die beiden nennen das Modul verschieden („packages/companion-jm-switcher“ bzw. „jm-switcher“, SW7).
 - Q&A, Saal-Einreichung (Karte im Live-Bereich): „Aus. Anschalten, damit der Saal Fragen per Handy (QR) einreichen kann.“ Das „Anschalten“ ist jetzt die Haupttaste „Saal-Einreichung ○ Aus“ im Live-Bereich, nicht mehr ein Knopf in der Karte.
 - Q&A, Karte Extern im Live-Bereich: „Für Fragen per Livestream oder Presse: im Launcher anmelden und hier ein Event erzeugen.“ Das Event entsteht im Panel-Abschnitt „Extern“ hinter ⚙, nicht in dieser Karte; „hier“ meint also das Panel (früher das Einstellungs-Fenster).
 - Battle: Die Einstellungshinweise (Runden, Voting, VS-Bauchbinde) stehen wörtlich weiter da, jetzt im Panel statt im Fenster „Einstellungen“.
@@ -238,7 +243,7 @@ Entwurf der Release-Notizen (`packages/suite-manifest/changelog.json`), wörtlic
 | CL-QA3 | Q&A 0.7.0 | „Die Saal-Einreichung ist eine Haupttaste mit Zustand („Saal-Einreichung ◉ An“ bzw. „○ Aus“). Die Zugangstexte für Fragen per Handy und per Livestream bleiben wie bisher.“ |
 | CL-QA4 | Q&A 0.7.0 | „Zahlenfelder wie die Redezeit übernehmen den Wert bei Enter oder beim Verlassen des Feldes; Werte unter 5 setzt Q&A weiter auf 5. Bedienung und Fernsteuerung bleiben gleich, es gibt keine neuen Tastenkürzel.“ |
 | CL-BA1 | Battle 0.5.0 | „Neue Oberfläche: Oben die Kopfzeile mit „JM Battle“, „Runde n/m“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „VS“, „Voting öffnen“, „Nächste Runde ▶“ und „⧉ Clip“. Einstellungen, Verbindungen und Zurücksetzen liegen jetzt im Panel hinter ⚙; die Fenster „Einstellungen“ und „Verbindungen“ entfallen. Die Karte „Instant-Replay“ bleibt rechts im Live-Bereich.“ |
-| CL-BA2 | Battle 0.5.0 | „Neue Statusleiste mit fünf Einträgen: Master, Titler, Fernsteuerung, Publikums-Voting und Aufnahme-Quelle. Sie zeigt nur, was Battle wirklich weiß.“ |
+| CL-BA2 | Battle 0.5.0 | „Neue Statusleiste mit fünf Einträgen: Master, Kopplung Titler, Fernsteuerung, Publikums-Voting und Aufnahme-Quelle. Sie zeigt nur, was Battle wirklich weiß.“ |
 | CL-BA3 | Battle 0.5.0 | „Gesperrte Haupttasten nennen ihren Grund, zum Beispiel „Voting-Server ist aus“ oder „keine Aufnahme-Quelle“. Ist der Titler nicht verbunden, sagt ein Hinweis unter dem VS-Knopf, dass die Bauchbinde nicht erscheint. Die Rückfrage beim Zurücksetzen nennt jetzt auch, dass ein laufendes VS ausgeht.“ |
 | CL-BA4 | Battle 0.5.0 | „Länge und Runden übernehmen den Wert bei Enter oder beim Verlassen des Feldes. Bedienung, Fernsteuerung und das VS-Bild bleiben gleich, es gibt keine neuen Tastenkürzel.“ |
 
@@ -270,17 +275,19 @@ Sichtbare Texte, die mit dem Umbau wegfallen oder anders gesagt werden. Spalte �
 | EN20 | Rundown, Q&A, Battle | Tooltip „zurück auf Auto/mDNS“ am Knopf „Auto“ | keiner; der Knopf trägt die Bezeichnung „Auto: ‹Tool›“ für Screenreader |
 | EN21 | Rundown | Die Rückfall-Option mit dem rohen Verb im Auswahlfeld einer Aktion; die erste Option bei leerem Wert | „nicht verfügbar: ‹Verb›“ (gesperrte Option) bzw. „– bitte wählen –“ (gemeinsame Texte) |
 | EN22 | Q&A | Die Fenster „Einstellungen“ und „Tool-Verbindungen“ (beide als Overlay über dem Inhalt) | Abschnitte „Redezeit und Kopplung“, „Extern“, „Moderation“ und „Gegenstellen“ im Panel hinter ⚙ |
-| EN23 | Battle | „VS-Bauchbinde mit den Namen läuft über den Titler.“ (Zeile unter dem VS-Knopf) | Statuseintrag „Titler“ und Hinweis „Titler nicht verbunden: VS wird gesetzt, die Bauchbinde erscheint aber nicht.“; im Panel der Satz „Battle blendet die VS-Bauchbinde über den JM Titler ein.“ |
+| EN23 | Battle | „VS-Bauchbinde mit den Namen läuft über den Titler.“ (Zeile in der Titler-Karte der rechten Spalte) | Statuseintrag „Kopplung Titler“ und Hinweis „Titler nicht verbunden: VS wird gesetzt, die Bauchbinde erscheint aber nicht.“; im Panel der Satz „Battle blendet die VS-Bauchbinde über den JM Titler ein.“ |
 | EN24 | Battle | Kopf-Knöpfe „Verbindungen“, „Einstellungen“ und „VS“ (Titel „VS-Bauchbinde (Titler) on air“); die Fenster „Tool-Verbindungen“ und „Einstellungen“ | ⚙, Haupttaste „○ VS einblenden“ bzw. „● VS on air“ und das Panel |
 | EN25 | Battle | Im Scoreboard nur das Zeichen „▶“ als Taste | „Nächste Runde ▶“ |
 | EN26 | Q&A | Kopf-Knöpfe „Verbindungen“ und „Einstellungen“ | ⚙ in der Kopfzeile öffnet das Panel; ein Klick auf einen Eintrag der Statusleiste springt zum passenden Abschnitt |
-| EN27 | Q&A | Karte „Kopplung“ rechts im Live-Bereich: Überschrift „Kopplung“, je Tool (Timer, Titler) die Zustände „aus“, „aktiviert · nicht gefunden“ und „gekoppelt · host:port“, die Knöpfe „An“ und „Aus“ mit den Tooltips „Auto-Kopplung ausschalten“ und „Auto-Kopplung einschalten“ | Statusleisten-Einträge „Timer“ und „Titler“ (Detail „aus“, „nicht gefunden“, „host:port“ bei Verbindung bzw. „host:port · gefunden · nicht verbunden“); die Schalter „Redezeit-Timer automatisch“ und „Bauchbinde automatisch“ im Panel-Abschnitt „Redezeit und Kopplung“; der Erklärsatz „Standardmäßig aktiv: …“ steht dort als Abschnitts-Hinweis (QA15) |
+| EN27 | Q&A | Karte „Kopplung“ rechts im Live-Bereich: Überschrift „Kopplung“, je Tool (Timer, Titler) die Zustände „aus“, „aktiviert · nicht gefunden“ und „gekoppelt · host:port“, die Knöpfe „An“ und „Aus“ mit den Tooltips „Auto-Kopplung ausschalten“ und „Auto-Kopplung einschalten“ | Statusleisten-Einträge „Kopplung Timer“ und „Kopplung Titler“ (Detail „aus“, „nicht gefunden“, „host:port“ bei Verbindung bzw. „host:port · gefunden · nicht verbunden“); die Schalter „Redezeit-Timer automatisch“ und „Bauchbinde automatisch“ im Panel-Abschnitt „Redezeit und Kopplung“; der Erklärsatz „Standardmäßig aktiv: …“ steht dort als Abschnitts-Hinweis (QA15) |
+| EN28 | Q&A | „Externe Einreichung (Stream & Presse)“ (Überschrift des Blocks im Fenster „Einstellungen“) | Titel „Extern“ des Panel-Abschnitts (wie der Statuseintrag, QA9); die Karte im Live-Bereich heißt weiter „Extern (Stream & Presse)“ |
+| EN29 | Rundown | Nur Anführungszeichen getauscht, Text sonst gleich: die Rückfrage beim Regieplan-Import („‹n› Regieplan-Punkte aus … gefunden.“); hinter dem Dateinamen stand ein ASCII-Anführungszeichen (`„${file.name}"`) | gleicher Text mit „ “ (`„${file.name}“`, R9) |
 
 ## Geänderte Bedienung
 
 Keine Funktion fällt weg, aber an diesen Stellen verhält sich die Bedienung anders als bisher:
 
-- Zahlenfelder (z. B. Dauer, Redezeit, Länge, Runden, Bitraten) übernehmen den Wert bei Enter oder beim Verlassen des Feldes, nicht mehr bei jedem Tastendruck.
+- Zahlenfelder (z. B. Grace · Sekunden und Warning-Schwelle im Timer, Redezeit, Länge, Runden, Bitraten) übernehmen den Wert bei Enter oder beim Verlassen des Feldes, nicht mehr bei jedem Tastendruck. Das Feld „Dauer · HH:MM:SS“ im Timer übernahm schon vorher beim Verlassen; das Feld „Dauer“ neben Auto im Switcher bleibt wie bisher.
 - Die Pfeiltasten ↑ und ↓ ändern den Wert in Zahlenfeldern nicht mehr. Das gilt schon im abgenommenen Titler und kommt aus dem gemeinsamen Zahlenfeld; ein Wiederherstellen ist für Welle 1 nicht vorgesehen.
 - Q&A, Redezeit: Eingaben unter 5 setzt Q&A beim Übernehmen weiter auf 5; es gibt weiter keine Obergrenze. Ein leeres Feld wird abgewiesen und der alte Wert bleibt, früher speicherte es 5.
 - Das Host-Feld einer Gegenstelle (Rundown, Q&A, Battle) ist nicht mehr mit der gefundenen Adresse vorbelegt; die gefundene Adresse steht als „gefunden: host:port“ daneben. „Setzen“ ist gesperrt, bis der Port gültig ist (1 bis 65535), und nennt den Grund.
@@ -297,6 +304,8 @@ Keine Funktion fällt weg, aber an diesen Stellen verhält sich die Bedienung an
 - Timer und Switcher: Die Zeilen „Live Production“ und „Video-Mischer · Program / Preview“ entfallen, weil die Kopfzeile links nur Logo und Toolname zeigt. Soll eine Untertitelzeile zurückkommen?
 - Q&A: Soll der Satz „… hier ein Event erzeugen“ (Ortshinweise) umformuliert werden, weil er nun im Panel steht?
 - Battle: „Battle zurücksetzen? Runden/Stimmen werden geleert (Namen bleiben). Ein laufendes VS geht aus.“ ist die neue Rückfrage; der letzte Satz ist neu.
+- Rundown, Gegenstellen: Der Abschnitt zählt nur Tools, die gefunden, manuell gesetzt oder im Ablauf verwendet sind; die übrigen Zeilen stehen weiter mit ▲ „nicht gefunden“ da, damit sich ein Tool auch vor dem Fund setzen lässt. Sollen diese ungenutzten Zeilen neutral (○) statt mit ▲ erscheinen?
+- Statusleiste: Ein Eintrag öffnet das Panel nur noch, wo der Abschnitt den gezeigten Zustand ändern kann. Reine Anzeige sind jetzt die Fernsteuerung in Timer, Rundown, Q&A und Battle (fester Port), iveo im Rundown, Aufnahme und ein laufender Stream im Switcher, Aufnahme-Quelle und das Voting bei ausgeschaltetem Server in Battle sowie Extern in Q&A bei „bereit“, „Verbinde …“ und „an“. Passt das, oder soll ein Klick dort trotzdem den Abschnitt zum Nachlesen öffnen?
 
 ## Handbuch
 
@@ -436,7 +445,7 @@ Der Live-Status und die Tally-Anzeige sind jetzt die Statusleiste.
 Bei einem Tool, das nicht gefunden wird, schaust Du in die Statusleiste.
 
 - `Gleiches Subnetz? Tool gestartet?`
-+ Statusleiste: Eintrag des Tools fehlt oder steht auf „nicht gefunden“. Gleiches Subnetz? Tool gestartet?
++ Statusleiste: Eintrag des Tools fehlt oder ist nicht verbunden; im Panel ⚙ › Gegenstellen steht es dann auf „nicht gefunden“. Gleiches Subnetz? Tool gestartet?
 
 Bei „GO feuert nicht alle Aktionen“ prüfst Du den Statusleisten-Eintrag des Tools.
 
@@ -520,7 +529,7 @@ Namen stehen in den Ecken A und B, die Rundenzahl im Panel „Battle“.
 Den Titler siehst Du in der Statusleiste, die VS-Bauchbinde schaltest Du mit der Haupttaste „VS“.
 
 - `VS-Bauchbinde über JM Titler prüfen (BATTLE VS on/off blendet sie ein/aus)`
-+ VS-Bauchbinde über JM Titler prüfen (Statusleiste „Titler“; die Haupttaste „VS“ bzw. BATTLE VS on/off blendet sie ein/aus; ist der Titler nicht verbunden, sagt ein Hinweis unter der Taste, dass die Bauchbinde nicht erscheint)
++ VS-Bauchbinde über JM Titler prüfen (Statusleiste „Kopplung Titler“; die Haupttaste „VS“ bzw. BATTLE VS on/off blendet sie ein/aus; ist der Titler nicht verbunden, sagt ein Hinweis unter der Taste, dass die Bauchbinde nicht erscheint)
 
 Das Voting richtest Du im Panel „Battle“ und in der Karte „Publikums-Voting“ im Live-Bereich ein.
 
@@ -565,7 +574,7 @@ Zurückgesetzt wird im Panel unter „Zurücksetzen“; die Rückfrage nennt, da
 Bei „VS-Bauchbinde fehlt“ liest Du die Statusleiste und den Schalter „VS-Bauchbinde automatisch“.
 
 - `JM Titler im selben LAN gestartet? BATTLE VS on gesendet?`
-+ Statusleiste „Titler“ lesen; Schalter „VS-Bauchbinde automatisch“ im Panel ⚙ › Battle an? JM Titler im selben LAN gestartet? BATTLE VS on gesendet?
++ Statusleiste „Kopplung Titler“ lesen; Schalter „VS-Bauchbinde automatisch“ im Panel ⚙ › Battle an? JM Titler im selben LAN gestartet? BATTLE VS on gesendet?
 
 Bei „Instant-Replay ist leer“ schaust Du auf die Statusleiste „Aufnahme-Quelle“.
 
