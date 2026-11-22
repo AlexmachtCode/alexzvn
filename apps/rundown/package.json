@@ -1,6 +1,6 @@
 {
   "name": "@jm/rundown",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "private": true,
   "description": "JM Rundown — Ablaufregie/Conductor: ein GO treibt mehrere Suite-Tools gleichzeitig",
   "main": "out/main/index.cjs",
