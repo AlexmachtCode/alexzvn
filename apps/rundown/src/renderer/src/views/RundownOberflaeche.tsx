@@ -90,7 +90,7 @@ export function RundownOberflaeche({
         <div data-rundown="spalte-liste" className="flex min-h-0 min-w-0 flex-1 flex-col border-r border-[var(--border)]">
           {/* 4.6: Kurze Hinweise entfernt der Main nach 6 s, stehende klickt der Bediener weg. */}
           <Hinweise hinweise={state.hinweise} onWeg={aktionen.hinweisWeg} />
-          <div className="min-h-0 flex-1">
+          <div className="min-h-0 flex-1 overflow-hidden">
             <RundownList
               doc={state.doc}
               index={state.index}

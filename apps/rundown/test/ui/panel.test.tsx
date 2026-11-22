@@ -88,6 +88,22 @@ const titel = (html: string): string[] => [...html.matchAll(/<h3[^>]*>([^<]*)<\/
   gleich(log, ['switcher|10.0.0.9|8721', 'timer||0'], 'RD Panel Abschnitte: Setzen schickt Host und Port, Auto entfernt den Override (setEndpoint mit leerem Host)');
 }
 
+// ── RD Panel Gegenstellen: Adresse und Leerzustand ──
+{
+  const link = { role: 'switcher', label: 'JM Switcher', host: '10.0.0.7', port: 8721, connected: true, source: 'mdns' as const, state: null };
+  const KEIN = 'Noch keine Tools gefunden — Suite-Tools im selben Netz starten (mDNS) oder Verbindungen manuell setzen.';
+  const ohne = panel(stand());
+  const mit = panel(stand({ state: basisState({ links: [link] }) }));
+  ok(text(ohne).includes(KEIN) && !text(mit).includes(KEIN), 'RD Panel Gegenstellen: der Leertext der alten Statusleiste steht wörtlich da, solange kein Tool gefunden ist, und verschwindet mit dem ersten Fund');
+  ok(abschnitt(ohne, ABSCHNITT.gegenstellen).includes(KEIN) || ohne.indexOf(KEIN) > ohne.indexOf(`id="einstellung-${ABSCHNITT.gegenstellen}"`), 'RD Panel Gegenstellen: der Leertext steht im Gegenstellen-Bereich');
+  ok(text(mit).includes('gefunden: 10.0.0.7:8721'), 'RD Panel Gegenstellen: die per mDNS gefundene Adresse (host:port) steht im Panel');
+  const sw = mit.slice(mit.indexOf('data-rolle="switcher"'), mit.indexOf('data-rolle="', mit.indexOf('data-rolle="switcher"') + 1));
+  gleich(tags(sw, 'input').map((t) => attr(t, 'value')).slice(0, 1), [''], 'RD Panel Gegenstellen: das Host-Feld bleibt leer (sonst würde Setzen aus einem Fund einen manuellen Override machen)');
+  const keinFund = text(abschnitt(ohne, ABSCHNITT.gegenstellen));
+  ok(!keinFund.includes('gefunden: ') , 'RD Panel Gegenstellen: ohne Fund steht keine Adresse und keine Quelle „gefunden“ im Abschnitt');
+  ok(!/Quelle\s*gefunden/.test(keinFund), 'RD Panel Gegenstellen: eine Rolle ohne Fund zeigt nie „Quelle gefunden“');
+}
+
 // ── Quelltext: das Panel hat keine Abläufe, das alte Modal ist weg ──
 {
   const q = ohneKommentare(leseText('src/renderer/src/views/Einstellungen.tsx'));

@@ -61,6 +61,11 @@ export const RUNDOWN_TEXTE = {
   transport: { scharf: 'Scharf', keineZeile: '—', zuletztGefeuert: 'Zuletzt gefeuert:', keineAktionen: 'keine Aktionen' },
   /** Stehende Hinweise im Live-Bereich (App.tsx): der Tooltip des ✕ ist wörtlich der Bestand. */
   hinweise: { schliessen: 'Hinweis schließen' },
+  /** Gegenstellen im Panel: der Leertext ist wörtlich der Bestand (ToolLinks.tsx); „gefunden:“ steht vor der gemessenen Adresse eines mDNS-Fundes. */
+  gegenstellen: {
+    keine: 'Noch keine Tools gefunden — Suite-Tools im selben Netz starten (mDNS) oder Verbindungen manuell setzen.',
+    gefunden: 'gefunden:',
+  },
 } as const;
 
 /**
@@ -69,15 +74,19 @@ export const RUNDOWN_TEXTE = {
  */
 export const TASTEN_MIN_BREITE = 140;
 
-/** Containerbreite, ab der alle drei Tasten nebeneinander stehen: 3×140 + 2 Lücken à 12 (gap-3) = 444 px. Steht als `@[444px]` in Transport.tsx. */
+/** Containerbreite, ab der ◀ und ▶ nebeneinander unter GO stehen: 2×140 + Lücke 12 (gap-3) = 292 px. Steht als `@[292px]` in Transport.tsx. */
+export const TASTEN_ZWEI_BREITE = 2 * TASTEN_MIN_BREITE + 12;
+
+/** Containerbreite, ab der alle drei Tasten nebeneinander stehen: 3×140 + 2 Lücken à 12 = 444 px. Steht als `@[444px]` in Transport.tsx. */
 export const TASTEN_DREI_BREITE = 3 * TASTEN_MIN_BREITE + 2 * 12;
 
 /**
- * Spalten der drei Haupttasten bei gegebener Containerbreite (Container-Query, kein Viewport): 3 ab TASTEN_DREI_BREITE, sonst 1
- * (drei Tasten untereinander). Nie 2: Das ließe eine Taste allein in der zweiten Reihe stehen.
+ * Anordnung der drei Haupttasten nach Breite der Inhaltsbox des Transports (Container-Query, kein Viewport): ab 444 px eine Reihe,
+ * ab 292 px GO breit oben und ◀ ▶ nebeneinander darunter, darunter gestapelt (der einzige Fall, in dem keine zwei Tasten
+ * nebeneinander passen: 960-px-Fenster mit offenem Panel, Inhaltsbox 135 px).
  */
-export function tastenSpalten(containerBreite: number): 1 | 3 {
-  return containerBreite >= TASTEN_DREI_BREITE ? 3 : 1;
+export function tastenAnordnung(containerBreite: number): 'reihe' | 'go-oben' | 'gestapelt' {
+  return containerBreite >= TASTEN_DREI_BREITE ? 'reihe' : containerBreite >= TASTEN_ZWEI_BREITE ? 'go-oben' : 'gestapelt';
 }
 
 /**
@@ -87,8 +96,11 @@ export function tastenSpalten(containerBreite: number): 1 | 3 {
  */
 export const LISTE_LAYOUT = { aussen: 24, zeile: 26, griff: 12, nummer: 24, luecken: 24, aktionen: 178, titelMin: 100, listeMin: 400 } as const;
 
-/** Fenster und Spalten in px: Mindestbreite des Fensters (main/index.ts), Editor w-[26rem], Einstellungs-Panel --panel-w, Trennlinie. */
-export const FENSTER_LAYOUT = { fensterMin: 960, editor: 416, panel: 360, trennlinie: 1 } as const;
+/**
+ * Fenster und Spalten in px: Mindestbreite des Fensters (main/index.ts, Außenmaß), davon der Windows-Rahmen (Annahme 16 = 2×8
+ * unsichtbare Ränder; nicht gemessen), Editor w-[26rem], Einstellungs-Panel --panel-w, Trennlinie, Innenabstand des Transports (px-4).
+ */
+export const FENSTER_LAYOUT = { fensterMin: 960, rahmen: 16, editor: 416, panel: 360, trennlinie: 1, transportInnen: 32 } as const;
 
 /** Der Rundown-Stand samt der gemessenen Meldungen; jede Meldung: undefined = noch keine Antwort, null = keine Brücke. */
 export interface OberflaechenStand {
@@ -199,7 +211,8 @@ function peerZeile(s: OberflaechenStand, role: string): PeerRow {
     defaultPort: cap?.port,
     // Der Stand ist da: ein fehlender Fund heißt „nicht gefunden“, nicht „unbekannt“.
     connected: link?.connected ?? false,
-    source: manuell ? 'manual' : 'mdns',
+    // Ohne Fund und ohne Override gibt es keine Quelle: sonst stünde „Quelle gefunden“ bei einem Tool, das nie gefunden wurde.
+    source: manuell ? 'manual' : link ? 'mdns' : undefined,
   };
 }
 
@@ -212,6 +225,13 @@ export function gegenstellenAbschnitt(s: OberflaechenStand, a: RundownAktionen):
     onSet: (role, host, port) => a.setEndpoint(role, host, port),
     onAuto: (role) => a.setEndpoint(role, '', 0),
   };
+}
+
+/** Per mDNS gefundene Tools mit ihrer Adresse für das Panel (manuelle stehen schon als Quelle in der Zeile; nie ins Host-Feld, das wäre ein Override). */
+export function gefundeneAdressen(s: OberflaechenStand): Array<{ role: string; label: string; text: string }> {
+  return s.state.links
+    .filter((l) => l.source !== 'manual' && l.host !== '')
+    .map((l) => ({ role: l.role, label: l.label, text: `${RUNDOWN_TEXTE.gegenstellen.gefunden} ${l.host}:${zahlText(l.port)}` }));
 }
 
 /** iveo in der Statusleiste: bei ok die Zahl der Speaker, sonst steht hinter dem Status, warum nichts eingerichtet ist. */
@@ -235,7 +255,9 @@ function iveoItem(s: OberflaechenStand): StatusItem {
 function linkItem(link: ToolLink): StatusItem {
   const manuell = link.source === 'manual' && link.host !== '';
   const zeile = peerZeileStatus({ role: link.role, label: link.label, host: manuell ? link.host : '', port: link.port, connected: link.connected, source: link.source });
-  const teile = link.connected ? [...(manuell ? [PEERS_TEXTE.quelleManuell(link.host, link.port)] : []), ...aktiveFeedbacks(link, CAPABILITIES)] : [];
+  // Die gemessene Adresse bleibt sichtbar (zwei Instanzen eines Tools): manuell „manuell: host:port“, gefunden „host:port“.
+  const adresse = manuell ? PEERS_TEXTE.quelleManuell(link.host, link.port) : link.host !== '' ? `${link.host}:${zahlText(link.port)}` : undefined;
+  const teile = link.connected ? [...(adresse ? [adresse] : []), ...aktiveFeedbacks(link, CAPABILITIES)] : [];
   return {
     id: `link-${link.role}`,
     group: 'verbindung',

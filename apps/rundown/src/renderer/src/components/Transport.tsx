@@ -5,8 +5,10 @@ import { TallyButton } from '@jm/ui';
 import { hauptTasten, RUNDOWN_TEXTE } from '@/lib/oberflaeche';
 import type { RundownNav, RundownState } from '@shared/types';
 
-// Container-Query statt Viewport: tastenSpalten(breite) beschreibt das Raster (1 oder 3, nie 2). Die Klassen stehen als Literal da (Tailwind-Scan); 444 = TASTEN_DREI_BREITE.
-const RASTER = 'grid w-full grid-cols-1 gap-3 @[444px]:grid-cols-3';
+// Container-Query statt Viewport: tastenAnordnung(breite) beschreibt das Raster. Die Klassen stehen als Literal da (Tailwind-Scan); 292 = TASTEN_ZWEI_BREITE, 444 = TASTEN_DREI_BREITE; gemessen wird die Inhaltsbox nach px-4.
+const RASTER = 'grid w-full grid-cols-1 gap-3 @[292px]:grid-cols-2 @[444px]:grid-cols-3';
+// GO steht breit oben, solange nur zwei Spalten da sind; im Markup bleibt die Reihenfolge ◀, GO, ▶ (Tab).
+const GO_PLATZ = '@[292px]:order-first @[292px]:col-span-2 @[444px]:order-none @[444px]:col-span-1';
 
 /** Die drei Haupttasten (Rolle als key, nie die Beschriftung), die scharfe Zeile samt Zähler und die Quittung. */
 export function Transport({ state, onNav }: { state: RundownState; onNav: (cmd: RundownNav) => void }): React.JSX.Element {
@@ -26,7 +28,9 @@ export function Transport({ state, onNav }: { state: RundownState; onNav: (cmd: 
     <div data-rundown="transport" className="@container shrink-0 space-y-3 border-t border-[var(--border)] bg-[var(--card)] px-4 py-3">
       <div data-rundown="haupttasten" className={RASTER}>
         <TallyButton key="zurueck" {...t.zurueck} onClick={() => onNav({ t: 'prev' })} />
-        <TallyButton key="go" {...t.go} onClick={() => onNav({ t: 'go' })} />
+        <div key="go" className={GO_PLATZ}>
+          <TallyButton {...t.go} onClick={() => onNav({ t: 'go' })} />
+        </div>
         <TallyButton key="weiter" {...t.weiter} onClick={() => onNav({ t: 'next' })} />
       </div>
 

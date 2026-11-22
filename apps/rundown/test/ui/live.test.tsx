@@ -12,7 +12,8 @@ import {
   RUNDOWN_TEXTE,
   TASTEN_DREI_BREITE,
   TASTEN_MIN_BREITE,
-  tastenSpalten,
+  TASTEN_ZWEI_BREITE,
+  tastenAnordnung,
 } from '@/lib/oberflaeche';
 import type { RundownHinweis } from '@shared/types';
 import { attr, basisState, bereich, ohneKommentare, tags, text, zeile, zeileMitAktion } from './testzustand';
@@ -64,16 +65,23 @@ const transport = (state = mitZeilen, log: string[] = []): string => render(<Tra
 // ── RD Live Tasten: Raster nach Containerbreite ──
 {
   const q = ohneKommentare(leseText('src/renderer/src/components/Transport.tsx'));
-  const spalten = new Set(Array.from({ length: 1901 }, (_, i) => tastenSpalten(100 + i)));
-  gleich([...spalten].sort(), [1, 3], 'RD Live Tasten: die drei Tasten stehen in jeder Containerbreite 100–2000 px als 1×3 nebeneinander oder untereinander, nie 2+1');
-  gleich([tastenSpalten(TASTEN_DREI_BREITE - 1), tastenSpalten(TASTEN_DREI_BREITE)], [1, 3], `RD Live Tasten: die Grenze liegt bei ${TASTEN_DREI_BREITE} px = 3×${TASTEN_MIN_BREITE} + 2 Lücken à 12`);
-  gleich(TASTEN_DREI_BREITE, 3 * TASTEN_MIN_BREITE + 2 * 12, 'RD Live Tasten: Grenzbreite aus Mindestbreite und Lücke abgeleitet');
-  ok(
-    q.includes('@container') && q.includes(`@[${TASTEN_DREI_BREITE}px]:grid-cols-3`) && q.includes('grid-cols-1') && !/(sm|md|lg|xl):grid-cols/.test(q),
-    'RD Live Tasten: Container-Query (@container, @[444px]:grid-cols-3) mit grid-cols-1 als Basis, keine Viewport-Breakpoints; die Klassen stehen als Literal im Quelltext (Tailwind-Scan)',
+  const arten = new Set(Array.from({ length: 1901 }, (_, i) => tastenAnordnung(100 + i)));
+  gleich([...arten].sort(), ['go-oben', 'reihe', 'gestapelt'].sort(), 'RD Live Tasten: je Containerbreite 100–2000 px genau eine von drei Anordnungen: eine Reihe, GO oben mit ◀ ▶ darunter, gestapelt; nie 2+1 ohne GO breit');
+  gleich(
+    [tastenAnordnung(TASTEN_ZWEI_BREITE - 1), tastenAnordnung(TASTEN_ZWEI_BREITE), tastenAnordnung(TASTEN_DREI_BREITE - 1), tastenAnordnung(TASTEN_DREI_BREITE)],
+    ['gestapelt', 'go-oben', 'go-oben', 'reihe'],
+    `RD Live Tasten: die Grenzen liegen bei ${TASTEN_ZWEI_BREITE} px (2×140 + Lücke 12) und ${TASTEN_DREI_BREITE} px (3×140 + 2 Lücken)`,
   );
+  gleich([TASTEN_ZWEI_BREITE, TASTEN_DREI_BREITE], [2 * TASTEN_MIN_BREITE + 12, 3 * TASTEN_MIN_BREITE + 24], 'RD Live Tasten: Grenzbreiten aus Mindestbreite und Lücke abgeleitet');
+  ok(
+    q.includes('@container') && q.includes('@[444px]:grid-cols-3') && q.includes('@[292px]:grid-cols-2') && q.includes('@[292px]:col-span-2') && q.includes('@[292px]:order-first') && q.includes('@[444px]:order-none') && q.includes('grid-cols-1') && !/(sm|md|lg|xl):grid-cols/.test(q),
+    'RD Live Tasten: Container-Query (@container, @[292px] GO oben, @[444px] eine Reihe) mit grid-cols-1 als Basis, keine Viewport-Breakpoints; die Klassen stehen als Literal im Quelltext (Tailwind-Scan)',
+  );
+  ok(TASTEN_ZWEI_BREITE === 292 && TASTEN_DREI_BREITE === 444, 'RD Live Tasten: die Literale 292 und 444 im Quelltext gleichen den Konstanten');
   const html = transport();
-  ok(html.includes('@container') && html.includes(`@[${TASTEN_DREI_BREITE}px]:grid-cols-3`), 'RD Live Tasten: gerendert trägt die Hülle @container und das Raster @[444px]:grid-cols-3');
+  ok(html.includes('@container') && html.includes('@[444px]:grid-cols-3') && html.includes('@[292px]:grid-cols-2'), 'RD Live Tasten: gerendert trägt die Hülle @container und das Raster');
+  const dom = [...html.matchAll(/<button[^>]*>[\s\S]*?<\/button>/g)].map((m) => text(m[0]).slice(0, 3));
+  gleich(dom, ['◀ Z', 'GOK', 'Wei'], 'RD Live Tasten: die Tab-Reihenfolge im Markup bleibt ◀, GO, ▶ (GO oben ist nur Darstellung)');
 }
 
 // ── RD Live Breite: die Spalte der Liste bei Mindestfenster ──
@@ -82,17 +90,26 @@ const transport = (state = mitZeilen, log: string[] = []): string => render(<Tra
   const L = LISTE_LAYOUT;
   gleich(L.aussen + L.zeile + L.griff + L.nummer + L.luecken + L.aktionen + L.titelMin, 388, 'RD Live Breite: die festen Teile der Zeile summieren sich auf 388 px');
   ok(L.listeMin >= 388, 'RD Live Breite: listeMin deckt die festen Teile samt Titel-Mindestbreite');
-  const mitPanel = F.fensterMin - F.panel - F.editor - F.trennlinie;
-  const ohnePanel = F.fensterMin - F.editor - F.trennlinie;
-  gleich([mitPanel, ohnePanel], [183, 543], 'RD Live Breite: bei 960 px bleiben der Liste mit Panel 183 px, ohne Panel 543 px');
+  // Annahme: Windows-Rahmen 16 px (2×8 unsichtbare Ränder); minWidth gilt für das Außenmaß, die Seite bekommt weniger.
+  const client = F.fensterMin - F.rahmen;
+  const mitPanel = client - F.panel - F.editor - F.trennlinie;
+  const ohnePanel = client - F.editor - F.trennlinie;
+  gleich([client, mitPanel, ohnePanel], [944, 167, 527], 'RD Live Breite: bei 960 px Fenster (944 px Seite) bleiben der Liste mit Panel 167 px, ohne Panel 527 px');
   ok(mitPanel < L.listeMin && ohnePanel >= L.listeMin, 'RD Live Breite: mit offenem Panel reicht der Platz nicht (die Liste scrollt waagerecht), ohne Panel reicht er');
-  gleich([tastenSpalten(mitPanel), tastenSpalten(ohnePanel)], [1, 3], 'RD Live Breite: bei 960 px stehen die Tasten mit Panel untereinander (1×3), ohne Panel nebeneinander (3×1)');
+  // Der Container misst die Inhaltsbox des Transports, also nach dem Innenabstand px-4 (2×16).
+  const inhalt = (b: number): number => b - F.transportInnen;
+  gleich([inhalt(mitPanel), inhalt(ohnePanel)], [135, 495], 'RD Live Breite: die Inhaltsbox des Transports ist 135 px mit Panel, 495 px ohne');
+  gleich([tastenAnordnung(inhalt(mitPanel)), tastenAnordnung(inhalt(ohnePanel))], ['gestapelt', 'reihe'], 'RD Live Breite: bei 960 px stehen die Tasten mit Panel gestapelt (135 px reichen nicht für zwei Spalten), ohne Panel in einer Reihe');
+  gleich(tastenAnordnung(inhalt(1180 - F.rahmen - F.panel - F.editor - F.trennlinie)), 'go-oben', 'RD Live Breite: bei 1180 px mit Panel (Inhaltsbox 355 px) steht GO oben, ◀ ▶ darunter');
   const q = ohneKommentare(leseText('src/renderer/src/components/RundownList.tsx'));
   ok(q.includes('overflow-auto') && q.includes(`min-w-[${L.listeMin}px]`), 'RD Live Breite: die Zeilen liegen in einem Scroll-Behälter mit der Mindestbreite der Liste');
   const ober = ohneKommentare(leseText('src/renderer/src/views/RundownOberflaeche.tsx'));
+  ok(/min-h-0 flex-1 overflow-hidden">\s*<RundownList/.test(ober), 'RD Live Breite: der Behälter der Liste hat min-h-0 und overflow-hidden, die Liste scrollt selbst und kann nie über den Transport ragen');
   ok(ober.includes('w-[26rem]') && FENSTER_LAYOUT.editor === 26 * 16, 'RD Live Breite: der Editor behält w-[26rem] (416 px), das Fenster-Minimum bleibt 960');
   ok(leseText('src/main/index.ts').includes('minWidth: 960'), 'RD Live Breite: die Fenster-Mindestbreite im Main ist 960 (unverändert)');
   ok(/--panel-w:\s*360px/.test(leseText('../../packages/ui/src/tokens/sizes.css')), 'RD Live Breite: die Panelbreite ist 360 px (unverändert)');
+  const t = ohneKommentare(leseText('src/renderer/src/components/Transport.tsx'));
+  ok(t.includes('px-4') && F.transportInnen === 32, 'RD Live Breite: der Transport hat px-4 (2×16 = transportInnen)');
 }
 
 // ── RD Live Element: die scharfe Zeile ohne Klick sichtbar ──

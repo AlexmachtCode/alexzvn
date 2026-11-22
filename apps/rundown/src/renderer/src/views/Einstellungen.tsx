@@ -4,7 +4,7 @@
 // Sprungziele der Statuseinträge (PanelAnker steckt in SectionFrame). Kein window und kein Effekt (G7, G8): Setzen und Auto sind
 // Rückrufe der View.
 import { IveoSection, PeersSection, RemoteControlSection } from '@jm/settings';
-import { fernsteuerungAbschnitt, gegenstellenAbschnitt, iveoAbschnitt, type OberflaechenStand, type RundownAktionen } from '@/lib/oberflaeche';
+import { fernsteuerungAbschnitt, gefundeneAdressen, gegenstellenAbschnitt, iveoAbschnitt, RUNDOWN_TEXTE, type OberflaechenStand, type RundownAktionen } from '@/lib/oberflaeche';
 
 export interface EinstellungenProps {
   stand: OberflaechenStand;
@@ -16,7 +16,21 @@ export function Einstellungen({ stand, aktionen }: EinstellungenProps): React.JS
     <div className="space-y-5">
       <IveoSection {...iveoAbschnitt(stand)} />
       <RemoteControlSection {...fernsteuerungAbschnitt(stand)} />
-      <PeersSection {...gegenstellenAbschnitt(stand, aktionen)} />
+      <div className="space-y-2">
+        <PeersSection {...gegenstellenAbschnitt(stand, aktionen)} />
+        {/* Was PeersSection nicht zeigt (E11, Nachbesserung): der Leertext der alten Statusleiste und die Adresse eines mDNS-Fundes. */}
+        {stand.state.links.length === 0 ? (
+          <p data-rundown="keine-tools" className="text-[11px] text-[var(--muted-foreground)]">
+            {RUNDOWN_TEXTE.gegenstellen.keine}
+          </p>
+        ) : (
+          gefundeneAdressen(stand).map((g) => (
+            <p key={g.role} data-rundown="gefunden" className="text-[11px] text-[var(--muted-foreground)]">
+              {g.label} · {g.text}
+            </p>
+          ))
+        )}
+      </div>
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   ABSCHNITT,
   aktiveFeedbacks,
   fernsteuerungAbschnitt,
+  gefundeneAdressen,
   gegenstellenAbschnitt,
   hauptTasten,
   istEingabeZiel,
@@ -98,10 +99,11 @@ const SPEAKER = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `Spr
     stand({ state: basisState({ links: [link({ connected: f.connected, source: f.source, state: STATE[f.feedback] })] }) });
   pruefeFaelle('RD Statusleiste link-<rolle>: verbunden ok mit aktiven Feedbacks, sonst warn; manuell nennt host:port', faelle, (f) => {
     const i = eintrag(props(f), 'link-switcher');
-    const manuell = f.source === 'manual' ? 'manuell: 10.0.0.7:8721' : undefined;
+    // Die gemessene Adresse steht immer im Text (E11, Nachbesserung): gefunden als host:port, manuell als „manuell: host:port“.
+    const manuell = f.source === 'manual' ? 'manuell: 10.0.0.7:8721' : '10.0.0.7:8721';
     const fb = f.feedback === 'zwei' ? ['Aufnahme läuft', 'Stream läuft'] : [];
     const soll = f.connected
-      ? `ok ${[manuell, ...fb].filter(Boolean).join(' · ') || 'verbunden'}`
+      ? `ok ${[manuell, ...fb].join(' · ')}`
       : `warn ${f.source === 'manual' ? 'manuell: 10.0.0.7:8721 · nicht verbunden' : 'nicht gefunden'}`;
     return vergleiche(sd(i), soll) ?? (i.group !== 'verbindung' || i.label !== 'JM Switcher' || i.settingsSection !== ABSCHNITT.gegenstellen ? 'Kopf falsch' : null);
   });
@@ -113,6 +115,20 @@ const SPEAKER = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `Spr
     ['master-link', 'iveo', 'link-switcher', 'link-timer', 'fernsteuerung'],
     'RD Statusleiste: je Gegenstelle ein Eintrag link-<rolle>, in der Reihenfolge des Stands',
   );
+}
+
+// ── RD Gefundene Adressen: die gemessene Adresse bleibt sichtbar (Panel) ──
+{
+  const links = [link(), link({ role: 'timer', label: 'JM Timer', host: 'regie.lan', port: 9001, source: 'manual' }), link({ role: 'titler', label: 'JM Titler', host: '10.0.0.8', port: 8722, connected: false })];
+  gleich(
+    gefundeneAdressen(stand({ state: basisState({ links }) })),
+    [
+      { role: 'switcher', label: 'JM Switcher', text: `${RUNDOWN_TEXTE.gegenstellen.gefunden} 10.0.0.7:8721` },
+      { role: 'titler', label: 'JM Titler', text: `${RUNDOWN_TEXTE.gegenstellen.gefunden} 10.0.0.8:8722` },
+    ],
+    'RD Gefundene Adressen: je per mDNS gefundenem Tool „gefunden: host:port“, manuelle Adressen stehen schon in der Quelle',
+  );
+  gleich(gefundeneAdressen(stand()), [], 'RD Gefundene Adressen: ohne Links keine Zeile');
 }
 
 // ── RD Gegenstellen-Abschnitt: Zeilen, Setzen, Auto ──
@@ -129,6 +145,8 @@ const SPEAKER = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `Spr
     ['mdns', '', true, 'manual', '10.0.0.5', 9999, false],
     'RD Gegenstellen-Abschnitt: gefunden = automatisch ohne Host; Override = manuell mit Host und Port; fehlender Fund = nicht verbunden',
   );
+  // Eine Rolle ohne Fund und ohne Override ist weder „gefunden“ noch manuell: source fehlt (kein falsches „Quelle gefunden“).
+  gleich([zeilen['presenter']?.source, zeilen['presenter']?.connected], [undefined, false], 'RD Gegenstellen-Abschnitt: ohne Fund und ohne Override keine Quelle (nicht „gefunden“), nicht verbunden');
   p.onSet?.('timer', '1.2.3.4', 8724);
   p.onAuto?.('timer');
   gleich(aufrufe, ['timer|1.2.3.4|8724', 'timer||0'], 'RD Gegenstellen-Abschnitt: Setzen schickt Host und Port, Auto entfernt den Override (host leer)');
