@@ -4,16 +4,18 @@
 // Steuerpults). Jeder Abschnitt ist ein Sprungziel (PanelAnker, id wie das settingsSection des Statuseintrags). Kein window, kein
 // Store und kein Effekt (E15): Aktionen kommen aus der View, die Bildschirmliste liest die View beim Öffnen des Panels.
 import { RemoteControlSection, ScreenOutputSection } from '@jm/settings';
-import { Field, PanelAnker, SettingsSection, Toggle, UNBEKANNT } from '@jm/ui';
+import { Button, Field, PanelAnker, SettingsSection, Toggle, UNBEKANNT } from '@jm/ui';
 import type { PartialPrompterConfig } from '@shared/types';
 import { RemoteQr } from '@/components/RemoteQr';
 import { Regler } from '@/components/Regler';
-import { ABSCHNITT, ausgabeAbschnitt, fernsteuerungAbschnitt, PROMPTER_TEXTE, type OberflaechenStand, type PrompterAktionen } from '@/lib/oberflaeche';
+import { ABSCHNITT, ausgabeAbschnitt, fernsteuerungAbschnitt, kannVerschieben, PROMPTER_TEXTE, type OberflaechenStand, type PrompterAktionen } from '@/lib/oberflaeche';
 
 /** Die Aktionen des Panels: Ausgabe und Bildschirm aus lib/oberflaeche.ts, dazu Konfiguration und Handy-Fernbedienung. */
 export interface EinstellungenAktionen extends PrompterAktionen {
   konfigurieren(patch: PartialPrompterConfig): void;
   handyUmschalten(an: boolean): void;
+  /** Den offenen Monitor auf den gewählten Bildschirm ziehen (`openOutput`). */
+  ausgabeVerschieben(): void;
 }
 
 export interface EinstellungenProps {
@@ -30,6 +32,11 @@ export function Einstellungen({ stand, aktionen }: EinstellungenProps): React.JS
   return (
     <div className="space-y-5">
       <ScreenOutputSection {...ausgabeAbschnitt(stand, aktionen)} />
+      {kannVerschieben(stand.ausgabe) && (
+        <Button type="button" variant="outline" size="sm" uppercase={false} data-prompter="verschieben" onClick={aktionen.ausgabeVerschieben}>
+          {T.ausgabe.verschieben}
+        </Button>
+      )}
       <RemoteControlSection {...fernsteuerungAbschnitt(stand)} />
 
       <PanelAnker id={ABSCHNITT.schrift}>

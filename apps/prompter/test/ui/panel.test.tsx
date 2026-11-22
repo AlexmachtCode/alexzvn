@@ -4,7 +4,8 @@
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import type { AusgabeZustand } from '@jm/output-window/zustand';
 import { DEFAULT_CONFIG, type PrompterState } from '@shared/types';
-import { ABSCHNITT, PROMPTER_TEXTE, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
+import { baueAktionen } from '@/lib/aktionen';
+import { ABSCHNITT, bildschirmEtikett, PROMPTER_TEXTE, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
 import { Einstellungen, type EinstellungenAktionen } from '@/views/Einstellungen';
 import { abschnitt, attr, basisMeldung, ohneKommentare, tags, text } from './testzustand';
 
@@ -23,6 +24,7 @@ function aktionen(log: string[] = []): EinstellungenAktionen {
     bildschirmWaehlen: (id) => void log.push(`bildschirm${id}`),
     konfigurieren: (p) => void log.push(`konfig${JSON.stringify(p)}`),
     handyUmschalten: (an) => void log.push(`handy${an}`),
+    ausgabeVerschieben: () => void log.push('verschieben'),
   };
 }
 const panel = (s: OberflaechenStand, log: string[] = []): string => render(<Einstellungen stand={s} aktionen={aktionen(log)} />);
@@ -102,4 +104,41 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
   ok(!q.includes('useEffect') && !/\bwindow\b/.test(q) && !q.includes('usePrompter') && !q.includes('jmprompt'), 'PR Panel Abschnitte: Einstellungen.tsx ohne window, ohne useEffect und ohne Store (E15)');
   const ober = ohneKommentare(leseText('src/renderer/src/views/PrompterOberflaeche.tsx'));
   ok(ober.includes('output.displays()') && ober.includes('panelOffen'), 'PR Panel Abschnitte: die Bildschirmliste wird beim Öffnen des Panels frisch geholt (in der View)');
+}
+
+// ── Fix 1: Bildschirmwahl verschiebt nicht; „Auf diesen Bildschirm“ ist ein eigener Knopf; „ · primär“ im Etikett ──
+{
+  const aufrufe: string[] = [];
+  const a = baueAktionen({
+    outputDisplayId: 2,
+    setConfig: async (p) => void aufrufe.push(`setConfig${JSON.stringify(p)}`),
+    openOutput: async (id) => void aufrufe.push(`open${id}`),
+    closeOutput: async () => void aufrufe.push('close'),
+    setRemote: async (an) => void aufrufe.push(`remote${an}`),
+  });
+  a.bildschirmWaehlen(3);
+  gleich(aufrufe, ['setConfig{"outputDisplayId":3}'], 'PR Panel Abschnitte: eine Bildschirmwahl ruft nur setConfig und öffnet oder verschiebt kein Fenster');
+  aufrufe.length = 0;
+  a.ausgabeVerschieben();
+  a.ausgabeUmschalten(true);
+  a.ausgabeUmschalten(false);
+  gleich(aufrufe, ['open2', 'open2', 'close'], 'PR Panel Abschnitte: „Auf diesen Bildschirm“ und der Ausgabeschalter öffnen auf dem gewählten Bildschirm, aus schließt');
+  const knopf = (z: AusgabeZustand | null | undefined): string[] => tags(panel(stand({ ausgabe: z })), 'button').filter((t) => attr(t, 'data-prompter') === 'verschieben').map(() => 'da');
+  gleich(
+    [knopf(undefined), knopf(null), knopf({ art: 'zu', displayId: null }), knopf({ art: 'abgestuerzt', displayId: 1 }), knopf({ art: 'offen', displayId: 1 }), knopf({ art: 'bildschirm-fehlt', displayId: 5 })],
+    [[], [], [], [], ['da'], ['da']],
+    'PR Panel Abschnitte: der Knopf „Auf diesen Bildschirm“ steht nur bei offenem oder fehlendem Bildschirm, nicht bei zu, abgestürzt oder unbekannt',
+  );
+  ok(text(panel(stand({ ausgabe: { art: 'offen', displayId: 1 } }))).includes('Auf diesen Bildschirm'), 'PR Panel Abschnitte: der Knopf trägt den alten Wortlaut „Auf diesen Bildschirm“');
+  const log: string[] = [];
+  const q = ohneKommentare(leseText('src/renderer/src/views/Einstellungen.tsx'));
+  ok(q.includes('onClick={aktionen.ausgabeVerschieben}') && log.length === 0, 'PR Panel Abschnitte: der Knopf ruft die Aktion ausgabeVerschieben');
+  gleich(
+    [
+      bildschirmEtikett({ label: 'Display 1', primary: true, width: 1920, height: 1080 }),
+      bildschirmEtikett({ label: 'Talent', primary: false, width: 1280, height: 720 }),
+    ],
+    ['Display 1 · primär (1920×1080)', 'Talent (1280×720)'],
+    'PR Panel Abschnitte: Etikett der Bildschirmauswahl wie bisher, primärer Bildschirm mit „ · primär“',
+  );
 }

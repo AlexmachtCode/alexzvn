@@ -45,6 +45,10 @@ export const PROMPTER_TEXTE = {
     offen: 'offen',
     abgestuerzt: 'abgestürzt',
     trenner: ' · ',
+    /** Knopf im Panel (alter Wortlaut): den offenen Monitor auf den gewählten Bildschirm ziehen. */
+    verschieben: 'Auf diesen Bildschirm',
+    /** Zusatz im Etikett des primären Bildschirms (alter Wortlaut). */
+    primaer: ' · primär',
   },
   /** Handy-Fernbedienung (E11): der Grund für „nicht gestartet“ steht nur im Log, der Text behauptet keinen. */
   handy: {
@@ -72,6 +76,16 @@ export interface OberflaechenStand {
   fernsteuerung: FernsteuerungMeldung | null | undefined;
   /** Bildschirmliste, falls bekannt (frisch aus `output.displays()`); nur dafür, den offenen Bildschirm zu benennen. */
   bildschirme?: readonly ScreenOption[];
+}
+
+/** Etikett eines Bildschirms in der Auswahl, wie bisher: Name[ · primär] (Breite×Höhe). */
+export function bildschirmEtikett(d: { label: string; primary: boolean; width: number; height: number }): string {
+  return `${d.label}${d.primary ? PROMPTER_TEXTE.ausgabe.primaer : ''} (${d.width}×${d.height})`;
+}
+
+/** Der Knopf „Auf diesen Bildschirm“ gilt, solange das Ausgabefenster gemessen existiert (offen oder Bildschirm fehlt). */
+export function kannVerschieben(a: AusgabeZustand | null | undefined): boolean {
+  return a !== undefined && a !== null && (a.art === 'offen' || a.art === 'bildschirm-fehlt');
 }
 
 /** Aktionen des Panels: die View ruft damit `window.jmprompt` erst im Rückruf. */

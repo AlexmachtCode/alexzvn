@@ -8,9 +8,10 @@ import type { ScreenOption } from '@jm/settings';
 import { AppShell, Button, useBrueckenWert } from '@jm/ui';
 import { positionEm } from '@shared/types';
 import { AUSGABE_QUELLE, FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
-import { kopfOnAir, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
+import { baueAktionen } from '@/lib/aktionen';
+import { bildschirmEtikett, kopfOnAir, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
 import { usePrompter } from '@/store/prompter';
-import { Einstellungen, type EinstellungenAktionen } from './Einstellungen';
+import { Einstellungen } from './Einstellungen';
 import { LiveBereich, type LiveAktionen } from './LiveBereich';
 
 export function PrompterOberflaeche({
@@ -39,7 +40,7 @@ export function PrompterOberflaeche({
     let weg = false;
     void window.jmprompt.output.displays().then(
       (liste) => {
-        if (!weg) setBildschirme(liste.map((d) => ({ id: d.id, label: `${d.label} (${d.width}×${d.height})`, primary: d.primary })));
+        if (!weg) setBildschirme(liste.map((d) => ({ id: d.id, label: bildschirmEtikett(d), primary: d.primary })));
       },
       () => undefined,
     );
@@ -75,15 +76,7 @@ export function PrompterOberflaeche({
     nudge: (d) => void window.jmprompt.transport.nudge(d),
     tempo: (v) => void setConfig({ speed: v }),
   };
-  const aktionen: EinstellungenAktionen = {
-    // Monitor an: Vollbild auf dem gewählten Bildschirm öffnen; aus: Fenster schließen (wie die alten Knöpfe).
-    ausgabeUmschalten: (an) => void (an ? openOutput(state?.config.outputDisplayId ?? undefined) : closeOutput()),
-    // Bildschirm wählen; ist der Monitor offen, zieht er auf den gewählten Bildschirm um (früher „Auf diesen Bildschirm“).
-    bildschirmWaehlen: (id) =>
-      void setConfig({ outputDisplayId: id }).then(() => (ausgabe?.art === 'offen' ? openOutput(id ?? undefined) : undefined)),
-    konfigurieren: (patch) => void setConfig(patch),
-    handyUmschalten: (an) => void setRemote(an),
-  };
+  const aktionen = baueAktionen({ outputDisplayId: state?.config.outputDisplayId ?? null, setConfig, openOutput, closeOutput, setRemote });
 
   return (
     <AppShell
