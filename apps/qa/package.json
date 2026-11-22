@@ -12,8 +12,9 @@
     "start": "electron-vite preview",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "selftest": "node --experimental-strip-types test/selftest.ts && node --experimental-strip-types test/cloud-zugang.test.ts",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web && npm run typecheck:test",
+    "selftest": "node --experimental-strip-types test/selftest.ts && node --experimental-strip-types test/cloud-zugang.test.ts && tsx --tsconfig tsconfig.test.json test/ui/selftest.ts",
     "dist": "electron-vite build && electron-builder",
     "dist:dir": "electron-vite build && electron-builder --dir",
     "dist:win": "electron-vite build && electron-builder --win",
@@ -26,6 +27,7 @@
     "@jm/control-config": "*",
     "@jm/discovery": "*",
     "@jm/remote": "*",
+    "@jm/settings": "*",
     "@jm/show": "*",
     "@jm/suite-control-protocol": "*",
     "@jm/ui": "*",
@@ -45,6 +47,7 @@
     "electron-builder": "24.13.3",
     "electron-vite": "^2.3.0",
     "tailwindcss": "^4.0.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
   }
