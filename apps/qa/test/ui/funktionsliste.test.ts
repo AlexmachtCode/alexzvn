@@ -7,6 +7,8 @@
 // im Haken. Dazu Querprüfungen gegen den Code (Haupttasten, Kürzel, Eingabefilter, Panel-Tasten nach O1, die Abläufe in den
 // immer gemounteten Teilen statt im Panel, Statuseinträge, die ersetzten und die geänderten Elemente aus Task 21).
 // Läuft im Paketordner apps/qa (npm run selftest -w @jm/qa, zweiter Lauf).
+// Der Abgleich der Listen GEAENDERT und PAKETE_GEAENDERT mit git läuft nur mit der Umgebungsvariable JM_FUNKTIONSLISTE_GIT=1
+// (einmal am Ende der Welle, R23); ohne sie oder ohne Verlauf im Klon bleiben die statischen Listen der Wächter.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
@@ -107,8 +109,10 @@ function gitGeaendert(): Set<string> | null {
     return null;
   }
 }
-const GIT = gitGeaendert();
-if (GIT === null) console.log(`QA Funktionsliste: kein git-Verlauf bis ${ERHEBUNG} (flacher Klon); die Prüfung gegen git entfällt, die statischen Listen gelten`);
+// Nur auf Anforderung (R23): ohne JM_FUNKTIONSLISTE_GIT=1 sagt der Test nichts über git; die statischen Listen sind der Wächter.
+const GIT_PRUEFEN = process.env.JM_FUNKTIONSLISTE_GIT === '1';
+const GIT = GIT_PRUEFEN ? gitGeaendert() : null;
+if (GIT_PRUEFEN && GIT === null) console.log(`QA Funktionsliste: kein git-Verlauf bis ${ERHEBUNG} (flacher Klon); die Prüfung gegen git entfällt, die statischen Listen gelten`);
 
 /** Datei in Backticks: Pfad mit Endung, aufgelöst nach der Pfadregel im Kopf der Liste. */
 const PFAD = /`([A-Za-z0-9_./-]+\.(?:tsx|ts|css|html|json|md|mjs))`/g;
@@ -241,7 +245,7 @@ const renderer = rendererDateien();
 // ── Die Menge der geänderten Dateien stimmt mit git überein, wenn der Klon den Verlauf hat (sonst keine Aussage) ──
 {
   if (GIT !== null) {
-    const fehlend = [...GIT].filter((n) => n.startsWith('apps/qa/') && !GEAENDERT_KANON.has(n) && n !== 'apps/qa/test/ui/funktionsliste.test.ts');
+    const fehlend = [...GIT].filter((n) => n.startsWith('apps/qa/') && !n.startsWith('docs/') && !n.startsWith('.superpowers/') && !GEAENDERT_KANON.has(n) && n !== 'apps/qa/test/ui/funktionsliste.test.ts');
     ok(fehlend.length === 0, `QA Funktionsliste: GEAENDERT nennt alle seit ${ERHEBUNG} geänderten Dateien von apps/qa (fehlt: ${fehlend.join(', ') || 'nichts'})`);
     const pakete = [...GIT].filter((n) => !n.startsWith('apps/qa/') && !n.startsWith('docs/') && !n.startsWith('.superpowers/'));
     const zitiert = alle.filter((z) => UNVERAENDERT.test(z.zellen[6].slice(2))).flatMap((z) => [...z.zellen[6].matchAll(PFAD)].map((m) => kanon(m[1])));
