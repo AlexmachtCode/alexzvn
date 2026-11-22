@@ -16,7 +16,7 @@ import {
 } from '@jm/settings';
 import { masterLinkStatusItem, unbekannt, type StatusItem } from '@jm/ui';
 import { portBelegt, STEUER_PORT, type FernsteuerungMeldung } from '@shared/fernsteuerung';
-import type { CaptionState, MasterLinkMeldungZeile } from '@shared/types';
+import type { CaptionConfig, CaptionState, MasterLinkMeldungZeile, WhisperModelId } from '@shared/types';
 
 /** Abschnitts-ids = Panel-Anker (`einstellung-{id}`) = settingsSection der Statuseinträge. `erkennung` und `darstellung` sind tool-eigen. */
 export const ABSCHNITT = {
@@ -38,8 +38,34 @@ export const CAPTION_TEXTE = {
   grund: { zustandOffen: 'Lädt …' },
   /** Statuseintrag der NDI-Ausgabe (kurz, wie die Taste „NDI“). */
   ndi: { titel: 'NDI' },
-  /** Mikrofon: Titel des Statuseintrags, Beschriftung der Wahl (Tooltip des alten Felds) und die Option für die leere ID. */
-  mikrofon: { titel: 'Mikrofon', wahl: 'Audio-Eingang (Mikrofon)', standard: 'System-Standard (Mikrofon)' },
+  /**
+   * Mikrofon: Titel des Statuseintrags, Beschriftung der Wahl (Tooltip des alten Felds), die Option für die leere ID und der Name
+   * eines Eingangs ohne Namen (wie bisher, App.tsx:172, Zählung ab 1).
+   */
+  mikrofon: { titel: 'Mikrofon', wahl: 'Audio-Eingang (Mikrofon)', standard: 'System-Standard (Mikrofon)', ohneName: (n: number) => `Audiogerät ${n}` },
+  /** Live-Bereich: Wortlaut wie bisher (App.tsx:332-407); „Mikrofon: …“ steht jetzt als Text unter den Haupttasten (E9). */
+  live: {
+    bereit: '— bereit —',
+    vorschau: 'NDI-Vorschau',
+    eingefroren: 'eingefroren',
+    pegel: 'Pegel',
+    zeilen: (n: number) => `${n} Zeilen`,
+    keineZeilen: 'Noch keine Untertitel.',
+    korrigieren: 'Doppelklick: letzte Zeile korrigieren',
+    mikrofonFehler: (meldung: string) => `Mikrofon: ${meldung}`,
+  },
+  /** Panel-Abschnitt Erkennung (vorher Kopfleiste und Klappe „Erweitert“); neu sind nur Titel, „Modell“ und „Sprache“. */
+  erkennung: {
+    titel: 'Erkennung',
+    modell: 'Modell',
+    sprache: 'Sprache',
+    engine: 'Engine',
+    woerterbuch: 'Fachwörter-Wörterbuch (eine je Zeile)',
+    woerterbuchPlatzhalter: 'z. B.\nJakobs Medien\niveo\nNITROVON',
+    maxAeusserung: 'Max. Äußerung (s)',
+  },
+  /** Panel-Abschnitt Darstellung (vorher NDI-Leiste); neu ist nur der Titel. */
+  darstellung: { titel: 'Darstellung', schrift: 'Schrift', zeilen: 'Zeilen', band: 'Band' },
   /** Whisper: „transkribiert …“ wie das Wort neben dem Pegel (App.tsx:370); der lange Hinweis wie das gelbe Band (App.tsx:323-325). */
   whisper: {
     titel: 'Whisper',
@@ -63,6 +89,31 @@ export const AUFLOESUNGEN = [
 
 /** Bildraten der NDI-Ausgabe (wie bisher, App.tsx:244). */
 export const BILDRATEN = [25, 30, 50, 60] as const;
+
+/** Whisper-Modelle (wie `MODELS`, App.tsx:7-13). */
+export const MODELLE: ReadonlyArray<{ id: WhisperModelId; label: string }> = [
+  { id: 'tiny', label: 'Tiny (schnell)' },
+  { id: 'base', label: 'Base' },
+  { id: 'small', label: 'Small' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'large-v3', label: 'Large v3 (genau)' },
+];
+
+/** Sprachen der Erkennung (wie `LANGS`, App.tsx:14-18). */
+export const SPRACHEN: ReadonlyArray<{ id: string; label: string }> = [
+  { id: 'de', label: 'Deutsch' },
+  { id: 'en', label: 'Englisch' },
+  { id: 'auto', label: 'Auto-Erkennung' },
+];
+
+/** Engines der Erkennung (wie die Auswahl „Engine“, App.tsx:307-308). */
+export const ENGINES: ReadonlyArray<{ id: CaptionConfig['engine']; label: string }> = [
+  { id: 'server', label: 'Server (schnell, Modell bleibt geladen)' },
+  { id: 'cli', label: 'CLI (pro Äußerung)' },
+];
+
+/** Zeilen der NDI-Darstellung (wie bisher, App.tsx:259). */
+export const NDI_ZEILEN = [1, 2, 3] as const;
 
 /** Ein Audio-Eingang der gemessenen Liste (die View übersetzt MediaDeviceInfo: id = deviceId, label wie die alte Auswahl). */
 export interface MikrofonGeraet {

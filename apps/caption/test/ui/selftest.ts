@@ -19,4 +19,7 @@ await lade('werkzeug', () => import('./werkzeug.test'));
 await lade('bruecken', () => import('./bruecken.test'));
 await lade('ndi', () => import('./ndi.test'));
 await lade('oberflaeche', () => import('./oberflaeche.test'));
+await lade('rahmen', () => import('./rahmen.test'));
+await lade('panel', () => import('./panel.test'));
+await lade('live', () => import('./live.test'));
 abschluss();

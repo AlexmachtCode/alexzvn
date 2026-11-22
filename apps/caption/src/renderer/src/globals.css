@@ -46,3 +46,10 @@ select {
 button {
   font-family: inherit;
 }
+
+/* Schachbrett hinter der NDI-Vorschau: zeigt die Transparenz der Quelle (vorher #2a2a2a/#1c1c1c im App.tsx). Aus Tokens,
+   damit es auch in Hell passt; das NDI-Bild selbst (lib/caption-cg.ts) bleibt unberührt. */
+.ca-schachbrett {
+  background-image: repeating-conic-gradient(var(--muted) 0% 25%, var(--card) 0% 50%);
+  background-size: 16px 16px;
+}
