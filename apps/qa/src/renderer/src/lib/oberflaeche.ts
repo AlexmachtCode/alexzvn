@@ -53,9 +53,64 @@ export const QA_TEXTE = {
   },
   /** Extern in der Statusleiste: Titel wie der Panel-Abschnitt (E14); „aus“, „bereit“ und „nicht eingerichtet“ kommen aus @jm/settings. */
   extern: { titel: 'Extern', an: 'an' },
-  /** Gegenstellen im Panel: „gefunden:“ steht vor der gemessenen Adresse eines mDNS-Fundes. */
-  gegenstellen: { gefunden: 'gefunden:' },
+  /**
+   * Gegenstellen im Panel: „gefunden:“ steht vor der gemessenen Adresse eines mDNS-Fundes; der Satz „Q&A koppelt …“ ist der erste
+   * Satz des Erklärtexts im alten Modal ConnectionsPanel (der Rest steht als PEERS_TEXTE.erklaerung in @jm/settings).
+   */
+  gegenstellen: { gefunden: 'gefunden:', erklaerung: 'Q&A koppelt Redezeit an den JM Timer und die Bauchbinde an den JM Titler.' },
+  /** Titel der tool-eigenen Panel-Abschnitte (Anhang A „Q&A“). Der Titel „Extern“ steht unter `extern`. */
+  titel: { redezeit: 'Redezeit und Kopplung', moderation: 'Moderation' },
+  /** Erklärtext der alten Kopplungskarte (App.tsx), jetzt Beschreibung des Abschnitts „Redezeit und Kopplung“: wörtlich wie bisher. */
+  kopplung: {
+    erklaerung:
+      'Standardmäßig aktiv: Redezeit (Timer) und Bauchbinde (Titler) werden beim Ans-Wort-Holen automatisch gesteuert — hier pro Werkzeug mit einem Klick umschaltbar.',
+  },
+  /** Leertext des Live-Elements (ActivePanel.tsx): wörtlich wie bisher, nur „Nächste“ mit typografischen Anführungszeichen (R9: vorher ein ASCII-Zeichen). */
+  leer: 'Niemand am Wort. „Nächste“ ruft die erste Wortmeldung auf.',
 } as const;
+
+/**
+ * Kleinste sinnvolle Breite einer Haupttaste in px, wie beim Rundown (Transport): Beschriftung, Innenabstand px-4 und Rand 2×2;
+ * längere Beschriftungen („Saal-Einreichung ○ Aus“) brechen in der Taste um. Geschätzt aus den Schriftmaßen, nicht im Fenster gemessen.
+ */
+export const TASTEN_MIN_BREITE = 140;
+
+/** Containerbreite, ab der Beenden und Saal nebeneinander unter „Nächste“ stehen: 2×140 + Lücke 12 (gap-3) = 292 px. Steht als `@[292px]` in LiveBereich.tsx. */
+export const TASTEN_ZWEI_BREITE = 2 * TASTEN_MIN_BREITE + 12;
+
+/** Containerbreite, ab der alle drei Tasten nebeneinander stehen: 3×140 + 2 Lücken à 12 = 444 px. Steht als `@[444px]` in LiveBereich.tsx. */
+export const TASTEN_DREI_BREITE = 3 * TASTEN_MIN_BREITE + 2 * 12;
+
+/**
+ * Anordnung der drei Haupttasten nach Breite der Inhaltsbox (Container-Query, kein Viewport): ab 444 px eine Reihe, ab 292 px
+ * „Nächste“ breit oben und Beenden, Saal nebeneinander darunter, darunter gestapelt. Nie zwei Tasten und eine Waise ohne breite
+ * erste Taste.
+ */
+export function tastenAnordnung(containerBreite: number): 'reihe' | 'erste-oben' | 'gestapelt' {
+  return containerBreite >= TASTEN_DREI_BREITE ? 'reihe' : containerBreite >= TASTEN_ZWEI_BREITE ? 'erste-oben' : 'gestapelt';
+}
+
+/**
+ * Fenster in px für die Rechnung des Live-Bereichs: Mindestbreite des Fensters (main/index.ts, Außenmaß), davon der Windows-Rahmen
+ * (Annahme 16 = 2×8 unsichtbare Ränder; nicht gemessen), Einstellungs-Panel --panel-w, seine Trennlinie und der Innenabstand p-4
+ * des Live-Bereichs (2×16). Das Panel liegt ab 900 px Fensterbreite neben dem Inhalt.
+ */
+export const FENSTER_LAYOUT = { fensterMin: 960, rahmen: 16, panel: 360, trennlinie: 1, innen: 32 } as const;
+
+/**
+ * Spalten unter den Haupttasten in px: die rechte Spalte (QR-Karten, 180 px QR + Kartenrand und Innenabstand 2×13 = 206, aufgerundet
+ * 256 für die Adresszeilen), die Lücke gap-4 und die Mindestbreite der linken Spalte (Wartezeile: Name und Knöpfe brechen um, die
+ * Felder des Formulars brauchen etwa 2×170 + Lücke).
+ */
+export const LIVE_LAYOUT = { rechts: 256, luecke: 16, linksMin: 368 } as const;
+
+/** Containerbreite, ab der die QR-Karten neben statt unter der Warteschlange stehen: 368 + 16 + 256 = 640 px. Steht als `@[640px]` in LiveBereich.tsx. */
+export const LIVE_ZWEI_SPALTEN_BREITE = LIVE_LAYOUT.linksMin + LIVE_LAYOUT.luecke + LIVE_LAYOUT.rechts;
+
+/** Eine oder zwei Spalten unter den Haupttasten nach Breite der Inhaltsbox: darunter stehen die QR-Karten unter der Warteschlange und scrollen mit ihr. */
+export function liveSpalten(containerBreite: number): 1 | 2 {
+  return containerBreite >= LIVE_ZWEI_SPALTEN_BREITE ? 2 : 1;
+}
 
 /** Der Q&A-Stand samt der gemessenen Meldungen; jede Meldung: undefined = noch keine Antwort, null = keine Brücke. */
 export interface OberflaechenStand {
