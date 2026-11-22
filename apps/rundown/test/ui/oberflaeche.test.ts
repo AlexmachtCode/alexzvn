@@ -55,7 +55,8 @@ const SPEAKER = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `Spr
     stand({ state: basisState({ showGemerkt: f.gemerkt, showMitIveo: f.mitIveo, iveoSpeakers: SPEAKER(f.n) }) });
   pruefeFaelle('RD Statusleiste iveo: keine Show off, Show ohne iveo off, Show mit n Speakern ok mit Zahl', faelle, (f) => {
     const i = eintrag(props(f), 'iveo');
-    const kopf = i.group !== 'verbindung' || i.label !== 'iveo' || i.settingsSection !== ABSCHNITT.iveo ? 'Kopf falsch' : null;
+    // Fund C1: Der Abschnitt iveo zeigt die Bindung nur (Show und Speaker kommen vom Launcher bzw. Main) → reine Anzeige.
+    const kopf = i.group !== 'verbindung' || i.label !== 'iveo' || 'settingsSection' in i ? 'Kopf falsch' : null;
     if (!(f.gemerkt && f.mitIveo)) return vergleiche(sd(i), `off ${f.gemerkt ? RUNDOWN_TEXTE.iveo.showOhneIveo : RUNDOWN_TEXTE.iveo.keineShow} · nicht eingerichtet`) ?? kopf;
     // Gebunden: ohne Speaker unbekannt (nie ok), mit Speakern ok und die Zahl.
     return vergleiche(sd(i), f.n > 0 ? 'ok 3 Speaker' : 'off unbekannt') ?? kopf;
@@ -243,7 +244,8 @@ const SPEAKER = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `Spr
   };
   pruefeFaelle('RD Statusleiste fernsteuerung: Meldung × Modus → unbekannt, aus, Port belegt, Fehler, bereit n verbunden', faelle, (f) => {
     const i = eintrag(props(f), 'fernsteuerung');
-    return vergleiche(sd(i), FERN[f.meldung]) ?? (i.group !== 'fernsteuerung' || i.settingsSection !== ABSCHNITT.fernsteuerung ? 'Kopf falsch' : null);
+    // Fund C1: Port fest (8731), kein Schalter; der Abschnitt zeigt dieselbe Lage nur an → reine Anzeige, kein Sprung.
+    return vergleiche(sd(i), FERN[f.meldung]) ?? (i.group !== 'fernsteuerung' || 'settingsSection' in i ? 'Kopf falsch' : null);
   });
   pruefeFaelle('RD Fernsteuerung-Abschnitt: Port 8731, nur Status (kein Port-Feld, kein Schalter, kein Launcher-Knopf)', faelle, (f) => {
     const p = fernsteuerungAbschnitt(props(f));

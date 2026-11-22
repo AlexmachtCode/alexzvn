@@ -260,7 +260,16 @@ function iveoItem(s: OberflaechenStand): StatusItem {
     : s.state.showGemerkt
       ? RUNDOWN_TEXTE.iveo.showOhneIveo
       : RUNDOWN_TEXTE.iveo.keineShow;
-  return abschnittStatusItem(iveoView(p), { group: 'verbindung', label: IVEO_TEXTE.titel, detail });
+  // Reine Anzeige (C1): Der Abschnitt iveo zeigt die Bindung nur, ändern lässt sie sich im Rundown nicht (Show vom Launcher).
+  return nurAnzeige(abschnittStatusItem(iveoView(p), { group: 'verbindung', label: IVEO_TEXTE.titel, detail }));
+}
+
+/**
+ * Ein Eintrag als reine Anzeige (C1): ohne Sprungziel, weil der Abschnitt im Panel dieselbe Lage nur zeigt (iveo; Fernsteuerung mit
+ * festem Port 8731 und ohne Schalter, eingerichtet im Launcher).
+ */
+function nurAnzeige(i: StatusItem): StatusItem {
+  return { id: i.id, group: i.group, label: i.label, state: i.state, ...(i.detail !== undefined ? { detail: i.detail } : {}) };
 }
 
 /**
@@ -289,7 +298,7 @@ export function statusLeiste(s: OberflaechenStand): StatusItem[] {
     masterLinkStatusItem(s.masterLink),
     iveoItem(s),
     ...s.state.links.map(linkItem),
-    abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel }),
+    nurAnzeige(abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel })),
   ];
 }
 

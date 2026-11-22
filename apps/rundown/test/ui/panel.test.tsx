@@ -35,8 +35,9 @@ const titel = (html: string): string[] => [...html.matchAll(/<h3[^>]*>([^<]*)<\/
   gleich(titel(html), [IVEO_TEXTE.titel, REMOTE_TEXTE.titel, PEERS_TEXTE.titel], 'RD Panel Abschnitte: iveo, Fernsteuerung, Gegenstellen in der Reihenfolge von ABSCHNITT (Anhang A, E11, E12)');
   const links = [{ role: 'switcher', label: 'JM Switcher', host: '10.0.0.7', port: 8721, connected: true, source: 'mdns' as const, state: null }];
   const ziele = statusLeiste(stand({ state: basisState({ links }) })).map((i) => i.settingsSection).filter((z): z is string => typeof z === 'string');
-  gleich(ziele.filter((z) => !html.includes(`id="einstellung-${z}"`)), [], 'RD Panel Abschnitte: jeder Statuseintrag mit Abschnitt (iveo, link-<rolle>, fernsteuerung) findet seinen Anker');
-  gleich(ziele, [ABSCHNITT.iveo, ABSCHNITT.gegenstellen, ABSCHNITT.fernsteuerung], 'RD Panel Abschnitte: drei Statuseinträge springen ins Panel (Master-Link nicht)');
+  gleich(ziele.filter((z) => !html.includes(`id="einstellung-${z}"`)), [], 'RD Panel Abschnitte: jeder Statuseintrag mit Abschnitt (link-<rolle>) findet seinen Anker');
+  // Fund C1: nur Einträge, deren Zustand der Abschnitt ändern kann (Host setzen oder Auto); iveo und Fernsteuerung zeigen nur an.
+  gleich(ziele, [ABSCHNITT.gegenstellen], 'RD Panel Abschnitte: nur die Tool-Einträge springen ins Panel (Gegenstellen); Master-Link, iveo und Fernsteuerung nicht');
   pruefeIdVerweise(html, 'RD Panel Abschnitte: id-Verweise gültig');
   ok(!text(html).includes('"'), 'RD Panel Abschnitte: kein ASCII-Anführungszeichen in den Texten des Panels');
 }
