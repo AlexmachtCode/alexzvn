@@ -6,6 +6,8 @@
 // FFmpeg (@jm/media) aus einer Aufnahmedatei. Autoritativer Zustand im Main →
 // auch per BATTLE-Steuerserver/Companion bedienbar.
 
+import type { FernsteuerungMeldung } from './fernsteuerung';
+
 export type Side = 'A' | 'B';
 
 export interface Competitor {
@@ -87,6 +89,19 @@ export interface BattleState {
   clips: ClipJob[];
 }
 
+/**
+ * Master-Link-Meldung über die Preload-Brücke (UX Welle 1, Spec 3.9): Zustand des Clients oder `ohne-client`.
+ * Strukturgleich mit `MasterLinkMeldung` aus `@jm/app-runtime`; eigener Typ, damit der Renderer kein Main-Paket lädt.
+ * Den Gleichlauf prüft die Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
+
 // ── Preload-API (window.jmbattle) ────────────────────────────────────────────
 export interface JmBattleApi {
   platform: string;
@@ -114,4 +129,12 @@ export interface JmBattleApi {
   pickRecording: () => Promise<BattleState>;
   pickClipDir: () => Promise<BattleState>;
   clip: (seconds?: number) => Promise<BattleState>;
+
+  // Status-Brücken (UX Welle 1, Spec 3.9), nur lesend
+  /** Master-Link-Zustand; null, wenn der Handler fehlt oder ablehnt. */
+  masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+  onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
+  /** Meldung des Steuerservers (Port 8734): null, solange Main noch nichts gemeldet hat. */
+  fernsteuerung: () => Promise<FernsteuerungMeldung | null>;
+  onFernsteuerung: (cb: (m: FernsteuerungMeldung | null) => void) => () => void;
 }

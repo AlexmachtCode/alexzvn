@@ -91,6 +91,9 @@ jobs:
       # Anmeldung im Launcher, Teil 1 (P29): Queue und Zugang zum Cloud-Relay, zwei Glieder unter strip-types, ohne Electron.
       - name: Q&A (Queue, Zugang zum Cloud-Relay)
         run: npm run selftest -w @jm/qa
+      # UX Welle 1: Battle (Scoring, Brücken, Oberflächentests), ohne Electron.
+      - name: Battle (Scoring, Brücken, Oberfläche)
+        run: npm run selftest -w @jm/battle
       # Zoom Stage 4a (Spec 12.6). Keiner dieser Tests lädt Electron oder braucht das Zoom-SDK.
       - name: Zoom-Bridge (Protokoll, Zustand, Attrappe — ohne SDK)
         run: npm run selftest -w @jm/zoom-bridge
