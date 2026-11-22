@@ -3814,7 +3814,7 @@
         "troubleshooting": [
           {
             "risk": "Tool wird nicht gefunden",
-            "remedy": "Statusleiste: Eintrag des Tools fehlt oder ist nicht verbunden; im Panel ⚙ › Gegenstellen steht es dann auf „nicht gefunden“. Gleiches Subnetz? Tool gestartet? mDNS/Firewall frei? Der ctl=1-Endpunkt jm-<tool>-ctl muss sichtbar sein"
+            "remedy": "Statusleiste: Eintrag des Tools fehlt oder ist nicht verbunden; im Panel ⚙ › Gegenstellen steht es dann auf „nicht gefunden“ (kein Eintrag im Netz), „gefunden · nicht verbunden“ oder „manuell: ‹Host›:‹Port› · nicht verbunden“. Gleiches Subnetz? Tool gestartet? mDNS/Firewall frei? Der ctl=1-Endpunkt jm-<tool>-ctl muss sichtbar sein"
           },
           {
             "risk": "GO feuert nicht alle Aktionen",
@@ -4217,7 +4217,7 @@
           },
           {
             "risk": "Kein Ton im Stream",
-            "remedy": "Audioquelle im Panel ⚙ › Audiogerät zugeordnet (Statusleiste „Audio“)? Pegel/Mute in der Ausgabeleiste prüfen"
+            "remedy": "Audioquelle im Panel ⚙ › Audiogerät zugeordnet (Statusleiste „Audio“)? Pegel/Mute in der Ausgabeleiste prüfen. Steht „Fehler: Gerät getrennt“, das Gerät wieder einstecken: Der Switcher verbindet es von selbst."
           }
         ],
         "checklists": [

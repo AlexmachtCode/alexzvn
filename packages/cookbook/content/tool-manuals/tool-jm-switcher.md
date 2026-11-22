@@ -72,7 +72,7 @@ summary: "Softwarebasierter Video-Mischer mit Program/Preview, NDI-/Capture-/Bil
 | Kein Bild von der Capture-Karte | Treiber prüfen, Gerät nicht von anderem Programm belegt |
 | Companion steuert nicht | Statusleiste „Fernsteuerung“ ansehen: Steuerport im Panel ⚙ › Fernsteuerung aktiviert? Gleicher Port in Companion? Gemeinsames LAN? |
 | Stream bricht ab | Bitrate senken, Upload prüfen, Backup-Uplink bereithalten |
-| Kein Ton im Stream | Audioquelle im Panel ⚙ › Audiogerät zugeordnet (Statusleiste „Audio“)? Pegel/Mute in der Ausgabeleiste prüfen |
+| Kein Ton im Stream | Audioquelle im Panel ⚙ › Audiogerät zugeordnet (Statusleiste „Audio“)? Pegel/Mute in der Ausgabeleiste prüfen. Steht „Fehler: Gerät getrennt“, das Gerät wieder einstecken: Der Switcher verbindet es von selbst. |
 
 ## Checklisten
 

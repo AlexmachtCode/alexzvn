@@ -92,7 +92,9 @@ export function SwitcherView({ onOpenSettings, onFrame }: SwitcherViewProps) {
       audio.subscribe(() => {
         const a = audio.getState();
         setAudioFrame((alt) =>
-          alt.hasDevice === a.hasDevice && alt.muted === a.muted && alt.gain === a.gain && alt.error === a.error ? alt : { ...a, level: 0 },
+          alt.hasDevice === a.hasDevice && alt.muted === a.muted && alt.gain === a.gain && alt.error === a.error && alt.getrennt === a.getrennt
+            ? alt
+            : { ...a, level: 0 },
         );
       }),
     [audio],
@@ -905,7 +907,8 @@ function AudioStrip({
   const shown = Math.min(1, s.level * 2.5); // RMS perzeptiv skalieren
   const pct = Math.round(shown * 100);
 
-  if (!s.hasDevice) {
+  // Getrennt (0.12.1): Mute und Pegel bleiben, damit man vor der Rückkehr des Geräts stummschalten kann.
+  if (!s.hasDevice && !s.getrennt) {
     return (
       <button
         type="button"

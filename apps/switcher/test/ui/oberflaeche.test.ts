@@ -180,7 +180,7 @@ function aufzeichner(): { log: unknown[]; a: SwitcherAktionen } {
   });
 }
 
-// ── Audio: kein Gerät · Gerät · Gerät nicht gefunden · stumm · Fehler ──
+// ── Audio: kein Gerät · Gerät · Gerät nicht gefunden · stumm · Fehler · getrennt (0.12.1: Spur endete, Gerät abgezogen) ──
 {
   const faelle = kreuz({
     liste: ['unbekannt', 'leer', 'mikro'],
@@ -188,11 +188,14 @@ function aufzeichner(): { log: unknown[]; a: SwitcherAktionen } {
     hasDevice: [false, true],
     muted: [false, true],
     fehler: [null, 'Permission denied'],
+    getrennt: [false, true],
   } as const);
   const LISTEN = { unbekannt: undefined, leer: [], mikro: [{ id: 'mic1', label: 'Mikrofon 1' }] } as const;
   const soll = (f: (typeof faelle)[number]): string => {
     const gefunden = f.liste === 'mikro' && f.wahl === 'mic1';
     const fehlt = f.wahl !== '' && f.liste !== 'unbekannt' && !gefunden;
+    // Getrennt geht vor: Auch wenn das Gerät in der neu gelesenen Liste fehlt, nennt die Leiste den genauen Grund (Fund 3).
+    if (f.getrennt) return 'error Fehler: Gerät getrennt';
     if (f.fehler !== null && !fehlt) return `error Fehler: ${f.fehler}`;
     if (f.liste === 'unbekannt') return 'off unbekannt';
     if (f.wahl === '') return 'warn kein Gerät gewählt';
@@ -204,9 +207,9 @@ function aufzeichner(): { log: unknown[]; a: SwitcherAktionen } {
     basisStand({
       settings: basisEinstellungen({ audioInputId: f.wahl }),
       audioGeraete: LISTEN[f.liste] as OberflaechenStand['audioGeraete'],
-      audio: { hasDevice: f.hasDevice, muted: f.muted, gain: 1, level: 0, error: f.fehler },
+      audio: { hasDevice: f.hasDevice, muted: f.muted, gain: 1, level: 0, error: f.fehler, getrennt: f.getrennt },
     });
-  pruefeFaelle('SW Statusleiste audio: Liste × Wahl × Graph × stumm × Fehler → Tabelle', faelle, (f) => vergleiche(sd(eintrag(props(f), 'audio')), soll(f)));
+  pruefeFaelle('SW Statusleiste audio: Liste × Wahl × Graph × stumm × Fehler × getrennt → Tabelle', faelle, (f) => vergleiche(sd(eintrag(props(f), 'audio')), soll(f)));
   pruefeFaelle('SW Audio-Abschnitt: eine Wahl „Programm-Audio“, Option „Kein Ton“ bleibt, Gerätewechsel und Aktualisieren als Aktion', faelle, (f) => {
     const { log, a } = aufzeichner();
     const p = audioAbschnitt(props(f), a);

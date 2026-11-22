@@ -70,7 +70,7 @@ Keine Funktion fällt weg, aber an diesen Stellen verhält sich die Bedienung an
 | TI4a | Master: wie SW4a (Einzelplatz, A, B, Launcher an A beenden und wieder starten). | wie SW4a | |
 | TI4b | Sync: den Timer starten; im Browser eines Geräts im LAN `http://⟨host-ip⟩:7777/?view=remote` öffnen; die Verbindung trennen (WLAN am Gerät aus). | „Sync“ zeigt „Verbunden mit JM Timer-Sync“, solange das erste Ereignis da ist; vorher ○ „unbekannt“, nie sofort ●. Bei getrennter Verbindung „Keine Verbindung“. | |
 | TI4c | Speaker-Fenster: mit dem Speaker-Knopf öffnen und schließen; zum Schluss das Fenster mit dem Rahmen schließen. | „Fenster offen“ bzw. „Fenster zu“; der Speaker-Knopf in der Kopfzeile zeigt „Open Speaker“ bzw. „Speaker · Open“. Unter ⚙ › Speaker-Fenster stehen der Hinweis „Öffnet auf dem zweiten Bildschirm, falls vorhanden.“ und „Speaker-Fenster öffnen“ bzw. „schließen“. | |
-| TI4d | Fernsteuerung: Port 8724 mit einem anderen Programm belegen, Timer starten; danach den Timer neu starten und Companion verbinden. | Mit belegtem Port ⚠ „Port belegt“; sonst „bereit · ⟨n⟩ verbunden“, mit Companion steigt ⟨n⟩ um 1. Der Port 8724 ist fest; unter ⚙ › Fernsteuerung stehen Steuerserver, Modus und Port (ein Hinweis auf das Companion-Modul steht dort nicht). | |
+| TI4d | Fernsteuerung: Port 8724 mit einem anderen Programm belegen, Timer starten; danach den Timer neu starten und Companion verbinden. | Mit belegtem Port ⚠ „Port belegt“; sonst „bereit · ⟨n⟩ verbunden“, mit Companion steigt ⟨n⟩ um 1. Der Port 8724 ist fest; unter ⚙ › Fernsteuerung stehen Modus, Port, bei laufendem Server Verbunden, und „Im Launcher einrichten“ (eine Zeile Steuerserver und ein Hinweis auf das Companion-Modul stehen dort nicht). | |
 | TI5a | Haupttasten mit der Maus: „Start“, „Pause“, „Resume“, „Reset“; im Ablauf „← Prev“ am ersten und „Next →“ am letzten Punkt; „Reset“ im Leerlauf. | „Start“ wird zu „Pause“ und nach der Pause zu „Resume“. Gesperrt mit Grund: „Erster Programmpunkt“, „Letzter Programmpunkt“, „Keine Programmpunkte“, „Nichts zurückzusetzen“. | |
 | TI5b | Kürzel: im Countdown Leertaste (Start/Pause) und R (Reset) drücken, mit dem Fokus nicht in einem Feld. Dasselbe in Clock und Timetable. | Im Countdown wirken Leertaste und R; die Kürzel „Leertaste“ und „R“ stehen auf den Tasten. In Clock und Timetable bleiben sie ohne Wirkung. Keine neuen Kürzel. | |
 | TI5c | Fernsteuerung (Companion oder Telnet im Modus „offen“): `TIMER START`, `TIMER STOP`, `TIMER RESET`, `TIMER ADD 60`, `TIMER SET 300`, `TIMER GOTO 2`, `STATE?`. | Die Befehle wirken wie vor dem Umbau; Anzeige und Haupttasten folgen. | |
@@ -152,6 +152,20 @@ Keine Funktion fällt weg, aber an diesen Stellen verhält sich die Bedienung an
 | BAZ3 | Zurücksetzen: unter ⚙ › Zurücksetzen „Battle zurücksetzen“ bei laufendem VS; erst „Abbrechen“, dann bestätigen. | Die Rückfrage lautet „Battle zurücksetzen? Runden/Stimmen werden geleert (Namen bleiben). Ein laufendes VS geht aus.“ Abbrechen tut nichts. Nach dem Bestätigen: Runde 1, Voting zu, VS aus; Namen und Einstellungen bleiben. | |
 | BAZ4 | Zahlenfelder Länge und Runden: siehe G1 und G2; die Runden auf 4 und zurück auf 3 setzen. | Wie G1 und G2; die Rundenliste passt sich an, Ergebnisse bleibender Runden bleiben. | |
 | BAZ5 | Instant-Replay: Quelle wählen, Zielordner wählen, „⧉ Clip“ drücken, die Clip-Liste ansehen. | Der Clip entsteht im Zielordner (`replay-R⟨Runde⟩-⟨Zeit⟩`); die Karte „Instant-Replay“ zeigt Quelle und Liste; Fehlertexte (z. B. Quelle fehlt) stehen in der Liste. | |
+
+## Nachtrag Switcher 0.12.1 · Audiogerät abziehen (nur mit echtem Gerät prüfbar)
+
+Die Selbsttests prüfen das Verhalten mit nachgebildeten Geräten. Ob Electron das Abziehen so meldet, zeigt nur ein echtes USB-Audiogerät.
+
+| Nr. | Schritt | Erwartet | Ergebnis |
+| --- | --- | --- | --- |
+| SW-A1a | Aufnahme und Stream starten, das gewählte USB-Audiogerät abziehen. | Statusleiste „Audio“ ✕ „Fehler: Gerät getrennt“. Im Mischer bleiben Stumm und Pegel (Pegel 0), kein „Ton wählen“. | |
+| SW-A1b | Dasselbe Gerät am selben Anschluss wieder einstecken; danach Aufnahme und Stream stoppen und die Datei anhören. | Nach höchstens etwa 2 s ● mit dem Gerätenamen, der Pegel bewegt sich. Die Aufnahme hat nach dem Wiedereinstecken wieder Ton. | |
+| SW-A1c | Gerät an einem anderen Anschluss einstecken. | Je nach Gerät ● wie in SW-A1b oder weiter ✕, bis Du es unter ⚙ › Audiogerät neu wählst. Ergebnis mit Gerätename eintragen. | |
+| SW-A1d | „Standard - …“ als Audiogerät wählen, das Gerät abziehen (ein anderes Mikrofon bleibt angeschlossen). | ✕ „Fehler: Gerät getrennt“ bleibt; das andere Mikrofon kommt nicht auf Sendung. Danach dasselbe Gerät wieder einstecken, bis es wieder Standard ist, und eintragen, ob ● zurückkommt. | |
+| SW-A1e | Abtastrate des Interfaces in seiner Systemsteuerung ändern, während der Switcher es nutzt. | Kurz ✕, danach von selbst wieder ● (Eindruck eintragen). | |
+| SW-A1f | Switcher ohne das gewählte Gerät starten, dann das Gerät einstecken. | Erst ✕ „Gerät nicht gefunden“, nach dem Einstecken von selbst ●. Eine Aufnahme oder Sendung, die vorher startete, hat keinen Ton; nach ● neu starten (kein Fehler). | |
+| SW-A1g | Switcher ohne das gewählte Gerät starten, unter ⚙ › Audiogerät „— Kein Ton (stille Spur) —“ wählen, dann das Gerät einstecken. | ▲ „kein Gerät gewählt“ bleibt, kein Pegel: Das abgewählte Gerät öffnet nicht von selbst. | |
 
 ## Hinweise zur Abnahme
 

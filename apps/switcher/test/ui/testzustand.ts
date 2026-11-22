@@ -57,7 +57,7 @@ export function basisStand(z: Partial<OberflaechenStand> = {}): OberflaechenStan
     settings: basisEinstellungen(),
     output: { recording: false, streaming: false, recPath: null, error: null, errorScope: null },
     ndi: { active: false, name: '', connections: 0, error: null },
-    audio: { hasDevice: false, muted: false, gain: 1, level: 0, error: null },
+    audio: { hasDevice: false, muted: false, gain: 1, level: 0, error: null, getrennt: false },
     audioGeraete: [{ id: 'mic1', label: 'Mikrofon 1' }],
     displays: [PRIMAERER_MONITOR, ZWEITER_MONITOR],
     masterLink: { art: 'aus' },
