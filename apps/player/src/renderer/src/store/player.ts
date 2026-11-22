@@ -152,8 +152,9 @@ interface PlayerStore {
   /** Cue-IDs, die gerade klingen oder im Pre-Wait stehen. */
   playingCueIds: number[];
   /**
-   * Cue-IDs, die gerade im Pre-Wait (Vorlaufzeit) stehen (UX Welle 2a, W2-1): gesetzt beim Start der Vorlaufzeit, geleert
-   * an ihrem Ende, bei Stop und bei Panik. Sie stehen zugleich in `playingCueIds` (Companion zählt sie wie bisher).
+   * Cue-IDs, die gerade im Pre-Wait (Vorlaufzeit) stehen (UX Welle 2a, W2-1): gesetzt beim Start der Vorlaufzeit (nicht,
+   * wenn der Cue dabei noch klingt), geleert an ihrem Ende, bei Stop und bei Panik. Sie stehen zugleich in `playingCueIds`
+   * (Companion zählt sie wie bisher).
    */
   vorlaufCueIds: number[];
   showPaused: boolean;
@@ -535,11 +536,16 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
     };
 
     if (cue.preWaitSec > 0) {
-      // „pending“: zählt für Companion als spielt (playingCueIds), steht zugleich im Vorlauf (vorlaufCueIds, W2-1).
-      set((s) => ({
-        playingCueIds: [...new Set([...s.playingCueIds, cue.id])],
-        vorlaufCueIds: [...new Set([...s.vorlaufCueIds, cue.id])],
-      }));
+      // „pending“: zählt für Companion als spielt (playingCueIds), steht zugleich im Vorlauf (vorlaufCueIds, W2-1). Klingt der
+      // Cue schon (erneut gefeuert nach seinem Vorlauf), kommt er nicht in den Vorlauf: showAudio löst die alte Instanz erst
+      // bei play ab, bis dahin klingt sie weiter (Fix-Runde 1, Review Important 1).
+      set((s) => {
+        const klingt = s.playingCueIds.includes(cue.id) && !s.vorlaufCueIds.includes(cue.id);
+        return {
+          playingCueIds: [...new Set([...s.playingCueIds, cue.id])],
+          vorlaufCueIds: klingt ? s.vorlaufCueIds : [...new Set([...s.vorlaufCueIds, cue.id])],
+        };
+      });
       const t = setTimeout(() => {
         showTimers.delete(t);
         startNow();
@@ -571,9 +577,10 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
   },
 
   showPanic: () => {
-    panikDerShow(set);
     // W2-10: Panik stoppt zusätzlich die Pads (Knopf „Panik“ und Companion `panic`); Stop stoppt sie weiterhin nicht.
+    // Zuerst, weil eigene Maschine: wirft danach ein Ausgabebefehl oder ein Store-Hörer, laufen die Pads nicht weiter.
     cueEngine.stopAll();
+    panikDerShow(set);
   },
 
   showTogglePause: () => {

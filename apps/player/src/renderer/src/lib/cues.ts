@@ -13,6 +13,8 @@ class CueEngine {
   private buffers = new Map<number, AudioBuffer>(); // key = mediaId
   private active = new Map<number, AudioBufferSourceNode>(); // key = cueId
   private hoerer = new Set<(ids: number[]) => void>();
+  /** Zählt jedes stopAll; ein Pad, das beim Auslösen noch lud, startet nur, wenn seitdem kein stopAll kam. */
+  private stopAllZaehler = 0;
 
   /** IDs der gerade spielenden Pads (Reihenfolge des Starts). */
   aktiveIds(): number[] {
@@ -58,7 +60,11 @@ class CueEngine {
     if (cue.mediaId == null) return;
     const buf = this.buffers.get(cue.mediaId);
     if (!buf) {
-      void this.preload(cue.mediaId, url).then(() => this.play(cue, url));
+      // Nach einem stopAll (Panik, „Alle stoppen“) startet das ladende Pad nicht mehr; ein einzelnes stop(id) wirkt wie bisher.
+      const zaehler = this.stopAllZaehler;
+      void this.preload(cue.mediaId, url).then(() => {
+        if (zaehler === this.stopAllZaehler) this.play(cue, url);
+      });
       return;
     }
     this.beende(cue.id); // Re-Trigger: laufende Instanz desselben Pads ablösen (gemeldet wird einmal, unten)
@@ -86,6 +92,7 @@ class CueEngine {
   }
 
   stopAll(): void {
+    this.stopAllZaehler++;
     for (const id of [...this.active.keys()]) this.beende(id);
     this.melde();
   }

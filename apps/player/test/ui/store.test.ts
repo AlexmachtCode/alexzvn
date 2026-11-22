@@ -40,8 +40,11 @@ const echt = {
   preload: showAudio.preload,
   stopAll: cueEngine.stopAll,
 };
-showAudio.play = async (cue) => {
+/** Rückruf „natürliches Ende“ je Cue-Instanz, in Startreihenfolge (die Attrappe ruft ihn nie selbst). */
+const audioEnde: Array<{ id: number; ende: () => void }> = [];
+showAudio.play = async (cue, _url, onEnded) => {
   log.push(`audio.play ${cue.id}`);
+  audioEnde.push({ id: cue.id, ende: onEnded });
 };
 showAudio.stop = (id, fade = 0) => {
   log.push(`audio.stop ${id} ${fade}`);
@@ -197,6 +200,22 @@ try {
     neu();
     await p().removeShow(1);
     gleich([zaehle('pads.stopAll'), zaehle('audio.panic'), p().activeShowId], [0, 1, null], 'PL Panik stoppt Pads: Löschen der aktiven Show räumt die Show wie bisher, die Pads laufen weiter');
+
+    // Fix-Runde 1: Pads zuerst. Wirft der Ausgabebefehl synchron, laufen die Pads trotzdem nicht durch die Panik weiter.
+    neu();
+    const ausgabe = (g.window as { jmplay: { output: { command: (c: OutputCommand) => Promise<void> } } }).jmplay.output;
+    const befehl = ausgabe.command;
+    ausgabe.command = () => {
+      throw new Error('Ausgabe kaputt');
+    };
+    try {
+      p().showPanic();
+    } catch {
+      // Wurf des Ausgabebefehls: hier nur die Reihenfolge prüfen
+    } finally {
+      ausgabe.command = befehl;
+    }
+    gleich([zaehle('pads.stopAll'), zaehle('audio.panic')], [1, 1], 'PL Panik stoppt Pads: wirft der Ausgabebefehl synchron, sind die Pads trotzdem gestoppt (Pads zuerst)');
   }
 
   // ── PL Pause folgt Wirklichkeit (Ruling): Stop und Cue-Start heben die Pause auf; Ton und Video wirken wie bisher ──
@@ -223,6 +242,19 @@ try {
     log.length = 0;
     await warte(90);
     gleich([p().showPaused, log], [false, ['audio.play 13']], 'PL Pause folgt Wirklichkeit: Vorlauf läuft in der Pause ab → showPaused false; Ton wie bisher (nur showAudio.play)');
+
+    // Fix-Runde 1, Wächter: nur startNow und showStop heben die Pause auf, nicht schon der Beginn eines Vorlaufs.
+    neu();
+    p().fireCue(0);
+    p().showTogglePause();
+    p().fireCue(2);
+    const imVorlauf = [p().showPaused, berichte[berichte.length - 1].paused, p().vorlaufCueIds];
+    await warte(90);
+    gleich(
+      [imVorlauf, p().showPaused],
+      [[true, true, [13]], false],
+      'PL Pause folgt Wirklichkeit: Beginn eines Vorlaufs in der Pause lässt showPaused und Companion paused wahr; erst der Start des Cues hebt sie auf',
+    );
 
     neu();
     p().fireCue(0);
@@ -283,6 +315,33 @@ try {
       [video1, video2Laedt, video2, p().playingCueIds, p().videoCue, live(), b.playing, b.playingCount],
       [true, false, true, [12], null, false, true, 1],
       'PL ON AIR Wahrheitstabelle: veraltetes Video → nach dem Ende von Video 2 nicht live, obwohl Video 1 noch in playingCueIds steht (Companion zählt es weiter wie bisher)',
+    );
+  }
+
+  // ── PL ON AIR Wahrheitstabelle am echten Store (Fix-Runde 1): Cue mit Vorlauf erneut gefeuert, während er noch klingt ──
+  // showAudio löst die alte Instanz erst bei play ab (nach dem neuen Vorlauf); bis dahin klingt sie weiter.
+  {
+    neu();
+    const live = (): boolean => kopfOnAir({ player: p(), pads: [] }).live;
+    p().fireCue(2);
+    await warte(90);
+    const alt = audioEnde.filter((e) => e.id === 13).at(-1);
+    const klingt = [live(), p().playingCueIds, p().vorlaufCueIds];
+    p().fireCue(2);
+    const zweiterVorlauf = [live(), p().playingCueIds, p().vorlaufCueIds];
+    alt?.ende();
+    const alteEndet = [live(), p().playingCueIds, p().vorlaufCueIds];
+    await warte(90);
+    const neuGestartet = [live(), p().playingCueIds, p().vorlaufCueIds, zaehle('audio.play 13')];
+    gleich(
+      [klingt, zweiterVorlauf, alteEndet, neuGestartet],
+      [
+        [true, [13], []],
+        [true, [13], []],
+        [false, [], []],
+        [true, [13], [], 2],
+      ],
+      'PL ON AIR Wahrheitstabelle: Cue mit Vorlauf erneut gefeuert, während er klingt → live im zweiten Vorlauf; endet die alte Instanz, nicht live; der Start nimmt ihn wieder auf',
     );
   }
 } finally {
@@ -374,6 +433,26 @@ try {
       ab();
       m.play(pad(101, 0, 1), 'u1');
       gleich([meldungen.length, m.aktiveIds()], [n + 2, [103, 101]], 'PL Pad-Meldung: nach der Abmeldung kommt keine Meldung mehr, aktiveIds bleibt aktuell');
+
+      // Fix-Runde 1: ein Pad, das noch lädt (Start in preload(...).then), startet nach stopAll (Panik, „Alle stoppen“) nicht.
+      const m2 = new Maschine();
+      const meldungen2: number[][] = [];
+      m2.onChange((ids) => meldungen2.push([...ids]));
+      m2.play(pad(105, 4, 5), 'u5');
+      m2.stopAll();
+      await warte(5);
+      gleich(
+        [meldungen2, m2.aktiveIds(), m2.isPlaying(105)],
+        [[[]], [], false],
+        'PL Pad-Meldung: stopAll, während ein Pad noch lädt → es startet nicht, keine Meldung mit seiner ID',
+      );
+      m2.play(pad(106, 5, 6), 'u6');
+      m2.stop(106);
+      await warte(5);
+      gleich(m2.aktiveIds(), [106], 'PL Pad-Meldung: stop(id) wirkt wie bisher (ein ladendes Pad startet danach trotzdem)');
+      m2.play(pad(107, 6, 7), 'u7');
+      await warte(5);
+      gleich(m2.aktiveIds(), [106, 107], 'PL Pad-Meldung: nach stopAll startet ein neu ausgelöstes ladendes Pad normal');
     }
   } finally {
     if (vorher.AudioContext === undefined) delete g.AudioContext;
