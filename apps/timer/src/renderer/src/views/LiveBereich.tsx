@@ -14,6 +14,9 @@ export interface HauptAktionen {
   next(): void;
 }
 
+const RASTER_ZWEI = 'grid w-full grid-cols-2 gap-3';
+const RASTER_VIER = 'grid w-full grid-cols-2 gap-3 @[676px]:grid-cols-4';
+
 export type TastenRolle = 'prev' | 'start' | 'reset' | 'next';
 
 /** Die Haupttasten mit ihrer Rolle in Anzeigereihenfolge. Die Rolle ist der React-key: Die Beschriftung wechselt (Start, Pause, Resume), der Knopf bleibt. */
@@ -48,12 +51,15 @@ export function HauptTasten({
   mode: 'countdown' | 'timetable';
   aktionen: HauptAktionen;
 }): React.JSX.Element {
+  const tasten = rollenTasten(stand, mode, aktionen);
   return (
-    // Containerbasiert: so viele Spalten, wie mit TASTEN_MIN_BREITE passen (vier Tasten werden im schmalen Bereich zu 2×2).
-    <div data-timer="haupttasten" className="grid w-full grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3">
-      {rollenTasten(stand, mode, aktionen).map(([rolle, taste]) => (
-        <TallyButton key={rolle} {...taste} />
-      ))}
+    // Container-Query statt Viewport: tastenSpalten(anzahl, breite) beschreibt das Raster; die Klassen stehen als Literal da (Tailwind-Scan).
+    <div data-timer="haupttasten" className="@container w-full">
+      <div className={tasten.length === 4 ? RASTER_VIER : RASTER_ZWEI}>
+        {tasten.map(([rolle, taste]) => (
+          <TallyButton key={rolle} {...taste} />
+        ))}
+      </div>
     </div>
   );
 }

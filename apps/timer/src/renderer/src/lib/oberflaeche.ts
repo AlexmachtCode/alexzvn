@@ -113,6 +113,17 @@ export function anzeigeVerbindung(ereignisGehabt: boolean, connected: boolean): 
 /** Mindestbreite einer Haupttaste in px (Label bis „← Prev“/„Resume“ plus Kürzel „Leertaste“, px-4): darunter bricht das Raster um. */
 export const TASTEN_MIN_BREITE = 160;
 
+/** Containerbreite, ab der vier Tasten nebeneinander stehen: 4×160 + 3 Lücken à 12 (gap-3) = 676 px. Steht als `@[676px]` in LiveBereich.tsx. */
+export const TASTEN_VIER_BREITE = 4 * TASTEN_MIN_BREITE + 3 * 12;
+
+/**
+ * Spalten der Haupttasten bei gegebener Containerbreite (Container-Query, kein Viewport): zwei Tasten immer 2 (eine Reihe),
+ * vier Tasten 4 ab TASTEN_VIER_BREITE, sonst 2 (2×2); nie eine dritte Spalte (kein 3+1).
+ */
+export function tastenSpalten(anzahl: number, containerBreite: number): 2 | 4 {
+  return anzahl === 4 && containerBreite >= TASTEN_VIER_BREITE ? 4 : 2;
+}
+
 /**
  * Breiten der Ablauf-Liste in px (Timetable.tsx, TimetableRow.tsx): feste Spalten 36+96+120+96+136, sechs Lücken à 12 (gap-3),
  * Innenabstand der Zeile 2×16 (px-4). Titel und Notiz brauchen je mindestens `textMin`; daraus folgt die Mindestbreite der Liste

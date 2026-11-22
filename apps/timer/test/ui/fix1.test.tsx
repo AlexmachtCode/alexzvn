@@ -1,7 +1,7 @@
 // UX Welle 1, Timer d · Nachbesserung 1: Verbindungsereignisse (auch connect_error), Mindestbreiten im Ablauf, containerbasiertes
 // Raster der Haupttasten und rollenbasierte Schlüssel der Tasten.
 import { gleich, leseText, ok, render } from '@jm/ui/testhilfe';
-import { ABLAUF_LAYOUT, anzeigeVerbindung, TASTEN_MIN_BREITE, verbindungNach } from '@/lib/oberflaeche';
+import { ABLAUF_LAYOUT, anzeigeVerbindung, TASTEN_MIN_BREITE, TASTEN_VIER_BREITE, tastenSpalten, verbindungNach } from '@/lib/oberflaeche';
 import { INITIAL_STATE } from '@shared/timer-state';
 import { HauptTasten, tastenSchluessel } from '@/views/LiveBereich';
 import { ohneKommentare } from './testzustand';
@@ -45,12 +45,17 @@ import { ohneKommentare } from './testzustand';
 // ── Haupttasten: Raster nach Containerbreite, Schlüssel nach Rolle ──
 {
   const q = ohneKommentare(leseText('src/renderer/src/views/LiveBereich.tsx'));
+  const spalten = (n: number): Set<number> => new Set(Array.from({ length: 1101 }, (_, i) => tastenSpalten(n, 300 + i)));
+  gleich([...spalten(2)], [2], 'TI Tasten-Raster: zwei Tasten (Countdown) stehen in jeder Containerbreite 300–1400 px in einer Reihe (1×2)');
+  gleich([...spalten(4)].sort(), [2, 4], 'TI Tasten-Raster: vier Tasten stehen als 2×2 oder 1×4, nie 3+1 (Breite 300–1400 px)');
+  gleich([tastenSpalten(4, TASTEN_VIER_BREITE - 1), tastenSpalten(4, TASTEN_VIER_BREITE)], [2, 4], `TI Tasten-Raster: die Grenze liegt bei ${TASTEN_VIER_BREITE} px = 4×${TASTEN_MIN_BREITE} + 3 Lücken à 12`);
+  gleich(TASTEN_VIER_BREITE, 4 * TASTEN_MIN_BREITE + 3 * 12, 'TI Tasten-Raster: Grenzbreite aus Mindestbreite und Lücke abgeleitet');
   ok(
-    q.includes(`grid-cols-[repeat(auto-fit,minmax(${TASTEN_MIN_BREITE}px,1fr))]`) && !/\bmd:grid-cols/.test(q),
-    `TI Tasten-Raster: auto-fit mit minmax(${TASTEN_MIN_BREITE}px,1fr) statt viewportbasiertem md:grid-cols (vier Tasten wechseln im schmalen Bereich auf 2×2)`,
+    q.includes('@container') && q.includes(`gap-3 @[${TASTEN_VIER_BREITE}px]:grid-cols-4`) && q.includes("RASTER_ZWEI = 'grid w-full grid-cols-2 gap-3'") && !/(sm|md|lg|xl):grid-cols/.test(q),
+    'TI Tasten-Raster: Container-Query (@container, @[Wpx]:grid-cols-4) mit grid-cols-2 als Basis, keine Viewport-Breakpoints; die Klassen stehen als Literal im Quelltext (Tailwind-Scan)',
   );
-  // 4 Tasten à Mindestbreite + 3 Lücken (gap-3 = 12 px) passen nicht in den Platz bei 1024 px mit Panel: also umbrechen.
-  ok(4 * TASTEN_MIN_BREITE + 36 > 1024 - 200 - 360 - 56, 'TI Tasten-Raster: bei 1024 px mit Panel passen keine vier Tasten nebeneinander, das Raster bricht um');
+  // Vier Tasten à 160 px + Lücken passen bei 1024 px mit Sidebar und Panel (Inhalt ≈ 408 px) nicht nebeneinander: 2×2.
+  gleich(tastenSpalten(4, 1024 - 200 - 360 - 56), 2, 'TI Tasten-Raster: bei 1024 px mit Panel und Sidebar zwei Spalten');
   const stand = { timer: { countdown: INITIAL_STATE.countdown, timetable: { ...INITIAL_STATE.timetable, items: [{ id: 'a', label: 'A', durationMs: 1 }, { id: 'b', label: 'B', durationMs: 1 }], activeIndex: 0 } } };
   const lauf = { ...stand, timer: { ...stand.timer, countdown: { ...INITIAL_STATE.countdown, startedAtMs: 1 } } };
   const pause = { ...stand, timer: { ...stand.timer, countdown: { ...INITIAL_STATE.countdown, pausedRemainingMs: 5 } } };
@@ -59,5 +64,5 @@ import { ohneKommentare } from './testzustand';
   gleich(tastenSchluessel(stand, 'countdown'), ['start', 'reset'], 'TI Tasten-Schlüssel: Countdown start/reset');
   ok(q.includes('key={rolle}') && !q.includes('key={taste.label}'), 'TI Tasten-Schlüssel: HauptTasten nutzt die Rolle als key, nie die Beschriftung');
   const html = render(<HauptTasten stand={stand} mode="timetable" aktionen={{ start() {}, pause() {}, reset() {}, prev() {}, next() {} }} />);
-  ok(html.includes('auto-fit'), 'TI Tasten-Raster: gerendert trägt der Behälter das auto-fit-Raster');
+  ok(html.includes('@container') && html.includes('@[676px]:grid-cols-4'), 'TI Tasten-Raster: gerendert trägt die Hülle @container und das Raster @[676px]:grid-cols-4');
 }
