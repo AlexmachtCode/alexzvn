@@ -47,7 +47,9 @@ const amWort = qaState({ activeId: 'a', entries: [eintragQ('a', 'active'), eintr
   ok(mitte(seite(amWort)).includes('2 wartend'), 'QA Rahmen: „2 wartend“ in der Kopfmitte, der Sprecher am Wort zählt nicht mit');
   const unfrei = qaState({ entries: [eintragQ('a', 'waiting'), eintragQ('b', 'waiting', { source: 'remote', channel: 'stream', approved: false })] });
   ok(mitte(seite(unfrei)).includes('2 wartend'), 'QA Rahmen: die Zahl zählt auch den unfreigegebenen Eintrag, Zählung unverändert (E13)');
-  ok(!text(seite(amWort).slice(seite(amWort).indexOf('data-bereich="inhalt"'))).includes('N wartend'), 'QA Rahmen: der Zähler steht im Kopf, nicht im Inhalt');
+  const html2 = seite(amWort);
+  const inhalt2 = html2.slice(html2.indexOf('data-bereich="inhalt"'));
+  ok(!text(inhalt2).includes('wartend') && mitte(html2).includes('2 wartend'), 'QA Rahmen: „2 wartend“ steht in der Kopfmitte und kommt im Inhalt nicht vor');
 }
 
 // ── QA Rahmen: On-Air (E8) ──

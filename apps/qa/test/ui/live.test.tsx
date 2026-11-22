@@ -2,6 +2,7 @@
 // sichtbar, darunter drei Haupttasten als TallyButtons (Nächste, Beenden, Saal-Einreichung) im Containerraster, darunter
 // Warteschlange, Hinzufügen und Erledigt; QR-Karten (Saal, Extern) rechts bzw. darunter. Render ohne Browser und ohne window.
 import { gleich, leseText, ok, render } from '@jm/ui/testhilfe';
+import { readdirSync } from 'node:fs';
 import { ActivePanel } from '@/components/ActivePanel';
 import { CloudAnsicht } from '@/components/CloudPanel';
 import { Queue } from '@/components/Queue';
@@ -181,9 +182,11 @@ const zeile = (s: Pick<OberflaechenStand, 'state'>): string[] =>
   const html = render(<CloudAnsicht cloud={cloud({ enabled: true, configured: true, streamUrl: 'https://relay.example/s' })} qr="" aktionen={aktion} />);
   ok(text(html).includes('Event beenden & Daten löschen'), 'QA Event beenden mit Rückfrage: der Knopf „Event beenden & Daten löschen“ steht in der Extern-Karte, solange Extern an ist');
   ok(!text(render(<CloudAnsicht cloud={cloud()} qr="" aktionen={aktion} />)).includes('Event beenden'), 'QA Event beenden mit Rückfrage: ohne laufendes Extern gibt es den Knopf nicht (wie heute)');
-  const dateien = ['App.tsx', 'views/QaOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Einstellungen.tsx', 'components/ActivePanel.tsx', 'components/Queue.tsx', 'components/AddForm.tsx', 'components/RemotePanel.tsx', 'components/CloudPanel.tsx'];
-  const treffer = dateien.flatMap((d) => (ohneKommentare(leseText(`src/renderer/src/${d}`)).match(/\bconfirm\(/g) ?? []).map(() => d));
-  gleich(treffer, ['components/CloudPanel.tsx'], 'QA Event beenden mit Rückfrage: im ganzen Renderer gibt es genau einen confirm, in CloudPanel.tsx (R19)');
+  const alle = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? alle(`${dir}/${e.name}`) : /\.tsx?$/.test(e.name) ? [`${dir}/${e.name}`] : []));
+  const dateien = alle('src/renderer/src');
+  const treffer = dateien.flatMap((d) => (ohneKommentare(leseText(d)).match(/confirm\(/g) ?? []).map(() => d.replace('src/renderer/src/', '')));
+  ok(dateien.length > 15, 'QA Event beenden mit Rückfrage: der Lauf über src/renderer/src findet alle Quelldateien (' + dateien.length + ')');
+  gleich(treffer, ['components/CloudPanel.tsx'], 'QA Event beenden mit Rückfrage: in allen .ts/.tsx unter src/renderer/src gibt es genau einen confirm, in CloudPanel.tsx (R19)');
   const q = ohneKommentare(leseText('src/renderer/src/components/CloudPanel.tsx'));
   ok(q.includes("if (confirm('Event beenden und alle externen Einreichungen im Relay löschen?')) aktionen.cloudPurge();"), 'QA Event beenden mit Rückfrage: die Rückfrage steht vor dem Löschen im Quelltext');
 }

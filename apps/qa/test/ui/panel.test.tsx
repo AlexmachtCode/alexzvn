@@ -10,6 +10,7 @@ import { TON } from '@/lib/zugang-ton';
 import { CAPABILITIES, COUPLED_ROLES } from '@/lib/capabilities';
 import { Einstellungen, type EinstellungenAktionen } from '@/views/Einstellungen';
 import { abschnitt, attr, basisMeldung, cloud, elemente, ohneKommentare, qaState, tags, text, toolLink } from './testzustand';
+import { zahlEntwurfAus, zahlSchritt } from '../../../../packages/ui/src/lib/eingabe';
 import { kreuz, pruefeFaelle, vergleiche } from './hilfe';
 
 const T = QA_TEXTE;
@@ -70,11 +71,26 @@ const kind = (f: { props: Record<string, unknown> }, typ: unknown): { props: Rec
   (kind(feld(s, 'Titler-Vorlage', log), Select).props.onChange as (v: string) => void)('ticker');
   gleich(log, ['config({"autoTimer":false})', 'config({"autoTitler":false})', 'config({"titlerTemplate":"ticker"})'], 'QA Panel Redezeit: die Schalter und die Vorlage schicken genau ihr Feld an setConfig (die Schalter der Kopplungskarte leben nur noch hier, E13)');
   const zahl = kind(feld(s, 'Redezeit (Sekunden)', log), NumberInput);
-  const sek: string[] = [];
-  const zl = (kind(feld(stand(), 'Redezeit (Sekunden)', sek), NumberInput).props.onChange as (v: number) => void);
-  [1, 4, 5, 90, 3600].forEach((v) => zl(v));
-  gleich(sek, ['config({"speakSeconds":5})', 'config({"speakSeconds":5})', 'config({"speakSeconds":5})', 'config({"speakSeconds":90})', 'config({"speakSeconds":3600})'], 'QA Panel Redezeit: der Klemmwert Math.max(5, …) wirkt wie heute: nie weniger als 5 Sekunden an setConfig');
-  gleich([zahl.props.value, zahl.props.min, zahl.props.max], [120, 5, 3600], 'QA Panel Redezeit: das Zahlenfeld zeigt speakSeconds mit den Grenzen 5 und 3600 des alten Feldes');
+  // R21: durch den echten Eingabepfad des Feldes (Tippen, dann Enter/Verlassen über zahlSchritt, dann onChange), nicht durch onChange mit Werten, die das Feld nie meldet.
+  const feldProps = zahl.props as { min?: number; max?: number; ganzzahl?: boolean; onChange: (v: number) => void };
+  const tippe = (eingabe: string): string[] => {
+    const sek: string[] = [];
+    const f = kind(feld(stand(), 'Redezeit (Sekunden)', sek), NumberInput).props as typeof feldProps;
+    const regeln = { min: f.min, max: f.max, ganzzahl: f.ganzzahl };
+    const getippt = zahlSchritt(zahlEntwurfAus(120), { art: 'tippen', text: eingabe }, regeln, 120);
+    const r = zahlSchritt(getippt.z, { art: 'uebernehmen' }, regeln, 120);
+    if (r.neuerWert !== undefined) f.onChange(r.neuerWert);
+    return sek;
+  };
+  const speichert = (v: number): string[] => [`config({"speakSeconds":${v}})`];
+  gleich(
+    [tippe('3'), tippe('4'), tippe('1'), tippe('5'), tippe('-2'), tippe('0'), tippe('90'), tippe('4000'), tippe('3600')],
+    [speichert(5), speichert(5), speichert(5), speichert(5), speichert(5), speichert(5), speichert(90), speichert(4000), speichert(3600)],
+    'QA Panel Redezeit: über den echten Feldpfad (Tippen, Enter/Verlassen) speichert 3 → 5, unter 5 → 5, 4000 → 4000 (keine Obergrenze), wie der Klemmwert Math.max(5, …) heute',
+  );
+  gleich(tippe(''), [], 'QA Panel Redezeit: ein leeres Feld liefert keinen Wert (Fehlertext im Feld), der alte Wert bleibt; früher speicherte es 5 (Befund für Task 22)');
+  gleich(tippe('abc'), [], 'QA Panel Redezeit: Text wird abgewiesen, nichts wird gespeichert');
+  gleich([zahl.props.value, feldProps.min, feldProps.max], [120, undefined, undefined], 'QA Panel Redezeit: das Zahlenfeld zeigt speakSeconds ohne Unter- und Obergrenze im Feld, geklemmt wird im Handler');
   const html = abschnitt(panel(stand()), ABSCHNITT.redezeit);
   const t = text(html);
   ok(
