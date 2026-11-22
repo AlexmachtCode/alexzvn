@@ -411,21 +411,27 @@ function audioItem(s: OberflaechenStand): StatusItem {
   return item;
 }
 
-/** Aufnahme (live nur beim Aufnehmen, Anhang A). Fehler nur, wenn ihn die Aufnahme meldete (OutputState.errorScope). */
+/**
+ * Aufnahme (live nur beim Aufnehmen, Anhang A). Fehler nur, wenn ihn die Aufnahme meldete (OutputState.errorScope). Reine Anzeige
+ * (C1): Start und Stopp sind Haupttasten, der Abschnitt Aufnahme hat nur die Bitrate und ändert keinen dieser Zustände.
+ */
 function aufnahmeItem(s: OberflaechenStand): StatusItem {
   const o = s.output;
-  const kopf = { id: 'aufnahme', group: 'ausgabe', label: SWITCHER_TEXTE.label.aufnahme, settingsSection: ABSCHNITT.aufnahme } as const;
+  const kopf = { id: 'aufnahme', group: 'ausgabe', label: SWITCHER_TEXTE.label.aufnahme } as const;
   if (o.recording) return { ...kopf, state: 'live', detail: aufnahmeName(o) ?? SWITCHER_TEXTE.laeuft };
   // Ein Fehler des Streams gehört nicht hierher (Fund A2): Der Fehlerwert trägt seine Herkunft.
   if (o.error && o.errorScope === 'rec') return { ...kopf, state: 'error', detail: fehlerStatus(o.error).text };
   return { ...kopf, state: 'off', detail: ABSCHNITT_TEXTE.aus };
 }
 
-/** Stream (live nur beim Senden; Ziel aus der Einstellung, Fehler nur, wenn ihn der Stream meldete). */
+/**
+ * Stream (live nur beim Senden; Ziel aus der Einstellung, Fehler nur, wenn ihn der Stream meldete). Das Ziel im Abschnitt Streaming
+ * ändert „kein Ziel“, „bereit“ und einen Fehler; einen laufenden Stream stoppt nur die Haupttaste, dann ist der Eintrag reine Anzeige (C1).
+ */
 function streamItem(s: OberflaechenStand): StatusItem {
   const o = s.output;
   const kopf = { id: 'stream', group: 'ausgabe', label: SWITCHER_TEXTE.label.stream, settingsSection: ABSCHNITT.streaming } as const;
-  if (o.streaming) return { ...kopf, state: 'live', detail: SWITCHER_TEXTE.laeuft };
+  if (o.streaming) return { id: kopf.id, group: kopf.group, label: kopf.label, state: 'live', detail: SWITCHER_TEXTE.laeuft };
   if (o.error && o.errorScope === 'stream') return { ...kopf, state: 'error', detail: fehlerStatus(o.error).text };
   if (!hatStreamZiel(s)) return { ...kopf, state: 'off', detail: SWITCHER_TEXTE.keinZiel };
   return { ...kopf, state: 'ok', detail: REMOTE_TEXTE.bereit };

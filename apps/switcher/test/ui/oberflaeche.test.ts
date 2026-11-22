@@ -242,6 +242,11 @@ const FEHLER = {
   pruefeFaelle('SW Statusleiste aufnahme: läuft × Datei × Stream × Fehler mit Herkunft → Tabelle (live nur beim Aufnehmen, nur der eigene Fehler)', faelle, (f) =>
     vergleiche(sd(eintrag(basisStand({ output: { recording: f.recording, streaming: f.streaming, recPath: f.recPath, ...FEHLER[f.fehler] } }), 'aufnahme')), soll(f)),
   );
+  // Fund C1: Start und Stopp sind Haupttasten, der Abschnitt Aufnahme hat nur die Bitrate; er ändert keinen dieser Zustände.
+  ok(
+    faelle.every((f) => !('settingsSection' in eintrag(basisStand({ output: { recording: f.recording, streaming: f.streaming, recPath: f.recPath, ...FEHLER[f.fehler] } }), 'aufnahme'))),
+    'SW Statusleiste aufnahme: reine Anzeige in jedem Zustand (kein Sprung in den Abschnitt Aufnahme, der nur die Bitrate hat)',
+  );
 }
 
 // ── Stream ──
@@ -258,6 +263,11 @@ const FEHLER = {
       soll(f),
     ),
   );
+  // Fund C1: Das Ziel im Abschnitt Streaming ändert „kein Ziel“, „bereit“ und einen Fehler; einen laufenden Stream stoppt nur die Haupttaste.
+  pruefeFaelle('SW Statusleiste stream: Sprung in den Abschnitt Streaming nur, solange der Stream nicht läuft', faelle, (f) => {
+    const i = eintrag(basisStand({ settings: basisEinstellungen({ rtmpUrl: f.rtmpUrl }), output: { recording: f.recording, streaming: f.streaming, recPath: null, ...FEHLER[f.fehler] } }), 'stream');
+    return vergleiche(String(i.settingsSection), f.streaming ? 'undefined' : ABSCHNITT.streaming) ?? ('settingsSection' in i && i.settingsSection === undefined ? 'settingsSection als undefined statt abwesend' : null);
+  });
 }
 
 // ── Fehler und Start der Ausgaben: ein Start löscht nur den eigenen Fehler (core/output.ts, Fund A2) ──
@@ -306,9 +316,12 @@ const FEHLER = {
     const ids = leiste.map((i) => i.id).join();
     return vergleiche(ids, IDS.join()) ?? (new Set(leiste.map((i) => i.id)).size !== leiste.length ? 'ids doppelt' : null) ?? vergleiche(ordneStatus(leiste).map((i) => i.id).join(), ids);
   });
-  pruefeFaelle('SW Statusleiste gesamt: jeder Eintrag außer master-link springt in einen Abschnitt aus ABSCHNITT', faelle, (f) => {
+  // Fund C1: nur dorthin, wo der Abschnitt den gezeigten Zustand ändern kann. Reine Anzeige sind master-link, aufnahme (Start und
+  // Stopp sind Haupttasten) und stream, solange er läuft.
+  const anzeige = (f: (typeof faelle)[number], id: string): boolean => id === 'master-link' || id === 'aufnahme' || (id === 'stream' && f.streaming);
+  pruefeFaelle('SW Statusleiste gesamt: jeder Eintrag springt in einen Abschnitt aus ABSCHNITT, außer master-link, aufnahme und dem laufenden Stream', faelle, (f) => {
     const falsch = statusLeiste(props(f)).filter((i) =>
-      i.id === 'master-link' ? i.settingsSection !== undefined : !(Object.values(ABSCHNITT) as string[]).includes(i.settingsSection ?? ''),
+      anzeige(f, i.id) ? 'settingsSection' in i : !(Object.values(ABSCHNITT) as string[]).includes(i.settingsSection ?? ''),
     );
     return falsch.length === 0 ? null : `falsch: ${falsch.map((i) => i.id).join()}`;
   });
