@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { MasterLinkMeldung } from '@jm/app-runtime';
+import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { CaptionConfig, CaptionState, CaptionStatus, JmCaptionApi } from '@shared/types';
 
 // Den vom Main übertragenen Frame-MessagePort in den Renderer-Main-World
@@ -10,6 +12,20 @@ ipcRenderer.on('jmcaption:frame-port', (e) => {
 
 const api: JmCaptionApi = {
   platform: process.platform,
+  // UX Welle 2a (Spec 3.9): Master-Link-Zustand lesend. null, solange die Brücke fehlt oder ablehnt (Statusleiste: unbekannt).
+  masterLink: () => (ipcRenderer.invoke('jmps:master-link') as Promise<MasterLinkMeldung>).catch(() => null),
+  onMasterLink: (cb) => {
+    const listener = (_e: unknown, m: MasterLinkMeldung): void => cb(m);
+    ipcRenderer.on('jmps:master-link', listener);
+    return () => ipcRenderer.off('jmps:master-link', listener);
+  },
+  // Meldung des Steuerservers lesend (Port, läuft, Clients, Modus, Startfehler). null, solange Main nichts gemeldet hat.
+  fernsteuerung: () => (ipcRenderer.invoke('caption:fernsteuerung') as Promise<FernsteuerungMeldung | null>).catch(() => null),
+  onFernsteuerung: (cb) => {
+    const listener = (_e: unknown, m: FernsteuerungMeldung | null): void => cb(m);
+    ipcRenderer.on('caption:fernsteuerung', listener);
+    return () => ipcRenderer.off('caption:fernsteuerung', listener);
+  },
   getState: () => ipcRenderer.invoke('caption:getState') as Promise<CaptionState>,
   onState: (cb) => {
     const listener = (_e: unknown, s: CaptionState): void => cb(s);

@@ -12,6 +12,7 @@
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
 import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
+import type { FernsteuerungEreignis } from '@shared/fernsteuerung';
 
 /** Eigener TCP-Steuerport. */
 export const CONTROL_PORT = 8732;
@@ -25,6 +26,11 @@ export interface CaptionControlHandlers {
 
 export function startControlServer(
   handlers: CaptionControlHandlers,
+  /**
+   * UX Welle 2a (Spec 3.9): Statusmeldung des Servers (läuft, Port, Clients) mit wirksamem Modus, nur lesend.
+   * Der Main macht daraus die Fernsteuerungs-Meldung für die Statusleiste.
+   */
+  onMeldung?: (e: FernsteuerungEreignis) => void,
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   server = new SuiteControlServer({
@@ -33,6 +39,9 @@ export function startControlServer(
     appId: 'jm-caption',
     controlEndpoint: true,
     getState: handlers.getState,
+    onStatus: (st) => {
+      onMeldung?.({ art: 'status', ...st, modus: server?.modus() });
+    },
     onCommand: (cmd) => {
       if (cmd.ns === 'caption') handlers.onCommand(cmd);
     },
