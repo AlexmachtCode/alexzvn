@@ -577,5 +577,23 @@ ok(
   ok([5, 6, 9, 13].every((n) => /Welle 2a:/.test(befund(n))) && /E5/.test(befund(6)) && /E13/.test(befund(13)) && /Task 21/.test(befund(9)), 'RE Funktionsliste Abschnitt 10: Befunde 5, 6, 9 und 13 nennen den Stand nach der Welle (NumberInput, Theme, Anordnung, Meldung bis OK)');
   ok(!/Mit `NumberInput` \(E13\) fallen die Pfeile weg und die Übernahme geschieht bei Enter und Blur \(Nachmessung 5\.3 Risiko 5, Nr\. 116,\s+117, 118\)\./.test(abschnitt10), 'RE Funktionsliste Abschnitt 10: Befund 5 sagt nicht mehr „künftig“ für das Dauer-Feld (Nr. 118 bleibt nativ)');
   ok(/Welle 2a:[^]*unverändert[^]*Owner/.test(befund(2)) && /Welle 2a:[^]*unverändert[^]*Owner/.test(befund(7)), 'RE Funktionsliste Abschnitt 10: Befund 2 (ARM) und Befund 7 (Netzwerkordner) bleiben unverändert, Owner-Entscheidung offen');
+  const kopfFlach = kopf.replace(/\n/g, ' ');
+  const nachLs = kopfFlach.slice(kopfFlach.indexOf('einer, lesend'), kopfFlach.indexOf('einer, lesend') + 500);
+  const abschnitt2 = text.slice(text.indexOf('## 2 · '), text.indexOf('|---', text.indexOf('## 2 · ')));
+  const abschnitt7 = text.slice(text.indexOf('## 7 · '), text.indexOf('|---', text.indexOf('## 7 · ')));
+  ok(/zum Zeitpunkt der Erhebung/.test(nachLs) && /jm-theme/.test(nachLs) && /E5/.test(nachLs), 'RE Funktionsliste Kopf: „localStorage: einer, lesend“ gilt zum Zeitpunkt der Erhebung; jm-theme (E5) kommt dazu');
+  ok(/zum Zeitpunkt der Erhebung/.test(abschnitt7) && /jm-theme/.test(abschnitt7) && /E5/.test(abschnitt7) && !/Es gibt kein `persistId`/.test(abschnitt7), 'RE Funktionsliste Abschnitt 7: „kein localStorage zum Schreiben“ gilt zum Zeitpunkt der Erhebung; jm-theme (E5) schreibt jetzt');
+  ok(/zum Zeitpunkt der Erhebung/.test(abschnitt2) && /E13/.test(abschnitt2) && /OK/.test(abschnitt2) && !/Meldungen laufen über einen einzigen\s+Platz, den Toast \(`notice`\); der Hauptprozess und der Store schreiben dort hinein, die jüngste Meldung ersetzt die ältere\./.test(abschnitt2), 'RE Funktionsliste Abschnitt 2: „ein einziger Platz, den Toast“ gilt zum Zeitpunkt der Erhebung; Meldungen des Hauptprozesses stehen jetzt bis „OK“ (E13)');
+  ok(nennt(132, 'jm-theme', 'E5') && !/nennen jede geänderte Datei/.test(kopfFlach) && /geänderten Code-Dateien unter `src\/`/.test(kopfFlach), 'RE Funktionsliste Kopf/Nr. 132: Nr. 132 nennt jm-theme (E5); der Kopf behauptet nicht mehr, die Haken nennen jede geänderte Datei');
+  {
+    const codeDateien = GEAENDERT.filter((p) => p.startsWith('apps/recorder/src/')).map((p) => p.slice('apps/recorder/src/'.length));
+    const ausnahmen = ['renderer/src/components/Topbar.tsx', 'renderer/src/globals.css'];
+    const genannt = (d: string): boolean => ausnahmen.includes(d) || alle.some((z) => [...z.zellen[6].matchAll(PFAD)].some((m) => kanon(m[1]) === `apps/recorder/src/${d}`));
+    const fehlt = codeDateien.filter((d) => !genannt(d));
+    ok(fehlt.length === 0, `RE Funktionsliste Kopf: jede geänderte Code-Datei unter src/ steht in einem Haken (Ausnahmen: gelöschte Topbar.tsx, globals.css; fehlt: ${fehlt.join(', ') || 'nichts'})`);
+  }
+  for (const nr of [17, 19, 116, 117]) {
+    ok(nennt(nr, 'abgerundet', 'Bitte eine ganze Zahl eingeben.'), `RE Funktionsliste Nr. ${nr}: der Haken nennt, dass nicht mehr abgerundet wird, sondern „Bitte eine ganze Zahl eingeben.“ erscheint`);
+  }
   ok(/künftig wo[^]*Aufgabe e/.test(kopf) && /funktionsliste\.test\.ts/.test(kopf) && !/bleibt leer/.test(kopf), 'RE Funktionsliste Kopf: „künftig wo“ ist gefüllt und abgehakt (nicht mehr „bleibt leer“)');
 }
