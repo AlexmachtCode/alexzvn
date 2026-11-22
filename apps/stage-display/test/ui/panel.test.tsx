@@ -28,8 +28,11 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
   const log: string[] = [];
   const s = stand();
   const html = panel(s, log);
-  gleich(Object.values(ABSCHNITT).filter((id) => !html.includes(`id="einstellung-${id}"`)), [], 'SD Panel Abschnitte: Anker für alle ABSCHNITT-Werte (ausgabe, quellen, presenter)');
-  gleich(titel(html), ['Ausgabe auf Bildschirm', 'Gegenstellen', T.kopplung.titel], 'SD Panel Abschnitte: Ausgabe auf Bildschirm, Gegenstellen, dann Presenter-Kopplung');
+  gleich(Object.values(ABSCHNITT).filter((id) => id !== ABSCHNITT.presenter && !html.includes(`id="einstellung-${id}"`)), [], 'SD Panel Abschnitte: Anker für ausgabe und quellen');
+  gleich(titel(html), ['Ausgabe auf Bildschirm', 'Gegenstellen'], 'SD Panel Abschnitte: bei ausgeschaltetem Presenter nur Ausgabe auf Bildschirm und Gegenstellen');
+  const mitPresenter = panel(stand({ stage: stageZustand({ config: { presenter: { enabled: true, host: 'h', port: 7330, pin: '', mode: 'ref' } } }) }));
+  gleich(titel(mitPresenter), ['Ausgabe auf Bildschirm', 'Gegenstellen', T.kopplung.titel], 'SD Panel Abschnitte: bei eingeschaltetem Presenter folgt Presenter-Kopplung');
+  gleich(Object.values(ABSCHNITT).filter((id) => !mitPresenter.includes(`id="einstellung-${id}"`)), [], 'SD Panel Abschnitte: Anker für alle ABSCHNITT-Werte (ausgabe, quellen, presenter)');
   const ziele = statusLeiste(s).map((i) => i.settingsSection).filter((z): z is string => typeof z === 'string');
   gleich(ziele.filter((z) => !html.includes(`id="einstellung-${z}"`)), [], 'SD Panel Abschnitte: jeder Statuseintrag mit Abschnitt findet seinen Anker');
   pruefeIdVerweise(html, 'SD Panel Abschnitte: id-Verweise gültig');
@@ -81,8 +84,12 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
   const modi = tags(k, 'button').filter((t) => attr(t, 'aria-pressed') !== undefined);
   gleich(modi.map((t) => attr(t, 'aria-pressed')), ['false', 'true'], 'SD Panel Abschnitte: Anzeige Referenz/Haupt als Knopfpaar mit aria-pressed, der gewählte Modus ist gedrückt');
   ok(['Anzeige', 'Referenzansicht', 'Hauptansicht', 'Folienbild erscheint, sobald eine Präsentation läuft'].every((w) => text(k).includes(w)), 'SD Panel Abschnitte: Beschriftungen der Anzeige wie bisher');
-  const ohne = abschnitt(panel(stand({ stage: undefined })), ABSCHNITT.presenter);
-  ok(!ohne.includes('<input') && text(ohne).includes('unbekannt'), 'SD Panel Abschnitte: ohne Zustand steht „unbekannt“ und kein erfundener Wert');
+  for (const [name, st] of [['ohne Zustand', undefined], ['Presenter aus', stageZustand()]] as const) {
+    const h = panel(stand({ stage: st }));
+    ok(!text(h).includes(T.kopplung.titel) && !text(h).includes('Referenzansicht') && !text(h).includes('Folienbild erscheint') && !tags(h, 'input').some((t) => attr(t, 'placeholder') === 'PIN') && !h.includes(`id="einstellung-${ABSCHNITT.presenter}"`),
+      `SD Panel Abschnitte: ${name}: keine Presenter-Kopplung, kein PIN-Feld, keine Referenzansicht`);
+  }
+  ok(text(html).includes(T.kopplung.titel) && text(html).includes('Referenzansicht') && tags(html, 'input').some((t) => attr(t, 'placeholder') === 'PIN'), 'SD Panel Abschnitte: Presenter an: Presenter-Kopplung, PIN-Feld und Referenzansicht stehen da');
 }
 
 // ── Verschieben: nur bei gemessen existierendem Fenster, mit dem alten Wortlaut ──
