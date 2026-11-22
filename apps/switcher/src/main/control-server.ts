@@ -15,16 +15,19 @@
 // (`ns=switcher` + program/preview/…) ist rückwärtskompatibel zum alten
 // Companion-Modul (liest die Felder per Schlüssel, ignoriert ns).
 import type { BrowserWindow } from 'electron';
-import { SuiteControlServer } from '@jm/suite-control-protocol/server';
 import { app } from 'electron';
+import { naechsteFernsteuerung, meldungZuControlStatus, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
+import type { ControlStatus } from '@shared/types';
 import {
   parseCommand,
   switcherStateToSuite,
   type ControlCommand,
   type SwitcherStateMsg,
 } from '@jm/suite-control-protocol';
+import { erzeugeHalter } from './steuerserver-halter';
 
-let server: SuiteControlServer | null = null;
+/** Der Steuerserver (Start, Stopp, aktueller Server); nur sein aktueller Server meldet Statuswechsel. */
+const halter = erzeugeHalter();
 let targetWindow: BrowserWindow | null = null;
 let lastState: SwitcherStateMsg = {
   program: 0,
@@ -34,18 +37,24 @@ let lastState: SwitcherStateMsg = {
   scenes: 0,
 };
 
-export interface ControlStatus {
-  running: boolean;
-  port: number;
-  clients: number;
-}
+// UX Welle 1 (Spec 3.9, nur lesend): Die aktuelle Fernsteuerungs-Meldung. Sie wird aus jedem Statuswechsel des Servers,
+// dem Start-Ergebnis und einem Wurf fortgeschrieben und als erweiterte ControlStatus (mit modus/fehler) gesendet.
+let meldung: FernsteuerungMeldung | undefined;
 
 export function attachControlWindow(win: BrowserWindow): void {
   targetWindow = win;
 }
 
+/** Aktueller Status; solange nichts gemeldet wurde, der Grundwert (der Renderer liest ihn als „unbekannt“). */
 export function controlStatus(): ControlStatus {
-  return server?.status() ?? { running: false, port: 0, clients: 0 };
+  if (meldung) return meldungZuControlStatus(meldung);
+  return halter.aktuell()?.status() ?? { running: false, port: 0, clients: 0 };
+}
+
+/** Meldung fortschreiben und an den Renderer senden. */
+export function meldeFernsteuerung(e: FernsteuerungEreignis): void {
+  meldung = naechsteFernsteuerung(meldung, e);
+  send('control:status', meldungZuControlStatus(meldung));
 }
 
 // Beim Beenden räumt stopControlServer() auf, während das Fenster schon zerstört
@@ -57,9 +66,12 @@ function send(channel: string, payload: unknown): void {
   if (!wc.isDestroyed()) wc.send(channel, payload);
 }
 
-export function startControlServer(port: number): Promise<{ ok: boolean; error?: string; port?: number }> {
-  stopControlServer();
-  server = new SuiteControlServer({
+function startControlServer(
+  port: number,
+  // UX Welle 1 (Spec 3.9): ganze Statusmeldung mit wirksamem Modus, nur lesend.
+  onMeldung: (e: FernsteuerungEreignis) => void,
+): Promise<{ ok: boolean; error?: string; port?: number }> {
+  return halter.starte({
     appDataDir: app.getPath('appData'),
     role: 'switcher',
     appId: 'jm-switcher',
@@ -70,20 +82,30 @@ export function startControlServer(port: number): Promise<{ ok: boolean; error?:
       const legacy = parseCommand(ctx.raw);
       if (legacy && legacy.type !== 'queryState') send('control:command', legacy as ControlCommand);
     },
-    onStatus: () => send('control:status', controlStatus()),
-  });
-  return server.start(port);
+  }, port, onMeldung);
+}
+
+/**
+ * Start mit Meldung: Status jedes Wechsels, danach das Start-Ergebnis, bei einem Wurf der Fehlertext (der Wurf wird
+ * weitergereicht wie bisher). Ablauf und Rückgabe von startControlServer bleiben gleich.
+ */
+export async function startControlServerGemeldet(port: number): Promise<{ ok: boolean; error?: string; port?: number }> {
+  try {
+    const r = await startControlServer(port, meldeFernsteuerung);
+    meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error, port });
+    return r;
+  } catch (err) {
+    meldeFernsteuerung({ art: 'wurf', text: (err as Error).message });
+    throw err;
+  }
 }
 
 export function stopControlServer(): void {
-  if (server) {
-    server.stop();
-    server = null;
-  }
+  halter.stoppe();
 }
 
 /** Renderer meldet neuen Zustand → cachen + an alle Clients broadcasten. */
 export function pushState(state: SwitcherStateMsg): void {
   lastState = state;
-  server?.pushState(switcherStateToSuite(state));
+  halter.aktuell()?.pushState(switcherStateToSuite(state));
 }

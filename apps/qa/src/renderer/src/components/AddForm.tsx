@@ -1,10 +1,9 @@
 import { useState } from 'react';
+import { Button, TextInput } from '@jm/ui';
 import { useQa } from '@/store/useQa';
 
-const inp = 'rounded border border-[var(--border)] bg-[var(--input)] px-2 py-1.5 text-sm text-[var(--foreground)]';
-
 /** Operator fügt eine Wortmeldung von Hand hinzu. */
-export function AddForm() {
+export function AddForm(): React.JSX.Element {
   const { addEntry } = useQa();
   const [name, setName] = useState('');
   const [affiliation, setAffiliation] = useState('');
@@ -19,39 +18,22 @@ export function AddForm() {
   };
 
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)]/40 p-3">
+    <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-3">
       <h2 className="mb-2 text-sm font-semibold text-[var(--foreground)]">Wortmeldung hinzufügen</h2>
       <div className="grid grid-cols-2 gap-2">
-        <input
-          className={inp}
-          value={name}
-          placeholder="Name *"
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && submit()}
-        />
-        <input
-          className={inp}
+        <TextInput value={name} placeholder="Name *" onChange={setName} onKeyDown={(e) => e.key === 'Enter' && submit()} />
+        <TextInput
           value={affiliation}
           placeholder="Funktion / Medium / Fraktion"
-          onChange={(e) => setAffiliation(e.target.value)}
+          onChange={setAffiliation}
           onKeyDown={(e) => e.key === 'Enter' && submit()}
         />
       </div>
-      <input
-        className={`${inp} mt-2 w-full`}
-        value={question}
-        placeholder="Frage (optional)"
-        onChange={(e) => setQuestion(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && submit()}
-      />
+      <TextInput className="mt-2" value={question} placeholder="Frage (optional)" onChange={setQuestion} onKeyDown={(e) => e.key === 'Enter' && submit()} />
       <div className="mt-2 flex justify-end">
-        <button
-          onClick={submit}
-          disabled={!name.trim()}
-          className="rounded-md bg-[var(--secondary)] px-3 py-1.5 text-sm text-[var(--secondary-foreground)] hover:brightness-125 disabled:opacity-40"
-        >
+        <Button type="button" variant="outline" size="sm" uppercase={false} onClick={submit} disabled={!name.trim()}>
           Hinzufügen
-        </button>
+        </Button>
       </div>
     </div>
   );

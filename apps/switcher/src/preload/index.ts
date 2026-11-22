@@ -10,6 +10,8 @@ import type {
   ScreenSourceInfo,
 } from '@shared/types';
 import type { ControlCommand, SwitcherStateMsg } from '@jm/companion-protocol';
+// Nur der Typ (beim Bündeln entfernt): Ein Wert-Import aus @jm/app-runtime holte Main-Code in den Sandbox-Preload.
+import type { MasterLinkMeldung } from '@jm/app-runtime';
 import type { OpenSwitcherResult, SaveSwitcherRequest, SaveSwitcherResult } from '@shared/project';
 
 // Den vom Main übertragenen NDI-Frame-MessagePort in den Renderer-Main-World
@@ -120,6 +122,15 @@ const api: JmswitchApi = {
       ipcRenderer.on('screen:frame', listener);
       return () => ipcRenderer.off('screen:frame', listener);
     },
+  },
+  // UX Welle 1 (Spec 3.9): Master-Link-Zustand lesend. Fehlt der Handler oder lehnt invoke ab, kommt null; der Renderer
+  // zeigt dann „unbekannt“ (Spec 7.2), nicht „aus“. MasterLinkMeldung (app-runtime) → MasterLinkMeldungZeile (Switcher):
+  // Weicht der Switcher-Typ ab, meldet die Typprüfung den Fehler hier.
+  masterLink: () => (ipcRenderer.invoke('jmps:master-link') as Promise<MasterLinkMeldung>).catch(() => null),
+  onMasterLink: (cb) => {
+    const listener = (_e: unknown, m: MasterLinkMeldung): void => cb(m);
+    ipcRenderer.on('jmps:master-link', listener);
+    return () => ipcRenderer.off('jmps:master-link', listener);
   },
 };
 

@@ -1,24 +1,22 @@
 import { useState } from 'react';
+import { Badge, Button, TextInput } from '@jm/ui';
 import type { QaChannel, QaConfig, QaEntry, QaSubmission } from '@shared/types';
 import { useQa } from '@/store/useQa';
 
-/** Herkunftskanal-Badge (#166) — Presse hervorgehoben (Moderations-Relevanz). */
-function ChannelBadge({ channel }: { channel: QaChannel }) {
+/** Herkunftskanal-Badge (#166) — Presse hervorgehoben (Moderations-Relevanz). Farben nur aus dem Badge-Baustein (Tokens). */
+function ChannelBadge({ channel }: { channel: QaChannel }): React.JSX.Element | null {
   if (channel === 'operator') return null;
-  const map: Record<Exclude<QaChannel, 'operator'>, { label: string; cls: string }> = {
-    lan: { label: 'Saal', cls: 'bg-[var(--input)] text-[var(--muted-foreground)]' },
-    stream: { label: 'Stream', cls: 'bg-sky-600/25 text-sky-300' },
-    press: { label: 'Presse', cls: 'bg-amber-500/25 text-amber-300' },
+  const map: Record<Exclude<QaChannel, 'operator'>, { label: string; tone: 'muted' | 'neutral' | 'warning' }> = {
+    lan: { label: 'Saal', tone: 'muted' },
+    stream: { label: 'Stream', tone: 'neutral' },
+    press: { label: 'Presse', tone: 'warning' },
   };
   const b = map[channel];
-  return <span className={`rounded px-1.5 py-0.5 text-[10px] ${b.cls}`}>{b.label}</span>;
+  return <Badge tone={b.tone}>{b.label}</Badge>;
 }
 
-const inp = 'rounded border border-[var(--border)] bg-[var(--input)] px-2 py-1 text-sm text-[var(--foreground)]';
-const iconBtn = 'rounded px-1.5 py-0.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--highlight)] hover:text-[var(--foreground)]';
-
 /** Warteliste (queuebar) + erledigte Einträge. */
-export function Queue({ entries, config }: { entries: QaEntry[]; config: QaConfig }) {
+export function Queue({ entries, config }: { entries: QaEntry[]; config: QaConfig }): React.JSX.Element {
   const waiting = entries.filter((e) => e.status === 'waiting');
   const done = entries.filter((e) => e.status === 'done');
   const { clearDone } = useQa();
@@ -31,7 +29,7 @@ export function Queue({ entries, config }: { entries: QaEntry[]; config: QaConfi
           <span className="text-xs text-[var(--muted-foreground)]">{waiting.length}</span>
         </div>
         {waiting.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-[var(--border)] py-4 text-center text-xs text-[var(--muted-foreground)]">
+          <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--border)] py-4 text-center text-xs text-[var(--muted-foreground)]">
             Keine offenen Wortmeldungen.
           </div>
         ) : (
@@ -48,13 +46,13 @@ export function Queue({ entries, config }: { entries: QaEntry[]; config: QaConfi
           <div className="mb-1 flex items-center gap-2">
             <h2 className="text-sm font-semibold text-[var(--muted-foreground)]">Erledigt</h2>
             <span className="text-xs text-[var(--muted-foreground)]">{done.length}</span>
-            <button onClick={() => void clearDone()} className={`${iconBtn} ml-auto`}>
+            <Button type="button" variant="ghost" size="sm" uppercase={false} className="ml-auto" onClick={() => void clearDone()}>
               Erledigte entfernen
-            </button>
+            </Button>
           </div>
           <div className="space-y-1">
             {done.map((e) => (
-              <div key={e.id} className="flex items-center gap-2 rounded-lg border border-[var(--border)]/60 px-3 py-1.5 text-sm text-[var(--muted-foreground)]">
+              <div key={e.id} className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--muted-foreground)]">
                 <span className="line-through">{e.name}</span>
                 {e.affiliation && <span className="text-xs">· {e.affiliation}</span>}
               </div>
@@ -76,7 +74,7 @@ function WaitingRow({
   first: boolean;
   last: boolean;
   moderation: boolean;
-}) {
+}): React.JSX.Element {
   const { activate, removeEntry, moveEntry, approveEntry, updateEntry } = useQa();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<QaSubmission>({
@@ -92,21 +90,32 @@ function WaitingRow({
 
   if (editing) {
     return (
-      <div className="space-y-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] p-2">
-        <input className={`${inp} w-full`} value={form.name} placeholder="Name" onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        <input className={`${inp} w-full`} value={form.affiliation} placeholder="Funktion / Medium" onChange={(e) => setForm({ ...form, affiliation: e.target.value })} />
-        <textarea className={`${inp} w-full`} rows={2} value={form.question} placeholder="Frage (optional)" onChange={(e) => setForm({ ...form, question: e.target.value })} />
+      <div className="space-y-1.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--card)] p-2">
+        <TextInput value={form.name} placeholder="Name" onChange={(name) => setForm({ ...form, name })} />
+        <TextInput value={form.affiliation ?? ''} placeholder="Funktion / Medium" onChange={(affiliation) => setForm({ ...form, affiliation })} />
+        <textarea
+          className="w-full rounded-[var(--radius-md)] border border-[var(--field-border)] bg-[var(--input)] px-2.5 py-1.5 text-[13px] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] select-text focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ring)]"
+          rows={2}
+          value={form.question}
+          placeholder="Frage (optional)"
+          onChange={(e) => setForm({ ...form, question: e.target.value })}
+        />
         <div className="flex justify-end gap-2">
-          <button className={iconBtn} onClick={() => setEditing(false)}>Abbrechen</button>
-          <button
-            className="rounded bg-[var(--brand-yellow)] px-2 py-0.5 text-xs font-semibold text-[var(--brand-dark)]"
+          <Button type="button" variant="ghost" size="sm" uppercase={false} onClick={() => setEditing(false)}>
+            Abbrechen
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            uppercase={false}
             onClick={() => {
               void updateEntry(entry.id, form);
               setEditing(false);
             }}
           >
             Speichern
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -114,41 +123,49 @@ function WaitingRow({
 
   return (
     <div
-      className={`flex items-start gap-2 rounded-lg border px-3 py-2 ${
-        pending ? 'border-[var(--warning)]/60 bg-[var(--warning)]/10' : 'border-[var(--border)] bg-[var(--card)]/40'
+      className={`flex flex-wrap items-start gap-2 rounded-[var(--radius-md)] border px-3 py-2 ${
+        pending ? 'border-[var(--warning)] bg-[var(--card)]' : 'border-[var(--border)] bg-[var(--card)]'
       }`}
     >
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+      <div className="min-w-[10rem] flex-1">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{entry.name}</span>
           {entry.affiliation && <span className="truncate text-xs text-[var(--muted-foreground)]">· {entry.affiliation}</span>}
           <ChannelBadge channel={entry.channel} />
-          {pending && <span className="rounded bg-[var(--warning)]/25 px-1.5 py-0.5 text-[10px] text-[var(--warning)]">wartet auf Freigabe</span>}
+          {pending && <Badge tone="warning">wartet auf Freigabe</Badge>}
         </div>
         {entry.question && <div className="mt-0.5 text-sm text-[var(--muted-foreground)]">{entry.question}</div>}
         {entry.contact && <div className="mt-0.5 text-[11px] text-[var(--muted-foreground)]">Kontakt: {entry.contact}</div>}
       </div>
 
-      <div className="flex shrink-0 items-center gap-0.5">
-        <button className={iconBtn} disabled={first} onClick={() => void moveEntry(entry.id, -1)} title="hoch">▲</button>
-        <button className={iconBtn} disabled={last} onClick={() => void moveEntry(entry.id, 1)} title="runter">▼</button>
-        <button className={iconBtn} onClick={() => setEditing(true)} title="bearbeiten">✎</button>
-        <button className={iconBtn} onClick={() => void removeEntry(entry.id)} title="entfernen">✕</button>
+      <div className="flex shrink-0 flex-wrap items-center gap-1">
+        <Button type="button" variant="ghost" size="sm" uppercase={false} disabled={first} onClick={() => void moveEntry(entry.id, -1)} title="hoch">
+          ▲
+        </Button>
+        <Button type="button" variant="ghost" size="sm" uppercase={false} disabled={last} onClick={() => void moveEntry(entry.id, 1)} title="runter">
+          ▼
+        </Button>
+        <Button type="button" variant="ghost" size="sm" uppercase={false} onClick={() => setEditing(true)} title="bearbeiten">
+          ✎
+        </Button>
+        <Button type="button" variant="ghost" size="sm" uppercase={false} onClick={() => void removeEntry(entry.id)} title="entfernen">
+          ✕
+        </Button>
         {pending && (
-          <button
-            className="ml-1 rounded bg-[var(--secondary)] px-2 py-1 text-xs text-[var(--secondary-foreground)] hover:brightness-125"
-            onClick={() => void approveEntry(entry.id, true)}
-          >
+          <Button type="button" variant="outline" size="sm" uppercase={false} onClick={() => void approveEntry(entry.id, true)}>
             Freigeben
-          </button>
+          </Button>
         )}
-        <button
-          className="ml-1 rounded bg-[var(--brand-yellow)] px-2 py-1 text-xs font-semibold text-[var(--brand-dark)]"
+        <Button
+          type="button"
+          variant="primary"
+          size="sm"
+          uppercase={false}
           onClick={() => void activate(entry.id)}
           title="ans Wort holen (Bauchbinde + Redezeit)"
         >
           ▶ Ans Wort
-        </button>
+        </Button>
       </div>
     </div>
   );

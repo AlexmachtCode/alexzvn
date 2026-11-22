@@ -481,7 +481,7 @@ Leitprinzip: **Live-Bedienung sichtbar, Einrichtung weggeräumt.**
 |---|---|---|
 | 0 · Fundament (ohne Pilot) | `@jm/ui`: Rahmen, Statusleiste, `TallyButton`, Eingaben, Einstellungs-Panel, Hell/Dunkel, neue Tokens; neues `@jm/settings` mit sieben Abschnitten; Galerie; Selbsttests in der CI | ✅ **gemergt 09.10.2026** (PR #250). Plan [`docs/superpowers/plans/2026-10-08-suite-ux-fundament.md`](superpowers/plans/2026-10-08-suite-ux-fundament.md); Owner-Entscheide E24, E25, E27, O1–O4; Galerie vom Owner gesehen (`npm run galerie -w @jm/ui`). Kein eigener Release: Die Pakete gehen mit den Apps raus, sichtbar wird es mit dem Titler-Pilot. |
 | 0 · Titler-Pilot | Titler im gemeinsamen Rahmen, Status-Brücken in `@jm/app-runtime` (Spec 3.9) | ✅ **released 17.10.2026 als `titler-v0.12.0`** (PR #267). Plan [`docs/superpowers/plans/2026-10-13-ux-titler-pilot.md`](superpowers/plans/2026-10-13-ux-titler-pilot.md); Funktionsliste [`docs/ux/funktionslisten/titler.md`](ux/funktionslisten/titler.md) abgehakt; Owner-Abnahme 17.10. („titler passt so“), Ergebnis als Absatz in [`docs/ux/ABNAHME-UX-Welle-0.md`](ux/ABNAHME-UX-Welle-0.md) (die Tabelle selbst ist nicht ausgefüllt) |
-| 1 · Live-Kern | Switcher, Timer, Rundown, Q&A, Battle | 🔵 entsperrt; Plan nach UX-Spec Anhang A, keine neue Spec (Owner 17.10.). Mitnehmen: die Pilot-Lehren aus dem Plan-Abschnitt „Nach der Umsetzung“ Nr. 9 und die Befunde 4, 7, 8, 10 der Gesamtprüfung. Laut Owner-Reihenfolge nach der Anmeldung |
+| 1 · Live-Kern | Switcher, Timer, Rundown, Q&A, Battle | 🟡 **Release freigegeben 22.11.2026** (Owner: Texte passen, „okay für release“, ohne Hand-Abnahme vorab): Switcher 0.12.0, Timer 0.15.0, Rundown 0.9.0, Q&A 0.7.0, Battle 0.5.0 (`docs/ux/ABNAHME-UX-Welle-1.md`, Texte freigegeben in `docs/ux/welle1-texte.md`; Plan [`docs/superpowers/plans/2026-11-21-ux-welle1.md`](superpowers/plans/2026-11-21-ux-welle1.md)); vorher: Plan nach UX-Spec Anhang A, keine neue Spec (Owner 17.10.). Mitnehmen: die Pilot-Lehren aus dem Plan-Abschnitt „Nach der Umsetzung“ Nr. 9 und die Befunde 4, 7, 8, 10 der Gesamtprüfung. Laut Owner-Reihenfolge nach der Anmeldung |
 | 2 · übrige Live-Tools | Connect, Caption, Interpreter, Presenter, Prompter, Stage-Display, Recorder, Player, Studio-Control | nach Welle 1; Connect erst nach dem Merge von Zoom 4b (gemergt 12.10.) |
 | 3 · Launcher + Werkzeuge | Launcher, Copy, Grafiktool, Media-Converter, Sync, DAW, Editor, Transcribe, App Designer, NDI-Screen-Capture | nach Welle 2 |
 
@@ -650,6 +650,7 @@ Capture aus dem öffentlichen Repo nehmen (eigener Schritt, Owner 20.11.).
 
 **Block 4 · UX-Relaunch Welle 1 + Live-Sicherheit**
 
+- 🟡 **UX Welle 1: Release freigegeben 22.11.2026** (Owner: Texte passen, „okay für release“, ohne Hand-Abnahme vorab; `docs/ux/ABNAHME-UX-Welle-1.md` bleibt für den Blick im Betrieb). Offen für ein Folge-Release: Der Audio-Eintrag im Switcher bleibt grün, wenn das Gerät während der Show abgezogen wird; drei ungenaue Stellen in den Dokumenten (Abnahme TI4d, Rundown-Handbuch „Tool wird nicht gefunden“, CL-SW2).
 - Switcher, Timer, Rundown, Q&A, Battle nach der UX-Spec, keine neue Spec (Owner 17.10., Lane E). Die fünf Apps sind seit dem
   05.11. unverändert, die Plan-Grundlage hält.
 - Die Live-Sicherheit (Lane F) hängt daran: ein kurzes eigenes Brainstorming mit den Rückmeldungen aus Block 0, dann ein

@@ -12,7 +12,6 @@ import { formatHMS } from '@/lib/time';
 import { useStore } from '@/store/timer';
 import { Button } from '@jm/ui';
 import { Card } from '@jm/ui';
-import { SectionHeader } from './ui/SectionHeader';
 import { cn } from '@jm/ui';
 
 interface Props {
@@ -99,7 +98,10 @@ export function XlsxImport({ open, onClose }: Props) {
         <Card>
           <div className="p-6 flex flex-col gap-5 max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between">
-              <SectionHeader>XLSX · Regieplan importieren</SectionHeader>
+              <h3 className="text-[10px] uppercase tracking-[0.14em] font-extrabold text-[var(--muted-foreground)]">
+                <span className="mr-2 text-[var(--slash)]">/</span>
+                XLSX · Regieplan importieren
+              </h3>
               <button
                 type="button"
                 onClick={handleClose}

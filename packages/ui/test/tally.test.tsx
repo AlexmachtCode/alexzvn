@@ -21,6 +21,9 @@ import { attr, hatKlassen, tags, text, zwischen } from './lib/markup';
 const textVonId = (html: string, id: string): string =>
   text(zwischen(html, `id="${id}"`, '</span>').replace(/^[^>]*>/, ''));
 
+/** E3-Wächter: jede kleinere oder dünnere Schrift auf der LIVE-Fläche (Größe oder Gewicht unter „groß, extrafett“). */
+const E3_KLEINE_SCHRIFT = /text-\[\d+px\]|text-(?:xs|sm|base|lg)\b|font-(?:thin|light|normal|medium|semibold|bold)\b/;
+
 // ── Darstellung ──
 {
   const html = render(<TallyButton state="bereit" label="Take" />);
@@ -46,7 +49,7 @@ const textVonId = (html: string, id: string): string =>
     'Tally live: LIVE_FLAECHE_KLASSE, Kennung „LIVE“, Label sichtbar',
   );
   ok(
-    !/text-\[\d+px\]|text-xs|text-sm/.test(html.replace(LIVE_FLAECHE_KLASSE, '')),
+    !E3_KLEINE_SCHRIFT.test(html.replace(LIVE_FLAECHE_KLASSE, '')),
     'Tally live: keine kleinere Schrift auf der LIVE-Fläche (E3: nur große Schrift, auch das Kürzel)',
   );
 }
@@ -112,7 +115,7 @@ const textVonId = (html: string, id: string): string =>
   );
   const ohneFlaeche = html.replace(LIVE_FLAECHE_KLASSE, '');
   ok(
-    !/text-\[\d+px\]|text-xs|text-sm/.test(ohneFlaeche) && !/text-\[var\(/.test(ohneFlaeche),
+    !E3_KLEINE_SCHRIFT.test(ohneFlaeche) && !/text-\[var\(/.test(ohneFlaeche),
     'Tally live + gesperrt: die Grund-Zeile steht in der Schrift der LIVE-Fläche – keine kleinere Schrift, keine eigene Farbe (E3; Kontrast in kontrast.test.ts)',
   );
   pruefeIdVerweise(html, 'Tally live + gesperrt: alle id-Verweise gültig');
@@ -489,4 +492,42 @@ const taste = (key: string, repeat = false) => ({ key, repeat, preventDefault: (
   );
   for (const zeile of fehlt) console.log(`     fehlt: ${zeile}`);
   for (const zeile of handlerDaneben) console.log(`     Handler neben dem Spread: ${zeile.trim()}`);
+}
+
+// ── E3-Wächter streng (UX Welle 1) ──
+{
+  ok(
+    E3_KLEINE_SCHRIFT.test('x text-base y') &&
+      E3_KLEINE_SCHRIFT.test('x font-semibold y') &&
+      !E3_KLEINE_SCHRIFT.test('x font-sans y') &&
+      !E3_KLEINE_SCHRIFT.test('x font-extrabold y'),
+    'UI Tally E3-Wächter streng: text-base und font-semibold fallen durch, font-sans und font-extrabold nicht',
+  );
+}
+
+// ── Klick nach dem Entsperren (UX Welle 1) ──
+{
+  // Druck unter Sperre, Entsperren beim Halten des Fingers, Loslassen → click: wirkt nicht; ein frischer Druck danach schon.
+  const { z, halten, h } = aufbau({ state: 'gesperrt', disabledReason: 'x' });
+  h.onPointerDown(zeiger());
+  const frei = tallyKnopfProps({ state: 'bereit', label: 'Talk', onClick: () => void z.click++ }, halten, 'g');
+  frei.onPointerUp();
+  frei.onClick();
+  const nachSperre = z.click;
+  frei.onPointerDown(zeiger());
+  frei.onPointerUp();
+  frei.onClick();
+  gleich([nachSperre, z.click], [0, 1], 'UI Tally Klick nach dem Entsperren: click eines Drucks unter Sperre wirkt nicht, ein frischer Druck schon');
+}
+{
+  const { z, halten, h } = aufbau({ state: 'gesperrt', disabledReason: 'x' });
+  h.onKeyDown(taste(' '));
+  const frei = tallyKnopfProps({ state: 'bereit', label: 'Talk', onClick: () => void z.click++ }, halten, 'g');
+  frei.onKeyUp(taste(' '));
+  frei.onClick();
+  const nachSperre = z.click;
+  frei.onKeyDown(taste(' '));
+  frei.onKeyUp(taste(' '));
+  frei.onClick();
+  gleich([nachSperre, z.click], [0, 1], 'UI Tally Klick nach dem Entsperren (Tastatur): Leertaste unter Sperre, Loslassen danach → kein Klick; frischer Druck schon');
 }

@@ -266,3 +266,22 @@ for (const s of ZUSTAENDE) {
     'StatusBar Verdrahtung: die Uhr läuft über starteUhr im Effekt (genau einmal)',
   );
 }
+
+// ── Einträge ohne Umbruch (UX Welle 1) ──
+{
+  const html = render(
+    <StatusBar
+      items={[
+        { id: 'ndi', group: 'ausgabe', label: 'NDI', state: 'ok' },
+        { id: 'aufnahme', group: 'ausgabe', label: 'Aufnahme', state: 'live', detail: 'läuft' },
+        { id: 'netz', group: 'verbindung', label: 'Netzwerk', state: 'warn', settingsSection: 'netz' },
+      ]}
+      onOpenSection={() => undefined}
+    />,
+  );
+  const eintraege = tags(html, '(?:span|button)').filter((t) => attr(t, 'data-status-id') !== undefined);
+  ok(
+    eintraege.length === 3 && eintraege.every((t) => hatKlassen(t, 'whitespace-nowrap')),
+    'UI StatusBar ohne Umbruch: die Klasse jedes Eintrags enthält whitespace-nowrap',
+  );
+}

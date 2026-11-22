@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useQa } from '@/store/useQa';
 import { toDataUrl } from '@/lib/qr';
 import type { QaRemoteInfo } from '@shared/types';
 
-/** Saal-Einreichung per Handy: An/Aus-Schalter, QR-Code + LAN-URLs. */
-export function RemotePanel({ remote }: { remote: QaRemoteInfo }) {
-  const { setRemote } = useQa();
+/** Saal-Einreichung per Handy: QR-Code + LAN-URLs. Der An/Aus-Schalter ist die Haupttaste „Saal-Einreichung“ (views/LiveBereich.tsx). */
+export function RemotePanel({ remote }: { remote: QaRemoteInfo }): React.JSX.Element {
   const [qr, setQr] = useState('');
   const url = remote.urls[0] ?? '';
 
@@ -26,19 +24,9 @@ export function RemotePanel({ remote }: { remote: QaRemoteInfo }) {
   }, [url]);
 
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)]/40 p-3">
+    <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-3">
       <div className="mb-2 flex items-center gap-2">
         <h2 className="text-sm font-semibold text-[var(--foreground)]">Saal-Einreichung</h2>
-        <button
-          onClick={() => void setRemote(!remote.running)}
-          className={`ml-auto rounded-md border px-2.5 py-1 text-xs font-semibold ${
-            remote.running
-              ? 'border-[var(--success)] bg-[var(--success)]/20 text-[var(--success)]'
-              : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--highlight)]'
-          }`}
-        >
-          {remote.running ? '◉ An' : '○ Aus'}
-        </button>
       </div>
 
       {remote.running ? (
@@ -46,7 +34,7 @@ export function RemotePanel({ remote }: { remote: QaRemoteInfo }) {
           {qr ? (
             <img src={qr} alt="QR-Code zur Saal-Einreichung" className="rounded-lg bg-white p-1.5" width={180} height={180} />
           ) : (
-            <div className="grid h-[180px] w-[180px] place-items-center rounded-lg bg-[var(--input)] text-xs text-[var(--muted-foreground)]">
+            <div className="grid h-[180px] w-[180px] place-items-center rounded-[var(--radius-md)] bg-[var(--input)] text-xs text-[var(--muted-foreground)]">
               kein Netzwerk
             </div>
           )}

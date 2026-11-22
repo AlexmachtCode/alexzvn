@@ -66,17 +66,26 @@ function tallyGesperrt(p: Pick<TallyButtonProps, 'state' | 'disabledReason'>): b
  * Die Ereignis-Verdrahtung des TallyButton als reine Funktion (E9), damit sie ohne Browser testbar ist.
  * - Halten nur mit der linken Taste bzw. Kontakt (button 0) oder Leertaste/Enter ohne Auto-Repeat.
  * - Loslassen über dieselbe Quelle; pointercancel, lostpointercapture und blur brechen ab (onRelease genau einmal).
- * - Gesperrt (auch live + gesperrt): nichts startet, nichts klickt; Loslassen bleibt möglich.
+ * - Gesperrt (auch live + gesperrt): nichts startet, nichts klickt; Loslassen bleibt möglich. Ein Druck unter Sperre
+ *   merkt sich das (druckUnterSperre): Sein click wirkt auch nach dem Entsperren nicht.
  * Nur aus dieser Datei exportiert, nicht aus index.ts.
  */
 export function tallyHandler(p: TallyButtonProps, halten: HaltenSteuerung): TallyHandler {
   const gesperrt = tallyGesperrt(p);
   return {
     onClick() {
-      if (!gesperrt) p.onClick?.();
+      // Ein click, dessen Druck unter Sperre begann, wirkt nie – auch nicht, wenn der Knopf inzwischen entsperrt ist.
+      const unterSperre = halten.druckUnterSperre;
+      halten.druckUnterSperre = false;
+      if (!gesperrt && !unterSperre) p.onClick?.();
     },
     onPointerDown(e) {
-      if (gesperrt || e.button !== 0 || halten.gehalten) return;
+      if (gesperrt) {
+        halten.druckUnterSperre = true;
+        return;
+      }
+      if (e.button !== 0 || halten.gehalten) return;
+      halten.druckUnterSperre = false;
       // Nur wenn wirklich ein Halten startet: bei gesetztem Capture ginge der click sonst auch nach dem Wegziehen an den Knopf (versehentliches Take).
       if (p.onPress || p.onRelease) {
         try {
@@ -91,6 +100,7 @@ export function tallyHandler(p: TallyButtonProps, halten: HaltenSteuerung): Tall
       halten.loslassen('zeiger');
     },
     onPointerCancel() {
+      halten.druckUnterSperre = false;
       halten.abbrechen();
     },
     onLostPointerCapture() {
@@ -99,13 +109,19 @@ export function tallyHandler(p: TallyButtonProps, halten: HaltenSteuerung): Tall
     onKeyDown(e) {
       // Ein gehaltenes Enter klickt im Browser mit jeder Wiederholung erneut (mehrfaches Take); nur der erste Druck zählt.
       if (e.key === 'Enter' && e.repeat) e.preventDefault();
-      if (gesperrt || e.repeat || !HALTE_TASTEN.has(e.key)) return;
+      if (e.repeat || !HALTE_TASTEN.has(e.key)) return;
+      if (gesperrt) {
+        halten.druckUnterSperre = true;
+        return;
+      }
+      halten.druckUnterSperre = false;
       halten.druecken('taste');
     },
     onKeyUp(e) {
       if (HALTE_TASTEN.has(e.key)) halten.loslassen('taste');
     },
     onBlur() {
+      halten.druckUnterSperre = false;
       halten.abbrechen();
     },
   };

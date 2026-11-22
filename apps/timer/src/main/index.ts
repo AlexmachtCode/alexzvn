@@ -22,6 +22,7 @@ import { advertise, type Advertiser } from '@jm/discovery';
 import { readControlConfig, mdnsSignKey } from '@jm/control-config';
 import { hatEigeneTimerListe, parseShow, parseShowDeepLink, type Show } from '@jm/show';
 import { aktiverPunktVerschwunden } from '@shared/timer-state';
+import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import { timerAktionenAusShow } from '@shared/show-anwenden';
 import { RENDERER_CSP } from '@shared/net';
 import { loadState, dispatch, getState } from './state';
@@ -272,7 +273,20 @@ function setupTray(): void {
   rebuildTrayMenu();
 }
 
+/**
+ * UX Welle 1 (Spec 3.9): die zuletzt gemeldete Lage des Steuerservers, nur lesend. null, solange nichts gemeldet wurde
+ * (der Renderer zeigt dann „unbekannt“). Jede Meldung geht an alle offenen Fenster.
+ */
+let fernsteuerung: FernsteuerungMeldung | null = null;
+function meldeFernsteuerung(e: FernsteuerungEreignis): void {
+  fernsteuerung = naechsteFernsteuerung(fernsteuerung ?? undefined, e);
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('timer:fernsteuerung', fernsteuerung);
+  }
+}
+
 function registerIpc(): void {
+  ipcMain.handle('timer:fernsteuerung', () => fernsteuerung);
   ipcMain.handle('speaker:open', () => openSpeakerWindow());
   ipcMain.handle('speaker:close', () => closeSpeakerWindow());
   ipcMain.handle('speaker:toggle', () => {
@@ -442,11 +456,13 @@ if (!gotLock) {
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — neben
     // Socket.IO, ohne eigene mDNS-Annoncierung (siehe control-server.ts).
     try {
-      const r = await startControlServer({ onReload: () => reloadCurrentShow() });
+      const r = await startControlServer({ onReload: () => reloadCurrentShow(), onMeldung: meldeFernsteuerung });
+      meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });
       if (!r.ok) getLog().warn(`Timer-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
       else getLog().info(`Timer-Steuerserver (Companion) lauscht auf :${CONTROL_PORT}`);
     } catch (err) {
       getLog().warn(`Timer-Steuerserver fehlgeschlagen: ${(err as Error).message}`);
+      meldeFernsteuerung({ art: 'wurf', text: (err as Error).message });
     }
     registerIpc();
     // Per Show gestartet? Ablaufplan/Countdown aus der Show übernehmen (nach

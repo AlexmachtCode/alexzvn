@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Button, Select, TextInput } from '@jm/ui';
 import { buildActionLine } from '@shared/conductor';
 import { loeseSprungZiel } from '@shared/sprung';
 import {
@@ -21,10 +22,13 @@ import { formatClock, parseClock } from '@/lib/duration';
 import type { ShowIveoProgramRef, ShowIveoSpeaker } from '@jm/show';
 import type { RundownAction, RundownDoc, RundownRow } from '@shared/types';
 
-const select =
-  'rounded border border-[var(--border)] bg-[var(--input)] px-2 py-1 text-sm text-[var(--foreground)]';
-const input =
-  'w-full rounded border border-[var(--border)] bg-[var(--input)] px-2 py-1 text-sm text-[var(--foreground)]';
+// Ungesteuerte Felder (defaultValue, Speichern bei onBlur, 5.5) bleiben echte input-Elemente: TextInput und NumberInput sind
+// gesteuert. Das Aussehen ist das der geteilten Eingaben (EINGABE_KLASSE in @jm/ui, nicht exportiert), nur aus Tokens.
+const FELD_BASIS =
+  'h-[var(--control-h)] min-w-0 rounded-[var(--radius-md)] border border-[var(--field-border)] bg-[var(--input)] px-2.5 text-[13px] ' +
+  'text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] select-text ' +
+  'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ring)]';
+const input = `w-full ${FELD_BASIS}`;
 
 /** Default-Argumente einer Capability-Aktion (Reihenfolge wie im Protokoll). */
 function defaultArgs(role: string, verb: string): (string | number)[] {
@@ -60,7 +64,7 @@ export function RowEditor({
         <label className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">Zeilen-Titel</label>
         {sperre.text ? (
           // 4.5: Gesperrte Felder sind gesteuert (value + readOnly) — ein Abgleich ist sofort sichtbar.
-          <input value={row.label} readOnly className={`${input} opacity-70`} />
+          <TextInput value={row.label} onChange={() => {}} readOnly className="opacity-70" />
         ) : (
           <input
             key={row.id}
@@ -73,7 +77,7 @@ export function RowEditor({
           Dauer (mm:ss · optional, für Timer-Austausch)
         </label>
         {sperre.text ? (
-          <input value={formatClock(row.durationMs)} readOnly className={`${input} opacity-70`} />
+          <TextInput value={formatClock(row.durationMs)} onChange={() => {}} readOnly className="opacity-70" />
         ) : (
           <input
             key={`${row.id}:dur`}
@@ -90,12 +94,9 @@ export function RowEditor({
           <div className="mt-2 flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
             <span className={entfallen ? 'text-[var(--warning)]' : ''}>{hinweis}</span>
             {entfallen && (
-              <button
-                onClick={() => onAlsEigeneZeile(row.id)}
-                className="ml-auto rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]"
-              >
+              <Button type="button" variant="outline" size="sm" uppercase={false} className="ml-auto" onClick={() => onAlsEigeneZeile(row.id)}>
                 Als eigene Zeile behalten
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -118,12 +119,15 @@ export function RowEditor({
             onDoc={onDoc}
           />
         ))}
-        <button
+        <Button
+          type="button"
+          variant="outline"
+          uppercase={false}
+          className="w-full border-dashed text-[var(--muted-foreground)]"
           onClick={() => onDoc(addAction(doc, row.id))}
-          className="w-full rounded-md border border-dashed border-[var(--border)] py-1.5 text-sm text-[var(--muted-foreground)] hover:bg-[var(--highlight)]"
         >
           + Aktion hinzufügen
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -224,46 +228,38 @@ function ActionRow({
           onChange={(e) => onDoc(updateAction(doc, rowId, action.id, { enabled: e.target.checked }))}
           title="aktiviert"
         />
-        <select value={action.role} onChange={(e) => setRole(e.target.value)} className={`${select} min-w-0 flex-1`}>
-          {KNOWN_ROLES.filter((r) => r !== 'rundown').map((r) => (
-            <option key={r} value={r}>
-              {CAPABILITIES[r].label}
-            </option>
-          ))}
-        </select>
-        <select value={action.verb} onChange={(e) => setVerb(e.target.value)} className={`${select} min-w-0 flex-1`}>
-          {(CAPABILITIES[action.role]?.actions ?? []).map((a) => (
-            <option key={a.id} value={a.verb}>
-              {a.label}
-            </option>
-          ))}
-          {!cap && <option value={action.verb}>{action.verb}</option>}
-        </select>
+        <Select
+          value={action.role}
+          onChange={setRole}
+          className="flex-1"
+          options={KNOWN_ROLES.filter((r) => r !== 'rundown').map((r) => ({ value: r, label: CAPABILITIES[r].label }))}
+        />
+        <Select
+          value={action.verb}
+          onChange={setVerb}
+          className="flex-1"
+          options={(CAPABILITIES[action.role]?.actions ?? []).map((a) => ({ value: a.verb, label: a.label }))}
+        />
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {fired === 'ok' && <span className="text-xs text-[var(--success)]">✓ gesendet</span>}
           {fired === 'off' && <span className="text-xs text-[var(--warning)]">⚠ offline</span>}
-          <button
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            uppercase={false}
             onClick={test}
             disabled={!line}
             title={line ? 'diese Aktion jetzt an das Tool senden' : 'Ziel entfallen — wird nicht gesendet'}
-            className="rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)] disabled:opacity-40"
           >
             Test
-          </button>
-          <button
-            onClick={() => onDoc(duplicateAction(doc, rowId, action.id))}
-            title="Aktion duplizieren"
-            className="rounded px-1.5 py-0.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--highlight)] hover:text-[var(--foreground)]"
-          >
+          </Button>
+          <Button type="button" variant="ghost" size="sm" uppercase={false} onClick={() => onDoc(duplicateAction(doc, rowId, action.id))} title="Aktion duplizieren">
             ⧉
-          </button>
-          <button
-            onClick={() => onDoc(removeAction(doc, rowId, action.id))}
-            title="Aktion löschen"
-            className="rounded px-1.5 py-0.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--highlight)] hover:text-[var(--foreground)]"
-          >
+          </Button>
+          <Button type="button" variant="ghost" size="sm" uppercase={false} onClick={() => onDoc(removeAction(doc, rowId, action.id))} title="Aktion löschen">
             ✕
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -271,17 +267,12 @@ function ActionRow({
         <div className="mt-2">
           <label className="text-xs text-[var(--muted-foreground)]">
             iveo-Speaker (Bauchbinde)
-            <select
+            <Select
               value={picker.gewaehlt}
-              onChange={(e) => waehleSpeaker(e.target.value)}
-              className={`${input} mt-0.5`}
-            >
-              {picker.optionen.map((o, i) => (
-                <option key={`${i}-${o.wert}`} value={o.wert}>
-                  {o.text}
-                </option>
-              ))}
-            </select>
+              onChange={waehleSpeaker}
+              className="mt-0.5"
+              options={picker.optionen.map((o) => ({ value: o.wert, label: o.text }))}
+            />
           </label>
         </div>
       )}
@@ -290,18 +281,12 @@ function ActionRow({
         <div className="mt-2">
           <label className="text-xs text-[var(--muted-foreground)]">
             iveo Side Event (live schalten)
-            <select
+            <Select
               value={String(action.args[0] ?? '')}
-              onChange={(e) => setArg(0, e.target.value)}
-              className={`${input} mt-0.5`}
-            >
-              <option value="">— Tagesübersicht (alle Side Events) —</option>
-              {iveoSideEvents.map((se) => (
-                <option key={se.id} value={se.id}>
-                  {se.title}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setArg(0, v)}
+              className="mt-0.5"
+              options={[{ value: '', label: '— Tagesübersicht (alle Side Events) —' }, ...iveoSideEvents.map((se) => ({ value: se.id, label: se.title }))]}
+            />
           </label>
         </div>
       )}
@@ -310,21 +295,16 @@ function ActionRow({
         <div className="mt-2 space-y-1">
           <label className="text-xs text-[var(--muted-foreground)]">
             Ablaufpunkt (Timer springt dorthin)
-            <select
+            <Select
               value={action.zielId ?? ''}
-              onChange={(e) => waehleZiel(e.target.value)}
-              className={`${input} mt-0.5`}
-            >
-              <option value="">Nummer von Hand</option>
-              {punkte.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {`${p.n} · ${p.label}`}
-                </option>
-              ))}
-              {action.zielId && !punkte.some((p) => p.id === action.zielId) && (
-                <option value={action.zielId}>Ziel entfallen</option>
-              )}
-            </select>
+              onChange={waehleZiel}
+              className="mt-0.5"
+              options={[
+                { value: '', label: 'Nummer von Hand' },
+                ...punkte.map((p) => ({ value: p.id, label: `${p.n} · ${p.label}` })),
+                ...(action.zielId && !punkte.some((p) => p.id === action.zielId) ? [{ value: action.zielId, label: 'Ziel entfallen' }] : []),
+              ]}
+            />
           </label>
           {!action.zielId && (
             <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
@@ -333,12 +313,9 @@ function ActionRow({
                 {handPunkt ? ` (${handPunkt.label})` : ''}
               </span>
               {handPunkt && (
-                <button
-                  onClick={() => waehleZiel(handPunkt.id)}
-                  className="ml-auto rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]"
-                >
+                <Button type="button" variant="outline" size="sm" uppercase={false} className="ml-auto" onClick={() => waehleZiel(handPunkt.id)}>
                   an diesen Punkt binden
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -357,36 +334,33 @@ function ActionRow({
                 // Pfad-Argument: Textfeld (kontrolliert, damit „Durchsuchen" sichtbar
                 // einträgt) + nativer Datei-Dialog. Pfad gilt auf dem Ziel-Rechner.
                 <div className="mt-0.5 flex gap-1">
-                  <input
-                    type="text"
+                  <TextInput
                     value={String(action.args[i] ?? '')}
                     placeholder="Pfad zur Datei…"
-                    onChange={(e) => setArg(i, e.target.value)}
-                    className={`${input} flex-1`}
+                    onChange={(v) => setArg(i, v)}
+                    className="flex-1"
                   />
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="sm"
+                    uppercase={false}
+                    className="shrink-0"
                     onClick={async () => {
                       const p = await window.jmrundown.pickFile();
                       if (p) setArg(i, p);
                     }}
-                    className="shrink-0 rounded border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] hover:bg-[var(--highlight)]"
                   >
                     Durchsuchen…
-                  </button>
+                  </Button>
                 </div>
               ) : arg.type === 'dropdown' ? (
-                <select
+                <Select
                   value={String(action.args[i] ?? arg.default ?? '')}
-                  onChange={(e) => setArg(i, e.target.value)}
-                  className={`${input} mt-0.5`}
-                >
-                  {(arg.choices ?? []).map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setArg(i, v)}
+                  className="mt-0.5"
+                  options={(arg.choices ?? []).map((c) => ({ value: c.id, label: c.label }))}
+                />
               ) : (
                 <input
                   type={arg.type === 'number' ? 'number' : 'text'}
@@ -414,7 +388,7 @@ function ActionRow({
             defaultValue={delayMs}
             key={`${action.id}:${delayMs}`}
             onBlur={(e) => setDelay(Number(e.target.value))}
-            className="w-20 rounded border border-[var(--border)] bg-[var(--input)] px-2 py-0.5 text-sm text-[var(--foreground)]"
+            className={`w-20 ${FELD_BASIS}`}
           />
           <span className="text-[var(--muted-foreground)]">ms</span>
         </label>

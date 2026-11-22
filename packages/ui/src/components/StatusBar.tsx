@@ -101,7 +101,7 @@ function Eintrag({
   const titel = item.detail ? `${item.label}: ${item.detail}` : undefined;
   const live = item.state === 'live';
   const klasse = cn(
-    'inline-flex h-5 min-w-0 shrink items-center gap-1 rounded-[var(--radius-md)] border px-1.5',
+    'inline-flex h-5 min-w-0 shrink items-center gap-1 whitespace-nowrap rounded-[var(--radius-md)] border px-1.5',
     STATUS_RAND_KLASSE[item.state],
     live ? LIVE_EINTRAG_KLASSE : 'text-[var(--foreground)]',
   );

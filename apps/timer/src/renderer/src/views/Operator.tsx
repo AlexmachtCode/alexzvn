@@ -1,25 +1,10 @@
-import { useStore } from '@/store/timer';
-import { AppShell } from '@/components/AppShell';
-import { Clock } from '@/components/Clock';
-import { Countdown } from '@/components/Countdown';
-import { ColorPicker } from '@/components/ColorPicker';
-import { Timetable } from '@/components/Timetable';
-import { RemoteInfo } from '@/components/RemoteInfo';
 import { useAutoAdvance } from '@/sync/useAutoAdvance';
+import { TimerOberflaeche } from './TimerOberflaeche';
 
-export function OperatorView() {
-  const mode = useStore((s) => s.mode);
+export function OperatorView({ verbindungBekannt }: { verbindungBekannt?: boolean }) {
   // Auto-advance runs only here — Speaker/Remote windows never dispatch
-  // commands, so we avoid duplicate `tt:next` fires.
+  // commands, so we avoid duplicate `tt:next` fires. Der Hook liegt oberhalb der Modus-Ansicht und überlebt jeden Moduswechsel.
   useAutoAdvance();
 
-  return (
-    <AppShell>
-      {mode === 'clock' && <Clock />}
-      {mode === 'countdown' && <Countdown />}
-      {mode === 'timetable' && <Timetable />}
-      {mode === 'remote' && <RemoteInfo />}
-      {mode === 'settings' && <ColorPicker />}
-    </AppShell>
-  );
+  return <TimerOberflaeche verbindungBekannt={verbindungBekannt} />;
 }

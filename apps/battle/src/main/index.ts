@@ -6,6 +6,7 @@ import { parseShow, parseShowDeepLink } from '@jm/show';
 import { RemoteServer } from '@jm/remote';
 import { readControlConfig } from '@jm/control-config';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
+import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { BattleConfig, BattleState, ClipJob, Competitor, RoundResult, Side, ToolLink } from '@shared/types';
 import {
   addVote,
@@ -286,7 +287,20 @@ async function setRemote(enabled: boolean): Promise<void> {
 }
 
 // ── IPC ───────────────────────────────────────────────────────────────────────
+/**
+ * UX Welle 1 (Spec 3.9): die zuletzt gemeldete Lage des Steuerservers, nur lesend. null, solange nichts gemeldet wurde
+ * (der Renderer zeigt dann „unbekannt“). Jede Meldung geht an alle offenen Fenster.
+ */
+let fernsteuerung: FernsteuerungMeldung | null = null;
+function meldeFernsteuerung(e: FernsteuerungEreignis): void {
+  fernsteuerung = naechsteFernsteuerung(fernsteuerung ?? undefined, e);
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('battle:fernsteuerung', fernsteuerung);
+  }
+}
+
 function registerIpc(): void {
+  ipcMain.handle('battle:fernsteuerung', () => fernsteuerung);
   ipcMain.handle('battle:getState', () => buildState());
 
   ipcMain.handle('battle:setCompetitor', (_e, side: Side, patch: Partial<Competitor>) => {
@@ -484,7 +498,17 @@ if (!gotLock) {
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
     coupling.setOverrides(getOverrides());
     coupling.start(app.getPath('appData'));
-    void startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand });
+    // Das Start-Ergebnis geht nur lesend an die Statusleiste; Reihenfolge und Argumente bleiben wie zuvor.
+    void (async () => {
+      try {
+        const r = await startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand, onMeldung: meldeFernsteuerung });
+        meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });
+        if (!r.ok) getLog().warn(`Battle-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
+      } catch (err) {
+        meldeFernsteuerung({ art: 'wurf', text: (err as Error).message });
+        getLog().warn(`Battle-Steuerserver fehlgeschlagen: ${(err as Error).message}`);
+      }
+    })();
   });
 
   app.on('before-quit', () => {

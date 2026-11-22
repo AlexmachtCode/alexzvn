@@ -108,3 +108,23 @@ const onAir = (html: string): { tag: string; inhalt: string } => {
   const zahnradText = zwischen(render(<AppHeader tool="Titler" mac={false} settingsAvailable onSettingsToggle={nichts} />), 'data-zahnrad', '</button>');
   ok(zahnradText.includes('<span aria-hidden="true">⚙</span>'), 'Header ⚙: Symbol aria-hidden (Name kommt aus aria-label)');
 }
+
+// ── On-Air ansagbar (UX Welle 1) ──
+{
+  const region = (html: string): string[] => tags(html, 'span').filter((t) => attr(t, 'role') === 'status');
+  const live = render(<AppHeader tool="Titler" mac={false} onAir={{ live: true }} />);
+  const bereit = render(<AppHeader tool="Titler" mac={false} onAir={{ live: false }} />);
+  const a = region(live);
+  const b = region(bereit);
+  ok(
+    a.length === 1 && b.length === 1 && attr(a[0], 'data-bereich') === 'onair' && a[0] === b[0] &&
+      text(ohneVersteckt(live)).includes('ON AIR') && text(ohneVersteckt(bereit)).includes('bereit'),
+    'UI Kopf On-Air ansagbar: genau ein role=status mit data-bereich=onair, in live und bereit dasselbe äußere Element',
+  );
+  // Fund A7 der Gesamtprüfung: Ohne Display-Klasse ist die Region inline und das Badge sitzt im Flex-Kopf auf der Grundlinie
+  // (1–3 px versetzt). inline-flex mit items-center richtet es mittig aus, ohne sonst etwas zu ändern.
+  ok(
+    [a[0], b[0]].every((t) => hatKlassen(t, 'inline-flex items-center')),
+    'UI Kopf On-Air ausgerichtet: die Region role=status trägt inline-flex und items-center (live und bereit)',
+  );
+}

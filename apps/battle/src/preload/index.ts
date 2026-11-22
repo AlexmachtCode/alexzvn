@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { MasterLinkMeldung } from '@jm/app-runtime';
+import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { BattleConfig, BattleState, Competitor, JmBattleApi, Side, ToolLink } from '@shared/types';
 
 const api: JmBattleApi = {
@@ -37,6 +39,24 @@ const api: JmBattleApi = {
   pickRecording: () => ipcRenderer.invoke('battle:pickRecording') as Promise<BattleState>,
   pickClipDir: () => ipcRenderer.invoke('battle:pickClipDir') as Promise<BattleState>,
   clip: (seconds?: number) => ipcRenderer.invoke('battle:clip', seconds) as Promise<BattleState>,
+
+  // UX Welle 1 (Spec 3.9): Master-Link-Zustand lesend. Fehlt der Handler oder lehnt invoke ab, kommt null; der Renderer
+  // zeigt dann „unbekannt“ (Spec 7.2), nicht „aus“. MasterLinkMeldung (app-runtime) → MasterLinkMeldungZeile
+  // (shared/types): Weicht der Typ ab, meldet die Typprüfung den Fehler hier.
+  masterLink: () => (ipcRenderer.invoke('jmps:master-link') as Promise<MasterLinkMeldung>).catch(() => null),
+  onMasterLink: (cb) => {
+    const listener = (_e: unknown, m: MasterLinkMeldung): void => cb(m);
+    ipcRenderer.on('jmps:master-link', listener);
+    return () => ipcRenderer.off('jmps:master-link', listener);
+  },
+  // UX Welle 1 (Spec 3.9): Meldung des Steuerservers lesend (Port, läuft, Clients, Modus, Startfehler). null, solange Main
+  // noch nichts gemeldet hat oder ablehnt.
+  fernsteuerung: () => (ipcRenderer.invoke('battle:fernsteuerung') as Promise<FernsteuerungMeldung | null>).catch(() => null),
+  onFernsteuerung: (cb) => {
+    const listener = (_e: unknown, m: FernsteuerungMeldung | null): void => cb(m);
+    ipcRenderer.on('battle:fernsteuerung', listener);
+    return () => ipcRenderer.off('battle:fernsteuerung', listener);
+  },
 };
 
 if (process.contextIsolated) {
