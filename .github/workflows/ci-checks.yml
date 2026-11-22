@@ -76,6 +76,8 @@ jobs:
         run: npm run selftest -w @jm/player
       - name: Stage Display (Nachricht in allen drei Ansichten)
         run: npm run selftest -w @jm/stage-display
+      - name: Interpreter (Ducking, virtuelles Kabel, Brücken, Oberfläche)
+        run: npm run selftest -w @jm/interpreter
       - name: Output-Window (gemessener Fensterzustand)
         run: npm run selftest -w @jm/output-window
       - name: Caption (Audio-Helfer, NDI-Lizenztext im Bündel)
