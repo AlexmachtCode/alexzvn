@@ -44,7 +44,51 @@ export const RUNDOWN_TEXTE = {
   grund: { keineZeile: 'Keine Zeile im Ablauf' },
   /** iveo (E12): Zusatz zum Status, wenn nichts eingerichtet ist; ohne Show ist das kein Fehler. */
   iveo: { keineShow: 'Keine Show', showOhneIveo: 'Show ohne iveo' },
+  /** Werkzeugleiste (E11): die Beschriftungen und Tooltips der Datei-Knöpfe sind wörtlich der Bestand (App.tsx); neu ist nur die Beschriftung des Namensfelds. */
+  datei: {
+    neu: 'Neu',
+    oeffnen: 'Öffnen',
+    regieplan: 'Regieplan…',
+    regieplanTitel: 'Regieplan aus Excel/CSV importieren — legt je Punkt eine Zeile an',
+    exportieren: 'Export…',
+    exportierenTitel: 'Aktuellen Ablauf als Regieplan (Excel) exportieren — z. B. für den JM Timer',
+    speichern: 'Speichern',
+    speichernUnter: 'Speichern unter …',
+    ungespeichert: '• ungespeichert',
+    namensfeld: 'Name des Ablaufs',
+  },
+  /** Transport unter der Liste (E11): wörtlich der Bestand (Transport.tsx). */
+  transport: { scharf: 'Scharf', keineZeile: '—', zuletztGefeuert: 'Zuletzt gefeuert:', keineAktionen: 'keine Aktionen' },
+  /** Stehende Hinweise im Live-Bereich (App.tsx): der Tooltip des ✕ ist wörtlich der Bestand. */
+  hinweise: { schliessen: 'Hinweis schließen' },
 } as const;
+
+/**
+ * Mindestbreite einer Haupttaste in px: „◀ Zurück“ (15 px, extrafett) samt Kürzel „↑“ und px-4 ist die breiteste, geschätzt
+ * 136 px, aufgerundet. Darunter bricht das Raster um (geschätzt aus den Schriftmaßen, nicht im Fenster gemessen).
+ */
+export const TASTEN_MIN_BREITE = 140;
+
+/** Containerbreite, ab der alle drei Tasten nebeneinander stehen: 3×140 + 2 Lücken à 12 (gap-3) = 444 px. Steht als `@[444px]` in Transport.tsx. */
+export const TASTEN_DREI_BREITE = 3 * TASTEN_MIN_BREITE + 2 * 12;
+
+/**
+ * Spalten der drei Haupttasten bei gegebener Containerbreite (Container-Query, kein Viewport): 3 ab TASTEN_DREI_BREITE, sonst 1
+ * (drei Tasten untereinander). Nie 2: Das ließe eine Taste allein in der zweiten Reihe stehen.
+ */
+export function tastenSpalten(containerBreite: number): 1 | 3 {
+  return containerBreite >= TASTEN_DREI_BREITE ? 3 : 1;
+}
+
+/**
+ * Breiten der Zeilenliste in px (RundownList.tsx), geschätzt aus den Klassen: Innenabstand der Liste 2×12 (p-3), Zeile 2×12 (px-3)
+ * plus Rand 2, Griff 12, Nummer 24 (w-6), drei Lücken à 8 (gap-2), fünf Symbolknöpfe (Button sm, je etwa 34) mit vier Lücken à 2,
+ * und mindestens 100 für den Titel. Summe 388, aufgerundet 400. Ist die Spalte schmaler, scrollt die Liste waagerecht.
+ */
+export const LISTE_LAYOUT = { aussen: 24, zeile: 26, griff: 12, nummer: 24, luecken: 24, aktionen: 178, titelMin: 100, listeMin: 400 } as const;
+
+/** Fenster und Spalten in px: Mindestbreite des Fensters (main/index.ts), Editor w-[26rem], Einstellungs-Panel --panel-w, Trennlinie. */
+export const FENSTER_LAYOUT = { fensterMin: 960, editor: 416, panel: 360, trennlinie: 1 } as const;
 
 /** Der Rundown-Stand samt der gemessenen Meldungen; jede Meldung: undefined = noch keine Antwort, null = keine Brücke. */
 export interface OberflaechenStand {
