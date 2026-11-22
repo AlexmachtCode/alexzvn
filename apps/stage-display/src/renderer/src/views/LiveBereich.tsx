@@ -21,6 +21,13 @@ export function liveTaste(s: OberflaechenStand, a: LiveAktionen): TallyButtonPro
 
 const ELEMENTE = ['clock', 'timer', 'switcher', 'presenter', 'message'] as const satisfies readonly (keyof StageConfig['widgets'])[];
 
+/**
+ * Breite der Vorschau höchstens so, dass Vorschau (16:9), Nachricht-Feld, Schalterreihe und Haupttaste bei geschlossenem Panel
+ * ohne Scrollen in die Fensterhöhe passen: 360 px für alles außer der Vorschau (Kopf, Statusleiste, Ränder, die drei Zeilen darunter,
+ * gemessen im Fenster 1080×760). Das Seitenverhältnis bleibt 16:9 (aspect-video), die Vorschau steht mittig.
+ */
+export const VORSCHAU_MAX_BREITE = 'max(20rem, calc((100vh - 360px) * 16 / 9))';
+
 const UEBERSCHRIFT = 'mb-2 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[var(--muted-foreground)]';
 
 export function LiveBereich({
@@ -40,7 +47,11 @@ export function LiveBereich({
     <div data-stage="live" className="space-y-5">
       <div>
         <h3 className={UEBERSCHRIFT}>{T.vorschau}</h3>
-        <div data-stage="vorschau" className="aspect-video w-full overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)]">
+        <div
+          data-stage="vorschau"
+          style={{ maxWidth: VORSCHAU_MAX_BREITE }}
+          className="mx-auto aspect-video w-full overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)]"
+        >
           <StageScreen state={state} now={now} />
         </div>
       </div>

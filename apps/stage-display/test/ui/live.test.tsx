@@ -3,7 +3,7 @@
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import type { AusgabeZustand } from '@jm/output-window/zustand';
 import { buehnenschirmTaste, STAGE_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
-import { LiveBereich, liveTaste, type LiveAktionen } from '@/views/LiveBereich';
+import { LiveBereich, liveTaste, VORSCHAU_MAX_BREITE, type LiveAktionen } from '@/views/LiveBereich';
 import { attr, ohneKommentare, stageZustand, tags, text } from './testzustand';
 
 const T = STAGE_TEXTE;
@@ -78,6 +78,17 @@ const ZUSTAENDE: Array<[string, AusgabeZustand | null | undefined]> = [
   ok(t.includes('Ausgabe schließen') && html.includes('data-state="live"'), 'SD Live: die Haupttaste zeigt bei offenem Schirm „Ausgabe schließen“ und ist live');
   ok(!t.includes('"'), 'SD Live: kein ASCII-Anführungszeichen in den gerenderten Texten');
   pruefeIdVerweise(html, 'SD Live: id-Verweise gültig');
+}
+
+// ── SD Live Höhe: die Vorschau ist nach der Fensterhöhe gedeckelt, damit die Haupttaste ohne Scrollen sichtbar bleibt ──
+{
+  const html = render(<LiveBereich state={stageZustand()} stand={stand()} now={0} aktionen={aktionen()} />);
+  const [rahmen] = tags(html, 'div').filter((t) => attr(t, 'data-stage') === 'vorschau');
+  ok(
+    VORSCHAU_MAX_BREITE === 'max(20rem, calc((100vh - 360px) * 16 / 9))' && /100vh/.test(attr(rahmen, 'style') ?? '') && (attr(rahmen, 'style') ?? '').includes('max-width:'),
+    'SD Live Höhe: der Vorschau-Rahmen trägt max-width aus der Fensterhöhe (100vh), damit die Haupttaste bei 1080×760 ohne Scrollen sichtbar ist',
+  );
+  ok((attr(rahmen, 'class') ?? '').includes('aspect-video') && (attr(rahmen, 'class') ?? '').includes('mx-auto'), 'SD Live Höhe: das Seitenverhältnis 16:9 bleibt, die Vorschau steht mittig');
 }
 
 // ── SD Live: Verdrahtung im Quelltext ──
