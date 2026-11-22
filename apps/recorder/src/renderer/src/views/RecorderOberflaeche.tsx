@@ -102,23 +102,27 @@ export function RecorderOberflaeche({
         setPanelAbschnitt(abschnitt);
       }}
     >
-      <div className="mx-auto max-w-[1100px] space-y-4 px-5 py-4">
-        <LiveBereich stand={stand} werte={{ peaks, gainDb, hinweisOrdner, dir }} aktionen={live} presets={<PresetLeiste />} />
-        <div data-recorder="arbeitsbereich">
-          <ScheduleCard zustand={zustand} />
-        </div>
-      </div>
-
+      {/* Toast (Nr. 54; Fix-Runde 1, Ruling): oben mittig unter dem Kopf, über der Preset-Leiste (nicht live-kritisch), nie über
+          Tasten, Uhr, Marke, Metern oder Statusleiste. Eine Ebene vor dem Live-Bereich: sticky am oberen Rand des Inhalts (bleibt
+          beim Scrollen oben), Höhe 0 (nimmt keinen Platz, nichts verschiebt sich), so breit wie der Inhalt (nie über dem Panel). */}
       {notice && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--statusbar-h)+1.25rem)] flex justify-center px-6">
+        <div data-recorder="toast-ebene" className="pointer-events-none sticky top-0 z-20 flex h-0 items-start justify-center px-6">
           <div
-            className="pointer-events-auto rounded-[var(--radius-lg)] border border-[var(--primary)]/40
+            data-recorder="toast"
+            className="pointer-events-auto mt-2 rounded-[var(--radius-lg)] border border-[var(--primary)]/40
                        bg-[var(--card)] px-4 py-2.5 text-sm font-semibold shadow-lg max-w-2xl text-center truncate"
           >
             {notice}
           </div>
         </div>
       )}
+
+      <div className="mx-auto max-w-[1100px] space-y-4 px-5 py-4">
+        <LiveBereich stand={stand} werte={{ peaks, gainDb, hinweisOrdner, dir }} aktionen={live} presets={<PresetLeiste />} />
+        <div data-recorder="arbeitsbereich">
+          <ScheduleCard zustand={zustand} />
+        </div>
+      </div>
     </AppShell>
   );
 }

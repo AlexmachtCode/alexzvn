@@ -115,13 +115,24 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
   const tasten = klasse(tags(behaelter, 'div').find((t) => attr(t, 'data-recorder') === 'tasten'));
   ok(['grid', 'grid-cols-2', 'gap-3'].every((k) => tasten.includes(k)), 'RE Live über dem Falz: die Haupttasten stehen in grid gap-3 (Spec 5.1)');
   // Mit Hinweisen und Meldung (gemessen: 920×620 mit offenem Panel drückten sie die Meter sonst aus dem Bild).
+  // Fix-Runde 1 (Ruling): Die Meter sind das Live-Element. Wird es eng, gibt zuerst der Hinweiskasten nach (flex-shrink 10000 gegen 1),
+  // bis auf ein Band (2,75rem) und scrollt in sich; die Meldung mit „OK“ steht davor und schrumpft nie; die Meter behalten so viele
+  // Zeilen, wie passen (Mindesthöhe 2,5rem).
   const voll = live(stand({ recorder: recorder({ hinweisEingang: 'Eingang fehlt.' }), meldung: 'Geplante Aufnahme gestartet.' }), { hinweisOrdner: 'Ordner fehlt.' });
   const hinweise = klasse(tags(voll, 'div').find((t) => attr(t, 'data-recorder') === 'hinweise'));
+  const meldungBand = klasse(tags(voll, 'div').find((t) => attr(t, 'data-recorder') === 'meldung'));
   const imKasten = voll.slice(voll.indexOf('data-recorder="hinweise"'), voll.indexOf('data-recorder="transport"'));
   ok(
-    ['min-h-[2.75rem]', 'overflow-y-auto'].every((k) => hinweise.includes(k)) && !hinweise.some((k) => k.startsWith('shrink')) && pegel.includes('shrink-[10000]') &&
-      imKasten.includes('role="alert"') && imKasten.includes('data-recorder="meldung"') && !live(stand()).includes('data-recorder="hinweise"'),
-    'RE Live über dem Falz: Hinweisband und Meldung stehen oben in einem Kasten, der erst nach den Metern nachgibt (flex-shrink 1 gegen 10000), in sich scrollt und mindestens ein Band zeigt; ohne Hinweis kein Kasten',
+    ['min-h-[2.75rem]', 'overflow-y-auto', 'shrink-[10000]'].every((k) => hinweise.includes(k)) && imKasten.includes('role="alert"') && !live(stand()).includes('data-recorder="hinweise"'),
+    'RE Live über dem Falz: der Hinweiskasten gibt als Erster nach (flex-shrink 10000), bis auf ein Band, und scrollt in sich; ohne Hinweis kein Kasten',
+  );
+  ok(
+    !pegel.some((k) => k.startsWith('shrink')) && pegel.includes('min-h-[2.5rem]'),
+    'RE Live über dem Falz: die Meter geben erst danach nach (flex-shrink 1, Mindesthöhe 2,5rem) und behalten so viele Zeilen, wie passen',
+  );
+  ok(
+    meldungBand.includes('shrink-0') && !imKasten.includes('data-recorder="meldung"') && voll.indexOf('data-recorder="meldung"') < voll.indexOf('data-recorder="hinweise"'),
+    'RE Live über dem Falz: die Meldung mit „OK“ steht vor dem Hinweiskasten und schrumpft nie (shrink-0), bleibt also ganz sichtbar',
   );
   const pegelKopf = klasse(tags(behaelter, 'div').find((t) => attr(t, 'data-recorder') === 'pegel-kopf'));
   ok(!pegelKopf.includes('flex-wrap'), 'RE Live über dem Falz: Pegelkopf und Verstärkung bleiben einzeilig (gemessen: umgebrochen kostete die Zeile 17 px)');
@@ -146,6 +157,15 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
     'RE Live Tasten: bei recording „Stopp“ live (E4) links, „Eingang schließen“ rechts wie bisher',
   );
   gleich(
+    [knoepfe(live(stand({ zustand: zustand('idle') })))[0], knoepfe(live(stand({ zustand: zustand('armed') })))[0], knoepfe(live(stand({ zustand: zustand('recording') })))[0]],
+    [
+      { label: T.taste.aufnahme, state: 'gesperrt', gesperrt: 'true', grund: T.grund.eingangZu },
+      { label: T.taste.aufnahme, state: 'bereit', gesperrt: undefined, grund: undefined },
+      { label: T.taste.stopp, state: 'live', gesperrt: undefined, grund: undefined },
+    ],
+    'RE Live Tasten: im Ruhezustand ist Aufnahme gesperrt mit sichtbarem Grund „Erst den Eingang öffnen“, bei armed bereit, bei recording Stopp live',
+  );
+  gleich(
     knoepfe(live(stand({ zustand: undefined })))[0],
     { label: T.taste.aufnahme, state: 'gesperrt', gesperrt: 'true', grund: T.grund.zustandOffen },
     'RE Live Tasten: vor der ersten Antwort gesperrt mit sichtbarem Grund „Aufnahmezustand wird abgefragt…“',
@@ -156,12 +176,12 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
 {
   // Orakel aus dem alten Code (RecorderView.tsx:146-176 bei d7cdd79ce0): zu → „Eingang öffnen“ (arm, gesperrt ohne Gerät);
   // armed → „Aufnahme“ (record) und „Eingang schließen“ (disarm); recording → „Stopp“ (stop) und „Eingang schließen“ (disarm).
-  // Neu (Task 20, Nr. 80): bei zu steht „Aufnahme“ bereit und ruft record (der Start scheitert dort mit Toast).
+  // Fix-Runde 1 (Ruling): bei zu ist „Aufnahme“ gesperrt (ein Start scheitert dort immer), also wie heute nur „Eingang öffnen“.
   const ORAKEL: Record<string, string[]> = {
     'undefined/0': [],
     'undefined/null': [],
-    'idle/0': ['record', 'arm'],
-    'idle/null': ['record'],
+    'idle/0': ['arm'],
+    'idle/null': [],
     'armed/0': ['record', 'disarm'],
     'armed/null': ['record', 'disarm'],
     'recording/0': ['stop', 'disarm'],
@@ -355,8 +375,26 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
   ok(/useEffect\(\(\) => \{\s*if \(!notice\) return;\s*const t = setTimeout\(\(\) => setNotice\(null\), 5000\);\s*return \(\) => clearTimeout\(t\);\s*\}, \[notice, setNotice\]\);/.test(ober), 'RE Meldung mit OK: der Toast leert sich nach 5 s wie bisher');
   const toast = mitStore({ notice: 'Bitte einen Namen für das Preset eingeben.' }, () => render(<RecorderOberflaeche />));
   ok(text(inhalt(toast)).includes('Bitte einen Namen für das Preset eingeben.') && !toast.includes('data-recorder="meldung"'), 'RE Meldung mit OK: eine Meldung des Stores erscheint nur als Toast, nie im Band');
-  const toastKlasse = tags(inhalt(toast), 'div').map((t) => attr(t, 'class') ?? '').find((k) => k.includes('fixed'));
-  ok((toastKlasse ?? '').includes('bottom-[calc(var(--statusbar-h)+1.25rem)]'), 'RE Meldung mit OK: der Toast steht unten mittig über der Statusleiste (vorher 1,25 rem über dem Fensterrand)');
+  // Fix-Runde 1 (Ruling): Der Toast steht oben mittig unter dem Kopf, über der Preset-Leiste (nicht live-kritisch), nie über Tasten,
+  // Uhr, Marke, Metern oder Statusleiste. Er ist eine Ebene vor dem Live-Bereich im Inhalt (sticky, Höhe 0, nimmt keinen Platz).
+  const mInhalt = inhalt(toast);
+  const huelle = tags(mInhalt, 'div').find((t) => attr(t, 'data-recorder') === 'toast-ebene');
+  const karte = tags(mInhalt, 'div').find((t) => attr(t, 'data-recorder') === 'toast');
+  const hk = (attr(huelle, 'class') ?? '').split(/\s+/);
+  const kk = (attr(karte, 'class') ?? '').split(/\s+/);
+  ok(
+    huelle !== undefined && ['sticky', 'top-0', 'h-0', 'items-start', 'pointer-events-none', 'z-20'].every((k) => hk.includes(k)) && !hk.some((k) => k.startsWith('bottom') || k === 'fixed'),
+    'RE Meldung mit OK: der Toast steht oben (sticky am oberen Rand des Inhalts, Höhe 0, kein bottom, kein fixed über dem ganzen Fenster)',
+  );
+  ok(
+    mInhalt.indexOf('data-recorder="toast-ebene"') >= 0 && mInhalt.indexOf('data-recorder="toast-ebene"') < mInhalt.indexOf('data-recorder="live"') && !element(toast, 'section', 'data-recorder="live"').includes('data-recorder="toast"'),
+    'RE Meldung mit OK: die Ebene des Toasts steht vor dem Live-Bereich, nicht darin',
+  );
+  ok(
+    ['pointer-events-auto', 'truncate', 'max-w-2xl', 'text-center'].every((k) => kk.includes(k)) && text(element(mInhalt, 'div', 'data-recorder="toast"')) === 'Bitte einen Namen für das Preset eingeben.',
+    'RE Meldung mit OK: die Karte bleibt wie bisher (Text des Stores, einzeilig gekürzt, klickbar, höchstens max-w-2xl)',
+  );
+  ok(!mitStore({ notice: null }, () => render(<RecorderOberflaeche />)).includes('data-recorder="toast'), 'RE Meldung mit OK: ohne Meldung des Stores kein Toast');
 }
 
 // ── RE Zeitplan: Karte „Geplante Aufnahme“ im Arbeitsbereich, dieselben Store-Aktionen ──

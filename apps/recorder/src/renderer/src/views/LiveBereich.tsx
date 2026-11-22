@@ -1,11 +1,11 @@
 // Live-Bereich des Recorders (UX Welle 2a, Recorder d; Spec 3.4, 5.1; E4, E7, E13; Ruling P3; Funktionsliste Nr. 7–15, 21–30,
 // 38–43): oben die Preset-Leiste (unverändert, als Einschub aus der View), das Hinweisband des Stores und die Meldung des
-// Hauptprozesses mit „OK“ (wird es eng, scrollen sie in sich, nach den Metern); darunter die Karte mit Kopf und Ziel-Anzeige,
-// Aufnahme/Stopp und Eingang öffnen/schließen als zwei TallyButtons, Marke und Uhr, Pegelkopf mit Verstärkung und die
-// Kanal-Meter. Alles steht in EINEM Container, der nie höher ist als der sichtbare Inhalt (100vh minus Kopf, Statusleiste und
-// Rand): Taste, Uhr, Marke und Meter sind ohne Scrollen zu sehen (gemessen 1180×820 und 920×620, Panel zu und offen,
-// t21-messung.mjs); bei vielen Kanälen geben nur die Meter nach und scrollen in sich. Reicht selbst das nicht, scrollt der
-// Container selbst und überdeckt nie den Zeitplan darunter.
+// Hauptprozesses mit „OK“ (die Meldung schrumpft nie; der Hinweiskasten gibt als Erster nach und scrollt in sich); darunter die
+// Karte mit Kopf und Ziel-Anzeige, Aufnahme/Stopp und Eingang öffnen/schließen als zwei TallyButtons, Marke und Uhr, Pegelkopf
+// mit Verstärkung und die Kanal-Meter. Alles steht in EINEM Container, der nie höher ist als der sichtbare Inhalt (100vh minus
+// Kopf, Statusleiste und Rand): Taste, Uhr, Marke und Meter sind ohne Scrollen zu sehen (gemessen 1180×820 und 920×620, Panel zu
+// und offen, t21-messung.mjs); bei vielen Kanälen scrollen die Meter in sich. Reicht selbst das nicht, scrollt der Container
+// selbst und überdeckt nie den Zeitplan darunter.
 // Rein darstellend und ohne Hooks: Stand, Werte und Aktionen kommen aus der View (RecorderOberflaeche), kein window, kein
 // Store. Tasten zeigen genau hauptTasten (lib/oberflaeche.ts, gemessener Zustand) und rufen die Store-Aktion, die ihre
 // Beschriftung nennt. Reihenfolge wie heute bei offenem Eingang: Aufnahme/Stopp links, Eingang schließen rechts.
@@ -86,35 +86,33 @@ export function LiveBereich({
     <section data-recorder="live" className="scroll-thin flex max-h-[calc(100vh_-_var(--header-h)_-_var(--statusbar-h)_-_2rem)] flex-col overflow-y-auto">
       <div className="shrink-0">{presets}</div>
 
-      {/* Hinweise oben (E13). Wird es eng, geben zuerst die Meter nach (bis zur Mindesthöhe), dann dieser Kasten: er scrollt in
-          sich, zeigt aber immer mindestens ein Band (2,75rem), damit Tasten, Uhr, Marke und Meter sichtbar bleiben. */}
-      {(r?.hinweisEingang || werte.hinweisOrdner || meldung !== '') && (
-        <div data-recorder="hinweise" className="scroll-thin mt-2 min-h-[2.75rem] space-y-2 overflow-y-auto">
-          {/* Meldung des Hauptprozesses bis „OK“ (E13); der Toast zeigt sie zusätzlich 5 s. Zuerst, damit „OK“ auch im engen
-              Kasten sichtbar bleibt (gemessen: hinter beiden langen Hinweisen lag sie bei 920×620 mit Panel ganz außer Sicht). */}
-          {meldung !== '' && (
-            <div data-recorder="meldung" role="status" className={cn('flex items-center gap-3 rounded-[var(--radius-lg)] px-3 py-1.5 text-sm', HINWEIS)}>
-              <p className="flex-1 select-text font-semibold">{meldung}</p>
-              <Button type="button" variant="outline" size="sm" uppercase={false} onClick={aktionen.meldungQuittieren}>
-                {T.meldung.ok}
-              </Button>
-            </div>
-          )}
+      {/* Meldung des Hauptprozesses bis „OK“ (E13); der Toast zeigt sie zusätzlich 5 s. Oben als Erstes und nie geschrumpft
+          (shrink-0), damit „OK“ immer ganz sichtbar bleibt. */}
+      {meldung !== '' && (
+        <div data-recorder="meldung" role="status" className={cn('mt-2 flex shrink-0 items-center gap-3 rounded-[var(--radius-lg)] px-3 py-1.5 text-sm', HINWEIS)}>
+          <p className="flex-1 select-text font-semibold">{meldung}</p>
+          <Button type="button" variant="outline" size="sm" uppercase={false} onClick={aktionen.meldungQuittieren}>
+            {T.meldung.ok}
+          </Button>
+        </div>
+      )}
 
-          {/* Gemerkte Einstellungen, die beim Start nicht passten (#291) — bleibt, bis es erledigt ist. */}
-          {(r?.hinweisEingang || werte.hinweisOrdner) && (
-            <div role="alert" className={cn('flex items-start gap-3 rounded-[var(--radius-lg)] px-3 py-2 text-sm', HINWEIS)}>
-              <div className="flex flex-1 flex-col gap-1 font-semibold">
-                {r?.hinweisEingang && <p>{r.hinweisEingang}</p>}
-                {werte.hinweisOrdner && <p>{werte.hinweisOrdner}</p>}
-              </div>
-              <Button type="button" variant="ghost" size="sm" uppercase={false} title="Hinweis schließen" aria-label="Hinweis schließen" onClick={aktionen.hinweiseSchliessen}>
-                <span aria-hidden="true" className="text-lg leading-none">
-                  ×
-                </span>
-              </Button>
+      {/* Hinweise oben (E13, #291: gemerkte Einstellungen, die beim Start nicht passten; bleibt, bis es erledigt ist). Die Meter
+          sind das Live-Element (Fix-Runde 1, Ruling): Wird es eng, gibt zuerst dieser Kasten nach (flex-shrink 10000 gegen 1 bei
+          den Metern), bis auf ein Band (2,75rem, „ד und die erste Zeile), und scrollt in sich. */}
+      {(r?.hinweisEingang || werte.hinweisOrdner) && (
+        <div data-recorder="hinweise" className="scroll-thin mt-2 min-h-[2.75rem] shrink-[10000] overflow-y-auto">
+          <div role="alert" className={cn('flex items-start gap-3 rounded-[var(--radius-lg)] px-3 py-2 text-sm', HINWEIS)}>
+            <div className="flex flex-1 flex-col gap-1 font-semibold">
+              {r?.hinweisEingang && <p>{r.hinweisEingang}</p>}
+              {werte.hinweisOrdner && <p>{werte.hinweisOrdner}</p>}
             </div>
-          )}
+            <Button type="button" variant="ghost" size="sm" uppercase={false} title="Hinweis schließen" aria-label="Hinweis schließen" onClick={aktionen.hinweiseSchliessen}>
+              <span aria-hidden="true" className="text-lg leading-none">
+                ×
+              </span>
+            </Button>
+          </div>
         </div>
       )}
 
@@ -179,9 +177,9 @@ export function LiveBereich({
         {werte.gainDb > 0 ? <p className="text-[11px] text-[var(--muted-foreground)]">Verstärkung hebt leise Aufnahmen an; zu viel übersteuert (Meter wird rot).</p> : null}
       </div>
 
-      {/* Kanal-Meter: geben zuerst nach (flex-shrink 10000 gegen 1 beim Hinweiskasten; gemessen: bei 100 schrumpfte der Kasten schon um 1 px mit), bis zur Mindesthöhe, und scrollen bei
-          vielen Kanälen in sich. */}
-      <div data-recorder="pegel" className="scroll-thin min-h-[2.5rem] shrink-[10000] overflow-y-auto rounded-b-[var(--radius-xl)] border border-t-0 border-[var(--border)] bg-[var(--card)] px-4 pb-4 pt-1">
+      {/* Kanal-Meter: geben erst nach dem Hinweiskasten nach (flex-shrink 1), behalten so viele Zeilen, wie passen (mindestens
+          2,5rem), und scrollen bei vielen Kanälen in sich. */}
+      <div data-recorder="pegel" className="scroll-thin min-h-[2.5rem] overflow-y-auto rounded-b-[var(--radius-xl)] border border-t-0 border-[var(--border)] bg-[var(--card)] px-4 pb-4 pt-1">
         <div data-recorder="pegel-zeilen" className={cn('flex flex-col gap-1.5', !offen && 'opacity-40')}>
           {Array.from({ length: Math.max(kanaele, 1) }, (_, c) => {
             const peak = werte.peaks[c] ?? 0;

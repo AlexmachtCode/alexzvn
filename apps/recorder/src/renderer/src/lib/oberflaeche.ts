@@ -33,8 +33,16 @@ export const ABSCHNITT = {
 export const RECORDER_TEXTE = {
   /** Haupttasten: Beschriftungen wie die alten Knöpfe (RecorderView.tsx:146-176). */
   taste: { eingangOeffnen: 'Eingang öffnen', eingangSchliessen: 'Eingang schließen', aufnahme: 'Aufnahme', stopp: 'Stopp' },
-  /** Gründe gesperrter Tasten: Wortlaut der Meldungen von heute (Store: Kein Eingang gewählt.; Seitenkopf: Suche Audiogeräte…). */
-  grund: { keinEingang: 'Kein Eingang gewählt', sucheGeraete: 'Suche Audiogeräte…', zustandOffen: 'Aufnahmezustand wird abgefragt…' },
+  /**
+   * Gründe gesperrter Tasten: Wortlaut der Meldungen von heute (Store: Kein Eingang gewählt.; Seitenkopf: Suche Audiogeräte…;
+   * Hauptprozess: Erst den Eingang öffnen (Arm)., src/main/recorder.ts:298, ohne den Zusatz; Fix-Runde 1, für Z1).
+   */
+  grund: {
+    keinEingang: 'Kein Eingang gewählt',
+    sucheGeraete: 'Suche Audiogeräte…',
+    zustandOffen: 'Aufnahmezustand wird abgefragt…',
+    eingangZu: 'Erst den Eingang öffnen',
+  },
   /** ON AIR im Kopf (E4). */
   onAirLabel: 'REC',
   /** Eingang: Titel wie das Feld, Zustandswörter, Maßeinheiten; die Geräteliste „Name — Treiber (n ch)“ wie bisher. */
@@ -350,8 +358,9 @@ function taste(label: string, state: TasteZustand['state'], grund?: string): Hau
  * - Eingang: nie `live`. „Eingang öffnen“ ist gesperrt ohne gewähltes Gerät (RecorderView.tsx:147, `deviceIndex == null`), Grund
  *   „Kein Eingang gewählt“, solange die Geräte noch gesucht werden „Suche Audiogeräte…“; „Eingang schließen“ ist immer bereit
  *   (`:177-181`, auch während der Aufnahme).
- * - Aufnahme: `live` bei `recording` mit „Stopp“ (`:151-163`); sonst bereit, auch bei zu: Das Starten scheitert dort mit einem
- *   Toast (Funktionsliste Nr. 80), gesperrt wird nicht.
+ * - Aufnahme: `live` bei `recording` mit „Stopp“ (`:151-163`), bereit bei `armed` (`:160-170`). Bei zu gab es bisher keine
+ *   Aufnahme-Taste, und ein Start scheitert dort immer im Main: gesperrt mit „Erst den Eingang öffnen“ (Fix-Runde 1, Ruling). Der
+ *   Fernbefehl RECORD läuft weiter über den Store (Nr. 80).
  * - Ohne gemessenen Zustand (`zustand` undefined) sind beide gesperrt, Grund „Aufnahmezustand wird abgefragt…“.
  */
 export function hauptTasten(s: Pick<OberflaechenStand, 'recorder' | 'zustand'>): { eingang: Haupttaste; aufnahme: Haupttaste } {
@@ -367,6 +376,10 @@ export function hauptTasten(s: Pick<OberflaechenStand, 'recorder' | 'zustand'>):
     : ohneGeraet
       ? taste(T.taste.eingangOeffnen, 'gesperrt', sucht ? T.grund.sucheGeraete : T.grund.keinEingang)
       : taste(T.taste.eingangOeffnen, 'bereit');
-  const aufnahme = nimmtAuf(z) ? taste(T.taste.stopp, 'live') : taste(T.taste.aufnahme, 'bereit');
+  const aufnahme = nimmtAuf(z)
+    ? taste(T.taste.stopp, 'live')
+    : eingangOffen(z)
+      ? taste(T.taste.aufnahme, 'bereit')
+      : taste(T.taste.aufnahme, 'gesperrt', T.grund.eingangZu);
   return { eingang, aufnahme };
 }

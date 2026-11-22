@@ -263,9 +263,9 @@ const sd = (i: StatusItem | undefined): string => (i === undefined ? 'fehlt' : `
   const faelle = kreuz({ r: ['ohne Store', 'sucht ohne Gerät', 'ohne Gerät', 'idle', 'armed', 'recording'] } as const);
   const SOLL: Record<string, string> = {
     'ohne Store': `Eingang öffnen/gesperrt/${RECORDER_TEXTE.grund.zustandOffen} | Aufnahme/gesperrt/${RECORDER_TEXTE.grund.zustandOffen}`,
-    'sucht ohne Gerät': `Eingang öffnen/gesperrt/${RECORDER_TEXTE.grund.sucheGeraete} | Aufnahme/bereit/-`,
-    'ohne Gerät': `Eingang öffnen/gesperrt/${RECORDER_TEXTE.grund.keinEingang} | Aufnahme/bereit/-`,
-    idle: 'Eingang öffnen/bereit/- | Aufnahme/bereit/-',
+    'sucht ohne Gerät': `Eingang öffnen/gesperrt/${RECORDER_TEXTE.grund.sucheGeraete} | Aufnahme/gesperrt/${RECORDER_TEXTE.grund.eingangZu}`,
+    'ohne Gerät': `Eingang öffnen/gesperrt/${RECORDER_TEXTE.grund.keinEingang} | Aufnahme/gesperrt/${RECORDER_TEXTE.grund.eingangZu}`,
+    idle: `Eingang öffnen/bereit/- | Aufnahme/gesperrt/${RECORDER_TEXTE.grund.eingangZu}`,
     armed: 'Eingang schließen/bereit/- | Aufnahme/bereit/-',
     recording: 'Eingang schließen/bereit/- | Stopp/live/-',
   };
@@ -285,6 +285,14 @@ const sd = (i: StatusItem | undefined): string => (i === undefined ? 'fehlt' : `
   });
   // Armed ist bereit, nie live: die Aufnahme-Taste zeigt erst bei gemessenem recording „Stopp“.
   gleich(hauptTasten({ recorder: recorder(), zustand: zustand('armed') }).aufnahme.state, 'bereit', 'RE Haupttasten: armed ist bereit, nicht live (E4)');
+  // Fix-Runde 1 (Ruling): Im Ruhezustand gab es bisher keine Aufnahme-Taste; ein Start scheitert dort immer im Main. Die Taste ist
+  // gesperrt, der Grund ist der Wortlaut der alten Meldung des Hauptprozesses ohne „(Arm).“ (src/main/recorder.ts).
+  gleich(
+    [hauptTasten({ recorder: recorder(), zustand: zustand('idle') }).aufnahme.state, hauptTasten({ recorder: recorder(), zustand: zustand('idle') }).aufnahme.disabledReason],
+    ['gesperrt', 'Erst den Eingang öffnen'],
+    'RE Haupttasten: im Ruhezustand ist Aufnahme gesperrt mit Grund „Erst den Eingang öffnen“',
+  );
+  ok(leseText('src/main/recorder.ts').includes(`'${RECORDER_TEXTE.grund.eingangZu} (Arm).'`), 'RE Haupttasten: der Sperrgrund ist der Wortlaut der Main-Meldung „Erst den Eingang öffnen (Arm).“ ohne den Zusatz');
 }
 
 // ── RE Zustand getrennt: der Vorgabewert des Stores ist keine Messung ──
@@ -314,7 +322,7 @@ const sd = (i: StatusItem | undefined): string => (i === undefined ? 'fehlt' : `
     const rec = f.gemessen === 'recording';
     const offen = f.gemessen !== 'idle';
     const ist = [kopfOnAir(s).live, sd(eintrag(s, 'aufnahme')), k.aufnahme.state, k.eingang.label, eintrag(s, 'eingang')?.detail?.startsWith('offen')].join('|');
-    const soll = [rec, rec ? 'live a.wav' : `off ${RECORDER_TEXTE.aufnahme.keine}`, rec ? 'live' : 'bereit', offen ? RECORDER_TEXTE.taste.eingangSchliessen : RECORDER_TEXTE.taste.eingangOeffnen, offen].join('|');
+    const soll = [rec, rec ? 'live a.wav' : `off ${RECORDER_TEXTE.aufnahme.keine}`, rec ? 'live' : offen ? 'bereit' : 'gesperrt', offen ? RECORDER_TEXTE.taste.eingangSchliessen : RECORDER_TEXTE.taste.eingangOeffnen, offen].join('|');
     return vergleiche(ist, soll);
   });
 }
