@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { MasterLinkMeldung } from '@jm/app-runtime';
+import type { AusgabeZustand } from '@jm/output-window/zustand';
+import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type {
   DisplayInfo,
   JmpromptApi,
@@ -27,11 +30,31 @@ const api: JmpromptApi = {
   },
   setRemote: (enabled: boolean) =>
     ipcRenderer.invoke('prompter:setRemote', enabled) as Promise<PrompterState>,
+  // UX Welle 2a (Spec 3.9): Master-Link-Zustand lesend. null, solange die Brücke fehlt oder ablehnt (Statusleiste: unbekannt).
+  masterLink: () => (ipcRenderer.invoke('jmps:master-link') as Promise<MasterLinkMeldung>).catch(() => null),
+  onMasterLink: (cb) => {
+    const listener = (_e: unknown, m: MasterLinkMeldung): void => cb(m);
+    ipcRenderer.on('jmps:master-link', listener);
+    return () => ipcRenderer.off('jmps:master-link', listener);
+  },
+  // Meldung des Steuerservers lesend (Port, läuft, Clients, Modus, Startfehler). null, solange Main nichts gemeldet hat.
+  fernsteuerung: () => (ipcRenderer.invoke('prompter:fernsteuerung') as Promise<FernsteuerungMeldung | null>).catch(() => null),
+  onFernsteuerung: (cb) => {
+    const listener = (_e: unknown, m: FernsteuerungMeldung | null): void => cb(m);
+    ipcRenderer.on('prompter:fernsteuerung', listener);
+    return () => ipcRenderer.off('prompter:fernsteuerung', listener);
+  },
   output: {
     displays: () => ipcRenderer.invoke('output:displays') as Promise<DisplayInfo[]>,
     open: (displayId) => ipcRenderer.invoke('output:open', displayId) as Promise<void>,
     close: () => ipcRenderer.invoke('output:close') as Promise<void>,
     isOpen: () => ipcRenderer.invoke('output:isOpen') as Promise<boolean>,
+    zustand: () => (ipcRenderer.invoke('output:zustand') as Promise<AusgabeZustand | null>).catch(() => null),
+    onZustand: (cb) => {
+      const listener = (_e: unknown, z: AusgabeZustand): void => cb(z);
+      ipcRenderer.on('output:zustand', listener);
+      return () => ipcRenderer.off('output:zustand', listener);
+    },
   },
 };
 

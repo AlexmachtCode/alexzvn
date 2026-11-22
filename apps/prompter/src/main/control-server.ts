@@ -15,6 +15,7 @@
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
 import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
+import type { FernsteuerungEreignis } from '../shared/fernsteuerung';
 
 /** Eigener TCP-Steuerport (getrennt vom HTTP-Remote 7781). */
 export const CONTROL_PORT = 8727;
@@ -24,6 +25,11 @@ let server: SuiteControlServer | null = null;
 export interface PrompterControlHandlers {
   getState: () => SuiteState;
   onCommand: (cmd: SuiteCommand) => void;
+  /**
+   * UX Welle 2a (Spec 3.9): Statusmeldung des Servers (läuft, Port, Clients) mit wirksamem Modus, nur lesend.
+   * Der Main macht daraus die Fernsteuerungs-Meldung für die Statusleiste.
+   */
+  onMeldung?: (e: FernsteuerungEreignis) => void;
 }
 
 export function startControlServer(
@@ -36,6 +42,9 @@ export function startControlServer(
     appId: 'jm-prompter',
     controlEndpoint: true,
     getState: handlers.getState,
+    onStatus: (st) => {
+      handlers.onMeldung?.({ art: 'status', ...st, modus: server?.modus() });
+    },
     onCommand: (cmd) => {
       if (cmd.ns === 'prompter') handlers.onCommand(cmd);
     },
