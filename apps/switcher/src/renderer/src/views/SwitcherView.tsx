@@ -14,7 +14,7 @@ import { OutputController, type OutputState } from '@/core/output';
 import { NdiOutputController, type NdiOutputState } from '@/core/ndiOutput';
 import { ScreenOutputController } from '@/core/screenOutput';
 import { AudioController, type AudioState } from '@/core/audio';
-import { ABSCHNITT, hauptTasten, untenStartOffen, type FrameMeldung } from '@/lib/oberflaeche';
+import { ABSCHNITT, hauptTasten, SWITCHER_TEXTE, untenStartOffen, type FrameMeldung } from '@/lib/oberflaeche';
 import { Haupttasten, liveTasten } from './LiveBereich';
 import { useSettings, RESOLUTIONS } from '@/store/settings';
 
@@ -595,7 +595,7 @@ export function SwitcherView({ onOpenSettings, onFrame }: SwitcherViewProps) {
 
       {/* Szenen / Ebenen / Quellen */}
       <Collapsible
-        title="Szenen, Ebenen und Quellen"
+        title={SWITCHER_TEXTE.untenTitel}
         persistId="switcher.unten"
         defaultOpen={untenOffen}
         className="shrink-0 border-t border-[var(--border)]/60 px-6 py-2"

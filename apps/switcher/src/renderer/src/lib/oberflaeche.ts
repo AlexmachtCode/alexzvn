@@ -62,6 +62,8 @@ export const SWITCHER_TEXTE = {
   keinTon: '— Kein Ton (stille Spur) —',
   /** Auswahl-Titel der Programm-Audioquelle in der Audio-Wahl. */
   programmAudio: 'Programm-Audio',
+  /** Titel des einklappbaren unteren Bereichs im Mischer (Szenen, Ebenen, Quellen). */
+  untenTitel: 'Szenen, Ebenen und Quellen',
   onAirLive: 'LIVE',
   onAirRec: 'REC',
   /** Haupttasten und Dauer-Feld des Live-Bereichs (E7): wörtlich die bisherigen Beschriftungen der Knöpfe. */
