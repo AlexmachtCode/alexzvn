@@ -240,8 +240,8 @@ const clip = (status: ClipJob['status']): ClipJob => ({ id: status, status, outp
 // ── BA Texte ──
 {
   const flach = (v: unknown): string[] => (typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(flach) : []);
-  // Funktions-Texte (Runde, Sekunden) gehören zu den Texten: mit Beispielwerten einsetzen.
-  const mitFunktionen = (v: unknown): unknown => (typeof v === 'function' ? (v as (n: number) => string)(2) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mitFunktionen(x)])) : v);
+  // Funktions-Texte (Runde, Sekunden, Runde n/m) gehören zu den Texten: mit Beispielwerten einsetzen.
+  const mitFunktionen = (v: unknown): unknown => (typeof v === 'function' ? (v as (n: number, m: number) => string)(2, 3) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mitFunktionen(x)])) : v);
   const texte = flach(mitFunktionen(BATTLE_TEXTE));
   ok(texte.length > 0 && texte.every((t) => !t.includes('"')), 'BA Texte ohne ASCII-Anführungszeichen');
   const fremd = new Set([...Object.entries(settings).filter(([k]) => k.endsWith('_TEXTE')).map(([, v]) => v), MASTER_LINK_TEXTE].flatMap(flach));

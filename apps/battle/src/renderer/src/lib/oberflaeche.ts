@@ -17,7 +17,7 @@ import {
 import { masterLinkStatusItem, zahlText, type StatusItem } from '@jm/ui';
 import { CAPABILITIES, COUPLED_ROLES, roleLabel } from '@/lib/capabilities';
 import { portBelegt, STEUER_PORT, type FernsteuerungMeldung } from '@shared/fernsteuerung';
-import type { BattleState, MasterLinkMeldungZeile, ToolLink } from '@shared/types';
+import type { BattleConfig, BattleState, MasterLinkMeldungZeile, Side, ToolLink } from '@shared/types';
 
 /** Abschnitts-ids = Panel-Anker (`einstellung-{id}`) = settingsSection der Statuseinträge. */
 export const ABSCHNITT = {
@@ -47,11 +47,26 @@ export const BATTLE_TEXTE = {
     offen: (runde: number): string => `offen (Runde ${zahlText(runde)})`,
     keinNetzwerk: 'kein Netzwerk',
   },
-  /** Replay-Taste: Beschriftung wörtlich wie ClipPanel.tsx; die Gründe sind neu. */
+  /**
+   * Replay-Taste: Beschriftung wörtlich wie ClipPanel.tsx (auch „schneidet …“, solange ein Clip läuft); die Gründe sind neu.
+   * Die Quelle- und Ziel-Texte sind die des alten Clip-Kastens, wörtlich.
+   */
   replay: {
     label: (sekunden: number): string => `⧉ Clip (letzte ${zahlText(sekunden)}s)`,
+    schneidet: 'schneidet …',
     keineQuelle: 'keine Aufnahme-Quelle',
     laeuft: 'Clip läuft',
+    keineQuelleGewaehlt: 'keine Quelle gewählt',
+    zielStandard: 'Standard (Videos/JM Battle Clips)',
+  },
+  /** Runde im Kopf (App.tsx, wörtlich): „Runde 2/3“. */
+  runde: (aktuell: number, gesamt: number): string => `Runde ${zahlText(aktuell)}/${zahlText(gesamt)}`,
+  /** Gegenstellen: der erste Satz des alten Erklärtexts im Modal (ConnectionsPanel.tsx, wörtlich); den Rest sagt PEERS_TEXTE.erklaerung. */
+  gegenstellen: { erklaerung: 'Battle blendet die VS-Bauchbinde über den JM Titler ein.', gefunden: 'gefunden:' },
+  /** Abschnitt „Zurücksetzen“ (E16): Beschriftung wie Settings.tsx; die Rückfrage nennt zusätzlich, dass ein laufendes VS ausgeht. */
+  zuruecksetzen: {
+    knopf: 'Battle zurücksetzen',
+    frage: 'Battle zurücksetzen? Runden/Stimmen werden geleert (Namen bleiben). Ein laufendes VS geht aus.',
   },
   /** Beschriftung der Haupttaste „Nächste Runde“ (im Scoreboard steht heute nur ▶). */
   naechste: 'Nächste Runde ▶',
@@ -262,4 +277,85 @@ export function statusLeiste(s: OberflaechenStand): StatusItem[] {
     votingItem(s),
     aufnahmeItem(s),
   ];
+}
+
+/**
+ * Beschriftungen der Haupttasten, die hauptTasten nicht trägt: VS (wörtlich App.tsx), Nächste Runde und Replay. Solange ein
+ * Clip läuft, steht auf der Replay-Taste „schneidet …“ wie im alten Clip-Kasten (ClipPanel.tsx:56); der Grund „Clip läuft“
+ * kommt aus hauptTasten dazu. Die Voting-Beschriftung liefert hauptTasten selbst.
+ */
+export function tastenBeschriftung(s: Pick<OberflaechenStand, 'state'>): { vs: string; naechste: string; replay: string } {
+  const { state } = s;
+  const schneidet = state.clips.some((c) => c.status === 'running');
+  return {
+    vs: state.live ? BATTLE_TEXTE.vs.an : BATTLE_TEXTE.vs.aus,
+    naechste: BATTLE_TEXTE.naechste,
+    replay: schneidet ? BATTLE_TEXTE.replay.schneidet : BATTLE_TEXTE.replay.label(state.config.clipSeconds),
+  };
+}
+
+/** Aufnahme-Quelle am Clip-Knopf (wörtlich ClipPanel.tsx): der Dateiname oder „keine Quelle gewählt“. */
+export function clipQuelleText(config: Pick<BattleConfig, 'recordingPath'>): string {
+  return config.recordingPath ? dateiName(config.recordingPath) : BATTLE_TEXTE.replay.keineQuelleGewaehlt;
+}
+
+/** Zielordner im Panel (wörtlich ClipPanel.tsx): der Ordnername oder der Standard. */
+export function clipZielText(config: Pick<BattleConfig, 'clipDir'>): string {
+  return config.clipDir ? dateiName(config.clipDir) : BATTLE_TEXTE.replay.zielStandard;
+}
+
+/** Per mDNS gefundener Titler mit Adresse für das Panel (manuelle stehen schon als Quelle in der Zeile; nie ins Host-Feld: das wäre ein Override). */
+export function gefundeneAdressen(s: Pick<OberflaechenStand, 'state'>): Array<{ role: string; label: string; text: string }> {
+  return s.state.links
+    .filter((l) => COUPLED_ROLES.includes(l.role) && l.source !== 'manual' && l.host !== '')
+    .map((l) => ({ role: l.role, label: roleLabel(l.role), text: `${BATTLE_TEXTE.gegenstellen.gefunden} ${l.host}:${zahlText(l.port)}` }));
+}
+
+/**
+ * Farben der Ecken (E16): zwei tool-eigene Tokens aus globals.css, getrennt für Hell und Dunkel. Alpha-Varianten entstehen
+ * über color-mix, nie über angehängte Hex-Ziffern.
+ */
+export const ECKEN_FARBE: Readonly<Record<Side, string>> = { A: 'var(--battle-ecke-a)', B: 'var(--battle-ecke-b)' };
+
+/** Farbe für „Unentschieden“: das Token der gedämpften Schrift, nicht ein Grauwert. */
+export const UNENTSCHIEDEN_FARBE = 'var(--muted-foreground)';
+
+/** Eine Farbe zu `prozent` Prozent über durchsichtig gemischt (CSS color-mix): die Alpha-Variante eines Tokens. */
+export function farbeMischen(farbe: string, prozent: number): string {
+  return `color-mix(in srgb, ${farbe} ${zahlText(prozent)}%, transparent)`;
+}
+
+/**
+ * Kleinste sinnvolle Breite einer Haupttaste in px: Die längste Beschriftung („Voting offen (Runde 10) — schließen“) bricht in
+ * der Taste um; unter 180 px würde sie dreizeilig. Geschätzt aus den Schriftmaßen, nicht im Fenster gemessen.
+ */
+export const TASTEN_MIN_BREITE = 180;
+
+/** Containerbreite, ab der die vier Tasten nebeneinander stehen: 4×180 + 3 Lücken à 12 (gap-3) = 756 px. Steht als `@[756px]` in LiveBereich.tsx. */
+export const TASTEN_VIER_BREITE = 4 * TASTEN_MIN_BREITE + 3 * 12;
+
+/** Spalten der vier Haupttasten nach Breite der Inhaltsbox (Container-Query, kein Viewport): 4 ab TASTEN_VIER_BREITE, sonst 2 (2×2); nie 3+1. */
+export function tastenSpalten(containerBreite: number): 2 | 4 {
+  return containerBreite >= TASTEN_VIER_BREITE ? 4 : 2;
+}
+
+/**
+ * Fenster in px für die Rechnung des Live-Bereichs: Mindestbreite des Fensters (main/index.ts: minWidth 980, Außenmaß), davon der
+ * Windows-Rahmen (Annahme 16 = 2×8 unsichtbare Ränder; nicht gemessen), Einstellungs-Panel --panel-w, seine Trennlinie und der
+ * Innenabstand p-4 des Live-Bereichs (2×16). Das Panel liegt ab 900 px Fensterbreite neben dem Inhalt (AppShell).
+ */
+export const FENSTER_LAYOUT = { fensterMin: 980, rahmen: 16, panel: 360, trennlinie: 1, innen: 32 } as const;
+
+/**
+ * Spalten unter den Haupttasten in px: die rechte Spalte (QR 170 px + Kartenrand und Innenabstand, aufgerundet 256 für die
+ * Adresszeilen), die Lücke gap-4 und die Mindestbreite der linken Spalte (Scoreboard: drei Jury-Knöpfe à ~110 px, Lücken, Innenabstand).
+ */
+export const LIVE_LAYOUT = { rechts: 256, luecke: 16, linksMin: 368 } as const;
+
+/** Containerbreite, ab der die rechte Spalte neben statt unter dem Scoreboard steht: 368 + 16 + 256 = 640 px. Steht als `@[640px]` in LiveBereich.tsx. */
+export const LIVE_ZWEI_SPALTEN_BREITE = LIVE_LAYOUT.linksMin + LIVE_LAYOUT.luecke + LIVE_LAYOUT.rechts;
+
+/** Eine oder zwei Spalten unter den Haupttasten nach Breite der Inhaltsbox. */
+export function liveSpalten(containerBreite: number): 1 | 2 {
+  return containerBreite >= LIVE_ZWEI_SPALTEN_BREITE ? 2 : 1;
 }

@@ -7,6 +7,26 @@
   --font-sans: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
 }
 
+/*
+ * Farben der Ecken A und B (UX Welle 1, E16): zwei tool-eigene Tokens, getrennt für Dunkel und Hell wie die Tokens aus @jm/ui
+ * (Dunkel ist Standard: :root und .dark; Hell überschreibt mit .light, steht darum danach). Dunkel sind die Farben von bisher.
+ * Hell sind sie abgedunkelt, damit die Schrift in Eckfarbe (Zähler, Jury-Knopf) auf dem hellen Kartengrund lesbar bleibt:
+ * #0b66c2 und #c62828 erreichen etwa 5,4 : 1 auf #fafafa (die hellen Dunkel-Farben nur 2,5 und 2,9 : 1).
+ * Alpha-Varianten entstehen im Code über color-mix(in srgb, var(--battle-ecke-a) N%, transparent), nie über Hex-Ziffern.
+ */
+@layer base {
+  :root,
+  .dark {
+    --battle-ecke-a: #3da5ff;
+    --battle-ecke-b: #ff5c5c;
+  }
+
+  .light {
+    --battle-ecke-a: #0b66c2;
+    --battle-ecke-b: #c62828;
+  }
+}
+
 html,
 body,
 #root {
