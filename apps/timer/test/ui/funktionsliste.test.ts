@@ -250,9 +250,9 @@ ok(
   );
 }
 
-// ── Statusleiste: Verbindung, Speaker, Fernsteuerung (E3, E10) ──
+// ── Statusleiste: Verbindung, Speaker, Fernsteuerung (E2, E3) ──
 ok(
-  [14, 105, 133].every((nr) => kuenftig(nr).startsWith('✓ Statusleiste')) && /\bE2\b/.test(kuenftig(133)) && /\bE10\b/.test(kuenftig(105)),
+  [14, 105, 133].every((nr) => kuenftig(nr).startsWith('✓ Statusleiste')) && /\bE2\b/.test(kuenftig(133)) && !/\bE10\b/.test(kuenftig(105)),
   'TI Funktionsliste Nr. 14/105/133: Sync, Verbindungs- und Startfehler und Fernsteuerung stehen in der Statusleiste',
 );
 ok(
