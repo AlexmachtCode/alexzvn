@@ -98,6 +98,40 @@ const EINE: Record<string, SectionStatus> = {
   gleich(peersView(basis).status, KEINE, 'Gegenstellen ohne Zeilen: „keine Gegenstellen“');
 }
 {
+  // zaehlt: false (Rundown, Ruling R31): Die Zeile steht mit ihrem gemessenen Status da, zählt aber nicht im Abschnittsstatus.
+  // Zwei Zeilen je Art × zählt ja/nein (4² × 2² = 64 Fälle): Der Abschnitt ist der Abschnitt nur aus den zählenden Zeilen, die
+  // Zeilen selbst bleiben gleich.
+  const ART: Record<string, Partial<PeerRow>> = {
+    aus: { enabled: false, connected: true },
+    unbekannt: { connected: undefined },
+    verbunden: { connected: true },
+    warn: { connected: false },
+  };
+  const ARTEN = ['aus', 'unbekannt', 'verbunden', 'warn'] as const;
+  const faelle = kreuz({ a: ARTEN, b: ARTEN, za: [true, false], zb: [true, false] } as const);
+  pruefeFaelle('Gegenstellen zählt nicht: Abschnitt nur aus den zählenden Zeilen, die Zeilen selbst unverändert', faelle, (f) => {
+    const roh = [zeile({ role: 'a', ...ART[f.a] }), zeile({ role: 'b', ...ART[f.b] })];
+    const mit = peersView({ ...basis, peers: [{ ...roh[0], zaehlt: f.za }, { ...roh[1], zaehlt: f.zb }] });
+    const nurZaehlende = peersView({ ...basis, peers: roh.filter((_, i) => [f.za, f.zb][i]) });
+    const ohne = peersView({ ...basis, peers: roh });
+    return (
+      vergleiche(statusText(mit.status), statusText(nurZaehlende.status)) ??
+      vergleiche(mit.zeilen.map((z) => statusText(z.status)).join(' | '), ohne.zeilen.map((z) => statusText(z.status)).join(' | '))
+    );
+  });
+  const v = peersView({ ...basis, peers: [zeile({ role: 'timer', connected: true }), zeile({ role: 'presenter', label: 'JM Presenter', connected: false, zaehlt: false })] });
+  gleich(
+    [statusText(v.status), statusText(v.zeilen[1].status)],
+    ['ok verbunden', 'warn nicht gefunden'],
+    'Gegenstellen zählt nicht: verbundener Timer und eine nicht verwendete, nicht gefundene Rolle → Abschnitt „verbunden“, die Zeile bleibt „nicht gefunden“',
+  );
+  gleich(
+    statusText(peersView({ ...basis, peers: [zeile({ connected: false, zaehlt: false })] }).status),
+    'off keine Gegenstellen',
+    'Gegenstellen zählt nicht: ohne zählende Zeile ist der Abschnitt neutral („keine Gegenstellen“)',
+  );
+}
+{
   // Ohne capabilities.toggle (Rundown, Q&A, Battle) kennt das Tool kein Aus je Gegenstelle: ein weggelassenes enabled heißt
   // „an“ (PeerRow: enabled nur mit capabilities.toggle). Das bleibt so.
   const v = peersView({ ...basis, peers: [zeile({ connected: true, source: 'mdns' })], capabilities: { auto: true } });

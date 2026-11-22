@@ -3,7 +3,7 @@
 // Je Rolle Host, Port, Quelle (gefunden/manuell) und Verbindung. Standard ist automatisch (mDNS),
 // ein gesetzter Host überschreibt den Fund, „Auto“ nimmt das zurück (Rundown, Q&A, Battle). Stage-
 // Display kennt kein Auto, sondern Ein/Aus je Quelle (`enabled`, ohne `source`). Eine unbekannte
-// Verbindung ist „unbekannt“, nie „nicht gefunden“; ausgeschaltete Zeilen zählen nicht mit.
+// Verbindung ist „unbekannt“, nie „nicht gefunden“; ausgeschaltete Zeilen zählen nicht mit, ebenso Zeilen mit zaehlt: false.
 import { zahlText, type StatusState } from '@jm/ui';
 import { ABSCHNITT_TEXTE, fehlerStatus, hatFehler, st, STATUS_UNBEKANNT, type SectionBase, type SectionInput, type SectionStatus } from '../vertrag';
 
@@ -14,6 +14,7 @@ export interface PeerRow {
   connected?: boolean;               // gemessen; undefined = unbekannt
   source?: 'mdns' | 'manual';        // undefined = Modell ohne Auto (Stage-Display)
   enabled?: boolean;                 // nur mit capabilities.toggle; dort undefined = nicht gemeldet (unbekannt)
+  zaehlt?: boolean;                  // false: steht mit ihrem Status da, zählt aber nicht im Abschnittsstatus; fehlt = zählt
 }
 
 export interface PeersSectionProps extends SectionInput {
@@ -90,8 +91,10 @@ function zeileView(r: PeerRow, schalter: boolean): PeerZeileView {
   };
 }
 
-function peersStatus(p: PeersSectionProps, zeilen: readonly PeerZeileView[]): SectionStatus {
+function peersStatus(p: PeersSectionProps, alleZeilen: readonly PeerZeileView[]): SectionStatus {
   if (hatFehler(p)) return fehlerStatus(p.error);
+  // Zeilen mit zaehlt: false stehen nur da (z. B. eine Rolle, die das Tool nicht verwendet); der Abschnitt rechnet ohne sie.
+  const zeilen = alleZeilen.filter((_, i) => p.peers[i]?.zaehlt !== false);
   const aktive = zeilen.filter((z) => z.aktiv === true);
   // Eine Zeile mit nicht gemeldetem Ein/Aus zählt nicht in n; sie lässt aber weder „keine Gegenstellen“ noch „verbunden“ zu.
   const offen = zeilen.some((z) => z.aktiv === undefined);
