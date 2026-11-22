@@ -104,7 +104,7 @@ const SPEAKER = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `Spr
     const fb = f.feedback === 'zwei' ? ['Aufnahme läuft', 'Stream läuft'] : [];
     const soll = f.connected
       ? `ok ${[manuell, ...fb].join(' · ')}`
-      : `warn ${f.source === 'manual' ? 'manuell: 10.0.0.7:8721 · nicht verbunden' : 'nicht gefunden'}`;
+      : `warn ${f.source === 'manual' ? 'manuell: 10.0.0.7:8721 · nicht verbunden' : 'gefunden · nicht verbunden'}`;
     return vergleiche(sd(i), soll) ?? (i.group !== 'verbindung' || i.label !== 'JM Switcher' || i.settingsSection !== ABSCHNITT.gegenstellen ? 'Kopf falsch' : null);
   });
   // „RD Gegenstellen manuell“: der Adresstext steht im Wortlaut „manuell: host:port“.

@@ -86,8 +86,17 @@ const link = (teil: Partial<ToolLink> = {}): ToolLink => ({ role: 'timer', label
     getrennt: (r) => link({ role: r, connected: false }),
     gekoppelt: (r) => link({ role: r, connected: true }),
     manuell: (r) => link({ role: r, connected: true, source: 'manual', host: '192.168.1.9', port: 9000 }),
+    manuellGetrennt: (r) => link({ role: r, connected: false, source: 'manual', host: '192.168.1.9', port: 9000 }),
   };
-  const faelle = kreuz({ rolle: ['timer', 'titler'] as const, an: [false, true], link: ['keiner', 'getrennt', 'gekoppelt', 'manuell'] });
+  // Erwarteter Text je Gegenstelle und Schalter: aus = „aus“; kein Fund = „nicht gefunden“; gefunden, nicht verbunden = Adresse + Zeilentext.
+  const TEXT: Record<string, { an: string; aus: string }> = {
+    keiner: { an: 'nicht gefunden', aus: 'aus' },
+    getrennt: { an: '10.0.0.7:8730 · gefunden · nicht verbunden', aus: 'aus' },
+    gekoppelt: { an: '10.0.0.7:8730', aus: 'aus' },
+    manuell: { an: 'manuell: 192.168.1.9:9000', aus: 'aus' },
+    manuellGetrennt: { an: 'manuell: 192.168.1.9:9000 · nicht verbunden', aus: 'aus' },
+  };
+  const faelle = kreuz({ rolle: ['timer', 'titler'] as const, an: [false, true], link: ['keiner', 'getrennt', 'gekoppelt', 'manuell', 'manuellGetrennt'] });
   pruefeFaelle('QA Kopplung dreifarbig: je Rolle aus = off, an ohne Gegenstelle = warn, gekoppelt = ok mit host:port, nie ok ohne Gegenstelle', faelle, (f) => {
     const l = LINKS[f.link](f.rolle);
     const cfg = { ...qaState().config, ...(f.rolle === 'timer' ? { autoTimer: f.an } : { autoTitler: f.an }) };
@@ -99,6 +108,7 @@ const link = (teil: Partial<ToolLink> = {}): ToolLink => ({ role: 'timer', label
       i.id === `kopplung-${f.rolle}` && i.group === 'verbindung' ? null : `id/Gruppe ${i.id} ${i.group}`,
       soll === 'ok' && adr && !(i.detail ?? '').includes(adr) ? `kein ${adr} in „${i.detail}“` : null,
       soll !== 'ok' && adr && i.state === 'ok' ? 'ok trotz fehlender Gegenstelle' : null,
+      vergleiche(i.detail, TEXT[f.link][f.an ? 'an' : 'aus']),
     ].filter((x) => x !== null);
     return probleme.length ? probleme.join('; ') : null;
   });

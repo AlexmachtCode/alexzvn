@@ -34,6 +34,7 @@ export const PEERS_TEXTE = {
   quelleManuell: (host: string, port: number) => `manuell: ${host}:${zahlText(port)}`,
   zeileVerbunden: 'verbunden',
   zeileNichtGefunden: 'nicht gefunden',
+  zeileGefundenNichtVerbunden: 'gefunden · nicht verbunden',
   zeileManuellNichtVerbunden: (host: string, port: number) => `manuell: ${host}:${zahlText(port)} · nicht verbunden`,
   zeileAus: ABSCHNITT_TEXTE.aus,
   alleVerbunden: 'verbunden',
@@ -69,6 +70,8 @@ export function peerZeileStatus(r: PeerRow): SectionStatus {
   if (r.connected === undefined) return STATUS_UNBEKANNT;
   if (r.connected) return st('ok', PEERS_TEXTE.zeileVerbunden);
   if (r.source === 'manual' && r.host !== '') return st('warn', PEERS_TEXTE.zeileManuellNichtVerbunden(r.host, r.port));
+  // Per mDNS gefunden, aber keine Verbindung: „nicht gefunden“ wäre falsch.
+  if (r.source === 'mdns') return st('warn', PEERS_TEXTE.zeileGefundenNichtVerbunden);
   return st('warn', PEERS_TEXTE.zeileNichtGefunden);
 }
 

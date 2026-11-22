@@ -21,6 +21,7 @@ const U = s('off', 'unbekannt');
 const AUS = s('off', 'aus');
 const VERB = s('ok', 'verbunden');
 const NG = s('warn', 'nicht gefunden');
+const GN = s('warn', 'gefunden · nicht verbunden');
 const MAN = s('warn', 'manuell: 10.0.0.5:7777 · nicht verbunden');
 const KEINE = s('off', 'keine Gegenstellen');
 const FEHLER = s('error', 'Fehler: Testfehler');
@@ -32,10 +33,10 @@ const basis: PeersSectionProps = { id: 'gegenstellen', peers: [], capabilities: 
 // (mdns, ''), (mdns, gesetzt), (manual, ''), (manual, gesetzt), (undefined, ''), (undefined, gesetzt).
 const ZEILE: Record<string, SectionStatus[]> = {
   'undefined|undefined': [U, U, U, U, U, U],
-  'undefined|false': [NG, NG, NG, MAN, NG, NG],
+  'undefined|false': [GN, GN, NG, MAN, NG, NG],
   'undefined|true': [VERB, VERB, VERB, VERB, VERB, VERB],
   'true|undefined': [U, U, U, U, U, U],
-  'true|false': [NG, NG, NG, MAN, NG, NG],
+  'true|false': [GN, GN, NG, MAN, NG, NG],
   'true|true': [VERB, VERB, VERB, VERB, VERB, VERB],
   'false|undefined': [AUS, AUS, AUS, AUS, AUS, AUS],
   'false|false': [AUS, AUS, AUS, AUS, AUS, AUS],
@@ -48,6 +49,7 @@ const EINE: Record<string, SectionStatus> = {
   [statusText(AUS)]: KEINE,
   [statusText(VERB)]: VERB,
   [statusText(NG)]: s('warn', '0 von 1 verbunden'),
+  [statusText(GN)]: s('warn', '0 von 1 verbunden'),
   [statusText(MAN)]: s('warn', '0 von 1 verbunden'),
 };
 

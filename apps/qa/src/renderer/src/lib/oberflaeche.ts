@@ -178,14 +178,24 @@ export function kopplungStatus(rolle: 'timer' | 'titler', s: Pick<OberflaechenSt
     source: link?.source,
     enabled: an,
   });
-  // Die gemessene Adresse steht nur bei einer Verbindung (sonst wäre „ok“ oder eine Adresse ohne Gegenstelle gelogen).
-  const adresse = link?.connected && link.host !== '' ? (manuell ? PEERS_TEXTE.quelleManuell(link.host, link.port) : `${link.host}:${zahlText(link.port)}`) : undefined;
+  // Gemessen ist die Adresse eines Fundes: verbunden steht sie allein (ok), gefunden aber nicht verbunden vor dem Zeilentext
+  // (warn, nie ok). Manuell nennt der Zeilentext die Adresse schon; ohne Fund und bei „aus“ gibt es keine.
+  const adresse = link && link.host !== '' ? `${link.host}:${zahlText(link.port)}` : undefined;
+  const detail = !an
+    ? zeile.text
+    : link?.connected
+      ? manuell
+        ? PEERS_TEXTE.quelleManuell(link.host, link.port)
+        : (adresse ?? zeile.text)
+      : link?.source === 'mdns' && adresse
+        ? `${adresse} · ${zeile.text}`
+        : zeile.text;
   return {
     id: `kopplung-${rolle}`,
     group: 'verbindung',
     label: roleLabel(rolle),
     state: zeile.state,
-    detail: zeile.state === 'ok' && adresse ? adresse : zeile.text,
+    detail,
     settingsSection: ABSCHNITT.redezeit,
   };
 }
