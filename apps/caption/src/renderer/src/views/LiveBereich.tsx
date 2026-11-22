@@ -1,10 +1,10 @@
 // Live-Bereich der Caption (UX Welle 2a, Caption d; Spec 3.4, 5.1; E4, E7, E9; Funktionsliste Nr. 9–12, 24–36): oben die vier
-// Haupttasten als TallyButtons in grid gap-3 (oben Start/Stopp und Hold, unten NDI und Leeren; Ruling Task 26), darunter der
-// Mikrofonfehler-Text (E9) und die Hinweise (whisper fehlt, Fehler des Main), dann die große Live-Zeile mit der NDI-Vorschau,
-// die Pegelzeile und der Verlauf mit der Korrektur der jüngsten Zeile. Die Tasten haben eine feste Breite (30 rem, zwei
+// Haupttasten als TallyButtons in grid gap-3 (oben NDI und Start/Stopp, unten Hold und Leeren; Ruling Fix-Runde 1), darunter der
+// Mikrofonfehler-Text (E9) und die Hinweise (whisper fehlt, Fehler des Main), dann die große Live-Zeile mit der NDI-Vorschau
+// daneben, die Pegelzeile und der Verlauf mit der Korrektur der jüngsten Zeile. Die Tasten haben eine feste Breite (30 rem, zwei
 // Spalten) und stehen ganz oben links: Sie liegen bei jeder Fenstergröße und bei offenem Panel an derselben Stelle, und keine
-// wachsende Live-Zeile schiebt sie (heute standen Start, Hold und Leeren oben im Kopf). Unter 900 px liegt das Panel über dem
-// Inhalt; dann bleibt der ganze Live-Bereich links daneben (max-[900px]).
+// wachsende Live-Zeile schiebt sie. Unter 900 px liegt das Panel über dem Inhalt; nur dann (Panel offen) hält eine Regel in
+// globals.css den ganzen Live-Bereich links daneben, ohne Panelzustand in dieser Ansicht.
 // Das Vorschau-Canvas steht ohne Bedingung im JSX: Die Engine in der Wurzel-View zeichnet über previewRef hinein, auch vor der
 // ersten Antwort. Rein darstellend und ohne Hooks: Stand, Ref, Korrekturzustand und Aktionen kommen aus der View
 // (CaptionOberflaeche); kein window, kein Store. Hinweise stehen im Fluss, nie über Tasten, Live-Zeile, Pegel oder Statusleiste.
@@ -14,10 +14,11 @@ import type { LiveAktionen } from '@/lib/aktionen';
 import { CAPTION_TEXTE, hauptTasten, type OberflaechenStand } from '@/lib/oberflaeche';
 
 /**
- * Die vier Haupttasten in Anzeigereihenfolge im 2×2-Raster (Ruling Task 26): oben Start/Stopp und Hold, unten links NDI (wie
- * heute unten links), unten rechts Leeren. Keine Taste liegt auf dem alten Platz einer anderen; der alte Platz von Leeren (oben,
- * dritte) bleibt leer, und auf dem alten NDI-Platz liegt nie Leeren. Genau hauptTasten plus Klick; die Wirkung folgt dem Zustand
- * wie bisher (running ? stop : start; setHold(!hold); ndiActive ? ndiStop : ndiStart; clear). Ohne DOM prüfbar.
+ * Die vier Haupttasten in Anzeigereihenfolge im 2×2-Raster (Ruling Fix-Runde 1): oben links NDI (sein alter absoluter Platz, links
+ * in der NDI-Leiste unter dem Kopf, bei 1100×780 etwa x 16–139, y 59–93), rechts daneben Start/Stopp; darunter Hold links, Leeren
+ * rechts. Start, Hold und Leeren standen oben rechts im alten Kopf; dort sind jetzt ON AIR, Hell/Dunkel und ⚙. So liegt keine
+ * Taste auf dem alten Platz einer anderen. Genau hauptTasten plus Klick; die Wirkung folgt dem Zustand wie bisher
+ * (ndiActive ? ndiStop : ndiStart; running ? stop : start; setHold(!hold); clear). Ohne DOM prüfbar.
  */
 export function liveTasten(s: Pick<OberflaechenStand, 'caption' | 'micError'>, a: LiveAktionen): TallyButtonProps[] {
   const t = hauptTasten(s);
@@ -26,9 +27,9 @@ export function liveTasten(s: Pick<OberflaechenStand, 'caption' | 'micError'>, a
   const hold = c?.hold ?? false;
   const ndiActive = c?.status.ndiActive ?? false;
   return [
+    { ...t.ndi, onClick: ndiActive ? a.ndiStoppen : a.ndiStarten },
     { ...t.start, onClick: running ? a.stop : a.start },
     { ...t.hold, onClick: () => a.hold(!hold) },
-    { ...t.ndi, onClick: ndiActive ? a.ndiStoppen : a.ndiStarten },
     { ...t.leeren, onClick: a.leeren },
   ];
 }
@@ -39,7 +40,7 @@ export function pegelProzent(rms: number): number {
 }
 
 const KLEIN = 'text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]';
-const HINWEIS = 'rounded-[var(--radius-md)] border px-3 py-1.5 text-xs text-[var(--foreground)] select-text';
+const HINWEIS = 'rounded-[var(--radius-md)] border px-3 py-1 text-xs text-[var(--foreground)] select-text';
 const HINWEIS_FEHLER = 'border-[var(--status-error)]/60 bg-[var(--status-error)]/10';
 const HINWEIS_WARNUNG = 'border-[var(--status-warn)]/60 bg-[var(--status-warn)]/10';
 
@@ -62,8 +63,8 @@ export function LiveBereich({
   const last = lines.length ? lines[lines.length - 1] : null;
   const prozent = pegelProzent(stand.pegel ?? 0);
   return (
-    <section data-caption="live" className="flex max-w-[1100px] flex-col gap-3 max-[900px]:max-w-[calc(100vw_-_var(--panel-w)_-_2.5rem)]">
-      {/* Reihenfolge fest, die Beschriftung wechselt (Start/Stopp, Hold/Hold ✓, NDI starten/NDI an): der Index ist der stabile key. */}
+    <section data-caption="live" className="flex max-w-[1100px] flex-col gap-2">
+      {/* Reihenfolge fest, die Beschriftung wechselt (NDI starten/NDI an, Start/Stopp, Hold/Hold ✓): der Index ist der stabile key. */}
       <div data-caption="tasten" className="grid w-full max-w-[30rem] grid-cols-2 gap-3">
         {liveTasten(stand, aktionen).map((k, i) => (
           <TallyButton key={i} {...k} />
