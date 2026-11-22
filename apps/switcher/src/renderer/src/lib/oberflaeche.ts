@@ -248,7 +248,7 @@ const KEIN_ABLAUF = (): void => {};
 
 /** Frame vor der ersten Meldung der View: alles aus, ohne Wirkung der Aktionen. */
 export const FRAME_ANFANG: FrameMeldung = {
-  output: { recording: false, streaming: false, recPath: null, error: null },
+  output: { recording: false, streaming: false, recPath: null, error: null, errorScope: null },
   ndi: { active: false, name: '', connections: 0, error: null },
   audio: { hasDevice: false, muted: false, gain: 1, level: 0, error: null },
   canTake: false,
@@ -411,22 +411,22 @@ function audioItem(s: OberflaechenStand): StatusItem {
   return item;
 }
 
-/** Aufnahme (live nur beim Aufnehmen, Anhang A). Der Fehler ist einer für beide Ausgaben (OutputState.error). */
+/** Aufnahme (live nur beim Aufnehmen, Anhang A). Fehler nur, wenn ihn die Aufnahme meldete (OutputState.errorScope). */
 function aufnahmeItem(s: OberflaechenStand): StatusItem {
   const o = s.output;
   const kopf = { id: 'aufnahme', group: 'ausgabe', label: SWITCHER_TEXTE.label.aufnahme, settingsSection: ABSCHNITT.aufnahme } as const;
   if (o.recording) return { ...kopf, state: 'live', detail: aufnahmeName(o) ?? SWITCHER_TEXTE.laeuft };
-  // Es gibt nur einen Fehlerwert für Aufnahme und Stream; ein laufender Stream hat den Fehler nicht ausgelöst (Start löscht ihn).
-  if (o.error) return { ...kopf, state: 'error', detail: fehlerStatus(o.error).text };
+  // Ein Fehler des Streams gehört nicht hierher (Fund A2): Der Fehlerwert trägt seine Herkunft.
+  if (o.error && o.errorScope === 'rec') return { ...kopf, state: 'error', detail: fehlerStatus(o.error).text };
   return { ...kopf, state: 'off', detail: ABSCHNITT_TEXTE.aus };
 }
 
-/** Stream (live nur beim Senden; Ziel aus der Einstellung, Fehler gemeinsam mit der Aufnahme). */
+/** Stream (live nur beim Senden; Ziel aus der Einstellung, Fehler nur, wenn ihn der Stream meldete). */
 function streamItem(s: OberflaechenStand): StatusItem {
   const o = s.output;
   const kopf = { id: 'stream', group: 'ausgabe', label: SWITCHER_TEXTE.label.stream, settingsSection: ABSCHNITT.streaming } as const;
   if (o.streaming) return { ...kopf, state: 'live', detail: SWITCHER_TEXTE.laeuft };
-  if (o.error) return { ...kopf, state: 'error', detail: fehlerStatus(o.error).text };
+  if (o.error && o.errorScope === 'stream') return { ...kopf, state: 'error', detail: fehlerStatus(o.error).text };
   if (!hatStreamZiel(s)) return { ...kopf, state: 'off', detail: SWITCHER_TEXTE.keinZiel };
   return { ...kopf, state: 'ok', detail: REMOTE_TEXTE.bereit };
 }

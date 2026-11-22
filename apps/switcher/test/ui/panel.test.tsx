@@ -50,7 +50,13 @@ const titel = (html: string): string[] => [...html.matchAll(/<h3[^>]*>([^<]*)<\/
   );
   pruefeIdVerweise(html, 'SW Panel Abschnitte: id-Verweise gültig (Beschriftungen, Hinweise, Sperrgründe)');
   gleich(log, [], 'SW Panel Abschnitte: Rendern löst keine Aktion aus');
-  ok(!html.includes('"Streaming (RTMP)"') && !text(html).includes('NDI-Ausgabe & Programm-Format'), 'SW Panel Abschnitte: die alten Kartentitel sind weg');
+  // Im sichtbaren Text suchen: '"Streaming (RTMP)"' mit Anführungszeichen stand nie im HTML (Fund A4).
+  const alteTitelWeg = (h: string): boolean => !text(h).includes('Streaming (RTMP)') && !text(h).includes('NDI-Ausgabe & Programm-Format');
+  ok(alteTitelWeg(html), 'SW Panel Abschnitte: die alten Kartentitel sind weg');
+  ok(
+    !alteTitelWeg('<h3>Streaming (RTMP)</h3>') && !alteTitelWeg('<h3>NDI-Ausgabe &amp; Programm-Format</h3>'),
+    'SW Panel Abschnitte: Gegenprobe: ein alter Kartentitel im HTML würde gefunden',
+  );
 }
 
 // ── Port-Feld nur hier ──

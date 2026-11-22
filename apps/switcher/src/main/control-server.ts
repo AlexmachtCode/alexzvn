@@ -15,7 +15,6 @@
 // (`ns=switcher` + program/preview/…) ist rückwärtskompatibel zum alten
 // Companion-Modul (liest die Felder per Schlüssel, ignoriert ns).
 import type { BrowserWindow } from 'electron';
-import { SuiteControlServer } from '@jm/suite-control-protocol/server';
 import { app } from 'electron';
 import { naechsteFernsteuerung, meldungZuControlStatus, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { ControlStatus } from '@shared/types';
@@ -25,8 +24,10 @@ import {
   type ControlCommand,
   type SwitcherStateMsg,
 } from '@jm/suite-control-protocol';
+import { erzeugeHalter } from './steuerserver-halter';
 
-let server: SuiteControlServer | null = null;
+/** Der Steuerserver (Start, Stopp, aktueller Server); nur sein aktueller Server meldet Statuswechsel. */
+const halter = erzeugeHalter();
 let targetWindow: BrowserWindow | null = null;
 let lastState: SwitcherStateMsg = {
   program: 0,
@@ -47,7 +48,7 @@ export function attachControlWindow(win: BrowserWindow): void {
 /** Aktueller Status; solange nichts gemeldet wurde, der Grundwert (der Renderer liest ihn als „unbekannt“). */
 export function controlStatus(): ControlStatus {
   if (meldung) return meldungZuControlStatus(meldung);
-  return server?.status() ?? { running: false, port: 0, clients: 0 };
+  return halter.aktuell()?.status() ?? { running: false, port: 0, clients: 0 };
 }
 
 /** Meldung fortschreiben und an den Renderer senden. */
@@ -65,13 +66,12 @@ function send(channel: string, payload: unknown): void {
   if (!wc.isDestroyed()) wc.send(channel, payload);
 }
 
-export function startControlServer(
+function startControlServer(
   port: number,
   // UX Welle 1 (Spec 3.9): ganze Statusmeldung mit wirksamem Modus, nur lesend.
-  onMeldung?: (e: FernsteuerungEreignis) => void,
+  onMeldung: (e: FernsteuerungEreignis) => void,
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
-  stopControlServer();
-  server = new SuiteControlServer({
+  return halter.starte({
     appDataDir: app.getPath('appData'),
     role: 'switcher',
     appId: 'jm-switcher',
@@ -82,11 +82,7 @@ export function startControlServer(
       const legacy = parseCommand(ctx.raw);
       if (legacy && legacy.type !== 'queryState') send('control:command', legacy as ControlCommand);
     },
-    onStatus: (st) => {
-      onMeldung?.({ art: 'status', ...st, modus: server?.modus() });
-    },
-  });
-  return server.start(port);
+  }, port, onMeldung);
 }
 
 /**
@@ -105,14 +101,11 @@ export async function startControlServerGemeldet(port: number): Promise<{ ok: bo
 }
 
 export function stopControlServer(): void {
-  if (server) {
-    server.stop();
-    server = null;
-  }
+  halter.stoppe();
 }
 
 /** Renderer meldet neuen Zustand → cachen + an alle Clients broadcasten. */
 export function pushState(state: SwitcherStateMsg): void {
   lastState = state;
-  server?.pushState(switcherStateToSuite(state));
+  halter.aktuell()?.pushState(switcherStateToSuite(state));
 }

@@ -24,6 +24,14 @@ export function liveTasten(t: ReturnType<typeof hauptTasten>, h: HaupttastenAkti
   ];
 }
 
+/**
+ * Mindesthöhe einer Kachel in px: die Höhe einer gesperrten Taste mit einer Grundzeile (Rand 2×2, py-2 2×8, Beschriftung
+ * 15 px und Grund 11 px bei Zeilenhöhe 1,55, Lücke 4 = 64,3), aufgerundet. So bleibt die Tastenzeile gleich hoch, wenn Auto
+ * während der Überblendung „Überblendung läuft“ zeigt oder Cut den Grund verliert; die Monitore springen nicht (Fund A3).
+ * Steht als Literal `min-h-[65px]` unten (Tailwind-Scan); live.test.tsx rechnet die Zahl aus den Quellen nach.
+ */
+export const KACHEL_MIN_H = 65;
+
 export interface HaupttastenProps {
   tasten: TallyButtonProps[];
   /** Dauer der Überblendung in ms. */
@@ -38,7 +46,7 @@ export function Haupttasten({ tasten, autoMs, onAutoMs }: HaupttastenProps): Rea
     <div data-switcher="haupttasten" className="flex shrink-0 items-start gap-3 px-6 pb-3">
       {tasten.map((taste, i) => (
         <Fragment key={i}>
-          <div className="min-w-0 flex-1">
+          <div className="min-h-[65px] min-w-0 flex-1">
             <TallyButton {...taste} />
           </div>
           {i === 1 && (

@@ -55,7 +55,7 @@ export const ZWEITER_MONITOR: DisplayInfo = { id: 22, label: '1920×1080', width
 export function basisStand(z: Partial<OberflaechenStand> = {}): OberflaechenStand {
   return {
     settings: basisEinstellungen(),
-    output: { recording: false, streaming: false, recPath: null, error: null },
+    output: { recording: false, streaming: false, recPath: null, error: null, errorScope: null },
     ndi: { active: false, name: '', connections: 0, error: null },
     audio: { hasDevice: false, muted: false, gain: 1, level: 0, error: null },
     audioGeraete: [{ id: 'mic1', label: 'Mikrofon 1' }],

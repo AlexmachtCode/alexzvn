@@ -94,7 +94,7 @@ const rahmen = (anfangOffen = false): string =>
         <span />
       </AppShell>,
     );
-  const aus = { recording: false, streaming: false, recPath: null, error: null };
+  const aus = { recording: false, streaming: false, recPath: null, error: null, errorScope: null };
   const live = onAirKopf(basisStand({ output: { ...aus, streaming: true } }));
   const rec = onAirKopf(basisStand({ output: { ...aus, recording: true } }));
   const beide = onAirKopf(basisStand({ output: { ...aus, streaming: true, recording: true } }));

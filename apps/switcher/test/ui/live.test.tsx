@@ -4,12 +4,13 @@
 import { enthaelt, gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import type { AudioController } from '@/core/audio';
 import { hauptTasten, SWITCHER_TEXTE, UNTEN_OFFEN_AB, untenStartOffen, type OberflaechenStand } from '@/lib/oberflaeche';
-import { Haupttasten, liveTasten } from '@/views/LiveBereich';
+import { Haupttasten, KACHEL_MIN_H, liveTasten } from '@/views/LiveBereich';
+import { kreuz } from './hilfe';
 import { OutputBar } from '@/views/SwitcherView';
 import { attr, basisEinstellungen, basisStand, ohneKommentare, tags, text } from './testzustand';
 
 const T = SWITCHER_TEXTE;
-const aus = { recording: false, streaming: false, recPath: null, error: null };
+const aus = { recording: false, streaming: false, recPath: null, error: null, errorScope: null };
 const aktion = (log: string[]) => ({
   cut: () => void log.push('cut'),
   auto: () => void log.push('auto'),
@@ -87,6 +88,46 @@ function knoepfe(html: string): Array<[string, string | undefined, string | unde
     'SW Live Tasten: keine Kürzel (E1)',
   );
   pruefeIdVerweise(leiste(), 'SW Live Tasten: id-Verweise der Sperrgründe gültig');
+}
+
+// ── SW Live Tasten: stabile Zeilenhöhe (Fund A3: „Überblendung läuft“ ließ die Zeile bei jedem Auto wachsen) ──
+{
+  // Höhe eines TallyButtons aus den Klassen in TallyButton.tsx und der Zeilenhöhe der Seite (--leading-normal, base.css setzt
+  // sie am html; text-[15px] und text-[11px] setzen nur die Schriftgröße). Annahmen: Beschriftung und Grund stehen je in einer
+  // Zeile (eine Kachel ist bei 1920 px Fensterbreite mit offenem Panel etwa 340 px breit); in sehr schmalen Kacheln (kleinstes
+  // Fenster mit offenem Panel, etwa 140 px) können Beschriftung und Grund umbrechen, dann wächst die Zeile weiter wie bisher.
+  const tally = leseText('../../packages/ui/src/components/TallyButton.tsx');
+  const lh = Number(/--leading-normal:\s*([\d.]+)/.exec(leseText('../../packages/ui/src/tokens/typography.css'))?.[1]);
+  const steuerLg = Number(/--control-h-lg:\s*(\d+)px/.exec(leseText('../../packages/ui/src/tokens/sizes.css'))?.[1]);
+  ok(
+    ['min-h-[var(--control-h-lg)]', 'gap-1', 'border-2', 'py-2', 'text-[15px] font-extrabold', 'text-[11px] font-semibold', 'leading-none'].every((k) => tally.includes(k) || leseText('../../packages/ui/src/lib/status.ts').includes(k)) &&
+      lh === 1.55 &&
+      steuerLg === 48,
+    'SW Live Tasten Höhe: die Maße des TallyButtons stehen wie angenommen in den Quellen (Rand 2, py-2, gap-1, 15/11 px, Zeilenhöhe 1,55, Mindesthöhe 48)',
+  );
+  const rahmen = 2 * 2 + 2 * 8;
+  const hoehe = (state: 'bereit' | 'live' | 'gesperrt'): number => {
+    // live: Kennung LIVE in 19 px leading-none mit py-0.5 und border-2 (LIVE_FLAECHE_KLASSE), ohne Grund (im Switcher nie live und gesperrt).
+    const inhalt = state === 'live' ? 19 + 4 + 4 : state === 'gesperrt' ? 15 * lh + 4 + 11 * lh : 15 * lh;
+    return Math.max(steuerLg, rahmen + inhalt);
+  };
+  ok(KACHEL_MIN_H >= hoehe('gesperrt') && KACHEL_MIN_H - hoehe('gesperrt') < 1, `SW Live Tasten Höhe: die Kachel reserviert die Höhe einer gesperrten Taste mit einer Grundzeile (${hoehe('gesperrt').toFixed(2)} px → ${KACHEL_MIN_H} px)`);
+  const faelle = kreuz({ canTake: [false, true], canAuto: [false, true], transitioning: [false, true], recording: [false, true], streaming: [false, true], ziel: ['', 'rtmp://x/y'] } as const);
+  const zeilen = new Set(
+    faelle.map((f) => {
+      const t = hauptTasten(basisStand({ canTake: f.canTake, canAuto: f.canAuto, transitioning: f.transitioning, output: { ...aus, recording: f.recording, streaming: f.streaming }, settings: basisEinstellungen({ rtmpUrl: f.ziel }) }));
+      return Math.max(KACHEL_MIN_H, ...[t.cut, t.auto, t.aufnahme, t.stream].map((x) => hoehe(x.state)));
+    }),
+  );
+  gleich([...zeilen], [KACHEL_MIN_H], `SW Live Tasten Höhe: in allen ${faelle.length} Zuständen (Vorschau, Überblendung, Aufnahme, Stream, Ziel) bleibt die Tastenzeile ${KACHEL_MIN_H} px hoch`);
+  const ohne = new Set(faelle.map((f) => {
+    const t = hauptTasten(basisStand({ canTake: f.canTake, canAuto: f.canAuto, transitioning: f.transitioning, settings: basisEinstellungen({ rtmpUrl: f.ziel }) }));
+    return Math.max(...[t.cut, t.auto, t.aufnahme, t.stream].map((x) => hoehe(x.state))).toFixed(2);
+  }));
+  gleich([...ohne].sort(), ['48.00', '64.30'], 'SW Live Tasten Höhe: Gegenprobe ohne Reservierung: die Zeile wäre je Zustand 48 oder 64,3 px hoch');
+  const html = leiste({ canTake: true, canAuto: true });
+  const kacheln = [...html.matchAll(/<div class="([^"]*)"><button[^>]*data-state/g)].map((m) => m[1]);
+  ok(kacheln.length === 4 && kacheln.every((k) => k.split(/\s+/).includes(`min-h-[${KACHEL_MIN_H}px]`)), 'SW Live Tasten Höhe: jede der vier Kacheln trägt die Reservierung als Klasse (Literal für den Tailwind-Scan)');
 }
 
 // ── Aktionen: dieselben Handler wie heute ──

@@ -5,6 +5,7 @@ import * as settings from '@jm/settings';
 import { audioDeviceView, ndiOutputView, remoteControlView } from '@jm/settings';
 import { MASTER_LINK_TEXTE, ordneStatus, type StatusItem } from '@jm/ui';
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
+import { fehlerNachStart, mitFehler } from '@/core/output';
 import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { DisplayInfo, MasterLinkMeldungZeile } from '@shared/types';
 import {
@@ -21,7 +22,7 @@ import {
   type SwitcherAktionen,
 } from '@/lib/oberflaeche';
 import { kreuz, pruefeFaelle, vergleiche } from './hilfe';
-import { basisEinstellungen, basisMeldung, basisStand, PRIMAERER_MONITOR, ZWEITER_MONITOR } from './testzustand';
+import { basisEinstellungen, basisMeldung, basisStand, ohneKommentare, PRIMAERER_MONITOR, ZWEITER_MONITOR } from './testzustand';
 
 const eintrag = (s: OberflaechenStand, id: string): StatusItem => statusLeiste(s).find((i) => i.id === id) as StatusItem;
 const sd = (i: StatusItem): string => `${i.state} ${i.detail ?? ''}`;
@@ -220,37 +221,65 @@ function aufzeichner(): { log: unknown[]; a: SwitcherAktionen } {
 }
 
 // ── Aufnahme ──
+// Der Fehler trägt seine Herkunft (errorScope, Fund A2): ein Streamfehler färbt die Aufnahme nicht und umgekehrt.
+const FEHLER = {
+  keiner: { error: null, errorScope: null },
+  Aufnahme: { error: 'Kein Program-Bild zum Aufnehmen.', errorScope: 'rec' },
+  Stream: { error: 'Verbindung abgelehnt', errorScope: 'stream' },
+} as const;
 {
   const faelle = kreuz({
     recording: [false, true],
     recPath: [null, 'C:\\Videos\\Gala 1.webm', '/home/x/gala.webm'],
     streaming: [false, true],
-    error: [null, 'Kein Program-Bild zum Aufnehmen.'],
+    fehler: ['keiner', 'Aufnahme', 'Stream'],
   } as const);
   const soll = (f: (typeof faelle)[number]): string => {
     if (f.recording) return `live ${f.recPath === null ? 'läuft' : f.recPath.replace(/^.*[\\/]/, '')}`;
-    if (f.error !== null) return `error Fehler: ${f.error}`;
+    if (f.fehler === 'Aufnahme') return `error Fehler: ${FEHLER.Aufnahme.error}`;
     return 'off aus';
   };
-  pruefeFaelle('SW Statusleiste aufnahme: läuft × Datei × Stream × Fehler → Tabelle (live nur beim Aufnehmen, Fehler gemeinsam)', faelle, (f) =>
-    vergleiche(sd(eintrag(basisStand({ output: { recording: f.recording, streaming: f.streaming, recPath: f.recPath, error: f.error } }), 'aufnahme')), soll(f)),
+  pruefeFaelle('SW Statusleiste aufnahme: läuft × Datei × Stream × Fehler mit Herkunft → Tabelle (live nur beim Aufnehmen, nur der eigene Fehler)', faelle, (f) =>
+    vergleiche(sd(eintrag(basisStand({ output: { recording: f.recording, streaming: f.streaming, recPath: f.recPath, ...FEHLER[f.fehler] } }), 'aufnahme')), soll(f)),
   );
 }
 
 // ── Stream ──
 {
-  const faelle = kreuz({ streaming: [false, true], rtmpUrl: ['', '   ', 'rtmp://x/live/key'], error: [null, 'Verbindung abgelehnt'], recording: [false, true] } as const);
+  const faelle = kreuz({ streaming: [false, true], rtmpUrl: ['', '   ', 'rtmp://x/live/key'], fehler: ['keiner', 'Aufnahme', 'Stream'], recording: [false, true] } as const);
   const soll = (f: (typeof faelle)[number]): string => {
     if (f.streaming) return 'live läuft';
-    if (f.error !== null) return 'error Fehler: Verbindung abgelehnt';
+    if (f.fehler === 'Stream') return 'error Fehler: Verbindung abgelehnt';
     return f.rtmpUrl.trim() === '' ? 'off kein Ziel' : 'ok bereit';
   };
-  pruefeFaelle('SW Statusleiste stream: läuft × Ziel × Fehler × Aufnahme → Tabelle (kein Ziel ist off)', faelle, (f) =>
+  pruefeFaelle('SW Statusleiste stream: läuft × Ziel × Fehler mit Herkunft × Aufnahme → Tabelle (kein Ziel ist off, nur der eigene Fehler)', faelle, (f) =>
     vergleiche(
-      sd(eintrag(basisStand({ settings: basisEinstellungen({ rtmpUrl: f.rtmpUrl }), output: { recording: f.recording, streaming: f.streaming, recPath: null, error: f.error } }), 'stream')),
+      sd(eintrag(basisStand({ settings: basisEinstellungen({ rtmpUrl: f.rtmpUrl }), output: { recording: f.recording, streaming: f.streaming, recPath: null, ...FEHLER[f.fehler] } }), 'stream')),
       soll(f),
     ),
   );
+}
+
+// ── Fehler und Start der Ausgaben: ein Start löscht nur den eigenen Fehler (core/output.ts, Fund A2) ──
+{
+  const faelle = kreuz({ vorher: ['keiner', 'Aufnahme', 'Stream'], start: ['rec', 'stream'] } as const);
+  pruefeFaelle('SW Ausgabe-Fehler: vorheriger Fehler × erfolgreicher Start → nur der Fehler derselben Ausgabe fällt weg', faelle, (f) => {
+    const vorher = FEHLER[f.vorher];
+    const nach = { ...vorher, ...fehlerNachStart(vorher, f.start) };
+    const eigen = vorher.errorScope === f.start;
+    return vergleiche(JSON.stringify(nach), JSON.stringify(eigen ? FEHLER.keiner : vorher));
+  });
+  gleich(
+    [mitFehler('rec', 'a'), mitFehler('stream', 'b')],
+    [{ error: 'a', errorScope: 'rec' }, { error: 'b', errorScope: 'stream' }],
+    'SW Ausgabe-Fehler: mitFehler setzt Text und Herkunft',
+  );
+  const q = ohneKommentare(leseText('src/renderer/src/core/output.ts'));
+  ok(
+    !/patch\(\{[^}]*error: (?!null)/.test(q) && !/patch\(\{[^}]*error: null/.test(q) && (q.match(/mitFehler\('rec'/g) ?? []).length === 3 && (q.match(/mitFehler\('stream'/g) ?? []).length === 3,
+    'SW Ausgabe-Fehler: output.ts setzt jeden Fehler über mitFehler (je drei Stellen für Aufnahme und Stream) und löscht ihn nur über fehlerNachStart',
+  );
+  ok(q.includes("mitFehler(err.scope === 'record' ? 'rec' : 'stream', err.message)"), 'SW Ausgabe-Fehler: der Fehler aus dem Main behält seine Herkunft (scope record/stream)');
 }
 
 // ── Statusleiste gesamt ──
@@ -269,7 +298,7 @@ function aufzeichner(): { log: unknown[]; a: SwitcherAktionen } {
       fernsteuerung: f.fernsteuerung,
       displays: f.displays as OberflaechenStand['displays'],
       audioGeraete: f.audioGeraete as OberflaechenStand['audioGeraete'],
-      output: { recording: f.recording, streaming: f.streaming, recPath: null, error: null },
+      output: { recording: f.recording, streaming: f.streaming, recPath: null, error: null, errorScope: null },
     });
   const IDS = ['master-link', 'ndi', 'bildschirm', 'aufnahme', 'stream', 'fernsteuerung', 'audio'];
   pruefeFaelle('SW Statusleiste gesamt: Reihenfolge master-link, ndi, bildschirm, aufnahme, stream, fernsteuerung, audio; ids eindeutig; schon nach Gruppen geordnet', faelle, (f) => {
@@ -323,7 +352,7 @@ function aufzeichner(): { log: unknown[]; a: SwitcherAktionen } {
       canAuto: f.canAuto,
       transitioning: f.transitioning,
       settings: basisEinstellungen({ rtmpUrl: f.rtmpUrl }),
-      output: { recording: f.recording, streaming: f.streaming, recPath: null, error: null },
+      output: { recording: f.recording, streaming: f.streaming, recPath: null, error: null, errorScope: null },
     });
   const t = (z: { state: string; disabledReason?: string }): string => `${z.state}:${z.disabledReason ?? ''}`;
   pruefeFaelle('SW Haupttasten Cut: bereit nach canTake, sonst gesperrt „Keine andere Szene in der Vorschau“', faelle, (f) =>
@@ -360,7 +389,7 @@ function aufzeichner(): { log: unknown[]; a: SwitcherAktionen } {
 {
   const faelle = kreuz({ streaming: [false, true], recording: [false, true] } as const);
   pruefeFaelle('SW onAir: live bei Stream oder Aufnahme, LIVE geht vor REC', faelle, (f) => {
-    const k = onAirKopf(basisStand({ output: { recording: f.recording, streaming: f.streaming, recPath: null, error: null } }));
+    const k = onAirKopf(basisStand({ output: { recording: f.recording, streaming: f.streaming, recPath: null, error: null, errorScope: null } }));
     return vergleiche(`${k.live}/${k.label}`, `${f.streaming || f.recording}/${f.streaming ? 'LIVE' : 'REC'}`);
   });
 }

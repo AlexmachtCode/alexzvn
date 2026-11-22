@@ -1,5 +1,6 @@
 // UX Welle 1, Switcher b · Brücken (Spec 3.9, 7.2): Fernsteuerungs-Meldung (Kreuzprodukt der Ereignisse, Port belegt),
 // Quellen ohne und mit window, Quelltext-Wächter für Preload, Main und Steuerport. Kein Electron, kein window beim Import.
+import net from 'node:net';
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
 import { FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
 import {
@@ -12,8 +13,9 @@ import {
   type FernsteuerungMeldung,
 } from '@shared/fernsteuerung';
 import type { ControlStatus } from '@shared/types';
+import { erzeugeHalter } from '../../src/main/steuerserver-halter';
 import { kreuz, pruefeFaelle } from './hilfe';
-import { basisControlStatus, basisMeldung } from './testzustand';
+import { basisControlStatus, basisMeldung, ohneKommentare } from './testzustand';
 
 const BELEGT = 'listen EADDRINUSE: address already in use :::8723';
 const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined =>
@@ -114,6 +116,63 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
     },
   );
   gleich(Object.keys(meldungZuControlStatus(basisMeldung())), ['running', 'port', 'clients', 'modus'], 'SW Fernsteuerung Wandler: Felder von ControlStatus heißen running, port, clients, modus');
+}
+
+// ── SW Fernsteuerung Neustart: Portwechsel bei verbundenem Client (Fund A1 der Gesamtprüfung) ──
+// Mit dem echten SuiteControlServer über den Halter des Mains (ohne Electron, ohne mDNS). stop() zerstört die Client-Sockets,
+// ihr close kommt erst danach; der alte Server meldete dann seinen Stillstand über die neue, lauschende Meldung.
+{
+  const freierPort = async (): Promise<number> => {
+    const s = net.createServer();
+    await new Promise<void>((r) => s.listen(0, '127.0.0.1', () => r()));
+    const port = (s.address() as net.AddressInfo).port;
+    await new Promise<void>((r) => s.close(() => r()));
+    return port;
+  };
+  const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+  const halter = erzeugeHalter();
+  let meldung: FernsteuerungMeldung | undefined;
+  const melde = (e: FernsteuerungEreignis): void => {
+    meldung = naechsteFernsteuerung(meldung, e);
+  };
+  // Wie startControlServerGemeldet: erst die Statuswechsel, danach das Start-Ergebnis mit dem angefragten Port.
+  const starte = async (port: number): Promise<void> => {
+    const r = await halter.starte(
+      { role: 'switcher', appId: 'jm-switcher', advertiseService: false, getState: () => ({ ns: 'switcher', kv: {} }) as never, onCommand: () => {} },
+      port,
+      melde,
+    );
+    melde({ art: 'start', ok: r.ok, error: r.error, port });
+  };
+  const client = (port: number): net.Socket => net.connect(port, '127.0.0.1').on('error', () => {});
+  const p1 = await freierPort();
+  const p2 = await freierPort();
+  const c1 = client(p1);
+  try {
+    await starte(p1);
+    c1.destroy();
+    const c2 = client(p1);
+    await warte(200);
+    gleich([meldung?.laeuft, meldung?.port, meldung?.clients], [true, p1, 1], 'SW Fernsteuerung Neustart: erster Start mit einem Client → läuft, Port, 1 verbunden');
+    await starte(p2);
+    await warte(300);
+    gleich(
+      [meldung?.laeuft, meldung?.port, meldung?.clients, halter.aktuell()?.status().running],
+      [true, p2, 0, true],
+      'SW Fernsteuerung Neustart: nach dem Portwechsel bei verbundenem Client meldet die Statusleiste den neuen, lauschenden Server (kein spätes „aus“ vom alten)',
+    );
+    c2.destroy();
+    halter.stoppe();
+    gleich([meldung?.laeuft, meldung?.clients, halter.aktuell()], [false, 0, null], 'SW Fernsteuerung Neustart: das Stoppen selbst wird weiter gemeldet (läuft nicht mehr)');
+  } finally {
+    c1.destroy();
+    halter.stoppe();
+  }
+  const cs = ohneKommentare(leseText('src/main/control-server.ts'));
+  ok(
+    cs.includes('erzeugeHalter()') && !cs.includes('new SuiteControlServer') && !/^export function startControlServer\b/m.test(cs) && cs.includes('onMeldung: (e: FernsteuerungEreignis) => void'),
+    'SW Fernsteuerung Neustart: control-server.ts baut den Server nur über den Halter; startControlServer ist nicht exportiert und verlangt onMeldung',
+  );
 }
 
 // ── SW Quelle ohne window ──
@@ -227,7 +286,10 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
   const m = /export const DEFAULT_CONTROL_PORT = (\d+);/.exec(protokoll);
   ok(m !== null && Number(m[1]) === STEUER_PORT, `SW Wächter Steuerport: STEUER_PORT ${STEUER_PORT} gleich DEFAULT_CONTROL_PORT des Steuerprotokolls (${m?.[1]})`);
   ok(leseText('src/renderer/src/store/settings.ts').includes('controlPort: DEFAULT_CONTROL_PORT,'), 'SW Wächter Steuerport: der Standard der Einstellung ist DEFAULT_CONTROL_PORT');
-  ok(cs.includes("onMeldung?.({ art: 'status', ...st, modus: server?.modus() });"), 'SW Wächter Steuerport: jeder Statuswechsel des Servers wird mit wirksamem Modus gemeldet');
+  ok(
+    leseText('src/main/steuerserver-halter.ts').includes("if (server === srv) onMeldung({ art: 'status', ...st, modus: srv.modus() });"),
+    'SW Wächter Steuerport: jeder Statuswechsel des aktuellen Servers wird mit wirksamem Modus gemeldet (Halter des Mains)',
+  );
   ok(
     cs.includes("meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error, port });") && cs.includes("meldeFernsteuerung({ art: 'wurf', text: "),
     'SW Wächter Steuerport: Start-Ergebnis und Wurf werden gemeldet',
