@@ -37,4 +37,8 @@ regexes = [
   # Kein Wert, sondern ein Funktionsname in apps/qa/test/cloud-zugang.test.ts, den generic-api-key
   # hinter „neuerKey =“ für einen Schlüssel hält.
   '''^z1\.altKeyEntfernen$''',
+  # Anmeldung Teil 2: erfundene Freigabe-Token der Tests in apps/connect/test/raum-zugang.test.ts
+  # und apps/connect/test/zugang-halter.test.ts.
+  '''^jm1\.test-freigabe$''',
+  '''^jm1\.test-gehalten$''',
 ]

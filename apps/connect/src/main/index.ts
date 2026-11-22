@@ -17,6 +17,7 @@ import { handleShowDeepLink } from './show-open';
 import { startPresenterLink, stopPresenterLink } from './presenter-link';
 import { startZoom, verdrahteZoomFenster, zoomBeenden, zoomGastLabelsGeaendert, zoomLaeuft, zoomSteuerbefehl, zoomVerlassen } from './zoom';
 import { aenderungsMelder, leiteSteuerbefehl } from './control-state';
+import { starteZugang } from './zugang/huelle';
 import { BEENDEN_FRIST_MS } from './zoom/kern';
 
 declare const __dirname: string;
@@ -93,6 +94,8 @@ app.on('browser-window-created', (_e, win) => {
 
 if (setupSingleInstance(() => showOrCreateWindow())) {
   app.whenReady().then(async () => {
+    // Gehaltene Freigaben des Launchers laden, bevor Raum und Zoom sie brauchen (Anmeldung Teil 2).
+    starteZugang({ userData: app.getPath('userData'), appData: app.getPath('appData') });
     // Der versteckte Peer öffnet fürs Talkback (6.2c) das Regie-Mikro. Ohne diese Freigabe lehnt
     // Chromium getUserMedia im file://-Kontext des gepackten Builds ab (wie in caption/sync).
     // Nur `media` — alles andere bleibt verwehrt.

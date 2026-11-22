@@ -13,6 +13,7 @@ export interface AppStatusEingabe {
   ndiProgramm: NdiProgrammLage;
   presenterLinked: boolean;
   zoom: ZoomKurz | null;
+  cloudZugang: AppStatus['cloudZugang'];
 }
 
 /** AppStatus aus den Messwerten des Mains (E44). Die NDI-Lagen sind Kopien: eine spätere Änderung der Eingabe ändert ihn nicht. */
@@ -26,6 +27,7 @@ export function baueAppStatus(e: AppStatusEingabe): AppStatus {
     ndiProgramm: { ...e.ndiProgramm },
     presenterLinked: e.presenterLinked,
     zoom: e.zoom,
+    cloudZugang: { ...e.cloudZugang },
   };
 }
 
@@ -43,4 +45,5 @@ export const APP_STATUS_START: AppStatus = baueAppStatus({
   ndiProgramm: { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: '', bereit: false },
   presenterLinked: false,
   zoom: null,
+  cloudZugang: { text: '', ton: 'ok' },
 });

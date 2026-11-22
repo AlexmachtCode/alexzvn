@@ -16,7 +16,7 @@
 //   `abschluss()` druckt `‹n› passed, ‹m› failed` und beendet mit Exit 1 bei Fehlern.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { KontoSpeicher } from '../konto-do.js';
-import { beweisText, geraetIdAus } from '../konto-krypto.js';
+import { beweisText, geraetIdAus, signiere } from '../konto-krypto.js';
 
 let passed = 0;
 let failed = 0;
@@ -217,7 +217,7 @@ export function makeKV() {
 }
 
 /**
- * Die sieben Rate-Limit-Bindungen der Anmeldung (AR70, wrangler.toml [[ratelimits]]): Name → namespace_id, Grenze je Periode
+ * Die Rate-Limit-Bindungen der Anmeldung (AR70, wrangler.toml [[ratelimits]]): Name → namespace_id, Grenze je Periode
  * (60 s) und die Route. Die Tabelle steht hier EINMAL; der Wächter in konto-zugang.test.mjs vergleicht sie mit wrangler.toml.
  */
 export const RL_TABELLE = Object.freeze({
@@ -228,6 +228,8 @@ export const RL_TABELLE = Object.freeze({
   KONTO_RL_PASSWORT: { namespaceId: '7305', grenze: 10, period: 60 },
   KONTO_RL_SELBSTUPDATE: { namespaceId: '7306', grenze: 20, period: 60 },
   KONTO_RL_QAALT: { namespaceId: '7307', grenze: 60, period: 60 },
+  KONTO_RL_CONNECTALT: { namespaceId: '7308', grenze: 20, period: 60 },
+  KONTO_RL_ZOOMJWT: { namespaceId: '7309', grenze: 30, period: 60 },
 });
 
 /**
@@ -255,7 +257,7 @@ export function makeRateLimit(grenze, { wirft = null } = {}) {
   return b;
 }
 
-/** Alle sieben Bindungen mit den Grenzen aus RL_TABELLE; `ueberschreibe` ersetzt einzelne (oder lässt sie mit undefined weg). */
+/** Alle Bindungen mit den Grenzen aus RL_TABELLE; `ueberschreibe` ersetzt einzelne (oder lässt sie mit undefined weg). */
 export function makeRLBindungen(ueberschreibe = {}) {
   const env = {};
   for (const [name, t] of Object.entries(RL_TABELLE)) env[name] = makeRateLimit(t.grenze);
@@ -309,6 +311,21 @@ export async function testGeraet(o = {}) {
       return { gid, ts, sig: b64url(sig) };
     },
   };
+}
+
+/** Signierte Sitzung für Tests ohne DO; Claims wie `kontoStand` (Standard: Kollege auf einem JM-Rechner unter Windows). */
+export async function testSitzung(schluessel, o = {}) {
+  const { stufe = 'kollege', tools = [], jetzt, plattform = 'win', jm = true, kid = 'k-test', gid = 'g-test' } = o;
+  const { zoom = stufe !== 'externer', exp = jetzt + 3600_000 } = o;
+  return signiere(schluessel, {
+    v: 1, typ: 'sitzung', kid, email: 'test@example.org', name: 'Test Person', art: 'passwort', stufe, tools, events: [],
+    zoom, zoomBis: null, jm, plattform, gid, iat: jetzt, exp, kontoBis: null, angemeldetSeit: jetzt,
+  });
+}
+
+/** Signierte Freigabe für Tests ohne Worker-Route (Claims wie `POST /konto/freigabe`). */
+export async function testFreigabe(schluessel, { zweck, ziel, kid = 'k-test', gid = 'g-test', jetzt, exp = jetzt + 259_200_000 }) {
+  return signiere(schluessel, { v: 1, typ: 'freigabe', zweck, ziel, kid, gid, iat: jetzt, exp });
 }
 
 export function neuerSpeicher(env = {}) {

@@ -43,8 +43,6 @@ export const TEXT_A4 = 'Nur für diese Sitzung gemerkt — auf diesem Rechner gi
 /** Text A6 (Spec 8.1). */
 export const TEXT_A6 = 'Kommt aus Umgebungsvariablen (ZOOM_SDK_…) und hat Vorrang.';
 
-/** Text S11 (Spec SDK nachladen, Abschnitt 5): Tooltip des gesperrten Knopfs „Zoom-SDK laden“; klartext.ts übernimmt ihn. */
-export const TEXT_S11 = 'Für „Zoom-SDK laden“ fehlt der SDK-Schlüssel. Bitte unter „SDK-Schlüssel“ eintragen.';
 /** Text S17: Ergebnis eines Abbruchs. Die Karte zeigt ihn als Hinweis, nicht rot (Spec SDK nachladen 4.3). */
 export const TEXT_S17 = 'Laden abgebrochen. Die bisherige Einrichtung bleibt unverändert.';
 
@@ -109,8 +107,6 @@ export const MANGEL_GRUND: Record<ZoomMangel, string> = {
   sdk_fehlt: 'SDK-Ordner fehlt',
   sdk_defekt: 'Zoom-Laufzeit unvollständig, bitte den SDK-Ordner erneut wählen',
   bridge_fehlt: 'Zoom-Bridge fehlt in dieser Installation, bitte JM Connect neu installieren',
-  zugang_fehlt: 'Zugangsdaten fehlen',
-  zugang_unlesbar: 'Zugangsdaten lassen sich nicht entschlüsseln, bitte erneut eintragen oder die Datei erneut wählen',
 };
 
 /** Spec 7.1: Zustand + Erlaubnis + n + k → Zeile der Tabelle; n = laufende Slots, k = Slots mit Ersatzbild (Slot-Spec 10.3). */
@@ -484,15 +480,20 @@ export function sdkLadenZeile(l: NonNullable<ZoomAbbild['einrichtung']['sdk']['l
   }
 }
 
-/** Zeile „SDK-Schlüssel“ im Einrichtungsbereich (Spec SDK nachladen 4.5): nur die Herkunft, nie ein Wert. */
-export function sdkSchluesselZeile(a: ZoomAbbild): string {
-  const je: Record<ProxyKeySource, string> = {
-    stored: 'SDK-Schlüssel: hinterlegt',
-    session: 'SDK-Schlüssel: hinterlegt (nur für diese Sitzung)',
-    env: 'SDK-Schlüssel: aus der Umgebung',
-    none: 'SDK-Schlüssel: fehlt',
-  };
-  return je[a.einrichtung.sdkSchluessel.herkunft];
+/**
+ * Übergangszeile „SDK-Schlüssel“ (E7): Der Schlüssel kommt nicht mehr von Hand, die Zeile gibt es nur, solange noch ein
+ * alter Wert liegt; `null` = keine Zeile. Nie ein Wert, nur die Herkunft.
+ */
+export function sdkSchluesselZeile(a: ZoomAbbild): string | null {
+  switch (a.einrichtung.sdkSchluessel.herkunft) {
+    case 'stored':
+    case 'session':
+      return 'Alter SDK-Schlüssel: hinterlegt, nur noch im Übergang.';
+    case 'env':
+      return 'SDK-Schlüssel: aus der Umgebung';
+    case 'none':
+      return null;
+  }
 }
 
 /** Ein Balken für Download und Kopie (Spec SDK nachladen 4.5): Prozent 0–100, `null` = kein Balken. */
@@ -513,17 +514,23 @@ export function sdkKnopf(a: ZoomAbbild): 'SDK-Ordner wählen …' | 'Neu wählen
   return a.kurz.maengel.includes('sdk_fehlt') ? 'SDK-Ordner wählen …' : 'Neu wählen …';
 }
 
-/** Zugangsdaten-Zeile je Herkunft (Spec 9 Punkt 3); `unlesbar` geht vor. */
-export function zugangZeile(a: ZoomAbbild): string {
-  if (a.kurz.maengel.includes('zugang_unlesbar')) return 'Zugangsdaten: lassen sich nicht entschlüsseln';
+/**
+ * Übergangszeile „Zugangsdaten“ (E7): alte Zugangsdaten lassen sich nur noch entfernen. `unlesbar` geht vor (ZU3),
+ * `stored` ZU1; `null` = keine Zeile (ohne alten Wert).
+ */
+export function zugangZeile(a: ZoomAbbild): string | null {
   const z = a.einrichtung.zugang;
-  const je: Record<ProxyKeySource, string> = {
-    stored: `Zugangsdaten: hinterlegt (Client-ID endet auf ${z.clientIdEnde ?? ''})`,
-    session: z.grund === 'schreibfehler' ? TEXT_A4_SCHREIBFEHLER : TEXT_A4,
-    env: TEXT_A6,
-    none: 'Zugangsdaten: fehlen',
-  };
-  return je[z.herkunft];
+  if (z.unlesbar) return 'Alte Zugangsdaten lassen sich unter diesem Windows-Konto nicht entschlüsseln. Sie werden nicht mehr gebraucht; „Entfernen“ räumt sie weg.';
+  switch (z.herkunft) {
+    case 'stored':
+      return `Alte Zugangsdaten: hinterlegt (Client-ID endet auf ${z.clientIdEnde ?? ''}), nur noch im Übergang.`;
+    case 'session':
+      return z.grund === 'schreibfehler' ? TEXT_A4_SCHREIBFEHLER : TEXT_A4;
+    case 'env':
+      return TEXT_A6;
+    case 'none':
+      return null;
+  }
 }
 
 /** Welche Knöpfe die Karte zeigt bzw. freigibt (Spec 9 Punkte 2–6, Sperre 6.1). */
@@ -532,12 +539,14 @@ export interface ZoomKnoepfe {
   meldung: { erneut: boolean; schliessen: boolean; ok: boolean; logordner: boolean } | null;
   /** SDK-Ordner/Zugangsdaten wählen oder entfernen: nur Z1a, Z2 ohne Prüfung, Z13 und nie während eines Abbaus (sonst Tooltip S10). */
   einrichtungAenderbar: boolean;
-  /** „Zoom-SDK laden“ (Spec SDK nachladen 4.5): frei, gesperrt wie die Ordnerwahl (Tooltip S10) oder ohne Schlüssel (Tooltip S11). */
-  sdkLaden: 'frei' | 'gesperrt' | 'ohneSchluessel';
+  /** „Zoom-SDK laden“ (Spec SDK nachladen 4.5): frei oder gesperrt wie die Ordnerwahl (Tooltip S10). Die Freigabe holt der Kern beim Launcher. */
+  sdkLaden: 'frei' | 'gesperrt';
   /** „Abbrechen“ neben dem Ladefortschritt: solange `einrichtung.sdk.laden` steht, nicht während der Kopie. */
   sdkLadenAbbrechen: boolean;
   /** „Entfernen“ beim SDK-Schlüssel: bei hinterlegt oder Sitzung; nicht aus der Umgebung, nicht ohne Schlüssel. */
   sdkSchluesselEntfernbar: boolean;
+  /** „Entfernen“ bei den alten Zugangsdaten: bei hinterlegt, Sitzung oder unlesbar; nicht aus der Umgebung, nicht ohne Wert. */
+  zugangEntfernbar: boolean;
   /** „Einrichtung prüfen“: nur in `bereit`; während der Prüfung „Prüfe …“. */
   pruefen: 'aus' | 'bereit' | 'laeuft';
   /** Beitrittsfelder in `bereit` und `fehler`. */
@@ -571,12 +580,14 @@ export function zoomKnoepfe(a: ZoomAbbild): ZoomKnoepfe {
   // L13: S10 gilt auch, solange eine gestoppte Bridge noch abbaut.
   const einrichtungAenderbar = (z === 'Z1a' || (z === 'Z2' && !a.pruefungLaeuft) || z === 'Z13') && !a.abbauLaeuft;
   const schluessel = a.einrichtung.sdkSchluessel.herkunft;
+  const zugang = a.einrichtung.zugang;
   return {
     meldung,
     einrichtungAenderbar,
-    sdkLaden: !einrichtungAenderbar ? 'gesperrt' : schluessel === 'none' ? 'ohneSchluessel' : 'frei',
+    sdkLaden: einrichtungAenderbar ? 'frei' : 'gesperrt',
     sdkLadenAbbrechen: a.einrichtung.sdk.laden !== null,
     sdkSchluesselEntfernbar: schluessel === 'stored' || schluessel === 'session',
+    zugangEntfernbar: zugang.herkunft === 'stored' || zugang.herkunft === 'session' || zugang.unlesbar,
     pruefen: k.zustand === 'bereit' ? (a.pruefungLaeuft ? 'laeuft' : 'bereit') : 'aus',
     beitrittSichtbar: k.zustand === 'bereit' || k.zustand === 'fehler',
     beitretenGesperrt: a.pruefungLaeuft,

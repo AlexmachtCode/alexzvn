@@ -32,6 +32,16 @@
     "name": "JM Production Suite",
     "entries": [
       {
+        "version": "0.19.0",
+        "date": "2026-11-22",
+        "notes": [
+          "JM Connect holt Cloud-Raum, Zoom-Anmeldung und „Zoom-SDK laden“ ab Connect 0.5.0 über die Anmeldung im Launcher. Dafür braucht es diese Launcher-Version.",
+          "Zoom-Freigaben für Externe wirken jetzt in Connect: ab dem nächsten Start des Launchers und nur auf JM-Rechnern unter Windows.",
+          "Der Konto-Dialog nennt unter „An Tools ausgegeben“ auch die Freigaben für Connect. Der Reiter „Geräte“ der Admin-Maske zeigt in einer eigenen Zeile, bis wann ältere Connect-Versionen ihren alten Schlüssel noch nutzen dürfen.",
+          "Admins können im Reiter „Geräte“ einen Cloud-Raum von Connect freigeben, der nach einem Absturz oder Beenden ohne „Raum schließen“ noch einem anderen Konto gehört."
+        ]
+      },
+      {
         "version": "0.18.0",
         "date": "2026-11-20",
         "notes": [
@@ -1945,6 +1955,17 @@
     "app": "connect",
     "name": "JM Connect",
     "entries": [
+      {
+        "version": "0.5.0",
+        "date": "2026-11-22",
+        "notes": [
+          "Cloud-Raum, Zoom und „Zoom-SDK laden“ laufen jetzt über die Anmeldung im Launcher (ab Launcher 0.19.0). Proxy-Key, Zoom-Zugangsdaten und SDK-Schlüssel muss niemand mehr eintragen.",
+          "Connect hält seine Freigaben 72 Stunden, auch über einen Neustart und bei geschlossenem Launcher. Ein laufendes Meeting und ein Wiederbeitritt hängen nicht am Launcher.",
+          "Alte Schlüssel und Zugangsdaten gelten im Übergang weiter und werden gelöscht, sobald die Anmeldung einmal geklappt hat. Das gemerkte Meeting bleibt.",
+          "„Zoom-SDK laden“ gibt es nur auf JM-Rechnern; auf anderen Rechnern wählt man den SDK-Ordner von Hand.",
+          "Shows mit sehr kurzem Namen (unter 6 Zeichen) bekommen jetzt einen Cloud-Raum, den der Server annimmt."
+        ]
+      },
       {
         "version": "0.4.6",
         "date": "2026-11-20",

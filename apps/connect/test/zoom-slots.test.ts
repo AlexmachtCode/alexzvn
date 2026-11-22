@@ -209,7 +209,6 @@ function baueKern(o: BaueOptionen = {}): Probe {
     pfade,
     zugang: {
       lesen: () => ({ daten: { clientId: 'test-id-1234', clientSecret: 'test-secret' }, herkunft: 'stored', unlesbar: false }),
-      speichern: () => 'stored',
       loeschen: () => true,
     },
     einstellungen: {
@@ -265,7 +264,23 @@ function baueKern(o: BaueOptionen = {}): Probe {
       },
       einstellungsLage: () => ({ ...(o.einstellungsLage ?? { gesichert: null, verworfen: 0 }), nurSitzung: einst.nurSitzung.size > 0 }),
     },
-    sdkSchluessel: { lesen: () => ({ wert: null, herkunft: 'none' }), speichern: () => 'stored', loeschen: () => true },
+    sdkSchluessel: { lesen: () => ({ wert: null, herkunft: 'none' }), loeschen: () => true },
+    // Die Slot-Fälle laden kein SDK: der Halter wird nie gefragt.
+    halter: {
+      zugang: async () => ({ art: 'keiner' }),
+      antwort: () => undefined,
+      bestaetigt: () => false,
+      lage: () => ({ wahl: 'keiner', konto: null, bis: null, letzterGrund: null, detail: null, altHerkunft: 'none', altAbgelehnt: false, versucht: false, geloescht: false }),
+      tokens: () => [],
+    },
+    // Das JWT kommt aus der Quelle (Anmeldung Teil 2, Task 15); die Slot-Fälle bekommen ein festes Server-JWT.
+    jwt: {
+      hole: async () => ({ ok: true, jwt: 'test-jwt-server', bis: Date.now() + 43_170_000, herkunft: 'server' }),
+      angemeldet: () => false,
+      lage: () => ({ quelle: 'server', grund: null, detail: null, konto: null, freigabeBis: null, devTtlS: null, versucht: true, geloescht: false }),
+      geheimnisse: () => ['test-jwt-server'],
+      stoppe: () => undefined,
+    },
     gastLabels: o.gastLabels ?? (() => []),
     log: (z) => logs.push(z),
     onAbbild: (a) => abbilder.push(a),

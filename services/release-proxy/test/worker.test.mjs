@@ -14,6 +14,8 @@
 // brauchen die Workers-Runtime (miniflare) und sind hier bewusst nicht abgedeckt.
 import { readFileSync } from 'node:fs';
 import worker from '../worker.js';
+import { makeKontoNs, makeUhr, makeWaitCtx, testFreigabe, testSchluessel, testSitzung } from './konto-attrappen.mjs';
+import { altKeyMerkerLeeren } from '../konto-altkey.js';
 
 let passed = 0;
 let failed = 0;
@@ -308,7 +310,9 @@ async function run() {
         },
       }),
     };
+    // Der alte Schlüssel öffnet einen Raum erst nach der Inhaber-Prüfung im Konten-DO (Anmeldung Teil 2): ohne KONTO gäbe es 503.
     const env = { ...baseEnv, CONNECT_ROOM: ns };
+    env.KONTO = makeKontoNs(env);
     const forged = { 'x-connect-admin': '1', 'X-Connect-Admin': '1', 'x-connect-room': 'fremd-raum', 'X-CONNECT-ROOM': 'fremd-raum' };
 
     // Gast (GET state) schickt die Kopfzeilen selbst mit.
@@ -493,6 +497,66 @@ async function run() {
     r = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test', { ip: '4.4.4.4' }), rlEnv);
     check('… andere IP unabhängig', r.status === 200);
 
+
+    // ── Anmeldung Teil 2, Task 4: /zoom-sdk mit Freigabe zoom-sdk oder ZOOM_SDK_KEY bis ALTKEY_CONNECT_BIS ──
+    {
+      const KS = testSchluessel();
+      const uhr = makeUhr();
+      const zCtx = makeWaitCtx();
+      const zEnvT = { ...zEnv, KONTO_SCHLUESSEL: KS, KONTO_UHR: uhr };
+      zEnvT.KONTO = makeKontoNs(zEnvT);
+      const pruefeFaelle = async (name, faelle, pruefe) => {
+        const abw = [];
+        for (const fall of faelle) {
+          const ist = await pruefe(fall);
+          if (ist !== null) abw.push(`${fall.name} → ${ist}`);
+        }
+        check(`${name} (${faelle.length} Fälle)`, abw.length === 0);
+        for (const z of abw) console.log(`     ${z}`);
+      };
+      const zBearer = async (t) => worker.fetch(new Request(`https://proxy.test/zoom-sdk/${FASSUNG}`, { headers: { 'CF-Connecting-IP': '9.9.9.9', Authorization: `Bearer ${t}` } }), zEnvT, zCtx);
+      aufrufe.length = 0;
+      const rf = await zBearer(await testFreigabe(KS, { zweck: 'zoom-sdk', ziel: 'win-x64', jetzt: uhr() }));
+      const rfOut = await rf.json();
+      check('T4 9.1: /zoom-sdk mit Freigabe zoom-sdk (Ziel win-x64) → 200 mit Link, ohne X-Zoom-Sdk-Key',
+        rf.status === 200 && rfOut.fassung === FASSUNG && rfOut.url === 'https://signed.test/zoom-77?sig=geheim-link'
+          && JSON.stringify(Object.keys(rfOut).sort()) === '["fassung","size","url"]');
+      await pruefeFaelle('T4 RF3: Gegenproben an /zoom-sdk', [
+        { name: 'Freigabe zoom-jwt', t: await testFreigabe(KS, { zweck: 'zoom-jwt', ziel: 'meeting-sdk', jetzt: uhr() }), s: [403, 'kein-recht'] },
+        { name: 'zoom-sdk mit Ziel win-arm64', t: await testFreigabe(KS, { zweck: 'zoom-sdk', ziel: 'win-arm64', jetzt: uhr() }), s: [403, 'keine-freigabe'] },
+        { name: 'Sitzung', t: await testSitzung(KS, { jetzt: uhr() }), s: [403, 'keine-freigabe'] },
+        { name: 'abgelaufen', t: await testFreigabe(KS, { zweck: 'zoom-sdk', ziel: 'win-x64', jetzt: uhr() - 259_200_001 }), s: [401, 'sitzung-abgelaufen'] },
+        { name: 'fremd signiert', t: await testFreigabe(testSchluessel(), { zweck: 'zoom-sdk', ziel: 'win-x64', jetzt: uhr() }), s: [401, 'nicht-angemeldet'] },
+      ], async (x) => { const r = await zBearer(x.t); return r.status === x.s[0] && (await r.json()).code === x.s[1] ? null : `ist ${r.status}`; });
+      const altSdk = async (env) => worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), env, zCtx);
+      const fr = [];
+      for (const [bis, soll, code] of [[undefined, 200], ['', 200], ['2027-01-19', 200], ['unlesbar', 200]]) {
+        uhr.stelle(Date.UTC(2027, 0, 18, 12, 0, 0));
+        const r = await altSdk({ ...zEnvT, ALTKEY_CONNECT_BIS: bis });
+        if (r.status !== soll) fr.push(`bis=${bis} → ${r.status}`);
+      }
+      uhr.stelle(Date.UTC(2027, 0, 19, 0, 0, 0));
+      const rAb = await altSdk({ ...zEnvT, ALTKEY_CONNECT_BIS: '2027-01-19' });
+      const abOut = await rAb.json();
+      if (rAb.status !== 401 || abOut.code !== 'alter-key-abgelaufen' || abOut.error !== 'alter Schlüssel nicht mehr gültig: Launcher aktualisieren und anmelden') fr.push(`ab Stichtag → ${rAb.status} ${abOut.code}`);
+      uhr.stelle(Date.UTC(2027, 0, 19, 0, 0, 0));
+      const rFalsch = await worker.fetch(zReq(FASSUNG, 'falsch'), { ...zEnvT, ALTKEY_CONNECT_BIS: '2027-01-19' }, zCtx);
+      if (rFalsch.status !== 401 || (await rFalsch.json()).error !== 'unauthorized') fr.push('falscher Schlüssel nach Stichtag nicht unauthorized');
+      check(`T4 OT5: ZOOM_SDK_KEY: Frist leer → 200; vor 2027-01-19 → 200; ab 2027-01-19 → 401 alter-key-abgelaufen; unlesbar → 200${fr.length ? ' | ' + fr.join('; ') : ''}`, fr.length === 0);
+      uhr.stelle(Date.UTC(2026, 9, 21, 8, 0, 0));
+      altKeyMerkerLeeren();
+      const eZ = { ...zEnvT };
+      eZ.KONTO = makeKontoNs(eZ);
+      const cZ = makeWaitCtx();
+      const rZ = await worker.fetch(zReq(FASSUNG, 'sdk-geheim-test'), eZ, cZ);
+      await worker.fetch(zReq(FASSUNG, 'falsch'), eZ, cZ);
+      await cZ.fertig();
+      const zaehl = [];
+      for (const sp of eZ.KONTO.instanzen.values()) for (const [k, v] of sp.ctx.daten) if (k.startsWith('altkey:')) zaehl.push([k, v]);
+      check('T4 OT5: angenommener ZOOM_SDK_KEY wird in Gruppe connect gezählt (ein DO-Aufruf altkey-zaehlen nach waitUntil)',
+        rZ.status === 200 && zaehl.length === 1 && zaehl[0][0].includes(':connect:') && zaehl[0][1].gruppe === 'connect' && zaehl[0][1].anzahl === 1);
+      altKeyMerkerLeeren();
+    }
     const alles = mitschnitt.join('\n');
     check('zoom-sdk: weder Schlüssel noch signierter Link in der Konsole',
       !alles.includes('sdk-geheim-test') && !alles.includes('signed.test') && !alles.includes('geheim-link'));

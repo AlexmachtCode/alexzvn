@@ -41,6 +41,8 @@ export const FEHLER_TEXT = Object.freeze({
   domain: 'Kollegen von jakobsmedien.com melden sich mit Google an', // S17
   uhr: 'Uhr des Rechners geht falsch: Datum und Uhrzeit prüfen', // S18 (EP30: Gerätebeweis außerhalb ±5 min, Task 16)
   // S19 (Z1-W2, OE2): wörtlich der Text M49 des Launchers; der Launcher zeigt ihn nach dem Code.
+  // S20 (Anmeldung Teil 2, E2): der Cloud-Raum ist an ein anderes Konto und einen anderen Rechner gebunden.
+  'raum-vergeben': 'dieser Cloud-Raum gehört einem anderen Konto oder Rechner', // S20
   'iveo-basis-unbekannt': 'Diese iveo-Adresse ist nicht freigegeben. Erlaubt sind Production (app.my-iveo.de) und Staging (staging-dev.my-iveo.de).',
 });
 
@@ -97,7 +99,7 @@ export const SELBST_UPDATE_OFFEN_AB = '0.18.0';
 export const SELBST_UPDATE = Object.freeze({ speicherMs: 60_000 });
 
 /**
- * AR70 (Z1-W2): Namen der sieben Rate-Limit-Bindungen der Anmeldung (wrangler.toml [[ratelimits]], eine je Grenze; Werte und
+ * AR70 (Z1-W2): Namen der Rate-Limit-Bindungen der Anmeldung (wrangler.toml [[ratelimits]], eine je Grenze; Werte und
  * Routen in der Tabelle des Auftrags AR70). Die Zählung gilt je Cloudflare-Standort und ist ungefähr.
  */
 export const KONTO_RL = Object.freeze({
@@ -109,6 +111,10 @@ export const KONTO_RL = Object.freeze({
   selbstUpdate: 'KONTO_RL_SELBSTUPDATE',
   /** Q&A-Admin-Routen mit dem öffentlichen alten Schlüssel, vor dem Aufruf des Konten-DO (Z3, AR87). */
   qaAlt: 'KONTO_RL_QAALT',
+  /** Connect-Raum-Routen mit dem öffentlichen alten Schlüssel, vor der Inhaber-Prüfung im Konten-DO (Anmeldung Teil 2, R1). */
+  connectAlt: 'KONTO_RL_CONNECTALT',
+  /** POST /zoom/jwt je IP: Connect holt das JWT je Start der Bridge (Anmeldung Teil 2, R2). */
+  zoomJwt: 'KONTO_RL_ZOOMJWT',
 });
 
 /** Periode aller Bindungen in Sekunden (`period = 60`); so lange dauert es höchstens, bis eine gedrosselte IP wieder darf (Retry-After). */
@@ -260,15 +266,16 @@ export async function kontoAktion(env, aktion, daten) {
  *   funktion: Funktion nach darf (konto-kern.js), etwa 'katalog', 'ki-entwurf', 'qa'
  *   gruppe:   Gruppe des alten Schlüssels ('katalog' | 'qa'); null = alter Schlüssel gilt hier nicht
  *   ziel:     Ziel einer Freigabe (Q&A: Event-ID); null = Route für Sitzungen (Launcher)
+ *   zweck:    null = jede Freigabe der Funktion; sonst gilt nur eine Freigabe mit genau diesem Zweck (zoom-jwt und zoom-sdk teilen die Funktion zoom)
  * → { ok: true, art: 'sitzung', stand } | { ok: true, art: 'freigabe', claims } | { ok: true, art: 'alter-key' }
  *   | { ok: false, status, error, code }
  */
-export async function zugangPruefen(request, env, { funktion, gruppe = null, ziel = null, jetzt, ctx } = {}) {
+export async function zugangPruefen(request, env, { funktion, zweck = null, gruppe = null, ziel = null, jetzt, ctx } = {}) {
   const z = typeof ziel === 'string' && ziel !== '' ? ziel : null;
   const auth = request.headers.get('Authorization') || '';
   const bearer = /^Bearer\s+/i.test(auth) ? auth.replace(/^Bearer\s+/i, '').trim() : '';
   // Eine Sitzung oder Freigabe geht vor; ein zusätzlich mitgeschickter Schlüssel zählt dann nicht.
-  if (bearer.startsWith(TOKEN_PRAEFIX)) return tokenPruefen(env, bearer, funktion, z, jetzt);
+  if (bearer.startsWith(TOKEN_PRAEFIX)) return tokenPruefen(env, bearer, funktion, z, jetzt, zweck);
   const key = request.headers.get('X-Proxy-Key') || bearer;
   // Z2 (AR85 c): ohne brauchbaren PROXY_KEY lässt sich ein mitgeschickter alter Schlüssel nicht prüfen. Das ist ein Einrichtungsfehler
   // (503 S5), kein „nicht angemeldet“: Q&A löscht seinen Key bei 401 nicht-angemeldet (OE5), ein Deploy ohne das Secret ließe sonst jede
@@ -285,13 +292,14 @@ export async function zugangPruefen(request, env, { funktion, gruppe = null, zie
   return { ok: true, art: 'alter-key' };
 }
 
-async function tokenPruefen(env, token, funktion, ziel, jetzt) {
+async function tokenPruefen(env, token, funktion, ziel, jetzt, zweck = null) {
   // Vertrag 10.3: ein fehlender oder unbrauchbarer Schlüssel (nicht genau 32 Byte Base64) ist ein Einrichtungsfehler, kein 401.
   if (!schluesselBrauchbar(env.KONTO_SCHLUESSEL)) return abgelehnt('nicht-eingerichtet', 503);
   const freigabe = await pruefeToken(env.KONTO_SCHLUESSEL, token, 'freigabe', jetzt);
   if (freigabe) {
     // Eine Freigabe gilt nur an einer Route mit Ziel, für ihren Zweck und ihr Ziel (EP3), nie wie eine Sitzung.
     if (ziel === null || ZWECK_FUNKTION[freigabe.zweck] !== funktion) return abgelehnt('kein-recht', 403);
+    if (zweck !== null && freigabe.zweck !== zweck) return abgelehnt('kein-recht', 403);
     if (freigabe.ziel !== ziel) return abgelehnt('keine-freigabe', 403);
     return { ok: true, art: 'freigabe', claims: freigabe };
   }
@@ -312,7 +320,7 @@ async function tokenPruefen(env, token, funktion, ziel, jetzt) {
  * OFP2: Anfragen mit altem Schlüssel je Tag, Gruppe und Plattform zählen, nach der Antwort (waitUntil); der DO speichert keine IP.
  * Z1-W1: höchstens ein DO-Aufruf je IP-Hash, Tag und Gruppe (Merker im Isolat, konto-altkey.js); die IP gibt es nur als Hash.
  */
-function altKeyZaehlen(request, env, ctx, gruppe, jetzt) {
+export function altKeyZaehlen(request, env, ctx, gruppe, jetzt) {
   if (!env.KONTO || !ctx || typeof ctx.waitUntil !== 'function') return;
   // Der alte Schlüssel steckt in öffentlichen Installern: unbekannte Routen (404) schreiben nichts in den DO.
   if (funktionFuerRoute(request.method, new URL(request.url).pathname) === null) return;

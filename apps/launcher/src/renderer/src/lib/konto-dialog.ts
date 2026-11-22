@@ -48,7 +48,9 @@ export const KONTO_TEXTE = {
   /** K29a */ ausgaben: 'An Tools ausgegeben',
   /** K29b */ ausgabe: (tool: string, zweck: string, d: string, zeit: string): string => `${tool} · ${zweck} · bis ${d} ${zeit}`,
   /** K29c */ keineAusgaben: 'Noch nichts an Tools ausgegeben.',
-  /** K29d */ zweck: { 'qa-relay': 'Q&A extern' } as Readonly<Record<string, string>>,
+  /** K29d */ zweck: {
+    'qa-relay': 'Q&A extern', 'connect-raum': 'Connect Cloud-Raum', 'zoom-jwt': 'Zoom-Anmeldung', 'zoom-sdk': 'Zoom-SDK laden',
+  } as Readonly<Record<string, string>>,
   /** K31 */ entwicklung: (namen: string): string => `Entwicklungsmodus: ${namen} gesetzt.`,
   /** K32 (Hinweis der Ansicht nach P32) */ githubGeloescht: 'Der gespeicherte GitHub-Zugang wurde gelöscht; Downloads laufen jetzt über deine Anmeldung.',
 } as const;
@@ -59,21 +61,19 @@ export const ZOOM_TEXTE = {
   /** Z2 */ titel: 'Zoom anfragen',
   /** Z3 */ zweck: 'Zweck oder Event',
   /** Z4 */ von: 'Von', bis: 'Bis',
-  // Z5, Z6, Z9b in der Fassung für Teil 1 (EP34): Connect nutzt die Freigabe erst mit Teil 2; dann kommen die Fassungen mit
-  // Wirkung „nach dem nächsten Start des Launchers“ zurück, und Z11 entfällt.
-  /** Z5 */ hinweisJm: 'Dieser Rechner ist ein JM-Rechner.',
-  /** Z6 */ hinweisKeinJm: 'Dieser Rechner ist kein JM-Rechner. Eine Freigabe gilt für Externe nur auf JM-Rechnern.',
-  /** Z7 (Nachfix 1: „gilt“ wie Z6) */ hinweisMac: 'Auf dem Mac gibt es Zoom in Connect nicht. Eine Freigabe gilt nur für JM-Rechner unter Windows.',
+  // Z5–Z7, Z9b (Teil 2): Connect nutzt die Freigabe; sie wirkt nach dem nächsten Start des Launchers.
+  /** Z5 */ hinweisJm: 'Dieser Rechner ist ein JM-Rechner. Eine Freigabe wirkt hier nach dem nächsten Start des Launchers.',
+  /** Z6 */ hinweisKeinJm: 'Dieser Rechner ist kein JM-Rechner. Zoom gibt es für Externe nur auf JM-Rechnern; eine Freigabe wirkt hier nicht.',
+  /** Z7 */ hinweisMac: 'Auf dem Mac gibt es Zoom in Connect nicht. Eine Freigabe wirkt nur auf JM-Rechnern unter Windows.',
   /** Z8 */ senden: 'Anfrage senden',
   /** Z9a */ offen: (d: string): string => `Zoom-Anfrage offen seit ${d}.`,
-  /** Z9b */ freigegeben: (d: string): string => `Zoom freigegeben bis ${d}.`,
+  /** Z9b */ freigegeben: (d: string): string => `Zoom freigegeben bis ${d}. Gilt ab dem nächsten Start des Launchers.`,
   /** Z9c */ abgelehnt: (d: string): string => `Zoom-Anfrage abgelehnt am ${d}.`,
   /** Z10a */ zweckFehlt: 'Nenne Zweck oder Event.',
   /** Z10b */ bisVorVon: '„Bis“ muss nach „Von“ liegen.',
   /** Z10c */ schonOffen: 'Es gibt schon eine offene Zoom-Anfrage.',
   /** Z10d (Z1, AR77) */ vergangenheit: 'Der Zeitraum liegt in der Vergangenheit.',
   /** Z10e (Z1, AR80) */ datumUngueltig: 'Bitte ein gültiges Datum eingeben.',
-  /** Z11 (nur Teil 1, EP34) */ connect: 'Connect nutzt Zoom-Freigaben erst mit einem kommenden Update; bis dahin gilt Zoom in Connect wie bisher.',
 } as const;
 
 /** Texte K40–K54 (Texttabelle 9.2, wörtlich; K41 = Spec 4.1). */
@@ -225,15 +225,6 @@ export function zoomStand(a: KontoAnsicht | null): string | null {
 export function zoomHinweis(a: KontoAnsicht | null): string {
   if (a?.plattform === 'mac') return ZOOM_TEXTE.hinweisMac;
   return a?.stand?.jm ? ZOOM_TEXTE.hinweisJm : ZOOM_TEXTE.hinweisKeinJm;
-}
-
-/**
- * Z11 (nur Teil 1, EP34; Nachbesserung Block D, spec:4): unter der Zeile „Zoom“ — überall dort, wo sie unter Windows steht (mit
- * Stand, K24). Connect 0.3.0/0.4.0 nutzt die Freigabe noch nicht; die Zeile beschreibt das Konto, Z11 die Wirkung.
- */
-export function zoomConnectHinweis(a: KontoAnsicht | null): string | null {
-  if (!a?.stand || a.plattform === 'mac') return null;
-  return ZOOM_TEXTE.connect;
 }
 
 /** Datum aus einem Feld type=date (JJJJ-MM-TT) in Ortszeit: Tagesbeginn bzw. Tagesende (23:59:59,999, EP15). */

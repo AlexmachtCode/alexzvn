@@ -26,6 +26,7 @@ Zwei Nebeneffekte, die die Lösung ausdrücklich mitbringen soll:
 **Nicht-Ziele**
 - Tools ohne Keys (Titler, Timer, Rundown, Presenter, Prompter, Battle, Caption, Recorder, Transcribe, Stage-Display u. a.) bekommen **keine** Anmeldepflicht; sie starten wie heute.
 - Unverändert lokal bleiben: Meeting-Nummer und Kenncode (je Meeting, nie gespeichert), die Zoom-SDK-Dateien je Rechner (rund 315 MB), Anzeigename und Bild-Versatz in Connect, Raum-Secrets und Gast-Links von Connect, das Q&A-Schlüsselpaar (Blind-Relay, privater Schlüssel bewusst lokal) und der Presse-Code, OBS-Passwort, RTMP-Streamkey, ATEM-/TriCaster-Adressen, die sichere Steuerebene (`control.json`) mit Companion-Kopplung und die Master-Link-Kopplung.
+  > **Nachtrag 20.11.2026 (Anmeldung Teil 2, N1):** Seit Connect 0.4.2 (#290, Owner-Entscheid 11.11.2026) merkt sich Connect das letzte Meeting: die Nummer im Klartext, den Kenncode mit safeStorage. Das sind Meeting-, keine Dienst-Geheimnisse; Teil 2 lässt sie unangetastet, und der Nachweis „kein dauerhaftes Geheimnis“ (Abschnitt 12) prüft `proxyKeyEnc`, `zoomZugangEnc` und `zoomSdkKeyEnc`. Der Wortlaut „nie gespeichert“ oben gilt seitdem nicht mehr.
 - Keine Anmeldung in den Tools selbst; angemeldet wird nur im Launcher.
 
 **Anti-Ziele (wäre ein Fehlschlag, auch wenn es technisch läuft)**
