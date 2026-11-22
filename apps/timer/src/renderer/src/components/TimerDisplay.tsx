@@ -8,12 +8,16 @@ interface Props {
   /** Color shifts to warning/overtime when true (Countdown). Off for wall-clock. */
   reactive?: boolean;
   className?: string;
-  /** override the size (CSS clamp by default) */
+  /**
+   * override the size (CSS clamp by default). `fit` (Bedienfenster) richtet sich nach der Breite des nächsten @container
+   * (cqi), damit die Zeit neben Seitenleiste und Panel in ihrer Spalte bleibt; `fullscreen` (Speaker, E18) und `preview`
+   * rechnen weiter mit dem Fenster (vw).
+   */
   size?: 'fit' | 'fullscreen' | 'preview';
 }
 
 const FONT_SIZES: Record<NonNullable<Props['size']>, string> = {
-  fit: 'clamp(3rem, 14vw, 14rem)',
+  fit: 'clamp(3rem, 14cqi, 14rem)',
   fullscreen: 'clamp(6rem, 22vw, 26rem)',
   preview: 'clamp(1.25rem, 3.2vw, 2rem)',
 };

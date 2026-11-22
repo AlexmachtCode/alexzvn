@@ -82,7 +82,7 @@ export function TimerOberflaeche({
         <div className="flex min-w-0 flex-1 flex-col">
           <MessageBar />
           <div className="min-h-0 flex-1 overflow-auto">
-            <div className="mx-auto h-full max-w-[1400px] px-7 py-6">
+            <div className="@container mx-auto h-full max-w-[1400px] px-7 py-6">
               <ModusInhalt modus={anzeigeModus(mode)} />
             </div>
           </div>
