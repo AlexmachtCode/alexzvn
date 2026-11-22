@@ -33,49 +33,48 @@ const RASTER = 'grid w-full grid-cols-2 gap-3 @[756px]:grid-cols-4';
 
 export type TastenRolle = 'vs' | 'voting' | 'naechste' | 'replay';
 
-/** Die Rollen der Haupttasten in Anzeigereihenfolge. Die Rolle ist der React-key: Die Beschriftung wechselt, der Knopf bleibt. */
-export function tastenSchluessel(): TastenRolle[] {
-  return ['vs', 'voting', 'naechste', 'replay'];
-}
-
-/** Die Haupttasten als Props in Anzeigereihenfolge (VS, Voting, Nächste Runde, Replay). Ohne DOM prüfbar. */
-export function liveTasten(s: Pick<OberflaechenStand, 'state'>, a: TastenAktionen): TallyButtonProps[] {
+/** Die vier Haupttasten mit ihrer Rolle in Anzeigereihenfolge (VS, Voting, Nächste Runde, Replay). Die Rolle ist der React-key: Die Beschriftung wechselt, der Knopf bleibt (R10). */
+function rollenTasten(s: Pick<OberflaechenStand, 'state'>, a: TastenAktionen): Array<[TastenRolle, TallyButtonProps]> {
   const t = hauptTasten(s);
   const b = tastenBeschriftung(s);
   return [
-    { ...t.vs, label: b.vs, onClick: () => a.setLive(!s.state.live) },
-    { ...t.voting, onClick: () => a.setVotingOpen(!s.state.votingOpen) },
-    { ...t.naechste, label: b.naechste, onClick: a.nextRound },
-    { ...t.replay, label: b.replay, onClick: a.clip },
+    ['vs', { ...t.vs, label: b.vs, onClick: () => a.setLive(!s.state.live) }],
+    ['voting', { ...t.voting, onClick: () => a.setVotingOpen(!s.state.votingOpen) }],
+    ['naechste', { ...t.naechste, label: b.naechste, onClick: a.nextRound }],
+    ['replay', { ...t.replay, label: b.replay, onClick: a.clip }],
   ];
 }
 
+const KEINE: TastenAktionen = { setLive() {}, setVotingOpen() {}, nextRound() {}, clip() {} };
+
+/** Die Rollen der Tasten in Anzeigereihenfolge, aus derselben Quelle wie das, was HauptTasten rendert. */
+export function tastenSchluessel(s: Pick<OberflaechenStand, 'state'>): TastenRolle[] {
+  return rollenTasten(s, KEINE).map(([rolle]) => rolle);
+}
+
+/** Die Haupttasten als Props in Anzeigereihenfolge. Ohne DOM prüfbar. */
+export function liveTasten(s: Pick<OberflaechenStand, 'state'>, a: TastenAktionen): TallyButtonProps[] {
+  return rollenTasten(s, a).map(([, taste]) => taste);
+}
+
 export function HauptTasten({ stand, aktionen }: { stand: Pick<OberflaechenStand, 'state'>; aktionen: TastenAktionen }): React.JSX.Element {
-  const [vs, voting, naechste, replay] = liveTasten(stand, aktionen);
   const hinweis = vsHinweis(stand);
   return (
     <div data-ba="haupttasten" className="@container w-full">
       <div className={RASTER}>
-        <div key="vs">
-          <TallyButton {...vs} />
-          {hinweis ? (
-            <p data-ba="vs-hinweis" className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-              <span aria-hidden="true" className="text-[var(--status-warn)]">
-                ▲
-              </span>{' '}
-              {hinweis}
-            </p>
-          ) : null}
-        </div>
-        <div key="voting">
-          <TallyButton {...voting} />
-        </div>
-        <div key="naechste">
-          <TallyButton {...naechste} />
-        </div>
-        <div key="replay">
-          <TallyButton {...replay} />
-        </div>
+        {rollenTasten(stand, aktionen).map(([rolle, taste]) => (
+          <div key={rolle}>
+            <TallyButton {...taste} />
+            {rolle === 'vs' && hinweis ? (
+              <p data-ba="vs-hinweis" className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+                <span aria-hidden="true" className="text-[var(--status-warn)]">
+                  ▲
+                </span>{' '}
+                {hinweis}
+              </p>
+            ) : null}
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -57,6 +57,7 @@ export const BATTLE_TEXTE = {
     keineQuelle: 'keine Aufnahme-Quelle',
     laeuft: 'Clip läuft',
     keineQuelleGewaehlt: 'keine Quelle gewählt',
+    zielLabel: 'Zielordner',
     zielStandard: 'Standard (Videos/JM Battle Clips)',
   },
   /** Runde im Kopf (App.tsx, wörtlich): „Runde 2/3“. */

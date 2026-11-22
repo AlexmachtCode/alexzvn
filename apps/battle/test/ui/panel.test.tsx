@@ -22,6 +22,8 @@ import { Einstellungen, type EinstellungenAktionen } from '@/views/Einstellungen
 import { abschnitt, battleState, elemente, mitConfig, ohneKommentare, text, toolLink } from './testzustand';
 
 const T = BATTLE_TEXTE;
+/** Die vier Hex-Werte der Ecken-Tokens in globals.css (dunkel A/B, hell A/B): die einzigen erlaubten Hex-Farben im Renderer außer lib/qr.ts. */
+const ECKEN_TOKEN_HEX = ['#3da5ff', '#ff5c5c', '#0a62b5', '#b71c1c'];
 function stand(teil: Partial<OberflaechenStand> = {}): OberflaechenStand {
   return { state: battleState(), masterLink: undefined, fernsteuerung: undefined, ...teil };
 }
@@ -96,6 +98,8 @@ const kind = (f: { props: Record<string, unknown> }, typ: unknown): { props: Rec
   const mit = panel(stand({ state: mitConfig({ clipDir: 'D:\\Videos\\Battle Clips' }) }));
   ok(text(abschnitt(mit, ABSCHNITT.replay)).includes('Battle Clips') && abschnitt(mit, ABSCHNITT.replay).includes('title="D:\\Videos\\Battle Clips"'), 'BA Panel Instant-Replay: ein gewählter Ordner steht mit Namen da, der volle Pfad im Tooltip');
   gleich([clipZielText({ clipDir: '' }), clipZielText({ clipDir: 'D:\\a\\b' }), clipZielText({ clipDir: '/x/y/' })], [T.replay.zielStandard, 'b', 'y'], 'BA Panel Instant-Replay: Ordnername ohne Pfad, leer = Standard');
+  ok(feld(stand(), T.replay.zielLabel).props.label === T.replay.zielLabel && T.replay.zielLabel === 'Zielordner', 'BA Panel Instant-Replay: die Beschriftung des Feldes kommt aus BATTLE_TEXTE.replay.zielLabel');
+  ok(!/label="Zielordner"/.test(ohneKommentare(leseText('src/renderer/src/views/Einstellungen.tsx'))), 'BA Panel Instant-Replay: kein neuer Text als Literal im Panel (Einstellungen.tsx)');
   const knopf = elemente(baum, (e) => e.props.children === 'Zielordner …')[0];
   (knopf.props.onClick as () => void)();
   gleich(log, ['pickClipDir'], 'BA Panel Instant-Replay: „Zielordner …“ ruft pickClipDir()');
@@ -152,23 +156,38 @@ const kind = (f: { props: Record<string, unknown> }, typ: unknown): { props: Rec
 {
   const wurzel = 'src/renderer/src';
   const dateien = (ordner: string): string[] =>
-    readdirSync(ordner, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? dateien(`${ordner}/${e.name}`) : /\.(ts|tsx)$/.test(e.name) ? [`${ordner}/${e.name}`] : []));
+    readdirSync(ordner, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? dateien(`${ordner}/${e.name}`) : /\.(ts|tsx|css)$/.test(e.name) ? [`${ordner}/${e.name}`] : []));
   const alle = dateien(wurzel);
-  ok(alle.length >= 12, `BA keine rohen Farben: der Wächter liest die Dateien des Renderers (${alle.length})`);
+  ok(alle.length >= 12 && alle.includes(`${wurzel}/globals.css`), `BA keine rohen Farben: der Wächter liest alle .ts, .tsx und .css des Renderers (${alle.length})`);
+  // Erlaubt (ausdrücklich): die QR-Hex in lib/qr.ts, bg-white der QR-Kachel in RemotePanel.tsx und die Token-Definitionen in globals.css.
+  const rohFarben = (datei: string, quelle: string): string[] => {
+    const q = ohneKommentare(quelle);
+    const funde: string[] = [];
+    const hexe = [...q.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((m) => m[0]).filter((h) => [3, 4, 6, 8].includes(h.length - 1));
+    if (datei !== `${wurzel}/lib/qr.ts` && datei !== `${wurzel}/globals.css`) funde.push(...hexe.map((h) => `Hex ${h}`));
+    if (datei === `${wurzel}/globals.css`) funde.push(...hexe.filter((h) => !ECKEN_TOKEN_HEX.includes(h.toLowerCase())).map((h) => `Hex ${h}`));
+    funde.push(...[...q.matchAll(/\b(?:rgb|rgba|hsl|hsla|hwb)\(/g)].map((m) => m[0]));
+    funde.push(...[...q.matchAll(/\b(?:color|background|backgroundColor|borderColor|borderTopColor|fill|stroke)\s*[:=]\s*[{'"`]*\s*(?:white|black|red|green|blue|yellow|gray|grey|orange|purple|pink|cyan|magenta|silver|navy|teal|maroon|lime)\b/gi)].map((m) => `Name ${m[0]}`));
+    if (datei !== `${wurzel}/components/RemotePanel.tsx`) funde.push(...[...q.matchAll(/\b(?:bg|text|border)-(?:white|black)\b/g)].map((m) => m[0]));
+    return funde;
+  };
+  // Negative Probe: Hex-Alpha in allen Längen, rgb() und benannte Farben im Inline-Stil werden erkannt, QR-Hex und Tokens nicht.
+  gleich(rohFarben(`${wurzel}/x.tsx`, "const b = '#3da5ff22'; const c = '#3da5'; const d = '#fff'; const e = 'rgba(0,0,0,.5)'; const f = { color: 'red' };").length, 5, 'BA keine rohen Farben: Negativprobe: Hex mit 8, 4 und 3 Ziffern, rgba() und eine benannte Farbe im Inline-Stil werden gefunden');
+  gleich(rohFarben(`${wurzel}/x.tsx`, "const g = '#3da5ff22';"), ['Hex #3da5ff22'], 'BA keine rohen Farben: Negativprobe: das Hex-Alpha #3da5ff22 (die von E16 verbotene Form) wird gemeldet');
+  gleich([rohFarben(`${wurzel}/lib/qr.ts`, "color: { dark: '#000000', light: '#ffffff' }"), rohFarben(`${wurzel}/globals.css`, '--battle-ecke-a: #3da5ff;')], [[], []], 'BA keine rohen Farben: Negativprobe: die QR-Hex und die Token-Definitionen sind erlaubt');
   const roh = /\b(?:bg|text|border|ring|from|to|via|fill|stroke|outline|divide|shadow|decoration|accent|caret|placeholder)-(?:neutral|green|red|yellow|gray|zinc|slate|stone|amber|orange|lime|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d/;
   const treffer: string[] = [];
   for (const d of alle) {
     const q = ohneKommentare(leseText(d));
     if (roh.test(q)) treffer.push(`${d}: ${q.match(roh)?.[0]}`);
     if (/\b(?:neutral|green|red|yellow)-\d{2,3}\b/.test(q)) treffer.push(`${d}: ${q.match(/\b(?:neutral|green|red|yellow)-\d{2,3}\b/)?.[0]}`);
-    if (d !== `${wurzel}/lib/qr.ts` && /#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b(?![0-9a-zA-Z-])/.test(q.replace(/'#'|"#"/g, ''))) treffer.push(`${d}: Hex-Farbe`);
-    if (d !== `${wurzel}/components/RemotePanel.tsx` && /\b(?:bg|text|border)-(?:white|black)\b/.test(q)) treffer.push(`${d}: white/black`);
+    treffer.push(...rohFarben(d, leseText(d)).map((f) => `${d}: ${f}`));
   }
   gleich(treffer, [], 'BA keine rohen Farben: 0× neutral-*, green-*, red-*, yellow-* (und andere Palettenfarben) und keine Hex-Farbe im Renderer; erlaubt sind die QR-Hex in lib/qr.ts und bg-white der QR-Kachel');
   ok(/\bbg-white\b/.test(ohneKommentare(leseText(`${wurzel}/components/RemotePanel.tsx`))) && /dark: '#000000', light: '#ffffff'/.test(leseText(`${wurzel}/lib/qr.ts`)), 'BA keine rohen Farben: die QR-Kachel bleibt weiß, der QR schwarz auf weiß');
   const css = leseText(`${wurzel}/globals.css`).replace(/\/\*[\s\S]*?\*\//g, '');
   const hexe = [...css.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((m) => m[0]);
-  gleich(hexe.sort(), ['#0b66c2', '#3da5ff', '#c62828', '#ff5c5c'], 'BA keine rohen Farben: in globals.css stehen Hex-Farben nur als die vier Ecken-Tokens');
+  gleich(hexe.sort(), [...ECKEN_TOKEN_HEX].sort(), 'BA keine rohen Farben: in globals.css stehen Hex-Farben nur als die vier Ecken-Tokens');
 }
 
 // ── BA Ecken-Tokens: hell und dunkel getrennt, color-mix statt Hex-Alpha ──
@@ -197,6 +216,19 @@ const kind = (f: { props: Record<string, unknown> }, typ: unknown): { props: Rec
     ['dunkel B', wert(dunkel, '--battle-ecke-b'), '#191919'],
   ];
   for (const [name, farbe, grund] of faelle) ok(farbe !== undefined && kontrast(farbe, grund) >= 4.5, `BA Ecken-Tokens: Kontrast ${name} auf dem Kartengrund mindestens 4,5 : 1 (${farbe && kontrast(farbe, grund).toFixed(2)})`);
+  // Die Eckfarbe als Schrift steht auch auf ihrer eigenen Tönung: aktiver Jury-Knopf = 13 % der Farbe über dem Kartengrund
+  // (Scoreboard.tsx, farbeMischen(color, 13)). Gemischt wird in sRGB wie color-mix(in srgb): aus den Token-Werten gerechnet.
+  const rgb = (h: string): number[] => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const gemischt = (farbe: string, grund: string, anteil: number): string =>
+    '#' + rgb(farbe).map((v, i) => Math.round(v * anteil + rgb(grund)[i] * (1 - anteil)).toString(16).padStart(2, '0')).join('');
+  const scoreboard = ohneKommentare(leseText('src/renderer/src/components/Scoreboard.tsx'));
+  const anteil = Number(scoreboard.match(/farbeMischen\(color, (\d+)\)/)?.[1]) / 100;
+  ok(anteil > 0, `BA Ecken-Tokens: die Tönung des aktiven Jury-Knopfs wird aus dem Quelltext gelesen (${anteil * 100} %)`);
+  for (const [name, farbe, grund] of faelle) {
+    if (farbe === undefined) continue;
+    const getoent = gemischt(farbe, grund, anteil);
+    ok(kontrast(farbe, getoent) >= 4.5, `BA Ecken-Tokens: Kontrast ${name} auf der eigenen Tönung (aktiver Jury-Knopf, ${getoent}) mindestens 4,5 : 1 (${kontrast(farbe, getoent).toFixed(2)})`);
+  }
   // Die hellen Dunkel-Farben wären auf Hell zu schwach: Das ist der Grund für die zweite Definition.
   ok(kontrast('#3da5ff', '#fafafa') < 3 && kontrast('#ff5c5c', '#fafafa') < 3.1, 'BA Ecken-Tokens: Gegenprobe: die dunklen Farben hätten auf dem hellen Kartengrund unter 3,1 : 1');
 

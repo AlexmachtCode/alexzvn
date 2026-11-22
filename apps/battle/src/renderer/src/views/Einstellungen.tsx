@@ -91,7 +91,7 @@ function replayAbschnitt({ state }: OberflaechenStand, aktionen: EinstellungenAk
   return (
     <PanelAnker id={ABSCHNITT.replay}>
       <SettingsSection title={BATTLE_TEXTE.titel.replay}>
-        <Field label="Zielordner">
+        <Field label={BATTLE_TEXTE.replay.zielLabel}>
           <div className="flex items-center gap-2">
             <FeldKnopf onClick={() => aktionen.pickClipDir()}>Zielordner …</FeldKnopf>
             <span data-ba="clip-ziel" className="min-w-0 truncate text-xs text-[var(--muted-foreground)]" title={state.config.clipDir}>

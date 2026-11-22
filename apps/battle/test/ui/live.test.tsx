@@ -82,12 +82,15 @@ const zeile = (s: Pick<OberflaechenStand, 'state'>): string[] =>
     ['setLive(true)', 'setVotingOpen(true)', 'nextRound', 'clip', 'setLive(false)', 'setVotingOpen(false)', 'nextRound', 'clip'],
     'BA Live Tasten: Klick ruft setLive(!live), setVotingOpen(!votingOpen), nextRound() und clip() (Handler wie heute)',
   );
-  gleich(tastenSchluessel(), ['vs', 'voting', 'naechste', 'replay'], 'BA Live Tasten: die Rollen der vier Tasten in Anzeigereihenfolge');
+  gleich(tastenSchluessel(stand()), ['vs', 'voting', 'naechste', 'replay'], 'BA Live Tasten: die Rollen der vier Tasten in Anzeigereihenfolge');
   const q = ohneKommentare(leseText('src/renderer/src/views/LiveBereich.tsx'));
   ok(
-    q.includes('key="vs"') && q.includes('key="voting"') && q.includes('key="naechste"') && q.includes('key="replay"') && !q.includes('key={taste.label}') && !q.includes('key={t.label}'),
-    'BA Live Tasten: jede Taste hat einen festen key je Rolle (vs, voting, naechste, replay), nie die Beschriftung (R10)',
+    q.includes('key={rolle}') && q.includes('export function tastenSchluessel(') && q.includes('rollenTasten(s, KEINE)') && q.includes('rollenTasten(stand, aktionen).map') && !/key=\{[^}]*label[^}]*\}/.test(q) && !/key="(vs|voting|naechste|replay)"/.test(q),
+    'BA Live Tasten: HauptTasten rendert aus rollenTasten und vergibt key={rolle}; tastenSchluessel() kommt aus derselben Quelle, nie die Beschriftung (R10)',
   );
+  // Der Wechsel der Beschriftung ändert die Rolle nicht: dieselben Schlüssel in jedem Zustand (der Test pinnt, was gerendert wird).
+  const volle = battleState({ live: true, remote: MIT_SERVER, votingOpen: true, clips: [clipJob('running')] });
+  gleich([tastenSchluessel(stand()), tastenSchluessel(stand(volle))], [['vs', 'voting', 'naechste', 'replay'], ['vs', 'voting', 'naechste', 'replay']], 'BA Live Tasten: die Rollen bleiben in jedem Zustand gleich, auch wenn sich Beschriftungen ändern');
 }
 
 // ── BA Live Tasten gerendert: aria-disabled, Grund sichtbar, höchstens vier ──
