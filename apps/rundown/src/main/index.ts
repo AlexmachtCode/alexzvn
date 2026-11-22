@@ -51,6 +51,7 @@ import {
   scharfNachBearbeitung,
 } from '@shared/scharf';
 import { bildeZielAb, loeseSprungZiel } from '@shared/sprung';
+import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import {
   ablaufNeuEntstanden,
   ablaufSchluesselAusZeilen,
@@ -578,7 +579,20 @@ async function saveDialog(forceNew: boolean): Promise<void> {
   }
 }
 
+/**
+ * UX Welle 1 (Spec 3.9): die zuletzt gemeldete Lage des Steuerservers, nur lesend. null, solange nichts gemeldet wurde
+ * (der Renderer zeigt dann „unbekannt“). Jede Meldung geht an alle offenen Fenster.
+ */
+let fernsteuerung: FernsteuerungMeldung | null = null;
+function meldeFernsteuerung(e: FernsteuerungEreignis): void {
+  fernsteuerung = naechsteFernsteuerung(fernsteuerung ?? undefined, e);
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('rundown:fernsteuerung', fernsteuerung);
+  }
+}
+
 function registerIpc(): void {
+  ipcMain.handle('rundown:fernsteuerung', () => fernsteuerung);
   ipcMain.handle('rundown:getState', () => buildState());
   ipcMain.handle('rundown:nav', (_e, cmd: RundownNav) => {
     doNav(cmd);
@@ -1220,7 +1234,17 @@ if (!gotLock) {
     conductor.start(app.getPath('appData'));
     conductor.setOverrides(getOverrides());
     // Eigener Steuerserver: Rundown selbst per Companion fern-GO-bar (Port 8731).
-    void startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand });
+    // Das Start-Ergebnis geht nur lesend an die Statusleiste; Reihenfolge und Argumente bleiben wie zuvor.
+    void (async () => {
+      try {
+        const r = await startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand, onMeldung: meldeFernsteuerung });
+        meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });
+        if (!r.ok) getLog().warn(`Rundown-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
+      } catch (err) {
+        meldeFernsteuerung({ art: 'wurf', text: (err as Error).message });
+        getLog().warn(`Rundown-Steuerserver fehlgeschlagen: ${(err as Error).message}`);
+      }
+    })();
   });
 
   app.on('before-quit', () => {

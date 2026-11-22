@@ -4,7 +4,7 @@ import { armCapture } from './capture-handler';
 import { ndiConnect, ndiDisconnect, ndiFind, ndiStatus } from './ndi-receive';
 import { ndiOutputStatus, startNdiOutput, stopNdiOutput } from './ndi-send';
 import { registerOutputIpc } from './output';
-import { controlStatus, pushState, startControlServer, stopControlServer } from './control-server';
+import { controlStatus, pushState, startControlServerGemeldet, stopControlServer } from './control-server';
 import { openProject, saveProject } from './project/io';
 import { registerSecondScreenIpc } from './second-screen';
 import type { SaveSwitcherRequest } from '@shared/project';
@@ -33,7 +33,7 @@ export function registerIpc(): void {
   });
   ipcMain.handle('output:ndiStatus', () => ndiOutputStatus());
 
-  ipcMain.handle('control:start', (_e, port: number) => startControlServer(port));
+  ipcMain.handle('control:start', (_e, port: number) => startControlServerGemeldet(port));
   ipcMain.handle('control:stop', () => {
     stopControlServer();
   });

@@ -1,0 +1,318 @@
+// Q&A-Oberfläche: reine Ableitungen (UX Welle 1, Aufgabe c; Spec 5.1, 7.1–7.4, Anhang A „Q&A“). Aus dem Stand von Q&A
+// (QaState, Master-Link- und Fernsteuerungs-Meldung) entstehen die Props der Panel-Abschnitte, die Statusleiste, die
+// Zustände der Haupttasten und die Zählung „wartend“.
+// Kein window, kein IPC, kein localStorage: Die Tests laufen ohne Browser. Statusleiste und Panel nutzen dieselben
+// Ableitungen (eine Wahrheit). Die Statusleiste rechnet nur aus dem Store: `qa:links` kommt bis zehnmal je Sekunde.
+// Regeln: E8 On-Air, E13 Kopf und Kopplung, E14 Extern, E15 „Nächste“, U6 Bedienlogik bleibt. Die Zugangstexte Q1–Q12
+// stehen nicht hier: Die Zeile kommt wörtlich aus dem Main (`cloud.zugang.zeile`).
+import {
+  ABSCHNITT_TEXTE,
+  abschnittStatusItem,
+  IVEO_TEXTE,
+  PEERS_TEXTE,
+  peerZeileStatus,
+  REMOTE_TEXTE,
+  remoteControlView,
+  type PeerRow,
+  type PeersSectionProps,
+  type RemoteControlSectionProps,
+} from '@jm/settings';
+import { masterLinkStatusItem, zahlText, type StatusItem } from '@jm/ui';
+import { CAPABILITIES, COUPLED_ROLES, roleLabel } from '@/lib/capabilities';
+import { portBelegt, STEUER_PORT, type FernsteuerungMeldung } from '@shared/fernsteuerung';
+import type { MasterLinkMeldungZeile, QaState } from '@shared/types';
+
+/** Abschnitts-ids = Panel-Anker (`einstellung-{id}`) = settingsSection der Statuseinträge. */
+export const ABSCHNITT = {
+  fernsteuerung: 'fernsteuerung',
+  gegenstellen: 'gegenstellen',
+  redezeit: 'redezeit',
+  moderation: 'moderation',
+  extern: 'extern',
+} as const;
+
+/**
+ * Feste Texte von Q&A (kein ASCII-Anführungszeichen). Die Beschriftungen der Haupttasten sind wörtlich der Bestand
+ * (ActivePanel.tsx, RemotePanel.tsx); neu sind der Grund der gesperrten Taste und die Kurztexte des Extern-Eintrags.
+ * Zugangstexte (Q1–Q12) stehen nicht hier, sondern kommen vom Main.
+ */
+export const QA_TEXTE = {
+  /** Kopf (App.tsx:33): „N wartend“. */
+  wartend: 'wartend',
+  /** Beschriftungen der Haupttasten (ActivePanel.tsx): wörtlich wie bisher. */
+  naechste: 'Nächste ▶',
+  beenden: '■ Beenden',
+  /** Grund der gesperrten Beenden-Taste: ohne Sprecher am Wort (Wortlaut aus ActivePanel.tsx „Niemand am Wort“). */
+  grund: { niemandAmWort: 'Niemand am Wort' },
+  /** Saal-Einreichung (RemotePanel.tsx): Titel und Schalter-Wörter wie bisher; „kein Netzwerk“ steht dort bei fehlender Adresse. */
+  saal: {
+    titel: 'Saal-Einreichung',
+    labelAn: 'Saal-Einreichung ◉ An',
+    labelAus: 'Saal-Einreichung ○ Aus',
+    keinNetzwerk: 'kein Netzwerk',
+  },
+  /**
+   * Extern in der Statusleiste: Titel wie der Panel-Abschnitt (E14); „aus“, „bereit“ und „nicht eingerichtet“ kommen aus @jm/settings.
+   * „Verbinde …“ ist wörtlich der Text der Karte (CloudPanel.tsx), solange das Relay noch nicht geantwortet hat; beide lesen ihn hier.
+   */
+  extern: { titel: 'Extern', an: 'an', verbinde: 'Verbinde …' },
+  /**
+   * Gegenstellen im Panel: „gefunden:“ steht vor der gemessenen Adresse eines mDNS-Fundes; der Satz „Q&A koppelt …“ ist der erste
+   * Satz des Erklärtexts im alten Modal ConnectionsPanel (der Rest steht als PEERS_TEXTE.erklaerung in @jm/settings).
+   */
+  gegenstellen: { gefunden: 'gefunden:', erklaerung: 'Q&A koppelt Redezeit an den JM Timer und die Bauchbinde an den JM Titler.' },
+  /** Titel der tool-eigenen Panel-Abschnitte (Anhang A „Q&A“). Der Titel „Extern“ steht unter `extern`. */
+  titel: { redezeit: 'Redezeit und Kopplung', moderation: 'Moderation' },
+  /** Erklärtext der alten Kopplungskarte (App.tsx), jetzt Beschreibung des Abschnitts „Redezeit und Kopplung“: wörtlich wie bisher. */
+  kopplung: {
+    erklaerung:
+      'Standardmäßig aktiv: Redezeit (Timer) und Bauchbinde (Titler) werden beim Ans-Wort-Holen automatisch gesteuert — hier pro Werkzeug mit einem Klick umschaltbar.',
+    /** Beschriftung der Statuseinträge: Es ist die Kopplung von Q&A, nicht der Zustand des Tools selbst (Spec 2026-10-08, Anhang A). */
+    timer: 'Kopplung Timer',
+    titler: 'Kopplung Titler',
+  },
+  /** Leertext des Live-Elements (ActivePanel.tsx): wörtlich wie bisher, nur „Nächste“ mit typografischen Anführungszeichen (R9: vorher ein ASCII-Zeichen). */
+  leer: 'Niemand am Wort. „Nächste“ ruft die erste Wortmeldung auf.',
+} as const;
+
+/**
+ * Kleinste sinnvolle Breite einer Haupttaste in px, wie beim Rundown (Transport): Beschriftung, Innenabstand px-4 und Rand 2×2;
+ * längere Beschriftungen („Saal-Einreichung ○ Aus“) brechen in der Taste um. Geschätzt aus den Schriftmaßen, nicht im Fenster gemessen.
+ */
+export const TASTEN_MIN_BREITE = 140;
+
+/** Containerbreite, ab der Beenden und Saal nebeneinander unter „Nächste“ stehen: 2×140 + Lücke 12 (gap-3) = 292 px. Steht als `@[292px]` in LiveBereich.tsx. */
+export const TASTEN_ZWEI_BREITE = 2 * TASTEN_MIN_BREITE + 12;
+
+/** Containerbreite, ab der alle drei Tasten nebeneinander stehen: 3×140 + 2 Lücken à 12 = 444 px. Steht als `@[444px]` in LiveBereich.tsx. */
+export const TASTEN_DREI_BREITE = 3 * TASTEN_MIN_BREITE + 2 * 12;
+
+/**
+ * Anordnung der drei Haupttasten nach Breite der Inhaltsbox (Container-Query, kein Viewport): ab 444 px eine Reihe, ab 292 px
+ * „Nächste“ breit oben und Beenden, Saal nebeneinander darunter, darunter gestapelt. Nie zwei Tasten und eine Waise ohne breite
+ * erste Taste.
+ */
+export function tastenAnordnung(containerBreite: number): 'reihe' | 'erste-oben' | 'gestapelt' {
+  return containerBreite >= TASTEN_DREI_BREITE ? 'reihe' : containerBreite >= TASTEN_ZWEI_BREITE ? 'erste-oben' : 'gestapelt';
+}
+
+/**
+ * Fenster in px für die Rechnung des Live-Bereichs: Mindestbreite des Fensters (main/index.ts, Außenmaß), davon der Windows-Rahmen
+ * (Annahme 16 = 2×8 unsichtbare Ränder; nicht gemessen), Einstellungs-Panel --panel-w, seine Trennlinie und der Innenabstand p-4
+ * des Live-Bereichs (2×16). Das Panel liegt ab 900 px Fensterbreite neben dem Inhalt.
+ */
+export const FENSTER_LAYOUT = { fensterMin: 960, rahmen: 16, panel: 360, trennlinie: 1, innen: 32 } as const;
+
+/**
+ * Spalten unter den Haupttasten in px: die rechte Spalte (QR-Karten, 180 px QR + Kartenrand und Innenabstand 2×13 = 206, aufgerundet
+ * 256 für die Adresszeilen), die Lücke gap-4 und die Mindestbreite der linken Spalte (Wartezeile: Name und Knöpfe brechen um, die
+ * Felder des Formulars brauchen etwa 2×170 + Lücke).
+ */
+export const LIVE_LAYOUT = { rechts: 256, luecke: 16, linksMin: 368 } as const;
+
+/** Containerbreite, ab der die QR-Karten neben statt unter der Warteschlange stehen: 368 + 16 + 256 = 640 px. Steht als `@[640px]` in LiveBereich.tsx. */
+export const LIVE_ZWEI_SPALTEN_BREITE = LIVE_LAYOUT.linksMin + LIVE_LAYOUT.luecke + LIVE_LAYOUT.rechts;
+
+/** Eine oder zwei Spalten unter den Haupttasten nach Breite der Inhaltsbox: darunter stehen die QR-Karten unter der Warteschlange und scrollen mit ihr. */
+export function liveSpalten(containerBreite: number): 1 | 2 {
+  return containerBreite >= LIVE_ZWEI_SPALTEN_BREITE ? 2 : 1;
+}
+
+/** Der Q&A-Stand samt der gemessenen Meldungen; jede Meldung: undefined = noch keine Antwort, null = keine Brücke. */
+export interface OberflaechenStand {
+  state: QaState;
+  /** Meldung der Master-Link-Brücke: undefined = offen, null = keine Brücke (beides „unbekannt“). */
+  masterLink: MasterLinkMeldungZeile | null | undefined;
+  /** Meldung des Steuerservers (Port 8733): undefined/null = noch keine Antwort. */
+  fernsteuerung: FernsteuerungMeldung | null | undefined;
+}
+
+/** Aktionen des Panels, benannt nach dem heutigen Handler des Stores (`setEndpoint`; host leer = Override entfernen). */
+export interface QaAktionen {
+  setEndpoint(role: string, host: string, port: number): void;
+}
+
+export interface TasteZustand {
+  state: 'bereit' | 'live' | 'gesperrt';
+  disabledReason?: string;
+}
+
+/** Haupttaste mit Beschriftung. */
+export type Haupttaste = TasteZustand & { label: string };
+
+/**
+ * Haupttasten (E15): „Nächste ▶“ ist nie gesperrt, wie heute; bei leerer Warteschlange beendet sie den Sprecher (Befund 2 der
+ * Funktionsliste). „■ Beenden“ ist ohne Sprecher gesperrt, mit Grund. Die Saal-Taste wechselt die Beschriftung und ist nie
+ * gesperrt. Nie live: Die On-Air-Quelle ist der Kopf (onAirKopf).
+ */
+export function hauptTasten(s: Pick<OberflaechenStand, 'state'>): { naechste: Haupttaste; beenden: Haupttaste; saal: Haupttaste } {
+  const T = QA_TEXTE;
+  const amWort = s.state.activeId !== null;
+  return {
+    naechste: { label: T.naechste, state: 'bereit' },
+    beenden: amWort ? { label: T.beenden, state: 'bereit' } : { label: T.beenden, state: 'gesperrt', disabledReason: T.grund.niemandAmWort },
+    saal: { label: s.state.remote.running ? T.saal.labelAn : T.saal.labelAus, state: 'bereit' },
+  };
+}
+
+/** On-Air im Kopf (E8): live, solange jemand am Wort ist. */
+export function onAirKopf(s: Pick<OberflaechenStand, 'state'>): { live: boolean } {
+  return { live: !!s.state.activeId };
+}
+
+/** Kopfmitte (E13): „N wartend“, Zählung wie heute (App.tsx:27): jeder Eintrag mit Status waiting, auch unfreigegebene (Befund 1). */
+export function wartendText(s: Pick<OberflaechenStand, 'state'>): string {
+  const n = s.state.entries.filter((e) => e.status === 'waiting').length;
+  return `${n} ${QA_TEXTE.wartend}`;
+}
+
+/** Fernsteuerung: Meldung des Steuerservers, ohne Schalter und Port-Feld (fester Port 8733). */
+export function fernsteuerungAbschnitt(s: Pick<OberflaechenStand, 'fernsteuerung'>): RemoteControlSectionProps {
+  const m = s.fernsteuerung ?? undefined;
+  // EADDRINUSE nur als portInUse: Der Fehler ginge im Abschnitt vor und verdeckte „Port belegt“.
+  const belegt = portBelegt(m);
+  return {
+    id: ABSCHNITT.fernsteuerung,
+    running: m?.laeuft,
+    mode: m?.modus,
+    port: m !== undefined && m.port > 0 ? m.port : STEUER_PORT,
+    // Verbundene Clients zählen nur bei laufendem Server (der Abschnitt zeigt die Zahl nur bei running).
+    clients: m?.laeuft ? m.clients : undefined,
+    portInUse: belegt,
+    error: m?.fehler !== undefined && !belegt ? m.fehler : undefined,
+    capabilities: {},
+  };
+}
+
+/** Eine Zeile je gekoppelter Rolle: Host leer = automatisch (mDNS); ein Override oder ein manueller Fund zählt als manuell. */
+function peerZeile(s: Pick<OberflaechenStand, 'state'>, role: string): PeerRow {
+  const link = s.state.links.find((l) => l.role === role);
+  const override = s.state.overrides[role];
+  const cap = CAPABILITIES[role];
+  const manuell = override !== undefined || link?.source === 'manual';
+  return {
+    role,
+    label: cap?.label ?? role,
+    host: manuell ? (override?.host ?? link?.host ?? '') : '',
+    port: override?.port ?? link?.port ?? 0,
+    defaultPort: cap?.port,
+    // Der Stand ist da: ein fehlender Fund heißt „nicht gefunden“, nicht „unbekannt“.
+    connected: link?.connected ?? false,
+    // Ohne Fund und ohne Override gibt es keine Quelle: sonst stünde „Quelle gefunden“ bei einem Tool, das nie gefunden wurde.
+    source: manuell ? 'manual' : link ? 'mdns' : undefined,
+  };
+}
+
+/** Gegenstellen (E13): ersetzt das Modal ConnectionsPanel; Setzen schickt Host und Port, Auto entfernt den Override. */
+export function gegenstellenAbschnitt(s: Pick<OberflaechenStand, 'state'>, a: QaAktionen): PeersSectionProps {
+  return {
+    id: ABSCHNITT.gegenstellen,
+    peers: COUPLED_ROLES.map((role) => peerZeile(s, role)),
+    capabilities: { auto: true },
+    onSet: (role, host, port) => a.setEndpoint(role, host, port),
+    onAuto: (role) => a.setEndpoint(role, '', 0),
+  };
+}
+
+/** Per mDNS gefundene Tools mit ihrer Adresse für das Panel (manuelle stehen schon als Quelle in der Zeile; nie ins Host-Feld, das wäre ein Override). */
+export function gefundeneAdressen(s: Pick<OberflaechenStand, 'state'>): Array<{ role: string; label: string; text: string }> {
+  return s.state.links
+    .filter((l) => COUPLED_ROLES.includes(l.role) && l.source !== 'manual' && l.host !== '')
+    .map((l) => ({ role: l.role, label: l.label, text: `${QA_TEXTE.gegenstellen.gefunden} ${l.host}:${zahlText(l.port)}` }));
+}
+
+/**
+ * Kopplung zu Timer oder Titler (E13), dreifarbig und nie grün ohne Gegenstelle: Schalter aus (`autoTimer`/`autoTitler` aus
+ * `state.config`, dem wirksamen Wert aller drei Wege) = off; an, aber nicht verbunden = warn; verbunden = ok mit `host:port`.
+ * Texte der Zeile kommen aus `peerZeileStatus` (@jm/settings), nicht von hier.
+ */
+export function kopplungStatus(rolle: 'timer' | 'titler', s: Pick<OberflaechenStand, 'state'>): StatusItem {
+  const an = rolle === 'timer' ? s.state.config.autoTimer : s.state.config.autoTitler;
+  const link = s.state.links.find((l) => l.role === rolle);
+  const manuell = link?.source === 'manual' && link.host !== '';
+  const zeile = peerZeileStatus({
+    role: rolle,
+    label: roleLabel(rolle),
+    host: manuell ? link.host : '',
+    port: link?.port ?? 0,
+    connected: link?.connected ?? false,
+    source: link?.source,
+    enabled: an,
+  });
+  // Gemessen ist die Adresse eines Fundes: verbunden steht sie allein (ok), gefunden aber nicht verbunden vor dem Zeilentext
+  // (warn, nie ok). Manuell nennt der Zeilentext die Adresse schon; ohne Fund und bei „aus“ gibt es keine.
+  const adresse = link && link.host !== '' ? `${link.host}:${zahlText(link.port)}` : undefined;
+  const detail = !an
+    ? zeile.text
+    : link?.connected
+      ? manuell
+        ? PEERS_TEXTE.quelleManuell(link.host, link.port)
+        : (adresse ?? zeile.text)
+      : link?.source === 'mdns' && adresse
+        ? `${adresse} · ${zeile.text}`
+        : zeile.text;
+  // Der Schalter der Kopplung steht in „Redezeit und Kopplung“: Er ändert jeden der drei Zustände (an ↔ aus).
+  return {
+    id: `kopplung-${rolle}`,
+    group: 'verbindung',
+    label: QA_TEXTE.kopplung[rolle],
+    state: zeile.state,
+    detail,
+    settingsSection: ABSCHNITT.redezeit,
+  };
+}
+
+/**
+ * Extern (E14) aus `state.cloud`. Zustände: aus = off („aus“ bzw. „bereit“, wenn eingerichtet); an und eingerichtet =
+ * Ton der Zugangszeile (ok → ok, warn → warn, fehler → error); an, aber nicht eingerichtet = warn; `lastError` bei „an“ = error.
+ * An und eingerichtet, aber noch ohne Antwort des Relays (`lastPollAt` null) = off „Verbinde …“ wie die Karte, nie ok (C3).
+ * Die Zugangszeile kommt wörtlich vom Main, es entstehen keine Zugangstexte. Gelesen werden nur enabled, configured,
+ * zugang.zeile, zugang.ton, zugang.art, hasKey, lastError und lastPollAt: nie Freigabe, Token, Presse-Code oder Event-ID.
+ * Sprungziel (C1): nur, wo der Abschnitt „Extern“ den Zustand ändern kann (Event erzeugen, Server-Adresse, alter Key); den
+ * Schalter An/Aus hat nur die Karte im Live-Bereich, darum sind „bereit“, „Verbinde …“ und „an“ reine Anzeige.
+ */
+export function externStatus(s: Pick<OberflaechenStand, 'state'>): StatusItem {
+  const c = s.state.cloud;
+  const anzeige = { id: 'extern', group: 'verbindung', label: QA_TEXTE.extern.titel } as const;
+  const knopf = { ...anzeige, settingsSection: ABSCHNITT.extern } as const;
+  const zeile = c.zugang.zeile;
+  const mitZeile = (kurz: string): string => (zeile !== '' ? `${kurz} · ${zeile}` : kurz);
+  if (!c.enabled) return c.configured ? { ...anzeige, state: 'off', detail: mitZeile(REMOTE_TEXTE.bereit) } : { ...knopf, state: 'off', detail: mitZeile(ABSCHNITT_TEXTE.aus) };
+  if (c.lastError) return { ...knopf, state: 'error', detail: c.lastError };
+  if (!c.configured) return { ...knopf, state: 'warn', detail: mitZeile(IVEO_TEXTE.nichtEingerichtet) };
+  if (c.lastPollAt === null) return { ...anzeige, state: 'off', detail: mitZeile(QA_TEXTE.extern.verbinde) };
+  const ton = { ok: 'ok', warn: 'warn', fehler: 'error' } as const;
+  // Eine Zugangszeile mit Warnung oder Fehler lässt sich im Panel nur über den alten Key ändern; er steht dort unter derselben
+  // Bedingung (Einstellungen.tsx: hasKey oder keine Freigabe). Sonst hilft nur die Anmeldung im Launcher.
+  const kopf = c.zugang.ton !== 'ok' && (c.hasKey || c.zugang.art !== 'freigabe') ? knopf : anzeige;
+  return { ...kopf, state: ton[c.zugang.ton], detail: mitZeile(QA_TEXTE.extern.an) };
+}
+
+/**
+ * Ein Eintrag als reine Anzeige (C1): ohne Sprungziel, weil der Abschnitt im Panel dieselbe Lage nur zeigt. Die Fernsteuerung von
+ * Q&A hat einen festen Port und keinen Schalter; eingerichtet wird sie im Launcher.
+ */
+function nurAnzeige(i: StatusItem): StatusItem {
+  return { id: i.id, group: i.group, label: i.label, state: i.state, ...(i.detail !== undefined ? { detail: i.detail } : {}) };
+}
+
+/** Saal-Einreichung (state.remote): aus = off; an = ok mit der ersten Adresse; an ohne Adresse = warn „kein Netzwerk“. */
+function saalItem(s: Pick<OberflaechenStand, 'state'>): StatusItem {
+  const r = s.state.remote;
+  const kopf = { id: 'saal', group: 'tool', label: QA_TEXTE.saal.titel } as const;
+  if (!r.running) return { ...kopf, state: 'off', detail: ABSCHNITT_TEXTE.aus };
+  const erste = r.urls[0];
+  return erste ? { ...kopf, state: 'ok', detail: erste } : { ...kopf, state: 'warn', detail: QA_TEXTE.saal.keinNetzwerk };
+}
+
+/** Statusleiste (Anhang A): master-link, extern, kopplung-timer, kopplung-titler, fernsteuerung, saal. */
+export function statusLeiste(s: OberflaechenStand): StatusItem[] {
+  return [
+    masterLinkStatusItem(s.masterLink),
+    externStatus(s),
+    kopplungStatus('timer', s),
+    kopplungStatus('titler', s),
+    nurAnzeige(abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel })),
+    saalItem(s),
+  ];
+}

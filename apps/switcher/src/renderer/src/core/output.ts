@@ -3,11 +3,29 @@
 // Pro Output ein eigener MediaRecorder → jeder Sink bekommt einen eigenen
 // WebM-Header (sauberer Stream-Start, kein Late-Join-Problem).
 
+/** Die beiden Ausgaben des Controllers. */
+export type AusgabeArt = 'rec' | 'stream';
+
 export interface OutputState {
   recording: boolean;
   streaming: boolean;
   recPath: string | null;
   error: string | null;
+  /**
+   * Welche Ausgabe den Fehler meldete (nur im Renderer, kein IPC): Die Statusleiste zeigt ihn nur bei dieser Ausgabe, und
+   * nur deren erfolgreicher Start löscht ihn. null ohne Fehler.
+   */
+  errorScope: AusgabeArt | null;
+}
+
+/** Fehler einer Ausgabe: Text und Herkunft. */
+export function mitFehler(scope: AusgabeArt, message: string): Pick<OutputState, 'error' | 'errorScope'> {
+  return { error: message, errorScope: scope };
+}
+
+/** Nach einem erfolgreichen Start: Nur ein Fehler derselben Ausgabe fällt weg, der der anderen bleibt stehen. */
+export function fehlerNachStart(s: Pick<OutputState, 'errorScope'>, scope: AusgabeArt): Partial<Pick<OutputState, 'error' | 'errorScope'>> {
+  return s.errorScope === scope ? { error: null, errorScope: null } : {};
 }
 
 /** Bildrate des Canvas-Abgriffs, bis der Store seine Einstellung durchreicht.
@@ -44,7 +62,7 @@ export class OutputController {
   private pendingStarts = 0;
   private recRecorder: MediaRecorder | null = null;
   private streamRecorder: MediaRecorder | null = null;
-  private state: OutputState = { recording: false, streaming: false, recPath: null, error: null };
+  private state: OutputState = { recording: false, streaming: false, recPath: null, error: null, errorScope: null };
   private listeners = new Set<() => void>();
   private offError: (() => void) | null = null;
   private offStatus: (() => void) | null = null;
@@ -66,7 +84,7 @@ export class OutputController {
     if (this.offError) return;
     this.offError = window.jmswitch.output.onError((err) => {
       this.teardown(err.scope === 'record' ? 'rec' : 'stream');
-      this.patch({ error: err.message });
+      this.patch(mitFehler(err.scope === 'record' ? 'rec' : 'stream', err.message));
     });
     this.offStatus = window.jmswitch.output.onStatus((s) => {
       // Main meldet z. B. ffmpeg-Exit → Stream-Recorder mitziehen.
@@ -170,12 +188,12 @@ export class OutputController {
     try {
       const stream = this.buildOutputStream();
       if (!stream) {
-        this.patch({ error: 'Kein Program-Bild zum Aufnehmen.' });
+        this.patch(mitFehler('rec', 'Kein Program-Bild zum Aufnehmen.'));
         return;
       }
       const res = await open();
       if (!res.ok) {
-        if (res.error) this.patch({ error: res.error });
+        if (res.error) this.patch(mitFehler('rec', res.error));
         return; // abgebrochen
       }
       const bits = bitrateKbps ? bitrateKbps * 1000 : DEFAULT_REC_BITS;
@@ -184,11 +202,11 @@ export class OutputController {
       rec.onstop = () => window.jmswitch.output.recStop();
       rec.onerror = () => {
         this.teardown('rec');
-        this.patch({ error: 'Aufnahme-Encoder-Fehler.' });
+        this.patch(mitFehler('rec', 'Aufnahme-Encoder-Fehler.'));
       };
       rec.start(TIMESLICE_MS);
       this.recRecorder = rec;
-      this.patch({ recording: true, recPath: res.path ?? null, error: null });
+      this.patch({ recording: true, recPath: res.path ?? null, ...fehlerNachStart(this.state, 'rec') });
     } finally {
       this.pendingStarts--;
       // Wurde waehrend des Starts die Bildrate geaendert oder der Start abgebrochen: jetzt einloesen.
@@ -207,13 +225,13 @@ export class OutputController {
     try {
       const stream = this.buildOutputStream();
       if (!stream) {
-        this.patch({ error: 'Kein Program-Bild zum Streamen.' });
+        this.patch(mitFehler('stream', 'Kein Program-Bild zum Streamen.'));
         return;
       }
       const hasAudio = stream.getAudioTracks().length > 0;
       const res = await window.jmswitch.output.streamStart(url, bitrateKbps, hasAudio);
       if (!res.ok) {
-        this.patch({ error: res.error ?? 'Stream-Start fehlgeschlagen.' });
+        this.patch(mitFehler('stream', res.error ?? 'Stream-Start fehlgeschlagen.'));
         return;
       }
       // Zwischen-WebM nicht unter die Stream-Zielbitrate drücken (sonst Qualitätsverlust
@@ -224,11 +242,11 @@ export class OutputController {
       rec.onstop = () => window.jmswitch.output.streamStop();
       rec.onerror = () => {
         this.teardown('stream');
-        this.patch({ error: 'Stream-Encoder-Fehler.' });
+        this.patch(mitFehler('stream', 'Stream-Encoder-Fehler.'));
       };
       rec.start(TIMESLICE_MS);
       this.streamRecorder = rec;
-      this.patch({ streaming: true, error: null });
+      this.patch({ streaming: true, ...fehlerNachStart(this.state, 'stream') });
     } finally {
       this.pendingStarts--;
       this.dropCanvasStreamIfIdle();

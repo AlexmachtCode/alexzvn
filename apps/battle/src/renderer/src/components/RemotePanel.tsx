@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
+import { Button, Card } from '@jm/ui';
 import type { BattleState } from '@shared/types';
-import { useBattle } from '@/store/useBattle';
+import { BATTLE_TEXTE } from '@/lib/oberflaeche';
 import { toDataUrl } from '@/lib/qr';
 
-/** Publikums-Voting: QR + LAN-URLs, Server an/aus, Voting der Runde öffnen/schließen. */
-export function RemotePanel({ state }: { state: BattleState }) {
-  const { setRemote, setVotingOpen } = useBattle();
+/** Was die Karte auslöst: der Handler `setRemote` des Stores. Das Voting der Runde öffnen und schließen ist jetzt eine Haupttaste. */
+export interface RemoteAktionen {
+  setRemote(an: boolean): void;
+}
+
+/** Publikums-Voting: QR + LAN-URLs und Server an/aus. Der QR bleibt schwarz auf weiß (lib/qr.ts), auch im hellen Modus. */
+export function RemotePanel({ state, aktionen }: { state: BattleState; aktionen: RemoteAktionen }): React.JSX.Element {
   const [qr, setQr] = useState('');
   const url = state.remote.urls[0] ?? '';
 
@@ -24,17 +29,20 @@ export function RemotePanel({ state }: { state: BattleState }) {
   }, [url]);
 
   return (
-    <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-3">
+    <Card glossy={false} data-ba="voting" className="p-3">
       <div className="mb-2 flex items-center gap-2">
-        <h2 className="text-sm font-semibold text-neutral-300">Publikums-Voting</h2>
-        <button
-          onClick={() => void setRemote(!state.remote.running)}
-          className={`ml-auto rounded-md border px-2.5 py-1 text-xs font-semibold ${
-            state.remote.running ? 'border-green-500 bg-green-600/20 text-green-300' : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800'
-          }`}
+        <h2 className="text-sm font-semibold text-[var(--foreground)]">{BATTLE_TEXTE.voting.titel}</h2>
+        <Button
+          type="button"
+          size="sm"
+          uppercase={false}
+          variant={state.remote.running ? 'primary' : 'outline'}
+          aria-pressed={state.remote.running}
+          className="ml-auto"
+          onClick={() => aktionen.setRemote(!state.remote.running)}
         >
           {state.remote.running ? '◉ An' : '○ Aus'}
-        </button>
+        </Button>
       </div>
 
       {state.remote.running ? (
@@ -42,26 +50,21 @@ export function RemotePanel({ state }: { state: BattleState }) {
           {qr ? (
             <img src={qr} alt="QR zum Voting" className="rounded-lg bg-white p-1.5" width={170} height={170} />
           ) : (
-            <div className="grid h-[170px] w-[170px] place-items-center rounded-lg bg-neutral-800 text-xs text-neutral-500">kein Netzwerk</div>
+            <div className="grid h-[170px] w-[170px] place-items-center rounded-lg bg-[var(--muted)] text-xs text-[var(--muted-foreground)]">
+              {BATTLE_TEXTE.voting.keinNetzwerk}
+            </div>
           )}
-          <button
-            onClick={() => void setVotingOpen(!state.votingOpen)}
-            disabled={!state.config.votingEnabled}
-            className={`w-full rounded-md py-2 text-sm font-bold ${
-              state.votingOpen ? 'bg-[var(--brand-yellow)] text-[var(--brand-dark)]' : 'border border-neutral-700 text-neutral-200 hover:bg-neutral-800'
-            } disabled:opacity-40`}
-          >
-            {state.votingOpen ? `Voting offen (Runde ${state.round}) — schließen` : `Voting öffnen (Runde ${state.round})`}
-          </button>
           <div className="w-full space-y-0.5">
             {state.remote.urls.map((u) => (
-              <div key={u} className="truncate rounded bg-neutral-800/60 px-2 py-1 text-center text-[11px] text-neutral-300">{u}</div>
+              <div key={u} className="truncate rounded bg-[var(--muted)] px-2 py-1 text-center text-[11px] text-[var(--foreground)]">
+                {u}
+              </div>
             ))}
           </div>
         </div>
       ) : (
-        <p className="text-xs text-neutral-500">Aus. Anschalten, damit das Publikum per Handy (QR) für die Runden abstimmt.</p>
+        <p className="text-xs text-[var(--muted-foreground)]">Aus. Anschalten, damit das Publikum per Handy (QR) für die Runden abstimmt.</p>
       )}
-    </div>
+    </Card>
   );
 }

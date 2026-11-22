@@ -5,6 +5,7 @@
 // Der Renderer ist Ansicht + Editor und schickt Änderungen per IPC zurück.
 
 import type { ShowIveoProgramRef, ShowIveoSpeaker } from '@jm/show';
+import type { FernsteuerungMeldung } from './fernsteuerung';
 
 /** Eine Aktion, die beim GO an ein Tool gesendet wird. */
 export interface RundownAction {
@@ -172,6 +173,19 @@ export interface VerbundAnzeigeZeile {
   farbe: 'gruen' | 'gelb' | 'rot' | 'gedaempft';
 }
 
+/**
+ * Master-Link-Meldung über die Preload-Brücke (UX Welle 1, Spec 3.9): Zustand des Clients oder `ohne-client`.
+ * Strukturgleich mit `MasterLinkMeldung` aus `@jm/app-runtime`; eigener Typ wie `VerbundAnzeigeZeile` (E28).
+ * Den Gleichlauf prüft die Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
+
 // ── Preload-API (window.jmrundown) ───────────────────────────────────────────
 export interface JmRundownApi {
   platform: string;
@@ -212,4 +226,10 @@ export interface JmRundownApi {
   verbundAnzeige: () => Promise<VerbundAnzeigeZeile | null>;
   /** Auf Wechsel der Verbund-Anzeige hören. Liefert Unsubscribe. */
   onVerbundAnzeige: (cb: (a: VerbundAnzeigeZeile | null) => void) => () => void;
+  /** Master-Link-Zustand (UX Welle 1, Spec 3.9), lesend; null, wenn der Handler fehlt oder ablehnt. */
+  masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+  onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
+  /** Meldung des Steuerservers (Port 8731, UX Welle 1): null, solange Main noch nichts gemeldet hat. */
+  fernsteuerung: () => Promise<FernsteuerungMeldung | null>;
+  onFernsteuerung: (cb: (m: FernsteuerungMeldung | null) => void) => () => void;
 }

@@ -1277,38 +1277,38 @@
         ],
         "steps": {
           "vor": [
-            "Kontrahenten und Runden anlegen",
-            "VS-Bauchbinde über JM Titler prüfen (BATTLE VS on/off blendet sie ein/aus)",
-            "Voting konfigurieren (Jury-Entscheid und/oder Publikum per QR, Port 7783)",
-            "Aufnahmequelle für den Instant-Replay verbinden",
-            "Optional: Companion auf Port 8734 verbinden"
+            "Kontrahenten (Name und Crew in den Ecken A und B) und Runden (Panel ⚙ › Battle) anlegen",
+            "VS-Bauchbinde über JM Titler prüfen (Statusleiste „Kopplung Titler“; die Haupttaste „VS“ bzw. BATTLE VS on/off blendet sie ein/aus; ist der Titler nicht verbunden, sagt ein Hinweis unter der Taste, dass die Bauchbinde nicht erscheint)",
+            "Voting konfigurieren (Jury-Entscheid und/oder Publikum per QR, Port 7783): Schalter „Publikums-Voting“ im Panel ⚙ › Battle, Server mit „◉ An“ in der Karte „Publikums-Voting“ rechts im Live-Bereich; die Statusleiste zeigt „Publikums-Voting“",
+            "Aufnahmequelle für den Instant-Replay verbinden (Karte „Instant-Replay“ rechts im Live-Bereich, Knopf „Aufnahme …“; Zielordner im Panel ⚙ › Instant-Replay; Statusleiste „Aufnahme-Quelle“)",
+            "Optional: Companion auf Port 8734 verbinden (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung)"
           ],
           "waehrend": [
-            "Runde starten, VS-Bauchbinde einblenden (BATTLE VS on)",
-            "Voting öffnen (BATTLE VOTING on), dann schließen (off); Sieger setzen mit BATTLE WIN a|b|tie",
-            "Bei Bedarf BATTLE REPLAY — letzte Sekunden aus der Aufnahme abspielen",
-            "Mit BATTLE NEXT in die nächste Runde"
+            "Runde starten, VS-Bauchbinde einblenden (Haupttaste „VS“ bzw. BATTLE VS on)",
+            "Voting öffnen (Haupttaste „Voting öffnen“ bzw. BATTLE VOTING on), dann schließen (off); Sieger setzen mit den Jury-Knöpfen im Scoreboard oder BATTLE WIN a|b|tie",
+            "Bei Bedarf Haupttaste „⧉ Clip“ bzw. BATTLE REPLAY — letzte Sekunden aus der Aufnahme abspielen",
+            "Mit „Nächste Runde ▶“ bzw. BATTLE NEXT in die nächste Runde"
           ],
           "nach": [
-            "Ergebnisse sichern; BATTLE RESET für das nächste Battle"
+            "Ergebnisse sichern; Zurücksetzen für das nächste Battle im Panel ⚙ › Zurücksetzen (die Rückfrage nennt, dass ein laufendes VS ausgeht) oder per BATTLE RESET"
           ]
         },
         "troubleshooting": [
           {
             "risk": "QR-Voting kommt nicht an",
-            "remedy": "Gäste-WLAN erreicht Port 7783 am Host? http://<host-ip>:7783/ testen"
+            "remedy": "Server in der Karte „Publikums-Voting“ auf „◉ An“, Schalter „Publikums-Voting“ im Panel ⚙ › Battle an? Gäste-WLAN erreicht Port 7783 am Host? http://<host-ip>:7783/ testen"
           },
           {
             "risk": "VS-Bauchbinde fehlt",
-            "remedy": "JM Titler im selben LAN gestartet? BATTLE VS on gesendet?"
+            "remedy": "Statusleiste „Kopplung Titler“ lesen; Schalter „VS-Bauchbinde automatisch“ im Panel ⚙ › Battle an? JM Titler im selben LAN gestartet? BATTLE VS on gesendet?"
           },
           {
             "risk": "Instant-Replay ist leer",
-            "remedy": "Läuft die Aufnahme (Recorder) durchgehend? Quelle/Verbindung prüfen"
+            "remedy": "Läuft die Aufnahme (Recorder) durchgehend? Quelle/Verbindung prüfen (Statusleiste „Aufnahme-Quelle“)"
           },
           {
             "risk": "Companion steuert nicht",
-            "remedy": "Port 8734 (jm-battle-ctl) erreichbar? Gemeinsames LAN?"
+            "remedy": "Statusleiste „Fernsteuerung“ ansehen; Port 8734 (jm-battle-ctl) erreichbar? Gemeinsames LAN?"
           }
         ],
         "checklists": [
@@ -3671,15 +3671,15 @@
         ],
         "steps": {
           "vor": [
-            "QR-Einreichung aktivieren (Port 7782) — Erreichbarkeit der Einreich-Seite vom Gäste-WLAN testen",
-            "Moderation/Freigabe einstellen (Filter vor Veröffentlichung)",
-            "Kopplung mit JM Timer (Redezeit) und JM Titler (Name/Funktion) prüfen — beide im selben LAN gestartet",
-            "Optional: Companion auf Port 8733 verbinden (NEXT/END/EXTEND/CLEAR)"
+            "QR-Einreichung mit der Haupttaste „Saal-Einreichung“ im Live-Bereich aktivieren („◉ An“, Port 7782; der QR steht rechts im Live-Bereich) — Erreichbarkeit der Einreich-Seite vom Gäste-WLAN testen",
+            "Moderation/Freigabe im Panel ⚙ › Moderation einstellen (Filter vor Veröffentlichung)",
+            "Kopplung mit JM Timer (Redezeit) und JM Titler (Name/Funktion) prüfen — beide im selben LAN gestartet. Die Statusleiste zeigt „Kopplung Timer“ und „Kopplung Titler“, die Schalter dazu stehen im Panel ⚙ › Redezeit und Kopplung",
+            "Optional: Companion auf Port 8733 verbinden (NEXT/END/EXTEND/CLEAR; Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung)"
           ],
           "waehrend": [
             "Eingehende Fragen moderieren und freigeben",
-            "Per Klick (oder QA NEXT) jemanden ans Wort holen — Timer startet, Bauchbinde wird eingeblendet",
-            "Redezeit verlängern mit QA EXTEND 60; Wortbeitrag beenden mit QA END",
+            "Per Klick (Haupttaste „Nächste ▶“ oder QA NEXT) jemanden ans Wort holen — Timer startet, Bauchbinde wird eingeblendet",
+            "Redezeit verlängern mit QA EXTEND 60; Wortbeitrag beenden mit „■ Beenden“ oder QA END",
             "Queue abarbeiten; QA CLEAR leert sie bei Bedarf"
           ],
           "nach": [
@@ -3689,19 +3689,19 @@
         "troubleshooting": [
           {
             "risk": "QR-Einreichung kommt nicht an",
-            "remedy": "Gäste-WLAN erreicht Port 7782 am Host? http://<host-ip>:7782/ im Browser testen"
+            "remedy": "Haupttaste „Saal-Einreichung“ auf „◉ An“? Gäste-WLAN erreicht Port 7782 am Host? http://<host-ip>:7782/ im Browser testen"
           },
           {
             "risk": "Timer/Titler reagieren nicht",
-            "remedy": "Beide im selben LAN gestartet? mDNS/Firewall prüfen"
+            "remedy": "Statusleiste „Kopplung Timer“ bzw. „Kopplung Titler“ lesen (aus, nicht gefunden, gefunden · nicht verbunden). Beide im selben LAN gestartet? mDNS/Firewall prüfen"
           },
           {
             "risk": "Companion steuert nicht",
-            "remedy": "Port 8733 (jm-qa-ctl) erreichbar? Gemeinsames LAN?"
+            "remedy": "Statusleiste „Fernsteuerung“ ansehen; Port 8733 (jm-qa-ctl) erreichbar? Gemeinsames LAN?"
           },
           {
             "risk": "Bauchbinde bleibt leer",
-            "remedy": "Titler erreichbar? TITLER TEXT-Kopplung in den Q&A-Einstellungen aktiv?"
+            "remedy": "Titler erreichbar? Schalter „Bauchbinde automatisch“ im Panel ⚙ › Redezeit und Kopplung an?"
           }
         ],
         "checklists": [
@@ -3797,14 +3797,14 @@
         "steps": {
           "vor": [
             "Ziel-Tools starten, damit JM Rundown sie per mDNS findet (Steuer-Endpunkt jm-<tool>-ctl)",
-            "Rundown-Zeilen je Segment anlegen und die Aktionen pro Zeile zuordnen",
-            "Live-Status der gefundenen Tools prüfen (grün = ansteuerbar)",
-            "Optional: Companion auf Port 8731 / jm-rundown-ctl verbinden für Fern-GO",
-            "Als .jmrundown speichern"
+            "Rundown-Zeilen je Segment in der Liste anlegen („+ Zeile hinzufügen“) und die Aktionen pro Zeile im Editor rechts zuordnen („+ Aktion hinzufügen“)",
+            "Status der gefundenen Tools in der Statusleiste prüfen (ein Eintrag je Tool; „verbunden“ = ansteuerbar, „gefunden · nicht verbunden“ = im Netz da, aber nicht verbunden; Host und Port bei Bedarf im Panel ⚙ › Gegenstellen setzen)",
+            "Optional: Companion auf Port 8731 / jm-rundown-ctl verbinden für Fern-GO (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung)",
+            "Als .jmrundown speichern (Werkzeugleiste: Speichern)"
           ],
           "waehrend": [
-            "Pro Segment GO drücken — feuert alle zugeordneten Aktionen gleichzeitig (lokal oder per RUNDOWN GO)",
-            "Live-Status / Tally im Blick behalten",
+            "Pro Segment die Haupttaste „GO“ drücken (oder die Leertaste) — feuert alle zugeordneten Aktionen gleichzeitig (lokal oder per RUNDOWN GO); „◀ Zurück“ und „Weiter ▶“ wählen die Zeile, ohne zu feuern",
+            "Statusleiste im Blick behalten (Verbindung je Tool und seine aktiven Rückmeldungen)",
             "Bei Bedarf einzelne Aktionen per Override anpassen"
           ],
           "nach": [
@@ -3814,19 +3814,19 @@
         "troubleshooting": [
           {
             "risk": "Tool wird nicht gefunden",
-            "remedy": "Gleiches Subnetz? Tool gestartet? mDNS/Firewall frei? Der ctl=1-Endpunkt jm-<tool>-ctl muss sichtbar sein"
+            "remedy": "Statusleiste: Eintrag des Tools fehlt oder ist nicht verbunden; im Panel ⚙ › Gegenstellen steht es dann auf „nicht gefunden“. Gleiches Subnetz? Tool gestartet? mDNS/Firewall frei? Der ctl=1-Endpunkt jm-<tool>-ctl muss sichtbar sein"
           },
           {
             "risk": "GO feuert nicht alle Aktionen",
-            "remedy": "Zuordnung je Zeile kontrollieren; Live-Status des betroffenen Tools prüfen"
+            "remedy": "Zuordnung je Zeile kontrollieren; Statusleiste: Eintrag des betroffenen Tools prüfen"
           },
           {
             "risk": "Companion-GO ohne Wirkung",
-            "remedy": "Companion zeigt auf Port 8731 (jm-rundown-ctl)? Gemeinsames LAN?"
+            "remedy": "Statusleiste „Fernsteuerung“ ansehen; Companion zeigt auf Port 8731 (jm-rundown-ctl)? Gemeinsames LAN?"
           },
           {
             "risk": "Eine einzelne Aktion läuft ins Leere",
-            "remedy": "Ziel-Tool neu gestartet → Port/Endpunkt erneut zuordnen"
+            "remedy": "Ziel-Tool neu gestartet → Port/Endpunkt erneut zuordnen (Panel ⚙ › Gegenstellen)"
           }
         ],
         "checklists": [
@@ -3835,7 +3835,7 @@
             "items": [
               "Ziel-Tools laufen und sind gefunden (ctl=1 sichtbar)",
               "Zeilen und Aktionen angelegt",
-              "Live-Status grün",
+              "Statusleiste: gefundene Tools verbunden",
               "Als .jmrundown gespeichert"
             ]
           },
@@ -4172,7 +4172,7 @@
           {
             "title": "Netzwerk & Steuerung",
             "items": [
-              "TCP-Steuerport (Zeilenprotokoll): nicht fest verdrahtet — wird im Switcher aktiviert (Companion-/Steuerung-Einstellungen) bzw. per Umgebungsvariable JMSWITCH_CONTROL_PORT gesetzt. mDNS-Rolle switcher (jm-switcher-ctl).",
+              "TCP-Steuerport (Zeilenprotokoll): nicht fest verdrahtet — wird im Switcher im Panel ⚙ › Fernsteuerung aktiviert (die Statusleiste zeigt den Eintrag „Fernsteuerung“) bzw. per Umgebungsvariable JMSWITCH_CONTROL_PORT gesetzt. mDNS-Rolle switcher (jm-switcher-ctl).",
               "Fern-Befehle: PREVIEW <n> | PROGRAM <n> | CUT | AUTO | RECORD | STREAM | STATE?.",
               "Status-Push: STATE program, preview, recording, streaming, scenes — das Format ist rückwärtskompatibel zum alten Companion-Modul."
             ]
@@ -4180,18 +4180,18 @@
         ],
         "steps": {
           "vor": [
-            "Quellen hinzufügen (Bildschirm/Fenster, NDI, Capture-Karte)",
+            "Quellen hinzufügen (Bildschirm/Fenster, NDI, Capture-Karte) im unteren Bereich „Szenen, Ebenen und Quellen“ des Mischers (lässt sich einklappen)",
             "Program/Preview prüfen, Reihenfolge der Quellen festlegen",
-            "Audioquelle zuordnen und Pegel kontrollieren",
+            "Audioquelle im Panel ⚙ › Audiogerät zuordnen und den Pegel in der Ausgabeleiste unter den Haupttasten kontrollieren",
             "Aufnahme-Zielordner setzen",
-            "Für Stream: RTMP-Ziel + Stream-Key hinterlegen und Verbindung testen",
-            "Optional: Steuerport aktivieren und Companion verbinden (Tasten für CUT/AUTO/PROGRAM/Szenen)"
+            "Für Stream: RTMP-Ziel + Stream-Key im Panel ⚙ › Streaming hinterlegen und Verbindung testen (ohne Ziel ist die Haupttaste „Stream starten“ gesperrt und nennt den Grund)",
+            "Optional: Steuerport im Panel ⚙ › Fernsteuerung aktivieren und Companion verbinden (Tasten für CUT/AUTO/PROGRAM/Szenen)"
           ],
           "waehrend": [
             "Quelle in Preview wählen (PREVIEW <n>)",
-            "Mit CUT hart oder mit AUTO weich auf Program schalten",
-            "Aufnahme (RECORD) und/oder Stream (STREAM) starten",
-            "Stream-Status (Bitrate, Drops) und Audiopegel beobachten"
+            "Mit CUT hart oder mit AUTO weich auf Program schalten (Haupttasten „Cut“ und „Auto“ unter der Kopfzeile)",
+            "Aufnahme (RECORD) und/oder Stream (STREAM) starten (Haupttasten „Aufnehmen“ und „Stream starten“; die Kopfzeile zeigt dann „REC“ bzw. „LIVE“)",
+            "Stream-Status (Bitrate, Drops) und Audiopegel beobachten: Statusleiste unten (Aufnahme, Stream, Audio), der Pegel in der Ausgabeleiste"
           ],
           "nach": [
             "Stream beenden, Aufnahme stoppen",
@@ -4209,7 +4209,7 @@
           },
           {
             "risk": "Companion steuert nicht",
-            "remedy": "Steuerport im Switcher aktiviert? Gleicher Port in Companion? Gemeinsames LAN?"
+            "remedy": "Statusleiste „Fernsteuerung“ ansehen: Steuerport im Panel ⚙ › Fernsteuerung aktiviert? Gleicher Port in Companion? Gemeinsames LAN?"
           },
           {
             "risk": "Stream bricht ab",
@@ -4217,7 +4217,7 @@
           },
           {
             "risk": "Kein Ton im Stream",
-            "remedy": "Audioquelle zugeordnet? Pegel/Mute prüfen"
+            "remedy": "Audioquelle im Panel ⚙ › Audiogerät zugeordnet (Statusleiste „Audio“)? Pegel/Mute in der Ausgabeleiste prüfen"
           }
         ],
         "checklists": [
@@ -4410,10 +4410,10 @@
             "title": "Netzwerk & Ports",
             "items": [
               "Port 7777 (Socket.IO/HTTP, 0.0.0.0): Operator- und Sprecherfenster, der LAN-Remote-View im Browser und JM Stage Display hängen hier dran.",
-              "Remote-View (Read-Only-Spiegel für iPad/Backstage-Monitor): http://<host-ip>:7777/?view=remote (Dev-Modus Port 5173). Die kopierbaren URLs stehen in der Operator-Sidebar unter „Remote\".",
+              "Remote-View (Read-Only-Spiegel für iPad/Backstage-Monitor): http://<host-ip>:7777/?view=remote (Dev-Modus Port 5173). Die kopierbaren URLs stehen im Panel ⚙ › LAN-Fernbedienung.",
               "Port 8724 (TCP-Zeilenprotokoll, getrennt von 7777): der Steuerport für Bitfocus Companion und JM Rundown.",
               "mDNS: zwei Adverts — role=timer (Socket.IO, von Stage Display genutzt) und jm-timer-ctl (TXT ctl=1, von Companion automatisch gefunden).",
-              "Optional Token-Auth für den Remote-Zugriff (in den Einstellungen aktivierbar, Token neu generierbar)."
+              "Optional Token-Auth für den Remote-Zugriff (im Panel ⚙ › LAN-Fernbedienung mit „Auth aktivieren“ einschaltbar, Token dort neu generierbar)."
             ]
           },
           {
@@ -4429,14 +4429,14 @@
         "steps": {
           "vor": [
             "Timetable bzw. Presets je Segment anlegen — Regieplan optional per XLSX importieren (Spalten Titel/Dauer/Notiz; Dauer als HH:MM:SS, MM:SS oder Minuten)",
-            "Sprecherfenster auf den Talent-Monitor schieben (Vollbild)",
-            "Remote-View bei Bedarf: URL aus der „Remote\"-Sidebar an Backstage/iPad geben",
-            "Fernsteuerung: Companion auf den Steuerport 8724 zeigen lassen (Auto-Discovery über jm-timer-ctl) — oder mit JM Rundown koppeln, das denselben Port nutzt"
+            "Sprecherfenster mit dem Speaker-Knopf in der Kopfzeile öffnen (Statusleiste „Speaker-Fenster“, Einstellungen im Panel ⚙ › Speaker-Fenster) und auf den Talent-Monitor schieben (Vollbild)",
+            "Remote-View bei Bedarf: URL aus dem Panel ⚙ › LAN-Fernbedienung an Backstage/iPad geben",
+            "Fernsteuerung: Companion auf den Steuerport 8724 zeigen lassen (Auto-Discovery über jm-timer-ctl; Port und verbundene Clients zeigt die Statusleiste unter „Fernsteuerung“, Panel ⚙ › Fernsteuerung) — oder mit JM Rundown koppeln, das denselben Port nutzt"
           ],
           "waehrend": [
-            "Timer starten / stoppen / zurücksetzen (lokal oder per Companion: TIMER START/STOP/RESET)",
+            "Timer starten / stoppen / zurücksetzen (lokal mit den Haupttasten „Start“, „Resume“/„Pause“ und „Reset“, im Countdown auch Leertaste und R; per Companion: TIMER START/STOP/RESET)",
             "Nachschlag geben mit TIMER ADD 60; harte Korrektur mit TIMER SET 300",
-            "Kurznachricht für die Bühne einblenden; Over-Time (Rotphase) im Blick behalten"
+            "Kurznachricht für die Bühne einblenden (Nachrichtenleiste über dem Inhalt); Over-Time (Rotphase) im Blick behalten"
           ],
           "nach": [
             "Timer bzw. Timetable für das nächste Segment zurücksetzen"
@@ -4449,11 +4449,11 @@
           },
           {
             "risk": "Companion/Rundown steuert nicht",
-            "remedy": "Das ist Port 8724, nicht 7777 — Steuerport offen? jm-timer-ctl im mDNS sichtbar?"
+            "remedy": "Das ist Port 8724, nicht 7777 — Steuerport offen (Statusleiste „Fernsteuerung“)? jm-timer-ctl im mDNS sichtbar?"
           },
           {
             "risk": "Remote zeigt „nicht autorisiert\"",
-            "remedy": "Token-Auth aktiv → Token aus den Einstellungen verwenden oder neu generieren"
+            "remedy": "Token-Auth aktiv → Token aus dem Panel ⚙ › LAN-Fernbedienung verwenden oder dort neu generieren"
           },
           {
             "risk": "Stage Display findet den Timer nicht",

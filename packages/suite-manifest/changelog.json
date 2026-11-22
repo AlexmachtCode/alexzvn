@@ -504,6 +504,16 @@
     "name": "JM Switcher",
     "entries": [
       {
+        "version": "0.12.0",
+        "date": "2026-11-22",
+        "notes": [
+          "Neue Oberfläche: Oben die Kopfzeile mit „JM Switcher“, dem Sendezustand („REC“ bzw. „LIVE“) und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter die Projekt-Leiste mit Neu, Öffnen und Speichern, die Haupttasten „Cut“, „Auto“, „Aufnehmen“ und „Stream starten“ und der Mischer. Die Einstellungen liegen jetzt im Panel hinter ⚙, die Reiter „Mischer“ und „Einstellungen“ entfallen.",
+          "Neue Statusleiste mit sieben Einträgen: Master, NDI, Bildschirm, Aufnahme, Stream, Fernsteuerung und Audio. Sie zeigt nur, was der Switcher wirklich weiß; ein Klick auf einen Eintrag öffnet, wo es eine Einstellung gibt, das Panel am passenden Abschnitt.",
+          "Gesperrte Haupttasten nennen ihren Grund, zum Beispiel „Stream-Ziel in den Einstellungen festlegen“. Der untere Bereich mit Szenen, Ebenen und Quellen lässt sich einklappen.",
+          "Zahlenfelder übernehmen den Wert bei Enter oder beim Verlassen des Feldes; die Pfeiltasten ändern sie nicht mehr. Bedienung, Fernsteuerung (Companion-Befehle) und Ausgaben bleiben gleich, es gibt keine neuen Tastenkürzel."
+        ]
+      },
+      {
         "version": "0.11.0",
         "date": "2026-11-20",
         "notes": [
@@ -817,6 +827,16 @@
     "app": "timer",
     "name": "JM Timer",
     "entries": [
+      {
+        "version": "0.15.0",
+        "date": "2026-11-22",
+        "notes": [
+          "Neue Oberfläche: Oben die Kopfzeile mit „JM Timer“, der Anzeige „Show vom Master“ und dem Speaker-Knopf, darunter die Modi Clock, Countdown und Timetable mit den Haupttasten „Start“, „Resume“, „Pause“, „Reset“, „← Prev“ und „Next →“. Remote und Farben liegen jetzt im Panel hinter ⚙ als „LAN-Fernbedienung“ und „Farben“, dazu der Abschnitt „Speaker-Fenster“.",
+          "Neue Statusleiste mit vier Einträgen: Master, Sync, Speaker-Fenster und Fernsteuerung. Sie zeigt nur, was der Timer wirklich weiß; solange noch keine Antwort da ist, steht dort „unbekannt“.",
+          "Gesperrte Haupttasten nennen ihren Grund, zum Beispiel „Erster Programmpunkt“ oder „Nichts zurückzusetzen“. Die Kürzel Leertaste und R stehen auf den Tasten und gelten wie bisher nur im Countdown. Delay und Auto-Advance sind einklappbare Karten.",
+          "Hell und Dunkel per Schalter in der Kopfzeile, gemerkt je Rechner. Die Versionszeile „v0.1.0“ und die Zeile „Live Production“ in der Seitenleiste entfallen. Bedienung und Fernsteuerung (Port 8724) bleiben gleich."
+        ]
+      },
       {
         "version": "0.14.1",
         "date": "2026-11-20",
@@ -1644,6 +1664,16 @@
     "name": "JM Rundown",
     "entries": [
       {
+        "version": "0.9.0",
+        "date": "2026-11-22",
+        "notes": [
+          "Neue Oberfläche: Oben die Kopfzeile mit „JM Rundown“, der Anzeige „Show vom Master“ und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter die Werkzeugleiste mit Neu, Öffnen, Regieplan…, Export… und Speichern. Links steht die Liste mit den Haupttasten „GO“, „◀ Zurück“ und „Weiter ▶“, rechts der Editor der gewählten Zeile. Das Fenster „Tool-Verbindungen“ ist ins Panel hinter ⚙ umgezogen.",
+          "Neue Statusleiste: Master, iveo, je ein Eintrag pro gefundenem Tool und die Fernsteuerung. Ein Tool, das im Netz gefunden, aber nicht verbunden ist, heißt „gefunden · nicht verbunden“; seine Adresse steht im Panel als „gefunden: host:port“.",
+          "GO nennt seinen Grund, wenn keine Zeile im Ablauf ist („Keine Zeile im Ablauf“). Die Kürzel Leertaste, ↑ und ↓ stehen jetzt auf den Tasten und gelten wie bisher.",
+          "Das Host-Feld einer Gegenstelle ist nicht mehr mit der gefundenen Adresse vorbelegt, und „Setzen“ geht erst mit einem gültigen Port. Bedienung, Fernsteuerung und Ablaufdateien bleiben gleich."
+        ]
+      },
+      {
         "version": "0.8.1",
         "date": "2026-11-20",
         "notes": [
@@ -1734,6 +1764,16 @@
     "name": "JM Q&A",
     "entries": [
       {
+        "version": "0.7.0",
+        "date": "2026-11-22",
+        "notes": [
+          "Neue Oberfläche: Oben die Kopfzeile mit „JM Q&A“, „N wartend“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „Nächste ▶“, „■ Beenden“ und „Saal-Einreichung“. Einstellungen, Kopplung, Extern und Moderation liegen jetzt im Panel hinter ⚙; die Fenster „Einstellungen“ und „Verbindungen“, die Karte „Kopplung“ und die beiden Kopf-Knöpfe dazu entfallen.",
+          "Neue Statusleiste mit sechs Einträgen: Master, Extern, Kopplung Timer, Kopplung Titler, Fernsteuerung und Saal. Sie zeigt nur, was Q&A wirklich weiß; ein im Netz gefundener, aber nicht verbundener Timer oder Titler steht dort als „host:port · gefunden · nicht verbunden“.",
+          "Die Saal-Einreichung ist eine Haupttaste mit Zustand („Saal-Einreichung ◉ An“ bzw. „○ Aus“). Die Zugangstexte für Fragen per Handy und per Livestream bleiben wie bisher.",
+          "Zahlenfelder wie die Redezeit übernehmen den Wert bei Enter oder beim Verlassen des Feldes; Werte unter 5 setzt Q&A weiter auf 5. Bedienung und Fernsteuerung bleiben gleich, es gibt keine neuen Tastenkürzel."
+        ]
+      },
+      {
         "version": "0.6.0",
         "date": "2026-11-20",
         "notes": [
@@ -1797,6 +1837,16 @@
     "app": "battle",
     "name": "JM Battle",
     "entries": [
+      {
+        "version": "0.5.0",
+        "date": "2026-11-22",
+        "notes": [
+          "Neue Oberfläche: Oben die Kopfzeile mit „JM Battle“, „Runde n/m“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „VS“, „Voting öffnen“, „Nächste Runde ▶“ und „⧉ Clip“. Einstellungen, Verbindungen und Zurücksetzen liegen jetzt im Panel hinter ⚙; die Fenster „Einstellungen“ und „Verbindungen“ entfallen. Die Karte „Instant-Replay“ bleibt rechts im Live-Bereich.",
+          "Neue Statusleiste mit fünf Einträgen: Master, Kopplung Titler, Fernsteuerung, Publikums-Voting und Aufnahme-Quelle. Sie zeigt nur, was Battle wirklich weiß.",
+          "Gesperrte Haupttasten nennen ihren Grund, zum Beispiel „Voting-Server ist aus“ oder „keine Aufnahme-Quelle“. Ist der Titler nicht verbunden, sagt ein Hinweis unter dem VS-Knopf, dass die Bauchbinde nicht erscheint. Die Rückfrage beim Zurücksetzen nennt jetzt auch, dass ein laufendes VS ausgeht.",
+          "Länge und Runden übernehmen den Wert bei Enter oder beim Verlassen des Feldes. Bedienung, Fernsteuerung und das VS-Bild bleiben gleich, es gibt keine neuen Tastenkürzel."
+        ]
+      },
       {
         "version": "0.4.0",
         "date": "2026-11-20",

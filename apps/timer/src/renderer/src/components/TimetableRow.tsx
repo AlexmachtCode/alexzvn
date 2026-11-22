@@ -2,10 +2,7 @@ import { useEffect, useState } from 'react';
 import { useStore, type TimetableItem } from '@/store/timer';
 import { formatHMS, parseHMS } from '@/lib/time';
 import { formatTimeOfDay, parseTimeOfDay } from '@jm/regieplan';
-import { Input } from './ui/Input';
-import { Button } from '@jm/ui';
-import { StatusPill } from './ui/StatusPill';
-import { cn } from '@jm/ui';
+import { Button, cn, StatusPill, TextInput } from '@jm/ui';
 
 interface Props {
   item: TimetableItem;
@@ -92,9 +89,9 @@ export function TimetableRow({ item, index, total, status, projectedStartMs, del
         {String(index + 1).padStart(2, '0')}
       </div>
 
-      <Input
+      <TextInput
         value={label}
-        onChange={(e) => setLabel(e.target.value)}
+        onChange={setLabel}
         onBlur={commitLabel}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur();
@@ -104,9 +101,9 @@ export function TimetableRow({ item, index, total, status, projectedStartMs, del
       />
 
       <div className="flex flex-col">
-        <Input
+        <TextInput
           value={plannedDraft}
-          onChange={(e) => setPlannedDraft(e.target.value)}
+          onChange={setPlannedDraft}
           onBlur={commitPlanned}
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
           placeholder="—:—"
@@ -119,9 +116,9 @@ export function TimetableRow({ item, index, total, status, projectedStartMs, del
       </div>
 
       <div className="flex flex-col">
-        <Input
+        <TextInput
           value={durationDraft}
-          onChange={(e) => setDurationDraft(e.target.value)}
+          onChange={setDurationDraft}
           onBlur={commitDuration}
           onKeyDown={(e) => {
             if (e.key === 'Enter') e.currentTarget.blur();
@@ -134,9 +131,9 @@ export function TimetableRow({ item, index, total, status, projectedStartMs, del
         )}
       </div>
 
-      <Input
+      <TextInput
         value={note}
-        onChange={(e) => setNote(e.target.value)}
+        onChange={setNote}
         onBlur={commitNote}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur();
@@ -147,9 +144,9 @@ export function TimetableRow({ item, index, total, status, projectedStartMs, del
 
       <div className="text-xs text-center text-[var(--muted-foreground)] tabular">
         {status === 'active' ? (
-          <StatusPill status="live">Live</StatusPill>
+          <StatusPill state="ok" text="Live" />
         ) : status === 'past' ? (
-          <StatusPill status="done">Done</StatusPill>
+          <StatusPill state="off" text="Done" />
         ) : projectedStartMs !== null ? (
           <div className="flex flex-col items-center leading-tight">
             <span className="tracking-wide">{formatWallClock(projectedStartMs)}</span>
@@ -196,9 +193,9 @@ export function TimetableRow({ item, index, total, status, projectedStartMs, del
       <div className="col-span-full flex items-center gap-4 pl-[calc(36px+0.75rem)] text-xs">
         <label className="flex items-center gap-1 min-w-0 flex-1">
           <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground)] font-extrabold shrink-0">V</span>
-          <Input
+          <TextInput
             value={ownerDraft}
-            onChange={(e) => setOwnerDraft(e.target.value)}
+            onChange={setOwnerDraft}
             onBlur={commitOwner}
             onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
             placeholder="Verantwortlich"
@@ -207,9 +204,9 @@ export function TimetableRow({ item, index, total, status, projectedStartMs, del
         </label>
         <label className="flex items-center gap-1 min-w-0 flex-1">
           <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground)] font-extrabold shrink-0">K</span>
-          <Input
+          <TextInput
             value={categoryDraft}
-            onChange={(e) => setCategoryDraft(e.target.value)}
+            onChange={setCategoryDraft}
             onBlur={commitCategory}
             onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
             placeholder="Kategorie"

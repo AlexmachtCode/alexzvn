@@ -10,6 +10,19 @@ export interface VerbundAnzeigeZeile {
   farbe: 'gruen' | 'gelb' | 'rot' | 'gedaempft';
 }
 
+/**
+ * Master-Link-Meldung über die Preload-Brücke (UX Welle 1, Spec 3.9): Zustand des Clients oder `ohne-client`.
+ * Strukturgleich mit `MasterLinkMeldung` aus `@jm/app-runtime`; eigener Typ wie `VerbundAnzeigeZeile` (E28).
+ * Den Gleichlauf prüft die Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
+
 /** Ändert der Befehl die Punkte des Ablaufs? Über alle Befehle: ein neuer Befehl braucht hier eine Entscheidung (Typecheck). */
 const AENDERT_PUNKTE: Record<Command['type'], boolean> = {
   setDuration: false,

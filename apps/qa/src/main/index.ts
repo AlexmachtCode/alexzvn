@@ -6,6 +6,7 @@ import { parseShow, parseShowDeepLink } from '@jm/show';
 import { RemoteServer } from '@jm/remote';
 import { readControlConfig } from '@jm/control-config';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
+import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { QaCloudInfo, QaConfig, QaEntry, QaState, QaSubmission, ToolLink } from '@shared/types';
 import {
   activate,
@@ -618,7 +619,20 @@ async function setRemote(enabled: boolean): Promise<void> {
 }
 
 // ── IPC ───────────────────────────────────────────────────────────────────────
+/**
+ * UX Welle 1 (Spec 3.9): die zuletzt gemeldete Lage des Steuerservers, nur lesend. null, solange nichts gemeldet wurde
+ * (der Renderer zeigt dann „unbekannt“). Jede Meldung geht an alle offenen Fenster.
+ */
+let fernsteuerung: FernsteuerungMeldung | null = null;
+function meldeFernsteuerung(e: FernsteuerungEreignis): void {
+  fernsteuerung = naechsteFernsteuerung(fernsteuerung ?? undefined, e);
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('qa:fernsteuerung', fernsteuerung);
+  }
+}
+
 function registerIpc(): void {
+  ipcMain.handle('qa:fernsteuerung', () => fernsteuerung);
   ipcMain.handle('qa:getState', () => buildState());
 
   ipcMain.handle('qa:addEntry', (_e, sub: QaSubmission) => {
@@ -837,7 +851,17 @@ if (!gotLock) {
     // Externe Einreichung wiederherstellen, falls zuletzt aktiv (#166).
     if (getConfig().cloudEnabled) void cloudEnable(true);
     // Eigener Steuerserver: Q&A per Companion fernsteuerbar (Port 8733).
-    void startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand });
+    // Das Start-Ergebnis geht nur lesend an die Statusleiste; Reihenfolge und Argumente bleiben wie zuvor.
+    void (async () => {
+      try {
+        const r = await startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand, onMeldung: meldeFernsteuerung });
+        meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });
+        if (!r.ok) getLog().warn(`Q&A-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
+      } catch (err) {
+        meldeFernsteuerung({ art: 'wurf', text: (err as Error).message });
+        getLog().warn(`Q&A-Steuerserver fehlgeschlagen: ${(err as Error).message}`);
+      }
+    })();
   });
 
   app.on('before-quit', () => {

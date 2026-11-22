@@ -72,12 +72,32 @@ export interface OutputError {
 
 import type { ControlCommand, SwitcherStateMsg } from '@jm/companion-protocol';
 
-/** Status des TCP-Steuerservers (Slice 6). */
+/**
+ * Status des TCP-Steuerservers (Slice 6). `modus` und `fehler` kommen aus der Fernsteuerungs-Meldung
+ * (shared/fernsteuerung.ts, UX Welle 1); fehlen sie, gibt es noch keinen wirksamen Modus bzw. keinen Fehler.
+ */
 export interface ControlStatus {
   running: boolean;
   port: number;
   clients: number;
+  /** Wirksamer Modus des Steuerservers (SuiteControlServer.modus()). */
+  modus?: 'open' | 'secure';
+  /** Startfehler oder Wurf, wörtlich; fällt weg, sobald der Server läuft. */
+  fehler?: string;
 }
+
+/**
+ * Master-Link-Meldung über die Preload-Brücke (UX Welle 1, Spec 3.9): Zustand des Clients oder `ohne-client`.
+ * Strukturgleich mit `MasterLinkMeldung` aus `@jm/app-runtime`; eigener Typ wie im Titler. Den Gleichlauf prüft die
+ * Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
 
 /** TCP-Fernsteuerung (Bitfocus Companion). */
 export interface JmswitchControlApi {
@@ -164,6 +184,10 @@ export interface JmswitchApi {
   project: JmswitchProjectApi;
   /** Zweitbildschirm-Ausgabe (physischer Programm-Output auf einem Monitor). */
   screen: JmswitchScreenApi;
+  /** Master-Link-Zustand (Spec 3.9): Meldung oder null (Brücke fehlt oder lehnt ab → „unbekannt“, nicht „aus“). */
+  masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+  /** Auf Wechsel des Master-Link-Zustands hören (Main → alle Fenster, einmal auch beim Anhängen). Liefert Unsubscribe. */
+  onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
 }
 
 export interface JmswitchProjectApi {

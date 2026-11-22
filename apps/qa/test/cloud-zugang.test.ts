@@ -404,33 +404,43 @@ function ausschnitt(text: string, start: string, ende: string): string {
 
 // --- P31: Oberfläche (Quelltext-Wächter; React läuft hier nicht) ------------------------------------------------------
 {
-  const settings = quelle('../src/renderer/src/components/Settings.tsx');
+  const settings = quelle('../src/renderer/src/views/Einstellungen.tsx');
   const panel = quelle('../src/renderer/src/components/CloudPanel.tsx');
   const typen = quelle('../src/shared/types.ts');
   const info = ausschnitt(quelle('../src/main/index.ts'), 'function buildCloudInfo(', '\n}\n');
   const rueckgabe = ausschnitt(info, 'return {', '\n  };');
   eq(
     [
-      settings.includes('<Row label="Server-Adresse" hint="Vorgabe: Server der Suite. Nur für Entwicklung und Fehlersuche ändern.">'),
+      settings.includes('<Field label="Server-Adresse" hint="Vorgabe: Server der Suite. Nur für Entwicklung und Fehlersuche ändern.">'),
       settings.includes('placeholder={cloud.proxyUrl}') && info.includes('proxyUrl: cfg.proxyUrl,'),
-      settings.includes('<Row label="Alter Proxy-Key (Übergang)" hint="Nur noch kurz gültig. Mit Anmeldung im Launcher brauchst du ihn nicht.">'),
+      settings.includes('<Field label="Alter Proxy-Key (Übergang)" hint="Nur noch kurz gültig. Mit Anmeldung im Launcher brauchst du ihn nicht.">'),
       panel.includes('Für Fragen per Livestream oder Presse: im Launcher anmelden und hier ein Event erzeugen.'),
       ['Proxy-URL', 'Basis-URL des Q&A-Relays', 'Zugriffs-Key des Proxys', 'Hinterlegt (verschlüsselt gespeichert).', 'In den Einstellungen Proxy-URL']
         .filter((t) => settings.includes(t) || panel.includes(t)),
     ],
     [true, true, true, true, []],
-    'P31 9.10: Q1 (Platzhalter = wirksame Adresse), Q6a und Q7 wörtlich in Settings.tsx und CloudPanel.tsx, die alten Texte sind weg',
+    'P31 9.10: Q1 (Platzhalter = wirksame Adresse), Q6a und Q7 wörtlich in Einstellungen.tsx und CloudPanel.tsx, die alten Texte sind weg',
   );
   const keyFeld = "{cloud.hasKey || cloud.zugang.art !== 'freigabe' ? (";
+  // Fund C7: Das Feld liegt seit E14 in der Komponente AlterKey am Dateiende; „Bedingung vor dem Feld“ wäre damit immer wahr.
+  // Geprüft wird darum, dass das Feld im Körper von AlterKey steht (und unten, dass AlterKey nur innerhalb der Bedingung steht).
+  const alterKeyKoerper = ausschnitt(settings, 'function AlterKey(', '\n}\n');
   eq(
     [
-      settings.includes(keyFeld) && settings.indexOf(keyFeld) < settings.indexOf('<Row label="Alter Proxy-Key (Übergang)"'),
-      (settings.match(/<Row label="Alter Proxy-Key/g) ?? []).length,
+      settings.includes(keyFeld) && alterKeyKoerper.includes('<Field label="Alter Proxy-Key (Übergang)"'),
+      (settings.match(/<Field label="Alter Proxy-Key/g) ?? []).length,
       settings.includes(') : cloud.zugang.hinweis ? ('),
       settings.includes('{cloud.zugang.zeile}') && panel.includes('{cloud.zugang.zeile}'),
     ],
     [true, 1, true, true],
     'P31 Q6a/Q6b/Q12: Feld alter Key nur bei gespeichertem Key oder ohne Freigabe, danach Q6b; Zugangszeile in Einstellungen und CloudPanel',
+  );
+  // E14: Das Feld liegt jetzt in der Komponente AlterKey (eigener Zustand für den Key); sie darf nur innerhalb der Bedingung stehen, einmal, vor Q6b.
+  const alterKey = '<AlterKey cloud={cloud} aktionen={aktionen} />';
+  eq(
+    [settings.indexOf(keyFeld) < settings.indexOf(alterKey), settings.indexOf(alterKey) < settings.indexOf(') : cloud.zugang.hinweis ? ('), (settings.match(/<AlterKey /g) ?? []).length],
+    [true, true, 1],
+    'P31 Q6a (E14): die Komponente mit dem Feld alter Key steht einmal, innerhalb der Bedingung und vor dem Hinweis Q6b',
   );
   eq(
     [
@@ -568,7 +578,7 @@ const z1 = (await import('../src/main/cloud-zugang.ts')) as Z1Modul;
 
   // TON: genau eine Definition, Farbzuordnung festgenagelt, beide Komponenten nutzen sie
   const ton = quelle('../src/renderer/src/lib/zugang-ton.ts');
-  const settings = quelle('../src/renderer/src/components/Settings.tsx');
+  const settings = quelle('../src/renderer/src/views/Einstellungen.tsx');
   const panel = quelle('../src/renderer/src/components/CloudPanel.tsx');
   const def = ton.split('\n').filter((z) => /^export const TON\b/.test(z));
   eq(
@@ -579,7 +589,7 @@ const z1 = (await import('../src/main/cloud-zugang.ts')) as Z1Modul;
       settings.includes('${TON[cloud.zugang.ton]}'), panel.includes('${TON[cloud.zugang.ton]}')],
     [["export const TON = { ok: 'text-[var(--muted-foreground)]', warn: 'text-[var(--warning)]', fehler: 'text-[var(--destructive)]' } as const;"],
       true, true, true, 3, false, false, true, true, true, true],
-    'Z1-L3 [T]: TON (ok = gedämpft, warn = Warnung, fehler = destruktiv) wird nur einmal in lib/zugang-ton.ts definiert; Settings und CloudPanel importieren sie',
+    'Z1-L3 [T]: TON (ok = gedämpft, warn = Warnung, fehler = destruktiv) wird nur einmal in lib/zugang-ton.ts definiert; Einstellungen und CloudPanel importieren sie',
   );
 
   // Q12 mit Detail: kein zweiter Schlusspunkt, wie bei Q3i (Q3i endet ohne Punkt; Detail ist nur ein Code)

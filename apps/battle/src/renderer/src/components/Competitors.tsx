@@ -1,59 +1,81 @@
-import type { BattleState, Side } from '@shared/types';
+import { useId } from 'react';
+import { Button, Card } from '@jm/ui';
+import type { BattleState, Competitor, Side } from '@shared/types';
 import { juryWins, voteTotals } from '@shared/scoring';
-import { useBattle } from '@/store/useBattle';
+import { ECKEN_FARBE } from '@/lib/oberflaeche';
 
-const nameInp = 'w-full bg-transparent text-center text-2xl font-bold outline-none focus:bg-neutral-800/50 rounded px-1';
-const crewInp = 'w-full bg-transparent text-center text-sm text-neutral-400 outline-none focus:bg-neutral-800/50 rounded px-1';
+// Namensfelder ohne eigenen Rahmen; der Fokusring bleibt (focus-visible), der Grund wird bei Fokus dunkler.
+const FELD =
+  'w-full rounded bg-transparent px-1 text-center outline-none focus:bg-[var(--muted)] ' +
+  'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ring)]';
+const NAME = `${FELD} text-2xl font-bold text-[var(--foreground)]`;
+const CREW = `${FELD} text-sm text-[var(--muted-foreground)]`;
+
+/** Was die Ecken auslösen: die Handler des Stores, als Rückrufe ohne Rückgabe. Die Namensfelder schreiben bei jedem Tastendruck. */
+export interface EckenAktionen {
+  setCompetitor(side: Side, patch: Partial<Competitor>): void;
+  swapCompetitors(): void;
+}
+
+/**
+ * Eine Ecke (editierbar) mit Rundensiegen und Stimmen. Eigene Komponente auf Modulebene: Früher entstand sie bei jedem Rendern neu
+ * (eine Komponente innerhalb der Komponente), das Feld verlor mit jedem Tastendruck den Fokus.
+ */
+function Ecke({ side, state, aktionen }: { side: Side; state: BattleState; aktionen: EckenAktionen }): React.JSX.Element {
+  const kopfId = useId();
+  const c = state.competitors[side];
+  const farbe = ECKEN_FARBE[side];
+  const wins = juryWins(state.rounds)[side];
+  const stimmen = voteTotals(state.rounds)[side];
+  return (
+    <Card glossy={false} className="min-w-0 flex-1 p-4" style={{ borderTopColor: farbe, borderTopWidth: 3 }}>
+      <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+        <span id={kopfId}>Ecke {side}</span>
+        <span className="tabular">{stimmen} Stimmen</span>
+      </div>
+      <input
+        className={NAME}
+        aria-labelledby={kopfId}
+        value={c.name}
+        onChange={(e) => aktionen.setCompetitor(side, { name: e.target.value })}
+        spellCheck={false}
+      />
+      <input
+        className={CREW}
+        aria-labelledby={kopfId}
+        value={c.crew}
+        placeholder="Crew / Stadt"
+        onChange={(e) => aktionen.setCompetitor(side, { crew: e.target.value })}
+        spellCheck={false}
+      />
+      <div className="mt-2 text-center text-4xl font-black tabular" style={{ color: farbe }}>
+        {wins}
+      </div>
+      <div className="text-center text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">Rundensiege</div>
+    </Card>
+  );
+}
 
 /** Kontrahenten A/B (editierbar) + Live-Gesamtstand (Jury-Rundensiege, Stimmen). */
-export function Competitors({ state }: { state: BattleState }) {
-  const { setCompetitor, swapCompetitors } = useBattle();
-  const wins = juryWins(state.rounds);
-  const votes = voteTotals(state.rounds);
-
-  const Card = ({ side, color }: { side: Side; color: string }) => {
-    const c = state.competitors[side];
-    return (
-      <div className="flex-1 rounded-xl border border-neutral-800 bg-neutral-900/40 p-4" style={{ borderTopColor: color, borderTopWidth: 3 }}>
-        <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wider text-neutral-500">
-          <span>Ecke {side}</span>
-          <span className="tabular text-neutral-400">{votes[side]} Stimmen</span>
-        </div>
-        <input
-          className={nameInp}
-          value={c.name}
-          onChange={(e) => void setCompetitor(side, { name: e.target.value })}
-          spellCheck={false}
-        />
-        <input
-          className={crewInp}
-          value={c.crew}
-          placeholder="Crew / Stadt"
-          onChange={(e) => void setCompetitor(side, { crew: e.target.value })}
-          spellCheck={false}
-        />
-        <div className="mt-2 text-center text-4xl font-black tabular" style={{ color }}>
-          {wins[side]}
-        </div>
-        <div className="text-center text-[10px] uppercase tracking-wider text-neutral-600">Rundensiege</div>
-      </div>
-    );
-  };
-
+export function Competitors({ state, aktionen }: { state: BattleState; aktionen: EckenAktionen }): React.JSX.Element {
   return (
-    <div className="flex items-stretch gap-3">
-      <Card side="A" color="#3da5ff" />
+    <div data-ba="ecken" className="flex items-stretch gap-3">
+      <Ecke side="A" state={state} aktionen={aktionen} />
       <div className="flex flex-col items-center justify-center gap-2">
-        <span className="text-lg font-black text-neutral-500">VS</span>
-        <button
-          onClick={() => void swapCompetitors()}
+        <span className="text-lg font-black text-[var(--muted-foreground)]">VS</span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          uppercase={false}
           title="Ecken tauschen"
-          className="rounded-md border border-neutral-700 px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-800"
+          aria-label="Ecken tauschen"
+          onClick={() => aktionen.swapCompetitors()}
         >
           ⇄
-        </button>
+        </Button>
       </div>
-      <Card side="B" color="#ff5c5c" />
+      <Ecke side="B" state={state} aktionen={aktionen} />
     </div>
   );
 }

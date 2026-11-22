@@ -35,6 +35,7 @@ export function MessageBar() {
 
   return (
     <div
+      data-timer="messagebar"
       className={cn(
         'relative border-b border-[var(--border)]/60',
         'bg-[var(--card)]/40 backdrop-blur-md',
@@ -89,7 +90,7 @@ export function MessageBar() {
               (e.target as HTMLInputElement).blur();
             }
           }}
-          placeholder='Live-Nachricht für Speaker — z. B. "2 Minuten links" oder "Bitte zum Ende kommen"'
+          placeholder="Live-Nachricht für Speaker — z. B. „2 Minuten links“ oder „Bitte zum Ende kommen“"
           className={cn(
             'flex-1 h-9 px-3 rounded-[var(--radius)] min-w-0',
             'bg-[var(--input)] text-[var(--foreground)]',

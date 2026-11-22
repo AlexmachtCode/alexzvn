@@ -89,6 +89,16 @@ export function AppHeader({
  * (LIVE_FLAECHE_KLASSE); sonst „bereit“ mit grünem ● und Text in Vordergrundfarbe. Nie nur Farbe.
  */
 function OnAirAnzeige({ live, label }: { live: boolean; label?: string }): React.JSX.Element {
+  // Stabile Region außen: Sie bleibt beim Wechsel live ↔ bereit erhalten, damit der Screenreader den Wechsel ansagt.
+  // inline-flex + items-center: Das Badge sitzt mittig im Flex-Kopf statt auf der Grundlinie der Region.
+  return (
+    <span role="status" data-bereich="onair" className="inline-flex items-center">
+      <OnAirInhalt live={live} label={label} />
+    </span>
+  );
+}
+
+function OnAirInhalt({ live, label }: { live: boolean; label?: string }): React.JSX.Element {
   if (live) {
     return (
       <span
