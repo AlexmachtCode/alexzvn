@@ -5,6 +5,7 @@ import { usePlayer } from '@/store/player';
 import { cueEngine } from '@/lib/cues';
 import { formatDuration } from '@/lib/format';
 import { istEingabeZiel } from '@/lib/oberflaeche';
+import { Fussleiste } from './Fussleiste';
 
 const SLOTS = 24;
 const COLS = 6;
@@ -64,18 +65,22 @@ export function SoundboardView() {
     if (pl) void selectSoundboard(pl.id);
   };
 
+  // Fußleiste mit Stop und Panik (W2-10) in beiden Zweigen: auch ohne Soundboard kann eine Show laufen.
   if (boards.length === 0) {
     return (
-      <div className="h-full grid place-items-center px-8">
-        <div className="text-center max-w-sm">
-          <h3 className="text-base font-extrabold">Noch kein Soundboard</h3>
-          <p className="text-sm text-[var(--muted-foreground)] mt-1">
-            Lege ein Soundboard an und belege die Pads mit Sofort-Cues (z. B. Theatergong) auf Hotkeys.
-          </p>
-          <Button size="sm" variant="primary" className="mt-5" onClick={() => void newBoard()}>
-            Soundboard anlegen
-          </Button>
+      <div className="h-full flex flex-col">
+        <div className="flex-1 min-h-0 grid place-items-center px-8">
+          <div className="text-center max-w-sm">
+            <h3 className="text-base font-extrabold">Noch kein Soundboard</h3>
+            <p className="text-sm text-[var(--muted-foreground)] mt-1">
+              Lege ein Soundboard an und belege die Pads mit Sofort-Cues (z. B. Theatergong) auf Hotkeys.
+            </p>
+            <Button size="sm" variant="primary" className="mt-5" onClick={() => void newBoard()}>
+              Soundboard anlegen
+            </Button>
+          </div>
         </div>
+        <Fussleiste />
       </div>
     );
   }
@@ -117,6 +122,8 @@ export function SoundboardView() {
           ))}
         </div>
       </div>
+
+      <Fussleiste />
 
       {editSlot != null && soundboardId != null && (
         <CueEditor

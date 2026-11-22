@@ -11,7 +11,7 @@
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { ScreenOption } from '@jm/settings';
-import { AppShell, Tabs, useBrueckenWert, type TabItem } from '@jm/ui';
+import { AppShell, cn, Tabs, useBrueckenWert, type TabItem } from '@jm/ui';
 import { baueAktionen, liesBildschirme, liesVollbild, padsAbonnieren } from '@/lib/aktionen';
 import { AUSGABE_QUELLE, FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
 import { cueEngine } from '@/lib/cues';
@@ -42,6 +42,18 @@ const REITER: TabItem<Reiter>[] = [
     </>
   ),
 }));
+
+/**
+ * Abstand der Hinweisleiste vom unteren Fensterrand je Reiter (Player d2): über der Leiste unten, nie über Statusleiste, Stop
+ * oder Panik. Bibliothek und Soundboard: über der Fußleiste (Rand, py-3 und eine TallyButton-Höhe, dazu 0,75 rem Luft).
+ * Cue-Show: über dem Transport (Standby, Rand, py-3 und die feste Tastenzeile, rund 143 px bei --text-base 15 px), dazu Luft.
+ * Vorher lag der Hinweis 1,25 rem über der Statusleiste und deckte 4 s lang Fußleiste und Transport (gemessen, t16-messung.mjs).
+ */
+const HINWEIS_UNTEN: Record<Reiter, string> = {
+  library: 'bottom-[calc(var(--statusbar-h)+var(--control-h-lg)+2.25rem)]',
+  soundboard: 'bottom-[calc(var(--statusbar-h)+var(--control-h-lg)+2.25rem)]',
+  show: 'bottom-[calc(var(--statusbar-h)+10.5rem)]',
+};
 
 export function PlayerOberflaeche({
   anfangOffen = false,
@@ -158,7 +170,7 @@ export function PlayerOberflaeche({
       {reiter === 'library' ? <Bibliothek /> : reiter === 'soundboard' ? <Soundboard /> : <CueShow onAusgabe={ausgabeOeffnen} />}
 
       {notice && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--statusbar-h)+1.25rem)] flex justify-center px-6">
+        <div className={cn('pointer-events-none fixed inset-x-0 flex justify-center px-6', HINWEIS_UNTEN[reiter])}>
           <div
             className="pointer-events-auto rounded-[var(--radius-lg)] border border-[var(--primary)]/40
                        bg-[var(--card)] px-4 py-2.5 text-sm font-semibold shadow-lg max-w-xl text-center"

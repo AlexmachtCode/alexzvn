@@ -3,26 +3,31 @@ import { Badge, Button, cn } from '@jm/ui';
 import type { MediaItem } from '@shared/types';
 import { usePlayer } from '@/store/player';
 import { basename, formatBytes, formatDuration } from '@/lib/format';
+import { Fussleiste } from './Fussleiste';
 
 export function LibraryView() {
   const loading = usePlayer((s) => s.loading);
   const activePlaylistId = usePlayer((s) => s.activePlaylistId);
 
+  // Fußleiste mit Stop und Panik (W2-10) fest unten, auch vor dem Laden; Quellen, Liste und Vorschau darüber.
   return (
-    <div className="h-full flex">
-      <Sidebar />
-      <section className="flex-1 min-w-0 flex flex-col border-r border-[var(--border)]/60">
-        {loading ? (
-          <div className="flex-1 grid place-items-center text-sm text-[var(--muted-foreground)]">
-            Lade Bibliothek…
-          </div>
-        ) : activePlaylistId == null ? (
-          <AllMediaList />
-        ) : (
-          <PlaylistQueue />
-        )}
-      </section>
-      <PlayerPanel />
+    <div className="h-full flex flex-col">
+      <div className="flex-1 min-h-0 flex">
+        <Sidebar />
+        <section className="flex-1 min-w-0 flex flex-col border-r border-[var(--border)]/60">
+          {loading ? (
+            <div className="flex-1 grid place-items-center text-sm text-[var(--muted-foreground)]">
+              Lade Bibliothek…
+            </div>
+          ) : activePlaylistId == null ? (
+            <AllMediaList />
+          ) : (
+            <PlaylistQueue />
+          )}
+        </section>
+        <PlayerPanel />
+      </div>
+      <Fussleiste />
     </div>
   );
 }

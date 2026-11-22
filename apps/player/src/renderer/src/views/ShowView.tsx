@@ -4,10 +4,12 @@ import type { MediaItem, OutputTime, ShowCue } from '@shared/types';
 import { usePlayer } from '@/store/player';
 import { formatDuration } from '@/lib/format';
 import { istEingabeZiel } from '@/lib/oberflaeche';
+import { LiveBereich } from './LiveBereich';
 
 /**
  * Cue-Show. `onAusgabe` öffnet das Einstellungs-Panel beim Abschnitt Ausgabe (UX Welle 2a, Player d1: das Modal
- * „Video-Ausgabe“ ist dort aufgegangen); „▦ Ausgabe“ bleibt der Zugang im Kopf der Cue-Show.
+ * „Video-Ausgabe“ ist dort aufgegangen); „▦ Ausgabe“ bleibt der Zugang im Kopf der Cue-Show. Unten steht der Live-Bereich
+ * (Standby und Transport als TallyButtons, Player d2); eine Fußleiste hat die Cue-Show nicht (W2-10).
  */
 export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
   const shows = usePlayer((s) => s.shows);
@@ -15,9 +17,11 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
   const showCues = usePlayer((s) => s.showCues);
   const standbyIndex = usePlayer((s) => s.standbyIndex);
   const playingCueIds = usePlayer((s) => s.playingCueIds);
+  const vorlaufCueIds = usePlayer((s) => s.vorlaufCueIds);
   const showPaused = usePlayer((s) => s.showPaused);
   const videoProgress = usePlayer((s) => s.videoProgress);
   const videoCue = usePlayer((s) => s.videoCue);
+  const outputDisplayId = usePlayer((s) => s.outputDisplayId);
 
   const createShow = usePlayer((s) => s.createShow);
   const renameShow = usePlayer((s) => s.renameShow);
@@ -80,8 +84,6 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
       </div>
     );
   }
-
-  const standbyCue = showCues[standbyIndex] ?? null;
 
   const move = (index: number, dir: -1 | 1): void => {
     const target = index + dir;
@@ -182,40 +184,13 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
         />
       )}
 
-      {/* Transport */}
-      <div className="shrink-0 border-t border-[var(--border)]/60 bg-[var(--card)]/50 px-5 py-3 flex items-center gap-4">
-        <div className="min-w-0 flex-1">
-          <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
-            Standby
-          </span>
-          <div className="truncate text-sm font-bold">
-            {standbyCue ? `Cue ${standbyIndex + 1} · ${standbyCue.label || standbyCue.media?.fileName || '—'}` : '— Ende —'}
-          </div>
-        </div>
-
-        <Button variant="ghost" onClick={showTogglePause} disabled={playingCueIds.length === 0 && !showPaused}>
-          {showPaused ? '▶ Weiter' : '❚❚ Pause'}
-        </Button>
-        <Button variant="outline" onClick={showStop}>
-          ■ Stop
-        </Button>
-        <Button variant="ghost" uppercase={false} onClick={showPanic} title="Sofort alles stoppen">
-          ⛔ Panik
-        </Button>
-        <button
-          type="button"
-          onClick={showGo}
-          disabled={!standbyCue}
-          className={cn(
-            'h-12 px-8 rounded-[var(--radius-lg)] text-lg font-extrabold tracking-wide transition-colors',
-            standbyCue
-              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 active:scale-[0.98]'
-              : 'bg-[var(--muted)] text-[var(--muted-foreground)] cursor-not-allowed',
-          )}
-        >
-          GO ⏎
-        </button>
-      </div>
+      {/* Live-Bereich: Standby und Transport (GO, Pause/Weiter, Stop, Panik) mit denselben Store-Aktionen wie bisher */}
+      <LiveBereich
+        stand={{
+          player: { activeShowId, showCues, standbyIndex, playingCueIds, vorlaufCueIds, showPaused, videoCue, videoProgress, outputDisplayId },
+        }}
+        aktionen={{ showGo, showTogglePause, showStop, showPanic }}
+      />
 
       {addOpen && activeShowId != null && <AddCuesModal onClose={schliesseHinzufuegen} />}
       {editCue && <CueSettingsModal cue={editCue} onClose={schliesseCue} />}
