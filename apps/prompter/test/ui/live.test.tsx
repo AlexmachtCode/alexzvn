@@ -63,6 +63,27 @@ const zeile = (s: OberflaechenStand): string[] => liveTasten(s, aktionen()).map(
   pruefeIdVerweise(html + gesperrt, 'PR Live Tasten: id-Verweise der Tasten gültig');
 }
 
+// ── R-T6a: die Tooltips „Voriger Abschnitt“ / „Nächster Abschnitt“ der Marken-Tasten (alter Wortlaut, OperatorView.tsx) ──
+{
+  const html = render(<HauptTasten tasten={liveTasten(stand(state(false)), aktionen())} />);
+  const umhuellt = (titel: string, label: string): boolean =>
+    new RegExp(`<div[^>]*\\stitle="${titel}"[^>]*><button[^>]*>(?:(?!</button>).)*${label}`, 's').test(html);
+  ok(
+    umhuellt('Voriger Abschnitt', 'Marke zurück') && umhuellt('Nächster Abschnitt', 'Marke vor'),
+    'PR Live Tasten Tooltips: „Voriger Abschnitt“ umhüllt die Taste „Marke zurück“, „Nächster Abschnitt“ die Taste „Marke vor“ (R-T6a)',
+  );
+  gleich(
+    tags(html, 'div').filter((t) => attr(t, 'title') !== undefined).map((t) => attr(t, 'title')),
+    ['Voriger Abschnitt', 'Nächster Abschnitt'],
+    'PR Live Tasten Tooltips: genau diese zwei Tooltips, GO/Pause und Anfang tragen keinen',
+  );
+  ok(T.tipps.markeZurueck === 'Voriger Abschnitt' && T.tipps.markeVor === 'Nächster Abschnitt', 'PR Live Tasten Tooltips: der alte Wortlaut steht in PROMPTER_TEXTE.tipps');
+  ok(
+    ohneKommentare(leseText('src/renderer/src/views/LiveBereich.tsx')).includes('title={tipp}') && !leseText('../../packages/ui/src/components/TallyButton.tsx').includes('Voriger Abschnitt'),
+    'PR Live Tasten Tooltips: das umhüllende Element trägt den title, @jm/ui bleibt unverändert',
+  );
+}
+
 // ── Live-Element ohne Klick sichtbar, Tempo im Live-Bereich, Hinweis ──
 {
   const html = render(<LiveBereich state={state(false, 2.5)} stand={stand(state(false, 2.5))} aktionen={aktionen()} onMarkers={() => undefined} />);

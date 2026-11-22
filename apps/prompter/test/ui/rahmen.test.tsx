@@ -72,12 +72,17 @@ const QUELLE = (d: string): string => ohneKommentare(leseText(`src/renderer/src/
 
 // ── PR Hotkeys bleiben ──
 {
-  const live = QUELLE('views/LiveBereich.tsx');
+  const wurzel = QUELLE('views/PrompterOberflaeche.tsx');
   const ausgabe = QUELLE('views/PrompterOutputView.tsx');
-  ok(live.includes('usePrompterHotkeys()'), 'PR Hotkeys bleiben: die Live-Ansicht ruft usePrompterHotkeys (immer gemountet, nie vom Panel abhängig)');
+  ok(wurzel.includes('usePrompterHotkeys()'), 'PR Hotkeys bleiben: die immer gemountete Wurzel-View ruft usePrompterHotkeys (nie vom Panel abhängig)');
   ok(ausgabe.includes('usePrompterHotkeys()'), 'PR Hotkeys bleiben: PrompterOutputView ruft usePrompterHotkeys weiter');
-  const bedingt = /(if|&&|\?)[^;\n]*usePrompterHotkeys\(\)/.test(live);
-  ok(!bedingt, 'PR Hotkeys bleiben: der Aufruf in der Live-Ansicht steht ohne Bedingung');
+  const bedingt = /(if|&&|\?)[^;\n]*usePrompterHotkeys\(\)/.test(wurzel) || /(if|&&|\?)[^;\n]*usePrompterHotkeys\(\)/.test(ausgabe);
+  ok(!bedingt, 'PR Hotkeys bleiben: der Aufruf steht ohne Bedingung');
+  ok(
+    wurzel.includes('usePrompterHotkeys()') && wurzel.indexOf('usePrompterHotkeys()') < wurzel.indexOf('{!state ?'),
+    'PR Hotkeys bleiben: der Aufruf steht vor der Lade-Bedingung, die Tasten gelten auch während „Lädt…“ (R-T6b)',
+  );
+  ok(!QUELLE('views/LiveBereich.tsx').includes('usePrompterHotkeys'), 'PR Hotkeys bleiben: der Live-Bereich ruft den Hook nicht mehr (genau ein Aufruf in der Wurzel)');
   ok(!QUELLE('views/Einstellungen.tsx').includes('usePrompterHotkeys'), 'PR Hotkeys bleiben: das Panel ruft den Hook nicht');
   const hk = leseText('src/renderer/src/lib/useHotkeys.ts');
   ok(hk.includes('istEingabeZiel(e.target)'), 'PR Hotkeys bleiben: der Hook nutzt weiter den Filter istEingabeZiel');

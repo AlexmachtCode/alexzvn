@@ -10,6 +10,7 @@ import { positionEm } from '@shared/types';
 import { AUSGABE_QUELLE, FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
 import { baueAktionen } from '@/lib/aktionen';
 import { bildschirmEtikett, kopfOnAir, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
+import { usePrompterHotkeys } from '@/lib/useHotkeys';
 import { usePrompter } from '@/store/prompter';
 import { Einstellungen } from './Einstellungen';
 import { LiveBereich, type LiveAktionen } from './LiveBereich';
@@ -28,6 +29,9 @@ export function PrompterOberflaeche({
   const openOutput = usePrompter((s) => s.openOutput);
   const closeOutput = usePrompter((s) => s.closeOutput);
   const setRemote = usePrompter((s) => s.setRemote);
+
+  // Tastatursteuerung (Leertaste, Pfeile, Pos1): in der immer gemounteten Wurzel, vor der Lade-Bedingung, also auch während „Lädt…“ (R-T6b).
+  usePrompterHotkeys();
 
   // Einstellungs-Panel (Spec 3.1, 3.6): zu beim Start, nichts gemerkt; offen über ⚙ oder einen Statuseintrag.
   const [panelOffen, setPanelOffen] = useState(anfangOffen);

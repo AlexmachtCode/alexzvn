@@ -1,14 +1,13 @@
 // Live-Bereich des Prompters (UX Welle 2a, Aufgabe d; Spec 3.4, 5.1; E4): die Vorschau (PrompterScroller, 16:9) immer sichtbar,
 // darunter die vier Haupttasten als TallyButtons (GO/Pause, Anfang, Marke zurück, Marke vor) aus hauptTasten, die ±3-Knöpfe als
 // normale Knöpfe, der Tempo-Regler (live wirksam, W2-8) und der Hinweis zur Leertaste. Die Tastatursteuerung (usePrompterHotkeys)
-// hängt hier, weil dieser Bereich immer gemountet ist, auch bei offenem Panel. Rein darstellend: Aktionen kommen aus der View,
-// das window liest nur der Hotkey-Hook in seinem Effekt.
+// hängt in der Wurzel-View PrompterOberflaeche (R-T6b). Rein darstellend: Aktionen kommen aus der View,
+// dieser Bereich liest kein window.
 import { Button, TallyButton, type TallyButtonProps } from '@jm/ui';
 import type { PrompterState } from '@shared/types';
 import { PrompterScroller } from '@/components/PrompterScroller';
 import { Regler } from '@/components/Regler';
 import { hauptTasten, PROMPTER_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
-import { usePrompterHotkeys } from '@/lib/useHotkeys';
 
 export interface LiveAktionen {
   /** GO/Pause (`transport.toggle`). */
@@ -34,13 +33,24 @@ export function liveTasten(s: OberflaechenStand, a: LiveAktionen): TallyButtonPr
   ];
 }
 
+/** Tooltips der Haupttasten nach Index (GO/Pause, Anfang, Marke zurück, Marke vor); nur die beiden Marken-Tasten haben einen. */
+const TASTEN_TIPPS: ReadonlyArray<string | undefined> = [undefined, undefined, PROMPTER_TEXTE.tipps.markeZurueck, PROMPTER_TEXTE.tipps.markeVor];
+
 export function HauptTasten({ tasten }: { tasten: TallyButtonProps[] }): React.JSX.Element {
   return (
     <div data-prompter="haupttasten" className="grid w-full grid-cols-2 gap-3">
-      {/* Reihenfolge fest, die Beschriftung wechselt (GO/Pause): der Index ist der stabile key. */}
-      {tasten.map((taste, i) => (
-        <TallyButton key={i} {...taste} />
-      ))}
+      {/* Reihenfolge fest, die Beschriftung wechselt (GO/Pause): der Index ist der stabile key. Der TallyButton hat keinen title: Die
+          Marken-Tasten stehen in einem Element mit dem alten Tooltip (R-T6a). */}
+      {tasten.map((taste, i) => {
+        const tipp = TASTEN_TIPPS[i];
+        return tipp === undefined ? (
+          <TallyButton key={i} {...taste} />
+        ) : (
+          <div key={i} title={tipp}>
+            <TallyButton {...taste} />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -57,7 +67,6 @@ export function LiveBereich({
   onMarkers: (positionsEm: number[]) => void;
 }): React.JSX.Element {
   const T = PROMPTER_TEXTE;
-  usePrompterHotkeys();
   return (
     <div data-prompter="live" className="space-y-4">
       <div>

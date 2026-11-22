@@ -58,6 +58,8 @@ export const PROMPTER_TEXTE = {
     adressen: (n: number): string => (n === 1 ? '1 Adresse' : `${n} Adressen`),
   },
   tempo: { titel: 'Tempo', einheit: ' Z/s' },
+  /** Tooltips der beiden Marken-Tasten (alter Wortlaut aus OperatorView.tsx, wiederhergestellt). */
+  tipps: { markeZurueck: 'Voriger Abschnitt', markeVor: 'Nächster Abschnitt' },
   /** Live-Bereich (Aufgabe d): der Hinweis ersetzt den alten Kopfhinweis; die Kürzel selbst stehen an den Tasten. */
   live: { hinweis: 'Leertaste, Pfeiltasten und Pos1 steuern den Lauf, solange der Cursor nicht im Skript oder in einem Feld steht.' },
   companionModul: 'JM Prompter',
