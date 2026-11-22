@@ -30,31 +30,44 @@ const NAECHSTE_PLATZ = '@[292px]:col-span-2 @[444px]:col-span-1';
 
 export type TastenRolle = 'naechste' | 'beenden' | 'saal';
 
-/** Die Rollen der Haupttasten in Anzeigereihenfolge. Die Rolle ist der React-key: Die Beschriftung der Saal-Taste wechselt, der Knopf bleibt. */
-export function tastenSchluessel(): TastenRolle[] {
-  return ['naechste', 'beenden', 'saal'];
+/**
+ * Die drei Haupttasten mit ihrer Rolle in Anzeigereihenfolge (Nächste, Beenden, Saal). Die Rolle ist der React-key: Die Beschriftung
+ * der Saal-Taste wechselt, der Knopf bleibt (R10). HauptTasten, liveTasten und tastenSchluessel lesen alle hieraus.
+ */
+function rollenTasten(s: Pick<OberflaechenStand, 'state'>, a: LiveAktionen): Array<[TastenRolle, TallyButtonProps]> {
+  const t = hauptTasten(s);
+  return [
+    ['naechste', { ...t.naechste, onClick: a.next }],
+    ['beenden', { ...t.beenden, onClick: a.endActive }],
+    ['saal', { ...t.saal, onClick: () => a.setRemote(!s.state.remote.running) }],
+  ];
+}
+
+const KEINE: LiveAktionen = { next() {}, endActive() {}, setRemote() {} };
+
+/** Die Rollen der Tasten in Anzeigereihenfolge, aus derselben Quelle wie das, was HauptTasten rendert. */
+export function tastenSchluessel(s: Pick<OberflaechenStand, 'state'>): TastenRolle[] {
+  return rollenTasten(s, KEINE).map(([rolle]) => rolle);
 }
 
 /** Die Haupttasten als Props in Anzeigereihenfolge. Ohne DOM prüfbar. */
 export function liveTasten(s: Pick<OberflaechenStand, 'state'>, a: LiveAktionen): TallyButtonProps[] {
-  const t = hauptTasten(s);
-  return [
-    { ...t.naechste, onClick: a.next },
-    { ...t.beenden, onClick: a.endActive },
-    { ...t.saal, onClick: () => a.setRemote(!s.state.remote.running) },
-  ];
+  return rollenTasten(s, a).map(([, taste]) => taste);
 }
 
 export function HauptTasten({ stand, aktionen }: { stand: Pick<OberflaechenStand, 'state'>; aktionen: LiveAktionen }): React.JSX.Element {
-  const [naechste, beenden, saal] = liveTasten(stand, aktionen);
   return (
     <div data-qa="haupttasten" className="@container w-full">
       <div className={RASTER}>
-        <div key="naechste" className={NAECHSTE_PLATZ}>
-          <TallyButton {...naechste} />
-        </div>
-        <TallyButton key="beenden" {...beenden} />
-        <TallyButton key="saal" {...saal} />
+        {rollenTasten(stand, aktionen).map(([rolle, taste]) =>
+          rolle === 'naechste' ? (
+            <div key={rolle} className={NAECHSTE_PLATZ}>
+              <TallyButton {...taste} />
+            </div>
+          ) : (
+            <TallyButton key={rolle} {...taste} />
+          ),
+        )}
       </div>
     </div>
   );

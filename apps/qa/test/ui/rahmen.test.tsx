@@ -70,8 +70,8 @@ const amWort = qaState({ activeId: 'a', entries: [eintragQ('a', 'active'), eintr
     [
       ['master-link', 'off', 'Master: unbekannt'],
       ['extern', 'off', 'Extern: aus'],
-      ['kopplung-timer', 'warn', 'JM Timer: nicht gefunden'],
-      ['kopplung-titler', 'warn', 'JM Titler: nicht gefunden'],
+      ['kopplung-timer', 'warn', 'Kopplung Timer: nicht gefunden'],
+      ['kopplung-titler', 'warn', 'Kopplung Titler: nicht gefunden'],
       ['fernsteuerung', 'off', 'Fernsteuerung: unbekannt'],
       ['saal', 'off', 'Saal-Einreichung: aus'],
     ],
@@ -88,13 +88,15 @@ const amWort = qaState({ activeId: 'a', entries: [eintragQ('a', 'active'), eintr
 {
   const link = toolLink();
   const html = seite(qaState({ links: [link, toolLink({ role: 'titler', label: 'JM Titler', port: 8710 })] }));
-  const inhalt = html.slice(html.indexOf('data-bereich="inhalt"'), html.indexOf('data-bereich="statusleiste"') >= 0 ? html.indexOf('data-bereich="statusleiste"') : undefined);
+  // Bis zur Statusleiste (footer): Deren Einträge heißen jetzt „Kopplung Timer“ und „Kopplung Titler“ (Fund C2) und gehören nicht zum Live-Bereich.
+  const ende = html.indexOf('<footer');
+  const inhalt = html.slice(html.indexOf('data-bereich="inhalt"'), ende >= 0 ? ende : undefined);
   const lebendig = text(inhalt);
   ok(!lebendig.includes('Kopplung') && !lebendig.includes('Auto-Kopplung') && !lebendig.includes('aktiviert · nicht gefunden') && !lebendig.includes('gekoppelt ·'), 'QA Kopplungskarte entfällt: die Karte „Kopplung“ steht nicht mehr im Live-Bereich (E13)');
   const knoepfe = tags(inhalt, 'button').map((t) => attr(t, 'title'));
   ok(!knoepfe.includes('Auto-Kopplung ausschalten') && !knoepfe.includes('Auto-Kopplung einschalten'), 'QA Kopplungskarte entfällt: die An/Aus-Knöpfe der Karte sind weg, die Schalter stehen nur im Panel');
   const ist = statusEintraege(html).filter((e) => e[0]?.startsWith('kopplung-'));
-  gleich(ist, [['kopplung-timer', 'ok', 'JM Timer: 10.0.0.7:8730'], ['kopplung-titler', 'ok', 'JM Titler: 10.0.0.7:8710']], 'QA Kopplungskarte entfällt: beide Kopplungen stehen dreifarbig in der Statusleiste (verbunden = ok mit host:port)');
+  gleich(ist, [['kopplung-timer', 'ok', 'Kopplung Timer: 10.0.0.7:8730'], ['kopplung-titler', 'ok', 'Kopplung Titler: 10.0.0.7:8710']], 'QA Kopplungskarte entfällt: beide Kopplungen stehen dreifarbig in der Statusleiste als „Kopplung Timer“ und „Kopplung Titler“ (verbunden = ok mit host:port)');
   const quellen = ['views/QaOberflaeche.tsx', 'views/LiveBereich.tsx', 'App.tsx'].map((d) => ohneKommentare(leseText(`src/renderer/src/${d}`)));
   ok(quellen.every((q) => !q.includes('COUPLED_ROLES') && !q.includes('Auto-Kopplung')), 'QA Kopplungskarte entfällt: Wächter am Quelltext: keine Kopplungskarte mehr in App, Oberfläche und Live-Bereich');
 }

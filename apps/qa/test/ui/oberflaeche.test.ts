@@ -21,7 +21,7 @@ import {
   type OberflaechenStand,
 } from '@/lib/oberflaeche';
 import { kreuz, pruefeFaelle, vergleiche } from './hilfe';
-import { basisMeldung } from './testzustand';
+import { basisMeldung, ohneKommentare } from './testzustand';
 
 const BELEGT = 'listen EADDRINUSE: address already in use :::8733';
 const GEHEIM = 'GEHEIM-TOKEN-4711';
@@ -106,6 +106,8 @@ const link = (teil: Partial<ToolLink> = {}): ToolLink => ({ role: 'timer', label
     const probleme = [
       vergleiche(i.state, soll),
       i.id === `kopplung-${f.rolle}` && i.group === 'verbindung' ? null : `id/Gruppe ${i.id} ${i.group}`,
+      vergleiche(i.label, f.rolle === 'timer' ? 'Kopplung Timer' : 'Kopplung Titler'),
+      vergleiche(i.settingsSection, ABSCHNITT.redezeit),
       soll === 'ok' && adr && !(i.detail ?? '').includes(adr) ? `kein ${adr} in „${i.detail}“` : null,
       soll !== 'ok' && adr && i.state === 'ok' ? 'ok trotz fehlender Gegenstelle' : null,
       vergleiche(i.detail, TEXT[f.link][f.an ? 'an' : 'aus']),
@@ -117,28 +119,46 @@ const link = (teil: Partial<ToolLink> = {}): ToolLink => ({ role: 'timer', label
   gleich([kopplungStatus('timer', s).state, kopplungStatus('titler', s).state], ['off', 'warn'], 'QA Kopplung: Timer und Titler getrennt gelesen (aus + gekoppelt = off, Titler an ohne Fund = warn)');
 }
 
-// ── QA Extern Kreuzprodukt (E14): enabled × configured × ton × lastError, ohne Freigabe oder Token ──
+// ── QA Extern Kreuzprodukt (E14): enabled × configured × lastError × lastPollAt × ton × Zugangsart × alter Key, ohne Freigabe oder Token ──
+// lastPollAt (Fund C3): an und eingerichtet, aber noch keine Antwort des Relays = off „Verbinde …“ wie in der Karte, nie ok.
+// settingsSection (Fund C1): nur, wo der Abschnitt „Extern“ den gezeigten Zustand ändern kann: Event erzeugen (nicht eingerichtet),
+// Server-Adresse und alter Key (Fehler; Zugangszeile warn/fehler, solange der alte Key im Panel steht). Den Schalter An/Aus hat nur
+// die Karte im Live-Bereich: „bereit“, „Verbinde …“ und „an“ sind darum reine Anzeige.
 {
   const faelle = kreuz({
     enabled: [false, true],
     configured: [false, true],
-    ton: ['ok', 'warn', 'fehler'] as const,
     fehler: [null, 'Relay antwortet nicht'],
+    abgeholt: [false, true],
+    ton: ['ok', 'warn', 'fehler'] as const,
+    art: ['freigabe', 'alter-key'] as const,
+    hasKey: [false, true],
     zeile: ['', 'Zugang: Zeile vom Main'],
   });
-  pruefeFaelle('QA Extern Kreuzprodukt: Zustand nach Tabelle, Zeile wörtlich vom Main, nie live', faelle, (f) => {
-    const c = cloud({ enabled: f.enabled, configured: f.configured, lastError: f.fehler, zugang: { art: 'freigabe', zeile: f.zeile, ton: f.ton, hinweis: null } });
+  const mitZeile = (zeile: string, kurz: string): string => (zeile !== '' ? `${kurz} · ${zeile}` : kurz);
+  pruefeFaelle('QA Extern Kreuzprodukt: Zustand, Text und Sprungziel nach Tabelle, Zeile wörtlich vom Main, nie live', faelle, (f) => {
+    const c = cloud({ enabled: f.enabled, configured: f.configured, lastError: f.fehler, lastPollAt: f.abgeholt ? 1 : null, hasKey: f.hasKey, zugang: { art: f.art, zeile: f.zeile, ton: f.ton, hinweis: null } });
     const i = externStatus(stand({ state: qaState({ cloud: c }) }));
-    const soll = !f.enabled ? 'off' : f.fehler ? 'error' : !f.configured ? 'warn' : ({ ok: 'ok', warn: 'warn', fehler: 'error' } as const)[f.ton];
+    const keyImPanel = f.hasKey || f.art !== 'freigabe';
+    const soll: [string, string, string | undefined] = !f.enabled
+      ? ['off', mitZeile(f.zeile, f.configured ? 'bereit' : 'aus'), f.configured ? undefined : ABSCHNITT.extern]
+      : f.fehler
+        ? ['error', f.fehler, ABSCHNITT.extern]
+        : !f.configured
+          ? ['warn', mitZeile(f.zeile, 'nicht eingerichtet'), ABSCHNITT.extern]
+          : !f.abgeholt
+            ? ['off', mitZeile(f.zeile, QA_TEXTE.extern.verbinde), undefined]
+            : [({ ok: 'ok', warn: 'warn', fehler: 'error' } as const)[f.ton], mitZeile(f.zeile, 'an'), f.ton !== 'ok' && keyImPanel ? ABSCHNITT.extern : undefined];
     const probleme = [
-      vergleiche(i.state, soll),
-      i.id === 'extern' && i.group === 'verbindung' && i.settingsSection === ABSCHNITT.extern ? null : 'id/Gruppe/Abschnitt',
-      f.zeile && !f.fehler && !(i.detail ?? '').includes(f.zeile) ? 'Zeile fehlt' : null,
-      f.fehler && f.enabled && !(i.detail ?? '').includes(f.fehler) ? 'Fehlertext fehlt' : null,
-      (i.detail ?? '') === '' ? 'ohne Text' : null,
+      vergleiche(`${i.state} | ${i.detail} | ${i.settingsSection}`, `${soll[0]} | ${soll[1]} | ${soll[2]}`),
+      i.id === 'extern' && i.group === 'verbindung' ? null : 'id/Gruppe',
+      'settingsSection' in i && i.settingsSection === undefined ? 'settingsSection als undefined statt abwesend' : null,
     ].filter((x) => x !== null);
     return probleme.length ? probleme.join('; ') : null;
   });
+  gleich(QA_TEXTE.extern.verbinde, 'Verbinde …', 'QA Extern: „Verbinde …“ ist der bestehende Text der Karte, wörtlich');
+  const karte = ohneKommentare(leseText('src/renderer/src/components/CloudPanel.tsx'));
+  ok(karte.includes('QA_TEXTE.extern.verbinde') && !karte.includes("'Verbinde …'"), 'QA Extern: die Karte und die Statusleiste lesen „Verbinde …“ aus derselben Konstante');
   const geheim = cloud({
     enabled: true,
     configured: true,
@@ -189,6 +209,8 @@ const link = (teil: Partial<ToolLink> = {}): ToolLink => ({ role: 'timer', label
   const a = fernsteuerungAbschnitt(stand({ fernsteuerung: { laeuft: false, port: 8733, clients: 0, fehler: BELEGT } }));
   ok(a.portInUse === true && a.error === undefined && a.port === 8733, 'QA Fernsteuerung: Port belegt nur als portInUse, fester Port 8733');
   gleich(sd(eintrag(stand(), 'fernsteuerung')), 'off unbekannt', 'QA Fernsteuerung: ohne Meldung off „unbekannt“');
+  // Fund C1: Port fest, kein Schalter; der Abschnitt „Fernsteuerung“ zeigt dieselbe Lage, ändert sie aber nicht → reine Anzeige.
+  ok(faelle.every((f) => !('settingsSection' in eintrag(stand({ fernsteuerung: f.m }), 'fernsteuerung'))), 'QA Fernsteuerung: der Eintrag ist reine Anzeige (kein Sprung ins Panel, dort lässt sich nichts ändern)');
 }
 
 // ── QA Statusleiste vor erster Antwort (Spec 7.2): nichts gemessen → nie ok ──

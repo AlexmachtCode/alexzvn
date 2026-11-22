@@ -3,7 +3,7 @@
 // „Moderation“ und „Extern“ (Inhalt des alten Einstellungs-Overlays). Jeder Statuseintrag mit Abschnitt findet seinen Anker.
 // Render ohne Browser und ohne window.
 import { PEERS_TEXTE, REMOTE_TEXTE } from '@jm/settings';
-import { Field, NumberInput, Select, TextInput, Toggle } from '@jm/ui';
+import { Field, Select, TextInput, Toggle } from '@jm/ui';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import { ABSCHNITT, QA_TEXTE, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
 import { TON } from '@/lib/zugang-ton';
@@ -11,6 +11,8 @@ import { CAPABILITIES, COUPLED_ROLES } from '@/lib/capabilities';
 import { Einstellungen, type EinstellungenAktionen } from '@/views/Einstellungen';
 import { abschnitt, attr, basisMeldung, cloud, elemente, ohneKommentare, qaState, tags, text, toolLink } from './testzustand';
 import { zahlEntwurfAus, zahlSchritt } from '../../../../packages/ui/src/lib/eingabe';
+import { UI_TEXTE } from '../../../../packages/ui/src/lib/texte';
+import { GeklemmteZahl, klemmUebernahme } from '@/components/GeklemmteZahl';
 import { kreuz, pruefeFaelle, vergleiche } from './hilfe';
 
 const T = QA_TEXTE;
@@ -41,8 +43,9 @@ const kind = (f: { props: Record<string, unknown> }, typ: unknown): { props: Rec
   gleich(titel(html), [REMOTE_TEXTE.titel, PEERS_TEXTE.titel, T.titel.redezeit, T.titel.moderation, T.extern.titel], 'QA Panel Abschnitte: Fernsteuerung, Gegenstellen, Redezeit und Kopplung, Moderation, Extern in der Reihenfolge von ABSCHNITT (Anhang A, E13, E14)');
   gleich([T.titel.redezeit, T.titel.moderation, T.extern.titel], ['Redezeit und Kopplung', 'Moderation', 'Extern'], 'QA Panel Abschnitte: die Titel der tool-eigenen Abschnitte nach Anhang A');
   const ziele = statusLeiste(stand({ state: qaState({ links: [toolLink(), toolLink({ role: 'titler', label: 'JM Titler', port: 8710 })] }) })).map((i) => i.settingsSection).filter((z): z is string => typeof z === 'string');
-  gleich(ziele.filter((z) => !html.includes(`id="einstellung-${z}"`)), [], 'QA Panel Abschnitte: jeder Statuseintrag mit Abschnitt (extern, kopplung-timer, kopplung-titler, fernsteuerung) findet seinen Anker');
-  gleich(ziele, [ABSCHNITT.extern, ABSCHNITT.redezeit, ABSCHNITT.redezeit, ABSCHNITT.fernsteuerung], 'QA Panel Abschnitte: Extern springt in „Extern“, beide Kopplungen in „Redezeit und Kopplung“, Fernsteuerung in ihren Abschnitt (Master-Link und Saal nicht)');
+  gleich(ziele.filter((z) => !html.includes(`id="einstellung-${z}"`)), [], 'QA Panel Abschnitte: jeder Statuseintrag mit Abschnitt (extern, kopplung-timer, kopplung-titler) findet seinen Anker');
+  // Fund C1: nur Einträge, deren Zustand der Abschnitt ändern kann; die Fernsteuerung (fester Port, kein Schalter) ist reine Anzeige.
+  gleich(ziele, [ABSCHNITT.extern, ABSCHNITT.redezeit, ABSCHNITT.redezeit], 'QA Panel Abschnitte: Extern (nicht eingerichtet) springt in „Extern“, beide Kopplungen in „Redezeit und Kopplung“ (Master-Link, Fernsteuerung und Saal nicht)');
   pruefeIdVerweise(html, 'QA Panel Abschnitte: id-Verweise gültig');
   ok(!text(html).includes('"'), 'QA Panel Abschnitte: kein ASCII-Anführungszeichen in den Texten des Panels');
   ok(T.kopplung.erklaerung.startsWith('Standardmäßig aktiv: Redezeit (Timer) und Bauchbinde (Titler)') && text(abschnitt(html, ABSCHNITT.redezeit)).includes(T.kopplung.erklaerung), 'QA Panel Abschnitte: der Erklärtext der alten Kopplungskarte steht als Beschreibung des Abschnitts „Redezeit und Kopplung“');
@@ -70,18 +73,30 @@ const kind = (f: { props: Record<string, unknown> }, typ: unknown): { props: Rec
   (kind(feld(s, 'Bauchbinde automatisch', log), Toggle).props.onChange as (v: boolean) => void)(false);
   (kind(feld(s, 'Titler-Vorlage', log), Select).props.onChange as (v: string) => void)('ticker');
   gleich(log, ['config({"autoTimer":false})', 'config({"autoTitler":false})', 'config({"titlerTemplate":"ticker"})'], 'QA Panel Redezeit: die Schalter und die Vorlage schicken genau ihr Feld an setConfig (die Schalter der Kopplungskarte leben nur noch hier, E13)');
-  const zahl = kind(feld(s, 'Redezeit (Sekunden)', log), NumberInput);
-  // R21: durch den echten Eingabepfad des Feldes (Tippen, dann Enter/Verlassen über zahlSchritt, dann onChange), nicht durch onChange mit Werten, die das Feld nie meldet.
-  const feldProps = zahl.props as { min?: number; max?: number; ganzzahl?: boolean; onChange: (v: number) => void };
-  const tippe = (eingabe: string): string[] => {
+  const zahl = kind(feld(s, 'Redezeit (Sekunden)', log), GeklemmteZahl);
+  // R21: durch den echten Eingabepfad des Feldes (Tippen, dann Enter/Verlassen über zahlSchritt, dann die Übernahme der Hülle
+  // GeklemmteZahl mit ihrem Klemmwert), nicht durch onChange mit Werten, die das Feld nie meldet.
+  type KlemmProps = { value: number; min?: number; max?: number; ganzzahl?: boolean; klemme: (v: number) => number; onChange: (v: number) => void };
+  const feldProps = zahl.props as KlemmProps;
+  /** Ein Durchlauf durch das Feld bei Redezeit `aktuell`: gespeicherte Werte und was das Feld danach (auch nach der Frist) zeigt. */
+  const durchFeld = (eingabe: string, aktuell = 120): { log: string[]; text: string; fehler?: string } => {
     const sek: string[] = [];
-    const f = kind(feld(stand(), 'Redezeit (Sekunden)', sek), NumberInput).props as typeof feldProps;
+    const s0 = stand({ state: qaState({ config: { ...qaState().config, speakSeconds: aktuell } }) });
+    const f = kind(feld(s0, 'Redezeit (Sekunden)', sek), GeklemmteZahl).props as KlemmProps;
     const regeln = { min: f.min, max: f.max, ganzzahl: f.ganzzahl };
-    const getippt = zahlSchritt(zahlEntwurfAus(120), { art: 'tippen', text: eingabe }, regeln, 120);
-    const r = zahlSchritt(getippt.z, { art: 'uebernehmen' }, regeln, 120);
-    if (r.neuerWert !== undefined) f.onChange(r.neuerWert);
-    return sek;
+    const getippt = zahlSchritt(zahlEntwurfAus(f.value), { art: 'tippen', text: eingabe }, regeln, f.value);
+    const r = zahlSchritt(getippt.z, { art: 'uebernehmen' }, regeln, f.value);
+    if (r.neuerWert === undefined) return { log: sek, text: r.z.text, fehler: r.z.fehler };
+    const k = klemmUebernahme(f.value, r.neuerWert, f.klemme);
+    f.onChange(k.wert);
+    // Wie React: Ein neuer Wert von außen kommt nur, wenn sich der gespeicherte Wert ändert (useEffect auf value). Bleibt er gleich
+    // (am Klemmwert), kommt nichts zurück; dann baut die Hülle das Feld neu auf und es beginnt beim echten Wert.
+    const wert = k.wert;
+    const nachher = k.neuAufbauen ? zahlEntwurfAus(f.value) : wert !== f.value ? zahlSchritt(r.z, { art: 'aussen', wert }, regeln, wert).z : r.z;
+    const z = zahlSchritt(nachher, { art: 'frist' }, regeln, wert).z;
+    return { log: sek, text: z.text, ...(z.fehler ? { fehler: z.fehler } : {}) };
   };
+  const tippe = (eingabe: string): string[] => durchFeld(eingabe).log;
   const speichert = (v: number): string[] => [`config({"speakSeconds":${v}})`];
   gleich(
     [tippe('3'), tippe('4'), tippe('1'), tippe('5'), tippe('-2'), tippe('0'), tippe('90'), tippe('4000'), tippe('3600')],
@@ -90,6 +105,35 @@ const kind = (f: { props: Record<string, unknown> }, typ: unknown): { props: Rec
   );
   gleich(tippe(''), [], 'QA Panel Redezeit: ein leeres Feld liefert keinen Wert (Fehlertext im Feld), der alte Wert bleibt; früher speicherte es 5 (Befund für Task 22)');
   gleich(tippe('abc'), [], 'QA Panel Redezeit: Text wird abgewiesen, nichts wird gespeichert');
+  // Fund C4: Steht die Redezeit schon am Klemmwert 5 und wird darunter übernommen, kommt kein neuer Wert zurück (5 → 5). Das Feld
+  // zeigt dann den echten Wert statt der Eingabe mit „Noch nicht übernommen.“.
+  gleich(
+    [durchFeld('3', 5), durchFeld('0', 5), durchFeld('3', 120), durchFeld('90', 5)],
+    [
+      { log: ['config({"speakSeconds":5})'], text: '5' },
+      { log: ['config({"speakSeconds":5})'], text: '5' },
+      { log: ['config({"speakSeconds":5})'], text: '5' },
+      { log: ['config({"speakSeconds":90})'], text: '90' },
+    ],
+    'QA Panel Redezeit am Klemmwert: 3 bei 5 → das Feld zeigt 5 ohne Fehlertext (auch nach der Frist); 3 bei 120 → 5; 90 bei 5 → 90',
+  );
+  {
+    const getippt = zahlSchritt(zahlEntwurfAus(5), { art: 'tippen', text: '3' }, {}, 5);
+    const r = zahlSchritt(getippt.z, { art: 'uebernehmen' }, {}, 5);
+    const ohneHuelle = zahlSchritt(r.z, { art: 'frist' }, {}, 5).z;
+    gleich([ohneHuelle.text, ohneHuelle.fehler], ['3', UI_TEXTE.nochNichtUebernommen], 'QA Panel Redezeit am Klemmwert: Gegenprobe ohne Hülle: das Feld bliebe bei „3“ mit „Noch nicht übernommen.“');
+  }
+  gleich(
+    [klemmUebernahme(5, 3, (v) => Math.max(5, v)), klemmUebernahme(120, 3, (v) => Math.max(5, v)), klemmUebernahme(5, 90, (v) => Math.max(5, v))],
+    [{ wert: 5, neuAufbauen: true }, { wert: 5, neuAufbauen: false }, { wert: 90, neuAufbauen: false }],
+    'QA Panel Redezeit am Klemmwert: klemmUebernahme baut nur neu auf, wenn der geklemmte Wert dem aktuellen gleicht',
+  );
+  gleich(feldProps.klemme(3), 5, 'QA Panel Redezeit: der Klemmwert ist Math.max(5, …) wie bisher (R21)');
+  const huelle = ohneKommentare(leseText('src/renderer/src/components/GeklemmteZahl.tsx'));
+  ok(
+    huelle.includes('const r = klemmUebernahme(value, v, klemme);') && huelle.includes('onChange(r.wert);') && huelle.includes('key={aufbau}') && huelle.includes('if (r.neuAufbauen) {') && huelle.includes('setAufbau((n) => n + 1);'),
+    'QA Panel Redezeit am Klemmwert: GeklemmteZahl übernimmt über klemmUebernahme und baut das Feld bei neuAufbauen über einen neuen key neu auf',
+  );
   gleich([zahl.props.value, feldProps.min, feldProps.max], [120, undefined, undefined], 'QA Panel Redezeit: das Zahlenfeld zeigt speakSeconds ohne Unter- und Obergrenze im Feld, geklemmt wird im Handler');
   const html = abschnitt(panel(stand()), ABSCHNITT.redezeit);
   const t = text(html);

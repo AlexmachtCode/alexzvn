@@ -51,8 +51,11 @@ export const QA_TEXTE = {
     labelAus: 'Saal-Einreichung ○ Aus',
     keinNetzwerk: 'kein Netzwerk',
   },
-  /** Extern in der Statusleiste: Titel wie der Panel-Abschnitt (E14); „aus“, „bereit“ und „nicht eingerichtet“ kommen aus @jm/settings. */
-  extern: { titel: 'Extern', an: 'an' },
+  /**
+   * Extern in der Statusleiste: Titel wie der Panel-Abschnitt (E14); „aus“, „bereit“ und „nicht eingerichtet“ kommen aus @jm/settings.
+   * „Verbinde …“ ist wörtlich der Text der Karte (CloudPanel.tsx), solange das Relay noch nicht geantwortet hat; beide lesen ihn hier.
+   */
+  extern: { titel: 'Extern', an: 'an', verbinde: 'Verbinde …' },
   /**
    * Gegenstellen im Panel: „gefunden:“ steht vor der gemessenen Adresse eines mDNS-Fundes; der Satz „Q&A koppelt …“ ist der erste
    * Satz des Erklärtexts im alten Modal ConnectionsPanel (der Rest steht als PEERS_TEXTE.erklaerung in @jm/settings).
@@ -64,6 +67,9 @@ export const QA_TEXTE = {
   kopplung: {
     erklaerung:
       'Standardmäßig aktiv: Redezeit (Timer) und Bauchbinde (Titler) werden beim Ans-Wort-Holen automatisch gesteuert — hier pro Werkzeug mit einem Klick umschaltbar.',
+    /** Beschriftung der Statuseinträge: Es ist die Kopplung von Q&A, nicht der Zustand des Tools selbst (Spec 2026-10-08, Anhang A). */
+    timer: 'Kopplung Timer',
+    titler: 'Kopplung Titler',
   },
   /** Leertext des Live-Elements (ActivePanel.tsx): wörtlich wie bisher, nur „Nächste“ mit typografischen Anführungszeichen (R9: vorher ein ASCII-Zeichen). */
   leer: 'Niemand am Wort. „Nächste“ ruft die erste Wortmeldung auf.',
@@ -245,10 +251,11 @@ export function kopplungStatus(rolle: 'timer' | 'titler', s: Pick<OberflaechenSt
       : link?.source === 'mdns' && adresse
         ? `${adresse} · ${zeile.text}`
         : zeile.text;
+  // Der Schalter der Kopplung steht in „Redezeit und Kopplung“: Er ändert jeden der drei Zustände (an ↔ aus).
   return {
     id: `kopplung-${rolle}`,
     group: 'verbindung',
-    label: roleLabel(rolle),
+    label: QA_TEXTE.kopplung[rolle],
     state: zeile.state,
     detail,
     settingsSection: ABSCHNITT.redezeit,
@@ -258,19 +265,35 @@ export function kopplungStatus(rolle: 'timer' | 'titler', s: Pick<OberflaechenSt
 /**
  * Extern (E14) aus `state.cloud`. Zustände: aus = off („aus“ bzw. „bereit“, wenn eingerichtet); an und eingerichtet =
  * Ton der Zugangszeile (ok → ok, warn → warn, fehler → error); an, aber nicht eingerichtet = warn; `lastError` bei „an“ = error.
+ * An und eingerichtet, aber noch ohne Antwort des Relays (`lastPollAt` null) = off „Verbinde …“ wie die Karte, nie ok (C3).
  * Die Zugangszeile kommt wörtlich vom Main, es entstehen keine Zugangstexte. Gelesen werden nur enabled, configured,
- * zugang.zeile, zugang.ton und lastError: nie Freigabe, Token, Presse-Code oder Event-ID.
+ * zugang.zeile, zugang.ton, zugang.art, hasKey, lastError und lastPollAt: nie Freigabe, Token, Presse-Code oder Event-ID.
+ * Sprungziel (C1): nur, wo der Abschnitt „Extern“ den Zustand ändern kann (Event erzeugen, Server-Adresse, alter Key); den
+ * Schalter An/Aus hat nur die Karte im Live-Bereich, darum sind „bereit“, „Verbinde …“ und „an“ reine Anzeige.
  */
 export function externStatus(s: Pick<OberflaechenStand, 'state'>): StatusItem {
   const c = s.state.cloud;
-  const kopf = { id: 'extern', group: 'verbindung', label: QA_TEXTE.extern.titel, settingsSection: ABSCHNITT.extern } as const;
+  const anzeige = { id: 'extern', group: 'verbindung', label: QA_TEXTE.extern.titel } as const;
+  const knopf = { ...anzeige, settingsSection: ABSCHNITT.extern } as const;
   const zeile = c.zugang.zeile;
   const mitZeile = (kurz: string): string => (zeile !== '' ? `${kurz} · ${zeile}` : kurz);
-  if (!c.enabled) return { ...kopf, state: 'off', detail: mitZeile(c.configured ? REMOTE_TEXTE.bereit : ABSCHNITT_TEXTE.aus) };
-  if (c.lastError) return { ...kopf, state: 'error', detail: c.lastError };
-  if (!c.configured) return { ...kopf, state: 'warn', detail: mitZeile(IVEO_TEXTE.nichtEingerichtet) };
+  if (!c.enabled) return c.configured ? { ...anzeige, state: 'off', detail: mitZeile(REMOTE_TEXTE.bereit) } : { ...knopf, state: 'off', detail: mitZeile(ABSCHNITT_TEXTE.aus) };
+  if (c.lastError) return { ...knopf, state: 'error', detail: c.lastError };
+  if (!c.configured) return { ...knopf, state: 'warn', detail: mitZeile(IVEO_TEXTE.nichtEingerichtet) };
+  if (c.lastPollAt === null) return { ...anzeige, state: 'off', detail: mitZeile(QA_TEXTE.extern.verbinde) };
   const ton = { ok: 'ok', warn: 'warn', fehler: 'error' } as const;
+  // Eine Zugangszeile mit Warnung oder Fehler lässt sich im Panel nur über den alten Key ändern; er steht dort unter derselben
+  // Bedingung (Einstellungen.tsx: hasKey oder keine Freigabe). Sonst hilft nur die Anmeldung im Launcher.
+  const kopf = c.zugang.ton !== 'ok' && (c.hasKey || c.zugang.art !== 'freigabe') ? knopf : anzeige;
   return { ...kopf, state: ton[c.zugang.ton], detail: mitZeile(QA_TEXTE.extern.an) };
+}
+
+/**
+ * Ein Eintrag als reine Anzeige (C1): ohne Sprungziel, weil der Abschnitt im Panel dieselbe Lage nur zeigt. Die Fernsteuerung von
+ * Q&A hat einen festen Port und keinen Schalter; eingerichtet wird sie im Launcher.
+ */
+function nurAnzeige(i: StatusItem): StatusItem {
+  return { id: i.id, group: i.group, label: i.label, state: i.state, ...(i.detail !== undefined ? { detail: i.detail } : {}) };
 }
 
 /** Saal-Einreichung (state.remote): aus = off; an = ok mit der ersten Adresse; an ohne Adresse = warn „kein Netzwerk“. */
@@ -289,7 +312,7 @@ export function statusLeiste(s: OberflaechenStand): StatusItem[] {
     externStatus(s),
     kopplungStatus('timer', s),
     kopplungStatus('titler', s),
-    abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel }),
+    nurAnzeige(abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel })),
     saalItem(s),
   ];
 }

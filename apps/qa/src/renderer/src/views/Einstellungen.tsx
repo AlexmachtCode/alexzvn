@@ -10,7 +10,8 @@
 // sie schon freigegeben und nicht neu sind. Die Quelltext-Wächter dazu stehen in test/cloud-zugang.test.ts.
 import { useState } from 'react';
 import { PeersSection, RemoteControlSection } from '@jm/settings';
-import { Button, Field, NumberInput, PanelAnker, Select, SettingsSection, TextInput, Toggle, useFeld } from '@jm/ui';
+import { Button, Field, PanelAnker, Select, SettingsSection, TextInput, Toggle, useFeld } from '@jm/ui';
+import { GeklemmteZahl } from '@/components/GeklemmteZahl';
 import {
   ABSCHNITT,
   fernsteuerungAbschnitt,
@@ -73,8 +74,9 @@ function redezeitAbschnitt({ state }: OberflaechenStand, aktionen: Einstellungen
       <SettingsSection title={QA_TEXTE.titel.redezeit} description={QA_TEXTE.kopplung.erklaerung}>
         <div className="space-y-3">
           <Field label="Redezeit (Sekunden)" hint="Setzt den JM Timer beim Ans-Wort-Holen.">
-            {/* R21: wie das alte Feld ohne Unter- und Obergrenze im Feld: Das Feld nimmt jede Zahl, der Klemmwert wirkt im Handler (3 → 5, 4000 bleibt 4000). */}
-            <NumberInput value={config.speakSeconds} onChange={(v) => aktionen.setConfig({ speakSeconds: Math.max(5, v) })} />
+            {/* R21: wie das alte Feld ohne Unter- und Obergrenze im Feld: Das Feld nimmt jede Zahl, der Klemmwert wirkt beim Übernehmen
+                (3 → 5, 4000 bleibt 4000). GeklemmteZahl zeigt danach den echten Wert, auch wenn er schon am Klemmwert stand (C4). */}
+            <GeklemmteZahl value={config.speakSeconds} klemme={(v) => Math.max(5, v)} onChange={(v) => aktionen.setConfig({ speakSeconds: v })} />
           </Field>
           <Field label="Redezeit-Timer automatisch" hint="JM Timer setzen + starten, wenn jemand ans Wort kommt.">
             <Toggle checked={config.autoTimer} onChange={(an) => aktionen.setConfig({ autoTimer: an })} />

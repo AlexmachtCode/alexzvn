@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@jm/ui';
 import { useQa } from '@/store/useQa';
 import { toDataUrl } from '@/lib/qr';
+import { QA_TEXTE } from '@/lib/oberflaeche';
 import { TON } from '@/lib/zugang-ton';
 import type { QaCloudInfo, QaConfig } from '@shared/types';
 
@@ -120,7 +121,7 @@ export function CloudAnsicht({ cloud, qr, aktionen }: { cloud: QaCloudInfo; qr: 
             <p className="text-center text-[11px] text-[var(--destructive)]">Fehler: {cloud.lastError}</p>
           ) : (
             <p className="text-center text-[11px] text-[var(--muted-foreground)]">
-              {cloud.lastPollAt ? 'Verbunden — Einreichungen werden abgeholt.' : 'Verbinde …'}
+              {cloud.lastPollAt ? 'Verbunden — Einreichungen werden abgeholt.' : QA_TEXTE.extern.verbinde}
             </p>
           )}
 

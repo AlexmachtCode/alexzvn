@@ -50,9 +50,21 @@ const zeile = (s: Pick<OberflaechenStand, 'state'>): string[] =>
   bedienen(stand());
   bedienen(stand({ remote: { running: true, urls: [] } }));
   gleich(log, ['next', 'endActive', 'setRemote(true)', 'next', 'endActive', 'setRemote(false)'], 'QA Live Tasten: Klick ruft next(), endActive() und setRemote(!remote.running) (Handler wie heute)');
-  gleich(tastenSchluessel(), ['naechste', 'beenden', 'saal'], 'QA Live Tasten: die Rollen der drei Tasten in Anzeigereihenfolge');
+  // Fund C6: tastenSchluessel kommt aus derselben Quelle wie das Gerenderte (rollenTasten), wie im Battle; der Test pinnt das Gerenderte.
+  const zustaende = [stand(), stand(amWort), stand({ remote: { running: true, urls: [] } })];
+  gleich(zustaende.map((s) => tastenSchluessel(s)), Array(3).fill(['naechste', 'beenden', 'saal']), 'QA Live Tasten: die Rollen der drei Tasten in Anzeigereihenfolge, gleich in jedem Zustand (Beschriftung der Saal-Taste wechselt)');
   const q = ohneKommentare(leseText('src/renderer/src/views/LiveBereich.tsx'));
-  ok(q.includes('key="naechste"') && q.includes('key="beenden"') && q.includes('key="saal"') && !q.includes('key={taste.label}') && !q.includes('key={t.label}'), 'QA Live Tasten: jede Taste hat einen festen key je Rolle (naechste, beenden, saal), nie die Beschriftung (R10)');
+  ok(
+    q.includes('key={rolle}') && q.includes('export function tastenSchluessel(') && q.includes('rollenTasten(s, KEINE)') && q.includes('rollenTasten(stand, aktionen).map') && !/key=\{[^}]*label[^}]*\}/.test(q) && !/key="(naechste|beenden|saal)"/.test(q),
+    'QA Live Tasten: HauptTasten rendert aus rollenTasten und vergibt key={rolle}; tastenSchluessel() kommt aus derselben Quelle, nie die Beschriftung (R10)',
+  );
+  const beschriftung = (s: Pick<OberflaechenStand, 'state'>): string[] =>
+    [...render(<HauptTasten stand={s} aktionen={aktionen()} />).matchAll(/<button[^>]*>[\s\S]*?<span>([^<]*)<\/span>/g)].map((m) => m[1]);
+  gleich(
+    zustaende.map((s) => beschriftung(s)),
+    zustaende.map((s) => liveTasten(s, aktionen()).map((t) => t.label)),
+    'QA Live Tasten: gerendert stehen die Tasten in der Reihenfolge von rollenTasten (Nächste, Beenden, Saal), in jedem Zustand',
+  );
 }
 
 // ── QA Live Tasten gerendert: aria-disabled, Grund sichtbar, höchstens vier ──

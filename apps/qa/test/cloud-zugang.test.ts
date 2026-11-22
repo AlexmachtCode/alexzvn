@@ -422,9 +422,12 @@ function ausschnitt(text: string, start: string, ende: string): string {
     'P31 9.10: Q1 (Platzhalter = wirksame Adresse), Q6a und Q7 wörtlich in Einstellungen.tsx und CloudPanel.tsx, die alten Texte sind weg',
   );
   const keyFeld = "{cloud.hasKey || cloud.zugang.art !== 'freigabe' ? (";
+  // Fund C7: Das Feld liegt seit E14 in der Komponente AlterKey am Dateiende; „Bedingung vor dem Feld“ wäre damit immer wahr.
+  // Geprüft wird darum, dass das Feld im Körper von AlterKey steht (und unten, dass AlterKey nur innerhalb der Bedingung steht).
+  const alterKeyKoerper = ausschnitt(settings, 'function AlterKey(', '\n}\n');
   eq(
     [
-      settings.includes(keyFeld) && settings.indexOf(keyFeld) < settings.indexOf('<Field label="Alter Proxy-Key (Übergang)"'),
+      settings.includes(keyFeld) && alterKeyKoerper.includes('<Field label="Alter Proxy-Key (Übergang)"'),
       (settings.match(/<Field label="Alter Proxy-Key/g) ?? []).length,
       settings.includes(') : cloud.zugang.hinweis ? ('),
       settings.includes('{cloud.zugang.zeile}') && panel.includes('{cloud.zugang.zeile}'),

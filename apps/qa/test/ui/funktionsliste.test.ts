@@ -58,6 +58,7 @@ const GEAENDERT = [
   'components/AddForm.tsx',
   'components/CloudPanel.tsx',
   'components/ConnectionsPanel.tsx',
+  'components/GeklemmteZahl.tsx',
   'components/Queue.tsx',
   'components/RemotePanel.tsx',
   'components/Settings.tsx',
@@ -502,7 +503,7 @@ ok(
       kuenftig(55).startsWith('✓ Panel Redezeit und Kopplung'),
     'QA Funktionsliste Nr. 55/57–61: Beschriftungen und Hinweise der Redezeit-, Kopplungs- und Moderationsfelder stehen wörtlich im Panel',
   );
-  const feld = /<NumberInput value=\{config\.speakSeconds\}[\s\S]*?\/>/.exec(e)?.[0] ?? '';
+  const feld = /<GeklemmteZahl value=\{config\.speakSeconds\}[\s\S]*?\/>/.exec(e)?.[0] ?? '';
   ok(
     feld !== '' &&
       !/\bmin=|\bmax=|ganzzahl/.test(feld) &&
