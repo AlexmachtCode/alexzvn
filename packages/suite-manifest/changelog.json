@@ -495,7 +495,7 @@
     "entries": [
       {
         "version": "0.12.0",
-        "date": "2026-11-21",
+        "date": "2026-11-22",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Switcher“, dem Sendezustand („REC“ bzw. „LIVE“) und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter die Projekt-Leiste mit Neu, Öffnen und Speichern, die Haupttasten „Cut“, „Auto“, „Aufnehmen“ und „Stream starten“ und der Mischer. Die Einstellungen liegen jetzt im Panel hinter ⚙, die Reiter „Mischer“ und „Einstellungen“ entfallen.",
           "Neue Statusleiste mit sieben Einträgen: Master, NDI, Bildschirm, Aufnahme, Stream, Fernsteuerung und Audio. Sie zeigt nur, was der Switcher wirklich weiß; ein Klick auf einen Eintrag öffnet, wo es eine Einstellung gibt, das Panel am passenden Abschnitt.",
@@ -819,7 +819,7 @@
     "entries": [
       {
         "version": "0.15.0",
-        "date": "2026-11-21",
+        "date": "2026-11-22",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Timer“, der Anzeige „Show vom Master“ und dem Speaker-Knopf, darunter die Modi Clock, Countdown und Timetable mit den Haupttasten „Start“, „Resume“, „Pause“, „Reset“, „← Prev“ und „Next →“. Remote und Farben liegen jetzt im Panel hinter ⚙ als „LAN-Fernbedienung“ und „Farben“, dazu der Abschnitt „Speaker-Fenster“.",
           "Neue Statusleiste mit vier Einträgen: Master, Sync, Speaker-Fenster und Fernsteuerung. Sie zeigt nur, was der Timer wirklich weiß; solange noch keine Antwort da ist, steht dort „unbekannt“.",
@@ -1655,7 +1655,7 @@
     "entries": [
       {
         "version": "0.9.0",
-        "date": "2026-11-21",
+        "date": "2026-11-22",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Rundown“, der Anzeige „Show vom Master“ und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter die Werkzeugleiste mit Neu, Öffnen, Regieplan…, Export… und Speichern. Links steht die Liste mit den Haupttasten „GO“, „◀ Zurück“ und „Weiter ▶“, rechts der Editor der gewählten Zeile. Das Fenster „Tool-Verbindungen“ ist ins Panel hinter ⚙ umgezogen.",
           "Neue Statusleiste: Master, iveo, je ein Eintrag pro gefundenem Tool und die Fernsteuerung. Ein Tool, das im Netz gefunden, aber nicht verbunden ist, heißt „gefunden · nicht verbunden“; seine Adresse steht im Panel als „gefunden: host:port“.",
@@ -1755,7 +1755,7 @@
     "entries": [
       {
         "version": "0.7.0",
-        "date": "2026-11-21",
+        "date": "2026-11-22",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Q&A“, „N wartend“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „Nächste ▶“, „■ Beenden“ und „Saal-Einreichung“. Einstellungen, Kopplung, Extern und Moderation liegen jetzt im Panel hinter ⚙; die Fenster „Einstellungen“ und „Verbindungen“, die Karte „Kopplung“ und die beiden Kopf-Knöpfe dazu entfallen.",
           "Neue Statusleiste mit sechs Einträgen: Master, Extern, Kopplung Timer, Kopplung Titler, Fernsteuerung und Saal. Sie zeigt nur, was Q&A wirklich weiß; ein im Netz gefundener, aber nicht verbundener Timer oder Titler steht dort als „host:port · gefunden · nicht verbunden“.",
@@ -1829,7 +1829,7 @@
     "entries": [
       {
         "version": "0.5.0",
-        "date": "2026-11-21",
+        "date": "2026-11-22",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Battle“, „Runde n/m“, dem Sendezustand und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter der Live-Bereich mit den Haupttasten „VS“, „Voting öffnen“, „Nächste Runde ▶“ und „⧉ Clip“. Einstellungen, Verbindungen und Zurücksetzen liegen jetzt im Panel hinter ⚙; die Fenster „Einstellungen“ und „Verbindungen“ entfallen. Die Karte „Instant-Replay“ bleibt rechts im Live-Bereich.",
           "Neue Statusleiste mit fünf Einträgen: Master, Kopplung Titler, Fernsteuerung, Publikums-Voting und Aufnahme-Quelle. Sie zeigt nur, was Battle wirklich weiß.",

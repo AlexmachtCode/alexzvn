@@ -591,4 +591,4 @@ Bei „Companion steuert nicht“ liest Du zuerst die Statusleiste.
 - `Port 8734 (jm-battle-ctl) erreichbar? Gemeinsames LAN?`
 + Statusleiste „Fernsteuerung“ ansehen; Port 8734 (jm-battle-ctl) erreichbar? Gemeinsames LAN?
 
-Freigabe: ☐ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren)
+Freigabe: ☒ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren) — Owner 22.11.2026 08:59: „texte passen“. Die Fragen an den Owner bleiben damit wie umgesetzt; das Datum der Changelog-Einträge ist auf den 22.11.2026 gesetzt.
