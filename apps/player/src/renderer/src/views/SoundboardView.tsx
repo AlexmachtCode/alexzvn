@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Button, cn } from '@jm/ui';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, cn, Modal } from '@jm/ui';
 import type { Cue, MediaItem } from '@shared/types';
 import { usePlayer } from '@/store/player';
 import { cueEngine } from '@/lib/cues';
@@ -22,6 +22,9 @@ export function SoundboardView() {
   const createPlaylist = usePlayer((s) => s.createPlaylist);
 
   const [editSlot, setEditSlot] = useState<number | null>(null);
+  // Stabiler Schließen-Rückruf: Modal meldet sich bei jedem neuen onClose neu an und holte den Fokus sonst bei jeder
+  // Änderung der Padliste zurück auf das erste Feld.
+  const schliessePad = useCallback(() => setEditSlot(null), []);
 
   const cueBySlot = useMemo(() => {
     const map = new Map<number, Cue>();
@@ -120,7 +123,7 @@ export function SoundboardView() {
           slot={editSlot}
           playlistId={soundboardId}
           cue={cueBySlot.get(editSlot) ?? null}
-          onClose={() => setEditSlot(null)}
+          onClose={schliessePad}
         />
       )}
     </div>
@@ -193,7 +196,8 @@ function Pad({
   );
 }
 
-function CueEditor({
+/** Dialog „Pad n belegen“ (Modal aus @jm/ui; exportiert für die Render-Tests). */
+export function CueEditor({
   slot,
   playlistId,
   cue,
@@ -240,87 +244,82 @@ function CueEditor({
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm px-6" onClick={onClose}>
-      <div
-        className="w-full max-w-md rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--card)] p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-extrabold tracking-tight">Pad {slot + 1} belegen</h2>
+    <Modal onClose={onClose} className="w-full max-w-md">
+      <h2 className="text-lg font-extrabold tracking-tight">Pad {slot + 1} belegen</h2>
 
-        <div className="mt-5 flex flex-col gap-4">
-          <Field label="Medium">
-            <select
-              value={mediaId ?? ''}
-              onChange={(e) => setMediaId(Number(e.target.value))}
-              className="h-10 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2.5 text-sm"
-            >
-              {sorted.length === 0 && <option value="">Bibliothek leer</option>}
-              {sorted.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.kind === 'audio' ? '♪ ' : '▦ '}
-                  {m.fileName}
-                </option>
-              ))}
-            </select>
-          </Field>
+      <div className="mt-5 flex flex-col gap-4">
+        <Field label="Medium">
+          <select
+            value={mediaId ?? ''}
+            onChange={(e) => setMediaId(Number(e.target.value))}
+            className="h-10 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-2.5 text-sm"
+          >
+            {sorted.length === 0 && <option value="">Bibliothek leer</option>}
+            {sorted.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.kind === 'audio' ? '♪ ' : '▦ '}
+                {m.fileName}
+              </option>
+            ))}
+          </select>
+        </Field>
 
-          <Field label="Beschriftung">
+        <Field label="Beschriftung">
+          <input
+            value={label}
+            placeholder={chosen?.fileName ?? 'Cue-Name'}
+            onChange={(e) => setLabel(e.target.value)}
+            className="h-10 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-sm"
+          />
+        </Field>
+
+        <div className="flex items-end gap-4">
+          <Field label="Hotkey">
             <input
-              value={label}
-              placeholder={chosen?.fileName ?? 'Cue-Name'}
-              onChange={(e) => setLabel(e.target.value)}
-              className="h-10 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-sm"
+              value={hotkey}
+              readOnly
+              placeholder="Taste drücken…"
+              onKeyDown={(e) => {
+                e.preventDefault();
+                if (e.key === 'Escape') return;
+                if (e.key === 'Backspace' || e.key === 'Delete') {
+                  setHotkey('');
+                  return;
+                }
+                setHotkey(normalizeKey(e));
+              }}
+              className="h-10 w-28 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-sm text-center font-extrabold cursor-pointer"
             />
           </Field>
-
-          <div className="flex items-end gap-4">
-            <Field label="Hotkey">
-              <input
-                value={hotkey}
-                readOnly
-                placeholder="Taste drücken…"
-                onKeyDown={(e) => {
-                  e.preventDefault();
-                  if (e.key === 'Escape') return;
-                  if (e.key === 'Backspace' || e.key === 'Delete') {
-                    setHotkey('');
-                    return;
-                  }
-                  setHotkey(normalizeKey(e));
-                }}
-                className="h-10 w-28 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-sm text-center font-extrabold cursor-pointer"
-              />
-            </Field>
-            <label className="flex items-center gap-2 h-10 text-sm font-semibold cursor-pointer">
-              <input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} />
-              Loop
-            </label>
-          </div>
-        </div>
-
-        <div className="mt-6 flex items-center justify-between gap-3">
-          <Button
-            size="sm"
-            variant="ghost"
-            uppercase={false}
-            onClick={() => {
-              void clearCue(slot);
-              onClose();
-            }}
-          >
-            Pad leeren
-          </Button>
-          <div className="flex gap-2">
-            <Button size="sm" variant="ghost" onClick={onClose}>
-              Abbrechen
-            </Button>
-            <Button size="sm" variant="primary" disabled={mediaId == null} onClick={() => void save()}>
-              Speichern
-            </Button>
-          </div>
+          <label className="flex items-center gap-2 h-10 text-sm font-semibold cursor-pointer">
+            <input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} />
+            Loop
+          </label>
         </div>
       </div>
-    </div>
+
+      <div className="mt-6 flex items-center justify-between gap-3">
+        <Button
+          size="sm"
+          variant="ghost"
+          uppercase={false}
+          onClick={() => {
+            void clearCue(slot);
+            onClose();
+          }}
+        >
+          Pad leeren
+        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Abbrechen
+          </Button>
+          <Button size="sm" variant="primary" disabled={mediaId == null} onClick={() => void save()}>
+            Speichern
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

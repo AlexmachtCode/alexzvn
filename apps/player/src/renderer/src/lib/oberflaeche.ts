@@ -17,7 +17,7 @@ import {
 import { masterLinkStatusItem, unbekannt, type StatusItem } from '@jm/ui';
 import type { AusgabeZustand } from '@jm/output-window/zustand';
 import { portBelegt, STEUER_PORT, type FernsteuerungMeldung } from '@shared/fernsteuerung';
-import type { MasterLinkMeldungZeile, OutputTime, ShowCue } from '@shared/types';
+import type { DisplayInfo, MasterLinkMeldungZeile, OutputTime, ShowCue } from '@shared/types';
 
 /** Abschnitts-ids = Panel-Anker (`einstellung-{id}`) = settingsSection der Statuseinträge. */
 export const ABSCHNITT = {
@@ -48,8 +48,19 @@ export const PLAYER_TEXTE = {
     ohneName: '—',
     ende: '— Ende —',
   },
-  /** Video-Ausgabe (E3); Titel wie der alte Dialog „Video-Ausgabe“. */
-  ausgabe: { titel: 'Video-Ausgabe', zu: 'zu', offen: 'offen', abgestuerzt: 'abgestürzt', trenner: ' · ' },
+  /**
+   * Video-Ausgabe (E3); Titel wie der alte Dialog „Video-Ausgabe“. `hinweis` und `primaer` sind der alte Wortlaut des Dialogs
+   * (Text unter dem Titel, Zusatz der Bildschirmkarte des primären Bildschirms); beide stehen jetzt im Panel.
+   */
+  ausgabe: {
+    titel: 'Video-Ausgabe',
+    zu: 'zu',
+    offen: 'offen',
+    abgestuerzt: 'abgestürzt',
+    trenner: ' · ',
+    hinweis: 'Bildschirm für das Vollbild-Ausgabefenster wählen. Video-Cues erscheinen dort.',
+    primaer: ' · Primär',
+  },
   /** Statuseintrag der Cue-Show (Name wie der Reiter). */
   show: {
     titel: 'Cue-Show',
@@ -149,6 +160,14 @@ export function showSpielt(s: Pick<OberflaechenStand, 'player'>): boolean {
 /** ON AIR (E4): die Show spielt wirklich oder mindestens ein Pad spielt; noch keine Pad-Meldung zählt wie kein Pad. Kein Label. */
 export function kopfOnAir(s: Pick<OberflaechenStand, 'player' | 'pads'>): { live: boolean } {
   return { live: showSpielt(s) || (s.pads?.length ?? 0) > 0 };
+}
+
+/**
+ * Etikett eines Bildschirms in der Auswahl des Panels, aus der alten Bildschirmkarte: Name, beim primären „ · Primär“, dazu
+ * Breite×Höhe in Klammern (wie Prompter und Stage-Display).
+ */
+export function bildschirmEtikett(d: Pick<DisplayInfo, 'label' | 'primary' | 'width' | 'height'>): string {
+  return `${d.label}${d.primary ? PLAYER_TEXTE.ausgabe.primaer : ''} (${d.width}×${d.height})`;
 }
 
 /** Das Ausgabefenster soll offen sein: Es existiert gemessen in irgendeiner Form (auch abgestürzt oder ohne Bildschirm). */

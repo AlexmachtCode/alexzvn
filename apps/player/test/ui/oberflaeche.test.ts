@@ -427,8 +427,9 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
     importiert(show) && (show.match(/if \(istEingabeZiel\(e\.target\)\) return;/g) ?? []).length === 1 && !/tagName\s*===/.test(show),
     'PL Kürzel aus Panel-Feld: ShowView.tsx filtert über istEingabeZiel, ohne eigene tagName-Prüfung',
   );
+  // Player d1: Das Modal „Video-Ausgabe“ ist Panel-Abschnitt geworden; mit ihm entfällt die Sperre outputOpen (PL Tasten in rahmen.test).
   ok(
-    /if \(addOpen \|\| outputOpen \|\| editCue\) return;/.test(show) &&
+    /if \(addOpen \|\| editCue\) return;/.test(show) &&
       /if \(e\.code === 'Space'\) \{\s*e\.preventDefault\(\);\s*showGo\(\);\s*\} else if \(e\.key === 'Escape'\) \{\s*showStop\(\);\s*\}/.test(show) &&
       /window\.addEventListener\('keydown', onKey\);/.test(show),
     'PL Kürzel: Cue-Show wie bisher (kein offener Dialog, Leertaste = GO mit preventDefault, Escape = Stop, Hörer am window)',
