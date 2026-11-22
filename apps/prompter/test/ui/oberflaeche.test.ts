@@ -1,6 +1,8 @@
 // UX Welle 2a · Prompter-Ableitungen (Aufgabe c; E3 Ausgabezustand, E4 ON AIR, E11 Handy, Spec 7.2): Statusleiste als
 // Kreuzprodukt je Eintrag, Haupttasten, ON AIR, Kürzelschutz, Texte. Ohne window und ohne Electron.
-import { ordneStatus, type StatusItem } from '@jm/ui';
+import * as settings from '@jm/settings';
+import { ABSCHNITT_TEXTE } from '@jm/settings';
+import { MASTER_LINK_TEXTE, ordneStatus, type StatusItem } from '@jm/ui';
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
 import type { AusgabeArt, AusgabeZustand } from '@jm/output-window/zustand';
 import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
@@ -124,7 +126,7 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
   pruefeFaelle('PR Statusleiste handy: aus, läuft mit Adresszahl, nicht gestartet (ohne Grund), vor der Antwort unbekannt', faelle, (f) => {
     const p = f.prompter === 'undefined' ? undefined : zustand({ remoteEnabled: f.an, running: f.laeuft, urls: Array.from({ length: f.urls }, (_, i) => `http://10.0.0.${i + 1}:8727`) });
     const i = eintrag(stand({ prompter: p }), 'handy');
-    const soll = p === undefined ? 'off unbekannt' : !f.an ? 'off aus' : f.laeuft ? `ok ${PROMPTER_TEXTE.handy.adressen(f.urls)}` : 'warn nicht gestartet';
+    const soll = p === undefined ? 'off unbekannt' : !f.an ? `off ${ABSCHNITT_TEXTE.aus}` : f.laeuft ? (f.urls === 0 ? `warn ${PROMPTER_TEXTE.handy.keineAdresse}` : `ok ${PROMPTER_TEXTE.handy.adressen(f.urls)}`) : `warn ${PROMPTER_TEXTE.handy.nichtGestartet}`;
     return vergleiche(sd(i), soll) ?? (i.group !== 'fernsteuerung' || i.settingsSection !== ABSCHNITT.handy ? 'Kopf falsch' : null);
   });
   gleich([PROMPTER_TEXTE.handy.adressen(1), PROMPTER_TEXTE.handy.adressen(2)], ['1 Adresse', '2 Adressen'], 'PR Statusleiste handy: Adresszahl im Singular und Plural');
@@ -271,7 +273,13 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
   const flach = (v: unknown): string[] => (typeof v === 'function' ? aufruf(v as (n: number) => unknown) : typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(flach) : []);
   const texte = flach(PROMPTER_TEXTE);
   ok(texte.length > 0 && texte.every((t) => !t.includes('"')), 'PR Texte ohne ASCII-Anführungszeichen');
-  // E3: Gleiche Wörter in mehreren Apps sind erlaubt (kein gemeinsamer Text), darum keine Nachbau-Prüfung gegen @jm/settings.
+  // R5: Texte aus @jm/settings (*_TEXTE, STATUS_UNBEKANNT) und @jm/ui (MASTER_LINK_TEXTE) werden nie nachgebaut.
+  const fremd = new Set([...Object.entries(settings).filter(([k]) => k.endsWith('_TEXTE')).map(([, v]) => v), MASTER_LINK_TEXTE, settings.STATUS_UNBEKANNT].flatMap(flach));
+  // Bewusste Ausnahmen (R7): gleiches Wort, andere Bedeutung. „offen“ = Fenster offen (nicht Modus offen der Fernsteuerung);
+  // „nicht gestartet“ = Handy-Server (E11-Wortlaut), nicht der Master-Link-Client.
+  const AUSNAHMEN = new Set<string>([PROMPTER_TEXTE.ausgabe.offen, PROMPTER_TEXTE.handy.nichtGestartet]);
+  const nachgebaut = texte.filter((t) => fremd.has(t) && !AUSNAHMEN.has(t));
+  ok(fremd.size > 0 && nachgebaut.length === 0, `PR Texte nicht nachgebaut: kein PROMPTER_TEXTE-Wert gleicht einem Text aus @jm/settings oder @jm/ui${nachgebaut.length ? ` (${nachgebaut.join(' | ')})` : ''}`);
   const code = ohneKommentare(leseText('src/renderer/src/lib/oberflaeche.ts'));
   ok(!/(?<![\w-])window\b|\blocalStorage\b|\bipcRenderer\b|\bdocument\b|from ['"]electron['"]/.test(code), 'PR oberflaeche rein: lib/oberflaeche.ts ohne window, document, localStorage, IPC und Electron');
 }

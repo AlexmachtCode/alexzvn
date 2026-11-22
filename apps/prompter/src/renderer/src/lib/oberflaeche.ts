@@ -5,12 +5,14 @@
 // Kein window, kein IPC, kein localStorage: Die Tests laufen ohne Browser. Statusleiste und Panel nutzen dieselben
 // Ableitungen (eine Wahrheit). Keine Taste bekommt eine neue Wirkung.
 import {
+  ABSCHNITT_TEXTE,
   abschnittStatusItem,
   REMOTE_TEXTE,
   remoteControlView,
   type RemoteControlSectionProps,
   type ScreenOption,
   type ScreenOutputSectionProps,
+  SCREEN_TEXTE,
 } from '@jm/settings';
 import { masterLinkStatusItem, unbekannt, type StatusItem } from '@jm/ui';
 import type { AusgabeZustand } from '@jm/output-window/zustand';
@@ -41,15 +43,14 @@ export const PROMPTER_TEXTE = {
     titel: 'Talent-Monitor',
     zu: 'zu',
     offen: 'offen',
-    bildschirmFehlt: 'Bildschirm fehlt',
     abgestuerzt: 'abgestürzt',
     trenner: ' · ',
   },
   /** Handy-Fernbedienung (E11): der Grund für „nicht gestartet“ steht nur im Log, der Text behauptet keinen. */
   handy: {
     titel: 'Handy-Fernbedienung',
-    aus: 'aus',
     nichtGestartet: 'nicht gestartet',
+    keineAdresse: 'Keine LAN-Adresse gefunden',
     adressen: (n: number): string => (n === 1 ? '1 Adresse' : `${n} Adressen`),
   },
   tempo: { titel: 'Tempo', einheit: ' Z/s' },
@@ -138,19 +139,21 @@ function talentMonitorItem(s: OberflaechenStand): StatusItem {
       return { ...kopf, state: 'ok', detail: name === undefined ? T.offen : `${T.offen}${T.trenner}${name}` };
     }
     case 'bildschirm-fehlt':
-      return { ...kopf, state: 'warn', detail: T.bildschirmFehlt };
+      return { ...kopf, state: 'warn', detail: SCREEN_TEXTE.bildschirmFehlt };
     case 'abgestuerzt':
       return { ...kopf, state: 'error', detail: T.abgestuerzt };
   }
 }
 
-/** Handy-Fernbedienung (E11): aus → off; an und läuft → ok mit Adresszahl; an und läuft nicht → warn ohne behaupteten Grund. */
+/** Handy-Fernbedienung (E11): aus → off; an, läuft, mit Adresse → ok mit Adresszahl; läuft ohne Adresse → warn; läuft nicht → warn ohne behaupteten Grund. */
 function handyItem(p: PrompterState | undefined): StatusItem {
   const H = PROMPTER_TEXTE.handy;
   const kopf = { id: 'handy', group: 'fernsteuerung', label: H.titel, settingsSection: ABSCHNITT.handy } as const;
   if (p === undefined) return unbekannt(kopf);
-  if (!p.config.remoteEnabled) return { ...kopf, state: 'off', detail: H.aus };
-  return p.remote.running ? { ...kopf, state: 'ok', detail: H.adressen(p.remote.urls.length) } : { ...kopf, state: 'warn', detail: H.nichtGestartet };
+  if (!p.config.remoteEnabled) return { ...kopf, state: 'off', detail: ABSCHNITT_TEXTE.aus };
+  if (!p.remote.running) return { ...kopf, state: 'warn', detail: H.nichtGestartet };
+  // Läuft, aber ohne erreichbare Adresse: das Handy könnte nicht verbinden, also nicht ok.
+  return p.remote.urls.length > 0 ? { ...kopf, state: 'ok', detail: H.adressen(p.remote.urls.length) } : { ...kopf, state: 'warn', detail: H.keineAdresse };
 }
 
 /** Tempo wie der Regler es zeigt: eine Stelle und „ Z/s“. Ohne Zustand unbekannt. */
