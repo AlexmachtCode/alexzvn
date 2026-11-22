@@ -1,5 +1,6 @@
 import { BrowserWindow, screen } from 'electron';
 import { join } from 'node:path';
+import { AUSGABE_ZU, naechsterAusgabeZustand, type AusgabeEreignis, type AusgabeZustand } from '@jm/output-window/zustand';
 import type { DisplayInfo, OutputCommand } from '@shared/types';
 
 declare const __dirname: string;
@@ -7,6 +8,32 @@ declare const __dirname: string;
 const preloadPath = join(__dirname, '../preload/index.cjs');
 
 let outputWindow: BrowserWindow | null = null;
+
+// UX Welle 2a (W2-2, E14): gemessener Zustand des Ausgabefensters, nur lesend. Das Fenster bleibt das eigene des Players
+// (nicht die Klasse OutputWindow); es meldet seine Ereignisse an die reine Zustandsmaschine aus @jm/output-window/zustand.
+let zustand: AusgabeZustand = AUSGABE_ZU;
+const hoerer = new Set<(z: AusgabeZustand) => void>();
+let bildschirmHoerer = false;
+
+/** Gemessener Zustand des Fensters. */
+export function ausgabeZustand(): AusgabeZustand {
+  return zustand;
+}
+
+/** Meldet jede Änderung des Zustands; gibt die Abmeldung zurück. */
+export function onAusgabeZustand(cb: (z: AusgabeZustand) => void): () => void {
+  hoerer.add(cb);
+  return () => {
+    hoerer.delete(cb);
+  };
+}
+
+function melde(e: AusgabeEreignis): void {
+  const neu = naechsterAusgabeZustand(zustand, e);
+  if (neu.art === zustand.art && neu.displayId === zustand.displayId) return;
+  zustand = neu;
+  for (const cb of [...hoerer]) cb(neu);
+}
 
 export function listDisplays(): DisplayInfo[] {
   const primaryId = screen.getPrimaryDisplay().id;
@@ -34,6 +61,11 @@ export function openOutputWindow(displayId?: number): void {
     (displayId != null ? displays.find((d) => d.id === displayId) : undefined) ??
     screen.getPrimaryDisplay();
   const { x, y, width, height } = target.bounds;
+  // `screen` gibt es erst nach app.ready, darum erst hier (einmalig) anmelden.
+  if (!bildschirmHoerer) {
+    bildschirmHoerer = true;
+    screen.on('display-removed', (_e, d) => melde({ t: 'bildschirm-weg', displayId: d.id }));
+  }
 
   if (outputWindow) {
     // Auf den gewünschten Bildschirm umziehen und (wieder) in den Vollbildmodus.
@@ -42,6 +74,7 @@ export function openOutputWindow(displayId?: number): void {
     outputWindow.setFullScreen(true);
     outputWindow.show();
     outputWindow.focus();
+    melde({ t: 'geoeffnet', displayId: target.id, neu: false });
     return;
   }
 
@@ -65,11 +98,16 @@ export function openOutputWindow(displayId?: number): void {
 
   win.on('ready-to-show', () => win.show());
   win.on('closed', () => {
+    // Ein später geöffnetes Fenster soll das späte `closed` des alten nicht zu „zu“ machen.
+    const abgeloest = outputWindow !== null && outputWindow !== win;
     outputWindow = null;
+    if (!abgeloest) melde({ t: 'geschlossen' });
   });
+  win.webContents.on('render-process-gone', () => melde({ t: 'abgestuerzt' }));
 
   loadOutput(win);
   outputWindow = win;
+  melde({ t: 'geoeffnet', displayId: target.id, neu: true });
 }
 
 export function closeOutputWindow(): void {
@@ -81,6 +119,11 @@ export function closeOutputWindow(): void {
 
 export function isOutputOpen(): boolean {
   return outputWindow != null && !outputWindow.isDestroyed();
+}
+
+/** Gemessenes Vollbild des Ausgabefensters (E14); null, solange kein Fenster offen ist. */
+export function isOutputFullscreen(): boolean | null {
+  return isOutputOpen() ? outputWindow!.isFullScreen() : null;
 }
 
 /**

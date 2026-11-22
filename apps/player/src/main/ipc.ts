@@ -11,7 +11,9 @@ import * as lib from './library';
 import { updatePlayerState } from './control-server';
 import { ensureThumb } from './thumbs';
 import {
+  ausgabeZustand,
   closeOutputWindow,
+  isOutputFullscreen,
   isOutputOpen,
   listDisplays,
   openOutputWindow,
@@ -81,6 +83,9 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle('output:open', (_e, displayId?: number) => openOutputWindow(displayId));
   ipcMain.handle('output:close', () => closeOutputWindow());
   ipcMain.handle('output:isOpen', () => isOutputOpen());
+  // UX Welle 2a: gemessener Zustand und gemessenes Vollbild des Ausgabefensters, nur lesend.
+  ipcMain.handle('output:zustand', () => ausgabeZustand());
+  ipcMain.handle('output:isFullscreen', () => isOutputFullscreen());
   ipcMain.handle('output:toggleFullscreen', () => toggleOutputFullscreen());
   ipcMain.handle('output:command', (_e, cmd: OutputCommand) => sendToOutput(cmd));
   // Ausgabefenster meldet „Video zu Ende" → ans Hauptfenster weiterreichen.
