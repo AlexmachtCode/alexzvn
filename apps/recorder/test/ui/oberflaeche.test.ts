@@ -39,7 +39,10 @@ function recorder(z: Partial<RecorderZustand> = {}): RecorderZustand {
   return { deviceIndex: 0, channels: 8, sampleRate: 96000, state: zustand('idle'), loading: false, hinweisEingang: null, ...z };
 }
 function stand(teil: Partial<OberflaechenStand> = {}): OberflaechenStand {
-  return { recorder: undefined, geraete: undefined, meldung: null, masterLink: undefined, fernsteuerung: undefined, ...teil };
+  const s = { recorder: undefined, zustand: undefined, geraete: undefined, meldung: null, masterLink: undefined, fernsteuerung: undefined, ...teil };
+  // Sonst folgt der gemessene Zustand dem Zustand des Store-Attrappe (die Fälle fragen „Main hat geantwortet“); wer ihn
+  // trennen will, setzt `zustand` ausdrücklich (auch auf undefined).
+  return 'zustand' in teil ? s : { ...s, zustand: s.recorder?.state };
 }
 const eintrag = (s: OberflaechenStand, id: string): StatusItem | undefined => statusLeiste(s).find((i) => i.id === id);
 const sd = (i: StatusItem | undefined): string => (i === undefined ? 'fehlt' : `${i.state} ${i.detail ?? ''}`);
@@ -259,7 +262,7 @@ const sd = (i: StatusItem | undefined): string => (i === undefined ? 'fehlt' : `
 {
   const faelle = kreuz({ r: ['ohne Store', 'sucht ohne Gerät', 'ohne Gerät', 'idle', 'armed', 'recording'] } as const);
   const SOLL: Record<string, string> = {
-    'ohne Store': `Eingang öffnen/gesperrt/${RECORDER_TEXTE.grund.sucheGeraete} | Aufnahme/gesperrt/${RECORDER_TEXTE.grund.sucheGeraete}`,
+    'ohne Store': `Eingang öffnen/gesperrt/${RECORDER_TEXTE.grund.zustandOffen} | Aufnahme/gesperrt/${RECORDER_TEXTE.grund.zustandOffen}`,
     'sucht ohne Gerät': `Eingang öffnen/gesperrt/${RECORDER_TEXTE.grund.sucheGeraete} | Aufnahme/bereit/-`,
     'ohne Gerät': `Eingang öffnen/gesperrt/${RECORDER_TEXTE.grund.keinEingang} | Aufnahme/bereit/-`,
     idle: 'Eingang öffnen/bereit/- | Aufnahme/bereit/-',
@@ -275,13 +278,45 @@ const sd = (i: StatusItem | undefined): string => (i === undefined ? 'fehlt' : `
           : f.r === 'ohne Gerät'
             ? recorder({ deviceIndex: null })
             : recorder({ state: zustand(f.r as RecorderStatus) });
-    const t = hauptTasten({ recorder: r });
+    const t = hauptTasten({ recorder: r, zustand: r?.state });
     const z = (x: { label: string; state: string; disabledReason?: string }): string => `${x.label}/${x.state}/${x.disabledReason ?? '-'}`;
     const grundFehlt = [t.eingang, t.aufnahme].some((x) => (x.state === 'gesperrt') !== (x.disabledReason !== undefined && x.disabledReason.trim() !== ''));
     return vergleiche(`${z(t.eingang)} | ${z(t.aufnahme)}`, SOLL[f.r]) ?? (grundFehlt || t.eingang.state === 'live' ? 'Grund oder live falsch' : null);
   });
   // Armed ist bereit, nie live: die Aufnahme-Taste zeigt erst bei gemessenem recording „Stopp“.
-  gleich(hauptTasten({ recorder: recorder({ state: zustand('armed') }) }).aufnahme.state, 'bereit', 'RE Haupttasten: armed ist bereit, nicht live (E4)');
+  gleich(hauptTasten({ recorder: recorder(), zustand: zustand('armed') }).aufnahme.state, 'bereit', 'RE Haupttasten: armed ist bereit, nicht live (E4)');
+}
+
+// ── RE Zustand getrennt: der Vorgabewert des Stores ist keine Messung ──
+{
+  // Store frisch: state IDLE (Vorgabe), loading true, Main noch nicht gefragt → nichts behaupten.
+  const frisch = stand({ recorder: recorder({ state: zustand('idle'), loading: true }), geraete: [], zustand: undefined });
+  gleich(
+    [sd(eintrag(frisch, 'aufnahme')), sd(eintrag(frisch, 'zeitplan')), sd(eintrag(frisch, 'eingang')), kopfOnAir(frisch).live],
+    ['off unbekannt', 'off unbekannt', 'off unbekannt', false],
+    'RE Zustand getrennt: Store-Vorgabe IDLE ohne gemessenen Zustand → aufnahme, zeitplan und eingang unbekannt, kein ON AIR',
+  );
+  const t = hauptTasten(frisch);
+  gleich(
+    [t.eingang.state, t.eingang.disabledReason, t.aufnahme.state, t.aufnahme.disabledReason],
+    ['gesperrt', RECORDER_TEXTE.grund.zustandOffen, 'gesperrt', RECORDER_TEXTE.grund.zustandOffen],
+    'RE Zustand getrennt: ohne gemessenen Zustand beide Haupttasten gesperrt mit sichtbarem Grund',
+  );
+  // Auch ein vollständig bereiter Store (Gerät gewählt, Liste da) ändert daran nichts, solange Main nicht geantwortet hat.
+  const bereit = stand({ recorder: recorder({ loading: false }), geraete: GERAETE, zustand: undefined });
+  const tb = hauptTasten(bereit);
+  ok(tb.eingang.state === 'gesperrt' && tb.aufnahme.state === 'gesperrt' && sd(eintrag(bereit, 'eingang')) === 'off unbekannt', 'RE Zustand getrennt: bereiter Store ohne gemessenen Zustand bleibt gesperrt und unbekannt');
+  // Verwechslung: gemessen recording, der Store steht noch auf IDLE → alles folgt `zustand`.
+  const faelle = kreuz({ gemessen: STATI, vorgabe: STATI } as const);
+  pruefeFaelle('RE Zustand getrennt: Ableitungen folgen zustand, nie recorder.state (Kreuzprodukt gemessen × Vorgabe)', faelle, (f) => {
+    const s = stand({ recorder: recorder({ state: zustand(f.vorgabe) }), geraete: GERAETE, zustand: zustand(f.gemessen, { filePath: 'D:\\x\\a.wav' }) });
+    const k = hauptTasten(s);
+    const rec = f.gemessen === 'recording';
+    const offen = f.gemessen !== 'idle';
+    const ist = [kopfOnAir(s).live, sd(eintrag(s, 'aufnahme')), k.aufnahme.state, k.eingang.label, eintrag(s, 'eingang')?.detail?.startsWith('offen')].join('|');
+    const soll = [rec, rec ? 'live a.wav' : `off ${RECORDER_TEXTE.aufnahme.keine}`, rec ? 'live' : 'bereit', offen ? RECORDER_TEXTE.taste.eingangSchliessen : RECORDER_TEXTE.taste.eingangOeffnen, offen].join('|');
+    return vergleiche(ist, soll);
+  });
 }
 
 // ── Texte und Quelltext ──

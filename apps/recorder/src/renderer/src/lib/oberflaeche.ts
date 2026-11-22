@@ -34,7 +34,7 @@ export const RECORDER_TEXTE = {
   /** Haupttasten: Beschriftungen wie die alten Knöpfe (RecorderView.tsx:146-176). */
   taste: { eingangOeffnen: 'Eingang öffnen', eingangSchliessen: 'Eingang schließen', aufnahme: 'Aufnahme', stopp: 'Stopp' },
   /** Gründe gesperrter Tasten: Wortlaut der Meldungen von heute (Store: Kein Eingang gewählt.; Seitenkopf: Suche Audiogeräte…). */
-  grund: { keinEingang: 'Kein Eingang gewählt', sucheGeraete: 'Suche Audiogeräte…' },
+  grund: { keinEingang: 'Kein Eingang gewählt', sucheGeraete: 'Suche Audiogeräte…', zustandOffen: 'Aufnahmezustand wird abgefragt…' },
   /** ON AIR im Kopf (E4). */
   onAirLabel: 'REC',
   /** Eingang: Titel wie das Feld, Zustandswörter, Maßeinheiten; die Geräteliste „Name — Treiber (n ch)“ wie bisher. */
@@ -79,8 +79,11 @@ export interface RecorderZustand {
   deviceIndex: number | null;
   channels: number;
   sampleRate: number;
-  /** Gemessen vom Hauptprozess: Status, offenes Gerät mit Kanälen und Samplerate, Datei, Uhr, Plan. */
-  state: RecorderState;
+  /**
+   * Vorgabewert des Stores (IDLE, nie vom Main gefragt). Wird hier nie gelesen: Der gemessene Zustand kommt getrennt als
+   * `OberflaechenStand.zustand`.
+   */
+  state?: RecorderState;
   /** true, bis `init` durch ist (Geräte werden gesucht). */
   loading: boolean;
   /** Gemerkter Eingang beim Start nicht gefunden (#291). */
@@ -95,6 +98,14 @@ export interface RecorderZustand {
 export interface OberflaechenStand {
   /** Store des Recorders; undefined = noch nicht geladen (dann „unbekannt“, nie live). */
   recorder: RecorderZustand | undefined;
+  /**
+   * Gemessener Zustand des Hauptprozesses (Status, offenes Gerät mit Kanälen und Samplerate, Datei, Uhr, Plan); undefined, bis
+   * Main wirklich geantwortet hat. Aufnahme, Zeitplan, ON AIR, Eingang offen/zu und die Haupttasten lesen NUR dies, nie
+   * `recorder.state` (der Store startet mit dem Vorgabewert IDLE). Vertrag für die View: Sie füllt `zustand` aus einem
+   * einmaligen `window.jmrec.getState()` beim Einhängen und aus `onState`, je nachdem was zuerst kommt. Ein späterer Push
+   * gewinnt immer; die Antwort von getState gilt nur, solange noch kein Push kam. Nur lesend, der Store bleibt unverändert.
+   */
+  zustand: RecorderState | undefined;
   /** Geräteliste (`listDevices`); undefined = noch nicht gefragt. Eine leere Liste bei `loading` zählt als unbekannt. */
   geraete: readonly AudioDevice[] | undefined;
   /**
@@ -126,10 +137,10 @@ export interface TasteZustand {
 export type Haupttaste = TasteZustand & { label: string };
 
 /** Der Eingang ist offen (gemessen): `armed` oder `recording`. */
-const eingangOffen = (r: RecorderZustand | undefined): boolean => r !== undefined && r.state.status !== 'idle';
+const eingangOffen = (z: RecorderState | undefined): boolean => z !== undefined && z.status !== 'idle';
 
 /** Es wird aufgenommen (gemessen); `armed` zählt nicht (E4). */
-const nimmtAuf = (r: RecorderZustand | undefined): boolean => r?.state.status === 'recording';
+const nimmtAuf = (z: RecorderState | undefined): boolean => z?.status === 'recording';
 
 /** Geräteliste, wie sie der Abschnitt bekommt: undefined, solange sie nicht gefragt oder noch beim Suchen und leer ist. */
 function geraeteListe(s: OberflaechenStand): readonly AudioDevice[] | undefined {
@@ -139,8 +150,8 @@ function geraeteListe(s: OberflaechenStand): readonly AudioDevice[] | undefined 
 }
 
 /** ON AIR (E4): nur gemessenes `recording`, nie `armed`; ohne Store nie live. */
-export function kopfOnAir(s: Pick<OberflaechenStand, 'recorder'>): { live: boolean; label: string } {
-  return { live: nimmtAuf(s.recorder), label: RECORDER_TEXTE.onAirLabel };
+export function kopfOnAir(s: Pick<OberflaechenStand, 'zustand'>): { live: boolean; label: string } {
+  return { live: nimmtAuf(s.zustand), label: RECORDER_TEXTE.onAirLabel };
 }
 
 /**
@@ -150,8 +161,8 @@ export function kopfOnAir(s: Pick<OberflaechenStand, 'recorder'>): { live: boole
  */
 export function eingangAbschnitt(s: OberflaechenStand, a: RecorderAktionen = KEINE_AKTION): AudioDeviceSectionProps {
   const r = s.recorder;
-  const offen = eingangOffen(r);
-  const gemessen = offen ? r?.state.device : null;
+  const offen = eingangOffen(s.zustand);
+  const gemessen = offen ? s.zustand?.device : null;
   const wahl = gemessen ?? r?.deviceIndex ?? null;
   const liste = geraeteListe(s);
   const sperre = offen ? AUDIO_TEXTE.sperreEingangOffen : undefined;
@@ -190,7 +201,7 @@ export interface FormatAbschnittProps {
 export function formatAbschnitt(s: OberflaechenStand): FormatAbschnittProps {
   const r = s.recorder;
   const gewaehlt = s.geraete?.find((d) => d.index === r?.deviceIndex);
-  const lockedReason = eingangOffen(r) ? AUDIO_TEXTE.sperreEingangOffen : undefined;
+  const lockedReason = eingangOffen(s.zustand) ? AUDIO_TEXTE.sperreEingangOffen : undefined;
   const mitGrund = <T extends object>(o: T): T & { lockedReason?: string } => (lockedReason === undefined ? o : { ...o, lockedReason });
   return {
     id: ABSCHNITT.format,
@@ -232,16 +243,18 @@ function eingangItem(s: OberflaechenStand): StatusItem {
   const T = RECORDER_TEXTE.eingang;
   const r = s.recorder;
   const kopf = { id: ABSCHNITT.eingang, group: 'tool', label: T.titel, settingsSection: ABSCHNITT.eingang } as const;
-  if (r === undefined) return unbekannt(kopf);
+  // Ohne gemessenen Zustand weiß niemand, ob der Eingang offen ist: kein „zu“ aus dem Vorgabewert.
+  if (r === undefined || s.zustand === undefined) return unbekannt(kopf);
+  const z = s.zustand;
   const basis = abschnittStatusItem(audioDeviceView(eingangAbschnitt(s)), { group: 'tool', label: T.titel });
   const liste = geraeteListe(s);
   const masse = (kanaele: number, rate: number): string => `${T.kanaele(kanaele)}${T.trenner}${T.rate(rate)}`;
-  if (eingangOffen(r)) {
-    const name = liste?.find((d) => d.index === r.state.device)?.name;
+  if (eingangOffen(z)) {
+    const name = liste?.find((d) => d.index === z.device)?.name;
     // Gerät nicht in der gemessenen Liste: der Abschnitt hat recht (Fehler), die Aufnahme läuft trotzdem weiter.
     if (liste !== undefined && name === undefined) return { ...basis, detail: `${T.offen}${T.trenner}${basis.detail}` };
     const wer = name === undefined ? '' : `${name}${T.trenner}`;
-    return { ...kopf, state: 'ok', detail: `${T.offen}${T.trenner}${wer}${masse(r.state.channels, r.state.sampleRate)}` };
+    return { ...kopf, state: 'ok', detail: `${T.offen}${T.trenner}${wer}${masse(z.channels, z.sampleRate)}` };
   }
   if (r.hinweisEingang !== null) return { ...kopf, state: 'warn', detail: `${T.zu}${T.trenner}${r.hinweisEingang}` };
   if (basis.state !== 'ok') return basis.detail === AUDIO_TEXTE.unbekannt ? basis : { ...basis, detail: `${T.zu}${T.trenner}${basis.detail}` };
@@ -256,10 +269,10 @@ function eingangItem(s: OberflaechenStand): StatusItem {
 function aufnahmeItem(s: OberflaechenStand): StatusItem {
   const T = RECORDER_TEXTE.aufnahme;
   const kopf = { id: 'aufnahme', group: 'ausgabe', label: T.titel } as const;
-  const r = s.recorder;
-  if (r === undefined) return unbekannt(kopf);
-  if (!nimmtAuf(r)) return { ...kopf, state: 'off', detail: T.keine };
-  return { ...kopf, state: 'live', detail: r.state.filePath ? basename(r.state.filePath) : T.laeuft };
+  const z = s.zustand;
+  if (z === undefined) return unbekannt(kopf);
+  if (!nimmtAuf(z)) return { ...kopf, state: 'off', detail: T.keine };
+  return { ...kopf, state: 'live', detail: z.filePath ? basename(z.filePath) : T.laeuft };
 }
 
 /**
@@ -269,15 +282,15 @@ function aufnahmeItem(s: OberflaechenStand): StatusItem {
 function zeitplanItem(s: OberflaechenStand): StatusItem {
   const T = RECORDER_TEXTE.zeitplan;
   const kopf = { id: 'zeitplan', group: 'tool', label: T.titel } as const;
-  const r = s.recorder;
-  if (r === undefined) return unbekannt(kopf);
-  const start = r.state.scheduledStartAt;
-  const stopp = r.state.scheduledStopAt;
+  const z = s.zustand;
+  if (z === undefined) return unbekannt(kopf);
+  const start = z.scheduledStartAt;
+  const stopp = z.scheduledStopAt;
   if (typeof start === 'number') {
     const teile = [T.start(uhrzeit(start)), ...(typeof stopp === 'number' ? [T.stopp(uhrzeit(stopp))] : [])];
     return { ...kopf, state: 'ok', detail: teile.join(T.trenner) };
   }
-  if (nimmtAuf(r) && typeof stopp === 'number') return { ...kopf, state: 'ok', detail: T.stopp(uhrzeit(stopp)) };
+  if (nimmtAuf(z) && typeof stopp === 'number') return { ...kopf, state: 'ok', detail: T.stopp(uhrzeit(stopp)) };
   return { ...kopf, state: 'off', detail: T.keiner };
 }
 
@@ -316,23 +329,22 @@ function taste(label: string, state: TasteZustand['state'], grund?: string): Hau
  *   „Kein Eingang gewählt“, solange die Geräte noch gesucht werden „Suche Audiogeräte…“; „Eingang schließen“ ist immer bereit
  *   (`:177-181`, auch während der Aufnahme).
  * - Aufnahme: `live` bei `recording` mit „Stopp“ (`:151-163`); sonst bereit, auch bei zu: Das Starten scheitert dort mit einem
- *   Toast (Funktionsliste Nr. 80), gesperrt wird nicht. Ohne Store gesperrt (Zustand unbekannt, Beschriftung nicht wählbar).
+ *   Toast (Funktionsliste Nr. 80), gesperrt wird nicht.
+ * - Ohne gemessenen Zustand (`zustand` undefined) sind beide gesperrt, Grund „Aufnahmezustand wird abgefragt…“.
  */
-export function hauptTasten(s: Pick<OberflaechenStand, 'recorder'>): { eingang: Haupttaste; aufnahme: Haupttaste } {
+export function hauptTasten(s: Pick<OberflaechenStand, 'recorder' | 'zustand'>): { eingang: Haupttaste; aufnahme: Haupttaste } {
   const T = RECORDER_TEXTE;
   const r = s.recorder;
+  const z = s.zustand;
+  // Ohne gemessenen Zustand ist offen/zu und Aufnahme unbekannt: beide Tasten gesperrt, mit sichtbarem Grund.
+  if (z === undefined) return { eingang: taste(T.taste.eingangOeffnen, 'gesperrt', T.grund.zustandOffen), aufnahme: taste(T.taste.aufnahme, 'gesperrt', T.grund.zustandOffen) };
   const sucht = r === undefined || r.loading;
   const ohneGeraet = r === undefined || r.deviceIndex === null;
-  const eingang = eingangOffen(r)
+  const eingang = eingangOffen(z)
     ? taste(T.taste.eingangSchliessen, 'bereit')
     : ohneGeraet
       ? taste(T.taste.eingangOeffnen, 'gesperrt', sucht ? T.grund.sucheGeraete : T.grund.keinEingang)
       : taste(T.taste.eingangOeffnen, 'bereit');
-  const aufnahme =
-    r === undefined
-      ? taste(T.taste.aufnahme, 'gesperrt', T.grund.sucheGeraete)
-      : nimmtAuf(r)
-        ? taste(T.taste.stopp, 'live')
-        : taste(T.taste.aufnahme, 'bereit');
+  const aufnahme = nimmtAuf(z) ? taste(T.taste.stopp, 'live') : taste(T.taste.aufnahme, 'bereit');
   return { eingang, aufnahme };
 }
