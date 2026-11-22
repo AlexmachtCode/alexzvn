@@ -90,6 +90,9 @@ const ALTER_UNTERTITEL = 'Floor/Dolmetscher-Ducking · Einspeisung in Zoom/Webex
   // Übergabe Task 30: engine erst nach dem ersten getState() im Effekt, Geräte erst nach dem ersten listDevices().
   ok(ober.includes('useState<EngineState | undefined>(undefined)') && !ober.includes('useState<EngineState>(() => engine.getState())'), 'IN Rahmen: stand.engine ist undefined bis zum ersten getState() im Effekt (nicht der Vorgabewert des Konstruktors)');
   ok(/geraete: devicesLoaded \? \{ eingaenge: inputs, ausgaenge: outputs, labelsAvailable \} : undefined/.test(ober), 'IN Rahmen: stand.geraete ist undefined bis zum ersten listDevices() (devicesLoaded)');
+  // Fix-Runde 1: die beim Start übergebenen Eingänge als lokaler Zustand der Wurzel-View, null bis zum ersten Start und nach dem Stopp.
+  ok(ober.includes('const [gestartet, setGestartet] = useState<GestarteteEingaenge | null>(null);') && /\n {4}gestartet,\n/.test(ober), 'IN Rahmen: stand.gestartet sind die Eingänge, mit denen die View engine.start gerufen hat (lokaler Zustand, nichts gemerkt)');
+  gleich((ober.match(/\bsetGestartet\b/g) ?? []).length, 2, 'IN Rahmen: setGestartet steht nur im useState und im Aufruf von liveAktionen (kein Effekt, kein Abo)');
   ok(!existsSync('src/renderer/src/components'), 'IN Rahmen: keine eigenen Ersatzbausteine (kein Ordner components)');
 }
 

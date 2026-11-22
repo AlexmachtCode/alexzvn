@@ -6,7 +6,7 @@
 // navigator, kein Store-Import; die View reicht Engine, Store und Preload herein, die Tests Attrappen.
 import type { JmInterpreterApi } from '@shared/api';
 import type { Devices } from '@/core/engine';
-import type { InterpreterAktionen, ReglerSchluessel } from './oberflaeche';
+import type { GestarteteEingaenge, InterpreterAktionen, ReglerSchluessel } from './oberflaeche';
 
 /** Was die Haupttaste von der Engine braucht (InterpreterEngine.start/stop). */
 export interface InterpreterMotor {
@@ -50,13 +50,25 @@ export interface PanelAktionen extends InterpreterAktionen {
 
 /**
  * Haupttaste wie der alte `toggle` (App.tsx:81-84): läuft die Engine, `stop()`, sonst `start()` mit den drei gemerkten Geräten.
+ * Fix-Runde 1: Vor `start()` merkt sich die View die übergebenen Eingänge (`gestartetMerken`, die Engine liest sie nur dort und
+ * gibt sie nicht heraus); nach dem erfüllten `stop()` vergisst sie sie wieder (null). Am Aufruf der Engine ändert das nichts.
  * Download wie der alte Knopf: der Rückruf der View (sie liest den Preload erst beim Klick).
  */
-export function liveAktionen(motor: InterpreterMotor, laeuft: boolean, geraete: Devices, kabelHerunterladen: () => void): LiveAktionen {
+export function liveAktionen(
+  motor: InterpreterMotor,
+  laeuft: boolean,
+  geraete: Devices,
+  kabelHerunterladen: () => void,
+  gestartetMerken: (g: GestarteteEingaenge | null) => void,
+): LiveAktionen {
   return {
     umschalten: () => {
-      if (laeuft) void motor.stop();
-      else void motor.start(geraete);
+      if (laeuft) {
+        void motor.stop().then(() => gestartetMerken(null));
+      } else {
+        gestartetMerken({ floorId: geraete.floorId, interpreterId: geraete.interpreterId });
+        void motor.start(geraete);
+      }
     },
     kabelHerunterladen,
   };

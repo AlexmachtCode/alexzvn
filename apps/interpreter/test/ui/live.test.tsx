@@ -19,10 +19,16 @@ const QUELLE = (d: string): string => ohneKommentare(leseText(`src/renderer/src/
 const inhalt = (html: string): string => element(html, 'main', '');
 const BOOL = [false, true] as const;
 
-/** Aktionen wie in der View: aus der Motor-Attrappe; der Download schreibt ins Protokoll. */
+/** Aktionen wie in der View: aus der Motor-Attrappe; Download und gemerkte Eingänge schreiben ins Protokoll. */
 function aktionen(s: OberflaechenStand, log: string[] = []): LiveAktionen {
   const e = s.einstellungen;
-  return liveAktionen(motorAttrappe(log), s.engine?.running === true, { floorId: e?.floorId ?? '', interpreterId: e?.interpreterId ?? '', outputId: e?.outputId ?? '' }, () => void log.push('download'));
+  return liveAktionen(
+    motorAttrappe(log),
+    s.engine?.running === true,
+    { floorId: e?.floorId ?? '', interpreterId: e?.interpreterId ?? '', outputId: e?.outputId ?? '' },
+    () => void log.push('download'),
+    (g) => void log.push(`gestartet:${JSON.stringify(g)}`),
+  );
 }
 const live = (s: OberflaechenStand, log: string[] = [], schwelle = -42): string => render(<LiveBereich stand={s} schwelleDb={schwelle} aktionen={aktionen(s, log)} />);
 const baum = (s: OberflaechenStand, log: string[] = []) => elemente(LiveBereich({ stand: s, schwelleDb: -42, aktionen: aktionen(s, log) }));
@@ -99,7 +105,8 @@ function knoepfe(html: string): Knopf[] {
     const s = stand({ engine: f.antwort ? motor({ running: f.running }) : undefined, einstellungen: einst({ floorId: f.floor, outputId: f.ausgabe }) });
     klick(liveTaste(s, aktionen(s, log)));
     const gesperrt = !f.antwort || f.floor === '';
-    const soll = gesperrt ? [] : [f.running ? 'stop' : `start:${JSON.stringify({ floorId: f.floor, interpreterId: 'mic-b', outputId: f.ausgabe })}`];
+    // Fix-Runde 1: vor engine.start merkt sich die View die übergebenen Eingänge (die Engine liest sie nur in start()).
+    const soll = gesperrt ? [] : f.running ? ['stop'] : [`gestartet:${JSON.stringify({ floorId: f.floor, interpreterId: 'mic-b' })}`, `start:${JSON.stringify({ floorId: f.floor, interpreterId: 'mic-b', outputId: f.ausgabe })}`];
     return vergleiche(log.join(','), soll.join(','));
   });
   pruefeFaelle('IN Live Verdrahtung: liveTaste ist genau hauptTaste plus Klick (keine zweite Rechnung)', kreuz({ antwort: BOOL, running: BOOL, floor: ['', 'mic-a'] } as const), (f) => {
@@ -112,10 +119,13 @@ function knoepfe(html: string): Knopf[] {
   const tallys = baum(s, log).filter((e) => e.type === TallyButton);
   for (const t of tallys) klick(t.props as unknown as TallyButtonProps);
   gleich([tallys.length, log], [1, ['stop']], 'IN Live Verdrahtung: der eine TallyButton im gerenderten Live-Bereich klickt engine.stop() im Lauf');
+  // Fix-Runde 1: nach dem Stopp (Promise erfüllt) wird die Aufzeichnung gelöscht; beim Start steht sie vor engine.start.
+  await warte();
+  gleich(log, ['stop', 'gestartet:null'], 'IN Live Verdrahtung: nach engine.stop() vergisst die View die gestarteten Eingänge (null)');
   const ober = QUELLE('views/InterpreterOberflaeche.tsx');
   ok(
-    /liveAktionen\(\s*engine,\s*state\?\.running === true,\s*\{ floorId: s\.floorId, interpreterId: s\.interpreterId, outputId: s\.outputId \},/.test(ober),
-    'IN Live Verdrahtung: die View reicht die Engine selbst, running aus dem Zustand und die drei Geräte aus dem Store an liveAktionen',
+    /liveAktionen\(\s*engine,\s*state\?\.running === true,\s*\{ floorId: s\.floorId, interpreterId: s\.interpreterId, outputId: s\.outputId \},\s*\(\) => kabelHerunterladen\(window\.jminterpreter\),\s*setGestartet,\s*\)/.test(ober),
+    'IN Live Verdrahtung: die View reicht die Engine selbst, running aus dem Zustand, die drei Geräte aus dem Store, den Download und setGestartet an liveAktionen',
   );
 }
 

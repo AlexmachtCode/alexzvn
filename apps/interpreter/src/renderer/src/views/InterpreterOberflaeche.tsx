@@ -12,7 +12,7 @@ import { AppShell, useBrueckenWert } from '@jm/ui';
 import { InterpreterEngine, listDevices, type DeviceInfo, type EngineState } from '@/core/engine';
 import { kabelHerunterladen, liveAktionen, panelAktionen } from '@/lib/aktionen';
 import { MASTER_LINK_QUELLE } from '@/lib/bruecken';
-import { kopfOnAir, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
+import { kopfOnAir, statusLeiste, type GestarteteEingaenge, type OberflaechenStand } from '@/lib/oberflaeche';
 import { duckSettings, useSettings } from '@/store/settings';
 import { Einstellungen } from './Einstellungen';
 import { LiveBereich } from './LiveBereich';
@@ -40,6 +40,9 @@ export function InterpreterOberflaeche({
   // ein Fehlalarm bei jedem Start, bis die echte Geräteliste da ist.
   const [devicesLoaded, setDevicesLoaded] = useState(false);
   const s = useSettings();
+  // Fix-Runde 1: die Eingänge, mit denen die Haupttaste engine.start gerufen hat (die Engine liest sie nur in start()); null vor
+  // dem ersten Start und nach dem Stopp. Daran messen Statusleiste und Panel im Lauf, ob eine Wahl schon wirkt.
+  const [gestartet, setGestartet] = useState<GestarteteEingaenge | null>(null);
   // Einstellungs-Panel (Spec 3.1, 3.6): zu beim Start, nichts gemerkt; offen über ⚙ oder einen Statuseintrag.
   const [panelOffen, setPanelOffen] = useState(anfangOffen);
   const [panelAbschnitt, setPanelAbschnitt] = useState<string | undefined>(undefined);
@@ -113,14 +116,17 @@ export function InterpreterOberflaeche({
     einstellungen: { floorId: s.floorId, interpreterId: s.interpreterId, outputId: s.outputId, bypass: s.bypass },
     geraete: devicesLoaded ? { eingaenge: inputs, ausgaenge: outputs, labelsAvailable } : undefined,
     masterLink,
+    gestartet,
   };
   // Haupttaste wie der alte toggle (Engine selbst, running aus dem Zustand, die drei Geräte aus dem Store); Download liest den
-  // Preload erst beim Klick. Das Panel schreibt nur den Store (set, reset).
+  // Preload erst beim Klick; vor dem Start merkt sich die View die übergebenen Eingänge, nach dem Stopp vergisst sie sie. Das
+  // Panel schreibt nur den Store (set, reset).
   const live = liveAktionen(
     engine,
     state?.running === true,
     { floorId: s.floorId, interpreterId: s.interpreterId, outputId: s.outputId },
     () => kabelHerunterladen(window.jminterpreter),
+    setGestartet,
   );
   const panel = panelAktionen(s);
 

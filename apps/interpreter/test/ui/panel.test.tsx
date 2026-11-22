@@ -69,8 +69,15 @@ const wahl = (h: string, key: string): string => {
   );
   ok(!text(g).includes(AUDIO_TEXTE.aktualisieren), 'IN Panel Geräte: kein „Geräte aktualisieren“ (die Liste zieht sich über devicechange nach, refresh aus)');
   ok(!text(g).includes('Pegel:'), 'IN Panel Geräte: ohne Lauf kein Pegel in den Wahlen');
-  const lauf = abschnitt(panel(stand({ engine: motor({ running: true, floorDb: -20, interpreterDb: -Infinity }) })), ABSCHNITT.geraete);
+  const lauf = abschnitt(panel(stand({ engine: motor({ running: true, floorDb: -20, interpreterDb: -Infinity }), gestartet: { floorId: 'mic-a', interpreterId: 'mic-b' } })), ABSCHNITT.geraete);
   gleich([text(wahl(lauf, 'floor')).includes(AUDIO_TEXTE.pegelWert(-20)), text(wahl(lauf, 'dolmetscher')).includes(AUDIO_TEXTE.keinSignal), text(wahl(lauf, 'ausgabe')).includes('Pegel')], [true, true, false], 'IN Panel Geräte: im Lauf Pegel an Floor und Dolmetscher (level an), nie an der Ausgabe');
+  // Fix-Runde 1: Floor im Lauf auf ein anderes Gerät gestellt → unter der geänderten Wahl kein Pegel (er gehört dem alten Gerät).
+  const geaendert = abschnitt(panel(stand({ engine: motor({ running: true, floorDb: -20, interpreterDb: -30 }), einstellungen: einst({ floorId: 'mic-b' }), gestartet: { floorId: 'mic-a', interpreterId: 'mic-b' } })), ABSCHNITT.geraete);
+  gleich(
+    [text(wahl(geaendert, 'floor')).includes('Pegel'), text(wahl(geaendert, 'dolmetscher')).includes(AUDIO_TEXTE.pegelWert(-30)), text(wahl(geaendert, 'floor')).includes(T.wechselWirktNachNeustart)],
+    [false, true, true],
+    'IN Panel Geräte: im Lauf geänderter Floor ohne Pegel (nie der Pegel des alten Geräts unter dem neuen Namen), Dolmetscher mit Pegel, Wechselhinweis bleibt',
+  );
   const unbekannt = abschnitt(panel(stand({ geraete: undefined })), ABSCHNITT.geraete);
   ok(auswahlen(unbekannt).length === 0 && text(unbekannt).includes('unbekannt'), 'IN Panel Geräte: vor der ersten Geräteliste „unbekannt“, keine erfundene Auswahl');
 }

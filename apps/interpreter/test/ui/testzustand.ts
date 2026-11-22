@@ -40,13 +40,13 @@ export function geraete(p: Partial<GeraeteStand> = {}): GeraeteStand {
   return { eingaenge: EINGAENGE, ausgaenge: AUSGAENGE, labelsAvailable: true, ...p };
 }
 
-/** Stand nach den ersten Antworten (Engine steht, Einstellungen gelesen, Geräte gemessen, Master-Link aus). */
+/** Stand nach den ersten Antworten (Engine steht, Einstellungen gelesen, Geräte gemessen, Master-Link aus, nichts gestartet). */
 export function stand(p: Partial<OberflaechenStand> = {}): OberflaechenStand {
-  return { engine: motor(), einstellungen: einst(), geraete: geraete(), masterLink: { art: 'aus' }, ...p };
+  return { engine: motor(), einstellungen: einst(), geraete: geraete(), masterLink: { art: 'aus' }, gestartet: null, ...p };
 }
 
 /** Stand, den die Oberfläche vor jeder Antwort bildet (Engine-Effekt noch nicht gelaufen, Geräte offen, Brücke offen). */
-export const STAND_ANFANG: OberflaechenStand = { engine: undefined, einstellungen: einst({ floorId: '', interpreterId: '', outputId: '' }), geraete: undefined, masterLink: undefined };
+export const STAND_ANFANG: OberflaechenStand = { engine: undefined, einstellungen: einst({ floorId: '', interpreterId: '', outputId: '' }), geraete: undefined, masterLink: undefined, gestartet: null };
 
 /** Attrappe des Motors (InterpreterEngine.start/stop); jeder Aufruf landet im Protokoll. */
 export function motorAttrappe(log: string[]): InterpreterMotor {

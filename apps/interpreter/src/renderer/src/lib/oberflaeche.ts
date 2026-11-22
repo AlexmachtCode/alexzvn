@@ -162,6 +162,19 @@ export interface OberflaechenStand {
   geraete: GeraeteStand | undefined;
   /** Master-Link-Meldung: undefined = offen, null = keine Brücke. */
   masterLink: MasterLinkMeldungZeile | null | undefined;
+  /**
+   * Fix-Runde 1: die Eingänge, mit denen die View `engine.start` zuletzt gerufen hat (die Engine liest sie nur in `start()`,
+   * engine.ts:156-157, und gibt sie nicht heraus); null vor dem ersten Start und nach dem Stopp. Wirksam nur, solange die Engine
+   * läuft: Dann zeigen floor und dolmetscher dieses Gerät, nicht die (vielleicht inzwischen geänderte) Einstellung. Das
+   * Ausgabegerät meldet die Engine selbst (`startedOutputId`).
+   */
+  gestartet: GestarteteEingaenge | null;
+}
+
+/** Die Eingänge eines Starts (Teil der Geräte, die die View an `engine.start` gibt). */
+export interface GestarteteEingaenge {
+  floorId: string;
+  interpreterId: string;
 }
 
 /** Aktionen des Panels: die View ruft damit den Store erst im Rückruf. */
@@ -190,14 +203,20 @@ export function kopfOnAir(s: Pick<OberflaechenStand, 'engine'>): { live: boolean
   return { live: s.engine?.running === true, label: INTERPRETER_TEXTE.onAir };
 }
 
+/** Die drei Geräte-Felder der Einstellungen (= Felder von `Devices`, die `engine.start` bekommt). */
+type GeraetFeld = 'floorId' | 'interpreterId' | 'outputId';
+
 /**
- * Das Ausgabegerät, das gerade wirkt: während des Laufs das beim Start gewählte (`engine.route()` läuft nur in `start()`,
- * App.tsx:271-274), sonst die Einstellung. undefined = noch unbekannt.
+ * Das Gerät, das gerade wirkt (undefined = unbekannt). Ohne Lauf die Einstellung. Im Lauf: die Ausgabe wie bisher aus der Engine
+ * (`startedOutputId`; `engine.route()` läuft nur in `start()`, App.tsx:271-274), die Eingänge aus `stand.gestartet` (Fix-Runde 1;
+ * die Engine öffnet sie nur in `start()`). Läuft die Engine ohne aufgezeichneten Start, sind die Eingänge unbekannt, nie die
+ * Einstellung.
  */
-function wirksameAusgabe(s: Pick<OberflaechenStand, 'engine' | 'einstellungen'>): string | undefined {
+function wirksam(s: Pick<OberflaechenStand, 'engine' | 'einstellungen' | 'gestartet'>, feld: GeraetFeld): string | undefined {
   const e = s.engine;
-  if (e?.running === true && e.startedOutputId !== null) return e.startedOutputId;
-  return s.einstellungen?.outputId;
+  if (e?.running !== true) return s.einstellungen?.[feld];
+  if (feld === 'outputId') return e.startedOutputId !== null ? e.startedOutputId : s.einstellungen?.outputId;
+  return s.gestartet?.[feld];
 }
 
 /** Eine Liste ist nur mit lesbaren Namen eine Messung; sonst bleibt sie unbekannt (undefined), nie leer. */
@@ -207,9 +226,17 @@ function liste(s: Pick<OberflaechenStand, 'geraete'>, art: 'eingaenge' | 'ausgae
   return g[art].map((d) => ({ id: d.deviceId, label: d.label }));
 }
 
-function abschnitt(s: OberflaechenStand, ausgabeId: string | undefined, a: InterpreterAktionen): AudioDeviceSectionProps {
+/** Werte der drei Wahlen und ob unter Floor bzw. Dolmetscher ein Pegel steht. */
+interface AbschnittWerte {
+  floorId: string;
+  interpreterId: string;
+  outputId: string;
+  pegelFloor: boolean;
+  pegelDolmetscher: boolean;
+}
+
+function abschnitt(s: OberflaechenStand, w: AbschnittWerte, a: InterpreterAktionen): AudioDeviceSectionProps {
   const e = s.einstellungen;
-  const laeuft = s.engine?.running === true;
   // Ohne Einstellungen ist jede Wahl ungelesen: die Liste bleibt unbekannt, sonst hieße die leere ID fälschlich „nicht gewählt“.
   const eingaenge = e === undefined ? undefined : liste(s, 'eingaenge');
   const ausgaenge = e === undefined ? undefined : liste(s, 'ausgaenge');
@@ -222,9 +249,9 @@ function abschnitt(s: OberflaechenStand, ausgabeId: string | undefined, a: Inter
         label: INTERPRETER_TEXTE.geraete.floor,
         direction: 'input',
         devices: eingaenge,
-        value: e?.floorId ?? '',
+        value: w.floorId,
         required: true,
-        levelDb: laeuft ? s.engine?.floorDb : undefined,
+        levelDb: w.pegelFloor ? s.engine?.floorDb : undefined,
         changeWarning: warnung,
         onChange: (id) => a.floorWaehlen(id),
       },
@@ -233,9 +260,9 @@ function abschnitt(s: OberflaechenStand, ausgabeId: string | undefined, a: Inter
         label: INTERPRETER_TEXTE.geraete.dolmetscher,
         direction: 'input',
         devices: eingaenge,
-        value: e?.interpreterId ?? '',
+        value: w.interpreterId,
         required: true,
-        levelDb: laeuft ? s.engine?.interpreterDb : undefined,
+        levelDb: w.pegelDolmetscher ? s.engine?.interpreterDb : undefined,
         changeWarning: warnung,
         onChange: (id) => a.dolmetscherWaehlen(id),
       },
@@ -244,7 +271,7 @@ function abschnitt(s: OberflaechenStand, ausgabeId: string | undefined, a: Inter
         label: INTERPRETER_TEXTE.geraete.ausgabe,
         direction: 'output',
         devices: ausgaenge,
-        value: ausgabeId ?? '',
+        value: w.outputId,
         defaultLabel: INTERPRETER_TEXTE.geraete.standard,
         changeWarning: warnung,
         onChange: (id) => a.ausgabeWaehlen(id),
@@ -258,10 +285,23 @@ function abschnitt(s: OberflaechenStand, ausgabeId: string | undefined, a: Inter
  * Geräte (Audiogerät, drei Wahlen): Floor und Dolmetscher (Eingang, Pflicht), Ausgabe (Standard = leere ID). Die gespeicherte
  * ID gegen die gemessene Liste: eine ID, die nicht in der Liste steht, bleibt gewählt und der Status ist „Gerät nicht
  * gefunden“ (Helfer des Abschnitts), nie der Standard. Ohne Liste oder Einstellungen ist die Wahl unbekannt. Jede Wahl trägt
- * `wechselWirktNachNeustart` (E10). Pegel nur bei laufender Engine. Das Panel zeigt die Einstellung.
+ * `wechselWirktNachNeustart` (E10). Das Panel zeigt die Einstellung. Pegel nur bei laufender Engine und nur unter einer Wahl,
+ * deren Wert das gestartete Gerät ist (Fix-Runde 1): unter einer im Lauf geänderten Wahl gehörte der Pegel dem alten Gerät.
  */
 export function geraeteAbschnitt(s: OberflaechenStand, a: InterpreterAktionen = KEINE_AKTION): AudioDeviceSectionProps {
-  return abschnitt(s, s.einstellungen?.outputId, a);
+  const e = s.einstellungen;
+  const laeuft = s.engine?.running === true;
+  return abschnitt(
+    s,
+    {
+      floorId: e?.floorId ?? '',
+      interpreterId: e?.interpreterId ?? '',
+      outputId: e?.outputId ?? '',
+      pegelFloor: laeuft && e !== undefined && s.gestartet?.floorId === e.floorId,
+      pegelDolmetscher: laeuft && e !== undefined && s.gestartet?.interpreterId === e.interpreterId,
+    },
+    a,
+  );
 }
 
 function wahlItem(w: AudioWahlView | undefined, id: string, label: string, group: 'ausgabe' | 'tool'): StatusItem {
@@ -269,15 +309,27 @@ function wahlItem(w: AudioWahlView | undefined, id: string, label: string, group
   return w === undefined ? unbekannt(kopf) : { ...kopf, state: w.status.state, detail: w.status.text };
 }
 
+/** Eintrag je Wahl: Schlüssel im Abschnitt, Feld der Einstellungen, Kurzname, Gruppe. */
+const WAHL_EINTRAG = {
+  floor: { feld: 'floorId', label: INTERPRETER_TEXTE.geraete.floorKurz, group: 'tool' },
+  dolmetscher: { feld: 'interpreterId', label: INTERPRETER_TEXTE.geraete.dolmetscher, group: 'tool' },
+  ausgabe: { feld: 'outputId', label: INTERPRETER_TEXTE.geraete.ausgabeKurz, group: 'ausgabe' },
+} as const satisfies Record<string, { feld: GeraetFeld; label: string; group: 'ausgabe' | 'tool' }>;
+
 /**
- * Ausgabe-Eintrag: das WIRKSAME Gerät gegen die gemessene Liste (Sicht des Abschnitts). Weicht die Einstellung vom beim Start
- * gewählten Gerät ab, ist ein `ok` nur eine Warnung mit dem Hinweis, dass die Änderung erst nach Stopp und Start wirkt.
+ * Geräte-Eintrag (floor, dolmetscher, ausgabe): das WIRKSAME Gerät gegen die gemessene Liste (Sicht des Abschnitts). Ohne Lauf
+ * die Einstellung. Im Lauf das gestartete Gerät; weicht die Einstellung davon ab, ist ein `ok` nur eine Warnung mit dem Hinweis,
+ * dass die Änderung erst nach Stopp und Start wirkt (Fix-Runde 1: für die Eingänge wie bisher für die Ausgabe).
  */
-function ausgabeItem(s: OberflaechenStand): StatusItem {
-  const wirksam = wirksameAusgabe(s);
-  const w = audioDeviceView(abschnitt(s, wirksam, KEINE_AKTION)).wahlen.find((x) => x.key === 'ausgabe');
-  const item = wahlItem(w, 'ausgabe', INTERPRETER_TEXTE.geraete.ausgabeKurz, 'ausgabe');
-  const offen = wirksam !== undefined && s.einstellungen !== undefined && wirksam !== s.einstellungen.outputId;
+function geraetItem(s: OberflaechenStand, key: keyof typeof WAHL_EINTRAG): StatusItem {
+  const { feld, label, group } = WAHL_EINTRAG[key];
+  const geraet = wirksam(s, feld);
+  if (geraet === undefined) return unbekannt({ id: key, group, label, settingsSection: ABSCHNITT.geraete });
+  const werte: AbschnittWerte = { floorId: '', interpreterId: '', outputId: '', pegelFloor: false, pegelDolmetscher: false };
+  werte[feld] = geraet;
+  const w = audioDeviceView(abschnitt(s, werte, KEINE_AKTION)).wahlen.find((x) => x.key === key);
+  const item = wahlItem(w, key, label, group);
+  const offen = s.einstellungen !== undefined && geraet !== s.einstellungen[feld];
   if (offen && item.state === 'ok') return { ...item, state: 'warn', detail: `${item.detail} · ${INTERPRETER_TEXTE.wechselWirktNachNeustart}` };
   return item;
 }
@@ -298,17 +350,12 @@ function fehlerItem(s: OberflaechenStand): StatusItem {
   return s.engine.error === null ? { ...kopf, state: 'ok', detail: T.keiner } : { ...kopf, state: 'error', detail: s.engine.error };
 }
 
-/** Statusleiste: master-link, floor, dolmetscher, ausgabe (aus dem Geräte-Abschnitt), ducking, fehler (`state.error`). */
+/**
+ * Statusleiste: master-link, floor, dolmetscher, ausgabe (das wirksame Gerät aus der Sicht des Geräte-Abschnitts), ducking,
+ * fehler (`state.error`).
+ */
 export function statusLeiste(s: OberflaechenStand): StatusItem[] {
-  const wahlen = audioDeviceView(geraeteAbschnitt(s)).wahlen;
-  return [
-    masterLinkStatusItem(s.masterLink),
-    wahlItem(wahlen.find((w) => w.key === 'floor'), 'floor', INTERPRETER_TEXTE.geraete.floorKurz, 'tool'),
-    wahlItem(wahlen.find((w) => w.key === 'dolmetscher'), 'dolmetscher', INTERPRETER_TEXTE.geraete.dolmetscher, 'tool'),
-    ausgabeItem(s),
-    duckingItem(s),
-    fehlerItem(s),
-  ];
+  return [masterLinkStatusItem(s.masterLink), geraetItem(s, 'floor'), geraetItem(s, 'dolmetscher'), geraetItem(s, 'ausgabe'), duckingItem(s), fehlerItem(s)];
 }
 
 function taste(label: string, state: TasteZustand['state'], grund?: string): Haupttaste {

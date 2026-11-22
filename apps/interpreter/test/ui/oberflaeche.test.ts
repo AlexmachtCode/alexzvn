@@ -26,8 +26,8 @@ const AUS = [{ deviceId: 'k', label: 'CABLE Input (VB-Audio Virtual Cable)' }, {
 
 const motor = (p: Partial<EngineState> = {}): EngineState => ({ running: false, ducking: false, floorDb: -Infinity, interpreterDb: -Infinity, error: null, startedOutputId: null, ...p });
 const einst = (p: Partial<Einstellungen> = {}): Einstellungen => ({ floorId: 'a', interpreterId: 'b', outputId: '', bypass: false, ...p });
-const stand = (p: Partial<OberflaechenStand> = {}): OberflaechenStand => ({ engine: motor(), einstellungen: einst(), geraete: { eingaenge: EIN, ausgaenge: AUS, labelsAvailable: true }, masterLink: { art: 'aus' }, ...p });
-const leer: OberflaechenStand = { engine: undefined, einstellungen: undefined, geraete: undefined, masterLink: undefined };
+const stand = (p: Partial<OberflaechenStand> = {}): OberflaechenStand => ({ engine: motor(), einstellungen: einst(), geraete: { eingaenge: EIN, ausgaenge: AUS, labelsAvailable: true }, masterLink: { art: 'aus' }, gestartet: null, ...p });
+const leer: OberflaechenStand = { engine: undefined, einstellungen: undefined, geraete: undefined, masterLink: undefined, gestartet: null };
 const eintrag = (s: OberflaechenStand, id: string): StatusItem => {
   const i = statusLeiste(s).find((x) => x.id === id);
   if (i === undefined) throw new Error(`kein Eintrag ${id}`);
@@ -82,6 +82,73 @@ pruefeFaelle(
     if (gestartet !== undefined && gestartet !== f.wert && soll.startsWith('ok ')) soll = `warn ${soll.slice(3)} · ${INTERPRETER_TEXTE.wechselWirktNachNeustart}`;
     return vergleiche(zeile(i), soll);
   },
+);
+
+// ── IN Statusleiste floor, dolmetscher im Lauf (Fix-Runde 1): das gestartete Gerät, Abweichung der Einstellung warnt ──
+// Die Engine liest die Eingänge nur in start() (engine.ts:156-157). Im Lauf zeigt der Eintrag das Gerät, mit dem die View
+// engine.start gerufen hat (stand.gestartet), wie ausgabe das gestartete Ausgabegerät; weicht die Einstellung ab, wird ein ok zu
+// warn mit „· Wirkt erst nach Stopp und erneutem Start.“. Ohne Lauf wie bisher die Einstellung.
+for (const [id, feld] of [['floor', 'floorId'], ['dolmetscher', 'interpreterId']] as const) {
+  pruefeFaelle(
+    `IN Statusleiste ${id} im Lauf: gestartetes Gerät, Abweichung warnt, ohne Lauf die Einstellung`,
+    kreuz({ liste: listeNamen, wert: ['', 'a', 'b', 'x'], start: ['a', 'b', 'x', 'kein'] as const, lauf: ['gestoppt', 'laeuft', 'ohne-motor'] as const, einst: [true, false] }),
+    (f) => {
+      const gestartet = f.start === 'kein' ? null : { floorId: 'b', interpreterId: 'a', [feld]: f.start };
+      const motorStand = f.lauf === 'ohne-motor' ? undefined : motor({ running: f.lauf === 'laeuft' });
+      const s = stand({ geraete: LISTEN[f.liste], einstellungen: f.einst ? einst({ [feld]: f.wert }) : undefined, engine: motorStand, gestartet });
+      const i = eintrag(s, id);
+      const laeuft = f.lauf === 'laeuft';
+      // Wirksam: im Lauf das gestartete Gerät (ohne Aufzeichnung unbekannt), sonst die Einstellung.
+      const wirksam = laeuft ? (f.start === 'kein' ? undefined : f.start) : f.einst ? f.wert : undefined;
+      let soll: string;
+      if (!f.einst || !gemessen(f.liste) || wirksam === undefined) soll = `off ${UNBEKANNT}`;
+      else if (wirksam === '') soll = `warn ${AUDIO_TEXTE.keinGeraet}`;
+      else if (f.liste === 'mit' && EIN.some((d) => d.deviceId === wirksam)) soll = `ok ${EIN.find((d) => d.deviceId === wirksam)?.label}`;
+      else soll = `error ${AUDIO_TEXTE.nichtGefunden}`;
+      if (laeuft && wirksam !== undefined && wirksam !== f.wert && soll.startsWith('ok ')) soll = `warn ${soll.slice(3)} · ${INTERPRETER_TEXTE.wechselWirktNachNeustart}`;
+      return vergleiche(zeile(i), soll) ?? (i.settingsSection === ABSCHNITT.geraete ? null : 'settingsSection');
+    },
+  );
+}
+{
+  // Das Szenario der Prüfung: Mix läuft mit Floor a, der Operator stellt Floor im Panel auf b.
+  const s = stand({ engine: motor({ running: true, floorDb: -20, interpreterDb: -30 }), einstellungen: einst({ floorId: 'b', interpreterId: 'b' }), gestartet: { floorId: 'a', interpreterId: 'b' } });
+  gleich(
+    [zeile(eintrag(s, 'floor')), zeile(eintrag(s, 'dolmetscher'))],
+    [`warn Mikro A · ${INTERPRETER_TEXTE.wechselWirktNachNeustart}`, 'ok Mikro B'],
+    'IN Statusleiste floor im Lauf: Floor im Lauf auf b gestellt → warn „Mikro A · Wirkt erst nach Stopp und erneutem Start.“ (das Gerät, das der Mix nimmt), Dolmetscher unverändert ok',
+  );
+  const d = stand({ engine: motor({ running: true }), einstellungen: einst({ floorId: 'a', interpreterId: 'a' }), gestartet: { floorId: 'a', interpreterId: 'b' } });
+  gleich(
+    [zeile(eintrag(d, 'floor')), zeile(eintrag(d, 'dolmetscher'))],
+    ['ok Mikro A', `warn Mikro B · ${INTERPRETER_TEXTE.wechselWirktNachNeustart}`],
+    'IN Statusleiste dolmetscher im Lauf: Dolmetscher im Lauf auf a gestellt → warn mit dem gestarteten Gerät „Mikro B“, Floor unverändert ok',
+  );
+  const aus = zeile(eintrag(stand({ engine: motor({ running: true, startedOutputId: 'k' }), einstellungen: einst({ outputId: 'l' }) }), 'ausgabe'));
+  ok(zeile(eintrag(s, 'floor')).endsWith(` · ${INTERPRETER_TEXTE.wechselWirktNachNeustart}`) && aus.endsWith(` · ${INTERPRETER_TEXTE.wechselWirktNachNeustart}`), 'IN Statusleiste floor im Lauf: derselbe Hinweis wie ausgabe (INTERPRETER_TEXTE.wechselWirktNachNeustart, nicht nachgebaut)');
+  gleich([zeile(eintrag(stand({ einstellungen: einst({ floorId: 'b' }), gestartet: { floorId: 'a', interpreterId: 'b' } }), 'floor'))], ['ok Mikro B'], 'IN Statusleiste floor im Lauf: ohne Lauf zählt die Einstellung, eine alte Aufzeichnung wirkt nicht');
+}
+
+// ── IN Pegel im Panel (Fix-Runde 1): nur unter der Wahl, deren Wert das gestartete Gerät ist ──
+pruefeFaelle(
+  'IN Pegel im Panel: Pegel nur im Lauf und nur unter der Wahl mit dem gestarteten Gerät (nie der Pegel eines anderen Geräts unter dem neuen Namen)',
+  kreuz({ laeuft: [true, false], floor: ['a', 'b'], dolm: ['a', 'b'], startFloor: ['a', 'b', 'kein'] as const, startDolm: ['a', 'b'] as const }),
+  (f) => {
+    const gestartet = f.startFloor === 'kein' ? null : { floorId: f.startFloor, interpreterId: f.startDolm };
+    const s = stand({ engine: motor({ running: f.laeuft, floorDb: -20, interpreterDb: -30 }), einstellungen: einst({ floorId: f.floor, interpreterId: f.dolm }), gestartet });
+    const w = audioDeviceView(geraeteAbschnitt(s)).wahlen;
+    const soll = [
+      f.laeuft && gestartet !== null && gestartet.floorId === f.floor ? AUDIO_TEXTE.pegelWert(-20) : undefined,
+      f.laeuft && gestartet !== null && gestartet.interpreterId === f.dolm ? AUDIO_TEXTE.pegelWert(-30) : undefined,
+      undefined,
+    ];
+    return vergleiche(JSON.stringify(w.map((x) => x.pegel?.text)), JSON.stringify(soll));
+  },
+);
+gleich(
+  audioDeviceView(geraeteAbschnitt(stand({ engine: motor({ running: true, floorDb: -20 }), einstellungen: einst({ floorId: 'b' }), gestartet: { floorId: 'a', interpreterId: 'b' } }))).wahlen.map((w) => [w.key, w.status.text, w.pegel?.text]),
+  [['floor', 'Mikro B', undefined], ['dolmetscher', 'Mikro B', AUDIO_TEXTE.keinSignal], ['ausgabe', INTERPRETER_TEXTE.geraete.standard, undefined]],
+  'IN Pegel im Panel: das Panel zeigt die Einstellung (neues Gerät) ohne den Pegel des alten Geräts; der Dolmetscher läuft unverändert mit Pegel',
 );
 
 // ── IN Statusleiste ducking ──
@@ -139,7 +206,7 @@ gleich(zeile(eintrag(stand({ masterLink: null }), 'master-link')), `off ${UNBEKA
   const quellen = (readdirSync('src/renderer/src', { recursive: true }) as string[]).filter((n) => /\.tsx?$/.test(n)).map((n) => ohneKommentare(readFileSync(`src/renderer/src/${n}`, 'utf8')));
   ok(quellen.length >= 5 && quellen.every((q) => !q.includes(AUDIO_TEXTE.wechselStoppt) && !q.includes('wechselStoppt')), 'IN Wechselhinweis je Wahl: AUDIO_TEXTE.wechselStoppt kommt in der App nicht vor');
   // Pegel nur bei laufendem Motor und nur aus der Messung.
-  const pegel = audioDeviceView(geraeteAbschnitt(stand({ engine: motor({ running: true, floorDb: -20, interpreterDb: -Infinity }) }))).wahlen;
+  const pegel = audioDeviceView(geraeteAbschnitt(stand({ engine: motor({ running: true, floorDb: -20, interpreterDb: -Infinity }), gestartet: { floorId: 'a', interpreterId: 'b' } }))).wahlen;
   gleich(pegel.map((w) => w.pegel?.text), [AUDIO_TEXTE.pegelWert(-20), AUDIO_TEXTE.keinSignal, undefined], 'IN Wechselhinweis je Wahl: Pegel nur gemessen, Ausgabe ohne Pegel');
   ok(audioDeviceView(geraeteAbschnitt(stand())).wahlen.every((w) => w.pegel === undefined), 'IN Wechselhinweis je Wahl: ohne laufenden Motor kein Pegel');
 }
@@ -193,18 +260,30 @@ ok(kopfOnAir(leer).live === false, 'IN ON AIR: vor der ersten Antwort nie live')
 // ── IN Vorgabe vs. gemessen ──
 pruefeFaelle(
   'IN Vorgabe vs. gemessen: Standard nur bei leerer ID, ok nie ohne Messung, Panel und Leiste gleich',
-  kreuz({ liste: listeNamen, wert: ['', 'k', 'x'], floor: ['', 'a', 'x'], einst: [true, false] }),
+  kreuz({ liste: listeNamen, wert: ['', 'k', 'x'], floor: ['', 'a', 'x'], einst: [true, false], lauf: [false, true], startFloor: ['a', 'b', 'kein'] as const }),
   (f) => {
-    const s = stand({ geraete: LISTEN[f.liste], einstellungen: f.einst ? einst({ outputId: f.wert, floorId: f.floor }) : undefined });
+    // Fix-Runde 1: im Lauf auch mit gestartetem Floor; die Ausgabe ist im Lauf mit der Einstellung gestartet (kein Wechsel).
+    const gestartet = f.startFloor === 'kein' ? null : { floorId: f.startFloor, interpreterId: 'b' };
+    const s = stand({ geraete: LISTEN[f.liste], einstellungen: f.einst ? einst({ outputId: f.wert, floorId: f.floor }) : undefined, engine: motor({ running: f.lauf, startedOutputId: f.lauf ? f.wert : null }), gestartet });
     const items = statusLeiste(s);
     const aus = items.find((i) => i.id === 'ausgabe') as StatusItem;
     const floor = items.find((i) => i.id === 'floor') as StatusItem;
     if (f.wert !== '' && aus.detail === INTERPRETER_TEXTE.geraete.standard) return 'unbekannte ID zeigt Standard';
     if ((!gemessen(f.liste) || !f.einst) && [aus, floor].some((i) => i.state === 'ok')) return 'ok ohne Messung';
     if (f.einst && f.liste === 'mit' && f.wert === 'x' && aus.state !== 'error') return 'unbekannte Ausgabe nicht als Fehler';
-    // Eine Wahrheit: derselbe Text und Zustand wie die Sicht des Abschnitts (ohne laufenden Motor kein Wechsel).
-    const w = audioDeviceView(geraeteAbschnitt(s)).wahlen.find((x) => x.key === 'ausgabe');
-    return w !== undefined && w.status.state === aus.state && w.status.text === aus.detail ? null : 'Panel und Leiste weichen ab';
+    // Im Lauf ist ein ok-Floor nur das gestartete Gerät und nur, wenn die Einstellung gleich ist; ohne Aufzeichnung unbekannt.
+    if (f.lauf && floor.state === 'ok' && (gestartet === null || gestartet.floorId !== f.floor)) return 'Floor ok im Lauf, obwohl der Mix ein anderes Gerät nimmt';
+    if (f.lauf && gestartet === null && floor.detail !== UNBEKANNT) return 'Floor im Lauf ohne gestartetes Gerät nicht unbekannt';
+    const gestartetName = gestartet === null ? undefined : EIN.find((d) => d.deviceId === gestartet.floorId)?.label;
+    if (f.lauf && f.einst && f.liste === 'mit' && gestartetName !== undefined && !(floor.detail ?? '').startsWith(gestartetName)) return 'Floor zeigt im Lauf nicht das gestartete Gerät';
+    // Eine Wahrheit: derselbe Text und Zustand wie die Sicht des Abschnitts, solange Einstellung und wirksames Gerät gleich sind.
+    const sicht = audioDeviceView(geraeteAbschnitt(s)).wahlen;
+    const w = sicht.find((x) => x.key === 'ausgabe');
+    if (!(w !== undefined && w.status.state === aus.state && w.status.text === aus.detail)) return 'Panel und Leiste weichen ab (ausgabe)';
+    const wf = sicht.find((x) => x.key === 'floor');
+    const gleichesGeraet = !f.lauf || (gestartet !== null && gestartet.floorId === f.floor);
+    if (gleichesGeraet && !(wf !== undefined && wf.status.state === floor.state && wf.status.text === floor.detail)) return 'Panel und Leiste weichen ab (floor)';
+    return null;
   },
 );
 
