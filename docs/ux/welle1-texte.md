@@ -2,11 +2,11 @@
 
 Zweck: Alle neuen und geänderten sichtbaren Texte der fünf umgebauten Werkzeuge (Switcher, Timer, Rundown, Q&A, Battle) zur Freigabe durch den Owner. Texte der gemeinsamen Bausteine aller Tools (Oberfläche und Einstellungen), die seit Welle 0 freigegeben sind, stehen nicht hier; nur der eine neue gemeinsame Text steht unter „Gemeinsam“.
 
-Stand: Branch `feat/ux-welle1`, Code-Stand `b5a2677310`. Die Versionen sind Switcher 0.12.0, Timer 0.15.0, Rundown 0.9.0, Q&A 0.7.0 und Battle 0.5.0; das Datum der Changelog-Einträge (21.11.2026) ist ein Platzhalter und wird am Tag der Veröffentlichung gesetzt.
+Stand: Branch `feat/ux-welle1`, Code-Stand `e5d365082f`. Die Versionen sind Switcher 0.12.0, Timer 0.15.0, Rundown 0.9.0, Q&A 0.7.0 und Battle 0.5.0; das Datum der Changelog-Einträge (21.11.2026) ist ein Platzhalter und wird am Tag der Veröffentlichung gesetzt.
 
 Lesehilfe: ‹…› steht für den Teil, der sich zur Laufzeit ändert (eine Zahl oder ein Name). Beispiel: „Runde ‹…›/‹…›“ erscheint als „Runde 2/3“. Die Nummer (z. B. SW12) nennst Du bitte bei jeder Änderung, die Du wünschst. Die Spalte „Ort“ sagt, wo der Text steht: Statusleiste (unten), Haupttaste (große Taste im Live-Bereich), Panel (Einstellungen hinter ⚙), Hinweis, Kopf (Kopfzeile).
 
-Aufbau: je Werkzeug eine Tabelle, dann „Gemeinsam“, „Ortshinweise“ (alte Texte, die einen verschobenen Ort nennen), „Changelog“, „Entfällt“, „Geänderte Bedienung“ und „Fragen an den Owner“.
+Aufbau: je Werkzeug eine Tabelle, dann „Gemeinsam“, „Ortshinweise“ (alte Texte, die einen verschobenen Ort nennen), „Changelog“, „Entfällt“, „Geänderte Bedienung“, „Fragen an den Owner“ und „Handbuch“ (die Stellen der fünf Kochbuch-Handbücher, die einen alten Ort nannten).
 
 ## Switcher
 
@@ -297,5 +297,289 @@ Keine Funktion fällt weg, aber an diesen Stellen verhält sich die Bedienung an
 - Timer und Switcher: Die Zeilen „Live Production“ und „Video-Mischer · Program / Preview“ entfallen, weil die Kopfzeile links nur Logo und Toolname zeigt. Soll eine Untertitelzeile zurückkommen?
 - Q&A: Soll der Satz „… hier ein Event erzeugen“ (Ortshinweise) umformuliert werden, weil er nun im Panel steht?
 - Battle: „Battle zurücksetzen? Runden/Stimmen werden geleert (Namen bleiben). Ein laufendes VS geht aus.“ ist die neue Rückfrage; der letzte Satz ist neu.
+
+## Handbuch
+
+Die fünf Handbücher im Kochbuch nennen jetzt die neuen Orte (Panel ⚙, Statusleiste, Haupttasten, Live-Bereich) statt der alten (Reiter, Seitenleiste, Fenster „Einstellungen“). Alles andere im Handbuch bleibt wie es war. Je Stelle steht ein Satz in Klartext, dann der alte Text (`-`, in Code-Schrift) und der neue Text (`+`). Bitte sag mir, wenn eine Stelle anders klingen soll.
+
+### Switcher
+
+Der Steuerport wird jetzt im Panel ⚙ unter Fernsteuerung aktiviert, nicht mehr in „Companion-/Steuerung-Einstellungen“.
+
+- `wird im Switcher aktiviert (Companion-/Steuerung-Einstellungen) bzw.`
++ wird im Switcher im Panel ⚙ › Fernsteuerung aktiviert (die Statusleiste zeigt den Eintrag „Fernsteuerung“) bzw.
+
+Quellen legst Du im einklappbaren unteren Bereich des Mischers an.
+
+- `Quellen hinzufügen (Bildschirm/Fenster, NDI, Capture-Karte)`
++ Quellen hinzufügen (Bildschirm/Fenster, NDI, Capture-Karte) im unteren Bereich „Szenen, Ebenen und Quellen“ des Mischers (lässt sich einklappen)
+
+Die Audioquelle wählst Du im Panel unter „Audiogerät“, den Pegel siehst Du in der Ausgabeleiste unter den Haupttasten.
+
+- `Audioquelle zuordnen und Pegel kontrollieren`
++ Audioquelle im Panel ⚙ › Audiogerät zuordnen und den Pegel in der Ausgabeleiste unter den Haupttasten kontrollieren
+
+Das Stream-Ziel trägst Du im Panel unter „Streaming“ ein; ohne Ziel ist „Stream starten“ gesperrt und sagt warum.
+
+- `Für Stream: RTMP-Ziel + Stream-Key hinterlegen und Verbindung testen`
++ Für Stream: RTMP-Ziel + Stream-Key im Panel ⚙ › Streaming hinterlegen und Verbindung testen (ohne Ziel ist die Haupttaste „Stream starten“ gesperrt und nennt den Grund)
+
+Der Steuerport für Companion wird im Panel unter „Fernsteuerung“ aktiviert.
+
+- `Optional: Steuerport aktivieren und Companion verbinden (Tasten für CUT/AUTO/PROGRAM/Szenen)`
++ Optional: Steuerport im Panel ⚙ › Fernsteuerung aktivieren und Companion verbinden (Tasten für CUT/AUTO/PROGRAM/Szenen)
+
+Cut und Auto sind jetzt Haupttasten unter der Kopfzeile.
+
+- `Mit CUT hart oder mit AUTO weich auf Program schalten`
++ Mit CUT hart oder mit AUTO weich auf Program schalten (Haupttasten „Cut“ und „Auto“ unter der Kopfzeile)
+
+Aufnahme und Stream starten über Haupttasten; die Kopfzeile zeigt den Sendezustand.
+
+- `Aufnahme (RECORD) und/oder Stream (STREAM) starten`
++ Aufnahme (RECORD) und/oder Stream (STREAM) starten (Haupttasten „Aufnehmen“ und „Stream starten“; die Kopfzeile zeigt dann „REC“ bzw. „LIVE“)
+
+Den Stream-Zustand liest Du in der Statusleiste, den Pegel in der Ausgabeleiste.
+
+- `Stream-Status (Bitrate, Drops) und Audiopegel beobachten`
++ Stream-Status (Bitrate, Drops) und Audiopegel beobachten: Statusleiste unten (Aufnahme, Stream, Audio), der Pegel in der Ausgabeleiste
+
+Bei „Companion steuert nicht“ schaust Du zuerst auf die Statusleiste und das Panel Fernsteuerung.
+
+- `Steuerport im Switcher aktiviert? Gleicher Port in Companion?`
++ Statusleiste „Fernsteuerung“ ansehen: Steuerport im Panel ⚙ › Fernsteuerung aktiviert? Gleicher Port in Companion?
+
+Bei „Kein Ton im Stream“ prüfst Du das Panel Audiogerät, die Statusleiste Audio und die Ausgabeleiste.
+
+- `Audioquelle zugeordnet? Pegel/Mute prüfen`
++ Audioquelle im Panel ⚙ › Audiogerät zugeordnet (Statusleiste „Audio“)? Pegel/Mute in der Ausgabeleiste prüfen
+
+### Timer
+
+Die Adressen für die Remote-View stehen jetzt im Panel „LAN-Fernbedienung“, nicht mehr in der Seitenleiste.
+
+- `Die kopierbaren URLs stehen in der Operator-Sidebar unter „Remote".`
++ Die kopierbaren URLs stehen im Panel ⚙ › LAN-Fernbedienung.
+
+Der Token-Schutz wird im Panel „LAN-Fernbedienung“ geschaltet, nicht in „den Einstellungen“.
+
+- `(in den Einstellungen aktivierbar, Token neu generierbar)`
++ (im Panel ⚙ › LAN-Fernbedienung mit „Auth aktivieren“ einschaltbar, Token dort neu generierbar)
+
+Das Sprecherfenster öffnest Du mit dem Speaker-Knopf in der Kopfzeile.
+
+- `Sprecherfenster auf den Talent-Monitor schieben (Vollbild)`
++ Sprecherfenster mit dem Speaker-Knopf in der Kopfzeile öffnen (Statusleiste „Speaker-Fenster“, Einstellungen im Panel ⚙ › Speaker-Fenster) und auf den Talent-Monitor schieben (Vollbild)
+
+Die URL für Backstage oder iPad holst Du aus dem Panel „LAN-Fernbedienung“.
+
+- `Remote-View bei Bedarf: URL aus der „Remote"-Sidebar an Backstage/iPad geben`
++ Remote-View bei Bedarf: URL aus dem Panel ⚙ › LAN-Fernbedienung an Backstage/iPad geben
+
+Port und verbundene Clients der Fernsteuerung zeigt die Statusleiste.
+
+- `(Auto-Discovery über jm-timer-ctl) — oder`
++ (Auto-Discovery über jm-timer-ctl; Port und verbundene Clients zeigt die Statusleiste unter „Fernsteuerung“, Panel ⚙ › Fernsteuerung) — oder
+
+Die lokale Bedienung läuft über die Haupttasten; Leertaste und R gelten wie bisher nur im Countdown.
+
+- `Timer starten / stoppen / zurücksetzen (lokal oder per Companion: TIMER START/STOP/RESET)`
++ Timer starten / stoppen / zurücksetzen (lokal mit den Haupttasten „Start“, „Resume“/„Pause“ und „Reset“, im Countdown auch Leertaste und R; per Companion: TIMER START/STOP/RESET)
+
+Die Nachrichtenleiste liegt über dem Inhalt.
+
+- `Kurznachricht für die Bühne einblenden;`
++ Kurznachricht für die Bühne einblenden (Nachrichtenleiste über dem Inhalt);
+
+Das Token holst Du aus dem Panel „LAN-Fernbedienung“, nicht aus „den Einstellungen“.
+
+- `Token aus den Einstellungen verwenden oder neu generieren`
++ Token aus dem Panel ⚙ › LAN-Fernbedienung verwenden oder dort neu generieren
+
+Bei „Companion/Rundown steuert nicht“ liest Du zuerst die Statusleiste.
+
+- `Steuerport offen? jm-timer-ctl im mDNS sichtbar?`
++ Steuerport offen (Statusleiste „Fernsteuerung“)? jm-timer-ctl im mDNS sichtbar?
+
+### Rundown
+
+Zeilen und Aktionen legst Du in der Liste und im Editor rechts an.
+
+- `Rundown-Zeilen je Segment anlegen und die Aktionen pro Zeile zuordnen`
++ Rundown-Zeilen je Segment in der Liste anlegen („+ Zeile hinzufügen“) und die Aktionen pro Zeile im Editor rechts zuordnen („+ Aktion hinzufügen“)
+
+Den Zustand der gefundenen Tools liest Du in der Statusleiste; Host und Port setzt Du im Panel unter „Gegenstellen“.
+
+- `Live-Status der gefundenen Tools prüfen (grün = ansteuerbar)`
++ Status der gefundenen Tools in der Statusleiste prüfen (ein Eintrag je Tool; „verbunden“ = ansteuerbar, „gefunden · nicht verbunden“ = im Netz da, aber nicht verbunden; Host und Port bei Bedarf im Panel ⚙ › Gegenstellen setzen)
+
+Die Fernsteuerung für Companion zeigt die Statusleiste und das Panel „Fernsteuerung“.
+
+- `Optional: Companion auf Port 8731 / jm-rundown-ctl verbinden für Fern-GO`
++ Optional: Companion auf Port 8731 / jm-rundown-ctl verbinden für Fern-GO (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung)
+
+Gespeichert wird über die Werkzeugleiste.
+
+- `Als .jmrundown speichern`
++ Als .jmrundown speichern (Werkzeugleiste: Speichern)
+
+GO ist eine Haupttaste (auch Leertaste); Zurück und Weiter wählen nur die Zeile.
+
+- `Pro Segment GO drücken — feuert alle zugeordneten Aktionen gleichzeitig (lokal oder per RUNDOWN GO)`
++ Pro Segment die Haupttaste „GO“ drücken (oder die Leertaste) — feuert alle zugeordneten Aktionen gleichzeitig (lokal oder per RUNDOWN GO); „◀ Zurück“ und „Weiter ▶“ wählen die Zeile, ohne zu feuern
+
+Der Live-Status und die Tally-Anzeige sind jetzt die Statusleiste.
+
+- `Live-Status / Tally im Blick behalten`
++ Statusleiste im Blick behalten (Verbindung je Tool und seine aktiven Rückmeldungen)
+
+Bei einem Tool, das nicht gefunden wird, schaust Du in die Statusleiste.
+
+- `Gleiches Subnetz? Tool gestartet?`
++ Statusleiste: Eintrag des Tools fehlt oder steht auf „nicht gefunden“. Gleiches Subnetz? Tool gestartet?
+
+Bei „GO feuert nicht alle Aktionen“ prüfst Du den Statusleisten-Eintrag des Tools.
+
+- `Live-Status des betroffenen Tools prüfen`
++ Statusleiste: Eintrag des betroffenen Tools prüfen
+
+Bei „Companion-GO ohne Wirkung“ schaust Du zuerst auf die Statusleiste.
+
+- `Companion zeigt auf Port 8731 (jm-rundown-ctl)? Gemeinsames LAN?`
++ Statusleiste „Fernsteuerung“ ansehen; Companion zeigt auf Port 8731 (jm-rundown-ctl)? Gemeinsames LAN?
+
+Port und Endpunkt ordnest Du im Panel „Gegenstellen“ neu zu.
+
+- `Ziel-Tool neu gestartet → Port/Endpunkt erneut zuordnen`
++ Ziel-Tool neu gestartet → Port/Endpunkt erneut zuordnen (Panel ⚙ › Gegenstellen)
+
+Die Checkliste fragt jetzt nach der Statusleiste statt nach dem Live-Status.
+
+- `Live-Status grün`
++ Statusleiste: gefundene Tools verbunden
+
+### Q&A
+
+Die Saal-Einreichung schaltest Du mit der Haupttaste im Live-Bereich.
+
+- `QR-Einreichung aktivieren (Port 7782) — Erreichbarkeit der Einreich-Seite vom Gäste-WLAN testen`
++ QR-Einreichung mit der Haupttaste „Saal-Einreichung“ im Live-Bereich aktivieren („◉ An“, Port 7782; der QR steht rechts im Live-Bereich) — Erreichbarkeit der Einreich-Seite vom Gäste-WLAN testen
+
+Die Moderation stellst Du im Panel unter „Moderation“ ein.
+
+- `Moderation/Freigabe einstellen (Filter vor Veröffentlichung)`
++ Moderation/Freigabe im Panel ⚙ › Moderation einstellen (Filter vor Veröffentlichung)
+
+Die Kopplung zu Timer und Titler zeigt die Statusleiste; die Schalter stehen im Panel „Redezeit und Kopplung“.
+
+- `prüfen — beide im selben LAN gestartet`
++ prüfen — beide im selben LAN gestartet. Die Statusleiste zeigt „Kopplung Timer“ und „Kopplung Titler“, die Schalter dazu stehen im Panel ⚙ › Redezeit und Kopplung
+
+Die Fernsteuerung für Companion zeigt die Statusleiste und das Panel „Fernsteuerung“.
+
+- `Optional: Companion auf Port 8733 verbinden (NEXT/END/EXTEND/CLEAR)`
++ Optional: Companion auf Port 8733 verbinden (NEXT/END/EXTEND/CLEAR; Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung)
+
+„Nächste ▶“ ist die Haupttaste zum Ans-Wort-Holen.
+
+- `Per Klick (oder QA NEXT) jemanden ans Wort holen`
++ Per Klick (Haupttaste „Nächste ▶“ oder QA NEXT) jemanden ans Wort holen
+
+„■ Beenden“ ist die Haupttaste zum Beenden.
+
+- `Wortbeitrag beenden mit QA END`
++ Wortbeitrag beenden mit „■ Beenden“ oder QA END
+
+Bei „QR-Einreichung kommt nicht an“ prüfst Du zuerst die Haupttaste „Saal-Einreichung“.
+
+- `Gäste-WLAN erreicht Port 7782 am Host?`
++ Haupttaste „Saal-Einreichung“ auf „◉ An“? Gäste-WLAN erreicht Port 7782 am Host?
+
+Bei „Timer/Titler reagieren nicht“ liest Du die beiden Kopplungs-Einträge der Statusleiste.
+
+- `Beide im selben LAN gestartet? mDNS/Firewall prüfen`
++ Statusleiste „Kopplung Timer“ bzw. „Kopplung Titler“ lesen (aus, nicht gefunden, gefunden · nicht verbunden). Beide im selben LAN gestartet? mDNS/Firewall prüfen
+
+Bei „Companion steuert nicht“ liest Du zuerst die Statusleiste.
+
+- `Port 8733 (jm-qa-ctl) erreichbar? Gemeinsames LAN?`
++ Statusleiste „Fernsteuerung“ ansehen; Port 8733 (jm-qa-ctl) erreichbar? Gemeinsames LAN?
+
+Die Kopplung zum Titler schaltest Du im Panel „Redezeit und Kopplung“, nicht in „den Q&A-Einstellungen“.
+
+- `TITLER TEXT-Kopplung in den Q&A-Einstellungen aktiv?`
++ Schalter „Bauchbinde automatisch“ im Panel ⚙ › Redezeit und Kopplung an?
+
+### Battle
+
+Namen stehen in den Ecken A und B, die Rundenzahl im Panel „Battle“.
+
+- `Kontrahenten und Runden anlegen`
++ Kontrahenten (Name und Crew in den Ecken A und B) und Runden (Panel ⚙ › Battle) anlegen
+
+Den Titler siehst Du in der Statusleiste, die VS-Bauchbinde schaltest Du mit der Haupttaste „VS“.
+
+- `VS-Bauchbinde über JM Titler prüfen (BATTLE VS on/off blendet sie ein/aus)`
++ VS-Bauchbinde über JM Titler prüfen (Statusleiste „Titler“; die Haupttaste „VS“ bzw. BATTLE VS on/off blendet sie ein/aus; ist der Titler nicht verbunden, sagt ein Hinweis unter der Taste, dass die Bauchbinde nicht erscheint)
+
+Das Voting richtest Du im Panel „Battle“ und in der Karte „Publikums-Voting“ im Live-Bereich ein.
+
+- `Voting konfigurieren (Jury-Entscheid und/oder Publikum per QR, Port 7783)`
++ Voting konfigurieren (Jury-Entscheid und/oder Publikum per QR, Port 7783): Schalter „Publikums-Voting“ im Panel ⚙ › Battle, Server mit „◉ An“ in der Karte „Publikums-Voting“ rechts im Live-Bereich; die Statusleiste zeigt „Publikums-Voting“
+
+Die Aufnahmequelle wählst Du in der Karte „Instant-Replay“, den Zielordner im Panel.
+
+- `Aufnahmequelle für den Instant-Replay verbinden`
++ Aufnahmequelle für den Instant-Replay verbinden (Karte „Instant-Replay“ rechts im Live-Bereich, Knopf „Aufnahme …“; Zielordner im Panel ⚙ › Instant-Replay; Statusleiste „Aufnahme-Quelle“)
+
+Die Fernsteuerung für Companion zeigt die Statusleiste und das Panel „Fernsteuerung“.
+
+- `Optional: Companion auf Port 8734 verbinden`
++ Optional: Companion auf Port 8734 verbinden (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung)
+
+VS blendest Du mit der Haupttaste „VS“ ein.
+
+- `Runde starten, VS-Bauchbinde einblenden (BATTLE VS on)`
++ Runde starten, VS-Bauchbinde einblenden (Haupttaste „VS“ bzw. BATTLE VS on)
+
+Voting öffnest Du mit der Haupttaste, den Sieger setzt Du mit den Jury-Knöpfen im Scoreboard.
+
+- `Voting öffnen (BATTLE VOTING on), dann schließen (off); Sieger setzen mit BATTLE WIN a|b|tie`
++ Voting öffnen (Haupttaste „Voting öffnen“ bzw. BATTLE VOTING on), dann schließen (off); Sieger setzen mit den Jury-Knöpfen im Scoreboard oder BATTLE WIN a|b|tie
+
+Den Replay-Clip schneidest Du mit der Haupttaste „⧉ Clip“.
+
+- `Bei Bedarf BATTLE REPLAY — letzte Sekunden aus der Aufnahme abspielen`
++ Bei Bedarf Haupttaste „⧉ Clip“ bzw. BATTLE REPLAY — letzte Sekunden aus der Aufnahme abspielen
+
+In die nächste Runde geht es mit der Haupttaste „Nächste Runde ▶“.
+
+- `Mit BATTLE NEXT in die nächste Runde`
++ Mit „Nächste Runde ▶“ bzw. BATTLE NEXT in die nächste Runde
+
+Zurückgesetzt wird im Panel unter „Zurücksetzen“; die Rückfrage nennt, dass ein laufendes VS ausgeht.
+
+- `Ergebnisse sichern; BATTLE RESET für das nächste Battle`
++ Ergebnisse sichern; Zurücksetzen für das nächste Battle im Panel ⚙ › Zurücksetzen (die Rückfrage nennt, dass ein laufendes VS ausgeht) oder per BATTLE RESET
+
+Bei „VS-Bauchbinde fehlt“ liest Du die Statusleiste und den Schalter „VS-Bauchbinde automatisch“.
+
+- `JM Titler im selben LAN gestartet? BATTLE VS on gesendet?`
++ Statusleiste „Titler“ lesen; Schalter „VS-Bauchbinde automatisch“ im Panel ⚙ › Battle an? JM Titler im selben LAN gestartet? BATTLE VS on gesendet?
+
+Bei „Instant-Replay ist leer“ schaust Du auf die Statusleiste „Aufnahme-Quelle“.
+
+- `Quelle/Verbindung prüfen`
++ Quelle/Verbindung prüfen (Statusleiste „Aufnahme-Quelle“)
+
+Bei „QR-Voting kommt nicht an“ prüfst Du zuerst den Server in der Karte und den Schalter im Panel.
+
+- `Gäste-WLAN erreicht Port 7783 am Host?`
++ Server in der Karte „Publikums-Voting“ auf „◉ An“, Schalter „Publikums-Voting“ im Panel ⚙ › Battle an? Gäste-WLAN erreicht Port 7783 am Host?
+
+Bei „Companion steuert nicht“ liest Du zuerst die Statusleiste.
+
+- `Port 8734 (jm-battle-ctl) erreichbar? Gemeinsames LAN?`
++ Statusleiste „Fernsteuerung“ ansehen; Port 8734 (jm-battle-ctl) erreichbar? Gemeinsames LAN?
 
 Freigabe: ☐ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren)
