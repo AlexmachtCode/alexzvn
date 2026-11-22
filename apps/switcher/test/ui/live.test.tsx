@@ -248,3 +248,27 @@ function knoepfe(html: string): Array<[string, string | undefined, string | unde
   }
   ok(!/amber/.test(leseText('src/renderer/src/views/SwitcherView.tsx')), 'SW Live keine rohen Farben: amber-500 der Neu-verbinden-Taste ist durch --warning ersetzt');
 }
+
+// ── 0.12.1: Während das Gerät getrennt ist, bleiben Mute und Pegel im AudioStrip (kein „Ton wählen“; vorab stummschalten geht) ──
+{
+  const getrennt = {
+    getState: () => ({ hasDevice: false, muted: false, gain: 1, level: 0, error: null, getrennt: true }),
+    subscribe: () => () => undefined,
+    setMuted: () => undefined,
+    setGain: () => undefined,
+  } as unknown as AudioController;
+  const h = render(
+    <OutputBar
+      rtmpUrl=""
+      audio={getrennt}
+      ndiState={{ active: false, name: '', connections: 0, error: null }}
+      onToggleNdi={() => undefined}
+      onOpenMultiview={() => undefined}
+      onOpenSettings={() => undefined}
+    />,
+  );
+  ok(
+    h.includes('title="Stummschalten"') && h.includes('title="Pegel"') && !text(h).includes('Ton wählen'),
+    'SW Live AudioStrip getrennt: Mute und Pegel bleiben, kein „Ton wählen“',
+  );
+}

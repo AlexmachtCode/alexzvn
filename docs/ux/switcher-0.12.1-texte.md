@@ -6,13 +6,15 @@ Stand: Branch `fix/switcher-audio-abzug`. Anlass:
 
 Owner 22.11.2026: Fix und Doku-Korrekturen „ja“; neue Texte vor der Verwendung freigeben.
 
+Nach der Freigabe (Prüfung 22.11.): Nur die Erklärung „Wann“ zu SW-A1 ist angepasst, weil „Gerät getrennt“ jetzt „Gerät nicht gefunden“ vorgeht. Damit zeigt die Statusleiste nach dem Abziehen wirklich den Text aus CL-SW5 und dem Handbuch. Die freigegebenen Texte selbst sind unverändert.
+
 Das Datum des Changelog-Eintrags 0.12.1 ist ein Platzhalter und wird am Tag der Veröffentlichung gesetzt. Die freigegebene Texttabelle von Welle 1 (`docs/ux/welle1-texte.md`) bleibt unverändert; ersetzt werden die Stellen, die dort genannt sind.
 
 ## Neuer Statustext
 
 | Nr. | Wo | Text | Wann |
 | --- | --- | --- | --- |
-| SW-A1 | Statusleiste „Audio“ und Panel ⚙ › Audiogerät | „Fehler: Gerät getrennt“ | Die Eingangsspur des gewählten Geräts endet, zum Beispiel weil es abgezogen wurde. Steckt es wieder, verschwindet der Fehler von selbst. Fehlt es nach dem Neulesen der Liste ganz, steht wie bisher „Gerät nicht gefunden“. |
+| SW-A1 | Statusleiste „Audio“ und Panel ⚙ › Audiogerät | „Fehler: Gerät getrennt“ | Die Eingangsspur des gewählten Geräts endet, zum Beispiel weil es abgezogen wurde. Der Text geht „Gerät nicht gefunden“ vor, auch wenn das Gerät in der neu gelesenen Liste fehlt. Steckt dasselbe Gerät wieder, verschwindet der Fehler von selbst (spätestens nach etwa 2 s). Zeigt „Standard“ oder „Kommunikation“ danach auf ein anderes Gerät, bleibt der Fehler stehen, bis Du neu wählst. |
 
 ## Changelog Switcher 0.12.1 (neu)
 
@@ -43,4 +45,4 @@ Das Datum des Changelog-Eintrags 0.12.1 ist ein Platzhalter und wird am Tag der 
 - alt: „… unter ⚙ › Fernsteuerung stehen Steuerserver, Modus und Port (ein Hinweis auf das Companion-Modul steht dort nicht).“
 - neu: „… unter ⚙ › Fernsteuerung stehen Modus, Port, bei laufendem Server Verbunden, und „Im Launcher einrichten“ (eine Zeile Steuerserver und ein Hinweis auf das Companion-Modul stehen dort nicht).“
 
-Freigabe: ☐ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren)
+Freigabe: ☒ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren) — Owner 22.11.2026 09:40: „texte ok“.

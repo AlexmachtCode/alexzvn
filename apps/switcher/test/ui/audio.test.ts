@@ -1,7 +1,9 @@
 // Switcher 0.12.1 · Audio-Abzug (Befund der Gesamtprüfung UX Welle 1): Wird das Gerät während der Show abgezogen, endet die
-// Eingangsspur. Der Controller meldet dann „getrennt“ statt weiter ok. Kommt das Gerät zurück (devicechange und wieder in der Liste),
-// verbindet er es an denselben Ausgang: Eine laufende Aufnahme oder Sendung behält ihre Ausgangsspur und hört es wieder.
-// Ohne Browser: mediaDevices, AudioContext und window sind Attrappen, die nach dem Lauf wieder entfernt werden.
+// Eingangsspur. Der Controller meldet dann „getrennt“ statt weiter ok. Kommt dasselbe Gerät zurück (devicechange oder der nächste
+// Takt der Wiederholung), verbindet er es an denselben Ausgang: Eine laufende Aufnahme oder Sendung behält ihre Ausgangsspur und
+// hört es wieder. Ein anderes Gerät (z. B. „Standard“ zeigt jetzt aufs Laptop-Mikro) verbindet er nie von selbst.
+// Ohne Browser: mediaDevices und AudioContext sind Attrappen, die nach dem Lauf wieder entfernt werden. window bleibt unberührt
+// (bruecken.test setzt und löscht es, und Testmodule mit await laufen verschränkt).
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
 import { AudioController, beobachteGeraetewechsel } from '@/core/audio';
 import { ohneKommentare } from './testzustand';
@@ -12,6 +14,12 @@ const RAHMEN_GERAETEWECHSEL = 'useEffect(() => beobachteGeraetewechsel(navigator
 class SpurAttrappe extends EventTarget {
   readonly kind = 'audio';
   readyState: 'live' | 'ended' = 'live';
+  constructor(private readonly einstellungen: { deviceId: string; groupId: string }) {
+    super();
+  }
+  getSettings(): { deviceId: string; groupId: string } {
+    return { ...this.einstellungen };
+  }
   stop(): void {
     this.readyState = 'ended';
   }
@@ -33,28 +41,61 @@ class StreamAttrappe {
 }
 
 class GeraeteAttrappe extends EventTarget {
-  vorhanden = new Set<string>();
+  /** deviceId → groupId (das physische Gerät dahinter). */
+  vorhanden = new Map<string, string>();
+  /** Erfolgreich geöffnete Spuren in Reihenfolge. */
   geoeffnet: Array<{ id: string; spur: SpurAttrappe }> = [];
   listeAbrufe = 0;
+  /** So viele der nächsten getUserMedia scheitern (Gerät noch nicht bereit). */
+  ablehnen = 0;
+  /** Die nächste geöffnete Spur ist schon beendet. */
+  bereitsBeendet = false;
+  /** getUserMedia für diese ids wartet, bis freigeben() gerufen wird. */
+  aufhaltenFuer = new Set<string>();
+  private wartend: Array<() => void> = [];
+
+  geben(id: string, gruppe = id): void {
+    this.vorhanden.set(id, gruppe);
+  }
   async getUserMedia(c: { audio: { deviceId: { exact: string } } }): Promise<StreamAttrappe> {
     const id = c.audio.deviceId.exact;
-    if (!this.vorhanden.has(id)) throw new Error('Requested device not found');
-    const spur = new SpurAttrappe();
+    if (this.aufhaltenFuer.has(id)) await new Promise<void>((r) => this.wartend.push(r));
+    if (this.ablehnen > 0) {
+      this.ablehnen--;
+      throw new Error('Could not start audio source');
+    }
+    const gruppe = this.vorhanden.get(id);
+    if (gruppe === undefined) throw new Error('Requested device not found');
+    const spur = new SpurAttrappe({ deviceId: id, groupId: gruppe });
+    if (this.bereitsBeendet) {
+      this.bereitsBeendet = false;
+      spur.readyState = 'ended';
+    }
     this.geoeffnet.push({ id, spur });
     return new StreamAttrappe(spur);
   }
-  async enumerateDevices(): Promise<Array<{ kind: string; deviceId: string; label: string }>> {
+  freigeben(): void {
+    this.aufhaltenFuer.clear();
+    const w = this.wartend;
+    this.wartend = [];
+    for (const r of w) r();
+  }
+  async enumerateDevices(): Promise<Array<{ kind: string; deviceId: string; label: string; groupId: string }>> {
     this.listeAbrufe++;
-    return [...this.vorhanden].map((id) => ({ kind: 'audioinput', deviceId: id, label: id }));
+    return [...this.vorhanden].map(([id, groupId]) => ({ kind: 'audioinput', deviceId: id, label: id, groupId }));
+  }
+  /** Die offenen Spuren dieser id enden (Gerät weg). */
+  spurenEnden(id: string): void {
+    for (const g of this.geoeffnet) if (g.id === id && g.spur.readyState === 'live') g.spur.ende();
   }
   /** Gerät abziehen: aus der Liste nehmen, die offene Spur endet, dann das devicechange des Browsers. */
   abziehen(id: string): void {
     this.vorhanden.delete(id);
-    for (const g of this.geoeffnet) if (g.id === id && g.spur.readyState === 'live') g.spur.ende();
+    this.spurenEnden(id);
     this.dispatchEvent(new Event('devicechange'));
   }
-  einstecken(id: string): void {
-    this.vorhanden.add(id);
+  einstecken(id: string, gruppe = id): void {
+    this.vorhanden.set(id, gruppe);
     this.dispatchEvent(new Event('devicechange'));
   }
 }
@@ -92,7 +133,7 @@ class KontextAttrappe {
     return Object.assign(new KnotenAttrappe(), { fftSize: 2048, getFloatTimeDomainData: (b: Float32Array) => void b.fill(0) });
   }
   createMediaStreamDestination(): KnotenAttrappe & { stream: StreamAttrappe } {
-    return Object.assign(new KnotenAttrappe(), { stream: new StreamAttrappe(new SpurAttrappe()) });
+    return Object.assign(new KnotenAttrappe(), { stream: new StreamAttrappe(new SpurAttrappe({ deviceId: 'ziel', groupId: '' })) });
   }
 }
 
@@ -100,17 +141,20 @@ class KontextAttrappe {
 const abwarten = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await new Promise<void>((r) => setTimeout(r, 0));
 };
+/** Einige Takte der Wiederholung (Takt 10 ms in den Tests, die sie prüfen). */
+const takte = (ms = 80): Promise<void> => new Promise((r) => setTimeout(r, ms));
+/** Ohne Wiederholung im Testzeitraum: nur devicechange und Aufrufe wirken. */
+const OHNE_TAKT = { wiederholMs: 60_000 };
+const MIT_TAKT = { wiederholMs: 10 };
 
 const g = globalThis as Record<string, unknown>;
 const vorher = {
   navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator'),
-  window: Object.getOwnPropertyDescriptor(globalThis, 'window'),
   AudioContext: Object.getOwnPropertyDescriptor(globalThis, 'AudioContext'),
 };
 function attrappenEinsetzen(): GeraeteAttrappe {
   const geraete = new GeraeteAttrappe();
   Object.defineProperty(globalThis, 'navigator', { value: { mediaDevices: geraete }, configurable: true, writable: true });
-  Object.defineProperty(globalThis, 'window', { value: { setTimeout, clearTimeout }, configurable: true, writable: true });
   Object.defineProperty(globalThis, 'AudioContext', { value: KontextAttrappe, configurable: true, writable: true });
   return geraete;
 }
@@ -120,16 +164,17 @@ function attrappenEntfernen(): void {
     else delete g[name];
   }
 }
+const zustand = (a: AudioController): [boolean, boolean] => [a.getState().hasDevice, a.getState().getrennt];
 
 try {
   // ── Abziehen: getrennt statt ok, dieselbe Ausgangsspur bleibt ──
   {
     const geraete = attrappenEinsetzen();
-    geraete.vorhanden.add('mic1');
-    const audio = new AudioController();
+    geraete.geben('mic1');
+    const audio = new AudioController(OHNE_TAKT);
     await audio.setDevice('mic1');
     const ausgangVorher = audio.getOutputTrack();
-    gleich([audio.getState().hasDevice, audio.getState().getrennt], [true, false], 'SW Audio-Abzug: Gerät offen → hasDevice, nicht getrennt');
+    gleich(zustand(audio), [true, false], 'SW Audio-Abzug: Gerät offen → hasDevice, nicht getrennt');
     geraete.abziehen('mic1');
     await abwarten();
     const s = audio.getState();
@@ -156,14 +201,14 @@ try {
   // ── Dieselbe Wahl nach dem Abziehen öffnet erneut (Auswahl neu gesetzt, Gerät schon wieder da) ──
   {
     const geraete = attrappenEinsetzen();
-    geraete.vorhanden.add('mic1');
-    const audio = new AudioController();
+    geraete.geben('mic1');
+    const audio = new AudioController(OHNE_TAKT);
     await audio.setDevice('mic1');
-    geraete.geoeffnet[0].spur.ende(); // Spur endet, Liste unverändert, kein devicechange
+    geraete.spurenEnden('mic1'); // Spur endet, Liste unverändert, kein devicechange
     await abwarten();
     ok(audio.getState().getrennt, 'SW Audio-Abzug: Spur endet ohne devicechange → getrennt');
     await audio.setDevice('mic1');
-    gleich([audio.getState().hasDevice, audio.getState().getrennt, geraete.geoeffnet.length], [true, false, 2], 'SW Audio-Abzug: dieselbe Wahl im getrennten Zustand öffnet das Gerät erneut');
+    gleich([...zustand(audio), geraete.geoeffnet.length], [true, false, 2], 'SW Audio-Abzug: dieselbe Wahl im getrennten Zustand öffnet das Gerät erneut');
     audio.destroy();
     attrappenEntfernen();
   }
@@ -171,15 +216,15 @@ try {
   // ── Das Ende einer alten Spur nach einem Gerätewechsel ändert nichts ──
   {
     const geraete = attrappenEinsetzen();
-    geraete.vorhanden.add('mic1');
-    geraete.vorhanden.add('mic2');
-    const audio = new AudioController();
+    geraete.geben('mic1');
+    geraete.geben('mic2');
+    const audio = new AudioController(OHNE_TAKT);
     await audio.setDevice('mic1');
     const alteSpur = geraete.geoeffnet[0].spur;
     await audio.setDevice('mic2');
     alteSpur.dispatchEvent(new Event('ended'));
     await abwarten();
-    gleich([audio.getState().hasDevice, audio.getState().getrennt], [true, false], 'SW Audio-Abzug: „ended“ einer abgelösten Spur lässt das neue Gerät in Ruhe');
+    gleich(zustand(audio), [true, false], 'SW Audio-Abzug: „ended“ einer abgelösten Spur lässt das neue Gerät in Ruhe');
     audio.destroy();
     attrappenEntfernen();
   }
@@ -187,16 +232,167 @@ try {
   // ── Nach destroy hört der Controller nicht mehr auf devicechange ──
   {
     const geraete = attrappenEinsetzen();
-    geraete.vorhanden.add('mic1');
-    const audio = new AudioController();
+    geraete.geben('mic1');
+    const audio = new AudioController(MIT_TAKT);
     await audio.setDevice('mic1');
     geraete.abziehen('mic1');
     await abwarten();
     audio.destroy();
     const abrufe = geraete.listeAbrufe;
     geraete.einstecken('mic1');
+    await takte();
+    gleich([geraete.listeAbrufe, geraete.geoeffnet.length], [abrufe, 1], 'SW Audio-Abzug: nach destroy kein Listenabruf, keine Wiederholung und kein Öffnen mehr');
+    attrappenEntfernen();
+  }
+
+  // ── Fund 1: „Standard“ zeigt nach dem Abziehen auf ein anderes Gerät → nie von selbst verbinden ──
+  {
+    const geraete = attrappenEinsetzen();
+    geraete.geben('default', 'usb');
+    geraete.geben('laptop', 'laptop');
+    const audio = new AudioController(MIT_TAKT);
+    await audio.setDevice('default');
+    geraete.geben('default', 'laptop'); // Windows stellt den Standard auf das Laptop-Mikro um
+    geraete.spurenEnden('default');
+    geraete.dispatchEvent(new Event('devicechange'));
+    await takte();
+    gleich(
+      [...zustand(audio), geraete.geoeffnet.length],
+      [false, true, 1],
+      'SW Audio-Abzug Standard-Eintrag: zeigt „Standard“ jetzt auf ein anderes Gerät, verbindet der Switcher nicht (kein fremdes Mikro auf Sendung), auch nicht im Takt',
+    );
+    geraete.einstecken('default', 'usb'); // dasselbe Gerät ist wieder Standard
+    await takte();
+    gleich([...zustand(audio), geraete.geoeffnet.length], [true, false, 2], 'SW Audio-Abzug Standard-Eintrag: kommt dasselbe Gerät als Standard zurück, verbindet er wieder');
+    audio.destroy();
+    attrappenEntfernen();
+  }
+
+  // ── Ohne Gruppenkennung: Standard und Kommunikation verbinden nie von selbst, echte Geräte schon ──
+  {
+    const geraete = attrappenEinsetzen();
+    geraete.geben('communications', '');
+    geraete.geben('mic1', '');
+    const audio = new AudioController(MIT_TAKT);
+    await audio.setDevice('communications');
+    geraete.spurenEnden('communications');
+    geraete.dispatchEvent(new Event('devicechange'));
+    await takte();
+    gleich([...zustand(audio), geraete.geoeffnet.length], [false, true, 1], 'SW Audio-Abzug ohne Gruppenkennung: „Kommunikation“ verbindet nicht von selbst');
+    await audio.setDevice('mic1');
+    geraete.spurenEnden('mic1');
+    await takte();
+    gleich(zustand(audio), [true, false], 'SW Audio-Abzug ohne Gruppenkennung: ein echtes Gerät (eigene id) verbindet wieder');
+    audio.destroy();
+    attrappenEntfernen();
+  }
+
+  // ── Fund 2: Wiederholung im Takt, auch ohne devicechange; ein gescheiterter Versuch wird wiederholt ──
+  {
+    const geraete = attrappenEinsetzen();
+    geraete.geben('mic1');
+    const audio = new AudioController(MIT_TAKT);
+    await audio.setDevice('mic1');
+    geraete.spurenEnden('mic1'); // z. B. Abtastrate im Treiber geändert: Spur endet, Gerät bleibt in der Liste
+    await takte();
+    gleich([...zustand(audio), geraete.geoeffnet.length], [true, false, 2], 'SW Audio-Abzug Wiederholung: Spur endet ohne devicechange → im nächsten Takt wieder verbunden');
+    geraete.ablehnen = 2;
+    geraete.spurenEnden('mic1');
+    await takte(120);
+    gleich([...zustand(audio), geraete.geoeffnet.length, geraete.ablehnen], [true, false, 3, 0], 'SW Audio-Abzug Wiederholung: scheitert das Öffnen, versucht er es im nächsten Takt erneut');
+    audio.destroy();
+    attrappenEntfernen();
+  }
+
+  // ── Wettlauf: Gerätewechsel und destroy während des Wiederverbindens ──
+  {
+    const geraete = attrappenEinsetzen();
+    geraete.geben('mic1');
+    geraete.geben('mic2');
+    const audio = new AudioController(OHNE_TAKT);
+    await audio.setDevice('mic1');
+    geraete.aufhaltenFuer.add('mic1');
+    geraete.spurenEnden('mic1');
+    geraete.dispatchEvent(new Event('devicechange')); // Wiederverbinden beginnt und wartet
     await abwarten();
-    gleich([geraete.listeAbrufe, geraete.geoeffnet.length], [abrufe, 1], 'SW Audio-Abzug: nach destroy kein Listenabruf und kein Öffnen mehr');
+    await audio.setDevice('mic2');
+    geraete.freigeben();
+    await abwarten();
+    const spaet = geraete.geoeffnet.find((x, i) => x.id === 'mic1' && i > 0);
+    ok(spaet !== undefined && spaet.spur.readyState === 'ended', 'SW Audio-Abzug Wettlauf: die späte Spur des alten Geräts wird gestoppt');
+    gleich(zustand(audio), [true, false], 'SW Audio-Abzug Wettlauf: das neu gewählte Gerät bleibt offen');
+    audio.destroy();
+    attrappenEntfernen();
+  }
+  {
+    const geraete = attrappenEinsetzen();
+    geraete.geben('mic1');
+    const audio = new AudioController(OHNE_TAKT);
+    await audio.setDevice('mic1');
+    geraete.aufhaltenFuer.add('mic1');
+    geraete.spurenEnden('mic1');
+    geraete.dispatchEvent(new Event('devicechange'));
+    await abwarten();
+    audio.destroy();
+    geraete.freigeben();
+    await abwarten();
+    const spaet = geraete.geoeffnet[1];
+    ok(spaet !== undefined && spaet.spur.readyState === 'ended', 'SW Audio-Abzug Wettlauf: destroy während des Wiederverbindens → die späte Spur wird gestoppt');
+    attrappenEntfernen();
+  }
+
+  // ── Kleinere Funde: schon beendete Spur, kein alter Fehler am neuen Gerät, Wiederverwendung nach destroy ──
+  {
+    const geraete = attrappenEinsetzen();
+    geraete.geben('mic1');
+    geraete.bereitsBeendet = true;
+    const audio = new AudioController(OHNE_TAKT);
+    await audio.setDevice('mic1');
+    gleich(zustand(audio), [false, true], 'SW Audio-Abzug: eine schon beim Öffnen beendete Spur gilt sofort als getrennt');
+    audio.destroy();
+    attrappenEntfernen();
+  }
+  {
+    const geraete = attrappenEinsetzen();
+    geraete.geben('mic1');
+    geraete.geben('mic2');
+    const audio = new AudioController(OHNE_TAKT);
+    await audio.setDevice('mic1');
+    geraete.spurenEnden('mic1');
+    await abwarten();
+    geraete.aufhaltenFuer.add('mic2');
+    const offen = audio.setDevice('mic2');
+    ok(!audio.getState().getrennt, 'SW Audio-Abzug: der Wechsel auf ein anderes Gerät löscht „getrennt“ sofort (kein alter Fehler am neuen Gerät)');
+    geraete.freigeben();
+    await offen;
+    audio.destroy();
+    attrappenEntfernen();
+  }
+  {
+    const geraete = attrappenEinsetzen();
+    geraete.geben('mic1');
+    const audio = new AudioController(OHNE_TAKT);
+    await audio.setDevice('mic1');
+    geraete.spurenEnden('mic1');
+    await abwarten();
+    audio.destroy();
+    await audio.setDevice('mic1');
+    gleich([...zustand(audio), geraete.geoeffnet.length], [true, false, 2], 'SW Audio-Abzug: nach destroy im getrennten Zustand öffnet dieselbe Wahl neu (StrictMode, HMR)');
+    audio.destroy();
+    attrappenEntfernen();
+  }
+
+  // ── Fund 10: fehlt das gewählte Gerät beim Start und wird später eingesteckt, öffnet der Switcher es ──
+  {
+    const geraete = attrappenEinsetzen();
+    const audio = new AudioController(OHNE_TAKT);
+    await audio.setDevice('mic1');
+    ok(!audio.getState().hasDevice && audio.getState().error !== null, 'SW Audio Start ohne Gerät: Öffnen scheitert, der Fehler steht');
+    geraete.einstecken('mic1');
+    await abwarten();
+    const s = audio.getState();
+    gleich([s.hasDevice, s.getrennt, s.error], [true, false, null], 'SW Audio Start ohne Gerät: später eingesteckt (devicechange) → geöffnet, Fehler weg');
+    audio.destroy();
     attrappenEntfernen();
   }
 

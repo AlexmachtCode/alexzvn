@@ -194,8 +194,8 @@ function aufzeichner(): { log: unknown[]; a: SwitcherAktionen } {
   const soll = (f: (typeof faelle)[number]): string => {
     const gefunden = f.liste === 'mikro' && f.wahl === 'mic1';
     const fehlt = f.wahl !== '' && f.liste !== 'unbekannt' && !gefunden;
-    // Fehlt das Gerät in der (nach devicechange neu gelesenen) Liste, gilt weiter „Gerät nicht gefunden“.
-    if (f.getrennt && !fehlt) return 'error Fehler: Gerät getrennt';
+    // Getrennt geht vor: Auch wenn das Gerät in der neu gelesenen Liste fehlt, nennt die Leiste den genauen Grund (Fund 3).
+    if (f.getrennt) return 'error Fehler: Gerät getrennt';
     if (f.fehler !== null && !fehlt) return `error Fehler: ${f.fehler}`;
     if (f.liste === 'unbekannt') return 'off unbekannt';
     if (f.wahl === '') return 'warn kein Gerät gewählt';

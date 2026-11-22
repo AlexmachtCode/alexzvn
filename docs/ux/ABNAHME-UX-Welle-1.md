@@ -153,6 +153,19 @@ Keine Funktion fällt weg, aber an diesen Stellen verhält sich die Bedienung an
 | BAZ4 | Zahlenfelder Länge und Runden: siehe G1 und G2; die Runden auf 4 und zurück auf 3 setzen. | Wie G1 und G2; die Rundenliste passt sich an, Ergebnisse bleibender Runden bleiben. | |
 | BAZ5 | Instant-Replay: Quelle wählen, Zielordner wählen, „⧉ Clip“ drücken, die Clip-Liste ansehen. | Der Clip entsteht im Zielordner (`replay-R⟨Runde⟩-⟨Zeit⟩`); die Karte „Instant-Replay“ zeigt Quelle und Liste; Fehlertexte (z. B. Quelle fehlt) stehen in der Liste. | |
 
+## Nachtrag Switcher 0.12.1 · Audiogerät abziehen (nur mit echtem Gerät prüfbar)
+
+Die Selbsttests prüfen das Verhalten mit nachgebildeten Geräten. Ob Electron das Abziehen so meldet, zeigt nur ein echtes USB-Audiogerät.
+
+| Nr. | Schritt | Erwartet | Ergebnis |
+| --- | --- | --- | --- |
+| SW-A1a | Aufnahme und Stream starten, das gewählte USB-Audiogerät abziehen. | Statusleiste „Audio“ ✕ „Fehler: Gerät getrennt“. Im Mischer bleiben Stumm und Pegel (Pegel 0), kein „Ton wählen“. | |
+| SW-A1b | Dasselbe Gerät am selben Anschluss wieder einstecken; danach Aufnahme und Stream stoppen und die Datei anhören. | Nach höchstens etwa 2 s ● mit dem Gerätenamen, der Pegel bewegt sich. Die Aufnahme hat nach dem Wiedereinstecken wieder Ton. | |
+| SW-A1c | Gerät an einem anderen Anschluss einstecken. | Je nach Gerät ● wie in SW-A1b oder weiter ✕, bis Du es unter ⚙ › Audiogerät neu wählst. Ergebnis mit Gerätename eintragen. | |
+| SW-A1d | „Standard - …“ als Audiogerät wählen, das Gerät abziehen (ein anderes Mikrofon bleibt angeschlossen). | ✕ „Fehler: Gerät getrennt“ bleibt; das andere Mikrofon kommt nicht auf Sendung. | |
+| SW-A1e | Abtastrate des Interfaces in seiner Systemsteuerung ändern, während der Switcher es nutzt. | Kurz ✕, danach von selbst wieder ● (Eindruck eintragen). | |
+| SW-A1f | Switcher ohne das gewählte Gerät starten, dann das Gerät einstecken. | Erst ✕ „Gerät nicht gefunden“, nach dem Einstecken von selbst ●. | |
+
 ## Hinweise zur Abnahme
 
 - **Kleines Fenster:** Das Hauptfenster lässt sich je nach Werkzeug nicht schmaler als seine Mindestbreite ziehen; unter 900 px kommt es nur über den Zoom. Ist der Schritt nicht erreichbar, prüft der Controller die Schmal-Ansicht ersatzweise in der Galerie (`npm run galerie -w @jm/ui`, Rahmen 800 px). Das prüft das Fundament, nicht das einzelne Werkzeug; für das Werkzeug bleibt der Schritt dann „nicht erreichbar“.

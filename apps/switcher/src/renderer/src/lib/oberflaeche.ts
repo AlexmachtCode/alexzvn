@@ -347,7 +347,8 @@ export function fernsteuerungAbschnitt(s: OberflaechenStand, a: SwitcherAktionen
 /**
  * Programm-Audio (eine Wahl). Fehler von getUserMedia stehen als Fehler im Abschnitt, außer das gewählte Gerät fehlt in der
  * gemessenen Liste: Dann gilt „Gerät nicht gefunden“ (der Fehlertext des Browsers wäre dieselbe Ursache, nur unverständlicher).
- * Endete die Spur des offenen Geräts (getrennt, 0.12.1), ist das der Fehler, bis das Gerät wieder verbunden ist.
+ * Endete die Spur des offenen Geräts (getrennt, 0.12.1), ist das der Fehler, bis das Gerät wieder verbunden ist; er geht auch
+ * „Gerät nicht gefunden“ vor, weil er den genauen Grund nennt (das Gerät war offen und ist weg).
  */
 export function audioAbschnitt(s: OberflaechenStand, a: SwitcherAktionen): AudioDeviceSectionProps {
   const wahl = s.settings.audioInputId;
@@ -355,7 +356,7 @@ export function audioAbschnitt(s: OberflaechenStand, a: SwitcherAktionen): Audio
   const fehlt = wahl !== '' && liste !== undefined && !liste.some((d) => d.id === wahl);
   return {
     id: ABSCHNITT.audio,
-    error: fehlt ? undefined : s.audio.getrennt ? SWITCHER_TEXTE.geraetGetrennt : (s.audio.error ?? undefined),
+    error: s.audio.getrennt ? SWITCHER_TEXTE.geraetGetrennt : fehlt ? undefined : (s.audio.error ?? undefined),
     choices: [
       {
         key: 'programm',
