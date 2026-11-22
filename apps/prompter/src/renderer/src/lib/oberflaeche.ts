@@ -54,6 +54,8 @@ export const PROMPTER_TEXTE = {
     adressen: (n: number): string => (n === 1 ? '1 Adresse' : `${n} Adressen`),
   },
   tempo: { titel: 'Tempo', einheit: ' Z/s' },
+  /** Live-Bereich (Aufgabe d): der Hinweis ersetzt den alten Kopfhinweis; die Kürzel selbst stehen an den Tasten. */
+  live: { hinweis: 'Leertaste, Pfeiltasten und Pos1 steuern den Lauf, solange der Cursor nicht im Skript oder in einem Feld steht.' },
   companionModul: 'JM Prompter',
   /** Titel der tool-eigenen Panel-Abschnitte (Namen wie bisher in OperatorView.tsx). */
   titel: { schrift: 'Schrift', leselinie: 'Lese-Linie', darstellung: 'Darstellung' },
