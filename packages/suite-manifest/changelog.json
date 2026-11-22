@@ -494,11 +494,19 @@
     "name": "JM Switcher",
     "entries": [
       {
+        "version": "0.12.1",
+        "date": "2026-11-22",
+        "notes": [
+          "Audio: Wird das Audiogerät während der Show abgezogen, zeigt die Statusleiste jetzt „Fehler: Gerät getrennt“ statt weiter grün. Die Geräteliste wird beim An- und Abstecken neu gelesen.",
+          "Steckt das Gerät wieder, verbindet der Switcher es von selbst; der Ton kommt auch in eine laufende Aufnahme oder Sendung zurück."
+        ]
+      },
+      {
         "version": "0.12.0",
         "date": "2026-11-22",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Switcher“, dem Sendezustand („REC“ bzw. „LIVE“) und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter die Projekt-Leiste mit Neu, Öffnen und Speichern, die Haupttasten „Cut“, „Auto“, „Aufnehmen“ und „Stream starten“ und der Mischer. Die Einstellungen liegen jetzt im Panel hinter ⚙, die Reiter „Mischer“ und „Einstellungen“ entfallen.",
-          "Neue Statusleiste mit sieben Einträgen: Master, NDI, Bildschirm, Aufnahme, Stream, Fernsteuerung und Audio. Sie zeigt nur, was der Switcher wirklich weiß; ein Klick auf einen Eintrag öffnet, wo es eine Einstellung gibt, das Panel am passenden Abschnitt.",
+          "Neue Statusleiste mit sieben Einträgen: Master, NDI, Bildschirm, Aufnahme, Stream, Fernsteuerung und Audio. Sie zeigt nur, was der Switcher wirklich weiß; ein Klick auf einen Eintrag öffnet das Panel am passenden Abschnitt, wenn sich der gezeigte Zustand dort ändern lässt.",
           "Gesperrte Haupttasten nennen ihren Grund, zum Beispiel „Stream-Ziel in den Einstellungen festlegen“. Der untere Bereich mit Szenen, Ebenen und Quellen lässt sich einklappen.",
           "Zahlenfelder übernehmen den Wert bei Enter oder beim Verlassen des Feldes; die Pfeiltasten ändern sie nicht mehr. Bedienung, Fernsteuerung (Companion-Befehle) und Ausgaben bleiben gleich, es gibt keine neuen Tastenkürzel."
         ]
