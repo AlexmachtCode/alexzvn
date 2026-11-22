@@ -176,13 +176,21 @@ function speakerItem(offen: boolean | undefined): StatusItem {
   return offen ? { ...kopf, state: 'ok', detail: TIMER_TEXTE.speaker.offen } : { ...kopf, state: 'off', detail: TIMER_TEXTE.speaker.zu };
 }
 
+/**
+ * Ein Eintrag als reine Anzeige (C1): ohne Sprungziel, weil der Abschnitt im Panel dieselbe Lage nur zeigt. Die Fernsteuerung des
+ * Timers hat einen festen Port (8724) und keinen Schalter; eingerichtet wird sie im Launcher.
+ */
+function nurAnzeige(i: StatusItem): StatusItem {
+  return { id: i.id, group: i.group, label: i.label, state: i.state, ...(i.detail !== undefined ? { detail: i.detail } : {}) };
+}
+
 /** Statusleiste in fester Reihenfolge (E10): master-link, sync, speaker, fernsteuerung. */
 export function statusLeiste(s: OberflaechenStand): StatusItem[] {
   return [
     masterLinkStatusItem(s.masterLink),
     syncItem(s.connected),
     speakerItem(s.speakerOffen),
-    abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel }),
+    nurAnzeige(abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel })),
   ];
 }
 

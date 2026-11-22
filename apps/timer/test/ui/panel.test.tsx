@@ -41,8 +41,9 @@ const titel = (html: string): string[] => [...html.matchAll(/<h3[^>]*>([^<]*)<\/
     'TI Panel Abschnitte: Fernsteuerung, Speaker-Fenster, LAN-Fernbedienung, Farben in dieser Reihenfolge (Anhang A, E3, E9)',
   );
   const ziele = statusLeiste(s).map((i) => i.settingsSection).filter((z): z is string => typeof z === 'string');
-  gleich(ziele.filter((z) => !html.includes(`id="einstellung-${z}"`)), [], 'TI Panel Abschnitte: jeder Statuseintrag mit Abschnitt (speaker, fernsteuerung) findet seinen Anker');
-  gleich(ziele, [ABSCHNITT.speaker, ABSCHNITT.fernsteuerung], 'TI Panel Abschnitte: zwei Statuseinträge springen ins Panel, Master und Sync nicht; LAN-Fernbedienung hat keinen Eintrag (E10)');
+  gleich(ziele.filter((z) => !html.includes(`id="einstellung-${z}"`)), [], 'TI Panel Abschnitte: jeder Statuseintrag mit Abschnitt (speaker) findet seinen Anker');
+  // Fund C1: nur Einträge, deren Zustand der Abschnitt ändern kann; die Fernsteuerung (fester Port 8724, kein Schalter) ist reine Anzeige.
+  gleich(ziele, [ABSCHNITT.speaker], 'TI Panel Abschnitte: nur das Speaker-Fenster springt ins Panel (dort öffnen und schließen); Master, Sync und Fernsteuerung nicht; LAN-Fernbedienung hat keinen Eintrag (E10)');
   pruefeIdVerweise(html, 'TI Panel Abschnitte: id-Verweise gültig');
   gleich(log, [], 'TI Panel Abschnitte: Rendern löst keine Aktion aus');
 }

@@ -106,7 +106,8 @@ const sd = (i: StatusItem): string => `${i.state} ${i.detail ?? ''}`;
   };
   pruefeFaelle('TI Statusleiste fernsteuerung: Meldung × Modus → unbekannt, aus, Port belegt, Fehler, bereit n verbunden', faelle, (f) => {
     const i = eintrag(props(f), 'fernsteuerung');
-    return vergleiche(sd(i), FERN[f.meldung]) ?? (i.group !== 'fernsteuerung' || i.settingsSection !== ABSCHNITT.fernsteuerung ? 'Kopf falsch' : null);
+    // Fund C1: Port fest (8724), kein Schalter; der Abschnitt zeigt dieselbe Lage nur an → reine Anzeige, kein Sprung.
+    return vergleiche(sd(i), FERN[f.meldung]) ?? (i.group !== 'fernsteuerung' || 'settingsSection' in i ? 'Kopf falsch' : null);
   });
   pruefeFaelle('TI Fernsteuerung-Abschnitt: Port 8724, Modus aus der Meldung, nur Status (kein Port-Feld, kein Schalter, kein Launcher-Knopf)', faelle, (f) => {
     const p = fernsteuerungAbschnitt(props(f));
