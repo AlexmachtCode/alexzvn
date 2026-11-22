@@ -8,6 +8,7 @@ import { ToolLinks } from '@/components/ToolLinks';
 import { Transport } from '@/components/Transport';
 import { RundownList } from '@/components/RundownList';
 import { RowEditor } from '@/components/RowEditor';
+import { istEingabeZiel } from '@/lib/oberflaeche';
 import { ConnectionsPanel } from '@/components/ConnectionsPanel';
 
 const hdrBtn =
@@ -32,11 +33,10 @@ export function App() {
   }, [notice]);
 
   // Tastatur-Regie: Leertaste = GO, Pfeil hoch/runter = Zurück/Weiter
-  // (nur außerhalb von Eingabefeldern, damit das Tippen nicht stört).
+  // (nur außerhalb von Eingabefeldern, damit das Tippen nicht stört: INPUT, TEXTAREA, SELECT, contentEditable).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const t = e.target as HTMLElement | null;
-      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      if (istEingabeZiel(e.target)) return;
       if (e.code === 'Space') {
         e.preventDefault();
         void nav({ t: 'go' });
