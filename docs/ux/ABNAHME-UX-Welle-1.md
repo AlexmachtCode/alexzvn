@@ -162,9 +162,10 @@ Die Selbsttests prüfen das Verhalten mit nachgebildeten Geräten. Ob Electron d
 | SW-A1a | Aufnahme und Stream starten, das gewählte USB-Audiogerät abziehen. | Statusleiste „Audio“ ✕ „Fehler: Gerät getrennt“. Im Mischer bleiben Stumm und Pegel (Pegel 0), kein „Ton wählen“. | |
 | SW-A1b | Dasselbe Gerät am selben Anschluss wieder einstecken; danach Aufnahme und Stream stoppen und die Datei anhören. | Nach höchstens etwa 2 s ● mit dem Gerätenamen, der Pegel bewegt sich. Die Aufnahme hat nach dem Wiedereinstecken wieder Ton. | |
 | SW-A1c | Gerät an einem anderen Anschluss einstecken. | Je nach Gerät ● wie in SW-A1b oder weiter ✕, bis Du es unter ⚙ › Audiogerät neu wählst. Ergebnis mit Gerätename eintragen. | |
-| SW-A1d | „Standard - …“ als Audiogerät wählen, das Gerät abziehen (ein anderes Mikrofon bleibt angeschlossen). | ✕ „Fehler: Gerät getrennt“ bleibt; das andere Mikrofon kommt nicht auf Sendung. | |
+| SW-A1d | „Standard - …“ als Audiogerät wählen, das Gerät abziehen (ein anderes Mikrofon bleibt angeschlossen). | ✕ „Fehler: Gerät getrennt“ bleibt; das andere Mikrofon kommt nicht auf Sendung. Danach dasselbe Gerät wieder einstecken, bis es wieder Standard ist, und eintragen, ob ● zurückkommt. | |
 | SW-A1e | Abtastrate des Interfaces in seiner Systemsteuerung ändern, während der Switcher es nutzt. | Kurz ✕, danach von selbst wieder ● (Eindruck eintragen). | |
-| SW-A1f | Switcher ohne das gewählte Gerät starten, dann das Gerät einstecken. | Erst ✕ „Gerät nicht gefunden“, nach dem Einstecken von selbst ●. | |
+| SW-A1f | Switcher ohne das gewählte Gerät starten, dann das Gerät einstecken. | Erst ✕ „Gerät nicht gefunden“, nach dem Einstecken von selbst ●. Eine Aufnahme oder Sendung, die vorher startete, hat keinen Ton; nach ● neu starten (kein Fehler). | |
+| SW-A1g | Switcher ohne das gewählte Gerät starten, unter ⚙ › Audiogerät „— Kein Ton (stille Spur) —“ wählen, dann das Gerät einstecken. | ▲ „kein Gerät gewählt“ bleibt, kein Pegel: Das abgewählte Gerät öffnet nicht von selbst. | |
 
 ## Hinweise zur Abnahme
 

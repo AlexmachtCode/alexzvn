@@ -143,6 +143,11 @@ const abwarten = async (): Promise<void> => {
 };
 /** Einige Takte der Wiederholung (Takt 10 ms in den Tests, die sie prüfen). */
 const takte = (ms = 80): Promise<void> => new Promise((r) => setTimeout(r, ms));
+/** Wartet, bis die Bedingung gilt (höchstens maxMs): robust gegen grobe Zeitgeber (Windows ≈ 15,6 ms), für erwartete Wirkungen. */
+const bis = async (bedingung: () => boolean, maxMs = 2000): Promise<void> => {
+  const ende = Date.now() + maxMs;
+  while (!bedingung() && Date.now() < ende) await new Promise<void>((r) => setTimeout(r, 5));
+};
 /** Ohne Wiederholung im Testzeitraum: nur devicechange und Aufrufe wirken. */
 const OHNE_TAKT = { wiederholMs: 60_000 };
 const MIT_TAKT = { wiederholMs: 10 };
@@ -262,7 +267,7 @@ try {
       'SW Audio-Abzug Standard-Eintrag: zeigt „Standard“ jetzt auf ein anderes Gerät, verbindet der Switcher nicht (kein fremdes Mikro auf Sendung), auch nicht im Takt',
     );
     geraete.einstecken('default', 'usb'); // dasselbe Gerät ist wieder Standard
-    await takte();
+    await bis(() => audio.getState().hasDevice);
     gleich([...zustand(audio), geraete.geoeffnet.length], [true, false, 2], 'SW Audio-Abzug Standard-Eintrag: kommt dasselbe Gerät als Standard zurück, verbindet er wieder');
     audio.destroy();
     attrappenEntfernen();
@@ -281,7 +286,7 @@ try {
     gleich([...zustand(audio), geraete.geoeffnet.length], [false, true, 1], 'SW Audio-Abzug ohne Gruppenkennung: „Kommunikation“ verbindet nicht von selbst');
     await audio.setDevice('mic1');
     geraete.spurenEnden('mic1');
-    await takte();
+    await bis(() => audio.getState().hasDevice);
     gleich(zustand(audio), [true, false], 'SW Audio-Abzug ohne Gruppenkennung: ein echtes Gerät (eigene id) verbindet wieder');
     audio.destroy();
     attrappenEntfernen();
@@ -294,11 +299,11 @@ try {
     const audio = new AudioController(MIT_TAKT);
     await audio.setDevice('mic1');
     geraete.spurenEnden('mic1'); // z. B. Abtastrate im Treiber geändert: Spur endet, Gerät bleibt in der Liste
-    await takte();
+    await bis(() => audio.getState().hasDevice);
     gleich([...zustand(audio), geraete.geoeffnet.length], [true, false, 2], 'SW Audio-Abzug Wiederholung: Spur endet ohne devicechange → im nächsten Takt wieder verbunden');
     geraete.ablehnen = 2;
     geraete.spurenEnden('mic1');
-    await takte(120);
+    await bis(() => geraete.geoeffnet.length === 3 && audio.getState().hasDevice);
     gleich([...zustand(audio), geraete.geoeffnet.length, geraete.ablehnen], [true, false, 3, 0], 'SW Audio-Abzug Wiederholung: scheitert das Öffnen, versucht er es im nächsten Takt erneut');
     audio.destroy();
     attrappenEntfernen();
@@ -392,6 +397,49 @@ try {
     await abwarten();
     const s = audio.getState();
     gleich([s.hasDevice, s.getrennt, s.error], [true, false, null], 'SW Audio Start ohne Gerät: später eingesteckt (devicechange) → geöffnet, Fehler weg');
+    audio.destroy();
+    attrappenEntfernen();
+  }
+
+  // ── Nachprüfung: „Kein Ton“ oder ein anderes Gerät beendet das Warten auf ein beim Start fehlendes Gerät ──
+  {
+    const geraete = attrappenEinsetzen();
+    const audio = new AudioController(MIT_TAKT);
+    await audio.setDevice('mic1');
+    await audio.setDevice('');
+    ok(audio.getState().error === null, 'SW Audio Start ohne Gerät: „Kein Ton“ danach löscht den alten Fehler');
+    geraete.einstecken('mic1');
+    await takte();
+    gleich([audio.getState().hasDevice, geraete.geoeffnet.length], [false, 0], 'SW Audio Start ohne Gerät: nach „Kein Ton“ öffnet ein später eingestecktes Gerät nicht von selbst');
+    audio.destroy();
+    attrappenEntfernen();
+  }
+  {
+    const geraete = attrappenEinsetzen();
+    geraete.geben('mic2');
+    const audio = new AudioController(MIT_TAKT);
+    await audio.setDevice('mic1');
+    await audio.setDevice('mic2');
+    geraete.einstecken('mic1');
+    await takte();
+    gleich(geraete.geoeffnet.map((x) => x.id), ['mic2'], 'SW Audio Start ohne Gerät: nach der Wahl eines anderen Geräts öffnet das zuerst gewählte nicht mehr von selbst');
+    audio.destroy();
+    attrappenEntfernen();
+  }
+
+  // ── Nachprüfung: zwei überlappende Öffnen derselben Wahl bauen einen Graphen, die überholte Spur wird gestoppt ──
+  {
+    const geraete = attrappenEinsetzen();
+    geraete.geben('mic1');
+    geraete.aufhaltenFuer.add('mic1');
+    const audio = new AudioController(OHNE_TAKT);
+    const erst = audio.setDevice('mic1');
+    const zweit = audio.setDevice('mic1');
+    geraete.freigeben();
+    await Promise.all([erst, zweit]);
+    const ctx = KontextAttrappe.letzter;
+    const offen = geraete.geoeffnet.filter((x) => x.spur.readyState === 'live').length;
+    gleich([ctx?.gains.length, offen, audio.getState().hasDevice], [1, 1, true], 'SW Audio: zwei überlappende Öffnen derselben Wahl → ein Graph, eine offene Spur');
     audio.destroy();
     attrappenEntfernen();
   }

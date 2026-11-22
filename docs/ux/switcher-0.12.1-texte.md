@@ -14,7 +14,7 @@ Das Datum des Changelog-Eintrags 0.12.1 ist ein Platzhalter und wird am Tag der 
 
 | Nr. | Wo | Text | Wann |
 | --- | --- | --- | --- |
-| SW-A1 | Statusleiste „Audio“ und Panel ⚙ › Audiogerät | „Fehler: Gerät getrennt“ | Die Eingangsspur des gewählten Geräts endet, zum Beispiel weil es abgezogen wurde. Der Text geht „Gerät nicht gefunden“ vor, auch wenn das Gerät in der neu gelesenen Liste fehlt. Steckt dasselbe Gerät wieder, verschwindet der Fehler von selbst (spätestens nach etwa 2 s). Zeigt „Standard“ oder „Kommunikation“ danach auf ein anderes Gerät, bleibt der Fehler stehen, bis Du neu wählst. |
+| SW-A1 | Statusleiste „Audio“ und Panel ⚙ › Audiogerät | „Fehler: Gerät getrennt“ | Die Eingangsspur des gewählten Geräts endet, zum Beispiel weil es abgezogen wurde. Der Text geht „Gerät nicht gefunden“ vor, auch wenn das Gerät in der neu gelesenen Liste fehlt. Steckt dasselbe Gerät wieder, verschwindet der Fehler von selbst (spätestens nach etwa 2 s). Bei „Standard“ und „Kommunikation“ verbindet der Switcher nur, wenn er sicher dasselbe Gerät erkennt; sonst bleibt der Fehler stehen, bis Du ein anderes Gerät wählst. |
 
 ## Changelog Switcher 0.12.1 (neu)
 

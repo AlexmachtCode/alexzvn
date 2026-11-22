@@ -74,6 +74,7 @@ export class AudioController {
   /** Gewähltes Gerät, dessen Öffnen scheiterte (z. B. beim Start nicht eingesteckt); wird im Takt erneut versucht. */
   private wartetAuf = '';
   private nachsehenTimer: ReturnType<typeof setTimeout> | null = null;
+  private oeffnenNr = 0;
   private readonly wiederholMs: number;
 
   private state: AudioState = { hasDevice: false, muted: false, gain: 1, level: 0, error: null, getrennt: false };
@@ -114,6 +115,12 @@ export class AudioController {
 
   /** Eingangsgerät setzen ('' = aus). Baut den Graph (neu) auf. */
   async setDevice(deviceId: string): Promise<void> {
+    // Eine andere Wahl (auch „Kein Ton“) beendet das Warten auf ein beim Öffnen gescheitertes Gerät, samt dessen altem Fehler.
+    if (this.wartetAuf !== '' && deviceId !== this.wartetAuf) {
+      this.wartetAuf = '';
+      this.nachsehenStoppen();
+      if (this.currentDeviceId === '') this.patch({ error: null });
+    }
     // Dieselbe Wahl nach dem Abziehen: neu öffnen, der Graph bleibt.
     if (deviceId !== '' && deviceId === this.currentDeviceId && this.state.getrennt && this.gainNode) {
       await this.wiederVerbinden();
@@ -132,10 +139,12 @@ export class AudioController {
     // Ein anderes Gerät erbt den Fehler „getrennt“ des vorigen nicht, auch nicht für die Dauer des Öffnens.
     if (this.state.getrennt) this.patch({ getrennt: false });
     if (!this.geraeteAbmelden) this.geraeteAbmelden = beobachteGeraetewechsel(mediaDevices(), () => void this.nachsehen());
+    // Jedes Öffnen hat eine Nummer: Ein überholtes (anderes Gerät, dieselbe Wahl erneut, destroy) baut keinen zweiten Graphen.
+    const nr = ++this.oeffnenNr;
     try {
       const stream = await navigator.mediaDevices.getUserMedia(eingang(deviceId));
-      // Falls zwischenzeitlich ein anderes Gerät gewählt wurde: verwerfen.
-      if (this.currentDeviceId !== deviceId) {
+      // Falls zwischenzeitlich ein anderes Gerät gewählt wurde oder ein neueres Öffnen läuft: verwerfen.
+      if (nr !== this.oeffnenNr || this.currentDeviceId !== deviceId) {
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
@@ -159,8 +168,8 @@ export class AudioController {
       this.patch({ hasDevice: true, error: null, getrennt: false });
       if (spurBeendet(stream)) this.getrenntMelden(stream);
     } catch (e) {
-      // Inzwischen ein anderes Gerät gewählt (oder destroy): dessen Zustand nicht überschreiben.
-      if (this.currentDeviceId !== deviceId) return;
+      // Inzwischen ein anderes Gerät gewählt, ein neueres Öffnen oder destroy: dessen Zustand nicht überschreiben.
+      if (nr !== this.oeffnenNr || this.currentDeviceId !== deviceId) return;
       this.currentDeviceId = '';
       this.wartetAuf = deviceId;
       this.patch({ hasDevice: false, error: e instanceof Error ? e.message : String(e), getrennt: false });
@@ -327,6 +336,7 @@ export class AudioController {
     this.geraeteAbmelden?.();
     this.geraeteAbmelden = null;
     this.nachsehenStoppen();
+    this.oeffnenNr++;
     this.teardownGraph();
     void this.ctx?.close().catch(() => {});
     this.ctx = null;
