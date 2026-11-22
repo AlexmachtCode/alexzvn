@@ -85,6 +85,31 @@ const GEAENDERT = [
   'views/QaOberflaeche.tsx',
 ];
 
+/** Geänderte Dateien außerhalb von apps/qa, die ein Haken zitieren könnte (Stand: keine; die zitierten packages/-Dateien sind unverändert). */
+const PAKETE_GEAENDERT: string[] = [];
+
+/** Kanonischer Pfad ab der Repo-Wurzel, gleich welche Schreibweise der Haken wählt (kurz, mit renderer/src/ oder mit apps/qa/). */
+function kanon(pfad: string): string {
+  if (/^[A-Za-z.]+\.json$/.test(pfad)) return `apps/qa/${pfad}`; // Dateien der Paketwurzel (package.json, tsconfig.test.json)
+  const a = aufgeloest(pfad);
+  return a.startsWith('../../') ? a.slice('../../'.length) : `apps/qa/${a}`;
+}
+
+const GEAENDERT_KANON = new Set([...GEAENDERT.map(kanon), ...PAKETE_GEAENDERT]);
+const NUR_MELDUNG = new Set(['main/index.ts', 'main/control-server.ts', 'preload/index.ts', 'shared/types.ts'].map(kanon));
+
+/** Alle seit der Erhebung geänderten Dateien des Repos laut git (Pfade ab der Wurzel); null, wenn der Klon keinen Verlauf hat. */
+function gitGeaendert(): Set<string> | null {
+  try {
+    const aus = execFileSync('git', ['diff', '--name-only', `${ERHEBUNG}..HEAD`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return new Set(aus.split(/\r?\n/).filter((n) => n !== ''));
+  } catch {
+    return null;
+  }
+}
+const GIT = gitGeaendert();
+if (GIT === null) console.log(`QA Funktionsliste: kein git-Verlauf bis ${ERHEBUNG} (flacher Klon); die Prüfung gegen git entfällt, die statischen Listen gelten`);
+
 /** Datei in Backticks: Pfad mit Endung, aufgelöst nach der Pfadregel im Kopf der Liste. */
 const PFAD = /`([A-Za-z0-9_./-]+\.(?:tsx|ts|css|html|json|md|mjs))`/g;
 /** Nach „unverändert (“ steht sofort die Datei. */
@@ -172,9 +197,9 @@ function zeilenFehler(z: Zeile): string | null {
   // R13/R18: „unverändert“ nennt nur Dateien, die es seit der Erhebung nicht verändert hat; die vier Dateien mit der lesenden
   // Fernsteuerungs-Meldung (E2) und nur sie dürfen es mit diesem Hinweis.
   if (form === 'unverändert') {
-    const veraendert = pfade.filter((p) => GEAENDERT.includes(p));
+    const veraendert = pfade.filter((p) => GEAENDERT_KANON.has(kanon(p)) || GIT?.has(kanon(p)) === true);
     if (veraendert.length > 0 && !/\bE2\b/.test(ohneCode)) return `unverändert mit geänderter Datei (${veraendert.join(', ')}) ohne Hinweis auf E2`;
-    if (veraendert.some((p) => !['main/index.ts', 'main/control-server.ts', 'preload/index.ts', 'shared/types.ts'].includes(p))) {
+    if (veraendert.some((p) => !NUR_MELDUNG.has(kanon(p)))) {
       return `unverändert mit einer Datei, die mehr als die Fernsteuerungs-Meldung bekam (${veraendert.join(', ')})`;
     }
   }
@@ -215,21 +240,23 @@ const renderer = rendererDateien();
 
 // ── Die Menge der geänderten Dateien stimmt mit git überein, wenn der Klon den Verlauf hat (sonst keine Aussage) ──
 {
-  let aus: string | null = null;
-  try {
-    aus = execFileSync('git', ['diff', '--name-only', '--relative', `${ERHEBUNG}..HEAD`, '--', '.'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  } catch {
-    aus = null;
-  }
-  if (aus !== null) {
-    const git = aus
-      .split('\n')
-      .filter((n) => n !== '')
-      .map((n) => n.replace(/^src\/renderer\/src\//, '').replace(/^src\//, ''));
-    const fehlend = git.filter((n) => !GEAENDERT.includes(n));
-    ok(fehlend.length === 0, `QA Funktionsliste: GEAENDERT nennt alle seit ${ERHEBUNG} geänderten Dateien (fehlt: ${fehlend.join(', ') || 'nichts'})`);
+  if (GIT !== null) {
+    const fehlend = [...GIT].filter((n) => n.startsWith('apps/qa/') && !GEAENDERT_KANON.has(n) && n !== 'apps/qa/test/ui/funktionsliste.test.ts');
+    ok(fehlend.length === 0, `QA Funktionsliste: GEAENDERT nennt alle seit ${ERHEBUNG} geänderten Dateien von apps/qa (fehlt: ${fehlend.join(', ') || 'nichts'})`);
+    const pakete = [...GIT].filter((n) => !n.startsWith('apps/qa/') && !n.startsWith('docs/') && !n.startsWith('.superpowers/'));
+    const zitiert = alle.filter((z) => UNVERAENDERT.test(z.zellen[6].slice(2))).flatMap((z) => [...z.zellen[6].matchAll(PFAD)].map((m) => kanon(m[1])));
+    const getroffen = zitiert.filter((n) => !n.startsWith('apps/qa/') && pakete.includes(n));
+    ok(getroffen.length === 0 || getroffen.every((n) => PAKETE_GEAENDERT.includes(n)), `QA Funktionsliste: keine in einem unverändert-Haken zitierte Datei außerhalb von apps/qa wurde geändert (${getroffen.join(', ') || 'keine'})`);
   }
   ok(!GEAENDERT.some((d) => ['main/cloud.ts', 'main/cloud-zugang.ts', 'main/config.ts', 'main/coupling.ts', 'main/remote-page.ts', 'shared/queue.ts', 'store/useQa.ts'].includes(d)), 'QA Funktionsliste: die als unverändert geführten Dateien stehen nicht in GEAENDERT');
+  // Negativprobe: andere Schreibweisen derselben geänderten Datei werden erkannt.
+  const synth = (pfad: string): Zeile => ({ abschnitt: 3, nr: 0, zellen: ['0', '', '', '', '', '', `✓ unverändert (\`${pfad}\`): x`] });
+  ok(
+    ['App.tsx', 'renderer/src/App.tsx', 'apps/qa/src/renderer/src/App.tsx'].every((p) => (zeilenFehler(synth(p)) ?? '').includes('geänderter Datei')) &&
+      zeilenFehler(synth('apps/qa/src/main/cloud.ts')) === null &&
+      zeilenFehler(synth('apps/qa/src/main/index.ts')) !== null,
+    'QA Funktionsliste: eine geänderte Datei wird in jeder Schreibweise (kurz, renderer/src/…, apps/qa/…) erkannt, eine unveränderte nicht',
+  );
 }
 
 // ── Gelöschte Dateien: Settings.tsx und ConnectionsPanel.tsx gibt es nicht mehr, kein Haken nennt sie ──
