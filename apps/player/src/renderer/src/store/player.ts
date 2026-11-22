@@ -24,6 +24,18 @@ function clearShowTimers(): void {
   showTimers.clear();
 }
 
+/**
+ * Show-Teil der Panik, wie `showPanic` ihn bis UX Welle 2a allein hatte: Töne der Show hart aus, Ausgabe schwarz,
+ * Pre-Wait-Zeitgeber weg, Listen leer, Pause aufgehoben. `selectShow` und `removeShow` räumen damit die Show wie bisher;
+ * die Pads stoppt nur `showPanic` selbst (W2-10: Knopf „Panik“ und Companion `panic`).
+ */
+function panikDerShow(set: (teil: Partial<PlayerStore>) => void): void {
+  showAudio.panic();
+  void window.jmplay.output.command({ type: 'black' });
+  clearShowTimers();
+  set({ playingCueIds: [], vorlaufCueIds: [], videoCue: null, videoProgress: null, showPaused: false });
+}
+
 // Einmalige Anmeldung des „Video zu Ende"-Listeners (nur im Hauptfenster).
 let outputEndedSubscribed = false;
 
@@ -139,6 +151,11 @@ interface PlayerStore {
   standbyIndex: number;
   /** Cue-IDs, die gerade klingen oder im Pre-Wait stehen. */
   playingCueIds: number[];
+  /**
+   * Cue-IDs, die gerade im Pre-Wait (Vorlaufzeit) stehen (UX Welle 2a, W2-1): gesetzt beim Start der Vorlaufzeit, geleert
+   * an ihrem Ende, bei Stop und bei Panik. Sie stehen zugleich in `playingCueIds` (Companion zählt sie wie bisher).
+   */
+  vorlaufCueIds: number[];
   showPaused: boolean;
   /** Aktuell im Ausgabefenster laufender Video-Cue (für Ende → Auto-Continue). */
   videoCue: { id: number; index: number; autoContinue: boolean } | null;
@@ -222,6 +239,7 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
   showCues: [],
   standbyIndex: 0,
   playingCueIds: [],
+  vorlaufCueIds: [],
   showPaused: false,
   videoCue: null,
   videoProgress: null,
@@ -418,13 +436,13 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
     await window.jmplay.shows.remove(id);
     await get().refreshShows();
     if (get().activeShowId === id) {
-      get().showPanic();
+      panikDerShow(set);
       set({ activeShowId: null, showCues: [], standbyIndex: 0 });
     }
   },
 
   selectShow: async (id) => {
-    get().showPanic();
+    panikDerShow(set);
     const cues = await window.jmplay.shows.cues(id);
     set({ activeShowId: id, showCues: cues, standbyIndex: 0, playingCueIds: [], showPaused: false });
     // Cue-Medien vordekodieren → latenzarmes GO.
@@ -484,7 +502,13 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
     const media = cue.media;
     const url = window.jmplay.mediaUrl(media.path);
     const startNow = (): void => {
-      set((s) => ({ playingCueIds: [...new Set([...s.playingCueIds, cue.id])] }));
+      // Der Start beendet den Vorlauf und hebt die Pause auf: showAudio.play weckt die angehaltene Tonmaschine, ein
+      // Video lädt und läuft; der Merker folgt der Wirklichkeit (Ruling Task 14, Funktionsliste Befund 11).
+      set((s) => ({
+        playingCueIds: [...new Set([...s.playingCueIds, cue.id])],
+        vorlaufCueIds: s.vorlaufCueIds.filter((x) => x !== cue.id),
+        showPaused: false,
+      }));
       if (media.kind === 'video') {
         // Video → Ausgabefenster (ggf. öffnen). Ende-/Auto-Continue läuft über
         // onOutputEnded (das Ausgabefenster meldet das natürliche Ende zurück).
@@ -511,7 +535,11 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
     };
 
     if (cue.preWaitSec > 0) {
-      set((s) => ({ playingCueIds: [...new Set([...s.playingCueIds, cue.id])] })); // „pending"
+      // „pending“: zählt für Companion als spielt (playingCueIds), steht zugleich im Vorlauf (vorlaufCueIds, W2-1).
+      set((s) => ({
+        playingCueIds: [...new Set([...s.playingCueIds, cue.id])],
+        vorlaufCueIds: [...new Set([...s.vorlaufCueIds, cue.id])],
+      }));
       const t = setTimeout(() => {
         showTimers.delete(t);
         startNow();
@@ -538,14 +566,14 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
       void window.jmplay.output.command({ type: 'stop', fadeOutSec: 0 });
     }
     clearShowTimers();
-    set({ playingCueIds: [], videoCue: null, videoProgress: null });
+    // Nach Stop spielt nichts mehr: auch keine Pause (Ruling Task 14). Die Tonmaschine bleibt wie bisher unangetastet.
+    set({ playingCueIds: [], vorlaufCueIds: [], videoCue: null, videoProgress: null, showPaused: false });
   },
 
   showPanic: () => {
-    showAudio.panic();
-    void window.jmplay.output.command({ type: 'black' });
-    clearShowTimers();
-    set({ playingCueIds: [], videoCue: null, videoProgress: null, showPaused: false });
+    panikDerShow(set);
+    // W2-10: Panik stoppt zusätzlich die Pads (Knopf „Panik“ und Companion `panic`); Stop stoppt sie weiterhin nicht.
+    cueEngine.stopAll();
   },
 
   showTogglePause: () => {

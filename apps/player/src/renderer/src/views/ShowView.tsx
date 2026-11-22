@@ -3,6 +3,7 @@ import { Button, cn } from '@jm/ui';
 import type { DisplayInfo, MediaItem, OutputTime, ShowCue } from '@shared/types';
 import { usePlayer } from '@/store/player';
 import { formatDuration } from '@/lib/format';
+import { istEingabeZiel } from '@/lib/oberflaeche';
 
 export function ShowView() {
   const shows = usePlayer((s) => s.shows);
@@ -39,8 +40,7 @@ export function ShowView() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (addOpen || outputOpen || editCue) return;
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) return;
+      if (istEingabeZiel(e.target)) return;
       if (e.code === 'Space') {
         e.preventDefault();
         showGo();

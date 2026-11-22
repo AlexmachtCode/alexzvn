@@ -4,6 +4,7 @@ import type { Cue, MediaItem } from '@shared/types';
 import { usePlayer } from '@/store/player';
 import { cueEngine } from '@/lib/cues';
 import { formatDuration } from '@/lib/format';
+import { istEingabeZiel } from '@/lib/oberflaeche';
 
 const SLOTS = 24;
 const COLS = 6;
@@ -42,8 +43,7 @@ export function SoundboardView() {
   // Globale Hotkeys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) return;
+      if (istEingabeZiel(e.target)) return;
       const key = normalizeKey(e);
       const cue = cues.find((c) => c.hotkey && c.hotkey.toUpperCase() === key.toUpperCase());
       if (cue) {
