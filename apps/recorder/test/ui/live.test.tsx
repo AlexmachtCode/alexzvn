@@ -376,20 +376,28 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
   const toast = mitStore({ notice: 'Bitte einen Namen für das Preset eingeben.' }, () => render(<RecorderOberflaeche />));
   ok(text(inhalt(toast)).includes('Bitte einen Namen für das Preset eingeben.') && !toast.includes('data-recorder="meldung"'), 'RE Meldung mit OK: eine Meldung des Stores erscheint nur als Toast, nie im Band');
   // Fix-Runde 1 (Ruling): Der Toast steht oben mittig unter dem Kopf, über der Preset-Leiste (nicht live-kritisch), nie über Tasten,
-  // Uhr, Marke, Metern oder Statusleiste. Er ist eine Ebene vor dem Live-Bereich im Inhalt (sticky, Höhe 0, nimmt keinen Platz).
+  // Uhr, Marke, Metern oder Statusleiste. Fix-Runde 2 (Ruling): Er scrollt mit dem Inhalt (nicht sticky, nicht fixed): absolut im
+  // oberen Bereich des Inhalts-Wrappers, vor dem Live-Bereich, Höhe 0 (nimmt keinen Platz). Scrollt main, wandert er mit der
+  // Preset-Leiste aus dem Bild und liegt nie über Tasten, Uhr, Marke, Metern, Meldung oder Statusleiste.
   const mInhalt = inhalt(toast);
   const huelle = tags(mInhalt, 'div').find((t) => attr(t, 'data-recorder') === 'toast-ebene');
   const karte = tags(mInhalt, 'div').find((t) => attr(t, 'data-recorder') === 'toast');
   const hk = (attr(huelle, 'class') ?? '').split(/\s+/);
   const kk = (attr(karte, 'class') ?? '').split(/\s+/);
   ok(
-    huelle !== undefined && ['sticky', 'top-0', 'h-0', 'items-start', 'pointer-events-none', 'z-20'].every((k) => hk.includes(k)) && !hk.some((k) => k.startsWith('bottom') || k === 'fixed'),
-    'RE Meldung mit OK: der Toast steht oben (sticky am oberen Rand des Inhalts, Höhe 0, kein bottom, kein fixed über dem ganzen Fenster)',
+    huelle !== undefined && ['absolute', 'inset-x-0', 'top-0', 'h-0', 'items-start', 'pointer-events-none', 'z-20'].every((k) => hk.includes(k)) && !hk.some((k) => k === 'sticky' || k === 'fixed' || k.startsWith('bottom')),
+    'RE Meldung mit OK: der Toast scrollt mit dem Inhalt (absolut oben im Inhalts-Wrapper, Höhe 0; weder sticky noch fixed, kein bottom)',
   );
+  // Der Wrapper des Inhalts (der Zeitplan und Live-Bereich trägt) ist der Bezugsrahmen: relative, und die Ebene ist sein erstes Kind.
+  const wrapperStart = mInhalt.search(/<div class="relative mx-auto max-w-\[1100px\] space-y-4 px-5 py-4">/);
+  const ebene = mInhalt.indexOf('data-recorder="toast-ebene"');
+  const liveStart = mInhalt.indexOf('data-recorder="live"');
   ok(
-    mInhalt.indexOf('data-recorder="toast-ebene"') >= 0 && mInhalt.indexOf('data-recorder="toast-ebene"') < mInhalt.indexOf('data-recorder="live"') && !element(toast, 'section', 'data-recorder="live"').includes('data-recorder="toast"'),
-    'RE Meldung mit OK: die Ebene des Toasts steht vor dem Live-Bereich, nicht darin',
+    wrapperStart >= 0 && ebene > wrapperStart && ebene < liveStart && mInhalt.slice(wrapperStart, ebene).match(/<div/g)?.length === 2 && !element(toast, 'section', 'data-recorder="live"').includes('data-recorder="toast"'),
+    'RE Meldung mit OK: die Ebene des Toasts steht im gescrollten Inhalt (erstes Kind des Inhalts-Wrappers, relative), vor dem Live-Bereich und nicht darin',
   );
+  const ohneToast = mitStore({ notice: null }, () => render(<RecorderOberflaeche />));
+  ok(inhalt(ohneToast) === inhalt(toast).replace(/<div data-recorder="toast-ebene"[\s\S]*?<\/div><\/div>/, ''), 'RE Meldung mit OK: mit und ohne Toast ist der übrige Inhalt Zeichen für Zeichen gleich (nichts verschiebt sich)');
   ok(
     ['pointer-events-auto', 'truncate', 'max-w-2xl', 'text-center'].every((k) => kk.includes(k)) && text(element(mInhalt, 'div', 'data-recorder="toast"')) === 'Bitte einen Namen für das Preset eingeben.',
     'RE Meldung mit OK: die Karte bleibt wie bisher (Text des Stores, einzeilig gekürzt, klickbar, höchstens max-w-2xl)',

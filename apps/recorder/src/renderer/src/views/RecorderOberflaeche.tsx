@@ -102,22 +102,22 @@ export function RecorderOberflaeche({
         setPanelAbschnitt(abschnitt);
       }}
     >
-      {/* Toast (Nr. 54; Fix-Runde 1, Ruling): oben mittig unter dem Kopf, über der Preset-Leiste (nicht live-kritisch), nie über
-          Tasten, Uhr, Marke, Metern oder Statusleiste. Eine Ebene vor dem Live-Bereich: sticky am oberen Rand des Inhalts (bleibt
-          beim Scrollen oben), Höhe 0 (nimmt keinen Platz, nichts verschiebt sich), so breit wie der Inhalt (nie über dem Panel). */}
-      {notice && (
-        <div data-recorder="toast-ebene" className="pointer-events-none sticky top-0 z-20 flex h-0 items-start justify-center px-6">
-          <div
-            data-recorder="toast"
-            className="pointer-events-auto mt-2 rounded-[var(--radius-lg)] border border-[var(--primary)]/40
-                       bg-[var(--card)] px-4 py-2.5 text-sm font-semibold shadow-lg max-w-2xl text-center truncate"
-          >
-            {notice}
+      <div className="relative mx-auto max-w-[1100px] space-y-4 px-5 py-4">
+        {/* Toast (Nr. 54; Fix-Runde 1 und 2, Rulings): oben mittig über der Preset-Leiste (nicht live-kritisch), nie über Tasten,
+            Uhr, Marke, Metern, Meldung oder Statusleiste. Er scrollt mit dem Inhalt (absolut im oberen Bereich dieses Wrappers,
+            weder sticky noch fixed): Scrollt main, wandert er mit der Preset-Leiste aus dem Bild. Höhe 0 und außerhalb des Flusses
+            (nimmt keinen Platz, nichts verschiebt sich), so breit wie der Inhalt (nie über dem Panel). */}
+        {notice && (
+          <div data-recorder="toast-ebene" className="pointer-events-none absolute inset-x-0 top-0 z-20 flex h-0 items-start justify-center px-6">
+            <div
+              data-recorder="toast"
+              className="pointer-events-auto mt-2 rounded-[var(--radius-lg)] border border-[var(--primary)]/40
+                         bg-[var(--card)] px-4 py-2.5 text-sm font-semibold shadow-lg max-w-2xl text-center truncate"
+            >
+              {notice}
+            </div>
           </div>
-        </div>
-      )}
-
-      <div className="mx-auto max-w-[1100px] space-y-4 px-5 py-4">
+        )}
         <LiveBereich stand={stand} werte={{ peaks, gainDb, hinweisOrdner, dir }} aktionen={live} presets={<PresetLeiste />} />
         <div data-recorder="arbeitsbereich">
           <ScheduleCard zustand={zustand} />
