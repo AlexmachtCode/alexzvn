@@ -10,6 +10,7 @@ import {
   type FernsteuerungEreignis,
   type FernsteuerungMeldung,
 } from '@shared/fernsteuerung';
+import { LebendeFenster } from '../../src/main/ausgabe-fenster';
 import { kreuz, pruefeFaelle } from './hilfe';
 import { basisMeldung, ohneKommentare } from './testzustand';
 
@@ -242,7 +243,7 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
     'PL Ausgabe-Zustand: Öffnen meldet geoeffnet (neues Fenster neu:true, Umzug neu:false)',
   );
   ok(/win\.on\('closed', \(\) => \{[\s\S]*?melde\(\{ t: 'geschlossen' \}\);/.test(q), 'PL Ausgabe-Zustand: Schließen meldet geschlossen');
-  ok(q.includes("win.webContents.on('render-process-gone', () => melde({ t: 'abgestuerzt' }));"), 'PL Ausgabe-Zustand: render-process-gone meldet abgestuerzt');
+  ok(q.includes("win.webContents.on('render-process-gone', () => {") && q.includes("melde({ t: 'abgestuerzt' })"), 'PL Ausgabe-Zustand: render-process-gone meldet abgestuerzt');
   ok(
     q.includes("screen.on('display-removed', (_e, d) => melde({ t: 'bildschirm-weg', displayId: d.id }));"),
     'PL Ausgabe-Zustand: display-removed meldet bildschirm-weg mit der Id des entfernten Bildschirms',
@@ -267,4 +268,57 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
     return z.art === soll.art && z.displayId === soll.displayId;
   });
   ok(folgeOk, 'PL Ausgabe-Zustand: öffnen, umziehen, anderer Bildschirm weg, Bildschirm weg, abgestürzt, geschlossen ergibt die erwarteten Zustände');
+}
+
+// ── PL Ausgabe-Zustand: lebende Fenster (Fix-Runde 1): der Zustand folgt den lebenden Fenstern, nicht der Fensterreferenz ──
+{
+  type Ev = { t: 'auf'; w: string } | { t: 'zu'; w: string } | { t: 'absturz'; w: string };
+  /** Spielt Ereignisse wie output-window.ts durch (Helfer + Zustandsmaschine); liefert die Folge der Zustandsarten. */
+  const spiele = (...es: Ev[]): string[] => {
+    const l = new LebendeFenster<string>();
+    let z: AusgabeZustand = AUSGABE_ZU;
+    const arten: string[] = [];
+    for (const e of es) {
+      if (e.t === 'auf') {
+        l.hinzu(e.w);
+        z = naechsterAusgabeZustand(z, { t: 'geoeffnet', displayId: 1, neu: true });
+      } else if (e.t === 'zu') {
+        if (l.schliesse(e.w)) z = naechsterAusgabeZustand(z, { t: 'geschlossen' });
+      } else if (l.istNeuestes(e.w)) z = naechsterAusgabeZustand(z, { t: 'abgestuerzt' });
+      arten.push(z.art);
+    }
+    return arten;
+  };
+  gleich(spiele({ t: 'auf', w: 'W1' }, { t: 'zu', w: 'W1' }), ['offen', 'zu'], 'PL Ausgabe-Zustand lebende Fenster: öffnen, schließen ergibt offen, zu');
+  gleich(
+    spiele({ t: 'auf', w: 'W1' }, { t: 'auf', w: 'W2' }, { t: 'auf', w: 'W3' }, { t: 'zu', w: 'W1' }, { t: 'zu', w: 'W2' }),
+    ['offen', 'offen', 'offen', 'offen', 'offen'],
+    'PL Ausgabe-Zustand lebende Fenster: Folge A (W1, W2 zu, W3 offen): spätes closed von W1 und W2 meldet nicht zu, solange W3 lebt',
+  );
+  gleich(
+    spiele({ t: 'auf', w: 'W1' }, { t: 'auf', w: 'W2' }, { t: 'auf', w: 'W3' }, { t: 'zu', w: 'W3' }, { t: 'zu', w: 'W2' }, { t: 'zu', w: 'W1' }),
+    ['offen', 'offen', 'offen', 'offen', 'offen', 'zu'],
+    'PL Ausgabe-Zustand lebende Fenster: Folge B (mehrere Fenster, W3 zuerst zu): offen bis das letzte schließt',
+  );
+  gleich(
+    spiele({ t: 'auf', w: 'W1' }, { t: 'auf', w: 'W2' }, { t: 'absturz', w: 'W1' }),
+    ['offen', 'offen', 'offen'],
+    'PL Ausgabe-Zustand lebende Fenster: Absturz eines abgelösten Fensters meldet nichts',
+  );
+  gleich(
+    spiele({ t: 'auf', w: 'W1' }, { t: 'auf', w: 'W2' }, { t: 'absturz', w: 'W2' }),
+    ['offen', 'offen', 'abgestuerzt'],
+    'PL Ausgabe-Zustand lebende Fenster: Absturz des neuesten Fensters meldet abgestuerzt',
+  );
+  gleich(
+    spiele({ t: 'auf', w: 'W1' }, { t: 'zu', w: 'W1' }, { t: 'zu', w: 'W1' }, { t: 'absturz', w: 'W1' }),
+    ['offen', 'zu', 'zu', 'zu'],
+    'PL Ausgabe-Zustand lebende Fenster: Schließen bei geschlossenem Fenster und Absturz eines toten Fensters ändern nichts',
+  );
+  const q2 = ohneKommentare(leseText('src/main/output-window.ts'));
+  ok(
+    q2.includes("from './ausgabe-fenster'") && q2.includes('lebende.hinzu(win);') && q2.includes("if (lebende.schliesse(win)) melde({ t: 'geschlossen' });") &&
+      q2.includes("if (lebende.istNeuestes(win)) melde({ t: 'abgestuerzt' });"),
+    'PL Ausgabe-Zustand lebende Fenster: output-window.ts meldet geschlossen und abgestuerzt nur über den Helfer',
+  );
 }

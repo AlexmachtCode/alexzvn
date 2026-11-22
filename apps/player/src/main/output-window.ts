@@ -2,6 +2,7 @@ import { BrowserWindow, screen } from 'electron';
 import { join } from 'node:path';
 import { AUSGABE_ZU, naechsterAusgabeZustand, type AusgabeEreignis, type AusgabeZustand } from '@jm/output-window/zustand';
 import type { DisplayInfo, OutputCommand } from '@shared/types';
+import { LebendeFenster } from './ausgabe-fenster';
 
 declare const __dirname: string;
 
@@ -14,6 +15,8 @@ let outputWindow: BrowserWindow | null = null;
 let zustand: AusgabeZustand = AUSGABE_ZU;
 const hoerer = new Set<(z: AusgabeZustand) => void>();
 let bildschirmHoerer = false;
+// Nur für die Meldung: alle noch nicht geschlossenen Ausgabefenster dieses Moduls (die outputWindow-Referenz kann veralten).
+const lebende = new LebendeFenster<BrowserWindow>();
 
 /** Gemessener Zustand des Fensters. */
 export function ausgabeZustand(): AusgabeZustand {
@@ -98,13 +101,16 @@ export function openOutputWindow(displayId?: number): void {
 
   win.on('ready-to-show', () => win.show());
   win.on('closed', () => {
-    // Ein später geöffnetes Fenster soll das späte `closed` des alten nicht zu „zu“ machen.
-    const abgeloest = outputWindow !== null && outputWindow !== win;
     outputWindow = null;
-    if (!abgeloest) melde({ t: 'geschlossen' });
+    // „zu“ erst, wenn das letzte lebende Fenster geschlossen ist.
+    if (lebende.schliesse(win)) melde({ t: 'geschlossen' });
   });
-  win.webContents.on('render-process-gone', () => melde({ t: 'abgestuerzt' }));
+  win.webContents.on('render-process-gone', () => {
+    // Nur der Absturz des neuesten lebenden Fensters zählt.
+    if (lebende.istNeuestes(win)) melde({ t: 'abgestuerzt' });
+  });
 
+  lebende.hinzu(win);
   loadOutput(win);
   outputWindow = win;
   melde({ t: 'geoeffnet', displayId: target.id, neu: true });
