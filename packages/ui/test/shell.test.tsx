@@ -4,6 +4,7 @@ import { AppShell, panelSchliessen, statusKlick, zahnradKlick, type AppShellProp
 import { PanelAnker } from '../src/components/SettingsPanel';
 import type { StatusItem } from '../src/lib/status';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from './harness';
+import { SHELL_BASIS } from './lib/bestand-markup';
 import { attr, hatKlassen, klassen, tags, zwischen } from './lib/markup';
 
 const nichts = (): void => undefined;
@@ -152,4 +153,56 @@ const statusKnoepfe = (html: string): string[] => tags(html, 'button').filter((t
     uebergaenge.length > 0 && uebergaenge.every((k) => k.startsWith('motion-safe:')) && !alle.some((k) => k.startsWith('animate-')),
     'Shell: Übergänge nur motion-safe, kein animate-',
   );
+}
+
+// ── UX Welle 2b, Task 1: festes Dunkel, mac und Kopf-Aktion (rein additiv) ──
+const normalisiert = (html: string): string => html.replace(/<svg[\s\S]*?<\/svg>/, '<svg/>').replace(/\d\d:\d\d:\d\d/, 'HH:MM:SS');
+const themeKnoepfe = (html: string): string[] => tags(html, 'button').filter((t) => attr(t, 'data-theme') !== undefined);
+{
+  const html = render(
+    <AppShell
+      tool="Titler"
+      status={[{ id: 'ndi', group: 'ausgabe', label: 'NDI', state: 'ok', detail: 'JM Titler' }]}
+      settingsOpen={false}
+      onSettingsChange={nichts}
+    >
+      <p>Live</p>
+    </AppShell>,
+  );
+  ok(normalisiert(html) === SHELL_BASIS, 'Shell Vorgabe unverändert: ohne neue Props dasselbe Markup wie vor Welle 2b');
+  ok(!klassen(tags(html, 'div')[0]).includes('dark') && themeKnoepfe(html).length === 1, 'Shell Vorgabe: Wurzel ohne dark, ThemeToggle im Kopf');
+}
+{
+  const html = render(<AppShell {...basis({ thema: 'dunkel', settings: EINSTELLUNGEN })} />);
+  const wurzel = tags(html, 'div')[0];
+  ok(
+    klassen(wurzel).includes('dark') && hatKlassen(wurzel, 'flex h-screen flex-col overflow-hidden') && themeKnoepfe(html).length === 0 &&
+      !html.includes('data-theme=') && zahnrad(html) !== '',
+    'Shell fest dunkel: Wurzel mit dark, kein data-theme-Knopf im Kopf, ⚙ bleibt',
+  );
+  const quelle = leseText('src/components/AppShell.tsx');
+  const kopf = leseText('src/components/AppHeader.tsx');
+  ok(
+    !quelle.includes('useTheme') && !quelle.includes('ThemeToggle') && !kopf.includes('useTheme') &&
+      /thema === 'wechselbar' \? <ThemeToggle \/> : null/.test(kopf),
+    'Shell Quelltext-Wächter: der Zweig dunkel ruft weder useTheme noch ThemeToggle',
+  );
+}
+{
+  const kopf = (html: string): string => klassen(tags(html, 'header')[0]).join(' ');
+  const ohne = kopf(render(<AppShell {...basis({ mac: false })} />));
+  const mit = kopf(render(<AppShell {...basis({ mac: true })} />));
+  const vorgabe = kopf(render(<AppShell {...basis()} />));
+  ok(
+    ohne.includes('pl-4') && !ohne.includes('pl-20') && mit.includes('pl-20') && !mit.includes('pl-4') && vorgabe.includes('pl-4'),
+    'Shell mac durchgereicht: mac={false} → pl-4, mac={true} → pl-20, Vorgabe isElectronMac (unter Node false)',
+  );
+}
+{
+  const html = render(
+    <AppShell {...basis({ onAir: { live: false }, settings: EINSTELLUNGEN, kopfAktion: <button type="button">Referent beenden</button> })} />,
+  );
+  const p = ['data-bereich="onair"', 'data-zahnrad', 'data-bereich="kopf-aktion"', 'Referent beenden'].map((s) => html.indexOf(s));
+  ok(p.every((x) => x >= 0) && p[0] < p[1] && p[1] < p[2] && p[2] < p[3], 'Shell Kopf-Aktion: Reihenfolge ON AIR → ⚙ → kopf-aktion im Kopf');
+  ok(!render(<AppShell {...basis()} />).includes('kopf-aktion'), 'Shell ohne kopfAktion: kein Element');
 }

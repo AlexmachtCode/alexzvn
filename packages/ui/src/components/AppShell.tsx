@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from 'react';
 import type { StatusItem } from '../lib/status';
+import { cn } from '../lib/cn';
 import { AppHeader } from './AppHeader';
 import { SettingsPanel } from './SettingsPanel';
 import { StatusBar } from './StatusBar';
@@ -16,6 +17,12 @@ export interface AppShellProps {
   settingsSection?: string;
   onSettingsChange(open: boolean, sectionId?: string): void;
   dichte?: 'normal' | 'kompakt';
+  /** `dunkel` = festes Dunkel: Wurzel trägt `dark`, der Kopf ohne Umschalter. Vorgabe `wechselbar`. */
+  thema?: 'wechselbar' | 'dunkel';
+  /** Platz für die Ampel auf macOS, an AppHeader durchgereicht; Vorgabe isElectronMac. */
+  mac?: boolean;
+  /** Aktion ganz rechts im Kopf, nach ⚙ (AppHeader `kopfAktion`). */
+  kopfAktion?: ReactNode;
   children: ReactNode;
 }
 
@@ -62,6 +69,9 @@ export function AppShell(p: AppShellProps): React.JSX.Element {
     settingsOpen,
     settingsSection,
     dichte = 'normal',
+    thema = 'wechselbar',
+    mac,
+    kopfAktion,
     children,
   } = p;
   const panelId = useId();
@@ -69,7 +79,13 @@ export function AppShell(p: AppShellProps): React.JSX.Element {
   const offen = mitEinstellungen && settingsOpen;
 
   return (
-    <div data-dichte={dichte} className="flex h-screen flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+    <div
+      data-dichte={dichte}
+      className={cn(
+        thema === 'dunkel' && 'dark',
+        'flex h-screen flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)]',
+      )}
+    >
       <AppHeader
         tool={tool}
         center={headerCenter}
@@ -78,6 +94,9 @@ export function AppShell(p: AppShellProps): React.JSX.Element {
         settingsOpen={offen}
         onSettingsToggle={zahnradKlick(p)}
         panelId={panelId}
+        thema={thema}
+        mac={mac}
+        kopfAktion={kopfAktion}
       />
       {toolbar ? (
         <div data-bereich="toolbar" className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--card)] px-3 py-1.5">

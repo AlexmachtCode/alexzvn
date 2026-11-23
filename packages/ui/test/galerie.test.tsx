@@ -19,6 +19,7 @@ import {
   PFLICHTKLASSEN,
 } from '../galerie/pruefe-klassen';
 import { enthaelt, enthaeltNicht, gleich, leseText, ok, pruefeIdVerweise, render } from './harness';
+import { klassen, tags } from './lib/markup';
 
 // ── Vollständigkeit: diese Namen muss jede Spalte zeigen (Liste unabhängig vom Galerie-Code) ──
 const UI_NAMEN = [
@@ -196,9 +197,14 @@ function ersterZustand(html: string): string | undefined {
     enthaelt(html, `src="${shellAdresse(r.parameter).replace(/&/g, '&amp;')}" width="${r.breite}"`, `Galerie: Rahmen ${r.titel}`);
   }
   gleich(
-    RAHMEN_ANSICHTEN.map((r) => `${r.breite}:${r.parameter.modus}:${r.parameter.sitzung ? 'sitzung' : 'ohne'}`).sort(),
+    RAHMEN_ANSICHTEN.filter((r) => !r.parameter.festDunkel).map((r) => `${r.breite}:${r.parameter.modus}:${r.parameter.sitzung ? 'sitzung' : 'ohne'}`).sort(),
     ['1200:dark:ohne', '1200:dark:sitzung', '1200:light:sitzung', '800:dark:sitzung', '800:light:sitzung'],
     'Galerie: Rahmen in 1200 px und 800 px (schmal), je Dunkel und Hell, dazu der Rahmen ohne Sitzung',
+  );
+  gleich(
+    RAHMEN_ANSICHTEN.filter((r) => r.parameter.festDunkel).map((r) => `${r.breite}:${r.parameter.modus}`).sort(),
+    ['1200:dark', '1200:light'],
+    'Galerie: Rahmen „fest dunkel mit Kopf-Aktion“ in beiden Modus-Spalten (Dunkel und Hell)',
   );
 }
 
@@ -259,6 +265,34 @@ function ersterZustand(html: string): string | undefined {
       !ohneSitzung.includes('data-zahnrad') &&
       !ohneSitzung.includes('aria-label="Einstellungen"'),
     'ShellSeite ohne Sitzung: leere Statusleiste mit Uhr, kein ⚙, kein Panel (Spec 3.8)',
+  );
+}
+
+// ── Rahmen-Seite „fest dunkel mit Kopf-Aktion“ (UX Welle 2b, Task 1) ──
+{
+  gleich(
+    leseShellParameter(new URLSearchParams('?ansicht=shell&modus=light&panel=0&dichte=normal&sitzung=1&fest=1')),
+    { modus: 'light', panel: false, dichte: 'normal', sitzung: true, festDunkel: true },
+    'ShellSeite fest=1 → festDunkel; ohne fest bleibt der Parameter unverändert (kein Schlüssel)',
+  );
+  ok(
+    shellAdresse({ modus: 'light', panel: false, dichte: 'normal', sitzung: true, festDunkel: true }).endsWith('&fest=1') &&
+      !shellAdresse({ modus: 'light', panel: false, dichte: 'normal', sitzung: true }).includes('fest'),
+    'ShellSeite: shellAdresse nennt fest=1 nur bei festDunkel',
+  );
+  for (const modus of ['dark', 'light'] as const) {
+    const html = render(<ShellSeite modus={modus} panel={false} dichte="normal" sitzung festDunkel />);
+    const wurzeln = tags(html, 'div');
+    ok(
+      wurzeln[0].includes(`class="${modus} `) && klassen(wurzeln[1]).includes('dark') && !html.includes('data-theme=') &&
+        html.includes('data-bereich="kopf-aktion"') && html.includes('data-zahnrad'),
+      `ShellSeite fest dunkel (Spalte ${modus}): Rahmen trägt dark, kein ThemeToggle, Kopf-Aktion nach ⚙`,
+    );
+  }
+  const wechselbar = render(<ShellSeite modus="light" panel={false} dichte="normal" sitzung />);
+  ok(
+    wechselbar.includes('data-theme=') && !wechselbar.includes('kopf-aktion') && !klassen(tags(wechselbar, 'div')[1]).includes('dark'),
+    'ShellSeite ohne festDunkel: ThemeToggle da, keine Kopf-Aktion, Rahmen ohne dark',
   );
 }
 

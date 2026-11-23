@@ -10,6 +10,9 @@ export const RAHMEN_ANSICHTEN: ReadonlyArray<{ breite: number; parameter: ShellP
   { breite: 800, parameter: { modus: 'dark', panel: true, dichte: 'kompakt', sitzung: true }, titel: '800 px · Dunkel · Panel über dem Inhalt · kompakt' },
   { breite: 800, parameter: { modus: 'light', panel: true, dichte: 'normal', sitzung: true }, titel: '800 px · Hell · Panel über dem Inhalt' },
   { breite: 1200, parameter: { modus: 'dark', panel: false, dichte: 'normal', sitzung: false }, titel: '1200 px · Dunkel · ohne Sitzung (leere Statusleiste, kein ⚙)' },
+  // UX Welle 2b: fest dunkel mit Kopf-Aktion, in beiden Modus-Spalten (der Rahmen bleibt auch in der Hell-Spalte dunkel).
+  { breite: 1200, parameter: { modus: 'dark', panel: false, dichte: 'normal', sitzung: true, festDunkel: true }, titel: '1200 px · Dunkel-Spalte · fest dunkel mit Kopf-Aktion' },
+  { breite: 1200, parameter: { modus: 'light', panel: false, dichte: 'normal', sitzung: true, festDunkel: true }, titel: '1200 px · Hell-Spalte · fest dunkel mit Kopf-Aktion' },
 ];
 
 /** Gruppen in der Reihenfolge ihres ersten Auftretens. */

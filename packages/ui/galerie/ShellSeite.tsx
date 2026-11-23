@@ -23,6 +23,8 @@ export interface ShellParameter {
   dichte: 'normal' | 'kompakt';
   /** false = Zustand ohne Sitzung (Spec 3.8): leere Statusleiste mit Uhr, keine Einstellungen, kein ⚙. */
   sitzung: boolean;
+  /** true = fester Dunkel-Rahmen mit Kopf-Aktion (`thema="dunkel"`, UX Welle 2b); fehlt = wechselbar. */
+  festDunkel?: boolean;
 }
 
 /** Liest die Parameter der Rahmen-Seite; fremde Werte → Dunkel, Panel zu, normal, mit Sitzung. */
@@ -32,12 +34,13 @@ export function leseShellParameter(p: URLSearchParams): ShellParameter {
     panel: p.get('panel') === '1',
     dichte: p.get('dichte') === 'kompakt' ? 'kompakt' : 'normal',
     sitzung: p.get('sitzung') !== '0',
+    ...(p.get('fest') === '1' ? { festDunkel: true } : {}),
   };
 }
 
 /** Adresse der Rahmen-Seite (relativ, für das src eines iframes). */
 export function shellAdresse(p: ShellParameter): string {
-  return `?ansicht=shell&modus=${p.modus}&panel=${p.panel ? '1' : '0'}&dichte=${p.dichte}&sitzung=${p.sitzung ? '1' : '0'}`;
+  return `?ansicht=shell&modus=${p.modus}&panel=${p.panel ? '1' : '0'}&dichte=${p.dichte}&sitzung=${p.sitzung ? '1' : '0'}${p.festDunkel ? '&fest=1' : ''}`;
 }
 
 export function ShellSeite(p: ShellParameter): React.JSX.Element {
@@ -81,6 +84,14 @@ export function ShellSeite(p: ShellParameter): React.JSX.Element {
           setAbschnitt(id);
         }}
         dichte={p.dichte}
+        thema={p.festDunkel ? 'dunkel' : 'wechselbar'}
+        kopfAktion={
+          p.festDunkel ? (
+            <span className="inline-flex items-center rounded-[var(--radius-md)] border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--foreground)]">
+              Kopf-Aktion
+            </span>
+          ) : undefined
+        }
       >
         <div className="grid grid-cols-2 gap-3 p-4" style={{ maxWidth: 640 }}>
           <TallyButton state={live ? 'live' : 'bereit'} label="Take" shortcut="Enter" onClick={() => setLive(true)} />
