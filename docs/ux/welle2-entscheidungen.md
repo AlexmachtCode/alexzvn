@@ -1,4 +1,4 @@
-# UX-Update Welle 2a: Entscheidungen während der Umsetzung (W1–W62)
+# UX-Update Welle 2a: Entscheidungen während der Umsetzung (W1–W63)
 
 Bei der Umsetzung von Welle 2a (Caption, Interpreter, Prompter, Stage Display, Recorder, Player) waren an einigen Stellen
 Plan, Spec und Code nicht eindeutig. Diese Entscheidungen sind hier festgehalten. Die Funktionslisten
@@ -299,6 +299,12 @@ Entscheidungen gelten für die Fix-Welle danach.
   Start mit ok:false (z. B. Port belegt), und dieses Dokument nimmt die Entscheidungen der Gesamtprüfung als W57 bis W62 auf.
   Grund: Im Raster mit drei Spalten passte der Inhalt von GO im Betrieb nicht in seinen Platz; zu lesen war nur
   „VE Pause Leerta…“. Gemessen nach dem Umbau: GO ist über zwei Spalten 175 px breit, in der Mindestgröße 162 px. Der Inhalt
-  braucht im Betrieb („LIVE“, „Pause“ und „Leertaste“ in 19 px) aber 268 px, GO bleibt also im Betrieb abgeschnitten. Lesbar
-  wird GO erst mit einem TallyButton, der sein Kürzel umbricht oder verkleinert (Welle 2b). „Anfang“ ist breiter als früher und
-  reicht bis an den inneren Rand der alten Plätze von „↑ zurück“ und „↓ vor“ (Abnahme PRZ4). Preis: eine Nachmessung.
+  braucht im Betrieb („LIVE“, „Pause“ und „Leertaste“ in 19 px) aber 268 px, GO blieb also im Betrieb abgeschnitten; gelöst
+  ist das mit W63. „Anfang“ ist breiter als früher und reicht bis an den inneren Rand der alten Plätze von „↑ zurück“ und
+  „↓ vor“ (Abnahme PRZ4). Preis: eine Nachmessung.
+- **W63** (Gesamtprüfung, letzte Änderung der Fix-Welle) Kürzel-Hinweis an GO nur in Ruhe: GO zeigt „Leertaste“ nur, solange der
+  Text steht; im Lauf zeigt die Taste nur „LIVE“ (bei offenem Monitor) und „Pause“. Die Leertaste wirkt weiter, und der Satz
+  unter dem Tempo nennt sie; „Pos1“ an „Anfang“ bleibt. `@jm/ui` bleibt unverändert. Grund: Mit dem Hinweis passte der Inhalt von
+  GO im Betrieb auch mit W62 nicht in seinen Platz. Gemessen danach: Der Inhalt im Lauf ist 125 px breit; GO ist 175 px breit,
+  in der Mindestgröße 162 px, und hat dort innen gerade 1 px Luft. In beiden Größen wird nichts mehr abgeschnitten. Preis: der
+  sichtbare Kürzel-Hinweis an GO während des Laufs (Abnahmepunkt PRZ4).
