@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import type { ScreenOption } from '@jm/settings';
 import { AppShell, useBrueckenWert } from '@jm/ui';
-import { baueAktionen, liesBildschirme } from '@/lib/aktionen';
+import { baueAktionen, folgeBildschirmen, liesBildschirme } from '@/lib/aktionen';
 import { useTick } from '@/lib/format';
 import { AUSGABE_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
 import { statusLeiste, STAGE_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
@@ -36,9 +36,11 @@ export function StageOberflaeche({
 
   // Bildschirmliste (Gesamtprüfung I3): beim Start und bei jeder Änderung des Ausgabezustands (ein abgezogener oder neuer
   // Bildschirm) frisch, dazu bei jedem Öffnen des Panels, beim Schließen nicht; undefined, bis eine Antwort da ist; bei einem
-  // Fehler zurück auf unbekannt, nie die alte Liste; ohne Preload bleibt sie unbekannt.
+  // Fehler zurück auf unbekannt, nie die alte Liste; ohne Preload bleibt sie unbekannt. Dazu bei jedem Bildschirm-Ereignis des
+  // Main (angesteckt, abgezogen, geändert; UX Welle 2b), auch wenn sich der Ausgabezustand dabei nicht ändert.
   const [bildschirme, setBildschirme] = useState<ScreenOption[] | undefined>(undefined);
   useEffect(() => liesBildschirme(window.jmstage?.output?.displays, setBildschirme), [ausgabe]);
+  useEffect(() => folgeBildschirmen(window.jmstage?.output?.onBildschirme, window.jmstage?.output?.displays, setBildschirme), []);
   useEffect(() => {
     if (!panelOffen) return undefined;
     return liesBildschirme(window.jmstage?.output?.displays, setBildschirme);

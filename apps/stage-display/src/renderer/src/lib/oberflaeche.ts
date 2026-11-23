@@ -133,7 +133,20 @@ export function kannVerschieben(a: AusgabeZustand | null | undefined): boolean {
   return a !== undefined && a !== null && (a.art === 'offen' || a.art === 'bildschirm-fehlt');
 }
 
-/** Ausgabe auf Bildschirm (Bühnenschirm): nur der Schalter, kein Vollbild- und kein Hintergrundfeld. */
+/**
+ * Gemessener Ort des Bühnenschirms für den Abschnitt (2a-Nachzug, UX Welle 2b): der Bildschirm bei `offen`; `null` bei
+ * `bildschirm-fehlt` (das System hat das Fenster verschoben, der Ort ist unbekannt); sonst keine Messung (`undefined`).
+ */
+function gemessenerOrt(z: AusgabeZustand | undefined): number | null | undefined {
+  if (z?.art === 'offen') return z.displayId;
+  if (z?.art === 'bildschirm-fehlt') return null;
+  return undefined;
+}
+
+/**
+ * Ausgabe auf Bildschirm (Bühnenschirm): nur der Schalter, kein Vollbild- und kein Hintergrundfeld. Mit `measuredId` nennen Pille
+ * und Zeile „Steht auf“ (@jm/settings) den gemessenen Bildschirm, nie den nur gewählten (Wahl ≠ Bewegung).
+ */
 export function ausgabeAbschnitt(s: OberflaechenStand, a?: StageAktionen): ScreenOutputSectionProps {
   const z = s.ausgabe ?? undefined;
   return {
@@ -142,6 +155,7 @@ export function ausgabeAbschnitt(s: OberflaechenStand, a?: StageAktionen): Scree
     windowOpen: z === undefined ? undefined : z.art === 'offen' || z.art === 'bildschirm-fehlt',
     screens: s.bildschirme === undefined ? undefined : [...s.bildschirme],
     selectedId: s.stage?.config.outputDisplayId ?? null,
+    measuredId: gemessenerOrt(z),
     capabilities: { toggle: true, fullscreen: false, background: false },
     ...(a === undefined ? {} : { onToggle: (an: boolean) => a.ausgabeUmschalten(an), onSelect: (id: number | null) => a.bildschirmWaehlen(id) }),
   };
@@ -190,18 +204,6 @@ function buehnenschirmItem(s: OberflaechenStand): StatusItem {
     case 'abgestuerzt':
       return { ...kopf, state: 'error', detail: T.abgestuerzt };
   }
-}
-
-/**
- * Gemessene Lage des Bühnenschirms für das Panel (Gesamtprüfung I3): Die Pille von „Ausgabe auf Bildschirm“ nennt den gewählten
- * Bildschirm, eine Wahl verschiebt aber nichts. Solange das Fenster gemessen da ist (offen oder Bildschirm fehlt), steht darunter,
- * wo es wirklich ist: Titel und Text des Statuseintrags, so wie dessen Tooltip („Bühnenschirm: offen · ‹Bildschirm›“). Dieselbe
- * Ableitung wie die Statusleiste, also eine Wahrheit; sonst undefined (keine Zeile).
- */
-export function gemesseneLage(s: OberflaechenStand): string | undefined {
-  if (!kannVerschieben(s.ausgabe)) return undefined;
-  const i = buehnenschirmItem(s);
-  return `${i.label}: ${i.detail}`;
 }
 
 /** Quelle: dieselbe Zeile wie im Panel (peerZeileStatus): nicht geladen → unbekannt, aus → off „aus“, verbunden → ok, an und nicht verbunden → warn. */

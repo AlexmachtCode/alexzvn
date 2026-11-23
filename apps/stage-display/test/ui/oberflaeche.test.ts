@@ -231,6 +231,34 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
   });
 }
 
+// ── SD Ort aus der Messung (2a-Nachzug, UX Welle 2b): measuredId = displayId bei offen, null bei Bildschirm fehlt (das System hat
+// das Fenster verschoben, der Ort ist unbekannt), sonst undefined. Die Pille nennt dann den gemessenen Bildschirm, nie den gewählten ──
+{
+  const faelle = kreuz({ ausgabe: [undefined, null, ...ARTEN] as Array<AusgabeArt | null | undefined>, display: [2, 5] } as const);
+  pruefeFaelle('SD Ort aus der Messung: ausgabeAbschnitt setzt measuredId = displayId bei offen, null bei Bildschirm fehlt, sonst undefined', faelle, (f) => {
+    const p = ausgabeAbschnitt(stand({ stage: zustand({ display: 3 }), ausgabe: art(f.ausgabe, f.display) }));
+    const soll = f.ausgabe === 'offen' ? f.display : f.ausgabe === 'bildschirm-fehlt' ? null : undefined;
+    return vergleiche(String(p.measuredId), String(soll)) ?? (p.selectedId !== 3 ? `selectedId ${p.selectedId}` : null);
+  });
+  const LISTE = [
+    { id: 1, label: 'Regie', primary: true },
+    { id: 2, label: 'Bühne', primary: false },
+    { id: 3, label: 'Foyer', primary: false },
+  ];
+  // Gewählt ist Bildschirm 3 (Foyer); die Pille kommt aus screenOutputView von @jm/settings (eine Wahrheit).
+  const pille = (z: AusgabeZustand | null | undefined): string => {
+    const s = settings.screenOutputView(ausgabeAbschnitt(stand({ stage: zustand({ display: 3 }), ausgabe: z, bildschirme: LISTE }))).status;
+    return `${s.state} ${s.text}`;
+  };
+  gleich(
+    [pille({ art: 'offen', displayId: 2 }), pille({ art: 'offen', displayId: 9 }), pille({ art: 'bildschirm-fehlt', displayId: 2 }), pille({ art: 'zu', displayId: null })],
+    ['ok auf Bildschirm 2', 'warn Bildschirm fehlt', 'warn Bildschirm fehlt', 'off aus'],
+    'SD Ort aus der Messung: die Pille nennt den gemessenen Bildschirm (2), nicht den gewählten (3); unbekannter Ort oder Bildschirm fehlt → „Bildschirm fehlt“',
+  );
+  const code = ohneKommentare(leseText('src/renderer/src/lib/oberflaeche.ts'));
+  ok(!code.includes('gemesseneLage'), 'SD Ort aus der Messung: gemesseneLage entfällt (die Zeile „Steht auf“ kommt aus @jm/settings)');
+}
+
 // ── SD Bühnenschirm-Taste: live nur bei offen, nie gesperrt, Beschriftung wie die heutigen Knöpfe ──
 {
   const faelle = kreuz({ art: [undefined, null, ...ARTEN] as Array<AusgabeArt | null | undefined>, geladen: [false, true] } as const);
