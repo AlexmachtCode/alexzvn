@@ -266,13 +266,48 @@ function elemente(n: ReactNode): ReactElement[] {
   ok(!q.includes('useEffect') && !/\bwindow\b/.test(q) && !q.includes('usePlayer') && !q.includes('jmplay') && !q.includes('cueEngine'), 'PL Panel Abschnitte: Einstellungen.tsx ohne window, ohne useEffect und ohne Store (E15)');
   const ober = QUELLE('views/PlayerOberflaeche.tsx');
   ok(
-    ober.includes('useEffect(() => liesBildschirme(window.jmplay?.output?.displays, setBildschirme), []);') &&
+    ober.includes('useEffect(() => liesBildschirme(window.jmplay?.output?.displays, setBildschirme), [ausgabe]);') &&
       /useEffect\(\(\) => \{\s*if \(!panelOffen\) return undefined;\s*const \w+ = liesBildschirme\(window\.jmplay\?\.output\?\.displays, setBildschirme\);\s*const \w+ = liesVollbild\(window\.jmplay\?\.output\?\.isFullscreen, setVollbild\);[\s\S]*?\}, \[panelOffen\]\);/.test(ober),
-    'PL Panel Abschnitte: die Bildschirmliste holt die View beim Start und bei jedem Öffnen des Panels; beim Öffnen wird auch das Vollbild neu gelesen (nicht beim Schließen)',
+    'PL Panel Abschnitte: die Bildschirmliste holt die View beim Start, bei jeder Änderung des Ausgabezustands (Gesamtprüfung I3) und bei jedem Öffnen des Panels; beim Öffnen wird auch das Vollbild neu gelesen (nicht beim Schließen)',
   );
   ok(/useEffect\(\(\) => liesVollbild\(window\.jmplay\?\.output\?\.isFullscreen, setVollbild\), \[ausgabe\]\);/.test(ober), 'PL Panel Abschnitte: das Vollbild wird bei jeder Änderung des Ausgabezustands neu gelesen');
   ok(
     /baueAktionen\(\{[^}]*\bvollbild,[^}]*\bsetOutputDisplayId,[^}]*nachAusgabe: vollbildNeuLesen,[^}]*\}\)/.test(ober) && ober.includes('settings={<Einstellungen stand={stand} aktionen={aktionen} />}'),
     'PL Panel Abschnitte: die Aktionen bekommen den gemessenen Vollbildwert, den Setter des Bildschirms und das Neumessen; das Panel bekommt Stand und Aktionen',
+  );
+}
+
+// ── Gesamtprüfung I3: das Panel nennt den gemessenen Bildschirm der Video-Ausgabe (Wahl ≠ Bewegung) ──
+// Die Pille des gemeinsamen Abschnitts nennt den gewählten Bildschirm; liegt das Fenster gemessen woanders, sagt die Zeile unter
+// dem Abschnitt, wo es wirklich steht – mit denselben Worten wie der Eintrag der Statusleiste („Titel: Text“, eine Wahrheit).
+{
+  const LISTE: ScreenOption[] = [
+    { id: 1, label: 'DELL · Primär (1920×1080)', primary: true },
+    { id: 2, label: 'Beamer (1280×720)', primary: false },
+    { id: 3, label: 'Foyer (1280×720)', primary: false },
+  ];
+  const s = (z: AusgabeZustand | null | undefined, b: ScreenOption[] | 'ohne' = LISTE): OberflaechenStand =>
+    stand({ player: spieler({ outputDisplayId: 3 }), ausgabe: z, ...(b === 'ohne' ? {} : { bildschirme: b }) });
+  const lage = (st: OberflaechenStand): string | null => {
+    const m = abschnitt(panel(st), ABSCHNITT.ausgabe).match(/<p[^>]*data-player="lage"[^>]*>([\s\S]*?)<\/p>/);
+    return m ? text(m[1]) : null;
+  };
+  const statusTitel = (st: OberflaechenStand): string => {
+    const i = statusLeiste(st).find((x) => x.id === 'video-ausgabe');
+    return `${i?.label}: ${i?.detail}`;
+  };
+  const gemessen2 = s({ art: 'offen', displayId: 2 });
+  gleich(lage(gemessen2), 'Video-Ausgabe: offen · Beamer (1280×720)', 'PL Panel gemessene Lage: gemessen auf Bildschirm 2, Bildschirm 3 gewählt → die Zeile nennt Bildschirm 2');
+  ok(!(lage(gemessen2) ?? '').includes('Foyer'), 'PL Panel gemessene Lage: die Zeile nennt nie den nur gewählten Bildschirm');
+  ok(lage(gemessen2) === statusTitel(gemessen2), 'PL Panel gemessene Lage: Zeile und Statuseintrag sagen dasselbe (eine Wahrheit)');
+  gleich(
+    [lage(s({ art: 'bildschirm-fehlt', displayId: 2 })), lage(s({ art: 'offen', displayId: 2 }, 'ohne'))],
+    ['Video-Ausgabe: Bildschirm fehlt', 'Video-Ausgabe: offen'],
+    'PL Panel gemessene Lage: Bildschirm abgezogen → „Bildschirm fehlt“ wie die Statusleiste; ohne Liste nur „offen“, kein geratener Name',
+  );
+  gleich(
+    [lage(s(undefined)), lage(s(null)), lage(s({ art: 'zu', displayId: null })), lage(s({ art: 'abgestuerzt', displayId: 2 }))],
+    [null, null, null, null],
+    'PL Panel gemessene Lage: keine Zeile, solange kein Fenster gemessen da ist (unbekannt, keine Brücke, zu, abgestürzt)',
   );
 }

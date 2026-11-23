@@ -104,10 +104,10 @@ export function PlayerOberflaeche({
   const [pads, setPads] = useState<number[] | undefined>(undefined);
   useEffect(() => padsAbonnieren(cueEngine, setPads), []);
 
-  // Bildschirmliste: beim Start und bei jedem Öffnen des Panels frisch (undefined, bis eine Antwort da ist; ein Fehler setzt
-  // sie auf unbekannt zurück).
+  // Bildschirmliste: beim Start und bei jeder Änderung des Ausgabezustands (ein abgezogener oder neuer Bildschirm, Gesamtprüfung
+  // I3) frisch, dazu bei jedem Öffnen des Panels (undefined, bis eine Antwort da ist; ein Fehler setzt sie auf unbekannt zurück).
   const [bildschirme, setBildschirme] = useState<ScreenOption[] | undefined>(undefined);
-  useEffect(() => liesBildschirme(window.jmplay?.output?.displays, setBildschirme), []);
+  useEffect(() => liesBildschirme(window.jmplay?.output?.displays, setBildschirme), [ausgabe]);
 
   // Vollbild (E14): gemessen bei jeder Änderung des Ausgabezustands, bei jedem Öffnen des Panels und nach jeder Ausgabe-Aktion,
   // nie geraten (das Ausgabefenster kann das Vollbild auch ohne diese Ereignisse wechseln, z. B. F11).

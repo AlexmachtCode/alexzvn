@@ -254,6 +254,18 @@ function videoAusgabeItem(s: OberflaechenStand): StatusItem {
 }
 
 /**
+ * Gemessene Lage der Video-Ausgabe für das Panel (Gesamtprüfung I3): Die Pille von „Ausgabe auf Bildschirm“ nennt den gewählten
+ * Bildschirm, eine Wahl verschiebt aber nichts. Solange das Fenster gemessen da ist (offen oder Bildschirm fehlt), steht darunter,
+ * wo es wirklich ist: Titel und Text des Statuseintrags, so wie dessen Tooltip („Video-Ausgabe: offen · ‹Bildschirm›“). Dieselbe
+ * Ableitung wie die Statusleiste, also eine Wahrheit; sonst undefined (keine Zeile).
+ */
+export function gemesseneLage(s: OberflaechenStand): string | undefined {
+  if (!kannVerschieben(s.ausgabe)) return undefined;
+  const i = videoAusgabeItem(s);
+  return `${i.label}: ${i.detail}`;
+}
+
+/**
  * Cue-Show: pausiert → warn; wirklich spielende Cues → ok „n laufend“ (Vorlauf, Video vor dem Laden, veraltete Video-IDs und
  * ein Video ohne gemessen vorhandenes Fenster zählen nicht, wie bei ON AIR);
  * keine Show gewählt → off; sonst off „Standby ‹Name›“. Ohne Store unbekannt. Nie live (ON AIR sitzt im Kopf).
