@@ -390,7 +390,7 @@ ok(beginnt(102, 'Panel') && beginnt(100, 'Panel'), 'PR Funktionsliste Nr. 100/10
     'PR Funktionsliste Nr. 68: das Laden und Abonnieren des Zustands läuft in App und Store, oberhalb des Panels',
   );
   ok(
-    wurzel.includes('useBrueckenWert(MASTER_LINK_QUELLE)') && wurzel.includes('useBrueckenWert(FERNSTEUERUNG_QUELLE)') && wurzel.includes('useBrueckenWert(AUSGABE_QUELLE)') && wurzel.includes('output.displays()'),
+    wurzel.includes('useBrueckenWert(MASTER_LINK_QUELLE)') && wurzel.includes('useBrueckenWert(FERNSTEUERUNG_QUELLE)') && wurzel.includes('useBrueckenWert(AUSGABE_QUELLE)') && wurzel.includes('liesBildschirme(window.jmprompt?.output?.displays'),
     'PR Funktionsliste Nr. 46/68: Brücken und Bildschirmliste laufen in der Wurzel-View, auch bei geschlossenem Panel',
   );
   ok(

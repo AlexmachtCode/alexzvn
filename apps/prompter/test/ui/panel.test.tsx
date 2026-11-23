@@ -4,6 +4,7 @@
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import type { AusgabeZustand } from '@jm/output-window/zustand';
 import { DEFAULT_CONFIG, type PrompterState } from '@shared/types';
+import * as aktionenModul from '@/lib/aktionen';
 import { baueAktionen } from '@/lib/aktionen';
 import { ABSCHNITT, bildschirmEtikett, PROMPTER_TEXTE, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
 import { Einstellungen, type EinstellungenAktionen } from '@/views/Einstellungen';
@@ -103,7 +104,7 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
   const q = ohneKommentare(leseText('src/renderer/src/views/Einstellungen.tsx'));
   ok(!q.includes('useEffect') && !/\bwindow\b/.test(q) && !q.includes('usePrompter') && !q.includes('jmprompt'), 'PR Panel Abschnitte: Einstellungen.tsx ohne window, ohne useEffect und ohne Store (E15)');
   const ober = ohneKommentare(leseText('src/renderer/src/views/PrompterOberflaeche.tsx'));
-  ok(ober.includes('output.displays()') && ober.includes('panelOffen'), 'PR Panel Abschnitte: die Bildschirmliste wird beim Öffnen des Panels frisch geholt (in der View)');
+  ok(ober.includes('liesBildschirme(window.jmprompt?.output?.displays') && ober.includes('panelOffen'), 'PR Panel Abschnitte: die Bildschirmliste wird in der View frisch geholt, auch beim Öffnen des Panels');
 }
 
 // ── Fix 1: Bildschirmwahl verschiebt nicht; „Auf diesen Bildschirm“ ist ein eigener Knopf; „ · primär“ im Etikett ──
@@ -140,5 +141,80 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
     ],
     ['Display 1 · primär (1920×1080)', 'Talent (1280×720)'],
     'PR Panel Abschnitte: Etikett der Bildschirmauswahl wie bisher, primärer Bildschirm mit „ · primär“',
+  );
+}
+
+// ── Gesamtprüfung I3: das Panel nennt den gemessenen Bildschirm des Talent-Monitors (Wahl ≠ Bewegung) ──
+// Die Pille des gemeinsamen Abschnitts nennt den gewählten Bildschirm; liegt der Monitor gemessen woanders, sagt die Zeile unter
+// dem Abschnitt, wo er wirklich steht – mit denselben Worten wie der Eintrag der Statusleiste („Titel: Text“, eine Wahrheit).
+{
+  const LISTE = [
+    { id: 1, label: 'Regie · primär (1920×1080)', primary: true },
+    { id: 2, label: 'Talent (1920×1080)', primary: false },
+    { id: 3, label: 'Bühne (1280×720)', primary: false },
+  ];
+  const s = (z: AusgabeZustand | null | undefined, b: OberflaechenStand['bildschirme'] | 'ohne' = LISTE): OberflaechenStand =>
+    stand({ prompter: state({ outputDisplayId: 3 }), ausgabe: z, ...(b === 'ohne' ? {} : { bildschirme: b }) });
+  const lage = (st: OberflaechenStand): string | null => {
+    const m = abschnitt(panel(st), ABSCHNITT.ausgabe).match(/<p[^>]*data-prompter="lage"[^>]*>([\s\S]*?)<\/p>/);
+    return m ? text(m[1]) : null;
+  };
+  const statusTitel = (st: OberflaechenStand): string => {
+    const i = statusLeiste(st).find((x) => x.id === 'talent-monitor');
+    return `${i?.label}: ${i?.detail}`;
+  };
+  const gemessen2 = s({ art: 'offen', displayId: 2 });
+  gleich(lage(gemessen2), 'Talent-Monitor: offen · Talent (1920×1080)', 'PR Panel gemessene Lage: gemessen auf Bildschirm 2, Bildschirm 3 gewählt → die Zeile nennt Bildschirm 2');
+  ok(!(lage(gemessen2) ?? '').includes('Bühne'), 'PR Panel gemessene Lage: die Zeile nennt nie den nur gewählten Bildschirm');
+  ok(lage(gemessen2) === statusTitel(gemessen2), 'PR Panel gemessene Lage: Zeile und Statuseintrag sagen dasselbe (eine Wahrheit)');
+  gleich(
+    [lage(s({ art: 'bildschirm-fehlt', displayId: 2 })), lage(s({ art: 'offen', displayId: 2 }, 'ohne'))],
+    ['Talent-Monitor: Bildschirm fehlt', 'Talent-Monitor: offen'],
+    'PR Panel gemessene Lage: Bildschirm abgezogen → „Bildschirm fehlt“ wie die Statusleiste; ohne Liste nur „offen“, kein geratener Name',
+  );
+  gleich(
+    [lage(s(undefined)), lage(s(null)), lage(s({ art: 'zu', displayId: null })), lage(s({ art: 'abgestuerzt', displayId: 2 }))],
+    [null, null, null, null],
+    'PR Panel gemessene Lage: keine Zeile, solange kein Fenster gemessen da ist (unbekannt, keine Brücke, zu, abgestürzt)',
+  );
+}
+
+// ── Gesamtprüfung I3/M2: die Bildschirmliste wie bei Stage und Player – beim Start, bei jedem Öffnen des Panels und bei jeder
+// Änderung des Ausgabezustands frisch; ein Fehler setzt sie auf unbekannt zurück, nie die alte Liste ──
+{
+  const lies = (aktionenModul as Record<string, unknown>).liesBildschirme as
+    | ((frage: (() => Promise<Array<{ id: number; label: string; primary: boolean; width: number; height: number }>>) | undefined, setze: (l: OberflaechenStand['bildschirme'] | undefined) => void) => () => void)
+    | undefined;
+  ok(typeof lies === 'function', 'PR Bildschirmliste: lib/aktionen.ts liest die Liste mit liesBildschirme');
+  const werte: Array<OberflaechenStand['bildschirme'] | undefined> = [];
+  if (typeof lies === 'function') {
+    const setze = (l: OberflaechenStand['bildschirme'] | undefined): void => void werte.push(l);
+    const liste = [
+      { id: 1, label: 'Regie', primary: true, width: 1920, height: 1080 },
+      { id: 2, label: 'Talent', primary: false, width: 1280, height: 720 },
+    ];
+    lies(async () => liste, setze);
+    lies(async () => Promise.reject(new Error('weg')), setze);
+    lies(undefined, setze);
+    const ab = lies(async () => liste, setze);
+    ab();
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  gleich(
+    werte,
+    [
+      [
+        { id: 1, label: 'Regie · primär (1920×1080)', primary: true },
+        { id: 2, label: 'Talent (1280×720)', primary: false },
+      ],
+      undefined,
+    ],
+    'PR Bildschirmliste: die Antwort kommt mit dem Etikett „Name[ · primär] (B×H)“; ein Fehler ergibt unbekannt (undefined), nie die alte Liste; ohne Preload nichts; eine überholte Antwort wird verworfen',
+  );
+  const ober = ohneKommentare(leseText('src/renderer/src/views/PrompterOberflaeche.tsx'));
+  ok(
+    ober.includes('useEffect(() => liesBildschirme(window.jmprompt?.output?.displays, setBildschirme), [ausgabe]);') &&
+      /useEffect\(\(\) => \{\s*if \(!panelOffen\) return undefined;\s*return liesBildschirme\(window\.jmprompt\?\.output\?\.displays, setBildschirme\);\s*\}, \[panelOffen\]\);/.test(ober),
+    'PR Bildschirmliste: die View holt die Liste beim Start und bei jeder Änderung des Ausgabezustands ([ausgabe]) und bei jedem Öffnen des Panels',
   );
 }

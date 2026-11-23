@@ -8,8 +8,8 @@ import type { ScreenOption } from '@jm/settings';
 import { AppShell, Button, useBrueckenWert } from '@jm/ui';
 import { positionEm } from '@shared/types';
 import { AUSGABE_QUELLE, FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
-import { baueAktionen } from '@/lib/aktionen';
-import { bildschirmEtikett, kopfOnAir, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
+import { baueAktionen, liesBildschirme } from '@/lib/aktionen';
+import { kopfOnAir, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
 import { usePrompterHotkeys } from '@/lib/useHotkeys';
 import { usePrompter } from '@/store/prompter';
 import { Einstellungen } from './Einstellungen';
@@ -37,26 +37,20 @@ export function PrompterOberflaeche({
   const [panelOffen, setPanelOffen] = useState(anfangOffen);
   const [panelAbschnitt, setPanelAbschnitt] = useState<string | undefined>(undefined);
 
-  // Bildschirmliste: frisch beim Öffnen des Panels (undefined, bis eine Antwort da ist; ohne Preload bleibt sie unbekannt).
-  const [bildschirme, setBildschirme] = useState<ScreenOption[] | undefined>(undefined);
-  useEffect(() => {
-    if (!panelOffen || !window.jmprompt?.output) return;
-    let weg = false;
-    void window.jmprompt.output.displays().then(
-      (liste) => {
-        if (!weg) setBildschirme(liste.map((d) => ({ id: d.id, label: bildschirmEtikett(d), primary: d.primary })));
-      },
-      () => undefined,
-    );
-    return () => {
-      weg = true;
-    };
-  }, [panelOffen]);
-
   // Lesende Brücken (Spec 3.9): undefined, bis eine Antwort oder ein Ereignis da ist; ohne Preload null.
   const masterLink = useBrueckenWert(MASTER_LINK_QUELLE);
   const fernsteuerung = useBrueckenWert(FERNSTEUERUNG_QUELLE);
   const ausgabe = useBrueckenWert(AUSGABE_QUELLE);
+
+  // Bildschirmliste wie bei Stage und Player (Gesamtprüfung I3, M2): beim Start und bei jeder Änderung des Ausgabezustands (ein
+  // abgezogener oder neuer Bildschirm) frisch, dazu bei jedem Öffnen des Panels; undefined, bis eine Antwort da ist; ein Fehler
+  // setzt sie auf unbekannt zurück, nie die alte Liste; ohne Preload bleibt sie unbekannt.
+  const [bildschirme, setBildschirme] = useState<ScreenOption[] | undefined>(undefined);
+  useEffect(() => liesBildschirme(window.jmprompt?.output?.displays, setBildschirme), [ausgabe]);
+  useEffect(() => {
+    if (!panelOffen) return undefined;
+    return liesBildschirme(window.jmprompt?.output?.displays, setBildschirme);
+  }, [panelOffen]);
 
   // Ein Stand für Statusleiste, Panel, ON AIR und Haupttasten (lib/oberflaeche.ts): alle zeigen dieselbe Ableitung.
   const stand: OberflaechenStand = { prompter: state ?? undefined, ausgabe, masterLink, fernsteuerung, ...(bildschirme === undefined ? {} : { bildschirme }) };
