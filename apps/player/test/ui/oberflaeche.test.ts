@@ -55,55 +55,100 @@ const sd = (i: StatusItem): string => `${i.state} ${i.detail ?? ''}`;
 const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): AusgabeZustand | null | undefined => (a === undefined || a === null ? a : { art: a, displayId });
 
 // ── PL ON AIR Wahrheitstabelle (W2-1, E4): live = showSpielt oder mindestens ein Pad ──
+// Gesamtprüfung I2 (Ruling): Video zählt für ON AIR und „n laufend“ nur, solange das Ausgabefenster gemessen offen ist oder sein
+// Bildschirm fehlt; zu (Alt+F4), abgestürzt, unbekannt und ohne Brücke zählt es nicht. Ton und Pads unverändert.
 {
   const video = { id: 2, index: 1, autoContinue: false };
-  const tabelle: Array<{ fall: string; p: PlayerZustand; pads: number[]; live: boolean }> = [
-    { fall: 'nur Vorlauf', p: spieler({ playingCueIds: [1], vorlaufCueIds: [1] }), pads: [], live: false },
-    { fall: 'Audio-Cue spielt', p: spieler({ playingCueIds: [1] }), pads: [], live: true },
-    { fall: 'Video vor dem ersten Fortschritt', p: spieler({ playingCueIds: [2], videoCue: video }), pads: [], live: false },
-    { fall: 'Video mit Fortschritt', p: spieler({ playingCueIds: [2], videoCue: video, videoProgress: FORTSCHRITT }), pads: [], live: true },
-    { fall: 'pausiert mit Audio-Cue', p: spieler({ playingCueIds: [1], showPaused: true }), pads: [], live: false },
-    { fall: 'pausiert, ein Pad spielt', p: spieler({ playingCueIds: [1], showPaused: true }), pads: [7], live: true },
-    { fall: 'nur ein Pad', p: spieler(), pads: [7], live: true },
-    { fall: 'nichts', p: spieler(), pads: [], live: false },
+  const OFFEN: AusgabeZustand = { art: 'offen', displayId: 1 };
+  const tabelle: Array<{ fall: string; p: PlayerZustand; pads: number[]; a: AusgabeZustand | null | undefined; live: boolean }> = [
+    { fall: 'nur Vorlauf', p: spieler({ playingCueIds: [1], vorlaufCueIds: [1] }), pads: [], a: OFFEN, live: false },
+    { fall: 'Audio-Cue spielt', p: spieler({ playingCueIds: [1] }), pads: [], a: OFFEN, live: true },
+    { fall: 'Video vor dem ersten Fortschritt', p: spieler({ playingCueIds: [2], videoCue: video }), pads: [], a: OFFEN, live: false },
+    { fall: 'Video mit Fortschritt', p: spieler({ playingCueIds: [2], videoCue: video, videoProgress: FORTSCHRITT }), pads: [], a: OFFEN, live: true },
+    { fall: 'pausiert mit Audio-Cue', p: spieler({ playingCueIds: [1], showPaused: true }), pads: [], a: OFFEN, live: false },
+    { fall: 'pausiert, ein Pad spielt', p: spieler({ playingCueIds: [1], showPaused: true }), pads: [7], a: OFFEN, live: true },
+    { fall: 'nur ein Pad', p: spieler(), pads: [7], a: OFFEN, live: true },
+    { fall: 'nichts', p: spieler(), pads: [], a: OFFEN, live: false },
     // Fix vor Prüfung: GO auf Video-Cue 2, während Video-Cue 1 lief; Video 2 endet. Die alte Video-ID bleibt in playingCueIds
     // (Companion wie bisher), videoCue ist null. Hier steht Cue 2 (Video) für die veraltete ID.
-    { fall: 'veraltetes Video (Video-ID in playingCueIds, kein videoCue)', p: spieler({ playingCueIds: [2] }), pads: [], live: false },
-    { fall: 'Audio-Cue spielt neben veralteter Video-ID', p: spieler({ playingCueIds: [1, 2] }), pads: [], live: true },
+    { fall: 'veraltetes Video (Video-ID in playingCueIds, kein videoCue)', p: spieler({ playingCueIds: [2] }), pads: [], a: OFFEN, live: false },
+    { fall: 'Audio-Cue spielt neben veralteter Video-ID', p: spieler({ playingCueIds: [1, 2] }), pads: [], a: OFFEN, live: true },
+    // Gesamtprüfung I2: das Videofenster verschwindet anders als per Knopf (videoCue und videoProgress bleiben im Store stehen).
+    { fall: 'Video mit Fortschritt, Fenster zu (Alt+F4)', p: spieler({ playingCueIds: [2], videoCue: video, videoProgress: FORTSCHRITT }), pads: [], a: { art: 'zu', displayId: null }, live: false },
+    { fall: 'Video mit Fortschritt, Fenster abgestürzt', p: spieler({ playingCueIds: [2], videoCue: video, videoProgress: FORTSCHRITT }), pads: [], a: { art: 'abgestuerzt', displayId: 1 }, live: false },
+    { fall: 'Video mit Fortschritt, Bildschirm fehlt', p: spieler({ playingCueIds: [2], videoCue: video, videoProgress: FORTSCHRITT }), pads: [], a: { art: 'bildschirm-fehlt', displayId: 1 }, live: true },
+    { fall: 'Video mit Fortschritt, Fenster unbekannt', p: spieler({ playingCueIds: [2], videoCue: video, videoProgress: FORTSCHRITT }), pads: [], a: undefined, live: false },
+    { fall: 'Video mit Fortschritt, keine Brücke', p: spieler({ playingCueIds: [2], videoCue: video, videoProgress: FORTSCHRITT }), pads: [], a: null, live: false },
+    { fall: 'Audio-Cue spielt, Fenster zu (Ton unverändert)', p: spieler({ playingCueIds: [1] }), pads: [], a: { art: 'zu', displayId: null }, live: true },
+    { fall: 'Pad spielt, Fenster abgestürzt (Pads unverändert)', p: spieler(), pads: [7], a: { art: 'abgestuerzt', displayId: 1 }, live: true },
+    // Der Filter id !== videoId entscheidet: ein Video-Cue ohne Eintrag in der Cue-Liste (videoCue 99) zählt nie als Ton.
+    { fall: 'Video ohne Listeneintrag mit Fortschritt, Fenster zu', p: spieler({ playingCueIds: [99], videoCue: { id: 99 }, videoProgress: FORTSCHRITT }), pads: [], a: { art: 'zu', displayId: null }, live: false },
   ];
   for (const t of tabelle) {
-    const kopf = kopfOnAir(stand({ player: t.p, pads: t.pads }));
+    const kopf = kopfOnAir(stand({ player: t.p, pads: t.pads, ausgabe: t.a }));
     gleich([kopf.live, 'label' in kopf], [t.live, false], `PL ON AIR Wahrheitstabelle: ${t.fall} → live ${t.live}`);
   }
   pruefeFaelle('PL ON AIR Wahrheitstabelle: pads noch undefined wie ohne Pad', tabelle, (t) =>
-    vergleiche(String(kopfOnAir(stand({ player: t.p, pads: undefined })).live), String(kopfOnAir(stand({ player: t.p, pads: [] })).live)),
+    vergleiche(String(kopfOnAir(stand({ player: t.p, pads: undefined, ausgabe: t.a })).live), String(kopfOnAir(stand({ player: t.p, pads: [], ausgabe: t.a })).live)),
   );
-  pruefeFaelle('PL ON AIR Wahrheitstabelle: showSpielt ist live ohne Pads', tabelle, (t) => vergleiche(String(showSpielt({ player: t.p })), String(kopfOnAir(stand({ player: t.p, pads: [] })).live)));
+  pruefeFaelle('PL ON AIR Wahrheitstabelle: showSpielt ist live ohne Pads', tabelle, (t) =>
+    vergleiche(String(showSpielt({ player: t.p, ausgabe: t.a })), String(kopfOnAir(stand({ player: t.p, pads: [], ausgabe: t.a })).live)),
+  );
   gleich(
-    [kopfOnAir(stand()).live, kopfOnAir(stand({ pads: [] })).live, kopfOnAir(stand({ pads: [7] })).live, showSpielt({ player: undefined })],
+    [kopfOnAir(stand()).live, kopfOnAir(stand({ pads: [] })).live, kopfOnAir(stand({ pads: [7] })).live, showSpielt({ player: undefined, ausgabe: OFFEN })],
     [false, false, true, false],
     'PL ON AIR Wahrheitstabelle: Store noch nicht da → Show nie live, ein gemeldetes Pad schon',
   );
   gleich(
     [
-      showSpielt({ player: spieler({ playingCueIds: [2] }) }),
-      eintrag(stand({ player: spieler({ playingCueIds: [2] }) }), 'show').detail,
-      eintrag(stand({ player: spieler({ playingCueIds: [1, 2] }) }), 'show').detail,
-      showSpielt({ player: spieler({ playingCueIds: [99] }) }),
+      showSpielt({ player: spieler({ playingCueIds: [2] }), ausgabe: OFFEN }),
+      eintrag(stand({ player: spieler({ playingCueIds: [2] }), ausgabe: OFFEN }), 'show').detail,
+      eintrag(stand({ player: spieler({ playingCueIds: [1, 2] }), ausgabe: OFFEN }), 'show').detail,
+      showSpielt({ player: spieler({ playingCueIds: [99] }), ausgabe: OFFEN }),
     ],
     [false, 'Standby Cue 1 · Intro', '1 laufend', true],
     'PL ON AIR Wahrheitstabelle: veraltete Video-ID zählt weder für ON AIR noch als laufend; Audio daneben ergibt 1 laufend; ID ohne Listeneintrag zählt (Seite an)',
   );
 
+  // Gesamtprüfung I2: „n laufend“ in der Statusleiste folgt derselben Regel wie ON AIR (eine Wahrheit).
+  const mitVideo = spieler({ playingCueIds: [2], videoCue: video, videoProgress: FORTSCHRITT });
+  const ohneEintrag = spieler({ playingCueIds: [99], videoCue: { id: 99 }, videoProgress: FORTSCHRITT });
+  const show = (p: PlayerZustand, a: AusgabeZustand | null | undefined): string | undefined => eintrag(stand({ player: p, ausgabe: a }), 'show').detail;
+  gleich(
+    [
+      show(mitVideo, OFFEN),
+      show(mitVideo, { art: 'bildschirm-fehlt', displayId: 1 }),
+      show(mitVideo, { art: 'zu', displayId: null }),
+      show(mitVideo, { art: 'abgestuerzt', displayId: 1 }),
+      show(mitVideo, undefined),
+      show(mitVideo, null),
+      show(spieler({ playingCueIds: [1, 2], videoCue: video, videoProgress: FORTSCHRITT }), { art: 'zu', displayId: null }),
+      show(ohneEintrag, OFFEN),
+      show(ohneEintrag, { art: 'zu', displayId: null }),
+    ],
+    ['1 laufend', '1 laufend', 'Standby Cue 1 · Intro', 'Standby Cue 1 · Intro', 'Standby Cue 1 · Intro', 'Standby Cue 1 · Intro', '1 laufend', '1 laufend', 'Standby Cue 1 · Intro'],
+    'PL Cue-Show laufend: Video zählt nur bei offenem Fenster oder fehlendem Bildschirm; nach Alt+F4, Absturz, ohne Antwort oder Brücke kein „1 laufend“; Ton daneben zählt weiter; ein Video ohne Listeneintrag zählt einmal, nie zusätzlich als Ton',
+  );
+
   // Kreuzprodukt mit eigenem Orakel in Szenen-Sprache: Audio-Cue 1 (keiner, im Vorlauf, spielt), Video-Cue 2 (keiner, im
-  // Vorlauf, gestartet ohne Fortschritt, mit Fortschritt, veraltet = noch in playingCueIds ohne videoCue), Pause, Pads.
+  // Vorlauf, gestartet ohne Fortschritt, mit Fortschritt, veraltet = noch in playingCueIds ohne videoCue), Pause, Pads und das
+  // gemessene Ausgabefenster (Gesamtprüfung I2).
+  const FENSTER: Record<string, AusgabeZustand | null | undefined> = {
+    offen: OFFEN,
+    fehlt: { art: 'bildschirm-fehlt', displayId: 1 },
+    zu: { art: 'zu', displayId: null },
+    abgestuerzt: { art: 'abgestuerzt', displayId: 1 },
+    unbekannt: undefined,
+    ohneBruecke: null,
+  };
   const faelle = kreuz({
     audio: ['keiner', 'vorlauf', 'spielt'],
     video: ['keiner', 'vorlauf', 'ohneFortschritt', 'mitFortschritt', 'veraltet'],
     pausiert: [false, true],
     pads: ['undefined', 'leer', 'eins'],
+    fenster: ['offen', 'fehlt', 'zu', 'abgestuerzt', 'unbekannt', 'ohneBruecke'],
   } as const);
-  pruefeFaelle('PL ON AIR Wahrheitstabelle: Kreuzprodukt Audio × Video × Pause × Pads gegen das Szenen-Orakel', faelle, (f) => {
+  pruefeFaelle('PL ON AIR Wahrheitstabelle: Kreuzprodukt Audio × Video × Pause × Pads × Ausgabefenster gegen das Szenen-Orakel', faelle, (f) => {
     const playing: number[] = [];
     const vorlauf: number[] = [];
     if (f.audio !== 'keiner') playing.push(1);
@@ -119,9 +164,11 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
       videoProgress: f.video === 'mitFortschritt' ? FORTSCHRITT : null,
     });
     const pads = f.pads === 'undefined' ? undefined : f.pads === 'leer' ? [] : [7];
-    const showWirklich = !f.pausiert && (f.audio === 'spielt' || f.video === 'mitFortschritt');
+    const fensterDa = f.fenster === 'offen' || f.fenster === 'fehlt';
+    const showWirklich = !f.pausiert && (f.audio === 'spielt' || (f.video === 'mitFortschritt' && fensterDa));
     const soll = showWirklich || f.pads === 'eins';
-    return vergleiche(`${showSpielt({ player: p })}/${kopfOnAir(stand({ player: p, pads })).live}`, `${showWirklich}/${soll}`);
+    const a = FENSTER[f.fenster];
+    return vergleiche(`${showSpielt({ player: p, ausgabe: a })}/${kopfOnAir(stand({ player: p, pads, ausgabe: a })).live}`, `${showWirklich}/${soll}`);
   });
 }
 
@@ -232,7 +279,8 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
       f.player === 'undefined'
         ? undefined
         : spieler({ ...LAUF[f.lauf], showPaused: f.pausiert, standbyIndex: f.standby, ...(f.player === 'ohneShow' ? { activeShowId: null, showCues: [], standbyIndex: 0 } : {}) });
-    const i = eintrag(stand({ player: p }), 'show');
+    // Die Szenen mit Video spielen bei offenem Ausgabefenster (Gesamtprüfung I2; das Fenster prüft die Wahrheitstabelle oben).
+    const i = eintrag(stand({ player: p, ausgabe: { art: 'offen', displayId: 1 } }), 'show');
     const n = (f.player === 'ohneShow' ? ZAHL_OHNE_LISTE : ZAHL)[f.lauf];
     const soll =
       p === undefined

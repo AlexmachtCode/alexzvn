@@ -136,31 +136,40 @@ export function standbyText(p: PlayerZustand | undefined): string {
 }
 
 /**
- * Zahl der Show-Cues, die wirklich spielen (W2-1): IDs aus playingCueIds, die nicht im Vorlauf stehen, nicht der Video-Cue
- * sind und deren Show-Cue kein Video ist, dazu der Video-Cue, sobald das Ausgabefenster eine Position gemeldet hat. Video
- * zählt also nur über den Videofortschritt: Eine Video-ID, die nach dem Ende eines späteren Videos in playingCueIds
- * stehen bleibt (Companion zählt sie weiter, U6), ist nicht auf Sendung. Eine ID ohne Eintrag in der Cue-Liste zählt
- * (Irrtum zur Seite „an“: der Vorlauf-Zeitgeber eines entfernten Cues startet ihn trotzdem). Pause zählt hier nicht.
+ * Das Ausgabefenster ist gemessen da: offen oder offen ohne seinen Bildschirm (Gesamtprüfung I2, Ruling). Zu (auch nach Alt+F4),
+ * abgestürzt, noch keine Antwort und keine Brücke zählen nicht; nur der Knopf leert videoCue und videoProgress im Store, Alt+F4
+ * und ein Absturz ändern allein den gemessenen Zustand.
  */
-function spielendeCues(p: PlayerZustand): number {
+const videoFensterDa = (a: AusgabeZustand | null | undefined): boolean => a !== undefined && a !== null && (a.art === 'offen' || a.art === 'bildschirm-fehlt');
+
+/**
+ * Zahl der Show-Cues, die wirklich spielen (W2-1): IDs aus playingCueIds, die nicht im Vorlauf stehen, nicht der Video-Cue
+ * sind und deren Show-Cue kein Video ist, dazu der Video-Cue, sobald das Ausgabefenster eine Position gemeldet hat und
+ * gemessen da ist (Gesamtprüfung I2). Video zählt also nur über den Videofortschritt bei vorhandenem Fenster: Eine Video-ID,
+ * die nach dem Ende eines späteren Videos in playingCueIds stehen bleibt (Companion zählt sie weiter, U6), ist nicht auf
+ * Sendung, ebenso ein Video, dessen Fenster per Alt+F4 zu ist oder abgestürzt ist. Eine ID ohne Eintrag in der Cue-Liste zählt
+ * (Irrtum zur Seite „an“: der Vorlauf-Zeitgeber eines entfernten Cues startet ihn trotzdem), außer sie ist der Video-Cue.
+ * Pause zählt hier nicht.
+ */
+function spielendeCues(p: PlayerZustand, ausgabe: AusgabeZustand | null | undefined): number {
   const videoId = p.videoCue?.id;
   const istVideo = (id: number): boolean => p.showCues.find((c) => c.id === id)?.media?.kind === 'video';
   const audio = new Set(p.playingCueIds.filter((id) => !p.vorlaufCueIds.includes(id) && id !== videoId && !istVideo(id))).size;
-  return audio + (p.videoCue !== null && p.videoProgress !== null ? 1 : 0);
+  return audio + (p.videoCue !== null && p.videoProgress !== null && videoFensterDa(ausgabe) ? 1 : 0);
 }
 
 /**
- * Die Show spielt wirklich (W2-1, Wahrheitstabelle Task 14, Fix vor Prüfung): nicht pausiert und (eine ID in
- * playingCueIds, die weder in vorlaufCueIds noch die ID von videoCue ist und deren Show-Cue kein Video ist, oder videoCue
- * mit gemeldetem Fortschritt). Ohne Store nie.
+ * Die Show spielt wirklich (W2-1, Wahrheitstabelle Task 14, Fix vor Prüfung, Gesamtprüfung I2): nicht pausiert und (eine ID
+ * in playingCueIds, die weder in vorlaufCueIds noch die ID von videoCue ist und deren Show-Cue kein Video ist, oder videoCue
+ * mit gemeldetem Fortschritt bei gemessen offenem Ausgabefenster bzw. fehlendem Bildschirm). Ohne Store nie.
  */
-export function showSpielt(s: Pick<OberflaechenStand, 'player'>): boolean {
+export function showSpielt(s: Pick<OberflaechenStand, 'player' | 'ausgabe'>): boolean {
   const p = s.player;
-  return p !== undefined && !p.showPaused && spielendeCues(p) > 0;
+  return p !== undefined && !p.showPaused && spielendeCues(p, s.ausgabe) > 0;
 }
 
 /** ON AIR (E4): die Show spielt wirklich oder mindestens ein Pad spielt; noch keine Pad-Meldung zählt wie kein Pad. Kein Label. */
-export function kopfOnAir(s: Pick<OberflaechenStand, 'player' | 'pads'>): { live: boolean } {
+export function kopfOnAir(s: Pick<OberflaechenStand, 'player' | 'pads' | 'ausgabe'>): { live: boolean } {
   return { live: showSpielt(s) || (s.pads?.length ?? 0) > 0 };
 }
 
@@ -245,16 +254,16 @@ function videoAusgabeItem(s: OberflaechenStand): StatusItem {
 }
 
 /**
- * Cue-Show: pausiert → warn; wirklich spielende Cues → ok „n laufend“ (Vorlauf, Video vor dem Laden und veraltete Video-IDs
- * zählen nicht);
+ * Cue-Show: pausiert → warn; wirklich spielende Cues → ok „n laufend“ (Vorlauf, Video vor dem Laden, veraltete Video-IDs und
+ * ein Video ohne gemessen vorhandenes Fenster zählen nicht, wie bei ON AIR);
  * keine Show gewählt → off; sonst off „Standby ‹Name›“. Ohne Store unbekannt. Nie live (ON AIR sitzt im Kopf).
  */
-function showItem(p: PlayerZustand | undefined): StatusItem {
+function showItem(p: PlayerZustand | undefined, ausgabe: AusgabeZustand | null | undefined): StatusItem {
   const T = PLAYER_TEXTE.show;
   const kopf = { id: 'show', group: 'tool', label: T.titel } as const;
   if (p === undefined) return unbekannt(kopf);
   if (p.showPaused) return { ...kopf, state: 'warn', detail: T.pausiert };
-  const n = spielendeCues(p);
+  const n = spielendeCues(p, ausgabe);
   if (n > 0) return { ...kopf, state: 'ok', detail: T.laufend(n) };
   if (p.activeShowId === null) return { ...kopf, state: 'off', detail: T.keineShow };
   return { ...kopf, state: 'off', detail: `${PLAYER_TEXTE.standby.titel} ${standbyText(p)}` };
@@ -274,7 +283,7 @@ export function statusLeiste(s: OberflaechenStand): StatusItem[] {
     masterLinkStatusItem(s.masterLink),
     videoAusgabeItem(s),
     abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel }),
-    showItem(s.player),
+    showItem(s.player, s.ausgabe),
     padsItem(s.pads),
   ];
 }
