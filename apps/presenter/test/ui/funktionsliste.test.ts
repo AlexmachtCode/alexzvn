@@ -619,6 +619,11 @@ const zeigtAuf = (nr: number, datei: string, ...woerter: string[]): boolean => {
       !quelle('R/components/RemotePanel.tsx').includes('onBlur'),
     'PS Funktionsliste Nr. 153–156: Netzwerkkarte und Port wirken erst mit „Setzen“ (Wahl ≠ Bewegung), Server und PIN sofort mit dem angewandten Stand',
   );
+  // Fix-Runde 1 zu Task 12: der Entwurf fällt nach „Setzen“ weg, das Panel folgt fremden Änderungen; keine eigene PIN-Kopie.
+  ok(
+    nennt(154, 'fällt er weg', 'anderen Fenster') && zeigtAuf(154, 'R/components/RemotePanel.tsx', 'a.setzeEntwurf(') && nennt(156, 'keine eigene Kopie der PIN') && zeigtAuf(156, 'R/components/RemotePanel.tsx', 'T.pin'),
+    'PS Funktionsliste Nr. 154/156: der Entwurf fällt nach „Setzen“ weg, fremde Änderungen gelten, keine eigene PIN-Kopie (Fix-Runde 1)',
+  );
   ok(ersetzt(17, 'Editor-Kopf') && nennt(17, 'B14'), 'PS Funktionsliste Nr. 17: das ⚙-Menü ist ersetzt durch ⚙ und Panel (B14)');
   ok(beginnt(5, 'Editor-Kopf') && nennt(5, 'B4', 'jm-theme'), 'PS Funktionsliste Nr. 5: Hell/Dunkel im Editor-Kopf (B4), der Referent bleibt fest dunkel');
   ok(beginnt(6, 'Editor-Kopf') && /entfällt \(E16\)/.test(kuenftig(6)), 'PS Funktionsliste Nr. 6: Logo und Name im Kopf, der Untertitel entfällt (E16)');

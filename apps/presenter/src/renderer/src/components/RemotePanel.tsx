@@ -5,26 +5,30 @@ import { Button, Field, Select, TextInput, Toggle, UNBEKANNT } from '@jm/ui';
 import type { NetInterface, RemoteConfig, RemoteStatus } from '@shared/types';
 import { PRESENTER_TEXTE } from '@/lib/oberflaeche';
 
-/** Netzwerkkarte und Port, wie sie gelten bzw. wie sie im Entwurf stehen. */
+/** Netzwerkkarte und Port des Handy-Servers. */
 export interface HandyBindung {
   bind: string;
   port: number;
 }
 
-/** Entwurf von Netzwerkkarte und Port; `basis` = der angewandte Stand, von dem er ausging. */
-export interface HandyEntwurf extends HandyBindung {
-  basis: HandyBindung;
-}
+/**
+ * Entwurf: nur die Felder, die der Nutzer seit dem letzten „Setzen“ geändert hat. Ein Feld gleich dem angewandten Stand ist kein
+ * Entwurf. Was nicht im Entwurf steht, kommt immer frisch aus dem angewandten Stand, nie aus einer Kopie.
+ */
+export type HandyEntwurf = Partial<HandyBindung>;
 
 const gleicheBindung = (a: HandyBindung, b: HandyBindung): boolean => a.bind === b.bind && a.port === b.port;
 
-/**
- * Der wirksame Entwurf, ohne Effekt aus dem gemeldeten Stand abgeleitet: ohne Eingabe, unberührt oder schon angewandt folgt er dem
- * angewandten Stand (auch wenn ihn ein anderes Fenster geändert hat); eine eigene, noch nicht gesetzte Eingabe bleibt stehen.
- */
-export function handyEntwurf(roh: HandyEntwurf | undefined, angewandt: HandyBindung): HandyEntwurf {
-  if (roh === undefined || gleicheBindung(roh, roh.basis) || gleicheBindung(roh, angewandt)) return { ...angewandt, basis: { ...angewandt } };
-  return roh;
+/** Was die Felder zeigen und „Setzen“ sendet: je Feld der Entwurf, sonst der angewandte Stand. */
+export function handyWerte(entwurf: HandyEntwurf, angewandt: HandyBindung): HandyBindung {
+  return { bind: entwurf.bind ?? angewandt.bind, port: entwurf.port ?? angewandt.port };
+}
+
+/** Ein Feld in den Entwurf übernehmen; gleicht der Wert dem angewandten Stand, fällt das Feld aus dem Entwurf. */
+export function handyEntwurfMit<K extends keyof HandyBindung>(entwurf: HandyEntwurf, feld: K, wert: HandyBindung[K], angewandt: HandyBindung): HandyEntwurf {
+  const rest: HandyEntwurf = { ...entwurf };
+  delete rest[feld];
+  return wert === angewandt[feld] ? rest : { ...rest, [feld]: wert };
 }
 
 /** Port des Handy-Servers: nur 1024 bis 65535 (wie bisher beim Verlassen des Felds). */
@@ -34,58 +38,65 @@ const portGueltig = (port: number): boolean => Number.isInteger(port) && port >=
  * Warum „Setzen“ gesperrt ist (gesperrt nie ohne Grund, Muster Gegenstellen): es wird gerade angewendet; der Port liegt
  * außerhalb 1024 bis 65535; Netzwerkkarte und Port gleichen dem angewandten Stand. undefined = bedienbar.
  */
-export function handySetzenGrund(entwurf: HandyBindung, angewandt: HandyBindung, busy: boolean): string | undefined {
+export function handySetzenGrund(werte: HandyBindung, angewandt: HandyBindung, busy: boolean): string | undefined {
   const T = PRESENTER_TEXTE.handy;
   if (busy) return T.setzenLaeuft;
-  if (!portGueltig(entwurf.port)) return T.setzenPort;
-  if (gleicheBindung(entwurf, angewandt)) return T.setzenUnveraendert;
+  if (!portGueltig(werte.port)) return T.setzenPort;
+  if (gleicheBindung(werte, angewandt)) return T.setzenUnveraendert;
   return undefined;
 }
 
-/** Was die Felder des Abschnitts auslösen (hooklos prüfbar). */
+/** Was die Felder des Abschnitts auslösen und zeigen (hooklos prüfbar). */
 export interface HandyBedienung {
   /** Auswahl „Netzwerkkarte“: ändert nur den Entwurf. */
   netzwerkkarte(adresse: string): void;
   /** Feld „Port“ (nur Ziffern): ändert nur den Entwurf. */
   port(eingabe: string): void;
-  /** „Setzen“: wendet Netzwerkkarte und Port des Entwurfs an, nur ohne Sperrgrund. */
+  /** „Setzen“: wendet die geänderten Felder an, nur ohne Sperrgrund; gelingt es, fällt der Entwurf weg. */
   setzen(): void;
-  /** Schalter „Server aktiv“/„Server aus“: sofort, mit dem angewandten Stand. */
+  /** Schalter „Server aktiv“/„Server aus“: sofort, sonst alles wie angewandt. */
   server(): void;
-  /** Schalter „PIN-Schutz“: sofort, mit dem angewandten Stand. */
+  /** Schalter „PIN-Schutz“: sofort, sonst alles wie angewandt. */
   pin(an: boolean): void;
+  /** Angezeigte Netzwerkkarte und Port (handyWerte). */
+  werte: HandyBindung;
   setzenGrund: string | undefined;
 }
 
 /**
  * Bedienung des Abschnitts (Global Constraint „Wahl ≠ Bewegung“, Entscheid zu Task 12): Eine native Auswahl feuert change auch per
  * Tastatur, und im Panel behält die Auswahl ihre Tasten (O1). Darum ändern Netzwerkkarte und Port nur den Entwurf, und erst
- * „Setzen“ ruft dasselbe `anwenden` wie bisher. Die Schalter Server und PIN wirken sofort, aber mit Netzwerkkarte und Port des
- * angewandten Stands (`status.config`), nie mit einem nicht gesetzten Entwurf. `enabled` kommt weiter aus dem gemessenen
- * `running` (wie bisher, Befund 16).
+ * „Setzen“ ruft dasselbe `anwenden` wie bisher.
+ * Fix-Runde 1: Jede Anwendung sendet genau den angewandten Stand (`status.config`), außer den Feldern, die gerade bewusst geändert
+ * werden: „Setzen“ die geänderten Felder des Entwurfs, der Server-Schalter `enabled`, der PIN-Schalter `pinEnabled`. Keine Kopie
+ * eines angewandten Werts geht hinaus, so dreht kein Panel eine Änderung aus dem anderen Fenster zurück. `enabled` kommt bei
+ * „Setzen“ und PIN weiter aus dem gemessenen `running` (wie bisher, Befund 16). Ein offener Entwurf überlebt einen Schalterdruck;
+ * nach einem gelungenen „Setzen“ fällt er weg, danach folgt das Panel wieder dem angewandten Stand.
  */
 export function handyBedienung(a: {
   status: RemoteStatus;
   entwurf: HandyEntwurf;
-  pinEnabled: boolean;
   busy: boolean;
   setzeEntwurf(e: HandyEntwurf): void;
-  setzePin(an: boolean): void;
-  anwenden(config: RemoteConfig): void;
+  anwenden(config: RemoteConfig): Promise<unknown>;
 }): HandyBedienung {
-  const angewandt = { bind: a.status.config.bind, port: a.status.config.port };
-  const setzenGrund = handySetzenGrund(a.entwurf, angewandt, a.busy);
+  const c = a.status.config;
+  const angewandt = { bind: c.bind, port: c.port };
+  const werte = handyWerte(a.entwurf, angewandt);
+  const setzenGrund = handySetzenGrund(werte, angewandt, a.busy);
   return {
-    netzwerkkarte: (adresse) => a.setzeEntwurf({ ...a.entwurf, bind: adresse }),
-    port: (eingabe) => a.setzeEntwurf({ ...a.entwurf, port: Number(eingabe.replace(/\D/g, '')) || 0 }),
+    netzwerkkarte: (adresse) => a.setzeEntwurf(handyEntwurfMit(a.entwurf, 'bind', adresse, angewandt)),
+    port: (eingabe) => a.setzeEntwurf(handyEntwurfMit(a.entwurf, 'port', Number(eingabe.replace(/\D/g, '')) || 0, angewandt)),
     setzen: () => {
-      if (setzenGrund === undefined) a.anwenden({ enabled: a.status.running, bind: a.entwurf.bind, port: a.entwurf.port, pinEnabled: a.pinEnabled });
+      if (setzenGrund !== undefined) return;
+      void a.anwenden({ enabled: a.status.running, ...werte, pinEnabled: c.pinEnabled }).then(
+        () => a.setzeEntwurf({}),
+        () => undefined,
+      );
     },
-    server: () => a.anwenden({ enabled: !a.status.running, ...angewandt, pinEnabled: a.pinEnabled }),
-    pin: (an) => {
-      a.setzePin(an);
-      a.anwenden({ enabled: a.status.running, ...angewandt, pinEnabled: an });
-    },
+    server: () => void a.anwenden({ enabled: !a.status.running, bind: c.bind, port: c.port, pinEnabled: c.pinEnabled }),
+    pin: (an) => void a.anwenden({ enabled: a.status.running, bind: c.bind, port: c.port, pinEnabled: an }),
+    werte,
     setzenGrund,
   };
 }
@@ -93,8 +104,8 @@ export function handyBedienung(a: {
 /**
  * Handy-Fernsteuerung (Inhalt des Panel-Abschnitts „Handy-Fernsteuerung“, UX Welle 2b d1, früher RemotePanel.tsx:62-128): den
  * LAN-Server ein- und ausschalten, Netzwerkkarte und Port wählen und mit „Setzen“ anwenden, und die Kopplung (Adresse, QR, PIN)
- * zeigen. Status, Netzwerkkarten und das Anwenden kommen herein; kein Abo, kein Effekt, kein window. Hier liegen nur die Zustände
- * (Entwurf, PIN, beschäftigt); was die Felder tun, steht in handyBedienung, gezeichnet wird in HandyFelder.
+ * zeigen. Status, Netzwerkkarten und das Anwenden kommen herein; kein Abo, kein Effekt, kein window. Hier liegen nur der Entwurf und
+ * „beschäftigt“, keine Kopie des gemeldeten Stands; was die Felder tun, steht in handyBedienung, gezeichnet wird in HandyFelder.
  */
 export function HandyAbschnitt({
   status,
@@ -106,9 +117,7 @@ export function HandyAbschnitt({
   anwenden(config: RemoteConfig): Promise<unknown>;
 }) {
   const [busy, setBusy] = useState(false);
-  const [roh, setEntwurf] = useState<HandyEntwurf | undefined>(undefined);
-  const entwurf = handyEntwurf(roh, { bind: status.config.bind, port: status.config.port });
-  const [pinEnabled, setPinEnabled] = useState(status.config.pinEnabled);
+  const [entwurf, setEntwurf] = useState<HandyEntwurf>({});
   const grundId = useId();
 
   const wende = async (config: RemoteConfig): Promise<void> => {
@@ -119,25 +128,24 @@ export function HandyAbschnitt({
       setBusy(false);
     }
   };
-  const bedienung = handyBedienung({ status, entwurf, pinEnabled, busy, setzeEntwurf: setEntwurf, setzePin: setPinEnabled, anwenden: (c) => void wende(c) });
+  const bedienung = handyBedienung({ status, entwurf, busy, setzeEntwurf: setEntwurf, anwenden: wende });
 
-  return <HandyFelder status={status} netzwerkkarten={netzwerkkarten} entwurf={entwurf} pinEnabled={pinEnabled} busy={busy} grundId={grundId} bedienung={bedienung} />;
+  return <HandyFelder status={status} netzwerkkarten={netzwerkkarten} busy={busy} grundId={grundId} bedienung={bedienung} />;
 }
 
-/** Die Felder des Abschnitts, ohne Hooks: Auswahl und Port gehen nur an den Entwurf, „Setzen“ wendet an, gesperrt mit Grund. */
+/**
+ * Die Felder des Abschnitts, ohne Hooks: Auswahl und Port gehen nur an den Entwurf, „Setzen“ wendet an, gesperrt mit Grund; der
+ * PIN-Schalter zeigt den angewandten Stand.
+ */
 export function HandyFelder({
   status,
   netzwerkkarten,
-  entwurf,
-  pinEnabled,
   busy,
   grundId,
   bedienung,
 }: {
   status: RemoteStatus;
   netzwerkkarten: NetInterface[] | undefined;
-  entwurf: HandyBindung;
-  pinEnabled: boolean;
   busy: boolean;
   grundId: string;
   bedienung: HandyBedienung;
@@ -145,6 +153,7 @@ export function HandyFelder({
   const T = PRESENTER_TEXTE.handy;
   const running = status.running;
   const grund = bedienung.setzenGrund;
+  const werte = bedienung.werte;
   return (
     <div className="space-y-3">
       <Field label={running ? T.serverAn : T.serverAus} hint={running ? T.hinweisAn : T.hinweisAus}>
@@ -155,12 +164,12 @@ export function HandyFelder({
         {netzwerkkarten === undefined ? (
           <p className="text-sm text-[var(--muted-foreground)]">{UNBEKANNT}</p>
         ) : (
-          <Select options={netzwerkkarten.map((i) => ({ value: i.address, label: i.label }))} value={entwurf.bind} disabled={busy} onChange={bedienung.netzwerkkarte} />
+          <Select options={netzwerkkarten.map((i) => ({ value: i.address, label: i.label }))} value={werte.bind} disabled={busy} onChange={bedienung.netzwerkkarte} />
         )}
       </Field>
 
       <Field label={REMOTE_TEXTE.port}>
-        <TextInput value={entwurf.port === 0 ? '' : String(entwurf.port)} inputMode="numeric" disabled={busy} onChange={bedienung.port} className="w-24 text-center" />
+        <TextInput value={werte.port === 0 ? '' : String(werte.port)} inputMode="numeric" disabled={busy} onChange={bedienung.port} className="w-24 text-center" />
       </Field>
 
       <div data-presenter="handy-setzen" className="space-y-1">
@@ -185,7 +194,7 @@ export function HandyFelder({
       </div>
 
       <Field label={T.pin}>
-        <Toggle checked={pinEnabled} disabled={busy} onChange={bedienung.pin} />
+        <Toggle checked={status.config.pinEnabled} disabled={busy} onChange={bedienung.pin} />
       </Field>
 
       {status.error ? (
