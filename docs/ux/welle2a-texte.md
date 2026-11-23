@@ -714,10 +714,10 @@ Cues und Pads legst Du in den Reitern „Cue-Show“ und „Soundboard“ an.
 - `Show-Cues in Reihenfolge bringen; Soundboard-Pads mit Instant-Effekten/Stingern belegen`
 + Show-Cues im Reiter „Cue-Show“ in Reihenfolge bringen; Soundboard-Pads im Reiter „Soundboard“ mit Instant-Effekten/Stingern belegen
 
-Der Dialog „Video-Ausgabe“ ist jetzt der Panel-Abschnitt „Ausgabe auf Bildschirm“; „▦ Ausgabe“ in der Cue-Show öffnet ihn.
+Ein Tongerät wählt man im Player nicht, der Ton läuft über das Standard-Wiedergabegerät von Windows (das Handbuch behauptete eine Wahl, die es nie gab). Der Dialog „Video-Ausgabe“ ist jetzt der Panel-Abschnitt „Ausgabe auf Bildschirm“; „▦ Ausgabe“ in der Cue-Show öffnet ihn.
 
 - `Ausgabegerät wählen (PA/Mischer-Eingang bzw. Videoausgang)`
-+ Ausgabegerät wählen (PA/Mischer-Eingang bzw. Videoausgang; den Bildschirm für Video-Cues im Panel ⚙ › Ausgabe auf Bildschirm wählen, der Schalter „Ausgabe“ öffnet dort das Fenster)
++ Ausgabewege einrichten: Der Ton von Show-Cues, Pads und Video läuft über das Standard-Wiedergabegerät von Windows, eine eigene Gerätewahl hat der Player nicht (PA/Mischer-Eingang dort als Standard setzen); den Bildschirm für Video-Cues im Panel ⚙ › Ausgabe auf Bildschirm wählen, der Schalter „Ausgabe“ öffnet dort das Fenster
 
 Die Fernsteuerung für Companion zeigen die Statusleiste und das Panel „Fernsteuerung“.
 
@@ -739,10 +739,10 @@ Pause, Stop und Panik sind Haupttasten; Stop und Panik stehen zusätzlich in ein
 - `bei Bedarf hart abwürgen`
 + bei Bedarf hart abwürgen (lokal die Haupttasten „❚❚ Pause“, „■ Stop“ und „⛔ Panik“ im Transport der Cue-Show; „■ Stop“ und „⛔ Panik“ stehen auch in der Fußleiste von Bibliothek und Soundboard, Panik stoppt jetzt auch die Pads)
 
-Bei „Kein Ton/Bild beim GO“ zeigt für Video die Statusleiste den Zustand des Ausgabefensters.
+Bei „Kein Ton/Bild beim GO“ prüfst Du für den Ton das Standardgerät von Windows, für Video die Statusleiste und das Panel.
 
 - `Richtiges Ausgabegerät gewählt?`
-+ Richtiges Ausgabegerät gewählt (für Video die Statusleiste „Video-Ausgabe“ und das Panel ⚙ › Ausgabe auf Bildschirm)?
++ Ton: richtiges Standard-Wiedergabegerät in Windows (der Player hat keine eigene Wahl)? Video: Statusleiste „Video-Ausgabe“ und Panel ⚙ › Ausgabe auf Bildschirm prüfen.
 
 Bei „Companion/Rundown steuert nicht“ liest Du zuerst die Statusleiste.
 

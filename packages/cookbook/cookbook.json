@@ -3259,7 +3259,7 @@
           "vor": [
             "Medien im Reiter „Bibliothek“ aufnehmen und taggen; Playlist(s) dort anlegen — z. B. „Lounge\", „Einlauf\", „Pause\"",
             "Show-Cues im Reiter „Cue-Show“ in Reihenfolge bringen; Soundboard-Pads im Reiter „Soundboard“ mit Instant-Effekten/Stingern belegen",
-            "Ausgabegerät wählen (PA/Mischer-Eingang bzw. Videoausgang; den Bildschirm für Video-Cues im Panel ⚙ › Ausgabe auf Bildschirm wählen, der Schalter „Ausgabe“ öffnet dort das Fenster)",
+            "Ausgabewege einrichten: Der Ton von Show-Cues, Pads und Video läuft über das Standard-Wiedergabegerät von Windows, eine eigene Gerätewahl hat der Player nicht (PA/Mischer-Eingang dort als Standard setzen); den Bildschirm für Video-Cues im Panel ⚙ › Ausgabe auf Bildschirm wählen, der Schalter „Ausgabe“ öffnet dort das Fenster",
             "Fernsteuerung (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung): Companion/Rundown auf Port 8725 zeigen lassen (Auto-Discovery `jm-player-ctl`)"
           ],
           "waehrend": [
@@ -3274,7 +3274,7 @@
         "troubleshooting": [
           {
             "risk": "Kein Ton/Bild beim GO",
-            "remedy": "Richtiges Ausgabegerät gewählt (für Video die Statusleiste „Video-Ausgabe“ und das Panel ⚙ › Ausgabe auf Bildschirm)? Kabel/Pegel am Mischer prüfen"
+            "remedy": "Ton: richtiges Standard-Wiedergabegerät in Windows (der Player hat keine eigene Wahl)? Video: Statusleiste „Video-Ausgabe“ und Panel ⚙ › Ausgabe auf Bildschirm prüfen. Kabel/Pegel am Mischer prüfen"
           },
           {
             "risk": "Companion/Rundown steuert nicht",

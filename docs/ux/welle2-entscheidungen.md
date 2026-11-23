@@ -30,9 +30,10 @@ sie ändert. Zu jeder stehen der Grund und der Preis, falls sie sich als falsch 
 - **W5** (Z1) Texttabelle: Vier kleinere Befunde aus der Prüfung der Texttabelle wurden behoben, weil die Tabelle das
   Freigabedokument des Owners ist. Der Abschnitt „Geänderte Bedienung“ nennt die geänderten Tastenplätze (Caption: Raster
   statt Kopfzeile; Recorder: „Eingang öffnen“ rechts bei geschlossenem Eingang; Interpreter: Taste 37 px tiefer). IN6 nennt
-  die verbleibende alte Karte „Das Ausgabegerät wurde geändert …“ neben dem neuen Hinweis. Frage 1 hat die Antwort „so
-  lassen“. Frage 2 nennt die Nebenwirkungen (angehaltene Ton-Cues kommen nach einem Video-Start erst über Pause und Weiter
-  zurück; ON AIR kann nach dem Ende eines Cues in der Pause fälschlich an bleiben). Preis: einige Sätze.
+  die verbleibende alte Karte „Das Ausgabegerät wurde geändert …“ neben dem neuen Hinweis. Frage 1 nennt jetzt auch die
+  Option „so lassen“; entschieden ist sie damit nicht, die Antwort gibt der Owner. Frage 2 nennt die Nebenwirkungen
+  (angehaltene Ton-Cues kommen nach einem Video-Start erst über Pause und Weiter zurück; ON AIR kann nach dem Ende eines
+  Cues in der Pause fälschlich an bleiben). Preis: einige Sätze.
 - **W6** (ohne Task) Testbau je App: Ein Testbau (`win-unpacked`) jeder App nach dem Umbau ihrer Oberfläche wurde in der
   Nacht nicht angeboten, weil der Owner nicht erreichbar war. Stattdessen gibt es ein Angebot aller sechs Testbauten nach der
   Gesamtprüfung. Preis: Rückmeldungen des Owners konnten nicht mehr in die Arbeit an den späteren Apps einfließen.
@@ -62,8 +63,8 @@ sie ändert. Zu jeder stehen der Grund und der Preis, falls sie sich als falsch 
 - **W13** (R-T6b) Tastenkürzel beim Laden: Die Kürzel wirken wieder schon, solange „Lädt…“ steht. `usePrompterHotkeys()`
   sitzt dafür in der immer eingehängten Wurzel-View `PrompterOberflaeche.tsx` vor der Lade-Bedingung, wie im alten
   `OperatorView`; der Wächter „PR Hotkeys bleiben“ zog mit. Grund: So war es vor dem Umbau. Preis: eine Zeile.
-- **W14** (Task 6, angenommen) Abhaken der Prompter-Liste: Angenommen wurden der Ort-Haken für Zeile 5 und 101 (der alte
-  Tastenhinweis im Kopf ist jetzt Kürzel auf den Tasten und ein Hinweis unter dem Tempo), für Zeile 26 der gemeinsame Text
+- **W14** (Task 6, beim Bau angenommen, nicht vom Owner) Abhaken der Prompter-Liste: Angenommen wurden der Ort-Haken
+  für Zeile 5 und 101 (der alte Tastenhinweis im Kopf ist jetzt Kürzel auf den Tasten und ein Hinweis unter dem Tempo), für Zeile 26 der gemeinsame Text
   „Automatisch (Hauptmonitor)“ statt „Primärer Bildschirm“ (R5, alter Wortlaut als EN8 unter „Entfällt“) und der
   zusätzliche Ort „Rahmen“ im Ortsregister. Grund: Der Haken beschreibt den neuen Aufbau richtig. Ein Preis ist nicht
   festgehalten.
@@ -74,8 +75,8 @@ sie ändert. Zu jeder stehen der Grund und der Preis, falls sie sich als falsch 
   und Zustand aus der Zeile des Abschnitts „Gegenstellen“. Eine eingeschaltete, nicht verbundene Quelle heißt „nicht
   gefunden“ (gemeinsamer Text); ein eigenes „getrennt“ gibt es nicht mehr. Grund: eine Wahrheit für Panel und Statusleiste
   (Architektur Welle 1, R5). Preis: ein eigener Text weniger.
-- **W16** (Task 9, angenommen) Eintrag „Nachricht“: Er liest, was die Bühne wirklich zeigt (`buehnenNachricht`), also auch
-  eine Nachricht des Timers. Die einzige Haupttaste hat kein Rollenfeld (siehe W20). Grund: Der Eintrag soll wiedergeben, was
+- **W16** (Task 9, beim Bau angenommen, nicht vom Owner) Eintrag „Nachricht“: Er liest, was die Bühne wirklich zeigt
+  (`buehnenNachricht`), also auch eine Nachricht des Timers. Die einzige Haupttaste hat kein Rollenfeld (siehe W20). Grund: Der Eintrag soll wiedergeben, was
   auf dem Schirm steht. Ein Preis ist nicht festgehalten.
 - **W17** (Task 10) Host und Port: Der gemeinsame Abschnitt „Gegenstellen“ übernimmt Host und Port mit dem Knopf „Setzen“
   (`packages/settings/src/abschnitte/PeersSection.tsx:64`), nicht bei Enter oder beim Verlassen des Feldes, wie E12 schreibt.
@@ -104,8 +105,9 @@ sie ändert. Zu jeder stehen der Grund und der Preis, falls sie sich als falsch 
   Start eines Cues, auch nach Ablauf seines Vorlaufs. Grund: Bisher blieb der Merker nach Stop in der Pause bzw. beim Start
   in der Pause stehen, während Ton lief (Funktionsliste Befund 11, Nr. 98/99); ON AIR baut auf dem Merker auf und zeigte
   sonst „aus“, während Ton läuft. Ton und Video verhalten sich wie bisher; sichtbar ändern sich nur die Beschriftung
-  Pause/Weiter und Companion `paused` in diesen zwei Fällen (Funktionsliste, Changelog CL-PL4, Offene Frage 2). Preis bei
-  Irrtum: zwei Zeilen Rückbau.
+  Pause/Weiter und Companion `paused` in diesen zwei Fällen (Funktionsliste, Changelog CL-PL4). Ob es so bleibt, ist offen:
+  Die Texttabelle fragt den Owner danach (Offene Frage 2, „so behalten“ oder „zurücknehmen“). Preis bei Irrtum: zwei Zeilen
+  Rückbau.
 - **W24** (Task 14) Video zählt nicht über die Cue-Liste: ON AIR und der Eintrag „Cue-Show“ zählen aus `playingCueIds` nur
   Cues, die kein Video sind; ein Video zählt nur über `videoCue` und `videoProgress`. `playingCueIds` selbst bleibt für
   Companion. Grund: Sonst hielte eine liegengebliebene Video-ID (GO auf ein Video, während ein Video läuft) ON AIR und
