@@ -22,11 +22,11 @@ import {
   screenOutputView,
   SCREEN_TEXTE,
 } from '@jm/settings';
-import { masterLinkStatusItem, unbekannt, zahlText, type StatusItem } from '@jm/ui';
+import { masterLinkStatusItem, unbekannt, UNBEKANNT, zahlText, type StatusItem } from '@jm/ui';
 import { portBelegt, STEUER_PORT, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import { statusText, type GastKlickerStatus } from '@shared/gast-klicker';
-import { NDI_NAME, nurNdiBehalten } from '@shared/ndi';
-import type { DisplayInfo, JmprApi, MasterLinkMeldungZeile, NdiStatus, PresentationState, RemoteStatus, TimerSyncConfig } from '@shared/types';
+import { NDI_NAME, ndiLiefertBild, nurNdiBehalten } from '@shared/ndi';
+import type { DisplayInfo, JmprApi, MasterLinkMeldungZeile, NdiStatus, NetInterface, PresentationState, RemoteStatus, TimerSyncConfig } from '@shared/types';
 import { naechsterIndex } from '@shared/wiedergabe';
 
 /** Abschnitts-ids = Panel-Anker (`einstellung-{id}`) = settingsSection der Statuseinträge. */
@@ -75,13 +75,64 @@ export const PRESENTER_TEXTE = {
     trenner: ' · ',
     /** Sperrgrund des Abschnitts `ausgabe`, solange die Wahl „Keiner – nur NDI“ steht. */
     nurNdiGewaehlt: '„Keiner – nur NDI“ ist gewählt.',
+    /** Sperrgrund der Zeile „Keiner – nur NDI“ (Editor-Panel), solange NDI kein Bild liefert und die Wahl nicht steht. Neu (Z1). */
+    nurNdiGesperrt: 'Erst wählbar, wenn NDI ein Bild liefert.',
   },
-  /** NDI: nur, wenn der Hauptprozess bei „nicht verfügbar“ keinen Grund mitschickt. */
-  ndi: { nichtVerfuegbar: 'nicht verfügbar' },
-  timer: { titel: 'JM Timer' },
-  handy: { titel: 'Handy-Fernsteuerung', laeuft: 'läuft' },
-  /** Übrige Zustände wörtlich aus statusText (shared/gast-klicker.ts), wie im Abschnitt. */
-  gastKlicker: { titel: 'Gast-Klicker', pausiert: 'pausiert' },
+  /**
+   * NDI: `nichtVerfuegbar` nur, wenn der Hauptprozess bei „nicht verfügbar“ keinen Grund mitschickt. `tipp` wörtlich aus dem
+   * Tooltip des Schalters (NdiSchalter.tsx), im Panel als Hinweis zu Name, Auflösung und Bildrate. `schalterUnbekannt` ist neu (Z1):
+   * der Schalter vor der ersten Antwort, statt eines erfundenen „NDI aus“.
+   */
+  ndi: {
+    nichtVerfuegbar: 'nicht verfügbar',
+    tipp: 'NDI-Ausgang „JM Presenter“: 1920×1080, 25 fps, transparente Ränder',
+    schalterUnbekannt: `NDI ${UNBEKANNT}`,
+  },
+  /** Timer: `erklaerung` wörtlich aus dem alten ⚙-Menü (Toolbar.tsx:249-251). */
+  timer: { titel: 'JM Timer', erklaerung: 'Zeigt den Countdown des JM Timers live in der Referentenansicht.' },
+  /** Handy-Fernsteuerung: alle Texte außer `titel` und `laeuft` wörtlich aus dem alten Fenster (RemotePanel.tsx). */
+  handy: {
+    titel: 'Handy-Fernsteuerung',
+    laeuft: 'läuft',
+    erklaerung: 'Steuere die Präsentation vom Handy oder Tablet im selben Netzwerk.',
+    serverAn: 'Server aktiv',
+    serverAus: 'Server aus',
+    hinweisAn: 'Telefone können sich verbinden.',
+    hinweisAus: 'Einschalten, um ein Gerät zu koppeln.',
+    netzwerkkarte: 'Netzwerkkarte',
+    pin: 'PIN-Schutz (empfohlen im offenen WLAN)',
+    amHandy: 'Am Handy öffnen',
+    pinTitel: 'PIN',
+    ohnePin: 'Ohne PIN — jeder im Netzwerk kann steuern.',
+    qrAlt: 'QR',
+  },
+  /**
+   * Gast-Klicker: übrige Zustände wörtlich aus statusText (shared/gast-klicker.ts), wie im Abschnitt; alles außer `titel` und
+   * `pausiert` wörtlich aus GastKlickerAbschnitt.tsx, `neuerLinkFrage` ist der Text des window.confirm.
+   */
+  gastKlicker: {
+    titel: 'Gast-Klicker',
+    pausiert: 'pausiert',
+    erklaerung: 'Remote-Gäste öffnen einen Link im Browser und schalten ihre Folien selbst weiter – ohne Installation.',
+    an: 'Gast-Klicker an',
+    aus: 'Gast-Klicker aus',
+    schalter: 'Gast-Klicker ein/aus',
+    link: 'Link für die Gäste',
+    kopieren: 'Für den Zoom-Chat kopieren',
+    kopiert: 'Kopiert ✓',
+    pausieren: 'Gast-Klick pausieren',
+    fortsetzen: 'Gast-Klick fortsetzen',
+    neuerLink: 'Neuer Link',
+    neuerLinkFrage: 'Neuen Link erzeugen? Der alte Link funktioniert dann nicht mehr.',
+    hinweis: 'Wer den Link hat, kann vor/zurück klicken. Ist Publikum im Chat, den Link privat an den Gast schicken. Dein eigener Clicker und die Tastatur wirken immer.',
+  },
+  /** Import (Editor-Panel): `titel` ist neu (Z1), die übrigen Texte wörtlich aus dem alten ⚙-Menü (Toolbar.tsx:215-222). */
+  import: {
+    titel: 'Import',
+    einzelschritte: 'PPTX-Aufbau-Animationen als Einzelschritte',
+    experimentell: 'experimentell',
+    erklaerung: 'Splittet On-Click-Animationen beim Office-Import in einzelne Folien. Bei Problemen wird automatisch auf das flache PDF zurückgefallen.',
+  },
   praesentation: {
     titel: 'Präsentation',
     keine: 'keine',
@@ -111,6 +162,8 @@ export interface OberflaechenStand {
   fenster: 'editor' | 'referent';
   /** `window.jmpr.platform`; NDI gibt es nur unter Windows. */
   plattform: string;
+  /** Netzwerkkarten des Handy-Servers (`remote.interfaces()`, gelesen beim Öffnen des Panels); undefined = noch nicht gelesen. */
+  netzwerkkarten: NetInterface[] | undefined;
 }
 
 /** Aktionen des Panels: die Wurzel-View ruft damit `window.jmpr` erst im Rückruf. */
@@ -143,7 +196,10 @@ export function nurNdiLaeuft(s: Pick<OberflaechenStand, 'praesentation' | 'bilds
   return s.praesentation?.active === true && s.bildschirme !== undefined && publikumsBildschirm(s) === undefined;
 }
 
-/** Startwahl des Editors (B11), gemerkt nur in der Wurzel-View: Startbildschirm (null = automatisch) und „Keiner – nur NDI“. */
+/**
+ * Startwahl des Editors (B11), gemerkt nur in der Wurzel-View: Startbildschirm und „Keiner – nur NDI“. Der Editor reicht als
+ * `bildschirm` immer eine echte id (startBildschirm); null nur, solange keine Bildschirmliste bekannt ist.
+ */
 export interface StartWahl {
   bildschirm: number | null;
   nurNdi: boolean;
@@ -152,6 +208,48 @@ export interface StartWahl {
 /** Steht die Wahl „Keiner – nur NDI“ für den nächsten Start? Wie startZielFuer (shared/ndi.ts): nur solange nurNdiBehalten. */
 function nurNdiSteht(s: Pick<OberflaechenStand, 'ndi' | 'plattform'>, startWahl: Pick<StartWahl, 'nurNdi'>): boolean {
   return s.plattform === 'win32' && startWahl.nurNdi && s.ndi !== undefined && nurNdiBehalten(s.ndi);
+}
+
+/**
+ * Vorgabe des Startbildschirms (B11, wie bisher Toolbar.tsx:49-51): der erste nicht-primäre Bildschirm der Liste, sonst der
+ * erste; ohne bekannte oder mit leerer Liste keine (null). Das ist auch, wohin der Main bei `null` öffnet (main/windows.ts:199-203).
+ */
+export function vorgabeBildschirm(liste: readonly DisplayInfo[] | undefined): number | null {
+  return liste?.find((d) => !d.primary)?.id ?? liste?.[0]?.id ?? null;
+}
+
+/**
+ * Startbildschirm für Abschnitt, Statusleiste und Start: die Wahl der Wurzel-View (undefined = noch nichts gewählt), sonst die
+ * Vorgabe aus der aktuellen Liste, immer als echte id. So bietet die Auswahl nie „Automatisch (Hauptmonitor)“ an, während der
+ * Main bei `null` den zweiten Bildschirm nähme. Eine gewählte, aber fehlende id bleibt stehen (der Abschnitt meldet „Bildschirm
+ * fehlt“, die Auswahl springt nie still um).
+ */
+export function startBildschirm(gewaehlt: number | undefined, liste: readonly DisplayInfo[] | undefined): number | null {
+  return gewaehlt ?? vorgabeBildschirm(liste);
+}
+
+/**
+ * Was die Wurzel-View aus einer Wahl im Abschnitt `ausgabe` merkt: eine id bleibt; „Automatisch (Hauptmonitor)“ (null) wird zur
+ * id des Hauptbildschirms, denn der Main öffnete bei `null` den ersten nicht-primären (Anzeige und Main stimmen so überein). Ohne
+ * bekannten Hauptbildschirm undefined: dann gilt wieder die Vorgabe.
+ */
+export function bildschirmWahl(id: number | null, liste: readonly DisplayInfo[] | undefined): number | undefined {
+  return id ?? liste?.find((d) => d.primary)?.id;
+}
+
+/**
+ * Zeile „Keiner – nur NDI“ unter dem Abschnitt `ausgabe` (B11): nur im Editor unter Windows. An, solange die Wahl steht (wie
+ * startZielFuer). Gesperrt mit Grund, solange NDI kein Bild liefert und die Wahl nicht schon steht (Regel Toolbar.tsx:181-185); vor
+ * der ersten NDI-Antwort ebenso gesperrt.
+ */
+export function nurNdiZeile(s: Pick<OberflaechenStand, 'ndi' | 'plattform' | 'fenster'>, startWahl: Pick<StartWahl, 'nurNdi'>): { sichtbar: boolean; an: boolean; gesperrt?: string } {
+  const an = nurNdiSteht(s, startWahl);
+  const waehlbar = s.ndi !== undefined && ndiLiefertBild(s.ndi);
+  return {
+    sichtbar: s.fenster === 'editor' && s.plattform === 'win32',
+    an,
+    ...(waehlbar || an ? {} : { gesperrt: PRESENTER_TEXTE.publikum.nurNdiGesperrt }),
+  };
 }
 
 /** Der gewählte Startbildschirm steht nicht (mehr) in der bekannten Liste (abgesteckt oder neue Display-id nach dem Wiederverbinden). */
@@ -502,3 +600,4 @@ export function verarbeiteTaste(
       break;
   }
 }
+

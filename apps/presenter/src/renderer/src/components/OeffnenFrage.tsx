@@ -34,21 +34,21 @@ export function OeffnenFrage() {
 
   if (!frage) return null;
 
-  const knopf = 'h-10 px-4 rounded-md border border-white/15 bg-white/5 hover:bg-white/10 font-semibold whitespace-nowrap';
+  const knopf = 'h-10 px-4 rounded-md border border-[var(--border)] bg-[var(--muted)] hover:bg-[var(--highlight)] font-semibold whitespace-nowrap';
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm grid place-items-center p-6">
+    <div className="fixed inset-0 z-50 bg-[var(--background)]/70 backdrop-blur-sm grid place-items-center p-6">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={kopfId}
-        className="w-full max-w-md rounded-2xl bg-[#161616] ring-1 ring-white/10 p-6"
+        className="w-full max-w-md rounded-2xl bg-[var(--card)] text-[var(--foreground)] ring-1 ring-[var(--border)] p-6"
       >
         <h3 id={kopfId} className="text-lg font-bold break-words">
           {titel(frage.files.map((f) => f.name))}
         </h3>
-        <p className="mt-1 text-sm text-white/60">Im Presenter liegt schon eine Präsentation.</p>
+        <p className="mt-1 text-sm text-[var(--muted-foreground)]">Im Presenter liegt schon eine Präsentation.</p>
         {dirty && (
-          <p className="mt-2 text-sm text-amber-300">Beim Ersetzen gehen nicht gespeicherte Änderungen verloren.</p>
+          <p className="mt-2 text-sm text-[var(--warning)]">Beim Ersetzen gehen nicht gespeicherte Änderungen verloren.</p>
         )}
         <div className="mt-6 flex flex-wrap justify-end gap-2">
           <button type="button" className={knopf} onClick={() => void beantworte('ersetzen')}>

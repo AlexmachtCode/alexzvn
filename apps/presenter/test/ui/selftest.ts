@@ -24,4 +24,6 @@ register(`data:text/javascript,${encodeURIComponent(URL_HOOK)}`);
 await import('./werkzeug.test');
 await import('./bruecken.test');
 await import('./oberflaeche.test');
+await import('./rahmen.test');
+await import('./panel.test');
 abschluss();
