@@ -336,7 +336,7 @@ ok(
 
 // ── Bildschirmwahl (Nr. 7/84): Panel Ausgabe, Liste beim Start und bei jedem Öffnen des Panels frisch ──
 ok(
-  beginnt(7, 'Panel Ausgabe') && beginnt(84, 'Panel Ausgabe') && [7, 84].every((nr) => kuenftig(nr).includes('Öffnen des Panels')) && wurzel.includes('[panelOffen]') && wurzel.includes('output.displays()') && akt.includes('bildschirmWaehlen'),
+  beginnt(7, 'Panel Ausgabe') && beginnt(84, 'Panel Ausgabe') && [7, 84].every((nr) => kuenftig(nr).includes('Öffnen des Panels')) && wurzel.includes('[panelOffen]') && wurzel.includes('liesBildschirme(window.jmstage?.output?.displays') && akt.includes('bildschirmWaehlen'),
   'SD Funktionsliste Nr. 7/84: die Bildschirmliste kommt beim Start und bei jedem Öffnen des Panels frisch (views/StageOberflaeche.tsx), die Wahl merkt nur outputDisplayId',
 );
 ok(
@@ -388,7 +388,7 @@ ok(
     'SD Funktionsliste Nr. 48: das Laden und Abonnieren des Zustands läuft in App und Store, oberhalb des Panels',
   );
   ok(
-    wurzel.includes('useBrueckenWert(MASTER_LINK_QUELLE)') && wurzel.includes('useBrueckenWert(AUSGABE_QUELLE)') && wurzel.includes('output.displays()') && wurzel.includes('baueAktionen('),
+    wurzel.includes('useBrueckenWert(MASTER_LINK_QUELLE)') && wurzel.includes('useBrueckenWert(AUSGABE_QUELLE)') && wurzel.includes('liesBildschirme(window.jmstage?.output?.displays') && wurzel.includes('baueAktionen('),
     'SD Funktionsliste Nr. 7/48/68: Brücken, Bildschirmliste und Aktionen laufen in der Wurzel-View, auch bei geschlossenem Panel',
   );
   ok(

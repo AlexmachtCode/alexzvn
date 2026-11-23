@@ -4,6 +4,7 @@
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import type { AusgabeZustand } from '@jm/output-window/zustand';
 import type { PartialStageConfig } from '@shared/types';
+import * as aktionenModul from '@/lib/aktionen';
 import { baueAktionen, type OberflaechenAktionen } from '@/lib/aktionen';
 import { ABSCHNITT, bildschirmEtikett, statusLeiste, STAGE_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
 import { Einstellungen } from '@/views/Einstellungen';
@@ -142,4 +143,79 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
   a.pin('12a3-4567890');
   a.modus('main');
   gleich(log, ['setConfig{"presenter":{"pin":"12345678"}}', 'setConfig{"presenter":{"mode":"main"}}'], 'SD Aktionen: PIN nur Ziffern, höchstens 8 Zeichen; Modus schreibt presenter.mode');
+}
+
+// ── Gesamtprüfung I3: das Panel nennt den gemessenen Bildschirm des Bühnenschirms (Wahl ≠ Bewegung) ──
+// Die Pille des gemeinsamen Abschnitts nennt den gewählten Bildschirm; liegt der Schirm gemessen woanders, sagt die Zeile unter dem
+// Abschnitt, wo er wirklich steht – mit denselben Worten wie der Eintrag der Statusleiste („Titel: Text“, eine Wahrheit).
+{
+  const LISTE = [
+    { id: 1, label: 'Regie · primär (1920×1080)', primary: true },
+    { id: 2, label: 'Bühne (1920×1080)', primary: false },
+    { id: 3, label: 'Foyer (1280×720)', primary: false },
+  ];
+  const s = (z: AusgabeZustand | null | undefined, b: OberflaechenStand['bildschirme'] | 'ohne' = LISTE): OberflaechenStand =>
+    stand({ stage: stageZustand({ config: { outputDisplayId: 3 } }), ausgabe: z, ...(b === 'ohne' ? {} : { bildschirme: b }) });
+  const lage = (st: OberflaechenStand): string | null => {
+    const m = abschnitt(panel(st), ABSCHNITT.ausgabe).match(/<p[^>]*data-stage="lage"[^>]*>([\s\S]*?)<\/p>/);
+    return m ? text(m[1]) : null;
+  };
+  const statusTitel = (st: OberflaechenStand): string => {
+    const i = statusLeiste(st).find((x) => x.id === 'buehnenschirm');
+    return `${i?.label}: ${i?.detail}`;
+  };
+  const gemessen2 = s({ art: 'offen', displayId: 2 });
+  gleich(lage(gemessen2), 'Bühnenschirm: offen · Bühne (1920×1080)', 'SD Panel gemessene Lage: gemessen auf Bildschirm 2, Bildschirm 3 gewählt → die Zeile nennt Bildschirm 2');
+  ok(!(lage(gemessen2) ?? '').includes('Foyer'), 'SD Panel gemessene Lage: die Zeile nennt nie den nur gewählten Bildschirm');
+  ok(lage(gemessen2) === statusTitel(gemessen2), 'SD Panel gemessene Lage: Zeile und Statuseintrag sagen dasselbe (eine Wahrheit)');
+  gleich(
+    [lage(s({ art: 'bildschirm-fehlt', displayId: 2 })), lage(s({ art: 'offen', displayId: 2 }, 'ohne'))],
+    ['Bühnenschirm: Bildschirm fehlt', 'Bühnenschirm: offen'],
+    'SD Panel gemessene Lage: Bildschirm abgezogen → „Bildschirm fehlt“ wie die Statusleiste; ohne Liste nur „offen“, kein geratener Name',
+  );
+  gleich(
+    [lage(s(undefined)), lage(s(null)), lage(s({ art: 'zu', displayId: null })), lage(s({ art: 'abgestuerzt', displayId: 2 }))],
+    [null, null, null, null],
+    'SD Panel gemessene Lage: keine Zeile, solange kein Fenster gemessen da ist (unbekannt, keine Brücke, zu, abgestürzt)',
+  );
+}
+
+// ── Gesamtprüfung I3: die Bildschirmliste kommt beim Start, bei jedem Öffnen des Panels und bei jeder Änderung des Ausgabezustands
+// frisch; ein Fehler setzt sie auf unbekannt zurück, nie die alte Liste ──
+{
+  const lies = (aktionenModul as Record<string, unknown>).liesBildschirme as
+    | ((frage: (() => Promise<Array<{ id: number; label: string; primary: boolean; width: number; height: number }>>) | undefined, setze: (l: OberflaechenStand['bildschirme'] | undefined) => void) => () => void)
+    | undefined;
+  ok(typeof lies === 'function', 'SD Bildschirmliste: lib/aktionen.ts liest die Liste mit liesBildschirme');
+  const werte: Array<OberflaechenStand['bildschirme'] | undefined> = [];
+  if (typeof lies === 'function') {
+    const setze = (l: OberflaechenStand['bildschirme'] | undefined): void => void werte.push(l);
+    const liste = [
+      { id: 1, label: 'Regie', primary: true, width: 1920, height: 1080 },
+      { id: 2, label: 'Bühne', primary: false, width: 1280, height: 720 },
+    ];
+    lies(async () => liste, setze);
+    lies(async () => Promise.reject(new Error('weg')), setze);
+    lies(undefined, setze);
+    const ab = lies(async () => liste, setze);
+    ab();
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  gleich(
+    werte,
+    [
+      [
+        { id: 1, label: 'Regie · primär (1920×1080)', primary: true },
+        { id: 2, label: 'Bühne (1280×720)', primary: false },
+      ],
+      undefined,
+    ],
+    'SD Bildschirmliste: die Antwort kommt mit dem Etikett „Name[ · primär] (B×H)“; ein Fehler ergibt unbekannt (undefined), nie die alte Liste; ohne Preload nichts; eine überholte Antwort wird verworfen',
+  );
+  const ober = ohneKommentare(leseText('src/renderer/src/views/StageOberflaeche.tsx'));
+  ok(
+    ober.includes('useEffect(() => liesBildschirme(window.jmstage?.output?.displays, setBildschirme), [ausgabe]);') &&
+      /useEffect\(\(\) => \{\s*if \(!panelOffen\) return undefined;\s*return liesBildschirme\(window\.jmstage\?\.output\?\.displays, setBildschirme\);\s*\}, \[panelOffen\]\);/.test(ober),
+    'SD Bildschirmliste: die View holt die Liste beim Start und bei jeder Änderung des Ausgabezustands ([ausgabe]) und bei jedem Öffnen des Panels',
+  );
 }

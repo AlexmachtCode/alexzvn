@@ -3,13 +3,13 @@
 // Nachricht, Anzeige-Elemente und die Haupttaste „Bühnenschirm“. Das Panel ist kein eigener Bildschirm: Es steht im AppShell neben
 // dem Inhalt, der Live-Bereich bleibt gemountet. Brücken, Bildschirmliste und Aktionen laufen hier, auch bei geschlossenem Panel;
 // das Panel selbst hat keine Effekte (E15). Die Ausgabeansicht (#output) ist davon unberührt (E6).
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ScreenOption } from '@jm/settings';
 import { AppShell, useBrueckenWert } from '@jm/ui';
-import { baueAktionen } from '@/lib/aktionen';
+import { baueAktionen, liesBildschirme } from '@/lib/aktionen';
 import { useTick } from '@/lib/format';
 import { AUSGABE_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
-import { bildschirmEtikett, statusLeiste, STAGE_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
+import { statusLeiste, STAGE_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
 import { useStage } from '@/store/stage';
 import { Einstellungen } from './Einstellungen';
 import { LiveBereich } from './LiveBereich';
@@ -30,31 +30,19 @@ export function StageOberflaeche({
   const [panelOffen, setPanelOffen] = useState(anfangOffen);
   const [panelAbschnitt, setPanelAbschnitt] = useState<string | undefined>(undefined);
 
-  // Bildschirmliste: beim Start und jedes Mal beim Öffnen des Panels frisch (undefined, bis eine Antwort da ist; bei einem
-  // Fehler zurück auf unbekannt, nie die alte Liste; ohne Preload bleibt sie unbekannt).
-  const [bildschirme, setBildschirme] = useState<ScreenOption[] | undefined>(undefined);
-  const gestartet = useRef(false);
-  useEffect(() => {
-    if (gestartet.current && !panelOffen) return;
-    gestartet.current = true;
-    if (!window.jmstage?.output) return;
-    let weg = false;
-    void window.jmstage.output.displays().then(
-      (liste) => {
-        if (!weg) setBildschirme(liste.map((d) => ({ id: d.id, label: bildschirmEtikett(d), primary: d.primary })));
-      },
-      () => {
-        if (!weg) setBildschirme(undefined);
-      },
-    );
-    return () => {
-      weg = true;
-    };
-  }, [panelOffen]);
-
   // Lesende Brücken (Spec 3.9): undefined, bis eine Antwort oder ein Ereignis da ist; ohne Preload null.
   const masterLink = useBrueckenWert(MASTER_LINK_QUELLE);
   const ausgabe = useBrueckenWert(AUSGABE_QUELLE);
+
+  // Bildschirmliste (Gesamtprüfung I3): beim Start und bei jeder Änderung des Ausgabezustands (ein abgezogener oder neuer
+  // Bildschirm) frisch, dazu bei jedem Öffnen des Panels, beim Schließen nicht; undefined, bis eine Antwort da ist; bei einem
+  // Fehler zurück auf unbekannt, nie die alte Liste; ohne Preload bleibt sie unbekannt.
+  const [bildschirme, setBildschirme] = useState<ScreenOption[] | undefined>(undefined);
+  useEffect(() => liesBildschirme(window.jmstage?.output?.displays, setBildschirme), [ausgabe]);
+  useEffect(() => {
+    if (!panelOffen) return undefined;
+    return liesBildschirme(window.jmstage?.output?.displays, setBildschirme);
+  }, [panelOffen]);
 
   // Ein Stand für Statusleiste, Panel und Haupttaste (lib/oberflaeche.ts): alle zeigen dieselbe Ableitung.
   const stand: OberflaechenStand = { stage: state ?? undefined, ausgabe, masterLink, ...(bildschirme === undefined ? {} : { bildschirme }) };

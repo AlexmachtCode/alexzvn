@@ -1,7 +1,9 @@
 // Aktionen der Oberfläche (UX Welle 2a, Stage-Display d): rein, ohne window; der Store liefert die Funktionen. Eine Bildschirmwahl
 // merkt nur `outputDisplayId` (setConfig) und öffnet oder verschiebt kein Fenster; das Verschieben ist der eigene Knopf.
-import type { PartialStageConfig, PresenterMode, StageConfig } from '@shared/types';
-import type { StageAktionen } from './oberflaeche';
+// Dazu das Lesen der Bildschirmliste (Gesamtprüfung I3: wie im Player, auch bei jeder Änderung des Ausgabezustands).
+import type { ScreenOption } from '@jm/settings';
+import type { DisplayInfo, PartialStageConfig, PresenterMode, StageConfig } from '@shared/types';
+import { bildschirmEtikett, type StageAktionen } from './oberflaeche';
 
 export interface AktionenQuellen {
   outputDisplayId: number | null;
@@ -42,5 +44,26 @@ export function baueAktionen(q: AktionenQuellen): OberflaechenAktionen {
     widget: (key, an) => void q.setConfig({ widgets: { [key]: an } }),
     pin: (eingabe) => void q.setConfig({ presenter: { pin: eingabe.replace(/\D/g, '').slice(0, 8) } }),
     modus: (m) => void q.setConfig({ presenter: { mode: m } }),
+  };
+}
+
+/**
+ * Bildschirmliste lesen (`output:displays`, Gesamtprüfung I3 wie im Player): frisch, mit dem Etikett der Auswahl. Ein Fehler
+ * ergibt undefined (unbekannt), nie die alte Liste. Ohne Preload wird nichts gesetzt. Liefert das Aufräumen: eine danach
+ * eintreffende Antwort wird verworfen.
+ */
+export function liesBildschirme(frage: (() => Promise<DisplayInfo[]>) | undefined, setze: (liste: ScreenOption[] | undefined) => void): () => void {
+  if (frage === undefined) return () => undefined;
+  let weg = false;
+  void frage().then(
+    (liste) => {
+      if (!weg) setze(liste.map((d) => ({ id: d.id, label: bildschirmEtikett(d), primary: d.primary })));
+    },
+    () => {
+      if (!weg) setze(undefined);
+    },
+  );
+  return () => {
+    weg = true;
   };
 }

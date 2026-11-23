@@ -192,6 +192,18 @@ function buehnenschirmItem(s: OberflaechenStand): StatusItem {
   }
 }
 
+/**
+ * Gemessene Lage des Bühnenschirms für das Panel (Gesamtprüfung I3): Die Pille von „Ausgabe auf Bildschirm“ nennt den gewählten
+ * Bildschirm, eine Wahl verschiebt aber nichts. Solange das Fenster gemessen da ist (offen oder Bildschirm fehlt), steht darunter,
+ * wo es wirklich ist: Titel und Text des Statuseintrags, so wie dessen Tooltip („Bühnenschirm: offen · ‹Bildschirm›“). Dieselbe
+ * Ableitung wie die Statusleiste, also eine Wahrheit; sonst undefined (keine Zeile).
+ */
+export function gemesseneLage(s: OberflaechenStand): string | undefined {
+  if (!kannVerschieben(s.ausgabe)) return undefined;
+  const i = buehnenschirmItem(s);
+  return `${i.label}: ${i.detail}`;
+}
+
 /** Quelle: dieselbe Zeile wie im Panel (peerZeileStatus): nicht geladen → unbekannt, aus → off „aus“, verbunden → ok, an und nicht verbunden → warn. */
 function quelleItem(s: OberflaechenStand, r: (typeof ROLLEN)[number]): StatusItem {
   const st = peerZeileStatus(quellenZeile(s, r));

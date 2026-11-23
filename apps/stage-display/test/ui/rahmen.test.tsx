@@ -60,12 +60,16 @@ const QUELLE = (d: string): string => ohneKommentare(leseText(`src/renderer/src/
   ok(ober.includes('tool="Stage Display"') && !ober.includes('tool="JM'), 'SD Rahmen: tool ohne „JM “ (der Kopf ergänzt es)');
 }
 
-// ── SD Rahmen: die Bildschirmliste kommt in der View, beim Start und beim Öffnen; ein Fehler setzt auf unbekannt ──
+// ── SD Rahmen: die Bildschirmliste kommt in der View, beim Start, bei jeder Änderung des Ausgabezustands und beim Öffnen; ein Fehler
+// setzt auf unbekannt (Gesamtprüfung I3: liesBildschirme in lib/aktionen.ts, das Verhalten prüft panel.test.tsx) ──
 {
   const ober = QUELLE('views/StageOberflaeche.tsx');
-  ok(ober.includes('output.displays()') && ober.includes('[panelOffen]'), 'SD Rahmen: die Bildschirmliste wird in der View geholt, beim Start und bei jedem Öffnen des Panels');
-  ok(/\(\) => \{\s*if \(!weg\) setBildschirme\(undefined\);/.test(ober), 'SD Rahmen: bei einem Fehler der Abfrage fällt die Liste auf „nicht geladen“ zurück (undefined), nie die alte Liste');
-  ok(ober.includes("if (gestartet.current && !panelOffen) return;"), 'SD Rahmen: beim Schließen des Panels wird nicht neu geholt');
+  ok(
+    ober.includes('liesBildschirme(window.jmstage?.output?.displays, setBildschirme), [ausgabe]);') && ober.includes('[panelOffen]'),
+    'SD Rahmen: die Bildschirmliste wird in der View geholt, beim Start, bei jeder Änderung des Ausgabezustands und bei jedem Öffnen des Panels',
+  );
+  ok(/\(\) => \{\s*if \(!weg\) setze\(undefined\);/.test(QUELLE('lib/aktionen.ts')), 'SD Rahmen: bei einem Fehler der Abfrage fällt die Liste auf „nicht geladen“ zurück (undefined), nie die alte Liste');
+  ok(/if \(!panelOffen\) return undefined;/.test(ober), 'SD Rahmen: beim Schließen des Panels wird nicht neu geholt');
 }
 
 // ── SD Ausgabe unberührt (E6) ──

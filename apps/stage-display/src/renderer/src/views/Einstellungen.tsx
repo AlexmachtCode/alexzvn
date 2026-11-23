@@ -2,12 +2,13 @@
 // und „Gegenstellen“ (die drei Quellen) aus @jm/settings mit den Props aus lib/oberflaeche.ts – dieselbe Ableitung wie die
 // Statusleiste, also eine Wahrheit –, dahinter der tool-eigene Abschnitt „Presenter-Kopplung“ (PIN und Anzeige), nur solange die Presenter-Quelle an ist (wie bisher). Jeder Abschnitt ist
 // ein Sprungziel (PanelAnker, id wie das settingsSection des Statuseintrags). Kein window, kein Store und kein Effekt (E15):
-// Aktionen kommen aus der View, die Bildschirmliste liest die View beim Öffnen des Panels.
+// Aktionen kommen aus der View, die Bildschirmliste liest die View (beim Start, beim Öffnen des Panels und bei jeder Änderung des
+// Ausgabezustands). Unter dem Ausgabe-Abschnitt steht die gemessene Lage des Schirms (Gesamtprüfung I3).
 import { PeersSection, ScreenOutputSection } from '@jm/settings';
 import { Button, Field, PanelAnker, SettingsSection, TextInput } from '@jm/ui';
 import type { PresenterMode } from '@shared/types';
 import type { OberflaechenAktionen } from '@/lib/aktionen';
-import { ABSCHNITT, ausgabeAbschnitt, kannVerschieben, quellenAbschnitt, STAGE_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
+import { ABSCHNITT, ausgabeAbschnitt, gemesseneLage, kannVerschieben, quellenAbschnitt, STAGE_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
 
 export interface EinstellungenProps {
   stand: OberflaechenStand;
@@ -24,9 +25,15 @@ const QUELLEN = ['timer', 'switcher', 'presenter'] as const;
 export function Einstellungen({ stand, aktionen }: EinstellungenProps): React.JSX.Element {
   const T = STAGE_TEXTE;
   const p = stand.stage?.config.presenter;
+  const lage = gemesseneLage(stand);
   return (
     <div className="space-y-5">
       <ScreenOutputSection {...ausgabeAbschnitt(stand, aktionen)} />
+      {lage !== undefined && (
+        <p data-stage="lage" className="px-2 text-xs font-semibold text-[var(--foreground)]">
+          {lage}
+        </p>
+      )}
       {kannVerschieben(stand.ausgabe) && (
         <Button type="button" variant="outline" size="sm" uppercase={false} data-stage="verschieben" onClick={aktionen.ausgabeVerschieben}>
           {T.ausgabe.verschieben}
