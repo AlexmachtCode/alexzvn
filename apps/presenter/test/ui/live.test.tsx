@@ -3,11 +3,12 @@
 // Folie und Notizen; die Folienübersicht liegt nur im Inhalt. Render ohne Browser und ohne window; Rückrufe hookloser Komponenten
 // werden über den Elementbaum ausgelöst.
 import { TallyButton } from '@jm/ui';
-import { gleich, ok, render } from '@jm/ui/testhilfe';
+import { gleich, leseText, ok, render } from '@jm/ui/testhilfe';
 import { PRESENTER_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
+import * as live_ from '@/views/PresenterView';
 import { geheZuIndex, HauptTasten, PresenterView, Uebersicht } from '@/views/PresenterView';
 import { ReferentRahmen } from '@/views/ReferentOberflaeche';
-import { aktionenAttrappe, attr, bereich, elemente, laufend, referentAttrappe, referentFolien, referentStand, tags, text, timerZustand } from './testzustand';
+import { aktionenAttrappe, attr, bereich, elemente, laufend, ohneKommentare, referentAttrappe, referentFolien, referentStand, tags, text, timerZustand } from './testzustand';
 
 const T = PRESENTER_TEXTE;
 const live = (s: OberflaechenStand = referentStand(), uebersicht = false, folien: ReturnType<typeof referentFolien> | null = referentFolien(), log: string[] = []): string =>
@@ -96,6 +97,44 @@ const taste = (html: string, k: (typeof TASTEN)[number]): { state?: string; labe
     [geheZuIndex('3', 3), geheZuIndex('1', 3), geheZuIndex('0', 3), geheZuIndex('4', 3), geheZuIndex('', 3), geheZuIndex('2', 0)],
     [2, 0, null, null, null, null],
     'PS Haupttasten je Zustand: „Gehe zu“ springt nur auf Folie 1 bis m (Index n - 1), sonst nichts (wie bisher doJump)',
+  );
+}
+
+// ── PS Gehe zu verlässt das Feld (Fix-Runde 1 zu Task 11): Durch B10 wirkt aus dem Feld „Folie“ kein Kürzel; blieb der Fokus
+// nach dem Absenden dort, waren USB-Klicker und Tasten tot (gemessen: „3“, Enter, PageDown/PageUp/B ohne Wirkung). Nach jedem
+// Absenden (Enter oder Knopf, gültig oder nicht) verlässt der Fokus darum die Form ──
+{
+  const lv = live_ as Record<string, unknown>;
+  const absenden = lv.geheZuAbsenden as ((eingabe: string, anzahl: number, a: { geheZu(i: number): void; leere(): void; verlasse(): void }) => void) | undefined;
+  const verlasseFeld = lv.verlasseFeld as ((bereich: { contains(z: unknown): boolean }, aktiv: unknown) => void) | undefined;
+  const lauf = (eingabe: string): string[] => {
+    const log: string[] = [];
+    if (typeof absenden !== 'function') return ['geheZuAbsenden fehlt'];
+    absenden(eingabe, 3, { geheZu: (i) => void log.push(`geheZu(${i})`), leere: () => void log.push('leere'), verlasse: () => void log.push('verlasse') });
+    return log;
+  };
+  gleich(
+    [lauf('3'), lauf('1'), lauf('9'), lauf('0'), lauf('')],
+    [['geheZu(2)', 'leere', 'verlasse'], ['geheZu(0)', 'leere', 'verlasse'], ['leere', 'verlasse'], ['leere', 'verlasse'], ['leere', 'verlasse']],
+    'PS Gehe zu verlässt das Feld: gültig springt es, dann leert es das Feld und verlässt die Form; ungültig leert es nur und verlässt die Form ebenfalls (sonst bliebe der Klicker tot)',
+  );
+  const blur: string[] = [];
+  const ziel = (name: string) => ({ blur: () => void blur.push(name) });
+  const drin = ziel('feld');
+  const knopf = ziel('knopf');
+  const draussen = ziel('draussen');
+  const form = { contains: (z: unknown) => z === drin || z === knopf };
+  if (typeof verlasseFeld === 'function') {
+    verlasseFeld(form, drin);
+    verlasseFeld(form, knopf);
+    verlasseFeld(form, draussen);
+    verlasseFeld(form, null);
+  }
+  gleich(blur, ['feld', 'knopf'], 'PS Gehe zu verlässt das Feld: verlasseFeld nimmt den Fokus nur von Feld oder Knopf der Form, nie von einem Element außerhalb, und übersteht null');
+  const q = ohneKommentare(leseText('src/renderer/src/views/PresenterView.tsx'));
+  ok(
+    /const form = e\.currentTarget;\s*geheZuAbsenden\(jump, anzahl, \{[\s\S]*?verlasse: \(\) => verlasseFeld\(form, document\.activeElement\)/.test(q),
+    'PS Gehe zu verlässt das Feld: Quelltext – onSubmit (Enter und Knopf) ruft geheZuAbsenden, verlasse nimmt den Fokus aus der Form',
   );
 }
 

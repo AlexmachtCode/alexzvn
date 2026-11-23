@@ -119,6 +119,24 @@ export function geheZuIndex(eingabe: string, anzahl: number): number | null {
   return eingabe !== '' && Number.isFinite(n) && n >= 1 && n <= anzahl ? n - 1 : null;
 }
 
+/**
+ * Absenden von „Gehe zu“ (Enter oder Knopf): springt bei gültiger Eingabe, leert das Feld und verlässt danach immer die Form,
+ * auch bei ungültiger Eingabe. Grund: Aus dem Feld wirkt durch B10 kein Kürzel; bliebe der Fokus dort, liefen USB-Klicker und
+ * Tasten ins Leere (gemessen in Fix-Runde 1 zu Task 11). Wer korrigieren will, klickt wieder ins Feld.
+ */
+export function geheZuAbsenden(eingabe: string, anzahl: number, a: { geheZu(index: number): void; leere(): void; verlasse(): void }): void {
+  const i = geheZuIndex(eingabe, anzahl);
+  if (i !== null) a.geheZu(i);
+  a.leere();
+  a.verlasse();
+}
+
+/** Nimmt den Fokus vom aktiven Element, wenn es in `bereich` liegt (Feld oder Knopf von „Gehe zu“); sonst nichts. */
+export function verlasseFeld(bereich: { contains(ziel: unknown): boolean }, aktiv: unknown): void {
+  const el = aktiv as { blur?: unknown } | null;
+  if (el !== null && typeof el === 'object' && typeof el.blur === 'function' && bereich.contains(el)) (el as { blur(): void }).blur();
+}
+
 /** Feld „Folie“ (nur Ziffern) und Knopf „Gehe zu“: springt und leert das Feld; Enter im Feld sendet ab (B10: kein Weiterblättern). */
 function GeheZu({ anzahl, onGeheZu }: { anzahl: number; onGeheZu(index: number): void }) {
   const [jump, setJump] = useState('');
@@ -127,9 +145,12 @@ function GeheZu({ anzahl, onGeheZu }: { anzahl: number; onGeheZu(index: number):
       data-presenter="gehe-zu"
       onSubmit={(e) => {
         e.preventDefault();
-        const i = geheZuIndex(jump, anzahl);
-        if (i !== null) onGeheZu(i);
-        setJump('');
+        const form = e.currentTarget;
+        geheZuAbsenden(jump, anzahl, {
+          geheZu: onGeheZu,
+          leere: () => setJump(''),
+          verlasse: () => verlasseFeld(form, document.activeElement),
+        });
       }}
       className="flex shrink-0 items-center self-center gap-1"
     >
