@@ -21,6 +21,8 @@ export default defineConfig({
           'fflate',
           '@jm/discovery',
           'bonjour-service',
+          // UX Welle 2b (B11): beobachteBildschirme im Main; Quellpaket ohne Build, darum gebündelt wie in den anderen Apps (W21).
+          '@jm/output-window',
           // #317 Gast-Klicker: WebSocket-Client im Main (reines JS; optionale Native-Beschleuniger fehlen still).
           'ws',
         ],

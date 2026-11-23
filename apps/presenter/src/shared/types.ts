@@ -1,6 +1,7 @@
 // Shared domain + IPC types for JM Presenter.
 // Used by the main process, the preload bridge and the renderer.
 import type { OeffnenModus } from './dateien';
+import type { FernsteuerungMeldung } from './fernsteuerung';
 import type { GastKlickerStatus } from './gast-klicker';
 
 /** `ndi` = verstecktes Fenster, das das Publikumsbild für den NDI-Ausgang zeichnet (#303). */
@@ -299,11 +300,30 @@ export interface NdiStatus {
  */
 export type StartZiel = number | null | 'keiner';
 
+/**
+ * Master-Link-Zustand für die Statusleiste (Spec 3.9, UX Welle 2b B2). Spiegel von MasterLinkMeldung aus @jm/app-runtime, das
+ * im Renderer nicht importierbar ist (Main-Code). Den Gleichlauf prüft die Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
+
 /** The window API exposed on `window.jmpr`. */
 export interface JmprApi {
   platform: NodeJS.Platform;
   /** Which view this window renders, parsed from the launch URL. */
   view: ViewName;
+
+  /** UX Welle 2b (Spec 3.9): Master-Link-Zustand lesend; null, solange die Brücke fehlt oder ablehnt (Statusleiste: unbekannt). */
+  masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+  onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
+  /** Lage des Steuerservers (Port 8728), nur lesend; null, solange Main nichts gemeldet hat. */
+  fernsteuerung: () => Promise<FernsteuerungMeldung | null>;
+  onFernsteuerung: (cb: (m: FernsteuerungMeldung | null) => void) => () => void;
 
   files: {
     /** Open PDFs/images and return their bytes. */
@@ -358,6 +378,11 @@ export interface JmprApi {
     /** #309: Push bei jedem Wechsel des Referentenfensters (auch durch das System). */
     onReferentVollbild: (cb: (an: boolean) => void) => () => void;
     onState: (cb: (s: PresentationState) => void) => () => void;
+    /**
+     * UX Welle 2b (B11): Bildschirm angesteckt, abgezogen oder geändert, oder das Publikumsfenster hat sich bewegt; ohne
+     * Nutzlast, der Renderer liest `displays()` selbst neu.
+     */
+    onBildschirme: (cb: () => void) => () => void;
   };
 
   /** Network remote control (phone clicker over LAN). */
