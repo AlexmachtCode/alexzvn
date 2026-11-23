@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { PresentationState, Slide, Wiedergabe } from '@shared/types';
 import { normiereWiedergabe } from '../../../shared/wiedergabe';
 import { clearAssets, putImage, putSource } from './assets';
+import { verarbeiteTaste } from './oberflaeche';
 import { clearPdfCaches } from './pdf';
 
 const EMPTY: PresentationState = { active: false, index: 0, total: 0, screen: 'live' };
@@ -40,56 +41,14 @@ export function usePresentation(): { slides: Slide[] | null; state: Presentation
   return { slides, state, wiedergabe };
 }
 
-/** Wire keyboard + USB-clicker navigation to the main-process presentation hub. */
+/**
+ * Wire keyboard + USB-clicker navigation to the main-process presentation hub. Die Tasten und ihre Wirkung stehen in
+ * verarbeiteTaste (lib/oberflaeche.ts, rein und ohne pdf.ts testbar); dort auch der Filter B10 für Textfelder.
+ */
 export function usePresenterKeys(enabled: boolean): void {
   useEffect(() => {
     if (!enabled) return;
-    const onKey = (e: KeyboardEvent): void => {
-      switch (e.key) {
-        case 'ArrowRight':
-        case 'ArrowDown':
-        case 'PageDown':
-        case ' ':
-        case 'Enter':
-          e.preventDefault();
-          void window.jmpr.present.next();
-          break;
-        case 'ArrowLeft':
-        case 'ArrowUp':
-        case 'PageUp':
-        case 'Backspace':
-          e.preventDefault();
-          void window.jmpr.present.prev();
-          break;
-        case 'Home':
-          e.preventDefault();
-          void window.jmpr.present.goto(0);
-          break;
-        case 'End':
-          e.preventDefault();
-          void window.jmpr.present.goto(9999);
-          break;
-        // PowerPoint-style pause screens: B = black, W = white (toggle).
-        case 'b':
-        case 'B':
-        case '.':
-          e.preventDefault();
-          void window.jmpr.present.setScreen('black');
-          break;
-        case 'w':
-        case 'W':
-        case ',':
-          e.preventDefault();
-          void window.jmpr.present.setScreen('white');
-          break;
-        case 'Escape':
-          e.preventDefault();
-          void window.jmpr.present.stop();
-          break;
-        default:
-          break;
-      }
-    };
+    const onKey = (e: KeyboardEvent): void => verarbeiteTaste(e, window.jmpr.present);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [enabled]);
