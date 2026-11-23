@@ -2,14 +2,15 @@
 // die Fernsteuerung aus @jm/settings mit den Props aus lib/oberflaeche.ts – dieselbe Ableitung wie die Statusleiste, also eine
 // Wahrheit –, dahinter die tool-eigenen Abschnitte Schrift, Lese-Linie, Darstellung und Handy-Fernbedienung (Inhalt des alten
 // Steuerpults). Jeder Abschnitt ist ein Sprungziel (PanelAnker, id wie das settingsSection des Statuseintrags). Kein window, kein
-// Store und kein Effekt (E15): Aktionen kommen aus der View, die Bildschirmliste liest die View (beim Start, beim Öffnen des Panels
-// und bei jeder Änderung des Ausgabezustands). Unter dem Ausgabe-Abschnitt steht die gemessene Lage des Monitors (Gesamtprüfung I3).
+// Store und kein Effekt (E15): Aktionen kommen aus der View, die Bildschirmliste liest die View (beim Start, beim Öffnen des Panels,
+// bei jeder Änderung des Ausgabezustands und bei jedem Bildschirm-Ereignis). Den gemessenen Ort des Monitors nennt der
+// Ausgabe-Abschnitt selbst (Pille und „Steht auf“ aus measuredId, UX Welle 2b).
 import { RemoteControlSection, ScreenOutputSection } from '@jm/settings';
 import { Button, Field, PanelAnker, SettingsSection, Toggle, UNBEKANNT } from '@jm/ui';
 import type { PartialPrompterConfig } from '@shared/types';
 import { RemoteQr } from '@/components/RemoteQr';
 import { Regler } from '@/components/Regler';
-import { ABSCHNITT, ausgabeAbschnitt, fernsteuerungAbschnitt, gemesseneLage, kannVerschieben, PROMPTER_TEXTE, type OberflaechenStand, type PrompterAktionen } from '@/lib/oberflaeche';
+import { ABSCHNITT, ausgabeAbschnitt, fernsteuerungAbschnitt, kannVerschieben, PROMPTER_TEXTE, type OberflaechenStand, type PrompterAktionen } from '@/lib/oberflaeche';
 
 /** Die Aktionen des Panels: Ausgabe und Bildschirm aus lib/oberflaeche.ts, dazu Konfiguration und Handy-Fernbedienung. */
 export interface EinstellungenAktionen extends PrompterAktionen {
@@ -30,15 +31,9 @@ export function Einstellungen({ stand, aktionen }: EinstellungenProps): React.JS
   const c = p?.config;
   // Noch kein Zustand aus dem Main: die tool-eigenen Abschnitte zeigen „unbekannt“, nie erfundene Werte.
   const unbekannt = <p className="text-sm text-[var(--muted-foreground)]">{UNBEKANNT}</p>;
-  const lage = gemesseneLage(stand);
   return (
     <div className="space-y-5">
       <ScreenOutputSection {...ausgabeAbschnitt(stand, aktionen)} />
-      {lage !== undefined && (
-        <p data-prompter="lage" className="px-2 text-xs font-semibold text-[var(--foreground)]">
-          {lage}
-        </p>
-      )}
       {kannVerschieben(stand.ausgabe) && (
         <Button type="button" variant="outline" size="sm" uppercase={false} data-prompter="verschieben" onClick={aktionen.ausgabeVerschieben}>
           {T.ausgabe.verschieben}

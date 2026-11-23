@@ -1,6 +1,7 @@
 // UX Welle 2a, Prompter d · Einstellungs-Panel (Spec 3.6, 6; E3, E11, E15): Ausgabe auf Bildschirm und Fernsteuerung aus
 // @jm/settings, dahinter die tool-eigenen Abschnitte Schrift, Lese-Linie, Darstellung und Handy-Fernbedienung. Jeder
 // Statuseintrag mit Abschnitt findet seinen Anker. Das alte Pult zeigt diese Abschnitte nicht mehr. Render ohne Browser.
+import { SCREEN_TEXTE } from '@jm/settings';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import type { AusgabeZustand } from '@jm/output-window/zustand';
 import { DEFAULT_CONFIG, type PrompterState } from '@shared/types';
@@ -144,9 +145,9 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
   );
 }
 
-// ── Gesamtprüfung I3: das Panel nennt den gemessenen Bildschirm des Talent-Monitors (Wahl ≠ Bewegung) ──
-// Die Pille des gemeinsamen Abschnitts nennt den gewählten Bildschirm; liegt der Monitor gemessen woanders, sagt die Zeile unter
-// dem Abschnitt, wo er wirklich steht – mit denselben Worten wie der Eintrag der Statusleiste („Titel: Text“, eine Wahrheit).
+// ── PR Ort aus der Messung (2a-Nachzug, UX Welle 2b; löst die Zeile data-prompter="lage" aus Gesamtprüfung I3 ab): der Abschnitt
+// „Ausgabe auf Bildschirm“ selbst nennt den gemessenen Bildschirm – die Pille und die Zeile „Steht auf“ aus @jm/settings –, nie den
+// nur gewählten (Wahl ≠ Bewegung). Ohne gemessenen Ort (Bildschirm fehlt) keine Zeile „Steht auf“ ──
 {
   const LISTE = [
     { id: 1, label: 'Regie · primär (1920×1080)', primary: true },
@@ -155,28 +156,31 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
   ];
   const s = (z: AusgabeZustand | null | undefined, b: OberflaechenStand['bildschirme'] | 'ohne' = LISTE): OberflaechenStand =>
     stand({ prompter: state({ outputDisplayId: 3 }), ausgabe: z, ...(b === 'ohne' ? {} : { bildschirme: b }) });
-  const lage = (st: OberflaechenStand): string | null => {
-    const m = abschnitt(panel(st), ABSCHNITT.ausgabe).match(/<p[^>]*data-prompter="lage"[^>]*>([\s\S]*?)<\/p>/);
-    return m ? text(m[1]) : null;
-  };
-  const statusTitel = (st: OberflaechenStand): string => {
-    const i = statusLeiste(st).find((x) => x.id === 'talent-monitor');
-    return `${i?.label}: ${i?.detail}`;
+  const aus = (st: OberflaechenStand): string => abschnitt(panel(st), ABSCHNITT.ausgabe);
+  /** Wert der Zeile „Steht auf“ im Ausgabe-Abschnitt, sonst null. */
+  const stehtAuf = (st: OberflaechenStand): string | null => {
+    const t = text(aus(st));
+    const i = t.indexOf(SCREEN_TEXTE.stehtAuf);
+    return i < 0 ? null : t.slice(i + SCREEN_TEXTE.stehtAuf.length).trim();
   };
   const gemessen2 = s({ art: 'offen', displayId: 2 });
-  gleich(lage(gemessen2), 'Talent-Monitor: offen · Talent (1920×1080)', 'PR Panel gemessene Lage: gemessen auf Bildschirm 2, Bildschirm 3 gewählt → die Zeile nennt Bildschirm 2');
-  ok(!(lage(gemessen2) ?? '').includes('Bühne'), 'PR Panel gemessene Lage: die Zeile nennt nie den nur gewählten Bildschirm');
-  ok(lage(gemessen2) === statusTitel(gemessen2), 'PR Panel gemessene Lage: Zeile und Statuseintrag sagen dasselbe (eine Wahrheit)');
+  ok((stehtAuf(gemessen2) ?? '').startsWith('Talent (1920×1080)'), 'PR Ort aus der Messung: gemessen auf Bildschirm 2, Bildschirm 3 gewählt → „Steht auf“ nennt Bildschirm 2');
+  ok(!(stehtAuf(gemessen2) ?? '').includes('Bühne') && text(aus(gemessen2)).includes('auf Bildschirm 2'), 'PR Ort aus der Messung: die Pille sagt „auf Bildschirm 2“, keine Zeile nennt den nur gewählten Bildschirm als Ort');
   gleich(
-    [lage(s({ art: 'bildschirm-fehlt', displayId: 2 })), lage(s({ art: 'offen', displayId: 2 }, 'ohne'))],
-    ['Talent-Monitor: Bildschirm fehlt', 'Talent-Monitor: offen'],
-    'PR Panel gemessene Lage: Bildschirm abgezogen → „Bildschirm fehlt“ wie die Statusleiste; ohne Liste nur „offen“, kein geratener Name',
+    [stehtAuf(s({ art: 'bildschirm-fehlt', displayId: 2 })), stehtAuf(s({ art: 'offen', displayId: 2 }, 'ohne')), stehtAuf(s({ art: 'offen', displayId: 9 }))],
+    [null, null, null],
+    'PR Ort aus der Messung: Bildschirm fehlt, Liste unbekannt oder gemessener Bildschirm nicht in der Liste → keine Zeile „Steht auf“, kein geratener Name',
   );
+  ok(text(aus(s({ art: 'bildschirm-fehlt', displayId: 2 }))).includes('Bildschirm fehlt'), 'PR Ort aus der Messung: bei abgezogenem Bildschirm sagt die Pille „Bildschirm fehlt“');
   gleich(
-    [lage(s(undefined)), lage(s(null)), lage(s({ art: 'zu', displayId: null })), lage(s({ art: 'abgestuerzt', displayId: 2 }))],
+    [stehtAuf(s(undefined)), stehtAuf(s(null)), stehtAuf(s({ art: 'zu', displayId: null })), stehtAuf(s({ art: 'abgestuerzt', displayId: 2 }))],
     [null, null, null, null],
-    'PR Panel gemessene Lage: keine Zeile, solange kein Fenster gemessen da ist (unbekannt, keine Brücke, zu, abgestürzt)',
+    'PR Ort aus der Messung: keine Zeile „Steht auf“, solange kein Fenster gemessen offen ist (unbekannt, keine Brücke, zu, abgestürzt)',
   );
+  const alle = [undefined, null, { art: 'zu', displayId: null }, { art: 'offen', displayId: 2 }, { art: 'bildschirm-fehlt', displayId: 2 }, { art: 'abgestuerzt', displayId: 2 }] as Array<AusgabeZustand | null | undefined>;
+  ok(alle.every((z) => !panel(s(z)).includes('data-prompter="lage"')), 'PR Ort aus der Messung: keine Zeile data-prompter="lage" mehr');
+  const q = ohneKommentare(leseText('src/renderer/src/views/Einstellungen.tsx'));
+  ok(!q.includes('gemesseneLage') && !q.includes('data-prompter="lage"'), 'PR Ort aus der Messung: Einstellungen.tsx nutzt gemesseneLage nicht mehr');
 }
 
 // ── Gesamtprüfung I3/M2: die Bildschirmliste wie bei Stage und Player – beim Start, bei jedem Öffnen des Panels und bei jeder
@@ -216,5 +220,117 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
     ober.includes('useEffect(() => liesBildschirme(window.jmprompt?.output?.displays, setBildschirme), [ausgabe]);') &&
       /useEffect\(\(\) => \{\s*if \(!panelOffen\) return undefined;\s*return liesBildschirme\(window\.jmprompt\?\.output\?\.displays, setBildschirme\);\s*\}, \[panelOffen\]\);/.test(ober),
     'PR Bildschirmliste: die View holt die Liste beim Start und bei jeder Änderung des Ausgabezustands ([ausgabe]) und bei jedem Öffnen des Panels',
+  );
+}
+
+// ── PR Bildschirmliste folgt dem Ereignis (UX Welle 2b, Task 4; Review Focus 5): folgeBildschirmen meldet sich am Bildschirm-Ereignis
+// an und liest bei jedem Ereignis die Liste neu (liesBildschirme); ohne Brücke nichts; die Abmeldung wirkt, auch auf eine Antwort,
+// die danach noch eintrifft; eine ältere Antwort überschreibt keine neuere ──
+{
+  type Liste = Array<{ id: number; label: string; primary: boolean; width: number; height: number }>;
+  type Folge = (onBildschirme: ((cb: () => void) => () => void) | undefined, frage: (() => Promise<Liste>) | undefined, setze: (l: OberflaechenStand['bildschirme'] | undefined) => void) => () => void;
+  const folge = (aktionenModul as Record<string, unknown>).folgeBildschirmen as Folge | undefined;
+  ok(typeof folge === 'function', 'PR Bildschirmliste folgt dem Ereignis: lib/aktionen.ts hat folgeBildschirmen');
+  const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+  const A: Liste = [{ id: 1, label: 'Regie', primary: true, width: 1920, height: 1080 }];
+  const B: Liste = [...A, { id: 2, label: 'Talent', primary: false, width: 1280, height: 720 }];
+  /** Attrappe der Brücke: merkt den Hörer, zählt An- und Abmeldungen. */
+  const bruecke = (): { on: (cb: () => void) => () => void; feuere(): void; an: number; ab: number } => {
+    const b = { an: 0, ab: 0, hoerer: [] as Array<() => void> };
+    return {
+      on: (cb) => {
+        b.an++;
+        b.hoerer.push(cb);
+        return () => {
+          b.ab++;
+          b.hoerer = b.hoerer.filter((h) => h !== cb);
+        };
+      },
+      feuere: () => b.hoerer.forEach((h) => h()),
+      get an() {
+        return b.an;
+      },
+      get ab() {
+        return b.ab;
+      },
+    };
+  };
+  const ergebnis: unknown[] = [];
+  if (typeof folge === 'function') {
+    // Ablauf: Anmelden (liest nichts), Ereignis → Liste A, Ereignis → Liste B, Ereignis mit Fehler → unbekannt, Abmelden, Ereignis → nichts.
+    const br = bruecke();
+    let fragen = 0;
+    let antwort: () => Promise<Liste> = async () => A;
+    const werte: Array<OberflaechenStand['bildschirme'] | undefined> = [];
+    const ab = folge(br.on, () => (fragen++, antwort()), (l) => void werte.push(l));
+    await tick();
+    ergebnis.push(['angemeldet', br.an, fragen, werte.length]);
+    br.feuere();
+    await tick();
+    antwort = async () => B;
+    br.feuere();
+    await tick();
+    antwort = async () => Promise.reject(new Error('weg'));
+    br.feuere();
+    await tick();
+    ergebnis.push(['drei Ereignisse', fragen, werte.map((l) => (l === undefined ? 'unbekannt' : l.map((x) => x.label).join('+')))]);
+    ab();
+    antwort = async () => A;
+    br.feuere();
+    await tick();
+    ergebnis.push(['abgemeldet', br.ab, fragen, werte.length]);
+
+    // Eine Antwort, die erst nach der Abmeldung eintrifft, setzt nichts mehr.
+    const br2 = bruecke();
+    let loese: (l: Liste) => void = () => undefined;
+    const spaet: unknown[] = [];
+    const ab2 = folge(br2.on, () => new Promise<Liste>((r) => (loese = r)), (l) => void spaet.push(l));
+    br2.feuere();
+    ab2();
+    loese(B);
+    await tick();
+    ergebnis.push(['spät nach Abmeldung', spaet.length]);
+
+    // Zwei Ereignisse kurz nacheinander: die Antwort des älteren kommt zuletzt und wird verworfen.
+    const br3 = bruecke();
+    const loeser: Array<(l: Liste) => void> = [];
+    const reihe: string[] = [];
+    folge(br3.on, () => new Promise<Liste>((r) => void loeser.push(r)), (l) => void reihe.push(l === undefined ? 'unbekannt' : l.map((x) => x.label).join('+')));
+    br3.feuere();
+    br3.feuere();
+    loeser[1]?.(B);
+    await tick();
+    loeser[0]?.(A);
+    await tick();
+    ergebnis.push(['älter nach neuer', reihe]);
+
+    // Ohne Brücke nichts: kein Ereignis-Zugang oder keine Abfrage → keine Anmeldung, keine Frage, nichts gesetzt.
+    const br4 = bruecke();
+    const ohne: unknown[] = [];
+    let fragen4 = 0;
+    const ab4 = folge(undefined, async () => (fragen4++, A), (l) => void ohne.push(l));
+    const ab5 = folge(br4.on, undefined, (l) => void ohne.push(l));
+    br4.feuere();
+    await tick();
+    ab4();
+    ab5();
+    ergebnis.push(['ohne Brücke', br4.an, fragen4, ohne.length, typeof ab4, typeof ab5]);
+  }
+  gleich(
+    ergebnis,
+    [
+      ['angemeldet', 1, 0, 0],
+      ['drei Ereignisse', 3, ['Regie · primär (1920×1080)', 'Regie · primär (1920×1080)+Talent (1280×720)', 'unbekannt']],
+      ['abgemeldet', 1, 3, 3],
+      ['spät nach Abmeldung', 0],
+      ['älter nach neuer', ['Regie · primär (1920×1080)+Talent (1280×720)']],
+      ['ohne Brücke', 0, 0, 0, 'function', 'function'],
+    ],
+    'PR Bildschirmliste folgt dem Ereignis: jedes Ereignis fragt und setzt die Liste (Fehler → unbekannt), ohne Brücke nichts, die Abmeldung wirkt auch auf späte Antworten, eine ältere Antwort überschreibt keine neuere',
+  );
+  const wurzel = ohneKommentare(leseText('src/renderer/src/views/PrompterOberflaeche.tsx'));
+  ok(
+    /useEffect\(\(\) => folgeBildschirmen\(window\.jmprompt\?\.output\?\.onBildschirme, window\.jmprompt\?\.output\?\.displays, setBildschirme\), \[\]\);/.test(wurzel),
+    'PR Bildschirmliste folgt dem Ereignis: die Wurzel-View ruft folgeBildschirmen in einem Effekt (einmal, mit Abmeldung beim Abbau)',
   );
 }

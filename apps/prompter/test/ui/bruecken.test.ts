@@ -203,6 +203,32 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
       main.includes("mainWindow.webContents.send('output:zustand', z);"),
     'PR Wächter Kanäle: Main antwortet mit output.zustand() und schickt jede Änderung an das Hauptfenster (nicht an alle)',
   );
+  // PR Bildschirmliste folgt dem Ereignis (UX Welle 2b, Task 4): output:bildschirme ist nur ein Ereignis ohne Nutzlast. Der Main
+  // sendet es über beobachteBildschirme aus @jm/output-window (nach app.ready) nur an das Hauptfenster; der Preload reicht es
+  // ohne Wert weiter (on, off).
+  ok(
+    vorkommen(preload, 'output:bildschirme') === 2 && vorkommen(main, 'output:bildschirme') === 1,
+    'PR Wächter Kanäle: output:bildschirme steht in Preload (on, off) und Main (send) gleich',
+  );
+  ok(
+    preload.includes("    onBildschirme: (cb) => {\n      const listener = (): void => cb();\n      ipcRenderer.on('output:bildschirme', listener);\n      return () => ipcRenderer.off('output:bildschirme', listener);\n    },\n") &&
+      typen.includes('onBildschirme: (cb: () => void) => () => void;'),
+    'PR Wächter Kanäle: output.onBildschirme meldet ohne Nutzlast, mit Abmeldung, und ist typisiert',
+  );
+  {
+    const bereit = main.indexOf('app.whenReady().then(() => {');
+    const aufruf = main.indexOf('beobachteBildschirme(');
+    const block = main.slice(aufruf, main.indexOf('});', aufruf) + 3);
+    ok(
+      /^import \{[^}]*\bbeobachteBildschirme\b[^}]*\} from '@jm\/output-window';$/m.test(main) &&
+        bereit >= 0 &&
+        aufruf > bereit &&
+        main.split('beobachteBildschirme(').length === 2 &&
+        /^beobachteBildschirme\(\(\) => \{\s*if \(mainWindow && !mainWindow\.isDestroyed\(\)\) mainWindow\.webContents\.send\('output:bildschirme'\);\s*\}\);$/.test(block),
+      'PR Wächter Kanäle: Main ruft beobachteBildschirme einmal nach app.ready und schickt output:bildschirme ohne Nutzlast nur an das Hauptfenster',
+    );
+  }
+
   const von = main.indexOf('initAppRuntime({');
   const runtime = main.slice(von, main.indexOf('});', von));
   ok(von >= 0 && !/masterLink\s*:\s*false/.test(runtime), 'PR Wächter Kanäle: initAppRuntime registriert jmps:master-link (Option masterLink:false fehlt)');

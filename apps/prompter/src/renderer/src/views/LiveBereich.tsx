@@ -60,10 +60,10 @@ export function liveTasten(s: OberflaechenStand, aktionen: LiveAktionen): [LiveT
 const BREIT: ReadonlySet<LiveTaste['id']> = new Set<LiveTaste['id']>(['go', 'anfang']);
 
 /**
- * GO trägt im Lauf „LIVE“ und „Pause“ in der Schrift der LIVE-Fläche (19 px); mit dem Kürzel wäre das breiter als der Platz
- * (gemessen, final-messung.mjs: 232 px Inhalt bei 175 px Platz, 162 px in der Mindestgröße). Deshalb fällt der Hinweis
- * „Leertaste“ im Lauf weg (hauptTasten, Ruling W63), dann passt der Inhalt (125 px). Der Platz bleibt als Sicherung: Er schneidet
- * am Rand der Taste ab, was dennoch übersteht:
+ * GO trägt im Lauf „LIVE“ und „Pause“ in der Schrift der LIVE-Fläche (19 px); mit dem Kürzel in derselben Zeile wäre das breiter
+ * als der Platz (gemessen, final-messung.mjs: 232 px Inhalt bei 175 px Platz, 162 px in der Mindestgröße). Darum steht das Kürzel
+ * in einer eigenen Zeile darunter (kuerzelZeile, UX Welle 2b; nimmt W63 zurück), die Zeile mit „LIVE“ und „Pause“ bleibt 125 px
+ * breit. Der Platz bleibt als Sicherung: Er schneidet am Rand der Taste ab, was dennoch übersteht:
  * Nichts davon liegt über einer Nachbartaste oder nimmt ihr einen Klick weg, und das Raster bleibt beim Wechsel zwischen GO und
  * Pause gleich (min-w-0). Den Fokusring der Taste schneidet der Platz mit ab; er zeichnet ihn deshalb selbst, gleich aussehend.
  */
