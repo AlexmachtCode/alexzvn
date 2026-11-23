@@ -28,6 +28,7 @@ export const NEUE_TOKENS = [
   '--statusbar-h',
   '--control-h',
   '--control-h-lg',
+  '--tally-h-kuerzel',
   '--panel-w',
 ] as const;
 

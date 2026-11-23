@@ -326,8 +326,8 @@ function ersterZustand(html: string): string | undefined {
     'Probe: classNameLiterale liest nur className="…"',
   );
   ok(
-    NEUE_TOKENS.length === 13 && NEUE_TOKENS.includes('--field-border') && PFLICHTKLASSEN.length === 13,
-    'Probe: 13 Token-Namen (mit --field-border, Owner-Freigabe O3) und 13 Pflichtklassen',
+    NEUE_TOKENS.length === 14 && NEUE_TOKENS.includes('--field-border') && NEUE_TOKENS.includes('--tally-h-kuerzel') && PFLICHTKLASSEN.length === 13,
+    'Probe: 14 Token-Namen (mit --field-border, Owner-Freigabe O3, und --tally-h-kuerzel, Welle 2b) und 13 Pflichtklassen',
   );
 }
 
