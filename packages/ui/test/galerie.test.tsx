@@ -42,7 +42,7 @@ const SETTINGS_SOLL: Record<string, Exclude<StatusState, 'live'>> = {
   'ndi-ohne-name': 'off', 'ndi-gesperrt': 'ok', 'ndi-fehlertext': 'error',
   'bildschirm-ok': 'ok', 'bildschirm-warn': 'warn', 'bildschirm-error': 'error', 'bildschirm-unbekannt': 'off',
   'bildschirm-aus': 'off', 'bildschirm-keiner': 'off', 'bildschirm-gesperrt': 'ok', 'bildschirm-fehlertext': 'error',
-  'bildschirm-farbwaehler': 'ok',
+  'bildschirm-farbwaehler': 'ok', 'bildschirm-gemessen': 'ok', 'bildschirm-gemessen-fehlt': 'warn',
   'fernsteuerung-ok': 'ok', 'fernsteuerung-warn': 'warn', 'fernsteuerung-error': 'error',
   'fernsteuerung-unbekannt': 'off', 'fernsteuerung-aus': 'off', 'fernsteuerung-gesperrt': 'ok',
   'fernsteuerung-fehlertext': 'error', 'fernsteuerung-launcher-gesichert': 'ok',

@@ -224,6 +224,8 @@ export function settingsBeispiele(modus: Modus): Beispiel[] {
     b('ndi-fehlertext', N, 'mit Fehlertext', <NdiOutputSection {...ndi(id('ndi-fehlertext'), { sending: false, receivers: undefined, error: 'NDI-Laufzeit nicht gefunden.' })} />),
 
     b('bildschirm-ok', S, 'ok: auf Bildschirm 2', <ScreenOutputSection {...bildschirm(id('bildschirm-ok'), {})} />),
+    b('bildschirm-gemessen', S, 'gemessen: Fenster steht auf Bildschirm 1, gewählt ist 2 (Zeile „Steht auf“)', <ScreenOutputSection {...bildschirm(id('bildschirm-gemessen'), { measuredId: 1 })} />),
+    b('bildschirm-gemessen-fehlt', S, 'gemessen: Fenster auf keinem bekannten Bildschirm', <ScreenOutputSection {...bildschirm(id('bildschirm-gemessen-fehlt'), { measuredId: null })} />),
     b('bildschirm-warn', S, 'Warnung: an, ohne Rückmeldung', <ScreenOutputSection {...bildschirm(id('bildschirm-warn'), { windowOpen: undefined })} />),
     b('bildschirm-error', S, 'Fehler: gewählter Bildschirm fehlt (bleibt gewählt)', <ScreenOutputSection {...bildschirm(id('bildschirm-error'), { selectedId: 3 })} />),
     b('bildschirm-unbekannt', S, 'unbekannt: Liste noch nicht geladen', <ScreenOutputSection {...bildschirm(id('bildschirm-unbekannt'), { screens: undefined })} />),

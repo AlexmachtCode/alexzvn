@@ -13,6 +13,9 @@ export interface ScreenOutputSectionProps extends SectionInput {
   windowOpen?: boolean;              // gemessen; undefined = keine Rückmeldung
   screens?: ScreenOption[];          // gemessen; undefined = Liste unbekannt
   selectedId: number | null;         // null = automatisch (Hauptmonitor); Titler/Switcher übersetzen 0 → null
+  // UX Welle 2b: gemessen, auf welchem Bildschirm das Fenster steht. null = auf keinem bekannten; undefined = keine
+  // Messung (Verhalten wie bisher). Mit measuredId nennt der Abschnitt nie den gewählten Bildschirm.
+  measuredId?: number | null;
   fullscreen?: boolean; background?: string;
   backgroundDefault?: string;        // UX-Pilot C6 (OF3): Knopf „Standardfarbe ({hex})“ setzt diese Farbe
   // backgroundPicker (UX-Pilot C6, OF3): Farbwähler neben dem Textfeld
@@ -30,6 +33,7 @@ export const SCREEN_TEXTE = {
   automatisch: 'Automatisch (Hauptmonitor)',
   keinBildschirm: 'Kein Bildschirm gefunden',
   frueherGewaehlt: 'zuvor gewählter Bildschirm',
+  stehtAuf: 'Steht auf',
   aufBildschirm: (n: number) => `auf Bildschirm ${zahlText(n)}`,
   aus: ABSCHNITT_TEXTE.aus,
   bildschirmFehlt: 'Bildschirm fehlt',
@@ -56,6 +60,7 @@ export interface ScreenOutputView extends SectionBase {
   auswahlWert: string;               // SCREEN_AUTO oder String(selectedId)
   auswahlGesperrt: boolean;          // leere Liste: nichts zu wählen
   hinweis?: string;                  // Tipp, wenn das Ziel der Hauptmonitor ist
+  gemessen?: { label: string };      // Bildschirm, auf dem das offene Fenster gemessen steht (measuredId)
 }
 
 /** Position (1-basiert) des Zielbildschirms: gewählte id bzw. bei null der Hauptmonitor. 0 = nicht in der Liste. */
@@ -67,6 +72,10 @@ function zielPosition(screens: readonly ScreenOption[], selectedId: number | nul
 function screenStatus(p: ScreenOutputSectionProps): SectionStatus {
   if (hatFehler(p)) return fehlerStatus(p.error);
   if (p.screens === undefined) return STATUS_UNBEKANNT;
+  if (p.enabled && p.measuredId !== undefined && p.windowOpen === true) {
+    const i = p.screens.findIndex((s) => s.id === p.measuredId);
+    return i >= 0 ? st('ok', SCREEN_TEXTE.aufBildschirm(i + 1)) : st('warn', SCREEN_TEXTE.bildschirmFehlt);
+  }
   const ziel = zielPosition(p.screens, p.selectedId);
   if (p.selectedId !== null && ziel === 0) return st('error', SCREEN_TEXTE.bildschirmFehlt);
   if (!p.enabled) return p.windowOpen === true ? st('warn', SCREEN_TEXTE.ausFensterOffen) : st('off', SCREEN_TEXTE.aus);
@@ -84,6 +93,7 @@ export function screenOutputView(p: ScreenOutputSectionProps): ScreenOutputView 
     p.screens !== undefined && liste.length === 0
       ? [{ value: SCREEN_AUTO, label: SCREEN_TEXTE.keinBildschirm }]
       : [{ value: SCREEN_AUTO, label: SCREEN_TEXTE.automatisch }, ...liste.map((s) => ({ value: String(s.id), label: s.label }))];
+  const gemessenIndex = p.measuredId != null && p.windowOpen === true ? liste.findIndex((s) => s.id === p.measuredId) : -1;
   return {
     id: p.id,
     status: screenStatus(p),
@@ -103,6 +113,7 @@ export function screenOutputView(p: ScreenOutputSectionProps): ScreenOutputView 
     auswahlWert: p.selectedId === null ? SCREEN_AUTO : String(p.selectedId),
     auswahlGesperrt: p.screens !== undefined && liste.length === 0,
     hinweis: ziel > 0 && liste[ziel - 1].primary ? SCREEN_TEXTE.hinweis : undefined,
+    gemessen: gemessenIndex >= 0 ? { label: liste[gemessenIndex].label } : undefined,
   };
 }
 

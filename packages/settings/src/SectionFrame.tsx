@@ -12,7 +12,12 @@ export interface SectionFrameProps { view: SectionBase; titel: string; children:
 export function SectionFrame({ view, titel, children }: SectionFrameProps): React.JSX.Element {
   return (
     <PanelAnker id={view.id}>
-      <SettingsSection title={titel} right={<StatusPill state={view.status.state} text={view.status.text} />}>
+      <SettingsSection title={titel} right={
+          // Kurze Pille: lange Statustexte enden mit „…“ statt die Kopfzeile zu verbreitern (UX Welle 2b), voller Text im title.
+          <span className="block min-w-0 max-w-[12rem]">
+            <StatusPill state={view.status.state} text={view.status.text} title={view.status.text} kuerzen />
+          </span>
+        }>
         {istGesperrt(view) ? (
           <p data-gesperrt="true" className="border-l-2 border-[var(--border)] pl-2 text-xs text-[var(--muted-foreground)]">
             {ABSCHNITT_TEXTE.gesperrt(view.locked ?? '')}

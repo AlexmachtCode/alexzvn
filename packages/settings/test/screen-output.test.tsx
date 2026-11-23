@@ -11,6 +11,7 @@ import {
 } from '../src/index';
 import { bewegungsVerstoesse, kreuz, nachLetztem, pruefeFaelle, sperrZaehlung, statusText, vergleiche, vor } from './hilfe';
 import { farbeGewaehlt, standardfarbe } from '../src/abschnitte/screen-output';
+import { SectionFrame } from '../src/SectionFrame';
 
 const s = (state: SectionStatus['state'], text: string): SectionStatus => ({ state, text });
 const U = s('off', 'unbekannt');
@@ -279,5 +280,76 @@ const mitFarbe: ScreenOutputSectionProps = { ...alle, backgroundDefault: '#00B14
   ok(
     quelle.includes('onChange={(e) => farbeGewaehlt(p, e.currentTarget.value)}') && quelle.includes('onClick={() => standardfarbe(p)}'),
     'Bildschirm Verdrahtung: der Farbwähler ruft farbeGewaehlt, der Knopf ruft standardfarbe',
+  );
+}
+
+// ── Welle 2b (Task 3): gemessener Bildschirm (measuredId) ──
+{
+  const GEM = { undefiniert: undefined, keiner: null, inListe: 11, nichtInListe: 99 } as const;
+  const faelle = kreuz({
+    measured: ['undefiniert', 'keiner', 'inListe', 'nichtInListe'],
+    windowOpen: [true, false, undefined],
+    wahl: ['auto', 'vorhanden', 'fehlt'],
+    enabled: [false, true],
+  } as const);
+  const props = (f: (typeof faelle)[number]): ScreenOutputSectionProps => ({
+    ...basis,
+    enabled: f.enabled,
+    windowOpen: f.windowOpen,
+    screens: ZWEI,
+    selectedId: WAHL[f.wahl],
+    measuredId: GEM[f.measured],
+  });
+  pruefeFaelle('X2 gemessener Bildschirm Kreuzprodukt: Eingang → status', faelle, (f) => {
+    const ohne = screenOutputView({ ...props(f), measuredId: undefined }).status;
+    let soll = ohne;
+    if (f.enabled && f.measured !== 'undefiniert' && f.windowOpen === true) soll = f.measured === 'inListe' ? AUF_1 : s('warn', 'Bildschirm fehlt');
+    return vergleiche(statusText(screenOutputView(props(f)).status), statusText(soll));
+  });
+  pruefeFaelle('X2 gemessener Bildschirm Kreuzprodukt: die Pille nennt nie den gewählten Bildschirm', faelle, (f) => {
+    if (!(f.enabled && f.measured === 'inListe' && f.windowOpen === true)) return null;
+    return screenOutputView(props(f)).status.text === 'auf Bildschirm 1' ? null : 'nennt nicht den gemessenen Bildschirm 1';
+  });
+  pruefeFaelle('X2 gemessener Bildschirm Kreuzprodukt: !enabled gleich wie ohne measuredId (offenes Fenster: warn „aus, Fenster noch offen“)', faelle, (f) => {
+    if (f.enabled) return null;
+    const mit = screenOutputView(props(f)).status;
+    const ohne = screenOutputView({ ...props(f), measuredId: undefined }).status;
+    const offen = f.wahl !== 'fehlt' && f.windowOpen === true ? statusText(AUS_OFFEN) : null;
+    return vergleiche(statusText(mit), statusText(ohne)) ?? (offen === null ? null : vergleiche(statusText(mit), offen));
+  });
+  pruefeFaelle('X2 gemessener Bildschirm Kreuzprodukt: Fehler und unbekannte Liste gehen vor', [
+    { error: 'Testfehler', screens: ZWEI },
+    { error: undefined, screens: undefined },
+  ], (f) => {
+    const st = screenOutputView({ ...basis, windowOpen: true, measuredId: 11, screens: f.screens, error: f.error }).status;
+    return vergleiche(statusText(st), statusText(f.error ? FEHLER : U));
+  });
+  ok(
+    screenOutputView({ ...basis, windowOpen: true, measuredId: 11, screens: [] }).status.text === 'Bildschirm fehlt',
+    'X2 gemessener Bildschirm: leere Liste mit offenem Fenster = „Bildschirm fehlt“',
+  );
+}
+{
+  const p: ScreenOutputSectionProps = { ...basis, windowOpen: true, screens: ZWEI, selectedId: 22, measuredId: 11 };
+  gleich(screenOutputView(p).gemessen, { label: 'Monitor 1 · 1920×1080' }, 'X2 Steht auf: gemessener Bildschirm im View');
+  const html = render(<ScreenOutputSection {...p} />);
+  enthaelt(html, 'data-anzeige="Steht auf"', 'X2 Steht auf: Anzeige bei offenem Fenster und bekanntem Bildschirm');
+  ok(vor(html, '>Steht auf<', 'Monitor 1 · 1920×1080</div>') && vor(html, '>Bildschirm<', '>Steht auf<'), 'X2 Steht auf: unter der Auswahl, mit dem Namen');
+  gleich(SCREEN_TEXTE.stehtAuf, 'Steht auf', 'X2 Steht auf: Text wörtlich');
+  const faelle = kreuz({ measured: [undefined, null, 11, 99], windowOpen: [true, false, undefined], screens: [undefined, [] as ScreenOption[], ZWEI] } as const);
+  pruefeFaelle('X2 Steht auf: Anzeige nur bei offenem Fenster und bekanntem gemessenem Bildschirm', faelle, (f) => {
+    const q: ScreenOutputSectionProps = { ...basis, windowOpen: f.windowOpen, screens: f.screens, measuredId: f.measured };
+    const da = render(<ScreenOutputSection {...q} />).includes('data-anzeige="Steht auf"');
+    const soll = f.windowOpen === true && f.measured === 11 && f.screens === ZWEI;
+    return da === soll ? null : `Anzeige ${da}, erwartet ${soll}`;
+  });
+  enthaeltNicht(render(<ScreenOutputSection {...basis} windowOpen screens={ZWEI} />), 'Steht auf', 'X2 Steht auf: ohne measuredId keine Zeile');
+}
+{
+  const lang = 'x'.repeat(120);
+  const html = render(<SectionFrame view={{ id: 'probe', status: { state: 'warn', text: lang } }} titel="Probe"><i /></SectionFrame>);
+  ok(
+    html.includes(`<span class="min-w-0 truncate">${lang}</span>`) && html.includes(`title="${lang}"`) && html.includes('max-w-[12rem]'),
+    'X2 lange Pille: truncate, title = voller Text, Behälter max-w-[12rem]',
   );
 }
