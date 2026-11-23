@@ -123,6 +123,10 @@ export const PRESENTER_TEXTE = {
     pinTitel: 'PIN',
     ohnePin: 'Ohne PIN — jeder im Netzwerk kann steuern.',
     qrAlt: 'QR',
+    /** Sperrgründe von „Setzen“ (Netzwerkkarte und Port wirken erst damit, Wahl ≠ Bewegung; neu in Task 12, Z1). */
+    setzenUnveraendert: 'Netzwerkkarte und Port sind schon so eingestellt.',
+    setzenPort: 'Setzen geht erst mit einem Port von 1024 bis 65535.',
+    setzenLaeuft: 'Wird angewendet …',
   },
   /**
    * Gast-Klicker: übrige Zustände wörtlich aus statusText (shared/gast-klicker.ts), wie im Abschnitt; alles außer `titel` und

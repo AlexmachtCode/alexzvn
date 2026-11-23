@@ -2,15 +2,16 @@
 // das Fenster kommt nur aus stand.fenster, die Startwahl nur im Editor. Editor: ausgabe (+ Zeile „Keiner – nur NDI“), ndi
 // (Windows), fernsteuerung, handy, gast-klicker, timer, import; Referent ohne ausgabe und import. Das Panel hat keine Effekte;
 // Abos, Abfragen und window bleiben in der Wurzel bzw. in useStand. Render ohne Browser und ohne window.
-import { REMOTE_TEXTE, SCREEN_TEXTE } from '@jm/settings';
-import { UNBEKANNT } from '@jm/ui';
+import { PEERS_TEXTE, REMOTE_TEXTE, SCREEN_TEXTE } from '@jm/settings';
+import { Button, Select, TextInput, UNBEKANNT } from '@jm/ui';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import { chatText } from '@shared/gast-klicker';
-import type { DisplayInfo } from '@shared/types';
+import type { DisplayInfo, RemoteConfig, RemoteStatus } from '@shared/types';
+import { HandyFelder, handyBedienung, handyEntwurf, handySetzenGrund, type HandyBedienung, type HandyEntwurf } from '@/components/RemotePanel';
 import { ABSCHNITT, ausgabeAbschnitt, bildschirmWahl, nurNdiZeile, PRESENTER_TEXTE, startBildschirm, statusLeiste, vorgabeBildschirm, type OberflaechenStand, type StartWahl } from '@/lib/oberflaeche';
 import { standAktionen, TIMER_EINSTELLUNG_QUELLE } from '@/lib/useStand';
 import { Einstellungen } from '@/views/Einstellungen';
-import { abschnitt, aktionenAttrappe, attr, bekannterStand, bereich, bildschirme, gastStatus, grundStand, handyStatus, laufend, ndiStatus, NETZWERKKARTEN, ohneKommentare, tags, text } from './testzustand';
+import { abschnitt, aktionenAttrappe, attr, bekannterStand, bereich, bildschirme, elemente, gastStatus, grundStand, handyStatus, laufend, ndiStatus, NETZWERKKARTEN, ohneKommentare, tags, text } from './testzustand';
 
 const T = PRESENTER_TEXTE;
 const QUELLE = (d: string): string => ohneKommentare(leseText(`src/renderer/src/${d}`));
@@ -176,6 +177,140 @@ const knopfTexte = (html: string): string[] => [...html.matchAll(/<button[^>]*>(
   const ohnePin = h({ handy: handyStatus({ running: true, url: 'http://10.0.0.5:7330', pin: null }) });
   ok(text(ohnePin).includes(T.handy.ohnePin), 'PS Panel Editor: Handy ohne PIN – der Hinweis „Ohne PIN — jeder im Netzwerk kann steuern.“');
   ok(text(h({ handy: handyStatus({ error: 'Port 7330 ist belegt — anderen Port wählen.' }) })).includes('Port 7330 ist belegt'), 'PS Panel Editor: Handy zeigt den Startfehler des Servers');
+}
+
+// ── PS Panel Handy: Netzwerkkarte und Port wirken erst mit „Setzen“ (Global Constraint „Wahl ≠ Bewegung“, Entscheid zu Task 12) ──
+// Eine native Auswahl feuert change auch per Tastatur, und im Panel behält die Auswahl ihre Tasten (O1): Pfeile auf
+// „Netzwerkkarte“ dürfen den Handy-Server nicht mitten in der Show neu binden. Netzwerkkarte und Port ändern nur den Entwurf;
+// nur „Setzen“ wendet ihn an (Muster Host und Port der Gegenstellen). Server- und PIN-Schalter wirken sofort, mit dem
+// angewandten Stand (status.config), nie mit einem nicht gesetzten Entwurf.
+{
+  const H = T.handy;
+  const status = handyStatus({ running: true, url: 'http://10.0.0.5:7330', pin: '4711', config: { enabled: true, bind: 'all', port: 7330, pinEnabled: true } });
+  const basis = handyEntwurf(undefined, { bind: 'all', port: 7330 });
+  interface Lauf {
+    entwurf: Array<[string, number]>;
+    pin: boolean[];
+    angewendet: RemoteConfig[];
+  }
+  const bedien = (entwurf: HandyEntwurf, z: { busy?: boolean; status?: RemoteStatus } = {}): { b: HandyBedienung; lauf: Lauf } => {
+    const lauf: Lauf = { entwurf: [], pin: [], angewendet: [] };
+    const b = handyBedienung({
+      status: z.status ?? status,
+      entwurf,
+      pinEnabled: true,
+      busy: z.busy ?? false,
+      setzeEntwurf: (e) => void lauf.entwurf.push([e.bind, e.port]),
+      setzePin: (an) => void lauf.pin.push(an),
+      anwenden: (c) => void lauf.angewendet.push(c),
+    });
+    return { b, lauf };
+  };
+
+  {
+    const { b, lauf } = bedien(basis);
+    b.netzwerkkarte('10.0.0.5');
+    b.port('7331');
+    b.port('7a3x');
+    b.port('');
+    gleich(
+      [lauf.angewendet, lauf.entwurf],
+      [[], [['10.0.0.5', 7330], ['all', 7331], ['all', 73], ['all', 0]]],
+      'PS Panel Handy: eine Wahl der Netzwerkkarte und das Tippen im Port ändern nur den Entwurf (nur Ziffern) und wenden nichts an',
+    );
+  }
+  {
+    const { b, lauf } = bedien({ ...basis, bind: '10.0.0.5', port: 7331 });
+    b.setzen();
+    gleich(
+      [b.setzenGrund, lauf.angewendet],
+      [undefined, [{ enabled: true, bind: '10.0.0.5', port: 7331, pinEnabled: true }]],
+      'PS Panel Handy: „Setzen“ wendet den Entwurf genau einmal an (anwenden mit enabled aus running, Netzwerkkarte, Port, PIN)',
+    );
+  }
+  gleich(
+    [
+      bedien(basis).b.setzenGrund,
+      bedien({ ...basis, port: 1023 }).b.setzenGrund,
+      bedien({ ...basis, port: 65536 }).b.setzenGrund,
+      bedien({ ...basis, port: 0 }).b.setzenGrund,
+      bedien({ ...basis, port: 1024 }).b.setzenGrund,
+      bedien({ ...basis, port: 65535 }).b.setzenGrund,
+      bedien({ ...basis, bind: '10.0.0.5' }).b.setzenGrund,
+      bedien({ ...basis, bind: '10.0.0.5' }, { busy: true }).b.setzenGrund,
+    ],
+    [H.setzenUnveraendert, H.setzenPort, H.setzenPort, H.setzenPort, undefined, undefined, undefined, H.setzenLaeuft],
+    'PS Panel Handy: „Setzen“ gesperrt mit Grund – nichts geändert, Port außerhalb 1024 bis 65535, wird angewendet',
+  );
+  gleich(
+    [bedien(basis), bedien({ ...basis, port: 80 }), bedien({ ...basis, bind: '10.0.0.5' }, { busy: true })].map(({ b, lauf }) => {
+      b.setzen();
+      return lauf.angewendet.length;
+    }),
+    [0, 0, 0],
+    'PS Panel Handy: ein gesperrtes „Setzen“ wendet nichts an',
+  );
+  {
+    const { b, lauf } = bedien({ ...basis, bind: '10.0.0.5', port: 7331 });
+    b.server();
+    b.pin(false);
+    gleich(
+      [lauf.angewendet, lauf.pin, lauf.entwurf],
+      [[{ enabled: false, bind: 'all', port: 7330, pinEnabled: true }, { enabled: true, bind: 'all', port: 7330, pinEnabled: false }], [false], []],
+      'PS Panel Handy: Server- und PIN-Schalter wirken sofort, mit Netzwerkkarte und Port des angewandten Stands, nie mit dem Entwurf',
+    );
+  }
+  {
+    const neu = { bind: '10.0.0.5', port: 7400 };
+    gleich(
+      [handyEntwurf(undefined, neu), handyEntwurf(basis, neu), handyEntwurf({ ...basis, port: 7331 }, neu), handyEntwurf({ ...basis, bind: '10.0.0.5', port: 7400 }, neu)].map((e) => [e.bind, e.port]),
+      [['10.0.0.5', 7400], ['10.0.0.5', 7400], ['all', 7331], ['10.0.0.5', 7400]],
+      'PS Panel Handy: der Entwurf folgt dem gemeldeten Stand, solange er unberührt oder schon angewandt ist; eine Eingabe bleibt stehen',
+    );
+    ok(handySetzenGrund(handyEntwurf({ ...basis, bind: '10.0.0.5', port: 7400 }, neu), neu, false) === H.setzenUnveraendert, 'PS Panel Handy: nach dem Anwenden ist „Setzen“ wieder gesperrt (nichts geändert)');
+  }
+  {
+    // Je ein eigener Rückruf, damit ein Vertauschen (Auswahl an setzen, Feld an netzwerkkarte) auffällt.
+    const bedienung: HandyBedienung = {
+      netzwerkkarte: () => undefined,
+      port: () => undefined,
+      setzen: () => undefined,
+      server: () => undefined,
+      pin: () => undefined,
+      setzenGrund: undefined,
+    };
+    const felder = (b: HandyBedienung): ReturnType<typeof elemente> =>
+      elemente(HandyFelder({ status, netzwerkkarten: NETZWERKKARTEN, entwurf: basis, pinEnabled: true, busy: false, grundId: 'handy-grund', bedienung: b }));
+    const els = felder(bedienung);
+    const auswahl = els.find((e) => e.type === Select);
+    const feld = els.find((e) => e.type === TextInput);
+    const knopf = els.find((e) => e.type === Button && e.props.children === PEERS_TEXTE.setzen);
+    gleich(
+      [auswahl?.props.onChange === bedienung.netzwerkkarte, feld?.props.onChange === bedienung.port, feld?.props.onBlur, knopf?.props.onClick === bedienung.setzen, knopf?.props.disabled, knopf?.props['aria-describedby']],
+      [true, true, undefined, true, false, undefined],
+      'PS Panel Handy: Verdrahtung – Auswahl und Port-Feld gehen nur an den Entwurf, kein onBlur, „Setzen“ ruft setzen',
+    );
+    const zu = felder({ ...bedienung, setzenGrund: H.setzenUnveraendert });
+    const knopfZu = zu.find((e) => e.type === Button && e.props.children === PEERS_TEXTE.setzen);
+    const grund = zu.find((e) => e.props.id === 'handy-grund');
+    gleich([knopfZu?.props.disabled, knopfZu?.props['aria-describedby'], grund?.props.children], [true, 'handy-grund', H.setzenUnveraendert], 'PS Panel Handy: gesperrtes „Setzen“ nennt seinen Grund sichtbar (aria-describedby)');
+  }
+  {
+    const html = panel(bekannterStand({ handy: status }), WAHL);
+    const h = abschnitt(html, ABSCHNITT.handy);
+    const setzen = tags(h, 'button').find((t) => attr(t, 'aria-label') === PEERS_TEXTE.setzenFuer(H.titel));
+    ok(setzen !== undefined && gesperrt(setzen) && text(h).includes(PEERS_TEXTE.setzen) && text(h).includes(H.setzenUnveraendert), 'PS Panel Handy: im Panel steht „Setzen“, gesperrt mit „nichts geändert“, solange der Entwurf dem angewandten Stand gleicht');
+    pruefeIdVerweise(html, 'PS Panel Handy: id-Verweise des Sperrgrunds gültig');
+  }
+  {
+    const q = QUELLE('components/RemotePanel.tsx');
+    const abschnittQuelle = /export function HandyAbschnitt\([\s\S]*?\n}\n/.exec(q)?.[0] ?? '';
+    ok(
+      !q.includes('onBlur') && abschnittQuelle.includes('handyBedienung(') && abschnittQuelle.includes('<HandyFelder') && !/apply\(\{ (bind|port)/.test(q),
+      'PS Panel Handy: Quelltext – kein Übernehmen beim Verlassen, keine Anwendung aus Auswahl oder Feld; HandyAbschnitt verdrahtet über handyBedienung',
+    );
+    ok([H.setzenUnveraendert, H.setzenPort, H.setzenLaeuft].every((t: string) => t.length > 0 && !t.includes('"')), 'PS Panel Handy: die Sperrgründe stehen in PRESENTER_TEXTE');
+  }
 }
 
 // ── PS Panel Editor: Gast-Klicker (Inhalt von GastKlickerAbschnitt.tsx) ──

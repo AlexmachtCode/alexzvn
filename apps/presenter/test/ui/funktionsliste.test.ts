@@ -610,6 +610,15 @@ const zeigtAuf = (nr: number, datei: string, ...woerter: string[]): boolean => {
   ok(ersetzt(135, 'Referent-Kopf') && nennt(135, 'B7') && !leiste.includes('📱'), 'PS Funktionsliste Nr. 135: 📱 ist ersetzt durch ⚙ im Referenten-Kopf (B7)');
   ok(beginnt(136, 'Referent-Kopf') && nennt(136, 'B7') && zeigtAuf(136, 'R/views/ReferentOberflaeche.tsx', 'KopfBeenden'), 'PS Funktionsliste Nr. 136: „■ Beenden“ als Kopf-Aktion (B7)');
   ok(ersetzt(152, 'Panel Handy-Fernsteuerung') && nennt(152, 'B8', 'O1', 'Escape'), 'PS Funktionsliste Nr. 152: das Handy-Fenster ist ersetzt durch den Panel-Abschnitt, Escape schließt dort nur das Panel (O1)');
+  // Nachtrag Task 12 (Entscheid zu Bedenken 3, Global Constraint „Wahl ≠ Bewegung“): Netzwerkkarte und Port ändern nur den Entwurf,
+  // erst „Setzen“ wendet an; Server- und PIN-Schalter wirken sofort mit dem angewandten Stand.
+  ok(
+    [154, 155].every((nr) => beginnt(nr, 'Panel Handy-Fernsteuerung') && nennt(nr, '„Setzen“', 'Wahl ≠ Bewegung') && zeigtAuf(nr, 'R/components/RemotePanel.tsx', 'a.setzeEntwurf(')) &&
+      !kuenftig(155).includes('übernommen beim Verlassen') &&
+      [153, 156].every((nr) => beginnt(nr, 'Panel Handy-Fernsteuerung') && nennt(nr, 'angewandten Stands')) &&
+      !quelle('R/components/RemotePanel.tsx').includes('onBlur'),
+    'PS Funktionsliste Nr. 153–156: Netzwerkkarte und Port wirken erst mit „Setzen“ (Wahl ≠ Bewegung), Server und PIN sofort mit dem angewandten Stand',
+  );
   ok(ersetzt(17, 'Editor-Kopf') && nennt(17, 'B14'), 'PS Funktionsliste Nr. 17: das ⚙-Menü ist ersetzt durch ⚙ und Panel (B14)');
   ok(beginnt(5, 'Editor-Kopf') && nennt(5, 'B4', 'jm-theme'), 'PS Funktionsliste Nr. 5: Hell/Dunkel im Editor-Kopf (B4), der Referent bleibt fest dunkel');
   ok(beginnt(6, 'Editor-Kopf') && /entfällt \(E16\)/.test(kuenftig(6)), 'PS Funktionsliste Nr. 6: Logo und Name im Kopf, der Untertitel entfällt (E16)');
