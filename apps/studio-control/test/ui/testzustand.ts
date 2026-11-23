@@ -2,6 +2,7 @@
 // Quelltext-Prüfungen. Wächst mit den folgenden Aufgaben (Brücken: Zustand der Fernsteuerungs-Meldung; Rahmen und Panels:
 // Render-Hilfen für Statusleiste und Abschnitte, Vorbild apps/prompter/test/ui/testzustand.ts).
 import { useApp } from '@/store/app';
+import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 
 /** Quelltext ohne Kommentare (Zeilen- und Blockkommentare), für Prüfungen am Code. */
 export function ohneKommentare(quelle: string): string {
@@ -23,4 +24,9 @@ export function mitStore<T>(patch: Partial<ReturnType<typeof useApp.getState>>, 
   } finally {
     Object.assign(anfang, vorher);
   }
+}
+
+/** Fernsteuerungs-Meldung des Steuerservers (Port 8735) mit Vorgaben; Felder ohne Wert fehlen (nie undefined). */
+export function basisMeldung(patch: Partial<FernsteuerungMeldung> = {}): FernsteuerungMeldung {
+  return { laeuft: true, port: 8735, clients: 0, ...patch };
 }
