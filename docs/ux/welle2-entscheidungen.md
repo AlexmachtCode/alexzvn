@@ -1,9 +1,10 @@
-# UX-Update Welle 2a: Entscheidungen während der Umsetzung (W1–W56)
+# UX-Update Welle 2a: Entscheidungen während der Umsetzung (W1–W62)
 
 Bei der Umsetzung von Welle 2a (Caption, Interpreter, Prompter, Stage Display, Recorder, Player) waren an einigen Stellen
 Plan, Spec und Code nicht eindeutig. Diese Entscheidungen sind hier festgehalten. Die Funktionslisten
 (`docs/ux/funktionslisten/*.md`, Spalte „künftig wo“), die Texttabelle (`docs/ux/welle2a-texte.md`) und die Tests nennen sie
-als „Ruling Task ‹n›“, „Ruling P‹n›“ oder „Ruling R-T‹n›“; die Klammer hinter jeder Nummer nennt diese Herkunft. Die
+als „Ruling Task ‹n›“, „Ruling P‹n›“, „Ruling R-T‹n›“ oder „Ruling Gesamtprüfung ‹Punkt›“; die Klammer hinter jeder Nummer
+nennt diese Herkunft. Die
 Entscheidungen E1 bis E16 stehen im Plan (`docs/superpowers/plans/2026-11-22-ux-welle2a.md`); R1 bis R31 aus Welle 1
 (`docs/ux/welle1-entscheidungen.md`) gelten weiter, wo sie passen. „Die Bedienlogik bleibt“ meint die Regel U6 der Spec:
 Main, Preload, IPC und Store-Logik ändern sich nur an den im Plan erlaubten Stellen. Jede Entscheidung gilt, bis der Owner
@@ -241,3 +242,63 @@ sie ändert. Zu jeder stehen der Grund und der Preis, falls sie sich als falsch 
   `engine.start` übergebenen Geräte; die Bedienlogik bleibt. Grund: Vorher zeigte die Statusleiste im Betrieb die
   Einstellung grün als Gerät, obwohl die Engine die Eingänge nur beim Start liest; der Pegel unter einer geänderten Wahl
   gehörte noch zum alten Gerät. Preis: ein Merker.
+
+## Gesamtprüfung (Fix-Welle)
+
+Die Gesamtprüfung des ganzen Branches fand drei wichtige Punkte (I1 bis I3) und einige kleine (M1 bis M7). Die folgenden
+Entscheidungen gelten für die Fix-Welle danach.
+
+- **W57** (Gesamtprüfung I1, nachgeschärft durch W62) Tastenplätze des Prompters: wieder die alte Anordnung. Oben liegen
+  „⏮ Marke“, GO (breit) und „Marke ⏭“, unten „↑ zurück“, „⟲ Anfang“ und „↓ vor“; alle sechs sind TallyButtons. „Anfang“ (an
+  den Anfang und pausieren) liegt nie neben GO. Grund: Mit dem Umbau lag „Anfang“ dort, wo die Hand GO und „Marke ⏭“ sucht;
+  ein Klick hätte den Text des Talents an den Anfang gesetzt und angehalten. Die Regel „Tastenplätze wie heute“ entstand erst
+  in Task 16 und wird hier nachträglich angewandt. Preis: Muster d erlaubt höchstens vier TallyButtons, hier sind es sechs.
+- **W58** (Gesamtprüfung I2) ON AIR im Player: Ein Video-Cue zählt für ON AIR und „‹n› laufend“ nur, solange der gemessene
+  Ausgabezustand offen ist oder der Bildschirm fehlt. Zu (auch nach Alt+F4), abgestürzt und unbekannt zählen nicht; Ton und
+  Pads bleiben, wie sie sind. Geändert ist nur der Renderer, der Store bleibt. Grund: Nur der Knopf leert den Video-Cue im
+  Store; nach Alt+F4 oder einem Absturz blieb ON AIR an, und die Statusleiste widersprach der Lampe. Companion meldet den
+  Cue wie bisher weiter als spielend. Preis: nichts.
+- **W59** (Gesamtprüfung I3) Gemessener Bildschirm im Panel: `@jm/settings` bleibt unverändert, die Arbeit am Baustein gehört
+  zu Welle 2b (X1). Prompter, Stage Display und Player lesen die Bildschirmliste bei jeder Änderung des Ausgabezustands neu.
+  Der Abschnitt „Ausgabe auf Bildschirm“ hat keinen Prop für den gemessenen Ort. Deshalb steht darunter eine eigene Zeile mit
+  dem gemessenen Ort, solange das Fenster da ist, in den Worten der Statusleiste („Talent-Monitor: offen · ‹Bildschirm›“,
+  „Bühnenschirm: …“, „Video-Ausgabe: …“). Es gibt dafür keinen neuen Text. Die Pille des Abschnitts nennt weiter den
+  gewählten Bildschirm; das ist ein Abnahmepunkt (G7) und ein Auftrag für Welle 2b. Grund: Eine Wahl verschiebt nichts
+  (W33), die Pille nannte also einen Ort, den niemand gemessen hat. Preis: eine Zeile.
+- **W60** (Gesamtprüfung, kleine Punkte) In derselben Fix-Welle:
+  - M1: Startfehler der vier Steuerserver (Prompter, Player, Recorder, Caption) kommen zusätzlich ins Protokoll, wie beim
+    Timer; den Teil mit ok:false ergänzt W62.
+  - M2: Der Prompter holt seine Bildschirmliste wie Stage Display und Player: beim Start, bei jedem Öffnen des Panels und bei
+    jeder Änderung des Ausgabezustands; ein Fehler macht sie unbekannt.
+  - M6: Der Interpreter zeigt „Ducking“ im Stillstand grau statt grün, der Text bleibt; mit Überbrücken weiter „überbrückt“.
+  - M7: veraltete Kommentare im Player.
+  - Dazu kommt der fehlende Wächter für den Weg Stille → Status → Renderer in Caption.
+
+  Grund: Das ist billig und war die Empfehlung der Gesamtprüfung; ein Wurf beim Start stand seit 2a nur noch in der
+  Statusleiste und war nach der Show nicht mehr nachlesbar. Preis: nichts.
+- **W61** (Gesamtprüfung, nicht beurteilt) Die zwölf Punkte, die die Gesamtprüfung nicht beurteilt hat, bleiben wie entschieden
+  bzw. als Owner-Frage oder Abnahmepunkt:
+  - Panik in der Bibliothek stoppt die Vorschau nicht (Owner-Frage 1).
+  - Die Wahlen in Caption wirken sofort (W50).
+  - Ein zweites Ausgabefenster im Player ist ein Altfehler.
+  - Escape außerhalb des Panels gehört zum gemeinsamen `@jm/ui`.
+  - Die Leertaste auf Knöpfen löst wie entschieden aus (O1).
+  - Der Ausklang nach Stop zählt nicht für ON AIR (W27).
+  - Die Suche im Netz ersetzt beim Stage Display einen Host (Altfehler, Owner-Frage 3).
+  - ARM und „Eingang schließen“ im Recorder sind Altfehler (U6).
+  - `micError` in Caption ist Abnahmepunkt CAZ2.
+  - Der Render-Takt ohne Fehlergrenze ist ein altes Muster.
+  - Hell-Modus, Mac und das echte Fenster prüft die Abnahme.
+  - Die Handbücher wurden nur stichprobenhaft geprüft.
+
+  Grund: Jeder Punkt ist schon entschieden, liegt beim Owner, gehört zu einem gemeinsamen Baustein oder ist ein Altfehler,
+  den die Welle nach U6 nicht ändert. Preis: nichts.
+- **W62** (Gesamtprüfung I1, nachgeschärft; ersetzt die Rasterbreiten aus W57) GO und Anfang liegen je über zwei Spalten eines
+  Rasters mit vier Spalten. Oben: „⏮ Marke“ | GO über zwei Spalten | „Marke ⏭“. Unten: „↑ zurück“ | „Anfang“ über zwei
+  Spalten | „↓ vor“. „Anfang“ bleibt genau unter GO wie früher. Im selben Zug protokolliert M1 wie der Timer auch einen
+  Start mit ok:false (z. B. Port belegt), und dieses Dokument nimmt die Entscheidungen der Gesamtprüfung als W57 bis W62 auf.
+  Grund: Im Raster mit drei Spalten passte der Inhalt von GO im Betrieb nicht in seinen Platz; zu lesen war nur
+  „VE Pause Leerta…“. Gemessen nach dem Umbau: GO ist über zwei Spalten 175 px breit, in der Mindestgröße 162 px. Der Inhalt
+  braucht im Betrieb („LIVE“, „Pause“ und „Leertaste“ in 19 px) aber 268 px, GO bleibt also im Betrieb abgeschnitten. Lesbar
+  wird GO erst mit einem TallyButton, der sein Kürzel umbricht oder verkleinert (Welle 2b). „Anfang“ ist breiter als früher und
+  reicht bis an den inneren Rand der alten Plätze von „↑ zurück“ und „↓ vor“ (Abnahme PRZ4). Preis: eine Nachmessung.
