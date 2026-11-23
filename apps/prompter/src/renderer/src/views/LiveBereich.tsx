@@ -52,14 +52,17 @@ export function liveTasten(s: OberflaechenStand, aktionen: LiveAktionen): [LiveT
 }
 
 /**
- * Raster der beiden Reihen wie bisher: oben die Marken außen und GO doppelt so breit in der Mitte (die alte Reihe war
- * schmal | flex-1 | schmal), unten drei gleiche Spalten. Die Spalten nehmen mindestens den Inhalt ihrer Taste.
+ * Ein Raster mit vier Spalten für beide Reihen (Ruling W62, Gesamtprüfung I1 nachgeschärft): GO und darunter Anfang liegen über
+ * je zwei Spalten in der Mitte, die Marken bzw. ↑ zurück und ↓ vor außen über je eine (die alte Reihe war schmal | flex-1 |
+ * schmal). Die Reihen teilen die Spalten (`contents`), Anfang steht also genau unter GO wie früher. Die Spalten nehmen
+ * mindestens den Inhalt ihrer Taste.
  */
-const RASTER = ['grid-cols-[1fr_2fr_1fr]', 'grid-cols-[1fr_1fr_1fr]'] as const;
+const BREIT: ReadonlySet<LiveTaste['id']> = new Set<LiveTaste['id']>(['go', 'anfang']);
 
 /**
  * GO trägt im Lauf „LIVE“, „Pause“ und das Kürzel in der Schrift der LIVE-Fläche (19 px) und ist dann breiter als sein Platz
- * (gemessen, final-messung.mjs: Inhalt rund 232 px, Platz rund 170 px). Der Platz schneidet am Rand der Taste ab, was übersteht:
+ * (gemessen, final-messung.mjs: Inhalt 232 px, mit Rand und Polster 268 px; Platz über zwei Spalten 175 px bei 1180 × 800, 162 px
+ * bei 940 × 620). Der Platz schneidet am Rand der Taste ab, was übersteht:
  * Nichts davon liegt über einer Nachbartaste oder nimmt ihr einen Klick weg, und das Raster bleibt beim Wechsel zwischen GO und
  * Pause gleich (min-w-0). Den Fokusring der Taste schneidet der Platz mit ab; er zeichnet ihn deshalb selbst, gleich aussehend.
  */
@@ -68,13 +71,13 @@ const GO_PLATZ =
 
 export function HauptTasten({ tasten }: { tasten: readonly (readonly LiveTaste[])[] }): React.JSX.Element {
   return (
-    <div data-prompter="haupttasten" className="w-full space-y-3">
+    <div data-prompter="haupttasten" className="grid w-full grid-cols-[1fr_1fr_1fr_1fr] gap-3">
       {tasten.map((reihe, r) => (
-        <div key={r} data-prompter={r === 0 ? 'tasten-oben' : 'tasten-unten'} className={`grid gap-3 ${RASTER[r] ?? RASTER[1]}`}>
+        <div key={r} data-prompter={r === 0 ? 'tasten-oben' : 'tasten-unten'} className="contents">
           {/* Reihenfolge fest, die Beschriftung wechselt (GO/Pause): die id ist der stabile key. Der TallyButton hat keinen title:
               Die Marken-Tasten stehen in einem Element mit dem alten Tooltip (R-T6a). */}
           {reihe.map(({ id, taste, tipp }) => (
-            <div key={id} data-taste={id} title={tipp} className={id === 'go' ? GO_PLATZ : 'flex'}>
+            <div key={id} data-taste={id} title={tipp} className={`${id === 'go' ? GO_PLATZ : 'flex'}${BREIT.has(id) ? ' col-span-2' : ''}`}>
               <TallyButton {...taste} />
             </div>
           ))}

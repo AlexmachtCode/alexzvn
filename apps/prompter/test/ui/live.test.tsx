@@ -103,10 +103,10 @@ const zeile = (s: OberflaechenStand): string[] => alleTasten(s).map(({ taste: t 
   );
 }
 
-// ── PR Live Tastenplätze (Gesamtprüfung I1, Ruling: die gewohnte Anordnung der alten OperatorView.tsx) ──
+// ── PR Live Tastenplätze (Gesamtprüfung I1, nachgeschärft: Ruling W62; die gewohnte Anordnung der alten OperatorView.tsx) ──
 // Reihe 1: Marke zurück | GO/Pause (breit, Mitte) | Marke vor; Reihe 2: ↑ zurück | Anfang | ↓ vor. „Anfang“ (an den Anfang und
 // pausieren) liegt nie neben GO in Reihe 1. Geprüft am gerenderten Live-Bereich: je Reihe die Beschriftungen in Spaltenfolge und
-// die Spaltenraster (GO doppelt so breit wie eine Marke, unten drei gleiche Spalten wie bisher).
+// das Raster: vier Spalten für beide Reihen, GO und Anfang über je zwei Spalten (Anfang unter GO wie früher), alle übrigen über eine.
 {
   const html = render(<LiveBereich state={state(false)} stand={stand(state(false))} aktionen={aktionen()} onMarkers={() => undefined} />);
   const oben = html.indexOf('data-prompter="tasten-oben"');
@@ -123,8 +123,17 @@ const zeile = (s: OberflaechenStand): string[] => alleTasten(s).map(({ taste: t 
   );
   const klasse = (name: string): string => attr(tags(html, 'div').find((t) => attr(t, 'data-prompter') === name), 'class') ?? '';
   ok(
-    oben >= 0 && unten > oben && klasse('tasten-oben').includes('grid-cols-[1fr_2fr_1fr]') && klasse('tasten-unten').includes('grid-cols-[1fr_1fr_1fr]'),
-    'PR Live Tastenplätze: oben drei Spalten mit breitem GO in der Mitte (1:2:1), unten drei gleiche Spalten',
+    oben >= 0 &&
+      unten > oben &&
+      klasse('haupttasten').split(' ').includes('grid-cols-[1fr_1fr_1fr_1fr]') &&
+      ['tasten-oben', 'tasten-unten'].every((r) => klasse(r).split(' ').includes('contents')),
+    'PR Live Tastenplätze: ein Raster mit vier Spalten für beide Reihen (die Reihen teilen die Spalten)',
+  );
+  const platz = (id: string): string[] => (attr(tags(html, 'div').find((t) => attr(t, 'data-taste') === id), 'class') ?? '').split(' ');
+  gleich(
+    ['markeZurueck', 'go', 'markeVor', 'zurueck3', 'anfang', 'vor3'].map((id) => platz(id).includes('col-span-2')),
+    [false, true, false, false, true, false],
+    'PR Live Tastenplätze: GO und Anfang über je zwei Spalten (Anfang unter GO), die Marken, ↑ zurück und ↓ vor über je eine',
   );
   gleich(tags(html.slice(oben < 0 ? html.length : oben), 'button').length, 6, 'PR Live Tastenplätze: sechs Tasten unter der Vorschau, alle im Raster');
   // Im Lauf ist GO („LIVE“, „Pause“, Kürzel in 19 px) breiter als sein Platz (gemessen): Der Platz schneidet ab und hält das Raster
