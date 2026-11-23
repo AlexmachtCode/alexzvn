@@ -334,13 +334,16 @@ function geraetItem(s: OberflaechenStand, key: keyof typeof WAHL_EINTRAG): Statu
   return item;
 }
 
-/** Ducking: ohne Motor oder Einstellungen unbekannt; mit bypass „überbrückt“ (nie „offen“); sonst nach dem gemessenen Zustand. */
+/**
+ * Ducking: ohne Motor oder Einstellungen unbekannt; mit bypass „überbrückt“ (nie „offen“); sonst nach dem gemessenen Zustand.
+ * Im Stillstand ist der Eintrag aus (Gesamtprüfung M6): „offen“ ist dann nur der Ruhewert der Engine, nicht gemessen; der Text bleibt.
+ */
 function duckingItem(s: OberflaechenStand): StatusItem {
   const T = INTERPRETER_TEXTE.ducking;
   const kopf = { id: 'ducking', group: 'tool', label: T.titel, settingsSection: ABSCHNITT.ducking } as const;
   if (s.engine === undefined || s.einstellungen === undefined) return unbekannt(kopf);
   if (s.einstellungen.bypass) return { ...kopf, state: 'warn', detail: T.ueberbrueckt };
-  return { ...kopf, state: 'ok', detail: s.engine.ducking ? T.abgesenkt : T.offen };
+  return { ...kopf, state: s.engine.running ? 'ok' : 'off', detail: s.engine.ducking ? T.abgesenkt : T.offen };
 }
 
 function fehlerItem(s: OberflaechenStand): StatusItem {

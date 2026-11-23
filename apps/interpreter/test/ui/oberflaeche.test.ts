@@ -152,8 +152,10 @@ gleich(
 );
 
 // ── IN Statusleiste ducking ──
+// Gesamtprüfung M6: im Stillstand (Motor läuft nicht) ist der Eintrag grau (off), der Text bleibt; mit Überbrücken weiter
+// „überbrückt“ (warn), auch im Stillstand.
 pruefeFaelle(
-  'IN Statusleiste ducking: abgesenkt, offen, überbrückt',
+  'IN Statusleiste ducking: abgesenkt, offen, überbrückt; im Stillstand off mit demselben Text',
   kreuz({ motor: ['ohne', 'mit'] as const, einst: [true, false], ducking: [true, false], bypass: [true, false], laeuft: [true, false] }),
   (f) => {
     const s = stand({ engine: f.motor === 'ohne' ? undefined : motor({ running: f.laeuft, ducking: f.ducking }), einstellungen: f.einst ? einst({ bypass: f.bypass }) : undefined });
@@ -161,7 +163,7 @@ pruefeFaelle(
     let soll: string;
     if (f.motor === 'ohne' || !f.einst) soll = `off ${UNBEKANNT}`;
     else if (f.bypass) soll = `warn ${INTERPRETER_TEXTE.ducking.ueberbrueckt}`;
-    else soll = `ok ${f.ducking ? INTERPRETER_TEXTE.ducking.abgesenkt : INTERPRETER_TEXTE.ducking.offen}`;
+    else soll = `${f.laeuft ? 'ok' : 'off'} ${f.ducking ? INTERPRETER_TEXTE.ducking.abgesenkt : INTERPRETER_TEXTE.ducking.offen}`;
     return vergleiche(zeile(i), soll) ?? (i.settingsSection === ABSCHNITT.ducking ? null : 'settingsSection');
   },
 );
