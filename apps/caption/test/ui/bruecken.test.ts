@@ -191,12 +191,18 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
   ok(cs.includes('return server.start(CONTROL_PORT);'), 'CA Wächter STEUER_PORT 8732: der Steuerserver startet unverändert auf CONTROL_PORT');
 }
 
-// ── Gesamtprüfung M1: ein Wurf beim Start des Steuerservers kommt zusätzlich ins Protokoll (wie beim Timer), nicht nur als
-// Meldung in die Statusleiste; sonst ändert sich nichts am Start ──
+// ── Gesamtprüfung M1: Startfehler des Steuerservers kommen zusätzlich ins Protokoll, wie beim Timer
+// (apps/timer/src/main/index.ts): ein Start mit ok:false (z. B. Port belegt) und ein Wurf. Die Meldungen an die Statusleiste
+// bleiben, sonst ändert sich nichts am Start ──
 {
   const main = leseText('src/main/index.ts');
+  const start = main.slice(main.indexOf('startControlServer('), main.indexOf('startControlServer(') + 1200);
   ok(
-    /startControlServer\([^;]*?\.catch\(\(err\) => \{\s*getLog\(\)\.warn\(`Caption-Steuerserver fehlgeschlagen: \$\{err instanceof Error \? err\.message : String\(err\)\}`\);\s*meldeFernsteuerung\(\{ art: 'wurf', text: err instanceof Error \? err\.message : String\(err\) \}\);\s*\}\);/.test(main),
+    /^startControlServer\([\s\S]*?\)\s*\.then\(\(r\) => \{\s*meldeFernsteuerung\(\{ art: 'start', ok: r\.ok, error: r\.error \}\);\s*if \(!r\.ok\) getLog\(\)\.warn\(`Caption-Steuerserver nicht gestartet: \$\{r\.error \?\? 'unbekannt'\}`\);\s*\}\)/.test(start),
+    'CA Wächter Steuerserver-Start: ein Start mit ok:false (z. B. Port belegt) geht mit getLog().warn ins Protokoll, die Meldung an die Statusleiste bleibt',
+  );
+  ok(
+    /\.catch\(\(err\) => \{\s*getLog\(\)\.warn\(`Caption-Steuerserver fehlgeschlagen: \$\{err instanceof Error \? err\.message : String\(err\)\}`\);\s*meldeFernsteuerung\(\{ art: 'wurf', text: err instanceof Error \? err\.message : String\(err\) \}\);\s*\}\);/.test(start),
     'CA Wächter Steuerserver-Start: der Wurf beim Start geht mit getLog().warn ins Protokoll und weiter als Meldung an die Statusleiste',
   );
 }

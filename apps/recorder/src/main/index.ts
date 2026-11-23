@@ -158,8 +158,12 @@ if (!gotLock) {
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — Befehle
     // gehen per IPC an den Renderer, STATE wird direkt aus dem Main gepusht.
     startControlServer(() => mainWindow, meldeFernsteuerung)
-      .then((r) => meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error }))
-      // Gesamtprüfung M1: ein Wurf geht auch ins Protokoll (wie beim Timer), damit er nach der Show nachlesbar ist.
+      .then((r) => {
+        meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });
+        if (!r.ok) getLog().warn(`Recorder-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
+      })
+      // Gesamtprüfung M1: Startfehler gehen auch ins Protokoll (wie beim Timer), damit sie nach der Show nachlesbar sind:
+      // ein Start mit ok:false (oben, z. B. Port belegt) und ein Wurf.
       .catch((err) => {
         getLog().warn(`Recorder-Steuerserver fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
         meldeFernsteuerung({ art: 'wurf', text: err instanceof Error ? err.message : String(err) });

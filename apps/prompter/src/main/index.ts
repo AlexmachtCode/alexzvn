@@ -420,8 +420,12 @@ if (!gotLock) {
     if (getConfig().remoteEnabled) void setRemote(true);
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — immer an.
     startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand, onMeldung: meldeFernsteuerung })
-      .then((r) => meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error }))
-      // Gesamtprüfung M1: ein Wurf geht auch ins Protokoll (wie beim Timer), damit er nach der Show nachlesbar ist.
+      .then((r) => {
+        meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });
+        if (!r.ok) getLog().warn(`Prompter-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
+      })
+      // Gesamtprüfung M1: Startfehler gehen auch ins Protokoll (wie beim Timer), damit sie nach der Show nachlesbar sind:
+      // ein Start mit ok:false (oben, z. B. Port belegt) und ein Wurf.
       .catch((err) => {
         getLog().warn(`Prompter-Steuerserver fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
         meldeFernsteuerung({ art: 'wurf', text: err instanceof Error ? err.message : String(err) });

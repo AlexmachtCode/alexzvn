@@ -575,7 +575,7 @@ ok(
 ok(
   beginnt(88, 'Panel Fernsteuerung') && nennt(88, 'E2', 'Statusleiste', '`main/control-server.ts`', '`shared/fernsteuerung.ts`', 'Port 8732', 'EADDRINUSE', 'Befund 10') && ctl.includes('onMeldung') && ctl.includes('onStatus:') &&
     panel.includes('<RemoteControlSection {...fernsteuerungAbschnitt(stand)} />') && obf.includes('companionModule: CAPTION_TEXTE.companionModul') && obf.includes("companionModul: 'JM Caption'") && obf.includes('export const ABSCHNITT') &&
-    hauptIndex.includes('.then((r) => meldeFernsteuerung({ art: \'start\', ok: r.ok, error: r.error }))'),
+    hauptIndex.includes("meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });"),
   'CA Funktionsliste Nr. 88: die Fernsteuerungs-Meldung (Port 8732, Clients, Fehler, Port belegt) steht im Panel Fernsteuerung und in der Statusleiste (E2), Modul „JM Caption“',
 );
 ok(
