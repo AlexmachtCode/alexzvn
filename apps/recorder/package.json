@@ -1,6 +1,6 @@
 {
   "name": "@jm/recorder",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "private": true,
   "description": "Jakobs Medien Audio Recorder — Mehrkanal-Aufnahme (inkl. Dante via DVSC/ASIO) als WAV",
   "author": "Jakobs Medien GmbH",
@@ -16,8 +16,9 @@
     "postinstall": "node scripts/maybe-rebuild.mjs",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "selftest": "tsx test/wav.test.ts && tsx test/dateiname.test.ts && tsx test/recorder.test.ts && tsx test/einstellungen.test.ts && tsx test/store.test.ts && tsx test/presets.test.ts && tsx test/presets-datei.test.ts && tsx test/stille.test.ts",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web && npm run typecheck:test",
+    "selftest": "tsx test/wav.test.ts && tsx test/dateiname.test.ts && tsx test/recorder.test.ts && tsx test/einstellungen.test.ts && tsx test/store.test.ts && tsx test/presets.test.ts && tsx test/presets-datei.test.ts && tsx test/stille.test.ts && tsx --tsconfig tsconfig.test.json test/ui/selftest.ts",
     "prepackage": "node tools/bundle-audio.mjs",
     "dist": "electron-vite build && npm run prepackage && electron-builder",
     "dist:dir": "electron-vite build && electron-builder --dir",
@@ -28,6 +29,7 @@
     "@fontsource-variable/manrope": "^5.1.1",
     "@jm/app-runtime": "*",
     "@jm/audio": "*",
+    "@jm/settings": "*",
     "@jm/suite-control-protocol": "*",
     "@jm/ui": "*",
     "react": "^18.3.1",
@@ -45,6 +47,7 @@
     "electron-builder": "24.13.3",
     "electron-vite": "^2.3.0",
     "tailwindcss": "^4.0.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
   }

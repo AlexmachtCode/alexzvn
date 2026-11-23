@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { MasterLinkMeldung } from '@jm/app-runtime';
+import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type {
   ArmInput,
   AudioDevice,
@@ -19,6 +21,20 @@ import type {
 
 const api: JmrecApi = {
   platform: process.platform,
+  // UX Welle 2a (Spec 3.9): Master-Link-Zustand lesend. null, solange die Brücke fehlt oder ablehnt (Statusleiste: unbekannt).
+  masterLink: () => (ipcRenderer.invoke('jmps:master-link') as Promise<MasterLinkMeldung>).catch(() => null),
+  onMasterLink: (cb) => {
+    const listener = (_e: unknown, m: MasterLinkMeldung): void => cb(m);
+    ipcRenderer.on('jmps:master-link', listener);
+    return () => ipcRenderer.off('jmps:master-link', listener);
+  },
+  // Meldung des Steuerservers lesend (Port, läuft, Clients, Modus, Startfehler). null, solange Main nichts gemeldet hat.
+  fernsteuerung: () => (ipcRenderer.invoke('recorder:fernsteuerung') as Promise<FernsteuerungMeldung | null>).catch(() => null),
+  onFernsteuerung: (cb) => {
+    const listener = (_e: unknown, m: FernsteuerungMeldung | null): void => cb(m);
+    ipcRenderer.on('recorder:fernsteuerung', listener);
+    return () => ipcRenderer.off('recorder:fernsteuerung', listener);
+  },
   listDevices: () => ipcRenderer.invoke('rec:listDevices') as Promise<AudioDevice[]>,
   arm: (input: ArmInput) => ipcRenderer.invoke('rec:arm', input) as Promise<OpResult>,
   disarm: () => ipcRenderer.invoke('rec:disarm') as Promise<void>,

@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@jm/ui/base.css";
 @source "../../../../../packages/ui/src";
+@source "../../../../../packages/settings/src";
 
 @theme {
   --font-sans: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
@@ -44,4 +45,14 @@ select {
 
 button {
   font-family: inherit;
+}
+
+/* Unter 900 px liegt das Einstellungs-Panel über dem Inhalt (max-[900px] in @jm/ui). Nur dann, also nur bei offenem Panel (das
+   <aside> steht nur dann im Inhaltsbereich), bleibt der Live-Bereich links daneben und verliert die Zentrierung; bei
+   geschlossenem Panel ist er die alte zentrierte Spalte. Reines CSS, kein Panelzustand in der View (Muster Caption). */
+@media (width < 900px) {
+  [data-bereich='inhalt']:has(> aside) [data-interpreter='live'] {
+    max-width: calc(100vw - var(--panel-w) - 2.5rem);
+    margin-inline: 0;
+  }
 }

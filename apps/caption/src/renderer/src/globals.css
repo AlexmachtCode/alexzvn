@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@jm/ui/base.css";
 @source "../../../../../packages/ui/src";
+@source "../../../../../packages/settings/src";
 
 @theme {
   --font-sans: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
@@ -44,4 +45,26 @@ select {
 
 button {
   font-family: inherit;
+}
+
+/* Schachbrett hinter der NDI-Vorschau: zeigt die Transparenz der Quelle (vorher #2a2a2a/#1c1c1c im App.tsx). Es bleibt in Hell
+   und Dunkel dunkel wie bisher (Fix-Runde 1): Die Vorschau ist die Live-Kontrolle, und weiße Untertitel ohne Band wären auf
+   hellem Grund kaum lesbar. Darum nur Marken-Tokens, die kein .light-Block umdefiniert (--brand-dark, --brand-fg-on-dark),
+   gemischt auf die Helligkeit der alten Felder (oklab L ≈ 0,285 und 0,227). Das NDI-Bild selbst (lib/caption-cg.ts) bleibt
+   unberührt. */
+.ca-schachbrett {
+  background-image: repeating-conic-gradient(
+    color-mix(in oklab, var(--brand-dark) 87%, var(--brand-fg-on-dark)) 0% 25%,
+    color-mix(in oklab, var(--brand-dark) 94%, var(--brand-fg-on-dark)) 0% 50%
+  );
+  background-size: 16px 16px;
+}
+
+/* Unter 900 px liegt das Einstellungs-Panel über dem Inhalt (max-[900px] in @jm/ui). Nur dann, also nur bei offenem Panel (das
+   <aside> steht nur dann im Inhaltsbereich), bleibt der Live-Bereich links daneben; bei geschlossenem Panel nutzt er die volle
+   Breite, und die Vorschau steht wie bisher neben der Live-Zeile (Fix-Runde 1). Reines CSS, kein Panelzustand in der View. */
+@media (width < 900px) {
+  [data-bereich='inhalt']:has(> aside) [data-caption='live'] {
+    max-width: calc(100vw - var(--panel-w) - 2.5rem);
+  }
 }

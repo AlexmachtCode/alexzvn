@@ -1,3 +1,5 @@
+import type { FernsteuerungMeldung } from './fernsteuerung';
+
 export interface AudioDevice {
   index: number;
   name: string;
@@ -139,9 +141,27 @@ export interface GeladeneEinstellungen {
   ordnerDa: boolean | null;
 }
 
+/**
+ * Master-Link-Zustand für die Statusleiste (Spec 3.9). Spiegel von MasterLinkMeldung aus @jm/app-runtime, das im Renderer
+ * nicht importierbar ist (Main-Code). Den Gleichlauf prüft die Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
+
 /** Shape, die der Preload auf `window.jmrec` legt. */
 export interface JmrecApi {
   platform: NodeJS.Platform;
+  /** Master-Link-Zustand (Spec 3.9): Meldung oder null (Brücke fehlt oder lehnt ab → „unbekannt“). */
+  masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+  onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
+  /** Lage des Steuerservers (Port 8729), nur lesend; null, solange Main nichts gemeldet hat. */
+  fernsteuerung: () => Promise<FernsteuerungMeldung | null>;
+  onFernsteuerung: (cb: (m: FernsteuerungMeldung | null) => void) => () => void;
   listDevices: () => Promise<AudioDevice[]>;
   /** Eingang öffnen (Pegel laufen, noch keine Datei). */
   arm: (input: ArmInput) => Promise<OpResult>;

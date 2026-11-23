@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
+import { istEingabeZiel } from '@/lib/oberflaeche';
 
 /** Tastatursteuerung des Prompters (greift nicht, wenn ein Eingabefeld fokussiert ist). */
 export function usePrompterHotkeys(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (istEingabeZiel(e.target)) return;
       const api = window.jmprompt;
       switch (e.key) {
         case ' ':

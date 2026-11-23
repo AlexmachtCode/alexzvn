@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import type { MasterLinkMeldung } from '@jm/app-runtime';
+import type { AusgabeZustand } from '@jm/output-window/zustand';
+import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type {
   Cue,
   CueInput,
@@ -24,6 +27,20 @@ const api: JmplayApi = {
   platform: process.platform,
   pathForFile: (file) => webUtils.getPathForFile(file),
   mediaUrl,
+  // UX Welle 2a (Spec 3.9): Master-Link-Zustand lesend. null, solange die Brücke fehlt oder ablehnt (Statusleiste: unbekannt).
+  masterLink: () => (ipcRenderer.invoke('jmps:master-link') as Promise<MasterLinkMeldung>).catch(() => null),
+  onMasterLink: (cb) => {
+    const listener = (_e: unknown, m: MasterLinkMeldung): void => cb(m);
+    ipcRenderer.on('jmps:master-link', listener);
+    return () => ipcRenderer.off('jmps:master-link', listener);
+  },
+  // Meldung des Steuerservers lesend (Port, läuft, Clients, Modus, Startfehler). null, solange Main nichts gemeldet hat.
+  fernsteuerung: () => (ipcRenderer.invoke('player:fernsteuerung') as Promise<FernsteuerungMeldung | null>).catch(() => null),
+  onFernsteuerung: (cb) => {
+    const listener = (_e: unknown, m: FernsteuerungMeldung | null): void => cb(m);
+    ipcRenderer.on('player:fernsteuerung', listener);
+    return () => ipcRenderer.off('player:fernsteuerung', listener);
+  },
   dialog: {
     pickFolders: () => ipcRenderer.invoke('dialog:pickFolders') as Promise<string[]>,
     pickFiles: () => ipcRenderer.invoke('dialog:pickFiles') as Promise<string[]>,
@@ -72,6 +89,13 @@ const api: JmplayApi = {
     open: (displayId) => ipcRenderer.invoke('output:open', displayId) as Promise<void>,
     close: () => ipcRenderer.invoke('output:close') as Promise<void>,
     isOpen: () => ipcRenderer.invoke('output:isOpen') as Promise<boolean>,
+    zustand: () => (ipcRenderer.invoke('output:zustand') as Promise<AusgabeZustand | null>).catch(() => null),
+    onZustand: (cb) => {
+      const listener = (_e: unknown, z: AusgabeZustand): void => cb(z);
+      ipcRenderer.on('output:zustand', listener);
+      return () => ipcRenderer.off('output:zustand', listener);
+    },
+    isFullscreen: () => (ipcRenderer.invoke('output:isFullscreen') as Promise<boolean | null>).catch(() => null),
     toggleFullscreen: () => ipcRenderer.invoke('output:toggleFullscreen') as Promise<boolean>,
     command: (cmd) => ipcRenderer.invoke('output:command', cmd) as Promise<void>,
     notifyEnded: () => ipcRenderer.invoke('output:ended') as Promise<void>,

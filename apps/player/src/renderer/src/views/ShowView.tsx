@@ -1,18 +1,27 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Button, cn } from '@jm/ui';
-import type { DisplayInfo, MediaItem, OutputTime, ShowCue } from '@shared/types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, cn, Modal } from '@jm/ui';
+import type { MediaItem, OutputTime, ShowCue } from '@shared/types';
 import { usePlayer } from '@/store/player';
 import { formatDuration } from '@/lib/format';
+import { istEingabeZiel } from '@/lib/oberflaeche';
+import { LiveBereich } from './LiveBereich';
 
-export function ShowView() {
+/**
+ * Cue-Show. `onAusgabe` öffnet das Einstellungs-Panel beim Abschnitt Ausgabe (UX Welle 2a, Player d1: das Modal
+ * „Video-Ausgabe“ ist dort aufgegangen); „▦ Ausgabe“ bleibt der Zugang im Kopf der Cue-Show. Unten steht der Live-Bereich
+ * (Standby und Transport als TallyButtons, Player d2); eine Fußleiste hat die Cue-Show nicht (W2-10).
+ */
+export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
   const shows = usePlayer((s) => s.shows);
   const activeShowId = usePlayer((s) => s.activeShowId);
   const showCues = usePlayer((s) => s.showCues);
   const standbyIndex = usePlayer((s) => s.standbyIndex);
   const playingCueIds = usePlayer((s) => s.playingCueIds);
+  const vorlaufCueIds = usePlayer((s) => s.vorlaufCueIds);
   const showPaused = usePlayer((s) => s.showPaused);
   const videoProgress = usePlayer((s) => s.videoProgress);
   const videoCue = usePlayer((s) => s.videoCue);
+  const outputDisplayId = usePlayer((s) => s.outputDisplayId);
 
   const createShow = usePlayer((s) => s.createShow);
   const renameShow = usePlayer((s) => s.renameShow);
@@ -27,20 +36,23 @@ export function ShowView() {
   const showTogglePause = usePlayer((s) => s.showTogglePause);
 
   const [addOpen, setAddOpen] = useState(false);
-  const [outputOpen, setOutputOpen] = useState(false);
   const [editCue, setEditCue] = useState<ShowCue | null>(null);
+  // Stabile Schließen-Rückrufe: Modal meldet sich bei jedem neuen onClose neu an und holte den Fokus sonst bei jeder
+  // Store-Änderung (Videofortschritt ~4×/s) zurück auf das erste Feld.
+  const schliesseHinzufuegen = useCallback(() => setAddOpen(false), []);
+  const schliesseCue = useCallback(() => setEditCue(null), []);
 
   // Beim ersten Betreten die erste Show wählen.
   useEffect(() => {
     if (activeShowId == null && shows.length > 0) void selectShow(shows[0].id);
   }, [activeShowId, shows, selectShow]);
 
-  // Leertaste = GO, Escape = Stop (außer in Eingabefeldern / bei offenem Dialog).
+  // Leertaste = GO, Escape = Stop (außer in Eingabefeldern / bei offenem Dialog). Das Einstellungs-Panel ist kein Dialog:
+  // Leertaste auf einem Panel-Knopf geht ans Tool (O1); Escape schließt das Panel und kommt hier nicht an (panelTaste).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (addOpen || outputOpen || editCue) return;
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) return;
+      if (addOpen || editCue) return;
+      if (istEingabeZiel(e.target)) return;
       if (e.code === 'Space') {
         e.preventDefault();
         showGo();
@@ -50,7 +62,7 @@ export function ShowView() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [addOpen, outputOpen, editCue, showGo, showStop]);
+  }, [addOpen, editCue, showGo, showStop]);
 
   const newShow = async (): Promise<void> => {
     await createShow(`Show ${shows.length + 1}`);
@@ -72,8 +84,6 @@ export function ShowView() {
       </div>
     );
   }
-
-  const standbyCue = showCues[standbyIndex] ?? null;
 
   const move = (index: number, dir: -1 | 1): void => {
     const target = index + dir;
@@ -125,7 +135,7 @@ export function ShowView() {
           </>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={() => setOutputOpen(true)}>
+          <Button size="sm" variant="ghost" onClick={onAusgabe}>
             ▦ Ausgabe
           </Button>
           <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
@@ -174,133 +184,17 @@ export function ShowView() {
         />
       )}
 
-      {/* Transport */}
-      <div className="shrink-0 border-t border-[var(--border)]/60 bg-[var(--card)]/50 px-5 py-3 flex items-center gap-4">
-        <div className="min-w-0 flex-1">
-          <span className="text-[10px] uppercase tracking-[0.12em] font-extrabold text-[var(--muted-foreground)]">
-            Standby
-          </span>
-          <div className="truncate text-sm font-bold">
-            {standbyCue ? `Cue ${standbyIndex + 1} · ${standbyCue.label || standbyCue.media?.fileName || '—'}` : '— Ende —'}
-          </div>
-        </div>
+      {/* Live-Bereich: Standby und Transport (Pause/Weiter, Stop, Panik, GO ganz rechts wie bisher; Ruling W36) mit denselben
+          Store-Aktionen wie bisher */}
+      <LiveBereich
+        stand={{
+          player: { activeShowId, showCues, standbyIndex, playingCueIds, vorlaufCueIds, showPaused, videoCue, videoProgress, outputDisplayId },
+        }}
+        aktionen={{ showGo, showTogglePause, showStop, showPanic }}
+      />
 
-        <Button variant="ghost" onClick={showTogglePause} disabled={playingCueIds.length === 0 && !showPaused}>
-          {showPaused ? '▶ Weiter' : '❚❚ Pause'}
-        </Button>
-        <Button variant="outline" onClick={showStop}>
-          ■ Stop
-        </Button>
-        <Button variant="ghost" uppercase={false} onClick={showPanic} title="Sofort alles stoppen">
-          ⛔ Panik
-        </Button>
-        <button
-          type="button"
-          onClick={showGo}
-          disabled={!standbyCue}
-          className={cn(
-            'h-12 px-8 rounded-[var(--radius-lg)] text-lg font-extrabold tracking-wide transition-colors',
-            standbyCue
-              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 active:scale-[0.98]'
-              : 'bg-[var(--muted)] text-[var(--muted-foreground)] cursor-not-allowed',
-          )}
-        >
-          GO ⏎
-        </button>
-      </div>
-
-      {addOpen && activeShowId != null && <AddCuesModal onClose={() => setAddOpen(false)} />}
-      {editCue && <CueSettingsModal cue={editCue} onClose={() => setEditCue(null)} />}
-      {outputOpen && <OutputModal onClose={() => setOutputOpen(false)} />}
-    </div>
-  );
-}
-
-function OutputModal({ onClose }: { onClose: () => void }) {
-  const openOutput = usePlayer((s) => s.openOutput);
-  const closeOutput = usePlayer((s) => s.closeOutput);
-  const outputDisplayId = usePlayer((s) => s.outputDisplayId);
-  const [displays, setDisplays] = useState<DisplayInfo[]>([]);
-  const [isOpen, setIsOpen] = useState(false);
-  // Das Ausgabefenster öffnet immer im Vollbild → Default true (Issue #31).
-  const [isFs, setIsFs] = useState(true);
-
-  useEffect(() => {
-    void window.jmplay.output.displays().then(setDisplays);
-    void window.jmplay.output.isOpen().then(setIsOpen);
-  }, []);
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm px-6" onClick={onClose}>
-      <div
-        className="w-full max-w-md rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--card)] p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-extrabold tracking-tight">Video-Ausgabe</h2>
-        <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-          Bildschirm für das Vollbild-Ausgabefenster wählen. Video-Cues erscheinen dort.
-        </p>
-
-        <div className="mt-4 flex flex-col gap-2">
-          {displays.length === 0 && (
-            <p className="text-sm text-[var(--muted-foreground)]">Keine Bildschirme erkannt.</p>
-          )}
-          {displays.map((d) => (
-            <button
-              key={d.id}
-              type="button"
-              onClick={() => {
-                void openOutput(d.id);
-                setIsOpen(true);
-                setIsFs(true);
-              }}
-              className={cn(
-                'flex items-center justify-between rounded-[var(--radius)] border px-4 py-3 text-left transition-colors',
-                d.id === outputDisplayId
-                  ? 'border-[var(--primary)]/60 bg-[var(--highlight)]'
-                  : 'border-[var(--border)] hover:bg-[var(--highlight)]',
-              )}
-            >
-              <span className="text-sm font-bold">
-                {d.label}
-                {d.primary ? ' · Primär' : ''}
-              </span>
-              <span className="text-[11px] text-[var(--muted-foreground)] tabular">
-                {d.width}×{d.height}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-6 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                void closeOutput();
-                setIsOpen(false);
-              }}
-              disabled={!isOpen}
-            >
-              Ausgabe schließen
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={!isOpen}
-              onClick={() => {
-                void window.jmplay.output.toggleFullscreen().then(setIsFs);
-              }}
-            >
-              {isFs ? 'Vollbild aus' : 'Vollbild an'}
-            </Button>
-          </div>
-          <Button size="sm" variant="primary" onClick={onClose}>
-            Fertig
-          </Button>
-        </div>
-      </div>
+      {addOpen && activeShowId != null && <AddCuesModal onClose={schliesseHinzufuegen} />}
+      {editCue && <CueSettingsModal cue={editCue} onClose={schliesseCue} />}
     </div>
   );
 }
@@ -377,7 +271,8 @@ function CueRow({
   );
 }
 
-function CueSettingsModal({ cue, onClose }: { cue: ShowCue; onClose: () => void }) {
+/** Dialog „Cue bearbeiten“ (Modal aus @jm/ui; exportiert für die Render-Tests). */
+export function CueSettingsModal({ cue, onClose }: { cue: ShowCue; onClose: () => void }) {
   const updateShowCue = usePlayer((s) => s.updateShowCue);
   const [label, setLabel] = useState(cue.label);
   const [preWait, setPreWait] = useState(cue.preWaitSec);
@@ -401,62 +296,58 @@ function CueSettingsModal({ cue, onClose }: { cue: ShowCue; onClose: () => void 
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm px-6" onClick={onClose}>
-      <div
-        className="w-full max-w-md rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--card)] p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-extrabold tracking-tight">Cue bearbeiten</h2>
-        <p className="text-xs text-[var(--muted-foreground)] mt-0.5 truncate">{cue.media?.fileName ?? 'Medium fehlt'}</p>
+    <Modal onClose={onClose} className="w-full max-w-md">
+      <h2 className="text-lg font-extrabold tracking-tight">Cue bearbeiten</h2>
+      <p className="text-xs text-[var(--muted-foreground)] mt-0.5 truncate">{cue.media?.fileName ?? 'Medium fehlt'}</p>
 
-        <div className="mt-5 flex flex-col gap-4">
-          <Field label="Beschriftung">
-            <input
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder={cue.media?.fileName ?? 'Cue-Name'}
-              className="h-10 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-sm"
-            />
-          </Field>
+      <div className="mt-5 flex flex-col gap-4">
+        <Field label="Beschriftung">
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder={cue.media?.fileName ?? 'Cue-Name'}
+            className="h-10 w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-sm"
+          />
+        </Field>
 
-          <div className="grid grid-cols-3 gap-3">
-            <NumField label="Pre-Wait (s)" value={preWait} step={0.5} min={0} onChange={setPreWait} />
-            <NumField label="Fade-In (s)" value={fadeIn} step={0.5} min={0} onChange={setFadeIn} />
-            <NumField label="Fade-Out (s)" value={fadeOut} step={0.5} min={0} onChange={setFadeOut} />
-          </div>
-
-          <div className="flex items-end gap-4">
-            <NumField label="Gain (dB)" value={gainDb} step={1} onChange={setGainDb} />
-            <label className="flex items-center gap-2 h-10 text-sm font-semibold cursor-pointer">
-              <input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} />
-              Loop
-            </label>
-            <label className="flex items-center gap-2 h-10 text-sm font-semibold cursor-pointer">
-              <input type="checkbox" checked={autoContinue} onChange={(e) => setAutoContinue(e.target.checked)} />
-              Auto-Continue
-            </label>
-          </div>
-          {loop && autoContinue && (
-            <p className="text-[11px] text-[var(--muted-foreground)]">
-              Hinweis: Loop-Cues enden nie von selbst — Auto-Continue greift dann nicht.
-            </p>
-          )}
+        <div className="grid grid-cols-3 gap-3">
+          <NumField label="Pre-Wait (s)" value={preWait} step={0.5} min={0} onChange={setPreWait} />
+          <NumField label="Fade-In (s)" value={fadeIn} step={0.5} min={0} onChange={setFadeIn} />
+          <NumField label="Fade-Out (s)" value={fadeOut} step={0.5} min={0} onChange={setFadeOut} />
         </div>
 
-        <div className="mt-6 flex items-center justify-end gap-2">
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Abbrechen
-          </Button>
-          <Button size="sm" variant="primary" onClick={() => void save()}>
-            Speichern
-          </Button>
+        <div className="flex items-end gap-4">
+          <NumField label="Gain (dB)" value={gainDb} step={1} onChange={setGainDb} />
+          <label className="flex items-center gap-2 h-10 text-sm font-semibold cursor-pointer">
+            <input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} />
+            Loop
+          </label>
+          <label className="flex items-center gap-2 h-10 text-sm font-semibold cursor-pointer">
+            <input type="checkbox" checked={autoContinue} onChange={(e) => setAutoContinue(e.target.checked)} />
+            Auto-Continue
+          </label>
         </div>
+        {loop && autoContinue && (
+          <p className="text-[11px] text-[var(--muted-foreground)]">
+            Hinweis: Loop-Cues enden nie von selbst — Auto-Continue greift dann nicht.
+          </p>
+        )}
       </div>
-    </div>
+
+      <div className="mt-6 flex items-center justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onClose}>
+          Abbrechen
+        </Button>
+        <Button size="sm" variant="primary" onClick={() => void save()}>
+          Speichern
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
-function AddCuesModal({ onClose }: { onClose: () => void }) {
+/** Dialog „Cues hinzufügen“ (Modal aus @jm/ui; exportiert für die Render-Tests). */
+export function AddCuesModal({ onClose }: { onClose: () => void }) {
   const items = usePlayer((s) => s.items);
   const addShowCues = usePlayer((s) => s.addShowCues);
   const [selected, setSelected] = useState<number[]>([]);
@@ -476,42 +367,37 @@ function AddCuesModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm px-6" onClick={onClose}>
-      <div
-        className="w-full max-w-lg rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--card)] p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-extrabold tracking-tight">Cues hinzufügen</h2>
-        <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-          Medien aus der Bibliothek auswählen — sie werden ans Ende der Show angehängt.
-        </p>
+    <Modal onClose={onClose} className="w-full max-w-lg">
+      <h2 className="text-lg font-extrabold tracking-tight">Cues hinzufügen</h2>
+      <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+        Medien aus der Bibliothek auswählen — sie werden ans Ende der Show angehängt.
+      </p>
 
-        <div className="mt-4 max-h-[50vh] overflow-auto scroll-thin rounded-[var(--radius)] border border-[var(--border)]/60 divide-y divide-[var(--border)]/40">
-          {sorted.length === 0 && (
-            <p className="p-4 text-sm text-[var(--muted-foreground)]">Bibliothek ist leer.</p>
-          )}
-          {sorted.map((m: MediaItem) => (
-            <label key={m.id} className="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-[var(--highlight)]">
-              <input type="checkbox" checked={selected.includes(m.id)} onChange={() => toggle(m.id)} />
-              <span className="shrink-0">{m.kind === 'audio' ? '♪' : '▦'}</span>
-              <span className="truncate flex-1">{m.fileName}</span>
-              <span className="shrink-0 text-[11px] text-[var(--muted-foreground)] tabular">
-                {formatDuration(m.durationSec)}
-              </span>
-            </label>
-          ))}
-        </div>
-
-        <div className="mt-5 flex items-center justify-end gap-2">
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Abbrechen
-          </Button>
-          <Button size="sm" variant="primary" disabled={selected.length === 0} onClick={() => void add()}>
-            Hinzufügen{selected.length > 0 ? ` (${selected.length})` : ''}
-          </Button>
-        </div>
+      <div className="mt-4 max-h-[50vh] overflow-auto scroll-thin rounded-[var(--radius)] border border-[var(--border)]/60 divide-y divide-[var(--border)]/40">
+        {sorted.length === 0 && (
+          <p className="p-4 text-sm text-[var(--muted-foreground)]">Bibliothek ist leer.</p>
+        )}
+        {sorted.map((m: MediaItem) => (
+          <label key={m.id} className="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-[var(--highlight)]">
+            <input type="checkbox" checked={selected.includes(m.id)} onChange={() => toggle(m.id)} />
+            <span className="shrink-0">{m.kind === 'audio' ? '♪' : '▦'}</span>
+            <span className="truncate flex-1">{m.fileName}</span>
+            <span className="shrink-0 text-[11px] text-[var(--muted-foreground)] tabular">
+              {formatDuration(m.durationSec)}
+            </span>
+          </label>
+        ))}
       </div>
-    </div>
+
+      <div className="mt-5 flex items-center justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onClose}>
+          Abbrechen
+        </Button>
+        <Button size="sm" variant="primary" disabled={selected.length === 0} onClick={() => void add()}>
+          Hinzufügen{selected.length > 0 ? ` (${selected.length})` : ''}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 

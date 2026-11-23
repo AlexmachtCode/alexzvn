@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { OperatorView } from '@/views/OperatorView';
+import { StageOberflaeche } from '@/views/StageOberflaeche';
 import { useStage } from '@/store/stage';
 
 export function App() {
@@ -7,5 +7,5 @@ export function App() {
   useEffect(() => {
     void load();
   }, [load]);
-  return <OperatorView />;
+  return <StageOberflaeche />;
 }

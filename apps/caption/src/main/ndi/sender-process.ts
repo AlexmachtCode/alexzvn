@@ -20,18 +20,29 @@ export function startSender(
   win: BrowserWindow,
   name: string,
   onStat?: (connections: number) => void,
+  /** Der Unterprozess ist beendet (UX Welle 2a, E8) — auch bei Absturz; nicht, wenn stopSender ihn selbst beendet hat. */
+  onEnde?: () => void,
 ): void {
   stopSender();
-  child = utilityProcess.fork(join(__dirname, 'ndi-sender.cjs'));
+  const proc = utilityProcess.fork(join(__dirname, 'ndi-sender.cjs'));
+  child = proc;
 
-  child.on('message', (msg: unknown) => {
+  // Nur der AKTUELLE Prozess zählt: Ereignisse eines früheren (nach stopSender oder Neustart) erreichen weder onStat noch onEnde.
+  proc.on('exit', () => {
+    if (child !== proc) return;
+    child = null;
+    onEnde?.();
+  });
+
+  proc.on('message', (msg: unknown) => {
+    if (child !== proc) return;
     const m = msg as { type?: string; connections?: number } | null;
     if (m && m.type === 'stat' && typeof m.connections === 'number') {
       onStat?.(m.connections);
     }
   });
 
-  child.postMessage({ type: 'init', name });
+  proc.postMessage({ type: 'init', name });
 
   // Frame-Kanal: port1 an den Renderer, port2 im Main als Weiterleitung.
   const { port1, port2 } = new MessageChannelMain();

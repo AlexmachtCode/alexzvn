@@ -1,3 +1,6 @@
+import type { AusgabeZustand } from '@jm/output-window/zustand';
+import type { FernsteuerungMeldung } from './fernsteuerung';
+
 // --- Prompter-Konfiguration + Transport ---
 //
 // Die Scroll-Position wird in *em* (Vielfachen der Schriftgröße) geführt, NICHT
@@ -137,6 +140,18 @@ export interface PartialPrompterConfig {
   remoteEnabled?: boolean;
 }
 
+/**
+ * Master-Link-Zustand für die Statusleiste (Spec 3.9). Spiegel von MasterLinkMeldung aus @jm/app-runtime, das im Renderer
+ * nicht importierbar ist (Main-Code). Den Gleichlauf prüft die Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
+
 /** Shape, die der Preload auf `window.jmprompt` legt. */
 export interface JmpromptApi {
   platform: NodeJS.Platform;
@@ -158,10 +173,19 @@ export interface JmpromptApi {
   };
   /** Handy-Fernbedienung an/aus; liefert den neuen Gesamt-State (inkl. URLs). */
   setRemote: (enabled: boolean) => Promise<PrompterState>;
+  /** Master-Link-Zustand (Spec 3.9): Meldung oder null (Brücke fehlt oder lehnt ab → „unbekannt“). */
+  masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+  onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
+  /** Lage des Steuerservers (Port 8727), nur lesend; null, solange Main nichts gemeldet hat. */
+  fernsteuerung: () => Promise<FernsteuerungMeldung | null>;
+  onFernsteuerung: (cb: (m: FernsteuerungMeldung | null) => void) => () => void;
   output: {
     displays: () => Promise<DisplayInfo[]>;
     open: (displayId?: number) => Promise<void>;
     close: () => Promise<void>;
     isOpen: () => Promise<boolean>;
+    /** Gemessener Zustand des Ausgabefensters (W2-2); null, wenn Main ablehnt. */
+    zustand: () => Promise<AusgabeZustand | null>;
+    onZustand: (cb: (z: AusgabeZustand) => void) => () => void;
   };
 }

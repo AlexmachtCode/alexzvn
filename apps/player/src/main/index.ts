@@ -5,9 +5,11 @@ import { initAppRuntime, getLog } from '@jm/app-runtime';
 import { parseShow, parseShowDeepLink } from '@jm/show';
 import { MEDIA_SCHEME } from '@shared/media-url';
 import type { PlayerShowSettings } from '@shared/types';
+import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import { registerIpc } from './ipc';
 import { registerMediaProtocol } from './media-protocol';
 import { startControlServer, stopControlServer } from './control-server';
+import { onAusgabeZustand } from './output-window';
 
 declare const __dirname: string;
 
@@ -43,6 +45,18 @@ function applyShowFromDeepLink(url: string): void {
     }
   } catch (err) {
     getLog().error(`Show-Einstellungen konnten nicht geladen werden: ${(err as Error).message}`);
+  }
+}
+
+/**
+ * UX Welle 2a (Spec 3.9): die zuletzt gemeldete Lage des Steuerservers, nur lesend. null, solange nichts gemeldet wurde
+ * (der Renderer zeigt dann „unbekannt“). Jede Meldung geht an alle offenen Fenster.
+ */
+let fernsteuerung: FernsteuerungMeldung | null = null;
+function meldeFernsteuerung(e: FernsteuerungEreignis): void {
+  fernsteuerung = naechsteFernsteuerung(fernsteuerung ?? undefined, e);
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('player:fernsteuerung', fernsteuerung);
   }
 }
 
@@ -154,12 +168,27 @@ if (!gotLock) {
       pendingShowSettings = null;
       return s;
     });
+    ipcMain.handle('player:fernsteuerung', () => fernsteuerung);
+    // UX Welle 2a (W2-2): jede Änderung des Ausgabezustands nur an das Hauptfenster, nur lesend.
+    onAusgabeZustand((z) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('output:zustand', z);
+    });
     registerMediaProtocol();
     registerIpc(() => mainWindow);
     createMainWindow();
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — Befehle
     // gehen per IPC an den Renderer, der seinen Zustand zurückmeldet.
-    void startControlServer(() => mainWindow);
+    startControlServer(() => mainWindow, meldeFernsteuerung)
+      .then((r) => {
+        meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });
+        if (!r.ok) getLog().warn(`Player-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
+      })
+      // Gesamtprüfung M1: Startfehler gehen auch ins Protokoll (wie beim Timer), damit sie nach der Show nachlesbar sind:
+      // ein Start mit ok:false (oben, z. B. Port belegt) und ein Wurf.
+      .catch((err) => {
+        getLog().warn(`Player-Steuerserver fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
+        meldeFernsteuerung({ art: 'wurf', text: err instanceof Error ? err.message : String(err) });
+      });
     // Per Show gestartet (Kaltstart)? settings-Block jetzt verarbeiten.
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
 

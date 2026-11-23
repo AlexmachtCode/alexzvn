@@ -1,0 +1,24 @@
+// Interpreter-Oberflächentests (UX Welle 2a): Render ohne Browser und reine Ableitungen, mit @jm/ui/testhilfe in einem
+// eigenen tsx-Lauf mit tsconfig.test.json (jsx, Aliase @/ und @shared/). Der bisherige Lauf test/selftest.ts bleibt davor
+// im selftest-Skript.
+// Einfügemarke: neue Testmodule als eigene Zeile `await lade(…)` direkt vor der Zeile `abschluss();`.
+// Die Module laufen nacheinander (await je Modul): Module, die globalThis.window setzen und löschen, liefen als statische
+// Geschwister-Importe verschränkt. Ein Modul, das beim Laden oder Ausführen wirft, zählt als FAIL, die übrigen laufen weiter.
+import { abschluss, ok } from '@jm/ui/testhilfe';
+
+async function lade(name: string, modul: () => Promise<unknown>): Promise<void> {
+  try {
+    await modul();
+  } catch (e) {
+    ok(false, `IN Testmodul ${name}: lädt oder läuft nicht (${e instanceof Error ? e.message : String(e)})`);
+  }
+}
+
+await lade('werkzeug', () => import('./werkzeug.test'));
+await lade('bruecken', () => import('./bruecken.test'));
+await lade('oberflaeche', () => import('./oberflaeche.test'));
+await lade('rahmen', () => import('./rahmen.test'));
+await lade('panel', () => import('./panel.test'));
+await lade('live', () => import('./live.test'));
+await lade('funktionsliste', () => import('./funktionsliste.test'));
+abschluss();

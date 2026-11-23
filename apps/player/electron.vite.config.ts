@@ -14,6 +14,7 @@ const internalPackages = [
   '@jm/app-runtime',
   '@jm/media',
   '@jm/media-library',
+  '@jm/output-window',
   '@jm/suite-control-protocol',
 ];
 

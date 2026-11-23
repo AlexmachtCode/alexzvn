@@ -6,6 +6,7 @@ import { parseShow, parseShowDeepLink } from '@jm/show';
 import { whisperAvailable } from './locate';
 import { enqueueUtterance, initTranscriber, stopTranscriber } from './transcriber';
 import { startSender, stopSender, senderActive } from './ndi/sender-process';
+import { NdiLage } from './ndi/wachhund';
 import {
   startControlServer,
   stopControlServer,
@@ -13,6 +14,7 @@ import {
   resolveMode,
 } from './control-server';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
+import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { CaptionConfig, CaptionLine, CaptionState, CaptionStatus } from '@shared/types';
 
 declare const __dirname: string;
@@ -46,7 +48,29 @@ let busy = false;
 let error: string | null = null;
 let lines: CaptionLine[] = [];
 let lineSeq = 0;
-const status: CaptionStatus = { ndiActive: false, connections: 0 };
+const status: CaptionStatus = { ndiActive: false, connections: 0, ndiSendet: false, ndiNetzName: null };
+
+/**
+ * Gemessene NDI-Lage (UX Welle 2a, E8): ndiSendet aus den Statusmeldungen des Senders mit Wachhund, ndiNetzName = Name des
+ * laufenden Senders. Jede Änderung aus der Stille geht als neuer Zustand an den Renderer.
+ */
+const ndiLage = new NdiLage(() => broadcast());
+function syncNdi(): void {
+  status.ndiSendet = ndiLage.sendet;
+  status.ndiNetzName = ndiLage.netzName;
+}
+
+/**
+ * UX Welle 2a (Spec 3.9): die zuletzt gemeldete Lage des Steuerservers, nur lesend. null, solange nichts gemeldet wurde
+ * (der Renderer zeigt dann „unbekannt“). Jede Meldung geht an alle offenen Fenster.
+ */
+let fernsteuerung: FernsteuerungMeldung | null = null;
+function meldeFernsteuerung(e: FernsteuerungEreignis): void {
+  fernsteuerung = naechsteFernsteuerung(fernsteuerung ?? undefined, e);
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('caption:fernsteuerung', fernsteuerung);
+  }
+}
 
 function configPath(): string {
   return join(app.getPath('userData'), 'caption.config.json');
@@ -76,6 +100,7 @@ function buildState(): CaptionState {
   return { running, hold, busy, whisperAvailable: whisperAvailable(), lines, config, status, error };
 }
 function broadcast(): void {
+  syncNdi();
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('caption:state', buildState());
   pushControlState(buildSuiteState());
 }
@@ -134,10 +159,24 @@ function doClear(): void {
 
 function startNdi(name: string): void {
   if (!mainWindow) return;
-  startSender(mainWindow, name || config.ndiName, (connections) => {
-    status.connections = connections;
-    broadcast();
-  });
+  const netzName = name || config.ndiName;
+  const lauf = ndiLage.starte(netzName);
+  startSender(
+    mainWindow,
+    netzName,
+    (connections) => {
+      if (!ndiLage.stat(lauf)) return;
+      status.connections = connections;
+      broadcast();
+    },
+    () => {
+      // Der Unterprozess ist beendet (auch Absturz): ndiActive zurück. Ein spätes exit eines früheren Senders zählt nicht.
+      if (!ndiLage.ende(lauf)) return;
+      status.ndiActive = false;
+      status.connections = 0;
+      broadcast();
+    },
+  );
   status.ndiActive = true;
   status.connections = 0;
   broadcast();
@@ -145,6 +184,7 @@ function startNdi(name: string): void {
 
 function stopNdi(): void {
   stopSender();
+  ndiLage.stoppe();
   status.ndiActive = false;
   status.connections = 0;
   broadcast();
@@ -171,6 +211,7 @@ initTranscriber({
 
 function registerIpc(): void {
   ipcMain.handle('caption:getState', () => buildState());
+  ipcMain.handle('caption:fernsteuerung', () => fernsteuerung);
   ipcMain.handle('caption:setConfig', (_e, patch: Partial<CaptionConfig>) => {
     config = { ...config, ...patch };
     saveConfig();
@@ -216,6 +257,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('caption:ndi-status', () => {
     status.ndiActive = senderActive();
+    syncNdi();
     return status;
   });
 }
@@ -263,8 +305,10 @@ function createMainWindow(): BrowserWindow {
   });
   win.on('closed', () => {
     stopSender();
+    ndiLage.stoppe();
     status.ndiActive = false;
     status.connections = 0;
+    syncNdi();
     mainWindow = null;
   });
   const url = rendererUrl();
@@ -330,7 +374,18 @@ if (!gotLock) {
     createMainWindow();
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
     // Eigener Steuerserver: Caption per Companion fernsteuerbar (Port 8732).
-    void startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand });
+    // Ergebnis und Wurf gehen als Meldung an die Statusleiste; der Start wird nicht abgewartet.
+    startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand }, meldeFernsteuerung)
+      .then((r) => {
+        meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });
+        if (!r.ok) getLog().warn(`Caption-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
+      })
+      // Gesamtprüfung M1: Startfehler gehen auch ins Protokoll (wie beim Timer), damit sie nach der Show nachlesbar sind:
+      // ein Start mit ok:false (oben, z. B. Port belegt) und ein Wurf.
+      .catch((err) => {
+        getLog().warn(`Caption-Steuerserver fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
+        meldeFernsteuerung({ art: 'wurf', text: err instanceof Error ? err.message : String(err) });
+      });
   });
 
   app.on('before-quit', () => {

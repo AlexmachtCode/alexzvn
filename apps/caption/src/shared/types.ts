@@ -1,3 +1,5 @@
+import type { FernsteuerungMeldung } from './fernsteuerung';
+
 // Datenmodell + IPC-Typen für JM Caption (Welle 3b, Slice 1).
 //
 // Die Audio-Aufnahme läuft im Renderer (getUserMedia + AudioContext@16 kHz):
@@ -43,9 +45,14 @@ export interface CaptionConfig {
 
 /** Laufzeit-Status der NDI-Ausgabe (nicht persistiert). */
 export interface CaptionStatus {
+  /** Der NDI-Unterprozess existiert (sagt nicht, dass er Bilder sendet). */
   ndiActive: boolean;
   /** Anzahl verbundener NDI-Empfänger (letzter Sender-Report). */
   connections: number;
+  /** Gemessen (E8): der Sender meldete zuletzt innerhalb von NDI_STILLE_MS; false bei Stopp, Prozessende und Stille. */
+  ndiSendet: boolean;
+  /** Name, mit dem startNdi den Sender gestartet hat; null, wenn NDI aus ist. */
+  ndiNetzName: string | null;
 }
 
 export interface CaptionLine {
@@ -69,8 +76,26 @@ export interface CaptionState {
   error: string | null;
 }
 
+/**
+ * Master-Link-Zustand für die Statusleiste (Spec 3.9). Spiegel von MasterLinkMeldung aus @jm/app-runtime, das im Renderer
+ * nicht importierbar ist (Main-Code). Den Gleichlauf prüft die Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
+
 export interface JmCaptionApi {
   platform: string;
+  /** Master-Link-Zustand (Spec 3.9): Meldung oder null (Brücke fehlt oder lehnt ab → „unbekannt“). */
+  masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+  onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
+  /** Lage des Steuerservers (Port 8732), nur lesend; null, solange Main nichts gemeldet hat. */
+  fernsteuerung: () => Promise<FernsteuerungMeldung | null>;
+  onFernsteuerung: (cb: (m: FernsteuerungMeldung | null) => void) => () => void;
   getState: () => Promise<CaptionState>;
   onState: (cb: (s: CaptionState) => void) => () => void;
   setConfig: (patch: Partial<CaptionConfig>) => Promise<CaptionState>;

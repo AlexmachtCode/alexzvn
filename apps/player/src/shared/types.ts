@@ -1,3 +1,5 @@
+import type { AusgabeZustand } from '@jm/output-window/zustand';
+import type { FernsteuerungMeldung } from './fernsteuerung';
 export type MediaKind = 'audio' | 'video';
 export type PlaylistKind = 'playlist' | 'soundboard';
 
@@ -175,9 +177,27 @@ export interface RemotePlayerState {
   playingCount: number;
 }
 
+/**
+ * Master-Link-Zustand für die Statusleiste (Spec 3.9). Spiegel von MasterLinkMeldung aus @jm/app-runtime, das im Renderer
+ * nicht importierbar ist (Main-Code). Den Gleichlauf prüft die Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
+
 export interface JmplayApi {
   platform: NodeJS.Platform;
   pathForFile: (file: File) => string;
+  /** Master-Link-Zustand (Spec 3.9): Meldung oder null (Brücke fehlt oder lehnt ab → „unbekannt“). */
+  masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+  onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
+  /** Lage des Steuerservers (Port 8725), nur lesend; null, solange Main nichts gemeldet hat. */
+  fernsteuerung: () => Promise<FernsteuerungMeldung | null>;
+  onFernsteuerung: (cb: (m: FernsteuerungMeldung | null) => void) => () => void;
   /** Lokalen Pfad in eine vom Renderer ladbare `jmedia://`-URL übersetzen. */
   mediaUrl: (path: string) => string;
   dialog: {
@@ -225,6 +245,11 @@ export interface JmplayApi {
     open: (displayId?: number) => Promise<void>;
     close: () => Promise<void>;
     isOpen: () => Promise<boolean>;
+    /** Gemessener Zustand des Ausgabefensters (W2-2); null, wenn Main ablehnt. */
+    zustand: () => Promise<AusgabeZustand | null>;
+    onZustand: (cb: (z: AusgabeZustand) => void) => () => void;
+    /** Gemessenes Vollbild des Ausgabefensters (E14); null, solange kein Fenster offen ist. */
+    isFullscreen: () => Promise<boolean | null>;
     /** Vollbild am Ausgabeschirm ein/aus; liefert den neuen Zustand (Issue #31). */
     toggleFullscreen: () => Promise<boolean>;
     /** Befehl ans Ausgabefenster (Hauptfenster → Ausgabe). */

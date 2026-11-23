@@ -20,6 +20,7 @@ import { SuiteControlServer } from '@jm/suite-control-protocol/server';
 import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 import type { RemoteCommand, RemotePlayerState } from '@shared/types';
+import type { FernsteuerungEreignis } from '@shared/fernsteuerung';
 
 /** Eigener TCP-Steuerport (getrennt vom jmedia://-Protokoll/Output). */
 export const CONTROL_PORT = 8725;
@@ -88,6 +89,11 @@ function toRemoteCommand(cmd: SuiteCommand, raw: string): RemoteCommand | null {
 
 export function startControlServer(
   getWin: () => BrowserWindow | null,
+  /**
+   * UX Welle 2a (Spec 3.9): Statusmeldung des Servers (läuft, Port, Clients) mit wirksamem Modus, nur lesend.
+   * Der Main macht daraus die Fernsteuerungs-Meldung für die Statusleiste.
+   */
+  onMeldung?: (e: FernsteuerungEreignis) => void,
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   getWindow = getWin;
@@ -97,6 +103,9 @@ export function startControlServer(
     appId: 'jm-player',
     controlEndpoint: true,
     getState: () => toSuiteState(),
+    onStatus: (st) => {
+      onMeldung?.({ art: 'status', ...st, modus: server?.modus() });
+    },
     onCommand: (cmd, ctx) => {
       if (cmd.ns !== 'player') return;
       const rc = toRemoteCommand(cmd, ctx.raw);

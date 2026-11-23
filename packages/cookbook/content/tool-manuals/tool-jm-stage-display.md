@@ -30,46 +30,46 @@ summary: "Bühnen-/Crew-Schirm, der Timer-Countdown, Uhr, Switcher-Programm (REC
 - Für einen **sicher** betriebenen Switcher: die geteilte `control.json` (Token/TLS) muss provisioniert sein
 
 ### Netzwerk & Ports
-JM Stage Display ist ein reiner **Aggregator** — es hat keinen eigenen Steuerport und keine Handy-Fernbedienung. Es verbindet sich zu bis zu drei Quellen (Host/Port je Quelle einstellbar, Standard `127.0.0.1`):
+JM Stage Display ist ein reiner **Aggregator** — es hat keinen eigenen Steuerport und keine Handy-Fernbedienung. Es verbindet sich zu bis zu drei Quellen (Host/Port je Quelle im Panel ⚙ › Gegenstellen einstellbar, Standard `127.0.0.1`):
 - **JM Timer** — Port **7777** (socket.io): Countdown, aktiver/nächster Programmpunkt, Nachricht
 - **JM Switcher** — Port **8723** (TCP-Zeilenprotokoll): Programm-Szene + REC/Stream-Status
 - **JM Presenter** — Port **7330** (HTTP/SSE, optional **PIN**): aktuelle Folie, Notizen, nächster Titel
 
-Nicht verbundene Quellen werden per mDNS automatisch mit Host/Port vorbefüllt (die PIN bleibt manuell).
+Nicht verbundene Quellen werden per mDNS automatisch mit Host/Port vorbefüllt (die PIN bleibt manuell: Panel ⚙ › Presenter-Kopplung).
 
 ## Schritt-für-Schritt
 
 ### Einrichtung
-- Je Quelle den Schalter aktivieren und **Host/IP + Port** eintragen (oder die mDNS-Vorbefüllung übernehmen). Für den Presenter zusätzlich die **PIN** wie in dessen Fernsteuerung.
-- Widgets ein-/ausblenden: Uhr, Timer/Countdown, Switcher-Status, Referent (Folie/Notizen), Nachricht.
-- Die **Ausgabe** im Vollbild auf den Bühnen-/Crew-Monitor legen (Display wählen).
-- Verbindungs-Badges prüfen: jede aktive Quelle sollte „verbunden" zeigen (sonst „getrennt").
+- Im Panel ⚙ › Gegenstellen je Quelle den Schalter „Aktiv“ einschalten und **Host + Port** eintragen, dann mit „Setzen“ übernehmen (oder die mDNS-Vorbefüllung übernehmen). Für den Presenter zusätzlich die **PIN** im Panel ⚙ › Presenter-Kopplung wie in dessen Fernsteuerung (der Abschnitt erscheint, sobald die Presenter-Quelle an ist).
+- Widgets mit den Schaltern „Anzeige-Elemente“ unter der Vorschau ein-/ausblenden: Uhr, Timer/Countdown, Switcher-Status, Referent (Folie/Notizen), Nachricht.
+- Die **Ausgabe** im Vollbild auf den Bühnen-/Crew-Monitor legen: Bildschirm im Panel ⚙ › Ausgabe auf Bildschirm wählen, dann die Haupttaste „Vollbild-Ausgabe öffnen“ drücken (Statusleiste „Bühnenschirm“; ein offenes Fenster zieht mit „Auf diesen Bildschirm“ um).
+- Statusleiste prüfen: jede aktive Quelle (Einträge „JM Timer“, „JM Switcher“, „JM Presenter“) sollte „verbunden“ zeigen (sonst „nicht gefunden“; dieselbe Zeile steht im Panel ⚙ › Gegenstellen).
 
 ### Während
 - Der Schirm aktualisiert sich automatisch: Countdown mit Farbschwellen (normal/Warnung/Überzug), „Endet HH:MM", Programmpunkt, PGM + REC/ON-AIR, Referenten-Folie mit Notizen und „Up Next".
-- Bei Bedarf eine **Ad-hoc-Nachricht** einblenden (hat Vorrang vor der Timer-Nachricht) — z. B. „Bitte zum Schluss kommen".
-- Presenter-Feed wählbar: **Referent** (Folie + Notizen + nächste, Confidence-Monitor) oder **Vollbild-Folie**.
+- Bei Bedarf eine **Ad-hoc-Nachricht** im Feld „Nachricht“ direkt unter der Vorschau einblenden (hat Vorrang vor der Timer-Nachricht; die Statusleiste „Nachricht“ zeigt „auf dem Schirm“, sobald sie auf dem offenen Bühnenschirm steht) — z. B. „Bitte zum Schluss kommen".
+- Presenter-Feed im Panel ⚙ › Presenter-Kopplung wählbar (Umschalter „Anzeige“: „Referenzansicht“ bzw. „Hauptansicht“): **Referent** (Folie + Notizen + nächste, Confidence-Monitor) oder **Vollbild-Folie**.
 
 ### Nachbereitung
-- Ausgabe schließen; Quellen für die nächste Show ggf. anpassen.
+- Ausgabe mit der Haupttaste „Ausgabe schließen“ schließen; Quellen für die nächste Show ggf. im Panel ⚙ › Gegenstellen anpassen.
 
 ## Profi-Tipps
-- Alles auf einem Rechner? Dann tragen die Standardwerte `127.0.0.1` + die bekannten Ports schon; nur die Quellen aktivieren.
+- Alles auf einem Rechner? Dann tragen die Standardwerte `127.0.0.1` + die bekannten Ports schon; nur die Quellen im Panel ⚙ › Gegenstellen aktivieren.
 - Über eine **`.jmshow`** aktivieren sich die Quellen automatisch anhand der in der Show enthaltenen Tools — Host/Port kommen aus deren Netzwerk-Bindung, die Presenter-PIN aus den Show-Einstellungen. Kein manuelles Eintragen im Standardfall.
 - Referentenansicht (Notizen + nächste Folie) als Confidence-Monitor für die Bühne — der/die Vortragende sieht Stichworte, das Publikum nicht.
-- Bei getrennten Event-Netzen (mDNS blockiert) Host/Port je Quelle von Hand eintragen — Stage Display braucht dafür keine Discovery.
+- Bei getrennten Event-Netzen (mDNS blockiert) Host/Port je Quelle von Hand im Panel ⚙ › Gegenstellen eintragen und mit „Setzen“ übernehmen — Stage Display braucht dafür keine Discovery.
 - Countdown-Farbschwellen als stille Regie: Warnfarbe = „bitte zum Punkt kommen", Überzug = „überziehst gerade".
 
 ## Pannenhilfe
 
 | Risiko | Gegenmaßnahme |
 | --- | --- |
-| Quelle bleibt „getrennt" | Host/Port richtig? Tool läuft? Bei Firewall/getrenntem Netz Adresse von Hand eintragen |
-| Switcher „getrennt" trotz Erreichbarkeit | Läuft der Switcher sicher (Token/TLS)? Dann muss die geteilte control.json auch hier provisioniert sein |
-| „Folie nicht verfügbar" | Läuft eine Präsentation? Presenter-Fernsteuerung an? PIN korrekt? |
+| Quelle bleibt „nicht gefunden“ (Statusleiste, Panel ⚙ › Gegenstellen) | Host/Port richtig? Tool läuft? Bei Firewall/getrenntem Netz Adresse von Hand im Panel ⚙ › Gegenstellen eintragen und mit „Setzen“ übernehmen |
+| Switcher „nicht gefunden“ trotz Erreichbarkeit | Läuft der Switcher sicher (Token/TLS)? Dann muss die geteilte control.json auch hier provisioniert sein |
+| „Folie nicht verfügbar" | Läuft eine Präsentation? Presenter-Fernsteuerung an? PIN im Panel ⚙ › Presenter-Kopplung korrekt? |
 | Presenter-Feed friert ein | Kurzer Netz-Aussetzer — der Watchdog verbindet nach ~35 s neu; sonst Presenter prüfen |
-| Kein Bild auf dem Bühnen-Monitor | Ausgabe geöffnet + richtiger Monitor (Vollbild)? |
-| Countdown/Programmpunkt fehlt | JM Timer aktiviert und auf 7777 verbunden? |
+| Kein Bild auf dem Bühnen-Monitor | Statusleiste „Bühnenschirm“ ansehen (zu, Bildschirm fehlt, abgestürzt); Ausgabe mit der Haupttaste „Vollbild-Ausgabe öffnen“ geöffnet + richtiger Monitor (Vollbild) im Panel ⚙ › Ausgabe auf Bildschirm gewählt? |
+| Countdown/Programmpunkt fehlt | JM Timer aktiviert und auf 7777 verbunden (Statusleiste „JM Timer“)? |
 
 ## Checklisten
 
@@ -78,7 +78,7 @@ Nicht verbundene Quellen werden per mDNS automatisch mit Host/Port vorbefüllt (
 - [ ] Presenter-PIN eingetragen (falls Presenter genutzt)
 - [ ] Widgets ausgewählt (Uhr/Timer/Switcher/Referent/Nachricht)
 - [ ] Ausgabe auf Bühnen-Monitor (Vollbild)
-- [ ] Alle aktiven Quellen zeigen „verbunden"
+- [ ] Alle aktiven Quellen zeigen in der Statusleiste „verbunden“
 
 ### Vor Live
 - [ ] Countdown + Programmpunkt kommen an

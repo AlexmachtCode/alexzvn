@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { OperatorView } from '@/views/OperatorView';
+import { PrompterOberflaeche } from '@/views/PrompterOberflaeche';
 import { usePrompter } from '@/store/prompter';
 
 export function App(): React.JSX.Element {
@@ -7,5 +7,5 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     void load();
   }, [load]);
-  return <OperatorView />;
+  return <PrompterOberflaeche />;
 }

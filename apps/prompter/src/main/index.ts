@@ -10,6 +10,7 @@ import { readControlConfig, mdnsSignKey } from '@jm/control-config';
 import { INITIAL_TRANSPORT, positionEm } from '@shared/types';
 import type { PartialPrompterConfig, PrompterState, PrompterTransport, RemoteInfo } from '@shared/types';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
+import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import { getConfig, patchConfig } from './config';
 import { readScriptFile } from './docx';
 import { REMOTE_PAGE } from './remote-page';
@@ -324,7 +325,20 @@ function applyShowFromDeepLink(url: string): void {
   }
 }
 
+/**
+ * UX Welle 2a (Spec 3.9): die zuletzt gemeldete Lage des Steuerservers, nur lesend. null, solange nichts gemeldet wurde
+ * (der Renderer zeigt dann „unbekannt“). Jede Meldung geht an alle offenen Fenster.
+ */
+let fernsteuerung: FernsteuerungMeldung | null = null;
+function meldeFernsteuerung(e: FernsteuerungEreignis): void {
+  fernsteuerung = naechsteFernsteuerung(fernsteuerung ?? undefined, e);
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('prompter:fernsteuerung', fernsteuerung);
+  }
+}
+
 function registerIpc(): void {
+  ipcMain.handle('prompter:fernsteuerung', () => fernsteuerung);
   ipcMain.handle('prompter:getState', () => buildState());
   ipcMain.handle('prompter:setConfig', (_e, patch: PartialPrompterConfig) => {
     patchConfig(patch);
@@ -368,6 +382,7 @@ function registerIpc(): void {
   ipcMain.handle('output:open', (_e, displayId?: number) => openOutput(displayId));
   ipcMain.handle('output:close', () => output.close());
   ipcMain.handle('output:isOpen', () => output.isOpen());
+  ipcMain.handle('output:zustand', () => output.zustand());
 }
 
 // Geteilter Runtime-Layer: Logging, Crash-Handler, Deep-Links, Presence.
@@ -396,11 +411,25 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     registerIpc();
+    // UX Welle 2a (W2-2): jede Änderung des Ausgabezustands nur an das Hauptfenster, nur lesend.
+    output.onZustand((z) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('output:zustand', z);
+    });
     createMainWindow();
     // Fernbedienung automatisch starten, wenn zuletzt aktiv.
     if (getConfig().remoteEnabled) void setRemote(true);
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — immer an.
-    void startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand });
+    startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand, onMeldung: meldeFernsteuerung })
+      .then((r) => {
+        meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error });
+        if (!r.ok) getLog().warn(`Prompter-Steuerserver nicht gestartet: ${r.error ?? 'unbekannt'}`);
+      })
+      // Gesamtprüfung M1: Startfehler gehen auch ins Protokoll (wie beim Timer), damit sie nach der Show nachlesbar sind:
+      // ein Start mit ok:false (oben, z. B. Port belegt) und ein Wurf.
+      .catch((err) => {
+        getLog().warn(`Prompter-Steuerserver fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
+        meldeFernsteuerung({ art: 'wurf', text: err instanceof Error ? err.message : String(err) });
+      });
     // Per Show gestartet? Referenziertes Skript laden.
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
   });
