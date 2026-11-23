@@ -651,7 +651,7 @@ Capture aus dem öffentlichen Repo nehmen (eigener Schritt, Owner 20.11.).
 **Block 4 · UX-Relaunch Welle 1 + Live-Sicherheit**
 
 - ✅ **UX Welle 1 released 22.11.2026:** Switcher 0.12.0, Timer 0.15.0, Rundown 0.9.0, Q&A 0.7.0 und Battle 0.5.0, ohne Hand-Abnahme vorab (`docs/ux/ABNAHME-UX-Welle-1.md` bleibt für den Blick im Betrieb). Am selben Tag folgte **Switcher 0.12.1**. Es meldet ein abgezogenes Audiogerät als „Fehler: Gerät getrennt“, verbindet dasselbe Gerät wieder und korrigiert die drei ungenauen Doku-Stellen. Offen ist die Prüfung mit echtem Gerät (SW-A1a–g).
-- ✅ **UX Welle 2a released 23.11.2026:** Caption 0.6.0, Interpreter 0.3.0, Prompter 0.8.0, Stage Display 0.7.0, Recorder 0.10.0 und Player 0.9.0 (PR #330, Merge `9e65592a74`). Prompter, Stage Display, Interpreter und Player über die CI (Windows und Mac), Caption und Recorder lokal gebaut (nur Windows, native Bausteine). Der Owner hat an den Testbauten alle Funktionen durchgeklickt; `docs/ux/ABNAHME-UX-Welle-2a.md` ist dabei nicht einzeln abgehakt. Offen für Welle 2b: Player-ON-AIR nach Alt+F4 und Wiederöffnen über den Panel-Schalter (CL-PL2 stimmt auf diesem Weg nicht), die Bildschirmliste nach dem Wiederanstecken eines Bildschirms, der gemeinsame Abschnitt „Ausgabe auf Bildschirm“ (nennt den gewählten statt des tatsächlichen Bildschirms). Offen beim Owner: ob die Altfehler aus den Funktionslisten ein eigenes Thema werden (Frage 3 der Texttabelle).
+- ✅ **UX Welle 2a released 23.11.2026:** Caption 0.6.0, Interpreter 0.3.0, Prompter 0.8.0, Stage Display 0.7.0, Recorder 0.10.0 und Player 0.9.0 (PR #330, Merge `9e65592a74`). Prompter, Stage Display, Interpreter und Player über die CI (Windows und Mac), Caption und Recorder lokal gebaut (nur Windows, native Bausteine). Der Owner hat an den Testbauten alle Funktionen durchgeklickt; `docs/ux/ABNAHME-UX-Welle-2a.md` ist dabei nicht einzeln abgehakt. Offen für Welle 2b: Player-ON-AIR nach Alt+F4 und Wiederöffnen über den Panel-Schalter (CL-PL2 stimmt auf diesem Weg nicht), die Bildschirmliste nach dem Wiederanstecken eines Bildschirms, der gemeinsame Abschnitt „Ausgabe auf Bildschirm“ (nennt den gewählten statt des tatsächlichen Bildschirms). Die Altfehler aus den Funktionslisten (Abschnitt 10 je App, Übersicht in Frage 3 von `docs/ux/welle2a-texte.md`) werden ein eigenes Thema (Owner 23.11.).
 - Switcher, Timer, Rundown, Q&A, Battle nach der UX-Spec, keine neue Spec (Owner 17.10., Lane E). Die fünf Apps sind seit dem
   05.11. unverändert, die Plan-Grundlage hält.
 - Die Live-Sicherheit (Lane F) hängt daran: ein kurzes eigenes Brainstorming mit den Rückmeldungen aus Block 0, dann ein
@@ -660,7 +660,7 @@ Capture aus dem öffentlichen Repo nehmen (eigener Schritt, Owner 20.11.).
 
 **Block 5 · Danach** (Reihenfolge wird geklärt, wenn es so weit ist)
 
-- #314 Audio-Switch · Stage Display mit NDI-Quelle (Spec freigegeben) · Mac-Stufe 2 · Zoom-Slots Stufe 2 (Abschnitt 1) ·
+- Altfehler der Welle-2a-Apps als eigenes Thema (Owner 23.11.; Liste in `docs/ux/welle2a-texte.md`, Offene Frage 3) · #314 Audio-Switch · Stage Display mit NDI-Quelle (Spec freigegeben) · Mac-Stufe 2 · Zoom-Slots Stufe 2 (Abschnitt 1) ·
   SRT-Hub (Owner 19.11.: „haben erstmal einen anderen weg für srt, das machen wir in ruhe später“; Entwurf auf `docs/srt-hub`,
   nicht freigegeben) · Master-Link 2c · Update-Sicherheit · Recorder: Prüfung des freien Plattenplatzes und die 0.9.2-Liste
   (PR #296) · UX-Wellen 2 und 3.
