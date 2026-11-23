@@ -39,8 +39,8 @@ gleich(Object.keys(hell), Object.keys(SOLL_HELL), 'Tokens hell: genau die 8 neue
 // Spec 4.3 (Größen) und E6 (Dichte), wörtlich
 gleich(
   tokenTabelle(groessen, ':root'),
-  { '--header-h': '44px', '--statusbar-h': '28px', '--control-h': '32px', '--control-h-lg': '48px', '--tally-h-kuerzel': '72px', '--panel-w': '360px' },
-  'Tokens: Größen 44/28/32/48/72/360 px (72 px: Tally mit Kürzelzeile)',
+  { '--header-h': '44px', '--statusbar-h': '28px', '--control-h': '32px', '--control-h-lg': '48px', '--tally-h-kuerzel': '90px', '--panel-w': '360px' },
+  'Tokens: Größen 44/28/32/48/90/360 px (90 px: Tally mit Kürzelzeile, gemessen am Prompter: gesperrt 89,2 px)',
 );
 gleich(
   tokenTabelle(groessen, '[data-dichte="kompakt"]'),

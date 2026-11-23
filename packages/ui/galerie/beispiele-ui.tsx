@@ -54,7 +54,7 @@ const GROESSEN: Array<{ name: string; normal: string; kompakt: string; breite?: 
   { name: '--statusbar-h', normal: '28 px', kompakt: '24 px' },
   { name: '--control-h', normal: '32 px', kompakt: '32 px' },
   { name: '--control-h-lg', normal: '48 px', kompakt: '48 px' },
-  { name: '--tally-h-kuerzel', normal: '72 px', kompakt: '72 px' },
+  { name: '--tally-h-kuerzel', normal: '90 px', kompakt: '90 px' },
   { name: '--panel-w', normal: '360 px', kompakt: '360 px', breite: true },
 ];
 
