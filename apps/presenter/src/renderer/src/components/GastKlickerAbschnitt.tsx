@@ -16,7 +16,7 @@ export interface GastKlickerAktionen {
 /**
  * #317: Gast-Klicker übers Internet. Remote-Gäste (z. B. per Zoom) öffnen einen Link und schalten ihre Folien selbst vor/zurück;
  * der Presenter verbindet sich dafür ausgehend mit dem Cloud-Dienst. Inhalt des Panel-Abschnitts „Gast-Klicker“ (UX Welle 2b, d1)
- * und bis Task 11 auch des Referenten-Fensters „Fernsteuerung“: Status und Aktionen kommen herein, kein Abo und kein window hier.
+ * (in Editor und Referent): Status und Aktionen kommen herein, kein Abo und kein window hier.
  */
 export function GastKlickerAbschnitt({ status: s, aktionen }: { status: GastKlickerStatus | undefined; aktionen: GastKlickerAktionen }) {
   const T = PRESENTER_TEXTE.gastKlicker;

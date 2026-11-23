@@ -2,10 +2,8 @@ import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { REMOTE_TEXTE } from '@jm/settings';
 import { Field, Select, TextInput, Toggle, UNBEKANNT } from '@jm/ui';
-import { chatText, type GastKlickerStatus } from '@shared/gast-klicker';
 import type { NetInterface, RemoteConfig, RemoteStatus } from '@shared/types';
 import { PRESENTER_TEXTE } from '@/lib/oberflaeche';
-import { GastKlickerAbschnitt, type GastKlickerAktionen } from './GastKlickerAbschnitt';
 
 /**
  * Handy-Fernsteuerung (Inhalt des Panel-Abschnitts „Handy-Fernsteuerung“, UX Welle 2b d1, früher RemotePanel.tsx:62-128): den
@@ -92,75 +90,6 @@ export function HandyAbschnitt({
       ) : null}
 
       {running && status.url ? <Pairing url={status.url} pin={status.pin} /> : null}
-    </div>
-  );
-}
-
-/**
- * Fenster „Fernsteuerung übers Netzwerk“ im Referenten (bis Task 11, dann entfällt die Hülle): dieselben Inhalte wie die
- * Panel-Abschnitte Handy-Fernsteuerung und Gast-Klicker, mit eigenem Lesen, solange der Referent noch keinen Stand hat.
- */
-export function RemotePanel({ onClose }: { onClose: () => void }) {
-  const [status, setStatus] = useState<RemoteStatus | null>(null);
-  const [ifaces, setIfaces] = useState<NetInterface[] | undefined>(undefined);
-  const [gast, setGast] = useState<GastKlickerStatus | null>(null);
-
-  useEffect(() => {
-    void Promise.all([window.jmpr.remote.status(), window.jmpr.remote.interfaces()]).then(([s, list]) => {
-      setStatus(s);
-      setIfaces(list);
-    });
-    return window.jmpr.remote.onStatus(setStatus);
-  }, []);
-
-  useEffect(() => {
-    void window.jmpr.gastKlicker.status().then(setGast);
-    return window.jmpr.gastKlicker.onStatus(setGast);
-  }, []);
-
-  const gastAktionen: GastKlickerAktionen = {
-    setzeAn: async (an) => setGast(await window.jmpr.gastKlicker.setzeAn(an)),
-    pause: async (an) => setGast(await window.jmpr.gastKlicker.pause(an)),
-    neuerLink: async () => {
-      if (window.confirm(PRESENTER_TEXTE.gastKlicker.neuerLinkFrage)) setGast(await window.jmpr.gastKlicker.neuerLink());
-    },
-    kopieren: async (link) => {
-      try {
-        await navigator.clipboard.writeText(chatText(link));
-        return true;
-      } catch {
-        return false;
-      }
-    },
-  };
-
-  return (
-    <div className="absolute inset-0 z-20 bg-[var(--background)]/70 backdrop-blur-sm grid place-items-center p-6">
-      <div className="w-full max-w-lg rounded-2xl bg-[var(--card)] ring-1 ring-[var(--border)] p-6 max-h-full overflow-auto scroll-thin">
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="text-lg font-bold">📱 Fernsteuerung übers Netzwerk</h3>
-          <button type="button" onClick={onClose} className="text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
-            schließen ✕
-          </button>
-        </div>
-        <p className="text-sm text-[var(--muted-foreground)] mb-5">{PRESENTER_TEXTE.handy.erklaerung}</p>
-
-        {status ? (
-          <HandyAbschnitt
-            status={status}
-            netzwerkkarten={ifaces}
-            anwenden={async (c) => setStatus(await window.jmpr.remote.apply(c))}
-          />
-        ) : (
-          <p className="text-sm text-[var(--muted-foreground)]">{UNBEKANNT}</p>
-        )}
-
-        <div className="mt-6 pt-5 border-t border-[var(--border)]">
-          <h4 className="font-bold">🌐 Gast-Klicker übers Internet (Zoom-Gäste)</h4>
-          <p className="text-sm text-[var(--muted-foreground)] mt-1 mb-4">{PRESENTER_TEXTE.gastKlicker.erklaerung}</p>
-          <GastKlickerAbschnitt status={gast ?? undefined} aktionen={gastAktionen} />
-        </div>
-      </div>
     </div>
   );
 }

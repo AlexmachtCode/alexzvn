@@ -1,8 +1,8 @@
 // Presenter-Oberfläche: reine Ableitungen (UX Welle 2b, Presenter c; Spec 5.1, 7.1–7.4, B3 ON AIR, B10 Tastenfilter,
 // B11 Bildschirm, B13 Sperren). Aus dem Präsentationszustand des Hauptprozesses, der Bildschirmliste (`current` = dort steht
 // das Publikumsfenster), NDI, Handy-Fernsteuerung, Gast-Klicker, Timer und den Meldungen von Master-Link und Steuerserver
-// entstehen die Props der Panel-Abschnitte, die Statusleiste, das ON AIR des Kopfes, die Haupttasten von Editor und Referent
-// und die Kürzel-Weiche für Textfelder.
+// entstehen die Props der Panel-Abschnitte, die Statusleiste, das ON AIR des Kopfes, die Haupttasten von Editor und Referent,
+// Wahl und Sperrgrund von „Auf diesen Bildschirm“ (d2) und die Kürzel-Weiche für Textfelder samt Schutz vor Strg+W.
 // Kein window, kein IPC, kein localStorage, kein React und kein lib/pdf.ts: Die Tests laden nur diese Datei. Statusleiste und
 // Panel nutzen dieselben Ableitungen (eine Wahrheit). Keine Taste bekommt eine neue Wirkung; die Kürzel sind der bisherige
 // switch aus usePresentation.ts hinter dem Filter B10.
@@ -26,7 +26,7 @@ import { masterLinkStatusItem, unbekannt, UNBEKANNT, zahlText, type StatusItem }
 import { portBelegt, STEUER_PORT, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import { statusText, type GastKlickerStatus } from '@shared/gast-klicker';
 import { NDI_NAME, ndiLiefertBild, nurNdiBehalten } from '@shared/ndi';
-import type { DisplayInfo, JmprApi, MasterLinkMeldungZeile, NdiStatus, NetInterface, PresentationState, RemoteStatus, TimerSyncConfig } from '@shared/types';
+import type { DisplayInfo, JmprApi, MasterLinkMeldungZeile, NdiStatus, NetInterface, PresentationState, RemoteStatus, TimerSource, TimerSyncConfig } from '@shared/types';
 import { naechsterIndex } from '@shared/wiedergabe';
 
 /** Abschnitts-ids = Panel-Anker (`einstellung-{id}`) = settingsSection der Statuseinträge. */
@@ -56,6 +56,9 @@ export const PRESENTER_TEXTE = {
     schwarz: 'Schwarz',
     weiss: 'Weiß',
     an: ' · an',
+    /** Kopf-Aktion des Referenten (B7), wörtlich der alte Knopf ganz rechts im Kopf; als title das vorhandene Kürzel Esc (neu, Z1). */
+    kopfBeenden: '■ Beenden',
+    kopfBeendenKuerzel: 'Esc',
   },
   /** Angezeigte Kürzel: je eines der vorhandenen (N2b 1.7), keine neuen. */
   kuerzel: { schwarz: 'B', zurueck: '←', weiter: '→', weiss: 'W' },
@@ -77,6 +80,21 @@ export const PRESENTER_TEXTE = {
     nurNdiGewaehlt: '„Keiner – nur NDI“ ist gewählt.',
     /** Sperrgrund der Zeile „Keiner – nur NDI“ (Editor-Panel), solange NDI kein Bild liefert und die Wahl nicht steht. Neu (Z1). */
     nurNdiGesperrt: 'Erst wählbar, wenn NDI ein Bild liefert.',
+    /** Tooltip der Bildschirmwahl im Referenten, wörtlich (PresenterView.tsx:86). */
+    bildschirmWahl: 'Publikums-Bildschirm',
+    /** Ohne Publikumsfenster bei laufender Präsentation, wörtlich der alte Tooltip von „Publikum Vollbild“ (PresenterView.tsx:121). */
+    keinFensterNurNdi: 'Kein Publikumsfenster – Bild nur über NDI',
+  },
+  /**
+   * „Auf diesen Bildschirm“ im Referenten (B11): Beschriftung wie im Plan, die Sperrgründe (als title) sind neu (Z1). „Bildschirm
+   * fehlt“ kommt aus @jm/settings (SCREEN_TEXTE.bildschirmFehlt), „Kein Publikumsfenster – Bild nur über NDI“ steht unter publikum.
+   */
+  verschieben: {
+    knopf: 'Auf diesen Bildschirm',
+    unbekannt: 'Bildschirm des Publikums unbekannt',
+    keinFenster: 'Kein Publikumsfenster',
+    keineWahl: 'Kein Bildschirm gewählt',
+    gleich: 'Das Publikum steht schon auf diesem Bildschirm.',
   },
   /**
    * NDI: `nichtVerfuegbar` nur, wenn der Hauptprozess bei „nicht verfügbar“ keinen Grund mitschickt. `tipp` wörtlich aus dem
@@ -164,6 +182,10 @@ export interface OberflaechenStand {
   plattform: string;
   /** Netzwerkkarten des Handy-Servers (`remote.interfaces()`, gelesen beim Öffnen des Panels); undefined = noch nicht gelesen. */
   netzwerkkarten: NetInterface[] | undefined;
+  /** Live-Zustand des JM Timers (`timer:state`) für die Timer-Leiste des Referenten; undefined = noch keine Antwort. */
+  timerZustand: TimerSource | undefined;
+  /** Vollbild des Referentenfensters (`present:referentVollbild`, Push bei jedem Wechsel); nur der Referent liest es, sonst undefined. */
+  referentVollbild: boolean | undefined;
 }
 
 /** Aktionen des Panels: die Wurzel-View ruft damit `window.jmpr` erst im Rückruf. */
@@ -173,6 +195,25 @@ export interface PresenterAktionen {
   ndiSchalten(an: boolean): void;
   timerSchalten(an: boolean): void;
   timerSetzen(host: string, port: number): void;
+}
+
+/**
+ * Aktionen des Referenten (Leiste, Haupttasten, Übersicht, Kopf-Aktion): die Wurzel-View ruft damit `window.jmpr.present` erst im
+ * Rückruf, jede mit dem bisherigen Befehl (prev, next, goto, setScreen, setSchleife, toggleAudienceFullscreen,
+ * toggleReferentVollbild, assignAudience, stop). NDI und Gast-Klick nutzen die Panel-Aktionen.
+ */
+export interface ReferentAktionen {
+  zurueck(): void;
+  weiter(): void;
+  geheZu(index: number): void;
+  schwarz(): void;
+  weiss(): void;
+  schleife(an: boolean): void;
+  publikumVollbild(): void;
+  vollbild(): void;
+  /** „Auf diesen Bildschirm“ (B11): das Publikum auf den gewählten Bildschirm verschieben. */
+  verschieben(bildschirm: number): void;
+  beenden(): void;
 }
 
 export interface TasteZustand {
@@ -503,18 +544,37 @@ export function referentTasten(s: Pick<OberflaechenStand, 'praesentation'>): { s
 }
 
 /**
- * „Auf diesen Bildschirm“ im Referenten (B11): Die Auswahl merkt nur, der Knopf verschiebt (`assignAudience`). Bedienbar nur,
- * wenn das Publikumsfenster gemessen auf einem Bildschirm steht und die Wahl ein anderer Bildschirm der Liste ist.
+ * Bildschirmwahl des Referenten (B11) für die Auswahl in der Leiste und „Auf diesen Bildschirm“: die in der Wurzel-View gemerkte
+ * Wahl, solange sie in der bekannten Liste steht, sonst der gemessene Bildschirm des Publikums (`current`); ohne beides null. So
+ * zeigt die Auswahl nie einen Bildschirm, den es nicht gibt, und ohne eigene Wahl steht dort, wo das Publikum gemessen steht.
  */
-export function verschiebenMoeglich(s: Pick<OberflaechenStand, 'praesentation' | 'bildschirme'>, gewaehlt: number | null): boolean {
+export function referentWahl(gewaehlt: number | undefined, liste: readonly DisplayInfo[] | undefined): number | null {
+  if (gewaehlt !== undefined && liste?.some((d) => d.id === gewaehlt) === true) return gewaehlt;
+  return liste?.find((d) => d.current)?.id ?? null;
+}
+
+/**
+ * Sperrgrund von „Auf diesen Bildschirm“ im Referenten (B11), angezeigt als title; undefined = bedienbar. Die Auswahl merkt nur,
+ * der Knopf verschiebt (`assignAudience`). In dieser Reihenfolge: Messung unbekannt (Präsentation oder Liste ohne Antwort); kein
+ * Publikumsfenster (bei laufender Präsentation „nur NDI“ mit dem alten Wortlaut, sonst keine Präsentation); keine Wahl; die Wahl
+ * fehlt in der Liste; die Wahl ist der gemessene Bildschirm. Bedienbar also nur, wenn das Publikumsfenster gemessen auf einem
+ * Bildschirm steht und die Wahl ein anderer Bildschirm der Liste ist.
+ */
+export function verschiebenGrund(s: Pick<OberflaechenStand, 'praesentation' | 'bildschirme'>, gewaehlt: number | null): string | undefined {
+  const T = PRESENTER_TEXTE;
+  if (s.praesentation === undefined || s.bildschirme === undefined) return T.verschieben.unbekannt;
+  if (nurNdiLaeuft(s)) return T.publikum.keinFensterNurNdi;
   const publikum = publikumsBildschirm(s);
-  return (
-    s.praesentation?.active === true &&
-    publikum !== undefined &&
-    gewaehlt !== null &&
-    gewaehlt !== publikum.id &&
-    s.bildschirme?.some((d) => d.id === gewaehlt) === true
-  );
+  if (!s.praesentation.active || publikum === undefined) return T.verschieben.keinFenster;
+  if (gewaehlt === null) return T.verschieben.keineWahl;
+  if (!s.bildschirme.some((d) => d.id === gewaehlt)) return SCREEN_TEXTE.bildschirmFehlt;
+  if (gewaehlt === publikum.id) return T.verschieben.gleich;
+  return undefined;
+}
+
+/** „Auf diesen Bildschirm“ bedienbar (B11): genau dann, wenn verschiebenGrund keinen Grund nennt (eine Ableitung, zwei Sichten). */
+export function verschiebenMoeglich(s: Pick<OberflaechenStand, 'praesentation' | 'bildschirme'>, gewaehlt: number | null): boolean {
+  return verschiebenGrund(s, gewaehlt) === undefined;
 }
 
 /** Eingabetypen von `input`, die keine Textfelder sind (B10): dort wirken die Kürzel weiter. */
@@ -539,6 +599,17 @@ export function istTextfeld(ziel: EventTarget | null): boolean {
 /** Strg+W bzw. Cmd+W: schließt über das Electron-Standardmenü das Fenster, wenn niemand preventDefault ruft. */
 const istFensterSchliessen = (e: { key: string; ctrlKey?: boolean; metaKey?: boolean }): boolean =>
   (e.key === 'w' || e.key === 'W') && (e.ctrlKey === true || e.metaKey === true);
+
+/**
+ * Strg+W bzw. Cmd+W im Referenten, in der Erfassungsphase am window (vor jedem anderen Hörer): nur preventDefault, keine Aktion.
+ * Grund (gemessen in Task 11): Das Panel hält Tasten aus seinen Feldern an (stopPropagation, @jm/ui panelTaste), verarbeiteTaste
+ * sieht sie nie; ohne preventDefault schloss das Standardmenü mit Strg+W aus dem Feld „Host“ das Referentenfenster und beendete die
+ * Präsentation. Das setzt den Controller-Entscheid zu Task 9 auch für die Felder des Panels um. Außerhalb von Feldern schaltet
+ * verarbeiteTaste wie bisher Weiß (preventDefault hält die Weitergabe nicht an).
+ */
+export function fensterSchliessenAbfangen(e: { key: string; ctrlKey?: boolean; metaKey?: boolean; preventDefault(): void }): void {
+  if (istFensterSchliessen(e)) e.preventDefault();
+}
 
 /**
  * Tastatur und USB-Klicker in Referent und Publikum (N2b 1.7): der bisherige switch aus usePresentation.ts, unverändert, hinter

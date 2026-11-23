@@ -1,28 +1,6 @@
 import { useEffect, useState } from 'react';
-import { DEFAULT_COLORS, type TimerSource } from '@shared/types';
 
-const TIMER_OFFLINE: TimerSource = {
-  connected: false,
-  countdown: null,
-  activeLabel: null,
-  nextLabel: null,
-  colors: { ...DEFAULT_COLORS },
-  message: '',
-  blinking: false,
-};
-
-/**
- * Subscribe to the live timer state pushed from the main process. Returns the
- * latest snapshot; the raw countdown inside is ticked locally by `useTick`.
- */
-export function useTimerSync(): TimerSource {
-  const [timer, setTimer] = useState<TimerSource>(TIMER_OFFLINE);
-  useEffect(() => {
-    void window.jmpr.timer.getState().then(setTimer);
-    return window.jmpr.timer.onState(setTimer);
-  }, []);
-  return timer;
-}
+// Den Timer-Zustand (`timer:state`) liest seit UX Welle 2b d2 der eine Stand des Referenten (useStand, TIMER_ZUSTAND_QUELLE).
 
 /** Re-renders each animation frame while `active`; returns the current Date.now(). */
 export function useTick(active: boolean): number {

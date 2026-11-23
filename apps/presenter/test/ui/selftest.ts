@@ -26,4 +26,6 @@ await import('./bruecken.test');
 await import('./oberflaeche.test');
 await import('./rahmen.test');
 await import('./panel.test');
+await import('./referent.test');
+await import('./live.test');
 abschluss();

@@ -1,13 +1,14 @@
 // Testhilfen der Presenter-Oberflächentests (UX Welle 2b, Presenter b): feste Zustände und Attrappen für Render- und
 // Ableitungstests. Wächst mit den Aufgaben c bis d; Aufgabe b liefert den Zustand der Fernsteuerungs-Meldung, Aufgabe c den
 // OberflaechenStand, laufende Präsentationen, Bildschirmlisten und die Attrappe für `window.jmpr.present`, Aufgabe d1 das
-// Lesen des gerenderten HTML (Tags, Attribute, Text, Abschnitte, Statuseinträge), den Store-Griff und die Panel-Aktionen.
-import type { OberflaechenStand } from '@/lib/oberflaeche';
+// Lesen des gerenderten HTML (Tags, Attribute, Text, Abschnitte, Statuseinträge), den Store-Griff und die Panel-Aktionen, Aufgabe
+// d2 den Stand und die Folien des Referenten, den Timer-Zustand, die Attrappe der Referenten-Aktionen und den Elementbaum.
+import type { OberflaechenStand, ReferentAktionen } from '@/lib/oberflaeche';
 import type { EinstellungenAktionen } from '@/views/Einstellungen';
 import { useProject } from '@/store/project';
 import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { GastKlickerStatus } from '@shared/gast-klicker';
-import type { DisplayInfo, JmprApi, NdiLage, NdiStatus, PresentationState, RemoteStatus, Slide } from '@shared/types';
+import { DEFAULT_COLORS, type DisplayInfo, type JmprApi, type NdiLage, type NdiStatus, type PresentationState, type RemoteStatus, type Slide, type TimerSource } from '@shared/types';
 
 /** Meldung eines laufenden Steuerservers ohne Clients (Port 8728, offener Modus). */
 export function basisMeldung(z: Partial<FernsteuerungMeldung> = {}): FernsteuerungMeldung {
@@ -31,6 +32,8 @@ export function grundStand(teil: Partial<OberflaechenStand> = {}): OberflaechenS
     masterLink: undefined,
     fernsteuerung: undefined,
     netzwerkkarten: undefined,
+    timerZustand: undefined,
+    referentVollbild: undefined,
     fenster: 'editor',
     plattform: 'win32',
     ...teil,
@@ -189,6 +192,68 @@ export function bildschirme(publikum: number | null): DisplayInfo[] {
     current: id === publikum,
   });
   return [bs(11, 1, true, 2032, 1144), bs(22, 2, false, 1920, 1080), bs(33, 3, false, 1280, 720)];
+}
+
+/** Drei Folien für den Referenten: Titel „Begrüßung“, „Agenda“, „Danke“; nur die zweite hat Notizen. */
+export function referentFolien(): Slide[] {
+  return [
+    { ...folie('f1'), title: 'Begrüßung' },
+    { ...folie('f2'), title: 'Agenda', notes: 'Drei Punkte nennen.' },
+    { ...folie('f3'), title: 'Danke' },
+  ];
+}
+
+/** Stand des Referenten: alle Quellen haben geantwortet, Präsentation läuft auf Folie 2 von 3, Publikum auf Bildschirm 22. */
+export function referentStand(teil: Partial<OberflaechenStand> = {}): OberflaechenStand {
+  return bekannterStand({ fenster: 'referent', praesentation: laufend({ index: 1 }), bildschirme: bildschirme(22), referentVollbild: false, ...teil });
+}
+
+/** Timer-Zustand (`timer:state`) wie vom Hauptprozess; verbunden ohne laufenden Countdown. */
+export function timerZustand(z: Partial<TimerSource> = {}): TimerSource {
+  return { connected: true, countdown: null, activeLabel: 'Keynote', nextLabel: null, colors: { ...DEFAULT_COLORS }, message: '', blinking: false, ...z };
+}
+
+/** Aktionen des Referenten als Attrappe: jeder Aufruf landet als Zeile in `log` („zurueck“, „geheZu(2)“, „verschieben(33)“). */
+export function referentAttrappe(log: string[] = []): ReferentAktionen {
+  const merke = (name: string) => (...a: unknown[]): void => void log.push(a.length === 0 ? name : `${name}(${a.map(String).join(',')})`);
+  return {
+    zurueck: merke('zurueck'),
+    weiter: merke('weiter'),
+    geheZu: merke('geheZu'),
+    schwarz: merke('schwarz'),
+    weiss: merke('weiss'),
+    schleife: merke('schleife'),
+    publikumVollbild: merke('publikumVollbild'),
+    vollbild: merke('vollbild'),
+    verschieben: merke('verschieben'),
+    beenden: merke('beenden'),
+  };
+}
+
+/** Ein React-Element, wie es eine Komponente ohne Hooks zurückgibt (direkt aufgerufen, ohne Rendern). */
+export interface Element {
+  type: unknown;
+  props: Record<string, unknown>;
+}
+
+/**
+ * Alle Elemente eines Baums in Dokumentreihenfolge, ohne Komponenten aufzulösen (ihre Kinder sind nur die übergebenen children).
+ * So lassen sich Rückrufe (onChange, onClick) einer hooklosen Komponente ohne Browser auslösen.
+ */
+export function elemente(knoten: unknown): Element[] {
+  const aus: Element[] = [];
+  const geh = (k: unknown): void => {
+    if (Array.isArray(k)) {
+      k.forEach(geh);
+      return;
+    }
+    if (k === null || typeof k !== 'object' || !('props' in k)) return;
+    const e = k as Element;
+    aus.push(e);
+    geh(e.props.children);
+  };
+  geh(knoten);
+  return aus;
 }
 
 type PresentAttrappe = Pick<JmprApi['present'], 'next' | 'prev' | 'goto' | 'setScreen' | 'stop'>;

@@ -1,7 +1,8 @@
-// Ein Stand für Editor und Referent (UX Welle 2b, Presenter d1; B8, B11, Muster d): alle Abos und Abfragen der Oberfläche an
-// einer Stelle – Präsentation, Bildschirme, NDI, Handy samt Netzwerkkarten, Gast-Klicker, Timer, Master-Link und Fernsteuerung.
-// Beide Wurzel-Views rufen useStand; Panel, Werkzeugleiste und Live-Bereich lesen nur den Stand, den sie bekommen. Dazu die
-// Aktionen des Panels (standAktionen), die window.jmpr erst im Rückruf rufen.
+// Ein Stand für Editor und Referent (UX Welle 2b, Presenter d1 und d2; B8, B11, Muster d): alle Abos und Abfragen der Oberfläche
+// an einer Stelle – Präsentation, Bildschirme, NDI, Handy samt Netzwerkkarten, Gast-Klicker, Timer (Verbindung und Live-Zustand),
+// Master-Link, Fernsteuerung und im Referenten dessen Vollbild. Beide Wurzel-Views rufen useStand; Panel, Werkzeugleiste, Leiste
+// und Live-Bereich lesen nur den Stand, den sie bekommen. Dazu die Aktionen des Panels (standAktionen) und des Referenten
+// (referentAktionen), die window.jmpr erst im Rückruf rufen.
 // window wird nur in preload() gelesen, hinter typeof window: Render-Tests laufen ohne window, und alle Abos stehen in Effekten.
 import { useEffect, useRef, useState } from 'react';
 import { useBrueckenWert, type BrueckenQuelle } from '@jm/ui';
@@ -9,7 +10,7 @@ import { chatText, type GastKlickerStatus } from '@shared/gast-klicker';
 import type { DisplayInfo, JmprApi, NdiStatus, NetInterface, PresentationState, RemoteStatus, TimerSource, TimerSyncConfig } from '@shared/types';
 import type { EinstellungenAktionen } from '@/views/Einstellungen';
 import { FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from './bruecken';
-import { PRESENTER_TEXTE, type OberflaechenStand } from './oberflaeche';
+import { PRESENTER_TEXTE, type OberflaechenStand, type ReferentAktionen } from './oberflaeche';
 
 /** Die Preload-Brücke, wenn es sie gibt; ohne window (Node, Test) oder ohne Preload undefined. */
 function preload(): Partial<JmprApi> | undefined {
@@ -42,7 +43,13 @@ export const GAST_KLICKER_QUELLE: BrueckenQuelle<GastKlickerStatus> = {
   ereignis: (cb) => preload()?.gastKlicker?.onStatus?.(cb) ?? KEIN_ABO,
 };
 
-/** Timer-Verbindung (`timer:state`); für den Stand zählt nur `connected`. */
+/** Vollbild des Referentenfensters (#309): Abfrage beim Einhängen, danach jeder Wechsel (Knopf, F11, System). */
+export const VOLLBILD_QUELLE: BrueckenQuelle<boolean> = {
+  abfrage: () => preload()?.present?.referentVollbild?.() ?? Promise.resolve(null),
+  ereignis: (cb) => preload()?.present?.onReferentVollbild?.(cb) ?? KEIN_ABO,
+};
+
+/** Timer (`timer:state`): `connected` für Statusleiste und Panel, der ganze Zustand für die Timer-Leiste des Referenten. */
 export const TIMER_ZUSTAND_QUELLE: BrueckenQuelle<TimerSource> = {
   abfrage: () => preload()?.timer?.getState?.() ?? Promise.resolve(null),
   ereignis: (cb) => preload()?.timer?.onState?.(cb) ?? KEIN_ABO,
@@ -172,7 +179,7 @@ function liesEinmal<T>(frage: (() => Promise<T>) | undefined, setze: (wert: T | 
  * ruft den Hook genau einmal und bleibt über Panel-Wechsel stabil. undefined = noch keine Antwort (unbekannt), auch ohne Preload.
  * Bildschirmliste nach B11: beim Start, bei jeder Änderung des Präsentationszustands, beim Öffnen des Panels und bei
  * `present:bildschirme` (zusammengefasst, bildschirmLeser). Netzwerkkarten beim Öffnen des Panels (wie bisher beim Öffnen des
- * Handy-Fensters).
+ * Handy-Fensters). Das Vollbild des Referentenfensters liest nur der Referent.
  */
 export function useStand(fenster: 'editor' | 'referent', panelOffen: boolean): OberflaechenStand {
   const masterLink = useBrueckenWert(MASTER_LINK_QUELLE);
@@ -183,6 +190,8 @@ export function useStand(fenster: 'editor' | 'referent', panelOffen: boolean): O
   const gastKlicker = useBrueckenWert(GAST_KLICKER_QUELLE) ?? undefined;
   const timerZustand = useBrueckenWert(TIMER_ZUSTAND_QUELLE) ?? undefined;
   const timerEinstellung = useBrueckenWert(TIMER_EINSTELLUNG_QUELLE) ?? undefined;
+  // Das Fenster wechselt nie während der Lebenszeit der Wurzel-View: die Quelle bleibt stabil (der Editor fragt nie).
+  const referentVollbild = useBrueckenWert(fenster === 'referent' ? VOLLBILD_QUELLE : undefined) ?? undefined;
 
   const [bildschirme, setBildschirme] = useState<DisplayInfo[] | undefined>(undefined);
   const leserRef = useRef<ReturnType<typeof bildschirmLeser> | null>(null);
@@ -221,8 +230,29 @@ export function useStand(fenster: 'editor' | 'referent', panelOffen: boolean): O
     masterLink,
     fernsteuerung,
     netzwerkkarten,
+    timerZustand,
+    referentVollbild,
     fenster,
     plattform: preload()?.platform ?? '',
+  };
+}
+
+/**
+ * Aktionen des Referenten (Leiste, Haupttasten, Übersicht, Kopf-Aktion): window.jmpr erst im Rückruf, je der bisherige Befehl;
+ * ohne Preload passiert nichts. Die Ergebnisse kommen über die Abos zurück (Präsentationszustand, Vollbild, Bildschirmliste).
+ */
+export function referentAktionen(): ReferentAktionen {
+  return {
+    zurueck: () => void preload()?.present?.prev?.(),
+    weiter: () => void preload()?.present?.next?.(),
+    geheZu: (index) => void preload()?.present?.goto?.(index),
+    schwarz: () => void preload()?.present?.setScreen?.('black'),
+    weiss: () => void preload()?.present?.setScreen?.('white'),
+    schleife: (an) => void preload()?.present?.setSchleife?.(an),
+    publikumVollbild: () => void preload()?.present?.toggleAudienceFullscreen?.(),
+    vollbild: () => void preload()?.present?.toggleReferentVollbild?.(),
+    verschieben: (id) => void preload()?.present?.assignAudience?.(id),
+    beenden: () => void preload()?.present?.stop?.(),
   };
 }
 
