@@ -285,9 +285,17 @@ const knopfTexte = (html: string): string[] => [...html.matchAll(/<button[^>]*>(
     const auswahl = els.find((e) => e.type === Select);
     const feld = els.find((e) => e.type === TextInput);
     const knopf = els.find((e) => e.type === Button && e.props.children === PEERS_TEXTE.setzen);
+    // Nur Wahrheitswerte vergleichen: gleich vergleicht als JSON, dort wären eine Funktion und undefined beide null.
     gleich(
-      [auswahl?.props.onChange === bedienung.netzwerkkarte, feld?.props.onChange === bedienung.port, feld?.props.onBlur, knopf?.props.onClick === bedienung.setzen, knopf?.props.disabled, knopf?.props['aria-describedby']],
-      [true, true, undefined, true, false, undefined],
+      [
+        auswahl?.props.onChange === bedienung.netzwerkkarte,
+        feld?.props.onChange === bedienung.port,
+        feld !== undefined && feld.props.onBlur === undefined,
+        knopf?.props.onClick === bedienung.setzen,
+        knopf?.props.disabled === false,
+        knopf !== undefined && knopf.props['aria-describedby'] === undefined,
+      ],
+      [true, true, true, true, true, true],
       'PS Panel Handy: Verdrahtung – Auswahl und Port-Feld gehen nur an den Entwurf, kein onBlur, „Setzen“ ruft setzen',
     );
     const zu = felder({ ...bedienung, setzenGrund: H.setzenUnveraendert });
