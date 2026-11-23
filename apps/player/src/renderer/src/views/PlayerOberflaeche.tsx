@@ -105,16 +105,17 @@ export function PlayerOberflaeche({
   useEffect(() => padsAbonnieren(cueEngine, setPads), []);
 
   // Video-Beleg (UX Welle 2b, Task 6): ein Video zählt für ON AIR erst, wenn das Ausgabefenster seit dem letzten Schließen, Absturz
-  // oder Wechsel des Video-Cues einen Fortschritt gemeldet hat (Alt+F4 und Wiederöffnen über den Panel-Schalter lassen videoCue und
-  // videoProgress im Store stehen). Je Änderung von videoProgress (eine neue Position), ausgabe.art und videoCue?.id ein Ereignis;
-  // der Fortschritt steht zuerst, damit in einem gemeinsamen Durchlauf ein Zurücksetzen gewinnt. Store und Companion bleiben.
+  // oder Wechsel des Video-Cues bei gemessen offenem Fenster einen Fortschritt gemeldet hat (Alt+F4 und Wiederöffnen über den
+  // Panel-Schalter lassen videoCue und videoProgress im Store stehen). Jede Meldung des Ausgabefensters geht einzeln beim Eintreffen
+  // ein (eigenes Abo an der lesenden Brücke, nicht der zuletzt gerenderte Wert): kommen zu und offen vor dem nächsten Durchlauf,
+  // nimmt zu den Beleg trotzdem. Je neue Position (videoProgress) ein Fortschritt mit der gemessenen Art, je neue Kennung des
+  // Video-Cues ein Zurücksetzen; der Fortschritt steht vor dem Video-Cue, damit in einem gemeinsamen Durchlauf das Zurücksetzen
+  // gewinnt. Store und Companion bleiben.
   const [videoBelegt, setVideoBelegt] = useState(false);
+  useEffect(() => AUSGABE_QUELLE.ereignis((z) => setVideoBelegt((b) => naechsterVideoBeleg(b, { t: 'ausgabe', art: z?.art }))), []);
   useEffect(() => {
-    if (player.videoProgress !== null) setVideoBelegt((b) => naechsterVideoBeleg(b, { t: 'fortschritt' }));
+    if (player.videoProgress !== null) setVideoBelegt((b) => naechsterVideoBeleg(b, { t: 'fortschritt', art: ausgabe?.art }));
   }, [player.videoProgress]);
-  useEffect(() => {
-    setVideoBelegt((b) => naechsterVideoBeleg(b, { t: 'ausgabe', art: ausgabe?.art }));
-  }, [ausgabe?.art]);
   useEffect(() => {
     setVideoBelegt((b) => naechsterVideoBeleg(b, { t: 'videoCue', id: player.videoCue?.id ?? null }));
   }, [player.videoCue?.id]);

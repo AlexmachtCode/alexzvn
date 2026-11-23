@@ -119,19 +119,27 @@ export interface OberflaechenStand {
   videoBelegt: boolean;
 }
 
-/** Was den Video-Beleg ändert: ein gemeldeter Fortschritt, eine neue Art des Ausgabefensters, eine neue Kennung des Video-Cues. */
-export type VideoBelegEreignis = { t: 'fortschritt' } | { t: 'ausgabe'; art: AusgabeArt | undefined } | { t: 'videoCue'; id: number | null };
+/**
+ * Was den Video-Beleg ändert: ein gemeldeter Fortschritt (mit der Art, die das Ausgabefenster dabei gemessen hat), eine Meldung des
+ * Ausgabefensters, eine neue Kennung des Video-Cues.
+ */
+export type VideoBelegEreignis =
+  | { t: 'fortschritt'; art: AusgabeArt | undefined }
+  | { t: 'ausgabe'; art: AusgabeArt | undefined }
+  | { t: 'videoCue'; id: number | null };
 
 /**
  * Video-Beleg (UX Welle 2b, Task 6): Nach Alt+F4 bleiben videoCue und videoProgress im Store stehen (nur der Knopf leert sie);
  * öffnet der Panel-Schalter das Fenster neu, ist darin aber kein Video geladen. Deshalb zählt das Video erst wieder, wenn das
- * Fenster einen Fortschritt meldet: Fortschritt → belegt; zu oder abgestürzt → nicht belegt; ein Wechsel der Video-Kennung →
- * nicht belegt (das neue Video muss sich selbst melden); sonst (offen, Bildschirm fehlt, keine Antwort) unverändert.
+ * Fenster einen Fortschritt meldet: Fortschritt bei gemessen offenem Fenster (offen oder Bildschirm fehlt, wie videoFensterDa) →
+ * belegt; ein Fortschritt bei zu, abgestürzt oder unbekanntem Fenster (etwa eine späte Position des alten Fensters) ändert nichts;
+ * zu oder abgestürzt → nicht belegt; ein Wechsel der Video-Kennung → nicht belegt (das neue Video muss sich selbst melden); sonst
+ * (offen, Bildschirm fehlt, keine Antwort) unverändert.
  */
 export function naechsterVideoBeleg(belegt: boolean, e: VideoBelegEreignis): boolean {
   switch (e.t) {
     case 'fortschritt':
-      return true;
+      return e.art === 'offen' || e.art === 'bildschirm-fehlt' ? true : belegt;
     case 'ausgabe':
       return e.art === 'zu' || e.art === 'abgestuerzt' ? false : belegt;
     case 'videoCue':

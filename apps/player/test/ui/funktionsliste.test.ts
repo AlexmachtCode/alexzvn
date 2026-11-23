@@ -662,6 +662,10 @@ ok(
       !store.includes('videoBelegt'),
     'PL Funktionsliste Nachzug Nr. 59/95/105: der Video-Beleg (Task 6) – nach Alt+F4 und Wiederöffnen zählt das alte Video erst mit neuem Fortschritt; nur im Renderer, Companion unverändert',
   );
+  ok(
+    nennt(105, 'gemessen offenem Fenster', 'späte Position', 'einzeln') && wurzel.includes('AUSGABE_QUELLE.ereignis('),
+    'PL Funktionsliste Nachzug Nr. 105 (Fix-Runde): ein Fortschritt belegt nur bei gemessen offenem Fenster (keine späte Position des alten Fensters), jede Meldung des Fensters zählt einzeln',
+  );
   // Jeder Haken, der sagt, main/index.ts bekäme „nur“ Lesendes, nennt auch das Bildschirm-Ereignis.
   const nurSaetze = alle.filter((z) => /\bnur\b/.test(z.zellen[6]) && z.zellen[6].includes('`main/index.ts`') && /lesende/.test(z.zellen[6]));
   const ohneEreignis = nurSaetze.filter((z) => !z.zellen[6].includes('Bildschirm-Ereignis'));
