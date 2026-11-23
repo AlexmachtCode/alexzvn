@@ -322,3 +322,13 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
     'PL Ausgabe-Zustand lebende Fenster: output-window.ts meldet geschlossen und abgestuerzt nur über den Helfer',
   );
 }
+
+// ── Gesamtprüfung M1: ein Wurf beim Start des Steuerservers kommt zusätzlich ins Protokoll (wie beim Timer), nicht nur als
+// Meldung in die Statusleiste; sonst ändert sich nichts am Start ──
+{
+  const main = leseText('src/main/index.ts');
+  ok(
+    /startControlServer\([^;]*?\.catch\(\(err\) => \{\s*getLog\(\)\.warn\(`Player-Steuerserver fehlgeschlagen: \$\{err instanceof Error \? err\.message : String\(err\)\}`\);\s*meldeFernsteuerung\(\{ art: 'wurf', text: err instanceof Error \? err\.message : String\(err\) \}\);\s*\}\);/.test(main),
+    'PL Wächter Steuerserver-Start: der Wurf beim Start geht mit getLog().warn ins Protokoll und weiter als Meldung an die Statusleiste',
+  );
+}

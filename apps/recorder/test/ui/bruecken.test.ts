@@ -190,3 +190,13 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
   );
   ok(cs.includes('return server.start(CONTROL_PORT);'), 'RE Wächter STEUER_PORT 8729: der Steuerserver startet unverändert auf CONTROL_PORT');
 }
+
+// ── Gesamtprüfung M1: ein Wurf beim Start des Steuerservers kommt zusätzlich ins Protokoll (wie beim Timer), nicht nur als
+// Meldung in die Statusleiste; sonst ändert sich nichts am Start ──
+{
+  const main = leseText('src/main/index.ts');
+  ok(
+    /startControlServer\([^;]*?\.catch\(\(err\) => \{\s*getLog\(\)\.warn\(`Recorder-Steuerserver fehlgeschlagen: \$\{err instanceof Error \? err\.message : String\(err\)\}`\);\s*meldeFernsteuerung\(\{ art: 'wurf', text: err instanceof Error \? err\.message : String\(err\) \}\);\s*\}\);/.test(main),
+    'RE Wächter Steuerserver-Start: der Wurf beim Start geht mit getLog().warn ins Protokoll und weiter als Meldung an die Statusleiste',
+  );
+}

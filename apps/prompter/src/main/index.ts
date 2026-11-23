@@ -421,7 +421,11 @@ if (!gotLock) {
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — immer an.
     startControlServer({ getState: buildSuiteState, onCommand: handleSuiteCommand, onMeldung: meldeFernsteuerung })
       .then((r) => meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error }))
-      .catch((err) => meldeFernsteuerung({ art: 'wurf', text: err instanceof Error ? err.message : String(err) }));
+      // Gesamtprüfung M1: ein Wurf geht auch ins Protokoll (wie beim Timer), damit er nach der Show nachlesbar ist.
+      .catch((err) => {
+        getLog().warn(`Prompter-Steuerserver fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
+        meldeFernsteuerung({ art: 'wurf', text: err instanceof Error ? err.message : String(err) });
+      });
     // Per Show gestartet? Referenziertes Skript laden.
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
   });
