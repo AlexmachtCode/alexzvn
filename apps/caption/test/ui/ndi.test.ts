@@ -151,3 +151,33 @@ function attrappenUhr(): Zeitgeber {
   ok(sp.includes('child?.postMessage(e.data);') && sp.includes("win.webContents.postMessage('jmcaption:frame-port', null, [port1]);"), 'CA Wächter Sender-Ende: Bildweg (Port, Weiterleitung an den Prozess) unverändert');
   ok(idx.includes('ndi: status.ndiActive,') && idx.includes('connections: status.connections,'), 'CA Wächter Sender-Ende: Companion-Werte ndi und connections unverändert');
 }
+
+// ── CA Wächter Stille → Status → Renderer (Gesamtprüfung, Minor aus Task 24) ──
+// Der einzige Weg, auf dem ON AIR der Caption ausgeht, wenn der NDI-Sender keine Bilder mehr meldet: die Stille des Wachhunds
+// ruft onAenderung der Lage; index.ts verdrahtet sie mit broadcast(), und broadcast() übernimmt die Lage (syncNdi) in den
+// Status, bevor es den Zustand an das Fenster und an Companion schickt.
+{
+  const z = attrappenUhr();
+  let aenderungen = 0;
+  const l = new NdiLage(() => void aenderungen++, z.uhr);
+  const a = l.starte('A');
+  l.stat(a);
+  const nachErsterMeldung = aenderungen;
+  z.weiter(NDI_STILLE_MS);
+  ok(
+    nachErsterMeldung === 1 && aenderungen === 2 && !l.sendet,
+    'CA Wächter Stille: die Stille nach der letzten Statusmeldung meldet eine Änderung (onAenderung) und nimmt „sendet“ zurück',
+  );
+  const idx = leseText('src/main/index.ts');
+  ok(/const ndiLage = new NdiLage\(\(\) => broadcast\(\)\);/.test(idx), 'CA Wächter Stille: index.ts verdrahtet die Änderung der NDI-Lage mit broadcast()');
+  const rumpf = /function broadcast\(\): void \{([\s\S]*?)\n\}/.exec(idx)?.[1] ?? '';
+  ok(
+    /^\s*syncNdi\(\);/.test(rumpf) && rumpf.includes("webContents.send('caption:state', buildState())") && rumpf.includes('pushControlState(buildSuiteState())'),
+    'CA Wächter Stille: broadcast() übernimmt zuerst die Lage in den Status (syncNdi) und schickt dann den Zustand an das Fenster und an Companion',
+  );
+  ok(
+    /function syncNdi\(\): void \{\s*status\.ndiSendet = ndiLage\.sendet;\s*status\.ndiNetzName = ndiLage\.netzName;\s*\}/.test(idx) &&
+      /function buildState\(\): CaptionState \{\s*return \{[^}]*\bstatus\b[^}]*\};\s*\}/.test(idx),
+    'CA Wächter Stille: syncNdi schreibt ndiSendet und ndiNetzName in den Status, und der Status steht im Zustand für den Renderer',
+  );
+}
