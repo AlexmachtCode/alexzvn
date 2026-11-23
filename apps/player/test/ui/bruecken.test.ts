@@ -211,6 +211,32 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
       typen.includes('isFullscreen: () => Promise<boolean | null>;'),
     'PL Wächter Kanäle: output.isFullscreen liest den gemessenen Vollbildzustand (null ohne Fenster)',
   );
+  // PL Bildschirmliste folgt dem Ereignis (UX Welle 2b, Task 6, 2a-Nachzug): output:bildschirme ist nur ein Ereignis ohne Nutzlast.
+  // Der Main sendet es über beobachteBildschirme aus @jm/output-window (nach app.ready) nur an das Hauptfenster; der Preload reicht
+  // es ohne Wert weiter (on, off). Das eigene Ausgabefenster des Players bleibt (E14): aus dem Paket kommt nur diese Funktion.
+  ok(
+    vorkommen(preload, 'output:bildschirme') === 2 && vorkommen(main, 'output:bildschirme') === 1 && vorkommen(ipc, 'output:bildschirme') === 0,
+    'PL Wächter Kanäle: output:bildschirme steht in Preload (on, off) und Main (send) gleich',
+  );
+  ok(
+    preload.includes("    onBildschirme: (cb) => {\n      const listener = (): void => cb();\n      ipcRenderer.on('output:bildschirme', listener);\n      return () => ipcRenderer.off('output:bildschirme', listener);\n    },\n") &&
+      typen.includes('onBildschirme: (cb: () => void) => () => void;'),
+    'PL Wächter Kanäle: output.onBildschirme meldet ohne Nutzlast, mit Abmeldung, und ist typisiert',
+  );
+  {
+    const bereit = main.indexOf('app.whenReady().then(() => {');
+    const aufruf = main.indexOf('beobachteBildschirme(');
+    const block = main.slice(aufruf, main.indexOf('});', aufruf) + 3);
+    ok(
+      /^import \{ beobachteBildschirme \} from '@jm\/output-window';$/m.test(main) &&
+        bereit >= 0 &&
+        aufruf > bereit &&
+        main.split('beobachteBildschirme(').length === 2 &&
+        /^beobachteBildschirme\(\(\) => \{\s*if \(mainWindow && !mainWindow\.isDestroyed\(\)\) mainWindow\.webContents\.send\('output:bildschirme'\);\s*\}\);$/.test(block),
+      'PL Wächter Kanäle: Main ruft beobachteBildschirme einmal nach app.ready und schickt output:bildschirme ohne Nutzlast nur an das Hauptfenster',
+    );
+    ok(!/\bOutputWindow\b/.test(ohneKommentare(main)), 'PL Wächter Kanäle: aus @jm/output-window kommt in den Main nur beobachteBildschirme, die Klasse OutputWindow nicht (E14)');
+  }
   const von = main.indexOf('initAppRuntime({');
   const runtime = main.slice(von, main.indexOf('});', von));
   ok(von >= 0 && !/masterLink\s*:\s*false/.test(runtime), 'PL Wächter Kanäle: initAppRuntime registriert jmps:master-link (Option masterLink:false fehlt)');

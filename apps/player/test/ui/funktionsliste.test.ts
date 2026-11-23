@@ -1,7 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Funktionsliste nach dem Umbau (UX Welle 2a, Player e; Spec 10 „Kein Funktionsverlust“). Jede der 154 Zeilen in den
 // Abschnitten 1–7 von docs/ux/funktionslisten/player.md ist in „künftig wo“ abgehakt: „✓ “ und ein Ort des Ortsregisters,
-// „unverändert (…)“, „entfällt (…, E…)“ oder „ersetzt durch {Ort} (…, E…)“. E-Verweise nur auf E1–E16 dieses Plans. Jede
+// „unverändert (…)“, „entfällt (…, E…)“ oder „ersetzt durch {Ort} (…, E…)“. Verweise nur auf E1–E16 (Plan 2a) und, seit dem
+// 2a-Nachzug in Welle 2b (Task 6), auf B1–B22 (Plan 2b). Jede
 // genannte Datei existiert, Groß- und Kleinschreibung wie im Repo. Dazu Querprüfungen gegen den Code: die Änderungen der
 // Aufgaben 14–16 (Panik stoppt Pads, Pausen-Merker, ON AIR, Tastenfilter, Dialoge, Ausgabe-Panel, Transport, Fußleiste) stehen als
 // Haken in den betroffenen Zeilen, und der Code trägt, was der Haken sagt.
@@ -94,15 +95,19 @@ const GEAENDERT = [
 /** Geänderte Dateien außerhalb von apps/player, die ein unverändert-Haken zitieren könnte (Task 1, W2-2: Ausgabezustand). */
 const PAKETE_GEAENDERT = [
   'packages/output-window/package.json',
+  'packages/output-window/src/bildschirme.ts',
   'packages/output-window/src/index.ts',
   'packages/output-window/src/zustand.ts',
+  'packages/output-window/test/bildschirme.test.ts',
   'packages/output-window/test/selftest.ts',
   'packages/output-window/test/zustand.test.ts',
 ];
 
 /**
  * Dateien, die nur die lesenden Brücken bekamen: der Main (Fernsteuerungs-Meldung E2, Ausgabezustand und gemessenes Vollbild E3,
- * E14), der Preload und die Typen dazu, das Fenster-Paket den Ausgabezustand (E3). Verhalten und Befehle blieben.
+ * E14), der Preload und die Typen dazu, das Fenster-Paket den Ausgabezustand (E3). Verhalten und Befehle blieben. Welle 2b (Task 6)
+ * ergänzt nur das lesende Bildschirm-Ereignis: in main/index.ts, preload/index.ts, shared/types.ts und im Fenster-Paket (index.ts und
+ * die neue reine Datei bildschirme.ts).
  */
 const NUR_MELDUNG = new Set([
   'apps/player/src/main/index.ts',
@@ -112,6 +117,7 @@ const NUR_MELDUNG = new Set([
   'apps/player/src/preload/index.ts',
   'apps/player/src/shared/types.ts',
   'packages/output-window/src/index.ts',
+  'packages/output-window/src/bildschirme.ts',
 ]);
 
 const GEAENDERT_KANON = new Set([...GEAENDERT, ...PAKETE_GEAENDERT]);
@@ -132,9 +138,9 @@ if (GIT_PRUEFEN && GIT === null) console.log(`PL Funktionsliste: kein git-Verlau
 
 /** Datei in Backticks: Pfad mit Endung, aufgelöst nach der Pfadregel im Kopf der Liste. */
 const PFAD = /`([A-Za-z0-9_./-]+\.(?:tsx|ts|css|html|json|md|mjs))`/g;
-/** Nur die Entscheidungen E1–E16 dieses Plans sind erlaubte Verweise. */
-const VERWEIS = /\bE(?:[1-9]|1[0-6])\b/;
-const FREMD = /\b(?:E(?:0|1[7-9]|[2-9]\d)|E\d{3,}|OF\d+)\b/;
+/** Erlaubte Verweise: die Entscheidungen E1–E16 des Plans 2a und, für den 2a-Nachzug in Welle 2b, die Festlegungen B1–B22. */
+const VERWEIS = /\b(?:E(?:[1-9]|1[0-6])|B(?:[1-9]|1\d|2[0-2]))\b/;
+const FREMD = /\b(?:E(?:0|1[7-9]|[2-9]\d)|E\d{3,}|B(?:0|2[3-9]|[3-9]\d)|B\d{3,}|OF\d+)\b/;
 
 interface Zeile {
   abschnitt: number;
@@ -204,7 +210,7 @@ function zeilenFehler(z: Zeile): string | null {
   const rest = k.slice(2);
   const ohneCode = k.replace(/`[^`]*`/g, '');
   if (ohneCode.includes('"')) return 'ASCII-Anführungszeichen';
-  if (FREMD.test(ohneCode)) return 'Verweis außerhalb von E1–E16';
+  if (FREMD.test(ohneCode)) return 'Verweis außerhalb von E1–E16 und B1–B22';
   let form: string | undefined;
   if (rest.startsWith('unverändert (')) form = 'unverändert';
   else if (rest.startsWith('entfällt (')) form = 'entfällt';
@@ -616,4 +622,64 @@ ok(
   ok(!/einzige gewollte Änderung/.test(abschnitt9) && /Owner-Frage/.test(abschnitt9) && /W2-10/.test(abschnitt9), 'PL Funktionsliste Abschnitt 9: Panik-Pads ist nicht „die einzige gewollte Änderung“, die offene Owner-Frage zur Vorschau steht dabei');
   ok(/zum Zeitpunkt der Erhebung/.test(stand) && !/sind leer, der Code ist seither unverändert/.test(stand), 'PL Funktionsliste Stand: „Code unverändert“ gilt nur zum Zeitpunkt der Erhebung');
   ok(/zum Zeitpunkt der Erhebung[^]*Testordner/.test(text.slice(text.indexOf('- **Gelesen'), text.indexOf('- **künftig wo**'))), 'PL Funktionsliste Kopf: „kein Testordner“ gilt nur zum Zeitpunkt der Erhebung');
+}
+
+// ── 2a-Nachzug in Welle 2b (Task 6): gemessener Ort im Ausgabe-Abschnitt statt der Zeile „Lage“, Bildschirmliste folgt dem
+// Bildschirm-Ereignis, Video-Beleg für ON AIR nach Alt+F4; neu im Main und Preload nur das lesende Ereignis ──
+{
+  const main = quelle('main/index.ts');
+  const preload = quelle('preload/index.ts');
+  ok(
+    ['Steht auf', 'measuredId', 'folgeBildschirmen', 'output:bildschirme', '2a-Nachzug'].every((w) => kuenftig(57).includes(w)) &&
+      !kuenftig(57).includes('nennt eine Zeile unter dem Abschnitt') &&
+      nennt(57, 'Bildschirm für das Vollbild-Ausgabefenster wählen') &&
+      !panel.includes('gemesseneLage') &&
+      !panel.includes('data-player="lage"') &&
+      obf.includes('measuredId') &&
+      !obf.includes('gemesseneLage'),
+    'PL Funktionsliste Nachzug Nr. 57: der Ausgabe-Abschnitt nennt den gemessenen Ort („Steht auf“, measuredId), die Liste folgt output:bildschirme; die Zeile „Lage“ entfällt',
+  );
+  ok(
+    nennt(81, 'folgeBildschirmen', '`lib/aktionen.ts`', 'Video-Beleg') && wurzel.includes('folgeBildschirmen(window.jmplay?.output?.onBildschirme') && wurzel.includes('naechsterVideoBeleg('),
+    'PL Funktionsliste Nachzug Nr. 81: die Wurzel-View liest die Liste auch bei jedem Bildschirm-Ereignis (folgeBildschirmen) und führt den Video-Beleg',
+  );
+  ok(
+    ['beobachteBildschirme', 'output:bildschirme', '`packages/output-window/src/bildschirme.ts`', '2a-Nachzug'].every((w) => kuenftig(85).includes(w)) &&
+      /\bE[23]\b/.test(kuenftig(85)) &&
+      main.includes("mainWindow.webContents.send('output:bildschirme');"),
+    'PL Funktionsliste Nachzug Nr. 85: der Main meldet nach app.ready angesteckte, abgezogene und geänderte Bildschirme über beobachteBildschirme (output:bildschirme)',
+  );
+  ok(
+    nennt(102, 'output:bildschirme', '`main/index.ts`', '2a-Nachzug') && preload.includes("ipcRenderer.on('output:bildschirme', listener);"),
+    'PL Funktionsliste Nachzug Nr. 102: die Bildschirmliste wird auch auf das Ereignis output:bildschirme hin neu gelesen',
+  );
+  // Video-Beleg (Task 6 Nachzug): nach Alt+F4 und Wiederöffnen über den Panel-Schalter zählt das alte Video nicht mehr für ON AIR.
+  ok(
+    [59, 95, 105].every((nr) => nennt(nr, 'Video-Beleg', 'Task 6', 'Alt+F4')) &&
+      nennt(105, '`lib/oberflaeche.ts`', 'naechsterVideoBeleg', 'Fortschritt', 'Companion') &&
+      obf.includes('export function naechsterVideoBeleg') &&
+      obf.includes('videoBelegt') &&
+      !store.includes('videoBelegt'),
+    'PL Funktionsliste Nachzug Nr. 59/95/105: der Video-Beleg (Task 6) – nach Alt+F4 und Wiederöffnen zählt das alte Video erst mit neuem Fortschritt; nur im Renderer, Companion unverändert',
+  );
+  // Jeder Haken, der sagt, main/index.ts bekäme „nur“ Lesendes, nennt auch das Bildschirm-Ereignis.
+  const nurSaetze = alle.filter((z) => /\bnur\b/.test(z.zellen[6]) && z.zellen[6].includes('`main/index.ts`') && /lesende/.test(z.zellen[6]));
+  const ohneEreignis = nurSaetze.filter((z) => !z.zellen[6].includes('Bildschirm-Ereignis'));
+  ok(
+    nurSaetze.length >= 7 && ohneEreignis.length === 0,
+    `PL Funktionsliste Nachzug: kein Haken sagt mehr, main/index.ts bekäme nur die bisherigen lesenden Brücken (${ohneEreignis.map((z) => z.nr).join(',') || 'keiner'}; mit Ereignis: ${nurSaetze.length})`,
+  );
+  ok(
+    text.includes('| `output.onBildschirme(cb)` | `output:bildschirme` | Ereignis |') && /kein Bildschirm-Ereignis \(`output:bildschirme`\)/.test(text.slice(text.indexOf('## 8 · '), text.indexOf('## 9 · '))),
+    'PL Funktionsliste Abschnitt 8: der Preload hat output.onBildschirme (Ereignis output:bildschirme, nur lesend, neu in Welle 2b)',
+  );
+  const synth = (k: string): Zeile => ({ abschnitt: 3, nr: 0, zellen: ['0', '', '', '', '', '', k] });
+  ok(
+    zeilenFehler(synth('✓ entfällt (x, B7)')) === null &&
+      zeilenFehler(synth('✓ entfällt (x, B22)')) === null &&
+      (zeilenFehler(synth('✓ entfällt (x, B23)')) ?? '').includes('Verweis außerhalb') &&
+      (zeilenFehler(synth('✓ entfällt (x, B0)')) ?? '').includes('Verweis außerhalb') &&
+      (zeilenFehler(synth('✓ entfällt (x, E17)')) ?? '').includes('Verweis außerhalb'),
+    'PL Funktionsliste: Verweise B1–B22 und E1–E16 gelten, B0, B23 und E17 nicht',
+  );
 }

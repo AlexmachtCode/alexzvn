@@ -7,7 +7,8 @@
 // Pfeiltasten und Tippen eines Buchstabens; eine öffnende Auswahl hätte so das Programmbild mitten in der Show umgezogen.
 // Öffnen und Schließen laufen über den Ausgabeschalter, das Umziehen eines offenen Fensters über „Auf diesen Bildschirm“ mit
 // demselben Aufruf wie der alte Tipp auf die Bildschirmkarte (`openOutput(id)`). Das Vollbild wird nach jeder Ausgabe-Aktion
-// neu gemessen (E14: nie geraten), und der Vollbild-Schalter schaltet nur, wenn der Messwert vom Wunsch abweicht.
+// neu gemessen (E14: nie geraten), und der Vollbild-Schalter schaltet nur, wenn der Messwert vom Wunsch abweicht. Seit UX Welle 2b
+// folgt die Bildschirmliste zusätzlich dem Bildschirm-Ereignis des Main (folgeBildschirmen).
 import type { ScreenOption } from '@jm/settings';
 import type { DisplayInfo } from '@shared/types';
 import { bildschirmEtikett, type PlayerAktionen } from '@/lib/oberflaeche';
@@ -83,6 +84,29 @@ export function liesBildschirme(frage: (() => Promise<DisplayInfo[]>) | undefine
   );
   return () => {
     weg = true;
+  };
+}
+
+/**
+ * Bildschirmliste dem Bildschirm-Ereignis folgen lassen (UX Welle 2b, 2a-Nachzug, `output:bildschirme`): meldet sich an und liest
+ * bei jedem Ereignis die Liste neu (`liesBildschirme`). Ein neues Ereignis verwirft die noch offene Antwort des vorigen, damit eine
+ * ältere Liste keine neuere überschreibt. Ohne Brücke (kein Ereignis oder keine Abfrage) nichts. Liefert die Abmeldung; danach wird
+ * auch eine noch eintreffende Antwort verworfen.
+ */
+export function folgeBildschirmen(
+  onBildschirme: ((cb: () => void) => () => void) | undefined,
+  frage: (() => Promise<DisplayInfo[]>) | undefined,
+  setze: (liste: ScreenOption[] | undefined) => void,
+): () => void {
+  if (onBildschirme === undefined || frage === undefined) return () => undefined;
+  let offen: () => void = () => undefined;
+  const ab = onBildschirme(() => {
+    offen();
+    offen = liesBildschirme(frage, setze);
+  });
+  return () => {
+    ab();
+    offen();
   };
 }
 
