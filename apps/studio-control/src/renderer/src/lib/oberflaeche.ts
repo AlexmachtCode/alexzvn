@@ -58,6 +58,7 @@ export const STUDIO_TEXTE = {
   grund: {
     rolle: (rolle: Role): string => `Rolle ${STUDIO_TEXTE.rolle[rolle]} darf nicht schalten`,
     nichtVerbunden: (geraet: string): string => `${geraet} nicht verbunden`,
+    geraetUnbekannt: (geraet: string): string => `${geraet} unbekannt`,
     abgemeldet: 'Nicht angemeldet',
     unbekannt: 'Zustand unbekannt',
   },
@@ -225,10 +226,11 @@ export function kopfOnAir(s: Pick<OberflaechenStand, 'atem' | 'obs'>): { live: t
 
 // ── Sperrgründe und Haupttasten (B16) ──
 
-/** Grund für eine gesperrte Taste: die Rolle vor dem Gerät; ohne Grund ist die Taste frei. Die Rollenfrage entscheidet nur canDo. */
-export function sperrgrund(rolle: Role | undefined, recht: Action, geraet: string, verbunden: boolean): string | undefined {
+/** Grund für eine gesperrte Taste: die Rolle vor dem Gerät (`verbunden` undefined = noch keine Antwort → „unbekannt“); ohne Grund ist die Taste frei. Die Rollenfrage entscheidet nur canDo. */
+export function sperrgrund(rolle: Role | undefined, recht: Action, geraet: string, verbunden: boolean | undefined): string | undefined {
   if (rolle === undefined) return STUDIO_TEXTE.grund.abgemeldet;
   if (!canDo(rolle, recht)) return STUDIO_TEXTE.grund.rolle(rolle);
+  if (verbunden === undefined) return STUDIO_TEXTE.grund.geraetUnbekannt(geraet);
   return verbunden ? undefined : STUDIO_TEXTE.grund.nichtVerbunden(geraet);
 }
 
@@ -250,19 +252,21 @@ function taste(label: string, grund: string | undefined, live = false): Haupttas
 }
 
 const verbundenAn = (g: GeraeteStand | undefined, id: string): GeraeteStatus | undefined => (g?.status[id]?.state === 'connected' ? g.status[id] : undefined);
+/** Gemessene Verbindung einer Instanz: undefined, solange sie nie gemeldet hat. */
+const verbundenGemessen = (g: GeraeteStand | undefined, id: string): boolean | undefined => (g?.status[id] === undefined ? undefined : g.status[id]!.state === 'connected');
 
 /** ATEM: Cut, Auto, FTB, REC, STREAM; REC und STREAM sind live bei gemessener Sendung der verbundenen Instanz. */
 export function atemTasten(s: OberflaechenStand, id: string): Haupttaste[] {
   const T = STUDIO_TEXTE.taste;
   const st = verbundenAn(s.atem, id);
-  const grund = sperrgrund(s.benutzer?.rolle, 'atem:exec', STUDIO_TEXTE.geraet.atem, st !== undefined);
+  const grund = sperrgrund(s.benutzer?.rolle, 'atem:exec', STUDIO_TEXTE.geraet.atem, verbundenGemessen(s.atem, id));
   return [taste(T.cut, grund), taste(T.auto, grund), taste(T.ftb, grund), taste(T.rec, grund, st?.recording === true), taste(T.stream, grund, st?.streaming === true)];
 }
 
 /** TriCaster: Take, Auto, Fade Black, REC, STREAM; REC und STREAM sind bereit, weil der TriCaster keine Sendung meldet (B6). */
 export function tricasterTasten(s: OberflaechenStand, id: string): Haupttaste[] {
   const T = STUDIO_TEXTE.taste;
-  const grund = sperrgrund(s.benutzer?.rolle, 'tricaster:exec', STUDIO_TEXTE.geraet.tricaster, verbundenAn(s.tricaster, id) !== undefined);
+  const grund = sperrgrund(s.benutzer?.rolle, 'tricaster:exec', STUDIO_TEXTE.geraet.tricaster, verbundenGemessen(s.tricaster, id));
   return [T.take, T.auto, T.fadeBlack, T.rec, T.stream].map((label) => taste(label, grund));
 }
 
@@ -270,7 +274,7 @@ export function tricasterTasten(s: OberflaechenStand, id: string): Haupttaste[] 
 export function obsTasten(s: OberflaechenStand, id: string): Haupttaste[] {
   const T = STUDIO_TEXTE.taste;
   const st = verbundenAn(s.obs, id);
-  const grund = sperrgrund(s.benutzer?.rolle, 'obs:exec', STUDIO_TEXTE.geraet.obs, st !== undefined);
+  const grund = sperrgrund(s.benutzer?.rolle, 'obs:exec', STUDIO_TEXTE.geraet.obs, verbundenGemessen(s.obs, id));
   return [taste(T.aufnahme, grund, st?.recording === true), taste(T.stream, grund, st?.streaming === true)];
 }
 

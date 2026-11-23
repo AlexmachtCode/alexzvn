@@ -187,6 +187,7 @@ const GERAETE = ['atem', 'obs', 'tricaster', 'ptz', 'audio'] as const;
     ['master-link', 'server', 'licht', 'fernsteuerung'],
     'SC Statusleiste vor erster Antwort: master-link, server, licht, fernsteuerung; Geräte ohne Instanz und Benutzer fehlen',
   );
+  ok(geraetPille(undefined).state === 'off' && geraetPille(undefined).text === UNBEKANNT, 'SC Statusleiste vor erster Antwort: Pille ohne Meldung unbekannt, nie error');
   const mitInstanz = statusLeiste(stand({ atem: geraete(undefined), obs: geraete(undefined, undefined) })).filter((i) => i.id === 'atem' || i.id === 'obs');
   ok(mitInstanz.length === 2 && mitInstanz.every((i) => i.state === 'off' && i.detail === UNBEKANNT), 'SC Statusleiste vor erster Antwort: Instanzen ohne Zustand sind unbekannt (off), nie ok');
   const voll = statusLeiste(stand({ atem: geraete({ state: 'connected' }), benutzer: benutzer('admin'), licht: { node: true, blackout: false } }));
@@ -239,10 +240,11 @@ function link0(): OberflaechenStand['masterLink'] {
 // ── SC Rolle über canDo ──
 {
   const RECHTE: Action[] = ['atem:exec', 'obs:exec', 'tricaster:exec', 'ptz:exec', 'lighting:exec', 'audio:exec', 'inventory:write', 'users:write', 'audit:read'];
-  pruefeFaelle('SC Rolle über canDo: Rollen-Grund genau dann, wenn canDo false ist', kreuz({ rolle: ROLLEN, recht: RECHTE, verbunden: [true, false] }), (f) => {
+  pruefeFaelle('SC Rolle über canDo: Rollen-Grund genau dann, wenn canDo false ist', kreuz({ rolle: ROLLEN, recht: RECHTE, verbunden: [true, false, undefined] }), (f) => {
     const g = sperrgrund(f.rolle, f.recht, 'ATEM', f.verbunden);
     if (f.rolle === undefined) return g === STUDIO_TEXTE.grund.abgemeldet ? null : `ohne Rolle: ${g}`;
     if (!canDo(f.rolle, f.recht)) return g === STUDIO_TEXTE.grund.rolle(f.rolle) ? null : `Rollen-Grund fehlt (${g})`;
+    if (f.verbunden === undefined) return g === STUDIO_TEXTE.grund.geraetUnbekannt('ATEM') ? null : `Unbekannt-Grund fehlt (${g})`;
     if (!f.verbunden) return g === STUDIO_TEXTE.grund.nichtVerbunden('ATEM') ? null : `Geräte-Grund fehlt (${g})`;
     return g === undefined ? null : `unerwarteter Grund ${g}`;
   });
@@ -276,6 +278,15 @@ function link0(): OberflaechenStand['masterLink'] {
   const rec = atemTasten(bau('viewer', geraete({ state: 'connected', recording: true })), 'g1')[3]!;
   gleich([rec.label, rec.state, rec.disabledReason], [STUDIO_TEXTE.taste.rec, 'live', STUDIO_TEXTE.grund.rolle('viewer')], 'SC Betrachter gesperrt mit Grund: REC aufnehmend und Betrachter → live mit Grund (O2)');
   ok(alle(bau('operator', geraete({ state: 'connected' }))).every(([, , t]) => t?.state === 'bereit' && t.disabledReason === undefined), 'SC Betrachter gesperrt mit Grund: Bediener, verbunden → alle bereit ohne Grund');
+  // Instanz ohne jedes Status-Ereignis: noch keine Antwort → „unbekannt“ (nicht „nicht verbunden“), Rolle geht vor.
+  pruefeFaelle('SC Betrachter gesperrt mit Grund: Instanz ohne Status-Ereignis → Gerät unbekannt, Rolle zuerst', kreuz({ rolle: ['operator', 'viewer'] as const, art: ['keine Meldung', 'ohne Eintrag'] }), (f) => {
+    const g = f.art === 'keine Meldung' ? geraete(undefined) : { ids: ['g1'], status: {} };
+    const fehler = alle(bau(f.rolle, g)).flatMap(([n, geraet, t]) => {
+      const soll = f.rolle === 'viewer' ? STUDIO_TEXTE.grund.rolle('viewer') : STUDIO_TEXTE.grund.geraetUnbekannt(geraet);
+      return n === 'licht' || (t?.state === 'gesperrt' && t.disabledReason === soll) ? [] : [`${n}: ${t?.state} ${t?.disabledReason}`];
+    });
+    return fehler.length ? fehler.join('; ') : null;
+  });
   gleich(lichtTaste(bau('viewer', undefined)), { label: STUDIO_TEXTE.taste.blackout, state: 'gesperrt', disabledReason: STUDIO_TEXTE.grund.rolle('viewer') }, 'SC Betrachter gesperrt mit Grund: Blackout ohne Recht gesperrt mit Rollen-Grund statt weg');
   ok(lichtTaste(bau('admin', undefined, ohneNode)) === undefined && lichtTaste(bau('viewer', undefined, ohneNode)) === undefined, 'SC Betrachter gesperrt mit Grund: Blackout ohne Node bleibt weg');
   gleich(lichtTaste(bau('operator', undefined, { node: true, blackout: true })), { label: STUDIO_TEXTE.taste.blackoutAus, state: 'bereit' }, 'SC Betrachter gesperrt mit Grund: Blackout an → „Blackout aus“, bereit (B6), nie live');
