@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef } from 'react';
 import { cn } from '../lib/cn';
-import { erzeugeHalten, type HaltenRueckrufe, type HaltenSteuerung } from '../lib/halten';
+import { beobachteFensterVerlust, erzeugeHalten, type HaltenRueckrufe, type HaltenSteuerung } from '../lib/halten';
 import { LIVE_FLAECHE_KLASSE } from '../lib/status';
 import { UI_TEXTE } from '../lib/texte';
 
@@ -10,6 +10,11 @@ export interface TallyButtonProps {
   label: string;
   /** Nur Anzeige eines vorhandenen Kürzels (z. B. „F1“); das Kürzel selbst bleibt im Tool. */
   shortcut?: string;
+  /**
+   * Das Kürzel steht in jedem Zustand in einer eigenen Zeile unter der Beschriftung, und die Mindesthöhe ist in allen
+   * drei Zuständen gleich (--tally-h-kuerzel). Ohne die Prop bleibt das Markup unverändert.
+   */
+  kuerzelZeile?: boolean;
   /**
    * Pflicht bei 'gesperrt': sichtbar, als title und per aria-describedby. Bei 'live' gesetzt (nicht leer, nicht nur
    * Leerzeichen): auf Sendung UND gesperrt (Owner-Entscheid O2, 09.10.2026).
@@ -145,8 +150,11 @@ function tallySperrText(p: Pick<TallyButtonProps, 'state' | 'disabledReason'>): 
   return tallyGesperrt(p) ? UI_TEXTE.gesperrt(tallyGrund(p.disabledReason)) : undefined;
 }
 
-const BASIS =
-  'flex w-full min-h-[var(--control-h-lg)] flex-col items-center justify-center gap-1 rounded-[var(--radius-md)] border-2 ' +
+// Die Mindesthöhe steht mitten in der Klassenliste, damit das Markup ohne kuerzelZeile Zeichen für Zeichen gleich bleibt.
+const HOEHE = 'min-h-[var(--control-h-lg)]';
+const HOEHE_KUERZEL = 'min-h-[var(--tally-h-kuerzel)]';
+const basis = (hoehe: string): string =>
+  `flex w-full ${hoehe} flex-col items-center justify-center gap-1 rounded-[var(--radius-md)] border-2 ` +
   'px-4 py-2 text-center select-none touch-none ' +
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ' +
   'motion-safe:transition-colors motion-safe:duration-150';
@@ -181,7 +189,7 @@ export function tallyKnopfProps(p: TallyButtonProps, halten: HaltenSteuerung, gr
     'aria-describedby': gesperrt ? grundId : undefined,
     title: tallySperrText(p),
     // live + gesperrt behält die LIVE-Fläche; die Sperre zeigen der Zeiger wie bei 'gesperrt' und „Gesperrt: “ vor dem Grund.
-    className: cn(BASIS, FLAECHE[p.state], p.state === 'live' && gesperrt && 'cursor-not-allowed'),
+    className: cn(basis(p.kuerzelZeile ? HOEHE_KUERZEL : HOEHE), FLAECHE[p.state], p.state === 'live' && gesperrt && 'cursor-not-allowed'),
     ...tallyHandler(p, halten),
   };
 }
@@ -218,14 +226,15 @@ export function haltenBeiAbbau(halten: HaltenSteuerung): void {
  * Grund steht darunter als „Gesperrt: {Grund}“ in der Schrift der LIVE-Fläche. Halten-zum-Sprechen über
  * onPress/onRelease; onRelease kommt in jedem Fall genau einmal, auch beim Sperren und beim Unmount. Füllt die Breite
  * seines Behälters; die Anordnung macht das Tool.
- * Die Verdrahtung (Spread, zwei Effekte, haltenFuerRender) prüft tally.test.tsx am Quelltext dieser Datei.
+ * Die Verdrahtung (Spread, drei Effekte, haltenFuerRender) prüft tally.test.tsx am Quelltext dieser Datei.
  */
 export function TallyButton(p: TallyButtonProps): React.JSX.Element {
-  const { state, label, shortcut, disabledReason } = p;
+  const { state, label, shortcut, disabledReason, kuerzelZeile } = p;
   const haltenRef = useRef<HaltenSteuerung | null>(null);
   const halten = haltenFuerRender(haltenRef, p);
   useEffect(() => haltenBeiZustand(state, halten, disabledReason), [state, halten, disabledReason]);
   useEffect(() => () => haltenBeiAbbau(halten), [halten]);
+  useEffect(() => beobachteFensterVerlust(typeof window === 'undefined' ? null : window, typeof document === 'undefined' ? null : document, halten), [halten]);
   const grundId = useId();
 
   return (
@@ -237,13 +246,21 @@ export function TallyButton(p: TallyButtonProps): React.JSX.Element {
           </span>
         ) : null}
         <span>{label}</span>
-        {shortcut ? (
+        {shortcut && !kuerzelZeile ? (
           <kbd className={KUERZEL[state]}>
             <span className="sr-only">{UI_TEXTE.kuerzel}: </span>
             {shortcut}
           </kbd>
         ) : null}
       </span>
+      {shortcut && kuerzelZeile ? (
+        <span data-kuerzel-zeile="">
+          <kbd className={KUERZEL[state]}>
+            <span className="sr-only">{UI_TEXTE.kuerzel}: </span>
+            {shortcut}
+          </kbd>
+        </span>
+      ) : null}
       {state === 'gesperrt' ? (
         <span id={grundId} className="text-[11px] font-semibold text-[var(--muted-foreground)]">
           {tallyGrund(disabledReason)}

@@ -65,3 +65,28 @@ export function erzeugeHalten(r: HaltenRueckrufe): HaltenSteuerung {
     },
   };
 }
+
+/** Das, was beobachteFensterVerlust von Fenster und Dokument braucht (window und document passen). */
+export interface FensterZiel {
+  addEventListener(t: string, h: () => void): void;
+  removeEventListener(t: string, h: () => void): void;
+  readonly visibilityState?: string;
+}
+
+/**
+ * Fensterverlust beendet ein laufendes Halten (onRelease genau einmal über abbrechen): blur am Fenster und
+ * visibilitychange mit visibilityState 'hidden' am Dokument. Ohne Ziel (null, z. B. ohne Browser) geschieht nichts.
+ * Gibt die Abmeldung zurück, die beide Hörer wieder entfernt.
+ */
+export function beobachteFensterVerlust(fenster: FensterZiel | null, dokument: FensterZiel | null, halten: HaltenSteuerung): () => void {
+  const beiBlur = (): void => halten.abbrechen();
+  const beiSichtbarkeit = (): void => {
+    if (dokument?.visibilityState === 'hidden') halten.abbrechen();
+  };
+  fenster?.addEventListener('blur', beiBlur);
+  dokument?.addEventListener('visibilitychange', beiSichtbarkeit);
+  return () => {
+    fenster?.removeEventListener('blur', beiBlur);
+    dokument?.removeEventListener('visibilitychange', beiSichtbarkeit);
+  };
+}

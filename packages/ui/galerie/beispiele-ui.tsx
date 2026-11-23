@@ -8,6 +8,7 @@ import {
   AppHeader,
   Button,
   Field,
+  HalteKnopf,
   NumberInput,
   PanelAnker,
   Select,
@@ -326,6 +327,33 @@ function PanelBeispiel({ modus }: { modus: Modus }): React.JSX.Element {
   );
 }
 
+// Halte-Knopf zum Ausprobieren: der Zähler zeigt, dass auf Druck und Loslassen je genau eine Meldung folgt.
+function HalteKnopfProbe(p: { gesperrt?: string }): React.JSX.Element {
+  const [gehalten, setGehalten] = useState(false);
+  const [zahl, setZahl] = useState({ gedrueckt: 0, losgelassen: 0 });
+  return (
+    <div className="space-y-2">
+      <HalteKnopf
+        label="Sprechen"
+        title="Zum Sprechen halten"
+        aktiv={gehalten}
+        gesperrt={p.gesperrt}
+        onPress={() => {
+          setGehalten(true);
+          setZahl((z) => ({ ...z, gedrueckt: z.gedrueckt + 1 }));
+        }}
+        onRelease={() => {
+          setGehalten(false);
+          setZahl((z) => ({ ...z, losgelassen: z.losgelassen + 1 }));
+        }}
+      />
+      <p className="tabular text-[11px]">
+        gedrückt {zahl.gedrueckt} · losgelassen {zahl.losgelassen}
+      </p>
+    </div>
+  );
+}
+
 function Tallys({ children }: { children: ReactElement }): React.JSX.Element {
   return <div style={{ width: 240 }}>{children}</div>;
 }
@@ -360,6 +388,10 @@ export function uiBeispiele(modus: Modus): Beispiel[] {
     { name: 'tally-gesperrt', gruppe: 'TallyButton', titel: 'gesperrt mit Grund', element: <Tallys><TallyButton state="gesperrt" label="Clear" disabledReason="Nur im Live-Modus" onClick={nichts} /></Tallys> },
     { name: 'tally-gesperrt-ohne-grund', gruppe: 'TallyButton', titel: 'gesperrt ohne Grund (Fehler des Tools, sichtbar gemacht)', element: <Tallys><TallyButton state="gesperrt" label="Clear" onClick={nichts} /></Tallys> },
     { name: 'tally-halten', gruppe: 'TallyButton', titel: 'Halten zum Sprechen: Zähler zum Ausprobieren', element: <Tallys><HaltenProbe /></Tallys> },
+    { name: 'tally-kuerzelzeile', gruppe: 'TallyButton', titel: 'Kürzelzeile: bereit, live und gesperrt gleich hoch', element: <Tallys><div className="space-y-2"><TallyButton state="bereit" label="GO" shortcut="Leertaste" kuerzelZeile onClick={nichts} /><TallyButton state="live" label="GO" shortcut="Leertaste" kuerzelZeile onClick={nichts} /><TallyButton state="gesperrt" label="GO" shortcut="Leertaste" kuerzelZeile disabledReason="Kein Signal" onClick={nichts} /></div></Tallys> },
+    { name: 'halteknopf-aktiv', gruppe: 'HalteKnopf', titel: 'aktiv (wird gehalten)', element: <Tallys><HalteKnopf label="Sprechen" title="Zum Sprechen halten" aktiv onPress={nichts} onRelease={nichts} /></Tallys> },
+    { name: 'halteknopf-ruhig', gruppe: 'HalteKnopf', titel: 'ruhig: zum Ausprobieren gedrückt halten (Zeiger, Leertaste oder Enter)', element: <Tallys><HalteKnopfProbe /></Tallys> },
+    { name: 'halteknopf-gesperrt', gruppe: 'HalteKnopf', titel: 'gesperrt mit Grund', element: <Tallys><HalteKnopfProbe gesperrt="Kein Kanal" /></Tallys> },
     { name: 'eingabe-text', gruppe: 'Eingaben', titel: 'Text mit Hilfe', element: <TextBeispiel /> },
     { name: 'eingabe-text-fehler', gruppe: 'Eingaben', titel: 'Text mit Fehler', element: <TextBeispiel fehler="Bitte einen Namen eintragen." /> },
     { name: 'eingabe-text-gesperrt', gruppe: 'Eingaben', titel: 'Text gesperrt', element: <TextBeispiel gesperrt="Vom Master vorgegeben" /> },

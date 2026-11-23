@@ -27,6 +27,7 @@ const UI_NAMEN = [
   'statuspill-ok', 'statuspill-warn', 'statuspill-error', 'statuspill-off', 'statuspill-live',
   'statusbar-gemischt', 'statusbar-knoepfe', 'statusbar-leer',
   'tally-bereit', 'tally-live', 'tally-live-gesperrt', 'tally-gesperrt', 'tally-gesperrt-ohne-grund', 'tally-halten',
+  'tally-kuerzelzeile', 'halteknopf-aktiv', 'halteknopf-ruhig', 'halteknopf-gesperrt',
   'eingabe-text', 'eingabe-text-fehler', 'eingabe-text-gesperrt', 'eingabe-zahl', 'eingabe-zahl-einheit',
   'eingabe-zahl-ohne-feld', 'eingabe-schalter', 'eingabe-schalter-gesperrt', 'eingabe-auswahl', 'eingabe-auswahl-leer',
   'eingabe-auswahl-fehlt', 'eingabe-auswahl-fehler', 'eingabe-auswahl-gesperrt',
@@ -76,6 +77,10 @@ const UI_PRUEFUNG: Record<string, string[]> = {
   'tally-live-gesperrt': ['data-state="live"', `>${UI_TEXTE.live}<`, 'text-[19px]', 'aria-disabled="true"', UI_TEXTE.gesperrt('während der Überblendung')],
   'tally-gesperrt': ['aria-disabled="true"', 'Nur im Live-Modus'],
   'tally-gesperrt-ohne-grund': ['aria-disabled="true"', UI_TEXTE.gesperrtOhneGrund],
+  'tally-kuerzelzeile': ['min-h-[var(--tally-h-kuerzel)]', '<kbd', '>Leertaste<'],
+  'halteknopf-aktiv': ['aria-pressed="true"', 'min-h-[var(--control-h)]', '>Sprechen<'],
+  'halteknopf-ruhig': ['aria-pressed="false"', 'min-h-[var(--control-h)]', '>Sprechen<'],
+  'halteknopf-gesperrt': ['aria-disabled="true"', UI_TEXTE.gesperrt('Kein Kanal')],
   'tally-halten': ['in 2 s sperren (dabei halten)', 'in 2 s live sperren (dabei halten)', 'in 2 s ausblenden (dabei halten)', 'wieder einblenden', '>live + gesperrt<'],
   // Owner-Entscheid O3 (09.10.2026): --field-border ist freigegeben und hat eine Farbkachel.
   'farben': ['--field-border'],

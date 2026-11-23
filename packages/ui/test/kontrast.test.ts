@@ -171,3 +171,24 @@ for (const modus of ['dunkel', 'hell'] as const) {
     }
   }
 }
+
+// ── UX Welle 2b, Task 2: Halte-Knopf (aktiv und ruhig) in beiden Modi ──
+// aktiv: LIVE_FLAECHE_KLASSE (--brand-fg-on-dark auf --tally-live, große Schrift) mit Rand --tally-live;
+// ruhig: --foreground auf --card (auch beim Hover auf --muted) mit Rand --field-border.
+{
+  const HALTE_PAARE: Array<[vorne: string, hinten: string, klasse: Klasse, was: string]> = [
+    ['--brand-fg-on-dark', '--tally-live', 'groß', 'aktiv Schrift'],
+    ['--tally-live', '--card', 'Grafik', 'aktiv Rand'],
+    ['--foreground', '--card', 'Text', 'ruhig Schrift'],
+    ['--foreground', '--muted', 'Text', 'ruhig Schrift beim Hover'],
+    ['--field-border', '--card', 'Grafik', 'ruhig Rand'],
+    ['--field-border', '--muted', 'Grafik', 'ruhig Rand beim Hover'],
+  ];
+  for (const modus of ['dunkel', 'hell'] as const) {
+    const tabelle = modusTabelle(modus);
+    for (const [vorne, hinten, klasse, was] of HALTE_PAARE) {
+      const wert = paar(tabelle, vorne, hinten);
+      ok(wert >= GRENZE[klasse], `Kontrast ${modus}: Halte-Knopf ${was}: ${vorne} auf ${hinten} ≥ ${grenzText(GRENZE[klasse])} (${klasse}) · ${zahl(wert)}`);
+    }
+  }
+}

@@ -15,7 +15,8 @@ import { erzeugeHalten, type HaltenSteuerung } from '../src/lib/halten';
 import { LIVE_FLAECHE_KLASSE } from '../src/lib/status';
 import { UI_TEXTE } from '../src/lib/texte';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from './harness';
-import { attr, hatKlassen, tags, text, zwischen } from './lib/markup';
+import { attr, hatKlassen, klassen, tags, text, zwischen } from './lib/markup';
+import { TALLY_BASIS } from './lib/tally-basis';
 
 /** Text des Elements mit dieser id (öffnendes Tag beginnt mit id="…"; Inhalt ohne weitere Elemente). */
 const textVonId = (html: string, id: string): string =>
@@ -530,4 +531,52 @@ const taste = (key: string, repeat = false) => ({ key, repeat, preventDefault: (
   frei.onKeyUp(taste(' '));
   frei.onClick();
   gleich([nachSperre, z.click], [0, 1], 'UI Tally Klick nach dem Entsperren (Tastatur): Leertaste unter Sperre, Loslassen danach → kein Klick; frischer Druck schon');
+}
+
+// ── UX Welle 2b, Task 2: Kürzelzeile und Fensterverlust ──
+{
+  const gleichId = (h: string): string => h.replace(/id="[^"]*"/g, 'id="X"').replace(/aria-describedby="[^"]*"/g, 'aria-describedby="X"');
+  const ist = {
+    bereit: gleichId(render(<TallyButton state="bereit" label="GO" shortcut="Leertaste" />)),
+    live: gleichId(render(<TallyButton state="live" label="GO" shortcut="Leertaste" />)),
+    gesperrt: gleichId(render(<TallyButton state="gesperrt" label="GO" shortcut="Leertaste" disabledReason="Kein Signal" />)),
+    liveGesperrt: gleichId(render(<TallyButton state="live" label="GO" shortcut="Leertaste" disabledReason="Kein Signal" />)),
+  };
+  ok(
+    (Object.keys(TALLY_BASIS) as Array<keyof typeof ist>).every((k) => ist[k] === TALLY_BASIS[k]) &&
+      gleichId(render(<TallyButton state="bereit" label="GO" shortcut="Leertaste" kuerzelZeile={false} />)) === TALLY_BASIS.bereit,
+    'X Tally Kürzelzeile: ohne die Prop (und mit false) ist das Markup in allen Zuständen unverändert',
+  );
+  const MIN = 'min-h-[var(--tally-h-kuerzel)]';
+  const faelle: Array<[string, TallyButtonProps]> = [
+    ['bereit', { state: 'bereit', label: 'GO' }],
+    ['live', { state: 'live', label: 'GO' }],
+    ['gesperrt', { state: 'gesperrt', label: 'GO', disabledReason: 'Kein Signal' }],
+  ];
+  const hoehen: string[] = [];
+  for (const [name, props] of faelle) {
+    const html = render(<TallyButton {...props} shortcut="Leertaste" kuerzelZeile />);
+    const [knopf] = tags(html, 'button');
+    const zeile = tags(html, 'span').find((t) => attr(t, 'data-kuerzel-zeile') !== undefined);
+    const nachZeile = zeile ? html.slice(html.indexOf(zeile)) : '';
+    const vorZeile = zeile ? html.slice(0, html.indexOf(zeile)) : html;
+    ok(
+      hatKlassen(knopf, MIN) && !hatKlassen(knopf, 'min-h-[var(--control-h-lg)]') &&
+        zeile !== undefined && nachZeile.startsWith(zeile) && /^<span[^>]*><kbd[^>]*>/.test(nachZeile) &&
+        vorZeile.includes('>GO<') && !vorZeile.includes('<kbd') && text(vorZeile).includes('GO') && text(nachZeile.slice(0, nachZeile.indexOf('</kbd>'))).includes('Leertaste'),
+      `X Tally Kürzelzeile: ${name} – <kbd> in eigener Zeile nach der Beschriftung, Mindesthöhe ${MIN}`,
+    );
+    hoehen.push(klassen(knopf).filter((k) => k.startsWith('min-h-')).join(' '));
+  }
+  ok(hoehen.every((h) => h === hoehen[0]) && hoehen[0] === MIN, 'X Tally Kürzelzeile: die Mindesthöhen-Klasse ist in allen drei Zuständen gleich');
+  const leer = render(<TallyButton state="bereit" label="GO" kuerzelZeile />);
+  ok(hatKlassen(tags(leer, 'button')[0], MIN) && !leer.includes('<kbd'), 'X Tally Kürzelzeile: ohne Kürzel bleibt die Höhe, aber keine <kbd>');
+}
+{
+  const quelle = leseText('src/components/TallyButton.tsx');
+  const baustein = quelle.slice(quelle.indexOf('export function TallyButton('));
+  ok(
+    baustein.split("useEffect(() => beobachteFensterVerlust(typeof window === 'undefined' ? null : window, typeof document === 'undefined' ? null : document, halten), [halten]);").length === 2,
+    'X Tally Fensterverlust: genau eine Effektzeile meldet beobachteFensterVerlust(…, halten) mit Abhängigkeit [halten] an',
+  );
 }

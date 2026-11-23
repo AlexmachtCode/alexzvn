@@ -41,3 +41,4 @@ export { AnleitungsSchicht, type AnleitungsStimme, type AnleitungsSchichtProps }
 export { useAnleitungsZiel } from './lib/useAnleitungsZiel';
 export { AnleitungsUebersicht, type AnleitungsUebersichtProps } from './components/AnleitungsUebersicht';
 export { useAnsage, type AnsageFehler } from './lib/useAnsage';
+export { HalteKnopf, type HalteKnopfProps } from './components/HalteKnopf';

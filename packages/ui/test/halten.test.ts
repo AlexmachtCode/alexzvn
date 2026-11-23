@@ -1,7 +1,7 @@
 // Task 6 · Halten-zum-Sprechen (Spec 3.4, E9, Review Focus 2): onPress und onRelease je Druck genau einmal.
 // Loslassen zählt nur über dieselbe Quelle (Zeiger bzw. Taste); abbrechen (pointercancel, lostpointercapture, blur,
 // Wechsel auf gesperrt, Unmount) löst immer, aber nie ein zweites Mal.
-import { erzeugeHalten, type HaltenQuelle, type HaltenRueckrufe } from '../src/lib/halten';
+import { beobachteFensterVerlust, erzeugeHalten, type FensterZiel, type HaltenQuelle, type HaltenRueckrufe } from '../src/lib/halten';
 import { ok } from './harness';
 
 function mitZaehler(): { z: { press: number; release: number }; rueckrufe: HaltenRueckrufe } {
@@ -229,4 +229,79 @@ function mitZaehler(): { z: { press: number; release: number }; rueckrufe: Halte
   h.aktualisiere(neu.rueckrufe);
   h.loslassen('taste');
   ok(alt.z.release === 0 && neu.z.release === 1, 'Halten: ist onRelease im neuesten Satz gesetzt, gewinnt der neueste');
+}
+
+// ── UX Welle 2b, Task 2: Loslassen bei Fensterverlust ──
+
+/** Attrappe eines Ziels: merkt sich die Hörer je Ereignis; senden() ruft sie auf. */
+function attrappe(sichtbarkeit?: string): FensterZiel & { hoerer: Map<string, Array<() => void>>; zustand: { v?: string }; senden(t: string): void } {
+  const hoerer = new Map<string, Array<() => void>>();
+  const zustand = { v: sichtbarkeit };
+  return {
+    hoerer,
+    zustand,
+    get visibilityState(): string | undefined {
+      return zustand.v;
+    },
+    addEventListener(t, h) {
+      hoerer.set(t, [...(hoerer.get(t) ?? []), h]);
+    },
+    removeEventListener(t, h) {
+      hoerer.set(t, (hoerer.get(t) ?? []).filter((x) => x !== h));
+    },
+    senden(t) {
+      for (const h of [...(hoerer.get(t) ?? [])]) h();
+    },
+  };
+}
+const anzahl = (a: { hoerer: Map<string, Array<() => void>> }): number => [...a.hoerer.values()].reduce((n, l) => n + l.length, 0);
+
+{
+  const fenster = attrappe();
+  const dokument = attrappe('visible');
+  const { z, rueckrufe } = mitZaehler();
+  const h = erzeugeHalten(rueckrufe);
+  const ab = beobachteFensterVerlust(fenster, dokument, h);
+  fenster.senden('blur');
+  dokument.senden('visibilitychange');
+  ok(z.release === 0, 'X Halten Fensterverlust: ohne Halten ruft weder blur noch visibilitychange etwas');
+  h.druecken('zeiger');
+  dokument.senden('visibilitychange');
+  ok(z.release === 0 && h.gehalten, 'X Halten Fensterverlust: visibilitychange mit visible bricht nicht ab');
+  fenster.senden('blur');
+  fenster.senden('blur');
+  ok(z.press === 1 && z.release === 1 && !h.gehalten, 'X Halten Fensterverlust: blur am Fenster während des Haltens → onRelease genau einmal');
+  h.druecken('taste');
+  dokument.zustand.v = 'hidden';
+  dokument.senden('visibilitychange');
+  dokument.senden('visibilitychange');
+  ok(z.press === 2 && z.release === 2 && !h.gehalten, 'X Halten Fensterverlust: visibilitychange mit hidden → onRelease genau einmal');
+  ok(anzahl(fenster) === 1 && anzahl(dokument) === 1, 'X Halten Fensterverlust: je ein Hörer an Fenster und Dokument');
+  ab();
+  ok(anzahl(fenster) === 0 && anzahl(dokument) === 0, 'X Halten Fensterverlust: die Abmeldung entfernt beide Hörer');
+  h.druecken('zeiger');
+  fenster.senden('blur');
+  ok(z.release === 2, 'X Halten Fensterverlust: nach der Abmeldung wirkt blur nicht mehr');
+}
+{
+  const m = mitZaehler();
+  const h = erzeugeHalten(m.rueckrufe);
+  const ab1 = beobachteFensterVerlust(null, null, h);
+  h.druecken('zeiger');
+  ab1();
+  ok(m.z.release === 0 && h.gehalten, 'X Halten Fensterverlust: ohne Ziele geschieht nichts, die Abmeldung ist trotzdem aufrufbar');
+  const nurFenster = attrappe();
+  const ab2 = beobachteFensterVerlust(nurFenster, null, h);
+  nurFenster.senden('blur');
+  ab2();
+  ok(m.z.release === 1, 'X Halten Fensterverlust: nur Fenster ohne Dokument genügt');
+}
+// Regression (Bestand erzeugeHalten): nach abbrechen meldet ein späteres pointerup nichts.
+{
+  const m = mitZaehler();
+  const h = erzeugeHalten(m.rueckrufe);
+  h.druecken('zeiger');
+  h.abbrechen();
+  h.loslassen('zeiger');
+  ok(m.z.press === 1 && m.z.release === 1, 'X Halten Regression: nach abbrechen meldet ein späteres Loslassen (pointerup) nichts');
 }
