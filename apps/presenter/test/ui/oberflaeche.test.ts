@@ -26,13 +26,15 @@ import {
   verschiebenMoeglich,
   type OberflaechenStand,
   type PresenterAktionen,
+  type StartWahl,
 } from '@/lib/oberflaeche';
 import { kreuz, pruefeFaelle, vergleiche } from './hilfe';
 import { basisMeldung, bildschirme, grundStand, laufend, ohneKommentare, presentAttrappe } from './testzustand';
 
 const BELEGT = 'listen EADDRINUSE: address already in use :::8728';
 const T = PRESENTER_TEXTE;
-const eintrag = (s: OberflaechenStand, id: string): StatusItem | undefined => statusLeiste(s).find((i) => i.id === id);
+/** Eintrag der Statusleiste; `wahl` = Startwahl des Editors (der Referent hat keine). */
+const eintrag = (s: OberflaechenStand, id: string, wahl?: StartWahl): StatusItem | undefined => statusLeiste(s, wahl).find((i) => i.id === id);
 const sd = (i: StatusItem | undefined): string => (i === undefined ? 'fehlt' : `${i.state} ${i.detail ?? ''}`);
 const LABEL_22 = 'Bildschirm 2 · 1920×1080';
 const KEINE_WAHL = { bildschirm: 22, nurNdi: false } as const;
@@ -80,21 +82,25 @@ const NDI: Record<string, NdiStatus | undefined> = {
   });
 }
 
-// ── PS Statusleiste publikum (B11): Präsentation × Liste × Fenster; Sprungziel nur im Editor (der Referent hat kein `ausgabe`) ──
+// ── PS Statusleiste publikum (B11): Präsentation × Liste × Startwahl × Fenster; Sprungziel nur im Editor (der Referent hat kein
+// `ausgabe`). Startwahl „keine“ = ohne Startwahl (Referent); 99 steht nicht in der Liste (abgesteckt oder neue Display-id) ──
 {
-  const faelle = kreuz({ p: ['undefined', 'aus', 'laeuft'], liste: ['unbekannt', 'ohne', 'mit'], fenster: ['editor', 'referent'] } as const);
-  pruefeFaelle('PS Statusleiste publikum: unbekannt, aus, ‹Bildschirm›, Keiner – nur NDI; gemessen offen ohne Präsentation warnt', faelle, (f) => {
-    const i = eintrag(grundStand({ praesentation: praes(f.p), bildschirme: liste(f.liste), fenster: f.fenster }), 'publikum');
+  const faelle = kreuz({ p: ['undefined', 'aus', 'laeuft'], liste: ['unbekannt', 'ohne', 'mit'], wahl: ['keine', null, 22, 99], fenster: ['editor', 'referent'] } as const);
+  pruefeFaelle('PS Statusleiste publikum: unbekannt, aus, ‹Bildschirm›, Keiner – nur NDI; ohne Präsentation warnt gemessen offen, fehlende Startwahl wie der Abschnitt', faelle, (f) => {
+    const wahl = f.wahl === 'keine' ? undefined : { bildschirm: f.wahl, nurNdi: false };
+    const i = eintrag(grundStand({ praesentation: praes(f.p), bildschirme: liste(f.liste), fenster: f.fenster }), 'publikum', wahl);
     const soll =
       f.p === 'undefined' || f.liste === 'unbekannt'
         ? 'off unbekannt'
-        : f.p === 'aus'
+        : f.p === 'laeuft'
           ? f.liste === 'ohne'
-            ? 'off aus'
-            : `warn ${SCREEN_TEXTE.ausFensterOffen} · ${LABEL_22}`
-          : f.liste === 'ohne'
             ? 'off Keiner – nur NDI'
-            : `ok ${LABEL_22}`;
+            : `ok ${LABEL_22}`
+          : f.wahl === 99
+            ? `error ${SCREEN_TEXTE.bildschirmFehlt}`
+            : f.liste === 'ohne'
+              ? 'off aus'
+              : `warn ${SCREEN_TEXTE.ausFensterOffen} · ${LABEL_22}`;
     const sprung = f.fenster === 'editor' ? ABSCHNITT.ausgabe : undefined;
     return vergleiche(sd(i), soll) ?? (i?.group !== 'ausgabe' || i.settingsSection !== sprung || i.label !== T.publikum.titel ? `Kopf falsch: ${i?.group}/${i?.settingsSection}` : null);
   });
@@ -387,17 +393,23 @@ const NDI: Record<string, NdiStatus | undefined> = {
   );
 }
 
-// ── PS Pille und Statusleiste gleich (B11): active × Liste (mit current, ohne, unbekannt) × Startwahl ──
+// ── PS Pille und Statusleiste gleich (B11): active × Liste (mit current, ohne, unbekannt) × Startwahl, auch eine Wahl, die nicht
+// (mehr) in der Liste steht (99: abgesteckt oder neue Display-id nach dem Wiederverbinden) ──
 {
-  const faelle = kreuz({ active: [false, true], liste: ['mit', 'ohne', 'unbekannt'], bildschirm: [null, 22, 33], nurNdi: [false, true] } as const);
-  pruefeFaelle('PS Pille und Statusleiste gleich: gleicher Zustand; nur NDI ohne error und ohne offenen Bildschirm; mit current derselbe Bildschirm', faelle, (f) => {
+  const faelle = kreuz({ active: [false, true], liste: ['mit', 'ohne', 'unbekannt'], bildschirm: [null, 22, 33, 99], nurNdi: [false, true] } as const);
+  pruefeFaelle('PS Pille und Statusleiste gleich: gleicher Zustand über alle Wahlen; nur NDI ohne error und ohne offenen Bildschirm; fehlende Wahl beide „Bildschirm fehlt“; mit current derselbe Bildschirm', faelle, (f) => {
     const s = grundStand({ praesentation: f.active ? laufend() : praes('aus'), bildschirme: liste(f.liste) });
-    const v = settings.screenOutputView(ausgabeAbschnitt(s, { bildschirm: f.bildschirm, nurNdi: f.nurNdi }));
-    const pub = eintrag(s, 'publikum');
+    const wahl = { bildschirm: f.bildschirm, nurNdi: f.nurNdi };
+    const v = settings.screenOutputView(ausgabeAbschnitt(s, wahl));
+    const pub = eintrag(s, 'publikum', wahl);
     if (v.status.state !== pub?.state) return `Zustand Pille ${v.status.state} ${v.status.text} / Leiste ${sd(pub)}`;
     if (nurNdiLaeuft(s)) {
       if (v.status.state === 'error' || v.gemessen !== undefined || v.status.state === 'ok') return `nur NDI: Pille ${v.status.state} ${v.status.text} ${v.gemessen?.label ?? ''}`;
       return vergleiche(pub.detail, T.publikum.nurNdi);
+    }
+    // Ohne laufendes Publikum zählt die Startwahl: fehlt sie in der Liste, melden beide den Text des Abschnitts.
+    if (f.bildschirm === 99 && f.liste !== 'unbekannt' && !(f.active && f.liste === 'mit')) {
+      return vergleiche(`${v.status.state} ${v.status.text}|${sd(pub)}`, `error ${SCREEN_TEXTE.bildschirmFehlt}|error ${SCREEN_TEXTE.bildschirmFehlt}`);
     }
     if (f.liste === 'mit') {
       if (v.gemessen?.label !== LABEL_22 || !pub.detail?.includes(LABEL_22)) return `nennt nicht denselben: ${v.gemessen?.label} / ${pub.detail}`;
@@ -405,6 +417,22 @@ const NDI: Record<string, NdiStatus | undefined> = {
     }
     return null;
   });
+  // Die beiden Lagen aus der Prüfung wörtlich: Startwahl 99 fehlt in der Liste.
+  const lage = (p: PresentationState, b: OberflaechenStand['bildschirme']): string => {
+    const s = grundStand({ praesentation: p, bildschirme: b });
+    const wahl = { bildschirm: 99, nurNdi: false };
+    const v = settings.screenOutputView(ausgabeAbschnitt(s, wahl));
+    return `${v.status.state} ${v.status.text} | ${sd(eintrag(s, 'publikum', wahl))}`;
+  };
+  gleich(
+    [lage(laufend(), bildschirme(null)), lage(praes('aus') as PresentationState, bildschirme(null)), lage(praes('aus') as PresentationState, bildschirme(22))],
+    [
+      `off ${ABSCHNITT_TEXTE.aus} | off Keiner – nur NDI`,
+      `error ${SCREEN_TEXTE.bildschirmFehlt} | error ${SCREEN_TEXTE.bildschirmFehlt}`,
+      `error ${SCREEN_TEXTE.bildschirmFehlt} | error ${SCREEN_TEXTE.bildschirmFehlt}`,
+    ],
+    'PS Pille und Statusleiste gleich: fehlende Startwahl – bei nur NDI kein Fehler (Pille aus, Leiste Keiner – nur NDI), ohne Präsentation beide „Bildschirm fehlt“',
+  );
 }
 
 // ── PS Ausgabe-Abschnitt (B11): Startwahl, gemessener Ort aus current, Sperre bei stehender Wahl „Keiner – nur NDI“ ──
@@ -412,15 +440,17 @@ const NDI: Record<string, NdiStatus | undefined> = {
   const faelle = kreuz({
     p: ['undefined', 'aus', 'laeuft'],
     liste: ['unbekannt', 'ohne', 'mit'],
-    bildschirm: [null, 33],
+    bildschirm: [null, 33, 99],
     nurNdi: [false, true],
     ndi: ['undefined', 'aus', 'startet', 'sendet2', 'nvAn'],
     plattform: ['win32', 'darwin'],
   } as const);
-  pruefeFaelle('PS Ausgabe-Abschnitt: enabled = active && !nurNdiLaeuft, windowOpen und measuredId aus current, kein Vollbild, locked nur bei stehender Wahl', faelle, (f) => {
+  pruefeFaelle('PS Ausgabe-Abschnitt: enabled = active && !nurNdiLaeuft, windowOpen und measuredId aus current, kein Vollbild, locked nur bei stehender Wahl; bei nur NDI ohne fehlende Wahl', faelle, (f) => {
     const s = grundStand({ praesentation: praes(f.p), bildschirme: liste(f.liste), ndi: NDI[f.ndi], plattform: f.plattform });
     const a = ausgabeAbschnitt(s, { bildschirm: f.bildschirm, nurNdi: f.nurNdi });
     const enabled = f.p === 'laeuft' && f.liste !== 'ohne';
+    // Läuft nur NDI, greift eine Wahl, die nicht in der Liste steht, nicht als Fehler: der Abschnitt bekommt dann keine Wahl.
+    const gewaehlt = f.bildschirm === 99 && f.p === 'laeuft' && f.liste === 'ohne' ? null : f.bildschirm;
     const offen = f.liste === 'unbekannt' ? undefined : f.liste === 'mit';
     const steht = f.plattform === 'win32' && f.nurNdi && (f.ndi === 'startet' || f.ndi === 'sendet2');
     // Die Liste des Abschnitts trägt nur id, Name und primär; ohne Antwort bleibt sie unbekannt (nie leer erfunden).
@@ -429,7 +459,7 @@ const NDI: Record<string, NdiStatus | undefined> = {
     return (
       vergleiche(
         [a.id, a.enabled, a.windowOpen, a.selectedId, a.measuredId, a.capabilities.toggle === true, a.capabilities.fullscreen === true, a.capabilities.background === true, a.locked ?? '', typeof a.onSelect].map(String).join('|'),
-        [ABSCHNITT.ausgabe, enabled, offen, f.bildschirm, f.liste === 'mit' ? 22 : undefined, false, false, false, steht ? T.publikum.nurNdiGewaehlt : '', 'undefined'].map(String).join('|'),
+        [ABSCHNITT.ausgabe, enabled, offen, gewaehlt, f.liste === 'mit' ? 22 : undefined, false, false, false, steht ? T.publikum.nurNdiGewaehlt : '', 'undefined'].map(String).join('|'),
       ) ?? vergleiche(screens, sollScreens)
     );
   });

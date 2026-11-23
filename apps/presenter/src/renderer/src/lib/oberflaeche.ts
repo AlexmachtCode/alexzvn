@@ -19,6 +19,7 @@ import {
   type RemoteControlSectionProps,
   remoteControlView,
   type ScreenOutputSectionProps,
+  screenOutputView,
   SCREEN_TEXTE,
 } from '@jm/settings';
 import { masterLinkStatusItem, unbekannt, zahlText, type StatusItem } from '@jm/ui';
@@ -142,9 +143,20 @@ export function nurNdiLaeuft(s: Pick<OberflaechenStand, 'praesentation' | 'bilds
   return s.praesentation?.active === true && s.bildschirme !== undefined && publikumsBildschirm(s) === undefined;
 }
 
+/** Startwahl des Editors (B11), gemerkt nur in der Wurzel-View: Startbildschirm (null = automatisch) und „Keiner – nur NDI“. */
+export interface StartWahl {
+  bildschirm: number | null;
+  nurNdi: boolean;
+}
+
 /** Steht die Wahl „Keiner – nur NDI“ für den nächsten Start? Wie startZielFuer (shared/ndi.ts): nur solange nurNdiBehalten. */
-function nurNdiSteht(s: Pick<OberflaechenStand, 'ndi' | 'plattform'>, startWahl: { nurNdi: boolean }): boolean {
+function nurNdiSteht(s: Pick<OberflaechenStand, 'ndi' | 'plattform'>, startWahl: Pick<StartWahl, 'nurNdi'>): boolean {
   return s.plattform === 'win32' && startWahl.nurNdi && s.ndi !== undefined && nurNdiBehalten(s.ndi);
+}
+
+/** Der gewählte Startbildschirm steht nicht (mehr) in der bekannten Liste (abgesteckt oder neue Display-id nach dem Wiederverbinden). */
+function wahlFehlt(s: Pick<OberflaechenStand, 'bildschirme'>, startWahl: Pick<StartWahl, 'bildschirm'>): boolean {
+  return startWahl.bildschirm !== null && s.bildschirme !== undefined && !s.bildschirme.some((d) => d.id === startWahl.bildschirm);
 }
 
 /**
@@ -152,19 +164,18 @@ function nurNdiSteht(s: Pick<OberflaechenStand, 'ndi' | 'plattform'>, startWahl:
  * `enabled` = Präsentation läuft und nicht „nur NDI“, so zeigt die Pille bei „nur NDI“ „aus“ statt eines Fehlers.
  * `windowOpen` und `measuredId` kommen aus der Liste (`current`), nie aus der Wahl. Kein Schalter, kein Vollbild (nicht
  * gemessen), kein Hintergrund. Steht „Keiner – nur NDI“, ist der Abschnitt gesperrt.
+ * Läuft nur NDI und fehlt die Startwahl in der Liste, bekommt der Abschnitt keine Wahl (null): Sonst meldete die Pille
+ * „Bildschirm fehlt“ als Fehler (die Prüfung steht in @jm/settings vor `enabled`), während die Statusleiste „Keiner – nur
+ * NDI“ zeigt. Außerhalb von „nur NDI“ bleibt die fehlende Wahl stehen und ist ein Fehler, in Pille und Statusleiste gleich.
  */
-export function ausgabeAbschnitt(
-  s: OberflaechenStand,
-  startWahl: { bildschirm: number | null; nurNdi: boolean },
-  a?: Pick<PresenterAktionen, 'startBildschirmWaehlen'>,
-): ScreenOutputSectionProps {
+export function ausgabeAbschnitt(s: OberflaechenStand, startWahl: StartWahl, a?: Pick<PresenterAktionen, 'startBildschirmWaehlen'>): ScreenOutputSectionProps {
   const publikum = publikumsBildschirm(s);
   return {
     id: ABSCHNITT.ausgabe,
     enabled: s.praesentation?.active === true && !nurNdiLaeuft(s),
     windowOpen: s.bildschirme === undefined ? undefined : publikum !== undefined,
     screens: s.bildschirme?.map((d) => ({ id: d.id, label: d.label, primary: d.primary })),
-    selectedId: startWahl.bildschirm,
+    selectedId: nurNdiLaeuft(s) && wahlFehlt(s, startWahl) ? null : startWahl.bildschirm,
     measuredId: publikum?.id,
     ...(nurNdiSteht(s, startWahl) ? { locked: PRESENTER_TEXTE.publikum.nurNdiGewaehlt } : {}),
     capabilities: { toggle: false, fullscreen: false, background: false },
@@ -252,9 +263,11 @@ function timerItem(s: OberflaechenStand): StatusItem {
  * Publikum (B11): wo das Publikumsfenster gemessen steht. Ohne Antwort (Präsentation oder Liste) unbekannt; läuft die
  * Präsentation, nennt der Eintrag den Bildschirm mit `current` oder „Keiner – nur NDI“. Ohne Präsentation „aus“; steht das
  * Fenster dann noch gemessen auf einem Bildschirm, warnt der Eintrag wie die Pille des Abschnitts („aus, Fenster noch offen“).
- * Sprungziel nur im Editor: Der Referent hat keinen Abschnitt `ausgabe`.
+ * Mit Startwahl (Editor) gilt außerhalb von „nur NDI“ und ohne gemessen laufendes Publikum: Fehlt die Wahl in der Liste,
+ * meldet der Eintrag, was der Abschnitt meldet („Bildschirm fehlt“, aus screenOutputView; eine Wahrheit, nicht nachgebaut).
+ * Sprungziel nur im Editor: Der Referent hat keinen Abschnitt `ausgabe` und keine Startwahl.
  */
-function publikumItem(s: OberflaechenStand): StatusItem {
+function publikumItem(s: OberflaechenStand, startWahl?: StartWahl): StatusItem {
   const T = PRESENTER_TEXTE.publikum;
   const kopf = {
     id: 'publikum',
@@ -265,9 +278,13 @@ function publikumItem(s: OberflaechenStand): StatusItem {
   if (s.praesentation === undefined || s.bildschirme === undefined) return unbekannt(kopf);
   if (nurNdiLaeuft(s)) return { ...kopf, state: 'off', detail: T.nurNdi };
   const publikum = publikumsBildschirm(s);
-  if (publikum === undefined) return { ...kopf, state: 'off', detail: ABSCHNITT_TEXTE.aus };
-  return s.praesentation.active
-    ? { ...kopf, state: 'ok', detail: publikum.label }
+  if (s.praesentation.active && publikum !== undefined) return { ...kopf, state: 'ok', detail: publikum.label };
+  if (startWahl !== undefined && wahlFehlt(s, startWahl)) {
+    const v = screenOutputView(ausgabeAbschnitt(s, startWahl));
+    return { ...kopf, state: v.status.state, detail: v.status.text };
+  }
+  return publikum === undefined
+    ? { ...kopf, state: 'off', detail: ABSCHNITT_TEXTE.aus }
     : { ...kopf, state: 'warn', detail: `${SCREEN_TEXTE.ausFensterOffen}${T.trenner}${publikum.label}` };
 }
 
@@ -322,12 +339,16 @@ function praesentationItem(s: OberflaechenStand): StatusItem {
   return { ...kopf, state: 'ok', detail: T.praesentation.folie(p.index + 1, p.total) };
 }
 
-/** Statusleiste in fester Reihenfolge: master-link, timer, publikum, ndi (nur Windows), fernsteuerung, handy, gast-klicker, praesentation. */
-export function statusLeiste(s: OberflaechenStand): StatusItem[] {
+/**
+ * Statusleiste in fester Reihenfolge: master-link, timer, publikum, ndi (nur Windows), fernsteuerung, handy, gast-klicker,
+ * praesentation. `startWahl` gibt nur der Editor mit (dieselbe wie für `ausgabeAbschnitt`), damit `publikum` eine fehlende
+ * Startwahl so meldet wie die Pille des Abschnitts; der Referent ruft ohne.
+ */
+export function statusLeiste(s: OberflaechenStand, startWahl?: StartWahl): StatusItem[] {
   return [
     masterLinkStatusItem(s.masterLink),
     timerItem(s),
-    publikumItem(s),
+    publikumItem(s, startWahl),
     ...(s.plattform === 'win32' ? [ndiItem(s)] : []),
     abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel }),
     handyItem(s),
