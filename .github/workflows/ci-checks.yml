@@ -110,6 +110,10 @@ jobs:
         run: npm run selftest -w @jm/recorder
       - name: Connect (Zoom-Kern gegen die Attrappe, Laufzeit, Statustexte)
         run: npm run selftest -w @jm/connect
+      # UX Welle 2b (Task 13): Oberflächentests von Studio-Control (Render ohne Browser), mit tsx, ohne Electron und ohne
+      # native Module (kein Test lädt better-sqlite3 oder den Hauptprozess).
+      - name: Studio-Control (Oberfläche)
+        run: npm run selftest -w @jm/studio-control
       # Zoom Stage 4b (Spec 12.6, 17.2 Nr. 2/3, N4b.2). Das Companion-Modul liegt außerhalb der
       # Workspaces; sein Selbsttest braucht nur Node. „npm rebuild esbuild“ ist Vorsorge (Spec 12.6):
       # Unter Windows lief esbuild ohne seine Postinstall, unter Linux nach `npm ci --ignore-scripts`
