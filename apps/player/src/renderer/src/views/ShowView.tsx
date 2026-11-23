@@ -184,7 +184,8 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
         />
       )}
 
-      {/* Live-Bereich: Standby und Transport (GO, Pause/Weiter, Stop, Panik) mit denselben Store-Aktionen wie bisher */}
+      {/* Live-Bereich: Standby und Transport (Pause/Weiter, Stop, Panik, GO ganz rechts wie bisher; Ruling W36) mit denselben
+          Store-Aktionen wie bisher */}
       <LiveBereich
         stand={{
           player: { activeShowId, showCues, standbyIndex, playingCueIds, vorlaufCueIds, showPaused, videoCue, videoProgress, outputDisplayId },

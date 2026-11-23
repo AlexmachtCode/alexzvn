@@ -6,7 +6,8 @@ import type { Cue } from '@shared/types';
  * „Theatergong" ohne Decode-Verzögerung beim Tastendruck.
  *
  * Pad-Meldung (UX Welle 2a, W2-1): `onChange` meldet nach jedem `play`, `stop`, `stopAll` und natürlichen Ende
- * (`onended`) die IDs der gerade spielenden Pads; `aktiveIds()` liefert sie jederzeit. Der Klang bleibt wie bisher.
+ * (`onended`) die IDs der gerade spielenden Pads; `aktiveIds()` liefert sie jederzeit. Eine Änderung am Klang (W2-10): Ein Pad,
+ * das beim Auslösen noch lädt, startet nach einem `stopAll` (Panik, „Alle stoppen“) nicht mehr; sonst klingt alles wie bisher.
  */
 class CueEngine {
   private ctx: AudioContext | null = null;

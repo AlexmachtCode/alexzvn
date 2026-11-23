@@ -1,7 +1,7 @@
 // UX Welle 2a, Player d2 · Transport und Fußleiste (Spec 3.4, 5.1; E4, E7, E14; W2-10): Die Cue-Show zeigt Standby und den
-// Transport als vier TallyButtons (GO, Pause/Weiter, Stop, Panik) mit sichtbaren Gründen; Bibliothek und Soundboard tragen eine
-// feste Fußleiste mit Stop und Panik (dieselben Store-Aktionen, ohne Kürzel), die Cue-Show nicht. „■ Alle stoppen“ im Soundboard
-// bleibt. Jede Taste ruft dieselbe Store-Aktion wie bisher (Attrappen). Render ohne Browser und ohne window.
+// Transport als vier TallyButtons (Pause/Weiter, Stop, Panik, GO ganz rechts wie bisher; Ruling W36) mit sichtbaren Gründen;
+// Bibliothek und Soundboard tragen eine feste Fußleiste mit Stop und Panik (dieselben Store-Aktionen, ohne Kürzel), die Cue-Show
+// nicht. „■ Alle stoppen“ im Soundboard bleibt. Jede Taste ruft dieselbe Store-Aktion wie bisher (Attrappen). Render ohne Browser und ohne window.
 import { isValidElement, type ReactElement, type ReactNode } from 'react';
 import { TallyButton, type TallyButtonProps } from '@jm/ui';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
