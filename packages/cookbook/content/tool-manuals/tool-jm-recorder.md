@@ -30,7 +30,7 @@ summary: "Mehrspur-Audiomitschnitt als WAV über die Soundkarte — Gerät/Kanä
 
 ### Netzwerk & Ports
 - Port **8729** (TCP-Zeilenprotokoll): Steuerport für Companion / Rundown. Auto-Discovery über mDNS (`jm-recorder-ctl`, TXT `ctl=1`).
-- Bedienmodell: **Scharfschalten (Arm) → Aufnehmen (Record)**. „Arm" öffnet den Eingang (Pegel laufen, noch keine Datei); „Record" schreibt die WAV.
+- Bedienmodell: **Scharfschalten (Arm) → Aufnehmen (Record)**. „Arm“ öffnet den Eingang (Pegel laufen, noch keine Datei; lokal die Haupttaste „Eingang öffnen“ rechts); „Record“ schreibt die WAV (lokal die Haupttaste „Aufnahme“ links).
 
 ### Fernsteuer-Befehle (TCP 8729)
 - `RECORDER ARM` / `RECORDER DISARM` — Eingang öffnen/schließen (Pegel ohne Datei)
@@ -40,37 +40,37 @@ summary: "Mehrspur-Audiomitschnitt als WAV über die Soundkarte — Gerät/Kanä
 ## Schritt-für-Schritt
 
 ### Einrichtung
-- Eingangsgerät wählen (bevorzugt ASIO/Dante für latenzarme Mehrkanal-Aufnahme); Kanalzahl und Samplerate setzen — Standard 2 Kanäle / 48000 Hz, folgt sonst dem Gerät.
-- Zielordner und Basis-Dateinamen festlegen (ohne Namen = Zeitstempel).
-- Aufnahme-Verstärkung (Gain, dB) bei Bedarf anpassen — wirkt live auf Pegel **und** Aufnahme, wird gemerkt.
-- Optional **getrennte Spuren**: zusätzlich jede Spur als eigene Mono-WAV in einen Unterordner (für den späteren Mix in JM DAW).
-- Fernsteuerung: Companion/Rundown auf Port 8729 zeigen lassen (Auto-Discovery `jm-recorder-ctl`).
+- Eingangsgerät im Panel ⚙ › Audiogerät wählen (bevorzugt ASIO/Dante für latenzarme Mehrkanal-Aufnahme); Kanalzahl und Samplerate im Panel ⚙ › Format setzen (übernommen nach Enter oder beim Verlassen des Feldes) — Standard 2 Kanäle / 48000 Hz, folgt sonst dem Gerät.
+- Zielordner und Basis-Dateinamen im Panel ⚙ › Ziel festlegen (ohne Namen = Zeitstempel).
+- Aufnahme-Verstärkung (Gain, dB) bei Bedarf mit dem Schieber „GAIN“ bei den Pegeln im Live-Bereich anpassen — wirkt live auf Pegel **und** Aufnahme, wird gemerkt.
+- Optional **getrennte Spuren**: zusätzlich jede Spur als eigene Mono-WAV in einen Unterordner (für den späteren Mix in JM DAW; Panel ⚙ › Ziel, „Spuren zusätzlich einzeln speichern“).
+- Fernsteuerung (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung): Companion/Rundown auf Port 8729 zeigen lassen (Auto-Discovery `jm-recorder-ctl`).
 
 ### Während
-- Vor dem Start **Arm** drücken und die Pegel prüfen — nicht ins Clipping fahren (Gain reduzieren, falls nötig).
-- **Record** startet den Mitschnitt (lokal oder per Companion `RECORDER RECORD ON`). Der Zustand (`recording`) wird an Companion gemeldet.
-- Für einen unbeaufsichtigten Mitschnitt die **zeitgesteuerte Aufnahme** nutzen: Startzeit und/oder Auto-Stopp nach N Minuten setzen.
+- Vor dem Start **Arm** drücken (Haupttaste „Eingang öffnen“) und die Pegel im Live-Bereich prüfen — nicht ins Clipping fahren (Gain reduzieren, falls nötig).
+- **Record** startet den Mitschnitt (lokal mit der Haupttaste „Aufnahme“ oder per Companion `RECORDER RECORD ON`). Der Zustand (`recording`) wird an Companion gemeldet; die Kopfzeile zeigt dann „REC“.
+- Für einen unbeaufsichtigten Mitschnitt die **zeitgesteuerte Aufnahme** nutzen: Startzeit und/oder Auto-Stopp nach N Minuten in der Karte „Geplante Aufnahme“ unter dem Live-Bereich setzen (Statusleiste „Zeitplan“).
 
 ### Nachbereitung
-- **Record OFF** beendet und finalisiert die WAV sauber (Datei erst danach vollständig lesbar).
+- **Record OFF** (Haupttaste „Stopp“) beendet und finalisiert die WAV sauber (Datei erst danach vollständig lesbar).
 - Aufnahme kontrollieren (Pegel, Vollständigkeit); Dateien sichern. Für Schnitt/Mix in JM DAW importieren.
 
 ## Profi-Tipps
-- Immer erst **Arm** und ein paar Sekunden Pegel beobachten, bevor es live wird — so fällt ein totes Kabel/falscher Eingang vor der Aufnahme auf, nicht danach.
-- **Getrennte Spuren** aktivieren, wenn hinterher gemischt wird — die Mono-WAVs pro Kanal landen direkt auf der DAW-Timeline.
+- Immer erst **Arm** („Eingang öffnen“) und ein paar Sekunden Pegel beobachten, bevor es live wird — so fällt ein totes Kabel/falscher Eingang vor der Aufnahme auf, nicht danach.
+- **Getrennte Spuren** im Panel ⚙ › Ziel aktivieren, wenn hinterher gemischt wird — die Mono-WAVs pro Kanal landen direkt auf der DAW-Timeline.
 - `RECORD TOGGLE` auf einen Companion-Button legen: ein Knopf für Start und Stopp, mit rückgemeldetem `recording`-Zustand als Tally.
-- Zeitgesteuerte Aufnahme für Vorträge/Streams, die pünktlich beginnen — Startzeit setzen, der Recorder scharf lassen, fertig.
+- Zeitgesteuerte Aufnahme für Vorträge/Streams, die pünktlich beginnen — Startzeit in der Karte „Geplante Aufnahme“ setzen, der Recorder scharf lassen, fertig.
 - Über eine **`.jmshow`** lassen sich Zielordner, Dateiname, getrennte Spuren, Kanäle und Samplerate pro Produktion vorbelegen (das Eingangsgerät bleibt bewusst lokal).
 
 ## Pannenhilfe
 
 | Risiko | Gegenmaßnahme |
 | --- | --- |
-| Kein Eingang / „Gerät konnte nicht geöffnet werden" | Richtiges Gerät gewählt? ASIO-/Dante-Treiber aktiv, Gerät nicht von anderer App belegt? |
-| Kein Pegel trotz Arm | Falscher Eingang/Kanal, Kabel/Phantomspeisung prüfen; Gain nicht zu niedrig |
+| Kein Eingang / „Gerät konnte nicht geöffnet werden" | Richtiges Gerät im Panel ⚙ › Audiogerät gewählt (Statusleiste „Eingang“)? ASIO-/Dante-Treiber aktiv, Gerät nicht von anderer App belegt? |
+| Kein Pegel trotz Arm | Falscher Eingang/Kanal, Kabel/Phantomspeisung prüfen; Gain (Schieber „GAIN“ bei den Pegeln) nicht zu niedrig |
 | Übersteuerung (Clipping) | Gain reduzieren, am Interface/Pult zurücknehmen — vor Record prüfen |
-| Companion startet nicht | Port 8729 offen? `jm-recorder-ctl` im mDNS sichtbar (sonst Adresse manuell eintragen)? |
-| WAV unvollständig/nicht abspielbar | Aufnahme sauber mit **Record OFF** beenden — die Datei wird erst beim Stopp finalisiert |
+| Companion startet nicht | Statusleiste „Fernsteuerung“ ansehen; Port 8729 offen? `jm-recorder-ctl` im mDNS sichtbar (sonst Adresse manuell eintragen)? |
+| WAV unvollständig/nicht abspielbar | Aufnahme sauber mit **Record OFF** beenden (Haupttaste „Stopp“) — die Datei wird erst beim Stopp finalisiert |
 | Platte voll mitten in der Aufnahme | Vorher Speicher prüfen; WAV ist groß — bei langen/mehrkanaligen Mitschnitten großzügig planen |
 
 ## Checklisten

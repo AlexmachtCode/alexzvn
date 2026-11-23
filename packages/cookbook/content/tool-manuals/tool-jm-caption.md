@@ -37,20 +37,20 @@ summary: "Live-Untertitel offline via whisper.cpp als transparente NDI-Quelle �
 ## Schritt-für-Schritt
 
 ### Einrichtung
-- Audioquelle wählen (sauberer Pult-Mix bevorzugt gegenüber Raummikrofon)
-- Sprache und Whisper-Modell setzen (größer = genauer, aber mehr CPU-Last)
-- Stil und Position der Untertitel anpassen
-- NDI-Ausgabe in TriCaster / vMix / OBS als Quelle einbinden
-- Optional: Companion auf Port 8732 verbinden (Transkription an/aus, Hold, NDI, Clear)
+- Audioquelle im Panel ⚙ › Audiogerät wählen (sauberer Pult-Mix bevorzugt gegenüber Raummikrofon; die Statusleiste zeigt sie unter „Mikrofon“)
+- Sprache und Whisper-Modell im Panel ⚙ › Erkennung setzen (größer = genauer, aber mehr CPU-Last)
+- Stil und Position der Untertitel im Panel ⚙ › Darstellung anpassen (Schrift, Zeilen, Band)
+- NDI-Ausgabe mit der Haupttaste „NDI starten“ einschalten und in TriCaster / vMix / OBS als Quelle einbinden (den Namen im Netz zeigt das Panel ⚙ › NDI-Ausgabe unter „Im Netz:“)
+- Optional: Companion auf Port 8732 verbinden (Transkription an/aus, Hold, NDI, Clear; Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung)
 
 ### Während
-- Transkription starten (lokal oder CAPTION transcribe on)
-- Bei Fehlern CAPTION hold on zum Einfrieren, letzte Zeile korrigieren, dann hold off
-- CAPTION clear leert die Anzeige hart (z. B. vor einem neuen Sprecher)
-- Lesbarkeit und Timing im Blick behalten
+- Transkription starten (lokal mit der Haupttaste „Start“ oder CAPTION transcribe on)
+- Bei Fehlern mit der Haupttaste „Hold“ bzw. CAPTION hold on einfrieren, die letzte Zeile per Doppelklick im Verlauf korrigieren, dann Hold wieder lösen („Hold ✓“ bzw. hold off)
+- Die Haupttaste „Leeren“ bzw. CAPTION clear leert die Anzeige hart (z. B. vor einem neuen Sprecher)
+- Lesbarkeit und Timing im Blick behalten (Live-Zeile und NDI-Vorschau im Live-Bereich)
 
 ### Nachbereitung
-- Transkription stoppen (CAPTION transcribe off), NDI bei Bedarf abschalten
+- Transkription stoppen (Haupttaste „Stopp“ bzw. CAPTION transcribe off), NDI bei Bedarf abschalten (Haupttaste „NDI an“ oder Schalter „Ausgabe“ im Panel ⚙ › NDI-Ausgabe)
 
 ## Profi-Tipps
 - Größeres Modell = bessere Genauigkeit, aber mehr CPU-Last — vorab unter Realbedingungen testen, Aussetzer = Modell kleiner wählen.
@@ -62,10 +62,10 @@ summary: "Live-Untertitel offline via whisper.cpp als transparente NDI-Quelle �
 
 | Risiko | Gegenmaßnahme |
 | --- | --- |
-| NDI-Quelle erscheint nicht im Mixer | NDI-Runtime installiert? Gleiches Subnetz, mDNS/Firewall frei |
-| Companion steuert nicht | Port 8732 (jm-caption-ctl) erreichbar? Gemeinsames LAN? |
-| Untertitel zu spät oder falsch | Modell/Sprache prüfen, Audioqualität (Pult-Mix) verbessern |
-| Aussetzer / Ruckeln | CPU-Last beobachten, kleineres Whisper-Modell wählen |
+| NDI-Quelle erscheint nicht im Mixer | Statusleiste „NDI“ ansehen (nur „sendet“ heißt, dass Bilder rausgehen) und den Namen unter „Im Netz:“ im Panel ⚙ › NDI-Ausgabe prüfen. NDI-Runtime installiert? Gleiches Subnetz, mDNS/Firewall frei |
+| Companion steuert nicht | Statusleiste „Fernsteuerung“ ansehen; Port 8732 (jm-caption-ctl) erreichbar? Gemeinsames LAN? |
+| Untertitel zu spät oder falsch | Modell/Sprache im Panel ⚙ › Erkennung prüfen, Audioqualität (Pult-Mix) verbessern |
+| Aussetzer / Ruckeln | CPU-Last beobachten, kleineres Whisper-Modell im Panel ⚙ › Erkennung wählen |
 
 ## Checklisten
 

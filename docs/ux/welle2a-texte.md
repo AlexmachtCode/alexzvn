@@ -6,7 +6,7 @@ Stand: Branch `feat/ux-welle2a`, Code-Stand `ff4f8cd8fc` (alle 32 Aufgaben der s
 
 Lesehilfe: ‹…› steht für den Teil, der sich zur Laufzeit ändert (eine Zahl oder ein Name). Beispiel: „‹…› Pads spielen“ erscheint als „3 Pads spielen“. Die Nummer (z. B. PL12) nennst Du bitte bei jeder Änderung, die Du wünschst. Die Spalte „Ort“ sagt, wo der Text steht: Kopf (Kopfzeile), Haupttaste (große Taste im Live-Bereich), Statusleiste (unten), Panel (Einstellungen hinter ⚙), Live-Bereich, Hinweis. Wie in Welle 1 steht je Werkzeug jeder Text seiner Textkonstante, auch wo der Wortlaut der bisherige ist und nur der Ort neu; der Satz über jeder Tabelle nennt, was neu formuliert ist.
 
-Aufbau: je Werkzeug eine Tabelle, dann „Ortshinweise“ (alte Texte, die einen verschobenen Ort nennen), „Changelog“, „Entfällt“, „Geänderte Bedienung“ und „Offene Fragen“.
+Aufbau: je Werkzeug eine Tabelle, dann „Ortshinweise“ (alte Texte, die einen verschobenen Ort nennen), „Changelog“, „Entfällt“, „Geänderte Bedienung“, „Offene Fragen“ und „Handbuch“ (alter und neuer Text je Stelle in den fünf Handbüchern).
 
 ## Caption
 
@@ -369,5 +369,394 @@ Keine Funktion fällt weg. An diesen Stellen verhält sich die Bedienung anders 
    - Stage Display: Die Suche im Netz ersetzt einen von Hand eingetragenen Host still; falsche PIN, fehlende Fernsteuerung im Presenter und nicht erreichbar zeigen alle „nicht gefunden“; die PIN steht im Klartext; ohne Hauptfenster hält ein offener Bühnenschirm die App am Leben (Befunde 3, 5, 7, 10).
    - Recorder: Der Fernbefehl ARM und „Eingang schließen“ beenden eine laufende Aufnahme ohne Rückfrage; Schreibfehler haben keinen Fehlerzustand, nur einen Toast; die Rückfrage zum Netzwerkordner gibt es nur beim Import, und der Import verwirft Ordner still; ein gescheiterter Auto-Stopp meldet nichts (Befunde 2, 3, 7, 10, 13).
    - Player: Nach schnellem Schließen und Öffnen sind zwei Ausgabefenster möglich (Ruling Task 13); nur das Löschen einer Show fragt zurück; der Pad-Dialog setzt Gain und Farbe zurück; Umsortieren bei aktiver Suche tauscht die falschen Einträge; das Ausgabevideo ignoriert positives Gain (Befunde 10, 12, 13, 18).
+
+## Handbuch
+
+Die fünf Handbücher im Kochbuch (Caption, Prompter, Stage Display, Recorder, Player; der Interpreter hat keins) nennen jetzt die neuen Orte: Panel ⚙ mit Abschnitt, Statusleiste, Haupttasten, Live-Bereich, Reiter und Fußleiste. Die alten Orte (Kopfleiste, NDI-Leiste, Klappe, Operator-Fenster, Dialog „Video-Ausgabe“, Verbindungs-Marken) kommen nicht mehr vor; wo ein Schritt eine lokale Bedienung beschreibt, steht jetzt dabei, wo sie liegt. Alles andere im Handbuch bleibt wie es war. Je Stelle steht ein Satz in Klartext, dann der alte Text (`-`, in Code-Schrift) und der neue Text (`+`). Bitte sag mir, wenn eine Stelle anders klingen soll.
+
+### Caption
+
+Die Audioquelle wählst Du jetzt im Panel unter „Audiogerät“, nicht mehr in der Kopfleiste.
+
+- `Audioquelle wählen (sauberer Pult-Mix bevorzugt gegenüber Raummikrofon)`
++ Audioquelle im Panel ⚙ › Audiogerät wählen (sauberer Pult-Mix bevorzugt gegenüber Raummikrofon; die Statusleiste zeigt sie unter „Mikrofon“)
+
+Modell und Sprache stehen jetzt im Panel unter „Erkennung“.
+
+- `Sprache und Whisper-Modell setzen (größer = genauer, aber mehr CPU-Last)`
++ Sprache und Whisper-Modell im Panel ⚙ › Erkennung setzen (größer = genauer, aber mehr CPU-Last)
+
+Schrift, Zeilen und Band stellst Du im Panel unter „Darstellung“ ein, nicht mehr in der NDI-Leiste.
+
+- `Stil und Position der Untertitel anpassen`
++ Stil und Position der Untertitel im Panel ⚙ › Darstellung anpassen (Schrift, Zeilen, Band)
+
+NDI schaltest Du mit der Haupttaste oben links ein; den Namen, unter dem die Quelle im Netz läuft, zeigt das Panel.
+
+- `NDI-Ausgabe in TriCaster / vMix / OBS als Quelle einbinden`
++ NDI-Ausgabe mit der Haupttaste „NDI starten“ einschalten und in TriCaster / vMix / OBS als Quelle einbinden (den Namen im Netz zeigt das Panel ⚙ › NDI-Ausgabe unter „Im Netz:“)
+
+Die Fernsteuerung für Companion zeigen die Statusleiste und das Panel „Fernsteuerung“.
+
+- `Optional: Companion auf Port 8732 verbinden (Transkription an/aus, Hold, NDI, Clear)`
++ Optional: Companion auf Port 8732 verbinden (Transkription an/aus, Hold, NDI, Clear; Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung)
+
+Gestartet wird mit der Haupttaste „Start“ im Live-Bereich.
+
+- `Transkription starten (lokal oder CAPTION transcribe on)`
++ Transkription starten (lokal mit der Haupttaste „Start“ oder CAPTION transcribe on)
+
+Hold ist eine Haupttaste; korrigiert wird per Doppelklick auf die jüngste Zeile im Verlauf.
+
+- `Bei Fehlern CAPTION hold on zum Einfrieren, letzte Zeile korrigieren, dann hold off`
++ Bei Fehlern mit der Haupttaste „Hold“ bzw. CAPTION hold on einfrieren, die letzte Zeile per Doppelklick im Verlauf korrigieren, dann Hold wieder lösen („Hold ✓“ bzw. hold off)
+
+Leeren ist eine Haupttaste.
+
+- `CAPTION clear leert die Anzeige hart (z. B. vor einem neuen Sprecher)`
++ Die Haupttaste „Leeren“ bzw. CAPTION clear leert die Anzeige hart (z. B. vor einem neuen Sprecher)
+
+Live-Zeile und Vorschau stehen im Live-Bereich unter den Haupttasten.
+
+- `Lesbarkeit und Timing im Blick behalten`
++ Lesbarkeit und Timing im Blick behalten (Live-Zeile und NDI-Vorschau im Live-Bereich)
+
+Stopp und NDI aus gehen über die Haupttasten; NDI lässt sich auch im Panel ausschalten.
+
+- `Transkription stoppen (CAPTION transcribe off), NDI bei Bedarf abschalten`
++ Transkription stoppen (Haupttaste „Stopp“ bzw. CAPTION transcribe off), NDI bei Bedarf abschalten (Haupttaste „NDI an“ oder Schalter „Ausgabe“ im Panel ⚙ › NDI-Ausgabe)
+
+Bei „NDI-Quelle erscheint nicht im Mixer“ liest Du zuerst die Statusleiste und den Namen im Panel.
+
+- `NDI-Runtime installiert? Gleiches Subnetz, mDNS/Firewall frei`
++ Statusleiste „NDI“ ansehen (nur „sendet“ heißt, dass Bilder rausgehen) und den Namen unter „Im Netz:“ im Panel ⚙ › NDI-Ausgabe prüfen. NDI-Runtime installiert? Gleiches Subnetz, mDNS/Firewall frei
+
+Bei „Companion steuert nicht“ liest Du zuerst die Statusleiste.
+
+- `Port 8732 (jm-caption-ctl) erreichbar? Gemeinsames LAN?`
++ Statusleiste „Fernsteuerung“ ansehen; Port 8732 (jm-caption-ctl) erreichbar? Gemeinsames LAN?
+
+Modell und Sprache prüfst Du im Panel unter „Erkennung“.
+
+- `Modell/Sprache prüfen, Audioqualität (Pult-Mix) verbessern`
++ Modell/Sprache im Panel ⚙ › Erkennung prüfen, Audioqualität (Pult-Mix) verbessern
+
+Ein kleineres Modell wählst Du im Panel unter „Erkennung“.
+
+- `CPU-Last beobachten, kleineres Whisper-Modell wählen`
++ CPU-Last beobachten, kleineres Whisper-Modell im Panel ⚙ › Erkennung wählen
+
+### Prompter
+
+QR-Code und Adresse stehen jetzt im Panel „Handy-Fernbedienung“, nicht mehr im Operator-Fenster.
+
+- `QR-Code + URL im Operator-Fenster.`
++ QR-Code + URL im Panel ⚙ › Handy-Fernbedienung (die Statusleiste zeigt den Eintrag „Handy-Fernbedienung“).
+
+Schrift, Lese-Linie und Fett stehen in drei Abschnitten des Panels.
+
+- `Lesbarkeit einstellen: Schriftgröße, Zeilenhöhe, Seitenrand, Lesezeile (Position), Fett`
++ Lesbarkeit im Panel ⚙ einstellen: Schriftgröße, Zeilenhöhe und Seitenrand unter Schrift, Lesezeile (Position) unter Lese-Linie, Fett unter Darstellung
+
+Den Spiegelmodus schaltest Du im Panel unter „Darstellung“.
+
+- `aktivieren (horizontal für Glas vor der Kamera, vertikal für Deckenspiegel)`
++ im Panel ⚙ › Darstellung aktivieren („Spiegeln ⇄“ horizontal für Glas vor der Kamera, „Spiegeln ⇅“ vertikal für Deckenspiegel)
+
+Den Talent-Monitor öffnest Du mit dem Schalter „Ausgabe“ im Panel; die Bildschirmwahl allein verschiebt nichts.
+
+- `Vollbild-Ausgabe auf den Talent-Monitor legen (Display wählen).`
++ Vollbild-Ausgabe auf den Talent-Monitor legen: im Panel ⚙ › Ausgabe auf Bildschirm den Bildschirm wählen und den Schalter „Ausgabe“ einschalten; ein offenes Fenster zieht mit „Auf diesen Bildschirm“ um (Statusleiste „Talent-Monitor“).
+
+Die Handy-Fernbedienung schaltest Du im Panel ein; die Fernsteuerung für Companion zeigen Statusleiste und Panel.
+
+- `Fernbedienung: Handy-Remote einschalten und QR scannen (Port 7781), oder Companion/Rundown auf Port 8727 zeigen lassen.`
++ Fernbedienung: Handy-Remote im Panel ⚙ › Handy-Fernbedienung einschalten („Fernbedienung aktiv“) und den QR dort scannen (Port 7781), oder Companion/Rundown auf Port 8727 zeigen lassen (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung).
+
+Das Tempo regelst Du lokal mit dem Regler unter der Vorschau.
+
+- `(lokal oder per Handy/Companion) justieren live.`
++ (lokal mit dem Tempo-Regler unter der Vorschau oder per Handy/Companion) justieren live.
+
+GO/Pause, Anfang und die Sprungmarken sind Haupttasten unter der Vorschau.
+
+- `` startet/stoppt; bei Versprechern per Abschnittssprung zurück, `TOP` an den Anfang. ``
++ startet/stoppt (lokal die Haupttaste „GO“ bzw. „Pause“ oder die Leertaste); bei Versprechern per Abschnittssprung zurück (Haupttaste „Marke zurück“), `TOP` an den Anfang (Haupttaste „Anfang“ oder Pos1).
+
+Pause und Anfang sind Haupttasten.
+
+- `Scrollen stoppen, an den Anfang`
++ Scrollen stoppen (Haupttaste „Pause“), an den Anfang mit der Haupttaste „Anfang“
+
+Die Lese-Linie hat einen eigenen Abschnitt im Panel.
+
+- `Lesezeile als festen Ankerpunkt einblenden`
++ Lesezeile als festen Ankerpunkt einblenden (Panel ⚙ › Lese-Linie)
+
+Den Hinweis „Keine LAN-Adresse gefunden“ zeigen jetzt Statusleiste und Panel, ohne Schlusspunkt.
+
+- `Handy-Remote „Keine LAN-Adresse gefunden"`
++ Handy-Remote „Keine LAN-Adresse gefunden“ (Statusleiste „Handy-Fernbedienung“, Panel ⚙ › Handy-Fernbedienung)
+
+Bei „Companion steuert nicht“ liest Du zuerst die Statusleiste.
+
+- `Port 8727 offen?`
++ Statusleiste „Fernsteuerung“ ansehen; Port 8727 offen?
+
+Bei „Kein Bild auf dem Talent-Monitor“ liest Du zuerst die Statusleiste; der Schalter steht im Panel.
+
+- `Ausgabe geöffnet + richtiger Monitor gewählt?`
++ Statusleiste „Talent-Monitor“ ansehen (zu, Bildschirm fehlt, abgestürzt); Schalter „Ausgabe“ im Panel ⚙ › Ausgabe auf Bildschirm an + richtiger Monitor gewählt?
+
+Den Spiegelmodus prüfst Du im Panel unter „Darstellung“.
+
+- `Spiegelmodus passend zur Optik (H für Glas, V für Deckenspiegel)`
++ Spiegelmodus im Panel ⚙ › Darstellung passend zur Optik (H für Glas, V für Deckenspiegel)
+
+### Stage Display
+
+Host und Port der Quellen stehen jetzt im Panel unter „Gegenstellen“.
+
+- `(Host/Port je Quelle einstellbar, Standard`
++ (Host/Port je Quelle im Panel ⚙ › Gegenstellen einstellbar, Standard
+
+Die PIN steht im Panel unter „Presenter-Kopplung“.
+
+- `(die PIN bleibt manuell)`
++ (die PIN bleibt manuell: Panel ⚙ › Presenter-Kopplung)
+
+Quellen schaltest Du im Panel „Gegenstellen“; Host und Port gelten erst mit „Setzen“, nicht mehr mit jedem Tastendruck.
+
+- `Je Quelle den Schalter aktivieren und **Host/IP + Port** eintragen`
++ Im Panel ⚙ › Gegenstellen je Quelle den Schalter „Aktiv“ einschalten und **Host + Port** eintragen, dann mit „Setzen“ übernehmen
+
+Die PIN trägst Du im Panel „Presenter-Kopplung“ ein; der Abschnitt erscheint mit eingeschalteter Presenter-Quelle.
+
+- `zusätzlich die **PIN** wie in dessen Fernsteuerung.`
++ zusätzlich die **PIN** im Panel ⚙ › Presenter-Kopplung wie in dessen Fernsteuerung (der Abschnitt erscheint, sobald die Presenter-Quelle an ist).
+
+Die Anzeige-Elemente sind Schalter im Live-Bereich unter der Vorschau.
+
+- `Widgets ein-/ausblenden:`
++ Widgets mit den Schaltern „Anzeige-Elemente“ unter der Vorschau ein-/ausblenden:
+
+Der Bühnenschirm öffnet mit der Haupttaste; den Bildschirm wählst Du im Panel.
+
+- `auf den Bühnen-/Crew-Monitor legen (Display wählen).`
++ auf den Bühnen-/Crew-Monitor legen: Bildschirm im Panel ⚙ › Ausgabe auf Bildschirm wählen, dann die Haupttaste „Vollbild-Ausgabe öffnen“ drücken (Statusleiste „Bühnenschirm“; ein offenes Fenster zieht mit „Auf diesen Bildschirm“ um).
+
+Die Verbindungs-Marken sind jetzt Einträge der Statusleiste; „getrennt“ heißt jetzt „nicht gefunden“.
+
+- `Verbindungs-Badges prüfen: jede aktive Quelle sollte „verbunden" zeigen (sonst „getrennt").`
++ Statusleiste prüfen: jede aktive Quelle (Einträge „JM Timer“, „JM Switcher“, „JM Presenter“) sollte „verbunden“ zeigen (sonst „nicht gefunden“; dieselbe Zeile steht im Panel ⚙ › Gegenstellen).
+
+Das Nachricht-Feld steht jetzt oben im Live-Bereich, direkt unter der Vorschau.
+
+- `einblenden (hat Vorrang vor der Timer-Nachricht)`
++ im Feld „Nachricht“ direkt unter der Vorschau einblenden (hat Vorrang vor der Timer-Nachricht; die Statusleiste „Nachricht“ zeigt „auf dem Schirm“, sobald sie auf dem offenen Bühnenschirm steht)
+
+Die Presenter-Ansicht wählst Du im Panel „Presenter-Kopplung“.
+
+- `Presenter-Feed wählbar:`
++ Presenter-Feed im Panel ⚙ › Presenter-Kopplung wählbar (Umschalter „Anzeige“: „Referenzansicht“ bzw. „Hauptansicht“):
+
+Geschlossen wird mit der Haupttaste; die Quellen passt Du im Panel an.
+
+- `Ausgabe schließen; Quellen für die nächste Show ggf. anpassen.`
++ Ausgabe mit der Haupttaste „Ausgabe schließen“ schließen; Quellen für die nächste Show ggf. im Panel ⚙ › Gegenstellen anpassen.
+
+Quellen aktivierst Du im Panel „Gegenstellen“.
+
+- `nur die Quellen aktivieren.`
++ nur die Quellen im Panel ⚙ › Gegenstellen aktivieren.
+
+Von Hand eingetragene Adressen übernimmt „Setzen“.
+
+- `Host/Port je Quelle von Hand eintragen`
++ Host/Port je Quelle von Hand im Panel ⚙ › Gegenstellen eintragen und mit „Setzen“ übernehmen
+
+In der Pannenhilfe heißt die Marke jetzt „nicht gefunden“; sie steht in Statusleiste und Panel.
+
+- `Quelle bleibt „getrennt"`
++ Quelle bleibt „nicht gefunden“ (Statusleiste, Panel ⚙ › Gegenstellen)
+
+Eine Adresse von Hand trägst Du im Panel „Gegenstellen“ ein und übernimmst sie mit „Setzen“.
+
+- `Bei Firewall/getrenntem Netz Adresse von Hand eintragen`
++ Bei Firewall/getrenntem Netz Adresse von Hand im Panel ⚙ › Gegenstellen eintragen und mit „Setzen“ übernehmen
+
+Auch beim Switcher heißt die Marke jetzt „nicht gefunden“.
+
+- `Switcher „getrennt" trotz Erreichbarkeit`
++ Switcher „nicht gefunden“ trotz Erreichbarkeit
+
+Die PIN prüfst Du im Panel „Presenter-Kopplung“.
+
+- `PIN korrekt?`
++ PIN im Panel ⚙ › Presenter-Kopplung korrekt?
+
+Bei „Kein Bild auf dem Bühnen-Monitor“ liest Du zuerst die Statusleiste.
+
+- `Ausgabe geöffnet + richtiger Monitor (Vollbild)?`
++ Statusleiste „Bühnenschirm“ ansehen (zu, Bildschirm fehlt, abgestürzt); Ausgabe mit der Haupttaste „Vollbild-Ausgabe öffnen“ geöffnet + richtiger Monitor (Vollbild) im Panel ⚙ › Ausgabe auf Bildschirm gewählt?
+
+Den Timer siehst Du in der Statusleiste.
+
+- `JM Timer aktiviert und auf 7777 verbunden?`
++ JM Timer aktiviert und auf 7777 verbunden (Statusleiste „JM Timer“)?
+
+Die Checkliste fragt jetzt nach der Statusleiste statt nach den Marken.
+
+- `Alle aktiven Quellen zeigen „verbunden"`
++ Alle aktiven Quellen zeigen in der Statusleiste „verbunden“
+
+### Recorder
+
+Arm und Record sind die zwei Haupttasten: links „Aufnahme“ bzw. „Stopp“, rechts „Eingang öffnen“ bzw. „Eingang schließen“.
+
+- `„Arm" öffnet den Eingang (Pegel laufen, noch keine Datei); „Record" schreibt die WAV.`
++ „Arm“ öffnet den Eingang (Pegel laufen, noch keine Datei; lokal die Haupttaste „Eingang öffnen“ rechts); „Record“ schreibt die WAV (lokal die Haupttaste „Aufnahme“ links).
+
+Eingang und Format stehen jetzt im Panel; Kanäle und Samplerate gelten nach Enter oder beim Verlassen des Feldes.
+
+- `Eingangsgerät wählen (bevorzugt ASIO/Dante für latenzarme Mehrkanal-Aufnahme); Kanalzahl und Samplerate setzen`
++ Eingangsgerät im Panel ⚙ › Audiogerät wählen (bevorzugt ASIO/Dante für latenzarme Mehrkanal-Aufnahme); Kanalzahl und Samplerate im Panel ⚙ › Format setzen (übernommen nach Enter oder beim Verlassen des Feldes)
+
+Ordner und Dateiname stehen im Panel unter „Ziel“.
+
+- `Zielordner und Basis-Dateinamen festlegen`
++ Zielordner und Basis-Dateinamen im Panel ⚙ › Ziel festlegen
+
+Gain bleibt bei den Pegeln im Live-Bereich.
+
+- `Aufnahme-Verstärkung (Gain, dB) bei Bedarf anpassen`
++ Aufnahme-Verstärkung (Gain, dB) bei Bedarf mit dem Schieber „GAIN“ bei den Pegeln im Live-Bereich anpassen
+
+Getrennte Spuren schaltest Du im Panel unter „Ziel“.
+
+- `in einen Unterordner (für den späteren Mix in JM DAW).`
++ in einen Unterordner (für den späteren Mix in JM DAW; Panel ⚙ › Ziel, „Spuren zusätzlich einzeln speichern“).
+
+Die Fernsteuerung für Companion zeigen die Statusleiste und das Panel „Fernsteuerung“.
+
+- `Fernsteuerung: Companion/Rundown auf Port 8729`
++ Fernsteuerung (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung): Companion/Rundown auf Port 8729
+
+Arm ist die Haupttaste „Eingang öffnen“; die Pegel stehen im Live-Bereich.
+
+- `drücken und die Pegel prüfen`
++ drücken (Haupttaste „Eingang öffnen“) und die Pegel im Live-Bereich prüfen
+
+Record ist die Haupttaste „Aufnahme“.
+
+- `startet den Mitschnitt (lokal oder per Companion`
++ startet den Mitschnitt (lokal mit der Haupttaste „Aufnahme“ oder per Companion
+
+Während der Aufnahme zeigt die Kopfzeile „REC“.
+
+- `wird an Companion gemeldet.`
++ wird an Companion gemeldet; die Kopfzeile zeigt dann „REC“.
+
+Der Zeitplan steht in der Karte „Geplante Aufnahme“ unter dem Live-Bereich.
+
+- `Startzeit und/oder Auto-Stopp nach N Minuten setzen.`
++ Startzeit und/oder Auto-Stopp nach N Minuten in der Karte „Geplante Aufnahme“ unter dem Live-Bereich setzen (Statusleiste „Zeitplan“).
+
+Record OFF ist die Haupttaste „Stopp“.
+
+- `beendet und finalisiert die WAV sauber`
++ (Haupttaste „Stopp“) beendet und finalisiert die WAV sauber
+
+Arm heißt auf der Taste „Eingang öffnen“.
+
+- `und ein paar Sekunden Pegel beobachten`
++ („Eingang öffnen“) und ein paar Sekunden Pegel beobachten
+
+Getrennte Spuren schaltest Du im Panel unter „Ziel“.
+
+- `aktivieren, wenn hinterher gemischt wird`
++ im Panel ⚙ › Ziel aktivieren, wenn hinterher gemischt wird
+
+Die Startzeit setzt Du in der Karte „Geplante Aufnahme“.
+
+- `Startzeit setzen, der Recorder scharf lassen`
++ Startzeit in der Karte „Geplante Aufnahme“ setzen, der Recorder scharf lassen
+
+Bei „Kein Eingang“ prüfst Du das Panel „Audiogerät“ und die Statusleiste „Eingang“.
+
+- `Richtiges Gerät gewählt?`
++ Richtiges Gerät im Panel ⚙ › Audiogerät gewählt (Statusleiste „Eingang“)?
+
+Gain ist der Schieber bei den Pegeln.
+
+- `Gain nicht zu niedrig`
++ Gain (Schieber „GAIN“ bei den Pegeln) nicht zu niedrig
+
+Bei „Companion startet nicht“ liest Du zuerst die Statusleiste.
+
+- `Port 8729 offen?`
++ Statusleiste „Fernsteuerung“ ansehen; Port 8729 offen?
+
+Record OFF ist die Haupttaste „Stopp“.
+
+- `beenden — die Datei wird erst beim Stopp finalisiert`
++ beenden (Haupttaste „Stopp“) — die Datei wird erst beim Stopp finalisiert
+
+### Player
+
+Bibliothek, Soundboard und Cue-Show sind jetzt Reiter in der Werkzeugleiste unter der Kopfzeile.
+
+- `Medien in die Bibliothek aufnehmen und taggen; Playlist(s) anlegen`
++ Medien im Reiter „Bibliothek“ aufnehmen und taggen; Playlist(s) dort anlegen
+
+Cues und Pads legst Du in den Reitern „Cue-Show“ und „Soundboard“ an.
+
+- `Show-Cues in Reihenfolge bringen; Soundboard-Pads mit Instant-Effekten/Stingern belegen`
++ Show-Cues im Reiter „Cue-Show“ in Reihenfolge bringen; Soundboard-Pads im Reiter „Soundboard“ mit Instant-Effekten/Stingern belegen
+
+Der Dialog „Video-Ausgabe“ ist jetzt der Panel-Abschnitt „Ausgabe auf Bildschirm“; „▦ Ausgabe“ in der Cue-Show öffnet ihn.
+
+- `Ausgabegerät wählen (PA/Mischer-Eingang bzw. Videoausgang)`
++ Ausgabegerät wählen (PA/Mischer-Eingang bzw. Videoausgang; den Bildschirm für Video-Cues im Panel ⚙ › Ausgabe auf Bildschirm wählen, der Schalter „Ausgabe“ öffnet dort das Fenster)
+
+Die Fernsteuerung für Companion zeigen die Statusleiste und das Panel „Fernsteuerung“.
+
+- `Fernsteuerung: Companion/Rundown auf Port 8725`
++ Fernsteuerung (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung): Companion/Rundown auf Port 8725
+
+GO ist die Haupttaste ganz rechts im Transport der Cue-Show; die Leertaste wirkt wie bisher.
+
+- `feuern (lokal oder per Companion)`
++ feuern (lokal in der Cue-Show mit der Haupttaste „GO“ ganz rechts im Transport oder der Leertaste, oder per Companion)
+
+Pads löst Du im Reiter „Soundboard“ aus.
+
+- `Soundboard-Pads für Applaus/Stinger/Jingle sofort auslösen`
++ Soundboard-Pads im Reiter „Soundboard“ für Applaus/Stinger/Jingle sofort auslösen
+
+Pause, Stop und Panik sind Haupttasten; Stop und Panik stehen zusätzlich in einer Fußleiste, und Panik stoppt jetzt auch die Pads.
+
+- `bei Bedarf hart abwürgen`
++ bei Bedarf hart abwürgen (lokal die Haupttasten „❚❚ Pause“, „■ Stop“ und „⛔ Panik“ im Transport der Cue-Show; „■ Stop“ und „⛔ Panik“ stehen auch in der Fußleiste von Bibliothek und Soundboard, Panik stoppt jetzt auch die Pads)
+
+Bei „Kein Ton/Bild beim GO“ zeigt für Video die Statusleiste den Zustand des Ausgabefensters.
+
+- `Richtiges Ausgabegerät gewählt?`
++ Richtiges Ausgabegerät gewählt (für Video die Statusleiste „Video-Ausgabe“ und das Panel ⚙ › Ausgabe auf Bildschirm)?
+
+Bei „Companion/Rundown steuert nicht“ liest Du zuerst die Statusleiste.
+
+- `Port 8725 offen?`
++ Statusleiste „Fernsteuerung“ ansehen; Port 8725 offen?
+
+Den Standby zeigen die Standby-Anzeige über den Tasten und die Statusleiste.
+
+- `Standby prüfen`
++ Standby in der Standby-Anzeige über den Tasten der Cue-Show bzw. in der Statusleiste „Cue-Show“ prüfen
+
+Panik steht im Transport und in der Fußleiste.
+
+- `(Hard-Stop), danach neu auf Standby legen`
++ (Hard-Stop; lokal „⛔ Panik“ im Transport oder in der Fußleiste), danach neu auf Standby legen
 
 Freigabe: ☐ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren)

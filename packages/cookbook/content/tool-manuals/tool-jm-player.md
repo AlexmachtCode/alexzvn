@@ -43,15 +43,15 @@ summary: "Video-/Audio-Zuspieler mit Playlists (Lounge-/Einlaufmusik), Show-Cues
 ## Schritt-für-Schritt
 
 ### Einrichtung
-- Medien in die Bibliothek aufnehmen und taggen; Playlist(s) anlegen — z. B. „Lounge", „Einlauf", „Pause"
-- Show-Cues in Reihenfolge bringen; Soundboard-Pads mit Instant-Effekten/Stingern belegen
-- Ausgabegerät wählen (PA/Mischer-Eingang bzw. Videoausgang)
-- Fernsteuerung: Companion/Rundown auf Port 8725 zeigen lassen (Auto-Discovery `jm-player-ctl`)
+- Medien im Reiter „Bibliothek“ aufnehmen und taggen; Playlist(s) dort anlegen — z. B. „Lounge", „Einlauf", „Pause"
+- Show-Cues im Reiter „Cue-Show“ in Reihenfolge bringen; Soundboard-Pads im Reiter „Soundboard“ mit Instant-Effekten/Stingern belegen
+- Ausgabegerät wählen (PA/Mischer-Eingang bzw. Videoausgang; den Bildschirm für Video-Cues im Panel ⚙ › Ausgabe auf Bildschirm wählen, der Schalter „Ausgabe“ öffnet dort das Fenster)
+- Fernsteuerung (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung): Companion/Rundown auf Port 8725 zeigen lassen (Auto-Discovery `jm-player-ctl`)
 
 ### Während
-- Standby setzen und mit `GO` feuern (lokal oder per Companion) — `NEXT`/`PREV` schiebt den Standby
-- Soundboard-Pads für Applaus/Stinger/Jingle sofort auslösen (`PAD <Slot>`)
-- `PAUSE` für kurze Unterbrechung, `STOP` beendet sauber, `PANIC` bei Bedarf hart abwürgen
+- Standby setzen und mit `GO` feuern (lokal in der Cue-Show mit der Haupttaste „GO“ ganz rechts im Transport oder der Leertaste, oder per Companion) — `NEXT`/`PREV` schiebt den Standby
+- Soundboard-Pads im Reiter „Soundboard“ für Applaus/Stinger/Jingle sofort auslösen (`PAD <Slot>`)
+- `PAUSE` für kurze Unterbrechung, `STOP` beendet sauber, `PANIC` bei Bedarf hart abwürgen (lokal die Haupttasten „❚❚ Pause“, „■ Stop“ und „⛔ Panik“ im Transport der Cue-Show; „■ Stop“ und „⛔ Panik“ stehen auch in der Fußleiste von Bibliothek und Soundboard, Panik stoppt jetzt auch die Pads)
 
 ### Nachbereitung
 - Alle Cues stoppen; nächste Playlist (z. B. „Ausklang") auf Standby legen
@@ -66,11 +66,11 @@ summary: "Video-/Audio-Zuspieler mit Playlists (Lounge-/Einlaufmusik), Show-Cues
 
 | Risiko | Gegenmaßnahme |
 | --- | --- |
-| Kein Ton/Bild beim GO | Richtiges Ausgabegerät gewählt? Kabel/Pegel am Mischer prüfen |
-| Companion/Rundown steuert nicht | Port 8725 offen? `jm-player-ctl` im mDNS sichtbar? |
-| Falscher Cue läuft | Standby prüfen (`STATE` `standby`/`standby_label`) — `GO` feuert immer den Standby, nicht die Auswahl |
+| Kein Ton/Bild beim GO | Richtiges Ausgabegerät gewählt (für Video die Statusleiste „Video-Ausgabe“ und das Panel ⚙ › Ausgabe auf Bildschirm)? Kabel/Pegel am Mischer prüfen |
+| Companion/Rundown steuert nicht | Statusleiste „Fernsteuerung“ ansehen; Port 8725 offen? `jm-player-ctl` im mDNS sichtbar? |
+| Falscher Cue läuft | Standby in der Standby-Anzeige über den Tasten der Cue-Show bzw. in der Statusleiste „Cue-Show“ prüfen (`STATE` `standby`/`standby_label`) — `GO` feuert immer den Standby, nicht die Auswahl |
 | Soundboard-Pad reagiert nicht | Richtiger Slot? Datei in der Bibliothek vorhanden/lesbar? |
-| Cue hängt / lässt sich nicht stoppen | `PANIC` (Hard-Stop), danach neu auf Standby legen |
+| Cue hängt / lässt sich nicht stoppen | `PANIC` (Hard-Stop; lokal „⛔ Panik“ im Transport oder in der Fußleiste), danach neu auf Standby legen |
 
 ## Checklisten
 
