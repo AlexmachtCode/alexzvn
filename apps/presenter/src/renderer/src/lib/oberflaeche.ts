@@ -417,15 +417,25 @@ export function istTextfeld(ziel: EventTarget | null): boolean {
   return !KEIN_TEXTFELD.has(typeof t.type === 'string' ? t.type.toLowerCase() : 'text');
 }
 
+/** Strg+W bzw. Cmd+W: schließt über das Electron-Standardmenü das Fenster, wenn niemand preventDefault ruft. */
+const istFensterSchliessen = (e: { key: string; ctrlKey?: boolean; metaKey?: boolean }): boolean =>
+  (e.key === 'w' || e.key === 'W') && (e.ctrlKey === true || e.metaKey === true);
+
 /**
  * Tastatur und USB-Klicker in Referent und Publikum (N2b 1.7): der bisherige switch aus usePresentation.ts, unverändert, hinter
- * dem Filter B10 (aus einem Textfeld wirkt kein Kürzel, auch kein preventDefault). Zusatztasten prüft er wie bisher nicht.
+ * dem Filter B10 (aus einem Textfeld wirkt kein Kürzel, auch kein preventDefault). Einzige Ausnahme im Textfeld: Strg+W bzw.
+ * Cmd+W ruft nur preventDefault (Controller-Entscheid zu Task 9): Sonst schlösse das Standardmenü das Fenster, und das beendet
+ * die Präsentation; bisher fing der switch die Taste ab. Außerhalb von Feldern prüft er Zusatztasten wie bisher nicht
+ * (Strg+W schaltet Weiß).
  */
 export function verarbeiteTaste(
-  e: { key: string; target: EventTarget | null; preventDefault(): void },
+  e: { key: string; target: EventTarget | null; preventDefault(): void; ctrlKey?: boolean; metaKey?: boolean },
   present: Pick<JmprApi['present'], 'next' | 'prev' | 'goto' | 'setScreen' | 'stop'>,
 ): void {
-  if (istTextfeld(e.target)) return;
+  if (istTextfeld(e.target)) {
+    if (istFensterSchliessen(e)) e.preventDefault();
+    return;
+  }
   switch (e.key) {
     case 'ArrowRight':
     case 'ArrowDown':

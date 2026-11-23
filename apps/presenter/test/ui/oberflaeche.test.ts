@@ -589,13 +589,45 @@ const KEINE_TEXTFELDER: Record<string, EventTarget | null> = {
   gleich(Object.keys(HEUTE).length, 18, 'PS Kürzel unverändert: geprüft sind alle 18 Tastenwerte der 16 Kürzel (B/b und W/w je ein Kürzel)');
 }
 
-// ── PS Zusatztasten wie bisher (Befund zu Nr. 88/208): verarbeiteTaste prüft keine Zusatztaste, wie der alte Hook. Strg+W schaltet
-// darum Weiß und ruft preventDefault (das Standardmenü schließt das Fenster dann nicht, abgeleitet); B10 ändert daran nichts ──
+// ── PS Zusatztasten wie bisher (Befund zu Nr. 88/208): Außerhalb von Textfeldern prüft verarbeiteTaste keine Zusatztaste, wie der
+// alte Hook. Strg+W (und Cmd+W) schaltet darum Weiß und ruft preventDefault (das Standardmenü schließt das Fenster dann nicht,
+// abgeleitet); Strg+B schaltet Schwarz ──
 {
+  const faelle = kreuz({ ziel: ['null', 'select', 'button', 'body'], taste: ['w', 'W'], zusatz: ['ctrlKey', 'metaKey'] } as const);
+  pruefeFaelle('PS Zusatztasten wie bisher: Strg+W und Cmd+W außerhalb von Textfeldern schalten Weiß, je mit preventDefault', faelle, (f) =>
+    vergleiche(druecke(f.taste, KEINE_TEXTFELDER[f.ziel], { [f.zusatz]: true }), 'setScreen(white) / preventDefault 1'),
+  );
   gleich(
-    [druecke('w', null, { ctrlKey: true }), druecke('b', null, { ctrlKey: true }), druecke('W', null, { ctrlKey: true, shiftKey: true }), druecke('w', TEXTFELDER['input text'], { ctrlKey: true })],
-    ['setScreen(white) / preventDefault 1', 'setScreen(black) / preventDefault 1', 'setScreen(white) / preventDefault 1', '– / preventDefault 0'],
-    'PS Zusatztasten wie bisher: Strg+W schaltet Weiß und Strg+B Schwarz (je preventDefault), aus einem Textfeld nichts',
+    [druecke('b', null, { ctrlKey: true }), druecke('W', null, { ctrlKey: true, shiftKey: true })],
+    ['setScreen(black) / preventDefault 1', 'setScreen(white) / preventDefault 1'],
+    'PS Zusatztasten wie bisher: Strg+B schaltet Schwarz, Strg+Umschalt+W Weiß (je preventDefault)',
+  );
+}
+
+// ── PS Strg+W im Textfeld (Controller-Entscheid zu Task 9, Bedenken 1): Aus einem Textfeld ruft Strg+W bzw. Cmd+W nur
+// preventDefault, damit das Standardmenü das Fenster nicht schließt (das beendete die Präsentation); kein Weiß. Jede andere
+// Taste im Feld bleibt nach B10 ohne Wirkung und ohne preventDefault ──
+{
+  const faelle = kreuz({ feld: Object.keys(TEXTFELDER), taste: ['w', 'W'], zusatz: [{ ctrlKey: true }, { metaKey: true }, { ctrlKey: true, shiftKey: true }] } as const);
+  pruefeFaelle('PS Strg+W im Textfeld: Strg+W und Cmd+W rufen im Feld nur preventDefault, keine Aktion', faelle, (f) =>
+    vergleiche(druecke(f.taste, TEXTFELDER[f.feld], f.zusatz), '– / preventDefault 1'),
+  );
+  const andere = kreuz({
+    feld: Object.keys(TEXTFELDER),
+    fall: ['w', 'W', 'Alt+W', 'Strg+B', 'Strg+R', 'Strg+Enter', 'Cmd+Pfeil', 'Strg+Punkt'],
+  } as const);
+  const FALL: Record<(typeof andere)[number]['fall'], [string, object]> = {
+    w: ['w', {}],
+    W: ['W', { shiftKey: true }],
+    'Alt+W': ['w', { altKey: true }],
+    'Strg+B': ['b', { ctrlKey: true }],
+    'Strg+R': ['r', { ctrlKey: true }],
+    'Strg+Enter': ['Enter', { ctrlKey: true }],
+    'Cmd+Pfeil': ['ArrowRight', { metaKey: true }],
+    'Strg+Punkt': ['.', { ctrlKey: true }],
+  };
+  pruefeFaelle('PS Strg+W im Textfeld: w ohne Strg/Cmd und jede andere Taste im Feld rufen nichts auf und kein preventDefault (B10)', andere, (f) =>
+    vergleiche(druecke(FALL[f.fall][0], TEXTFELDER[f.feld], FALL[f.fall][1]), '– / preventDefault 0'),
   );
 }
 
