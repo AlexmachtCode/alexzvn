@@ -349,7 +349,7 @@
     "entries": [
       {
         "version": "0.9.0",
-        "date": "2026-11-22",
+        "date": "2026-11-23",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Player“, ON AIR und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter die Reiter Bibliothek, Soundboard und Cue-Show. Der Dialog „Video-Ausgabe“ ist ins Panel hinter ⚙ umgezogen (Abschnitt „Ausgabe auf Bildschirm“, dazu „Fernsteuerung“); „▦ Ausgabe“ in der Cue-Show öffnet das Panel an dieser Stelle.",
           "Neue Statusleiste mit fünf Einträgen: Master, Video-Ausgabe, Fernsteuerung, Cue-Show und Soundboard. Sie zeigt nur Gemessenes: den Zustand des Ausgabefensters („zu“, „offen“, „Bildschirm fehlt“, „abgestürzt“) und wie viele Cues und Pads wirklich spielen. ON AIR leuchtet nur, solange ein Cue der Show wirklich spielt (nicht im Vorlauf, nicht pausiert, ein Video nur bei offenem Ausgabefenster) oder ein Pad klingt; Vollbild lässt sich nur schalten, wenn sein Zustand gemessen ist.",
@@ -424,7 +424,7 @@
     "entries": [
       {
         "version": "0.10.0",
-        "date": "2026-11-22",
+        "date": "2026-11-23",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Audio Recorder“, „REC“ während der Aufnahme und den Schaltern für Hell und Dunkel sowie Einstellungen. Darunter stehen Presets, die Haupttasten „Aufnahme“ bzw. „Stopp“ und „Eingang öffnen“ bzw. „Eingang schließen“, Uhr und Pegel gemeinsam im Blick, der Zeitplan darunter. Eingang, Format, Ziel und Fernsteuerung liegen jetzt im Panel hinter ⚙.",
           "Neue Statusleiste: Master, Aufnahme, Fernsteuerung, Eingang und Zeitplan, bei Bedarf dazu Audio-Modul und Meldung. Sie zeigt nur, was der Hauptprozess wirklich meldet; bis zur ersten Antwort steht dort „unbekannt“, und die Tasten sind mit „Aufnahmezustand wird abgefragt…“ gesperrt. „REC“ im Kopf leuchtet nur während der Aufnahme, nicht schon bei offenem Eingang.",
@@ -1195,7 +1195,7 @@
     "entries": [
       {
         "version": "0.7.0",
-        "date": "2026-11-22",
+        "date": "2026-11-23",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Stage Display“ und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter Vorschau, Nachricht, die Anzeige-Elemente und die Haupttaste „Vollbild-Ausgabe öffnen“ bzw. „Ausgabe schließen“. Bühnenschirm, Quellen und Presenter-Kopplung liegen jetzt im Panel hinter ⚙, in den Abschnitten „Ausgabe auf Bildschirm“, „Gegenstellen“ und „Presenter-Kopplung“.",
           "Neue Statusleiste mit sechs Einträgen: Master, JM Timer, JM Switcher, JM Presenter, Bühnenschirm und Nachricht. Der Bühnenschirm zeigt den gemessenen Zustand des Fensters („zu“, „offen“, „Bildschirm fehlt“, „abgestürzt“). Die Nachricht steht erst auf „auf dem Schirm“, wenn sie wirklich auf dem offenen Bühnenschirm zu sehen ist.",
@@ -1288,7 +1288,7 @@
     "entries": [
       {
         "version": "0.8.0",
-        "date": "2026-11-22",
+        "date": "2026-11-23",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Prompter“, ON AIR und den Schaltern für Hell und Dunkel sowie Einstellungen. Links bleibt das Skript, rechts stehen Vorschau, die sechs Tasten in der gewohnten Anordnung (oben „Marke zurück“, „GO“ und „Marke vor“, darunter „↑ zurück“, „Anfang“ und „↓ vor“) und das Tempo. Talent-Monitor, Schrift, Lese-Linie, Darstellung und Handy-Fernbedienung liegen jetzt im Panel hinter ⚙.",
           "Neue Statusleiste mit fünf Einträgen: Master, Talent-Monitor, Fernsteuerung, Handy-Fernbedienung und Tempo. Der Talent-Monitor zeigt den gemessenen Zustand des Fensters: Wird es anders als per Knopf geschlossen, der Bildschirm abgezogen oder stürzt es ab, steht dort „zu“, „Bildschirm fehlt“ bzw. „abgestürzt“. ON AIR leuchtet nur, solange der Text läuft und der Monitor wirklich offen ist.",
@@ -1943,7 +1943,7 @@
     "entries": [
       {
         "version": "0.6.0",
-        "date": "2026-11-22",
+        "date": "2026-11-23",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Caption“, ON AIR und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter die Haupttasten „NDI starten“, „Start“, „Hold“ und „Leeren“ und die Live-Zeile mit NDI-Vorschau, Pegel und Verlauf. Modell, Sprache, Mikrofon, die NDI-Einstellungen und der Inhalt der Klappe „Erweitert“ liegen jetzt im Panel hinter ⚙, in den Abschnitten „NDI-Ausgabe“, „Audiogerät“, „Fernsteuerung“, „Erkennung“ und „Darstellung“.",
           "Neue Statusleiste mit sechs Einträgen: Master, NDI, Fernsteuerung, Mikrofon, Whisper und Fehler. NDI zeigt jetzt den gemessenen Zustand: „sendet“ mit der Zahl der Empfänger nur, solange der Sender wirklich Bilder meldet, sonst „an (ohne Rückmeldung)“. Endet der Sender, meldet Caption NDI als aus, auch an Companion. ON AIR leuchtet nur, wenn NDI sendet, die Erkennung läuft und das Mikrofon keinen Fehler hat.",
@@ -2161,7 +2161,7 @@
     "entries": [
       {
         "version": "0.3.0",
-        "date": "2026-11-22",
+        "date": "2026-11-23",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Interpreter“, „MIX AKTIV“ während des Betriebs und den Schaltern für Hell und Dunkel sowie Einstellungen, darunter die Karte „Pegel“, die Haupttaste „Starten“ bzw. „Stoppen“ und die Hinweise zum virtuellen Kabel. Die drei Geräte-Wahlen und die Ducking-Regler liegen jetzt im Panel hinter ⚙, in den Abschnitten „Audiogerät“ und „Ducking“.",
           "Neue Statusleiste mit sechs Einträgen: Master, Floor, Dolmetscher, Ausgabegerät, Ducking und Fehlermeldung. Im Betrieb zeigen Floor, Dolmetscher und Ausgabegerät das Gerät, mit dem gestartet wurde; ein gemerktes Gerät, das fehlt, heißt „Gerät nicht gefunden“. Ist Überbrücken an, steht im Live-Bereich „Überbrückt“ und in der Statusleiste „überbrückt“.",

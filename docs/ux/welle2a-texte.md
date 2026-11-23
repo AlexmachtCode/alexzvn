@@ -760,4 +760,4 @@ Panik steht im Transport und in der Fußleiste.
 - `(Hard-Stop), danach neu auf Standby legen`
 + (Hard-Stop; lokal „⛔ Panik“ im Transport oder in der Fußleiste), danach neu auf Standby legen
 
-Freigabe: ☒ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren) — Owner 23.11.2026 10:08: „texte sind freigegeben“. Die offenen Fragen 1 und 2 bleiben damit wie umgesetzt (Panik in der Fußleiste der Bibliothek stoppt die Vorschau nicht, Stop und jeder Cue-Start heben „pausiert“ auf); Frage 3 (Altfehler als eigenes Thema) ist keine Textfrage und bleibt offen. Das Datum der Changelog-Einträge wird am Tag der Veröffentlichung gesetzt.
+Freigabe: ☒ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren) — Owner 23.11.2026 10:08: „texte sind freigegeben“. Die offenen Fragen 1 und 2 bleiben damit wie umgesetzt (Panik in der Fußleiste der Bibliothek stoppt die Vorschau nicht, Stop und jeder Cue-Start heben „pausiert“ auf); Frage 3 (Altfehler als eigenes Thema) ist keine Textfrage und bleibt offen. Das Datum der Changelog-Einträge ist auf den 23.11.2026 gesetzt, den Tag der Veröffentlichung.
