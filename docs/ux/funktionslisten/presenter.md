@@ -1,0 +1,566 @@
+# Funktionsliste JM Presenter (Suite-UX-Update, Welle 2b · Presenter)
+
+Zweck (Spec `docs/superpowers/specs/2026-10-08-suite-ux-update-design.md`, Abschnitt 10 „Kein Funktionsverlust“, und
+Anhang A „Presenter“): jedes Bedienelement mit Handler, jedes Tastaturkürzel, jeder Dialog, jede Fernsteuerungs-Aktion, jedes
+Fenster und jede Einstellung des Presenters, erhoben **vor dem Umbau** aus dem Code. Nach dem Umbau bekommt jede Zeile in der
+Spalte „künftig wo“ einen Haken mit dem Ort im neuen Aufbau (Task 12); ein Punkt ohne Haken blockiert die Welle.
+
+- **Stand:** erhoben aus dem Code am 2026-11-23, Commit `481c998c08`, Presenter 0.14.0 (`package.json`). Die Nachmessung
+  `docs/ux/welle2-nachmessung-2b.md` (Abschnitt 1, „N2b“) gilt für `0f589c3ee1`; `git diff 0f589c3ee1 481c998c08 --
+  apps/presenter` und `git diff 481c998c08 HEAD -- apps/presenter` sind leer (letzter Commit an der App `349eb1c1de`,
+  2026-11-20). Zeilennummern gelten für `481c998c08`. Was nur aus dem Code abgeleitet ist, steht als „abgeleitet“, Unklares als
+  „unklar“ bzw. „nicht gemessen“. Eine Korrektur an N2b: der Start des Steuerservers steht in `src/main/index.ts:53`, nicht in
+  Zeile 165.
+- **Vorher-Messung** (2026-11-23, Plan Task 7, Echt-Fenster-Messung): der gebaute, unveränderte Presenter lief in einem eigenen
+  Profil mit gehaltenem Steuerport 8728 und bekam eine Probe-PDF mit drei Seiten als Startparameter (Doppelklick-Weg); gemessen
+  per CDP im Editor (1320×880, 900×640) und im Referenten (1500×920, 1024×620), dazu echte Tasten im Referenten. Rohdaten
+  liegen im Ledger der Welle („vorher-presenter.json“, nicht im Repo). Was die Messung belegt, steht in den Zeilen als
+  „gemessen“; die Zahlen stehen in Abschnitt 10 (Befunde 1 bis 6).
+- **Gelesen, vollständig:** im Ordner `src/main/` index.ts, ipc.ts, windows.ts, present.ts, control-server.ts,
+  control-open.ts, suite-state.ts, datei-oeffnen.ts, dateien-laden.ts, show-open.ts, remote.ts, remote-config.ts,
+  remote-page.ts, gast-klicker.ts, gast-klicker-config.ts, timer-client.ts, timer-config.ts, timer-sync.ts, referent-config.ts,
+  referent-vollbild.ts; in `src/main/ndi/` ausgang.ts, config.ts, sender-process.ts; in `src/main/office/` convert.ts,
+  import.ts, locate.ts, pptx-animations.ts, pptx-expand.ts; `src/preload/index.ts`; in `src/shared/` types.ts, dateien.ts,
+  bildformat.ts, gast-klicker.ts, ndi.ts, ndi-bild.ts, publikumsbild.ts, wiedergabe.ts; `src/utility/ndi-sender.ts`;
+  `src/renderer/index.html`, `R/main.tsx`; in `R/views/` EditorView.tsx, PresenterView.tsx, AudienceView.tsx; in
+  `R/components/` alle 14 Dateien (Clock, DateiAblage, EditorStage, GastKlickerAbschnitt, GastKlickerPille, Inspector,
+  NdiSchalter, OeffnenFrage, RemotePanel, SlideCanvas, SlideList, TimerBar, Toolbar, UebergaengePanel); in `R/lib/` alle 13
+  Dateien (assets, bild-dekodieren, bytes, export-pdf, ids, paint, pdf, project-file, settings, timer, useFitBox, useNdiStatus,
+  usePresentation); `R/store/project.ts`, `R/ndi/ndi-ansicht.ts`, `R/globals.css`, `R/jmpr.d.ts`, `R/vite-env.d.ts`,
+  `electron.vite.config.ts`, `package.json`. Ausschnitte:
+  `src/utility/ndi-sender-kern.ts` (Kopf, Empfängerzahl, Takt), `packages/suite-control-protocol/src/capabilities.ts` (nur
+  der Presenter-Eintrag, Zeilen 336 bis 364), `packages/suite-control-protocol/src/server.ts` (nur `start`, Zeilen 192 bis
+  236), `packages/suite-control-protocol/src/index.ts` (nur `parseCommand`). Nicht gelesen: `packages/app-runtime/**`,
+  `packages/discovery/**`, `packages/control-config/**`, `packages/show/**`, `packages/ui/**`, `services/gast-klicker/**`
+  (der Cloud-Dienst), die Selbsttests unter `test/`.
+- **künftig wo** bleibt leer. Die Spalte wird nach dem Umbau gefüllt und abgehakt.
+- **Pfade:** ohne Vorsatz relativ zu `apps/presenter/` (`src/…`, `package.json`, `electron.vite.config.ts`); `R/…` steht für
+  `src/renderer/src/…`; `packages/…` und `docs/…` sind relativ zur Repo-Wurzel. Zeilenangaben hinter einer Datei (etwa „:12-34“)
+  gelten für die zuletzt genannte Datei im selben Feld. Dateien im Benutzerordner der App (userData) und im Ledger stehen ohne
+  Backticks in „…“, weil sie nicht im Repo liegen.
+- **Fenster** (N2b 1.2): Editor (`?view=editor`, Abschnitt 1), Referent (`?view=presenter`, Abschnitt 4a), Publikum
+  (`?view=audience`, Abschnitt 4b und 5), NDI (`?view=ndi`, unsichtbar, Abschnitt 4c und 5); dazu die Handy-Seite im Browser
+  (Abschnitt 4d). Abschnitt 4 führt die Zusatzfenster als Fenster (Hülle, Bedienung, Tasten), Abschnitt 5 grenzt ihr Bild ab.
+- **Zustands-Kürzel** (Spalte „Zustand (sichtbar/aktiv)“): **Ed** = Editor, immer · **Ed+F** = Editor mit mindestens einer
+  Folie (Raster sichtbar) · **Ed leer** = Editor ohne Folien · **Ed Sel** = mit ausgewählter Folie · **Ed OV** = mit
+  ausgewähltem Overlay · **⚙** = nur bei offenem ⚙-Menü des Editors · **Pr** = nur während einer Präsentation
+  (`PresentationState.active`) · **Ref** = Referentenfenster (gibt es nur während einer Präsentation) · **Ref 📱** = nur bei
+  offenem Fenster „Fernsteuerung übers Netzwerk“ im Referenten · **Ref Üb** = nur bei offener Folienübersicht · **Pub** =
+  Publikumsfenster · **NDI** = NDI-Fenster · **Main** = Hauptprozess, ohne Oberfläche · **Rem** = nur über den Steuerserver
+  (Port 8728) · **Hy** = Handy-Seite im Browser des Handys · **Win** = nur unter Windows.
+- **Nummerierung:** fortlaufend 1–229 in den Abschnitten 1–7.
+  Zeilen je Abschnitt: 1 = 47, 2 = 26, 3 = 47, 4 = 56, 5 = 8, 6 = 30, 7 = 15; zusammen 229.
+  Abschnitt 4 hat vier Teiltabellen (4a Referent 121–165, 4b Publikum 166–167, 4c NDI-Fenster 168, 4d Handy-Seite 169–176).
+  Die Abschnitte 8 (IPC-Übersicht), 9 (Zuordnung zu Spec 6 / Anhang A) und 10 (Befunde) haben keine nummerierten Punkte und
+  werden nicht abgehakt.
+- **Pflichtzeilen** (Plan Task 7, Muster Teil 3):
+  - Verben `prev`, `next`, `goto`, `black`, `white`, `live`, `stop`, `open`: Nr. 74 bis 81, Übersicht in Abschnitt 9; dazu die
+    Handy-Befehle Nr. 106 und die Gast-Kommandos Nr. 111.
+  - Die 16 Fenster-Kürzel in Referent **und** Publikum: Nr. 185 bis 200, je Fenster Nr. 148 (Referent) und Nr. 166 (Publikum).
+  - F11: Nr. 147 und 207. Handy-Seite: Nr. 169 bis 176, Tasten Nr. 213. Gast-Klicker samt `window.confirm`: Nr. 160 bis 165,
+    Nr. 50, Abläufe Nr. 110 bis 113, Pille Nr. 128. Schleife: Nr. 44, 45, 95, 96, 131, 144.
+  - Drag & Drop über das ganze Editorfenster: Nr. 25. Öffnen-Frage: Nr. 51, Esc Nr. 209.
+  - Weiter gesperrt auf der letzten Folie trotz Schleife: Nr. 144, Befund 7 (B13). Rücktaste und Enter im Feld „Gehe zu“: Nr.
+    202, 203, Befund 8 (B10).
+  - Panel-Tasten: Nr. 214. Standardmenü (N2b 0.3): Nr. 208. Zusatzfenster Referent, Publikum, NDI: Abschnitt 4.
+  - Jede Zeile der Nachmessung 1.1 mit ✏️, ❌ oder ➕ hat eine eigene Zeile mit dem heutigen Verhalten und dem Vermerk „N2b 1.1
+    Nr. …“ (Nummer der Nachmessung → Zeilen dieser Liste): 1 → 21, 22; 2 → 137, 141, 142, 143, 145; 9 → 14, 15, 125, 126;
+    16 → 17; 18 → 5, 122; 19 (❌) → 148, 166; 21 → 167, 168; 24 → 16, 127; 25 → 133, 147; 26 → 128, 160; 27 → 35, 44, 131;
+    28 → 25, 51; 29 → 4, 121; 30 → 124, 132, 134, 139, 150.
+- **`window.confirm`:** vier, drei im Renderer (Nr. 48, 49, 50) und einer auf der Handy-Seite (Nr. 176). **`window.alert`,
+  `window.prompt`:** keine. **`localStorage`/`persistId`:** zwei Schlüssel, `jmpr.expandPptxBuilds` im Editor (Nr. 220) und
+  `jmpr_pin` auf der Handy-Seite (Nr. 221); kein `persistId`, kein `jm-theme`.
+
+---
+
+## 1 · Hauptfenster (Editor, `?view=editor`)
+
+Ein Fenster für Aufbau und Start. Die Ablage für Dateien umschließt das ganze Fenster samt Kopf (`R/views/EditorView.tsx:25`);
+die Öffnen-Frage liegt außerhalb (`:68-69`). Haupttaste ist „▶ Präsentieren“ bzw. „■ Beenden“ rechts im Kopf.
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+|1| Fenster | Aufbau (N2b 1.1 Nr. 22): eigener Rahmen ohne `AppShell`; die Ablage umschließt Kopf, Bänder und Inhalt; Kopf 56 hoch (gemessen 52 px), darunter Fehler- und Hinweisband im Fluss, darunter der Leerzustand oder das Raster aus Folienliste (260), Bühne (flexibel) und rechter Spalte (320) | `EditorView` | Ed | `R/views/EditorView.tsx:12-71` | |
+|2| Fenster | Fensterhülle: 1320×880, mindestens 900×640, beides begrenzt auf die Arbeitsfläche des Hauptbildschirms und darin mittig (gemessen: auf dem Prüfrechner mit 820 hoher Arbeitsfläche startet der Editor mit 1326×822 außen); Hintergrund `#121212`, Titel „JM Presenter“, Symbol `icon.png`, `autoHideMenuBar`, `sandbox`, `contextIsolation`, ohne `nodeIntegration`; Anzeige erst bei `ready-to-show`; schließt er, geht das NDI-Fenster mit, wenn kein sichtbares Fenster mehr offen ist | `createEditorWindow` | Main | `src/main/windows.ts:98-139`, `:32-34` | |
+|3| Fenster | Navigation gesperrt: `will-navigate` nur auf die eigene Adresse (Neu laden bleibt erlaubt), `window.open` immer verweigert; nur der Editor gibt `http:`, `https:` und `mailto:` an das System weiter (alle Fenster sonst nicht) | `sperreNavigation` | Main | `src/main/windows.ts:70-96`, `:129` | |
+|4| Fenster | Mac-Titelleiste (N2b 1.1 Nr. 29): der Editor hat `titleBarStyle: hiddenInset`, der Kopf rückt auf dem Mac um `pl-20` ein (`isElectronMac` prüft nur den User-Agent) und ist Ziehfläche; der Referent hat keinen `hiddenInset` (Nr. 121) | `isElectronMac`, `dragRegion` | Ed | `src/main/windows.ts:124`, `R/components/Toolbar.tsx:110-118` | |
+|5| Fenster | Farben und Thema (N2b 1.1 Nr. 18): `html` trägt fest `dark`, kein Hell/Dunkel-Knopf, kein `jm-theme`; der Editor nutzt Tokens (`var(--…)`) und daneben rohe Farben (Öffnen-Frage, NDI-Schalter, Timer-Punkt); N2b zählt in der App 129 Fundstellen | – (Anzeige) | Ed | `src/renderer/index.html:2`, `R/globals.css:1-74` | |
+|6| Kopf | Logo (26), „JM PRESENTER“ und Untertitel „Folien-Editor & Präsentation“, beide erst ab Breite `md`; Trennstrich | – | Ed | `R/components/Toolbar.tsx:120-130` | |
+|7| Kopf | „Neu“: bei ungespeicherten Änderungen und mindestens einer Folie erst `window.confirm` (Nr. 48), dann leeres Projekt „Unbenannt“, Caches geleert (Issue #40); gesperrt, solange etwas läuft (`busy.active`), ohne Grund | `handleNew`, `newProject` | Ed | `R/components/Toolbar.tsx:96-107`, `:133-135`, `R/store/project.ts:266-272` | |
+|8| Kopf | „+ PDF / Bilder“: Dateidialog (Nr. 52), hängt die Folien hinten an (je PDF-Seite eine Folie mit Titel „Name n“, je Bild eine); gesperrt bei `busy.active` | `importDocs`, IPC `files:importDocs` | Ed | `R/components/Toolbar.tsx:136-138`, `R/store/project.ts:134-204` | |
+|9| Kopf | „+ Office“: Dateidialog (Nr. 54), Umwandlung über LibreOffice zu PDF, hängt an; bei .pptx mit der Option Einzelschritte (Nr. 18); gesperrt bei `busy.active` | `importOffice`, IPC `files:importOffice` | Ed | `R/components/Toolbar.tsx:139-141`, `R/store/project.ts:206-223` | |
+|10| Kopf | „Öffnen“: Dateidialog „Projekt öffnen“ (Nr. 55), ersetzt das Projekt **ohne Rückfrage**, auch bei ungespeicherten Änderungen (anders als eine abgelegte .jmpres, Nr. 49); gesperrt bei `busy.active` | `openProject`, `openProjectFromBytes`, IPC `files:openProject` | Ed | `R/components/Toolbar.tsx:142-144`, `R/store/project.ts:274-295` | |
+|11| Kopf | „Speichern“, mit „ •“ bei ungespeicherten Änderungen (gemessen: 99 statt 88 px breit, schiebt „PDF-Export“): Dialog „Projekt speichern“ (Nr. 56) mit dem Projektnamen (Vorgabe „Unbenannt“), danach gilt das Projekt als gespeichert; gesperrt bei `busy.active` | `saveProject`, `serializeProject`, IPC `files:saveProject` | Ed | `R/components/Toolbar.tsx:145-147`, `R/store/project.ts:297-309` | |
+|12| Kopf | „PDF-Export“: die sichtbaren Folien als PDF (Nr. 184), Dialog „Als PDF exportieren“ (Nr. 57); gesperrt bei `busy.active` oder ohne sichtbare Folie, ohne Grund (gemessen gesperrt im Leerzustand) | `exportPdf`, IPC `files:savePdf` | Ed | `R/components/Toolbar.tsx:148-155`, `R/store/project.ts:311-322` | |
+|13| Kopf | Beschäftigt-Anzeige rechts im Kopf, pulsierend: „Importiere…“, „Lade Präsentation…“, „Konvertiere mit LibreOffice…“ (schon während der Dateidialog offen ist, abgeleitet), „Lade Dateien…“, „Öffne Projekt…“, „Speichere…“, „Exportiere PDF…“ | `busy.label` | Ed | `R/components/Toolbar.tsx:159-161`, `R/store/project.ts:140`, `:207`, `:275`, `:299`, `:313`, `R/components/DateiAblage.tsx:22` | |
+|14| Kopf | Bildschirmwahl „Publikums-Bildschirm“ (N2b 1.1 Nr. 9): je Bildschirm „Bildschirm n[ (Haupt)] · B×H“; Vorgabe der erste nicht-primäre, sonst der erste (gemessen: „Bildschirm 1 · 2032×1144“, 200 px breit); die Liste wird nur beim Laden des Fensters geholt; eine Wahl gilt für den nächsten Start einer Präsentation, sie öffnet und verschiebt nichts und wird nicht gespeichert (Nr. 225) | `setAudienceDisplay`, IPC `present:displays` | Ed | `R/components/Toolbar.tsx:28-29`, `:46-52`, `:163-180` | |
+|15| Kopf | Eintrag „Keiner – nur NDI“ der Bildschirmwahl (N2b 1.1 Nr. 9, #303, nur Windows): wählbar nur, solange NDI ein Bild liefert (`ndiLiefertBild`), sonst gesperrt ohne Grund; gewählt startet die Präsentation ohne Publikumsfenster; liefert NDI dauerhaft kein Bild mehr (aus, nicht verfügbar), springt die Wahl auf den Bildschirm zurück, ein vorübergehendes „startet“ behält sie | `setNurNdi`, `nurNdiBehalten` | Ed, Win | `R/components/Toolbar.tsx:30-34`, `:64-68`, `:181-185`, `src/shared/ndi.ts:35-67` | |
+|16| Kopf | NDI-Schalter (N2b 1.1 Nr. 24, #303): Beschriftung „NDI aus“, „NDI startet …“, „NDI ● an · n Empfänger“ oder „NDI nicht verfügbar“; hinterlegt bei „sendet“, bernsteinfarben bei an und nicht verfügbar; Tooltip der Grund, sonst „NDI-Ausgang „JM Presenter“: 1920×1080, 25 fps, transparente Ränder“; Klick schaltet und merkt (Nr. 217); außer unter Windows gesperrt. Gemessen: „NDI aus“ 71 px, „NDI ● an · 2 Empfänger“ 160 px (schiebt Bildschirmwahl und Datei-Knöpfe nach links) | `NdiSchalter` (Variante `editor`), `useNdiStatus`, IPC `ndi:setzeAn` | Ed | `R/components/NdiSchalter.tsx:1-46`, `R/lib/useNdiStatus.ts:1-35`, `src/shared/ndi.ts:27-33` | |
+|17| Kopf | ⚙ „Einstellungen“ (N2b 1.1 Nr. 16): klappt ein Menü (80 breit) unter dem Knopf auf, dahinter ein Klickfänger `fixed inset-0`; Klick daneben schließt; kein Escape; der Knopf ist hinterlegt, solange es offen ist | `setShowSettings` | Ed | `R/components/Toolbar.tsx:190-202` | |
+|18| ⚙-Menü | Kontrollkästchen „PPTX-Aufbau-Animationen als Einzelschritte“ mit Marke „experimentell“ und Erklärung „Splittet On-Click-Animationen beim Office-Import in einzelne Folien. Bei Problemen wird automatisch auf das flache PDF zurückgefallen.“; gilt für „+ Office“ und für abgelegte Dateien, nicht für Doppelklick und PRESENTER OPEN (die laden immer flach); gemerkt im `localStorage` (Nr. 220) | `setExpandPptxBuilds` | ⚙ | `R/components/Toolbar.tsx:203-224`, `R/lib/settings.ts:1-20`, `src/main/datei-oeffnen.ts:26` | |
+|19| ⚙-Menü | Kontrollkästchen „JM Timer synchronisieren“ mit Erklärung „Zeigt den Countdown des JM Timers live in der Referentenansicht.“; bei an ein Punkt, grün „verbunden“ bzw. bernsteinfarben pulsierend „keine Verbindung“ (gemessen über `timer:state`); gesperrt, bis die Einstellung geladen ist; wendet sofort an und merkt (Nr. 216) | `applyTimer({ enabled })`, IPC `timer:apply` | ⚙ | `R/components/Toolbar.tsx:226-253`, `:70-75`, `:55-57` | |
+|20| ⚙-Menü | Timer-Host (Platzhalter „127.0.0.1“, Tooltip „Host / IP des JM Timers“) und Port (Platzhalter „7777“, Tooltip „Port (Standard 7777)“, nur Ziffern): übernommen beim Verlassen des Felds; leerer Host wird 127.0.0.1, ein Port außerhalb 1 bis 65535 wird 7777; nur bei eingeschaltetem Sync sichtbar | `applyTimer({ host })`, `applyTimer({ port })` | ⚙ | `R/components/Toolbar.tsx:255-281` | |
+|21| Kopf | Haupttaste „▶ Präsentieren“ (N2b 1.1 Nr. 1): baut das Payload aus den sichtbaren Folien (Quellen, Overlay-Bilder, Übergänge), Startfolie ist die ausgewählte sichtbare Folie, sonst die erste; Ziel nach `startZielFuer` (nur NDI, gewählter Bildschirm oder automatisch); öffnet Referent und Publikum (Nr. 85); gesperrt bei `busy.active` oder ohne sichtbare Folie, **ohne Grund** (gemessen gesperrt im Leerzustand); Kürzel: keins | `startPresentation`, `buildPayload`, IPC `present:start` | Ed | `R/components/Toolbar.tsx:79-91`, `:295-306`, `R/store/project.ts:453-471` | |
+|22| Kopf | Während einer Präsentation steht an derselben Stelle „■ Beenden“ (rot gefüllt, N2b 1.1 Nr. 1): beendet die Präsentation; die Umschaltung folgt `present:state` (Abfrage beim Laden, danach Push). Gemessen: „▶ Präsentieren“ 118 px, „■ Beenden“ 93 px, beide rechtsbündig (rechter Rand gleich) | `present.stop()`, IPC `present:stop` | Ed, Pr | `R/components/Toolbar.tsx:39-44`, `:53-54`, `:287-294` | |
+|23| Band | Fehlerband (rötlich) mit dem Text aus `error` und Knopf „schließen“; steht im Fluss unter dem Kopf und schiebt den Inhalt nach unten; neue Importe leeren es zu Beginn | `error`, `setError(null)` | Ed | `R/views/EditorView.tsx:28-35` | |
+|24| Band | Hinweisband (gelblich) mit „▸ “ und dem Text aus `notice`, Knopf „schließen“; im Fluss unter dem Fehlerband | `notice`, `setNotice(null)` | Ed | `R/views/EditorView.tsx:37-44` | |
+|25| Ablage | Drag & Drop über das ganze Editorfenster (N2b 1.1 Nr. 28, #298): nur echtes Datei-Ziehen (Typ `Files`, Umsortieren der Folienliste zählt nicht); Überlagerung „Dateien hier ablegen“ mit „PDF, Bilder, PowerPoint“ über dem Inhalt (der Kopf liegt mit `z-50` darüber, abgeleitet), Ablegen auf den Kopf zählt ebenso; Ablegen lädt im Hauptprozess (Nr. 101) und hängt an (Modus `anhaengen`; eine einzelne .jmpres öffnet nach Nr. 49); läuft schon etwas, kommt der Hinweis „Import läuft noch – bitte danach erneut ablegen.“; Dateien ohne Pfad (aus Browser oder Mail) werden übersprungen (Nr. 62) | `DateiAblage`, `legeAb`, `files.importiereAbgelegte`, IPC `files:importPaths` | Ed | `R/components/DateiAblage.tsx:1-93`, `R/views/EditorView.tsx:25` | |
+|26| Leer | Leerzustand: „🖥️“, „Präsentation aufbauen“, Erklärung „Importiere PDFs, Bilder oder Office-Dokumente – oder zieh sie einfach hierher. Ordne die Folien neu, ergänze Titel, Notizen und Overlays — und präsentiere mit Referenten- und Publikumsansicht.“, Knöpfe „PDF / Bilder importieren“ (gelb) und „Office-Dokument“ (gemessen mittig unter dem Kopf) | `importDocs`, `importOffice` | Ed leer | `R/views/EditorView.tsx:46-47`, `:104-134` | |
+|27| Folienliste | Spaltenkopf „Folien · n“ und je Folie eine Karte mit Nummer, Vorschau (Raster 320), Titel oder „—“; die ausgewählte ist umrandet und hinterlegt, ausgeblendete sind halb durchsichtig; Klick wählt die Folie | `select` | Ed+F | `R/components/SlideList.tsx:24-56` | |
+|28| Folienliste | Umsortieren per Ziehen einer Karte auf eine andere Karte (eigenes Ziehen, ohne `Files`) | `moveTo` | Ed+F | `R/components/SlideList.tsx:17-21`, `:31-35`, `R/store/project.ts:333-341` | |
+|29| Folienliste | Kartenknöpfe „↑“ (Tooltip „Nach oben“) und „↓“ („Nach unten“): Folie um einen Platz verschieben; am Rand ohne Wirkung; die Kartenknöpfe sind blass und werden bei Mauszeiger voll | `move(id, ±1)` | Ed+F | `R/components/SlideList.tsx:57-59`, `R/store/project.ts:324-331` | |
+|30| Folienliste | Kartenknopf „👁“ bzw. „◌“ (Tooltip „Ausblenden“ bzw. „Einblenden“): ausgeblendete Folien fehlen in Präsentation und PDF-Export | `toggleHidden` | Ed+F | `R/components/SlideList.tsx:60-65`, `R/store/project.ts:343-344` | |
+|31| Folienliste | Kartenknopf „⧉“ (Tooltip „Duplizieren“): Kopie direkt dahinter mit Titel „‹Titel› (Kopie)“ und neuen Overlay-Kennungen, die Kopie wird ausgewählt | `duplicate` | Ed+F | `R/components/SlideList.tsx:66`, `R/store/project.ts:346-359` | |
+|32| Folienliste | Kartenknopf „✕“ (Tooltip „Löschen“, rot bei Mauszeiger): löscht die Folie **ohne Rückfrage** und ohne Rückgängig; war sie ausgewählt, wird die erste ausgewählt | `remove` | Ed+F | `R/components/SlideList.tsx:67-73`, `R/store/project.ts:361-365` | |
+|33| Bühne | Bühne: Seite der ausgewählten Folie auf weißem Grund (Raster 1280), eingepasst mit Schatten; ohne Auswahl „Folie auswählen“; ein Klick ins Leere hebt die Overlay-Auswahl auf. Gemessen: 729 breit bei 1320×880, 310 breit bei 900×640 | `EditorStage`, `renderBase` | Ed+F | `R/views/EditorView.tsx:53-61`, `R/components/EditorStage.tsx:19-66` | |
+|34| Bühne | Overlays auf der Bühne: gestrichelter Rahmen, ausgewählt gelb; Ziehen verschiebt (innerhalb der Folie begrenzt) und wählt aus; der Griff unten rechts (nur am ausgewählten) ändert die Größe (mindestens 4 % mal 3 %); Text in Größe, Farbe, Fett, Ausrichtung und Balken wie gemalt | `OverlayBox`, `updateOverlay` | Ed Sel | `R/components/EditorStage.tsx:70-163` | |
+|35| Rechte Spalte | Reiter „Folie“ und „Übergänge“ (N2b 1.1 Nr. 27, #293), Vorgabe „Folie“, nicht gemerkt; nur mit ausgewählter Folie | `setReiter` | Ed Sel | `R/views/EditorView.tsx:62-64`, `:74-102` | |
+|36| Folie | Feld „Titel“ (Platzhalter „Folientitel“), wirkt sofort | `setTitle` | Ed Sel | `R/components/Inspector.tsx:20-28`, `R/store/project.ts:367-368` | |
+|37| Folie | Feld „Sprecher-Notizen“ (Platzhalter „Notizen für die Referentenansicht…“), wirkt sofort | `setNotes` | Ed Sel | `R/components/Inspector.tsx:30-38`, `R/store/project.ts:369-370` | |
+|38| Folie | „Overlays“: „+ Text“ legt ein Text-Overlay an (Text „Text“, unten über die Breite, 7 % Schrift, weiß, fett, links, dunkler Balken) und wählt es aus; „+ Logo / Bild“ öffnet den Bilddialog (Nr. 53) und legt ein Bild-Overlay oben rechts an | `addTextOverlay`, `addImageOverlay`, IPC `files:importImage` | Ed Sel | `R/components/Inspector.tsx:40-58`, `R/store/project.ts:389-432` | |
+|39| Overlay | Kopf „Text-Overlay“ bzw. „Bild-Overlay“ und „Entfernen“ (ohne Rückfrage) | `removeOverlay` | Ed OV | `R/components/Inspector.tsx:72-83`, `R/store/project.ts:443-451` | |
+|40| Overlay | Text-Overlay: Textfeld (Platzhalter „Text…“), Regler „Schriftgröße“ (2 bis 20 % der Folienhöhe, Schritt 0,5), Farbwahl „Farbe“, Ausrichtung „Links“, „Mitte“, „Rechts“, Kontrollkästchen „Fett“ und „Balken-Hintergrund“ | `updateOverlay` | Ed OV | `R/components/Inspector.tsx:85-146` | |
+|41| Overlay | Regler „Drehung (n°)“, −45 bis 45 Grad, für Text- und Bild-Overlays | `updateOverlay({ rotation })` | Ed OV | `R/components/Inspector.tsx:148-159` | |
+|42| Übergänge | „Für alle Folien“ · „Übergang“: „Schnitt“ oder „Überblendung“; bei Überblendung Feld „Dauer der Überblendung (s)“, 0,1 bis 5 | `setWiedergabe({ uebergang })` | Ed Sel | `R/components/UebergaengePanel.tsx:33-49`, `R/store/project.ts:371-374` | |
+|43| Übergänge | „Für alle Folien“ · Feld „Standzeit je Folie (s)“, 1 bis 3600 | `setWiedergabe({ standzeitSek })` | Ed Sel | `R/components/UebergaengePanel.tsx:67-74` | |
+|44| Übergänge | Kontrollkästchen „Schleife“ (N2b 1.1 Nr. 27, #293) mit Erklärung „Blättert nach der Standzeit selbst weiter, nach der letzten Folie wieder von vorn. In der Referentenansicht live an- und ausschaltbar.“; der Wert geht mit dem Payload in die Präsentation (Startwert der Schleife, Nr. 85; Zeitgeber Nr. 95) | `setWiedergabe({ schleife })` | Ed Sel | `R/components/UebergaengePanel.tsx:51-66`, `src/main/present.ts:103-113` | |
+|45| Übergänge | „Diese Folie (n · Titel)“ · „Übergang beim Hereinkommen“: „Wie alle“, „Schnitt“, „Überblendung“ (mit eigener Dauer); „Standzeit in der Schleife“: „Wie alle (n s)“ oder „Eigene“ mit Feld „Standzeit dieser Folie (s)“ | `setSlideUebergang`, `setSlideStandzeit` | Ed Sel | `R/components/UebergaengePanel.tsx:80-140`, `R/store/project.ts:375-387` | |
+|46| Übergänge | Hinweis „Der Übergang wirkt auf der Publikumsansicht, wenn die Folie hereinkommt. Die Referentenansicht schaltet immer direkt um.“ | – (Text) | Ed Sel | `R/components/UebergaengePanel.tsx:143-146` | |
+|47| Übergänge | Sekundenfelder: freies Tippen mit Komma oder Punkt; übernommen beim Verlassen oder mit Enter, gerundet auf den Schritt und begrenzt; ein ungültiger Wert stellt den alten wieder her | `SekundenFeld` | Ed Sel | `R/components/UebergaengePanel.tsx:168-214` | |
+
+## 2 · Dialoge und Meldungen
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+|48| Dialog | `window.confirm` „Aktuelle Präsentation verwerfen und neu beginnen? Nicht gespeicherte Änderungen gehen verloren.“ beim Knopf „Neu“ (Nr. 7), nur bei ungespeicherten Änderungen und mindestens einer Folie; Abbrechen ändert nichts (gemessen: der Text kam beim Klick auf „Neu“) | `handleNew` | Ed | `R/components/Toolbar.tsx:96-107` | |
+|49| Dialog | `window.confirm` „Aktuelle Präsentation verwerfen und „‹Name›“ öffnen? Nicht gespeicherte Änderungen gehen verloren.“ beim Ablegen oder Doppelklick einer einzelnen .jmpres, nur bei ungespeicherten Änderungen und mindestens einer Folie; nicht im Modus „ersetzen“ (Show-Link, PRESENTER OPEN); Abbrechen ändert nichts | `oeffneGeladene` | Ed | `R/store/project.ts:231-240` | |
+|50| Dialog | `window.confirm` „Neuen Link erzeugen? Der alte Link funktioniert dann nicht mehr.“ beim Gast-Klicker-Knopf „Neuer Link“ (Nr. 164) | `neuerLink` | Ref 📱 | `R/components/GastKlickerAbschnitt.tsx:100-111` | |
+|51| Dialog | Öffnen-Frage (N2b 1.1 Nr. 28, #299): Überlagerung über dem ganzen Editor (außerhalb der Ablage, Ablegen darauf hängt nichts an); Titel „„Name“ öffnen“ bzw. „n PDFs öffnen“ / „n Dateien öffnen“, Text „Im Presenter liegt schon eine Präsentation.“, bei ungespeicherten Änderungen „Beim Ersetzen gehen nicht gespeicherte Änderungen verloren.“; Knöpfe „Ersetzen“, „Anhängen“ (gelb, hat den Fokus) und „Abbrechen“; Esc bricht ab (Nr. 209); was ankommt, solange sie offen ist, landet in derselben Frage | `OeffnenFrage`, `beantworteFrage` | Ed | `R/components/OeffnenFrage.tsx:1-72`, `R/store/project.ts:241-264` | |
+|52| Dialog | Systemdialog „PDF oder Bilder importieren“ (Mehrfachauswahl; Filter „Präsentationen & Bilder“ mit pdf und den Bildendungen png, jpg, jpeg, webp, gif, bmp, avif, svg, dazu „Alle Dateien“); Abbruch ändert nichts; am Editorfenster | `dialog.showOpenDialog` | Main | `src/main/ipc.ts:80-95`, `src/shared/dateien.ts:14-24` | |
+|53| Dialog | Systemdialog „Bild / Logo wählen“ (Filter „Bilder“); eine andere Endung oder Abbruch ändert nichts | `dialog.showOpenDialog` | Main | `src/main/ipc.ts:97-111` | |
+|54| Dialog | Systemdialog „Office-Dokument importieren (LibreOffice nötig)“ (Filter „Office-Dokumente“: pptx, ppt, odp, docx, doc, odt, rtf); Abbruch ergibt intern „Abgebrochen.“, keine Meldung | `dialog.showOpenDialog` | Main | `src/main/ipc.ts:113-135`, `R/store/project.ts:210-212` | |
+|55| Dialog | Systemdialog „Projekt öffnen“ (Filter „JM Presenter Projekt“, jmpres) | `dialog.showOpenDialog` | Main | `src/main/ipc.ts:149-163` | |
+|56| Dialog | Systemdialog „Projekt speichern“ (Vorschlag ‹Projektname›.jmpres) | `dialog.showSaveDialog` | Main | `src/main/ipc.ts:165-181` | |
+|57| Dialog | Systemdialog „Als PDF exportieren“ (Vorschlag ‹Projektname›.pdf) | `dialog.showSaveDialog` | Main | `src/main/ipc.ts:183-199` | |
+|58| Meldung | Fehlerband beim Import: „„Name“ konnte nicht gelesen werden (beschädigt oder kennwortgeschützt).“, mehrere mit „ · “ verbunden; die übrigen Dateien kommen trotzdem; ist nichts lesbar, bleibt das Deck auch beim Ersetzen | `ingestImportedFiles` | Ed | `R/store/project.ts:148-198` | |
+|59| Meldung | Fehlerband beim Office-Import: „LibreOffice wurde nicht gefunden. Bitte installieren, um Office-Dateien zu importieren.“, sonst die letzten zwei Zeilen der Fehlerausgabe oder „Es wurde keine PDF erzeugt.“; Frist der Umwandlung 180 s | `convertOfficeToPdf`, `locateSoffice` | Ed | `src/main/office/convert.ts:14-80`, `src/main/office/locate.ts:11-46` | |
+|60| Meldung | Hinweisband nach einem Import mit Aufbau-Animationen: „n Folie(n) hatten Aufbau-Animationen (m Klicks) — als Notiz vermerkt.“ bzw. „Aufbau-Animationen als Einzelschritte importiert — n Schritt-Folien (experimentell).“; dazu je Folie die Notiz „▸ Original-Animation: n Aufbau-Klick(s) auf dieser Folie.“ | `aufbauHinweise` | Ed | `src/shared/dateien.ts:147-164`, `R/store/project.ts:161-167`, `:194-195` | |
+|61| Meldung | Fehlerband zu abgelegten oder per Doppelklick geöffneten Dateien: „Nicht unterstützt, übersprungen: …“, „Projektdatei nur einzeln ablegen, übersprungen: …“, Lesefehler „„Name“ wurde nicht gefunden.“, „„Name“: kein Zugriff.“, „„Name“ ist ein Ordner.“, „„Name“ ist gerade gesperrt.“, „„Name“ konnte nicht geladen werden: …“, Office „„Name“: ‹Fehler›“ | `hinweiseAusOrdnung`, `lesefehlerText` | Ed | `src/shared/dateien.ts:72-81`, `src/main/dateien-laden.ts:9-74`, `R/store/project.ts:252-254` | |
+|62| Meldung | Fehlerband „Ohne Dateipfad, übersprungen: … (bitte zuerst speichern und dann hineinziehen).“ für abgelegte Dateien ohne Pfad auf der Platte | `hinweisOhnePfad` | Ed | `src/shared/dateien.ts:83-87`, `R/components/DateiAblage.tsx:29-31` | |
+|63| Meldung | Fehlerband beim Öffnen eines Projekts: „Ungültiges Projekt: manifest.json fehlt.“ bzw. der Fehlertext von ZIP oder JSON | `deserializeProject` | Ed | `R/lib/project-file.ts:46-64`, `R/store/project.ts:274-289` | |
+|64| Meldung | „Keine sichtbaren Folien zum Präsentieren.“ (Fehlerband) beim Start ohne sichtbare Folie; über den Knopf nicht erreichbar, weil „▶ Präsentieren“ dann gesperrt ist (abgeleitet, Befund 13) | `startPresentation` | Ed | `R/components/Toolbar.tsx:80-83` | |
+|65| Meldung | „Keine sichtbaren Folien zum Exportieren.“ (Fehlerband); über den Knopf nicht erreichbar, weil „PDF-Export“ dann gesperrt ist (abgeleitet) | `exportSlidesToPdf` | Ed | `R/lib/export-pdf.ts:58-60` | |
+|66| Meldung | „Folie konnte nicht geladen werden“ an Stelle einer Vorschau (Folienliste, Referent, Übersicht, Publikum), wenn die Seite nicht malbar ist; ein Fehler hält den Folienwechsel im Publikum nicht fest | `SlideCanvas` | Ed, Ref, Pub | `R/components/SlideCanvas.tsx:49-75` | |
+|67| Meldung | „Lade Präsentation…“ im Referenten, bis das Payload geholt ist | `usePresentation` | Ref | `R/views/PresenterView.tsx:46-48` | |
+|68| Meldung | Handy-Fernsteuerung startet nicht: „Port n ist belegt — anderen Port wählen.“ bzw. „Server-Fehler: …“ als rotes Feld im Fenster „Fernsteuerung übers Netzwerk“ (Nr. 157); der Schalter steht dann auf „aus“ | `applyRemoteConfig` | Ref 📱 | `src/main/remote.ts:266-276`, `R/components/RemotePanel.tsx:122-126` | |
+|69| Meldung | NDI nicht verfügbar, Grund im Tooltip des Schalters und als Log-Zeile `[ndi] nicht verfügbar`: „NDI-Ausgang gibt es nur unter Windows.“, „NDI-Sender fehlt im Paket.“, „NDI-Sender antwortet nicht.“, „NDI-Bild antwortet nicht.“, „NDI-Bild abgestürzt.“, „NDI-Sender startet nicht: …“, „NDI-Ausgang startet nicht: …“, „NDI-Sender meldet einen Fehler.“ bzw. der Grund des Senders, „NDI-Sender beendet (Code n).“; nie ein Dialog | `nichtVerfuegbar` | Ed, Ref | `src/main/ndi/ausgang.ts:17-21`, `:58-71`, `:124-143`, `:183-204`, `:230-233` | |
+|70| Meldung | Gast-Klicker-Statuszeile unter dem Schalter: „verbunden · n Gast“ bzw. „… Gäste“, „verbindet …“, „getrennt – verbindet neu“, „abgelehnt – Gast-Klicker aus- und wieder einschalten“, „aus“; rot bei an und nicht verbunden; „…“ vor der ersten Antwort | `statusText` | Ref 📱 | `src/shared/gast-klicker.ts:75-89`, `R/components/GastKlickerAbschnitt.tsx:48-54` | |
+|71| Meldung | Steuerserver (Port 8728) startet nicht, etwa Port belegt: das Ergebnis von `startControlServer` wird verworfen, weder Anzeige noch Log (N2b 0.2; gemessen: mit gehaltenem Port lief der Presenter ohne jeden Hinweis); mDNS wird dann nicht annonciert | `void startControlServer()` | Main | `src/main/index.ts:52-53`, `src/main/control-server.ts:33-80`, `packages/suite-control-protocol/src/server.ts:192-236` | |
+|72| Meldung | Fehler, die nur ins Log gehen: Show-Projekt nicht ladbar („Show-Projekt konnte nicht geladen werden: …“), PRESENTER OPEN („PRESENTER OPEN: …“), Doppelklick („Datei öffnen: …“), Gast-Klicker („[gast-klicker] …“, je Ausfall eine Zeile), NDI-Bild („[ndi-bild] …“, dieselbe Zeile höchstens alle 10 s) | `getLog()` | Main | `src/main/show-open.ts:35-38`, `src/main/control-open.ts:24-43`, `src/main/datei-oeffnen.ts:25-37`, `src/main/gast-klicker.ts:62-68`, `src/main/windows.ts:297-321` | |
+|73| Meldung | „Kopiert ✓“ für 2 s nach „Für den Zoom-Chat kopieren“; schlägt das Kopieren fehl, bleibt die Beschriftung ohne Hinweis | `kopiere` | Ref 📱 | `R/components/GastKlickerAbschnitt.tsx:27-36`, `:88` | |
+
+## 3 · Abläufe ohne eigenes Bedienelement (im Renderer und im Hauptprozess)
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+|74| Fernsteuerung | Companion `PRESENTER NEXT` (Aktion `next`, „Nächste Folie“): nächste Folie, mit Schleife nach der letzten die erste; hebt Schwarz/Weiß auf | `next()` | Rem | `src/main/control-server.ts:51-53`, `packages/suite-control-protocol/src/capabilities.ts:341` | |
+|75| Fernsteuerung | Companion `PRESENTER PREV` (Aktion `prev`, „Vorherige Folie“): vorige Folie, an der ersten ohne Wirkung; hebt Schwarz/Weiß auf | `prev()` | Rem | `src/main/control-server.ts:54-56`, `packages/suite-control-protocol/src/capabilities.ts:342` | |
+|76| Fernsteuerung | Companion `PRESENTER GOTO n` (Aktion `goto`, „Folie anspringen“, Argument „Folie (Nr.)“, Vorgabe 1, 1 bis 999): 1-basiert, abgeschnitten auf eine ganze Zahl, auf die Folien begrenzt; keine Zahl wird ignoriert | `goto(n - 1)` | Rem | `src/main/control-server.ts:57-61`, `packages/suite-control-protocol/src/capabilities.ts:343` | |
+|77| Fernsteuerung | Companion `PRESENTER BLACK` (Aktion `black`, „Schwarz“): Schwarzbild als **Umschalter** (ein zweites BLACK schaltet zurück auf die Folie); nur bei laufender Präsentation | `setScreen('black')` | Rem | `src/main/control-server.ts:62-64`, `src/main/present.ts:145-150`, `packages/suite-control-protocol/src/capabilities.ts:344` | |
+|78| Fernsteuerung | Companion `PRESENTER WHITE` (Aktion `white`, „Weiß“): Weißbild als Umschalter; nur bei laufender Präsentation | `setScreen('white')` | Rem | `src/main/control-server.ts:65-67`, `packages/suite-control-protocol/src/capabilities.ts:345` | |
+|79| Fernsteuerung | Companion `PRESENTER LIVE` (Aktion `live`, „Live“): zurück auf die Folie (aus Schwarz oder Weiß); bei Folie ohne Wirkung; nur bei laufender Präsentation | `setScreen('live')` | Rem | `src/main/control-server.ts:68-70`, `packages/suite-control-protocol/src/capabilities.ts:346` | |
+|80| Fernsteuerung | Companion `PRESENTER STOP` (Aktion `stop`, „Präsentation beenden“): beendet die Präsentation, schließt Referent und Publikum | `stopPresentation()` | Rem | `src/main/control-server.ts:71-73`, `packages/suite-control-protocol/src/capabilities.ts:347` | |
+|81| Fernsteuerung | Companion `PRESENTER OPEN ‹Pfad›` (Aktion `open`, „Präsentation öffnen (Pfad)“, Dateiwahl im Modul; Issue #81): der Pfad kommt aus der rohen Zeile (Leerzeichen erlaubt); .jmpres, PDF, Bilder oder Office (flach, ohne Einzelschritte) über den gemeinsamen Lade-Weg; legt das Ergebnis dem Editor im Modus „ersetzen“ vor, ohne Rückfrage; Fehler und „kein Editor-Fenster“ nur im Log | `openByPath` | Rem | `src/main/control-server.ts:44-50`, `src/main/control-open.ts:24-43`, `packages/suite-control-protocol/src/capabilities.ts:348-352` | |
+|82| Fernsteuerung | Zustand an Companion: `STATE ns=presenter slide=… total=… active=… live=… black=… white=…` (`slide` 1-basiert, 0 ohne Präsentation; `live` nur bei laufender Präsentation und Folie, #228), bei jeder Änderung an alle Verbundenen und auf `STATE?`; Variablen `slide`, `total`, `active`; Rückmeldungen „Schwarzbild aktiv“, „Weißbild aktiv“, „Live aktiv“ | `presenterStateKv`, `pushState` | Rem | `src/main/suite-state.ts:12-21`, `src/main/control-server.ts:29-31`, `:77-78`, `packages/suite-control-protocol/src/capabilities.ts:354-363` | |
+|83| Fernsteuerung | Steuerserver: TCP Port 8728 (fest), startet bei jedem Programmstart ohne Schalter, nimmt nur den Namensraum `presenter`; nach erfolgreichem Start als Steuer-Endpunkt per mDNS annonciert (`jm-presenter-ctl`, `ctl=1`), offen oder gesichert nach der Suite-Konfiguration; Stopp beim Beenden | `startControlServer`, `stopControlServer` | Main | `src/main/control-server.ts:23-91`, `src/main/index.ts:53`, `:60-63`, `packages/suite-control-protocol/src/server.ts:192-236` | |
+|84| Fernsteuerung | Master-Link: der Hauptprozess registriert über `initAppRuntime` Abfrage und Ereignis `jmps:master-link` für alle Fenster; kein Preload und kein Renderer liest ihn (N2b 0.1) | `initAppRuntime` | Main | `src/main/index.ts:13-17`, `packages/app-runtime/src/master-link-ipc.ts` | |
+|85| Präsentation | Start: übernimmt das Payload, Zustand `active`, Startfolie (begrenzt), Folienzahl, Folie statt Pause, Schleife aus dem Projekt; öffnet den Referenten (immer) und das Publikum (außer „Keiner – nur NDI“); das Ziel prüft der Hauptprozess (`pruefeStartZiel`: „keiner“ nur, solange NDI sendet oder startet, sonst automatisch); das Payload ist eine Kopie, Änderungen im Editor während der Präsentation wirken erst beim nächsten Start (abgeleitet) | `startPresentation`, IPC `present:start` | Main | `src/main/present.ts:103-121`, `src/main/ipc.ts:203-207`, `src/shared/ndi.ts:40-48` | |
+|86| Präsentation | Blättern: `goto` begrenzt auf die Folien und hebt Schwarz/Weiß auf; `next` mit Schleife nach der letzten zur ersten (`naechsterIndex`); `prev` eins zurück; alle drei wirken auch ohne laufende Präsentation (dann ohne sichtbare Folge) | `goto`, `next`, `prev`, IPC `present:goto`, `present:next`, `present:prev` | Main | `src/main/present.ts:128-142`, `src/shared/wiedergabe.ts:56-61`, `src/main/ipc.ts:210-212` | |
+|87| Präsentation | Pause-Bild: `setScreen` nur bei laufender Präsentation; derselbe Modus noch einmal schaltet zurück auf die Folie | `setScreen`, IPC `present:setScreen` | Main | `src/main/present.ts:144-150`, `src/main/ipc.ts:214` | |
+|88| Präsentation | Ende: nur bei laufender Präsentation; Zustand zurück auf leer, Payload weg, Referent und Publikum werden geschlossen; Schließen von Referent oder Publikum (auch per Alt+F4 oder, abgeleitet, Strg+W aus dem Standardmenü) beendet die Präsentation ebenso | `stopPresentation`, IPC `present:stop` | Main | `src/main/present.ts:159-168`, `src/main/windows.ts:174-178`, `:230-234`, `:375-380` | |
+|89| Präsentation | Verteilung: jede Änderung geht als `present:state` an alle Fenster (auch das NDI-Fenster) und an die Abonnenten (Handy-Server, Steuerserver, Gast-Klicker, NDI-Ausgang); eine laufende Nummer `rev` zeigt dem Stage Display neue Bilder an; beim Laden holen Referent, Publikum und NDI-Fenster erst das Payload, dann den Zustand, und setzen beides zusammen | `publish`, `subscribe`, IPC `present:getPayload`, `present:getState` | Main | `src/main/present.ts:44-75`, `R/lib/usePresentation.ts:14-41`, `src/main/ipc.ts:208-209` | |
+|90| Präsentation | Bildschirmliste: je Bildschirm Kennung, Name „Bildschirm n[ (Haupt)] · B×H“, Grenzen, primär und `current` (das Publikumsfenster steht dort, gemessen beim Abruf); ohne Publikumsfenster hat keiner `current` | `getDisplays`, IPC `present:displays` | Main | `src/main/windows.ts:382-395`, `src/main/ipc.ts:216` | |
+|91| Präsentation | Publikum verschieben: Vollbild aus, auf die Grenzen des Zielbildschirms, nach dem Umzug Vollbild wieder an (unbekannte Kennung: Hauptbildschirm); ohne Publikumsfenster ohne Wirkung | `moveAudienceToDisplay`, IPC `present:assignAudience` | Main | `src/main/windows.ts:240-251`, `src/main/ipc.ts:217-219` | |
+|92| Präsentation | Publikum-Vollbild umschalten: liefert den angeforderten Zustand (nicht gemessen), ohne Publikumsfenster `false` | `toggleAudienceFullscreen`, IPC `present:toggleAudienceFullscreen` | Main | `src/main/windows.ts:253-258`, `src/main/ipc.ts:220` | |
+|93| Präsentation | Referent-Vollbild (#309): umschalten liefert den angeforderten Zustand; jeder echte Wechsel (Knopf, F11, System) wird gemerkt und als `present:referentVollbildStand` gemeldet; beim Öffnen gilt der gemerkte Zustand; Schließen im Vollbild behält ihn für die nächste Präsentation | `referentVollbildUmschalten`, `referentVollbildVerdrahten`, IPC `present:toggleReferentVollbild`, `present:referentVollbild` | Main | `src/main/referent-vollbild.ts:27-68`, `src/main/windows.ts:165-173`, `:184-193`, `src/main/ipc.ts:221-223` | |
+|94| Präsentation | Bild des Publikums als JPEG: `capturePage` des Publikumsfensters (höchstens 1280 breit, Qualität 72), für den Gast-Klicker höchstens 640 breit und ohne Publikumsfenster aus dem NDI-Fenster | `captureAudience`, `captureVorschau` | Main | `src/main/windows.ts:260-295` | |
+|95| Schleife | Schleifen-Zeitgeber im Hauptprozess (#293): nur bei laufender Präsentation, Schleife an, Folie (nicht Schwarz/Weiß) und mindestens zwei Folien; Standzeit der Folie oder für alle (1 bis 3600 s); jede Zustandsänderung startet die Standzeit neu; `schleifeBisMs` trägt den Zeitpunkt für den Countdown; nach Ablauf `goto(naechsterIndex(…, true))` | `planeSchleife` | Main | `src/main/present.ts:17-42`, `src/shared/wiedergabe.ts:48-54` | |
+|96| Schleife | Schleife live an oder aus, nur bei laufender Präsentation | `setSchleife`, IPC `present:setSchleife` | Main | `src/main/present.ts:152-157`, `src/main/ipc.ts:215` | |
+|97| Dateien | Doppelklick und „Öffnen mit“ (#299): Pfade aus der Kommandozeile (Start), aus `second-instance` (App läuft) und `open-file` (Mac, auch vor ready); Schalter, Links und der Wert von `--show` zählen nicht; was binnen 500 ms kommt, wird ein Vorgang ohne Dubletten; gelesen im Hauptprozess, dann an den Editor im Modus „fragen“ (Editor wird bei Bedarf geöffnet); ein leerer Editor lädt ohne Frage (gemessen: die Probe-PDF als Startparameter kam als drei Folien „presenter-probe 1“ bis „3“ ohne Frage an) | `registriereDateiOeffnen`, `oeffneStartDateien`, `erstelleSammler`, `wieOeffnen` | Main | `src/main/datei-oeffnen.ts:1-62`, `src/shared/dateien.ts:114-145`, `src/main/index.ts:41-47` | |
+|98| Dateien | Show-Deep-Link `jmps://open?show=‹Pfad›` (beim Start oder bei laufender App): sucht in der Show die Werkzeug-Zeile `jm-presenter`, lädt deren .jmpres (absolut oder relativ zur Show) und legt es dem Editor im Modus „ersetzen“ vor, ohne Rückfrage; kommt der Link vor dem Fenster, wird er gepuffert | `handleShowDeepLink`, `flushPendingShowProject` | Main | `src/main/show-open.ts:15-67`, `src/main/index.ts:13-17`, `:48-51`, `R/main.tsx:17-23` | |
+|99| Dateien | Lieferungen an den Editor (`project:openFiles`, `project:open`): laufen nacheinander in einer Reihe, damit eine zweite Lieferung nicht mitten in den Import der ersten ersetzt; „ersetzen“ verwirft eine offene Öffnen-Frage | `oeffneGeladene`, `nacheinander` | Ed | `R/store/project.ts:106-117`, `:225-255`, `R/main.tsx:17-29` | |
+|100| Dateien | Ersetzen ist ein Tausch: erst werden die neuen Dateien gelesen, erst danach die alten Quellen verworfen; ist nichts lesbar, bleibt das Deck | `ingestImportedFiles(…, true)` | Ed | `R/store/project.ts:175-197` | |
+|101| Dateien | Der eine Lade-Weg für Pfade (Ablegen, Doppelklick, PRESENTER OPEN): ordnet nach Art (PDF, Bild, Office; eine .jmpres nur ganz allein), Office nacheinander über LibreOffice, Lesefehler als Hinweise; der Hauptprozess nimmt Pfade nur vom Editorfenster, nur als Liste aus Texten, höchstens 200 je Aufruf, nur absolute (UNC erlaubt); der Preload holt die Pfade selbst und teilt größere Mengen in Portionen | `ladeDateien`, `pruefeImportPfade`, `ladeInPortionen` | Main | `src/main/dateien-laden.ts:19-74`, `src/main/ipc.ts:137-147`, `src/shared/dateien.ts:31-112`, `src/preload/index.ts:35-59` | |
+|102| Dateien | Office-Umwandlung: LibreOffice ohne Oberfläche mit eigenem Profil und eigenem Ausgabeordner (Programm unter Programme bzw. Programme (x86), Mac-Programmordner, sonst im Suchpfad); bei .pptx werden die Klick-Animationen gezählt; mit der Option Einzelschritte wird je Klick eine Folie erzeugt, nur übernommen, wenn die Seitenzahl genau passt, sonst flach | `importOfficeFile`, `analyzePptxAnimations`, `expandPptxBuildSteps` | Main | `src/main/office/import.ts:9-46`, `src/main/office/convert.ts:14-114`, `src/main/office/pptx-animations.ts:72-121`, `src/main/office/pptx-expand.ts:94-201` | |
+|103| Dateien | Projektdatei .jmpres: ZIP ohne Kompression mit „manifest.json“ (Projektdokument) und den Bytes jeder Quelle und jedes Overlay-Bilds; Laden setzt alle Quellen neu | `serializeProject`, `deserializeProject` | Ed | `R/lib/project-file.ts:15-64` | |
+|104| Dateien | Bildformate (#313): PNG, JPEG, WebP, GIF, BMP, AVIF erkennt Chromium; SVG wird am Inhalt erkannt und in 1920×1080 eingepasst gerastert; SVG-Folien und PDF-Seiten stehen auf Weiß, andere Bilder behalten ihre Transparenz | `bildDekodieren`, `istSvg`, `svgRasterGroesse` | Ed, Ref, Pub, NDI | `R/lib/bild-dekodieren.ts:1-26`, `src/shared/bildformat.ts:1-130`, `R/lib/pdf.ts:97-134` | |
+|105| Handy | HTTP-Server der Handy-Fernsteuerung (Port 7330 als Vorgabe): Seite unter `/`, Ereignisstrom `/events` (Neuversuch 2 s, Ping alle 15 s), Bild `/slide/current.jpg` (Publikum als JPEG, 404 ohne Publikumsfenster), Befehle per POST `/cmd`; PIN als Parameter bzw. im Befehl, sonst 401; Befehle über 4096 Zeichen werden abgebrochen, kaputtes JSON und unbekannte Aktion ergeben 400, alles andere 404 | `handle` | Main | `src/main/remote.ts:108-211` | |
+|106| Handy | Handy-Befehle über `/cmd`: `next`, `prev`, `goto` (Index 0-basiert, die Seite sendet ihn nicht), `black`, `white` (Umschalter wie Nr. 77, 78), `live`, `stop`; Antwort ist die Kurzansicht | `handle` (`/cmd`) | Main | `src/main/remote.ts:165-208` | |
+|107| Handy | Kurzansicht an die Handys: `active`, `index`, `total`, `screen`, Titel und Notizen der Folie, Titel der nächsten (ohne Schleife, nach der letzten `null`) und `rev`; bei jedem Verbinden und jeder Änderung | `getRemoteView`, `broadcastView` | Main | `src/main/present.ts:77-101`, `src/main/remote.ts:81-94` | |
+|108| Handy | Server starten, stoppen, umstellen: Bindung an eine Netzwerkkarte oder alle (0.0.0.0, die Adresse zeigt dann die erste LAN-IP), Port; PIN vierstellig, bei **jedem** Start neu (nur mit PIN-Schutz); Statusmeldung `remote:status` an alle Fenster bei Start, Stopp und Fehler; beim Programmstart startet er von selbst, wenn er gemerkt an war | `applyRemoteConfig`, `setRemoteStatusHandler` | Main | `src/main/remote.ts:213-302`, `src/main/ipc.ts:225-240` | |
+|109| Handy | mDNS-Annonce `jm-presenter`, Rolle `presenter`, Port des Handy-Servers, im gesicherten Modus signiert; nur solange der Server läuft. Das Stage Display findet den Presenter darüber und holt `/events` und `/slide/current.jpg` (#38) | `advertise` | Main | `src/main/remote.ts:24-27`, `:278-294` | |
+|110| Gast-Klicker | Verbindung zum Cloud-Dienst (#317, ausgehend, kein eingehender Port): WebSocket zum Raum mit dem Geheimnis als Bearer und „hallo“; Herzschlag alle 20 s mit 10 s Frist; neu verbinden nach 1 s, verdoppelnd bis 30 s, ±20 %; 401, 403 oder Code 4403 ergeben „abgelehnt“ ohne Neuversuch | `verbinde`, `wartezeitMs` | Main | `src/main/gast-klicker.ts:267-350`, `src/shared/gast-klicker.ts:54-56`, `:91-95` | |
+|111| Gast-Klicker | Gast-Kommandos: nur „vor“ und „zurück“, nur bei laufender Präsentation und nicht pausiert, höchstens eins je 150 ms über alle Gäste | `fuehreKommandoAus`, `fuehreAus` | Main | `src/main/gast-klicker.ts:199-209`, `src/shared/gast-klicker.ts:62-66` | |
+|112| Gast-Klicker | Stand und Vorschau an den Dienst: bei jeder Änderung der Stand (aktiv, Folie, Pause-Bild, pausiert); ein JPEG (640 breit) 300 ms nach der Änderung und noch einmal nach 1,5 s, höchstens 256 KiB; auf Bitte des Raums Stand und Bild höchstens einmal je Sekunde; Gästezahl kommt vom Dienst | `beiAenderung`, `sendeBild`, `beantworteBildBitte` | Main | `src/main/gast-klicker.ts:131-265` | |
+|113| Gast-Klicker | Ein, aus, Pause, neuer Link: an erzeugt bei Bedarf ein Geheimnis (32 Byte, Raum daraus abgeleitet) und verbindet; aus trennt; Pause gilt nur im Speicher und geht an den Dienst; neuer Link schließt den alten Raum, erzeugt ein neues Geheimnis und verbindet neu; beim Programmstart verbindet er wieder, wenn er gemerkt an war; Basis-Adresse fest, für Tests über `JMPR_GAST_KLICKER_URL`; Status `gastKlicker:status` an alle Fenster | `applyGastKlicker`, `setzeGastPause`, `neuerGastLink`, `initGastKlicker` | Main | `src/main/gast-klicker.ts:76-94`, `:378-431`, `src/main/ipc.ts:242-247`, `:289-295`, `src/shared/gast-klicker.ts:1-52` | |
+|114| Timer-Sync | Verbindung zum JM Timer (socket.io, nur WebSocket, Neuversuch 0,5 bis 3 s): gespiegelt werden verbunden, Countdown, aktiver und nächster Programmpunkt, Farben, Nachricht, Blinken; Push `timer:state` an alle Fenster; neu verbunden wird nur, wenn sich an, Host oder Port ändern; Start mit der gemerkten Einstellung | `TimerClient`, `applyTimerConfig`, IPC `timer:getState`, `timer:getConfig`, `timer:apply` | Main | `src/main/timer-client.ts:1-73`, `src/main/timer-sync.ts:1-49`, `src/main/ipc.ts:249-263` | |
+|115| NDI | NDI-Ausgang (#303, nur Windows): Schalter an startet den Sender als eigenen Prozess und öffnet das NDI-Fenster; „startet“, bis der Sender bereit ist **und** das Fenster sich gemeldet hat, erst dann „sendet“; Start-Frist 10 s, danach „nicht verfügbar“; die Empfängerzahl kommt etwa jede Sekunde (Verbindungen halbiert, aufgerundet); aus beendet Sender und Fenster | `setzeNdiAn`, `starte`, `ndiFensterBereit`, IPC `ndi:status`, `ndi:setzeAn`, `ndi:fensterBereit` | Main, Win | `src/main/ndi/ausgang.ts:73-161`, `:183-259`, `src/main/ndi/sender-process.ts:32-90`, `src/utility/ndi-sender-kern.ts:24-26`, `src/main/ipc.ts:265-272` | |
+|116| NDI | Absturz des NDI-Bilds: ein neues Fenster wird geöffnet, der Sender läuft weiter; ein zweiter Absturz binnen 60 s meldet „nicht verfügbar“; ein toter Sender schließt auch das Fenster | `bildAbgestuerzt`, `senderEnde` | Main, Win | `src/main/ndi/ausgang.ts:119-181` | |
+|117| NDI | Programmstart: gemerkter Schalter an startet NDI gleich; ein Fehler dabei wird gefangen und als „nicht verfügbar“ gemeldet, der Editor öffnet trotzdem; ein neues Payload geht an das NDI-Fenster | `initNdiAusgang`, `ndiStartGescheitert` | Main | `src/main/ndi/ausgang.ts:206-233`, `src/main/ipc.ts:280-287` | |
+|118| App | Einzelinstanz: ein zweiter Start holt den Editor nach vorn (wiederhergestellt, gezeigt, fokussiert), sonst ein anderes Bedienfenster (nie das NDI-Fenster), sonst einen neuen Editor | `requestSingleInstanceLock`, `second-instance` | Main | `src/main/index.ts:19-40` | |
+|119| App | Programmende: `before-quit` stoppt Steuerserver und Gast-Klicker; `will-quit` Handy-Server, Timer und NDI; alle Fenster zu beendet die App außer auf dem Mac; Mac `activate` ohne Fenster öffnet einen Editor | `before-quit`, `will-quit`, `window-all-closed`, `activate` | Main | `src/main/index.ts:55-67`, `src/main/ipc.ts:274-278` | |
+|120| App | Laufzeit-Grundlage und Ansichten: `initAppRuntime` mit CSP, Kennung `jm-presenter`, Name „JM Presenter“, Deep-Link-Annahme; alle Fenster laden dasselbe Bündel mit `?view=editor`, `presenter`, `audience` oder `ndi`; der Preload liest die Ansicht, `R/main.tsx` rendert Editor, Referent oder Publikum, das NDI-Fenster ohne React | `initAppRuntime`, `loadView`, `parseView` | Main | `src/main/index.ts:10-17`, `src/main/windows.ts:50-68`, `src/preload/index.ts:22-28`, `R/main.tsx:1-46` | |
+
+## 4 · Zusatzfenster
+
+Drei Fenster neben dem Editor (N2b 1.1 Nr. 21: vier Fenster insgesamt): der Referent (bedienbar, Abschnitt 4a), das Publikum
+(Programm, Abschnitt 4b) und das unsichtbare NDI-Fenster (Abschnitt 4c). Dazu die Handy-Seite, die der Hauptprozess im LAN
+ausliefert (Abschnitt 4d, Grenzeintrag). Das Bild von Publikum und NDI steht in Abschnitt 5.
+
+### 4a · Referent (`?view=presenter`)
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+|121| Fenster | Fensterhülle (N2b 1.1 Nr. 29): 1500×920 in der Arbeitsfläche des Hauptbildschirms, mittig, mindestens 1024×620 (gemessen auf dem Prüfrechner: Start mit 1505×822 außen); Hintergrund `#0c0c0c`, Titel „JM Presenter · Referent“, `autoHideMenuBar`, **ohne** `hiddenInset` (echte Titelleiste auch auf dem Mac); öffnet mit jeder Präsentation, ein offenes wird nach vorn geholt; gemerktes Vollbild beim Öffnen (Nr. 93) | `openPresenterWindow` | Main, Pr | `src/main/windows.ts:141-182` | |
+|122| Fenster | Aufbau und Farben (N2b 1.1 Nr. 2, 18, 22): fest dunkel (`bg-[#0c0c0c] text-white`, rohe Farben, unabhängig von einem Thema); Kopf mit Mindesthöhe, die Knopfgruppe bricht bei schmalem Fenster in eine zweite Zeile um (gemessen: 65 px bei 1500 breit, 83 px zweizeilig bei 1024 breit); darunter zwei Spalten im Verhältnis 1,7 zu 1 | `PresenterView` | Ref | `R/views/PresenterView.tsx:66-71`, `:145` | |
+|123| Kopf | Zähler „n / m“ (groß, gelb) und Titel der aktuellen Folie (oder „—“, abgeschnitten) links im Kopf | – (Anzeige) | Ref | `R/views/PresenterView.tsx:72-78` | |
+|124| Kopf | Uhr (N2b 1.1 Nr. 30): „Uhrzeit“ (hh:mm:ss) und „Laufzeit“ (Stoppuhr ab dem Öffnen des Referenten, gelb solange sie läuft, alle 250 ms), Knöpfe „Pause“ bzw. „Start“ und „Reset“; nichts davon gemerkt | `Clock`, `toggle`, `reset` | Ref | `R/components/Clock.tsx:13-76`, `R/views/PresenterView.tsx:79` | |
+|125| Kopf | Bildschirmwahl „Publikums-Bildschirm“ (N2b 1.1 Nr. 9; Tooltip „Publikums-Bildschirm“, höchstens 170 breit): zeigt den Bildschirm mit `current`; eine Wahl verschiebt das Publikum **sofort** (Nr. 91), auch per Tastatur (abgeleitet); die Liste wird nur beim Öffnen des Referenten gelesen | `assignAudience`, IPC `present:assignAudience` | Ref | `R/views/PresenterView.tsx:17`, `:24-26`, `:53`, `:82-100` | |
+|126| Kopf | „Keiner – nur NDI“ im Referenten (N2b 1.1 Nr. 9): läuft die Präsentation ohne Publikumsfenster (Liste geladen, kein `current`), zeigt die Wahl nur diesen Eintrag und ist gesperrt (nicht gemessen: nur mit echtem NDI-Sender erreichbar) | `nurNdi` | Ref, Win | `R/views/PresenterView.tsx:53-56`, `:82-100` | |
+|127| Kopf | NDI-Schalter im Referenten (N2b 1.1 Nr. 24): wie Nr. 16 in der Form des Referenten-Kopfs; gemessen: „NDI aus“ 67 px, „NDI ● an · 2 Empfänger“ 150 px | `NdiSchalter` (Variante `referent`) | Ref | `R/views/PresenterView.tsx:101`, `R/components/NdiSchalter.tsx:23-46` | |
+|128| Kopf | Gast-Klick-Pille (N2b 1.1 Nr. 26, #317): nur bei eingeschaltetem Gast-Klicker; „Gast-Klick ●“ (grün), „Gast-Klick pausiert“ (bernsteinfarben) oder „Gast-Klick getrennt“ (rot, auch bei „verbindet“ und „abgelehnt“); Tooltip „Remote-Gäste können vor/zurück klicken (n verbunden) – klicken zum Pausieren“ bzw. „Gast-Klicks sind pausiert – klicken zum Fortsetzen“; Klick pausiert bzw. setzt fort; gemessen 91 px, schiebt Bildschirmwahl und NDI nach links | `GastKlickerPille`, `pillenText`, IPC `gastKlicker:pause` | Ref | `R/components/GastKlickerPille.tsx:1-39`, `src/shared/gast-klicker.ts:68-73`, `R/views/PresenterView.tsx:102` | |
+|129| Kopf | „⬛“ Schwarz (Tooltip „Schwarzbild (Taste B)“): Umschalter, gelb hinterlegt bei Schwarzbild; ein zweiter Druck schaltet zurück auf die Folie | `setScreen('black')` | Ref | `R/views/PresenterView.tsx:103-109` | |
+|130| Kopf | „⬜“ Weiß (Tooltip „Weißbild (Taste W)“): Umschalter, gelb hinterlegt bei Weißbild | `setScreen('white')` | Ref | `R/views/PresenterView.tsx:110-116` | |
+|131| Kopf | „⟳ Schleife“ (N2b 1.1 Nr. 27, #293): schaltet die Schleife live; gelb hinterlegt bei an; Beschriftung mit Countdown „⟳ Schleife · n s“ (alle 250 ms) bzw. „⟳ Schleife · steht“, wenn nichts geplant ist (Schwarz/Weiß, weniger als zwei Folien); Tooltip „Schleife anhalten“ bzw. „Schleife starten: blättert nach der Standzeit selbst weiter“. Gemessen: 85 px aus, 115 px mit Countdown | `SchleifenKnopf`, `setSchleife` | Ref | `R/views/PresenterView.tsx:117`, `:248-266` | |
+|132| Kopf | „Publikum Vollbild“ (N2b 1.1 Nr. 30): schaltet das Vollbild des Publikumsfensters um; kein hinterlegter Zustand (die Antwort wird nicht gelesen); bei „nur NDI“ gesperrt mit Tooltip „Kein Publikumsfenster – Bild nur über NDI“ | `toggleAudienceFullscreen` | Ref | `R/views/PresenterView.tsx:118-124` | |
+|133| Kopf | „Vollbild“ (N2b 1.1 Nr. 25, #309; Tooltip „Referentenansicht im Vollbild (F11)“): Referentenfenster ins Vollbild und zurück; gelb hinterlegt nach dem gemessenen Zustand (Abfrage beim Laden, danach Push) | `toggleReferentVollbild`, `onReferentVollbild` | Ref | `R/views/PresenterView.tsx:22`, `:28-32`, `:125-131` | |
+|134| Kopf | „Übersicht“ (N2b 1.1 Nr. 30): öffnet und schließt die Folienübersicht (Nr. 150), gelb hinterlegt, solange sie offen ist | `setShowGrid` | Ref | `R/views/PresenterView.tsx:132-134` | |
+|135| Kopf | „📱“ (Tooltip „Handy-Fernsteuerung“, N2b 1.1 Nr. 14, 17): öffnet das Fenster „Fernsteuerung übers Netzwerk“ (Nr. 152); gelb hinterlegt, solange es offen ist | `setShowRemote(true)` | Ref | `R/views/PresenterView.tsx:135-137`, `:237` | |
+|136| Kopf | „■ Beenden“ (rot umrandet, ganz rechts im Kopf, N2b 1.1 Nr. 5): beendet die Präsentation (Referent und Publikum schließen) | `present.stop()` | Ref | `R/views/PresenterView.tsx:138-140` | |
+|137| Live | „Aktuelle Folie“ (N2b 1.1 Nr. 2): die Folie mit Overlays (Raster 1280) auf Schwarz, eingepasst; zeigt immer die Folie, auch bei Schwarz/Weiß, und schaltet ohne Übergang um. Gemessen sichtbar bei scrollTop 0: 910×726 bei 1500×920, 609×407 bei 1024×620 | `SlideCanvas` | Ref | `R/views/PresenterView.tsx:147-151` | |
+|138| Live | „‹ Zurück“ unter der Folie (N2b 1.1 Nr. 3): vorige Folie; gesperrt bei der ersten Folie, ohne Grund (gesperrt nimmt der Knopf keine Maus an, `pointer-events-none`) | `present.prev()` | Ref | `R/views/PresenterView.tsx:153-155`, `:304-323` | |
+|139| Live | „Gehe zu“ (N2b 1.1 Nr. 30): Feld „Folie“ (nimmt nur Ziffern) und Knopf „Gehe zu“: springt auf Folie 1 bis m, leert das Feld; eine Zahl außerhalb leert nur das Feld; Enter im Feld blättert heute stattdessen weiter (Nr. 202, gemessen) | `doJump`, `present.goto` | Ref | `R/views/PresenterView.tsx:18`, `:58-64`, `:156-172` | |
+|140| Live | „Weiter ›“ unter der Folie (N2b 1.1 Nr. 3): nächste Folie; gesperrt bei der letzten Folie ohne Grund, **auch mit Schleife** (gemessen, Nr. 144) | `present.next()` | Ref | `R/views/PresenterView.tsx:173-175` | |
+|141| Live | Reihe unter der Folie (N2b 1.1 Nr. 2): „‹ Zurück“, Feld und „Gehe zu“, „Weiter ›“ mittig unter der aktuellen Folie; gemessen bei 1500×920 von x 289 bis 650 auf Höhe 838 bis 875, bei 1024×620 von x 139 bis 500 auf Höhe 538 bis 575 | – (Anordnung) | Ref | `R/views/PresenterView.tsx:152-176` | |
+|142| Live | „Nächste Folie“ (N2b 1.1 Nr. 2, Raster 640): die folgende Folie, mit Schleife nach der letzten die erste; sonst „Ende der Präsentation“ (gemessen auf Folie 3 ohne Schleife) | `SlideCanvas` | Ref | `R/views/PresenterView.tsx:50-52`, `:182-191` | |
+|143| Live | „Notizen“ (N2b 1.1 Nr. 2): Notizen der aktuellen Folie, scrollt; ohne Notizen „Keine Notizen“ | – (Anzeige) | Ref | `R/views/PresenterView.tsx:192-197` | |
+|144| Live | Sperre „Weiter“ auf der letzten Folie trotz Schleife (N2b 1.1 Nr. 3, B13): mit Schleife zeigt „Nächste Folie“ die erste Folie und die Schleife springt dorthin, „Weiter ›“ bleibt aber gesperrt (gemessen bei beiden Größen; Befund 7) | `disabled={state.index >= state.total - 1}` | Ref | `R/views/PresenterView.tsx:173` | |
+|145| Live | Timer-Leiste (N2b 1.1 Nr. 2): nur bei verbundenem JM Timer, über „Nächste Folie“; „JM Timer“ (mit „ · Pause“), aktiver Programmpunkt, Restzeit (mm:ss bzw. hh:mm:ss, mit Minus in der Überzeit) in den Farben des Timers (normal, Warnung ab der Schwelle, Überzeit), „—:—“ ohne laufenden Countdown, „Endet hh:mm“, Nachricht des Timers (gelb, bei Blinken rot blinkend) | `TimerBar`, `useTimerSync`, `useTick` | Ref | `R/components/TimerBar.tsx:1-76`, `R/lib/timer.ts:1-62`, `R/views/PresenterView.tsx:16`, `:181` | |
+|146| Fenster | Laden: holt Payload und Zustand (Nr. 89), legt die Quellen in den eigenen Speicher; bis dahin „Lade Präsentation…“ (Nr. 67) | `usePresentation` | Ref | `R/lib/usePresentation.ts:14-41` | |
+|147| Fenster | F11 im Referenten (N2b 1.1 Nr. 25): schaltet das Vollbild wie „Vollbild“, mit `preventDefault`, damit das Standardmenü nicht ein zweites Mal umschaltet (Nr. 208) | `keydown` F11 | Ref | `R/views/PresenterView.tsx:34-44` | |
+|148| Fenster | Kürzel im Referenten (N2b 1.1 Nr. 19): die 16 Fenster-Kürzel (Nr. 185 bis 200) über `usePresenterKeys(true)` am `window` | `usePresenterKeys` | Ref | `R/views/PresenterView.tsx:15`, `R/lib/usePresentation.ts:43-96` | |
+|149| Fenster | Bühnenruhe: Texte im Referenten sind nicht markierbar (`select-none`) | – | Ref | `R/views/PresenterView.tsx:67` | |
+|150| Übersicht | Folienübersicht (N2b 1.1 Nr. 30): Überlagerung über dem **ganzen** Fenster samt Kopf (gemessen: 0 bis Fenstergröße), Titel „Folienübersicht“, „schließen ✕“, Raster mit 4 bzw. ab Breite `lg` 6 Spalten, je Folie Vorschau (360), Nummer und Titel, die aktuelle gelb umrandet; Klick springt dorthin und schließt | `setShowGrid`, `present.goto` | Ref Üb | `R/views/PresenterView.tsx:201-235` | |
+|151| Übersicht | Esc bei offener Übersicht schließt sie nicht, sondern beendet die Präsentation (der Kürzel-Hook kennt die Übersicht nicht; abgeleitet, Esc gemessen in Nr. 200) | `usePresenterKeys` | Ref Üb | `R/lib/usePresentation.ts:85-88` | |
+|152| Handy-Fenster | Fenster „📱 Fernsteuerung übers Netzwerk“ (N2b 1.1 Nr. 14, 17): Überlagerung über dem ganzen Referenten (gemessen), Text „Steuere die Präsentation vom Handy oder Tablet im selben Netzwerk.“, „schließen ✕“; nur aus dem Referenten erreichbar, also nur während einer Präsentation; Esc beendet die Präsentation (abgeleitet wie Nr. 151) | `RemotePanel`, `onClose` | Ref 📱 | `R/components/RemotePanel.tsx:10-61` | |
+|153| Handy-Fenster | Schalter „Server aktiv“ bzw. „Server aus“ mit „Telefone können sich verbinden.“ bzw. „Einschalten, um ein Gerät zu koppeln.“: startet oder stoppt den Handy-Server und merkt es (Nr. 215); gesperrt während des Anwendens | `apply({ enabled })`, IPC `remote:apply` | Ref 📱 | `R/components/RemotePanel.tsx:33-45`, `:62-71`, `:177-195` | |
+|154| Handy-Fenster | Auswahl „Netzwerkkarte“: „Alle Schnittstellen (0.0.0.0)“ und je IPv4-Karte „Name · IP“, geholt beim Öffnen; wendet sofort an | `apply({ bind })`, IPC `remote:interfaces` | Ref 📱 | `R/components/RemotePanel.tsx:74-94`, `src/main/remote.ts:37-49` | |
+|155| Handy-Fenster | Feld „Port“ (nur Ziffern, Vorgabe 7330): übernommen beim Verlassen, nur 1024 bis 65535 | `apply({ port })` | Ref 📱 | `R/components/RemotePanel.tsx:95-104` | |
+|156| Handy-Fenster | Kontrollkästchen „PIN-Schutz (empfohlen im offenen WLAN)“: wendet sofort an (läuft der Server, gibt es eine neue PIN) | `apply({ pinEnabled })` | Ref 📱 | `R/components/RemotePanel.tsx:107-120` | |
+|157| Handy-Fenster | Fehlerfeld mit dem Startfehler (Nr. 68); jedes Anwenden setzt mit `enabled` den gemessenen Zustand `running` fort (nach einem Fehler also „aus“, Befund 16) | `status.error` | Ref 📱 | `R/components/RemotePanel.tsx:33-45`, `:122-126` | |
+|158| Handy-Fenster | Kopplung bei laufendem Server mit Adresse: QR-Code (320, dunkel auf weiß, Alternativtext „QR“), „Am Handy öffnen“ und die Adresse als Link (Klick ohne Wirkung), „PIN“ groß oder „Ohne PIN — jeder im Netzwerk kann steuern.“ | `Pairing`, `QRCode.toDataURL` | Ref 📱 | `R/components/RemotePanel.tsx:128`, `:136-175` | |
+|159| Handy-Fenster | Laden: Status und Netzwerkkarten beim Öffnen, danach Push `remote:status` | `remote.status`, `remote.onStatus` | Ref 📱 | `R/components/RemotePanel.tsx:20-31` | |
+|160| Gast-Klicker | Abschnitt „🌐 Gast-Klicker übers Internet (Zoom-Gäste)“ (N2b 1.1 Nr. 26, #317) im Fenster „Fernsteuerung übers Netzwerk“ mit „Remote-Gäste öffnen einen Link im Browser und schalten ihre Folien selbst weiter – ohne Installation.“; Schalter „Gast-Klicker an“ bzw. „aus“ (Bezeichnung „Gast-Klicker ein/aus“) mit Statuszeile (Nr. 70); gesperrt während des Anwendens und vor der ersten Antwort | `setzeAn`, IPC `gastKlicker:setzeAn` | Ref 📱 | `R/components/GastKlickerAbschnitt.tsx:8-69`, `R/components/RemotePanel.tsx:130` | |
+|161| Gast-Klicker | Feld „Link für die Gäste“ (nur lesbar, markiert sich beim Fokus); nur bei an und mit Link | – | Ref 📱 | `R/components/GastKlickerAbschnitt.tsx:71-80` | |
+|162| Gast-Klicker | „Für den Zoom-Chat kopieren“: kopiert „Advance your slides yourself / Folien selbst weiterschalten: ‹Link›“, danach „Kopiert ✓“ (Nr. 73) | `kopiere`, `chatText` | Ref 📱 | `R/components/GastKlickerAbschnitt.tsx:27-36`, `:83-89`, `src/shared/gast-klicker.ts:58-60` | |
+|163| Gast-Klicker | „Gast-Klick pausieren“ bzw. „Gast-Klick fortsetzen“ (bernsteinfarben, wenn pausiert) | `pause`, IPC `gastKlicker:pause` | Ref 📱 | `R/components/GastKlickerAbschnitt.tsx:90-99` | |
+|164| Gast-Klicker | „Neuer Link“ mit `window.confirm` (Nr. 50): alter Link wird ungültig, neuer Raum | `neuerLink`, IPC `gastKlicker:neuerLink` | Ref 📱 | `R/components/GastKlickerAbschnitt.tsx:100-111` | |
+|165| Gast-Klicker | Hinweis „Wer den Link hat, kann vor/zurück klicken. Ist Publikum im Chat, den Link privat an den Gast schicken. Dein eigener Clicker und die Tastatur wirken immer.“ | – (Text) | Ref 📱 | `R/components/GastKlickerAbschnitt.tsx:113-116` | |
+
+### 4b · Publikum (`?view=audience`)
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+|166| Tastatur | Kürzel im Publikumsfenster (N2b 1.1 Nr. 19 ❌, Risiko R3): dieselben 16 Fenster-Kürzel wie im Referenten (Nr. 185 bis 200) über `usePresenterKeys(true)`; wer das Publikumsfenster anklickt (Vollbild auf dem zweiten Bildschirm), blättert dort per Klicker; Esc beendet auch dort die Präsentation | `usePresenterKeys` | Pub | `R/views/AudienceView.tsx:19`, `R/lib/usePresentation.ts:43-96` | |
+|167| Fenster | Fensterhülle (N2b 1.1 Nr. 21): auf dem Zielbildschirm in dessen Grenzen (Vorgabe der erste nicht-primäre, sonst der Hauptbildschirm), Hintergrund schwarz, Titel „JM Presenter · Publikum“, `autoHideMenuBar`, Vollbild nach `ready-to-show` (gemessen: Vollbild 2032×1144 auf dem Nicht-Haupt-Bildschirm); kein Fenster bei „Keiner – nur NDI“; Schließen beendet die Präsentation | `openAudienceWindow` | Main, Pr | `src/main/windows.ts:199-238`, `src/main/present.ts:115-116` | |
+
+### 4c · NDI-Fenster (`?view=ndi`)
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+|168| Fenster | NDI-Fenster (N2b 1.1 Nr. 21, #303): unsichtbar, 1920×1080, ohne Taskleiste, Titel „JM Presenter · NDI“, ohne Drosselung im Hintergrund; kein React-Baum, nur die Zeichenansicht (Abschnitt 5); meldet sich mit `ndi:fensterBereit` und bekommt dann den Bild-Port; wird nie nach vorn geholt; geht mit, wenn kein sichtbares Fenster mehr offen ist; Warnungen und Fehler seiner Konsole gehen als `[ndi-bild]` ins Log | `openNdiWindow`, `starteNdiAnsicht` | NDI, Win | `src/main/windows.ts:297-368`, `R/main.tsx:31-34`, `R/ndi/ndi-ansicht.ts:211-246`, `src/preload/index.ts:30-33` | |
+
+### 4d · Handy-Seite (`http://‹IP›:‹Port›/`, Grenzeintrag)
+
+Eine in sich geschlossene HTML-Seite, die der Hauptprozess ausliefert (`src/main/remote-page.ts`); sie bleibt unverändert
+(Spec U6). Der Umbau berührt nur ihren Schalter, die Kopplung und den Gast-Klicker im Referenten.
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+|169| Handy-Seite | PIN-Tor (nur mit PIN-Schutz): „JM Presenter“, „PIN aus der App eingeben, um die Präsentation zu steuern.“, Feld für vier Ziffern, „Verbinden“; Fehler „4-stellige PIN.“ bzw. „Falsche PIN.“; die PIN prüft die Seite mit dem Befehl `live` (Befund 15); gemerkt im Browser (Nr. 221); eine abgelehnte PIN führt zurück zum Tor | `connect`-Knopf, `onAuthFail` | Hy | `src/main/remote-page.ts:58-64`, `:108-113`, `:136-146`, `:161` | |
+|170| Handy-Seite | Kopf: Punkt (grün bei verbundenem Ereignisstrom), „Fernsteuerung“ und rechts „Schwarzbild“ bzw. „Weißbild“ | `EventSource(/events)` | Hy | `src/main/remote-page.ts:67-71`, `:125`, `:128-134` | |
+|171| Handy-Seite | Position: große Zahl und „/ m“, ohne Präsentation „–“ und „Keine Präsentation aktiv“; Karte „Aktuelle Folie“ mit Titel (oder „Folie n“) und „Nächste: …“ bzw. „Ende der Präsentation“ (ohne Schleife) | `render` | Hy | `src/main/remote-page.ts:72-74`, `:115-122` | |
+|172| Handy-Seite | „‹ Zurück“ und „Weiter ›“ (groß): `prev` bzw. `next`; gesperrt an der ersten bzw. letzten Folie, auch mit Schleife (abgeleitet) | `cmd('prev')`, `cmd('next')` | Hy | `src/main/remote-page.ts:75-78`, `:123`, `:149-150` | |
+|173| Handy-Seite | „Schwarz“, „Weiß“, „Folie“: senden `black`, `white` (Umschalter) bzw. `live`; der aktive ist gelb umrandet | `cmd(screen)` | Hy | `src/main/remote-page.ts:79-83`, `:124`, `:152-154` | |
+|174| Handy-Seite | Karte „Notizen“ der aktuellen Folie (scrollt) | `render` | Hy | `src/main/remote-page.ts:84-85`, `:122` | |
+|175| Handy-Seite | Fehler beim Senden werden verschluckt, kein Hinweis; die Seite sperrt das Zoomen und das Markieren; ein vorbereitetes Hinweisfeld (`toast`) wird nie benutzt | `cmd().catch` | Hy | `src/main/remote-page.ts:11`, `:88`, `:97`, `:99-106` | |
+|176| Handy-Seite | „■ Präsentation beenden“ mit `window.confirm` „Präsentation beenden?“, dann `stop` | `confirm`, `cmd('stop')` | Hy | `src/main/remote-page.ts:86`, `:151` | |
+
+## 5 · Ausgabe (Publikumsbild und NDI-Bild; nur Abgrenzung, bleibt unverändert)
+
+Programmflächen nach B5: `R/views/AudienceView.tsx`, `R/ndi/ndi-ansicht.ts`, `R/lib/paint.ts`, `R/lib/pdf.ts` und die schwarzen
+Folienflächen um `SlideCanvas`. Bildschirm und NDI treffen dieselben Entscheidungen (`src/shared/publikumsbild.ts`), so zeigen
+beide zu jedem Zeitpunkt dasselbe Bild.
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+|177| Publikum | Fläche schwarz, die Folie eingepasst (Raster 1920) mit ihren Overlays; ohne gemalte Folie ein blasses „Bereit“; keine Bedienelemente, kein Rahmen; der Mauszeiger wird nicht ausgeblendet (kein Stil dafür, abgeleitet) | `AudienceView`, `SlideCanvas` | Pub | `R/views/AudienceView.tsx:17-96` | |
+|178| Publikum | Schwarz- und Weißbild decken die ganze Fläche (Pause-Bild nach `bildArt`) | `bildArt` | Pub | `R/views/AudienceView.tsx:65-72`, `src/shared/publikumsbild.ts:23-32` | |
+|179| Publikum | Folienwechsel als Schichtenstapel (#293): der Übergang gehört zur hereinkommenden Folie, die allererste kommt ohne; Schnitt: die alte Folie bleibt stehen, bis die neue gemalt ist (kein Schwarzblitz); Überblendung: Deckkraft über die Dauer (ease-in-out), zwei Frames Vorlauf, Sicherung nach Dauer plus 300 ms; höchstens zwei alte Schichten | `naechsteSchicht`, `gemalt`, `fertig` | Pub | `R/views/AudienceView.tsx:7-63`, `:74-94`, `src/shared/publikumsbild.ts:9-43`, `src/shared/wiedergabe.ts:40-46` | |
+|180| Publikum | Laden: Payload und Zustand werden zusammen gesetzt, damit nicht erst Folie 1 und dann die Startfolie überblendet | `usePresentation` | Pub | `R/lib/usePresentation.ts:19-38` | |
+|181| NDI-Bild | Festes Bild 1920×1080: Folie eingepasst wie im Publikum (nie vergrößert), Ränder transparent; Schwarzbild und gestoppt ganz transparent, Weißbild weiß; Übergänge wie im Publikum im 40-ms-Takt, sonst nur bei Änderungen gezeichnet; die Schriften werden vorab geladen; ein Fehler beim Malen wird einmal gemeldet, der Takt läuft weiter | `starteNdiAnsicht`, `zeichnen`, `zusammensetzen` | NDI, Win | `R/ndi/ndi-ansicht.ts:1-246`, `src/shared/ndi-bild.ts:14-99` | |
+|182| NDI-Bild | Senden: BGRA-Vollbilder über den Bild-Port, vom Hauptprozess an den Sender-Prozess gereicht; der Sender wiederholt das letzte Bild mit 25 fps; Quellname „JM Presenter“ (das NDI-SDK hängt den Rechnernamen an) | `senden`, `verbindeFenster`, `starteNdiSenderKern` | NDI, Win | `R/ndi/ndi-ansicht.ts:193-209`, `src/main/ndi/sender-process.ts:62-76`, `src/shared/ndi.ts:1-25`, `src/utility/ndi-sender.ts:1-11` | |
+|183| Malen | Eine Malfunktion für alle Wege (Editor-Vorschau, Referent, Publikum, NDI, PDF-Export): PDF-Seite auf Weiß (pdf.js, Raster je Breite, höchstens 64 im Zwischenspeicher), Bildquelle (SVG auf Weiß), darüber die Overlays (Text mit Umbruch, Balken, Ausrichtung, Drehung; Bild eingepasst); Schrift Manrope | `renderBase`, `paintSlide`, `paintOverlays` | Ed, Ref, Pub, NDI | `R/lib/pdf.ts:1-152`, `R/lib/paint.ts:1-144`, `R/lib/assets.ts:1-65` | |
+|184| Export | PDF-Export (Nr. 12): PDF-Seiten als Vektorseiten eingebettet (Seitenbreite 1280 pt), PNG und JPEG verlustfrei, andere Bilder gerastert (1920), Overlays als durchsichtige Bildschicht (2560 breit); eine Folie, die sich nicht einbetten lässt, wird ganz gerastert, statt den Export abzubrechen | `exportSlidesToPdf` | Ed | `R/lib/export-pdf.ts:1-130` | |
+
+## 6 · Tastatur (Pflichtpunkt Spec 10)
+
+Die 16 Fenster-Kürzel sitzen in einem Hook am `window` (`keydown`, `R/lib/usePresentation.ts:43-96`), eingehängt im
+Referenten (`R/views/PresenterView.tsx:15`) **und** im Publikumsfenster (`R/views/AudienceView.tsx:19`; N2b 1.1 Nr. 19). Jede
+Taste ruft `preventDefault`. Der Hook nimmt heute **nichts** aus: keine Felder, keine Auswahl, keine Knöpfe (B10 ändert das für
+Textfelder). Im Editor gibt es keine Folien-Kürzel. Es gibt kein eigenes Anwendungsmenü und kein `globalShortcut`.
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+|185| Kürzel | Pfeil rechts: nächste Folie (Verb `next`) | `present.next()` | Ref, Pub | `R/lib/usePresentation.ts:48-56` | |
+|186| Kürzel | Pfeil runter: nächste Folie | `present.next()` | Ref, Pub | `R/lib/usePresentation.ts:50`, `:54-56` | |
+|187| Kürzel | Bild runter (`PageDown`, die Vor-Taste der meisten Klicker): nächste Folie | `present.next()` | Ref, Pub | `R/lib/usePresentation.ts:51`, `:54-56` | |
+|188| Kürzel | Leertaste: nächste Folie | `present.next()` | Ref, Pub | `R/lib/usePresentation.ts:52`, `:54-56` | |
+|189| Kürzel | Enter: nächste Folie | `present.next()` | Ref, Pub | `R/lib/usePresentation.ts:53-56` | |
+|190| Kürzel | Pfeil links: vorige Folie (Verb `prev`) | `present.prev()` | Ref, Pub | `R/lib/usePresentation.ts:57-63` | |
+|191| Kürzel | Pfeil hoch: vorige Folie | `present.prev()` | Ref, Pub | `R/lib/usePresentation.ts:58`, `:61-63` | |
+|192| Kürzel | Bild hoch (`PageUp`, die Zurück-Taste der meisten Klicker): vorige Folie | `present.prev()` | Ref, Pub | `R/lib/usePresentation.ts:59`, `:61-63` | |
+|193| Kürzel | Rücktaste: vorige Folie | `present.prev()` | Ref, Pub | `R/lib/usePresentation.ts:60-63` | |
+|194| Kürzel | Pos1: erste Folie (Verb `goto`, Index 0) | `present.goto(0)` | Ref, Pub | `R/lib/usePresentation.ts:64-67` | |
+|195| Kürzel | Ende: letzte Folie (`goto(9999)`, im Hauptprozess begrenzt) | `present.goto(9999)` | Ref, Pub | `R/lib/usePresentation.ts:68-71` | |
+|196| Kürzel | B (klein und groß): Schwarzbild umschalten (Verb `black`; ein zweites B schaltet zurück) | `present.setScreen('black')` | Ref, Pub | `R/lib/usePresentation.ts:72-78` | |
+|197| Kürzel | Punkt: Schwarzbild umschalten (die Bildschirm-Taste vieler Klicker) | `present.setScreen('black')` | Ref, Pub | `R/lib/usePresentation.ts:75-78` | |
+|198| Kürzel | W (klein und groß): Weißbild umschalten (Verb `white`) | `present.setScreen('white')` | Ref, Pub | `R/lib/usePresentation.ts:79-84` | |
+|199| Kürzel | Komma: Weißbild umschalten | `present.setScreen('white')` | Ref, Pub | `R/lib/usePresentation.ts:81-84` | |
+|200| Kürzel | Escape: Präsentation beenden (Verb `stop`; gemessen: Referent und Publikum schließen, nur der Editor bleibt, der wieder „▶ Präsentieren“ zeigt) | `present.stop()` | Ref, Pub | `R/lib/usePresentation.ts:85-88` | |
+|201| Filter | Kein Filter: der Hook wirkt auch, wenn der Fokus in einem Feld, auf der Bildschirmwahl oder auf einem Knopf liegt, und prüft keine Zusatztasten (Strg+B schaltet ebenso Schwarz, abgeleitet); in beiden Fenstern gleich (Befund 8, B10) | `usePresenterKeys` | Ref, Pub | `R/lib/usePresentation.ts:43-96` | |
+|202| Tasten im Feld | Enter im Feld „Folie“ (Gehe zu): blättert weiter und springt **nicht** (gemessen: Ziffer 3 auf Folie 1, Enter, danach Folie 2, das Feld zeigt weiter „3“); „Gehe zu“ geht heute nur per Knopf (Befund 8, B10) | `usePresenterKeys` vor dem Formular | Ref | `R/lib/usePresentation.ts:53-56`, `R/views/PresenterView.tsx:156-172` | |
+|203| Tasten im Feld | Rücktaste im Feld „Folie“: blättert zurück und löscht die Ziffer **nicht** (gemessen: Folie 2 → 1, das Feld zeigt weiter „3“); ebenso im Feld „Port“ des Fensters „Fernsteuerung übers Netzwerk“ (abgeleitet) | `usePresenterKeys` | Ref | `R/lib/usePresentation.ts:60-63`, `R/components/RemotePanel.tsx:95-104` | |
+|204| Tasten im Feld | Kürzel-Zeichen in Feldern des Referenten: „b“ im Feld „Folie“ schaltet das Publikum schwarz (gemessen); ebenso w, Punkt, Komma, Leertaste, Pfeile, Pos1, Ende und Esc in den Feldern „Folie“, „Port“ und „Link für die Gäste“ (abgeleitet) | `usePresenterKeys` | Ref | `R/lib/usePresentation.ts:47-91` | |
+|205| Tasten auf Knöpfen | Leertaste und Enter auf einem fokussierten Knopf im Referenten blättern weiter, der Knopf selbst löst nicht aus (gemessen an „Übersicht“: Leertaste Folie 1 → 2, Enter 2 → 3, die Übersicht ging nicht auf); gilt für jeden Knopf im Kopf und im Handy-Fenster (abgeleitet) | `usePresenterKeys` (`preventDefault`) | Ref | `R/lib/usePresentation.ts:49-56` | |
+|206| Tasten auf der Auswahl | Bildschirmwahl im Referenten mit Fokus: Pfeile, Bild auf/ab, Leertaste und Enter blättern statt zu wählen, B und W schalten Schwarz bzw. Weiß (abgeleitet); eine Wahl mit der Maus verschiebt das Publikum sofort (Nr. 125); ebenso blättern diese Tasten auf der Auswahl „Netzwerkkarte“, deren Wahl mit der Maus sofort anwendet | `usePresenterKeys`, `onChange` | Ref | `R/views/PresenterView.tsx:82-100`, `R/components/RemotePanel.tsx:79-93` | |
+|207| Kürzel | F11 im Referenten: Referentenansicht ins Vollbild und zurück (wie Nr. 133), mit `preventDefault` gegen das Standardmenü; nur im Referenten, nicht im Publikum | `keydown` F11, IPC `present:toggleReferentVollbild` | Ref | `R/views/PresenterView.tsx:34-44` | |
+|208| Kürzel | Standardmenü (N2b 0.3): kein `setApplicationMenu`, also gilt in allen Fenstern das Standardmenü von Electron (versteckt, Alt zeigt es): F11 Vollbild (im Publikum verlässt es das Vollbild, im Editor schaltet es den Editor), Strg+R neu laden (Referent: Laufzeit-Uhr und Übersicht weg; Editor: ungespeichertes Projekt weg), Strg+Umschalt+I Entwicklerwerkzeuge, Strg+W Fenster schließen (Referent oder Publikum: Präsentation endet), Strg +/−/0 Zoom; abgeleitet, nicht gemessen | Electron-Standardmenü | Ed, Ref, Pub | `src/main/windows.ts:113-127`, `:150-163`, `:212-224` | |
+|209| Tasten im Dialog | Esc in der Öffnen-Frage: wie „Abbrechen“; „Anhängen“ hat beim Öffnen den Fokus (Enter und Leertaste lösen ihn aus, Standard des Browsers) | `keydown` Escape | Ed | `R/components/OeffnenFrage.tsx:23-33` | |
+|210| Tasten im Feld | Enter in den Sekundenfeldern (Übergänge): übernimmt den Wert (verlässt das Feld) | `onKeyDown` Enter | Ed Sel | `R/components/UebergaengePanel.tsx:208-210` | |
+|211| Kürzel | Editor ohne eigene Kürzel: kein Speichern, Löschen, Blättern oder Präsentieren per Taste; Overlays auf der Bühne sind fokussierbar (`tabIndex` 0, Rolle Knopf), haben aber keine Tasten; das ⚙-Menü schließt nicht mit Esc | – | Ed | `R/components/EditorStage.tsx:108-125`, `R/components/Toolbar.tsx:190-202` | |
+|212| Tasten im Feld | Normale Feldtasten im Editor (Titel, Notizen, Overlay-Text, Timer-Host und -Port, Regler, Farbwahl, Kontrollkästchen, Bildschirmwahl): keine Sondertasten, kein Hook im Editor | `<input>`, `<textarea>`, `<select>` | Ed | `R/components/Inspector.tsx:20-159`, `R/components/Toolbar.tsx:163-281` | |
+|213| Tasten der Handy-Seite | Handy-Seite: Pfeil rechts und Bild runter = weiter, Pfeil links und Bild hoch = zurück (Bluetooth-Klicker am Handy), auch im PIN-Feld; Enter im PIN-Feld = „Verbinden“ | `keydown` | Hy | `src/main/remote-page.ts:146`, `:155-159` | |
+|214| Panel-Tasten | **Panel-Tasten nach O1 (gilt im neuen Aufbau):** Felder behalten ihre Tasten (Filter B10: Textfelder und `contentEditable` nehmen keine Kürzel, Auswahl und Knöpfe schon); Leertaste auf einem Knopf oder Schalter im Panel geht ans Tool und blättert weiter; Escape im Panel schließt nur das Panel. Heute gibt es kein Panel: im ⚙-Menü des Editors gibt es keinen Hook (Leertaste schaltet das Kontrollkästchen), im Fenster „Fernsteuerung übers Netzwerk“ des Referenten wirken alle 16 Kürzel auch in den Feldern und Esc beendet die Präsentation (Nr. 152, 203 bis 205) | `usePresenterKeys`, `packages/ui/src/components/SettingsPanel.tsx` | Ed, Ref | `R/lib/usePresentation.ts:43-96`, `packages/ui/src/components/SettingsPanel.tsx` | |
+
+## 7 · Gemerkte Zustände (Benutzerordner, localStorage, Projektdatei)
+
+Gemerkt wird in kleinen JSON-Dateien im Benutzerordner der App (`app.getPath('userData')`, heute `%APPDATA%\@jm\presenter`), je
+mit Prüfung beim Lesen (kaputte oder fehlende Datei ergibt die Vorgabe, Schreibfehler werden verschluckt), dazu ein Schlüssel im
+`localStorage` des Editors, einer im Browser des Handys und das Projekt als .jmpres.
+
+| Nr. | Bereich | Element | Handler/IPC | Zustand (sichtbar/aktiv) | heute wo | künftig wo |
+|---|---|---|---|---|---|---|
+|215| Datei | „remote-config.json“: Handy-Fernsteuerung `enabled` (aus), `bind` (`all`), `port` (7330, nur 1024 bis 65535), `pinEnabled` (an); beim Start angewendet | `loadRemoteConfig`, `saveRemoteConfig` | Main | `src/main/remote-config.ts:1-42`, `src/main/ipc.ts:233-240` | |
+|216| Datei | „timer-config.json“: Timer-Sync `enabled` (aus), `host` (127.0.0.1), `port` (7777, 1 bis 65535); beim Start angewendet | `loadTimerConfig`, `saveTimerConfig` | Main | `src/main/timer-config.ts:1-40`, `src/main/ipc.ts:257-263` | |
+|217| Datei | „ndi-config.json“: NDI-Schalter `an` (aus; nur ein echtes `true` schaltet ein); beim Start angewendet | `ladeNdiConfig`, `speichereNdiConfig` | Main, Win | `src/main/ndi/config.ts:1-29` | |
+|218| Datei | „gast-klicker.json“: `an`, `raum`, `geheimnis` (geprüft auf Form); `pausiert` wird bewusst nicht gemerkt; der Link überlebt den Neustart (ein Link je Veranstaltung) | `loadGastKlickerConfig`, `saveGastKlickerConfig` | Main | `src/main/gast-klicker-config.ts:1-23`, `src/shared/gast-klicker.ts:6-34` | |
+|219| Datei | „referent-config.json“: `vollbild` des Referenten (#309), gilt beim nächsten Öffnen | `loadReferentConfig`, `saveReferentConfig` | Main | `src/main/referent-config.ts:1-25`, `src/main/referent-vollbild.ts:21-25` | |
+|220| localStorage | `jmpr.expandPptxBuilds` („1“ oder „0“, Vorgabe aus): Option „PPTX-Aufbau-Animationen als Einzelschritte“; Editor, Referent und Publikum teilen denselben Ursprung (alle aus demselben Bündel), nur der Editor nutzt den Schlüssel | `getExpandPptxBuilds`, `setExpandPptxBuilds` | Ed | `R/lib/settings.ts:1-20` | |
+|221| localStorage | `jmpr_pin` im Browser des Handys: die zuletzt angenommene PIN, damit das Handy ohne Tor wieder verbindet; bei 401 gelöscht | `localStorage` | Hy | `src/main/remote-page.ts:93`, `:109`, `:140` | |
+|222| Projektdatei | .jmpres (nur über „Speichern“): Projektname, Folien (Quelle, Seite, Titel, Notizen, ausgeblendet, Overlays, eigener Übergang, eigene Standzeit), Quellen, Wiedergabe (Übergang, Schleife, Standzeit; fehlt in Projekten vor 0.11.0 und gilt dann als Schnitt ohne Schleife), dazu die Bytes | `serializeProject` | Ed | `src/shared/types.ts:11-84`, `R/lib/project-file.ts:12-40` | |
+|223| Suite-Datei | „control.json“ der Suite im AppData-Ordner, nur gelesen: Modus und Schlüssel für Steuerserver (offen oder gesichert) und Signatur der mDNS-Annonce des Handy-Servers | `readControlConfig`, `mdnsSignKey` | Main | `src/main/remote.ts:284-291`, `src/main/control-server.ts:35-40` | |
+|224| Nicht gemerkt | Das Projekt im Editor: ohne „Speichern“ ist es beim Schließen weg (keine Rückfrage beim Schließen, abgeleitet); Auswahl, Overlay-Auswahl, Reiter der rechten Spalte und der Merker „ungespeichert“ gelten nur bis dahin | `useProject` | Ed | `R/store/project.ts:119-132`, `R/views/EditorView.tsx:76` | |
+|225| Nicht gemerkt | Bildschirmwahl des Editors und „Keiner – nur NDI“: bei jedem Laden wieder der erste nicht-primäre Bildschirm | `audienceDisplay`, `nurNdi` | Ed | `R/components/Toolbar.tsx:28-31`, `:46-52` | |
+|226| Nicht gemerkt | Präsentationszustand (Folie, Schwarz/Weiß, Schleife live): nach dem Ende und beim Programmstart leer; die Schleife beginnt mit dem Wert des Projekts | `state` im Hauptprozess | Main | `src/main/present.ts:14-20`, `:159-165` | |
+|227| Nicht gemerkt | Im Referenten: Laufzeit-Uhr, Übersicht offen, Handy-Fenster offen, Feld „Folie“ | `useState` | Ref | `R/components/Clock.tsx:14-19`, `R/views/PresenterView.tsx:17-22` | |
+|228| Nicht gemerkt | PIN der Handy-Fernsteuerung (bei jedem Start des Servers neu) und Pause des Gast-Klickers | `applyRemoteConfig`, `setzeGastPause` | Main | `src/main/remote.ts:251`, `src/main/gast-klicker.ts:42`, `:406-411` | |
+|229| Nicht gemerkt | Lage und Größe von Editor und Referent (immer 1320×880 bzw. 1500×920 in der Arbeitsfläche, mittig); Vollbild des Publikums (immer an nach dem Öffnen) | `createEditorWindow`, `openPresenterWindow`, `openAudienceWindow` | Main | `src/main/windows.ts:104-119`, `:147-156`, `:226-229` | |
+
+## 8 · IPC-Übersicht `window.jmpr` (Preload `src/preload/index.ts`)
+
+Der Preload legt `window.jmpr` an (Typ `JmprApi`, `src/shared/types.ts:302-407`); alle vier Fenster teilen ihn. Keine
+Master-Link-Funktion, keine Fernsteuerungs-Meldung und kein Bildschirm-Ereignis (alles Zugänge, die der Umbau ergänzt).
+
+| Funktion | Kanal | Richtung | Wirkung |
+|---|---|---|---|
+| `platform` | – | – | `process.platform` |
+| `view` | – | – | Ansicht aus `?view=` (`editor`, `presenter`, `audience`, `ndi`) |
+| `files.importDocs()` | `files:importDocs` | invoke | Dialog „PDF oder Bilder importieren“, Bytes zurück |
+| `files.importImage()` | `files:importImage` | invoke | Dialog „Bild / Logo wählen“ |
+| `files.importOffice(expandBuilds)` | `files:importOffice` | invoke | Dialog und LibreOffice-Umwandlung |
+| `files.importiereAbgelegte(files, expandBuilds)` | `files:importPaths` | invoke | Pfade per `webUtils.getPathForFile`, je 200, nur vom Editor angenommen |
+| `files.openProject()` | `files:openProject` | invoke | Dialog „Projekt öffnen“ |
+| `files.saveProject(name, bytes)` | `files:saveProject` | invoke | Dialog „Projekt speichern“ und schreiben |
+| `files.savePdf(name, bytes)` | `files:savePdf` | invoke | Dialog „Als PDF exportieren“ und schreiben |
+| `files.onOpenProject(cb)` | `project:open` | Ereignis | .jmpres aus einem Show-Link |
+| `files.onOpenFiles(cb)` | `project:openFiles` | Ereignis | Dateien aus Doppelklick und PRESENTER OPEN mit Modus |
+| `present.start(payload, ziel)` | `present:start` | invoke | Präsentation starten |
+| `present.getPayload()` | `present:getPayload` | invoke | laufendes Payload |
+| `present.getState()` | `present:getState` | invoke | Präsentationszustand |
+| `present.goto(i)` | `present:goto` | invoke | Folie anspringen |
+| `present.next()` | `present:next` | invoke | weiter |
+| `present.prev()` | `present:prev` | invoke | zurück |
+| `present.stop()` | `present:stop` | invoke | beenden |
+| `present.setScreen(mode)` | `present:setScreen` | invoke | Schwarz, Weiß, Folie (Umschalter) |
+| `present.setSchleife(an)` | `present:setSchleife` | invoke | Schleife live |
+| `present.displays()` | `present:displays` | invoke | Bildschirmliste mit `current` |
+| `present.assignAudience(id)` | `present:assignAudience` | invoke | Publikum verschieben |
+| `present.toggleAudienceFullscreen()` | `present:toggleAudienceFullscreen` | invoke | Publikum-Vollbild umschalten |
+| `present.toggleReferentVollbild()` | `present:toggleReferentVollbild` | invoke | Referent-Vollbild umschalten |
+| `present.referentVollbild()` | `present:referentVollbild` | invoke | Referent im Vollbild? |
+| `present.onReferentVollbild(cb)` | `present:referentVollbildStand` | Ereignis | jeder Wechsel des Referent-Vollbilds (nur an den Referenten) |
+| `present.onState(cb)` | `present:state` | Ereignis | Präsentationszustand an alle Fenster |
+| `remote.interfaces()` | `remote:interfaces` | invoke | Netzwerkkarten |
+| `remote.status()` | `remote:status` | invoke | Status des Handy-Servers |
+| `remote.apply(config)` | `remote:apply` | invoke | merken und anwenden |
+| `remote.onStatus(cb)` | `remote:status` | Ereignis | Status an alle Fenster |
+| `gastKlicker.status()` | `gastKlicker:status` | invoke | Status des Gast-Klickers |
+| `gastKlicker.setzeAn(an)` | `gastKlicker:setzeAn` | invoke | ein oder aus |
+| `gastKlicker.pause(an)` | `gastKlicker:pause` | invoke | pausieren oder fortsetzen |
+| `gastKlicker.neuerLink()` | `gastKlicker:neuerLink` | invoke | neuer Link |
+| `gastKlicker.onStatus(cb)` | `gastKlicker:status` | Ereignis | Status an alle Fenster |
+| `timer.getState()` | `timer:getState` | invoke | gespiegelter Timer |
+| `timer.getConfig()` | `timer:getConfig` | invoke | Timer-Einstellung |
+| `timer.apply(config)` | `timer:apply` | invoke | merken und verbinden |
+| `timer.onState(cb)` | `timer:state` | Ereignis | Timer an alle Fenster |
+| `ndi.status()` | `ndi:status` | invoke | NDI-Status |
+| `ndi.setzeAn(an)` | `ndi:setzeAn` | invoke | Schalter merken und anwenden |
+| `ndi.onStatus(cb)` | `ndi:status` | Ereignis | NDI-Status an alle Fenster |
+| `ndi.onPayload(cb)` | `present:payload` | Ereignis | neues Payload, nur an das NDI-Fenster |
+| `ndi.fensterBereit()` | `ndi:fensterBereit` | send | NDI-Fenster geladen, nur von ihm angenommen |
+| (nur NDI-Fenster) | `jmpr:ndi-port` | Ereignis mit Port | der Preload reicht den Bild-Port per `window.postMessage` weiter |
+
+Nicht über den Preload, sondern im Hauptprozess: `jmps:master-link` (registriert, ohne Zugang im Preload), TCP-Steuerserver
+Port 8728 (Companion), HTTP-Server der Handy-Fernsteuerung (Port 7330), WebSocket zum Gast-Klicker-Dienst, socket.io zum JM Timer
+(Port 7777), mDNS, `jmps://`-Deep-Link, Doppelklick und `open-file`.
+
+## 9 · Einstellungen nach Spec 6 / Anhang A (Zuordnung der Ist-Elemente)
+
+Verben-Übersicht (Pflicht): jedes Verb in jeder Schicht, in der es heute existiert.
+
+| Verb | Oberfläche | Tastatur (Ref und Pub) | Fernsteuerung (`PRESENTER …`, Port 8728) | Handy (Port 7330) | Gast-Klicker | Hauptprozess |
+|---|---|---|---|---|---|---|
+| `prev` | „‹ Zurück“ (Nr. 138) | Pfeil links, Pfeil hoch, Bild hoch, Rücktaste (Nr. 190 bis 193) | `PREV` (Nr. 75) | `prev`, Seite „‹ Zurück“ (Nr. 106, 172) | „zurück“ (Nr. 111) | `prev` (`src/main/present.ts:140-142`) |
+| `next` | „Weiter ›“ (Nr. 140) | Pfeil rechts, Pfeil runter, Bild runter, Leertaste, Enter (Nr. 185 bis 189) | `NEXT` (Nr. 74) | `next`, Seite „Weiter ›“ (Nr. 106, 172) | „vor“ (Nr. 111) | `next` (`:135-138`), Schleife (Nr. 95) |
+| `goto` | „Gehe zu“ (Nr. 139), Folienübersicht (Nr. 150) | Pos1, Ende (Nr. 194, 195) | `GOTO n` (Nr. 76) | `goto` (Nr. 106, die Seite sendet ihn nicht) | – | `goto` (`:128-133`) |
+| `black` | „⬛“ (Nr. 129) | B, Punkt (Nr. 196, 197) | `BLACK` (Nr. 77) | `black`, Seite „Schwarz“ (Nr. 106, 173) | – | `setScreen('black')` (`:144-150`) |
+| `white` | „⬜“ (Nr. 130) | W, Komma (Nr. 198, 199) | `WHITE` (Nr. 78) | `white`, Seite „Weiß“ (Nr. 106, 173) | – | `setScreen('white')` |
+| `live` | zweiter Druck auf „⬛“ bzw. „⬜“ | zweiter Druck auf B bzw. W | `LIVE` (Nr. 79) | `live`, Seite „Folie“ und PIN-Prüfung (Nr. 106, 173, 169) | – | `setScreen('live')` |
+| `stop` | „■ Beenden“ im Referenten (Nr. 136) und im Editor (Nr. 22) | Escape (Nr. 200) | `STOP` (Nr. 80) | `stop`, Seite „■ Präsentation beenden“ (Nr. 106, 176) | – | `stopPresentation` (`:159-168`) |
+| `open` | – (Editor: „Öffnen“, Ablegen, Doppelklick, Nr. 10, 25, 97) | – | `OPEN Pfad` (Nr. 81) | – | – | `openByPath` (`src/main/control-open.ts:24-43`) |
+
+Weitere Zuordnung (Plan-Block Presenter, B11 bis B14):
+
+| Spec-Baustein | Ist-Nr. | Bemerkung |
+|---|---|---|
+| Editor im Werkzeug-Rahmen (B14) | Nr. 1 bis 47 | Werkzeugleiste: Datei-Knöpfe Nr. 7 bis 12, Beschäftigt-Anzeige Nr. 13, NDI Nr. 16, Haupttaste Nr. 21, 22; Arbeitsfläche Nr. 27 bis 47; Bänder Nr. 23, 24 (scrollen künftig mit); Ablage Nr. 25 umschließt den Rahmen; das ⚙-Menü Nr. 17 bis 20 geht ins Panel; Untertitel „Folien-Editor & Präsentation“ (Nr. 6) entfällt nach E16 |
+| Referent, reduziertes Live-Tool (B12) | Nr. 121 bis 165 | Kopf: Logo, Name, ON AIR, ⚙, Kopf-Aktion „■ Beenden“ (Nr. 136, B7); Leiste: Zähler, Titel, Uhr (Nr. 123, 124), Bildschirmwahl (Nr. 125, 126), NDI (Nr. 127), Gast-Klick (Nr. 128), Schleife (Nr. 131), „Publikum Vollbild“ (Nr. 132), „Vollbild“ (Nr. 133), „Übersicht“ (Nr. 134); Live-Bereich: Folie (Nr. 137), Reihe Schwarz · Zurück · Gehe zu · Weiter · Weiß (Nr. 129, 138, 139, 140, 130), nächste Folie, Notizen, Timer (Nr. 142, 143, 145) |
+| Haupttasten | Nr. 21, 22, 129, 130, 136, 138, 140 | Editor „Präsentieren“/„Beenden“; Referent Schwarz (B), Zurück, Weiter, Weiß (W), Kopf-Aktion „■ Beenden“ (Esc); Sperren heute ohne Grund (Befund 13); Weiter nach B13 (Befund 7) |
+| Panel `ausgabe` (`ScreenOutputSection`, nur Editor, B11) | Nr. 14, 15, 90, 91 | Startbildschirm und „Keiner – nur NDI“; im Referenten bleibt die Wahl in der Leiste (merkt nur, „Auf diesen Bildschirm“ verschiebt) |
+| Panel `ndi` (`NdiOutputSection`) | Nr. 16, 127, 69, 115 bis 117 | nur Windows; Name, Auflösung und Bildrate fest (Nr. 182) |
+| Panel `fernsteuerung` (`RemoteControlSection`, Modul „JM Presenter“) | Nr. 71, 74 bis 83 | Port 8728; heute ohne Meldung (Nr. 71) |
+| Panel `handy` (tool-eigen) | Nr. 152 bis 159, 68, 105 bis 109 | Inhalt des Fensters „Fernsteuerung übers Netzwerk“; Handy-Seite Nr. 169 bis 176 bleibt |
+| Panel `gastKlicker` (tool-eigen) | Nr. 160 bis 165, 50, 70, 73, 110 bis 113 | `window.confirm` bei „Neuer Link“ bleibt; Pille Nr. 128 bleibt im Referenten |
+| Panel `timer` (`PeersSection`, Rolle „JM Timer“) | Nr. 19, 20, 114, 145 | an/aus, Host, Port, verbunden |
+| Panel `import` (tool-eigen, nur Editor) | Nr. 18, 60, 102 | `localStorage` `jmpr.expandPptxBuilds` (Nr. 220) |
+| Statusleiste | Nr. 84, 19, 114, 90, 14, 125, 16, 115, 71, 83, 108, 68, 113, 70, 85 bis 89 | `master-link` (heute ohne Preload), `timer` (gemessen über den Socket), `publikum` (`current` beim Abruf), `ndi` (gemessen), `fernsteuerung` (heute nicht gemeldet), `handy` (gemessen, `error`), `gast-klicker` (gemessen), `praesentation` |
+| `onAir` (B3) | Nr. 82, 85, 87 | heute nur im STATE für Companion: `live` = laufend und Folie (nicht Schwarz/Weiß) |
+| Kürzel | Nr. 185 bis 214 | 16 Fenster-Kürzel in Referent und Publikum, F11 nur im Referenten, Filter B10 neu |
+| Publikum und NDI ohne Rahmen (B5) | Nr. 166 bis 168, 177 bis 183 | bleiben unverändert; die Kürzel im Publikum bleiben (Nr. 166) |
+| Handy-Seite | Nr. 169 bis 176, 213 | bleibt unverändert |
+
+## 10 · Befunde für den Umbau (belegt, ohne Wertung als Fehler)
+
+1. **Editor in der Mindestgröße, gemessen:** bei 900×640 (Fenster 902×642, innen 890×611) läuft der Kopf über: 239 px mit Folien,
+   228 im Leerzustand, 214 während der Präsentation, 329 mit „NDI ● an · 2 Empfänger“. NDI-Schalter, ⚙ und die Haupttaste liegen
+   dann ganz außerhalb des Fensters („▶ Präsentieren“ bei x 1011 bis 1129, „■ Beenden“ bei 1011 bis 1104, das Fenster ist 890
+   breit): in der Mindestgröße ist die Haupttaste nicht erreichbar. Bei 1320×880 passt alles (Überlauf 0). Die Bühne ist bei
+   900×640 nur 310 breit (N2b 1.10 R4, gemessen statt gerechnet).
+2. **Editor-Plätze bei 1320×880, gemessen** (Fenster 1322×882, innen 1309×850, Kopf 52 hoch, Knöpfe y 9 bis 43): „Neu“ 254 bis
+   303, „+ PDF / Bilder“ 308 bis 413, „+ Office“ 418 bis 490, „Öffnen“ 495 bis 561, „Speichern •“ 567 bis 666, „PDF-Export“ 672 bis
+   766, Bildschirmwahl 848 bis 1048, NDI 1055 bis 1126, ⚙ 1133 bis 1168, „▶ Präsentieren“ 1176 bis 1294. Die Plätze hängen am
+   Zustand: während der Präsentation „■ Beenden“ 1201 bis 1294 und Bildschirmwahl, NDI und ⚙ je 25 px weiter rechts; ohne
+   ungespeicherte Änderungen ist „Speichern“ 11 px schmaler; mit „NDI ● an · 2 Empfänger“ wandert die Bildschirmwahl 90 px und
+   die Datei-Knöpfe 20 px nach links.
+3. **Referent-Plätze bei 1500×920, gemessen** (Fenster 1502×922, innen 1490×890, Kopf 65 hoch und einzeilig, Knöpfe y 17 bis 47):
+   Bildschirmwahl 606 bis 776, NDI 783 bis 850, „⬛“ 858 bis 898, „⬜“ 906 bis 946, „⟳ Schleife“ 954 bis 1039, „Publikum Vollbild“
+   1046 bis 1167, „Vollbild“ 1175 bis 1240, „Übersicht“ 1248 bis 1328, „📱“ 1335 bis 1376, „■ Beenden“ 1384 bis 1471; Uhr „Pause“
+   und „Reset“ 526 bis 575. Reihe unter der Folie (y 838 bis 875): „‹ Zurück“ 289 bis 384, Feld 395 bis 470, „Gehe zu“ 474 bis 547,
+   „Weiter ›“ 559 bis 650. Aktuelle Folie 910×726, nächste Folie und Notizen sichtbar, kein Überlauf, nichts abgeschnitten.
+4. **Referent bei 1024×620, gemessen** (Fenster 1026×622, innen 1013×590): der Kopf bricht in zwei Zeilen um (83 statt 65 hoch).
+   Erste Zeile (y 7 bis 37): Bildschirmwahl 432 bis 602, NDI 610 bis 677, „⬛“ 684 bis 725, „⬜“ 732 bis 773, „⟳ Schleife“ 781 bis
+   866, „Publikum Vollbild“ 873 bis 994; zweite Zeile (y 45 bis 75): „Vollbild“ 698 bis 763, „Übersicht“ 771 bis 851, „📱“ 858 bis
+   899, „■ Beenden“ 907 bis 994. Reihe (y 538 bis 575): „‹ Zurück“ 139 bis 234, „Weiter ›“ 408 bis 500. Aktuelle Folie 609×407,
+   alles sichtbar ohne Scrollen.
+5. **Folgenreiche Tasten wandern heute mit dem Zustand, gemessen:** Der Schleifen-Countdown macht „⟳ Schleife“ 30 px breiter
+   (85 auf 115) und schiebt alles links davon um 30 px; bei 1500 liegt „⬜“ (876 bis 917) dann über dem alten Platz von „⬛“ (858
+   bis 898). Bei 1024 mit Countdown liegt „⬜“ (703 bis 744) ebenso auf dem alten Platz von „⬛“ (684 bis 725). Bei 1024 mit vollem Kopf
+   (Countdown, NDI sendet, Gast-Klick-Pille) rutschen „⟳ Schleife“ (447 bis 562) und „Publikum
+   Vollbild“ (569 bis 690) in die zweite Zeile, „⬛“ (905 bis 946) und „⬜“ (953 bis 994) stehen auf dem alten Platz von „Publikum
+   Vollbild“. Für die Tastenplatz-Regel heißt „alter Platz“ darum je Zustand ein anderes Rechteck; die JSON enthält alle zehn
+   Zustände je Größe.
+6. **Grenzen der Messung:** nicht gemessen sind „Keiner – nur NDI“ (braucht einen echten NDI-Sender im Netz), echte NDI-Lagen,
+   der Gast-Klicker-Dienst, ein Handy im WLAN, der LibreOffice-Import, Ablegen per Maus und der Mac. „NDI sendet“ und „Gast-Klick
+   verbunden“ sind nur als Anzeige simuliert (Push an Editor und Referent, der Hauptprozess blieb aus). Das Feld „Folie“ meldet in
+   jedem Zustand `scrollWidth` größer als `clientWidth`; bei einem Eingabefeld zeigt das kein sichtbares Abschneiden an (nicht
+   weiter geprüft). Die Fenster lagen für die Messung auf dem größeren Bildschirm, weil der Hauptbildschirm nur 1524×820
+   Arbeitsfläche hat; die Maße weichen um 2 px ab (Skalierung 1,26). Drei Läufe ergaben dieselben Rechtecke (804 Vergleiche, 0
+   Abweichungen).
+7. **Weiter gesperrt auf der letzten Folie trotz Schleife (B13), gemessen:** mit Schleife an auf Folie 3 von 3 ist „Weiter ›“
+   gesperrt (`disabled={state.index >= state.total - 1}`, `R/views/PresenterView.tsx:173`), obwohl „Nächste Folie“ die erste Folie
+   zeigt (`:52`) und der Hauptprozess mit Schleife dorthin springt (`naechsterIndex`, `src/shared/wiedergabe.ts:57-61`); die
+   Pfeiltaste blättert dort weiter (abgeleitet). Die Handy-Seite sperrt ebenso, ohne Schleife zu kennen (`src/main/remote-page.ts:123`), und
+   ihr „Nächste:“ endet mit „Ende der Präsentation“ (`src/main/present.ts:90-98`); sie bleibt unverändert. B13 heilt den
+   Referenten.
+8. **Kürzel aus Textfeldern (B10), gemessen:** der Hook filtert nichts (Nr. 201). Im Feld „Folie“ blättert Enter weiter statt zu
+   springen (Folie 1 auf 2, das Feld behält „3“), die Rücktaste blättert zurück und löscht nicht, „b“ schaltet das Publikum
+   schwarz. „Gehe zu“ geht heute nur per Knopf. Abgeleitet dasselbe in den Feldern „Port“ und „Link für die Gäste“ des Fensters
+   „Fernsteuerung übers Netzwerk“. B10 heilt das; Auswahl und Knöpfe behalten das heutige Verhalten (Nr. 205, 206).
+9. **Leertaste und Enter auf Knöpfen blättern, gemessen:** auf dem fokussierten Knopf „Übersicht“ blätterten Leertaste und Enter
+   weiter, die Übersicht ging nicht auf. Das entspricht der Panel-Regel O1 und bleibt.
+10. **Esc beendet überall im Referenten:** gemessen beendet Esc die Präsentation (Referent und Publikum schließen); Übersicht und
+    Handy-Fenster haben kein eigenes Esc, Esc beendet dort ebenso (abgeleitet). Künftig schließt Esc im Panel nur das Panel (O1).
+11. **Bildschirmwahl im Referenten verschiebt sofort, Liste bleibt alt:** `onChange` ruft `assignAudience` (Wahl gleich Bewegung,
+    `R/views/PresenterView.tsx:85`). Die Liste wird nur beim Öffnen gelesen (`:24-26`); nach einem Umzug zeigt die Wahl wieder den
+    alten Bildschirm, weil `current` nicht neu gelesen wird (abgeleitet). Der Editor liest seine Liste nur beim Laden
+    (`R/components/Toolbar.tsx:46-52`); ein angesteckter Bildschirm erscheint dort erst nach Neuladen. B11 ändert beides.
+12. **„Publikum Vollbild“ ohne gemessenen Zustand:** der Umschalter liefert den angeforderten Wert, der Referent liest ihn nicht
+    und zeigt keinen Zustand (`src/main/windows.ts:253-258`, `R/views/PresenterView.tsx:118-124`, N2b 1.5).
+13. **Sperren ohne Grund:** „▶ Präsentieren“ (busy oder keine sichtbare Folie), „PDF-Export“, „‹ Zurück“ und „Weiter ›“ am Rand
+    sowie der Eintrag „Keiner – nur NDI“ sind gesperrt ohne Text (N2b 1.10 R9). Der Fehlertext „Keine sichtbaren Folien zum
+    Präsentieren.“ (`R/components/Toolbar.tsx:80-83`) ist über den Knopf nicht erreichbar, weil der Knopf dann gesperrt ist
+    (abgeleitet).
+14. **Fernsteuerung und Master-Link ohne Meldung:** das Ergebnis von `startControlServer` wird verworfen
+    (`src/main/index.ts:53`); mit gehaltenem Port 8728 lief der Presenter in der Messung ohne jeden Hinweis (N2b 0.2). Der
+    Master-Link ist im Hauptprozess registriert, aber im Preload nicht erreichbar (N2b 0.1).
+15. **Handy-Seite prüft die PIN mit `live`:** „Verbinden“ sendet `{ action: 'live' }` (`src/main/remote-page.ts:142`), der
+    Hauptprozess setzt dann `setScreen('live')` (`src/main/present.ts:145-150`): verbindet sich ein Handy während eines Schwarz-
+    oder Weißbilds, sieht das Publikum wieder die Folie (abgeleitet, nicht gemessen). Die Seite bleibt unverändert.
+16. **Handy-Fenster nach einem Startfehler:** jedes Anwenden nimmt `enabled` aus dem gemessenen `running`
+    (`R/components/RemotePanel.tsx:33-45`). Nach „Port … ist belegt“ startet ein neuer Port oder eine andere Netzwerkkarte den
+    Server nicht, gespeichert wird `enabled: false`, und der Fehlertext verschwindet (abgeleitet).
+17. **Gast-Klick-Pille zu grob:** sie sagt bei „verbindet“ und „abgelehnt“ „Gast-Klick getrennt“
+    (`src/shared/gast-klicker.ts:69-73`); die Statuszeile im Handy-Fenster unterscheidet (Nr. 70).
+18. **Companion BLACK und WHITE sind Umschalter:** ein zweites `BLACK` zeigt wieder die Folie (`src/main/present.ts:145-150`), die
+    Fähigkeit heißt „Schwarz“; Rückmeldung `live` gilt nur bei laufender Präsentation (#228, `src/main/suite-state.ts:17`).
+19. **Einstellungen in zwei Fenstern (N2b 1.10 R7):** Handy-Fernsteuerung und Gast-Klicker sind nur im Referenten erreichbar,
+    also nur während einer Präsentation; Timer-Sync und Import nur im Editor. Die Push-Kanäle gehen an alle Fenster
+    (`broadcastAll`, `src/main/windows.ts:397-402`).
+20. **Kürzel im Publikumsfenster (N2b 1.1 Nr. 19, R3):** `AudienceView` ruft `usePresenterKeys(true)`; der Umbau darf das nicht
+    verlieren, die Datei bleibt unverändert (Nr. 166).
+21. **Ohne Rückfrage:** „Öffnen“ ersetzt das Projekt, „✕“ löscht eine Folie, „Entfernen“ ein Overlay, alles ohne Rückgängig;
+    Show-Link und PRESENTER OPEN ersetzen ohne Frage (gewollt, #81). Schließen des Editors mit ungespeichertem Projekt fragt nicht
+    (abgeleitet).
+22. **Mac-Rahmen (N2b 1.10 R2):** der Referent hat eine echte Titelleiste, `isElectronMac` prüft nur den User-Agent; der Editor
+    rückt um `pl-20` ein. Nicht gemessen.
+23. **Thema fest dunkel (N2b 1.10 R1):** `html` trägt `dark`, kein `jm-theme`; Editor, Referent und Publikum teilen den Ursprung
+    und damit `localStorage`.
+24. **Rohe Farben (N2b 1.1 Nr. 18, 1.8):** 129 Fundstellen; Programmflächen (Publikum, NDI, Malen) bleiben roh (B5).
+25. **Mauszeiger im Publikumsfenster:** `AudienceView` blendet ihn nicht aus (abgeleitet, nicht gemessen).
+26. **Laufzeit-Uhr:** zählt ab dem Öffnen des Referenten, wird nicht gemerkt und beim Neuladen (Strg+R) zurückgesetzt
+    (abgeleitet).
+27. **Office-Beschäftigt-Text:** „Konvertiere mit LibreOffice…“ steht schon, während der Dateidialog offen ist
+    (`R/store/project.ts:207-209`).
+28. **Overlays ohne Tasten:** fokussierbar (`tabIndex` 0, Rolle Knopf), aber ohne Taste zum Verschieben oder Löschen
+    (`R/components/EditorStage.tsx:108-125`).
