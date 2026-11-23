@@ -34,11 +34,11 @@ const zeile = (s: OberflaechenStand): string[] => alleTasten(s).map(({ taste: t 
     [zeile(stand(state(false))), zeile(stand(state(true), undefined)), zeile(stand(state(true), OFFEN)), zeile(stand(state(false), OFFEN))],
     [
       ['Marke zurück:bereit', 'GO:bereit[Leertaste]', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1]', '↓ vor:bereit'],
-      ['Marke zurück:bereit', 'Pause:bereit[Leertaste]', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1]', '↓ vor:bereit'],
-      ['Marke zurück:bereit', 'Pause:live[Leertaste]', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1]', '↓ vor:bereit'],
+      ['Marke zurück:bereit', 'Pause:bereit', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1]', '↓ vor:bereit'],
+      ['Marke zurück:bereit', 'Pause:live', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1]', '↓ vor:bereit'],
       ['Marke zurück:bereit', 'GO:bereit[Leertaste]', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1]', '↓ vor:bereit'],
     ],
-    'PR Live Tasten: sechs Tasten; GO/Pause, Anfang und die Marken aus hauptTasten; live nur bei scrollend und Talent-Monitor offen; Kürzel nur Leertaste und Pos1',
+    'PR Live Tasten: sechs Tasten; GO/Pause, Anfang und die Marken aus hauptTasten; live nur bei scrollend und Talent-Monitor offen; Kürzel nur Leertaste (an GO nur in Ruhe, W63) und Pos1',
   );
   gleich(
     liveTasten(stand(state(false)), aktionen()).map((r) => r.map((t) => t.id)),

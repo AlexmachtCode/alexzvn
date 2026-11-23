@@ -212,12 +212,14 @@ export function kopfOnAir(s: OberflaechenStand): { live: boolean } {
 /**
  * Haupttasten: GO/Pause (`transport.toggle`), Anfang (`transport.reset`), Marke zurück und vor (`jumpMarker`). Heute ist keine
  * davon gesperrt; ein Sperrgrund käme aus PROMPTER_TEXTE. Nur GO zeigt live, nach derselben Regel wie das ON AIR im Kopf.
+ * Den Hinweis „Leertaste“ trägt GO nur, solange der Text steht (Ruling W63): Im Lauf passen „LIVE“ und „Pause“ sonst nicht in
+ * den GO-Platz. Die Leertaste wirkt weiter, und der Hinweis im Live-Bereich nennt sie.
  */
 export function hauptTasten(s: OberflaechenStand): { go: Haupttaste; anfang: Haupttaste; markeZurueck: Haupttaste; markeVor: Haupttaste } {
   const laeuft = scrollt(s);
   const T = PROMPTER_TEXTE;
   return {
-    go: { label: laeuft ? T.pause : T.go, state: kopfOnAir(s).live ? 'live' : 'bereit', shortcut: T.kuerzel.go },
+    go: { label: laeuft ? T.pause : T.go, state: kopfOnAir(s).live ? 'live' : 'bereit', ...(laeuft ? {} : { shortcut: T.kuerzel.go }) },
     anfang: { label: T.anfang, state: 'bereit', shortcut: T.kuerzel.anfang },
     markeZurueck: { label: T.markeZurueck, state: 'bereit' },
     markeVor: { label: T.markeVor, state: 'bereit' },

@@ -215,13 +215,27 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
 {
   const faelle = kreuz({ playing: [false, true], art: [undefined, ...ARTEN] as Array<AusgabeArt | undefined> } as const);
   const props = (f: (typeof faelle)[number]): OberflaechenStand => stand({ prompter: zustand({ playing: f.playing }), ausgabe: art(f.art) });
-  pruefeFaelle('PR Haupttasten: vier Tasten, GO wechselt zu Pause, Kürzel Leertaste und Pos1, Marken ohne Kürzel', faelle, (f) => {
+  // Ruling W63: den Hinweis „Leertaste“ trägt GO nur, solange der Text steht; im Lauf (live oder nicht) fällt er weg, damit
+  // „LIVE“ und „Pause“ in den GO-Platz passen. Die Leertaste wirkt weiter, der Live-Hinweis nennt sie; Anfang behält „Pos1“.
+  pruefeFaelle('PR Haupttasten: vier Tasten, GO wechselt zu Pause, Kürzel Leertaste nur in Ruhe und Pos1 immer, Marken ohne Kürzel', faelle, (f) => {
     const h = hauptTasten(props(f));
     return vergleiche(
       [h.go.label, h.go.shortcut, h.anfang.label, h.anfang.shortcut, h.markeZurueck.label, h.markeZurueck.shortcut, h.markeVor.label, h.markeVor.shortcut].join('|'),
-      [f.playing ? PROMPTER_TEXTE.pause : PROMPTER_TEXTE.go, 'Leertaste', PROMPTER_TEXTE.anfang, 'Pos1', PROMPTER_TEXTE.markeZurueck, undefined, PROMPTER_TEXTE.markeVor, undefined].join('|'),
+      [f.playing ? PROMPTER_TEXTE.pause : PROMPTER_TEXTE.go, f.playing ? undefined : 'Leertaste', PROMPTER_TEXTE.anfang, 'Pos1', PROMPTER_TEXTE.markeZurueck, undefined, PROMPTER_TEXTE.markeVor, undefined].join('|'),
     );
   });
+  gleich(
+    [
+      hauptTasten(props({ playing: false, art: 'offen' })).go.shortcut,
+      hauptTasten(props({ playing: true, art: 'offen' })).go.shortcut,
+      hauptTasten(props({ playing: true, art: 'zu' })).go.shortcut,
+      hauptTasten(props({ playing: true, art: 'offen' })).go.state,
+      hauptTasten(props({ playing: true, art: 'offen' })).anfang.shortcut,
+      hauptTasten(stand()).go.shortcut,
+    ],
+    ['Leertaste', undefined, undefined, 'live', 'Pos1', 'Leertaste'],
+    'PR Haupttasten (W63): GO zeigt „Leertaste“ in Ruhe, im Lauf nicht, ob live oder nicht; Anfang behält „Pos1“',
+  );
   pruefeFaelle('PR Haupttasten: heute ist keine Taste gesperrt; eine gesperrte hätte einen Grund; nur GO kann live sein', faelle, (f) => {
     const h = hauptTasten(props(f));
     const alle = [h.go, h.anfang, h.markeZurueck, h.markeVor];
