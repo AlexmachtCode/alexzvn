@@ -1,6 +1,6 @@
 {
   "name": "@jm/stage-display",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "description": "JM Stage Display — Bühnen-/Crew-Schirm: Timer-Countdown + Uhr + Switcher-PGM + Nachrichten",
   "main": "out/main/index.cjs",
