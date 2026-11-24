@@ -85,6 +85,7 @@ const GEAENDERT = [
   'test/ui/oberflaeche.test.ts',
   'test/ui/panel.test.tsx',
   'test/ui/rahmen.test.tsx',
+  'test/ui/rueckspiel.test.tsx',
   'test/ui/selftest.ts',
   'test/ui/store.test.ts',
   'test/ui/testzustand.ts',

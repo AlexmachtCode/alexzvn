@@ -97,14 +97,15 @@ export function startControlServer(
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
   getWindow = getWin;
-  server = new SuiteControlServer({
+  // Der Modus der Meldung kommt aus der meldenden Instanz (Rückspiel Task 26, Regel aus Task 21), nicht aus der Modulvariable.
+  const srv = new SuiteControlServer({
     appDataDir: app.getPath('appData'),
     role: 'player',
     appId: 'jm-player',
     controlEndpoint: true,
     getState: () => toSuiteState(),
     onStatus: (st) => {
-      onMeldung?.({ art: 'status', ...st, modus: server?.modus() });
+      onMeldung?.({ art: 'status', ...st, modus: srv.modus() });
     },
     onCommand: (cmd, ctx) => {
       if (cmd.ns !== 'player') return;
@@ -114,6 +115,7 @@ export function startControlServer(
       if (win && !win.isDestroyed()) win.webContents.send('remote:cmd', rc);
     },
   });
+  server = srv;
   return server.start(CONTROL_PORT);
 }
 

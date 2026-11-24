@@ -51,6 +51,16 @@ export const PLAYER_TEXTE = {
     ende: '— Ende —',
   },
   /**
+   * Show-Wahl der Cue-Show (Rückspiel Task 26, Regel „Wahl ≠ Bewegung im Altbestand“): die Auswahl hält einen Entwurf, erst
+   * „Setzen“ (PEERS_TEXTE.setzen, Bezeichnung PEERS_TEXTE.setzenFuer(titel)) wählt die Show. Gründe der gesperrten Knöpfe.
+   */
+  showWahl: {
+    titel: 'Show',
+    unveraendert: 'Diese Show ist schon gewählt.',
+    laeuft: 'Die Show wird gewählt …',
+    erstSetzen: 'Setze erst die gewählte Show oder nimm die Auswahl zurück.',
+  },
+  /**
    * Video-Ausgabe (E3); Titel wie der alte Dialog „Video-Ausgabe“. `hinweis` und `primaer` sind der alte Wortlaut des Dialogs
    * (Text unter dem Titel, Zusatz der Bildschirmkarte des primären Bildschirms); beide stehen jetzt im Panel. `verschieben`
    * ist der Wortlaut des Prompters für den Knopf, der das offene Fenster auf den gewählten Bildschirm zieht (Fix-Runde 1).

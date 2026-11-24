@@ -1,10 +1,69 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { PEERS_TEXTE } from '@jm/settings';
 import { Button, cn, Modal } from '@jm/ui';
 import type { MediaItem, OutputTime, ShowCue } from '@shared/types';
 import { usePlayer } from '@/store/player';
 import { formatDuration } from '@/lib/format';
-import { istEingabeZiel } from '@/lib/oberflaeche';
+import { istEingabeZiel, PLAYER_TEXTE } from '@/lib/oberflaeche';
 import { LiveBereich } from './LiveBereich';
+
+/** Entwurf der Show-Auswahl: die gewählte Show und die aktive Show, auf der er entstand (gilt nur, solange sie aktiv bleibt). */
+export interface ShowEntwurf {
+  basis: number | null;
+  id: number;
+}
+
+/** Was Auswahl, „Setzen“, „Umbenennen“ und „Löschen“ im Kopf der Cue-Show zeigen und tun (hooklos prüfbar). */
+export interface ShowWahl {
+  /** Wert der Auswahl: der Entwurf, sonst die aktive Show ('' ohne aktive Show, wie bisher). */
+  wert: number | '';
+  /** Warum „Setzen“ gesperrt ist; undefined = bedienbar. */
+  setzenGrund: string | undefined;
+  /** Ein Entwurf ist offen: „Umbenennen“ und „Löschen“ (wirken auf die aktive Show) sind dann gesperrt. */
+  entwurfOffen: boolean;
+  /** Auswahl (change, auch per Pfeiltaste): ändert nur den Entwurf, wählt keine Show. */
+  waehlen(id: number): void;
+  /** „Setzen“: wählt die Show des Entwurfs mit demselben selectShow wie bisher; danach fällt der gesendete Entwurf weg. */
+  setzen(): Promise<void>;
+}
+
+/**
+ * Show-Wahl (Rückspiel Task 26, Regel „Wahl ≠ Bewegung im Altbestand“ aus Task 19/25): selectShow räumt die laufende Show
+ * (panikDerShow: Show-Töne hart aus, Ausgabe schwarz, Vorlauf weg); bisher löste das jede Änderung der Auswahl aus, auch eine
+ * Pfeiltaste auf der fokussierten Auswahl. Jetzt hält die Auswahl nur einen Entwurf; „Setzen“ ist frei nur bei Unterschied und
+ * gesperrt, solange die Wahl läuft. Ein Entwurf gilt nur zur aktiven Show, auf der er entstand, und nur zu einer vorhandenen Show:
+ * wählt Companion, der Show-Start oder „+ Neu“ eine andere Show, fällt er weg.
+ */
+export function showWahl(a: {
+  shows: readonly { id: number }[];
+  aktiv: number | null;
+  entwurf: ShowEntwurf | null;
+  laeuft: boolean;
+  setzeEntwurf(f: (e: ShowEntwurf | null) => ShowEntwurf | null): void;
+  setzeLaeuft(an: boolean): void;
+  waehleShow(id: number): Promise<void>;
+}): ShowWahl {
+  const T = PLAYER_TEXTE.showWahl;
+  const e = a.entwurf;
+  const gewaehlt = e !== null && e.basis === a.aktiv && e.id !== a.aktiv && a.shows.some((s) => s.id === e.id) ? e.id : undefined;
+  const setzenGrund = a.laeuft ? T.laeuft : gewaehlt === undefined ? T.unveraendert : undefined;
+  return {
+    wert: gewaehlt ?? a.aktiv ?? '',
+    setzenGrund,
+    entwurfOffen: gewaehlt !== undefined,
+    waehlen: (id) => a.setzeEntwurf(() => (id === a.aktiv ? null : { basis: a.aktiv, id })),
+    setzen: async () => {
+      if (setzenGrund !== undefined || gewaehlt === undefined) return;
+      a.setzeLaeuft(true);
+      try {
+        await a.waehleShow(gewaehlt);
+        a.setzeEntwurf((jetzt) => (jetzt?.id === gewaehlt ? null : jetzt));
+      } finally {
+        a.setzeLaeuft(false);
+      }
+    },
+  };
+}
 
 /**
  * Cue-Show. `onAusgabe` öffnet das Einstellungs-Panel beim Abschnitt Ausgabe (UX Welle 2a, Player d1: das Modal
@@ -64,6 +123,13 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [addOpen, editCue, showGo, showStop]);
 
+  // Show-Wahl: Entwurf und „wählt gerade“ (Rückspiel Task 26). Beides stirbt mit der Ansicht (Reiterwechsel); die Wahl selbst
+  // ist ein kurzer Aufruf (Cues lesen).
+  const [entwurf, setEntwurf] = useState<ShowEntwurf | null>(null);
+  const [waehlt, setWaehlt] = useState(false);
+  const wahl = showWahl({ shows, aktiv: activeShowId, entwurf, laeuft: waehlt, setzeEntwurf: setEntwurf, setzeLaeuft: setWaehlt, waehleShow: selectShow });
+  const setzenGrundId = useId();
+
   const newShow = async (): Promise<void> => {
     await createShow(`Show ${shows.length + 1}`);
   };
@@ -98,8 +164,8 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
       {/* Kopf: Show-Auswahl */}
       <div className="px-5 py-4 flex flex-wrap items-center gap-3 border-b border-[var(--border)]/60">
         <select
-          value={activeShowId ?? ''}
-          onChange={(e) => void selectShow(Number(e.target.value))}
+          value={wahl.wert}
+          onChange={(e) => wahl.waehlen(Number(e.target.value))}
           className="h-9 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-sm font-semibold"
         >
           {shows.map((s) => (
@@ -116,6 +182,8 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
             <Button
               size="sm"
               variant="ghost"
+              disabled={wahl.entwurfOffen}
+              title={wahl.entwurfOffen ? PLAYER_TEXTE.showWahl.erstSetzen : undefined}
               onClick={() => {
                 const name = window.prompt('Show umbenennen', shows.find((s) => s.id === activeShowId)?.name ?? '');
                 if (name) void renameShow(activeShowId, name);
@@ -126,6 +194,8 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
             <Button
               size="sm"
               variant="ghost"
+              disabled={wahl.entwurfOffen}
+              title={wahl.entwurfOffen ? PLAYER_TEXTE.showWahl.erstSetzen : undefined}
               onClick={() => {
                 if (window.confirm('Diese Show löschen?')) void removeShow(activeShowId);
               }}
@@ -135,6 +205,23 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
           </>
         )}
         <div className="ml-auto flex items-center gap-2">
+          {/* „Setzen“ der Show-Wahl vorn in der rechten Gruppe: dort war Leere, keine Taste rückt (Tastenplatz-Regel). */}
+          <Button
+            size="sm"
+            variant="outline"
+            aria-label={PEERS_TEXTE.setzenFuer(PLAYER_TEXTE.showWahl.titel)}
+            aria-describedby={wahl.setzenGrund === undefined ? undefined : setzenGrundId}
+            title={wahl.setzenGrund}
+            disabled={wahl.setzenGrund !== undefined}
+            onClick={() => void wahl.setzen()}
+          >
+            {PEERS_TEXTE.setzen}
+          </Button>
+          {wahl.setzenGrund === undefined ? null : (
+            <span id={setzenGrundId} className="sr-only">
+              {wahl.setzenGrund}
+            </span>
+          )}
           <Button size="sm" variant="ghost" onClick={onAusgabe}>
             ▦ Ausgabe
           </Button>

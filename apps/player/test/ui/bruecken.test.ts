@@ -244,7 +244,11 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
   // PL Wächter STEUER_PORT 8725
   const m = /export const CONTROL_PORT = (\d+);/.exec(cs);
   ok(m !== null && Number(m[1]) === STEUER_PORT && STEUER_PORT === 8725, 'PL Wächter STEUER_PORT 8725: STEUER_PORT ' + STEUER_PORT + ' gleich CONTROL_PORT des Steuerservers (' + m?.[1] + ')');
-  ok(cs.includes("onMeldung?.({ art: 'status', ...st, modus: server?.modus() });"), 'PL Wächter STEUER_PORT 8725: jeder Statuswechsel des Servers wird mit wirksamem Modus gemeldet');
+  // Rückspiel (Task 26, Regel aus Task 21): der Modus kommt aus der meldenden Instanz, nicht aus der Modulvariable `server`.
+  ok(
+    cs.includes("onMeldung?.({ art: 'status', ...st, modus: srv.modus() });") && /const srv = new SuiteControlServer\(/.test(cs) && cs.includes('server = srv;') && !cs.includes('server?.modus()'),
+    'PL Rückspiel Wächter STEUER_PORT 8725: jeder Statuswechsel des Servers wird mit dem Modus der meldenden Instanz gemeldet (srv.modus(), nicht die Modulvariable)',
+  );
   ok(
     main.includes("meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error })") &&
       main.includes("meldeFernsteuerung({ art: 'wurf', text: ") &&
