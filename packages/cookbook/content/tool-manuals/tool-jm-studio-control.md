@@ -44,7 +44,7 @@ summary: "Zentrale, auditierte Studiosteuerung (TriCaster/ATEM/OBS/PTZ/Audio/Lic
 
 ### Einrichtung
 - Geräte in den Panels der Reiter Video (TriCaster, ATEM, OBS, PTZ), Audio und Licht anlegen und verbinden und je Typ eine Primär-Instanz festlegen (die Reiter stehen in der Werkzeugleiste unter dem Kopf; Geräte im Netz sucht Setup › Discovery); die Statusleiste zeigt je eingerichtetem Gerätetyp einen Eintrag
-- Nutzer und Rollen anlegen (wer darf was): Reiter Setup › Benutzer (nur Admin), „+ Benutzer anlegen“; eine Rolle ändert die Auswahl der Zeile erst mit „Setzen“ — Web-UI auf Port 7778 mit Bearer-Auth
+- Nutzer und Rollen anlegen (wer darf was): Reiter Setup › Benutzer (nur Admin), „+ Benutzer anlegen“; eine Rolle ändert sich erst mit „Setzen“ in derselben Zeile, die Auswahl allein ändert nichts — Web-UI auf Port 7778 mit Bearer-Auth
 - NDI-PGM-Vorschau einrichten
 - Optional: Companion mit dem Gateway auf Port 8735 verbinden (typ-präfixierte Verben); das Gateway startet von selbst, im App-Fenster zeigen die Statusleiste „Fernsteuerung“ und das Panel ⚙ › Fernsteuerung seinen Stand (im Browser gibt es kein ⚙)
 

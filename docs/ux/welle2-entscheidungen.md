@@ -593,7 +593,7 @@ Grund und der Preis, falls sie sich als falsch erweist.
 
 - **W128** (Z1, ändert den Zeitpunkt aus W83; die Grenze „vor Z2“ ändert W133) Die Texttabelle entstand vor der Antwort auf
   P1 und P2: Beide stehen zuoberst unter „Offene Fragen“, P2 mit dem Risiko „Show endet durch Fehlklick“. Vor den Handbüchern
-  und vor jedem Release sollte die Antwort da sein; bei P2 = B folgt ein Nachtrag (Referent-Kopf bei schmalem Fenster, neue
+  und vor jedem Release muss die Antwort da sein; bei P2 = B folgt ein Nachtrag (Referent-Kopf bei schmalem Fenster, neue
   Messung), und die Tabelle wird nachgezogen. Grund: Warten blockierte Versionen, Changelog und Texte, die nicht an P2 hängen.
   Preis: ein Nachtrag an Texttabelle und Changelog.
 - **W129** (Z1) Die Offenen Fragen 3 bis 5 tragen je eine Empfehlung: 3 → A hinnehmen (der Sprung um 2 px nur während der

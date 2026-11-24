@@ -396,7 +396,7 @@ Geräte legst Du in den Panels der Reiter an; die Reiter stehen jetzt in der Wer
 Benutzer und Rollen stehen im Reiter Setup; eine Rolle gilt erst mit „Setzen“.
 
 - `Nutzer und Rollen anlegen (wer darf was) — Web-UI auf Port 7778 mit Bearer-Auth`
-+ Nutzer und Rollen anlegen (wer darf was): Reiter Setup › Benutzer (nur Admin), „+ Benutzer anlegen“; eine Rolle ändert die Auswahl der Zeile erst mit „Setzen“ — Web-UI auf Port 7778 mit Bearer-Auth
++ Nutzer und Rollen anlegen (wer darf was): Reiter Setup › Benutzer (nur Admin), „+ Benutzer anlegen“; eine Rolle ändert sich erst mit „Setzen“ in derselben Zeile, die Auswahl allein ändert nichts — Web-UI auf Port 7778 mit Bearer-Auth
 
 Das Gateway startet von selbst; seinen Stand zeigen Statusleiste und Panel im App-Fenster.
 
@@ -560,7 +560,7 @@ In der Pannenhilfe zeigen die Stellen auf das Panel und die Zoom-Spalte.
 + Im Panel ⚙ › Zoom-Vorgaben ein anderes Sprecher-Signal wählen und mit „Setzen“ übernehmen.
 
 - `(unter dem Versatz oder in der Zoom-Karte)`
-+ (unter dem Versatz, im Kopf der Zoom-Slots oder im Panel ⚙ › Zoom-Einrichtung bzw. ⚙ › Zoom-Vorgaben)
++ (unter dem Versatz, im Kopf der Zoom-Slots oder im Panel ⚙ › Zoom-Einrichtung)
 
 - `Cloud-Zugang (Zeile „Cloud-Zugang“ in der Karte) und Netz prüfen.`
 + Cloud-Zugang (Statusleiste „Cloud-Zugang“, Panel ⚙ › Cloud-Zugang) und Netz prüfen.
