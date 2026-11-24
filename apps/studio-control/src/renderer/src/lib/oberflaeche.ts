@@ -33,6 +33,8 @@ export const STUDIO_TEXTE = {
   trenner: ' · ',
   getrennt: 'getrennt',
   benutzer: 'Benutzer',
+  /** Werkzeugleiste rechts (B15): meldet ab wie bisher „Logout“ (POST /api/logout, Sitzung gelöscht). */
+  abmelden: 'Abmelden',
   server: { titel: 'Server' },
   licht: { titel: 'Licht', blackout: 'Blackout (ohne Rückmeldung)' },
   /** Gerätenamen der Statuseinträge und der Sperrgründe. */

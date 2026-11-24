@@ -1,10 +1,11 @@
+// Anmeldung im Inhalt des Rahmens (UX Welle 2b, Studio-Control d1; B15, Spec 3.8): Kopf mit Logo, „JM Studio Control“ und
+// Hell/Dunkel kommt aus dem AppShell, die Karte wiederholt Logo und Titel darum nicht mehr. Felder, Anfrage und Fehlertexte wie
+// bisher.
 import { useState } from 'react';
 import { Card } from '@jm/ui';
 import { Button } from '@jm/ui';
 import { Input } from '@/components/ui/Input';
-import { Headline } from '@/components/ui/Headline';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { Logo } from '@jm/ui';
 import { useSession } from '@/store/session';
 import { apiFetch } from '@/sync/client';
 import type { SessionUser } from '@shared/protocol';
@@ -34,15 +35,9 @@ export function LoginView() {
   }
 
   return (
-    <div className="h-full flex items-center justify-center bg-[var(--background)] p-6">
+    <div className="h-full flex items-center justify-center p-6">
       <Card className="w-full max-w-md p-8">
-        <div className="flex items-center gap-3 mb-6">
-          <Logo size={32} />
-          <div>
-            <Headline variant="subsection">JM Studio Control</Headline>
-            <SectionHeader>Anmelden</SectionHeader>
-          </div>
-        </div>
+        <SectionHeader className="mb-6">Anmelden</SectionHeader>
         <form onSubmit={submit} className="flex flex-col gap-3">
           <label className="flex flex-col gap-1 text-xs uppercase tracking-wider text-[var(--muted-foreground)]">
             Benutzer
