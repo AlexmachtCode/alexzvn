@@ -6,7 +6,7 @@ import { Card, Button, StatusPill, TallyButton, cn, type TallyButtonProps } from
 import { Input } from '@/components/ui/Input';
 import { Headline } from '@/components/ui/Headline';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { gemeldet, geraetPille, obsTasten, type OberflaechenStand } from '@/lib/oberflaeche';
+import { STUDIO_TEXTE, gemeldet, geraetPille, obsTasten, type OberflaechenStand } from '@/lib/oberflaeche';
 import { useApp } from '@/store/app';
 import { useSession } from '@/store/session';
 import { emitWithAck, apiFetch } from '@/sync/client';
@@ -147,7 +147,8 @@ export function ObsPanel({ stand }: { stand: OberflaechenStand }) {
                 })}
               </div>
             ) : (
-              <p className="text-xs text-[var(--muted-foreground)]">{live ? 'Keine Szenen.' : 'Nicht verbunden.'}</p>
+              // Ohne Meldung (oder ohne Server) ist die Verbindung nicht gemessen: unbekannt, nie „Nicht verbunden.“ (Task 16).
+              <p className="text-xs text-[var(--muted-foreground)]">{live ? 'Keine Szenen.' : status === undefined ? STUDIO_TEXTE.grund.unbekannt : 'Nicht verbunden.'}</p>
             )}
           </div>
 

@@ -178,3 +178,38 @@ function html(o: Parameters<typeof oberflaecheHtml>[1], name: string): string {
     'SC Server getrennt: Licht ohne Server unbekannt, Blackout gesperrt mit „Zustand unbekannt“ (wie vor der ersten Antwort)',
   );
 }
+
+// ── SC Server getrennt (Fix-Runde 1, Befund 2): die Leuchten-Karten dimmen nur bei gemeldetem Blackout ──
+{
+  const FX = { id: 'fx1', name: 'Key Light', profileId: 'aputure-ls60x', universe: 0, address: 1, state: { on: true, intensity: 60, cct: 5600, r: 255, g: 255, b: 255 } };
+  const licht = (server: boolean | undefined, blackout: boolean): string =>
+    panel(html({ server, abschnitt: 'licht', store: { lighting: { node: { host: '192.0.2.40', fps: 40 }, fixtures: [FX] }, blackout } }, 'SC Server getrennt'), 'licht');
+  const gedimmt = (h: string): boolean => /class="[^"]*\bopacity-50\b[^"]*"/.test(h);
+  ok(licht(true, true).includes('Key Light'), 'SC Server getrennt: die Leuchten-Karte ist gerendert (Vorbedingung)');
+  gleich(
+    [gedimmt(licht(true, true)), gedimmt(licht(true, false)), gedimmt(licht(false, true)), gedimmt(licht(undefined, true))],
+    [true, false, false, false],
+    'SC Server getrennt: Leuchten-Karten gedimmt nur bei gemeldetem Blackout (mit Server wie bisher; getrennt oder vor der Meldung nicht, die Pille sagt dort unbekannt)',
+  );
+}
+
+// ── SC Server getrennt (Fix-Runde 1, Befund 3): OBS-Szenenzeile unbekannt statt „Nicht verbunden.“, solange nichts gemessen ist ──
+{
+  const zeile = (o: Parameters<typeof oberflaecheHtml>[1]): string | undefined => {
+    const m = />Szenen<\/div><p[^>]*>([^<]*)<\/p>/.exec(panel(html(o, 'SC Server getrennt'), 'obs'));
+    return m ? text(m[1]!) : undefined;
+  };
+  const verbunden = { state: 'connected', scenes: ['Kamera 1'], currentScene: 'Kamera 1' };
+  gleich(
+    [
+      zeile({ store: geraetImStore('obs') }),
+      zeile({ server: false, store: geraetImStore('obs', verbunden) }),
+      zeile({ server: undefined, store: geraetImStore('obs', verbunden) }),
+      zeile({ store: geraetImStore('obs', { state: 'down', lastError: 'Zeitüberschreitung' }) }),
+      zeile({ store: geraetImStore('obs', { state: 'connecting' }) }),
+      zeile({ store: geraetImStore('obs', { state: 'connected' }) }),
+    ],
+    [STUDIO_TEXTE.grund.unbekannt, STUDIO_TEXTE.grund.unbekannt, STUDIO_TEXTE.grund.unbekannt, 'Nicht verbunden.', 'Nicht verbunden.', 'Keine Szenen.'],
+    'SC Server getrennt: OBS-Szenenzeile ohne Meldung und ohne Server „Zustand unbekannt“; „Nicht verbunden.“ nur gemessen getrennt bzw. verbindend; verbunden ohne Szenen „Keine Szenen.“',
+  );
+}

@@ -45,7 +45,6 @@ export function blackoutTaste(stand: OberflaechenStand, emit: (on: boolean) => v
 
 export function LichtPanel({ stand }: { stand: OberflaechenStand }) {
   const lighting = useApp((s) => s.lighting);
-  const blackout = useApp((s) => s.blackout);
   const patchFixtureLocal = useApp((s) => s.patchFixtureLocal);
   const role = useSession((s) => s.user?.role);
   const token = useSession((s) => s.token);
@@ -68,6 +67,8 @@ export function LichtPanel({ stand }: { stand: OberflaechenStand }) {
   const taste = blackoutTaste(stand, setzeBlackout);
   // Bedienbar nur mit gemeldetem Node (bei verbundenem Server); die Anzeige der Konfiguration bleibt.
   const nodeGemeldet = gemeldet(stand, stand.licht)?.node === true;
+  // Die Karten dimmen nur bei gemeldetem Blackout; ohne Server ist er nicht gemessen (die Pille sagt dort „unbekannt“).
+  const blackoutGemeldet = gemeldet(stand, stand.licht)?.blackout === true;
 
   async function saveNode(next: ArtnetNode | null): Promise<void> {
     await apiFetch('/api/lighting/node', { method: 'POST', token, body: JSON.stringify({ node: next }) });
@@ -154,7 +155,7 @@ export function LichtPanel({ stand }: { stand: OberflaechenStand }) {
               <FixtureCard
                 key={fx.id}
                 fx={fx}
-                blackout={blackout}
+                blackout={blackoutGemeldet}
                 disabled={!canExec || !nodeGemeldet}
                 onChange={(patch) => send(fx.id, patch)}
                 canManage={canManage}
