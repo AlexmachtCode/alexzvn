@@ -12,4 +12,5 @@ import './live.test';
 import './panels.test';
 import './funktionsliste.test';
 import './benutzer.test';
+import './rueckspiel.test';
 abschluss();

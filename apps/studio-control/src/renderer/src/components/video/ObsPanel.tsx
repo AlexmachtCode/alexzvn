@@ -96,7 +96,7 @@ export function ObsPanel({ stand }: { stand: OberflaechenStand }) {
       </div>
 
       {current && status?.state === 'down' && status.lastError && (
-        <div className="mb-4 rounded-[var(--radius)] border border-[var(--destructive)]/50 bg-[var(--destructive)]/10 px-3 py-2 text-xs">
+        <div className="mb-4 rounded-[var(--radius)] border border-[var(--destructive)]/50 bg-[var(--destructive)]/10 px-3 py-2 text-xs select-text">
           <span className="font-extrabold uppercase tracking-wider text-[var(--destructive)]">Verbindung fehlgeschlagen:</span>{' '}
           <span className="text-[var(--foreground)]">{status.lastError}</span>
           <span className="text-[var(--muted-foreground)]"> — WebSocket-Server in OBS aktiv? (Werkzeuge → WebSocket-Server-Einstellungen)</span>

@@ -221,7 +221,7 @@ export function UserManager() {
 
   return (
     <div>
-      {error && <p className="text-xs text-[var(--destructive)] mb-3">{error}</p>}
+      {error && <p className="text-xs text-[var(--destructive)] mb-3 select-text">{error}</p>}
       <div className="grid grid-cols-[1.5fr_220px_140px_auto] gap-3 px-2 py-2 text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)] border-b border-[var(--border)]/40">
         <div>Benutzer</div>
         <div>Rolle</div>

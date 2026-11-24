@@ -306,25 +306,27 @@ async function dispatch(cmd: SuiteCommand): Promise<void> {
 // ── Lebenszyklus ─────────────────────────────────────────────────────────────
 
 /**
- * onMeldung (UX Welle 2b): reicht jeden Statuswechsel des Servers mit wirksamem Modus weiter, nur lesend. Port, Verben und
- * Protokoll bleiben. Start-Ergebnis und Wurf meldet der Aufrufer (server.ts).
+ * onMeldung (UX Welle 2b): reicht jeden Statuswechsel des Servers mit dem Modus der meldenden Instanz weiter (Rückspiel Task 26,
+ * Regel aus Task 21: srv.modus(), nicht die Modulvariable), nur lesend. Port, Verben und Protokoll bleiben. Start-Ergebnis und
+ * Wurf meldet der Aufrufer (server.ts).
  */
 export function startControlGateway(
   onMeldung?: (e: FernsteuerungEreignis) => void,
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlGateway();
-  server = new SuiteControlServer({
+  const srv = new SuiteControlServer({
     role: 'studio',
     appId: 'jm-studio-control',
     controlEndpoint: true,
     getState: buildState,
     onStatus: (st) => {
-      onMeldung?.({ art: 'status', ...st, modus: server?.modus() });
+      onMeldung?.({ art: 'status', ...st, modus: srv.modus() });
     },
     onCommand: (cmd) => {
       void dispatch(cmd);
     },
   });
+  server = srv;
   // Jede Treiber-Statusänderung sofort an Companion broadcasten (no-op ohne
   // Clients, daher günstig).
   const push = (): void => server?.pushState(buildState());

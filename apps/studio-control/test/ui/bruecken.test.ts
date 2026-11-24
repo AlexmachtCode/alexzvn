@@ -176,7 +176,12 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
 
   const m = /export const CONTROL_PORT = (\d+);/.exec(cg);
   ok(m !== null && Number(m[1]) === STEUER_PORT && STEUER_PORT === 8735, 'SC Wächter STEUER_PORT 8735: STEUER_PORT ' + STEUER_PORT + ' gleich CONTROL_PORT des Gateways (' + m?.[1] + ')');
-  ok(cg.includes("onMeldung?.({ art: 'status', ...st, modus: server?.modus() });"), 'SC Wächter STEUER_PORT 8735: jeder Statuswechsel des Servers wird mit wirksamem Modus gemeldet');
+  // Rückspiel (Task 26, Regel aus Task 21): der Modus kommt aus der meldenden Instanz, nicht aus der Modulvariable `server` (eine späte
+  // Meldung eines gestoppten Gateways trüge sonst den Modus des neuen oder gar keinen).
+  ok(
+    cg.includes("onMeldung?.({ art: 'status', ...st, modus: srv.modus() });") && /const srv = new SuiteControlServer\(/.test(cg) && cg.includes('server = srv;') && !cg.includes('server?.modus()'),
+    'SC Rückspiel Wächter STEUER_PORT 8735: jeder Statuswechsel des Servers wird mit dem Modus der meldenden Instanz gemeldet (srv.modus(), nicht die Modulvariable)',
+  );
   ok(cg.includes('return server.start(CONTROL_PORT);'), 'SC Wächter STEUER_PORT 8735: das Gateway startet unverändert auf CONTROL_PORT');
   ok(
     srv.includes("onMeldung?.({ art: 'start', ok: r.ok, error: r.error })") &&

@@ -60,7 +60,7 @@ export function LoginView() {
             />
           </label>
           {error && (
-            <p className="text-xs text-[var(--destructive)] uppercase tracking-wide font-bold">
+            <p className="text-xs text-[var(--destructive)] uppercase tracking-wide font-bold select-text">
               {error === '401: {"error":"invalid_credentials"}' ? 'Falsche Zugangsdaten' : error}
             </p>
           )}
