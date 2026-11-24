@@ -117,6 +117,8 @@ export const IPC = {
   programmNeustart: 'jmc:programm-neustart',
   /** invoke: {} → OeffnenErgebnis. Öffnet nur NDI_SEITE (T133, LP1); scheitert es: die Adresse für T143. */
   ndiSeite: 'jmc:ndi-seite',
+  /** invoke (Renderer → Main) und push (Main → Renderer): Lage des Steuerservers (Port 8737) als FernsteuerungMeldung (null vor der ersten Meldung). */
+  fernsteuerung: 'jmc:fernsteuerung',
   /** invoke: {} → OeffnenErgebnis. Öffnet nur LIZENZ_DATEI im Paket (T142, E55, LP5); scheitert es: der Pfad für T143. */
   lizenz: 'jmc:lizenz',
 } as const;

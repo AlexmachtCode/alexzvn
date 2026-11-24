@@ -108,7 +108,7 @@ jobs:
       # #291: WAV-Folgedateien, Überschreibschutz, gemerkte Einstellungen, Presets, Loopback-Stille. Attrappe statt @jm/audio, ohne Electron.
       - name: Recorder (Folgedateien, Überschreibschutz, Einstellungen, Presets, Loopback-Stille)
         run: npm run selftest -w @jm/recorder
-      - name: Connect (Zoom-Kern gegen die Attrappe, Laufzeit, Statustexte)
+      - name: Connect (Zoom-Kern gegen die Attrappe, Laufzeit, Statustexte, Oberfläche)
         run: npm run selftest -w @jm/connect
       # UX Welle 2b (Task 13): Oberflächentests von Studio-Control (Render ohne Browser), mit tsx, ohne Electron und ohne
       # native Module (kein Test lädt better-sqlite3 oder den Hauptprozess).
