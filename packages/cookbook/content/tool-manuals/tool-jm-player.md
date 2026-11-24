@@ -44,7 +44,7 @@ summary: "Video-/Audio-Zuspieler mit Playlists (Lounge-/Einlaufmusik), Show-Cues
 
 ### Einrichtung
 - Medien im Reiter „Bibliothek“ aufnehmen und taggen; Playlist(s) dort anlegen — z. B. „Lounge", „Einlauf", „Pause"
-- Show-Cues im Reiter „Cue-Show“ in Reihenfolge bringen; Soundboard-Pads im Reiter „Soundboard“ mit Instant-Effekten/Stingern belegen
+- Show-Cues im Reiter „Cue-Show“ in Reihenfolge bringen (eine andere Show dort mit der Show-Auswahl wählen und mit „Setzen“ übernehmen, das dann rechts im Kopf der Cue-Show vor „▦ Ausgabe“ erscheint; erst „Setzen“ wechselt die Show und räumt die laufende); Soundboard-Pads im Reiter „Soundboard“ mit Instant-Effekten/Stingern belegen
 - Ausgabewege einrichten: Der Ton von Show-Cues, Pads und Video läuft über das Standard-Wiedergabegerät von Windows, eine eigene Gerätewahl hat der Player nicht (PA/Mischer-Eingang dort als Standard setzen); den Bildschirm für Video-Cues im Panel ⚙ › Ausgabe auf Bildschirm wählen, der Schalter „Ausgabe“ öffnet dort das Fenster
 - Fernsteuerung (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung): Companion/Rundown auf Port 8725 zeigen lassen (Auto-Discovery `jm-player-ctl`)
 
@@ -66,7 +66,7 @@ summary: "Video-/Audio-Zuspieler mit Playlists (Lounge-/Einlaufmusik), Show-Cues
 
 | Risiko | Gegenmaßnahme |
 | --- | --- |
-| Kein Ton/Bild beim GO | Ton: richtiges Standard-Wiedergabegerät in Windows (der Player hat keine eigene Wahl)? Video: Statusleiste „Video-Ausgabe“ und Panel ⚙ › Ausgabe auf Bildschirm prüfen. Kabel/Pegel am Mischer prüfen |
+| Kein Ton/Bild beim GO | Ton: richtiges Standard-Wiedergabegerät in Windows (der Player hat keine eigene Wahl)? Video: Statusleiste „Video-Ausgabe“ und Panel ⚙ › Ausgabe auf Bildschirm prüfen (Pille und „Steht auf“ nennen den Bildschirm, auf dem das Fenster wirklich steht; nach dem Wiederanstecken bleibt „Bildschirm fehlt“ stehen, bis „Auf diesen Bildschirm“ das Fenster verschiebt oder es neu geöffnet wird). Kabel/Pegel am Mischer prüfen |
 | Companion/Rundown steuert nicht | Statusleiste „Fernsteuerung“ ansehen; Port 8725 offen? `jm-player-ctl` im mDNS sichtbar? |
 | Falscher Cue läuft | Standby in der Standby-Anzeige über den Tasten der Cue-Show bzw. in der Statusleiste „Cue-Show“ prüfen (`STATE` `standby`/`standby_label`) — `GO` feuert immer den Standby, nicht die Auswahl |
 | Soundboard-Pad reagiert nicht | Richtiger Slot? Datei in der Bibliothek vorhanden/lesbar? |

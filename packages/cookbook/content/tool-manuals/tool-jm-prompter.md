@@ -71,7 +71,7 @@ summary: "Teleprompter mit Skript-Editor und Vollbild-Scroller auf dem Talent-Mo
 | Handy zeigt „getrennt – verbinde…" | Suite läuft sicher → Token fehlt in der URL; QR neu scannen (Token steckt in `?t=`) |
 | Companion steuert nicht | Statusleiste „Fernsteuerung“ ansehen; Port 8727 offen? `jm-prompter-ctl` (ctl=1) im mDNS sichtbar? |
 | Skript lädt nicht | Format .docx/.txt/.md? Datei lesbar? Fehlermeldung beachten |
-| Kein Bild auf dem Talent-Monitor | Statusleiste „Talent-Monitor“ ansehen (zu, Bildschirm fehlt, abgestürzt); Schalter „Ausgabe“ im Panel ⚙ › Ausgabe auf Bildschirm an + richtiger Monitor gewählt? |
+| Kein Bild auf dem Talent-Monitor | Statusleiste „Talent-Monitor“ ansehen (zu, Bildschirm fehlt, abgestürzt); Schalter „Ausgabe“ im Panel ⚙ › Ausgabe auf Bildschirm an + richtiger Monitor gewählt? Pille und „Steht auf“ im Abschnitt nennen den Bildschirm, auf dem der Monitor wirklich steht. Nach dem Wiederanstecken bleibt „Bildschirm fehlt“ stehen, bis „Auf diesen Bildschirm“ das Fenster verschiebt oder es neu geöffnet wird |
 | Text spiegelverkehrt/falsch herum | Spiegelmodus im Panel ⚙ › Darstellung passend zur Optik (H für Glas, V für Deckenspiegel) |
 
 ## Checklisten

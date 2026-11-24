@@ -68,7 +68,7 @@ Nicht verbundene Quellen werden per mDNS automatisch mit Host/Port vorbefüllt (
 | Switcher „nicht gefunden“ trotz Erreichbarkeit | Läuft der Switcher sicher (Token/TLS)? Dann muss die geteilte control.json auch hier provisioniert sein |
 | „Folie nicht verfügbar" | Läuft eine Präsentation? Presenter-Fernsteuerung an? PIN im Panel ⚙ › Presenter-Kopplung korrekt? |
 | Presenter-Feed friert ein | Kurzer Netz-Aussetzer — der Watchdog verbindet nach ~35 s neu; sonst Presenter prüfen |
-| Kein Bild auf dem Bühnen-Monitor | Statusleiste „Bühnenschirm“ ansehen (zu, Bildschirm fehlt, abgestürzt); Ausgabe mit der Haupttaste „Vollbild-Ausgabe öffnen“ geöffnet + richtiger Monitor (Vollbild) im Panel ⚙ › Ausgabe auf Bildschirm gewählt? |
+| Kein Bild auf dem Bühnen-Monitor | Statusleiste „Bühnenschirm“ ansehen (zu, Bildschirm fehlt, abgestürzt); Ausgabe mit der Haupttaste „Vollbild-Ausgabe öffnen“ geöffnet + richtiger Monitor (Vollbild) im Panel ⚙ › Ausgabe auf Bildschirm gewählt? Pille und „Steht auf“ im Abschnitt nennen den Bildschirm, auf dem der Schirm wirklich steht. Nach dem Wiederanstecken bleibt „Bildschirm fehlt“ stehen, bis „Auf diesen Bildschirm“ das Fenster verschiebt oder es neu geöffnet wird |
 | Countdown/Programmpunkt fehlt | JM Timer aktiviert und auf 7777 verbunden (Statusleiste „JM Timer“)? |
 
 ## Checklisten

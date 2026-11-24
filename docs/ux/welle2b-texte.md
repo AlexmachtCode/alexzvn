@@ -6,7 +6,7 @@ Stand: Branch `feat/ux-welle2b`, Code-Stand `8e9a2c5b83` (Aufgaben 1 bis 26 fert
 
 Lesehilfe: ‹…› steht für den Teil, der sich zur Laufzeit ändert (eine Zahl, ein Name oder ein Text aus einem gemeinsamen Baustein). Beispiel: „Folie ‹…› von ‹…›“ erscheint als „Folie 3 von 12“. Die Nummer (z. B. PS12) nennst Du bitte bei jeder Änderung, die Du wünschst. Die Spalte „Ort“ sagt, wo der Text steht: Kopf (Kopfzeile), Werkzeugleiste (Zeile unter dem Kopf), Leiste (Referent), Haupttaste (große Taste im Live-Bereich), Statusleiste (unten), Panel (Einstellungen hinter ⚙), Live-Bereich, Hinweis. Wie in Welle 1 und 2a steht je Werkzeug jeder Text seiner Textkonstante, auch wo der Wortlaut der bisherige ist und nur der Ort neu; der Satz über jeder Tabelle nennt, was neu formuliert ist.
 
-Aufbau: Bausteine, je Werkzeug eine Tabelle, der Nachzug, dann „Changelog“, „Entfällt“, „Geänderte Bedienung“ und „Offene Fragen“. Der Abschnitt „Handbuch“ (alter und neuer Text je Stelle in den sechs Handbüchern) folgt mit der nächsten Aufgabe.
+Aufbau: Bausteine, je Werkzeug eine Tabelle, der Nachzug, dann „Changelog“, „Entfällt“, „Geänderte Bedienung“, „Offene Fragen“ und „Handbuch“ (alter und neuer Text je Stelle in den sechs Handbüchern).
 
 ## Bausteine
 
@@ -294,5 +294,312 @@ Keine Funktion fällt weg, es gibt keine neuen Tastenkürzel. An diesen Stellen 
    - Connect: Fehler aus „Raum öffnen“, Einladen und „Raum schließen“ tragen im Fehlerfeld Electrons englischen Vorsatz „Error invoking remote method …“ (abgeleitet, nicht gemessen; Liste Nr. 108); 📊, die Gast-Aktionen, „Link erzeugen“ und „Sprecher einladen“ sind ohne Raumverbindung gesperrt ohne sichtbaren Grund (Befund 10); Connect sucht beim Start selbst nach JM Presenter und meldet sich beim Launcher (9); die Companion-Variable für die Verbindung zum Medienserver meldet niemand, Ablehnen und Stumm haben kein Fernsteuer-Verb, das Tray-„Raum schließen“ geht nur mit einer NDI-Gastquelle (13); einige Zustände des Zoom-Kerns stehen nur im Log (14).
 
 Ohne Frage: Task 4 Step 5 hat seine harten Bedingungen erfüllt, W63 ist zurückgenommen (GO trägt „Leertaste“ auch im Lauf); der Preis steht unter „Geänderte Bedienung“ beim Prompter. Die Connect-Fragen F1 bis F3 und Z1 hast Du am 24.11. 16:09 entschieden (siehe „Geänderte Bedienung“). An die Schlussprüfung, keine Owner-Frage: In der Statusleiste laufen bei vielen Einträgen Beschriftungen ineinander (Connect), und die Fehlerzeile eines Felds ist nicht markierbar (beides gemeinsame Bausteine).
+
+## Handbuch
+
+Die sechs Handbücher im Kochbuch (Presenter, Studio-Control, Connect, Prompter, Stage Display, Player) nennen jetzt die neuen Orte: Panel ⚙ mit Abschnitt, Statusleiste, Werkzeugleiste des Editors, Kopf und Leiste des Referenten, die Spalten Cloud-Raum und Zoom in Connect und die Reiter in der Werkzeugleiste von Studio-Control. Die alten Orte (⚙-Menü des Editors, Fenster „Fernsteuerung übers Netzwerk“, Zoom-Karte mit „Einrichtung“, „Vorgaben …“ und „Sprecher-Einstellungen …“, Karte „Cloud-Zugang“) kommen nicht mehr vor. Wo sich die Bedienung ändert („Setzen“, Halten per Leertaste, eine Bildschirmwahl, die nur merkt), steht es dabei; Prompter, Stage Display und Player bekommen nur den gemessenen Bildschirm in der Pannenhilfe und der Player die Show-Wahl mit „Setzen“. Alles andere im Handbuch bleibt, wie es war. Je Stelle steht ein Satz in Klartext, dann der alte Text (`-`, in Code-Schrift) und der neue Text (`+`); bei langen Absätzen nur der geänderte Satz oder Satzteil. Zwei Stellen im Presenter hängen an einer offenen Owner-Frage und sagen es im neuen Text („abhängig von Owner-Frage P1“ bzw. „abhängig von Owner-Fragen P1 und P2“): Ist die Antwort A, fällt der Vermerk weg; ist sie B, wird die Stelle nach dem Umbau neu geschrieben. Vor einem Release steht dort kein Vermerk mehr. Bitte sag mir, wenn eine Stelle anders klingen soll.
+
+### Presenter
+
+Importiert wird über die Werkzeugleiste des Editors oder per Ziehen ins Fenster; die PPTX-Option steht im Panel unter „Import“.
+
+- `Dokument importieren: PDF/Bilder direkt, Office-Dateien werden per LibreOffice zu PDF gewandelt. Bei Bedarf als **.jmpres**-Projekt speichern (behält Overlays/Reihenfolge).`
++ Dokument importieren: mit „+ PDF / Bilder“ bzw. „+ Office“ in der Werkzeugleiste des Editors oder per Ziehen ins Fenster. PDF/Bilder direkt, Office-Dateien werden per LibreOffice zu PDF gewandelt (PPTX-Aufbau-Animationen als Einzelschritte schaltet das Panel ⚙ › Import). Bei Bedarf mit „Speichern“ als **.jmpres**-Projekt speichern (behält Overlays/Reihenfolge).
+
+Den Bildschirm des Publikums wählst Du vor dem Start im Panel, gestartet wird mit der Haupttaste der Werkzeugleiste; während der Präsentation zieht erst „Auf diesen Bildschirm“ in der Leiste des Referenten das Publikum um. Die Lage der Haupttaste hängt an Owner-Frage P1.
+
+- `**Publikumsansicht** auf den Beamer/zweiten Monitor legen (Vollbild); die **Referentenansicht** bleibt beim Operator (aktuelle + nächste Folie, Notizen).`
++ **Publikumsansicht** auf den Beamer/zweiten Monitor legen (Vollbild): im Editor den Bildschirm im Panel ⚙ › Ausgabe auf Bildschirm wählen, dann mit der Haupttaste „Präsentieren“ rechts in der Werkzeugleiste starten (abhängig von Owner-Frage P1). Während der Präsentation den Bildschirm in der Leiste des Referenten wählen und mit „Auf diesen Bildschirm“ umziehen; die Wahl allein verschiebt nichts. Die **Referentenansicht** bleibt beim Operator (aktuelle + nächste Folie, Notizen) und bleibt dunkel, auch wenn der Editor hell ist.
+
+Die Handy-Fernsteuerung steht jetzt im Panel, in Editor und Referent; Netzwerkkarte und Port gelten erst mit „Setzen“.
+
+- `Handy-Clicker aktivieren: Port/Interface wählen, **PIN** setzen, QR/URL ans Handy geben.`
++ Handy-Clicker im Panel ⚙ › Handy-Fernsteuerung aktivieren (in Editor und Referent, auch vor der Präsentation): Netzwerkkarte und Port wählen und mit „Setzen“ übernehmen, „PIN-Schutz (empfohlen im offenen WLAN)“ anlassen, den Server einschalten („Server aktiv“), QR/URL und **PIN** aus dem Abschnitt ans Handy geben.
+
+Fernsteuerung und JM Timer zeigen Statusleiste und Panel; Host und Port des Timers gelten erst mit „Setzen“.
+
+- `Fernsteuerung: Companion/Rundown auf Port 8728; JM Timer für den Countdown verbinden (7777).`
++ Fernsteuerung: Companion/Rundown auf Port 8728 (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung); JM Timer für den Countdown im Panel ⚙ › Gegenstellen verbinden: in der Zeile „JM Timer“ „Aktiv“ einschalten, Host und Port (7777) eintragen und mit „Setzen“ übernehmen (Statusleiste „JM Timer“).
+
+Der Gast-Klicker hat einen eigenen Abschnitt im Panel, nicht mehr im Fenster „Fernsteuerung“.
+
+- `im Fenster **Fernsteuerung** den Abschnitt „Gast-Klicker“ einschalten,`
++ im Panel ⚙ › Gast-Klicker (in Editor und Referent, auch vor der Präsentation) den Schalter einschalten („Gast-Klicker an“),
+
+Blättern geht über die Haupttasten unter der Folie; mit Schleife springt „Weiter“ von der letzten auf die erste Folie, und aus Textfeldern wirken keine Kürzel.
+
+- `` Navigieren mit `NEXT`/`PREV` (lokal, Handy oder Companion). `GOTO` springt gezielt. ``
++ Navigieren mit `NEXT`/`PREV` (lokal mit den Haupttasten „Zurück“ und „Weiter“ unter der Folie im Referenten, dem Klicker oder den Pfeiltasten, per Handy oder Companion). Mit Schleife springt „Weiter“ auf der letzten Folie zur ersten. `GOTO` springt gezielt (lokal die Nummer ins Feld „Folie“ zwischen „Zurück“ und „Weiter“ tippen, dann Enter oder „Gehe zu“). Steht der Cursor in einem Textfeld, wirken die Tastenkürzel nicht.
+
+Schwarz und Weiß sind Haupttasten links und rechts unter der Folie.
+
+- `` `BLACK`/`WHITE` für Pausen/Umbau, `LIVE` holt die Folie zurück. ``
++ `BLACK`/`WHITE` für Pausen/Umbau, `LIVE` holt die Folie zurück (lokal die Haupttasten „Schwarz“ links und „Weiß“ rechts unter der Folie oder B und W; ein zweiter Druck holt die Folie zurück, solange steht an der Taste „Schwarz · an“ bzw. „Weiß · an“).
+
+Der Countdown steht in der Timer-Leiste; ON AIR leuchtet nur, solange das Publikum die Folie sieht.
+
+- `Referentenansicht im Blick behalten: Notizen + nächste Folie + Countdown; das Publikum sieht nur die saubere Folie.`
++ Referentenansicht im Blick behalten: Notizen + nächste Folie + Countdown (Timer-Leiste über „Nächste Folie“); das Publikum sieht nur die saubere Folie. ON AIR im Kopf leuchtet nur, solange das Publikum die Folie sieht, nicht bei Schwarz oder Weiß.
+
+Die Gast-Klick-Anzeige steht in der Leiste unter dem Kopf.
+
+- `Die Anzeige **„Gast-Klick ●“** in der Referentenansicht pausiert`
++ Die Anzeige **„Gast-Klick ●“** in der Leiste der Referentenansicht pausiert
+
+Beendet wird mit „■ Beenden“ im Kopf des Referenten oder „Beenden“ in der Werkzeugleiste des Editors; beide Lagen hängen an offenen Owner-Fragen.
+
+- `` `STOP` beendet die Präsentation; Projekt (.jmpres) sichern, falls Overlays/Anpassungen erhalten bleiben sollen. ``
++ `STOP` beendet die Präsentation (lokal „■ Beenden“ ganz rechts im Kopf des Referenten oder Esc außerhalb des Panels, im Editor „Beenden“ in der Werkzeugleiste; abhängig von Owner-Fragen P1 und P2); Projekt (.jmpres) mit „Speichern“ sichern, falls Overlays/Anpassungen erhalten bleiben sollen.
+
+„Neuer Link“ steht im Panel unter „Gast-Klicker“.
+
+- `im Fenster Fernsteuerung **„Neuer Link“**`
++ im Panel ⚙ › Gast-Klicker **„Neuer Link“**
+
+Ein belegter Port zeigt sich im Panel und in der Statusleiste; nach dem Fehler braucht es den Server-Schalter (Altfehler, Offene Frage 5). In der Spalte „Risiko“ derselben Zeile ist nur das Schlusszeichen von „Port belegt“ berichtigt.
+
+- `Anderen Remote-Port wählen (Standard 7330)`
++ Den Fehler zeigen das Panel ⚙ › Handy-Fernsteuerung und die Statusleiste „Handy-Fernsteuerung“. Dort einen anderen Port eintragen (Standard 7330), mit „Setzen“ übernehmen und den Server wieder einschalten („Server aktiv“); „Setzen“ allein startet ihn nach dem Fehler nicht
+
+Wo das Publikum wirklich steht, sagt die Statusleiste; umgezogen wird über die Leiste des Referenten.
+
+- `Publikumsfenster geöffnet + richtiger Monitor? Vollbild aktiv?`
++ Statusleiste „Publikum“ ansehen: Sie nennt den Bildschirm, auf dem das Publikumsfenster wirklich steht. Falscher Monitor: in der Leiste des Referenten den richtigen wählen und „Auf diesen Bildschirm“ drücken. Vollbild aktiv („Publikum Vollbild“ in der Leiste)?
+
+Den Timer prüfst Du über die Statusleiste und das Panel.
+
+- `JM Timer läuft und ist auf 7777 erreichbar, Timer-Sync aktiv?`
++ JM Timer läuft und ist auf 7777 erreichbar? Statusleiste „JM Timer“ ansehen; im Panel ⚙ › Gegenstellen „Aktiv“ an, Host und Port mit „Setzen“ übernommen?
+
+Den Gast-Klicker prüfst Du im Panel und in der Statusleiste.
+
+- `Gast-Klicker eingeschaltet? Internet am Präsentationsrechner prüfen;`
++ Gast-Klicker im Panel ⚙ › Gast-Klicker eingeschaltet (Statusleiste „Gast-Klicker“)? Internet am Präsentationsrechner prüfen;
+
+Den aktuellen Link kopierst Du im Panel.
+
+- `im Fenster Fernsteuerung den aktuellen Link kopieren`
++ im Panel ⚙ › Gast-Klicker den aktuellen Link kopieren
+
+Bei „Companion steuert nicht“ liest Du zuerst die Statusleiste.
+
+- `` Port 8728 offen? `jm-presenter-ctl` (ctl=1) im mDNS? ``
++ Statusleiste „Fernsteuerung“ ansehen (bereit, Port belegt, Fehler); Port 8728 offen? `jm-presenter-ctl` (ctl=1) im mDNS?
+
+### Studio-Control
+
+Geräte legst Du in den Panels der Reiter an; die Reiter stehen jetzt in der Werkzeugleiste, und die Statusleiste zeigt je Gerätetyp einen Eintrag.
+
+- `Geräte verbinden und je Typ eine Primär-Instanz festlegen (ATEM, OBS, TriCaster, PTZ, Audio, Licht)`
++ Geräte in den Panels der Reiter Video (TriCaster, ATEM, OBS, PTZ), Audio und Licht anlegen und verbinden und je Typ eine Primär-Instanz festlegen (die Reiter stehen in der Werkzeugleiste unter dem Kopf; Geräte im Netz sucht Setup › Discovery); die Statusleiste zeigt je eingerichtetem Gerätetyp einen Eintrag
+
+Benutzer und Rollen stehen im Reiter Setup; eine Rolle gilt erst mit „Setzen“.
+
+- `Nutzer und Rollen anlegen (wer darf was) — Web-UI auf Port 7778 mit Bearer-Auth`
++ Nutzer und Rollen anlegen (wer darf was): Reiter Setup › Benutzer (nur Admin), „+ Benutzer anlegen“; eine Rolle ändert die Auswahl der Zeile erst mit „Setzen“ — Web-UI auf Port 7778 mit Bearer-Auth
+
+Das Gateway startet von selbst; seinen Stand zeigen Statusleiste und Panel im App-Fenster.
+
+- `Optional: Companion-Gateway auf Port 8735 aktivieren (typ-präfixierte Verben)`
++ Optional: Companion mit dem Gateway auf Port 8735 verbinden (typ-präfixierte Verben); das Gateway startet von selbst, im App-Fenster zeigen die Statusleiste „Fernsteuerung“ und das Panel ⚙ › Fernsteuerung seinen Stand (im Browser gibt es kein ⚙)
+
+Geschaltet wird in den Panels der Reiter; gesperrte Haupttasten nennen ihren Grund, PTZ hält auch per Taste.
+
+- `Quellen/Szenen schalten (z. B. STUDIO atem_program 2, STUDIO obs_scene 3), PTZ steuern, Audio/Licht bedienen`
++ Quellen/Szenen schalten (z. B. STUDIO atem_program 2, STUDIO obs_scene 3), PTZ steuern, Audio/Licht bedienen (lokal in den Panels der Reiter Video, Audio und Licht; gesperrte Haupttasten wie Cut, Auto, FTB, REC und STREAM nennen ihren Grund; PTZ-Richtung, Zoom und Fokus halten auch per Leertaste oder Enter)
+
+ON AIR im Kopf zeigt nur gemessene Aufnahme oder Sendung; die letzten Aktionen stehen im TriCaster-Panel.
+
+- `Aufnahme per STUDIO obs_record on/off; alle Aktionen werden zentral auditiert`
++ Aufnahme per STUDIO obs_record on/off (lokal „Aufnahme“ im OBS-Panel; ON AIR im Kopf zeigt „REC“ bzw. „LIVE“ nur, solange ein verbundener ATEM oder OBS wirklich aufnimmt bzw. streamt); alle Aktionen werden zentral auditiert (die letzten stehen im TriCaster-Panel unter „/ Letzte Aktionen“, ab Bediener)
+
+Bei „Gerät nicht erreichbar“ liest Du zuerst Statusleiste und Pille.
+
+- `Netz/IP und Anmeldedaten prüfen; richtige Primär-Instanz konfiguriert?`
++ Eintrag des Gerätetyps in der Statusleiste und Pille im Panel ansehen (bei einer Trennung steht dort der Fehlertext des Geräts); Netz/IP und Anmeldedaten prüfen; richtige Primär-Instanz konfiguriert?
+
+Ob der eigene Server verbunden ist, zeigt der Eintrag „Server“.
+
+- `Port 7778 erreichbar? Bearer-Token korrekt?`
++ Statusleiste „Server“ ansehen (ohne verbundenen Server stehen alle Geräte auf „unbekannt“ und ihre Tasten sind gesperrt); Port 7778 erreichbar? Bearer-Token korrekt?
+
+Das Gateway hat keinen Schalter in den Einstellungen; seinen Stand zeigen Statusleiste und Panel.
+
+- `Port 8735 (jm-studio-control-ctl) erreichbar? Gateway in den Einstellungen aktiviert?`
++ Im App-Fenster Statusleiste „Fernsteuerung“ bzw. Panel ⚙ › Fernsteuerung ansehen (bereit, Port belegt, Fehler; das Gateway hat keinen eigenen Schalter); Port 8735 (jm-studio-control-ctl) erreichbar?
+
+Eine gesperrte Taste sagt jetzt selbst, warum; die Rollen stehen im Reiter Setup.
+
+- `Nutzerrolle/Rechte in der Web-UI kontrollieren`
++ Die gesperrte Taste nennt den Grund (z. B. „Rolle Betrachter darf nicht schalten“ oder „ATEM nicht verbunden“); Nutzerrolle/Rechte im Reiter Setup › Benutzer kontrollieren (Admin)
+
+Die Checkliste nennt den Ort der Rollen und die Statusleiste.
+
+- `Rollen gesetzt (Web-UI Port 7778)`
++ Rollen gesetzt (Setup › Benutzer, Web-UI Port 7778)
+
+- `Companion-Gateway Port 8735 aktiv (optional)`
++ Companion-Gateway Port 8735 bereit (Statusleiste „Fernsteuerung“, optional)
+
+### Connect
+
+„Zoom-SDK laden“ steht im Panel unter „Zoom-Einrichtung“.
+
+- `Zoom-SDK 7.1.5.43953: auf JM-Rechnern per Knopf „Zoom-SDK laden“ (läuft über die Anmeldung im Launcher),`
++ Zoom-SDK 7.1.5.43953: auf JM-Rechnern per Knopf „Zoom-SDK laden“ im Panel ⚙ › Zoom-Einrichtung (läuft über die Anmeldung im Launcher),
+
+Eine Raum-Taste öffnet und schließt den Raum.
+
+- `Raum öffnen (braucht die Anmeldung im Launcher), für jeden Gast einen Link erzeugen und verschicken.`
++ Raum mit der Haupttaste „Raum öffnen“ in der linken Spalte (Cloud-Raum) öffnen (braucht die Anmeldung im Launcher; dieselbe Taste schließt ihn wieder), für jeden Gast mit „Link erzeugen“ einen Link erzeugen und verschicken.
+
+„Talkback alle“ steht neben der Raum-Taste; Halten geht auch per Leertaste oder Enter.
+
+- `Talkback (Regie ins Ohr) für alle oder per Halten-Taste für einen Gast;`
++ Talkback (Regie ins Ohr) für alle mit „Talkback alle“ rechts neben der Raum-Taste oder mit 🎙 an der Gastzeile für einen Gast, je so lange gehalten (mit der Maus oder per Leertaste bzw. Enter auf der Taste);
+
+Das Programm-Abzeichen hat einen Eintrag in der Statusleiste.
+
+- `Daneben der Link „ndi.video“.`
++ Daneben der Link „ndi.video“; denselben Text zeigt der Eintrag „Programm“ der Statusleiste.
+
+Die Fußzeile steht unten im Inhalt unter beiden Spalten.
+
+- `Fußzeile des Hauptfensters (Windows und macOS): der Markenhinweis,`
++ Fußzeile des Hauptfensters (Windows und macOS, unten im Inhalt unter beiden Spalten): der Markenhinweis,
+
+Das Tray-Menü schließt den Raum wie die Raum-Taste.
+
+- `„Raum schließen“ im Tray-Menü schließt den Raum wie der Knopf im Fenster.`
++ „Raum schließen“ im Tray-Menü schließt den Raum wie die Raum-Taste im Fenster.
+
+Unter macOS fehlen die Zoom-Spalte und die Zoom-Abschnitte im Panel.
+
+- `Unter macOS steht an der Stelle der Zoom-Karte „Zoom-Slots gibt es nur unter Windows: Die Zoom-Bridge läuft nur dort.“`
++ Unter macOS steht statt der Zoom-Spalte unter dem Cloud-Raum „Zoom-Slots gibt es nur unter Windows: Die Zoom-Bridge läuft nur dort.“
+
+- `aber keine Zoom-Karte; es ist nicht signiert.`
++ aber keine Zoom-Spalte und im Panel keine Zoom-Abschnitte; es ist nicht signiert.
+
+Die Namen zeigt die Zoom-Spalte, nicht mehr eine Karte.
+
+- `Karte, Companion-Variable zoom_slot{n}_target und NDI-Namen zeigen die Namen weiter.`
++ Zoom-Spalte, Companion-Variable zoom_slot{n}_target und NDI-Namen zeigen die Namen weiter.
+
+„Logordner öffnen“ steht in der Zoom-Spalte unter den Zoom-Quellen und an Meldungen.
+
+- `an jeder Zeile eines NDI-Ausfalls und in der Zoom-Karte (nur Windows).`
++ an jeder Zeile eines NDI-Ausfalls und in der Zoom-Spalte (unter den Zoom-Quellen und an Meldungen mit „Details im Log“, nur Windows).
+
+Die Zeile „Cloud-Zugang“ steht in Statusleiste und Panel, „Zoom-Anmeldung“ im Panel unter „Zoom-Einrichtung“.
+
+- `Zwei Zeilen zeigen den Stand: „Cloud-Zugang“ („Cloud-Zugang über den Launcher`
++ Zwei Zeilen zeigen den Stand: „Cloud-Zugang“ in der Statusleiste und im Panel ⚙ › Cloud-Zugang („Cloud-Zugang über den Launcher
+
+- `und in der Zoom-Karte „Zoom-Anmeldung“ („Zoom-Anmeldung über den Launcher`
++ und „Zoom-Anmeldung“ im Panel ⚙ › Zoom-Einrichtung („Zoom-Anmeldung über den Launcher
+
+Alte Werte entfernst Du im Panel.
+
+- `Auf der Karte steht „Alter Proxy-Key: hinterlegt, nur noch im Übergang.“. Alte Werte lassen sich nur noch entfernen, nicht mehr eintragen; mit „Entfernen“ räumt man sie weg.`
++ Im Panel ⚙ › Cloud-Zugang steht „Alter Proxy-Key: hinterlegt, nur noch im Übergang.“. Alte Werte lassen sich nur noch entfernen, nicht mehr eintragen; mit „Key entfernen“ (Panel ⚙ › Cloud-Zugang) bzw. „Entfernen“ (Panel ⚙ › Zoom-Einrichtung) räumt man sie weg.
+
+- `Unter macOS gibt es keine Zoom-Karte; die Zoom-Schritte dieses Abschnitts entfallen dort.`
++ Unter macOS gibt es keine Zoom-Spalte und im Panel keine Zoom-Abschnitte; die Zoom-Schritte dieses Abschnitts entfallen dort.
+
+Die Zoom-Einrichtung steht im Panel; bei einem Mangel führt die Statusleiste hin, statt dass die Einrichtung im Arbeitsbereich aufklappt.
+
+- `Zoom-Karte, Knopf „Einrichtung“ aufklappen.`
++ Die Zoom-Einrichtung steht im Panel ⚙ › Zoom-Einrichtung; fehlt dort etwas, steht in der Statusleiste der Eintrag „Zoom-Einrichtung“ und öffnet das Panel an dieser Stelle.
+
+- `Liegt noch einer auf diesem Rechner, zeigt die Zoom-Karte eine Zeile dazu und den Knopf „Entfernen“`
++ Liegt noch einer auf diesem Rechner, zeigt das Panel (⚙ › Zoom-Einrichtung bzw. ⚙ › Cloud-Zugang) eine Zeile dazu und den Knopf „Entfernen“ bzw. „Key entfernen“
+
+„Einrichtung prüfen“ steht im Panel, sein Ergebnis als Meldung in der Zoom-Spalte.
+
+- `„Einrichtung prüfen“ meldet sich ohne Meeting bei Zoom an, mit dem Zoom-Anmelde-Token vom Server.`
++ „Einrichtung prüfen“ im Panel ⚙ › Zoom-Einrichtung meldet sich ohne Meeting bei Zoom an, mit dem Zoom-Anmelde-Token vom Server; das Ergebnis steht als Meldung in der Zoom-Spalte.
+
+An einem laufenden Slot gelten Auflösung, Ersatzbild und Bildformat erst mit „Setzen“.
+
+- `Jede Änderung wird sofort gespeichert und wirkt im Meeting sofort.`
++ Jede Änderung wird sofort gespeichert und wirkt im Meeting sofort; nur an einem laufenden Slot halten Auflösung, Ersatzbild und Bildformat einen Entwurf, den erst „Setzen“ rechts in der Reihe übernimmt.
+
+Vorgaben und Sprecher-Einstellungen stehen offen im Panel unter „Zoom-Vorgaben“; das Sprecher-Signal gilt erst mit „Setzen“.
+
+- `Im Kopf der Zoom-Slots: „Vorgaben …“ legt Auflösung und Ton für neue Slots fest, „Sprecher-Einstellungen …“ das Sprecher-Signal und die Haltezeit (0 bis 5 s; so lange muss jemand sprechen, bevor der Sprecher-Slot wechselt), der Schalter „Vorschau“ die Vorschau aller Kacheln.`
++ Im Panel ⚙ › Zoom-Vorgaben legen „Auflösung“ und „Ton“ die Vorgaben für neue Slots fest, darunter das Sprecher-Signal (gilt erst mit „Setzen“ unter den Optionsfeldern) und die Haltezeit (0 bis 5 s; so lange muss jemand sprechen, bevor der Sprecher-Slot wechselt). Ein nicht gesetztes Sprecher-Signal geht beim Schließen des Panels verloren, ebenso eine Haltezeit, deren Feld vorher nicht verlassen wurde. Im Kopf der Zoom-Slots schaltet „Vorschau“ die Vorschau aller Kacheln.
+
+- `Schalter „Person im NDI-Namen“ im Kopf der Zoom-Slots (Vorgabe: aus):`
++ Schalter „Person im NDI-Namen“ im Panel ⚙ › Zoom-Vorgaben (Vorgabe: aus):
+
+Am laufenden Slot wirken Person und Ton sofort, die übrigen drei Wahlen erst mit „Setzen“.
+
+- `Ebenso wirken Person, Auflösung, Ersatzbild und Ton sofort, ohne Neustart der Quelle.`
++ Ebenso wirken Person und Ton sofort, ohne Neustart der Quelle. Auflösung, Ersatzbild und Bildformat gelten am laufenden Slot erst mit „Setzen“ rechts in der Reihe, ebenfalls ohne Neustart der Quelle; ein Durchblättern mit den Pfeiltasten schaltet das Bild nicht mehr um.
+
+Was früher „die Karte“ hieß, ist jetzt die Zoom-Spalte.
+
+- `mit Countdown in der Karte).`
++ mit Countdown in der Zoom-Spalte).
+
+- `steht der Grund unter „Hinweise“ in der Karte.`
++ steht der Grund unter „Hinweise“ in der Zoom-Spalte.
+
+„Raum schließen“ ist die Raum-Taste; nach einem Raumabbruch steht es als eigener Knopf unter den Haupttasten.
+
+- `„Raum schließen“ (im Fenster; im Tray, solange Gast-Quellen eingetragen sind),`
++ „Raum schließen“ (die Raum-Taste im Fenster; im Tray, solange Gast-Quellen eingetragen sind),
+
+- `dann „Raum öffnen“ wählen, nicht „Raum schließen“.`
++ dann „Raum öffnen“ wählen (die Raum-Taste zeigt es nach dem Abbruch; „Raum schließen“ steht dann als eigener Knopf darunter), nicht „Raum schließen“.
+
+In der Pannenhilfe zeigen die Stellen auf das Panel und die Zoom-Spalte.
+
+- `Unter „Sprecher-Einstellungen …“ ein anderes Signal versuchen.`
++ Im Panel ⚙ › Zoom-Vorgaben ein anderes Sprecher-Signal wählen und mit „Setzen“ übernehmen.
+
+- `(unter dem Versatz oder in der Zoom-Karte)`
++ (unter dem Versatz, im Kopf der Zoom-Slots oder im Panel ⚙ › Zoom-Einrichtung bzw. ⚙ › Zoom-Vorgaben)
+
+- `Cloud-Zugang (Zeile „Cloud-Zugang“ in der Karte) und Netz prüfen.`
++ Cloud-Zugang (Statusleiste „Cloud-Zugang“, Panel ⚙ › Cloud-Zugang) und Netz prüfen.
+
+- `Der Grund steht unter „Hinweise“ in der Zoom-Karte,`
++ Der Grund steht unter „Hinweise“ in der Zoom-Spalte,
+
+- `in der Fußzeile des Hauptfensters oder in der Zoom-Karte, dann main.log ansehen.`
++ in der Fußzeile des Hauptfensters oder in der Zoom-Spalte, dann main.log ansehen.
+
+Die Checkliste nennt die Zeile „Zoom-Anmeldung“ im Panel.
+
+- `die Zeile „Zoom-Anmeldung“ in der Zoom-Karte nennt den Launcher`
++ die Zeile „Zoom-Anmeldung“ im Panel ⚙ › Zoom-Einrichtung nennt den Launcher
+
+### Prompter
+
+Bei „Kein Bild auf dem Talent-Monitor“ nennen Pille und „Steht auf“ den gemessenen Bildschirm.
+
+- `Statusleiste „Talent-Monitor“ ansehen (zu, Bildschirm fehlt, abgestürzt); Schalter „Ausgabe“ im Panel ⚙ › Ausgabe auf Bildschirm an + richtiger Monitor gewählt?`
++ Statusleiste „Talent-Monitor“ ansehen (zu, Bildschirm fehlt, abgestürzt); Schalter „Ausgabe“ im Panel ⚙ › Ausgabe auf Bildschirm an + richtiger Monitor gewählt? Pille und „Steht auf“ im Abschnitt nennen den Bildschirm, auf dem der Monitor wirklich steht. Nach dem Wiederanstecken bleibt „Bildschirm fehlt“ stehen, bis „Auf diesen Bildschirm“ das Fenster verschiebt oder es neu geöffnet wird
+
+### Stage Display
+
+Bei „Kein Bild auf dem Bühnen-Monitor“ nennen Pille und „Steht auf“ den gemessenen Bildschirm.
+
+- `Statusleiste „Bühnenschirm“ ansehen (zu, Bildschirm fehlt, abgestürzt); Ausgabe mit der Haupttaste „Vollbild-Ausgabe öffnen“ geöffnet + richtiger Monitor (Vollbild) im Panel ⚙ › Ausgabe auf Bildschirm gewählt?`
++ Statusleiste „Bühnenschirm“ ansehen (zu, Bildschirm fehlt, abgestürzt); Ausgabe mit der Haupttaste „Vollbild-Ausgabe öffnen“ geöffnet + richtiger Monitor (Vollbild) im Panel ⚙ › Ausgabe auf Bildschirm gewählt? Pille und „Steht auf“ im Abschnitt nennen den Bildschirm, auf dem der Schirm wirklich steht. Nach dem Wiederanstecken bleibt „Bildschirm fehlt“ stehen, bis „Auf diesen Bildschirm“ das Fenster verschiebt oder es neu geöffnet wird
+
+### Player
+
+Eine andere Show wechselt erst mit „Setzen“.
+
+- `Show-Cues im Reiter „Cue-Show“ in Reihenfolge bringen;`
++ Show-Cues im Reiter „Cue-Show“ in Reihenfolge bringen (eine andere Show dort mit der Show-Auswahl wählen und mit „Setzen“ übernehmen, das dann rechts im Kopf der Cue-Show vor „▦ Ausgabe“ erscheint; erst „Setzen“ wechselt die Show und räumt die laufende);
+
+Bei „Kein Ton/Bild beim GO“ nennen Pille und „Steht auf“ den gemessenen Bildschirm.
+
+- `Video: Statusleiste „Video-Ausgabe“ und Panel ⚙ › Ausgabe auf Bildschirm prüfen.`
++ Video: Statusleiste „Video-Ausgabe“ und Panel ⚙ › Ausgabe auf Bildschirm prüfen (Pille und „Steht auf“ nennen den Bildschirm, auf dem das Fenster wirklich steht; nach dem Wiederanstecken bleibt „Bildschirm fehlt“ stehen, bis „Auf diesen Bildschirm“ das Fenster verschiebt oder es neu geöffnet wird).
 
 Freigabe: ☐ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren)

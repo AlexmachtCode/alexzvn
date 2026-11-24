@@ -43,15 +43,15 @@ summary: "Zentrale, auditierte Studiosteuerung (TriCaster/ATEM/OBS/PTZ/Audio/Lic
 ## Schritt-für-Schritt
 
 ### Einrichtung
-- Geräte verbinden und je Typ eine Primär-Instanz festlegen (ATEM, OBS, TriCaster, PTZ, Audio, Licht)
-- Nutzer und Rollen anlegen (wer darf was) — Web-UI auf Port 7778 mit Bearer-Auth
+- Geräte in den Panels der Reiter Video (TriCaster, ATEM, OBS, PTZ), Audio und Licht anlegen und verbinden und je Typ eine Primär-Instanz festlegen (die Reiter stehen in der Werkzeugleiste unter dem Kopf; Geräte im Netz sucht Setup › Discovery); die Statusleiste zeigt je eingerichtetem Gerätetyp einen Eintrag
+- Nutzer und Rollen anlegen (wer darf was): Reiter Setup › Benutzer (nur Admin), „+ Benutzer anlegen“; eine Rolle ändert die Auswahl der Zeile erst mit „Setzen“ — Web-UI auf Port 7778 mit Bearer-Auth
 - NDI-PGM-Vorschau einrichten
-- Optional: Companion-Gateway auf Port 8735 aktivieren (typ-präfixierte Verben)
+- Optional: Companion mit dem Gateway auf Port 8735 verbinden (typ-präfixierte Verben); das Gateway startet von selbst, im App-Fenster zeigen die Statusleiste „Fernsteuerung“ und das Panel ⚙ › Fernsteuerung seinen Stand (im Browser gibt es kein ⚙)
 
 ### Während
-- Quellen/Szenen schalten (z. B. STUDIO atem_program 2, STUDIO obs_scene 3), PTZ steuern, Audio/Licht bedienen
+- Quellen/Szenen schalten (z. B. STUDIO atem_program 2, STUDIO obs_scene 3), PTZ steuern, Audio/Licht bedienen (lokal in den Panels der Reiter Video, Audio und Licht; gesperrte Haupttasten wie Cut, Auto, FTB, REC und STREAM nennen ihren Grund; PTZ-Richtung, Zoom und Fokus halten auch per Leertaste oder Enter)
 - PGM-Vorschau im Blick behalten
-- Aufnahme per STUDIO obs_record on/off; alle Aktionen werden zentral auditiert
+- Aufnahme per STUDIO obs_record on/off (lokal „Aufnahme“ im OBS-Panel; ON AIR im Kopf zeigt „REC“ bzw. „LIVE“ nur, solange ein verbundener ATEM oder OBS wirklich aufnimmt bzw. streamt); alle Aktionen werden zentral auditiert (die letzten stehen im TriCaster-Panel unter „/ Letzte Aktionen“, ab Bediener)
 
 ### Nachbereitung
 - Session/Logs sichern (Audit-Log bleibt erhalten)
@@ -66,19 +66,19 @@ summary: "Zentrale, auditierte Studiosteuerung (TriCaster/ATEM/OBS/PTZ/Audio/Lic
 
 | Risiko | Gegenmaßnahme |
 | --- | --- |
-| Gerät nicht erreichbar | Netz/IP und Anmeldedaten prüfen; richtige Primär-Instanz konfiguriert? |
+| Gerät nicht erreichbar | Eintrag des Gerätetyps in der Statusleiste und Pille im Panel ansehen (bei einer Trennung steht dort der Fehlertext des Geräts); Netz/IP und Anmeldedaten prüfen; richtige Primär-Instanz konfiguriert? |
 | Verb wirkt nicht | Richtiges Typ-Präfix (atem_/obs_/tricaster_) und Primär-Instanz prüfen |
-| Web-UI/PGM nicht erreichbar | Port 7778 erreichbar? Bearer-Token korrekt? |
-| Companion-Gateway reagiert nicht | Port 8735 (jm-studio-control-ctl) erreichbar? Gateway in den Einstellungen aktiviert? |
-| Aktion verweigert | Nutzerrolle/Rechte in der Web-UI kontrollieren |
+| Web-UI/PGM nicht erreichbar | Statusleiste „Server“ ansehen (ohne verbundenen Server stehen alle Geräte auf „unbekannt“ und ihre Tasten sind gesperrt); Port 7778 erreichbar? Bearer-Token korrekt? |
+| Companion-Gateway reagiert nicht | Im App-Fenster Statusleiste „Fernsteuerung“ bzw. Panel ⚙ › Fernsteuerung ansehen (bereit, Port belegt, Fehler; das Gateway hat keinen eigenen Schalter); Port 8735 (jm-studio-control-ctl) erreichbar? |
+| Aktion verweigert | Die gesperrte Taste nennt den Grund (z. B. „Rolle Betrachter darf nicht schalten“ oder „ATEM nicht verbunden“); Nutzerrolle/Rechte im Reiter Setup › Benutzer kontrollieren (Admin) |
 
 ## Checklisten
 
 ### Einrichtung
 - [ ] Geräte verbunden (Primär-Instanz je Typ)
-- [ ] Rollen gesetzt (Web-UI Port 7778)
+- [ ] Rollen gesetzt (Setup › Benutzer, Web-UI Port 7778)
 - [ ] PGM-Vorschau läuft
-- [ ] Companion-Gateway Port 8735 aktiv (optional)
+- [ ] Companion-Gateway Port 8735 bereit (Statusleiste „Fernsteuerung“, optional)
 
 ### Vor Live
 - [ ] Schalt-Test je Gewerk gelaufen
