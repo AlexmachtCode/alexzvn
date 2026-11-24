@@ -70,6 +70,17 @@ const leiste = (html: string): string => bereich(html, 'data-bereich', 'toolbar'
 const kennungen = (html: string): string[] => [...html.matchAll(/data-presenter="([a-z-]+)"/g)].map((m) => m[1]);
 const knopfIn = (html: string, kennung: string): string | undefined => tags(bereich(html, 'data-presenter', kennung), 'button')[0] ?? tags(bereich(html, 'data-presenter', kennung), 'select')[0];
 const gesperrt = (tag: string | undefined): boolean => /\sdisabled=""/.test(tag ?? '');
+/**
+ * Der Rahmen um einen Leistenknopf (Gesamtprüfung UX Welle 2b, M6, Muster Connect MitTooltip): das span direkt vor dem Knopf mit dieser
+ * Kennung; undefined, wenn der Knopf keinen Rahmen hat. Der Tooltip (Sperrgrund) steht am Rahmen, weil Chromium gesperrten Knöpfen keine
+ * Mausereignisse gibt.
+ */
+const rahmenVon = (html: string, kennung: string): string | undefined => {
+  const i = html.search(new RegExp(`<button[^>]*\\sdata-presenter="${kennung}"`));
+  return i < 0 ? undefined : /<span(?:\s[^>]*)?>$/.exec(html.slice(0, i))?.[0];
+};
+/** Tooltip eines Leistenknopfs: am Rahmen (M6). */
+const tooltip = (html: string, kennung: string): string | undefined => attr(rahmenVon(html, kennung), 'title');
 const aktiv = (tag: string | undefined): boolean => /bg-\[var\(--primary\)\]/.test(attr(tag, 'class') ?? '');
 
 /** Die Dateien des Referenten-Fensters (Wurzel, Leiste, Live-Bereich, Kopf- und Leistenbausteine, Panel). */
@@ -211,7 +222,7 @@ const REFERENT_DATEIEN = [
   ok(!text(l).includes(T.taste.kopfBeenden) && !l.includes('data-zahnrad'), 'PS Leiste: „■ Beenden“ und ⚙ stehen im Kopf, nicht in der Leiste');
   ok(!kennungen(rahmen(referentStand({ gastKlicker: gastStatus() }))).includes('gast-klick'), 'PS Leiste: die Gast-Klick-Pille erscheint nur bei eingeschaltetem Gast-Klicker (wie bisher)');
   gleich(
-    [attr(knopfIn(rechts, 'bildschirm'), 'title'), attr(knopfIn(rechts, 'vollbild'), 'title')],
+    [attr(knopfIn(rechts, 'bildschirm'), 'title'), tooltip(rechts, 'vollbild')],
     [T.publikum.bildschirmWahl, 'Referentenansicht im Vollbild (F11)'],
     'PS Leiste: Tooltips „Publikums-Bildschirm“ und „Referentenansicht im Vollbild (F11)“ wie bisher',
   );
@@ -228,7 +239,7 @@ const REFERENT_DATEIEN = [
     ],
     'PS Leiste: Schleife, Vollbild (gemessen) und Übersicht hinterlegt, solange sie an sind; „Publikum Vollbild“ gesperrt bei nur NDI',
   );
-  ok(attr(knopfIn(bereich(leiste(rahmen(referentStand({ bildschirme: bildschirme(null) }))), 'data-presenter', 'leiste-rechts'), 'publikum-vollbild'), 'title') === T.publikum.keinFensterNurNdi && T.publikum.keinFensterNurNdi === 'Kein Publikumsfenster – Bild nur über NDI', 'PS Leiste: „Publikum Vollbild“ nennt bei nur NDI den alten Grund als Tooltip');
+  ok(tooltip(bereich(leiste(rahmen(referentStand({ bildschirme: bildschirme(null) }))), 'data-presenter', 'leiste-rechts'), 'publikum-vollbild') === T.publikum.keinFensterNurNdi && T.publikum.keinFensterNurNdi === 'Kein Publikumsfenster – Bild nur über NDI', 'PS Leiste: „Publikum Vollbild“ nennt bei nur NDI den alten Grund als Tooltip');
 }
 
 // ── PS Leiste: Bildschirmwahl und „Auf diesen Bildschirm“ je Zustand (B11) ──
@@ -242,7 +253,7 @@ const REFERENT_DATEIEN = [
       optionen: [...a.matchAll(/<option[^>]*>([\s\S]*?)<\/option>/g)].map((m) => text(m[1])),
       auswahlGesperrt: gesperrt(tags(a, 'select')[0]),
       knopfGesperrt: gesperrt(k),
-      grund: attr(k, 'title'),
+      grund: tooltip(r, 'verschieben'),
     };
   };
   const namen = bildschirme(22).map((d) => d.label);
@@ -460,5 +471,33 @@ const REFERENT_DATEIEN = [
   ok(
     frei !== undefined && element.props.panelToolTasten === frei && !/panelToolTasten/.test(QUELLE('views/EditorOberflaeche.tsx')),
     'PS Klicker bei fokussierter Auswahl im Panel: der Referent gibt dem Rahmen referentPanelTasten (panelToolTasten), der Editor nicht (er hat keine Präsentations-Kürzel)',
+  );
+}
+
+// ── PS Sperrgrund am Rahmen (Gesamtprüfung UX Welle 2b, M6; B11 „jede Taste mit Grund“, Review Focus 4): Chromium gibt gesperrten
+// Knöpfen keine Mausereignisse; ein title am gesperrten Knopf kann darum unsichtbar bleiben (Connect setzt ihn deshalb an einen Rahmen,
+// SlotEinstellungen MitTooltip). Vereinheitlicht ohne Messung (Ruling): Die Leistenknöpfe des Referenten tragen ihren Tooltip am
+// umgebenden Rahmen, nie am Knopf – gesperrt oder nicht, damit sich das Markup beim Sperren nicht ändert ──
+{
+  const r = (s: OberflaechenStand, wahl?: number): string => bereich(leiste(rahmen(s, { wahl: referentWahl(wahl, s.bildschirme) })), 'data-presenter', 'leiste-rechts');
+  const faelle = [
+    { name: '„Auf diesen Bildschirm“ bei gleicher Wahl', html: r(referentStand()), kennung: 'verschieben', grund: T.verschieben.gleich },
+    { name: '„Auf diesen Bildschirm“ bei unbekannter Liste', html: r(referentStand({ bildschirme: undefined })), kennung: 'verschieben', grund: T.verschieben.unbekannt },
+    { name: '„Publikum Vollbild“ bei nur NDI', html: r(referentStand({ bildschirme: bildschirme(null) })), kennung: 'publikum-vollbild', grund: T.publikum.keinFensterNurNdi },
+    { name: 'NDI vor der ersten Antwort', html: r(referentStand({ ndi: undefined })), kennung: 'ndi', grund: T.grund.zustandOffen },
+  ];
+  pruefeFaelle('PS Sperrgrund am Rahmen: jeder gesperrte Leistenknopf mit Grund trägt den Grund als title am Rahmen, nicht am gesperrten Knopf', faelle, (f) => {
+    const knopf = knopfIn(f.html, f.kennung);
+    const rahmenTag = rahmenVon(f.html, f.kennung);
+    if (!gesperrt(knopf)) return 'Knopf nicht gesperrt';
+    if (attr(knopf, 'title') !== undefined) return `title am gesperrten Knopf: ${attr(knopf, 'title')}`;
+    if (rahmenTag === undefined) return 'kein Rahmen';
+    return vergleiche(attr(rahmenTag, 'title') ?? '–', f.grund);
+  });
+  const frei = r(referentStand(), 33);
+  ok(
+    ['verschieben', 'publikum-vollbild', 'vollbild', 'uebersicht', 'ndi'].every((k) => rahmenVon(frei, k) !== undefined && attr(knopfIn(frei, k), 'title') === undefined) &&
+      tooltip(frei, 'verschieben') === undefined && tooltip(frei, 'ndi') === T.ndi.tipp,
+    'PS Sperrgrund am Rahmen: auch freigegeben stehen die Leistenknöpfe und NDI im Rahmen (gleiches Markup), ohne Sperrgrund ohne title bzw. mit dem alten Tipp',
   );
 }

@@ -2,7 +2,8 @@
 // der Titel der aktuellen Folie und die Uhr; rechts Bildschirmwahl, „Auf diesen Bildschirm“, NDI, Gast-Klick, Schleife,
 // „Publikum Vollbild“, „Vollbild“ und „Übersicht“ in dieser Reihenfolge. Bei schmalem Fenster bricht die rechte Gruppe in eine
 // zweite Zeile um (wie bisher der Kopf), statt Knöpfe aus dem Fenster zu schieben. Die Bildschirmwahl merkt nur (onWahl), erst
-// „Auf diesen Bildschirm“ verschiebt (onVerschieben), gesperrt mit title-Grund (B11). Kein Abo und keine Hooks in der Leiste:
+// „Auf diesen Bildschirm“ verschiebt (onVerschieben), gesperrt mit Grund als Tooltip am Rahmen des Knopfs (B11; Gesamtprüfung M6:
+// Chromium gibt gesperrten Knöpfen keine Mausereignisse, Muster Connect MitTooltip). Kein Abo und keine Hooks in der Leiste:
 // Stand, Wahl und Aktionen kommen aus der Wurzel-View; nur Uhr und Schleifen-Countdown zählen selbst.
 import { useEffect, useState } from 'react';
 import { cn, UNBEKANNT } from '@jm/ui';
@@ -129,25 +130,29 @@ function LeistenKnopf({
   children: React.ReactNode;
   onClick: () => void;
   active?: boolean;
+  /** Tooltip, bei gesperrtem Knopf der Sperrgrund; steht am Rahmen, nicht am Knopf (M6). */
   title?: string;
-  /** Gesperrt, aber mit Tooltip (darum ohne pointer-events-none). */
   disabled?: boolean;
 }) {
+  // Rahmen mit dem Tooltip (Gesamtprüfung UX Welle 2b, M6; Muster Connect MitTooltip): Chromium gibt gesperrten Knöpfen keine
+  // Mausereignisse, ein title am gesperrten Knopf kann unsichtbar bleiben. Der Rahmen steht immer, damit sich beim Sperren nichts
+  // verschiebt; er ist so groß wie der Knopf (inline-flex, shrink-0).
   return (
-    <button
-      type="button"
-      data-presenter={kennung}
-      onClick={onClick}
-      title={title}
-      disabled={disabled}
-      className={cn(
-        'h-8 px-3 shrink-0 whitespace-nowrap rounded-md text-xs font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
-        active
-          ? 'bg-[var(--primary)] text-[var(--brand-dark)] border-[var(--primary)]'
-          : 'bg-[var(--card)] border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--highlight)]',
-      )}
-    >
-      {children}
-    </button>
+    <span title={title} className="inline-flex shrink-0">
+      <button
+        type="button"
+        data-presenter={kennung}
+        onClick={onClick}
+        disabled={disabled}
+        className={cn(
+          'h-8 px-3 shrink-0 whitespace-nowrap rounded-md text-xs font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+          active
+            ? 'bg-[var(--primary)] text-[var(--brand-dark)] border-[var(--primary)]'
+            : 'bg-[var(--card)] border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--highlight)]',
+        )}
+      >
+        {children}
+      </button>
+    </span>
   );
 }

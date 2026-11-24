@@ -17,7 +17,8 @@ const WARNUNG = 'border-[var(--status-warn)] bg-[var(--status-warn)]/15 text-[va
 /**
  * NDI-Schalter mit Empfängerzahl als reine Anzeige (UX Welle 2b, d1 und d2): der Status kommt herein (Editor und Referent: aus
  * useStand), der Klick meldet `onSchalten(!an)`. Vor der ersten Antwort gesperrt mit „Lädt …“ und „NDI unbekannt“ statt eines
- * erfundenen „aus“; außer unter Windows gesperrt (wie bisher).
+ * erfundenen „aus“; außer unter Windows gesperrt (wie bisher). In der Leiste des Referenten steht der Tooltip (auch der Sperrgrund)
+ * am Rahmen wie bei den anderen Leistenknöpfen (Gesamtprüfung UX Welle 2b, M6); in der Werkzeugleiste des Editors wie bisher.
  */
 export function NdiKnopf({
   variante,
@@ -32,7 +33,9 @@ export function NdiKnopf({
 }) {
   const sendet = status?.lage === 'sendet';
   const warnung = status?.an === true && status.lage === 'nicht-verfuegbar';
-  return (
+  const titel = status === undefined ? PRESENTER_TEXTE.grund.zustandOffen : status.grund ?? PRESENTER_TEXTE.ndi.tipp;
+  const amRahmen = variante === 'referent';
+  const knopf = (
     <button
       type="button"
       data-presenter="ndi"
@@ -40,10 +43,17 @@ export function NdiKnopf({
         if (status) onSchalten(!status.an);
       }}
       disabled={plattform !== 'win32' || status === undefined}
-      title={status === undefined ? PRESENTER_TEXTE.grund.zustandOffen : status.grund ?? PRESENTER_TEXTE.ndi.tipp}
+      title={amRahmen ? undefined : titel}
       className={cn(GRUNDFORM[variante], warnung ? WARNUNG : sendet ? SENDET : RUHIG)}
     >
       {status === undefined ? PRESENTER_TEXTE.ndi.schalterUnbekannt : ndiSchalterText(status)}
     </button>
+  );
+  return amRahmen ? (
+    <span title={titel} className="inline-flex shrink-0">
+      {knopf}
+    </span>
+  ) : (
+    knopf
   );
 }
