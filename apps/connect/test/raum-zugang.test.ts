@@ -2,7 +2,7 @@
 // room.ts braucht Electron, das Log und die Hülle des Halters; alles drei wird per Modul-Hook ersetzt. npm run selftest -w @jm/connect
 import { registerHooks } from 'node:module';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ConnectZweck, ZugangsLage, ZugangsWahl } from '../src/main/zugang/regeln';
@@ -165,9 +165,13 @@ ck('T12: anderer Fehler → „Raum öffnen fehlgeschlagen (Proxy 500).“, kein
 ck('T12: isConfigured = Adresse vorhanden', room.isConfigured() === true);
 
 const ipc = read('src/main/ipc.ts');
-const app = read('src/renderer/src/App.tsx');
-ck('T12 Spec 166, E7: ipc.ts nimmt keinen neuen Proxy-Key an; App.tsx hat kein Feld „Proxy-Key“ und zeigt status.cloudZugang.text',
-  /if \(p\?\.key === ''\) setProxyKey\(''\)/.test(ipc) && !app.includes('>Proxy-Key</label>') && app.includes('{status?.cloudZugang.text}'));
+// Seit UX Welle 2b (Task 23) ist das Fenster aufgeteilt: App.tsx rendert die Wurzel-View, die Cloud-Karte ist der Panel-Abschnitt
+// CloudZugang.tsx. Geprüft werden alle Fenster-Dateien; eine fehlende Datei zählt als leer (dann scheitert die Prüfung).
+const lies = (p: string): string => (existsSync(join(import.meta.dirname, '..', p)) ? read(p) : '');
+const fenster = ['App.tsx', 'views/ConnectOberflaeche.tsx', 'views/CloudRaum.tsx', 'views/Fusszeile.tsx', 'views/Einstellungen.tsx', 'views/CloudZugang.tsx'].map((d) => lies(`src/renderer/src/${d}`));
+const zugang = lies('src/renderer/src/views/CloudZugang.tsx');
+ck('T12 Spec 166, E7: ipc.ts nimmt keinen neuen Proxy-Key an; das Fenster hat kein Feld „Proxy-Key“, der Abschnitt Cloud-Zugang zeigt status.cloudZugang.text',
+  /if \(p\?\.key === ''\) setProxyKey\(''\)/.test(ipc) && fenster.every((t) => t !== '' && !t.includes('>Proxy-Key</label>')) && zugang.includes('{status?.cloudZugang.text}'));
 ck('T12: der Rückruf beiZugangsAenderung fängt Fehler (wirft nie in den Halter)', /beiZugangsAenderung\(\(\) => \{\s*try \{\s*pushStatus\(\);\s*\} catch/.test(ipc));
 
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);

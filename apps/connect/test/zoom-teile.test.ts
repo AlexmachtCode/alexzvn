@@ -569,7 +569,10 @@ console.log('— B22: Messwerte in der Karte, Kopieren ohne Namen, Zeile T95 au�
   const zt = await import('../src/shared/zoom-text');
   const mw = lies('../src/renderer/src/zoom/Messwerte.tsx');
   const karte = lies('../src/renderer/src/zoom/ZoomCard.tsx');
-  const app = lies('../src/renderer/src/App.tsx');
+  // Seit UX Welle 2b (Task 23): App.tsx rendert die Wurzel-View, den Rahmen mit den Spalten baut ConnectOberflaeche.tsx.
+  const wurzel = lies('../src/renderer/src/views/ConnectOberflaeche.tsx');
+  const rahmen = (() => { const i = wurzel.indexOf('export function ConnectRahmen('); return i < 0 ? '' : wurzel.slice(i, wurzel.indexOf('\n}\n', i)); })();
+  const fenster = ['App.tsx', 'views/ConnectOberflaeche.tsx', 'views/CloudRaum.tsx', 'views/Fusszeile.tsx', 'views/Einstellungen.tsx', 'views/CloudZugang.tsx'].map((d) => lies(`../src/renderer/src/${d}`));
   ck('B22 7.8: „Messwerte kopieren“ holt den Text vom Kern (zoomMesswerteText) und schreibt genau ihn mit navigator.clipboard.writeText',
     mw.includes('.zoomMesswerteText()') && mw.includes('.then((text) => navigator.clipboard.writeText(text))'));
   ck('B22 7.8, 0.23: in die Zwischenablage kommt nie das Abbild (kein JSON.stringify, genau ein writeText)',
@@ -586,9 +589,11 @@ console.log('— B22: Messwerte in der Karte, Kopieren ohne Namen, Zeile T95 au�
   const iM = karte.indexOf('<Messwerte a={a} />');
   ck('B22 7.5: ZoomCard zeigt die Messwerte nach dem Slot-Bereich und vor den Hinweisen',
     iM > karte.indexOf('<SlotBereich a={a} aufrufe={slotAufrufe} />') && iM < karte.indexOf('{/* 10 · Hinweise'));
-  ck('B22 7.11: App.tsx zeigt außerhalb von win32 an der Stelle der Karte T95 aus zoom-text.ts, nie als Literal',
-    app.includes(`{window.jmconnect.platform === 'win32' ? <ZoomCard /> : <p className="mt-6 text-xs text-neutral-500">{MAC_ZEILE}</p>}`)
-      && !app.includes(zt.MAC_ZEILE));
+  ck('B22 7.11, W2-5: das Fenster zeigt außerhalb von win32 statt der Zoom-Spalte T95 aus zoom-text.ts unter dem Cloud-Raum, nie als Literal',
+    wurzel.includes("const windows = stand.plattform === 'win32';")
+      && rahmen.includes('{windows ? null : <p data-connect="mac-zeile" className="mt-6 text-xs text-[var(--muted-foreground)]">{MAC_ZEILE}</p>}')
+      && /\{windows \? \(\n\s*<div data-connect="zoom-spalte" className="min-w-0">\n\s*<ZoomCard \/>\n/.test(rahmen)
+      && fenster.every((t) => t !== '' && !t.includes(zt.MAC_ZEILE)));
 }
 
 // ── Task 16: alte Werte lassen sich nur noch entfernen, nie eintragen oder wählen (E7) ──

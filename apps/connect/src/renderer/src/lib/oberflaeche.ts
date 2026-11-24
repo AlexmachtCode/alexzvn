@@ -14,7 +14,7 @@ import { portBelegt, STEUER_PORT, type FernsteuerungMeldung } from '@shared/fern
 import { programmAbzeichen } from '@shared/ndi-text';
 import type { RaumAnsicht } from '@shared/raum-ansicht';
 import type { AppStatus, MasterLinkMeldungZeile, NdiProgrammZustand, ZoomAbbild } from '@shared/types';
-import { BEDIEN_TEXT, TRAY_NDI_TEXT, gaesteZeile, sdkZeile, slotKopfZeile, zoomKnoepfe, zoomZ, zoomZeile, type ZoomZ } from '@shared/zoom-text';
+import { BEDIEN_TEXT, TRAY_NDI_TEXT, gaesteZeile, ohneVorsatz, sdkZeile, slotKopfZeile, zoomKnoepfe, zoomZ, zoomZeile, type ZoomZ } from '@shared/zoom-text';
 import { ndiZahlen } from '../../../main/ndi-lage';
 
 /** Abschnitts-ids = Panel-Anker (`einstellung-{id}`) = settingsSection der Statuseinträge (B20). */
@@ -138,7 +138,10 @@ const ZOOM_ZUSTAND: Record<Exclude<ZoomZ, 'Z0'>, StatusState> = {
   Z7: 'warn', Z7b: 'warn', Z8: 'off', Z9: 'ok', Z9b: 'ok', Z10: 'warn', Z11: 'warn', Z12: 'warn', Z13: 'error',
 };
 
-/** Zoom nur unter Windows: ohne Status unbekannt, ohne Zoom (null, Z0) kein Eintrag, sonst die Zeile aus zoom-text. */
+/**
+ * Zoom nur unter Windows: ohne Status unbekannt, ohne Zoom (null, Z0) kein Eintrag, sonst die Zeile aus zoom-text ohne ihren
+ * Vorsatz „‹Symbol› Zoom: “ (Task 23: Symbol und Name zeigt die Leiste selbst).
+ */
 function zoomItems(s: Pick<OberflaechenStand, 'status' | 'plattform'>): StatusItem[] {
   if (!istWindows(s)) return [];
   const kopf = { id: 'zoom', group: 'verbindung', label: CONNECT_TEXTE.titel.zoom } as const;
@@ -146,7 +149,7 @@ function zoomItems(s: Pick<OberflaechenStand, 'status' | 'plattform'>): StatusIt
   const k = s.status.zoom;
   const zeile = zoomZeile(k);
   if (k === null || zeile === null) return [];
-  return [{ ...kopf, state: ZOOM_ZUSTAND[zoomZ(k) as Exclude<ZoomZ, 'Z0'>], detail: zeile }];
+  return [{ ...kopf, state: ZOOM_ZUSTAND[zoomZ(k) as Exclude<ZoomZ, 'Z0'>], detail: ohneVorsatz(zeile) }];
 }
 
 /**
@@ -178,13 +181,16 @@ function presenterItem(s: Pick<OberflaechenStand, 'status'>): StatusItem {
     : { ...kopf, state: 'off', detail: PEERS_TEXTE.zeileNichtGefunden };
 }
 
-/** Gast-NDI-Quellen: die Tray-Zeile (Regel R); ausgefallen oder Cloud fehlt warn, sendend ok, sonst off. */
+/**
+ * Gast-NDI-Quellen: die Tray-Zeile (Regel R) ohne ihren Vorsatz „‹Symbol› Gäste: “ (Task 23); ausgefallen oder Cloud fehlt warn,
+ * sendend ok, sonst off.
+ */
 function ndiGaesteItem(s: Pick<OberflaechenStand, 'status'>): StatusItem {
   const kopf = { id: 'ndi-gaeste', group: 'ausgabe', label: CONNECT_TEXTE.titel.ndiGaeste } as const;
   if (s.status === undefined) return unbekannt(kopf);
   const z = ndiZahlen(s.status.ndiGaeste);
   const state: StatusState = z.e === 0 ? (s.status.configured ? 'off' : 'warn') : z.a > 0 ? 'warn' : z.g > 0 ? 'ok' : 'off';
-  return { ...kopf, state, detail: gaesteZeile(s.status) };
+  return { ...kopf, state, detail: ohneVorsatz(gaesteZeile(s.status)) };
 }
 
 /** Zoom-Slots nur unter Windows und mit Zoom-Kurzform: Kopfzeile T31, dazu Ersatzbild und offene Slots. */

@@ -23,8 +23,23 @@ function alle<T>(name: string, faelle: readonly T[], gilt: (f: T) => boolean, ze
   for (const f of falsch.slice(0, 5)) console.log(`        z. B. ${zeige(f)}`);
 }
 
+/**
+ * Die Dateien des Hauptfensters (UX Welle 2b, Task 23): App.tsx rendert die Wurzel-View, die Teile stehen in R/views/. Die
+ * Quelltext-Wächter lesen sie mit `liesFenster`; eine fehlende Datei zählt als leer (dann scheitert die Prüfung, statt zu werfen).
+ */
+const FENSTER_DATEIEN = ['App.tsx', 'views/ConnectOberflaeche.tsx', 'views/CloudRaum.tsx', 'views/Fusszeile.tsx', 'views/Einstellungen.tsx', 'views/CloudZugang.tsx'];
+async function liesFenster(): Promise<{ alle: string[]; fenster: string; wurzel: string; spalte: string; fuss: string; oberflaeche: string }> {
+  const { readFileSync, existsSync } = await import('node:fs');
+  const lies = (p: string): string => {
+    const u = new URL(`../src/renderer/src/${p}`, import.meta.url);
+    return existsSync(u) ? readFileSync(u, 'utf8').replace(/\r\n/g, '\n') : '';
+  };
+  const alle = FENSTER_DATEIEN.map(lies);
+  return { alle, fenster: alle.join('\n'), wurzel: lies('views/ConnectOberflaeche.tsx'), spalte: lies('views/CloudRaum.tsx'), fuss: lies('views/Fusszeile.tsx'), oberflaeche: lies('lib/oberflaeche.ts') };
+}
+
 // ── Testhilfen ──
-const quelle = (o: Partial<NdiQuelleLage> = {}): NdiQuelleLage => ({
+const quelle =(o: Partial<NdiQuelleLage> = {}): NdiQuelleLage => ({
   schluessel: 'g1', art: 'kamera', label: 'JM Connect – Anna', zustand: 'sendet', grund: null, code: null, k: 0, empfaenger: null, ...o,
 });
 const gast = (o: Partial<GastAbzeichenEingabe> = {}): GastAbzeichenEingabe => ({
@@ -735,14 +750,15 @@ console.log('— C9 KF10: AppStatus über baueAppStatus (E44), Startwert APP_STA
   const lies = (pf: string): string => readFileSync(new URL(pf, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const ipcMain = lies('../src/main/ipc.ts');
   const tray = lies('../src/main/tray.ts');
-  const app = lies('../src/renderer/src/App.tsx');
+  // Seit Task 23 (UX Welle 2b): das Fenster sind App.tsx und R/views/ (FENSTER_DATEIEN), das Abzeichen steht im Cloud-Raum.
+  const { alle, fenster: app, spalte } = await liesFenster();
   ck('C9 KF10: currentStatus baut den Status nur über baueAppStatus', /export function currentStatus\(\): AppStatus \{\n\s*return baueAppStatus\(\{/.test(ipcMain));
   ck('C9 KF10: der Tray startet mit APP_STATUS_START, ohne eigenen Startwert', tray.includes('let status: AppStatus = APP_STATUS_START;') && !tray.includes('configured: false'));
   ck('C9 E42, E58: „Raum schließen“ im Tray hängt an e (jeder Eintrag), nicht an g', tray.includes("{ label: 'Raum schließen', enabled: status.ndiGaeste.length > 0,"));
-  ck('C9 E44: kein Leser der alten Felder mehr in Main, Tray und Fenster', ![ipcMain, tray, app].some((t) => /ndiSenders|programState|programSource/.test(t)));
-  const badge = (() => { const i = app.indexOf('function ProgramBadge('); return i < 0 ? '' : app.slice(i, app.indexOf('\n}\n', i)); })();
+  ck('C9 E44: kein Leser der alten Felder mehr in Main, Tray und Fenster (alle Fenster-Dateien)', alle.every((t) => t !== '') && ![ipcMain, tray, app].some((t) => /ndiSenders|programState|programSource/.test(t)));
+  const badge = (() => { const i = spalte.indexOf('function ProgramBadge('); return i < 0 ? '' : spalte.slice(i, spalte.indexOf('\n}\n', i)); })();
   ck('C9 Regel P: das Programm-Abzeichen kommt aus programmAbzeichen, ohne leeres <span /> für unbekannte Zustände',
-    badge.includes('programmAbzeichen({ lage: status.ndiProgramm, plattform: plattform() })') && !badge.includes('<span />'));
+    badge.includes('programmAbzeichen({ lage: status.ndiProgramm, plattform })') && !badge.includes('<span />'));
   ck('C9 Regel P: der volle Text des Abzeichens steht als title', badge.includes('title={titel(a)}'));
 }
 console.log('— C11 KF12: Kanäle jmc:logordner, jmc:ndi-neustart, jmc:programm-neustart, jmc:ndi-seite, jmc:lizenz');
@@ -805,7 +821,9 @@ console.log('— C12: Hauptfenster (Gastzeile, Kopfzeile, Link T133, Fußzeile, 
 {
   const { readFileSync, existsSync } = await import('node:fs');
   const lies = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-  const app = lies('../src/renderer/src/App.tsx');
+  // Seit Task 23 (UX Welle 2b): Rahmen und Wurzel-View in views/ConnectOberflaeche.tsx, Gastzeile und Kopfzeile im Cloud-Raum
+  // (views/CloudRaum.tsx), die Fußzeile in views/Fusszeile.tsx; „App.tsx“ der alten Prüfungen sind alle Fenster-Dateien.
+  const { alle, fenster: app, wurzel, spalte, fuss } = await liesFenster();
   const slots = lies('../src/renderer/src/zoom/SlotBereich.tsx');
   const index = lies('../src/main/index.ts');
   const mainIpc = lies('../src/main/ipc.ts');
@@ -813,12 +831,14 @@ console.log('— C12: Hauptfenster (Gastzeile, Kopfzeile, Link T133, Fußzeile, 
   const { LIZENZ_DATEI } = await import('../src/shared/ipc');
   const funktion = (s: string, kopf: string): string => { const i = s.indexOf(kopf); return i < 0 ? '' : s.slice(i, s.indexOf('\n}\n', i)); };
 
-  // PK52, LP3: T145 ist das erste „NDI“ des Hauptfensters; davor steht im JSX von App nur der Titel.
-  const appFn = funktion(app, 'export function App(');
-  const vorT145 = (() => { const r = appFn.indexOf('\n  return ('); const t = appFn.indexOf('{NDI_TEXT.t145}'); return r < 0 || t < r ? null : appFn.slice(r, t); })();
-  ck('C12 PK52: der Untertitel der Kopfzeile ist T145 aus @shared/ndi-text', appFn.includes('<p className="text-sm text-neutral-400">{NDI_TEXT.t145}</p>'));
-  ck('C12 PK52: vor T145 steht im JSX von App nur der Titel „JM Connect“ (kein „NDI“, kein Ausdruck)',
-    vorT145 !== null && !vorT145.includes('NDI') && !vorT145.includes('{') && vorT145.includes('<h1 className="text-xl font-bold">JM Connect</h1>'));
+  // PK52, LP3, B9: T145 ist das erste „NDI“ des Hauptfensters; im Kopf (AppShell) steht nur „JM Connect“, im Inhalt davor nichts.
+  const rahmenFn = funktion(wurzel, 'export function ConnectRahmen(');
+  const vorT145 = (() => { const r = rahmenFn.indexOf('\n  return ('); const t = rahmenFn.indexOf('{NDI_TEXT.t145}'); return r < 0 || t < r ? null : rahmenFn.slice(r, t); })();
+  const nachKopf = vorT145 === null || vorT145.indexOf('\n    >\n') < 0 ? null : vorT145.slice(vorT145.indexOf('\n    >\n'));
+  ck('C12 PK52, B9: der Untertitel T145 aus @shared/ndi-text ist die erste Zeile des Inhalts (der Kopf kennt keinen Untertitel)',
+    rahmenFn.includes('<p data-connect="untertitel" className="mb-3 text-sm text-[var(--muted-foreground)]">{NDI_TEXT.t145}</p>'));
+  ck('C12 PK52: vor T145 steht im Fenster nur der Kopf „JM Connect“ (AppShell ohne Mitte, kein „NDI“, im Inhalt kein Ausdruck davor)',
+    vorT145 !== null && nachKopf !== null && !vorT145.includes('NDI') && !vorT145.includes('headerCenter') && vorT145.includes('<AppShell\n      tool="Connect"') && !nachKopf.includes('{'));
   ck('C12 PK52, LP3: T145 trägt das ® am ersten „NDI“', NDI_TEXT.t145.indexOf('NDI®') === NDI_TEXT.t145.indexOf('NDI') && NDI_TEXT.t145.includes('NDI®'));
   ck('C12 PK52, E55: unter macOS trägt das Fenster „Über JM Connect“ T134 (setAboutPanelOptions, credits)',
     index.includes("if (process.platform === 'darwin') app.setAboutPanelOptions({ credits: NDI_TEXT.t134 });"));
@@ -829,48 +849,51 @@ console.log('— C12: Hauptfenster (Gastzeile, Kopfzeile, Link T133, Fußzeile, 
 
   // PK56: eine Quelle für die Texte (22.9).
   const LITERALE = ['Programm sucht', 'Programm: keine Quelle', 'Programm ●', 'NDI ●', 'NDI ausgefallen', 'Teilt seinen Bildschirm', 'Remote-Zuschaltungen'];
-  ck('C12 PK56: App.tsx enthält keines der Literale „Programm sucht“, „Programm: keine Quelle“, „Programm ●“, „NDI ●“, „NDI ausgefallen“, „Teilt seinen Bildschirm“, „Remote-Zuschaltungen“',
-    LITERALE.every((l) => !app.includes(l)));
-  ck('C12 PK56: App.tsx importiert die NDI-Texte aus @shared/ndi-text', /^import \{[^}]*\bNDI_TEXT\b[^}]*\} from '@shared\/ndi-text';$/m.test(app));
+  ck('C12 PK56: die Fenster-Dateien enthalten keines der Literale „Programm sucht“, „Programm: keine Quelle“, „Programm ●“, „NDI ●“, „NDI ausgefallen“, „Teilt seinen Bildschirm“, „Remote-Zuschaltungen“',
+    alle.every((t) => t !== '') && LITERALE.every((l) => !app.includes(l)));
+  ck('C12 PK56: jede Fenster-Datei mit NDI-Texten importiert sie aus @shared/ndi-text (Wurzel-View, Cloud-Raum, Fußzeile)',
+    [wurzel, spalte, fuss].every((t) => t.includes('NDI_TEXT')) && alle.filter((t) => t.includes('NDI_TEXT')).every((t) => /^import \{[^}]*\bNDI_TEXT\b[^}]*\} from '@shared\/ndi-text';$/m.test(t)));
 
   // Regel G und P an ihren Orten (22.5 Orte 1, 2, 4, 5).
-  ck('C12 Regel G: die Gastzeile nimmt die Abzeichen beider Quellen aus gastAbzeichen', app.includes('abzeichen: gastAbzeichen({') && app.includes("ndiPoolKey(g.id, 'screen')"));
-  ck('C12 Regel G: die Grundzeile startet genau diese Quelle neu (jmc:ndi-neustart mit ihrem Schlüssel)', app.includes('window.jmconnect.ndiNeustart({ schluessel: n.schluessel })'));
-  ck('C12 T113: der Tooltip „🖥 Bildschirm“ kommt aus bildschirmTooltip', app.includes('title={bildschirmTooltip(g.name)}'));
-  const kopf = funktion(app, 'function Kopfzeile(');
+  ck('C12 Regel G: die Gastzeile nimmt die Abzeichen beider Quellen aus gastAbzeichen', spalte.includes('abzeichen: gastAbzeichen({') && spalte.includes("ndiPoolKey(g.id, 'screen')"));
+  ck('C12 Regel G: die Grundzeile startet genau diese Quelle neu (jmc:ndi-neustart mit ihrem Schlüssel)', spalte.includes('window.jmconnect.ndiNeustart({ schluessel: n.schluessel })'));
+  ck('C12 T113: der Tooltip „🖥 Bildschirm“ kommt aus bildschirmTooltip', spalte.includes('title={bildschirmTooltip(g.name)}'));
+  const kopf = funktion(spalte, 'function Kopfzeile(');
   ck('C12 Regel P: die Kopfzeile nimmt Abzeichen und Grundzeile aus programmAbzeichen, dazu Link T133 und „Programm neu starten“',
-    kopf.includes('programmAbzeichen({ lage: status.ndiProgramm, plattform: plattform() })') && kopf.includes('<NdiLink stelle="linkGaeste" />')
+    kopf.includes('programmAbzeichen({ lage: status.ndiProgramm, plattform })') && kopf.includes('<NdiLink stelle="linkGaeste" />')
       && kopf.includes('window.jmconnect.programmNeustart()'));
   ck('C12 E53: die Kopfzeile steht, sobald der Empfang nicht aus ist, auch ohne Raumverbindung',
-    app.includes('{status && kopfzeileSichtbar({ programm: status.ndiProgramm.zustand, raumverbunden: connected }) && ('));
-  ck('C12 22.5 Ort 4: Fußzeile mit T134, „Logordner öffnen“ und „Lizenzbedingungen“ (T142), auf beiden Plattformen',
-    app.includes('<span>{NDI_TEXT.t134}</span>') && app.includes('stelle="logordnerFusszeile"')
-      && app.includes('stelle="lizenz" text={NDI_TEXT.t142Lizenz} oeffnen={() => window.jmconnect.lizenz()}') && app.includes('      <Fusszeile />'));
+    spalte.includes('{status && kopfzeileSichtbar({ programm: status.ndiProgramm.zustand, raumverbunden: connected }) && ('));
+  ck('C12 22.5 Ort 4: Fußzeile mit T134, „Logordner öffnen“ und „Lizenzbedingungen“ (T142), auf beiden Plattformen (ohne Bedingung im Rahmen)',
+    fuss.includes('<span>{NDI_TEXT.t134}</span>') && fuss.includes('stelle="logordnerFusszeile"')
+      && fuss.includes('stelle="lizenz" text={NDI_TEXT.t142Lizenz} oeffnen={() => window.jmconnect.lizenz()}') && /\n {8}<Fusszeile \/>\n/.test(rahmenFn));
   ck('C12 22.5 Ort 5, LP1: Link T133 im Kopf „Zoom-Slots“', slots.includes('<NdiLink stelle="linkSlots" />'));
   const knopf = funktion(slots, 'export function OeffnenKnopf(');
   ck('C12 E35, 22.10: T143 kommt aus oeffnenMeldung neben dem Knopf, der bedienbar bleibt',
     knopf.includes('const meldung = oeffnenMeldung(stelle, letztes, pfad);') && !knopf.includes('disabled'));
 
-  // PK55 (Renderer): die T140-Frist rechnet monoton; Date.now() steht in App.tsx höchstens am Aufruf von raumAbbruch (C13).
-  ck('C12 PK55, C-EP16: die Frist für T140 nimmt performance.now()', /function useOhneEintragSeit\([\s\S]*?performance\.now\(\)[\s\S]*?\n\}\n/.test(app));
-  ck('C12 PK55: Date.now() in App.tsx nur am Aufruf von raumAbbruch',
-    app.split('Date.now()').length === app.split('raumAbbruch({ verbunden: false, jetzt: Date.now(),').length);
+  // PK55 (Renderer): die T140-Frist rechnet monoton; Date.now() steht im Fenster höchstens am Aufruf von raumAbbruch (C13).
+  ck('C12 PK55, C-EP16: die Frist für T140 nimmt performance.now()', /function useOhneEintragSeit\([\s\S]*?performance\.now\(\)[\s\S]*?\n\}\n/.test(spalte));
+  ck('C12 PK55: Date.now() in den Fenster-Dateien nur am Aufruf von raumAbbruch',
+    app !== '' && app.split('Date.now()').length === app.split('raumAbbruch({ verbunden: false, jetzt: Date.now(),').length);
 
   // Regel G, C-EP16 (Nachbesserung C-robust:4): T140 erscheint nach 3 s nur, weil ein Zeitgeber das Fenster neu zeichnet;
   // ohne ihn stünde T140 erst beim nächsten fremden Status- oder Raum-Push. Die Frist kommt aus T140_NACH_MS (eine Quelle).
   {
-    const uhr = funktion(app, 'function useOhneEintragSeit(');
+    const uhr = funktion(spalte, 'function useOhneEintragSeit(');
     ck('C12 Regel G, C-EP16: nach T140_NACH_MS ohne Eintrag zeichnet ein Zeitgeber das Fenster neu (T140 ohne fremden Push)',
       uhr.includes('.map((t) => T140_NACH_MS - (performance.now() - t)).filter((r) => r > 0);')
         && uhr.includes('const t = setTimeout(() => setTakt((n) => n + 1), Math.min(...rest) + 1);')
-        && uhr.includes('return () => clearTimeout(t);') && /^import \{[^}]*\bT140_NACH_MS\b[^}]*\} from '@shared\/ndi-text';$/m.test(app));
+        && uhr.includes('return () => clearTimeout(t);') && /^import \{[^}]*\bT140_NACH_MS\b[^}]*\} from '@shared\/ndi-text';$/m.test(spalte));
   }
 }
 console.log('— C13: Raum-Bereich nach Regel V, Raumabbruch, T146, Raum-Folge (OE3), Tray-Abo (Quelltext; PK55, PK56, PK58, PK60, OE4 b)');
 {
   const { readFileSync } = await import('node:fs');
   const lies = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-  const app = lies('../src/renderer/src/App.tsx');
+  // Seit Task 23 (UX Welle 2b): Raum-Client, Abläufe und Abos in der Wurzel-View (views/ConnectOberflaeche.tsx), der Raum-Bereich
+  // im Cloud-Raum (views/CloudRaum.tsx), die Sperren von Talkback und Halte-Knopf in lib/oberflaeche.ts (talkbackTaste, gastHalten).
+  const { fenster: app, wurzel, spalte, oberflaeche } = await liesFenster();
   const raum = lies('../src/main/room.ts');
   /** Text ab `start` bis vor das nächste `ende` (leer, wenn `start` fehlt). */
   const abschnitt = (s: string, start: string, ende: string): string => {
@@ -880,7 +903,7 @@ console.log('— C13: Raum-Bereich nach Regel V, Raumabbruch, T146, Raum-Folge (
     return j < 0 ? s.slice(i) : s.slice(i, j);
   };
   const zaehle = (s: string, t: string): number => s.split(t).length - 1;
-  const appFn = abschnitt(app, 'export function App(', '\n}\n');
+  const appFn = abschnitt(wurzel, 'export function ConnectOberflaeche(', '\n}\n');
   const openFn = abschnitt(appFn, '  const openRoom = useCallback(', '\n  );\n');
   const closeFn = abschnitt(appFn, '  const closeRoom = useCallback(', '\n  );\n');
   const onOpen = abschnitt(openFn, 'onOpen: () => {', '\n            },');
@@ -888,6 +911,8 @@ console.log('— C13: Raum-Bereich nach Regel V, Raumabbruch, T146, Raum-Folge (
   const fehlerZweig = abschnitt(openFn, '} catch (e) {', '} finally {');
   const effekt = abschnitt(appFn, '  useEffect(() => {\n    void window.jmconnect.getStatus()', '\n  }, [');
   const wachhund = abschnitt(appFn, '  const wachhundWeg = useCallback(', '\n  }, [');
+  const haupt = abschnitt(spalte, 'export function haupttasten(', '\n}\n');
+  const halte = abschnitt(spalte, 'export function gastTalkback(', '\n}\n');
 
   // PK58: Regel V im Fenster.
   ck('C13 PK58: der Raum-Bereich entsteht nur über raumAnsicht, kein Raum-Zweig {!connected ? ( mehr',
@@ -898,16 +923,19 @@ console.log('— C13: Raum-Bereich nach Regel V, Raumabbruch, T146, Raum-Folge (
   ck('C13 PK58: „Client besteht“ gesetzt in openRoom, zurückgesetzt in closeRoom, im Fehlerzweig und beim Raumabbruch (und nirgends sonst)',
     openFn.includes('setClientBesteht(true);') && closeFn.includes('setClientBesteht(false);') && fehlerZweig.includes('setClientBesteht(false);')
       && onClose.includes('setClientBesteht(false);') && zaehle(app, 'setClientBesteht(') === 4);
-  ck('C13 PK58: Gast-Aktionen, die Talkback-Knöpfe und der Folien-Knopf bekommen die Sperre aus raumAnsicht',
-    app.includes('<GuestActions guest={g} send={send} gesperrt={!ansicht.wsKnoepfeBedienbar} />') && zaehle(app, 'disabled={!ansicht.wsKnoepfeBedienbar}') === 3
-      && zaehle(abschnitt(app, 'function GuestActions(', '\n}\n'), 'disabled={gesperrt}') === 7 && abschnitt(app, 'function PttButton(', '\n}\n').includes('disabled={disabled}'));
-  ck('C13 PK58: „Link erzeugen“ nur mit Raumverbindung (raumAnsicht)', /onClick=\{inviteGuest\}\n\s*disabled=\{!ansicht\.linkErzeugenBedienbar\}/.test(app));
+  ck('C13 PK58: Gast-Aktionen, Talkback alle, der Halte-Knopf je Gast und der Folien-Knopf bekommen die Sperre aus raumAnsicht',
+    spalte.includes('<GuestActions guest={g} send={aktionen.send} gesperrt={!ansicht.wsKnoepfeBedienbar} />') && zaehle(spalte, 'disabled={!ansicht.wsKnoepfeBedienbar}') === 1
+      && zaehle(abschnitt(spalte, 'function GuestActions(', '\n}\n'), 'disabled={gesperrt}') === 7
+      && haupt.includes('const talkback = talkbackTaste(s);') && halte.includes('const halten = gastHalten(s, g);')
+      && /const raumGrund = [^\n]*s\.ansicht\.wsKnoepfeBedienbar \? undefined : CONNECT_TEXTE\.grund\.raumNichtVerbunden/.test(oberflaeche));
+  ck('C13 PK58: „Link erzeugen“ nur mit Raumverbindung (raumAnsicht)',
+    /onClick=\{\(\) => aktionen\.gastEinladen\(\)\}\n\s*disabled=\{!ansicht\.linkErzeugenBedienbar\}/.test(spalte) && appFn.includes('gastEinladen: () => void inviteGuest(),'));
   ck('C13 PK58: talkbackDown, talkbackUp und der Folien-Handler prüfen die Raumverbindung vor send und Audit-Zeile, über verbundenRef, nicht roomRef',
     ['const talkbackDown = useCallback(', 'const talkbackUp = useCallback(', 'const folien = useCallback('].every((k) => {
       const t = abschnitt(appFn, k, '[send]');
       const p = t.indexOf('if (!verbundenRef.current) return;');
       return p >= 0 && p < t.indexOf('send(') && p < t.indexOf('window.jmconnect.audit(') && !t.includes('roomRef');
-    }) && app.includes('onClick={() => folien(g)}'));
+    }) && spalte.includes('onClick={() => aktionen.folien(g)}') && /\n\s*talkbackDown,\n\s*talkbackUp,\n\s*folien,\n\s*send,\n/.test(appFn));
   ck('C13 PK58: der Ref der Raumverbindung folgt onOpen und onClose', onOpen.includes('verbundenRef.current = true;') && onClose.includes('verbundenRef.current = false;'));
   ck('C13 PK58, E57: onClose prüft den Raumabbruch nur für den Client, auf den clientRef noch zeigt',
     onClose.includes('if (clientRef.current !== client) return;') && onClose.indexOf('if (clientRef.current !== client) return;') < onClose.indexOf('raumAbbruch('));
@@ -936,17 +964,18 @@ console.log('— C13: Raum-Bereich nach Regel V, Raumabbruch, T146, Raum-Folge (
   ck('C13 E58: Knopf und Tray rufen dieselbe Funktion closeRoom (keine zweite Schließ-Funktion)', zaehle(app, 'window.jmconnect.closeRoom()') === 1);
 
   // PK55, PK56.
-  ck('C13 PK55: Date.now() steht in App.tsx genau einmal, am Aufruf von raumAbbruch', zaehle(app, 'Date.now()') === 1 && onClose.includes('jetzt: Date.now()'));
-  ck('C13 PK56: App.tsx enthält „Keine Verbindung zum Raum“ und „Verbindung zum Raum beendet“ nicht als Literal (T141, T144, T146)',
-    !app.includes('Keine Verbindung zum Raum') && !app.includes('Verbindung zum Raum beendet'));
+  ck('C13 PK55: Date.now() steht in den Fenster-Dateien genau einmal, am Aufruf von raumAbbruch', zaehle(app, 'Date.now()') === 1 && onClose.includes('jetzt: Date.now()'));
+  ck('C13 PK56: die Fenster-Dateien enthalten „Keine Verbindung zum Raum“ und „Verbindung zum Raum beendet“ nicht als Literal (T141, T144, T146)',
+    app !== '' && !app.includes('Keine Verbindung zum Raum') && !app.includes('Verbindung zum Raum beendet'));
   ck('C13 Regel V: T141, T144 und sein Zusatz kommen aus NDI_TEXT, gesteuert von raumAnsicht',
-    app.includes('{ansicht.t141 && (') && app.includes('{NDI_TEXT.t141}') && app.includes('{ansicht.t144 && (') && app.includes('{NDI_TEXT.t144}')
-      && app.includes("{ansicht.t144Zusatz ? NDI_TEXT.t144Zusatz : ''}"));
-  ck('C13 Regel V, E53: die Gästeliste steht, sobald raumAnsicht sie zeigt (auch ohne Raumverbindung)', app.includes('{ansicht.gaesteliste && (') && !app.includes('{connected && ('));
+    spalte.includes('{ansicht.t141 && (') && spalte.includes('{NDI_TEXT.t141}') && spalte.includes('{ansicht.t144 && (') && spalte.includes('{NDI_TEXT.t144}')
+      && spalte.includes("{ansicht.t144Zusatz ? NDI_TEXT.t144Zusatz : ''}"));
+  ck('C13 Regel V, E53: die Gästeliste steht, sobald raumAnsicht sie zeigt (auch ohne Raumverbindung)', spalte.includes('{ansicht.gaesteliste && (') && !app.includes('{connected && ('));
   // GG2, OFC2 (Vorgabe wie OE2 für T146; Nachbesserung C-gesamt:3): C13 schreibt die Zeile des Knopfs neu, also mit dem
-  // schließenden deutschen Anführungszeichen statt des geraden ASCII-Zeichens.
+  // schließenden deutschen Anführungszeichen statt des geraden ASCII-Zeichens. Seit Task 22/23 steht der Text in CONNECT_TEXTE.
   ck('C13 GG2, OFC2: der Knopf „Raum öffnen“ mit Show setzt den Raum in deutsche Anführungszeichen, ohne ASCII-Anführungszeichen',
-    app.includes('{show ? `Raum „${show.room}“ öffnen` : \'Raum öffnen\'}') && !app.includes('Raum „${show.room}"'));
+    oberflaeche.includes('raumMitShow: (raum: string): string => `Raum „${raum}“ öffnen`,') && oberflaeche.includes('CONNECT_TEXTE.taste.raumMitShow(show.room)')
+      && haupt.includes('const raum = raumTaste(s, show);') && !app.includes('Raum „${show.room}"') && !oberflaeche.includes('Raum „${raum}"'));
 }
 // ── C16 · T135 gegen electron-builder.yml (PK52, E49, C-EP11) ──
 {
@@ -970,9 +999,8 @@ console.log('— C13: Raum-Bereich nach Regel V, Raumabbruch, T146, Raum-Folge (
 
 console.log('— Nachtrag C (M-C13-3, M-C13-1, R21): spätes Schließen eines ersetzten Clients, Ablehnung von closeRoom (Quelltext)');
 {
-  const { readFileSync } = await import('node:fs');
-  const lies = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-  const app = lies('../src/renderer/src/App.tsx');
+  // Seit Task 23 (UX Welle 2b): die Abläufe in der Wurzel-View, die Knöpfe im Cloud-Raum (FENSTER_DATEIEN).
+  const { fenster: app, wurzel, spalte } = await liesFenster();
   /** Text ab `start` bis vor das nächste `ende` (leer, wenn `start` fehlt). */
   const abschnitt = (s: string, start: string, ende: string): string => {
     const i = s.indexOf(start);
@@ -981,7 +1009,7 @@ console.log('— Nachtrag C (M-C13-3, M-C13-1, R21): spätes Schließen eines er
     return j < 0 ? s.slice(i) : s.slice(i, j);
   };
   const zaehle = (s: string, t: string): number => s.split(t).length - 1;
-  const appFn = abschnitt(app, 'export function App(', '\n}\n');
+  const appFn = abschnitt(wurzel, 'export function ConnectOberflaeche(', '\n}\n');
   const openFn = abschnitt(appFn, '  const openRoom = useCallback(', '\n  );\n');
   const closeFn = abschnitt(appFn, '  const closeRoom = useCallback(', '\n  );\n');
   const onClose = abschnitt(openFn, 'onClose: () => {', '\n            },');
@@ -994,10 +1022,12 @@ console.log('— Nachtrag C (M-C13-3, M-C13-1, R21): spätes Schließen eines er
   ck('Nachtrag C M-C13-1: closeRoom fängt die Ablehnung des IPC-Aufrufs und zeigt sie im Fehlerfeld wie openRoom (kein neuer Text)',
     /try \{\n\s*await window\.jmconnect\.closeRoom\(\);\n\s*\} catch \(e\) \{\n\s*setError\(e instanceof Error \? e\.message : String\(e\)\);\n\s*\}/.test(closeFn)
       && fehlerZweig.includes(FEHLERFELD) && zaehle(app, 'window.jmconnect.closeRoom()') === 1);
+  // Zwei Knöpfe wie bisher: die Raum-Taste (B21, schließt mit Client) und „Raum schließen“ nach einem Raumabbruch neben T144.
   ck('Nachtrag C M-C13-1: Knopf und Tray rufen weiter dieselbe Funktion closeRoom, die nicht mehr ablehnt',
-    zaehle(app, 'onClick={closeRoom}') === 2 && app.includes("if (cmd.kind === 'closeRoom') void closeRoom();"));
+    zaehle(appFn, 'raumSchliessen: () => void closeRoom(),') === 1 && zaehle(spalte, 'onClick={() => aktionen.raumSchliessen()}') === 1
+      && abschnitt(spalte, 'export function haupttasten(', '\n}\n').includes('onClick: s.ansicht.raumOeffnen ? a.raumOeffnen : a.raumSchliessen')
+      && zaehle(app, 'closeRoom') === zaehle(appFn, 'closeRoom') && wurzel.includes("if (cmd.kind === 'closeRoom') void closeRoom();"));
 }
-
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──
 console.log(`\n${pass} ok, ${fail} fehlgeschlagen.`);
 process.exit(fail === 0 ? 0 : 1);

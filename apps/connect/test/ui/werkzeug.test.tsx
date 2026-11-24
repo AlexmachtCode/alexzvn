@@ -1,10 +1,11 @@
 // UX Welle 2b, Connect b (Task 21) · Werkzeug der Oberflächentests (Muster b Punkt 1): tsx mit tsconfig.test.json rendert JSX
 // aus @jm/ui und @jm/settings, löst die Aliase @/ und @shared/ auf und zählt mit EINEM Zähler (@jm/ui/testhilfe). Dazu statische
-// Wächter der Verdrahtung: Skripte (die älteren Tests bleiben in der Kette), Abhängigkeiten samt Lock-Zeile, CI-Schritt. Das
-// @source für @jm/ui und die Schrift kommen mit dem Rahmen (Task 23).
+// Wächter der Verdrahtung: Skripte (die älteren Tests bleiben in der Kette), Abhängigkeiten samt Lock-Zeile, CI-Schritt; seit dem
+// Rahmen (Task 23) auch globals.css mit @source für @jm/ui und @jm/settings, die Schrift Manrope und index.html mit class="dark".
 // Arbeitsverzeichnis ist apps/connect (npm run selftest -w @jm/connect); leseText liest relativ dazu.
 import { RemoteControlSection } from '@jm/settings';
 import { Button } from '@jm/ui';
+import { existsSync } from 'node:fs';
 import { enthaelt, gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import { toDataUrl } from '@/lib/qr';
 import { IPC } from '@shared/ipc';
@@ -46,13 +47,32 @@ import { ohneKommentare } from './testzustand';
     'CN Werkzeug rendert: typecheck prüft auch die Oberflächentests (typecheck:test ist verkettet, sonst sähe die CI sie nicht)',
   );
   ok(paket.dependencies['@jm/settings'] === '*' && paket.dependencies['@jm/ui'] === '*', 'CN Werkzeug rendert: @jm/ui und @jm/settings sind Abhängigkeiten von Connect');
-  ok(typeof paket.dependencies['@fontsource-variable/manrope'] === 'string', 'CN Werkzeug rendert: die Schrift Manrope ist Abhängigkeit von Connect (Umschalten in Task 23)');
+  ok(typeof paket.dependencies['@fontsource-variable/manrope'] === 'string', 'CN Werkzeug rendert: die Schrift Manrope ist Abhängigkeit von Connect (base.css bindet sie ein)');
   gleich(paket.devDependencies.tsx, JSON.parse(leseText('../timer/package.json')).devDependencies.tsx, 'CN Werkzeug rendert: tsx ist devDependency von Connect (Version wie Timer)');
   const lock = JSON.parse(leseText('../../package-lock.json'));
   // npm sortiert die Schlüssel im Lock; verglichen wird der Inhalt, nicht die Reihenfolge.
   const sortiert = (o: Record<string, string>): Array<[string, string]> => Object.entries(o).sort(([a], [b]) => (a < b ? -1 : 1));
   gleich(sortiert(lock.packages['apps/connect'].dependencies), sortiert(paket.dependencies), 'CN Werkzeug rendert: Abhängigkeiten in package.json und im Lock-Block apps/connect gleich');
   gleich(sortiert(lock.packages['apps/connect'].devDependencies), sortiert(paket.devDependencies), 'CN Werkzeug rendert: devDependencies in package.json und im Lock-Block apps/connect gleich');
+}
+{
+  // Muster Interpreter/Presenter (Task 23): ohne @source fände Tailwind die Klassen der Bausteine nicht, sie wären still ungestylt.
+  const css = leseText('src/renderer/src/globals.css');
+  ok(
+    css.includes(['@import "tailwindcss";', '@import "@jm/ui/base.css";', '@source "../../../../../packages/ui/src";', '@source "../../../../../packages/settings/src";', ''].join(String.fromCharCode(10))),
+    'CN Werkzeug rendert: globals.css lädt Tailwind und @jm/ui/base.css und scannt @jm/ui und direkt danach @jm/settings (@source), sonst fehlen Klassen der Bausteine',
+  );
+  ok(css.includes('--font-sans: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;') && css.includes('font-family: var(--font-sans);'), 'CN Werkzeug rendert: globals.css schaltet die Schrift auf Manrope (Tokens aus @jm/ui)');
+  ok(!existsSync('src/renderer/src/index.css') && /^import '\.\/globals\.css';$/m.test(leseText('src/renderer/src/main.tsx')) && !leseText('src/renderer/src/main.tsx').includes('index.css'), 'CN Werkzeug rendert: index.css ist nach globals.css umgezogen, main.tsx lädt globals.css');
+  const html = leseText('src/renderer/index.html');
+  ok(html.includes('<html lang="de" class="dark">') && html.includes('http-equiv="Content-Security-Policy"'), 'CN Werkzeug rendert: index.html trägt class="dark" (B4) und behält die Meta-CSP');
+  // Manrope bringt kleine Schnitte, die Vite als data:-Schrift einbettet; die Meta-CSP erlaubt Schriften wie die Laufzeit-CSP
+  // (packages/app-runtime/src/csp.ts: font-src 'self' data:), sonst meldet die Konsole bei jedem Start einen Fehler (Task 23, gemessen).
+  const csp = /content="([^"]*)"/.exec(html.slice(html.indexOf('Content-Security-Policy')))?.[1] ?? '';
+  ok(
+    csp.split(';').map((d) => d.trim()).includes("font-src 'self' data:") && csp.includes("connect-src 'self' https: wss:") && csp.includes("img-src 'self' data:") && csp.includes("script-src 'self'"),
+    'CN Werkzeug rendert: die Meta-CSP erlaubt Schriften wie die Laufzeit-CSP (font-src self data:) und behält connect-src, img-src und script-src',
+  );
 }
 {
   // Nur der Job „Selbsttests“ zählt: von seinem Schlüssel bis zum nächsten Job-Schlüssel (zwei Leerzeichen eingerückt).

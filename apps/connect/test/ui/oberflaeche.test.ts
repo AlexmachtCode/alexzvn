@@ -5,16 +5,14 @@ import * as settings from '@jm/settings';
 import { ABSCHNITT_TEXTE, PEERS_TEXTE, REMOTE_TEXTE } from '@jm/settings';
 import { MASTER_LINK_TEXTE, UNBEKANNT, ordneStatus, type StatusItem } from '@jm/ui';
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
-import type { Guest, GuestPhase, RoomState, TalkbackMode } from '@jm/rtc/protocol';
+import type { RoomState, TalkbackMode } from '@jm/rtc/protocol';
 import { onAirGuests } from '@jm/rtc/state';
-import { baueAppStatus, type AppStatusEingabe } from '@shared/app-status';
 import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import * as ndiText from '@shared/ndi-text';
 import { programmAbzeichen } from '@shared/ndi-text';
-import { raumAnsicht, type RaumAnsichtEingabe } from '@shared/raum-ansicht';
 import type { AppStatus, NdiProgrammLage, NdiProgrammZustand, NdiQuelleLage, ZoomAbbild, ZoomKurz, ZoomMangel, ZoomZustand } from '@shared/types';
 import * as zoomText from '@shared/zoom-text';
-import { BEDIEN_TEXT, gaesteZeile, sdkZeile, slotKopfZeile, zoomZ, zoomZeile, type ZoomZ } from '@shared/zoom-text';
+import { BEDIEN_TEXT, gaesteZeile, ohneVorsatz, sdkZeile, slotKopfZeile, zoomZ, zoomZeile, type ZoomZ } from '@shared/zoom-text';
 import {
   ABSCHNITT,
   CONNECT_TEXTE,
@@ -29,48 +27,11 @@ import {
   type OberflaechenStand,
 } from '@/lib/oberflaeche';
 import { kreuz, pruefeFaelle, vergleiche } from './hilfe';
-import { basisMeldung, ohneKommentare } from './testzustand';
+import { LAGE, ansicht, appStatus, basisMeldung, gast, ohneKommentare, raum, stand } from './testzustand';
 
 const BELEGT = 'listen EADDRINUSE: address already in use :::8737';
 
-// ── Bausteine ──
-const LAGE: NdiProgrammLage = { zustand: 'aus', grund: null, code: null, k: 0, quelle: null, hinweis: 'JM Switcher', bereit: false };
-function appStatus(teil: Partial<AppStatusEingabe> = {}): AppStatus {
-  return baueAppStatus({
-    configured: true,
-    proxyBase: 'https://cloud.example',
-    proxyKeySource: 'none',
-    controlPort: 8737,
-    ndiGaeste: [],
-    ndiProgramm: LAGE,
-    presenterLinked: false,
-    zoom: null,
-    cloudZugang: { text: 'Angemeldet über den Launcher', ton: 'ok' },
-    ...teil,
-  });
-}
-function ansicht(teil: Partial<RaumAnsichtEingabe> = {}): OberflaechenStand['ansicht'] {
-  return raumAnsicht({ client: false, verbunden: false, raumBekannt: false, raumabbruch: false, ...teil });
-}
-function stand(teil: Partial<OberflaechenStand> = {}): OberflaechenStand {
-  return {
-    status: undefined,
-    room: undefined,
-    connected: false,
-    ansicht: ansicht(),
-    zoom: undefined,
-    plattform: 'win32',
-    masterLink: undefined,
-    fernsteuerung: undefined,
-    ...teil,
-  };
-}
-function gast(id: string, phase: GuestPhase): Guest {
-  return { id, name: `Gast ${id}`, phase, tally: 'off', consentAt: null, muted: false, hasVideo: true, hasScreen: false, canAdvance: false, joinedAt: 0 };
-}
-function raum(phasen: GuestPhase[] = [], talkback: RoomState['talkback'] = { mode: 'off', target: null }): RoomState {
-  return { room: 'raum-1', guests: phasen.map((p, i) => gast(`g${i + 1}`, p)), standbyId: null, talkback };
-}
+// ── Bausteine (appStatus, ansicht, stand, gast, raum: testzustand.ts) ──
 const BASIS_KURZ: ZoomKurz = {
   zustand: 'bereit', warten: null, erlaubnis: null, slotsLaufen: 0, slotsErsatz: 0, slotsOffen: 0, slotsAn: 0, slotsGestopptEntzug: 0,
   slotKurz: [], versuch: null, maengel: [], kopieLaeuft: false, befehl: null,
@@ -187,13 +148,19 @@ const unbekanntOff = `off ${UNBEKANNT}`;
 {
   const symbolZustand: Record<string, string> = { '●': 'ok', '△': 'warn', '◌': 'warn', '○': 'off', '✕': 'error' };
   const faelle = kreuz({ plattform: ['win32', 'darwin'], zeile: [null, ...ZOOM_ZEILEN] });
-  pruefeFaelle('CN Statusleiste zoom: unbekannt · Z1a–Z13, nur Windows, Zustand wie das Symbol der Zeile', faelle, (f) => {
+  pruefeFaelle('CN Statusleiste zoom: unbekannt · Z1a–Z13, nur Windows, Zustand wie das Symbol der Zeile, Text ohne Vorsatz', faelle, (f) => {
     const st = appStatus({ zoom: f.zeile === null ? null : f.zeile.k });
     const i = eintrag(stand({ plattform: f.plattform, status: st }), 'zoom');
     if (f.plattform !== 'win32') return i === undefined ? null : 'Eintrag unter macOS';
     if (f.zeile === null) return i === undefined ? null : 'Eintrag ohne Zoom';
     const zeile = zoomZeile(f.zeile.k)!;
-    return vergleiche(sd(i), `${symbolZustand[[...zeile][0]!]} ${zeile}`) ?? kopfOk(i, 'zoom', 'verbindung', CONNECT_TEXTE.titel.zoom);
+    return vergleiche(sd(i), `${symbolZustand[[...zeile][0]!]} ${ohneVorsatz(zeile)}`) ?? kopfOk(i, 'zoom', 'verbindung', CONNECT_TEXTE.titel.zoom);
+  });
+  // Task 23 (doppeltes Symbol): Die Leiste zeigt Symbol und Namen selbst; ohneVorsatz nimmt genau „‹Symbol› Zoom: “ weg.
+  pruefeFaelle('CN Statusleiste zoom: jede Zeile Z1a–Z13 beginnt mit „‹Symbol› Zoom: “, ohneVorsatz nimmt genau das weg', ZOOM_ZEILEN, (f) => {
+    const zeile = zoomZeile(f.k)!;
+    const vorsatz = `${[...zeile][0]!} Zoom: `;
+    return zeile.startsWith(vorsatz) && symbolZustand[[...zeile][0]!] !== undefined ? vergleiche(ohneVorsatz(zeile), zeile.slice(vorsatz.length)) : `ohne Vorsatz: ${zeile}`;
   });
   gleich(sd(eintrag(stand(), 'zoom')), unbekanntOff, 'CN Statusleiste zoom: ohne Status unbekannt (nicht „kein Zoom“)');
   ok(eintrag(stand({ plattform: 'darwin' }), 'zoom') === undefined, 'CN Statusleiste zoom: unter macOS auch ohne Status kein Eintrag');
@@ -245,14 +212,21 @@ const unbekanntOff = `off ${UNBEKANNT}`;
   const ZS: NdiQuelleLage['zustand'][] = ['startet', 'sendet', 'ohneBild', 'neustart', 'gescheitert'];
   const mengen: NdiQuelleLage[][] = [[], ...ZS.map((z) => [quelle(z, 1)]), ...kreuz({ a: ZS, b: ZS }).map((f) => [quelle(f.a, 1), quelle(f.b, 2)])];
   const faelle = kreuz({ lagen: mengen, configured: [true, false] });
-  pruefeFaelle('CN Statusleiste ndi-gaeste: Zählung je Lage (keine · starten · senden · ausgefallen), Zustand wie das Symbol', faelle, (f) => {
+  pruefeFaelle('CN Statusleiste ndi-gaeste: Zählung je Lage (keine · starten · senden · ausgefallen), Zustand wie das Symbol, Text ohne Vorsatz', faelle, (f) => {
     const st = appStatus({ ndiGaeste: f.lagen, configured: f.configured });
     const i = eintrag(stand({ status: st }), 'ndi-gaeste');
     const zeile = gaesteZeile(st);
     const symbol = [...zeile][0]!;
     const zustand = ({ '●': 'ok', '△': 'warn', '○': 'off' } as Record<string, string>)[symbol];
-    return vergleiche(sd(i), `${zustand} ${zeile}`) ?? kopfOk(i, 'ndi-gaeste', 'ausgabe', CONNECT_TEXTE.titel.ndiGaeste);
+    const vorsatz = `${symbol} Gäste: `;
+    if (!zeile.startsWith(vorsatz) || ohneVorsatz(zeile) !== zeile.slice(vorsatz.length)) return `ohneVorsatz nimmt nicht genau „${vorsatz}“ weg: ${zeile}`;
+    return vergleiche(sd(i), `${zustand} ${ohneVorsatz(zeile)}`) ?? kopfOk(i, 'ndi-gaeste', 'ausgabe', CONNECT_TEXTE.titel.ndiGaeste);
   });
+  gleich(
+    [ohneVorsatz('Programm: aus'), ohneVorsatz('△ Zoom:x'), ohneVorsatz('● Zoom: a · ● Zoom: b')],
+    ['Programm: aus', '△ Zoom:x', 'a · ● Zoom: b'],
+    'CN Statusleiste ohneVorsatz: andere Texte bleiben unverändert, weggenommen wird nur der Vorsatz am Anfang',
+  );
   gleich(sd(eintrag(stand(), 'ndi-gaeste')), unbekanntOff, 'CN Statusleiste ndi-gaeste: ohne Status unbekannt');
 }
 
