@@ -18,6 +18,19 @@ function preload(): Partial<JmprApi> | undefined {
   return typeof window === 'undefined' ? undefined : window.jmpr;
 }
 
+/** Das Fenster selbst, wenn es eins gibt (ohne window in Node und Test undefined); nur für den focus-Hörer. */
+function fenster(): Window | undefined {
+  return typeof window === 'undefined' ? undefined : window;
+}
+
+/** Rückruf bei jedem focus dieses Fensters (Editor oder Referent); liefert das Abmelden. Ohne window nichts. */
+function beiFokus(cb: () => void): () => void {
+  const f = fenster();
+  if (f === undefined) return KEIN_ABO;
+  f.addEventListener('focus', cb);
+  return () => f.removeEventListener('focus', cb);
+}
+
 const KEIN_ABO = (): void => undefined;
 
 /** Präsentationszustand (`present:state`): Abfrage beim Einhängen, danach jedes Ereignis. */
@@ -57,8 +70,11 @@ export const TIMER_ZUSTAND_QUELLE: BrueckenQuelle<TimerSource> = {
 };
 
 // Die Timer-Einstellung meldet der Main nicht (nur `timer:getConfig`); wie bisher gilt die neue Einstellung sofort, darum meldet
-// timerEinstellen sie hier selbst an alle Hörer dieses Fensters.
+// timerEinstellen sie hier selbst an alle Hörer dieses Fensters. Seit 2b stellen Editor und Referent sie beide ein: darum liest jedes
+// Fenster sie neu (timerNeuLesen, Gesamtprüfung UX Welle 2b I3), statt sich auf die Kopie vom Einhängen zu verlassen.
 const timerHoerer = new Set<(c: TimerSyncConfig) => void>();
+/** Zählt jede eigene Einstellung und jede Lesung dieses Fensters; eine Antwort gilt nur, wenn danach nichts Neueres kam. */
+let timerLauf = 0;
 
 /** Timer-Einstellung: Abfrage `timer:getConfig`, Ereignis = jede Änderung über timerEinstellen in diesem Fenster. */
 export const TIMER_EINSTELLUNG_QUELLE: BrueckenQuelle<TimerSyncConfig> = {
@@ -71,8 +87,31 @@ export const TIMER_EINSTELLUNG_QUELLE: BrueckenQuelle<TimerSyncConfig> = {
 
 /** Timer-Einstellung setzen: sofort an den Stand melden (wie bisher setTimerCfg), dann anwenden und merken (`timer:apply`). */
 export function timerEinstellen(cfg: TimerSyncConfig): void {
+  timerLauf++;
   for (const h of [...timerHoerer]) h(cfg);
   void preload()?.timer?.apply?.(cfg);
+}
+
+/**
+ * Die angewandte Timer-Einstellung neu lesen (`timer:getConfig`) und an den Stand dieses Fensters melden (Gesamtprüfung UX Welle 2b,
+ * I3). Der Main meldet sie nicht; ändert das andere Fenster (Editor oder Referent) sie, sähe dieses Fenster sonst bis zum nächsten
+ * Start den alten Stand. Gelesen wird beim Öffnen des Panels, bei focus des Fensters und bei jeder Änderung der Verbindung zum JM
+ * Timer (useStand), dazu vor jedem Schalterdruck und „Setzen“ (standAktionen). Kommt die Antwort erst, nachdem dieses Fenster neu
+ * eingestellt oder neu gelesen hat, wird sie verworfen. Liefert die gelesene Einstellung; ohne Preload oder bei Fehler undefined.
+ */
+export function timerNeuLesen(): Promise<TimerSyncConfig | undefined> {
+  if (preload()?.timer?.getConfig === undefined) return Promise.resolve(undefined);
+  const lauf = ++timerLauf;
+  return Promise.resolve()
+    .then(() => preload()?.timer?.getConfig?.())
+    .then(
+      (cfg) => {
+        if (cfg === undefined || cfg === null) return undefined;
+        if (lauf === timerLauf) for (const h of [...timerHoerer]) h(cfg);
+        return cfg;
+      },
+      () => undefined,
+    );
 }
 
 /** Was der Bildschirm-Leser von der Uhr braucht (setTimeout/clearTimeout passen). */
@@ -191,6 +230,16 @@ export function useStand(fenster: 'editor' | 'referent', panelOffen: boolean): O
   const gastKlicker = useBrueckenWert(GAST_KLICKER_QUELLE) ?? undefined;
   const timerZustand = useBrueckenWert(TIMER_ZUSTAND_QUELLE) ?? undefined;
   const timerEinstellung = useBrueckenWert(TIMER_EINSTELLUNG_QUELLE) ?? undefined;
+  // Timer-Einstellung frisch (I3): beim Öffnen des Panels, bei focus des Fensters und bei jeder Änderung der Verbindung neu lesen;
+  // so folgt dieses Fenster einer Änderung aus dem anderen (der Main meldet die Einstellung nicht).
+  const timerVerbunden = timerZustand?.connected;
+  useEffect(() => {
+    if (panelOffen) void timerNeuLesen();
+  }, [panelOffen]);
+  useEffect(() => beiFokus(() => void timerNeuLesen()), []);
+  useEffect(() => {
+    if (timerVerbunden !== undefined) void timerNeuLesen();
+  }, [timerVerbunden]);
   // Das Fenster wechselt nie während der Lebenszeit der Wurzel-View: die Quelle bleibt stabil (der Editor fragt nie).
   const referentVollbild = useBrueckenWert(fenster === 'referent' ? VOLLBILD_QUELLE : undefined) ?? undefined;
 
@@ -266,22 +315,28 @@ const TIMER_VORGABE_HOST = '127.0.0.1';
  * Aktionen des Panels für Editor und Referent: window.jmpr erst im Rückruf, mit den Regeln der alten Bedienelemente. Die Ergebnisse
  * kommen über die Abos zurück (der Main meldet NDI, Handy und Gast-Klicker an alle Fenster); die Timer-Einstellung meldet
  * timerEinstellen selbst. Ohne bekannte Timer-Einstellung bewirken die Timer-Aktionen nichts (wie bisher `if (!timerCfg) return`).
- * Die Startwahl (`startwahl`) ergänzt nur der Editor.
+ * Timer-Schalter und „Setzen“ bauen auf dem frisch gelesenen, angewandten Stand auf (timerNeuLesen), nie auf der Kopie dieses
+ * Fensters: sonst schriebe ein Druck Host und Port zurück, die das andere Fenster inzwischen geändert hat (I3). Scheitert das Lesen,
+ * passiert nichts. Die Startwahl (`startwahl`) ergänzt nur der Editor.
  */
 export function standAktionen(stand: Pick<OberflaechenStand, 'timer'>): EinstellungenAktionen {
   const timer = stand.timer?.config;
+  /** Mit dem angewandten Stand weiterarbeiten (frisch gelesen); ohne bekannte Einstellung oder ohne Antwort nichts. */
+  const mitAngewandtem = (f: (angewandt: TimerSyncConfig) => TimerSyncConfig): void => {
+    if (!timer) return;
+    void timerNeuLesen().then((angewandt) => {
+      if (angewandt) timerEinstellen(f(angewandt));
+    });
+  };
   return {
     ndiSchalten: (an) => {
       void preload()?.ndi?.setzeAn?.(an).then(undefined, (err: unknown) => {
         console.error('[ndi] Schalter nicht gesetzt:', err);
       });
     },
-    timerSchalten: (an) => {
-      if (timer) timerEinstellen({ ...timer, enabled: an });
-    },
-    timerSetzen: (host, port) => {
-      if (timer) timerEinstellen({ ...timer, host: host.trim() || TIMER_VORGABE_HOST, port: port >= 1 && port <= 65535 ? port : TIMER_VORGABE_PORT });
-    },
+    timerSchalten: (an) => mitAngewandtem((angewandt) => ({ ...angewandt, enabled: an })),
+    timerSetzen: (host, port) =>
+      mitAngewandtem((angewandt) => ({ ...angewandt, host: host.trim() || TIMER_VORGABE_HOST, port: port >= 1 && port <= 65535 ? port : TIMER_VORGABE_PORT })),
     handyAnwenden: async (config) => preload()?.remote?.apply?.(config),
     // Die Wurzel-View ersetzt den leeren Lauf-Stand durch ihren (mitLaufendenAufrufen, lib/aufrufe.ts).
     laeuft: KEIN_AUFRUF,

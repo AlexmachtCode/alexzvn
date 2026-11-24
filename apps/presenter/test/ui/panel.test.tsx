@@ -9,6 +9,7 @@ import { chatText } from '@shared/gast-klicker';
 import type { DisplayInfo, RemoteConfig, RemoteStatus } from '@shared/types';
 import { HandyFelder, handyBedienung, handyEntwurfMit, handyWerte, type HandyBedienung, type HandyEntwurf } from '@/components/RemotePanel';
 import { ABSCHNITT, ausgabeAbschnitt, bildschirmWahl, nurNdiZeile, PRESENTER_TEXTE, startBildschirm, statusLeiste, vorgabeBildschirm, type OberflaechenStand, type StartWahl } from '@/lib/oberflaeche';
+import * as standModul from '@/lib/useStand';
 import { standAktionen, TIMER_EINSTELLUNG_QUELLE } from '@/lib/useStand';
 import { Einstellungen } from '@/views/Einstellungen';
 import { abschnitt, aktionenAttrappe, attr, bekannterStand, bereich, bildschirme, elemente, gastStatus, grundStand, handyStatus, laufend, ndiStatus, NETZWERKKARTEN, ohneKommentare, tags, text } from './testzustand';
@@ -461,13 +462,18 @@ const knopfTexte = (html: string): string[] => [...html.matchAll(/<button[^>]*>(
 {
   const aufrufe: string[] = [];
   let ja = false;
+  let mainTimer = { enabled: false, host: '10.0.0.1', port: 7777 };
   const g = globalThis as unknown as { window?: unknown };
   const nav = globalThis.navigator as unknown as Record<string, unknown>;
   g.window = {
     confirm: (t: string) => (aufrufe.push(`confirm(${t})`), ja),
     jmpr: {
       ndi: { setzeAn: (an: boolean) => (aufrufe.push(`ndi(${an})`), Promise.resolve(ndiStatus(an ? 'startet' : 'aus'))) },
-      timer: { apply: (c: unknown) => (aufrufe.push(`timer(${JSON.stringify(c)})`), Promise.resolve(c)) },
+      // Seit I3 (Gesamtprüfung UX Welle 2b) lesen die Timer-Aktionen den angewandten Stand frisch (getConfig) und senden ihn mit.
+      timer: {
+        getConfig: () => Promise.resolve({ ...mainTimer }),
+        apply: (c: { enabled: boolean; host: string; port: number }) => (aufrufe.push(`timer(${JSON.stringify(c)})`), (mainTimer = { ...c }), Promise.resolve(c)),
+      },
       remote: { apply: (c: unknown) => (aufrufe.push(`remote(${JSON.stringify(c)})`), Promise.resolve(handyStatus())) },
       gastKlicker: {
         setzeAn: (an: boolean) => (aufrufe.push(`gastAn(${an})`), Promise.resolve(gastStatus())),
@@ -483,10 +489,17 @@ const knopfTexte = (html: string): string[] => [...html.matchAll(/<button[^>]*>(
   try {
     const a = standAktionen(bekannterStand({ timer: { config: { enabled: false, host: '10.0.0.1', port: 7777 }, verbunden: false } }));
     a.ndiSchalten(true);
+    const fertig = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
     a.timerSchalten(true);
+    await fertig();
+    a.timerSchalten(false);
+    await fertig();
     a.timerSetzen('  ', 0);
+    await fertig();
     a.timerSetzen('10.0.0.2', 7780);
+    await fertig();
     standAktionen(grundStand()).timerSchalten(true);
+    await fertig();
     await a.handyAnwenden({ enabled: true, bind: 'all', port: 7331, pinEnabled: false });
     await a.gastKlicker.setzeAn(true);
     await a.gastKlicker.pause(true);
@@ -505,6 +518,7 @@ const knopfTexte = (html: string): string[] => [...html.matchAll(/<button[^>]*>(
     [
       'ndi(true)',
       'timer({"enabled":true,"host":"10.0.0.1","port":7777})',
+      'timer({"enabled":false,"host":"10.0.0.1","port":7777})',
       'timer({"enabled":false,"host":"127.0.0.1","port":7777})',
       'timer({"enabled":false,"host":"10.0.0.2","port":7780})',
       'remote({"enabled":true,"bind":"all","port":7331,"pinEnabled":false})',
@@ -517,5 +531,66 @@ const knopfTexte = (html: string): string[] => [...html.matchAll(/<button[^>]*>(
     ],
     'PS Panel-Aktionen: NDI schalten, Timer an/aus und setzen (leerer Host → 127.0.0.1, Port außerhalb 1 bis 65535 → 7777), Handy anwenden, Gast-Klicker; „Neuer Link“ erst nach window.confirm; kopiert den Chat-Text',
   );
-  gleich([gemeldet.length, kopiert, typeof (globalThis as { window?: unknown }).window], [3, true, 'undefined'], 'PS Panel-Aktionen: jede Timer-Änderung meldet sich sofort beim Stand; ohne Timer-Einstellung nichts; danach wieder ohne window');
+  gleich([gemeldet.length >= 4, kopiert, typeof (globalThis as { window?: unknown }).window], [true, true, 'undefined'], 'PS Panel-Aktionen: jede Timer-Änderung meldet sich beim Stand; ohne Timer-Einstellung nichts; danach wieder ohne window');
+}
+
+// ── PS Timer-Einstellung frisch (Gesamtprüfung UX Welle 2b, I3): Der Main meldet die Timer-Einstellung nicht. Seit 2b stellen Editor
+// und Referent sie beide ein; jedes Fenster las sie nur beim Einhängen. Das andere Fenster zeigte danach einen falschen Stand
+// („JM Timer: aus“, obwohl verbunden), und sein nächster Schalterdruck schrieb Host und Port aus der alten Kopie zurück. Jetzt
+// bauen Schalter und „Setzen“ auf dem frisch gelesenen, angewandten Stand auf, und jedes Fenster liest neu beim Öffnen des Panels,
+// bei focus und wenn sich die Verbindung zum JM Timer ändert; eine ältere Antwort überschreibt nie eine neuere Einstellung ──
+{
+  const g = globalThis as unknown as { window?: unknown };
+  const fertig = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+  const neuLesen = (standModul as Record<string, unknown>).timerNeuLesen as (() => Promise<unknown>) | undefined;
+  const gesendet: string[] = [];
+  // Der Main nach einer Änderung im anderen Fenster (Referent): Host 10.0.0.5, Port 7790, eingeschaltet.
+  let mainTimer = { enabled: true, host: '10.0.0.5', port: 7790 };
+  const warten: { antwort?: (c: typeof mainTimer) => void } = {};
+  let langsam = false;
+  g.window = {
+    jmpr: {
+      timer: {
+        getConfig: () => (langsam ? new Promise<typeof mainTimer>((r) => (warten.antwort = r)) : Promise.resolve({ ...mainTimer })),
+        apply: (c: typeof mainTimer) => (gesendet.push(JSON.stringify(c)), (mainTimer = { ...c }), Promise.resolve(c)),
+      },
+    },
+  };
+  const gemeldet: string[] = [];
+  const ab = TIMER_EINSTELLUNG_QUELLE.ereignis((c) => void gemeldet.push(JSON.stringify(c)));
+  try {
+    // Dieses Fenster (Editor) hält noch die alte Kopie: aus, 10.0.0.1:7777.
+    const a = standAktionen(bekannterStand({ timer: { config: { enabled: false, host: '10.0.0.1', port: 7777 }, verbunden: true } }));
+    a.timerSchalten(false);
+    await fertig();
+    a.timerSetzen('10.0.0.9', 7778);
+    await fertig();
+    gleich(
+      gesendet,
+      ['{"enabled":false,"host":"10.0.0.5","port":7790}', '{"enabled":false,"host":"10.0.0.9","port":7778}'],
+      'PS Timer frisch: Schalter und „Setzen“ bauen auf dem angewandten Stand auf (getConfig), nie auf der alten Kopie des Fensters – Host und Port aus dem anderen Fenster bleiben',
+    );
+    gemeldet.length = 0;
+    mainTimer = { enabled: true, host: '10.0.0.7', port: 7791 };
+    await neuLesen?.();
+    gleich(gemeldet, ['{"enabled":true,"host":"10.0.0.7","port":7791}'], 'PS Timer frisch: timerNeuLesen liest den angewandten Stand und meldet ihn an den Stand dieses Fensters');
+    gemeldet.length = 0;
+    langsam = true;
+    const alt = neuLesen?.();
+    langsam = false;
+    standModul.timerEinstellen({ enabled: false, host: '10.0.0.8', port: 7792 });
+    warten.antwort?.({ enabled: true, host: '10.0.0.7', port: 7791 });
+    await alt;
+    await fertig();
+    gleich(gemeldet, ['{"enabled":false,"host":"10.0.0.8","port":7792}'], 'PS Timer frisch: eine Antwort, die nach einer neueren Einstellung dieses Fensters ankommt, wird verworfen');
+  } finally {
+    ab();
+    delete g.window;
+  }
+  ok(typeof neuLesen === 'function', 'PS Timer frisch: useStand.ts exportiert timerNeuLesen');
+  const q = QUELLE('lib/useStand.ts');
+  ok(
+    /if \(panelOffen\) void timerNeuLesen\(\);/.test(q) && /beiFokus\(\(\) => void timerNeuLesen\(\)\)/.test(q) && /if \(timerVerbunden !== undefined\) void timerNeuLesen\(\);/.test(q),
+    'PS Timer frisch: useStand liest die Timer-Einstellung beim Öffnen des Panels, bei focus des Fensters und bei jeder Änderung der Verbindung neu',
+  );
 }
