@@ -10,4 +10,5 @@ import './rahmen.test';
 import './panel.test';
 import './live.test';
 import './panels.test';
+import './funktionsliste.test';
 abschluss();
