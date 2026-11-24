@@ -154,6 +154,37 @@ const haupt = (html: string): ReturnType<typeof tallyTasten> => tallyTasten(bere
   ok(text(zu).includes(NDI_TEXT.t141) && text(spalte(offenerRaum(raum()))).includes('Noch keine Gäste — Link erzeugen und teilen.'), 'CN Gästeliste: T141 ohne Verbindung, Leerzeile ohne Gäste wie bisher');
   const q = QUELLE('views/CloudRaum.tsx');
   ok(/<GuestActions guest=\{g\} send=\{aktionen\.send\} gesperrt=\{!ansicht\.wsKnoepfeBedienbar\} \/>/.test(q), 'CN Gästeliste: GuestActions bekommt send aus der Wurzel-View und die Sperre aus raumAnsicht');
+  // Tastenplatz (Task 24, Fix-Runde 1): Die Gast-Aktionen stehen auf eigener Zeile ab dem Zeilenanfang (basis-full, letztes Kind
+  // der Zeile, Reihenfolge unverändert) und sind schmal (!px-2). Bei 1280×860 liegt jeder alte Platz bei x ≥ 266; so bleibt auch
+  // „Entfernen“ hinter „Auf Sendung“ und „Standby“ mit Spielraum links davon (vorher lag es hinter dem Phasen-Abzeichen auf dem alten
+  // „Talkback alle“ bzw. „Auf Sendung“ desselben Zustands). Zeilen ohne Aktionen bekommen keine leere zweite Zeile.
+  const aktionsZeilen = zeilen.map((z) => bereiche(z, 'data-connect', 'gast-aktionen'));
+  gleich(
+    aktionsZeilen.map((a) => a.map((b) => knopfTexte(b))),
+    [[], [['Freigeben', 'Ablehnen']], [['Auf Sendung', 'Standby', 'Entfernen']], [['Aus Sendung', 'Entfernen']], [['Auf Sendung', 'Standby', 'Entfernen']], []],
+    'CN Gästeliste: je Gast mit Aktionen genau eine Aktionszeile mit den Knöpfen der Phase, ohne Aktionen keine',
+  );
+  ok(
+    aktionsZeilen.flat().length === 4 && aktionsZeilen.flat().every((b) => {
+      const kopf = b.match(/^<div[^>]*>/)?.[0] ?? '';
+      const klassen = (attr(kopf, 'class') ?? '').split(/\s+/);
+      return klassen.includes('basis-full') && klassen.includes('flex') && klassen.includes('gap-1');
+    }),
+    'CN Gästeliste: die Aktionszeile nimmt die volle Breite (basis-full) — eigene Zeile ab dem Zeilenanfang (Tastenplatz)',
+  );
+  ok(
+    aktionsZeilen.flat().length === 4 && aktionsZeilen.flat().every((b) => [...b.matchAll(/<button[^>]*>/g)].every((m) => (attr(m[0], 'class') ?? '').split(/\s+/).includes('!px-2'))),
+    'CN Gästeliste: die Aktionsknöpfe sind schmal (!px-2), damit „Entfernen“ bei 1280×860 mit Spielraum links von x 266 bleibt',
+  );
+  ok(
+    aktionsZeilen.flat().length === 4 && zeilen.every((z, i) => {
+      const a = aktionsZeilen[i]!;
+      if (a.length === 0) return true;
+      const reihe = bereich(z, 'class', 'flex flex-wrap items-center gap-3');
+      return reihe !== '' && reihe.endsWith(`${a[0]}</div>`) && reihe.indexOf('rounded-full') < reihe.indexOf(a[0]!);
+    }),
+    'CN Gästeliste: die Aktionszeile ist das letzte Kind der Zeile, nach dem Phasen-Abzeichen (Reihenfolge je Zeile unverändert)',
+  );
 }
 
 // ── CN Raum schließen nach Raumabbruch: normaler Knopf unter den Haupttasten (Tastenplatz, Task 24), nicht in der Haupttasten-Reihe;

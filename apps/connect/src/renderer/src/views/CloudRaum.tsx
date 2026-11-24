@@ -527,32 +527,40 @@ function PhaseBadge({ phase }: { phase: Guest['phase'] }): JSX.Element {
   return <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${PHASE_KLASSE[art]}`}>{PHASE_LABEL[phase]}</span>;
 }
 
+// Tastenplatz (Task 24, Fix-Runde 1): Die Gast-Aktionen stehen auf eigener Zeile ab dem Zeilenanfang (basis-full; als letztes Kind
+// der Zeile, Reihenfolge unverändert), die Knöpfe schmal (`!px-2`; Button verbindet Klassen ohne Zusammenführen, daher `!`, wie im
+// Switcher). Bei 1280×860 liegt jeder alte Platz bei x ≥ 266; „Entfernen“ hinter „Auf Sendung“ und „Standby“ bleibt so mit
+// Spielraum links davon. Hinter dem Phasen-Abzeichen lagen die Aktionen auf dem alten „Talkback alle“ bzw. „Auf Sendung“ desselben
+// Zustands.
+const AKTIONSZEILE = 'flex basis-full gap-1';
+const AKTIONSKNOPF = '!px-2';
+
 /** Gast-Aktionen über die Raum-WebSocket; ohne Raumverbindung gesperrt (Regel V, `gesperrt` aus raumAnsicht). */
 function GuestActions({ guest, send, gesperrt }: { guest: Guest; send: (a: OperatorAction) => void; gesperrt: boolean }): JSX.Element {
   // „Auf Sendung“ mit rotem Rand (wie die Kante einer LIVE-Taste); ghost, damit kein zweiter Rand der Variante konkurriert.
   const live = 'border border-[var(--tally-live)]';
   if (guest.phase === 'lobby') {
     return (
-      <div className="flex gap-1">
-        <Button size="sm" variant="primary" uppercase={false} disabled={gesperrt} onClick={() => send({ t: 'approve', guestId: guest.id })}>Freigeben</Button>
-        <Button size="sm" variant="outline" uppercase={false} disabled={gesperrt} onClick={() => send({ t: 'deny', guestId: guest.id })}>Ablehnen</Button>
+      <div data-connect="gast-aktionen" className={AKTIONSZEILE}>
+        <Button size="sm" variant="primary" uppercase={false} className={AKTIONSKNOPF} disabled={gesperrt} onClick={() => send({ t: 'approve', guestId: guest.id })}>Freigeben</Button>
+        <Button size="sm" variant="outline" uppercase={false} className={AKTIONSKNOPF} disabled={gesperrt} onClick={() => send({ t: 'deny', guestId: guest.id })}>Ablehnen</Button>
       </div>
     );
   }
   if (guest.phase === 'onair') {
     return (
-      <div className="flex gap-1">
-        <Button size="sm" variant="outline" uppercase={false} disabled={gesperrt} onClick={() => send({ t: 'off', guestId: guest.id })}>Aus Sendung</Button>
-        <Button size="sm" variant="destructive" uppercase={false} disabled={gesperrt} onClick={() => send({ t: 'kick', guestId: guest.id })}>Entfernen</Button>
+      <div data-connect="gast-aktionen" className={AKTIONSZEILE}>
+        <Button size="sm" variant="outline" uppercase={false} className={AKTIONSKNOPF} disabled={gesperrt} onClick={() => send({ t: 'off', guestId: guest.id })}>Aus Sendung</Button>
+        <Button size="sm" variant="destructive" uppercase={false} className={AKTIONSKNOPF} disabled={gesperrt} onClick={() => send({ t: 'kick', guestId: guest.id })}>Entfernen</Button>
       </div>
     );
   }
   if (guest.phase === 'approved' || guest.phase === 'off') {
     return (
-      <div className="flex gap-1">
-        <Button size="sm" variant="ghost" uppercase={false} className={live} disabled={gesperrt} onClick={() => send({ t: 'onair', guestId: guest.id })}>Auf Sendung</Button>
-        <Button size="sm" variant="outline" uppercase={false} disabled={gesperrt} onClick={() => send({ t: 'standby', guestId: guest.id })}>Standby</Button>
-        <Button size="sm" variant="destructive" uppercase={false} disabled={gesperrt} onClick={() => send({ t: 'kick', guestId: guest.id })}>Entfernen</Button>
+      <div data-connect="gast-aktionen" className={AKTIONSZEILE}>
+        <Button size="sm" variant="ghost" uppercase={false} className={`${live} ${AKTIONSKNOPF}`} disabled={gesperrt} onClick={() => send({ t: 'onair', guestId: guest.id })}>Auf Sendung</Button>
+        <Button size="sm" variant="outline" uppercase={false} className={AKTIONSKNOPF} disabled={gesperrt} onClick={() => send({ t: 'standby', guestId: guest.id })}>Standby</Button>
+        <Button size="sm" variant="destructive" uppercase={false} className={AKTIONSKNOPF} disabled={gesperrt} onClick={() => send({ t: 'kick', guestId: guest.id })}>Entfernen</Button>
       </div>
     );
   }
