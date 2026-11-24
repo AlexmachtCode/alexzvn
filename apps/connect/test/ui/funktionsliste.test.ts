@@ -911,7 +911,7 @@ const OF = 'R/lib/oberflaeche.ts';
   const status = (i: number): string => (teile(befunde[i - 1] ?? '') ?? []).map((s) => /^(erledigt|bleibt|Owner-Frage)/.exec(s)?.[1] ?? '').join();
   const soll: Record<number, string> = {
     1: 'erledigt,bleibt',
-    2: 'erledigt,erledigt,bleibt',
+    2: 'erledigt,erledigt,bleibt,bleibt',
     3: 'erledigt,bleibt',
     4: 'erledigt,bleibt',
     5: 'erledigt,bleibt',
@@ -931,6 +931,28 @@ const OF = 'R/lib/oberflaeche.ts';
   ok(
     ['Setzen', '`R/zoom/SlotEinstellungen.tsx:', '`R/zoom/ZoomVorgaben.tsx:', 'Schalter', 'Vorgaben'].every((w) => b11.includes(w)) && !b11.includes('Owner-Frage'),
     'CN Funktionsliste Befund 11: erledigt mit „Setzen“ an laufenden Slots und am Sprecher-Signal (Belege in Kachel und Panel), Schalter und Vorgaben bleiben, keine Owner-Frage mehr',
+  );
+  // Fix-Runde 1 (Review Task 25, Important 2 und Minor 2): ein „erledigt“ sagt nur, was der Code erledigt; was bleibt, steht in
+  // einem eigenen „bleibt“. Befund 5: die Cloud-Zeile fehlt nur im Arbeitsbereich, im Eintrag der Statusleiste ist sie gekürzt.
+  // Befund 2: das Wandern mit dem Zustand bleibt (eigener Teil). Teile mit eingeebneten Zeilenumbrüchen.
+  const flach = (i: number): string[] => (teile(befunde[i - 1] ?? '') ?? []).map((s) => s.replace(/\s+/g, ' '));
+  const erledigtTeile = (i: number): string => flach(i).filter((s) => s.startsWith('erledigt')).join(' ');
+  const bleibtTeile = (i: number): string => flach(i).filter((s) => s.startsWith('bleibt')).join(' ');
+  ok(
+    ['Arbeitsbereich', 'Panel Cloud-Zugang', 'Tooltip', '`R/views/CloudZugang.tsx:', '`packages/ui/src/components/StatusBar.tsx:'].every((w) => erledigtTeile(5).includes(w)) &&
+      ['16rem', 'Screenreader', '`packages/ui/src/components/StatusBar.tsx:125-133`'].every((w) => bleibtTeile(5).includes(w)) &&
+      !flach(5).join(' ').includes('gibt es im Fenster nicht mehr') && nennt(13, '16rem', 'Screenreader', 'Befund 5'),
+    'CN Funktionsliste Befund 5 und Nr. 13: erledigt nur im Arbeitsbereich (voll im Panel und im Tooltip), bleibt: im Eintrag der Statusleiste auf 16rem gekürzt, unter 900 px nur für Screenreader',
+  );
+  ok(
+    !erledigtTeile(2).includes('Wandern') && bleibtTeile(2).includes('Wandern') && bleibtTeile(2).includes('`R/views/CloudRaum.tsx:140-162`'),
+    'CN Funktionsliste Befund 2: das Wandern mit dem Zustand steht in einem eigenen „bleibt“, nicht im „erledigt“',
+  );
+  // Ruling zu Important 1: „Setzen“ ist eine Kachel-Taste, F2 A gilt für sie; die gemessenen Treffer stehen offen in Nr. 95 und Befund 2.
+  ok(
+    nennt(95, 'Owner-Entscheid F2 A', 'Ruling', 'Standby', 'nur mit Entwurf', 'nachher-connect-ks.json') &&
+      ['„Setzen“', 'K01', 'Standby', 'KD088'].every((w) => bleibtTeile(2).includes(w)),
+    'CN Funktionsliste Nr. 95 und Befund 2: die Treffer von „Setzen“ in den kombinierten Zuständen stehen offen da (F2 A nach Ruling)',
   );
   const tastenplatz = [1, 2, 4].map((i) => befunde[i - 1] ?? '').join('\n');
   ok(['F1', 'F2', 'F3', 'Owner-Entscheid'].every((f) => tastenplatz.includes(f)) && !tastenplatz.includes('Owner-Frage') && (befunde[6] ?? '').includes('`packages/ui/src/lib/halten.ts'), 'CN Funktionsliste Befunde: 1, 2 und 4 nennen den Owner-Entscheid zu F1–F3 (keine offene Owner-Frage mehr); 7 belegt den Abbruch bei Fensterverlust im Baustein');
