@@ -162,8 +162,10 @@ export function StudioOberflaeche({
         setPanelAbschnitt(abschnitt);
       }}
     >
-      {/* Der alte Rand des Inhalts (vorher im lokalen AppShell): höchstens 1400 breit, px-7 py-6. */}
-      <div className="mx-auto h-full max-w-[1400px] px-7 py-6">
+      {/* Rand des Inhalts: höchstens 1400 breit, seitlich und unten wie bisher (px-7, pb-6), oben nur pt-1.5 statt py-6. Kopf 44 +
+          Werkzeugleiste 51 legen den Inhalt 35 px tiefer als der alte Kopf 60; der kleinere obere Rand holt davon 16,9 px zurück, so
+          liegt keine folgenreiche Taste im selben Zustand auf dem alten Platz einer anderen (Task 18, Fix-Runde 1, gemessen). */}
+      <div className="mx-auto h-full max-w-[1400px] px-7 pt-1.5 pb-6">
         {section === 'video' && <Video stand={stand} />}
         {section === 'audio' && <Audio stand={stand} />}
         {section === 'licht' && <Licht stand={stand} />}

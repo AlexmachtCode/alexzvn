@@ -120,7 +120,15 @@ function rahmen(s: OberflaechenStand, abschnitt: Section = 'video', panelOffen =
     'SC Rahmen angemeldet: vor der ersten Antwort sind Server und Licht unbekannt (off mit „unbekannt“), nicht ok und nicht aus',
   );
   const i = inhalt(html);
-  ok(i.includes('TriCaster') && /class="[^"]*\bmax-w-\[1400px\][^"]*"/.test(i) && /\bpx-7\b/.test(i) && /\bpy-6\b/.test(i), 'SC Rahmen angemeldet: der Inhalt zeigt den Abschnitt Video mit dem alten Rand (max-w-[1400px], px-7, py-6)');
+  // Rand des Inhalts (Task 18, Fix-Runde 1): seitlich und unten wie bisher (px-7, pb-6), oben nur pt-1.5 (5,625 px statt 22,5 px).
+  // Kopf 44 + Werkzeugleiste 51 legen den Inhalt 35 px tiefer als der alte Kopf 60; mit dem kleineren oberen Rand rücken die Tasten
+  // auf 18 px an ihre alten Plätze heran, und keine folgenreiche Taste liegt im selben Zustand auf dem alten Platz einer anderen
+  // (gemessen: mit py-6 lagen PTZ-Presets 1–6 auf 7–12 und OBS-Szenen bei 1024 auf Aufnahme/Stream).
+  const rand = /<div class="([^"]*\bmax-w-\[1400px\][^"]*)"/.exec(i)?.[1] ?? '';
+  ok(
+    i.includes('TriCaster') && /\bpx-7\b/.test(rand) && /(?:^|\s)pt-1\.5(?:\s|$)/.test(rand) && /\bpb-6\b/.test(rand) && !/\bpy-6\b/.test(rand),
+    'SC Rahmen angemeldet: der Inhalt zeigt den Abschnitt Video mit Rand px-7, pt-1.5, pb-6 (oben kleiner, wegen der Tastenplätze)',
+  );
   pruefeIdVerweise(html, 'SC Rahmen angemeldet: id-Verweise gültig');
   ok(!text(html).includes('"'), 'SC Rahmen angemeldet: kein ASCII-Anführungszeichen in den Texten');
 }
