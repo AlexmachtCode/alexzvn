@@ -244,7 +244,7 @@ export function CloudRaum({ stand, show, error, invites, guestName, aktionen }: 
                         </span>
                       ),
                   )}
-                  {canHearTalkback(g) && <HalteKnopf {...gastTalkback(stand, g, aktionen)} />}
+                  {canHearTalkback(g) && <HalteKnopf {...gastTalkback(stand, g, aktionen)} className={VORN_BREIT} />}
                   {canHearTalkback(g) && (
                     <button
                       onClick={() => aktionen.folien(g)}
@@ -254,7 +254,7 @@ export function CloudRaum({ stand, show, error, invites, guestName, aktionen }: 
                           ? 'Der Gast darf die Folien im JM Presenter selbst weiterblättern'
                           : 'Kein JM Presenter im Netz gefunden — der Cue liefe ins Leere'
                       }
-                      className={`min-h-[var(--control-h)] rounded-[var(--radius-md)] border-2 px-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${
+                      className={`${VORN_BREIT} min-h-[var(--control-h)] rounded-[var(--radius-md)] border-2 px-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${
                         g.canAdvance ? 'border-[var(--tally-selected)] bg-[var(--highlight)] text-[var(--foreground)]' : 'border-[var(--field-border)] bg-[var(--card)] text-[var(--foreground)]'
                       }`}
                     >
@@ -568,3 +568,11 @@ function GuestActions({ guest, send, gesperrt }: { guest: Guest; send: (a: Opera
   }
   return <span />;
 }
+
+// Owner-Entscheid F2-B (24.11., Tastenplatz): In der breiten Liste (Cloud-Spalte ab 34rem, derselbe Umbruch wie AKTIONSZEILE;
+// 1280×860) stehen 🎙 und 📊 vor dem Namen. Dort liegt jeder alte Platz bei x ≥ 266; hinter dem Namen lagen die beiden auf dem alten
+// „Talkback alle“ bzw. dem alten „Entfernen“ desselben Zustands. Nur die sichtbare Reihenfolge (CSS order): im DOM, beim Vorlesen und
+// für Tab bleibt die Zeile Name, Abzeichen, 🎙, 📊, Phase, Aktionen (Name und Abzeichen nehmen keinen Fokus, die fokussierbaren Tasten
+// stehen also auch sichtbar in Tab-Reihenfolge). In der schmalen Liste (980×640) bleibt alles wie bisher. Steht am Dateiende, damit
+// die Zeilenbelege der Funktionsliste gültig bleiben.
+const VORN_BREIT = '@[34rem]:order-first';

@@ -120,7 +120,7 @@ const haupt = (html: string): ReturnType<typeof tallyTasten> => tallyTasten(bere
   haltenBeiAbbau(halten);
   gleich(log, [`talkbackDown:${g.id}`, 'talkbackUp'], 'CN Talkback Gast verschwindet: Aushängen beim Halten → talkbackUp genau einmal, ein spätes Loslassen sendet nichts mehr');
   const q = QUELLE('views/CloudRaum.tsx');
-  ok(/canHearTalkback\(g\) && <HalteKnopf \{\.\.\.gastTalkback\(stand, g, aktionen\)\} \/>/.test(q) && !/PttButton|onPointerDown|setPointerCapture/.test(q), 'CN Talkback Gast verschwindet: je Gast der Halte-Knopf aus @jm/ui in der Gastzeile (kein PttButton, keine eigene Zeiger-Verdrahtung)');
+  ok(/canHearTalkback\(g\) && <HalteKnopf \{\.\.\.gastTalkback\(stand, g, aktionen\)\} className=\{VORN_BREIT\} \/>/.test(q) &&!/PttButton|onPointerDown|setPointerCapture/.test(q), 'CN Talkback Gast verschwindet: je Gast der Halte-Knopf aus @jm/ui in der Gastzeile (kein PttButton, keine eigene Zeiger-Verdrahtung)');
   gleich([p.label, p.title, p.aktiv, p.gesperrt], ['🎙', `Halten: nur ${g.name} hört die Regie`, false, undefined], 'CN Talkback Gast verschwindet: Beschriftung und Hilfetext wie bisher, frei mit Raumverbindung');
   const gehalten = gastTalkback(offenerRaum(raum(['approved'], { mode: 'selected', target: g.id })), g, a);
   const ohne = gastTalkback(stand({ status: appStatus(), room: raum(['approved']), ansicht: ansicht({ client: true, raumBekannt: true }) }), g, a);
@@ -194,6 +194,26 @@ const haupt = (html: string): ReturnType<typeof tallyTasten> => tallyTasten(bere
       return reihe !== '' && reihe.endsWith(`${a[0]}</div>`) && reihe.indexOf('rounded-full') < reihe.indexOf(a[0]!);
     }),
     'CN Gästeliste: die Aktionszeile ist das letzte Kind der Zeile, nach dem Phasen-Abzeichen (Reihenfolge je Zeile unverändert)',
+  );
+  // Owner-Entscheid F2-B (24.11.): In der breiten Liste (ab 34rem, derselbe Umbruch wie die Aktionszeile; 1280×860) stehen 🎙 und 📊
+  // vor dem Namen, über die CSS-Reihenfolge (order-first): Dort liegen sie links von x 266, wo kein alter Platz liegt. Die Reihenfolge
+  // im DOM (Vorlesen, Tab) bleibt wie geprüft (Name, 🖥 Bildschirm, 🎙, 📊, Phase, Aktionen); in der schmalen Liste (980×640) bleibt
+  // auch die sichtbare Reihenfolge wie bisher. Kein anderes Element der Zeile trägt eine order-Klasse.
+  const knoepfeMitText = (z: string): Array<{ tag: string; text: string }> =>
+    [...z.matchAll(/(<button[^>]*>)([\s\S]*?)<\/button>/g)].map((m) => ({ tag: m[1]!, text: text(m[2]!).trim() }));
+  const mitRueckkanal = zeilen.filter((z) => halteKnoepfe(z).length > 0);
+  ok(
+    mitRueckkanal.length === 3 && mitRueckkanal.every((z) => {
+      const vorn = knoepfeMitText(z).filter((b) => b.text === '🎙' || b.text === '📊');
+      return vorn.length === 2 && vorn.every((b) => klassenVon(b.tag).includes('@[34rem]:order-first') && !klassenVon(b.tag).includes('order-first'));
+    }),
+    'CN Gästeliste: in der breiten Liste stehen 🎙 und 📊 vor dem Namen (@[34rem]:order-first, Owner-Entscheid F2-B), in der schmalen wie bisher dahinter',
+  );
+  ok(
+    mitRueckkanal.length === 3
+      && zeilen.every((z) => [...z.matchAll(/class="([^"]*)"/g)].flatMap((m) => m[1]!.split(/\s+/)).filter((c) => /(?:^|:)-?order-/.test(c)).every((c) => c === '@[34rem]:order-first'))
+      && zeilen.every((z) => (z.match(/@\[34rem\]:order-first/g) ?? []).length === (halteKnoepfe(z).length > 0 ? 2 : 0)),
+    'CN Gästeliste: nur 🎙 und 📊 tragen eine order-Klasse; Name, Abzeichen, Phase und Aktionen behalten ihre Reihenfolge (Owner-Entscheid F2-B)',
   );
 }
 
