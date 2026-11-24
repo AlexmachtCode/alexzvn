@@ -78,8 +78,9 @@ export function Field({ label, hint, error, lockedReason, id, className, childre
           {UI_TEXTE.gesperrt(sperrgrund)}
         </p>
       ) : null}
+      {/* Fehlerzeile markierbar (R9, Gesamtprüfung UX Welle 2b M1): body hat user-select: none, Fehlertexte geben Bediener weiter. */}
       {error ? (
-        <p id={ids.fehler} className="text-[11px] font-semibold text-[var(--foreground)]">
+        <p id={ids.fehler} className="text-[11px] font-semibold text-[var(--foreground)] select-text">
           <span aria-hidden="true" className={STATUS_SYMBOL_KLASSE.error}>
             {STATUS_SYMBOL.error}
           </span>{' '}
