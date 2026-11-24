@@ -267,4 +267,6 @@ function zoomSpalte(a: ZoomAbbild | undefined, z: ZoomAufrufe = zoomSpeicher(), 
   ok(text(vor).includes('Zoom-Meeting') && text(vor).includes('zoomGet abgelehnt') && knopfTexte(vor).length === 0, 'CN Zoom-Spalte: vor dem ersten Abbild nur „Zoom-Meeting“ und der Ladefehler, kein Knopf (Nr. 52)');
   const q = QUELLE('views/ZoomSpalte.tsx') + QUELLE('zoom/ZoomCard.tsx');
   ok(!/\bmt-6\b/.test(q), 'CN Zoom-Spalte: kein mt-6-Versatz mehr, die Spalte beginnt auf der Höhe des Cloud-Raums');
+  const titel = [bereich(html, 'data-connect', 'zoom-kopf'), bereich(vor, 'data-connect', 'zoom-kopf')].map((k) => tags(k, 'h2')[0]);
+  ok(titel.every((t) => /\bshrink-0\b/.test(attr(t, 'class') ?? '')), 'CN Zoom-Spalte: der Titel „Zoom-Meeting“ bricht neben einer langen Statuszeile nicht um (shrink-0; gesehen bei 980×640)');
 }

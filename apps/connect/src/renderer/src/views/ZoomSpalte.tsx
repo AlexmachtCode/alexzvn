@@ -68,7 +68,7 @@ export function ZoomSpalte({ stand, zoom, ladeFehler }: ZoomSpalteProps): JSX.El
     return (
       <section data-connect="zoom" className="space-y-3">
         <div data-connect="zoom-kopf">
-          <h2 className="text-sm font-semibold">{ZOOM_TITEL}</h2>
+          <h2 className="shrink-0 text-sm font-semibold">{ZOOM_TITEL}</h2>
         </div>
         {ladeFehler && <p className={STIL.fehler}>{ladeFehler}</p>}
       </section>

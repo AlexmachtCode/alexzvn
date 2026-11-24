@@ -183,7 +183,7 @@ export function ZoomCard({ a, zoom }: { a: ZoomAbbild; zoom: ZoomAufrufe }): JSX
     <>
       {/* 1 · Titel und Statuszeile (Spec 7.2, Kartentext) */}
       <div data-connect="zoom-kopf" className="flex items-start justify-between gap-3">
-        <h2 className="text-sm font-semibold">{ZOOM_TITEL}</h2>
+        <h2 className="shrink-0 text-sm font-semibold">{ZOOM_TITEL}</h2>
         <p className="text-right text-xs text-[var(--foreground)] select-text">{kartenZeile(a, jetzt) ?? ''}</p>
       </div>
       {karteAntwort && <p className={STIL.fehler}>{karteAntwort}</p>}
