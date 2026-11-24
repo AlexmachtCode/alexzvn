@@ -242,6 +242,107 @@ const REFERENT_DATEIEN = [
   ok(tooltip(bereich(leiste(rahmen(referentStand({ bildschirme: bildschirme(null) }))), 'data-presenter', 'leiste-rechts'), 'publikum-vollbild') === T.publikum.keinFensterNurNdi && T.publikum.keinFensterNurNdi === 'Kein Publikumsfenster – Bild nur über NDI', 'PS Leiste: „Publikum Vollbild“ nennt bei nur NDI den alten Grund als Tooltip');
 }
 
+// ── PS „■ Beenden“ je Breite (Owner 24.11. 22:18, P2 B, ändert B7; W134; gemessen in Task N1): Bei schmalem Fenster ist „■ Beenden“
+// die letzte Taste der Leiste, rechts neben der umbrechenden Gruppe; so steht es immer am Ende der ersten Leistenzeile, dort, wo es im
+// zweizeiligen alten Kopf stand, und keine andere Taste rückt auf seinen alten Platz. Der Kopf behält ⚙. Bei breitem Fenster bleibt es
+// wie gebaut ganz rechts im Kopf nach ⚙ (B7). Der Umschaltpunkt ist die Innenbreite, ab der der alte Kopf in jedem gemessenen Zustand
+// einzeilig war ──
+{
+  const ab = (ob as Record<string, unknown>).REFERENT_BREIT_AB as number | undefined;
+  const inLeiste = (ob as Record<string, unknown>).beendenInDerLeiste as ((innenBreite: number) => boolean) | undefined;
+  ok(typeof ab === 'number' && Number.isInteger(ab) && ab > 1269 && ab <= 1490, 'PS Beenden je Breite: der Umschaltpunkt liegt über der Innenbreite von 1280 (1269 px) und höchstens bei der von 1500 (1490 px)');
+  const faelle = [1013, 1100, 1269, 1400, ...(typeof ab === 'number' ? [ab - 1, ab] : []), 1490, 1910].map((breite) => ({ breite }));
+  pruefeFaelle('PS Beenden je Breite: beendenInDerLeiste ist wahr genau unter dem Umschaltpunkt (1024 und 1280 schmal, 1500 und breiter im Kopf)', faelle, (f) => {
+    if (typeof inLeiste !== 'function' || typeof ab !== 'number') return 'beendenInDerLeiste oder REFERENT_BREIT_AB fehlt';
+    return vergleiche(String(inLeiste(f.breite)), String(f.breite < ab));
+  });
+
+  const voll = referentStand({ gastKlicker: gastStatus({ an: true, lage: 'verbunden', link: 'https://x.invalid/k/1', gaeste: 2 }), ndi: ndiStatus('sendet', true, 2) });
+  const schmal = ohneWurf('PS Beenden je Breite (schmal)', () => rahmen(voll, { schmal: true }));
+  const breit = ohneWurf('PS Beenden je Breite (breit)', () => rahmen(voll, { schmal: false }));
+  const beenden = (html: string): string[] => tags(html, 'button').filter((t) => attr(t, 'data-presenter') === 'beenden');
+  gleich(
+    [beenden(schmal).length, beenden(kopf(schmal)).length, beenden(leiste(schmal)).length, bereich(kopf(schmal), 'data-bereich', 'kopf-aktion'), kopf(schmal).includes('data-zahnrad')],
+    [1, 0, 1, '', true],
+    'PS Beenden je Breite: schmal steht „■ Beenden“ genau einmal, in der Leiste und nicht im Kopf; der Kopf behält ⚙ und hat keine Kopf-Aktion',
+  );
+  gleich(
+    [beenden(breit).length, beenden(kopf(breit)).length, beenden(leiste(breit)).length, beenden(bereich(kopf(breit), 'data-bereich', 'kopf-aktion')).length],
+    [1, 1, 0, 1],
+    'PS Beenden je Breite: breit steht „■ Beenden“ genau einmal, als Kopf-Aktion ganz rechts nach ⚙ (B7, wie gebaut)',
+  );
+  ok(breit !== '' && rahmen(voll) === breit, 'PS Beenden je Breite: ohne Angabe gilt die breite Lage (B7)');
+  const [knopf] = beenden(leiste(schmal));
+  gleich(
+    [text(bereich(leiste(schmal), 'data-presenter', 'beenden')).trim(), attr(knopf, 'title'), attr(knopf, 'class') === attr(beenden(kopf(breit))[0], 'class')],
+    [T.taste.kopfBeenden, T.taste.kopfBeendenKuerzel, true],
+    'PS Beenden je Breite: in der Leiste derselbe Knopf wie im Kopf („■ Beenden“, title „Esc“, gleiche Klassen)',
+  );
+
+  // Reihenfolge der rechten Gruppe schmal (B12 davor unverändert) und Aufbau: „■ Beenden“ neben der umbrechenden Gruppe, nicht in ihr.
+  const rechts = bereich(leiste(schmal), 'data-presenter', 'leiste-rechts');
+  gleich(
+    kennungen(rechts).filter((k) => k !== 'leiste-rechts'),
+    ['bildschirm', 'verschieben', 'ndi', 'gast-klick', 'schleife', 'publikum-vollbild', 'vollbild', 'uebersicht', 'beenden'],
+    'PS Beenden je Breite: schmal ist „■ Beenden“ die letzte Taste der rechten Gruppe, nach „Übersicht“; davor die Reihenfolge B12',
+  );
+  gleich(
+    kennungen(bereich(leiste(breit), 'data-presenter', 'leiste-rechts')).filter((k) => k !== 'leiste-rechts'),
+    ['bildschirm', 'verschieben', 'ndi', 'gast-klick', 'schleife', 'publikum-vollbild', 'vollbild', 'uebersicht'],
+    'PS Beenden je Breite: breit bleibt die rechte Gruppe ohne „■ Beenden“ (Reihenfolge B12 wie gebaut)',
+  );
+  const umbruch = bereich(rechts, 'data-bereich', 'leiste-umbruch');
+  const klasse = (html: string): string => attr(tags(html, 'div')[0], 'class') ?? '';
+  const nachUmbruch = rechts.indexOf(umbruch) + umbruch.length;
+  gleich(
+    [
+      umbruch !== '' && /\bflex-wrap\b/.test(klasse(umbruch)) && /\bjustify-end\b/.test(klasse(umbruch)),
+      kennungen(umbruch).includes('uebersicht') && !kennungen(umbruch).includes('beenden'),
+      umbruch !== '' && rechts.search(/data-presenter="beenden"/) > nachUmbruch,
+      !/\bflex-wrap\b/.test(klasse(rechts)) && /\bitems-start\b/.test(klasse(rechts)),
+      /\bshrink-0\b/.test(attr(/<div[^>]*>(?=<button[^>]*data-presenter="beenden")/.exec(rechts)?.[0], 'class') ?? ''),
+    ],
+    [true, true, true, true, true],
+    'PS Beenden je Breite: schmal bricht nur die Gruppe um (flex-wrap, rechtsbündig); „■ Beenden“ steht danach außerhalb, nicht schrumpfend, oben bündig mit der ersten Zeile',
+  );
+
+  // Verdrahtung: derselbe Befehl in beiden Lagen (present.stop über referent.beenden), nie zwei Knöpfe.
+  const attrappe = referentAttrappe();
+  const props = (s: boolean): ReferentRahmenProps => ({
+    stand: voll,
+    folien: referentFolien(),
+    wahl: null,
+    uebersicht: false,
+    aktionen: aktionenAttrappe([], false),
+    referent: attrappe,
+    panelOffen: false,
+    onPanel: () => undefined,
+    onWahl: () => undefined,
+    onVerschieben: () => undefined,
+    onUebersicht: () => undefined,
+    schmal: s,
+  });
+  type Knoten = { props: Record<string, unknown> } | undefined;
+  const shell = (s: boolean): Knoten => ReferentRahmen(props(s)) as unknown as Knoten;
+  const bar = (s: boolean): Knoten => shell(s)?.props.toolbar as Knoten;
+  const aktion = (k: unknown): unknown => (k as Knoten)?.props.onBeenden;
+  gleich(
+    [shell(true)?.props.kopfAktion, aktion(bar(true)?.props.beenden) === attrappe.beenden, aktion(shell(false)?.props.kopfAktion) === attrappe.beenden, bar(false)?.props.beenden],
+    [undefined, true, true, undefined],
+    'PS Beenden je Breite: schmal bekommt die Leiste „■ Beenden“ mit der Aktion beenden und der Kopf keine Kopf-Aktion; breit umgekehrt',
+  );
+
+  // Die Wurzel misst die Innenbreite beim Start und bei jeder Größenänderung (kein Abo, kein IPC) und gibt die Lage an den Rahmen.
+  const w = QUELLE('views/ReferentOberflaeche.tsx');
+  ok(
+    (w.match(/beendenInDerLeiste\(window\.innerWidth\)/g) ?? []).length === 2 &&
+      /window\.addEventListener\('resize', [A-Za-z]+\)/.test(w) &&
+      /window\.removeEventListener\('resize', [A-Za-z]+\)/.test(w) &&
+      /schmal=\{schmal\}/.test(w),
+    'PS Beenden je Breite: Quelltext – die Wurzel liest window.innerWidth beim Start und bei resize (an- und abgemeldet) und reicht schmal an den Rahmen',
+  );
+}
+
 // ── PS Leiste: Bildschirmwahl und „Auf diesen Bildschirm“ je Zustand (B11) ──
 {
   const lage = (s: OberflaechenStand, gewaehlt?: number): { wert?: string; optionen: string[]; auswahlGesperrt: boolean; knopfGesperrt: boolean; grund?: string } => {

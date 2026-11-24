@@ -1,7 +1,9 @@
 // Leiste des Referenten unter dem Kopf (UX Welle 2b, Presenter d2; B11, B12): links wie im alten Kopf der große Zähler „n / m“,
 // der Titel der aktuellen Folie und die Uhr; rechts Bildschirmwahl, „Auf diesen Bildschirm“, NDI, Gast-Klick, Schleife,
 // „Publikum Vollbild“, „Vollbild“ und „Übersicht“ in dieser Reihenfolge. Bei schmalem Fenster bricht die rechte Gruppe in eine
-// zweite Zeile um (wie bisher der Kopf), statt Knöpfe aus dem Fenster zu schieben. Die Bildschirmwahl merkt nur (onWahl), erst
+// zweite Zeile um (wie bisher der Kopf), statt Knöpfe aus dem Fenster zu schieben; dann steht rechts daneben, außerhalb der
+// umbrechenden Gruppe und oben bündig, „■ Beenden“ als letzte Taste (Owner P2 B, ändert B7): so immer am Ende der ersten Zeile, wo es
+// im zweizeiligen alten Kopf stand, und keine andere Taste rückt auf diesen Platz. Die Bildschirmwahl merkt nur (onWahl), erst
 // „Auf diesen Bildschirm“ verschiebt (onVerschieben), gesperrt mit Grund als Tooltip am Rahmen des Knopfs (B11; Gesamtprüfung M6:
 // Chromium gibt gesperrten Knöpfen keine Mausereignisse, Muster Connect MitTooltip). Kein Abo und keine Hooks in der Leiste:
 // Stand, Wahl und Aktionen kommen aus der Wurzel-View; nur Uhr und Schleifen-Countdown zählen selbst.
@@ -27,9 +29,11 @@ export interface ReferentLeisteProps {
   /** „Auf diesen Bildschirm“: verschiebt das Publikum auf die Wahl. */
   onVerschieben(): void;
   onUebersicht(offen: boolean): void;
+  /** „■ Beenden“ bei schmalem Fenster (Owner P2 B): letzte Taste, rechts neben der umbrechenden Gruppe; ohne steht es im Kopf (B7). */
+  beenden?: React.ReactNode;
 }
 
-export function ReferentLeiste({ stand, folien, wahl, uebersicht, referent, onNdi, onGastPause, onWahl, onVerschieben, onUebersicht }: ReferentLeisteProps) {
+export function ReferentLeiste({ stand, folien, wahl, uebersicht, referent, onNdi, onGastPause, onWahl, onVerschieben, onUebersicht, beenden }: ReferentLeisteProps) {
   const T = PRESENTER_TEXTE;
   const p = stand.praesentation;
   const titel = p === undefined ? undefined : folien?.[p.index]?.title;
@@ -52,45 +56,48 @@ export function ReferentLeiste({ stand, folien, wahl, uebersicht, referent, onNd
         <Clock />
       </div>
       <div className="h-8 w-px shrink-0 bg-[var(--border)]" />
-      <div data-presenter="leiste-rechts" className="flex flex-wrap items-center justify-end gap-2">
-        <select
-          data-presenter="bildschirm"
-          value={liste === undefined ? '' : nurNdi ? 'keiner' : (wahl ?? '')}
-          disabled={liste === undefined || nurNdi}
-          onChange={(e) => {
-            const id = Number(e.target.value);
-            if (e.target.value !== '' && Number.isFinite(id)) onWahl(id);
-          }}
-          title={T.publikum.bildschirmWahl}
-          className="h-8 max-w-[170px] shrink-0 rounded-md bg-[var(--input)] border border-[var(--border)] px-2 text-xs text-[var(--foreground)] disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          {liste === undefined ? (
-            <option value="">{UNBEKANNT}</option>
-          ) : nurNdi ? (
-            <option value="keiner">{T.publikum.nurNdi}</option>
-          ) : (
-            liste.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.label}
-              </option>
-            ))
-          )}
-        </select>
-        <LeistenKnopf kennung="verschieben" onClick={onVerschieben} disabled={grund !== undefined} title={grund}>
-          {T.verschieben.knopf}
-        </LeistenKnopf>
-        <NdiKnopf variante="referent" status={stand.ndi} plattform={stand.plattform} onSchalten={onNdi} />
-        <GastKlickerPille status={stand.gastKlicker} onPause={onGastPause} />
-        <SchleifenKnopf schleife={p?.schleife === true} bisMs={p?.schleifeBisMs ?? null} onSchalten={referent.schleife} />
-        <LeistenKnopf kennung="publikum-vollbild" onClick={referent.publikumVollbild} disabled={nurNdi} title={nurNdi ? T.publikum.keinFensterNurNdi : undefined}>
-          Publikum Vollbild
-        </LeistenKnopf>
-        <LeistenKnopf kennung="vollbild" onClick={referent.vollbild} active={stand.referentVollbild === true} title="Referentenansicht im Vollbild (F11)">
-          Vollbild
-        </LeistenKnopf>
-        <LeistenKnopf kennung="uebersicht" onClick={() => onUebersicht(!uebersicht)} active={uebersicht}>
-          Übersicht
-        </LeistenKnopf>
+      <div data-presenter="leiste-rechts" className="flex items-start gap-2">
+        <div data-bereich="leiste-umbruch" className="flex flex-wrap items-center justify-end gap-2">
+          <select
+            data-presenter="bildschirm"
+            value={liste === undefined ? '' : nurNdi ? 'keiner' : (wahl ?? '')}
+            disabled={liste === undefined || nurNdi}
+            onChange={(e) => {
+              const id = Number(e.target.value);
+              if (e.target.value !== '' && Number.isFinite(id)) onWahl(id);
+            }}
+            title={T.publikum.bildschirmWahl}
+            className="h-8 max-w-[170px] shrink-0 rounded-md bg-[var(--input)] border border-[var(--border)] px-2 text-xs text-[var(--foreground)] disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {liste === undefined ? (
+              <option value="">{UNBEKANNT}</option>
+            ) : nurNdi ? (
+              <option value="keiner">{T.publikum.nurNdi}</option>
+            ) : (
+              liste.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))
+            )}
+          </select>
+          <LeistenKnopf kennung="verschieben" onClick={onVerschieben} disabled={grund !== undefined} title={grund}>
+            {T.verschieben.knopf}
+          </LeistenKnopf>
+          <NdiKnopf variante="referent" status={stand.ndi} plattform={stand.plattform} onSchalten={onNdi} />
+          <GastKlickerPille status={stand.gastKlicker} onPause={onGastPause} />
+          <SchleifenKnopf schleife={p?.schleife === true} bisMs={p?.schleifeBisMs ?? null} onSchalten={referent.schleife} />
+          <LeistenKnopf kennung="publikum-vollbild" onClick={referent.publikumVollbild} disabled={nurNdi} title={nurNdi ? T.publikum.keinFensterNurNdi : undefined}>
+            Publikum Vollbild
+          </LeistenKnopf>
+          <LeistenKnopf kennung="vollbild" onClick={referent.vollbild} active={stand.referentVollbild === true} title="Referentenansicht im Vollbild (F11)">
+            Vollbild
+          </LeistenKnopf>
+          <LeistenKnopf kennung="uebersicht" onClick={() => onUebersicht(!uebersicht)} active={uebersicht}>
+            Übersicht
+          </LeistenKnopf>
+        </div>
+        {beenden ? <div className="flex shrink-0">{beenden}</div> : null}
       </div>
     </div>
   );

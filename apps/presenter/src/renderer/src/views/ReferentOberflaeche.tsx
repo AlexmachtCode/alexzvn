@@ -1,15 +1,17 @@
 // Referent im festen Dunkel (UX Welle 2b, Presenter d2; B4, B7, B8, B11, B12, Muster d): AppShell mit thema „dunkel“ (liest
-// jm-theme nie), echter Titelleiste (mac={false}) und der Kopf-Aktion „■ Beenden“ ganz rechts nach ⚙; darunter die Leiste
-// (ReferentLeiste), im Inhalt der Live-Bereich (PresenterView) mit der Übersicht, unten die Statusleiste und rechts das gemeinsame
-// Panel (Einstellungen, ohne Ausgabe und Import). Die Wurzel-View (ReferentOberflaeche) hält den einen Stand (useStand), die Folien
-// (useFolien), die Bildschirmwahl, den Zustand der Übersicht und des Panels; sie bleibt über Panel-Wechsel stabil, und die Kürzel
-// (usePresenterKeys, F11, Schutz vor Strg+W) laufen hier, auch bei geschlossenem Panel. Der Rahmen (ReferentRahmen) zeichnet nur,
-// was er bekommt.
+// jm-theme nie), echter Titelleiste (mac={false}) und bei breitem Fenster der Kopf-Aktion „■ Beenden“ ganz rechts nach ⚙; bei
+// schmalem Fenster steht „■ Beenden“ stattdessen als letzte Taste in der Leiste (Owner P2 B, ändert B7; REFERENT_BREIT_AB, gemessen in
+// Task N1); darunter die Leiste (ReferentLeiste), im Inhalt der Live-Bereich (PresenterView) mit der Übersicht, unten die Statusleiste
+// und rechts das gemeinsame Panel (Einstellungen, ohne Ausgabe und Import). Die Wurzel-View (ReferentOberflaeche) hält den einen Stand
+// (useStand), die Folien (useFolien), die Bildschirmwahl, den Zustand der Übersicht und des Panels und die Lage von „■ Beenden“; sie
+// bleibt über Panel-Wechsel stabil, und die Kürzel (usePresenterKeys, F11, Schutz vor Strg+W) laufen hier, auch bei geschlossenem
+// Panel. Der Rahmen (ReferentRahmen) zeichnet nur, was er bekommt.
 import { useEffect, useState } from 'react';
 import { AppShell } from '@jm/ui';
 import type { Slide } from '@shared/types';
 import { KEIN_AUFRUF, mitLaufendenAufrufen, type LaufendeAufrufe } from '@/lib/aufrufe';
 import {
+  beendenInDerLeiste,
   fensterSchliessenAbfangen,
   kopfOnAir,
   PRESENTER_TEXTE,
@@ -42,11 +44,18 @@ export interface ReferentRahmenProps {
   onWahl(id: number): void;
   onVerschieben(): void;
   onUebersicht(offen: boolean): void;
+  /**
+   * Schmales Fenster (beendenInDerLeiste der Innenbreite, Owner P2 B): „■ Beenden“ als letzte Taste der Leiste, der Kopf behält ⚙.
+   * Ohne Angabe breit: „■ Beenden“ ganz rechts im Kopf (B7).
+   */
+  schmal?: boolean;
 }
 
 /** Der Rahmen des Referenten: ein Stand für Kopf, Leiste, Live-Bereich, Statusleiste und Panel (eine Wahrheit). */
 export function ReferentRahmen(p: ReferentRahmenProps): React.JSX.Element {
   const { stand, folien, wahl, uebersicht, aktionen, referent } = p;
+  // Genau ein „■ Beenden“: breit im Kopf (B7), schmal in der Leiste (Owner P2 B); derselbe Knopf, derselbe Befehl.
+  const beenden = <KopfBeenden onBeenden={referent.beenden} />;
   return (
     <AppShell
       tool="Presenter"
@@ -54,7 +63,7 @@ export function ReferentRahmen(p: ReferentRahmenProps): React.JSX.Element {
       mac={false}
       onAir={kopfOnAir(stand)}
       status={statusLeiste(stand)}
-      kopfAktion={<KopfBeenden onBeenden={referent.beenden} />}
+      kopfAktion={p.schmal ? undefined : beenden}
       toolbar={
         <ReferentLeiste
           stand={stand}
@@ -67,6 +76,7 @@ export function ReferentRahmen(p: ReferentRahmenProps): React.JSX.Element {
           onWahl={p.onWahl}
           onVerschieben={p.onVerschieben}
           onUebersicht={p.onUebersicht}
+          beenden={p.schmal ? beenden : undefined}
         />
       }
       settings={<Einstellungen stand={stand} aktionen={aktionen} />}
@@ -81,7 +91,10 @@ export function ReferentRahmen(p: ReferentRahmenProps): React.JSX.Element {
   );
 }
 
-/** Kopf-Aktion (B7): „■ Beenden“ ganz rechts im Kopf, auf dem alten Platz; beendet die Präsentation wie Esc (title). */
+/**
+ * „■ Beenden“: bei breitem Fenster Kopf-Aktion ganz rechts im Kopf (B7), bei schmalem die letzte Taste der Leiste (Owner P2 B), je auf
+ * dem alten Platz; beendet die Präsentation wie Esc (title).
+ */
 export function KopfBeenden({ onBeenden }: { onBeenden(): void }) {
   return (
     <button
@@ -161,6 +174,15 @@ export function ReferentOberflaeche({
   // beim Schließen, „beschäftigt“ überlebt es hier.
   const [laufend, setLaufend] = useState<LaufendeAufrufe>(KEIN_AUFRUF);
 
+  // Lage von „■ Beenden“ (Owner P2 B, W134): schmal in der Leiste, breit im Kopf. Gemessen wird nur die Innenbreite des Fensters,
+  // beim Start und bei jeder Größenänderung (auch Vollbild); kein Abo, kein IPC. Gleiche Lage rendert nicht neu (React vergleicht).
+  const [schmal, setSchmal] = useState(() => beendenInDerLeiste(window.innerWidth));
+  useEffect(() => {
+    const messen = (): void => setSchmal(beendenInDerLeiste(window.innerWidth));
+    window.addEventListener('resize', messen);
+    return () => window.removeEventListener('resize', messen);
+  }, []);
+
   return (
     <ReferentRahmen
       stand={stand}
@@ -178,6 +200,7 @@ export function ReferentOberflaeche({
       onWahl={bedienung.onWahl}
       onVerschieben={bedienung.onVerschieben}
       onUebersicht={setUebersicht}
+      schmal={schmal}
     />
   );
 }

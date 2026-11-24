@@ -56,7 +56,7 @@ export const PRESENTER_TEXTE = {
     schwarz: 'Schwarz',
     weiss: 'Weiß',
     an: ' · an',
-    /** Kopf-Aktion des Referenten (B7), wörtlich der alte Knopf ganz rechts im Kopf; als title das vorhandene Kürzel Esc (neu, Z1). */
+    /** Kopf-Aktion des Referenten (B7), schmal letzte Taste der Leiste (Owner P2 B); title das vorhandene Kürzel Esc (neu, Z1). */
     kopfBeenden: '■ Beenden',
     kopfBeendenKuerzel: 'Esc',
   },
@@ -690,3 +690,18 @@ export function verarbeiteTaste(
   }
 }
 
+/**
+ * Umschaltpunkt für „■ Beenden“ im Referenten (Owner 24.11. 22:18, P2 B, ändert B7; W134): die Innenbreite des Fensters in CSS-Pixeln
+ * (`window.innerWidth`), ab der „■ Beenden“ wie gebaut ganz rechts im Kopf steht (B7); darunter ist es die letzte Taste der Leiste.
+ * Gemessen in Task N1 am Bau 481c998c08 (Breiten 1024 bis 1920, die Zustände aus Task 11): Ab dieser Innenbreite war der alte Kopf in
+ * jedem gemessenen Zustand einzeilig, das alte „■ Beenden“ lag also ganz rechts oben; darunter brach er in mindestens einem Zustand um
+ * (zuerst bei vollem Kopf: einzeilig ab innen 1475, zweizeilig bis 1473), und das alte „■ Beenden“ lag am Ende der zweiten Zeile, dort,
+ * wo jetzt die erste Zeile der Leiste liegt. 1476 statt 1475, weil innerWidth gerundet ist und 1474 nicht messbar war; schmal ist auf
+ * beiden Seiten der Grenze ohne Treffer (gemessen).
+ */
+export const REFERENT_BREIT_AB = 1476;
+
+/** Steht „■ Beenden“ bei dieser Innenbreite (CSS-Pixel) als letzte Taste in der Leiste statt im Kopf (schmales Fenster)? */
+export function beendenInDerLeiste(innenBreite: number): boolean {
+  return innenBreite < REFERENT_BREIT_AB;
+}
