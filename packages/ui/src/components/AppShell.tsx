@@ -2,7 +2,7 @@ import { useId, type ReactNode } from 'react';
 import type { StatusItem } from '../lib/status';
 import { cn } from '../lib/cn';
 import { AppHeader } from './AppHeader';
-import { SettingsPanel } from './SettingsPanel';
+import { SettingsPanel, type ToolTasten } from './SettingsPanel';
 import { StatusBar } from './StatusBar';
 
 /** Props wörtlich aus Spec 3.1. */
@@ -23,6 +23,8 @@ export interface AppShellProps {
   mac?: boolean;
   /** Aktion ganz rechts im Kopf, nach ⚙ (AppHeader `kopfAktion`). */
   kopfAktion?: ReactNode;
+  /** Opt-in, an SettingsPanel `toolTasten` durchgereicht (Gesamtprüfung UX Welle 2b, I2); ohne wie bisher. */
+  panelToolTasten?: ToolTasten;
   children: ReactNode;
 }
 
@@ -72,6 +74,7 @@ export function AppShell(p: AppShellProps): React.JSX.Element {
     thema = 'wechselbar',
     mac,
     kopfAktion,
+    panelToolTasten,
     children,
   } = p;
   const panelId = useId();
@@ -105,7 +108,7 @@ export function AppShell(p: AppShellProps): React.JSX.Element {
       ) : null}
       <div data-bereich="inhalt" className="relative flex min-h-0 flex-1">
         <main className="min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
-        <SettingsPanel open={offen} onClose={panelSchliessen(p)} sectionId={settingsSection} id={panelId}>
+        <SettingsPanel open={offen} onClose={panelSchliessen(p)} sectionId={settingsSection} id={panelId} toolTasten={panelToolTasten}>
           {settings}
         </SettingsPanel>
       </div>

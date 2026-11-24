@@ -588,16 +588,28 @@ const KEIN_TEXTFELD = new Set(['checkbox', 'radio', 'range', 'button', 'submit',
  * Ist das Ziel eines Tastendrucks ein Textfeld (B10)? `textarea`, contentEditable und `input` außer checkbox, radio, range,
  * button, submit und color. Bewusst anders als `istEingabeZiel` aus 2a (Prompter): `select` zählt hier nicht, damit der
  * Klicker (Bild↓, Pfeile) auch bei fokussierter Bildschirmwahl weiterblättert; `preventDefault` hält die Auswahl fest. Knöpfe
- * zählen ebenfalls nicht. Ohne DOM nutzbar: gelesen werden nur tagName, type und isContentEditable.
+ * zählen ebenfalls nicht. Ein schreibgeschütztes Feld (readOnly, Gast-Link im Panel) auch nicht: dort tippt niemand, der Klicker blättert
+ * (Gesamtprüfung UX Welle 2b, I2). Ohne DOM nutzbar: gelesen werden nur tagName, type, readOnly und isContentEditable.
  */
 export function istTextfeld(ziel: EventTarget | null): boolean {
   if (ziel === null) return false;
-  const t = ziel as { tagName?: unknown; type?: unknown; isContentEditable?: unknown };
+  const t = ziel as { tagName?: unknown; type?: unknown; readOnly?: unknown; isContentEditable?: unknown };
   if (t.isContentEditable === true) return true;
   const tag = typeof t.tagName === 'string' ? t.tagName.toUpperCase() : '';
-  if (tag === 'TEXTAREA') return true;
+  if (tag === 'TEXTAREA') return t.readOnly !== true;
   if (tag !== 'INPUT') return false;
+  if (t.readOnly === true) return false;
   return !KEIN_TEXTFELD.has(typeof t.type === 'string' ? t.type.toLowerCase() : 'text');
+}
+
+/**
+ * Felder im Referent-Panel, deren Tasten trotzdem die Kürzel erreichen (Gesamtprüfung UX Welle 2b, I2; AppShell `panelToolTasten`): jedes
+ * Ziel, das nach B10 kein Textfeld ist, also die Auswahl „Netzwerkkarte“ und der schreibgeschützte Gast-Link. Sonst hält das Panel jede
+ * Taste aus einem Feld an, und der USB-Klicker bliebe tot, solange der Fokus nach einer Mauswahl dort liegt. In Textfeldern (Timer-Host,
+ * Port, PIN) gilt B10 weiter; Escape bleibt beim Panel und schließt es. Nur der Referent gibt das an, der Editor hat keine Kürzel.
+ */
+export function referentPanelTasten(ziel: unknown): boolean {
+  return !istTextfeld((ziel ?? null) as EventTarget | null);
 }
 
 /** Strg+W bzw. Cmd+W: schließt über das Electron-Standardmenü das Fenster, wenn niemand preventDefault ruft. */

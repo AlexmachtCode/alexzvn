@@ -12,8 +12,17 @@ export interface SettingsPanelProps {
   /** Beim Öffnen anzuspringender Abschnitt (id eines PanelAnker). */
   sectionId?: string;
   id?: string;
+  /**
+   * Opt-in (Gesamtprüfung UX Welle 2b, I2): Felder im Panel, deren Tasten trotzdem das Tool erreichen (true = durchlassen). Escape
+   * bleibt immer beim Panel. Ohne die Prop behält jedes Feld seine Tasten wie bisher. Der Presenter-Referent gibt so Auswahl und
+   * schreibgeschütztes Feld frei, damit der USB-Klicker weiterblättert (B10).
+   */
+  toolTasten?: ToolTasten;
   children: ReactNode;
 }
+
+/** Welche Felder im Panel ihre Tasten ans Tool geben (SettingsPanelProps.toolTasten). */
+export type ToolTasten = (ziel: unknown) => boolean;
 
 export interface PanelAnkerProps {
   id: string;
@@ -51,12 +60,14 @@ function verbrauchtTasten(ziel: unknown): boolean {
  * Pfeile in Auswahl/Bereich, auch mit Strg/Meta/Alt); die Strg-Kürzel der Tools nehmen Felder ohnehin selbst aus. Alles
  * andere – Knöpfe, Schalter, Links, Panel und Abschnitte – erreicht das Tool wie bisher (Leertaste = GO auch auf einem
  * fokussierten Schalter, Strg-Kürzel). Hängt am Panel selbst. Nur aus dieser Datei exportiert.
+ * Opt-in `toolTasten` (I2): Ein Feld, das das Tool freigibt, behält seine Tasten nicht; Escape bleibt trotzdem beim Panel.
  */
 export function panelTaste(
   e: { key: string; defaultPrevented: boolean; target?: unknown; stopPropagation(): void; preventDefault(): void },
   onClose: () => void,
+  toolTasten?: ToolTasten,
 ): void {
-  if (e.key === 'Escape' || verbrauchtTasten(e.target)) e.stopPropagation();
+  if (e.key === 'Escape' || (verbrauchtTasten(e.target) && toolTasten?.(e.target) !== true)) e.stopPropagation();
   if (e.key !== 'Escape' || e.defaultPrevented) return;
   e.preventDefault();
   onClose();
@@ -76,13 +87,13 @@ export interface PanelProps {
 }
 
 /** Props des Panels als reine Funktion: aria-label „Einstellungen“, Fokusziel, noDragRegion, Escape über panelTaste. */
-export function panelProps(p: { id?: string; onClose(): void }): PanelProps {
+export function panelProps(p: { id?: string; onClose(): void; toolTasten?: ToolTasten }): PanelProps {
   return {
     id: p.id,
     'aria-label': UI_TEXTE.einstellungen,
     tabIndex: -1,
     style: noDragRegion,
-    onKeyDown: (e) => panelTaste(e, p.onClose),
+    onKeyDown: (e) => panelTaste(e, p.onClose, p.toolTasten),
     className: cn(
       'flex h-full w-[var(--panel-w)] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--surface-raised)]',
       'text-[var(--foreground)] outline-none',
@@ -164,14 +175,14 @@ export function SettingsPanel(p: SettingsPanelProps): React.JSX.Element | null {
   return <OffenesPanel {...p} />;
 }
 
-function OffenesPanel({ onClose, sectionId, id, children }: SettingsPanelProps): React.JSX.Element {
+function OffenesPanel({ onClose, sectionId, id, toolTasten, children }: SettingsPanelProps): React.JSX.Element {
   const panelRef = useRef<HTMLElement>(null);
   const [hervorgehoben, setHervorgehoben] = useState<string | undefined>(sectionId);
   useLayoutEffektImBrowser(() => panelFokus(panelRef.current, aktivesElement, sectionId ? ankerIn(panelRef.current, sectionId) : null), []);
   useEffect(() => panelSprung(sectionId, (ziel) => ankerIn(panelRef.current, ziel), setHervorgehoben), [sectionId]);
 
   return (
-    <aside ref={panelRef} {...panelProps({ id, onClose })}>
+    <aside ref={panelRef} {...panelProps({ id, onClose, toolTasten })}>
       <div className="flex h-[var(--header-h)] shrink-0 items-center gap-2 border-b border-[var(--border)] px-4">
         <h2 className="text-sm font-extrabold">{UI_TEXTE.einstellungen}</h2>
         <button

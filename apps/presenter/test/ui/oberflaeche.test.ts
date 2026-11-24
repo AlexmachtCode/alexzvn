@@ -573,6 +573,8 @@ const KEINE_TEXTFELDER: Record<string, EventTarget | null> = {
   'input button': ziel({ tagName: 'INPUT', type: 'button' }),
   'input submit': ziel({ tagName: 'INPUT', type: 'submit' }),
   'input color': ziel({ tagName: 'INPUT', type: 'color' }),
+  // Gesamtprüfung UX Welle 2b (I2): ein schreibgeschütztes Feld (Gast-Link) ist kein Textfeld, dort tippt niemand; der Klicker blättert.
+  'input readOnly': ziel({ tagName: 'INPUT', type: 'text', readOnly: true }),
   div: ziel({ tagName: 'DIV', isContentEditable: false }),
   body: ziel({ tagName: 'BODY' }),
   'ohne tagName': ziel({}),
@@ -584,7 +586,7 @@ const KEINE_TEXTFELDER: Record<string, EventTarget | null> = {
     ...Object.entries(TEXTFELDER).map(([name, z]) => ({ name, z, soll: true })),
     ...Object.entries(KEINE_TEXTFELDER).map(([name, z]) => ({ name, z, soll: false })),
   ];
-  pruefeFaelle('PS Kürzel aus Textfeld: istTextfeld true für input (text, number, password …), textarea, contentEditable; false für select, Knöpfe, checkbox, radio, range, color', faelle, (f) =>
+  pruefeFaelle('PS Kürzel aus Textfeld: istTextfeld true für input (text, number, password …), textarea, contentEditable; false für select, Knöpfe, checkbox, radio, range, color und schreibgeschützte Felder', faelle, (f) =>
     vergleiche(String(istTextfeld(f.z)), String(f.soll)),
   );
   const tippen = kreuz({ feld: Object.keys(TEXTFELDER), taste: ['.', ',', 'b', 'w', ' ', 'Enter', 'Backspace'] } as const);

@@ -9,7 +9,17 @@ import { useEffect, useState } from 'react';
 import { AppShell } from '@jm/ui';
 import type { Slide } from '@shared/types';
 import { KEIN_AUFRUF, mitLaufendenAufrufen, type LaufendeAufrufe } from '@/lib/aufrufe';
-import { fensterSchliessenAbfangen, kopfOnAir, PRESENTER_TEXTE, referentWahl, statusLeiste, verschiebenGrund, type OberflaechenStand, type ReferentAktionen } from '@/lib/oberflaeche';
+import {
+  fensterSchliessenAbfangen,
+  kopfOnAir,
+  PRESENTER_TEXTE,
+  referentPanelTasten,
+  referentWahl,
+  statusLeiste,
+  verschiebenGrund,
+  type OberflaechenStand,
+  type ReferentAktionen,
+} from '@/lib/oberflaeche';
 import { useFolien, usePresenterKeys } from '@/lib/usePresentation';
 import { referentAktionen, standAktionen, useStand } from '@/lib/useStand';
 import { Einstellungen, type EinstellungenAktionen } from './Einstellungen';
@@ -63,6 +73,8 @@ export function ReferentRahmen(p: ReferentRahmenProps): React.JSX.Element {
       settingsOpen={p.panelOffen}
       settingsSection={p.panelAbschnitt}
       onSettingsChange={p.onPanel}
+      // Klicker auch bei Fokus auf einer Auswahl oder dem Gast-Link im Panel (B10, Gesamtprüfung I2); Textfelder behalten ihre Tasten.
+      panelToolTasten={referentPanelTasten}
     >
       <PresenterView stand={stand} folien={folien} referent={referent} uebersicht={uebersicht} onUebersicht={p.onUebersicht} />
     </AppShell>

@@ -12,6 +12,7 @@ import { PRESENTER_TEXTE, referentWahl, verschiebenGrund, verschiebenMoeglich, t
 import * as stand from '@/lib/useStand';
 import { ReferentLeiste, SchleifenKnopf, type ReferentLeisteProps } from '@/views/ReferentLeiste';
 import { bildschirmBedienung, KopfBeenden, ReferentRahmen, type ReferentRahmenProps } from '@/views/ReferentOberflaeche';
+import { panelTaste } from '../../../../packages/ui/src/components/SettingsPanel';
 import { kreuz, pruefeFaelle, vergleiche } from './hilfe';
 import {
   aktionenAttrappe,
@@ -23,6 +24,7 @@ import {
   laufend,
   ndiStatus,
   ohneKommentare,
+  presentAttrappe,
   referentAttrappe,
   referentFolien,
   referentStand,
@@ -397,4 +399,66 @@ const REFERENT_DATEIEN = [
     'PS keine rohen Farben: schwarz bleibt nur die Folienfläche (FOLIENFLAECHE) um jede SlideCanvas (Programmfläche, B5)',
   );
   ok(!/AppShell|var\(--/.test(QUELLE('views/AudienceView.tsx')), 'PS keine rohen Farben: AudienceView bleibt Programmfläche ohne Rahmen und ohne Token-Umzug (B5)');
+}
+
+// ── PS Klicker bei fokussierter Auswahl im Panel (Gesamtprüfung UX Welle 2b, I2; B10, Review Focus 1): Das Panel hielt jede Taste aus
+// einer Auswahl oder einem Feld an (panelTaste, stopPropagation), der USB-Klicker blieb tot, solange der Fokus nach einer Mauswahl auf
+// „Netzwerkkarte“ oder im Gast-Link lag. Jetzt gibt der Referent über panelToolTasten jedes Ziel frei, das nach B10 kein Textfeld ist;
+// in Textfeldern (Timer-Host, Port) gilt B10 weiter, Escape schließt weiter das Panel. Nachgespielt wird die echte Reihenfolge: erst
+// der Hörer am Panel (React, Bubbling), dann usePresenterKeys am window, nur wenn das Panel die Taste nicht anhält ──
+{
+  const FELDER: Record<string, unknown> = {
+    'Netzwerkkarte (Auswahl)': { tagName: 'SELECT' },
+    'Gast-Link (schreibgeschützt)': { tagName: 'INPUT', type: 'text', readOnly: true },
+    'Timer-Host (Text)': { tagName: 'INPUT', type: 'text' },
+    'Port (Text)': { tagName: 'INPUT', type: 'text' },
+  };
+  const FREI = ['Netzwerkkarte (Auswahl)', 'Gast-Link (schreibgeschützt)'];
+  const WIRKUNG: Record<string, string> = { PageDown: 'next', ArrowRight: 'next', PageUp: 'prev', ArrowLeft: 'prev', '.': 'setScreen(black)', b: 'setScreen(black)' };
+  const imPanel = (key: string, target: unknown, toolTasten: ((z: unknown) => boolean) | undefined): string => {
+    const { present, aufrufe } = presentAttrappe();
+    let gestoppt = false;
+    let verhindert = 0;
+    let zu = 0;
+    const e = {
+      key,
+      target: target as EventTarget | null,
+      defaultPrevented: false,
+      stopPropagation: () => void (gestoppt = true),
+      preventDefault: () => {
+        verhindert++;
+        e.defaultPrevented = true;
+      },
+    };
+    panelTaste(e, () => void zu++, toolTasten);
+    if (!gestoppt) ob.verarbeiteTaste(e, present);
+    return `${aufrufe.join(',') || '–'} / preventDefault ${verhindert}${zu > 0 ? ' / Panel zu' : ''}`;
+  };
+  const frei = (ob as Record<string, unknown>).referentPanelTasten as ((z: unknown) => boolean) | undefined;
+  const faelle = kreuz({ feld: Object.keys(FELDER), taste: Object.keys(WIRKUNG) } as const);
+  pruefeFaelle('PS Klicker bei fokussierter Auswahl im Panel: Bild↓/Bild↑/Pfeile und Schwarz blättern bzw. schalten aus Auswahl und schreibgeschütztem Feld; Textfelder behalten ihre Tasten (B10)', faelle, (f) => {
+    if (typeof frei !== 'function') return 'referentPanelTasten fehlt';
+    return vergleiche(imPanel(f.taste, FELDER[f.feld], frei), FREI.includes(f.feld) ? `${WIRKUNG[f.taste]} / preventDefault 1` : '– / preventDefault 0');
+  });
+  pruefeFaelle('PS Klicker bei fokussierter Auswahl im Panel: Escape schließt in jedem Feld nur das Panel, die Präsentation läuft weiter', Object.keys(FELDER).map((feld) => ({ feld })), (f) => {
+    if (typeof frei !== 'function') return 'referentPanelTasten fehlt';
+    return vergleiche(imPanel('Escape', FELDER[f.feld], frei), '– / preventDefault 1 / Panel zu');
+  });
+  const element = ReferentRahmen({
+    stand: referentStand(),
+    folien: referentFolien(),
+    wahl: null,
+    uebersicht: false,
+    aktionen: aktionenAttrappe([], false),
+    referent: referentAttrappe(),
+    panelOffen: true,
+    onPanel: () => undefined,
+    onWahl: () => undefined,
+    onVerschieben: () => undefined,
+    onUebersicht: () => undefined,
+  }) as unknown as { props: { panelToolTasten?: unknown } };
+  ok(
+    frei !== undefined && element.props.panelToolTasten === frei && !/panelToolTasten/.test(QUELLE('views/EditorOberflaeche.tsx')),
+    'PS Klicker bei fokussierter Auswahl im Panel: der Referent gibt dem Rahmen referentPanelTasten (panelToolTasten), der Editor nicht (er hat keine Präsentations-Kürzel)',
+  );
 }
