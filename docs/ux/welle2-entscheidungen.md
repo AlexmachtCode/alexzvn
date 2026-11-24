@@ -1,4 +1,4 @@
-# UX-Update Welle 2: Entscheidungen während der Umsetzung (W1–W133)
+# UX-Update Welle 2: Entscheidungen während der Umsetzung (W1–W134)
 
 Bei der Umsetzung von Welle 2a (Caption, Interpreter, Prompter, Stage Display, Recorder, Player) waren an einigen Stellen
 Plan, Spec und Code nicht eindeutig. Diese Entscheidungen sind hier festgehalten. W1 bis W63 gehören zu Welle 2a; Welle 2b
@@ -591,7 +591,7 @@ Grund und der Preis, falls sie sich als falsch erweist.
 
 ### Texttabelle, Handbücher und Abnahme
 
-- **W128** (Z1, ändert den Zeitpunkt aus W83; die Grenze „vor Z2“ ändert W133) Die Texttabelle entstand vor der Antwort auf
+- **W128** (Z1, ändert den Zeitpunkt aus W83; die Grenze „vor Z2“ ändert W133; erledigt durch W134) Die Texttabelle entstand vor der Antwort auf
   P1 und P2: Beide stehen zuoberst unter „Offene Fragen“, P2 mit dem Risiko „Show endet durch Fehlklick“. Vor den Handbüchern
   und vor jedem Release muss die Antwort da sein; bei P2 = B folgt ein Nachtrag (Referent-Kopf bei schmalem Fenster, neue
   Messung), und die Tabelle wird nachgezogen. Grund: Warten blockierte Versionen, Changelog und Texte, die nicht an P2 hängen.
@@ -614,8 +614,23 @@ Grund und der Preis, falls sie sich als falsch erweist.
   Studio-Control, als gemessen und sicherheitsrelevant gekennzeichnet. In der Fix-Runde präzisiert: Das Konto legte der
   Entwickler-Schalter der Messung an; ohne ihn legt die App ein Zufallspasswort ab (laut Code). Grund: Es ist ein Altfehler, und
   die Bedienlogik bleibt in der Welle. Ein Preis ist nicht festgehalten.
-- **W133** (Z2, ändert W128) Handbücher und Abnahme-Datei entstanden ohne Antwort auf P1 und P2: Sie beschreiben die gebaute
+- **W133** (Z2, ändert W128; erledigt durch W134) Handbücher und Abnahme-Datei entstanden ohne Antwort auf P1 und P2: Sie beschreiben die gebaute
   Lage (B14 im Editor, B7 im Referenten) und markieren die betroffenen Stellen mit „abhängig von Owner-Frage P1“ bzw. „P2“. Ist
   eine Antwort B, folgt nach dem Umbau ein Nachtrag an genau diesen Stellen; vor jedem Release bleibt die Antwort Pflicht.
   Grund: Warten blockierte Handbücher, Abnahme, Entscheidungen und Roadmap der übrigen fünf Apps. Preis: ein Absatz je Handbuch
   und Abnahme neu.
+- **W134** (Nachtrag N1 nach der Owner-Antwort vom 24.11. 22:18; ändert B7; erledigt W128 und W133) P1 A: Die Editor-Lage
+  nach B14 bleibt, die 14 Konflikte auf den alten Reitern „Folie“ und „Übergänge“ sind hingenommen. P2 B: „■ Beenden“ steht im
+  Referenten nur bei breitem Fenster wie gebaut ganz rechts im Kopf (ab 1476 px Innenbreite, `REFERENT_BREIT_AB`); darunter ist
+  es die letzte Taste der Leiste, rechts neben der umbrechenden Gruppe und oben bündig mit deren erster Zeile, der Kopf behält ⚙.
+  Der Umschaltpunkt folgt der Messung am Bau 481c998c08: Ab innen 1475 px war der alte Kopf in allen Zuständen einzeilig, bei
+  vollem Kopf zweizeilig bis 1473 px; 1476, weil `innerWidth` gerundet ist. Gemessen (36 Breiten von 1024 bis 1920 je 10
+  Zustände, Panel offen bei 1500, 1280 und 1024, zwei Läufe): kein Treffer der Tastenplatz-Regel mit „■ Beenden“ (vorher 120 der
+  Abnahme (a)), (a) 5 statt 125, alle 5 vorher gleich (voller Kopf, 1100 bis 1180 Breite, „Auf diesen Bildschirm“ auf dem alten
+  „Publikum Vollbild“, dort gesperrt; vorher an derselben Stelle, 3 bis 4 px weiter links, also nicht durch „■ Beenden“ verursacht,
+  sondern durch B12; ohne Bruch von B12 nicht zu beheben), (c) 1347 statt 3230; ab 1476 px alle Rechtecke wie gebaut. Grund: Außerhalb der umbrechenden
+  Gruppe steht „■ Beenden“ unabhängig von deren Inhalt am Ende der ersten Zeile, also dort, wo es im zweizeiligen alten Kopf
+  stand, und keine andere Taste rückt dorthin. Preis: Die Leiste ist zwischen 1300 und 1400 Breite meist zweizeilig (Folie gleich
+  groß) und bei vollem Kopf bis 1080 Breite dreizeilig (Folie bei 1024 × 620 443 × 249 statt 510 × 287). Grenze: gemessen mit
+  dem Folientitel der Probe-PDF und bei Skalierung 1,26; ein längerer Titel lässt alten Kopf und neue Leiste früher umbrechen
+  (ungemessen). Die offenen Fragen 3 bis 5 der Texttabelle heißen jetzt 1 bis 3.
