@@ -77,6 +77,7 @@ const GEAENDERT = [
   'src/renderer/src/components/audio/AudioPanel.tsx',
   'src/renderer/src/components/lighting/LichtPanel.tsx',
   'src/renderer/src/components/setup/DiscoverPanel.tsx',
+  'src/renderer/src/components/setup/UserManager.tsx',
   'src/renderer/src/components/ui/StatusPill.tsx',
   'src/renderer/src/components/video/AtemPanel.tsx',
   'src/renderer/src/components/video/ObsPanel.tsx',
@@ -95,6 +96,7 @@ const GEAENDERT = [
   'src/renderer/src/views/Video.tsx',
   'src/renderer/src/views/Werkzeugleiste.tsx',
   'src/shared/fernsteuerung.ts',
+  'test/ui/benutzer.test.tsx',
   'test/ui/bruecken.test.ts',
   'test/ui/funktionsliste.test.ts',
   'test/ui/hilfe.ts',
@@ -549,7 +551,15 @@ const zeigtAuf = (nr: number, datei: string, ...woerter: string[]): boolean => {
     'SC Funktionsliste Nr. 59/61/62/179: Joystick, Zoom und Fokus halten über den HalteKnopf, auch per Leertaste oder Enter (B1, B16)',
   );
   ok(zeigtAuf(179, 'R/components/video/PtzPanel.tsx', '<HalteKnopf') && nennt(179, 'Leertaste', 'Enter') && nennt(59, 'h-12', 'genau einmal'), 'SC Funktionsliste Nr. 179: der Haken zeigt auf den Halte-Knopf, Höhe h-12, Loslassen genau einmal');
-  ok(beginnt(180, 'Reiter Setup') && nennt(180, 'Befund 9') && zeigtAuf(180, 'R/components/setup/UserManager.tsx', 'updateRole'), 'SC Funktionsliste Nr. 180: die Rollen-Auswahl wählt weiter sofort (Befund 9, offen)');
+  // Nachtrag Task 19 (Ruling zu Bedenken 2, Global Constraint „Wahl ≠ Bewegung“): die Rollen-Auswahl ändert nur den Entwurf, erst
+  // „Setzen“ ruft updateRole; Nr. 90 und 180 nennen den neuen Ablauf und zeigen auf Auswahl, Knopf und Zeilen-Bedienung.
+  ok(
+    [90, 180].every((nr) => beginnt(nr, 'Reiter Setup') && nennt(nr, '„Setzen“', 'Wahl ≠ Bewegung', 'Entwurf', 'Befund 9')) &&
+      zeigtAuf(180, 'R/components/setup/UserManager.tsx', 'onChange={(e) => zeile.waehlen(', 'onClick={() => void zeile.setzen()}') &&
+      zeigtAuf(90, 'R/components/setup/UserManager.tsx', 'export function rollenZeile', 'a.updateRole(id, gesendet)', 'async function updateRole') &&
+      !/onChange={(e) => updateRole/.test(ohneKommentare(quelle('R/components/setup/UserManager.tsx'))),
+    'SC Funktionsliste Nr. 90/180: die Rollen-Auswahl wählt nur in den Entwurf, erst „Setzen“ ändert die Rolle (Wahl ≠ Bewegung, Befund 9 erledigt)',
+  );
 }
 
 // ── Pflichtpunkt Panel-Tasten (Nr. 181, O1): Feld behält Tasten, Leertaste auf Knopf/Schalter geht ans Tool, Escape schließt ──
@@ -786,7 +796,7 @@ const zeigtAuf = (nr: number, datei: string, ...woerter: string[]): boolean => {
   ok(falsch.length === 0, `SC Funktionsliste Befunde 1–13: jeder mit „Stand Task 19:“ erledigt, offen → Ziel oder überholt und mit Beleg (falsch: ${falsch.join(', ') || 'keine'})`);
   const status = (i: number): string[] => (teile(befunde[i - 1] ?? '') ?? []).map((s) => /^(erledigt|überholt|offen)/.exec(s)?.[1] ?? '');
   ok(
-    [4, 6, 8, 9, 12].every((i) => status(i).join() === 'offen') && status(3).join() === 'erledigt' && status(13).join() === 'erledigt' && status(10).join() === 'erledigt,offen' && status(11).join() === 'erledigt,offen',
-    'SC Funktionsliste Befunde: Loopback (4), Inventar (6), stille Fehler (8), Wahl wirkt sofort (9) und Tray (12) offen mit Ziel; Kopf (3) und Simulation (13) erledigt; toter Code (10) und Gateway (11) teils erledigt, teils offen',
+    [4, 6, 8, 12].every((i) => status(i).join() === 'offen') && [3, 9, 13].every((i) => status(i).join() === 'erledigt') && status(10).join() === 'erledigt,offen' && status(11).join() === 'erledigt,offen',
+    'SC Funktionsliste Befunde: Loopback (4), Inventar (6), stille Fehler (8) und Tray (12) offen mit Ziel; Kopf (3), Wahl wirkt sofort (9, Nachtrag „Setzen“) und Simulation (13) erledigt; toter Code (10) und Gateway (11) teils erledigt, teils offen',
   );
 }

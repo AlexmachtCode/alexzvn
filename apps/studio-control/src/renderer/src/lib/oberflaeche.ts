@@ -65,6 +65,11 @@ export const STUDIO_TEXTE = {
     abgemeldet: 'Nicht angemeldet',
     unbekannt: 'Zustand unbekannt',
   },
+  /** Rollen-Auswahl im Setup (Wahl ≠ Bewegung): warum „Setzen“ gesperrt ist; der Knopf selbst heißt wie PEERS_TEXTE.setzen. */
+  rollenWahl: {
+    unveraendert: 'Die Rolle ist schon so eingestellt.',
+    eigene: 'Du kannst deine eigene Rolle nicht ändern.',
+  },
 } as const;
 
 /** Status eines Geräts, wie ihn die Status-Ereignisse melden (ATEM, OBS, TriCaster, PTZ, Audio). */

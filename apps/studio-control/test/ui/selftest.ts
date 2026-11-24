@@ -11,4 +11,5 @@ import './panel.test';
 import './live.test';
 import './panels.test';
 import './funktionsliste.test';
+import './benutzer.test';
 abschluss();
