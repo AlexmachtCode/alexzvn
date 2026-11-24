@@ -154,11 +154,14 @@ const haupt = (html: string): ReturnType<typeof tallyTasten> => tallyTasten(bere
   ok(text(zu).includes(NDI_TEXT.t141) && text(spalte(offenerRaum(raum()))).includes('Noch keine Gäste — Link erzeugen und teilen.'), 'CN Gästeliste: T141 ohne Verbindung, Leerzeile ohne Gäste wie bisher');
   const q = QUELLE('views/CloudRaum.tsx');
   ok(/<GuestActions guest=\{g\} send=\{aktionen\.send\} gesperrt=\{!ansicht\.wsKnoepfeBedienbar\} \/>/.test(q), 'CN Gästeliste: GuestActions bekommt send aus der Wurzel-View und die Sperre aus raumAnsicht');
-  // Tastenplatz (Task 24, Fix-Runde 1): Die Gast-Aktionen stehen auf eigener Zeile ab dem Zeilenanfang (basis-full, letztes Kind
-  // der Zeile, Reihenfolge unverändert) und sind schmal (!px-2). Bei 1280×860 liegt jeder alte Platz bei x ≥ 266; so bleibt auch
-  // „Entfernen“ hinter „Auf Sendung“ und „Standby“ mit Spielraum links davon (vorher lag es hinter dem Phasen-Abzeichen auf dem alten
-  // „Talkback alle“ bzw. „Auf Sendung“ desselben Zustands). Zeilen ohne Aktionen bekommen keine leere zweite Zeile.
+  // Tastenplatz (Task 24, Fix-Runde 1): In der breiten Liste (Cloud-Spalte ab 34rem, derselbe Umbruch wie die Einladungen; 1280×860)
+  // stehen die Gast-Aktionen auf eigener Zeile ab dem Zeilenanfang (basis-full, letztes Kind der Zeile, Reihenfolge unverändert) und
+  // sind schmal (!px-2): Dort liegt jeder alte Platz bei x ≥ 266, und „Entfernen“ hinter „Auf Sendung“ und „Standby“ bleibt mit
+  // Spielraum links davon (vorher lag es hinter dem Phasen-Abzeichen auf dem alten „Talkback alle“ bzw. „Auf Sendung“ desselben
+  // Zustands). In der schmalen Liste (980×640) fließen sie wie bisher hinter das Abzeichen: Dort ist nur x < 116 frei, und die eigene
+  // Zeile erhöhte die gefährlichen Treffer gleichen Zustands gemessen von 21 auf 45. Zeilen ohne Aktionen bekommen keine leere Zeile.
   const aktionsZeilen = zeilen.map((z) => bereiche(z, 'data-connect', 'gast-aktionen'));
+  const klassenVon = (tag: string): string[] => (attr(tag, 'class') ?? '').split(/\s+/);
   gleich(
     aktionsZeilen.map((a) => a.map((b) => knopfTexte(b))),
     [[], [['Freigeben', 'Ablehnen']], [['Auf Sendung', 'Standby', 'Entfernen']], [['Aus Sendung', 'Entfernen']], [['Auf Sendung', 'Standby', 'Entfernen']], []],
@@ -166,15 +169,20 @@ const haupt = (html: string): ReturnType<typeof tallyTasten> => tallyTasten(bere
   );
   ok(
     aktionsZeilen.flat().length === 4 && aktionsZeilen.flat().every((b) => {
-      const kopf = b.match(/^<div[^>]*>/)?.[0] ?? '';
-      const klassen = (attr(kopf, 'class') ?? '').split(/\s+/);
-      return klassen.includes('basis-full') && klassen.includes('flex') && klassen.includes('gap-1');
+      const klassen = klassenVon(b.match(/^<div[^>]*>/)?.[0] ?? '');
+      return klassen.includes('@[34rem]:basis-full') && !klassen.includes('basis-full') && klassen.includes('flex') && klassen.includes('gap-1');
     }),
-    'CN Gästeliste: die Aktionszeile nimmt die volle Breite (basis-full) — eigene Zeile ab dem Zeilenanfang (Tastenplatz)',
+    'CN Gästeliste: die Aktionszeile nimmt erst in der breiten Liste die volle Breite (@[34rem]:basis-full) — eigene Zeile ab dem Zeilenanfang bei 1280, Fluss wie bisher bei 980 (Tastenplatz)',
   );
   ok(
-    aktionsZeilen.flat().length === 4 && aktionsZeilen.flat().every((b) => [...b.matchAll(/<button[^>]*>/g)].every((m) => (attr(m[0], 'class') ?? '').split(/\s+/).includes('!px-2'))),
-    'CN Gästeliste: die Aktionsknöpfe sind schmal (!px-2), damit „Entfernen“ bei 1280×860 mit Spielraum links von x 266 bleibt',
+    aktionsZeilen.flat().length === 4 && aktionsZeilen.flat().every((b) => [...b.matchAll(/<button[^>]*>/g)].every((m) => klassenVon(m[0]).includes('@[34rem]:!px-2') && !klassenVon(m[0]).includes('!px-2'))),
+    'CN Gästeliste: die Aktionsknöpfe sind in der breiten Liste schmal (@[34rem]:!px-2), damit „Entfernen“ bei 1280×860 mit Spielraum links von x 266 bleibt',
+  );
+  ok(
+    klassenVon(html.match(/<div[^>]*data-connect="cloud"[^>]*>/)?.[0] ?? '').includes('@container')
+      && html.indexOf('data-connect="cloud"') < html.indexOf('data-connect="gaesteliste"')
+      && /data-connect="einladungen" className="grid gap-3 @\[34rem\]:grid-cols-2"/.test(q),
+    'CN Gästeliste: der Umbruch der Aktionszeile fragt dieselbe Cloud-Spalte ab wie die Einladungen (@container, 34rem)',
   );
   ok(
     aktionsZeilen.flat().length === 4 && zeilen.every((z, i) => {

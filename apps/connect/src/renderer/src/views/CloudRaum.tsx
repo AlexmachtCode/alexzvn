@@ -527,13 +527,15 @@ function PhaseBadge({ phase }: { phase: Guest['phase'] }): JSX.Element {
   return <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${PHASE_KLASSE[art]}`}>{PHASE_LABEL[phase]}</span>;
 }
 
-// Tastenplatz (Task 24, Fix-Runde 1): Die Gast-Aktionen stehen auf eigener Zeile ab dem Zeilenanfang (basis-full; als letztes Kind
-// der Zeile, Reihenfolge unverändert), die Knöpfe schmal (`!px-2`; Button verbindet Klassen ohne Zusammenführen, daher `!`, wie im
-// Switcher). Bei 1280×860 liegt jeder alte Platz bei x ≥ 266; „Entfernen“ hinter „Auf Sendung“ und „Standby“ bleibt so mit
-// Spielraum links davon. Hinter dem Phasen-Abzeichen lagen die Aktionen auf dem alten „Talkback alle“ bzw. „Auf Sendung“ desselben
-// Zustands.
-const AKTIONSZEILE = 'flex basis-full gap-1';
-const AKTIONSKNOPF = '!px-2';
+// Tastenplatz (Task 24, Fix-Runde 1): In der breiten Liste (Cloud-Spalte ab 34rem — derselbe Umbruch wie die Einladungen; 1280×860)
+// stehen die Gast-Aktionen auf eigener Zeile ab dem Zeilenanfang (basis-full; als letztes Kind der Zeile, Reihenfolge unverändert),
+// die Knöpfe schmal (`!px-2`; Button verbindet Klassen ohne Zusammenführen, daher `!`, wie im Switcher). Dort liegt jeder alte Platz
+// bei x ≥ 266; „Entfernen“ hinter „Auf Sendung“ und „Standby“ bleibt so mit Spielraum links davon. Hinter dem Phasen-Abzeichen lagen
+// die Aktionen auf dem alten „Talkback alle“ bzw. „Auf Sendung“ desselben Zustands. In der schmalen Liste (980×640) fließen sie wie
+// bisher hinter das Abzeichen: Dort ist nur x < 116 frei, und die eigene Zeile verschob den Takt der Gastzeilen so, dass die
+// gefährlichen Treffer gleichen Zustands gemessen von 21 auf 45 stiegen.
+const AKTIONSZEILE = 'flex gap-1 @[34rem]:basis-full';
+const AKTIONSKNOPF = '@[34rem]:!px-2';
 
 /** Gast-Aktionen über die Raum-WebSocket; ohne Raumverbindung gesperrt (Regel V, `gesperrt` aus raumAnsicht). */
 function GuestActions({ guest, send, gesperrt }: { guest: Guest; send: (a: OperatorAction) => void; gesperrt: boolean }): JSX.Element {
