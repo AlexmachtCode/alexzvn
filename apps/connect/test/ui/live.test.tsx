@@ -6,13 +6,15 @@
 import { gleich, leseText, ok, render } from '@jm/ui/testhilfe';
 import type { RoomState } from '@jm/rtc/protocol';
 import { NDI_TEXT } from '@shared/ndi-text';
-import type { ZoomAbbild } from '@shared/types';
+import { PEERS_TEXTE } from '@jm/settings';
+import type { ZoomAbbild, ZoomSlotZustand } from '@shared/types';
 import { BEDIEN_TEXT, KANDIDAT_KENNZEICHEN, SLOT_FELD } from '@shared/zoom-text';
 import { CONNECT_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
 import { CloudRaum, gastTalkback, haupttasten, type CloudRaumProps } from '@/views/CloudRaum';
 import { slotAufrufeAus, ZoomSpalte } from '@/views/ZoomSpalte';
 import type { ZoomAufrufe } from '@/zoom/aufrufe';
 import { SlotEinstellungen } from '@/zoom/SlotEinstellungen';
+import * as Wahl from '@/zoom/SlotEinstellungen';
 import { halteKnopfProps } from '../../../../packages/ui/src/components/HalteKnopf';
 import { haltenBeiAbbau, haltenFuerRender, tallyHandler, type TallyButtonProps } from '../../../../packages/ui/src/components/TallyButton';
 import { erzeugeHalten, type HaltenSteuerung } from '../../../../packages/ui/src/lib/halten';
@@ -325,4 +327,123 @@ function zoomSpalte(a: ZoomAbbild | undefined, z: ZoomAufrufe = zoomSpeicher(), 
   );
   const titel = [bereich(html, 'data-connect', 'zoom-kopf'), bereich(vor, 'data-connect', 'zoom-kopf')].map((k) => tags(k, 'h2')[0]);
   ok(titel.every((t) => /\bshrink-0\b/.test(attr(t, 'class') ?? '')), 'CN Zoom-Spalte: der Titel „Zoom-Meeting“ bricht neben einer langen Statuszeile nicht um (shrink-0; gesehen bei 980×640)');
+}
+
+// ── CN Slot-Wahl (Nachtrag Task 25, Befund 11; Global Constraint „Wahl ≠ Bewegung“): an einem laufenden Slot (ein Sender läuft
+// oder kommt gleich: startet, zeigt, gehalten, ersatz) halten Auflösung, Ersatzbild und Bildformat nur einen Entwurf; erst
+// „Setzen“ sendet ihn mit demselben zoomSlotAendern wie bisher. An einem gestoppten Slot wirkt die Wahl wie bisher sofort, sie
+// ändert dort nur die Einstellung für den nächsten Start. Geprüft über die reine Verdrahtung slotWahl und den Render. ──
+{
+  /** Eine Prüfung, die auch dann als FAIL zählt, wenn sie wirft (etwa weil slotWahl fehlt). */
+  const pruefe = async (name: string, f: () => boolean | Promise<boolean>): Promise<void> => {
+    let r = false;
+    try {
+      r = await f();
+    } catch (e) {
+      console.log(`     ${e instanceof Error ? e.message : String(e)}`);
+    }
+    ok(r, name);
+  };
+  const W = CONNECT_TEXTE.wahl;
+  const ALLE: ZoomSlotZustand[] = ['aus', 'ohne_meeting', 'wartet_erlaubnis', 'startet', 'zeigt', 'gehalten', 'ersatz', 'keine_antwort', 'gescheitert', 'stoppt', 'zurueckgestellt', 'geplant'];
+  const LAUFEND: ZoomSlotZustand[] = ['startet', 'zeigt', 'gehalten', 'ersatz'];
+  /** Eine Bedienung mit lebendem Entwurf und Protokoll der gesendeten Änderungen. */
+  const bedienung = (zustand: ZoomSlotZustand, e: Parameters<typeof slotLage>[2] = {}, beschaeftigt = false, antwort: { ok: boolean } = { ok: true }) => {
+    const lage = slotLage(3, { zustand }, { an: zustand !== 'aus' && zustand !== 'stoppt', ...e });
+    const gesendet: unknown[] = [];
+    let entwurf: Wahl.SlotEntwurf = {};
+    const jetzt = (einstellung = lage.einstellung, z = zustand) =>
+      Wahl.slotWahl({
+        e: einstellung,
+        zustand: z,
+        entwurf,
+        setzeEntwurf: (f) => {
+          entwurf = f(entwurf);
+        },
+        beschaeftigt,
+        aendere: (aenderung) => {
+          gesendet.push(aenderung);
+          return Promise.resolve(antwort.ok ? { ok: true } : { ok: false, text: 'abgelehnt' });
+        },
+      });
+    return { lage, gesendet, jetzt, entwurf: () => entwurf };
+  };
+
+  await pruefe('CN Slot-Wahl: die Wahl wirkt nur an einem laufenden Slot erst mit „Setzen“ (startet, zeigt, gehalten, ersatz), sonst sofort', () =>
+    ALLE.every((z) => Wahl.wirktSofort(z) === LAUFEND.includes(z)),
+  );
+  await pruefe('CN Slot-Wahl: am laufenden Slot sendet die Wahl (auch per Pfeiltaste) nichts, „Setzen“ sendet genau einmal den gewählten Wert', async () => {
+    const b = bedienung('zeigt');
+    b.jetzt().waehlen({ aufloesung: '1080p' });
+    const vorher = b.gesendet.length;
+    const w = b.jetzt();
+    const sichtbar = w.setzenSichtbar && w.wert('aufloesung') === '1080p' && w.setzenGrund === undefined;
+    await w.setzen();
+    await b.jetzt().setzen();
+    return vorher === 0 && sichtbar && JSON.stringify(b.gesendet) === JSON.stringify([{ aufloesung: '1080p' }]);
+  });
+  await pruefe('CN Slot-Wahl: „Setzen“ sendet Auflösung, Ersatzbild und Bildformat zusammen in einem Aufruf', async () => {
+    const b = bedienung('ersatz');
+    b.jetzt().waehlen({ aufloesung: '360p' });
+    b.jetzt().waehlen({ ersatzbild: 'schwarz' });
+    b.jetzt().waehlen({ bildformat: 'einpassen' });
+    await b.jetzt().setzen();
+    return JSON.stringify(b.gesendet) === JSON.stringify([{ aufloesung: '360p', ersatzbild: 'schwarz', bildformat: 'einpassen' }]);
+  });
+  await pruefe('CN Slot-Wahl: am gestoppten Slot (aus, geplant, ohne Meeting, stoppt) wirkt die Wahl wie bisher sofort, ohne Entwurf und ohne „Setzen“', () =>
+    (['aus', 'geplant', 'ohne_meeting', 'stoppt'] as ZoomSlotZustand[]).every((z) => {
+      const b = bedienung(z);
+      b.jetzt().waehlen({ bildformat: 'einpassen' });
+      return JSON.stringify(b.gesendet) === JSON.stringify([{ bildformat: 'einpassen' }]) && JSON.stringify(b.entwurf()) === '{}' && !b.jetzt().setzenSichtbar;
+    }),
+  );
+  await pruefe('CN Slot-Wahl: „Setzen“ ist ohne Abweichung gesperrt mit Grund (auch nach Rückwahl des gemeldeten Werts) und sendet dann nichts', async () => {
+    const b = bedienung('zeigt');
+    const leer = b.jetzt().setzenGrund === W.slotUnveraendert;
+    b.jetzt().waehlen({ aufloesung: '1080p' });
+    b.jetzt().waehlen({ aufloesung: '720p' });
+    const zurueck = b.jetzt().setzenGrund === W.slotUnveraendert && b.jetzt().wert('aufloesung') === '720p';
+    await b.jetzt().setzen();
+    return leer && zurueck && b.gesendet.length === 0;
+  });
+  await pruefe('CN Slot-Wahl: „Setzen“ ist gesperrt, solange der Aufruf des Slots läuft (Schlüssel aendern:‹n›), und sendet dann nichts', async () => {
+    const b = bedienung('zeigt', {}, true);
+    b.jetzt().waehlen({ ersatzbild: 'weiss' });
+    const grund = b.jetzt().setzenGrund;
+    await b.jetzt().setzen();
+    return grund === W.sendet && b.gesendet.length === 0;
+  });
+  await pruefe('CN Slot-Wahl: nach gelungenem „Setzen“ ist der Knopf bis zur Meldung gesperrt, eine Ablehnung lässt den Entwurf stehen', async () => {
+    const gut = bedienung('zeigt');
+    gut.jetzt().waehlen({ aufloesung: '1080p' });
+    await gut.jetzt().setzen();
+    const nachGut = gut.jetzt().setzenGrund === W.slotUnveraendert && gut.jetzt().wert('aufloesung') === '1080p';
+    const schlecht = bedienung('zeigt', {}, false, { ok: false });
+    schlecht.jetzt().waehlen({ aufloesung: '1080p' });
+    await schlecht.jetzt().setzen();
+    return nachGut && schlecht.jetzt().setzenGrund === undefined && schlecht.jetzt().wert('aufloesung') === '1080p';
+  });
+  await pruefe('CN Slot-Wahl: der Entwurf gilt nur gegen den gemeldeten Wert, den Modus und den Lauf, gegen den er gewählt wurde', () => {
+    const b = bedienung('zeigt');
+    b.jetzt().waehlen({ aufloesung: '1080p' });
+    const gemeldetNeu = b.jetzt({ ...b.lage.einstellung, aufloesung: '360p' });
+    const modusNeu = b.jetzt({ ...b.lage.einstellung, modus: 'sprecher' });
+    const gestoppt = b.jetzt(b.lage.einstellung, 'aus');
+    return gemeldetNeu.wert('aufloesung') === '360p' && gemeldetNeu.setzenGrund === W.slotUnveraendert
+      && modusNeu.wert('aufloesung') === '720p' && gestoppt.wert('aufloesung') === '720p' && !gestoppt.setzenSichtbar;
+  });
+  await pruefe('CN Slot-Wahl: in der Kachel eines laufenden Slots steht „Setzen“ (gesperrt, Grund als Tooltip am Rahmen), am gestoppten Slot nicht', () => {
+    const z = slotAufrufeAus(zoomSpeicher(), null, () => undefined);
+    const laufend = render(<SlotEinstellungen lage={slotLage(1, { zustand: 'zeigt' }, { an: true })} teilnehmer={[]} aufrufe={z} />);
+    const gestoppt = render(<SlotEinstellungen lage={slotLage(1)} teilnehmer={[]} aufrufe={z} />);
+    const setzen = bereich(laufend, 'data-connect', 'slot-setzen');
+    const knopf = tags(setzen, 'button')[0];
+    return knopfTexte(laufend).filter((t) => t === PEERS_TEXTE.setzen).length === 1 && knopf !== undefined && /\sdisabled=""/.test(knopf)
+      && tags(setzen, 'span').some((t) => attr(t, 'title') === W.slotUnveraendert) && !knopfTexte(gestoppt).includes(PEERS_TEXTE.setzen) && bereich(gestoppt, 'data-connect', 'slot-setzen') === '';
+  });
+  await pruefe('CN Slot-Wahl: die drei Auswahlen wählen über slotWahl (kein aendere direkt im onChange), „Setzen“ steht rechts in ihrer Reihe, der Entwurf fällt beim Stoppen weg', () => {
+    const q = QUELLE('zoom/SlotEinstellungen.tsx');
+    return ['aufloesung', 'ersatzbild', 'bildformat'].every((f) => q.includes(`wahl.waehlen({ ${f}: ev.target.value as `) && !q.includes(`void aendere({ ${f}: ev.target.value`))
+      && /data-connect="slot-setzen" className="ml-auto"/.test(q) && q.includes('onClick={() => void wahl.setzen()}') && /if \(!laeuft\) setEntwurf\(\{\}\);/.test(q);
+  });
 }

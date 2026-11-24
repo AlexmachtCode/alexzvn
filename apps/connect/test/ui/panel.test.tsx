@@ -5,10 +5,10 @@
 // Antworten als ZoomAufrufe aus der Wurzel-View, dasselbe Objekt für Panel und Zoom-Spalte. Render ohne Browser; Speichern über die
 // reine Funktion speichern, Zoom-Aufrufe über die reinen Verdrahtungen (einrichtungAufrufe, vorgabenAufrufe, slotAufrufeAus).
 import type { ReactNode } from 'react';
-import { REMOTE_TEXTE } from '@jm/settings';
+import { PEERS_TEXTE, REMOTE_TEXTE } from '@jm/settings';
 import { UNBEKANNT } from '@jm/ui';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
-import type { JmConnectApi, ZoomErgebnis } from '@shared/types';
+import type { JmConnectApi, ZoomErgebnis, ZoomSprecherEinstellung, ZoomSprecherSignal } from '@shared/types';
 import { BEDIEN_TEXT, PERSON_IM_NDI_NAMEN_TOOLTIP, SLOT_FELD, SPRECHER_TEXT, sdkKnopf, sdkZeile } from '@shared/zoom-text';
 import { ZUGANG_TEXT } from '../../src/main/zugang/regeln';
 import { statusKlick } from '../../../../packages/ui/src/components/AppShell';
@@ -20,6 +20,7 @@ import { slotAufrufeAus } from '@/views/ZoomSpalte';
 import type { ZoomAufrufe } from '@/zoom/aufrufe';
 import { einrichtungAufrufe } from '@/zoom/ZoomEinrichtung';
 import { vorgabenAufrufe } from '@/zoom/ZoomVorgaben';
+import * as Vorgaben from '@/zoom/ZoomVorgaben';
 import {
   abschnitt, aktionenAttrappe, appStatus, attr, basisMeldung, bereich, bereiche, knopfTexte, ohneKommentare, offenerRaum, raum, slotLage, stand,
   statusEintraege, tags, text, zoomAbbild, zoomSpeicher,
@@ -227,4 +228,84 @@ const inhalt = (html: string): string => html.match(/<main[\s\S]*?<\/main>/)?.[0
   );
   const wurzel = QUELLE('views/ConnectOberflaeche.tsx');
   ok(/setPanelOffen\(offen\);\n\s*setPanelAbschnitt\(abschnitt\);/.test(wurzel) && /onSettingsChange=\{p\.onPanel\}/.test(wurzel), 'CN Mangel öffnet das Panel: der Statuseintrag führt über onPanel zu Panel offen und Abschnitt (Wurzel-View)');
+}
+
+// ── CN Sprecher-Signal mit „Setzen“ (Nachtrag Task 25, Befund 11; „Wahl ≠ Bewegung“): die Optionsfelder im Panel „Zoom-Vorgaben“
+// wählen nur einen Entwurf (Pfeiltasten in der Gruppe wechseln die Wahl), erst „Setzen“ schickt speakerConfig über zoomSprecher wie
+// bisher. Ohne Effekt (B8): der Entwurf merkt den gemeldeten Wert, gegen den er gewählt wurde. ──
+{
+  const pruefe = async (name: string, f: () => boolean | Promise<boolean>): Promise<void> => {
+    let r = false;
+    try {
+      r = await f();
+    } catch (e) {
+      console.log(`     ${e instanceof Error ? e.message : String(e)}`);
+    }
+    ok(r, name);
+  };
+  const W = CONNECT_TEXTE.wahl;
+  const signale = Object.keys(SPRECHER_TEXT.signal) as ZoomSprecherSignal[];
+  const gemeldet: ZoomSprecherEinstellung = { signal: signale[0]!, haltezeitMs: 1000 };
+  const anders = signale[1]!;
+  const bedienung = (beschaeftigt = false, antwort = true) => {
+    const gesendet: ZoomSprecherEinstellung[] = [];
+    let entwurf: Vorgaben.SignalEntwurf | null = null;
+    const jetzt = (g: ZoomSprecherEinstellung = gemeldet) =>
+      Vorgaben.sprecherWahl({
+        gemeldet: g,
+        entwurf,
+        setzeEntwurf: (f) => {
+          entwurf = f(entwurf);
+        },
+        beschaeftigt,
+        sende: (s) => {
+          gesendet.push(s);
+          return Promise.resolve(antwort);
+        },
+      });
+    return { gesendet, jetzt };
+  };
+
+  await pruefe('CN Sprecher-Signal: eine Wahl (auch per Pfeiltaste) sendet nichts, „Setzen“ sendet genau einmal das gewählte Signal mit der gemeldeten Haltezeit', async () => {
+    const b = bedienung();
+    b.jetzt().waehlen(anders);
+    const vorher = b.gesendet.length;
+    const w = b.jetzt();
+    const frei = w.wert === anders && w.setzenGrund === undefined;
+    await w.setzen();
+    await b.jetzt().setzen();
+    return vorher === 0 && frei && JSON.stringify(b.gesendet) === JSON.stringify([{ ...gemeldet, signal: anders }]);
+  });
+  await pruefe('CN Sprecher-Signal: „Setzen“ ohne Abweichung gesperrt mit Grund (auch nach Rückwahl), während des Aufrufs gesperrt, dann sendet es nichts', async () => {
+    const b = bedienung();
+    const leer = b.jetzt().setzenGrund === W.sprecherUnveraendert;
+    b.jetzt().waehlen(anders);
+    b.jetzt().waehlen(gemeldet.signal);
+    const zurueck = b.jetzt().setzenGrund === W.sprecherUnveraendert;
+    await b.jetzt().setzen();
+    const c = bedienung(true);
+    c.jetzt().waehlen(anders);
+    const sendet = c.jetzt().setzenGrund === W.sendet;
+    await c.jetzt().setzen();
+    return leer && zurueck && sendet && b.gesendet.length === 0 && c.gesendet.length === 0;
+  });
+  await pruefe('CN Sprecher-Signal: der Entwurf gilt nur gegen das gemeldete Signal, gegen das er gewählt wurde; eine Ablehnung lässt ihn stehen', async () => {
+    const b = bedienung();
+    b.jetzt().waehlen(anders);
+    const neu = b.jetzt({ ...gemeldet, signal: signale[2] ?? anders });
+    const c = bedienung(false, false);
+    c.jetzt().waehlen(anders);
+    await c.jetzt().setzen();
+    return neu.wert === (signale[2] ?? anders) && neu.setzenGrund === W.sprecherUnveraendert && c.jetzt().setzenGrund === undefined && c.jetzt().wert === anders;
+  });
+  await pruefe('CN Sprecher-Signal: im Panel steht unter den Optionsfeldern „Setzen“ (ohne Abweichung gesperrt, Grund als Tooltip), die Optionsfelder senden nicht selbst', () => {
+    const a = zoomAbbild();
+    const vg = abschnitt(panel(rahmen(stand({ status: appStatus(), room: null, zoom: a }), true)), ABSCHNITT.zoomVorgaben);
+    const setzen = bereich(vg, 'data-connect', 'sprecher-setzen');
+    const knopf = tags(setzen, 'button')[0];
+    const q = QUELLE('zoom/ZoomVorgaben.tsx');
+    return knopfTexte(vg).filter((t) => t === PEERS_TEXTE.setzen).length === 1 && knopf !== undefined && /\sdisabled=""/.test(knopf)
+      && tags(setzen, 'span').some((t) => attr(t, 'title') === W.sprecherUnveraendert)
+      && q.includes('onChange={() => signal.waehlen(s)}') && !/onChange=\{\(\) => void sendeSprecher\(\{ \.\.\.a\.sprecher, signal: s \}\)\}/.test(q) && q.includes('onClick={() => void signal.setzen()}');
+  });
 }

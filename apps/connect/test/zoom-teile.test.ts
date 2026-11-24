@@ -555,8 +555,11 @@ console.log('— B21: Zoom-Karte mit Slot-Bereich, Kachel, Einstellungen und Tei
   ck('B21 7.5: Einstellungen über zoomSlotAendern; Löschen nur ausgeschaltet und nach Rückfrage T37 über zoomSlotLoeschen',
     einst.includes('window.jmconnect.zoomSlotAendern({ nr, aenderung })') && einst.includes('loeschenFrage(nr, e.ndiName)')
       && einst.includes('window.jmconnect.zoomSlotLoeschen({ nr })') && einst.includes('disabled={e.an ||'));
-  ck('#310 B21: Bildformat-Feld über aendere, gesperrt bei Freigabe, Hinweis aus bildformatHinweis',
-    einst.includes('aendere({ bildformat: ev.target.value as ZoomSlotBildformat })')
+  // Seit Nachtrag Task 25 (Befund 11, Wahl ≠ Bewegung): die Wahl geht über slotWahl, das am gestoppten Slot sofort und am
+  // laufenden erst mit „Setzen“ dasselbe aendere ruft (Verhalten geprüft in test/ui/live.test.tsx, CN Slot-Wahl).
+  ck('#310 B21: Bildformat-Feld über slotWahl und aendere, gesperrt bei Freigabe, Hinweis aus bildformatHinweis',
+    einst.includes('wahl.waehlen({ bildformat: ev.target.value as ZoomSlotBildformat })')
+      && einst.includes('slotWahl({ e, zustand: lage.zustand, entwurf, setzeEntwurf: setEntwurf, beschaeftigt, aendere })')
       && einst.includes("disabled={beschaeftigt || e.modus === 'freigabe'}") && einst.includes('bildformatHinweis(e.modus)'));
   ck('B21 B-EP9: Kacheln in einem Container, zwei Spalten ab 34rem', bereich.includes('className="@container') && bereich.includes('@[34rem]:grid-cols-2'));
   const iBereich = karte.indexOf('<SlotBereich a={a} aufrufe={slotAufrufe} />');

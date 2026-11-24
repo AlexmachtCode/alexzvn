@@ -2,13 +2,18 @@
 // Slot-Komponenten (Stil, Tooltip-Rahmen, Kennzeichen, Aufruf-Typen). Diese Datei importiert keine der anderen
 // Slot-Komponenten, darum entsteht kein Kreis-Import (SlotKachel und SlotBereich importieren von hier).
 // Alle Nutzertexte kommen aus @shared/zoom-text (B-EP4); hier steht kein Text-Literal. Seit UX Welle 2b (Task 24) Knöpfe aus @jm/ui
-// und Farben nur als Tokens (W2-9); die Einstellungen bleiben je Kachel (W2-6).
-import { useState } from 'react';
+// und Farben nur als Tokens (W2-9); die Einstellungen bleiben je Kachel (W2-6). Nachtrag Task 25 (Befund 11, Wahl ≠ Bewegung): an
+// einem laufenden Slot wählen Auflösung, Ersatzbild und Bildformat nur einen Entwurf, erst „Setzen“ sendet (slotWahl); der Knopf heißt
+// wie PEERS_TEXTE.setzen, seine Sperrgründe stehen in CONNECT_TEXTE.wahl.
+import { useEffect, useState } from 'react';
+import { PEERS_TEXTE } from '@jm/settings';
 import { Button } from '@jm/ui';
 import { SLOT_RESOLUTIONS } from '@jm/zoom-bridge/protocol';
 import type {
   ZoomErgebnis, ZoomParticipant, ZoomSlotAufloesung, ZoomSlotBildformat, ZoomSlotEinstellung, ZoomSlotErsatzbild, ZoomSlotLage, ZoomSlotModus,
+  ZoomSlotZustand,
 } from '@shared/types';
+import { CONNECT_TEXTE } from '@/lib/oberflaeche';
 import {
   BEDIEN_TEXT, BILDFORMAT_FELD, BILDFORMAT_HINWEIS, BILDFORMAT_NAME, BILDFORMAT_REIHE, bildformatHinweis, ersatzbildAuswahl, ERSATZBILD_FELD, loeschenFrage, MODUS_NAME, SLOT_FELD, SLOT_TEXT,
 } from '@shared/zoom-text';
@@ -68,11 +73,120 @@ export function Kennzeichen({ children, rot = false }: { children: string; rot?:
 type Aenderung = Partial<Omit<ZoomSlotEinstellung, 'nr' | 'an'>>;
 
 /**
+ * Zustände, in denen eine Änderung von Auflösung, Ersatzbild oder Bildformat sofort aufs Bild geht: ein Sender läuft (zeigt,
+ * gehalten, Ersatzbild; der Kern schickt slotSet, kern.ts slotAendern) oder kommt gleich (startet; der Kern zieht die Änderung mit
+ * der ersten Antwort nach, kern.ts nachziehen). In allen übrigen ändert sie nur die Einstellung für den nächsten Start.
+ */
+const LAUFEND: ReadonlySet<ZoomSlotZustand> = new Set<ZoomSlotZustand>(['startet', 'zeigt', 'gehalten', 'ersatz']);
+
+/** Wirkt eine Wahl in diesem Zustand sofort auf das gesendete Bild? Dann gilt Entwurf und „Setzen“ (Wahl ≠ Bewegung). */
+export function wirktSofort(zustand: ZoomSlotZustand): boolean {
+  return LAUFEND.has(zustand);
+}
+
+/** Die drei Auswahlen einer Kachel, die an einem laufenden Slot einen Entwurf halten. */
+export type SlotWahlFeld = 'aufloesung' | 'ersatzbild' | 'bildformat';
+export type SlotWahl = Partial<Pick<ZoomSlotEinstellung, SlotWahlFeld>>;
+const WAHL_FELDER: readonly SlotWahlFeld[] = ['aufloesung', 'ersatzbild', 'bildformat'];
+
+/** Ein gewählter Wert mit dem gemeldeten Wert und Modus, gegen die er gewählt wurde; `gesendet` nach gelungenem „Setzen“. */
+interface EntwurfFeld {
+  wert: string;
+  basis: string;
+  modus: ZoomSlotModus;
+  gesendet: boolean;
+}
+/** Entwurf der Auswahlen eines Slots. Eine Wahl gleich dem gemeldeten Wert ist kein Entwurf. */
+export type SlotEntwurf = Readonly<Partial<Record<SlotWahlFeld, EntwurfFeld>>>;
+
+/** Was die Auswahlen eines Slots zeigen und auslösen (hooklos prüfbar). */
+export interface SlotWahlBedienung {
+  /** Die Wahl wirkt sofort aufs Bild (wirktSofort): dann Entwurf und „Setzen“. */
+  laeuft: boolean;
+  /** „Setzen“ steht nur, wo es gebraucht wird: am laufenden Slot. */
+  setzenSichtbar: boolean;
+  /** Angezeigter Wert: der gültige Entwurf, sonst der gemeldete. */
+  wert(f: SlotWahlFeld): string;
+  /** Auswahl (change, auch per Pfeiltaste): am laufenden Slot nur in den Entwurf, sonst sofort wie bisher. */
+  waehlen(w: SlotWahl): void;
+  /** Warum „Setzen“ gesperrt ist; undefined = frei (ein gültiger, noch nicht gesendeter Entwurf weicht ab). */
+  setzenGrund: string | undefined;
+  /** „Setzen“: schickt alle abweichenden Felder in einem Aufruf (derselbe zoomSlotAendern wie bisher). */
+  setzen(): Promise<void>;
+}
+
+/**
+ * Auswahlen eines Slots (Wahl ≠ Bewegung): an einem laufenden Slot hält jede Wahl nur einen Entwurf, erst „Setzen“ sendet ihn; an
+ * einem gestoppten Slot geht die Wahl wie bisher sofort an `aendere`. Ein Entwurf gilt nur, solange der Slot läuft und der gemeldete
+ * Wert und der Modus noch die sind, gegen die er gewählt wurde: so dreht kein veralteter Entwurf eine spätere Änderung still zurück,
+ * und nach „Setzen“ zeigt die Auswahl den gesendeten Wert, bis die Meldung ihn bestätigt (kein Zurückspringen). Gesperrt ist
+ * „Setzen“ ohne Abweichung und solange der Aufruf des Slots läuft (`beschaeftigt`); eine Ablehnung lässt den Entwurf stehen.
+ */
+export function slotWahl(a: {
+  e: ZoomSlotEinstellung;
+  zustand: ZoomSlotZustand;
+  entwurf: SlotEntwurf;
+  setzeEntwurf(f: (e: SlotEntwurf) => SlotEntwurf): void;
+  beschaeftigt: boolean;
+  aendere(aenderung: SlotWahl): Promise<ZoomErgebnis>;
+}): SlotWahlBedienung {
+  const laeuft = wirktSofort(a.zustand);
+  const T = CONNECT_TEXTE.wahl;
+  const gueltig = (f: SlotWahlFeld): EntwurfFeld | undefined => {
+    const x = a.entwurf[f];
+    return laeuft && x !== undefined && x.basis === a.e[f] && x.modus === a.e.modus ? x : undefined;
+  };
+  const offen = WAHL_FELDER.filter((f) => {
+    const x = gueltig(f);
+    return x !== undefined && !x.gesendet && x.wert !== a.e[f];
+  });
+  const setzenGrund = a.beschaeftigt ? T.sendet : offen.length === 0 ? T.slotUnveraendert : undefined;
+  return {
+    laeuft,
+    setzenSichtbar: laeuft,
+    wert: (f) => gueltig(f)?.wert ?? a.e[f],
+    waehlen: (w) => {
+      if (!laeuft) {
+        void a.aendere(w);
+        return;
+      }
+      a.setzeEntwurf((alt) => {
+        const neu: Partial<Record<SlotWahlFeld, EntwurfFeld>> = { ...alt };
+        for (const f of WAHL_FELDER) {
+          const v = w[f];
+          if (v === undefined) continue;
+          if (v === a.e[f]) delete neu[f];
+          else neu[f] = { wert: v, basis: a.e[f], modus: a.e.modus, gesendet: false };
+        }
+        return neu;
+      });
+    },
+    setzenGrund,
+    setzen: async () => {
+      if (setzenGrund !== undefined) return;
+      const aenderung: Partial<Record<SlotWahlFeld, string>> = {};
+      for (const f of offen) aenderung[f] = gueltig(f)?.wert;
+      const r = await a.aendere(aenderung as SlotWahl);
+      if (!r.ok) return;
+      a.setzeEntwurf((alt) => {
+        const neu: Partial<Record<SlotWahlFeld, EntwurfFeld>> = { ...alt };
+        for (const f of offen) {
+          const x = neu[f];
+          if (x !== undefined && x.wert === aenderung[f]) neu[f] = { ...x, gesendet: true };
+        }
+        return neu;
+      });
+    },
+  };
+}
+
+/**
  * Felder eines Slots (7.5 Nr. 8): NDI-Name (gesperrt, solange der Slot an ist, T35), Modus, Person (nur Teilnehmer, mit
  * Vorschlägen aus der Teilnehmerliste, freie Eingabe), Auflösung, Ersatzbild, Ton an/aus und Tonart (Person nur im Modus
  * Teilnehmer), Computerton (nur Freigabe), „Teilnehmer ohne Kamera zeigen“ (nur Sprecher), „Löschen“ (nur ausgeschaltet,
- * T36, Rückfrage T37). Jede Änderung geht sofort an zoomSlotAendern; der Kern speichert sie und schickt im Meeting slotSet
- * (B-EP21). Den Text einer Ablehnung (T43–T47 …) zeigt die Kachel am Ort `slot:<nr>`.
+ * T36, Rückfrage T37). Eine Änderung geht an zoomSlotAendern; der Kern speichert sie und schickt im Meeting slotSet (B-EP21).
+ * An einem laufenden Slot halten Auflösung, Ersatzbild und Bildformat nur einen Entwurf, den erst „Setzen“ schickt (slotWahl,
+ * Wahl ≠ Bewegung); beim Stoppen fällt der Entwurf weg. Den Text einer Ablehnung (T43–T47 …) zeigt die Kachel am Ort `slot:<nr>`.
  */
 export function SlotEinstellungen({
   lage,
@@ -97,6 +211,13 @@ export function SlotEinstellungen({
   const stoppt = lage.zustand === 'stoppt';
   const aendere = (aenderung: Aenderung): Promise<ZoomErgebnis> =>
     aufrufe.fuehreAus(schluessel, ort, () => window.jmconnect.zoomSlotAendern({ nr, aenderung }));
+  const [entwurf, setEntwurf] = useState<SlotEntwurf>({});
+  const laeuft = wirktSofort(lage.zustand);
+  // Stoppt der Slot, fällt der Entwurf weg (er gilt ohnehin nur, solange der Slot läuft; slotWahl).
+  useEffect(() => {
+    if (!laeuft) setEntwurf({});
+  }, [laeuft]);
+  const wahl = slotWahl({ e, zustand: lage.zustand, entwurf, setzeEntwurf: setEntwurf, beschaeftigt, aendere });
   const uebernimmName = (): void => {
     if (ndiName === null || ndiName === e.ndiName) {
       setNdiName(null);
@@ -172,9 +293,9 @@ export function SlotEinstellungen({
         <label className="flex items-center gap-1">
           {SLOT_FELD.aufloesung}
           <select
-            value={e.aufloesung}
+            value={wahl.wert('aufloesung')}
             disabled={beschaeftigt}
-            onChange={(ev) => void aendere({ aufloesung: ev.target.value as ZoomSlotAufloesung })}
+            onChange={(ev) => wahl.waehlen({ aufloesung: ev.target.value as ZoomSlotAufloesung })}
             className={STIL.inp}
           >
             {SLOT_RESOLUTIONS.map((r) => (
@@ -187,9 +308,9 @@ export function SlotEinstellungen({
         <label className="flex items-center gap-1">
           {ERSATZBILD_FELD}
           <select
-            value={e.ersatzbild}
+            value={wahl.wert('ersatzbild')}
             disabled={beschaeftigt}
-            onChange={(ev) => void aendere({ ersatzbild: ev.target.value as ZoomSlotErsatzbild })}
+            onChange={(ev) => wahl.waehlen({ ersatzbild: ev.target.value as ZoomSlotErsatzbild })}
             className={STIL.inp}
           >
             {ersatzbildAuswahl(e.modus, e.ersatzbild).map((o) => (
@@ -202,9 +323,9 @@ export function SlotEinstellungen({
         <label className="flex items-center gap-1" title={bildformatHinweis(e.modus)}>
           {BILDFORMAT_FELD}
           <select
-            value={e.bildformat}
+            value={wahl.wert('bildformat')}
             disabled={beschaeftigt || e.modus === 'freigabe'}
-            onChange={(ev) => void aendere({ bildformat: ev.target.value as ZoomSlotBildformat })}
+            onChange={(ev) => wahl.waehlen({ bildformat: ev.target.value as ZoomSlotBildformat })}
             className={STIL.inp}
           >
             {BILDFORMAT_REIHE.map((b) => (
@@ -215,6 +336,22 @@ export function SlotEinstellungen({
           </select>
           {e.modus === 'freigabe' && <span className="text-xs opacity-70">{BILDFORMAT_HINWEIS.freigabe}</span>}
         </label>
+        {wahl.setzenSichtbar && (
+          <span data-connect="slot-setzen" className="ml-auto">
+            <MitTooltip titel={wahl.setzenGrund}>
+              <Button
+                size="sm"
+                uppercase={false}
+                variant="outline"
+                aria-label={PEERS_TEXTE.setzenFuer(e.ndiName)}
+                disabled={wahl.setzenGrund !== undefined}
+                onClick={() => void wahl.setzen()}
+              >
+                {PEERS_TEXTE.setzen}
+              </Button>
+            </MitTooltip>
+          </span>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1">

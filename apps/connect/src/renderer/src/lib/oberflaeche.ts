@@ -67,6 +67,15 @@ export const CONNECT_TEXTE = {
     raumNichtVerbunden: 'Raum nicht verbunden',
     unbekannt: 'Zustand unbekannt',
   },
+  /**
+   * Auswahlen, die sonst sofort aufs Bild gingen (Wahl ≠ Bewegung, Nachtrag Task 25): Auflösung, Ersatzbild und Bildformat eines
+   * laufenden Slots und das Sprecher-Signal wirken erst mit „Setzen“ (der Knopf heißt wie PEERS_TEXTE.setzen); warum er gesperrt ist.
+   */
+  wahl: {
+    slotUnveraendert: 'Auflösung, Ersatzbild und Bildformat sind schon so eingestellt.',
+    sprecherUnveraendert: 'Das Sprecher-Signal ist schon so eingestellt.',
+    sendet: 'Wird gesendet …',
+  },
 } as const;
 
 export interface OberflaechenStand {

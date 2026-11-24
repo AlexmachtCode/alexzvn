@@ -626,7 +626,21 @@ const OF = 'R/lib/oberflaeche.ts';
       quelle('packages/ui/src/components/TallyButton.tsx').includes("e.key === 'Enter' && e.repeat") && zeigtAuf(198, 'packages/ui/src/components/TallyButton.tsx', 'onKeyDown(e)'),
     'CN Funktionsliste Nr. 198: Leertaste und Enter auf Knöpfen; Talkback alle und 🎙 halten jetzt auch per Taste (Baustein, B1), ein gehaltenes Enter löst nur einmal aus',
   );
-  ok(beginnt(199, 'Zoom-Spalte') && nennt(199, 'Pfeiltasten', 'Befund 11', 'Panel'), 'CN Funktionsliste Nr. 199: Pfeiltasten und Leertaste auf Auswahlen und Schaltern senden wie bisher sofort (Befund 11)');
+  // Nachtrag Task 25 (Befund 11, Wahl ≠ Bewegung): an einem laufenden Slot und beim Sprecher-Signal wählt eine Pfeiltaste nur einen
+  // Entwurf, erst „Setzen“ sendet; die übrigen Auswahlen und die Schalter senden wie bisher sofort.
+  ok(
+    beginnt(199, 'Zoom-Spalte') && nennt(199, 'Pfeiltasten', 'Befund 11', 'Panel', 'Setzen', 'Wahl ≠ Bewegung') &&
+      zeigtAuf(199, 'R/zoom/SlotEinstellungen.tsx', 'wahl.waehlen({ aufloesung: ev.target.value', 'wahl.waehlen({ bildformat: ev.target.value') &&
+      zeigtAuf(199, 'R/zoom/ZoomVorgaben.tsx', 'onChange={() => signal.waehlen(s)}'),
+    'CN Funktionsliste Nr. 199: Pfeiltasten auf den Auswahlen eines laufenden Slots und im Sprecher-Signal wählen nur, erst „Setzen“ sendet (Befund 11); die übrigen Auswahlen und die Schalter senden wie bisher sofort',
+  );
+  ok(
+    beginnt(95, 'Zoom-Spalte') && nennt(95, 'Setzen', 'Befund 11', 'Wahl ≠ Bewegung', 'Entwurf') &&
+      zeigtAuf(95, 'R/zoom/SlotEinstellungen.tsx', 'export function slotWahl(', 'data-connect="slot-setzen"', 'if (!laeuft) setEntwurf({});') &&
+      ersetzt(83, 'Panel Zoom-Vorgaben') && nennt(83, 'Setzen', 'Entwurf') && zeigtAuf(83, 'R/zoom/ZoomVorgaben.tsx', 'export function sprecherWahl(', 'data-connect="sprecher-setzen"') &&
+      nennt(209, 'Sprecher-Signal', 'laufenden Slots'),
+    'CN Funktionsliste Nr. 95, 83, 209: Auswahlen eines laufenden Slots und das Sprecher-Signal halten einen Entwurf, „Setzen“ sendet ihn (Befund 11); die Entwürfe werden nicht gemerkt',
+  );
 }
 
 // ── Pflichtpunkt Panel-Tasten (Nr. 200, O1): Feld behält Tasten, Leertaste auf Knopf/Schalter geht ans Tool, Escape schließt ──
@@ -898,13 +912,18 @@ const OF = 'R/lib/oberflaeche.ts';
     8: 'bleibt',
     9: 'erledigt,bleibt',
     10: 'erledigt,bleibt',
-    11: 'bleibt,Owner-Frage',
+    11: 'erledigt,bleibt',
     12: 'erledigt,bleibt',
     13: 'erledigt,bleibt',
     14: 'bleibt',
   };
   const abweichend = Object.entries(soll).filter(([i, s]) => status(Number(i)) !== s).map(([i]) => `${i}: ${status(Number(i)) || '–'}`);
-  ok(abweichend.length === 0, `CN Funktionsliste Befunde: Stand je Befund wie festgelegt (Tastenplätze 1, 2, 4 mit den Owner-Fragen F1–F3; Talkback 7 erledigt; Wahl wirkt sofort 11 bleibt mit Owner-Frage; abweichend: ${abweichend.join(', ') || 'keine'})`);
+  ok(abweichend.length === 0, `CN Funktionsliste Befunde: Stand je Befund wie festgelegt (Tastenplätze 1, 2, 4 mit den Owner-Fragen F1–F3; Talkback 7 erledigt; Wahl wirkt sofort 11 erledigt mit „Setzen“, die Schalter bleiben; abweichend: ${abweichend.join(', ') || 'keine'})`);
+  const b11 = befunde[10] ?? '';
+  ok(
+    ['Setzen', '`R/zoom/SlotEinstellungen.tsx:', '`R/zoom/ZoomVorgaben.tsx:', 'Schalter', 'Vorgaben'].every((w) => b11.includes(w)) && !b11.includes('Owner-Frage'),
+    'CN Funktionsliste Befund 11: erledigt mit „Setzen“ an laufenden Slots und am Sprecher-Signal (Belege in Kachel und Panel), Schalter und Vorgaben bleiben, keine Owner-Frage mehr',
+  );
   const tastenplatz = [1, 2, 4].map((i) => befunde[i - 1] ?? '').join('\n');
   ok(['F1', 'F2', 'F3'].every((f) => tastenplatz.includes(f)) && (befunde[6] ?? '').includes('`packages/ui/src/lib/halten.ts'), 'CN Funktionsliste Befunde: 1, 2 und 4 verweisen auf F1–F3; 7 belegt den Abbruch bei Fensterverlust im Baustein');
 }
