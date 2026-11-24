@@ -47,7 +47,7 @@ summary: "Remote-Gäste per Browser und Zoom als feste NDI-Quellen im Switcher: 
 - JM Rundown kennt die Zoom-Aktionen erst ab seinem nächsten Release; bis dahin steuert er Zoom nicht.
 
 ### Browser-Gäste (kurz)
-- Raum mit der Haupttaste „Raum öffnen“ in der linken Spalte (Cloud-Raum) öffnen (braucht die Anmeldung im Launcher; dieselbe Taste schließt ihn wieder), für jeden Gast mit „Link erzeugen“ einen Link erzeugen und verschicken.
+- Raum mit der Haupttaste „Raum öffnen“ im Cloud-Raum (unter Windows die linke Spalte) öffnen (braucht die Anmeldung im Launcher; dieselbe Taste schließt ihn wieder), für jeden Gast mit „Link erzeugen“ einen Link erzeugen und verschicken.
 - Gäste landen im Warteraum: prüfen und freigeben.
 - Freigegebene Gäste auf Sendung schalten. Jeder Gast ist eine eigene NDI-Quelle „JM Connect – <Name>“, ein geteilter Bildschirm eine weitere „JM Connect – <Name> (Bildschirm)“, unter Windows wie unter macOS. Ein NDI-Abzeichen an der Gastzeile zeigt den Zustand jeder Quelle.
 - Talkback (Regie ins Ohr) für alle mit „Talkback alle“ rechts neben der Raum-Taste oder mit 🎙 an der Gastzeile für einen Gast, je so lange gehalten (mit der Maus oder per Leertaste bzw. Enter auf der Taste); Programm-Rückkanal mit Mix-Minus je Gast unter Windows und macOS (er kommt über NDI vom Switcher, Quelle mit „JM Switcher“ im Namen).

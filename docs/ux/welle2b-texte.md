@@ -451,7 +451,7 @@ Die Checkliste nennt den Ort der Rollen und die Statusleiste.
 Eine Raum-Taste öffnet und schließt den Raum.
 
 - `Raum öffnen (braucht die Anmeldung im Launcher), für jeden Gast einen Link erzeugen und verschicken.`
-+ Raum mit der Haupttaste „Raum öffnen“ in der linken Spalte (Cloud-Raum) öffnen (braucht die Anmeldung im Launcher; dieselbe Taste schließt ihn wieder), für jeden Gast mit „Link erzeugen“ einen Link erzeugen und verschicken.
++ Raum mit der Haupttaste „Raum öffnen“ im Cloud-Raum (unter Windows die linke Spalte) öffnen (braucht die Anmeldung im Launcher; dieselbe Taste schließt ihn wieder), für jeden Gast mit „Link erzeugen“ einen Link erzeugen und verschicken.
 
 „Talkback alle“ steht neben der Raum-Taste; Halten geht auch per Leertaste oder Enter.
 
