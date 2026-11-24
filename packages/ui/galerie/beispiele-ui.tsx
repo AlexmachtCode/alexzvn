@@ -120,6 +120,24 @@ const STATUS_GEMISCHT: StatusItem[] = [
   { id: 'bildschirm', group: 'ausgabe', label: 'Bildschirm', state: 'error', detail: 'Bildschirm fehlt' },
 ];
 
+/**
+ * Elf Einträge wie im Rauchtest-Bild von Connect (t27, Gesamtprüfung UX Welle 2b, I1): bei zu wenig Platz schneiden die Kästen ab,
+ * ok und off kürzen sich zuerst, Warnung, Fehler und live zuletzt; der volle Text steht im title.
+ */
+const STATUS_ELF: StatusItem[] = [
+  { id: 'master', group: 'verbindung', label: 'Master', state: 'off', detail: 'unbekannt' },
+  { id: 'cloud', group: 'verbindung', label: 'Cloud-Zugang', state: 'ok', detail: 'Connect holt die Adresse vom Master' },
+  { id: 'raum', group: 'verbindung', label: 'Raum', state: 'off', detail: 'nicht verbunden' },
+  { id: 'zoom', group: 'verbindung', label: 'Zoom', state: 'warn', detail: 'Einrichtung unvollständig' },
+  { id: 'zoom-einrichtung', group: 'verbindung', label: 'Zoom-Einrichtung', state: 'warn', detail: 'Zoom ist nicht vollständig eingerichtet' },
+  { id: 'programm', group: 'ausgabe', label: 'Programm', state: 'off', detail: 'Fehlt' },
+  { id: 'presenter', group: 'ausgabe', label: 'Presenter', state: 'off', detail: 'nicht gewählt' },
+  { id: 'gaeste-ndi', group: 'ausgabe', label: 'Gäste (NDI)', state: 'off', detail: 'keine' },
+  { id: 'zoom-slots', group: 'ausgabe', label: 'Zoom-Slots', state: 'off', detail: '0 von 16 Slots' },
+  { id: 'fernsteuerung', group: 'fernsteuerung', label: 'Fernsteuerung', state: 'error', detail: 'Port 8737 belegt' },
+  { id: 'gaeste', group: 'tool', label: 'Gäste', state: 'live', detail: '2 auf Sendung' },
+];
+
 function StatusBarMitKnoepfen(): React.JSX.Element {
   const [zuletzt, setZuletzt] = useState('–');
   const items = STATUS_GEMISCHT.map((i) => (i.id === 'sendung' ? i : { ...i, settingsSection: i.id }));
@@ -382,6 +400,7 @@ export function uiBeispiele(modus: Modus): Beispiel[] {
     })),
     { name: 'statusbar-gemischt', gruppe: 'StatusBar', titel: 'Gruppen gemischt übergeben, Leiste ordnet; ohne Knöpfe', element: <StatusBar items={STATUS_GEMISCHT} /> },
     { name: 'statusbar-knoepfe', gruppe: 'StatusBar', titel: 'Einträge mit Abschnitt öffnen das Panel', element: <StatusBarMitKnoepfen /> },
+    { name: 'statusbar-voll', gruppe: 'StatusBar', titel: 'Elf Einträge (Connect): Kästen schneiden ab, ok/off kürzen sich zuerst', element: <StatusBar items={STATUS_ELF} onOpenSection={nichts} /> },
     { name: 'statusbar-leer', gruppe: 'StatusBar', titel: 'Ohne Sitzung: nur die Uhr', element: <StatusBar items={[]} /> },
     { name: 'tally-bereit', gruppe: 'TallyButton', titel: 'bereit', element: <Tallys><TakeProbe /></Tallys> },
     { name: 'tally-live', gruppe: 'TallyButton', titel: 'live', element: <Tallys><TallyButton state="live" label="Bauchbinde 1" shortcut="Enter" onClick={nichts} /></Tallys> },

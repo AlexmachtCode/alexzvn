@@ -25,7 +25,7 @@ import { klassen, tags } from './lib/markup';
 const UI_NAMEN = [
   'farben', 'auswahl', 'groessen', 'groessen-kompakt',
   'statuspill-ok', 'statuspill-warn', 'statuspill-error', 'statuspill-off', 'statuspill-live',
-  'statusbar-gemischt', 'statusbar-knoepfe', 'statusbar-leer',
+  'statusbar-gemischt', 'statusbar-knoepfe', 'statusbar-voll', 'statusbar-leer',
   'tally-bereit', 'tally-live', 'tally-live-gesperrt', 'tally-gesperrt', 'tally-gesperrt-ohne-grund', 'tally-halten',
   'tally-kuerzelzeile', 'halteknopf-aktiv', 'halteknopf-ruhig', 'halteknopf-gesperrt',
   'eingabe-text', 'eingabe-text-fehler', 'eingabe-text-gesperrt', 'eingabe-zahl', 'eingabe-zahl-einheit',
@@ -69,6 +69,8 @@ const UI_PRUEFUNG: Record<string, string[]> = {
   'statuspill-live': ['data-state="live"'],
   'statusbar-gemischt': ['role="status"', 'h-[var(--statusbar-h)]'],
   'statusbar-knoepfe': ['<button', UI_TEXTE.statusOeffnen('NDI')],
+  // Gesamtprüfung UX Welle 2b (I1): elf Einträge, jeder schneidet ab; ok/off kürzen sich zuerst.
+  'statusbar-voll': ['overflow-hidden', 'shrink-[100]', 'min-w-7', 'title="Fernsteuerung: Port 8737 belegt"'],
   'statusbar-leer': ['role="status"', 'tabular'],
   // „Take-Klicks: 0“: eigener Zähler des reinen Klick-Knopfs „Take“, Messgerät für Owner-Prüfpunkt 7 (Take ziehen).
   'tally-bereit': ['border-[var(--tally-ready)]', 'min-h-[var(--control-h-lg)]', '>Take<', 'Take-Klicks: 0'],
@@ -326,8 +328,8 @@ function ersterZustand(html: string): string | undefined {
     'Probe: classNameLiterale liest nur className="…"',
   );
   ok(
-    NEUE_TOKENS.length === 14 && NEUE_TOKENS.includes('--field-border') && NEUE_TOKENS.includes('--tally-h-kuerzel') && PFLICHTKLASSEN.length === 13,
-    'Probe: 14 Token-Namen (mit --field-border, Owner-Freigabe O3, und --tally-h-kuerzel, Welle 2b) und 13 Pflichtklassen',
+    NEUE_TOKENS.length === 14 && NEUE_TOKENS.includes('--field-border') && NEUE_TOKENS.includes('--tally-h-kuerzel') && PFLICHTKLASSEN.length === 15 && PFLICHTKLASSEN.includes('shrink-[100]') && PFLICHTKLASSEN.includes('min-w-7'),
+    'Probe: 14 Token-Namen (mit --field-border, Owner-Freigabe O3, und --tally-h-kuerzel, Welle 2b) und 15 Pflichtklassen (mit der Vorfahrt der Statusleiste, I1)',
   );
 }
 

@@ -149,7 +149,8 @@ for (const s of ZUSTAENDE) {
   const html = render(
     <StatusBar items={[{ id: 'ndi', group: 'ausgabe', label: 'NDI', state: 'ok', detail: 'JM Titler (REGIE-PC)' }]} jetzt={UHR} />,
   );
-  const detailTag = tags(html, 'span').find((t) => hatKlassen(t, 'truncate'));
+  // Das Detail ist das markierbare span (seit I1 kürzt sich auch das Label mit truncate).
+  const detailTag = tags(html, 'span').find((t) => hatKlassen(t, 'truncate select-text'));
   ok(
     attr(eintrag(html, 'ndi'), 'title') === 'NDI: JM Titler (REGIE-PC)' &&
       detailTag !== undefined &&
@@ -157,7 +158,8 @@ for (const s of ZUSTAENDE) {
     'StatusBar: Detail gekürzt, title = „{label}: {detail}“, unter 900 px max-[900px]:sr-only (vorlesbar), select-text',
   );
   const ohne = render(<StatusBar items={[{ id: 'ndi', group: 'ausgabe', label: 'NDI', state: 'ok' }]} jetzt={UHR} />);
-  ok(attr(eintrag(ohne, 'ndi'), 'title') === undefined, 'StatusBar: ohne Detail kein title');
+  // Gesamtprüfung UX Welle 2b (I1): auch das Label kann gekürzt werden, darum steht es ohne Detail allein im title.
+  ok(attr(eintrag(ohne, 'ndi'), 'title') === 'NDI', 'StatusBar: ohne Detail title = Label (das Label kann bei Platzmangel gekürzt sein)');
 }
 
 {
@@ -283,5 +285,66 @@ for (const s of ZUSTAENDE) {
   ok(
     eintraege.length === 3 && eintraege.every((t) => hatKlassen(t, 'whitespace-nowrap')),
     'UI StatusBar ohne Umbruch: die Klasse jedes Eintrags enthält whitespace-nowrap',
+  );
+}
+
+// ── Platzmangel (Gesamtprüfung UX Welle 2b, I1): Kein Eintrag läuft über seinen Kasten. Bild t27 (Connect, 11 Einträge): die
+// Kästen schrumpften, ihr Text lief weiter („Fernsteuerung“ über „Gäste“). Jetzt schneidet der Kasten ab (overflow-hidden), das
+// Label endet mit „…“ (min-w-0 truncate), der volle Text steht im title. Vorfahrt: ok und off schrumpfen zuerst (shrink-[100]),
+// Warnung, Fehler und live zuletzt (shrink); im Eintrag das Detail vor dem Label; das Symbol bleibt sichtbar (min-w-7) ──
+{
+  const fehler: string[] = [];
+  let faelle = 0;
+  for (const s of ZUSTAENDE) {
+    for (const detail of [undefined, 'Port belegt']) {
+      for (const knopf of [false, true]) {
+        faelle++;
+        const item: StatusItem = { id: 'x', group: 'tool', label: 'Fernsteuerung', state: s, ...(detail ? { detail } : {}), settingsSection: 'fern' };
+        const html = render(<StatusBar items={[item]} jetzt={UHR} onOpenSection={knopf ? () => undefined : undefined} />);
+        const r = region(html);
+        const e = eintrag(r, 'x');
+        const name = `${s}/${detail ? 'Detail' : 'ohne'}/${knopf ? 'Knopf' : 'Anzeige'}`;
+        if (!hatKlassen(e, 'inline-flex overflow-hidden whitespace-nowrap min-w-7')) fehler.push(`${name}: Kasten ohne overflow-hidden/min-w-7 (${attr(e, 'class')})`);
+        const vorn = s === 'ok' || s === 'off';
+        const schrumpf = klassen(e).filter((k) => k === 'shrink' || k.startsWith('shrink-'));
+        if (schrumpf.join(' ') !== (vorn ? 'shrink-[100]' : 'shrink')) fehler.push(`${name}: Schrumpfklasse „${schrumpf.join(' ')}“`);
+        const label = tags(r, 'span').find((t) => hatKlassen(t, 'font-semibold'));
+        if (label === undefined || !hatKlassen(label, 'min-w-0 truncate')) fehler.push(`${name}: Label ohne min-w-0 truncate`);
+        if (detail) {
+          const d = tags(r, 'span').find((t) => hatKlassen(t, 'select-text'));
+          if (d === undefined || !hatKlassen(d, 'min-w-0 truncate shrink-[100]')) fehler.push(`${name}: Detail schrumpft nicht vor dem Label`);
+        }
+        if (attr(e, 'title') !== (detail ? `Fernsteuerung: ${detail}` : 'Fernsteuerung')) fehler.push(`${name}: title „${attr(e, 'title')}“`);
+      }
+    }
+  }
+  ok(faelle === 20 && fehler.length === 0, 'StatusBar Platzmangel: Kasten schneidet ab (overflow-hidden, min-w-7 hält das Symbol), Label min-w-0 truncate, Detail schrumpft zuerst, title mit Label und Detail (20 Fälle)');
+  for (const f of fehler.slice(0, 6)) console.log(`     ${f}`);
+  if (fehler.length > 6) console.log(`     … und ${fehler.length - 6} weitere`);
+}
+
+{
+  // Die elf Einträge aus dem Rauchtest-Bild (Connect, t27): Vorfahrt je Zustand, nichts fällt weg, Reihenfolge nach Gruppen.
+  const ELF: StatusItem[] = [
+    { id: 'master', group: 'verbindung', label: 'Master', state: 'off', detail: 'unbekannt' },
+    { id: 'cloud', group: 'verbindung', label: 'Cloud-Zugang', state: 'ok', detail: 'Connect holt die Adresse vom Master' },
+    { id: 'raum', group: 'verbindung', label: 'Raum', state: 'off', detail: 'nicht verbunden' },
+    { id: 'zoom', group: 'verbindung', label: 'Zoom', state: 'warn', detail: 'Einrichtung unvollständig' },
+    { id: 'zoom-einrichtung', group: 'verbindung', label: 'Zoom-Einrichtung', state: 'warn', detail: 'Zoom ist nicht vollständig eingerichtet' },
+    { id: 'programm', group: 'ausgabe', label: 'Programm', state: 'off', detail: 'Fehlt' },
+    { id: 'presenter', group: 'ausgabe', label: 'Presenter', state: 'off', detail: 'nicht gewählt' },
+    { id: 'gaeste-ndi', group: 'ausgabe', label: 'Gäste (NDI)', state: 'off', detail: 'keine' },
+    { id: 'zoom-slots', group: 'ausgabe', label: 'Zoom-Slots', state: 'off', detail: '0 von 16 Slots' },
+    { id: 'fernsteuerung', group: 'fernsteuerung', label: 'Fernsteuerung', state: 'error', detail: 'Port 8737 belegt' },
+    { id: 'gaeste', group: 'tool', label: 'Gäste', state: 'live', detail: 'unbekannt' },
+  ];
+  const html = render(<StatusBar items={ELF} onOpenSection={() => undefined} jetzt={UHR} />);
+  const eintraege = tags(region(html), '(?:span|button)').filter((t) => attr(t, 'data-status-id') !== undefined);
+  const zuletzt = eintraege.filter((t) => hatKlassen(t, 'shrink')).map((t) => attr(t, 'data-status-id'));
+  const zuerst = eintraege.filter((t) => hatKlassen(t, 'shrink-[100]')).map((t) => attr(t, 'data-status-id'));
+  gleich(
+    [eintraege.length, eintraege.every((t) => hatKlassen(t, 'overflow-hidden')), zuletzt, zuerst.length],
+    [11, true, ['zoom', 'zoom-einrichtung', 'fernsteuerung', 'gaeste'], 7],
+    'StatusBar elf Einträge (Connect, t27): alle schneiden ab; Zoom (Warnung), Zoom-Einrichtung (Warnung), Fernsteuerung (Fehler) und Gäste (live) schrumpfen zuletzt, die sieben ok/off-Einträge zuerst',
   );
 }
