@@ -193,7 +193,8 @@ export function ZoomCard({ a, zoom }: { a: ZoomAbbild; zoom: ZoomAufrufe }): JSX
         <div data-connect="zoom-meldung" className={`rounded-[var(--radius-md)] border p-3 text-[var(--foreground)] ${MELDUNG_FARBE[m.art]}`}>
           <p className="text-sm font-semibold select-text">{m.text}</p>
           {m.detail && <p className="mt-1 font-mono text-[11px] opacity-80 select-text">{m.detail}</p>}
-          <div className="mt-2 flex flex-wrap gap-2">
+          {/* Tastenplatz (Task 24): rechtsbündig, „Erneut beitreten“ ganz rechts; links lag es auf alten Plätzen der Raum-Tasten. */}
+          <div className="mt-2 flex flex-row-reverse flex-wrap gap-2">
             {mk.erneut && (
               <Button
                 size="sm"
@@ -266,7 +267,9 @@ export function ZoomCard({ a, zoom }: { a: ZoomAbbild; zoom: ZoomAufrufe }): JSX
             Anzeigename in Zoom
             <input value={anzeigename ?? a.anzeigename} onChange={(e) => setAnzeigename(e.target.value)} autoComplete="off" className={`${STIL.inp} ${feld}`} />
           </label>
-          <div className="flex flex-wrap items-center gap-3 @[34rem]:col-span-3">
+          {/* Tastenplatz (Task 24): rechtsbündig, „Beitreten“ ganz rechts; links lag es auf dem alten „Talkback alle“ und dem alten
+              „Raum schließen“ (Review Focus 3). Die Reihenfolge im Dokument (Tab, Enter im Formular) bleibt. */}
+          <div className="flex flex-row-reverse flex-wrap items-center gap-3 @[34rem]:col-span-3">
             <Button type="submit" size="sm" uppercase={false} variant="primary" disabled={beitretenGesperrt}>
               Beitreten
             </Button>
@@ -282,7 +285,8 @@ export function ZoomCard({ a, zoom }: { a: ZoomAbbild; zoom: ZoomAufrufe }): JSX
 
       {/* 5 · Laufend (Z3–Z11). 6 · Nur in Z11 zusätzlich „Abbrechen“: Wiederbeitritt beenden, die Daten für „Erneut beitreten“ bleiben (Spec 6.8). */}
       {kn.verlassen && (
-        <div data-connect="zoom-laufend" className="flex flex-wrap gap-2">
+        // Tastenplatz (Task 24): rechtsbündig, „Meeting verlassen“ ganz rechts (links lag es auf dem alten „Talkback alle“).
+        <div data-connect="zoom-laufend" className="flex flex-row-reverse flex-wrap gap-2">
           <Button size="sm" uppercase={false} variant={frage ? 'destructive' : 'outline'} disabled={laeuft.has('verlassen')} onClick={verlassen}>
             {frage ? verlassenFrageText(n) : 'Meeting verlassen'}
           </Button>

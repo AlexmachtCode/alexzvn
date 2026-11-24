@@ -267,6 +267,23 @@ function zoomSpalte(a: ZoomAbbild | undefined, z: ZoomAufrufe = zoomSpeicher(), 
   ok(text(vor).includes('Zoom-Meeting') && text(vor).includes('zoomGet abgelehnt') && knopfTexte(vor).length === 0, 'CN Zoom-Spalte: vor dem ersten Abbild nur „Zoom-Meeting“ und der Ladefehler, kein Knopf (Nr. 52)');
   const q = QUELLE('views/ZoomSpalte.tsx') + QUELLE('zoom/ZoomCard.tsx');
   ok(!/\bmt-6\b/.test(q), 'CN Zoom-Spalte: kein mt-6-Versatz mehr, die Spalte beginnt auf der Höhe des Cloud-Raums');
+  // Tastenplatz (Task 24, Echt-Fenster-Messung): die folgenreichen Zoom-Tasten stehen am rechten Rand ihrer Zeile (flex-row-reverse,
+  // die Taste als erstes Kind), dort liegt kein alter Platz (der alte 720-px-Block endete bei x 995 bzw. 845); links lagen sie auf
+  // dem alten „Talkback alle“ und dem alten „Raum schließen“ (Review Focus 3).
+  const ende = zoomAbbild({ meldung: { art: 'warnung', text: 'Meeting beendet.', detail: null }, erneutMoeglich: true });
+  const zeilen = [
+    ['Beitreten', bereich(bereit, 'data-connect', 'zoom-beitritt')],
+    ['Meeting verlassen', bereich(html, 'data-connect', 'zoom-laufend')],
+    ['Erneut beitreten', bereich(zoomSpalte(ende), 'data-connect', 'zoom-meldung')],
+  ] as const;
+  ok(
+    zeilen.every(([taste, z]) => {
+      const reihe = tags(z, 'div').find((t) => /\bflex-row-reverse\b/.test(attr(t, 'class') ?? ''));
+      const nachReihe = reihe ? z.slice(z.indexOf(reihe) + reihe.length) : '';
+      return reihe !== undefined && knopfTexte(nachReihe)[0] === taste;
+    }),
+    'CN Zoom-Spalte: Beitreten, Meeting verlassen und Erneut beitreten stehen rechtsbündig vorn in ihrer Zeile (Tastenplatz, Review Focus 3)',
+  );
   const titel = [bereich(html, 'data-connect', 'zoom-kopf'), bereich(vor, 'data-connect', 'zoom-kopf')].map((k) => tags(k, 'h2')[0]);
   ok(titel.every((t) => /\bshrink-0\b/.test(attr(t, 'class') ?? '')), 'CN Zoom-Spalte: der Titel „Zoom-Meeting“ bricht neben einer langen Statuszeile nicht um (shrink-0; gesehen bei 980×640)');
 }
