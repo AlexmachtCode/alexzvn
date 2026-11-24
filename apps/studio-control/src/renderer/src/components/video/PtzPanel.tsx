@@ -1,13 +1,18 @@
-import { useMemo, useRef, useState } from 'react';
-import { Card, Button, cn } from '@jm/ui';
+// Video · PTZ (UX Welle 2b, Studio-Control d2; B16, B1, Ruling Task 18): Pille über StatusPill aus @jm/ui mit geraetPille;
+// Schwenk/Neige, Zoom und Fokus halten über den Halte-Knopf aus @jm/ui (onRelease genau einmal, auch bei Fensterverlust und Sperre)
+// statt des lokalen HoldButton. Der Halte-Knopf behält über className die alte Höhe h-12 (48 px), weil die Trefferfläche im
+// Live-Betrieb zählt; gesperrt mit dem Grund aus geraetGrund (Rolle zuerst, dann die gemessene Verbindung). Stopp, Tempo, AF,
+// Power, Standby und Presets bleiben normale Knöpfe. Der Gerätezustand gilt nur bei verbundenem Server (gemeldet).
+import { useMemo, useState } from 'react';
+import { Card, Button, HalteKnopf, StatusPill, cn, type HalteKnopfProps } from '@jm/ui';
 import { Input } from '@/components/ui/Input';
 import { Headline } from '@/components/ui/Headline';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { StatusPill } from '@/components/ui/StatusPill';
+import { geraetGrund, gemeldet, geraetPille, type OberflaechenStand } from '@/lib/oberflaeche';
 import { useApp } from '@/store/app';
 import { useSession } from '@/store/session';
 import { emitWithAck, apiFetch } from '@/sync/client';
-import { EVENTS, type PtzStatusEvent } from '@shared/protocol';
+import { EVENTS } from '@shared/protocol';
 import {
   DEFAULT_PTZ_PORT,
   PTZ_PRESET_COUNT,
@@ -34,7 +39,58 @@ const DIRS: Array<{ key: string; pan: number; tilt: number; label: string }> = [
 
 const SPEED_LABELS: Record<PtzSpeed, string> = { slow: 'Langsam', med: 'Mittel', fast: 'Schnell' };
 
-export function PtzPanel() {
+/** Eine Taste zum Halten: Drücken sendet down, Loslassen up (wie der frühere HoldButton). */
+export interface PtzHalteTaste {
+  key: string;
+  label: string;
+  down: PtzAction;
+  up: PtzAction;
+}
+
+/**
+ * Die zwölf Halte-Tasten in der Reihenfolge des Panels: acht Richtungen (Pfeile aus DIRS, ohne den Stopp in der Mitte), dann
+ * Zoom „Wide −“, „Tele +“ und Fokus „Nah“, „Fern“, je mit dem heutigen Befehl beim Drücken und beim Loslassen.
+ */
+export function ptzHalteTasten(mag: number): PtzHalteTaste[] {
+  return [
+    ...DIRS.filter((d) => d.key !== 'c').map((d): PtzHalteTaste => ({ key: d.key, label: d.label, down: { kind: 'pan-tilt', pan: d.pan * mag, tilt: d.tilt * mag }, up: PTZ_STOP })),
+    { key: 'wide', label: 'Wide −', down: { kind: 'zoom', speed: -mag }, up: { kind: 'zoom', speed: 0 } },
+    { key: 'tele', label: 'Tele +', down: { kind: 'zoom', speed: mag }, up: { kind: 'zoom', speed: 0 } },
+    { key: 'nah', label: 'Nah', down: { kind: 'focus', speed: -mag }, up: { kind: 'focus', speed: 0 } },
+    { key: 'fern', label: 'Fern', down: { kind: 'focus', speed: mag }, up: { kind: 'focus', speed: 0 } },
+  ];
+}
+
+/**
+ * Props des Halte-Knopfs einer Taste: label und title = heutige Beschriftung, aktiv = gerade gehalten, gesperrt = Sperrgrund,
+ * className h-12 (alte Höhe). Rein, ohne DOM prüfbar.
+ */
+export function halteTaste(
+  t: PtzHalteTaste,
+  z: { gehalten: string | null; grund: string | undefined },
+  a: { halten(t: PtzHalteTaste): void; loslassen(t: PtzHalteTaste): void },
+): HalteKnopfProps {
+  return { label: t.label, title: t.label, aktiv: z.gehalten === t.key, gesperrt: z.grund, onPress: () => a.halten(t), onRelease: () => a.loslassen(t), className: 'h-12' };
+}
+
+/** Halten und Loslassen im Panel: senden down bzw. up und führen den gehaltenen Zustand (nur die eigene Taste wird frei). */
+export function ptzHalten(
+  exec: (a: PtzAction) => void,
+  setGehalten: (f: (g: string | null) => string | null) => void,
+): { halten(t: PtzHalteTaste): void; loslassen(t: PtzHalteTaste): void } {
+  return {
+    halten(t) {
+      setGehalten(() => t.key);
+      exec(t.down);
+    },
+    loslassen(t) {
+      setGehalten((g) => (g === t.key ? null : g));
+      exec(t.up);
+    },
+  };
+}
+
+export function PtzPanel({ stand }: { stand: OberflaechenStand }) {
   const cameras = useApp((s) => s.ptzCameras);
   const statuses = useApp((s) => s.ptzStatuses);
   const role = useSession((s) => s.user?.role);
@@ -44,18 +100,28 @@ export function PtzPanel() {
   const [editing, setEditing] = useState(false);
   const [speed, setSpeed] = useState<PtzSpeed>('med');
   const [storeMode, setStoreMode] = useState(false);
+  const [gehalten, setGehalten] = useState<string | null>(null);
 
   const current = useMemo(
     () => cameras.find((c) => c.id === selectedId) ?? cameras[0],
     [cameras, selectedId],
   );
-  const status = current ? statuses[current.id] : undefined;
+  // Nur bei verbundenem Server gemessen (sonst Pille unbekannt, alles gesperrt).
+  const status = current ? gemeldet(stand, statuses[current.id]) : undefined;
 
   const canExec = role ? canDo(role, 'ptz:exec') : false;
   const canManage = role ? canDo(role, 'inventory:write') : false;
   const live = status?.state === 'connected';
   const disabled = !canExec || !live;
   const mag = PTZ_SPEEDS[speed];
+  // Ein Grund für alle Halte-Knöpfe (Rolle zuerst, dann die gemessene Verbindung); dieselbe Sperre wie disabled.
+  const grund = current ? geraetGrund(stand, 'ptz', current.id) : undefined;
+  const halteTasten = ptzHalteTasten(mag);
+  const haltenAktion = ptzHalten((a) => void exec(a), setGehalten);
+  const knopf = (key: string) => {
+    const t = halteTasten.find((x) => x.key === key)!;
+    return <HalteKnopf key={t.key} {...halteTaste(t, { gehalten, grund }, haltenAktion)} />;
+  };
 
   async function exec(action: PtzAction): Promise<void> {
     if (!current) return;
@@ -90,7 +156,7 @@ export function PtzPanel() {
   }
 
   return (
-    <Card className="p-6">
+    <Card data-panel="ptz" className="p-6">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <SectionHeader>Video · PTZ</SectionHeader>
@@ -112,7 +178,7 @@ export function PtzPanel() {
                   </option>
                 ))}
               </select>
-              <StatusBadge status={status} />
+              <StatusPill {...geraetPille(status)} />
               {canManage && (
                 <Button size="sm" variant="ghost" onClick={() => setEditing((v) => !v)}>
                   {editing ? 'Schließen' : 'Bearbeiten'}
@@ -190,16 +256,7 @@ export function PtzPanel() {
                       {d.label}
                     </button>
                   ) : (
-                    <HoldButton
-                      key={d.key}
-                      disabled={disabled}
-                      down={{ kind: 'pan-tilt', pan: d.pan * mag, tilt: d.tilt * mag }}
-                      up={PTZ_STOP}
-                      exec={exec}
-                      className={driveBtn}
-                    >
-                      {d.label}
-                    </HoldButton>
+                    knopf(d.key)
                   ),
                 )}
               </div>
@@ -228,27 +285,15 @@ export function PtzPanel() {
                 <div className="flex flex-col gap-2">
                   <SectionHeader>Zoom</SectionHeader>
                   <div className="grid grid-cols-2 gap-1.5">
-                    <HoldButton disabled={disabled} exec={exec} className={driveBtn}
-                      down={{ kind: 'zoom', speed: -mag }} up={{ kind: 'zoom', speed: 0 }}>
-                      Wide −
-                    </HoldButton>
-                    <HoldButton disabled={disabled} exec={exec} className={driveBtn}
-                      down={{ kind: 'zoom', speed: mag }} up={{ kind: 'zoom', speed: 0 }}>
-                      Tele +
-                    </HoldButton>
+                    {knopf('wide')}
+                    {knopf('tele')}
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">
                   <SectionHeader>Fokus</SectionHeader>
                   <div className="grid grid-cols-2 gap-1.5">
-                    <HoldButton disabled={disabled} exec={exec} className={driveBtn}
-                      down={{ kind: 'focus', speed: -mag }} up={{ kind: 'focus', speed: 0 }}>
-                      Nah
-                    </HoldButton>
-                    <HoldButton disabled={disabled} exec={exec} className={driveBtn}
-                      down={{ kind: 'focus', speed: mag }} up={{ kind: 'focus', speed: 0 }}>
-                      Fern
-                    </HoldButton>
+                    {knopf('nah')}
+                    {knopf('fern')}
                   </div>
                   <div className="grid grid-cols-2 gap-1.5">
                     <Button size="sm" variant="outline" disabled={disabled}
@@ -297,7 +342,7 @@ export function PtzPanel() {
                   className={cn(
                     'h-7 px-3 rounded-[var(--radius-sm)] text-[10px] uppercase tracking-wider font-extrabold transition-colors',
                     storeMode
-                      ? 'bg-[var(--destructive)] text-white'
+                      ? 'bg-[var(--destructive)] text-[var(--destructive-foreground)]'
                       : 'bg-[var(--input)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]',
                   )}
                 >
@@ -353,72 +398,6 @@ const driveBtn = cn(
   'hover:bg-[var(--input)] active:bg-[var(--primary)] active:text-[var(--primary-foreground)]',
   'disabled:opacity-40 disabled:pointer-events-none transition-colors',
 );
-
-/**
- * Press-and-hold control: emits `down` on press, `up` (stop) on release. Uses
- * pointer capture so the stop still fires if the finger/mouse leaves the button.
- */
-function HoldButton({
-  down,
-  up,
-  exec,
-  disabled,
-  className,
-  children,
-}: {
-  down: PtzAction;
-  up: PtzAction;
-  exec: (a: PtzAction) => void | Promise<void>;
-  disabled?: boolean;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  const holding = useRef(false);
-
-  const start = (e: React.PointerEvent<HTMLButtonElement>): void => {
-    if (disabled || holding.current) return;
-    holding.current = true;
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      /* capture optional */
-    }
-    void exec(down);
-  };
-  const stop = (): void => {
-    if (!holding.current) return;
-    holding.current = false;
-    void exec(up);
-  };
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onPointerDown={start}
-      onPointerUp={stop}
-      onPointerCancel={stop}
-      onLostPointerCapture={stop}
-      className={className}
-    >
-      {children}
-    </button>
-  );
-}
-
-function StatusBadge({ status }: { status: PtzStatusEvent | undefined }) {
-  if (!status) return <StatusPill status="info">Idle</StatusPill>;
-  if (status.state === 'connected') {
-    const label = status.power === 'standby' ? 'Standby' : 'Bereit';
-    return <StatusPill status="live">{label}</StatusPill>;
-  }
-  if (status.state === 'polling') return <StatusPill status="setup">Suche …</StatusPill>;
-  return (
-    <span title={status.lastError ?? 'Offline'}>
-      <StatusPill status="error">Offline</StatusPill>
-    </span>
-  );
-}
 
 function PtzForm({
   initial,

@@ -1,7 +1,7 @@
+// Pille „Scanning“ über StatusPill aus @jm/ui (UX Welle 2b, Studio-Control d2; B16); sonst unverändert.
 import { useApp, discoveryKey } from '@/store/app';
 import { useSession } from '@/store/session';
-import { Button } from '@jm/ui';
-import { StatusPill } from '@/components/ui/StatusPill';
+import { Button, StatusPill } from '@jm/ui';
 import { emitWithAck, apiFetch } from '@/sync/client';
 import { EVENTS } from '@shared/protocol';
 import { DEFAULT_TRICASTER_PORT } from '@shared/tricaster';
@@ -90,7 +90,7 @@ export function DiscoverPanel() {
         <Button variant="ghost" onClick={clear} disabled={discovery.running}>
           Liste leeren
         </Button>
-        {discovery.running && <StatusPill status="setup">Scanning</StatusPill>}
+        {discovery.running && <StatusPill state="warn" text="Scanning" />}
         {!discovery.running && discovery.lastDuration !== undefined && (
           <span className="text-xs text-[var(--muted-foreground)]">
             Letzter Scan: {discovery.results.length} Geräte · {(discovery.lastDuration / 1000).toFixed(1)}s

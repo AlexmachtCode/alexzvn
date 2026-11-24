@@ -8,4 +8,6 @@ import './bruecken.test';
 import './oberflaeche.test';
 import './rahmen.test';
 import './panel.test';
+import './live.test';
+import './panels.test';
 abschluss();

@@ -1,13 +1,15 @@
+// Audio · Mischpult (UX Welle 2b, Studio-Control d2; B16, Ruling Task 18): Pille über StatusPill aus @jm/ui mit geraetPille;
+// Fader und Mute bleiben normale Bedienelemente. Der Gerätezustand gilt nur bei verbundenem Server (gemeldet).
 import { useMemo, useState } from 'react';
-import { Card, Button, cn } from '@jm/ui';
+import { Card, Button, StatusPill, cn } from '@jm/ui';
 import { Input } from '@/components/ui/Input';
 import { Headline } from '@/components/ui/Headline';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { StatusPill } from '@/components/ui/StatusPill';
+import { gemeldet, geraetPille, type OberflaechenStand } from '@/lib/oberflaeche';
 import { useApp } from '@/store/app';
 import { useSession } from '@/store/session';
 import { emitWithAck, apiFetch } from '@/sync/client';
-import { EVENTS, type AudioStatusEvent } from '@shared/protocol';
+import { EVENTS } from '@shared/protocol';
 import {
   AUDIO_TRANSPORTS,
   AUDIO_TRANSPORT_LABELS,
@@ -23,7 +25,7 @@ import {
 } from '@shared/audio';
 import { canDo } from '@shared/roles';
 
-export function AudioPanel() {
+export function AudioPanel({ stand }: { stand: OberflaechenStand }) {
   const consoles = useApp((s) => s.audioConsoles);
   const statuses = useApp((s) => s.audioStatuses);
   const patchChannelLocal = useApp((s) => s.patchChannelLocal);
@@ -37,7 +39,8 @@ export function AudioPanel() {
     () => consoles.find((c) => c.id === selectedId) ?? consoles[0],
     [consoles, selectedId],
   );
-  const status = current ? statuses[current.id] : undefined;
+  // Nur bei verbundenem Server gemessen (sonst Pille unbekannt, Fader und Mute gesperrt).
+  const status = current ? gemeldet(stand, statuses[current.id]) : undefined;
 
   const canExec = role ? canDo(role, 'audio:exec') : false;
   const canManage = role ? canDo(role, 'inventory:write') : false;
@@ -75,7 +78,7 @@ export function AudioPanel() {
   }
 
   return (
-    <Card className="p-6">
+    <Card data-panel="audio" className="p-6">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <SectionHeader>Audio · Mischpult</SectionHeader>
@@ -97,7 +100,7 @@ export function AudioPanel() {
                   </option>
                 ))}
               </select>
-              <StatusBadge status={status} />
+              <StatusPill {...geraetPille(status)} />
               {canManage && (
                 <Button size="sm" variant="ghost" onClick={() => setEditing((v) => !v)}>
                   {editing ? 'Schließen' : 'Bearbeiten'}
@@ -238,7 +241,7 @@ function ChannelStrip({
         className={cn(
           'h-7 rounded-[var(--radius-sm)] text-[10px] uppercase tracking-wider font-extrabold transition-colors',
           muted
-            ? 'bg-[var(--destructive)] text-white'
+            ? 'bg-[var(--destructive)] text-[var(--destructive-foreground)]'
             : 'bg-[var(--input)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]',
           'disabled:opacity-40',
         )}
@@ -246,17 +249,6 @@ function ChannelStrip({
         {muted ? 'Muted' : 'Mute'}
       </button>
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: AudioStatusEvent | undefined }) {
-  if (!status) return <StatusPill status="info">Idle</StatusPill>;
-  if (status.state === 'connected') return <StatusPill status="live">Verbunden</StatusPill>;
-  if (status.state === 'connecting') return <StatusPill status="setup">Verbinde …</StatusPill>;
-  return (
-    <span title={status.lastError ?? 'Offline'}>
-      <StatusPill status="error">Offline</StatusPill>
-    </span>
   );
 }
 

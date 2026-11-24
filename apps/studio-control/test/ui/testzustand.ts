@@ -2,6 +2,7 @@
 // Quelltext-Prüfungen. Wächst mit den folgenden Aufgaben (Brücken: Zustand der Fernsteuerungs-Meldung; Rahmen und Panels:
 // Render-Hilfen für Statusleiste und Abschnitte, Vorbild apps/prompter/test/ui/testzustand.ts).
 import { readdirSync } from 'node:fs';
+import { createElement } from 'react';
 import type { OberflaechenStand } from '@/lib/oberflaeche';
 import { useApp } from '@/store/app';
 import { useSession } from '@/store/session';
@@ -170,4 +171,109 @@ export function rendererDateien(): string[] {
     .map((d) => d.replace(/\\/g, '/'))
     .filter((d) => /\.tsx?$/.test(d))
     .sort();
+}
+
+// ── Gerätepanels (Task 18): Geräte im Store, Render der Wurzel-View, Pillen und Haupttasten aus dem HTML ──
+
+/** Gerätetypen mit Status-Ereignissen; Schlüssel der Konfiguration und der Status-Tabelle im App-Store. */
+export const STORE_SCHLUESSEL = {
+  tricaster: ['tricasters', 'tricasterStatuses'],
+  atem: ['atem', 'atemStatuses'],
+  obs: ['obs', 'obsStatuses'],
+  ptz: ['ptzCameras', 'ptzStatuses'],
+  audio: ['audioConsoles', 'audioStatuses'],
+} as const;
+export type Typ = keyof typeof STORE_SCHLUESSEL;
+
+/** Je Typ eine Instanz, nur TEST-NET-1-Adressen (RFC 5737); die Tests kontaktieren nichts. */
+export const KONFIG: Record<Typ, Record<string, unknown>> = {
+  tricaster: { id: 'tc1', name: 'TriCaster TC2', host: '192.0.2.12', port: 80 },
+  atem: { id: 'a1', name: 'ATEM Mini', host: '192.0.2.10' },
+  obs: { id: 'o1', name: 'OBS', host: '192.0.2.11', port: 4455 },
+  ptz: { id: 'p1', name: 'AW-UE150', host: '192.0.2.13', port: 80 },
+  audio: { id: 'au1', name: 'Yamaha QL1', type: 'yamaha-ql', transport: 'tcp', host: '192.0.2.30', port: 49280, channelCount: 4, channels: [] },
+};
+
+/** Store-Felder für eine Instanz des Typs mit einer Meldung (undefined = Instanz ohne Status-Ereignis). */
+export function geraetImStore(typ: Typ, meldung?: Record<string, unknown>): Record<string, unknown> {
+  const [cfg, status] = STORE_SCHLUESSEL[typ];
+  const k = KONFIG[typ];
+  const extra = typ === 'audio' ? { transport: 'tcp' } : {};
+  return { [cfg]: [k], [status]: meldung === undefined ? {} : { [k.id as string]: { id: k.id, lastChecked: 1, ...extra, ...meldung } } };
+}
+
+/** Alle Video-Geräte verbunden (ATEM Program 1/Preview 2, OBS mit Szenen, PTZ eingeschaltet), dazu optional mehr. */
+export function alleVideo(extra: { atem?: Record<string, unknown>; obs?: Record<string, unknown>; tricaster?: Record<string, unknown>; ptz?: Record<string, unknown> } = {}): Record<string, unknown> {
+  return {
+    ...geraetImStore('tricaster', { state: 'connected', version: '8.2', ...extra.tricaster }),
+    ...geraetImStore('atem', { state: 'connected', model: 'ATEM Mini Pro', program: 1, preview: 2, ...extra.atem }),
+    ...geraetImStore('obs', { state: 'connected', scenes: ['Kamera 1', 'Kamera 2'], currentScene: 'Kamera 1', ...extra.obs }),
+    ...geraetImStore('ptz', { state: 'connected', power: 'on', ...extra.ptz }),
+  };
+}
+
+/**
+ * Die Wurzel-View (StudioOberflaeche) mit Sitzung, App-Store und Server-Meldung gerendert, wie im Fenster: die Panels bekommen
+ * den Stand von dort (echte Verdrahtung der ids und Status-Tabellen).
+ */
+export function oberflaecheHtml(
+  Wurzel: (p: { server: boolean | undefined }) => React.JSX.Element,
+  o: { rolle?: 'admin' | 'operator' | 'viewer'; server?: boolean | undefined; abschnitt?: 'video' | 'audio' | 'licht' | 'setup'; store?: Record<string, unknown> },
+  render: (el: React.JSX.Element) => string,
+): string {
+  const server = 'server' in o ? o.server : true;
+  return mitSitzung({ token: 't', user: sitzungsBenutzer({ role: o.rolle ?? 'admin' }) }, () =>
+    mitStore({ section: o.abschnitt ?? 'video', ...(o.store ?? {}) } as never, () => render(createElement(Wurzel, { server }))),
+  );
+}
+
+/** Ein Element mit seinem ganzen Inhalt ab Position `start` (Tiefe über gleichnamige Tags gezählt). */
+function elementAb(html: string, start: number): string {
+  const name = /^<(\w+)/.exec(html.slice(start))?.[1] ?? 'span';
+  const muster = new RegExp(`<${name}(?=[\\s>])|</${name}>`, 'g');
+  muster.lastIndex = start;
+  let tiefe = 0;
+  for (let m = muster.exec(html); m !== null; m = muster.exec(html)) {
+    tiefe += m[0].startsWith('</') ? -1 : 1;
+    if (tiefe === 0) return html.slice(start, m.index + m[0].length);
+  }
+  return html.slice(start);
+}
+
+/** Pillen (StatusPill aus @jm/ui: span mit data-state) als [Zustand, sichtbarer Text ohne Screenreader-Wort]. */
+export function pillen(html: string): Array<[string | undefined, string]> {
+  return [...html.matchAll(/<span data-state="/g)].map((m) => {
+    const el = elementAb(html, m.index!);
+    const sichtbar = el.replace(/<span class="sr-only">[\s\S]*?<\/span>/g, '').replace(/<span aria-hidden="true"[^>]*>[\s\S]*?<\/span>/g, '');
+    return [attr(el, 'data-state'), text(sichtbar).trim()];
+  });
+}
+
+/** Ein TallyButton im HTML: Behälter-Klasse, Zustand, Beschriftung, sichtbarer Grund, title, aria-disabled. */
+export interface Tally {
+  huelle: string | undefined;
+  state: string | undefined;
+  label: string;
+  grund: string;
+  title: string | undefined;
+  gesperrt: boolean;
+}
+
+/** Alle TallyButtons (button mit data-state) im HTML, jeweils mit der Klasse des umgebenden Behälters. */
+export function tallyTasten(html: string): Tally[] {
+  return [...html.matchAll(/<div class="([^"]*)"><button type="button" data-state="/g)].map((m) => {
+    const knopf = elementAb(html, m.index! + m[0].indexOf('<button'));
+    const kopf = tags(knopf, 'button')[0];
+    const label = /<span>([^<]*)<\/span>/.exec(knopf)?.[1] ?? '';
+    const grund = /<span id="[^"]*"[^>]*>([^<]*)<\/span>/.exec(knopf)?.[1] ?? '';
+    return { huelle: m[1], state: attr(kopf, 'data-state'), label: text(label), grund: text(grund), title: attr(kopf, 'title'), gesperrt: attr(kopf, 'aria-disabled') === 'true' };
+  });
+}
+
+/** Halte-Knöpfe (HalteKnopf aus @jm/ui: button mit aria-pressed) als Tag und Beschriftung. */
+export function halteKnoepfe(html: string): Array<{ tag: string; label: string }> {
+  return [...html.matchAll(/<button type="button" aria-pressed="/g)].map((m) => {
+    const el = elementAb(html, m.index!);
+    return { tag: tags(el, 'button')[0]!, label: text(el).trim() };
+  });
 }

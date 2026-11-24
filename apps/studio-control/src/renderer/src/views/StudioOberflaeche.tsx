@@ -6,9 +6,10 @@
 // Master-Link und Fernsteuerung; sie bleibt über Panel- und Reiterwechsel stabil, die Abos laufen auch bei geschlossenem Panel.
 // Der Socket steht eine Ebene höher in der Wurzel (App.tsx), die Server-Verbindung kommt als gemessener Wert herein. Der Rahmen
 // (StudioRahmen) zeichnet nur, was er bekommt: eine Wahrheit für Kopf, Werkzeugleiste, Statusleiste und Panel.
-// Die Reiter-Ansichten sind memo: Statuswechsel der Geräte rendern den Rahmen neu, nicht die offene Ansicht (sie liest ihre
-// Geräte selbst aus dem Store, wie bisher). Der Abschnitt bleibt im Store (store/app.ts), nicht gemerkt.
-import { memo, useEffect, useState, type ReactNode } from 'react';
+// Die Reiter-Ansichten sind memo und bekommen den einen Stand (Task 18): Pillen, Sperrgründe und Haupttasten der Panels kommen
+// aus denselben Ableitungen wie Statusleiste und ON AIR. Der Stand ist gemerkt (useMemo), damit Panel- und Abschnittswechsel die
+// offene Ansicht nicht neu rendern. Der Abschnitt bleibt im Store (store/app.ts), nicht gemerkt.
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { AppShell, useBrueckenWert } from '@jm/ui';
 import { DEFAULT_LIGHTING_CONFIG } from '@shared/lighting';
@@ -129,20 +130,24 @@ export function StudioOberflaeche({
     }
   }, [user]);
 
-  // Ein Stand für Statusleiste, ON AIR und Panel (lib/oberflaeche.ts): alle zeigen dieselbe Ableitung.
-  const stand: OberflaechenStand = {
-    umgebung: umgebung(),
-    benutzer: user ? { name: user.username, rolle: user.role } : null,
-    server,
-    atem: geraete(atemIds, status.atem),
-    obs: geraete(obsIds, status.obs),
-    tricaster: geraete(tricasterIds, status.tricaster),
-    ptz: geraete(ptzIds, status.ptz),
-    audio: geraete(audioIds, status.audio),
-    licht: lichtGemeldet ? { node: lichtNode, blackout } : undefined,
-    masterLink,
-    fernsteuerung,
-  };
+  // Ein Stand für Statusleiste, ON AIR, Panel und Gerätepanels (lib/oberflaeche.ts): alle zeigen dieselbe Ableitung.
+  const ort = umgebung();
+  const stand: OberflaechenStand = useMemo(
+    () => ({
+      umgebung: ort,
+      benutzer: user ? { name: user.username, rolle: user.role } : null,
+      server,
+      atem: geraete(atemIds, status.atem),
+      obs: geraete(obsIds, status.obs),
+      tricaster: geraete(tricasterIds, status.tricaster),
+      ptz: geraete(ptzIds, status.ptz),
+      audio: geraete(audioIds, status.audio),
+      licht: lichtGemeldet ? { node: lichtNode, blackout } : undefined,
+      masterLink,
+      fernsteuerung,
+    }),
+    [ort, user, server, atemIds, obsIds, tricasterIds, ptzIds, audioIds, status, lichtGemeldet, lichtNode, blackout, masterLink, fernsteuerung],
+  );
 
   return (
     <StudioRahmen
@@ -159,9 +164,9 @@ export function StudioOberflaeche({
     >
       {/* Der alte Rand des Inhalts (vorher im lokalen AppShell): höchstens 1400 breit, px-7 py-6. */}
       <div className="mx-auto h-full max-w-[1400px] px-7 py-6">
-        {section === 'video' && <Video />}
-        {section === 'audio' && <Audio />}
-        {section === 'licht' && <Licht />}
+        {section === 'video' && <Video stand={stand} />}
+        {section === 'audio' && <Audio stand={stand} />}
+        {section === 'licht' && <Licht stand={stand} />}
         {section === 'setup' && <Setup />}
       </div>
     </StudioRahmen>
