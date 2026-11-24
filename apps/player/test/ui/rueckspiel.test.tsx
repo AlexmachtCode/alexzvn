@@ -6,7 +6,7 @@
 // (gemessen, t26-auswertung.json), dann rückten „▦ Ausgabe“, „+ Cue“ und die Cue-Liste; ohne Entwurf steht jede Taste wie bisher.
 // „Umbenennen“ und „Löschen“ wirken weiter auf die aktive Show und sind gesperrt, solange ein Entwurf offen ist (sonst nennt die
 // Auswahl eine andere Show als die, die gelöscht würde). „+ Neu“ bleibt ein Knopf. Ein Entwurf gilt nur zur Show, auf der er
-// entstand: wählt Companion oder „+ Neu“ eine andere Show, fällt er weg. Geprüft als reine Funktion (showWahl), im Render der
+// entstand: wählt Companion oder „+ Neu“ eine andere Show, fällt er weg, auch wenn sie danach zurückkehrt. Geprüft als reine Funktion (showWahl), im Render der
 // Cue-Show und als Quelltext-Wächter.
 import { PEERS_TEXTE } from '@jm/settings';
 import { gleich, leseText, ok, render } from '@jm/ui/testhilfe';
@@ -32,9 +32,19 @@ ok(typeof showWahl === 'function', 'PL Rückspiel Wahl ≠ Bewegung: views/ShowV
 
 const SHOWS = [eineShow(1, 'Gala'), eineShow(2, 'Probe'), eineShow(3, 'Matinee')];
 
+// Fix-Runde 1 (Prüfung Task 26): jeder Wechsel der aktiven Show verwirft den Entwurf; ShowView wendet dafür entwurfNachWechsel in
+// einem Effekt auf activeShowId an. Das Modell ruft denselben Helfer bei jedem Wechsel (Companion, Show-Start, „+ Neu“, „Setzen“).
+const entwurfNachWechsel = (showModul as unknown as { entwurfNachWechsel?: (e: Entwurf, aktiv: number | null) => Entwurf }).entwurfNachWechsel;
+ok(typeof entwurfNachWechsel === 'function', 'PL Rückspiel Wahl ≠ Bewegung (Fix-Runde 1): views/ShowView.tsx exportiert entwurfNachWechsel (Entwurf beim Wechsel der aktiven Show)');
+
 /** Ein Modell der Cue-Show: Entwurf und „wählt gerade“ wie in ShowView, selectShow zeichnet auf. */
-function modell(aktiv: number | null, entwurf: Entwurf = null, laeuft = false) {
+function modell(aktiv: number | null, entwurf: Entwurf = null, laeuft = false, waehrendWahl?: (w: () => Wahl) => void) {
   const m = { aktiv, entwurf, laeuft, gewaehlt: [] as number[], laeuftWaehrend: [] as boolean[] };
+  /** Die aktive Show wechselt (Store), danach der Effekt der View auf activeShowId. */
+  const wechsle = (id: number | null): void => {
+    m.aktiv = id;
+    if (typeof entwurfNachWechsel === 'function') m.entwurf = entwurfNachWechsel(m.entwurf, id);
+  };
   const w = (): Wahl =>
     showWahl!({
       shows: SHOWS,
@@ -46,10 +56,11 @@ function modell(aktiv: number | null, entwurf: Entwurf = null, laeuft = false) {
       waehleShow: async (id: number) => {
         m.gewaehlt.push(id);
         m.laeuftWaehrend.push(m.laeuft);
-        m.aktiv = id;
+        waehrendWahl?.(w);
+        wechsle(id);
       },
     });
-  return { m, w };
+  return { m, w, wechsle };
 }
 
 if (typeof showWahl === 'function' && T !== undefined) {
@@ -86,6 +97,26 @@ if (typeof showWahl === 'function' && T !== undefined) {
     const weg = modell(1, { basis: 1, id: 99 });
     gleich([weg.w().wert, weg.w().entwurfOffen], [1, false], 'PL Rückspiel Wahl ≠ Bewegung: ein Entwurf auf eine gelöschte Show gilt nicht');
   }
+  // ── Fix-Runde 1: wechselt die aktive Show weg und zurück, kommt der alte Entwurf nicht wieder ──
+  {
+    const hin = modell(1);
+    hin.w().waehlen(2);
+    hin.wechsle(3);
+    hin.wechsle(1);
+    gleich(
+      [hin.m.entwurf, hin.w().wert, hin.w().setzenSichtbar, hin.w().entwurfOffen],
+      [null, 1, false, false],
+      'PL Rückspiel Wahl ≠ Bewegung (Fix-Runde 1): Entwurf 2 auf Show 1, Companion wählt 3 und wieder 1 – der Entwurf ist verworfen, die Auswahl zeigt 1, kein „Setzen“, „Umbenennen“/„Löschen“ frei',
+    );
+    // Die Auswahl ändert sich, während „Setzen“ noch läuft: der neue Entwurf entstand auf der alten Show und fällt mit dem Wechsel weg.
+    const lauf = modell(1, { basis: 1, id: 2 }, false, (w) => w().waehlen(3));
+    await lauf.w().setzen();
+    gleich(
+      [lauf.m.gewaehlt, lauf.m.entwurf, lauf.w().wert, lauf.w().setzenSichtbar, lauf.w().entwurfOffen],
+      [[2], null, 2, false, false],
+      'PL Rückspiel Wahl ≠ Bewegung (Fix-Runde 1): eine Auswahl während der laufenden Wahl bleibt nicht als Entwurf auf der alten Show stehen',
+    );
+  }
 }
 
 // ── Render der Cue-Show ohne Entwurf: der Kopf trägt dieselben Tasten in derselben Folge wie bisher, kein „Setzen“ ──
@@ -110,6 +141,10 @@ if (typeof showWahl === 'function' && T !== undefined) {
   ok(
     /onChange=\{\(e\) => wahl\.waehlen\(Number\(e\.target\.value\)\)\}/.test(q) && !/onChange=\{\(e\) => void selectShow\(/.test(q) && q.includes('waehleShow: selectShow') && q.includes('onClick={() => void wahl.setzen()}') && /<div className="ml-auto flex items-center gap-2">\s*(?:\{\}\s*)?<ShowSetzen wahl=\{wahl\} grundId=\{setzenGrundId\} \/>\s*<Button size="sm" variant="ghost" onClick=\{onAusgabe\}>/.test(q),
     'PL Rückspiel Wahl ≠ Bewegung: die Show-Auswahl ändert nur den Entwurf (wahl.waehlen), selectShow läuft nur über „Setzen“ (ShowSetzen vorn in der rechten Gruppe, vor „▦ Ausgabe“)',
+  );
+  ok(
+    /useEffect\(\(\) => setEntwurf\(\(e\) => entwurfNachWechsel\(e, activeShowId\)\), \[activeShowId\]\);/.test(q),
+    'PL Rückspiel Wahl ≠ Bewegung (Fix-Runde 1): ShowView verwirft den Entwurf bei jedem Wechsel der aktiven Show (Effekt auf activeShowId über entwurfNachWechsel)',
   );
   ok((q.match(/disabled=\{wahl\.entwurfOffen\}/g) ?? []).length === 2, 'PL Rückspiel Wahl ≠ Bewegung: „Umbenennen“ und „Löschen“ sind gesperrt, solange ein Entwurf offen ist');
 }

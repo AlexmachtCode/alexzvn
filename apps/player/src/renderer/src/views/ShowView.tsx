@@ -38,8 +38,18 @@ export interface ShowWahl {
  * (panikDerShow: Show-Töne hart aus, Ausgabe schwarz, Vorlauf weg); bisher löste das jede Änderung der Auswahl aus, auch eine
  * Pfeiltaste auf der fokussierten Auswahl. Jetzt hält die Auswahl nur einen Entwurf; „Setzen“ erscheint nur bei Unterschied und ist
  * gesperrt, solange die Wahl läuft. Ein Entwurf gilt nur zur aktiven Show, auf der er entstand, und nur zu einer vorhandenen Show:
- * wählt Companion, der Show-Start oder „+ Neu“ eine andere Show, fällt er weg.
+ * wählt Companion, der Show-Start, „+ Neu“ oder „Setzen“ eine andere Show, fällt er weg (entwurfNachWechsel in einem Effekt der
+ * Cue-Show), auch wenn die alte Show danach zurückkehrt.
  */
+/**
+ * Der Entwurf nach einem Wechsel der aktiven Show (Fix-Runde 1, Prüfung Task 26): ein Entwurf, der auf einer anderen Show entstand,
+ * fällt weg. Ohne das käme er zurück, sobald seine Show wieder aktiv wird (Companion wählt weg und zurück), und der Kopf nennte eine
+ * Show, die GO nicht abfährt.
+ */
+export function entwurfNachWechsel(e: ShowEntwurf | null, aktiv: number | null): ShowEntwurf | null {
+  return e !== null && e.basis === aktiv ? e : null;
+}
+
 export function showWahl(a: {
   shows: readonly { id: number }[];
   aktiv: number | null;
@@ -162,6 +172,8 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
   // Show-Wahl: Entwurf und „wählt gerade“ (Rückspiel Task 26). Beides stirbt mit der Ansicht (Reiterwechsel); die Wahl selbst
   // ist ein kurzer Aufruf (Cues lesen).
   const [entwurf, setEntwurf] = useState<ShowEntwurf | null>(null);
+  // Jeder Wechsel der aktiven Show verwirft einen Entwurf der alten Show (Fix-Runde 1).
+  useEffect(() => setEntwurf((e) => entwurfNachWechsel(e, activeShowId)), [activeShowId]);
   const [waehlt, setWaehlt] = useState(false);
   const wahl = showWahl({ shows, aktiv: activeShowId, entwurf, laeuft: waehlt, setzeEntwurf: setEntwurf, setzeLaeuft: setWaehlt, waehleShow: selectShow });
   const setzenGrundId = useId();
