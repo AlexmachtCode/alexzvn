@@ -3,6 +3,7 @@
 // und Steuerserver entstehen die Statusleiste, das ON AIR des Kopfes, die Sperrgründe und die Zustände der Haupttasten.
 // Kein window, kein IPC, kein localStorage, kein Store- und kein Socket-Import: Die Tests laufen ohne Browser. Statusleiste und
 // Panel nutzen dieselben Ableitungen (eine Wahrheit). Keine Taste bekommt eine neue Wirkung.
+// Gerätezustände (Status-Ereignisse, Licht) gelten nur bei verbundenem Server als gemessen (gemeldet, Ruling Task 18).
 import {
   ABSCHNITT_TEXTE,
   abschnittStatusItem,
@@ -114,6 +115,49 @@ export function naechsterServerStand(s: ServerStand, e: { lauf: number; verbunde
   return e.lauf === s.lauf ? { lauf: s.lauf, verbunden: e.verbunden } : s;
 }
 
+// ── Gemessen nur mit Server (Ruling Task 18) ──
+
+/** Gerätetypen mit Status-Ereignissen je Instanz (Statusleiste, Pillen, Sperrgründe). */
+export type Geraetetyp = 'atem' | 'obs' | 'tricaster' | 'ptz' | 'audio';
+const RECHT: Record<Geraetetyp, Action> = { atem: 'atem:exec', obs: 'obs:exec', tricaster: 'tricaster:exec', ptz: 'ptz:exec', audio: 'audio:exec' };
+
+/**
+ * Eine Meldung der Geräte (Status-Ereignis, Licht-Zustand) kommt über den Socket; sie gilt nur, solange der Server verbunden ist.
+ * Getrennt oder vor der ersten Server-Meldung ist sie nicht gemessen (undefined): kein ON AIR, Statusleiste und Pillen „unbekannt“,
+ * Haupttasten gesperrt mit Grund. Sonst bliebe die letzte Meldung („LIVE“) stehen, während der Server „getrennt“ zeigt.
+ */
+export function gemeldet<T>(s: Pick<OberflaechenStand, 'server'>, meldung: T | undefined): T | undefined {
+  return s.server === true ? meldung : undefined;
+}
+
+/** Instanzen bleiben eingerichtet (Konfiguration), ihre Meldungen gelten ohne Server nicht. */
+function gemesseneGeraete(s: Pick<OberflaechenStand, 'server'>, g: GeraeteStand | undefined): GeraeteStand | undefined {
+  return g === undefined || s.server === true ? g : { ids: g.ids, status: {} };
+}
+
+/** Verbindung einer Instanz, nur gemessen mit Server: undefined, solange sie (bei verbundenem Server) nie gemeldet hat. */
+export function instanzVerbunden<T extends Geraetetyp>(s: Pick<OberflaechenStand, 'server' | T>, typ: T, id: string): boolean | undefined {
+  const g: GeraeteStand | undefined = s[typ];
+  const m = gemeldet(s, g?.status[id]);
+  return m === undefined ? undefined : m.state === 'connected';
+}
+
+/** Sperrgrund für die Bedienung einer Instanz (Haupttasten, PTZ-Halte-Knopf): Rolle zuerst, dann die gemessene Verbindung. */
+export function geraetGrund<T extends Geraetetyp>(s: Pick<OberflaechenStand, 'benutzer' | 'server' | T>, typ: T, id: string): string | undefined {
+  return sperrgrund(s.benutzer?.rolle, RECHT[typ], STUDIO_TEXTE.geraet[typ], instanzVerbunden(s, typ, id));
+}
+
+/**
+ * Pille und Statuseintrag Licht (eine Ableitung): ohne Antwort oder ohne Server unbekannt; ohne Node „aus“; sonst nur die
+ * Einstellung, der Node meldet nichts zurück: „an (ohne Rückmeldung)“ bzw. „Blackout (ohne Rückmeldung)“.
+ */
+export function lichtPille(s: Pick<OberflaechenStand, 'server' | 'licht'>): { state: StatusState; text: string } {
+  const l = gemeldet(s, s.licht);
+  if (l === undefined) return { state: 'off', text: UNBEKANNT };
+  if (!l.node) return { state: 'off', text: ABSCHNITT_TEXTE.aus };
+  return l.blackout ? { state: 'warn', text: STUDIO_TEXTE.licht.blackout } : { state: 'ok', text: ABSCHNITT_TEXTE.anOhneRueckmeldung };
+}
+
 // ── Geräte: Pille, Statusleiste ──
 
 /** Pille eines Geräts (B16): connected → ok, connecting/polling → warn, down → error mit lastError, ohne Meldung unbekannt. Nie live. */
@@ -160,12 +204,12 @@ function serverItem(s: OberflaechenStand): StatusItem {
   return s.server ? { ...kopf, state: 'ok', detail: PEERS_TEXTE.alleVerbunden } : { ...kopf, state: 'error', detail: STUDIO_TEXTE.getrennt };
 }
 
-/** Licht (Art-Net): nur die Einstellung ist bekannt, der Node meldet nichts zurück. */
-function lichtItem(l: OberflaechenStand['licht']): StatusItem {
+/** Licht (Art-Net): nur die Einstellung ist bekannt, der Node meldet nichts zurück; dieselbe Ableitung wie die Pille im Panel. */
+function lichtItem(s: Pick<OberflaechenStand, 'server' | 'licht'>): StatusItem {
   const kopf = { id: 'licht', group: 'ausgabe', label: STUDIO_TEXTE.licht.titel } as const;
-  if (l === undefined) return unbekannt(kopf);
-  if (!l.node) return { ...kopf, state: 'off', detail: ABSCHNITT_TEXTE.aus };
-  return l.blackout ? { ...kopf, state: 'warn', detail: STUDIO_TEXTE.licht.blackout } : { ...kopf, state: 'ok', detail: ABSCHNITT_TEXTE.anOhneRueckmeldung };
+  if (gemeldet(s, s.licht) === undefined) return unbekannt(kopf);
+  const p = lichtPille(s);
+  return { ...kopf, state: p.state, detail: p.text };
 }
 
 function benutzerItem(b: OberflaechenStand['benutzer']): StatusItem[] {
@@ -197,18 +241,21 @@ export function mitEinstellungen(s: Pick<OberflaechenStand, 'umgebung'>): boolea
   return s.umgebung === 'electron';
 }
 
-/** Statusleiste (B17, Spec 7): master-link, server, Geräte, licht, fernsteuerung, benutzer; die Gruppen ordnet ordneStatus. */
+/**
+ * Statusleiste (B17, Spec 7): master-link, server, Geräte, licht, fernsteuerung, benutzer; die Gruppen ordnet ordneStatus.
+ * Geräte und Licht nur mit verbundenem Server gemessen (gemeldet), sonst „unbekannt“.
+ */
 export function statusLeiste(s: OberflaechenStand): StatusItem[] {
   const electron = mitEinstellungen(s);
   return ordneStatus([
     ...(electron ? [masterLinkStatusItem(s.masterLink)] : []),
     serverItem(s),
-    ...geraeteItem('atem', STUDIO_TEXTE.geraet.atem, s.atem),
-    ...geraeteItem('obs', STUDIO_TEXTE.geraet.obs, s.obs),
-    ...geraeteItem('tricaster', STUDIO_TEXTE.geraet.tricaster, s.tricaster),
-    ...geraeteItem('ptz', STUDIO_TEXTE.geraet.ptz, s.ptz),
-    ...geraeteItem('audio', STUDIO_TEXTE.geraet.audio, s.audio),
-    lichtItem(s.licht),
+    ...geraeteItem('atem', STUDIO_TEXTE.geraet.atem, gemesseneGeraete(s, s.atem)),
+    ...geraeteItem('obs', STUDIO_TEXTE.geraet.obs, gemesseneGeraete(s, s.obs)),
+    ...geraeteItem('tricaster', STUDIO_TEXTE.geraet.tricaster, gemesseneGeraete(s, s.tricaster)),
+    ...geraeteItem('ptz', STUDIO_TEXTE.geraet.ptz, gemesseneGeraete(s, s.ptz)),
+    ...geraeteItem('audio', STUDIO_TEXTE.geraet.audio, gemesseneGeraete(s, s.audio)),
+    lichtItem(s),
     ...(electron ? [abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel })] : []),
     ...benutzerItem(s.benutzer),
   ]);
@@ -219,10 +266,15 @@ export function statusLeiste(s: OberflaechenStand): StatusItem[] {
 const meldet = (g: GeraeteStand | undefined, was: 'streaming' | 'recording'): boolean =>
   g?.ids.some((i) => g.status[i]?.state === 'connected' && g.status[i]?.[was] === true) ?? false;
 
-/** ON AIR nur, wenn eine verbundene ATEM- oder OBS-Instanz Stream („LIVE“) oder Aufnahme („REC“) meldet; sonst fehlt es. */
-export function kopfOnAir(s: Pick<OberflaechenStand, 'atem' | 'obs'>): { live: true; label: string } | undefined {
-  if (meldet(s.atem, 'streaming') || meldet(s.obs, 'streaming')) return { live: true, label: STUDIO_TEXTE.onAirLive };
-  if (meldet(s.atem, 'recording') || meldet(s.obs, 'recording')) return { live: true, label: STUDIO_TEXTE.onAirRec };
+/**
+ * ON AIR nur, wenn eine verbundene ATEM- oder OBS-Instanz Stream („LIVE“) oder Aufnahme („REC“) meldet und der Server verbunden
+ * ist (sonst gilt keine Meldung als gemessen); sonst fehlt es.
+ */
+export function kopfOnAir(s: Pick<OberflaechenStand, 'server' | 'atem' | 'obs'>): { live: true; label: string } | undefined {
+  const atem = gemesseneGeraete(s, s.atem);
+  const obs = gemesseneGeraete(s, s.obs);
+  if (meldet(atem, 'streaming') || meldet(obs, 'streaming')) return { live: true, label: STUDIO_TEXTE.onAirLive };
+  if (meldet(atem, 'recording') || meldet(obs, 'recording')) return { live: true, label: STUDIO_TEXTE.onAirRec };
   return undefined;
 }
 
@@ -253,39 +305,43 @@ function taste(label: string, grund: string | undefined, live = false): Haupttas
   return grund === undefined ? { label, state: 'bereit' } : { label, state: 'gesperrt', disabledReason: grund };
 }
 
-const verbundenAn = (g: GeraeteStand | undefined, id: string): GeraeteStatus | undefined => (g?.status[id]?.state === 'connected' ? g.status[id] : undefined);
-/** Gemessene Verbindung einer Instanz: undefined, solange sie nie gemeldet hat. */
-const verbundenGemessen = (g: GeraeteStand | undefined, id: string): boolean | undefined => (g?.status[id] === undefined ? undefined : g.status[id]!.state === 'connected');
+/** Status einer verbundenen Instanz, nur mit verbundenem Server (gemeldet); sonst undefined. */
+const verbundenAn = (s: Pick<OberflaechenStand, 'server'>, g: GeraeteStand | undefined, id: string): GeraeteStatus | undefined => {
+  const m = gemeldet(s, g?.status[id]);
+  return m?.state === 'connected' ? m : undefined;
+};
 
-/** ATEM: Cut, Auto, FTB, REC, STREAM; REC und STREAM sind live bei gemessener Sendung der verbundenen Instanz. */
-export function atemTasten(s: OberflaechenStand, id: string): Haupttaste[] {
+/** ATEM: Cut, Auto, FTB, REC, STREAM; REC und STREAM sind live bei gemessener Sendung der verbundenen Instanz (mit Server). */
+export function atemTasten(s: Pick<OberflaechenStand, 'benutzer' | 'server' | 'atem'>, id: string): Haupttaste[] {
   const T = STUDIO_TEXTE.taste;
-  const st = verbundenAn(s.atem, id);
-  const grund = sperrgrund(s.benutzer?.rolle, 'atem:exec', STUDIO_TEXTE.geraet.atem, verbundenGemessen(s.atem, id));
+  const st = verbundenAn(s, s.atem, id);
+  const grund = geraetGrund(s, 'atem', id);
   return [taste(T.cut, grund), taste(T.auto, grund), taste(T.ftb, grund), taste(T.rec, grund, st?.recording === true), taste(T.stream, grund, st?.streaming === true)];
 }
 
 /** TriCaster: Take, Auto, Fade Black, REC, STREAM; REC und STREAM sind bereit, weil der TriCaster keine Sendung meldet (B6). */
-export function tricasterTasten(s: OberflaechenStand, id: string): Haupttaste[] {
+export function tricasterTasten(s: Pick<OberflaechenStand, 'benutzer' | 'server' | 'tricaster'>, id: string): Haupttaste[] {
   const T = STUDIO_TEXTE.taste;
-  const grund = sperrgrund(s.benutzer?.rolle, 'tricaster:exec', STUDIO_TEXTE.geraet.tricaster, verbundenGemessen(s.tricaster, id));
+  const grund = geraetGrund(s, 'tricaster', id);
   return [T.take, T.auto, T.fadeBlack, T.rec, T.stream].map((label) => taste(label, grund));
 }
 
-/** OBS: Aufnahme, Stream; live bei gemessener Sendung der verbundenen Instanz. */
-export function obsTasten(s: OberflaechenStand, id: string): Haupttaste[] {
+/** OBS: Aufnahme, Stream; live bei gemessener Sendung der verbundenen Instanz (mit Server). */
+export function obsTasten(s: Pick<OberflaechenStand, 'benutzer' | 'server' | 'obs'>, id: string): Haupttaste[] {
   const T = STUDIO_TEXTE.taste;
-  const st = verbundenAn(s.obs, id);
-  const grund = sperrgrund(s.benutzer?.rolle, 'obs:exec', STUDIO_TEXTE.geraet.obs, verbundenGemessen(s.obs, id));
+  const st = verbundenAn(s, s.obs, id);
+  const grund = geraetGrund(s, 'obs', id);
   return [taste(T.aufnahme, grund, st?.recording === true), taste(T.stream, grund, st?.streaming === true)];
 }
 
 /**
- * Licht-Blackout: ohne Node bleibt die Taste weg; ohne Recht gesperrt mit dem Rollen-Grund; ohne Antwort gesperrt mit
- * „Zustand unbekannt“. Der Node meldet nichts zurück, deshalb nie live (B6): nur die Beschriftung wechselt.
+ * Licht-Blackout: ohne Node bleibt die Taste weg; ohne Recht gesperrt mit dem Rollen-Grund; ohne Antwort (auch ohne
+ * verbundenen Server) gesperrt mit „Zustand unbekannt“. Der Node meldet nichts zurück, deshalb nie live (B6): nur die
+ * Beschriftung wechselt.
  */
-export function lichtTaste(s: Pick<OberflaechenStand, 'benutzer' | 'licht'>): Haupttaste | undefined {
-  if (s.licht !== undefined && !s.licht.node) return undefined;
-  const grund = sperrgrund(s.benutzer?.rolle, 'lighting:exec', STUDIO_TEXTE.licht.titel, true) ?? (s.licht === undefined ? STUDIO_TEXTE.grund.unbekannt : undefined);
-  return taste(s.licht?.blackout === true ? STUDIO_TEXTE.taste.blackoutAus : STUDIO_TEXTE.taste.blackout, grund);
+export function lichtTaste(s: Pick<OberflaechenStand, 'benutzer' | 'server' | 'licht'>): Haupttaste | undefined {
+  const licht = gemeldet(s, s.licht);
+  if (licht !== undefined && !licht.node) return undefined;
+  const grund = sperrgrund(s.benutzer?.rolle, 'lighting:exec', STUDIO_TEXTE.licht.titel, true) ?? (licht === undefined ? STUDIO_TEXTE.grund.unbekannt : undefined);
+  return taste(licht?.blackout === true ? STUDIO_TEXTE.taste.blackoutAus : STUDIO_TEXTE.taste.blackout, grund);
 }

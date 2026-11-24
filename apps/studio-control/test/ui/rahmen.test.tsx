@@ -145,17 +145,32 @@ function rahmen(s: OberflaechenStand, abschnitt: Section = 'video', panelOffen =
   ok(!html.includes('data-onair'), 'SC Rahmen angemeldet: ohne gemessene Sendung keine ON-AIR-Anzeige, auch kein „bereit“ (B3)');
   const live = rahmen(angemeldeterStand({ atem: { ids: ['a1'], status: { a1: { state: 'connected', streaming: true } } } }));
   ok(live.includes('data-onair="live"') && text(bereich(live, 'data-onair', 'live')).includes('LIVE'), 'SC Rahmen angemeldet: ON AIR „LIVE“, wenn ein verbundener ATEM streamt (kopfOnAir, B3)');
-  const app = ohneWurf('SC Rahmen angemeldet', () => mitSitzung({ token: 't', user: sitzungsBenutzer() }, () => mitStore(STREAMT, () => render(<App />))));
+  // Die Wurzel-View mit verbundenem Server (die Server-Meldung kommt aus App.tsx; ohne sie gilt kein Gerätezustand als gemessen).
+  const Wurzel = oberflaeche.StudioOberflaeche;
+  const wurzel = (server: boolean | undefined, patch: Parameters<typeof mitStore>[0]): string =>
+    ohneWurf('SC Rahmen angemeldet', () => mitSitzung({ token: 't', user: sitzungsBenutzer() }, () => mitStore(patch, () => render(<Wurzel server={server} />))));
+  const app = wurzel(true, STREAMT);
   ok(app.includes('data-onair="live"') && statusEintraege(app).some(([id, z]) => id === 'atem' && z === 'ok'), 'SC Rahmen angemeldet: die Wurzel liest die Geräte aus dem Store (ATEM verbunden → Eintrag ok, Stream → ON AIR)');
+  const ohneServer = ohneWurf('SC Rahmen angemeldet', () => mitSitzung({ token: 't', user: sitzungsBenutzer() }, () => mitStore(STREAMT, () => render(<App />))));
+  ok(
+    !ohneServer.includes('data-onair') && statusEintraege(ohneServer).some(([id, z, t]) => id === 'atem' && z === 'off' && t === `ATEM: ${UNBEKANNT}`),
+    'SC Rahmen angemeldet: vor der ersten Server-Meldung (App ohne Socket) kein ON AIR und ATEM unbekannt, auch wenn der Store einen streamenden ATEM hält (Ruling Task 18)',
+  );
   // Zustand UND Titel: „unbekannt“ und „aus“ sind beide off, nur der Titel unterscheidet sie.
-  const licht = (lighting: object | undefined): [string | undefined, string | undefined] | undefined => {
-    const e = statusEintraege(ohneWurf('SC Rahmen angemeldet', () => mitSitzung({ token: 't', user: sitzungsBenutzer() }, () => mitStore(lighting === undefined ? {} : { lighting: lighting as never }, () => render(<App />))))).find(([id]) => id === 'licht');
+  // server ausdrücklich (kein Vorgabewert: ein Vorgabewert schluckte ein übergebenes undefined).
+  const licht = (server: boolean | undefined, lighting: object | undefined): [string | undefined, string | undefined] | undefined => {
+    const e = statusEintraege(wurzel(server, lighting === undefined ? {} : { lighting: lighting as never })).find(([id]) => id === 'licht');
     return e === undefined ? undefined : [e[1], e[2]];
   };
   gleich(
-    [licht(undefined), licht({ node: { host: '192.0.2.20' }, fixtures: [] }), licht({ node: null, fixtures: [] })],
+    [licht(true, undefined), licht(true, { node: { host: '192.0.2.20' }, fixtures: [] }), licht(true, { node: null, fixtures: [] })],
     [['off', `Licht: ${UNBEKANNT}`], ['ok', `Licht: ${ABSCHNITT_TEXTE.anOhneRueckmeldung}`], ['off', `Licht: ${ABSCHNITT_TEXTE.aus}`]],
     'SC Rahmen angemeldet: Licht unbekannt, bis der Server den Licht-Zustand geschickt hat; dann an (ohne Rückmeldung) bzw. aus',
+  );
+  gleich(
+    [licht(false, { node: { host: '192.0.2.20' }, fixtures: [] }), licht(undefined, { node: null, fixtures: [] })],
+    [['off', `Licht: ${UNBEKANNT}`], ['off', `Licht: ${UNBEKANNT}`]],
+    'SC Rahmen angemeldet: ohne verbundenen Server ist Licht unbekannt, auch mit gemeldetem Zustand im Store (Ruling Task 18)',
   );
 }
 {

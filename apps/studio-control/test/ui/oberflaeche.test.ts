@@ -11,8 +11,12 @@ import {
   STUDIO_TEXTE,
   atemTasten,
   fernsteuerungAbschnitt,
+  geraetGrund,
   geraetPille,
+  gemeldet,
+  instanzVerbunden,
   kopfOnAir,
+  lichtPille,
   lichtTaste,
   mitEinstellungen,
   naechsterServerStand,
@@ -48,6 +52,13 @@ function stand(teil: Partial<OberflaechenStand> = {}): OberflaechenStand {
     ...teil,
   };
 }
+/**
+ * Stand mit verbundenem Server: Nur dann gelten Gerätezustände als gemessen (Ruling Task 18, „SC Server getrennt“). Die
+ * Prüfungen der Geräte-Ableitungen laufen deshalb mit server: true; was ohne Server gilt, prüft „SC Server getrennt“.
+ */
+function mitServer(teil: Partial<OberflaechenStand> = {}): OberflaechenStand {
+  return stand({ server: true, ...teil });
+}
 /** Geräte aus einer Liste von Meldungen je Instanz (ids g1, g2 …); undefined = Instanz ohne Meldung. */
 function geraete(...st: Meldung[]): GeraeteStand {
   const ids = st.map((_, i) => `g${i + 1}`);
@@ -78,15 +89,15 @@ const GERAETE = ['atem', 'obs', 'tricaster', 'ptz', 'audio'] as const;
   const eine: Meldung[] = [undefined, ...ZUSTAENDE.map((state) => ({ state, lastError: state === 'down' ? 'Zeitüberschreitung' : undefined }))];
   pruefeFaelle('SC Statusleiste <id>: atem, obs, tricaster, ptz, audio über drei Instanzen × Zustand', kreuz({ geraet: GERAETE, a: eine, b: eine, c: eine }), (f) => {
     const zs = [f.a, f.b, f.c];
-    return vergleiche(sd(eintrag(stand({ [f.geraet]: geraete(...zs) }), f.geraet)), erwartung(zs));
+    return vergleiche(sd(eintrag(mitServer({ [f.geraet]: geraete(...zs) }), f.geraet)), erwartung(zs));
   });
   for (const g of GERAETE) {
     ok(eintrag(stand({ [g]: { ids: [], status: {} } }), g) === undefined, `SC Statusleiste ${g}: ohne Instanz kein Eintrag`);
-    const i = eintrag(stand({ [g]: geraete({ state: 'connected' }) }), g);
+    const i = eintrag(mitServer({ [g]: geraete({ state: 'connected' }) }), g);
     ok(i?.group === 'verbindung' && i.settingsSection === undefined, `SC Statusleiste ${g}: Gruppe verbindung, ohne Abschnitt`);
   }
   gleich(
-    sd(eintrag(stand({ atem: geraete({ state: 'down' }, { state: 'down', lastError: 'a' }, { state: 'down', lastError: 'b' }) }), 'atem')),
+    sd(eintrag(mitServer({ atem: geraete({ state: 'down' }, { state: 'down', lastError: 'a' }, { state: 'down', lastError: 'b' }) }), 'atem')),
     'error a',
     'SC Statusleiste atem: der erste lastError steht im Eintrag',
   );
@@ -96,7 +107,7 @@ const GERAETE = ['atem', 'obs', 'tricaster', 'ptz', 'audio'] as const;
 {
   pruefeFaelle('SC Statusleiste wie die Pille: keine verbunden, eine verbindet → warn wie die Pille; keine verbindet → error', kreuz({ a: ZUSTAENDE, b: [undefined, ...ZUSTAENDE] }), (f) => {
     const zs = f.b === undefined ? [{ state: f.a }] : [{ state: f.a }, { state: f.b }];
-    const i = eintrag(stand({ obs: geraete(...zs) }), 'obs');
+    const i = eintrag(mitServer({ obs: geraete(...zs) }), 'obs');
     if (zs.some((z) => z.state === 'connected')) return null;
     const verbindend = zs.find((z) => z.state === 'connecting' || z.state === 'polling');
     const soll = verbindend ? geraetPille({ state: verbindend.state }).state : geraetPille({ state: 'down' }).state;
@@ -137,7 +148,7 @@ const GERAETE = ['atem', 'obs', 'tricaster', 'ptz', 'audio'] as const;
       { l: { node: true, blackout: true }, soll: `warn ${STUDIO_TEXTE.licht.blackout}` },
     ],
     (f) => {
-      const i = eintrag(stand({ licht: f.l }), 'licht');
+      const i = eintrag(mitServer({ licht: f.l }), 'licht');
       return vergleiche(sd(i), f.soll) ?? (i?.group !== 'ausgabe' ? 'Gruppe falsch' : null);
     },
   );
@@ -221,18 +232,18 @@ function link0(): OberflaechenStand['masterLink'] {
     if (v.some((z) => z.recording === true)) return { live: true, label: STUDIO_TEXTE.onAirRec };
     return undefined;
   };
-  pruefeFaelle('SC ON AIR: ATEM, Zustand × recording × streaming', einzel, (f) => vergleiche(JSON.stringify(kopfOnAir(stand({ atem: geraete(f) }))), JSON.stringify(soll([f]))));
-  pruefeFaelle('SC ON AIR: OBS, Zustand × recording × streaming', einzel, (f) => vergleiche(JSON.stringify(kopfOnAir(stand({ obs: geraete(f) }))), JSON.stringify(soll([f]))));
+  pruefeFaelle('SC ON AIR: ATEM, Zustand × recording × streaming', einzel, (f) => vergleiche(JSON.stringify(kopfOnAir(mitServer({ atem: geraete(f) }))), JSON.stringify(soll([f]))));
+  pruefeFaelle('SC ON AIR: OBS, Zustand × recording × streaming', einzel, (f) => vergleiche(JSON.stringify(kopfOnAir(mitServer({ obs: geraete(f) }))), JSON.stringify(soll([f]))));
   pruefeFaelle('SC ON AIR: ATEM × OBS über alle Instanzen', kreuz({ a: einzel, b: einzel }), (f) =>
-    vergleiche(JSON.stringify(kopfOnAir(stand({ atem: geraete(f.a), obs: geraete(f.b) }))), JSON.stringify(soll([f.a, f.b]))),
+    vergleiche(JSON.stringify(kopfOnAir(mitServer({ atem: geraete(f.a), obs: geraete(f.b) }))), JSON.stringify(soll([f.a, f.b]))),
   );
-  pruefeFaelle('SC ON AIR: zwei Instanzen am ATEM', kreuz({ a: einzel, b: einzel }), (f) => vergleiche(JSON.stringify(kopfOnAir(stand({ atem: geraete(f.a, f.b) }))), JSON.stringify(soll([f.a, f.b]))));
-  gleich(kopfOnAir(stand({ atem: geraete({ state: 'connected', recording: true, streaming: true }) })), { live: true, label: 'LIVE' }, 'SC ON AIR: Stream und Aufnahme zugleich → „LIVE“ vor „REC“');
-  gleich(kopfOnAir(stand({ obs: geraete({ state: 'connected', recording: true }) })), { live: true, label: 'REC' }, 'SC ON AIR: nur Aufnahme → „REC“');
-  gleich(kopfOnAir(stand({ atem: geraete({ state: 'connected', recording: true }), obs: geraete({ state: 'connected', streaming: true }) })), { live: true, label: 'LIVE' }, 'SC ON AIR: REC am ATEM, Stream am OBS → „LIVE“');
+  pruefeFaelle('SC ON AIR: zwei Instanzen am ATEM', kreuz({ a: einzel, b: einzel }), (f) => vergleiche(JSON.stringify(kopfOnAir(mitServer({ atem: geraete(f.a, f.b) }))), JSON.stringify(soll([f.a, f.b]))));
+  gleich(kopfOnAir(mitServer({ atem: geraete({ state: 'connected', recording: true, streaming: true }) })), { live: true, label: 'LIVE' }, 'SC ON AIR: Stream und Aufnahme zugleich → „LIVE“ vor „REC“');
+  gleich(kopfOnAir(mitServer({ obs: geraete({ state: 'connected', recording: true }) })), { live: true, label: 'REC' }, 'SC ON AIR: nur Aufnahme → „REC“');
+  gleich(kopfOnAir(mitServer({ atem: geraete({ state: 'connected', recording: true }), obs: geraete({ state: 'connected', streaming: true }) })), { live: true, label: 'LIVE' }, 'SC ON AIR: REC am ATEM, Stream am OBS → „LIVE“');
   ok(kopfOnAir(stand()) === undefined, 'SC ON AIR: ohne gemessene Sendung (alles undefined) fehlt onAir');
   ok(
-    kopfOnAir(stand({ tricaster: geraete({ state: 'connected', recording: true, streaming: true }), ptz: geraete({ state: 'connected', recording: true }), licht: { node: true, blackout: true } })) === undefined,
+    kopfOnAir(mitServer({ tricaster: geraete({ state: 'connected', recording: true, streaming: true }), ptz: geraete({ state: 'connected', recording: true }), licht: { node: true, blackout: true } })) === undefined,
     'SC ON AIR: TriCaster, PTZ, Audio und Licht melden nie ON AIR',
   );
 }
@@ -261,7 +272,7 @@ function link0(): OberflaechenStand['masterLink'] {
     ['licht', 'Licht', lichtTaste(s)],
   ];
   const bau = (rolle: Role | undefined, g: GeraeteStand | undefined, licht: { node: boolean; blackout: boolean } | undefined = { node: true, blackout: false }): OberflaechenStand =>
-    stand({ benutzer: rolle === undefined ? null : benutzer(rolle), atem: g, tricaster: g, obs: g, licht });
+    mitServer({ benutzer: rolle === undefined ? null : benutzer(rolle), atem: g, tricaster: g, obs: g, licht });
   pruefeFaelle('SC Betrachter gesperrt mit Grund: jede Haupttaste aller Panels trägt den Rollen-Grund', kreuz({ rec: [false, true], zustand: ZUSTAENDE }), (f) => {
     const grund = STUDIO_TEXTE.grund.rolle('viewer');
     const fehler = alle(bau('viewer', geraete({ state: f.zustand, recording: f.rec, streaming: f.rec }))).flatMap(([n, , t]) =>
@@ -299,21 +310,99 @@ function link0(): OberflaechenStand['masterLink'] {
   const op = benutzer('operator');
   const T = STUDIO_TEXTE.taste;
   const mit = (extra: object = {}): GeraeteStand => geraete({ state: 'connected', ...extra });
-  gleich(atemTasten(stand({ benutzer: op, atem: mit() }), 'g1').map((t) => t.label), [T.cut, T.auto, T.ftb, T.rec, T.stream], 'SC Haupttasten: ATEM Cut, Auto, FTB, REC, STREAM in dieser Reihenfolge');
-  gleich(tricasterTasten(stand({ benutzer: op, tricaster: mit() }), 'g1').map((t) => t.label), [T.take, T.auto, T.fadeBlack, T.rec, T.stream], 'SC Haupttasten: TriCaster Take, Auto, Fade Black, REC, STREAM');
-  gleich(obsTasten(stand({ benutzer: op, obs: mit() }), 'g1').map((t) => t.label), [T.aufnahme, T.stream], 'SC Haupttasten: OBS Aufnahme, Stream');
+  gleich(atemTasten(mitServer({ benutzer: op, atem: mit() }), 'g1').map((t) => t.label), [T.cut, T.auto, T.ftb, T.rec, T.stream], 'SC Haupttasten: ATEM Cut, Auto, FTB, REC, STREAM in dieser Reihenfolge');
+  gleich(tricasterTasten(mitServer({ benutzer: op, tricaster: mit() }), 'g1').map((t) => t.label), [T.take, T.auto, T.fadeBlack, T.rec, T.stream], 'SC Haupttasten: TriCaster Take, Auto, Fade Black, REC, STREAM');
+  gleich(obsTasten(mitServer({ benutzer: op, obs: mit() }), 'g1').map((t) => t.label), [T.aufnahme, T.stream], 'SC Haupttasten: OBS Aufnahme, Stream');
   pruefeFaelle('SC Haupttasten: live nur bei gemessenem recording/streaming mit connected (ATEM, OBS)', kreuz({ state: ZUSTAENDE, recording: [undefined, false, true], streaming: [undefined, false, true] }), (f) => {
-    const a = atemTasten(stand({ benutzer: op, atem: geraete(f) }), 'g1').map((t) => t.state);
-    const o = obsTasten(stand({ benutzer: op, obs: geraete(f) }), 'g1').map((t) => t.state);
+    const a = atemTasten(mitServer({ benutzer: op, atem: geraete(f) }), 'g1').map((t) => t.state);
+    const o = obsTasten(mitServer({ benutzer: op, obs: geraete(f) }), 'g1').map((t) => t.state);
     const c = f.state === 'connected';
     const rec = c && f.recording === true ? 'live' : c ? 'bereit' : 'gesperrt';
     const str = c && f.streaming === true ? 'live' : c ? 'bereit' : 'gesperrt';
     const ohne = c ? 'bereit' : 'gesperrt';
     return vergleiche(JSON.stringify([a, o]), JSON.stringify([[ohne, ohne, ohne, rec, str], [rec, str]]));
   });
-  ok(tricasterTasten(stand({ benutzer: op, tricaster: mit({ recording: true, streaming: true }) }), 'g1').every((t) => t.state === 'bereit'), 'SC Haupttasten: TriCaster REC und STREAM sind bereit (B6), nie live');
+  ok(tricasterTasten(mitServer({ benutzer: op, tricaster: mit({ recording: true, streaming: true }) }), 'g1').every((t) => t.state === 'bereit'), 'SC Haupttasten: TriCaster REC und STREAM sind bereit (B6), nie live');
   ok(T.tricasterHinweis === 'REC und STREAM ohne Rückmeldung', 'SC Haupttasten: Hinweis unter der TriCaster-Reihe');
-  ok(atemTasten(stand({ benutzer: op, atem: mit() }), 'fremd').every((t) => t.state === 'gesperrt' && t.disabledReason !== undefined), 'SC Haupttasten: unbekannte Instanz → gesperrt mit Grund');
+  ok(atemTasten(mitServer({ benutzer: op, atem: mit() }), 'fremd').every((t) => t.state === 'gesperrt' && t.disabledReason !== undefined), 'SC Haupttasten: unbekannte Instanz → gesperrt mit Grund');
+}
+
+// ── SC Server getrennt (Ruling Task 18): ohne verbundenen Server (getrennt oder noch keine Meldung) gilt kein Gerätezustand als
+// gemessen: kein ON AIR, Statusleiste und Pillen „unbekannt“, Haupttasten gesperrt mit Grund. Sonst bliebe „LIVE“ stehen, während
+// der Server „getrennt“ zeigt. ──
+{
+  const SERVER = [undefined, false, true] as const;
+  const einzel: Meldung[] = [undefined, ...kreuz({ state: ZUSTAENDE, recording: [false, true], streaming: [false, true] })];
+  const ROLLE = ['operator', 'viewer'] as const;
+  // Erwartung bei verbundenem Server für eine Instanz (dieselbe Regel wie oben, hier ausgeschrieben).
+  const eintragSoll = (m: Meldung): string => {
+    if (m === undefined) return `off ${UNBEKANNT}`;
+    if (m.state === 'connected') return `ok ${PEERS_TEXTE.alleVerbunden}`;
+    if (m.state === 'down') return `error ${STUDIO_TEXTE.getrennt}`;
+    return `warn ${MASTER_LINK_TEXTE.verbindet}`;
+  };
+  const onAirSoll = (geraet: string, m: Meldung): string => {
+    if (m?.state !== 'connected' || (geraet !== 'atem' && geraet !== 'obs')) return 'fehlt';
+    if (m.streaming) return STUDIO_TEXTE.onAirLive;
+    return m.recording ? STUDIO_TEXTE.onAirRec : 'fehlt';
+  };
+  pruefeFaelle('SC Server getrennt: Statusleiste, ON AIR, Pille und Verbindung der Geräte nur bei verbundenem Server gemessen', kreuz({ server: SERVER, geraet: GERAETE, m: einzel }), (f) => {
+    const s = stand({ server: f.server, [f.geraet]: geraete(f.m), benutzer: benutzer('operator') });
+    const ist = [sd(eintrag(s, f.geraet)), kopfOnAir(s)?.label ?? 'fehlt', JSON.stringify(geraetPille(gemeldet(s, f.m))), String(instanzVerbunden(s, f.geraet, 'g1'))];
+    const gemessen = f.server === true;
+    const soll = [
+      gemessen ? eintragSoll(f.m) : `off ${UNBEKANNT}`,
+      gemessen ? onAirSoll(f.geraet, f.m) : 'fehlt',
+      JSON.stringify(gemessen ? geraetPille(f.m) : { state: 'off', text: UNBEKANNT }),
+      String(gemessen && f.m !== undefined ? f.m.state === 'connected' : undefined),
+    ];
+    return vergleiche(JSON.stringify(ist), JSON.stringify(soll));
+  });
+  pruefeFaelle('SC Server getrennt: Haupttasten von ATEM, TriCaster und OBS gesperrt mit Grund, nie live (Rolle zuerst, dann „‹Gerät› unbekannt“)', kreuz({ server: [undefined, false] as const, rolle: ROLLE, m: einzel }), (f) => {
+    const s = stand({ server: f.server, benutzer: benutzer(f.rolle), atem: geraete(f.m), tricaster: geraete(f.m), obs: geraete(f.m) });
+    const fehler = [
+      ...atemTasten(s, 'g1').map((t): [string, Haupttaste] => ['ATEM', t]),
+      ...tricasterTasten(s, 'g1').map((t): [string, Haupttaste] => ['TriCaster', t]),
+      ...obsTasten(s, 'g1').map((t): [string, Haupttaste] => ['OBS', t]),
+    ].flatMap(([geraet, t]) => {
+      const grund = f.rolle === 'viewer' ? STUDIO_TEXTE.grund.rolle('viewer') : STUDIO_TEXTE.grund.geraetUnbekannt(geraet);
+      return t.state === 'gesperrt' && t.disabledReason === grund ? [] : [`${geraet} ${t.label}: ${t.state} ${t.disabledReason}`];
+    });
+    return fehler.length ? fehler.join('; ') : null;
+  });
+  pruefeFaelle('SC Server getrennt: PTZ und Audio ohne Server unbekannt, Grund Rolle zuerst, dann „‹Gerät› unbekannt“', kreuz({ server: SERVER, rolle: ROLLE, geraet: ['ptz', 'audio'] as const, m: einzel }), (f) => {
+    const s = stand({ server: f.server, benutzer: benutzer(f.rolle), [f.geraet]: geraete(f.m) });
+    const name = STUDIO_TEXTE.geraet[f.geraet];
+    const verbunden = f.server === true && f.m !== undefined ? f.m.state === 'connected' : undefined;
+    const soll = f.rolle === 'viewer' ? STUDIO_TEXTE.grund.rolle('viewer') : verbunden === undefined ? STUDIO_TEXTE.grund.geraetUnbekannt(name) : verbunden ? undefined : STUDIO_TEXTE.grund.nichtVerbunden(name);
+    return vergleiche(geraetGrund(s, f.geraet, 'g1'), soll);
+  });
+  const LICHT = [{ node: false, blackout: false }, { node: true, blackout: false }, { node: true, blackout: true }] as const;
+  pruefeFaelle('SC Server getrennt: Licht ohne Server unbekannt, Blackout sichtbar und gesperrt mit Grund (nie „Blackout aus“)', kreuz({ server: [undefined, false] as const, rolle: ROLLE, licht: LICHT }), (f) => {
+    const s = stand({ server: f.server, benutzer: benutzer(f.rolle), licht: f.licht });
+    const t = lichtTaste(s);
+    const grund = f.rolle === 'viewer' ? STUDIO_TEXTE.grund.rolle('viewer') : STUDIO_TEXTE.grund.unbekannt;
+    const ist = [sd(eintrag(s, 'licht')), JSON.stringify(lichtPille(s)), JSON.stringify(t)];
+    const soll = [`off ${UNBEKANNT}`, JSON.stringify({ state: 'off', text: UNBEKANNT }), JSON.stringify({ label: STUDIO_TEXTE.taste.blackout, state: 'gesperrt', disabledReason: grund })];
+    return vergleiche(JSON.stringify(ist), JSON.stringify(soll));
+  });
+  pruefeFaelle(
+    'SC Server getrennt: Licht mit Server wie gemeldet (Pille = Statuseintrag: aus · an (ohne Rückmeldung) · Blackout (ohne Rückmeldung))',
+    LICHT.map((l) => ({ l })),
+    (f) => {
+      const s = mitServer({ licht: f.l });
+      const e = eintrag(s, 'licht');
+      return vergleiche(JSON.stringify(lichtPille(s)), JSON.stringify({ state: e?.state, text: e?.detail }));
+    },
+  );
+  const streamt = { atem: geraete({ state: 'connected', streaming: true, recording: true }), obs: geraete({ state: 'connected', streaming: true }) };
+  const getrennt = stand({ server: false, benutzer: benutzer('operator'), ...streamt });
+  ok(
+    kopfOnAir(getrennt) === undefined && sd(eintrag(getrennt, 'server')) === `error ${STUDIO_TEXTE.getrennt}` && atemTasten(getrennt, 'g1').every((t) => t.state !== 'live') && obsTasten(getrennt, 'g1').every((t) => t.state !== 'live'),
+    'SC Server getrennt: „LIVE“ bleibt nicht stehen, während der Server „getrennt“ zeigt (kein ON AIR, REC/STREAM nicht live)',
+  );
+  gleich(kopfOnAir(stand({ server: true, ...streamt })), { live: true, label: STUDIO_TEXTE.onAirLive }, 'SC Server getrennt: mit wieder verbundenem Server zählt die Meldung wieder (LIVE)');
+  gleich([gemeldet(stand({ server: undefined }), 'x'), gemeldet(stand({ server: false }), 'x'), gemeldet(stand({ server: true }), 'x')], [undefined, undefined, 'x'], 'SC Server getrennt: gemeldet gibt eine Meldung nur bei verbundenem Server weiter');
 }
 
 // ── SC Texte, Reinheit ──
