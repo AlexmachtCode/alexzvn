@@ -106,7 +106,7 @@ export function Einstellungen({ stand, aktionen }: EinstellungenProps): React.JS
                   <div className="text-[11px] text-[var(--muted-foreground)]">Am Handy im selben WLAN scannen oder URL öffnen:</div>
                   <RemoteQr url={p.remote.urls[0] ?? ''} />
                   {p.remote.urls.map((u) => (
-                    <div key={u} className="tabular break-all text-sm font-bold text-[var(--primary)]">
+                    <div key={u} className="tabular break-all text-sm font-bold text-[var(--primary)] select-text">
                       {u}
                     </div>
                   ))}

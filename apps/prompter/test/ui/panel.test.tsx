@@ -94,6 +94,12 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
   ok(['Spiegeln ⇄', 'Spiegeln ⇅', 'Fett'].every((w) => text(dar).includes(w)) && schalter(dar).length === 3, 'PR Panel Abschnitte: Darstellung mit Spiegeln ⇄, Spiegeln ⇅ und Fett als Schalter');
   const handy = abschnitt(html, ABSCHNITT.handy);
   ok(text(handy).includes('http://10.0.0.5:8728/?t=abc') && handy.includes('data-prompter="handy-adressen"'), 'PR Panel Abschnitte: Handy-Fernbedienung zeigt die Adressen, wenn der Server läuft');
+  // Rückspiel (Task 26, Regel „select-text“ aus Task 23/24): body { user-select: none } träfe die Adresse, die der Bediener weitergibt.
+  const adressen = tags(handy, 'div').filter((t) => (attr(t, 'class') ?? '').includes('break-all'));
+  ok(
+    adressen.length === 1 && (attr(adressen[0], 'class') ?? '').split(/\s+/).includes('select-text'),
+    'PR Rückspiel select-text: die Handy-Adresse im Panel ist markierbar (select-text, trotz body user-select none)',
+  );
   const keine = abschnitt(panel(stand({ prompter: state({ remoteEnabled: true }, { running: true, urls: [] }) })), ABSCHNITT.handy);
   ok(text(keine).includes(T.handy.keineAdresse), 'PR Panel Abschnitte: ohne Adresse steht der Text aus PROMPTER_TEXTE.handy.keineAdresse (R-T5a)');
   const quelle = ohneKommentare(leseText('src/renderer/src/views/Einstellungen.tsx'));
