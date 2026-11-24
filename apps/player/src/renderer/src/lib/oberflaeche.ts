@@ -52,11 +52,11 @@ export const PLAYER_TEXTE = {
   },
   /**
    * Show-Wahl der Cue-Show (Rückspiel Task 26, Regel „Wahl ≠ Bewegung im Altbestand“): die Auswahl hält einen Entwurf, erst
-   * „Setzen“ (PEERS_TEXTE.setzen, Bezeichnung PEERS_TEXTE.setzenFuer(titel)) wählt die Show. Gründe der gesperrten Knöpfe.
+   * „Setzen“ (PEERS_TEXTE.setzen, Bezeichnung PEERS_TEXTE.setzenFuer(titel)) wählt die Show; „Setzen“ steht nur bei offenem
+   * Entwurf oder während der Wahl im Kopf. Gründe der gesperrten Knöpfe.
    */
   showWahl: {
     titel: 'Show',
-    unveraendert: 'Diese Show ist schon gewählt.',
     laeuft: 'Die Show wird gewählt …',
     erstSetzen: 'Setze erst die gewählte Show oder nimm die Auswahl zurück.',
   },

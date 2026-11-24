@@ -17,7 +17,13 @@ export interface ShowEntwurf {
 export interface ShowWahl {
   /** Wert der Auswahl: der Entwurf, sonst die aktive Show ('' ohne aktive Show, wie bisher). */
   wert: number | '';
-  /** Warum „Setzen“ gesperrt ist; undefined = bedienbar. */
+  /**
+   * „Setzen“ steht im Kopf nur bei offenem Entwurf oder während der Wahl. Ein immer sichtbares „Setzen“ ließ den Kopf in schmalen
+   * Fenstern umbrechen (gemessen, Task 26): dann rückten „▦ Ausgabe“, „+ Cue“ und die Cue-Liste um eine Zeile. So steht ohne
+   * Entwurf jede Taste wie bisher.
+   */
+  setzenSichtbar: boolean;
+  /** Warum das sichtbare „Setzen“ gesperrt ist (nur während der Wahl); undefined = bedienbar. */
   setzenGrund: string | undefined;
   /** Ein Entwurf ist offen: „Umbenennen“ und „Löschen“ (wirken auf die aktive Show) sind dann gesperrt. */
   entwurfOffen: boolean;
@@ -30,7 +36,7 @@ export interface ShowWahl {
 /**
  * Show-Wahl (Rückspiel Task 26, Regel „Wahl ≠ Bewegung im Altbestand“ aus Task 19/25): selectShow räumt die laufende Show
  * (panikDerShow: Show-Töne hart aus, Ausgabe schwarz, Vorlauf weg); bisher löste das jede Änderung der Auswahl aus, auch eine
- * Pfeiltaste auf der fokussierten Auswahl. Jetzt hält die Auswahl nur einen Entwurf; „Setzen“ ist frei nur bei Unterschied und
+ * Pfeiltaste auf der fokussierten Auswahl. Jetzt hält die Auswahl nur einen Entwurf; „Setzen“ erscheint nur bei Unterschied und ist
  * gesperrt, solange die Wahl läuft. Ein Entwurf gilt nur zur aktiven Show, auf der er entstand, und nur zu einer vorhandenen Show:
  * wählt Companion, der Show-Start oder „+ Neu“ eine andere Show, fällt er weg.
  */
@@ -46,9 +52,10 @@ export function showWahl(a: {
   const T = PLAYER_TEXTE.showWahl;
   const e = a.entwurf;
   const gewaehlt = e !== null && e.basis === a.aktiv && e.id !== a.aktiv && a.shows.some((s) => s.id === e.id) ? e.id : undefined;
-  const setzenGrund = a.laeuft ? T.laeuft : gewaehlt === undefined ? T.unveraendert : undefined;
+  const setzenGrund = a.laeuft ? T.laeuft : undefined;
   return {
     wert: gewaehlt ?? a.aktiv ?? '',
+    setzenSichtbar: gewaehlt !== undefined || a.laeuft,
     setzenGrund,
     entwurfOffen: gewaehlt !== undefined,
     waehlen: (id) => a.setzeEntwurf(() => (id === a.aktiv ? null : { basis: a.aktiv, id })),
@@ -63,6 +70,35 @@ export function showWahl(a: {
       }
     },
   };
+}
+
+/**
+ * „Setzen“ der Show-Wahl (hooklos): ohne Entwurf und ohne laufende Wahl nichts; sonst die Taste „Setzen“ (Bezeichnung „Setzen:
+ * Show“), während der Wahl gesperrt mit Grund (Tooltip und aria-describedby).
+ */
+export function ShowSetzen({ wahl, grundId }: { wahl: ShowWahl; grundId: string }): React.JSX.Element | null {
+  if (!wahl.setzenSichtbar) return null;
+  const grund = wahl.setzenGrund;
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="outline"
+        aria-label={PEERS_TEXTE.setzenFuer(PLAYER_TEXTE.showWahl.titel)}
+        aria-describedby={grund === undefined ? undefined : grundId}
+        title={grund}
+        disabled={grund !== undefined}
+        onClick={() => void wahl.setzen()}
+      >
+        {PEERS_TEXTE.setzen}
+      </Button>
+      {grund === undefined ? null : (
+        <span id={grundId} className="sr-only">
+          {grund}
+        </span>
+      )}
+    </>
+  );
 }
 
 /**
@@ -205,23 +241,9 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
           </>
         )}
         <div className="ml-auto flex items-center gap-2">
-          {/* „Setzen“ der Show-Wahl vorn in der rechten Gruppe: dort war Leere, keine Taste rückt (Tastenplatz-Regel). */}
-          <Button
-            size="sm"
-            variant="outline"
-            aria-label={PEERS_TEXTE.setzenFuer(PLAYER_TEXTE.showWahl.titel)}
-            aria-describedby={wahl.setzenGrund === undefined ? undefined : setzenGrundId}
-            title={wahl.setzenGrund}
-            disabled={wahl.setzenGrund !== undefined}
-            onClick={() => void wahl.setzen()}
-          >
-            {PEERS_TEXTE.setzen}
-          </Button>
-          {wahl.setzenGrund === undefined ? null : (
-            <span id={setzenGrundId} className="sr-only">
-              {wahl.setzenGrund}
-            </span>
-          )}
+          {/* „Setzen“ der Show-Wahl vorn in der rechten Gruppe (dort war Leere), nur mit offenem Entwurf oder während der Wahl: ohne
+              Entwurf steht jede Taste wie bisher (Tastenplatz-Regel, gemessen in Task 26). */}
+          <ShowSetzen wahl={wahl} grundId={setzenGrundId} />
           <Button size="sm" variant="ghost" onClick={onAusgabe}>
             ▦ Ausgabe
           </Button>
