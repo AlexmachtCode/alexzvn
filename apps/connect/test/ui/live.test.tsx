@@ -1,12 +1,18 @@
-// UX Welle 2b, Connect d1 · Cloud-Raum (B19, B21, B6; Muster d; Regel V): Haupttasten Raum und Talkback alle je Zustand (Grund
-// sichtbar), Halte-Knopf je Gast (Loslassen genau einmal, auch beim Aushängen der Gastzeile), „Raum schließen“ nach einem
-// Raumabbruch neben T144, Reihenfolge der Blöcke und je Gastzeile unverändert. Render ohne Browser; Klicks und Halten über die
-// reinen Verdrahtungen der Bausteine (tallyHandler, halteKnopfProps), wie im Presenter- und Studio-Control-Test.
+// UX Welle 2b, Connect d1 und d2 · Live-Bereich (B19, B21, B6, W2-6; Muster d; Regel V): Haupttasten Raum und Talkback alle je
+// Zustand (Grund sichtbar), Halte-Knopf je Gast (Loslassen genau einmal, auch beim Aushängen der Gastzeile), „Raum schließen“
+// nach einem Raumabbruch neben T144, Reihenfolge der Blöcke und je Gastzeile unverändert; seit Task 24 die Zoom-Spalte
+// (Reihenfolge, Slot-Einstellungen je Kachel, Kennzeichen-Platz je Teilnehmerzeile). Render ohne Browser; Klicks und Halten über
+// die reinen Verdrahtungen der Bausteine (tallyHandler, halteKnopfProps), wie im Presenter- und Studio-Control-Test.
 import { gleich, leseText, ok, render } from '@jm/ui/testhilfe';
 import type { RoomState } from '@jm/rtc/protocol';
 import { NDI_TEXT } from '@shared/ndi-text';
+import type { ZoomAbbild } from '@shared/types';
+import { BEDIEN_TEXT, KANDIDAT_KENNZEICHEN, SLOT_FELD } from '@shared/zoom-text';
 import { CONNECT_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
 import { CloudRaum, gastTalkback, haupttasten, type CloudRaumProps } from '@/views/CloudRaum';
+import { slotAufrufeAus, ZoomSpalte } from '@/views/ZoomSpalte';
+import type { ZoomAufrufe } from '@/zoom/aufrufe';
+import { SlotEinstellungen } from '@/zoom/SlotEinstellungen';
 import { halteKnopfProps } from '../../../../packages/ui/src/components/HalteKnopf';
 import { haltenBeiAbbau, haltenFuerRender, tallyHandler, type TallyButtonProps } from '../../../../packages/ui/src/components/TallyButton';
 import { erzeugeHalten, type HaltenSteuerung } from '../../../../packages/ui/src/lib/halten';
@@ -25,9 +31,14 @@ import {
   ohneKommentare,
   offenerRaum,
   raum,
+  slotLage,
   stand,
+  tags,
   tallyTasten,
+  teilnehmer,
   text,
+  zoomAbbild,
+  zoomSpeicher,
 } from './testzustand';
 
 const T = CONNECT_TEXTE;
@@ -190,4 +201,64 @@ const haupt = (html: string): ReturnType<typeof tallyTasten> => tallyTasten(bere
   const sucht = spalte(stand({ status: appStatus({ ndiProgramm: { zustand: 'sucht', grund: null, code: null, k: 0, quelle: null, hinweis: 'JM Switcher', bereit: false }, presenterLinked: true }), room: null }));
   const k = bereich(sucht, 'data-connect', 'kopfzeile');
   ok(text(k).includes(NDI_TEXT.t121) && text(k).includes('📊 Presenter') && !/\d+ Gäste/.test(text(k)), 'CN Kopfzeile: ohne Raumverbindung bei Programm-Empfang ohne Zählung, mit „📊 Presenter“');
+}
+
+// ── Zoom-Spalte (Task 24; B19, B20, W2-5, W2-6): Render der rechten Spalte mit einem Abbild aus stand.zoom ──
+
+/** Die Zoom-Spalte mit Abbild (stand.zoom) und einem lebenden ZoomAufrufe. */
+function zoomSpalte(a: ZoomAbbild | undefined, z: ZoomAufrufe = zoomSpeicher(), ladeFehler: string | null = null): string {
+  return render(<ZoomSpalte stand={stand({ status: appStatus(), room: null, zoom: a })} zoom={z} ladeFehler={ladeFehler} />);
+}
+
+// ── CN Slot-Einstellungen je Kachel: jede Kachel hat ihren Knopf „Einstellungen“, die Felder gehören zur Kachel (W2-6) ──
+{
+  const a = zoomAbbild({ slots: [slotLage(2, {}, { modus: 'sprecher' }), slotLage(1)] });
+  const html = zoomSpalte(a);
+  const kacheln = bereiche(html, 'data-connect', 'kachel');
+  gleich(kacheln.map((k) => text(k).match(/^(\d+) · /)?.[1]), ['1', '2'], 'CN Slot-Einstellungen je Kachel: die Kacheln stehen nach Nummer in der Zoom-Spalte');
+  ok(kacheln.every((k) => knopfTexte(k).filter((t) => t === SLOT_FELD.einstellungen).length === 1), 'CN Slot-Einstellungen je Kachel: jede Kachel hat genau einen Knopf „Einstellungen“ (W2-6)');
+  const einst = render(<SlotEinstellungen lage={slotLage(1)} teilnehmer={[]} aufrufe={slotAufrufeAus(zoomSpeicher(), null, () => undefined)} />);
+  ok(
+    [SLOT_FELD.ndiName, SLOT_FELD.modus, SLOT_FELD.person, SLOT_FELD.aufloesung, SLOT_FELD.ton].every((t) => text(einst).includes(t)) && knopfTexte(einst).includes(BEDIEN_TEXT.loeschen),
+    'CN Slot-Einstellungen je Kachel: die Felder eines Slots (NDI-Name, Modus, Person, Auflösung, Ton, Löschen) bleiben Slot-Einstellungen',
+  );
+  const q = QUELLE('zoom/SlotKachel.tsx');
+  ok(/\{einstellungenAuf && <SlotEinstellungen lage=\{lage\} teilnehmer=\{a\.teilnehmer\} aufrufe=\{aufrufe\} \/>\}/.test(q) && /const \[einstellungenAuf, setEinstellungenAuf\] = useState\(false\);/.test(q), 'CN Slot-Einstellungen je Kachel: die Kachel klappt ihre eigenen Einstellungen auf (je Kachel, ungemerkt)');
+  ok(!kacheln.some((k) => text(k).includes(SLOT_FELD.vorgaben(a.vorgaben.aufloesung, a.vorgaben.tonAn)) || text(k).includes(BEDIEN_TEXT.personImNdiNamen)), 'CN Slot-Einstellungen je Kachel: Zoom-Vorgaben stehen nicht in einer Kachel (Panel, B20)');
+}
+
+// ── CN Kennzeichen-Platz: je Teilnehmerzeile ein leerer Platz data-connect="kennzeichen" für #317 Stufe B (B19, W2-6) ──
+{
+  const a = zoomAbbild({
+    kurz: { zustand: 'im_meeting', erlaubnis: 'ja' },
+    teilnehmer: [teilnehmer(101, 'Anna Berger', { rolle: 'host' }), teilnehmer(102, 'Ben Kraus', { kamera: 'aus' }), teilnehmer(103, 'Cem Aydin', { imWarteraum: true })],
+  });
+  const zeilen = bereiche(zoomSpalte(a), 'data-connect', 'teilnehmer');
+  ok(
+    zeilen.length === 3 && zeilen.every((z) => (z.match(/data-connect="kennzeichen"/g) ?? []).length === 1 && text(bereich(z, 'data-connect', 'kennzeichen')) === ''),
+    'CN Kennzeichen-Platz: jede Teilnehmerzeile hat genau einen leeren Platz data-connect="kennzeichen"',
+  );
+  gleich(zeilen.map((z) => text(z).split(' ')[0]), ['Anna', 'Ben', 'Cem'], 'CN Kennzeichen-Platz: die Teilnehmerzeilen in der Reihenfolge des Kerns (Host zuerst)');
+  ok(text(zeilen[0] ?? '').includes(KANDIDAT_KENNZEICHEN.host) && text(zeilen[1] ?? '').includes(KANDIDAT_KENNZEICHEN.kameraAus) && text(zeilen[2] ?? '').includes(KANDIDAT_KENNZEICHEN.imWarteraum), 'CN Kennzeichen-Platz: die Kennzeichen Host, Kamera aus, im Warteraum stehen wie bisher');
+}
+
+// ── CN Zoom-Spalte: Reihenfolge nach B19, vor dem ersten Abbild nur „Zoom-Meeting“, Meldungsdetail markierbar ──
+{
+  const a = zoomAbbild({
+    kurz: { zustand: 'im_meeting', erlaubnis: 'ja' },
+    meldung: { art: 'warnung', text: 'Ton läuft über.', detail: 'audio overrun 0x8004' },
+    slots: [slotLage(1)], teilnehmer: [teilnehmer(101, 'Anna Berger')], hinweise: ['Fernsteuerung: zoom_slot 9 abgelehnt.'],
+  });
+  const html = zoomSpalte(a);
+  const BLOECKE = ['zoom-kopf', 'zoom-meldung', 'zoom-laufend', 'zoom-versatz', 'zoom-slots', 'zoom-teilnehmer', 'zoom-messwerte', 'zoom-hinweise', 'zoom-fuss'];
+  const lage = BLOECKE.map((b) => html.indexOf(`data-connect="${b}"`));
+  ok(lage.every((i, k) => i >= 0 && (k === 0 || i > lage[k - 1]!)), `CN Zoom-Spalte: ${BLOECKE.join(', ')} in dieser Reihenfolge (B19)`);
+  const bereit = zoomSpalte(zoomAbbild());
+  ok(bereit.indexOf('data-connect="zoom-beitritt"') > bereit.indexOf('data-connect="zoom-kopf"') && bereit.indexOf('data-connect="zoom-beitritt"') < bereit.indexOf('data-connect="zoom-versatz"'), 'CN Zoom-Spalte: ohne Meeting steht der Beitritt zwischen Kopf und Bild-Versatz');
+  const meldung = bereich(html, 'data-connect', 'zoom-meldung');
+  ok(tags(meldung, 'p').length >= 2 && tags(meldung, 'p').every((t) => /\bselect-text\b/.test(attr(t, 'class') ?? '')), 'CN Zoom-Spalte: Meldung und ihr Detail sind markierbar (select-text, trotz body user-select none)');
+  const vor = zoomSpalte(undefined, zoomSpeicher(), 'zoomGet abgelehnt');
+  ok(text(vor).includes('Zoom-Meeting') && text(vor).includes('zoomGet abgelehnt') && knopfTexte(vor).length === 0, 'CN Zoom-Spalte: vor dem ersten Abbild nur „Zoom-Meeting“ und der Ladefehler, kein Knopf (Nr. 52)');
+  const q = QUELLE('views/ZoomSpalte.tsx') + QUELLE('zoom/ZoomCard.tsx');
+  ok(!/\bmt-6\b/.test(q), 'CN Zoom-Spalte: kein mt-6-Versatz mehr, die Spalte beginnt auf der Höhe des Cloud-Raums');
 }

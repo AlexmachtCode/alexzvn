@@ -1,25 +1,42 @@
-// UX Welle 2b, Connect d1 · Panel-Grundstock (B8, B20; Muster d): die Abschnitte „Fernsteuerung“ (RemoteControlSection, Port 8737)
-// und „Cloud-Zugang“ (heutige CloudZugangKarte als Panel-Abschnitt ohne Effekt). Die Adresse liest die Wurzel-View über getProxy
-// und reicht sie als proxyAdresse herein; Speichern und „Key entfernen“ gehen als Aktionen an die Wurzel-View. Die Karte steht
-// nicht mehr im Live-Bereich. Render ohne Browser; Speichern über die reine Funktion speichern.
+// UX Welle 2b, Connect d1 und d2 · Panel (B8, B20, B22; Muster d): die Abschnitte „Fernsteuerung“ (RemoteControlSection, Port 8737)
+// und „Cloud-Zugang“ (heutige CloudZugangKarte als Panel-Abschnitt ohne Effekt), seit Task 24 dazu „Zoom-Einrichtung“ und
+// „Zoom-Vorgaben“ (nur Windows). Die Adresse liest die Wurzel-View über getProxy und reicht sie als proxyAdresse herein; Speichern
+// und „Key entfernen“ gehen als Aktionen an die Wurzel-View. Das Zoom-Abbild kommt nur aus stand.zoom, die laufenden Aufrufe und
+// Antworten als ZoomAufrufe aus der Wurzel-View, dasselbe Objekt für Panel und Zoom-Spalte. Render ohne Browser; Speichern über die
+// reine Funktion speichern, Zoom-Aufrufe über die reinen Verdrahtungen (einrichtungAufrufe, vorgabenAufrufe, slotAufrufeAus).
+import type { ReactNode } from 'react';
 import { REMOTE_TEXTE } from '@jm/settings';
 import { UNBEKANNT } from '@jm/ui';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
+import type { JmConnectApi, ZoomErgebnis } from '@shared/types';
+import { BEDIEN_TEXT, PERSON_IM_NDI_NAMEN_TOOLTIP, SLOT_FELD, SPRECHER_TEXT, sdkKnopf, sdkZeile } from '@shared/zoom-text';
 import { ZUGANG_TEXT } from '../../src/main/zugang/regeln';
-import { ABSCHNITT, CONNECT_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
+import { statusKlick } from '../../../../packages/ui/src/components/AppShell';
+import { ABSCHNITT, CONNECT_TEXTE, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
 import { CloudZugang, speichern } from '@/views/CloudZugang';
 import { ConnectRahmen } from '@/views/ConnectOberflaeche';
 import { Einstellungen } from '@/views/Einstellungen';
-import { abschnitt, aktionenAttrappe, appStatus, attr, basisMeldung, knopfTexte, ohneKommentare, offenerRaum, raum, stand, statusEintraege, tags, text } from './testzustand';
+import { slotAufrufeAus } from '@/views/ZoomSpalte';
+import type { ZoomAufrufe } from '@/zoom/aufrufe';
+import { einrichtungAufrufe } from '@/zoom/ZoomEinrichtung';
+import { vorgabenAufrufe } from '@/zoom/ZoomVorgaben';
+import {
+  abschnitt, aktionenAttrappe, appStatus, attr, basisMeldung, bereich, bereiche, knopfTexte, ohneKommentare, offenerRaum, raum, slotLage, stand,
+  statusEintraege, tags, text, zoomAbbild, zoomSpeicher,
+} from './testzustand';
 
 const QUELLE = (d: string): string => ohneKommentare(leseText(`src/renderer/src/${d}`));
 
-function rahmen(s: OberflaechenStand, panelOffen: boolean): string {
+function rahmen(s: OberflaechenStand, panelOffen: boolean, zoom: ZoomAufrufe = zoomSpeicher(), panelAbschnitt?: string): string {
   return render(
-    <ConnectRahmen stand={s} show={null} error={null} invites={[]} guestName="" aktionen={aktionenAttrappe()} proxyAdresse="https://cloud.example" panelOffen={panelOffen} onPanel={() => undefined} />,
+    <ConnectRahmen
+      stand={s} show={null} error={null} invites={[]} guestName="" aktionen={aktionenAttrappe()} proxyAdresse="https://cloud.example"
+      zoom={zoom} zoomLadeFehler={null} panelOffen={panelOffen} panelAbschnitt={panelAbschnitt} onPanel={() => undefined}
+    />,
   );
 }
 const panel = (html: string): string => html.match(/<aside[\s\S]*<\/aside>/)?.[0] ?? '';
+const anker = (html: string): string[] => [...html.matchAll(/id="einstellung-([^"]+)"/g)].map((m) => m[1]);
 const inhalt = (html: string): string => html.match(/<main[\s\S]*?<\/main>/)?.[0] ?? '';
 
 // ── CN Panel Fernsteuerung und Cloud: Anker fernsteuerung und cloud; „Key entfernen“ und Adresse wie heute; nicht mehr im Live-Bereich ──
@@ -27,8 +44,8 @@ const inhalt = (html: string): string => html.match(/<main[\s\S]*?<\/main>/)?.[0
   const s = stand({ status: appStatus({ proxyKeySource: 'stored', cloudZugang: { text: 'Cloud-Zugang über den alten Proxy-Key (Übergang).', ton: 'warn' } }), room: null, fernsteuerung: basisMeldung({ clients: 2 }) });
   const offen = rahmen(s, true);
   const p = panel(offen);
-  const ids = [...p.matchAll(/id="einstellung-([^"]+)"/g)].map((m) => m[1]);
-  gleich(ids, [ABSCHNITT.fernsteuerung, ABSCHNITT.cloud], 'CN Panel Fernsteuerung und Cloud: Anker einstellung-fernsteuerung und einstellung-cloud-zugang, in dieser Reihenfolge (B20)');
+  const ids = anker(p);
+  gleich(ids.slice(0, 2), [ABSCHNITT.fernsteuerung, ABSCHNITT.cloud], 'CN Panel Fernsteuerung und Cloud: Anker einstellung-fernsteuerung und einstellung-cloud-zugang, in dieser Reihenfolge vorn (B20)');
   const fs = abschnitt(p, ABSCHNITT.fernsteuerung);
   ok(text(fs).includes(REMOTE_TEXTE.titel) && text(fs).includes('8737'), 'CN Panel Fernsteuerung und Cloud: Fernsteuerung mit Port 8737 aus fernsteuerungAbschnitt');
   const cz = abschnitt(p, ABSCHNITT.cloud);
@@ -81,4 +98,133 @@ const inhalt = (html: string): string => html.match(/<main[\s\S]*?<\/main>/)?.[0
   ok(/window\.jmconnect\.setProxy\(\{ url \}\)/.test(wurzel) && /window\.jmconnect\.setProxy\(\{ key: '' \}\)/.test(wurzel), 'CN Panel ohne Effekt: Speichern und „Key entfernen“ rufen setProxy in der Wurzel-View, wie bisher mit { url } bzw. { key: \'\' }');
   const html = render(<Einstellungen stand={offenerRaum(raum())} aktionen={aktionenAttrappe()} proxyAdresse="https://cloud.example" />);
   ok(html.includes('einstellung-fernsteuerung') && html.includes('einstellung-cloud-zugang'), 'CN Panel ohne Effekt: Einstellungen rendert ohne window und ohne Effekt beide Abschnitte');
+}
+
+// ── CN Panel Abschnitte: Anker für alle ABSCHNITT-Werte; Einrichtung und Vorgaben nicht mehr in der Zoom-Spalte; macOS ohne Zoom ──
+{
+  const a = zoomAbbild({ slots: [slotLage(1)] });
+  const s = stand({ status: appStatus(), room: null, zoom: a });
+  const offen = rahmen(s, true);
+  const p = panel(offen);
+  gleich(anker(p), Object.values(ABSCHNITT), 'CN Panel Abschnitte: unter Windows je ABSCHNITT-Wert ein Anker, Fernsteuerung, Cloud-Zugang, Zoom-Einrichtung, Zoom-Vorgaben (B20)');
+  const ein = abschnitt(p, ABSCHNITT.zoomEinrichtung);
+  ok(
+    text(ein).toLowerCase().includes(CONNECT_TEXTE.titel.zoomEinrichtung.toLowerCase()) && text(ein).includes(sdkZeile(a)) && text(ein).includes(a.einrichtung.anmeldung.text)
+      && [sdkKnopf(a), 'Zoom-SDK laden', 'Einrichtung prüfen'].every((k) => knopfTexte(ein).includes(k)),
+    'CN Panel Abschnitte: „Zoom-Einrichtung“ mit SDK-Zeile, Zoom-Anmeldung, „Neu wählen …“, „Zoom-SDK laden“ und „Einrichtung prüfen“ (Nr. 60–68)',
+  );
+  const vg = abschnitt(p, ABSCHNITT.zoomVorgaben);
+  ok(
+    text(vg).toLowerCase().includes(CONNECT_TEXTE.titel.zoomVorgaben.toLowerCase()) && text(vg).includes(SLOT_FELD.vorgaben(a.vorgaben.aufloesung, a.vorgaben.tonAn))
+      && text(vg).includes(SLOT_FELD.aufloesung) && text(vg).includes(BEDIEN_TEXT.personImNdiNamen) && tags(vg, 'span').some((t) => attr(t, 'title') === PERSON_IM_NDI_NAMEN_TOOLTIP)
+      && Object.values(SPRECHER_TEXT.signal).every((t) => text(vg).includes(t)) && text(vg).includes(SPRECHER_TEXT.T73(a.sprecher.haltezeitMs)),
+    'CN Panel Abschnitte: „Zoom-Vorgaben“ mit Slot-Vorgaben (T77, Auflösung, Ton), „Person im NDI-Namen“ samt Tooltip und den Sprecher-Einstellungen (Signal, Haltezeit T73; Nr. 80, 82, 83)',
+  );
+  const spalte = bereich(inhalt(offen), 'data-connect', 'zoom-spalte');
+  ok(
+    spalte !== '' && !knopfTexte(spalte).includes('Einrichtung') && !text(spalte).includes(sdkZeile(a)) && !knopfTexte(spalte).includes('Zoom-SDK laden')
+      && !knopfTexte(spalte).includes('Einrichtung prüfen') && !knopfTexte(spalte).includes(BEDIEN_TEXT.vorgaben) && !knopfTexte(spalte).includes(BEDIEN_TEXT.sprecherEinstellungen)
+      && !text(spalte).includes(BEDIEN_TEXT.personImNdiNamen) && !text(spalte).includes(SLOT_FELD.vorgaben(a.vorgaben.aufloesung, a.vorgaben.tonAn)),
+    'CN Panel Abschnitte: Einrichtung und Vorgaben (Slot-Vorgaben, Sprecher-Einstellungen, „Person im NDI-Namen“) stehen nicht mehr in der Zoom-Spalte (B20)',
+  );
+  ok(text(spalte).includes(BEDIEN_TEXT.vorschau) && knopfTexte(spalte).includes(BEDIEN_TEXT.slotHinzufuegen), 'CN Panel Abschnitte: Vorschau-Schalter und „Slot hinzufügen“ bleiben in der Zoom-Spalte (W2-5)');
+  const mangel = zoomAbbild({ kurz: { zustand: 'einrichtung', maengel: ['sdk_fehlt'] }, einrichtung: { ...a.einrichtung, sdk: { ...a.einrichtung.sdk, stand: 'fehlt', fassung: null } } });
+  const mp = rahmen(stand({ status: appStatus(), room: null, zoom: mangel }), true);
+  ok(
+    text(abschnitt(panel(mp), ABSCHNITT.zoomEinrichtung)).includes('Zoom ist gesperrt, bis das Zoom-SDK eingerichtet ist.') && !text(bereich(inhalt(mp), 'data-connect', 'zoom-spalte')).includes(sdkZeile(mangel)),
+    'CN Panel Abschnitte: bei einem Mangel steht der Sperr-Hinweis im Panel, die Einrichtung steht nicht mehr offen in der Spalte (B22)',
+  );
+  const mac = rahmen(stand({ plattform: 'darwin', status: appStatus(), zoom: a }), true);
+  gleich(anker(panel(mac)), [ABSCHNITT.fernsteuerung, ABSCHNITT.cloud], 'CN Panel Abschnitte: unter macOS keine Zoom-Abschnitte (W2-5)');
+  const vor = panel(rahmen(stand({ status: appStatus() }), true));
+  ok(
+    anker(vor).length === 4 && [ABSCHNITT.zoomEinrichtung, ABSCHNITT.zoomVorgaben].every((id) => text(abschnitt(vor, id)).includes(UNBEKANNT) && knopfTexte(abschnitt(vor, id)).length === 0),
+    'CN Panel Abschnitte: vor dem ersten Abbild stehen beide Zoom-Abschnitte mit „unbekannt“ und ohne Knopf (nichts geraten)',
+  );
+  pruefeIdVerweise(p, 'CN Panel Abschnitte: id-Verweise im Panel mit den Zoom-Abschnitten gültig');
+  ok(panel(rahmen(s, false)) === '', 'CN Panel Abschnitte: Panel zu → kein Zoom-Abschnitt gerendert');
+}
+
+// ── CN Antwort am Ort: Panel-Aufruf am Ort „einrichtung“ (bzw. „vorgaben“), Spalten-Aufruf an seinem Ort, beide über dasselbe ZoomAufrufe ──
+{
+  const z = zoomSpeicher();
+  const nein = (t: string) => (): Promise<ZoomErgebnis> => Promise.resolve({ ok: false, text: t });
+  const SDK = 'Der gewählte Ordner enthält kein Zoom-SDK.';
+  const r = await einrichtungAufrufe(z, () => ({ zoomSdkWaehlen: nein(SDK) }) as unknown as JmConnectApi).sdkWaehlen();
+  gleich([r, z.antwort, [...z.laeuft]], [{ ok: false, text: SDK }, { ort: 'einrichtung', text: SDK }, []], 'CN Antwort am Ort: ein abgelehnter Aufruf aus dem Panel („SDK-Ordner wählen …“) steht am Ort „einrichtung“; danach läuft nichts mehr');
+  const a = zoomAbbild({ slots: [slotLage(1), slotLage(2)] });
+  const s = stand({ status: appStatus(), room: null, zoom: a });
+  const h1 = rahmen(s, true, z);
+  ok(text(abschnitt(panel(h1), ABSCHNITT.zoomEinrichtung)).includes(SDK) && !text(inhalt(h1)).includes(SDK), 'CN Antwort am Ort: die Antwort steht im Abschnitt „Zoom-Einrichtung“ des Panels, nicht in der Spalte');
+  await slotAufrufeAus(z, null, () => undefined).fuehreAus('behalten:2', 'slot:2', nein('Antwort an Kachel 2'));
+  gleich(z.antwort, { ort: 'slot:2', text: 'Antwort an Kachel 2' }, 'CN Antwort am Ort: ein abgelehnter Aufruf aus der Spalte (Kachel 2) steht an seinem Ort und ersetzt die Panel-Antwort (eine Antwort für beide)');
+  const h2 = rahmen(s, true, z);
+  const kacheln = bereiche(inhalt(h2), 'data-connect', 'kachel');
+  ok(
+    kacheln.length === 2 && text(kacheln[1] ?? '').includes('Antwort an Kachel 2') && !text(kacheln[0] ?? '').includes('Antwort an Kachel 2') && !text(panel(h2)).includes('Antwort an Kachel 2') && !text(h2).includes(SDK),
+    'CN Antwort am Ort: die Antwort steht an Kachel 2, nicht an Kachel 1 und nicht im Panel; die alte Panel-Antwort ist weg',
+  );
+  await vorgabenAufrufe(z, () => ({ zoomSlotVorgaben: nein('Antwort an den Vorgaben') }) as unknown as JmConnectApi).vorgaben({ aufloesung: '1080p', tonAn: true });
+  const h3 = rahmen(s, true, z);
+  ok(
+    z.antwort?.ort === 'vorgaben' && text(abschnitt(panel(h3), ABSCHNITT.zoomVorgaben)).includes('Antwort an den Vorgaben') && !text(inhalt(h3)).includes('Antwort an den Vorgaben'),
+    'CN Antwort am Ort: ein abgelehnter Aufruf der Zoom-Vorgaben steht im Abschnitt „Zoom-Vorgaben“ (Ort „vorgaben“), nicht in der Spalte',
+  );
+  const wurf = await z.fuehreAus('x', null, () => Promise.reject(new Error('IPC weg')));
+  gleich([wurf, z.antwort], [{ ok: false, text: 'IPC weg' }, { ort: 'karte', text: 'IPC weg' }], 'CN Antwort am Ort: ein unerwarteter Fehler ohne eigenen Ort steht wie bisher am Ort „karte“');
+  ok(text(bereich(inhalt(rahmen(s, false, z)), 'data-connect', 'zoom-spalte')).includes('IPC weg'), 'CN Antwort am Ort: „karte“ ist die Zoom-Spalte (unter der Statuszeile)');
+  let mitten: string[] = [];
+  await z.fuehreAus('sdk', 'einrichtung', () => {
+    mitten = [...z.laeuft];
+    return Promise.resolve({ ok: true });
+  });
+  gleich([mitten, [...z.laeuft], z.antwort], [['sdk'], [], null], 'CN Antwort am Ort: während des Aufrufs steht sein Schlüssel in laeuft (Doppelklick-Schutz Nr. 103), ein neuer Aufruf löscht die alte Antwort');
+  const wurzel = QUELLE('views/ConnectOberflaeche.tsx');
+  const rahmenFn = wurzel.slice(wurzel.indexOf('export function ConnectRahmen('), wurzel.indexOf('\n}\n', wurzel.indexOf('export function ConnectRahmen(')));
+  ok((rahmenFn.match(/zoom=\{p\.zoom\}/g) ?? []).length === 2 && rahmenFn.includes('<Einstellungen') && rahmenFn.includes('<ZoomSpalte'), 'CN Antwort am Ort: ConnectRahmen gibt dasselbe ZoomAufrufe an Einstellungen und ZoomSpalte');
+}
+
+// ── CN Zoom-Abbild bleibt: Abo des Abbilds und laufende Aufrufe in der Wurzel-View; Panel ohne Effekte (B8, B20) ──
+{
+  const wurzel = QUELLE('views/ConnectOberflaeche.tsx');
+  const ZOOM_ABLAEUFE = ['window.jmconnect.zoomGet()', 'window.jmconnect.onZoom(', 'fuehreZoomAus(', 'useState<ReadonlySet<string>>'];
+  gleich(ZOOM_ABLAEUFE.filter((x) => !wurzel.includes(x)), [], 'CN Zoom-Abbild bleibt: Abo des Abbilds (zoomGet, onZoom) und die laufenden Aufrufe (laeuft, fuehreZoomAus) stehen in der Wurzel-View');
+  const ANDERE = [
+    'App.tsx', 'views/CloudRaum.tsx', 'views/Einstellungen.tsx', 'views/CloudZugang.tsx', 'views/Fusszeile.tsx', 'views/ZoomSpalte.tsx', 'zoom/ZoomCard.tsx',
+    'zoom/ZoomEinrichtung.tsx', 'zoom/ZoomVorgaben.tsx', 'zoom/SlotBereich.tsx', 'zoom/SlotKachel.tsx', 'zoom/SlotEinstellungen.tsx', 'zoom/Messwerte.tsx',
+  ];
+  gleich(ANDERE.flatMap((d) => ZOOM_ABLAEUFE.filter((x) => QUELLE(d).includes(x)).map((x) => `${d}: ${x}`)), [], 'CN Zoom-Abbild bleibt: kein Abo des Abbilds und kein laufender Aufruf in Spalte, Panel oder Zoom-Bausteinen');
+  ok(/useEffect\(\(\) => \{[\s\S]{0,300}window\.jmconnect\s*\.zoomGet\(\)/.test(wurzel) && /const aus = window\.jmconnect\.onZoom\(/.test(wurzel), 'CN Zoom-Abbild bleibt: zoomGet und onZoom in einem Effekt der Wurzel-View (Abo und Abbestellen)');
+  ok(/zoom: zoomAbbild,/.test(wurzel) && !/zoom: undefined/.test(wurzel), 'CN Zoom-Abbild bleibt: der Stand trägt das Abbild aus dem Abo (stand.zoom), nicht mehr undefined');
+  const rahmenFn = wurzel.slice(wurzel.indexOf('export function ConnectRahmen('), wurzel.indexOf('\n}\n', wurzel.indexOf('export function ConnectRahmen(')));
+  ok(!/\babbild=\{/.test(rahmenFn) && /<ZoomSpalte stand=\{stand\}/.test(rahmenFn) && /<Einstellungen stand=\{stand\}/.test(rahmenFn), 'CN Zoom-Abbild bleibt: Spalte und Panel bekommen das Abbild nur über stand (keine zweite Prop)');
+  const PANEL = ['views/Einstellungen.tsx', 'views/CloudZugang.tsx', 'zoom/ZoomEinrichtung.tsx', 'zoom/ZoomVorgaben.tsx'];
+  gleich(PANEL.filter((d) => /\buse(?:Layout)?Effect\b/.test(QUELLE(d))), [], 'CN Zoom-Abbild bleibt: der Panel-Inhalt (Einstellungen, Cloud-Zugang, Zoom-Einrichtung, Zoom-Vorgaben) hat kein useEffect (B8)');
+  gleich(PANEL.filter((d) => /\.on[A-Z]\w*\(|useBrueckenWert|zoomGet|getProxy|onStatus/.test(QUELLE(d))), [], 'CN Zoom-Abbild bleibt: kein Abo und keine Brücke im Panel-Inhalt');
+  gleich(PANEL.filter((d) => /\bwindow\b/.test(QUELLE(d).replace(/\(\) => window\.jmconnect/g, ''))), [], 'CN Zoom-Abbild bleibt: der Panel-Inhalt liest window nur als Zielgeber der Aufrufe (() => window.jmconnect), nie beim Rendern');
+  const i = wurzel.indexOf('window.jmconnect.zoomGet()');
+  const effekt = i < 0 ? 'panelOffen' : wurzel.slice(Math.max(0, i - 400), i + 900);
+  ok(!/panelOffen|panelAbschnitt/.test(effekt), 'CN Zoom-Abbild bleibt: das Abo hängt nicht am Panel-Zustand (bleibt über Panel-Wechsel stabil)');
+}
+
+// ── CN Mangel öffnet das Panel: Statuseintrag zoom-einrichtung (warn, sdkZeile, settingsSection) nur unter Windows mit Mangel ──
+{
+  const fehlt = zoomAbbild({ kurz: { zustand: 'einrichtung', maengel: ['sdk_fehlt'] } });
+  const s = stand({ status: appStatus({ zoom: fehlt.kurz }), room: null, zoom: fehlt });
+  const eintrag = statusLeiste(s).find((x) => x.id === 'zoom-einrichtung');
+  gleich([eintrag?.state, eintrag?.detail, eintrag?.settingsSection], ['warn', sdkZeile(fehlt), ABSCHNITT.zoomEinrichtung], 'CN Mangel öffnet das Panel: mit Mangel ein Eintrag „Zoom-Einrichtung“ (warn, SDK-Zeile) mit Sprung zum Abschnitt (B22)');
+  const knopf = tags(rahmen(s, false), 'button').find((t) => attr(t, 'data-status-id') === 'zoom-einrichtung');
+  ok(knopf !== undefined && attr(knopf, 'data-state') === 'warn', 'CN Mangel öffnet das Panel: der Eintrag ist in der Statusleiste ein Knopf');
+  const log: string[] = [];
+  statusKlick({ settings: <span /> as ReactNode, onSettingsChange: (offen: boolean, id?: string) => void log.push(`${offen}:${id ?? ''}`) })?.(eintrag?.settingsSection ?? '');
+  gleich(log, [`true:${ABSCHNITT.zoomEinrichtung}`], 'CN Mangel öffnet das Panel: der Klick öffnet das Panel am Abschnitt „Zoom-Einrichtung“');
+  const offen = rahmen(s, true, zoomSpeicher(), ABSCHNITT.zoomEinrichtung);
+  ok(panel(offen).includes(`id="einstellung-${ABSCHNITT.zoomEinrichtung}"`) && text(abschnitt(panel(offen), ABSCHNITT.zoomEinrichtung)).includes(sdkZeile(fehlt)), 'CN Mangel öffnet das Panel: dort steht die Einrichtung mit dem Mangel');
+  const ohne = (st: OberflaechenStand): boolean => !statusLeiste(st).some((x) => x.id === 'zoom-einrichtung');
+  ok(
+    ohne(stand({ status: appStatus(), zoom: zoomAbbild() })) && ohne(stand({ status: appStatus({ zoom: fehlt.kurz }) })) && ohne(stand({ plattform: 'darwin', status: appStatus(), zoom: fehlt })),
+    'CN Mangel öffnet das Panel: kein Eintrag ohne Mangel, ohne Abbild und unter macOS',
+  );
+  const wurzel = QUELLE('views/ConnectOberflaeche.tsx');
+  ok(/setPanelOffen\(offen\);\n\s*setPanelAbschnitt\(abschnitt\);/.test(wurzel) && /onSettingsChange=\{p\.onPanel\}/.test(wurzel), 'CN Mangel öffnet das Panel: der Statuseintrag führt über onPanel zu Panel offen und Abschnitt (Wurzel-View)');
 }

@@ -1,30 +1,32 @@
-// JM Connect im Werkzeug-Rahmen (UX Welle 2b, Connect d1; B3, B4, B8, B9, B19, B21; Muster d): AppShell aus @jm/ui mit Kopf
-// „JM Connect“, ThemeToggle, ⚙ und ON AIR (nur bei gemessener Sendung), Statusleiste aus lib/oberflaeche.ts und dem Panel. Im
-// Inhalt oben T145 (erste Nennung von NDI, mit ®), darunter zwei Spalten per Container-Query (ab 56rem nebeneinander): links der
-// Cloud-Raum, rechts bis Task 24 die unveränderte ZoomCard; unter macOS nur eine Spalte mit MAC_ZEILE unter dem Cloud-Raum.
+// JM Connect im Werkzeug-Rahmen (UX Welle 2b, Connect d1 und d2; B3, B4, B8, B9, B19, B20, B21, B22; Muster d): AppShell aus @jm/ui
+// mit Kopf „JM Connect“, ThemeToggle, ⚙ und ON AIR (nur bei gemessener Sendung), Statusleiste aus lib/oberflaeche.ts und dem Panel.
+// Im Inhalt oben T145 (erste Nennung von NDI, mit ®), darunter zwei Spalten per Container-Query (ab 56rem nebeneinander): links der
+// Cloud-Raum, rechts die Zoom-Spalte (views/ZoomSpalte.tsx); unter macOS nur eine Spalte mit MAC_ZEILE unter dem Cloud-Raum.
 // Darunter über volle Breite die Pflicht-Fußzeile, immer gerendert.
 // Die Wurzel-View (ConnectOberflaeche) hält die Raum-WebSocket zum ConnectRoom-DO und spiegelt dessen autoritativen Zustand;
 // NDI-Effekte aus dem DO gehen per IPC an den Main (ndi-guests-Pool); Steuerbefehle (Companion/Rundown) kommen per IPC herein und
-// werden an den DO relayt. Sie hält dazu alle Abos (Status, Show, Steuerbefehle, Tray, Master-Link, Fernsteuerung), die Adresse
-// aus getProxy und den Panelzustand; sie bleibt über Panel-Wechsel stabil (B8), nichts hängt am Panelzustand. Die Logik ist die
-// von App.tsx bis Task 22, nur verschoben. Der Rahmen (ConnectRahmen) zeichnet nur, was er bekommt: eine Wahrheit für Kopf,
-// Statusleiste, Spalten und Panel.
+// werden an den DO relayt. Sie hält dazu alle Abos (Status, Show, Steuerbefehle, Tray, Master-Link, Fernsteuerung, seit Task 24 das
+// Zoom-Abbild), die laufenden Zoom-Aufrufe und ihre Antwort (B20, bis Task 24 in der ZoomCard), die Adresse aus getProxy und den
+// Panelzustand; sie bleibt über Panel-Wechsel stabil (B8), nichts hängt am Panelzustand. Die Logik ist die von App.tsx bis Task 22
+// und der ZoomCard bis Task 23, nur verschoben. Der Rahmen (ConnectRahmen) zeichnet nur, was er bekommt: eine Wahrheit für Kopf,
+// Statusleiste, Spalten und Panel; Zoom-Spalte und Panel bekommen dasselbe Abbild (stand.zoom) und dieselben ZoomAufrufe.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SignallingClient } from '@jm/rtc/signalling';
 import { lobbyCount, onAirGuests, standbyGuest } from '@jm/rtc/state';
 import { ndiPoolKey } from '@jm/rtc/protocol';
 import type { OperatorAction, Guest, RoomState } from '@jm/rtc/protocol';
 import { AppShell, useBrueckenWert } from '@jm/ui';
-import type { AppStatus, GuestInvite, ShowInfo } from '@shared/types';
+import type { AppStatus, GuestInvite, ShowInfo, ZoomAbbild } from '@shared/types';
 import { NDI_TEXT } from '@shared/ndi-text';
 import { MAC_ZEILE } from '@shared/zoom-text';
 import { erzeugeRaumFolge, raumAbbruch, raumAnsicht } from '@shared/raum-ansicht';
 import { FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
 import { kopfOnAir, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
-import { ZoomCard } from '@/zoom/ZoomCard';
+import { fuehreZoomAus, type ZoomAntwort, type ZoomAufrufe } from '@/zoom/aufrufe';
 import { CloudRaum, type CloudRaumAktionen } from './CloudRaum';
 import { Einstellungen, type EinstellungenAktionen } from './Einstellungen';
 import { Fusszeile } from './Fusszeile';
+import { ZoomSpalte } from './ZoomSpalte';
 
 /** Alle Aktionen der Wurzel-View: die des Cloud-Raums und die des Panels. */
 export type ConnectAktionen = CloudRaumAktionen & EinstellungenAktionen;
@@ -38,6 +40,10 @@ export interface ConnectRahmenProps {
   aktionen: ConnectAktionen;
   /** Adresse aus getProxy: undefined = noch keine Antwort, null = Abfrage gescheitert. */
   proxyAdresse: string | null | undefined;
+  /** Laufende Zoom-Aufrufe und Antwort (B20): dasselbe Objekt für Zoom-Spalte und Panel; das Abbild steht in stand.zoom. */
+  zoom: ZoomAufrufe;
+  /** Text eines gescheiterten ersten Abrufs des Zoom-Abbilds, sonst null. */
+  zoomLadeFehler: string | null;
   panelOffen: boolean;
   panelAbschnitt?: string;
   onPanel(offen: boolean, abschnitt?: string): void;
@@ -55,7 +61,7 @@ export function ConnectRahmen(p: ConnectRahmenProps): JSX.Element {
       tool="Connect"
       onAir={kopfOnAir(stand)}
       status={statusLeiste(stand)}
-      settings={<Einstellungen stand={stand} aktionen={p.aktionen} proxyAdresse={p.proxyAdresse} />}
+      settings={<Einstellungen stand={stand} aktionen={p.aktionen} proxyAdresse={p.proxyAdresse} zoom={p.zoom} />}
       settingsOpen={p.panelOffen}
       settingsSection={p.panelAbschnitt}
       onSettingsChange={p.onPanel}
@@ -69,7 +75,7 @@ export function ConnectRahmen(p: ConnectRahmenProps): JSX.Element {
           </div>
           {windows ? (
             <div data-connect="zoom-spalte" className="min-w-0">
-              <ZoomCard />
+              <ZoomSpalte stand={stand} zoom={p.zoom} ladeFehler={p.zoomLadeFehler} />
             </div>
           ) : null}
         </div>
@@ -102,6 +108,13 @@ export function ConnectOberflaeche({
   const [clientBesteht, setClientBesteht] = useState(false);
   // „Raumabbruch“ (E57): gesetzt beim Raumabbruch, zurückgesetzt, wenn openRoom einen neuen Client anlegt, und in closeRoom.
   const [raumabbruch, setRaumabbruch] = useState(false);
+  // Zoom (B20, B8; bis Task 23 in der ZoomCard): das Abbild aus dem Abo (undefined = noch keine Antwort), der Fehler eines
+  // gescheiterten ersten Abrufs, die eine Antwort am Ort und die laufenden Aufrufe (Doppelklick-Schutz, Nr. 103). Zoom-Spalte und
+  // Panel bekommen sie; sie bleiben, wenn das Panel auf- und zugeht.
+  const [zoomAbbild, setZoomAbbild] = useState<ZoomAbbild | undefined>(undefined);
+  const [zoomLadeFehler, setZoomLadeFehler] = useState<string | null>(null);
+  const [zoomAntwort, setZoomAntwort] = useState<ZoomAntwort | null>(null);
+  const [zoomLaeuft, setZoomLaeuft] = useState<ReadonlySet<string>>(() => new Set());
   const clientRef = useRef<SignallingClient | null>(null);
   // Raumverbindung für die Handler (Regel V, LR5): onOpen und onClose führen sie nach; nicht roomRef, der den Raum-Zustand
   // hält und bei einer Trennung gewollt stehen bleibt (E53).
@@ -397,6 +410,31 @@ export function ConnectOberflaeche({
     );
   }, []);
 
+  // Zoom-Abbild (B20, B8): abonniert hier statt in der Zoom-Karte, nur unter Windows wie bisher die Karte. Ein Push, der vor der
+  // Antwort kam, ist neuer: nicht überschreiben.
+  useEffect(() => {
+    if (plattformLesen() !== 'win32') return;
+    let lebt = true;
+    window.jmconnect.zoomGet()
+      .then((a) => {
+        if (lebt) setZoomAbbild((alt) => alt ?? a);
+      })
+      .catch((e: unknown) => {
+        if (lebt) setZoomLadeFehler(e instanceof Error ? e.message : String(e));
+      });
+    const aus = window.jmconnect.onZoom((a) => setZoomAbbild(a));
+    return () => {
+      lebt = false;
+      aus();
+    };
+  }, []);
+  // Laufende Zoom-Aufrufe und Antwort (B20): ein fuehreAus für Spalte und Panel (Logik in zoom/aufrufe.ts, wie bisher in der Karte).
+  const zoomFuehreAus = useCallback<ZoomAufrufe['fuehreAus']>(
+    (schluessel, ort, f) => fuehreZoomAus({ antwort: setZoomAntwort, laeuft: setZoomLaeuft }, schluessel, ort, f),
+    [],
+  );
+  const zoom: ZoomAufrufe = { laeuft: zoomLaeuft, antwort: zoomAntwort, fuehreAus: zoomFuehreAus };
+
   const proxySpeichern = useCallback(async (url: string) => {
     const p = await window.jmconnect.setProxy({ url });
     setProxyAdresse(p.url);
@@ -409,13 +447,13 @@ export function ConnectOberflaeche({
 
   // Der eine Stand (lib/oberflaeche.ts) für Statusleiste, ON AIR, Haupttasten und Panel. Nur Gemessenes: vor dem ersten Status des
   // Mains ist auch der Raum „unbekannt“ (room undefined, Eintrag „raum“ unbekannt); danach null oder der bekannte Raum-Zustand,
-  // auch nach einem Raumabbruch (dann „abgebrochen“). Das Zoom-Abbild hält bis Task 24 die ZoomCard selbst (B20).
+  // auch nach einem Raumabbruch (dann „abgebrochen“). Das Zoom-Abbild kommt aus dem Abo oben (B20; undefined bis zur ersten Antwort).
   const stand: OberflaechenStand = {
     status: status ?? undefined,
     room: status === null ? undefined : room,
     connected,
     ansicht,
-    zoom: undefined,
+    zoom: zoomAbbild,
     plattform: plattformLesen(),
     masterLink,
     fernsteuerung,
@@ -444,6 +482,8 @@ export function ConnectOberflaeche({
       guestName={guestName}
       aktionen={aktionen}
       proxyAdresse={proxyAdresse}
+      zoom={zoom}
+      zoomLadeFehler={zoomLadeFehler}
       panelOffen={panelOffen}
       panelAbschnitt={panelAbschnitt}
       onPanel={(offen, abschnitt) => {

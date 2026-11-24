@@ -1,15 +1,14 @@
-// Zoom-Slots in der Zoom-Karte (Spec 7.5 Nr. 8, 7.6, 7.7; Task B21): Kopf mit T31, „Slot hinzufügen“, „Vorgaben …“,
-// Schalter „Vorschau“, „Sprecher-Einstellungen …“, die Lage der Einstellungsdatei (T90, T92) und die Kacheln, zwei Spalten
-// bei breitem, eine bei schmalem Bereich (Container-Query, B-EP9). Dazu die Angabe je Zeile der Teilnehmerliste (7.5 Nr. 9,
-// 10.10). Alle Texte aus @shared/zoom-text (B-EP4), die NDI-Texte (Link T133 samt Tooltip, Meldung T143 des Öffnen-Knopfs)
-// aus @shared/ndi-text (Plan C); hier steht kein Text-Literal.
+// Zoom-Slots in der Zoom-Spalte (Spec 7.5 Nr. 8, 7.6, 7.7; Task B21): Kopf mit T31, „Slot hinzufügen“, Schalter „Vorschau“, die
+// Lage der Einstellungsdatei (T90, T92) und die Kacheln, zwei Spalten bei breitem, eine bei schmalem Bereich (Container-Query,
+// B-EP9). Dazu die Angabe je Zeile der Teilnehmerliste (7.5 Nr. 9, 10.10). Seit UX Welle 2b (Task 24, B20) stehen die
+// Slot-Vorgaben, die Sprecher-Einstellungen und „Person im NDI-Namen“ im Panel-Abschnitt „Zoom-Vorgaben“ (ZoomVorgaben.tsx); hier
+// bleiben die Live-Teile (W2-5). Alle Texte aus @shared/zoom-text (B-EP4), die NDI-Texte (Link T133 samt Tooltip, Meldung T143 des
+// Öffnen-Knopfs) aus @shared/ndi-text (Plan C); hier steht kein Text-Literal. Knöpfe aus @jm/ui, Farben als Tokens (W2-9).
 import { useEffect, useRef, useState } from 'react';
-import { SLOT_NR_MAX, SLOT_RESOLUTIONS } from '@jm/zoom-bridge/protocol';
-import type { ZoomAbbild, ZoomParticipant, ZoomSlotAufloesung, ZoomSprecherEinstellung, ZoomSprecherSignal } from '@shared/types';
-import {
-  BEDIEN_TEXT, EINSTELLUNG_TEXT, HALTEZEIT_UNGUELTIG, PERSON_IM_NDI_NAMEN_TOOLTIP, SLOT_FELD, SLOT_TEXT, SPRECHER_TEXT, TEXT_A4_SCHREIBFEHLER,
-  slotKopfZeile, teilnehmerSlotAngabe, teilnehmerSlotEingabe,
-} from '@shared/zoom-text';
+import { Button } from '@jm/ui';
+import { SLOT_NR_MAX } from '@jm/zoom-bridge/protocol';
+import type { ZoomAbbild, ZoomParticipant } from '@shared/types';
+import { BEDIEN_TEXT, EINSTELLUNG_TEXT, SLOT_TEXT, TEXT_A4_SCHREIBFEHLER, slotKopfZeile, teilnehmerSlotAngabe, teilnehmerSlotEingabe } from '@shared/zoom-text';
 import { AntwortZeile, SlotKachel, type GemerkteVorschau } from './SlotKachel';
 import { MitTooltip, STIL, type SlotAufrufe } from './SlotEinstellungen';
 import { NDI_TEXT, oeffnenMeldung, type OeffnenStelle } from '@shared/ndi-text';
@@ -68,28 +67,33 @@ export function TeilnehmerSlotAngabe({
   aufrufe: SlotAufrufe;
 }): JSX.Element {
   const angabe = teilnehmerSlotAngabe(teilnehmerSlotEingabe(t, a.slots));
-  if (!angabe.knopf) return <span className="text-xs text-neutral-400">{angabe.text}</span>;
+  if (!angabe.knopf) return <span className={STIL.hinweis}>{angabe.text}</span>;
   const schluessel = `alsSlot:${t.id}`;
   return (
     <MitTooltip titel={angabe.tooltip ?? undefined}>
-      <button
+      <Button
+        size="sm"
+        uppercase={false}
+        variant="primary"
         disabled={t.imWarteraum || !imMeeting || aufrufe.laeuft.has(schluessel)}
         onClick={() =>
           aufrufe.starte(schluessel, `zeile:${t.id}`, (trotz) => window.jmconnect.zoomSlotAusPerson({ teilnehmerId: t.id, trotz }))
         }
-        className={STIL.gelb}
       >
         {angabe.text}
-      </button>
+      </Button>
     </MitTooltip>
   );
 }
 
+/** Aussehen eines Öffnen-Knopfs ohne eigenen Stil: klein, Rand und Schrift aus Tokens (W2-9). */
+const OEFFNEN_VORGABE = 'rounded-[var(--radius-md)] border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--muted)]';
+
 /**
  * Knopf, der etwas öffnet (Logordner, Lizenzbedingungen, ndi.video; Plan C, E35): scheitert das Öffnen, steht T143 daneben,
  * bis es an dieser Stelle gelingt oder die Stelle verschwindet (der Zustand lebt in der Komponente); der Knopf bleibt
- * bedienbar. Auch App.tsx nutzt ihn: Er steht hier, weil Plan C keine neue Renderer-Datei vorsieht und App.tsx diese Datei
- * ohne Kreis-Import laden kann (C-EB38).
+ * bedienbar. Auch Fußzeile und Cloud-Raum nutzen ihn: Er steht hier, weil Plan C keine neue Renderer-Datei vorsah und die
+ * Fenster-Dateien diese Datei ohne Kreis-Import laden können (C-EB38).
  */
 export function OeffnenKnopf({
   stelle,
@@ -121,11 +125,11 @@ export function OeffnenKnopf({
             }
           })
         }
-        className={stil ?? 'rounded border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300 hover:bg-neutral-800'}
+        className={stil ?? OEFFNEN_VORGABE}
       >
         {text}
       </button>
-      {meldung !== null && <span className="text-xs text-red-300">{meldung}</span>}
+      {meldung !== null && <span className={STIL.fehler}>{meldung}</span>}
     </span>
   );
 }
@@ -138,59 +142,38 @@ export function NdiLink({ stelle }: { stelle: 'linkGaeste' | 'linkSlots' }): JSX
       text={NDI_TEXT.t133}
       titel={NDI_TEXT.t133Tooltip}
       oeffnen={() => window.jmconnect.ndiSeite()}
-      stil="text-xs text-sky-300 underline hover:text-sky-200"
+      stil="text-xs text-[var(--foreground)] underline underline-offset-2 hover:text-[var(--primary)]"
     />
   );
 }
 
 export function SlotBereich({ a, aufrufe }: { a: ZoomAbbild; aufrufe: SlotAufrufe }): JSX.Element {
-  const [vorgabenAuf, setVorgabenAuf] = useState(false);
-  const [sprecherAuf, setSprecherAuf] = useState(false);
-  /** Eingabe der Haltezeit in Sekunden; null = der gespeicherte Wert. */
-  const [haltezeit, setHaltezeit] = useState<string | null>(null);
-  const [haltezeitFehler, setHaltezeitFehler] = useState(false);
   const { bilder, jetzt } = useVorschauBilder(a);
   const slots = [...a.slots].sort((x, y) => x.einstellung.nr - y.einstellung.nr);
   const voll = a.slots.length >= SLOT_NR_MAX;
-  const sendeSprecher = (s: ZoomSprecherEinstellung): Promise<boolean> =>
-    aufrufe.fuehreAus('sprecher', 'slots', () => window.jmconnect.zoomSprecher(s)).then((r) => r.ok);
-  // Haltezeit: eine Zahl in Sekunden (Komma oder Punkt). Keine Zahl → T74 hier; Bereich und Schritt prüft der Kern (T74, KF7).
-  const uebernimmHaltezeit = (): void => {
-    if (haltezeit === null) return;
-    const s = Number(haltezeit.trim().replace(',', '.'));
-    if (haltezeit.trim() === '' || !Number.isFinite(s)) {
-      setHaltezeitFehler(true);
-      return;
-    }
-    setHaltezeitFehler(false);
-    void sendeSprecher({ ...a.sprecher, haltezeitMs: Math.round(s * 1000) }).then((ok) => {
-      if (ok) setHaltezeit(null);
-    });
-  };
   return (
-    <section className="mb-3 rounded-lg border border-neutral-800 p-3">
+    <section data-connect="zoom-slots" className="rounded-[var(--radius-lg)] border border-[var(--border)] p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="flex items-center gap-2">
           <h3 className="text-sm font-semibold">{BEDIEN_TEXT.zoomSlots}</h3>
           {/* Link T133 (22.5 Ort 5, LP1): im Kopf der Slots, weil hier NDI-Namen vergeben werden. */}
           <NdiLink stelle="linkSlots" />
         </span>
-        <span className="text-xs text-neutral-400">{slotKopfZeile(a.slots.length, a.kurz.slotsAn, a.kurz.slotsLaufen)}</span>
+        <span className={STIL.hinweis}>{slotKopfZeile(a.slots.length, a.kurz.slotsAn, a.kurz.slotsLaufen)}</span>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <MitTooltip titel={voll ? SLOT_TEXT.hoechstens : undefined}>
-          <button
+          <Button
+            size="sm"
+            uppercase={false}
+            variant="primary"
             disabled={voll || aufrufe.laeuft.has('anlegen')}
             onClick={() => void aufrufe.fuehreAus('anlegen', 'slots', () => window.jmconnect.zoomSlotAnlegen())}
-            className={STIL.gelb}
           >
             {BEDIEN_TEXT.slotHinzufuegen}
-          </button>
+          </Button>
         </MitTooltip>
-        <button onClick={() => setVorgabenAuf((v) => !v)} className={STIL.rand}>
-          {BEDIEN_TEXT.vorgaben}
-        </button>
-        <label className="flex items-center gap-1 text-xs text-neutral-300">
+        <label className="flex items-center gap-1 text-xs text-[var(--foreground)]">
           <input
             type="checkbox"
             checked={a.vorschauAn}
@@ -202,100 +185,12 @@ export function SlotBereich({ a, aufrufe }: { a: ZoomAbbild; aufrufe: SlotAufruf
           />
           {BEDIEN_TEXT.vorschau}
         </label>
-        <MitTooltip titel={PERSON_IM_NDI_NAMEN_TOOLTIP}>
-          <label className="flex items-center gap-1 text-xs text-neutral-300">
-            <input
-              type="checkbox"
-              checked={a.personImNdiNamen}
-              disabled={aufrufe.laeuft.has('personImNdiNamen')}
-              onChange={(ev) => {
-                const an = ev.target.checked;
-                void aufrufe.fuehreAus('personImNdiNamen', 'slots', () => window.jmconnect.zoomPersonImNdiNamen({ an }));
-              }}
-            />
-            {BEDIEN_TEXT.personImNdiNamen}
-          </label>
-        </MitTooltip>
-        <button onClick={() => setSprecherAuf((v) => !v)} className={STIL.rand}>
-          {BEDIEN_TEXT.sprecherEinstellungen}
-        </button>
       </div>
-      {vorgabenAuf && (
-        <div className="mt-2 flex flex-wrap items-center gap-3 rounded border border-neutral-800 p-2 text-xs text-neutral-300">
-          <span>{SLOT_FELD.vorgaben(a.vorgaben.aufloesung, a.vorgaben.tonAn)}</span>
-          <label className="flex items-center gap-1">
-            {SLOT_FELD.aufloesung}
-            <select
-              value={a.vorgaben.aufloesung}
-              disabled={aufrufe.laeuft.has('vorgaben')}
-              onChange={(ev) => {
-                const aufloesung = ev.target.value as ZoomSlotAufloesung;
-                void aufrufe.fuehreAus('vorgaben', 'slots', () => window.jmconnect.zoomSlotVorgaben({ ...a.vorgaben, aufloesung }));
-              }}
-              className={STIL.inp}
-            >
-              {SLOT_RESOLUTIONS.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-1">
-            <input
-              type="checkbox"
-              checked={a.vorgaben.tonAn}
-              disabled={aufrufe.laeuft.has('vorgaben')}
-              onChange={(ev) => {
-                const tonAn = ev.target.checked;
-                void aufrufe.fuehreAus('vorgaben', 'slots', () => window.jmconnect.zoomSlotVorgaben({ ...a.vorgaben, tonAn }));
-              }}
-            />
-            {SLOT_FELD.ton}
-          </label>
-        </div>
-      )}
-      {sprecherAuf && (
-        <div className="mt-2 space-y-1 rounded border border-neutral-800 p-2 text-xs text-neutral-300">
-          {(Object.keys(SPRECHER_TEXT.signal) as ZoomSprecherSignal[]).map((s) => (
-            <label key={s} className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="zoom-sprecher-signal"
-                checked={a.sprecher.signal === s}
-                disabled={aufrufe.laeuft.has('sprecher')}
-                onChange={() => void sendeSprecher({ ...a.sprecher, signal: s })}
-              />
-              {SPRECHER_TEXT.signal[s]}
-            </label>
-          ))}
-          <label className="flex items-center gap-2">
-            <input
-              type="number"
-              min={0}
-              max={5}
-              step={0.1}
-              value={haltezeit ?? String(a.sprecher.haltezeitMs / 1000)}
-              onChange={(ev) => {
-                setHaltezeit(ev.target.value);
-                setHaltezeitFehler(false);
-              }}
-              onBlur={uebernimmHaltezeit}
-              onKeyDown={(ev) => {
-                if (ev.key === 'Enter') uebernimmHaltezeit();
-              }}
-              className={`${STIL.inp} w-20`}
-            />
-            <span>{SPRECHER_TEXT.T73(a.sprecher.haltezeitMs)}</span>
-          </label>
-          {haltezeitFehler && <p className="text-red-300">{HALTEZEIT_UNGUELTIG}</p>}
-        </div>
-      )}
       <AntwortZeile aufrufe={aufrufe} ort="slots" />
-      {a.einstellungen.gesichert !== null && <p className="mt-2 text-xs text-yellow-200">{EINSTELLUNG_TEXT.unlesbar(a.einstellungen.gesichert)}</p>}
-      {a.einstellungen.nurSitzung && <p className="mt-2 text-xs text-yellow-200">{TEXT_A4_SCHREIBFEHLER}</p>}
+      {a.einstellungen.gesichert !== null && <p className={`mt-2 ${STIL.warnung}`}>{EINSTELLUNG_TEXT.unlesbar(a.einstellungen.gesichert)}</p>}
+      {a.einstellungen.nurSitzung && <p className={`mt-2 ${STIL.warnung}`}>{TEXT_A4_SCHREIBFEHLER}</p>}
       {slots.length === 0 ? (
-        <p className="mt-3 text-xs text-neutral-400">{SLOT_TEXT.keineSlots}</p>
+        <p className={`mt-3 ${STIL.hinweis}`}>{SLOT_TEXT.keineSlots}</p>
       ) : (
         <div className="@container mt-3">
           <div className="grid gap-3 @[34rem]:grid-cols-2">

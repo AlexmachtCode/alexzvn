@@ -1,8 +1,10 @@
 // Einstellungen eines Zoom-Slots (Spec 7.5 Nr. 8 „Einstellungen“, 7.6; Task B21) und die gemeinsamen Bausteine der
 // Slot-Komponenten (Stil, Tooltip-Rahmen, Kennzeichen, Aufruf-Typen). Diese Datei importiert keine der anderen
 // Slot-Komponenten, darum entsteht kein Kreis-Import (SlotKachel und SlotBereich importieren von hier).
-// Alle Nutzertexte kommen aus @shared/zoom-text (B-EP4); hier steht kein Text-Literal.
+// Alle Nutzertexte kommen aus @shared/zoom-text (B-EP4); hier steht kein Text-Literal. Seit UX Welle 2b (Task 24) Knöpfe aus @jm/ui
+// und Farben nur als Tokens (W2-9); die Einstellungen bleiben je Kachel (W2-6).
 import { useState } from 'react';
+import { Button } from '@jm/ui';
 import { SLOT_RESOLUTIONS } from '@jm/zoom-bridge/protocol';
 import type {
   ZoomErgebnis, ZoomParticipant, ZoomSlotAufloesung, ZoomSlotBildformat, ZoomSlotEinstellung, ZoomSlotErsatzbild, ZoomSlotLage, ZoomSlotModus,
@@ -15,7 +17,7 @@ import {
 export type SlotOrt = 'slots' | `slot:${number}` | `zeile:${number}`;
 /** Nachfrage ab dem 6. eingeschalteten Slot (Spec 7.4): Text T40 vom Kern, „Trotzdem einschalten“ wiederholt mit trotz. */
 export interface SlotNachfrage { ort: SlotOrt; text: string; trotzdem: () => void }
-/** Was die Zoom-Karte den Slot-Komponenten gibt: ein Doppelklick-Schutz, ein Antwortort, eine Nachfrage (7.5). */
+/** Was die Zoom-Spalte den Slot-Komponenten gibt: ein Doppelklick-Schutz, ein Antwortort, eine Nachfrage (7.5). */
 export interface SlotAufrufe {
   laeuft: ReadonlySet<string>;
   fuehreAus: (schluessel: string, ort: SlotOrt, f: () => Promise<ZoomErgebnis>) => Promise<ZoomErgebnis>;
@@ -29,16 +31,21 @@ export function istNachfrage(r: ZoomErgebnis): r is { ok: false; text: string; n
   return !r.ok && (r as { nachfrage?: unknown }).nachfrage === true;
 }
 
-const KNOPF = 'rounded px-2 py-1 text-xs font-semibold disabled:opacity-40';
-/** Klassen wie in ZoomCard.tsx (Rand-, Gelb-, Rot-Knopf, Eingabefeld). */
+/**
+ * Gemeinsame Klassen der Zoom-Spalte und der Zoom-Abschnitte im Panel, nur Tokens (W2-9): Eingabefeld, Kasten, Fehler- und
+ * Warnzeile (Statusfarbe nur am Rand, nie am Wort), Hinweis (grau), Nachfrage und Rückfrage. Knöpfe sind Button aus @jm/ui.
+ */
 export const STIL = {
-  rand: `${KNOPF} border border-neutral-700 text-neutral-200 hover:bg-neutral-800`,
-  gelb: `${KNOPF} bg-yellow-400 text-neutral-900`,
-  rot: `${KNOPF} bg-red-700 text-white`,
-  inp: 'rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-sm text-neutral-100 disabled:opacity-50',
+  inp: 'rounded-[var(--radius-md)] border border-[var(--field-border)] bg-[var(--input)] px-2 py-1 text-sm text-[var(--foreground)] select-text disabled:opacity-50',
+  kasten: 'rounded-[var(--radius-md)] border border-[var(--border)] p-2',
+  fehler: 'border-l-2 border-[var(--status-error)] pl-2 text-xs text-[var(--foreground)] select-text',
+  warnung: 'border-l-2 border-[var(--status-warn)] pl-2 text-xs text-[var(--foreground)] select-text',
+  hinweis: 'text-xs text-[var(--muted-foreground)]',
+  nachfrage: 'rounded-[var(--radius-md)] border border-[var(--status-warn)]/60 bg-[var(--status-warn)]/10 p-2 text-xs text-[var(--foreground)]',
+  rueckfrage: 'rounded-[var(--radius-md)] border border-[var(--status-error)]/60 bg-[var(--status-error)]/10 p-2 text-[var(--foreground)]',
 } as const;
 
-/** Gesperrte Knöpfe bekommen in Chromium keine Mausereignisse; der Tooltip sitzt darum am Rahmen (wie ZoomCard.tsx). */
+/** Gesperrte Knöpfe bekommen in Chromium keine Mausereignisse; der Tooltip sitzt darum am Rahmen. */
 export function MitTooltip({ titel, children }: { titel: string | undefined; children: JSX.Element }): JSX.Element {
   return (
     <span title={titel} className="inline-flex">
@@ -47,8 +54,15 @@ export function MitTooltip({ titel, children }: { titel: string | undefined; chi
   );
 }
 
-export function Kennzeichen({ children }: { children: string }): JSX.Element {
-  return <span className="rounded-full bg-neutral-800 px-2 py-0.5 text-[11px] font-semibold text-neutral-300">{children}</span>;
+/** Kennzeichen (Kachel, Teilnehmerzeile); `rot` (Name doppelt) trägt die Fehlerfarbe nur am Rand. */
+export function Kennzeichen({ children, rot = false }: { children: string; rot?: boolean }): JSX.Element {
+  return (
+    <span
+      className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold text-[var(--foreground)] ${rot ? 'border-[var(--status-error)]' : 'border-[var(--border)] bg-[var(--muted)]'}`}
+    >
+      {children}
+    </span>
+  );
 }
 
 type Aenderung = Partial<Omit<ZoomSlotEinstellung, 'nr' | 'an'>>;
@@ -103,8 +117,8 @@ export function SlotEinstellungen({
   };
   const listeId = `zoom-slot-${nr}-personen`;
   return (
-    <div className="mt-2 space-y-2 rounded border border-neutral-800 p-2 text-xs text-neutral-300">
-      <label className="block text-neutral-400">
+    <div data-connect="slot-einstellungen" className={`mt-2 space-y-2 ${STIL.kasten} text-xs text-[var(--foreground)]`}>
+      <label className="block text-[var(--muted-foreground)]">
         {SLOT_FELD.ndiName}
         <MitTooltip titel={e.an ? SLOT_TEXT.nameGesperrt : undefined}>
           <input
@@ -122,17 +136,17 @@ export function SlotEinstellungen({
         </MitTooltip>
       </label>
       <div>
-        <div className="text-neutral-400">{SLOT_FELD.modus}</div>
+        <div className="text-[var(--muted-foreground)]">{SLOT_FELD.modus}</div>
         <div className="mt-1 flex flex-wrap gap-1">
           {(Object.keys(MODUS_NAME) as ZoomSlotModus[]).map((m) => (
-            <button key={m} disabled={beschaeftigt} onClick={() => void aendere({ modus: m })} className={m === e.modus ? STIL.gelb : STIL.rand}>
+            <Button key={m} size="sm" uppercase={false} variant={m === e.modus ? 'primary' : 'outline'} disabled={beschaeftigt} onClick={() => void aendere({ modus: m })}>
               {MODUS_NAME[m]}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
       {e.modus === 'teilnehmer' && (
-        <label className="block text-neutral-400">
+        <label className="block text-[var(--muted-foreground)]">
           {SLOT_FELD.person}
           <input
             list={listeId}
@@ -207,16 +221,18 @@ export function SlotEinstellungen({
           <input type="checkbox" checked={e.tonAn} disabled={beschaeftigt} onChange={(ev) => void aendere({ tonAn: ev.target.checked })} />
           {SLOT_FELD.ton}
         </label>
-        <button disabled={beschaeftigt} onClick={() => void aendere({ tonArt: 'mischton' })} className={e.tonArt === 'mischton' ? STIL.gelb : STIL.rand}>
+        <Button size="sm" uppercase={false} variant={e.tonArt === 'mischton' ? 'primary' : 'outline'} disabled={beschaeftigt} onClick={() => void aendere({ tonArt: 'mischton' })}>
           {SLOT_FELD.tonArt.mischton}
-        </button>
-        <button
+        </Button>
+        <Button
+          size="sm"
+          uppercase={false}
+          variant={e.tonArt === 'person' ? 'primary' : 'outline'}
           disabled={beschaeftigt || e.modus !== 'teilnehmer'}
           onClick={() => void aendere({ tonArt: 'person' })}
-          className={e.tonArt === 'person' ? STIL.gelb : STIL.rand}
         >
           {SLOT_FELD.tonArt.person}
-        </button>
+        </Button>
       </div>
       {e.modus === 'freigabe' && (
         <label className="flex items-center gap-1">
@@ -231,26 +247,28 @@ export function SlotEinstellungen({
         </label>
       )}
       <MitTooltip titel={e.an ? SLOT_TEXT.loeschenGesperrt : undefined}>
-        <button disabled={e.an || stoppt || aufrufe.laeuft.has(`loeschen:${nr}`)} onClick={() => setLoeschFrage(true)} className={STIL.rot}>
+        <Button size="sm" uppercase={false} variant="destructive" disabled={e.an || stoppt || aufrufe.laeuft.has(`loeschen:${nr}`)} onClick={() => setLoeschFrage(true)}>
           {BEDIEN_TEXT.loeschen}
-        </button>
+        </Button>
       </MitTooltip>
       {loeschFrage && !e.an && !stoppt && (
-        <div className="rounded border border-red-800 bg-red-950/40 p-2 text-red-100">
-          <p>{loeschenFrage(nr, e.ndiName)}</p>
+        <div className={STIL.rueckfrage}>
+          <p className="select-text">{loeschenFrage(nr, e.ndiName)}</p>
           <div className="mt-2 flex gap-2">
-            <button
+            <Button
+              size="sm"
+              uppercase={false}
+              variant="destructive"
               onClick={() => {
                 setLoeschFrage(false);
                 void aufrufe.fuehreAus(`loeschen:${nr}`, ort, () => window.jmconnect.zoomSlotLoeschen({ nr }));
               }}
-              className={STIL.rot}
             >
               {BEDIEN_TEXT.loeschen}
-            </button>
-            <button onClick={() => setLoeschFrage(false)} className={STIL.rand}>
+            </Button>
+            <Button size="sm" uppercase={false} variant="outline" onClick={() => setLoeschFrage(false)}>
               {SLOT_TEXT.abbrechen}
-            </button>
+            </Button>
           </div>
         </div>
       )}

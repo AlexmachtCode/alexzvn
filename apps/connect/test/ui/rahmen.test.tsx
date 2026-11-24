@@ -1,6 +1,6 @@
-// UX Welle 2b, Connect d1 · Rahmen (B4, B8, B9, B19, B3; Muster d; Spec 3.1, 3.8): AppShell mit Kopf „JM Connect“, ThemeToggle, ⚙
-// und ON AIR nur bei gemessener Sendung; T145 als erste Zeile des Inhalts; zwei Spalten (links Cloud-Raum, rechts bis Task 24 die
-// unveränderte ZoomCard), unter macOS eine Spalte mit MAC_ZEILE; die Pflicht-Fußzeile immer, in main nach beiden Spalten.
+// UX Welle 2b, Connect d1 und d2 · Rahmen (B4, B8, B9, B19, B3; Muster d; Spec 3.1, 3.8): AppShell mit Kopf „JM Connect“, ThemeToggle,
+// ⚙ und ON AIR nur bei gemessener Sendung; T145 als erste Zeile des Inhalts; zwei Spalten (links Cloud-Raum, rechts seit Task 24 die
+// Zoom-Spalte), unter macOS eine Spalte mit MAC_ZEILE; die Pflicht-Fußzeile immer, in main nach beiden Spalten.
 // Wächter am Quelltext: Raum-Client, Abos und Fernbefehle in der Wurzel-View, nichts hängt am Panel-Zustand; keine rohen Farben.
 // Render ohne Browser und ohne window (Effekte laufen in renderToStaticMarkup nicht).
 import { REMOTE_TEXTE } from '@jm/settings';
@@ -11,7 +11,7 @@ import type { ZoomKurz } from '@shared/types';
 import { MAC_ZEILE, gaesteZeile, ohneVorsatz, zoomZeile } from '@shared/zoom-text';
 import { CONNECT_TEXTE, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
 import { ConnectOberflaeche, ConnectRahmen } from '@/views/ConnectOberflaeche';
-import { aktionenAttrappe, appStatus, attr, bereich, ohneKommentare, offenerRaum, raum, stand, statusEintraege, tags, text } from './testzustand';
+import { aktionenAttrappe, appStatus, attr, bereich, ohneKommentare, offenerRaum, raum, stand, statusEintraege, tags, text, zoomSpeicher } from './testzustand';
 
 const QUELLE = (d: string): string => ohneKommentare(leseText(`src/renderer/src/${d}`));
 const ROH = (d: string): string => leseText(`src/renderer/src/${d}`);
@@ -27,6 +27,8 @@ function rahmen(s: OberflaechenStand, panelOffen = false, log: string[] = []): s
       guestName=""
       aktionen={aktionenAttrappe(log)}
       proxyAdresse="https://cloud.example"
+      zoom={zoomSpeicher()}
+      zoomLadeFehler={null}
       panelOffen={panelOffen}
       onPanel={() => undefined}
     />,
@@ -141,7 +143,7 @@ const inhalt = (html: string): string => html.match(/<main[\s\S]*<\/main>/)?.[0]
   );
   const mz = bereich(cloudMac, 'data-connect', 'mac-zeile');
   ok(mz !== '' && text(mz) === MAC_ZEILE && cloudMac.indexOf('data-connect="mac-zeile"') > cloudMac.indexOf('data-connect="cloud"'), 'CN macOS nur links: MAC_ZEILE (T95) steht unter dem Cloud-Raum in der linken Spalte');
-  ok(!win.includes('data-connect="mac-zeile"') && bereich(spaltenWin, 'data-connect', 'zoom-spalte').includes('Zoom-Meeting'), 'CN macOS nur links: unter Windows rechts die Zoom-Spalte mit der unveränderten ZoomCard, keine MAC_ZEILE');
+  ok(!win.includes('data-connect="mac-zeile"') && bereich(spaltenWin, 'data-connect', 'zoom-spalte').includes('Zoom-Meeting'), 'CN macOS nur links: unter Windows rechts die Zoom-Spalte („Zoom-Meeting“), keine MAC_ZEILE');
   ok(spaltenWin.indexOf('data-connect="cloud-raum"') < spaltenWin.indexOf('data-connect="zoom-spalte"'), 'CN macOS nur links: links der Cloud-Raum, rechts Zoom (B19)');
   const q = QUELLE('views/ConnectOberflaeche.tsx');
   ok(q.includes("stand.plattform === 'win32'") && q.includes('{MAC_ZEILE}') && !Object.values({ q, a: QUELLE('views/CloudRaum.tsx') }).some((t) => t.includes(MAC_ZEILE)), 'CN macOS nur links: die Weiche liest stand.plattform; T95 kommt aus zoom-text.ts, nie als Literal');
@@ -150,7 +152,10 @@ const inhalt = (html: string): string => html.match(/<main[\s\S]*<\/main>/)?.[0]
 // ── CN Raum bleibt: Raum-Client, Abos und Fernbefehle in der Wurzel-View; kein key und keine Bedingung hängt am Panel-Zustand ──
 {
   const wurzel = QUELLE('views/ConnectOberflaeche.tsx');
-  const andere = ['views/CloudRaum.tsx', 'views/Einstellungen.tsx', 'views/CloudZugang.tsx', 'views/Fusszeile.tsx', 'App.tsx'].map((d) => [d, QUELLE(d)] as const);
+  const andere = [
+    'views/CloudRaum.tsx', 'views/Einstellungen.tsx', 'views/CloudZugang.tsx', 'views/Fusszeile.tsx', 'App.tsx', 'views/ZoomSpalte.tsx', 'zoom/ZoomCard.tsx',
+    'zoom/ZoomEinrichtung.tsx', 'zoom/ZoomVorgaben.tsx',
+  ].map((d) => [d, QUELLE(d)] as const);
   const ABLAEUFE = [
     'new SignallingClient(',
     'window.jmconnect.getStatus()',
@@ -178,15 +183,26 @@ const inhalt = (html: string): string => html.match(/<main[\s\S]*<\/main>/)?.[0]
   ok(/<ConnectOberflaeche \/>/.test(app) && !/useState|useEffect|useRef/.test(app), 'CN Raum bleibt: App.tsx rendert nur die Wurzel-View, ohne eigenen Zustand');
 }
 
-// ── CN keine rohen Farben: geänderte Dateien nur mit Tokens; ausgenommen nur das QR-Bild der Einladung (QrBild, B5) ──
+// ── CN keine rohen Farben: geänderte Dateien nur mit Tokens; ausgenommen nur das QR-Bild der Einladung (QrBild, B5) und die
+// Slot-Vorschau (SCHACHBRETT und Flaeche in zoom/SlotKachel.tsx, B5) ──
 {
   const roh = /\b(?:bg|text|border|ring|from|to|via|fill|stroke|outline|divide|shadow|accent)-(?:white|black|neutral|gray|grey|zinc|slate|stone|red|green|blue|yellow|amber|orange|lime|emerald|teal|cyan|sky|indigo|violet|purple|fuchsia|pink|rose)(?:-\d+)?\b|#[0-9a-fA-F]{3,8}\b/;
-  const dateien = ['App.tsx', 'main.tsx', 'globals.css', 'views/ConnectOberflaeche.tsx', 'views/CloudRaum.tsx', 'views/Fusszeile.tsx', 'views/Einstellungen.tsx', 'views/CloudZugang.tsx'];
+  const dateien = [
+    'App.tsx', 'main.tsx', 'globals.css', 'views/ConnectOberflaeche.tsx', 'views/CloudRaum.tsx', 'views/Fusszeile.tsx', 'views/Einstellungen.tsx', 'views/CloudZugang.tsx',
+    'views/ZoomSpalte.tsx', 'zoom/aufrufe.ts', 'zoom/ZoomCard.tsx', 'zoom/ZoomEinrichtung.tsx', 'zoom/ZoomVorgaben.tsx', 'zoom/SlotBereich.tsx', 'zoom/SlotKachel.tsx',
+    'zoom/SlotEinstellungen.tsx', 'zoom/Messwerte.tsx',
+  ];
   const QR = /\nfunction QrBild\([\s\S]*?\n}\n/;
-  const ohneQr = (d: string, q: string): string => (d === 'views/CloudRaum.tsx' ? q.replace(QR, '\n') : q);
-  gleich(dateien.filter((d) => roh.test(ohneQr(d, QUELLE(d)))), [], 'CN keine rohen Farben: keine rohen Farbklassen und Hex-Werte in den geänderten Dateien, nur Tokens (W2-9)');
+  const VORSCHAU = /\nconst SCHACHBRETT = \{[\s\S]*?\n\} as const;\n|\nfunction Flaeche\([\s\S]*?\n}\n/g;
+  const ausnahme = (d: string, q: string): string => (d === 'views/CloudRaum.tsx' ? q.replace(QR, '\n') : d === 'zoom/SlotKachel.tsx' ? q.replace(VORSCHAU, '\n') : q);
+  gleich(dateien.filter((d) => roh.test(ausnahme(d, QUELLE(d)))), [], 'CN keine rohen Farben: keine rohen Farbklassen und Hex-Werte in den geänderten Dateien (Rahmen, Cloud-Raum, Panel, Zoom-Spalte, Slots), nur Tokens (W2-9)');
   const qr = QR.exec(ROH('views/CloudRaum.tsx'))?.[0] ?? '';
   ok(qr.includes('bg-white') && qr.includes('<img'), 'CN keine rohen Farben: das QR-Bild der Einladung (QrBild) bleibt auf weißem Grund (B5, lib/qr.ts)');
+  const vorschau = ROH('zoom/SlotKachel.tsx').match(VORSCHAU) ?? [];
+  ok(
+    vorschau.length === 2 && ['bg-black', 'bg-white', '#232323', '#3f3f46'].every((f) => vorschau.join('\n').includes(f)),
+    'CN keine rohen Farben: die Slot-Vorschau (Schachbrett und Flächen schwarz, weiß, Zoom-Kachel #232323) bleibt Programmfläche mit festen Farben (B5)',
+  );
   ok(roh.test('text-neutral-400') && roh.test('#121212') && !roh.test('text-[var(--muted-foreground)]'), 'CN keine rohen Farben: die Probe erkennt rohe Farben und lässt Tokens durch');
   const css = ROH('globals.css');
   ok(!css.includes('#121212') && !css.includes('system-ui, -apple-system'), 'CN keine rohen Farben: globals.css ohne den alten festen Hintergrund #121212 und ohne die alte Schrift');

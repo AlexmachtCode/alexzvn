@@ -1,8 +1,11 @@
 // Kachel eines Zoom-Slots (Spec 7.5 Nr. 8, 7.7; Task B21): Kopfzeile mit Nummer, NDI-Name, Modus, Kennzeichen T96/T96b und
 // Start-Schalter; Vorschau 192 × 108; die fertigen Zeilen aus dem Abbild (Zustand 10.2, Messung 10.7, Ton 10.6, Fehler
-// 10.9); Auswahl bei Doppelname oder Zweifel; „Einstellungen“. Die Zeilen rechnet der Kern (ZoomSlotLage.text …), die Fläche
-// der Vorschau die reine Regel vorschauFlaeche (slot-vorschau.ts). Alle Texte aus @shared/zoom-text bzw. slot-vorschau.ts.
+// 10.9); Auswahl bei Doppelname oder Zweifel; „Einstellungen“ je Kachel (W2-6). Die Zeilen rechnet der Kern (ZoomSlotLage.text …),
+// die Fläche der Vorschau die reine Regel vorschauFlaeche (slot-vorschau.ts). Alle Texte aus @shared/zoom-text bzw. slot-vorschau.ts.
+// Seit UX Welle 2b (Task 24) Knöpfe aus @jm/ui und Farben als Tokens (W2-9); feste Farben behalten nur die Flächen der Vorschau
+// (SCHACHBRETT, Flaeche), sie zeigen das Bild der Ausgabe (Programmfläche, B5).
 import { useEffect, useRef, useState } from 'react';
+import { Button } from '@jm/ui';
 import type { ZoomAbbild, ZoomSlotLage, ZoomSlotModus } from '@shared/types';
 import { BEDIEN_TEXT, MODUS_NAME, SLOT_FELD, SLOT_TEXT, slotKennzeichen } from '@shared/zoom-text';
 import { vorschauFlaeche, VORSCHAU_TEXT, type VorschauFlaeche } from './slot-vorschau';
@@ -16,7 +19,7 @@ export interface GemerkteVorschau { ziel: number; jpeg: string; zeit: number; mo
 /** Text einer abgelehnten Antwort am Ort (7.5 „Antwortort“). */
 export function AntwortZeile({ aufrufe, ort }: { aufrufe: SlotAufrufe; ort: SlotOrt }): JSX.Element | null {
   const text = aufrufe.antwortText(ort);
-  return text ? <p className="mt-1 text-xs text-red-300">{text}</p> : null;
+  return text ? <p className={`mt-1 ${STIL.fehler}`}>{text}</p> : null;
 }
 
 /** Nachfrage T40 am Ort des Aufrufs mit „Trotzdem einschalten“ (T41) und „Abbrechen“ (T42), Spec 7.4. */
@@ -24,15 +27,15 @@ export function NachfrageZeile({ aufrufe, ort }: { aufrufe: SlotAufrufe; ort: Sl
   const n = aufrufe.nachfrage;
   if (!n || n.ort !== ort) return null;
   return (
-    <div className="mt-2 rounded border border-yellow-800 bg-yellow-950/40 p-2 text-xs text-yellow-100">
-      <p>{n.text}</p>
+    <div data-connect="nachfrage" className={`mt-2 ${STIL.nachfrage}`}>
+      <p className="select-text">{n.text}</p>
       <div className="mt-2 flex gap-2">
-        <button onClick={n.trotzdem} className={STIL.gelb}>
+        <Button size="sm" uppercase={false} variant="primary" onClick={n.trotzdem}>
           {SLOT_TEXT.trotzdem}
-        </button>
-        <button onClick={aufrufe.nachfrageWeg} className={STIL.rand}>
+        </Button>
+        <Button size="sm" uppercase={false} variant="outline" onClick={aufrufe.nachfrageWeg}>
           {SLOT_TEXT.abbrechen}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -96,7 +99,7 @@ export function SlotKachel({
   const gezeigt = flaeche.art === 'abgeblendet' ? letzte.current : { art: flaeche.art, jpeg: vorschau?.jpeg ?? null };
   const startSchluessel = `start:${nr}`;
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+    <div data-connect="kachel" className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">
           {nr} · {e.ndiName}
@@ -108,66 +111,73 @@ export function SlotKachel({
           </span>
         )}
         {kennzeichen && (
-          <button
+          <Button
+            size="sm"
+            uppercase={false}
+            variant="outline"
             disabled={aufrufe.laeuft.has(`behalten:${nr}`)}
             onClick={() => void aufrufe.fuehreAus(`behalten:${nr}`, ort, () => window.jmconnect.zoomSlotBehalten({ nr }))}
-            className={STIL.rand}
           >
             {BEDIEN_TEXT.behalten}
-          </button>
+          </Button>
         )}
-        <button
+        <Button
+          size="sm"
+          uppercase={false}
+          variant={e.an ? 'outline' : 'primary'}
+          className="ml-auto"
           disabled={aufrufe.laeuft.has(startSchluessel)}
           onClick={() =>
             aufrufe.starte(startSchluessel, ort, (trotz) => window.jmconnect.zoomSlotStart({ nr, an: !e.an, trotz }))
           }
-          className={`ml-auto ${e.an ? STIL.rand : STIL.gelb}`}
         >
           {e.an ? SLOT_TEXT.stopp : SLOT_TEXT.start}
-        </button>
+        </Button>
       </div>
       <div
         title={VORSCHAU_TEXT.T52}
-        className={`relative mt-2 h-[108px] w-[192px] overflow-hidden rounded bg-neutral-900 ${flaeche.art === 'abgeblendet' ? 'opacity-40' : ''}`}
+        className={`relative mt-2 h-[108px] w-[192px] overflow-hidden rounded-[var(--radius-sm)] bg-[var(--muted)] ${flaeche.art === 'abgeblendet' ? 'opacity-40' : ''}`}
       >
         <Flaeche art={gezeigt.art} jpeg={gezeigt.jpeg} />
         {flaeche.kennzeichen && (
-          <span className="absolute left-1 top-1 rounded bg-neutral-900/80 px-1 text-[10px] text-neutral-100">{flaeche.kennzeichen}</span>
+          <span className="absolute left-1 top-1 rounded-[var(--radius-sm)] bg-[var(--background)]/80 px-1 text-[10px] text-[var(--foreground)]">{flaeche.kennzeichen}</span>
         )}
         {flaeche.text && (
-          <span className="absolute inset-0 flex items-center justify-center p-2 text-center text-[11px] text-neutral-400">
+          <span className="absolute inset-0 flex items-center justify-center p-2 text-center text-[11px] text-[var(--muted-foreground)]">
             {flaeche.text}
           </span>
         )}
       </div>
-      <p className="mt-2 text-xs text-neutral-200">{lage.text}</p>
-      {lage.messText !== null && <p className="text-xs text-neutral-400">{lage.messText}</p>}
-      {lage.tonText !== null && <p className="text-xs text-neutral-400">{lage.tonText}</p>}
-      {lage.fehler !== null && <p className="text-xs text-red-300">{lage.fehler}</p>}
-      {lage.ndiWarnung !== null && <p className="text-xs text-yellow-300">{lage.ndiWarnung}</p>}
+      <p className="mt-2 text-xs text-[var(--foreground)] select-text">{lage.text}</p>
+      {lage.messText !== null && <p className={STIL.hinweis}>{lage.messText}</p>}
+      {lage.tonText !== null && <p className={STIL.hinweis}>{lage.tonText}</p>}
+      {lage.fehler !== null && <p className={STIL.fehler}>{lage.fehler}</p>}
+      {lage.ndiWarnung !== null && <p className={STIL.warnung}>{lage.ndiWarnung}</p>}
       {lage.wahl !== null && lage.wahl.length > 0 && (
         <div className="mt-2 text-xs">
-          <p className="text-neutral-300">{SLOT_FELD.welchePerson}</p>
+          <p className="text-[var(--foreground)]">{SLOT_FELD.welchePerson}</p>
           <div className="mt-1 flex flex-wrap gap-2">
             {lage.wahl.map((w) => (
-              <button
+              <Button
                 key={w.id}
+                size="sm"
+                uppercase={false}
+                variant="outline"
                 disabled={aufrufe.laeuft.has(`person:${nr}`)}
                 onClick={() => void aufrufe.fuehreAus(`person:${nr}`, ort, () => window.jmconnect.zoomSlotPerson({ nr, teilnehmerId: w.id }))}
-                className={STIL.rand}
               >
                 {w.name}
-                {w.hinweis && <span className="ml-1 text-neutral-500">{w.hinweis}</span>}
-              </button>
+                {w.hinweis && <span className="ml-1 text-[var(--muted-foreground)]">{w.hinweis}</span>}
+              </Button>
             ))}
           </div>
         </div>
       )}
       <AntwortZeile aufrufe={aufrufe} ort={ort} />
       <NachfrageZeile aufrufe={aufrufe} ort={ort} />
-      <button onClick={() => setEinstellungenAuf((v) => !v)} className={`${STIL.rand} mt-2`}>
+      <Button size="sm" uppercase={false} variant="outline" className="mt-2" onClick={() => setEinstellungenAuf((v) => !v)}>
         {SLOT_FELD.einstellungen}
-      </button>
+      </Button>
       {einstellungenAuf && <SlotEinstellungen lage={lage} teilnehmer={a.teilnehmer} aufrufe={aufrufe} />}
     </div>
   );

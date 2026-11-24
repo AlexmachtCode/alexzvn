@@ -5,9 +5,12 @@ import type { Guest, GuestPhase, OperatorAction, RoomState } from '@jm/rtc/proto
 import { baueAppStatus, type AppStatusEingabe } from '@shared/app-status';
 import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import { raumAnsicht, type RaumAnsichtEingabe } from '@shared/raum-ansicht';
-import type { AppStatus, GuestInvite, NdiProgrammLage, ProxyInfo, ShowInfo } from '@shared/types';
+import type {
+  AppStatus, GuestInvite, NdiProgrammLage, ProxyInfo, ShowInfo, ZoomAbbild, ZoomKurz, ZoomParticipant, ZoomSlotEinstellung, ZoomSlotLage,
+} from '@shared/types';
 import type { OberflaechenStand } from '@/lib/oberflaeche';
 import type { ConnectAktionen } from '@/views/ConnectOberflaeche';
+import { fuehreZoomAus, type ZoomAufrufe } from '@/zoom/aufrufe';
 
 /** Quelltext ohne Kommentare (Zeilen- und Blockkommentare), für Prüfungen am Code. */
 export function ohneKommentare(quelle: string): string {
@@ -81,6 +84,68 @@ export const SHOW: ShowInfo = {
 };
 
 export const EINLADUNG: GuestInvite = { guestId: 'inv1', name: 'Anna Berger', joinUrl: 'https://cloud.example/connect/raum-1?t=abc' };
+
+// ── Zoom (Task 24): Abbild, Slots, Teilnehmer und ein lebender Speicher für ZoomAufrufe ──
+
+export function zoomKurz(teil: Partial<ZoomKurz> = {}): ZoomKurz {
+  return {
+    zustand: 'bereit', warten: null, erlaubnis: null, slotsLaufen: 0, slotsErsatz: 0, slotsOffen: 0, slotsAn: 0, slotsGestopptEntzug: 0,
+    slotKurz: [], versuch: null, maengel: [], kopieLaeuft: false, befehl: null, ...teil,
+  };
+}
+
+/** Zoom-Abbild wie aus dem Main (Vorgaben wie test/zoom-text.test.ts): bereit, SDK eingerichtet, keine alten Werte. */
+export function zoomAbbild(teil: Omit<Partial<ZoomAbbild>, 'kurz'> & { kurz?: Partial<ZoomKurz> } = {}): ZoomAbbild {
+  const { kurz, ...rest } = teil;
+  return {
+    kurz: zoomKurz(kurz),
+    einrichtung: {
+      sdk: { stand: 'ok', fassung: '7.1.5.43953', kopie: null, laden: null, text: null },
+      zugang: { herkunft: 'none', clientIdEnde: null, text: null, unlesbar: false },
+      anmeldung: { text: 'Zoom-Anmeldung über den Launcher; die Freigabe holt Connect beim ersten Beitritt.', ton: 'ok' },
+      sdkSchluessel: { herkunft: 'none' },
+    },
+    anzeigename: 'JM Connect',
+    versatz: { gewuenschtMs: 0, bestaetigtMs: null, nurSitzung: false },
+    teilnehmer: [], slots: [], vorgaben: { aufloesung: '720p', tonAn: true }, sprecher: { signal: 'sprecherVideo', haltezeitMs: 1000 },
+    personImNdiNamen: false, vorschauAn: true, vorschauVerfuegbar: true, vorschauDetail: null, ueber5: false,
+    messwerte: { bridge: null, slots: [], freigaben: null, sprecherSignale: [] },
+    einstellungen: { nurSitzung: false, gesichert: null }, abriss: null, meldung: null, hinweise: [],
+    erneutMoeglich: false, pruefungLaeuft: false, abbauLaeuft: false,
+    ...rest,
+  };
+}
+
+/** Ein ausgeschalteter Slot (Teilnehmer, 720p) mit seiner Zeile; `teil` und `e` überschreiben Lage bzw. Einstellung. */
+export function slotLage(nr: number, teil: Partial<ZoomSlotLage> = {}, e: Partial<ZoomSlotEinstellung> = {}): ZoomSlotLage {
+  return {
+    einstellung: {
+      nr, ndiName: `Zoom ${nr}`, modus: 'teilnehmer', person: '', an: false, aufloesung: '720p', ersatzbild: 'transparent', tonAn: true,
+      tonArt: 'mischton', computerton: true, ohneKamera: true, bildformat: 'original', ...e,
+    },
+    voruebergehend: false, anNurMeeting: false, zustand: 'aus', grund: null, gesendet: null, zielName: null, doppelt: 0, zweifel: false,
+    imWarteraum: false, wahl: null, geliefert: null, zuletzt: null, ton: 'aus', tonGrund: null, tonQuelle: 'none', tonEingestellt: 'none',
+    offen: false, liefSchon: false, zeigteSchon: false, andererSlot: null, fehler: null, ndiWarnung: null,
+    text: `Slot ${nr} ist aus.`, tonText: null, messText: null, ...teil,
+  };
+}
+
+export function teilnehmer(id: number, name: string, teil: Partial<ZoomParticipant> = {}): ZoomParticipant {
+  return { id, name, rolle: 'attendee', kamera: 'an', imWarteraum: false, doppelname: false, slotNrn: [], ...teil };
+}
+
+/**
+ * ZoomAufrufe wie in der Wurzel-View, nur ohne React: `laeuft` und `antwort` stehen in einem Objekt, das fuehreZoomAus fortschreibt
+ * (dieselbe Funktion wie in der Wurzel-View). So sehen Panel und Spalte denselben Stand.
+ */
+export function zoomSpeicher(): ZoomAufrufe {
+  const z: { laeuft: ReadonlySet<string>; antwort: ZoomAufrufe['antwort']; fuehreAus: ZoomAufrufe['fuehreAus'] } = {
+    laeuft: new Set(),
+    antwort: null,
+    fuehreAus: (schluessel, ort, f) => fuehreZoomAus({ antwort: (a) => void (z.antwort = a), laeuft: (neu) => void (z.laeuft = neu(z.laeuft)) }, schluessel, ort, f),
+  };
+  return z;
+}
 
 /**
  * Aktionen der Wurzel-View als Attrappe: jeder Aufruf schreibt eine Zeile ins Protokoll (Name und Argument), nichts geht an IPC
