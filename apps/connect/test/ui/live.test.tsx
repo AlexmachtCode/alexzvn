@@ -156,14 +156,20 @@ const haupt = (html: string): ReturnType<typeof tallyTasten> => tallyTasten(bere
   ok(/<GuestActions guest=\{g\} send=\{aktionen\.send\} gesperrt=\{!ansicht\.wsKnoepfeBedienbar\} \/>/.test(q), 'CN Gästeliste: GuestActions bekommt send aus der Wurzel-View und die Sperre aus raumAnsicht');
 }
 
-// ── CN Raum schließen nach Raumabbruch: normaler Knopf neben T144, nicht in der Haupttasten-Reihe; die Einladen-Zeile hat keinen ──
+// ── CN Raum schließen nach Raumabbruch: normaler Knopf unter den Haupttasten (Tastenplatz, Task 24), nicht in der Haupttasten-Reihe;
+// die Einladen-Zeile hat keinen ──
 {
   const log: string[] = [];
   const abbruch = stand({ status: appStatus(), room: raum(['approved']), ansicht: ansicht({ raumabbruch: true, raumBekannt: true }) });
   const html = spalte(abbruch, {}, log);
   const zeile = bereich(html, 'data-connect', 'raum-schliessen');
   ok(knopfTexte(zeile).join('|') === T.taste.raumSchliessen && tallyTasten(zeile).length === 0, 'CN Raum schließen nach Raumabbruch: ein normaler Knopf „Raum schließen“ (kein TallyButton)');
-  ok(html.indexOf('data-connect="t144"') >= 0 && html.indexOf('data-connect="t144"') < html.indexOf('data-connect="raum-schliessen"') && html.indexOf('data-connect="raum-schliessen"') < html.indexOf('data-connect="haupttasten"'), 'CN Raum schließen nach Raumabbruch: direkt unter T144, über den Haupttasten');
+  ok(
+    html.indexOf('data-connect="t144"') >= 0 && html.indexOf('data-connect="t144"') < html.indexOf('data-connect="haupttasten"')
+      && html.indexOf('data-connect="haupttasten"') < html.indexOf('data-connect="raum-schliessen"')
+      && html.indexOf('data-connect="raum-schliessen"') < html.indexOf('data-connect="gaesteliste"'),
+    'CN Raum schließen nach Raumabbruch: unter den Haupttasten, vor der Gästeliste (über ihnen schob er Talkback alle auf das alte „Raum schließen“, Task 24)',
+  );
   ok(!/\b(?:w-full|flex-1|grow|ml-auto)\b/.test(zeile), 'CN Raum schließen nach Raumabbruch: der Knopf steht links und wird nicht gedehnt (Tastenplatz: links außerhalb der alten Plätze)');
   for (const [name, s] of [
     ['ohne Raum', stand({ status: appStatus(), room: null })],
@@ -187,8 +193,8 @@ const haupt = (html: string): ReturnType<typeof tallyTasten> => tallyTasten(bere
   const lage = BLOECKE.map((b) => html.indexOf(`data-connect="${b}"`));
   ok(lage.every((i, k) => i >= 0 && (k === 0 || i > lage[k - 1]!)), `CN Cloud-Raum Reihenfolge: ${BLOECKE.join(', ')} (B19)`);
   const ab = spalte(stand({ status: appStatus(), room: raum(['approved']), ansicht: ansicht({ raumabbruch: true, raumBekannt: true }) }), { error: 'Fehler X', show: SHOW });
-  const lage2 = ['fehler', 't144', 'raum-schliessen', 'show', 'haupttasten', 'gaesteliste'].map((b) => ab.indexOf(`data-connect="${b}"`));
-  ok(lage2.every((i, k) => i >= 0 && (k === 0 || i > lage2[k - 1]!)), 'CN Cloud-Raum Reihenfolge: nach Raumabbruch Fehler, T144, Raum schließen, Show, Haupttasten, Gästeliste');
+  const lage2 = ['fehler', 't144', 'show', 'haupttasten', 'raum-schliessen', 'gaesteliste'].map((b) => ab.indexOf(`data-connect="${b}"`));
+  ok(lage2.every((i, k) => i >= 0 && (k === 0 || i > lage2[k - 1]!)), 'CN Cloud-Raum Reihenfolge: nach Raumabbruch Fehler, T144, Show, Haupttasten, Raum schließen, Gästeliste');
   ok(text(html).includes('Fehler X') && !text(spalte(stand())).includes('Fehler X'), 'CN Cloud-Raum Reihenfolge: das Fehlerfeld steht nur mit Fehler');
 }
 

@@ -1,6 +1,6 @@
-// Linke Spalte „Cloud-Raum“ (UX Welle 2b, Connect d1; B19, B21, B6; Regel V, Regel G, Regel P): Fehlerfeld, T141/T144 (nach einem
-// Raumabbruch darunter „Raum schließen“), Show-Karte, die Haupttasten Raum und Talkback alle, Einladen, Einladungen, Kopfzeile und
-// Gästeliste. Was steht und was bedienbar ist, entscheidet nur raumAnsicht (stand.ansicht); Sperren und Beschriftungen der
+// Linke Spalte „Cloud-Raum“ (UX Welle 2b, Connect d1; B19, B21, B6; Regel V, Regel G, Regel P): Fehlerfeld, T141/T144, Show-Karte,
+// die Haupttasten Raum und Talkback alle (nach einem Raumabbruch darunter „Raum schließen“, Tastenplatz Task 24), Einladen,
+// Einladungen, Kopfzeile und Gästeliste. Was steht und was bedienbar ist, entscheidet nur raumAnsicht (stand.ansicht); Sperren und Beschriftungen der
 // Haupttasten und des Halte-Knopfs je Gast kommen aus lib/oberflaeche.ts. Gästeliste, Abzeichen, Grundzeilen und GuestActions
 // bleiben in Logik und Reihenfolge je Zeile wie bisher (App.tsx bis Task 22), nur die Farben sind Tokens (W2-9).
 // Raum-Client, Abos und Fernbefehle stehen in der Wurzel-View (ConnectOberflaeche); hier stehen nur die Ansicht und die Knöpfe.
@@ -150,14 +150,6 @@ export function CloudRaum({ stand, show, error, invites, guestName, aktionen }: 
           {ansicht.t144Zusatz ? NDI_TEXT.t144Zusatz : ''}
         </div>
       )}
-      {/* Nach einem Raumabbruch: „Raum schließen“ als normaler Knopf neben T144, links (die Haupttaste öffnet dann neu). */}
-      {!ansicht.gastEinladen && ansicht.raumSchliessen && (
-        <div data-connect="raum-schliessen" className="flex">
-          <Button variant="outline" size="sm" uppercase={false} onClick={() => aktionen.raumSchliessen()}>
-            Raum schließen
-          </Button>
-        </div>
-      )}
       {/* T141 (E53, Regel V): Client besteht, keine Raumverbindung, Raum-Zustand bekannt. */}
       {ansicht.t141 && (
         <div data-connect="t141" className={`${HINWEIS} ${HINWEIS_WARNUNG} text-xs`}>
@@ -171,6 +163,17 @@ export function CloudRaum({ stand, show, error, invites, guestName, aktionen }: 
         <TallyButton {...raumKnopf} />
         <TallyButton {...talkbackKnopf} />
       </div>
+
+      {/* Nach einem Raumabbruch: „Raum schließen“ als normaler Knopf unter den Haupttasten, links (die Haupttaste öffnet dann neu).
+          Tastenplatz (Task 24): über den Haupttasten schob er „Talkback alle“ auf das alte „Raum schließen“ bzw. das breite „Raum
+          „…“ öffnen“ der Raum-Zeile; links liegt er selbst außerhalb jedes alten Platzes (der alte Block begann bei x 266 bzw. 116). */}
+      {!ansicht.gastEinladen && ansicht.raumSchliessen && (
+        <div data-connect="raum-schliessen" className="flex">
+          <Button variant="outline" size="sm" uppercase={false} onClick={() => aktionen.raumSchliessen()}>
+            Raum schließen
+          </Button>
+        </div>
+      )}
 
       {ansicht.gastEinladen && (
         <>
