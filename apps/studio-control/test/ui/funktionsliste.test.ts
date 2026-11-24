@@ -115,6 +115,7 @@ const GEAENDERT = [
 
 /** Geänderte Quelldateien der Pakete seit der Erhebung (Bausteine Task 1–3, Bildschirm-Ereignis Task 4), die ein Haken zitieren könnte. */
 const PAKETE_GEAENDERT = [
+  // Gesamtprüfung UX Welle 2b: Field.tsx (M1), SettingsPanel.tsx (I2, Opt-in toolTasten), StatusBar.tsx und lib/status.ts (I1).
   'packages/output-window/src/bildschirme.ts',
   'packages/output-window/src/index.ts',
   'packages/settings/src/SectionFrame.tsx',
@@ -122,10 +123,14 @@ const PAKETE_GEAENDERT = [
   'packages/settings/src/abschnitte/screen-output.ts',
   'packages/ui/src/components/AppHeader.tsx',
   'packages/ui/src/components/AppShell.tsx',
+  'packages/ui/src/components/Field.tsx',
   'packages/ui/src/components/HalteKnopf.tsx',
+  'packages/ui/src/components/SettingsPanel.tsx',
+  'packages/ui/src/components/StatusBar.tsx',
   'packages/ui/src/components/TallyButton.tsx',
   'packages/ui/src/index.ts',
   'packages/ui/src/lib/halten.ts',
+  'packages/ui/src/lib/status.ts',
   'packages/ui/src/tokens/sizes.css',
 ];
 

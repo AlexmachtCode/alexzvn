@@ -577,6 +577,10 @@ Weitere Zuordnung (Plan-Block Connect, B19 bis B22):
    (`R/views/CloudRaum.tsx:410-418`), derselbe Text auch im Eintrag Programm; Felder mit langem Wert laufen innen über; in der
    Statusleiste laufen bei vielen Einträgen Beschriftungen ineinander (Baustein StatusBar,
    `packages/ui/src/components/StatusBar.tsx:61-80`; Ruling Task 24: an die Schlussprüfung)
+   **Stand Gesamtprüfung (UX Welle 2b, I1):** erledigt: kein Eintrag der Statusleiste läuft mehr über seinen Nachbarn; der Kasten
+   schneidet ab, erst kürzen sich die Details, dann die Beschriftungen mit „…“, die Einträge „in Ordnung“ und „aus“ zuerst, Warnung,
+   Fehler und LIVE zuletzt, das Symbol bleibt sichtbar, der volle Text steht im Tooltip; gemessen mit den elf Einträgen bei 1600,
+   1280, 1024 und 900 px (Ledger fix-i1-messung.json): keine Überlappung.
 6. **Standby ohne Anzeige, gemessen:** Mit gesetztem `standbyId` sind Rechtecke, Texte, Gastzeilen und Abzeichen gleich wie ohne
    (Nr. 45); wer im Standby steht, sieht nur Companion über den STATE.
    **Stand Task 25:** bleibt (C1-A): Standby hat weiter keine Anzeige, die Oberfläche liest `standbyId` nicht
