@@ -767,11 +767,11 @@ const OF = 'R/lib/oberflaeche.ts';
   const ohneAdresse = raumTaste(stand({ status: appStatus({ configured: false, cloudZugang: { text: '', ton: 'fehler' } }) }), null);
   const mitClient = raumTaste(stand({ status: appStatus(), ansicht: ansicht({ client: true }) }), null);
   ok(
-    ersetzt(21, 'Cloud-Raum') && mitVerweis(21, 'B6', 'B21') && nennt(21, CONNECT_TEXTE.grund.cloudZugangFehlt, CONNECT_TEXTE.grund.unbekannt, 'Doppelklick') && zeigtAuf(21, CR, '<TallyButton {...raumKnopf} />') &&
+    ersetzt(21, 'Cloud-Raum') && mitVerweis(21, 'B6', 'B21') && nennt(21, CONNECT_TEXTE.grund.cloudZugangFehlt, CONNECT_TEXTE.grund.unbekannt, 'Doppelklick', 'Owner-Entscheid Z1') && zeigtAuf(21, CR, '<TallyButton {...raumKnopf} />') &&
       ohneStatus.state === 'gesperrt' && ohneStatus.disabledReason === CONNECT_TEXTE.grund.unbekannt &&
       ohneAdresse.state === 'gesperrt' && ohneAdresse.disabledReason === CONNECT_TEXTE.grund.cloudZugangFehlt &&
       mitClient.label === CONNECT_TEXTE.taste.raumSchliessen && mitClient.state === 'bereit',
-    'CN Funktionsliste Nr. 21: eine Raum-Taste (öffnet ohne Client, schließt mit Client), gesperrt mit Grund statt ohne (B21, B6); Doppelklick als Owner-Frage',
+    'CN Funktionsliste Nr. 21: eine Raum-Taste (öffnet ohne Client, schließt mit Client), gesperrt mit Grund statt ohne (B21, B6); Doppelklick hingenommen (Owner-Entscheid Z1)',
   );
   ok(
     beginnt(22, 'Cloud-Raum') && nennt(22, 'unter den Haupttasten') && zeigtAuf(22, CR, 'data-connect="raum-schliessen"') && cr.indexOf('data-connect="haupttasten"') < cr.indexOf('data-connect="raum-schliessen"') &&
@@ -802,6 +802,14 @@ const OF = 'R/lib/oberflaeche.ts';
   ok(
     beginnt(48, 'Gästeliste') && nennt(48, 'F2', '34rem') && cr.includes("const AKTIONSZEILE = 'flex gap-1 @[34rem]:basis-full';") && cr.includes("const AKTIONSKNOPF = '@[34rem]:!px-2';"),
     'CN Funktionsliste Nr. 48: Gast-Aktionen in der breiten Liste auf eigener Zeile (Tastenplatz, Task 24), sonst wie bisher hinter dem Phasen-Abzeichen',
+  );
+  // Owner-Entscheid F2-B (24.11., Nachtrag Task 24): in der breiten Liste 🎙 und 📊 vor dem Namen, nur sichtbar (CSS order); die
+  // Zeilen 37, 40 und 41 nennen die geänderte Bedienung mit dem Entscheid, Form und Ort bleiben.
+  ok(
+    beginnt(37, 'Gästeliste') && ersetzt(40, 'Gästeliste') && beginnt(41, 'Gästeliste') && [37, 40, 41].every((nr) => nennt(nr, 'Owner-Entscheid F2-B', '34rem')) &&
+      cr.includes("const VORN_BREIT = '@[34rem]:order-first';") && cr.includes('<HalteKnopf {...gastTalkback(stand, g, aktionen)} className={VORN_BREIT} />') &&
+      cr.includes('className={`${VORN_BREIT} min-h-[var(--control-h)]') && zaehle(cr, 'VORN_BREIT') === 3,
+    'CN Funktionsliste Nr. 37, 40, 41: in der breiten Liste stehen 🎙 und 📊 vor dem Namen (Owner-Entscheid F2-B), in der schmalen wie bisher dahinter',
   );
   ok([42, 43, 44, 45, 46, 47].every((nr) => beginnt(nr, 'Gästeliste')) && nennt(45, 'ohne Anzeige') && !cr.includes('standbyId'), 'CN Funktionsliste Nr. 42–47: Gast-Aktionen wie bisher; Standby weiter ohne Anzeige (C1-A)');
 }
@@ -902,10 +910,10 @@ const OF = 'R/lib/oberflaeche.ts';
   ok(falsch.length === 0, `CN Funktionsliste Befunde 1–14: jeder mit „Stand Task 25:“, jeder Teil erledigt, bleibt oder Owner-Frage und mit Beleg (falsch: ${falsch.join(', ') || 'keine'})`);
   const status = (i: number): string => (teile(befunde[i - 1] ?? '') ?? []).map((s) => /^(erledigt|bleibt|Owner-Frage)/.exec(s)?.[1] ?? '').join();
   const soll: Record<number, string> = {
-    1: 'erledigt,Owner-Frage',
-    2: 'erledigt,Owner-Frage',
+    1: 'erledigt,bleibt',
+    2: 'erledigt,erledigt,bleibt',
     3: 'erledigt,bleibt',
-    4: 'erledigt,Owner-Frage',
+    4: 'erledigt,bleibt',
     5: 'erledigt,bleibt',
     6: 'bleibt',
     7: 'erledigt',
@@ -918,12 +926,12 @@ const OF = 'R/lib/oberflaeche.ts';
     14: 'bleibt',
   };
   const abweichend = Object.entries(soll).filter(([i, s]) => status(Number(i)) !== s).map(([i]) => `${i}: ${status(Number(i)) || '–'}`);
-  ok(abweichend.length === 0, `CN Funktionsliste Befunde: Stand je Befund wie festgelegt (Tastenplätze 1, 2, 4 mit den Owner-Fragen F1–F3; Talkback 7 erledigt; Wahl wirkt sofort 11 erledigt mit „Setzen“, die Schalter bleiben; abweichend: ${abweichend.join(', ') || 'keine'})`);
+  ok(abweichend.length === 0, `CN Funktionsliste Befunde: Stand je Befund wie festgelegt (Tastenplätze 1, 2, 4 nach dem Owner-Entscheid zu F1–F3: F2-B erledigt, das Übrige bleibt; Talkback 7 erledigt; Wahl wirkt sofort 11 erledigt mit „Setzen“, die Schalter bleiben; abweichend: ${abweichend.join(', ') || 'keine'})`);
   const b11 = befunde[10] ?? '';
   ok(
     ['Setzen', '`R/zoom/SlotEinstellungen.tsx:', '`R/zoom/ZoomVorgaben.tsx:', 'Schalter', 'Vorgaben'].every((w) => b11.includes(w)) && !b11.includes('Owner-Frage'),
     'CN Funktionsliste Befund 11: erledigt mit „Setzen“ an laufenden Slots und am Sprecher-Signal (Belege in Kachel und Panel), Schalter und Vorgaben bleiben, keine Owner-Frage mehr',
   );
   const tastenplatz = [1, 2, 4].map((i) => befunde[i - 1] ?? '').join('\n');
-  ok(['F1', 'F2', 'F3'].every((f) => tastenplatz.includes(f)) && (befunde[6] ?? '').includes('`packages/ui/src/lib/halten.ts'), 'CN Funktionsliste Befunde: 1, 2 und 4 verweisen auf F1–F3; 7 belegt den Abbruch bei Fensterverlust im Baustein');
+  ok(['F1', 'F2', 'F3', 'Owner-Entscheid'].every((f) => tastenplatz.includes(f)) && !tastenplatz.includes('Owner-Frage') && (befunde[6] ?? '').includes('`packages/ui/src/lib/halten.ts'), 'CN Funktionsliste Befunde: 1, 2 und 4 nennen den Owner-Entscheid zu F1–F3 (keine offene Owner-Frage mehr); 7 belegt den Abbruch bei Fensterverlust im Baustein');
 }
