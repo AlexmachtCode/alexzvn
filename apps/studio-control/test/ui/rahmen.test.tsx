@@ -5,6 +5,8 @@
 // Rahmen mehr (AppShell, Topbar, ComingSoon gelöscht). Render ohne Browser und ohne window: Effekte laufen in
 // renderToStaticMarkup nicht, und ohne window ist die Umgebung „browser“.
 import { existsSync } from 'node:fs';
+import { ABSCHNITT_TEXTE } from '@jm/settings';
+import { UNBEKANNT } from '@jm/ui';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import { App } from '@/App';
 import { STUDIO_TEXTE, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
@@ -112,7 +114,11 @@ function rahmen(s: OberflaechenStand, abschnitt: Section = 'video', panelOffen =
   gleich(alteReste.filter((r) => text(html).includes(r)), [], 'SC Rahmen angemeldet: kein „Coming soon“, kein „Kumo“, kein Logout, Light/Dark, Sync/Offline, JM STUDIO');
   gleich(zahnrad(html).length, 0, 'SC Rahmen angemeldet: im Browser (ohne window.jms) kein ⚙');
   gleich(statusEintraege(html).map(([id]) => id), ['server', 'licht', 'benutzer'], 'SC Rahmen angemeldet: Statusleiste im Browser mit Server, Licht und Benutzer (ohne Master-Link und Fernsteuerung, W2-V4)');
-  ok(statusEintraege(html).filter(([id]) => id !== 'benutzer').every(([, z]) => z === 'off'), 'SC Rahmen angemeldet: vor der ersten Antwort sind Server und Licht unbekannt, nicht ok');
+  gleich(
+    statusEintraege(html).filter(([id]) => id !== 'benutzer').map(([, z, t]) => [z, t]),
+    [['off', `Server: ${UNBEKANNT}`], ['off', `Licht: ${UNBEKANNT}`]],
+    'SC Rahmen angemeldet: vor der ersten Antwort sind Server und Licht unbekannt (off mit „unbekannt“), nicht ok und nicht aus',
+  );
   const i = inhalt(html);
   ok(i.includes('TriCaster') && /class="[^"]*\bmax-w-\[1400px\][^"]*"/.test(i) && /\bpx-7\b/.test(i) && /\bpy-6\b/.test(i), 'SC Rahmen angemeldet: der Inhalt zeigt den Abschnitt Video mit dem alten Rand (max-w-[1400px], px-7, py-6)');
   pruefeIdVerweise(html, 'SC Rahmen angemeldet: id-Verweise gültig');
@@ -141,9 +147,16 @@ function rahmen(s: OberflaechenStand, abschnitt: Section = 'video', panelOffen =
   ok(live.includes('data-onair="live"') && text(bereich(live, 'data-onair', 'live')).includes('LIVE'), 'SC Rahmen angemeldet: ON AIR „LIVE“, wenn ein verbundener ATEM streamt (kopfOnAir, B3)');
   const app = ohneWurf('SC Rahmen angemeldet', () => mitSitzung({ token: 't', user: sitzungsBenutzer() }, () => mitStore(STREAMT, () => render(<App />))));
   ok(app.includes('data-onair="live"') && statusEintraege(app).some(([id, z]) => id === 'atem' && z === 'ok'), 'SC Rahmen angemeldet: die Wurzel liest die Geräte aus dem Store (ATEM verbunden → Eintrag ok, Stream → ON AIR)');
-  const licht = (lighting: object | undefined): string | undefined =>
-    statusEintraege(ohneWurf('SC Rahmen angemeldet', () => mitSitzung({ token: 't', user: sitzungsBenutzer() }, () => mitStore(lighting === undefined ? {} : { lighting: lighting as never }, () => render(<App />))))).find(([id]) => id === 'licht')?.[1];
-  gleich([licht(undefined), licht({ node: { host: '192.0.2.20' }, fixtures: [] }), licht({ node: null, fixtures: [] })], ['off', 'ok', 'off'], 'SC Rahmen angemeldet: Licht unbekannt, bis der Server den Licht-Zustand geschickt hat; dann an (ohne Rückmeldung) bzw. aus');
+  // Zustand UND Titel: „unbekannt“ und „aus“ sind beide off, nur der Titel unterscheidet sie.
+  const licht = (lighting: object | undefined): [string | undefined, string | undefined] | undefined => {
+    const e = statusEintraege(ohneWurf('SC Rahmen angemeldet', () => mitSitzung({ token: 't', user: sitzungsBenutzer() }, () => mitStore(lighting === undefined ? {} : { lighting: lighting as never }, () => render(<App />))))).find(([id]) => id === 'licht');
+    return e === undefined ? undefined : [e[1], e[2]];
+  };
+  gleich(
+    [licht(undefined), licht({ node: { host: '192.0.2.20' }, fixtures: [] }), licht({ node: null, fixtures: [] })],
+    [['off', `Licht: ${UNBEKANNT}`], ['ok', `Licht: ${ABSCHNITT_TEXTE.anOhneRueckmeldung}`], ['off', `Licht: ${ABSCHNITT_TEXTE.aus}`]],
+    'SC Rahmen angemeldet: Licht unbekannt, bis der Server den Licht-Zustand geschickt hat; dann an (ohne Rückmeldung) bzw. aus',
+  );
 }
 {
   // Rückrufe der Werkzeugleiste ohne DOM: Tabs wählen den Abschnitt, „Abmelden“ meldet ab; Rendern löst nichts aus.
