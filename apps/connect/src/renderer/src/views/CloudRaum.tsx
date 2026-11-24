@@ -470,7 +470,8 @@ function Grundzeile({
 }): JSX.Element {
   return (
     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--foreground)]">
-      <span>
+      {/* Der Grund ist markierbar (R9, Gesamtprüfung UX Welle 2b M3): der Bediener gibt ihn weiter (Support, Log). */}
+      <span className="select-text">
         <span aria-hidden="true" className="text-[var(--status-error)]">
           ⚠
         </span>{' '}

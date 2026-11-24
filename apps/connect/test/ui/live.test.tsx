@@ -519,3 +519,18 @@ function zoomSpalte(a: ZoomAbbild | undefined, z: ZoomAufrufe = zoomSpeicher(), 
       && /data-connect="slot-setzen" className="ml-auto"/.test(q) && q.includes('onClick={() => void wahl.setzen()}') && /if \(!laeuft\) setEntwurf\(\{\}\);/.test(q);
   });
 }
+
+// ── CN Grundzeile markierbar (Gesamtprüfung UX Welle 2b, M3; Wellenregel R9): Die Grundzeile eines Ausfalls (T128 in der Kopfzeile
+// der Gästeliste, T111 je Gast) nennt den Grund, den der Bediener weitergeben muss; body hat user-select: none. Fehlerfeld, T141 und
+// T144 waren schon markierbar, die Grundzeile nicht ──
+{
+  const gescheitert = { zustand: 'gescheitert' as const, grund: null, code: null, k: 3, quelle: 'JM Switcher (REGIE)', hinweis: 'JM Switcher', bereit: false };
+  const html = spalte(stand({ status: appStatus({ ndiProgramm: gescheitert }) }));
+  const kopf = bereich(html, 'data-connect', 'kopfzeile');
+  const zeile = [...kopf.matchAll(/<span(?:\s[^>]*)?>(?:(?!<span)[\s\S])*?<span aria-hidden="true"[^>]*>⚠<\/span>/g)].map((m) => /^<span(?:\s[^>]*)?>/.exec(m[0])?.[0] ?? '');
+  ok(
+    kopf !== '' && text(kopf).includes('⚠') && zeile.length === 1 && /\bselect-text\b/.test(attr(zeile[0], 'class') ?? ''),
+    'CN Grundzeile markierbar: der Grund (T128 bzw. T111) steht in einem span mit select-text (R9), die Knöpfe daneben bleiben Knöpfe',
+  );
+  ok(/function Grundzeile[\s\S]*?<span className="select-text">/.test(QUELLE('views/CloudRaum.tsx')), 'CN Grundzeile markierbar: dieselbe Grundzeile dient T111 und T128 (eine Stelle im Quelltext)');
+}
