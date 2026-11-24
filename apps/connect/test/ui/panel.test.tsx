@@ -9,7 +9,7 @@ import { PEERS_TEXTE, REMOTE_TEXTE } from '@jm/settings';
 import { UNBEKANNT } from '@jm/ui';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import type { JmConnectApi, ZoomErgebnis, ZoomSprecherEinstellung, ZoomSprecherSignal } from '@shared/types';
-import { BEDIEN_TEXT, PERSON_IM_NDI_NAMEN_TOOLTIP, SLOT_FELD, SPRECHER_TEXT, sdkKnopf, sdkZeile } from '@shared/zoom-text';
+import { BEDIEN_TEXT, HALTEZEIT_UNGUELTIG, PERSON_IM_NDI_NAMEN_TOOLTIP, SLOT_FELD, SPRECHER_TEXT, sdkKnopf, sdkZeile } from '@shared/zoom-text';
 import { ZUGANG_TEXT } from '../../src/main/zugang/regeln';
 import { statusKlick } from '../../../../packages/ui/src/components/AppShell';
 import { ABSCHNITT, CONNECT_TEXTE, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
@@ -297,6 +297,65 @@ const inhalt = (html: string): string => html.match(/<main[\s\S]*?<\/main>/)?.[0
     c.jetzt().waehlen(anders);
     await c.jetzt().setzen();
     return neu.wert === (signale[2] ?? anders) && neu.setzenGrund === W.sprecherUnveraendert && c.jetzt().setzenGrund === undefined && c.jetzt().wert === anders;
+  });
+  // ── CN Sprecher-Haltezeit (Gesamtprüfung UX Welle 2b, I4): Die Haltezeit wurde beim Verlassen des Felds übernommen und wirkt auf
+  // laufende Sprecher-Slots. Jetzt hält sie einen Entwurf; Enter übernimmt nur die Haltezeit, das vorhandene „Setzen“ des Sprecher-
+  // Blocks Signal und Haltezeit in einem Aufruf; Verlassen sendet nichts. Keine Zahl: „Setzen“ gesperrt mit T74 ──
+  const mitHaltezeit = (antwort = true) => {
+    const gesendet: ZoomSprecherEinstellung[] = [];
+    let entwurf: Vorgaben.SignalEntwurf | null = null;
+    let haltezeit: unknown = null;
+    const jetzt = (g: ZoomSprecherEinstellung = gemeldet) =>
+      Vorgaben.sprecherWahl({
+        gemeldet: g,
+        entwurf,
+        setzeEntwurf: (f) => {
+          entwurf = f(entwurf);
+        },
+        haltezeit,
+        setzeHaltezeit: (f: (h: unknown) => unknown) => {
+          haltezeit = f(haltezeit);
+        },
+        beschaeftigt: false,
+        sende: (x) => {
+          gesendet.push(x);
+          return Promise.resolve(antwort);
+        },
+      } as Parameters<typeof Vorgaben.sprecherWahl>[0]) as ReturnType<typeof Vorgaben.sprecherWahl> & { haltezeitText?: string; tippen?(t: string): void; setzen(nur?: 'haltezeit'): Promise<void> };
+    return { gesendet, jetzt };
+  };
+  await pruefe('CN Sprecher-Haltezeit: Tippen hält nur einen Entwurf (Verlassen sendet nichts), Enter sendet genau einmal nur die Haltezeit mit dem gemeldeten Signal', async () => {
+    const b = mitHaltezeit();
+    b.jetzt().tippen?.('2,5');
+    const w = b.jetzt();
+    const entwurf = w.haltezeitText === '2,5' && w.setzenGrund === undefined && b.gesendet.length === 0;
+    b.jetzt().waehlen(anders);
+    await b.jetzt().setzen('haltezeit');
+    await b.jetzt().setzen('haltezeit');
+    return entwurf && JSON.stringify(b.gesendet) === JSON.stringify([{ ...gemeldet, haltezeitMs: 2500 }]);
+  });
+  await pruefe('CN Sprecher-Haltezeit: „Setzen“ sendet Signal und Haltezeit zusammen in einem Aufruf; ohne Abweichung gesperrt mit dem Grund, der beide nennt', async () => {
+    const b = mitHaltezeit();
+    const leer = b.jetzt().setzenGrund === W.sprecherUnveraendert && W.sprecherUnveraendert.includes('Haltezeit');
+    b.jetzt().tippen?.('0.3');
+    b.jetzt().waehlen(anders);
+    await b.jetzt().setzen();
+    return leer && JSON.stringify(b.gesendet) === JSON.stringify([{ signal: anders, haltezeitMs: 300 }]);
+  });
+  await pruefe('CN Sprecher-Haltezeit: keine Zahl → „Setzen“ gesperrt mit T74 und sendet nichts; der Entwurf gilt nur gegen die gemeldete Haltezeit', async () => {
+    const b = mitHaltezeit();
+    b.jetzt().tippen?.('abc');
+    const gesperrt = b.jetzt().setzenGrund === HALTEZEIT_UNGUELTIG;
+    await b.jetzt().setzen();
+    await b.jetzt().setzen('haltezeit');
+    const c = mitHaltezeit();
+    c.jetzt().tippen?.('3');
+    const neu = c.jetzt({ ...gemeldet, haltezeitMs: 4000 });
+    return gesperrt && b.gesendet.length === 0 && neu.haltezeitText === '4' && neu.setzenGrund === W.sprecherUnveraendert;
+  });
+  await pruefe('CN Sprecher-Haltezeit: das Feld hat kein onBlur mehr, Tippen geht an den Entwurf, Enter übernimmt nur die Haltezeit', () => {
+    const q = QUELLE('zoom/ZoomVorgaben.tsx');
+    return !q.includes('onBlur={uebernimmHaltezeit}') && !/onBlur=/.test(q) && q.includes('signal.tippen(ev.target.value)') && q.includes("if (ev.key === 'Enter') uebernimmHaltezeit();");
   });
   await pruefe('CN Sprecher-Signal: im Panel steht unter den Optionsfeldern „Setzen“ (ohne Abweichung gesperrt, Grund als Tooltip), die Optionsfelder senden nicht selbst', () => {
     const a = zoomAbbild();

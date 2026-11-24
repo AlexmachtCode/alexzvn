@@ -4,7 +4,8 @@
 // Alle Nutzertexte kommen aus @shared/zoom-text (B-EP4); hier steht kein Text-Literal. Seit UX Welle 2b (Task 24) Knöpfe aus @jm/ui
 // und Farben nur als Tokens (W2-9); die Einstellungen bleiben je Kachel (W2-6). Nachtrag Task 25 (Befund 11, Wahl ≠ Bewegung): an
 // einem laufenden Slot wählen Auflösung, Ersatzbild und Bildformat nur einen Entwurf, erst „Setzen“ sendet (slotWahl); der Knopf heißt
-// wie PEERS_TEXTE.setzen, seine Sperrgründe stehen in CONNECT_TEXTE.wahl.
+// wie PEERS_TEXTE.setzen, seine Sperrgründe stehen in CONNECT_TEXTE.wahl. Gesamtprüfung UX Welle 2b (I4): auch „Person“ hält am laufenden
+// Slot nur einen Entwurf (personFeld); Enter übernimmt nur die Person, „Setzen“ alles, Verlassen des Felds nichts.
 import { useEffect, useState } from 'react';
 import { PEERS_TEXTE } from '@jm/settings';
 import { Button } from '@jm/ui';
@@ -84,10 +85,10 @@ export function wirktSofort(zustand: ZoomSlotZustand): boolean {
   return LAUFEND.has(zustand);
 }
 
-/** Die drei Auswahlen einer Kachel, die an einem laufenden Slot einen Entwurf halten. */
-export type SlotWahlFeld = 'aufloesung' | 'ersatzbild' | 'bildformat';
+/** Die drei Auswahlen einer Kachel und „Person“ (I4), die an einem laufenden Slot einen Entwurf halten. */
+export type SlotWahlFeld = 'aufloesung' | 'ersatzbild' | 'bildformat' | 'person';
 export type SlotWahl = Partial<Pick<ZoomSlotEinstellung, SlotWahlFeld>>;
-const WAHL_FELDER: readonly SlotWahlFeld[] = ['aufloesung', 'ersatzbild', 'bildformat'];
+const WAHL_FELDER: readonly SlotWahlFeld[] = ['aufloesung', 'ersatzbild', 'bildformat', 'person'];
 
 /** Ein gewählter Wert mit dem gemeldeten Wert und Modus, gegen die er gewählt wurde; `gesendet` nach gelungenem „Setzen“. */
 interface EntwurfFeld {
@@ -111,8 +112,11 @@ export interface SlotWahlBedienung {
   waehlen(w: SlotWahl): void;
   /** Warum „Setzen“ gesperrt ist; undefined = frei (ein gültiger, noch nicht gesendeter Entwurf weicht ab). */
   setzenGrund: string | undefined;
-  /** „Setzen“: schickt alle abweichenden Felder in einem Aufruf (derselbe zoomSlotAendern wie bisher). */
-  setzen(): Promise<void>;
+  /**
+   * „Setzen“: schickt alle abweichenden Felder in einem Aufruf (derselbe zoomSlotAendern wie bisher). Mit `nur` (Enter im Feld
+   * „Person“, I4) nur dieses Feld, und nur, wenn es abweicht.
+   */
+  setzen(nur?: SlotWahlFeld): Promise<void>;
 }
 
 /**
@@ -140,7 +144,9 @@ export function slotWahl(a: {
     const x = gueltig(f);
     return x !== undefined && !x.gesendet && x.wert !== a.e[f];
   });
-  const setzenGrund = a.beschaeftigt ? T.sendet : offen.length === 0 ? T.slotUnveraendert : undefined;
+  // Am Teilnehmer-Slot übernimmt „Setzen“ auch die Person (I4); der Grund nennt dann alle vier Felder.
+  const unveraendert = a.e.modus === 'teilnehmer' ? T.slotMitPersonUnveraendert : T.slotUnveraendert;
+  const setzenGrund = a.beschaeftigt ? T.sendet : offen.length === 0 ? unveraendert : undefined;
   return {
     laeuft,
     setzenSichtbar: laeuft,
@@ -162,15 +168,17 @@ export function slotWahl(a: {
       });
     },
     setzenGrund,
-    setzen: async () => {
+    setzen: async (nur) => {
       if (setzenGrund !== undefined) return;
+      const felder = nur === undefined ? offen : offen.filter((f) => f === nur);
+      if (felder.length === 0) return;
       const aenderung: Partial<Record<SlotWahlFeld, string>> = {};
-      for (const f of offen) aenderung[f] = gueltig(f)?.wert;
+      for (const f of felder) aenderung[f] = gueltig(f)?.wert;
       const r = await a.aendere(aenderung as SlotWahl);
       if (!r.ok) return;
       a.setzeEntwurf((alt) => {
         const neu: Partial<Record<SlotWahlFeld, EntwurfFeld>> = { ...alt };
-        for (const f of offen) {
+        for (const f of felder) {
           const x = neu[f];
           if (x !== undefined && x.wert === aenderung[f]) neu[f] = { ...x, gesendet: true };
         }
@@ -180,13 +188,43 @@ export function slotWahl(a: {
   };
 }
 
+/** Was das Feld „Person“ zeigt und auslöst (hooklos prüfbar, personFeld). */
+export interface PersonEingabe {
+  value: string;
+  onChange(text: string): void;
+  /** Nur am gestoppten Slot: Verlassen übernimmt wie bisher. Am laufenden Slot fehlt es (I4). */
+  onBlur?: () => void;
+  /** Enter: am laufenden Slot nur die Person setzen, am gestoppten übernehmen wie bisher. */
+  onEnter(): void;
+}
+
+/**
+ * Feld „Person“ (Gesamtprüfung UX Welle 2b, I4; Wahl ≠ Bewegung wie der Port des Presenters nach Ruling 129): Am laufenden Slot ging die
+ * Person beim Verlassen des Felds ans Bild; wegklicken oder Alt+Tab mitten im Tippen schickte einen halben Namen auf Sendung. Jetzt hält
+ * sie dort einen Entwurf wie die Auswahlen (slotWahl); Enter setzt nur die Person, das vorhandene „Setzen“ alles, Verlassen nichts.
+ * Am gestoppten Slot wie bisher: der Text bleibt im Feld (`text`), Verlassen und Enter übernehmen (`uebernimm`).
+ */
+export function personFeld(a: {
+  wahl: SlotWahlBedienung;
+  e: ZoomSlotEinstellung;
+  /** Getippter Text am gestoppten Slot; null = der gespeicherte Wert. */
+  text: string | null;
+  setzeText(text: string | null): void;
+  uebernimm(): void;
+}): PersonEingabe {
+  if (a.wahl.laeuft) {
+    return { value: a.wahl.wert('person'), onChange: (t) => a.wahl.waehlen({ person: t }), onEnter: () => void a.wahl.setzen('person') };
+  }
+  return { value: a.text ?? a.e.person, onChange: (t) => a.setzeText(t), onBlur: a.uebernimm, onEnter: a.uebernimm };
+}
+
 /**
  * Felder eines Slots (7.5 Nr. 8): NDI-Name (gesperrt, solange der Slot an ist, T35), Modus, Person (nur Teilnehmer, mit
  * Vorschlägen aus der Teilnehmerliste, freie Eingabe), Auflösung, Ersatzbild, Ton an/aus und Tonart (Person nur im Modus
  * Teilnehmer), Computerton (nur Freigabe), „Teilnehmer ohne Kamera zeigen“ (nur Sprecher), „Löschen“ (nur ausgeschaltet,
  * T36, Rückfrage T37). Eine Änderung geht an zoomSlotAendern; der Kern speichert sie und schickt im Meeting slotSet (B-EP21).
- * An einem laufenden Slot halten Auflösung, Ersatzbild und Bildformat nur einen Entwurf, den erst „Setzen“ schickt (slotWahl,
- * Wahl ≠ Bewegung); beim Stoppen fällt der Entwurf weg. Den Text einer Ablehnung (T43–T47 …) zeigt die Kachel am Ort `slot:<nr>`.
+ * An einem laufenden Slot halten Auflösung, Ersatzbild, Bildformat und Person nur einen Entwurf, den erst „Setzen“ schickt (slotWahl,
+ * personFeld, Wahl ≠ Bewegung); beim Stoppen fällt der Entwurf weg. Den Text einer Ablehnung (T43–T47 …) zeigt die Kachel am Ort `slot:<nr>`.
  */
 export function SlotEinstellungen({
   lage,
@@ -236,6 +274,7 @@ export function SlotEinstellungen({
       if (r.ok) setPerson(null);
     });
   };
+  const personEingabe = personFeld({ wahl, e, text: person, setzeText: setPerson, uebernimm: uebernimmPerson });
   const listeId = `zoom-slot-${nr}-personen`;
   return (
     <div data-connect="slot-einstellungen" className={`mt-2 space-y-2 ${STIL.kasten} text-xs text-[var(--foreground)]`}>
@@ -271,13 +310,13 @@ export function SlotEinstellungen({
           {SLOT_FELD.person}
           <input
             list={listeId}
-            value={person ?? e.person}
+            value={personEingabe.value}
             placeholder={SLOT_FELD.personPlatzhalter}
             disabled={beschaeftigt}
-            onChange={(ev) => setPerson(ev.target.value)}
-            onBlur={uebernimmPerson}
+            onChange={(ev) => personEingabe.onChange(ev.target.value)}
+            onBlur={personEingabe.onBlur}
             onKeyDown={(ev) => {
-              if (ev.key === 'Enter') uebernimmPerson();
+              if (ev.key === 'Enter') personEingabe.onEnter();
             }}
             autoComplete="off"
             className={`${STIL.inp} mt-1 block w-64`}

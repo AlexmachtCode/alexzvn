@@ -3,7 +3,8 @@
 // neue Slots (T77, Auflösung, Ton), der Schalter „Person im NDI-Namen“ samt Tooltip und die Sprecher-Einstellungen (Signal,
 // Haltezeit mit T73, ungültig T74). Vorgaben und Schalter werden sofort gesendet wie bisher (sie gelten erst für neue Slots); das
 // Sprecher-Signal wirkt sofort auf laufende Sprecher-Slots und wählt darum nur einen Entwurf, erst „Setzen“ sendet ihn (sprecherWahl,
-// Wahl ≠ Bewegung, Nachtrag Task 25 zu Befund 11). Eine Ablehnung steht hier am Ort „vorgaben“ (vorher im Kopf der Slots). Ohne
+// Wahl ≠ Bewegung, Nachtrag Task 25 zu Befund 11). Die Haltezeit ebenso (Gesamtprüfung UX Welle 2b, I4): Tippen hält einen Entwurf,
+// Enter übernimmt nur die Haltezeit, „Setzen“ Signal und Haltezeit in einem Aufruf, Verlassen des Felds nichts. Eine Ablehnung steht hier am Ort „vorgaben“ (vorher im Kopf der Slots). Ohne
 // Effekt (B8): Abbild aus stand.zoom, laufende Aufrufe und Antwort als ZoomAufrufe aus der Wurzel-View; lokal nur die Entwürfe von
 // Haltezeit und Signal. Texte aus @shared/zoom-text (B-EP4), der Knopf aus PEERS_TEXTE, seine Sperrgründe aus CONNECT_TEXTE.wahl.
 import { useState } from 'react';
@@ -38,56 +39,107 @@ export interface SignalEntwurf {
   gesendet: boolean;
 }
 
+/** Entwurf der Haltezeit (I4): der getippte Text in Sekunden und die gemeldete Haltezeit, gegen die getippt wurde; `gesendet` nach Erfolg. */
+export interface HaltezeitEntwurf {
+  text: string;
+  basis: number;
+  gesendet: boolean;
+}
+
+/** Getippte Sekunden (Komma oder Punkt) in ms; keine Zahl → undefined (T74 hier, Bereich und Schritt prüft der Kern, KF7). */
+function haltezeitMs(text: string): number | undefined {
+  const s = Number(text.trim().replace(',', '.'));
+  return text.trim() === '' || !Number.isFinite(s) ? undefined : Math.round(s * 1000);
+}
+
+/** Was der Sprecher-Block zeigt und auslöst (sprecherWahl). */
+export interface SprecherBedienung {
+  wert: ZoomSprecherSignal;
+  /** Angezeigte Haltezeit in Sekunden: der gültige Entwurf, sonst der gemeldete Wert. */
+  haltezeitText: string;
+  /** Der Entwurf der Haltezeit ist keine Zahl (T74). */
+  haltezeitUngueltig: boolean;
+  setzenGrund: string | undefined;
+  waehlen(s: ZoomSprecherSignal): void;
+  /** Feld Haltezeit: Tippen ändert nur den Entwurf. */
+  tippen(text: string): void;
+  /** „Setzen“: Signal und Haltezeit in einem Aufruf; mit `nur` (Enter im Feld) nur die Haltezeit. */
+  setzen(nur?: 'haltezeit'): Promise<void>;
+}
+
 /**
- * Sprecher-Signal (Wahl ≠ Bewegung): ein Optionsfeld (auch per Pfeiltaste) wählt nur einen Entwurf, erst „Setzen“ sendet ihn mit der
- * gemeldeten Haltezeit über dieselbe speakerConfig wie bisher. Der Entwurf gilt nur, solange das gemeldete Signal das ist, gegen das
- * er gewählt wurde; nach gelungenem „Setzen“ zeigt die Gruppe den gesendeten Wert bis zur Meldung, eine Ablehnung lässt ihn stehen.
- * Gesperrt ist „Setzen“ ohne Abweichung und solange der Aufruf läuft (`beschaeftigt`). Rein, damit das Panel ohne Effekt bleibt (B8).
+ * Sprecher-Signal und Haltezeit (Wahl ≠ Bewegung): ein Optionsfeld (auch per Pfeiltaste) wählt nur einen Entwurf, die Haltezeit
+ * (Gesamtprüfung UX Welle 2b, I4) ebenso; erst „Setzen“ sendet beides über dieselbe speakerConfig wie bisher, Enter im Feld nur die
+ * Haltezeit, das Verlassen des Felds nichts. Ein Entwurf gilt nur, solange der gemeldete Wert der ist, gegen den er gewählt bzw.
+ * getippt wurde; nach gelungenem Senden zeigt der Block den gesendeten Wert bis zur Meldung, eine Ablehnung lässt ihn stehen.
+ * Gesperrt ist „Setzen“ ohne Abweichung, bei einer Haltezeit, die keine Zahl ist (T74), und solange der Aufruf läuft
+ * (`beschaeftigt`). Rein, damit das Panel ohne Effekt bleibt (B8).
  */
 export function sprecherWahl(a: {
   gemeldet: ZoomSprecherEinstellung;
   entwurf: SignalEntwurf | null;
   setzeEntwurf(f: (e: SignalEntwurf | null) => SignalEntwurf | null): void;
+  haltezeit?: HaltezeitEntwurf | null;
+  setzeHaltezeit?(f: (h: HaltezeitEntwurf | null) => HaltezeitEntwurf | null): void;
   beschaeftigt: boolean;
   sende(s: ZoomSprecherEinstellung): Promise<boolean>;
-}): { wert: ZoomSprecherSignal; setzenGrund: string | undefined; waehlen(s: ZoomSprecherSignal): void; setzen(): Promise<void> } {
+}): SprecherBedienung {
   const T = CONNECT_TEXTE.wahl;
   const gueltig = a.entwurf !== null && a.entwurf.basis === a.gemeldet.signal ? a.entwurf : null;
   const offen = gueltig !== null && !gueltig.gesendet && gueltig.wert !== a.gemeldet.signal ? gueltig : null;
-  const setzenGrund = a.beschaeftigt ? T.sendet : offen === null ? T.sprecherUnveraendert : undefined;
+  const h = a.haltezeit !== undefined && a.haltezeit !== null && a.haltezeit.basis === a.gemeldet.haltezeitMs ? a.haltezeit : null;
+  const hMs = h === null ? undefined : haltezeitMs(h.text);
+  const hUngueltig = h !== null && !h.gesendet && hMs === undefined;
+  const hOffen = h !== null && !h.gesendet && hMs !== undefined && hMs !== a.gemeldet.haltezeitMs;
+  const gemeldetText = String(a.gemeldet.haltezeitMs / 1000);
+  const setzenGrund = a.beschaeftigt ? T.sendet : hUngueltig ? HALTEZEIT_UNGUELTIG : offen === null && !hOffen ? T.sprecherUnveraendert : undefined;
   return {
     wert: gueltig?.wert ?? a.gemeldet.signal,
+    haltezeitText: h?.text ?? gemeldetText,
+    haltezeitUngueltig: hUngueltig,
     setzenGrund,
     waehlen: (s) => a.setzeEntwurf(() => (s === a.gemeldet.signal ? null : { wert: s, basis: a.gemeldet.signal, gesendet: false })),
-    setzen: async () => {
-      if (setzenGrund !== undefined || offen === null) return;
-      const ok = await a.sende({ ...a.gemeldet, signal: offen.wert });
-      if (ok) a.setzeEntwurf((alt) => (alt !== null && alt.wert === offen.wert ? { ...alt, gesendet: true } : alt));
+    tippen: (text) => a.setzeHaltezeit?.(() => (text === gemeldetText ? null : { text, basis: a.gemeldet.haltezeitMs, gesendet: false })),
+    setzen: async (nur) => {
+      if (setzenGrund !== undefined) return;
+      const mitSignal = nur === undefined && offen !== null;
+      const mitHaltezeit = hOffen && hMs !== undefined;
+      if (!mitSignal && !mitHaltezeit) return;
+      const signal = mitSignal && offen !== null ? offen.wert : a.gemeldet.signal;
+      const ms = mitHaltezeit && hMs !== undefined ? hMs : a.gemeldet.haltezeitMs;
+      const ok = await a.sende({ ...a.gemeldet, signal, haltezeitMs: ms });
+      if (!ok) return;
+      if (mitSignal) a.setzeEntwurf((alt) => (alt !== null && alt.wert === signal ? { ...alt, gesendet: true } : alt));
+      if (mitHaltezeit && h !== null) a.setzeHaltezeit?.((alt) => (alt !== null && alt.text === h.text ? { ...alt, gesendet: true } : alt));
     },
   };
 }
 
 export function ZoomVorgaben({ a, zoom }: { a: ZoomAbbild; zoom: ZoomAufrufe }): JSX.Element {
-  /** Eingabe der Haltezeit in Sekunden; null = der gespeicherte Wert. */
-  const [haltezeit, setHaltezeit] = useState<string | null>(null);
+  /** Entwurf der Haltezeit (I4); null = der gemeldete Wert. */
+  const [haltezeit, setHaltezeit] = useState<HaltezeitEntwurf | null>(null);
   const [haltezeitFehler, setHaltezeitFehler] = useState(false);
   const laeuft = zoom.laeuft;
   const auf = vorgabenAufrufe(zoom, () => window.jmconnect);
   const sendeSprecher = (s: ZoomSprecherEinstellung): Promise<boolean> => auf.sprecher(s).then((r) => r.ok);
   const [signalEntwurf, setSignalEntwurf] = useState<SignalEntwurf | null>(null);
-  const signal = sprecherWahl({ gemeldet: a.sprecher, entwurf: signalEntwurf, setzeEntwurf: setSignalEntwurf, beschaeftigt: laeuft.has('sprecher'), sende: sendeSprecher });
-  // Haltezeit: eine Zahl in Sekunden (Komma oder Punkt). Keine Zahl → T74 hier; Bereich und Schritt prüft der Kern (T74, KF7).
+  const signal = sprecherWahl({
+    gemeldet: a.sprecher,
+    entwurf: signalEntwurf,
+    setzeEntwurf: setSignalEntwurf,
+    haltezeit,
+    setzeHaltezeit: setHaltezeit,
+    beschaeftigt: laeuft.has('sprecher'),
+    sende: sendeSprecher,
+  });
+  // Enter im Feld Haltezeit: nur die Haltezeit setzen. Keine Zahl → T74 hier; Bereich und Schritt prüft der Kern (T74, KF7).
   const uebernimmHaltezeit = (): void => {
-    if (haltezeit === null) return;
-    const s = Number(haltezeit.trim().replace(',', '.'));
-    if (haltezeit.trim() === '' || !Number.isFinite(s)) {
+    if (signal.haltezeitUngueltig) {
       setHaltezeitFehler(true);
       return;
     }
     setHaltezeitFehler(false);
-    void sendeSprecher({ ...a.sprecher, haltezeitMs: Math.round(s * 1000) }).then((ok) => {
-      if (ok) setHaltezeit(null);
-    });
+    void signal.setzen('haltezeit');
   };
   const antwort = antwortAm(zoom, 'vorgaben');
   return (
@@ -165,12 +217,11 @@ export function ZoomVorgaben({ a, zoom }: { a: ZoomAbbild; zoom: ZoomAufrufe }):
             min={0}
             max={5}
             step={0.1}
-            value={haltezeit ?? String(a.sprecher.haltezeitMs / 1000)}
+            value={signal.haltezeitText}
             onChange={(ev) => {
-              setHaltezeit(ev.target.value);
+              signal.tippen(ev.target.value);
               setHaltezeitFehler(false);
             }}
-            onBlur={uebernimmHaltezeit}
             onKeyDown={(ev) => {
               if (ev.key === 'Enter') uebernimmHaltezeit();
             }}

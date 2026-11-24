@@ -73,7 +73,10 @@ export const CONNECT_TEXTE = {
    */
   wahl: {
     slotUnveraendert: 'Auflösung, Ersatzbild und Bildformat sind schon so eingestellt.',
-    sprecherUnveraendert: 'Das Sprecher-Signal ist schon so eingestellt.',
+    /** Teilnehmer-Slot: „Setzen“ übernimmt auch „Person“ (Gesamtprüfung UX Welle 2b, I4); neu, für die Texttabelle. */
+    slotMitPersonUnveraendert: 'Person, Auflösung, Ersatzbild und Bildformat sind schon so eingestellt.',
+    /** „Setzen“ des Sprecher-Blocks übernimmt Signal und Haltezeit (I4); vorher „Das Sprecher-Signal ist schon so eingestellt.“ */
+    sprecherUnveraendert: 'Sprecher-Signal und Haltezeit sind schon so eingestellt.',
     sendet: 'Wird gesendet …',
   },
 } as const;

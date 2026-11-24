@@ -349,6 +349,8 @@ function zoomSpalte(a: ZoomAbbild | undefined, z: ZoomAufrufe = zoomSpeicher(), 
   ok(titel.every((t) => /\bshrink-0\b/.test(attr(t, 'class') ?? '')), 'CN Zoom-Spalte: der Titel „Zoom-Meeting“ bricht neben einer langen Statuszeile nicht um (shrink-0; gesehen bei 980×640)');
 }
 
+// Seit I4 (Gesamtprüfung UX Welle 2b) übernimmt „Setzen“ am Teilnehmer-Slot (Vorgabe von slotLage) auch die Person; sein Sperrgrund
+// nennt darum alle vier Felder (W.slotMitPersonUnveraendert), an anderen Slots weiter W.slotUnveraendert.
 // ── CN Slot-Wahl (Nachtrag Task 25, Befund 11; Global Constraint „Wahl ≠ Bewegung“): an einem laufenden Slot (ein Sender läuft
 // oder kommt gleich: startet, zeigt, gehalten, ersatz) halten Auflösung, Ersatzbild und Bildformat nur einen Entwurf; erst
 // „Setzen“ sendet ihn mit demselben zoomSlotAendern wie bisher. An einem gestoppten Slot wirkt die Wahl wie bisher sofort, sie
@@ -419,10 +421,10 @@ function zoomSpalte(a: ZoomAbbild | undefined, z: ZoomAufrufe = zoomSpeicher(), 
   );
   await pruefe('CN Slot-Wahl: „Setzen“ ist ohne Abweichung gesperrt mit Grund (auch nach Rückwahl des gemeldeten Werts) und sendet dann nichts', async () => {
     const b = bedienung('zeigt');
-    const leer = b.jetzt().setzenGrund === W.slotUnveraendert;
+    const leer = b.jetzt().setzenGrund === W.slotMitPersonUnveraendert;
     b.jetzt().waehlen({ aufloesung: '1080p' });
     b.jetzt().waehlen({ aufloesung: '720p' });
-    const zurueck = b.jetzt().setzenGrund === W.slotUnveraendert && b.jetzt().wert('aufloesung') === '720p';
+    const zurueck = b.jetzt().setzenGrund === W.slotMitPersonUnveraendert && b.jetzt().wert('aufloesung') === '720p';
     await b.jetzt().setzen();
     return leer && zurueck && b.gesendet.length === 0;
   });
@@ -437,7 +439,7 @@ function zoomSpalte(a: ZoomAbbild | undefined, z: ZoomAufrufe = zoomSpeicher(), 
     const gut = bedienung('zeigt');
     gut.jetzt().waehlen({ aufloesung: '1080p' });
     await gut.jetzt().setzen();
-    const nachGut = gut.jetzt().setzenGrund === W.slotUnveraendert && gut.jetzt().wert('aufloesung') === '1080p';
+    const nachGut = gut.jetzt().setzenGrund === W.slotMitPersonUnveraendert && gut.jetzt().wert('aufloesung') === '1080p';
     const schlecht = bedienung('zeigt', {}, false, { ok: false });
     schlecht.jetzt().waehlen({ aufloesung: '1080p' });
     await schlecht.jetzt().setzen();
@@ -449,7 +451,7 @@ function zoomSpalte(a: ZoomAbbild | undefined, z: ZoomAufrufe = zoomSpeicher(), 
     const gemeldetNeu = b.jetzt({ ...b.lage.einstellung, aufloesung: '360p' });
     const modusNeu = b.jetzt({ ...b.lage.einstellung, modus: 'sprecher' });
     const gestoppt = b.jetzt(b.lage.einstellung, 'aus');
-    return gemeldetNeu.wert('aufloesung') === '360p' && gemeldetNeu.setzenGrund === W.slotUnveraendert
+    return gemeldetNeu.wert('aufloesung') === '360p' && gemeldetNeu.setzenGrund === W.slotMitPersonUnveraendert
       && modusNeu.wert('aufloesung') === '720p' && gestoppt.wert('aufloesung') === '720p' && !gestoppt.setzenSichtbar;
   });
   await pruefe('CN Slot-Wahl: in der Kachel eines laufenden Slots steht „Setzen“ (gesperrt, Grund als Tooltip am Rahmen), am gestoppten Slot nicht', () => {
@@ -459,7 +461,57 @@ function zoomSpalte(a: ZoomAbbild | undefined, z: ZoomAufrufe = zoomSpeicher(), 
     const setzen = bereich(laufend, 'data-connect', 'slot-setzen');
     const knopf = tags(setzen, 'button')[0];
     return knopfTexte(laufend).filter((t) => t === PEERS_TEXTE.setzen).length === 1 && knopf !== undefined && /\sdisabled=""/.test(knopf)
-      && tags(setzen, 'span').some((t) => attr(t, 'title') === W.slotUnveraendert) && !knopfTexte(gestoppt).includes(PEERS_TEXTE.setzen) && bereich(gestoppt, 'data-connect', 'slot-setzen') === '';
+      && tags(setzen, 'span').some((t) => attr(t, 'title') === W.slotMitPersonUnveraendert) && !knopfTexte(gestoppt).includes(PEERS_TEXTE.setzen) && bereich(gestoppt, 'data-connect', 'slot-setzen') === '';
+  });
+  // ── CN Slot-Person (Gesamtprüfung UX Welle 2b, I4; Wahl ≠ Bewegung wie der Port im Presenter nach Ruling 129): „Person“ eines
+  // laufenden Teilnehmer-Slots wurde beim Verlassen des Felds übernommen; wegklicken oder Alt+Tab mitten im Tippen schickte den halben
+  // Namen per zoomSlotAendern, das NDI-Bild dieses Slots wechselte auf Sendung. Jetzt hält die Person am laufenden Slot einen Entwurf
+  // wie die Auswahlen; Enter übernimmt nur die Person, das vorhandene „Setzen“ (Platz aus Task 25) alles; Verlassen sendet nichts.
+  // Am gestoppten Slot bleibt es wie bisher (Verlassen und Enter übernehmen) ──
+  const P = (Wahl as Record<string, unknown>).personFeld as
+    | ((a: { wahl: Wahl.SlotWahlBedienung; e: Parameters<typeof slotLage>[2] & object; text: string | null; setzeText(t: string | null): void; uebernimm(): void }) => {
+        value: string;
+        onChange(t: string): void;
+        onBlur?: () => void;
+        onEnter(): void;
+      })
+    | undefined;
+  await pruefe('CN Slot-Person: am laufenden Slot hält „Person“ nur einen Entwurf, Verlassen sendet nichts, Enter sendet genau einmal nur die Person', async () => {
+    const b = bedienung('zeigt', { modus: 'teilnehmer', person: 'Anna' });
+    let text: string | null = null;
+    let uebernommen = 0;
+    const feld = () => P?.({ wahl: b.jetzt(), e: b.lage.einstellung, text, setzeText: (t) => void (text = t), uebernimm: () => void uebernommen++ });
+    feld()?.onChange('Be');
+    const f = feld();
+    const entwurf = f?.value === 'Be' && f.onBlur === undefined && b.gesendet.length === 0 && text === null;
+    b.jetzt().waehlen({ aufloesung: '1080p' });
+    feld()?.onEnter();
+    await Promise.resolve();
+    return P !== undefined && entwurf && uebernommen === 0 && JSON.stringify(b.gesendet) === JSON.stringify([{ person: 'Be' }]);
+  });
+  await pruefe('CN Slot-Person: „Setzen“ sendet Person und Auswahlen zusammen in einem Aufruf; ohne Abweichung gesperrt mit dem Grund, der die Person nennt', async () => {
+    const b = bedienung('gehalten', { modus: 'teilnehmer', person: 'Anna' });
+    const leer = b.jetzt().setzenGrund === W.slotMitPersonUnveraendert;
+    b.jetzt().waehlen({ person: 'Carla' });
+    b.jetzt().waehlen({ aufloesung: '360p' });
+    await b.jetzt().setzen();
+    const sprecher = bedienung('zeigt', { modus: 'sprecher' });
+    return leer && JSON.stringify(b.gesendet) === JSON.stringify([{ aufloesung: '360p', person: 'Carla' }]) && sprecher.jetzt().setzenGrund === W.slotUnveraendert;
+  });
+  await pruefe('CN Slot-Person: am gestoppten Slot wie bisher – Tippen bleibt im Feld, Verlassen und Enter übernehmen', () => {
+    const b = bedienung('aus', { modus: 'teilnehmer', person: 'Anna' });
+    let text: string | null = null;
+    let uebernommen = 0;
+    const feld = () => P?.({ wahl: b.jetzt(), e: b.lage.einstellung, text, setzeText: (t) => void (text = t), uebernimm: () => void uebernommen++ });
+    feld()?.onChange('Ben');
+    const f = feld();
+    f?.onBlur?.();
+    f?.onEnter();
+    return P !== undefined && text === 'Ben' && f?.value === 'Ben' && uebernommen === 2 && b.gesendet.length === 0 && JSON.stringify(b.entwurf()) === '{}';
+  });
+  await pruefe('CN Slot-Person: die Kachel verdrahtet „Person“ über personFeld (kein onBlur={uebernimmPerson} mehr), Enter übernimmt über onEnter', () => {
+    const q = QUELLE('zoom/SlotEinstellungen.tsx');
+    return q.includes('personFeld({') && !q.includes('onBlur={uebernimmPerson}') && /onBlur=\{personEingabe\.onBlur\}/.test(q) && /if \(ev\.key === 'Enter'\) personEingabe\.onEnter\(\);/.test(q);
   });
   await pruefe('CN Slot-Wahl: die drei Auswahlen wählen über slotWahl (kein aendere direkt im onChange), „Setzen“ steht rechts in ihrer Reihe, der Entwurf fällt beim Stoppen weg', () => {
     const q = QUELLE('zoom/SlotEinstellungen.tsx');
