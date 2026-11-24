@@ -9,6 +9,7 @@ import { useBrueckenWert, type BrueckenQuelle } from '@jm/ui';
 import { chatText, type GastKlickerStatus } from '@shared/gast-klicker';
 import type { DisplayInfo, JmprApi, NdiStatus, NetInterface, PresentationState, RemoteStatus, TimerSource, TimerSyncConfig } from '@shared/types';
 import type { EinstellungenAktionen } from '@/views/Einstellungen';
+import { KEIN_AUFRUF } from './aufrufe';
 import { FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from './bruecken';
 import { PRESENTER_TEXTE, type OberflaechenStand, type ReferentAktionen } from './oberflaeche';
 
@@ -282,6 +283,8 @@ export function standAktionen(stand: Pick<OberflaechenStand, 'timer'>): Einstell
       if (timer) timerEinstellen({ ...timer, host: host.trim() || TIMER_VORGABE_HOST, port: port >= 1 && port <= 65535 ? port : TIMER_VORGABE_PORT });
     },
     handyAnwenden: async (config) => preload()?.remote?.apply?.(config),
+    // Die Wurzel-View ersetzt den leeren Lauf-Stand durch ihren (mitLaufendenAufrufen, lib/aufrufe.ts).
+    laeuft: KEIN_AUFRUF,
     gastKlicker: {
       setzeAn: async (an) => preload()?.gastKlicker?.setzeAn?.(an),
       pause: async (an) => preload()?.gastKlicker?.pause?.(an),

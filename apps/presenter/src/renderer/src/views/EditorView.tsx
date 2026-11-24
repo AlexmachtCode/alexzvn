@@ -42,7 +42,7 @@ function Arbeitsflaeche() {
     <div className="h-full min-h-0 flex flex-col">
       {error && (
         <div className="flex items-center justify-between gap-4 px-4 py-2 bg-[var(--destructive)]/15 border-b border-[var(--destructive)]/40 text-sm">
-          <span className="text-[var(--destructive)]">{error}</span>
+          <span className="text-[var(--destructive)] select-text">{error}</span>
           <button type="button" onClick={() => setError(null)} className="text-xs opacity-70 hover:opacity-100">
             schließen
           </button>

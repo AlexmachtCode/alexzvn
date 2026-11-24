@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import { AppShell } from '@jm/ui';
 import type { Slide } from '@shared/types';
+import { KEIN_AUFRUF, mitLaufendenAufrufen, type LaufendeAufrufe } from '@/lib/aufrufe';
 import { fensterSchliessenAbfangen, kopfOnAir, PRESENTER_TEXTE, referentWahl, statusLeiste, verschiebenGrund, type OberflaechenStand, type ReferentAktionen } from '@/lib/oberflaeche';
 import { useFolien, usePresenterKeys } from '@/lib/usePresentation';
 import { referentAktionen, standAktionen, useStand } from '@/lib/useStand';
@@ -144,6 +145,9 @@ export function ReferentOberflaeche({
 
   const referent = referentAktionen();
   const bedienung = bildschirmBedienung(stand, wahl, setGewaehlt, referent.verschieben);
+  // Laufende Aufrufe des Panels (Handy, Gast-Klicker) hier in der Wurzel, nicht im Panel (Rückspiel Task 26): das Panel stirbt
+  // beim Schließen, „beschäftigt“ überlebt es hier.
+  const [laufend, setLaufend] = useState<LaufendeAufrufe>(KEIN_AUFRUF);
 
   return (
     <ReferentRahmen
@@ -151,7 +155,7 @@ export function ReferentOberflaeche({
       folien={folien}
       wahl={wahl}
       uebersicht={uebersicht}
-      aktionen={standAktionen(stand)}
+      aktionen={mitLaufendenAufrufen(standAktionen(stand), laufend, setLaufend)}
       referent={referent}
       panelOffen={panelOffen}
       panelAbschnitt={panelAbschnitt}

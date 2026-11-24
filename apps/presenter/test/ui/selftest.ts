@@ -29,4 +29,5 @@ await import('./panel.test');
 await import('./referent.test');
 await import('./live.test');
 await import('./funktionsliste.test');
+await import('./rueckspiel.test');
 abschluss();

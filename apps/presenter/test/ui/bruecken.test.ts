@@ -240,8 +240,12 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
   ok(m !== null && Number(m[1]) === STEUER_PORT && STEUER_PORT === 8728, 'PS Wächter STEUER_PORT 8728: STEUER_PORT ' + STEUER_PORT + ' gleich CONTROL_PORT des Steuerservers (' + m?.[1] + ')');
   ok(
     cs.includes('export function startControlServer(\n  onMeldung?: (e: FernsteuerungEreignis) => void,\n): Promise<{ ok: boolean; error?: string; port?: number }> {') &&
-      cs.includes("    onStatus: (st) => {\n      onMeldung?.({ art: 'status', ...st, modus: server?.modus() });\n    },\n"),
-    'PS Wächter STEUER_PORT 8728: startControlServer nimmt onMeldung; jeder Statuswechsel des Servers wird mit wirksamem Modus gemeldet',
+      cs.includes("    onStatus: (st) => {\n      onMeldung?.({ art: 'status', ...st, modus: srv.modus() });\n    },\n") &&
+      /const srv = new SuiteControlServer\(/.test(cs) &&
+      cs.includes('server = srv;') &&
+      !cs.includes('server?.modus()'),
+    // Rückspiel (Task 26, Regel aus Task 21): der Modus kommt aus der meldenden Instanz, nicht aus der Modulvariable `server`.
+    'PS Rückspiel Wächter STEUER_PORT 8728: startControlServer nimmt onMeldung; jeder Statuswechsel des Servers wird mit dem Modus der meldenden Instanz gemeldet (srv.modus(), nicht die Modulvariable)',
   );
   ok(cs.includes('  return server.start(CONTROL_PORT);\n'), 'PS Wächter STEUER_PORT 8728: der Steuerserver startet unverändert auf CONTROL_PORT');
   {

@@ -7,6 +7,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { AppShell } from '@jm/ui';
 import { Werkzeugleiste } from '@/components/Toolbar';
+import { KEIN_AUFRUF, mitLaufendenAufrufen, type LaufendeAufrufe } from '@/lib/aufrufe';
 import { bildschirmWahl, kopfOnAir, startBildschirm, statusLeiste, type OberflaechenStand, type StartWahl } from '@/lib/oberflaeche';
 import { standAktionen, useStand } from '@/lib/useStand';
 import { nurNdiBehalten } from '../../../shared/ndi';
@@ -69,8 +70,11 @@ export function EditorOberflaeche({
   }, [nurNdiBleibt]);
   const startWahl: StartWahl = { bildschirm: startBildschirm(gewaehlt, stand.bildschirme), nurNdi };
 
+  // Laufende Aufrufe des Panels (Handy, Gast-Klicker) hier in der Wurzel, nicht im Panel (Rückspiel Task 26): das Panel stirbt
+  // beim Schließen, „beschäftigt“ überlebt es hier.
+  const [laufend, setLaufend] = useState<LaufendeAufrufe>(KEIN_AUFRUF);
   const aktionen: EinstellungenAktionen = {
-    ...standAktionen(stand),
+    ...mitLaufendenAufrufen(standAktionen(stand), laufend, setLaufend),
     startwahl: {
       startBildschirmWaehlen: (id) => setGewaehlt(bildschirmWahl(id, stand.bildschirme)),
       nurNdiWaehlen: setNurNdi,

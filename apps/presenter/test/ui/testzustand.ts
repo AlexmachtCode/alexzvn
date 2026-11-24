@@ -3,6 +3,7 @@
 // OberflaechenStand, laufende Präsentationen, Bildschirmlisten und die Attrappe für `window.jmpr.present`, Aufgabe d1 das
 // Lesen des gerenderten HTML (Tags, Attribute, Text, Abschnitte, Statuseinträge), den Store-Griff und die Panel-Aktionen, Aufgabe
 // d2 den Stand und die Folien des Referenten, den Timer-Zustand, die Attrappe der Referenten-Aktionen und den Elementbaum.
+import { KEIN_AUFRUF } from '@/lib/aufrufe';
 import type { OberflaechenStand, ReferentAktionen } from '@/lib/oberflaeche';
 import type { EinstellungenAktionen } from '@/views/Einstellungen';
 import { useProject } from '@/store/project';
@@ -88,6 +89,7 @@ export function aktionenAttrappe(log: string[] = [], editor = true): Einstellung
     timerSchalten: (an) => void log.push(`timer(${an})`),
     timerSetzen: (host, port) => void log.push(`timerSetzen(${host},${port})`),
     handyAnwenden: (c) => merke(`handy(${JSON.stringify(c)})`),
+    laeuft: KEIN_AUFRUF,
     gastKlicker: {
       setzeAn: (an) => merke(`gastAn(${an})`),
       pause: (an) => merke(`gastPause(${an})`),

@@ -104,31 +104,27 @@ export function handyBedienung(a: {
 /**
  * Handy-Fernsteuerung (Inhalt des Panel-Abschnitts „Handy-Fernsteuerung“, UX Welle 2b d1, früher RemotePanel.tsx:62-128): den
  * LAN-Server ein- und ausschalten, Netzwerkkarte und Port wählen und mit „Setzen“ anwenden, und die Kopplung (Adresse, QR, PIN)
- * zeigen. Status, Netzwerkkarten und das Anwenden kommen herein; kein Abo, kein Effekt, kein window. Hier liegen nur der Entwurf und
- * „beschäftigt“, keine Kopie des gemeldeten Stands; was die Felder tun, steht in handyBedienung, gezeichnet wird in HandyFelder.
+ * zeigen. Status, Netzwerkkarten, das Anwenden und „beschäftigt“ kommen herein; kein Abo, kein Effekt, kein window. Hier liegt nur
+ * der Entwurf, keine Kopie des gemeldeten Stands; was die Felder tun, steht in handyBedienung, gezeichnet wird in HandyFelder.
+ * „beschäftigt“ hält die Wurzel-View (lib/aufrufe.ts, Rückspiel Task 26): das Panel stirbt beim Schließen, ein Wiederöffnen während
+ * des Anwendens gibt Schalter und „Setzen“ nicht frei. Der ungesicherte Entwurf stirbt weiter mit dem Panel (wie die Gegenstellen).
  */
 export function HandyAbschnitt({
   status,
   netzwerkkarten,
   anwenden,
+  busy,
 }: {
   status: RemoteStatus;
   netzwerkkarten: NetInterface[] | undefined;
+  /** Anwenden über die Wurzel-View, die dabei „beschäftigt“ führt (mitLaufendenAufrufen). */
   anwenden(config: RemoteConfig): Promise<unknown>;
+  /** Läuft ein Anwenden (aus der Wurzel-View). */
+  busy: boolean;
 }) {
-  const [busy, setBusy] = useState(false);
   const [entwurf, setEntwurf] = useState<HandyEntwurf>({});
   const grundId = useId();
-
-  const wende = async (config: RemoteConfig): Promise<void> => {
-    setBusy(true);
-    try {
-      await anwenden(config);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const bedienung = handyBedienung({ status, entwurf, busy, setzeEntwurf: setEntwurf, anwenden: wende });
+  const bedienung = handyBedienung({ status, entwurf, busy, setzeEntwurf: setEntwurf, anwenden });
 
   return <HandyFelder status={status} netzwerkkarten={netzwerkkarten} busy={busy} grundId={grundId} bedienung={bedienung} />;
 }
@@ -215,7 +211,7 @@ function Pairing({ url, pin }: { url: string; pin: string | null }) {
       <QrBild url={url} />
       <div className="min-w-0">
         <div className="text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)] font-bold">{T.amHandy}</div>
-        <a href={url} className="block text-lg font-bold text-[var(--primary)] break-all leading-tight mt-1" onClick={(e) => e.preventDefault()}>
+        <a href={url} className="block text-lg font-bold text-[var(--primary)] break-all leading-tight mt-1 select-text" onClick={(e) => e.preventDefault()}>
           {url}
         </a>
         {pin ? (

@@ -39,14 +39,15 @@ export function startControlServer(
   onMeldung?: (e: FernsteuerungEreignis) => void,
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
-  server = new SuiteControlServer({
+  // Der Modus der Meldung kommt aus der meldenden Instanz (Rückspiel Task 26, Regel aus Task 21), nicht aus der Modulvariable.
+  const srv = new SuiteControlServer({
     appDataDir: app.getPath('appData'),
     role: 'presenter',
     appId: 'jm-presenter',
     controlEndpoint: true,
     getState: toSuiteState,
     onStatus: (st) => {
-      onMeldung?.({ art: 'status', ...st, modus: server?.modus() });
+      onMeldung?.({ art: 'status', ...st, modus: srv.modus() });
     },
     onCommand: (cmd, ctx) => {
       if (cmd.ns !== 'presenter') return;
@@ -84,6 +85,7 @@ export function startControlServer(
       }
     },
   });
+  server = srv;
   // present.ts ist die Wahrheit → bei jeder Änderung den TCP-Clients pushen.
   unsubscribe = subscribe(() => server?.pushState(toSuiteState()));
   return server.start(CONTROL_PORT);

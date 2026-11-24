@@ -12,6 +12,7 @@ import { Badge, Field, PanelAnker, SettingsSection, Toggle, UNBEKANNT } from '@j
 import type { RemoteConfig } from '@shared/types';
 import { GastKlickerAbschnitt, type GastKlickerAktionen } from '@/components/GastKlickerAbschnitt';
 import { HandyAbschnitt } from '@/components/RemotePanel';
+import type { LaufendeAufrufe } from '@/lib/aufrufe';
 import {
   ABSCHNITT,
   ausgabeAbschnitt,
@@ -31,6 +32,11 @@ export interface EinstellungenAktionen extends Pick<PresenterAktionen, 'ndiSchal
   /** Handy-Server anwenden und merken (`remote.apply`); der neue Stand kommt über `remote:status`. */
   handyAnwenden(config: RemoteConfig): Promise<unknown>;
   gastKlicker: GastKlickerAktionen;
+  /**
+   * Laufende Aufrufe (Handy-Anwenden, Gast-Klicker) aus der Wurzel-View (lib/aufrufe.ts, Rückspiel Task 26): das Panel stirbt beim
+   * Schließen, „beschäftigt“ darf es nicht mitnehmen.
+   */
+  laeuft: LaufendeAufrufe;
   /** Nur im Editor (B11): Startbildschirm und „Keiner – nur NDI“ merken, in der Wurzel-View; öffnet und verschiebt nichts. */
   startwahl?: Pick<PresenterAktionen, 'startBildschirmWaehlen'> & { nurNdiWaehlen(an: boolean): void };
 }
@@ -79,14 +85,14 @@ export function Einstellungen({ stand, aktionen, startWahl }: EinstellungenProps
           {stand.handy === undefined ? (
             <p className="text-sm text-[var(--muted-foreground)]">{UNBEKANNT}</p>
           ) : (
-            <HandyAbschnitt status={stand.handy} netzwerkkarten={stand.netzwerkkarten} anwenden={aktionen.handyAnwenden} />
+            <HandyAbschnitt status={stand.handy} netzwerkkarten={stand.netzwerkkarten} anwenden={aktionen.handyAnwenden} busy={aktionen.laeuft.has('handy')} />
           )}
         </SettingsSection>
       </PanelAnker>
 
       <PanelAnker id={ABSCHNITT.gastKlicker}>
         <SettingsSection title={T.gastKlicker.titel} description={T.gastKlicker.erklaerung}>
-          <GastKlickerAbschnitt status={stand.gastKlicker} aktionen={aktionen.gastKlicker} />
+          <GastKlickerAbschnitt status={stand.gastKlicker} aktionen={aktionen.gastKlicker} busy={aktionen.laeuft.has('gastKlicker')} />
         </SettingsSection>
       </PanelAnker>
 
