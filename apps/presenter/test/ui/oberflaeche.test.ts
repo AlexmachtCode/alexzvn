@@ -4,7 +4,7 @@
 // (rein, ohne lib/pdf.ts); kein window, kein Electron.
 import * as settings from '@jm/settings';
 import { ABSCHNITT_TEXTE, NDI_TEXTE, REMOTE_TEXTE, SCREEN_TEXTE } from '@jm/settings';
-import { MASTER_LINK_TEXTE, ordneStatus, type StatusItem } from '@jm/ui';
+import { MASTER_LINK_TEXTE, ordneStatus, UNBEKANNT as UNBEKANNT_TEXT, type StatusItem } from '@jm/ui';
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
 import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { GastKlickerLage, GastKlickerStatus } from '@shared/gast-klicker';
@@ -435,6 +435,19 @@ const NDI: Record<string, NdiStatus | undefined> = {
   );
 }
 
+// ── PS Ausgabe vor der ersten Antwort (Gesamtprüfung UX Welle 2b, M9, „Nur Gemessenes“): Solange der Präsentationszustand fehlt,
+// zeigte die Pille „aus“ bzw. „aus, Fenster noch offen“ (enabled aus undefined geraten). Jetzt „unbekannt“, wie der Eintrag
+// Publikum der Statusleiste; mit Antwort wie bisher ──
+{
+  const faelle = kreuz({ liste: ['unbekannt', 'ohne', 'mit'], bildschirm: [null, 22, 99] } as const);
+  pruefeFaelle('PS Ausgabe vor der ersten Antwort: ohne Präsentationszustand zeigt die Pille „unbekannt“ (nie „aus“), gleich dem Eintrag Publikum', faelle, (f) => {
+    const st = grundStand({ praesentation: undefined, bildschirme: liste(f.liste) });
+    const wahl = { bildschirm: f.bildschirm, nurNdi: false };
+    const v = settings.screenOutputView(ausgabeAbschnitt(st, wahl));
+    return vergleiche(`${v.status.state} ${v.status.text} | ${sd(eintrag(st, 'publikum', wahl))}`, `off ${UNBEKANNT_TEXT} | off ${UNBEKANNT_TEXT}`);
+  });
+}
+
 // ── PS Ausgabe-Abschnitt (B11): Startwahl, gemessener Ort aus current, Sperre bei stehender Wahl „Keiner – nur NDI“ ──
 {
   const faelle = kreuz({
@@ -453,9 +466,10 @@ const NDI: Record<string, NdiStatus | undefined> = {
     const gewaehlt = f.bildschirm === 99 && f.p === 'laeuft' && f.liste === 'ohne' ? null : f.bildschirm;
     const offen = f.liste === 'unbekannt' ? undefined : f.liste === 'mit';
     const steht = f.plattform === 'win32' && f.nurNdi && (f.ndi === 'startet' || f.ndi === 'sendet2');
-    // Die Liste des Abschnitts trägt nur id, Name und primär; ohne Antwort bleibt sie unbekannt (nie leer erfunden).
+    // Die Liste des Abschnitts trägt nur id, Name und primär; ohne Antwort bleibt sie unbekannt (nie leer erfunden). Seit M9
+    // (Gesamtprüfung) auch ohne Antwort zum Präsentationszustand: dann wäre enabled geraten, der Abschnitt zeigt „unbekannt“.
     const screens = a.screens?.map((x) => `${x.id}:${x.label}:${x.primary}`).join(',');
-    const sollScreens = f.liste === 'unbekannt' ? undefined : '11:Bildschirm 1 (Haupt) · 2032×1144:true,22:Bildschirm 2 · 1920×1080:false,33:Bildschirm 3 · 1280×720:false';
+    const sollScreens = f.liste === 'unbekannt' || f.p === 'undefined' ? undefined : '11:Bildschirm 1 (Haupt) · 2032×1144:true,22:Bildschirm 2 · 1920×1080:false,33:Bildschirm 3 · 1280×720:false';
     return (
       vergleiche(
         [a.id, a.enabled, a.windowOpen, a.selectedId, a.measuredId, a.capabilities.toggle === true, a.capabilities.fullscreen === true, a.capabilities.background === true, a.locked ?? '', typeof a.onSelect].map(String).join('|'),

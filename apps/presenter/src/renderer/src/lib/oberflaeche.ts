@@ -310,6 +310,8 @@ function wahlFehlt(s: Pick<OberflaechenStand, 'bildschirme'>, startWahl: Pick<St
  * Läuft nur NDI und fehlt die Startwahl in der Liste, bekommt der Abschnitt keine Wahl (null): Sonst meldete die Pille
  * „Bildschirm fehlt“ als Fehler (die Prüfung steht in @jm/settings vor `enabled`), während die Statusleiste „Keiner – nur
  * NDI“ zeigt. Außerhalb von „nur NDI“ bleibt die fehlende Wahl stehen und ist ein Fehler, in Pille und Statusleiste gleich.
+ * Vor der ersten Antwort zum Präsentationszustand bekommt der Abschnitt keine Liste: Er zeigt dann „unbekannt“ wie der Eintrag
+ * Publikum, statt aus dem fehlenden Zustand „aus“ zu raten (Nur Gemessenes, Gesamtprüfung UX Welle 2b M9).
  */
 export function ausgabeAbschnitt(s: OberflaechenStand, startWahl: StartWahl, a?: Pick<PresenterAktionen, 'startBildschirmWaehlen'>): ScreenOutputSectionProps {
   const publikum = publikumsBildschirm(s);
@@ -317,7 +319,7 @@ export function ausgabeAbschnitt(s: OberflaechenStand, startWahl: StartWahl, a?:
     id: ABSCHNITT.ausgabe,
     enabled: s.praesentation?.active === true && !nurNdiLaeuft(s),
     windowOpen: s.bildschirme === undefined ? undefined : publikum !== undefined,
-    screens: s.bildschirme?.map((d) => ({ id: d.id, label: d.label, primary: d.primary })),
+    screens: s.praesentation === undefined ? undefined : s.bildschirme?.map((d) => ({ id: d.id, label: d.label, primary: d.primary })),
     selectedId: nurNdiLaeuft(s) && wahlFehlt(s, startWahl) ? null : startWahl.bildschirm,
     measuredId: publikum?.id,
     ...(nurNdiSteht(s, startWahl) ? { locked: PRESENTER_TEXTE.publikum.nurNdiGewaehlt } : {}),

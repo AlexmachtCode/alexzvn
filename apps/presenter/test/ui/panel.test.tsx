@@ -407,6 +407,11 @@ const knopfTexte = (html: string): string[] => [...html.matchAll(/<button[^>]*>(
   const g = (s: OberflaechenStand['gastKlicker']): string => abschnitt(panel(bekannterStand({ gastKlicker: s }), WAHL), ABSCHNITT.gastKlicker);
   const vorher = g(undefined);
   ok(text(vorher).includes(UNBEKANNT) && gesperrt(schalter(vorher)[0]), 'PS Panel Editor: Gast-Klicker vor der ersten Antwort „unbekannt“, Schalter gesperrt');
+  // Gesamtprüfung UX Welle 2b (M9, „Nur Gemessenes“): die Beschriftung behauptete vorher „Gast-Klicker aus“; jetzt der Titel ohne Zustand.
+  ok(
+    !text(vorher).includes(T.gastKlicker.aus) && !text(vorher).includes(T.gastKlicker.an) && [...vorher.matchAll(/<label[^>]*>([\s\S]*?)<\/label>/g)].map((m) => text(m[1]).trim()).includes(T.gastKlicker.titel),
+    'PS Panel Editor: Gast-Klicker vor der ersten Antwort ohne erfundenes „aus“ (Beschriftung „Gast-Klicker“, Zustand „unbekannt“)',
+  );
   const aus = g(gastStatus());
   ok(text(aus).includes(T.gastKlicker.aus) && attr(schalter(aus)[0], 'aria-checked') === 'false' && !gesperrt(schalter(aus)[0]) && tags(aus, 'input').length === 0, 'PS Panel Editor: Gast-Klicker aus – Schalter bedienbar, kein Link');
   const link = 'https://jm-gast-klicker.invalid/k/abcdefabcdef';

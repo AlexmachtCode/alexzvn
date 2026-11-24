@@ -35,10 +35,13 @@ export function GastKlickerAbschnitt({ status: s, aktionen, busy }: { status: Ga
   const ok = s?.lage === 'verbunden';
   // Wie bisher: an, aber nicht verbunden, steht die Statuszeile als Fehler (früher rot).
   const zeile = s ? statusText(s) : UNBEKANNT;
+  // Vor der ersten Antwort kein erfundenes „Gast-Klicker aus“: nur der Titel, der Zustand steht als „unbekannt“ darunter (Nur Gemessenes,
+  // Gesamtprüfung UX Welle 2b M9).
+  const beschriftung = s === undefined ? T.titel : an ? T.an : T.aus;
 
   return (
     <div className="space-y-3">
-      <Field label={an ? T.an : T.aus} {...(an && !ok ? { error: zeile } : { hint: zeile })}>
+      <Field label={beschriftung} {...(an && !ok ? { error: zeile } : { hint: zeile })}>
         <Toggle checked={an} onChange={() => void aktionen.setzeAn(!an)} disabled={busy || !s} aria-label={T.schalter} />
       </Field>
 
