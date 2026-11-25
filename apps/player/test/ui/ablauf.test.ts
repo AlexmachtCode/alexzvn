@@ -1,11 +1,12 @@
 // Altfehler PL-11 (Vorlauf angehalten in der Pause) und PL-16a (Fernbefehl prüft die Nummer): reine Module, ohne Store.
 import { gleich, ok } from '@jm/ui/testhilfe';
 import { pruefeFernNummer } from '@/lib/fernbefehl';
+import { PLAYER_TEXTE } from '@/lib/oberflaeche';
 import { Vorlaeufe, type Uhr } from '@/lib/vorlauf';
 
 /** Schein-Uhr: fester Zeitwert, Zeitgeber als Liste; `vor(ms)` rückt die Zeit vor und lässt fällige Zeitgeber laufen. */
 function scheinUhr(): Uhr & { vor(ms: number): void; offen(): number } {
-  let jetzt = 0;
+  let jetzt = 10_000;
   let zaehler = 0;
   const liste = new Map<number, { an: number; f: () => void }>();
   return {
@@ -100,6 +101,41 @@ function scheinUhr(): Uhr & { vor(ms: number): void; offen(): number } {
 }
 
 {
+  // Die Uhr steht nicht bei 0, und starte geschieht nach dem Vorrücken: die Restzeit hängt an der Startzeit des Laufs.
+  const uhr = scheinUhr();
+  const v = new Vorlaeufe(uhr);
+  let n = 0;
+  uhr.vor(7777);
+  v.starte(1000, () => n++);
+  uhr.vor(300);
+  v.anhalten();
+  uhr.vor(9000);
+  v.fortsetzen();
+  uhr.vor(699);
+  const bei699 = n;
+  uhr.vor(1);
+  gleich([bei699, n], [0, 1], 'PL-11 Restzeit bei Uhr nicht bei 0 und Start nach dem Vorrücken: 300 von 1000 ms, dann 700 ms');
+}
+{
+  // Pause, Weiter, Pause, Weiter: die Restzeiten addieren sich (300 + 200 verbraucht, 500 bleiben).
+  const uhr = scheinUhr();
+  const v = new Vorlaeufe(uhr);
+  let n = 0;
+  v.starte(1000, () => n++);
+  uhr.vor(300);
+  v.anhalten();
+  uhr.vor(4000);
+  v.fortsetzen();
+  uhr.vor(200);
+  v.anhalten();
+  uhr.vor(4000);
+  v.fortsetzen();
+  uhr.vor(499);
+  const bei499 = n;
+  uhr.vor(1);
+  gleich([bei499, n], [0, 1], 'PL-11 zweimal Pause und Weiter: Vorlauf startet nach 500 weiteren ms, nicht bei 499');
+}
+{
   const r = (v: 'CUE' | 'STANDBY', n: number, a: number) => pruefeFernNummer(v, n, a);
   gleich(
     [r('CUE', 0, 5), r('CUE', 6, 5), r('CUE', -1, 5), r('CUE', 1, 5), r('CUE', 5, 5)],
@@ -121,3 +157,10 @@ function scheinUhr(): Uhr & { vor(ms: number): void; offen(): number } {
   const sb = r('STANDBY', 9, 4);
   ok(!sb.ok && sb.hinweis === 'Companion „STANDBY 9“ abgelehnt: Die Show hat 4 Cues.' && sb.log === 'Fernbefehl abgelehnt: STANDBY 9 (Show hat 4 Cues)', 'PL-16a STANDBY im Hinweis und in der Log-Zeile');
 }
+
+ok(
+  PLAYER_TEXTE.fernbefehlAbgelehnt('CUE', 7, 5) === 'Companion „CUE 7“ abgelehnt: Die Show hat 5 Cues.' &&
+    PLAYER_TEXTE.fernbefehlAbgelehnt('STANDBY', 2, 1) === 'Companion „STANDBY 2“ abgelehnt: Die Show hat 1 Cue.' &&
+    PLAYER_TEXTE.fernbefehlAbgelehnt('CUE', 1, 0) === 'Companion „CUE 1“ abgelehnt: Die Show hat keine Cues.',
+  'PL-16a der Ablehnungstext steht in PLAYER_TEXTE (Einzahl, keine Cues)',
+);

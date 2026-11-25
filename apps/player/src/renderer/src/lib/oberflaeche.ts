@@ -32,6 +32,11 @@ export const ABSCHNITT = {
  * (ShowView.tsx); GO ohne das falsche „⏎“ (Spec 3.4: ausgelöst wird die Leertaste).
  */
 export const PLAYER_TEXTE = {
+  /** Hinweis, wenn ein Fernbefehl `cue` oder `standby` eine Nummer außerhalb der Show nennt (Altfehler PL-16a). */
+  fernbefehlAbgelehnt: (verb: 'CUE' | 'STANDBY', n: number, anzahl: number): string => {
+    const cues = anzahl === 0 ? 'keine Cues' : anzahl === 1 ? '1 Cue' : `${anzahl} Cues`;
+    return `Companion „${verb} ${n}“ abgelehnt: Die Show hat ${cues}.`;
+  },
   go: 'GO',
   pause: '❚❚ Pause',
   weiter: '▶ Weiter',

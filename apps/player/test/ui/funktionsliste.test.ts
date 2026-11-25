@@ -155,6 +155,7 @@ const ALTFEHLER = new Map<string, readonly string[]>([
       'src/preload/index.ts',
       'src/shared/types.ts',
       'src/renderer/src/lib/fernbefehl.ts',
+      'src/renderer/src/lib/oberflaeche.ts',
       'src/renderer/src/store/player.ts',
     ].map((p) => `apps/player/${p}`),
   ],
