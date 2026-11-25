@@ -349,7 +349,7 @@
     "entries": [
       {
         "version": "0.9.1",
-        "date": "2026-11-23",
+        "date": "2026-11-25",
         "notes": [
           "In der Cue-Show wechselt die Show-Auswahl die Show erst mit „Setzen“, das dann rechts im Kopf der Cue-Show vor „▦ Ausgabe“ erscheint. Bisher wechselte schon jede Auswahl die Show und stoppte die laufende hart, auch ein versehentlicher Druck auf eine Pfeiltaste. Solange eine Show gewählt, aber nicht gesetzt ist, sind „Umbenennen“ und „Löschen“ gesperrt.",
           "ON AIR und die Anzeige „1 laufend“ zählen ein Video jetzt auch richtig, nachdem das Ausgabefenster per Alt+F4 geschlossen und über den Schalter „Ausgabe“ wieder geöffnet wurde: Es zählt erst wieder, wenn es im Ausgabefenster wirklich läuft. Unter „Ausgabe auf Bildschirm“ nennen Pille und „Steht auf“ den Bildschirm, auf dem das Fenster wirklich steht; neue oder abgezogene Bildschirme erscheinen ohne neues Öffnen des Panels."
@@ -665,7 +665,7 @@
     "entries": [
       {
         "version": "0.15.0",
-        "date": "2026-11-23",
+        "date": "2026-11-25",
         "notes": [
           "Neue Oberfläche im Editor: Oben die Kopfzeile mit „JM Presenter“, ON AIR und den Schaltern für Hell und Dunkel (je Rechner gemerkt) sowie Einstellungen, darunter die Werkzeugleiste mit den Datei-Knöpfen, NDI und der Haupttaste „Präsentieren“ bzw. „Beenden“. Das ⚙-Menü und das Fenster „Fernsteuerung übers Netzwerk“ (📱) sind ins Panel hinter ⚙ umgezogen: Ausgabe auf Bildschirm, NDI-Ausgabe, Fernsteuerung, Handy-Fernsteuerung, Gast-Klicker, Gegenstellen (JM Timer) und Import. Handy-Fernsteuerung und Gast-Klicker sind damit auch ohne laufende Präsentation erreichbar.",
           "Die Referentenansicht bleibt dunkel, auch wenn der Editor hell ist. Oben stehen ON AIR, ⚙ und ganz rechts „■ Beenden“, darunter eine Leiste mit Folienzähler, Folientitel und Uhr, rechts Bildschirmwahl, „Auf diesen Bildschirm“, NDI, Gast-Klick, Schleife, „Publikum Vollbild“, „Vollbild“ und „Übersicht“; bei schmalerem Fenster (knapp unter 1500 Breite und kleiner) steht „■ Beenden“ stattdessen als letzte Taste rechts in der Leiste. Unter der Folie liegen die Tasten „Schwarz“, „Zurück“, „Gehe zu“, „Weiter“ und „Weiß“ mit ihren Kürzeln B, ←, → und W. Die Bildschirmwahl merkt nur den Bildschirm; das Publikum zieht erst mit „Auf diesen Bildschirm“ um.",
@@ -1062,7 +1062,7 @@
     "entries": [
       {
         "version": "0.7.0",
-        "date": "2026-11-23",
+        "date": "2026-11-25",
         "notes": [
           "Neue Oberfläche: Die Anmeldung steht im Rahmen mit der Kopfzeile „JM Studio Control“ und dem Schalter für Hell und Dunkel, der jetzt je Rechner gemerkt wird. Nach der Anmeldung stehen die Reiter Video, Audio, Licht und Setup in der Werkzeugleiste, rechts daneben Name und Rolle und „Abmelden“ (bisher „Logout“). Im App-Fenster liegt hinter ⚙ das Panel „Fernsteuerung“ mit dem Stand des Companion-Gateways (Port 8735); im Browser gibt es kein ⚙.",
           "Neue Statusleiste: Master, Server, je eingerichtetem Gerätetyp ATEM, OBS, TriCaster, PTZ und Audio, dazu Licht, Fernsteuerung und Benutzer. Sie zeigt nur Gemessenes: Ist der Server getrennt oder hat er noch nicht geantwortet, stehen die Geräte auf „unbekannt“ und ihre Tasten sind gesperrt. ON AIR zeigt „LIVE“ bzw. „REC“ nur, wenn ein verbundener ATEM oder OBS wirklich streamt oder aufnimmt.",
@@ -1223,7 +1223,7 @@
     "entries": [
       {
         "version": "0.7.1",
-        "date": "2026-11-23",
+        "date": "2026-11-25",
         "notes": [
           "Unter „Ausgabe auf Bildschirm“ nennen Pille und „Steht auf“ jetzt den Bildschirm, auf dem der Bühnenschirm wirklich steht, nicht den nur gewählten; die Zeile „Bühnenschirm: …“ darunter entfällt. Ein angesteckter oder abgezogener Bildschirm erscheint in der Liste, ohne das Panel neu zu öffnen."
         ]
@@ -1323,7 +1323,7 @@
     "entries": [
       {
         "version": "0.8.1",
-        "date": "2026-11-23",
+        "date": "2026-11-25",
         "notes": [
           "GO zeigt das Kürzel „Leertaste“ jetzt auch, während der Text läuft, und „Anfang“ das Kürzel „Pos1“, je in einer eigenen Zeile unter der Beschriftung. In der kleinsten Fenstergröße ist der Satz unter dem Tempo dadurch erst nach Scrollen ganz zu sehen.",
           "Unter „Ausgabe auf Bildschirm“ nennen Pille und „Steht auf“ jetzt den Bildschirm, auf dem der Talent-Monitor wirklich steht, nicht den nur gewählten; ein angesteckter oder abgezogener Bildschirm erscheint in der Liste, ohne das Panel neu zu öffnen. Die Adressen der Handy-Fernbedienung lassen sich markieren."
@@ -2050,7 +2050,7 @@
     "entries": [
       {
         "version": "0.6.0",
-        "date": "2026-11-23",
+        "date": "2026-11-25",
         "notes": [
           "Neue Oberfläche: Oben die Kopfzeile mit „JM Connect“, ON AIR und den Schaltern für Hell und Dunkel sowie Einstellungen. Darunter zwei Spalten: links der Cloud-Raum mit der Raum-Taste, „Talkback alle“, Einladungen und Gästeliste, rechts Zoom (nur Windows; auf dem Mac eine Spalte). Cloud-Zugang, Zoom-Einrichtung, Zoom-Vorgaben und Fernsteuerung liegen jetzt im Panel hinter ⚙. Unten steht immer die Fußzeile mit Logordner und Lizenzbedingungen.",
           "Neue Statusleiste mit Master, Cloud-Zugang, Raum, Zoom, Zoom-Einrichtung, Programm, Presenter, Gäste (NDI), Zoom-Slots, Fernsteuerung und Gäste. Sie zeigt nur Gemessenes; bis zur ersten Antwort steht dort „unbekannt“. ON AIR leuchtet nur, solange der Raum verbunden und mindestens ein Gast auf Sendung ist. Fehlt etwas in der Zoom-Einrichtung, öffnet der Eintrag „Zoom-Einrichtung“ das Panel an dieser Stelle.",
