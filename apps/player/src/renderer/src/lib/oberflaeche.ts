@@ -32,6 +32,13 @@ export const ABSCHNITT = {
  * (ShowView.tsx); GO ohne das falsche „⏎“ (Spec 3.4: ausgelöst wird die Leertaste).
  */
 export const PLAYER_TEXTE = {
+  /** Rückfrage beim Entfernen eines Cues, solange die Show läuft (Altfehler PL-10); `nr` zählt ab 1, `name` wie in der Cue-Zeile. */
+  cueEntfernen: (nr: number, name: string): string => `Die Show läuft. Cue ${nr} „${name}“ trotzdem entfernen?`,
+  /** Rückfrage beim Entfernen eines Mediums, das Cues oder Pads benutzen (Altfehler PL-10); ein Teil mit 0 fällt weg. */
+  mediumEntfernen: (titel: string, cues: number, pads: number): string => {
+    const teile = [cues > 0 ? (cues === 1 ? '1 Cue' : `${cues} Cues`) : '', pads > 0 ? (pads === 1 ? '1 Pad' : `${pads} Pads`) : ''].filter((x) => x !== '');
+    return `„${titel}“ wird von ${teile.join(' und ')} benutzt. Trotzdem aus der Bibliothek entfernen? Dort steht danach „Medium fehlt“.`;
+  },
   /** Hinweis, wenn ein Ton-Cue beim GO nicht lädt (Altfehler PL-T14); `nr` zählt ab 1, `name` wie in der Cue-Zeile. */
   cueFehler: (nr: number, name: string, grund: string): string => `Cue ${nr} „${name}“ spielt nicht: ${grund}`,
   /** Hinweis, wenn ein Fernbefehl `cue` oder `standby` eine Nummer außerhalb der Show nennt (Altfehler PL-16a). */
@@ -395,4 +402,25 @@ export function istEingabeZiel(ziel: EventTarget | null): boolean {
   const t = ziel as { tagName?: unknown; isContentEditable?: unknown };
   const tag = typeof t.tagName === 'string' ? t.tagName.toUpperCase() : '';
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable === true;
+}
+
+/**
+ * Pad-Taste (Altfehler PL-4): ein Pad löst nur die Taste ohne Strg, Alt oder Meta aus (die Umschalttaste sperrt nicht, Ruling A6),
+ * und nur, wenn weder Dialog noch Panel offen ist und der Fokus in keinem Feld steht.
+ */
+export function padTasteErlaubt(
+  e: { ctrlKey: boolean; altKey: boolean; metaKey: boolean; target: EventTarget | null },
+  z: { dialogOffen: boolean; panelOffen: boolean },
+): boolean {
+  return !e.ctrlKey && !e.altKey && !e.metaKey && !z.dialogOffen && !z.panelOffen && !istEingabeZiel(e.target);
+}
+
+/** Läuft in der Show etwas (ein Cue oder ein Video)? Dann fragt das Entfernen eines Cues nach (Altfehler PL-10). */
+export function cueEntfernenFrage(s: { playingCueIds: readonly number[]; videoCue: unknown }, nr: number, name: string): string | null {
+  return s.playingCueIds.length > 0 || s.videoCue != null ? PLAYER_TEXTE.cueEntfernen(nr, name) : null;
+}
+
+/** Rückfrage beim Entfernen eines Mediums, das Cues oder Pads benutzen; null bei 0 und 0 (Altfehler PL-10). */
+export function mediumEntfernenFrage(titel: string, n: { cues: number; pads: number }): string | null {
+  return n.cues === 0 && n.pads === 0 ? null : PLAYER_TEXTE.mediumEntfernen(titel, n.cues, n.pads);
 }

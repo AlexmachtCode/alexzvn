@@ -51,6 +51,7 @@ const api: JmplayApi = {
     list: () => ipcRenderer.invoke('library:list') as Promise<MediaItem[]>,
     importPaths: (paths) => ipcRenderer.invoke('library:import', paths) as Promise<ImportResult>,
     remove: (id) => ipcRenderer.invoke('library:remove', id) as Promise<void>,
+    nutzung: (id) => ipcRenderer.invoke('library:nutzung', id) as Promise<{ cues: number; pads: number }>,
     thumb: (id) => ipcRenderer.invoke('library:thumb', id) as Promise<string | null>,
     markPlayed: (id) => ipcRenderer.invoke('library:markPlayed', id) as Promise<void>,
   },

@@ -61,6 +61,7 @@ const GEAENDERT = [
   'src/main/control-server.ts',
   'src/main/index.ts',
   'src/main/ipc.ts',
+  'src/main/library.ts',
   'src/main/output-window.ts',
   'src/preload/index.ts',
   'src/renderer/src/App.tsx',
@@ -147,8 +148,20 @@ const ALTFEHLER = new Map<string, readonly string[]>([
     ].map((p) => `apps/player/${p}`),
   ],
   ['PL-T13', ['src/main/ausgabe-fenster.ts', 'src/main/output-window.ts'].map((p) => `apps/player/${p}`)],
-  ['PL-4', []],
-  ['PL-10', []],
+  ['PL-4', ['src/renderer/src/lib/oberflaeche.ts', 'src/renderer/src/views/SoundboardView.tsx', 'src/renderer/src/views/PlayerOberflaeche.tsx'].map((p) => `apps/player/${p}`)],
+  [
+    'PL-10',
+    [
+      'src/main/ipc.ts',
+      'src/main/library.ts',
+      'src/preload/index.ts',
+      'src/shared/types.ts',
+      'src/renderer/src/lib/oberflaeche.ts',
+      'src/renderer/src/store/player.ts',
+      'src/renderer/src/views/LibraryView.tsx',
+      'src/renderer/src/views/ShowView.tsx',
+    ].map((p) => `apps/player/${p}`),
+  ],
   ['PL-11', ['src/renderer/src/lib/vorlauf.ts', 'src/renderer/src/store/player.ts'].map((p) => `apps/player/${p}`)],
   [
     'PL-16a',
@@ -346,7 +359,7 @@ for (const z of alle) {
       (zeilenFehler(synth('main/output-window.ts', ' (E3)')) ?? '').includes('mehr als die lesenden Brücken') &&
       zeilenFehler(synth('main/index.ts', ' (E3)')) === null &&
       zeilenFehler(synth('main/control-server.ts', ' (E2)')) === null &&
-      zeilenFehler(synth('main/library.ts')) === null,
+      zeilenFehler(synth('main/media-protocol.ts')) === null,
     'PL Funktionsliste: eine geänderte Datei wird in jeder Schreibweise erkannt; E2 und E3 entlasten nur Dateien mit den lesenden Brücken; eine unveränderte Datei ist frei',
   );
   // Der Verweis „Altfehler <ID>“ (Stufe 1) entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt (R6); nur mit dem Wort
@@ -363,7 +376,9 @@ for (const z of alle) {
   // Negativprobe R6: eine geänderte Datei mit einer erlaubten ID, deren Liste sie nicht nennt, wird gemeldet; nennt ein Haken zwei
   // Dateien, entlastet die ID nur die eigene.
   ok(
-    ['PL-N', 'PL-T13', 'PL-4', 'PL-10', 'PL-11', 'PL-16a', 'PL-T14'].every((id) => (zeilenFehler(synth('views/ShowView.tsx', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')) &&
+    ['PL-N', 'PL-T13', 'PL-4', 'PL-11', 'PL-16a', 'PL-T14'].every((id) => (zeilenFehler(synth('views/ShowView.tsx', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')) &&
+      zeilenFehler(synth('views/ShowView.tsx', ' (Altfehler PL-10)')) === null &&
+      (zeilenFehler(synth('views/OutputView.tsx', ' (Altfehler PL-10)')) ?? '').includes('geänderter Datei') &&
       (zeilenFehler(synth('views/OutputView.tsx', ' (Altfehler PL-T13)')) ?? '').includes('geänderter Datei') &&
       (zeilenFehler(synth('views/OutputView.tsx', ' (E3, Altfehler PL-T13)')) ?? '').includes('mehr als die lesenden Brücken') &&
       /geänderter Datei \(views\/ShowView\.tsx\)/.test(zeilenFehler(synth('views/OutputView.tsx', ' und `views/ShowView.tsx` (Altfehler PL-N)')) ?? ''),
@@ -574,7 +589,7 @@ ok(
     'PL Funktionsliste Nr. 131: der Filter der Cue-Show hat outputOpen mit dem Modal verloren, sperrt Felder samt contentEditable und lässt Knöpfe durch',
   );
   ok(
-    beginnt(134, 'Soundboard') && nennt(134, 'Feld', 'Pad-Dialog') && /istEingabeZiel\(e\.target\)/.test(sb) && !/tagName === 'INPUT'/.test(sb),
+    beginnt(134, 'Soundboard') && nennt(134, 'Feld', 'Pad-Dialog') && /padTasteErlaubt\(e, /.test(sb) && !/tagName === 'INPUT'/.test(sb),
     'PL Funktionsliste Nr. 134: die Pad-Tasten feuern nicht, solange der Fokus in einem Feld steht, auch im Pad-Dialog',
   );
   ok(nennt(131, 'istEingabeZiel') && nennt(134, 'istEingabeZiel') && /isContentEditable === true/.test(obf), 'PL Funktionsliste Nr. 131/134: der Feldschutz (istEingabeZiel) ist die gemeinsame Weiche, mit contentEditable');
@@ -628,7 +643,7 @@ ok(
     'PL Funktionsliste Nr. 82: #output lädt weiter die OutputView, ohne AppShell (E6)',
   );
   ok(
-    [87, 88, 89, 90].every((nr) => kuenftig(nr).startsWith('✓ unverändert (')) && !GEAENDERT_KANON.has('apps/player/src/main/library.ts') && !GEAENDERT_KANON.has('apps/player/src/main/media-protocol.ts') && !GEAENDERT_KANON.has('apps/player/src/main/thumbs.ts'),
+    [87, 88, 89, 90].every((nr) => kuenftig(nr).startsWith('✓ unverändert (')) && (GEAENDERT_KANON.has('apps/player/src/main/library.ts') ? /Altfehler PL-10/.test(kuenftig(87)) && /Altfehler PL-10/.test(kuenftig(89)) : true) && !GEAENDERT_KANON.has('apps/player/src/main/media-protocol.ts') && !GEAENDERT_KANON.has('apps/player/src/main/thumbs.ts'),
     'PL Funktionsliste Nr. 87–90: Datenbank, Medienprotokoll, Import und Vorschaubilder im Main sind unverändert',
   );
   ok(
@@ -716,8 +731,8 @@ ok(
 
 // ── Kein Rückfall auf geratene Werte: window.confirm/prompt nur an den zwei Stellen der Cue-Show, kein alert ──
 {
-  const dateien = ['App.tsx', 'views/PlayerOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Fussleiste.tsx', 'views/Einstellungen.tsx', 'views/SoundboardView.tsx', 'views/LibraryView.tsx', 'lib/aktionen.ts', 'lib/oberflaeche.ts', 'store/player.ts'];
-  ok(dateien.every((d) => !/\bwindow\.(?:confirm|alert|prompt)\(/.test(quelle(d))) && (show.match(/window\.(?:confirm|prompt)\(/g) ?? []).length === 2, 'PL Funktionsliste: window.prompt und window.confirm stehen nur in der Cue-Show (je einmal), window.alert nirgends');
+  const dateien = ['App.tsx', 'views/PlayerOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Fussleiste.tsx', 'views/Einstellungen.tsx', 'views/SoundboardView.tsx', 'lib/aktionen.ts', 'lib/oberflaeche.ts', 'store/player.ts'];
+  ok(dateien.every((d) => !/\bwindow\.(?:confirm|alert|prompt)\(/.test(quelle(d))) && (show.match(/window\.(?:confirm|prompt)\(/g) ?? []).length === 3 && (quelle('views/LibraryView.tsx').match(/window\.confirm\(/g) ?? []).length === 1 && !/\bwindow\.(?:alert|prompt)\(/.test(quelle('views/LibraryView.tsx')), 'PL Funktionsliste: window.prompt und window.confirm stehen in der Cue-Show (prompt einmal, confirm für Show löschen und Cue entfernen) und window.confirm in der Bibliothek (Altfehler PL-10), window.alert nirgends');
 }
 
 // ── Abschnitt 9 und der Kopf „Stand“ widersprechen den Haken nicht (Fix-Runde 1) ──

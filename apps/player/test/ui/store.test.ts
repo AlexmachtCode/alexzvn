@@ -24,6 +24,8 @@ const V = showCue(12, { kind: 'video', label: 'Einspieler' });
 const P = showCue(13, { label: 'Wartet', preWaitSec: 0.03 });
 const PV = showCue(14, { kind: 'video', preWaitSec: 0.03 });
 const CUES: ShowCue[] = [A, V, P, PV];
+/** Antwort der Attrappe shows.cues; die Standby-Tests (Altfehler PL-10) setzen die Liste nach einem Löschen oder Umsortieren. */
+let serverCues: ShowCue[] = CUES;
 
 // ── Attrappen: Protokoll aller Wirkungen nach außen (Ton der Show, Pads, Ausgabefenster) ──
 const log: string[] = [];
@@ -68,7 +70,7 @@ g.window = {
   jmplay: {
     library: { list: async () => [] },
     playlists: { list: async () => [] },
-    shows: { list: async () => [], cues: async () => CUES, remove: async () => {} },
+    shows: { list: async () => [], cues: async () => serverCues, remove: async () => {} },
     output: {
       command: async (c: OutputCommand) => {
         log.push(`output.${c.type}`);
@@ -105,6 +107,7 @@ function neu(): void {
   p().showPanic();
   usePlayer.setState({ activeShowId: 1, showCues: CUES, standbyIndex: 0, playingCueIds: [], vorlaufCueIds: [], showPaused: false, videoCue: null, videoProgress: null });
   log.length = 0;
+  serverCues = CUES;
 }
 
 /** Companion-Zustand genau wie vor dem Umbau (R/store/player.ts:37-47 auf d7cdd79ce0), als Orakel. */
@@ -607,6 +610,23 @@ try {
       ],
       'PL ON AIR Wahrheitstabelle: Cue mit Vorlauf erneut gefeuert, während er klingt → live im zweiten Vorlauf; endet die alte Instanz, nicht live; der Start nimmt ihn wieder auf',
     );
+  }
+
+  // ── PL-10 (Altfehler Stufe 1): Der Standby folgt dem Cue selbst, nicht der Position. Die Attrappe antwortet nach dem Löschen
+  // oder Umsortieren mit der neuen Liste; refreshShowCues lädt sie ──
+  {
+    const standbyNach = async (vorher: number, neueListe: ShowCue[]): Promise<number> => {
+      neu();
+      usePlayer.setState({ standbyIndex: vorher });
+      serverCues = neueListe;
+      await p().refreshShowCues();
+      return p().standbyIndex;
+    };
+    gleich(await standbyNach(1, [V, P, PV]), 0, 'PL-10 Standby folgt dem Cue: Standby auf V (Index 1), A wird entfernt → Index 0');
+    gleich(await standbyNach(1, [PV, P, V, A]), 2, 'PL-10 Standby folgt beim Umsortieren: V wandert von Index 1 auf 2');
+    gleich(await standbyNach(1, [A, P, PV]), 1, 'PL-10 Standby-Cue selbst gelöscht: der Cue danach (P) steht auf dem alten Index');
+    gleich(await standbyNach(4, [A, V, P]), 3, 'PL-10 Standby am Ende bleibt am Ende (Liste kürzer)');
+    serverCues = CUES;
   }
 
   // ── PL Bildschirm merken (Player d1, Fix-Runde 1): setOutputDisplayId speichert nur; openOutput merkt wie bisher ──

@@ -211,6 +211,8 @@ export interface JmplayApi {
     /** Dateien oder Ordner importieren (Ordner werden rekursiv gescannt). */
     importPaths: (paths: string[]) => Promise<ImportResult>;
     remove: (id: number) => Promise<void>;
+    /** Wie viele Show-Cues und Pads das Medium benutzen (Rückfrage vor dem Entfernen, Altfehler PL-10). */
+    nutzung: (id: number) => Promise<{ cues: number; pads: number }>;
     /** Thumbnail erzeugen (falls nötig) + Pfad liefern; null wenn nicht möglich. */
     thumb: (id: number) => Promise<string | null>;
     markPlayed: (id: number) => Promise<void>;

@@ -4,7 +4,7 @@ import { Button, cn, Modal } from '@jm/ui';
 import type { MediaItem, OutputTime, ShowCue } from '@shared/types';
 import { usePlayer } from '@/store/player';
 import { formatDuration } from '@/lib/format';
-import { istEingabeZiel, PLAYER_TEXTE } from '@/lib/oberflaeche';
+import { cueEntfernenFrage, istEingabeZiel, PLAYER_TEXTE } from '@/lib/oberflaeche';
 import { LiveBereich } from './LiveBereich';
 
 /** Entwurf der Show-Auswahl: die gewählte Show und die aktive Show, auf der er entstand (gilt nur, solange sie aktiv bleibt). */
@@ -133,6 +133,12 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
   const removeShow = usePlayer((s) => s.removeShow);
   const selectShow = usePlayer((s) => s.selectShow);
   const removeShowCue = usePlayer((s) => s.removeShowCue);
+  // Altfehler PL-10: Läuft die Show, fragt das Entfernen eines Cues nach; sonst wie bisher ohne Rückfrage.
+  const entferneCue = (cue: ShowCue, i: number): void => {
+    const frage = cueEntfernenFrage({ playingCueIds, videoCue }, i + 1, cue.label || cue.media?.fileName || PLAYER_TEXTE.standby.ohneName);
+    if (frage !== null && !window.confirm(frage)) return;
+    void removeShowCue(cue.id);
+  };
   const reorderShow = usePlayer((s) => s.reorderShow);
   const setStandby = usePlayer((s) => s.setStandby);
   const showGo = usePlayer((s) => s.showGo);
@@ -284,7 +290,7 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
                 playing={playingCueIds.includes(cue.id)}
                 onSelect={() => setStandby(i)}
                 onEdit={() => setEditCue(cue)}
-                onRemove={() => void removeShowCue(cue.id)}
+                onRemove={() => entferneCue(cue, i)}
                 onMoveUp={() => move(i, -1)}
                 onMoveDown={() => move(i, 1)}
               />

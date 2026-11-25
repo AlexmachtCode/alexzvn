@@ -48,6 +48,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle('library:list', () => lib.listItems());
   ipcMain.handle('library:import', (_e, paths: string[]) => lib.importPaths(paths));
   ipcMain.handle('library:remove', (_e, id: number) => lib.removeItem(id));
+  ipcMain.handle('library:nutzung', (_e, id: number) => lib.mediumNutzung(id));
   ipcMain.handle('library:thumb', (_e, id: number) => ensureThumb(id));
   ipcMain.handle('library:markPlayed', (_e, id: number) => lib.markPlayed(id));
 

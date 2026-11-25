@@ -119,11 +119,11 @@ function quellen(d = 'src/renderer/src'): string[] {
   const ober = QUELLE('views/PlayerOberflaeche.tsx');
   ok(!/\bkey=/.test(ober), 'PL Wiedergabe bleibt: der Rahmen setzt keinen key (der Panelzustand steckt in keinem key)');
   ok(
-    ober.includes("{reiter === 'library' ? <Bibliothek /> : reiter === 'soundboard' ? <Soundboard /> : <CueShow onAusgabe={ausgabeOeffnen} />}"),
+    ober.includes("{reiter === 'library' ? <Bibliothek /> : reiter === 'soundboard' ? <Soundboard panelOffen={panelOffen} /> : <CueShow onAusgabe={ausgabeOeffnen} />}"),
     'PL Wiedergabe bleibt: die Weiche der Ansichten hängt nur am Reiter (wie bisher in App.tsx: der Wechsel baut die alte Ansicht ab, das Panel nicht)',
   );
   const weiche = ober.slice(ober.indexOf("{reiter === 'library'"), ober.indexOf("{reiter === 'library'") + 140);
-  ok(!/panel/i.test(weiche), 'PL Wiedergabe bleibt: der Panelzustand steht in keiner Bedingung um die aktive Ansicht');
+  ok(!/panel/i.test(weiche.replace('panelOffen={panelOffen}', '')), 'PL Wiedergabe bleibt: der Panelzustand steht in keiner Bedingung um die aktive Ansicht');
   ok(
     ober.includes('const Bibliothek = memo(LibraryView)') && ober.includes('const Soundboard = memo(SoundboardView)') && ober.includes('const CueShow = memo(ShowView)') &&
       /const ausgabeOeffnen = useCallback\(/.test(ober),
@@ -274,7 +274,7 @@ function quellen(d = 'src/renderer/src'): string[] {
       show.includes('}, [addOpen, editCue, showGo, showStop]);'),
     'PL Tasten: Leertaste = GO, Esc = Stop wie bisher, Hörer am window in der Bubble-Phase',
   );
-  ok(QUELLE('views/SoundboardView.tsx').includes('if (istEingabeZiel(e.target)) return;'), 'PL Tasten: die Pad-Tasten nutzen weiter istEingabeZiel');
+  ok(QUELLE('views/SoundboardView.tsx').includes('if (!padTasteErlaubt(e, { dialogOffen: editSlot != null, panelOffen })) return;'), 'PL Tasten: die Pad-Tasten laufen über padTasteErlaubt (Altfehler PL-4), das istEingabeZiel nutzt');
   const ereignis = (key: string, ziel: unknown, log: string[]) => ({
     key,
     defaultPrevented: false,

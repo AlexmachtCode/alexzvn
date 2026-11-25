@@ -4,7 +4,7 @@ import type { Cue, MediaItem } from '@shared/types';
 import { usePlayer } from '@/store/player';
 import { cueEngine } from '@/lib/cues';
 import { formatDuration } from '@/lib/format';
-import { istEingabeZiel } from '@/lib/oberflaeche';
+import { padTasteErlaubt } from '@/lib/oberflaeche';
 import { Fussleiste } from './Fussleiste';
 
 const SLOTS = 24;
@@ -15,7 +15,7 @@ function normalizeKey(e: KeyboardEvent | React.KeyboardEvent): string {
   return e.key.length === 1 ? e.key.toUpperCase() : e.key;
 }
 
-export function SoundboardView() {
+export function SoundboardView({ panelOffen }: { panelOffen: boolean }) {
   const boards = usePlayer((s) => s.playlists.filter((p) => p.kind === 'soundboard'));
   const soundboardId = usePlayer((s) => s.soundboardId);
   const cues = usePlayer((s) => s.cues);
@@ -47,7 +47,7 @@ export function SoundboardView() {
   // Globale Hotkeys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (istEingabeZiel(e.target)) return;
+      if (!padTasteErlaubt(e, { dialogOffen: editSlot != null, panelOffen })) return;
       const key = normalizeKey(e);
       const cue = cues.find((c) => c.hotkey && c.hotkey.toUpperCase() === key.toUpperCase());
       if (cue) {
@@ -57,7 +57,7 @@ export function SoundboardView() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cues]);
+  }, [cues, editSlot, panelOffen]);
 
   const newBoard = async (): Promise<void> => {
     const n = boards.length + 1;

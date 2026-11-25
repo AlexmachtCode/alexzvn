@@ -609,3 +609,39 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
     'PL Wächter Steuerserver-Start: der Wurf beim Start geht mit getLog().warn ins Protokoll und weiter als Meldung an die Statusleiste',
   );
 }
+
+// ── Altfehler PL-4 und PL-10: Pad-Tasten und Rückfragen beim Löschen ──
+{
+  const sb = ohneKommentare(leseText('src/renderer/src/views/SoundboardView.tsx'));
+  ok(
+    /export function SoundboardView\(\{ panelOffen \}: \{ panelOffen: boolean \}\)/.test(sb) &&
+      /if \(!padTasteErlaubt\(e, \{ dialogOffen: editSlot != null, panelOffen \}\)\) return;/.test(sb),
+    'PL-4 Wächter: SoundboardView ruft padTasteErlaubt mit editSlot != null und panelOffen',
+  );
+  const wurzel = ohneKommentare(leseText('src/renderer/src/views/PlayerOberflaeche.tsx'));
+  ok(/<Soundboard panelOffen=\{panelOffen\} \/>/.test(wurzel), 'PL-4 Wächter: PlayerOberflaeche reicht panelOffen an Soundboard');
+  const show = ohneKommentare(leseText('src/renderer/src/views/ShowView.tsx'));
+  ok(
+    /cueEntfernenFrage\(/.test(show) && show.indexOf('cueEntfernenFrage(') < show.indexOf('removeShowCue(cue.id)') && /window\.confirm\(frage\)/.test(show),
+    'PL-10 Wächter: ShowView fragt vor removeShowCue mit cueEntfernenFrage',
+  );
+  const bib = ohneKommentare(leseText('src/renderer/src/views/LibraryView.tsx'));
+  ok(
+    /window\.jmplay\.library\.nutzung\(/.test(bib) && /mediumEntfernenFrage\(/.test(bib) && bib.indexOf('mediumEntfernenFrage(') < bib.indexOf('removeItem(item.id)'),
+    'PL-10 Wächter: LibraryView fragt vor removeItem mit library.nutzung und mediumEntfernenFrage',
+  );
+  const lib = leseText('src/main/library.ts');
+  ok(
+    /export function mediumNutzung\(id: number\)/.test(lib) && /FROM show_cues WHERE media_id = \?/.test(lib) && /FROM cues WHERE media_id = \?/.test(lib),
+    'PL-10 Wächter: library.ts zählt show_cues und cues mit dieser media_id',
+  );
+  const preload = leseText('src/preload/index.ts');
+  const main = leseText('src/main/ipc.ts');
+  ok(
+    vorkommenIn(preload, 'library:nutzung') === 1 && vorkommenIn(main, 'library:nutzung') === 1 && leseText('src/shared/types.ts').includes('nutzung: (id: number) => Promise<{ cues: number; pads: number }>;'),
+    'PL-10 Wächter Kanäle: library:nutzung steht in Preload (invoke) und Main (handle) gleich, window.jmplay.library.nutzung ist typisiert',
+  );
+}
+function vorkommenIn(t: string, kanal: string): number {
+  return t.split("'" + kanal + "'").length - 1;
+}

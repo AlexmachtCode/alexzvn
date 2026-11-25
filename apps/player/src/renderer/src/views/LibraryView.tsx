@@ -3,6 +3,7 @@ import { Badge, Button, cn } from '@jm/ui';
 import type { MediaItem } from '@shared/types';
 import { usePlayer } from '@/store/player';
 import { basename, formatBytes, formatDuration } from '@/lib/format';
+import { mediumEntfernenFrage } from '@/lib/oberflaeche';
 import { Fussleiste } from './Fussleiste';
 
 export function LibraryView() {
@@ -308,6 +309,12 @@ function MediaRow({
   const currentMediaId = usePlayer((s) => s.currentMediaId);
   const play = usePlayer((s) => s.play);
   const removeItem = usePlayer((s) => s.removeItem);
+  // Altfehler PL-10: Benutzen Cues oder Pads das Medium, fragt das Entfernen nach (mit Anzahl); sonst wie bisher ohne Rückfrage.
+  const entferneMedium = async (): Promise<void> => {
+    const frage = mediumEntfernenFrage(item.title || item.fileName, await window.jmplay.library.nutzung(item.id));
+    if (frage !== null && !window.confirm(frage)) return;
+    removeItem(item.id);
+  };
   const active = currentMediaId === item.id;
 
   return (
@@ -363,7 +370,7 @@ function MediaRow({
           <FolderIcon />
         </IconBtn>
         {context === 'all' ? (
-          <IconBtn title="Aus Bibliothek entfernen" onClick={() => removeItem(item.id)}>
+          <IconBtn title="Aus Bibliothek entfernen" onClick={() => void entferneMedium()}>
             <XIcon />
           </IconBtn>
         ) : (

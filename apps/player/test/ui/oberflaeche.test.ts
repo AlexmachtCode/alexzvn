@@ -683,8 +683,8 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
   );
   const sb = ohneKommentare(leseText('src/renderer/src/views/SoundboardView.tsx'));
   ok(
-    importiert(sb) && (sb.match(/if \(istEingabeZiel\(e\.target\)\) return;/g) ?? []).length === 1 && !/tagName\s*===/.test(sb),
-    'PL Kürzel aus Panel-Feld: SoundboardView.tsx filtert über istEingabeZiel, ohne eigene tagName-Prüfung',
+    /import \{[^}]*\bpadTasteErlaubt\b[^}]*\} from '@\/lib\/oberflaeche';/.test(sb) && (sb.match(/if \(!padTasteErlaubt\(e, /g) ?? []).length === 1 && !/tagName\s*===/.test(sb),
+    'PL Kürzel aus Panel-Feld: SoundboardView.tsx filtert über padTasteErlaubt (das istEingabeZiel nutzt), ohne eigene tagName-Prüfung',
   );
   ok(
     /const key = normalizeKey\(e\);\s*const cue = cues\.find\(\(c\) => c\.hotkey && c\.hotkey\.toUpperCase\(\) === key\.toUpperCase\(\)\);\s*if \(cue\) \{\s*e\.preventDefault\(\);\s*trigger\(cue\);\s*\}/.test(sb) &&
@@ -718,4 +718,60 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
   ok(fremd.size > 0 && nachgebaut.length === 0, `PL Texte nicht nachgebaut: kein PLAYER_TEXTE-Wert gleicht einem Text aus @jm/settings oder @jm/ui${nachgebaut.length ? ` (${nachgebaut.join(' | ')})` : ''}`);
   const code = ohneKommentare(leseText('src/renderer/src/lib/oberflaeche.ts'));
   ok(!/(?<![\w-])window\b|\blocalStorage\b|\bipcRenderer\b|\bdocument\b|from ['"]electron['"]|from ['"]@\/store\//.test(code), 'PL oberflaeche rein: lib/oberflaeche.ts ohne window, document, localStorage, IPC, Electron und Store');
+}
+
+// ── Altfehler PL-4: ein Pad löst nur die Taste ohne Strg, Alt und Meta aus (A6: Umschalttaste erlaubt) ──
+{
+  const taste = (m: Partial<{ ctrlKey: boolean; altKey: boolean; metaKey: boolean; target: EventTarget | null }> = {}) => ({
+    ctrlKey: false,
+    altKey: false,
+    metaKey: false,
+    target: null as EventTarget | null,
+    ...m,
+  });
+  const feld = (tagName: string): EventTarget => ({ tagName }) as unknown as EventTarget;
+  const frei = { dialogOffen: false, panelOffen: false };
+  ok(
+    !oberflaecheModul.padTasteErlaubt(taste({ ctrlKey: true }), frei) &&
+      !oberflaecheModul.padTasteErlaubt(taste({ altKey: true }), frei) &&
+      !oberflaecheModul.padTasteErlaubt(taste({ metaKey: true }), frei),
+    'PL-4 Strg+C, Alt+C, Meta+C lösen nicht aus',
+  );
+  ok(oberflaecheModul.padTasteErlaubt({ ...taste(), shiftKey: true } as never, frei) && oberflaecheModul.padTasteErlaubt(taste(), frei), 'PL-4 C ohne Umschalttaste löst aus (Umschalttaste erlaubt, A6)');
+  ok(
+    !oberflaecheModul.padTasteErlaubt(taste(), { dialogOffen: true, panelOffen: false }) &&
+      !oberflaecheModul.padTasteErlaubt(taste(), { dialogOffen: false, panelOffen: true }),
+    'PL-4 offener Dialog oder Panel sperrt',
+  );
+  ok(
+    !oberflaecheModul.padTasteErlaubt(taste({ target: feld('INPUT') }), frei) && oberflaecheModul.padTasteErlaubt(taste({ target: feld('BUTTON') }), frei),
+    'PL-4 Eingabefeld sperrt',
+  );
+}
+
+// ── Altfehler PL-10: Rückfragen beim Löschen ──
+{
+  const f = oberflaecheModul.cueEntfernenFrage;
+  gleich(f({ playingCueIds: [], videoCue: null }, 2, 'Einspieler'), null, 'PL-10 cueEntfernenFrage: nichts läuft → keine Rückfrage');
+  gleich(f({ playingCueIds: [5], videoCue: null }, 2, 'Einspieler'), 'Die Show läuft. Cue 2 „Einspieler“ trotzdem entfernen?', 'PL-10 cueEntfernenFrage: ein Cue läuft → Text');
+  gleich(f({ playingCueIds: [], videoCue: { id: 9 } }, 2, 'Einspieler'), 'Die Show läuft. Cue 2 „Einspieler“ trotzdem entfernen?', 'PL-10 cueEntfernenFrage: auch nur videoCue zählt als Lauf');
+  const m = oberflaecheModul.mediumEntfernenFrage;
+  const rest = ' Trotzdem aus der Bibliothek entfernen? Dort steht danach „Medium fehlt“.';
+  gleich(
+    [
+      m('Gong', { cues: 0, pads: 0 }),
+      m('Gong', { cues: 1, pads: 0 }),
+      m('Gong', { cues: 0, pads: 1 }),
+      m('Gong', { cues: 2, pads: 3 }),
+      m('Gong', { cues: 2, pads: 1 }),
+    ],
+    [
+      null,
+      `„Gong“ wird von 1 Cue benutzt.${rest}`,
+      `„Gong“ wird von 1 Pad benutzt.${rest}`,
+      `„Gong“ wird von 2 Cues und 3 Pads benutzt.${rest}`,
+      `„Gong“ wird von 2 Cues und 1 Pad benutzt.${rest}`,
+    ],
+    'PL-10 mediumEntfernenFrage: 0/0 null, 1/0, 0/1, 2/3, 2/1 mit genauen Texten',
+  );
 }

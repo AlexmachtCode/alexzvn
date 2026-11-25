@@ -478,7 +478,13 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
     const id = get().activeShowId;
     if (id == null) return;
     const cues = await window.jmplay.shows.cues(id);
-    set((s) => ({ showCues: cues, standbyIndex: Math.min(s.standbyIndex, cues.length) }));
+    // Altfehler PL-10: Der Standby folgt dem Cue selbst, nicht der Position. Fehlt der Cue (gelöscht) oder stand der Standby am Ende,
+    // gilt wie bisher dieselbe Position, höchstens das Ende.
+    set((s) => {
+      const standbyCueId = s.showCues[s.standbyIndex]?.id;
+      const neu = standbyCueId == null ? -1 : cues.findIndex((c) => c.id === standbyCueId);
+      return { showCues: cues, standbyIndex: neu >= 0 ? neu : Math.min(s.standbyIndex, cues.length) };
+    });
     for (const c of cues) {
       // Altfehler PL-T14: Ein Ladefehler beim Vorladen bleibt still; die Meldung kommt erst beim GO.
       if (c.media) showAudio.preload(c.media.id, window.jmplay.mediaUrl(c.media.path)).catch(() => {});
