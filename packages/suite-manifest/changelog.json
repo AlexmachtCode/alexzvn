@@ -348,6 +348,16 @@
     "name": "JM Player",
     "entries": [
       {
+        "version": "0.10.0",
+        "date": "2026-11-25",
+        "notes": [
+          "GO auf einen Video-Cue spielt jetzt auch, wenn die Ausgabe noch geschlossen ist. Es bleibt bei einem Ausgabefenster, auch nach schnellem Schließen und Öffnen.",
+          "Die Pause hält jetzt auch die Vorlaufzeit an, Weiter setzt sie fort. Ein Ton-Cue, der nicht lädt, meldet das im Fenster und gilt nicht mehr als laufend.",
+          "Pad-Tasten lösen mit Strg, Alt oder Cmd und bei offenem Dialog oder Panel nicht mehr aus. Beim Löschen anderer Cues bleibt der Standby auf seinem Cue; eine Rückfrage kommt beim Entfernen eines benutzten Mediums und beim Löschen eines Cues während der Show.",
+          "Companion: CUE und STANDBY mit einer Nummer außerhalb der Show werden abgelehnt, der Standby bleibt stehen."
+        ]
+      },
+      {
         "version": "0.9.1",
         "date": "2026-11-25",
         "notes": [
@@ -1060,6 +1070,15 @@
     "app": "studio-control",
     "name": "JM Studio Control",
     "entries": [
+      {
+        "version": "0.8.0",
+        "date": "2026-11-25",
+        "notes": [
+          "Ohne Anmeldung ist nur noch das eigene Fenster Admin. Browser und Programme melden sich mit einem Konto an, auch auf demselben Rechner; fremde Webseiten werden abgewiesen.",
+          "Companion-Gateway: Steht die Suite auf „secure“, braucht Companion jetzt den Schlüssel.",
+          "Das Einstellungs-Panel nennt unter Browser-Zugang den Ort der Datei mit dem Erst-Passwort."
+        ]
+      },
       {
         "version": "0.7.0",
         "date": "2026-11-25",
