@@ -5,8 +5,8 @@
 import { gleich, ok } from '@jm/ui/testhilfe';
 import type { OutputCommand, RemoteCommand, RemotePlayerState, ShowCue } from '@shared/types';
 import { cueEngine } from '@/lib/cues';
-import { kopfOnAir } from '@/lib/oberflaeche';
-import { showAudio } from '@/lib/show-audio';
+import { kopfOnAir, PLAYER_TEXTE } from '@/lib/oberflaeche';
+import { SHOW_AUDIO_GRUND, showAudio } from '@/lib/show-audio';
 import { usePlayer } from '@/store/player';
 import { pad, showCue } from './testzustand';
 // Reihenfolge: bruecken.test setzt und löscht globalThis.window zwischen eigenen await-Stellen. Geschwister-Module mit
@@ -382,6 +382,113 @@ try {
     const nachCue4 = [p().standbyIndex, p().notice, zaehle('output.load') + zaehle('audio.play 14'), p().videoCue?.id];
     fernbefehl?.({ t: 'standby', n: 1 });
     gleich([nachCue4, p().standbyIndex, protokoll, p().notice], [[4, null, 1, 14], 0, [], null], 'PL-16a cue 4 und standby 1 wirken wie heute');
+  }
+
+  // ── PL-T14: Ein Ton-Cue, der nicht lädt, verlässt „laufend“ sofort, meldet sich im Fenster und im Log (A2, A3) ──
+  {
+    const spielt = showAudio.play;
+    const vorlauf = showCue(31, { label: 'Wartet', preWaitSec: 0.03 });
+    const mitWeiter = showCue(32, { label: 'Gong', autoContinue: true });
+    const danach = showCue(33, { label: 'Danach' });
+    const ablehnen = (grund: string): void => {
+      showAudio.play = async (cue) => {
+        log.push(`audio.play ${cue.id}`);
+        throw new Error(grund);
+      };
+    };
+    const ladefehler = async (): Promise<void> => {
+      await warte(5);
+    };
+    try {
+      ablehnen(SHOW_AUDIO_GRUND.datei);
+      const zeile = `Cue 1 „Gong“ spielt nicht: ${SHOW_AUDIO_GRUND.datei} (C:/Medien/m111.wav)`;
+
+      neu();
+      usePlayer.setState({ notice: null });
+      protokoll.length = 0;
+      p().fireCue(0);
+      await ladefehler();
+      const b = berichte[berichte.length - 1];
+      gleich(
+        [p().playingCueIds, b.playing, b.playingCount, kopfOnAir({ player: p(), pads: [], ausgabe: undefined, videoBelegt: false }).live],
+        [[], false, 0, false],
+        'PL-T14 Cue verlässt laufend: playingCueIds leer, letzter Bericht an Companion playing aus, kein ON AIR',
+      );
+      gleich(p().notice, PLAYER_TEXTE.cueFehler(1, 'Gong', SHOW_AUDIO_GRUND.datei), 'PL-T14 notice nennt Cue und Grund');
+      gleich(p().notice, `Cue 1 „Gong“ spielt nicht: ${SHOW_AUDIO_GRUND.datei}`, 'PL-T14 notice hat den Wortlaut aus dem Plan');
+      gleich(protokoll, [zeile], 'PL-T14 protokolliere genau einmal mit der Log-Zeile (Hinweis plus Pfad)');
+      gleich(p().standbyIndex, 1, 'PL-T14 der Standby steht schon auf dem nächsten Cue');
+
+      // Name: label, sonst Dateiname, sonst Strich; Nummer ist Index + 1.
+      neu();
+      usePlayer.setState({ showCues: [A, showCue(34, { label: '' })] });
+      p().fireCue(1);
+      await ladefehler();
+      gleich(p().notice, PLAYER_TEXTE.cueFehler(2, 'm134.wav', SHOW_AUDIO_GRUND.datei), 'PL-T14 ohne Namen nennt der Hinweis den Dateinamen und die Nummer index + 1');
+      gleich(PLAYER_TEXTE.cueFehler(3, '—', SHOW_AUDIO_GRUND.format), `Cue 3 „—“ spielt nicht: ${SHOW_AUDIO_GRUND.format}`, 'PL-T14 cueFehler mit Strich als Name und Grund format');
+
+      // Format-Grund kommt an, wie er geworfen wurde.
+      ablehnen(SHOW_AUDIO_GRUND.format);
+      neu();
+      usePlayer.setState({ notice: null });
+      p().fireCue(0);
+      await ladefehler();
+      gleich(p().notice, PLAYER_TEXTE.cueFehler(1, 'Gong', SHOW_AUDIO_GRUND.format), 'PL-T14 der Grund format kommt in den Hinweis');
+      ablehnen(SHOW_AUDIO_GRUND.datei);
+
+      // A2: kein Auto-Continue nach einem Ladefehler.
+      neu();
+      usePlayer.setState({ showCues: [mitWeiter, danach] });
+      log.length = 0;
+      p().fireCue(0);
+      await ladefehler();
+      gleich([log, p().standbyIndex, p().playingCueIds], [['audio.play 32'], 1, []], 'PL-T14 kein Auto-Continue nach einem Ladefehler (A2): der nächste Cue startet nicht');
+
+      // A2: die Pause bleibt, wie sie vor dem Start war. Nicht pausiert: nicht pausiert.
+      neu();
+      usePlayer.setState({ notice: null });
+      p().fireCue(0);
+      await ladefehler();
+      gleich([p().showPaused, berichte[berichte.length - 1].paused], [false, false], 'PL-T14 showPaused wie vor dem Start (A2): ohne Pause bleibt es ohne Pause');
+
+      // A2: vor dem Start pausiert: danach wieder pausiert, Vorläufe angehalten (R1).
+      neu();
+      usePlayer.setState({ showCues: [A, vorlauf] });
+      p().fireCue(1);
+      p().showTogglePause();
+      p().fireCue(0);
+      ok(p().showPaused === false, 'PL-T14 Vorbedingung: der Start hebt die Pause auf');
+      await ladefehler();
+      gleich(
+        [p().showPaused, berichte[berichte.length - 1].paused, p().playingCueIds, p().vorlaufCueIds],
+        [true, true, [31], [31]],
+        'PL-T14 showPaused wie vor dem Start (A2): war die Show pausiert, ist sie es nach dem Ladefehler wieder; der Vorlauf bleibt',
+      );
+      await warte(60);
+      gleich(zaehle('audio.play 31'), 0, 'PL-T14 nach dem Ladefehler hält die Pause den Vorlauf weiter an (Zeitgeber angehalten)');
+      p().showTogglePause();
+      await warte(60);
+      gleich(zaehle('audio.play 31'), 1, 'PL-T14 Weiter lässt den angehaltenen Vorlauf danach ablaufen');
+
+      // Stop zwischen Start und Fehler: die Pause wird nicht neu gesetzt.
+      let scheitern: (() => void) | undefined;
+      showAudio.play = async (cue) => {
+        log.push(`audio.play ${cue.id}`);
+        await new Promise<void>((_ok, nein) => {
+          scheitern = () => nein(new Error(SHOW_AUDIO_GRUND.datei));
+        });
+      };
+      neu();
+      p().fireCue(0);
+      p().showTogglePause();
+      p().fireCue(0);
+      p().showStop();
+      scheitern?.();
+      await ladefehler();
+      gleich([p().showPaused, p().playingCueIds], [false, []], 'PL-T14 ein Ladefehler nach Stop setzt die Pause nicht wieder');
+    } finally {
+      showAudio.play = spielt;
+    }
   }
 
   // ── PL ON AIR Wahrheitstabelle am echten Store: Stop in der Pause, dann GO mit Audio-Cue ──

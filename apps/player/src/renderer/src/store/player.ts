@@ -17,6 +17,7 @@ import type {
 import { showAudio } from '@/lib/show-audio';
 import { cueEngine } from '@/lib/cues';
 import { pruefeFernNummer } from '@/lib/fernbefehl';
+import { PLAYER_TEXTE } from '@/lib/oberflaeche';
 import { Vorlaeufe } from '@/lib/vorlauf';
 
 // Pre-Wait-Zeitgeber der Cue-Show (modulglobal, damit Panik/Stop sie killt). Die Pause hält sie an (Altfehler PL-11).
@@ -464,7 +465,8 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
     set({ activeShowId: id, showCues: cues, standbyIndex: 0, playingCueIds: [], showPaused: false });
     // Cue-Medien vordekodieren → latenzarmes GO.
     for (const c of cues) {
-      if (c.media) void showAudio.preload(c.media.id, window.jmplay.mediaUrl(c.media.path));
+      // Altfehler PL-T14: Ein Ladefehler beim Vorladen bleibt still; die Meldung kommt erst beim GO.
+      if (c.media) showAudio.preload(c.media.id, window.jmplay.mediaUrl(c.media.path)).catch(() => {});
     }
   },
   refreshShowCues: async () => {
@@ -473,7 +475,8 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
     const cues = await window.jmplay.shows.cues(id);
     set((s) => ({ showCues: cues, standbyIndex: Math.min(s.standbyIndex, cues.length) }));
     for (const c of cues) {
-      if (c.media) void showAudio.preload(c.media.id, window.jmplay.mediaUrl(c.media.path));
+      // Altfehler PL-T14: Ein Ladefehler beim Vorladen bleibt still; die Meldung kommt erst beim GO.
+      if (c.media) showAudio.preload(c.media.id, window.jmplay.mediaUrl(c.media.path)).catch(() => {});
     }
   },
   addShowCues: async (mediaIds) => {
@@ -519,6 +522,8 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
     const media = cue.media;
     const url = window.jmplay.mediaUrl(media.path);
     const startNow = (): void => {
+      // Altfehler PL-T14 (A2): Merken, ob die Show vor diesem Start pausiert war; ein Ladefehler stellt die Pause wieder her.
+      const warPausiert = get().showPaused;
       // Altfehler PL-11 (A1): Ein Start hebt die Pause auf; auch gehaltene Vorläufe laufen dann weiter.
       vorlaeufe.fortsetzen();
       // Der Start beendet den Vorlauf und hebt die Pause auf: showAudio.play weckt die angehaltene Tonmaschine, ein
@@ -551,10 +556,26 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
             open ? load() : window.jmplay.output.open(get().outputDisplayId ?? undefined).then(load),
           );
       } else {
-        void showAudio.play(cue, url, () => {
-          set((s) => ({ playingCueIds: s.playingCueIds.filter((x) => x !== cue.id) }));
-          if (cue.autoContinue) get().fireCue(index + 1);
-        });
+        showAudio
+          .play(cue, url, () => {
+            set((s) => ({ playingCueIds: s.playingCueIds.filter((x) => x !== cue.id) }));
+            if (cue.autoContinue) get().fireCue(index + 1);
+          })
+          .catch((e: unknown) => {
+            // Altfehler PL-T14: Der Cue verlässt „laufend“ sofort (ON AIR folgt), das Fenster nennt Cue und Grund, das Log eine
+            // Zeile. Kein Auto-Continue (A2). War die Show vor dem Start pausiert und läuft der Cue noch als gestartet (kein Stop
+            // dazwischen), gilt die Pause wieder, samt angehaltener Vorläufe.
+            const nochDa = get().playingCueIds.includes(cue.id);
+            set((s) => ({ playingCueIds: s.playingCueIds.filter((x) => x !== cue.id) }));
+            if (nochDa && warPausiert) {
+              set({ showPaused: true });
+              vorlaeufe.anhalten();
+            }
+            const grund = e instanceof Error ? e.message : String(e);
+            const hinweis = PLAYER_TEXTE.cueFehler(index + 1, cue.label || media.fileName || '—', grund);
+            set({ notice: hinweis });
+            void window.jmplay.protokolliere(`${hinweis} (${media.path})`);
+          });
       }
     };
 

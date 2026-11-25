@@ -25,4 +25,5 @@ await lade('live', () => import('./live.test'));
 await lade('funktionsliste', () => import('./funktionsliste.test'));
 await lade('rueckspiel', () => import('./rueckspiel.test'));
 await lade('ablauf', () => import('./ablauf.test'));
+await lade('show-audio', () => import('./show-audio.test'));
 abschluss();

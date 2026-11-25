@@ -71,6 +71,7 @@ const GEAENDERT = [
   'src/renderer/src/lib/cues.ts',
   'src/renderer/src/lib/fernbefehl.ts',
   'src/renderer/src/lib/oberflaeche.ts',
+  'src/renderer/src/lib/show-audio.ts',
   'src/renderer/src/lib/vorlauf.ts',
   'src/renderer/src/store/player.ts',
   'src/renderer/src/views/Einstellungen.tsx',
@@ -92,6 +93,7 @@ const GEAENDERT = [
   'test/ui/panel.test.tsx',
   'test/ui/rahmen.test.tsx',
   'test/ui/rueckspiel.test.tsx',
+  'test/ui/show-audio.test.ts',
   'test/ui/selftest.ts',
   'test/ui/store.test.ts',
   'test/ui/testzustand.ts',
@@ -159,7 +161,10 @@ const ALTFEHLER = new Map<string, readonly string[]>([
       'src/renderer/src/store/player.ts',
     ].map((p) => `apps/player/${p}`),
   ],
-  ['PL-T14', []],
+  [
+    'PL-T14',
+    ['src/renderer/src/lib/show-audio.ts', 'src/renderer/src/lib/oberflaeche.ts', 'src/renderer/src/store/player.ts'].map((p) => `apps/player/${p}`),
+  ],
 ]);
 /** Verweis „Altfehler <ID>“ auf eine der erlaubten IDs; die ID steht in Gruppe 1. */
 const ALTFEHLER_VERWEIS = new RegExp(`\\bAltfehler (${[...ALTFEHLER.keys()].join('|')})(?![\\w-])`, 'g');
@@ -677,8 +682,7 @@ ok(
       nennt(120, 'Altfehler PL-T13', 'Altfehler PL-N') &&
       nennt(122, 'Altfehler PL-N', 'bereit') &&
       ["case 'load':", "case 'stop':", "case 'pause':", "case 'resume':", "case 'black':"].every((c) => ov.includes(c)) &&
-      zugriffe.join(',') === 'meldeBereit,notifyEnded,onCommand,reportTime' &&
-      !GEAENDERT_KANON.has('apps/player/src/renderer/src/lib/show-audio.ts'),
+      zugriffe.join(',') === 'meldeBereit,notifyEnded,onCommand,reportTime',
     'PL Funktionsliste Nr. 120–129: Ausgabefenster und seine Befehle (views/OutputView.tsx) bleiben (E6); neu meldet die Ansicht nur „bereit“ (Altfehler PL-N), höchstens ein Fenster (Altfehler PL-T13)',
   );
 }
