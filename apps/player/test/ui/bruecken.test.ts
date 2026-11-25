@@ -620,15 +620,25 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
   );
   const wurzel = ohneKommentare(leseText('src/renderer/src/views/PlayerOberflaeche.tsx'));
   ok(/<Soundboard panelOffen=\{panelOffen\} \/>/.test(wurzel), 'PL-4 Wächter: PlayerOberflaeche reicht panelOffen an Soundboard');
+  // Ruling R16 (Fix-Welle F2): gefragt wird im Fenster (EntfernenFrage), nicht mit window.confirm; entfernt wird über die
+  // hooklosen Abläufe cueEntfernen bzw. mediumEntfernen mit removeShowCue bzw. removeItem des Stores (Verhalten: rueckfrage.test, store.test).
   const show = ohneKommentare(leseText('src/renderer/src/views/ShowView.tsx'));
   ok(
-    /cueEntfernenFrage\(/.test(show) && show.indexOf('cueEntfernenFrage(') < show.indexOf('removeShowCue(cue.id)') && /window\.confirm\(frage\)/.test(show),
-    'PL-10 Wächter: ShowView fragt vor removeShowCue mit cueEntfernenFrage',
+    /cueEntfernenFrage\(/.test(show) &&
+      show.indexOf('cueEntfernenFrage(') < show.indexOf('entfernenOderFragen(') &&
+      /cueEntfernen\(\{ stand: \{ playingCueIds, videoCue \}, cue, index: i, entferne: removeShowCue, fragen: setRueckfrage \}\)/.test(show) &&
+      !/window\.confirm\(frage\)/.test(show),
+    'PL-10 Wächter: ShowView fragt vor removeShowCue mit cueEntfernenFrage, im Fenster statt mit window.confirm (R16)',
   );
   const bib = ohneKommentare(leseText('src/renderer/src/views/LibraryView.tsx'));
   ok(
-    /window\.jmplay\.library\.nutzung\(/.test(bib) && /mediumEntfernenFrage\(/.test(bib) && bib.indexOf('mediumEntfernenFrage(') < bib.indexOf('removeItem(item.id)'),
-    'PL-10 Wächter: LibraryView fragt vor removeItem mit library.nutzung und mediumEntfernenFrage',
+    /window\.jmplay\.library\.nutzung\(/.test(bib) &&
+      /mediumEntfernenFrage\(/.test(bib) &&
+      bib.indexOf('mediumEntfernenFrage(') < bib.indexOf('entfernenOderFragen(') &&
+      /entferne: removeItem/.test(bib) &&
+      /<MediaRow key=\{item\.id\} item=\{item\} context="all" onFrage=\{setRueckfrage\} \/>/.test(bib) &&
+      !/window\.confirm\(/.test(bib),
+    'PL-10 Wächter: LibraryView fragt vor removeItem mit library.nutzung und mediumEntfernenFrage, im Fenster statt mit window.confirm (R16)',
   );
   const lib = leseText('src/main/library.ts');
   ok(

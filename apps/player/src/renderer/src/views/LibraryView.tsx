@@ -3,8 +3,24 @@ import { Badge, Button, cn } from '@jm/ui';
 import type { MediaItem } from '@shared/types';
 import { usePlayer } from '@/store/player';
 import { basename, formatBytes, formatDuration } from '@/lib/format';
-import { mediumEntfernenFrage } from '@/lib/oberflaeche';
+import { entfernenOderFragen, mediumEntfernenFrage, type EntfernenRueckfrage } from '@/lib/oberflaeche';
+import { EntfernenFrage } from './EntfernenFrage';
 import { Fussleiste } from './Fussleiste';
+
+/**
+ * Entfernen eines Mediums aus der Bibliothek (Altfehler PL-10, Ruling R16), hooklos prüfbar: Benutzen Cues oder Pads das Medium
+ * (`nutzung`), öffnet es die Rückfrage im Fenster (`fragen`) und entfernt erst mit deren „Entfernen“; sonst entfernt es wie bisher
+ * sofort.
+ */
+export async function mediumEntfernen(a: {
+  item: MediaItem;
+  nutzung(id: number): Promise<{ cues: number; pads: number }>;
+  entferne(id: number): unknown;
+  fragen(r: EntfernenRueckfrage): void;
+}): Promise<void> {
+  const frage = mediumEntfernenFrage(a.item.title || a.item.fileName, await a.nutzung(a.item.id));
+  entfernenOderFragen(frage, () => void a.entferne(a.item.id), a.fragen);
+}
 
 export function LibraryView() {
   const loading = usePlayer((s) => s.loading);
@@ -151,6 +167,10 @@ function AllMediaList() {
   const importFolders = usePlayer((s) => s.importFolders);
   const importPaths = usePlayer((s) => s.importPaths);
   const [query, setQuery] = useState('');
+  // Altfehler PL-10, Ruling R16: die Rückfrage beim Entfernen eines benutzten Mediums ist ein Fenster im Fenster. Sie steht hier und
+  // nicht in der Zeile, damit kein Klick und kein Doppelklick in ihr die Zeile erreicht (Doppelklick spielt das Medium).
+  const [rueckfrage, setRueckfrage] = useState<EntfernenRueckfrage | null>(null);
+  const schliesseRueckfrage = useCallback(() => setRueckfrage(null), []);
 
   const visible = useMemo(() => filterItems(items, query), [items, query]);
 
@@ -182,10 +202,11 @@ function AllMediaList() {
       ) : (
         <div className="flex-1 overflow-auto scroll-thin px-3 pb-4">
           {visible.map((item) => (
-            <MediaRow key={item.id} item={item} context="all" />
+            <MediaRow key={item.id} item={item} context="all" onFrage={setRueckfrage} />
           ))}
         </div>
       )}
+      {rueckfrage && <EntfernenFrage rueckfrage={rueckfrage} onSchliessen={schliesseRueckfrage} />}
     </div>
   );
 }
@@ -296,6 +317,7 @@ function MediaRow({
   context,
   onRemove,
   onMove,
+  onFrage,
   first,
   last,
 }: {
@@ -303,6 +325,8 @@ function MediaRow({
   context: 'all' | 'playlist';
   onRemove?: () => void;
   onMove?: (dir: -1 | 1) => void;
+  /** Öffnet die Rückfrage beim Entfernen aus der Bibliothek (nur „Alle Medien“, Ruling R16). */
+  onFrage?: (r: EntfernenRueckfrage) => void;
   first?: boolean;
   last?: boolean;
 }) {
@@ -310,11 +334,9 @@ function MediaRow({
   const play = usePlayer((s) => s.play);
   const removeItem = usePlayer((s) => s.removeItem);
   // Altfehler PL-10: Benutzen Cues oder Pads das Medium, fragt das Entfernen nach (mit Anzahl); sonst wie bisher ohne Rückfrage.
-  const entferneMedium = async (): Promise<void> => {
-    const frage = mediumEntfernenFrage(item.title || item.fileName, await window.jmplay.library.nutzung(item.id));
-    if (frage !== null && !window.confirm(frage)) return;
-    removeItem(item.id);
-  };
+  // Ruling R16: gefragt wird im Fenster (EntfernenFrage in der Liste), ohne Rückfrage-Ziel entfernt nichts.
+  const entferneMedium = (): Promise<void> =>
+    mediumEntfernen({ item, nutzung: (id) => window.jmplay.library.nutzung(id), entferne: removeItem, fragen: (r) => onFrage?.(r) });
   const active = currentMediaId === item.id;
 
   return (

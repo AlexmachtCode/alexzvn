@@ -76,6 +76,7 @@ const GEAENDERT = [
   'src/renderer/src/lib/vorlauf.ts',
   'src/renderer/src/store/player.ts',
   'src/renderer/src/views/Einstellungen.tsx',
+  'src/renderer/src/views/EntfernenFrage.tsx',
   'src/renderer/src/views/Fussleiste.tsx',
   'src/renderer/src/views/LibraryView.tsx',
   'src/renderer/src/views/LiveBereich.tsx',
@@ -93,6 +94,7 @@ const GEAENDERT = [
   'test/ui/oberflaeche.test.ts',
   'test/ui/panel.test.tsx',
   'test/ui/rahmen.test.tsx',
+  'test/ui/rueckfrage.test.tsx',
   'test/ui/rueckspiel.test.tsx',
   'test/ui/show-audio.test.ts',
   'test/ui/selftest.ts',
@@ -160,6 +162,7 @@ const ALTFEHLER = new Map<string, readonly string[]>([
       'src/renderer/src/store/player.ts',
       'src/renderer/src/views/LibraryView.tsx',
       'src/renderer/src/views/ShowView.tsx',
+      'src/renderer/src/views/EntfernenFrage.tsx',
     ].map((p) => `apps/player/${p}`),
   ],
   ['PL-11', ['src/renderer/src/lib/vorlauf.ts', 'src/renderer/src/store/player.ts'].map((p) => `apps/player/${p}`)],
@@ -585,7 +588,7 @@ ok(
 {
   const kopf = show.slice(show.indexOf('const onKey'), show.indexOf('const onKey') + 400);
   ok(
-    beginnt(131, 'Cue-Show') && nennt(131, 'outputOpen', 'contentEditable', 'O1') && kopf.includes('if (addOpen || editCue) return;') && !kopf.includes('outputOpen') && kopf.includes('istEingabeZiel(e.target)') && /isContentEditable === true/.test(obf) && nennt(131, 'Escape', 'Panel'),
+    beginnt(131, 'Cue-Show') && nennt(131, 'outputOpen', 'contentEditable', 'O1') && kopf.includes('if (addOpen || editCue || rueckfrage) return;') && !kopf.includes('outputOpen') && kopf.includes('istEingabeZiel(e.target)') && /isContentEditable === true/.test(obf) && nennt(131, 'Escape', 'Panel'),
     'PL Funktionsliste Nr. 131: der Filter der Cue-Show hat outputOpen mit dem Modal verloren, sperrt Felder samt contentEditable und lässt Knöpfe durch',
   );
   ok(
@@ -729,10 +732,19 @@ ok(
   'PL Funktionsliste: die Statusleiste hat Master-Link, Video-Ausgabe, Fernsteuerung, Cue-Show und Pads',
 );
 
-// ── Kein Rückfall auf geratene Werte: window.confirm/prompt nur an den zwei Stellen der Cue-Show, kein alert ──
+// ── Kein Rückfall auf geratene Werte: window.prompt und window.confirm je einmal in der Cue-Show, kein alert ──
+// Seit Ruling R16 (Fix-Welle F2) sind die Rückfragen beim Entfernen eines Cues und eines Mediums Fenster im Fenster (EntfernenFrage);
+// gezählt wird je Aufruf getrennt.
 {
-  const dateien = ['App.tsx', 'views/PlayerOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Fussleiste.tsx', 'views/Einstellungen.tsx', 'views/SoundboardView.tsx', 'lib/aktionen.ts', 'lib/oberflaeche.ts', 'store/player.ts'];
-  ok(dateien.every((d) => !/\bwindow\.(?:confirm|alert|prompt)\(/.test(quelle(d))) && (show.match(/window\.(?:confirm|prompt)\(/g) ?? []).length === 3 && (quelle('views/LibraryView.tsx').match(/window\.confirm\(/g) ?? []).length === 1 && !/\bwindow\.(?:alert|prompt)\(/.test(quelle('views/LibraryView.tsx')), 'PL Funktionsliste: window.prompt und window.confirm stehen in der Cue-Show (prompt einmal, confirm für Show löschen und Cue entfernen) und window.confirm in der Bibliothek (Altfehler PL-10), window.alert nirgends');
+  const dateien = ['App.tsx', 'views/PlayerOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Fussleiste.tsx', 'views/Einstellungen.tsx', 'views/SoundboardView.tsx', 'views/LibraryView.tsx', 'views/EntfernenFrage.tsx', 'lib/aktionen.ts', 'lib/oberflaeche.ts', 'store/player.ts'];
+  ok(
+    dateien.every((d) => gibtEs(d) && !/\bwindow\.(?:confirm|alert|prompt)\(/.test(quelle(d))) &&
+      (show.match(/window\.prompt\(/g) ?? []).length === 1 &&
+      (show.match(/window\.confirm\(/g) ?? []).length === 1 &&
+      show.includes("window.confirm('Diese Show löschen?')") &&
+      !/\bwindow\.alert\(/.test(show),
+    'PL Funktionsliste: window.prompt (Show umbenennen) und window.confirm (Show löschen) je einmal in der Cue-Show; die Rückfragen beim Entfernen eines Cues und eines Mediums sind Fenster im Fenster (Altfehler PL-10, Ruling R16), die Bibliothek hat kein window.confirm, window.alert nirgends',
+  );
 }
 
 // ── Abschnitt 9 und der Kopf „Stand“ widersprechen den Haken nicht (Fix-Runde 1) ──

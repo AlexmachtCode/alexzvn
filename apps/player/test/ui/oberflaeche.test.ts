@@ -675,8 +675,9 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
     'PL Kürzel aus Panel-Feld: ShowView.tsx filtert über istEingabeZiel, ohne eigene tagName-Prüfung',
   );
   // Player d1: Das Modal „Video-Ausgabe“ ist Panel-Abschnitt geworden; mit ihm entfällt die Sperre outputOpen (PL Tasten in rahmen.test).
+  // Fix-Welle F2 (Ruling R16): die Rückfrage beim Entfernen eines Cues sperrt wie die anderen Dialoge.
   ok(
-    /if \(addOpen \|\| editCue\) return;/.test(show) &&
+    /if \(addOpen \|\| editCue \|\| rueckfrage\) return;/.test(show) &&
       /if \(e\.code === 'Space'\) \{\s*e\.preventDefault\(\);\s*showGo\(\);\s*\} else if \(e\.key === 'Escape'\) \{\s*showStop\(\);\s*\}/.test(show) &&
       /window\.addEventListener\('keydown', onKey\);/.test(show),
     'PL Kürzel: Cue-Show wie bisher (kein offener Dialog, Leertaste = GO mit preventDefault, Escape = Stop, Hörer am window)',
@@ -746,6 +747,21 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
   ok(
     !oberflaecheModul.padTasteErlaubt(taste({ target: feld('INPUT') }), frei) && oberflaecheModul.padTasteErlaubt(taste({ target: feld('BUTTON') }), frei),
     'PL-4 Eingabefeld sperrt',
+  );
+  // Ruling R17: Windows meldet AltGr als Strg+Alt; getModifierState('AltGraph') erlaubt dann wie vor dem Branch. Meta, Dialog, Panel
+  // und Feld sperren weiter.
+  const altGr = (an: boolean) => ({ ...taste({ ctrlKey: true, altKey: true }), getModifierState: (k: string) => an && k === 'AltGraph' });
+  ok(oberflaecheModul.padTasteErlaubt(altGr(true), frei), 'PL-4 AltGr+Q (@) löst aus');
+  ok(
+    !oberflaecheModul.padTasteErlaubt(altGr(false), frei) && !oberflaecheModul.padTasteErlaubt(taste({ ctrlKey: true, altKey: true }), frei),
+    'PL-4 Strg+Alt ohne AltGr sperrt',
+  );
+  ok(
+    !oberflaecheModul.padTasteErlaubt({ ...altGr(true), metaKey: true }, frei) &&
+      !oberflaecheModul.padTasteErlaubt(altGr(true), { dialogOffen: true, panelOffen: false }) &&
+      !oberflaecheModul.padTasteErlaubt(altGr(true), { dialogOffen: false, panelOffen: true }) &&
+      !oberflaecheModul.padTasteErlaubt({ ...altGr(true), target: feld('INPUT') }, frei),
+    'PL-4 AltGr mit Meta, bei offenem Dialog oder Panel und im Feld sperrt weiter',
   );
 }
 

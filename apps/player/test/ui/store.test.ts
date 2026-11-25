@@ -8,7 +8,9 @@ import { cueEngine } from '@/lib/cues';
 import { kopfOnAir, PLAYER_TEXTE } from '@/lib/oberflaeche';
 import { SHOW_AUDIO_GRUND, showAudio } from '@/lib/show-audio';
 import { usePlayer } from '@/store/player';
-import { pad, showCue } from './testzustand';
+import * as bibliothekModul from '@/views/LibraryView';
+import * as showModul from '@/views/ShowView';
+import { medium, pad, showCue } from './testzustand';
 // Reihenfolge: bruecken.test setzt und löscht globalThis.window zwischen eigenen await-Stellen. Geschwister-Module mit
 // top-level await laufen sonst verschränkt und überschrieben sich das Schein-window; dieser Import lässt diesen Test erst
 // nach bruecken.test beginnen (dasselbe Modul, es läuft nicht doppelt).
@@ -66,11 +68,26 @@ showAudio.preload = async () => {};
 cueEngine.stopAll = () => {
   log.push('pads.stopAll');
 };
+/** Antwort der Attrappe library.nutzung (Altfehler PL-10, Ruling R16). */
+let nutzungAntwort = { cues: 0, pads: 0 };
 g.window = {
   jmplay: {
-    library: { list: async () => [] },
+    library: {
+      list: async () => [],
+      remove: async (id: number) => {
+        log.push(`library.remove ${id}`);
+      },
+      nutzung: async () => nutzungAntwort,
+    },
     playlists: { list: async () => [] },
-    shows: { list: async () => [], cues: async () => serverCues, remove: async () => {} },
+    shows: {
+      list: async () => [],
+      cues: async () => serverCues,
+      remove: async () => {},
+      removeCue: async (id: number) => {
+        log.push(`shows.removeCue ${id}`);
+      },
+    },
     output: {
       command: async (c: OutputCommand) => {
         log.push(`output.${c.type}`);
@@ -627,6 +644,50 @@ try {
     gleich(await standbyNach(1, [A, P, PV]), 1, 'PL-10 Standby-Cue selbst gelöscht: der Cue danach (P) steht auf dem alten Index');
     gleich(await standbyNach(4, [A, V, P]), 3, 'PL-10 Standby am Ende bleibt am Ende (Liste kürzer)');
     serverCues = CUES;
+  }
+
+  // ── PL-10, Ruling R16 (Fix-Welle F2): die Rückfrage ist ein Fenster im Fenster. Solange sie offen ist, läuft die Show weiter
+  // (Companion wirkt), und entfernt wird erst über „Entfernen“: dann mit removeShowCue bzw. removeItem des echten Stores ──
+  {
+    type Rueckfrage = { frage: string; entfernen: () => void };
+    const cueEntfernen = (showModul as unknown as { cueEntfernen?: (a: unknown) => void }).cueEntfernen;
+    const mediumEntfernen = (bibliothekModul as unknown as { mediumEntfernen?: (a: unknown) => Promise<void> }).mediumEntfernen;
+    neu();
+    p().fireCue(0);
+    log.length = 0;
+    let offen: Rueckfrage | undefined;
+    cueEntfernen?.({ stand: p(), cue: V, index: 1, entferne: p().removeShowCue, fragen: (r: Rueckfrage) => (offen = r) });
+    await warte(5);
+    const gefragt = [offen?.frage, zaehle('shows.removeCue 12'), p().playingCueIds];
+    fernbefehl?.({ t: 'stop' });
+    const nachStop = [p().playingCueIds, zaehle('audio.stop 11 0.5')];
+    offen?.entfernen();
+    await warte(5);
+    gleich(
+      [typeof cueEntfernen, gefragt, nachStop, zaehle('shows.removeCue 12')],
+      ['function', ['Die Show läuft. Cue 2 „Einspieler“ trotzdem entfernen?', 0, [11]], [[], 1], 1],
+      'PL-10 R16 Cue entfernen in der Show: Rückfrage, nichts entfernt; Companion STOP wirkt, solange sie offen ist; „Entfernen“ ruft removeShowCue (shows.removeCue genau einmal)',
+    );
+
+    neu();
+    log.length = 0;
+    // Ohne Zusicherung engte tsc `offen` hier auf undefined ein (der Rückruf setzt es erst später).
+    offen = undefined as Rueckfrage | undefined;
+    nutzungAntwort = { cues: 1, pads: 1 };
+    await mediumEntfernen?.({ item: medium(111), nutzung: (id: number) => (g.window as { jmplay: { library: { nutzung: (id: number) => Promise<{ cues: number; pads: number }> } } }).jmplay.library.nutzung(id), entferne: p().removeItem, fragen: (r: Rueckfrage) => (offen = r) });
+    await warte(5);
+    const medienFrage = [offen?.frage, zaehle('library.remove 111')];
+    offen?.entfernen();
+    await warte(5);
+    nutzungAntwort = { cues: 0, pads: 0 };
+    const vorher = zaehle('library.remove 112');
+    await mediumEntfernen?.({ item: medium(112), nutzung: async () => nutzungAntwort, entferne: p().removeItem, fragen: () => void log.push('gefragt') });
+    await warte(5);
+    gleich(
+      [typeof mediumEntfernen, medienFrage, zaehle('library.remove 111'), vorher, zaehle('library.remove 112'), zaehle('gefragt')],
+      ['function', [PLAYER_TEXTE.mediumEntfernen('Titel 111', 1, 1), 0], 1, 0, 1, 0],
+      'PL-10 R16 Medium entfernen: benutzt → Rückfrage, nichts entfernt; „Entfernen“ ruft removeItem (library.remove genau einmal); ungenutzt → sofort, ohne Rückfrage',
+    );
   }
 
   // ── PL Bildschirm merken (Player d1, Fix-Runde 1): setOutputDisplayId speichert nur; openOutput merkt wie bisher ──
