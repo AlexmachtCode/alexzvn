@@ -24,4 +24,5 @@ await lade('panel', () => import('./panel.test'));
 await lade('live', () => import('./live.test'));
 await lade('funktionsliste', () => import('./funktionsliste.test'));
 await lade('rueckspiel', () => import('./rueckspiel.test'));
+await lade('ablauf', () => import('./ablauf.test'));
 abschluss();

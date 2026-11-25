@@ -1,0 +1,76 @@
+// Altfehler PL-11: Vorlauf-Zeitgeber (Pre-Wait) der Cue-Show, die die Pause anhalten kann. Rein: Uhr und Zeitgeber kommen
+// über `Uhr` herein (Standard: Date.now/setTimeout/clearTimeout), der Test treibt sie mit einer Schein-Uhr.
+
+export interface Uhr {
+  jetzt(): number;
+  setze(f: () => void, ms: number): unknown;
+  loesche(t: unknown): void;
+}
+
+const ECHTE_UHR: Uhr = {
+  jetzt: () => Date.now(),
+  setze: (f, ms) => setTimeout(f, ms),
+  loesche: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
+};
+
+interface Eintrag {
+  f: () => void;
+  /** Restzeit in ms; läuft der Zeitgeber, gilt sie ab `seit`. */
+  rest: number;
+  seit: number;
+  timer: unknown;
+}
+
+export class Vorlaeufe {
+  private readonly liste = new Set<Eintrag>();
+  private halt = false;
+
+  constructor(private readonly uhr: Uhr = ECHTE_UHR) {}
+
+  /** In der Pause steht die Show still: kein Vorlauf läuft, er wartet mit seiner vollen Zeit auf `fortsetzen`. */
+  get angehalten(): boolean {
+    return this.halt;
+  }
+
+  /** Anzahl der Vorläufe, die noch nicht gestartet sind (laufend oder angehalten). */
+  get anzahl(): number {
+    return this.liste.size;
+  }
+
+  starte(ms: number, f: () => void): void {
+    const e: Eintrag = { f, rest: ms, seit: 0, timer: undefined };
+    this.liste.add(e);
+    if (!this.halt) this.laufen(e);
+  }
+
+  anhalten(): void {
+    if (this.halt) return;
+    this.halt = true;
+    const jetzt = this.uhr.jetzt();
+    for (const e of this.liste) {
+      this.uhr.loesche(e.timer);
+      e.timer = undefined;
+      e.rest = Math.max(0, e.rest - (jetzt - e.seit));
+    }
+  }
+
+  fortsetzen(): void {
+    if (!this.halt) return;
+    this.halt = false;
+    for (const e of [...this.liste]) this.laufen(e);
+  }
+
+  leeren(): void {
+    for (const e of this.liste) if (e.timer !== undefined) this.uhr.loesche(e.timer);
+    this.liste.clear();
+    this.halt = false;
+  }
+
+  private laufen(e: Eintrag): void {
+    e.seit = this.uhr.jetzt();
+    e.timer = this.uhr.setze(() => {
+      this.liste.delete(e);
+      e.f();
+    }, e.rest);
+  }
+}

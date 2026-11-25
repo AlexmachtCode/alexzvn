@@ -563,6 +563,19 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
       typen.includes('meldeBereit: () => void;'),
     'PL Wächter Kanäle: output:bereit steht einmal im Preload (send) und einmal im Main (on), window.jmplay.output.meldeBereit ist typisiert',
   );
+  ok(
+    preload.includes("protokolliere: (text) => ipcRenderer.invoke('player:protokoll', text) as Promise<void>,") &&
+      vorkommen(preload, 'player:protokoll') === 1 &&
+      vorkommen(ipc, 'player:protokoll') === 1 &&
+      vorkommen(main, 'player:protokoll') === 0 &&
+      typen.includes('protokolliere: (text: string) => Promise<void>;'),
+    'PL Wächter Kanäle: player:protokoll steht einmal im Preload (invoke) und einmal im Main (handle), window.jmplay.protokolliere ist typisiert (Altfehler PL-16a)',
+  );
+  ok(
+    ipc.includes("ipcMain.handle('player:protokoll', (_e, text: unknown) => {") &&
+      ipc.includes("if (typeof text === 'string') getLog().warn(text.slice(0, 500));"),
+    'PL Wächter Kanäle: player:protokoll schreibt nur Text, auf 500 Zeichen gekürzt, als Warnung ins Log (Altfehler PL-16a)',
+  );
   {
     const effekt = ov.indexOf('useEffect(');
     const hoeren = ov.indexOf('window.jmplay.output.onCommand(');

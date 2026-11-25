@@ -69,7 +69,9 @@ const GEAENDERT = [
   'src/renderer/src/lib/aktionen.ts',
   'src/renderer/src/lib/bruecken.ts',
   'src/renderer/src/lib/cues.ts',
+  'src/renderer/src/lib/fernbefehl.ts',
   'src/renderer/src/lib/oberflaeche.ts',
+  'src/renderer/src/lib/vorlauf.ts',
   'src/renderer/src/store/player.ts',
   'src/renderer/src/views/Einstellungen.tsx',
   'src/renderer/src/views/Fussleiste.tsx',
@@ -81,6 +83,7 @@ const GEAENDERT = [
   'src/renderer/src/views/SoundboardView.tsx',
   'src/shared/fernsteuerung.ts',
   'src/shared/types.ts',
+  'test/ui/ablauf.test.ts',
   'test/ui/bruecken.test.ts',
   'test/ui/funktionsliste.test.ts',
   'test/ui/hilfe.ts',
@@ -144,8 +147,17 @@ const ALTFEHLER = new Map<string, readonly string[]>([
   ['PL-T13', ['src/main/ausgabe-fenster.ts', 'src/main/output-window.ts'].map((p) => `apps/player/${p}`)],
   ['PL-4', []],
   ['PL-10', []],
-  ['PL-11', []],
-  ['PL-16a', []],
+  ['PL-11', ['src/renderer/src/lib/vorlauf.ts', 'src/renderer/src/store/player.ts'].map((p) => `apps/player/${p}`)],
+  [
+    'PL-16a',
+    [
+      'src/main/ipc.ts',
+      'src/preload/index.ts',
+      'src/shared/types.ts',
+      'src/renderer/src/lib/fernbefehl.ts',
+      'src/renderer/src/store/player.ts',
+    ].map((p) => `apps/player/${p}`),
+  ],
   ['PL-T14', []],
 ]);
 /** Verweis „Altfehler <ID>“ auf eine der erlaubten IDs; die ID steht in Gruppe 1. */

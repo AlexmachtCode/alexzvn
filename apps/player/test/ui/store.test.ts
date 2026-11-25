@@ -28,6 +28,8 @@ const CUES: ShowCue[] = [A, V, P, PV];
 // ── Attrappen: Protokoll aller Wirkungen nach außen (Ton der Show, Pads, Ausgabefenster) ──
 const log: string[] = [];
 const berichte: RemotePlayerState[] = [];
+/** Zeilen, die der Store über window.jmplay.protokolliere ins Log des Hauptprozesses schickt (Altfehler PL-16a). */
+const protokoll: string[] = [];
 let fernbefehl: ((c: RemoteCommand) => void) | undefined;
 const zaehle = (eintrag: string): number => log.filter((z) => z === eintrag).length;
 
@@ -86,6 +88,9 @@ g.window = {
       reportState: async (s: RemotePlayerState) => {
         berichte.push(s);
       },
+    },
+    protokolliere: async (text: string) => {
+      protokoll.push(text);
     },
     mediaUrl: (p: string) => `jmedia://local/?path=${encodeURIComponent(p)}`,
     onShowSettings: () => () => {},
@@ -241,7 +246,10 @@ try {
     ok(p().showPaused, 'PL Pause folgt Wirklichkeit: Pause während des Vorlaufs setzt showPaused');
     log.length = 0;
     await warte(90);
-    gleich([p().showPaused, log], [false, ['audio.play 13']], 'PL Pause folgt Wirklichkeit: Vorlauf läuft in der Pause ab → showPaused false; Ton wie bisher (nur showAudio.play)');
+    gleich([p().showPaused, log], [true, []], 'PL Pause folgt Wirklichkeit: der Vorlauf läuft in der Pause nicht ab (Altfehler PL-11), die Pause bleibt');
+    p().showTogglePause();
+    await warte(90);
+    gleich([p().showPaused, log], [false, ['audio.resume', 'output.resume', 'audio.play 13']], 'PL Pause folgt Wirklichkeit: nach Weiter läuft der Vorlauf ab → showPaused false; Ton wie bisher');
 
     // Fix-Runde 1, Wächter: nur startNow und showStop heben die Pause auf, nicht schon der Beginn eines Vorlaufs.
     neu();
@@ -250,10 +258,13 @@ try {
     p().fireCue(2);
     const imVorlauf = [p().showPaused, berichte[berichte.length - 1].paused, p().vorlaufCueIds];
     await warte(90);
+    const nachWarten = [p().showPaused, p().vorlaufCueIds];
+    p().showTogglePause();
+    await warte(90);
     gleich(
-      [imVorlauf, p().showPaused],
-      [[true, true, [13]], false],
-      'PL Pause folgt Wirklichkeit: Beginn eines Vorlaufs in der Pause lässt showPaused und Companion paused wahr; erst der Start des Cues hebt sie auf',
+      [imVorlauf, nachWarten, p().showPaused],
+      [[true, true, [13]], [true, [13]], false],
+      'PL Pause folgt Wirklichkeit: Beginn eines Vorlaufs in der Pause lässt showPaused und Companion paused wahr und hält den Vorlauf (Altfehler PL-11); erst der Start des Cues hebt sie auf',
     );
 
     neu();
@@ -276,6 +287,101 @@ try {
     p().showTogglePause();
     p().showPanic();
     ok(!p().showPaused, 'PL Pause folgt Wirklichkeit: Panik hebt die Pause auf (wie bisher)');
+  }
+
+  // ── PL-11: die Pause hält den Vorlauf (Altfehler PL-11, Ruling A1) ──
+  {
+    neu();
+    p().fireCue(2);
+    p().showTogglePause();
+    await warte(80);
+    const inDerPause = zaehle('audio.play 13');
+    p().showTogglePause();
+    await warte(80);
+    gleich([inDerPause, zaehle('audio.play 13')], [0, 1], 'PL-11 Pause hält den Vorlauf: in der Pause kein Start, nach Weiter genau ein audio.play 13');
+
+    neu();
+    p().fireCue(2);
+    p().showTogglePause();
+    p().showStop();
+    await warte(80);
+    const nachStop = zaehle('audio.play 13');
+    p().showTogglePause();
+    p().showTogglePause();
+    await warte(80);
+    gleich([nachStop, zaehle('audio.play 13')], [0, 0], 'PL-11 Stop in der Pause räumt angehaltene Vorläufe: weder danach noch nach Pause und Weiter startet er');
+
+    // A1: GO in der Pause auf einen Cue mit Vorlauf: der Vorlauf wartet auf Weiter.
+    neu();
+    p().fireCue(0);
+    p().showTogglePause();
+    log.length = 0;
+    p().fireCue(2);
+    await warte(80);
+    const wartet = [zaehle('audio.play 13'), p().showPaused, p().vorlaufCueIds];
+    p().showTogglePause();
+    await warte(80);
+    gleich([wartet, zaehle('audio.play 13'), p().showPaused], [[0, true, [13]], 1, false], 'PL-11 GO in der Pause: Vorlauf wartet auf Weiter');
+
+    // A1: GO in der Pause auf einen Cue ohne Vorlauf hebt die Pause auf, ein gehaltener Vorlauf läuft dann weiter.
+    neu();
+    p().fireCue(2);
+    p().showTogglePause();
+    p().fireCue(0);
+    await warte(80);
+    gleich([p().showPaused, zaehle('audio.play 11'), zaehle('audio.play 13')], [false, 1, 1], 'PL-11 GO ohne Vorlauf in der Pause hebt die Pause auf, der gehaltene Vorlauf läuft weiter');
+  }
+
+  // ── PL-16a: Fernbefehle cue und standby prüfen die Nummer (Altfehler PL-16a, Ruling A3) ──
+  {
+    ok(fernbefehl !== undefined, 'PL-16a Fernbefehl-Rückruf der Attrappe ist da');
+    const hinweisCue = (n: number): string => `Companion „CUE ${n}“ abgelehnt: Die Show hat 4 Cues.`;
+    neu();
+    p().setStandby(2);
+    usePlayer.setState({ notice: null });
+    protokoll.length = 0;
+    log.length = 0;
+    const vorFall: Array<[number, string]> = [];
+    for (const n of [0, 5, -1]) {
+      usePlayer.setState({ notice: null });
+      fernbefehl?.({ t: 'cue', n });
+      vorFall.push([p().standbyIndex, p().notice ?? '']);
+      gleich(p().notice, hinweisCue(n), `PL-16a cue ${n} bei 4 Cues abgelehnt: notice nennt den Grund`);
+    }
+    await warte(60);
+    gleich(
+      [vorFall.map((v) => v[0]), log.filter((z) => z.startsWith('audio.play') || z.startsWith('output.load')), protokoll],
+      [[2, 2, 2], [], [0, 5, -1].map((n) => `Fernbefehl abgelehnt: CUE ${n} (Show hat 4 Cues)`)],
+      'PL-16a cue 0, cue 5 und cue -1 bei 4 Cues abgelehnt: Standby unverändert, kein audio.play, Log-Zeile über protokolliere',
+    );
+
+    neu();
+    p().setStandby(1);
+    protokoll.length = 0;
+    const hinweise: Array<string | null> = [];
+    for (const n of [0, 5]) {
+      usePlayer.setState({ notice: null });
+      fernbefehl?.({ t: 'standby', n });
+      hinweise.push(p().notice);
+    }
+    gleich(
+      [p().standbyIndex, hinweise, protokoll],
+      [
+        1,
+        ['Companion „STANDBY 0“ abgelehnt: Die Show hat 4 Cues.', 'Companion „STANDBY 5“ abgelehnt: Die Show hat 4 Cues.'],
+        ['Fernbefehl abgelehnt: STANDBY 0 (Show hat 4 Cues)', 'Fernbefehl abgelehnt: STANDBY 5 (Show hat 4 Cues)'],
+      ],
+      'PL-16a standby 0 und 5 abgelehnt',
+    );
+
+    neu();
+    protokoll.length = 0;
+    usePlayer.setState({ notice: null });
+    fernbefehl?.({ t: 'cue', n: 4 });
+    await warte(60);
+    const nachCue4 = [p().standbyIndex, p().notice, zaehle('output.load') + zaehle('audio.play 14'), p().videoCue?.id];
+    fernbefehl?.({ t: 'standby', n: 1 });
+    gleich([nachCue4, p().standbyIndex, protokoll, p().notice], [[4, null, 1, 14], 0, [], null], 'PL-16a cue 4 und standby 1 wirken wie heute');
   }
 
   // ── PL ON AIR Wahrheitstabelle am echten Store: Stop in der Pause, dann GO mit Audio-Cue ──

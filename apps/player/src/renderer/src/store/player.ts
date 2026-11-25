@@ -16,12 +16,13 @@ import type {
 } from '@shared/types';
 import { showAudio } from '@/lib/show-audio';
 import { cueEngine } from '@/lib/cues';
+import { pruefeFernNummer } from '@/lib/fernbefehl';
+import { Vorlaeufe } from '@/lib/vorlauf';
 
-// Laufende Pre-Wait-Timer der Cue-Show (modulglobal, damit Panik/Stop sie killt).
-const showTimers = new Set<ReturnType<typeof setTimeout>>();
+// Pre-Wait-Zeitgeber der Cue-Show (modulglobal, damit Panik/Stop sie killt). Die Pause hält sie an (Altfehler PL-11).
+const vorlaeufe = new Vorlaeufe();
 function clearShowTimers(): void {
-  for (const t of showTimers) clearTimeout(t);
-  showTimers.clear();
+  vorlaeufe.leeren();
 }
 
 /**
@@ -74,11 +75,20 @@ function handleRemoteCommand(get: () => PlayerStore, cmd: RemoteCommand): void {
       p.showPanic();
       break;
     case 'cue':
-      p.fireCue(Math.trunc(cmd.n) - 1);
+    case 'standby': {
+      // Altfehler PL-16a: eine Nummer außerhalb 1 bis Zahl der Cues ändert nichts; das Fenster nennt den Grund, das Log eine Zeile.
+      const n = Math.trunc(cmd.n);
+      const verb = cmd.t === 'cue' ? 'CUE' : 'STANDBY';
+      const r = pruefeFernNummer(verb, n, p.showCues.length);
+      if (!r.ok) {
+        p.setNotice(r.hinweis);
+        void window.jmplay.protokolliere(r.log);
+        break;
+      }
+      if (cmd.t === 'cue') p.fireCue(n - 1);
+      else p.setStandby(n - 1);
       break;
-    case 'standby':
-      p.setStandby(Math.max(0, Math.min(Math.trunc(cmd.n) - 1, p.showCues.length)));
-      break;
+    }
     case 'next':
       p.setStandby(Math.min(p.standbyIndex + 1, p.showCues.length));
       break;
@@ -509,6 +519,8 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
     const media = cue.media;
     const url = window.jmplay.mediaUrl(media.path);
     const startNow = (): void => {
+      // Altfehler PL-11 (A1): Ein Start hebt die Pause auf; auch gehaltene Vorläufe laufen dann weiter.
+      vorlaeufe.fortsetzen();
       // Der Start beendet den Vorlauf und hebt die Pause auf: showAudio.play weckt die angehaltene Tonmaschine, ein
       // Video lädt und läuft; der Merker folgt der Wirklichkeit (Ruling Task 14, Funktionsliste Befund 11).
       set((s) => ({
@@ -557,11 +569,7 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
           vorlaufCueIds: klingt ? s.vorlaufCueIds : [...new Set([...s.vorlaufCueIds, cue.id])],
         };
       });
-      const t = setTimeout(() => {
-        showTimers.delete(t);
-        startNow();
-      }, cue.preWaitSec * 1000);
-      showTimers.add(t);
+      vorlaeufe.starte(cue.preWaitSec * 1000, startNow);
     } else {
       startNow();
     }
@@ -596,10 +604,12 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
 
   showTogglePause: () => {
     if (get().showPaused) {
+      vorlaeufe.fortsetzen();
       void showAudio.resume();
       void window.jmplay.output.command({ type: 'resume' });
       set({ showPaused: false });
     } else {
+      vorlaeufe.anhalten();
       void showAudio.suspend();
       void window.jmplay.output.command({ type: 'pause' });
       set({ showPaused: true });

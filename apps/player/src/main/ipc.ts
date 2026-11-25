@@ -7,6 +7,7 @@ import type {
   RemotePlayerState,
   ShowCuePatch,
 } from '@shared/types';
+import { getLog } from '@jm/app-runtime';
 import * as lib from './library';
 import { updatePlayerState } from './control-server';
 import { ensureThumb } from './thumbs';
@@ -28,6 +29,10 @@ const MEDIA_EXT = [
 ];
 
 export function registerIpc(getWin: () => BrowserWindow | null): void {
+  // Altfehler PL-16a: eine Zeile des Renderers ins Log (nur Text, auf 500 Zeichen gekürzt).
+  ipcMain.handle('player:protokoll', (_e, text: unknown) => {
+    if (typeof text === 'string') getLog().warn(text.slice(0, 500));
+  });
   ipcMain.handle('dialog:pickFolders', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'multiSelections'] });
     return r.canceled ? [] : r.filePaths;

@@ -198,6 +198,8 @@ export interface JmplayApi {
   /** Lage des Steuerservers (Port 8725), nur lesend; null, solange Main nichts gemeldet hat. */
   fernsteuerung: () => Promise<FernsteuerungMeldung | null>;
   onFernsteuerung: (cb: (m: FernsteuerungMeldung | null) => void) => () => void;
+  /** Eine Zeile ins Log des Hauptprozesses (Warnung), z. B. ein abgelehnter Fernbefehl (Altfehler PL-16a). */
+  protokolliere: (text: string) => Promise<void>;
   /** Lokalen Pfad in eine vom Renderer ladbare `jmedia://`-URL übersetzen. */
   mediaUrl: (path: string) => string;
   dialog: {

@@ -41,6 +41,8 @@ const api: JmplayApi = {
     ipcRenderer.on('player:fernsteuerung', listener);
     return () => ipcRenderer.off('player:fernsteuerung', listener);
   },
+  // Altfehler PL-16a: der Renderer meldet einen abgelehnten Fernbefehl ans Log des Hauptprozesses.
+  protokolliere: (text) => ipcRenderer.invoke('player:protokoll', text) as Promise<void>,
   dialog: {
     pickFolders: () => ipcRenderer.invoke('dialog:pickFolders') as Promise<string[]>,
     pickFiles: () => ipcRenderer.invoke('dialog:pickFiles') as Promise<string[]>,
