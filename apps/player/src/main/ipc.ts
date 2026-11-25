@@ -16,6 +16,7 @@ import {
   isOutputFullscreen,
   isOutputOpen,
   listDisplays,
+  meldeAusgabeBereit,
   openOutputWindow,
   sendToOutput,
   toggleOutputFullscreen,
@@ -88,6 +89,12 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle('output:isFullscreen', () => isOutputFullscreen());
   ipcMain.handle('output:toggleFullscreen', () => toggleOutputFullscreen());
   ipcMain.handle('output:command', (_e, cmd: OutputCommand) => sendToOutput(cmd));
+  // Altfehler PL-N: die Ausgabeansicht hört jetzt auf output:cmd. Zugeordnet wird über das sendende Fenster; ein anderes Fenster
+  // (etwa das Hauptfenster) ist dem Helfer unbekannt und bleibt ohne Wirkung. output:open und output:command lösen erst danach auf.
+  ipcMain.on('output:bereit', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) meldeAusgabeBereit(win);
+  });
   // Ausgabefenster meldet „Video zu Ende" → ans Hauptfenster weiterreichen.
   ipcMain.handle('output:ended', () => {
     getWin()?.webContents.send('output:ended');

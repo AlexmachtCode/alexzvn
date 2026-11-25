@@ -1,22 +1,33 @@
 import { BrowserWindow, screen } from 'electron';
 import { join } from 'node:path';
+import { getLog } from '@jm/app-runtime';
 import { AUSGABE_ZU, naechsterAusgabeZustand, type AusgabeEreignis, type AusgabeZustand } from '@jm/output-window/zustand';
 import type { DisplayInfo, OutputCommand } from '@shared/types';
-import { LebendeFenster } from './ausgabe-fenster';
+import { AUSGABE_BEREIT_MS, LebendeFenster } from './ausgabe-fenster';
 
 declare const __dirname: string;
 
 const preloadPath = join(__dirname, '../preload/index.cjs');
-
-let outputWindow: BrowserWindow | null = null;
 
 // UX Welle 2a (W2-2, E14): gemessener Zustand des Ausgabefensters, nur lesend. Das Fenster bleibt das eigene des Players
 // (nicht die Klasse OutputWindow); es meldet seine Ereignisse an die reine Zustandsmaschine aus @jm/output-window/zustand.
 let zustand: AusgabeZustand = AUSGABE_ZU;
 const hoerer = new Set<(z: AusgabeZustand) => void>();
 let bildschirmHoerer = false;
-// Nur für die Meldung: alle noch nicht geschlossenen Ausgabefenster dieses Moduls (die outputWindow-Referenz kann veralten).
+// Alle noch nicht geschlossenen Ausgabefenster dieses Moduls. Sie tragen den Zustand (E3) und, seit der Altfehler-Stufe 1, auch das
+// Verhalten: Es gibt nur das aktuelle Fenster (PL-T13), und Befehle warten auf seine Meldung „bereit“ (PL-N).
 const lebende = new LebendeFenster<BrowserWindow>();
+
+/** Das aktuelle Ausgabefenster: das neueste lebende ohne Schließ-Wunsch und nicht zerstört; sonst null. */
+function aktuell(): BrowserWindow | null {
+  const w = lebende.aktuelles();
+  return w && !w.isDestroyed() ? w : null;
+}
+
+/** Die Ausgabeansicht von `win` hat output:cmd abonniert (IPC output:bereit, Altfehler PL-N). */
+export function meldeAusgabeBereit(win: BrowserWindow): void {
+  lebende.meldeBereit(win);
+}
 
 /** Gemessener Zustand des Fensters. */
 export function ausgabeZustand(): AusgabeZustand {
@@ -58,7 +69,11 @@ function loadOutput(win: BrowserWindow): void {
   }
 }
 
-export function openOutputWindow(displayId?: number): void {
+/**
+ * Öffnet das Ausgabefenster oder zieht das aktuelle um. Löst erst auf, wenn das Fenster „bereit“ gemeldet hat (es hört dann auf
+ * Befehle), höchstens nach AUSGABE_BEREIT_MS (Altfehler PL-N, A5). Ein neues Fenster entsteht nur ohne aktuelles (PL-T13).
+ */
+export async function openOutputWindow(displayId?: number): Promise<void> {
   const displays = screen.getAllDisplays();
   const target =
     (displayId != null ? displays.find((d) => d.id === displayId) : undefined) ??
@@ -70,14 +85,16 @@ export function openOutputWindow(displayId?: number): void {
     screen.on('display-removed', (_e, d) => melde({ t: 'bildschirm-weg', displayId: d.id }));
   }
 
-  if (outputWindow) {
+  const vorhanden = aktuell();
+  if (vorhanden) {
     // Auf den gewünschten Bildschirm umziehen und (wieder) in den Vollbildmodus.
-    outputWindow.setFullScreen(false);
-    outputWindow.setBounds({ x, y, width, height });
-    outputWindow.setFullScreen(true);
-    outputWindow.show();
-    outputWindow.focus();
+    vorhanden.setFullScreen(false);
+    vorhanden.setBounds({ x, y, width, height });
+    vorhanden.setFullScreen(true);
+    vorhanden.show();
+    vorhanden.focus();
     melde({ t: 'geoeffnet', displayId: target.id, neu: false });
+    await lebende.bereit(vorhanden, AUSGABE_BEREIT_MS);
     return;
   }
 
@@ -101,8 +118,8 @@ export function openOutputWindow(displayId?: number): void {
 
   win.on('ready-to-show', () => win.show());
   win.on('closed', () => {
-    outputWindow = null;
-    // „zu“ erst, wenn das letzte lebende Fenster geschlossen ist.
+    // „zu“ erst, wenn das letzte lebende Fenster geschlossen ist. Ein spätes closed eines alten Fensters lässt das aktuelle
+    // unberührt (PL-T13); Wartende auf dieses Fenster werden mit false frei.
     if (lebende.schliesse(win)) melde({ t: 'geschlossen' });
   });
   win.webContents.on('render-process-gone', () => {
@@ -112,24 +129,25 @@ export function openOutputWindow(displayId?: number): void {
 
   lebende.hinzu(win);
   loadOutput(win);
-  outputWindow = win;
   melde({ t: 'geoeffnet', displayId: target.id, neu: true });
+  await lebende.bereit(win, AUSGABE_BEREIT_MS);
 }
 
 export function closeOutputWindow(): void {
-  if (outputWindow) {
-    outputWindow.close();
-    outputWindow = null;
-  }
+  const win = aktuell();
+  if (!win) return;
+  // Ab jetzt nicht mehr das aktuelle Fenster, auch bevor sein closed kommt: ein sofortiges Öffnen legt ein neues an (PL-T13).
+  lebende.schliesst(win);
+  win.close();
 }
 
 export function isOutputOpen(): boolean {
-  return outputWindow != null && !outputWindow.isDestroyed();
+  return aktuell() !== null;
 }
 
 /** Gemessenes Vollbild des Ausgabefensters (E14); null, solange kein Fenster offen ist. */
 export function isOutputFullscreen(): boolean | null {
-  return isOutputOpen() ? outputWindow!.isFullScreen() : null;
+  return aktuell()?.isFullScreen() ?? null;
 }
 
 /**
@@ -138,16 +156,27 @@ export function isOutputFullscreen(): boolean | null {
  * nicht hinter anderen Fenstern auf dem Ausgabeschirm verschwindet.
  */
 export function toggleOutputFullscreen(): boolean {
-  if (!isOutputOpen()) return false;
-  const next = !outputWindow!.isFullScreen();
-  outputWindow!.setFullScreen(next);
+  const win = aktuell();
+  if (!win) return false;
+  const next = !win.isFullScreen();
+  win.setFullScreen(next);
   if (!next) {
-    outputWindow!.show();
-    outputWindow!.focus();
+    win.show();
+    win.focus();
   }
   return next;
 }
 
-export function sendToOutput(cmd: OutputCommand): void {
-  if (isOutputOpen()) outputWindow!.webContents.send('output:cmd', cmd);
+/**
+ * Befehl an das aktuelle Ausgabefenster. Wartet auf dessen „bereit“, höchstens AUSGABE_BEREIT_MS; danach geht der Befehl mit einer
+ * Log-Zeile trotzdem hinaus (Altfehler PL-N, A5). Gesendet wird nur, wenn das Fenster dann noch das aktuelle ist. Mehrere wartende
+ * Befehle behalten ihre Reihenfolge (die Wartenden werden in Aufrufreihenfolge frei, die Frist ist für alle gleich lang).
+ */
+export async function sendToOutput(cmd: OutputCommand): Promise<void> {
+  const win = aktuell();
+  if (!win) return;
+  const bereit = await lebende.bereit(win, AUSGABE_BEREIT_MS);
+  if (lebende.aktuelles() !== win || win.isDestroyed()) return;
+  if (!bereit) getLog().warn(`Ausgabefenster meldete nicht bereit (${AUSGABE_BEREIT_MS} ms)`);
+  win.webContents.send('output:cmd', cmd);
 }

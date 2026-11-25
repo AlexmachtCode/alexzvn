@@ -245,10 +245,17 @@ function quellen(d = 'src/renderer/src'): string[] {
   );
 }
 
-// ── PL Ausgabe unberührt (E6) ──
+// ── PL Ausgabe unberührt (E6): Zeichen für Zeichen wie vor der Welle, bis auf die zwei Zeilen der Meldung „bereit“ (Altfehler PL-N) ──
 {
   const roh = leseText('src/renderer/src/views/OutputView.tsx');
-  gleich(createHash('sha256').update(roh).digest('hex'), 'f4f2d318cb0c47ed8abc288b0881807e5027467ec99d0a5a25c621b1b16b8354', 'PL Ausgabe unberührt: views/OutputView.tsx ist Zeichen für Zeichen wie vor der Welle');
+  const bereit =
+    '    // Altfehler PL-N: erst jetzt hört die Ansicht zu; der Main hält Befehle bis zu dieser Meldung zurück (höchstens 5000 ms).\n' +
+    '    window.jmplay.output.meldeBereit();\n';
+  gleich(
+    [roh.split(bereit).length - 1, createHash('sha256').update(roh.replace(bereit, '')).digest('hex')],
+    [1, 'f4f2d318cb0c47ed8abc288b0881807e5027467ec99d0a5a25c621b1b16b8354'],
+    'PL Ausgabe unberührt: views/OutputView.tsx ist Zeichen für Zeichen wie vor der Welle, bis auf die zwei Zeilen der Meldung „bereit“ (Altfehler PL-N)',
+  );
   ok(!/@jm\/settings/.test(roh) && !/AppShell/.test(roh) && roh.includes('className="fixed inset-0 bg-black"'), 'PL Ausgabe unberührt: die Ausgabeansicht bleibt schwarz, ohne @jm/settings und ohne AppShell');
   const main = QUELLE('main.tsx');
   ok(main.includes("'#output'") && main.includes('{isOutput ? <OutputView /> : <App />}'), 'PL Ausgabe unberührt: #output zeigt weiter die OutputView, sonst die App');

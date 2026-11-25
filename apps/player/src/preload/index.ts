@@ -104,6 +104,8 @@ const api: JmplayApi = {
     isFullscreen: () => (ipcRenderer.invoke('output:isFullscreen') as Promise<boolean | null>).catch(() => null),
     toggleFullscreen: () => ipcRenderer.invoke('output:toggleFullscreen') as Promise<boolean>,
     command: (cmd) => ipcRenderer.invoke('output:command', cmd) as Promise<void>,
+    // Altfehler PL-N: die Ausgabeansicht meldet nach dem Abonnieren von output:cmd, dass sie zuhört.
+    meldeBereit: () => ipcRenderer.send('output:bereit'),
     notifyEnded: () => ipcRenderer.invoke('output:ended') as Promise<void>,
     reportTime: (t) => ipcRenderer.invoke('output:time', t) as Promise<void>,
     onCommand: (cb) => {

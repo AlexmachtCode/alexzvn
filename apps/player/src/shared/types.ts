@@ -254,8 +254,13 @@ export interface JmplayApi {
     isFullscreen: () => Promise<boolean | null>;
     /** Vollbild am Ausgabeschirm ein/aus; liefert den neuen Zustand (Issue #31). */
     toggleFullscreen: () => Promise<boolean>;
-    /** Befehl ans Ausgabefenster (Hauptfenster → Ausgabe). */
+    /**
+     * Befehl ans Ausgabefenster (Hauptfenster → Ausgabe). Löst auf, nachdem er gesendet ist; das wartet auf „bereit“ des Fensters,
+     * höchstens 5000 ms (Altfehler PL-N). `open` löst ebenso erst nach „bereit“ auf.
+     */
     command: (cmd: OutputCommand) => Promise<void>;
+    /** Ausgabe-Seite: meldet einmal nach dem Abonnieren von `onCommand`, dass sie auf Befehle hört (Altfehler PL-N). */
+    meldeBereit: () => void;
     /** Ausgabefenster meldet, dass das aktuelle Video natürlich endete. */
     notifyEnded: () => Promise<void>;
     /** Ausgabe-Seite: aktuelle Wiedergabe-Position melden (Issue #41). */

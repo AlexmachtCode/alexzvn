@@ -10,7 +10,7 @@ import {
   type FernsteuerungEreignis,
   type FernsteuerungMeldung,
 } from '@shared/fernsteuerung';
-import { LebendeFenster } from '../../src/main/ausgabe-fenster';
+import { AUSGABE_BEREIT_MS, LebendeFenster } from '../../src/main/ausgabe-fenster';
 import { kreuz, pruefeFaelle } from './hilfe';
 import { basisMeldung, ohneKommentare } from './testzustand';
 
@@ -279,8 +279,8 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
     'PL Ausgabe-Zustand: display-removed meldet bildschirm-weg mit der Id des entfernten Bildschirms',
   );
   ok(
-    q.includes('export function isOutputFullscreen(): boolean | null') && /return isOutputOpen\(\) \? outputWindow!\.isFullScreen\(\) : null;/.test(q),
-    'PL Ausgabe-Zustand: isOutputFullscreen liest win.isFullScreen() und liefert ohne Fenster null',
+    q.includes('export function isOutputFullscreen(): boolean | null') && /return aktuell\(\)\?\.isFullScreen\(\) \?\? null;/.test(q),
+    'PL Ausgabe-Zustand: isOutputFullscreen liest win.isFullScreen() des aktuellen Fensters und liefert ohne Fenster null',
   );
   // Reine Folge, wie sie das Fenster durchläuft.
   let z: AusgabeZustand = AUSGABE_ZU;
@@ -351,6 +351,197 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
       q2.includes("if (lebende.istNeuestes(win)) melde({ t: 'abgestuerzt' });"),
     'PL Ausgabe-Zustand lebende Fenster: output-window.ts meldet geschlossen und abgestuerzt nur über den Helfer',
   );
+}
+
+// ── PL-T13 und PL-N (Altfehler Stufe 1): höchstens ein Ausgabefenster; ein Befehl geht erst hinaus, wenn das Fenster „bereit“
+// gemeldet hat (es hört dann auf output:cmd), höchstens AUSGABE_BEREIT_MS lang (A5). Die Klasse ist rein; output-window.ts nutzt
+// sie für jedes Fenster, darum prüfen die Wächter dort nur die Verdrahtung ──
+{
+  /** Ein Fall, der auch dann einzeln rot meldet, wenn eine Methode fehlt oder wirft. */
+  const fall = async (name: string, f: () => boolean | Promise<boolean>): Promise<void> => {
+    let ergebnis: boolean | string;
+    try {
+      ergebnis = await f();
+    } catch (e) {
+      ergebnis = e instanceof Error ? e.message : String(e);
+    }
+    ok(ergebnis === true, typeof ergebnis === 'string' ? `${name} (${ergebnis})` : name);
+  };
+  /** Wettlauf gegen ein Versprechen von `ms`: true, wenn `p` dann noch offen ist. */
+  const offenNach = async (p: Promise<unknown>, ms: number): Promise<boolean> => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const offen = await Promise.race([p.then(() => false), new Promise<boolean>((res) => (t = setTimeout(() => res(true), ms)))]);
+    clearTimeout(t);
+    return offen;
+  };
+
+  await fall('PL-T13 aktuelles bleibt das neue Fenster, wenn das alte spät schließt', () => {
+    const l = new LebendeFenster<string>();
+    l.hinzu('a');
+    l.schliesst('a');
+    l.hinzu('b');
+    return l.schliesse('a') === false && l.aktuelles() === 'b';
+  });
+  await fall('PL-T13 Schließ-Wunsch ohne neues Fenster', () => {
+    const l = new LebendeFenster<string>();
+    l.hinzu('a');
+    l.schliesst('a');
+    return l.aktuelles() === null;
+  });
+  await fall('PL-T13 aktuelles: ohne Fenster null, sonst das neueste lebende', () => {
+    const l = new LebendeFenster<string>();
+    const leer = l.aktuelles();
+    l.hinzu('a');
+    l.hinzu('b');
+    const zwei = l.aktuelles();
+    l.schliesse('b');
+    return leer === null && zwei === 'b' && l.aktuelles() === 'a';
+  });
+  gleich(AUSGABE_BEREIT_MS, 5000, 'PL-N AUSGABE_BEREIT_MS: höchstens 5000 ms Warten auf „bereit“ (A5)');
+  await fall('PL-N bereit wartet auf die Meldung', async () => {
+    const l = new LebendeFenster<string>();
+    l.hinzu('a');
+    const p = l.bereit('a', 1000);
+    const offen = await offenNach(p, 20);
+    l.meldeBereit('a');
+    return offen && (await p) === true;
+  });
+  await fall('PL-N bereit nach der Meldung sofort true', async () => {
+    const l = new LebendeFenster<string>();
+    l.hinzu('a');
+    l.meldeBereit('a');
+    const p = l.bereit('a', 1000);
+    return !(await offenNach(p, 20)) && (await p) === true;
+  });
+  await fall('PL-N bereit läuft nach ms ab', async () => {
+    const l = new LebendeFenster<string>();
+    l.hinzu('a');
+    const t0 = Date.now();
+    const r = await l.bereit('a', 30);
+    return r === false && Date.now() - t0 >= 25;
+  });
+  await fall('PL-N bereit endet mit dem Fenster', async () => {
+    const l = new LebendeFenster<string>();
+    l.hinzu('a');
+    const p = l.bereit('a', 1000);
+    const offen = await offenNach(p, 10);
+    l.schliesse('a');
+    return offen && !(await offenNach(p, 50)) && (await p) === false;
+  });
+  await fall('PL-N meldeBereit eines unbekannten Fensters ist ohne Wirkung', async () => {
+    const l = new LebendeFenster<string>();
+    l.meldeBereit('a');
+    l.hinzu('a');
+    return (await l.bereit('a', 30)) === false;
+  });
+  await fall('PL-N bereit gilt je Fenster: ein neues Fenster meldet selbst', async () => {
+    const l = new LebendeFenster<string>();
+    l.hinzu('a');
+    l.meldeBereit('a');
+    l.schliesst('a');
+    l.hinzu('b');
+    return (await l.bereit('a', 30)) === true && (await l.bereit('b', 30)) === false;
+  });
+  await fall('PL-N mehrere Wartende werden in ihrer Reihenfolge frei', async () => {
+    const l = new LebendeFenster<string>();
+    l.hinzu('a');
+    const folge: number[] = [];
+    const ps = [1, 2, 3].map((n) => l.bereit('a', 1000).then((b) => void folge.push(b ? n : -n)));
+    const offen = await offenNach(Promise.all(ps), 20);
+    l.meldeBereit('a');
+    await Promise.all(ps);
+    return offen && folge.join(',') === '1,2,3';
+  });
+
+  // Wächter an der Verdrahtung (Electron-Main und Preload laufen unter tsx nicht, Ruling R3).
+  const q = ohneKommentare(leseText('src/main/output-window.ts'));
+  const ipc = ohneKommentare(leseText('src/main/ipc.ts'));
+  const preload = leseText('src/preload/index.ts');
+  const main = leseText('src/main/index.ts');
+  const typen = leseText('src/shared/types.ts');
+  const ov = ohneKommentare(leseText('src/renderer/src/views/OutputView.tsx'));
+  const vorkommen = (t: string, kanal: string): number => t.split("'" + kanal + "'").length - 1;
+  /** Rumpf einer Funktion auf oberster Ebene: vom Kopf bis zur schließenden Klammer in Spalte 0. */
+  const rumpf = (kopf: string): string => {
+    const i = q.indexOf(kopf);
+    return i < 0 ? '' : q.slice(i, q.indexOf('\n}\n', i) + 2);
+  };
+  ok(!/\boutputWindow\b/.test(q), 'PL-T13 Wächter: output-window.ts hat keine eigene Fensterreferenz outputWindow mehr');
+  ok(
+    /function aktuell\(\): BrowserWindow \| null \{\s*const w = lebende\.aktuelles\(\);\s*return w && !w\.isDestroyed\(\) \? w : null;\s*\}/.test(q) &&
+      ['export async function openOutputWindow(', 'export function closeOutputWindow(', 'export function isOutputOpen(', 'export function isOutputFullscreen(', 'export function toggleOutputFullscreen(', 'export async function sendToOutput('].every((k) =>
+        rumpf(k).includes('aktuell()'),
+      ),
+    'PL-T13 Wächter: öffnen, schließen, offen, Vollbild und senden lesen das aktuelle Fenster aus lebende.aktuelles() (nicht zerstört)',
+  );
+  {
+    const auf = rumpf('export async function openOutputWindow(');
+    ok(
+      /^export async function openOutputWindow\(displayId\?: number\): Promise<void> \{/.test(auf) &&
+        /const vorhanden = aktuell\(\);\s*if \(vorhanden\) \{/.test(auf) &&
+        auf.indexOf('if (vorhanden) {') < auf.indexOf('new BrowserWindow(') &&
+        auf.includes('await lebende.bereit(vorhanden, AUSGABE_BEREIT_MS);') &&
+        auf.indexOf('lebende.hinzu(win);') < auf.indexOf('await lebende.bereit(win, AUSGABE_BEREIT_MS);'),
+      'PL-N Wächter: openOutputWindow gibt ein Promise zurück, das auf lebende.bereit wartet (neues und vorhandenes Fenster); ein neues Fenster nur ohne aktuelles (PL-T13)',
+    );
+  }
+  ok(/lebende\.schliesst\(win\);\s*win\.close\(\);/.test(rumpf('export function closeOutputWindow(')), 'PL-T13 Wächter: closeOutputWindow vermerkt den Schließ-Wunsch (lebende.schliesst) vor win.close()');
+  ok(
+    /win\.on\('closed', \(\) => \{\s*if \(lebende\.schliesse\(win\)\) melde\(\{ t: 'geschlossen' \}\);\s*\}\);/.test(q),
+    'PL-T13 Wächter: das closed eines Fensters setzt keine Referenz zurück, es meldet nur dem Helfer',
+  );
+  {
+    const senden = rumpf('export async function sendToOutput(');
+    const warten = senden.indexOf('await lebende.bereit(win, AUSGABE_BEREIT_MS)');
+    const schicken = senden.indexOf("win.webContents.send('output:cmd', cmd);");
+    ok(
+      /^export async function sendToOutput\(cmd: OutputCommand\): Promise<void> \{/.test(senden) &&
+        warten >= 0 &&
+        schicken > warten &&
+        senden.split('webContents.send(').length === 2 &&
+        /if \(lebende\.aktuelles\(\) !== win \|\| win\.isDestroyed\(\)\) return;/.test(senden.slice(warten, schicken)) &&
+        senden.slice(warten, schicken).includes('getLog().warn(`Ausgabefenster meldete nicht bereit (${AUSGABE_BEREIT_MS} ms)`)'),
+      'PL-N Wächter: sendToOutput ist async, wartet auf lebende.bereit vor output:cmd, sendet nur an ein noch aktuelles Fenster und schreibt bei Ablauf die Log-Zeile',
+    );
+  }
+  ok(
+    /^import \{[^}]*\bgetLog\b[^}]*\} from '@jm\/app-runtime';$/m.test(q) && /^import \{[^}]*\bAUSGABE_BEREIT_MS\b[^}]*\bLebendeFenster\b[^}]*\} from '\.\/ausgabe-fenster';$/m.test(q),
+    'PL-N Wächter: output-window.ts holt getLog aus @jm/app-runtime und AUSGABE_BEREIT_MS aus dem reinen Helfer',
+  );
+  ok(
+    /export function meldeAusgabeBereit\(win: BrowserWindow\): void \{\s*lebende\.meldeBereit\(win\);\s*\}/.test(q) &&
+      /ipcMain\.on\('output:bereit', \(e\) => \{\s*const win = BrowserWindow\.fromWebContents\(e\.sender\);\s*if \(win\) meldeAusgabeBereit\(win\);\s*\}\);/.test(ipc),
+    'PL-N Wächter: Main ordnet output:bereit über BrowserWindow.fromWebContents(e.sender) dem Fenster zu und meldet es dem Helfer',
+  );
+  ok(
+    ipc.includes("ipcMain.handle('output:open', (_e, displayId?: number) => openOutputWindow(displayId));") &&
+      ipc.includes("ipcMain.handle('output:command', (_e, cmd: OutputCommand) => sendToOutput(cmd));"),
+    'PL-N Wächter: output:open und output:command geben das Promise zurück (open löst nach „bereit“ auf, command nach dem Senden)',
+  );
+  ok(
+    preload.includes("    meldeBereit: () => ipcRenderer.send('output:bereit'),\n") &&
+      vorkommen(preload, 'output:bereit') === 1 &&
+      vorkommen(ipc, 'output:bereit') === 1 &&
+      vorkommen(main, 'output:bereit') === 0 &&
+      typen.includes('meldeBereit: () => void;'),
+    'PL Wächter Kanäle: output:bereit steht einmal im Preload (send) und einmal im Main (on), window.jmplay.output.meldeBereit ist typisiert',
+  );
+  {
+    const effekt = ov.indexOf('useEffect(');
+    const hoeren = ov.indexOf('window.jmplay.output.onCommand(');
+    const bereit = ov.indexOf('window.jmplay.output.meldeBereit();');
+    const aufraeumen = ov.indexOf('return () => {', hoeren);
+    ok(
+      ov.split('useEffect(').length === 2 &&
+        ov.split('meldeBereit(').length === 2 &&
+        effekt >= 0 &&
+        effekt < hoeren &&
+        hoeren < bereit &&
+        bereit > ov.indexOf("case 'black':") &&
+        bereit < aufraeumen,
+      'PL-N Wächter: OutputView meldet einmal „bereit“, nachdem onCommand im selben Effekt abonniert ist',
+    );
+  }
 }
 
 // ── Gesamtprüfung M1: Startfehler des Steuerservers kommen zusätzlich ins Protokoll, wie beim Timer
