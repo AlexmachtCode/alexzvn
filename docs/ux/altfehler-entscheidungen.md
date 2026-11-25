@@ -1,6 +1,6 @@
 # Altfehler Runde 1, Stufe 1: Entscheidungen und vermerkte Kleinigkeiten
 
-Für wen: spätere Entwickler, die an Player oder Studio-Control weiterarbeiten. Hier steht, was in dieser Stufe entschieden wurde, wo Spec und Code schwiegen, mit dem Grund und dem, was es kostet, wenn die Entscheidung falsch war. Der Owner hat A1 bis A10 zur Kenntnis bekommen (Texttabelle `docs/ux/altfehler-stufe1-texte.md`, Abschnitt „Entscheidungen“); die Rulings R1 bis R19 hat der Controller während der Umsetzung und nach der Gesamtprüfung getroffen. Danach das Ergebnis der Gesamtprüfung mit ihrer Fix-Welle, jede Kleinigkeit, die ein Prüfer vermerkt hat (behoben oder nicht), und die Kandidaten für eine spätere Runde.
+Für wen: spätere Entwickler, die an Player oder Studio-Control weiterarbeiten. Hier steht, was in dieser Stufe entschieden wurde, wo Spec und Code schwiegen, mit dem Grund und dem, was es kostet, wenn die Entscheidung falsch war. Der Owner hat A1 bis A10 zur Kenntnis bekommen (Texttabelle `docs/ux/altfehler-stufe1-texte.md`, Abschnitt „Entscheidungen“); die Rulings R1 bis R21 hat der Controller während der Umsetzung und nach der Gesamtprüfung getroffen. Danach das Ergebnis der Gesamtprüfung mit ihrer Fix-Welle, jede Kleinigkeit, die ein Prüfer vermerkt hat (behoben oder nicht), und die Kandidaten für eine spätere Runde.
 
 Quellen: Spec `docs/superpowers/specs/2026-11-25-altfehler-runde1-design.md`, Plan `docs/superpowers/plans/2026-11-25-altfehler-stufe1.md`, Befunde `docs/ux/altfehler-inventar.md`. Die Befund-Kürzel (PL-N, SC-S2 und so weiter) sind die IDs aus dem Inventar. Pfade sind relativ zu `apps/<app>/src/`; `R/` steht für `renderer/src/`.
 
@@ -19,7 +19,7 @@ Quellen: Spec `docs/superpowers/specs/2026-11-25-altfehler-runde1-design.md`, Pl
 | A9 | SC-S1 | Der Panel-Abschnitt „Browser-Zugang“ nennt den Pfad der Erst-Passwort-Datei, solange die Datei besteht; gemessen wird beim Öffnen des Panels. Anmeldung und Konto beim ersten Start bleiben, weil die Messung in Task 5 kein bekanntes oder leeres Passwort fand. | Die Spec verlangt die Anzeige nur, wenn die Messung eine Lücke findet. | Fände eine spätere Messung doch ein bekanntes Passwort, wäre der Hinweis zu wenig und die Anmeldung müsste angepasst werden. |
 | A10 | alle | Neue Versionen: Player 0.9.1 → 0.10.0, Studio-Control 0.7.0 → 0.8.0 (Minor, drei bis vier Release-Notizen). | Sichtbar geänderte Bedienung, nicht nur Fehlerkorrektur. | Eine falsche Zählung kostet nichts außer einem umzubenennenden Tag; die Versionen stehen noch in keinem Katalog. |
 
-## 2. Rulings des Controllers (R1 bis R19)
+## 2. Rulings des Controllers (R1 bis R21)
 
 | # | Betrifft | Entschieden | Grund | Kostet, wenn falsch |
 | --- | --- | --- | --- | --- |
@@ -42,6 +42,8 @@ Quellen: Spec `docs/superpowers/specs/2026-11-25-altfehler-runde1-design.md`, Pl
 | R17 | Gesamtprüfung F3, Offene Frage 1 | Pads lösen bei AltGr weiter aus wie vor der Stufe: Windows meldet AltGr als Strg+Alt, `getModifierState('AltGraph')` erlaubt dann (`padTasteErlaubt`, `R/lib/oberflaeche.ts`); gesperrt bleiben Strg, Alt und Meta ohne AltGr, Meta auch mit AltGr. | Anti-Ziel „Taste verhält sich ohne Owner-Entscheid anders“ geht vor; das Tastenfeld nimmt AltGr-Zeichen ohnehin an. | Nichts gegenüber heute: AltGr-Zeichen feuern wie vor dem Branch. Der Owner kann AltGr sperren lassen. |
 | R18 | Triage der Kleinigkeiten der Gesamtprüfung | In die Fix-Welle kommen zusätzlich die vom Prüfer als „vor Release“ oder „billig und show-nah“ eingestuften Punkte K1 bis K7 (Abnahme AS3 und AP7; `Vorlaeufe` mit `performance.now()` und Obergrenze; Zeitreserven ≥ 90 ms; Test „Panik in der Pause“; Pause während des Wartens auf „bereit“; R9 gegen Pause-Wechsel; dieses Dokument bis R19). Alle übrigen Kleinigkeiten bleiben aufgeschoben (Abschnitt 4). | Billig und nah an der Show; der Rest ändert vor dem Release nichts Sichtbares. | Etwas mehr Arbeit in der Welle. |
 | R19 | Gesamtprüfung, „Declined to judge“ | Drei Punkte bleiben außerhalb dieser Stufe und gehen als Kandidaten in die Bestandsaufnahme (Abschnitt 5, Inventar Abschnitt 7): Cue im Vorlauf löschen bricht den Vorlauf nicht ab (der Zeitgeber spielt den gelöschten Cue); GO ohne Vorlauf in der Pause lässt ein pausiertes Ausgabevideo stehen; Medium entfernen nimmt es still aus Playlists (`CASCADE`). Der Rest der Liste (A8 `null`/`file://`, 7-Tage-Sitzungen, Fuse, `loadMain`, `openExternal`, top-level await, 0.0.0.0, `atem:state`) ist Plan-Entscheid oder schon vermerkt. | Außerhalb des Auftrags dieser Stufe. | Der gelöschte Cue im Vorlauf bleibt bis Stufe 2 ein Show-Risiko; er steht darum als erster Kandidat in der Liste (PL-K1). |
+| R20 | Nachprüfung der Fix-Welle, Minor zu F3 | Ob Windows auf einer deutschen Tastatur linkes Strg+Alt als AltGraph meldet, ist per CDP nicht messbar, und echte Tastendrücke sind beim Bau verboten. Die Abnahme AP6 bekommt den Beobachtungsschritt Strg+Alt+C, der Code bleibt. | Gegenüber dem Stand vor dem Branch keine Verschlechterung; messen kann es nur eine echte Tastatur. | Strg+Alt+Taste löst auf deutschen Tastaturen ein Pad aus wie AltGr; der Owner sieht es in AP6. |
+| R21 | Bericht der Testbauten | Beide Testbauten werden für die ganze Abnahme nur mit einem Wegwerf-Profil gestartet (neues Rezept für den Player, das Rezept für Studio-Control gilt für alle AS-Zeilen); vorher wird die installierte App ganz beendet. | Ohne `--user-data-dir` öffnen die Testbauten die Daten der installierten Version (`%APPDATA%\@jm\player`, `%APPDATA%\@jm\studio-control`) und schreiben hinein; eine laufende installierte App hielte die Ports 8725, 7778 und 8735, dann spräche Telnet oder Companion mit der alten Version. | Der Owner richtet Test-Medien, Probe-Show und Konten im leeren Profil neu ein. |
 
 ## 3. Gesamtprüfung und Fix-Welle
 
@@ -63,6 +65,10 @@ Eine Prüfung über den ganzen Branch (`cf42db4e4a..2ed47ccacd`, Prüfer opus) n
   - K6: R9 gilt auch gegen Pause-Wechsel: Nach einem Ladefehler kehrt die Pause nur zurück, wenn seit dem Start niemand Pause oder Weiter gedrückt hat (Zähler `pauseZaehler` wie `startZaehler`).
   - K7: dieses Dokument bis R19 und dieser Abschnitt; K8: drei Kandidaten im Inventar (Abschnitt 5 hier).
 - **Aufgeschoben:** alle übrigen Kleinigkeiten (Abschnitt 4, ohne den Vermerk „behoben“) und die drei Kandidaten aus R19 (Abschnitt 5).
+- **Nachprüfung der Fix-Welle** (`2ed47ccacd..9b7dfbd59c`, Prüfer opus): F1 bis F3 und K1 bis K8 erledigt, nichts Neues der Stufen Critical oder Important. Drei Kleinigkeiten:
+  - zwei als Kandidaten PL-K4 und PL-K5 (Abschnitt 5);
+  - eine mit R20 als Beobachtung in der Abnahme AP6.
+- **Testbauten** (Stand `f9a663e62f`, `win-unpacked` beider Apps): Bau gleich dem Commit, Rauchtest im isolierten Profil Player 16/16, Studio-Control 15/15. Der Bericht fand, dass ein normaler Start das echte Profil öffnet → R21.
 
 ## 4. Vermerkte Kleinigkeiten (Minor)
 
@@ -146,3 +152,5 @@ Beobachtungen außerhalb des Auftrags dieser Stufe; sie stehen als Kandidaten in
 - Player (R19, PL-K1): Ein Cue, der im Vorlauf gelöscht wird, startet trotzdem; der Zeitgeber spielt den gelöschten Cue (`removeShowCue` räumt keinen Vorlauf, `R/store/player.ts`).
 - Player (R19, PL-K2): Ein GO ohne Vorlauf in der Pause hebt die Pause auf, lässt ein pausiertes Ausgabevideo aber stehen (kein `resume` an die Ausgabe).
 - Player (R19, PL-K3): Ein Medium aus der Bibliothek zu entfernen nimmt es ohne Hinweis aus allen Playlists (`CASCADE`); die Rückfrage zählt nur Cues und Pads.
+- Player (Nachprüfung, PL-K4): Die Rückfrage „Cue löschen“ bleibt offen, wenn Companion (`loadShow`) eine andere Show lädt; „Entfernen“ löscht dann den genannten Cue aus der vorigen Show.
+- Player (Nachprüfung, PL-K5): Eine Pause während des Wartens auf „bereit“ verschluckt das Einblenden; nach „Weiter“ kommt das Video mit voller Lautstärke (gleiche Art wie Pause während einer Blende).
