@@ -28,6 +28,7 @@ import {
   type Haupttaste,
   type OberflaechenStand,
 } from '@/lib/oberflaeche';
+import * as lib from '@/lib/oberflaeche';
 import { kreuz, pruefeFaelle, vergleiche } from './hilfe';
 import { basisMeldung, ohneKommentare } from './testzustand';
 
@@ -49,6 +50,7 @@ function stand(teil: Partial<OberflaechenStand> = {}): OberflaechenStand {
     licht: undefined,
     masterLink: undefined,
     fernsteuerung: undefined,
+    erstPasswort: undefined,
     ...teil,
   };
 }
@@ -423,4 +425,43 @@ function link0(): OberflaechenStand['masterLink'] {
     'SC oberflaeche rein: lib/oberflaeche.ts ohne window, document, localStorage, IPC, Electron, Store',
   );
   ok(!/\bRANK\b|hasMinRole|['"]viewer['"]\s*[=!]==/.test(code) && /\bcanDo\(/.test(code), 'SC Rolle über canDo: oberflaeche.ts fragt nur canDo, kein Nachbau von RANK');
+}
+
+// ── SC Browser-Zugang (Altfehler SC-S1): der Abschnitt nennt nur den Ort der Datei mit dem Erst-Passwort, nie das Passwort ──
+{
+  const DATEI = String.raw`C:\Users\Test\AppData\Roaming\@jm\studio-control\first-run-credentials.txt`;
+  const zugang = lib.browserZugang;
+  const pille = lib.browserZugangStatus;
+  ok(typeof zugang === 'function' && typeof pille === 'function', 'SC Browser-Zugang: browserZugang und browserZugangStatus gibt es');
+  if (typeof zugang === 'function' && typeof pille === 'function') {
+    gleich(
+      zugang({ datei: DATEI, vorhanden: true }),
+      { titel: 'Browser-Zugang', text: `Das Erst-Passwort für „Admin“ steht in der Datei ${DATEI}. Nach der ersten Anmeldung das Passwort ändern und die Datei löschen.` },
+      'SC Browser-Zugang: Datei vorhanden → der Satz nennt den Pfad und was danach zu tun ist',
+    );
+    gleich(
+      zugang({ datei: DATEI, vorhanden: false }),
+      { titel: 'Browser-Zugang', text: 'Keine Datei mit Erst-Passwort vorhanden. Konten verwaltet Setup › Benutzer.' },
+      'SC Browser-Zugang: keine Datei → Hinweis auf Setup › Benutzer, ohne Pfad',
+    );
+    gleich(
+      [zugang(null), zugang(undefined)],
+      [{ titel: 'Browser-Zugang', text: 'Ort der Passwort-Datei unbekannt.' }, { titel: 'Browser-Zugang', text: 'Ort der Passwort-Datei unbekannt.' }],
+      'SC Browser-Zugang: ohne Antwort (null: kein Preload oder abgelehnt; undefined: noch keine) → Ort unbekannt',
+    );
+    gleich(
+      [pille(undefined), pille(null), pille({ datei: DATEI, vorhanden: true }), pille({ datei: DATEI, vorhanden: false })],
+      [
+        { state: 'off', text: UNBEKANNT },
+        { state: 'off', text: UNBEKANNT },
+        { state: 'warn', text: STUDIO_TEXTE.browserZugang?.dateiDa },
+        { state: 'ok', text: STUDIO_TEXTE.browserZugang?.dateiFehlt },
+      ],
+      'SC Browser-Zugang: Pille ohne Antwort unbekannt, mit Datei warn (Passwort ändern, Datei löschen), ohne Datei ok; nie live',
+    );
+    ok(
+      STUDIO_TEXTE.browserZugang?.titel === zugang(null).titel && STUDIO_TEXTE.browserZugang?.vorhanden(DATEI) === zugang({ datei: DATEI, vorhanden: true }).text,
+      'SC Browser-Zugang: Titel und Sätze stehen in STUDIO_TEXTE.browserZugang (Textregel)',
+    );
+  }
 }

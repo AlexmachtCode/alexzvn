@@ -12,7 +12,10 @@
 // Läuft im Paketordner apps/studio-control (npm run selftest -w @jm/studio-control), eingehängt in test/ui/selftest.ts.
 // „unverändert (…)“ und der Ort „Tray (unverändert)“ nennen keine Datei, die seit der Erhebung geändert wurde, außer sie bekam
 // nur, was der Plan erlaubt (Master-Link und Fernsteuerungs-Meldung B2, Lauf-Kennung und Wurzel-View in R/App.tsx B15): dann
-// nennt der Haken diesen Verweis. Der Abgleich mit git läuft nur mit JM_FUNKTIONSLISTE_GIT=1.
+// nennt der Haken diesen Verweis. Seit der Altfehler-Stufe 1 (Plan 2026-11-25, Ruling R6) darf er auch eine Datei nennen, die ein
+// Befund dieser Stufe geändert hat, wenn er ihn als „Altfehler <ID>“ nennt und die Liste der ID die Datei enthält (ALTFEHLER); für
+// eine solche Datei reicht der B-Verweis allein nicht mehr. Der Abgleich mit git läuft nur mit JM_FUNKTIONSLISTE_GIT=1, gegen den
+// Arbeitsbaum (auch vor dem Commit; neue Dateien erst nach git add).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createHash } from 'node:crypto';
@@ -31,8 +34,8 @@ const LISTE_VORHER = '50a7c942a0';
 
 /**
  * Ortsregister (Plan Task 19): Anmeldung, Kopf, Werkzeugleiste, Reiter Video/Audio/Licht/Setup, Panel ‹Gerät› (die Karten der
- * Gerätepanels in den Reitern), Statusleiste, Panel ‹Abschnitt› (die Abschnitte im Einstellungs-Panel, heute nur Fernsteuerung),
- * Tray (unverändert), Browser.
+ * Gerätepanels in den Reitern), Statusleiste, Panel ‹Abschnitt› (die Abschnitte im Einstellungs-Panel: Fernsteuerung; der Abschnitt
+ * Browser-Zugang aus Altfehler SC-S1 ist neu und hat keine Zeile der Erhebung), Tray (unverändert), Browser.
  */
 const REITER_NAMEN = ['Video', 'Audio', 'Licht', 'Setup'];
 const GERAETE = ['TriCaster', 'ATEM', 'OBS', 'PTZ', 'Audio', 'Licht'];
@@ -66,6 +69,7 @@ const GELOESCHT = ['R/components/AppShell.tsx', 'R/components/ComingSoon.tsx', '
 /** Alle Dateien von apps/studio-control, die seit der Erhebung geändert, angelegt oder gelöscht wurden (Pfad ab apps/studio-control). */
 const GEAENDERT = [
   'package.json',
+  'src/main/auth/bootstrap.ts',
   'src/main/gateway/control-gateway.ts',
   'src/main/index.ts',
   'src/main/server.ts',
@@ -148,6 +152,39 @@ const ERLAUBT = new Map<string, readonly string[]>([
   ['apps/studio-control/src/renderer/src/App.tsx', ['B15']],
 ]);
 
+/**
+ * Altfehler Runde 1, Stufe 1 (Plan 2026-11-25, Ruling R6 wie im Player): je erlaubter Studio-Control-ID die Dateien (ab der
+ * Repo-Wurzel), die der Befund geändert hat. „Altfehler <ID>“ im Haken entlastet ein „unverändert (…)“ oder „Tray (unverändert)“,
+ * das eine geänderte Datei nennt, nur, wenn die Liste dieser ID die Datei enthält; dann für die ganze Änderung des Befunds. Eine
+ * Datei aus einer Liste bekam mehr, als ihr Eintrag in ERLAUBT deckt: Dort reicht der B-Verweis allein nicht mehr. Erlaubt sind
+ * genau SC-S1 bis SC-S3 (die Player-IDs gelten nur im Player); Task 6 trägt die Dateien von SC-S2 ein.
+ */
+const ALTFEHLER = new Map<string, readonly string[]>([
+  [
+    'SC-S1',
+    [
+      'src/main/auth/bootstrap.ts',
+      'src/main/index.ts',
+      'src/preload/index.ts',
+      'src/renderer/src/sync/jms.d.ts',
+      'src/renderer/src/lib/bruecken.ts',
+      'src/renderer/src/lib/oberflaeche.ts',
+      'src/renderer/src/views/Einstellungen.tsx',
+      'src/renderer/src/views/StudioOberflaeche.tsx',
+    ].map((p) => `apps/studio-control/${p}`),
+  ],
+  ['SC-S2', []],
+  ['SC-S3', ['src/main/gateway/control-gateway.ts', 'src/main/server.ts'].map((p) => `apps/studio-control/${p}`)],
+]);
+/** Alle Dateien, die ein Altfehler der Stufe geändert hat. */
+const ALTFEHLER_DATEIEN = new Set([...ALTFEHLER.values()].flat());
+/** Verweis „Altfehler <ID>“ auf eine der erlaubten IDs; die ID steht in Gruppe 1. */
+const ALTFEHLER_VERWEIS = new RegExp(`\\bAltfehler (${[...ALTFEHLER.keys()].join('|')})(?![\\w-])`, 'g');
+/** Die Altfehler-IDs, die ein Text (ohne Code) als Verweis nennt. */
+const altfehlerIds = (text: string): string[] => [...text.matchAll(ALTFEHLER_VERWEIS)].map((m) => m[1]);
+/** Entlastet einer der Verweise die Datei (kanonischer Pfad)? */
+const entlastet = (ids: readonly string[], datei: string): boolean => ids.some((id) => ALTFEHLER.get(id)?.includes(datei) === true);
+
 const GEAENDERT_KANON = new Set([...GEAENDERT, ...PAKETE_GEAENDERT]);
 
 function git(args: string[]): string | null {
@@ -159,7 +196,7 @@ function git(args: string[]): string | null {
 }
 // Nur auf Anforderung: ohne JM_FUNKTIONSLISTE_GIT=1 sagt der Test nichts über git; die statischen Listen sind der Wächter.
 const GIT_PRUEFEN = process.env.JM_FUNKTIONSLISTE_GIT === '1';
-const GIT_LISTE = GIT_PRUEFEN ? git(['diff', '--name-only', `${ERHEBUNG}..HEAD`]) : null;
+const GIT_LISTE = GIT_PRUEFEN ? git(['diff', '--name-only', ERHEBUNG]) : null;
 const GIT = GIT_LISTE === null ? null : new Set(GIT_LISTE.split('\n').filter((n) => n !== ''));
 if (GIT_PRUEFEN && GIT === null) console.log(`SC Funktionsliste: kein git-Verlauf bis ${ERHEBUNG} (flacher Klon); die Prüfung gegen git entfällt`);
 
@@ -312,11 +349,15 @@ function zeilenFehler(z: Zeile): string | null {
   if (f.form !== 'entfällt' && dateien.length === 0) return 'Ort ohne Datei';
   const vf = verweisFehler(k);
   if (vf !== null) return vf;
-  // „unverändert“ und „Tray (unverändert)“: nur Dateien, die seit der Erhebung gleich sind, oder erlaubte mit ihrem Verweis.
+  // „unverändert“ und „Tray (unverändert)“: nur Dateien, die seit der Erhebung gleich sind, oder erlaubte mit ihrem Verweis; eine
+  // Datei, die ein Altfehler der Stufe geändert hat, nur mit „Altfehler <ID>“, dessen Liste sie nennt (R6).
   if (f.form === 'unverändert' || (f.ort !== undefined && UNVERAENDERT_ORTE.includes(f.ort))) {
+    const ids = altfehlerIds(ohneCode);
     for (const d of dateien) {
       const kd = kanon(d);
       if (!GEAENDERT_KANON.has(kd) && GIT?.has(kd) !== true) continue;
+      if (entlastet(ids, kd)) continue;
+      if (ALTFEHLER_DATEIEN.has(kd)) return `unverändert mit ${d} ohne Altfehler-Verweis, dessen Liste sie nennt`;
       const refs = ERLAUBT.get(kd);
       if (refs === undefined) return `unverändert mit geänderter Datei ${d}`;
       if (!refs.some((r) => new RegExp(`\\b${r}\\b`).test(ohneCode))) return `unverändert mit ${d} ohne Verweis auf ${refs.join(' oder ')}`;
@@ -365,7 +406,7 @@ gleich(
   ];
   ok(karte.every(([d, k]) => quelle(d).includes(`data-panel="${k}"`)), 'SC Funktionsliste: zu jedem Ort „Panel ‹Gerät›“ gibt es die Karte mit data-panel');
 }
-gleich(ABSCHNITTE, [REMOTE_TEXTE.titel], 'SC Funktionsliste: der Ort „Panel ‹Abschnitt›“ heißt wie der einzige Abschnitt im Panel (Fernsteuerung)');
+gleich(ABSCHNITTE, [REMOTE_TEXTE.titel], 'SC Funktionsliste: der Ort „Panel ‹Abschnitt›“ heißt wie der Abschnitt Fernsteuerung im Panel (Browser-Zugang ist neu, ohne Zeile der Erhebung)');
 
 for (const z of alle) {
   const f = zeilenFehler(z);
@@ -433,16 +474,41 @@ for (const z of alle) {
     ['R/components/video/AtemPanel.tsx', 'src/renderer/src/components/video/AtemPanel.tsx', 'apps/studio-control/src/renderer/src/components/video/AtemPanel.tsx'].every((p) =>
       (zeilenFehler(synth(`✓ unverändert (\`${p}\`): x`)) ?? '').includes('geänderter Datei'),
     ) &&
-      (zeilenFehler(synth('✓ unverändert (`src/main/index.ts`): x')) ?? '').includes('ohne Verweis auf B2') &&
-      zeilenFehler(synth('✓ unverändert (`src/main/index.ts`, B2): x')) === null &&
       (zeilenFehler(synth('✓ unverändert (`R/App.tsx`, B2): x')) ?? '').includes('ohne Verweis auf B15') &&
       zeilenFehler(synth('✓ unverändert (`R/App.tsx`, B15): x')) === null &&
-      (zeilenFehler(synth('✓ Tray (unverändert) (`src/main/index.ts`): x')) ?? '').includes('ohne Verweis auf B2') &&
-      zeilenFehler(synth('✓ Tray (unverändert) (`src/main/index.ts`, B2): x')) === null &&
       zeilenFehler(synth('✓ unverändert (`src/main/auth/middleware.ts`): x')) === null &&
       (zeilenFehler(synth('✓ unverändert (`packages/ui/src/components/TallyButton.tsx`): x')) ?? '').includes('geänderter Datei'),
-    'SC Funktionsliste: unverändert erkennt geänderte Dateien in jeder Schreibweise; B2 und B15 entlasten nur ihre Dateien; unveränderte Dateien sind frei',
+    'SC Funktionsliste: unverändert erkennt geänderte Dateien in jeder Schreibweise; B15 entlastet nur R/App.tsx; unveränderte Dateien sind frei',
   );
+  // Altfehler-Stufe 1 (R6): „Altfehler <ID>“ entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt; nur mit dem Wort
+  // „Altfehler“ und nur SC-S1 bis SC-S3. Für eine Datei aus einer Liste reicht B2 allein nicht mehr (sie bekam mehr als die Brücken).
+  const ohneAltfehler = (k: string): boolean => (zeilenFehler(synth(k)) ?? '').includes('ohne Altfehler-Verweis');
+  ok(
+    ohneAltfehler('✓ unverändert (`src/main/index.ts`): x') &&
+      ohneAltfehler('✓ unverändert (`src/main/index.ts`, B2): x') &&
+      zeilenFehler(synth('✓ unverändert (`src/main/index.ts`, B2, Altfehler SC-S1): x')) === null &&
+      zeilenFehler(synth('✓ unverändert (`src/main/auth/bootstrap.ts`, Altfehler SC-S1): x')) === null &&
+      zeilenFehler(synth('✓ unverändert (`src/main/server.ts`, B2, Altfehler SC-S3): x')) === null &&
+      zeilenFehler(synth('✓ unverändert (`src/main/gateway/control-gateway.ts`, B2, Altfehler SC-S3): x')) === null &&
+      zeilenFehler(synth('✓ Tray (unverändert) (`src/main/index.ts`, B2, Altfehler SC-S1): x')) === null &&
+      ohneAltfehler('✓ Tray (unverändert) (`src/main/index.ts`, B2): x') &&
+      ohneAltfehler('✓ unverändert (`src/main/auth/bootstrap.ts`): x'),
+    'SC Funktionsliste: „Altfehler SC-S1“ bzw. „SC-S3“ entlastet eine Datei aus der eigenen Liste; B2 allein entlastet sie nicht mehr',
+  );
+  ok(
+    ohneAltfehler('✓ unverändert (`src/main/index.ts`, B2, Altfehler SC-S3): x') &&
+      ohneAltfehler('✓ unverändert (`src/main/server.ts`, B2, Altfehler SC-S1): x') &&
+      ohneAltfehler('✓ unverändert (`src/main/index.ts`, B2, Altfehler SC-S2): x') &&
+      ohneAltfehler('✓ unverändert (`src/main/index.ts`, B2, SC-S1): x') &&
+      ['SC-S4', 'SC-S10', 'SC-S1a', 'PL-N', 'SC-5'].every((id) => ohneAltfehler(`✓ unverändert (\`src/main/index.ts\`, B2, Altfehler ${id}): x`)) &&
+      /mit src\/main\/server\.ts ohne/.test(zeilenFehler(synth('✓ unverändert (`src/main/index.ts`, `src/main/server.ts`, B2, Altfehler SC-S1): x')) ?? ''),
+    'SC Funktionsliste: eine Altfehler-ID, deren Liste die Datei nicht nennt, ohne das Wort „Altfehler“ oder außerhalb von SC-S1 bis SC-S3 entlastet nichts; nennt ein Haken zwei Dateien, entlastet die ID nur die eigene (R6)',
+  );
+  ok(
+    ALTFEHLER_DATEIEN.size > 0 && [...ALTFEHLER_DATEIEN].every((n) => GEAENDERT_KANON.has(n)) && [...ALTFEHLER.keys()].join() === 'SC-S1,SC-S2,SC-S3',
+    `SC Funktionsliste: genau die IDs SC-S1 bis SC-S3, jede Datei einer Altfehler-Liste steht in GEAENDERT (nicht: ${[...ALTFEHLER_DATEIEN].filter((n) => !GEAENDERT_KANON.has(n)).join(', ') || 'nichts'})`,
+  );
+  if (GIT !== null) ok([...ALTFEHLER_DATEIEN].every((n) => GIT.has(n)), `SC Funktionsliste: jede Datei einer Altfehler-Liste ist laut git geändert (nicht: ${[...ALTFEHLER_DATEIEN].filter((n) => !GIT.has(n)).join(', ') || 'nichts'})`);
   ok(
     zeilenFehler(synth('✓ entfällt (x, B1)')) === null &&
       zeilenFehler(synth('✓ entfällt (x, B22)')) === null &&
@@ -688,6 +754,7 @@ const zeigtAuf = (nr: number, datei: string, ...woerter: string[]): boolean => {
     licht: { node: true, blackout: false },
     masterLink: null,
     fernsteuerung: null,
+    erstPasswort: null,
     ...teil,
   });
   const HAUPT: Record<number, string> = { 24: 'TriCaster', 25: 'TriCaster', 26: 'TriCaster', 27: 'TriCaster', 28: 'TriCaster', 41: 'ATEM', 42: 'ATEM', 43: 'ATEM', 44: 'ATEM', 45: 'ATEM', 52: 'OBS', 53: 'OBS', 73: 'Licht' };
@@ -805,5 +872,30 @@ const zeigtAuf = (nr: number, datei: string, ...woerter: string[]): boolean => {
   ok(
     [4, 6, 8, 12].every((i) => status(i).join() === 'offen') && [3, 9, 13].every((i) => status(i).join() === 'erledigt') && status(10).join() === 'erledigt,offen' && status(11).join() === 'erledigt,offen',
     'SC Funktionsliste Befunde: Loopback (4), Inventar (6), stille Fehler (8) und Tray (12) offen mit Ziel; Kopf (3), Wahl wirkt sofort (9, Nachtrag „Setzen“) und Simulation (13) erledigt; toter Code (10) und Gateway (11) teils erledigt, teils offen',
+  );
+  const b11 = befunde[10] ?? '';
+  ok(
+    /erledigt:[^;]*Altfehler SC-S3[^;]*control\.json/.test(b11) && !/liest „control\.json“ weiter nicht/.test(b11),
+    'SC Funktionsliste Befund 11: das Lesen von control.json ist erledigt (Altfehler SC-S3), offen bleiben Schnittstellen, gatewayStatus() und TriCaster',
+  );
+}
+
+// ── Altfehler SC-S1 und SC-S3 (Stufe 1): Erst-Zugang, Gateway und Laufzeit-Dateien nennen den Befund am richtigen Code ──
+{
+  ok(
+    [134, 191].every((nr) => unveraendert(nr) && mitVerweis(nr, 'Altfehler SC-S1') && nennt(nr, 'Browser-Zugang')) &&
+      zeigtAuf(191, 'src/main/auth/bootstrap.ts', 'export function erstPasswortDatei', 'const credentialsPath = erstPasswortDatei();') &&
+      zeigtAuf(134, 'src/main/auth/bootstrap.ts', "const password = DEV_SEED ? 'Admin' : generatePassword();"),
+    'SC Funktionsliste Nr. 134/191: Erst-Zugang und Datei first-run-credentials.txt wie bisher, ihren Ort nennt jetzt das Panel unter Browser-Zugang (Altfehler SC-S1)',
+  );
+  ok(
+    beginnt(138, 'Statusleiste') && mitVerweis(138, 'B2', 'Altfehler SC-S3') && nennt(138, '„control.json“', '„secure“') && !nennt(138, 'Suite-Konfiguration nicht gelesen') &&
+      zeigtAuf(138, 'src/main/gateway/control-gateway.ts', 'appDataDir,', 'onStatus', 'server.start(CONTROL_PORT)') &&
+      zeigtAuf(138, 'src/main/server.ts', "startControlGateway(app.getPath('appData'), onMeldung)"),
+    'SC Funktionsliste Nr. 138: das Gateway liest jetzt control.json (appDataDir aus server.ts), im Modus secure nur mit Schlüssel (Altfehler SC-S3)',
+  );
+  ok(
+    unveraendert(192) && mitVerweis(192, 'B2', 'Altfehler SC-S3') && nennt(192, '„control.json“') && !nennt(192, 'liest Studio-Control weiter nicht'),
+    'SC Funktionsliste Nr. 192: control.json liest jetzt das Gateway (Altfehler SC-S3); die übrigen Laufzeit-Dateien wie bisher',
   );
 }

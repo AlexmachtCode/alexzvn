@@ -21,16 +21,21 @@ function generatePassword(): string {
   return crypto.randomBytes(16).toString('base64url');
 }
 
+/**
+ * Ort der Datei mit dem Erst-Passwort (Altfehler SC-S1): ensureInitialAdmin schreibt sie hierhin, das Panel nennt diesen Ort
+ * (IPC studio:erstPasswort), nie ihren Inhalt.
+ */
+export function erstPasswortDatei(): string {
+  return path.join(app.getPath('userData'), 'first-run-credentials.txt');
+}
+
 export function ensureInitialAdmin(): { created: boolean; credentialsPath?: string } {
   if (countUsers() > 0) return { created: false };
 
   const password = DEV_SEED ? 'Admin' : generatePassword();
   createUser({ username: ADMIN_USERNAME, password, role: 'admin' });
 
-  const credentialsPath = path.join(
-    app.getPath('userData'),
-    'first-run-credentials.txt',
-  );
+  const credentialsPath = erstPasswortDatei();
   const header = DEV_SEED
     ? `JM Studio Control — First-run admin credentials (DEV SEED — JM_STUDIO_DEV_ADMIN=1)`
     : `JM Studio Control — First-run admin credentials`;

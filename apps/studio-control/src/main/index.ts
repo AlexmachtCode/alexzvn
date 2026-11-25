@@ -7,12 +7,13 @@ import {
   shell,
   Tray,
 } from 'electron';
+import { existsSync } from 'node:fs';
 import path, { join } from 'node:path';
 
 import { initAppRuntime } from '@jm/app-runtime';
 import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import { migrate } from './db/migrate';
-import { ensureInitialAdmin } from './auth/bootstrap';
+import { ensureInitialAdmin, erstPasswortDatei } from './auth/bootstrap';
 import { loadDevices } from './config/devices';
 import { loadTricasters } from './config/tricasters';
 import {
@@ -196,6 +197,8 @@ function meldeFernsteuerung(e: FernsteuerungEreignis): void {
 
 function registerIpc(): void {
   ipcMain.handle('studio:fernsteuerung', () => fernsteuerung);
+  // Altfehler SC-S1: nur der Ort der Datei mit dem Erst-Passwort und ob sie jetzt besteht (je Aufruf gemessen), nie ihr Inhalt.
+  ipcMain.handle('studio:erstPasswort', () => ({ datei: erstPasswortDatei(), vorhanden: existsSync(erstPasswortDatei()) }));
   ipcMain.handle('remote:getUrls', () => getRemoteUrls());
   ipcMain.handle('remote:getAddresses', () => getLanAddresses());
   ipcMain.handle('window:close', (event) => {

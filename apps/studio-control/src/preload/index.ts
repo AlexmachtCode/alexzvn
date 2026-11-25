@@ -29,6 +29,8 @@ const api = {
     ipcRenderer.on('studio:fernsteuerung', listener);
     return () => ipcRenderer.off('studio:fernsteuerung', listener);
   },
+  // Altfehler SC-S1: Ort der Datei mit dem Erst-Passwort und ob sie besteht, gefragt beim Öffnen des Panels. null bei Ablehnung.
+  erstPasswort: () => (ipcRenderer.invoke('studio:erstPasswort') as Promise<{ datei: string; vorhanden: boolean }>).catch(() => null),
 };
 
 if (process.contextIsolated) {

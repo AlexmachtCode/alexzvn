@@ -1086,7 +1086,7 @@ export function startServer(onMeldung?: (e: FernsteuerungEreignis) => void): Pro
       // Companion-Gateway (TCP-Steuerprotokoll, Port 8735) zusätzlich starten —
       // fehlertolerant: ein belegter Port darf den HTTP-/Socket.IO-Server nicht
       // verhindern.
-      startControlGateway(onMeldung)
+      startControlGateway(app.getPath('appData'), onMeldung)
         .then((r) => {
           onMeldung?.({ art: 'start', ok: r.ok, error: r.error });
           if (r.ok) {

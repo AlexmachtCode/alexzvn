@@ -71,6 +71,7 @@ export function grundStand(teil: Partial<OberflaechenStand> = {}): OberflaechenS
     licht: undefined,
     masterLink: undefined,
     fernsteuerung: undefined,
+    erstPasswort: undefined,
     ...teil,
   };
 }

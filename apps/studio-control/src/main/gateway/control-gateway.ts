@@ -23,12 +23,12 @@
 // jm-studio-control-ctl). studio-control hat sonst KEINEN _jmps._tcp-Advert, es
 // gibt also keine Namenskollision.
 //
-// Auth/Audit: Das TCP-Zeilenprotokoll kennt keinen Token-Handshake (Companion
-// nutzt TCPHelper ohne Auth) — das Gateway handelt daher unter einer festen
-// Dienst-Identität `companion-gateway`. Jeder Befehl wird über logAction()
-// protokolliert (wer/was/Ziel/Payload). Das ist konsistent mit den übrigen
-// Suite-Tools, deren TCP-Steuerports im vertrauenswürdigen Produktions-LAN
-// ebenfalls unauthentifiziert sind; die Nachvollziehbarkeit liefert das Audit.
+// Auth/Audit: Modus, Schlüssel und Bind-Adresse kommen wie bei allen Steuer-
+// servern der Suite aus `<appData>/JM Production Suite/control.json` (Altfehler
+// SC-S3): „secure“ verlangt vor jedem Befehl den Schlüssel-Handshake, „open“
+// (ohne Datei) nimmt Befehle ohne Anmeldung an wie bisher. Gehandelt wird unter
+// der festen Dienst-Identität `companion-gateway`; jeder Befehl wird über
+// logAction() protokolliert (wer/was/Ziel/Payload), das liefert das Audit.
 //
 // Nur im Main-Prozess verwenden (node:net über @jm/suite-control-protocol).
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
@@ -308,13 +308,15 @@ async function dispatch(cmd: SuiteCommand): Promise<void> {
 /**
  * onMeldung (UX Welle 2b): reicht jeden Statuswechsel des Servers mit dem Modus der meldenden Instanz weiter (Rückspiel Task 26,
  * Regel aus Task 21: srv.modus(), nicht die Modulvariable), nur lesend. Port, Verben und Protokoll bleiben. Start-Ergebnis und
- * Wurf meldet der Aufrufer (server.ts).
+ * Wurf meldet der Aufrufer (server.ts). appDataDir (Altfehler SC-S3): app.getPath('appData'), daraus liest der Server control.json.
  */
 export function startControlGateway(
+  appDataDir: string,
   onMeldung?: (e: FernsteuerungEreignis) => void,
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlGateway();
   const srv = new SuiteControlServer({
+    appDataDir,
     role: 'studio',
     appId: 'jm-studio-control',
     controlEndpoint: true,
