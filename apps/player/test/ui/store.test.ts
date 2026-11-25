@@ -486,6 +486,55 @@ try {
       scheitern?.();
       await ladefehler();
       gleich([p().showPaused, p().playingCueIds], [false, []], 'PL-T14 ein Ladefehler nach Stop setzt die Pause nicht wieder');
+      // R9: Pause und Eintrag nur für den letzten Start. Mehrere Aufrufe von play warten, jeder lässt sich einzeln ablehnen.
+      const offen: Array<{ id: number; ablehnen: () => void }> = [];
+      const warteAuf = (): void => {
+        showAudio.play = async (cue) => {
+          log.push(`audio.play ${cue.id}`);
+          await new Promise<void>((_ok, nein) => {
+            offen.push({ id: cue.id, ablehnen: () => nein(new Error(SHOW_AUDIO_GRUND.datei)) });
+          });
+        };
+      };
+      // (a) Pausiert, GO X (lädt noch), GO Y (klingt): der späte Fehler von X stellt die Pause nicht wieder her.
+      warteAuf();
+      neu();
+      const X = showCue(41, { label: 'X' });
+      const Y = showCue(42, { label: 'Y' });
+      usePlayer.setState({ showCues: [X, Y], notice: null });
+      protokoll.length = 0;
+      offen.length = 0;
+      p().showTogglePause();
+      p().fireCue(0);
+      p().fireCue(1);
+      gleich([p().showPaused, p().playingCueIds], [false, [41, 42]], 'PL-T14 R9 Vorbedingung (a): beide Starts laufen, die Pause ist aufgehoben');
+      offen.find((o) => o.id === 41)?.ablehnen();
+      await ladefehler();
+      gleich(
+        [p().showPaused, p().playingCueIds, p().notice, protokoll.length],
+        [false, [42], PLAYER_TEXTE.cueFehler(1, 'X', SHOW_AUDIO_GRUND.datei), 1],
+        'PL-T14 R9 (a): ein späterer Start eines anderen Cues hebt den Anspruch auf: keine Pause wieder, X verlässt laufend, Hinweis und Log einmal',
+      );
+
+      // (b) Pausiert, GO X, Stop, GO X: der Fehler des ersten Starts ändert nichts am zweiten.
+      neu();
+      usePlayer.setState({ showCues: [X, Y], notice: null });
+      protokoll.length = 0;
+      offen.length = 0;
+      p().showTogglePause();
+      p().fireCue(0);
+      p().showStop();
+      p().fireCue(0);
+      offen[0]?.ablehnen();
+      await ladefehler();
+      gleich(
+        [p().showPaused, p().playingCueIds, p().notice, protokoll.length],
+        [false, [41], PLAYER_TEXTE.cueFehler(1, 'X', SHOW_AUDIO_GRUND.datei), 1],
+        'PL-T14 R9 (b): der Fehler des ersten Starts setzt nach Stop und neuem GO die Pause nicht und entfernt den zweiten Start nicht',
+      );
+      offen[1]?.ablehnen();
+      await ladefehler();
+      gleich([p().showPaused, p().playingCueIds, protokoll.length], [false, [], 2], 'PL-T14 R9 (b): der Fehler des zweiten Starts räumt ihn und meldet einmal');
     } finally {
       showAudio.play = spielt;
     }

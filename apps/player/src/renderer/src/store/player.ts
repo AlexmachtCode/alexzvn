@@ -22,6 +22,10 @@ import { Vorlaeufe } from '@/lib/vorlauf';
 
 // Pre-Wait-Zeitgeber der Cue-Show (modulglobal, damit Panik/Stop sie killt). Die Pause hält sie an (Altfehler PL-11).
 const vorlaeufe = new Vorlaeufe();
+// Altfehler PL-T14 (R9): Startmarke je Ton-Start. Stop, Panik und jeder neue Start setzen sie weiter; ein Ladefehler stellt die Pause
+// nur wieder her, solange sein Start der letzte ist. `letzterStart` merkt je Cue den jüngsten Start (nur dessen Fehler räumt den Cue).
+let startZaehler = 0;
+const letzterStart = new Map<number, number>();
 function clearShowTimers(): void {
   vorlaeufe.leeren();
 }
@@ -32,6 +36,7 @@ function clearShowTimers(): void {
  * die Pads stoppt nur `showPanic` selbst (W2-10: Knopf „Panik“ und Companion `panic`).
  */
 function panikDerShow(set: (teil: Partial<PlayerStore>) => void): void {
+  startZaehler++;
   showAudio.panic();
   void window.jmplay.output.command({ type: 'black' });
   clearShowTimers();
@@ -524,6 +529,8 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
     const startNow = (): void => {
       // Altfehler PL-T14 (A2): Merken, ob die Show vor diesem Start pausiert war; ein Ladefehler stellt die Pause wieder her.
       const warPausiert = get().showPaused;
+      const meinStart = ++startZaehler;
+      letzterStart.set(cue.id, meinStart);
       // Altfehler PL-11 (A1): Ein Start hebt die Pause auf; auch gehaltene Vorläufe laufen dann weiter.
       vorlaeufe.fortsetzen();
       // Der Start beendet den Vorlauf und hebt die Pause auf: showAudio.play weckt die angehaltene Tonmaschine, ein
@@ -563,11 +570,12 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
           })
           .catch((e: unknown) => {
             // Altfehler PL-T14: Der Cue verlässt „laufend“ sofort (ON AIR folgt), das Fenster nennt Cue und Grund, das Log eine
-            // Zeile. Kein Auto-Continue (A2). War die Show vor dem Start pausiert und läuft der Cue noch als gestartet (kein Stop
-            // dazwischen), gilt die Pause wieder, samt angehaltener Vorläufe.
-            const nochDa = get().playingCueIds.includes(cue.id);
-            set((s) => ({ playingCueIds: s.playingCueIds.filter((x) => x !== cue.id) }));
-            if (nochDa && warPausiert) {
+            // Zeile. Kein Auto-Continue (A2). War die Show vor dem Start pausiert und ist dies noch der letzte Start (R9: kein Stop,
+            // keine Panik, kein anderer Start dazwischen), gilt die Pause wieder, samt angehaltener Vorläufe.
+            if (letzterStart.get(cue.id) === meinStart) {
+              set((s) => ({ playingCueIds: s.playingCueIds.filter((x) => x !== cue.id) }));
+            }
+            if (startZaehler === meinStart && warPausiert) {
               set({ showPaused: true });
               vorlaeufe.anhalten();
             }
@@ -612,6 +620,7 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
       void window.jmplay.output.command({ type: 'stop', fadeOutSec: 0 });
     }
     clearShowTimers();
+    startZaehler++;
     // Nach Stop spielt nichts mehr: auch keine Pause (Ruling Task 14). Die Tonmaschine bleibt wie bisher unangetastet.
     set({ playingCueIds: [], vorlaufCueIds: [], videoCue: null, videoProgress: null, showPaused: false });
   },
