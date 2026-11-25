@@ -107,4 +107,45 @@ Hier entscheidest Du.
 1. AltGr auf deutschen Tastaturen: AltGr ist für Windows Strg und Alt zugleich. Deshalb löst ein Pad auf `@`, `€`, `{`, `[`, `\`, `~` oder `|` nicht mehr aus, obwohl das Tastenfeld solche Tasten weiter annimmt. Entweder darf AltGr für Pads erlaubt werden (dann löst auch ein Strg+Alt-Kürzel aus), oder das Tastenfeld weist solche Tasten ab. Empfehlung: das Tastenfeld weist sie ab, weil Strg+Alt nie Pads auslösen soll.
 2. Pille im Abschnitt „Browser-Zugang“ (SCA5, SCA6): behalten oder streichen? Ohne Pille stehen nur Titel und Satz. Mit Pille ist „Datei vorhanden“ gelb, „keine Datei“ grün.
 
+## Handbuch
+
+Die zwei Handbücher im Kochbuch (Player, Studio-Control) nennen jetzt die geänderte Bedienung, in den Worten der Crew: was man sieht und tut. Je Stelle steht oben der alte Wortlaut (`-`), darunter der neue (`+`); Stellen, die es vorher nicht gab, haben nur `+`-Zeilen. Der Kochbuch-Bau (`npm run cookbook:build`) hat `packages/cookbook/cookbook.json` neu erzeugt.
+
+### Player
+
+- `` `PLAYER CUE <Nr.>` — einen bestimmten Show-Cue direkt feuern ``
++ `PLAYER CUE <Nr.>` — einen bestimmten Show-Cue direkt feuern. Nennt `CUE` oder `STANDBY` eine Nummer, die es in der Show nicht gibt (null, zu groß oder die Show ist leer), lehnt der Player den Befehl ab: Im Fenster erscheint kurz der Hinweis „Companion „CUE 99“ abgelehnt: Die Show hat 4 Cues.“, der Standby bleibt, wo er war, und das nächste `GO` feuert weiter den bisherigen Standby-Cue
+
++ Beim Aufräumen: Der Standby bleibt auf seinem Cue, wenn man andere Cues löscht oder umsortiert (wird der Standby-Cue selbst gelöscht, steht er danach auf dem nächsten). Der Player fragt nach, wenn man mit ✕ einen Cue löscht, während in der Show etwas läuft („Die Show läuft. Cue 3 „Intro“ trotzdem entfernen?“), und wenn man ein Medium mit ✕ aus der Bibliothek entfernt, das Cues oder Pads benutzen („‹Titel› wird von 2 Cues und 1 Pad benutzt. Trotzdem aus der Bibliothek entfernen? Dort steht danach „Medium fehlt“.“); „Abbrechen“ lässt alles, wie es war
+
+- `` Soundboard-Pads im Reiter „Soundboard“ für Applaus/Stinger/Jingle sofort auslösen (`PAD <Slot>`) ``
+- `` `PAUSE` für kurze Unterbrechung, `STOP` beendet sauber, `PANIC` bei Bedarf hart abwürgen (lokal die Haupttasten „❚❚ Pause“, „■ Stop“ und „⛔ Panik“ im Transport der Cue-Show; „■ Stop“ und „⛔ Panik“ stehen auch in der Fußleiste von Bibliothek und Soundboard, Panik stoppt jetzt auch die Pads) ``
++ Soundboard-Pads im Reiter „Soundboard“ für Applaus/Stinger/Jingle sofort auslösen (`PAD <Slot>`). Die Pad-Taste löst nur eine einzelne Taste aus: Mit Strg, Alt (damit auch AltGr, etwa für @ oder €) oder Cmd gedrückt bleibt das Pad stumm, damit Strg+C oder ein Fenster-Kürzel keinen Ton auf die PA schickt. Auch solange ein Pad-Dialog oder das Einstellungs-Panel ⚙ offen ist oder der Cursor in einem Feld steht, löst keine Taste ein Pad aus; Umschalttaste (Großbuchstabe) sperrt nicht
++ Ein `GO` auf einen Video-Cue spielt auch dann, wenn das Ausgabefenster noch zu ist: Der Player öffnet es und startet das Video, sobald es bereit ist (höchstens 5 Sekunden Wartezeit, dann geht der Befehl trotzdem hinaus). Es gibt immer nur ein Ausgabefenster, auch wenn man „Ausgabe“ schnell aus- und wieder einschaltet
++ `PAUSE` für kurze Unterbrechung: Sie hält laufende Cues und auch die Vorlaufzeit (Pre-Wait) noch nicht gestarteter Cues an; „▶ Weiter“ setzt beides fort, und eine angefangene Vorlaufzeit läuft mit der Restzeit weiter, nicht von vorn. Ein `GO` mitten in der Pause auf einen Cue mit Vorlaufzeit stellt ihn an, lässt ihn aber warten, bis „▶ Weiter“ gedrückt wird; ein `GO` auf einen Cue ohne Vorlaufzeit startet sofort und hebt die Pause auf. `STOP` beendet sauber, `PANIC` bei Bedarf hart abwürgen (lokal die Haupttasten „❚❚ Pause“, „■ Stop“ und „⛔ Panik“ im Transport der Cue-Show; „■ Stop“ und „⛔ Panik“ stehen auch in der Fußleiste von Bibliothek und Soundboard, Panik stoppt jetzt auch die Pads)
+
+- `| Kein Ton/Bild beim GO | Ton: richtiges Standard-Wiedergabegerät in Windows (der Player hat keine eigene Wahl)? Video: Statusleiste „Video-Ausgabe“ und Panel ⚙ › Ausgabe auf Bildschirm prüfen (Pille und „Steht auf“ nennen den Bildschirm, auf dem das Fenster wirklich steht; nach dem Wiederanstecken bleibt „Bildschirm fehlt“ stehen, bis „Auf diesen Bildschirm“ das Fenster verschiebt oder es neu geöffnet wird). Kabel/Pegel am Mischer prüfen |`
++ | Kein Ton/Bild beim GO | Video bei geschlossener Ausgabe: Das erste `GO` öffnet das Fenster und spielt (das Fenster braucht dafür einen Moment, bis 5 Sekunden). Ton: richtiges Standard-Wiedergabegerät in Windows (der Player hat keine eigene Wahl)? Video: Statusleiste „Video-Ausgabe“ und Panel ⚙ › Ausgabe auf Bildschirm prüfen (Pille und „Steht auf“ nennen den Bildschirm, auf dem das Fenster wirklich steht; nach dem Wiederanstecken bleibt „Bildschirm fehlt“ stehen, bis „Auf diesen Bildschirm“ das Fenster verschiebt oder es neu geöffnet wird). Kabel/Pegel am Mischer prüfen |
+
+- `| Soundboard-Pad reagiert nicht | Richtiger Slot? Datei in der Bibliothek vorhanden/lesbar? |`
++ | Soundboard-Pad reagiert nicht | Richtiger Slot? Datei in der Bibliothek vorhanden/lesbar? Per Tastatur: Ist Strg, Alt oder Cmd gedrückt, ein Pad-Dialog oder das Panel ⚙ offen oder der Cursor in einem Feld? Dann löst die Taste bewusst nichts aus |
++ | Ton-Cue klingt nicht, Hinweis „Cue 3 „Intro“ spielt nicht: …“ | Der Grund steht im Hinweis (zum Beispiel „Datei fehlt oder ist nicht lesbar.“): Datei in der Bibliothek prüfen und neu zuweisen. Der Cue zählt nicht als laufend (kein ON AIR, kein „1 laufend“), der Standby steht schon auf dem nächsten Cue, und eine Pause bleibt so, wie sie vor dem `GO` war; die Zeile mit dem Pfad steht im Log der App |
++ | Companion-Knopf `CUE`/`STANDBY` tut nichts | Hinweis „Companion … abgelehnt: Die Show hat …“ im Fenster? Die Nummer gibt es in der Show nicht; Knopf auf eine vorhandene Nummer (ab 1) umstellen |
+
+### Studio-Control
+
++ Anmeldung: Ohne Anmeldung ist nur das eigene App-Fenster Admin. Ein Browser, auch der auf demselben Rechner wie Studio Control (`http://localhost:7778/`), und jedes Programm melden sich mit einem Konto an. Anfragen von fremden Webseiten (eine andere Herkunft als der Server selbst) weist Studio Control mit „403“ ab.
+
++ Companion und „secure“: Das Gateway richtet sich nach dem Modus der Suite (`control.json`, im Panel ⚙ › Fernsteuerung). Steht die Suite auf „secure“, nimmt es Befehle nur mit dem Schlüssel der Suite an; Companion braucht dann den Schlüssel. Auf „open“ geht es wie bisher ohne.
+
++ Beim ersten Start legt Studio Control das Konto „Admin“ mit einem Erst-Passwort an, das in einer Datei neben den Einstellungen des Programms liegt. Das Panel ⚙ › Abschnitt „Browser-Zugang“ (nur im App-Fenster, unter „Fernsteuerung“) nennt den Ort dieser Datei, solange es sie gibt, nie das Passwort selbst. Nach der ersten Anmeldung das Passwort ändern und die Datei löschen; danach steht dort „Keine Datei mit Erst-Passwort vorhanden.“
++ Für das Tablet oder einen Browser am Regie-Rechner: `http://‹IP›:7778/` öffnen (Tray › „LAN-URLs“) und mit einem Konto aus Setup › Benutzer anmelden; nur das Fenster der App selbst braucht keine Anmeldung
+
+- `| Companion-Gateway reagiert nicht | Im App-Fenster Statusleiste „Fernsteuerung“ bzw. Panel ⚙ › Fernsteuerung ansehen (bereit, Port belegt, Fehler; das Gateway hat keinen eigenen Schalter); Port 8735 (jm-studio-control-ctl) erreichbar? |`
++ | Browser oder Programm bekommt keinen Zugriff, auch am Regie-Rechner | Mit einem Konto aus Setup › Benutzer anmelden (die Anmeldung gilt auch auf demselben Rechner). Antwort „403“ heißt: Die Seite kommt nicht vom Server selbst (fremde Webseite) und wird abgewiesen; die Adresse `http://‹IP›:7778/` direkt öffnen |
++ | Passwort für „Admin“ vergessen oder unbekannt | Im App-Fenster Panel ⚙ › „Browser-Zugang“: Dort steht der Ort der Datei mit dem Erst-Passwort, solange sie besteht. Steht dort „Keine Datei …“, ein anderes Admin-Konto in Setup › Benutzer nutzen |
++ | Companion-Gateway reagiert nicht | Im App-Fenster Statusleiste „Fernsteuerung“ bzw. Panel ⚙ › Fernsteuerung ansehen (bereit, Port belegt, Fehler; das Gateway hat keinen eigenen Schalter); steht die Suite auf „secure“, braucht Companion den Schlüssel, ohne ihn lehnt das Gateway ab; Port 8735 (jm-studio-control-ctl) erreichbar? |
+
++ [ ] Erst-Passwort geändert und die Datei gelöscht (Panel ⚙ › „Browser-Zugang“ zeigt „Keine Datei …“)
+
 Freigabe: ☐ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren)
