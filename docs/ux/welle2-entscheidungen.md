@@ -627,10 +627,26 @@ Grund und der Preis, falls sie sich als falsch erweist.
   vollem Kopf zweizeilig bis 1473 px; 1476, weil `innerWidth` gerundet ist. Gemessen (36 Breiten von 1024 bis 1920 je 10
   Zustände, Panel offen bei 1500, 1280 und 1024, zwei Läufe): kein Treffer der Tastenplatz-Regel mit „■ Beenden“ (vorher 120 der
   Abnahme (a)), (a) 5 statt 125, alle 5 vorher gleich (voller Kopf, 1100 bis 1180 Breite, „Auf diesen Bildschirm“ auf dem alten
-  „Publikum Vollbild“, dort gesperrt; vorher an derselben Stelle, 3 bis 4 px weiter links, also nicht durch „■ Beenden“ verursacht,
-  sondern durch B12; ohne Bruch von B12 nicht zu beheben), (c) 1347 statt 3230; ab 1476 px alle Rechtecke wie gebaut. Grund: Außerhalb der umbrechenden
+  „Publikum Vollbild“, dort vorher und nachher gesperrt gemessen; schon vor N1 an denselben fünf Breiten, 3 bis 4 px weiter links,
+  also nicht durch „■ Beenden“ verursacht, sondern durch B12; ohne Bruch von B12 nicht zu beheben; nach Entscheid des Controllers
+  keine eigene Owner-Frage), (c) 1347 statt 3230; ab 1476 px alle Rechtecke wie gebaut. Grund: Außerhalb der umbrechenden
   Gruppe steht „■ Beenden“ unabhängig von deren Inhalt am Ende der ersten Zeile, also dort, wo es im zweizeiligen alten Kopf
-  stand, und keine andere Taste rückt dorthin. Preis: Die Leiste ist zwischen 1300 und 1400 Breite meist zweizeilig (Folie gleich
-  groß) und bei vollem Kopf bis 1080 Breite dreizeilig (Folie bei 1024 × 620 443 × 249 statt 510 × 287). Grenze: gemessen mit
-  dem Folientitel der Probe-PDF und bei Skalierung 1,26; ein längerer Titel lässt alten Kopf und neue Leiste früher umbrechen
-  (ungemessen). Die offenen Fragen 3 bis 5 der Texttabelle heißen jetzt 1 bis 3.
+  stand, und keine andere folgenreiche Taste rückt dorthin. Preis: (1) Wo der alte Kopf einzeilig war, verliert „■ Beenden“ seinen
+  alten Platz: zwischen 1280 Breite und innen 1475 px steht es nur noch in 0 bis 3 von 9 gemessenen Zuständen dort (vorher 6 bis 9
+  von 9; einzeilig war der alte Kopf dort in allen Zuständen außer vollem Kopf, bei 1280 und 1300 auch außer Schleife); auf dem
+  alten Platz liegt dann ⚙ (einziges Bedienelement dort, ein Griff öffnet nur das Panel; die Mitte des alten Platzes liegt auf
+  keiner Bedienung), „■ Beenden“ steht 33 px (zweizeilige Leiste) bzw. 42 px (einzeilige) tiefer; bis 1260 Breite steht es dafür in
+  allen 9 Zuständen auf seinem Platz (vorher in keinem). (2) Die Leiste ist zwischen 1300 und 1400 Breite meist zweizeilig (Folie
+  gleich groß) und bei vollem Kopf bis 1080 Breite dreizeilig (Folie bei 1024 × 620 443 × 249 statt 510 × 287); dabei rücken
+  „Publikum Vollbild“, „Vollbild“ und „Übersicht“ in die dritte Zeile, Gast-Klick und Schleife auf deren Plätze in der zweiten.
+  Grenze: gemessen mit dem Folientitel der Probe-PDF und bei Skalierung 1,26. Den alten Umbruch (die Grundlage des Umschaltpunkts)
+  verschiebt der Titel nicht: Er stand mit `min-w-0 flex-1` direkt im alten Kopf, gemessen lag die Uhr dort bei 1024 bis 1240
+  Breite bei allen drei Titeln an derselben Stelle (x 299). In der neuen Leiste verschiebt er dagegen den Umbruch: Das Titelfeld steht dort in `leiste-links` ohne
+  `min-w-0`, gemessen liegt die Uhr bei 1024 bis 1240 Breite mit „presenter-probe 1“ 2 px weiter links als mit „… 2“
+  und „… 3“ (Zähler und Uhr laut Code mit gleich breiten Ziffern); das ändert die Zeilen der Gruppe, nicht den Platz von „■ Beenden“ (immer Ende der ersten Zeile). Den Umbruch
+  verschieben laut Code außerdem der Zähler (`shrink-0`, zum Beispiel „12 / 140“ statt „2 / 3“), die Zahl der NDI-Empfänger, die
+  Sekunden des Schleifen-Countdowns, die Texte der Gast-Klick-Pille und die Beschriftung der Bildschirmwahl (bis 170 px); gemessen ist
+  je nur ein Wert. Ein (a)-Treffer wäre damit erst bei großen Abweichungen zu erwarten (abgeleitet, nicht gemessen): im Stand vor N1
+  erst ab innen 1390 px, 86 px unter dem Umschaltpunkt; für ein (a) des „■ Beenden“ im Kopf müssten „Vollbild“, „Übersicht“, „📱“
+  und „■ Beenden“ (rund 300 px) in die zweite alte Kopfzeile rücken; bei vollem Kopf endet die erste Leistenzeile im breiten
+  Fenster bei 1487 bis 1490 Breite gemessen mit „Vollbild“ (nicht folgenreich), bei 1500 ist sie einzeilig. Die offenen Fragen 3 bis 5 der Texttabelle heißen jetzt 1 bis 3.
