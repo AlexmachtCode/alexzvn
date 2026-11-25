@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-25T09:33:57.454Z",
+  "updatedAt": "2026-11-25T09:36:20.775Z",
   "tools": [
     {
       "id": "jm-copy",
@@ -199,7 +199,7 @@
       "category": "Utilities",
       "appId": "gmbh.jakobs.presenter",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.14.0",
+      "latestVersion": "0.15.0",
       "platforms": {
         "mac": {
           "artifact": "JM Presenter-${version}-mac-${arch}.dmg",
@@ -262,7 +262,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.prompter",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.8.0",
+      "latestVersion": "0.8.1",
       "platforms": {
         "mac": {
           "artifact": "JM Prompter-${version}-mac-${arch}.dmg",
@@ -472,7 +472,7 @@
       "category": "Studio",
       "appId": "gmbh.jakobs.connect",
       "repo": "AlexmachtCode/alexzvn",
-      "latestVersion": "0.5.0",
+      "latestVersion": "0.6.0",
       "platforms": {
         "mac": {
           "artifact": "JM Connect-${version}-mac-${arch}.dmg",
