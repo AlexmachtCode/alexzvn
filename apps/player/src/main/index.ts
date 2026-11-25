@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, protocol, shell } from 'electron';
 import path, { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
+import { beobachteBildschirme } from '@jm/output-window';
 import { parseShow, parseShowDeepLink } from '@jm/show';
 import { MEDIA_SCHEME } from '@shared/media-url';
 import type { PlayerShowSettings } from '@shared/types';
@@ -172,6 +173,12 @@ if (!gotLock) {
     // UX Welle 2a (W2-2): jede Änderung des Ausgabezustands nur an das Hauptfenster, nur lesend.
     onAusgabeZustand((z) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('output:zustand', z);
+    });
+    // UX Welle 2b (2a-Nachzug): Bildschirm angesteckt, abgezogen oder geändert → das Hauptfenster liest die Liste neu. Nur ein
+    // Ereignis ohne Nutzlast, nur lesend; erst nach app.ready, weil es `screen` vorher nicht gibt. Das eigene Ausgabefenster des
+    // Players (output-window.ts) bleibt; aus dem Paket kommt nur diese Funktion.
+    beobachteBildschirme(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('output:bildschirme');
     });
     registerMediaProtocol();
     registerIpc(() => mainWindow);

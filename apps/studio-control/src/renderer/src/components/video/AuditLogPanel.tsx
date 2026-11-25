@@ -20,7 +20,7 @@ export function AuditLogPanel() {
       {recent.length === 0 ? (
         <p className="mt-3 text-xs text-[var(--muted-foreground)]">Noch keine Aktionen.</p>
       ) : (
-        <ul className="mt-3 flex flex-col gap-1 text-xs">
+        <ul className="mt-3 flex flex-col gap-1 text-xs select-text">
           {recent.map((entry) => (
             <li
               key={entry.id}

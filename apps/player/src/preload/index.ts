@@ -95,6 +95,12 @@ const api: JmplayApi = {
       ipcRenderer.on('output:zustand', listener);
       return () => ipcRenderer.off('output:zustand', listener);
     },
+    // UX Welle 2b: Bildschirm angesteckt, abgezogen oder geändert; ohne Nutzlast, der Renderer liest die Liste selbst neu.
+    onBildschirme: (cb) => {
+      const listener = (): void => cb();
+      ipcRenderer.on('output:bildschirme', listener);
+      return () => ipcRenderer.off('output:bildschirme', listener);
+    },
     isFullscreen: () => (ipcRenderer.invoke('output:isFullscreen') as Promise<boolean | null>).catch(() => null),
     toggleFullscreen: () => ipcRenderer.invoke('output:toggleFullscreen') as Promise<boolean>,
     command: (cmd) => ipcRenderer.invoke('output:command', cmd) as Promise<void>,

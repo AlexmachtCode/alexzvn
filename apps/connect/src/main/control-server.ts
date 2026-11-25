@@ -15,6 +15,7 @@
 import { SuiteControlServer } from '@jm/suite-control-protocol/server';
 import { app } from 'electron';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
+import type { FernsteuerungEreignis } from '@shared/fernsteuerung';
 import { erzeugeStateSpeicher, type Kv } from './control-state';
 
 /** Eigener TCP-Steuerport (nächster nach Launcher 8736). */
@@ -31,20 +32,29 @@ export interface ConnectControlHandlers {
   onCommand: (cmd: SuiteCommand) => void;
 }
 
+/**
+ * onMeldung (UX Welle 2b): reicht jeden Statuswechsel des Servers mit dem Modus der meldenden Instanz weiter, nur lesend. Port,
+ * Befehle und Protokoll bleiben. Start-Ergebnis und Wurf meldet der Aufrufer (index.ts).
+ */
 export function startControlServer(
   handlers: ConnectControlHandlers,
+  onMeldung?: (e: FernsteuerungEreignis) => void,
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
-  server = new SuiteControlServer({
+  const srv = new SuiteControlServer({
     appDataDir: app.getPath('appData'),
     role: 'connect',
     appId: 'jm-connect',
     controlEndpoint: true,
     getState: () => lastState,
+    onStatus: (st) => {
+      onMeldung?.({ art: 'status', ...st, modus: srv.modus() });
+    },
     onCommand: (cmd) => {
       if (cmd.ns === 'connect') handlers.onCommand(cmd);
     },
   });
+  server = srv;
   return server.start(CONTROL_PORT);
 }
 

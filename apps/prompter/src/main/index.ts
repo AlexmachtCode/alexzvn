@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
 import { advertise, type Advertiser } from '@jm/discovery';
 import { parseShow, parseShowDeepLink } from '@jm/show';
-import { OutputWindow, listDisplays } from '@jm/output-window';
+import { OutputWindow, beobachteBildschirme, listDisplays } from '@jm/output-window';
 import { RemoteServer } from '@jm/remote';
 import { readControlConfig, mdnsSignKey } from '@jm/control-config';
 import { INITIAL_TRANSPORT, positionEm } from '@shared/types';
@@ -414,6 +414,11 @@ if (!gotLock) {
     // UX Welle 2a (W2-2): jede Änderung des Ausgabezustands nur an das Hauptfenster, nur lesend.
     output.onZustand((z) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('output:zustand', z);
+    });
+    // UX Welle 2b (2a-Nachzug): Bildschirm angesteckt, abgezogen oder geändert → das Hauptfenster liest die Liste neu. Nur ein
+    // Ereignis ohne Nutzlast, nur lesend; erst nach app.ready, weil es `screen` vorher nicht gibt.
+    beobachteBildschirme(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('output:bildschirme');
     });
     createMainWindow();
     // Fernbedienung automatisch starten, wenn zuletzt aktiv.

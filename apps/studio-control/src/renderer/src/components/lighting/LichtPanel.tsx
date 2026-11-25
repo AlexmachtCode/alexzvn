@@ -1,9 +1,13 @@
+// Licht · Art-Net (UX Welle 2b, Studio-Control d2; B16, B6, Ruling Task 18): Pille über StatusPill aus @jm/ui mit lichtPille
+// (dieselbe Ableitung wie der Statuseintrag: „an (ohne Rückmeldung)“ statt „Output → Host“), Blackout als TallyButton aus
+// lichtTaste im Behälter min-w-[110px] (heute size sm): ohne Recht gesperrt mit dem Rollen-Grund statt ausgeblendet, ohne Node
+// wie heute nicht da, nie live (der Node meldet nichts zurück). Der Licht-Zustand gilt nur bei verbundenem Server (gemeldet).
 import { useState } from 'react';
-import { Card, Button, cn } from '@jm/ui';
+import { Card, Button, StatusPill, TallyButton, cn, type TallyButtonProps } from '@jm/ui';
 import { Input } from '@/components/ui/Input';
 import { Headline } from '@/components/ui/Headline';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { StatusPill } from '@/components/ui/StatusPill';
+import { gemeldet, lichtPille, lichtTaste, type OberflaechenStand } from '@/lib/oberflaeche';
 import { useApp } from '@/store/app';
 import { useSession } from '@/store/session';
 import { emitWithAck, apiFetch } from '@/sync/client';
@@ -28,9 +32,19 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
-export function LichtPanel() {
+/**
+ * Blackout aus lichtTaste (Zustand, Grund, Beschriftung „Blackout“ bzw. „Blackout aus“); ein Klick schaltet um wie bisher
+ * (on: !blackout des gemeldeten Zustands). Ohne Node keine Taste. Rein, ohne DOM prüfbar.
+ */
+export function blackoutTaste(stand: OberflaechenStand, emit: (on: boolean) => void): TallyButtonProps | undefined {
+  const t = lichtTaste(stand);
+  if (t === undefined) return undefined;
+  const an = gemeldet(stand, stand.licht)?.blackout === true;
+  return { ...t, onClick: () => emit(!an) };
+}
+
+export function LichtPanel({ stand }: { stand: OberflaechenStand }) {
   const lighting = useApp((s) => s.lighting);
-  const blackout = useApp((s) => s.blackout);
   const patchFixtureLocal = useApp((s) => s.patchFixtureLocal);
   const role = useSession((s) => s.user?.role);
   const token = useSession((s) => s.token);
@@ -47,9 +61,14 @@ export function LichtPanel() {
     void emitWithAck(EVENTS.LIGHTING_SET, { fixtureId, patch }).catch(() => {});
   }
 
-  function toggleBlackout(): void {
-    void emitWithAck(EVENTS.LIGHTING_BLACKOUT, { on: !blackout }).catch(() => {});
+  function setzeBlackout(on: boolean): void {
+    void emitWithAck(EVENTS.LIGHTING_BLACKOUT, { on }).catch(() => {});
   }
+  const taste = blackoutTaste(stand, setzeBlackout);
+  // Bedienbar nur mit gemeldetem Node (bei verbundenem Server); die Anzeige der Konfiguration bleibt.
+  const nodeGemeldet = gemeldet(stand, stand.licht)?.node === true;
+  // Die Karten dimmen nur bei gemeldetem Blackout; ohne Server ist er nicht gemessen (die Pille sagt dort „unbekannt“).
+  const blackoutGemeldet = gemeldet(stand, stand.licht)?.blackout === true;
 
   async function saveNode(next: ArtnetNode | null): Promise<void> {
     await apiFetch('/api/lighting/node', { method: 'POST', token, body: JSON.stringify({ node: next }) });
@@ -69,7 +88,7 @@ export function LichtPanel() {
   }
 
   return (
-    <Card className="p-6">
+    <Card data-panel="licht" className="p-6">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <SectionHeader>Licht · Art-Net</SectionHeader>
@@ -78,21 +97,13 @@ export function LichtPanel() {
           </Headline>
         </div>
         <div className="flex items-center gap-3">
-          {node ? (
-            <StatusPill status={blackout ? 'error' : 'live'}>
-              {blackout ? 'Blackout' : `Output → ${node.host}`}
-            </StatusPill>
-          ) : (
-            <StatusPill status="setup">Kein Node</StatusPill>
-          )}
-          {canExec && node && (
-            <Button
-              size="sm"
-              variant={blackout ? 'primary' : 'destructive'}
-              onClick={toggleBlackout}
-            >
-              {blackout ? 'Blackout aus' : 'Blackout'}
-            </Button>
+          <StatusPill {...lichtPille(stand)} />
+          {taste && (
+            <div data-studio="hauptreihe-licht" className="flex">
+              <div className="min-w-[110px]">
+                <TallyButton {...taste} />
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -144,8 +155,8 @@ export function LichtPanel() {
               <FixtureCard
                 key={fx.id}
                 fx={fx}
-                blackout={blackout}
-                disabled={!canExec || !node}
+                blackout={blackoutGemeldet}
+                disabled={!canExec || !nodeGemeldet}
                 onChange={(patch) => send(fx.id, patch)}
                 canManage={canManage}
                 onEdit={() => setEditId(fx.id)}

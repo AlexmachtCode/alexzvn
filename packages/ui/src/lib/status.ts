@@ -49,6 +49,19 @@ export const STATUS_RAND_KLASSE: Readonly<Record<StatusState, string>> = {
 };
 
 /**
+ * Vorfahrt in der Statusleiste bei Platzmangel (Gesamtprüfung UX Welle 2b, I1): ok und off schrumpfen zuerst (Gewicht 100),
+ * Warnung, Fehler und live zuletzt (Gewicht 1). Ganze Gewichte, keine Brüche: Liegt die Summe der noch schrumpfenden Gewichte
+ * unter 1, verteilt CSS nur diesen Bruchteil des fehlenden Platzes, und der Rest liefe über die Leiste hinaus.
+ */
+export const STATUS_SCHRUMPF_KLASSE: Readonly<Record<StatusState, string>> = {
+  ok: 'shrink-[100]',
+  warn: 'shrink',
+  error: 'shrink',
+  off: 'shrink-[100]',
+  live: 'shrink',
+};
+
+/**
  * Fläche eines live-Eintrags (StatusBar, StatusPill): rot gefüllt, Symbol und Schrift in Hintergrundfarbe (Spec 3.3
  * „live ■ rot gefüllt“, 4.2 „gefüllt + LIVE gegen Rahmen + ⚠“; E14). Normale Schrift genügt: dunkel 4,63, hell 5,43 : 1.
  */

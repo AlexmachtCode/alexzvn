@@ -412,28 +412,33 @@ console.log('— B5 · deuteZoomBefehl, Slot-Verben (8.3)');
 // ── Plan B, Task B11: alte Bedienwege entfallen (Spec 7.9, 7.5 Nr. 9 und 10, 9.7 „Entfallen“, E29) ──
 console.log('— B11 · Laden, Entladen, Ton-Umschalten und Vergessen gibt es weder in Hülle, Preload und IPC noch in der Karte');
 {
-  const { readFileSync } = await import('node:fs');
+  const { readFileSync, existsSync } = await import('node:fs');
   const lies = (rel: string): string => readFileSync(new URL(rel, import.meta.url), 'utf8');
   const typen = lies('../src/shared/types.ts');
   const api = typen.slice(typen.indexOf('export interface JmConnectApi'));
+  // Seit UX Welle 2b (Task 24): die alte Zoom-Karte ist aufgeteilt in die Zoom-Spalte (views/ZoomSpalte.tsx, zoom/ZoomCard.tsx) und
+  // die Panel-Abschnitte (zoom/ZoomEinrichtung.tsx, zoom/ZoomVorgaben.tsx); geprüft wird ihr Text zusammen, eine fehlende Datei
+  // macht die Prüfung rot (leer).
+  const KARTE = ['views/ZoomSpalte.tsx', 'zoom/ZoomCard.tsx', 'zoom/ZoomEinrichtung.tsx', 'zoom/ZoomVorgaben.tsx'].map((d) => new URL(`../src/renderer/src/${d}`, import.meta.url));
+  const karteText = KARTE.every((u) => existsSync(u)) ? KARTE.map((u) => readFileSync(u, 'utf8')).join('\n') : '';
   const orte: Array<[string, string]> = [
     ['preload/index.ts', lies('../src/preload/index.ts')],
     ['main/zoom.ts', lies('../src/main/zoom.ts')],
     ['shared/ipc.ts', lies('../src/shared/ipc.ts')],
     ['JmConnectApi (shared/types.ts)', api],
-    ['renderer/src/zoom/ZoomCard.tsx', lies('../src/renderer/src/zoom/ZoomCard.tsx')],
+    ['renderer Zoom-Spalte und Panel (ZoomSpalte, ZoomCard, ZoomEinrichtung, ZoomVorgaben)', karteText],
   ];
   const ALT = ['zoomLaden', 'zoomEntladen', 'zoomTon', 'zoomSollVerwerfen', 'jmc:zoom-laden', 'jmc:zoom-entladen', 'jmc:zoom-ton', 'jmc:zoom-soll-verwerfen'];
   for (const [ort, text] of orte) {
     const treffer = ALT.filter((n) => text.includes(n));
-    ck(`B11: ${ort} nennt keinen der vier alten Kanäle${treffer.length ? ` (gefunden: ${treffer.join(', ')})` : ''}`, treffer.length === 0);
+    ck(`B11: ${ort} nennt keinen der vier alten Kanäle${treffer.length ? ` (gefunden: ${treffer.join(', ')})` : ''}${text === '' ? ' (Datei fehlt)' : ''}`, treffer.length === 0 && text !== '');
   }
   ck('B11: JmConnectApi gefunden (die Prüfung greift)', api.length > 1000 && api.includes('zoomVersatz'));
   const karte = orte[4][1];
   const RESTE = ['Als Quelle laden', 'Entladen', 'Gemerkte Quellen', 'wird: ', 'trotzId', 'soll:', 'TEXT_Q11', 'TEXT_Q14', 'kollision', 'tonVorwahl', 'ndiNameVorschau', 't.quelle', 't.fehler', 'a.soll'];
   const reste = RESTE.filter((r) => karte.includes(r));
   ck(`B11: die Karte hat keinen Ton-Schalter je Zeile, kein „Als Quelle laden“/„Entladen“, kein „wird: …“, keine „Gemerkten Quellen“${reste.length ? ` (gefunden: ${reste.join(', ')})` : ''}`,
-    reste.length === 0);
+    reste.length === 0 && karte !== '');
 }
 
 console.log('— B20: IPC der Zoom-Slots, Preload als Ganzes, Hülle nur über pruefeSlotEingabe, Fenster (Spec 7.9, 7.7, 11.11 KF5)');
@@ -503,13 +508,19 @@ console.log('— B20: IPC der Zoom-Slots, Preload als Ganzes, Hülle nur über p
 console.log('— B21: Zoom-Karte mit Slot-Bereich, Kachel, Einstellungen und Teilnehmerliste (Spec 7.5, 7.7, 10.10; B-EP4, B-EP9)');
 {
   // Die Komponenten laden React und window.jmconnect und laufen hier nicht; geprüft wird ihr Quelltext (nach LF).
-  const { readFileSync } = await import('node:fs');
-  const lies = (rel: string): string => readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const { readFileSync, existsSync } = await import('node:fs');
+  const lies = (rel: string): string => (existsSync(new URL(rel, import.meta.url)) ? readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n') : '');
   const zt = await import('../src/shared/zoom-text');
   const bereich = lies('../src/renderer/src/zoom/SlotBereich.tsx');
   const kachel = lies('../src/renderer/src/zoom/SlotKachel.tsx');
   const einst = lies('../src/renderer/src/zoom/SlotEinstellungen.tsx');
-  const karte = lies('../src/renderer/src/zoom/ZoomCard.tsx');
+  // Seit UX Welle 2b (Task 24): Slot-Vorgaben, Sprecher-Einstellungen und „Person im NDI-Namen“ stehen im Panel-Abschnitt
+  // zoom/ZoomVorgaben.tsx (vorher im Slot-Bereich); die Karte ist die Zoom-Spalte (views/ZoomSpalte.tsx mit Teilnehmerliste und
+  // Slot-Verdrahtung, zoom/ZoomCard.tsx mit Meeting und Bild-Versatz) und ihr Ort-Typ steht in zoom/aufrufe.ts. Eine fehlende Datei
+  // ist leer, die Prüfungen auf ihren Text werden dann rot.
+  const vorgaben = lies('../src/renderer/src/zoom/ZoomVorgaben.tsx');
+  const teile = [lies('../src/renderer/src/views/ZoomSpalte.tsx'), lies('../src/renderer/src/zoom/ZoomCard.tsx'), lies('../src/renderer/src/zoom/aufrufe.ts')];
+  const karte = teile.every((t) => t !== '') ? teile.join('\n') : '';
   // B-EP4: Nutzertexte nur aus zoom-text.ts; keiner als Literal (in Anführungszeichen, als Vorlage oder als JSX-Text).
   const texte = [
     ...Object.values(zt.SLOT_TEXT), ...Object.values(zt.BEDIEN_TEXT), ...Object.values(zt.MODUS_NAME), ...Object.values(zt.KANDIDAT_KENNZEICHEN),
@@ -518,10 +529,11 @@ console.log('— B21: Zoom-Karte mit Slot-Bereich, Kachel, Einstellungen und Tei
     zt.SLOT_FELD.aufloesung, zt.ERSATZBILD_FELD, zt.BILDFORMAT_FELD, ...Object.values(zt.BILDFORMAT_NAME), ...Object.values(zt.BILDFORMAT_HINWEIS), zt.SLOT_FELD.ton, zt.SLOT_FELD.versatzZusatz, zt.HALTEZEIT_UNGUELTIG, zt.TEXT_A4_SCHREIBFEHLER,
   ].filter((t): t is string => typeof t === 'string' && t.length > 0);
   const literal = (q: string, t: string): boolean => [`'${t}'`, `"${t}"`, `\`${t}\``, `>${t}<`].some((f) => q.includes(f));
-  for (const [datei, q] of [['SlotBereich.tsx', bereich], ['SlotKachel.tsx', kachel], ['SlotEinstellungen.tsx', einst]] as const) {
-    ck(`B21 B-EP4 ${datei}: kein Nutzertext aus zoom-text.ts als Literal`, texte.every((t) => !literal(q, t)));
+  const bereichUndVorgaben = bereich !== '' && vorgaben !== '' ? `${bereich}\n${vorgaben}` : '';
+  for (const [datei, q] of [['SlotBereich.tsx und ZoomVorgaben.tsx', bereichUndVorgaben], ['SlotKachel.tsx', kachel], ['SlotEinstellungen.tsx', einst]] as const) {
+    ck(`B21 B-EP4 ${datei}: kein Nutzertext aus zoom-text.ts als Literal`, q !== '' && texte.every((t) => !literal(q, t)));
     ck(`B21 B-EP4 ${datei}: kein JSX-Text mit Buchstaben, kein title/placeholder/alt/aria-label mit Buchstaben`,
-      !/>[^<>{}\n]*[A-Za-zÄÖÜäöüß][^<>{}\n]*<\//.test(q) && !/\b(title|placeholder|alt|aria-label)="[^"]*[A-Za-zÄÖÜäöüß]/.test(q));
+      q !== '' && !/>[^<>{}\n]*[A-Za-zÄÖÜäöüß][^<>{}\n]*<\//.test(q) && !/\b(title|placeholder|alt|aria-label)="[^"]*[A-Za-zÄÖÜäöüß]/.test(q));
   }
   const angabe = bereich.slice(bereich.indexOf('export function TeilnehmerSlotAngabe('), bereich.indexOf('export function SlotBereich('));
   ck('B21 7.5 Nr. 9: „Als Slot laden“ ruft zoomSlotAusPerson über starte (Nachfrage), nie zoomSlotStart',
@@ -543,12 +555,15 @@ console.log('— B21: Zoom-Karte mit Slot-Bereich, Kachel, Einstellungen und Tei
   ck('B21 7.5: Einstellungen über zoomSlotAendern; Löschen nur ausgeschaltet und nach Rückfrage T37 über zoomSlotLoeschen',
     einst.includes('window.jmconnect.zoomSlotAendern({ nr, aenderung })') && einst.includes('loeschenFrage(nr, e.ndiName)')
       && einst.includes('window.jmconnect.zoomSlotLoeschen({ nr })') && einst.includes('disabled={e.an ||'));
-  ck('#310 B21: Bildformat-Feld über aendere, gesperrt bei Freigabe, Hinweis aus bildformatHinweis',
-    einst.includes('aendere({ bildformat: ev.target.value as ZoomSlotBildformat })')
+  // Seit Nachtrag Task 25 (Befund 11, Wahl ≠ Bewegung): die Wahl geht über slotWahl, das am gestoppten Slot sofort und am
+  // laufenden erst mit „Setzen“ dasselbe aendere ruft (Verhalten geprüft in test/ui/live.test.tsx, CN Slot-Wahl).
+  ck('#310 B21: Bildformat-Feld über slotWahl und aendere, gesperrt bei Freigabe, Hinweis aus bildformatHinweis',
+    einst.includes('wahl.waehlen({ bildformat: ev.target.value as ZoomSlotBildformat })')
+      && einst.includes('slotWahl({ e, zustand: lage.zustand, entwurf, setzeEntwurf: setEntwurf, beschaeftigt, aendere })')
       && einst.includes("disabled={beschaeftigt || e.modus === 'freigabe'}") && einst.includes('bildformatHinweis(e.modus)'));
   ck('B21 B-EP9: Kacheln in einem Container, zwei Spalten ab 34rem', bereich.includes('className="@container') && bereich.includes('@[34rem]:grid-cols-2'));
   const iBereich = karte.indexOf('<SlotBereich a={a} aufrufe={slotAufrufe} />');
-  ck('B21 7.5: ZoomCard zeigt den Slot-Bereich vor der Teilnehmerliste; Ort kennt slot:<nr>',
+  ck('B21 7.5: die Zoom-Spalte zeigt den Slot-Bereich vor der Teilnehmerliste; Ort kennt slot:<nr>',
     iBereich > 0 && iBereich < karte.indexOf('{/* 8 · Teilnehmerliste') && karte.includes('`slot:${number}`'));
   ck('B21 7.5 Nr. 9: Teilnehmerzeile mit TeilnehmerSlotAngabe und der Nachfrage am Ort der Zeile',
     karte.includes('<TeilnehmerSlotAngabe t={t} a={a} imMeeting={imMeeting} aufrufe={slotAufrufe} />')
@@ -557,7 +572,7 @@ console.log('— B21: Zoom-Karte mit Slot-Bereich, Kachel, Einstellungen und Tei
     ['host', 'kameraAus', 'imWarteraum'].every((s) => karte.includes(`{KANDIDAT_KENNZEICHEN.${s}}`))
       && !['>Host<', '>Kamera aus<', '>im Warteraum<'].some((s) => karte.includes(s)));
   ck('B21 7.4: Nachfrage über istNachfrage, „Trotzdem einschalten“ wiederholt mit trotz',
-    karte.includes('if (istNachfrage(r)) setNachfrage({ ort, text: r.text, trotzdem: () => starte(schluessel, ort, f, true) });'));
+    karte.includes('if (roh !== null && istNachfrage(roh)) setNachfrage({ ort, text: roh.text, trotzdem: () => starte(schluessel, ort, f, true) });'));
   ck('B21 7.5 Nr. 7: unter dem Bild-Versatz die Zeile T81', karte.includes('{SLOT_FELD.versatzZusatz}'));
 }
 
@@ -568,8 +583,12 @@ console.log('— B22: Messwerte in der Karte, Kopieren ohne Namen, Zeile T95 au�
   const lies = (rel: string): string => (existsSync(pfad(rel)) ? readFileSync(pfad(rel), 'utf8').replace(/\r\n/g, '\n') : '');
   const zt = await import('../src/shared/zoom-text');
   const mw = lies('../src/renderer/src/zoom/Messwerte.tsx');
-  const karte = lies('../src/renderer/src/zoom/ZoomCard.tsx');
-  const app = lies('../src/renderer/src/App.tsx');
+  // Seit UX Welle 2b (Task 24): die Messwerte stehen in der Zoom-Spalte (views/ZoomSpalte.tsx).
+  const karte = lies('../src/renderer/src/views/ZoomSpalte.tsx');
+  // Seit UX Welle 2b (Task 23): App.tsx rendert die Wurzel-View, den Rahmen mit den Spalten baut ConnectOberflaeche.tsx.
+  const wurzel = lies('../src/renderer/src/views/ConnectOberflaeche.tsx');
+  const rahmen = (() => { const i = wurzel.indexOf('export function ConnectRahmen('); return i < 0 ? '' : wurzel.slice(i, wurzel.indexOf('\n}\n', i)); })();
+  const fenster = ['App.tsx', 'views/ConnectOberflaeche.tsx', 'views/CloudRaum.tsx', 'views/Fusszeile.tsx', 'views/Einstellungen.tsx', 'views/CloudZugang.tsx', 'views/ZoomSpalte.tsx'].map((d) => lies(`../src/renderer/src/${d}`));
   ck('B22 7.8: „Messwerte kopieren“ holt den Text vom Kern (zoomMesswerteText) und schreibt genau ihn mit navigator.clipboard.writeText',
     mw.includes('.zoomMesswerteText()') && mw.includes('.then((text) => navigator.clipboard.writeText(text))'));
   ck('B22 7.8, 0.23: in die Zwischenablage kommt nie das Abbild (kein JSON.stringify, genau ein writeText)',
@@ -584,23 +603,28 @@ console.log('— B22: Messwerte in der Karte, Kopieren ohne Namen, Zeile T95 au�
     mw !== '' && texte.every((t) => ![`'${t}'`, `"${t}"`, `\`${t}\``, `>${t}<`].some((f) => mw.includes(f)))
       && !/>[^<>{}\n]*[A-Za-zÄÖÜäöüß][^<>{}\n]*<\//.test(mw));
   const iM = karte.indexOf('<Messwerte a={a} />');
-  ck('B22 7.5: ZoomCard zeigt die Messwerte nach dem Slot-Bereich und vor den Hinweisen',
-    iM > karte.indexOf('<SlotBereich a={a} aufrufe={slotAufrufe} />') && iM < karte.indexOf('{/* 10 · Hinweise'));
-  ck('B22 7.11: App.tsx zeigt außerhalb von win32 an der Stelle der Karte T95 aus zoom-text.ts, nie als Literal',
-    app.includes(`{window.jmconnect.platform === 'win32' ? <ZoomCard /> : <p className="mt-6 text-xs text-neutral-500">{MAC_ZEILE}</p>}`)
-      && !app.includes(zt.MAC_ZEILE));
+  ck('B22 7.5: die Zoom-Spalte zeigt die Messwerte nach dem Slot-Bereich und vor den Hinweisen',
+    karte.indexOf('<SlotBereich a={a} aufrufe={slotAufrufe} />') >= 0 && iM > karte.indexOf('<SlotBereich a={a} aufrufe={slotAufrufe} />') && iM < karte.indexOf('{/* 10 · Hinweise'));
+  ck('B22 7.11, W2-5: das Fenster zeigt außerhalb von win32 statt der Zoom-Spalte T95 aus zoom-text.ts unter dem Cloud-Raum, nie als Literal',
+    wurzel.includes("const windows = stand.plattform === 'win32';")
+      && rahmen.includes('{windows ? null : <p data-connect="mac-zeile" className="mt-6 text-xs text-[var(--muted-foreground)]">{MAC_ZEILE}</p>}')
+      && /\{windows \? \(\n\s*<div data-connect="zoom-spalte" className="min-w-0">\n\s*<ZoomSpalte stand=\{stand\} zoom=\{p\.zoom\} ladeFehler=\{p\.zoomLadeFehler\} \/>\n/.test(rahmen)
+      && fenster.every((t) => t !== '' && !t.includes(zt.MAC_ZEILE)));
 }
 
 // ── Task 16: alte Werte lassen sich nur noch entfernen, nie eintragen oder wählen (E7) ──
 {
   const { readFileSync, existsSync } = await import('node:fs');
   const pfad = (rel: string): URL => new URL(`../${rel}`, import.meta.url);
-  const read = (rel: string): string => readFileSync(pfad(rel), 'utf8').replace(/\r\n/g, '\n');
+  // Seit UX Welle 2b (Task 24): die Einrichtung steht im Panel-Abschnitt zoom/ZoomEinrichtung.tsx, die Karte ist die Zoom-Spalte
+  // (views/ZoomSpalte.tsx, zoom/ZoomCard.tsx); eine fehlende Datei ist leer und macht die Prüfung rot.
+  const read = (rel: string): string => (existsSync(pfad(rel)) ? readFileSync(pfad(rel), 'utf8').replace(/\r\n/g, '\n') : '');
+  const KARTE_UND_EINRICHTUNG = ['src/renderer/src/views/ZoomSpalte.tsx', 'src/renderer/src/zoom/ZoomCard.tsx', 'src/renderer/src/zoom/ZoomEinrichtung.tsx', 'src/renderer/src/zoom/ZoomVorgaben.tsx'];
   ck('T16 Spec 22, 166: kein Eintragen oder Wählen alter Werte mehr in Kern, Hülle, IPC, Preload, Karte und Einstellungen',
-    ['src/main/zoom/kern.ts', 'src/main/zoom.ts', 'src/shared/ipc.ts', 'src/preload/index.ts', 'src/renderer/src/zoom/ZoomCard.tsx', 'src/main/settings.ts', 'src/shared/types.ts']
-      .every((f) => !/zugangEintragen|zugangWaehlen|sdkSchluesselEintragen|ZugangEingabe|SchluesselEingabe|zoomZugangSpeichern|zoomSdkSchluesselSpeichern/i.test(read(f)))
+    ['src/main/zoom/kern.ts', 'src/main/zoom.ts', 'src/shared/ipc.ts', 'src/preload/index.ts', ...KARTE_UND_EINRICHTUNG, 'src/main/settings.ts', 'src/shared/types.ts']
+      .every((f) => read(f) !== '' && !/zugangEintragen|zugangWaehlen|sdkSchluesselEintragen|ZugangEingabe|SchluesselEingabe|zoomZugangSpeichern|zoomSdkSchluesselSpeichern/i.test(read(f)))
       && !existsSync(pfad('src/main/zoom/zugang-eingabe.ts')) && !existsSync(pfad('src/main/zoom/sdk-schluessel-eingabe.ts'))
-      && read('src/renderer/src/zoom/ZoomCard.tsx').includes("'Zoom ist gesperrt, bis das Zoom-SDK eingerichtet ist.'"));
+      && read('src/renderer/src/zoom/ZoomEinrichtung.tsx').includes("'Zoom ist gesperrt, bis das Zoom-SDK eingerichtet ist.'"));
 }
 
 // ── ENDE DER FÄLLE (neue Blöcke direkt darüber einfügen) ──

@@ -5,6 +5,8 @@
 // Kopfes, die Tasten von Transport und Fußleiste und die Kürzel-Weiche für Eingabefelder.
 // Kein window, kein IPC, kein localStorage, kein Store-Import: Die Tests laufen ohne Browser. Statusleiste und Panel nutzen
 // dieselben Ableitungen (eine Wahrheit). Keine Taste bekommt eine neue Wirkung.
+// UX Welle 2b (2a-Nachzug, Task 6): der Ausgabe-Abschnitt nennt den gemessenen Ort (measuredId), und ein Video zählt für ON AIR
+// nur mit Video-Beleg (naechsterVideoBeleg; die Wurzel-View führt ihn, nur im Renderer).
 import {
   abschnittStatusItem,
   REMOTE_TEXTE,
@@ -15,7 +17,7 @@ import {
   SCREEN_TEXTE,
 } from '@jm/settings';
 import { masterLinkStatusItem, unbekannt, type StatusItem } from '@jm/ui';
-import type { AusgabeZustand } from '@jm/output-window/zustand';
+import type { AusgabeArt, AusgabeZustand } from '@jm/output-window/zustand';
 import { portBelegt, STEUER_PORT, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { DisplayInfo, MasterLinkMeldungZeile, OutputTime, ShowCue } from '@shared/types';
 
@@ -47,6 +49,16 @@ export const PLAYER_TEXTE = {
     cue: (n: number, name: string): string => `Cue ${n} · ${name}`,
     ohneName: '—',
     ende: '— Ende —',
+  },
+  /**
+   * Show-Wahl der Cue-Show (Rückspiel Task 26, Regel „Wahl ≠ Bewegung im Altbestand“): die Auswahl hält einen Entwurf, erst
+   * „Setzen“ (PEERS_TEXTE.setzen, Bezeichnung PEERS_TEXTE.setzenFuer(titel)) wählt die Show; „Setzen“ steht nur bei offenem
+   * Entwurf oder während der Wahl im Kopf. Gründe der gesperrten Knöpfe.
+   */
+  showWahl: {
+    titel: 'Show',
+    laeuft: 'Die Show wird gewählt …',
+    erstSetzen: 'Setze erst die gewählte Show oder nimm die Auswahl zurück.',
   },
   /**
    * Video-Ausgabe (E3); Titel wie der alte Dialog „Video-Ausgabe“. `hinweis` und `primaer` sind der alte Wortlaut des Dialogs
@@ -110,6 +122,39 @@ export interface OberflaechenStand {
   fernsteuerung: FernsteuerungMeldung | null | undefined;
   /** Bildschirmliste, falls bekannt (frisch aus `output.displays()`): Auswahl im Panel und Name in „offen · …“. */
   bildschirme?: readonly ScreenOption[];
+  /**
+   * Video-Beleg (UX Welle 2b, Task 6): das Ausgabefenster hat seit dem letzten Schließen, Absturz oder Wechsel des Video-Cues
+   * einen Fortschritt gemeldet (`naechsterVideoBeleg`, geführt in der Wurzel-View). Ohne Beleg zählt kein Video für ON AIR.
+   */
+  videoBelegt: boolean;
+}
+
+/**
+ * Was den Video-Beleg ändert: ein gemeldeter Fortschritt (mit der Art, die das Ausgabefenster dabei gemessen hat), eine Meldung des
+ * Ausgabefensters, eine neue Kennung des Video-Cues.
+ */
+export type VideoBelegEreignis =
+  | { t: 'fortschritt'; art: AusgabeArt | undefined }
+  | { t: 'ausgabe'; art: AusgabeArt | undefined }
+  | { t: 'videoCue'; id: number | null };
+
+/**
+ * Video-Beleg (UX Welle 2b, Task 6): Nach Alt+F4 bleiben videoCue und videoProgress im Store stehen (nur der Knopf leert sie);
+ * öffnet der Panel-Schalter das Fenster neu, ist darin aber kein Video geladen. Deshalb zählt das Video erst wieder, wenn das
+ * Fenster einen Fortschritt meldet: Fortschritt bei gemessen offenem Fenster (offen oder Bildschirm fehlt, wie videoFensterDa) →
+ * belegt; ein Fortschritt bei zu, abgestürzt oder unbekanntem Fenster (etwa eine späte Position des alten Fensters) ändert nichts;
+ * zu oder abgestürzt → nicht belegt; ein Wechsel der Video-Kennung → nicht belegt (das neue Video muss sich selbst melden); sonst
+ * (offen, Bildschirm fehlt, keine Antwort) unverändert.
+ */
+export function naechsterVideoBeleg(belegt: boolean, e: VideoBelegEreignis): boolean {
+  switch (e.t) {
+    case 'fortschritt':
+      return e.art === 'offen' || e.art === 'bildschirm-fehlt' ? true : belegt;
+    case 'ausgabe':
+      return e.art === 'zu' || e.art === 'abgestuerzt' ? false : belegt;
+    case 'videoCue':
+      return false;
+  }
 }
 
 /** Aktionen des Panels: die View ruft damit `window.jmplay` bzw. den Store erst im Rückruf. */
@@ -149,27 +194,29 @@ const videoFensterDa = (a: AusgabeZustand | null | undefined): boolean => a !== 
  * die nach dem Ende eines späteren Videos in playingCueIds stehen bleibt (Companion zählt sie weiter, U6), ist nicht auf
  * Sendung, ebenso ein Video, dessen Fenster per Alt+F4 zu ist oder abgestürzt ist. Eine ID ohne Eintrag in der Cue-Liste zählt
  * (Irrtum zur Seite „an“: der Vorlauf-Zeitgeber eines entfernten Cues startet ihn trotzdem), außer sie ist der Video-Cue.
- * Pause zählt hier nicht.
+ * Pause zählt hier nicht. Seit UX Welle 2b (Task 6) zählt das Video nur zusätzlich mit Video-Beleg: nach Alt+F4 und Wiederöffnen
+ * über den Panel-Schalter stehen videoCue und videoProgress noch im Store, das neue Fenster spielt aber nichts.
  */
-function spielendeCues(p: PlayerZustand, ausgabe: AusgabeZustand | null | undefined): number {
+function spielendeCues(p: PlayerZustand, ausgabe: AusgabeZustand | null | undefined, videoBelegt: boolean): number {
   const videoId = p.videoCue?.id;
   const istVideo = (id: number): boolean => p.showCues.find((c) => c.id === id)?.media?.kind === 'video';
   const audio = new Set(p.playingCueIds.filter((id) => !p.vorlaufCueIds.includes(id) && id !== videoId && !istVideo(id))).size;
-  return audio + (p.videoCue !== null && p.videoProgress !== null && videoFensterDa(ausgabe) ? 1 : 0);
+  return audio + (p.videoCue !== null && p.videoProgress !== null && videoFensterDa(ausgabe) && videoBelegt ? 1 : 0);
 }
 
 /**
  * Die Show spielt wirklich (W2-1, Wahrheitstabelle Task 14, Fix vor Prüfung, Gesamtprüfung I2): nicht pausiert und (eine ID
  * in playingCueIds, die weder in vorlaufCueIds noch die ID von videoCue ist und deren Show-Cue kein Video ist, oder videoCue
- * mit gemeldetem Fortschritt bei gemessen offenem Ausgabefenster bzw. fehlendem Bildschirm). Ohne Store nie.
+ * mit gemeldetem Fortschritt bei gemessen offenem Ausgabefenster bzw. fehlendem Bildschirm und mit Video-Beleg, Task 6). Ohne
+ * Store nie.
  */
-export function showSpielt(s: Pick<OberflaechenStand, 'player' | 'ausgabe'>): boolean {
+export function showSpielt(s: Pick<OberflaechenStand, 'player' | 'ausgabe' | 'videoBelegt'>): boolean {
   const p = s.player;
-  return p !== undefined && !p.showPaused && spielendeCues(p, s.ausgabe) > 0;
+  return p !== undefined && !p.showPaused && spielendeCues(p, s.ausgabe, s.videoBelegt) > 0;
 }
 
 /** ON AIR (E4): die Show spielt wirklich oder mindestens ein Pad spielt; noch keine Pad-Meldung zählt wie kein Pad. Kein Label. */
-export function kopfOnAir(s: Pick<OberflaechenStand, 'player' | 'pads' | 'ausgabe'>): { live: boolean } {
+export function kopfOnAir(s: Pick<OberflaechenStand, 'player' | 'pads' | 'ausgabe' | 'videoBelegt'>): { live: boolean } {
   return { live: showSpielt(s) || (s.pads?.length ?? 0) > 0 };
 }
 
@@ -190,8 +237,19 @@ export function kannVerschieben(a: AusgabeZustand | null | undefined): boolean {
 const fensterSollOffen = (a: AusgabeZustand | null | undefined): boolean => a !== undefined && a !== null && a.art !== 'zu';
 
 /**
+ * Gemessener Ort des Ausgabefensters für den Abschnitt (2a-Nachzug, UX Welle 2b): der Bildschirm bei `offen`; `null` bei
+ * `bildschirm-fehlt` (das System hat das Fenster verschoben, der Ort ist unbekannt); sonst keine Messung (`undefined`).
+ */
+function gemessenerOrt(z: AusgabeZustand | undefined): number | null | undefined {
+  if (z?.art === 'offen') return z.displayId;
+  if (z?.art === 'bildschirm-fehlt') return null;
+  return undefined;
+}
+
+/**
  * Video-Ausgabe (E14): Schalter und Bildschirmwahl; Vollbild nur mit Messwert. Ohne Messwert (undefined, null) fehlt
- * `fullscreen` ganz. Ein gemessenes „zu“ widerlegt einen alten Messwert (ohne Fenster misst Main null).
+ * `fullscreen` ganz. Ein gemessenes „zu“ widerlegt einen alten Messwert (ohne Fenster misst Main null). Mit `measuredId` nennen
+ * Pille und Zeile „Steht auf“ (@jm/settings) den gemessenen Bildschirm, nie den nur gewählten (Wahl ≠ Bewegung).
  */
 export function ausgabeAbschnitt(s: OberflaechenStand, a?: PlayerAktionen): ScreenOutputSectionProps {
   const z = s.ausgabe ?? undefined;
@@ -202,6 +260,7 @@ export function ausgabeAbschnitt(s: OberflaechenStand, a?: PlayerAktionen): Scre
     windowOpen: z === undefined ? undefined : z.art === 'offen' || z.art === 'bildschirm-fehlt',
     screens: s.bildschirme === undefined ? undefined : [...s.bildschirme],
     selectedId: s.player?.outputDisplayId ?? null,
+    measuredId: gemessenerOrt(z),
     ...(vollbild === undefined ? {} : { fullscreen: vollbild }),
     capabilities: vollbild === undefined ? { toggle: true } : { toggle: true, fullscreen: true },
     ...(a === undefined
@@ -254,28 +313,16 @@ function videoAusgabeItem(s: OberflaechenStand): StatusItem {
 }
 
 /**
- * Gemessene Lage der Video-Ausgabe für das Panel (Gesamtprüfung I3): Die Pille von „Ausgabe auf Bildschirm“ nennt den gewählten
- * Bildschirm, eine Wahl verschiebt aber nichts. Solange das Fenster gemessen da ist (offen oder Bildschirm fehlt), steht darunter,
- * wo es wirklich ist: Titel und Text des Statuseintrags, so wie dessen Tooltip („Video-Ausgabe: offen · ‹Bildschirm›“). Dieselbe
- * Ableitung wie die Statusleiste, also eine Wahrheit; sonst undefined (keine Zeile).
- */
-export function gemesseneLage(s: OberflaechenStand): string | undefined {
-  if (!kannVerschieben(s.ausgabe)) return undefined;
-  const i = videoAusgabeItem(s);
-  return `${i.label}: ${i.detail}`;
-}
-
-/**
  * Cue-Show: pausiert → warn; wirklich spielende Cues → ok „n laufend“ (Vorlauf, Video vor dem Laden, veraltete Video-IDs und
- * ein Video ohne gemessen vorhandenes Fenster zählen nicht, wie bei ON AIR);
+ * ein Video ohne gemessen vorhandenes Fenster oder ohne Video-Beleg zählen nicht, wie bei ON AIR);
  * keine Show gewählt → off; sonst off „Standby ‹Name›“. Ohne Store unbekannt. Nie live (ON AIR sitzt im Kopf).
  */
-function showItem(p: PlayerZustand | undefined, ausgabe: AusgabeZustand | null | undefined): StatusItem {
+function showItem(p: PlayerZustand | undefined, ausgabe: AusgabeZustand | null | undefined, videoBelegt: boolean): StatusItem {
   const T = PLAYER_TEXTE.show;
   const kopf = { id: 'show', group: 'tool', label: T.titel } as const;
   if (p === undefined) return unbekannt(kopf);
   if (p.showPaused) return { ...kopf, state: 'warn', detail: T.pausiert };
-  const n = spielendeCues(p, ausgabe);
+  const n = spielendeCues(p, ausgabe, videoBelegt);
   if (n > 0) return { ...kopf, state: 'ok', detail: T.laufend(n) };
   if (p.activeShowId === null) return { ...kopf, state: 'off', detail: T.keineShow };
   return { ...kopf, state: 'off', detail: `${PLAYER_TEXTE.standby.titel} ${standbyText(p)}` };
@@ -295,7 +342,7 @@ export function statusLeiste(s: OberflaechenStand): StatusItem[] {
     masterLinkStatusItem(s.masterLink),
     videoAusgabeItem(s),
     abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel }),
-    showItem(s.player, s.ausgabe),
+    showItem(s.player, s.ausgabe, s.videoBelegt),
     padsItem(s.pads),
   ];
 }

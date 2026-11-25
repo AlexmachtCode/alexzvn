@@ -1,9 +1,12 @@
+// Video · ATEM (UX Welle 2b, Studio-Control d2; B16, B3, Ruling Task 18): Pille über StatusPill aus @jm/ui mit geraetPille, die
+// Hauptreihe Cut · Auto · FTB · REC · STREAM als TallyButtons aus atemTasten, jede im Behälter mit der alten Mindestbreite
+// min-w-[110px]; Busse bleiben normale Knöpfe. Der Gerätezustand gilt nur bei verbundenem Server (gemeldet). Befehle wie bisher.
 import { useMemo, useState } from 'react';
-import { Card, Button, cn } from '@jm/ui';
+import { Card, Button, StatusPill, TallyButton, cn, type TallyButtonProps } from '@jm/ui';
 import { Input } from '@/components/ui/Input';
 import { Headline } from '@/components/ui/Headline';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { StatusPill } from '@/components/ui/StatusPill';
+import { atemTasten, gemeldet, geraetPille, type OberflaechenStand } from '@/lib/oberflaeche';
 import { useApp } from '@/store/app';
 import { useSession } from '@/store/session';
 import { emitWithAck, apiFetch } from '@/sync/client';
@@ -13,8 +16,17 @@ import { canDo } from '@shared/roles';
 
 const INPUTS = [1, 2, 3, 4, 5, 6, 7, 8];
 
+/**
+ * Die Hauptreihe aus atemTasten (Zustand und Grund), jede Taste mit ihrem heutigen Befehl: Cut, Auto, FTB, REC und STREAM
+ * schalten mit on: !recording bzw. !streaming (gemeldeter Status). Rein, ohne DOM prüfbar.
+ */
+export function atemReihe(stand: OberflaechenStand, id: string, status: AtemStatusEvent | undefined, exec: (c: AtemCommand) => void): TallyButtonProps[] {
+  const befehle: AtemCommand[] = [{ type: 'cut' }, { type: 'auto' }, { type: 'ftb' }, { type: 'record', on: !status?.recording }, { type: 'stream', on: !status?.streaming }];
+  return atemTasten(stand, id).map((t, i) => ({ ...t, onClick: () => exec(befehle[i]!) }));
+}
+
 /** Steuert einen Blackmagic-ATEM (M/E 1) über die studio-control-Bridge. */
-export function AtemPanel() {
+export function AtemPanel({ stand }: { stand: OberflaechenStand }) {
   const atem = useApp((s) => s.atem);
   const statuses = useApp((s) => s.atemStatuses);
   const role = useSession((s) => s.user?.role);
@@ -24,7 +36,8 @@ export function AtemPanel() {
   const [editing, setEditing] = useState(false);
 
   const current = useMemo(() => atem.find((a) => a.id === selectedId) ?? atem[0], [atem, selectedId]);
-  const status = current ? statuses[current.id] : undefined;
+  // Nur bei verbundenem Server gemessen (sonst Pille unbekannt, Busse und Tasten gesperrt, keine gemeldete Auswahl).
+  const status = current ? gemeldet(stand, statuses[current.id]) : undefined;
   const live = status?.state === 'connected';
 
   const canExec = role ? canDo(role, 'atem:exec') : false;
@@ -53,7 +66,7 @@ export function AtemPanel() {
   }
 
   return (
-    <Card className="p-6">
+    <Card data-panel="atem" className="p-6">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <SectionHeader>Video · ATEM</SectionHeader>
@@ -75,7 +88,7 @@ export function AtemPanel() {
                   </option>
                 ))}
               </select>
-              <Badge status={status} />
+              <StatusPill {...geraetPille(status)} />
               {canManage && (
                 <Button size="sm" variant="ghost" onClick={() => setEditing((v) => !v)}>
                   {editing ? 'Schließen' : 'Bearbeiten'}
@@ -87,7 +100,7 @@ export function AtemPanel() {
       </div>
 
       {current && status?.state === 'down' && status.lastError && (
-        <div className="mb-4 rounded-[var(--radius)] border border-[var(--destructive)]/50 bg-[var(--destructive)]/10 px-3 py-2 text-xs">
+        <div className="mb-4 rounded-[var(--radius)] border border-[var(--destructive)]/50 bg-[var(--destructive)]/10 px-3 py-2 text-xs select-text">
           <span className="font-extrabold uppercase tracking-wider text-[var(--destructive)]">Verbindung fehlgeschlagen:</span>{' '}
           <span className="text-[var(--foreground)]">{status.lastError}</span>
         </div>
@@ -129,34 +142,15 @@ export function AtemPanel() {
             onPick={(input) => exec({ type: 'preview', input })}
           />
 
-          <div className="flex flex-wrap gap-2">
-            <Button size="lg" variant="primary" disabled={!canExec || !live} onClick={() => exec({ type: 'cut' })} className="min-w-[110px]">
-              Cut
-            </Button>
-            <Button size="lg" variant="accent" disabled={!canExec || !live} onClick={() => exec({ type: 'auto' })} className="min-w-[110px]">
-              Auto
-            </Button>
-            <Button size="lg" variant="destructive" disabled={!canExec || !live} onClick={() => exec({ type: 'ftb' })} className="min-w-[110px]">
-              FTB
-            </Button>
-            <Button
-              size="lg"
-              variant={status?.recording ? 'destructive' : 'outline'}
-              disabled={!canExec || !live}
-              onClick={() => exec({ type: 'record', on: !status?.recording })}
-              className="min-w-[110px]"
-            >
-              {status?.recording ? '● REC' : 'REC'}
-            </Button>
-            <Button
-              size="lg"
-              variant={status?.streaming ? 'accent' : 'outline'}
-              disabled={!canExec || !live}
-              onClick={() => exec({ type: 'stream', on: !status?.streaming })}
-              className="min-w-[110px]"
-            >
-              {status?.streaming ? '● STREAM' : 'STREAM'}
-            </Button>
+          {/* Hauptreihe wie bisher unter den Bussen; jede Taste im Behälter mit der alten Mindestbreite (B16).
+              Der Sperrgrund (span mit id im TallyButton) bricht innerhalb der Tastenbreite um: Die Taste bleibt so breit wie ihre
+              Beschriftung, die Reihe bleibt eine Zeile wie heute (Task 18, Variante A gemessen: sonst bricht die Reihe um). */}
+          <div data-studio="hauptreihe-atem" className="flex flex-wrap gap-2 [&_button>span[id]]:w-0 [&_button>span[id]]:min-w-full">
+            {atemReihe(stand, current.id, status, (c) => void exec(c)).map((p) => (
+              <div key={p.label} className="min-w-[110px]">
+                <TallyButton {...p} />
+              </div>
+            ))}
           </div>
 
           {canManage && !adding && (
@@ -190,7 +184,8 @@ function BusRow({
   disabled: boolean;
   onPick: (input: number) => void;
 }) {
-  const active = tone === 'program' ? 'var(--destructive)' : 'var(--accent, #2dd4bf)';
+  const active = tone === 'program' ? 'var(--destructive)' : 'var(--accent)';
+  const aufAktiv = tone === 'program' ? 'text-[var(--destructive-foreground)]' : 'text-[var(--accent-foreground)]';
   return (
     <div>
       <div className="mb-1.5 text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{label}</div>
@@ -204,7 +199,7 @@ function BusRow({
               onClick={() => onPick(n)}
               className={cn(
                 'h-11 w-12 rounded-[var(--radius)] border text-sm font-bold tabular-nums disabled:opacity-40',
-                on ? 'text-white' : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)]/30',
+                on ? aufAktiv : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)]/30',
               )}
               style={on ? { background: active, borderColor: active } : undefined}
             >
@@ -214,17 +209,6 @@ function BusRow({
         })}
       </div>
     </div>
-  );
-}
-
-function Badge({ status }: { status: AtemStatusEvent | undefined }) {
-  if (!status) return <StatusPill status="info">Idle</StatusPill>;
-  if (status.state === 'connected') return <StatusPill status="live">{status.model ?? 'Verbunden'}</StatusPill>;
-  if (status.state === 'connecting') return <StatusPill status="setup">Verbinde …</StatusPill>;
-  return (
-    <span title={status.lastError ?? 'Offline'}>
-      <StatusPill status="error">Offline</StatusPill>
-    </span>
   );
 }
 

@@ -1,7 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Funktionsliste nach dem Umbau (UX Welle 2a, Prompter e; Spec 10 „Kein Funktionsverlust“). Jede der 123 Zeilen in den
 // Abschnitten 1–7 von docs/ux/funktionslisten/prompter.md ist in „künftig wo“ abgehakt: „✓ “ und ein Ort des Ortsregisters,
-// „unverändert (…)“, „entfällt (…, E…)“ oder „ersetzt durch {Ort} (…, E…)“. E-Verweise nur auf E1–E16 dieses Plans. Jede
+// „unverändert (…)“, „entfällt (…, E…)“ oder „ersetzt durch {Ort} (…, E…)“. Verweise nur auf E1–E16 (Plan 2a) und, seit dem
+// 2a-Nachzug in Welle 2b (Task 4), auf B1–B22 (Plan 2b). Jede
 // genannte Datei existiert, Groß- und Kleinschreibung wie im Repo. Dazu Querprüfungen gegen den Code (Kürzel und Filter,
 // Panel-Tasten nach O1, die Abläufe in den immer gemounteten Teilen statt im Panel, Tooltips R-T6a, Hook in der Wurzel R-T6b).
 // Läuft im Paketordner apps/prompter (npm run selftest -w @jm/prompter).
@@ -78,8 +79,10 @@ const GEAENDERT = [
 /** Geänderte Dateien außerhalb von apps/prompter, die ein unverändert-Haken zitieren könnte (Task 1, W2-2: Ausgabezustand). */
 const PAKETE_GEAENDERT = [
   'packages/output-window/package.json',
+  'packages/output-window/src/bildschirme.ts',
   'packages/output-window/src/index.ts',
   'packages/output-window/src/zustand.ts',
+  'packages/output-window/test/bildschirme.test.ts',
   'packages/output-window/test/selftest.ts',
   'packages/output-window/test/zustand.test.ts',
 ];
@@ -87,6 +90,8 @@ const PAKETE_GEAENDERT = [
 /**
  * Dateien, die nur die lesenden Brücken bekamen: main/index.ts und main/control-server.ts die Fernsteuerungs-Meldung (E2) und den
  * Ausgabezustand (E3), preload/index.ts beide Brücken, shared/types.ts die Typen dazu, das Fenster-Paket den Ausgabezustand (E3).
+ * Welle 2b (Task 4) ergänzt nur das lesende Bildschirm-Ereignis: in main/index.ts, preload/index.ts, shared/types.ts und im
+ * Fenster-Paket (index.ts und die neue reine Datei bildschirme.ts).
  */
 const NUR_MELDUNG = new Set(
   [
@@ -95,6 +100,7 @@ const NUR_MELDUNG = new Set(
     'apps/prompter/src/preload/index.ts',
     'apps/prompter/src/shared/types.ts',
     'packages/output-window/src/index.ts',
+    'packages/output-window/src/bildschirme.ts',
   ],
 );
 
@@ -116,9 +122,9 @@ if (GIT_PRUEFEN && GIT === null) console.log(`PR Funktionsliste: kein git-Verlau
 
 /** Datei in Backticks: Pfad mit Endung, aufgelöst nach der Pfadregel im Kopf der Liste. */
 const PFAD = /`([A-Za-z0-9_./-]+\.(?:tsx|ts|css|html|json|md|mjs))`/g;
-/** Nur die Entscheidungen E1–E16 dieses Plans sind erlaubte Verweise. */
-const VERWEIS = /\bE(?:[1-9]|1[0-6])\b/;
-const FREMD = /\b(?:E(?:0|1[7-9]|[2-9]\d)|E\d{3,}|OF\d+)\b/;
+/** Erlaubte Verweise: die Entscheidungen E1–E16 des Plans 2a und, für den 2a-Nachzug in Welle 2b, die Festlegungen B1–B22. */
+const VERWEIS = /\b(?:E(?:[1-9]|1[0-6])|B(?:[1-9]|1\d|2[0-2]))\b/;
+const FREMD = /\b(?:E(?:0|1[7-9]|[2-9]\d)|E\d{3,}|B(?:0|2[3-9]|[3-9]\d)|B\d{3,}|OF\d+)\b/;
 
 interface Zeile {
   abschnitt: number;
@@ -390,8 +396,12 @@ ok(beginnt(102, 'Panel') && beginnt(100, 'Panel'), 'PR Funktionsliste Nr. 100/10
     'PR Funktionsliste Nr. 68: das Laden und Abonnieren des Zustands läuft in App und Store, oberhalb des Panels',
   );
   ok(
-    wurzel.includes('useBrueckenWert(MASTER_LINK_QUELLE)') && wurzel.includes('useBrueckenWert(FERNSTEUERUNG_QUELLE)') && wurzel.includes('useBrueckenWert(AUSGABE_QUELLE)') && wurzel.includes('liesBildschirme(window.jmprompt?.output?.displays'),
-    'PR Funktionsliste Nr. 46/68: Brücken und Bildschirmliste laufen in der Wurzel-View, auch bei geschlossenem Panel',
+    wurzel.includes('useBrueckenWert(MASTER_LINK_QUELLE)') &&
+      wurzel.includes('useBrueckenWert(FERNSTEUERUNG_QUELLE)') &&
+      wurzel.includes('useBrueckenWert(AUSGABE_QUELLE)') &&
+      wurzel.includes('liesBildschirme(window.jmprompt?.output?.displays') &&
+      wurzel.includes('folgeBildschirmen(window.jmprompt?.output?.onBildschirme'),
+    'PR Funktionsliste Nr. 46/68: Brücken, Bildschirmliste und Bildschirm-Ereignis laufen in der Wurzel-View, auch bei geschlossenem Panel',
   );
   ok(
     ['window.', 'useEffect', 'setInterval', 'addEventListener', 'usePrompter('].every((w) => !panel.replace(/\/\/.*$/gm, '').includes(w)),
@@ -434,6 +444,41 @@ ok(beginnt(102, 'Panel') && beginnt(100, 'Panel'), 'PR Funktionsliste Nr. 100/10
   ok(
     ['script', 'fontScale', 'lineHeight', 'speed', 'mirrorH', 'mirrorV', 'marginXPct', 'readingLine', 'readingLinePct', 'bold', 'outputDisplayId', 'remoteEnabled'].every((f) => quelle('shared/types.ts').includes(f)) && config.length > 0,
     'PR Funktionsliste Nr. 106–118: alle gemerkten Konfigurationsfelder gibt es weiter',
+  );
+}
+
+// ── 2a-Nachzug in Welle 2b (Task 4): Kürzel an GO und Anfang in eigener Zeile (W63 zurückgenommen, B1 keine neuen Kürzel),
+// gemessener Ort im Ausgabe-Abschnitt statt der Zeile „Lage“, Bildschirmliste folgt dem Bildschirm-Ereignis ──
+{
+  const ober = quelle('lib/oberflaeche.ts');
+  ok(
+    [5, 12, 15, 93].every((nr) => /\bB1\b/.test(kuenftig(nr)) && kuenftig(nr).includes('W63') && kuenftig(nr).includes('eigene') && !kuenftig(nr).includes('solange der Text steht')) &&
+      /go: \{[^}]*shortcut: T\.kuerzel\.go, kuerzelZeile: true/.test(ober) &&
+      /anfang: \{[^}]*shortcut: T\.kuerzel\.anfang, kuerzelZeile: true/.test(ober),
+    'PR Funktionsliste Nachzug Nr. 5/12/15/93: Leertaste an GO und Pos1 an Anfang in jedem Zustand in eigener Zeile (W63 zurückgenommen, B1)',
+  );
+  const panel = quelle('views/Einstellungen.tsx');
+  ok(
+    ['Steht auf', 'folgeBildschirmen', 'output:bildschirme', 'measuredId'].every((w) => kuenftig(26).includes(w)) &&
+      !kuenftig(26).includes('Talent-Monitor: offen') &&
+      !panel.includes('gemesseneLage') &&
+      ober.includes('measuredId'),
+    'PR Funktionsliste Nachzug Nr. 26: der Ausgabe-Abschnitt nennt den gemessenen Ort („Steht auf“, measuredId), die Liste folgt output:bildschirme',
+  );
+  ok(kuenftig(68).includes('folgeBildschirmen') && kuenftig(68).includes('`lib/aktionen.ts`'), 'PR Funktionsliste Nachzug Nr. 68: die Wurzel-View liest die Liste auch bei jedem Bildschirm-Ereignis (folgeBildschirmen)');
+  ok(
+    kuenftig(92).includes('beobachteBildschirme') && kuenftig(92).includes('`packages/output-window/src/bildschirme.ts`') && quelle('main/index.ts').includes('beobachteBildschirme('),
+    'PR Funktionsliste Nachzug Nr. 92: der Main meldet angesteckte, abgezogene und geänderte Bildschirme über beobachteBildschirme',
+  );
+  // Verweise: B1–B22 gelten, B0 und B23 nicht.
+  const synth = (k: string): Zeile => ({ abschnitt: 3, nr: 0, zellen: ['0', '', '', '', '', '', k] });
+  ok(
+    zeilenFehler(synth('✓ entfällt (x, B7)')) === null &&
+      zeilenFehler(synth('✓ entfällt (x, B22)')) === null &&
+      (zeilenFehler(synth('✓ entfällt (x, B23)')) ?? '').includes('Verweis außerhalb') &&
+      (zeilenFehler(synth('✓ entfällt (x, B0)')) ?? '').includes('Verweis außerhalb') &&
+      (zeilenFehler(synth('✓ entfällt (x, E17)')) ?? '').includes('Verweis außerhalb'),
+    'PR Funktionsliste: Verweise B1–B22 und E1–E16 gelten, B0, B23 und E17 nicht',
   );
 }
 

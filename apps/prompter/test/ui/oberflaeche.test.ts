@@ -199,6 +199,34 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
   });
 }
 
+// ── PR Ort aus der Messung (2a-Nachzug, UX Welle 2b): measuredId = displayId bei offen, null bei Bildschirm fehlt (das System hat
+// das Fenster verschoben, der Ort ist unbekannt), sonst undefined. Die Pille nennt dann den gemessenen Bildschirm, nie den gewählten ──
+{
+  const faelle = kreuz({ ausgabe: [undefined, null, ...ARTEN] as Array<AusgabeArt | null | undefined>, display: [2, 5] } as const);
+  pruefeFaelle('PR Ort aus der Messung: ausgabeAbschnitt setzt measuredId = displayId bei offen, null bei Bildschirm fehlt, sonst undefined', faelle, (f) => {
+    const p = ausgabeAbschnitt(stand({ prompter: zustand({ display: 3 }), ausgabe: art(f.ausgabe, f.display) }));
+    const soll = f.ausgabe === 'offen' ? f.display : f.ausgabe === 'bildschirm-fehlt' ? null : undefined;
+    return vergleiche(String(p.measuredId), String(soll)) ?? (p.selectedId !== 3 ? `selectedId ${p.selectedId}` : null);
+  });
+  const LISTE = [
+    { id: 1, label: 'Regie', primary: true },
+    { id: 2, label: 'Talent', primary: false },
+    { id: 3, label: 'Bühne', primary: false },
+  ];
+  // Gewählt ist Bildschirm 3 (Bühne); die Pille kommt aus screenOutputView von @jm/settings (eine Wahrheit).
+  const pille = (z: AusgabeZustand | null | undefined): string => {
+    const s = settings.screenOutputView(ausgabeAbschnitt(stand({ prompter: zustand({ display: 3 }), ausgabe: z, bildschirme: LISTE }))).status;
+    return `${s.state} ${s.text}`;
+  };
+  gleich(
+    [pille({ art: 'offen', displayId: 2 }), pille({ art: 'offen', displayId: 9 }), pille({ art: 'bildschirm-fehlt', displayId: 2 }), pille({ art: 'zu', displayId: null })],
+    ['ok auf Bildschirm 2', 'warn Bildschirm fehlt', 'warn Bildschirm fehlt', 'off aus'],
+    'PR Ort aus der Messung: die Pille nennt den gemessenen Bildschirm (2), nicht den gewählten (3); unbekannter Ort oder Bildschirm fehlt → „Bildschirm fehlt“',
+  );
+  const code = ohneKommentare(leseText('src/renderer/src/lib/oberflaeche.ts'));
+  ok(!code.includes('gemesseneLage'), 'PR Ort aus der Messung: gemesseneLage entfällt (die Zeile „Steht auf“ kommt aus @jm/settings)');
+}
+
 // ── PR ON AIR nur mit offenem Monitor (E4): scrolling × AusgabeArt × undefined, Kopf und GO gleich ──
 {
   const faelle = kreuz({ playing: [false, true], art: [undefined, null, ...ARTEN] as Array<AusgabeArt | null | undefined>, prompter: ['da', 'undefined'] } as const);
@@ -215,13 +243,13 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
 {
   const faelle = kreuz({ playing: [false, true], art: [undefined, ...ARTEN] as Array<AusgabeArt | undefined> } as const);
   const props = (f: (typeof faelle)[number]): OberflaechenStand => stand({ prompter: zustand({ playing: f.playing }), ausgabe: art(f.art) });
-  // Ruling W63: den Hinweis „Leertaste“ trägt GO nur, solange der Text steht; im Lauf (live oder nicht) fällt er weg, damit
-  // „LIVE“ und „Pause“ in den GO-Platz passen. Die Leertaste wirkt weiter, der Live-Hinweis nennt sie; Anfang behält „Pos1“.
-  pruefeFaelle('PR Haupttasten: vier Tasten, GO wechselt zu Pause, Kürzel Leertaste nur in Ruhe und Pos1 immer, Marken ohne Kürzel', faelle, (f) => {
+  // UX Welle 2b, Task 4 (W63 zurückgenommen): GO trägt „Leertaste“ in jedem Zustand, Anfang „Pos1“, je in einer eigenen Zeile
+  // unter der Beschriftung (kuerzelZeile); so passen „LIVE“ und „Pause“ im Lauf neben- und das Kürzel untereinander in den Platz.
+  pruefeFaelle('PR Haupttasten: vier Tasten, GO wechselt zu Pause, Kürzel Leertaste und Pos1 immer, Marken ohne Kürzel', faelle, (f) => {
     const h = hauptTasten(props(f));
     return vergleiche(
       [h.go.label, h.go.shortcut, h.anfang.label, h.anfang.shortcut, h.markeZurueck.label, h.markeZurueck.shortcut, h.markeVor.label, h.markeVor.shortcut].join('|'),
-      [f.playing ? PROMPTER_TEXTE.pause : PROMPTER_TEXTE.go, f.playing ? undefined : 'Leertaste', PROMPTER_TEXTE.anfang, 'Pos1', PROMPTER_TEXTE.markeZurueck, undefined, PROMPTER_TEXTE.markeVor, undefined].join('|'),
+      [f.playing ? PROMPTER_TEXTE.pause : PROMPTER_TEXTE.go, 'Leertaste', PROMPTER_TEXTE.anfang, 'Pos1', PROMPTER_TEXTE.markeZurueck, undefined, PROMPTER_TEXTE.markeVor, undefined].join('|'),
     );
   });
   gleich(
@@ -233,8 +261,8 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
       hauptTasten(props({ playing: true, art: 'offen' })).anfang.shortcut,
       hauptTasten(stand()).go.shortcut,
     ],
-    ['Leertaste', undefined, undefined, 'live', 'Pos1', 'Leertaste'],
-    'PR Haupttasten (W63): GO zeigt „Leertaste“ in Ruhe, im Lauf nicht, ob live oder nicht; Anfang behält „Pos1“',
+    ['Leertaste', 'Leertaste', 'Leertaste', 'live', 'Pos1', 'Leertaste'],
+    'PR Haupttasten (W63 zurückgenommen): GO zeigt „Leertaste“ in Ruhe und im Lauf, ob live oder nicht; Anfang behält „Pos1“',
   );
   pruefeFaelle('PR Haupttasten: heute ist keine Taste gesperrt; eine gesperrte hätte einen Grund; nur GO kann live sein', faelle, (f) => {
     const h = hauptTasten(props(f));
@@ -245,6 +273,20 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
   });
   const leer = hauptTasten(stand());
   gleich([leer.go.state, leer.go.label], ['bereit', 'GO'], 'PR Haupttasten: ohne Zustand ist GO bereit, nie live');
+}
+
+// ── PR GO mit Kürzel (UX Welle 2b, Task 4): GO trägt in jedem Zustand „Leertaste“ mit kuerzelZeile, Anfang ebenso „Pos1“; die
+// Marken haben kein Kürzel und keine Kürzelzeile ──
+{
+  const faelle = kreuz({ prompter: ['da', 'undefined'], playing: [false, true], art: [undefined, null, ...ARTEN] as Array<AusgabeArt | null | undefined> } as const);
+  pruefeFaelle('PR GO mit Kürzel: GO „Leertaste“ und Anfang „Pos1“ je mit kuerzelZeile in jedem Zustand, Marken ohne Kürzel', faelle, (f) => {
+    const h = hauptTasten(stand({ prompter: f.prompter === 'da' ? zustand({ playing: f.playing }) : undefined, ausgabe: art(f.art) }));
+    return vergleiche(
+      [h.go.shortcut, h.go.kuerzelZeile, h.anfang.shortcut, h.anfang.kuerzelZeile, h.markeZurueck.shortcut, h.markeZurueck.kuerzelZeile, h.markeVor.shortcut, h.markeVor.kuerzelZeile].map(String).join('|'),
+      ['Leertaste', 'true', 'Pos1', 'true', 'undefined', 'undefined', 'undefined', 'undefined'].join('|'),
+    );
+  });
+  ok(PROMPTER_TEXTE.kuerzel.go === 'Leertaste' && PROMPTER_TEXTE.kuerzel.anfang === 'Pos1', 'PR GO mit Kürzel: die Kürzel sind die vorhandenen (Leertaste, Pos1), keine neuen');
 }
 
 // ── PR Kürzel aus Panel-Feld ──

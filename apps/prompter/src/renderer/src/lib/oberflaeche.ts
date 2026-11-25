@@ -101,8 +101,8 @@ export interface TasteZustand {
   disabledReason?: string;
 }
 
-/** Haupttaste mit Beschriftung und, wo es eines gibt, dem Kürzel. */
-export type Haupttaste = TasteZustand & { label: string; shortcut?: string };
+/** Haupttaste mit Beschriftung und, wo es eines gibt, dem Kürzel (mit kuerzelZeile in einer eigenen Zeile unter der Beschriftung). */
+export type Haupttaste = TasteZustand & { label: string; shortcut?: string; kuerzelZeile?: boolean };
 
 /** `scrolling` des Steuerservers ist `transport.playing`. */
 const scrollt = (s: Pick<OberflaechenStand, 'prompter'>): boolean => s.prompter?.transport.playing === true;
@@ -110,7 +110,20 @@ const scrollt = (s: Pick<OberflaechenStand, 'prompter'>): boolean => s.prompter?
 /** Monitor soll offen sein: Das Fenster existiert in irgendeiner Form (auch abgestürzt oder ohne Bildschirm). */
 const monitorSollOffen = (a: AusgabeZustand | null | undefined): boolean => a !== undefined && a !== null && a.art !== 'zu';
 
-/** Ausgabe auf Bildschirm (Talent-Monitor): kein Vollbild- und kein Hintergrundfeld. */
+/**
+ * Gemessener Ort des Talent-Monitors für den Abschnitt (2a-Nachzug, UX Welle 2b): der Bildschirm bei `offen`; `null` bei
+ * `bildschirm-fehlt` (das System hat das Fenster verschoben, der Ort ist unbekannt); sonst keine Messung (`undefined`).
+ */
+function gemessenerOrt(z: AusgabeZustand | undefined): number | null | undefined {
+  if (z?.art === 'offen') return z.displayId;
+  if (z?.art === 'bildschirm-fehlt') return null;
+  return undefined;
+}
+
+/**
+ * Ausgabe auf Bildschirm (Talent-Monitor): kein Vollbild- und kein Hintergrundfeld. Mit `measuredId` nennen Pille und Zeile
+ * „Steht auf“ (@jm/settings) den gemessenen Bildschirm, nie den nur gewählten (Wahl ≠ Bewegung).
+ */
 export function ausgabeAbschnitt(s: OberflaechenStand, a?: PrompterAktionen): ScreenOutputSectionProps {
   const z = s.ausgabe ?? undefined;
   return {
@@ -119,6 +132,7 @@ export function ausgabeAbschnitt(s: OberflaechenStand, a?: PrompterAktionen): Sc
     windowOpen: z === undefined ? undefined : z.art === 'offen' || z.art === 'bildschirm-fehlt',
     screens: s.bildschirme === undefined ? undefined : [...s.bildschirme],
     selectedId: s.prompter?.config.outputDisplayId ?? null,
+    measuredId: gemessenerOrt(z),
     capabilities: { toggle: true, fullscreen: false, background: false },
     ...(a === undefined ? {} : { onToggle: (an: boolean) => a.ausgabeUmschalten(an), onSelect: (id: number | null) => a.bildschirmWaehlen(id) }),
   };
@@ -163,18 +177,6 @@ function talentMonitorItem(s: OberflaechenStand): StatusItem {
   }
 }
 
-/**
- * Gemessene Lage des Talent-Monitors für das Panel (Gesamtprüfung I3): Die Pille von „Ausgabe auf Bildschirm“ nennt den
- * gewählten Bildschirm, eine Wahl verschiebt aber nichts. Solange das Fenster gemessen da ist (offen oder Bildschirm fehlt),
- * steht darunter, wo es wirklich ist: Titel und Text des Statuseintrags, so wie dessen Tooltip („Talent-Monitor: offen ·
- * ‹Bildschirm›“). Dieselbe Ableitung wie die Statusleiste, also eine Wahrheit; sonst undefined (keine Zeile).
- */
-export function gemesseneLage(s: OberflaechenStand): string | undefined {
-  if (!kannVerschieben(s.ausgabe)) return undefined;
-  const i = talentMonitorItem(s);
-  return `${i.label}: ${i.detail}`;
-}
-
 /** Handy-Fernbedienung (E11): aus → off; an, läuft, mit Adresse → ok mit Adresszahl; läuft ohne Adresse → warn; läuft nicht → warn ohne behaupteten Grund. */
 function handyItem(p: PrompterState | undefined): StatusItem {
   const H = PROMPTER_TEXTE.handy;
@@ -212,15 +214,15 @@ export function kopfOnAir(s: OberflaechenStand): { live: boolean } {
 /**
  * Haupttasten: GO/Pause (`transport.toggle`), Anfang (`transport.reset`), Marke zurück und vor (`jumpMarker`). Heute ist keine
  * davon gesperrt; ein Sperrgrund käme aus PROMPTER_TEXTE. Nur GO zeigt live, nach derselben Regel wie das ON AIR im Kopf.
- * Den Hinweis „Leertaste“ trägt GO nur, solange der Text steht (Ruling W63): Im Lauf passen „LIVE“ und „Pause“ sonst nicht in
- * den GO-Platz. Die Leertaste wirkt weiter, und der Hinweis im Live-Bereich nennt sie.
+ * GO trägt „Leertaste“ und Anfang „Pos1“ in jedem Zustand, je in einer eigenen Zeile unter der Beschriftung (kuerzelZeile, UX
+ * Welle 2b; nimmt W63 zurück): So passen im Lauf „LIVE“ und „Pause“ nebeneinander und das Kürzel darunter in den GO-Platz.
  */
 export function hauptTasten(s: OberflaechenStand): { go: Haupttaste; anfang: Haupttaste; markeZurueck: Haupttaste; markeVor: Haupttaste } {
   const laeuft = scrollt(s);
   const T = PROMPTER_TEXTE;
   return {
-    go: { label: laeuft ? T.pause : T.go, state: kopfOnAir(s).live ? 'live' : 'bereit', ...(laeuft ? {} : { shortcut: T.kuerzel.go }) },
-    anfang: { label: T.anfang, state: 'bereit', shortcut: T.kuerzel.anfang },
+    go: { label: laeuft ? T.pause : T.go, state: kopfOnAir(s).live ? 'live' : 'bereit', shortcut: T.kuerzel.go, kuerzelZeile: true },
+    anfang: { label: T.anfang, state: 'bereit', shortcut: T.kuerzel.anfang, kuerzelZeile: true },
     markeZurueck: { label: T.markeZurueck, state: 'bereit' },
     markeVor: { label: T.markeVor, state: 'bereit' },
   };

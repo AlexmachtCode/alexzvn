@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { EditorView } from './views/EditorView';
-import { PresenterView } from './views/PresenterView';
+import { ReferentOberflaeche } from './views/ReferentOberflaeche';
 import { AudienceView } from './views/AudienceView';
 import { starteNdiAnsicht } from './ndi/ndi-ansicht';
 import { useProject } from './store/project';
@@ -35,7 +35,7 @@ if (view === 'ndi') {
   createRoot(root).render(
     <StrictMode>
       {view === 'presenter' ? (
-        <PresenterView />
+        <ReferentOberflaeche />
       ) : view === 'audience' ? (
         <AudienceView />
       ) : (

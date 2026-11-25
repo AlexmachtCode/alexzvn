@@ -1,323 +1,214 @@
-import { useEffect, useState } from 'react';
-import { cn } from '@jm/ui';
-import type { DisplayInfo } from '@shared/types';
+// Live-Bereich des Referenten (UX Welle 2b, Presenter d2; B6, B12, B13, Muster d): links die aktuelle Folie, darunter eine Reihe
+// Schwarz · Zurück · „Gehe zu“ · Weiter · Weiß (vier TallyButtons mit Kürzelzeile B, ←, →, W); rechts Timer-Leiste, nächste Folie
+// und Notizen. Die Folienübersicht liegt nur hier im Inhalt (main), nicht über Kopf und Leiste. Kein Abo: Folien und Stand kommen
+// aus der Wurzel-View (useFolien, useStand), die Tasten rufen die Aktionen der Wurzel (referentAktionen).
+import { useState } from 'react';
+import { cn, TallyButton } from '@jm/ui';
+import type { Slide } from '@shared/types';
 import { SlideCanvas } from '@/components/SlideCanvas';
-import { Clock } from '@/components/Clock';
-import { NdiSchalter } from '@/components/NdiSchalter';
-import { GastKlickerPille } from '@/components/GastKlickerPille';
-import { RemotePanel } from '@/components/RemotePanel';
 import { TimerBar } from '@/components/TimerBar';
-import { usePresentation, usePresenterKeys } from '@/lib/usePresentation';
-import { useTimerSync } from '@/lib/timer';
+import { referentTasten, type OberflaechenStand, type ReferentAktionen } from '@/lib/oberflaeche';
 
-export function PresenterView() {
-  const { slides, state } = usePresentation();
-  usePresenterKeys(true);
-  const timer = useTimerSync();
-  const [displays, setDisplays] = useState<DisplayInfo[]>([]);
-  const [jump, setJump] = useState('');
-  const [showGrid, setShowGrid] = useState(false);
-  const [showRemote, setShowRemote] = useState(false);
+// Programmfläche (B5): die schwarzen Folienflächen um SlideCanvas bleiben schwarz, unabhängig von den Tokens.
+const FOLIENFLAECHE = 'bg-black';
 
-  const [vollbild, setVollbild] = useState(false);
+export interface LiveBereichProps {
+  /** Aus dem einen Stand der Wurzel-View: Präsentationszustand (Folie, Pause, Schleife) und der Live-Zustand des JM Timers. */
+  stand: Pick<OberflaechenStand, 'praesentation' | 'timerZustand'>;
+  /** Folien des Payloads (useFolien); null, bis sie geladen sind. */
+  folien: Slide[] | null;
+  referent: Pick<ReferentAktionen, 'zurueck' | 'weiter' | 'geheZu' | 'schwarz' | 'weiss'>;
+  /** Folienübersicht offen (Zustand der Wurzel; der Knopf „Übersicht“ steht in der Leiste). */
+  uebersicht: boolean;
+  onUebersicht(offen: boolean): void;
+}
 
-  useEffect(() => {
-    void window.jmpr.present.displays().then(setDisplays);
-  }, []);
-
-  // #309: Vollbild der Referentenansicht – Stand beim Laden, danach jeder Wechsel (Knopf, F11, System).
-  useEffect(() => {
-    void window.jmpr.present.referentVollbild().then(setVollbild);
-    return window.jmpr.present.onReferentVollbild(setVollbild);
-  }, []);
-
-  // F11 nur hier (usePresenterKeys gilt auch fürs Publikum). preventDefault hält das Standardmenü von Electron ab,
-  // das F11 sonst ein zweites Mal umschalten würde (gemessen, Electron 33.4.11).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'F11') return;
-      e.preventDefault();
-      void window.jmpr.present.toggleReferentVollbild();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-
-  if (!slides) {
-    return <div className="h-full grid place-items-center text-[var(--muted-foreground)]">Lade Präsentation…</div>;
+export function PresenterView({ stand, folien, referent, uebersicht, onUebersicht }: LiveBereichProps) {
+  const p = stand.praesentation;
+  if (!folien) {
+    return (
+      <div data-presenter="live" className="relative h-full grid place-items-center select-none text-[var(--muted-foreground)]">
+        Lade Präsentation…
+      </div>
+    );
   }
-
-  const current = slides[state.index] ?? null;
+  const current = p === undefined ? null : (folien[p.index] ?? null);
   // Mit Schleife folgt auf die letzte Folie wieder die erste (#293).
-  const next = slides[state.index + 1] ?? (state.schleife && slides.length > 1 ? slides[0] : null);
-  const audienceDisplay = displays.find((d) => d.current);
-  // „Keiner – nur NDI“ (#303): ohne Publikumsfenster ist kein Bildschirm `current`. Ein leeres Feld heißt dagegen nur
-  // „Bildschirme noch nicht geladen“ – es gibt immer mindestens einen.
-  const nurNdi = displays.length > 0 && !audienceDisplay;
-
-  const doJump = (): void => {
-    const n = Number(jump);
-    if (Number.isFinite(n) && n >= 1 && n <= slides.length) {
-      void window.jmpr.present.goto(n - 1);
-    }
-    setJump('');
-  };
+  const next = p === undefined ? null : (folien[p.index + 1] ?? (p.schleife && folien.length > 1 ? folien[0] : null));
+  const timer = stand.timerZustand;
 
   return (
-    <div className="h-full flex flex-col bg-[#0c0c0c] text-white select-none">
-      {/* header */}
-      {/* Mindesthöhe statt fester Höhe: Bei schmalem Fenster bricht die Knopfgruppe in eine zweite Zeile um, statt
-          Knöpfe („■ Beenden“) rechts aus dem Fenster zu schieben (Review #309). */}
-      <header className="min-h-16 py-2 flex items-center gap-4 px-5 border-b border-white/10">
-        <div className="flex shrink-0 items-baseline gap-2 whitespace-nowrap">
-          <span className="text-3xl font-extrabold tabular text-[var(--primary)]">{state.index + 1}</span>
-          <span className="text-lg text-white/50 tabular">/ {state.total}</span>
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold truncate">{current?.title || '—'}</div>
-        </div>
-        <Clock />
-        <div className="h-8 w-px bg-white/15" />
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <select
-            value={nurNdi ? 'keiner' : audienceDisplay?.id ?? ''}
-            disabled={nurNdi}
-            onChange={(e) => e.target.value && void window.jmpr.present.assignAudience(Number(e.target.value))}
-            title="Publikums-Bildschirm"
-            className="h-8 max-w-[170px] rounded-md bg-white/10 border border-white/15 px-2 text-xs"
-          >
-            {nurNdi ? (
-              <option value="keiner" className="text-black">
-                Keiner – nur NDI
-              </option>
-            ) : (
-              displays.map((d) => (
-                <option key={d.id} value={d.id} className="text-black">
-                  {d.label}
-                </option>
-              ))
-            )}
-          </select>
-          <NdiSchalter variante="referent" />
-          <GastKlickerPille />
-          <HeaderBtn
-            onClick={() => void window.jmpr.present.setScreen('black')}
-            active={state.screen === 'black'}
-            title="Schwarzbild (Taste B)"
-          >
-            ⬛
-          </HeaderBtn>
-          <HeaderBtn
-            onClick={() => void window.jmpr.present.setScreen('white')}
-            active={state.screen === 'white'}
-            title="Weißbild (Taste W)"
-          >
-            ⬜
-          </HeaderBtn>
-          <SchleifenKnopf schleife={state.schleife === true} bisMs={state.schleifeBisMs ?? null} />
-          <HeaderBtn
-            onClick={() => void window.jmpr.present.toggleAudienceFullscreen()}
-            disabled={nurNdi}
-            title={nurNdi ? 'Kein Publikumsfenster – Bild nur über NDI' : undefined}
-          >
-            Publikum Vollbild
-          </HeaderBtn>
-          <HeaderBtn
-            onClick={() => void window.jmpr.present.toggleReferentVollbild()}
-            active={vollbild}
-            title="Referentenansicht im Vollbild (F11)"
-          >
-            Vollbild
-          </HeaderBtn>
-          <HeaderBtn onClick={() => setShowGrid((v) => !v)} active={showGrid}>
-            Übersicht
-          </HeaderBtn>
-          <HeaderBtn onClick={() => setShowRemote(true)} active={showRemote} title="Handy-Fernsteuerung">
-            📱
-          </HeaderBtn>
-          <HeaderBtn danger onClick={() => void window.jmpr.present.stop()}>
-            ■ Beenden
-          </HeaderBtn>
-        </div>
-      </header>
-
-      {/* body */}
+    <div data-presenter="live" className="relative h-full min-h-0 flex flex-col select-none">
       <div className="flex-1 min-h-0 grid grid-cols-[1.7fr_1fr] gap-4 p-4">
         {/* current */}
-        <div className="min-h-0 flex flex-col">
+        <div className="min-h-0 min-w-0 flex flex-col">
           <Label>Aktuelle Folie</Label>
-          <div className="flex-1 min-h-0 flex items-center justify-center bg-black rounded-lg overflow-hidden ring-1 ring-white/10">
+          <div data-presenter="aktuelle-folie" className={cn('flex-1 min-h-0 flex items-center justify-center rounded-lg overflow-hidden ring-1 ring-[var(--border)]', FOLIENFLAECHE)}>
             {current && <SlideCanvas slide={current} maxWidth={1280} />}
           </div>
-          <div className="mt-3 flex items-center justify-center gap-3">
-            <NavBtn onClick={() => void window.jmpr.present.prev()} disabled={state.index <= 0}>
-              ‹ Zurück
-            </NavBtn>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                doJump();
-              }}
-              className="flex items-center gap-1"
-            >
-              <input
-                value={jump}
-                onChange={(e) => setJump(e.target.value.replace(/\D/g, ''))}
-                placeholder="Folie"
-                className="h-9 w-20 text-center rounded-md bg-white/10 border border-white/15 text-sm"
-              />
-              <button type="submit" className="h-9 px-3 rounded-md bg-white/10 border border-white/15 text-sm">
-                Gehe zu
-              </button>
-            </form>
-            <NavBtn onClick={() => void window.jmpr.present.next()} disabled={state.index >= state.total - 1}>
-              Weiter ›
-            </NavBtn>
-          </div>
+          <HauptTasten stand={stand} anzahl={folien.length} referent={referent} />
         </div>
 
         {/* next + notes */}
-        <div className="min-h-0 flex flex-col gap-4">
-          {timer.connected && <TimerBar timer={timer} />}
+        <div className="min-h-0 min-w-0 flex flex-col gap-4">
+          {timer?.connected && <TimerBar timer={timer} />}
           <div className="flex flex-col" style={{ flex: '0 0 38%' }}>
             <Label>Nächste Folie</Label>
-            <div className="flex-1 min-h-0 flex items-center justify-center bg-black rounded-lg overflow-hidden ring-1 ring-white/10">
+            <div data-presenter="naechste-folie" className={cn('flex-1 min-h-0 flex items-center justify-center rounded-lg overflow-hidden ring-1 ring-[var(--border)]', FOLIENFLAECHE)}>
               {next ? (
                 <SlideCanvas slide={next} maxWidth={640} />
-              ) : (
-                <span className="text-white/40 text-sm">Ende der Präsentation</span>
-              )}
+              ) : p !== undefined ? (
+                <span className="text-[var(--muted-foreground)] text-sm">Ende der Präsentation</span>
+              ) : null}
             </div>
           </div>
           <div className="flex-1 min-h-0 flex flex-col">
             <Label>Notizen</Label>
-            <div className="flex-1 min-h-0 overflow-auto scroll-thin bg-white/5 rounded-lg ring-1 ring-white/10 p-4 text-[15px] leading-relaxed whitespace-pre-wrap">
-              {current?.notes ? current.notes : <span className="text-white/35">Keine Notizen</span>}
+            <div
+              data-presenter="notizen"
+              className="flex-1 min-h-0 overflow-auto scroll-thin bg-[var(--card)] rounded-lg ring-1 ring-[var(--border)] p-4 text-[15px] leading-relaxed whitespace-pre-wrap"
+            >
+              {current?.notes ? current.notes : <span className="text-[var(--muted-foreground)]">Keine Notizen</span>}
             </div>
           </div>
         </div>
       </div>
 
-      {/* grid overlay */}
-      {showGrid && (
-        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm p-6 overflow-auto scroll-thin">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-bold">Folienübersicht</h3>
-            <button type="button" onClick={() => setShowGrid(false)} className="text-sm text-white/60 hover:text-white">
-              schließen ✕
-            </button>
-          </div>
-          <div className="grid grid-cols-4 lg:grid-cols-6 gap-3">
-            {slides.map((s, i) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => {
-                  void window.jmpr.present.goto(i);
-                  setShowGrid(false);
-                }}
-                className={cn(
-                  'group rounded-lg overflow-hidden ring-2 transition-all',
-                  i === state.index ? 'ring-[var(--primary)]' : 'ring-white/10 hover:ring-white/40',
-                )}
-              >
-                <div className="aspect-video bg-black flex items-center justify-center">
-                  <SlideCanvas slide={s} maxWidth={360} />
-                </div>
-                <div className="px-2 py-1 text-left text-[11px] bg-white/5 flex items-center gap-1.5">
-                  <span className="tabular text-white/50">{i + 1}</span>
-                  <span className="truncate">{s.title}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {uebersicht && <Uebersicht folien={folien} index={p?.index} onGeheZu={referent.geheZu} onSchliessen={() => onUebersicht(false)} />}
+    </div>
+  );
+}
 
-      {showRemote && <RemotePanel onClose={() => setShowRemote(false)} />}
+/**
+ * Die Reihe unter der aktuellen Folie (B12): Schwarz · Zurück · „Gehe zu“ · Weiter · Weiß. Zurück und Weiter stehen links und
+ * rechts von „Gehe zu“ wie bisher, Schwarz und Weiß an den Rändern. Zustände aus referentTasten (B13, B6; nie live), Kürzel nur
+ * angezeigt (die Tasten selbst bleiben in usePresenterKeys). Bei schmaler Spalte (Panel offen) bricht die Reihe um, statt Knöpfe
+ * abzuschneiden. Ohne Hooks: die Rückrufe sind direkt prüfbar.
+ */
+export function HauptTasten({
+  stand,
+  anzahl,
+  referent,
+}: {
+  stand: Pick<OberflaechenStand, 'praesentation'>;
+  anzahl: number;
+  referent: Pick<ReferentAktionen, 'zurueck' | 'weiter' | 'geheZu' | 'schwarz' | 'weiss'>;
+}) {
+  const t = referentTasten(stand);
+  // Die Hülle ist flex: der TallyButton füllt ihre Höhe. Mit items-stretch sind so alle Tasten einer Zeile gleich hoch, auch wenn
+  // eine Beschriftung umbricht („Schwarz · an“ bei 1024 breit: gemessen 92 statt 90 px).
+  const taste = (kennung: string, zustand: (typeof t)['schwarz'], onClick: () => void) => (
+    <div data-presenter={kennung} className="flex min-w-24 flex-1">
+      <TallyButton {...zustand} kuerzelZeile onClick={onClick} />
+    </div>
+  );
+  return (
+    <div data-presenter="tasten" className="mt-3 flex flex-wrap items-stretch justify-center gap-2">
+      {taste('taste-schwarz', t.schwarz, referent.schwarz)}
+      {taste('taste-zurueck', t.zurueck, referent.zurueck)}
+      <GeheZu anzahl={anzahl} onGeheZu={referent.geheZu} />
+      {taste('taste-weiter', t.weiter, referent.weiter)}
+      {taste('taste-weiss', t.weiss, referent.weiss)}
+    </div>
+  );
+}
+
+/** „Gehe zu“: Folie 1 bis m (Index n - 1), sonst nichts (wie bisher doJump). */
+export function geheZuIndex(eingabe: string, anzahl: number): number | null {
+  const n = Number(eingabe);
+  return eingabe !== '' && Number.isFinite(n) && n >= 1 && n <= anzahl ? n - 1 : null;
+}
+
+/**
+ * Absenden von „Gehe zu“ (Enter oder Knopf): springt bei gültiger Eingabe, leert das Feld und verlässt danach immer die Form,
+ * auch bei ungültiger Eingabe. Grund: Aus dem Feld wirkt durch B10 kein Kürzel; bliebe der Fokus dort, liefen USB-Klicker und
+ * Tasten ins Leere (gemessen in Fix-Runde 1 zu Task 11). Wer korrigieren will, klickt wieder ins Feld.
+ */
+export function geheZuAbsenden(eingabe: string, anzahl: number, a: { geheZu(index: number): void; leere(): void; verlasse(): void }): void {
+  const i = geheZuIndex(eingabe, anzahl);
+  if (i !== null) a.geheZu(i);
+  a.leere();
+  a.verlasse();
+}
+
+/** Nimmt den Fokus vom aktiven Element, wenn es in `bereich` liegt (Feld oder Knopf von „Gehe zu“); sonst nichts. */
+export function verlasseFeld(bereich: { contains(ziel: unknown): boolean }, aktiv: unknown): void {
+  const el = aktiv as { blur?: unknown } | null;
+  if (el !== null && typeof el === 'object' && typeof el.blur === 'function' && bereich.contains(el)) (el as { blur(): void }).blur();
+}
+
+/** Feld „Folie“ (nur Ziffern) und Knopf „Gehe zu“: springt und leert das Feld; Enter im Feld sendet ab (B10: kein Weiterblättern). */
+function GeheZu({ anzahl, onGeheZu }: { anzahl: number; onGeheZu(index: number): void }) {
+  const [jump, setJump] = useState('');
+  return (
+    <form
+      data-presenter="gehe-zu"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const form = e.currentTarget;
+        geheZuAbsenden(jump, anzahl, {
+          geheZu: onGeheZu,
+          leere: () => setJump(''),
+          verlasse: () => verlasseFeld(form, document.activeElement),
+        });
+      }}
+      className="flex shrink-0 items-center self-center gap-1"
+    >
+      <input
+        value={jump}
+        onChange={(e) => setJump(e.target.value.replace(/\D/g, ''))}
+        placeholder="Folie"
+        className="h-9 w-20 text-center rounded-md bg-[var(--input)] border border-[var(--border)] text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]"
+      />
+      <button type="submit" className="h-9 px-3 rounded-md bg-[var(--card)] border border-[var(--border)] text-sm text-[var(--foreground)] hover:bg-[var(--highlight)]">
+        Gehe zu
+      </button>
+    </form>
+  );
+}
+
+/**
+ * Folienübersicht (wie bisher, aber nur im Inhalt): Titel, „schließen ✕“, je Folie Vorschau, Nummer und Titel, die aktuelle
+ * hervorgehoben; ein Klick springt dorthin und schließt. Ohne Hooks.
+ */
+export function Uebersicht({ folien, index, onGeheZu, onSchliessen }: { folien: Slide[]; index: number | undefined; onGeheZu(index: number): void; onSchliessen(): void }) {
+  return (
+    <div data-presenter="uebersicht-flaeche" className="absolute inset-0 z-10 bg-[var(--background)]/90 backdrop-blur-sm p-6 overflow-auto scroll-thin">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-bold">Folienübersicht</h3>
+        <button type="button" onClick={onSchliessen} className="text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+          schließen ✕
+        </button>
+      </div>
+      <div className="grid grid-cols-4 lg:grid-cols-6 gap-3">
+        {folien.map((s, i) => (
+          <button
+            key={s.id}
+            type="button"
+            data-presenter="uebersicht-folie"
+            onClick={() => {
+              onGeheZu(i);
+              onSchliessen();
+            }}
+            className={cn(
+              'group rounded-lg overflow-hidden ring-2 transition-all',
+              i === index ? 'ring-[var(--primary)]' : 'ring-[var(--border)] hover:ring-[var(--muted-foreground)]',
+            )}
+          >
+            <div className={cn('aspect-video flex items-center justify-center', FOLIENFLAECHE)}>
+              <SlideCanvas slide={s} maxWidth={360} />
+            </div>
+            <div className="px-2 py-1 text-left text-[11px] bg-[var(--card)] flex items-center gap-1.5">
+              <span className="tabular text-[var(--muted-foreground)]">{i + 1}</span>
+              <span className="truncate">{s.title}</span>
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
 
 function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[10px] uppercase tracking-[0.14em] text-white/45 font-bold mb-1.5">{children}</div>
-  );
-}
-
-/** #293: Schleife live an/aus, mit Countdown bis zum nächsten Selbst-Weiterblättern. */
-function SchleifenKnopf({ schleife, bisMs }: { schleife: boolean; bisMs: number | null }) {
-  const [jetzt, setJetzt] = useState(() => Date.now());
-  useEffect(() => {
-    if (!schleife || bisMs == null) return;
-    const id = setInterval(() => setJetzt(Date.now()), 250);
-    return () => clearInterval(id);
-  }, [schleife, bisMs]);
-  const rest = schleife && bisMs != null ? Math.max(0, Math.ceil((bisMs - jetzt) / 1000)) : null;
-  return (
-    <HeaderBtn
-      onClick={() => void window.jmpr.present.setSchleife(!schleife)}
-      active={schleife}
-      title={schleife ? 'Schleife anhalten' : 'Schleife starten: blättert nach der Standzeit selbst weiter'}
-    >
-      ⟳ Schleife{rest != null ? ` · ${rest} s` : schleife ? ' · steht' : ''}
-    </HeaderBtn>
-  );
-}
-
-function HeaderBtn({
-  children,
-  onClick,
-  active,
-  danger,
-  title,
-  disabled,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  active?: boolean;
-  danger?: boolean;
-  title?: string;
-  /** Gesperrt, aber mit Tooltip (darum ohne pointer-events-none). */
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      disabled={disabled}
-      className={cn(
-        'h-8 px-3 shrink-0 whitespace-nowrap rounded-md text-xs font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
-        danger
-          ? 'border-[var(--destructive)]/60 text-[var(--destructive)] hover:bg-[var(--destructive)]/15'
-          : active
-            ? 'bg-[var(--primary)] text-[var(--brand-dark)] border-[var(--primary)]'
-            : 'bg-white/10 border-white/15 hover:bg-white/20',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function NavBtn({
-  children,
-  onClick,
-  disabled,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="h-10 px-5 rounded-md bg-white/10 border border-white/15 text-sm font-bold hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none"
-    >
-      {children}
-    </button>
-  );
+  return <div className="text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)] font-bold mb-1.5">{children}</div>;
 }

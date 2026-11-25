@@ -155,6 +155,8 @@ export interface JmstageApi {
     /** Gemessener Zustand des Ausgabefensters (W2-2); null, wenn Main ablehnt. */
     zustand: () => Promise<AusgabeZustand | null>;
     onZustand: (cb: (z: AusgabeZustand) => void) => () => void;
+    /** Bildschirm angesteckt, abgezogen oder geändert (UX Welle 2b): Ereignis ohne Nutzlast; gibt die Abmeldung zurück. */
+    onBildschirme: (cb: () => void) => () => void;
   };
 }
 

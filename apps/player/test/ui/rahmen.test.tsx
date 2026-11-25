@@ -290,8 +290,9 @@ function quellen(d = 'src/renderer/src'): string[] {
   const ober = QUELLE('views/PlayerOberflaeche.tsx');
   const shell = ohneKommentare(leseText('../../packages/ui/src/components/AppShell.tsx'));
   const panel = ohneKommentare(leseText('../../packages/ui/src/components/SettingsPanel.tsx'));
+  // Seit der Gesamtprüfung UX Welle 2b (I2) reicht das Panel das Opt-in toolTasten mit; der Player gibt es nicht an (unverändert).
   ok(
-    ober.includes('<AppShell') && ober.includes('settings={<Einstellungen') && shell.includes('<SettingsPanel') && panel.includes('onKeyDown: (e) => panelTaste(e, p.onClose)'),
+    ober.includes('<AppShell') && !ober.includes('panelToolTasten') && ober.includes('settings={<Einstellungen') && shell.includes('<SettingsPanel') && /onKeyDown: \(e\) => panelTaste\(e, p\.onClose[,)]/.test(panel),
     'PL Tasten: das Panel ist das SettingsPanel des AppShell, sein onKeyDown läuft über panelTaste',
   );
   const modal = ohneKommentare(leseText('../../packages/ui/src/components/Modal.tsx'));

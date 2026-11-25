@@ -9,6 +9,7 @@ import type {
 // NDI-Lage (Plan C, E44): nur Typen aus der reinen Lage; tsconfig.web.json schließt src/main/ndi-lage.ts ein (TS6307).
 // Der Renderer importiert sie von hier.
 import type { NdiProgrammLage, NdiQuelleLage } from '../main/ndi-lage';
+import type { FernsteuerungMeldung } from './fernsteuerung';
 export type { NdiArt, NdiProgrammLage, NdiProgrammZustand, NdiQuelleLage } from '../main/ndi-lage';
 
 /** Ergebnis von openRoom: alles, was der Operator-Renderer zum Verbinden braucht. */
@@ -324,6 +325,19 @@ export interface ControlCommand {
   args: string[];
 }
 
+/**
+ * Master-Link-Meldung über die Preload-Brücke (Suite-UX-Update Welle 0, Spec 3.9): Zustand des Clients oder `ohne-client`.
+ * Strukturgleich mit `MasterLinkMeldung` aus `@jm/app-runtime`; eigener Typ wie in Titler. Den Gleichlauf prüft die
+ * Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
+
 /** Die unter window.jmconnect bereitgestellte API. */
 export interface JmConnectApi {
   platform: string;
@@ -414,4 +428,13 @@ export interface JmConnectApi {
   /** Vorschaubilder abonnieren (Push, 7.7). Liefert Unsubscribe. */
   onZoomVorschauBild: (cb: (b: ZoomVorschauBild) => void) => () => void;
   zoomLogordner: () => Promise<void>;
+  // ── Brücken (UX Welle 2b, Spec 3.9): lesend. Fehlt der Handler oder lehnt invoke ab, kommt null (Anzeige „unbekannt“).
+  /** Master-Link-Zustand (`jmps:master-link`, registriert von initAppRuntime). */
+  masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+  /** Master-Link-Zustand abonnieren. Liefert Unsubscribe. */
+  onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
+  /** Lage des Steuerservers (Port 8737); null, solange Main noch nichts gemeldet hat. Kein Feld von AppStatus (Tray, E44/KF10). */
+  fernsteuerung: () => Promise<FernsteuerungMeldung | null>;
+  /** Lage des Steuerservers abonnieren. Liefert Unsubscribe. */
+  onFernsteuerung: (cb: (m: FernsteuerungMeldung | null) => void) => () => void;
 }

@@ -10,6 +10,7 @@ import {
 import path, { join } from 'node:path';
 
 import { initAppRuntime } from '@jm/app-runtime';
+import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import { migrate } from './db/migrate';
 import { ensureInitialAdmin } from './auth/bootstrap';
 import { loadDevices } from './config/devices';
@@ -182,7 +183,19 @@ function setupTray(): void {
   rebuildTrayMenu();
 }
 
+/**
+ * UX Welle 2b: die zuletzt gemeldete Lage des Steuerservers (Port 8735), nur lesend. null, solange nichts gemeldet wurde
+ * (der Renderer zeigt dann „unbekannt“). Die Meldung geht nur an das Electron-Hauptfenster; Browser-Clients am Socket-Server
+ * bekommen nichts Neues.
+ */
+let fernsteuerung: FernsteuerungMeldung | null = null;
+function meldeFernsteuerung(e: FernsteuerungEreignis): void {
+  fernsteuerung = naechsteFernsteuerung(fernsteuerung ?? undefined, e);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('studio:fernsteuerung', fernsteuerung);
+}
+
 function registerIpc(): void {
+  ipcMain.handle('studio:fernsteuerung', () => fernsteuerung);
   ipcMain.handle('remote:getUrls', () => getRemoteUrls());
   ipcMain.handle('remote:getAddresses', () => getLanAddresses());
   ipcMain.handle('window:close', (event) => {
@@ -209,7 +222,7 @@ if (!gotLock) {
     ensureInitialAdmin();
     loadDevices();
     loadTricasters();
-    await startServer();
+    await startServer(meldeFernsteuerung);
     registerIpc();
     setupTray();
     createMainWindow();

@@ -211,6 +211,32 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
       typen.includes('isFullscreen: () => Promise<boolean | null>;'),
     'PL Wächter Kanäle: output.isFullscreen liest den gemessenen Vollbildzustand (null ohne Fenster)',
   );
+  // PL Bildschirmliste folgt dem Ereignis (UX Welle 2b, Task 6, 2a-Nachzug): output:bildschirme ist nur ein Ereignis ohne Nutzlast.
+  // Der Main sendet es über beobachteBildschirme aus @jm/output-window (nach app.ready) nur an das Hauptfenster; der Preload reicht
+  // es ohne Wert weiter (on, off). Das eigene Ausgabefenster des Players bleibt (E14): aus dem Paket kommt nur diese Funktion.
+  ok(
+    vorkommen(preload, 'output:bildschirme') === 2 && vorkommen(main, 'output:bildschirme') === 1 && vorkommen(ipc, 'output:bildschirme') === 0,
+    'PL Wächter Kanäle: output:bildschirme steht in Preload (on, off) und Main (send) gleich',
+  );
+  ok(
+    preload.includes("    onBildschirme: (cb) => {\n      const listener = (): void => cb();\n      ipcRenderer.on('output:bildschirme', listener);\n      return () => ipcRenderer.off('output:bildschirme', listener);\n    },\n") &&
+      typen.includes('onBildschirme: (cb: () => void) => () => void;'),
+    'PL Wächter Kanäle: output.onBildschirme meldet ohne Nutzlast, mit Abmeldung, und ist typisiert',
+  );
+  {
+    const bereit = main.indexOf('app.whenReady().then(() => {');
+    const aufruf = main.indexOf('beobachteBildschirme(');
+    const block = main.slice(aufruf, main.indexOf('});', aufruf) + 3);
+    ok(
+      /^import \{ beobachteBildschirme \} from '@jm\/output-window';$/m.test(main) &&
+        bereit >= 0 &&
+        aufruf > bereit &&
+        main.split('beobachteBildschirme(').length === 2 &&
+        /^beobachteBildschirme\(\(\) => \{\s*if \(mainWindow && !mainWindow\.isDestroyed\(\)\) mainWindow\.webContents\.send\('output:bildschirme'\);\s*\}\);$/.test(block),
+      'PL Wächter Kanäle: Main ruft beobachteBildschirme einmal nach app.ready und schickt output:bildschirme ohne Nutzlast nur an das Hauptfenster',
+    );
+    ok(!/\bOutputWindow\b/.test(ohneKommentare(main)), 'PL Wächter Kanäle: aus @jm/output-window kommt in den Main nur beobachteBildschirme, die Klasse OutputWindow nicht (E14)');
+  }
   const von = main.indexOf('initAppRuntime({');
   const runtime = main.slice(von, main.indexOf('});', von));
   ok(von >= 0 && !/masterLink\s*:\s*false/.test(runtime), 'PL Wächter Kanäle: initAppRuntime registriert jmps:master-link (Option masterLink:false fehlt)');
@@ -218,7 +244,11 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
   // PL Wächter STEUER_PORT 8725
   const m = /export const CONTROL_PORT = (\d+);/.exec(cs);
   ok(m !== null && Number(m[1]) === STEUER_PORT && STEUER_PORT === 8725, 'PL Wächter STEUER_PORT 8725: STEUER_PORT ' + STEUER_PORT + ' gleich CONTROL_PORT des Steuerservers (' + m?.[1] + ')');
-  ok(cs.includes("onMeldung?.({ art: 'status', ...st, modus: server?.modus() });"), 'PL Wächter STEUER_PORT 8725: jeder Statuswechsel des Servers wird mit wirksamem Modus gemeldet');
+  // Rückspiel (Task 26, Regel aus Task 21): der Modus kommt aus der meldenden Instanz, nicht aus der Modulvariable `server`.
+  ok(
+    cs.includes("onMeldung?.({ art: 'status', ...st, modus: srv.modus() });") && /const srv = new SuiteControlServer\(/.test(cs) && cs.includes('server = srv;') && !cs.includes('server?.modus()'),
+    'PL Rückspiel Wächter STEUER_PORT 8725: jeder Statuswechsel des Servers wird mit dem Modus der meldenden Instanz gemeldet (srv.modus(), nicht die Modulvariable)',
+  );
   ok(
     main.includes("meldeFernsteuerung({ art: 'start', ok: r.ok, error: r.error })") &&
       main.includes("meldeFernsteuerung({ art: 'wurf', text: ") &&

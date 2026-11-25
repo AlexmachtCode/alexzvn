@@ -1,7 +1,8 @@
-import { app, BrowserWindow, Menu, session } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, session } from 'electron';
 import { join } from 'node:path';
 import { getLog, initAppRuntime } from '@jm/app-runtime';
 import { createMainWindow, getMainWindow, resourcePath, setupSingleInstance } from '@jm/electron-kit';
+import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import { IPC } from '@shared/ipc';
 import { NDI_TEXT } from '@shared/ndi-text';
 import type { TrayCommand } from '@shared/types';
@@ -42,6 +43,17 @@ const runtime = initAppRuntime({
 });
 
 const preloadPath = join(__dirname, '../preload/index.cjs');
+
+/**
+ * UX Welle 2b: die zuletzt gemeldete Lage des Steuerservers (Port 8737), nur lesend. null, solange nichts gemeldet wurde (der
+ * Renderer zeigt dann „unbekannt“). Kein Feld von AppStatus: Der Status speist auch den Tray und ist durch E44/KF10 festgezurrt.
+ */
+let fernsteuerung: FernsteuerungMeldung | null = null;
+function meldeFernsteuerung(e: FernsteuerungEreignis): void {
+  fernsteuerung = naechsteFernsteuerung(fernsteuerung ?? undefined, e);
+  const win = getMainWindow();
+  if (win && !win.isDestroyed()) win.webContents.send(IPC.fernsteuerung, fernsteuerung);
+}
 
 function iconPath(): string {
   return resourcePath('icon.png', join(__dirname, '..', '..', 'resources'));
@@ -167,14 +179,25 @@ if (setupSingleInstance(() => showOrCreateWindow())) {
     // Steuerprotokoll (Companion/Rundown): zoom_*-Verben gehen an die Zoom-Hülle im Main, nie an den
     // Renderer oder den DO (Spec 11.2, Ergänzung 0.3). Alle anderen Befehle an den Operator-Renderer
     // relayen, der sie über die Raum-WS an den DO schickt.
-    const res = await startControlServer({
-      onCommand: (cmd) =>
-        leiteSteuerbefehl(cmd, {
-          zoom: zoomSteuerbefehl,
-          renderer: (c) => getMainWindow()?.webContents.send(IPC.controlCommand, { verb: c.verb, args: c.args }),
-        }),
-    });
-    if (!res.ok) getLog().error('[control] Steuerserver-Start fehlgeschlagen:', res.error);
+    ipcMain.handle(IPC.fernsteuerung, () => fernsteuerung);
+    try {
+      const res = await startControlServer(
+        {
+          onCommand: (cmd) =>
+            leiteSteuerbefehl(cmd, {
+              zoom: zoomSteuerbefehl,
+              renderer: (c) => getMainWindow()?.webContents.send(IPC.controlCommand, { verb: c.verb, args: c.args }),
+            }),
+        },
+        meldeFernsteuerung,
+      );
+      meldeFernsteuerung({ art: 'start', ok: res.ok, error: res.error });
+      if (!res.ok) getLog().error('[control] Steuerserver-Start fehlgeschlagen:', res.error);
+    } catch (err) {
+      // Gemeldet wird nur; der Wurf geht weiter wie bisher (kein neuer Ablauf).
+      meldeFernsteuerung({ art: 'wurf', text: err instanceof Error ? err.message : String(err) });
+      throw err;
+    }
 
     // Lizenzpflicht (E55, LP3): unter macOS trägt das Fenster „Über JM Connect“ des Standardmenüs den Markenhinweis T134.
     if (process.platform === 'darwin') app.setAboutPanelOptions({ credits: NDI_TEXT.t134 });

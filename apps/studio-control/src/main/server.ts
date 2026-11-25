@@ -50,6 +50,7 @@ import {
 } from './config/ptz';
 import { logAction, listRecent, onAudit } from './db/audit';
 import { startControlGateway, stopControlGateway } from './gateway/control-gateway';
+import type { FernsteuerungEreignis } from '@shared/fernsteuerung';
 import { runAll, isScanning } from './discovery';
 import {
   getAllStatuses,
@@ -983,7 +984,7 @@ function attachSocketHandlers(socket: Socket): void {
   });
 }
 
-export function startServer(): Promise<void> {
+export function startServer(onMeldung?: (e: FernsteuerungEreignis) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     loadDevices();
     loadTricasters();
@@ -1085,15 +1086,19 @@ export function startServer(): Promise<void> {
       // Companion-Gateway (TCP-Steuerprotokoll, Port 8735) zusätzlich starten —
       // fehlertolerant: ein belegter Port darf den HTTP-/Socket.IO-Server nicht
       // verhindern.
-      startControlGateway()
+      startControlGateway(onMeldung)
         .then((r) => {
+          onMeldung?.({ art: 'start', ok: r.ok, error: r.error });
           if (r.ok) {
             console.log(`[jm-studio-control] companion gateway listening on tcp://0.0.0.0:${r.port}`);
           } else {
             console.warn(`[jm-studio-control] companion gateway not started: ${r.error}`);
           }
         })
-        .catch((e) => console.warn('[jm-studio-control] companion gateway error', e));
+        .catch((e) => {
+          console.warn('[jm-studio-control] companion gateway error', e);
+          onMeldung?.({ art: 'wurf', text: e instanceof Error ? e.message : String(e) });
+        });
       resolve();
     });
   });

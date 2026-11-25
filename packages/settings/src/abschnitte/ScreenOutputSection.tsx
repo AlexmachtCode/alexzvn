@@ -33,6 +33,7 @@ export function ScreenOutputSection(p: ScreenOutputSectionProps): React.JSX.Elem
       ) : (
         <Anzeige label={SCREEN_TEXTE.bildschirm}>{UNBEKANNT}</Anzeige>
       )}
+      {view.gemessen ? <Anzeige label={SCREEN_TEXTE.stehtAuf}>{view.gemessen.label}</Anzeige> : null}
       {view.sichtbar.vollbild ? (
         typeof p.fullscreen === 'boolean' ? (
           <Field label={SCREEN_TEXTE.vollbild}>

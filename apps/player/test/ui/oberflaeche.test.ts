@@ -8,6 +8,7 @@ import { gleich, leseText, ok } from '@jm/ui/testhilfe';
 import type { AusgabeArt, AusgabeZustand } from '@jm/output-window/zustand';
 import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { MasterLinkMeldungZeile, ShowCue } from '@shared/types';
+import * as oberflaecheModul from '@/lib/oberflaeche';
 import {
   ABSCHNITT,
   ausgabeAbschnitt,
@@ -22,6 +23,7 @@ import {
   transportTasten,
   type OberflaechenStand,
   type PlayerZustand,
+  type VideoBelegEreignis,
 } from '@/lib/oberflaeche';
 import { kreuz, pruefeFaelle, vergleiche } from './hilfe';
 import { basisMeldung, ohneKommentare, showCue } from './testzustand';
@@ -47,8 +49,9 @@ function spieler(z: Partial<PlayerZustand> = {}): PlayerZustand {
     ...z,
   };
 }
+/** Grundstand: nichts gemessen, kein Video-Beleg (UX Welle 2b, Task 6: ohne Beleg zählt kein Video). */
 function stand(teil: Partial<OberflaechenStand> = {}): OberflaechenStand {
-  return { player: undefined, pads: undefined, ausgabe: undefined, vollbild: undefined, masterLink: undefined, fernsteuerung: undefined, ...teil };
+  return { player: undefined, pads: undefined, ausgabe: undefined, vollbild: undefined, masterLink: undefined, fernsteuerung: undefined, videoBelegt: false, ...teil };
 }
 const eintrag = (s: OberflaechenStand, id: string): StatusItem => statusLeiste(s).find((i) => i.id === id) as StatusItem;
 const sd = (i: StatusItem): string => `${i.state} ${i.detail ?? ''}`;
@@ -57,6 +60,8 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
 // ── PL ON AIR Wahrheitstabelle (W2-1, E4): live = showSpielt oder mindestens ein Pad ──
 // Gesamtprüfung I2 (Ruling): Video zählt für ON AIR und „n laufend“ nur, solange das Ausgabefenster gemessen offen ist oder sein
 // Bildschirm fehlt; zu (Alt+F4), abgestürzt, unbekannt und ohne Brücke zählt es nicht. Ton und Pads unverändert.
+// UX Welle 2b (Task 6 Nachzug): die Tabelle gilt mit Video-Beleg (videoBelegt: true, gemeldeter Fortschritt seit dem letzten
+// Schließen, Absturz oder Wechsel des Video-Cues); ohne Beleg zählt kein Video (Kreuzprodukt unten, PL Video-Beleg nach Alt+F4).
 {
   const video = { id: 2, index: 1, autoContinue: false };
   const OFFEN: AusgabeZustand = { art: 'offen', displayId: 1 };
@@ -85,26 +90,26 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
     { fall: 'Video ohne Listeneintrag mit Fortschritt, Fenster zu', p: spieler({ playingCueIds: [99], videoCue: { id: 99 }, videoProgress: FORTSCHRITT }), pads: [], a: { art: 'zu', displayId: null }, live: false },
   ];
   for (const t of tabelle) {
-    const kopf = kopfOnAir(stand({ player: t.p, pads: t.pads, ausgabe: t.a }));
+    const kopf = kopfOnAir(stand({ player: t.p, pads: t.pads, ausgabe: t.a, videoBelegt: true }));
     gleich([kopf.live, 'label' in kopf], [t.live, false], `PL ON AIR Wahrheitstabelle: ${t.fall} → live ${t.live}`);
   }
   pruefeFaelle('PL ON AIR Wahrheitstabelle: pads noch undefined wie ohne Pad', tabelle, (t) =>
-    vergleiche(String(kopfOnAir(stand({ player: t.p, pads: undefined, ausgabe: t.a })).live), String(kopfOnAir(stand({ player: t.p, pads: [], ausgabe: t.a })).live)),
+    vergleiche(String(kopfOnAir(stand({ player: t.p, pads: undefined, ausgabe: t.a, videoBelegt: true })).live), String(kopfOnAir(stand({ player: t.p, pads: [], ausgabe: t.a, videoBelegt: true })).live)),
   );
   pruefeFaelle('PL ON AIR Wahrheitstabelle: showSpielt ist live ohne Pads', tabelle, (t) =>
-    vergleiche(String(showSpielt({ player: t.p, ausgabe: t.a })), String(kopfOnAir(stand({ player: t.p, pads: [], ausgabe: t.a })).live)),
+    vergleiche(String(showSpielt({ player: t.p, ausgabe: t.a, videoBelegt: true })), String(kopfOnAir(stand({ player: t.p, pads: [], ausgabe: t.a, videoBelegt: true })).live)),
   );
   gleich(
-    [kopfOnAir(stand()).live, kopfOnAir(stand({ pads: [] })).live, kopfOnAir(stand({ pads: [7] })).live, showSpielt({ player: undefined, ausgabe: OFFEN })],
+    [kopfOnAir(stand()).live, kopfOnAir(stand({ pads: [] })).live, kopfOnAir(stand({ pads: [7] })).live, showSpielt({ player: undefined, ausgabe: OFFEN, videoBelegt: true })],
     [false, false, true, false],
     'PL ON AIR Wahrheitstabelle: Store noch nicht da → Show nie live, ein gemeldetes Pad schon',
   );
   gleich(
     [
-      showSpielt({ player: spieler({ playingCueIds: [2] }), ausgabe: OFFEN }),
-      eintrag(stand({ player: spieler({ playingCueIds: [2] }), ausgabe: OFFEN }), 'show').detail,
-      eintrag(stand({ player: spieler({ playingCueIds: [1, 2] }), ausgabe: OFFEN }), 'show').detail,
-      showSpielt({ player: spieler({ playingCueIds: [99] }), ausgabe: OFFEN }),
+      showSpielt({ player: spieler({ playingCueIds: [2] }), ausgabe: OFFEN, videoBelegt: true }),
+      eintrag(stand({ player: spieler({ playingCueIds: [2] }), ausgabe: OFFEN, videoBelegt: true }), 'show').detail,
+      eintrag(stand({ player: spieler({ playingCueIds: [1, 2] }), ausgabe: OFFEN, videoBelegt: true }), 'show').detail,
+      showSpielt({ player: spieler({ playingCueIds: [99] }), ausgabe: OFFEN, videoBelegt: true }),
     ],
     [false, 'Standby Cue 1 · Intro', '1 laufend', true],
     'PL ON AIR Wahrheitstabelle: veraltete Video-ID zählt weder für ON AIR noch als laufend; Audio daneben ergibt 1 laufend; ID ohne Listeneintrag zählt (Seite an)',
@@ -113,7 +118,7 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
   // Gesamtprüfung I2: „n laufend“ in der Statusleiste folgt derselben Regel wie ON AIR (eine Wahrheit).
   const mitVideo = spieler({ playingCueIds: [2], videoCue: video, videoProgress: FORTSCHRITT });
   const ohneEintrag = spieler({ playingCueIds: [99], videoCue: { id: 99 }, videoProgress: FORTSCHRITT });
-  const show = (p: PlayerZustand, a: AusgabeZustand | null | undefined): string | undefined => eintrag(stand({ player: p, ausgabe: a }), 'show').detail;
+  const show = (p: PlayerZustand, a: AusgabeZustand | null | undefined): string | undefined => eintrag(stand({ player: p, ausgabe: a, videoBelegt: true }), 'show').detail;
   gleich(
     [
       show(mitVideo, OFFEN),
@@ -132,7 +137,7 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
 
   // Kreuzprodukt mit eigenem Orakel in Szenen-Sprache: Audio-Cue 1 (keiner, im Vorlauf, spielt), Video-Cue 2 (keiner, im
   // Vorlauf, gestartet ohne Fortschritt, mit Fortschritt, veraltet = noch in playingCueIds ohne videoCue), Pause, Pads und das
-  // gemessene Ausgabefenster (Gesamtprüfung I2).
+  // gemessene Ausgabefenster (Gesamtprüfung I2), dazu der Video-Beleg (UX Welle 2b, Task 6 Nachzug: ohne Beleg zählt kein Video).
   const FENSTER: Record<string, AusgabeZustand | null | undefined> = {
     offen: OFFEN,
     fehlt: { art: 'bildschirm-fehlt', displayId: 1 },
@@ -147,8 +152,9 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
     pausiert: [false, true],
     pads: ['undefined', 'leer', 'eins'],
     fenster: ['offen', 'fehlt', 'zu', 'abgestuerzt', 'unbekannt', 'ohneBruecke'],
+    beleg: [false, true],
   } as const);
-  pruefeFaelle('PL ON AIR Wahrheitstabelle: Kreuzprodukt Audio × Video × Pause × Pads × Ausgabefenster gegen das Szenen-Orakel', faelle, (f) => {
+  pruefeFaelle('PL ON AIR Wahrheitstabelle: Kreuzprodukt Audio × Video × Pause × Pads × Ausgabefenster × Video-Beleg gegen das Szenen-Orakel', faelle, (f) => {
     const playing: number[] = [];
     const vorlauf: number[] = [];
     if (f.audio !== 'keiner') playing.push(1);
@@ -165,11 +171,175 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
     });
     const pads = f.pads === 'undefined' ? undefined : f.pads === 'leer' ? [] : [7];
     const fensterDa = f.fenster === 'offen' || f.fenster === 'fehlt';
-    const showWirklich = !f.pausiert && (f.audio === 'spielt' || (f.video === 'mitFortschritt' && fensterDa));
+    const showWirklich = !f.pausiert && (f.audio === 'spielt' || (f.video === 'mitFortschritt' && fensterDa && f.beleg));
     const soll = showWirklich || f.pads === 'eins';
     const a = FENSTER[f.fenster];
-    return vergleiche(`${showSpielt({ player: p, ausgabe: a })}/${kopfOnAir(stand({ player: p, pads, ausgabe: a })).live}`, `${showWirklich}/${soll}`);
+    return vergleiche(`${showSpielt({ player: p, ausgabe: a, videoBelegt: f.beleg })}/${kopfOnAir(stand({ player: p, pads, ausgabe: a, videoBelegt: f.beleg })).live}`, `${showWirklich}/${soll}`);
   });
+}
+
+// ── PL Video-Beleg nach Alt+F4 (UX Welle 2b, Task 6 Nachzug; Lücke aus 2a: nach Alt+F4 und Wiederöffnen über den Panel-Schalter
+// zählte das alte Video wieder für ON AIR, weil videoCue und videoProgress im Store stehen bleiben – nur der Knopf leert sie) ──
+// naechsterVideoBeleg ist rein: ein gemeldeter Fortschritt belegt das Video, aber nur bei gemessen offenem Fenster (offen oder
+// Bildschirm fehlt; Fix-Runde: eine späte Position des alten Fensters nach zu belegt nicht); zu und abgestürzt nehmen den Beleg, ein
+// Wechsel der Video-Kennung auch; sonst bleibt er. Das Video zählt für ON AIR und „‹n› laufend“ nur zusätzlich mit Beleg.
+{
+  const naechster = (oberflaecheModul as Record<string, unknown>).naechsterVideoBeleg as ((belegt: boolean, e: VideoBelegEreignis) => boolean) | undefined;
+  ok(typeof naechster === 'function', 'PL Video-Beleg nach Alt+F4: lib/oberflaeche.ts hat naechsterVideoBeleg');
+  const nb = naechster ?? ((belegt: boolean): boolean => belegt);
+  const EREIGNISSE: Record<string, VideoBelegEreignis> = {
+    'Fortschritt, Fenster offen': { t: 'fortschritt', art: 'offen' },
+    'Fortschritt, Bildschirm fehlt': { t: 'fortschritt', art: 'bildschirm-fehlt' },
+    'Fortschritt, Fenster zu': { t: 'fortschritt', art: 'zu' },
+    'Fortschritt, Fenster abgestürzt': { t: 'fortschritt', art: 'abgestuerzt' },
+    'Fortschritt, Fenster unbekannt': { t: 'fortschritt', art: undefined },
+    'Ausgabe unbekannt': { t: 'ausgabe', art: undefined },
+    'Ausgabe zu': { t: 'ausgabe', art: 'zu' },
+    'Ausgabe offen': { t: 'ausgabe', art: 'offen' },
+    'Ausgabe Bildschirm fehlt': { t: 'ausgabe', art: 'bildschirm-fehlt' },
+    'Ausgabe abgestürzt': { t: 'ausgabe', art: 'abgestuerzt' },
+    'neuer Video-Cue': { t: 'videoCue', id: 7 },
+    'kein Video-Cue mehr': { t: 'videoCue', id: null },
+  };
+  const SOLL: Record<string, (belegt: boolean) => boolean> = {
+    'Fortschritt, Fenster offen': () => true,
+    'Fortschritt, Bildschirm fehlt': () => true,
+    'Fortschritt, Fenster zu': (b) => b,
+    'Fortschritt, Fenster abgestürzt': (b) => b,
+    'Fortschritt, Fenster unbekannt': (b) => b,
+    'Ausgabe unbekannt': (b) => b,
+    'Ausgabe zu': () => false,
+    'Ausgabe offen': (b) => b,
+    'Ausgabe Bildschirm fehlt': (b) => b,
+    'Ausgabe abgestürzt': () => false,
+    'neuer Video-Cue': () => false,
+    'kein Video-Cue mehr': () => false,
+  };
+  const faelle = kreuz({ belegt: [false, true], ereignis: Object.keys(EREIGNISSE) } as const);
+  pruefeFaelle(
+    'PL Video-Beleg nach Alt+F4: naechsterVideoBeleg – Fortschritt belegt nur bei gemessen offenem Fenster (offen, Bildschirm fehlt), zu und abgestürzt nehmen den Beleg, ein Wechsel der Video-Kennung auch, sonst unverändert',
+    faelle,
+    (f) => vergleiche(String(nb(f.belegt, EREIGNISSE[f.ereignis])), String(SOLL[f.ereignis](f.belegt))),
+  );
+
+  // Die Tabelle aus dem Plan als Ablauf, so wie die Wurzel-View die Ereignisse bildet: jede Meldung des Ausgabefensters einzeln beim
+  // Eintreffen (Ausgabe = ihre Art), danach im Durchlauf eine neue Position (Fortschritt, mit der dann gemessenen Art) und eine neue
+  // Kennung des Video-Cues.
+  const VIDEOS: ShowCue[] = [showCue(1, { label: 'Intro' }), showCue(2, { kind: 'video' }), showCue(4, { kind: 'video' })];
+  const OFFEN: AusgabeZustand = { art: 'offen', displayId: 1 };
+  const ZU: AusgabeZustand = { art: 'zu', displayId: null };
+  interface Szene {
+    p: PlayerZustand;
+    a: AusgabeZustand | null | undefined;
+    belegt: boolean;
+  }
+  /** Ein Durchlauf: null oder mehr Meldungen des Fensters (in Reihenfolge), dazu Änderungen am Store. */
+  const durchlauf = (s: Szene, p: Partial<PlayerZustand>, ...meldungen: AusgabeZustand[]): Szene => {
+    const neu = { ...s.p, ...p };
+    let b = s.belegt;
+    for (const m of meldungen) b = nb(b, { t: 'ausgabe', art: m.art });
+    const a = meldungen.length > 0 ? meldungen[meldungen.length - 1] : s.a;
+    if (neu.videoProgress !== s.p.videoProgress && neu.videoProgress !== null) b = nb(b, { t: 'fortschritt', art: a?.art });
+    if (neu.videoCue?.id !== s.p.videoCue?.id) b = nb(b, { t: 'videoCue', id: neu.videoCue?.id ?? null });
+    return { p: neu, a, belegt: b };
+  };
+  const schritt = (s: Szene, p: Partial<PlayerZustand>, a?: AusgabeZustand): Szene => (a === undefined ? durchlauf(s, p) : durchlauf(s, p, a));
+  /** Zählt das Video? ON AIR, showSpielt und „1 laufend“ müssen dasselbe sagen (eine Wahrheit). */
+  const zaehlt = (s: Szene): string => {
+    const spielt = showSpielt({ player: s.p, ausgabe: s.a, videoBelegt: s.belegt });
+    const live = kopfOnAir({ player: s.p, pads: [], ausgabe: s.a, videoBelegt: s.belegt }).live;
+    const laufend = eintrag(stand({ player: s.p, ausgabe: s.a, videoBelegt: s.belegt }), 'show').detail === PLAYER_TEXTE.show.laufend(1);
+    return spielt === live && laufend === spielt ? (spielt ? 'ja' : 'nein') : `uneins ${spielt}/${live}/${laufend}`;
+  };
+  // Video startet (GO setzt videoCue vor dem Laden, das Fenster öffnet), Fortschritt, Fenster offen.
+  let s: Szene = { p: spieler({ showCues: VIDEOS }), a: ZU, belegt: false };
+  s = schritt(s, { playingCueIds: [2], videoCue: { id: 2 }, videoProgress: null });
+  s = schritt(s, {}, OFFEN);
+  s = schritt(s, { videoProgress: FORTSCHRITT });
+  const laeuft = s;
+  const z1 = zaehlt(s);
+  // Danach Alt+F4: zu; videoCue und videoProgress bleiben im Store stehen.
+  s = schritt(s, {}, ZU);
+  const nachZu = s;
+  const z2 = zaehlt(s);
+  // Fix-Runde: eine späte Position des alten Fensters nach zu (der Store nimmt sie, solange videoCue steht), danach öffnet der
+  // Panel-Schalter neu, kein neuer Fortschritt.
+  const spaet = schritt(nachZu, { videoProgress: { currentTime: 1.25, duration: 10 } });
+  const z2spaet = zaehlt(spaet);
+  const z2spaetOffen = zaehlt(schritt(spaet, {}, OFFEN));
+  // Fix-Runde: Schließen und Wiederöffnen kurz nacheinander, beide Meldungen vor dem nächsten Durchlauf (ein Render sieht offen → offen).
+  const z2einDurchlauf = zaehlt(durchlauf(laeuft, {}, ZU, OFFEN));
+  // Danach öffnet der Panel-Schalter neu (offen); das neue Fenster hat kein Video geladen, kein neuer Fortschritt.
+  s = schritt(s, {}, OFFEN);
+  const z3 = zaehlt(s);
+  // Danach ein neuer Video-Cue (Cue 4): erst ohne, dann mit Fortschritt.
+  s = schritt(s, { playingCueIds: [2, 4], videoCue: { id: 4 }, videoProgress: null });
+  const z4ohne = zaehlt(s);
+  s = schritt(s, { videoProgress: { currentTime: 2, duration: 10 } });
+  const z4 = zaehlt(s);
+  // Absturz bei stehendem Fenster; Bildschirm fehlt nach Fortschritt (je aus dem laufenden Video).
+  const z5 = zaehlt(schritt(laeuft, {}, { art: 'abgestuerzt', displayId: 1 }));
+  const z6 = zaehlt(schritt(laeuft, {}, { art: 'bildschirm-fehlt', displayId: 1 }));
+  gleich(
+    [
+      ['Video startet, Fortschritt, Fenster offen', z1],
+      ['danach Alt+F4 (zu)', z2],
+      ['Fortschritt nach zu', z2spaet],
+      ['danach Panel-Schalter öffnet neu, kein neuer Fortschritt', z2spaetOffen],
+      ['Schließen und Wiederöffnen im selben Durchlauf', z2einDurchlauf],
+      ['danach Panel-Schalter öffnet neu (offen), kein neuer Fortschritt', z3],
+      ['danach neuer Video-Cue, noch ohne Fortschritt', z4ohne],
+      ['danach neuer Video-Cue mit Fortschritt', z4],
+      ['Absturz bei stehendem Fenster', z5],
+      ['Bildschirm fehlt nach Fortschritt', z6],
+    ],
+    [
+      ['Video startet, Fortschritt, Fenster offen', 'ja'],
+      ['danach Alt+F4 (zu)', 'nein'],
+      ['Fortschritt nach zu', 'nein'],
+      ['danach Panel-Schalter öffnet neu, kein neuer Fortschritt', 'nein'],
+      ['Schließen und Wiederöffnen im selben Durchlauf', 'nein'],
+      ['danach Panel-Schalter öffnet neu (offen), kein neuer Fortschritt', 'nein'],
+      ['danach neuer Video-Cue, noch ohne Fortschritt', 'nein'],
+      ['danach neuer Video-Cue mit Fortschritt', 'ja'],
+      ['Absturz bei stehendem Fenster', 'nein'],
+      ['Bildschirm fehlt nach Fortschritt', 'ja'],
+    ],
+    'PL Video-Beleg nach Alt+F4: Tabelle des Plans – nach Alt+F4 und Wiederöffnen zählt das alte Video nicht, auch nicht nach einer späten Position des alten Fensters oder bei Schließen und Öffnen im selben Durchlauf, erst ein neuer Video-Cue mit Fortschritt; Absturz nein, Bildschirm fehlt ja (ON AIR, Cue-Show und „1 laufend“ gleich)',
+  );
+  gleich(
+    [kopfOnAir(stand({ player: laeuft.p, pads: [], ausgabe: OFFEN, videoBelegt: false })).live, kopfOnAir(stand({ player: laeuft.p, pads: [7], ausgabe: OFFEN, videoBelegt: false })).live, kopfOnAir(stand({ player: spieler({ playingCueIds: [1] }), pads: [], ausgabe: ZU, videoBelegt: false })).live],
+    [false, true, true],
+    'PL Video-Beleg nach Alt+F4: ohne Beleg zählt das Video nicht; Pads und Ton brauchen keinen Beleg',
+  );
+
+  // Die Wurzel-View führt den Beleg (nur im Renderer). Jede Meldung des Ausgabefensters geht einzeln beim Eintreffen ein (eigenes Abo
+  // an AUSGABE_QUELLE, nicht der zuletzt gerenderte Wert): fallen zu und offen in einen Durchlauf, sähe ein Effekt auf ausgabe?.art
+  // keinen Wechsel (Fix-Runde). Je neue Position (videoProgress, Bezug) ein Fortschritt mit der gemessenen Art, je neue Kennung des
+  // Video-Cues ein Zurücksetzen; der Fortschritt steht vor dem Video-Cue, damit in einem gemeinsamen Durchlauf das Zurücksetzen gewinnt.
+  const wurzel = ohneKommentare(leseText('src/renderer/src/views/PlayerOberflaeche.tsx'));
+  const meldung = wurzel.search(/useEffect\(\s*\(\) => AUSGABE_QUELLE\.ereignis\(\(z\) => setVideoBelegt\(\(b\) => naechsterVideoBeleg\(b, \{ t: 'ausgabe', art: z\?\.art \}\)\)\),\s*\[\],?\s*\);/);
+  const fortschritt = wurzel.search(/useEffect\(\(\) => \{\s*if \(player\.videoProgress !== null\) setVideoBelegt\(\(b\) => naechsterVideoBeleg\(b, \{ t: 'fortschritt', art: ausgabe\?\.art \}\)\);\s*\}, \[player\.videoProgress\]\);/);
+  const videoCue = wurzel.search(/useEffect\(\(\) => \{\s*setVideoBelegt\(\(b\) => naechsterVideoBeleg\(b, \{ t: 'videoCue', id: player\.videoCue\?\.id \?\? null \}\)\);\s*\}, \[player\.videoCue\?\.id\]\);/);
+  ok(
+    wurzel.includes('const [videoBelegt, setVideoBelegt] = useState(false);') &&
+      meldung >= 0 &&
+      fortschritt >= 0 &&
+      videoCue > fortschritt &&
+      (wurzel.match(/setVideoBelegt\(/g) ?? []).length === 3 &&
+      !wurzel.includes('[ausgabe?.art]'),
+    'PL Video-Beleg nach Alt+F4: die Wurzel-View führt videoBelegt (Start ohne Beleg) per naechsterVideoBeleg aus jeder einzelnen Meldung des Ausgabefensters, aus videoProgress (mit der gemessenen Art) und aus videoCue?.id',
+  );
+  const standVon = wurzel.indexOf('const stand: OberflaechenStand = {');
+  const standBlock = standVon < 0 ? '' : wurzel.slice(standVon, wurzel.indexOf('\n  };', standVon));
+  ok(/^\s*videoBelegt,$/m.test(standBlock), 'PL Video-Beleg nach Alt+F4: der Beleg geht in den Stand für ON AIR, Statusleiste und Panel (eine Wahrheit)');
+  // Nur im Renderer: Main, Preload, Typen der Brücke und Store kennen ihn nicht; Companion (playing, playing_count) bleibt.
+  const ausserhalb = ['src/main/index.ts', 'src/main/ipc.ts', 'src/main/output-window.ts', 'src/main/control-server.ts', 'src/preload/index.ts', 'src/shared/types.ts', 'src/renderer/src/store/player.ts'];
+  gleich(ausserhalb.filter((d) => /videoBelegt|VideoBeleg/.test(leseText(d))), [], 'PL Video-Beleg nach Alt+F4: der Beleg lebt nur im Renderer (nicht in Main, Preload, Typen der Brücke und Store)');
+  ok(
+    leseText('src/renderer/src/store/player.ts').includes('playing: s.playingCueIds.length > 0 || s.videoCue !== null,'),
+    'PL Video-Beleg nach Alt+F4: Companion playing bleibt wie bisher (playingCueIds oder videoCue, ohne Beleg)',
+  );
 }
 
 // ── PL Statusleiste master-link ──
@@ -279,8 +449,9 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
       f.player === 'undefined'
         ? undefined
         : spieler({ ...LAUF[f.lauf], showPaused: f.pausiert, standbyIndex: f.standby, ...(f.player === 'ohneShow' ? { activeShowId: null, showCues: [], standbyIndex: 0 } : {}) });
-    // Die Szenen mit Video spielen bei offenem Ausgabefenster (Gesamtprüfung I2; das Fenster prüft die Wahrheitstabelle oben).
-    const i = eintrag(stand({ player: p, ausgabe: { art: 'offen', displayId: 1 } }), 'show');
+    // Die Szenen mit Video spielen bei offenem Ausgabefenster und mit Beleg (Gesamtprüfung I2, Task 6; Fenster und Beleg prüft die
+    // Wahrheitstabelle oben).
+    const i = eintrag(stand({ player: p, ausgabe: { art: 'offen', displayId: 1 }, videoBelegt: true }), 'show');
     const n = (f.player === 'ohneShow' ? ZAHL_OHNE_LISTE : ZAHL)[f.lauf];
     const soll =
       p === undefined
@@ -404,6 +575,34 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
     'PL Ausgabe-Abschnitt: Aktionen gehen an die View; ohne gemessenes Vollbild gibt es keinen Vollbild-Rückruf',
   );
   gleich(ausgabeAbschnitt(stand()).selectedId, null, 'PL Ausgabe-Abschnitt: ohne Store ist die Auswahl automatisch (null)');
+}
+
+// ── PL Ort aus der Messung (2a-Nachzug, UX Welle 2b): measuredId = displayId bei offen, null bei Bildschirm fehlt (das System hat
+// das Fenster verschoben, der Ort ist unbekannt), sonst undefined. Die Pille nennt dann den gemessenen Bildschirm, nie den gewählten ──
+{
+  const faelle = kreuz({ ausgabe: [undefined, null, ...ARTEN] as Array<AusgabeArt | null | undefined>, display: [2, 5] } as const);
+  pruefeFaelle('PL Ort aus der Messung: ausgabeAbschnitt setzt measuredId = displayId bei offen, null bei Bildschirm fehlt, sonst undefined', faelle, (f) => {
+    const p = ausgabeAbschnitt(stand({ player: spieler({ outputDisplayId: 3 }), ausgabe: art(f.ausgabe, f.display) }));
+    const soll = f.ausgabe === 'offen' ? f.display : f.ausgabe === 'bildschirm-fehlt' ? null : undefined;
+    return vergleiche(String(p.measuredId), String(soll)) ?? (p.selectedId !== 3 ? `selectedId ${p.selectedId}` : null);
+  });
+  const LISTE = [
+    { id: 1, label: 'Regie', primary: true },
+    { id: 2, label: 'Beamer', primary: false },
+    { id: 3, label: 'Foyer', primary: false },
+  ];
+  // Gewählt ist Bildschirm 3 (Foyer); die Pille kommt aus screenOutputView von @jm/settings (eine Wahrheit).
+  const pille = (z: AusgabeZustand | null | undefined): string => {
+    const s = settings.screenOutputView(ausgabeAbschnitt(stand({ player: spieler({ outputDisplayId: 3 }), ausgabe: z, bildschirme: LISTE }))).status;
+    return `${s.state} ${s.text}`;
+  };
+  gleich(
+    [pille({ art: 'offen', displayId: 2 }), pille({ art: 'offen', displayId: 9 }), pille({ art: 'bildschirm-fehlt', displayId: 2 }), pille({ art: 'zu', displayId: null })],
+    ['ok auf Bildschirm 2', 'warn Bildschirm fehlt', 'warn Bildschirm fehlt', 'off aus'],
+    'PL Ort aus der Messung: die Pille nennt den gemessenen Bildschirm (2), nicht den gewählten (3); unbekannter Ort oder Bildschirm fehlt → „Bildschirm fehlt“',
+  );
+  const code = ohneKommentare(leseText('src/renderer/src/lib/oberflaeche.ts'));
+  ok(!code.includes('gemesseneLage'), 'PL Ort aus der Messung: gemesseneLage entfällt (die Zeile „Steht auf“ kommt aus @jm/settings)');
 }
 
 // ── PL Transport: vier Haupttasten der Cue-Show; GO nie live, Pause/Weiter bereit mit wechselnder Beschriftung (E4, E7) ──

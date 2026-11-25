@@ -108,6 +108,8 @@ const IPC_TEILE: Record<string, string> = {
   './show-open': 'export function handleShowDeepLink() {} export function flushPendingShowProject() {}',
   './control-server': 'export async function startControlServer() {} export function stopControlServer() {}',
   './datei-oeffnen': 'export function oeffneStartDateien() {} export function registriereDateiOeffnen() {}',
+  // UX Welle 2b (B11): Bildschirm-Ereignis; das echte Paket hängt an `screen.on`, das die Electron-Attrappe nicht hat.
+  '@jm/output-window': 'export function beobachteBildschirme() { return () => {}; }',
 };
 // Für config.ts reicht `app`; das echte windows.ts (zweiter Teil) braucht dazu Fenster und Bildschirm.
 // Ein Fenster schließt wie in Electron erst später: close() merkt vor, raeumeAuf() feuert die `closed`.

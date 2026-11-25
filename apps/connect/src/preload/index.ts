@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { MasterLinkMeldung } from '@jm/app-runtime';
+import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type {
   AppStatus,
   ControlCommand,
@@ -116,6 +118,21 @@ const api: JmConnectApi = {
     return () => ipcRenderer.off(IPC.zoomVorschauBild, listener);
   },
   zoomLogordner: () => ipcRenderer.invoke(IPC.zoomLogordner) as Promise<void>,
+  // Brücken (UX Welle 2b, Spec 3.9): lesend. Fehlt der Handler oder lehnt invoke ab, kommt null; der Renderer zeigt dann
+  // „unbekannt“ (Spec 7.2), nicht „aus“. MasterLinkMeldung (app-runtime) → MasterLinkMeldungZeile: Weicht der Typ ab, meldet
+  // die Typprüfung den Fehler hier.
+  masterLink: () => (ipcRenderer.invoke('jmps:master-link') as Promise<MasterLinkMeldung>).catch(() => null),
+  onMasterLink: (cb) => {
+    const listener = (_e: unknown, m: MasterLinkMeldung): void => cb(m);
+    ipcRenderer.on('jmps:master-link', listener);
+    return () => ipcRenderer.off('jmps:master-link', listener);
+  },
+  fernsteuerung: () => (ipcRenderer.invoke(IPC.fernsteuerung) as Promise<FernsteuerungMeldung | null>).catch(() => null),
+  onFernsteuerung: (cb) => {
+    const listener = (_e: unknown, m: FernsteuerungMeldung | null): void => cb(m);
+    ipcRenderer.on(IPC.fernsteuerung, listener);
+    return () => ipcRenderer.off(IPC.fernsteuerung, listener);
+  },
 };
 
 if (process.contextIsolated) {

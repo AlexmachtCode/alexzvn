@@ -1,7 +1,8 @@
 import { useId, type ReactNode } from 'react';
 import type { StatusItem } from '../lib/status';
+import { cn } from '../lib/cn';
 import { AppHeader } from './AppHeader';
-import { SettingsPanel } from './SettingsPanel';
+import { SettingsPanel, type ToolTasten } from './SettingsPanel';
 import { StatusBar } from './StatusBar';
 
 /** Props wörtlich aus Spec 3.1. */
@@ -16,6 +17,14 @@ export interface AppShellProps {
   settingsSection?: string;
   onSettingsChange(open: boolean, sectionId?: string): void;
   dichte?: 'normal' | 'kompakt';
+  /** `dunkel` = festes Dunkel: Wurzel trägt `dark`, der Kopf ohne Umschalter. Vorgabe `wechselbar`. */
+  thema?: 'wechselbar' | 'dunkel';
+  /** Platz für die Ampel auf macOS, an AppHeader durchgereicht; Vorgabe isElectronMac. */
+  mac?: boolean;
+  /** Aktion ganz rechts im Kopf, nach ⚙ (AppHeader `kopfAktion`). */
+  kopfAktion?: ReactNode;
+  /** Opt-in, an SettingsPanel `toolTasten` durchgereicht (Gesamtprüfung UX Welle 2b, I2); ohne wie bisher. */
+  panelToolTasten?: ToolTasten;
   children: ReactNode;
 }
 
@@ -62,6 +71,10 @@ export function AppShell(p: AppShellProps): React.JSX.Element {
     settingsOpen,
     settingsSection,
     dichte = 'normal',
+    thema = 'wechselbar',
+    mac,
+    kopfAktion,
+    panelToolTasten,
     children,
   } = p;
   const panelId = useId();
@@ -69,7 +82,13 @@ export function AppShell(p: AppShellProps): React.JSX.Element {
   const offen = mitEinstellungen && settingsOpen;
 
   return (
-    <div data-dichte={dichte} className="flex h-screen flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+    <div
+      data-dichte={dichte}
+      className={cn(
+        thema === 'dunkel' && 'dark',
+        'flex h-screen flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)]',
+      )}
+    >
       <AppHeader
         tool={tool}
         center={headerCenter}
@@ -78,6 +97,9 @@ export function AppShell(p: AppShellProps): React.JSX.Element {
         settingsOpen={offen}
         onSettingsToggle={zahnradKlick(p)}
         panelId={panelId}
+        thema={thema}
+        mac={mac}
+        kopfAktion={kopfAktion}
       />
       {toolbar ? (
         <div data-bereich="toolbar" className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--card)] px-3 py-1.5">
@@ -86,7 +108,7 @@ export function AppShell(p: AppShellProps): React.JSX.Element {
       ) : null}
       <div data-bereich="inhalt" className="relative flex min-h-0 flex-1">
         <main className="min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
-        <SettingsPanel open={offen} onClose={panelSchliessen(p)} sectionId={settingsSection} id={panelId}>
+        <SettingsPanel open={offen} onClose={panelSchliessen(p)} sectionId={settingsSection} id={panelId} toolTasten={panelToolTasten}>
           {settings}
         </SettingsPanel>
       </div>

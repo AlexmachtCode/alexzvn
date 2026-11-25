@@ -1,139 +1,234 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import QRCode from 'qrcode';
+import { PEERS_TEXTE, REMOTE_TEXTE } from '@jm/settings';
+import { Button, Field, Select, TextInput, Toggle, UNBEKANNT } from '@jm/ui';
 import type { NetInterface, RemoteConfig, RemoteStatus } from '@shared/types';
-import { GastKlickerAbschnitt } from './GastKlickerAbschnitt';
+import { PRESENTER_TEXTE } from '@/lib/oberflaeche';
+
+/** Netzwerkkarte und Port des Handy-Servers. */
+export interface HandyBindung {
+  bind: string;
+  port: number;
+}
 
 /**
- * Operator panel for the phone clicker: toggle the LAN server on/off, pick which
- * network interface to bind to, and show the URL + QR + PIN to pair a phone.
+ * Entwurf: nur die Felder, die der Nutzer seit dem letzten „Setzen“ geändert hat. Ein Feld gleich dem angewandten Stand ist kein
+ * Entwurf. Was nicht im Entwurf steht, kommt immer frisch aus dem angewandten Stand, nie aus einer Kopie.
  */
-export function RemotePanel({ onClose }: { onClose: () => void }) {
-  const [status, setStatus] = useState<RemoteStatus | null>(null);
-  const [ifaces, setIfaces] = useState<NetInterface[]>([]);
-  const [busy, setBusy] = useState(false);
+export type HandyEntwurf = Partial<HandyBindung>;
 
-  // Editable draft of the config; applied to the server on change.
-  const [bind, setBind] = useState('all');
-  const [port, setPort] = useState(7330);
-  const [pinEnabled, setPinEnabled] = useState(true);
+const gleicheBindung = (a: HandyBindung, b: HandyBindung): boolean => a.bind === b.bind && a.port === b.port;
 
-  useEffect(() => {
-    void Promise.all([window.jmpr.remote.status(), window.jmpr.remote.interfaces()]).then(
-      ([s, list]) => {
-        setStatus(s);
-        setIfaces(list);
-        setBind(s.config.bind);
-        setPort(s.config.port);
-        setPinEnabled(s.config.pinEnabled);
-      },
-    );
-    return window.jmpr.remote.onStatus(setStatus);
-  }, []);
+/** Was die Felder zeigen und „Setzen“ sendet: je Feld der Entwurf, sonst der angewandte Stand. */
+export function handyWerte(entwurf: HandyEntwurf, angewandt: HandyBindung): HandyBindung {
+  return { bind: entwurf.bind ?? angewandt.bind, port: entwurf.port ?? angewandt.port };
+}
 
-  const apply = async (patch: Partial<RemoteConfig>): Promise<void> => {
-    setBusy(true);
-    const config: RemoteConfig = {
-      enabled: status?.running ?? false,
-      bind,
-      port,
-      pinEnabled,
-      ...patch,
-    };
-    const s = await window.jmpr.remote.apply(config);
-    setStatus(s);
-    setBusy(false);
+/** Ein Feld in den Entwurf übernehmen; gleicht der Wert dem angewandten Stand, fällt das Feld aus dem Entwurf. */
+export function handyEntwurfMit<K extends keyof HandyBindung>(entwurf: HandyEntwurf, feld: K, wert: HandyBindung[K], angewandt: HandyBindung): HandyEntwurf {
+  const rest: HandyEntwurf = { ...entwurf };
+  delete rest[feld];
+  return wert === angewandt[feld] ? rest : { ...rest, [feld]: wert };
+}
+
+/** Port des Handy-Servers: nur 1024 bis 65535 (wie bisher beim Verlassen des Felds). */
+const portGueltig = (port: number): boolean => Number.isInteger(port) && port >= 1024 && port <= 65535;
+
+/**
+ * Warum „Setzen“ gesperrt ist (gesperrt nie ohne Grund, Muster Gegenstellen): es wird gerade angewendet; der Port liegt
+ * außerhalb 1024 bis 65535; Netzwerkkarte und Port gleichen dem angewandten Stand. undefined = bedienbar.
+ */
+export function handySetzenGrund(werte: HandyBindung, angewandt: HandyBindung, busy: boolean): string | undefined {
+  const T = PRESENTER_TEXTE.handy;
+  if (busy) return T.setzenLaeuft;
+  if (!portGueltig(werte.port)) return T.setzenPort;
+  if (gleicheBindung(werte, angewandt)) return T.setzenUnveraendert;
+  return undefined;
+}
+
+/** Was die Felder des Abschnitts auslösen und zeigen (hooklos prüfbar). */
+export interface HandyBedienung {
+  /** Auswahl „Netzwerkkarte“: ändert nur den Entwurf. */
+  netzwerkkarte(adresse: string): void;
+  /** Feld „Port“ (nur Ziffern): ändert nur den Entwurf. */
+  port(eingabe: string): void;
+  /** „Setzen“: wendet die geänderten Felder an, nur ohne Sperrgrund; gelingt es, fällt der Entwurf weg. */
+  setzen(): void;
+  /** Schalter „Server aktiv“/„Server aus“: sofort, sonst alles wie angewandt. */
+  server(): void;
+  /** Schalter „PIN-Schutz“: sofort, sonst alles wie angewandt. */
+  pin(an: boolean): void;
+  /** Angezeigte Netzwerkkarte und Port (handyWerte). */
+  werte: HandyBindung;
+  setzenGrund: string | undefined;
+}
+
+/**
+ * Bedienung des Abschnitts (Global Constraint „Wahl ≠ Bewegung“, Entscheid zu Task 12): Eine native Auswahl feuert change auch per
+ * Tastatur, und im Panel behält die Auswahl ihre Tasten (O1). Darum ändern Netzwerkkarte und Port nur den Entwurf, und erst
+ * „Setzen“ ruft dasselbe `anwenden` wie bisher.
+ * Fix-Runde 1: Jede Anwendung sendet genau den angewandten Stand (`status.config`), außer den Feldern, die gerade bewusst geändert
+ * werden: „Setzen“ die geänderten Felder des Entwurfs, der Server-Schalter `enabled`, der PIN-Schalter `pinEnabled`. Keine Kopie
+ * eines angewandten Werts geht hinaus, so dreht kein Panel eine Änderung aus dem anderen Fenster zurück. `enabled` kommt bei
+ * „Setzen“ und PIN weiter aus dem gemessenen `running` (wie bisher, Befund 16). Ein offener Entwurf überlebt einen Schalterdruck;
+ * nach einem gelungenen „Setzen“ fällt er weg, danach folgt das Panel wieder dem angewandten Stand.
+ */
+export function handyBedienung(a: {
+  status: RemoteStatus;
+  entwurf: HandyEntwurf;
+  busy: boolean;
+  setzeEntwurf(e: HandyEntwurf): void;
+  anwenden(config: RemoteConfig): Promise<unknown>;
+}): HandyBedienung {
+  const c = a.status.config;
+  const angewandt = { bind: c.bind, port: c.port };
+  const werte = handyWerte(a.entwurf, angewandt);
+  const setzenGrund = handySetzenGrund(werte, angewandt, a.busy);
+  return {
+    netzwerkkarte: (adresse) => a.setzeEntwurf(handyEntwurfMit(a.entwurf, 'bind', adresse, angewandt)),
+    port: (eingabe) => a.setzeEntwurf(handyEntwurfMit(a.entwurf, 'port', Number(eingabe.replace(/\D/g, '')) || 0, angewandt)),
+    setzen: () => {
+      if (setzenGrund !== undefined) return;
+      void a.anwenden({ enabled: a.status.running, ...werte, pinEnabled: c.pinEnabled }).then(
+        () => a.setzeEntwurf({}),
+        () => undefined,
+      );
+    },
+    server: () => void a.anwenden({ enabled: !a.status.running, bind: c.bind, port: c.port, pinEnabled: c.pinEnabled }),
+    pin: (an) => void a.anwenden({ enabled: a.status.running, bind: c.bind, port: c.port, pinEnabled: an }),
+    werte,
+    setzenGrund,
   };
+}
 
-  const running = status?.running ?? false;
+/**
+ * Handy-Fernsteuerung (Inhalt des Panel-Abschnitts „Handy-Fernsteuerung“, UX Welle 2b d1, früher RemotePanel.tsx:62-128): den
+ * LAN-Server ein- und ausschalten, Netzwerkkarte und Port wählen und mit „Setzen“ anwenden, und die Kopplung (Adresse, QR, PIN)
+ * zeigen. Status, Netzwerkkarten, das Anwenden und „beschäftigt“ kommen herein; kein Abo, kein Effekt, kein window. Hier liegt nur
+ * der Entwurf, keine Kopie des gemeldeten Stands; was die Felder tun, steht in handyBedienung, gezeichnet wird in HandyFelder.
+ * „beschäftigt“ hält die Wurzel-View (lib/aufrufe.ts, Rückspiel Task 26): das Panel stirbt beim Schließen, ein Wiederöffnen während
+ * des Anwendens gibt Schalter und „Setzen“ nicht frei. Der ungesicherte Entwurf stirbt weiter mit dem Panel (wie die Gegenstellen).
+ */
+export function HandyAbschnitt({
+  status,
+  netzwerkkarten,
+  anwenden,
+  busy,
+}: {
+  status: RemoteStatus;
+  netzwerkkarten: NetInterface[] | undefined;
+  /** Anwenden über die Wurzel-View, die dabei „beschäftigt“ führt (mitLaufendenAufrufen). */
+  anwenden(config: RemoteConfig): Promise<unknown>;
+  /** Läuft ein Anwenden (aus der Wurzel-View). */
+  busy: boolean;
+}) {
+  const [entwurf, setEntwurf] = useState<HandyEntwurf>({});
+  const grundId = useId();
+  const bedienung = handyBedienung({ status, entwurf, busy, setzeEntwurf: setEntwurf, anwenden });
 
+  return <HandyFelder status={status} netzwerkkarten={netzwerkkarten} busy={busy} grundId={grundId} bedienung={bedienung} />;
+}
+
+/**
+ * Die Felder des Abschnitts, ohne Hooks: Auswahl und Port gehen nur an den Entwurf, „Setzen“ wendet an, gesperrt mit Grund; der
+ * PIN-Schalter zeigt den angewandten Stand.
+ */
+export function HandyFelder({
+  status,
+  netzwerkkarten,
+  busy,
+  grundId,
+  bedienung,
+}: {
+  status: RemoteStatus;
+  netzwerkkarten: NetInterface[] | undefined;
+  busy: boolean;
+  grundId: string;
+  bedienung: HandyBedienung;
+}) {
+  const T = PRESENTER_TEXTE.handy;
+  const running = status.running;
+  const grund = bedienung.setzenGrund;
+  const werte = bedienung.werte;
   return (
-    <div className="absolute inset-0 z-20 bg-black/70 backdrop-blur-sm grid place-items-center p-6">
-      <div className="w-full max-w-lg rounded-2xl bg-[#161616] ring-1 ring-white/10 p-6 max-h-full overflow-auto scroll-thin">
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="text-lg font-bold">📱 Fernsteuerung übers Netzwerk</h3>
-          <button type="button" onClick={onClose} className="text-sm text-white/60 hover:text-white">
-            schließen ✕
-          </button>
-        </div>
-        <p className="text-sm text-white/50 mb-5">
-          Steuere die Präsentation vom Handy oder Tablet im selben Netzwerk.
-        </p>
+    <div className="space-y-3">
+      <Field label={running ? T.serverAn : T.serverAus} hint={running ? T.hinweisAn : T.hinweisAus}>
+        <Toggle checked={running} disabled={busy} onChange={bedienung.server} />
+      </Field>
 
-        {/* On/off */}
-        <div className="flex items-center justify-between rounded-lg bg-white/5 ring-1 ring-white/10 px-4 py-3">
-          <div>
-            <div className="font-semibold">Server {running ? 'aktiv' : 'aus'}</div>
-            <div className="text-xs text-white/45">
-              {running ? 'Telefone können sich verbinden.' : 'Einschalten, um ein Gerät zu koppeln.'}
-            </div>
-          </div>
-          <Switch on={running} disabled={busy} onClick={() => void apply({ enabled: !running })} />
-        </div>
-
-        {/* Network interface + port */}
-        <div className="mt-4 grid grid-cols-[1fr_auto] gap-3">
-          <label className="block">
-            <span className="text-[10px] uppercase tracking-[0.14em] text-white/45 font-bold">
-              Netzwerkkarte
-            </span>
-            <select
-              value={bind}
-              disabled={busy}
-              onChange={(e) => {
-                setBind(e.target.value);
-                void apply({ bind: e.target.value });
-              }}
-              className="mt-1 w-full h-10 rounded-md bg-white/10 border border-white/15 px-2 text-sm"
-            >
-              {ifaces.map((i) => (
-                <option key={i.address} value={i.address} className="text-black">
-                  {i.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-[10px] uppercase tracking-[0.14em] text-white/45 font-bold">Port</span>
-            <input
-              value={port}
-              disabled={busy}
-              onChange={(e) => setPort(Number(e.target.value.replace(/\D/g, '')) || 0)}
-              onBlur={() => port >= 1024 && port <= 65535 && void apply({ port })}
-              className="mt-1 w-24 h-10 text-center rounded-md bg-white/10 border border-white/15 text-sm"
-            />
-          </label>
-        </div>
-
-        {/* PIN toggle */}
-        <label className="mt-4 flex items-center gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={pinEnabled}
-            disabled={busy}
-            onChange={(e) => {
-              setPinEnabled(e.target.checked);
-              void apply({ pinEnabled: e.target.checked });
-            }}
-            className="h-4 w-4 accent-[var(--primary)]"
-          />
-          <span className="text-sm">PIN-Schutz (empfohlen im offenen WLAN)</span>
-        </label>
-
-        {status?.error && (
-          <div className="mt-4 rounded-md bg-[var(--destructive)]/15 border border-[var(--destructive)]/40 px-3 py-2 text-sm text-[var(--destructive)]">
-            {status.error}
-          </div>
+      <Field label={T.netzwerkkarte}>
+        {netzwerkkarten === undefined ? (
+          <p className="text-sm text-[var(--muted-foreground)]">{UNBEKANNT}</p>
+        ) : (
+          <Select options={netzwerkkarten.map((i) => ({ value: i.address, label: i.label }))} value={werte.bind} disabled={busy} onChange={bedienung.netzwerkkarte} />
         )}
+      </Field>
 
-        {running && status?.url && <Pairing url={status.url} pin={status.pin} />}
+      <Field label={REMOTE_TEXTE.port}>
+        <TextInput value={werte.port === 0 ? '' : String(werte.port)} inputMode="numeric" disabled={busy} onChange={bedienung.port} className="w-24 text-center" />
+      </Field>
 
-        <GastKlickerAbschnitt />
+      <div data-presenter="handy-setzen" className="space-y-1">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          uppercase={false}
+          className="motion-reduce:transition-none"
+          aria-label={PEERS_TEXTE.setzenFuer(T.titel)}
+          aria-describedby={grund === undefined ? undefined : grundId}
+          onClick={bedienung.setzen}
+          disabled={grund !== undefined}
+        >
+          {PEERS_TEXTE.setzen}
+        </Button>
+        {grund === undefined ? null : (
+          <p id={grundId} className="text-[11px] text-[var(--muted-foreground)]">
+            {grund}
+          </p>
+        )}
       </div>
+
+      <Field label={T.pin}>
+        <Toggle checked={status.config.pinEnabled} disabled={busy} onChange={bedienung.pin} />
+      </Field>
+
+      {status.error ? (
+        <p role="alert" className="border-l-2 border-[var(--status-error)] pl-2 text-sm text-[var(--foreground)] select-text">
+          {status.error}
+        </p>
+      ) : null}
+
+      {running && status.url ? <Pairing url={status.url} pin={status.pin} /> : null}
     </div>
   );
 }
 
 function Pairing({ url, pin }: { url: string; pin: string | null }) {
+  const T = PRESENTER_TEXTE.handy;
+  return (
+    <div data-presenter="handy-kopplung" className="rounded-[var(--radius-lg)] bg-[var(--muted)] ring-1 ring-[var(--border)] p-4 flex flex-wrap items-center gap-4">
+      <QrBild url={url} />
+      <div className="min-w-0">
+        <div className="text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)] font-bold">{T.amHandy}</div>
+        <a href={url} className="block text-lg font-bold text-[var(--primary)] break-all leading-tight mt-1 select-text" onClick={(e) => e.preventDefault()}>
+          {url}
+        </a>
+        {pin ? (
+          <div className="mt-3">
+            <span className="text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)] font-bold">{T.pinTitel}</span>
+            <div className="text-3xl font-extrabold tracking-[0.3em] tabular">{pin}</div>
+          </div>
+        ) : (
+          <div className="mt-3 text-xs text-[var(--muted-foreground)]">{T.ohnePin}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Das QR-Bild ist eine Programmfläche (B5): dunkel auf weiß, damit jedes Handy es liest, in Hell und Dunkel gleich.
+function QrBild({ url }: { url: string }) {
   const [qr, setQr] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
@@ -144,52 +239,9 @@ function Pairing({ url, pin }: { url: string; pin: string | null }) {
       alive = false;
     };
   }, [url]);
-
   return (
-    <div className="mt-5 rounded-xl bg-white/5 ring-1 ring-white/10 p-5 flex items-center gap-5">
-      <div className="bg-white rounded-lg p-2 shrink-0">
-        {qr ? <img src={qr} alt="QR" className="w-32 h-32 block" /> : <div className="w-32 h-32" />}
-      </div>
-      <div className="min-w-0">
-        <div className="text-[10px] uppercase tracking-[0.14em] text-white/45 font-bold">
-          Am Handy öffnen
-        </div>
-        <a
-          href={url}
-          className="block text-lg font-bold text-[var(--primary)] break-all leading-tight mt-1"
-          onClick={(e) => e.preventDefault()}
-        >
-          {url}
-        </a>
-        {pin ? (
-          <div className="mt-3">
-            <span className="text-[10px] uppercase tracking-[0.14em] text-white/45 font-bold">PIN</span>
-            <div className="text-3xl font-extrabold tracking-[0.3em] tabular">{pin}</div>
-          </div>
-        ) : (
-          <div className="mt-3 text-xs text-white/45">Ohne PIN — jeder im Netzwerk kann steuern.</div>
-        )}
-      </div>
+    <div className="bg-white rounded-lg p-2 shrink-0">
+      {qr ? <img src={qr} alt={PRESENTER_TEXTE.handy.qrAlt} className="w-32 h-32 block" /> : <div className="w-32 h-32" />}
     </div>
-  );
-}
-
-function Switch({ on, onClick, disabled }: { on: boolean; onClick: () => void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={on}
-      className={`relative h-7 w-12 rounded-full transition-colors disabled:opacity-50 ${
-        on ? 'bg-[var(--primary)]' : 'bg-white/20'
-      }`}
-    >
-      <span
-        className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition-all ${
-          on ? 'left-[1.4rem]' : 'left-0.5'
-        }`}
-      />
-    </button>
   );
 }

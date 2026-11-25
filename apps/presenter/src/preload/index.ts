@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import type { MasterLinkMeldung } from '@jm/app-runtime';
 import { ladeInPortionen } from '../shared/dateien';
+import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type {
   AbgelegteDateien,
   GeladeneDateien,
@@ -62,6 +64,21 @@ const api: JmprApi = {
   platform: process.platform,
   view,
 
+  // UX Welle 2b (Spec 3.9, B2): Master-Link-Zustand lesend. null, solange die Brücke fehlt oder ablehnt (Statusleiste: unbekannt).
+  masterLink: () => (ipcRenderer.invoke('jmps:master-link') as Promise<MasterLinkMeldung>).catch(() => null),
+  onMasterLink: (cb) => {
+    const listener = (_e: unknown, m: MasterLinkMeldung): void => cb(m);
+    ipcRenderer.on('jmps:master-link', listener);
+    return () => ipcRenderer.off('jmps:master-link', listener);
+  },
+  // Meldung des Steuerservers lesend (Port 8728, läuft, Clients, Modus, Startfehler). null, solange Main nichts gemeldet hat.
+  fernsteuerung: () => (ipcRenderer.invoke('presenter:fernsteuerung') as Promise<FernsteuerungMeldung | null>).catch(() => null),
+  onFernsteuerung: (cb) => {
+    const listener = (_e: unknown, m: FernsteuerungMeldung | null): void => cb(m);
+    ipcRenderer.on('presenter:fernsteuerung', listener);
+    return () => ipcRenderer.off('presenter:fernsteuerung', listener);
+  },
+
   files: {
     importDocs: () => ipcRenderer.invoke('files:importDocs') as Promise<ImportedFile[]>,
     importImage: () => ipcRenderer.invoke('files:importImage') as Promise<ImportedFile | null>,
@@ -118,6 +135,13 @@ const api: JmprApi = {
       const listener = (_event: unknown, s: PresentationState) => cb(s);
       ipcRenderer.on('present:state', listener);
       return () => ipcRenderer.off('present:state', listener);
+    },
+    // UX Welle 2b (B11): Bildschirm angesteckt, abgezogen, geändert oder Publikumsfenster bewegt; ohne Nutzlast, der Renderer
+    // liest displays() selbst neu.
+    onBildschirme: (cb) => {
+      const listener = (): void => cb();
+      ipcRenderer.on('present:bildschirme', listener);
+      return () => ipcRenderer.off('present:bildschirme', listener);
     },
   },
 

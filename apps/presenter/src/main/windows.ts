@@ -223,6 +223,9 @@ export function openAudienceWindow(displayId: number | null): BrowserWindow {
     webPreferences: baseWebPreferences,
   });
   sperreNavigation(win);
+  // UX Welle 2b (B11): Das Publikumsfenster hat sich bewegt (auch über „Auf diesen Bildschirm“) → Editor und Referent lesen
+  // die Bildschirmliste neu (`current`). Nur ein Ereignis ohne Nutzlast, nur lesend.
+  win.on('move', () => broadcastAll('present:bildschirme', undefined));
   win.on('ready-to-show', () => {
     win.show();
     win.setFullScreen(true);

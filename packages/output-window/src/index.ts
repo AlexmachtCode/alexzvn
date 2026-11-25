@@ -1,4 +1,5 @@
 import { BrowserWindow, screen } from 'electron';
+import { beobachte } from './bildschirme';
 import { AUSGABE_ZU, naechsterAusgabeZustand, type AusgabeEreignis, type AusgabeZustand } from './zustand';
 
 export type { AusgabeArt, AusgabeEreignis, AusgabeZustand } from './zustand';
@@ -55,6 +56,14 @@ export function listDisplays(): DisplayInfo[] {
     width: d.size.width,
     height: d.size.height,
   }));
+}
+
+/**
+ * Bildschirm angesteckt, abgezogen oder geändert (UX Welle 2b): ruft `cb` je Ereignis ohne Nutzlast; gibt die Abmeldung zurück.
+ * `screen` gibt es erst nach app.ready, also erst dann aufrufen.
+ */
+export function beobachteBildschirme(cb: () => void): () => void {
+  return beobachte(screen, cb);
 }
 
 /**

@@ -283,23 +283,24 @@ try {
     neu();
     p().fireCue(0);
     p().showTogglePause();
-    const inDerPause = kopfOnAir({ player: p(), pads: [], ausgabe: undefined }).live;
+    const inDerPause = kopfOnAir({ player: p(), pads: [], ausgabe: undefined, videoBelegt: false }).live;
     p().showStop();
-    const nachStop = kopfOnAir({ player: p(), pads: [], ausgabe: undefined }).live;
+    const nachStop = kopfOnAir({ player: p(), pads: [], ausgabe: undefined, videoBelegt: false }).live;
     p().setStandby(0);
     p().showGo();
     gleich(
-      [inDerPause, nachStop, kopfOnAir({ player: p(), pads: [], ausgabe: undefined }).live, log.filter((z) => z.startsWith('audio.play')).length],
+      [inDerPause, nachStop, kopfOnAir({ player: p(), pads: [], ausgabe: undefined, videoBelegt: false }).live, log.filter((z) => z.startsWith('audio.play')).length],
       [false, false, true, 2],
       'PL ON AIR Wahrheitstabelle: Stop in der Pause, dann GO mit Audio-Cue → live true (vorher pausiert und nach Stop nicht live)',
     );
   }
 
   // ── PL ON AIR Wahrheitstabelle am echten Store: GO auf Video 2, während Video 1 läuft; Video 2 endet (veraltete ID) ──
-  // Das Ausgabefenster ist gemessen offen (Gesamtprüfung I2: Video zählt nur bei vorhandenem Fenster).
+  // Das Ausgabefenster ist gemessen offen (Gesamtprüfung I2: Video zählt nur bei vorhandenem Fenster) und das Video belegt
+  // (videoBelegt: true, UX Welle 2b Task 6; den Beleg selbst prüft „PL Video-Beleg nach Alt+F4“ in oberflaeche.test.ts).
   {
     neu();
-    const live = (): boolean => kopfOnAir({ player: p(), pads: [], ausgabe: { art: 'offen', displayId: 1 } }).live;
+    const live = (): boolean => kopfOnAir({ player: p(), pads: [], ausgabe: { art: 'offen', displayId: 1 }, videoBelegt: true }).live;
     p().setStandby(1);
     p().showGo();
     p().onOutputTime({ currentTime: 1, duration: 10 });
@@ -323,7 +324,7 @@ try {
   // showAudio löst die alte Instanz erst bei play ab (nach dem neuen Vorlauf); bis dahin klingt sie weiter.
   {
     neu();
-    const live = (): boolean => kopfOnAir({ player: p(), pads: [], ausgabe: undefined }).live;
+    const live = (): boolean => kopfOnAir({ player: p(), pads: [], ausgabe: undefined, videoBelegt: false }).live;
     p().fireCue(2);
     await warte(90);
     const alt = audioEnde.filter((e) => e.id === 13).at(-1);

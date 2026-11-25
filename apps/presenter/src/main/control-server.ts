@@ -19,6 +19,7 @@ import type { SuiteState } from '@jm/suite-control-protocol';
 import { getState, goto, next, prev, setScreen, stopPresentation, subscribe } from './present';
 import { openByPath } from './control-open';
 import { presenterStateKv } from './suite-state';
+import type { FernsteuerungEreignis } from '../shared/fernsteuerung';
 
 /** Eigener TCP-Steuerport (getrennt vom HTTP-Remote 7330). */
 export const CONTROL_PORT = 8728;
@@ -30,14 +31,24 @@ function toSuiteState(): SuiteState {
   return { ns: 'presenter', kv: presenterStateKv(getState()) };
 }
 
-export function startControlServer(): Promise<{ ok: boolean; error?: string; port?: number }> {
+/**
+ * UX Welle 2b (Spec 3.9, B2): `onMeldung` bekommt jede Statusmeldung des Servers (läuft, Port, Clients) mit wirksamem Modus,
+ * nur lesend. Der Main macht daraus die Fernsteuerungs-Meldung für die Statusleiste.
+ */
+export function startControlServer(
+  onMeldung?: (e: FernsteuerungEreignis) => void,
+): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
-  server = new SuiteControlServer({
+  // Der Modus der Meldung kommt aus der meldenden Instanz (Rückspiel Task 26, Regel aus Task 21), nicht aus der Modulvariable.
+  const srv = new SuiteControlServer({
     appDataDir: app.getPath('appData'),
     role: 'presenter',
     appId: 'jm-presenter',
     controlEndpoint: true,
     getState: toSuiteState,
+    onStatus: (st) => {
+      onMeldung?.({ art: 'status', ...st, modus: srv.modus() });
+    },
     onCommand: (cmd, ctx) => {
       if (cmd.ns !== 'presenter') return;
       switch (cmd.verb) {
@@ -74,6 +85,7 @@ export function startControlServer(): Promise<{ ok: boolean; error?: string; por
       }
     },
   });
+  server = srv;
   // present.ts ist die Wahrheit → bei jeder Änderung den TCP-Clients pushen.
   unsubscribe = subscribe(() => server?.pushState(toSuiteState()));
   return server.start(CONTROL_PORT);

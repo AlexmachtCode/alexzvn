@@ -1,19 +1,28 @@
+// Video · OBS (UX Welle 2b, Studio-Control d2; B16, B3, Ruling Task 18): Pille über StatusPill aus @jm/ui mit geraetPille, die
+// Hauptreihe Aufnahme · Stream als TallyButtons aus obsTasten, jede im Behälter mit der alten Mindestbreite min-w-[120px];
+// Szenen bleiben normale Knöpfe. Der Gerätezustand gilt nur bei verbundenem Server (gemeldet). Befehle wie bisher.
 import { useMemo, useState } from 'react';
-import { Card, Button, cn } from '@jm/ui';
+import { Card, Button, StatusPill, TallyButton, cn, type TallyButtonProps } from '@jm/ui';
 import { Input } from '@/components/ui/Input';
 import { Headline } from '@/components/ui/Headline';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { StatusPill } from '@/components/ui/StatusPill';
+import { STUDIO_TEXTE, gemeldet, geraetPille, obsTasten, type OberflaechenStand } from '@/lib/oberflaeche';
 import { useApp } from '@/store/app';
 import { useSession } from '@/store/session';
 import { emitWithAck, apiFetch } from '@/sync/client';
-import { EVENTS, type ObsStatusEvent } from '@shared/protocol';
+import { EVENTS } from '@shared/protocol';
 import type { ObsCommand, ObsConfig } from '@shared/obs';
 import { DEFAULT_OBS_PORT } from '@shared/obs';
 import { canDo } from '@shared/roles';
 
+/** Die Hauptreihe aus obsTasten (Zustand und Grund): Aufnahme sendet record, Stream sendet stream (wie bisher). Rein, ohne DOM prüfbar. */
+export function obsReihe(stand: OberflaechenStand, id: string, exec: (c: ObsCommand) => void): TallyButtonProps[] {
+  const befehle: ObsCommand[] = [{ type: 'record' }, { type: 'stream' }];
+  return obsTasten(stand, id).map((t, i) => ({ ...t, onClick: () => exec(befehle[i]!) }));
+}
+
 /** Steuert eine OBS-Instanz über die studio-control-OBS-WebSocket-Bridge. */
-export function ObsPanel() {
+export function ObsPanel({ stand }: { stand: OberflaechenStand }) {
   const obs = useApp((s) => s.obs);
   const statuses = useApp((s) => s.obsStatuses);
   const role = useSession((s) => s.user?.role);
@@ -23,7 +32,8 @@ export function ObsPanel() {
   const [editing, setEditing] = useState(false);
 
   const current = useMemo(() => obs.find((o) => o.id === selectedId) ?? obs[0], [obs, selectedId]);
-  const status = current ? statuses[current.id] : undefined;
+  // Nur bei verbundenem Server gemessen (sonst Pille unbekannt, keine Szenen, Tasten gesperrt).
+  const status = current ? gemeldet(stand, statuses[current.id]) : undefined;
   const live = status?.state === 'connected';
 
   const canExec = role ? canDo(role, 'obs:exec') : false;
@@ -52,7 +62,7 @@ export function ObsPanel() {
   }
 
   return (
-    <Card className="p-6">
+    <Card data-panel="obs" className="p-6">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <SectionHeader>Video · OBS</SectionHeader>
@@ -74,7 +84,7 @@ export function ObsPanel() {
                   </option>
                 ))}
               </select>
-              <Badge status={status} />
+              <StatusPill {...geraetPille(status)} />
               {canManage && (
                 <Button size="sm" variant="ghost" onClick={() => setEditing((v) => !v)}>
                   {editing ? 'Schließen' : 'Bearbeiten'}
@@ -86,7 +96,7 @@ export function ObsPanel() {
       </div>
 
       {current && status?.state === 'down' && status.lastError && (
-        <div className="mb-4 rounded-[var(--radius)] border border-[var(--destructive)]/50 bg-[var(--destructive)]/10 px-3 py-2 text-xs">
+        <div className="mb-4 rounded-[var(--radius)] border border-[var(--destructive)]/50 bg-[var(--destructive)]/10 px-3 py-2 text-xs select-text">
           <span className="font-extrabold uppercase tracking-wider text-[var(--destructive)]">Verbindung fehlgeschlagen:</span>{' '}
           <span className="text-[var(--foreground)]">{status.lastError}</span>
           <span className="text-[var(--muted-foreground)]"> — WebSocket-Server in OBS aktiv? (Werkzeuge → WebSocket-Server-Einstellungen)</span>
@@ -127,7 +137,7 @@ export function ObsPanel() {
                       onClick={() => exec({ type: 'scene', scene })}
                       className={cn(
                         'h-11 rounded-[var(--radius)] border px-4 text-sm font-bold disabled:opacity-40',
-                        on ? 'text-white' : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)]/30',
+                        on ? 'text-[var(--destructive-foreground)]' : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)]/30',
                       )}
                       style={on ? { background: 'var(--destructive)', borderColor: 'var(--destructive)' } : undefined}
                     >
@@ -137,29 +147,20 @@ export function ObsPanel() {
                 })}
               </div>
             ) : (
-              <p className="text-xs text-[var(--muted-foreground)]">{live ? 'Keine Szenen.' : 'Nicht verbunden.'}</p>
+              // Ohne Meldung (oder ohne Server) ist die Verbindung nicht gemessen: unbekannt, nie „Nicht verbunden.“ (Task 16).
+              <p className="text-xs text-[var(--muted-foreground)]">{live ? 'Keine Szenen.' : status === undefined ? STUDIO_TEXTE.grund.unbekannt : 'Nicht verbunden.'}</p>
             )}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="lg"
-              variant={status?.recording ? 'destructive' : 'outline'}
-              disabled={!canExec || !live}
-              onClick={() => exec({ type: 'record' })}
-              className="min-w-[120px]"
-            >
-              {status?.recording ? '● Aufnahme' : 'Aufnahme'}
-            </Button>
-            <Button
-              size="lg"
-              variant={status?.streaming ? 'accent' : 'outline'}
-              disabled={!canExec || !live}
-              onClick={() => exec({ type: 'stream' })}
-              className="min-w-[120px]"
-            >
-              {status?.streaming ? '● Stream' : 'Stream'}
-            </Button>
+          {/* Hauptreihe wie bisher unter den Szenen; jede Taste im Behälter mit der alten Mindestbreite (B16).
+              Der Sperrgrund (span mit id im TallyButton) bricht innerhalb der Tastenbreite um: Die Taste bleibt so breit wie ihre
+              Beschriftung, die Reihe bleibt eine Zeile wie heute (Task 18, Variante A gemessen: sonst bricht die Reihe um). */}
+          <div data-studio="hauptreihe-obs" className="flex flex-wrap gap-2 [&_button>span[id]]:w-0 [&_button>span[id]]:min-w-full">
+            {obsReihe(stand, current.id, (c) => void exec(c)).map((p) => (
+              <div key={p.label} className="min-w-[120px]">
+                <TallyButton {...p} />
+              </div>
+            ))}
           </div>
 
           {canManage && !adding && (
@@ -177,17 +178,6 @@ export function ObsPanel() {
         </div>
       )}
     </Card>
-  );
-}
-
-function Badge({ status }: { status: ObsStatusEvent | undefined }) {
-  if (!status) return <StatusPill status="info">Idle</StatusPill>;
-  if (status.state === 'connected') return <StatusPill status="live">Verbunden</StatusPill>;
-  if (status.state === 'connecting') return <StatusPill status="setup">Verbinde …</StatusPill>;
-  return (
-    <span title={status.lastError ?? 'Offline'}>
-      <StatusPill status="error">Offline</StatusPill>
-    </span>
   );
 }
 

@@ -19,13 +19,15 @@ import {
   PFLICHTKLASSEN,
 } from '../galerie/pruefe-klassen';
 import { enthaelt, enthaeltNicht, gleich, leseText, ok, pruefeIdVerweise, render } from './harness';
+import { klassen, tags } from './lib/markup';
 
 // ── Vollständigkeit: diese Namen muss jede Spalte zeigen (Liste unabhängig vom Galerie-Code) ──
 const UI_NAMEN = [
   'farben', 'auswahl', 'groessen', 'groessen-kompakt',
   'statuspill-ok', 'statuspill-warn', 'statuspill-error', 'statuspill-off', 'statuspill-live',
-  'statusbar-gemischt', 'statusbar-knoepfe', 'statusbar-leer',
+  'statusbar-gemischt', 'statusbar-knoepfe', 'statusbar-voll', 'statusbar-leer',
   'tally-bereit', 'tally-live', 'tally-live-gesperrt', 'tally-gesperrt', 'tally-gesperrt-ohne-grund', 'tally-halten',
+  'tally-kuerzelzeile', 'halteknopf-aktiv', 'halteknopf-ruhig', 'halteknopf-gesperrt',
   'eingabe-text', 'eingabe-text-fehler', 'eingabe-text-gesperrt', 'eingabe-zahl', 'eingabe-zahl-einheit',
   'eingabe-zahl-ohne-feld', 'eingabe-schalter', 'eingabe-schalter-gesperrt', 'eingabe-auswahl', 'eingabe-auswahl-leer',
   'eingabe-auswahl-fehlt', 'eingabe-auswahl-fehler', 'eingabe-auswahl-gesperrt',
@@ -40,7 +42,7 @@ const SETTINGS_SOLL: Record<string, Exclude<StatusState, 'live'>> = {
   'ndi-ohne-name': 'off', 'ndi-gesperrt': 'ok', 'ndi-fehlertext': 'error',
   'bildschirm-ok': 'ok', 'bildschirm-warn': 'warn', 'bildschirm-error': 'error', 'bildschirm-unbekannt': 'off',
   'bildschirm-aus': 'off', 'bildschirm-keiner': 'off', 'bildschirm-gesperrt': 'ok', 'bildschirm-fehlertext': 'error',
-  'bildschirm-farbwaehler': 'ok',
+  'bildschirm-farbwaehler': 'ok', 'bildschirm-gemessen': 'ok', 'bildschirm-gemessen-fehlt': 'warn',
   'fernsteuerung-ok': 'ok', 'fernsteuerung-warn': 'warn', 'fernsteuerung-error': 'error',
   'fernsteuerung-unbekannt': 'off', 'fernsteuerung-aus': 'off', 'fernsteuerung-gesperrt': 'ok',
   'fernsteuerung-fehlertext': 'error', 'fernsteuerung-launcher-gesichert': 'ok',
@@ -67,6 +69,8 @@ const UI_PRUEFUNG: Record<string, string[]> = {
   'statuspill-live': ['data-state="live"'],
   'statusbar-gemischt': ['role="status"', 'h-[var(--statusbar-h)]'],
   'statusbar-knoepfe': ['<button', UI_TEXTE.statusOeffnen('NDI')],
+  // Gesamtprüfung UX Welle 2b (I1): elf Einträge, jeder schneidet ab; ok/off kürzen sich zuerst.
+  'statusbar-voll': ['overflow-hidden', 'shrink-[100]', 'min-w-7', 'title="Fernsteuerung: Port 8737 belegt"'],
   'statusbar-leer': ['role="status"', 'tabular'],
   // „Take-Klicks: 0“: eigener Zähler des reinen Klick-Knopfs „Take“, Messgerät für Owner-Prüfpunkt 7 (Take ziehen).
   'tally-bereit': ['border-[var(--tally-ready)]', 'min-h-[var(--control-h-lg)]', '>Take<', 'Take-Klicks: 0'],
@@ -75,6 +79,10 @@ const UI_PRUEFUNG: Record<string, string[]> = {
   'tally-live-gesperrt': ['data-state="live"', `>${UI_TEXTE.live}<`, 'text-[19px]', 'aria-disabled="true"', UI_TEXTE.gesperrt('während der Überblendung')],
   'tally-gesperrt': ['aria-disabled="true"', 'Nur im Live-Modus'],
   'tally-gesperrt-ohne-grund': ['aria-disabled="true"', UI_TEXTE.gesperrtOhneGrund],
+  'tally-kuerzelzeile': ['min-h-[var(--tally-h-kuerzel)]', '<kbd', '>Leertaste<'],
+  'halteknopf-aktiv': ['aria-pressed="true"', 'min-h-[var(--control-h)]', '>Sprechen<'],
+  'halteknopf-ruhig': ['aria-pressed="false"', 'min-h-[var(--control-h)]', '>Sprechen<'],
+  'halteknopf-gesperrt': ['aria-disabled="true"', UI_TEXTE.gesperrt('Kein Kanal')],
   'tally-halten': ['in 2 s sperren (dabei halten)', 'in 2 s live sperren (dabei halten)', 'in 2 s ausblenden (dabei halten)', 'wieder einblenden', '>live + gesperrt<'],
   // Owner-Entscheid O3 (09.10.2026): --field-border ist freigegeben und hat eine Farbkachel.
   'farben': ['--field-border'],
@@ -196,9 +204,14 @@ function ersterZustand(html: string): string | undefined {
     enthaelt(html, `src="${shellAdresse(r.parameter).replace(/&/g, '&amp;')}" width="${r.breite}"`, `Galerie: Rahmen ${r.titel}`);
   }
   gleich(
-    RAHMEN_ANSICHTEN.map((r) => `${r.breite}:${r.parameter.modus}:${r.parameter.sitzung ? 'sitzung' : 'ohne'}`).sort(),
+    RAHMEN_ANSICHTEN.filter((r) => !r.parameter.festDunkel).map((r) => `${r.breite}:${r.parameter.modus}:${r.parameter.sitzung ? 'sitzung' : 'ohne'}`).sort(),
     ['1200:dark:ohne', '1200:dark:sitzung', '1200:light:sitzung', '800:dark:sitzung', '800:light:sitzung'],
     'Galerie: Rahmen in 1200 px und 800 px (schmal), je Dunkel und Hell, dazu der Rahmen ohne Sitzung',
+  );
+  gleich(
+    RAHMEN_ANSICHTEN.filter((r) => r.parameter.festDunkel).map((r) => `${r.breite}:${r.parameter.modus}`).sort(),
+    ['1200:dark', '1200:light'],
+    'Galerie: Rahmen „fest dunkel mit Kopf-Aktion“ in beiden Modus-Spalten (Dunkel und Hell)',
   );
 }
 
@@ -262,6 +275,34 @@ function ersterZustand(html: string): string | undefined {
   );
 }
 
+// ── Rahmen-Seite „fest dunkel mit Kopf-Aktion“ (UX Welle 2b, Task 1) ──
+{
+  gleich(
+    leseShellParameter(new URLSearchParams('?ansicht=shell&modus=light&panel=0&dichte=normal&sitzung=1&fest=1')),
+    { modus: 'light', panel: false, dichte: 'normal', sitzung: true, festDunkel: true },
+    'ShellSeite fest=1 → festDunkel; ohne fest bleibt der Parameter unverändert (kein Schlüssel)',
+  );
+  ok(
+    shellAdresse({ modus: 'light', panel: false, dichte: 'normal', sitzung: true, festDunkel: true }).endsWith('&fest=1') &&
+      !shellAdresse({ modus: 'light', panel: false, dichte: 'normal', sitzung: true }).includes('fest'),
+    'ShellSeite: shellAdresse nennt fest=1 nur bei festDunkel',
+  );
+  for (const modus of ['dark', 'light'] as const) {
+    const html = render(<ShellSeite modus={modus} panel={false} dichte="normal" sitzung festDunkel />);
+    const wurzeln = tags(html, 'div');
+    ok(
+      wurzeln[0].includes(`class="${modus} `) && klassen(wurzeln[1]).includes('dark') && !html.includes('data-theme=') &&
+        html.includes('data-bereich="kopf-aktion"') && html.includes('data-zahnrad'),
+      `ShellSeite fest dunkel (Spalte ${modus}): Rahmen trägt dark, kein ThemeToggle, Kopf-Aktion nach ⚙`,
+    );
+  }
+  const wechselbar = render(<ShellSeite modus="light" panel={false} dichte="normal" sitzung />);
+  ok(
+    wechselbar.includes('data-theme=') && !wechselbar.includes('kopf-aktion') && !klassen(tags(wechselbar, 'div')[1]).includes('dark'),
+    'ShellSeite ohne festDunkel: ThemeToggle da, keine Kopf-Aktion, Rahmen ohne dark',
+  );
+}
+
 // ── Klassen-Probe: erkennt sie Vorhandenes und Fehlendes? (Ausschnitt aus dem gemessenen Galerie-CSS) ──
 {
   const css = String.raw`:root,.dark{--tally-live:oklch(62% .23 27);--surface-raised:oklch(25% 0 0)}.h-\[var\(--control-h-lg\)\]{height:var(--control-h-lg)}.h-\[var\(--statusbar-h\)\]{height:var(--statusbar-h)}@media not all and (min-width:900px){.max-\[900px\]\:sr-only{clip-path:inset(50%);white-space:nowrap;border-width:0;width:1px;height:1px;margin:-1px;padding:0;position:absolute;overflow:hidden}}:where(.space-y-2\.5>:not(:last-child)){margin-block-end:0}`;
@@ -287,8 +328,8 @@ function ersterZustand(html: string): string | undefined {
     'Probe: classNameLiterale liest nur className="…"',
   );
   ok(
-    NEUE_TOKENS.length === 13 && NEUE_TOKENS.includes('--field-border') && PFLICHTKLASSEN.length === 13,
-    'Probe: 13 Token-Namen (mit --field-border, Owner-Freigabe O3) und 13 Pflichtklassen',
+    NEUE_TOKENS.length === 14 && NEUE_TOKENS.includes('--field-border') && NEUE_TOKENS.includes('--tally-h-kuerzel') && PFLICHTKLASSEN.length === 15 && PFLICHTKLASSEN.includes('shrink-[100]') && PFLICHTKLASSEN.includes('min-w-7'),
+    'Probe: 14 Token-Namen (mit --field-border, Owner-Freigabe O3, und --tally-h-kuerzel, Welle 2b) und 15 Pflichtklassen (mit der Vorfahrt der Statusleiste, I1)',
   );
 }
 

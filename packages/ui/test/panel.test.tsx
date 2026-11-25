@@ -255,8 +255,53 @@ const anker = (html: string): Array<[string | undefined, string | undefined]> =>
   const fehlt = [
     'useLayoutEffektImBrowser(() => panelFokus(panelRef.current, aktivesElement, sectionId ? ankerIn(panelRef.current, sectionId) : null), []);',
     'useEffect(() => panelSprung(sectionId, (ziel) => ankerIn(panelRef.current, ziel), setHervorgehoben), [sectionId]);',
-    '<aside ref={panelRef} {...panelProps({ id, onClose })}>',
+    // seit I2 (Gesamtprüfung UX Welle 2b) mit dem Opt-in toolTasten
+    '<aside ref={panelRef} {...panelProps({ id, onClose, toolTasten })}>',
   ].filter((zeile) => quelle.split(zeile).length !== 2);
   ok(fehlt.length === 0, 'Panel Verdrahtung: Fokus- und Sprung-Effekt, Panel-Props per Spread (je genau einmal)');
   for (const zeile of fehlt) console.log(`     fehlt: ${zeile}`);
+}
+
+// ── Opt-in toolTasten (Gesamtprüfung UX Welle 2b, I2): Ein Tool kann bestimmen, welche Felder im Panel ihre Tasten trotzdem ans Tool
+// geben (Presenter-Referent: Auswahl und schreibgeschütztes Feld, damit der USB-Klicker weiterblättert, B10). Escape bleibt immer
+// beim Panel. Ohne die Prop ändert sich nichts (alle anderen Tools) ──
+{
+  const protokoll: string[] = [];
+  const taste = (key: string, target: { tagName: string; type?: string; readOnly?: boolean }) => ({
+    key,
+    defaultPrevented: false,
+    target,
+    stopPropagation: () => void protokoll.push(`stop ${key}`),
+    preventDefault: () => void protokoll.push(`prevent ${key}`),
+  });
+  const zu = () => void protokoll.push('zu');
+  const nurAuswahl = (ziel: unknown): boolean => (ziel as { tagName?: string }).tagName === 'SELECT';
+  const AUSWAHL = { tagName: 'SELECT' };
+  const TEXT = { tagName: 'INPUT', type: 'text' };
+  for (const key of ['PageDown', 'PageUp', 'ArrowRight', '.']) panelTaste(taste(key, AUSWAHL), zu, nurAuswahl);
+  gleich(protokoll, [], 'panelTaste toolTasten: Tasten aus einem freigegebenen Feld (Auswahl) erreichen das Tool, kein stopPropagation');
+  protokoll.length = 0;
+  panelTaste(taste('Escape', AUSWAHL), zu, nurAuswahl);
+  gleich(protokoll, ['stop Escape', 'prevent Escape', 'zu'], 'panelTaste toolTasten: Escape bleibt auch im freigegebenen Feld beim Panel und schließt es');
+  protokoll.length = 0;
+  panelTaste(taste('PageDown', TEXT), zu, nurAuswahl);
+  panelTaste(taste('.', TEXT), zu, nurAuswahl);
+  gleich(protokoll, ['stop PageDown', 'stop .'], 'panelTaste toolTasten: ein nicht freigegebenes Feld (Text) behält seine Tasten');
+  protokoll.length = 0;
+  panelTaste(taste('PageDown', AUSWAHL), zu);
+  gleich(protokoll, ['stop PageDown'], 'panelTaste ohne toolTasten: die Auswahl behält ihre Tasten wie bisher (alle anderen Tools)');
+  protokoll.length = 0;
+  const props = panelProps({ id: 'p', onClose: zu, toolTasten: nurAuswahl });
+  props.onKeyDown(taste('PageDown', AUSWAHL));
+  props.onKeyDown(taste('PageDown', TEXT));
+  gleich(protokoll, ['stop PageDown'], 'Panel-Props: toolTasten geht an panelTaste (Auswahl frei, Text bleibt im Panel)');
+}
+{
+  // Durchreichen: AppShell → SettingsPanel → panelProps. Pflichtzeilen im Quelltext (die Handler laufen nur im Browser).
+  const shell = leseText('src/components/AppShell.tsx');
+  const panel = leseText('src/components/SettingsPanel.tsx');
+  ok(
+    /toolTasten=\{panelToolTasten\}/.test(shell) && /panelProps\(\{ id, onClose, toolTasten \}\)/.test(panel) && /panelTaste\(e, p\.onClose, p\.toolTasten\)/.test(panel),
+    'Panel toolTasten: AppShell reicht panelToolTasten an SettingsPanel, das Panel an panelTaste',
+  );
 }

@@ -29,5 +29,7 @@
     // Reine Renderer-Hilfe, die test/zoom-text.test.ts prüft (Plan B, Task B7); composite verlangt jede Datei hier.
     "src/renderer/src/zoom/slot-vorschau.ts",
     "test/**/*.ts"
-  ]
+  ],
+  // Die Oberflächentests (JSX, Alias @/) prüft tsconfig.test.json.
+  "exclude": ["test/ui"]
 }

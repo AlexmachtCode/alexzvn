@@ -8,6 +8,7 @@ import {
   AppHeader,
   Button,
   Field,
+  HalteKnopf,
   NumberInput,
   PanelAnker,
   Select,
@@ -53,6 +54,7 @@ const GROESSEN: Array<{ name: string; normal: string; kompakt: string; breite?: 
   { name: '--statusbar-h', normal: '28 px', kompakt: '24 px' },
   { name: '--control-h', normal: '32 px', kompakt: '32 px' },
   { name: '--control-h-lg', normal: '48 px', kompakt: '48 px' },
+  { name: '--tally-h-kuerzel', normal: '90 px', kompakt: '90 px' },
   { name: '--panel-w', normal: '360 px', kompakt: '360 px', breite: true },
 ];
 
@@ -116,6 +118,24 @@ const STATUS_GEMISCHT: StatusItem[] = [
   { id: 'master', group: 'verbindung', label: 'Master', state: 'ok', detail: 'verbunden mit REGIE-PC' },
   { id: 'companion', group: 'fernsteuerung', label: 'Companion', state: 'off', detail: 'unbekannt' },
   { id: 'bildschirm', group: 'ausgabe', label: 'Bildschirm', state: 'error', detail: 'Bildschirm fehlt' },
+];
+
+/**
+ * Elf Einträge wie im Rauchtest-Bild von Connect (t27, Gesamtprüfung UX Welle 2b, I1): bei zu wenig Platz schneiden die Kästen ab,
+ * ok und off kürzen sich zuerst, Warnung, Fehler und live zuletzt; der volle Text steht im title.
+ */
+const STATUS_ELF: StatusItem[] = [
+  { id: 'master', group: 'verbindung', label: 'Master', state: 'off', detail: 'unbekannt' },
+  { id: 'cloud', group: 'verbindung', label: 'Cloud-Zugang', state: 'ok', detail: 'Connect holt die Adresse vom Master' },
+  { id: 'raum', group: 'verbindung', label: 'Raum', state: 'off', detail: 'nicht verbunden' },
+  { id: 'zoom', group: 'verbindung', label: 'Zoom', state: 'warn', detail: 'Einrichtung unvollständig' },
+  { id: 'zoom-einrichtung', group: 'verbindung', label: 'Zoom-Einrichtung', state: 'warn', detail: 'Zoom ist nicht vollständig eingerichtet' },
+  { id: 'programm', group: 'ausgabe', label: 'Programm', state: 'off', detail: 'Fehlt' },
+  { id: 'presenter', group: 'ausgabe', label: 'Presenter', state: 'off', detail: 'nicht gewählt' },
+  { id: 'gaeste-ndi', group: 'ausgabe', label: 'Gäste (NDI)', state: 'off', detail: 'keine' },
+  { id: 'zoom-slots', group: 'ausgabe', label: 'Zoom-Slots', state: 'off', detail: '0 von 16 Slots' },
+  { id: 'fernsteuerung', group: 'fernsteuerung', label: 'Fernsteuerung', state: 'error', detail: 'Port 8737 belegt' },
+  { id: 'gaeste', group: 'tool', label: 'Gäste', state: 'live', detail: '2 auf Sendung' },
 ];
 
 function StatusBarMitKnoepfen(): React.JSX.Element {
@@ -326,6 +346,33 @@ function PanelBeispiel({ modus }: { modus: Modus }): React.JSX.Element {
   );
 }
 
+// Halte-Knopf zum Ausprobieren: der Zähler zeigt, dass auf Druck und Loslassen je genau eine Meldung folgt.
+function HalteKnopfProbe(p: { gesperrt?: string }): React.JSX.Element {
+  const [gehalten, setGehalten] = useState(false);
+  const [zahl, setZahl] = useState({ gedrueckt: 0, losgelassen: 0 });
+  return (
+    <div className="space-y-2">
+      <HalteKnopf
+        label="Sprechen"
+        title="Zum Sprechen halten"
+        aktiv={gehalten}
+        gesperrt={p.gesperrt}
+        onPress={() => {
+          setGehalten(true);
+          setZahl((z) => ({ ...z, gedrueckt: z.gedrueckt + 1 }));
+        }}
+        onRelease={() => {
+          setGehalten(false);
+          setZahl((z) => ({ ...z, losgelassen: z.losgelassen + 1 }));
+        }}
+      />
+      <p className="tabular text-[11px]">
+        gedrückt {zahl.gedrueckt} · losgelassen {zahl.losgelassen}
+      </p>
+    </div>
+  );
+}
+
 function Tallys({ children }: { children: ReactElement }): React.JSX.Element {
   return <div style={{ width: 240 }}>{children}</div>;
 }
@@ -353,6 +400,7 @@ export function uiBeispiele(modus: Modus): Beispiel[] {
     })),
     { name: 'statusbar-gemischt', gruppe: 'StatusBar', titel: 'Gruppen gemischt übergeben, Leiste ordnet; ohne Knöpfe', element: <StatusBar items={STATUS_GEMISCHT} /> },
     { name: 'statusbar-knoepfe', gruppe: 'StatusBar', titel: 'Einträge mit Abschnitt öffnen das Panel', element: <StatusBarMitKnoepfen /> },
+    { name: 'statusbar-voll', gruppe: 'StatusBar', titel: 'Elf Einträge (Connect): Kästen schneiden ab, ok/off kürzen sich zuerst', element: <StatusBar items={STATUS_ELF} onOpenSection={nichts} /> },
     { name: 'statusbar-leer', gruppe: 'StatusBar', titel: 'Ohne Sitzung: nur die Uhr', element: <StatusBar items={[]} /> },
     { name: 'tally-bereit', gruppe: 'TallyButton', titel: 'bereit', element: <Tallys><TakeProbe /></Tallys> },
     { name: 'tally-live', gruppe: 'TallyButton', titel: 'live', element: <Tallys><TallyButton state="live" label="Bauchbinde 1" shortcut="Enter" onClick={nichts} /></Tallys> },
@@ -360,6 +408,10 @@ export function uiBeispiele(modus: Modus): Beispiel[] {
     { name: 'tally-gesperrt', gruppe: 'TallyButton', titel: 'gesperrt mit Grund', element: <Tallys><TallyButton state="gesperrt" label="Clear" disabledReason="Nur im Live-Modus" onClick={nichts} /></Tallys> },
     { name: 'tally-gesperrt-ohne-grund', gruppe: 'TallyButton', titel: 'gesperrt ohne Grund (Fehler des Tools, sichtbar gemacht)', element: <Tallys><TallyButton state="gesperrt" label="Clear" onClick={nichts} /></Tallys> },
     { name: 'tally-halten', gruppe: 'TallyButton', titel: 'Halten zum Sprechen: Zähler zum Ausprobieren', element: <Tallys><HaltenProbe /></Tallys> },
+    { name: 'tally-kuerzelzeile', gruppe: 'TallyButton', titel: 'Kürzelzeile: bereit, live und gesperrt gleich hoch', element: <Tallys><div className="space-y-2"><TallyButton state="bereit" label="GO" shortcut="Leertaste" kuerzelZeile onClick={nichts} /><TallyButton state="live" label="GO" shortcut="Leertaste" kuerzelZeile onClick={nichts} /><TallyButton state="gesperrt" label="GO" shortcut="Leertaste" kuerzelZeile disabledReason="Kein Signal" onClick={nichts} /></div></Tallys> },
+    { name: 'halteknopf-aktiv', gruppe: 'HalteKnopf', titel: 'aktiv (wird gehalten)', element: <Tallys><HalteKnopf label="Sprechen" title="Zum Sprechen halten" aktiv onPress={nichts} onRelease={nichts} /></Tallys> },
+    { name: 'halteknopf-ruhig', gruppe: 'HalteKnopf', titel: 'ruhig: zum Ausprobieren gedrückt halten (Zeiger, Leertaste oder Enter)', element: <Tallys><HalteKnopfProbe /></Tallys> },
+    { name: 'halteknopf-gesperrt', gruppe: 'HalteKnopf', titel: 'gesperrt mit Grund', element: <Tallys><HalteKnopfProbe gesperrt="Kein Kanal" /></Tallys> },
     { name: 'eingabe-text', gruppe: 'Eingaben', titel: 'Text mit Hilfe', element: <TextBeispiel /> },
     { name: 'eingabe-text-fehler', gruppe: 'Eingaben', titel: 'Text mit Fehler', element: <TextBeispiel fehler="Bitte einen Namen eintragen." /> },
     { name: 'eingabe-text-gesperrt', gruppe: 'Eingaben', titel: 'Text gesperrt', element: <TextBeispiel gesperrt="Vom Master vorgegeben" /> },

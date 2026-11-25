@@ -16,6 +16,7 @@ import './theme.test';
 import './eingabe.test';
 import './statusbar.test';
 import './tally.test';
+import './halteknopf.test';
 import './field.test';
 import './toggle-select.test';
 import './themetoggle.test';

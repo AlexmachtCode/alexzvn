@@ -26,19 +26,21 @@ function aktionen(log: string[] = []): LiveAktionen {
   };
 }
 const alleTasten = (s: OberflaechenStand, a: LiveAktionen = aktionen()): LiveTaste[] => liveTasten(s, a).flat();
-const zeile = (s: OberflaechenStand): string[] => alleTasten(s).map(({ taste: t }) => `${t.label}:${t.state}${t.shortcut ? `[${t.shortcut}]` : ''}`);
+// „[Kürzel]“ an der Beschriftung, „[Kürzel/Zeile]“, wenn das Kürzel in einer eigenen Zeile steht (kuerzelZeile).
+const zeile = (s: OberflaechenStand): string[] =>
+  alleTasten(s).map(({ taste: t }) => `${t.label}:${t.state}${t.shortcut ? `[${t.shortcut}${t.kuerzelZeile ? '/Zeile' : ''}]` : ''}`);
 
 // ── PR Live Tasten: sechs Tasten je Zustand, Reihe für Reihe (Marke zurück, GO/Pause, Marke vor · ↑ zurück, Anfang, ↓ vor) ──
 {
   gleich(
     [zeile(stand(state(false))), zeile(stand(state(true), undefined)), zeile(stand(state(true), OFFEN)), zeile(stand(state(false), OFFEN))],
     [
-      ['Marke zurück:bereit', 'GO:bereit[Leertaste]', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1]', '↓ vor:bereit'],
-      ['Marke zurück:bereit', 'Pause:bereit', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1]', '↓ vor:bereit'],
-      ['Marke zurück:bereit', 'Pause:live', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1]', '↓ vor:bereit'],
-      ['Marke zurück:bereit', 'GO:bereit[Leertaste]', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1]', '↓ vor:bereit'],
+      ['Marke zurück:bereit', 'GO:bereit[Leertaste/Zeile]', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1/Zeile]', '↓ vor:bereit'],
+      ['Marke zurück:bereit', 'Pause:bereit[Leertaste/Zeile]', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1/Zeile]', '↓ vor:bereit'],
+      ['Marke zurück:bereit', 'Pause:live[Leertaste/Zeile]', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1/Zeile]', '↓ vor:bereit'],
+      ['Marke zurück:bereit', 'GO:bereit[Leertaste/Zeile]', 'Marke vor:bereit', '↑ zurück:bereit', 'Anfang:bereit[Pos1/Zeile]', '↓ vor:bereit'],
     ],
-    'PR Live Tasten: sechs Tasten; GO/Pause, Anfang und die Marken aus hauptTasten; live nur bei scrollend und Talent-Monitor offen; Kürzel nur Leertaste (an GO nur in Ruhe, W63) und Pos1',
+    'PR Live Tasten: sechs Tasten; GO/Pause, Anfang und die Marken aus hauptTasten; live nur bei scrollend und Talent-Monitor offen; Kürzel Leertaste (an GO in jedem Zustand) und Pos1, je in eigener Zeile',
   );
   gleich(
     liveTasten(stand(state(false)), aktionen()).map((r) => r.map((t) => t.id)),
@@ -52,8 +54,8 @@ const zeile = (s: OberflaechenStand): string[] => alleTasten(s).map(({ taste: t 
   const soll = hauptTasten(s);
   const nach = (id: LiveTaste['id']): LiveTaste['taste'] | undefined => alleTasten(s).find((t) => t.id === id)?.taste;
   gleich(
-    [nach('go'), nach('anfang'), nach('markeZurueck'), nach('markeVor')].map((t) => [t?.label, t?.state, t?.shortcut, t?.disabledReason]),
-    [soll.go, soll.anfang, soll.markeZurueck, soll.markeVor].map((t) => [t.label, t.state, t.shortcut, t.disabledReason]),
+    [nach('go'), nach('anfang'), nach('markeZurueck'), nach('markeVor')].map((t) => [t?.label, t?.state, t?.shortcut, t?.kuerzelZeile, t?.disabledReason]),
+    [soll.go, soll.anfang, soll.markeZurueck, soll.markeVor].map((t) => [t.label, t.state, t.shortcut, t.kuerzelZeile, t.disabledReason]),
     'PR Live Tasten: GO/Pause, Anfang und die Marken sind genau die Ableitung hauptTasten (keine zweite Rechnung)',
   );
   const log: string[] = [];
@@ -67,6 +69,23 @@ const zeile = (s: OberflaechenStand): string[] => alleTasten(s).map(({ taste: t 
   const html = render(<HauptTasten tasten={liveTasten(stand(state(false)), aktionen())} />);
   gleich(tags(html, 'button').length, 6, 'PR Live Tasten: gerendert genau sechs TallyButtons');
   ok(html.includes('<kbd') && text(html).includes('Leertaste') && text(html).includes('Pos1'), 'PR Live Tasten: Kürzel „Leertaste“ und „Pos1“ stehen an den Tasten');
+  // PR GO mit Kürzel: gerendert steht das Kürzel von GO (in Ruhe, im Lauf, live) und von Anfang in einer eigenen Zeile.
+  const kuerzelZeilen = (s: OberflaechenStand): string[] => {
+    const h = render(<HauptTasten tasten={liveTasten(s, aktionen())} />);
+    return [...h.matchAll(/<div[^>]*data-taste="([^"]+)"[^>]*>([\s\S]*?)<\/button>/g)].flatMap((m) => {
+      const k = /<span data-kuerzel-zeile=""><kbd[^>]*><span class="sr-only">[^<]*<\/span>([^<]*)<\/kbd><\/span>/.exec(m[2]);
+      return k ? [`${m[1]}:${k[1]}`] : [];
+    });
+  };
+  gleich(
+    [kuerzelZeilen(stand(state(false))), kuerzelZeilen(stand(state(true))), kuerzelZeilen(stand(state(true), OFFEN))],
+    [
+      ['go:Leertaste', 'anfang:Pos1'],
+      ['go:Leertaste', 'anfang:Pos1'],
+      ['go:Leertaste', 'anfang:Pos1'],
+    ],
+    'PR GO mit Kürzel: gerendert stehen „Leertaste“ an GO und „Pos1“ an Anfang in eigener Kürzelzeile, in Ruhe, im Lauf und live',
+  );
   const gesperrt = render(
     <HauptTasten
       tasten={[
@@ -136,8 +155,9 @@ const zeile = (s: OberflaechenStand): string[] => alleTasten(s).map(({ taste: t 
     'PR Live Tastenplätze: GO und Anfang über je zwei Spalten (Anfang unter GO), die Marken, ↑ zurück und ↓ vor über je eine',
   );
   gleich(tags(html.slice(oben < 0 ? html.length : oben), 'button').length, 6, 'PR Live Tastenplätze: sechs Tasten unter der Vorschau, alle im Raster');
-  // Im Lauf ist GO („LIVE“, „Pause“, Kürzel in 19 px) breiter als sein Platz (gemessen): Der Platz schneidet ab und hält das Raster
-  // fest, damit nichts über einer Marke liegt oder ihr einen Klick wegnimmt; den abgeschnittenen Fokusring zeichnet er selbst.
+  // Im Lauf wäre GO („LIVE“, „Pause“ und Kürzel in einer Zeile, 19 px) breiter als sein Platz (gemessen); seit UX Welle 2b steht das
+  // Kürzel in einer eigenen Zeile. Der Platz schneidet zur Sicherung weiter ab und hält das Raster fest, damit nichts über einer Marke
+  // liegt oder ihr einen Klick wegnimmt; den abgeschnittenen Fokusring zeichnet er selbst.
   const goPlatz = attr(tags(html, 'div').find((t) => attr(t, 'data-taste') === 'go'), 'class') ?? '';
   ok(
     ['min-w-0', 'overflow-hidden', 'has-[:focus-visible]:outline-2', 'has-[:focus-visible]:outline-[var(--ring)]'].every((k) => goPlatz.split(' ').includes(k)),

@@ -60,6 +60,20 @@ const textVonId = (html: string, id: string, ende = '</p>'): string =>
   );
 }
 {
+  // Gesamtprüfung UX Welle 2b (M1, Wellenregel R9): body hat user-select: none; die Fehlerzeile von Field ist Text, den Bediener
+  // weitergeben (Gast-Klicker-Status, DataLink, NDI-Name, Hintergrund), darum markierbar. Hilfe und Sperrgrund bleiben, wie sie sind.
+  const html = render(
+    <Field label="Port" id="port" hint="Standard 8729" lockedReason="Vom Master vorgegeben" error="Port belegt">
+      <TextInput value="8729" onChange={nichts} />
+    </Field>,
+  );
+  const zeile = (id: string): string => tags(html, 'p').find((t) => attr(t, 'id') === id) ?? '';
+  ok(
+    hatKlassen(zeile('port-fehler'), 'select-text') && !hatKlassen(zeile('port-hilfe'), 'select-text') && !hatKlassen(zeile('port-sperre'), 'select-text'),
+    'Field Fehler markierbar (R9): die Fehlerzeile trägt select-text, Hilfe und Sperrgrund unverändert',
+  );
+}
+{
   const html = render(
     <Field label="Ordner" id="ordner" lockedReason="Vom Master vorgegeben">
       <TextInput value="D:/Show" onChange={nichts} disabled={false} />

@@ -1,7 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Funktionsliste nach dem Umbau (UX Welle 2a, Stage-Display e; Spec 10 „Kein Funktionsverlust“). Jede der 108 Zeilen in den
 // Abschnitten 1–7 von docs/ux/funktionslisten/stage-display.md ist in „künftig wo“ abgehakt: „✓ “ und ein Ort des Ortsregisters,
-// „unverändert (…)“, „entfällt (…, E…)“ oder „ersetzt durch {Ort} (…, E…)“. E-Verweise nur auf E1–E16 dieses Plans. Jede
+// „unverändert (…)“, „entfällt (…, E…)“ oder „ersetzt durch {Ort} (…, E…)“. Verweise nur auf E1–E16 (Plan 2a) und, seit dem
+// 2a-Nachzug in Welle 2b (Task 5), auf B1–B22 (Plan 2b). Jede
 // genannte Datei existiert, Groß- und Kleinschreibung wie im Repo. Dazu Querprüfungen gegen den Code (keine Kürzel, Panel-Tasten
 // nach O1, die Abläufe in der Wurzel-View statt im Panel, die Bedienelemente an ihrem neuen Ort).
 // Läuft im Paketordner apps/stage-display (npm run selftest -w @jm/stage-display).
@@ -73,21 +74,26 @@ const GEAENDERT = [
 /** Geänderte Dateien außerhalb von apps/stage-display, die ein unverändert-Haken zitieren könnte (Task 1, W2-2: Ausgabezustand). */
 const PAKETE_GEAENDERT = [
   'packages/output-window/package.json',
+  'packages/output-window/src/bildschirme.ts',
   'packages/output-window/src/index.ts',
   'packages/output-window/src/zustand.ts',
+  'packages/output-window/test/bildschirme.test.ts',
   'packages/output-window/test/selftest.ts',
   'packages/output-window/test/zustand.test.ts',
 ];
 
 /**
  * Dateien, die nur die lesenden Brücken bekamen: main/index.ts den Ausgabezustand (E3), preload/index.ts und shared/types.ts die
- * Brücken und Typen dazu (E2, E3), das Fenster-Paket den Ausgabezustand (E3).
+ * Brücken und Typen dazu (E2, E3), das Fenster-Paket den Ausgabezustand (E3). Welle 2b (Task 5) ergänzt nur das lesende
+ * Bildschirm-Ereignis: in main/index.ts, preload/index.ts, shared/types.ts und im Fenster-Paket (index.ts und die neue reine
+ * Datei bildschirme.ts).
  */
 const NUR_MELDUNG = new Set([
   'apps/stage-display/src/main/index.ts',
   'apps/stage-display/src/preload/index.ts',
   'apps/stage-display/src/shared/types.ts',
   'packages/output-window/src/index.ts',
+  'packages/output-window/src/bildschirme.ts',
 ]);
 
 const GEAENDERT_KANON = new Set([...GEAENDERT, ...PAKETE_GEAENDERT]);
@@ -108,9 +114,9 @@ if (GIT_PRUEFEN && GIT === null) console.log(`SD Funktionsliste: kein git-Verlau
 
 /** Datei in Backticks: Pfad mit Endung, aufgelöst nach der Pfadregel im Kopf der Liste. */
 const PFAD = /`([A-Za-z0-9_./-]+\.(?:tsx|ts|css|html|json|md|mjs))`/g;
-/** Nur die Entscheidungen E1–E16 dieses Plans sind erlaubte Verweise. */
-const VERWEIS = /\bE(?:[1-9]|1[0-6])\b/;
-const FREMD = /\b(?:E(?:0|1[7-9]|[2-9]\d)|E\d{3,}|OF\d+)\b/;
+/** Erlaubte Verweise: die Entscheidungen E1–E16 des Plans 2a und, für den 2a-Nachzug in Welle 2b, die Festlegungen B1–B22. */
+const VERWEIS = /\b(?:E(?:[1-9]|1[0-6])|B(?:[1-9]|1\d|2[0-2]))\b/;
+const FREMD = /\b(?:E(?:0|1[7-9]|[2-9]\d)|E\d{3,}|B(?:0|2[3-9]|[3-9]\d)|B\d{3,}|OF\d+)\b/;
 
 interface Zeile {
   abschnitt: number;
@@ -180,7 +186,7 @@ function zeilenFehler(z: Zeile): string | null {
   const rest = k.slice(2);
   const ohneCode = k.replace(/`[^`]*`/g, '');
   if (ohneCode.includes('"')) return 'ASCII-Anführungszeichen';
-  if (FREMD.test(ohneCode)) return 'Verweis außerhalb von E1–E16';
+  if (FREMD.test(ohneCode)) return 'Verweis außerhalb von E1–E16 und B1–B22';
   let form: string | undefined;
   if (rest.startsWith('unverändert (')) form = 'unverändert';
   else if (rest.startsWith('entfällt (')) form = 'entfällt';
@@ -445,4 +451,47 @@ ok(
 {
   const dateien = ['App.tsx', 'views/StageOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Einstellungen.tsx', 'views/StageOutputView.tsx', 'lib/aktionen.ts', 'lib/oberflaeche.ts', 'lib/bruecken.ts'];
   ok(dateien.every((d) => !/\bwindow\.(?:confirm|alert)\(/.test(quelle(d))), 'SD Funktionsliste: weiter kein window.confirm und kein window.alert im Renderer');
+}
+
+// ── 2a-Nachzug in Welle 2b (Task 5): gemessener Ort im Ausgabe-Abschnitt statt der Zeile „Lage“, Bildschirmliste folgt dem
+// Bildschirm-Ereignis; kein Steuerserver, neu im Main und Preload nur das lesende Ereignis ──
+{
+  const main = quelle('main/index.ts');
+  const preload = quelle('preload/index.ts');
+  ok(
+    ['Steht auf', 'measuredId', 'folgeBildschirmen', 'output:bildschirme'].every((w) => kuenftig(7).includes(w)) &&
+      !kuenftig(7).includes('Bühnenschirm: offen') &&
+      !panel.includes('gemesseneLage') &&
+      !panel.includes('data-stage="lage"') &&
+      obf.includes('measuredId') &&
+      !obf.includes('gemesseneLage'),
+    'SD Funktionsliste Nachzug Nr. 7: der Ausgabe-Abschnitt nennt den gemessenen Ort („Steht auf“, measuredId), die Liste folgt output:bildschirme; die Zeile „Lage“ entfällt',
+  );
+  ok(
+    kuenftig(48).includes('folgeBildschirmen') && kuenftig(48).includes('`lib/aktionen.ts`') && kuenftig(84).includes('folgeBildschirmen') && wurzel.includes('folgeBildschirmen(window.jmstage?.output?.onBildschirme'),
+    'SD Funktionsliste Nachzug Nr. 48/84: die Wurzel-View liest die Liste auch bei jedem Bildschirm-Ereignis (folgeBildschirmen)',
+  );
+  ok(
+    ['beobachteBildschirme', 'output:bildschirme', '`packages/output-window/src/bildschirme.ts`', '2a-Nachzug'].every((w) => kuenftig(63).includes(w)) &&
+      main.includes("mainWindow.webContents.send('output:bildschirme');") &&
+      !kuenftig(63).includes('nur der lesende Kanal output:zustand'),
+    'SD Funktionsliste Nachzug Nr. 63: der Main meldet angesteckte, abgezogene und geänderte Bildschirme über beobachteBildschirme (output:bildschirme)',
+  );
+  ok(
+    ['output:bildschirme', 'onBildschirme'].every((w) => kuenftig(68).includes(w)) && /\bE2\b/.test(kuenftig(68)) && kuenftig(68).includes('Steuerserver') && preload.includes('onBildschirme'),
+    'SD Funktionsliste Nachzug Nr. 68: weiter kein Steuerserver; im Preload neu nur die lesenden Brücken (Master-Link, Ausgabezustand, Bildschirm-Ereignis)',
+  );
+  // Jeder Haken, der sagt, die Datei bekäme „nur“ etwas Lesendes, nennt auch das Bildschirm-Ereignis.
+  const alt = alle.filter((z) => /nur den lesenden Ausgabezustand \(E3\)(?! und das lesende Bildschirm-Ereignis)/.test(z.zellen[6]));
+  const neu = alle.filter((z) => z.zellen[6].includes('nur den lesenden Ausgabezustand (E3) und das lesende Bildschirm-Ereignis'));
+  ok(alt.length === 0 && neu.length >= 14, `SD Funktionsliste Nachzug: kein Haken sagt mehr, main/index.ts bekäme nur den Ausgabezustand (${alt.map((z) => z.nr).join(',') || 'keiner'}; mit Ereignis: ${neu.length})`);
+  const synth = (k: string): Zeile => ({ abschnitt: 3, nr: 0, zellen: ['0', '', '', '', '', '', k] });
+  ok(
+    zeilenFehler(synth('✓ entfällt (x, B7)')) === null &&
+      zeilenFehler(synth('✓ entfällt (x, B22)')) === null &&
+      (zeilenFehler(synth('✓ entfällt (x, B23)')) ?? '').includes('Verweis außerhalb') &&
+      (zeilenFehler(synth('✓ entfällt (x, B0)')) ?? '').includes('Verweis außerhalb') &&
+      (zeilenFehler(synth('✓ entfällt (x, E17)')) ?? '').includes('Verweis außerhalb'),
+    'SD Funktionsliste: Verweise B1–B22 und E1–E16 gelten, B0, B23 und E17 nicht',
+  );
 }

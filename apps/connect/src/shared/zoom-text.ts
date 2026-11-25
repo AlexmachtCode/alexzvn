@@ -335,6 +335,15 @@ export function gaesteZeile(s: AppStatus): string {
 }
 
 /**
+ * Zoom- und Gäste-Zeile ohne ihren Vorsatz „‹Symbol› Zoom: “ bzw. „‹Symbol› Gäste: “ (UX Welle 2b, Task 23): Die Statusleiste
+ * zeigt Symbol und Namen eines Eintrags selbst, sonst stünden beide doppelt da. Weggenommen wird nur dieser Vorsatz am Anfang; der
+ * Rest ist der Text der Zeile selbst (zoomZeile, gaesteZeile), nie ein nachgebauter. Tray und Tooltip behalten die ganze Zeile.
+ */
+export function ohneVorsatz(zeile: string): string {
+  return zeile.replace(/^[●○△◌✕] (?:Zoom|Gäste): /, '');
+}
+
+/**
  * Tooltip des Tray-Symbols, das einzige kombinierte Feld (Spec 7.4; Plan C Regel TT, T132): „Zuschaltungen aktiv“ bei e > 0
  * oder n > 0 (n = laufende Slots, 9.5), „NDI-Ausfall“ bei ndi_alarm = 1 (22.6), dann die Zoom-Teile unverändert.
  */

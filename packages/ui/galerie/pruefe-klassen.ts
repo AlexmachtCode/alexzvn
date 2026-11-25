@@ -28,6 +28,7 @@ export const NEUE_TOKENS = [
   '--statusbar-h',
   '--control-h',
   '--control-h-lg',
+  '--tally-h-kuerzel',
   '--panel-w',
 ] as const;
 
@@ -46,6 +47,9 @@ export const PFLICHTKLASSEN = [
   'max-[900px]:absolute',
   'select-text',
   'sr-only',
+  // Vorfahrt der Statusleiste (Gesamtprüfung UX Welle 2b, I1): stehen nur in STATUS_SCHRUMPF_KLASSE bzw. cn(…), nicht als Literal.
+  'shrink-[100]',
+  'min-w-7',
 ] as const;
 
 /** Klassen, die Tailwind absichtlich ohne eigene Regel lässt (nur Marker für Varianten). */

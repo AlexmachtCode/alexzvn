@@ -1,3 +1,17 @@
+import type { FernsteuerungMeldung } from '@shared/fernsteuerung';
+
+/**
+ * Master-Link-Zustand für die Statusleiste. Spiegel von MasterLinkMeldung aus @jm/app-runtime, das im Renderer nicht
+ * importierbar ist (Main-Code). Den Gleichlauf prüft die Typprüfung des Preloads.
+ */
+export type MasterLinkMeldungZeile =
+  | { art: 'aus' }
+  | { art: 'sucht' }
+  | { art: 'verbindet'; adresse: string }
+  | { art: 'verbunden'; adresse: string; seit: number; masterName: string; suite: string }
+  | { art: 'fehler'; code: string; text: string; errCode?: string }
+  | { art: 'ohne-client' };
+
 declare global {
   interface Window {
     jms?: {
@@ -10,8 +24,10 @@ declare global {
         getAddresses: () => Promise<string[]>;
       };
       closeWindow: () => Promise<void>;
+      masterLink: () => Promise<MasterLinkMeldungZeile | null>;
+      onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
+      fernsteuerung: () => Promise<FernsteuerungMeldung | null>;
+      onFernsteuerung: (cb: (m: FernsteuerungMeldung | null) => void) => () => void;
     };
   }
 }
-
-export {};

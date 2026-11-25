@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@jm/ui/base.css";
 @source "../../../../../packages/ui/src";
+@source "../../../../../packages/settings/src";
 
 @theme {
   --font-sans: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;

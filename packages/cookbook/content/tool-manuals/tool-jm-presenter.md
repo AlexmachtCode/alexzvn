@@ -49,27 +49,27 @@ summary: "Folien aus PDF/PowerPoint aufbereiten und mit getrennter Referenten- u
 ## Schritt-für-Schritt
 
 ### Einrichtung
-- Dokument importieren: PDF/Bilder direkt, Office-Dateien werden per LibreOffice zu PDF gewandelt. Bei Bedarf als **.jmpres**-Projekt speichern (behält Overlays/Reihenfolge).
+- Dokument importieren: mit „+ PDF / Bilder“ bzw. „+ Office“ in der Werkzeugleiste des Editors oder per Ziehen ins Fenster. PDF/Bilder direkt, Office-Dateien werden per LibreOffice zu PDF gewandelt (PPTX-Aufbau-Animationen als Einzelschritte schaltet das Panel ⚙ › Import). Bei Bedarf mit „Speichern“ als **.jmpres**-Projekt speichern (behält Overlays/Reihenfolge).
 - Optional **Overlays** je Folie setzen (Text/Logo/Bauchbinde, frei positioniert).
-- **Publikumsansicht** auf den Beamer/zweiten Monitor legen (Vollbild); die **Referentenansicht** bleibt beim Operator (aktuelle + nächste Folie, Notizen).
-- Handy-Clicker aktivieren: Port/Interface wählen, **PIN** setzen, QR/URL ans Handy geben.
-- Fernsteuerung: Companion/Rundown auf Port 8728; JM Timer für den Countdown verbinden (7777).
-- **Gast-Klicker übers Internet** (für Remote-Gäste, z. B. per Zoom): im Fenster **Fernsteuerung** den Abschnitt „Gast-Klicker“ einschalten, **„Für den Zoom-Chat kopieren“** und den Link einmal in den Chat stellen (ein Link je Event; er bleibt nach einem Neustart gleich). Der Gast öffnet ihn im Browser, sieht ein kleines Bild der aktuellen Folie und klickt **Next/Back** oder nutzt die Pfeiltasten – ohne Installation.
+- **Publikumsansicht** auf den Beamer/zweiten Monitor legen (Vollbild): im Editor den Bildschirm im Panel ⚙ › Ausgabe auf Bildschirm wählen, dann mit der Haupttaste „Präsentieren“ rechts in der Werkzeugleiste starten. Während der Präsentation den Bildschirm in der Leiste des Referenten wählen und mit „Auf diesen Bildschirm“ umziehen; die Wahl allein verschiebt nichts. Die **Referentenansicht** bleibt beim Operator (aktuelle + nächste Folie, Notizen) und bleibt dunkel, auch wenn der Editor hell ist.
+- Handy-Clicker im Panel ⚙ › Handy-Fernsteuerung aktivieren (in Editor und Referent, auch vor der Präsentation): Netzwerkkarte und Port wählen und mit „Setzen“ übernehmen, „PIN-Schutz (empfohlen im offenen WLAN)“ anlassen, den Server einschalten („Server aktiv“), QR/URL und **PIN** aus dem Abschnitt ans Handy geben.
+- Fernsteuerung: Companion/Rundown auf Port 8728 (Statusleiste „Fernsteuerung“, Panel ⚙ › Fernsteuerung); JM Timer für den Countdown im Panel ⚙ › Gegenstellen verbinden: in der Zeile „JM Timer“ „Aktiv“ einschalten, Host und Port (7777) eintragen und mit „Setzen“ übernehmen (Statusleiste „JM Timer“).
+- **Gast-Klicker übers Internet** (für Remote-Gäste, z. B. per Zoom): im Panel ⚙ › Gast-Klicker (in Editor und Referent, auch vor der Präsentation) den Schalter einschalten („Gast-Klicker an“), **„Für den Zoom-Chat kopieren“** und den Link einmal in den Chat stellen (ein Link je Event; er bleibt nach einem Neustart gleich). Der Gast öffnet ihn im Browser, sieht ein kleines Bild der aktuellen Folie und klickt **Next/Back** oder nutzt die Pfeiltasten – ohne Installation.
 
 ### Während
-- Navigieren mit `NEXT`/`PREV` (lokal, Handy oder Companion). `GOTO` springt gezielt.
-- `BLACK`/`WHITE` für Pausen/Umbau, `LIVE` holt die Folie zurück.
-- Referentenansicht im Blick behalten: Notizen + nächste Folie + Countdown; das Publikum sieht nur die saubere Folie.
-- Gast-Klicker: Die Anzeige **„Gast-Klick ●“** in der Referentenansicht pausiert Gast-Klicks per Klick (**„Gast-Klick pausiert“**) und setzt sie fort. Der eigene Clicker und die Tastatur wirken immer.
+- Navigieren mit `NEXT`/`PREV` (lokal mit den Haupttasten „Zurück“ und „Weiter“ unter der Folie im Referenten, dem Klicker oder den Pfeiltasten, per Handy oder Companion). Mit Schleife springt „Weiter“ auf der letzten Folie zur ersten. `GOTO` springt gezielt (lokal die Nummer ins Feld „Folie“ zwischen „Zurück“ und „Weiter“ tippen, dann Enter oder „Gehe zu“). Steht der Cursor in einem Textfeld, wirken die Tastenkürzel nicht; auf einer Auswahl (auch im Panel) und im Gast-Link blättert der Klicker weiter.
+- `BLACK`/`WHITE` für Pausen/Umbau, `LIVE` holt die Folie zurück (lokal die Haupttasten „Schwarz“ links und „Weiß“ rechts unter der Folie oder B und W; ein zweiter Druck holt die Folie zurück, solange steht an der Taste „Schwarz · an“ bzw. „Weiß · an“).
+- Referentenansicht im Blick behalten: Notizen + nächste Folie + Countdown (Timer-Leiste über „Nächste Folie“); das Publikum sieht nur die saubere Folie. ON AIR im Kopf leuchtet nur, solange das Publikum die Folie sieht, nicht bei Schwarz oder Weiß.
+- Gast-Klicker: Die Anzeige **„Gast-Klick ●“** in der Leiste der Referentenansicht pausiert Gast-Klicks per Klick (**„Gast-Klick pausiert“**) und setzt sie fort. Der eigene Clicker und die Tastatur wirken immer.
 
 ### Nachbereitung
-- `STOP` beendet die Präsentation; Projekt (.jmpres) sichern, falls Overlays/Anpassungen erhalten bleiben sollen.
+- `STOP` beendet die Präsentation (lokal „■ Beenden“ ganz rechts im Kopf des Referenten, bei schmalem Fenster als letzte Taste rechts in der Leiste, oder Esc außerhalb des Panels, im Editor „Beenden“ in der Werkzeugleiste); Projekt (.jmpres) mit „Speichern“ sichern, falls Overlays/Anpassungen erhalten bleiben sollen.
 
 ## Profi-Tipps
 - Office vorab importieren und als **.jmpres** speichern — der LibreOffice-Wandlungsschritt passiert dann einmal in Ruhe, nicht unter Live-Druck.
 - Notizen in der Quelldatei pflegen — sie erscheinen in der Referentenansicht und (optional) auf dem JM Stage Display als Confidence-Monitor.
 - Handy-Clicker mit **PIN** betreiben, sonst kann jeder im WLAN weiterklicken. Dieselbe PIN braucht das Stage Display für den Folien-Feed.
-- Gast-Klicker: Wer den Link hat, kann vor/zurück klicken. Ist Publikum im Zoom-Chat, den Link **privat** an den Gast schicken. Wurde ein Link weitergegeben, im Fenster Fernsteuerung **„Neuer Link“** – der alte wirkt dann nicht mehr.
+- Gast-Klicker: Wer den Link hat, kann vor/zurück klicken. Ist Publikum im Zoom-Chat, den Link **privat** an den Gast schicken. Wurde ein Link weitergegeben, im Panel ⚙ › Gast-Klicker **„Neuer Link“** – der alte wirkt dann nicht mehr.
 - `BLACK` auf einen Companion-Button — schneller sauberer „Vorhang" zwischen zwei Programmpunkten.
 - Über eine **`.jmshow`** öffnet der Presenter sein `.jmpres` automatisch; das Stage Display zieht Referenten-Feed + PIN aus derselben Show.
 
@@ -78,13 +78,13 @@ summary: "Folien aus PDF/PowerPoint aufbereiten und mit getrennter Referenten- u
 | Risiko | Gegenmaßnahme |
 | --- | --- |
 | Office-Import schlägt fehl | LibreOffice installiert und auffindbar? Sonst als PDF exportieren und dieses importieren |
-| „Port belegt" bei der Fernbedienung | Anderen Remote-Port wählen (Standard 7330) |
+| „Port belegt“ bei der Fernbedienung | Den Fehler zeigen das Panel ⚙ › Handy-Fernsteuerung und die Statusleiste „Handy-Fernsteuerung“. Dort einen anderen Port eintragen (Standard 7330), mit „Setzen“ übernehmen und den Server wieder einschalten („Server aktiv“); „Setzen“ allein startet ihn nach dem Fehler nicht |
 | Handy/Clicker meldet 401 | Falsche/fehlende PIN — PIN am Handy eingeben; dieselbe PIN im Stage Display |
-| Kein Bild auf dem Beamer | Publikumsfenster geöffnet + richtiger Monitor? Vollbild aktiv? |
-| Countdown bleibt leer | JM Timer läuft und ist auf 7777 erreichbar, Timer-Sync aktiv? |
-| Gast sieht „Presenter offline“ / Anzeige „Gast-Klick getrennt“ | Gast-Klicker eingeschaltet? Internet am Präsentationsrechner prüfen; der Presenter verbindet von selbst neu. Bis dahin weiter wie gewohnt selbst klicken |
-| Gast sieht „This link is not active“ | Der Link ist veraltet (inzwischen „Neuer Link“ erzeugt), war noch nie verbunden oder 7 Tage unbenutzt – im Fenster Fernsteuerung den aktuellen Link kopieren, dem Gast schicken, Gast lädt die Seite neu |
-| Companion steuert nicht | Port 8728 offen? `jm-presenter-ctl` (ctl=1) im mDNS? |
+| Kein Bild auf dem Beamer | Statusleiste „Publikum“ ansehen: Sie nennt den Bildschirm, auf dem das Publikumsfenster wirklich steht. Falscher Monitor: in der Leiste des Referenten den richtigen wählen und „Auf diesen Bildschirm“ drücken. Vollbild aktiv („Publikum Vollbild“ in der Leiste)? |
+| Countdown bleibt leer | JM Timer läuft und ist auf 7777 erreichbar? Statusleiste „JM Timer“ ansehen; im Panel ⚙ › Gegenstellen „Aktiv“ an, Host und Port mit „Setzen“ übernommen? |
+| Gast sieht „Presenter offline“ / Anzeige „Gast-Klick getrennt“ | Gast-Klicker im Panel ⚙ › Gast-Klicker eingeschaltet (Statusleiste „Gast-Klicker“)? Internet am Präsentationsrechner prüfen; der Presenter verbindet von selbst neu. Bis dahin weiter wie gewohnt selbst klicken |
+| Gast sieht „This link is not active“ | Der Link ist veraltet (inzwischen „Neuer Link“ erzeugt), war noch nie verbunden oder 7 Tage unbenutzt – im Panel ⚙ › Gast-Klicker den aktuellen Link kopieren, dem Gast schicken, Gast lädt die Seite neu |
+| Companion steuert nicht | Statusleiste „Fernsteuerung“ ansehen (bereit, Port belegt, Fehler); Port 8728 offen? `jm-presenter-ctl` (ctl=1) im mDNS? |
 
 ## Checklisten
 

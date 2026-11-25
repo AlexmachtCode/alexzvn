@@ -1,6 +1,7 @@
 // Aktionen der Oberfläche (UX Welle 2a, Stage-Display d): rein, ohne window; der Store liefert die Funktionen. Eine Bildschirmwahl
 // merkt nur `outputDisplayId` (setConfig) und öffnet oder verschiebt kein Fenster; das Verschieben ist der eigene Knopf.
-// Dazu das Lesen der Bildschirmliste (Gesamtprüfung I3: wie im Player, auch bei jeder Änderung des Ausgabezustands).
+// Dazu das Lesen der Bildschirmliste (Gesamtprüfung I3: wie im Player, auch bei jeder Änderung des Ausgabezustands) und, seit
+// UX Welle 2b, ihr Folgen auf das Bildschirm-Ereignis (folgeBildschirmen).
 import type { ScreenOption } from '@jm/settings';
 import type { DisplayInfo, PartialStageConfig, PresenterMode, StageConfig } from '@shared/types';
 import { bildschirmEtikett, type StageAktionen } from './oberflaeche';
@@ -65,5 +66,28 @@ export function liesBildschirme(frage: (() => Promise<DisplayInfo[]>) | undefine
   );
   return () => {
     weg = true;
+  };
+}
+
+/**
+ * Bildschirmliste dem Bildschirm-Ereignis folgen lassen (UX Welle 2b, `output:bildschirme`): meldet sich an und liest bei jedem
+ * Ereignis die Liste neu (`liesBildschirme`). Ein neues Ereignis verwirft die noch offene Antwort des vorigen, damit eine ältere
+ * Liste keine neuere überschreibt. Ohne Brücke (kein Ereignis oder keine Abfrage) nichts. Liefert die Abmeldung; danach wird auch
+ * eine noch eintreffende Antwort verworfen.
+ */
+export function folgeBildschirmen(
+  onBildschirme: ((cb: () => void) => () => void) | undefined,
+  frage: (() => Promise<DisplayInfo[]>) | undefined,
+  setze: (liste: ScreenOption[] | undefined) => void,
+): () => void {
+  if (onBildschirme === undefined || frage === undefined) return () => undefined;
+  let offen: () => void = () => undefined;
+  const ab = onBildschirme(() => {
+    offen();
+    offen = liesBildschirme(frage, setze);
+  });
+  return () => {
+    ab();
+    offen();
   };
 }

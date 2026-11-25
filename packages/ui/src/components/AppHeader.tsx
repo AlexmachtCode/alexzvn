@@ -19,10 +19,14 @@ export interface AppHeaderProps {
   panelId?: string;
   /** Platz für die Ampel auf macOS; Vorgabe isElectronMac (im Browser und unter Node false). */
   mac?: boolean;
+  /** `dunkel` = festes Dunkel: kein ThemeToggle im Kopf (die Wurzel des Rahmens trägt `dark`). Vorgabe `wechselbar`. */
+  thema?: 'wechselbar' | 'dunkel';
+  /** Eine Aktion ganz rechts im Kopf, nach ⚙, in einem Element mit `data-bereich="kopf-aktion"` und noDragRegion. */
+  kopfAktion?: ReactNode;
 }
 
 /**
- * Kopfzeile (Spec 3.2, 3.8): links Logo und „JM {tool}“, Mitte `center`, rechts On-Air-Anzeige, ThemeToggle und ⚙.
+ * Kopfzeile (Spec 3.2, 3.8): links Logo und „JM {tool}“, Mitte `center`, rechts On-Air-Anzeige, ThemeToggle (nur bei `thema` wechselbar), ⚙ und `kopfAktion`.
  * Die ganze Zeile ist Fenster-Ziehfläche (dragRegion); jedes Bedienelement und die Mitte tragen selbst noDragRegion,
  * sonst wären sie im Electron-Fenster nicht klickbar. Auf macOS (hiddenInset) 80 px Platz für die Ampel.
  */
@@ -35,6 +39,8 @@ export function AppHeader({
   onSettingsToggle,
   panelId,
   mac = isElectronMac,
+  thema = 'wechselbar',
+  kopfAktion,
 }: AppHeaderProps): React.JSX.Element {
   const zahnradText = settingsOpen ? UI_TEXTE.einstellungenSchliessen : UI_TEXTE.einstellungenOeffnen;
   return (
@@ -58,7 +64,7 @@ export function AppHeader({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {onAir ? <OnAirAnzeige live={onAir.live} label={onAir.label} /> : null}
-        <ThemeToggle />
+        {thema === 'wechselbar' ? <ThemeToggle /> : null}
         {settingsAvailable ? (
           <button
             type="button"
@@ -78,6 +84,11 @@ export function AppHeader({
           >
             <span aria-hidden="true">⚙</span>
           </button>
+        ) : null}
+        {kopfAktion ? (
+          <div data-bereich="kopf-aktion" style={noDragRegion} className="flex shrink-0 items-center">
+            {kopfAktion}
+          </div>
         ) : null}
       </div>
     </header>

@@ -8,7 +8,7 @@ import type { ScreenOption } from '@jm/settings';
 import { AppShell, Button, useBrueckenWert } from '@jm/ui';
 import { positionEm } from '@shared/types';
 import { AUSGABE_QUELLE, FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
-import { baueAktionen, liesBildschirme } from '@/lib/aktionen';
+import { baueAktionen, folgeBildschirmen, liesBildschirme } from '@/lib/aktionen';
 import { kopfOnAir, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
 import { usePrompterHotkeys } from '@/lib/useHotkeys';
 import { usePrompter } from '@/store/prompter';
@@ -44,9 +44,11 @@ export function PrompterOberflaeche({
 
   // Bildschirmliste wie bei Stage und Player (Gesamtprüfung I3, M2): beim Start und bei jeder Änderung des Ausgabezustands (ein
   // abgezogener oder neuer Bildschirm) frisch, dazu bei jedem Öffnen des Panels; undefined, bis eine Antwort da ist; ein Fehler
-  // setzt sie auf unbekannt zurück, nie die alte Liste; ohne Preload bleibt sie unbekannt.
+  // setzt sie auf unbekannt zurück, nie die alte Liste; ohne Preload bleibt sie unbekannt. Dazu bei jedem Bildschirm-Ereignis des
+  // Main (angesteckt, abgezogen, geändert; UX Welle 2b), auch wenn sich der Ausgabezustand dabei nicht ändert.
   const [bildschirme, setBildschirme] = useState<ScreenOption[] | undefined>(undefined);
   useEffect(() => liesBildschirme(window.jmprompt?.output?.displays, setBildschirme), [ausgabe]);
+  useEffect(() => folgeBildschirmen(window.jmprompt?.output?.onBildschirme, window.jmprompt?.output?.displays, setBildschirme), []);
   useEffect(() => {
     if (!panelOffen) return undefined;
     return liesBildschirme(window.jmprompt?.output?.displays, setBildschirme);

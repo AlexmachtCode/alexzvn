@@ -49,6 +49,7 @@ import { getTricasters } from '../config/tricasters';
 import { getPtzCameras } from '../config/ptz';
 import { getAudioConsoles } from '../config/audio';
 import { logAction } from '../db/audit';
+import type { FernsteuerungEreignis } from '@shared/fernsteuerung';
 import type { AtemCommand, AtemStatus } from '@shared/atem';
 import type { ObsCommand, ObsStatus } from '@shared/obs';
 import type { TricasterStatus } from '@shared/tricaster';
@@ -304,17 +305,28 @@ async function dispatch(cmd: SuiteCommand): Promise<void> {
 
 // ── Lebenszyklus ─────────────────────────────────────────────────────────────
 
-export function startControlGateway(): Promise<{ ok: boolean; error?: string; port?: number }> {
+/**
+ * onMeldung (UX Welle 2b): reicht jeden Statuswechsel des Servers mit dem Modus der meldenden Instanz weiter (Rückspiel Task 26,
+ * Regel aus Task 21: srv.modus(), nicht die Modulvariable), nur lesend. Port, Verben und Protokoll bleiben. Start-Ergebnis und
+ * Wurf meldet der Aufrufer (server.ts).
+ */
+export function startControlGateway(
+  onMeldung?: (e: FernsteuerungEreignis) => void,
+): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlGateway();
-  server = new SuiteControlServer({
+  const srv = new SuiteControlServer({
     role: 'studio',
     appId: 'jm-studio-control',
     controlEndpoint: true,
     getState: buildState,
+    onStatus: (st) => {
+      onMeldung?.({ art: 'status', ...st, modus: srv.modus() });
+    },
     onCommand: (cmd) => {
       void dispatch(cmd);
     },
   });
+  server = srv;
   // Jede Treiber-Statusänderung sofort an Companion broadcasten (no-op ohne
   // Clients, daher günstig).
   const push = (): void => server?.pushState(buildState());

@@ -1,10 +1,115 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { PEERS_TEXTE } from '@jm/settings';
 import { Button, cn, Modal } from '@jm/ui';
 import type { MediaItem, OutputTime, ShowCue } from '@shared/types';
 import { usePlayer } from '@/store/player';
 import { formatDuration } from '@/lib/format';
-import { istEingabeZiel } from '@/lib/oberflaeche';
+import { istEingabeZiel, PLAYER_TEXTE } from '@/lib/oberflaeche';
 import { LiveBereich } from './LiveBereich';
+
+/** Entwurf der Show-Auswahl: die gewählte Show und die aktive Show, auf der er entstand (gilt nur, solange sie aktiv bleibt). */
+export interface ShowEntwurf {
+  basis: number | null;
+  id: number;
+}
+
+/** Was Auswahl, „Setzen“, „Umbenennen“ und „Löschen“ im Kopf der Cue-Show zeigen und tun (hooklos prüfbar). */
+export interface ShowWahl {
+  /** Wert der Auswahl: der Entwurf, sonst die aktive Show ('' ohne aktive Show, wie bisher). */
+  wert: number | '';
+  /**
+   * „Setzen“ steht im Kopf nur bei offenem Entwurf oder während der Wahl. Ein immer sichtbares „Setzen“ ließ den Kopf in schmalen
+   * Fenstern umbrechen (gemessen, Task 26): dann rückten „▦ Ausgabe“, „+ Cue“ und die Cue-Liste um eine Zeile. So steht ohne
+   * Entwurf jede Taste wie bisher.
+   */
+  setzenSichtbar: boolean;
+  /** Warum das sichtbare „Setzen“ gesperrt ist (nur während der Wahl); undefined = bedienbar. */
+  setzenGrund: string | undefined;
+  /** Ein Entwurf ist offen: „Umbenennen“ und „Löschen“ (wirken auf die aktive Show) sind dann gesperrt. */
+  entwurfOffen: boolean;
+  /** Auswahl (change, auch per Pfeiltaste): ändert nur den Entwurf, wählt keine Show. */
+  waehlen(id: number): void;
+  /** „Setzen“: wählt die Show des Entwurfs mit demselben selectShow wie bisher; danach fällt der gesendete Entwurf weg. */
+  setzen(): Promise<void>;
+}
+
+/**
+ * Show-Wahl (Rückspiel Task 26, Regel „Wahl ≠ Bewegung im Altbestand“ aus Task 19/25): selectShow räumt die laufende Show
+ * (panikDerShow: Show-Töne hart aus, Ausgabe schwarz, Vorlauf weg); bisher löste das jede Änderung der Auswahl aus, auch eine
+ * Pfeiltaste auf der fokussierten Auswahl. Jetzt hält die Auswahl nur einen Entwurf; „Setzen“ erscheint nur bei Unterschied und ist
+ * gesperrt, solange die Wahl läuft. Ein Entwurf gilt nur zur aktiven Show, auf der er entstand, und nur zu einer vorhandenen Show:
+ * wählt Companion, der Show-Start, „+ Neu“ oder „Setzen“ eine andere Show, fällt er weg (entwurfNachWechsel in einem Effekt der
+ * Cue-Show), auch wenn die alte Show danach zurückkehrt.
+ */
+/**
+ * Der Entwurf nach einem Wechsel der aktiven Show (Fix-Runde 1, Prüfung Task 26): ein Entwurf, der auf einer anderen Show entstand,
+ * fällt weg. Ohne das käme er zurück, sobald seine Show wieder aktiv wird (Companion wählt weg und zurück), und der Kopf nennte eine
+ * Show, die GO nicht abfährt.
+ */
+export function entwurfNachWechsel(e: ShowEntwurf | null, aktiv: number | null): ShowEntwurf | null {
+  return e !== null && e.basis === aktiv ? e : null;
+}
+
+export function showWahl(a: {
+  shows: readonly { id: number }[];
+  aktiv: number | null;
+  entwurf: ShowEntwurf | null;
+  laeuft: boolean;
+  setzeEntwurf(f: (e: ShowEntwurf | null) => ShowEntwurf | null): void;
+  setzeLaeuft(an: boolean): void;
+  waehleShow(id: number): Promise<void>;
+}): ShowWahl {
+  const T = PLAYER_TEXTE.showWahl;
+  const e = a.entwurf;
+  const gewaehlt = e !== null && e.basis === a.aktiv && e.id !== a.aktiv && a.shows.some((s) => s.id === e.id) ? e.id : undefined;
+  const setzenGrund = a.laeuft ? T.laeuft : undefined;
+  return {
+    wert: gewaehlt ?? a.aktiv ?? '',
+    setzenSichtbar: gewaehlt !== undefined || a.laeuft,
+    setzenGrund,
+    entwurfOffen: gewaehlt !== undefined,
+    waehlen: (id) => a.setzeEntwurf(() => (id === a.aktiv ? null : { basis: a.aktiv, id })),
+    setzen: async () => {
+      if (setzenGrund !== undefined || gewaehlt === undefined) return;
+      a.setzeLaeuft(true);
+      try {
+        await a.waehleShow(gewaehlt);
+        a.setzeEntwurf((jetzt) => (jetzt?.id === gewaehlt ? null : jetzt));
+      } finally {
+        a.setzeLaeuft(false);
+      }
+    },
+  };
+}
+
+/**
+ * „Setzen“ der Show-Wahl (hooklos): ohne Entwurf und ohne laufende Wahl nichts; sonst die Taste „Setzen“ (Bezeichnung „Setzen:
+ * Show“), während der Wahl gesperrt mit Grund (Tooltip und aria-describedby).
+ */
+export function ShowSetzen({ wahl, grundId }: { wahl: ShowWahl; grundId: string }): React.JSX.Element | null {
+  if (!wahl.setzenSichtbar) return null;
+  const grund = wahl.setzenGrund;
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="outline"
+        aria-label={PEERS_TEXTE.setzenFuer(PLAYER_TEXTE.showWahl.titel)}
+        aria-describedby={grund === undefined ? undefined : grundId}
+        title={grund}
+        disabled={grund !== undefined}
+        onClick={() => void wahl.setzen()}
+      >
+        {PEERS_TEXTE.setzen}
+      </Button>
+      {grund === undefined ? null : (
+        <span id={grundId} className="sr-only">
+          {grund}
+        </span>
+      )}
+    </>
+  );
+}
 
 /**
  * Cue-Show. `onAusgabe` öffnet das Einstellungs-Panel beim Abschnitt Ausgabe (UX Welle 2a, Player d1: das Modal
@@ -64,6 +169,15 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [addOpen, editCue, showGo, showStop]);
 
+  // Show-Wahl: Entwurf und „wählt gerade“ (Rückspiel Task 26). Beides stirbt mit der Ansicht (Reiterwechsel); die Wahl selbst
+  // ist ein kurzer Aufruf (Cues lesen).
+  const [entwurf, setEntwurf] = useState<ShowEntwurf | null>(null);
+  // Jeder Wechsel der aktiven Show verwirft einen Entwurf der alten Show (Fix-Runde 1).
+  useEffect(() => setEntwurf((e) => entwurfNachWechsel(e, activeShowId)), [activeShowId]);
+  const [waehlt, setWaehlt] = useState(false);
+  const wahl = showWahl({ shows, aktiv: activeShowId, entwurf, laeuft: waehlt, setzeEntwurf: setEntwurf, setzeLaeuft: setWaehlt, waehleShow: selectShow });
+  const setzenGrundId = useId();
+
   const newShow = async (): Promise<void> => {
     await createShow(`Show ${shows.length + 1}`);
   };
@@ -98,8 +212,8 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
       {/* Kopf: Show-Auswahl */}
       <div className="px-5 py-4 flex flex-wrap items-center gap-3 border-b border-[var(--border)]/60">
         <select
-          value={activeShowId ?? ''}
-          onChange={(e) => void selectShow(Number(e.target.value))}
+          value={wahl.wert}
+          onChange={(e) => wahl.waehlen(Number(e.target.value))}
           className="h-9 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--input)] px-3 text-sm font-semibold"
         >
           {shows.map((s) => (
@@ -116,6 +230,8 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
             <Button
               size="sm"
               variant="ghost"
+              disabled={wahl.entwurfOffen}
+              title={wahl.entwurfOffen ? PLAYER_TEXTE.showWahl.erstSetzen : undefined}
               onClick={() => {
                 const name = window.prompt('Show umbenennen', shows.find((s) => s.id === activeShowId)?.name ?? '');
                 if (name) void renameShow(activeShowId, name);
@@ -126,6 +242,8 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
             <Button
               size="sm"
               variant="ghost"
+              disabled={wahl.entwurfOffen}
+              title={wahl.entwurfOffen ? PLAYER_TEXTE.showWahl.erstSetzen : undefined}
               onClick={() => {
                 if (window.confirm('Diese Show löschen?')) void removeShow(activeShowId);
               }}
@@ -135,6 +253,9 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
           </>
         )}
         <div className="ml-auto flex items-center gap-2">
+          {/* „Setzen“ der Show-Wahl vorn in der rechten Gruppe (dort war Leere), nur mit offenem Entwurf oder während der Wahl: ohne
+              Entwurf steht jede Taste wie bisher (Tastenplatz-Regel, gemessen in Task 26). */}
+          <ShowSetzen wahl={wahl} grundId={setzenGrundId} />
           <Button size="sm" variant="ghost" onClick={onAusgabe}>
             ▦ Ausgabe
           </Button>

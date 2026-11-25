@@ -3,6 +3,7 @@ import { cn } from '../lib/cn';
 import {
   LIVE_EINTRAG_KLASSE,
   STATUS_RAND_KLASSE,
+  STATUS_SCHRUMPF_KLASSE,
   STATUS_SYMBOL,
   STATUS_SYMBOL_KLASSE,
   formatUhrzeit,
@@ -56,6 +57,8 @@ export function starteUhr(jetzt: () => Date, melde: (uhr: string) => void, takt:
  * - Ein Eintrag ist nur dann ein Knopf, wenn er `settingsSection` hat UND die Leiste `onOpenSection` bekommt.
  * - Ein Detail erscheint nur, wenn das Tool eines liefert (kein Ersatzzeichen). Unter 900 px Fensterbreite nur Symbol
  *   und Label; das volle Detail steht im title.
+ * - Platzmangel (Gesamtprüfung UX Welle 2b, I1): Ein Eintrag läuft nie über seinen Kasten; erst kürzen sich Details, dann
+ *   Labels mit „…“, ok/off vor Warnung, Fehler und live (STATUS_SCHRUMPF_KLASSE). Label und Detail stehen im title.
  * - Die Uhr steht außerhalb der role="status"-Region, sonst läse ein Screenreader jede Sekunde vor.
  */
 export function StatusBar({ items, onOpenSection, jetzt = jetztVorgabe, className }: StatusBarProps): React.JSX.Element {
@@ -98,10 +101,14 @@ function Eintrag({
   const knopf = Boolean(ziel) && onOpenSection !== undefined;
   const zustandId = knopf ? `${id}-zustand` : undefined;
   const detailId = knopf && item.detail ? `${id}-detail` : undefined;
-  const titel = item.detail ? `${item.label}: ${item.detail}` : undefined;
+  // Bei Platzmangel kann auch das Label gekürzt sein: der volle Text steht immer im title (Gesamtprüfung UX Welle 2b, I1).
+  const titel = item.detail ? `${item.label}: ${item.detail}` : item.label;
   const live = item.state === 'live';
+  // Der Kasten schneidet ab (overflow-hidden), statt seinen Text über die Nachbarn laufen zu lassen; min-w-7 hält das Symbol
+  // sichtbar. Wer zuerst schrumpft, regelt STATUS_SCHRUMPF_KLASSE (ok/off vor Warnung, Fehler und live).
   const klasse = cn(
-    'inline-flex h-5 min-w-0 shrink items-center gap-1 whitespace-nowrap rounded-[var(--radius-md)] border px-1.5',
+    'inline-flex h-5 min-w-7 items-center gap-1 overflow-hidden whitespace-nowrap rounded-[var(--radius-md)] border px-1.5',
+    STATUS_SCHRUMPF_KLASSE[item.state],
     STATUS_RAND_KLASSE[item.state],
     live ? LIVE_EINTRAG_KLASSE : 'text-[var(--foreground)]',
   );
@@ -118,14 +125,15 @@ function Eintrag({
       <span id={zustandId} className="sr-only">
         {UI_TEXTE.zustand[item.state]}:{' '}
       </span>
-      <span className="font-semibold">{item.label}</span>
+      <span className="min-w-0 truncate font-semibold">{item.label}</span>
       {item.detail ? (
         <>
           {' '}
           <span
             id={detailId}
             className={cn(
-              'min-w-0 max-w-[16rem] truncate select-text max-[900px]:sr-only',
+              // Das Detail schrumpft vor dem Label (Gewicht 100 gegen 1).
+              'min-w-0 max-w-[16rem] shrink-[100] truncate select-text max-[900px]:sr-only',
               live ? undefined : 'text-[var(--muted-foreground)]',
             )}
           >

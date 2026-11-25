@@ -36,19 +36,21 @@ export function startControlServer(
   handlers: PrompterControlHandlers,
 ): Promise<{ ok: boolean; error?: string; port?: number }> {
   stopControlServer();
-  server = new SuiteControlServer({
+  // Der Modus der Meldung kommt aus der meldenden Instanz (Rückspiel Task 26, Regel aus Task 21), nicht aus der Modulvariable.
+  const srv = new SuiteControlServer({
     appDataDir: app.getPath('appData'),
     role: 'prompter',
     appId: 'jm-prompter',
     controlEndpoint: true,
     getState: handlers.getState,
     onStatus: (st) => {
-      handlers.onMeldung?.({ art: 'status', ...st, modus: server?.modus() });
+      handlers.onMeldung?.({ art: 'status', ...st, modus: srv.modus() });
     },
     onCommand: (cmd) => {
       if (cmd.ns === 'prompter') handlers.onCommand(cmd);
     },
   });
+  server = srv;
   return server.start(CONTROL_PORT);
 }
 

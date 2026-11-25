@@ -2,7 +2,8 @@
 // On-Air-Anzeige mit Form und Text, ⚙ nur mit Einstellungen.
 import { AppHeader } from '../src/components/AppHeader';
 import { LIVE_FLAECHE_KLASSE, STATUS_SYMBOL_KLASSE } from '../src/lib/status';
-import { gleich, ok, render } from './harness';
+import { gleich, leseText, ok, render } from './harness';
+import { HEADER_BASIS } from './lib/bestand-markup';
 import { attr, hatKlassen, klassen, ohneVersteckt, tags, text, zwischen } from './lib/markup';
 
 const NO_DRAG = '-webkit-app-region:no-drag';
@@ -126,5 +127,51 @@ const onAir = (html: string): { tag: string; inhalt: string } => {
   ok(
     [a[0], b[0]].every((t) => hatKlassen(t, 'inline-flex items-center')),
     'UI Kopf On-Air ausgerichtet: die Region role=status trägt inline-flex und items-center (live und bereit)',
+  );
+}
+
+// ── UX Welle 2b, Task 1: festes Dunkel und Kopf-Aktion (rein additiv) ──
+const normalisiert = (html: string): string => html.replace(/<svg[\s\S]*?<\/svg>/, '<svg/>').replace(/\d\d:\d\d:\d\d/, 'HH:MM:SS');
+const themeKnoepfe = (html: string): string[] => tags(html, 'button').filter((t) => attr(t, 'data-theme') !== undefined);
+{
+  const html = render(<AppHeader tool="Titler" mac={false} onAir={{ live: true }} settingsAvailable onSettingsToggle={nichts} />);
+  ok(normalisiert(html) === HEADER_BASIS, 'Kopf Vorgabe unverändert: ohne neue Props dasselbe Markup wie vor Welle 2b');
+  const ausdruecklich = render(
+    <AppHeader tool="Titler" mac={false} thema="wechselbar" onAir={{ live: true }} settingsAvailable onSettingsToggle={nichts} />,
+  );
+  ok(ausdruecklich === html, 'Kopf thema="wechselbar" = Vorgabe');
+}
+{
+  const html = render(<AppHeader tool="Titler" mac={false} thema="dunkel" onAir={{ live: true }} settingsAvailable onSettingsToggle={nichts} />);
+  const knoepfe = tags(html, 'button');
+  ok(
+    themeKnoepfe(html).length === 0 && knoepfe.length === 1 && attr(knoepfe[0], 'data-zahnrad') !== undefined &&
+      !html.includes('Darstellung:') && html.includes('data-onair="live"'),
+    'Kopf fest dunkel: kein ThemeToggle, ⚙ und ON AIR bleiben',
+  );
+}
+{
+  const quelle = leseText('src/components/AppHeader.tsx');
+  const theme = [...quelle.matchAll(/<ThemeToggle\b/g)].length;
+  ok(
+    theme === 1 && /thema === 'wechselbar' \? <ThemeToggle \/>/.test(quelle) && !quelle.includes('useTheme'),
+    'Kopf Quelltext-Wächter: ThemeToggle nur im Zweig „wechselbar“, kein useTheme',
+  );
+}
+{
+  const aktion = <button type="button">Referent beenden</button>;
+  const html = render(
+    <AppHeader tool="Titler" mac={false} onAir={{ live: false }} settingsAvailable onSettingsToggle={nichts} kopfAktion={aktion} />,
+  );
+  const p = ['data-bereich="onair"', 'data-zahnrad', 'data-bereich="kopf-aktion"', 'Referent beenden'].map((s) => html.indexOf(s));
+  ok(p.every((x) => x >= 0) && p[0] < p[1] && p[1] < p[2] && p[2] < p[3], 'Kopf-Aktion: Reihenfolge ON AIR → ⚙ → kopf-aktion');
+  const feld = tags(html, 'div').find((t) => attr(t, 'data-bereich') === 'kopf-aktion') ?? '';
+  ok((attr(feld, 'style') ?? '').includes(NO_DRAG), 'Kopf-Aktion trägt noDragRegion');
+  const ohne = render(<AppHeader tool="Titler" mac={false} settingsAvailable onSettingsToggle={nichts} />);
+  ok(!ohne.includes('kopf-aktion'), 'Kopf ohne kopfAktion: kein Element');
+  const nurAktion = render(<AppHeader tool="Titler" mac={false} thema="dunkel" kopfAktion={aktion} />);
+  ok(
+    nurAktion.includes('data-bereich="kopf-aktion"') && !nurAktion.includes('data-zahnrad') && themeKnoepfe(nurAktion).length === 0,
+    'Kopf-Aktion steht auch ohne ⚙ und ohne ThemeToggle im Kopf',
   );
 }

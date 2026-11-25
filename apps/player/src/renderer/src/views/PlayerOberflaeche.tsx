@@ -6,16 +6,16 @@
 // weiter. Das Panel ist kein eigener Bildschirm: Es steht im AppShell neben dem Inhalt, steckt in keinem key und keiner
 // Bedingung um die Ansicht; die Ansicht samt Leertaste und Esc bleibt gemountet. Die Ansichten sind memo, damit
 // Statusleiste, Panel und Videofortschritt sie nicht neu rendern.
-// Brücken, Pad-Meldung, Bildschirmliste, Vollbild und die Hinweisleiste laufen hier, auch bei geschlossenem Panel; das Panel
-// selbst hat keine Effekte (E15). window.jmplay nur in Effekten und Rückrufen, nie beim Rendern.
+// Brücken, Pad-Meldung, Bildschirmliste, Vollbild, Video-Beleg und die Hinweisleiste laufen hier, auch bei geschlossenem Panel;
+// das Panel selbst hat keine Effekte (E15). window.jmplay nur in Effekten und Rückrufen, nie beim Rendern.
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { ScreenOption } from '@jm/settings';
 import { AppShell, cn, Tabs, useBrueckenWert, type TabItem } from '@jm/ui';
-import { baueAktionen, liesBildschirme, liesVollbild, padsAbonnieren } from '@/lib/aktionen';
+import { baueAktionen, folgeBildschirmen, liesBildschirme, liesVollbild, padsAbonnieren } from '@/lib/aktionen';
 import { AUSGABE_QUELLE, FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
 import { cueEngine } from '@/lib/cues';
-import { ABSCHNITT, kopfOnAir, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
+import { ABSCHNITT, kopfOnAir, naechsterVideoBeleg, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
 import { usePlayer } from '@/store/player';
 import { Einstellungen } from './Einstellungen';
 import { LibraryView } from './LibraryView';
@@ -104,10 +104,29 @@ export function PlayerOberflaeche({
   const [pads, setPads] = useState<number[] | undefined>(undefined);
   useEffect(() => padsAbonnieren(cueEngine, setPads), []);
 
+  // Video-Beleg (UX Welle 2b, Task 6): ein Video zählt für ON AIR erst, wenn das Ausgabefenster seit dem letzten Schließen, Absturz
+  // oder Wechsel des Video-Cues bei gemessen offenem Fenster einen Fortschritt gemeldet hat (Alt+F4 und Wiederöffnen über den
+  // Panel-Schalter lassen videoCue und videoProgress im Store stehen). Jede Meldung des Ausgabefensters geht einzeln beim Eintreffen
+  // ein (eigenes Abo an der lesenden Brücke, nicht der zuletzt gerenderte Wert): kommen zu und offen vor dem nächsten Durchlauf,
+  // nimmt zu den Beleg trotzdem. Je neue Position (videoProgress) ein Fortschritt mit der gemessenen Art, je neue Kennung des
+  // Video-Cues ein Zurücksetzen; der Fortschritt steht vor dem Video-Cue, damit in einem gemeinsamen Durchlauf das Zurücksetzen
+  // gewinnt. Store und Companion bleiben.
+  const [videoBelegt, setVideoBelegt] = useState(false);
+  useEffect(() => AUSGABE_QUELLE.ereignis((z) => setVideoBelegt((b) => naechsterVideoBeleg(b, { t: 'ausgabe', art: z?.art }))), []);
+  useEffect(() => {
+    if (player.videoProgress !== null) setVideoBelegt((b) => naechsterVideoBeleg(b, { t: 'fortschritt', art: ausgabe?.art }));
+  }, [player.videoProgress]);
+  useEffect(() => {
+    setVideoBelegt((b) => naechsterVideoBeleg(b, { t: 'videoCue', id: player.videoCue?.id ?? null }));
+  }, [player.videoCue?.id]);
+
   // Bildschirmliste: beim Start und bei jeder Änderung des Ausgabezustands (ein abgezogener oder neuer Bildschirm, Gesamtprüfung
   // I3) frisch, dazu bei jedem Öffnen des Panels (undefined, bis eine Antwort da ist; ein Fehler setzt sie auf unbekannt zurück).
+  // Dazu bei jedem Bildschirm-Ereignis des Main (angesteckt, abgezogen, geändert; UX Welle 2b), auch wenn sich der Ausgabezustand
+  // dabei nicht ändert.
   const [bildschirme, setBildschirme] = useState<ScreenOption[] | undefined>(undefined);
   useEffect(() => liesBildschirme(window.jmplay?.output?.displays, setBildschirme), [ausgabe]);
+  useEffect(() => folgeBildschirmen(window.jmplay?.output?.onBildschirme, window.jmplay?.output?.displays, setBildschirme), []);
 
   // Vollbild (E14): gemessen bei jeder Änderung des Ausgabezustands, bei jedem Öffnen des Panels und nach jeder Ausgabe-Aktion,
   // nie geraten (das Ausgabefenster kann das Vollbild auch ohne diese Ereignisse wechseln, z. B. F11).
@@ -141,6 +160,7 @@ export function PlayerOberflaeche({
     vollbild,
     masterLink,
     fernsteuerung,
+    videoBelegt,
     ...(bildschirme === undefined ? {} : { bildschirme }),
   };
   const aktionen = baueAktionen({

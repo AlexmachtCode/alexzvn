@@ -1,14 +1,18 @@
+// Video · TriCaster (UX Welle 2b, Studio-Control d2; B16, B6, Ruling Task 18): Pille über StatusPill aus @jm/ui mit geraetPille,
+// die Hauptreihe Take · Auto · Fade Black · REC · STREAM als TallyButtons aus tricasterTasten, jede im Behälter mit der alten
+// Mindestbreite min-w-[120px]; darunter der Hinweis „REC und STREAM ohne Rückmeldung“ (der TriCaster meldet keine Sendung, B6).
+// DSK, DDR und Makros bleiben normale Knöpfe. Der Gerätezustand gilt nur bei verbundenem Server (gemeldet). Befehle wie bisher.
 import { useMemo, useState } from 'react';
 import { Card } from '@jm/ui';
-import { Button } from '@jm/ui';
+import { Button, StatusPill, TallyButton, type TallyButtonProps } from '@jm/ui';
 import { Input } from '@/components/ui/Input';
 import { Headline } from '@/components/ui/Headline';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { StatusPill } from '@/components/ui/StatusPill';
+import { STUDIO_TEXTE, gemeldet, geraetPille, tricasterTasten, type OberflaechenStand } from '@/lib/oberflaeche';
 import { useApp } from '@/store/app';
 import { useSession } from '@/store/session';
 import { emitWithAck, apiFetch } from '@/sync/client';
-import { EVENTS, type TricasterStatusEvent } from '@shared/protocol';
+import { EVENTS } from '@shared/protocol';
 import {
   MACRO_CATALOG,
   DEFAULT_TRICASTER_PORT,
@@ -23,15 +27,15 @@ import { PgmPreview } from './PgmPreview';
 import { DskPanel } from './DskPanel';
 import { DdrPanel } from './DdrPanel';
 
-const QUICK_ACTIONS: Array<{ id: string; label: string; shortcut: string; variant?: 'primary' | 'destructive' | 'accent' | 'outline' }> = [
-  { id: 'take', label: 'Take', shortcut: 'main_take', variant: 'primary' },
-  { id: 'auto', label: 'Auto', shortcut: 'main_auto', variant: 'accent' },
-  { id: 'ftb', label: 'Fade Black', shortcut: 'main_fade_to_black', variant: 'destructive' },
-  { id: 'rec', label: 'REC', shortcut: 'record_toggle_start', variant: 'outline' },
-  { id: 'stream', label: 'STREAM', shortcut: 'streaming_toggle_start', variant: 'outline' },
-];
+/** Die TriCaster-Kürzel der Hauptreihe in der Reihenfolge von tricasterTasten: Take, Auto, Fade Black, REC, STREAM (wie bisher). */
+const HAUPT_KUERZEL = ['main_take', 'main_auto', 'main_fade_to_black', 'record_toggle_start', 'streaming_toggle_start'] as const;
 
-export function TricasterPanel() {
+/** Die Hauptreihe aus tricasterTasten (Zustand und Grund), jede Taste mit ihrem heutigen Kürzel. Rein, ohne DOM prüfbar. */
+export function tricasterReihe(stand: OberflaechenStand, id: string, exec: (shortcut: string) => void): TallyButtonProps[] {
+  return tricasterTasten(stand, id).map((t, i) => ({ ...t, onClick: () => exec(HAUPT_KUERZEL[i]!) }));
+}
+
+export function TricasterPanel({ stand }: { stand: OberflaechenStand }) {
   const tricasters = useApp((s) => s.tricasters);
   const statuses = useApp((s) => s.tricasterStatuses);
   const role = useSession((s) => s.user?.role);
@@ -44,7 +48,9 @@ export function TricasterPanel() {
     () => tricasters.find((t) => t.id === selectedId) ?? tricasters[0],
     [tricasters, selectedId],
   );
-  const status = current ? statuses[current.id] : undefined;
+  // Nur bei verbundenem Server gemessen (sonst Pille unbekannt, Tasten gesperrt).
+  const status = current ? gemeldet(stand, statuses[current.id]) : undefined;
+  const live = status?.state === 'connected';
 
   const canExec = role ? canDo(role, 'tricaster:exec') : false;
   const canManage = role ? canDo(role, 'inventory:write') : false;
@@ -83,7 +89,7 @@ export function TricasterPanel() {
   }
 
   return (
-    <Card className="p-6">
+    <Card data-panel="tricaster" className="p-6">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <SectionHeader>Video · TriCaster</SectionHeader>
@@ -105,7 +111,7 @@ export function TricasterPanel() {
                   </option>
                 ))}
               </select>
-              <StatusBadge status={status} />
+              <StatusPill {...geraetPille(status)} />
               {canManage && (
                 <Button
                   size="sm"
@@ -121,7 +127,7 @@ export function TricasterPanel() {
       </div>
 
       {current && status?.state === 'down' && status.lastError && (
-        <div className="mb-4 rounded-[var(--radius)] border border-[var(--destructive)]/50 bg-[var(--destructive)]/10 px-3 py-2 text-xs">
+        <div className="mb-4 rounded-[var(--radius)] border border-[var(--destructive)]/50 bg-[var(--destructive)]/10 px-3 py-2 text-xs select-text">
           <span className="font-extrabold uppercase tracking-wider text-[var(--destructive)]">
             Verbindung fehlgeschlagen:
           </span>{' '}
@@ -169,29 +175,34 @@ export function TricasterPanel() {
       ) : (
         <>
           <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-6 mb-6 items-start">
-            <div className="flex flex-wrap gap-2">
-              {QUICK_ACTIONS.map((a) => (
-                <Button
-                  key={a.id}
-                  variant={a.variant ?? 'outline'}
-                  size="lg"
-                  disabled={!canExec || status?.state !== 'connected'}
-                  onClick={() => exec(a.shortcut)}
-                  className="min-w-[120px]"
-                >
-                  {a.label}
-                </Button>
-              ))}
+            {/* Die Zelle gibt die Höhe des Hinweises mit -mb-6 an den Rasterabstand gap-6 zurück: Im einspaltigen Raster (unter xl)
+                rutscht so nichts darunter tiefer (gemessen ohne: 24 px, die ATEM-Program-Busse lagen auf den alten Preview-Plätzen). */}
+            <div className="-mb-6">
+              {/* Hauptreihe wie bisher links neben der Vorschau; jede Taste im Behälter mit der alten Mindestbreite (B16).
+                  Der Sperrgrund (span mit id im TallyButton) bricht innerhalb der Tastenbreite um: Die Taste bleibt so breit wie ihre
+                  Beschriftung, die Reihe bleibt eine Zeile wie heute (Task 18, Variante A gemessen: sonst bricht die Reihe um). */}
+              <div data-studio="hauptreihe-tricaster" className="flex flex-wrap gap-2 [&_button>span[id]]:w-0 [&_button>span[id]]:min-w-full">
+                {tricasterReihe(stand, current.id, (s) => void exec(s)).map((p) => (
+                  <div key={p.label} className="min-w-[120px]">
+                    <TallyButton {...p} />
+                  </div>
+                ))}
+              </div>
+              {/* Kein Sperrgrund: REC und STREAM schalten um, ohne dass der TriCaster antwortet (B6). Im Fluss unter der Reihe, im
+                  Rasterabstand (mt-1.5 plus eine Zeile text-xs passt in gap-6). */}
+              <p data-studio="tricaster-hinweis" className="mt-1.5 text-xs text-[var(--muted-foreground)]">
+                {STUDIO_TEXTE.taste.tricasterHinweis}
+              </p>
             </div>
             <PgmPreview ndiSource={`${current.name} (PGM)`} />
           </div>
 
           <div className="flex flex-col gap-6 mb-6">
-            <DskPanel onExec={exec} disabled={!canExec || status?.state !== 'connected'} />
-            <DdrPanel onExec={exec} disabled={!canExec || status?.state !== 'connected'} />
+            <DskPanel onExec={exec} disabled={!canExec || !live} />
+            <DdrPanel onExec={exec} disabled={!canExec || !live} />
           </div>
 
-          <MacroBrowser onExec={exec} disabled={!canExec || status?.state !== 'connected'} />
+          <MacroBrowser onExec={exec} disabled={!canExec || !live} />
 
           {canManage && (
             <div className="mt-6 pt-4 border-t border-[var(--border)]/40 flex gap-2">
@@ -213,18 +224,6 @@ export function TricasterPanel() {
         </div>
       )}
     </Card>
-  );
-}
-
-function StatusBadge({ status }: { status: TricasterStatusEvent | undefined }) {
-  if (!status) return <StatusPill status="info">Idle</StatusPill>;
-  if (status.state === 'connected')
-    return <StatusPill status="live">Connected · v{status.version ?? '?'}</StatusPill>;
-  if (status.state === 'polling') return <StatusPill status="setup">Polling …</StatusPill>;
-  return (
-    <span title={status.lastError ?? 'Offline'}>
-      <StatusPill status="error">Offline</StatusPill>
-    </span>
   );
 }
 

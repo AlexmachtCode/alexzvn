@@ -68,7 +68,7 @@ jobs:
       - name: Titler (DataLink-Schlüssel, Datenquelle, Oberfläche)
         run: npm run selftest -w @jm/titler
       # #228 und #231: reine Node-Tests, ohne Electron und ohne DOM.
-      - name: Presenter (Suite-Status, On Air nur in der Präsentation)
+      - name: Presenter (Suite-Status, On Air nur in der Präsentation, Oberfläche)
         run: npm run selftest -w @jm/presenter
       - name: Prompter (Brücken, Ausgabezustand, Oberfläche)
         run: npm run selftest -w @jm/prompter
@@ -108,8 +108,12 @@ jobs:
       # #291: WAV-Folgedateien, Überschreibschutz, gemerkte Einstellungen, Presets, Loopback-Stille. Attrappe statt @jm/audio, ohne Electron.
       - name: Recorder (Folgedateien, Überschreibschutz, Einstellungen, Presets, Loopback-Stille)
         run: npm run selftest -w @jm/recorder
-      - name: Connect (Zoom-Kern gegen die Attrappe, Laufzeit, Statustexte)
+      - name: Connect (Zoom-Kern gegen die Attrappe, Laufzeit, Statustexte, Oberfläche)
         run: npm run selftest -w @jm/connect
+      # UX Welle 2b (Task 13): Oberflächentests von Studio-Control (Render ohne Browser), mit tsx, ohne Electron und ohne
+      # native Module (kein Test lädt better-sqlite3 oder den Hauptprozess).
+      - name: Studio-Control (Oberfläche)
+        run: npm run selftest -w @jm/studio-control
       # Zoom Stage 4b (Spec 12.6, 17.2 Nr. 2/3, N4b.2). Das Companion-Modul liegt außerhalb der
       # Workspaces; sein Selbsttest braucht nur Node. „npm rebuild esbuild“ ist Vorsorge (Spec 12.6):
       # Unter Windows lief esbuild ohne seine Postinstall, unter Linux nach `npm ci --ignore-scripts`

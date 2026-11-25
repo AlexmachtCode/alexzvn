@@ -9,6 +9,8 @@
     --statusbar-h:  28px;
     --control-h:    32px;
     --control-h-lg: 48px;
+    /* TallyButton mit Kürzelzeile: höchster der drei Zustände, gesperrt mit einzeiligem Grund, gemessen 89,2 px (Prompter, UX Welle 2b) */
+    --tally-h-kuerzel: 90px;
     --panel-w:      360px;
   }
 
