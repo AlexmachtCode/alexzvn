@@ -1075,7 +1075,7 @@
         "date": "2026-11-25",
         "notes": [
           "Ohne Anmeldung ist nur noch das eigene Fenster Admin. Browser und Programme melden sich mit einem Konto an, auch auf demselben Rechner; fremde Webseiten werden abgewiesen.",
-          "Companion-Gateway: Steht die Suite auf „secure“, braucht Companion jetzt den Schlüssel.",
+          "Companion-Gateway: Steht die Suite auf „secure“, braucht Companion jetzt Suite-Token und TLS-Fingerprint aus dem Launcher (Sichere Steuerebene), wie bei den anderen Werkzeugen.",
           "Das Einstellungs-Panel nennt unter Browser-Zugang den Ort der Datei mit dem Erst-Passwort."
         ]
       },

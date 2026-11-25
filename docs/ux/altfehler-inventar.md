@@ -25,10 +25,10 @@ Stand: main `cf42db4e4a`, erstellt am 25.11.2026 (nur gelesen, jeder Befund am C
 | PL-11 | 2 | Die Pause hält auch den Vorlauf an; „Weiter“ setzt ihn mit der Restzeit fort. |
 | PL-16a | 2 | Companion `CUE` oder `STANDBY` mit einer Nummer außerhalb der Show wird mit Hinweis abgelehnt. |
 | PL-T14 | 3 | Ein Ton-Cue, der nicht lädt, meldet das im Fenster und gilt nicht als laufend. |
-| PL-4 | 4 | Pad-Tasten sperren mit Strg, Alt, Cmd und bei offenem Dialog oder Panel. |
-| PL-10 | 4 | Rückfragen beim Entfernen eines benutzten Mediums und eines Cues bei laufender Show; der Standby folgt seinem Cue. |
+| PL-4 | 4 | Pad-Tasten sperren mit Strg, Alt, Cmd und bei offenem Dialog oder Panel; AltGr-Zeichen wie @ lösen weiter aus (Fix-Welle, R17). |
+| PL-10 | 4 | Rückfragen beim Entfernen eines benutzten Mediums und eines Cues bei laufender Show, als Fenster im Player-Fenster (Fix-Welle, R16); der Standby folgt seinem Cue. |
 | SC-S1 | 5 | Das Panel nennt den Ort der Datei mit dem Erst-Passwort (Messung: kein bekanntes oder leeres Passwort). |
-| SC-S3 | 5 | Das Companion-Gateway folgt dem Modus in `control.json`; „secure“ verlangt den Schlüssel. |
+| SC-S3 | 5 | Das Companion-Gateway folgt dem Modus in `control.json`; „secure“ verlangt das Suite-Token, eine per Launcher gesicherte Suite dazu TLS (Companion braucht dann auch den TLS-Fingerprint). |
 | SC-S2 | 6 | Ohne Anmeldung ist nur das eigene App-Fenster Admin; fremde Ursprünge bekommen HTTP 403. |
 
 ---
@@ -368,7 +368,7 @@ Nicht aufgenommen: Bef. 1, 2, 8 und 12 (Messungen und Grenzen).
 
 ## 7. Kandidaten für eine spätere Runde (beim Bau von Stufe 1 aufgefallen, nicht behoben)
 
-Keine geprüften Befunde, nur Beobachtungen der Prüfer an Studio-Control; jede braucht eine eigene Prüfung, bevor sie ein Befund wird. Sie sind nicht in der Zählung.
+Keine geprüften Befunde, nur Beobachtungen der Prüfer an Studio-Control und, seit der Gesamtprüfung der Stufe 1 (Ruling R19), am Player; jede braucht eine eigene Prüfung, bevor sie ein Befund wird. Sie sind nicht in der Zählung. PL-K1 ist ein Show-Risiko und steht darum zuerst für Stufe 2 an.
 
 | ID | Kandidat | Grundlage | Beleg |
 |---|---|---|---|
@@ -376,3 +376,6 @@ Keine geprüften Befunde, nur Beobachtungen der Prüfer an Studio-Control; jede 
 | SC-K2 | **Studio-Control, `setWindowOpenHandler` gibt jedes Schema an `shell.openExternal`.** Ein Link mit einem anderen Schema als `http` oder `https` ginge ans Betriebssystem. | Altverhalten, laut Code | `main/index.ts:95-98` |
 | SC-K3 | **Studio-Control, eine ins Fenster gezogene Datei navigiert weg.** Das Fenster verlässt die App und zeigt die Datei; das ist Bedienung, nach Ruling R13 keine Sicherheitslücke mehr. | Beobachtung, nicht gemessen | `main/index.ts` (kein `will-navigate`-Schutz) |
 | SC-K4 | **Studio-Control, `loadMain` lädt `ELECTRON_RENDERER_URL` auch im Paket.** Ist die Umgebungsvariable gesetzt, zeigt das gepackte Fenster eine fremde Adresse; das Geheimnis geht dorthin nicht (R13). | laut Code | `main/index.ts:57-64` |
+| PL-K1 | **Player, ein Cue im Vorlauf gelöscht spielt später trotzdem.** `removeShowCue` stoppt den Ton und nimmt die ID aus der Liste, räumt aber den Vorlauf-Zeitgeber nicht; nach Ablauf startet der gelöschte Cue. | Gesamtprüfung, laut Code (R19) | `R/store/player.ts` (`removeShowCue`, `vorlaeufe.starte`) |
+| PL-K2 | **Player, GO ohne Vorlauf in der Pause lässt ein pausiertes Ausgabevideo stehen.** Der Start hebt die Pause auf (A1), schickt der Ausgabe aber kein `resume`; ein angehaltenes Video bleibt stehen, während die Show als laufend gilt. | Gesamtprüfung, laut Code (R19) | `R/store/player.ts` (`startNow`) |
+| PL-K3 | **Player, ein entferntes Medium verschwindet still aus den Playlists.** Die Rückfrage (PL-10) zählt nur Cues und Pads; Einträge in Playlists löscht der Fremdschlüssel ohne Hinweis (`ON DELETE CASCADE`). | Gesamtprüfung, laut Code (R19) | `packages/media-library/src/schema.ts` (`playlist_items`), `main/library.ts` (`mediumNutzung`) |

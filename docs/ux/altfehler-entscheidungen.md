@@ -1,6 +1,6 @@
 # Altfehler Runde 1, Stufe 1: Entscheidungen und vermerkte Kleinigkeiten
 
-Für wen: spätere Entwickler, die an Player oder Studio-Control weiterarbeiten. Hier steht, was in dieser Stufe entschieden wurde, wo Spec und Code schwiegen, mit dem Grund und dem, was es kostet, wenn die Entscheidung falsch war. Der Owner hat A1 bis A10 zur Kenntnis bekommen (Texttabelle `docs/ux/altfehler-stufe1-texte.md`, Abschnitt „Entscheidungen“); die Rulings R1 bis R13 hat der Controller während der Umsetzung getroffen. Dazu im zweiten Teil jede Kleinigkeit, die ein Prüfer vermerkt und die Stufe nicht behoben hat.
+Für wen: spätere Entwickler, die an Player oder Studio-Control weiterarbeiten. Hier steht, was in dieser Stufe entschieden wurde, wo Spec und Code schwiegen, mit dem Grund und dem, was es kostet, wenn die Entscheidung falsch war. Der Owner hat A1 bis A10 zur Kenntnis bekommen (Texttabelle `docs/ux/altfehler-stufe1-texte.md`, Abschnitt „Entscheidungen“); die Rulings R1 bis R19 hat der Controller während der Umsetzung und nach der Gesamtprüfung getroffen. Danach das Ergebnis der Gesamtprüfung mit ihrer Fix-Welle, jede Kleinigkeit, die ein Prüfer vermerkt hat (behoben oder nicht), und die Kandidaten für eine spätere Runde.
 
 Quellen: Spec `docs/superpowers/specs/2026-11-25-altfehler-runde1-design.md`, Plan `docs/superpowers/plans/2026-11-25-altfehler-stufe1.md`, Befunde `docs/ux/altfehler-inventar.md`. Die Befund-Kürzel (PL-N, SC-S2 und so weiter) sind die IDs aus dem Inventar. Pfade sind relativ zu `apps/<app>/src/`; `R/` steht für `renderer/src/`.
 
@@ -11,7 +11,7 @@ Quellen: Spec `docs/superpowers/specs/2026-11-25-altfehler-runde1-design.md`, Pl
 | A1 | PL-11 | Ein GO in der Pause auf einen Cue mit Vorlauf startet den Vorlauf angehalten; er läuft mit „Weiter“ weiter. Ein GO auf einen Cue ohne Vorlauf startet wie heute sofort und hebt die Pause auf; dann laufen auch angehaltene Vorläufe weiter. | Spec: „In der Pause startet kein Cue von selbst.“ | Ein Bediener, der in der Pause gezielt einen Cue mit Vorlauf feuert, muss „Weiter“ drücken; der Cue läuft dann nicht von selbst an. |
 | A2 | PL-T14 | Nach einem Ladefehler gibt es kein automatisches Weiterschalten (Auto-Continue); der Standby steht schon auf dem nächsten Cue. Die Pause bleibt, wie sie vor dem Start war. | Ein stiller Sprung auf den nächsten Cue wäre ein zweiter, unsichtbarer Start. | Eine Show, die nach einem fehlenden Ton von selbst weiterlaufen sollte, bleibt stehen; der Bediener drückt GO. |
 | A3 | PL-T14, PL-16a | Die Meldung im Fenster ist die bestehende Hinweisleiste (`notice`, 4 Sekunden). Die Log-Zeile geht über den neuen Kanal `player:protokoll` an `getLog().warn`. | Keine neue Anzeige für zwei Fälle; das Log erreicht der Renderer nur über IPC. | Ein Hinweis, der nach 4 Sekunden verschwindet, kann überlesen werden; dann hilft nur das Log. |
-| A4 | PL-10 | Rückfragen kommen per `window.confirm`, wie heute „Diese Show löschen?“. Der Standby folgt seinem Cue auch beim Umsortieren. Wird der Standby-Cue selbst gelöscht, steht der Standby wie heute auf dem Cue danach. | Gleiches Muster wie die bestehende Rückfrage; eine eigene Dialogkomponente wäre ein neues Bedienelement. | `window.confirm` blockiert den Renderer, solange die Rückfrage offen ist (wie schon „Show löschen“); bei einer späteren eigenen Dialogkomponente sind drei Aufrufstellen umzustellen. |
+| A4 | PL-10 | Rückfragen kommen per `window.confirm`, wie heute „Diese Show löschen?“ (**für die zwei neuen Rückfragen ersetzt durch R16**; es gilt weiter für „Show löschen“). Der Standby folgt seinem Cue auch beim Umsortieren. Wird der Standby-Cue selbst gelöscht, steht der Standby wie heute auf dem Cue danach. | Gleiches Muster wie die bestehende Rückfrage; eine eigene Dialogkomponente wäre ein neues Bedienelement. | `window.confirm` blockiert den Renderer, solange die Rückfrage offen ist (wie schon „Show löschen“); bei einer späteren eigenen Dialogkomponente sind drei Aufrufstellen umzustellen. Eingetreten: Die Gesamtprüfung fand genau das als Show-Risiko, R16 stellte zwei der drei um. |
 | A5 | PL-N | Auf „bereit“ des Ausgabefensters wird höchstens 5000 ms gewartet. Danach geht der Befehl trotzdem hinaus, und das Log bekommt eine Zeile. Das gilt auch für ein Fenster, das per Panel offen ist und noch lädt. | Eine harte Obergrenze statt einer Hängepartie; ein Befehl geht nie verloren. | Ein sehr langsames Fenster bekommt den Befehl vor seinem Abo (wie vor dieser Stufe). |
 | A6 | PL-4 | Ein Pad löst auch bei gedrückter Umschalttaste aus; nur Strg, Alt und Meta sperren. | Die Spec nennt nur diese drei. | Umschalt+Taste löst ein Pad aus, obwohl ein Bediener das nicht erwartet; ein Wächter müsste `shiftKey` ergänzen. |
 | A7 | SC-S2 | Das Fenster-Geheimnis hat 32 Zufallsbytes als Hex und gilt je Start. `studio:fensterGeheimnis` gibt es nur an die Webinhalte des Hauptfensters, nur im Hauptrahmen und nur auf der eigenen Seite (`file://…/renderer/index.html` oder im Dev die Vite-Adresse). Das Fenster schickt es als `X-JMS-Fenster` bzw. `auth.fenster`; `Authorization` geht weiter mit, damit Logout die Sitzung widerruft. | Wer das Geheimnis nicht hat, ist auch auf demselben Rechner nicht Admin; ohne den Token-Kopf liefe der Logout ins Leere. | Eine Seite, die das Geheimnis liest, hätte Admin-Rechte. Verschärfung durch R13. |
@@ -19,7 +19,7 @@ Quellen: Spec `docs/superpowers/specs/2026-11-25-altfehler-runde1-design.md`, Pl
 | A9 | SC-S1 | Der Panel-Abschnitt „Browser-Zugang“ nennt den Pfad der Erst-Passwort-Datei, solange die Datei besteht; gemessen wird beim Öffnen des Panels. Anmeldung und Konto beim ersten Start bleiben, weil die Messung in Task 5 kein bekanntes oder leeres Passwort fand. | Die Spec verlangt die Anzeige nur, wenn die Messung eine Lücke findet. | Fände eine spätere Messung doch ein bekanntes Passwort, wäre der Hinweis zu wenig und die Anmeldung müsste angepasst werden. |
 | A10 | alle | Neue Versionen: Player 0.9.1 → 0.10.0, Studio-Control 0.7.0 → 0.8.0 (Minor, drei bis vier Release-Notizen). | Sichtbar geänderte Bedienung, nicht nur Fehlerkorrektur. | Eine falsche Zählung kostet nichts außer einem umzubenennenden Tag; die Versionen stehen noch in keinem Katalog. |
 
-## 2. Rulings des Controllers (R1 bis R13)
+## 2. Rulings des Controllers (R1 bis R19)
 
 | # | Betrifft | Entschieden | Grund | Kostet, wenn falsch |
 | --- | --- | --- | --- | --- |
@@ -36,10 +36,37 @@ Quellen: Spec `docs/superpowers/specs/2026-11-25-altfehler-runde1-design.md`, Pl
 | R11 | Task 5, Pille | Die Statuspille des Abschnitts „Browser-Zugang“ („Datei vorhanden“ gelb, „keine Datei“ grün) bleibt vorläufig; die Texte stehen in der Texttabelle (SCA5, SCA6) und in Offener Frage 2. | Der Plan nennt die Pille nicht; sie schadet nicht. | Zwei Texte, die der Owner streicht. |
 | R12 | Task 5, Messung | Ein leeres Passwort wird mit 400 statt 401 abgelehnt (zod `min(1)`); das genügt SC-S1. Der Modus „secure“ ist im Panel und in der Brücken-Meldung gemessen; die Statusleiste zeigt den Modus wie vor dem Task nicht (unverändert, kein Auftrag). `taskkill` der Mess-Instanz nach 10 s ist zulässig (nur Testprofil). | Alle drei sind Messdetails, die den Befund nicht ändern. | Nichts am Produkt. |
 | R13 | Task 6, A7 | `istEigeneSeite(url: string, eigeneDatei: string, devUrl: string \| undefined): boolean` vergleicht mit genau der geladenen Datei. `eigeneDatei` ist `pathToFileURL(join(__dirname, '../renderer/index.html')).href` ohne `#` und `?`, der Vergleich ignoriert Groß/Klein des Laufwerks; `devUrl` gibt es nur bei `!app.isPackaged` (A7 „im Dev“). Keine `will-navigate`-Sperre: Sie würde Bedienung außerhalb der Spec ändern. | Der Plan prüfte nur die Endung `/renderer/index.html`; eine präparierte Datei (Download, UNC-Freigabe), per Ziehen ins Fenster geladen, hätte das Geheimnis bekommen. | Eine Seite, die genau die eigene Datei im Programmordner ersetzt (Schreibrecht dort), bekäme das Geheimnis; das ist schon heute Vollzugriff. Wer die Electron-Fuses ändert, muss das Fenster neu messen (`file://` ohne CORS hängt an der Standard-Fuse von Electron 33). |
+| R14 | Testbauten | Die Testbauten entstehen erst nach der Gesamtprüfung und ihrer Fix-Welle (statt direkt nach Task 6, R10). | Sonst müsste nach einer Code-Änderung der Fix-Welle neu gebaut werden. | Der Owner wartet etwas länger auf die Testbauten. |
+| R15 | Arbeitsbereich | Der Ordner `.superpowers/sdd/2026-11-25-altfehler-stufe1/` bleibt nach der Gesamtprüfung bis nach Abnahme und Release liegen und kommt dann wie in Welle 2b als tar.gz nach `sdd-archiv`. | Owner-Praxis; Messskripte und Belege dienen der Abnahme. | Ein git-ignorierter Ordner bleibt länger liegen. |
+| R16 | Gesamtprüfung F2, ersetzt A4 für die neuen Rückfragen | Beide neuen Rückfragen (Cue löschen während der Show, benutztes Medium entfernen) laufen als Fenster im Fenster (`Modal` aus `@jm/ui`, `R/views/EntfernenFrage.tsx`), nicht als `window.confirm`. „Abbrechen“ steht zuerst und hat beim Öffnen den Fokus, Escape und der Hintergrund brechen ab, „Entfernen“ entfernt wie bisher. Die Show läuft währenddessen weiter, Fernbefehle wirken; die Cue-Show sperrt Leertaste und Escape wie bei den anderen Dialogen. „Show löschen“ bleibt `window.confirm`. | Eine blockierende Rückfrage während laufender Show hält Panik und Stop über Companion, das Ende eines Cues und Vorläufe an; Leertaste oder Enter bestätigten sie (Show-Risiko, Anti-Ziel). | Zwei neue Knopftexte („Abbrechen“ PLA15, „Entfernen“ PLA16) in der Texttabelle. |
+| R17 | Gesamtprüfung F3, Offene Frage 1 | Pads lösen bei AltGr weiter aus wie vor der Stufe: Windows meldet AltGr als Strg+Alt, `getModifierState('AltGraph')` erlaubt dann (`padTasteErlaubt`, `R/lib/oberflaeche.ts`); gesperrt bleiben Strg, Alt und Meta ohne AltGr, Meta auch mit AltGr. | Anti-Ziel „Taste verhält sich ohne Owner-Entscheid anders“ geht vor; das Tastenfeld nimmt AltGr-Zeichen ohnehin an. | Nichts gegenüber heute: AltGr-Zeichen feuern wie vor dem Branch. Der Owner kann AltGr sperren lassen. |
+| R18 | Triage der Kleinigkeiten der Gesamtprüfung | In die Fix-Welle kommen zusätzlich die vom Prüfer als „vor Release“ oder „billig und show-nah“ eingestuften Punkte K1 bis K7 (Abnahme AS3 und AP7; `Vorlaeufe` mit `performance.now()` und Obergrenze; Zeitreserven ≥ 90 ms; Test „Panik in der Pause“; Pause während des Wartens auf „bereit“; R9 gegen Pause-Wechsel; dieses Dokument bis R19). Alle übrigen Kleinigkeiten bleiben aufgeschoben (Abschnitt 4). | Billig und nah an der Show; der Rest ändert vor dem Release nichts Sichtbares. | Etwas mehr Arbeit in der Welle. |
+| R19 | Gesamtprüfung, „Declined to judge“ | Drei Punkte bleiben außerhalb dieser Stufe und gehen als Kandidaten in die Bestandsaufnahme (Abschnitt 5, Inventar Abschnitt 7): Cue im Vorlauf löschen bricht den Vorlauf nicht ab (der Zeitgeber spielt den gelöschten Cue); GO ohne Vorlauf in der Pause lässt ein pausiertes Ausgabevideo stehen; Medium entfernen nimmt es still aus Playlists (`CASCADE`). Der Rest der Liste (A8 `null`/`file://`, 7-Tage-Sitzungen, Fuse, `loadMain`, `openExternal`, top-level await, 0.0.0.0, `atem:state`) ist Plan-Entscheid oder schon vermerkt. | Außerhalb des Auftrags dieser Stufe. | Der gelöschte Cue im Vorlauf bleibt bis Stufe 2 ein Show-Risiko; er steht darum als erster Kandidat in der Liste (PL-K1). |
 
-## 3. Vermerkte Kleinigkeiten, nicht behoben (Minor)
+## 3. Gesamtprüfung und Fix-Welle
 
-Jede Zeile ein Fund eines Prüfers, mit Datei und Zeile (Stand des Branches bei der Prüfung; die Zeilen können sich verschoben haben). Nichts davon blockierte die Freigabe der Stufe. Wo ein Punkt eine Frage an den Owner ist, steht er unter „Offene Fragen“ der Texttabelle.
+Eine Prüfung über den ganzen Branch (`cf42db4e4a..2ed47ccacd`, Prüfer opus) nach Task 8.
+
+- **Ergebnis:** bereit zum Merge „mit Korrekturen“, kein Critical. Drei Important:
+  - F1: Companion braucht bei „secure“ Suite-Token **und** TLS-Fingerprint (der Launcher schreibt immer `tls` und `tlsFingerprint`, das Modul spricht TLS nur mit ausgefülltem Fingerprint und hängt mit Token allein bei „Authentifiziere …“); alle Texte sagten nur „den Schlüssel“.
+  - F2: `window.confirm` beim Cue-Löschen während der Show und beim benutzten Medium blockierte das Player-Fenster (Companion STOP und PANIK, Ende eines Cues, Vorläufe warten), Leertaste oder Enter bestätigten. → R16.
+  - F3: AltGr-Pads vor dem Release entscheiden. → R17.
+- **In der Fix-Welle behoben** (eine Welle, ein Helfer; Liste `fix-welle.md` im Arbeitsbereich):
+  - F1 nur in Texten: Changelog CL-SC2, Handbuch Studio-Control, Texttabelle, Abnahme AS6 (die Wegwerf-Probe mit Token allein prüft nur „ohne Token abgelehnt, mit Token angenommen“, ohne TLS). Kein Code von Studio-Control.
+  - F2: Rückfrage im Fenster (`R/views/EntfernenFrage.tsx`, hooklose Abläufe `cueEntfernen` in `R/views/ShowView.tsx` und `mediumEntfernen` in `R/views/LibraryView.tsx`, `entfernenOderFragen` in `R/lib/oberflaeche.ts`); Tests `test/ui/rueckfrage.test.tsx` und `test/ui/store.test.ts`; Echt-Fenster-Messung im `out/`-Bau (Rückfrage erscheint, Companion `PLAYER STOP` wirkt, während sie offen ist, „Abbrechen“ lässt den Cue stehen).
+  - F3: `padTasteErlaubt` mit `getModifierState('AltGraph')`; Tests „PL-4 AltGr+Q (@) löst aus“ und „PL-4 Strg+Alt ohne AltGr sperrt“.
+  - K1: Abnahme AS3 entfernt das Testgerät wieder; AP7 löscht nur eigene Wegwerf-Medien.
+  - K2: `Vorlaeufe` nehmen `performance.now()`; eine Uhr, die zurückspringt, macht die Restzeit nicht größer als die Vorlaufzeit (0 ≤ Rest ≤ ms).
+  - K3: Zeitreserven echter Zeitgeber im Store-Test mindestens 90 ms.
+  - K4: Test „PL-11 Panik in der Pause räumt angehaltene Vorläufe“.
+  - K5: Ist die Show beim Senden von `load` pausiert (Pause während des Wartens auf „bereit“), folgt direkt ein `pause` an die Ausgabe (`R/store/player.ts`). Grund: Der Main hält das `pause` der Pause bis „bereit“ zurück und schickt es vor dem späteren `load`.
+  - K6: R9 gilt auch gegen Pause-Wechsel: Nach einem Ladefehler kehrt die Pause nur zurück, wenn seit dem Start niemand Pause oder Weiter gedrückt hat (Zähler `pauseZaehler` wie `startZaehler`).
+  - K7: dieses Dokument bis R19 und dieser Abschnitt; K8: drei Kandidaten im Inventar (Abschnitt 5 hier).
+- **Aufgeschoben:** alle übrigen Kleinigkeiten (Abschnitt 4, ohne den Vermerk „behoben“) und die drei Kandidaten aus R19 (Abschnitt 5).
+
+## 4. Vermerkte Kleinigkeiten (Minor)
+
+Jede Zeile ein Fund eines Prüfers, mit Datei und Zeile (Stand des Branches bei der Prüfung; die Zeilen können sich verschoben haben). Nichts davon blockierte die Freigabe der Stufe. Was die Fix-Welle nach der Gesamtprüfung behoben hat, trägt den Vermerk **behoben (Fix-Welle …)**; alles andere ist nicht behoben. Wo ein Punkt eine Frage an den Owner ist, steht er unter „Offene Fragen“ der Texttabelle.
 
 ### Player
 
@@ -50,11 +77,11 @@ Task 1 (Ausgabefenster, `main/`):
 
 Task 2 (Pause und Fernbefehle):
 - Die Log-Zeile „Show hat 1 Cues“ steht ohne Einzahl: `R/lib/fernbefehl.ts:13`.
-- Die Standard-Uhr `Date.now()` springt mit der Systemzeit; `performance.now()` wäre fest: `R/lib/vorlauf.ts:11`.
-- Der Kommentar „mit seiner vollen Zeit“ ist ungenau: `R/lib/vorlauf.ts:30`.
+- Die Standard-Uhr `Date.now()` springt mit der Systemzeit; `performance.now()` wäre fest: `R/lib/vorlauf.ts:11`. **behoben (Fix-Welle K2)**
+- Der Kommentar „mit seiner vollen Zeit“ ist ungenau: `R/lib/vorlauf.ts:30`. **behoben (Fix-Welle K2, jetzt „Restzeit“)**
 - `selectShow` schreibt nach `await` erneut `showPaused: false`; ein Companion-`pause` in der Lücke lässt Vorläufe angehalten ohne sichtbare Pause: `R/store/player.ts:462-464`.
 - Der letzte Wert im Test ist nach `showTogglePause()` trivial wahr: `test/store.test.ts:262-266`.
-- Knappe Zeitreserven mit echten Zeitgebern (sonst 90 ms): `test/store.test.ts:299-301`, `:331`, `:381`.
+- Knappe Zeitreserven mit echten Zeitgebern (sonst 90 ms): `test/store.test.ts:299-301`, `:331`, `:381`. **behoben (Fix-Welle K3, alle mindestens 90 ms)**
 - `protokolliere` im Preload hat kein `.catch`: `preload/player.ts:85`.
 - Funktionsliste Nr. 94 nennt noch `showTimers`; Nr. 99/112/113: Beschreibung umgeschrieben, die Zeilenangaben `:64-66` und `:67-69` sind veraltet: `docs/ux/funktionslisten/player.md`.
 
@@ -68,16 +95,16 @@ Task 3 (Ton-Cue lädt nicht):
 - Die Map `letzterStart` wird bei neuer Show oder Panik nicht geleert (begrenzt durch die Zahl der Cue-IDs, harmlos): `R/store/player.ts`.
 
 Task 4 (Pad-Tasten und Rückfragen):
-- AltGr (Strg+Alt) sperrt Pads auf `@`, `€`, `{`, `[`, `\`, `~`, `|`; das Tastenfeld nimmt diese Tasten weiter an (Owner-Frage 1 der Texttabelle): `R/lib/oberflaeche.ts:415`, `R/views/SoundboardView.tsx:289-296`.
+- AltGr (Strg+Alt) sperrt Pads auf `@`, `€`, `{`, `[`, `\`, `~`, `|`; das Tastenfeld nimmt diese Tasten weiter an (Owner-Frage 1 der Texttabelle): `R/lib/oberflaeche.ts:415`, `R/views/SoundboardView.tsx:289-296`. **behoben (Fix-Welle F3, Ruling R17: AltGr löst weiter aus)**
 - Kein Wächter für `padTasteErlaubt` gegenüber `istEingabeZiel` (`contentEditable`, `TEXTAREA`, `SELECT`): `test/oberflaeche.test.ts:686`, `:747`, `test/rahmen.test.tsx:277`.
-- Die Zählung `confirm|prompt === 3` in `ShowView` gilt für beide zusammen statt getrennt: `test/ui/funktionsliste.test.ts:735`.
+- Die Zählung `confirm|prompt === 3` in `ShowView` gilt für beide zusammen statt getrennt: `test/ui/funktionsliste.test.ts:735`. **behoben (Fix-Welle F2, getrennt: prompt 1, confirm 1)**
 - Toter Zweig und veralteter Text im Wächter Nr. 87–90: `test/ui/funktionsliste.test.ts:646-647`.
 - Widersprüchliche Zelltexte in der Funktionsliste Nr. 19, 50, 77, 134: `docs/ux/funktionslisten/player.md:92`, `:123`, `:160`, `:249`.
 - Die Rückfrage nennt einen Cue ohne Medium „—“ statt „Medium fehlt“ wie die Zeile: `R/views/ShowView.tsx:138` gegen `:374`.
 - Scheitert `library.nutzung`, tut ✕ still nichts: `R/views/LibraryView.tsx:313-317`.
 - `panelOffen` lässt das memoisierte Soundboard bei jedem Panel-Wechsel neu rendern; der Wächtertext sagt etwas anderes: `R/views/PlayerOberflaeche.tsx:190`, `test/rahmen.test.tsx:127-130`.
 - Dritte Kopie der Kanal-Zählhilfe: `test/bruecken.test.ts:645`.
-- Keine Verhaltensprüfung der Rückfrage-Verdrahtung (nur Quelltext): `R/views/ShowView.tsx:137-141`, `R/views/LibraryView.tsx:313-317`.
+- Keine Verhaltensprüfung der Rückfrage-Verdrahtung (nur Quelltext): `R/views/ShowView.tsx:137-141`, `R/views/LibraryView.tsx:313-317`. **behoben (Fix-Welle F2: `test/ui/rueckfrage.test.tsx`, `test/ui/store.test.ts`)**
 
 ### Studio-Control
 
@@ -102,10 +129,20 @@ Task 6 (Ursprung und Geheimnis):
 - Die Befund-Kürzel (PL-N, SC-S2 und so weiter) werden erst unten erklärt; ein Verweis in der Lesehilfe würde helfen.
 - LOG3 ist nur ein Platzhalter; das Prüfskript prüft dort kaum etwas.
 
-## 4. Kandidaten für eine spätere Runde
+### Dokumentation (Task 8)
+
+- Der Testbau teilt vermutlich das Profil der installierten Version; AS3 legte 192.0.2.10 an ohne den Schritt „Testgerät danach entfernen“: `docs/ux/ABNAHME-Altfehler-Stufe1.md:10`, `:52`. **AS3 behoben (Fix-Welle K1)**; das Profil des Testbaus bleibt offen.
+- AS4: `fetch` aus einer fremden Seite kann schon im Browser scheitern; `curl` ist der verlässliche Teil: `docs/ux/ABNAHME-Altfehler-Stufe1.md:53`.
+- Der Satz „Aus dem Code abgeleitet heißt …“ definierte eine Marke, die keine Zeile nutzte: `docs/ux/ABNAHME-Altfehler-Stufe1.md:5`. Seit der Fix-Welle nutzt AS6 sie (Hinweis zu TLS).
+- Das Rezept des Wegwerf-Profils leert `JM_*`/`JMPS_*` nicht und setzt `JMPS_HUB_URL` nicht auf einen Blocker wie das Messskript (geringes Risiko, Profil ohne Kopplung).
+
+## 5. Kandidaten für eine spätere Runde
 
 Beobachtungen außerhalb des Auftrags dieser Stufe; sie stehen als Kandidaten in `docs/ux/altfehler-inventar.md`, Abschnitt 7, nicht als behoben:
 - Studio-Control: Das Entfernen eines ATEM schickt kein neues `atem:state` (Altverhalten, Task 6).
 - `setWindowOpenHandler` gibt jedes Schema an `shell.openExternal` (`main/index.ts:95-98`, Altverhalten).
 - Eine ins Studio-Control-Fenster gezogene Datei navigiert weg (Bedienung, nicht mehr Sicherheit).
 - `loadMain` lädt `ELECTRON_RENDERER_URL` auch im Paket (`main/index.ts:57-64`); das Geheimnis geht dorthin nicht (R13), das Fenster zeigt dann aber eine fremde Adresse.
+- Player (R19, PL-K1): Ein Cue, der im Vorlauf gelöscht wird, startet trotzdem; der Zeitgeber spielt den gelöschten Cue (`removeShowCue` räumt keinen Vorlauf, `R/store/player.ts`).
+- Player (R19, PL-K2): Ein GO ohne Vorlauf in der Pause hebt die Pause auf, lässt ein pausiertes Ausgabevideo aber stehen (kein `resume` an die Ausgabe).
+- Player (R19, PL-K3): Ein Medium aus der Bibliothek zu entfernen nimmt es ohne Hinweis aus allen Playlists (`CASCADE`); die Rückfrage zählt nur Cues und Pads.
