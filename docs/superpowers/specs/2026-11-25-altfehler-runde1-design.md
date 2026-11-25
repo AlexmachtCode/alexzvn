@@ -1,6 +1,6 @@
 # Altfehler, Runde 1: Sicherheit und Show-Risiken (Entwurf)
 
-Stand: 25.11.2026, Owner-Fragen beantwortet (12:49), zur Freigabe durch den Owner. Grundlage: die Bestandsaufnahme `docs/ux/altfehler-inventar.md`
+Stand: 25.11.2026, Owner-Fragen beantwortet (12:49), **Owner-Freigabe 25.11.2026 14:08** („passt“). Grundlage: die Bestandsaufnahme `docs/ux/altfehler-inventar.md`
 (am Code von main `cf42db4e4a` geprüft, jeder Befund mit Datei und Zeile belegt). Kennungen wie `PL-N` oder `SC-S2` stammen
 von dort; die Zeilenangaben gelten für diesen Stand.
 
