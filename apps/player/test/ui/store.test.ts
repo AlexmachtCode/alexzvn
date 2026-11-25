@@ -361,6 +361,94 @@ try {
     gleich(p().outputDisplayId, 5, 'PL Bildschirm merken: openOutput ohne Kennung lässt die gemerkte stehen (wie bisher)');
     usePlayer.setState({ outputDisplayId: vorher });
   }
+
+  // ── PL-N (Altfehler Stufe 1, Review I1): Bei geschlossener Ausgabe wartet das GO auf output.open (es löst erst nach „bereit“
+  // auf). Panik, Stop oder ein zweites GO in dieser Zeit dürfen nicht vom load des ersten GO überholt werden: Nach dem Öffnen lädt
+  // der Store nur, wenn dieser Start noch der laufende Video-Cue ist. Attrappe wie im Main: Die Ausgabe ist zu, output.open legt
+  // das Fenster sofort an (danach meldet isOpen offen) und löst erst auf, wenn der Test es freigibt ──
+  {
+    const ausgabe = (g.window as { jmplay: { output: Record<string, unknown> } }).jmplay.output;
+    const echtAusgabe = { isOpen: ausgabe.isOpen, open: ausgabe.open, command: ausgabe.command };
+    let fensterDa = false;
+    const freigeben: Array<() => void> = [];
+    const V2 = showCue(15, { kind: 'video', label: 'Zweiter Einspieler' });
+    const url = (c: ShowCue): string => `jmedia://local/?path=${encodeURIComponent(c.media?.path ?? '')}`;
+    const ausgabeLog = (): string[] => log.filter((z) => z.startsWith('output.'));
+    /** Frischer Lauf mit geschlossener Ausgabe; Befehle mit Adresse ins Protokoll. */
+    const zuUndNeu = (cues: ShowCue[]): void => {
+      neu();
+      usePlayer.setState({ showCues: cues, standbyIndex: 0 });
+      fensterDa = false;
+      freigeben.length = 0;
+      ausgabe.isOpen = async () => fensterDa;
+      ausgabe.open = () => {
+        log.push('output.open');
+        fensterDa = true;
+        return new Promise<void>((r) => void freigeben.push(r));
+      };
+      ausgabe.command = async (c: OutputCommand) => void log.push(c.type === 'load' ? `output.load ${c.url}` : `output.${c.type}`);
+    };
+    const gibFrei = async (): Promise<void> => {
+      for (const r of freigeben.splice(0)) r();
+      await warte(5);
+    };
+    try {
+      zuUndNeu([V]);
+      p().fireCue(0);
+      await warte(5);
+      p().showPanic();
+      await gibFrei();
+      gleich(
+        [ausgabeLog(), p().videoCue],
+        [['output.open', 'output.black'], null],
+        'PL-N Panik während des Öffnens: kein load (das Fenster bleibt schwarz, kein Video-Cue im Store)',
+      );
+
+      zuUndNeu([V]);
+      p().fireCue(0);
+      await warte(5);
+      p().showStop();
+      await gibFrei();
+      gleich(
+        [ausgabeLog(), p().videoCue],
+        [['output.open', 'output.stop'], null],
+        'PL-N Stop während des Öffnens: kein load (das Video startet nach Stop nicht)',
+      );
+
+      zuUndNeu([V, V2]);
+      p().fireCue(0);
+      await warte(5);
+      p().fireCue(1);
+      await warte(5);
+      await gibFrei();
+      const geladen = ausgabeLog().filter((z) => z.startsWith('output.load '));
+      gleich(
+        [geladen, p().videoCue?.id],
+        [[`output.load ${url(V2)}`], V2.id],
+        'PL-N zweites GO während des Öffnens: nur der zweite Video-Cue lädt (genau ein load, keiner für den ersten danach)',
+      );
+
+      // Dieselbe Lücke ist bei offener Ausgabe kürzer: Panik zwischen GO und der Antwort auf isOpen.
+      zuUndNeu([V]);
+      fensterDa = true;
+      ausgabe.isOpen = () => new Promise<boolean>((r) => void freigeben.push(() => r(true)));
+      p().fireCue(0);
+      await warte(5);
+      p().showPanic();
+      await gibFrei();
+      gleich(ausgabeLog(), ['output.black'], 'PL-N Panik zwischen GO und der Antwort auf isOpen (Ausgabe offen): kein load');
+
+      // Gegenprobe: Ohne Zwischenfall lädt der Video-Cue nach dem Öffnen wie bisher, genau einmal.
+      zuUndNeu([V]);
+      p().fireCue(0);
+      await warte(5);
+      await gibFrei();
+      gleich(ausgabeLog(), ['output.open', `output.load ${url(V)}`], 'PL-N GO bei geschlossener Ausgabe: nach dem Öffnen genau ein load für den Cue (wie bisher)');
+    } finally {
+      for (const r of freigeben.splice(0)) r();
+      Object.assign(ausgabe, echtAusgabe);
+    }
+  }
 } finally {
   // Zeitgeber räumen, dann Attrappen zurücknehmen: danach läuft nichts mehr gegen das Schein-window.
   p().showPanic();

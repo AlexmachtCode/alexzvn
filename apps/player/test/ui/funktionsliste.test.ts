@@ -131,7 +131,15 @@ const NUR_MELDUNG = new Set([
 const ALTFEHLER = new Map<string, readonly string[]>([
   [
     'PL-N',
-    ['src/main/ausgabe-fenster.ts', 'src/main/output-window.ts', 'src/main/ipc.ts', 'src/preload/index.ts', 'src/shared/types.ts', 'src/renderer/src/views/OutputView.tsx'].map((p) => `apps/player/${p}`),
+    [
+      'src/main/ausgabe-fenster.ts',
+      'src/main/output-window.ts',
+      'src/main/ipc.ts',
+      'src/preload/index.ts',
+      'src/shared/types.ts',
+      'src/renderer/src/views/OutputView.tsx',
+      'src/renderer/src/store/player.ts',
+    ].map((p) => `apps/player/${p}`),
   ],
   ['PL-T13', ['src/main/ausgabe-fenster.ts', 'src/main/output-window.ts'].map((p) => `apps/player/${p}`)],
   ['PL-4', []],

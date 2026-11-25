@@ -519,15 +519,20 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
       if (media.kind === 'video') {
         // Video → Ausgabefenster (ggf. öffnen). Ende-/Auto-Continue läuft über
         // onOutputEnded (das Ausgabefenster meldet das natürliche Ende zurück).
-        set({ videoCue: { id: cue.id, index, autoContinue: cue.autoContinue }, videoProgress: null });
+        const dieserStart = { id: cue.id, index, autoContinue: cue.autoContinue };
+        set({ videoCue: dieserStart, videoProgress: null });
+        // Altfehler PL-N: open löst erst nach „bereit“ auf. Kamen Panik, Stop oder ein neuer Video-Cue dazwischen, lädt dieser
+        // Start nicht mehr, sonst überholt sein load den späteren Befehl.
         const load = (): Promise<void> =>
-          window.jmplay.output.command({
-            type: 'load',
-            url,
-            gainDb: cue.gainDb,
-            loop: cue.loop,
-            fadeInSec: cue.fadeInSec,
-          });
+          get().videoCue !== dieserStart
+            ? Promise.resolve()
+            : window.jmplay.output.command({
+                type: 'load',
+                url,
+                gainDb: cue.gainDb,
+                loop: cue.loop,
+                fadeInSec: cue.fadeInSec,
+              });
         void window.jmplay.output
           .isOpen()
           .then((open) =>
