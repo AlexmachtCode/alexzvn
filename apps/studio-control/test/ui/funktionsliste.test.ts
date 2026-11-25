@@ -187,6 +187,7 @@ const ALTFEHLER = new Map<string, readonly string[]>([
       'src/main/index.ts',
       'src/main/server.ts',
       'src/preload/index.ts',
+      'src/renderer/src/App.tsx',
       'src/renderer/src/main.tsx',
       'src/renderer/src/sync/client.ts',
       'src/renderer/src/sync/jms.d.ts',
@@ -492,11 +493,12 @@ for (const z of alle) {
     ['R/components/video/AtemPanel.tsx', 'src/renderer/src/components/video/AtemPanel.tsx', 'apps/studio-control/src/renderer/src/components/video/AtemPanel.tsx'].every((p) =>
       (zeilenFehler(synth(`✓ unverändert (\`${p}\`): x`)) ?? '').includes('geänderter Datei'),
     ) &&
-      (zeilenFehler(synth('✓ unverändert (`R/App.tsx`, B2): x')) ?? '').includes('ohne Verweis auf B15') &&
-      zeilenFehler(synth('✓ unverändert (`R/App.tsx`, B15): x')) === null &&
+      (zeilenFehler(synth('✓ unverändert (`R/App.tsx`, B2): x')) ?? '').includes('ohne Altfehler-Verweis') &&
+      (zeilenFehler(synth('✓ unverändert (`R/App.tsx`, B15): x')) ?? '').includes('ohne Altfehler-Verweis') &&
+      zeilenFehler(synth('✓ unverändert (`R/App.tsx`, B15, Altfehler SC-S2): x')) === null &&
       zeilenFehler(synth('✓ unverändert (`src/main/auth/sessions.ts`): x')) === null &&
       (zeilenFehler(synth('✓ unverändert (`packages/ui/src/components/TallyButton.tsx`): x')) ?? '').includes('geänderter Datei'),
-    'SC Funktionsliste: unverändert erkennt geänderte Dateien in jeder Schreibweise; B15 entlastet nur R/App.tsx; unveränderte Dateien sind frei',
+    'SC Funktionsliste: unverändert erkennt geänderte Dateien in jeder Schreibweise; R/App.tsx braucht seit Altfehler SC-S2 neben B15 den Altfehler-Verweis; unveränderte Dateien sind frei',
   );
   // Altfehler-Stufe 1 (R6): „Altfehler <ID>“ entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt; nur mit dem Wort
   // „Altfehler“ und nur SC-S1 bis SC-S3. Für eine Datei aus einer Liste reicht B2 allein nicht mehr (sie bekam mehr als die Brücken).
@@ -955,5 +957,11 @@ const zeigtAuf = (nr: number, datei: string, ...woerter: string[]): boolean => {
     beginnt(170, 'Browser') && beginnt(172, 'Browser') && mitVerweis(170, 'Altfehler SC-S2') && mitVerweis(172, 'Altfehler SC-S2') && !nennt(172, 'gilt weiter als Admin') &&
       zeigtAuf(172, 'src/main/auth/middleware.ts', 'export function authenticateHttp'),
     'SC Funktionsliste Nr. 170/172: die Seite vom Server gilt als eigener Ursprung; ein Browser auf 127.0.0.1 meldet sich an wie im Netz (Altfehler SC-S2)',
+  );
+  // Fix-Runde 1: R/App.tsx bekam den Kopfkommentar zum Fenster-Geheimnis; jede Zeile, die die Datei im Haken nennt, nennt den Befund.
+  const mitApp = alle.filter((z) => verweise(kuenftig(z.nr)).some((v) => kanon(v.datei) === 'apps/studio-control/src/renderer/src/App.tsx')).map((z) => z.nr);
+  ok(
+    mitApp.join() === '15,126,127,128,171' && mitApp.every((nr) => mitVerweis(nr, 'B15') || nr === 171) && mitApp.every((nr) => mitVerweis(nr, 'Altfehler SC-S2')),
+    `SC Funktionsliste Nr. 15/126/127/128/171: jede Zeile mit R/App.tsx im Haken nennt Altfehler SC-S2 (Zeilen: ${mitApp.join(', ')})`,
   );
 }

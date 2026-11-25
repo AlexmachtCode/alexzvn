@@ -9,6 +9,7 @@ import {
 } from 'electron';
 import { existsSync } from 'node:fs';
 import path, { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { initAppRuntime } from '@jm/app-runtime';
 import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
@@ -201,13 +202,18 @@ function registerIpc(): void {
   ipcMain.handle('studio:fernsteuerung', () => fernsteuerung);
   // Altfehler SC-S1: nur der Ort der Datei mit dem Erst-Passwort und ob sie jetzt besteht (je Aufruf gemessen), nie ihr Inhalt.
   ipcMain.handle('studio:erstPasswort', () => ({ datei: erstPasswortDatei(), vorhanden: existsSync(erstPasswortDatei()) }));
-  // Altfehler SC-S2 (A7): das Fenster-Geheimnis dieses Starts nur an die Webinhalte des Hauptfensters, nur im Hauptrahmen und nur
-  // auf der eigenen Seite (gebauter Renderer oder im Dev die Vite-Adresse); jede andere Anfrage bekommt null. Nur auf Anfrage.
+  // Altfehler SC-S2 (A7, Ruling R13): das Fenster-Geheimnis dieses Starts nur an die Webinhalte des Hauptfensters, nur im
+  // Hauptrahmen und nur auf der eigenen Seite: genau die Datei, die loadMain lädt, oder ohne Paket die Vite-Adresse (wie
+  // devUrspruenge in server.ts); jede andere Anfrage bekommt null. Nur auf Anfrage.
   ipcMain.handle('studio:fensterGeheimnis', (e) =>
     e.sender === mainWindow?.webContents &&
     e.senderFrame !== null &&
     e.senderFrame === e.sender.mainFrame &&
-    istEigeneSeite(e.senderFrame.url, process.env.ELECTRON_RENDERER_URL)
+    istEigeneSeite(
+      e.senderFrame.url,
+      pathToFileURL(join(__dirname, '../renderer/index.html')).href,
+      app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL,
+    )
       ? fensterGeheimnis()
       : null,
   );

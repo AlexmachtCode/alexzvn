@@ -63,26 +63,43 @@ import { ohneKommentare } from './testzustand';
   ok(falsch.length === 0, `SC-S2 ursprungErlaubt: ${faelle.length} Fälle nach A8 (falsch: ${falsch.join(', ') || 'keine'})`);
 }
 
-// ── SC-S2 istEigeneSeite (A7): der gebaute Renderer aus file://…/renderer/index.html oder im Dev der Ursprung der Vite-Adresse ──
+// ── SC-S2 istEigeneSeite (A7, Ruling R13): genau die geladene Datei (ohne Anker und Suche, Laufwerksbuchstabe ohne Groß/Klein)
+// oder im Dev der Ursprung der Vite-Adresse; eine andere Datei, die auch auf renderer/index.html endet, gilt nicht ──
 {
-  const faelle: Array<[string, string, string | undefined, boolean]> = [
-    ['gepackter Renderer mit Anker', 'file:///C:/x/resources/app.asar/out/renderer/index.html#/video', undefined, true],
-    ['gebauter Renderer mit Suche', 'file:///C:/x/out/renderer/index.html?a=1', undefined, true],
-    ['fremde Seite mit demselben Pfad', 'https://evil.example/renderer/index.html', undefined, false],
-    ['fremde Seite mit demselben Pfad im Dev', 'https://evil.example/renderer/index.html', 'http://localhost:5174', false],
-    ['andere lokale Datei', 'file:///C:/x/andere.html', undefined, false],
-    ['anderer Ordner, der auf renderer endet', 'file:///C:/x/notrenderer/index.html', undefined, false],
-    ['Datei mit angehängter Endung', 'file:///C:/x/renderer/index.html.evil', undefined, false],
-    ['Vite-Adresse ohne devUrl', 'http://localhost:5174/', undefined, false],
-    ['Vite-Adresse mit devUrl', 'http://localhost:5174/#/video', 'http://localhost:5174', true],
-    ['Vite-Adresse mit devUrl samt Pfad', 'http://localhost:5174/', 'http://localhost:5174/index.html', true],
-    ['anderer Port als devUrl', 'http://localhost:5175/', 'http://localhost:5174', false],
-    ['keine Adresse', 'kaputt', 'http://localhost:5174', false],
-    ['devUrl keine Adresse', 'http://localhost:5174/', 'kaputt', false],
-    ['Seite und devUrl ohne Ursprung (beide „null“)', 'data:text/html,x', 'about:blank', false],
+  const EIGEN = 'file:///C:/x/resources/app.asar/out/renderer/index.html';
+  const MIT_LEERZEICHEN = 'file:///C:/Program%20Files/JM%20Studio%20Control/resources/app.asar/out/renderer/index.html';
+  const DEV = 'http://localhost:5174';
+  const faelle: Array<[string, string, string, string | undefined, boolean]> = [
+    ['genau die eigene Datei', EIGEN, EIGEN, undefined, true],
+    ['eigene Datei mit Anker', `${EIGEN}#/video`, EIGEN, undefined, true],
+    ['eigene Datei mit Suche', `${EIGEN}?x`, EIGEN, undefined, true],
+    ['eigene Datei mit Suche und Anker', `${EIGEN}?a=1#/b`, EIGEN, undefined, true],
+    ['Laufwerk klein in der Seite', 'file:///c:/x/resources/app.asar/out/renderer/index.html', EIGEN, undefined, true],
+    ['Laufwerk klein in der eigenen Datei', `${EIGEN}#/video`, 'file:///c:/x/resources/app.asar/out/renderer/index.html', undefined, true],
+    ['Pfad mit Leerzeichen (Installation)', `${MIT_LEERZEICHEN}#/video`, MIT_LEERZEICHEN, undefined, true],
+    ['eigene Datei auch mit devUrl', EIGEN, EIGEN, DEV, true],
+    ['andere Datei renderer/index.html', 'file:///C:/evil/renderer/index.html', EIGEN, undefined, false],
+    ['Download renderer/index.html', 'file:///C:/Users/x/Downloads/renderer/index.html', EIGEN, undefined, false],
+    ['Freigabe im Netz (UNC)', 'file://host/share/renderer/index.html', EIGEN, undefined, false],
+    ['Freigabe im Netz mit demselben Pfad', 'file://host/C:/x/resources/app.asar/out/renderer/index.html', EIGEN, undefined, false],
+    ['Datei daneben', 'file:///C:/x/resources/app.asar/out/renderer/andere.html', EIGEN, undefined, false],
+    ['Datei mit angehängter Endung', `${EIGEN}.evil`, EIGEN, undefined, false],
+    ['Ordner statt Datei', `${EIGEN}/`, EIGEN, undefined, false],
+    ['anderer Ordner in anderer Schreibweise', 'file:///C:/X/resources/app.asar/out/renderer/index.html', EIGEN, undefined, false],
+    ['fremde Seite mit demselben Pfad', 'https://evil.example/renderer/index.html', EIGEN, undefined, false],
+    ['fremde Seite mit demselben Pfad im Dev', 'https://evil.example/renderer/index.html', EIGEN, DEV, false],
+    ['eigene Datei unbekannt', EIGEN, '', undefined, false],
+    ['eigene Datei keine file-Adresse', 'http://localhost:5174/renderer/index.html', 'http://localhost:5174/renderer/index.html', undefined, false],
+    ['Vite-Adresse ohne devUrl', 'http://localhost:5174/', EIGEN, undefined, false],
+    ['Vite-Adresse mit devUrl', 'http://localhost:5174/#/video', EIGEN, DEV, true],
+    ['Vite-Adresse mit devUrl samt Pfad', 'http://localhost:5174/', EIGEN, 'http://localhost:5174/index.html', true],
+    ['anderer Port als devUrl', 'http://localhost:5175/', EIGEN, DEV, false],
+    ['keine Adresse', 'kaputt', EIGEN, DEV, false],
+    ['devUrl keine Adresse', 'http://localhost:5174/', EIGEN, 'kaputt', false],
+    ['Seite und devUrl ohne Ursprung (beide „null“)', 'data:text/html,x', EIGEN, 'about:blank', false],
   ];
-  const falsch = faelle.filter(([, url, dev, soll]) => istEigeneSeite(url, dev) !== soll).map(([name]) => name);
-  ok(falsch.length === 0, `SC-S2 istEigeneSeite: ${faelle.length} Fälle (falsch: ${falsch.join(', ') || 'keine'})`);
+  const falsch = faelle.filter(([, url, eigen, dev, soll]) => istEigeneSeite(url, eigen, dev) !== soll).map(([name]) => name);
+  ok(falsch.length === 0, `SC-S2 istEigeneSeite: ${faelle.length} Fälle, genau die geladene Datei (falsch: ${falsch.join(', ') || 'keine'})`);
 }
 
 // ── SC-S2 apiFetch schickt Geheimnis und Token / handshakeAuth: Schein-fetch, Schein-Preload; im Browser ohne Preload null ──
@@ -210,8 +227,20 @@ await new Promise<void>((r) => setImmediate(r));
   ok(
     handler.includes('e.sender === mainWindow?.webContents &&') &&
       handler.includes('e.senderFrame === e.sender.mainFrame &&') &&
-      handler.includes('istEigeneSeite(e.senderFrame.url, process.env.ELECTRON_RENDERER_URL) ?') &&
+      handler.includes('istEigeneSeite(') &&
       (main.match(/studio:fensterGeheimnis/g) ?? []).length === 1,
     'SC-S2 Wächter IPC: studio:fensterGeheimnis antwortet nur dem Hauptfenster, im Hauptrahmen, auf der eigenen Seite (sonst null), nie per send',
+  );
+  // Ruling R13: genau die Datei, die loadMain lädt, und die Vite-Adresse nur ohne Paket (wie devUrspruenge in server.ts).
+  ok(
+    handler.includes("istEigeneSeite( e.senderFrame.url, pathToFileURL(join(__dirname, '../renderer/index.html')).href, app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL, ) ?") &&
+      main.includes("win.loadFile(join(__dirname, '../renderer/index.html'));") &&
+      /^import \{ pathToFileURL \} from 'node:url';$/m.test(ohneKommentare(leseText('src/main/index.ts'))),
+    'SC-S2 Wächter IPC: die eigene Seite ist genau die Datei aus loadMain (pathToFileURL), die Vite-Adresse zählt nur ohne Paket',
+  );
+  const app = leseText('src/renderer/src/App.tsx');
+  ok(
+    !app.includes('Loopback als Admin') && app.slice(0, app.indexOf('import ')).includes('mit dem Fenster-Geheimnis aus `handshakeAuth`'),
+    'SC-S2 Wächter App.tsx: der Kopf nennt das Fenster-Geheimnis statt Loopback als Admin (Kommentar sagt keine falsche Sicherheitseigenschaft)',
   );
 }

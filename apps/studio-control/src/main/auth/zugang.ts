@@ -36,17 +36,38 @@ export function ursprungErlaubt(origin: string | undefined, host: string | undef
 }
 
 /**
- * Ist `url` die eigene Seite des Fensters (A7)? Der gebaute Renderer `file://…/renderer/index.html` (Anker und Suche zählen
- * nicht) oder, mit `devUrl`, jede Seite vom Ursprung der Vite-Adresse.
+ * Eine file-Adresse ohne Anker und Suche, mit kleinem Laufwerksbuchstaben (`file:///C:/…` und `file:///c:/…` sind dieselbe Datei);
+ * null, wenn es keine file-Adresse ist. Host (Freigabe im Netz) und Pfad bleiben sonst, wie sie sind.
  */
-export function istEigeneSeite(url: string, devUrl: string | undefined): boolean {
+function dateiAdresse(adresse: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(adresse);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== 'file:') return null;
+  u.hash = '';
+  u.search = '';
+  return u.href.replace(/^file:\/\/\/([A-Za-z]):/, (_, laufwerk: string) => `file:///${laufwerk.toLowerCase()}:`);
+}
+
+/**
+ * Ist `url` die eigene Seite des Fensters (A7, Ruling R13)? Genau die geladene Datei `eigeneDatei` (Anker und Suche zählen nicht,
+ * der Laufwerksbuchstabe ohne Groß/Klein) oder, mit `devUrl` (nur ohne Paket), jede Seite vom Ursprung der Vite-Adresse. Eine
+ * andere Datei, die auch auf renderer/index.html endet (Download, Freigabe im Netz), gilt nicht.
+ */
+export function istEigeneSeite(url: string, eigeneDatei: string, devUrl: string | undefined): boolean {
   let seite: URL;
   try {
     seite = new URL(url);
   } catch {
     return false;
   }
-  if (seite.protocol === 'file:') return seite.pathname.endsWith('/renderer/index.html');
+  if (seite.protocol === 'file:') {
+    const ist = dateiAdresse(url);
+    return ist !== null && ist === dateiAdresse(eigeneDatei);
+  }
   if (!devUrl) return false;
   try {
     // Zwei Seiten ohne eigenen Ursprung (about:, data:) heißen beide „null“; das ist kein gemeinsamer Ursprung.

@@ -1,8 +1,8 @@
 // Wurzel von Studio-Control (UX Welle 2b, Studio-Control d1; B15, N2b 2.10): Hier steht der Socket-Effekt wie bisher. Er läuft in
-// jedem Zustand, vor der Anmeldung (im Electron-Fenster ohne Token, der Server nimmt Loopback als Admin) und danach, und hängt nur
-// am Token und an den Sitzungsaktionen, nie an Panel oder Reiter. Jeder Lauf des Effekts ist ein eigener Socket mit eigener
-// Lauf-Kennung: Nur Meldungen des aktuellen Sockets setzen die Server-Verbindung (naechsterServerStand), eine späte Meldung eines
-// alten Sockets ändert nichts (B15). Den Rahmen samt Anmeldung zeichnet die eine Wurzel-View (StudioOberflaeche).
+// jedem Zustand, vor der Anmeldung (im Electron-Fenster ohne Token, mit dem Fenster-Geheimnis aus `handshakeAuth` als Admin,
+// Altfehler SC-S2) und danach, und hängt nur am Token und an den Sitzungsaktionen, nie an Panel oder Reiter. Jeder Lauf des Effekts
+// ist ein eigener Socket mit eigener Lauf-Kennung: Nur Meldungen des aktuellen Sockets setzen die Server-Verbindung (naechsterServerStand),
+// eine späte Meldung eines alten Sockets ändert nichts (B15). Den Rahmen samt Anmeldung zeichnet die eine Wurzel-View (StudioOberflaeche).
 import { useEffect, useRef, useState } from 'react';
 import { connect, resolveServerUrl } from '@/sync/client';
 import { useSession } from '@/store/session';
