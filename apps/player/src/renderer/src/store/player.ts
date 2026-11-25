@@ -26,6 +26,9 @@ const vorlaeufe = new Vorlaeufe();
 // nur wieder her, solange sein Start der letzte ist. `letzterStart` merkt je Cue den jüngsten Start (nur dessen Fehler räumt den Cue).
 let startZaehler = 0;
 const letzterStart = new Map<number, number>();
+// Fix-Welle K6 (R9 gegen Pause-Wechsel): zählt jedes Pause/Weiter. Ein Ladefehler stellt die Pause nur wieder her, wenn seit seinem
+// Start niemand Pause oder Weiter gedrückt hat; sonst gilt, was der Bediener zuletzt gestellt hat.
+let pauseZaehler = 0;
 function clearShowTimers(): void {
   vorlaeufe.leeren();
 }
@@ -536,6 +539,7 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
       // Altfehler PL-T14 (A2): Merken, ob die Show vor diesem Start pausiert war; ein Ladefehler stellt die Pause wieder her.
       const warPausiert = get().showPaused;
       const meinStart = ++startZaehler;
+      const meinePause = pauseZaehler;
       letzterStart.set(cue.id, meinStart);
       // Altfehler PL-11 (A1): Ein Start hebt die Pause auf; auch gehaltene Vorläufe laufen dann weiter.
       vorlaeufe.fortsetzen();
@@ -552,17 +556,20 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
         const dieserStart = { id: cue.id, index, autoContinue: cue.autoContinue };
         set({ videoCue: dieserStart, videoProgress: null });
         // Altfehler PL-N: open löst erst nach „bereit“ auf. Kamen Panik, Stop oder ein neuer Video-Cue dazwischen, lädt dieser
-        // Start nicht mehr, sonst überholt sein load den späteren Befehl.
-        const load = (): Promise<void> =>
-          get().videoCue !== dieserStart
-            ? Promise.resolve()
-            : window.jmplay.output.command({
-                type: 'load',
-                url,
-                gainDb: cue.gainDb,
-                loop: cue.loop,
-                fadeInSec: cue.fadeInSec,
-              });
+        // Start nicht mehr, sonst überholt sein load den späteren Befehl. Fix-Welle K5: Ist die Show beim Senden von load pausiert
+        // (Pause während des Wartens; deren pause ging vor dem load hinaus), folgt direkt ein pause, damit das Video steht wie die Show.
+        const load = (): Promise<void> => {
+          if (get().videoCue !== dieserStart) return Promise.resolve();
+          const geladen = window.jmplay.output.command({
+            type: 'load',
+            url,
+            gainDb: cue.gainDb,
+            loop: cue.loop,
+            fadeInSec: cue.fadeInSec,
+          });
+          if (!get().showPaused) return geladen;
+          return Promise.all([geladen, window.jmplay.output.command({ type: 'pause' })]).then(() => undefined);
+        };
         void window.jmplay.output
           .isOpen()
           .then((open) =>
@@ -577,11 +584,12 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
           .catch((e: unknown) => {
             // Altfehler PL-T14: Der Cue verlässt „laufend“ sofort (ON AIR folgt), das Fenster nennt Cue und Grund, das Log eine
             // Zeile. Kein Auto-Continue (A2). War die Show vor dem Start pausiert und ist dies noch der letzte Start (R9: kein Stop,
-            // keine Panik, kein anderer Start dazwischen), gilt die Pause wieder, samt angehaltener Vorläufe.
+            // keine Panik, kein anderer Start dazwischen) und hat seitdem niemand Pause/Weiter gedrückt (Fix-Welle K6), gilt die Pause
+            // wieder, samt angehaltener Vorläufe.
             if (letzterStart.get(cue.id) === meinStart) {
               set((s) => ({ playingCueIds: s.playingCueIds.filter((x) => x !== cue.id) }));
             }
-            if (startZaehler === meinStart && warPausiert) {
+            if (startZaehler === meinStart && pauseZaehler === meinePause && warPausiert) {
               set({ showPaused: true });
               vorlaeufe.anhalten();
             }
@@ -639,6 +647,7 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
   },
 
   showTogglePause: () => {
+    pauseZaehler++;
     if (get().showPaused) {
       vorlaeufe.fortsetzen();
       void showAudio.resume();

@@ -2,19 +2,29 @@
 import { gleich, ok } from '@jm/ui/testhilfe';
 import { pruefeFernNummer } from '@/lib/fernbefehl';
 import { PLAYER_TEXTE } from '@/lib/oberflaeche';
+import * as vorlaufModul from '@/lib/vorlauf';
 import { Vorlaeufe, type Uhr } from '@/lib/vorlauf';
 
-/** Schein-Uhr: fester Zeitwert, Zeitgeber als Liste; `vor(ms)` rückt die Zeit vor und lässt fällige Zeitgeber laufen. */
-function scheinUhr(): Uhr & { vor(ms: number): void; offen(): number } {
+/**
+ * Schein-Uhr: fester Zeitwert, Zeitgeber als Liste; `vor(ms)` rückt die Zeit vor und lässt fällige Zeitgeber laufen, `zurueck(ms)`
+ * stellt sie zurück (wie eine Systemuhr, die springt), ohne einen Zeitgeber auszulösen. `gesetzt` sind die Fristen aller `setze`.
+ */
+function scheinUhr(): Uhr & { vor(ms: number): void; zurueck(ms: number): void; offen(): number; gesetzt: number[] } {
   let jetzt = 10_000;
   let zaehler = 0;
   const liste = new Map<number, { an: number; f: () => void }>();
+  const gesetzt: number[] = [];
   return {
+    gesetzt,
     jetzt: () => jetzt,
     setze(f, ms) {
       const id = ++zaehler;
+      gesetzt.push(ms);
       liste.set(id, { an: jetzt + ms, f });
       return id;
+    },
+    zurueck(ms) {
+      jetzt -= ms;
     },
     loesche(t) {
       liste.delete(t as number);
@@ -134,6 +144,57 @@ function scheinUhr(): Uhr & { vor(ms: number): void; offen(): number } {
   const bei499 = n;
   uhr.vor(1);
   gleich([bei499, n], [0, 1], 'PL-11 zweimal Pause und Weiter: Vorlauf startet nach 500 weiteren ms, nicht bei 499');
+}
+{
+  // Fix-Welle K2: Springt die Uhr zwischen Start und Pause zurück, wird die Restzeit nicht größer als die Vorlaufzeit (0 ≤ Rest ≤ ms).
+  const uhr = scheinUhr();
+  const v = new Vorlaeufe(uhr);
+  let n = 0;
+  v.starte(1000, () => n++);
+  uhr.vor(300);
+  uhr.zurueck(5000);
+  v.anhalten();
+  v.fortsetzen();
+  uhr.vor(1000);
+  gleich([n, Math.max(...uhr.gesetzt) <= 1000, uhr.gesetzt.every((ms) => ms >= 0)], [1, true, true], 'PL-11 Uhr springt zurück: die Restzeit wird nicht größer als die Vorlaufzeit, der Vorlauf startet spätestens nach ms');
+}
+{
+  // Fix-Welle K2: dasselbe über zwei Pausen; vorwärts gesprungen bleibt die Restzeit bei 0 (startet sofort nach Weiter).
+  const uhr = scheinUhr();
+  const v = new Vorlaeufe(uhr);
+  let n = 0;
+  v.starte(1000, () => n++);
+  uhr.vor(400);
+  v.anhalten();
+  v.fortsetzen();
+  uhr.zurueck(60_000);
+  v.anhalten();
+  v.fortsetzen();
+  uhr.vor(599);
+  const bei599 = n;
+  uhr.vor(1);
+  const zurueckOk = [bei599, n, uhr.gesetzt.at(-1)];
+  // Vorwärts gesprungen (zurueck mit negativem Wert löst keinen Zeitgeber aus): der Rest ist 0, nie negativ; Weiter startet sofort.
+  const uhr2 = scheinUhr();
+  const v2 = new Vorlaeufe(uhr2);
+  let n2 = 0;
+  v2.starte(1000, () => n2++);
+  uhr2.zurueck(-5000);
+  v2.anhalten();
+  v2.fortsetzen();
+  uhr2.vor(0);
+  gleich(
+    [zurueckOk, n2, uhr2.gesetzt.at(-1)],
+    [[0, 1, 600], 1, 0],
+    'PL-11 Uhr springt zurück nach einer Pause: Rest bleibt 600 von 1000 ms (nicht mehr); vorwärts gesprungen ist er 0 und Weiter startet sofort (0 ≤ Rest ≤ ms)',
+  );
+}
+{
+  // Fix-Welle K2: Die Standard-Uhr ist performance.now (springt nicht mit der Systemzeit), nicht Date.now.
+  const uhr = (vorlaufModul as unknown as { ECHTE_UHR?: Uhr }).ECHTE_UHR;
+  const a = uhr?.jetzt();
+  const p = performance.now();
+  ok(typeof a === 'number' && Math.abs(a - p) < 1000 && Math.abs(a - Date.now()) > 1e9, 'PL-11 Standard-Uhr der Vorläufe ist performance.now() (fest gegen Sprünge der Systemzeit)');
 }
 {
   const r = (v: 'CUE' | 'STANDBY', n: number, a: number) => pruefeFernNummer(v, n, a);

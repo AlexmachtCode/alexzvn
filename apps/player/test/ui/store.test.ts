@@ -314,22 +314,34 @@ try {
     neu();
     p().fireCue(2);
     p().showTogglePause();
-    await warte(80);
+    await warte(90);
     const inDerPause = zaehle('audio.play 13');
     p().showTogglePause();
-    await warte(80);
+    await warte(90);
     gleich([inDerPause, zaehle('audio.play 13')], [0, 1], 'PL-11 Pause hält den Vorlauf: in der Pause kein Start, nach Weiter genau ein audio.play 13');
 
     neu();
     p().fireCue(2);
     p().showTogglePause();
     p().showStop();
-    await warte(80);
+    await warte(90);
     const nachStop = zaehle('audio.play 13');
     p().showTogglePause();
     p().showTogglePause();
-    await warte(80);
+    await warte(90);
     gleich([nachStop, zaehle('audio.play 13')], [0, 0], 'PL-11 Stop in der Pause räumt angehaltene Vorläufe: weder danach noch nach Pause und Weiter startet er');
+
+    // Fix-Welle K4: dasselbe mit Panik.
+    neu();
+    p().fireCue(2);
+    p().showTogglePause();
+    p().showPanic();
+    await warte(90);
+    const nachPanik = [zaehle('audio.play 13'), p().showPaused, p().vorlaufCueIds];
+    p().showTogglePause();
+    p().showTogglePause();
+    await warte(90);
+    gleich([nachPanik, zaehle('audio.play 13')], [[0, false, []], 0], 'PL-11 Panik in der Pause räumt angehaltene Vorläufe: weder danach noch nach Pause und Weiter startet er');
 
     // A1: GO in der Pause auf einen Cue mit Vorlauf: der Vorlauf wartet auf Weiter.
     neu();
@@ -337,10 +349,10 @@ try {
     p().showTogglePause();
     log.length = 0;
     p().fireCue(2);
-    await warte(80);
+    await warte(90);
     const wartet = [zaehle('audio.play 13'), p().showPaused, p().vorlaufCueIds];
     p().showTogglePause();
-    await warte(80);
+    await warte(90);
     gleich([wartet, zaehle('audio.play 13'), p().showPaused], [[0, true, [13]], 1, false], 'PL-11 GO in der Pause: Vorlauf wartet auf Weiter');
 
     // A1: GO in der Pause auf einen Cue ohne Vorlauf hebt die Pause auf, ein gehaltener Vorlauf läuft dann weiter.
@@ -348,7 +360,7 @@ try {
     p().fireCue(2);
     p().showTogglePause();
     p().fireCue(0);
-    await warte(80);
+    await warte(90);
     gleich([p().showPaused, zaehle('audio.play 11'), zaehle('audio.play 13')], [false, 1, 1], 'PL-11 GO ohne Vorlauf in der Pause hebt die Pause auf, der gehaltene Vorlauf läuft weiter');
   }
 
@@ -368,7 +380,7 @@ try {
       vorFall.push([p().standbyIndex, p().notice ?? '']);
       gleich(p().notice, hinweisCue(n), `PL-16a cue ${n} bei 4 Cues abgelehnt: notice nennt den Grund`);
     }
-    await warte(60);
+    await warte(90);
     gleich(
       [vorFall.map((v) => v[0]), log.filter((z) => z.startsWith('audio.play') || z.startsWith('output.load')), protokoll],
       [[2, 2, 2], [], [0, 5, -1].map((n) => `Fernbefehl abgelehnt: CUE ${n} (Show hat 4 Cues)`)],
@@ -398,7 +410,7 @@ try {
     protokoll.length = 0;
     usePlayer.setState({ notice: null });
     fernbefehl?.({ t: 'cue', n: 4 });
-    await warte(60);
+    await warte(90);
     const nachCue4 = [p().standbyIndex, p().notice, zaehle('output.load') + zaehle('audio.play 14'), p().videoCue?.id];
     fernbefehl?.({ t: 'standby', n: 1 });
     gleich([nachCue4, p().standbyIndex, protokoll, p().notice], [[4, null, 1, 14], 0, [], null], 'PL-16a cue 4 und standby 1 wirken wie heute');
@@ -484,10 +496,10 @@ try {
         [true, true, [31], [31]],
         'PL-T14 showPaused wie vor dem Start (A2): war die Show pausiert, ist sie es nach dem Ladefehler wieder; der Vorlauf bleibt',
       );
-      await warte(60);
+      await warte(90);
       gleich(zaehle('audio.play 31'), 0, 'PL-T14 nach dem Ladefehler hält die Pause den Vorlauf weiter an (Zeitgeber angehalten)');
       p().showTogglePause();
-      await warte(60);
+      await warte(90);
       gleich(zaehle('audio.play 31'), 1, 'PL-T14 Weiter lässt den angehaltenen Vorlauf danach ablaufen');
 
       // Stop zwischen Start und Fehler: die Pause wird nicht neu gesetzt.
@@ -555,6 +567,34 @@ try {
       offen[1]?.ablehnen();
       await ladefehler();
       gleich([p().showPaused, p().playingCueIds, protokoll.length], [false, [], 2], 'PL-T14 R9 (b): der Fehler des zweiten Starts räumt ihn und meldet einmal');
+
+      // (c) Fix-Welle K6: pausiert, GO X (lädt noch), Pause und Weiter, X scheitert: die Pause kommt nicht wieder. Seit dem Start hat
+      // jemand Pause/Weiter gedrückt; die Show läuft, wie der Bediener sie gestellt hat.
+      neu();
+      usePlayer.setState({ showCues: [X, Y], notice: null });
+      offen.length = 0;
+      p().showTogglePause();
+      p().fireCue(0);
+      p().showTogglePause();
+      p().showTogglePause();
+      const vorFehler = p().showPaused;
+      offen[0]?.ablehnen();
+      await ladefehler();
+      gleich(
+        [vorFehler, p().showPaused, berichte[berichte.length - 1].paused, p().playingCueIds],
+        [false, false, false, []],
+        'PL-T14 R9 (c): Pause und Weiter zwischen Start und Ladefehler → showPaused bleibt false (kein Zurückholen der Pause)',
+      );
+      // (d) Nur Pause dazwischen: die Pause bleibt, wie der Bediener sie gesetzt hat.
+      neu();
+      usePlayer.setState({ showCues: [X, Y], notice: null });
+      offen.length = 0;
+      p().showTogglePause();
+      p().fireCue(0);
+      p().showTogglePause();
+      offen[0]?.ablehnen();
+      await ladefehler();
+      gleich([p().showPaused, p().playingCueIds], [true, []], 'PL-T14 R9 (d): nur Pause zwischen Start und Ladefehler → die Pause des Bedieners bleibt');
     } finally {
       showAudio.play = spielt;
     }
@@ -787,6 +827,31 @@ try {
       await warte(5);
       await gibFrei();
       gleich(ausgabeLog(), ['output.open', `output.load ${url(V)}`], 'PL-N GO bei geschlossener Ausgabe: nach dem Öffnen genau ein load für den Cue (wie bisher)');
+
+      // Fix-Welle K5: Pause, während das GO auf „bereit“ wartet. Der Main hält das pause bis „bereit“ zurück und schickt es vor dem
+      // späteren load; darum folgt dem load direkt ein zweites pause, und das Video steht wie die Show.
+      zuUndNeu([V]);
+      p().fireCue(0);
+      await warte(5);
+      p().showTogglePause();
+      await gibFrei();
+      gleich(
+        [ausgabeLog(), p().showPaused],
+        [['output.open', 'output.pause', `output.load ${url(V)}`, 'output.pause'], true],
+        'PL-N Pause während des Wartens auf „bereit“: auf output.load folgt direkt output.pause (Reihenfolge load, pause)',
+      );
+      // Gegenprobe: Pause und Weiter während des Wartens → nach dem load kein pause.
+      zuUndNeu([V]);
+      p().fireCue(0);
+      await warte(5);
+      p().showTogglePause();
+      p().showTogglePause();
+      await gibFrei();
+      gleich(
+        [ausgabeLog(), p().showPaused],
+        [['output.open', 'output.pause', 'output.resume', `output.load ${url(V)}`], false],
+        'PL-N Pause und Weiter während des Wartens: nach dem load kein pause (die Show läuft)',
+      );
     } finally {
       for (const r of freigeben.splice(0)) r();
       Object.assign(ausgabe, echtAusgabe);

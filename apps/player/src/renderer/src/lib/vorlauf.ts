@@ -1,5 +1,5 @@
 // Altfehler PL-11: Vorlauf-Zeitgeber (Pre-Wait) der Cue-Show, die die Pause anhalten kann. Rein: Uhr und Zeitgeber kommen
-// über `Uhr` herein (Standard: Date.now/setTimeout/clearTimeout), der Test treibt sie mit einer Schein-Uhr.
+// über `Uhr` herein (Standard: performance.now/setTimeout/clearTimeout), der Test treibt sie mit einer Schein-Uhr.
 
 export interface Uhr {
   jetzt(): number;
@@ -7,8 +7,9 @@ export interface Uhr {
   loesche(t: unknown): void;
 }
 
-const ECHTE_UHR: Uhr = {
-  jetzt: () => Date.now(),
+/** Standard-Uhr (Fix-Welle K2): performance.now() läuft gleichmäßig weiter und springt nicht mit der Systemzeit wie Date.now(). */
+export const ECHTE_UHR: Uhr = {
+  jetzt: () => performance.now(),
   setze: (f, ms) => setTimeout(f, ms),
   loesche: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
 };
@@ -27,7 +28,7 @@ export class Vorlaeufe {
 
   constructor(private readonly uhr: Uhr = ECHTE_UHR) {}
 
-  /** In der Pause steht die Show still: kein Vorlauf läuft, er wartet mit seiner vollen Zeit auf `fortsetzen`. */
+  /** In der Pause steht die Show still: kein Vorlauf läuft, er wartet mit seiner Restzeit auf `fortsetzen`. */
   get angehalten(): boolean {
     return this.halt;
   }
@@ -50,7 +51,8 @@ export class Vorlaeufe {
     for (const e of this.liste) {
       this.uhr.loesche(e.timer);
       e.timer = undefined;
-      e.rest = Math.max(0, e.rest - (jetzt - e.seit));
+      // Fix-Welle K2: Eine Uhr, die zurückspringt, macht die verstrichene Zeit nicht negativ; so bleibt 0 ≤ Rest ≤ Vorlaufzeit.
+      e.rest = Math.max(0, e.rest - Math.max(0, jetzt - e.seit));
     }
   }
 
