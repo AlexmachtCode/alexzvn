@@ -123,11 +123,29 @@ const NUR_MELDUNG = new Set([
 ]);
 
 /**
- * Altfehler Runde 1, Stufe 1 (Plan 2026-11-25): „Altfehler <ID>“ im Haken entlastet ein „unverändert (…)“, das eine vom Befund
- * geänderte Datei nennt, wie der Hinweis auf E2/E3, aber für die ganze Änderung des Befunds, nicht nur für lesende Brücken. Erlaubt
- * sind genau die sieben Player-IDs der Stufe (die drei übrigen, SC-S1 bis SC-S3, betreffen Studio-Control).
+ * Altfehler Runde 1, Stufe 1 (Plan 2026-11-25): je erlaubter Player-ID die Dateien (ab der Repo-Wurzel), die der Befund geändert hat,
+ * wie ERLAUBT in Studio-Control (Ruling R6). „Altfehler <ID>“ im Haken entlastet ein „unverändert (…)“, das eine geänderte Datei nennt,
+ * nur, wenn die Liste dieser ID die Datei enthält; dann für die ganze Änderung des Befunds, nicht nur für lesende Brücken. Erlaubt sind
+ * genau die sieben Player-IDs der Stufe (SC-S1 bis SC-S3 betreffen Studio-Control). Task 2–4 tragen ihre Dateien bei ihrer ID ein.
  */
-const ALTFEHLER = /\bAltfehler (?:PL-N|PL-T13|PL-4|PL-10|PL-11|PL-16a|PL-T14)(?![\w-])/;
+const ALTFEHLER = new Map<string, readonly string[]>([
+  [
+    'PL-N',
+    ['src/main/ausgabe-fenster.ts', 'src/main/output-window.ts', 'src/main/ipc.ts', 'src/preload/index.ts', 'src/shared/types.ts', 'src/renderer/src/views/OutputView.tsx'].map((p) => `apps/player/${p}`),
+  ],
+  ['PL-T13', ['src/main/ausgabe-fenster.ts', 'src/main/output-window.ts'].map((p) => `apps/player/${p}`)],
+  ['PL-4', []],
+  ['PL-10', []],
+  ['PL-11', []],
+  ['PL-16a', []],
+  ['PL-T14', []],
+]);
+/** Verweis „Altfehler <ID>“ auf eine der erlaubten IDs; die ID steht in Gruppe 1. */
+const ALTFEHLER_VERWEIS = new RegExp(`\\bAltfehler (${[...ALTFEHLER.keys()].join('|')})(?![\\w-])`, 'g');
+/** Die Altfehler-IDs, die ein Text (ohne Code) als Verweis nennt. */
+const altfehlerIds = (text: string): string[] => [...text.matchAll(ALTFEHLER_VERWEIS)].map((m) => m[1]);
+/** Entlastet einer der Verweise die Datei (kanonischer Pfad)? */
+const entlastet = (ids: readonly string[], datei: string): boolean => ids.some((id) => ALTFEHLER.get(id)?.includes(datei) === true);
 
 const GEAENDERT_KANON = new Set([...GEAENDERT, ...PAKETE_GEAENDERT]);
 
@@ -233,12 +251,12 @@ function zeilenFehler(z: Zeile): string | null {
   const fehlt = pfade.filter((p) => !gibtEs(p));
   if (fehlt.length > 0) return `Datei fehlt: ${fehlt.join(', ')}`;
   // „unverändert“ nennt nur Dateien, die seit der Erhebung unverändert sind; Dateien mit nur den lesenden Brücken (E2, E3) mit Hinweis,
-  // Dateien, die ein Altfehler der Stufe 1 geändert hat, mit dem Verweis „Altfehler <ID>“.
+  // Dateien, die ein Altfehler der Stufe 1 geändert hat, mit dem Verweis „Altfehler <ID>“, dessen Liste sie nennt (R6).
   if (form === 'unverändert') {
-    const veraendert = pfade.filter((p) => GEAENDERT_KANON.has(kanon(p)) || GIT?.has(kanon(p)) === true);
-    const altfehler = ALTFEHLER.test(ohneCode);
-    if (veraendert.length > 0 && !/\bE[23]\b/.test(ohneCode) && !altfehler) return `unverändert mit geänderter Datei (${veraendert.join(', ')}) ohne Hinweis auf E2, E3 oder einen Altfehler der Stufe 1`;
-    if (!altfehler && veraendert.some((p) => !NUR_MELDUNG.has(kanon(p)))) return `unverändert mit einer Datei, die mehr als die lesenden Brücken bekam (${veraendert.join(', ')})`;
+    const ids = altfehlerIds(ohneCode);
+    const offen = pfade.filter((p) => (GEAENDERT_KANON.has(kanon(p)) || GIT?.has(kanon(p)) === true) && !entlastet(ids, kanon(p)));
+    if (offen.length > 0 && !/\bE[23]\b/.test(ohneCode)) return `unverändert mit geänderter Datei (${offen.join(', ')}) ohne Hinweis auf E2 oder E3 und ohne Altfehler-Verweis, dessen Liste sie nennt`;
+    if (offen.some((p) => !NUR_MELDUNG.has(kanon(p)))) return `unverändert mit einer Datei, die mehr als die lesenden Brücken bekam (${offen.join(', ')})`;
   }
   return null;
 }
@@ -275,10 +293,23 @@ for (const z of alle) {
     const paketFehlt = pakete.filter((n) => !PAKETE_GEAENDERT.includes(n) && /^packages\/output-window\//.test(n));
     ok(paketFehlt.length === 0, `PL Funktionsliste: PAKETE_GEAENDERT nennt alle geänderten Dateien von packages/output-window (fehlt: ${paketFehlt.join(', ') || 'nichts'})`);
     const zitiert = alle
-      .filter((z) => z.zellen[6].startsWith('✓ unverändert (') && !ALTFEHLER.test(z.zellen[6].replace(/`[^`]*`/g, '')))
-      .flatMap((z) => [...z.zellen[6].matchAll(PFAD)].map((m) => kanon(m[1])));
+      .filter((z) => z.zellen[6].startsWith('✓ unverändert ('))
+      .flatMap((z) => {
+        const ids = altfehlerIds(z.zellen[6].replace(/`[^`]*`/g, ''));
+        return [...z.zellen[6].matchAll(PFAD)].map((m) => kanon(m[1])).filter((n) => !entlastet(ids, n));
+      });
     const getroffen = zitiert.filter((n) => GIT.has(n));
-    ok(getroffen.every((n) => NUR_MELDUNG.has(n)), `PL Funktionsliste: keine in einem unverändert-Haken ohne Altfehler-Verweis zitierte Datei bekam mehr als die lesenden Brücken (${getroffen.join(', ') || 'keine'})`);
+    ok(getroffen.every((n) => NUR_MELDUNG.has(n)), `PL Funktionsliste: keine in einem unverändert-Haken zitierte Datei bekam mehr als die lesenden Brücken, außer ein Altfehler-Verweis nennt sie in seiner Liste (${getroffen.join(', ') || 'keine'})`);
+    const listen = [...ALTFEHLER.values()].flat();
+    ok(listen.every((n) => GIT.has(n)), `PL Funktionsliste: jede Datei einer Altfehler-Liste ist laut git geändert (nicht: ${listen.filter((n) => !GIT.has(n)).join(', ') || 'nichts'})`);
+  }
+  // Jede Datei einer Altfehler-Liste steht in GEAENDERT: eine Liste entlastet nur, was wirklich geändert ist.
+  {
+    const listen = [...ALTFEHLER.values()].flat();
+    ok(
+      listen.length > 0 && listen.every((n) => GEAENDERT_KANON.has(n)),
+      `PL Funktionsliste: jede Datei einer Altfehler-Liste steht in GEAENDERT (nicht: ${listen.filter((n) => !GEAENDERT_KANON.has(n)).join(', ') || 'nichts'})`,
+    );
   }
   // Negativprobe: andere Schreibweisen derselben geänderten Datei werden erkannt, eine unveränderte nicht.
   const synth = (pfad: string, zusatz = ''): Zeile => ({ abschnitt: 3, nr: 0, zellen: ['0', '', '', '', '', '', `✓ unverändert (\`${pfad}\`): x${zusatz}`] });
@@ -292,15 +323,25 @@ for (const z of alle) {
       zeilenFehler(synth('main/library.ts')) === null,
     'PL Funktionsliste: eine geänderte Datei wird in jeder Schreibweise erkannt; E2 und E3 entlasten nur Dateien mit den lesenden Brücken; eine unveränderte Datei ist frei',
   );
-  // Der Verweis „Altfehler <ID>“ (Stufe 1) entlastet eine geänderte Datei; nur mit dem Wort „Altfehler“ und nur die sieben Player-IDs.
+  // Der Verweis „Altfehler <ID>“ (Stufe 1) entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt (R6); nur mit dem Wort
+  // „Altfehler“ und nur die sieben Player-IDs.
   ok(
     zeilenFehler(synth('views/OutputView.tsx', ' (Altfehler PL-N)')) === null &&
       zeilenFehler(synth('main/output-window.ts', ' (E3, Altfehler PL-T13)')) === null &&
-      ['PL-N', 'PL-T13', 'PL-4', 'PL-10', 'PL-11', 'PL-16a', 'PL-T14'].every((id) => zeilenFehler(synth('views/ShowView.tsx', ` (Altfehler ${id})`)) === null) &&
+      zeilenFehler(synth('main/ipc.ts', ' (Altfehler PL-T13, Altfehler PL-N)')) === null &&
       (zeilenFehler(synth('views/OutputView.tsx', ' (E6)')) ?? '').includes('geänderter Datei') &&
       (zeilenFehler(synth('views/OutputView.tsx', ' (PL-N)')) ?? '').includes('geänderter Datei') &&
       ['PL-12', 'PL-16', 'PL-T1', 'PL-40', 'SC-S2', 'PL-N2'].every((id) => (zeilenFehler(synth('views/OutputView.tsx', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')),
-    'PL Funktionsliste: „Altfehler PL-N“ usw. entlastet eine geänderte Datei im unverändert-Haken; ohne das Wort „Altfehler“ oder mit einer anderen ID nicht',
+    'PL Funktionsliste: „Altfehler PL-N“ entlastet eine Datei aus der Liste von PL-N im unverändert-Haken; ohne das Wort „Altfehler“ oder mit einer anderen ID nicht',
+  );
+  // Negativprobe R6: eine geänderte Datei mit einer erlaubten ID, deren Liste sie nicht nennt, wird gemeldet; nennt ein Haken zwei
+  // Dateien, entlastet die ID nur die eigene.
+  ok(
+    ['PL-N', 'PL-T13', 'PL-4', 'PL-10', 'PL-11', 'PL-16a', 'PL-T14'].every((id) => (zeilenFehler(synth('views/ShowView.tsx', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')) &&
+      (zeilenFehler(synth('views/OutputView.tsx', ' (Altfehler PL-T13)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('views/OutputView.tsx', ' (E3, Altfehler PL-T13)')) ?? '').includes('mehr als die lesenden Brücken') &&
+      /geänderter Datei \(views\/ShowView\.tsx\)/.test(zeilenFehler(synth('views/OutputView.tsx', ' und `views/ShowView.tsx` (Altfehler PL-N)')) ?? ''),
+    'PL Funktionsliste: eine geänderte Datei mit einer Altfehler-ID, deren Liste sie nicht nennt, wird gemeldet (R6)',
   );
 }
 

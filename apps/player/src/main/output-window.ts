@@ -15,8 +15,11 @@ let zustand: AusgabeZustand = AUSGABE_ZU;
 const hoerer = new Set<(z: AusgabeZustand) => void>();
 let bildschirmHoerer = false;
 // Alle noch nicht geschlossenen Ausgabefenster dieses Moduls. Sie tragen den Zustand (E3) und, seit der Altfehler-Stufe 1, auch das
-// Verhalten: Es gibt nur das aktuelle Fenster (PL-T13), und Befehle warten auf seine Meldung „bereit“ (PL-N).
-const lebende = new LebendeFenster<BrowserWindow>();
+// Verhalten: Es gibt nur das aktuelle Fenster (PL-T13), und Befehle warten auf seine Meldung „bereit“ (PL-N). Die Frist gilt je
+// Fenster: Nach dem ersten Ablauf gilt es als bereit, und die Log-Zeile kommt einmal je Fenster (R5).
+const lebende = new LebendeFenster<BrowserWindow>(() => {
+  getLog().warn(`Ausgabefenster meldete nicht bereit (${AUSGABE_BEREIT_MS} ms)`);
+});
 
 /** Das aktuelle Ausgabefenster: das neueste lebende ohne Schließ-Wunsch und nicht zerstört; sonst null. */
 function aktuell(): BrowserWindow | null {
@@ -168,15 +171,15 @@ export function toggleOutputFullscreen(): boolean {
 }
 
 /**
- * Befehl an das aktuelle Ausgabefenster. Wartet auf dessen „bereit“, höchstens AUSGABE_BEREIT_MS; danach geht der Befehl mit einer
- * Log-Zeile trotzdem hinaus (Altfehler PL-N, A5). Gesendet wird nur, wenn das Fenster dann noch das aktuelle ist. Mehrere wartende
- * Befehle behalten ihre Reihenfolge (die Wartenden werden in Aufrufreihenfolge frei, die Frist ist für alle gleich lang).
+ * Befehl an das aktuelle Ausgabefenster. Wartet auf dessen „bereit“, höchstens AUSGABE_BEREIT_MS je Fenster; danach geht der Befehl
+ * trotzdem hinaus, die Log-Zeile schreibt der Ablauf-Hörer einmal je Fenster (Altfehler PL-N, A5, R5). Gesendet wird nur, wenn das
+ * Fenster dann noch das aktuelle ist. Mehrere wartende Befehle behalten ihre Reihenfolge (die Wartenden werden in Aufrufreihenfolge
+ * frei, auch beim ersten Ablauf alle zugleich).
  */
 export async function sendToOutput(cmd: OutputCommand): Promise<void> {
   const win = aktuell();
   if (!win) return;
-  const bereit = await lebende.bereit(win, AUSGABE_BEREIT_MS);
+  await lebende.bereit(win, AUSGABE_BEREIT_MS);
   if (lebende.aktuelles() !== win || win.isDestroyed()) return;
-  if (!bereit) getLog().warn(`Ausgabefenster meldete nicht bereit (${AUSGABE_BEREIT_MS} ms)`);
   win.webContents.send('output:cmd', cmd);
 }

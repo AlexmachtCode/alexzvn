@@ -452,6 +452,37 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
     await Promise.all(ps);
     return offen && folge.join(',') === '1,2,3';
   });
+  // R5: Die Frist gilt je Fenster, nicht je Befehl. Nach dem ersten Ablauf gilt das Fenster als bereit; alle, die gerade warten,
+  // werden in ihrer Reihenfolge frei, spätere warten nicht mehr, und der Ablauf wird einmal je Fenster gemeldet.
+  await fall('PL-N nach Ablauf wartet ein zweiter Befehl nicht', async () => {
+    const l = new LebendeFenster<string>();
+    l.hinzu('a');
+    const erster = await l.bereit('a', 30);
+    const p = l.bereit('a', 1000);
+    return erster === false && !(await offenNach(p, 20)) && (await p) === true;
+  });
+  await fall('PL-N der erste Ablauf gibt alle Wartenden des Fensters frei, in ihrer Reihenfolge', async () => {
+    const l = new LebendeFenster<string>();
+    l.hinzu('a');
+    const folge: string[] = [];
+    const lang = l.bereit('a', 1000).then((b) => void folge.push(`lang:${b}`));
+    const kurz = l.bereit('a', 30).then((b) => void folge.push(`kurz:${b}`));
+    return !(await offenNach(Promise.all([lang, kurz]), 200)) && folge.join(',') === 'lang:false,kurz:false';
+  });
+  await fall('PL-N der Ablauf wird einmal je Fenster gemeldet', async () => {
+    const abgelaufen: string[] = [];
+    const l = new LebendeFenster<string>((w) => void abgelaufen.push(w));
+    l.hinzu('a');
+    l.hinzu('b');
+    l.hinzu('c');
+    await Promise.all([l.bereit('a', 30), l.bereit('a', 30), l.bereit('b', 30)]);
+    await l.bereit('a', 30);
+    const p = l.bereit('c', 50);
+    l.meldeBereit('c');
+    await p;
+    await new Promise((r) => setTimeout(r, 80));
+    return abgelaufen.join(',') === 'a,b';
+  });
 
   // Wächter an der Verdrahtung (Electron-Main und Preload laufen unter tsx nicht, Ruling R3).
   const q = ohneKommentare(leseText('src/main/output-window.ts'));
@@ -500,10 +531,16 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
         schicken > warten &&
         senden.split('webContents.send(').length === 2 &&
         /if \(lebende\.aktuelles\(\) !== win \|\| win\.isDestroyed\(\)\) return;/.test(senden.slice(warten, schicken)) &&
-        senden.slice(warten, schicken).includes('getLog().warn(`Ausgabefenster meldete nicht bereit (${AUSGABE_BEREIT_MS} ms)`)'),
-      'PL-N Wächter: sendToOutput ist async, wartet auf lebende.bereit vor output:cmd, sendet nur an ein noch aktuelles Fenster und schreibt bei Ablauf die Log-Zeile',
+        !senden.includes('getLog('),
+      'PL-N Wächter: sendToOutput ist async, wartet auf lebende.bereit vor output:cmd und sendet nur an ein noch aktuelles Fenster; die Log-Zeile schreibt es nicht selbst (R5)',
     );
   }
+  ok(
+    /const lebende = new LebendeFenster<BrowserWindow>\(\(\) => \{\s*getLog\(\)\.warn\(`Ausgabefenster meldete nicht bereit \(\$\{AUSGABE_BEREIT_MS\} ms\)`\);\s*\}\);/.test(q) &&
+      q.split('getLog()').length === 2 &&
+      q.split('new LebendeFenster').length === 2,
+    'PL-N Wächter: die Log-Zeile „Ausgabefenster meldete nicht bereit (5000 ms)“ kommt nur aus dem Ablauf-Hörer des Helfers, also einmal je Fenster (R5)',
+  );
   ok(
     /^import \{[^}]*\bgetLog\b[^}]*\} from '@jm\/app-runtime';$/m.test(q) && /^import \{[^}]*\bAUSGABE_BEREIT_MS\b[^}]*\bLebendeFenster\b[^}]*\} from '\.\/ausgabe-fenster';$/m.test(q),
     'PL-N Wächter: output-window.ts holt getLog aus @jm/app-runtime und AUSGABE_BEREIT_MS aus dem reinen Helfer',
