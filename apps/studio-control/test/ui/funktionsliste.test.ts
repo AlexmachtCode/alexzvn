@@ -70,6 +70,8 @@ const GELOESCHT = ['R/components/AppShell.tsx', 'R/components/ComingSoon.tsx', '
 const GEAENDERT = [
   'package.json',
   'src/main/auth/bootstrap.ts',
+  'src/main/auth/middleware.ts',
+  'src/main/auth/zugang.ts',
   'src/main/gateway/control-gateway.ts',
   'src/main/index.ts',
   'src/main/server.ts',
@@ -91,6 +93,8 @@ const GEAENDERT = [
   'src/renderer/src/globals.css',
   'src/renderer/src/lib/bruecken.ts',
   'src/renderer/src/lib/oberflaeche.ts',
+  'src/renderer/src/main.tsx',
+  'src/renderer/src/sync/client.ts',
   'src/renderer/src/sync/jms.d.ts',
   'src/renderer/src/views/Audio.tsx',
   'src/renderer/src/views/Einstellungen.tsx',
@@ -114,6 +118,7 @@ const GEAENDERT = [
   'test/ui/selftest.ts',
   'test/ui/testzustand.ts',
   'test/ui/werkzeug.test.tsx',
+  'test/ui/zugang.test.ts',
   'tsconfig.test.json',
 ].map((p) => `apps/studio-control/${p}`);
 
@@ -157,7 +162,8 @@ const ERLAUBT = new Map<string, readonly string[]>([
  * Repo-Wurzel), die der Befund geändert hat. „Altfehler <ID>“ im Haken entlastet ein „unverändert (…)“ oder „Tray (unverändert)“,
  * das eine geänderte Datei nennt, nur, wenn die Liste dieser ID die Datei enthält; dann für die ganze Änderung des Befunds. Eine
  * Datei aus einer Liste bekam mehr, als ihr Eintrag in ERLAUBT deckt: Dort reicht der B-Verweis allein nicht mehr. Erlaubt sind
- * genau SC-S1 bis SC-S3 (die Player-IDs gelten nur im Player); Task 6 trägt die Dateien von SC-S2 ein.
+ * genau SC-S1 bis SC-S3 (die Player-IDs gelten nur im Player); SC-S2 ist Task 6 (nur das eigene Fenster ist ohne Anmeldung Admin,
+ * nur eigene Ursprünge).
  */
 const ALTFEHLER = new Map<string, readonly string[]>([
   [
@@ -173,7 +179,19 @@ const ALTFEHLER = new Map<string, readonly string[]>([
       'src/renderer/src/views/StudioOberflaeche.tsx',
     ].map((p) => `apps/studio-control/${p}`),
   ],
-  ['SC-S2', []],
+  [
+    'SC-S2',
+    [
+      'src/main/auth/middleware.ts',
+      'src/main/auth/zugang.ts',
+      'src/main/index.ts',
+      'src/main/server.ts',
+      'src/preload/index.ts',
+      'src/renderer/src/main.tsx',
+      'src/renderer/src/sync/client.ts',
+      'src/renderer/src/sync/jms.d.ts',
+    ].map((p) => `apps/studio-control/${p}`),
+  ],
   ['SC-S3', ['src/main/gateway/control-gateway.ts', 'src/main/server.ts'].map((p) => `apps/studio-control/${p}`)],
 ]);
 /** Alle Dateien, die ein Altfehler der Stufe geändert hat. */
@@ -476,7 +494,7 @@ for (const z of alle) {
     ) &&
       (zeilenFehler(synth('✓ unverändert (`R/App.tsx`, B2): x')) ?? '').includes('ohne Verweis auf B15') &&
       zeilenFehler(synth('✓ unverändert (`R/App.tsx`, B15): x')) === null &&
-      zeilenFehler(synth('✓ unverändert (`src/main/auth/middleware.ts`): x')) === null &&
+      zeilenFehler(synth('✓ unverändert (`src/main/auth/sessions.ts`): x')) === null &&
       (zeilenFehler(synth('✓ unverändert (`packages/ui/src/components/TallyButton.tsx`): x')) ?? '').includes('geänderter Datei'),
     'SC Funktionsliste: unverändert erkennt geänderte Dateien in jeder Schreibweise; B15 entlastet nur R/App.tsx; unveränderte Dateien sind frei',
   );
@@ -490,15 +508,21 @@ for (const z of alle) {
       zeilenFehler(synth('✓ unverändert (`src/main/auth/bootstrap.ts`, Altfehler SC-S1): x')) === null &&
       zeilenFehler(synth('✓ unverändert (`src/main/server.ts`, B2, Altfehler SC-S3): x')) === null &&
       zeilenFehler(synth('✓ unverändert (`src/main/gateway/control-gateway.ts`, B2, Altfehler SC-S3): x')) === null &&
+      zeilenFehler(synth('✓ unverändert (`src/main/auth/middleware.ts`, Altfehler SC-S2): x')) === null &&
+      zeilenFehler(synth('✓ unverändert (`R/sync/client.ts`, Altfehler SC-S2): x')) === null &&
+      zeilenFehler(synth('✓ unverändert (`src/main/index.ts`, B2, Altfehler SC-S2): x')) === null &&
+      ohneAltfehler('✓ unverändert (`src/main/auth/middleware.ts`): x') &&
+      ohneAltfehler('✓ unverändert (`R/sync/client.ts`): x') &&
       zeilenFehler(synth('✓ Tray (unverändert) (`src/main/index.ts`, B2, Altfehler SC-S1): x')) === null &&
       ohneAltfehler('✓ Tray (unverändert) (`src/main/index.ts`, B2): x') &&
       ohneAltfehler('✓ unverändert (`src/main/auth/bootstrap.ts`): x'),
-    'SC Funktionsliste: „Altfehler SC-S1“ bzw. „SC-S3“ entlastet eine Datei aus der eigenen Liste; B2 allein entlastet sie nicht mehr',
+    'SC Funktionsliste: „Altfehler SC-S1“, „SC-S2“ bzw. „SC-S3“ entlastet eine Datei aus der eigenen Liste; B2 allein entlastet sie nicht mehr',
   );
   ok(
     ohneAltfehler('✓ unverändert (`src/main/index.ts`, B2, Altfehler SC-S3): x') &&
       ohneAltfehler('✓ unverändert (`src/main/server.ts`, B2, Altfehler SC-S1): x') &&
-      ohneAltfehler('✓ unverändert (`src/main/index.ts`, B2, Altfehler SC-S2): x') &&
+      ohneAltfehler('✓ unverändert (`src/main/auth/bootstrap.ts`, Altfehler SC-S2): x') &&
+      ohneAltfehler('✓ unverändert (`src/main/auth/middleware.ts`, Altfehler SC-S1): x') &&
       ohneAltfehler('✓ unverändert (`src/main/index.ts`, B2, SC-S1): x') &&
       ['SC-S4', 'SC-S10', 'SC-S1a', 'PL-N', 'SC-5'].every((id) => ohneAltfehler(`✓ unverändert (\`src/main/index.ts\`, B2, Altfehler ${id}): x`)) &&
       /mit src\/main\/server\.ts ohne/.test(zeilenFehler(synth('✓ unverändert (`src/main/index.ts`, `src/main/server.ts`, B2, Altfehler SC-S1): x')) ?? ''),
@@ -523,7 +547,7 @@ for (const z of alle) {
       (zeilenFehler(synth(`✓ ${o} (\`R/views/StudioOberflaeche.tsx\`): x`)) ?? '').includes('Ortsregister'),
     ) &&
       (zeilenFehler(synth('✓ ersetzt durch Panel (`R/views/Einstellungen.tsx`, B8): x')) ?? '').includes('Ortsregister') &&
-      ORTE.every((o) => zeilenFehler(synth(`✓ ${o} (\`${UNVERAENDERT_ORTE.includes(o) ? 'src/main/auth/middleware.ts' : 'R/views/StudioOberflaeche.tsx'}\`): x`)) === null),
+      ORTE.every((o) => zeilenFehler(synth(`✓ ${o} (\`${UNVERAENDERT_ORTE.includes(o) ? 'src/main/auth/sessions.ts' : 'R/views/StudioOberflaeche.tsx'}\`): x`)) === null),
     'SC Funktionsliste: das Ortsregister ist streng (kein bloßes „Panel“, kein angehängtes Wort, Groß- und Kleinschreibung zählt); jeder Eintrag gilt',
   );
   ok(
@@ -870,8 +894,13 @@ const zeigtAuf = (nr: number, datei: string, ...woerter: string[]): boolean => {
   ok(falsch.length === 0, `SC Funktionsliste Befunde 1–13: jeder mit „Stand Task 19:“ erledigt, offen → Ziel oder überholt und mit Beleg (falsch: ${falsch.join(', ') || 'keine'})`);
   const status = (i: number): string[] => (teile(befunde[i - 1] ?? '') ?? []).map((s) => /^(erledigt|überholt|offen)/.exec(s)?.[1] ?? '');
   ok(
-    [4, 6, 8, 12].every((i) => status(i).join() === 'offen') && [3, 9, 13].every((i) => status(i).join() === 'erledigt') && status(10).join() === 'erledigt,offen' && status(11).join() === 'erledigt,offen',
-    'SC Funktionsliste Befunde: Loopback (4), Inventar (6), stille Fehler (8) und Tray (12) offen mit Ziel; Kopf (3), Wahl wirkt sofort (9, Nachtrag „Setzen“) und Simulation (13) erledigt; toter Code (10) und Gateway (11) teils erledigt, teils offen',
+    [6, 8, 12].every((i) => status(i).join() === 'offen') && [3, 9, 13].every((i) => status(i).join() === 'erledigt') && [4, 10, 11].every((i) => status(i).join() === 'erledigt,offen'),
+    'SC Funktionsliste Befunde: Inventar (6), stille Fehler (8) und Tray (12) offen mit Ziel; Kopf (3), Wahl wirkt sofort (9, Nachtrag „Setzen“) und Simulation (13) erledigt; Loopback (4, Altfehler SC-S2), toter Code (10) und Gateway (11) teils erledigt, teils offen',
+  );
+  const b4 = befunde[3] ?? '';
+  ok(
+    /erledigt:[^;]*Altfehler SC-S2[^;]*eigene Fenster/.test(b4) && /offen →[^;]*Fenster selbst[^;]*„local“/.test(b4.slice(b4.indexOf('offen →'))) && !/unverändert \(`src\/main\/auth\/middleware/.test(b4),
+    'SC Funktionsliste Befund 4: Loopback als Admin ist erledigt (Altfehler SC-S2, nur das eigene Fenster); offen bleibt das Fenster selbst (Sperren im Renderer, „local“ im Protokoll)',
   );
   const b11 = befunde[10] ?? '';
   ok(
@@ -897,5 +926,34 @@ const zeigtAuf = (nr: number, datei: string, ...woerter: string[]): boolean => {
   ok(
     unveraendert(192) && mitVerweis(192, 'B2', 'Altfehler SC-S3') && nennt(192, '„control.json“') && !nennt(192, 'liest Studio-Control weiter nicht'),
     'SC Funktionsliste Nr. 192: control.json liest jetzt das Gateway (Altfehler SC-S3); die übrigen Laufzeit-Dateien wie bisher',
+  );
+}
+
+// ── Altfehler SC-S2 (Stufe 1): nur das eigene Fenster ist ohne Anmeldung Admin, nur eigene Ursprünge; die Zeilen nennen es am Code ──
+{
+  ok(
+    unveraendert(130) && mitVerweis(130, 'Altfehler SC-S2') && nennt(130, '`X-JMS-Fenster`', '`auth.fenster`', '„local“', 'Befund 4') && !nennt(130, 'Loopback gilt weiter') &&
+      zeigtAuf(130, 'src/main/auth/middleware.ts', 'istFensterGeheimnis(req.headers[FENSTER_HEADER], FENSTER_GEHEIMNIS)', 'istFensterGeheimnis(socket.handshake.auth?.fenster, FENSTER_GEHEIMNIS)') &&
+      zeigtAuf(130, 'src/main/index.ts', "ipcMain.handle('studio:fensterGeheimnis'", 'e.sender.mainFrame') &&
+      zeigtAuf(130, 'src/main/auth/zugang.ts', 'crypto.timingSafeEqual'),
+    'SC Funktionsliste Nr. 130: Admin „local“ nur noch für das eigene Fenster mit dem Geheimnis dieses Starts (Altfehler SC-S2), im Fenster wie bisher',
+  );
+  ok(
+    unveraendert(135) && mitVerweis(135, 'B2', 'Altfehler SC-S2', 'Altfehler SC-S3') && nennt(135, '403', '`X-JMS-Fenster`') &&
+      zeigtAuf(135, 'src/main/server.ts', 'if (!ursprungErlaubt(req.headers.origin, req.headers.host, devUrspruenge))', 'allowRequest:'),
+    'SC Funktionsliste Nr. 135: HTTP und Socket.IO nehmen nur den eigenen Ursprung an, der Haken zeigt auf die Prüfung und allowRequest (Altfehler SC-S2)',
+  );
+  ok(
+    beginnt(126, 'Statusleiste') && mitVerweis(126, 'B15', 'Altfehler SC-S2') && nennt(126, 'Fenster-Geheimnis') && !nennt(126, 'Loopback als Admin') && zeigtAuf(126, 'R/sync/client.ts', 'export function handshakeAuth'),
+    'SC Funktionsliste Nr. 126: der Socket des Fensters verbindet vor der Anmeldung mit dem Fenster-Geheimnis (handshakeAuth), nicht mehr über Loopback',
+  );
+  ok(
+    unveraendert(122) && mitVerweis(122, 'Altfehler SC-S2') && zeigtAuf(122, 'R/sync/client.ts', 'export function emit(', 'export function emitWithAck'),
+    'SC Funktionsliste Nr. 122: emit und emitWithAck unverändert, die Datei bekam nur das Fenster-Geheimnis (Altfehler SC-S2)',
+  );
+  ok(
+    beginnt(170, 'Browser') && beginnt(172, 'Browser') && mitVerweis(170, 'Altfehler SC-S2') && mitVerweis(172, 'Altfehler SC-S2') && !nennt(172, 'gilt weiter als Admin') &&
+      zeigtAuf(172, 'src/main/auth/middleware.ts', 'export function authenticateHttp'),
+    'SC Funktionsliste Nr. 170/172: die Seite vom Server gilt als eigener Ursprung; ein Browser auf 127.0.0.1 meldet sich an wie im Netz (Altfehler SC-S2)',
   );
 }

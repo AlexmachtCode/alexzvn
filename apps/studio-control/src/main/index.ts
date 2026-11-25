@@ -14,6 +14,8 @@ import { initAppRuntime } from '@jm/app-runtime';
 import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import { migrate } from './db/migrate';
 import { ensureInitialAdmin, erstPasswortDatei } from './auth/bootstrap';
+import { fensterGeheimnis } from './auth/middleware';
+import { istEigeneSeite } from './auth/zugang';
 import { loadDevices } from './config/devices';
 import { loadTricasters } from './config/tricasters';
 import {
@@ -199,6 +201,16 @@ function registerIpc(): void {
   ipcMain.handle('studio:fernsteuerung', () => fernsteuerung);
   // Altfehler SC-S1: nur der Ort der Datei mit dem Erst-Passwort und ob sie jetzt besteht (je Aufruf gemessen), nie ihr Inhalt.
   ipcMain.handle('studio:erstPasswort', () => ({ datei: erstPasswortDatei(), vorhanden: existsSync(erstPasswortDatei()) }));
+  // Altfehler SC-S2 (A7): das Fenster-Geheimnis dieses Starts nur an die Webinhalte des Hauptfensters, nur im Hauptrahmen und nur
+  // auf der eigenen Seite (gebauter Renderer oder im Dev die Vite-Adresse); jede andere Anfrage bekommt null. Nur auf Anfrage.
+  ipcMain.handle('studio:fensterGeheimnis', (e) =>
+    e.sender === mainWindow?.webContents &&
+    e.senderFrame !== null &&
+    e.senderFrame === e.sender.mainFrame &&
+    istEigeneSeite(e.senderFrame.url, process.env.ELECTRON_RENDERER_URL)
+      ? fensterGeheimnis()
+      : null,
+  );
   ipcMain.handle('remote:getUrls', () => getRemoteUrls());
   ipcMain.handle('remote:getAddresses', () => getLanAddresses());
   ipcMain.handle('window:close', (event) => {

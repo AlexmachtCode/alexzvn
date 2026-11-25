@@ -287,3 +287,15 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
     'SC Wächter Kanal studio:erstPasswort: das bekannte Passwort Admin gibt es nur mit dem Entwickler-Schalter, sonst 16 Zufallsbytes',
   );
 }
+
+// ── SC Wächter Kanal studio:fensterGeheimnis (Altfehler SC-S2, A7): Preload und Typen; den Handler prüft zugang.test.ts ──
+{
+  const preload = leseText('src/preload/index.ts');
+  const typen = leseText('src/renderer/src/sync/jms.d.ts');
+  ok(
+    preload.includes("fensterGeheimnis: () => (ipcRenderer.invoke('studio:fensterGeheimnis') as Promise<string | null>).catch(() => null),") &&
+      (preload.match(/studio:fensterGeheimnis/g) ?? []).length === 1,
+    'SC Wächter Kanal studio:fensterGeheimnis: der Preload fragt genau über studio:fensterGeheimnis (invoke), eine Ablehnung wird null',
+  );
+  ok(typen.includes('fensterGeheimnis: () => Promise<string | null>;'), 'SC Wächter Kanal studio:fensterGeheimnis: window.jms.fensterGeheimnis ist typisiert (null bei Ablehnung)');
+}

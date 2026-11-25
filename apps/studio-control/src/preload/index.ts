@@ -31,6 +31,9 @@ const api = {
   },
   // Altfehler SC-S1: Ort der Datei mit dem Erst-Passwort und ob sie besteht, gefragt beim Öffnen des Panels. null bei Ablehnung.
   erstPasswort: () => (ipcRenderer.invoke('studio:erstPasswort') as Promise<{ datei: string; vorhanden: boolean }>).catch(() => null),
+  // Altfehler SC-S2: das Geheimnis dieses Starts, mit dem das Fenster am Server ohne Anmeldung Admin ist; einmal vor dem ersten
+  // Render gefragt. null, wenn Main ablehnt (nicht das Hauptfenster, nicht die eigene Seite).
+  fensterGeheimnis: () => (ipcRenderer.invoke('studio:fensterGeheimnis') as Promise<string | null>).catch(() => null),
 };
 
 if (process.contextIsolated) {

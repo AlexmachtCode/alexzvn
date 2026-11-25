@@ -3,19 +3,19 @@ import type { Socket } from 'socket.io';
 import { validateSession } from './sessions';
 import type { UserRow } from './users';
 import { canDo, type Action } from '@shared/roles';
+import { FENSTER_HEADER, istFensterGeheimnis, neuesFensterGeheimnis } from './zugang';
 
 export interface AuthedRequest extends IncomingMessage {
   user?: UserRow;
 }
 
-function isLoopbackAddr(addr: string | undefined): boolean {
-  if (!addr) return false;
-  return (
-    addr === '127.0.0.1' ||
-    addr === '::1' ||
-    addr === '::ffff:127.0.0.1' ||
-    addr.startsWith('::ffff:127.')
-  );
+// Altfehler SC-S2 (A7): das Geheimnis dieses Starts, einmal je Prozess beim Laden des Moduls erzeugt. Nur das eigene Fenster
+// bekommt es (IPC studio:fensterGeheimnis); weder Datei noch Netz sehen es. Wer es schickt, ist am Server „local“ (Admin), alle
+// anderen, auch vom eigenen Rechner, melden sich an wie im Netz.
+const FENSTER_GEHEIMNIS = neuesFensterGeheimnis();
+
+export function fensterGeheimnis(): string {
+  return FENSTER_GEHEIMNIS;
 }
 
 function tokenFromHeader(req: IncomingMessage): string | undefined {
@@ -25,6 +25,7 @@ function tokenFromHeader(req: IncomingMessage): string | undefined {
   return h.slice('Bearer '.length).trim() || undefined;
 }
 
+// Der Benutzer „local“ des eigenen Fensters (Name aus der Zeit der Loopback-Regel); das Protokoll schreibt für ihn weiter „local“.
 const LOOPBACK_ADMIN: UserRow = {
   id: 0,
   username: 'local',
@@ -33,7 +34,7 @@ const LOOPBACK_ADMIN: UserRow = {
 };
 
 export function authenticateHttp(req: AuthedRequest): UserRow | null {
-  if (isLoopbackAddr(req.socket.remoteAddress ?? undefined)) {
+  if (istFensterGeheimnis(req.headers[FENSTER_HEADER], FENSTER_GEHEIMNIS)) {
     req.user = LOOPBACK_ADMIN;
     return LOOPBACK_ADMIN;
   }
@@ -75,8 +76,7 @@ export function attachSocketAuth(
   io: { use: (fn: (s: Socket, next: (e?: Error) => void) => void) => void },
 ): void {
   io.use((socket, next) => {
-    const remote = socket.handshake.address;
-    if (isLoopbackAddr(remote)) {
+    if (istFensterGeheimnis(socket.handshake.auth?.fenster, FENSTER_GEHEIMNIS)) {
       socket.data.user = LOOPBACK_ADMIN;
       return next();
     }
