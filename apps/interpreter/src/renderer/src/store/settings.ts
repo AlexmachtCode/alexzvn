@@ -20,7 +20,7 @@ export const useSettings = create<SettingsState>()(
       outputId: '',
       bypass: false,
       set: (key, value) => set({ [key]: value } as Partial<SettingsState>),
-      reset: () => set({ ...DEFAULT_SETTINGS }),
+      reset: () => set({ ...DUCKING_VORGABEN }),
     }),
     { name: 'jm-interpreter-settings' },
   ),
@@ -38,3 +38,15 @@ export function duckSettings(s: SettingsState): DuckSettings {
     interpreterGainDb: s.interpreterGainDb,
   };
 }
+
+/**
+ * Altfehler IN-8: Was „Ducking-Werte zurücksetzen“ (`reset`) zurücksetzt: die fünf Ducking-Werte mit den Vorgaben aus
+ * `DEFAULT_SETTINGS`. Die beiden Vorverstärkungen bleiben stehen (auch im laufenden Mix), ebenso Bypass und die drei Geräte.
+ */
+export const DUCKING_VORGABEN: Pick<DuckSettings, 'thresholdDb' | 'duckDb' | 'attackMs' | 'releaseMs' | 'holdMs'> = {
+  thresholdDb: DEFAULT_SETTINGS.thresholdDb,
+  duckDb: DEFAULT_SETTINGS.duckDb,
+  attackMs: DEFAULT_SETTINGS.attackMs,
+  releaseMs: DEFAULT_SETTINGS.releaseMs,
+  holdMs: DEFAULT_SETTINGS.holdMs,
+};

@@ -24,8 +24,21 @@ const RAW_AUDIO: MediaTrackConstraints = {
   autoGainControl: false,
 };
 
+/**
+ * Frist eines Starts (Altfehler IN-3, C4): Haben die Geräte nach dieser Zeit nicht geantwortet, gilt der Start als gescheitert. Die
+ * Engine räumt den halben Start auf, meldet `START_FRIST_TEXT` und gibt die Sperre frei.
+ */
+export const START_FRIST_MS = 15000;
+/** Fehlertext nach Ablauf der Frist (D6, K4): steht im Fehlerband und im Statuseintrag `fehler` wie jede andere Startmeldung. */
+export const START_FRIST_TEXT = 'Start abgebrochen: Die Geräte haben nach 15 s nicht geantwortet.';
+
 export interface EngineState {
   running: boolean;
+  /**
+   * Ein Start läuft (Altfehler IN-3): von `start()` bis zum Ende des Starts, höchstens `START_FRIST_MS`. Die Haupttaste ist solange
+   * gesperrt („Startet …“), ein zweiter `start()` wird verworfen.
+   */
+  starting: boolean;
   ducking: boolean;
   /** Aktueller Pegel in dBFS (-Infinity = Stille). */
   floorDb: number;
@@ -38,6 +51,11 @@ export interface EngineState {
    * erraten: null, solange die Engine nicht laeuft.
    */
   startedOutputId: string | null;
+}
+
+/** Alle Spuren eines Streams stoppen (Altfehler IN-3: ein Eingang, der erst nach der Frist antwortet, wird sofort wieder geschlossen). */
+function spurenStoppen(s: MediaStream): void {
+  s.getTracks().forEach((t) => t.stop());
 }
 
 export interface Devices {
@@ -106,9 +124,13 @@ export class InterpreterEngine {
   private duck: DuckState = { ...INITIAL_STATE };
   private lastTarget = Number.NaN; // erneutes setTargetAtTime auf denselben Wert bremst die Rampe
   private lastPublish = 0;
+  /** Altfehler IN-3: Sperre eines laufenden Starts (synchron gesetzt, vor dem ersten `await`) und die Nummer des gültigen Laufs. */
+  private starting = false;
+  private startNr = 0;
 
   private state: EngineState = {
     running: false,
+    starting: false,
     ducking: false,
     floorDb: -Infinity,
     interpreterDb: -Infinity,
@@ -116,6 +138,12 @@ export class InterpreterEngine {
     startedOutputId: null,
   };
   private listeners = new Set<() => void>();
+  private readonly startFristMs: number;
+
+  /** `startFristMs`: Frist eines Starts; ohne Wert `START_FRIST_MS` (D6: der Test läuft mit 30 ms). */
+  constructor(startFristMs: number = START_FRIST_MS) {
+    this.startFristMs = startFristMs;
+  }
 
   subscribe(cb: () => void): () => void {
     this.listeners.add(cb);
@@ -147,14 +175,59 @@ export class InterpreterEngine {
     this.lastTarget = Number.NaN;
   }
 
+  /**
+   * Start (Altfehler IN-3, C4): ein Start zur Zeit. Ein zweiter Aufruf, solange `starting` steht, wird verworfen, auch ein
+   * Doppelklick, bevor die Taste neu gezeichnet ist. Der Rumpf `starte` läuft gegen die Frist `startFristMs`. Ist sie zuerst um, gilt
+   * der Start als gescheitert: Die Startnummer rückt weiter (der Rumpf ist damit veraltet), `stop()` räumt den halben Start auf, und
+   * `error` nennt die Frist. `starting` endet in jedem Fall, auch nach einem Fehler.
+   */
   async start(devices: Devices): Promise<void> {
+    if (this.starting) return;
+    this.starting = true;
+    const nr = ++this.startNr;
+    this.patch({ starting: true });
+    let frist: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const abgelaufen = new Promise<'frist'>((r) => {
+        frist = setTimeout(() => r('frist'), this.startFristMs);
+      });
+      if ((await Promise.race([this.starte(devices, nr), abgelaufen])) === 'frist') {
+        this.startNr++;
+        await this.stop();
+        this.patch({ error: START_FRIST_TEXT });
+      }
+    } finally {
+      clearTimeout(frist);
+      this.starting = false;
+      this.patch({ starting: false });
+    }
+  }
+
+  /**
+   * Rumpf des Starts, Reihenfolge wie bisher. `nr` ist die Startnummer dieses Laufs. Nach jedem `await` prüft der Lauf, ob er noch
+   * gilt; ein veralteter Lauf (Frist abgelaufen) schließt die Streams, die er eben bekommen hat, fasst den Zustand der Engine nicht
+   * mehr an und meldet nichts.
+   */
+  private async starte(devices: Devices, nr: number): Promise<void> {
+    const gilt = (): boolean => nr === this.startNr;
     await this.stop();
+    if (!gilt()) return;
     try {
       const ctx = new AudioContext({ latencyHint: 'interactive' });
       this.ctx = ctx;
 
-      this.floorStream = await this.open(devices.floorId);
-      this.interpreterStream = await this.open(devices.interpreterId);
+      const floorStream = await this.open(devices.floorId);
+      if (!gilt()) {
+        spurenStoppen(floorStream);
+        return;
+      }
+      this.floorStream = floorStream;
+      const interpreterStream = await this.open(devices.interpreterId);
+      if (!gilt()) {
+        spurenStoppen(interpreterStream);
+        return;
+      }
+      this.interpreterStream = interpreterStream;
 
       this.floorGain = ctx.createGain();
       this.floorGain.gain.value = dbToGain(this.settings.floorGainDb);
@@ -176,15 +249,19 @@ export class InterpreterEngine {
       this.floorGain.connect(this.mixDest);
       this.interpreterGain.connect(this.mixDest);
 
-      await this.route(devices.outputId);
+      await this.route(devices.outputId, gilt);
+      if (!gilt()) return;
       await ctx.resume();
+      if (!gilt()) return;
 
       this.duck = { ...INITIAL_STATE };
       this.lastTarget = Number.NaN;
       this.timer = setInterval(this.tick, TICK_MS);
       this.patch({ running: true, error: null, startedOutputId: devices.outputId });
     } catch (e) {
+      if (!gilt()) return;
       await this.stop();
+      if (!gilt()) return;
       this.patch({ error: e instanceof Error ? e.message : String(e) });
     }
   }
@@ -220,8 +297,10 @@ export class InterpreterEngine {
    * Mix auf das Ausgabegerät legen. `setSinkId` ist der ganze Trick der Einspeisung: das Ziel ist
    * ein virtuelles Kabel (VB-Cable), das Zoom/Webex als „Mikrofon" auswählen. Ein eigenes
    * virtuelles Gerät bräuchte einen signierten Kernel-Treiber — ausdrücklich außerhalb des Umfangs.
+   * Altfehler IN-3: Gilt der Start nach einem `await` nicht mehr (`gilt`, Frist abgelaufen), wird das Element angehalten und nicht
+   * eingehängt; es spielt dann nie und überschreibt kein Element eines späteren Starts.
    */
-  private async route(outputId: string): Promise<void> {
+  private async route(outputId: string, gilt: () => boolean): Promise<void> {
     if (!this.mixDest) return;
     const el = new Audio();
     el.srcObject = this.mixDest.stream;
@@ -231,7 +310,11 @@ export class InterpreterEngine {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (el as any).setSinkId(outputId);
     }
-    await el.play();
+    if (gilt()) await el.play();
+    if (!gilt()) {
+      el.pause();
+      return;
+    }
     this.out = el;
   }
 

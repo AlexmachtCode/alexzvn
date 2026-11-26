@@ -76,6 +76,18 @@ function knoepfe(html: string): Knopf[] {
     const soll: Knopf = { label: t.label, state: t.state, gesperrt: t.state === 'gesperrt' ? 'true' : undefined, grund: t.state === 'gesperrt' ? t.disabledReason : undefined };
     return vergleiche(JSON.stringify(ist), JSON.stringify(soll));
   });
+  // Altfehler IN-3: während des Starts zeigt die Taste den Grund „Startet …“; ein Klick über tallyHandler startet nicht noch einmal.
+  {
+    const log: string[] = [];
+    const s = stand({ engine: motor({ starting: true }) });
+    const k = knoepfe(live(s));
+    klick(liveTaste(s, aktionen(s, log)));
+    gleich(
+      [k.map((x) => [x.label, x.state, x.gesperrt, x.grund]), log.filter((z) => z.startsWith('start:'))],
+      [[['Starten', 'gesperrt', 'true', 'Startet …']], []],
+      'IN-3 Live Haupttaste: während des Starts gesperrt mit sichtbarem Grund „Startet …“; ein Klick über tallyHandler schreibt kein start:',
+    );
+  }
   const gesperrt = live(stand({ einstellungen: einst({ floorId: '' }) }));
   const [knopf] = tags(gesperrt, 'button').filter((x) => attr(x, 'data-state') !== undefined);
   ok(attr(knopf, 'title') === 'Erst beide Eingänge wählen' && text(gesperrt).includes('Erst beide Eingänge wählen'), 'IN Live Haupttaste: der alte Tooltip „Erst beide Eingänge wählen“ bleibt (title) und steht zusätzlich sichtbar unter der Taste');

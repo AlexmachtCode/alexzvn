@@ -24,8 +24,11 @@ export const ABSCHNITT = {
 export const INTERPRETER_TEXTE = {
   /** Haupttaste: Beschriftungen wie der alte Knopf (App.tsx:101). */
   taste: { starten: 'Starten', stoppen: 'Stoppen' },
-  /** Grund der gesperrten Haupttaste: `eingaengeFehlen` wörtlich wie App.tsx:96; `zustandOffen` gilt nur vor der ersten Antwort. */
-  grund: { eingaengeFehlen: 'Erst beide Eingänge wählen', zustandOffen: 'Lädt …' },
+  /**
+   * Grund der gesperrten Haupttaste: `eingaengeFehlen` wörtlich wie App.tsx:96; `zustandOffen` gilt nur vor der ersten Antwort;
+   * `startet`, solange die Engine startet (Altfehler IN-3).
+   */
+  grund: { eingaengeFehlen: 'Erst beide Eingänge wählen', zustandOffen: 'Lädt …', startet: 'Startet …' },
   /** ON AIR (E4): Beschriftung des Kopfes. */
   onAir: 'MIX AKTIV',
   /** E10 / W2-V3: Hinweis an jeder der drei Geräte-Wahlen (die Wahl greift nur beim Start, engine.start). */
@@ -368,13 +371,15 @@ function taste(label: string, state: TasteZustand['state'], grund?: string): Hau
 /**
  * Haupttaste Starten/Stoppen (E4). Gesperrt mit Grund, genau wenn bisher `disabled` galt (App.tsx:95): `!floorId ||
  * !interpreterId`, auch während des Laufs (Eingang wieder auf „— bitte wählen —“ sperrt auch „Stoppen“, U6 bleibt). Zusätzlich
- * gesperrt, solange Engine oder Einstellungen nicht geantwortet haben (Grund `zustandOffen`). Keine Sperre während des Starts
- * (die Engine setzt `running` erst nach dem Öffnen der Geräte). `live` bei `running`.
+ * gesperrt, solange Engine oder Einstellungen nicht geantwortet haben (Grund `zustandOffen`). Altfehler IN-3: gesperrt mit „Startet …“,
+ * solange die Engine startet (`starting`, höchstens bis zur Frist der Engine); einen zweiten Start im selben Bild verwirft die Engine
+ * selbst. `live` bei `running`.
  */
 export function hauptTaste(s: Pick<OberflaechenStand, 'engine' | 'einstellungen'>): Haupttaste {
   const T = INTERPRETER_TEXTE;
   const e = s.einstellungen;
   if (s.engine === undefined || e === undefined) return taste(T.taste.starten, 'gesperrt', T.grund.zustandOffen);
+  if (s.engine.starting) return taste(T.taste.starten, 'gesperrt', T.grund.startet);
   const laeuft = s.engine.running;
   const label = laeuft ? T.taste.stoppen : T.taste.starten;
   if (!e.floorId || !e.interpreterId) return taste(label, 'gesperrt', T.grund.eingaengeFehlen);
