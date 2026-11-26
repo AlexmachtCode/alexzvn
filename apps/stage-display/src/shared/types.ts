@@ -104,8 +104,13 @@ export interface StageConfig {
    *  `mode`: 'ref' = slide + notes + next + countdown, 'main' = slide fullscreen. */
   presenter: { enabled: boolean; host: string; port: number; pin: string; mode: PresenterMode };
   widgets: { clock: boolean; timer: boolean; switcher: boolean; message: boolean; presenter: boolean };
-  /** Ad-hoc-Nachricht, die der Operator auf dem Bühnenschirm einblendet. */
+  /** Ad-hoc-Nachricht, die der Operator auf dem Bühnenschirm einblendet (gesendet; nach einem Neustart leer, Altfehler SD-1). */
   message: string;
+  /**
+   * Entwurf der Ad-hoc-Nachricht im Nachricht-Feld (Altfehler SD-1): gemerkt, wirkt nicht auf die Bühne; erst „Senden“ oder Enter
+   * macht ihn zu `message`. Optional, damit ältere Dateien und Aufrufer ohne das Feld gelten (fehlt = leer).
+   */
+  nachrichtEntwurf?: string;
   /** Gewählter Ausgabe-Bildschirm (null = primär). */
   outputDisplayId: number | null;
 }
@@ -168,5 +173,7 @@ export interface PartialStageConfig {
   widgets?: Partial<StageConfig['widgets']>;
   // presenter.mode is patched via the nested `presenter` partial above.
   message?: string;
+  /** Entwurf der Nachricht (Altfehler SD-1): ändert nur das Feld, nicht die Bühne. */
+  nachrichtEntwurf?: string;
   outputDisplayId?: number | null;
 }

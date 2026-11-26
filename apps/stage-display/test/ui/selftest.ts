@@ -10,4 +10,6 @@ import './rahmen.test';
 import './live.test';
 import './panel.test';
 import './funktionsliste.test';
+import './konfig-regeln.test';
+import './mdns.test';
 abschluss();

@@ -111,6 +111,8 @@ const PAKETE_GEAENDERT = [
   'packages/output-window/src/index.ts',
   'packages/settings/src/SectionFrame.tsx',
   'packages/settings/src/abschnitte/ScreenOutputSection.tsx',
+  // Altfehler SD-3, Stufe 2: PeerRow.eingerichtet und „nicht erreichbar“ (Stage Display; Presenter setzt das Feld nicht).
+  'packages/settings/src/abschnitte/peers.ts',
   'packages/settings/src/abschnitte/screen-output.ts',
   'packages/ui/src/components/AppHeader.tsx',
   'packages/ui/src/components/AppShell.tsx',

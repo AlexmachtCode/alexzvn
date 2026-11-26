@@ -17,8 +17,10 @@ export interface AktionenQuellen {
 export interface OberflaechenAktionen extends StageAktionen {
   /** Das offene Fenster auf den gewählten Bildschirm ziehen (derselbe Aufruf wie das Öffnen). */
   ausgabeVerschieben(): void;
-  /** Nachricht setzen: wirkt mit jedem Tastendruck. */
-  nachricht(text: string): void;
+  /** Entwurf der Nachricht merken (Altfehler SD-1): ändert nur das Feld, nicht die Bühne. */
+  entwurf(text: string): void;
+  /** Nachricht auf die Bühne senden („Senden“ oder Enter); leer nimmt sie von der Bühne (C6). */
+  senden(text: string): void;
   widget(key: keyof StageConfig['widgets'], an: boolean): void;
   /** PIN setzen: nur Ziffern, höchstens 8 Zeichen (wie bisher). */
   pin(eingabe: string): void;
@@ -41,7 +43,8 @@ export function baueAktionen(q: AktionenQuellen): OberflaechenAktionen {
     quelleSetzen: (role, host, port) => {
       if (istQuelle(role)) void q.setConfig({ [role]: { host, port } });
     },
-    nachricht: (text) => void q.setConfig({ message: text }),
+    entwurf: (text) => void q.setConfig({ nachrichtEntwurf: text }),
+    senden: (text) => void q.setConfig({ message: text }),
     widget: (key, an) => void q.setConfig({ widgets: { [key]: an } }),
     pin: (eingabe) => void q.setConfig({ presenter: { pin: eingabe.replace(/\D/g, '').slice(0, 8) } }),
     modus: (m) => void q.setConfig({ presenter: { mode: m } }),

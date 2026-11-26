@@ -13,6 +13,7 @@ import {
 } from '@jm/settings';
 import { masterLinkStatusItem, unbekannt, type StatusItem } from '@jm/ui';
 import type { AusgabeZustand } from '@jm/output-window/zustand';
+import { VORGABE_HOST } from '@shared/mdns';
 import type { MasterLinkMeldungZeile, StageState } from '@shared/types';
 import { buehnenNachricht } from './nachricht';
 
@@ -45,12 +46,16 @@ export const STAGE_TEXTE = {
     switcher: 'JM Switcher',
     presenter: 'JM Presenter',
   },
-  /** Live-Bereich: Überschriften und Beschriftungen wie bisher (OperatorView), die Haupttaste heißt wie unter `taste`. */
+  /**
+   * Live-Bereich: Überschriften und Beschriftungen wie bisher (OperatorView), die Haupttaste heißt wie unter `taste`. Altfehler SD-1:
+   * „Senden“ bringt den Entwurf auf die Bühne (auch Enter im Feld); leer gesendet nimmt die Nachricht herunter (C6).
+   */
   live: {
     laedt: 'Lädt…',
     vorschau: 'Vorschau',
     nachrichtTitel: 'Nachricht (Ad-hoc, hat Vorrang vor Timer-Nachricht)',
     nachrichtPlatzhalter: 'z. B. „Bitte Plätze einnehmen“ — leer = Timer-Nachricht',
+    senden: 'Senden',
     elementeTitel: 'Anzeige-Elemente',
     elemente: {
       clock: 'Uhr',
@@ -66,10 +71,15 @@ export const STAGE_TEXTE = {
     switcher: 'Program/Preview · REC/Stream (Companion-Port)',
     presenter: 'Referentenansicht: Folie · Notizen · Nächste (Fernsteuerung im Presenter aktivieren, Port 7330)',
   },
-  /** Presenter-Kopplung (tool-eigen): PIN und Anzeige, Wortlaut wie bisher. */
+  /**
+   * Presenter-Kopplung (tool-eigen): PIN und Anzeige, Wortlaut wie bisher. Altfehler SD-5: die PIN steht verdeckt im Feld,
+   * „Anzeigen“/„Verbergen“ schalten die Sicht um; „Setzen“ kommt aus @jm/settings (PEERS_TEXTE.setzen, D7).
+   */
   kopplung: {
     titel: 'Presenter-Kopplung',
     pin: 'PIN',
+    anzeigen: 'Anzeigen',
+    verbergen: 'Verbergen',
     pinHinweis: 'PIN nur falls die Presenter-Fernsteuerung mit PIN läuft — sonst leer lassen',
     anzeige: 'Anzeige',
     ref: 'Referenzansicht',
@@ -161,7 +171,10 @@ export function ausgabeAbschnitt(s: OberflaechenStand, a?: StageAktionen): Scree
   };
 }
 
-/** Eine Quellenzeile: Ein/Aus aus der Konfiguration, `connected` gemessen; nie eine Quelle (kein Auto, E12). */
+/**
+ * Eine Quellenzeile: Ein/Aus aus der Konfiguration, `connected` gemessen; nie eine Quelle (kein Auto, E12). Altfehler SD-3: ein Host
+ * außer der Vorgabe 127.0.0.1 gilt als eingerichtet (die mDNS-Suche ersetzt ihn nicht); nicht verbunden heißt dann „nicht erreichbar“.
+ */
 function quellenZeile(s: OberflaechenStand, r: (typeof ROLLEN)[number]): PeerRow {
   const q = s.stage?.config[r.role];
   const gemessen = s.stage?.[r.role].connected;
@@ -173,6 +186,7 @@ function quellenZeile(s: OberflaechenStand, r: (typeof ROLLEN)[number]): PeerRow
     defaultPort: r.defaultPort,
     enabled: q?.enabled,
     connected: gemessen,
+    eingerichtet: (q?.host ?? '') !== VORGABE_HOST,
   };
 }
 

@@ -1,13 +1,15 @@
 // Einstellungs-Panel des Stage-Displays (UX Welle 2a, Aufgabe d; Spec 3.6, 6; E3, E12, E15): „Ausgabe auf Bildschirm“ (Bühnenschirm)
 // und „Gegenstellen“ (die drei Quellen) aus @jm/settings mit den Props aus lib/oberflaeche.ts – dieselbe Ableitung wie die
-// Statusleiste, also eine Wahrheit –, dahinter der tool-eigene Abschnitt „Presenter-Kopplung“ (PIN und Anzeige), nur solange die Presenter-Quelle an ist (wie bisher). Jeder Abschnitt ist
+// Statusleiste, also eine Wahrheit –, dahinter der tool-eigene Abschnitt „Presenter-Kopplung“ (PIN und Anzeige), nur solange die Presenter-Quelle an ist (wie bisher);
+// die PIN steht seit Altfehler SD-5 verdeckt im PinFeld und gilt erst mit „Setzen“ (die Hülle hält den Entwurf). Jeder Abschnitt ist
 // ein Sprungziel (PanelAnker, id wie das settingsSection des Statuseintrags). Kein window, kein Store und kein Effekt (E15):
 // Aktionen kommen aus der View, die Bildschirmliste liest die View (beim Start, beim Öffnen des Panels, bei jeder Änderung des
 // Ausgabezustands und bei jedem Bildschirm-Ereignis). Den gemessenen Ort des Schirms nennt der Ausgabe-Abschnitt selbst (Pille und
 // „Steht auf“ aus measuredId, UX Welle 2b).
 import { PeersSection, ScreenOutputSection } from '@jm/settings';
-import { Button, Field, PanelAnker, SettingsSection, TextInput } from '@jm/ui';
+import { Button, Field, PanelAnker, SettingsSection } from '@jm/ui';
 import type { PresenterMode } from '@shared/types';
+import { PinFeld } from '@/components/PinFeld';
 import type { OberflaechenAktionen } from '@/lib/aktionen';
 import { ABSCHNITT, ausgabeAbschnitt, kannVerschieben, quellenAbschnitt, STAGE_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
 
@@ -50,7 +52,7 @@ export function Einstellungen({ stand, aktionen }: EinstellungenProps): React.JS
             {p !== undefined && (
               <div className="space-y-2.5">
                 <Field label={T.kopplung.pin} hint={T.kopplung.pinHinweis}>
-                  <TextInput value={p.pin} onChange={aktionen.pin} inputMode="numeric" placeholder={T.kopplung.pin} title={T.kopplung.pinHinweis} />
+                  <PinFeld wert={p.pin} setzen={aktionen.pin} />
                 </Field>
                 <div className="space-y-1">
                   <span className="text-xs font-semibold text-[var(--foreground)]">{T.kopplung.anzeige}</span>

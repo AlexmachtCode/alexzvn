@@ -1,15 +1,17 @@
 // UX Welle 2a, Stage-Display d · Einstellungs-Panel (Spec 3.6, 6; E3, E12, E15): Ausgabe auf Bildschirm und Gegenstellen aus
 // @jm/settings, dahinter „Presenter-Kopplung“ (PIN, Anzeige). Jeder Statuseintrag mit Abschnitt findet seinen Anker. Die Aktionen
 // laufen über lib/aktionen.ts mit Attrappen. Render ohne Browser.
-import { SCREEN_TEXTE } from '@jm/settings';
+import { PEERS_TEXTE, SCREEN_TEXTE } from '@jm/settings';
+import { Button, TextInput } from '@jm/ui';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import type { AusgabeZustand } from '@jm/output-window/zustand';
 import type { PartialStageConfig } from '@shared/types';
+import { PinFeld, PinFeldAnsicht } from '@/components/PinFeld';
 import * as aktionenModul from '@/lib/aktionen';
 import { baueAktionen, type OberflaechenAktionen } from '@/lib/aktionen';
 import { ABSCHNITT, bildschirmEtikett, statusLeiste, STAGE_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
 import { Einstellungen } from '@/views/Einstellungen';
-import { abschnitt, attr, ohneKommentare, stageZustand, tags, text } from './testzustand';
+import { abschnitt, attr, elemente, ohneKommentare, stageZustand, tags, text } from './testzustand';
 
 const T = STAGE_TEXTE;
 const stand = (z: Partial<OberflaechenStand> = {}): OberflaechenStand => ({ stage: stageZustand(), ausgabe: undefined, masterLink: undefined, ...z });
@@ -83,7 +85,8 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
     'SD Panel Abschnitte: das PIN-Feld trägt Platzhalter „PIN“, Zifferntastatur und den alten Tooltip',
   );
   ok(text(k).includes('PIN nur falls die Presenter-Fernsteuerung mit PIN läuft — sonst leer lassen'), 'SD Panel Abschnitte: die Hinweiszeile zur PIN steht da');
-  const modi = tags(k, 'button').filter((t) => attr(t, 'aria-pressed') !== undefined);
+  // Nur die Knöpfe der Gruppe „Anzeige“: „Anzeigen“ am PIN-Feld trägt seit Altfehler SD-5 ebenfalls aria-pressed.
+  const modi = tags(k.slice(k.indexOf('data-stage="modus"')), 'button').filter((t) => attr(t, 'aria-pressed') !== undefined);
   gleich(modi.map((t) => attr(t, 'aria-pressed')), ['false', 'true'], 'SD Panel Abschnitte: Anzeige Referenz/Haupt als Knopfpaar mit aria-pressed, der gewählte Modus ist gedrückt');
   ok(['Anzeige', 'Referenzansicht', 'Hauptansicht', 'Folienbild erscheint, sobald eine Präsentation läuft'].every((w) => text(k).includes(w)), 'SD Panel Abschnitte: Beschriftungen der Anzeige wie bisher');
   for (const [name, st] of [['ohne Zustand', undefined], ['Presenter aus', stageZustand()]] as const) {
@@ -92,6 +95,64 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
       `SD Panel Abschnitte: ${name}: keine Presenter-Kopplung, kein PIN-Feld, keine Referenzansicht`);
   }
   ok(text(html).includes(T.kopplung.titel) && text(html).includes('Referenzansicht') && tags(html, 'input').some((t) => attr(t, 'placeholder') === 'PIN'), 'SD Panel Abschnitte: Presenter an: Presenter-Kopplung, PIN-Feld und Referenzansicht stehen da');
+}
+
+// ── SD-5 (Altfehler Stufe 2): die PIN steht verdeckt im Feld, „Anzeigen“ zeigt sie, sie gilt erst mit „Setzen“ (kein Enter) ──
+{
+  const log: string[] = [];
+  const ansicht = (sichtbar: boolean): ReturnType<typeof elemente> =>
+    elemente(
+      PinFeldAnsicht({ entwurf: '1234', sichtbar, onTippen: (t) => void log.push(`tippen:${t}`), onAnzeigen: () => void log.push('anzeigen'), onSetzen: () => void log.push('setzen') }),
+    );
+  const feld = (baum: ReturnType<typeof elemente>) => baum.find((e) => e.type === TextInput);
+  const knopf = (baum: ReturnType<typeof elemente>, beschriftung: string) => baum.find((e) => e.type === Button && e.props.children === beschriftung);
+  const zu = ansicht(false);
+  const auf = ansicht(true);
+  gleich([feld(zu)?.props.type, feld(auf)?.props.type], ['password', 'text'], 'SD-5 PinFeldAnsicht verdeckt: das Feld ist ein Passwortfeld, mit „Anzeigen“ ein Textfeld');
+  gleich(
+    [knopf(zu, 'Anzeigen')?.props['aria-pressed'], knopf(auf, 'Verbergen')?.props['aria-pressed'], knopf(zu, 'Verbergen'), knopf(auf, 'Anzeigen')],
+    [false, true, undefined, undefined],
+    'SD-5 PinFeldAnsicht verdeckt: der Knopf heißt verdeckt „Anzeigen“ (aria-pressed false), sichtbar „Verbergen“ (aria-pressed true)',
+  );
+  const f = feld(zu)?.props ?? {};
+  gleich(
+    [f.value, f.inputMode, f.autoComplete, f.placeholder, f.title, f.onKeyDown],
+    ['1234', 'numeric', 'off', 'PIN', 'PIN nur falls die Presenter-Fernsteuerung mit PIN läuft — sonst leer lassen', undefined],
+    'SD-5 PinFeldAnsicht: Entwurf im Feld, Zifferntastatur, ohne Autovervollständigen, Platzhalter und Tooltip wie bisher, kein Tastenhörer',
+  );
+  (f.onChange as ((t: string) => void) | undefined)?.('9');
+  const nachTippen = [...log];
+  (knopf(zu, PEERS_TEXTE.setzen)?.props.onClick as (() => void) | undefined)?.();
+  gleich([nachTippen, log], [['tippen:9'], ['tippen:9', 'setzen']], 'SD-5 Tippen setzt nicht: onChange ruft nur onTippen; „Setzen“ ruft onSetzen genau einmal');
+  log.length = 0;
+  (knopf(zu, 'Anzeigen')?.props.onClick as (() => void) | undefined)?.();
+  gleich(log, ['anzeigen'], 'SD-5 PinFeldAnsicht: „Anzeigen“ ruft onAnzeigen');
+  gleich(
+    [knopf(zu, PEERS_TEXTE.setzen)?.props.type, knopf(zu, 'Anzeigen')?.props.type, T.kopplung.anzeigen, T.kopplung.verbergen, PEERS_TEXTE.setzen],
+    ['button', 'button', 'Anzeigen', 'Verbergen', 'Setzen'],
+    'SD-5 PinFeldAnsicht: zwei Knöpfe vom Typ button; „Anzeigen“ und „Verbergen“ stehen in STAGE_TEXTE.kopplung, „Setzen“ kommt aus PEERS_TEXTE (D7)',
+  );
+}
+{
+  // Verdrahtung: das Panel zeigt die PIN verdeckt mit „Anzeigen“ und „Setzen“; das PinFeld bekommt die gemerkte PIN und aktionen.pin.
+  const log: string[] = [];
+  const a = fake(log);
+  const s = stand({ stage: stageZustand({ config: { presenter: { enabled: true, host: 'h', port: 7330, pin: '1234', mode: 'ref' } } }) });
+  const k = abschnitt(render(<Einstellungen stand={s} aktionen={a} />), ABSCHNITT.presenter);
+  const [pin] = tags(k, 'input');
+  ok(
+    attr(pin, 'type') === 'password' && /<button[^>]*>Anzeigen<\/button>/.test(k) && /<button[^>]*>Setzen<\/button>/.test(k),
+    'SD-5 Einstellungen verdrahtet: im Abschnitt Presenter-Kopplung steht das PIN-Feld als type="password" mit den Knöpfen „Anzeigen“ und „Setzen“',
+  );
+  const felder = elemente(Einstellungen({ stand: s, aktionen: a })).filter((e) => e.type === PinFeld);
+  ok(felder.length === 1 && felder[0].props.wert === '1234' && felder[0].props.setzen === a.pin, 'SD-5 Einstellungen verdrahtet: genau ein PinFeld mit wert = presenter.pin und setzen = aktionen.pin');
+  gleich(log, [], 'SD-5 Einstellungen verdrahtet: Rendern setzt keine PIN');
+  const q = ohneKommentare(leseText('src/renderer/src/components/PinFeld.tsx'));
+  ok(q.length > 0 && !/onKeyDown|keydown|addEventListener/.test(q), 'SD-5 Wächter: components/PinFeld.tsx hat keinen Tastenhörer (kein Enter, gilt erst mit „Setzen“)');
+  ok(
+    /useEffect\(\(\) => setEntwurf\(wert\), \[wert\]\);/.test(q) && q.includes('onSetzen={() => setzen(entwurf)}'),
+    'SD-5 Wächter: PinFeld übernimmt eine neue PIN von außen in den Entwurf (wie PeerZeile) und „Setzen“ ruft setzen(entwurf)',
+  );
 }
 
 // ── Verschieben: nur bei gemessen existierendem Fenster, mit dem alten Wortlaut ──
@@ -137,9 +198,15 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
   a.quelleSetzen('switcher', '10.1.1.1', 8723);
   gleich(log, ['setConfig{"switcher":{"host":"10.1.1.1","port":8723}}'], 'SD Aktionen: Host und Port einer Quelle werden zusammen gesetzt');
   log.length = 0;
-  a.nachricht('Pause');
+  a.entwurf('Pause');
+  a.senden('Pause');
+  a.senden('');
   a.widget('presenter', false);
-  gleich(log, ['setConfig{"message":"Pause"}', 'setConfig{"widgets":{"presenter":false}}'], 'SD Aktionen: Nachricht (jeder Tastendruck) und Anzeige-Element schreiben sofort');
+  gleich(
+    log,
+    ['setConfig{"nachrichtEntwurf":"Pause"}', 'setConfig{"message":"Pause"}', 'setConfig{"message":""}', 'setConfig{"widgets":{"presenter":false}}'],
+    'SD-1 Aktionen: der Entwurf schreibt nur nachrichtEntwurf, Senden schreibt message (leer nimmt sie herunter, C6); Anzeige-Element schreibt sofort',
+  );
   log.length = 0;
   a.pin('12a3-4567890');
   a.modus('main');

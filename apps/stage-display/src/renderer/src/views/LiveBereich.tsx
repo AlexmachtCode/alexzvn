@@ -1,8 +1,9 @@
 // Live-Bereich des Stage-Displays (UX Welle 2a, Aufgabe d; Spec 3.4, 5.1; E4): die Vorschau (StageScreen, 16:9, unverändert) immer
-// sichtbar, direkt darunter das Nachricht-Feld (wirkt mit jedem Tastendruck) und die Schalterreihe der Anzeige-Elemente (W2-8),
-// zuletzt die eine Haupttaste „Bühnenschirm“ (öffnen/schließen) als TallyButton. Rein darstellend: Aktionen kommen aus der View,
-// dieser Bereich liest kein window.
-import { Field, TallyButton, TextInput, Toggle, type TallyButtonProps } from '@jm/ui';
+// sichtbar, direkt darunter das Nachricht-Feld und die Schalterreihe der Anzeige-Elemente (W2-8), zuletzt die eine Haupttaste
+// „Bühnenschirm“ (öffnen/schließen) als TallyButton. Rein darstellend: Aktionen kommen aus der View, dieser Bereich liest kein window.
+// Altfehler SD-1: Das Feld ist ein Entwurf (nachrichtEntwurf); auf die Bühne kommt er erst mit „Senden“ oder Enter (das Formular
+// schickt ab, kein Tastenhörer), leer senden nimmt die Nachricht herunter (C6). Die Vorschau zeigt, was gesendet ist.
+import { Button, Field, TallyButton, TextInput, Toggle, type TallyButtonProps } from '@jm/ui';
 import type { StageConfig, StageState } from '@shared/types';
 import { StageScreen } from '@/components/StageScreen';
 import { buehnenschirmTaste, schirmSollOffen, STAGE_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
@@ -10,7 +11,10 @@ import { buehnenschirmTaste, schirmSollOffen, STAGE_TEXTE, type OberflaechenStan
 export interface LiveAktionen {
   /** Bühnenschirm: true öffnet, false schließt. */
   ausgabeUmschalten(an: boolean): void;
-  nachricht(text: string): void;
+  /** Entwurf der Nachricht merken (wirkt nicht auf die Bühne). */
+  entwurf(text: string): void;
+  /** Nachricht auf die Bühne senden; leer nimmt sie herunter. */
+  senden(text: string): void;
   widget(key: keyof StageConfig['widgets'], an: boolean): void;
 }
 
@@ -56,11 +60,22 @@ export function LiveBereich({
         </div>
       </div>
 
-      <div data-stage="nachricht">
+      <form
+        data-stage="nachricht"
+        onSubmit={(e) => {
+          e.preventDefault();
+          aktionen.senden(c.nachrichtEntwurf ?? '');
+        }}
+      >
         <Field label={T.nachrichtTitel}>
-          <TextInput value={c.message} onChange={aktionen.nachricht} placeholder={T.nachrichtPlatzhalter} />
+          <div className="flex items-center gap-2">
+            <TextInput value={c.nachrichtEntwurf ?? ''} onChange={aktionen.entwurf} placeholder={T.nachrichtPlatzhalter} />
+            <Button type="submit" variant="outline" size="sm" uppercase={false} className="shrink-0">
+              {T.senden}
+            </Button>
+          </div>
         </Field>
-      </div>
+      </form>
 
       <div data-stage="elemente">
         <h3 className={UEBERSCHRIFT}>{T.elementeTitel}</h3>

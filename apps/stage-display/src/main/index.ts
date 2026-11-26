@@ -7,6 +7,7 @@ import { discover, type Discovery, type DiscoveredService } from '@jm/discovery'
 import { OutputWindow, beobachteBildschirme, listDisplays } from '@jm/output-window';
 import { controlClientOptions, readControlConfig, mdnsSignKey } from '@jm/control-config';
 import type { PartialStageConfig, StageState } from '@shared/types';
+import { mdnsUebernahme } from '@shared/mdns';
 import { getConfig, patchConfig } from './config';
 import { TimerClient, TIMER_OFFLINE } from './timer-client';
 import { SwitcherClient, SWITCHER_OFFLINE } from './switcher-client';
@@ -90,50 +91,13 @@ function applyConnections(): void {
 }
 
 /**
- * mDNS-Fund auswerten: Findet sich eine Quelle im LAN und die konfigurierte
- * Verbindung steht (noch) nicht, übernehmen wir den entdeckten Host/Port — so
- * verbindet sich Stage Display ohne manuelle IP-Eingabe. Eine bereits stehende
- * Verbindung (z. B. lokal über 127.0.0.1) bleibt unangetastet, ebenso eine
- * deaktivierte Quelle. Auth (Presenter-PIN) bleibt manuell — Discovery liefert
- * nur die Adresse, nicht das Geheimnis.
+ * mDNS-Fund auswerten (Altfehler SD-3): Findet sich eine Quelle im LAN, übernehmen wir den entdeckten Host/Port nur, solange die
+ * Quelle eingeschaltet, nicht verbunden und noch auf der Vorgabe 127.0.0.1 ist — so verbindet sich Stage Display ohne manuelle
+ * IP-Eingabe, ersetzt aber keinen eingetragenen Host mehr still. Die Regel (samt der Wahl des Dienstes ohne Steuer-Marke) steht in
+ * shared/mdns.ts. Auth (Presenter-PIN) bleibt manuell — Discovery liefert nur die Adresse, nicht das Geheimnis.
  */
 function onDiscovered(services: DiscoveredService[]): void {
-  const cfg = getConfig();
-  const patch: PartialStageConfig = {};
-
-  // Timer/Presenter annoncieren seit dem Companion-Modul (Welle 1.6.2) ZWEI
-  // _jmps._tcp-Dienste: ihren eigenen (Socket.IO/SSE, den Stage Display spricht)
-  // und einen Steuer-Endpunkt mit TXT ctl=1 (TCP-Zeilenprotokoll fürs Companion-
-  // Modul). Hier den NICHT-Steuer-Endpunkt wählen (!ctl), sonst verbände sich der
-  // Socket.IO-/SSE-Client mit dem falschen Port.
-  const timer = services.find((s) => s.role === 'timer' && !s.ctl);
-  if (timer && cfg.timer.enabled && !lastTimer.connected && cfg.timer.host !== timer.host) {
-    patch.timer = { host: timer.host, port: timer.port };
-  }
-
-  // Switcher hat KEINEN ctl=1-Marker: sein einziger Advert IST der TCP-Steuer-
-  // server, mit dem sich Stage Display (via SuiteControlClient) verbindet — also
-  // hier bewusst NICHT auf !ctl filtern.
-  const switcher = services.find((s) => s.role === 'switcher');
-  if (
-    switcher &&
-    cfg.switcher.enabled &&
-    !lastSwitcher.connected &&
-    cfg.switcher.host !== switcher.host
-  ) {
-    patch.switcher = { host: switcher.host, port: switcher.port };
-  }
-
-  const presenter = services.find((s) => s.role === 'presenter' && !s.ctl);
-  if (
-    presenter &&
-    cfg.presenter.enabled &&
-    !lastPresenter.connected &&
-    cfg.presenter.host !== presenter.host
-  ) {
-    patch.presenter = { host: presenter.host, port: presenter.port };
-  }
-
+  const patch = mdnsUebernahme(getConfig(), { timer: lastTimer.connected, switcher: lastSwitcher.connected, presenter: lastPresenter.connected }, services);
   if (Object.keys(patch).length === 0) return;
   patchConfig(patch);
   applyConnections();
@@ -313,8 +277,9 @@ if (!gotLock) {
     // persistierte Config), sonst normal nach persistierter Config verbinden.
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
     applyConnections();
-    // LAN nach Quellen absuchen und nicht stehende Verbindungen automatisch
-    // auf den entdeckten Host umstellen (mDNS). Best-effort.
+    // LAN nach Quellen absuchen und nicht stehende Verbindungen, die noch auf der
+    // Vorgabe 127.0.0.1 stehen, automatisch auf den entdeckten Host umstellen
+    // (mDNS, Altfehler SD-3). Best-effort.
     try {
       discovery = discover(onDiscovered, { verifyKey: mdnsVerifyKey });
     } catch (err) {

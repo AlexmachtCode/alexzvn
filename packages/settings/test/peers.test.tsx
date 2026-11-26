@@ -23,6 +23,8 @@ const VERB = s('ok', 'verbunden');
 const NG = s('warn', 'nicht gefunden');
 const GN = s('warn', 'gefunden · nicht verbunden');
 const MAN = s('warn', 'manuell: 10.0.0.5:7777 · nicht verbunden');
+/** Eingerichteter Host, nicht verbunden (Stage-Display, Altfehler SD-3). */
+const NE = s('warn', 'nicht erreichbar');
 const KEINE = s('off', 'keine Gegenstellen');
 const FEHLER = s('error', 'Fehler: Testfehler');
 
@@ -51,25 +53,46 @@ const EINE: Record<string, SectionStatus> = {
   [statusText(NG)]: s('warn', '0 von 1 verbunden'),
   [statusText(GN)]: s('warn', '0 von 1 verbunden'),
   [statusText(MAN)]: s('warn', '0 von 1 verbunden'),
+  [statusText(NE)]: s('warn', '0 von 1 verbunden'),
 };
 
 {
+  // Achse eingerichtet (Altfehler SD-3, C5): true und an, aber nicht verbunden → „nicht erreichbar“ vor jeder Quelle; fehlt das Feld
+  // oder ist es false, gilt die Tabelle wie bisher (die anderen Apps setzen es nicht).
   const faelle = kreuz({
     enabled: [undefined, true, false],
     connected: [undefined, false, true],
     source: ['mdns', 'manual', undefined],
     host: ['', '10.0.0.5'],
+    eingerichtet: [undefined, false, true],
     error: [undefined, 'Testfehler'],
   } as const);
-  const row = (f: (typeof faelle)[number]): PeerRow => zeile({ enabled: f.enabled, connected: f.connected, source: f.source, host: f.host });
-  const sollZeile = (f: (typeof faelle)[number]): SectionStatus => ZEILE[`${f.enabled}|${f.connected}`][QUELLE[`${f.source}`] + (f.host ? 1 : 0)];
-  pruefeFaelle('Gegenstellen Kreuzprodukt je Zeile: Eingang → status aus der Tabelle', faelle, (f) =>
+  const row = (f: (typeof faelle)[number]): PeerRow => ({ ...zeile({ enabled: f.enabled, connected: f.connected, source: f.source, host: f.host }), ...(f.eingerichtet === undefined ? {} : { eingerichtet: f.eingerichtet }) });
+  const sollZeile = (f: (typeof faelle)[number]): SectionStatus =>
+    f.eingerichtet === true && f.enabled !== false && f.connected === false ? NE : ZEILE[`${f.enabled}|${f.connected}`][QUELLE[`${f.source}`] + (f.host ? 1 : 0)];
+  pruefeFaelle('Gegenstellen Kreuzprodukt je Zeile: Eingang → status aus der Tabelle, eingerichtet und nicht verbunden → „nicht erreichbar“', faelle, (f) =>
     vergleiche(statusText(peerZeileStatus(row(f))), statusText(sollZeile(f))),
   );
   pruefeFaelle('Gegenstellen Kreuzprodukt eine Zeile: Abschnitt aus der Tabelle, error schlägt alles', faelle, (f) => {
     const soll = f.error ? FEHLER : EINE[statusText(sollZeile(f))];
     return vergleiche(statusText(peersView({ ...basis, error: f.error, peers: [row(f)] }).status), statusText(soll));
   });
+  gleich(PEERS_TEXTE.zeileNichtErreichbar, 'nicht erreichbar', 'Gegenstellen eingerichtet: Wortlaut „nicht erreichbar“ (Altfehler SD-3)');
+  // Stage-Muster (toggle, ohne source): ein eingerichteter Host ohne Verbindung steht als „nicht erreichbar“ in der Zeile, eine Zeile
+  // ohne das Feld wie bisher als „nicht gefunden“.
+  const html = render(
+    <PeersSection
+      {...basis}
+      capabilities={{ toggle: true }}
+      peers={[zeile({ host: '10.0.0.4', enabled: true, connected: false, eingerichtet: true }), zeile({ role: 'presenter', label: 'JM Presenter', host: '127.0.0.1', enabled: true, connected: false })]}
+      onSet={() => {}}
+      onToggle={() => {}}
+    />,
+  );
+  ok(
+    vor(html, '>JM Timer<', '>nicht erreichbar<') && vor(html, '>nicht erreichbar<', '>JM Presenter<') && nachLetztem(html, '>nicht gefunden<', '>JM Presenter<'),
+    'Gegenstellen eingerichtet: im Stage-Muster zeigt die Zeile mit eingerichtetem Host „nicht erreichbar“, die ohne das Feld „nicht gefunden“',
+  );
 }
 {
   // Drei Zeilen, je Zeile aus, unbekannt, verbunden oder Warnung (4³ = 64 Fälle). Erwartung hängt nur von der

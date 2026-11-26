@@ -2,7 +2,8 @@
 //
 // Je Rolle Host, Port, Quelle (gefunden/manuell) und Verbindung. Standard ist automatisch (mDNS),
 // ein gesetzter Host überschreibt den Fund, „Auto“ nimmt das zurück (Rundown, Q&A, Battle). Stage-
-// Display kennt kein Auto, sondern Ein/Aus je Quelle (`enabled`, ohne `source`). Eine unbekannte
+// Display kennt kein Auto, sondern Ein/Aus je Quelle (`enabled`, ohne `source`); eine Zeile mit eingerichtetem Host
+// (`eingerichtet`, Altfehler SD-3) heißt ohne Verbindung „nicht erreichbar“. Eine unbekannte
 // Verbindung ist „unbekannt“, nie „nicht gefunden“; ausgeschaltete Zeilen zählen nicht mit, ebenso Zeilen mit zaehlt: false.
 import { zahlText, type StatusState } from '@jm/ui';
 import { ABSCHNITT_TEXTE, fehlerStatus, hatFehler, st, STATUS_UNBEKANNT, type SectionBase, type SectionInput, type SectionStatus } from '../vertrag';
@@ -15,6 +16,7 @@ export interface PeerRow {
   source?: 'mdns' | 'manual';        // undefined = Modell ohne Auto (Stage-Display)
   enabled?: boolean;                 // nur mit capabilities.toggle; dort undefined = nicht gemeldet (unbekannt)
   zaehlt?: boolean;                  // false: steht mit ihrem Status da, zählt aber nicht im Abschnittsstatus; fehlt = zählt
+  eingerichtet?: boolean;            // true: Host eingerichtet (nicht die Vorgabe), nicht verbunden = „nicht erreichbar“; fehlt = wie bisher (Stage-Display, Altfehler SD-3)
 }
 
 export interface PeersSectionProps extends SectionInput {
@@ -37,6 +39,7 @@ export const PEERS_TEXTE = {
   zeileNichtGefunden: 'nicht gefunden',
   zeileGefundenNichtVerbunden: 'gefunden · nicht verbunden',
   zeileManuellNichtVerbunden: (host: string, port: number) => `manuell: ${host}:${zahlText(port)} · nicht verbunden`,
+  zeileNichtErreichbar: 'nicht erreichbar',
   zeileAus: ABSCHNITT_TEXTE.aus,
   alleVerbunden: 'verbunden',
   kVonN: (k: number, n: number) => `${zahlText(k)} von ${zahlText(n)} verbunden`,
@@ -70,6 +73,8 @@ export function peerZeileStatus(r: PeerRow): SectionStatus {
   if (r.enabled === false) return st('off', PEERS_TEXTE.zeileAus);
   if (r.connected === undefined) return STATUS_UNBEKANNT;
   if (r.connected) return st('ok', PEERS_TEXTE.zeileVerbunden);
+  // Eingerichteter Host ohne Verbindung (Stage-Display, Altfehler SD-3): die Suche ersetzt ihn nicht, also „nicht erreichbar“.
+  if (r.eingerichtet === true) return st('warn', PEERS_TEXTE.zeileNichtErreichbar);
   if (r.source === 'manual' && r.host !== '') return st('warn', PEERS_TEXTE.zeileManuellNichtVerbunden(r.host, r.port));
   // Per mDNS gefunden, aber keine Verbindung: „nicht gefunden“ wäre falsch.
   if (r.source === 'mdns') return st('warn', PEERS_TEXTE.zeileGefundenNichtVerbunden);

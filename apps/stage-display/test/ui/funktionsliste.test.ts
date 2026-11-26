@@ -7,8 +7,10 @@
 // nach O1, die Abläufe in der Wurzel-View statt im Panel, die Bedienelemente an ihrem neuen Ort).
 // Läuft im Paketordner apps/stage-display (npm run selftest -w @jm/stage-display).
 // „unverändert (…)“ darf keine Datei nennen, die seit der Erhebung (d7cdd79ce0) geändert wurde, außer sie bekam nur die lesenden
-// Brücken bzw. den Ausgabezustand (E2, E3): dann steht der Hinweis im Haken. Der Abgleich der statischen Liste GEAENDERT mit
-// git läuft nur mit JM_FUNKTIONSLISTE_GIT=1 (Arbeitsbaum gegen die Erhebung, damit auch eine noch nicht eingecheckte Datei zählt).
+// Brücken bzw. den Ausgabezustand (E2, E3): dann steht der Hinweis im Haken; oder ein Altfehler der Stufe 2 hat sie geändert: dann
+// steht „Altfehler <ID>“ im Haken, und die Liste der ID in ALTFEHLER nennt die Datei (C8, R6). Der Abgleich der statischen Liste
+// GEAENDERT mit git läuft nur mit JM_FUNKTIONSLISTE_GIT=1 (Arbeitsbaum gegen die Erhebung, damit auch eine noch nicht eingecheckte,
+// aber gestagte Datei zählt).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
@@ -46,9 +48,11 @@ const ERHEBUNG = 'd7cdd79ce0';
  */
 const GEAENDERT = [
   'package.json',
+  'src/main/config.ts',
   'src/main/index.ts',
   'src/preload/index.ts',
   'src/renderer/src/App.tsx',
+  'src/renderer/src/components/PinFeld.tsx',
   'src/renderer/src/globals.css',
   'src/renderer/src/lib/aktionen.ts',
   'src/renderer/src/lib/bruecken.ts',
@@ -57,11 +61,15 @@ const GEAENDERT = [
   'src/renderer/src/views/LiveBereich.tsx',
   'src/renderer/src/views/OperatorView.tsx',
   'src/renderer/src/views/StageOberflaeche.tsx',
+  'src/shared/konfig-regeln.ts',
+  'src/shared/mdns.ts',
   'src/shared/types.ts',
   'test/ui/bruecken.test.ts',
   'test/ui/funktionsliste.test.ts',
   'test/ui/hilfe.ts',
+  'test/ui/konfig-regeln.test.ts',
   'test/ui/live.test.tsx',
+  'test/ui/mdns.test.ts',
   'test/ui/oberflaeche.test.ts',
   'test/ui/panel.test.tsx',
   'test/ui/rahmen.test.tsx',
@@ -71,7 +79,10 @@ const GEAENDERT = [
   'tsconfig.test.json',
 ].map((p) => `apps/stage-display/${p}`);
 
-/** Geänderte Dateien außerhalb von apps/stage-display, die ein unverändert-Haken zitieren könnte (Task 1, W2-2: Ausgabezustand). */
+/**
+ * Geänderte Dateien außerhalb von apps/stage-display, die ein unverändert-Haken zitieren könnte (Task 1, W2-2: Ausgabezustand;
+ * Altfehler Stufe 2: die Gegenstellen-Zeile aus @jm/settings, G6).
+ */
 const PAKETE_GEAENDERT = [
   'packages/output-window/package.json',
   'packages/output-window/src/bildschirme.ts',
@@ -80,21 +91,46 @@ const PAKETE_GEAENDERT = [
   'packages/output-window/test/bildschirme.test.ts',
   'packages/output-window/test/selftest.ts',
   'packages/output-window/test/zustand.test.ts',
+  // Altfehler SD-3, Stufe 2: PeerRow.eingerichtet und „nicht erreichbar“ (C5).
+  'packages/settings/src/abschnitte/peers.ts',
 ];
 
 /**
- * Dateien, die nur die lesenden Brücken bekamen: main/index.ts den Ausgabezustand (E3), preload/index.ts und shared/types.ts die
- * Brücken und Typen dazu (E2, E3), das Fenster-Paket den Ausgabezustand (E3). Welle 2b (Task 5) ergänzt nur das lesende
- * Bildschirm-Ereignis: in main/index.ts, preload/index.ts, shared/types.ts und im Fenster-Paket (index.ts und die neue reine
- * Datei bildschirme.ts).
+ * Dateien, die nur die lesenden Brücken bekamen: preload/index.ts die Brücken (E2, E3), das Fenster-Paket den Ausgabezustand (E3).
+ * Welle 2b (Task 5) ergänzt nur das lesende Bildschirm-Ereignis: in preload/index.ts und im Fenster-Paket (index.ts und die neue
+ * reine Datei bildschirme.ts). Seit der Altfehler-Stufe 2 bekamen main/index.ts (SD-3: mDNS nur bei der Vorgabe) und
+ * shared/types.ts (SD-1: das gemerkte Feld nachrichtEntwurf) mehr; sie stehen darum nicht mehr hier, ein Haken braucht für sie
+ * den Verweis auf den Altfehler (K3).
  */
 const NUR_MELDUNG = new Set([
-  'apps/stage-display/src/main/index.ts',
   'apps/stage-display/src/preload/index.ts',
-  'apps/stage-display/src/shared/types.ts',
   'packages/output-window/src/index.ts',
   'packages/output-window/src/bildschirme.ts',
 ]);
+
+/**
+ * Altfehler Stufe 2 (Plan 2026-11-26, Task 3; C8): je erlaubter Stage-Display-ID die Dateien (ab der Repo-Wurzel), die der Befund
+ * geändert hat, wie im Player (Ruling R6). „Altfehler <ID>“ im Haken entlastet ein „unverändert (…)“, das eine geänderte Datei nennt,
+ * nur, wenn die Liste dieser ID die Datei enthält; dann für die ganze Änderung des Befunds, nicht nur für lesende Brücken. Erlaubt sind
+ * genau die drei Stage-Display-IDs SD-5 (PIN verdeckt, gilt erst mit „Setzen“), SD-1 (Nachricht als Entwurf) und SD-3 (mDNS nur bei
+ * der Vorgabe 127.0.0.1); SD-3 nennt dazu die Datei aus @jm/settings, die es erweitert (C5).
+ */
+const APP = (p: string): string => `apps/stage-display/src/${p}`;
+const RENDERER = (p: string): string => `apps/stage-display/src/renderer/src/${p}`;
+const ALTFEHLER = new Map<string, readonly string[]>([
+  ['SD-5', [RENDERER('components/PinFeld.tsx'), RENDERER('views/Einstellungen.tsx'), RENDERER('lib/oberflaeche.ts')]],
+  [
+    'SD-1',
+    [APP('shared/types.ts'), APP('shared/konfig-regeln.ts'), APP('main/config.ts'), RENDERER('lib/aktionen.ts'), RENDERER('views/LiveBereich.tsx'), RENDERER('lib/oberflaeche.ts')],
+  ],
+  ['SD-3', [APP('shared/mdns.ts'), APP('main/index.ts'), APP('main/config.ts'), RENDERER('lib/oberflaeche.ts'), 'packages/settings/src/abschnitte/peers.ts']],
+]);
+/** Verweis „Altfehler <ID>“ auf eine der erlaubten IDs; die ID steht in Gruppe 1. */
+const ALTFEHLER_VERWEIS = new RegExp(`\\bAltfehler (${[...ALTFEHLER.keys()].join('|')})(?![\\w-])`, 'g');
+/** Die Altfehler-IDs, die ein Text (ohne Code) als Verweis nennt. */
+const altfehlerIds = (text: string): string[] => [...text.matchAll(ALTFEHLER_VERWEIS)].map((m) => m[1]);
+/** Entlastet einer der Verweise die Datei (kanonischer Pfad)? */
+const entlastet = (ids: readonly string[], datei: string): boolean => ids.some((id) => ALTFEHLER.get(id)?.includes(datei) === true);
 
 const GEAENDERT_KANON = new Set([...GEAENDERT, ...PAKETE_GEAENDERT]);
 
@@ -199,11 +235,13 @@ function zeilenFehler(z: Zeile): string | null {
   if (form !== 'entfällt' && pfade.length === 0) return 'Ort ohne Datei';
   const fehlt = pfade.filter((p) => !gibtEs(p));
   if (fehlt.length > 0) return `Datei fehlt: ${fehlt.join(', ')}`;
-  // „unverändert“ nennt nur Dateien, die seit der Erhebung unverändert sind; Dateien mit nur den lesenden Brücken (E2, E3) mit Hinweis.
+  // „unverändert“ nennt nur Dateien, die seit der Erhebung unverändert sind; Dateien mit nur den lesenden Brücken (E2, E3) mit Hinweis,
+  // Dateien, die ein Altfehler der Stufe 2 geändert hat, mit dem Verweis „Altfehler <ID>“, dessen Liste sie nennt (R6).
   if (form === 'unverändert') {
-    const veraendert = pfade.filter((p) => GEAENDERT_KANON.has(kanon(p)) || GIT?.has(kanon(p)) === true);
-    if (veraendert.length > 0 && !/\bE[23]\b/.test(ohneCode)) return `unverändert mit geänderter Datei (${veraendert.join(', ')}) ohne Hinweis auf E2 oder E3`;
-    if (veraendert.some((p) => !NUR_MELDUNG.has(kanon(p)))) return `unverändert mit einer Datei, die mehr als die lesenden Brücken bekam (${veraendert.join(', ')})`;
+    const ids = altfehlerIds(ohneCode);
+    const offen = pfade.filter((p) => (GEAENDERT_KANON.has(kanon(p)) || GIT?.has(kanon(p)) === true) && !entlastet(ids, kanon(p)));
+    if (offen.length > 0 && !/\bE[23]\b/.test(ohneCode)) return `unverändert mit geänderter Datei (${offen.join(', ')}) ohne Hinweis auf E2 oder E3 und ohne Altfehler-Verweis, dessen Liste sie nennt`;
+    if (offen.some((p) => !NUR_MELDUNG.has(kanon(p)))) return `unverändert mit einer Datei, die mehr als die lesenden Brücken bekam (${offen.join(', ')})`;
   }
   return null;
 }
@@ -239,9 +277,24 @@ for (const z of alle) {
     const pakete = [...GIT].filter((n) => !n.startsWith('apps/stage-display/') && !n.startsWith('docs/') && !n.startsWith('.superpowers/'));
     const paketFehlt = pakete.filter((n) => !PAKETE_GEAENDERT.includes(n) && /^packages\/output-window\//.test(n));
     ok(paketFehlt.length === 0, `SD Funktionsliste: PAKETE_GEAENDERT nennt alle geänderten Dateien von packages/output-window (fehlt: ${paketFehlt.join(', ') || 'nichts'})`);
-    const zitiert = alle.filter((z) => z.zellen[6].startsWith('✓ unverändert (')).flatMap((z) => [...z.zellen[6].matchAll(PFAD)].map((m) => kanon(m[1])));
+    const zitiert = alle
+      .filter((z) => z.zellen[6].startsWith('✓ unverändert ('))
+      .flatMap((z) => {
+        const ids = altfehlerIds(z.zellen[6].replace(/`[^`]*`/g, ''));
+        return [...z.zellen[6].matchAll(PFAD)].map((m) => kanon(m[1])).filter((n) => !entlastet(ids, n));
+      });
     const getroffen = zitiert.filter((n) => !n.startsWith('apps/stage-display/') && pakete.includes(n));
-    ok(getroffen.every((n) => NUR_MELDUNG.has(n)), `SD Funktionsliste: keine in einem unverändert-Haken zitierte Datei außerhalb von apps/stage-display bekam mehr als den Ausgabezustand (${getroffen.join(', ') || 'keine'})`);
+    ok(getroffen.every((n) => NUR_MELDUNG.has(n)), `SD Funktionsliste: keine in einem unverändert-Haken zitierte Datei außerhalb von apps/stage-display bekam mehr als den Ausgabezustand, außer ein Altfehler-Verweis nennt sie in seiner Liste (${getroffen.join(', ') || 'keine'})`);
+    const listen = [...ALTFEHLER.values()].flat();
+    ok(listen.every((n) => GIT.has(n)), `SD Funktionsliste: jede Datei einer Altfehler-Liste ist laut git geändert (nicht: ${listen.filter((n) => !GIT.has(n)).join(', ') || 'nichts'})`);
+  }
+  // Jede Datei einer Altfehler-Liste steht in GEAENDERT (oder PAKETE_GEAENDERT): eine Liste entlastet nur, was wirklich geändert ist.
+  {
+    const listen = [...ALTFEHLER.values()].flat();
+    ok(
+      listen.length > 0 && listen.every((n) => GEAENDERT_KANON.has(n)),
+      `SD Funktionsliste: jede Datei einer Altfehler-Liste steht in GEAENDERT (nicht: ${listen.filter((n) => !GEAENDERT_KANON.has(n)).join(', ') || 'nichts'})`,
+    );
   }
   // Negativprobe: andere Schreibweisen derselben geänderten Datei werden erkannt, eine unveränderte nicht.
   const synth = (pfad: string, zusatz = ''): Zeile => ({ abschnitt: 3, nr: 0, zellen: ['0', '', '', '', '', '', `✓ unverändert (\`${pfad}\`): x${zusatz}`] });
@@ -249,10 +302,42 @@ for (const z of alle) {
     ['views/LiveBereich.tsx', 'renderer/src/views/LiveBereich.tsx', 'apps/stage-display/src/renderer/src/views/LiveBereich.tsx'].every((p) => (zeilenFehler(synth(p)) ?? '').includes('geänderter Datei')) &&
       (zeilenFehler(synth('views/LiveBereich.tsx', ' (E3)')) ?? '').includes('mehr als die lesenden Brücken') &&
       (zeilenFehler(synth('lib/oberflaeche.ts', ' (E2)')) ?? '').includes('mehr als die lesenden Brücken') &&
-      zeilenFehler(synth('main/index.ts', ' (E3)')) === null &&
       zeilenFehler(synth('preload/index.ts', ' (E2)')) === null &&
-      zeilenFehler(synth('main/config.ts')) === null,
+      zeilenFehler(synth('main/timer-client.ts')) === null,
     'SD Funktionsliste: eine geänderte Datei wird in jeder Schreibweise erkannt; E2 und E3 entlasten nur Dateien mit den lesenden Brücken; eine unveränderte Datei ist frei',
+  );
+  // Der Verweis „Altfehler <ID>“ (Stufe 2, C8) entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt (R6); nur mit dem
+  // Wort „Altfehler“ und nur die drei Stage-Display-IDs. main/index.ts und shared/types.ts verlassen NUR_MELDUNG (K3): E3 allein
+  // entlastet sie nicht mehr.
+  ok(
+    (zeilenFehler(synth('main/config.ts')) ?? '').includes('geänderter Datei') &&
+      zeilenFehler(synth('main/config.ts', ' (Altfehler SD-1)')) === null &&
+      zeilenFehler(synth('main/config.ts', ' (Altfehler SD-3)')) === null &&
+      (zeilenFehler(synth('main/config.ts', ' (Altfehler SD-5)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('main/index.ts', ' (E3)')) ?? '').includes('mehr als die lesenden Brücken') &&
+      zeilenFehler(synth('main/index.ts', ' (E3, Altfehler SD-3)')) === null &&
+      (zeilenFehler(synth('main/index.ts', ' (E3, Altfehler SD-1)')) ?? '').includes('mehr als die lesenden Brücken') &&
+      (zeilenFehler(synth('shared/types.ts', ' (E2)')) ?? '').includes('mehr als die lesenden Brücken') &&
+      zeilenFehler(synth('shared/types.ts', ' (Altfehler SD-1)')) === null &&
+      zeilenFehler(synth('apps/stage-display/src/shared/types.ts', ' (Altfehler SD-1)')) === null &&
+      zeilenFehler(synth('views/Einstellungen.tsx', ' (Altfehler SD-5)')) === null &&
+      zeilenFehler(synth('lib/oberflaeche.ts', ' (Altfehler SD-3)')) === null &&
+      (zeilenFehler(synth('packages/settings/src/abschnitte/peers.ts')) ?? '').includes('geänderter Datei') &&
+      zeilenFehler(synth('packages/settings/src/abschnitte/peers.ts', ' (Altfehler SD-3)')) === null &&
+      (zeilenFehler(synth('packages/settings/src/abschnitte/peers.ts', ' (Altfehler SD-5)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('main/config.ts', ' (SD-1)')) ?? '').includes('geänderter Datei') &&
+      ['SD-10', 'SD-1a', 'SD-1-b', 'SD-30', 'SD-2', 'IN-3', 'PL-N', 'SC-S2'].every((id) => (zeilenFehler(synth('main/config.ts', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')),
+    'SD Funktionsliste: „Altfehler SD-1“ entlastet main/config.ts im unverändert-Haken; ohne ID, mit der ID eines anderen Befunds, ohne das Wort „Altfehler“ oder mit einer fremden ID nicht; main/index.ts und shared/types.ts brauchen ihren Altfehler-Verweis (K3)',
+  );
+  // Negativprobe R6: nennt ein Haken zwei geänderte Dateien, entlastet die ID nur die aus ihrer Liste; eine Datei mit mehr als den
+  // lesenden Brücken entlastet auch E3 nicht.
+  ok(
+    /geänderter Datei \(views\/LiveBereich\.tsx\)/.test(zeilenFehler(synth('main/config.ts', ' und `views/LiveBereich.tsx` (Altfehler SD-3)')) ?? '') &&
+      zeilenFehler(synth('main/config.ts', ' und `views/LiveBereich.tsx` (Altfehler SD-3, Altfehler SD-1)')) === null &&
+      (zeilenFehler(synth('views/StageOberflaeche.tsx', ' (Altfehler SD-1)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('views/LiveBereich.tsx', ' (Altfehler SD-5)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('main/config.ts', ' (E3)')) ?? '').includes('mehr als die lesenden Brücken'),
+    'SD Funktionsliste: eine geänderte Datei mit einer Altfehler-ID, deren Liste sie nicht nennt, wird gemeldet (R6)',
   );
 }
 
@@ -261,6 +346,8 @@ const kuenftig = (nr: number): string => zeile(nr)?.zellen[6] ?? '';
 const quelle = (pfad: string): string => (gibtEs(pfad) ? readFileSync(aufgeloest(pfad), 'utf8') : '');
 const beginnt = (nr: number, ...orte: string[]): boolean => orte.some((o) => kuenftig(nr).startsWith(`✓ ${o}`));
 const ersetzt = (nr: number, ort: string): boolean => kuenftig(nr).startsWith(`✓ ersetzt durch ${ort}`);
+/** Nennt der Haken der Zeile einen Altfehler-Verweis, dessen Liste die Datei (Pfad nach der Pfadregel der Liste) enthält? */
+const gebunden = (nr: number, datei: string): boolean => entlastet(altfehlerIds(kuenftig(nr).replace(/`[^`]*`/g, '')), kanon(datei));
 
 const wurzel = quelle('views/StageOberflaeche.tsx');
 const live = quelle('views/LiveBereich.tsx');
@@ -280,10 +367,12 @@ ok(beginnt(1, 'Rahmen') && kuenftig(1).includes('AppShell') && wurzel.includes('
 
 // ── Pflichtzeile Tastatur (Nr. 80): keine Kürzel, keine neuen (E1) ──
 {
-  const dateien = ['App.tsx', 'views/StageOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Einstellungen.tsx', 'lib/aktionen.ts', 'lib/oberflaeche.ts', 'views/StageOutputView.tsx', 'components/StageScreen.tsx'];
+  // Seit Altfehler SD-5 gehört components/PinFeld.tsx dazu (kein Enter am PIN-Feld); Enter im Nachricht-Feld schickt das Formular ab
+  // (SD-1), ohne Tastenhörer.
+  const dateien = ['App.tsx', 'views/StageOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Einstellungen.tsx', 'lib/aktionen.ts', 'lib/oberflaeche.ts', 'views/StageOutputView.tsx', 'components/StageScreen.tsx', 'components/PinFeld.tsx'];
   ok(
-    beginnt(80, 'Rahmen') && /\bE1\b/.test(kuenftig(80)) && dateien.every((d) => !/keydown|keyup|addEventListener|onKeyDown|useHotkeys/.test(quelle(d))),
-    'SD Funktionsliste Nr. 80 (Pflichtzeile Tastatur): weiter kein Kürzel und kein Tastenhörer im Renderer (E1)',
+    beginnt(80, 'Rahmen') && /\bE1\b/.test(kuenftig(80)) && dateien.every((d) => quelle(d).length > 0 && !/keydown|keyup|addEventListener|onKeyDown|useHotkeys/.test(quelle(d))),
+    'SD Funktionsliste Nr. 80 (Pflichtzeile Tastatur): weiter kein Kürzel und kein Tastenhörer im Renderer (E1), auch nicht im PIN-Feld (Altfehler SD-5)',
   );
   ok(beginnt(87, 'Bühnenschirm') && kuenftig(87).includes('`views/StageOutputView.tsx`'), 'SD Funktionsliste Nr. 87: das Ausgabefenster hat weiter keine Tasten');
 }
@@ -328,16 +417,22 @@ ok(beginnt(82, 'Panel', 'Live-Bereich Nachricht') && beginnt(85, 'Panel', 'Live-
   );
 }
 
-// ── Presenter-Kopplung (Nr. 28–31): nur bei eingeschalteter Presenter-Quelle, PIN und Anzeige wie bisher ──
+// ── Presenter-Kopplung (Nr. 28–31): nur bei eingeschalteter Presenter-Quelle, PIN und Anzeige wie bisher; seit Altfehler SD-5 die
+// PIN verdeckt im PinFeld, gültig erst mit „Setzen“ ──
 ok(
   [28, 29, 30, 31].every((nr) => beginnt(nr, 'Panel Presenter-Kopplung')) &&
     panel.includes('p?.enabled === true') &&
-    panel.includes('aktionen.pin') &&
+    panel.includes('<PinFeld wert={p.pin} setzen={aktionen.pin} />') &&
+    !panel.includes('onChange={aktionen.pin}') &&
+    quelle('components/PinFeld.tsx').includes("type={p.sichtbar ? 'text' : 'password'}") &&
+    quelle('components/PinFeld.tsx').includes('{PEERS_TEXTE.setzen}') &&
+    ['Altfehler SD-5', 'verdeckt', '„Anzeigen“', '„Setzen“', '`components/PinFeld.tsx`'].every((w) => kuenftig(28).includes(w)) &&
+    ['Altfehler SD-5', '„Setzen“'].every((w) => kuenftig(98).includes(w)) &&
     panel.includes('aktionen.modus(modus)') &&
     akt.includes("replace(/\\D/g, '').slice(0, 8)") &&
     obf.includes("pinHinweis: 'PIN nur falls die Presenter-Fernsteuerung mit PIN läuft — sonst leer lassen'") &&
     obf.includes("folienHinweis: 'Folienbild erscheint, sobald eine Präsentation läuft'"),
-  'SD Funktionsliste Nr. 28–31: PIN, PIN-Hinweis, Anzeige und Folien-Hinweis im Panel Presenter-Kopplung, nur bei eingeschalteter Quelle',
+  'SD Funktionsliste Nr. 28–31, 98: PIN, PIN-Hinweis, Anzeige und Folien-Hinweis im Panel Presenter-Kopplung, nur bei eingeschalteter Quelle; die PIN verdeckt, gültig erst mit „Setzen“ (Altfehler SD-5)',
 );
 
 // ── Bildschirmwahl (Nr. 7/84): Panel Ausgabe, Liste beim Start und bei jedem Öffnen des Panels frisch ──
@@ -359,9 +454,31 @@ ok(
     akt.includes('ausgabeUmschalten'),
   'SD Funktionsliste Nr. 8/10: die Haupttaste „Bühnenschirm“ öffnet und schließt mit dem alten Wortlaut',
 );
+// Altfehler SD-1: der Wächter „das Nachricht-Feld wirkt mit jedem Tastendruck“ ist umgestellt: das Feld schreibt den Entwurf, erst
+// „Senden“ oder Enter (Formular) schreibt message; Nr. 39 nennt das.
 ok(
-  beginnt(5, 'Live-Bereich Vorschau') && live.includes('<StageScreen state={state} now={now} />') && quelle('components/StageScreen.tsx').length > 0 && [38, 39].every((nr) => beginnt(nr, 'Live-Bereich Nachricht')) && live.includes('onChange={aktionen.nachricht}') && akt.includes('nachricht: (text) => void q.setConfig({ message: text })'),
-  'SD Funktionsliste Nr. 5/38/39: Vorschau, Nachricht-Feld (wirkt mit jedem Tastendruck) im Live-Bereich',
+  beginnt(5, 'Live-Bereich Vorschau') &&
+    live.includes('<StageScreen state={state} now={now} />') &&
+    quelle('components/StageScreen.tsx').length > 0 &&
+    [38, 39].every((nr) => beginnt(nr, 'Live-Bereich Nachricht')) &&
+    live.includes('onChange={aktionen.entwurf}') &&
+    live.includes('<form') &&
+    live.includes('aktionen.senden(c.nachrichtEntwurf ?? \'\')') &&
+    !live.includes('aktionen.nachricht') &&
+    akt.includes('entwurf: (text) => void q.setConfig({ nachrichtEntwurf: text })') &&
+    akt.includes('senden: (text) => void q.setConfig({ message: text })') &&
+    !akt.includes('nachricht: (text)') &&
+    ['Altfehler SD-1', 'Entwurf', '„Senden“', 'Enter', 'C6', 'Neustart'].every((w) => kuenftig(39).includes(w)) &&
+    obf.includes("senden: 'Senden'"),
+  'SD Funktionsliste Nr. 5/38/39: Vorschau und Nachricht-Feld im Live-Bereich; das Feld ist ein Entwurf, auf die Bühne kommt er erst mit „Senden“ oder Enter (Altfehler SD-1, früher mit jedem Tastendruck)',
+);
+ok(
+  [88, 105].every((nr) => kuenftig(nr).includes('Altfehler SD-1') && kuenftig(nr).includes('`shared/konfig-regeln.ts`') && kuenftig(nr).includes('nachrichtEntwurf')) &&
+    kuenftig(105).includes('überlebt keinen Neustart mehr') &&
+    kuenftig(46).includes('Altfehler SD-1') &&
+    quelle('shared/konfig-regeln.ts').includes("nachrichtEntwurf: data.nachrichtEntwurf ?? data.message ?? ''") &&
+    quelle('shared/types.ts').includes('nachrichtEntwurf?: string;'),
+  'SD Funktionsliste Nr. 46/88/105: message überlebt keinen Neustart mehr, der Entwurf nachrichtEntwurf ist gemerkt; die Regeln stehen in shared/konfig-regeln.ts (Altfehler SD-1)',
 );
 ok(
   [32, 33, 34, 35, 36, 37].every((nr) => beginnt(nr, 'Live-Bereich Elemente')) &&
@@ -406,8 +523,12 @@ ok(
     'SD Funktionsliste Nr. 50: #output lädt weiter die StageOutputView, ohne AppShell (E6)',
   );
   ok(
-    [2, 44, 45, 52, 53, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67].every((nr) => kuenftig(nr).startsWith('✓ unverändert (') && kuenftig(nr).includes('`main/index.ts`')),
-    'SD Funktionsliste: Fensterhülle, Zustand, Verbindungen, mDNS, Show, Ausgabe, IPC, Start und Ende im Main sind unverändert',
+    [2, 44, 45, 52, 53, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 69].every((nr) => kuenftig(nr).startsWith('✓ unverändert (') && kuenftig(nr).includes('`main/index.ts`') && gebunden(nr, 'main/index.ts')),
+    'SD Funktionsliste: Fensterhülle, Zustand, Verbindungen, mDNS, Show, Ausgabe, IPC, Start und Ende im Main sind unverändert bis auf die mDNS-Übernahme; die Zeilen tragen den Verweis Altfehler SD-3 (K3)',
+  );
+  ok(
+    [46, 88].every((nr) => kuenftig(nr).startsWith('✓ unverändert (') && kuenftig(nr).includes('`main/config.ts`') && gebunden(nr, 'main/config.ts')),
+    'SD Funktionsliste Nr. 46, 88: die Konfigurationsdatei liest und schreibt main/config.ts weiter wie bisher; die Zeilen tragen den Verweis Altfehler SD-1 (G4)',
   );
   ok(
     [54, 55, 56].every((nr) => kuenftig(nr).startsWith('✓ unverändert (') && /main\/(timer|switcher|presenter)-client\.ts/.test(kuenftig(nr))) && [49, 51].every((nr) => kuenftig(nr).startsWith('✓ unverändert (')),
@@ -493,5 +614,34 @@ ok(
       (zeilenFehler(synth('✓ entfällt (x, B0)')) ?? '').includes('Verweis außerhalb') &&
       (zeilenFehler(synth('✓ entfällt (x, E17)')) ?? '').includes('Verweis außerhalb'),
     'SD Funktionsliste: Verweise B1–B22 und E1–E16 gelten, B0, B23 und E17 nicht',
+  );
+}
+
+// ── Altfehler Stufe 2: mDNS nur bei der Vorgabe (SD-3); Abschnitt 10 behält die alten Sätze (Widerruf: alten Text stehen lassen) ──
+{
+  ok(
+    [57, 58, 59, 60].every((nr) => gebunden(nr, 'main/index.ts') && gebunden(nr, 'shared/mdns.ts') && kuenftig(nr).includes('Vorgabe 127.0.0.1')) &&
+      ['nicht erreichbar', 'Vorschläge', 'C5', 'Befund 3', '`mdnsUebernahme`'].every((w) => kuenftig(57).includes(w)) &&
+      [90, 91, 92, 93, 94, 95, 96, 97].every((nr) => kuenftig(nr).includes('Altfehler SD-3') && kuenftig(nr).includes('Vorgabe 127.0.0.1')) &&
+      kuenftig(43).includes('nicht erreichbar') &&
+      quelle('main/index.ts').includes('mdnsUebernahme(getConfig(),') &&
+      quelle('shared/mdns.ts').includes("export const VORGABE_HOST = '127.0.0.1';") &&
+      quelle('packages/settings/src/abschnitte/peers.ts').includes("zeileNichtErreichbar: 'nicht erreichbar'") &&
+      obf.includes("eingerichtet: (q?.host ?? '') !== VORGABE_HOST"),
+    'SD Funktionsliste Nr. 43, 57–60, 90–97: die mDNS-Suche übernimmt nur auf der Vorgabe 127.0.0.1, ein eingerichteter Host ohne Verbindung heißt „nicht erreichbar“ (Altfehler SD-3)',
+  );
+  const befund = (n: number): string => {
+    const i = text.indexOf(`\n${n}. **`, text.indexOf('## 10 · '));
+    const j = text.indexOf(`\n${n + 1}. **`, i + 1);
+    return i < 0 ? '' : text.slice(i, j < 0 ? undefined : j);
+  };
+  ok(
+    befund(1).includes('Die Nachricht ist live und gemerkt:') &&
+      befund(1).includes('Altfehler Stufe 2 (SD-1):') &&
+      befund(3).includes('mDNS überschreibt eingetragene Hosts:') &&
+      befund(3).includes('Altfehler Stufe 2 (SD-3):') &&
+      befund(5).includes('Presenter-PIN im Klartext:') &&
+      befund(5).includes('Altfehler Stufe 2 (SD-5):'),
+    'SD Funktionsliste Abschnitt 10: Befund 1, 3 und 5 behalten den alten Satz, dahinter steht der Satz der Altfehler-Stufe 2 (SD-1, SD-3, SD-5)',
   );
 }
