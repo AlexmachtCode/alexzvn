@@ -14,7 +14,9 @@ import {
   resolveMode,
 } from './control-server';
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
+import { transcribeAblehnung } from '@shared/fernbefehl';
 import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
+import { pruefeKonfig } from '@shared/konfig';
 import type { CaptionConfig, CaptionLine, CaptionState, CaptionStatus } from '@shared/types';
 import { korrigiereZeile } from '@shared/zeilen';
 
@@ -78,10 +80,12 @@ function meldeFernsteuerung(e: FernsteuerungEreignis): void {
 function configPath(): string {
   return join(app.getPath('userData'), 'caption.config.json');
 }
+// Altfehler CA-8 (C1): die Datei geht über pruefeKonfig auf die Vorgaben; Schrift und Max. Äußerung liegen danach in ihren Grenzen,
+// was keine endliche Zahl ist, fällt auf die Vorgabe zurück.
 function loadConfig(): void {
   try {
     const raw = JSON.parse(readFileSync(configPath(), 'utf8')) as Partial<CaptionConfig>;
-    config = { ...defaultConfig, ...raw };
+    config = { ...defaultConfig, ...pruefeKonfig(raw) };
   } catch {
     config = { ...defaultConfig };
   }
@@ -126,9 +130,18 @@ function buildSuiteState(): SuiteState {
 function handleSuiteCommand(cmd: SuiteCommand): void {
   const arg = cmd.args[0];
   switch (cmd.verb) {
-    case 'transcribe':
-      setRunning(resolveMode(arg, running));
+    // Altfehler CA-11 (C2, D8): ohne Fenster nimmt nichts auf; ein Einschalten wird dann nicht ausgeführt. Der Grund steht in
+    // state.error (das Fenster zeigt ihn, sobald es wieder offen ist, der nächste Start löscht ihn), dazu eine Zeile im Protokoll.
+    case 'transcribe': {
+      const ziel = resolveMode(arg, running);
+      const a = transcribeAblehnung(arg, ziel, mainWindow !== null);
+      if (a) {
+        error = a.hinweis;
+        getLog().warn(a.log);
+        broadcast();
+      } else setRunning(ziel);
       break;
+    }
     case 'hold':
       setHoldState(resolveMode(arg, hold));
       break;
@@ -216,8 +229,9 @@ initTranscriber({
 function registerIpc(): void {
   ipcMain.handle('caption:getState', () => buildState());
   ipcMain.handle('caption:fernsteuerung', () => fernsteuerung);
+  // Altfehler CA-8 (C1): auch vom IPC zieht pruefeKonfig Schrift und Max. Äußerung auf die Grenzen; das Feld schickt nur gültige Zahlen.
   ipcMain.handle('caption:setConfig', (_e, patch: Partial<CaptionConfig>) => {
-    config = { ...config, ...patch };
+    config = { ...config, ...pruefeKonfig(patch) };
     saveConfig();
     broadcast();
     return buildState();
@@ -309,6 +323,8 @@ function createMainWindow(): BrowserWindow {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+  // Altfehler CA-11 (C2): mit dem Fenster endet die Aufnahme (sie lebt im Renderer); danach gehen auch running und hold zurück, beides
+  // überträgt (Companion running=0, hold=0). Plattformunabhängig; unter Windows und Linux endet die App danach ohnehin.
   win.on('closed', () => {
     stopSender();
     ndiLage.stoppe();
@@ -316,6 +332,8 @@ function createMainWindow(): BrowserWindow {
     status.connections = 0;
     syncNdi();
     mainWindow = null;
+    setRunning(false);
+    setHoldState(false);
   });
   const url = rendererUrl();
   if (url) win.loadURL(url);
@@ -378,6 +396,10 @@ if (!gotLock) {
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media');
     registerIpc();
     createMainWindow();
+    // Altfehler CA-11 (G10, neu): auf dem Mac bleibt die App ohne Fenster offen; ein Klick aufs Dock öffnet wieder eins.
+    app.on('activate', () => {
+      if (!mainWindow) createMainWindow();
+    });
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
     // Eigener Steuerserver: Caption per Companion fernsteuerbar (Port 8732).
     // Ergebnis und Wurf gehen als Meldung an die Statusleiste; der Start wird nicht abgewartet.

@@ -68,7 +68,9 @@ const GEAENDERT = [
   'src/renderer/src/views/CaptionOberflaeche.tsx',
   'src/renderer/src/views/Einstellungen.tsx',
   'src/renderer/src/views/LiveBereich.tsx',
+  'src/shared/fernbefehl.ts',
   'src/shared/fernsteuerung.ts',
+  'src/shared/konfig.ts',
   'src/shared/types.ts',
   'src/shared/zeilen.ts',
   'test/ui/altfehler.test.ts',
@@ -89,8 +91,9 @@ const GEAENDERT = [
 /**
  * Dateien, die nur die lesenden Brücken (E2) oder die gemessene NDI-Lage (E8) bekamen: der Steuerserver und der Sender-Start.
  * Verhalten und Befehle blieben, bis auf die zwei Folgen von E8 für `ndi` und `connections` (Nr. 82, 83, 95). Seit der
- * Altfehler-Stufe 2 bekamen main/index.ts (CA-4: Zähler der Leerungen; CA-5: caption:correctLine), preload/index.ts (CA-5) und
- * shared/types.ts (CA-4, CA-5) mehr; sie stehen darum nicht mehr hier, ein Haken braucht für sie den Verweis auf den Altfehler (K3).
+ * Altfehler-Stufe 2 bekamen main/index.ts (CA-4: Zähler der Leerungen; CA-5: caption:correctLine; CA-8: pruefeKonfig; CA-11:
+ * Fenster zu, activate, Ablehnung von transcribe on), preload/index.ts (CA-5) und shared/types.ts (CA-4, CA-5) mehr; sie stehen
+ * darum nicht mehr hier, ein Haken braucht für sie den Verweis auf den Altfehler (K3).
  */
 const NUR_MELDUNG = new Set(['apps/caption/src/main/control-server.ts', 'apps/caption/src/main/ndi/sender-process.ts']);
 
@@ -98,8 +101,9 @@ const NUR_MELDUNG = new Set(['apps/caption/src/main/control-server.ts', 'apps/ca
  * Altfehler Stufe 2 (Plan 2026-11-26, Task 4; C8): je erlaubter Caption-ID die Dateien (ab der Repo-Wurzel), die der Befund geändert
  * hat, wie im Player (Ruling R6). „Altfehler <ID>“ im Haken entlastet ein „unverändert (…)“ oder „NDI-Bild (…)“, das eine geänderte
  * Datei nennt, nur, wenn die Liste dieser ID die Datei enthält; dann für die ganze Änderung des Befunds, nicht nur für lesende
- * Brücken. Erlaubt sind genau die Caption-IDs CA-1 (Mikrofonfehler stoppt), CA-4 (Leeren leert NDI auch bei Hold) und CA-5
- * (Korrektur trifft die Zeile per Kennung, G8: auch die Wurzel-View).
+ * Brücken. Erlaubt sind genau die Caption-IDs CA-1 (Mikrofonfehler stoppt), CA-4 (Leeren leert NDI auch bei Hold), CA-5
+ * (Korrektur trifft die Zeile per Kennung, G8: auch die Wurzel-View), CA-8 (Zahlenfelder mit Grenzen, Task 5) und CA-11 (Fenster zu
+ * beendet die Transkription, Task 5).
  */
 const APP = (p: string): string => `apps/caption/src/${p}`;
 const RENDERER = (p: string): string => `apps/caption/src/renderer/src/${p}`;
@@ -119,6 +123,8 @@ const ALTFEHLER = new Map<string, readonly string[]>([
       RENDERER('views/CaptionOberflaeche.tsx'),
     ],
   ],
+  ['CA-8', [APP('shared/konfig.ts'), APP('main/index.ts'), RENDERER('views/Einstellungen.tsx')]],
+  ['CA-11', [APP('shared/fernbefehl.ts'), APP('main/index.ts')]],
 ]);
 /** Verweis „Altfehler <ID>“ auf eine der erlaubten IDs; die ID steht in Gruppe 1. */
 const ALTFEHLER_VERWEIS = new RegExp(`\\bAltfehler (${[...ALTFEHLER.keys()].join('|')})(?![\\w-])`, 'g');
@@ -305,7 +311,7 @@ for (const z of alle) {
     'CA Funktionsliste: eine geänderte Datei wird in jeder Schreibweise erkannt; E2 und E8 entlasten nur Dateien mit den lesenden Brücken bzw. der NDI-Lage; eine unveränderte Datei ist frei',
   );
   // Der Verweis „Altfehler <ID>“ (Stufe 2, C8) entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt (R6); nur mit dem
-  // Wort „Altfehler“ und nur die drei Caption-IDs. main/index.ts, preload/index.ts und shared/types.ts verlassen NUR_MELDUNG (K3):
+  // Wort „Altfehler“ und nur die fünf Caption-IDs. main/index.ts, preload/index.ts und shared/types.ts verlassen NUR_MELDUNG (K3):
   // E2 oder E8 allein entlasten sie nicht mehr.
   ok(
     (zeilenFehler(synth('lib/ndi-engine.ts')) ?? '').includes('geänderter Datei') &&
@@ -313,7 +319,7 @@ for (const z of alle) {
       (zeilenFehler(synth('lib/ndi-engine.ts', ' (Altfehler CA-5)')) ?? '').includes('geänderter Datei') &&
       (zeilenFehler(synth('lib/ndi-engine.ts', ' (Altfehler CA-1)')) ?? '').includes('geänderter Datei') &&
       (zeilenFehler(synth('lib/ndi-engine.ts', ' (CA-4)')) ?? '').includes('geänderter Datei') &&
-      ['CA-10', 'CA-11', 'CA-1a', 'CA-1-b', 'CA-40', 'CA-8', 'CA-2', 'IN-3', 'SD-1', 'PL-N', 'SC-S2'].every((id) => (zeilenFehler(synth('lib/ndi-engine.ts', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')) &&
+      ['CA-10', 'CA-11', 'CA-1a', 'CA-1-b', 'CA-40', 'CA-8', 'CA-80', 'CA-8a', 'CA-110', 'CA-11-b', 'CA-2', 'IN-3', 'SD-1', 'PL-N', 'SC-S2'].every((id) => (zeilenFehler(synth('lib/ndi-engine.ts', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')) &&
       (zeilenFehler(synth('main/index.ts', ' (E8)')) ?? '').includes('mehr als die lesenden Brücken') &&
       zeilenFehler(synth('main/index.ts', ' (E8, Altfehler CA-4)')) === null &&
       zeilenFehler(synth('main/index.ts', ' (Altfehler CA-5)')) === null &&
@@ -330,6 +336,21 @@ for (const z of alle) {
       (zeilenFehler(synthBild('lib/ndi-engine.ts')) ?? '').includes('geänderter Datei') &&
       zeilenFehler(synthBild('lib/ndi-engine.ts', ' (Altfehler CA-4)')) === null,
     'CA Funktionsliste: „Altfehler CA-4“ entlastet lib/ndi-engine.ts im unverändert- und im NDI-Bild-Haken; ohne ID, mit der ID eines anderen Befunds, ohne das Wort „Altfehler“ oder mit einer fremden ID nicht; main/index.ts, preload/index.ts und shared/types.ts brauchen ihren Altfehler-Verweis (K3)',
+  );
+  // Task 5: CA-8 entlastet shared/konfig.ts, main/index.ts und views/Einstellungen.tsx; CA-11 shared/fernbefehl.ts und main/index.ts (R6).
+  ok(
+    zeilenFehler(synth('shared/konfig.ts', ' (Altfehler CA-8)')) === null &&
+      (zeilenFehler(synth('shared/konfig.ts')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('shared/konfig.ts', ' (Altfehler CA-11)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('shared/konfig.ts', ' (CA-8)')) ?? '').includes('geänderter Datei') &&
+      zeilenFehler(synth('shared/fernbefehl.ts', ' (Altfehler CA-11)')) === null &&
+      (zeilenFehler(synth('shared/fernbefehl.ts', ' (Altfehler CA-8)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('shared/fernbefehl.ts', ' (Altfehler CA-1)')) ?? '').includes('geänderter Datei') &&
+      zeilenFehler(synth('main/index.ts', ' (Altfehler CA-8)')) === null &&
+      zeilenFehler(synth('main/index.ts', ' (E8, Altfehler CA-11)')) === null &&
+      zeilenFehler(synth('views/Einstellungen.tsx', ' (Altfehler CA-8)')) === null &&
+      (zeilenFehler(synth('views/Einstellungen.tsx', ' (Altfehler CA-11)')) ?? '').includes('geänderter Datei'),
+    'CA Funktionsliste: „Altfehler CA-8“ entlastet shared/konfig.ts, main/index.ts und views/Einstellungen.tsx, „Altfehler CA-11“ shared/fernbefehl.ts und main/index.ts; eine andere ID oder ohne das Wort „Altfehler“ nicht (R6)',
   );
   // Negativprobe R6: nennt ein Haken zwei geänderte Dateien, entlastet die ID nur die aus ihrer Liste.
   ok(
@@ -400,9 +421,9 @@ ok(
 ok(
   von([5, 6, 21, 22, 23], (nr) => beginnt(nr, 'Panel Erkennung') && nennt(nr, '`views/Einstellungen.tsx`')) && nennt(5, 'nicht verfügbar', 'nächste') &&
     panel.includes('aktionen.konfigurieren({ model: v as WhisperModelId })') && panel.includes('aktionen.konfigurieren({ language: v })') && panel.includes("aktionen.konfigurieren({ engine: v as CaptionConfig['engine'] })") &&
-    panel.includes('aktionen.konfigurieren({ dictionary: e.target.value })') && panel.includes('aktionen.konfigurieren({ maxUtteranceSec: Number(e.target.value) })') &&
+    panel.includes('aktionen.konfigurieren({ dictionary: e.target.value })') && panel.includes('onChange={(n) => aktionen.konfigurieren({ maxUtteranceSec: n })}') &&
     akt.includes('konfigurieren: (patch) => void store.setConfig(patch)') && MODELLE_WIE_BISHER(),
-  'CA Funktionsliste Nr. 5, 6, 21–23: Modell, Sprache, Engine, Wörterbuch und Max. Äußerung stehen im Panel Erkennung und rufen setConfig mit demselben Teil wie bisher',
+  'CA Funktionsliste Nr. 5, 6, 21–23: Modell, Sprache, Engine, Wörterbuch und Max. Äußerung stehen im Panel Erkennung und rufen setConfig mit demselben Teil wie bisher (Max. Äußerung seit Altfehler CA-8 mit der übernommenen Zahl)',
 );
 function MODELLE_WIE_BISHER(): boolean {
   return ["id: 'tiny', label: 'Tiny (schnell)'", "id: 'large-v3', label: 'Large v3 (genau)'", "label: 'Auto-Erkennung'", "label: 'Server (schnell, Modell bleibt geladen)'", "label: 'CLI (pro Äußerung)'"].every((w) => obf.includes(w));
@@ -483,16 +504,19 @@ ok(
   'CA Funktionsliste Nr. 19: „n Empfänger“ steht in der Statusleiste und im Panel und zählt nur bei gemessen sendendem Sender',
 );
 
-// ── Darstellung (Nr. 16–18, 101): native Felder wie bisher, Tokens ──
+// ── Darstellung (Nr. 16–18, 101): seit Altfehler CA-8 NumberInput mit den Grenzen aus CAPTION_GRENZEN, Tokens ──
 ok(
   von([16, 17, 18], (nr) => beginnt(nr, 'Panel Darstellung') && nennt(nr, '`views/Einstellungen.tsx`')) &&
-    panel.includes('aktionen.konfigurieren({ ndiFontSize: Number(e.target.value) })') && panel.includes('min={16}') && panel.includes('max={160}') &&
+    panel.includes('onChange={(n) => aktionen.konfigurieren({ ndiFontSize: n })}') && panel.includes('min={CAPTION_GRENZEN.ndiFontSize.min}') && panel.includes('max={CAPTION_GRENZEN.ndiFontSize.max}') &&
     panel.includes('aktionen.konfigurieren({ ndiLines: Number(v) })') && panel.includes('aktionen.konfigurieren({ ndiBand: e.target.checked })') && obf.includes('export const NDI_ZEILEN = [1, 2, 3] as const;'),
-  'CA Funktionsliste Nr. 16–18: Schrift, Zeilen und Band stehen im Panel Darstellung und rufen setConfig mit denselben Feldern wie bisher',
+  'CA Funktionsliste Nr. 16–18: Schrift, Zeilen und Band stehen im Panel Darstellung und rufen setConfig mit denselben Feldern wie bisher (Schrift seit Altfehler CA-8 mit der übernommenen Zahl, Grenzen aus CAPTION_GRENZEN)',
 );
 ok(
-  von([16, 23, 101], (nr) => nennt(nr, 'Number(Wert)') && nennt(nr, 'leer')) && nennt(101, 'NumberInput', 'E13', 'klemmt') && (panel.match(/type="number"/g) ?? []).length === 2 && !/NumberInput/.test(panel),
-  'CA Funktionsliste Nr. 16, 23, 101: die zwei Zahlenfelder bleiben native Felder ohne Klemmen und ohne Rundung (leeres Feld wird 0); kein NumberInput',
+  von([16, 23, 101], (nr) => nennt(nr, 'Altfehler CA-8', 'NumberInput', 'Enter', 'Verlassen', 'Fehlertext', 'leer', 'Number(Wert)')) && nennt(16, '„Mindestens 16.“', '„Höchstens 160.“', 'ganze Zahl') &&
+    nennt(23, '„Mindestens 2.“', '„Höchstens 15.“', '7,5') && nennt(101, 'gilt seit Altfehler CA-8', 'E13', 'Escape', 'Noch nicht übernommen.', '`shared/konfig.ts`') &&
+    (panel.match(/<NumberInput\b/g) ?? []).length === 2 && !/type="number"/.test(panel) && (panel.match(/\bganzzahl\b/g) ?? []).length === 1 &&
+    panel.includes("import { CAPTION_GRENZEN } from '@shared/konfig';") && /import \{[^}]*\bNumberInput\b[^}]*\} from '@jm\/ui';/.test(panel),
+  'CA Funktionsliste Nr. 16, 23, 101: die zwei Zahlenfelder sind seit Altfehler CA-8 NumberInput (E13): Übernahme bei Enter oder Verlassen, ein leeres oder ungültiges Feld zeigt den Fehlertext und wirkt nicht (früher Number(Wert), leer gleich 0); Schrift nur ganze Zahlen',
 );
 ok(
   ersetzt(20, 'Panel Erkennung') && nennt(20, 'showAdv', 'Erweitert') && !/Erweitert|showAdv/.test(ohneKommentar(wurzel + live + panel + obf)),
@@ -659,6 +683,30 @@ ok(
   'CA Funktionsliste Nr. 84, 85: Schließen und Beenden bleiben (beim Schließen kommt ndiLage.stoppe() dazu, E8)',
 );
 ok(
+  nennt(84, 'Altfehler CA-11', '`setRunning(false)`', '`setHoldState(false)`', '`activate`', 'Dock', 'nicht auf dem Mac gemessen', 'Befund 11') && gebunden(84, 'main/index.ts') &&
+    /win\.on\('closed', \(\) => \{\s*stopSender\(\);\s*ndiLage\.stoppe\(\);[^}]*mainWindow = null;\s*setRunning\(false\);\s*setHoldState\(false\);\s*\}\);/.test(hauptIndex) &&
+    /app\.on\('activate', \(\) => \{\s*if \(!mainWindow\) createMainWindow\(\);\s*\}\);/.test(hauptIndex) && /app\.on\('window-all-closed', \(\) => \{\s*if \(process\.platform !== 'darwin'\) app\.quit\(\);\s*\}\);/.test(hauptIndex),
+  'CA Funktionsliste Nr. 84: Altfehler CA-11: Schließen setzt danach running und hold zurück (setRunning(false), setHoldState(false), Companion running=0, hold=0); auf dem Mac öffnet ein Klick aufs Dock ein neues Fenster (activate); window-all-closed bleibt',
+);
+ok(
+  unveraendert(49) && nennt(49, 'Altfehler CA-11', '`activate`', 'Dock', 'Nr. 84') && gebunden(49, 'main/index.ts') && /app\.on\('second-instance', \(\) => \{\s*if \(mainWindow\) \{/.test(hauptIndex),
+  'CA Funktionsliste Nr. 49: die zweite Instanz bleibt; Altfehler CA-11: auf dem Mac öffnet zusätzlich ein Klick aufs Dock ein Fenster (activate, Nr. 84)',
+);
+ok(
+  von([50, 51, 105], unveraendert) && von([50, 51, 105], (nr) => nennt(nr, 'Altfehler CA-8', '`pruefeKonfig`', '`shared/konfig.ts`', 'Grenzen') && gebunden(nr, 'main/index.ts') && gebunden(nr, 'shared/konfig.ts')) &&
+    nennt(50, 'Befund 8') && nennt(51, 'Nr. 16, 23') && hauptIndex.includes('config = { ...defaultConfig, ...pruefeKonfig(raw) };') && hauptIndex.includes('config = { ...config, ...pruefeKonfig(patch) };'),
+  'CA Funktionsliste Nr. 50, 51, 105: Altfehler CA-8: loadConfig und caption:setConfig ziehen Schrift und Max. Äußerung über pruefeKonfig (shared/konfig.ts) auf die Grenzen; die übrigen Felder wie bisher',
+);
+ok(
+  von([89, 94], (nr) => nennt(nr, 'Altfehler CA-11', '`transcribeAblehnung`', '`shared/fernbefehl.ts`', '`state.error`', 'nicht auf dem Mac gemessen') && gebunden(nr, 'main/index.ts') && gebunden(nr, 'shared/fernbefehl.ts')) &&
+    nennt(94, 'Renderer', '`hold`', '`ndi`', '`clear`') && von([54, 62], (nr) => nennt(nr, 'Altfehler CA-11', 'Nr. 89')) && hauptIndex.includes('const a = transcribeAblehnung(arg, ziel, mainWindow !== null);'),
+  'CA Funktionsliste Nr. 54, 62, 89, 94: Altfehler CA-11: Companion transcribe on ohne Fenster wird abgelehnt (transcribeAblehnung, Grund in state.error, Logzeile); hold, ndi und clear wirken weiter ohne Fenster',
+);
+ok(
+  nennt(99, 'Altfehler CA-8', '„Schrift“', '„Max. Äußerung (s)“') && nennt(113, 'Altfehler CA-11', '`running`', '`hold`'),
+  'CA Funktionsliste Nr. 99, 113: Escape verwirft auch in den zwei Zahlenfeldern einen Entwurf (Altfehler CA-8); auf dem Mac setzt das Schließen des Fensters running und hold zurück (Altfehler CA-11)',
+);
+ok(
   beginnt(97, 'NDI-Bild') && nennt(97, 'kein Ausgabefenster', 'Befund 14', '`lib/ndi-engine.ts`') && !/output:zustand|output-window/.test(ohneKommentar(wurzel + brk + quelle('preload/index.ts'))) && brk.includes('Die Caption hat kein Ausgabefenster'),
   'CA Funktionsliste Nr. 97: Caption hat weiter kein Ausgabefenster; die Ausgabe ist die NDI-Quelle',
 );
@@ -708,7 +756,7 @@ ok(
 );
 ok(
   beginnt(101, 'Panel Darstellung') && beginnt(102, 'Panel Erkennung') && nennt(102, 'Select', 'nicht verfügbar', 'jeder Schritt') && (panel.match(/<Select/g) ?? []).length >= 4 && !/<select/.test(panel),
-  'CA Funktionsliste Nr. 101, 102: die Zahlenfelder bleiben nativ, die Auswahlfelder sind Select aus @jm/ui mit „nicht verfügbar: …“, jeder Schritt wirkt wie bisher',
+  'CA Funktionsliste Nr. 101, 102: die Zahlenfelder sind seit Altfehler CA-8 NumberInput (Nr. 16, 23), die Auswahlfelder sind Select aus @jm/ui mit „nicht verfügbar: …“, jeder Schritt wirkt wie bisher',
 );
 ok(
   beginnt(103, 'Panel NDI-Ausgabe') && nennt(103, 'Escape verwirft den angefangenen Entwurf', 'Entwurf', 'Wörterbuch', 'Enter', 'getrimmt') && panel.includes('<textarea'),
@@ -816,7 +864,7 @@ ok(
   );
   ok(
     [4, 5, 6, 7, 8, 11, 12, 13].every((n) => /Welle 2a:[^]*unverändert[^]*Owner/.test(befund(n))),
-    'CA Funktionsliste Abschnitt 10: die Befunde 6–8 und 11–13 sind offen (Welle 2a: unverändert, Owner-Entscheidung offen); Befund 4 und 5 behalten diesen Satz der Welle 2a und sind seit Altfehler CA-4 und CA-5 behoben',
+    'CA Funktionsliste Abschnitt 10: die Befunde 6, 7, 12 und 13 sind offen (Welle 2a: unverändert, Owner-Entscheidung offen); Befund 4, 5, 8 und 11 behalten diesen Satz der Welle 2a und sind seit Altfehler CA-4, CA-5, CA-8 und CA-11 behoben',
   );
   ok(
     /Welle 2a:[^]*Korrektur/.test(befund(5)) && /Welle 2a:[^]*Number\(Wert\)[^]*leer/.test(befund(8)) && /Welle 2a:[^]*Stopp[^]*letzten Worte/.test(befund(6)) && /Welle 2a:[^]*Base/.test(befund(7)),
@@ -830,9 +878,22 @@ ok(
     };
     ok(
       /behoben[^]*`running=0`[^]*nicht mehr von selbst neu/.test(stufe2(1, 'CA-1')) && /behoben[^]*auch bei Hold[^]*Hold bleibt an/.test(stufe2(4, 'CA-4')) &&
-        /behoben[^]*Kennung[^]*`caption:correctLine`[^]*Escape bricht ab/.test(stufe2(5, 'CA-5')) && /Altfehler Stufe 2 \(‹ID›\):/.test(abschnitt10.slice(0, 900)),
+        /behoben[^]*Kennung[^]*`caption:correctLine`[^]*Escape bricht ab/.test(stufe2(5, 'CA-5')) && /Altfehler Stufe 2 \(‹ID›\):/.test(abschnitt10.slice(0, abschnitt10.indexOf('\n1. '))),
       'CA Funktionsliste Abschnitt 10: Befund 1, 4 und 5 behalten den Satz der Welle 2a und nennen danach „Altfehler Stufe 2 (CA-1, CA-4, CA-5): behoben …“ (Widerruf: alter Text bleibt stehen)',
     );
+    ok(
+      /behoben[^]*`NumberInput`[^]*Fehlertext[^]*`pruefeKonfig`[^]*Grenzen/.test(stufe2(8, 'CA-8')) && /Welle 2a:[^]*Number\(Wert\)/.test(befund(8)) &&
+        /behoben[^]*nicht auf dem Mac gemessen[^]*`running=0`[^]*`activate`[^]*abgelehnt/.test(stufe2(11, 'CA-11')) && /Welle 2a: unverändert, Owner-Entscheidung offen\./.test(befund(11)),
+      'CA Funktionsliste Abschnitt 10: Befund 8 und 11 behalten den Satz der Welle 2a und nennen danach „Altfehler Stufe 2 (CA-8, CA-11): behoben …“ (CA-11 nicht auf dem Mac gemessen)',
+    );
+    {
+      const einleitung = flach(abschnitt10.slice(0, abschnitt10.indexOf('\n1. ')));
+      ok(
+        einleitung.includes('Die Befunde 4 bis 8 und 11 bis 13 sind nicht behoben: Die Welle 2a baut keine Verhaltensänderung, sie warten auf eine Owner-Entscheidung.') &&
+          /Altfehler Stufe 2:[^.]*Befunde 4, 5, 8 und 11[^.]*behoben[^.]*CA-4, CA-5, CA-8, CA-11[^.]*6, 7, 12 und 13[^.]*offen/.test(einleitung),
+        'CA Funktionsliste Abschnitt 10, Einleitung: der Satz der Welle 2a („4 bis 8 und 11 bis 13 nicht behoben“) bleibt, dahinter der Stand der Stufe 2 (4, 5, 8, 11 behoben; 6, 7, 12, 13 offen)',
+      );
+    }
   }
   ok(nennt(1, 'CaptionOberflaeche') && nennt(36, 'Rahmen'), 'CA Funktionsliste: Nr. 1 und Nr. 36 nennen die Wurzel-View');
 }
