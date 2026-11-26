@@ -37,7 +37,7 @@ const api: JmrecApi = {
   },
   listDevices: () => ipcRenderer.invoke('rec:listDevices') as Promise<AudioDevice[]>,
   arm: (input: ArmInput) => ipcRenderer.invoke('rec:arm', input) as Promise<OpResult>,
-  disarm: () => ipcRenderer.invoke('rec:disarm') as Promise<void>,
+  disarm: () => ipcRenderer.invoke('rec:disarm') as Promise<OpResult>,
   startRecording: (input: RecordInput) => ipcRenderer.invoke('rec:start', input) as Promise<OpResult>,
   stopRecording: () => ipcRenderer.invoke('rec:stop') as Promise<RecordResult>,
   schedule: (input: ScheduleInput) => ipcRenderer.invoke('rec:schedule', input) as Promise<OpResult>,
@@ -89,6 +89,10 @@ const api: JmrecApi = {
     importieren: () => ipcRenderer.invoke('presets:importieren') as Promise<PresetDateiErgebnis>,
   },
   ordnerDa: (dir: string) => ipcRenderer.invoke('fs:ordnerDa', dir) as Promise<boolean>,
+  // B6 (Altfehler RE-2, RE-2b, RE-7b): ein abgelehnter Fernbefehl geht mit Hinweis und Logzeile an den Main.
+  ablehnung: (a) => ipcRenderer.invoke('recorder:ablehnung', a) as Promise<void>,
+  // Altfehler RE-7b: „Übernehmen“ eines Netzwerkordners aus der Show; der Main merkt ihn.
+  netzordnerBestaetigen: (pfad) => ipcRenderer.invoke('recorder:netzordnerBestaetigen', pfad) as Promise<boolean>,
 };
 
 if (process.contextIsolated) {

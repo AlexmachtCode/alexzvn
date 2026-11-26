@@ -1,13 +1,14 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
 import type { ArmInput, GeladeneEinstellungen, KonfliktWahl, NetzWahl, PresetDateiErgebnis, RecordInput, RecPreset, ScheduleInput } from '@shared/types';
 import * as rec from './recorder';
 import { ladeEinstellungen, speichereEinstellungen } from './einstellungen';
+import { NetzordnerListe } from './netzordner';
 import { importiere, ladePresets, netzwerkHinweis, speicherePresets } from './presets';
-import { baueExportDatei, EXPORT_MAX_BYTES, normierePreset, saeubereAnzeige } from '../shared/presets';
+import { baueExportDatei, EXPORT_MAX_BYTES, istErlaubterOrdner, istNetzwerkPfad, normierePreset, saeubereAnzeige } from '../shared/presets';
 
 /** Gemerkte Einstellungen (#291) — eine Datei je Windows-Benutzer, überlebt Updates. */
 function einstellungsDatei(): string {
@@ -19,12 +20,31 @@ function presetDatei(): string {
   return join(app.getPath('userData'), 'recorder-presets.json');
 }
 
+/** Bestätigte Netzwerkordner (Altfehler RE-7b) — eine Datei je Windows-Benutzer, neben den Einstellungen. */
+function netzordnerDatei(): string {
+  return join(app.getPath('userData'), 'recorder-netzordner.json');
+}
+
+let netzordner: NetzordnerListe | null = null;
+/** Die Liste der bestätigten Netzwerkordner: einmal erzeugt und beim ersten Aufruf geladen (lokale Datei, kein Netzzugriff). */
+export function netzordnerListe(): NetzordnerListe {
+  if (netzordner === null) {
+    netzordner = new NetzordnerListe(netzordnerDatei());
+    netzordner.laden();
+  }
+  return netzordner;
+}
+
+/** Schreibfehler der Liste: ins Protokoll; im Speicher gilt die Bestätigung trotzdem (bis zum nächsten Start). */
+const nichtGemerkt = (err: unknown): void => getLog().error(`Netzwerkordner nicht gemerkt: ${(err as Error).message}`);
+
 export function registerIpc(getWin: () => BrowserWindow | null): void {
   rec.setWindowGetter(getWin);
 
   ipcMain.handle('rec:listDevices', () => rec.listDevices());
   ipcMain.handle('rec:arm', (_e, input: ArmInput) => rec.arm(input));
-  ipcMain.handle('rec:disarm', () => rec.disarm());
+  // Altfehler RE-2: „Eingang schließen“ lehnt in der Aufnahme ab (OpResult), disarm() bleibt für shutdown() und arm().
+  ipcMain.handle('rec:disarm', () => rec.schliesseEingang());
   ipcMain.handle('rec:start', (_e, input: RecordInput) => rec.startRecording(input));
   ipcMain.handle('rec:stop', () => rec.stopRecording());
   ipcMain.handle('rec:schedule', (_e, input: ScheduleInput) => rec.schedule(input));
@@ -32,16 +52,37 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle('rec:state', () => rec.getState());
   ipcMain.handle('rec:setGain', (_e, db: number) => rec.setGain(db));
 
-  ipcMain.handle('settings:load', (): GeladeneEinstellungen => {
-    const einstellungen = ladeEinstellungen(einstellungsDatei());
-    return { einstellungen, ordnerDa: einstellungen.dir ? existsSync(einstellungen.dir) : null };
+  // B6 (Altfehler RE-2, RE-2b, RE-7b): ein abgelehnter Fernbefehl. Der Renderer hat schon nichts getan; hier eine Logzeile und die
+  // Meldung bis „OK“ im Fenster (recorder:notice). Protokoll und Companion-Modul bleiben unverändert.
+  ipcMain.handle('recorder:ablehnung', (_e, a: unknown): void => {
+    const { hinweis, log } = (a ?? {}) as { hinweis?: unknown; log?: unknown };
+    if (typeof log === 'string') getLog().warn(log.slice(0, 500));
+    const win = getWin();
+    if (typeof hinweis === 'string' && win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send('recorder:notice', hinweis.slice(0, 500));
+    }
   });
+
+  // Altfehler RE-7b: kein existsSync mehr auf den gemerkten Ordner — ein unerreichbares NAS hielte den Hauptprozess (Fenster, IPC,
+  // Companion, Audioblöcke) bis zur Zeitgrenze an. Der Store fragt danach über fs:ordnerDa, ohne zu warten.
+  ipcMain.handle('settings:load', (): GeladeneEinstellungen => ({ einstellungen: ladeEinstellungen(einstellungsDatei()), ordnerDa: null }));
   ipcMain.on('settings:save', (_e, raw: unknown) => {
     try {
       speichereEinstellungen(einstellungsDatei(), raw);
     } catch (err) {
       getLog().error(`Einstellungen nicht gespeichert: ${(err as Error).message}`);
     }
+  });
+
+  // Altfehler RE-7b: „Übernehmen“ im Fenster bestätigt einen Netzwerkordner aus der Show; nur ein erlaubter Netzwerkordner wird gemerkt.
+  ipcMain.handle('recorder:netzordnerBestaetigen', (_e, pfad: unknown): boolean => {
+    if (typeof pfad !== 'string' || !istNetzwerkPfad(pfad) || !istErlaubterOrdner(pfad)) return false;
+    try {
+      netzordnerListe().merke(pfad);
+    } catch (err) {
+      nichtGemerkt(err);
+    }
+    return true;
   });
 
   // Asynchron: ein unerreichbares NAS blockiert sonst den Hauptprozess (und damit die Aufnahme).
@@ -127,7 +168,16 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
         ...netzwerkHinweis(netzwerk),
       };
       const m = win ? await dialog.showMessageBox(win, opt) : await dialog.showMessageBox(opt);
-      return (['uebernehmen', 'ohne', 'abbrechen'] as const)[m.response] ?? 'abbrechen';
+      const wahl = (['uebernehmen', 'ohne', 'abbrechen'] as const)[m.response] ?? 'abbrechen';
+      // Altfehler RE-7b (B4): „Übernehmen“ bestätigt die genannten Netzwerkordner; eine Show mit einem davon fragt nicht mehr.
+      if (wahl === 'uebernehmen') {
+        try {
+          for (const p of netzwerk) netzordnerListe().merke(p.dir);
+        } catch (err) {
+          nichtGemerkt(err);
+        }
+      }
+      return wahl;
     };
     const erg = await importiere(ladePresets(presetDatei()), text, frage, netzFrage);
     if (!erg.ok || !erg.presets) return erg;

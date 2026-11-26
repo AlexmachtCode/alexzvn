@@ -1,7 +1,7 @@
 // Renderer-Store (#291): gemerkte Einstellungen beim Start wiederherstellen und Änderungen
 // speichern. Attrappe statt window.jmrec; jeder Fall lädt den Store frisch (eigene Modul-Instanz).
 // npm run selftest -w @jm/recorder
-import type { AudioDevice, GeladeneEinstellungen, PresetDateiErgebnis, RecEinstellungen, RecPreset, RecorderState, RecShowSettings } from '../src/shared/types';
+import type { AudioDevice, GeladeneEinstellungen, PresetDateiErgebnis, RecEinstellungen, RecPreset, RecorderRemoteCommand, RecorderState, RecShowSettings } from '../src/shared/types';
 
 let pass = 0, fail = 0;
 function ck(name: string, cond: boolean): void {
@@ -24,6 +24,12 @@ interface Lage {
   presets?: RecPreset[];
   /** Antwort von ordnerDa (Standard: true). */
   ordnerDa?: boolean;
+  /** Antwort von ordnerDa je Pfad (geht `ordnerDa` vor), z. B. ein Versprechen, das nie antwortet. */
+  ordnerDaFn?: (dir: string) => Promise<boolean>;
+  /** Antwort des Ordnerdialogs (Standard: Abbruch, null). */
+  pickDir?: string | null;
+  /** Antwort von netzordnerBestaetigen (Standard: true). */
+  bestaetigen?: boolean;
   /** Antwort von arm (Standard: ok). */
   armErgebnis?: { ok: boolean; error?: string };
   /** arm antwortet erst nach dieser Zeit (ms). */
@@ -39,7 +45,12 @@ async function starte(lage: Lage) {
   const gain: number[] = [];
   let showPush: (s: RecShowSettings) => void = () => {};
   let pushState: (s: RecorderState) => void = () => {};
-  const aufrufe = { arm: [] as unknown[], disarm: 0, speichern: [] as RecPreset[], loeschen: [] as string[], ordnerDa: [] as string[] };
+  let fernbefehl: (cmd: RecorderRemoteCommand) => void = () => {};
+  const aufrufe = {
+    arm: [] as unknown[], disarm: 0, speichern: [] as RecPreset[], loeschen: [] as string[], ordnerDa: [] as string[],
+    // Altfehler Stufe 2 (Task 6): Ordnerdialog, Start/Stopp, Ablehnungen und Bestätigungen zählen.
+    pickDir: 0, start: [] as { dir: string }[], stop: 0, ablehnung: [] as { hinweis: string; log: string }[], bestaetigen: [] as string[],
+  };
   let ablage: RecPreset[] = (lage.presets ?? []).map((p) => JSON.parse(JSON.stringify(p)));
   const fehler = lage.presetFehler ?? {};
   const api = {
@@ -47,7 +58,12 @@ async function starte(lage: Lage) {
     listDevices: async () => lage.devices,
     setGain: async (db: number) => { gain.push(db); },
     onLevels: () => () => {}, onState: (cb: (s: RecorderState) => void) => { pushState = cb; return () => {}; }, onNotice: () => () => {},
-    onRemoteCommand: () => () => {},
+    onRemoteCommand: (cb: (cmd: RecorderRemoteCommand) => void) => { fernbefehl = cb; return () => {}; },
+    dialog: { pickDir: async () => { aufrufe.pickDir++; return lage.pickDir ?? null; } },
+    startRecording: async (r: { dir: string }) => { aufrufe.start.push(JSON.parse(JSON.stringify(r))); return { ok: true }; },
+    stopRecording: async () => { aufrufe.stop++; return { ok: true, filePath: 'E:\\Alt\\Tag.wav' }; },
+    ablehnung: async (a: { hinweis: string; log: string }) => { aufrufe.ablehnung.push(a); },
+    netzordnerBestaetigen: async (p: string) => { aufrufe.bestaetigen.push(p); return lage.bestaetigen ?? true; },
     onShowSettings: (cb: (s: RecShowSettings) => void) => { showPush = cb; return () => {}; },
     takeShowSettings: async () => lage.show ?? null,
     // arm/disarm schieben den Ist-Zustand wie der Main (emitState): offen mit den Werten oder zu.
@@ -59,7 +75,7 @@ async function starte(lage: Lage) {
       return erg;
     },
     disarm: async () => { aufrufe.disarm++; pushState({ ...ZU }); return { ok: true }; },
-    ordnerDa: async (d: string) => { aufrufe.ordnerDa.push(d); return lage.ordnerDa ?? true; },
+    ordnerDa: async (d: string) => { aufrufe.ordnerDa.push(d); return lage.ordnerDaFn ? lage.ordnerDaFn(d) : (lage.ordnerDa ?? true); },
     presets: {
       list: async () => { if (fehler.list) throw new Error(fehler.list); return ablage; },
       speichern: async (p: RecPreset) => {
@@ -95,7 +111,19 @@ async function starte(lage: Lage) {
     presetGeaendert: mod.presetGeaendert as (s: unknown) => boolean,
     /** Schiebt einen Zustand vom Main herein, wie onState es täte. */
     setzeZustand: (z: Partial<RecorderState>) => pushState({ ...ZU, ...z }),
+    /** Ein Befehl der Fernsteuerung (Companion), wie onRemoteCommand ihn liefert. */
+    fernbefehl: (cmd: RecorderRemoteCommand) => fernbefehl(cmd),
+    /** Eine Show-Vorgabe zur Laufzeit (Push recorder:show-settings). */
+    schickeShow: (s: RecShowSettings) => showPush(s),
   };
+}
+/** Ruft eine Store-Aktion, die es vor der Änderung nicht gibt: ein Wurf wird zur Zeile, damit jeder Fall für sich rot zeigt. */
+async function rufe(f: () => unknown): Promise<void> {
+  try {
+    await f();
+  } catch (e) {
+    console.log(`      (Wurf: ${(e as Error).message})`);
+  }
 }
 const ZU: RecorderState = { status: 'idle', device: null, channels: 0, sampleRate: 0, filePath: null, recordedSec: 0 };
 
@@ -162,10 +190,23 @@ const VOLL: RecEinstellungen = {
 }
 
 // --- 5. Zielordner nicht erreichbar → bleibender Hinweis; neuer Ordner nimmt ihn weg.
+//        Altfehler RE-7b: settings:load prüft nicht mehr selbst (ordnerDa null); der Store fragt ordnerDa nach dem Setzen, ohne zu warten.
 {
-  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: false } });
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null }, ordnerDa: false });
+  await warte(10);
   ck('5: Ordner-Hinweis nennt den Pfad', (t.useRec.getState().hinweisOrdner ?? '').includes('D:\\VA'));
   ck('5: Ordner bleibt eingetragen', t.useRec.getState().dir === 'D:\\VA');
+}
+
+// --- RE-7b: settings:load wartet nicht. Antwortet ordnerDa nie (totes NAS), ist der Start trotzdem fertig.
+{
+  const fertig = await Promise.race([
+    starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null }, ordnerDaFn: () => new Promise<boolean>(() => {}) }),
+    warte(1000).then(() => null),
+  ]);
+  const s = fertig?.useRec.getState();
+  ck('RE-7b settings:load wartet nicht: init ist fertig, obwohl ordnerDa nie antwortet (loading false, Eingang gewählt)', s !== undefined && s.loading === false && s.deviceIndex === 7);
+  ck('RE-7b settings:load wartet nicht: der Store fragt ordnerDa für den gemerkten Ordner', fertig?.aufrufe.ordnerDa.includes('D:\\VA') === true);
 }
 
 // --- 6. Show-Vorgaben schlagen die gemerkten Werte.
@@ -460,14 +501,16 @@ const offenWieGezeigt = (s: { state: RecorderState; deviceIndex: number | null; 
   ck('23: danach Ordner-Hinweis + Meldung', (s.hinweisOrdner ?? '').includes('E:\\Show') && s.notice === 'Preset „Fo“ angewendet. Eingang neu geöffnet.');
 }
 
-// --- 24. Show-Zielordner im Netzwerk: Hinweis nennt den Pfad; lokaler Ordner nimmt ihn weg.
+// --- 24. Altfehler RE-7b: einen Netzwerkordner aus der Show schickt der Main als `dir` nur, wenn er bestätigt ist → gesetzt, kein
+//         Hinweis (bisher: Hinweis „… liegt im Netzwerk …“). Ein lokaler Show-Ordner ebenso ohne Hinweis.
 {
-  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: true }, show: { dir: '\\\\nas\\x' } });
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null }, show: { dir: '\\\\nas\\x' } });
   const s = t.useRec.getState();
   ck('24: Ordner gesetzt', s.dir === '\\\\nas\\x');
-  ck('24: Hinweis nennt den Pfad', s.hinweisOrdner === 'Zielordner aus der Show liegt im Netzwerk: \\\\nas\\x – nur verwenden, wenn dieser Ordner bekannt ist.');
-  const l = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: false }, show: { dir: 'E:\\Show' } });
-  ck('24: lokaler Show-Ordner -> kein Hinweis', l.useRec.getState().hinweisOrdner === null);
+  ck('24 (Altfehler RE-7b): bestätigter Netzwerkordner → gesetzt, kein Hinweis', s.hinweisOrdner === null && s.netzordnerOffen === null);
+  const l = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null }, ordnerDa: false, show: { dir: 'E:\\Show' } });
+  await warte(10);
+  ck('24: lokaler Show-Ordner -> kein Hinweis (auch nicht der späte für den gemerkten Ordner)', l.useRec.getState().hinweisOrdner === null && l.useRec.getState().dir === 'E:\\Show');
 }
 
 // --- 25. Show-Werte wandern in den Vorbehalt: gemerkt wird der Show-Wert, und er gilt, wenn der Eingang zurückkommt.
@@ -494,6 +537,267 @@ const offenWieGezeigt = (s: { state: RecorderState; deviceIndex: number | null; 
   const s = t.useRec.getState();
   ck('26: Ordner-Hinweis gesetzt', (s.hinweisOrdner ?? '').includes('E:\\Show'));
   ck('26: Meldung mit Fehlertext', s.notice === 'Preset „Fo“ angewendet – der Eingang ließ sich nicht wieder öffnen: kaputt');
+}
+
+// ═══ Altfehler Stufe 2, Recorder A (Plan 2026-11-26, Task 6) ═══════════════════════════════════════════════════════════════
+const AUFNAHME: Partial<RecorderState> = { status: 'recording', device: 7, channels: 16, sampleRate: 96000, filePath: 'D:\\VA\\Plenum.wav' };
+const OFFEN: Partial<RecorderState> = { status: 'armed', device: 7, channels: 16, sampleRate: 96000 };
+const NETZ = '\\\\nas\\x';
+const json = (v: unknown): string => JSON.stringify(v);
+
+// --- RE-2: Companion ARM und DISARM in der Aufnahme werden abgelehnt; nichts ändert sich, Grund und Logzeile gehen an den Main.
+{
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null } });
+  t.setzeZustand(AUFNAHME);
+  t.fernbefehl({ t: 'arm' });
+  await warte(20);
+  ck('RE-2 Companion ARM in der Aufnahme: arm wird nicht gerufen (und kein disarm)', t.aufrufe.arm.length === 0 && t.aufrufe.disarm === 0);
+  ck(
+    'RE-2 Companion ARM in der Aufnahme: Ablehnung mit Hinweis und Logzeile',
+    json(t.aufrufe.ablehnung) === json([{ hinweis: 'Companion „ARM“ abgelehnt: Erst die Aufnahme stoppen.', log: 'Fernbefehl abgelehnt: ARM (Aufnahme läuft)' }]),
+  );
+  t.fernbefehl({ t: 'disarm' });
+  await warte(20);
+  ck('RE-2 Companion DISARM in der Aufnahme: disarm wird nicht gerufen', t.aufrufe.disarm === 0 && t.aufrufe.arm.length === 0);
+  ck(
+    'RE-2 Companion DISARM in der Aufnahme: Ablehnung mit Hinweis und Logzeile',
+    json(t.aufrufe.ablehnung[1]) === json({ hinweis: 'Companion „DISARM“ abgelehnt: Erst die Aufnahme stoppen.', log: 'Fernbefehl abgelehnt: DISARM (Aufnahme läuft)' }),
+  );
+  ck('RE-2 Companion in der Aufnahme: der Zustand bleibt recording', t.useRec.getState().state.status === 'recording');
+}
+{
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null } });
+  t.setzeZustand(OFFEN);
+  t.fernbefehl({ t: 'arm' });
+  await warte(20);
+  ck('RE-2 ARM bei armed wirkt wie heute (arm 1×, keine Ablehnung)', t.aufrufe.arm.length === 1 && t.aufrufe.ablehnung.length === 0);
+  t.fernbefehl({ t: 'disarm' });
+  await warte(20);
+  ck('RE-2 DISARM bei armed wirkt wie heute (disarm 1×, keine Ablehnung)', t.aufrufe.disarm === 1 && t.aufrufe.ablehnung.length === 0);
+}
+{
+  // Der Main lehnt „Eingang schließen“ in der Aufnahme ab (Wettlauf): der Store zeigt den Grund und lässt die Pegel stehen.
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null } });
+  (globalThis as unknown as { window: { jmrec: { disarm: () => Promise<unknown> } } }).window.jmrec.disarm = async () => ({ ok: false, error: 'Erst die Aufnahme stoppen.' });
+  t.useRec.setState({ peaks: [0.5, 0.5] });
+  await t.useRec.getState().disarm();
+  ck('RE-2 disarm abgelehnt: der Store setzt notice mit dem Grund, die Pegel bleiben', t.useRec.getState().notice === 'Erst die Aufnahme stoppen.' && t.useRec.getState().peaks.length === 2);
+}
+
+// --- RE-2b: Companion RECORD ON ohne Zielordner wird abgelehnt; am Rechner öffnet sich kein Ordnerdialog.
+{
+  const t = await starte({ devices: [DANTE], geladen: ersterStart, pickDir: 'E:\\Gewaehlt' });
+  t.setzeZustand(OFFEN);
+  t.fernbefehl({ t: 'record', mode: 'on' });
+  await warte(20);
+  ck('RE-2b Companion RECORD ON ohne Zielordner: kein Ordnerdialog, keine Aufnahme', t.aufrufe.pickDir === 0 && t.aufrufe.start.length === 0 && t.useRec.getState().dir === null);
+  ck(
+    'RE-2b Companion RECORD ON ohne Zielordner: Ablehnung „Kein Zielordner gewählt.“',
+    json(t.aufrufe.ablehnung) === json([{ hinweis: 'Companion „RECORD ON“ abgelehnt: Kein Zielordner gewählt.', log: 'Fernbefehl abgelehnt: RECORD ON (kein Zielordner)' }]),
+  );
+  t.fernbefehl({ t: 'record', mode: 'toggle' });
+  await warte(20);
+  ck('RE-2b Companion RECORD TOGGLE bei armed ohne Zielordner: kein Ordnerdialog, keine Aufnahme', t.aufrufe.pickDir === 0 && t.aufrufe.start.length === 0);
+  ck(
+    'RE-2b Companion RECORD TOGGLE ohne Zielordner: Ablehnung „Kein Zielordner gewählt.“',
+    json(t.aufrufe.ablehnung[1]) === json({ hinweis: 'Companion „RECORD TOGGLE“ abgelehnt: Kein Zielordner gewählt.', log: 'Fernbefehl abgelehnt: RECORD TOGGLE (kein Zielordner)' }),
+  );
+  // Von Hand im Fenster bleibt der Dialog wie heute (Spec).
+  await t.useRec.getState().record();
+  ck('RE-2b von Hand: „Aufnahme“ ohne Zielordner öffnet weiter den Ordnerdialog und startet danach', t.aufrufe.pickDir === 1 && json(t.aufrufe.start.map((s) => s.dir)) === json(['E:\\Gewaehlt']));
+}
+{
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null } });
+  t.setzeZustand(OFFEN);
+  t.fernbefehl({ t: 'record', mode: 'on' });
+  await warte(20);
+  ck('RE-2b mit Zielordner: startRecording 1× wie heute, ohne Dialog und ohne Ablehnung', json(t.aufrufe.start.map((s) => s.dir)) === json(['D:\\VA']) && t.aufrufe.pickDir === 0 && t.aufrufe.ablehnung.length === 0);
+  t.setzeZustand(AUFNAHME);
+  t.useRec.setState({ dir: null });
+  t.fernbefehl({ t: 'record', mode: 'off' });
+  await warte(20);
+  ck('RE-2b RECORD OFF wird nie abgelehnt, auch ohne Zielordner: stopRecording 1×', t.aufrufe.stop === 1 && t.aufrufe.ablehnung.length === 0);
+}
+
+// --- RE-7b: ein Netzwerkordner aus der Show gilt erst nach „Übernehmen“; bis dahin ist kein Ordner gesetzt.
+{
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null }, show: { netzordnerOffen: NETZ } });
+  await warte(10);
+  const s = t.useRec.getState();
+  ck('RE-7b Show mit netzordnerOffen (Kaltstart): dir null, netzordnerOffen gesetzt, kein Hinweis', s.dir === null && s.netzordnerOffen === NETZ && s.hinweisOrdner === null);
+  ck('RE-7b Show mit netzordnerOffen: kein ordnerDa-Aufruf für den Netzwerkordner (kein Zugriff auf den Server)', !t.aufrufe.ordnerDa.includes(NETZ));
+  await rufe(() => t.useRec.getState().netzordnerUebernehmen());
+  const n = t.useRec.getState();
+  ck('RE-7b netzordnerUebernehmen ruft netzordnerBestaetigen mit dem Pfad und setzt dir', json(t.aufrufe.bestaetigen) === json([NETZ]) && n.dir === NETZ && n.netzordnerOffen === null);
+}
+{
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null } });
+  t.schickeShow({ netzordnerOffen: NETZ });
+  ck('RE-7b Show mit netzordnerOffen (zur Laufzeit): dir null, netzordnerOffen gesetzt', t.useRec.getState().dir === null && t.useRec.getState().netzordnerOffen === NETZ);
+  await rufe(() => t.useRec.getState().pickDir());
+  ck('RE-7b pickDir ohne Wahl (Abbruch) lässt den Vorschlag stehen', t.useRec.getState().netzordnerOffen === NETZ && t.useRec.getState().dir === null);
+}
+{
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null }, pickDir: 'E:\\Neu' });
+  t.schickeShow({ netzordnerOffen: NETZ });
+  await rufe(() => t.useRec.getState().pickDir());
+  ck('RE-7b pickDir leert netzordnerOffen (wer selbst wählt, hat entschieden)', t.useRec.getState().dir === 'E:\\Neu' && t.useRec.getState().netzordnerOffen === null);
+}
+{
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null } });
+  t.schickeShow({ netzordnerOffen: NETZ });
+  t.schickeShow({ netzordnerOffen: '\\\\nas\\y' });
+  const zwei = t.useRec.getState();
+  await rufe(() => t.useRec.getState().hinweiseSchliessen());
+  const s = t.useRec.getState();
+  ck('RE-7b ein zweiter Vorschlag ersetzt den ersten', zwei.netzordnerOffen === '\\\\nas\\y' && zwei.dir === null);
+  ck('RE-7b × stellt den Ordner von vorher her (D1), auch nach zwei Vorschlägen', s.dir === 'D:\\VA' && s.netzordnerOffen === null && t.aufrufe.bestaetigen.length === 0);
+}
+{
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: { ...VOLL, dir: '\\\\NAS\\x\\' }, ordnerDa: null } });
+  t.schickeShow({ netzordnerOffen: NETZ });
+  await warte(10);
+  const s = t.useRec.getState();
+  ck('RE-7b gleicher Ordner gilt als bestätigt (D2): dir gesetzt, kein Vorschlag, kein Hinweis', s.dir === NETZ && s.netzordnerOffen === null && s.hinweisOrdner === null);
+  ck('RE-7b gleicher Ordner gilt als bestätigt (D2): gemerkt wie nach „Übernehmen“ (netzordnerBestaetigen 1×)', json(t.aufrufe.bestaetigen) === json([NETZ]));
+}
+{
+  const t = await starte({ devices: [DANTE, FOCUS], geladen: { einstellungen: VOLL, ordnerDa: null }, presets: [{ name: 'Fo', werte: pv() }] });
+  t.schickeShow({ netzordnerOffen: NETZ });
+  await t.useRec.getState().presetAnwenden('Fo');
+  ck('RE-7b Preset mit Ordner beendet den Vorschlag', t.useRec.getState().dir === 'E:\\Show' && t.useRec.getState().netzordnerOffen === null);
+}
+{
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null } });
+  t.schickeShow({ netzordnerOffen: NETZ });
+  t.useRec.getState().setFileName('Neu');
+  await warte(t.MERK_MS + 50);
+  // Nur die eigenen Einträge (Dateiname „Neu“): frühere Fälle schreiben ihr spätes Merken in die jeweils aktuelle Attrappe.
+  const eigene = t.gespeichert.filter((e) => e.fileName === 'Neu');
+  ck(
+    'RE-7b Einstellungen behalten den alten Ordner, solange die Frage offen ist (dir null, gespeichert wird der alte)',
+    t.useRec.getState().dir === null && eigene.length === 1 && eigene[0].dir === 'D:\\VA',
+  );
+}
+{
+  // Review Focus 1: der Vorschlag kommt während der Aufnahme. Sie läuft weiter in ihren Ordner, nur der nächste Start hat keinen.
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: { ...VOLL, dir: 'E:\\Alt' }, ordnerDa: null } });
+  t.setzeZustand({ ...AUFNAHME, filePath: 'E:\\Alt\\Tag.wav' });
+  t.schickeShow({ netzordnerOffen: NETZ });
+  await warte(20);
+  ck('RE-7b Show-Vorschlag während der Aufnahme: kein disarm, kein stopRecording', t.aufrufe.disarm === 0 && t.aufrufe.stop === 0 && t.aufrufe.arm.length === 0);
+  t.fernbefehl({ t: 'record', mode: 'off' });
+  await warte(20);
+  ck('RE-7b Show-Vorschlag während der Aufnahme: Companion RECORD OFF stoppt (stopRecording 1×)', t.aufrufe.stop === 1);
+  t.setzeZustand(OFFEN);
+  t.fernbefehl({ t: 'record', mode: 'on' });
+  await warte(20);
+  ck('RE-7b Show-Vorschlag während der Aufnahme: danach RECORD ON startet nicht (startRecording 0×, kein Dialog)', t.aufrufe.start.length === 0 && t.aufrufe.pickDir === 0);
+  ck(
+    'RE-7b Show-Vorschlag während der Aufnahme: Ablehnung „Der Netzwerkordner aus der Show ist noch nicht bestätigt.“',
+    json(t.aufrufe.ablehnung) ===
+      json([{ hinweis: 'Companion „RECORD ON“ abgelehnt: Der Netzwerkordner aus der Show ist noch nicht bestätigt.', log: 'Fernbefehl abgelehnt: RECORD ON (Netzwerkordner aus der Show nicht bestätigt)' }]),
+  );
+  t.useRec.getState().setFileName('Tag 2');
+  await warte(t.MERK_MS + 50);
+  const eigene = t.gespeichert.filter((e) => e.fileName === 'Tag 2');
+  ck('RE-7b Show-Vorschlag während der Aufnahme: gespeichert bleibt der alte Ordner E:\\Alt', eigene.length === 1 && eigene[0].dir === 'E:\\Alt');
+}
+{
+  // Ungültiger Ordner aus der Show: Hinweis, der Ordner bleibt.
+  const t = await starte({ devices: [DANTE], geladen: { einstellungen: VOLL, ordnerDa: null } });
+  t.schickeShow({ ordnerUngueltig: '\\\\?\\C:\\x' });
+  const s = t.useRec.getState();
+  ck('RE-7b ungültiger Show-Ordner: Hinweis nennt den Pfad, dir bleibt', s.hinweisOrdner === 'Zielordner aus der Show ist kein gültiger Ordner und wurde nicht übernommen: \\\\?\\C:\\x' && s.dir === 'D:\\VA' && s.netzordnerOffen === null);
+}
+
+// --- RE-NAS: die Ordnerprüfung eines Presets läuft außerhalb der Warteschlange (Spec Abschnitt 8; Pre-flight K6).
+const NI = pv({ eingang: { name: MME.name, hostApiName: 'MME' }, channels: 2, sampleRate: 44100, dir: NETZ });
+{
+  const t = await starte({
+    devices: [DANTE, FOCUS, MME], geladen: ersterStart,
+    presets: [{ name: 'Fo', werte: pv() }, { name: 'Mi', werte: NI }],
+    ordnerDaFn: (d) => (d === 'E:\\Show' ? new Promise<boolean>(() => {}) : Promise.resolve(true)),
+  });
+  t.setzeZustand({ status: 'armed', device: 7, channels: 2, sampleRate: 48000 });
+  void t.useRec.getState().presetAnwenden('Fo');
+  void t.useRec.getState().presetAnwenden('Mi');
+  await warte(60);
+  const geraete = (t.aufrufe.arm as { device: number }[]).map((a) => a.device);
+  ck(`RE-NAS langsame Ordnerprüfung hält das nächste Preset nicht auf (arm: ${geraete.join(',')})`, geraete.includes(0) && t.useRec.getState().aktivesPreset === 'Mi');
+}
+{
+  let antworteFo: (v: boolean) => void = () => {};
+  const t = await starte({
+    devices: [DANTE, FOCUS, MME], geladen: ersterStart,
+    presets: [{ name: 'Fo', werte: pv() }, { name: 'Mi', werte: NI }],
+    ordnerDaFn: (d) => (d === 'E:\\Show' ? new Promise<boolean>((r) => { antworteFo = r; }) : Promise.resolve(true)),
+  });
+  t.setzeZustand({ status: 'armed', device: 7, channels: 2, sampleRate: 48000 });
+  const fo = t.useRec.getState().presetAnwenden('Fo');
+  const mi = t.useRec.getState().presetAnwenden('Mi');
+  await warte(60);
+  const vorher = t.useRec.getState().dir;
+  antworteFo(false);
+  await Promise.all([fo, mi]);
+  await warte(10);
+  const s = t.useRec.getState();
+  ck(
+    `RE-NAS späte Antwort für einen alten Ordner überschreibt den Hinweis nicht (dir vor der Antwort: ${vorher})`,
+    vorher === NETZ && s.dir === NETZ && !(s.hinweisOrdner ?? '').includes('E:\\Show'),
+  );
+}
+{
+  const t = await starte({
+    devices: [DANTE], geladen: ersterStart,
+    presets: [{ name: 'A', werte: pv({ eingang: undefined, gainDb: 3 }) }, { name: 'B', werte: pv({ eingang: undefined, gainDb: 6 }) }],
+    ordnerDaFn: () => warte(30).then(() => true),
+  });
+  await Promise.all([t.useRec.getState().presetAnwenden('A'), t.useRec.getState().presetAnwenden('B')]);
+  const n = t.aufrufe.ordnerDa.filter((d) => d === 'E:\\Show').length;
+  ck(`RE-NAS zwei Prüfungen desselben Pfads zugleich: ein ordnerDa-Aufruf (${n})`, n === 1 && t.useRec.getState().gainDb === 6);
+}
+{
+  // K6: ein Netzwerkordner eines Presets gilt erst, wenn seine Prüfung geantwortet hat; das Übrige des Presets wirkt sofort.
+  let antworte: (v: boolean) => void = () => {};
+  const t = await starte({
+    devices: [DANTE], geladen: { einstellungen: { dir: 'D:\\VA' }, ordnerDa: null },
+    presets: [{ name: 'N', werte: pv({ eingang: undefined, dir: NETZ, gainDb: 9 }) }],
+    ordnerDaFn: (d) => (d === NETZ ? new Promise<boolean>((r) => { antworte = r; }) : Promise.resolve(true)),
+  });
+  const lauf = t.useRec.getState().presetAnwenden('N');
+  await warte(20);
+  const offen = t.useRec.getState();
+  ck('RE-NAS Netzwerkordner gilt erst nach der Prüfung: vorher bleibt der alte Ordner, Verstärkung und Preset wirken sofort', offen.dir === 'D:\\VA' && offen.gainDb === 9 && offen.aktivesPreset === 'N');
+  antworte(false);
+  await lauf;
+  const s = t.useRec.getState();
+  ck('RE-NAS Netzwerkordner gilt erst nach der Prüfung: nach der Antwort gesetzt, mit Hinweis, wenn er nicht erreichbar ist', s.dir === NETZ && (s.hinweisOrdner ?? '').includes('Zielordner des Presets „N“ nicht erreichbar: \\\\nas\\x'));
+}
+{
+  // K6: wählt jemand inzwischen etwas Neueres (Preset mit lokalem Ordner, Ordnerdialog), setzt die späte Antwort den Netzwerkordner nicht.
+  let antworte: (v: boolean) => void = () => {};
+  const t = await starte({
+    devices: [DANTE], geladen: { einstellungen: { dir: 'D:\\VA' }, ordnerDa: null }, pickDir: 'F:\\Hand',
+    presets: [{ name: 'N', werte: pv({ eingang: undefined, dir: NETZ }) }, { name: 'L', werte: pv({ eingang: undefined, dir: 'E:\\Show' }) }],
+    ordnerDaFn: (d) => (d === NETZ ? new Promise<boolean>((r) => { antworte = r; }) : Promise.resolve(true)),
+  });
+  const n = t.useRec.getState().presetAnwenden('N');
+  await warte(10);
+  // Begrenzt gewartet: hinge „L“ hinter der Prüfung von „N“, käme es nie an (dann rot statt eines hängenden Laufs).
+  await Promise.race([t.useRec.getState().presetAnwenden('L'), warte(200)]);
+  ck('RE-NAS ein nächstes Preset wirkt sofort, während die Prüfung des Netzwerkordners hängt', t.useRec.getState().dir === 'E:\\Show' && t.useRec.getState().aktivesPreset === 'L');
+  antworte(true);
+  await n;
+  await warte(10);
+  ck('RE-NAS die späte Antwort setzt den Netzwerkordner nicht, wenn inzwischen ein Preset gewählt wurde', t.useRec.getState().dir === 'E:\\Show');
+  const n2 = t.useRec.getState().presetAnwenden('N');
+  await warte(10);
+  await t.useRec.getState().pickDir();
+  antworte(true);
+  await n2;
+  await warte(10);
+  ck('RE-NAS die späte Antwort setzt den Netzwerkordner nicht, wenn inzwischen im Dialog gewählt wurde', t.useRec.getState().dir === 'F:\\Hand');
 }
 
 console.log(`\nstore: ${pass} ok, ${fail} FAIL`);

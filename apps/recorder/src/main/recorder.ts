@@ -2,15 +2,16 @@ import type { BrowserWindow } from 'electron';
 import path from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import type * as AudioNS from '@jm/audio';
-import type {
-  ArmInput,
-  AudioDevice,
-  OpResult,
-  RecordInput,
-  RecordResult,
-  RecorderState,
-  ScheduleInput,
-} from '@shared/types';
+import {
+  ERST_AUFNAHME_STOPPEN,
+  type ArmInput,
+  type AudioDevice,
+  type OpResult,
+  type RecordInput,
+  type RecordResult,
+  type RecorderState,
+  type ScheduleInput,
+} from '../shared/types';
 import { MultiWavWriter, WavWriter } from './wav';
 import { freierBasisname } from './dateiname';
 import { istLoopback, StilleUhr, STILLE_PAUSE_MS, STILLE_TAKT_MS } from './stille';
@@ -209,6 +210,9 @@ function waechterTakt(): void {
 }
 
 export function arm(input: ArmInput): OpResult {
+  // Altfehler RE-2 (B6): nie eine laufende Aufnahme beenden. Der Renderer lehnt einen Fernbefehl ARM schon ab; dieser Wächter fängt
+  // den Wettlauf, in dem ein ARM kurz nach RECORD ON ankommt, bevor das Fenster „recording“ kennt.
+  if (state.status === 'recording') return { ok: false, error: ERST_AUFNAHME_STOPPEN };
   try {
     if (state.status !== 'idle') disarm();
     engine().openInput(
@@ -283,6 +287,16 @@ export function disarm(): void {
   state.filePath = null;
   state.recordedSec = 0;
   emitState();
+}
+
+/**
+ * „Eingang schließen“ aus Fenster und Fernsteuerung (`rec:disarm`, Altfehler RE-2): in der Aufnahme abgelehnt, beenden geht nur mit
+ * Stopp; sonst wie `disarm()`. `disarm()` selbst bleibt für `shutdown()` (Fenster zu) und das Neuöffnen in `arm()`.
+ */
+export function schliesseEingang(): OpResult {
+  if (state.status === 'recording') return { ok: false, error: ERST_AUFNAHME_STOPPEN };
+  disarm();
+  return { ok: true };
 }
 
 function defaultName(): string {

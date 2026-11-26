@@ -13,7 +13,7 @@ import type { ReactNode } from 'react';
 import { Badge, Button, cn, TallyButton, UNBEKANNT, type TallyButtonProps } from '@jm/ui';
 import type { RecorderState } from '@shared/types';
 import { basename, dbfsLabel, formatClock, meterColor, meterPct } from '@/lib/format';
-import { hauptTasten, RECORDER_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
+import { hauptTasten, netzordnerHinweis, RECORDER_TEXTE, type OberflaechenStand } from '@/lib/oberflaeche';
 
 /** Die Aktionen des Live-Bereichs: die Store-Aktionen unter ihrem Namen, dazu „OK“ der Meldung und „Im Ordner zeigen“. */
 export interface LiveAktionen {
@@ -23,6 +23,8 @@ export interface LiveAktionen {
   stop(): void;
   setGain(db: number): void;
   hinweiseSchliessen(): void;
+  /** Altfehler RE-7b: „Übernehmen“ des Netzwerkordners aus der Show (Store-Aktion). */
+  netzordnerUebernehmen(): void;
   /** „OK“ der Main-Meldung: Oberflächenzustand der View (null), nicht der Store. */
   meldungQuittieren(): void;
   /** Datei der Aufnahme im Dateimanager zeigen (`shell.reveal`). */
@@ -35,6 +37,8 @@ export interface LiveWerte {
   gainDb: number;
   hinweisOrdner: string | null;
   dir: string | null;
+  /** Altfehler RE-7b: Netzwerkordner aus der Show, der auf „Übernehmen“ wartet; null = keiner. */
+  netzordnerOffen: string | null;
 }
 
 /**
@@ -99,13 +103,22 @@ export function LiveBereich({
 
       {/* Hinweise oben (E13, #291: gemerkte Einstellungen, die beim Start nicht passten; bleibt, bis es erledigt ist). Die Meter
           sind das Live-Element (Fix-Runde 1, Ruling): Wird es eng, gibt zuerst dieser Kasten nach (flex-shrink 10000 gegen 1 bei
-          den Metern), bis auf ein Band (2,75rem, „ד und die erste Zeile), und scrollt in sich. */}
-      {(r?.hinweisEingang || werte.hinweisOrdner) && (
+          den Metern), bis auf ein Band (2,75rem, „ד und die erste Zeile), und scrollt in sich. Altfehler RE-7b: ein Netzwerkordner aus
+          der Show steht als dritte Zeile mit der Taste „Übernehmen“ darin, nie als Dialog; „×“ verwirft ihn (D1). */}
+      {(r?.hinweisEingang || werte.hinweisOrdner || werte.netzordnerOffen !== null) && (
         <div data-recorder="hinweise" className="scroll-thin mt-2 min-h-[2.75rem] shrink-[10000] overflow-y-auto">
           <div role="alert" className={cn('flex items-start gap-3 rounded-[var(--radius-lg)] px-3 py-2 text-sm', HINWEIS)}>
             <div className="flex flex-1 flex-col gap-1 font-semibold">
               {r?.hinweisEingang && <p>{r.hinweisEingang}</p>}
               {werte.hinweisOrdner && <p>{werte.hinweisOrdner}</p>}
+              {werte.netzordnerOffen !== null && (
+                <div data-recorder="netzordner" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <p className="min-w-0 flex-1">{netzordnerHinweis(werte.netzordnerOffen)}</p>
+                  <Button type="button" variant="outline" size="sm" uppercase={false} onClick={aktionen.netzordnerUebernehmen}>
+                    {T.netzordner.uebernehmen}
+                  </Button>
+                </div>
+              )}
             </div>
             <Button type="button" variant="ghost" size="sm" uppercase={false} title="Hinweis schließen" aria-label="Hinweis schließen" onClick={aktionen.hinweiseSchliessen}>
               <span aria-hidden="true" className="text-lg leading-none">

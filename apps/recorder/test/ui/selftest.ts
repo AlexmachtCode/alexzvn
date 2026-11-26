@@ -22,4 +22,7 @@ await lade('rahmen', () => import('./rahmen.test'));
 await lade('panel', () => import('./panel.test'));
 await lade('live', () => import('./live.test'));
 await lade('funktionsliste', () => import('./funktionsliste.test'));
+await lade('fernbefehl', () => import('./fernbefehl.test'));
+await lade('netzordner', () => import('./netzordner.test'));
+await lade('altfehler', () => import('./altfehler.test'));
 abschluss();

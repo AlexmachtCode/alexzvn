@@ -1,5 +1,12 @@
 import type { FernsteuerungMeldung } from './fernsteuerung';
 
+/**
+ * Grund, warum Öffnen und Schließen des Eingangs während einer Aufnahme abgelehnt werden (Altfehler RE-2, Wortlaut der Spec). Der Satz
+ * steht nur hier (Pre-flight K4): der Hauptprozess antwortet damit (`arm`, `schliesseEingang`), die Oberfläche nennt ihn bei einem
+ * abgelehnten Fernbefehl und ohne den Punkt als Sperrgrund der Taste „Eingang schließen“.
+ */
+export const ERST_AUFNAHME_STOPPEN = 'Erst die Aufnahme stoppen.';
+
 export interface AudioDevice {
   index: number;
   name: string;
@@ -79,9 +86,15 @@ export type RecorderRemoteCommand =
  * Show-Integration (C3): aus dem `settings`-Block der .jmshow übernommene
  * Aufnahme-Voreinstellungen. Alle Felder optional — nur Vorhandenes wird gesetzt.
  * `deviceIndex` bleibt bewusst außen vor (maschinenlokaler PortAudio-Index).
+ * Der Zielordner der Show geht im Main durch `pruefeShowOrdner` (Altfehler RE-7b) und kommt in genau einem der drei Felder an:
+ * `dir` nur, wenn er gesetzt werden darf (Laufwerk oder bestätigter Netzwerkordner).
  */
 export interface RecShowSettings {
   dir?: string;
+  /** Altfehler RE-7b: ein Netzwerkordner, den noch niemand bestätigt hat; gilt erst nach „Übernehmen“ im Fenster. */
+  netzordnerOffen?: string;
+  /** Altfehler RE-7b: ein Ordner, der kein gültiger Ordner ist (wie beim Import); er wird nicht übernommen, das Fenster nennt ihn. */
+  ordnerUngueltig?: string;
   fileName?: string;
   separateTracks?: boolean;
   channels?: number;
@@ -137,7 +150,10 @@ export interface PresetDateiErgebnis {
 /** Ergebnis von `settings.load()`: die Einstellungen und ob der gemerkte Zielordner da ist. */
 export interface GeladeneEinstellungen {
   einstellungen: RecEinstellungen;
-  /** null = kein Zielordner gemerkt. */
+  /**
+   * null = nicht geprüft. Seit Altfehler RE-7b immer null: `settings:load` prüft den Ordner nicht mehr synchron (ein unerreichbares NAS
+   * hielte den Hauptprozess an); der Store fragt nach dem Setzen über `ordnerDa`, ohne darauf zu warten.
+   */
   ordnerDa: boolean | null;
 }
 
@@ -165,8 +181,8 @@ export interface JmrecApi {
   listDevices: () => Promise<AudioDevice[]>;
   /** Eingang öffnen (Pegel laufen, noch keine Datei). */
   arm: (input: ArmInput) => Promise<OpResult>;
-  /** Eingang schließen. */
-  disarm: () => Promise<void>;
+  /** Eingang schließen; in der Aufnahme lehnt der Main ab (`ok: false`, ERST_AUFNAHME_STOPPEN; Altfehler RE-2). */
+  disarm: () => Promise<OpResult>;
   /** Aufnahme in WAV starten (muss armed sein). */
   startRecording: (input: RecordInput) => Promise<OpResult>;
   /** Aufnahme beenden + WAV finalisieren. */
@@ -205,4 +221,11 @@ export interface JmrecApi {
   };
   /** Gibt es den Ordner? (z. B. Zielordner eines Presets) */
   ordnerDa: (dir: string) => Promise<boolean>;
+  /**
+   * Abgelehnter Fernbefehl (B6; Altfehler RE-2, RE-2b, RE-7b): der Main schreibt `log` ins Protokoll und zeigt `hinweis` als Meldung
+   * bis „OK“ (`recorder:notice`). Sonst ändert sich nichts; Companion sieht es an den Zustandswerten.
+   */
+  ablehnung: (a: { hinweis: string; log: string }) => Promise<void>;
+  /** Altfehler RE-7b: einen Netzwerkordner aus der Show bestätigen; der Main merkt ihn (true) oder lehnt einen ungültigen ab (false). */
+  netzordnerBestaetigen: (pfad: string) => Promise<boolean>;
 }

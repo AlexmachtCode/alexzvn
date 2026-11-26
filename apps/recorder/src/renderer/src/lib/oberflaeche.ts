@@ -14,8 +14,10 @@ import {
   type RemoteControlSectionProps,
 } from '@jm/settings';
 import { formatUhrzeitKurz, masterLinkStatusItem, unbekannt, type StatusItem } from '@jm/ui';
-import { portBelegt, STEUER_PORT, type FernsteuerungMeldung } from '@shared/fernsteuerung';
-import type { AudioDevice, MasterLinkMeldungZeile, RecorderState } from '@shared/types';
+// Relativ statt über den Alias @shared/: der Store lädt dieses Modul (Texte, Altfehler Stufe 2), und sein Test läuft unter tsx ohne Aliase.
+import { portBelegt, STEUER_PORT, type FernsteuerungMeldung } from '../../../shared/fernsteuerung';
+import { netzwerkServer, saeubereAnzeige } from '../../../shared/presets';
+import { ERST_AUFNAHME_STOPPEN, type AudioDevice, type MasterLinkMeldungZeile, type RecorderState } from '../../../shared/types';
 import { basename } from './format';
 
 /** Abschnitts-ids = Panel-Anker (`einstellung-{id}`) = settingsSection der Statuseinträge. `format` und `ziel` sind tool-eigen. */
@@ -42,6 +44,31 @@ export const RECORDER_TEXTE = {
     sucheGeraete: 'Suche Audiogeräte…',
     zustandOffen: 'Aufnahmezustand wird abgefragt…',
     eingangZu: 'Erst den Eingang öffnen',
+    /** Altfehler RE-2: „Eingang schließen“ in der Aufnahme, Wortlaut der Spec; derselbe Satz wie ERST_AUFNAHME_STOPPEN ohne den Punkt (K4). */
+    aufnahmeLaeuft: ERST_AUFNAHME_STOPPEN.replace(/\.$/, ''),
+  },
+  /**
+   * Abgelehnter Fernbefehl (B6; Altfehler RE-2, RE-2b, RE-7b), als Meldung bis „OK“ (recorder:notice). Das Verb wie Companion es schickt
+   * (ARM, DISARM, RECORD ON, RECORD TOGGLE); „Companion“ wie im Player (PL-16a), auch wenn der Befehl von Rundown kommt.
+   */
+  fernbefehl: {
+    abgelehnt: (verb: string, grund: string): string => `Companion „${verb}“ abgelehnt: ${grund}`,
+    grund: {
+      aufnahmeLaeuft: ERST_AUFNAHME_STOPPEN,
+      keinOrdner: 'Kein Zielordner gewählt.',
+      netzordnerOffen: 'Der Netzwerkordner aus der Show ist noch nicht bestätigt.',
+    },
+  },
+  /**
+   * Altfehler RE-7b: ein Netzwerkordner aus der Show wartet im Hinweisband auf „Übernehmen“ (nie ein Dialog, B4); ein ungültiger Ordner aus
+   * der Show wird nicht übernommen. Ersetzt den Hinweis „Zielordner aus der Show liegt im Netzwerk: … – nur verwenden, wenn dieser Ordner
+   * bekannt ist.“ (store/recorder.ts bis 0.10.0). „Übernehmen“ wie der Knopf der Rückfrage im Preset-Import (main/ipc.ts).
+   */
+  netzordner: {
+    hinweis: (pfad: string, server: string): string =>
+      `Die Show möchte in einem Netzwerkordner aufnehmen: ${pfad} (Server ${server}). Erst nach „Übernehmen“ ist er gesetzt – Windows meldet sich dann bei diesem Server an.`,
+    uebernehmen: 'Übernehmen',
+    ungueltig: (pfad: string): string => `Zielordner aus der Show ist kein gültiger Ordner und wurde nicht übernommen: ${pfad}`,
   },
   /** ON AIR im Kopf (E4). */
   onAirLabel: 'REC',
@@ -354,10 +381,19 @@ function taste(label: string, state: TasteZustand['state'], grund?: string): Hau
 }
 
 /**
+ * Hinweis zu einem Netzwerkordner aus der Show, der auf „Übernehmen“ wartet (Altfehler RE-7b): Pfad und Server gesäubert wie im
+ * Dialog des Imports (saeubereAnzeige, netzwerkServer); ohne erkennbaren Server steht der Pfad dort.
+ */
+export function netzordnerHinweis(pfad: string): string {
+  return RECORDER_TEXTE.netzordner.hinweis(saeubereAnzeige(pfad), saeubereAnzeige(netzwerkServer(pfad) ?? pfad));
+}
+
+/**
  * Die zwei Haupttasten (E7): eine Taste Eingang öffnen/schließen mit wechselnder Beschriftung, eine Taste Aufnahme/Stopp.
  * - Eingang: nie `live`. „Eingang öffnen“ ist gesperrt ohne gewähltes Gerät (RecorderView.tsx:147, `deviceIndex == null`), Grund
- *   „Kein Eingang gewählt“, solange die Geräte noch gesucht werden „Suche Audiogeräte…“; „Eingang schließen“ ist immer bereit
- *   (`:177-181`, auch während der Aufnahme).
+ *   „Kein Eingang gewählt“, solange die Geräte noch gesucht werden „Suche Audiogeräte…“; „Eingang schließen“ ist bereit bei `armed`
+ *   und seit Altfehler RE-2 in der Aufnahme gesperrt mit „Erst die Aufnahme stoppen“ (bisher bereit, `:177-181`; es beendete die
+ *   Aufnahme ohne Rückfrage).
  * - Aufnahme: `live` bei `recording` mit „Stopp“ (`:151-163`), bereit bei `armed` (`:160-170`). Bei zu gab es bisher keine
  *   Aufnahme-Taste, und ein Start scheitert dort immer im Main: gesperrt mit „Erst den Eingang öffnen“ (Fix-Runde 1, Ruling). Der
  *   Fernbefehl RECORD läuft weiter über den Store (Nr. 80).
@@ -371,11 +407,13 @@ export function hauptTasten(s: Pick<OberflaechenStand, 'recorder' | 'zustand'>):
   if (z === undefined) return { eingang: taste(T.taste.eingangOeffnen, 'gesperrt', T.grund.zustandOffen), aufnahme: taste(T.taste.aufnahme, 'gesperrt', T.grund.zustandOffen) };
   const sucht = r === undefined || r.loading;
   const ohneGeraet = r === undefined || r.deviceIndex === null;
-  const eingang = eingangOffen(z)
-    ? taste(T.taste.eingangSchliessen, 'bereit')
-    : ohneGeraet
-      ? taste(T.taste.eingangOeffnen, 'gesperrt', sucht ? T.grund.sucheGeraete : T.grund.keinEingang)
-      : taste(T.taste.eingangOeffnen, 'bereit');
+  const eingang = nimmtAuf(z)
+    ? taste(T.taste.eingangSchliessen, 'gesperrt', T.grund.aufnahmeLaeuft)
+    : eingangOffen(z)
+      ? taste(T.taste.eingangSchliessen, 'bereit')
+      : ohneGeraet
+        ? taste(T.taste.eingangOeffnen, 'gesperrt', sucht ? T.grund.sucheGeraete : T.grund.keinEingang)
+        : taste(T.taste.eingangOeffnen, 'bereit');
   const aufnahme = nimmtAuf(z)
     ? taste(T.taste.stopp, 'live')
     : eingangOffen(z)

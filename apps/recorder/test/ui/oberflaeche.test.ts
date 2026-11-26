@@ -267,9 +267,10 @@ const sd = (i: StatusItem | undefined): string => (i === undefined ? 'fehlt' : `
     'ohne Gerät': `Eingang öffnen/gesperrt/${RECORDER_TEXTE.grund.keinEingang} | Aufnahme/gesperrt/${RECORDER_TEXTE.grund.eingangZu}`,
     idle: `Eingang öffnen/bereit/- | Aufnahme/gesperrt/${RECORDER_TEXTE.grund.eingangZu}`,
     armed: 'Eingang schließen/bereit/- | Aufnahme/bereit/-',
-    recording: 'Eingang schließen/bereit/- | Stopp/live/-',
+    // Altfehler RE-2: in der Aufnahme ist „Eingang schließen“ gesperrt mit dem Grund der Spec (bisher bereit, beendete die Aufnahme).
+    recording: 'Eingang schließen/gesperrt/Erst die Aufnahme stoppen | Stopp/live/-',
   };
-  pruefeFaelle('RE Haupttasten: je Zustand Beschriftung, Zustand und Sperrgrund (nie gesperrt ohne Grund, Eingang nie live, Aufnahme nur bei recording live)', faelle, (f) => {
+  pruefeFaelle('RE Haupttasten (Altfehler RE-2): je Zustand Beschriftung, Zustand und Sperrgrund (nie gesperrt ohne Grund, Eingang nie live, Aufnahme nur bei recording live, „Eingang schließen“ in der Aufnahme gesperrt)', faelle, (f) => {
     const r =
       f.r === 'ohne Store'
         ? undefined

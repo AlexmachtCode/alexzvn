@@ -5,7 +5,9 @@ import { initAppRuntime, getLog } from '@jm/app-runtime';
 import { parseShow, parseShowDeepLink } from '@jm/show';
 import type { RecShowSettings } from '@shared/types';
 import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
-import { registerIpc } from './ipc';
+import { pruefeShowOrdner } from '@shared/netzordner';
+import { saeubereAnzeige } from '@shared/presets';
+import { netzordnerListe, registerIpc } from './ipc';
 import { shutdown } from './recorder';
 import { startControlServer, stopControlServer } from './control-server';
 
@@ -31,7 +33,22 @@ function applyShowFromDeepLink(url: string): void {
     const s = show.tools.find((t) => t.appId === 'jm-recorder')?.settings;
     if (!s) return;
     const out: RecShowSettings = {};
-    if (typeof s.dir === 'string') out.dir = s.dir;
+    // Altfehler RE-7b (B4): der Ordner geht durch dieselbe Prüfung wie beim Import. Gesetzt wird nur ein Laufwerksordner oder ein schon
+    // bestätigter Netzwerkordner; ein neuer Netzwerkordner wartet auf „Übernehmen“ im Fenster (nie ein Dialog), ein ungültiger kommt
+    // nicht durch. Die Liste ist eine lokale Datei, geprüft wird im Speicher. Ein leeres Feld fehlt wie beim Import.
+    if (typeof s.dir === 'string' && s.dir !== '') {
+      const o = pruefeShowOrdner(s.dir, (p) => netzordnerListe().enthaelt(p));
+      const anzeige = saeubereAnzeige(o.dir).slice(0, 500);
+      if (o.art === 'setzen') {
+        out.dir = o.dir;
+      } else if (o.art === 'bestaetigen') {
+        out.netzordnerOffen = o.dir;
+        getLog().warn(`Show-Zielordner wartet auf Bestätigung: ${anzeige}`);
+      } else {
+        out.ordnerUngueltig = o.dir;
+        getLog().warn(`Show-Zielordner ungültig, nicht übernommen: ${anzeige}`);
+      }
+    }
     if (typeof s.fileName === 'string') out.fileName = s.fileName;
     if (typeof s.separateTracks === 'boolean') out.separateTracks = s.separateTracks;
     if (typeof s.channels === 'number' && Number.isFinite(s.channels)) out.channels = s.channels;

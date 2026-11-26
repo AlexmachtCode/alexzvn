@@ -31,6 +31,7 @@ export function RecorderOberflaeche({
   const peaks = useRec((s) => s.peaks);
   const gainDb = useRec((s) => s.gainDb);
   const hinweisOrdner = useRec((s) => s.hinweisOrdner);
+  const netzordnerOffen = useRec((s) => s.netzordnerOffen);
   const dir = useRec((s) => s.dir);
   const fileName = useRec((s) => s.fileName);
   const separateTracks = useRec((s) => s.separateTracks);
@@ -51,6 +52,7 @@ export function RecorderOberflaeche({
   const stop = useRec((s) => s.stop);
   const setGain = useRec((s) => s.setGain);
   const hinweiseSchliessen = useRec((s) => s.hinweiseSchliessen);
+  const netzordnerUebernehmen = useRec((s) => s.netzordnerUebernehmen);
 
   // Einstellungs-Panel (Spec 3.1, 3.6): zu beim Start, nichts gemerkt; offen über ⚙ oder einen Statuseintrag.
   const [panelOffen, setPanelOffen] = useState(anfangOffen);
@@ -85,6 +87,7 @@ export function RecorderOberflaeche({
     stop: () => void stop(),
     setGain,
     hinweiseSchliessen,
+    netzordnerUebernehmen: () => void netzordnerUebernehmen(),
     meldungQuittieren: () => setMeldung(null),
     dateiZeigen: (pfad) => void window.jmrec.shell.reveal(pfad),
   };
@@ -118,7 +121,7 @@ export function RecorderOberflaeche({
             </div>
           </div>
         )}
-        <LiveBereich stand={stand} werte={{ peaks, gainDb, hinweisOrdner, dir }} aktionen={live} presets={<PresetLeiste />} />
+        <LiveBereich stand={stand} werte={{ peaks, gainDb, hinweisOrdner, dir, netzordnerOffen }} aktionen={live} presets={<PresetLeiste />} />
         <div data-recorder="arbeitsbereich">
           <ScheduleCard zustand={zustand} />
         </div>

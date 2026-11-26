@@ -134,5 +134,42 @@ for (const [name, zuerst] of [['StauBloecke', false], ['StauWaechter', true]] as
   ck(`Alt: erster echter Frame bei ${erster} ≈ Stille ${stilleMs} ms (nicht danach)`, erster >= stilleMs - 150 && erster <= stilleMs + 20);
 }
 
+// --- Altfehler RE-2 (Plan 2026-11-26, Task 6; B6): arm in der Aufnahme lehnt ab, statt den Eingang zu schließen und neu zu öffnen
+// (ein ARM kurz nach RECORD ON darf keine Aufnahme beenden). Die Aufnahme läuft weiter und behält alle Frames.
+{
+  ck('RE-2 arm', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+  ck('RE-2 start', rec.startRecording({ dir, fileName: 'Wache' }).ok);
+  aufFrames!(new Float32Array(2 * 10), 2, 10);
+  const vor = gestoppt;
+  const r = rec.arm({ device: 0, channels: 2, sampleRate: 48000 });
+  ck(`RE-2 arm in der Aufnahme abgelehnt: ok false, Grund „Erst die Aufnahme stoppen.“ (${JSON.stringify(r)})`, r.ok === false && r.error === 'Erst die Aufnahme stoppen.');
+  ck('RE-2 arm in der Aufnahme abgelehnt: Status bleibt recording, der Eingang wurde nicht geschlossen', rec.getState().status === 'recording' && gestoppt === vor);
+  aufFrames!(new Float32Array(2 * 10), 2, 10);
+  const stopp = rec.stopRecording();
+  ck('RE-2 arm in der Aufnahme abgelehnt: der Stopp danach schließt ab', stopp.ok);
+  ck(`RE-2 arm in der Aufnahme abgelehnt: der Kopf trägt beide Blöcke (20 Frames × 8 Byte = ${dataLaenge(join(dir, 'Wache.wav'))})`, dataLaenge(join(dir, 'Wache.wav')) === 160);
+  rec.disarm();
+}
+{
+  const schliesse = (rec as unknown as { schliesseEingang?: () => { ok: boolean; error?: string } }).schliesseEingang;
+  ck('RE-2 schliesseEingang gibt es', typeof schliesse === 'function');
+  ck('RE-2 schliesseEingang: arm', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+  ck('RE-2 schliesseEingang: start', rec.startRecording({ dir, fileName: 'Wache2' }).ok);
+  aufFrames!(new Float32Array(2 * 10), 2, 10);
+  const vor = gestoppt;
+  const r = schliesse?.();
+  ck(
+    `RE-2 schliesseEingang in der Aufnahme abgelehnt (${JSON.stringify(r)})`,
+    r?.ok === false && r.error === 'Erst die Aufnahme stoppen.' && rec.getState().status === 'recording' && gestoppt === vor,
+  );
+  // Ohne `!`: hätte schliesseEingang den Eingang doch geschlossen, gibt es keine Block-Funktion mehr, und die Prüfung unten zeigt es.
+  aufFrames?.(new Float32Array(2 * 10), 2, 10);
+  ck('RE-2 schliesseEingang: Stopp', rec.stopRecording().ok);
+  ck(`RE-2 schliesseEingang abgelehnt: die Aufnahme lief weiter, der Kopf trägt beide Blöcke (${dataLaenge(join(dir, 'Wache2.wav'))})`, dataLaenge(join(dir, 'Wache2.wav')) === 160);
+  const r2 = schliesse?.();
+  ck(`RE-2 schliesseEingang bei armed ok: Eingang zu (${JSON.stringify(r2)})`, r2?.ok === true && rec.getState().status === 'idle' && gestoppt > vor);
+  if (rec.getState().status !== 'idle') rec.disarm();
+}
+
 console.log(`\nrecorder: ${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);
