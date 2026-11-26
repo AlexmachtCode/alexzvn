@@ -704,6 +704,12 @@ ok(
   'RE Funktionsliste Nr. 2, 89, 90, 112 (Altfehler RE-7a): main/index.ts fragt beim Schließen in der Aufnahme nach (Fenster, nativer Rückfall nach 1 s, session-end ohne Frage, will-quit hält den Steuerserver an)',
 );
 ok(
+  nennt(1, 'Fix-Runde 1', '`//server/share`', 'Wurzel der Freigabe') && nennt(23, 'Fix-Runde 1', 'Eingang öffnen, dann neu aufnehmen') && nennt(79, 'Fix-Runde 1', 'zwei Takte') &&
+    nennt(88, 'Fix-Runde 1', 'Ordner der Spuren', 'genau einmal') && nennt(89, 'Fix-Runde 1', '`SchliessenSteuerung`', 'Neuladen', 'Renderer weg', '`powerMonitor`', 'nicht auf dem Mac gemessen') &&
+    gebunden(89, 'shared/schliessen.ts') && quelle('main/index.ts').includes("win.webContents.on('did-finish-load', () => steuerung.geladen());") && obf.includes("neuAufnehmenZu: 'Eingang öffnen, dann neu aufnehmen'"),
+  'RE Funktionsliste Nr. 1, 23, 79, 88, 89 (Task 7, Fix-Runde 1): Freigabe mit Schrägstrichen nur bis zur Wurzel, Haupttaste mit Fehler bei geschlossenem Eingang, Stau ab zwei Takten, Kopf der Spuren, Rückfrage nach Neuladen und Absturz, powerMonitor',
+);
+ok(
   nennt(134, 'Altfehler RE-3', 'Altfehler RE-PLATZ') && nennt(138, 'Altfehler RE-3', '`fehler`', 'Altfehler RE-PLATZ', '`spuren`', 'Altfehler RE-7a') &&
     von([76, 79, 81, 82, 83, 85, 86, 87, 88, 89, 92, 93, 94, 95, 134, 137, 138], (nr) => nennt(nr, 'mit Altfehler RE-3: ein Schreibfehler oder 2 s ohne Audiodaten', 'mit Altfehler RE-PLATZ: der Zustand nennt die Spuren')) &&
     von([48, 101, 124], (nr) => nennt(nr, 'Altfehler RE-3 `setProtokoll`', 'Altfehler RE-PLATZ `fs:platz`', 'Ablehnung im Wettlauf')) &&

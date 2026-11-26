@@ -51,6 +51,11 @@ export const RECORDER_TEXTE = {
     eingangZu: 'Erst den Eingang öffnen',
     /** Altfehler RE-2: „Eingang schließen“ in der Aufnahme, Wortlaut der Spec; derselbe Satz wie ERST_AUFNAHME_STOPPEN ohne den Punkt (K4). */
     aufnahmeLaeuft: ERST_AUFNAHME_STOPPEN.replace(/\.$/, ''),
+    /**
+     * Altfehler RE-3, Fix-Runde 1 (Ruling R17): „Neu aufnehmen“ bei geschlossenem Eingang mit Fehlerfeld (die Haupttaste zeigt den Fehler auch
+     * dann). Entwurf für die Texttabelle (Task 10).
+     */
+    neuAufnehmenZu: 'Eingang öffnen, dann neu aufnehmen',
   },
   /**
    * Abgelehnter Fernbefehl (B6; Altfehler RE-2, RE-2b, RE-7b), als Meldung bis „OK“ (recorder:notice). Das Verb wie Companion es schickt
@@ -466,11 +471,15 @@ export function hauptTasten(s: Pick<OberflaechenStand, 'recorder' | 'zustand'>):
       : ohneGeraet
         ? taste(T.taste.eingangOeffnen, 'gesperrt', sucht ? T.grund.sucheGeraete : T.grund.keinEingang)
         : taste(T.taste.eingangOeffnen, 'bereit');
-  // Altfehler RE-3: bei offenem Eingang mit Fehlerfeld heißt die Taste „Neu aufnehmen“ (bereit; ein gelungener Start löscht den Fehler).
+  // Altfehler RE-3: mit Fehlerfeld heißt die Taste „Neu aufnehmen“: bei offenem Eingang bereit (ein gelungener Start löscht den Fehler), bei
+  // geschlossenem gesperrt mit eigenem Grund (Fix-Runde 1, Ruling R17: der Fehler bleibt auch dann in der Haupttaste sichtbar).
+  const fehler = fehlerVon(z) !== null;
   const aufnahme = nimmtAuf(z)
     ? taste(T.taste.stopp, 'live')
     : eingangOffen(z)
-      ? taste(fehlerVon(z) !== null ? T.taste.neuAufnehmen : T.taste.aufnahme, 'bereit')
-      : taste(T.taste.aufnahme, 'gesperrt', T.grund.eingangZu);
+      ? taste(fehler ? T.taste.neuAufnehmen : T.taste.aufnahme, 'bereit')
+      : fehler
+        ? taste(T.taste.neuAufnehmen, 'gesperrt', T.grund.neuAufnehmenZu)
+        : taste(T.taste.aufnahme, 'gesperrt', T.grund.eingangZu);
   return { eingang, aufnahme };
 }

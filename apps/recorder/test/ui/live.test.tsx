@@ -527,4 +527,13 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
   const log: string[] = [];
   for (const k of liveKnoepfe(stand({ zustand: mitFehler('schreiben') }), aktionen(log))) klick(k);
   gleich(log, ['record', 'disarm'], 'RE-3 Live Verdrahtung: „Neu aufnehmen“ ruft record (ein gelungener Start löscht den Fehler), „Eingang schließen“ ruft disarm (quittiert, K7)');
+  // Fix-Runde 1 (Ruling R17): bei geschlossenem Eingang zeigt die Haupttaste den Fehler, gesperrt mit sichtbarem Grund; ein Klick tut nichts.
+  const zu = knoepfe(live(stand({ zustand: mitFehler('schreiben', 'idle') }))).map((k) => [k.label, k.state, k.grund]);
+  const log2: string[] = [];
+  for (const k of liveKnoepfe(stand({ zustand: mitFehler('schreiben', 'idle') }), aktionen(log2))) klick(k);
+  gleich(
+    [zu, log2],
+    [[['Neu aufnehmen', 'gesperrt', 'Eingang öffnen, dann neu aufnehmen'], [T.taste.eingangOeffnen, 'bereit', undefined]], ['arm']],
+    'RE-3 R17 Live Tasten: bei geschlossenem Eingang mit Fehlerfeld links „Neu aufnehmen“ gesperrt mit sichtbarem Grund, rechts „Eingang öffnen“; nur „Eingang öffnen“ klickt',
+  );
 }

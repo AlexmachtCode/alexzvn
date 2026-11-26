@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, powerMonitor, shell } from 'electron';
 import path, { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
@@ -7,7 +7,7 @@ import type { RecShowSettings } from '@shared/types';
 import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import { pruefeShowOrdner } from '@shared/netzordner';
 import { saeubereAnzeige } from '@shared/presets';
-import { SCHLIESSEN_TEXTE, SchliessenAblauf, schliessenEntscheid } from '@shared/schliessen';
+import { SCHLIESSEN_TEXTE, SchliessenSteuerung } from '@shared/schliessen';
 import { netzordnerListe, registerIpc } from './ipc';
 import { getState, shutdown } from './recorder';
 import { startControlServer, stopControlServer } from './control-server';
@@ -21,8 +21,8 @@ let mainWindow: BrowserWindow | null = null;
  * „Aufnahme beenden“ beendet danach die App, „Weiter aufnehmen“ verwirft ihn.
  */
 let beendenWunsch = false;
-/** Altfehler RE-7a: Antwort des Fensters auf die Rückfrage (recorder:schliessenAntwort) an den Ablauf des Hauptfensters; null ohne Fenster. */
-let schliessenAntwort: ((a: 'gezeigt' | 'beenden' | 'weiter') => void) | null = null;
+/** Altfehler RE-7a: die Rückfrage des Hauptfensters (Antworten aus recorder:schliessenAntwort, powerMonitor); null ohne Fenster. */
+let schliessenSteuerung: SchliessenSteuerung | null = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Show-Integration (C3): Wird der Recorder per Show-Deep-Link gestartet, übernimmt
@@ -149,56 +149,56 @@ function createMainWindow(): BrowserWindow {
   // Altfehler RE-7a (B3, D4): läuft eine Aufnahme, fragt das Schließen nach. Die Frage steht im Fenster (SchliessenFrage) und hält den
   // Hauptprozess nicht an (Audioblöcke, IPC, Steuerserver laufen weiter). Meldet das Fenster sie nicht binnen 1 s als gezeigt (hängender
   // Renderer), fragt der Hauptprozess mit einem nicht blockierenden nativen Dialog, nie mit showMessageBoxSync. Die erste Antwort gilt.
-  const ablauf = new SchliessenAblauf();
-  let bestaetigt = false;
-  const antworte = (beenden: boolean): void => {
-    if (!ablauf.antwort()) return;
-    if (!beenden) {
+  // Den Ablauf führt SchliessenSteuerung (shared/schliessen.ts); hier stehen nur Fenster, Dialog und App als Ports. Fix-Runde 1 (Befund 1):
+  // geht die Frage im Fenster verloren (Neuladen mit Strg+R, Absturz), fragt ein weiteres Schließen erneut, ein Neuladen stellt sie erneut,
+  // und ist der Renderer weg, fragt sofort der native Dialog. Ein close bleibt so nie ohne Antwortweg.
+  const steuerung = new SchliessenSteuerung({
+    status: () => getState().status,
+    sendeFrage: (offen) => {
+      // Ein abgestürzter Renderer darf den Rückfall nicht aufhalten: nach dem Senden fragt der native Dialog in jedem Fall.
+      try {
+        if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send('recorder:schliessenFrage', offen);
+      } catch {
+        // das Fenster ist weg; der native Dialog (Rückfall) fragt trotzdem
+      }
+    },
+    frageNativ: () =>
+      win.isDestroyed()
+        ? Promise.reject(new Error('Fenster zu'))
+        : dialog
+            .showMessageBox(win, {
+              type: 'warning',
+              message: SCHLIESSEN_TEXTE.frage,
+              detail: SCHLIESSEN_TEXTE.detail,
+              buttons: [SCHLIESSEN_TEXTE.beenden, SCHLIESSEN_TEXTE.weiter],
+              defaultId: 1,
+              cancelId: 1,
+            })
+            .then((r) => r.response),
+    schliesse: () => {
+      if (!win.isDestroyed()) win.close();
+    },
+    beendenGewuenscht: () => beendenWunsch,
+    wunschVerwerfen: () => {
       beendenWunsch = false;
-      return;
-    }
-    bestaetigt = true;
-    if (!win.isDestroyed()) win.close();
-    if (beendenWunsch) app.quit();
-  };
-  const rueckfall = (): void => {
-    if (win.isDestroyed()) return;
-    win.webContents.send('recorder:schliessenFrage', false);
-    void dialog
-      .showMessageBox(win, {
-        type: 'warning',
-        message: SCHLIESSEN_TEXTE.frage,
-        detail: SCHLIESSEN_TEXTE.detail,
-        buttons: [SCHLIESSEN_TEXTE.beenden, SCHLIESSEN_TEXTE.weiter],
-        defaultId: 1,
-        cancelId: 1,
-      })
-      .then(
-        (r) => antworte(r.response === 0),
-        () => antworte(false),
-      );
-  };
-  schliessenAntwort = (a) => {
-    if (a === 'gezeigt') ablauf.gezeigt();
-    else antworte(a === 'beenden');
-  };
-  win.on('close', (e) => {
-    const entscheid = schliessenEntscheid({ status: getState().status, bestaetigt, frageOffen: ablauf.offen });
-    if (entscheid === 'schliessen') return;
-    e.preventDefault();
-    if (entscheid === 'warten') return;
-    ablauf.stelle(rueckfall);
-    win.webContents.send('recorder:schliessenFrage', true);
+    },
+    beende: () => app.quit(),
   });
+  schliessenSteuerung = steuerung;
+  win.on('close', (e) => {
+    if (steuerung.beimSchliessen()) e.preventDefault();
+  });
+  win.webContents.on('did-finish-load', () => steuerung.geladen());
+  win.webContents.on('render-process-gone', () => steuerung.rendererWeg());
   // Abmelden oder Herunterfahren (Windows): ohne Frage; die Datei wird sauber abgeschlossen, bevor das System den Prozess beendet.
   win.on('session-end', () => {
-    bestaetigt = true;
+    steuerung.ohneFrage();
     shutdown();
   });
 
   win.on('closed', () => {
     shutdown(); // geplante Aufnahme-Timer lösen + Eingang schließen
-    schliessenAntwort = null;
+    schliessenSteuerung = null;
     mainWindow = null;
   });
 
@@ -233,7 +233,13 @@ if (!gotLock) {
     // Altfehler RE-7a: das Fenster meldet die Rückfrage als gezeigt (die 1-s-Frist für den nativen Rückfall endet) oder antwortet.
     ipcMain.handle('recorder:schliessenAntwort', (e, a: unknown): void => {
       if (!mainWindow || e.sender !== mainWindow.webContents) return;
-      if (a === 'gezeigt' || a === 'beenden' || a === 'weiter') schliessenAntwort?.(a);
+      if (a === 'gezeigt' || a === 'beenden' || a === 'weiter') schliessenSteuerung?.antwortFenster(a);
+    });
+    // Ruling R15 (B3, macOS und Linux): session-end gibt es nur unter Windows. Meldet das System Herunterfahren, Neustart oder (macOS)
+    // Abmelden, schließt der Recorder ohne Frage und die Datei sauber ab. Nicht auf dem Mac gemessen.
+    powerMonitor.on('shutdown', () => {
+      schliessenSteuerung?.ohneFrage();
+      shutdown();
     });
     registerIpc(() => mainWindow);
     createMainWindow();

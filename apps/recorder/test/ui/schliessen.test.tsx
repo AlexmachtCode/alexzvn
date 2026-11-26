@@ -6,7 +6,9 @@
 import { isValidElement, type ReactNode } from 'react';
 import { Button, Modal } from '@jm/ui';
 import { gleich, leseText, ok, render } from '@jm/ui/testhilfe';
+import * as schliessenModul from '@shared/schliessen';
 import { SCHLIESSEN_RUECKFALL_MS, SCHLIESSEN_TEXTE, SchliessenAblauf, schliessenEntscheid } from '@shared/schliessen';
+import type { RecorderStatus } from '@shared/types';
 import { RECORDER_TEXTE } from '@/lib/oberflaeche';
 import { RecorderOberflaeche } from '@/views/RecorderOberflaeche';
 import { SchliessenFrage } from '@/views/SchliessenFrage';
@@ -86,6 +88,211 @@ class ScheinUhr {
   const antwort = c.antwort();
   uhr3.vor(5000);
   gleich([antwort, n3, c.offen], [true, 0, false], 'RE-7a SchliessenAblauf: eine Antwort vor Ablauf der Frist löscht sie (kein Rückfall danach)');
+}
+
+// ── Fix-Runde 1 (Task 7, Befund 1): eine offene Frage darf nicht hängen bleiben. Lädt das Fenster neu oder stürzt der Renderer ab, nachdem
+// es „gezeigt“ gemeldet hat, steht die Frage nirgends mehr. Darum stellt ein weiteres Schließen sie erneut und startet die Frist neu
+// (`erneut`), ein Neuladen stellt sie erneut, und ist der Renderer weg, fragt sofort der native Dialog (`sofort`). ──
+type Ablauf2 = SchliessenAblauf & { erneut?: (r: () => void) => boolean; sofort?: (r: () => void) => boolean };
+{
+  const uhr = new ScheinUhr();
+  const a = new SchliessenAblauf(uhr) as Ablauf2;
+  let n = 0;
+  const r = (): void => void n++;
+  const vorStellen = a.erneut?.(r);
+  a.stelle(r);
+  a.gezeigt();
+  uhr.vor(5000);
+  const erneut = a.erneut?.(r);
+  uhr.vor(999);
+  const bei999 = n;
+  uhr.vor(1);
+  const bei1000 = n;
+  const nachRueckfall = a.erneut?.(r);
+  uhr.vor(5000);
+  gleich(
+    [typeof a.erneut, vorStellen, erneut, bei999, bei1000, nachRueckfall, n, a.offen],
+    ['function', false, true, 0, 1, false, 1, true],
+    'RE-7a Fix-Runde 1 SchliessenAblauf.erneut: ohne offene Frage false; bei offener Frage true und die 1-s-Frist beginnt neu (Rückfall nach 1000 ms, nicht bei 999); steht schon der native Dialog, false (kein zweiter)',
+  );
+  const uhr2 = new ScheinUhr();
+  const b = new SchliessenAblauf(uhr2) as Ablauf2;
+  let m = 0;
+  const r2 = (): void => void m++;
+  const vorStellen2 = b.sofort?.(r2);
+  b.stelle(r2);
+  b.gezeigt();
+  const sofort = b.sofort?.(r2);
+  const gleichDanach = m;
+  uhr2.vor(5000);
+  const zweites = b.sofort?.(r2);
+  gleich(
+    [typeof b.sofort, vorStellen2, sofort, gleichDanach, m, zweites, b.offen, b.antwort(), b.offen],
+    ['function', false, true, 1, 1, false, true, true, false],
+    'RE-7a Fix-Runde 1 SchliessenAblauf.sofort: ohne offene Frage false; bei offener Frage sofort genau einmal der Rückfall (keine Frist mehr danach), ein zweites Mal nicht; die Frage bleibt offen bis zur Antwort',
+  );
+}
+
+/** Ports der Steuerung als Attrappe: Schein-Uhr, Protokoll aller Wirkungen, ein nativer Dialog, der auf eine Antwort wartet. */
+interface SteuerungPorts {
+  status(): RecorderStatus;
+  sendeFrage(offen: boolean): void;
+  frageNativ(): Promise<number>;
+  schliesse(): void;
+  beendenGewuenscht(): boolean;
+  wunschVerwerfen(): void;
+  beende(): void;
+}
+interface Steuerung {
+  beimSchliessen(): boolean;
+  geladen(): void;
+  rendererWeg(): void;
+  antwortFenster(a: 'gezeigt' | 'beenden' | 'weiter'): void;
+  ohneFrage(): void;
+}
+const SteuerungKlasse = (schliessenModul as unknown as { SchliessenSteuerung?: new (p: SteuerungPorts, uhr?: ScheinUhr) => Steuerung }).SchliessenSteuerung;
+function steuerung(anfang: RecorderStatus = 'recording') {
+  const uhr = new ScheinUhr();
+  const log: string[] = [];
+  let lage = anfang;
+  let wunsch = false;
+  let antworteNativ: ((n: number) => void) | null = null;
+  const ports: SteuerungPorts = {
+    status: () => lage,
+    sendeFrage: (offen) => void log.push(`frage ${offen}`),
+    frageNativ: () => {
+      log.push('nativ');
+      return new Promise<number>((r) => (antworteNativ = r));
+    },
+    schliesse: () => void log.push('schliesse'),
+    beendenGewuenscht: () => wunsch,
+    wunschVerwerfen: () => {
+      wunsch = false;
+      log.push('wunsch weg');
+    },
+    beende: () => void log.push('beende'),
+  };
+  const s = SteuerungKlasse ? new SteuerungKlasse(ports, uhr) : null;
+  return {
+    s,
+    uhr,
+    log,
+    status: (x: RecorderStatus) => void (lage = x),
+    wunsch: (w: boolean) => void (wunsch = w),
+    nativ: async (n: number) => {
+      antworteNativ?.(n);
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    },
+  };
+}
+{
+  ok(typeof SteuerungKlasse === 'function', 'RE-7a Fix-Runde 1: shared/schliessen.ts hat SchliessenSteuerung (die Rückfrage des Hauptprozesses, Ports statt Electron)');
+  // Befund 1 (b): Neuladen bei offener Frage. Das neue Fenster bekommt die Frage erneut, die Frist beginnt neu; nach der Antwort schließt es.
+  {
+    const t = steuerung();
+    const verhindert = t.s?.beimSchliessen();
+    t.s?.antwortFenster('gezeigt');
+    t.uhr.vor(5000);
+    t.s?.geladen();
+    const nachLaden = [...t.log];
+    t.uhr.vor(999);
+    const keinRueckfall = !t.log.includes('nativ');
+    t.s?.antwortFenster('gezeigt');
+    t.uhr.vor(5000);
+    t.s?.antwortFenster('beenden');
+    const danach = t.s?.beimSchliessen();
+    gleich(
+      [verhindert, nachLaden, keinRueckfall, t.log, danach],
+      [true, ['frage true', 'frage true'], true, ['frage true', 'frage true', 'schliesse'], false],
+      'RE-7a Fix-Runde 1 Neuladen bei offener Frage: das neu geladene Fenster bekommt die Frage erneut (die Frist beginnt neu), nach „Aufnahme beenden“ schließt das Fenster, das nächste close geht durch',
+    );
+  }
+  // Befund 1 (a): die Frage ging verloren (Neuladen ohne Meldung); das nächste Schließen fragt erneut, der Rückfall beginnt neu.
+  {
+    const t = steuerung();
+    t.s?.beimSchliessen();
+    t.s?.antwortFenster('gezeigt');
+    t.uhr.vor(3000);
+    const verhindert = t.s?.beimSchliessen();
+    t.uhr.vor(999);
+    const bei999 = [...t.log];
+    t.uhr.vor(1);
+    const bei1000 = [...t.log];
+    await t.nativ(0);
+    gleich(
+      [verhindert, bei999, bei1000, t.log],
+      [true, ['frage true', 'frage true'], ['frage true', 'frage true', 'frage false', 'nativ'], ['frage true', 'frage true', 'frage false', 'nativ', 'schliesse']],
+      'RE-7a Fix-Runde 1 Schließen bei offener Frage: die Frage geht erneut ans Fenster und der Rückfall beginnt neu (nativer Dialog nach 1000 ms, nicht bei 999); „Aufnahme beenden“ im nativen Dialog schließt',
+    );
+  }
+  // Befund 1 (b): der Renderer ist weg (Absturz): der native Dialog fragt sofort; „Weiter aufnehmen“ lässt das Fenster offen, danach fragt ein
+  // Schließen neu.
+  {
+    const t = steuerung();
+    t.s?.beimSchliessen();
+    t.s?.antwortFenster('gezeigt');
+    t.s?.rendererWeg();
+    const sofort = [...t.log];
+    t.uhr.vor(5000);
+    await t.nativ(1);
+    const nachWeiter = [...t.log];
+    const neu = t.s?.beimSchliessen();
+    gleich(
+      [sofort, nachWeiter, neu, t.log.at(-1)],
+      [['frage true', 'frage false', 'nativ'], ['frage true', 'frage false', 'nativ', 'wunsch weg'], true, 'frage true'],
+      'RE-7a Fix-Runde 1 Renderer weg: der native Rückfall fragt sofort (einmal, kein zweiter nach der Frist); „Weiter aufnehmen“ verwirft den Wunsch, das Fenster bleibt; ein neues Schließen fragt wieder',
+    );
+  }
+  // Ohne offene Frage tun Neuladen und Absturz nichts; steht schon der native Dialog, stellen sie die Frage nicht noch einmal.
+  {
+    const t = steuerung();
+    t.s?.geladen();
+    t.s?.rendererWeg();
+    const ohneFrage = [...t.log];
+    t.s?.beimSchliessen();
+    t.uhr.vor(1000);
+    t.s?.geladen();
+    t.s?.beimSchliessen();
+    t.s?.rendererWeg();
+    gleich(
+      [ohneFrage, t.log],
+      [[], ['frage true', 'frage false', 'nativ']],
+      'RE-7a Fix-Runde 1: ohne offene Frage tun Neuladen und Absturz nichts; steht der native Dialog schon, gibt es keine zweite Frage und keinen zweiten Dialog',
+    );
+  }
+  // D4: die erste Antwort gilt, auch eine späte aus dem Fenster neben dem nativen Dialog; endet die Aufnahme während der Frage, bleibt sie offen.
+  {
+    const t = steuerung();
+    t.s?.beimSchliessen();
+    t.uhr.vor(1000);
+    t.status('armed');
+    const verhindert = t.s?.beimSchliessen();
+    t.s?.antwortFenster('weiter');
+    await t.nativ(0);
+    gleich(
+      [verhindert, t.log],
+      [true, ['frage true', 'frage false', 'nativ', 'wunsch weg']],
+      'RE-7a Fix-Runde 1 (D4): endet die Aufnahme während der Frage, wartet das Schließen weiter; die erste Antwort gilt (hier „Weiter aufnehmen“ aus dem Fenster), die spätere aus dem nativen Dialog nicht',
+    );
+  }
+  // B3 und Beenden-Wunsch (Cmd+Q): Abmelden oder Herunterfahren schließen ohne Frage; „Aufnahme beenden“ nach einem Wunsch beendet die App.
+  {
+    const t = steuerung();
+    t.s?.ohneFrage();
+    const durch = t.s?.beimSchliessen();
+    const t2 = steuerung();
+    t2.wunsch(true);
+    t2.s?.beimSchliessen();
+    t2.s?.antwortFenster('gezeigt');
+    t2.s?.antwortFenster('beenden');
+    const t3 = steuerung('armed');
+    const ohneAufnahme = t3.s?.beimSchliessen();
+    gleich(
+      [durch, t.log, t2.log, ohneAufnahme, t3.log],
+      [false, [], ['frage true', 'schliesse', 'beende'], false, []],
+      'RE-7a Fix-Runde 1: nach ohneFrage (Abmelden, Herunterfahren) schließt das Fenster ohne Frage; „Aufnahme beenden“ auf einen Beenden-Wunsch hin beendet die App; ohne Aufnahme schließt es wie bisher',
+    );
+  }
 }
 
 // ── RE-7a Texte: SCHLIESSEN_TEXTE wörtlich, RECORDER_TEXTE.schliessen ist dieselbe Konstante ──

@@ -134,6 +134,46 @@ const enoent = (p: string): Error => Object.assign(new Error(`ENOENT: no such fi
   gleich([frei, pfade], [null, ['\\\\nas\\share\\Neu\\Tag1', '\\\\nas\\share\\Neu', '\\\\nas\\share\\']], 'RE-PLATZ freierPlatz: meldet jede Ebene einer Freigabe ENOENT → null nach höchstens drei Aufrufen');
 }
 
+// ── Fix-Runde 1 (Ruling R16): eine Freigabe mit Schrägstrichen (//nas/share, istErlaubterOrdner nimmt sie an) endet ebenfalls an ihrer Wurzel.
+// Nach POSIX-Regeln ginge es weiter zu //nas und //, und statfs('//') misst das Systemlaufwerk: eine erfundene Zahl. Nur // oder nur der
+// Server wird nie gemessen. ──
+{
+  gleich(
+    [elternOrdner('//nas/share/x'), elternOrdner('//nas/share/'), elternOrdner('//nas/share'), elternOrdner('\\\\nas\\share\\x')],
+    ['//nas/share/', null, null, '\\\\nas\\share\\'],
+    'RE-PLATZ R16 elternOrdner: //nas/share/x endet an der Wurzel der Freigabe //nas/share/ (wie \\\\nas\\share\\x), darüber geht es nicht',
+  );
+  const lauf = async (p: string): Promise<[number | null, string[]]> => {
+    const pfade: string[] = [];
+    const frei = await freierPlatz(p, async (x) => {
+      pfade.push(x);
+      throw enoent(x);
+    });
+    return [frei, pfade];
+  };
+  gleich(
+    [await lauf('//nas/share/x'), await lauf('\\\\nas\\share\\x')],
+    [
+      [null, ['//nas/share/x', '//nas/share/']],
+      [null, ['\\\\nas\\share\\x', '\\\\nas\\share\\']],
+    ],
+    'RE-PLATZ R16 freierPlatz: //nas/share/x und \\\\nas\\share\\x gehen höchstens bis zur Wurzel der Freigabe, nie zu //nas oder //',
+  );
+  const nie = await Promise.all(['//', '\\\\', '//nas', '\\\\nas', '//nas/', '/\\'].map(lauf));
+  gleich(
+    nie,
+    [
+      [null, []],
+      [null, []],
+      [null, []],
+      [null, []],
+      [null, []],
+      [null, []],
+    ],
+    'RE-PLATZ R16 freierPlatz: ein Pfad, der nur // ist oder nur den Server nennt, wird nie gemessen (null, kein statfs-Aufruf)',
+  );
+}
+
 // ── RE-PLATZ PlatzAbfrage: je Pfad höchstens eine Messung zugleich, Zeitgrenze → null, die alte Messung läuft aus ──
 {
   let messungen = 0;

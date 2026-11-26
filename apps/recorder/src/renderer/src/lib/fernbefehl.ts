@@ -20,7 +20,8 @@ export interface FernbefehlLage {
  */
 const LOG_GRUND = {
   aufnahmeLaeuft: FERNBEFEHL_ABGELEHNT.logAufnahmeLaeuft,
-  keinOrdner: 'kein Zielordner',
+  // Fix-Runde 1 (Ruling R18c, K4): derselbe Wortlaut wie der Statuseintrag „Platz“ ohne Ordner; er steht einmal in lib/platz.ts.
+  keinOrdner: RECORDER_TEXTE.platz.keinOrdner,
   netzordnerOffen: 'Netzwerkordner aus der Show nicht bestätigt',
 } as const;
 

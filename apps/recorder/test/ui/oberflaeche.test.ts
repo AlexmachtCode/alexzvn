@@ -362,8 +362,8 @@ const sd = (i: StatusItem | undefined): string => (i === undefined ? 'fehlt' : `
 {
   type Art = 'schreiben' | 'eingang' | 'start';
   const F: Record<Art, { art: Art; text: string; datei: string | null }> = {
-    schreiben: { art: 'schreiben', text: 'ENOSPC: no space left on device, write', datei: 'D:\Aufnahmen\Voll.wav' },
-    eingang: { art: 'eingang', text: 'Keine Audiodaten vom Eingang', datei: 'D:\Aufnahmen\Stumm.wav' },
+    schreiben: { art: 'schreiben', text: 'ENOSPC: no space left on device, write', datei: 'D:\\Aufnahmen\\Voll.wav' },
+    eingang: { art: 'eingang', text: 'Keine Audiodaten vom Eingang', datei: 'D:\\Aufnahmen\\Stumm.wav' },
     start: { art: 'start', text: 'EEXIST: file already exists, mkdir', datei: null },
   };
   const SOLL: Record<Art, string> = {
@@ -389,14 +389,23 @@ const sd = (i: StatusItem | undefined): string => (i === undefined ? 'fehlt' : `
     return `${t.aufnahme.label}/${t.aufnahme.state}/${t.aufnahme.disabledReason ?? '-'} | ${t.eingang.label}/${t.eingang.state}`;
   };
   gleich(
-    [tasten(mitFehler('armed', 'schreiben')), tasten(mitFehler('armed', 'eingang')), tasten(mitFehler('armed', 'start')), tasten(mitFehler('idle', 'schreiben'))],
+    [tasten(mitFehler('armed', 'schreiben')), tasten(mitFehler('armed', 'eingang')), tasten(mitFehler('armed', 'start'))],
+    ['Neu aufnehmen/bereit/- | Eingang schließen/bereit', 'Neu aufnehmen/bereit/- | Eingang schließen/bereit', 'Neu aufnehmen/bereit/- | Eingang schließen/bereit'],
+    'RE-3 Haupttaste „Neu aufnehmen“ bereit: bei offenem Eingang mit Fehlerfeld heißt die Aufnahme-Taste „Neu aufnehmen“ (startet neu), „Eingang schließen“ bleibt bereit',
+  );
+  // Fix-Runde 1 (Ruling R17; Spec RE-3: der Fehler bleibt „in Statusleiste und Haupttaste“): auch bei geschlossenem Eingang zeigt die
+  // Haupttaste den Fehler, gesperrt als „Neu aufnehmen“ mit eigenem Grund (bisher „Aufnahme“ mit „Erst den Eingang öffnen“, ohne Fehler).
+  const G = RECORDER_TEXTE.grund as unknown as { neuAufnehmenZu?: string };
+  gleich(
+    [tasten(mitFehler('idle', 'schreiben')), tasten(mitFehler('idle', 'eingang')), tasten(mitFehler('idle', 'start')), tasten(zustand('idle')), G.neuAufnehmenZu],
     [
-      'Neu aufnehmen/bereit/- | Eingang schließen/bereit',
-      'Neu aufnehmen/bereit/- | Eingang schließen/bereit',
-      'Neu aufnehmen/bereit/- | Eingang schließen/bereit',
+      'Neu aufnehmen/gesperrt/Eingang öffnen, dann neu aufnehmen | Eingang öffnen/bereit',
+      'Neu aufnehmen/gesperrt/Eingang öffnen, dann neu aufnehmen | Eingang öffnen/bereit',
+      'Neu aufnehmen/gesperrt/Eingang öffnen, dann neu aufnehmen | Eingang öffnen/bereit',
       `Aufnahme/gesperrt/${RECORDER_TEXTE.grund.eingangZu} | Eingang öffnen/bereit`,
+      'Eingang öffnen, dann neu aufnehmen',
     ],
-    'RE-3 Haupttaste „Neu aufnehmen“ bereit: bei offenem Eingang mit Fehlerfeld heißt die Aufnahme-Taste „Neu aufnehmen“ (startet neu), „Eingang schließen“ bleibt bereit; bei zu gilt wie bisher „Erst den Eingang öffnen“',
+    'RE-3 R17 Haupttaste bei geschlossenem Eingang mit Fehlerfeld: gesperrt als „Neu aufnehmen“ mit dem Grund „Eingang öffnen, dann neu aufnehmen“ (RECORDER_TEXTE.grund.neuAufnehmenZu); ohne Fehlerfeld wie bisher „Aufnahme“ mit „Erst den Eingang öffnen“',
   );
   gleich(
     [T.taste.neuAufnehmen, T.fehler?.marke, ...(['schreiben', 'eingang', 'start'] as const).map((a) => T.fehler?.detail?.(F[a]))],

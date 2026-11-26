@@ -114,9 +114,9 @@ const stueck = (t: string, von: string, bis: string): string => {
   }
   const lage = (jetzt: number, letzterBlock: number, letzterTakt: number): Lage | undefined => ew?.bloeckeLage?.({ jetzt, letzterBlock, letzterTakt });
   gleich(
-    [ew?.KEINE_BLOECKE_MS, ew?.BLOECKE_TAKT_MS, lage(1999, 0, 1749), lage(2000, 0, 1750), lage(10000, 9000, 8001), lage(10000, 9000, 8000), lage(10000, 0, 8000), lage(10000, 0, 9750)],
-    [2000, 250, 'ok', 'fehlen', 'ok', 'stau', 'stau', 'fehlen'],
-    'RE-3 eingang-waechter bloeckeLage an den Grenzen: 1999 ms ohne Block ok, 2000 fehlen; Takt nach 1999 ms ok, nach 2000 stau (der Stau geht vor)',
+    [ew?.KEINE_BLOECKE_MS, ew?.BLOECKE_TAKT_MS, lage(1999, 0, 1749), lage(2000, 0, 1750), lage(10000, 9000, 9501), lage(10000, 9000, 9500), lage(10000, 0, 8000), lage(10000, 0, 9750), lage(2050, 0, 100)],
+    [2000, 250, 'ok', 'fehlen', 'ok', 'stau', 'stau', 'fehlen', 'stau'],
+    'RE-3 eingang-waechter bloeckeLage an den Grenzen (Fix-Runde 1, Ruling R18a): 1999 ms ohne Block ok, 2000 fehlen; ein Takt, der 499 ms nach dem letzten kommt, ok, nach 500 ms (zwei Takte) stau; der Stau geht vor, auch wenn der letzte Block älter ist (ein Takt kurz vor dem Hängen gab sonst falschen Alarm)',
   );
   const cs = Q('src/main/control-server.ts');
   const suite = stueck(cs, 'function toSuiteState(): SuiteState {', '\n}\n');
@@ -135,25 +135,41 @@ const stueck = (t: string, von: string, bis: string): string => {
 }
 
 // ── Task 7 · RE-7a (B3, D4): Rückfrage beim Schließen im Hauptprozess, nativer Rückfall nicht blockierend, Abmelden ohne Frage ──
+// Fix-Runde 1 (Befund 1, Ruling R15; Wächter umgestellt): die Rückfrage führt SchliessenSteuerung (shared/schliessen.ts, mit Ports getestet
+// in schliessen.test.tsx); main/index.ts verdrahtet nur noch Ereignisse und Ports. Neuladen, Absturz und powerMonitor kamen dazu.
 {
-  const close = stueck(index, "win.on('close', (e) => {", '\n  });\n');
+  const sch = Q('src/shared/schliessen.ts');
+  const bs = stueck(sch, 'beimSchliessen(): boolean {', '\n  }\n');
   ok(
-    close.includes('schliessenEntscheid({ status: getState().status, bestaetigt, frageOffen: ablauf.offen })') &&
-      close.includes('e.preventDefault();') &&
-      close.includes('ablauf.stelle(rueckfall)') &&
-      close.includes("win.webContents.send('recorder:schliessenFrage', true)") &&
-      close.indexOf('e.preventDefault();') < close.indexOf('ablauf.stelle(rueckfall)'),
-    'RE-7a Wächter: main/index.ts hört auf win.on(close), fragt schliessenEntscheid, verhindert das Schließen (preventDefault) und stellt die Frage im Fenster (recorder:schliessenFrage)',
+    bs.includes('schliessenEntscheid({ status: this.p.status(), bestaetigt: this.bestaetigt, frageOffen: this.ablauf.offen })') &&
+      bs.includes('this.ablauf.stelle(this.rueckfall)') &&
+      bs.includes('this.ablauf.erneut(this.rueckfall)') &&
+      bs.includes('this.p.sendeFrage(true)'),
+    'RE-7a Wächter (Fix-Runde 1, Befund 1a): SchliessenSteuerung.beimSchliessen fragt schliessenEntscheid, stellt die Frage und stellt sie bei offener Frage erneut (Frist neu)',
   );
-  const rueck = stueck(index, 'const rueckfall = (): void => {', '\n  };\n');
+  const rueck = stueck(sch, 'private readonly rueckfall = (): void => {', '\n  };\n');
   ok(
-    rueck.includes("win.webContents.send('recorder:schliessenFrage', false)") &&
-      /dialog\s*\.showMessageBox\(win, \{\s*type: 'warning',\s*message: SCHLIESSEN_TEXTE\.frage,\s*detail: SCHLIESSEN_TEXTE\.detail,\s*buttons: \[SCHLIESSEN_TEXTE\.beenden, SCHLIESSEN_TEXTE\.weiter\],\s*defaultId: 1,\s*cancelId: 1,?\s*\}\)/.test(rueck) &&
-      rueck.indexOf("'recorder:schliessenFrage', false") < rueck.indexOf('showMessageBox(win'),
-    'RE-7a Wächter: der Rückfall schließt die Frage im Fenster und fragt asynchron mit dialog.showMessageBox(win, …) und SCHLIESSEN_TEXTE (Vorgabe und Abbruch „Weiter aufnehmen“)',
+    rueck.includes('this.p.sendeFrage(false)') && rueck.includes('this.p.frageNativ()') && rueck.indexOf('this.p.sendeFrage(false)') < rueck.indexOf('this.p.frageNativ()'),
+    'RE-7a Wächter: der Rückfall schließt erst die Frage im Fenster, dann fragt der native Dialog',
+  );
+  const close = stueck(index, "win.on('close', (e) => {", '\n  });\n');
+  ok(/if \(steuerung\.beimSchliessen\(\)\) e\.preventDefault\(\);/.test(close), 'RE-7a Wächter: main/index.ts hört auf win.on(close) und verhindert das Schließen (preventDefault), solange die Steuerung fragt');
+  ok(
+    index.includes("win.webContents.on('did-finish-load', () => steuerung.geladen());") && index.includes("win.webContents.on('render-process-gone', () => steuerung.rendererWeg());"),
+    'RE-7a Wächter (Fix-Runde 1, Befund 1b): nach einem Neuladen geht eine offene Frage erneut ans Fenster, ist der Renderer weg, fragt sofort der native Dialog',
+  );
+  const nativ = stueck(index, 'frageNativ: () =>', '.then((r) => r.response)');
+  ok(
+    /dialog\s*\.showMessageBox\(win, \{\s*type: 'warning',\s*message: SCHLIESSEN_TEXTE\.frage,\s*detail: SCHLIESSEN_TEXTE\.detail,\s*buttons: \[SCHLIESSEN_TEXTE\.beenden, SCHLIESSEN_TEXTE\.weiter\],\s*defaultId: 1,\s*cancelId: 1,?\s*\}\)/.test(nativ) &&
+      index.includes("win.webContents.send('recorder:schliessenFrage', offen)"),
+    'RE-7a Wächter: der native Rückfall fragt asynchron mit dialog.showMessageBox(win, …) und SCHLIESSEN_TEXTE (Vorgabe und Abbruch „Weiter aufnehmen“); die Frage geht als recorder:schliessenFrage ans Fenster',
   );
   ok(!index.includes('showMessageBoxSync'), 'RE-7a Wächter: nie showMessageBoxSync (hielte Hauptprozess, Audioblöcke, IPC und Steuerserver an)');
-  ok(/win\.on\('session-end', \(\) => \{\s*bestaetigt = true;\s*shutdown\(\);/.test(index), 'RE-7a Wächter: Abmelden und Herunterfahren (session-end) beenden ohne Frage und schließen die Datei sauber ab (shutdown)');
+  ok(/win\.on\('session-end', \(\) => \{\s*steuerung\.ohneFrage\(\);\s*shutdown\(\);/.test(index), 'RE-7a Wächter: Abmelden und Herunterfahren unter Windows (session-end) beenden ohne Frage und schließen die Datei sauber ab (shutdown)');
+  ok(
+    /powerMonitor\.on\('shutdown', \(\) => \{\s*schliessenSteuerung\?\.ohneFrage\(\);\s*shutdown\(\);/.test(index) && /import \{[^}]*\bpowerMonitor\b[^}]*\} from 'electron';/.test(index),
+    'RE-7a Wächter (Ruling R15, B3): auf macOS und Linux meldet powerMonitor „shutdown“ (auch Abmelden); der Recorder beendet ohne Frage und schließt die Datei sauber ab (nicht auf dem Mac gemessen)',
+  );
   ok(/win\.on\('closed', \(\) => \{\s*shutdown\(\);/.test(index), 'RE-7a Wächter: closed ruft weiter shutdown() (Kopf mit echter Länge)');
   const vorEnde = stueck(index, "app.on('before-quit'", ');\n');
   const nachEnde = stueck(index, "app.on('will-quit'", ');\n');
@@ -163,20 +179,32 @@ const stueck = (t: string, von: string, bis: string): string => {
   );
   const antw = stueck(index, "ipcMain.handle('recorder:schliessenAntwort'", '\n    });\n');
   ok(
-    antw.includes("a === 'gezeigt'") && antw.includes("a === 'beenden'") && antw.includes("a === 'weiter'") && /ablauf\.antwort\(\)/.test(index) && index.includes('if (beendenWunsch) app.quit();'),
+    antw.includes("a === 'gezeigt'") && antw.includes("a === 'beenden'") && antw.includes("a === 'weiter'") && antw.includes('schliessenSteuerung?.antwortFenster(a)') &&
+      index.includes('beendenGewuenscht: () => beendenWunsch,') && index.includes('beende: () => app.quit(),') && /if \(!this\.ablauf\.antwort\(\)\) return;/.test(sch),
     'RE-7a Wächter: recorder:schliessenAntwort kennt gezeigt, beenden und weiter; die erste Antwort gilt (ablauf.antwort), nach „Aufnahme beenden“ auf Cmd+Q hin beendet der Main die App (D4)',
   );
   ok(
-    preload.includes("ipcRenderer.on('recorder:schliessenFrage', listener);") &&
-      preload.includes("schliessenAntwort: (a) => ipcRenderer.invoke('recorder:schliessenAntwort', a) as Promise<void>,") &&
+    /let letzteFrage = false;/.test(preload) &&
+      preload.includes("ipcRenderer.on('recorder:schliessenFrage', (_e: unknown, offen: boolean): void => {") &&
+      /onSchliessenFrage: \(cb\) => \{\s*frageHoerer\.add\(cb\);\s*if \(letzteFrage\) cb\(true\);/.test(preload) &&
+      preload.includes("schliessenAntwort: (a) => {") && preload.includes("ipcRenderer.invoke('recorder:schliessenAntwort', a) as Promise<void>") &&
       typen.includes('onSchliessenFrage: (cb: (offen: boolean) => void) => () => void;') &&
       typen.includes("schliessenAntwort: (a: 'gezeigt' | 'beenden' | 'weiter') => Promise<void>;"),
-    'RE-7a Wächter: Preload und JmrecApi haben onSchliessenFrage und schliessenAntwort',
+    'RE-7a Wächter (Fix-Runde 1): Preload und JmrecApi haben onSchliessenFrage und schliessenAntwort; der Preload hört ab dem Laden mit und reicht eine offene Frage an ein spätes Abo weiter (nach einem Neuladen geht sie nicht verloren)',
   );
   ok(
     /window\.jmrec\.onSchliessenFrage\(\(offen\) => \{\s*set\(\{ schliessenFrage: offen \}\);\s*if \(offen\) void window\.jmrec\.schliessenAntwort\('gezeigt'\)/.test(store),
     'RE-7a Wächter: der Store abonniert onSchliessenFrage in init und meldet „gezeigt“ sofort (sonst greift nach 1 s der native Rückfall)',
   );
+}
+
+// ── Fix-Runde 1 · Ruling R18 (c), K4: „kein Zielordner“ steht genau einmal im Code ──
+{
+  const treffer = quellen('src').flatMap((d) => {
+    const n = ohneKommentare(leseText(d)).split("'kein Zielordner'").length - 1;
+    return n > 0 ? [`${d}:${n}`] : [];
+  });
+  gleich(treffer, ['src/renderer/src/lib/platz.ts:1'], 'K4 Wächter (Ruling R18c): „kein Zielordner“ steht genau einmal im Code (lib/platz.ts), die Logzeile der Fernbefehle importiert ihn');
 }
 
 // ── Task 7 · Ruling R11: eine Ablehnung des Main-Wächters im Wettlauf hat eine Logzeile und den Hinweis wie die Store-Ablehnung ──

@@ -53,6 +53,8 @@ const state: RecorderState = {
 };
 let writer: WavWriter | null = null;
 let multiWriter: MultiWavWriter | null = null;
+/** Fix-Runde 1 (Ruling R18b): Ordner der Einzelspuren der laufenden Aufnahme (für die Meldung, wenn ihr Kopf scheitert); null ohne Spuren. */
+let spurenOrdner: string | null = null;
 let peaks: number[] = [];
 let lastEmit = 0;
 // Loopback-Eingänge: kein Block in Stille → Uhr + Wächter füllen die Lücken auf.
@@ -273,10 +275,12 @@ function blockTakt(): void {
  * sich abschließen, Status `armed` (der Eingang bleibt offen), das Fehlerfeld setzen, eine Meldung bis „OK“, eine Logzeile, Zustand an
  * Fenster und Steuerserver. Companion sieht recording=0; main/control-server.ts ändert sich nicht.
  */
-function schreibfehler(art: RecorderFehler['art'], e: unknown, kopf = false): void {
+function schreibfehler(art: RecorderFehler['art'], e: unknown, kopf = false, genannt?: string): void {
   if (state.status !== 'recording') return;
   const T = AUFNAHME_FEHLER_TEXTE;
-  const datei = state.filePath ?? '';
+  // Fix-Runde 1 (Ruling R18b): scheiterte nicht die Kombidatei, sondern etwas anderes (der Kopf der Spuren), nennen Meldung, Log und
+  // Fehlerfeld das, was scheiterte.
+  const datei = genannt ?? state.filePath ?? '';
   const grund = art === 'eingang' ? T.eingangGrund : grundVon(e);
   let kopfGrund: string | null = kopf ? grund : null;
   uhr = null;
@@ -303,7 +307,7 @@ function schreibfehler(art: RecorderFehler['art'], e: unknown, kopf = false): vo
     multiWriter = null;
   }
   state.status = 'armed';
-  state.fehler = { art, text: grund, datei: state.filePath };
+  state.fehler = { art, text: grund, datei: genannt ?? state.filePath };
   notice(kopfGrund !== null ? T.kopf(datei, kopfGrund) : art === 'eingang' ? T.eingang : T.schreiben(datei, grund));
   protokoll(T.log(art, datei, grund));
   emitState();
@@ -440,10 +444,12 @@ export function startRecording(input: RecordInput): OpResult {
     writer = new WavWriter(filePath, state.channels, state.sampleRate);
     // Optional zusätzlich jede Spur einzeln in einen Unterordner (Issue #20). Bei
     // Mono gibt es nichts zu trennen — die Kombi-Datei ist bereits die eine Spur.
+    spurenOrdner = null;
     if (input.separateTracks && state.channels > 1) {
       const tracksDir = path.join(input.dir, `${base}-Spuren`);
       mkdirSync(tracksDir, { recursive: true });
       multiWriter = new MultiWavWriter(tracksDir, base, state.channels, state.sampleRate);
+      spurenOrdner = tracksDir;
     }
     state.filePath = filePath;
     state.recordedSec = 0;
@@ -496,24 +502,9 @@ export function stopRecording(): RecordResult {
     // weiter mit finalize
   }
   uhr = null;
+  let res: ReturnType<WavWriter['finalize']>;
   try {
-    const res = writer.finalize();
-    writer = null;
-    if (multiWriter) {
-      multiWriter.finalize();
-      multiWriter = null;
-    }
-    state.status = 'armed';
-    emitState();
-    return {
-      ok: true,
-      filePath,
-      files: res.files,
-      bytes: res.bytes,
-      durationSec: res.durationSec,
-      channels: state.channels,
-      sampleRate: state.sampleRate,
-    };
+    res = writer.finalize();
   } catch (e) {
     // Altfehler RE-3: der Kopf ließ sich nicht schreiben. Derselbe Weg wie ein Schreibfehler (Spuren abschließen, `armed`, Fehlerfeld,
     // Meldung „Der Dateikopf … konnte nicht geschrieben werden“, Logzeile); bisher nur ein Toast des Stores.
@@ -521,6 +512,30 @@ export function stopRecording(): RecordResult {
     schreibfehler('schreiben', e, true);
     return { ok: false, error: grundVon(e) };
   }
+  writer = null;
+  if (multiWriter) {
+    // Fix-Runde 1 (Ruling R18b): die Spuren genau einmal abschließen (schreibfehler sieht sie danach nicht mehr). Scheitert ihr Kopf, ist die
+    // Kombidatei schon fertig: die Meldung nennt den Ordner der Spuren, nicht die Kombidatei.
+    const spuren = multiWriter;
+    multiWriter = null;
+    try {
+      spuren.finalize();
+    } catch (e) {
+      schreibfehler('schreiben', e, true, spurenOrdner ?? filePath);
+      return { ok: false, error: grundVon(e) };
+    }
+  }
+  state.status = 'armed';
+  emitState();
+  return {
+    ok: true,
+    filePath,
+    files: res.files,
+    bytes: res.bytes,
+    durationSec: res.durationSec,
+    channels: state.channels,
+    sampleRate: state.sampleRate,
+  };
 }
 
 // ---- Zeitgesteuerte Aufnahme (C3) ----

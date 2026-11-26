@@ -456,9 +456,64 @@ const aufraeumen = (): void => {
     ck(`RE-3 Loopback ohne Block-Wächter (Gerät 5): kein neuer Takt von 250 ms (${blockWaechter(vor).length})`, blockWaechter(vor).length === 0);
     ck('RE-3 Loopback: Stopp', rec.stopRecording().ok);
     aufraeumen();
+
+    // Fix-Runde 1 (Ruling R18a): war das letzte Ereignis vor dem Hängen ein Takt des Wächters (100 ms nach dem Block), kommt der nächste Takt
+    // nach 1950 ms: das ist ein Stau (mehr als zwei Takte), kein Geräteverlust, auch wenn seit dem Block 2050 ms vergangen sind.
+    ck('RE-3 R18a: arm', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+    vor = intervalle.length;
+    ck('RE-3 R18a: start', rec.startRecording({ dir, fileName: 'TaktVorStau' }).ok);
+    const w3 = blockWaechter(vor);
+    zehn();
+    const t3 = uhr;
+    uhr = t3 + 100;
+    w3[0]?.();
+    uhr = t3 + 2050;
+    w3[0]?.();
+    ck(
+      `RE-3 R18a Ereignisschleife hing nach einem Takt: kein falscher Alarm, die Aufnahme läuft (${rec.getState().status}, ${JSON.stringify(fehler())})`,
+      w3.length === 1 && rec.getState().status === 'recording' && fehler() === null,
+    );
+    uhr = t3 + 2300;
+    w3[0]?.();
+    ck(`RE-3 R18a: nach dem Stau gilt die neue Grundlinie, im Takt danach weiter kein Fehler (${rec.getState().status})`, rec.getState().status === 'recording' && fehler() === null);
+    ck('RE-3 R18a: Stopp', rec.stopRecording().ok);
+    aufraeumen();
   } finally {
     Date.now = echtNow;
   }
+}
+
+// Fix-Runde 1 (Ruling R18b): der Kopf der Spuren lässt sich beim Stopp nicht schreiben, die Kombidatei ist abgeschlossen. Die Meldung nennt
+// den Ordner der Spuren (nicht die Kombidatei), die Spuren werden genau einmal abgeschlossen.
+{
+  ck('RE-3 R18b: arm', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+  ck('RE-3 R18b: start mit Spuren', rec.startRecording({ dir, fileName: 'SpurKopf', separateTracks: true }).ok);
+  zehn();
+  protokoll.length = 0;
+  gesendet.length = 0;
+  const echtSpurKopf = MultiWavWriter.prototype.finalize;
+  let aufrufe = 0;
+  MultiWavWriter.prototype.finalize = function (this: unknown): void {
+    aufrufe++;
+    throw new Error('EIO: i/o error, write');
+  };
+  let r: { ok: boolean; error?: string } = { ok: true };
+  try {
+    r = rec.stopRecording();
+  } finally {
+    MultiWavWriter.prototype.finalize = echtSpurKopf;
+  }
+  const kombi = join(dir, 'SpurKopf.wav');
+  const spuren = join(dir, 'SpurKopf-Spuren');
+  ck(
+    `RE-3 R18b Kopf der Spuren nicht schreibbar: die Meldung nennt den Ordner der Spuren, das Fehlerfeld auch (${JSON.stringify(meldungen())}, ${JSON.stringify(fehler())})`,
+    r.ok === false &&
+      JSON.stringify(meldungen()) === JSON.stringify([`Aufnahme beendet: Der Dateikopf von „${spuren}“ konnte nicht geschrieben werden: EIO: i/o error, write.`]) &&
+      fehler()?.datei === spuren && fehler()?.art === 'schreiben' && rec.getState().status === 'armed',
+  );
+  ck(`RE-3 R18b: die Spuren werden genau einmal abgeschlossen (${aufrufe}), die Kombidatei trägt ihren Kopf (${dataLaenge(kombi)})`, aufrufe === 1 && dataLaenge(kombi) === 80);
+  ck(`RE-3 R18b: eine Logzeile mit dem Ordner der Spuren (${JSON.stringify(protokoll)})`, protokoll.length === 1 && protokoll[0] === `Aufnahme beendet (schreiben): ${spuren}: EIO: i/o error, write`);
+  aufraeumen();
 }
 
 // --- Altfehler RE-2, Ruling R11 (Task 7): lehnt der Wächter im Hauptprozess ARM oder DISARM im Wettlauf ab, nennt wettlaufAblehnung
