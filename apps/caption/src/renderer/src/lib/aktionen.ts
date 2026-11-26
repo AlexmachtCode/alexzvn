@@ -12,7 +12,7 @@ export interface CaptionStore {
   stop(): Promise<void>;
   setHold(hold: boolean): Promise<void>;
   clear(): Promise<void>;
-  correctLast(text: string): Promise<void>;
+  correctLine(id: string, text: string): Promise<void>;
   ndiStart(name?: string): Promise<void>;
   ndiStop(): Promise<void>;
 }
@@ -30,8 +30,8 @@ export interface LiveAktionen {
   leeren(): void;
   ndiStarten(): void;
   ndiStoppen(): void;
-  /** Übernahme der Korrektur (correctLast, gilt der jüngsten Zeile im Main). */
-  korrigieren(text: string): void;
+  /** Übernahme der Korrektur für die Zeile mit dieser Kennung (correctLine, Altfehler CA-5: die angeklickte Zeile). */
+  korrigieren(id: string, text: string): void;
   /** Korrekturmodus einer Zeile an (Id) bzw. aus (null); Oberflächenzustand der View. */
   bearbeiten(id: string | null): void;
 }
@@ -54,7 +54,8 @@ export function panelAktionen(store: Pick<CaptionStore, 'setConfig' | 'ndiStart'
 
 /**
  * Live-Bereich: Start → start(), Stopp → stop() (App.tsx:186), Hold → setHold(an) (:193), Leeren → clear() (:201),
- * NDI → ndiStart(Quellname) bzw. ndiStop() (:212), Korrektur → correctLast(Text) (:387).
+ * NDI → ndiStart(Quellname) bzw. ndiStop() (:212), Korrektur → correctLine(Kennung, Text) (früher correctLast(Text), :387;
+ * Altfehler CA-5).
  */
 export function liveAktionen(store: CaptionStore, ndiName: string | undefined, bearbeiten: (id: string | null) => void): LiveAktionen {
   return {
@@ -64,9 +65,19 @@ export function liveAktionen(store: CaptionStore, ndiName: string | undefined, b
     leeren: () => void store.clear(),
     ndiStarten: () => void store.ndiStart(ndiName),
     ndiStoppen: () => void store.ndiStop(),
-    korrigieren: (text) => void store.correctLast(text),
+    korrigieren: (id, text) => void store.correctLine(id, text),
     bearbeiten,
   };
+}
+
+/**
+ * Altfehler CA-1: Scheitert der Start der Aufnahme (getUserMedia), steht die Meldung im Fenster („Mikrofon: …“, bis zum nächsten
+ * Start) und die Transkription endet über stop(): caption:stop → running false → Companion running=0. Mit running false startet der
+ * Aufnahme-Effekt nicht von selbst neu. Kein eigener Kanal.
+ */
+export function mikrofonGescheitert(store: Pick<CaptionStore, 'stop'>, setzeFehler: (m: string) => void, e: unknown): void {
+  setzeFehler(String((e as Error)?.message ?? e));
+  void store.stop();
 }
 
 /** Gemessene Eingänge aus listAudioInputs: id = deviceId, ohne Namen „Audiogerät n“ (wie bisher, App.tsx:170-173). */

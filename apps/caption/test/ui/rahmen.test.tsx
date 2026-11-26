@@ -101,12 +101,13 @@ const STAND_ANFANG: OberflaechenStand = { caption: undefined, geraete: undefined
   const rumpf = ober.slice(ober.indexOf('export function CaptionOberflaeche'));
   // Bis zum return des JSX (oberste Ebene, „return (“ am Zeilenende); die return () => … der Effekte liegen tiefer.
   const vorReturn = rumpf.slice(0, rumpf.search(/\n {2}return \(\n/));
-  const engine = 'useCaptionNdiEngine(cfg ?? FALLBACK_CFG, state?.lines ?? [], hold, ndiActive, previewRef);';
-  ok(vorReturn.includes(engine), 'CA NDI-Engine bleibt: useCaptionNdiEngine läuft in der Wurzel-View (CaptionOberflaeche) mit Config, Zeilen, Hold, NDI-Lage und Vorschau-Ref wie bisher');
+  const engine = 'useCaptionNdiEngine(cfg ?? FALLBACK_CFG, state?.lines ?? [], hold, state?.leerungen ?? 0, ndiActive, previewRef);';
+  ok(vorReturn.includes(engine), 'CA NDI-Engine bleibt: useCaptionNdiEngine läuft in der Wurzel-View (CaptionOberflaeche) mit Config, Zeilen, Hold, NDI-Lage und Vorschau-Ref wie bisher, dazu die Zahl der Leerungen (Altfehler CA-4)');
   // Oberste Ebene des Funktionsrumpfs (zwei Leerzeichen Einzug): kein if und kein return vor dem einen return des JSX.
   const obereEbene = vorReturn.split('\n').filter((z) => /^ {2}\S/.test(z));
   ok(obereEbene.length > 10 && !obereEbene.some((z) => /^ {2}(if|return)\b/.test(z)), 'CA NDI-Engine bleibt: kein vorzeitiges return und keine Bedingung vor den Hooks (Engine und Effekte laufen unbedingt, auch vor der ersten Antwort)');
-  // Der Aufnahme-Effekt ist Zeichen für Zeichen der alte (App.tsx:85-126 bei d7cdd79ce0), ebenso Laden, Aufräumen und Engine-Werte.
+  // Der Aufnahme-Effekt ist Zeichen für Zeichen der alte (App.tsx:85-126 bei d7cdd79ce0), ebenso Laden, Aufräumen und Engine-Werte;
+  // nur der .catch meldet seit Altfehler CA-1 über mikrofonGescheitert (Fehler im Fenster und stop(), kein Neustart von selbst).
   const ALT_AUFNAHME = `useEffect(() => {
     const desiredDevice = cfg?.audioInputDeviceId ?? '';
     if (running && captureRef.current && activeDeviceRef.current !== desiredDevice) {
@@ -134,7 +135,7 @@ const STAND_ANFANG: OberflaechenStand = { caption: undefined, geraete: undefined
             setMicError(null);
           }
         })
-        .catch((e: unknown) => setMicError(String((e as Error)?.message ?? e)));
+        .catch((e: unknown) => mikrofonGescheitert({ stop }, setMicError, e));
       return () => {
         cancelled = true;
       };
@@ -146,7 +147,10 @@ const STAND_ANFANG: OberflaechenStand = { caption: undefined, geraete: undefined
     }
     return undefined;
   }, [running, cfg, setLevel]);`;
-  ok(flach(vorReturn).includes(flach(ALT_AUFNAHME)), 'CA NDI-Engine bleibt: der Aufnahme-Effekt ist der alte (Start bei running, Neustart beim Gerätewechsel, Stopp, micError bis zum nächsten erfolgreichen Start)');
+  ok(
+    flach(vorReturn).includes(flach(ALT_AUFNAHME)),
+    'CA NDI-Engine bleibt: der Aufnahme-Effekt ist der alte (Start bei running, Neustart beim Gerätewechsel, Stopp); Altfehler CA-1: ein Mikrofonfehler steht im Fenster bis zum nächsten Start und beendet die Transkription (stop()), kein Neustart von selbst',
+  );
   ok(
     [
       'useEffect(() => { void load(); }, [load]);',

@@ -139,11 +139,18 @@ export function LiveBereich({
                   autoFocus
                   defaultValue={l.text}
                   onBlur={(e) => {
-                    aktionen.korrigieren(e.target.value);
+                    // Altfehler CA-5: die Korrektur gilt der Kennung dieser Zeile; nur ein geänderter Text geht an den Main.
+                    if (e.target.value !== l.text) aktionen.korrigieren(l.id, e.target.value);
                     aktionen.bearbeiten(null);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    else if (e.key === 'Escape') {
+                      // Escape bricht ab: alter Text zurück, dann schickt auch ein blur beim Abbau des Felds nichts.
+                      e.preventDefault();
+                      e.currentTarget.value = l.text;
+                      aktionen.bearbeiten(null);
+                    }
                   }}
                   className="my-0.5 w-full rounded-[var(--radius-md)] border border-[var(--field-border)] bg-[var(--input)] px-2 py-1 text-sm text-[var(--foreground)]"
                 />

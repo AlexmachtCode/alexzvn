@@ -71,6 +71,11 @@ export interface CaptionState {
   whisperAvailable: boolean;
   /** Letzte finalisierte Untertitelzeilen (jüngste zuletzt). */
   lines: CaptionLine[];
+  /**
+   * Altfehler CA-4: Zahl der „Leeren“ (Taste und Companion clear) seit dem Start des Main. Eine neue Leerung leert die Ausgabe auch
+   * bei Hold; ein Zähler, weil zwei Übertragungen kurz nacheinander die leere Liste überspringen können.
+   */
+  leerungen: number;
   config: CaptionConfig;
   status: CaptionStatus;
   error: string | null;
@@ -103,8 +108,8 @@ export interface JmCaptionApi {
   stop: () => Promise<CaptionState>;
   setHold: (hold: boolean) => Promise<CaptionState>;
   clear: () => Promise<CaptionState>;
-  /** Letzte Zeile korrigieren (Operator-Edit). */
-  correctLast: (text: string) => Promise<CaptionState>;
+  /** Zeile mit dieser Kennung korrigieren (Operator-Edit, Altfehler CA-5); eine unbekannte Kennung ändert nichts. */
+  correctLine: (id: string, text: string) => Promise<CaptionState>;
   /** Erkannte Äußerung (Float32-PCM @ sampleRate) zum Transkribieren senden. */
   pushUtterance: (pcm: Float32Array, sampleRate: number) => void;
   /** Transparente NDI-Untertitel-Quelle starten/stoppen/abfragen. */

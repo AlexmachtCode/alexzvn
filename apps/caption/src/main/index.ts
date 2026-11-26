@@ -16,6 +16,7 @@ import {
 import type { SuiteCommand, SuiteState } from '@jm/suite-control-protocol';
 import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import type { CaptionConfig, CaptionLine, CaptionState, CaptionStatus } from '@shared/types';
+import { korrigiereZeile } from '@shared/zeilen';
 
 declare const __dirname: string;
 
@@ -48,6 +49,8 @@ let busy = false;
 let error: string | null = null;
 let lines: CaptionLine[] = [];
 let lineSeq = 0;
+// Altfehler CA-4: jedes „Leeren“ zählt; der Renderer leert damit auch bei Hold die NDI-Quelle (R/lib/ndi-engine.ts, angezeigterText).
+let leerungen = 0;
 const status: CaptionStatus = { ndiActive: false, connections: 0, ndiSendet: false, ndiNetzName: null };
 
 /**
@@ -97,7 +100,7 @@ function resourcePath(filename: string): string {
 }
 
 function buildState(): CaptionState {
-  return { running, hold, busy, whisperAvailable: whisperAvailable(), lines, config, status, error };
+  return { running, hold, busy, whisperAvailable: whisperAvailable(), lines, leerungen, config, status, error };
 }
 function broadcast(): void {
   syncNdi();
@@ -154,6 +157,7 @@ function setHoldState(v: boolean): void {
 }
 function doClear(): void {
   lines = [];
+  leerungen++;
   broadcast();
 }
 
@@ -234,10 +238,12 @@ function registerIpc(): void {
     doClear();
     return buildState();
   });
-  ipcMain.handle('caption:correctLast', (_e, text: string) => {
-    if (lines.length) {
-      const last = lines[lines.length - 1];
-      lines = [...lines.slice(0, -1), { ...last, text }];
+  // Altfehler CA-5: die Korrektur trifft die Zeile mit dieser Kennung, auch wenn inzwischen neue Zeilen kamen; übertragen wird nur
+  // bei einem Treffer (eine Zeile, die es nicht mehr gibt, ändert nichts).
+  ipcMain.handle('caption:correctLine', (_e, id: string, text: string) => {
+    const neu = korrigiereZeile(lines, id, text);
+    if (neu) {
+      lines = neu;
       broadcast();
     }
     return buildState();

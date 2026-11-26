@@ -38,7 +38,7 @@ const api: JmCaptionApi = {
   stop: () => ipcRenderer.invoke('caption:stop') as Promise<CaptionState>,
   setHold: (h: boolean) => ipcRenderer.invoke('caption:setHold', h) as Promise<CaptionState>,
   clear: () => ipcRenderer.invoke('caption:clear') as Promise<CaptionState>,
-  correctLast: (text: string) => ipcRenderer.invoke('caption:correctLast', text) as Promise<CaptionState>,
+  correctLine: (id: string, text: string) => ipcRenderer.invoke('caption:correctLine', id, text) as Promise<CaptionState>,
   pushUtterance: (pcm: Float32Array, sampleRate: number) =>
     ipcRenderer.send('caption:utterance', pcm, sampleRate),
   ndi: {

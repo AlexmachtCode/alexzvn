@@ -144,7 +144,7 @@ const auswahlen = (h: string): string[] => [...h.matchAll(/<select[\s\S]*?<\/sel
     'CA Panel Verdrahtung: NDI-Schalter → ndiStart(Name)/ndiStop, Quellname/Auflösung/Bildrate/Eingang/Modell/Sprache/Engine/Zeilen/Wörterbuch/Max. Äußerung/Schrift/Band → setConfig wie bisher, Aktualisieren → refreshDevices',
   );
   gleich(
-    log.filter((z) => /^(start|stop|setHold|clear|correctLast)/.test(z)),
+    log.filter((z) => /^(start|stop|setHold|clear|correctLine)/.test(z)),
     [],
     'CA Panel Verdrahtung: keine Wahl im Panel startet oder stoppt die Transkription, schaltet Hold oder leert (Wahl ≠ Bewegung); NDI schaltet nur der Schalter „Ausgabe“',
   );

@@ -7,9 +7,10 @@
 // betroffenen Zeilen, und der Code trägt, was der Haken sagt.
 // Läuft im Paketordner apps/caption (npm run selftest -w @jm/caption).
 // „unverändert (…)“ darf keine Datei nennen, die seit der Erhebung (d7cdd79ce0) geändert wurde, außer sie bekam nur die lesenden
-// Brücken (E2) oder die gemessene NDI-Lage (E8): dann steht der Hinweis im Haken. Der Abgleich der statischen Liste GEAENDERT
-// mit git läuft nur mit JM_FUNKTIONSLISTE_GIT=1 (Arbeitsbaum gegen die Erhebung, damit auch eine noch nicht eingecheckte Datei
-// zählt).
+// Brücken (E2) oder die gemessene NDI-Lage (E8): dann steht der Hinweis im Haken; oder ein Altfehler der Stufe 2 hat sie geändert:
+// dann steht „Altfehler <ID>“ im Haken, und die Liste der ID in ALTFEHLER nennt die Datei (C8, R6). Der Abgleich der statischen
+// Liste GEAENDERT mit git läuft nur mit JM_FUNKTIONSLISTE_GIT=1 (Arbeitsbaum gegen die Erhebung, damit auch eine noch nicht
+// eingecheckte, aber gestagte Datei zählt).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
@@ -61,12 +62,16 @@ const GEAENDERT = [
   'src/renderer/src/globals.css',
   'src/renderer/src/lib/aktionen.ts',
   'src/renderer/src/lib/bruecken.ts',
+  'src/renderer/src/lib/ndi-engine.ts',
   'src/renderer/src/lib/oberflaeche.ts',
+  'src/renderer/src/store/useCaption.ts',
   'src/renderer/src/views/CaptionOberflaeche.tsx',
   'src/renderer/src/views/Einstellungen.tsx',
   'src/renderer/src/views/LiveBereich.tsx',
   'src/shared/fernsteuerung.ts',
   'src/shared/types.ts',
+  'src/shared/zeilen.ts',
+  'test/ui/altfehler.test.ts',
   'test/ui/bruecken.test.ts',
   'test/ui/funktionsliste.test.ts',
   'test/ui/hilfe.ts',
@@ -82,16 +87,45 @@ const GEAENDERT = [
 ].map((p) => `apps/caption/${p}`);
 
 /**
- * Dateien, die nur die lesenden Brücken (E2) oder die gemessene NDI-Lage (E8) bekamen: der Main, der Preload, der Sender-Start und
- * die Typen dazu. Verhalten und Befehle blieben, bis auf die zwei Folgen von E8 für `ndi` und `connections` (Nr. 82, 83, 95).
+ * Dateien, die nur die lesenden Brücken (E2) oder die gemessene NDI-Lage (E8) bekamen: der Steuerserver und der Sender-Start.
+ * Verhalten und Befehle blieben, bis auf die zwei Folgen von E8 für `ndi` und `connections` (Nr. 82, 83, 95). Seit der
+ * Altfehler-Stufe 2 bekamen main/index.ts (CA-4: Zähler der Leerungen; CA-5: caption:correctLine), preload/index.ts (CA-5) und
+ * shared/types.ts (CA-4, CA-5) mehr; sie stehen darum nicht mehr hier, ein Haken braucht für sie den Verweis auf den Altfehler (K3).
  */
-const NUR_MELDUNG = new Set([
-  'apps/caption/src/main/index.ts',
-  'apps/caption/src/main/control-server.ts',
-  'apps/caption/src/main/ndi/sender-process.ts',
-  'apps/caption/src/preload/index.ts',
-  'apps/caption/src/shared/types.ts',
+const NUR_MELDUNG = new Set(['apps/caption/src/main/control-server.ts', 'apps/caption/src/main/ndi/sender-process.ts']);
+
+/**
+ * Altfehler Stufe 2 (Plan 2026-11-26, Task 4; C8): je erlaubter Caption-ID die Dateien (ab der Repo-Wurzel), die der Befund geändert
+ * hat, wie im Player (Ruling R6). „Altfehler <ID>“ im Haken entlastet ein „unverändert (…)“ oder „NDI-Bild (…)“, das eine geänderte
+ * Datei nennt, nur, wenn die Liste dieser ID die Datei enthält; dann für die ganze Änderung des Befunds, nicht nur für lesende
+ * Brücken. Erlaubt sind genau die Caption-IDs CA-1 (Mikrofonfehler stoppt), CA-4 (Leeren leert NDI auch bei Hold) und CA-5
+ * (Korrektur trifft die Zeile per Kennung, G8: auch die Wurzel-View).
+ */
+const APP = (p: string): string => `apps/caption/src/${p}`;
+const RENDERER = (p: string): string => `apps/caption/src/renderer/src/${p}`;
+const ALTFEHLER = new Map<string, readonly string[]>([
+  ['CA-1', [RENDERER('lib/aktionen.ts'), RENDERER('views/CaptionOberflaeche.tsx')]],
+  ['CA-4', [APP('shared/types.ts'), APP('main/index.ts'), RENDERER('lib/ndi-engine.ts'), RENDERER('views/CaptionOberflaeche.tsx')]],
+  [
+    'CA-5',
+    [
+      APP('shared/zeilen.ts'),
+      APP('shared/types.ts'),
+      APP('main/index.ts'),
+      APP('preload/index.ts'),
+      RENDERER('store/useCaption.ts'),
+      RENDERER('lib/aktionen.ts'),
+      RENDERER('views/LiveBereich.tsx'),
+      RENDERER('views/CaptionOberflaeche.tsx'),
+    ],
+  ],
 ]);
+/** Verweis „Altfehler <ID>“ auf eine der erlaubten IDs; die ID steht in Gruppe 1. */
+const ALTFEHLER_VERWEIS = new RegExp(`\\bAltfehler (${[...ALTFEHLER.keys()].join('|')})(?![\\w-])`, 'g');
+/** Die Altfehler-IDs, die ein Text (ohne Code) als Verweis nennt. */
+const altfehlerIds = (text: string): string[] => [...text.matchAll(ALTFEHLER_VERWEIS)].map((m) => m[1]);
+/** Entlastet einer der Verweise die Datei (kanonischer Pfad)? */
+const entlastet = (ids: readonly string[], datei: string): boolean => ids.some((id) => ALTFEHLER.get(id)?.includes(datei) === true);
 
 const GEAENDERT_KANON = new Set(GEAENDERT);
 
@@ -198,11 +232,13 @@ function zeilenFehler(z: Zeile): string | null {
   const fehlt = pfade.filter((p) => !gibtEs(p));
   if (fehlt.length > 0) return `Datei fehlt: ${fehlt.join(', ')}`;
   // „unverändert“ und der Bildweg nennen nur Dateien, die seit der Erhebung unverändert sind; Dateien mit nur den lesenden
-  // Brücken (E2) oder der gemessenen NDI-Lage (E8) mit Hinweis.
+  // Brücken (E2) oder der gemessenen NDI-Lage (E8) mit Hinweis, Dateien, die ein Altfehler der Stufe 2 geändert hat, mit dem
+  // Verweis „Altfehler <ID>“, dessen Liste sie nennt (R6).
   if (form === 'unverändert' || form === 'NDI-Bild') {
-    const veraendert = pfade.filter((p) => GEAENDERT_KANON.has(kanon(p)) || GIT?.has(kanon(p)) === true);
-    if (veraendert.length > 0 && !/\bE[28]\b/.test(ohneCode)) return `unverändert mit geänderter Datei (${veraendert.join(', ')}) ohne Hinweis auf E2 oder E8`;
-    if (veraendert.some((p) => !NUR_MELDUNG.has(kanon(p)))) return `unverändert mit einer Datei, die mehr als die lesenden Brücken und die NDI-Lage bekam (${veraendert.join(', ')})`;
+    const ids = altfehlerIds(ohneCode);
+    const offen = pfade.filter((p) => (GEAENDERT_KANON.has(kanon(p)) || GIT?.has(kanon(p)) === true) && !entlastet(ids, kanon(p)));
+    if (offen.length > 0 && !/\bE[28]\b/.test(ohneCode)) return `unverändert mit geänderter Datei (${offen.join(', ')}) ohne Hinweis auf E2 oder E8 und ohne Altfehler-Verweis, dessen Liste sie nennt`;
+    if (offen.some((p) => !NUR_MELDUNG.has(kanon(p)))) return `unverändert mit einer Datei, die mehr als die lesenden Brücken und die NDI-Lage bekam (${offen.join(', ')})`;
   }
   return null;
 }
@@ -237,23 +273,71 @@ for (const z of alle) {
     ok(zuviel.length === 0, `CA Funktionsliste: GEAENDERT nennt keine Datei, die git nicht als geändert kennt (zu viel: ${zuviel.join(', ') || 'nichts'})`);
     const zitiert = alle
       .filter((z) => z.zellen[6].startsWith('✓ unverändert (') || z.zellen[6].startsWith('✓ NDI-Bild'))
-      .flatMap((z) => [...z.zellen[6].matchAll(PFAD)].map((m) => kanon(m[1])));
+      .flatMap((z) => {
+        const ids = altfehlerIds(z.zellen[6].replace(/`[^`]*`/g, ''));
+        return [...z.zellen[6].matchAll(PFAD)].map((m) => kanon(m[1])).filter((n) => !entlastet(ids, n));
+      });
     const getroffen = zitiert.filter((n) => GIT.has(n));
-    ok(getroffen.every((n) => NUR_MELDUNG.has(n)), `CA Funktionsliste: keine in einem unverändert-Haken zitierte Datei bekam mehr als die lesenden Brücken und die NDI-Lage (${getroffen.join(', ') || 'keine'})`);
+    ok(getroffen.every((n) => NUR_MELDUNG.has(n)), `CA Funktionsliste: keine in einem unverändert-Haken zitierte Datei bekam mehr als die lesenden Brücken und die NDI-Lage, außer ein Altfehler-Verweis nennt sie in seiner Liste (${getroffen.join(', ') || 'keine'})`);
     const pakete = ['packages/suite-control-protocol/src/capabilities.ts', 'packages/show/src/index.ts'];
     ok(pakete.every((p) => !GIT.has(p)), 'CA Funktionsliste: die zitierten Pakete (capabilities.ts, Freigabeliste der Show) sind seit der Erhebung unverändert');
+    const listen = [...ALTFEHLER.values()].flat();
+    ok(listen.every((n) => GIT.has(n)), `CA Funktionsliste: jede Datei einer Altfehler-Liste ist laut git geändert (nicht: ${listen.filter((n) => !GIT.has(n)).join(', ') || 'nichts'})`);
+  }
+  // Jede Datei einer Altfehler-Liste steht in GEAENDERT: eine Liste entlastet nur, was wirklich geändert ist.
+  {
+    const listen = [...ALTFEHLER.values()].flat();
+    ok(
+      listen.length > 0 && listen.every((n) => GEAENDERT_KANON.has(n)),
+      `CA Funktionsliste: jede Datei einer Altfehler-Liste steht in GEAENDERT (nicht: ${listen.filter((n) => !GEAENDERT_KANON.has(n)).join(', ') || 'nichts'})`,
+    );
   }
   // Negativprobe: andere Schreibweisen derselben geänderten Datei werden erkannt, eine unveränderte nicht.
   const synth = (pfad: string, zusatz = ''): Zeile => ({ abschnitt: 3, nr: 0, zellen: ['0', '', '', '', '', '', `✓ unverändert (\`${pfad}\`): x${zusatz}`] });
+  const synthBild = (pfad: string, zusatz = ''): Zeile => ({ abschnitt: 3, nr: 0, zellen: ['0', '', '', '', '', '', `✓ NDI-Bild (\`${pfad}\`): x${zusatz}`] });
   ok(
     ['views/LiveBereich.tsx', 'renderer/src/views/LiveBereich.tsx', 'apps/caption/src/renderer/src/views/LiveBereich.tsx'].every((p) => (zeilenFehler(synth(p)) ?? '').includes('geänderter Datei')) &&
       (zeilenFehler(synth('views/LiveBereich.tsx', ' (E2)')) ?? '').includes('mehr als die lesenden Brücken') &&
       zeilenFehler(synth('main/control-server.ts', ' (E2)')) === null &&
-      zeilenFehler(synth('main/index.ts', ' (E8)')) === null &&
       zeilenFehler(synth('main/ndi/sender-process.ts', ' (E8)')) === null &&
       (zeilenFehler(synth('main/ndi/wachhund.ts', ' (E8)')) ?? '').includes('mehr als die lesenden Brücken') &&
       zeilenFehler(synth('main/transcriber.ts')) === null,
     'CA Funktionsliste: eine geänderte Datei wird in jeder Schreibweise erkannt; E2 und E8 entlasten nur Dateien mit den lesenden Brücken bzw. der NDI-Lage; eine unveränderte Datei ist frei',
+  );
+  // Der Verweis „Altfehler <ID>“ (Stufe 2, C8) entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt (R6); nur mit dem
+  // Wort „Altfehler“ und nur die drei Caption-IDs. main/index.ts, preload/index.ts und shared/types.ts verlassen NUR_MELDUNG (K3):
+  // E2 oder E8 allein entlasten sie nicht mehr.
+  ok(
+    (zeilenFehler(synth('lib/ndi-engine.ts')) ?? '').includes('geänderter Datei') &&
+      zeilenFehler(synth('lib/ndi-engine.ts', ' (Altfehler CA-4)')) === null &&
+      (zeilenFehler(synth('lib/ndi-engine.ts', ' (Altfehler CA-5)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('lib/ndi-engine.ts', ' (Altfehler CA-1)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('lib/ndi-engine.ts', ' (CA-4)')) ?? '').includes('geänderter Datei') &&
+      ['CA-10', 'CA-11', 'CA-1a', 'CA-1-b', 'CA-40', 'CA-8', 'CA-2', 'IN-3', 'SD-1', 'PL-N', 'SC-S2'].every((id) => (zeilenFehler(synth('lib/ndi-engine.ts', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')) &&
+      (zeilenFehler(synth('main/index.ts', ' (E8)')) ?? '').includes('mehr als die lesenden Brücken') &&
+      zeilenFehler(synth('main/index.ts', ' (E8, Altfehler CA-4)')) === null &&
+      zeilenFehler(synth('main/index.ts', ' (Altfehler CA-5)')) === null &&
+      (zeilenFehler(synth('main/index.ts', ' (E8, Altfehler CA-1)')) ?? '').includes('mehr als die lesenden Brücken') &&
+      (zeilenFehler(synth('preload/index.ts', ' (E2)')) ?? '').includes('mehr als die lesenden Brücken') &&
+      zeilenFehler(synth('preload/index.ts', ' (E2, Altfehler CA-5)')) === null &&
+      (zeilenFehler(synth('preload/index.ts', ' (Altfehler CA-4)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('shared/types.ts', ' (E2)')) ?? '').includes('mehr als die lesenden Brücken') &&
+      zeilenFehler(synth('shared/types.ts', ' (Altfehler CA-4)')) === null &&
+      zeilenFehler(synth('apps/caption/src/shared/types.ts', ' (Altfehler CA-5)')) === null &&
+      zeilenFehler(synth('store/useCaption.ts', ' (Altfehler CA-5)')) === null &&
+      (zeilenFehler(synth('store/useCaption.ts', ' (Altfehler CA-4)')) ?? '').includes('geänderter Datei') &&
+      zeilenFehler(synth('views/CaptionOberflaeche.tsx', ' (Altfehler CA-1)')) === null &&
+      (zeilenFehler(synthBild('lib/ndi-engine.ts')) ?? '').includes('geänderter Datei') &&
+      zeilenFehler(synthBild('lib/ndi-engine.ts', ' (Altfehler CA-4)')) === null,
+    'CA Funktionsliste: „Altfehler CA-4“ entlastet lib/ndi-engine.ts im unverändert- und im NDI-Bild-Haken; ohne ID, mit der ID eines anderen Befunds, ohne das Wort „Altfehler“ oder mit einer fremden ID nicht; main/index.ts, preload/index.ts und shared/types.ts brauchen ihren Altfehler-Verweis (K3)',
+  );
+  // Negativprobe R6: nennt ein Haken zwei geänderte Dateien, entlastet die ID nur die aus ihrer Liste.
+  ok(
+    /geänderter Datei \(store\/useCaption\.ts\)/.test(zeilenFehler(synth('lib/ndi-engine.ts', ' und `store/useCaption.ts` (Altfehler CA-4)')) ?? '') &&
+      zeilenFehler(synth('lib/ndi-engine.ts', ' und `store/useCaption.ts` (Altfehler CA-4, Altfehler CA-5)')) === null &&
+      (zeilenFehler(synth('views/LiveBereich.tsx', ' (Altfehler CA-1)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('views/Einstellungen.tsx', ' (Altfehler CA-5)')) ?? '').includes('geänderter Datei'),
+    'CA Funktionsliste: eine geänderte Datei mit einer Altfehler-ID, deren Liste sie nicht nennt, wird gemeldet (R6)',
   );
 }
 
@@ -264,6 +348,8 @@ const beginnt = (nr: number, ...orte: string[]): boolean => orte.some((o) => kue
 const ersetzt = (nr: number, ort: string): boolean => kuenftig(nr).startsWith(`✓ ersetzt durch ${ort}`);
 const nennt = (nr: number, ...woerter: string[]): boolean => woerter.every((w) => kuenftig(nr).includes(w));
 const unveraendert = (nr: number): boolean => kuenftig(nr).startsWith('✓ unverändert (');
+/** Nennt der Haken der Zeile einen Altfehler-Verweis, dessen Liste die Datei (Pfad nach der Pfadregel der Liste) enthält? */
+const gebunden = (nr: number, datei: string): boolean => entlastet(altfehlerIds(kuenftig(nr).replace(/`[^`]*`/g, '')), kanon(datei));
 const ohneKommentar = (s: string): string => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 const von = (nrn: number[], f: (nr: number) => boolean): boolean => nrn.every(f);
 const bis = (a: number, b: number): number[] => [...Array(b - a + 1).keys()].map((i) => i + a);
@@ -297,9 +383,9 @@ ok(
   'CA Funktionsliste Nr. 1: die Engine und die Aufnahme-Effekte laufen vor jeder Bedingung in der Wurzel-View, das Vorschau-Canvas steht ohne Bedingung im JSX (Befund 14)',
 );
 ok(
-  unveraendert(2) && nennt(2, '`main/index.ts`', '`renderer/index.html`', 'E2', 'E8') && quelle('renderer/index.html').includes('class="dark"') &&
+  unveraendert(2) && nennt(2, '`main/index.ts`', '`renderer/index.html`', 'E2', 'E8') && gebunden(2, 'main/index.ts') && quelle('renderer/index.html').includes('class="dark"') &&
     hauptIndex.includes('backgroundThrottling: false') && hauptIndex.includes('width: 1100') && hauptIndex.includes('requestSingleInstanceLock'),
-  'CA Funktionsliste Nr. 2: die Fensterhülle bleibt (main/index.ts bekam nur die lesenden Brücken und die NDI-Lage, E2, E8), index.html behält class="dark"',
+  'CA Funktionsliste Nr. 2: die Fensterhülle bleibt (main/index.ts bekam die lesenden Brücken und die NDI-Lage, E2, E8, dazu Altfehler CA-4 und CA-5), index.html behält class="dark"',
 );
 ok(
   ersetzt(3, 'Kopf') && nennt(3, 'E16', 'JM Caption', 'Untertitel', 'Nr. 5 bis 8', 'Nr. 9 bis 11') && wurzel.includes('tool="Caption"') && !/subtitle|untertitel=/i.test(ohneKommentar(wurzel)),
@@ -421,9 +507,10 @@ ok(
 );
 ok(
   beginnt(25, 'Live-Bereich Haupttasten') && beginnt(61, 'Live-Bereich Haupttasten') && von([25, 61], (nr) => nennt(nr, 'E9', 'Mikrofon: ‹Meldung›', 'nie live')) && nennt(25, 'Ruling Task 25/26', 'nächsten erfolgreich') &&
+    von([25, 61], (nr) => nennt(nr, 'Altfehler CA-1', 'running=0')) && nennt(61, '`mikrofonGescheitert`', 'nicht von selbst neu') && gebunden(61, 'views/CaptionOberflaeche.tsx') &&
     live.includes('{stand.micError !== null && (') && live.includes('T.live.mikrofonFehler(stand.micError)') && obf.includes('`Mikrofon: ${meldung}`') && obf.includes('error: s.micError ?? undefined') && wurzel.includes('setMicError(null)') &&
-    kopfOnAirOhneMic(),
-  'CA Funktionsliste Nr. 25, 61: der Mikrofonfehler ist ein Statuseintrag und ein Text unter den Haupttasten (E9); Start bleibt bedienbar und ist nie live; er bleibt bis zum nächsten erfolgreichen Start',
+    wurzel.includes('.catch((e: unknown) => mikrofonGescheitert({ stop }, setMicError, e));') && akt.includes('export function mikrofonGescheitert(') && kopfOnAirOhneMic(),
+  'CA Funktionsliste Nr. 25, 61: der Mikrofonfehler ist ein Statuseintrag und ein Text unter den Haupttasten (E9); Start bleibt bedienbar und ist nie live; er bleibt bis zum nächsten erfolgreichen Start; Altfehler CA-1: er beendet die Transkription (running=0), kein Neustart von selbst',
 );
 function kopfOnAirOhneMic(): boolean {
   return obf.includes('c.status.ndiSendet && c.running && s.micError === null');
@@ -447,9 +534,12 @@ ok(
   'CA Funktionsliste Nr. 29–31: Pegelbalken (jetzt grün statt gelb, rot über 80 Prozent), „transkribiert …“ und „n Zeilen“ stehen in der Pegelzeile',
 );
 ok(
-  von([32, 33, 34, 35], (nr) => beginnt(nr, 'Live-Bereich Verlauf')) && nennt(34, 'Escape', 'Befund 5') && live.includes('.slice()') && live.includes('.reverse()') && live.includes('onDoubleClick={() => l.id === last?.id && aktionen.bearbeiten(l.id)}') &&
-    live.includes('aktionen.korrigieren(e.target.value)') && live.includes("if (e.key === 'Enter') (e.target as HTMLInputElement).blur();") && !/Escape/.test(ohneKommentar(live)) && live.includes('{T.live.keineZeilen}') && akt.includes('korrigieren: (text) => void store.correctLast(text)'),
-  'CA Funktionsliste Nr. 32–35: der Verlauf, die Korrektur der jüngsten Zeile (Doppelklick, Enter und Verlassen übernehmen, Escape tut nichts) und „Noch keine Untertitel.“ stehen im Live-Bereich wie bisher',
+  von([32, 33, 34, 35], (nr) => beginnt(nr, 'Live-Bereich Verlauf')) && nennt(34, 'Escape', 'Befund 5', 'Altfehler CA-5', 'correctLine', 'bricht ab') && nennt(33, 'Altfehler CA-5') &&
+    live.includes('.slice()') && live.includes('.reverse()') && live.includes('onDoubleClick={() => l.id === last?.id && aktionen.bearbeiten(l.id)}') &&
+    live.includes('if (e.target.value !== l.text) aktionen.korrigieren(l.id, e.target.value);') && live.includes("if (e.key === 'Enter') (e.target as HTMLInputElement).blur();") &&
+    /else if \(e\.key === 'Escape'\) \{\s*e\.preventDefault\(\);\s*e\.currentTarget\.value = l\.text;\s*aktionen\.bearbeiten\(null\);\s*\}/.test(ohneKommentar(live)) && live.includes('{T.live.keineZeilen}') &&
+    akt.includes('korrigieren: (id, text) => void store.correctLine(id, text)') && store.includes('correctLine: async (id, text) => set({ state: await window.jmcaption.correctLine(id, text) }),') && !/correctLast/.test(ohneKommentar(akt + store + wurzel + live)),
+  'CA Funktionsliste Nr. 32–35: der Verlauf, die Korrektur (Doppelklick auf die jüngste Zeile, Enter und Verlassen übernehmen) und „Noch keine Untertitel.“ stehen im Live-Bereich wie bisher; Altfehler CA-5: die Korrektur trifft die angeklickte Zeile per Kennung (correctLine), nur ein geänderter Text geht an den Main, Escape bricht ab',
 );
 ok(
   ersetzt(36, 'Rahmen') && nennt(36, 'E4', 'caption', 'undefined', 'FALLBACK_CFG', 'Lädt …', 'unbekannt') && store.includes('state: null') && !/FALLBACK/.test(store),
@@ -504,7 +594,7 @@ ok(
   [
     'useBrueckenWert(MASTER_LINK_QUELLE)',
     'useBrueckenWert(FERNSTEUERUNG_QUELLE)',
-    'useCaptionNdiEngine(cfg ?? FALLBACK_CFG, state?.lines ?? [], hold, ndiActive, previewRef)',
+    'useCaptionNdiEngine(cfg ?? FALLBACK_CFG, state?.lines ?? [], hold, state?.leerungen ?? 0, ndiActive, previewRef)',
     'startCapture(',
     "navigator.mediaDevices.addEventListener?.('devicechange', onChange)",
     'void load();',
@@ -515,14 +605,15 @@ ok(
   'CA Funktionsliste: Engine, Aufnahme, Geräteliste, Laden und Brücken laufen in der Wurzel-View auch bei geschlossenem Panel; Einstellungen.tsx hat kein window, keine Effekte, keinen Store; LiveBereich.tsx keine Hooks (E15)',
 );
 ok(
-  von([53, 56, 57, 59, 60, 86], (nr) => beginnt(nr, 'Rahmen') && nennt(nr, '`views/CaptionOberflaeche.tsx`')) && nennt(53, 'showAdv', 'geraete', 'Panel') && !GEAENDERT_KANON.has('apps/caption/src/renderer/src/store/useCaption.ts') &&
+  von([53, 56, 57, 59, 60, 86], (nr) => beginnt(nr, 'Rahmen') && nennt(nr, '`views/CaptionOberflaeche.tsx`')) && nennt(53, 'showAdv', 'geraete', 'Panel') && gebunden(53, 'store/useCaption.ts') &&
     !GEAENDERT_KANON.has('apps/caption/src/renderer/src/lib/capture.ts') && wurzel.includes('activeDeviceRef.current !== desiredDevice') && wurzel.includes('setGeraete(geraeteListe(d))') && wurzel.includes('.catch(() => setGeraete([]))'),
-  'CA Funktionsliste Nr. 53, 56, 57, 59, 60, 86: Zustand, Aufnahme, Gerätewechsel und Geräteliste leben unverändert in der Wurzel-View; Store und lib/capture.ts sind unverändert',
+  'CA Funktionsliste Nr. 53, 56, 57, 59, 60, 86: Zustand, Aufnahme, Gerätewechsel und Geräteliste leben unverändert in der Wurzel-View; der Store änderte sich nur mit Altfehler CA-5, lib/capture.ts ist unverändert',
 );
 ok(
   von([58], (nr) => unveraendert(nr) && nennt(nr, '`lib/capture.ts`')) && von([48, 49, 50, 51, 54, 55, 62, 63, 72, 73], unveraendert) && nennt(48, '`main/index.ts`', 'E2') && nennt(52, 'syncNdi', 'ndiSendet', 'ndiNetzName') && unveraendert(52) &&
+    von([48, 49, 50, 51, 52, 54, 55, 62, 63, 72, 73], (nr) => gebunden(nr, 'main/index.ts')) && gebunden(63, 'preload/index.ts') &&
     hauptIndex.includes('function syncNdi(): void') && hauptIndex.includes('status.ndiSendet = ndiLage.sendet;') && hauptIndex.includes('status.ndiNetzName = ndiLage.netzName;'),
-  'CA Funktionsliste Nr. 48–55, 58, 62, 63, 72, 73: Start, Konfiguration, Übertragung, Transkription und Korrektur im Main sind unverändert (nur die lesenden Brücken und die NDI-Lage, E2, E8)',
+  'CA Funktionsliste Nr. 48–55, 58, 62, 63, 72, 73: Start, Konfiguration, Übertragung, Transkription und Korrektur im Main bleiben bis auf die lesenden Brücken und die NDI-Lage (E2, E8) und die Altfehler CA-4 und CA-5, die jede Zeile nennt',
 );
 ok(
   von([64, 65, 66, 67, 68, 71, 114, 115], unveraendert) && von([64, 65, 66, 67], (nr) => nennt(nr, '`main/transcriber.ts`')) && nennt(68, '`main/whisper-server.ts`') && nennt(71, '`shared/prompt.ts`') &&
@@ -534,12 +625,14 @@ ok(
   'CA Funktionsliste Nr. 69, 70: Modell- und Engine-Wechsel wirken wie bisher bei der nächsten Äußerung; die Wahl steht im Panel Erkennung',
 );
 ok(
-  beginnt(74, 'Live-Bereich Verlauf') && nennt(74, 'einzige', 'onKeyDown') && (ohneKommentar(live).match(/onKeyDown/g) ?? []).length === 1,
-  'CA Funktionsliste Nr. 74: Enter im Korrekturfeld ist weiter das einzige onKeyDown der Oberfläche',
+  beginnt(74, 'Live-Bereich Verlauf') && nennt(74, 'einzige', 'onKeyDown', 'Escape', 'Altfehler CA-5') && (ohneKommentar(live).match(/onKeyDown/g) ?? []).length === 1,
+  'CA Funktionsliste Nr. 74: der Hörer des Korrekturfelds (Enter, seit Altfehler CA-5 auch Escape) ist weiter das einzige onKeyDown der Oberfläche',
 );
 ok(
-  von([75, 76], unveraendert) && nennt(75, '`lib/ndi-engine.ts`', 'E7') && nennt(76, '`lib/ndi-engine.ts`', 'Befund 4') && !GEAENDERT_KANON.has('apps/caption/src/renderer/src/lib/ndi-engine.ts') && motor.includes('shownTextRef'),
-  'CA Funktionsliste Nr. 75, 76: Hold und Leeren wirken unverändert (Befund 4 bleibt)',
+  von([75, 76], unveraendert) && nennt(75, '`lib/ndi-engine.ts`', 'E7', 'Altfehler CA-4') && nennt(76, '`lib/ndi-engine.ts`', '`lib/caption-cg.ts`', 'Befund 4', 'Altfehler CA-4', '`leerungen`', '`angezeigterText`', 'Hold bleibt an') &&
+    gebunden(75, 'lib/ndi-engine.ts') && gebunden(76, 'lib/ndi-engine.ts') && gebunden(76, 'main/index.ts') && !GEAENDERT_KANON.has('apps/caption/src/renderer/src/lib/caption-cg.ts') && nennt(10, 'Altfehler CA-4', 'Nr. 76') &&
+    motor.includes('shownRef.current = angezeigterText(shownRef.current, linesRef.current, holdRef.current, leerungenRef.current);') && hauptIndex.includes('leerungen++;') && hauptIndex.includes("case 'clear':\n      doClear();"),
+  'CA Funktionsliste Nr. 10, 75, 76: Hold friert weiter ein (E7); Altfehler CA-4: „Leeren“ (Taste und Companion clear) leert Vorschau und NDI auch bei Hold (Zähler leerungen, angezeigterText), Hold bleibt an und hält den leeren Stand; der Zeichner bleibt',
 );
 
 // ── NDI im Main (Nr. 77, 78, 80–85, 97): E8 – gemessene Lage, Ende des Senders, spätes stat ──
@@ -555,8 +648,10 @@ ok(
   'CA Funktionsliste Nr. 82, 83, 95: der Wachhund (3 s), das Ende des Senders (ndiActive aus, connections 0) und das späte stat eines alten Prozesses (setzt connections nicht mehr) stehen in den Zeilen; ndi toggle nach Absturz startet NDI',
 );
 ok(
-  von([80, 81], (nr) => beginnt(nr, 'NDI-Bild')) && nennt(80, '`lib/ndi-engine.ts`', 'E2', 'E8') && nennt(81, '`lib/caption-cg.ts`', 'W2-9') && !GEAENDERT_KANON.has('apps/caption/src/renderer/src/lib/caption-cg.ts') && !GEAENDERT_KANON.has('apps/caption/src/utility/ndi-sender.ts') && ohneKommentar(motor).includes('setInterval(tick'),
-  'CA Funktionsliste Nr. 80, 81: der Bildweg und der Zeichner der NDI-Frames sind unverändert',
+  von([80, 81], (nr) => beginnt(nr, 'NDI-Bild')) && nennt(80, '`lib/ndi-engine.ts`', 'E2', 'E8', '`angezeigterText`') && nennt(81, '`lib/caption-cg.ts`', 'W2-9') && gebunden(80, 'lib/ndi-engine.ts') && gebunden(80, 'preload/index.ts') &&
+    !GEAENDERT_KANON.has('apps/caption/src/renderer/src/lib/caption-cg.ts') && !GEAENDERT_KANON.has('apps/caption/src/utility/ndi-sender.ts') && ohneKommentar(motor).includes('setInterval(tick') &&
+    motor.includes('const u32 = new Uint32Array(img.data.buffer);') && motor.includes("port.postMessage({ type: 'video', buffer: img.data.buffer, w: W, h: H, fpsN: c.ndiFps });"),
+  'CA Funktionsliste Nr. 80, 81: der Bildweg (Takt, Pixel, BGRA, Anschluss) und der Zeichner der NDI-Frames sind unverändert; die Textwahl je Takt kam mit Altfehler CA-4 (angezeigterText), der Preload bekam mit Altfehler CA-5 correctLine',
 );
 ok(
   von([84, 85], unveraendert) && nennt(84, '`main/index.ts`', 'E8') && nennt(85, '`main/control-server.ts`') && hauptIndex.includes("app.on('window-all-closed'") && hauptIndex.includes("app.on('before-quit'") && /win\.on\('closed', \(\) => \{\s*stopSender\(\);\s*ndiLage\.stoppe\(\);/.test(hauptIndex),
@@ -607,8 +702,8 @@ ok(
   );
 }
 ok(
-  beginnt(100, 'Live-Bereich Verlauf') && nennt(100, 'Enter', 'Escape', 'blur') && live.includes("e.key === 'Enter'") && live.includes('onBlur='),
-  'CA Funktionsliste Nr. 100: Enter im Korrekturfeld übernimmt über blur, Escape tut nichts, Verlassen übernimmt',
+  beginnt(100, 'Live-Bereich Verlauf') && nennt(100, 'Enter', 'Escape', 'blur', 'Altfehler CA-5', 'bricht') && live.includes("e.key === 'Enter'") && live.includes("e.key === 'Escape'") && live.includes('onBlur='),
+  'CA Funktionsliste Nr. 100: Enter im Korrekturfeld übernimmt über blur, Verlassen übernimmt; Escape bricht seit Altfehler CA-5 ab (zuvor tat es nichts)',
 );
 ok(
   beginnt(101, 'Panel Darstellung') && beginnt(102, 'Panel Erkennung') && nennt(102, 'Select', 'nicht verfügbar', 'jeder Schritt') && (panel.match(/<Select/g) ?? []).length >= 4 && !/<select/.test(panel),
@@ -695,6 +790,11 @@ ok(
   ok(/zum Zeitpunkt der Erhebung/i.test(a8) && /masterLink/.test(a8) && /E2/.test(a8) && !/Zugänge, die der Umbau ergänzt \(Entscheidung E2\)\./.test(a8) && /ndiSendet/.test(a8) && !/E8 ergänzt `ndiSendet` und `ndiNetzName` im Status\./.test(a8), 'CA Funktionsliste Abschnitt 8: Master-Link und Fernsteuerungs-Zustand fehlten zum Zeitpunkt der Erhebung und sind jetzt ergänzt (E2), ndiSendet und ndiNetzName sind da (E8)');
   ok(/`ndi\.status\(\)`[^\n]*spiegelt/.test(a8) && /fernsteuerung/.test(a8) && /onFernsteuerung/.test(a8), 'CA Funktionsliste Abschnitt 8: die neuen Funktionen fernsteuerung, onFernsteuerung, masterLink, onMasterLink stehen in der Übersicht; ndi.status spiegelt die NDI-Lage');
   ok(
+    /\| `correctLine\(id, text\)` \| `caption:correctLine` \| invoke \|[^|]*Altfehler CA-5[^|]*zum Zeitpunkt der Erhebung `correctLast\(text\)`/.test(abschnitt8) && !/\| `correctLast\(text\)` \|/.test(abschnitt8) &&
+      /Altfehler CA-4 ergänzt `leerungen`/.test(a8),
+    'CA Funktionsliste Abschnitt 8: correctLine(id, text) über caption:correctLine steht in der Übersicht (Altfehler CA-5, der alte Kanal correctLast als Stand der Erhebung), CaptionState nennt leerungen (Altfehler CA-4)',
+  );
+  ok(
     !/Sperrgründe nach dem heutigen Ablauf: \*\*keine\*\* \(alle vier sind nie gesperrt, Nr\. 9\)/.test(a9) && /Lädt …/.test(a9) && /gesperrt/.test(a9),
     'CA Funktionsliste Abschnitt 9: die Haupttasten sind nicht mehr „nie gesperrt“, sie sind vor der ersten Antwort des Main gesperrt („Lädt …“)',
   );
@@ -721,5 +821,17 @@ ok(
     /Welle 2a:[^]*Korrektur/.test(befund(5)) && /Welle 2a:[^]*Number\(Wert\)[^]*leer/.test(befund(8)) && /Welle 2a:[^]*Stopp[^]*letzten Worte/.test(befund(6)) && /Welle 2a:[^]*Base/.test(befund(7)),
     'CA Funktionsliste Abschnitt 10: die Befunde 5–8 nennen ihr Verhalten nach der Welle (Korrektur der jüngsten Zeile, Stopp, Base-Rückfall, leeres Zahlenfeld gleich 0)',
   );
+  {
+    const stufe2 = (n: number, id: string): string => {
+      const b = befund(n);
+      const i = b.indexOf(`Altfehler Stufe 2 (${id}):`);
+      return i > b.indexOf('Welle 2a:') && b.indexOf('Welle 2a:') >= 0 ? b.slice(i) : '';
+    };
+    ok(
+      /behoben[^]*`running=0`[^]*nicht mehr von selbst neu/.test(stufe2(1, 'CA-1')) && /behoben[^]*auch bei Hold[^]*Hold bleibt an/.test(stufe2(4, 'CA-4')) &&
+        /behoben[^]*Kennung[^]*`caption:correctLine`[^]*Escape bricht ab/.test(stufe2(5, 'CA-5')) && /Altfehler Stufe 2 \(‹ID›\):/.test(abschnitt10.slice(0, 900)),
+      'CA Funktionsliste Abschnitt 10: Befund 1, 4 und 5 behalten den Satz der Welle 2a und nennen danach „Altfehler Stufe 2 (CA-1, CA-4, CA-5): behoben …“ (Widerruf: alter Text bleibt stehen)',
+    );
+  }
   ok(nennt(1, 'CaptionOberflaeche') && nennt(36, 'Rahmen'), 'CA Funktionsliste: Nr. 1 und Nr. 36 nennen die Wurzel-View');
 }
