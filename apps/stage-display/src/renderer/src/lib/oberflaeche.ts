@@ -13,7 +13,7 @@ import {
 } from '@jm/settings';
 import { masterLinkStatusItem, unbekannt, type StatusItem } from '@jm/ui';
 import type { AusgabeZustand } from '@jm/output-window/zustand';
-import { VORGABE_HOST } from '@shared/mdns';
+import { aufVorgabe } from '@shared/mdns';
 import type { MasterLinkMeldungZeile, StageState } from '@shared/types';
 import { buehnenNachricht } from './nachricht';
 
@@ -172,8 +172,9 @@ export function ausgabeAbschnitt(s: OberflaechenStand, a?: StageAktionen): Scree
 }
 
 /**
- * Eine Quellenzeile: Ein/Aus aus der Konfiguration, `connected` gemessen; nie eine Quelle (kein Auto, E12). Altfehler SD-3: ein Host
- * außer der Vorgabe 127.0.0.1 gilt als eingerichtet (die mDNS-Suche ersetzt ihn nicht); nicht verbunden heißt dann „nicht erreichbar“.
+ * Eine Quellenzeile: Ein/Aus aus der Konfiguration, `connected` gemessen; nie eine Quelle (kein Auto, E12). Altfehler SD-3: ein Host,
+ * der nicht auf der Vorgabe steht (weder 127.0.0.1 noch leer, `aufVorgabe`, Ruling R6), gilt als eingerichtet (die mDNS-Suche ersetzt
+ * ihn nicht); nicht verbunden heißt dann „nicht erreichbar“.
  */
 function quellenZeile(s: OberflaechenStand, r: (typeof ROLLEN)[number]): PeerRow {
   const q = s.stage?.config[r.role];
@@ -186,7 +187,7 @@ function quellenZeile(s: OberflaechenStand, r: (typeof ROLLEN)[number]): PeerRow
     defaultPort: r.defaultPort,
     enabled: q?.enabled,
     connected: gemessen,
-    eingerichtet: (q?.host ?? '') !== VORGABE_HOST,
+    eingerichtet: !aufVorgabe(q?.host ?? ''),
   };
 }
 

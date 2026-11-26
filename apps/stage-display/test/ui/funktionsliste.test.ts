@@ -113,7 +113,7 @@ const NUR_MELDUNG = new Set([
  * geändert hat, wie im Player (Ruling R6). „Altfehler <ID>“ im Haken entlastet ein „unverändert (…)“, das eine geänderte Datei nennt,
  * nur, wenn die Liste dieser ID die Datei enthält; dann für die ganze Änderung des Befunds, nicht nur für lesende Brücken. Erlaubt sind
  * genau die drei Stage-Display-IDs SD-5 (PIN verdeckt, gilt erst mit „Setzen“), SD-1 (Nachricht als Entwurf) und SD-3 (mDNS nur bei
- * der Vorgabe 127.0.0.1); SD-3 nennt dazu die Datei aus @jm/settings, die es erweitert (C5).
+ * der Vorgabe 127.0.0.1 oder ohne Host, Ruling R6); SD-3 nennt dazu die Datei aus @jm/settings, die es erweitert (C5).
  */
 const APP = (p: string): string => `apps/stage-display/src/${p}`;
 const RENDERER = (p: string): string => `apps/stage-display/src/renderer/src/${p}`;
@@ -621,14 +621,15 @@ ok(
 {
   ok(
     [57, 58, 59, 60].every((nr) => gebunden(nr, 'main/index.ts') && gebunden(nr, 'shared/mdns.ts') && kuenftig(nr).includes('Vorgabe 127.0.0.1')) &&
-      ['„nicht erreichbar“', 'Vorschläge', 'C5', 'Befund 3', '`mdnsUebernahme`'].every((w) => kuenftig(57).includes(w)) &&
+      ['„nicht erreichbar“', 'Vorschläge', 'C5', 'Befund 3', '`mdnsUebernahme`', '`aufVorgabe`'].every((w) => kuenftig(57).includes(w)) &&
       [90, 91, 92, 93, 94, 95, 96, 97].every((nr) => kuenftig(nr).includes('Altfehler SD-3') && kuenftig(nr).includes('Vorgabe 127.0.0.1')) &&
+      [43, 57, 58, 59, 60, 90, 91, 92, 93, 94, 95, 96, 97].every((nr) => kuenftig(nr).includes('ohne Host')) &&
       kuenftig(43).includes('nicht erreichbar') &&
       quelle('main/index.ts').includes('mdnsUebernahme(getConfig(),') &&
       quelle('shared/mdns.ts').includes("export const VORGABE_HOST = '127.0.0.1';") &&
       quelle('packages/settings/src/abschnitte/peers.ts').includes("zeileNichtErreichbar: 'nicht erreichbar'") &&
-      obf.includes("eingerichtet: (q?.host ?? '') !== VORGABE_HOST"),
-    'SD Funktionsliste Nr. 43, 57–60, 90–97: die mDNS-Suche übernimmt nur auf der Vorgabe 127.0.0.1, ein eingerichteter Host ohne Verbindung heißt „nicht erreichbar“ (Altfehler SD-3)',
+      obf.includes("eingerichtet: !aufVorgabe(q?.host ?? '')"),
+    'SD Funktionsliste Nr. 43, 57–60, 90–97: die mDNS-Suche übernimmt nur auf der Vorgabe 127.0.0.1 oder ohne Host (Ruling R6), ein eingerichteter Host ohne Verbindung heißt „nicht erreichbar“ (Altfehler SD-3)',
   );
   const befund = (n: number): string => {
     const i = text.indexOf(`\n${n}. **`, text.indexOf('## 10 · '));

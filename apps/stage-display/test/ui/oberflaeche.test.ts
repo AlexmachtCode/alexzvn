@@ -117,14 +117,14 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
     { id: 'quelle-presenter', idx: 2 },
   ] as const;
   for (const r of ROLLEN) {
-    const faelle = kreuz({ geladen: [false, true], an: [false, true], verbunden: [false, true], host: ['127.0.0.1', '10.0.0.4'] } as const);
-    pruefeFaelle(`SD Statusleiste ${r.id}: unbekannt, aus, verbunden, nicht gefunden bei der Vorgabe, nicht erreichbar bei eingerichtetem Host (warn, nie error)`, faelle, (f) => {
+    const faelle = kreuz({ geladen: [false, true], an: [false, true], verbunden: [false, true], host: ['127.0.0.1', '', '  ', '10.0.0.4'] } as const);
+    pruefeFaelle(`SD Statusleiste ${r.id}: unbekannt, aus, verbunden, nicht gefunden bei der Vorgabe oder leerem Host (R6), nicht erreichbar bei eingerichtetem Host (warn, nie error)`, faelle, (f) => {
       const an: [boolean, boolean, boolean] = [false, false, false];
       const v: [boolean, boolean, boolean] = [false, false, false];
       an[r.idx] = f.an;
       v[r.idx] = f.verbunden;
       const i = eintrag(stand({ stage: f.geladen ? zustand({ an, verbunden: v, host: f.host }) : undefined }), r.id);
-      const warn = f.host === '127.0.0.1' ? 'nicht gefunden' : 'nicht erreichbar';
+      const warn = f.host === '10.0.0.4' ? 'nicht erreichbar' : 'nicht gefunden';
       const soll = !f.geladen ? 'off unbekannt' : !f.an ? `off ${ABSCHNITT_TEXTE.aus}` : f.verbunden ? `ok ${PEERS_TEXTE.zeileVerbunden}` : `warn ${warn}`;
       return vergleiche(sd(i), soll) ?? (i.group !== 'verbindung' || i.settingsSection !== ABSCHNITT.quellen ? 'Kopf falsch' : i.state === 'error' ? 'error' : null);
     });
@@ -142,13 +142,20 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
       quellenAbschnitt(stand({ stage: zustand({ host: '10.0.0.4' }) })).peers.map((r) => r.eingerichtet),
       quellenAbschnitt(stand({ stage: zustand() })).peers.map((r) => r.eingerichtet),
       quellenAbschnitt(stand({ stage: zustand({ host: '' }) })).peers.map((r) => r.eingerichtet),
+      quellenAbschnitt(stand({ stage: zustand({ host: '  ' }) })).peers.map((r) => r.eingerichtet),
     ],
     [
       [true, true, true],
       [false, false, false],
-      [true, true, true],
+      [false, false, false],
+      [false, false, false],
     ],
-    'SD-3 Quellenzeile: eingerichtet genau dann, wenn der Host nicht die Vorgabe 127.0.0.1 ist (PeerRow.eingerichtet aus @jm/settings, C5)',
+    'SD-3 Quellenzeile: eingerichtet genau dann, wenn der Host weder die Vorgabe 127.0.0.1 noch leer ist (auch nur Leerzeichen, Ruling R6; PeerRow.eingerichtet aus @jm/settings, C5)',
+  );
+  gleich(
+    ['', '  '].map((host) => sd(eintrag(stand({ stage: zustand({ an: [true, false, false], host }) }), 'quelle-timer'))),
+    ['warn nicht gefunden', 'warn nicht gefunden'],
+    'SD-3 Statusleiste (Ruling R6): Quelle an, nicht verbunden, Host leer oder nur Leerzeichen → „nicht gefunden“, nicht „nicht erreichbar“',
   );
   const faelle = kreuz({ an: [false, true], verbunden: [false, true] } as const);
   pruefeFaelle('SD Quellen nur wenn an: aus → off aus, nie error, auch wenn der Zähler verbunden meldet', faelle, (f) => {
@@ -161,7 +168,7 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
 
 // ── SD Quellen gleich wie Abschnitt: Statuseintrag = Zeile des Panels (eine Wahrheit) ──
 {
-  const faelle = kreuz({ geladen: [false, true], an: [false, true], verbunden: [false, true], idx: [0, 1, 2], host: ['127.0.0.1', '10.0.0.4'] } as const);
+  const faelle = kreuz({ geladen: [false, true], an: [false, true], verbunden: [false, true], idx: [0, 1, 2], host: ['127.0.0.1', '', '10.0.0.4'] } as const);
   pruefeFaelle('SD Quellen gleich wie Abschnitt: Zustand und Text des Eintrags gleichen der Panel-Zeile je Rolle, auch mit eingerichtetem Host (Altfehler SD-3)', faelle, (f) => {
     const an: [boolean, boolean, boolean] = [false, false, false];
     const v: [boolean, boolean, boolean] = [false, false, false];

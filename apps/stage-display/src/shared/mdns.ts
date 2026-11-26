@@ -1,12 +1,21 @@
 // mDNS-Übernahme gefundener Hosts als reines Modul (Altfehler Stufe 2, SD-3; ohne electron und ohne @jm/discovery, damit testbar).
 // Findet die Suche eine Quelle im LAN, übernimmt Stage Display Host und Port nur, solange die Quelle eingeschaltet, nicht verbunden
-// und noch auf der Vorgabe VORGABE_HOST ist. Ein eingetragener (von Hand, per Show oder früher gefundener) Host bleibt stehen, auch
+// und noch auf der Vorgabe ist (VORGABE_HOST oder ohne Host, aufVorgabe). Ein eingetragener (von Hand, per Show oder früher gefundener) Host bleibt stehen, auch
 // wenn er gerade nicht erreichbar ist; die Statusleiste sagt dann „nicht erreichbar“. Andere gefundene Hosts werden nicht als
 // Vorschläge angezeigt (C5). Die PIN bleibt manuell: die Suche liefert nur die Adresse, nicht das Geheimnis.
 import type { PartialStageConfig, StageConfig } from './types';
 
 /** Vorgabe-Host der drei Quellen (DEFAULT_CONFIG in shared/konfig-regeln.ts); nur hier darf die mDNS-Suche umstellen. */
 export const VORGABE_HOST = '127.0.0.1';
+
+/**
+ * Steht die Quelle auf der Vorgabe? Ja bei VORGABE_HOST und bei einem leeren Host, auch nur aus Leerzeichen (Ruling R6: „Setzen“
+ * mit leerem Host ist erlaubt, und leer heißt automatisch). Dann darf die mDNS-Suche einen Fund übernehmen, und die Quelle gilt
+ * nicht als eingerichtet. Die eine Regel für Übernahme (mdnsUebernahme) und Status (lib/oberflaeche.ts).
+ */
+export function aufVorgabe(host: string): boolean {
+  return host === VORGABE_HOST || host.trim() === '';
+}
 
 /** Ein gefundener Dienst, wie @jm/discovery ihn meldet (nur die Felder, die hier zählen). */
 export interface MdnsDienst {
@@ -32,7 +41,7 @@ function dienstFuer(q: Quelle, dienste: readonly MdnsDienst[]): MdnsDienst | und
 
 /**
  * Patch der Konfiguration aus einem mDNS-Fund: je Quelle Host und Port des Dienstes, wenn die Quelle an ist, nicht verbunden, auf
- * der Vorgabe steht und der Fund einen anderen Host meldet (wie bisher); sonst nichts. Leer = nichts zu ändern.
+ * der Vorgabe steht (aufVorgabe) und der Fund einen anderen Host meldet (wie bisher); sonst nichts. Leer = nichts zu ändern.
  */
 export function mdnsUebernahme(
   cfg: StageConfig,
@@ -43,7 +52,7 @@ export function mdnsUebernahme(
   for (const q of QUELLEN) {
     const d = dienstFuer(q, dienste);
     const quelle = cfg[q];
-    if (d && quelle.enabled && !verbunden[q] && quelle.host === VORGABE_HOST && d.host !== quelle.host) patch[q] = { host: d.host, port: d.port };
+    if (d && quelle.enabled && !verbunden[q] && aufVorgabe(quelle.host) && d.host !== quelle.host) patch[q] = { host: d.host, port: d.port };
   }
   return patch;
 }

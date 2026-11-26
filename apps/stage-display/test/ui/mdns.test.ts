@@ -5,6 +5,7 @@
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
 import type { StageConfig } from '@shared/types';
 import { DEFAULT_CONFIG } from '@shared/konfig-regeln';
+import * as mdnsModul from '@shared/mdns';
 import { mdnsUebernahme, VORGABE_HOST } from '@shared/mdns';
 import { kreuz, pruefeFaelle, vergleiche } from './hilfe';
 import { ohneKommentare } from './testzustand';
@@ -32,14 +33,32 @@ gleich(VORGABE_HOST, '127.0.0.1', 'SD-3 VORGABE_HOST: die Vorgabe der drei Quell
   gleich(mdnsUebernahme(cfgMit('timer', { enabled: false, host: '127.0.0.1' }), keineVerbunden, dienst), {}, 'SD-3 Timer aus → nichts');
 }
 
-// ── Kreuzprodukt je Quelle: Host (Vorgabe/eingerichtet) × an × verbunden ──
+// ── Kreuzprodukt je Quelle: Host (Vorgabe, leer, nur Leerzeichen, eingerichtet) × an × verbunden ──
 for (const q of QUELLEN) {
-  const faelle = kreuz({ host: [VORGABE_HOST, '10.0.0.4'], an: [false, true], verbunden: [false, true] } as const);
-  pruefeFaelle(`SD-3 mDNS ${q}: übernommen nur bei an, nicht verbunden und Host auf der Vorgabe`, faelle, (f) => {
+  const faelle = kreuz({ host: [VORGABE_HOST, '', '  ', '10.0.0.4'], an: [false, true], verbunden: [false, true] } as const);
+  pruefeFaelle(`SD-3 mDNS ${q}: übernommen nur bei an, nicht verbunden und Host auf der Vorgabe oder leer (Ruling R6)`, faelle, (f) => {
     const patch = mdnsUebernahme(cfgMit(q, { enabled: f.an, host: f.host }), { ...keineVerbunden, [q]: f.verbunden }, [{ role: q, host: '10.0.0.9', port: 4242 }]);
-    const soll = f.an && !f.verbunden && f.host === VORGABE_HOST ? { [q]: { host: '10.0.0.9', port: 4242 } } : {};
+    const aufDerVorgabe = (['127.0.0.1', '', '  '] as string[]).includes(f.host);
+    const soll = f.an && !f.verbunden && aufDerVorgabe ? { [q]: { host: '10.0.0.9', port: 4242 } } : {};
     return vergleiche(JSON.stringify(patch), JSON.stringify(soll));
   });
+}
+
+// ── Ruling R6: ein leerer Host (auch nur Leerzeichen) zählt wie die Vorgabe 127.0.0.1 als nicht eingerichtet; die Regel steht einmal
+// (aufVorgabe) und gilt für die Übernahme wie für den Status ──
+{
+  const aufVorgabe = (mdnsModul as Record<string, unknown>).aufVorgabe as ((host: string) => boolean) | undefined;
+  gleich(
+    typeof aufVorgabe === 'function' ? [VORGABE_HOST, '', '  ', '10.0.0.4', 'regie.local', '127.0.0.2'].map(aufVorgabe) : 'aufVorgabe fehlt',
+    [true, true, true, false, false, false],
+    'SD-3 aufVorgabe (Ruling R6): die Vorgabe 127.0.0.1 und ein leerer Host (auch nur Leerzeichen) stehen auf der Vorgabe, jeder andere Host ist eingerichtet',
+  );
+  const dienst = [{ role: 'timer', host: '10.0.0.9', port: 7777 }];
+  gleich(
+    ['', '  '].map((host) => mdnsUebernahme(cfgMit('timer', { enabled: true, host }), keineVerbunden, dienst)),
+    [{ timer: { host: '10.0.0.9', port: 7777 } }, { timer: { host: '10.0.0.9', port: 7777 } }],
+    'SD-3 (Ruling R6): Timer an, Host leer oder nur Leerzeichen, nicht verbunden → der Fund wird übernommen wie auf der Vorgabe',
+  );
 }
 
 // ── Die Filter von heute: Steuer-Marke, Rolle, gleicher Host ──
@@ -95,4 +114,14 @@ for (const q of QUELLEN) {
   );
   const modul = ohneKommentare(leseText('src/shared/mdns.ts'));
   ok(!/from ['"](?:electron|node:|@jm\/discovery)/.test(modul), 'SD-3 Wächter: shared/mdns.ts ist rein (kein electron, kein node:, kein @jm/discovery)');
+  // Ruling R6 (Review Minor 2): die Regel „auf der Vorgabe“ steht nur in aufVorgabe; Übernahme und Status rufen sie.
+  ok(
+    modul.includes('export function aufVorgabe(host: string): boolean') && modul.includes('aufVorgabe(quelle.host)') && (modul.match(/VORGABE_HOST/g) ?? []).length === 2,
+    'SD-3 Wächter (R6): in shared/mdns.ts steht VORGABE_HOST nur in der Konstante und in aufVorgabe; mdnsUebernahme ruft aufVorgabe',
+  );
+  const obf = ohneKommentare(leseText('src/renderer/src/lib/oberflaeche.ts'));
+  ok(
+    obf.includes("eingerichtet: !aufVorgabe(q?.host ?? '')") && !obf.includes('VORGABE_HOST') && !obf.includes('127.0.0.1'),
+    'SD-3 Wächter (R6): lib/oberflaeche.ts setzt eingerichtet über aufVorgabe und vergleicht nicht selbst mit VORGABE_HOST',
+  );
 }

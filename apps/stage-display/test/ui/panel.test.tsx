@@ -85,9 +85,10 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
     'SD Panel Abschnitte: das PIN-Feld trägt Platzhalter „PIN“, Zifferntastatur und den alten Tooltip',
   );
   ok(text(k).includes('PIN nur falls die Presenter-Fernsteuerung mit PIN läuft — sonst leer lassen'), 'SD Panel Abschnitte: die Hinweiszeile zur PIN steht da');
-  // Nur die Knöpfe der Gruppe „Anzeige“: „Anzeigen“ am PIN-Feld trägt seit Altfehler SD-5 ebenfalls aria-pressed.
-  const modi = tags(k.slice(k.indexOf('data-stage="modus"')), 'button').filter((t) => attr(t, 'aria-pressed') !== undefined);
-  gleich(modi.map((t) => attr(t, 'aria-pressed')), ['false', 'true'], 'SD Panel Abschnitte: Anzeige Referenz/Haupt als Knopfpaar mit aria-pressed, der gewählte Modus ist gedrückt');
+  // Im ganzen Abschnitt tragen nur die zwei Knöpfe der Anzeige aria-pressed; „Anzeigen“/„Verbergen“ am PIN-Feld nicht, weil seine
+  // Beschriftung mit dem Zustand wechselt (Altfehler SD-5, Ruling R5, WAI-ARIA APG).
+  const modi = tags(k, 'button').filter((t) => attr(t, 'aria-pressed') !== undefined);
+  gleich(modi.map((t) => attr(t, 'aria-pressed')), ['false', 'true'], 'SD Panel Abschnitte: Anzeige Referenz/Haupt als Knopfpaar mit aria-pressed, der gewählte Modus ist gedrückt; sonst trägt kein Knopf aria-pressed (R5)');
   ok(['Anzeige', 'Referenzansicht', 'Hauptansicht', 'Folienbild erscheint, sobald eine Präsentation läuft'].every((w) => text(k).includes(w)), 'SD Panel Abschnitte: Beschriftungen der Anzeige wie bisher');
   for (const [name, st] of [['ohne Zustand', undefined], ['Presenter aus', stageZustand()]] as const) {
     const h = panel(stand({ stage: st }));
@@ -110,9 +111,14 @@ const schalter = (html: string): string[] => tags(html, 'button').filter((t) => 
   const auf = ansicht(true);
   gleich([feld(zu)?.props.type, feld(auf)?.props.type], ['password', 'text'], 'SD-5 PinFeldAnsicht verdeckt: das Feld ist ein Passwortfeld, mit „Anzeigen“ ein Textfeld');
   gleich(
-    [knopf(zu, 'Anzeigen')?.props['aria-pressed'], knopf(auf, 'Verbergen')?.props['aria-pressed'], knopf(zu, 'Verbergen'), knopf(auf, 'Anzeigen')],
-    [false, true, undefined, undefined],
-    'SD-5 PinFeldAnsicht verdeckt: der Knopf heißt verdeckt „Anzeigen“ (aria-pressed false), sichtbar „Verbergen“ (aria-pressed true)',
+    [knopf(zu, 'Anzeigen') !== undefined, knopf(auf, 'Verbergen') !== undefined, knopf(zu, 'Verbergen'), knopf(auf, 'Anzeigen')],
+    [true, true, undefined, undefined],
+    'SD-5 PinFeldAnsicht verdeckt: der Knopf heißt verdeckt „Anzeigen“, sichtbar „Verbergen“',
+  );
+  gleich(
+    [zu, auf].map((b) => b.filter((e) => e.type === Button && 'aria-pressed' in e.props).length),
+    [0, 0],
+    'SD-5 PinFeldAnsicht (Ruling R5): kein Knopf trägt aria-pressed, weil die Beschriftung „Anzeigen“/„Verbergen“ mit dem Zustand wechselt (WAI-ARIA APG)',
   );
   const f = feld(zu)?.props ?? {};
   gleich(

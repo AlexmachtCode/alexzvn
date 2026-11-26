@@ -29,7 +29,9 @@ export function PinFeldAnsicht(p: PinFeldAnsichtProps): React.JSX.Element {
         placeholder={T.pin}
         title={T.pinHinweis}
       />
-      <Button type="button" variant="outline" size="sm" uppercase={false} className="shrink-0" aria-pressed={p.sichtbar} onClick={p.onAnzeigen}>
+      {/* Kein aria-pressed: die Beschriftung wechselt mit dem Zustand (Ruling R5, WAI-ARIA APG: ein Umschaltknopf mit
+          aria-pressed behält seine Beschriftung). */}
+      <Button type="button" variant="outline" size="sm" uppercase={false} className="shrink-0" onClick={p.onAnzeigen}>
         {p.sichtbar ? T.verbergen : T.anzeigen}
       </Button>
       <Button type="button" variant="outline" size="sm" uppercase={false} className="shrink-0" onClick={p.onSetzen}>

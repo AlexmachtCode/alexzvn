@@ -92,7 +92,7 @@ function applyConnections(): void {
 
 /**
  * mDNS-Fund auswerten (Altfehler SD-3): Findet sich eine Quelle im LAN, übernehmen wir den entdeckten Host/Port nur, solange die
- * Quelle eingeschaltet, nicht verbunden und noch auf der Vorgabe 127.0.0.1 ist — so verbindet sich Stage Display ohne manuelle
+ * Quelle eingeschaltet, nicht verbunden und noch auf der Vorgabe 127.0.0.1 oder ohne Host ist — so verbindet sich Stage Display ohne manuelle
  * IP-Eingabe, ersetzt aber keinen eingetragenen Host mehr still. Die Regel (samt der Wahl des Dienstes ohne Steuer-Marke) steht in
  * shared/mdns.ts. Auth (Presenter-PIN) bleibt manuell — Discovery liefert nur die Adresse, nicht das Geheimnis.
  */
@@ -278,7 +278,7 @@ if (!gotLock) {
     if (runtime.initialDeepLink) applyShowFromDeepLink(runtime.initialDeepLink);
     applyConnections();
     // LAN nach Quellen absuchen und nicht stehende Verbindungen, die noch auf der
-    // Vorgabe 127.0.0.1 stehen, automatisch auf den entdeckten Host umstellen
+    // Vorgabe 127.0.0.1 oder ohne Host stehen, automatisch auf den entdeckten Host umstellen
     // (mDNS, Altfehler SD-3). Best-effort.
     try {
       discovery = discover(onDiscovered, { verifyKey: mdnsVerifyKey });
