@@ -10,7 +10,7 @@ import type { RecorderState, RecorderStatus } from '@shared/types';
 import { meldungAbonnieren } from '@/lib/aktionen';
 import { dbfsLabel, formatClock } from '@/lib/format';
 import { hauptTasten, RECORDER_TEXTE, statusLeiste, type OberflaechenStand, type RecorderZustand } from '@/lib/oberflaeche';
-import { LiveBereich, liveKnoepfe, type LiveAktionen, type LiveWerte } from '@/views/LiveBereich';
+import { aufnahmeMarke, LiveBereich, liveKnoepfe, type LiveAktionen, type LiveWerte } from '@/views/LiveBereich';
 import { RecorderOberflaeche } from '@/views/RecorderOberflaeche';
 import { ZeitplanKarte, type ZeitplanAktionen } from '@/views/RecorderView';
 import { tallyHandler } from '../../../../packages/ui/src/components/TallyButton';
@@ -307,7 +307,7 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
 // ── RE Live Hinweisband: Hinweise des Stores, Token statt Amber ──
 {
   const beide = live(stand({ recorder: recorder({ hinweisEingang: 'Gemerkter Eingang fehlt.' }) }), { hinweisOrdner: 'Ordner fehlt.' });
-  // Vom Band bis zum Ende seines ersten Knopfs (das „ד), über die innere Spalte der Absätze hinweg.
+  // Vom Band bis zum Ende seines ersten Knopfs (das „×“), über die innere Spalte der Absätze hinweg.
   const von = beide.indexOf('role="alert"');
   const band = von < 0 ? '' : beide.slice(von, beide.indexOf('</button>', von) + '</button>'.length);
   ok(band.includes('<p>Gemerkter Eingang fehlt.</p>') && band.includes('<p>Ordner fehlt.</p>') && tags(band, 'button').some((t) => attr(t, 'title') === 'Hinweis schließen'), 'RE Live Hinweisband: beide Hinweise als Absätze und „×“ mit Tooltip „Hinweis schließen“');
@@ -495,4 +495,36 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
   const roh = /\b(?:bg|text|border|ring|from|to|via|fill|stroke|outline|divide|shadow|accent)-(?:white|black|neutral|gray|grey|zinc|slate|stone|red|green|blue|yellow|amber|orange|lime|emerald|teal|cyan|sky|indigo|violet|purple|fuchsia|pink|rose)(?:-\d+)?\b|#[0-9a-fA-F]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\(/;
   ok(roh.test('border-amber-500/60 bg-amber-500/10') && roh.test("background: '#121212'") && roh.test('rgba(0,0,0,.5)') && !roh.test('border-[var(--status-warn)]/60'), 'RE keine rohen Farben: Gegenprobe (Amber des alten Hinweisbands, Hex und rgba() werden erkannt, Tokens nicht)');
   gleich(dateien.filter((d) => roh.test(QUELLE(d))), [], 'RE keine rohen Farben: keine rohen Farbklassen, Hex- oder rgb-Werte in Rahmen, Live-Bereich, Panel, Zeitplan, Preset-Leiste und Aktionen');
+}
+
+// ── Altfehler RE-3 (Plan 2026-11-26, Task 7): die Marke zeigt das Fehlerfeld des Hauptprozesses in der Tönung destructive (nie
+// „Fehler“, das ist UI_TEXTE.zustand.error); die Aufnahme-Taste heißt „Neu aufnehmen“ und ruft record, „Eingang schließen“ quittiert ──
+{
+  type Art = 'schreiben' | 'eingang' | 'start';
+  const mitFehler = (art: Art, status: RecorderStatus = 'armed'): RecorderState => zustand(status, { fehler: { art, text: 'ENOSPC', datei: null } } as Partial<RecorderState>);
+  const m = (z: RecorderState): unknown => aufnahmeMarke(z);
+  gleich(
+    [m(mitFehler('schreiben')), m(mitFehler('eingang')), m(mitFehler('start')), m(mitFehler('schreiben', 'idle'))],
+    [
+      { tone: 'destructive', text: 'Schreibfehler' },
+      { tone: 'destructive', text: 'Kein Eingang' },
+      { tone: 'destructive', text: 'Nicht gestartet' },
+      { tone: 'destructive', text: 'Schreibfehler' },
+    ],
+    'RE-3 Marke: bei Fehlerfeld „Schreibfehler“, „Kein Eingang“ bzw. „Nicht gestartet“ in der Tönung destructive (statt „Bereit“ oder „Inaktiv“)',
+  );
+  const html = live(stand({ zustand: mitFehler('schreiben') }));
+  const tag = tags(html, 'span').find((t) => attr(t, 'data-recorder') === 'marke');
+  ok(
+    text(element(html, 'span', 'data-recorder="marke"')) === 'Schreibfehler' && (attr(tag, 'class') ?? '').includes('var(--destructive)') && !(attr(tag, 'class') ?? '').includes('var(--success)'),
+    'RE-3 Marke „Schreibfehler“ im Live-Bereich, Farbe aus --destructive',
+  );
+  gleich(
+    knoepfe(live(stand({ zustand: mitFehler('schreiben') }))).map((k) => [k.label, k.state]),
+    [['Neu aufnehmen', 'bereit'], [T.taste.eingangSchliessen, 'bereit']],
+    'RE-3 Live Tasten: bei Fehlerfeld links „Neu aufnehmen“ (bereit), rechts „Eingang schließen“ (bereit)',
+  );
+  const log: string[] = [];
+  for (const k of liveKnoepfe(stand({ zustand: mitFehler('schreiben') }), aktionen(log))) klick(k);
+  gleich(log, ['record', 'disarm'], 'RE-3 Live Verdrahtung: „Neu aufnehmen“ ruft record (ein gelungener Start löscht den Fehler), „Eingang schließen“ ruft disarm (quittiert, K7)');
 }

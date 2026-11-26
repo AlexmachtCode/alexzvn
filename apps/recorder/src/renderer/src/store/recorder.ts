@@ -12,6 +12,7 @@ import { normiereOrdner } from '../../../shared/netzordner';
 import { gleicheDefinierteWerte, istNetzwerkPfad, PRESET_NAME_MAX, presetWerte, saeubereAnzeige } from '../../../shared/presets';
 import { pruefeFernbefehl } from '../lib/fernbefehl';
 import { RECORDER_TEXTE } from '../lib/oberflaeche';
+import { PLATZ_TAKT_MS, platzOrdner } from '../lib/platz';
 
 const IDLE: RecorderState = {
   status: 'idle',
@@ -20,6 +21,8 @@ const IDLE: RecorderState = {
   sampleRate: 0,
   filePath: null,
   recordedSec: 0,
+  fehler: null,
+  spuren: false,
 };
 
 /** Wartezeit, bis eine Änderung in die Einstellungsdatei geht — Tippen im Dateinamen schreibt nicht je Taste. */
@@ -69,6 +72,13 @@ interface RecStore {
   netzordnerOffen: string | null;
   /** Altfehler RE-7b: der Ordner von vorher, solange ein Show-Vorschlag offen ist; „×“ stellt ihn her (D1), das Merken schreibt ihn (B4). */
   dirGemerkt: string | null;
+  /** Altfehler RE-7a: der Main fragt beim Schließen während einer Aufnahme nach; true, solange die Rückfrage im Fenster steht. */
+  schliessenFrage: boolean;
+  /**
+   * Altfehler RE-PLATZ: freie Byte im Ordner, der zählt (in der Aufnahme der Ordner der Datei, sonst der Zielordner); undefined = noch
+   * keine Antwort (auch nach einem Ordnerwechsel), null = nicht lesbar oder kein Zielordner.
+   */
+  platzFrei: number | null | undefined;
   loading: boolean;
   /** Gespeicherte Presets (Namen sortiert, wie der Main sie liefert). */
   presets: RecPreset[];
@@ -97,6 +107,8 @@ interface RecStore {
   hinweiseSchliessen: () => void;
   /** Altfehler RE-7b: den Netzwerkordner aus der Show bestätigen (der Main merkt ihn) und setzen. */
   netzordnerUebernehmen: () => Promise<void>;
+  /** Altfehler RE-7a: die Rückfrage beim Schließen beantworten („Aufnahme beenden“ oder „Weiter aufnehmen“); sie verschwindet sofort. */
+  schliessenAntworten: (a: 'beenden' | 'weiter') => void;
   presetAnwenden: (name: string) => Promise<void>;
   /** Überschreibt ohne Rückfrage — die fragt die UI. */
   presetSpeichern: (name: string) => Promise<void>;
@@ -233,7 +245,8 @@ export const useRec = create<RecStore>((set, get) => {
       (ist.device !== soll.deviceIndex || ist.channels !== soll.channels || ist.sampleRate !== soll.sampleRate)
     ) {
       try {
-        await get().disarm();
+        // Altfehler RE-3 (Pre-flight K7): nur arm; der Main schließt den offenen Eingang dabei selbst. „Eingang schließen“ (disarm) gälte
+        // als Quittung des Bedieners und löschte ein Fehlerfeld des Hauptprozesses still.
         offen = await get().arm();
       } catch (e) {
         offen = false;
@@ -294,11 +307,17 @@ export const useRec = create<RecStore>((set, get) => {
     hinweisOrdner: null,
     netzordnerOffen: null,
     dirGemerkt: null,
+    schliessenFrage: false,
+    platzFrei: undefined,
     loading: true,
     presets: [],
     aktivesPreset: null,
 
     setNotice: (notice) => set({ notice }),
+    schliessenAntworten: (a) => {
+      set({ schliessenFrage: false });
+      void window.jmrec.schliessenAntwort(a).catch(() => {});
+    },
     hinweiseSchliessen: () => {
       // „×“: beide Hinweise weg; ein offener Show-Vorschlag ist verworfen, es gilt wieder der Ordner von vorher (Altfehler RE-7b, D1).
       const s = get();
@@ -438,6 +457,12 @@ export const useRec = create<RecStore>((set, get) => {
       window.jmrec.onLevels((l) => set({ peaks: l.peaks }));
       window.jmrec.onState((s) => set({ state: s }));
       window.jmrec.onNotice((msg) => set({ notice: msg }));
+      // Altfehler RE-7a (B3, D4): der Main stellt die Rückfrage beim Schließen; „gezeigt“ geht sofort zurück, sonst fragt er nach 1 s selbst
+      // (nativer Dialog). Ein false schließt sie (der Rückfall griff, dort gilt die erste Antwort).
+      window.jmrec.onSchliessenFrage((offen) => {
+        set({ schliessenFrage: offen });
+        if (offen) void window.jmrec.schliessenAntwort('gezeigt').catch(() => {});
+      });
       // TCP-Fernsteuerung (Companion): Befehle auf die Store-Aktionen abbilden.
       window.jmrec.onRemoteCommand((cmd) => {
         const s = get();
@@ -531,6 +556,7 @@ export const useRec = create<RecStore>((set, get) => {
       wiederhergestellt = true;
       set({ loading: false });
       starteMerken();
+      startePlatz();
     },
 
     refreshDevices: async () => {
@@ -746,4 +772,66 @@ function starteMerken(): void {
   window.addEventListener('beforeunload', () => {
     if (wartet) schreibe();
   });
+}
+
+/**
+ * Altfehler RE-PLATZ (B5): fragt den freien Platz im Ordner, der zählt (`platzOrdner`), sofort bei jedem Wechsel von Ordner, Format, Spuren
+ * oder Status und im Takt PLATZ_TAKT_MS. Höchstens eine Abfrage zugleich; was während einer Abfrage geändert wird, fragt gleich danach. Eine
+ * Antwort für einen inzwischen anderen Ordner gilt nicht; nach einem Ordnerwechsel ist der Platz bis zur Antwort unbekannt. Ohne Ordner
+ * (auch bei einem offenen Netzwerkvorschlag der Show, RE-7b) gibt es keine Abfrage. Die Brücke steht fest (ein späteres window, etwa im
+ * Test, fragt nicht über diesen Store).
+ */
+function startePlatz(): void {
+  const jmrec = window.jmrec;
+  const ordnerVon = (s: RecStore): string | null => platzOrdner(s.state, s.dir);
+  const schluesselVon = (s: RecStore): string => JSON.stringify([ordnerVon(s), s.channels, s.sampleRate, s.separateTracks, s.state.status]);
+  let laeuft = false;
+  let nochmal = false;
+  let ordnerZuletzt = ordnerVon(useRec.getState());
+  let schluessel = schluesselVon(useRec.getState());
+  const frage = (): void => {
+    if (laeuft) {
+      nochmal = true;
+      return;
+    }
+    const ordner = ordnerVon(useRec.getState());
+    if (ordner === null) {
+      if (useRec.getState().platzFrei !== null) useRec.setState({ platzFrei: null });
+      return;
+    }
+    laeuft = true;
+    let antwort: Promise<number | null>;
+    try {
+      antwort = jmrec.platz(ordner);
+    } catch (e) {
+      antwort = Promise.reject(e);
+    }
+    void antwort
+      .then(
+        (frei) => (typeof frei === 'number' && Number.isFinite(frei) && frei >= 0 ? frei : null),
+        () => null,
+      )
+      .then((frei) => {
+        laeuft = false;
+        if (ordnerVon(useRec.getState()) === ordner) useRec.setState({ platzFrei: frei });
+        if (nochmal) {
+          nochmal = false;
+          frage();
+        }
+      });
+  };
+  useRec.subscribe((s) => {
+    const k = schluesselVon(s);
+    if (k === schluessel) return;
+    schluessel = k;
+    const ordner = ordnerVon(s);
+    if (ordner !== ordnerZuletzt) {
+      ordnerZuletzt = ordner;
+      if (ordner !== null && s.platzFrei !== undefined) useRec.setState({ platzFrei: undefined });
+    }
+    frage();
+  });
+  const takt = setInterval(frage, PLATZ_TAKT_MS);
+  (takt as { unref?: () => void }).unref?.();
+  frage();
 }

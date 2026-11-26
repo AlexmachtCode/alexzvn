@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path, { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
@@ -7,13 +7,22 @@ import type { RecShowSettings } from '@shared/types';
 import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
 import { pruefeShowOrdner } from '@shared/netzordner';
 import { saeubereAnzeige } from '@shared/presets';
+import { SCHLIESSEN_TEXTE, SchliessenAblauf, schliessenEntscheid } from '@shared/schliessen';
 import { netzordnerListe, registerIpc } from './ipc';
-import { shutdown } from './recorder';
+import { getState, shutdown } from './recorder';
 import { startControlServer, stopControlServer } from './control-server';
 
 declare const __dirname: string;
 
 let mainWindow: BrowserWindow | null = null;
+
+/**
+ * Altfehler RE-7a (D4): die App soll beenden (Mac Cmd+Q, app.quit). Fragt das Schließen des Fensters nach, wartet der Wunsch auf die Antwort:
+ * „Aufnahme beenden“ beendet danach die App, „Weiter aufnehmen“ verwirft ihn.
+ */
+let beendenWunsch = false;
+/** Altfehler RE-7a: Antwort des Fensters auf die Rückfrage (recorder:schliessenAntwort) an den Ablauf des Hauptfensters; null ohne Fenster. */
+let schliessenAntwort: ((a: 'gezeigt' | 'beenden' | 'weiter') => void) | null = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Show-Integration (C3): Wird der Recorder per Show-Deep-Link gestartet, übernimmt
@@ -137,8 +146,59 @@ function createMainWindow(): BrowserWindow {
     return { action: 'deny' };
   });
 
+  // Altfehler RE-7a (B3, D4): läuft eine Aufnahme, fragt das Schließen nach. Die Frage steht im Fenster (SchliessenFrage) und hält den
+  // Hauptprozess nicht an (Audioblöcke, IPC, Steuerserver laufen weiter). Meldet das Fenster sie nicht binnen 1 s als gezeigt (hängender
+  // Renderer), fragt der Hauptprozess mit einem nicht blockierenden nativen Dialog, nie mit showMessageBoxSync. Die erste Antwort gilt.
+  const ablauf = new SchliessenAblauf();
+  let bestaetigt = false;
+  const antworte = (beenden: boolean): void => {
+    if (!ablauf.antwort()) return;
+    if (!beenden) {
+      beendenWunsch = false;
+      return;
+    }
+    bestaetigt = true;
+    if (!win.isDestroyed()) win.close();
+    if (beendenWunsch) app.quit();
+  };
+  const rueckfall = (): void => {
+    if (win.isDestroyed()) return;
+    win.webContents.send('recorder:schliessenFrage', false);
+    void dialog
+      .showMessageBox(win, {
+        type: 'warning',
+        message: SCHLIESSEN_TEXTE.frage,
+        detail: SCHLIESSEN_TEXTE.detail,
+        buttons: [SCHLIESSEN_TEXTE.beenden, SCHLIESSEN_TEXTE.weiter],
+        defaultId: 1,
+        cancelId: 1,
+      })
+      .then(
+        (r) => antworte(r.response === 0),
+        () => antworte(false),
+      );
+  };
+  schliessenAntwort = (a) => {
+    if (a === 'gezeigt') ablauf.gezeigt();
+    else antworte(a === 'beenden');
+  };
+  win.on('close', (e) => {
+    const entscheid = schliessenEntscheid({ status: getState().status, bestaetigt, frageOffen: ablauf.offen });
+    if (entscheid === 'schliessen') return;
+    e.preventDefault();
+    if (entscheid === 'warten') return;
+    ablauf.stelle(rueckfall);
+    win.webContents.send('recorder:schliessenFrage', true);
+  });
+  // Abmelden oder Herunterfahren (Windows): ohne Frage; die Datei wird sauber abgeschlossen, bevor das System den Prozess beendet.
+  win.on('session-end', () => {
+    bestaetigt = true;
+    shutdown();
+  });
+
   win.on('closed', () => {
     shutdown(); // geplante Aufnahme-Timer lösen + Eingang schließen
+    schliessenAntwort = null;
     mainWindow = null;
   });
 
@@ -170,6 +230,11 @@ if (!gotLock) {
       return s;
     });
     ipcMain.handle('recorder:fernsteuerung', () => fernsteuerung);
+    // Altfehler RE-7a: das Fenster meldet die Rückfrage als gezeigt (die 1-s-Frist für den nativen Rückfall endet) oder antwortet.
+    ipcMain.handle('recorder:schliessenAntwort', (e, a: unknown): void => {
+      if (!mainWindow || e.sender !== mainWindow.webContents) return;
+      if (a === 'gezeigt' || a === 'beenden' || a === 'weiter') schliessenAntwort?.(a);
+    });
     registerIpc(() => mainWindow);
     createMainWindow();
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — Befehle
@@ -193,7 +258,12 @@ if (!gotLock) {
     });
   });
 
-  app.on('before-quit', () => stopControlServer());
+  // Altfehler RE-7a (B3, Mac Cmd+Q): before-quit kommt vor dem close der Fenster. Hier nur den Wunsch merken; bricht jemand die Rückfrage
+  // ab, läuft der Recorder mit Steuerserver weiter. Angehalten wird er erst in will-quit, wenn wirklich beendet wird.
+  app.on('before-quit', () => {
+    beendenWunsch = true;
+  });
+  app.on('will-quit', () => stopControlServer());
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

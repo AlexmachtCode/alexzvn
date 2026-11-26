@@ -30,6 +30,8 @@ interface Lage {
   pickDir?: string | null;
   /** Antwort von netzordnerBestaetigen (Standard: true). */
   bestaetigen?: boolean;
+  /** Altfehler RE-PLATZ: Antwort von platz je Ordner (Standard: 5e9 Byte frei). */
+  platzFn?: (dir: string) => Promise<number | null>;
   /** Antwort von arm (Standard: ok). */
   armErgebnis?: { ok: boolean; error?: string };
   /** arm antwortet erst nach dieser Zeit (ms). */
@@ -46,10 +48,13 @@ async function starte(lage: Lage) {
   let showPush: (s: RecShowSettings) => void = () => {};
   let pushState: (s: RecorderState) => void = () => {};
   let fernbefehl: (cmd: RecorderRemoteCommand) => void = () => {};
+  let schliessenFrage: (offen: boolean) => void = () => {};
   const aufrufe = {
     arm: [] as unknown[], disarm: 0, speichern: [] as RecPreset[], loeschen: [] as string[], ordnerDa: [] as string[],
     // Altfehler Stufe 2 (Task 6): Ordnerdialog, Start/Stopp, Ablehnungen und Bestätigungen zählen.
     pickDir: 0, start: [] as { dir: string }[], stop: 0, ablehnung: [] as { hinweis: string; log: string }[], bestaetigen: [] as string[],
+    // Task 7: Platz-Abfragen (RE-PLATZ) und Antworten auf die Rückfrage beim Schließen (RE-7a).
+    platz: [] as string[], schliessen: [] as string[],
   };
   let ablage: RecPreset[] = (lage.presets ?? []).map((p) => JSON.parse(JSON.stringify(p)));
   const fehler = lage.presetFehler ?? {};
@@ -64,6 +69,9 @@ async function starte(lage: Lage) {
     stopRecording: async () => { aufrufe.stop++; return { ok: true, filePath: 'E:\\Alt\\Tag.wav' }; },
     ablehnung: async (a: { hinweis: string; log: string }) => { aufrufe.ablehnung.push(a); },
     netzordnerBestaetigen: async (p: string) => { aufrufe.bestaetigen.push(p); return lage.bestaetigen ?? true; },
+    platz: (d: string) => { aufrufe.platz.push(d); return lage.platzFn ? lage.platzFn(d) : Promise.resolve(5e9); },
+    onSchliessenFrage: (cb: (offen: boolean) => void) => { schliessenFrage = cb; return () => {}; },
+    schliessenAntwort: async (a: string) => { aufrufe.schliessen.push(a); },
     onShowSettings: (cb: (s: RecShowSettings) => void) => { showPush = cb; return () => {}; },
     takeShowSettings: async () => lage.show ?? null,
     // arm/disarm schieben den Ist-Zustand wie der Main (emitState): offen mit den Werten oder zu.
@@ -115,6 +123,8 @@ async function starte(lage: Lage) {
     fernbefehl: (cmd: RecorderRemoteCommand) => fernbefehl(cmd),
     /** Eine Show-Vorgabe zur Laufzeit (Push recorder:show-settings). */
     schickeShow: (s: RecShowSettings) => showPush(s),
+    /** Altfehler RE-7a: der Main stellt (true) oder schließt (false) die Rückfrage beim Schließen. */
+    schliessenFrage: (offen: boolean) => schliessenFrage(offen),
   };
 }
 /** Ruft eine Store-Aktion, die es vor der Änderung nicht gibt: ein Wurf wird zur Zeile, damit jeder Fall für sich rot zeigt. */
@@ -284,7 +294,9 @@ const ersterStart: GeladeneEinstellungen = { einstellungen: {}, ordnerDa: null }
   const s = t.useRec.getState();
   const a = t.aufrufe.arm[0] as { device: number; channels: number } | undefined;
   ck('11: Kanäle auf Gerät begrenzt', s.channels === 8);
-  ck('11: disarm 1x, arm 1x mit Gerät 3 / 8 Kanälen', t.aufrufe.disarm === 1 && t.aufrufe.arm.length === 1 && a?.device === 3 && a.channels === 8);
+  // Altfehler RE-3 (Pre-flight K7, Task 7): das Neuöffnen läuft nur über arm (der Main schließt dabei selbst); „Eingang schließen“ (disarm)
+  // quittierte sonst ein Fehlerfeld des Hauptprozesses. Wächter umgestellt: bisher disarm 1×.
+  ck('11 (Altfehler RE-3, K7): kein disarm, arm 1x mit Gerät 3 / 8 Kanälen', t.aufrufe.disarm === 0 && t.aufrufe.arm.length === 1 && a?.device === 3 && a.channels === 8);
   ck('11: Meldung nennt das Neuöffnen', s.notice === 'Preset „Fo“ angewendet. Eingang neu geöffnet.');
 }
 
@@ -527,16 +539,17 @@ const offenWieGezeigt = (s: { state: RecorderState; deviceIndex: number | null; 
   ck('25: nach Aktualisieren Dante mit 4 / 44100', s2.deviceIndex === 12 && s2.channels === 4 && s2.sampleRate === 44100);
 }
 
-// --- 26. Schließen/Öffnen wirft beim Anwenden: Meldung mit Fehlertext, Ordner-Hinweis trotzdem, Promise löst auf.
+// --- 26. Öffnen wirft beim Anwenden: Meldung mit Fehlertext, Ordner-Hinweis trotzdem, Promise löst auf.
+// Altfehler RE-3 (Pre-flight K7, Task 7): das Neuöffnen läuft nur noch über arm (kein disarm mehr); darum wirft jetzt arm (bisher disarm).
 {
   const t = await starte({ devices: [DANTE, FOCUS], geladen: ersterStart, presets: [{ name: 'Fo', werte: pv() }], ordnerDa: false });
-  (globalThis as unknown as { window: { jmrec: { disarm: () => Promise<unknown> } } }).window.jmrec.disarm =
+  (globalThis as unknown as { window: { jmrec: { arm: () => Promise<unknown> } } }).window.jmrec.arm =
     async () => { throw new Error('kaputt'); };
   t.setzeZustand({ status: 'armed', device: 7, channels: 2, sampleRate: 48000 });
   await t.useRec.getState().presetAnwenden('Fo');
   const s = t.useRec.getState();
   ck('26: Ordner-Hinweis gesetzt', (s.hinweisOrdner ?? '').includes('E:\\Show'));
-  ck('26: Meldung mit Fehlertext', s.notice === 'Preset „Fo“ angewendet – der Eingang ließ sich nicht wieder öffnen: kaputt');
+  ck('26 (Altfehler RE-3, K7): Meldung mit Fehlertext, wenn das Neuöffnen über arm wirft', s.notice === 'Preset „Fo“ angewendet – der Eingang ließ sich nicht wieder öffnen: kaputt');
 }
 
 // ═══ Altfehler Stufe 2, Recorder A (Plan 2026-11-26, Task 6) ═══════════════════════════════════════════════════════════════
@@ -798,6 +811,84 @@ const NI = pv({ eingang: { name: MME.name, hostApiName: 'MME' }, channels: 2, sa
   await n2;
   await warte(10);
   ck('RE-NAS die späte Antwort setzt den Netzwerkordner nicht, wenn inzwischen im Dialog gewählt wurde', t.useRec.getState().dir === 'F:\\Hand');
+}
+
+// --- Altfehler RE-PLATZ (Plan 2026-11-26, Task 7; B5): der Store fragt den freien Platz des Zielordners (in der Aufnahme den Ordner der
+// Datei) bei jeder Änderung von Ordner, Format, Spuren oder Status und im Takt; höchstens eine Abfrage zugleich, was währenddessen
+// geändert wurde, fragt gleich danach. Ohne Ordner (auch bei offenem Netzwerkvorschlag) keine Abfrage.
+{
+  const offen: Array<(v: number | null) => void> = [];
+  const t = await starte({ devices: [MME], geladen: { einstellungen: { dir: 'D:\\VA' }, ordnerDa: null }, platzFn: () => new Promise<number | null>((r) => offen.push(r)) });
+  const frei = (): unknown => (t.useRec.getState() as unknown as { platzFrei?: unknown }).platzFrei;
+  await warte(10);
+  ck(
+    `RE-PLATZ: nach dem Start eine Abfrage für den Zielordner, vor der Antwort platzFrei undefined (${JSON.stringify(t.aufrufe.platz)})`,
+    JSON.stringify(t.aufrufe.platz) === JSON.stringify(['D:\\VA']) && 'platzFrei' in t.useRec.getState() && frei() === undefined,
+  );
+  t.useRec.getState().setChannels(1);
+  t.useRec.getState().setSeparateTracks(true);
+  t.setzeZustand({ status: 'armed', device: 0, channels: 2, sampleRate: 44100 });
+  await warte(10);
+  ck(`RE-PLATZ nur eine Abfrage zugleich: Format-, Spuren- und Statuswechsel während der Abfrage fragen nicht ein zweites Mal (${t.aufrufe.platz.length})`, t.aufrufe.platz.length === 1);
+  offen.shift()?.(5e9);
+  await warte(10);
+  ck(
+    `RE-PLATZ: die Antwort steht in platzFrei; was während der Abfrage geändert wurde, fragt gleich danach nach, ohne auf den Takt zu warten (${String(frei())}, ${JSON.stringify(t.aufrufe.platz)})`,
+    frei() === 5e9 && JSON.stringify(t.aufrufe.platz) === JSON.stringify(['D:\\VA', 'D:\\VA']),
+  );
+  offen.shift()?.(4e9);
+  await warte(10);
+  ck(`RE-PLATZ: ohne Änderung keine weitere Abfrage (${t.aufrufe.platz.length})`, frei() === 4e9 && t.aufrufe.platz.length === 2);
+  t.useRec.setState({ dir: 'E:\\Neu' });
+  await warte(10);
+  ck(`RE-PLATZ Ordnerwechsel fragt sofort neu, bis zur Antwort gilt der Platz als unbekannt (${JSON.stringify(t.aufrufe.platz)}, ${String(frei())})`, t.aufrufe.platz.length === 3 && t.aufrufe.platz[2] === 'E:\\Neu' && frei() === undefined);
+  t.useRec.setState({ dir: 'F:\\X' });
+  await warte(10);
+  ck(`RE-PLATZ nur eine Abfrage zugleich: ein zweiter Ordnerwechsel während der Abfrage wartet (${t.aufrufe.platz.length})`, t.aufrufe.platz.length === 3);
+  offen.shift()?.(7e9);
+  await warte(10);
+  ck(
+    `RE-PLATZ: die späte Antwort für E:\\Neu gilt nicht für F:\\X, F:\\X wird gleich danach gefragt (${String(frei())}, ${JSON.stringify(t.aufrufe.platz)})`,
+    frei() === undefined && t.aufrufe.platz.length === 4 && t.aufrufe.platz[3] === 'F:\\X',
+  );
+  offen.shift()?.(null);
+  await warte(10);
+  ck(`RE-PLATZ: ohne Messwert ist platzFrei null („Platz unbekannt“) (${String(frei())})`, frei() === null);
+  t.setzeZustand({ status: 'recording', device: 0, channels: 2, sampleRate: 44100, filePath: 'G:\\Rec\\Tag.wav' });
+  await warte(10);
+  ck(`RE-PLATZ in der Aufnahme fragt der Store den Ordner der Datei, nicht den Zielordner (${JSON.stringify(t.aufrufe.platz)})`, t.aufrufe.platz.at(-1) === 'G:\\Rec');
+  offen.shift()?.(1e9);
+  await warte(10);
+}
+{
+  const t = await starte({ devices: [MME], geladen: { einstellungen: { dir: 'D:\\VA' }, ordnerDa: null }, show: { netzordnerOffen: NETZ } });
+  await warte(10);
+  const s = t.useRec.getState() as unknown as { dir: string | null; platzFrei?: unknown };
+  ck(
+    `RE-PLATZ offener Netzwerkvorschlag (RE-7b): keine Abfrage, auch nicht für den Netzwerkordner; platzFrei null („kein Zielordner“) (${JSON.stringify(t.aufrufe.platz)}, ${String(s.platzFrei)})`,
+    s.dir === null && t.aufrufe.platz.length === 0 && 'platzFrei' in s && s.platzFrei === null,
+  );
+  t.schickeShow({ netzordnerOffen: '\\\\nas\\y' });
+  await warte(10);
+  ck('RE-PLATZ offener Netzwerkvorschlag: auch ein zweiter Vorschlag zur Laufzeit fragt nichts ab', t.aufrufe.platz.length === 0);
+}
+
+// --- Altfehler RE-7a (Plan 2026-11-26, Task 7; B3, D4): der Store hält die Rückfrage beim Schließen, meldet „gezeigt“ sofort und reicht die
+// Antwort an den Main; schließt der Main die Frage (Rückfall), verschwindet sie ohne Antwort.
+{
+  const t = await starte({ devices: [MME], geladen: ersterStart });
+  const st = (): { schliessenFrage?: unknown; schliessenAntworten?: (a: 'beenden' | 'weiter') => void } => t.useRec.getState() as never;
+  ck('RE-7a Store: zu Beginn keine Rückfrage', st().schliessenFrage === false);
+  t.schliessenFrage(true);
+  ck(`RE-7a Store: der Main stellt die Frage → schliessenFrage true und sofort „gezeigt“ (${JSON.stringify(t.aufrufe.schliessen)})`, st().schliessenFrage === true && JSON.stringify(t.aufrufe.schliessen) === JSON.stringify(['gezeigt']));
+  await rufe(() => st().schliessenAntworten?.('weiter'));
+  ck(`RE-7a Store: „Weiter aufnehmen“ schließt die Frage und antwortet „weiter“ (${JSON.stringify(t.aufrufe.schliessen)})`, st().schliessenFrage === false && JSON.stringify(t.aufrufe.schliessen) === JSON.stringify(['gezeigt', 'weiter']));
+  t.schliessenFrage(true);
+  await rufe(() => st().schliessenAntworten?.('beenden'));
+  ck('RE-7a Store: „Aufnahme beenden“ schließt die Frage und antwortet „beenden“', st().schliessenFrage === false && JSON.stringify(t.aufrufe.schliessen) === JSON.stringify(['gezeigt', 'weiter', 'gezeigt', 'beenden']));
+  t.schliessenFrage(true);
+  t.schliessenFrage(false);
+  ck('RE-7a Store: greift der Rückfall, schließt der Main die Frage im Fenster (false), ohne eine Antwort zu schicken', st().schliessenFrage === false && t.aufrufe.schliessen.length === 5 && t.aufrufe.schliessen[4] === 'gezeigt');
 }
 
 console.log(`\nstore: ${pass} ok, ${fail} FAIL`);

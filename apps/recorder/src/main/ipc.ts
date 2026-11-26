@@ -3,10 +3,11 @@ import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getLog } from '@jm/app-runtime';
-import type { ArmInput, GeladeneEinstellungen, KonfliktWahl, NetzWahl, PresetDateiErgebnis, RecordInput, RecPreset, ScheduleInput } from '@shared/types';
+import type { ArmInput, GeladeneEinstellungen, KonfliktWahl, NetzWahl, OpResult, PresetDateiErgebnis, RecordInput, RecPreset, ScheduleInput } from '@shared/types';
 import * as rec from './recorder';
 import { ladeEinstellungen, speichereEinstellungen } from './einstellungen';
 import { NetzordnerListe } from './netzordner';
+import { PlatzAbfrage } from './platz';
 import { importiere, ladePresets, netzwerkHinweis, speicherePresets } from './presets';
 import { baueExportDatei, EXPORT_MAX_BYTES, istErlaubterOrdner, istNetzwerkPfad, normierePreset, saeubereAnzeige } from '../shared/presets';
 
@@ -40,11 +41,27 @@ const nichtGemerkt = (err: unknown): void => getLog().error(`Netzwerkordner nich
 
 export function registerIpc(getWin: () => BrowserWindow | null): void {
   rec.setWindowGetter(getWin);
+  // Altfehler RE-3 (D3): endet eine Aufnahme mit einem Fehler, schreibt der Aufnahmekern eine Zeile ins Protokoll (500 Zeichen).
+  rec.setProtokoll((zeile) => getLog().warn(zeile.slice(0, 500)));
+
+  /**
+   * Altfehler RE-2, Ruling R11: ein abgelehntes oder gescheitertes Öffnen oder Schließen des Eingangs bekommt eine Logzeile. Lehnte der
+   * Wächter des Hauptprozesses einen Fernbefehl im Wettlauf ab (das Fenster hielt die Aufnahme noch nicht für laufend), steht dazu der
+   * Hinweis der Store-Ablehnung bis „OK“ im Fenster (recorder:notice), wie bei jedem abgelehnten Fernbefehl.
+   */
+  const meldeWettlauf = (verb: 'ARM' | 'DISARM', r: OpResult): OpResult => {
+    if (r.ok) return r;
+    const w = rec.wettlaufAblehnung(verb, r);
+    getLog().warn((w?.log ?? `${verb} fehlgeschlagen: ${r.error ?? ''}`).slice(0, 500));
+    const win = getWin();
+    if (w && win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send('recorder:notice', w.hinweis);
+    return r;
+  };
 
   ipcMain.handle('rec:listDevices', () => rec.listDevices());
-  ipcMain.handle('rec:arm', (_e, input: ArmInput) => rec.arm(input));
+  ipcMain.handle('rec:arm', (_e, input: ArmInput) => meldeWettlauf('ARM', rec.arm(input)));
   // Altfehler RE-2: „Eingang schließen“ lehnt in der Aufnahme ab (OpResult), disarm() bleibt für shutdown() und arm().
-  ipcMain.handle('rec:disarm', () => rec.schliesseEingang());
+  ipcMain.handle('rec:disarm', () => meldeWettlauf('DISARM', rec.schliesseEingang()));
   ipcMain.handle('rec:start', (_e, input: RecordInput) => rec.startRecording(input));
   ipcMain.handle('rec:stop', () => rec.stopRecording());
   ipcMain.handle('rec:schedule', (_e, input: ScheduleInput) => rec.schedule(input));
@@ -95,6 +112,10 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
       return false;
     }
   });
+
+  // Altfehler RE-PLATZ (B5): freier Platz im Zielordner, asynchron über statfs; je Pfad eine Messung zugleich, nach 3 s „unbekannt“ (null).
+  const platz = new PlatzAbfrage();
+  ipcMain.handle('fs:platz', (_e, dir: unknown): Promise<number | null> => (typeof dir === 'string' && dir !== '' ? platz.frage(dir) : Promise.resolve(null)));
 
   ipcMain.handle('presets:list', (): RecPreset[] => ladePresets(presetDatei()));
   ipcMain.handle('presets:speichern', (_e, raw: unknown): RecPreset[] => {

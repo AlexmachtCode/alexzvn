@@ -25,4 +25,6 @@ await lade('funktionsliste', () => import('./funktionsliste.test'));
 await lade('fernbefehl', () => import('./fernbefehl.test'));
 await lade('netzordner', () => import('./netzordner.test'));
 await lade('altfehler', () => import('./altfehler.test'));
+await lade('schliessen', () => import('./schliessen.test'));
+await lade('platz', () => import('./platz.test'));
 abschluss();

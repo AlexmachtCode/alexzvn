@@ -53,9 +53,11 @@ const ERHEBUNG = 'd7cdd79ce0';
 const GEAENDERT = [
   'package.json',
   'src/main/control-server.ts',
+  'src/main/eingang-waechter.ts',
   'src/main/index.ts',
   'src/main/ipc.ts',
   'src/main/netzordner.ts',
+  'src/main/platz.ts',
   'src/main/recorder.ts',
   'src/preload/index.ts',
   'src/renderer/src/App.tsx',
@@ -65,13 +67,16 @@ const GEAENDERT = [
   'src/renderer/src/lib/bruecken.ts',
   'src/renderer/src/lib/fernbefehl.ts',
   'src/renderer/src/lib/oberflaeche.ts',
+  'src/renderer/src/lib/platz.ts',
   'src/renderer/src/store/recorder.ts',
   'src/renderer/src/views/Einstellungen.tsx',
   'src/renderer/src/views/LiveBereich.tsx',
   'src/renderer/src/views/RecorderOberflaeche.tsx',
   'src/renderer/src/views/RecorderView.tsx',
+  'src/renderer/src/views/SchliessenFrage.tsx',
   'src/shared/fernsteuerung.ts',
   'src/shared/netzordner.ts',
+  'src/shared/schliessen.ts',
   'src/shared/types.ts',
   'test/recorder.test.ts',
   'test/store.test.ts',
@@ -84,7 +89,9 @@ const GEAENDERT = [
   'test/ui/netzordner.test.ts',
   'test/ui/oberflaeche.test.ts',
   'test/ui/panel.test.tsx',
+  'test/ui/platz.test.ts',
   'test/ui/rahmen.test.tsx',
+  'test/ui/schliessen.test.tsx',
   'test/ui/selftest.ts',
   'test/ui/testzustand.ts',
   'test/ui/werkzeug.test.tsx',
@@ -103,9 +110,12 @@ const NUR_MELDUNG = new Set(['apps/recorder/src/main/control-server.ts']);
  * Altfehler Stufe 2 (Plan 2026-11-26, Task 6; B7): je erlaubter Recorder-ID die Dateien (ab der Repo-Wurzel), die der Befund
  * geändert hat, wie im Player (Ruling R6). „Altfehler <ID>“ im Haken entlastet ein „unverändert (…)“, das eine geänderte Datei
  * nennt, nur, wenn die Liste dieser ID die Datei enthält; dann für die ganze Änderung des Befunds, nicht nur für lesende Brücken.
- * Erlaubt sind genau RE-2 (ARM/DISARM und „Eingang schließen“ in der Aufnahme abgelehnt, gemeinsamer Ablehnungsweg B6), RE-2b
- * (RECORD ON ohne Zielordner abgelehnt), RE-7b (Zielordner aus der Show geprüft, Netzwerkordner erst nach „Übernehmen“) und RE-NAS
- * (Ordnerprüfung eines Presets außerhalb der Warteschlange).
+ * Erlaubt sind genau RE-2 (ARM/DISARM und „Eingang schließen“ in der Aufnahme abgelehnt, gemeinsamer Ablehnungsweg B6; seit Ruling R11
+ * auch die Logzeile einer Ablehnung im Wettlauf), RE-2b (RECORD ON ohne Zielordner abgelehnt), RE-7b (Zielordner aus der Show geprüft,
+ * Netzwerkordner erst nach „Übernehmen“) und RE-NAS (Ordnerprüfung eines Presets außerhalb der Warteschlange); Task 7: RE-3 (Fehlerfeld,
+ * die Aufnahme endet sauber nach einem Schreibfehler oder ohne Blöcke), RE-7a (Rückfrage beim Schließen während einer Aufnahme) und
+ * RE-PLATZ (freier Platz als Restzeit in der Statusleiste). RE-3 nennt zusätzlich store/recorder.ts (das Neuöffnen eines Presets nur über
+ * arm, Pre-flight K7).
  */
 const APP = (p: string): string => `apps/recorder/src/${p}`;
 const RENDERER = (p: string): string => `apps/recorder/src/renderer/src/${p}`;
@@ -131,6 +141,37 @@ const ALTFEHLER = new Map<string, readonly string[]>([
     ],
   ],
   ['RE-NAS', [RENDERER('store/recorder.ts')]],
+  [
+    'RE-3',
+    [APP('main/recorder.ts'), APP('main/eingang-waechter.ts'), APP('main/ipc.ts'), APP('shared/types.ts'), RENDERER('lib/oberflaeche.ts'), RENDERER('views/LiveBereich.tsx'), RENDERER('store/recorder.ts')],
+  ],
+  [
+    'RE-7a',
+    [
+      APP('shared/schliessen.ts'),
+      APP('main/index.ts'),
+      APP('preload/index.ts'),
+      APP('shared/types.ts'),
+      RENDERER('store/recorder.ts'),
+      RENDERER('views/SchliessenFrage.tsx'),
+      RENDERER('views/RecorderOberflaeche.tsx'),
+      RENDERER('lib/oberflaeche.ts'),
+    ],
+  ],
+  [
+    'RE-PLATZ',
+    [
+      APP('main/platz.ts'),
+      APP('main/ipc.ts'),
+      APP('main/recorder.ts'),
+      APP('preload/index.ts'),
+      APP('shared/types.ts'),
+      RENDERER('lib/platz.ts'),
+      RENDERER('lib/oberflaeche.ts'),
+      RENDERER('store/recorder.ts'),
+      RENDERER('views/RecorderOberflaeche.tsx'),
+    ],
+  ],
 ]);
 /** Verweis „Altfehler <ID>“ auf eine der erlaubten IDs; die ID steht in Gruppe 1. `(?![\w-])` trennt RE-2 von RE-2b. */
 const ALTFEHLER_VERWEIS = new RegExp(`\\bAltfehler (${[...ALTFEHLER.keys()].join('|')})(?![\\w-])`, 'g');
@@ -313,14 +354,15 @@ for (const z of alle) {
     'RE Funktionsliste: eine geänderte Datei wird in jeder Schreibweise erkannt; E2 entlastet nur Dateien mit den lesenden Brücken; eine unveränderte Datei ist frei',
   );
   // Der Verweis „Altfehler <ID>“ (Stufe 2, B7) entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt (R6); nur mit dem
-  // Wort „Altfehler“ und nur die vier Recorder-IDs; RE-2 und RE-2b sind getrennt. main/index.ts, preload/index.ts und shared/types.ts
-  // verlassen NUR_MELDUNG: E2 allein entlastet sie nicht mehr.
+  // Wort „Altfehler“ und nur die sieben Recorder-IDs; RE-2 und RE-2b sind getrennt. main/index.ts, preload/index.ts und shared/types.ts
+  // verlassen NUR_MELDUNG: E2 allein entlastet sie nicht mehr. Task 7: „Altfehler RE-3“ entlastet main/recorder.ts seither (Probe
+  // umgestellt, statt RE-3 jetzt RE-7a, RE-30 und RE-3a als fremde IDs).
   ok(
     (zeilenFehler(synth('views/LiveBereich.tsx', ' (Altfehler RE-2)')) ?? '').includes('geänderter Datei') &&
       zeilenFehler(synth('views/LiveBereich.tsx', ' (Altfehler RE-7b)')) === null &&
       zeilenFehler(synth('main/recorder.ts', ' (Altfehler RE-2)')) === null &&
       (zeilenFehler(synth('main/recorder.ts')) ?? '').includes('geänderter Datei') &&
-      ['RE-2b', 'RE-7b', 'RE-NAS', 'RE-2a', 'RE-20', 'RE-2-b', 'RE-3', 'CA-11', 'PL-16a'].every((id) => (zeilenFehler(synth('main/recorder.ts', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')) &&
+      ['RE-2b', 'RE-7b', 'RE-NAS', 'RE-2a', 'RE-20', 'RE-2-b', 'RE-7a', 'RE-30', 'RE-3a', 'CA-11', 'PL-16a'].every((id) => (zeilenFehler(synth('main/recorder.ts', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')) &&
       (zeilenFehler(synth('main/recorder.ts', ' (RE-2)')) ?? '').includes('geänderter Datei') &&
       zeilenFehler(synth('store/recorder.ts', ' (Altfehler RE-NAS)')) === null &&
       zeilenFehler(synth('store/recorder.ts', ' (Altfehler RE-2b)')) === null &&
@@ -331,6 +373,21 @@ for (const z of alle) {
       zeilenFehler(synth('preload/index.ts', ' (Altfehler RE-2b)')) === null &&
       zeilenFehler(synth('apps/recorder/src/shared/types.ts', ' (Altfehler RE-7b)')) === null,
     'RE Funktionsliste: „Altfehler RE-7b“ entlastet views/LiveBereich.tsx, „Altfehler RE-2“ nicht; ohne ID, mit der ID eines anderen Befunds, ohne das Wort „Altfehler“ oder mit einer fremden ID nicht; main/index.ts, preload/index.ts und shared/types.ts brauchen ihren Altfehler-Verweis (B7)',
+  );
+  // Task 7 (B7): RE-3, RE-7a und RE-PLATZ entlasten genau die Dateien ihrer Liste, auch die neuen.
+  ok(
+    zeilenFehler(synth('main/recorder.ts', ' (Altfehler RE-3)')) === null &&
+      zeilenFehler(synth('main/eingang-waechter.ts', ' (Altfehler RE-3)')) === null &&
+      (zeilenFehler(synth('main/eingang-waechter.ts', ' (Altfehler RE-7a)')) ?? '').includes('geänderter Datei') &&
+      zeilenFehler(synth('views/SchliessenFrage.tsx', ' (Altfehler RE-7a)')) === null &&
+      zeilenFehler(synth('shared/schliessen.ts', ' (Altfehler RE-7a)')) === null &&
+      (zeilenFehler(synth('shared/schliessen.ts', ' (Altfehler RE-PLATZ)')) ?? '').includes('geänderter Datei') &&
+      zeilenFehler(synth('main/platz.ts', ' (Altfehler RE-PLATZ)')) === null &&
+      zeilenFehler(synth('lib/platz.ts', ' (Altfehler RE-PLATZ)')) === null &&
+      ['RE-PLATZ2', 'RE-PLATZ-a', 'RE-3'].every((id) => (zeilenFehler(synth('main/platz.ts', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')) &&
+      (zeilenFehler(synth('main/index.ts', ' (E2, Altfehler RE-PLATZ)')) ?? '').includes('mehr als die lesenden Brücken') &&
+      zeilenFehler(synth('main/index.ts', ' (E2, Altfehler RE-7a)')) === null,
+    'RE Funktionsliste (Task 7): „Altfehler RE-3“ entlastet main/recorder.ts und main/eingang-waechter.ts, „Altfehler RE-7a“ shared/schliessen.ts und views/SchliessenFrage.tsx, „Altfehler RE-PLATZ“ main/platz.ts und lib/platz.ts; eine fremde ID oder eine längere Schreibweise entlastet nicht',
   );
   {
     const meldung = zeilenFehler(synth('main/recorder.ts', ' und `store/recorder.ts` (Altfehler RE-2), dazu `main/index.ts`')) ?? '';
@@ -382,6 +439,17 @@ ok(
 ok(
   unveraendert(2) && nennt(2, '`main/index.ts`', '`renderer/index.html`', 'E2') && gebunden(2, 'main/index.ts') && quelle('renderer/index.html').includes('class="dark"'),
   'RE Funktionsliste Nr. 2: die Fensterhülle bleibt (main/index.ts bekam die lesende Fernsteuerungs-Meldung, E2, und mit Altfehler RE-7b die Prüfung des Show-Ordners), index.html behält class="dark"',
+);
+ok(
+  nennt(2, 'Altfehler RE-7a', '`shared/schliessen.ts`', '`views/SchliessenFrage.tsx`', 'Nr. 89') && gebunden(2, 'shared/schliessen.ts') && gebunden(2, 'views/SchliessenFrage.tsx') &&
+    quelle('main/index.ts').includes("win.on('close', (e) => {") && quelle('main/index.ts').includes("win.on('closed', () => {"),
+  'RE Funktionsliste Nr. 2 (Altfehler RE-7a): das Schließen mit shutdown() bleibt; davor fragt das Fenster in der Aufnahme nach (Ablauf in shared/schliessen.ts, Fenster in views/SchliessenFrage.tsx, Nr. 89)',
+);
+ok(
+  beginnt(1, 'Rahmen') &&
+    nennt(1, 'Altfehler RE-PLATZ', '„Platz“', 'Platz für 2 h 10 min', '`lib/platz.ts`', '`main/platz.ts`', '`fs:platz`', 'gelb unter 15 min', 'rot unter 5 min', 'Platz unbekannt', 'gesperrt wird nichts') &&
+    obf.includes('platzItem(s),') && obf.indexOf('aufnahmeItem(s),') < obf.indexOf('platzItem(s),') && wurzel.includes('platz: { frei: platzFrei, spuren: separateTracks, dir }'),
+  'RE Funktionsliste Nr. 1 (Altfehler RE-PLATZ, die Statusleisten-Zeile, B5): die Statusleiste zeigt hinter „Aufnahme“ den Eintrag „Platz“ (Restzeit im Zielordner), ohne neue Zeile',
 );
 
 // ── Live-Bereich: Kopf der Karte, Preset-Leiste, Hinweisband, Meldung bis „OK“ (Nr. 5–15, 44, 55–63) ──
@@ -481,9 +549,15 @@ ok(
     nennt(80, 'Companion', 'RECORD', 'Altfehler RE-2b', 'abgelehnt', 'Ordnerdialog') && !nennt(80, 'unverändert'),
   'RE Funktionsliste Nr. 22/80 (Altfehler RE-2b): die Aufnahme-Taste ist im Ruhezustand gesperrt mit „Erst den Eingang öffnen“; Companion RECORD läuft über den Store, ohne Zielordner abgelehnt statt mit Ordnerdialog (Nr. 80)',
 );
+// Altfehler RE-3 (Task 7, Wächter umgestellt): ON AIR ist zusätzlich nie bei einem Fehlerfeld live (bisher nur nimmtAuf).
 ok(
-  nennt(23, 'ON AIR', 'E4', 'recording') && obf.includes("taste(T.taste.stopp, 'live')") && obf.includes('return { live: nimmtAuf(s.zustand), label: RECORDER_TEXTE.onAirLabel }') && wurzel.includes('onAir={kopfOnAir(stand)}') && nennt(25, 'unbekannt') && live.includes('if (z === undefined) return { tone: \'muted\', text: UNBEKANNT }'),
-  'RE Funktionsliste Nr. 23/25: ON AIR nur bei gemessenem recording (E4), „Stopp“ ist live; die Marke zeigt vor der ersten Antwort „unbekannt“',
+  nennt(23, 'ON AIR', 'E4', 'recording') && obf.includes("taste(T.taste.stopp, 'live')") && obf.includes('return { live: nimmtAuf(s.zustand) && fehlerVon(s.zustand) === null, label: RECORDER_TEXTE.onAirLabel }') && wurzel.includes('onAir={kopfOnAir(stand)}') && nennt(25, 'unbekannt') && live.includes('if (z === undefined) return { tone: \'muted\', text: UNBEKANNT }'),
+  'RE Funktionsliste Nr. 23/25 (Altfehler RE-3): ON AIR nur bei gemessenem recording ohne Fehlerfeld (E4), „Stopp“ ist live; die Marke zeigt vor der ersten Antwort „unbekannt“',
+);
+ok(
+  nennt(23, 'Altfehler RE-3', 'Fehlerfeld', 'ON AIR ist aus', 'Neu aufnehmen') && nennt(25, 'Altfehler RE-3', 'Schreibfehler', 'Kein Eingang', 'Nicht gestartet', 'destructive') &&
+    obf.includes("neuAufnehmen: 'Neu aufnehmen'") && live.includes("if (z.fehler) return { tone: 'destructive', text: RECORDER_TEXTE.fehler.marke[z.fehler.art] };"),
+  'RE Funktionsliste Nr. 23/25 (Altfehler RE-3): nach einem Schreibfehler oder ohne Audiodaten ist ON AIR aus, die linke Taste heißt „Neu aufnehmen“, die Marke nennt den Fehler in der Tönung destructive',
 );
 ok(
   beginnt(24, 'Live-Bereich Transport') && nennt(24, 'ohne Rückfrage', 'E7', 'Eingang schließen', 'Altfehler RE-2', 'gesperrt', 'Erst die Aufnahme stoppen', '`schliesseEingang`') &&
@@ -562,10 +636,17 @@ ok(
   'RE Funktionsliste Nr. 48–52 (Altfehler RE-2b, RE-7b): die Systemdialoge im Main bleiben; RECORD ON ohne Zielordner öffnet den Ordnerdialog nicht mehr, ein Netzwerkordner aus der Show wartet auf „Übernehmen“ im Fenster statt auf einen Dialog, „Übernehmen“ im Import merkt den Ordner',
 );
 {
-  const dateien = ['App.tsx', 'views/RecorderOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Einstellungen.tsx', 'views/RecorderView.tsx', 'lib/aktionen.ts', 'lib/oberflaeche.ts', 'lib/bruecken.ts', 'lib/fernbefehl.ts', 'components/PresetLeiste.tsx', 'store/recorder.ts'];
+  // Altfehler RE-7a (Task 7): Text neu; das Schließen in der Aufnahme fragt jetzt nach, im Fenster (views/SchliessenFrage.tsx über Modal),
+  // weiter ohne confirm, alert oder prompt; die übrigen Aktionen bleiben ohne Rückfrage.
+  const dateien = ['App.tsx', 'views/RecorderOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Einstellungen.tsx', 'views/RecorderView.tsx', 'views/SchliessenFrage.tsx', 'lib/aktionen.ts', 'lib/oberflaeche.ts', 'lib/bruecken.ts', 'lib/fernbefehl.ts', 'lib/platz.ts', 'components/PresetLeiste.tsx', 'store/recorder.ts'];
   ok(
     unveraendert(53) && nennt(53, 'Altfehler RE-2', 'gesperrt') && dateien.every((d) => !/\b(?:window\.)?(?:confirm|alert|prompt)\(/.test(ohneKommentar(quelle(d)))),
     'RE Funktionsliste Nr. 53 (Altfehler RE-2): weder confirm noch alert noch prompt im Renderer; „Eingang schließen“ fragt weiter nicht nach, ist in der Aufnahme aber gesperrt',
+  );
+  ok(
+    nennt(53, 'Altfehler RE-7a', 'während einer Aufnahme fragt es', '`views/SchliessenFrage.tsx`', 'kein `window.confirm`') && gebunden(53, 'views/SchliessenFrage.tsx') &&
+      quelle('views/SchliessenFrage.tsx').includes('<Modal onClose={onWeiter}'),
+    'RE Funktionsliste Nr. 53 (Altfehler RE-7a): das Schließen des Fensters während einer Aufnahme fragt nach, im Fenster über Modal (kein window.confirm); ohne Aufnahme, Löschen im Hinweisband und „Stopp“ bleiben ohne Rückfrage',
   );
 }
 
@@ -609,6 +690,25 @@ ok(
     von([76, 77, 78, 79, 81, 82, 83, 85, 86, 87, 88, 89, 92, 93, 94, 95], (nr) => gebunden(nr, 'main/recorder.ts')) &&
     !GEAENDERT_KANON.has('apps/recorder/src/main/wav.ts') && !GEAENDERT_KANON.has('apps/recorder/src/main/stille.ts') && !GEAENDERT_KANON.has('apps/recorder/src/main/dateiname.ts'),
   'RE Funktionsliste Nr. 76–95: Aufnahmekern, Dateinamen, Folgedatei, Stille-Auffüllung und Zeitplan im Main sind unverändert; main/recorder.ts änderte sich nur mit Altfehler RE-2 (gebunden, B7)',
+);
+// ── Altfehler RE-3, RE-7a, RE-PLATZ (Task 7): die Zeilen nennen ihre ID ausdrücklich (die Bindung aus Task 6 entlastet die Dateien schon) ──
+ok(
+  nennt(79, 'Altfehler RE-3', '`try`', 'Block-Wächter', '`main/eingang-waechter.ts`', '2 s ohne Block', '`setProtokoll`', 'Stau') && gebunden(79, 'main/eingang-waechter.ts') &&
+    nennt(87, 'Altfehler RE-3', 'Befund 3') && nennt(88, 'Altfehler RE-3', 'Der Dateikopf von', 'quittiert ein Stopp das Fehlerfeld') &&
+    nennt(62, 'Altfehler RE-3', 'Aufnahme beendet: Schreibfehler in', 'entfällt') && !quelle('main/recorder.ts').includes('Stille konnte nicht in die Datei geschrieben werden'),
+  'RE Funktionsliste Nr. 62, 79, 87, 88 (Altfehler RE-3): Schreibfehler im Block, beim Auffüllen und im Kopf beenden die Aufnahme sauber, der Block-Wächter (main/eingang-waechter.ts) ebenso nach 2 s ohne Block; ein Stopp quittiert; die alte Stille-Meldung entfällt',
+);
+ok(
+  nennt(89, 'Altfehler RE-7a', 'Aufnahme läuft. Wirklich beenden?', '`views/SchliessenFrage.tsx`', '`shared/schliessen.ts`', 'binnen 1 s', 'nicht blockierenden nativen Dialog', '`session-end`', '`will-quit`') &&
+    gebunden(89, 'views/SchliessenFrage.tsx') && gebunden(89, 'shared/schliessen.ts') && von([2, 89, 90, 112], (nr) => nennt(nr, 'Altfehler RE-7a', 'Rückfrage beim Schließen')),
+  'RE Funktionsliste Nr. 2, 89, 90, 112 (Altfehler RE-7a): main/index.ts fragt beim Schließen in der Aufnahme nach (Fenster, nativer Rückfall nach 1 s, session-end ohne Frage, will-quit hält den Steuerserver an)',
+);
+ok(
+  nennt(134, 'Altfehler RE-3', 'Altfehler RE-PLATZ') && nennt(138, 'Altfehler RE-3', '`fehler`', 'Altfehler RE-PLATZ', '`spuren`', 'Altfehler RE-7a') &&
+    von([76, 79, 81, 82, 83, 85, 86, 87, 88, 89, 92, 93, 94, 95, 134, 137, 138], (nr) => nennt(nr, 'mit Altfehler RE-3: ein Schreibfehler oder 2 s ohne Audiodaten', 'mit Altfehler RE-PLATZ: der Zustand nennt die Spuren')) &&
+    von([48, 101, 124], (nr) => nennt(nr, 'Altfehler RE-3 `setProtokoll`', 'Altfehler RE-PLATZ `fs:platz`', 'Ablehnung im Wettlauf')) &&
+    von([53, 66, 88, 132], (nr) => nennt(nr, 'Altfehler RE-3 (ein Preset öffnet den Eingang nur über `arm` neu', 'Altfehler RE-7a (Rückfrage beim Schließen', 'Altfehler RE-PLATZ (Abfrage des freien Platzes')),
+  'RE Funktionsliste Nr. 48, 53, 66, 76–95, 101, 124, 132–138 (Altfehler RE-3, RE-7a, RE-PLATZ): die Sätze „… änderte sich nur mit …“ nennen die neuen Befunde (ergänzt, nicht ersetzt)',
 );
 ok(
   nennt(77, 'Altfehler RE-2', 'Erst die Aufnahme stoppen.', 'Befund 2') && nennt(78, 'Altfehler RE-2', '`schliesseEingang`', '`disarm()`'),
@@ -690,8 +790,9 @@ ok(
 
 // ── Statusleiste: die sieben Einträge stehen in der Leiste (Nr. 5, 25, 26, 105 und die neuen) ──
 ok(
-  ['masterLinkStatusItem(s.masterLink)', "group: 'fernsteuerung'", "id: 'aufnahme'", "id: 'zeitplan'", "id: 'audio-modul'", "id: 'meldung'", 'eingangItem(s)'].every((w) => obf.includes(w)) && wurzel.includes('status={statusLeiste(stand)}'),
-  'RE Funktionsliste: die Statusleiste hat Master-Link, Aufnahme, Fernsteuerung, Eingang, Zeitplan, Audio-Modul und Meldung',
+  ['masterLinkStatusItem(s.masterLink)', "group: 'fernsteuerung'", "id: 'aufnahme'", "id: 'zeitplan'", "id: 'audio-modul'", "id: 'meldung'", 'eingangItem(s)', 'platzItem(s)'].every((w) => obf.includes(w)) &&
+    quelle('lib/platz.ts').includes("id: 'platz'") && wurzel.includes('status={statusLeiste(stand)}'),
+  'RE Funktionsliste (Altfehler RE-PLATZ): die Statusleiste hat Master-Link, Aufnahme, Platz, Fernsteuerung, Eingang, Zeitplan, Audio-Modul und Meldung',
 );
 
 // ── Abschnitt 8, 9, 10 und der Kopf „Stand“ widersprechen den Haken nicht ──
@@ -720,6 +821,13 @@ ok(
     /Welle 2a:[^]*\n {3}Altfehler Stufe 2 \(RE-2, RE-2b\): [^\n]*abgelehnt[^\n]*Owner 25\.11\., Frage 3: ablehnen/.test(befund(2)) &&
       /Welle 2a:[^]*\n {3}Altfehler Stufe 2 \(RE-7b, RE-NAS\): [^\n]*`pruefeShowOrdner`[^\n]*Übernehmen[^\n]*Owner 25\.11\., Frage 2: A/.test(befund(7)),
     'RE Funktionsliste Abschnitt 10 (Altfehler RE-2, RE-2b, RE-7b, RE-NAS): hinter dem Satz der Welle 2a steht bei Befund 2 und 7 die Zeile „Altfehler Stufe 2 (‹ID›): …“ mit der Owner-Entscheidung',
+  );
+  // Task 7, Widerruf: der alte Satz bleibt stehen, dahinter „Altfehler Stufe 2 (‹ID›): …“.
+  ok(
+    /\*\*Kein Fehlerzustand im Aufnahmezustand:\*\* `RecorderState` hat kein Feld für einen Fehler[^]*\n {3}Altfehler Stufe 2 \(RE-3\): [^\n]*`fehler`[^\n]*sauber[^\n]*recording=0[^\n]*B1, B2, Pre-flight K7/.test(befund(3)) &&
+      /Das Schließen des Fensters in der Aufnahme ist hier nicht behandelt\.\n {3}Altfehler Stufe 2 \(RE-7a\): [^\n]*Wirklich beenden\?[^\n]*1 s[^\n]*B3, D4/.test(befund(7)) &&
+      /endet das Auffüllen für die Aufnahme[^]*\n {3}Altfehler Stufe 2 \(RE-3\): ein Schreibfehler beim Auffüllen beendet jetzt die Aufnahme sauber/.test(befund(14)),
+    'RE Funktionsliste Abschnitt 10 (Altfehler RE-3, RE-7a): Befund 3, 7 und 14 behalten ihren Satz, dahinter steht „Altfehler Stufe 2 (‹ID›): …“',
   );
   const kopfFlach = kopf.replace(/\n/g, ' ');
   const nachLs = kopfFlach.slice(kopfFlach.indexOf('einer, lesend'), kopfFlach.indexOf('einer, lesend') + 500);

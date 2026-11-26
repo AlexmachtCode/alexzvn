@@ -93,6 +93,15 @@ const api: JmrecApi = {
   ablehnung: (a) => ipcRenderer.invoke('recorder:ablehnung', a) as Promise<void>,
   // Altfehler RE-7b: „Übernehmen“ eines Netzwerkordners aus der Show; der Main merkt ihn.
   netzordnerBestaetigen: (pfad) => ipcRenderer.invoke('recorder:netzordnerBestaetigen', pfad) as Promise<boolean>,
+  // Altfehler RE-7a: Rückfrage beim Schließen während einer Aufnahme (der Main stellt und schließt sie, das Fenster zeigt und beantwortet).
+  onSchliessenFrage: (cb) => {
+    const listener = (_e: unknown, offen: boolean): void => cb(offen);
+    ipcRenderer.on('recorder:schliessenFrage', listener);
+    return () => ipcRenderer.off('recorder:schliessenFrage', listener);
+  },
+  schliessenAntwort: (a) => ipcRenderer.invoke('recorder:schliessenAntwort', a) as Promise<void>,
+  // Altfehler RE-PLATZ: freier Platz im Zielordner (Byte), null = nicht lesbar.
+  platz: (dir) => ipcRenderer.invoke('fs:platz', dir) as Promise<number | null>,
 };
 
 if (process.contextIsolated) {

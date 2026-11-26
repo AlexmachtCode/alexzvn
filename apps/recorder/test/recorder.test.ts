@@ -27,11 +27,15 @@ const attrappe = {
   if (id === '@jm/audio') return attrappe;
   throw new Error(`unerwartetes require: ${id}`);
 };
-// Wächtertakte zählen: recorder.ts startet den Wächter über das globale setInterval.
+// Wächtertakte zählen: recorder.ts startet den Wächter über das globale setInterval. Altfehler RE-3 (Task 7): jede Rückruffunktion
+// steht mit ihrem Takt in `intervalle`, damit ein Test den Block-Wächter mit umgelegter Uhr selbst rufen kann.
 let takte = 0;
+const intervalle: Array<{ fn: () => void; ms: number | undefined }> = [];
 const echtesSetInterval = globalThis.setInterval;
-(globalThis as unknown as { setInterval: (fn: () => void, ms?: number) => unknown }).setInterval = (fn, ms) =>
-  echtesSetInterval(() => { takte++; fn(); }, ms);
+(globalThis as unknown as { setInterval: (fn: () => void, ms?: number) => unknown }).setInterval = (fn, ms) => {
+  intervalle.push({ fn, ms });
+  return echtesSetInterval(() => { takte++; fn(); }, ms);
+};
 
 const rec = await import('../src/main/recorder');
 const dir = mkdtempSync(join(tmpdir(), 'jmrec-rec-'));
@@ -169,6 +173,313 @@ for (const [name, zuerst] of [['StauBloecke', false], ['StauWaechter', true]] as
   const r2 = schliesse?.();
   ck(`RE-2 schliesseEingang bei armed ok: Eingang zu (${JSON.stringify(r2)})`, r2?.ok === true && rec.getState().status === 'idle' && gestoppt > vor);
   if (rec.getState().status !== 'idle') rec.disarm();
+}
+
+// --- Altfehler RE-3 (Plan 2026-11-26, Task 7; B1, B2, D3, Pre-flight K7): ein Schreibfehler oder 2 s ohne Blöcke an einem Eingang, der
+// kein Loopback ist, beenden die Aufnahme sauber: Datei abgeschlossen, Status `armed`, das Fehlerfeld bleibt, bis ein Start gelingt, ein
+// Stopp quittiert oder jemand den Eingang schließt. Nie „recording“, während nichts geschrieben wird. Fehler per umgelegtem Prototyp.
+type Fehler = { art: string; text: string; datei: string | null } | null | undefined;
+const R = rec as unknown as {
+  setProtokoll?: (f: (zeile: string) => void) => void;
+  AUFNAHME_FEHLER_TEXTE?: {
+    schreiben: (datei: string, grund: string) => string;
+    kopf: (datei: string, grund: string) => string;
+    eingang: string;
+    eingangGrund: string;
+    log: (art: string, datei: string, grund: string) => string;
+  };
+  wettlaufAblehnung?: (verb: 'ARM' | 'DISARM', r: { ok: boolean; error?: string }) => { log: string; hinweis: string } | null;
+};
+const fehler = (): Fehler => (rec.getState() as unknown as { fehler?: Fehler }).fehler;
+const spuren = (): unknown => (rec.getState() as unknown as { spuren?: unknown }).spuren;
+const protokoll: string[] = [];
+R.setProtokoll?.((z) => void protokoll.push(z));
+const gesendet: Array<[string, unknown]> = [];
+rec.setWindowGetter(() => ({ isDestroyed: () => false, webContents: { isDestroyed: () => false, send: (k: string, p: unknown) => void gesendet.push([k, p]) } }) as never);
+const meldungen = (): unknown[] => gesendet.filter(([k]) => k === 'recorder:notice').map(([, p]) => p);
+const { MultiWavWriter, WavWriter } = await import('../src/main/wav');
+const ENOSPC = (): never => {
+  throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' });
+};
+const GRUND = 'ENOSPC: no space left on device, write';
+const echtBlock = WavWriter.prototype.writeBlock;
+const echtSpur = MultiWavWriter.prototype.writeBlock;
+const echtKopf = WavWriter.prototype.finalize;
+const zehn = (): void => aufFrames?.(new Float32Array(2 * 10), 2, 10);
+const dateiGroesse = (p: string): number => readFileSync(p).length;
+/** Nach jedem Fall: eine noch laufende Aufnahme stoppen und den Eingang schließen (vor der Änderung bleibt sie sonst stehen). */
+const aufraeumen = (): void => {
+  if (rec.getState().status === 'recording') rec.stopRecording();
+  if (rec.getState().status !== 'idle') rec.schliesseEingang();
+};
+
+{
+  const T = R.AUFNAHME_FEHLER_TEXTE;
+  const ist = JSON.stringify([T?.schreiben('D:\\a.wav', 'ENOSPC'), T?.kopf('D:\\a.wav', 'EIO'), T?.eingang, T?.eingangGrund, T?.log('schreiben', 'D:\\a.wav', 'ENOSPC')]);
+  const soll = JSON.stringify([
+    'Aufnahme beendet: Schreibfehler in „D:\\a.wav“: ENOSPC. Das bisher Aufgenommene ist gespeichert.',
+    'Aufnahme beendet: Der Dateikopf von „D:\\a.wav“ konnte nicht geschrieben werden: EIO.',
+    'Aufnahme beendet: Vom Eingang kamen 2 s lang keine Audiodaten. Das bisher Aufgenommene ist gespeichert.',
+    'Keine Audiodaten vom Eingang',
+    'Aufnahme beendet (schreiben): D:\\a.wav: ENOSPC',
+  ]);
+  ck(`RE-3 Texte: AUFNAHME_FEHLER_TEXTE wörtlich wie im Plan (${ist})`, ist === soll);
+}
+
+// Schreibfehler im Block: wirft nicht bis ins Addon, die Aufnahme endet sauber.
+{
+  ck('RE-3 Block: arm', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+  ck('RE-3 Block: start', rec.startRecording({ dir, fileName: 'Voll' }).ok);
+  const datei = join(dir, 'Voll.wav');
+  zehn();
+  protokoll.length = 0;
+  gesendet.length = 0;
+  WavWriter.prototype.writeBlock = ENOSPC;
+  let wurf: unknown = null;
+  try {
+    zehn();
+  } catch (e) {
+    wurf = e;
+  } finally {
+    WavWriter.prototype.writeBlock = echtBlock;
+  }
+  ck(`RE-3 Schreibfehler im Block wirft nicht (${wurf === null ? 'kein Wurf' : (wurf as Error).message})`, wurf === null);
+  const s = rec.getState();
+  const f = fehler();
+  ck(`RE-3 Zustand nach Schreibfehler: status armed (${s.status})`, s.status === 'armed');
+  ck(`RE-3 Zustand nach Schreibfehler: fehler.art schreiben, der Text nennt ENOSPC, die Datei (${JSON.stringify(f)})`, f?.art === 'schreiben' && f.text.includes('ENOSPC') && f.datei === datei);
+  ck('RE-3 Zustand nach Schreibfehler: filePath bleibt', s.filePath === datei);
+  ck(`RE-3 Zustand nach Schreibfehler: der Kopf trägt die 10 Frames vor dem Fehler (${dataLaenge(datei)})`, dataLaenge(datei) === 80);
+  ck(`RE-3 Zustand nach Schreibfehler: genau eine Logzeile „Aufnahme beendet (schreiben): …“ (${JSON.stringify(protokoll)})`, protokoll.length === 1 && protokoll[0] === `Aufnahme beendet (schreiben): ${datei}: ${GRUND}`);
+  ck(
+    `RE-3 Zustand nach Schreibfehler: die Meldung bis „OK“ nennt Datei und Grund (${JSON.stringify(meldungen())})`,
+    JSON.stringify(meldungen()) === JSON.stringify([`Aufnahme beendet: Schreibfehler in „${datei}“: ${GRUND}. Das bisher Aufgenommene ist gespeichert.`]),
+  );
+  const zustaende = gesendet.filter(([k]) => k === 'recorder:state').map(([, p]) => p as { status: string; fehler?: Fehler });
+  ck('RE-3 Zustand nach Schreibfehler: der Zustand geht mit armed und Fehlerfeld ans Fenster', zustaende.at(-1)?.status === 'armed' && zustaende.at(-1)?.fehler?.art === 'schreiben');
+  zehn();
+  ck(`RE-3 Zustand nach Schreibfehler: weitere Blöcke schreiben nichts mehr (${dataLaenge(datei)} Byte im Kopf, ${dateiGroesse(datei)} Byte Datei)`, dataLaenge(datei) === 80 && dateiGroesse(datei) === 44 + 80 && protokoll.length === 1);
+
+  // Pre-flight K7: arm löscht das Fehlerfeld nicht (auch nicht das Neuöffnen eines Presets, das über arm läuft).
+  const a = rec.arm({ device: 0, channels: 2, sampleRate: 48000 });
+  ck(`RE-3 K7 arm löscht fehler nicht (${JSON.stringify(fehler())})`, a.ok && rec.getState().status === 'armed' && fehler()?.art === 'schreiben');
+  // Pre-flight K7: der Stopp im Fehlerzustand ist eine Quittung.
+  const q = rec.stopRecording();
+  ck(`RE-3 Stopp im Fehlerzustand quittiert: ok true, ohne Datei, fehler null (${JSON.stringify(q)}, ${JSON.stringify(fehler())})`, q.ok === true && q.filePath === undefined && fehler() === null && rec.getState().status === 'armed');
+  const q2 = rec.stopRecording();
+  ck('RE-3 Stopp ohne Fehler und ohne Aufnahme bleibt „Keine laufende Aufnahme.“', q2.ok === false && q2.error === 'Keine laufende Aufnahme.');
+}
+
+// Gescheiterter Start setzt das Fehlerfeld (art start), ein gelungener Start löscht es (K7); RE-PLATZ: `spuren` im Zustand.
+{
+  const r = rec.startRecording({ dir: join(dir, 'Tag.wav'), fileName: 'Nie' });
+  const f = fehler();
+  ck(`RE-3 gescheiterter Start setzt fehler (art start, Text der Meldung, keine Datei) (${JSON.stringify(f)})`, r.ok === false && f?.art === 'start' && f.text === r.error && f.datei === null && rec.getState().status === 'armed');
+  ck('RE-3 Neustart: start mit Spuren', rec.startRecording({ dir, fileName: 'Spur', separateTracks: true }).ok);
+  ck(`RE-3 Neustart löscht fehler (${JSON.stringify(fehler())})`, fehler() === null);
+  ck(`RE-PLATZ spuren: mit „Spuren einzeln“ und 2 Kanälen true (${String(spuren())})`, spuren() === true);
+  zehn();
+  protokoll.length = 0;
+  MultiWavWriter.prototype.writeBlock = ENOSPC;
+  let wurf: unknown = null;
+  try {
+    zehn();
+  } catch (e) {
+    wurf = e;
+  } finally {
+    MultiWavWriter.prototype.writeBlock = echtSpur;
+  }
+  const kombi = join(dir, 'Spur.wav');
+  const f2 = fehler();
+  ck(`RE-3 Spurfehler: wirft nicht, status armed, fehler.art schreiben mit ENOSPC (${JSON.stringify(f2)})`, wurf === null && rec.getState().status === 'armed' && f2?.art === 'schreiben' && f2.text.includes('ENOSPC'));
+  ck(`RE-3 Spurfehler: der Kopf der Kombidatei trägt, was in ihr steht (${dataLaenge(kombi)} + 44 = ${dateiGroesse(kombi)})`, dataLaenge(kombi) + 44 === dateiGroesse(kombi) && protokoll.length === 1);
+  ck('RE-3 Spurfehler: Neustart ohne Spuren', rec.startRecording({ dir, fileName: 'OhneSpur' }).ok);
+  ck(`RE-PLATZ spuren: ohne „Spuren einzeln“ false (${String(spuren())})`, spuren() === false);
+  ck('RE-3 Spurfehler: Stopp', rec.stopRecording().ok);
+  // Pre-flight K7: „Eingang schließen“ des Bedieners löscht das Fehlerfeld.
+  ck('RE-3 K7: start', rec.startRecording({ dir, fileName: 'Zu' }).ok);
+  WavWriter.prototype.writeBlock = ENOSPC;
+  try {
+    zehn();
+  } catch {
+    // vor der Änderung wirft der Block bis hierher
+  } finally {
+    WavWriter.prototype.writeBlock = echtBlock;
+  }
+  ck('RE-3 K7: Fehler gesetzt', fehler()?.art === 'schreiben');
+  const z = rec.schliesseEingang();
+  ck(`RE-3 K7 Eingang schließen (schliesseEingang) löscht fehler (${JSON.stringify(fehler())})`, z.ok && rec.getState().status === 'idle' && fehler() === null);
+}
+
+// Stille-Schreibfehler im Wächter (Loopback, Gerät 5): derselbe Weg wie ein Schreibfehler im Block.
+{
+  ck('RE-3 Stille: arm Loopback', rec.arm({ device: 5, channels: 2, sampleRate: 1000 }).ok);
+  ck('RE-3 Stille: start', rec.startRecording({ dir, fileName: 'StilleVoll' }).ok);
+  zehn();
+  protokoll.length = 0;
+  WavWriter.prototype.writeBlock = ENOSPC;
+  try {
+    await warte(450); // keine Blöcke: der Wächter füllt Stille auf und scheitert
+  } finally {
+    WavWriter.prototype.writeBlock = echtBlock;
+  }
+  const f = fehler();
+  ck(`RE-3 Stille-Schreibfehler (Loopback, Gerät 5): fehler gesetzt, status armed (${rec.getState().status}, ${JSON.stringify(f)})`, rec.getState().status === 'armed' && f?.art === 'schreiben' && f.text.includes('ENOSPC'));
+  ck(`RE-3 Stille-Schreibfehler: eine Logzeile, nicht je Takt (${protokoll.length})`, protokoll.length === 1);
+  aufraeumen();
+}
+
+// Kopf beim Stopp nicht schreibbar.
+{
+  ck('RE-3 Kopf: arm', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+  ck('RE-3 Kopf: start', rec.startRecording({ dir, fileName: 'Kopf' }).ok);
+  zehn();
+  protokoll.length = 0;
+  gesendet.length = 0;
+  WavWriter.prototype.finalize = ENOSPC;
+  let r: { ok: boolean; error?: string } = { ok: true };
+  try {
+    r = rec.stopRecording();
+  } finally {
+    WavWriter.prototype.finalize = echtKopf;
+  }
+  const datei = join(dir, 'Kopf.wav');
+  const f = fehler();
+  ck(`RE-3 Kopf beim Stopp nicht schreibbar: ok false, fehler gesetzt (art schreiben), status armed (${JSON.stringify(r)}, ${JSON.stringify(f)})`, r.ok === false && f?.art === 'schreiben' && f.text.includes('ENOSPC') && rec.getState().status === 'armed');
+  ck(
+    `RE-3 Kopf beim Stopp nicht schreibbar: Meldung „Der Dateikopf … konnte nicht geschrieben werden“ und eine Logzeile (${JSON.stringify(meldungen())})`,
+    JSON.stringify(meldungen()) === JSON.stringify([`Aufnahme beendet: Der Dateikopf von „${datei}“ konnte nicht geschrieben werden: ${GRUND}.`]) && protokoll.length === 1,
+  );
+  aufraeumen();
+}
+
+// Schreibfehler im Block, und auch der Kopf lässt sich danach nicht schreiben: die Meldung behauptet nicht „gespeichert“.
+{
+  ck('RE-3 Block und Kopf: arm', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+  ck('RE-3 Block und Kopf: start', rec.startRecording({ dir, fileName: 'Doppelt' }).ok);
+  zehn();
+  gesendet.length = 0;
+  WavWriter.prototype.writeBlock = ENOSPC;
+  WavWriter.prototype.finalize = (): never => {
+    throw new Error('EIO: i/o error, write');
+  };
+  try {
+    zehn();
+  } catch {
+    // vor der Änderung wirft der Block bis hierher
+  } finally {
+    WavWriter.prototype.writeBlock = echtBlock;
+    WavWriter.prototype.finalize = echtKopf;
+  }
+  const datei = join(dir, 'Doppelt.wav');
+  ck(
+    `RE-3 Block und Kopf: scheitert auch der Kopf, nennt die Meldung ihn statt „gespeichert“; das Fehlerfeld behält den ersten Grund (${JSON.stringify(meldungen())}, ${JSON.stringify(fehler())})`,
+    JSON.stringify(meldungen()) === JSON.stringify([`Aufnahme beendet: Der Dateikopf von „${datei}“ konnte nicht geschrieben werden: EIO: i/o error, write.`]) && fehler()?.text === GRUND && rec.getState().status === 'armed',
+  );
+  aufraeumen();
+}
+
+// Ein Schreibfehler löscht den geplanten Stopp (D3).
+{
+  ck('RE-3 Plan: arm', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+  ck('RE-3 Plan: schedule mit Dauer', rec.schedule({ dir, fileName: 'Plan', separateTracks: false, startAt: null, stopAt: Date.now() + 5000 }).ok);
+  ck('RE-3 Plan: Aufnahme läuft mit geplantem Stopp', rec.getState().status === 'recording' && typeof rec.getState().scheduledStopAt === 'number');
+  zehn();
+  WavWriter.prototype.writeBlock = ENOSPC;
+  try {
+    zehn();
+  } catch {
+    // vor der Änderung wirft der Block bis hierher
+  } finally {
+    WavWriter.prototype.writeBlock = echtBlock;
+  }
+  ck(`RE-3 Schreibfehler löscht den geplanten Stopp (scheduledStopAt ${String(rec.getState().scheduledStopAt)})`, rec.getState().scheduledStopAt === null && rec.getState().status === 'armed');
+  aufraeumen();
+}
+
+// B1: 2 s ohne Block an einem Eingang, der kein Loopback ist; Zeit über ein umgelegtes Date.now, der Block-Wächter von Hand gerufen.
+{
+  const echtNow = Date.now;
+  let uhr = echtNow();
+  Date.now = () => uhr;
+  try {
+    const blockWaechter = (vor: number): Array<() => void> => intervalle.slice(vor).filter((i) => i.ms === 250).map((i) => i.fn);
+    ck('RE-3 Block-Wächter: arm Gerät 0', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+    let vor = intervalle.length;
+    ck('RE-3 Block-Wächter: start', rec.startRecording({ dir, fileName: 'Stumm' }).ok);
+    const w = blockWaechter(vor);
+    ck(`RE-3 kein Block 2 s: in der Aufnahme läuft ein Block-Wächter im Takt 250 ms (${w.length})`, w.length === 1);
+    zehn();
+    protokoll.length = 0;
+    gesendet.length = 0;
+    const t0 = uhr;
+    let erstFehler: number | null = null;
+    for (let t = 250; t <= 2250; t += 250) {
+      uhr = t0 + t;
+      w[0]?.();
+      if (erstFehler === null && fehler()) erstFehler = t;
+    }
+    const datei = join(dir, 'Stumm.wav');
+    const f = fehler();
+    ck(`RE-3 kein Block 2 s (Gerät 0): status armed, fehler.art eingang mit „Keine Audiodaten vom Eingang“ (${rec.getState().status}, ${JSON.stringify(f)})`, rec.getState().status === 'armed' && f?.art === 'eingang' && f.text === 'Keine Audiodaten vom Eingang' && f.datei === datei);
+    ck(`RE-3 kein Block 2 s: der Fehler kommt bei +2000 ms, nicht früher (${erstFehler})`, erstFehler === 2000);
+    ck(`RE-3 kein Block 2 s: der Kopf trägt die 10 Frames (${dataLaenge(datei)})`, dataLaenge(datei) === 80);
+    ck(
+      `RE-3 kein Block 2 s: Meldung und Logzeile (${JSON.stringify(meldungen())}, ${JSON.stringify(protokoll)})`,
+      JSON.stringify(meldungen()) === JSON.stringify(['Aufnahme beendet: Vom Eingang kamen 2 s lang keine Audiodaten. Das bisher Aufgenommene ist gespeichert.']) &&
+        JSON.stringify(protokoll) === JSON.stringify([`Aufnahme beendet (eingang): ${datei}: Keine Audiodaten vom Eingang`]),
+    );
+    aufraeumen();
+
+    // Die Ereignisschleife hing: der erste Takt kommt erst nach 2,1 s. Das ist ein Stau, kein Geräteverlust; die Grundlinie beginnt neu.
+    ck('RE-3 Stau: arm', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+    vor = intervalle.length;
+    ck('RE-3 Stau: start', rec.startRecording({ dir, fileName: 'Hing' }).ok);
+    const w2 = blockWaechter(vor);
+    zehn();
+    uhr += 2100;
+    w2[0]?.();
+    const nachStau = { status: rec.getState().status, fehler: fehler() };
+    uhr += 250;
+    w2[0]?.();
+    ck(
+      `RE-3 Ereignisschleife hing: ein Takt erst nach +2100 → kein fehler, status recording, auch im Takt danach (${JSON.stringify(nachStau)}, ${rec.getState().status})`,
+      w2.length === 1 && nachStau.status === 'recording' && nachStau.fehler === null && rec.getState().status === 'recording' && fehler() === null,
+    );
+    ck('RE-3 Stau: Stopp', rec.stopRecording().ok);
+    aufraeumen();
+
+    // Loopback hat seinen Stille-Wächter; in Stille kommen dort keine Blöcke, ein Block-Wächter wäre falsch.
+    ck('RE-3 Loopback: arm Gerät 5', rec.arm({ device: 5, channels: 2, sampleRate: 1000 }).ok);
+    vor = intervalle.length;
+    ck('RE-3 Loopback: start', rec.startRecording({ dir, fileName: 'LoopOhne' }).ok);
+    ck(`RE-3 Loopback ohne Block-Wächter (Gerät 5): kein neuer Takt von 250 ms (${blockWaechter(vor).length})`, blockWaechter(vor).length === 0);
+    ck('RE-3 Loopback: Stopp', rec.stopRecording().ok);
+    aufraeumen();
+  } finally {
+    Date.now = echtNow;
+  }
+}
+
+// --- Altfehler RE-2, Ruling R11 (Task 7): lehnt der Wächter im Hauptprozess ARM oder DISARM im Wettlauf ab, nennt wettlaufAblehnung
+// Logzeile und Hinweis wie die Ablehnung im Store (main/ipc.ts schreibt die Zeile mit getLog().warn und zeigt den Hinweis bis „OK“).
+{
+  const w = R.wettlaufAblehnung;
+  ck('RE-2 R11 wettlaufAblehnung gibt es', typeof w === 'function');
+  ck('RE-2 R11: arm', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+  ck('RE-2 R11: start', rec.startRecording({ dir, fileName: 'Wettlauf' }).ok);
+  const ist = JSON.stringify([w?.('ARM', rec.arm({ device: 0, channels: 2, sampleRate: 48000 })), w?.('DISARM', rec.schliesseEingang())]);
+  const soll = JSON.stringify([
+    { log: 'Fernbefehl abgelehnt: ARM (Aufnahme läuft)', hinweis: 'Companion „ARM“ abgelehnt: Erst die Aufnahme stoppen.' },
+    { log: 'Fernbefehl abgelehnt: DISARM (Aufnahme läuft)', hinweis: 'Companion „DISARM“ abgelehnt: Erst die Aufnahme stoppen.' },
+  ]);
+  ck(`RE-2 R11 wettlaufAblehnung: ARM und DISARM in der Aufnahme mit dem Text der Store-Ablehnung (${ist})`, ist === soll);
+  ck(
+    'RE-2 R11 wettlaufAblehnung: ein gelungener Aufruf und ein anderer Fehler sind keine Ablehnung im Wettlauf',
+    w?.('ARM', { ok: true }) === null && w?.('ARM', { ok: false, error: 'Gerät belegt' }) === null && w?.('DISARM', { ok: false }) === null,
+  );
+  ck('RE-2 R11: Stopp', rec.stopRecording().ok);
+  aufraeumen();
 }
 
 console.log(`\nrecorder: ${pass} ok, ${fail} FAIL`);

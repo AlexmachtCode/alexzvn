@@ -28,7 +28,7 @@ export const GERAETE: AudioDevice[] = [
 /** Gemessener Zustand des Hauptprozesses; offen = Gerät 3 mit 2 Kanälen und 44100 Hz. */
 export function zustand(status: RecorderStatus, z: Partial<RecorderState> = {}): RecorderState {
   const offen = status !== 'idle';
-  return { status, device: offen ? 3 : null, channels: offen ? 2 : 0, sampleRate: offen ? 44100 : 0, filePath: null, recordedSec: 0, ...z };
+  return { status, device: offen ? 3 : null, channels: offen ? 2 : 0, sampleRate: offen ? 44100 : 0, filePath: null, recordedSec: 0, fehler: null, spuren: false, ...z };
 }
 
 /**

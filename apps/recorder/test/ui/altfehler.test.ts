@@ -1,7 +1,8 @@
 // Altfehler Stufe 2, Recorder A (Plan 2026-11-26, Task 6): Quelltext-Wächter für den Hauptprozess und den Preload, die unter tsx nicht
 // laufen (importieren electron, R3). RE-2 (Wächter in arm, `schliesseEingang` hinter rec:disarm), B6 (Kanal recorder:ablehnung), RE-7b
 // (Show-Ordner geprüft, settings:load ohne existsSync, „Übernehmen“ im Import merkt den Netzwerkordner, Kanal
-// recorder:netzordnerBestaetigen) und K4 (der Satz „Erst die Aufnahme stoppen.“ steht genau einmal im Code).
+// recorder:netzordnerBestaetigen) und K4 (der Satz „Erst die Aufnahme stoppen.“ steht genau einmal im Code). Task 7: RE-3 (Fehlerfeld, Block-Wächter,
+// Steuerserver unverändert), RE-7a (Rückfrage beim Schließen im Hauptprozess), RE-PLATZ (fs:platz) und Ruling R11 (Logzeile im Wettlauf).
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
 import { ohneKommentare, quellen } from './testzustand';
 
@@ -30,7 +31,8 @@ const stueck = (t: string, von: string, bis: string): string => {
     sch.includes("if (state.status === 'recording') return { ok: false, error: ERST_AUFNAHME_STOPPEN };") && sch.includes('disarm();') && sch.includes('return { ok: true };'),
     'RE-2 Wächter: schliesseEingang lehnt in der Aufnahme ab, sonst disarm() und ok',
   );
-  ok(ipc.includes("ipcMain.handle('rec:disarm', () => rec.schliesseEingang());") && !ipc.includes('rec.disarm()'), 'RE-2 Wächter: rec:disarm ruft schliesseEingang, nicht mehr disarm');
+  // Ruling R11 (Task 7): der Aufruf läuft über meldeWettlauf, das eine Ablehnung im Wettlauf protokolliert (Wächter umgestellt).
+  ok(ipc.includes("ipcMain.handle('rec:disarm', () => meldeWettlauf('DISARM', rec.schliesseEingang()));") && !ipc.includes('rec.disarm()'), 'RE-2 Wächter (Ruling R11): rec:disarm ruft schliesseEingang (über meldeWettlauf), nicht mehr disarm');
   ok(recM.includes("'Erst den Eingang öffnen (Arm).'") && /export function shutdown\(\): void \{\s*disarm\(\);/.test(recM), 'RE-2 Wächter: „Erst den Eingang öffnen (Arm).“ bleibt wörtlich, shutdown() schließt weiter mit disarm()');
   ok(preload.includes("disarm: () => ipcRenderer.invoke('rec:disarm') as Promise<OpResult>,") && typen.includes('disarm: () => Promise<OpResult>;'), 'RE-2 Wächter: disarm liefert ein OpResult (Preload und JmrecApi)');
 }
@@ -98,4 +100,100 @@ const stueck = (t: string, von: string, bis: string): string => {
   });
   gleich(treffer, ['src/shared/types.ts:1'], 'K4 Wächter: der Satz „Erst die Aufnahme stoppen.“ steht genau einmal im Code (src/shared/types.ts), alle Stellen importieren ihn');
   ok(typen.includes("export const ERST_AUFNAHME_STOPPEN = 'Erst die Aufnahme stoppen.';"), 'K4 Wächter: die Konstante ERST_AUFNAHME_STOPPEN in src/shared/types.ts');
+}
+
+// ── Task 7 · RE-3 (B1, B2, D3): Block-Wächter rein, Steuerserver unverändert, main/recorder.ts ohne @jm/app-runtime ──
+{
+  type Lage = 'ok' | 'stau' | 'fehlen';
+  type Waechter = { KEINE_BLOECKE_MS?: number; BLOECKE_TAKT_MS?: number; bloeckeLage?: (l: { jetzt: number; letzterBlock: number; letzterTakt: number }) => Lage };
+  let ew: Waechter | null = null;
+  try {
+    ew = (await import('../../src/main/eingang-waechter')) as Waechter;
+  } catch {
+    ew = null;
+  }
+  const lage = (jetzt: number, letzterBlock: number, letzterTakt: number): Lage | undefined => ew?.bloeckeLage?.({ jetzt, letzterBlock, letzterTakt });
+  gleich(
+    [ew?.KEINE_BLOECKE_MS, ew?.BLOECKE_TAKT_MS, lage(1999, 0, 1749), lage(2000, 0, 1750), lage(10000, 9000, 8001), lage(10000, 9000, 8000), lage(10000, 0, 8000), lage(10000, 0, 9750)],
+    [2000, 250, 'ok', 'fehlen', 'ok', 'stau', 'stau', 'fehlen'],
+    'RE-3 eingang-waechter bloeckeLage an den Grenzen: 1999 ms ohne Block ok, 2000 fehlen; Takt nach 1999 ms ok, nach 2000 stau (der Stau geht vor)',
+  );
+  const cs = Q('src/main/control-server.ts');
+  const suite = stueck(cs, 'function toSuiteState(): SuiteState {', '\n}\n');
+  const felder = [...suite.matchAll(/\bs\.(\w+)/g)].map((m) => m[1]);
+  ok(
+    suite !== '' && felder.length >= 4 && felder.every((f) => f === 'status' || f === 'recordedSec') && felder.includes('status') && felder.includes('recordedSec'),
+    `RE-3 Wächter (B2): toSuiteState in main/control-server.ts liest nur status und recordedSec; Companion sieht recording=0 ohne neuen Zustandswert (${felder.join(', ')})`,
+  );
+  ok(!/from '@jm\/app-runtime'/.test(recM) && !/^import \{[^}]*\} from 'electron'/m.test(recM), 'RE-3 Wächter (D3): main/recorder.ts bleibt ohne @jm/app-runtime und ohne Electron-Werte (testbar unter tsx); die Logzeile kommt über setProtokoll');
+  ok(/rec\.setProtokoll\(\(zeile\) => getLog\(\)\.warn\(zeile\.slice\(0, 500\)\)\);/.test(ipc), 'RE-3 Wächter (D3): main/ipc.ts hängt getLog().warn über rec.setProtokoll ein (500 Zeichen)');
+  const block = stueck(recM, 'function onFrames(', '\n}\n');
+  ok(
+    /try \{[\s\S]*writer\.writeBlock\(planar, channels, frames\);[\s\S]*multiWriter\?\.writeBlock\(planar, channels, frames\);[\s\S]*state\.recordedSec \+= frames[\s\S]*\} catch \(e\) \{\s*schreibfehler\('schreiben', e\);/.test(block),
+    'RE-3 Wächter (B2): onFrames fasst Stille, beide writeBlock und recordedSec in try, der catch ruft schreibfehler (kein Wurf erreicht das Addon)',
+  );
+}
+
+// ── Task 7 · RE-7a (B3, D4): Rückfrage beim Schließen im Hauptprozess, nativer Rückfall nicht blockierend, Abmelden ohne Frage ──
+{
+  const close = stueck(index, "win.on('close', (e) => {", '\n  });\n');
+  ok(
+    close.includes('schliessenEntscheid({ status: getState().status, bestaetigt, frageOffen: ablauf.offen })') &&
+      close.includes('e.preventDefault();') &&
+      close.includes('ablauf.stelle(rueckfall)') &&
+      close.includes("win.webContents.send('recorder:schliessenFrage', true)") &&
+      close.indexOf('e.preventDefault();') < close.indexOf('ablauf.stelle(rueckfall)'),
+    'RE-7a Wächter: main/index.ts hört auf win.on(close), fragt schliessenEntscheid, verhindert das Schließen (preventDefault) und stellt die Frage im Fenster (recorder:schliessenFrage)',
+  );
+  const rueck = stueck(index, 'const rueckfall = (): void => {', '\n  };\n');
+  ok(
+    rueck.includes("win.webContents.send('recorder:schliessenFrage', false)") &&
+      /dialog\s*\.showMessageBox\(win, \{\s*type: 'warning',\s*message: SCHLIESSEN_TEXTE\.frage,\s*detail: SCHLIESSEN_TEXTE\.detail,\s*buttons: \[SCHLIESSEN_TEXTE\.beenden, SCHLIESSEN_TEXTE\.weiter\],\s*defaultId: 1,\s*cancelId: 1,?\s*\}\)/.test(rueck) &&
+      rueck.indexOf("'recorder:schliessenFrage', false") < rueck.indexOf('showMessageBox(win'),
+    'RE-7a Wächter: der Rückfall schließt die Frage im Fenster und fragt asynchron mit dialog.showMessageBox(win, …) und SCHLIESSEN_TEXTE (Vorgabe und Abbruch „Weiter aufnehmen“)',
+  );
+  ok(!index.includes('showMessageBoxSync'), 'RE-7a Wächter: nie showMessageBoxSync (hielte Hauptprozess, Audioblöcke, IPC und Steuerserver an)');
+  ok(/win\.on\('session-end', \(\) => \{\s*bestaetigt = true;\s*shutdown\(\);/.test(index), 'RE-7a Wächter: Abmelden und Herunterfahren (session-end) beenden ohne Frage und schließen die Datei sauber ab (shutdown)');
+  ok(/win\.on\('closed', \(\) => \{\s*shutdown\(\);/.test(index), 'RE-7a Wächter: closed ruft weiter shutdown() (Kopf mit echter Länge)');
+  const vorEnde = stueck(index, "app.on('before-quit'", ');\n');
+  const nachEnde = stueck(index, "app.on('will-quit'", ');\n');
+  ok(
+    vorEnde !== '' && !vorEnde.includes('stopControlServer') && vorEnde.includes('beendenWunsch = true') && nachEnde.includes('stopControlServer()'),
+    'RE-7a Wächter (Mac Cmd+Q): before-quit merkt nur den Beenden-Wunsch, will-quit hält den Steuerserver an (erst fragen, dann beenden)',
+  );
+  const antw = stueck(index, "ipcMain.handle('recorder:schliessenAntwort'", '\n    });\n');
+  ok(
+    antw.includes("a === 'gezeigt'") && antw.includes("a === 'beenden'") && antw.includes("a === 'weiter'") && /ablauf\.antwort\(\)/.test(index) && index.includes('if (beendenWunsch) app.quit();'),
+    'RE-7a Wächter: recorder:schliessenAntwort kennt gezeigt, beenden und weiter; die erste Antwort gilt (ablauf.antwort), nach „Aufnahme beenden“ auf Cmd+Q hin beendet der Main die App (D4)',
+  );
+  ok(
+    preload.includes("ipcRenderer.on('recorder:schliessenFrage', listener);") &&
+      preload.includes("schliessenAntwort: (a) => ipcRenderer.invoke('recorder:schliessenAntwort', a) as Promise<void>,") &&
+      typen.includes('onSchliessenFrage: (cb: (offen: boolean) => void) => () => void;') &&
+      typen.includes("schliessenAntwort: (a: 'gezeigt' | 'beenden' | 'weiter') => Promise<void>;"),
+    'RE-7a Wächter: Preload und JmrecApi haben onSchliessenFrage und schliessenAntwort',
+  );
+  ok(
+    /window\.jmrec\.onSchliessenFrage\(\(offen\) => \{\s*set\(\{ schliessenFrage: offen \}\);\s*if \(offen\) void window\.jmrec\.schliessenAntwort\('gezeigt'\)/.test(store),
+    'RE-7a Wächter: der Store abonniert onSchliessenFrage in init und meldet „gezeigt“ sofort (sonst greift nach 1 s der native Rückfall)',
+  );
+}
+
+// ── Task 7 · Ruling R11: eine Ablehnung des Main-Wächters im Wettlauf hat eine Logzeile und den Hinweis wie die Store-Ablehnung ──
+{
+  ok(ipc.includes("ipcMain.handle('rec:arm', (_e, input: ArmInput) => meldeWettlauf('ARM', rec.arm(input)));"), 'RE-2 R11 Wächter: rec:arm geht über meldeWettlauf');
+  const mw = stueck(ipc, 'const meldeWettlauf = ', '\n  };\n');
+  ok(
+    mw.includes('if (r.ok) return r;') && mw.includes('rec.wettlaufAblehnung(verb, r)') && mw.includes('getLog().warn(') && mw.includes("'recorder:notice'") && mw.includes('w.hinweis'),
+    'RE-2 R11 Wächter: meldeWettlauf schreibt bei !ok eine Logzeile mit getLog().warn und schickt im Wettlauf den Hinweis der Store-Ablehnung als recorder:notice (Band bis „OK“)',
+  );
+}
+
+// ── Task 7 · RE-PLATZ (B5): fs:platz im Hauptprozess über PlatzAbfrage, im Store ein Takt von 5 s ──
+{
+  const h = stueck(ipc, "ipcMain.handle('fs:platz'", ');\n');
+  ok(h.includes("typeof dir === 'string'") && h.includes('platz.frage(dir)') && /const platz = new PlatzAbfrage\(\);/.test(ipc), 'RE-PLATZ Wächter: fs:platz fragt über eine PlatzAbfrage (je Pfad eine Messung, Zeitgrenze 3 s)');
+  ok(preload.includes("platz: (dir) => ipcRenderer.invoke('fs:platz', dir) as Promise<number | null>,") && typen.includes('platz: (dir: string) => Promise<number | null>;'), 'RE-PLATZ Wächter: Preload und JmrecApi haben platz(dir)');
+  ok(/setInterval\(frage, PLATZ_TAKT_MS\)/.test(store) && store.includes('useRec.subscribe('), 'RE-PLATZ Wächter: der Store fragt im Takt PLATZ_TAKT_MS und bei jeder Änderung über useRec.subscribe');
+  ok(/state\.spuren = multiWriter !== null;/.test(recM), 'RE-PLATZ Wächter: startRecording setzt spuren = multiWriter !== null (gemessen, nicht der Wunsch)');
 }

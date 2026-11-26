@@ -4,16 +4,19 @@ import { existsSync, mkdirSync } from 'node:fs';
 import type * as AudioNS from '@jm/audio';
 import {
   ERST_AUFNAHME_STOPPEN,
+  FERNBEFEHL_ABGELEHNT,
   type ArmInput,
   type AudioDevice,
   type OpResult,
   type RecordInput,
   type RecordResult,
+  type RecorderFehler,
   type RecorderState,
   type ScheduleInput,
 } from '../shared/types';
 import { MultiWavWriter, WavWriter } from './wav';
 import { freierBasisname } from './dateiname';
+import { BLOECKE_TAKT_MS, bloeckeLage } from './eingang-waechter';
 import { istLoopback, StilleUhr, STILLE_PAUSE_MS, STILLE_TAKT_MS } from './stille';
 
 // Lazy-Load des nativen Addons: das Fenster startet auch ohne gebautes @jm/audio
@@ -45,6 +48,8 @@ const state: RecorderState = {
   recordedSec: 0,
   scheduledStartAt: null,
   scheduledStopAt: null,
+  fehler: null,
+  spuren: false,
 };
 let writer: WavWriter | null = null;
 let multiWriter: MultiWavWriter | null = null;
@@ -57,6 +62,32 @@ let waechter: ReturnType<typeof setInterval> | null = null;
 let letzterBlockMs = 0;
 // Letzter Wächtertakt: liegt er ≥ STILLE_PAUSE_MS zurück, hing die Ereignisschleife (Stau, keine Stille).
 let letzterTaktMs = 0;
+// Altfehler RE-3 (B1): Block-Wächter nur in der Aufnahme an einem Eingang, der kein Loopback ist; sein letzter Takt (Stau-Erkennung).
+let blockWaechter: ReturnType<typeof setInterval> | null = null;
+let letzterBlockTaktMs = 0;
+
+/**
+ * Altfehler RE-3 (D3): Logzeile einer Aufnahme, die mit einem Fehler endete. main/ipc.ts hängt hier getLog().warn ein; dieses Modul bleibt
+ * ohne @jm/app-runtime und damit unter tsx testbar. Standard: nichts.
+ */
+let protokoll: (zeile: string) => void = () => {};
+export function setProtokoll(f: (zeile: string) => void): void {
+  protokoll = f;
+}
+
+/**
+ * Altfehler RE-3: Meldung bis „OK“ (recorder:notice) und Logzeile, wenn eine Aufnahme mit einem Fehler endet (Pre-flight K4: benannte
+ * Konstante im Hauptprozess). `eingangGrund` ist der Text des Fehlerfelds bei 2 s ohne Audiodaten (B1).
+ */
+export const AUFNAHME_FEHLER_TEXTE = {
+  schreiben: (datei: string, grund: string): string => `Aufnahme beendet: Schreibfehler in „${datei}“: ${grund}. Das bisher Aufgenommene ist gespeichert.`,
+  kopf: (datei: string, grund: string): string => `Aufnahme beendet: Der Dateikopf von „${datei}“ konnte nicht geschrieben werden: ${grund}.`,
+  eingang: 'Aufnahme beendet: Vom Eingang kamen 2 s lang keine Audiodaten. Das bisher Aufgenommene ist gespeichert.',
+  eingangGrund: 'Keine Audiodaten vom Eingang',
+  log: (art: RecorderFehler['art'], datei: string, grund: string): string => `Aufnahme beendet (${art}): ${datei}: ${grund}`,
+} as const;
+
+const grundVon = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 // Aufnahme-Verstärkung (#94): linearer Faktor, der je Audioblock VOR Pegel-
 // messung und Schreiben angewandt wird → der Meter zeigt den verstärkten Pegel.
 let gainFactor = 1;
@@ -133,14 +164,20 @@ function onFrames(planar: Float32Array, channels: number, frames: number): void 
   }
 
   if (state.status === 'recording' && writer) {
-    // Loopback: erst die fehlende Stille vor diesem Block, dann der echte Block.
-    if (uhr) {
-      const n = uhr.block(frames, letzterBlockMs);
-      if (n > 0) schreibeStille(n);
+    // Altfehler RE-3 (B2): kein Schreibfehler erreicht das Addon (die JS-Ausnahme bliebe als offene N-API-Ausnahme stehen, jeder weitere
+    // Block würfe wieder); die Aufnahme endet sauber über schreibfehler.
+    try {
+      // Loopback: erst die fehlende Stille vor diesem Block, dann der echte Block.
+      if (uhr) {
+        const n = uhr.block(frames, letzterBlockMs);
+        if (n > 0) schreibeStille(n);
+      }
+      writer.writeBlock(planar, channels, frames);
+      multiWriter?.writeBlock(planar, channels, frames);
+      state.recordedSec += frames / (state.sampleRate || 1);
+    } catch (e) {
+      schreibfehler('schreiben', e);
     }
-    writer.writeBlock(planar, channels, frames);
-    multiWriter?.writeBlock(planar, channels, frames);
-    state.recordedSec += frames / (state.sampleRate || 1);
   }
 
   const now = Date.now();
@@ -201,12 +238,75 @@ function waechterTakt(): void {
     try {
       stilleBisJetzt();
     } catch (e) {
-      // Schreibfehler: Auffüllen für diese Aufnahme beenden, nur EINE Meldung (kein Spam im 100-ms-Takt).
-      uhr = null;
-      notice(`Stille konnte nicht in die Datei geschrieben werden: ${(e as Error).message}`);
+      // Altfehler RE-3: ein Schreibfehler beim Auffüllen beendet die Aufnahme wie ein Schreibfehler im Block (eine Meldung, eine Logzeile;
+      // bisher lief sie ohne Auffüllen weiter).
+      schreibfehler('schreiben', e);
+      return;
     }
     emitState();
   }
+}
+
+function stopBlockWaechter(): void {
+  if (blockWaechter) {
+    clearInterval(blockWaechter);
+    blockWaechter = null;
+  }
+}
+
+// Altfehler RE-3 (B1): Block-Wächter. Hing die Ereignisschleife (Stau), beginnt die Grundlinie neu; 2 s ohne Block beenden die Aufnahme.
+function blockTakt(): void {
+  if (state.status !== 'recording') return;
+  const jetzt = Date.now();
+  const lage = bloeckeLage({ jetzt, letzterBlock: letzterBlockMs, letzterTakt: letzterBlockTaktMs });
+  letzterBlockTaktMs = jetzt;
+  if (lage === 'stau') {
+    letzterBlockMs = jetzt;
+    return;
+  }
+  if (lage === 'fehlen') schreibfehler('eingang', new Error(AUFNAHME_FEHLER_TEXTE.eingangGrund));
+}
+
+/**
+ * Altfehler RE-3 (B2, D3): die Aufnahme endet sauber nach einem Schreibfehler (`schreiben`, mit `kopf` beim Stopp) oder ohne Blöcke vom
+ * Eingang (`eingang`): keine Stille mehr auffüllen, Block-Wächter und geplante Start- und Stopp-Zeitgeber lösen, beide Schreiber je für
+ * sich abschließen, Status `armed` (der Eingang bleibt offen), das Fehlerfeld setzen, eine Meldung bis „OK“, eine Logzeile, Zustand an
+ * Fenster und Steuerserver. Companion sieht recording=0; main/control-server.ts ändert sich nicht.
+ */
+function schreibfehler(art: RecorderFehler['art'], e: unknown, kopf = false): void {
+  if (state.status !== 'recording') return;
+  const T = AUFNAHME_FEHLER_TEXTE;
+  const datei = state.filePath ?? '';
+  const grund = art === 'eingang' ? T.eingangGrund : grundVon(e);
+  let kopfGrund: string | null = kopf ? grund : null;
+  uhr = null;
+  stopBlockWaechter();
+  clearTimers();
+  state.scheduledStartAt = null;
+  state.scheduledStopAt = null;
+  pendingInput = null;
+  if (writer) {
+    try {
+      writer.finalize();
+    } catch (fin) {
+      // Auch der Kopf ließ sich nicht schreiben: die Meldung sagt das, statt „gespeichert“ zu behaupten.
+      kopfGrund = grundVon(fin);
+    }
+    writer = null;
+  }
+  if (multiWriter) {
+    try {
+      multiWriter.finalize();
+    } catch {
+      // eine Spur bricht das Abschließen der übrigen nicht ab
+    }
+    multiWriter = null;
+  }
+  state.status = 'armed';
+  state.fehler = { art, text: grund, datei: state.filePath };
+  notice(kopfGrund !== null ? T.kopf(datei, kopfGrund) : art === 'eingang' ? T.eingang : T.schreiben(datei, grund));
+  protokoll(T.log(art, datei, grund));
+  emitState();
 }
 
 export function arm(input: ArmInput): OpResult {
@@ -250,6 +350,7 @@ export function arm(input: ArmInput): OpResult {
 
 export function disarm(): void {
   stopWaechter();
+  stopBlockWaechter();
   try {
     stilleBisJetzt(true); // Lücke bis zum Ende füllen, bevor der Writer schließt
   } catch {
@@ -286,6 +387,7 @@ export function disarm(): void {
   state.status = 'idle';
   state.filePath = null;
   state.recordedSec = 0;
+  state.spuren = false;
   emitState();
 }
 
@@ -295,8 +397,20 @@ export function disarm(): void {
  */
 export function schliesseEingang(): OpResult {
   if (state.status === 'recording') return { ok: false, error: ERST_AUFNAHME_STOPPEN };
+  // Altfehler RE-3 (Pre-flight K7): „Eingang schließen“ des Bedieners löscht das Fehlerfeld; `disarm()` (Neuöffnen in arm, shutdown) nicht.
+  state.fehler = null;
   disarm();
   return { ok: true };
+}
+
+/**
+ * Altfehler RE-2, Ruling R11: hat der Wächter in `arm` oder `schliesseEingang` einen Fernbefehl im Wettlauf abgelehnt (das Fenster hielt
+ * die Aufnahme noch nicht für laufend), nennt dies Logzeile und Hinweis wie die Ablehnung im Store; main/ipc.ts schreibt die Zeile mit
+ * getLog().warn und zeigt den Hinweis bis „OK“. Sonst null.
+ */
+export function wettlaufAblehnung(verb: 'ARM' | 'DISARM', r: OpResult): { log: string; hinweis: string } | null {
+  if (r.ok || r.error !== ERST_AUFNAHME_STOPPEN) return null;
+  return { log: FERNBEFEHL_ABGELEHNT.log(verb, FERNBEFEHL_ABGELEHNT.logAufnahmeLaeuft), hinweis: FERNBEFEHL_ABGELEHNT.hinweis(verb, ERST_AUFNAHME_STOPPEN) };
 }
 
 function defaultName(): string {
@@ -333,17 +447,42 @@ export function startRecording(input: RecordInput): OpResult {
     }
     state.filePath = filePath;
     state.recordedSec = 0;
+    // Altfehler RE-PLATZ: gemessen, ob Spuren geschrieben werden (der Wunsch im Fenster kann sich in der Aufnahme ändern).
+    state.spuren = multiWriter !== null;
     uhr = loopback ? new StilleUhr(state.sampleRate, Date.now()) : null;
+    // Altfehler RE-3 (B1): Block-Wächter nur an einem Eingang, der kein Loopback ist; die Frist beginnt mit dem Start.
+    stopBlockWaechter();
+    if (!loopback) {
+      letzterBlockMs = Date.now();
+      letzterBlockTaktMs = Date.now();
+      blockWaechter = setInterval(blockTakt, BLOECKE_TAKT_MS);
+      blockWaechter.unref?.();
+    }
+    // Pre-flight K7: ein gelungener Start löscht das Fehlerfeld.
+    state.fehler = null;
     state.status = 'recording';
     emitState();
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: (e as Error).message };
+    // Altfehler RE-3 (B2): auch ein gescheiterter Start setzt das Fehlerfeld (für einen unbesetzten Rechner).
+    const grund = grundVon(e);
+    state.fehler = { art: 'start', text: grund, datei: null };
+    emitState();
+    return { ok: false, error: grund };
   }
 }
 
 export function stopRecording(): RecordResult {
-  if (state.status !== 'recording' || !writer) return { ok: false, error: 'Keine laufende Aufnahme.' };
+  if (state.status !== 'recording' || !writer) {
+    // Altfehler RE-3 (Pre-flight K7): ein Stopp im Fehlerzustand quittiert das Fehlerfeld (ok, ohne Datei).
+    if (state.fehler !== null && state.status !== 'recording') {
+      state.fehler = null;
+      emitState();
+      return { ok: true };
+    }
+    return { ok: false, error: 'Keine laufende Aufnahme.' };
+  }
+  stopBlockWaechter();
   // Manueller Stopp hebt einen ausstehenden Auto-Stopp auf.
   if (stopTimer) {
     clearTimeout(stopTimer);
@@ -376,17 +515,11 @@ export function stopRecording(): RecordResult {
       sampleRate: state.sampleRate,
     };
   } catch (e) {
+    // Altfehler RE-3: der Kopf ließ sich nicht schreiben. Derselbe Weg wie ein Schreibfehler (Spuren abschließen, `armed`, Fehlerfeld,
+    // Meldung „Der Dateikopf … konnte nicht geschrieben werden“, Logzeile); bisher nur ein Toast des Stores.
     writer = null;
-    // Auch hier darf ein Fehler beim Schließen der Einzelspuren den Rest nicht verhindern.
-    try {
-      multiWriter?.finalize();
-    } catch {
-      // schon im Fehlerfall — nichts weiter zu tun
-    }
-    multiWriter = null;
-    state.status = 'armed';
-    emitState();
-    return { ok: false, error: (e as Error).message };
+    schreibfehler('schreiben', e, true);
+    return { ok: false, error: grundVon(e) };
   }
 }
 

@@ -54,9 +54,13 @@ export function liveKnoepfe(s: Pick<OberflaechenStand, 'recorder' | 'zustand'>, 
   ];
 }
 
-/** Statusmarke wie bisher (RecorderView.tsx:179-181) aus dem gemessenen Zustand; vor der ersten Antwort „unbekannt“. */
-export function aufnahmeMarke(z: RecorderState | undefined): { tone: 'warning' | 'success' | 'muted'; text: string } {
+/**
+ * Statusmarke wie bisher (RecorderView.tsx:179-181) aus dem gemessenen Zustand; vor der ersten Antwort „unbekannt“. Altfehler RE-3: steht
+ * das Fehlerfeld des Hauptprozesses, nennt die Marke es in der Tönung destructive („Schreibfehler“, „Kein Eingang“, „Nicht gestartet“).
+ */
+export function aufnahmeMarke(z: RecorderState | undefined): { tone: 'warning' | 'success' | 'muted' | 'destructive'; text: string } {
   if (z === undefined) return { tone: 'muted', text: UNBEKANNT };
+  if (z.fehler) return { tone: 'destructive', text: RECORDER_TEXTE.fehler.marke[z.fehler.art] };
   if (z.status === 'recording') return { tone: 'warning', text: 'Aufnahme' };
   if (z.status === 'armed') return { tone: 'success', text: 'Bereit' };
   return { tone: 'muted', text: 'Inaktiv' };
@@ -64,6 +68,12 @@ export function aufnahmeMarke(z: RecorderState | undefined): { tone: 'warning' |
 
 const KOPF = 'text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--muted-foreground)]';
 const HINWEIS = 'border border-[var(--status-warn)]/60 bg-[var(--status-warn)]/10';
+/**
+ * Altfehler RE-3: Marke in der Tönung destructive. Badge aus @jm/ui kennt sie nicht (neutral, success, warning, muted); ein Eingriff in das
+ * gemeinsame Paket berührte die Funktionslisten aller Apps. Darum dieselbe Form wie Badge, die Farbe aus --destructive.
+ */
+const MARKE_DESTRUKTIV =
+  'inline-flex items-center gap-1.5 rounded-[var(--radius-full)] border px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.12em] border-[var(--destructive)]/50 bg-[var(--destructive)]/15 text-[var(--destructive)]';
 
 export function LiveBereich({
   stand,
@@ -103,7 +113,7 @@ export function LiveBereich({
 
       {/* Hinweise oben (E13, #291: gemerkte Einstellungen, die beim Start nicht passten; bleibt, bis es erledigt ist). Die Meter
           sind das Live-Element (Fix-Runde 1, Ruling): Wird es eng, gibt zuerst dieser Kasten nach (flex-shrink 10000 gegen 1 bei
-          den Metern), bis auf ein Band (2,75rem, „ד und die erste Zeile), und scrollt in sich. Altfehler RE-7b: ein Netzwerkordner aus
+          den Metern), bis auf ein Band (2,75rem, „×“ und die erste Zeile), und scrollt in sich. Altfehler RE-7b: ein Netzwerkordner aus
           der Show steht als dritte Zeile mit der Taste „Übernehmen“ darin, nie als Dialog; „×“ verwirft ihn (D1). */}
       {(r?.hinweisEingang || werte.hinweisOrdner || werte.netzordnerOffen !== null) && (
         <div data-recorder="hinweise" className="scroll-thin mt-2 min-h-[2.75rem] shrink-[10000] overflow-y-auto">
@@ -157,9 +167,15 @@ export function LiveBereich({
             ))}
           </div>
           <div className="ml-auto flex items-center gap-4">
-            <Badge data-recorder="marke" tone={marke.tone}>
-              {marke.text}
-            </Badge>
+            {marke.tone === 'destructive' ? (
+              <span data-recorder="marke" className={MARKE_DESTRUKTIV}>
+                {marke.text}
+              </span>
+            ) : (
+              <Badge data-recorder="marke" tone={marke.tone}>
+                {marke.text}
+              </Badge>
+            )}
             <span data-recorder="uhr" className="tabular text-2xl font-extrabold">
               {formatClock(z?.recordedSec ?? 0)}
             </span>

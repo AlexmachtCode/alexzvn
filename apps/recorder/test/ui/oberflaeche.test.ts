@@ -32,7 +32,7 @@ const GERAETE: AudioDevice[] = [
 
 function zustand(status: RecorderStatus, z: Partial<RecorderState> = {}): RecorderState {
   const offen = status !== 'idle';
-  return { status, device: offen ? 3 : null, channels: offen ? 2 : 0, sampleRate: offen ? 44100 : 0, filePath: null, recordedSec: 0, ...z };
+  return { status, device: offen ? 3 : null, channels: offen ? 2 : 0, sampleRate: offen ? 44100 : 0, filePath: null, recordedSec: 0, fehler: null, spuren: false, ...z };
 }
 /** Wunsch (Kanäle 8, 96000) und Gemessenes (2, 44100) unterscheiden sich absichtlich: Offen darf nur das Gemessene zeigen. */
 function recorder(z: Partial<RecorderZustand> = {}): RecorderZustand {
@@ -212,14 +212,15 @@ const sd = (i: StatusItem | undefined): string => (i === undefined ? 'fehlt' : `
 // ── RE Statusleiste vor erster Antwort: jedes undefined ist unbekannt, nie ok, nie live ──
 {
   const items = statusLeiste(stand());
-  gleich(items.map((i) => i.id), ['master-link', 'aufnahme', 'fernsteuerung', 'eingang', 'zeitplan'], 'RE Statusleiste vor erster Antwort: Einträge in fester Reihenfolge, ohne audio-modul und meldung');
+  // Altfehler RE-PLATZ (Task 7, geänderte Erwartung): der Eintrag „Platz“ steht hinter der Aufnahme.
+  gleich(items.map((i) => i.id), ['master-link', 'aufnahme', 'platz', 'fernsteuerung', 'eingang', 'zeitplan'], 'RE Statusleiste vor erster Antwort (Altfehler RE-PLATZ): Einträge in fester Reihenfolge, „platz“ hinter „aufnahme“, ohne audio-modul und meldung');
   pruefeFaelle('RE Statusleiste vor erster Antwort: jeder Eintrag off unbekannt', items.map((i) => ({ id: i.id })), (f) =>
     vergleiche(sd(items.find((i) => i.id === f.id)), 'off unbekannt'),
   );
   const mitListe = statusLeiste(stand({ geraete: GERAETE }));
   ok(mitListe.every((i) => i.state !== 'ok' && i.state !== 'live' && i.state !== 'error'), 'RE Statusleiste vor erster Antwort: eine Geräteliste allein macht den Eingang nicht ok');
   const gruppen = ordneStatus(statusLeiste(stand({ recorder: recorder(), geraete: GERAETE, meldung: 'x' }))).map((i) => i.group);
-  gleich(gruppen, ['verbindung', 'ausgabe', 'fernsteuerung', 'tool', 'tool', 'tool'], 'RE Statusleiste: Reihenfolge nach Gruppen (verbindung, ausgabe, fernsteuerung, tool)');
+  gleich(gruppen, ['verbindung', 'ausgabe', 'ausgabe', 'fernsteuerung', 'tool', 'tool', 'tool'], 'RE Statusleiste (Altfehler RE-PLATZ): Reihenfolge nach Gruppen (verbindung, ausgabe mit Aufnahme und Platz, fernsteuerung, tool)');
 }
 
 // ── RE Eingang gesperrt: bei offenem Eingang lockedReason, Format-Felder gesperrt ──
@@ -355,4 +356,58 @@ const sd = (i: StatusItem | undefined): string => (i === undefined ? 'fehlt' : `
   ok(fremd.size > 0 && nachgebaut.length === 0 && REMOTE_TEXTE.modusOffen === RECORDER_TEXTE.eingang.offen, `RE Texte nicht nachgebaut: kein RECORDER_TEXTE-Wert gleicht einem Text aus @jm/settings oder @jm/ui${nachgebaut.length ? ` (${nachgebaut.join(' | ')})` : ''}`);
   const code = ohneKommentare(leseText('src/renderer/src/lib/oberflaeche.ts'));
   ok(!/(?<![\w-])window\b|\blocalStorage\b|\bipcRenderer\b|\bdocument\b|from ['"]electron['"]|from ['"]@\/store\//.test(code), 'RE oberflaeche rein: lib/oberflaeche.ts ohne window, document, localStorage, IPC, Electron und Store');
+}
+
+// ── Altfehler RE-3 (Plan 2026-11-26, Task 7; B2, D3): das Fehlerfeld des Hauptprozesses in Statusleiste, ON AIR und Haupttaste ──
+{
+  type Art = 'schreiben' | 'eingang' | 'start';
+  const F: Record<Art, { art: Art; text: string; datei: string | null }> = {
+    schreiben: { art: 'schreiben', text: 'ENOSPC: no space left on device, write', datei: 'D:\Aufnahmen\Voll.wav' },
+    eingang: { art: 'eingang', text: 'Keine Audiodaten vom Eingang', datei: 'D:\Aufnahmen\Stumm.wav' },
+    start: { art: 'start', text: 'EEXIST: file already exists, mkdir', datei: null },
+  };
+  const SOLL: Record<Art, string> = {
+    schreiben: 'error Schreibfehler – Aufnahme beendet: ENOSPC: no space left on device, write',
+    eingang: 'error Keine Audiodaten vom Eingang – Aufnahme beendet',
+    start: 'error Aufnahme nicht gestartet: EEXIST: file already exists, mkdir',
+  };
+  const mitFehler = (status: RecorderStatus, art: Art): RecorderState => zustand(status, { fehler: F[art], filePath: F[art].datei } as Partial<RecorderState>);
+  const faelle = kreuz({ art: ['schreiben', 'eingang', 'start'], status: ['armed', 'idle'] } as const);
+  pruefeFaelle('RE-3 Statusleiste aufnahme bei fehler: je Art der Text, state error, Gruppe ausgabe (armed und idle)', faelle, (f) => {
+    const i = eintrag(stand({ recorder: recorder(), zustand: mitFehler(f.status, f.art) }), 'aufnahme');
+    return vergleiche(sd(i), SOLL[f.art]) ?? (i?.group !== 'ausgabe' ? 'Gruppe falsch' : null);
+  });
+  const onAir = kreuz({ status: STATI, fehler: [null, 'schreiben', 'eingang'] } as const);
+  pruefeFaelle('RE-3 ON AIR nie live bei fehler (live nur bei recording ohne Fehlerfeld), Label REC', onAir, (f) => {
+    const z = f.fehler === null ? zustand(f.status) : mitFehler(f.status, f.fehler);
+    const a = kopfOnAir({ zustand: z });
+    return vergleiche(`${a.live}/${a.label}`, `${f.status === 'recording' && f.fehler === null}/REC`);
+  });
+  const T = RECORDER_TEXTE as unknown as { taste: { neuAufnehmen?: string }; fehler?: { marke?: Record<Art, string>; detail?: (f: { art: Art; text: string }) => string } };
+  const tasten = (z: RecorderState): string => {
+    const t = hauptTasten({ recorder: recorder(), zustand: z });
+    return `${t.aufnahme.label}/${t.aufnahme.state}/${t.aufnahme.disabledReason ?? '-'} | ${t.eingang.label}/${t.eingang.state}`;
+  };
+  gleich(
+    [tasten(mitFehler('armed', 'schreiben')), tasten(mitFehler('armed', 'eingang')), tasten(mitFehler('armed', 'start')), tasten(mitFehler('idle', 'schreiben'))],
+    [
+      'Neu aufnehmen/bereit/- | Eingang schließen/bereit',
+      'Neu aufnehmen/bereit/- | Eingang schließen/bereit',
+      'Neu aufnehmen/bereit/- | Eingang schließen/bereit',
+      `Aufnahme/gesperrt/${RECORDER_TEXTE.grund.eingangZu} | Eingang öffnen/bereit`,
+    ],
+    'RE-3 Haupttaste „Neu aufnehmen“ bereit: bei offenem Eingang mit Fehlerfeld heißt die Aufnahme-Taste „Neu aufnehmen“ (startet neu), „Eingang schließen“ bleibt bereit; bei zu gilt wie bisher „Erst den Eingang öffnen“',
+  );
+  gleich(
+    [T.taste.neuAufnehmen, T.fehler?.marke, ...(['schreiben', 'eingang', 'start'] as const).map((a) => T.fehler?.detail?.(F[a]))],
+    [
+      'Neu aufnehmen',
+      { schreiben: 'Schreibfehler', eingang: 'Kein Eingang', start: 'Nicht gestartet' },
+      'Schreibfehler – Aufnahme beendet: ENOSPC: no space left on device, write',
+      'Keine Audiodaten vom Eingang – Aufnahme beendet',
+      'Aufnahme nicht gestartet: EEXIST: file already exists, mkdir',
+    ],
+    'RE-3 Texte: RECORDER_TEXTE.taste.neuAufnehmen, RECORDER_TEXTE.fehler.marke und RECORDER_TEXTE.fehler.detail wörtlich wie im Plan (nie „Fehler“, das ist UI_TEXTE.zustand.error)',
+  );
+  ok(T.fehler?.marke !== undefined && !Object.values(T.fehler.marke).includes('Fehler'), 'RE-3 Texte: keine Marke heißt „Fehler“');
 }

@@ -2,7 +2,7 @@
 // jeden Befehl der Fernsteuerung (Companion, Rundown) vor jeder Wirkung. Eine Ablehnung ändert nichts; der Store schickt Hinweis und
 // Logzeile über recorder:ablehnung an den Hauptprozess (Meldung bis „OK“, Protokoll). Companion sieht an den bestehenden Zustandswerten,
 // dass sich nichts geändert hat; Protokoll und Companion-Modul bleiben unverändert. Relative Importe: der Store-Test läuft ohne Aliase.
-import type { RecorderRemoteCommand, RecorderStatus } from '../../../shared/types';
+import { FERNBEFEHL_ABGELEHNT, type RecorderRemoteCommand, type RecorderStatus } from '../../../shared/types';
 import { RECORDER_TEXTE } from './oberflaeche';
 
 export type FernbefehlErgebnis = { ok: true } | { ok: false; hinweis: string; log: string };
@@ -14,9 +14,12 @@ export interface FernbefehlLage {
   netzordnerOffen: string | null;
 }
 
-/** Gründe der Logzeile (nicht sichtbar, nur im Protokoll). */
+/**
+ * Gründe der Logzeile (nicht sichtbar, nur im Protokoll). „Aufnahme läuft“ nennt seit Ruling R11 auch der Wächter des Hauptprozesses; der
+ * Grund und der Satz der Logzeile stehen darum in shared/types.ts (FERNBEFEHL_ABGELEHNT, K4).
+ */
 const LOG_GRUND = {
-  aufnahmeLaeuft: 'Aufnahme läuft',
+  aufnahmeLaeuft: FERNBEFEHL_ABGELEHNT.logAufnahmeLaeuft,
   keinOrdner: 'kein Zielordner',
   netzordnerOffen: 'Netzwerkordner aus der Show nicht bestätigt',
 } as const;
@@ -25,7 +28,7 @@ function ablehnung(verb: string, grund: keyof typeof LOG_GRUND): FernbefehlErgeb
   return {
     ok: false,
     hinweis: RECORDER_TEXTE.fernbefehl.abgelehnt(verb, RECORDER_TEXTE.fernbefehl.grund[grund]),
-    log: `Fernbefehl abgelehnt: ${verb} (${LOG_GRUND[grund]})`,
+    log: FERNBEFEHL_ABGELEHNT.log(verb, LOG_GRUND[grund]),
   };
 }
 

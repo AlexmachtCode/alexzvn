@@ -5,7 +5,7 @@
 // Bedingung um den Live-Bereich; nichts hier baut Meter oder Live-Bereich um, auch nicht während einer Aufnahme.
 // Abläufe in der View, auch bei geschlossenem Panel: die Brücken (Master-Link, Fernsteuerung, gemessener Zustand), das Abo der
 // Main-Meldung und der Toast. init() bleibt im App-Wurzelknoten (App.tsx). window.jmrec nur in Effekten und Rückrufen.
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { AppShell, useBrueckenWert } from '@jm/ui';
 import { PresetLeiste } from '@/components/PresetLeiste';
@@ -16,6 +16,7 @@ import { useRec } from '@/store/recorder';
 import { Einstellungen } from './Einstellungen';
 import { LiveBereich, type LiveAktionen } from './LiveBereich';
 import { ScheduleCard } from './RecorderView';
+import { SchliessenFrage } from './SchliessenFrage';
 
 export function RecorderOberflaeche({
   anfangOffen = false,
@@ -53,6 +54,13 @@ export function RecorderOberflaeche({
   const setGain = useRec((s) => s.setGain);
   const hinweiseSchliessen = useRec((s) => s.hinweiseSchliessen);
   const netzordnerUebernehmen = useRec((s) => s.netzordnerUebernehmen);
+  // Altfehler RE-PLATZ: freier Platz (der Store fragt ihn ab); Altfehler RE-7a: die Rückfrage beim Schließen während einer Aufnahme.
+  const platzFrei = useRec((s) => s.platzFrei);
+  const schliessenFrage = useRec((s) => s.schliessenFrage);
+  const schliessenAntworten = useRec((s) => s.schliessenAntworten);
+  // Stabil (useCallback): Modal meldet sich bei jedem neuen onClose neu an und holte den Fokus sonst bei jeder Store-Änderung zurück.
+  const schliessenWeiter = useCallback(() => schliessenAntworten('weiter'), [schliessenAntworten]);
+  const schliessenBeenden = useCallback(() => schliessenAntworten('beenden'), [schliessenAntworten]);
 
   // Einstellungs-Panel (Spec 3.1, 3.6): zu beim Start, nichts gemerkt; offen über ⚙ oder einen Statuseintrag.
   const [panelOffen, setPanelOffen] = useState(anfangOffen);
@@ -78,7 +86,7 @@ export function RecorderOberflaeche({
   }, [notice, setNotice]);
 
   // Ein Stand für Statusleiste, Panel, ON AIR und Haupttasten (lib/oberflaeche.ts): alle zeigen dieselbe Ableitung.
-  const stand: OberflaechenStand = { recorder, zustand, geraete: devices, meldung, masterLink, fernsteuerung };
+  const stand: OberflaechenStand = { recorder, zustand, geraete: devices, meldung, masterLink, fernsteuerung, platz: { frei: platzFrei, spuren: separateTracks, dir } };
   const panel = panelAktionen({ selectDevice, refreshDevices, setChannels, setSampleRate, pickDir, setFileName, setSeparateTracks });
   const live: LiveAktionen = {
     arm: () => void arm(),
@@ -126,6 +134,7 @@ export function RecorderOberflaeche({
           <ScheduleCard zustand={zustand} />
         </div>
       </div>
+      {schliessenFrage && <SchliessenFrage onWeiter={schliessenWeiter} onBeenden={schliessenBeenden} />}
     </AppShell>
   );
 }
