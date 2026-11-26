@@ -41,6 +41,8 @@ const api: JmplayApi = {
     ipcRenderer.on('player:fernsteuerung', listener);
     return () => ipcRenderer.off('player:fernsteuerung', listener);
   },
+  // Altfehler PL-16a: der Renderer meldet einen abgelehnten Fernbefehl ans Log des Hauptprozesses.
+  protokolliere: (text) => ipcRenderer.invoke('player:protokoll', text) as Promise<void>,
   dialog: {
     pickFolders: () => ipcRenderer.invoke('dialog:pickFolders') as Promise<string[]>,
     pickFiles: () => ipcRenderer.invoke('dialog:pickFiles') as Promise<string[]>,
@@ -49,6 +51,7 @@ const api: JmplayApi = {
     list: () => ipcRenderer.invoke('library:list') as Promise<MediaItem[]>,
     importPaths: (paths) => ipcRenderer.invoke('library:import', paths) as Promise<ImportResult>,
     remove: (id) => ipcRenderer.invoke('library:remove', id) as Promise<void>,
+    nutzung: (id) => ipcRenderer.invoke('library:nutzung', id) as Promise<{ cues: number; pads: number }>,
     thumb: (id) => ipcRenderer.invoke('library:thumb', id) as Promise<string | null>,
     markPlayed: (id) => ipcRenderer.invoke('library:markPlayed', id) as Promise<void>,
   },
@@ -104,6 +107,8 @@ const api: JmplayApi = {
     isFullscreen: () => (ipcRenderer.invoke('output:isFullscreen') as Promise<boolean | null>).catch(() => null),
     toggleFullscreen: () => ipcRenderer.invoke('output:toggleFullscreen') as Promise<boolean>,
     command: (cmd) => ipcRenderer.invoke('output:command', cmd) as Promise<void>,
+    // Altfehler PL-N: die Ausgabeansicht meldet nach dem Abonnieren von output:cmd, dass sie zuhört.
+    meldeBereit: () => ipcRenderer.send('output:bereit'),
     notifyEnded: () => ipcRenderer.invoke('output:ended') as Promise<void>,
     reportTime: (t) => ipcRenderer.invoke('output:time', t) as Promise<void>,
     onCommand: (cb) => {

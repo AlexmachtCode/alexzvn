@@ -198,6 +198,15 @@ export function removeItem(id: number): void {
   database().prepare('DELETE FROM media_items WHERE id = ?').run(id);
 }
 
+/** Wie viele Show-Cues und Pads ein Medium benutzen (Altfehler PL-10, Rückfrage vor dem Entfernen). */
+export function mediumNutzung(id: number): { cues: number; pads: number } {
+  const zaehle = (sql: string): number => (database().prepare(sql).get(id) as { n: number }).n;
+  return {
+    cues: zaehle('SELECT COUNT(*) AS n FROM show_cues WHERE media_id = ?'),
+    pads: zaehle('SELECT COUNT(*) AS n FROM cues WHERE media_id = ?'),
+  };
+}
+
 export function markPlayed(id: number): void {
   database().prepare('UPDATE media_items SET last_played_at = ? WHERE id = ?').run(Date.now(), id);
 }

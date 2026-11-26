@@ -8,8 +8,10 @@
 // Haken in den betroffenen Zeilen, und der Code trägt, was der Haken sagt.
 // Läuft im Paketordner apps/player (npm run selftest -w @jm/player).
 // „unverändert (…)“ darf keine Datei nennen, die seit der Erhebung (d7cdd79ce0) geändert wurde, außer sie bekam nur die lesenden
-// Brücken bzw. den Ausgabezustand (E2, E3): dann steht der Hinweis im Haken. Der Abgleich der statischen Liste GEAENDERT mit
-// git läuft nur mit JM_FUNKTIONSLISTE_GIT=1 (Arbeitsbaum gegen die Erhebung, damit auch eine noch nicht eingecheckte Datei zählt).
+// Brücken bzw. den Ausgabezustand (E2, E3): dann steht der Hinweis im Haken. Seit der Altfehler-Stufe 1 (Plan 2026-11-25) darf es
+// auch eine Datei nennen, die ein Befund dieser Stufe geändert hat, wenn der Haken ihn als „Altfehler <ID>“ nennt (ALTFEHLER). Der
+// Abgleich der statischen Liste GEAENDERT mit git läuft nur mit JM_FUNKTIONSLISTE_GIT=1 (Arbeitsbaum gegen die Erhebung, damit auch
+// eine noch nicht eingecheckte Datei zählt).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
@@ -59,6 +61,7 @@ const GEAENDERT = [
   'src/main/control-server.ts',
   'src/main/index.ts',
   'src/main/ipc.ts',
+  'src/main/library.ts',
   'src/main/output-window.ts',
   'src/preload/index.ts',
   'src/renderer/src/App.tsx',
@@ -67,17 +70,23 @@ const GEAENDERT = [
   'src/renderer/src/lib/aktionen.ts',
   'src/renderer/src/lib/bruecken.ts',
   'src/renderer/src/lib/cues.ts',
+  'src/renderer/src/lib/fernbefehl.ts',
   'src/renderer/src/lib/oberflaeche.ts',
+  'src/renderer/src/lib/show-audio.ts',
+  'src/renderer/src/lib/vorlauf.ts',
   'src/renderer/src/store/player.ts',
   'src/renderer/src/views/Einstellungen.tsx',
+  'src/renderer/src/views/EntfernenFrage.tsx',
   'src/renderer/src/views/Fussleiste.tsx',
   'src/renderer/src/views/LibraryView.tsx',
   'src/renderer/src/views/LiveBereich.tsx',
+  'src/renderer/src/views/OutputView.tsx',
   'src/renderer/src/views/PlayerOberflaeche.tsx',
   'src/renderer/src/views/ShowView.tsx',
   'src/renderer/src/views/SoundboardView.tsx',
   'src/shared/fernsteuerung.ts',
   'src/shared/types.ts',
+  'test/ui/ablauf.test.ts',
   'test/ui/bruecken.test.ts',
   'test/ui/funktionsliste.test.ts',
   'test/ui/hilfe.ts',
@@ -85,7 +94,9 @@ const GEAENDERT = [
   'test/ui/oberflaeche.test.ts',
   'test/ui/panel.test.tsx',
   'test/ui/rahmen.test.tsx',
+  'test/ui/rueckfrage.test.tsx',
   'test/ui/rueckspiel.test.tsx',
+  'test/ui/show-audio.test.ts',
   'test/ui/selftest.ts',
   'test/ui/store.test.ts',
   'test/ui/testzustand.ts',
@@ -108,18 +119,75 @@ const PAKETE_GEAENDERT = [
  * Dateien, die nur die lesenden Brücken bekamen: der Main (Fernsteuerungs-Meldung E2, Ausgabezustand und gemessenes Vollbild E3,
  * E14), der Preload und die Typen dazu, das Fenster-Paket den Ausgabezustand (E3). Verhalten und Befehle blieben. Welle 2b (Task 6)
  * ergänzt nur das lesende Bildschirm-Ereignis: in main/index.ts, preload/index.ts, shared/types.ts und im Fenster-Paket (index.ts und
- * die neue reine Datei bildschirme.ts).
+ * die neue reine Datei bildschirme.ts). Seit der Altfehler-Stufe 1 bekamen main/ipc.ts, main/output-window.ts, preload/index.ts und
+ * shared/types.ts mehr (PL-N, PL-T13: „bereit“ und ein einziges Fenster); sie stehen darum nicht mehr hier, ein Haken braucht für sie
+ * den Verweis auf den Altfehler.
  */
 const NUR_MELDUNG = new Set([
   'apps/player/src/main/index.ts',
-  'apps/player/src/main/ipc.ts',
   'apps/player/src/main/control-server.ts',
-  'apps/player/src/main/output-window.ts',
-  'apps/player/src/preload/index.ts',
-  'apps/player/src/shared/types.ts',
   'packages/output-window/src/index.ts',
   'packages/output-window/src/bildschirme.ts',
 ]);
+
+/**
+ * Altfehler Runde 1, Stufe 1 (Plan 2026-11-25): je erlaubter Player-ID die Dateien (ab der Repo-Wurzel), die der Befund geändert hat,
+ * wie ERLAUBT in Studio-Control (Ruling R6). „Altfehler <ID>“ im Haken entlastet ein „unverändert (…)“, das eine geänderte Datei nennt,
+ * nur, wenn die Liste dieser ID die Datei enthält; dann für die ganze Änderung des Befunds, nicht nur für lesende Brücken. Erlaubt sind
+ * genau die sieben Player-IDs der Stufe (SC-S1 bis SC-S3 betreffen Studio-Control). Task 2–4 tragen ihre Dateien bei ihrer ID ein.
+ */
+const ALTFEHLER = new Map<string, readonly string[]>([
+  [
+    'PL-N',
+    [
+      'src/main/ausgabe-fenster.ts',
+      'src/main/output-window.ts',
+      'src/main/ipc.ts',
+      'src/preload/index.ts',
+      'src/shared/types.ts',
+      'src/renderer/src/views/OutputView.tsx',
+      'src/renderer/src/store/player.ts',
+    ].map((p) => `apps/player/${p}`),
+  ],
+  ['PL-T13', ['src/main/ausgabe-fenster.ts', 'src/main/output-window.ts'].map((p) => `apps/player/${p}`)],
+  ['PL-4', ['src/renderer/src/lib/oberflaeche.ts', 'src/renderer/src/views/SoundboardView.tsx', 'src/renderer/src/views/PlayerOberflaeche.tsx'].map((p) => `apps/player/${p}`)],
+  [
+    'PL-10',
+    [
+      'src/main/ipc.ts',
+      'src/main/library.ts',
+      'src/preload/index.ts',
+      'src/shared/types.ts',
+      'src/renderer/src/lib/oberflaeche.ts',
+      'src/renderer/src/store/player.ts',
+      'src/renderer/src/views/LibraryView.tsx',
+      'src/renderer/src/views/ShowView.tsx',
+      'src/renderer/src/views/EntfernenFrage.tsx',
+    ].map((p) => `apps/player/${p}`),
+  ],
+  ['PL-11', ['src/renderer/src/lib/vorlauf.ts', 'src/renderer/src/store/player.ts'].map((p) => `apps/player/${p}`)],
+  [
+    'PL-16a',
+    [
+      'src/main/ipc.ts',
+      'src/preload/index.ts',
+      'src/shared/types.ts',
+      'src/renderer/src/lib/fernbefehl.ts',
+      'src/renderer/src/lib/oberflaeche.ts',
+      'src/renderer/src/store/player.ts',
+    ].map((p) => `apps/player/${p}`),
+  ],
+  [
+    'PL-T14',
+    ['src/renderer/src/lib/show-audio.ts', 'src/renderer/src/lib/oberflaeche.ts', 'src/renderer/src/store/player.ts'].map((p) => `apps/player/${p}`),
+  ],
+]);
+/** Verweis „Altfehler <ID>“ auf eine der erlaubten IDs; die ID steht in Gruppe 1. */
+const ALTFEHLER_VERWEIS = new RegExp(`\\bAltfehler (${[...ALTFEHLER.keys()].join('|')})(?![\\w-])`, 'g');
+/** Die Altfehler-IDs, die ein Text (ohne Code) als Verweis nennt. */
+const altfehlerIds = (text: string): string[] => [...text.matchAll(ALTFEHLER_VERWEIS)].map((m) => m[1]);
+/** Entlastet einer der Verweise die Datei (kanonischer Pfad)? */
+const entlastet = (ids: readonly string[], datei: string): boolean => ids.some((id) => ALTFEHLER.get(id)?.includes(datei) === true);
 
 const GEAENDERT_KANON = new Set([...GEAENDERT, ...PAKETE_GEAENDERT]);
 
@@ -224,11 +292,13 @@ function zeilenFehler(z: Zeile): string | null {
   if (form !== 'entfällt' && pfade.length === 0) return 'Ort ohne Datei';
   const fehlt = pfade.filter((p) => !gibtEs(p));
   if (fehlt.length > 0) return `Datei fehlt: ${fehlt.join(', ')}`;
-  // „unverändert“ nennt nur Dateien, die seit der Erhebung unverändert sind; Dateien mit nur den lesenden Brücken (E2, E3) mit Hinweis.
+  // „unverändert“ nennt nur Dateien, die seit der Erhebung unverändert sind; Dateien mit nur den lesenden Brücken (E2, E3) mit Hinweis,
+  // Dateien, die ein Altfehler der Stufe 1 geändert hat, mit dem Verweis „Altfehler <ID>“, dessen Liste sie nennt (R6).
   if (form === 'unverändert') {
-    const veraendert = pfade.filter((p) => GEAENDERT_KANON.has(kanon(p)) || GIT?.has(kanon(p)) === true);
-    if (veraendert.length > 0 && !/\bE[23]\b/.test(ohneCode)) return `unverändert mit geänderter Datei (${veraendert.join(', ')}) ohne Hinweis auf E2 oder E3`;
-    if (veraendert.some((p) => !NUR_MELDUNG.has(kanon(p)))) return `unverändert mit einer Datei, die mehr als die lesenden Brücken bekam (${veraendert.join(', ')})`;
+    const ids = altfehlerIds(ohneCode);
+    const offen = pfade.filter((p) => (GEAENDERT_KANON.has(kanon(p)) || GIT?.has(kanon(p)) === true) && !entlastet(ids, kanon(p)));
+    if (offen.length > 0 && !/\bE[23]\b/.test(ohneCode)) return `unverändert mit geänderter Datei (${offen.join(', ')}) ohne Hinweis auf E2 oder E3 und ohne Altfehler-Verweis, dessen Liste sie nennt`;
+    if (offen.some((p) => !NUR_MELDUNG.has(kanon(p)))) return `unverändert mit einer Datei, die mehr als die lesenden Brücken bekam (${offen.join(', ')})`;
   }
   return null;
 }
@@ -264,9 +334,24 @@ for (const z of alle) {
     const pakete = [...GIT].filter((n) => !n.startsWith('apps/') && !n.startsWith('docs/') && !n.startsWith('.superpowers/'));
     const paketFehlt = pakete.filter((n) => !PAKETE_GEAENDERT.includes(n) && /^packages\/output-window\//.test(n));
     ok(paketFehlt.length === 0, `PL Funktionsliste: PAKETE_GEAENDERT nennt alle geänderten Dateien von packages/output-window (fehlt: ${paketFehlt.join(', ') || 'nichts'})`);
-    const zitiert = alle.filter((z) => z.zellen[6].startsWith('✓ unverändert (')).flatMap((z) => [...z.zellen[6].matchAll(PFAD)].map((m) => kanon(m[1])));
+    const zitiert = alle
+      .filter((z) => z.zellen[6].startsWith('✓ unverändert ('))
+      .flatMap((z) => {
+        const ids = altfehlerIds(z.zellen[6].replace(/`[^`]*`/g, ''));
+        return [...z.zellen[6].matchAll(PFAD)].map((m) => kanon(m[1])).filter((n) => !entlastet(ids, n));
+      });
     const getroffen = zitiert.filter((n) => GIT.has(n));
-    ok(getroffen.every((n) => NUR_MELDUNG.has(n)), `PL Funktionsliste: keine in einem unverändert-Haken zitierte Datei bekam mehr als die lesenden Brücken (${getroffen.join(', ') || 'keine'})`);
+    ok(getroffen.every((n) => NUR_MELDUNG.has(n)), `PL Funktionsliste: keine in einem unverändert-Haken zitierte Datei bekam mehr als die lesenden Brücken, außer ein Altfehler-Verweis nennt sie in seiner Liste (${getroffen.join(', ') || 'keine'})`);
+    const listen = [...ALTFEHLER.values()].flat();
+    ok(listen.every((n) => GIT.has(n)), `PL Funktionsliste: jede Datei einer Altfehler-Liste ist laut git geändert (nicht: ${listen.filter((n) => !GIT.has(n)).join(', ') || 'nichts'})`);
+  }
+  // Jede Datei einer Altfehler-Liste steht in GEAENDERT: eine Liste entlastet nur, was wirklich geändert ist.
+  {
+    const listen = [...ALTFEHLER.values()].flat();
+    ok(
+      listen.length > 0 && listen.every((n) => GEAENDERT_KANON.has(n)),
+      `PL Funktionsliste: jede Datei einer Altfehler-Liste steht in GEAENDERT (nicht: ${listen.filter((n) => !GEAENDERT_KANON.has(n)).join(', ') || 'nichts'})`,
+    );
   }
   // Negativprobe: andere Schreibweisen derselben geänderten Datei werden erkannt, eine unveränderte nicht.
   const synth = (pfad: string, zusatz = ''): Zeile => ({ abschnitt: 3, nr: 0, zellen: ['0', '', '', '', '', '', `✓ unverändert (\`${pfad}\`): x${zusatz}`] });
@@ -274,10 +359,33 @@ for (const z of alle) {
     ['views/ShowView.tsx', 'renderer/src/views/ShowView.tsx', 'apps/player/src/renderer/src/views/ShowView.tsx'].every((p) => (zeilenFehler(synth(p)) ?? '').includes('geänderter Datei')) &&
       (zeilenFehler(synth('views/ShowView.tsx', ' (E3)')) ?? '').includes('mehr als die lesenden Brücken') &&
       (zeilenFehler(synth('store/player.ts', ' (E2)')) ?? '').includes('mehr als die lesenden Brücken') &&
-      zeilenFehler(synth('main/output-window.ts', ' (E3)')) === null &&
+      (zeilenFehler(synth('main/output-window.ts', ' (E3)')) ?? '').includes('mehr als die lesenden Brücken') &&
+      zeilenFehler(synth('main/index.ts', ' (E3)')) === null &&
       zeilenFehler(synth('main/control-server.ts', ' (E2)')) === null &&
-      zeilenFehler(synth('main/library.ts')) === null,
+      zeilenFehler(synth('main/media-protocol.ts')) === null,
     'PL Funktionsliste: eine geänderte Datei wird in jeder Schreibweise erkannt; E2 und E3 entlasten nur Dateien mit den lesenden Brücken; eine unveränderte Datei ist frei',
+  );
+  // Der Verweis „Altfehler <ID>“ (Stufe 1) entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt (R6); nur mit dem Wort
+  // „Altfehler“ und nur die sieben Player-IDs.
+  ok(
+    zeilenFehler(synth('views/OutputView.tsx', ' (Altfehler PL-N)')) === null &&
+      zeilenFehler(synth('main/output-window.ts', ' (E3, Altfehler PL-T13)')) === null &&
+      zeilenFehler(synth('main/ipc.ts', ' (Altfehler PL-T13, Altfehler PL-N)')) === null &&
+      (zeilenFehler(synth('views/OutputView.tsx', ' (E6)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('views/OutputView.tsx', ' (PL-N)')) ?? '').includes('geänderter Datei') &&
+      ['PL-12', 'PL-16', 'PL-T1', 'PL-40', 'SC-S2', 'PL-N2'].every((id) => (zeilenFehler(synth('views/OutputView.tsx', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')),
+    'PL Funktionsliste: „Altfehler PL-N“ entlastet eine Datei aus der Liste von PL-N im unverändert-Haken; ohne das Wort „Altfehler“ oder mit einer anderen ID nicht',
+  );
+  // Negativprobe R6: eine geänderte Datei mit einer erlaubten ID, deren Liste sie nicht nennt, wird gemeldet; nennt ein Haken zwei
+  // Dateien, entlastet die ID nur die eigene.
+  ok(
+    ['PL-N', 'PL-T13', 'PL-4', 'PL-11', 'PL-16a', 'PL-T14'].every((id) => (zeilenFehler(synth('views/ShowView.tsx', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')) &&
+      zeilenFehler(synth('views/ShowView.tsx', ' (Altfehler PL-10)')) === null &&
+      (zeilenFehler(synth('views/OutputView.tsx', ' (Altfehler PL-10)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('views/OutputView.tsx', ' (Altfehler PL-T13)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('views/OutputView.tsx', ' (E3, Altfehler PL-T13)')) ?? '').includes('mehr als die lesenden Brücken') &&
+      /geänderter Datei \(views\/ShowView\.tsx\)/.test(zeilenFehler(synth('views/OutputView.tsx', ' und `views/ShowView.tsx` (Altfehler PL-N)')) ?? ''),
+    'PL Funktionsliste: eine geänderte Datei mit einer Altfehler-ID, deren Liste sie nicht nennt, wird gemeldet (R6)',
   );
 }
 
@@ -456,6 +564,7 @@ ok(
   'PL Funktionsliste Nr. 60: das Vollbild wird nur angeboten, wenn es gemessen ist, und schaltet nur bei abweichendem Messwert (E14)',
 );
 ok(nennt(95, 'gemerkten Bildschirm') && nennt(93, 'gemerkt') && store.includes('output.open('), 'PL Funktionsliste Nr. 93/95: der Video-Cue öffnet die Ausgabe weiter auf dem gemerkten Bildschirm');
+ok(nennt(95, 'erste GO', 'Altfehler PL-N'), 'PL Funktionsliste Nr. 95: das erste GO bei geschlossener Ausgabe spielt das Video (Altfehler PL-N)');
 
 // ── Dialoge (Nr. 62–75): Modal aus @jm/ui, Escape schließt und verwirft, das Hotkey-Feld hat einen toten Escape-Zweig ──
 ok(
@@ -479,11 +588,11 @@ ok(
 {
   const kopf = show.slice(show.indexOf('const onKey'), show.indexOf('const onKey') + 400);
   ok(
-    beginnt(131, 'Cue-Show') && nennt(131, 'outputOpen', 'contentEditable', 'O1') && kopf.includes('if (addOpen || editCue) return;') && !kopf.includes('outputOpen') && kopf.includes('istEingabeZiel(e.target)') && /isContentEditable === true/.test(obf) && nennt(131, 'Escape', 'Panel'),
+    beginnt(131, 'Cue-Show') && nennt(131, 'outputOpen', 'contentEditable', 'O1') && kopf.includes('if (addOpen || editCue || rueckfrage) return;') && !kopf.includes('outputOpen') && kopf.includes('istEingabeZiel(e.target)') && /isContentEditable === true/.test(obf) && nennt(131, 'Escape', 'Panel'),
     'PL Funktionsliste Nr. 131: der Filter der Cue-Show hat outputOpen mit dem Modal verloren, sperrt Felder samt contentEditable und lässt Knöpfe durch',
   );
   ok(
-    beginnt(134, 'Soundboard') && nennt(134, 'Feld', 'Pad-Dialog') && /istEingabeZiel\(e\.target\)/.test(sb) && !/tagName === 'INPUT'/.test(sb),
+    beginnt(134, 'Soundboard') && nennt(134, 'Feld', 'Pad-Dialog') && /padTasteErlaubt\(e, /.test(sb) && !/tagName === 'INPUT'/.test(sb),
     'PL Funktionsliste Nr. 134: die Pad-Tasten feuern nicht, solange der Fokus in einem Feld steht, auch im Pad-Dialog',
   );
   ok(nennt(131, 'istEingabeZiel') && nennt(134, 'istEingabeZiel') && /isContentEditable === true/.test(obf), 'PL Funktionsliste Nr. 131/134: der Feldschutz (istEingabeZiel) ist die gemeinsame Weiche, mit contentEditable');
@@ -537,7 +646,7 @@ ok(
     'PL Funktionsliste Nr. 82: #output lädt weiter die OutputView, ohne AppShell (E6)',
   );
   ok(
-    [87, 88, 89, 90].every((nr) => kuenftig(nr).startsWith('✓ unverändert (')) && !GEAENDERT_KANON.has('apps/player/src/main/library.ts') && !GEAENDERT_KANON.has('apps/player/src/main/media-protocol.ts') && !GEAENDERT_KANON.has('apps/player/src/main/thumbs.ts'),
+    [87, 88, 89, 90].every((nr) => kuenftig(nr).startsWith('✓ unverändert (')) && (GEAENDERT_KANON.has('apps/player/src/main/library.ts') ? /Altfehler PL-10/.test(kuenftig(87)) && /Altfehler PL-10/.test(kuenftig(89)) : true) && !GEAENDERT_KANON.has('apps/player/src/main/media-protocol.ts') && !GEAENDERT_KANON.has('apps/player/src/main/thumbs.ts'),
     'PL Funktionsliste Nr. 87–90: Datenbank, Medienprotokoll, Import und Vorschaubilder im Main sind unverändert',
   );
   ok(
@@ -553,8 +662,14 @@ ok(
     'PL Funktionsliste Nr. 101: die Pad-Maschine meldet jetzt die spielenden Pads (für ON AIR und den Statuseintrag pads)',
   );
   ok(
-    nennt(102, 'Altfehler') && nennt(102, 'E3') && nennt(103, 'Altfehler') && ausgabeMain.includes('lebende') && quelle('main/ausgabe-fenster.ts').includes('class LebendeFenster') && ausgabeMain.includes('outputWindow = null'),
-    'PL Funktionsliste Nr. 102/103: der Ausgabezustand folgt den lebenden Fenstern (E3); das Verwaisen der Fensterreferenz bleibt als Altfehler',
+    nennt(102, 'Altfehler PL-T13', 'Altfehler PL-N', 'E3') &&
+      nennt(103, 'Altfehler PL-T13') &&
+      !nennt(102, 'bleibt als Altfehler') &&
+      !nennt(103, 'Fensterreferenz bleibt unverändert') &&
+      ausgabeMain.includes('lebende.aktuelles()') &&
+      quelle('main/ausgabe-fenster.ts').includes('class LebendeFenster') &&
+      !/\boutputWindow\b/.test(ohneKommentar(ausgabeMain)),
+    'PL Funktionsliste Nr. 102/103: der Ausgabezustand folgt den lebenden Fenstern (E3); es gibt höchstens ein Ausgabefenster, die Fensterreferenz verwaist nicht mehr (Altfehler PL-T13), Befehle warten auf „bereit“ (Altfehler PL-N)',
   );
 }
 
@@ -575,12 +690,20 @@ ok(
   ok(nennt(109, 'Pads') && nennt(109, 'nicht') && nennt(111, 'stoppt'), 'PL Funktionsliste Nr. 109/111: Companion stop stoppt weiter keine Pads, Companion panic stoppt sie jetzt');
 }
 
-// ── Abschnitt 5: Ausgabefenster unverändert (E6) ──
-ok(
-  [120, 121, 122, 123, 124, 125, 126, 127, 128, 129].every((nr) => beginnt(nr, 'Ausgabefenster') && nennt(nr, nr === 120 ? '`main/output-window.ts`' : '`views/OutputView.tsx`')) &&
-    !GEAENDERT_KANON.has('apps/player/src/renderer/src/views/OutputView.tsx') && !GEAENDERT_KANON.has('apps/player/src/renderer/src/lib/show-audio.ts'),
-  'PL Funktionsliste Nr. 120–129: Ausgabefenster und seine Befehle (views/OutputView.tsx) sind unverändert (E6)',
-);
+// ── Abschnitt 5: Ausgabefenster unverändert (E6); neu meldet die Ausgabeansicht nur „bereit“ (Altfehler PL-N), und es gibt
+// höchstens ein Fenster (Altfehler PL-T13) ──
+{
+  const ov = ohneKommentar(quelle('views/OutputView.tsx'));
+  const zugriffe = [...ov.matchAll(/window\.jmplay\.output\.(\w+)/g)].map((m) => m[1]).sort();
+  ok(
+    [120, 121, 122, 123, 124, 125, 126, 127, 128, 129].every((nr) => beginnt(nr, 'Ausgabefenster') && nennt(nr, nr === 120 ? '`main/output-window.ts`' : '`views/OutputView.tsx`')) &&
+      nennt(120, 'Altfehler PL-T13', 'Altfehler PL-N') &&
+      nennt(122, 'Altfehler PL-N', 'bereit') &&
+      ["case 'load':", "case 'stop':", "case 'pause':", "case 'resume':", "case 'black':"].every((c) => ov.includes(c)) &&
+      zugriffe.join(',') === 'meldeBereit,notifyEnded,onCommand,reportTime',
+    'PL Funktionsliste Nr. 120–129: Ausgabefenster und seine Befehle (views/OutputView.tsx) bleiben (E6); neu meldet die Ansicht nur „bereit“ (Altfehler PL-N), höchstens ein Fenster (Altfehler PL-T13)',
+  );
+}
 
 // ── Gemerkte Zustände: kein localStorage, alles in der Datenbank oder im Speicher ──
 {
@@ -609,10 +732,19 @@ ok(
   'PL Funktionsliste: die Statusleiste hat Master-Link, Video-Ausgabe, Fernsteuerung, Cue-Show und Pads',
 );
 
-// ── Kein Rückfall auf geratene Werte: window.confirm/prompt nur an den zwei Stellen der Cue-Show, kein alert ──
+// ── Kein Rückfall auf geratene Werte: window.prompt und window.confirm je einmal in der Cue-Show, kein alert ──
+// Seit Ruling R16 (Fix-Welle F2) sind die Rückfragen beim Entfernen eines Cues und eines Mediums Fenster im Fenster (EntfernenFrage);
+// gezählt wird je Aufruf getrennt.
 {
-  const dateien = ['App.tsx', 'views/PlayerOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Fussleiste.tsx', 'views/Einstellungen.tsx', 'views/SoundboardView.tsx', 'views/LibraryView.tsx', 'lib/aktionen.ts', 'lib/oberflaeche.ts', 'store/player.ts'];
-  ok(dateien.every((d) => !/\bwindow\.(?:confirm|alert|prompt)\(/.test(quelle(d))) && (show.match(/window\.(?:confirm|prompt)\(/g) ?? []).length === 2, 'PL Funktionsliste: window.prompt und window.confirm stehen nur in der Cue-Show (je einmal), window.alert nirgends');
+  const dateien = ['App.tsx', 'views/PlayerOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Fussleiste.tsx', 'views/Einstellungen.tsx', 'views/SoundboardView.tsx', 'views/LibraryView.tsx', 'views/EntfernenFrage.tsx', 'lib/aktionen.ts', 'lib/oberflaeche.ts', 'store/player.ts'];
+  ok(
+    dateien.every((d) => gibtEs(d) && !/\bwindow\.(?:confirm|alert|prompt)\(/.test(quelle(d))) &&
+      (show.match(/window\.prompt\(/g) ?? []).length === 1 &&
+      (show.match(/window\.confirm\(/g) ?? []).length === 1 &&
+      show.includes("window.confirm('Diese Show löschen?')") &&
+      !/\bwindow\.alert\(/.test(show),
+    'PL Funktionsliste: window.prompt (Show umbenennen) und window.confirm (Show löschen) je einmal in der Cue-Show; die Rückfragen beim Entfernen eines Cues und eines Mediums sind Fenster im Fenster (Altfehler PL-10, Ruling R16), die Bibliothek hat kein window.confirm, window.alert nirgends',
+  );
 }
 
 // ── Abschnitt 9 und der Kopf „Stand“ widersprechen den Haken nicht (Fix-Runde 1) ──
@@ -677,6 +809,12 @@ ok(
   ok(
     text.includes('| `output.onBildschirme(cb)` | `output:bildschirme` | Ereignis |') && /kein Bildschirm-Ereignis \(`output:bildschirme`\)/.test(text.slice(text.indexOf('## 8 · '), text.indexOf('## 9 · '))),
     'PL Funktionsliste Abschnitt 8: der Preload hat output.onBildschirme (Ereignis output:bildschirme, nur lesend, neu in Welle 2b)',
+  );
+  ok(
+    text.includes('| `output.meldeBereit()` | `output:bereit` | send |') &&
+      /keine Meldung „bereit“ des Ausgabefensters \(`output:bereit`\)/.test(text.slice(text.indexOf('## 8 · '), text.indexOf('## 9 · '))) &&
+      preload.includes("meldeBereit: () => ipcRenderer.send('output:bereit'),"),
+    'PL Funktionsliste Abschnitt 8: der Preload hat output.meldeBereit (send output:bereit, Altfehler PL-N)',
   );
   const synth = (k: string): Zeile => ({ abschnitt: 3, nr: 0, zellen: ['0', '', '', '', '', '', k] });
   ok(

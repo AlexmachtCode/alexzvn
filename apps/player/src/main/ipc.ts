@@ -7,6 +7,7 @@ import type {
   RemotePlayerState,
   ShowCuePatch,
 } from '@shared/types';
+import { getLog } from '@jm/app-runtime';
 import * as lib from './library';
 import { updatePlayerState } from './control-server';
 import { ensureThumb } from './thumbs';
@@ -16,6 +17,7 @@ import {
   isOutputFullscreen,
   isOutputOpen,
   listDisplays,
+  meldeAusgabeBereit,
   openOutputWindow,
   sendToOutput,
   toggleOutputFullscreen,
@@ -27,6 +29,10 @@ const MEDIA_EXT = [
 ];
 
 export function registerIpc(getWin: () => BrowserWindow | null): void {
+  // Altfehler PL-16a: eine Zeile des Renderers ins Log (nur Text, auf 500 Zeichen gekürzt).
+  ipcMain.handle('player:protokoll', (_e, text: unknown) => {
+    if (typeof text === 'string') getLog().warn(text.slice(0, 500));
+  });
   ipcMain.handle('dialog:pickFolders', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'multiSelections'] });
     return r.canceled ? [] : r.filePaths;
@@ -42,6 +48,7 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle('library:list', () => lib.listItems());
   ipcMain.handle('library:import', (_e, paths: string[]) => lib.importPaths(paths));
   ipcMain.handle('library:remove', (_e, id: number) => lib.removeItem(id));
+  ipcMain.handle('library:nutzung', (_e, id: number) => lib.mediumNutzung(id));
   ipcMain.handle('library:thumb', (_e, id: number) => ensureThumb(id));
   ipcMain.handle('library:markPlayed', (_e, id: number) => lib.markPlayed(id));
 
@@ -88,6 +95,12 @@ export function registerIpc(getWin: () => BrowserWindow | null): void {
   ipcMain.handle('output:isFullscreen', () => isOutputFullscreen());
   ipcMain.handle('output:toggleFullscreen', () => toggleOutputFullscreen());
   ipcMain.handle('output:command', (_e, cmd: OutputCommand) => sendToOutput(cmd));
+  // Altfehler PL-N: die Ausgabeansicht hört jetzt auf output:cmd. Zugeordnet wird über das sendende Fenster; ein anderes Fenster
+  // (etwa das Hauptfenster) ist dem Helfer unbekannt und bleibt ohne Wirkung. output:open und output:command lösen erst danach auf.
+  ipcMain.on('output:bereit', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) meldeAusgabeBereit(win);
+  });
   // Ausgabefenster meldet „Video zu Ende" → ans Hauptfenster weiterreichen.
   ipcMain.handle('output:ended', () => {
     getWin()?.webContents.send('output:ended');

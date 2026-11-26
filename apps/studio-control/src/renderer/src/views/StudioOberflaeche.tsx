@@ -1,19 +1,20 @@
 // Studio-Control im Werkzeug-Rahmen (UX Welle 2b, Studio-Control d1; B15, B3, B4, B8, B17; Muster d): AppShell aus @jm/ui mit Kopf
 // „JM Studio Control“, ThemeToggle und ON AIR (nur bei gemessener Sendung), Statusleiste aus lib/oberflaeche.ts und dem Panel.
 // Vor der Anmeldung: leere Statusleiste, kein ⚙, keine Werkzeugleiste, die Anmeldung im Inhalt. Danach Tabs Video · Audio · Licht ·
-// Setup in der Werkzeugleiste, rechts „‹Benutzer› · ‹Rolle›“ und „Abmelden“; das Panel (nur Fernsteuerung) nur im Electron-Fenster.
+// Setup in der Werkzeugleiste, rechts „‹Benutzer› · ‹Rolle›“ und „Abmelden“; das Panel (Fernsteuerung, Browser-Zugang) nur im Fenster.
 // Die Wurzel-View (StudioOberflaeche) rendert vor und nach der Anmeldung, hält den einen Stand, den Panelzustand und die Abos von
 // Master-Link und Fernsteuerung; sie bleibt über Panel- und Reiterwechsel stabil, die Abos laufen auch bei geschlossenem Panel.
 // Der Socket steht eine Ebene höher in der Wurzel (App.tsx), die Server-Verbindung kommt als gemessener Wert herein. Der Rahmen
 // (StudioRahmen) zeichnet nur, was er bekommt: eine Wahrheit für Kopf, Werkzeugleiste, Statusleiste und Panel.
 // Die Reiter-Ansichten sind memo und bekommen den einen Stand (Task 18): Pillen, Sperrgründe und Haupttasten der Panels kommen
-// aus denselben Ableitungen wie Statusleiste und ON AIR. Der Stand ist gemerkt (useMemo), damit Panel- und Abschnittswechsel die
-// offene Ansicht nicht neu rendern. Der Abschnitt bleibt im Store (store/app.ts), nicht gemerkt.
+// aus denselben Ableitungen wie Statusleiste und ON AIR. Der Stand ist gemerkt (useMemo), damit Abschnittswechsel die offene Ansicht
+// nicht neu rendern; Öffnen und Schließen des Panels ändern nur erstPasswort (Altfehler SC-S1, gelesen beim Öffnen) und rendern sie
+// darum neu. Der Abschnitt bleibt im Store (store/app.ts), nicht gemerkt.
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { AppShell, useBrueckenWert } from '@jm/ui';
 import { DEFAULT_LIGHTING_CONFIG } from '@shared/lighting';
-import { FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE, umgebung } from '@/lib/bruecken';
+import { ERST_PASSWORT_QUELLE, FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE, umgebung } from '@/lib/bruecken';
 import { kopfOnAir, mitEinstellungen, statusLeiste, type GeraeteStand, type GeraeteStatus, type OberflaechenStand } from '@/lib/oberflaeche';
 import { useApp, type Section } from '@/store/app';
 import { useSession } from '@/store/session';
@@ -122,6 +123,8 @@ export function StudioOberflaeche({
   // Einstellungs-Panel (Spec 3.1, 3.6): zu beim Start, nichts gemerkt; offen über ⚙ oder einen Statuseintrag.
   const [panelOffen, setPanelOffen] = useState(anfangOffen);
   const [panelAbschnitt, setPanelAbschnitt] = useState<string | undefined>(undefined);
+  // Ort der Passwort-Datei (Altfehler SC-S1, A9): nur bei offenem Panel gelesen, bei jedem Öffnen neu (die Quelle wechselt).
+  const erstPasswort = useBrueckenWert(panelOffen ? ERST_PASSWORT_QUELLE : undefined);
   // Nach dem Abmelden (Knopf oder abgewiesenes Token) ist das Panel zu; die nächste Anmeldung beginnt wie der Start.
   useEffect(() => {
     if (!user) {
@@ -145,8 +148,9 @@ export function StudioOberflaeche({
       licht: lichtGemeldet ? { node: lichtNode, blackout } : undefined,
       masterLink,
       fernsteuerung,
+      erstPasswort,
     }),
-    [ort, user, server, atemIds, obsIds, tricasterIds, ptzIds, audioIds, status, lichtGemeldet, lichtNode, blackout, masterLink, fernsteuerung],
+    [ort, user, server, atemIds, obsIds, tricasterIds, ptzIds, audioIds, status, lichtGemeldet, lichtNode, blackout, masterLink, fernsteuerung, erstPasswort],
   );
 
   return (

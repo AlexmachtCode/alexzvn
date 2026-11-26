@@ -5,10 +5,12 @@
 import { gleich, ok } from '@jm/ui/testhilfe';
 import type { OutputCommand, RemoteCommand, RemotePlayerState, ShowCue } from '@shared/types';
 import { cueEngine } from '@/lib/cues';
-import { kopfOnAir } from '@/lib/oberflaeche';
-import { showAudio } from '@/lib/show-audio';
+import { kopfOnAir, PLAYER_TEXTE } from '@/lib/oberflaeche';
+import { SHOW_AUDIO_GRUND, showAudio } from '@/lib/show-audio';
 import { usePlayer } from '@/store/player';
-import { pad, showCue } from './testzustand';
+import * as bibliothekModul from '@/views/LibraryView';
+import * as showModul from '@/views/ShowView';
+import { medium, pad, showCue } from './testzustand';
 // Reihenfolge: bruecken.test setzt und löscht globalThis.window zwischen eigenen await-Stellen. Geschwister-Module mit
 // top-level await laufen sonst verschränkt und überschrieben sich das Schein-window; dieser Import lässt diesen Test erst
 // nach bruecken.test beginnen (dasselbe Modul, es läuft nicht doppelt).
@@ -24,10 +26,14 @@ const V = showCue(12, { kind: 'video', label: 'Einspieler' });
 const P = showCue(13, { label: 'Wartet', preWaitSec: 0.03 });
 const PV = showCue(14, { kind: 'video', preWaitSec: 0.03 });
 const CUES: ShowCue[] = [A, V, P, PV];
+/** Antwort der Attrappe shows.cues; die Standby-Tests (Altfehler PL-10) setzen die Liste nach einem Löschen oder Umsortieren. */
+let serverCues: ShowCue[] = CUES;
 
 // ── Attrappen: Protokoll aller Wirkungen nach außen (Ton der Show, Pads, Ausgabefenster) ──
 const log: string[] = [];
 const berichte: RemotePlayerState[] = [];
+/** Zeilen, die der Store über window.jmplay.protokolliere ins Log des Hauptprozesses schickt (Altfehler PL-16a). */
+const protokoll: string[] = [];
 let fernbefehl: ((c: RemoteCommand) => void) | undefined;
 const zaehle = (eintrag: string): number => log.filter((z) => z === eintrag).length;
 
@@ -62,11 +68,26 @@ showAudio.preload = async () => {};
 cueEngine.stopAll = () => {
   log.push('pads.stopAll');
 };
+/** Antwort der Attrappe library.nutzung (Altfehler PL-10, Ruling R16). */
+let nutzungAntwort = { cues: 0, pads: 0 };
 g.window = {
   jmplay: {
-    library: { list: async () => [] },
+    library: {
+      list: async () => [],
+      remove: async (id: number) => {
+        log.push(`library.remove ${id}`);
+      },
+      nutzung: async () => nutzungAntwort,
+    },
     playlists: { list: async () => [] },
-    shows: { list: async () => [], cues: async () => CUES, remove: async () => {} },
+    shows: {
+      list: async () => [],
+      cues: async () => serverCues,
+      remove: async () => {},
+      removeCue: async (id: number) => {
+        log.push(`shows.removeCue ${id}`);
+      },
+    },
     output: {
       command: async (c: OutputCommand) => {
         log.push(`output.${c.type}`);
@@ -87,6 +108,9 @@ g.window = {
         berichte.push(s);
       },
     },
+    protokolliere: async (text: string) => {
+      protokoll.push(text);
+    },
     mediaUrl: (p: string) => `jmedia://local/?path=${encodeURIComponent(p)}`,
     onShowSettings: () => () => {},
     takeShowSettings: async () => null,
@@ -100,6 +124,7 @@ function neu(): void {
   p().showPanic();
   usePlayer.setState({ activeShowId: 1, showCues: CUES, standbyIndex: 0, playingCueIds: [], vorlaufCueIds: [], showPaused: false, videoCue: null, videoProgress: null });
   log.length = 0;
+  serverCues = CUES;
 }
 
 /** Companion-Zustand genau wie vor dem Umbau (R/store/player.ts:37-47 auf d7cdd79ce0), als Orakel. */
@@ -241,7 +266,10 @@ try {
     ok(p().showPaused, 'PL Pause folgt Wirklichkeit: Pause während des Vorlaufs setzt showPaused');
     log.length = 0;
     await warte(90);
-    gleich([p().showPaused, log], [false, ['audio.play 13']], 'PL Pause folgt Wirklichkeit: Vorlauf läuft in der Pause ab → showPaused false; Ton wie bisher (nur showAudio.play)');
+    gleich([p().showPaused, log], [true, []], 'PL Pause folgt Wirklichkeit: der Vorlauf läuft in der Pause nicht ab (Altfehler PL-11), die Pause bleibt');
+    p().showTogglePause();
+    await warte(90);
+    gleich([p().showPaused, log], [false, ['audio.resume', 'output.resume', 'audio.play 13']], 'PL Pause folgt Wirklichkeit: nach Weiter läuft der Vorlauf ab → showPaused false; Ton wie bisher');
 
     // Fix-Runde 1, Wächter: nur startNow und showStop heben die Pause auf, nicht schon der Beginn eines Vorlaufs.
     neu();
@@ -250,10 +278,13 @@ try {
     p().fireCue(2);
     const imVorlauf = [p().showPaused, berichte[berichte.length - 1].paused, p().vorlaufCueIds];
     await warte(90);
+    const nachWarten = [p().showPaused, p().vorlaufCueIds];
+    p().showTogglePause();
+    await warte(90);
     gleich(
-      [imVorlauf, p().showPaused],
-      [[true, true, [13]], false],
-      'PL Pause folgt Wirklichkeit: Beginn eines Vorlaufs in der Pause lässt showPaused und Companion paused wahr; erst der Start des Cues hebt sie auf',
+      [imVorlauf, nachWarten, p().showPaused],
+      [[true, true, [13]], [true, [13]], false],
+      'PL Pause folgt Wirklichkeit: Beginn eines Vorlaufs in der Pause lässt showPaused und Companion paused wahr und hält den Vorlauf (Altfehler PL-11); erst der Start des Cues hebt sie auf',
     );
 
     neu();
@@ -276,6 +307,297 @@ try {
     p().showTogglePause();
     p().showPanic();
     ok(!p().showPaused, 'PL Pause folgt Wirklichkeit: Panik hebt die Pause auf (wie bisher)');
+  }
+
+  // ── PL-11: die Pause hält den Vorlauf (Altfehler PL-11, Ruling A1) ──
+  {
+    neu();
+    p().fireCue(2);
+    p().showTogglePause();
+    await warte(90);
+    const inDerPause = zaehle('audio.play 13');
+    p().showTogglePause();
+    await warte(90);
+    gleich([inDerPause, zaehle('audio.play 13')], [0, 1], 'PL-11 Pause hält den Vorlauf: in der Pause kein Start, nach Weiter genau ein audio.play 13');
+
+    neu();
+    p().fireCue(2);
+    p().showTogglePause();
+    p().showStop();
+    await warte(90);
+    const nachStop = zaehle('audio.play 13');
+    p().showTogglePause();
+    p().showTogglePause();
+    await warte(90);
+    gleich([nachStop, zaehle('audio.play 13')], [0, 0], 'PL-11 Stop in der Pause räumt angehaltene Vorläufe: weder danach noch nach Pause und Weiter startet er');
+
+    // Fix-Welle K4: dasselbe mit Panik.
+    neu();
+    p().fireCue(2);
+    p().showTogglePause();
+    p().showPanic();
+    await warte(90);
+    const nachPanik = [zaehle('audio.play 13'), p().showPaused, p().vorlaufCueIds];
+    p().showTogglePause();
+    p().showTogglePause();
+    await warte(90);
+    gleich([nachPanik, zaehle('audio.play 13')], [[0, false, []], 0], 'PL-11 Panik in der Pause räumt angehaltene Vorläufe: weder danach noch nach Pause und Weiter startet er');
+
+    // A1: GO in der Pause auf einen Cue mit Vorlauf: der Vorlauf wartet auf Weiter.
+    neu();
+    p().fireCue(0);
+    p().showTogglePause();
+    log.length = 0;
+    p().fireCue(2);
+    await warte(90);
+    const wartet = [zaehle('audio.play 13'), p().showPaused, p().vorlaufCueIds];
+    p().showTogglePause();
+    await warte(90);
+    gleich([wartet, zaehle('audio.play 13'), p().showPaused], [[0, true, [13]], 1, false], 'PL-11 GO in der Pause: Vorlauf wartet auf Weiter');
+
+    // A1: GO in der Pause auf einen Cue ohne Vorlauf hebt die Pause auf, ein gehaltener Vorlauf läuft dann weiter.
+    neu();
+    p().fireCue(2);
+    p().showTogglePause();
+    p().fireCue(0);
+    await warte(90);
+    gleich([p().showPaused, zaehle('audio.play 11'), zaehle('audio.play 13')], [false, 1, 1], 'PL-11 GO ohne Vorlauf in der Pause hebt die Pause auf, der gehaltene Vorlauf läuft weiter');
+  }
+
+  // ── PL-16a: Fernbefehle cue und standby prüfen die Nummer (Altfehler PL-16a, Ruling A3) ──
+  {
+    ok(fernbefehl !== undefined, 'PL-16a Fernbefehl-Rückruf der Attrappe ist da');
+    const hinweisCue = (n: number): string => `Companion „CUE ${n}“ abgelehnt: Die Show hat 4 Cues.`;
+    neu();
+    p().setStandby(2);
+    usePlayer.setState({ notice: null });
+    protokoll.length = 0;
+    log.length = 0;
+    const vorFall: Array<[number, string]> = [];
+    for (const n of [0, 5, -1]) {
+      usePlayer.setState({ notice: null });
+      fernbefehl?.({ t: 'cue', n });
+      vorFall.push([p().standbyIndex, p().notice ?? '']);
+      gleich(p().notice, hinweisCue(n), `PL-16a cue ${n} bei 4 Cues abgelehnt: notice nennt den Grund`);
+    }
+    await warte(90);
+    gleich(
+      [vorFall.map((v) => v[0]), log.filter((z) => z.startsWith('audio.play') || z.startsWith('output.load')), protokoll],
+      [[2, 2, 2], [], [0, 5, -1].map((n) => `Fernbefehl abgelehnt: CUE ${n} (Show hat 4 Cues)`)],
+      'PL-16a cue 0, cue 5 und cue -1 bei 4 Cues abgelehnt: Standby unverändert, kein audio.play, Log-Zeile über protokolliere',
+    );
+
+    neu();
+    p().setStandby(1);
+    protokoll.length = 0;
+    const hinweise: Array<string | null> = [];
+    for (const n of [0, 5]) {
+      usePlayer.setState({ notice: null });
+      fernbefehl?.({ t: 'standby', n });
+      hinweise.push(p().notice);
+    }
+    gleich(
+      [p().standbyIndex, hinweise, protokoll],
+      [
+        1,
+        ['Companion „STANDBY 0“ abgelehnt: Die Show hat 4 Cues.', 'Companion „STANDBY 5“ abgelehnt: Die Show hat 4 Cues.'],
+        ['Fernbefehl abgelehnt: STANDBY 0 (Show hat 4 Cues)', 'Fernbefehl abgelehnt: STANDBY 5 (Show hat 4 Cues)'],
+      ],
+      'PL-16a standby 0 und 5 abgelehnt',
+    );
+
+    neu();
+    protokoll.length = 0;
+    usePlayer.setState({ notice: null });
+    fernbefehl?.({ t: 'cue', n: 4 });
+    await warte(90);
+    const nachCue4 = [p().standbyIndex, p().notice, zaehle('output.load') + zaehle('audio.play 14'), p().videoCue?.id];
+    fernbefehl?.({ t: 'standby', n: 1 });
+    gleich([nachCue4, p().standbyIndex, protokoll, p().notice], [[4, null, 1, 14], 0, [], null], 'PL-16a cue 4 und standby 1 wirken wie heute');
+  }
+
+  // ── PL-T14: Ein Ton-Cue, der nicht lädt, verlässt „laufend“ sofort, meldet sich im Fenster und im Log (A2, A3) ──
+  {
+    const spielt = showAudio.play;
+    const vorlauf = showCue(31, { label: 'Wartet', preWaitSec: 0.03 });
+    const mitWeiter = showCue(32, { label: 'Gong', autoContinue: true });
+    const danach = showCue(33, { label: 'Danach' });
+    const ablehnen = (grund: string): void => {
+      showAudio.play = async (cue) => {
+        log.push(`audio.play ${cue.id}`);
+        throw new Error(grund);
+      };
+    };
+    const ladefehler = async (): Promise<void> => {
+      await warte(5);
+    };
+    try {
+      ablehnen(SHOW_AUDIO_GRUND.datei);
+      const zeile = `Cue 1 „Gong“ spielt nicht: ${SHOW_AUDIO_GRUND.datei} (C:/Medien/m111.wav)`;
+
+      neu();
+      usePlayer.setState({ notice: null });
+      protokoll.length = 0;
+      p().fireCue(0);
+      await ladefehler();
+      const b = berichte[berichte.length - 1];
+      gleich(
+        [p().playingCueIds, b.playing, b.playingCount, kopfOnAir({ player: p(), pads: [], ausgabe: undefined, videoBelegt: false }).live],
+        [[], false, 0, false],
+        'PL-T14 Cue verlässt laufend: playingCueIds leer, letzter Bericht an Companion playing aus, kein ON AIR',
+      );
+      gleich(p().notice, PLAYER_TEXTE.cueFehler(1, 'Gong', SHOW_AUDIO_GRUND.datei), 'PL-T14 notice nennt Cue und Grund');
+      gleich(p().notice, `Cue 1 „Gong“ spielt nicht: ${SHOW_AUDIO_GRUND.datei}`, 'PL-T14 notice hat den Wortlaut aus dem Plan');
+      gleich(protokoll, [zeile], 'PL-T14 protokolliere genau einmal mit der Log-Zeile (Hinweis plus Pfad)');
+      gleich(p().standbyIndex, 1, 'PL-T14 der Standby steht schon auf dem nächsten Cue');
+
+      // Name: label, sonst Dateiname, sonst Strich; Nummer ist Index + 1.
+      neu();
+      usePlayer.setState({ showCues: [A, showCue(34, { label: '' })] });
+      p().fireCue(1);
+      await ladefehler();
+      gleich(p().notice, PLAYER_TEXTE.cueFehler(2, 'm134.wav', SHOW_AUDIO_GRUND.datei), 'PL-T14 ohne Namen nennt der Hinweis den Dateinamen und die Nummer index + 1');
+      gleich(PLAYER_TEXTE.cueFehler(3, '—', SHOW_AUDIO_GRUND.format), `Cue 3 „—“ spielt nicht: ${SHOW_AUDIO_GRUND.format}`, 'PL-T14 cueFehler mit Strich als Name und Grund format');
+
+      // Format-Grund kommt an, wie er geworfen wurde.
+      ablehnen(SHOW_AUDIO_GRUND.format);
+      neu();
+      usePlayer.setState({ notice: null });
+      p().fireCue(0);
+      await ladefehler();
+      gleich(p().notice, PLAYER_TEXTE.cueFehler(1, 'Gong', SHOW_AUDIO_GRUND.format), 'PL-T14 der Grund format kommt in den Hinweis');
+      ablehnen(SHOW_AUDIO_GRUND.datei);
+
+      // A2: kein Auto-Continue nach einem Ladefehler.
+      neu();
+      usePlayer.setState({ showCues: [mitWeiter, danach] });
+      log.length = 0;
+      p().fireCue(0);
+      await ladefehler();
+      gleich([log, p().standbyIndex, p().playingCueIds], [['audio.play 32'], 1, []], 'PL-T14 kein Auto-Continue nach einem Ladefehler (A2): der nächste Cue startet nicht');
+
+      // A2: die Pause bleibt, wie sie vor dem Start war. Nicht pausiert: nicht pausiert.
+      neu();
+      usePlayer.setState({ notice: null });
+      p().fireCue(0);
+      await ladefehler();
+      gleich([p().showPaused, berichte[berichte.length - 1].paused], [false, false], 'PL-T14 showPaused wie vor dem Start (A2): ohne Pause bleibt es ohne Pause');
+
+      // A2: vor dem Start pausiert: danach wieder pausiert, Vorläufe angehalten (R1).
+      neu();
+      usePlayer.setState({ showCues: [A, vorlauf] });
+      p().fireCue(1);
+      p().showTogglePause();
+      p().fireCue(0);
+      ok(p().showPaused === false, 'PL-T14 Vorbedingung: der Start hebt die Pause auf');
+      await ladefehler();
+      gleich(
+        [p().showPaused, berichte[berichte.length - 1].paused, p().playingCueIds, p().vorlaufCueIds],
+        [true, true, [31], [31]],
+        'PL-T14 showPaused wie vor dem Start (A2): war die Show pausiert, ist sie es nach dem Ladefehler wieder; der Vorlauf bleibt',
+      );
+      await warte(90);
+      gleich(zaehle('audio.play 31'), 0, 'PL-T14 nach dem Ladefehler hält die Pause den Vorlauf weiter an (Zeitgeber angehalten)');
+      p().showTogglePause();
+      await warte(90);
+      gleich(zaehle('audio.play 31'), 1, 'PL-T14 Weiter lässt den angehaltenen Vorlauf danach ablaufen');
+
+      // Stop zwischen Start und Fehler: die Pause wird nicht neu gesetzt.
+      let scheitern: (() => void) | undefined;
+      showAudio.play = async (cue) => {
+        log.push(`audio.play ${cue.id}`);
+        await new Promise<void>((_ok, nein) => {
+          scheitern = () => nein(new Error(SHOW_AUDIO_GRUND.datei));
+        });
+      };
+      neu();
+      p().fireCue(0);
+      p().showTogglePause();
+      p().fireCue(0);
+      p().showStop();
+      scheitern?.();
+      await ladefehler();
+      gleich([p().showPaused, p().playingCueIds], [false, []], 'PL-T14 ein Ladefehler nach Stop setzt die Pause nicht wieder');
+      // R9: Pause und Eintrag nur für den letzten Start. Mehrere Aufrufe von play warten, jeder lässt sich einzeln ablehnen.
+      const offen: Array<{ id: number; ablehnen: () => void }> = [];
+      const warteAuf = (): void => {
+        showAudio.play = async (cue) => {
+          log.push(`audio.play ${cue.id}`);
+          await new Promise<void>((_ok, nein) => {
+            offen.push({ id: cue.id, ablehnen: () => nein(new Error(SHOW_AUDIO_GRUND.datei)) });
+          });
+        };
+      };
+      // (a) Pausiert, GO X (lädt noch), GO Y (klingt): der späte Fehler von X stellt die Pause nicht wieder her.
+      warteAuf();
+      neu();
+      const X = showCue(41, { label: 'X' });
+      const Y = showCue(42, { label: 'Y' });
+      usePlayer.setState({ showCues: [X, Y], notice: null });
+      protokoll.length = 0;
+      offen.length = 0;
+      p().showTogglePause();
+      p().fireCue(0);
+      p().fireCue(1);
+      gleich([p().showPaused, p().playingCueIds], [false, [41, 42]], 'PL-T14 R9 Vorbedingung (a): beide Starts laufen, die Pause ist aufgehoben');
+      offen.find((o) => o.id === 41)?.ablehnen();
+      await ladefehler();
+      gleich(
+        [p().showPaused, p().playingCueIds, p().notice, protokoll.length],
+        [false, [42], PLAYER_TEXTE.cueFehler(1, 'X', SHOW_AUDIO_GRUND.datei), 1],
+        'PL-T14 R9 (a): ein späterer Start eines anderen Cues hebt den Anspruch auf: keine Pause wieder, X verlässt laufend, Hinweis und Log einmal',
+      );
+
+      // (b) Pausiert, GO X, Stop, GO X: der Fehler des ersten Starts ändert nichts am zweiten.
+      neu();
+      usePlayer.setState({ showCues: [X, Y], notice: null });
+      protokoll.length = 0;
+      offen.length = 0;
+      p().showTogglePause();
+      p().fireCue(0);
+      p().showStop();
+      p().fireCue(0);
+      offen[0]?.ablehnen();
+      await ladefehler();
+      gleich(
+        [p().showPaused, p().playingCueIds, p().notice, protokoll.length],
+        [false, [41], PLAYER_TEXTE.cueFehler(1, 'X', SHOW_AUDIO_GRUND.datei), 1],
+        'PL-T14 R9 (b): der Fehler des ersten Starts setzt nach Stop und neuem GO die Pause nicht und entfernt den zweiten Start nicht',
+      );
+      offen[1]?.ablehnen();
+      await ladefehler();
+      gleich([p().showPaused, p().playingCueIds, protokoll.length], [false, [], 2], 'PL-T14 R9 (b): der Fehler des zweiten Starts räumt ihn und meldet einmal');
+
+      // (c) Fix-Welle K6: pausiert, GO X (lädt noch), Pause und Weiter, X scheitert: die Pause kommt nicht wieder. Seit dem Start hat
+      // jemand Pause/Weiter gedrückt; die Show läuft, wie der Bediener sie gestellt hat.
+      neu();
+      usePlayer.setState({ showCues: [X, Y], notice: null });
+      offen.length = 0;
+      p().showTogglePause();
+      p().fireCue(0);
+      p().showTogglePause();
+      p().showTogglePause();
+      const vorFehler = p().showPaused;
+      offen[0]?.ablehnen();
+      await ladefehler();
+      gleich(
+        [vorFehler, p().showPaused, berichte[berichte.length - 1].paused, p().playingCueIds],
+        [false, false, false, []],
+        'PL-T14 R9 (c): Pause und Weiter zwischen Start und Ladefehler → showPaused bleibt false (kein Zurückholen der Pause)',
+      );
+      // (d) Nur Pause dazwischen: die Pause bleibt, wie der Bediener sie gesetzt hat.
+      neu();
+      usePlayer.setState({ showCues: [X, Y], notice: null });
+      offen.length = 0;
+      p().showTogglePause();
+      p().fireCue(0);
+      p().showTogglePause();
+      offen[0]?.ablehnen();
+      await ladefehler();
+      gleich([p().showPaused, p().playingCueIds], [true, []], 'PL-T14 R9 (d): nur Pause zwischen Start und Ladefehler → die Pause des Bedieners bleibt');
+    } finally {
+      showAudio.play = spielt;
+    }
   }
 
   // ── PL ON AIR Wahrheitstabelle am echten Store: Stop in der Pause, dann GO mit Audio-Cue ──
@@ -347,6 +669,67 @@ try {
     );
   }
 
+  // ── PL-10 (Altfehler Stufe 1): Der Standby folgt dem Cue selbst, nicht der Position. Die Attrappe antwortet nach dem Löschen
+  // oder Umsortieren mit der neuen Liste; refreshShowCues lädt sie ──
+  {
+    const standbyNach = async (vorher: number, neueListe: ShowCue[]): Promise<number> => {
+      neu();
+      usePlayer.setState({ standbyIndex: vorher });
+      serverCues = neueListe;
+      await p().refreshShowCues();
+      return p().standbyIndex;
+    };
+    gleich(await standbyNach(1, [V, P, PV]), 0, 'PL-10 Standby folgt dem Cue: Standby auf V (Index 1), A wird entfernt → Index 0');
+    gleich(await standbyNach(1, [PV, P, V, A]), 2, 'PL-10 Standby folgt beim Umsortieren: V wandert von Index 1 auf 2');
+    gleich(await standbyNach(1, [A, P, PV]), 1, 'PL-10 Standby-Cue selbst gelöscht: der Cue danach (P) steht auf dem alten Index');
+    gleich(await standbyNach(4, [A, V, P]), 3, 'PL-10 Standby am Ende bleibt am Ende (Liste kürzer)');
+    serverCues = CUES;
+  }
+
+  // ── PL-10, Ruling R16 (Fix-Welle F2): die Rückfrage ist ein Fenster im Fenster. Solange sie offen ist, läuft die Show weiter
+  // (Companion wirkt), und entfernt wird erst über „Entfernen“: dann mit removeShowCue bzw. removeItem des echten Stores ──
+  {
+    type Rueckfrage = { frage: string; entfernen: () => void };
+    const cueEntfernen = (showModul as unknown as { cueEntfernen?: (a: unknown) => void }).cueEntfernen;
+    const mediumEntfernen = (bibliothekModul as unknown as { mediumEntfernen?: (a: unknown) => Promise<void> }).mediumEntfernen;
+    neu();
+    p().fireCue(0);
+    log.length = 0;
+    let offen: Rueckfrage | undefined;
+    cueEntfernen?.({ stand: p(), cue: V, index: 1, entferne: p().removeShowCue, fragen: (r: Rueckfrage) => (offen = r) });
+    await warte(5);
+    const gefragt = [offen?.frage, zaehle('shows.removeCue 12'), p().playingCueIds];
+    fernbefehl?.({ t: 'stop' });
+    const nachStop = [p().playingCueIds, zaehle('audio.stop 11 0.5')];
+    offen?.entfernen();
+    await warte(5);
+    gleich(
+      [typeof cueEntfernen, gefragt, nachStop, zaehle('shows.removeCue 12')],
+      ['function', ['Die Show läuft. Cue 2 „Einspieler“ trotzdem entfernen?', 0, [11]], [[], 1], 1],
+      'PL-10 R16 Cue entfernen in der Show: Rückfrage, nichts entfernt; Companion STOP wirkt, solange sie offen ist; „Entfernen“ ruft removeShowCue (shows.removeCue genau einmal)',
+    );
+
+    neu();
+    log.length = 0;
+    // Ohne Zusicherung engte tsc `offen` hier auf undefined ein (der Rückruf setzt es erst später).
+    offen = undefined as Rueckfrage | undefined;
+    nutzungAntwort = { cues: 1, pads: 1 };
+    await mediumEntfernen?.({ item: medium(111), nutzung: (id: number) => (g.window as { jmplay: { library: { nutzung: (id: number) => Promise<{ cues: number; pads: number }> } } }).jmplay.library.nutzung(id), entferne: p().removeItem, fragen: (r: Rueckfrage) => (offen = r) });
+    await warte(5);
+    const medienFrage = [offen?.frage, zaehle('library.remove 111')];
+    offen?.entfernen();
+    await warte(5);
+    nutzungAntwort = { cues: 0, pads: 0 };
+    const vorher = zaehle('library.remove 112');
+    await mediumEntfernen?.({ item: medium(112), nutzung: async () => nutzungAntwort, entferne: p().removeItem, fragen: () => void log.push('gefragt') });
+    await warte(5);
+    gleich(
+      [typeof mediumEntfernen, medienFrage, zaehle('library.remove 111'), vorher, zaehle('library.remove 112'), zaehle('gefragt')],
+      ['function', [PLAYER_TEXTE.mediumEntfernen('Titel 111', 1, 1), 0], 1, 0, 1, 0],
+      'PL-10 R16 Medium entfernen: benutzt → Rückfrage, nichts entfernt; „Entfernen“ ruft removeItem (library.remove genau einmal); ungenutzt → sofort, ohne Rückfrage',
+    );
+  }
+
   // ── PL Bildschirm merken (Player d1, Fix-Runde 1): setOutputDisplayId speichert nur; openOutput merkt wie bisher ──
   {
     neu();
@@ -360,6 +743,119 @@ try {
     await p().openOutput();
     gleich(p().outputDisplayId, 5, 'PL Bildschirm merken: openOutput ohne Kennung lässt die gemerkte stehen (wie bisher)');
     usePlayer.setState({ outputDisplayId: vorher });
+  }
+
+  // ── PL-N (Altfehler Stufe 1, Review I1): Bei geschlossener Ausgabe wartet das GO auf output.open (es löst erst nach „bereit“
+  // auf). Panik, Stop oder ein zweites GO in dieser Zeit dürfen nicht vom load des ersten GO überholt werden: Nach dem Öffnen lädt
+  // der Store nur, wenn dieser Start noch der laufende Video-Cue ist. Attrappe wie im Main: Die Ausgabe ist zu, output.open legt
+  // das Fenster sofort an (danach meldet isOpen offen) und löst erst auf, wenn der Test es freigibt ──
+  {
+    const ausgabe = (g.window as { jmplay: { output: Record<string, unknown> } }).jmplay.output;
+    const echtAusgabe = { isOpen: ausgabe.isOpen, open: ausgabe.open, command: ausgabe.command };
+    let fensterDa = false;
+    const freigeben: Array<() => void> = [];
+    const V2 = showCue(15, { kind: 'video', label: 'Zweiter Einspieler' });
+    const url = (c: ShowCue): string => `jmedia://local/?path=${encodeURIComponent(c.media?.path ?? '')}`;
+    const ausgabeLog = (): string[] => log.filter((z) => z.startsWith('output.'));
+    /** Frischer Lauf mit geschlossener Ausgabe; Befehle mit Adresse ins Protokoll. */
+    const zuUndNeu = (cues: ShowCue[]): void => {
+      neu();
+      usePlayer.setState({ showCues: cues, standbyIndex: 0 });
+      fensterDa = false;
+      freigeben.length = 0;
+      ausgabe.isOpen = async () => fensterDa;
+      ausgabe.open = () => {
+        log.push('output.open');
+        fensterDa = true;
+        return new Promise<void>((r) => void freigeben.push(r));
+      };
+      ausgabe.command = async (c: OutputCommand) => void log.push(c.type === 'load' ? `output.load ${c.url}` : `output.${c.type}`);
+    };
+    const gibFrei = async (): Promise<void> => {
+      for (const r of freigeben.splice(0)) r();
+      await warte(5);
+    };
+    try {
+      zuUndNeu([V]);
+      p().fireCue(0);
+      await warte(5);
+      p().showPanic();
+      await gibFrei();
+      gleich(
+        [ausgabeLog(), p().videoCue],
+        [['output.open', 'output.black'], null],
+        'PL-N Panik während des Öffnens: kein load (das Fenster bleibt schwarz, kein Video-Cue im Store)',
+      );
+
+      zuUndNeu([V]);
+      p().fireCue(0);
+      await warte(5);
+      p().showStop();
+      await gibFrei();
+      gleich(
+        [ausgabeLog(), p().videoCue],
+        [['output.open', 'output.stop'], null],
+        'PL-N Stop während des Öffnens: kein load (das Video startet nach Stop nicht)',
+      );
+
+      zuUndNeu([V, V2]);
+      p().fireCue(0);
+      await warte(5);
+      p().fireCue(1);
+      await warte(5);
+      await gibFrei();
+      const geladen = ausgabeLog().filter((z) => z.startsWith('output.load '));
+      gleich(
+        [geladen, p().videoCue?.id],
+        [[`output.load ${url(V2)}`], V2.id],
+        'PL-N zweites GO während des Öffnens: nur der zweite Video-Cue lädt (genau ein load, keiner für den ersten danach)',
+      );
+
+      // Dieselbe Lücke ist bei offener Ausgabe kürzer: Panik zwischen GO und der Antwort auf isOpen.
+      zuUndNeu([V]);
+      fensterDa = true;
+      ausgabe.isOpen = () => new Promise<boolean>((r) => void freigeben.push(() => r(true)));
+      p().fireCue(0);
+      await warte(5);
+      p().showPanic();
+      await gibFrei();
+      gleich(ausgabeLog(), ['output.black'], 'PL-N Panik zwischen GO und der Antwort auf isOpen (Ausgabe offen): kein load');
+
+      // Gegenprobe: Ohne Zwischenfall lädt der Video-Cue nach dem Öffnen wie bisher, genau einmal.
+      zuUndNeu([V]);
+      p().fireCue(0);
+      await warte(5);
+      await gibFrei();
+      gleich(ausgabeLog(), ['output.open', `output.load ${url(V)}`], 'PL-N GO bei geschlossener Ausgabe: nach dem Öffnen genau ein load für den Cue (wie bisher)');
+
+      // Fix-Welle K5: Pause, während das GO auf „bereit“ wartet. Der Main hält das pause bis „bereit“ zurück und schickt es vor dem
+      // späteren load; darum folgt dem load direkt ein zweites pause, und das Video steht wie die Show.
+      zuUndNeu([V]);
+      p().fireCue(0);
+      await warte(5);
+      p().showTogglePause();
+      await gibFrei();
+      gleich(
+        [ausgabeLog(), p().showPaused],
+        [['output.open', 'output.pause', `output.load ${url(V)}`, 'output.pause'], true],
+        'PL-N Pause während des Wartens auf „bereit“: auf output.load folgt direkt output.pause (Reihenfolge load, pause)',
+      );
+      // Gegenprobe: Pause und Weiter während des Wartens → nach dem load kein pause.
+      zuUndNeu([V]);
+      p().fireCue(0);
+      await warte(5);
+      p().showTogglePause();
+      p().showTogglePause();
+      await gibFrei();
+      gleich(
+        [ausgabeLog(), p().showPaused],
+        [['output.open', 'output.pause', 'output.resume', `output.load ${url(V)}`], false],
+        'PL-N Pause und Weiter während des Wartens: nach dem load kein pause (die Show läuft)',
+      );
+    } finally {
+      for (const r of freigeben.splice(0)) r();
+      Object.assign(ausgabe, echtAusgabe);
+    }
   }
 } finally {
   // Zeitgeber räumen, dann Attrappen zurücknehmen: danach läuft nichts mehr gegen das Schein-window.

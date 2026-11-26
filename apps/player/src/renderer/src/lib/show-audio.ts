@@ -2,6 +2,12 @@ import type { ShowCue } from '@shared/types';
 
 const MIN_GAIN = 0.0001; // exponentialRamp darf nicht auf 0 zielen
 
+/** Gründe, aus denen ein Cue nicht lädt (Altfehler PL-T14); der Store zeigt sie im Hinweis und schreibt sie ins Log. */
+export const SHOW_AUDIO_GRUND = {
+  datei: 'Datei fehlt oder ist nicht lesbar.',
+  format: 'Datei lässt sich nicht als Ton abspielen.',
+} as const;
+
 /**
  * WebAudio-Engine für die Cue-Show (getrennt vom Soundboard-Engine). Dekodiert
  * Cue-Medien einmal vor und spielt sie mit Fade-In/Out, Gain und Loop. `onEnded`
@@ -20,9 +26,21 @@ class ShowAudio {
 
   async preload(mediaId: number, url: string): Promise<void> {
     if (this.buffers.has(mediaId)) return;
-    const res = await fetch(url);
-    const arr = await res.arrayBuffer();
-    const buf = await this.context().decodeAudioData(arr);
+    // Altfehler PL-T14: Ein Fehler trägt seinen Grund; ein Puffer kommt erst nach gelungenem Dekodieren in den Cache.
+    let arr: ArrayBuffer;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(SHOW_AUDIO_GRUND.datei);
+      arr = await res.arrayBuffer();
+    } catch {
+      throw new Error(SHOW_AUDIO_GRUND.datei);
+    }
+    let buf: AudioBuffer;
+    try {
+      buf = await this.context().decodeAudioData(arr);
+    } catch {
+      throw new Error(SHOW_AUDIO_GRUND.format);
+    }
     this.buffers.set(mediaId, buf);
   }
 

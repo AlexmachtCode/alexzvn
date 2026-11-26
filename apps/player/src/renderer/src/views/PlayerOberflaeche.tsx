@@ -187,7 +187,7 @@ export function PlayerOberflaeche({
         setPanelAbschnitt(abschnitt);
       }}
     >
-      {reiter === 'library' ? <Bibliothek /> : reiter === 'soundboard' ? <Soundboard /> : <CueShow onAusgabe={ausgabeOeffnen} />}
+      {reiter === 'library' ? <Bibliothek /> : reiter === 'soundboard' ? <Soundboard panelOffen={panelOffen} /> : <CueShow onAusgabe={ausgabeOeffnen} />}
 
       {notice && (
         <div className={cn('pointer-events-none fixed inset-x-0 flex justify-center px-6', HINWEIS_UNTEN[reiter])}>

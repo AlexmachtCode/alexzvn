@@ -13,4 +13,5 @@ import './panels.test';
 import './funktionsliste.test';
 import './benutzer.test';
 import './rueckspiel.test';
+import './zugang.test';
 abschluss();

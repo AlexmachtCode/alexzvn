@@ -28,6 +28,10 @@ declare global {
       onMasterLink: (cb: (m: MasterLinkMeldungZeile) => void) => () => void;
       fernsteuerung: () => Promise<FernsteuerungMeldung | null>;
       onFernsteuerung: (cb: (m: FernsteuerungMeldung | null) => void) => () => void;
+      /** Altfehler SC-S1: Ort der Datei mit dem Erst-Passwort und ob sie besteht; nie ihr Inhalt. */
+      erstPasswort: () => Promise<{ datei: string; vorhanden: boolean } | null>;
+      /** Altfehler SC-S2: das Fenster-Geheimnis dieses Starts (X-JMS-Fenster, auth.fenster); null bei Ablehnung. */
+      fensterGeheimnis: () => Promise<string | null>;
     };
   }
 }

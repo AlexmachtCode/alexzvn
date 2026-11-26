@@ -4,6 +4,29 @@ const DEFAULT_PORT = 7778;
 
 let socket: Socket | null = null;
 
+/**
+ * Altfehler SC-S2 (A7): das Fenster-Geheimnis dieses Starts, nur im eigenen Electron-Fenster (über den Preload); im Browser und
+ * bei Ablehnung null. Mit ihm ist das Fenster am Server ohne Anmeldung „local“ (Admin); die Anmeldung im Fenster bleibt.
+ */
+let fensterGeheimnis: string | null = null;
+
+/** Fragt das Fenster-Geheimnis beim Preload, einmal vor dem ersten Render (main.tsx). Wirft nie; ohne Preload bleibt es null. */
+export async function ladeFensterGeheimnis(): Promise<void> {
+  let wert: unknown = null;
+  try {
+    const jms = typeof window === 'undefined' ? undefined : window.jms;
+    wert = typeof jms?.fensterGeheimnis === 'function' ? await jms.fensterGeheimnis() : null;
+  } catch {
+    wert = null;
+  }
+  fensterGeheimnis = typeof wert === 'string' && wert !== '' ? wert : null;
+}
+
+/** Anmeldedaten des Socket-Handshakes: das Token wie bisher, dazu im eigenen Fenster das Geheimnis als `fenster`. */
+export function handshakeAuth(token: string | null): { token?: string; fenster?: string } {
+  return { ...(token ? { token } : {}), ...(fensterGeheimnis ? { fenster: fensterGeheimnis } : {}) };
+}
+
 export function resolveServerUrl(): string {
   if (typeof window !== 'undefined' && window.jms?.serverUrl) {
     return window.jms.serverUrl;
@@ -35,7 +58,7 @@ export function connect(url: string, token: string | null, handlers: ConnectHand
     reconnection: true,
     reconnectionDelay: 200,
     reconnectionDelayMax: 2000,
-    auth: token ? { token } : undefined,
+    auth: handshakeAuth(token),
   });
 
   sock.on('connect', () => handlers.onConnectionChange?.(true));
@@ -85,6 +108,7 @@ export async function apiFetch<T>(path: string, init: RequestInit & { token?: st
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(fensterGeheimnis ? { 'X-JMS-Fenster': fensterGeheimnis } : {}),
       ...(headers ?? {}),
     },
   });

@@ -32,6 +32,22 @@ export const ABSCHNITT = {
  * (ShowView.tsx); GO ohne das falsche „⏎“ (Spec 3.4: ausgelöst wird die Leertaste).
  */
 export const PLAYER_TEXTE = {
+  /** Rückfrage beim Entfernen eines Cues, solange die Show läuft (Altfehler PL-10); `nr` zählt ab 1, `name` wie in der Cue-Zeile. */
+  cueEntfernen: (nr: number, name: string): string => `Die Show läuft. Cue ${nr} „${name}“ trotzdem entfernen?`,
+  /** Rückfrage beim Entfernen eines Mediums, das Cues oder Pads benutzen (Altfehler PL-10); ein Teil mit 0 fällt weg. */
+  mediumEntfernen: (titel: string, cues: number, pads: number): string => {
+    const teile = [cues > 0 ? (cues === 1 ? '1 Cue' : `${cues} Cues`) : '', pads > 0 ? (pads === 1 ? '1 Pad' : `${pads} Pads`) : ''].filter((x) => x !== '');
+    return `„${titel}“ wird von ${teile.join(' und ')} benutzt. Trotzdem aus der Bibliothek entfernen? Dort steht danach „Medium fehlt“.`;
+  },
+  /** Hinweis, wenn ein Ton-Cue beim GO nicht lädt (Altfehler PL-T14); `nr` zählt ab 1, `name` wie in der Cue-Zeile. */
+  cueFehler: (nr: number, name: string, grund: string): string => `Cue ${nr} „${name}“ spielt nicht: ${grund}`,
+  /** Hinweis, wenn ein Fernbefehl `cue` oder `standby` eine Nummer außerhalb der Show nennt (Altfehler PL-16a). */
+  fernbefehlAbgelehnt: (verb: 'CUE' | 'STANDBY', n: number, anzahl: number): string => {
+    const cues = anzahl === 0 ? 'keine Cues' : anzahl === 1 ? '1 Cue' : `${anzahl} Cues`;
+    return `Companion „${verb} ${n}“ abgelehnt: Die Show hat ${cues}.`;
+  },
+  /** Knöpfe der Rückfrage im Fenster beim Entfernen eines Cues oder Mediums (Altfehler PL-10, Ruling R16). */
+  rueckfrage: { abbrechen: 'Abbrechen', entfernen: 'Entfernen' },
   go: 'GO',
   pause: '❚❚ Pause',
   weiter: '▶ Weiter',
@@ -388,4 +404,44 @@ export function istEingabeZiel(ziel: EventTarget | null): boolean {
   const t = ziel as { tagName?: unknown; isContentEditable?: unknown };
   const tag = typeof t.tagName === 'string' ? t.tagName.toUpperCase() : '';
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable === true;
+}
+
+/**
+ * Pad-Taste (Altfehler PL-4): ein Pad löst nur die Taste ohne Strg, Alt oder Meta aus (die Umschalttaste sperrt nicht, Ruling A6),
+ * und nur, wenn weder Dialog noch Panel offen ist und der Fokus in keinem Feld steht. AltGr (Ruling R17): Windows meldet AltGr als
+ * Strg+Alt; meldet das Ereignis `getModifierState('AltGraph')`, zählen Strg und Alt nicht, und Zeichen wie @ oder € lösen weiter aus
+ * wie vor dieser Stufe. Meta sperrt auch dann.
+ */
+export function padTasteErlaubt(
+  e: { ctrlKey: boolean; altKey: boolean; metaKey: boolean; target: EventTarget | null; getModifierState?: (taste: string) => boolean },
+  z: { dialogOffen: boolean; panelOffen: boolean },
+): boolean {
+  const altGr = e.getModifierState?.('AltGraph') === true;
+  const sperrt = e.metaKey || (!altGr && (e.ctrlKey || e.altKey));
+  return !sperrt && !z.dialogOffen && !z.panelOffen && !istEingabeZiel(e.target);
+}
+
+/** Läuft in der Show etwas (ein Cue oder ein Video)? Dann fragt das Entfernen eines Cues nach (Altfehler PL-10). */
+export function cueEntfernenFrage(s: { playingCueIds: readonly number[]; videoCue: unknown }, nr: number, name: string): string | null {
+  return s.playingCueIds.length > 0 || s.videoCue != null ? PLAYER_TEXTE.cueEntfernen(nr, name) : null;
+}
+
+/** Rückfrage beim Entfernen eines Mediums, das Cues oder Pads benutzen; null bei 0 und 0 (Altfehler PL-10). */
+export function mediumEntfernenFrage(titel: string, n: { cues: number; pads: number }): string | null {
+  return n.cues === 0 && n.pads === 0 ? null : PLAYER_TEXTE.mediumEntfernen(titel, n.cues, n.pads);
+}
+
+/** Rückfrage im Fenster (Altfehler PL-10, Ruling R16): der Fragetext und was „Entfernen“ tut. */
+export interface EntfernenRueckfrage {
+  frage: string;
+  entfernen(): void;
+}
+
+/**
+ * Entfernen mit Rückfrage (Altfehler PL-10, Ruling R16): ohne Frage (`null`) entfernt es sofort wie bisher; sonst öffnet es die
+ * Rückfrage im Fenster, und entfernt wird erst über deren „Entfernen“. Nichts wartet blockierend auf die Antwort.
+ */
+export function entfernenOderFragen(frage: string | null, entfernen: () => void, fragen: (r: EntfernenRueckfrage) => void): void {
+  if (frage === null) entfernen();
+  else fragen({ frage, entfernen });
 }

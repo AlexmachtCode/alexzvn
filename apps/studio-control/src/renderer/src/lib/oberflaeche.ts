@@ -10,7 +10,10 @@ import {
   PEERS_TEXTE,
   REMOTE_TEXTE,
   remoteControlView,
+  st,
+  STATUS_UNBEKANNT,
   type RemoteControlSectionProps,
+  type SectionStatus,
 } from '@jm/settings';
 import { MASTER_LINK_TEXTE, masterLinkStatusItem, ordneStatus, UNBEKANNT, unbekannt, type StatusItem, type StatusState } from '@jm/ui';
 import { portBelegt, STEUER_PORT, type FernsteuerungMeldung } from '@shared/fernsteuerung';
@@ -20,6 +23,7 @@ import type { MasterLinkMeldungZeile } from '@/sync/jms';
 /** Abschnitts-ids = Panel-Anker (`einstellung-{id}`) = settingsSection der Statuseinträge. */
 export const ABSCHNITT = {
   fernsteuerung: 'fernsteuerung',
+  browserZugang: 'browser-zugang',
 } as const;
 
 /**
@@ -70,6 +74,17 @@ export const STUDIO_TEXTE = {
     unveraendert: 'Die Rolle ist schon so eingestellt.',
     eigene: 'Du kannst deine eigene Rolle nicht ändern.',
   },
+  /** Panel-Abschnitt Browser-Zugang (Altfehler SC-S1): nennt nur den Ort der Datei mit dem Erst-Passwort, nie das Passwort. */
+  browserZugang: {
+    titel: 'Browser-Zugang',
+    vorhanden: (datei: string): string =>
+      `Das Erst-Passwort für „Admin“ steht in der Datei ${datei}. Nach der ersten Anmeldung das Passwort ändern und die Datei löschen.`,
+    keineDatei: 'Keine Datei mit Erst-Passwort vorhanden. Konten verwaltet Setup › Benutzer.',
+    unbekannt: 'Ort der Passwort-Datei unbekannt.',
+    /** Pille des Abschnitts. */
+    dateiDa: 'Datei vorhanden',
+    dateiFehlt: 'keine Datei',
+  },
 } as const;
 
 /** Status eines Geräts, wie ihn die Status-Ereignisse melden (ATEM, OBS, TriCaster, PTZ, Audio). */
@@ -105,6 +120,8 @@ export interface OberflaechenStand {
   masterLink: MasterLinkMeldungZeile | null | undefined;
   /** Meldung des Steuerservers (Port 8735): undefined/null = noch keine Antwort. */
   fernsteuerung: FernsteuerungMeldung | null | undefined;
+  /** Ort der Datei mit dem Erst-Passwort, gelesen beim Öffnen des Panels (Altfehler SC-S1): undefined = offen, null = keine Brücke. */
+  erstPasswort: { datei: string; vorhanden: boolean } | null | undefined;
 }
 
 // ── Server-Lauf (B15) ──
@@ -239,6 +256,22 @@ export function fernsteuerungAbschnitt(s: Pick<OberflaechenStand, 'fernsteuerung
     companionModule: STUDIO_TEXTE.companionModul,
     capabilities: {},
   };
+}
+
+/**
+ * Abschnitt Browser-Zugang (Altfehler SC-S1, A9): mit Datei der Satz mit ihrem Ort, ohne Datei der Hinweis auf Setup › Benutzer,
+ * ohne Antwort „unbekannt“. Nur der Ort, nie das Passwort: Main meldet nichts aus der Datei.
+ */
+export function browserZugang(e: { datei: string; vorhanden: boolean } | null | undefined): { titel: string; text: string } {
+  const T = STUDIO_TEXTE.browserZugang;
+  if (e === null || e === undefined) return { titel: T.titel, text: T.unbekannt };
+  return { titel: T.titel, text: e.vorhanden ? T.vorhanden(e.datei) : T.keineDatei };
+}
+
+/** Pille des Abschnitts Browser-Zugang: ohne Antwort unbekannt; mit Datei warn (Passwort ändern, Datei löschen), sonst ok. Nie live. */
+export function browserZugangStatus(e: { datei: string; vorhanden: boolean } | null | undefined): SectionStatus {
+  if (e === null || e === undefined) return STATUS_UNBEKANNT;
+  return e.vorhanden ? st('warn', STUDIO_TEXTE.browserZugang.dateiDa) : st('ok', STUDIO_TEXTE.browserZugang.dateiFehlt);
 }
 
 /** Master-Link und Fernsteuerung gibt es nur im Electron-Fenster; im Browser fehlen auch Einstellungen (kein ⚙). */

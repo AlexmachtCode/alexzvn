@@ -119,11 +119,11 @@ function quellen(d = 'src/renderer/src'): string[] {
   const ober = QUELLE('views/PlayerOberflaeche.tsx');
   ok(!/\bkey=/.test(ober), 'PL Wiedergabe bleibt: der Rahmen setzt keinen key (der Panelzustand steckt in keinem key)');
   ok(
-    ober.includes("{reiter === 'library' ? <Bibliothek /> : reiter === 'soundboard' ? <Soundboard /> : <CueShow onAusgabe={ausgabeOeffnen} />}"),
+    ober.includes("{reiter === 'library' ? <Bibliothek /> : reiter === 'soundboard' ? <Soundboard panelOffen={panelOffen} /> : <CueShow onAusgabe={ausgabeOeffnen} />}"),
     'PL Wiedergabe bleibt: die Weiche der Ansichten hängt nur am Reiter (wie bisher in App.tsx: der Wechsel baut die alte Ansicht ab, das Panel nicht)',
   );
   const weiche = ober.slice(ober.indexOf("{reiter === 'library'"), ober.indexOf("{reiter === 'library'") + 140);
-  ok(!/panel/i.test(weiche), 'PL Wiedergabe bleibt: der Panelzustand steht in keiner Bedingung um die aktive Ansicht');
+  ok(!/panel/i.test(weiche.replace('panelOffen={panelOffen}', '')), 'PL Wiedergabe bleibt: der Panelzustand steht in keiner Bedingung um die aktive Ansicht');
   ok(
     ober.includes('const Bibliothek = memo(LibraryView)') && ober.includes('const Soundboard = memo(SoundboardView)') && ober.includes('const CueShow = memo(ShowView)') &&
       /const ausgabeOeffnen = useCallback\(/.test(ober),
@@ -196,6 +196,32 @@ function quellen(d = 'src/renderer/src'): string[] {
       !/onClose=\{\(\) =>/.test(sb),
     'PL Dialoge über Modal: die Schließen-Rückrufe sind stabil (useCallback); sonst holte Modal bei jeder Store-Änderung (Videofortschritt) den Fokus neu',
   );
+  // Altfehler PL-10, Ruling R16: die zwei Rückfragen beim Entfernen sind Fenster im Fenster (EntfernenFrage über Modal), ohne Kopf mit ✕;
+  // ihre Schließen-Rückrufe sind ebenso stabil, und die Rückfrage steht außerhalb der Zeilen (kein Klick oder Doppelklick der Zeile).
+  const bib = QUELLE('views/LibraryView.tsx');
+  const frage = existsSync('src/renderer/src/views/EntfernenFrage.tsx') ? QUELLE('views/EntfernenFrage.tsx') : '';
+  /** Quelltext einer Funktion bis zur nächsten Funktion auf oberster Ebene. */
+  const funktion = (q: string, name: string): string => {
+    const a = q.indexOf(`function ${name}(`);
+    if (a < 0) return '';
+    const b = q.slice(a + 1).search(/\n(?:export )?(?:async )?function /);
+    return b < 0 ? q.slice(a) : q.slice(a, a + 1 + b);
+  };
+  ok(
+    importiertModal(frage) && (frage.match(/<Modal\b/g) ?? []).length === 1 && /<Modal onClose=\{onSchliessen\} className="[^"]*">/.test(frage) && !/\btitle=/.test(frage),
+    'PL Dialoge über Modal: die Rückfrage beim Entfernen (views/EntfernenFrage.tsx) läuft über Modal aus @jm/ui, ohne zusätzlichen Kopf mit ✕ (R16)',
+  );
+  ok(
+    show.includes('const schliesseRueckfrage = useCallback(() => setRueckfrage(null), [])') &&
+      bib.includes('const schliesseRueckfrage = useCallback(() => setRueckfrage(null), [])') &&
+      [show, bib].every((q) => (q.match(/<EntfernenFrage rueckfrage=\{rueckfrage\} onSchliessen=\{schliesseRueckfrage\} \/>/g) ?? []).length === 1) &&
+      !/onSchliessen=\{\(\) =>/.test(show + bib) &&
+      funktion(show, 'CueRow') !== '' &&
+      funktion(bib, 'MediaRow') !== '' &&
+      !funktion(show, 'CueRow').includes('<EntfernenFrage') &&
+      !funktion(bib, 'MediaRow').includes('<EntfernenFrage'),
+    'PL Dialoge über Modal: die Rückfragen in Cue-Show und Bibliothek bekommen einen stabilen Schließen-Rückruf (useCallback) und stehen außerhalb der Zeilen (R16)',
+  );
 }
 {
   const dlg = render(<CueSettingsModal cue={showCue(1, { label: 'Gong', preWaitSec: 1.5, gainDb: -3, loop: true, autoContinue: true })} onClose={() => undefined} />);
@@ -245,10 +271,17 @@ function quellen(d = 'src/renderer/src'): string[] {
   );
 }
 
-// ── PL Ausgabe unberührt (E6) ──
+// ── PL Ausgabe unberührt (E6): Zeichen für Zeichen wie vor der Welle, bis auf die zwei Zeilen der Meldung „bereit“ (Altfehler PL-N) ──
 {
   const roh = leseText('src/renderer/src/views/OutputView.tsx');
-  gleich(createHash('sha256').update(roh).digest('hex'), 'f4f2d318cb0c47ed8abc288b0881807e5027467ec99d0a5a25c621b1b16b8354', 'PL Ausgabe unberührt: views/OutputView.tsx ist Zeichen für Zeichen wie vor der Welle');
+  const bereit =
+    '    // Altfehler PL-N: erst jetzt hört die Ansicht zu; der Main hält Befehle bis zu dieser Meldung zurück (höchstens 5000 ms).\n' +
+    '    window.jmplay.output.meldeBereit();\n';
+  gleich(
+    [roh.split(bereit).length - 1, createHash('sha256').update(roh.replace(bereit, '')).digest('hex')],
+    [1, 'f4f2d318cb0c47ed8abc288b0881807e5027467ec99d0a5a25c621b1b16b8354'],
+    'PL Ausgabe unberührt: views/OutputView.tsx ist Zeichen für Zeichen wie vor der Welle, bis auf die zwei Zeilen der Meldung „bereit“ (Altfehler PL-N)',
+  );
   ok(!/@jm\/settings/.test(roh) && !/AppShell/.test(roh) && roh.includes('className="fixed inset-0 bg-black"'), 'PL Ausgabe unberührt: die Ausgabeansicht bleibt schwarz, ohne @jm/settings und ohne AppShell');
   const main = QUELLE('main.tsx');
   ok(main.includes("'#output'") && main.includes('{isOutput ? <OutputView /> : <App />}'), 'PL Ausgabe unberührt: #output zeigt weiter die OutputView, sonst die App');
@@ -258,16 +291,16 @@ function quellen(d = 'src/renderer/src'): string[] {
 {
   const show = QUELLE('views/ShowView.tsx');
   ok(
-    show.includes('if (addOpen || editCue) return;') && !show.includes('outputOpen') && show.includes('if (istEingabeZiel(e.target)) return;'),
-    'PL Tasten: die Cue-Show sperrt Leertaste und Esc bei offenem Dialog (Cues hinzufügen, Cue bearbeiten) und in Feldern; die Bedingung outputOpen ist mit dem Modal weg',
+    show.includes('if (addOpen || editCue || rueckfrage) return;') && !show.includes('outputOpen') && show.includes('if (istEingabeZiel(e.target)) return;'),
+    'PL Tasten: die Cue-Show sperrt Leertaste und Esc bei offenem Dialog (Cues hinzufügen, Cue bearbeiten, Rückfrage beim Entfernen, Ruling R16) und in Feldern; Leertaste und Enter gehören dann dem Knopf „Abbrechen“; die Bedingung outputOpen ist mit dem Modal weg',
   );
   ok(
     /if \(e\.code === 'Space'\) \{\s*e\.preventDefault\(\);\s*showGo\(\);\s*\} else if \(e\.key === 'Escape'\) \{\s*showStop\(\);/.test(show) &&
       show.includes("window.addEventListener('keydown', onKey);") &&
-      show.includes('}, [addOpen, editCue, showGo, showStop]);'),
+      show.includes('}, [addOpen, editCue, rueckfrage, showGo, showStop]);'),
     'PL Tasten: Leertaste = GO, Esc = Stop wie bisher, Hörer am window in der Bubble-Phase',
   );
-  ok(QUELLE('views/SoundboardView.tsx').includes('if (istEingabeZiel(e.target)) return;'), 'PL Tasten: die Pad-Tasten nutzen weiter istEingabeZiel');
+  ok(QUELLE('views/SoundboardView.tsx').includes('if (!padTasteErlaubt(e, { dialogOffen: editSlot != null, panelOffen })) return;'), 'PL Tasten: die Pad-Tasten laufen über padTasteErlaubt (Altfehler PL-4), das istEingabeZiel nutzt');
   const ereignis = (key: string, ziel: unknown, log: string[]) => ({
     key,
     defaultPrevented: false,

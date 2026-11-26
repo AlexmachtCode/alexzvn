@@ -4,7 +4,8 @@ import { Button, cn, Modal } from '@jm/ui';
 import type { MediaItem, OutputTime, ShowCue } from '@shared/types';
 import { usePlayer } from '@/store/player';
 import { formatDuration } from '@/lib/format';
-import { istEingabeZiel, PLAYER_TEXTE } from '@/lib/oberflaeche';
+import { cueEntfernenFrage, entfernenOderFragen, istEingabeZiel, PLAYER_TEXTE, type EntfernenRueckfrage } from '@/lib/oberflaeche';
+import { EntfernenFrage } from './EntfernenFrage';
 import { LiveBereich } from './LiveBereich';
 
 /** Entwurf der Show-Auswahl: die gewählte Show und die aktive Show, auf der er entstand (gilt nur, solange sie aktiv bleibt). */
@@ -112,6 +113,22 @@ export function ShowSetzen({ wahl, grundId }: { wahl: ShowWahl; grundId: string 
 }
 
 /**
+ * Entfernen eines Cues (Altfehler PL-10, Ruling R16), hooklos prüfbar: Läuft in der Show etwas, öffnet es die Rückfrage im Fenster
+ * (`fragen`) und entfernt erst mit deren „Entfernen“; sonst entfernt es wie bisher sofort. `index` zählt ab 0, die Rückfrage nennt die
+ * Nummer ab 1 und den Namen wie die Cue-Zeile (Beschriftung, sonst Dateiname, sonst —).
+ */
+export function cueEntfernen(a: {
+  stand: { playingCueIds: readonly number[]; videoCue: unknown };
+  cue: ShowCue;
+  index: number;
+  entferne(id: number): unknown;
+  fragen(r: EntfernenRueckfrage): void;
+}): void {
+  const frage = cueEntfernenFrage(a.stand, a.index + 1, a.cue.label || a.cue.media?.fileName || PLAYER_TEXTE.standby.ohneName);
+  entfernenOderFragen(frage, () => void a.entferne(a.cue.id), a.fragen);
+}
+
+/**
  * Cue-Show. `onAusgabe` öffnet das Einstellungs-Panel beim Abschnitt Ausgabe (UX Welle 2a, Player d1: das Modal
  * „Video-Ausgabe“ ist dort aufgegangen); „▦ Ausgabe“ bleibt der Zugang im Kopf der Cue-Show. Unten steht der Live-Bereich
  * (Standby und Transport als TallyButtons, Player d2); eine Fußleiste hat die Cue-Show nicht (W2-10).
@@ -133,6 +150,12 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
   const removeShow = usePlayer((s) => s.removeShow);
   const selectShow = usePlayer((s) => s.selectShow);
   const removeShowCue = usePlayer((s) => s.removeShowCue);
+  // Altfehler PL-10: Läuft die Show, fragt das Entfernen eines Cues nach; sonst wie bisher ohne Rückfrage. Ruling R16: Die Rückfrage
+  // ist ein Fenster im Fenster (EntfernenFrage), sie hält die Show, Companion und Vorläufe nicht an.
+  const [rueckfrage, setRueckfrage] = useState<EntfernenRueckfrage | null>(null);
+  const schliesseRueckfrage = useCallback(() => setRueckfrage(null), []);
+  const entferneCue = (cue: ShowCue, i: number): void =>
+    cueEntfernen({ stand: { playingCueIds, videoCue }, cue, index: i, entferne: removeShowCue, fragen: setRueckfrage });
   const reorderShow = usePlayer((s) => s.reorderShow);
   const setStandby = usePlayer((s) => s.setStandby);
   const showGo = usePlayer((s) => s.showGo);
@@ -152,11 +175,12 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
     if (activeShowId == null && shows.length > 0) void selectShow(shows[0].id);
   }, [activeShowId, shows, selectShow]);
 
-  // Leertaste = GO, Escape = Stop (außer in Eingabefeldern / bei offenem Dialog). Das Einstellungs-Panel ist kein Dialog:
+  // Leertaste = GO, Escape = Stop (außer in Eingabefeldern / bei offenem Dialog, auch bei offener Rückfrage: dann gehören Leertaste
+  // und Enter dem Knopf „Abbrechen“, R16). Das Einstellungs-Panel ist kein Dialog:
   // Leertaste auf einem Panel-Knopf geht ans Tool (O1); Escape schließt das Panel und kommt hier nicht an (panelTaste).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (addOpen || editCue) return;
+      if (addOpen || editCue || rueckfrage) return;
       if (istEingabeZiel(e.target)) return;
       if (e.code === 'Space') {
         e.preventDefault();
@@ -167,7 +191,7 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [addOpen, editCue, showGo, showStop]);
+  }, [addOpen, editCue, rueckfrage, showGo, showStop]);
 
   // Show-Wahl: Entwurf und „wählt gerade“ (Rückspiel Task 26). Beides stirbt mit der Ansicht (Reiterwechsel); die Wahl selbst
   // ist ein kurzer Aufruf (Cues lesen).
@@ -284,7 +308,7 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
                 playing={playingCueIds.includes(cue.id)}
                 onSelect={() => setStandby(i)}
                 onEdit={() => setEditCue(cue)}
-                onRemove={() => void removeShowCue(cue.id)}
+                onRemove={() => entferneCue(cue, i)}
                 onMoveUp={() => move(i, -1)}
                 onMoveDown={() => move(i, 1)}
               />
@@ -316,6 +340,7 @@ export function ShowView({ onAusgabe }: { onAusgabe: () => void }) {
 
       {addOpen && activeShowId != null && <AddCuesModal onClose={schliesseHinzufuegen} />}
       {editCue && <CueSettingsModal cue={editCue} onClose={schliesseCue} />}
+      {rueckfrage && <EntfernenFrage rueckfrage={rueckfrage} onSchliessen={schliesseRueckfrage} />}
     </div>
   );
 }

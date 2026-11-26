@@ -84,6 +84,8 @@ export function OutputView() {
           break;
       }
     });
+    // Altfehler PL-N: erst jetzt hört die Ansicht zu; der Main hält Befehle bis zu dieser Meldung zurück (höchstens 5000 ms).
+    window.jmplay.output.meldeBereit();
 
     const onEnded = (): void => {
       if (!v.loop) void window.jmplay.output.notifyEnded();

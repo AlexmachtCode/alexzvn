@@ -1,7 +1,9 @@
 // UX Welle 2b, Studio-Control b · Brücken (Spec 3.9, 7.2): Fernsteuerungs-Meldung (Kreuzprodukt der Ereignisse, Port belegt),
 // Quellen und Umgebung ohne und mit window, Quelltext-Wächter für Preload, Main und Steuerport. Kein Electron, kein window
 // beim Import.
+import type { BrueckenQuelle } from '@jm/ui';
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
+import * as bruecken from '@/lib/bruecken';
 import { FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE, umgebung } from '@/lib/bruecken';
 import {
   STEUER_PORT,
@@ -186,8 +188,114 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
   ok(
     srv.includes("onMeldung?.({ art: 'start', ok: r.ok, error: r.error })") &&
       srv.includes("onMeldung?.({ art: 'wurf', text: ") &&
-      srv.includes('startControlGateway(onMeldung)') &&
+      srv.includes("startControlGateway(app.getPath('appData'), onMeldung)") &&
       main.includes('await startServer(meldeFernsteuerung)'),
     'SC Wächter STEUER_PORT 8735: Statuswechsel, Start-Ergebnis und Wurf werden gemeldet und von Main verdrahtet',
   );
+}
+
+// ── SC Wächter control.json (Altfehler SC-S3): das Gateway liest die geteilte Konfig wie alle anderen Steuerserver ──
+// Quelltext-Wächter (Ruling R3): der Hauptprozess läuft unter tsx nicht (better-sqlite3, electron). Das Verhalten (secure lehnt
+// ohne Schlüssel ab, open wie heute) belegt die Echt-Fenster-Messung; Modus, Token und Handshake liegen im Protokoll-Paket.
+{
+  const cg = ohneKommentare(leseText('src/main/gateway/control-gateway.ts'));
+  const srv = ohneKommentare(leseText('src/main/server.ts'));
+  ok(
+    /export function startControlGateway\(\s*appDataDir: string,\s*onMeldung\?: \(e: FernsteuerungEreignis\) => void,\s*\)/.test(cg),
+    'SC Wächter control.json: startControlGateway(appDataDir, onMeldung) nimmt den appData-Ordner als ersten Parameter',
+  );
+  ok(
+    /const srv = new SuiteControlServer\(\{\s*appDataDir,\s*role: 'studio',/.test(cg) && (cg.match(/\bappDataDir\b/g) ?? []).length === 2,
+    'SC Wächter control.json: appDataDir geht unverändert an new SuiteControlServer (sonst liest das Gateway control.json nicht und läuft immer offen)',
+  );
+  ok(
+    srv.includes("startControlGateway(app.getPath('appData'), onMeldung)") && !srv.includes('startControlGateway(onMeldung)') && (srv.match(/startControlGateway\(/g) ?? []).length === 1,
+    'SC Wächter control.json: server.ts startet das Gateway mit app.getPath(appData), wie die übrigen Steuerserver der Suite',
+  );
+  ok(
+    !/\b(?:mode|auth|bindHost|tls)\s*:/.test(cg.slice(cg.indexOf('new SuiteControlServer('), cg.indexOf('server = srv;'))),
+    'SC Wächter control.json: das Gateway setzt Modus, Schlüssel, Bind-Adresse und TLS nicht selbst (sie kommen aus control.json)',
+  );
+}
+
+// ── SC Quelle Erst-Passwort (Altfehler SC-S1): Ort der Datei und ob sie besteht, gelesen beim Öffnen des Panels; nie das Passwort ──
+{
+  const ERST = (bruecken as Record<string, unknown>).ERST_PASSWORT_QUELLE as BrueckenQuelle<{ datei: string; vorhanden: boolean }> | undefined;
+  ok(ERST !== undefined && typeof ERST.abfrage === 'function' && typeof ERST.ereignis === 'function', 'SC Quelle Erst-Passwort: ERST_PASSWORT_QUELLE gibt es (Abfrage und Ereignis)');
+  if (ERST !== undefined) {
+    let ergebnis: unknown;
+    try {
+      let gemeldet = 0;
+      const ab = ERST.ereignis(() => void gemeldet++);
+      ab();
+      ergebnis = [await ERST.abfrage(), typeof ab, gemeldet];
+    } catch (e) {
+      ergebnis = String(e);
+    }
+    gleich(ergebnis, [null, 'function', 0], 'SC Quelle Erst-Passwort: ohne window Abfrage null, Ereignis gibt eine Abmeldung und meldet nichts');
+    const g = globalThis as unknown as { window?: unknown };
+    const DATEI = 'C:\\Test\\ud\\first-run-credentials.txt';
+    let abfragen = 0;
+    g.window = { jms: { isElectron: true, erstPasswort: async () => (abfragen++, { datei: DATEI, vorhanden: true }) } };
+    try {
+      const gemeldet: unknown[] = [];
+      const ab = ERST.ereignis((w) => void gemeldet.push(w));
+      gleich([await ERST.abfrage(), await ERST.abfrage(), abfragen], [{ datei: DATEI, vorhanden: true }, { datei: DATEI, vorhanden: true }, 2], 'SC Quelle Erst-Passwort: jede Abfrage fragt jms.erstPasswort neu (Messung je Öffnen des Panels)');
+      ab();
+      gleich(gemeldet, [], 'SC Quelle Erst-Passwort: kein Ereignis (Main meldet nichts von sich aus)');
+    } finally {
+      delete g.window;
+    }
+    g.window = { jms: { isElectron: true } };
+    try {
+      gleich(await ERST.abfrage(), null, 'SC Quelle Erst-Passwort: jms ohne erstPasswort (älterer Preload) → null, kein Wurf');
+    } finally {
+      delete g.window;
+    }
+  }
+}
+
+// ── SC Wächter Kanal studio:erstPasswort (Altfehler SC-S1): Preload, Main, Typen und der Ort der Datei ──
+{
+  const preload = leseText('src/preload/index.ts');
+  const main = ohneKommentare(leseText('src/main/index.ts'));
+  const typen = leseText('src/renderer/src/sync/jms.d.ts');
+  const boot = ohneKommentare(leseText('src/main/auth/bootstrap.ts'));
+  ok(
+    preload.includes("erstPasswort: () => (ipcRenderer.invoke('studio:erstPasswort') as Promise<{ datei: string; vorhanden: boolean }>).catch(() => null),") &&
+      (preload.match(/studio:erstPasswort/g) ?? []).length === 1,
+    'SC Wächter Kanal studio:erstPasswort: der Preload fragt genau über studio:erstPasswort (invoke), eine Ablehnung wird null',
+  );
+  ok(
+    main.includes("ipcMain.handle('studio:erstPasswort', () => ({ datei: erstPasswortDatei(), vorhanden: existsSync(erstPasswortDatei()) }));") &&
+      (main.match(/studio:erstPasswort/g) ?? []).length === 1 &&
+      /^import \{ existsSync \} from 'node:fs';$/m.test(main) &&
+      /^import \{ ensureInitialAdmin, erstPasswortDatei \} from '\.\/auth\/bootstrap';$/m.test(main),
+    'SC Wächter Kanal studio:erstPasswort: Main antwortet je Aufruf mit dem Ort und existsSync(erstPasswortDatei()), nur auf Anfrage (kein send)',
+  );
+  ok(typen.includes('erstPasswort: () => Promise<{ datei: string; vorhanden: boolean } | null>;'), 'SC Wächter Kanal studio:erstPasswort: window.jms.erstPasswort ist typisiert (Ort und vorhanden, null bei Ablehnung)');
+  ok(
+    /export function erstPasswortDatei\(\): string \{\s*return path\.join\(app\.getPath\('userData'\), 'first-run-credentials\.txt'\);\s*\}/.test(boot) &&
+      boot.includes('const credentialsPath = erstPasswortDatei();') &&
+      (boot.match(/first-run-credentials\.txt/g) ?? []).length === 1,
+    'SC Wächter Kanal studio:erstPasswort: erstPasswortDatei() ist der eine Ort der Datei, ensureInitialAdmin schreibt dorthin',
+  );
+  ok(
+    boot.includes("const DEV_SEED = process.env.JM_STUDIO_DEV_ADMIN === '1';") &&
+      boot.includes("const password = DEV_SEED ? 'Admin' : generatePassword();") &&
+      boot.includes("return crypto.randomBytes(16).toString('base64url');"),
+    'SC Wächter Kanal studio:erstPasswort: das bekannte Passwort Admin gibt es nur mit dem Entwickler-Schalter, sonst 16 Zufallsbytes',
+  );
+}
+
+// ── SC Wächter Kanal studio:fensterGeheimnis (Altfehler SC-S2, A7): Preload und Typen; den Handler prüft zugang.test.ts ──
+{
+  const preload = leseText('src/preload/index.ts');
+  const typen = leseText('src/renderer/src/sync/jms.d.ts');
+  ok(
+    preload.includes("fensterGeheimnis: () => (ipcRenderer.invoke('studio:fensterGeheimnis') as Promise<string | null>).catch(() => null),") &&
+      (preload.match(/studio:fensterGeheimnis/g) ?? []).length === 1,
+    'SC Wächter Kanal studio:fensterGeheimnis: der Preload fragt genau über studio:fensterGeheimnis (invoke), eine Ablehnung wird null',
+  );
+  ok(typen.includes('fensterGeheimnis: () => Promise<string | null>;'), 'SC Wächter Kanal studio:fensterGeheimnis: window.jms.fensterGeheimnis ist typisiert (null bei Ablehnung)');
 }

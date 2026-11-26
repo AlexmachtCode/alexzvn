@@ -29,6 +29,7 @@ import {
   updateUser,
   verifyLogin,
 } from './auth/users';
+import { ursprungErlaubt } from './auth/zugang';
 import {
   getDevices,
   loadDevices,
@@ -153,6 +154,17 @@ const MIME: Record<string, string> = {
 
 function rendererDistDir(): string {
   return path.join(app.getAppPath(), 'out', 'renderer');
+}
+
+/** Ursprung einer Adresse als Liste (Altfehler SC-S2): leer ohne Adresse, bei einer ungültigen und bei einem Ursprung „null“. */
+function urspruengeVon(adresse: string | undefined): string[] {
+  if (!adresse) return [];
+  try {
+    const origin = new URL(adresse).origin;
+    return origin === 'null' ? [] : [origin];
+  } catch {
+    return [];
+  }
 }
 
 function serveStatic(req: IncomingMessage, res: ServerResponse): void {
@@ -1004,11 +1016,23 @@ export function startServer(onMeldung?: (e: FernsteuerungEreignis) => void): Pro
 
     const distIndex = path.join(rendererDistDir(), 'index.html');
     const canServeStatic = fs.existsSync(distIndex);
+    // Altfehler SC-S2 (A8): weitere eigene Ursprünge nur ohne Paket, die Vite-Adressen des Dev-Renderers.
+    const devUrspruenge: string[] = app.isPackaged
+      ? []
+      : [`http://localhost:${VITE_DEV_PORT}`, `http://127.0.0.1:${VITE_DEV_PORT}`, ...urspruengeVon(process.env['ELECTRON_RENDERER_URL'])];
 
     http = createServer((req, res) => {
       const url = new URL(req.url ?? '/', 'http://localhost');
       const pathname = url.pathname;
       const method = (req.method ?? 'GET').toUpperCase();
+
+      // Altfehler SC-S2 (A8): HTTP nimmt nur den eigenen Ursprung an (ohne Origin, Origin gleich http:// + Host, das App-Fenster
+      // mit null bzw. file://, ohne Paket die Vite-Adressen); alles andere 403, vor CORS und jeder Schnittstelle, auch für Dateien.
+      // Gemessen (Task 6, Electron 33, out/ und gepackt): das Fenster von file:// schickt beim Abruf keinen Origin, beim Socket „file://“.
+      if (!ursprungErlaubt(req.headers.origin, req.headers.host, devUrspruenge)) {
+        sendJson(res, 403, { error: 'origin' });
+        return;
+      }
 
       // Dev-only CORS: Im Dev läuft der Renderer auf dem Vite-Server (anderer
       // Origin als der API-Port) → `POST /api/login` mit JSON ist cross-origin und
@@ -1016,13 +1040,14 @@ export function startServer(onMeldung?: (e: FernsteuerungEreignis) => void): Pro
       // gepackte Build liefert den Renderer von DIESEM Server aus (same-origin),
       // braucht also kein CORS → bewusst dev-only, um die Produktions-Angriffs-
       // fläche nicht zu vergrößern. Auth läuft über Bearer-Token (kein Cookie),
-      // daher ist das Spiegeln des Origins unkritisch.
+      // daher ist das Spiegeln des Origins unkritisch. Seit Altfehler SC-S2 kommt
+      // hier nur noch ein erlaubter Origin an (Prüfung oben).
       if (!app.isPackaged) {
         const origin = req.headers.origin;
         if (origin) {
           res.setHeader('Access-Control-Allow-Origin', origin);
           res.setHeader('Vary', 'Origin');
-          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-JMS-Fenster');
           res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
         }
         if (method === 'OPTIONS') {
@@ -1051,7 +1076,9 @@ export function startServer(onMeldung?: (e: FernsteuerungEreignis) => void): Pro
     });
 
     io = new IoServer(http, {
-      cors: { origin: '*' },
+      // Altfehler SC-S2 (A8): keine cors-Freigabe mehr; einen fremden Ursprung lehnt allowRequest schon beim Handshake ab
+      // (Polling und WebSocket), wie HTTP oben.
+      allowRequest: (req, cb) => cb(null, ursprungErlaubt(req.headers.origin, req.headers.host, devUrspruenge)),
       pingTimeout: 4000,
       pingInterval: 2000,
     });
@@ -1086,7 +1113,7 @@ export function startServer(onMeldung?: (e: FernsteuerungEreignis) => void): Pro
       // Companion-Gateway (TCP-Steuerprotokoll, Port 8735) zusätzlich starten —
       // fehlertolerant: ein belegter Port darf den HTTP-/Socket.IO-Server nicht
       // verhindern.
-      startControlGateway(onMeldung)
+      startControlGateway(app.getPath('appData'), onMeldung)
         .then((r) => {
           onMeldung?.({ art: 'start', ok: r.ok, error: r.error });
           if (r.ok) {

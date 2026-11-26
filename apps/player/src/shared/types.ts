@@ -198,6 +198,8 @@ export interface JmplayApi {
   /** Lage des Steuerservers (Port 8725), nur lesend; null, solange Main nichts gemeldet hat. */
   fernsteuerung: () => Promise<FernsteuerungMeldung | null>;
   onFernsteuerung: (cb: (m: FernsteuerungMeldung | null) => void) => () => void;
+  /** Eine Zeile ins Log des Hauptprozesses (Warnung), z. B. ein abgelehnter Fernbefehl (Altfehler PL-16a). */
+  protokolliere: (text: string) => Promise<void>;
   /** Lokalen Pfad in eine vom Renderer ladbare `jmedia://`-URL übersetzen. */
   mediaUrl: (path: string) => string;
   dialog: {
@@ -209,6 +211,8 @@ export interface JmplayApi {
     /** Dateien oder Ordner importieren (Ordner werden rekursiv gescannt). */
     importPaths: (paths: string[]) => Promise<ImportResult>;
     remove: (id: number) => Promise<void>;
+    /** Wie viele Show-Cues und Pads das Medium benutzen (Rückfrage vor dem Entfernen, Altfehler PL-10). */
+    nutzung: (id: number) => Promise<{ cues: number; pads: number }>;
     /** Thumbnail erzeugen (falls nötig) + Pfad liefern; null wenn nicht möglich. */
     thumb: (id: number) => Promise<string | null>;
     markPlayed: (id: number) => Promise<void>;
@@ -254,8 +258,13 @@ export interface JmplayApi {
     isFullscreen: () => Promise<boolean | null>;
     /** Vollbild am Ausgabeschirm ein/aus; liefert den neuen Zustand (Issue #31). */
     toggleFullscreen: () => Promise<boolean>;
-    /** Befehl ans Ausgabefenster (Hauptfenster → Ausgabe). */
+    /**
+     * Befehl ans Ausgabefenster (Hauptfenster → Ausgabe). Löst auf, nachdem er gesendet ist; das wartet auf „bereit“ des Fensters,
+     * höchstens 5000 ms (Altfehler PL-N). `open` löst ebenso erst nach „bereit“ auf.
+     */
     command: (cmd: OutputCommand) => Promise<void>;
+    /** Ausgabe-Seite: meldet einmal nach dem Abonnieren von `onCommand`, dass sie auf Befehle hört (Altfehler PL-N). */
+    meldeBereit: () => void;
     /** Ausgabefenster meldet, dass das aktuelle Video natürlich endete. */
     notifyEnded: () => Promise<void>;
     /** Ausgabe-Seite: aktuelle Wiedergabe-Position melden (Issue #41). */
