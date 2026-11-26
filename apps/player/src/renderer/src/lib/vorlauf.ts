@@ -20,6 +20,8 @@ interface Eintrag {
   rest: number;
   seit: number;
   timer: unknown;
+  /** Schlüssel des Vorlaufs (die Cue-ID), über den `abbrechen` ihn findet (Altfehler PL-K1); ohne Schlüssel nur über `leeren`. */
+  schluessel?: number;
 }
 
 export class Vorlaeufe {
@@ -38,10 +40,25 @@ export class Vorlaeufe {
     return this.liste.size;
   }
 
-  starte(ms: number, f: () => void): void {
-    const e: Eintrag = { f, rest: ms, seit: 0, timer: undefined };
+  starte(ms: number, f: () => void, schluessel?: number): void {
+    const e: Eintrag = { f, rest: ms, seit: 0, timer: undefined, schluessel };
     this.liste.add(e);
     if (!this.halt) this.laufen(e);
+  }
+
+  /**
+   * Altfehler PL-K1: Nimmt alle Vorläufe mit diesem Schlüssel samt Zeitgeber heraus, laufend oder angehalten (ein Cue kann zweimal im
+   * Vorlauf stehen, wenn GO ihn erneut feuert), und gibt ihre Zahl zurück. Keiner davon startet mehr; `angehalten` bleibt, wie es ist.
+   */
+  abbrechen(schluessel: number): number {
+    let n = 0;
+    for (const e of [...this.liste]) {
+      if (e.schluessel !== schluessel) continue;
+      if (e.timer !== undefined) this.uhr.loesche(e.timer);
+      this.liste.delete(e);
+      n++;
+    }
+    return n;
   }
 
   anhalten(): void {

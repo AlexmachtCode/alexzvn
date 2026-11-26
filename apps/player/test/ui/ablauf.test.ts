@@ -1,4 +1,5 @@
-// Altfehler PL-11 (Vorlauf angehalten in der Pause) und PL-16a (Fernbefehl prüft die Nummer): reine Module, ohne Store.
+// Altfehler PL-11 (Vorlauf angehalten in der Pause), PL-16a (Fernbefehl prüft die Nummer) und PL-K1 (Vorlauf eines gelöschten Cues
+// abbrechen, Stufe 2): reine Module, ohne Store.
 import { gleich, ok } from '@jm/ui/testhilfe';
 import { pruefeFernNummer } from '@/lib/fernbefehl';
 import { PLAYER_TEXTE } from '@/lib/oberflaeche';
@@ -195,6 +196,44 @@ function scheinUhr(): Uhr & { vor(ms: number): void; zurueck(ms: number): void; 
   const a = uhr?.jetzt();
   const p = performance.now();
   ok(typeof a === 'number' && Math.abs(a - p) < 1000 && Math.abs(a - Date.now()) > 1e9, 'PL-11 Standard-Uhr der Vorläufe ist performance.now() (fest gegen Sprünge der Systemzeit)');
+}
+
+// Altfehler PL-K1: Ein Vorlauf merkt den Schlüssel seines Cues; `abbrechen` nimmt genau dessen Vorläufe, laufend oder angehalten.
+// Zugriff ohne Wurf, solange es `abbrechen` nicht gibt: der Lauf zeigt dann FAIL statt eines Ladefehlers des Moduls.
+const abbrechen = (v: Vorlaeufe, schluessel: number): number | undefined => (v as unknown as { abbrechen?: (s: number) => number }).abbrechen?.(schluessel);
+{
+  const uhr = scheinUhr();
+  const v = new Vorlaeufe(uhr);
+  let a = 0;
+  let b = 0;
+  v.starte(1000, () => a++, 13);
+  v.starte(1000, () => b++, 14);
+  const weg = abbrechen(v, 13);
+  uhr.vor(1000);
+  gleich([weg, a, b, v.anzahl], [1, 0, 1, 0], 'PL-K1 abbrechen nimmt nur die Vorläufe dieses Cues: einer abgebrochen, a startet nie, b startet nach 1000 ms, keiner offen');
+}
+{
+  const uhr = scheinUhr();
+  const v = new Vorlaeufe(uhr);
+  let a = 0;
+  v.starte(1000, () => a++, 13);
+  v.anhalten();
+  const weg = abbrechen(v, 13);
+  const angehaltenDanach = v.angehalten;
+  v.fortsetzen();
+  uhr.vor(1000);
+  gleich([weg, angehaltenDanach, a, v.angehalten, v.anzahl], [1, true, 0, false, 0], 'PL-K1 abbrechen im angehaltenen Zustand: der Vorlauf startet auch nach fortsetzen nicht; angehalten bleibt, bis fortsetzen kommt');
+}
+{
+  const uhr = scheinUhr();
+  const v = new Vorlaeufe(uhr);
+  let a = 0;
+  v.starte(1000, () => a++, 13);
+  v.starte(500, () => a++, 13);
+  const zwei = abbrechen(v, 13);
+  const keiner = abbrechen(v, 99);
+  uhr.vor(1000);
+  gleich([zwei, keiner, a, v.anzahl, uhr.offen()], [2, 0, 0, 0, 0], 'PL-K1 zweimal derselbe Cue: abbrechen(13) nimmt beide Vorläufe samt Zeitgeber, abbrechen(99) keinen');
 }
 {
   const r = (v: 'CUE' | 'STANDBY', n: number, a: number) => pruefeFernNummer(v, n, a);

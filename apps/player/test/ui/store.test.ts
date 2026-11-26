@@ -269,7 +269,7 @@ try {
     gleich([p().showPaused, log], [true, []], 'PL Pause folgt Wirklichkeit: der Vorlauf läuft in der Pause nicht ab (Altfehler PL-11), die Pause bleibt');
     p().showTogglePause();
     await warte(90);
-    gleich([p().showPaused, log], [false, ['audio.resume', 'output.resume', 'audio.play 13']], 'PL Pause folgt Wirklichkeit: nach Weiter läuft der Vorlauf ab → showPaused false; Ton wie bisher');
+    gleich([p().showPaused, log], [false, ['audio.resume', 'audio.play 13']], 'PL Pause folgt Wirklichkeit: nach Weiter läuft der Vorlauf ab → showPaused false; Ton wie bisher; ohne Video im Store kein resume an die Ausgabe (Altfehler PL-K2)');
 
     // Fix-Runde 1, Wächter: nur startNow und showStop heben die Pause auf, nicht schon der Beginn eines Vorlaufs.
     neu();
@@ -293,14 +293,14 @@ try {
     log.length = 0;
     p().fireCue(1);
     await warte(5);
-    gleich([p().showPaused, log], [false, ['output.load']], 'PL Pause folgt Wirklichkeit: Video-Cue-Start in der Pause → showPaused false; Ausgabe wie bisher (nur load)');
+    gleich([p().showPaused, log], [false, ['audio.resume', 'output.load']], 'PL Pause folgt Wirklichkeit: Video-Cue-Start in der Pause → showPaused false; die angehaltenen Töne laufen weiter (audio.resume, Altfehler PL-K2), die Ausgabe bekommt wie bisher nur load');
 
     neu();
     p().fireCue(0);
     p().showTogglePause();
     log.length = 0;
     p().showTogglePause();
-    gleich([p().showPaused, log], [false, ['audio.resume', 'output.resume']], 'PL Pause folgt Wirklichkeit: Weiter wirkt wie bisher (resume für Ton und Ausgabe)');
+    gleich([p().showPaused, log], [false, ['audio.resume']], 'PL Pause folgt Wirklichkeit: Weiter wirkt wie bisher auf den Ton (resume); ohne Video im Store kein resume an die Ausgabe (Altfehler PL-K2)');
 
     neu();
     p().fireCue(0);
@@ -362,6 +362,93 @@ try {
     p().fireCue(0);
     await warte(90);
     gleich([p().showPaused, zaehle('audio.play 11'), zaehle('audio.play 13')], [false, 1, 1], 'PL-11 GO ohne Vorlauf in der Pause hebt die Pause auf, der gehaltene Vorlauf läuft weiter');
+  }
+
+  // ── PL-K1 (Altfehler Stufe 2): Ein Cue, der im Vorlauf gelöscht wird, startet nicht. removeShowCue bricht seinen Vorlauf ab, bevor
+  // es auf den Main wartet; die Attrappe antwortet danach mit der Liste ohne ihn ──
+  {
+    neu();
+    p().fireCue(2);
+    serverCues = [A, V, PV];
+    await p().removeShowCue(13);
+    await warte(120);
+    gleich(
+      [zaehle('audio.play 13'), p().vorlaufCueIds.includes(13), p().playingCueIds.includes(13)],
+      [0, false, false],
+      'PL-K1 Ton-Cue im Vorlauf gelöscht startet nicht: kein audio.play 13, die ID steht weder in vorlaufCueIds noch in playingCueIds',
+    );
+
+    neu();
+    p().fireCue(3);
+    serverCues = [A, V, P];
+    await p().removeShowCue(14);
+    await warte(120);
+    gleich([zaehle('output.load'), p().videoCue], [0, null], 'PL-K1 Video-Cue im Vorlauf gelöscht lädt nicht: kein output.load, kein Video-Cue im Store');
+
+    neu();
+    p().fireCue(2);
+    p().showTogglePause();
+    serverCues = [A, V, PV];
+    await p().removeShowCue(13);
+    p().showTogglePause();
+    await warte(120);
+    gleich([zaehle('audio.play 13'), p().showPaused], [0, false], 'PL-K1 in der Pause gelöscht startet auch nach Weiter nicht');
+
+    // Wächter: Der Abbruch trifft nur den gelöschten Cue; der Vorlauf eines anderen Cues läuft weiter.
+    neu();
+    p().fireCue(2);
+    p().fireCue(3);
+    serverCues = [A, V, PV];
+    await p().removeShowCue(13);
+    await warte(120);
+    gleich([zaehle('output.load'), p().videoCue?.id], [1, 14], 'PL-K1 andere Vorläufe laufen weiter: der Video-Cue im Vorlauf lädt nach dem Löschen des Ton-Cues genau einmal');
+  }
+
+  // ── PL-K2 (Altfehler Stufe 2): Ein GO, das die Pause aufhebt (Cue ohne Vorlauf), hebt sie ganz auf wie „▶ Weiter“: angehaltene Töne
+  // und ein angehaltenes Ausgabevideo laufen weiter. Geweckt wird nur, was angehalten ist (P3, D5); GO mit Vorlauf bleibt bei A1 ──
+  {
+    neu();
+    p().fireCue(1);
+    await warte(10);
+    p().showTogglePause();
+    log.length = 0;
+    p().fireCue(0);
+    gleich([zaehle('output.resume'), zaehle('audio.play 11'), p().showPaused], [1, 1, false], 'PL-K2 GO auf Ton in der Pause weckt das Ausgabevideo: genau ein output.resume, der Ton startet, die Pause ist aufgehoben');
+
+    neu();
+    p().fireCue(0);
+    p().showTogglePause();
+    log.length = 0;
+    p().fireCue(1);
+    await warte(5);
+    gleich(log, ['audio.resume', 'output.load'], 'PL-K2 GO auf Video in der Pause weckt die Töne: audio.resume vor dem load, kein resume an die Ausgabe');
+
+    // Wächter (P3, D5): ohne Video im Store ist an der Ausgabe nichts angehalten, also geht kein resume hinaus.
+    neu();
+    p().fireCue(0);
+    p().showTogglePause();
+    log.length = 0;
+    p().fireCue(0);
+    gleich([zaehle('output.resume'), p().showPaused], [0, false], 'PL-K2 ohne Video kein resume an die Ausgabe: GO auf Ton in der Pause ohne Video-Cue weckt nur den Ton');
+
+    neu();
+    p().fireCue(1);
+    await warte(10);
+    p().onOutputEnded();
+    p().showTogglePause();
+    log.length = 0;
+    p().showTogglePause();
+    gleich([zaehle('output.resume'), zaehle('audio.resume'), p().showPaused], [0, 1, false], 'PL-K2 Weiter nach dem natürlichen Ende startet das Video nicht neu (P3): kein output.resume, die Töne laufen weiter');
+
+    // Wächter (A1): GO auf einen Cue mit Vorlauf hebt die Pause nicht auf und weckt darum nichts.
+    neu();
+    p().fireCue(1);
+    await warte(10);
+    p().showTogglePause();
+    log.length = 0;
+    p().fireCue(2);
+    await warte(90);
+    gleich([zaehle('output.resume'), zaehle('audio.resume'), p().showPaused], [0, 0, true], 'PL-K2 GO mit Vorlauf in der Pause weckt nichts (A1): weder Ausgabe noch Töne, die Pause bleibt');
   }
 
   // ── PL-16a: Fernbefehle cue und standby prüfen die Nummer (Altfehler PL-16a, Ruling A3) ──
@@ -501,6 +588,22 @@ try {
       p().showTogglePause();
       await warte(90);
       gleich(zaehle('audio.play 31'), 1, 'PL-T14 Weiter lässt den angehaltenen Vorlauf danach ablaufen');
+
+      // Altfehler PL-K2 (R1, R9, K6): Das GO auf den Ton weckt das angehaltene Ausgabevideo; scheitert der Ton, kommt mit der Pause auch
+      // das pause an die Ausgabe zurück, und das Video steht wieder wie die Show.
+      neu();
+      p().fireCue(1);
+      await warte(10);
+      p().showTogglePause();
+      log.length = 0;
+      p().fireCue(0);
+      const nachGo = p().showPaused;
+      await ladefehler();
+      gleich(
+        [nachGo, p().showPaused, log.filter((z) => z.startsWith('output.')), p().videoCue?.id],
+        [false, true, ['output.resume', 'output.pause'], 12],
+        'PL-K2 Ladefehler hält auch das Video wieder an (R1, R9, K6): erst output.resume, nach dem Fehler output.pause; die Pause gilt wieder',
+      );
 
       // Stop zwischen Start und Fehler: die Pause wird nicht neu gesetzt.
       let scheitern: (() => void) | undefined;
@@ -851,6 +954,51 @@ try {
         [ausgabeLog(), p().showPaused],
         [['output.open', 'output.pause', 'output.resume', `output.load ${url(V)}`], false],
         'PL-N Pause und Weiter während des Wartens: nach dem load kein pause (die Show läuft)',
+      );
+
+      // Altfehler PL-K1 (P4): Ein Video-Cue, der gelöscht wird, während sein GO auf „bereit“ wartet, lädt danach nicht mehr.
+      zuUndNeu([V]);
+      p().fireCue(0);
+      await warte(5);
+      serverCues = [];
+      await p().removeShowCue(12);
+      await gibFrei();
+      gleich(
+        [ausgabeLog(), p().videoCue, p().playingCueIds.includes(12)],
+        [['output.open'], null, false],
+        'PL-K1 Video-Cue beim Warten auf bereit gelöscht (P4): nach dem Öffnen kein load, kein Video-Cue im Store, nicht laufend',
+      );
+      // Wächter zu P4: Zwei Video-GOs warten auf die Antwort von isOpen. Die erste kommt zuerst und lädt nicht (überholt); sie beendet
+      // nicht das Warten des zweiten. Wird der zweite dann gelöscht, lädt auch er nicht.
+      zuUndNeu([V, V2]);
+      fensterDa = true;
+      ausgabe.isOpen = () => new Promise<boolean>((r) => void freigeben.push(() => r(true)));
+      p().fireCue(0);
+      p().fireCue(1);
+      await warte(5);
+      freigeben.shift()?.();
+      await warte(5);
+      serverCues = [V];
+      await p().removeShowCue(V2.id);
+      await gibFrei();
+      gleich(
+        [ausgabeLog(), p().videoCue, p().playingCueIds.includes(V2.id)],
+        [[], null, false],
+        'PL-K1 zwei Video-GOs warten, das erste wird überholt, das zweite gelöscht (P4): kein load, kein Video-Cue, der zweite nicht laufend',
+      );
+
+      // Altfehler PL-K2 (Review Focus 4): Pause während des Wartens, dann GO auf einen Ton. Der Ton hebt die Pause auf und weckt das
+      // wartende Video; der Main schickt pause und resume vor dem späteren load, danach kommt kein pause, und das Video läuft mit der Show.
+      zuUndNeu([V, A]);
+      p().fireCue(0);
+      await warte(5);
+      p().showTogglePause();
+      p().fireCue(1);
+      await gibFrei();
+      gleich(
+        [ausgabeLog(), p().showPaused, zaehle('audio.play 11')],
+        [['output.open', 'output.pause', 'output.resume', `output.load ${url(V)}`], false, 1],
+        'PL-K2 Pause beim Warten auf bereit, dann GO auf Ton: Reihenfolge open, pause, resume, load; die Show läuft, der Ton startet',
       );
     } finally {
       for (const r of freigeben.splice(0)) r();

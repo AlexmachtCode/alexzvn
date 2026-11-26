@@ -209,7 +209,8 @@ const videoFensterDa = (a: AusgabeZustand | null | undefined): boolean => a !== 
  * gemessen da ist (Gesamtprüfung I2). Video zählt also nur über den Videofortschritt bei vorhandenem Fenster: Eine Video-ID,
  * die nach dem Ende eines späteren Videos in playingCueIds stehen bleibt (Companion zählt sie weiter, U6), ist nicht auf
  * Sendung, ebenso ein Video, dessen Fenster per Alt+F4 zu ist oder abgestürzt ist. Eine ID ohne Eintrag in der Cue-Liste zählt
- * (Irrtum zur Seite „an“: der Vorlauf-Zeitgeber eines entfernten Cues startet ihn trotzdem), außer sie ist der Video-Cue.
+ * (Irrtum zur Seite „an“), außer sie ist der Video-Cue. Bis Altfehler PL-K1 startete der Vorlauf-Zeitgeber eines entfernten Cues ihn
+ * trotzdem; seitdem bricht removeShowCue den Vorlauf vor dem Löschen ab, und der Cue verlässt playingCueIds.
  * Pause zählt hier nicht. Seit UX Welle 2b (Task 6) zählt das Video nur zusätzlich mit Video-Beleg: nach Alt+F4 und Wiederöffnen
  * über den Panel-Schalter stehen videoCue und videoProgress noch im Store, das neue Fenster spielt aber nichts.
  */
