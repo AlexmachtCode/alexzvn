@@ -349,7 +349,7 @@
     "entries": [
       {
         "version": "0.10.0",
-        "date": "2026-11-25",
+        "date": "2026-11-26",
         "notes": [
           "GO auf einen Video-Cue spielt jetzt auch, wenn die Ausgabe noch geschlossen ist. Es bleibt bei einem Ausgabefenster, auch nach schnellem Schließen und Öffnen.",
           "Die Pause hält jetzt auch die Vorlaufzeit an, Weiter setzt sie fort. Ein Ton-Cue, der nicht lädt, meldet das im Fenster und gilt nicht mehr als laufend.",
@@ -1072,7 +1072,7 @@
     "entries": [
       {
         "version": "0.8.0",
-        "date": "2026-11-25",
+        "date": "2026-11-26",
         "notes": [
           "Ohne Anmeldung ist nur noch das eigene Fenster Admin. Browser und Programme melden sich mit einem Konto an, auch auf demselben Rechner; fremde Webseiten werden abgewiesen.",
           "Companion-Gateway: Steht die Suite auf „secure“, braucht Companion jetzt Suite-Token und TLS-Fingerprint aus dem Launcher (Sichere Steuerebene), wie bei den anderen Werkzeugen.",

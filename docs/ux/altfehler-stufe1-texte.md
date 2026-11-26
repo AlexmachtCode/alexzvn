@@ -2,7 +2,7 @@
 
 Zweck: Alle neuen sichtbaren Texte und Log-Zeilen der Stufe 1 (zehn Befunde in Player und Studio-Control) zur Freigabe durch den Owner. Dazu der Entwurf der Release-Notizen, die Änderungen in der Bedienung, die Entscheidungen, die Spec und Code offen ließen, und die offenen Fragen.
 
-Stand: Branch `feat/altfehler`, Code-Stand `114a8f1f08` (Aufgaben 1 bis 6 fertig und geprüft, dazu die Fix-Welle nach der Gesamtprüfung: Rückfragen im Player-Fenster, AltGr bei Pad-Tasten, Pause beim Warten auf die Ausgabe). Die Versionen sind Player 0.10.0 und Studio-Control 0.8.0; das Datum der Changelog-Einträge (25.11.2026) ist ein Platzhalter und wird am Tag der Veröffentlichung gesetzt. Nichts davon ist veröffentlicht.
+Stand: Branch `feat/altfehler`, Code-Stand `114a8f1f08` (Aufgaben 1 bis 6 fertig und geprüft, dazu die Fix-Welle nach der Gesamtprüfung: Rückfragen im Player-Fenster, AltGr bei Pad-Tasten, Pause beim Warten auf die Ausgabe). Die Versionen sind Player 0.10.0 und Studio-Control 0.8.0; das Datum der Changelog-Einträge ist auf den Tag der Veröffentlichung gesetzt (26.11.2026, Release-Freigabe des Owners am 26.11. um 10:17).
 
 Lesehilfe: ‹…› steht für den Teil, der sich zur Laufzeit ändert (eine Zahl, ein Name oder ein Pfad). Beispiel: „Cue ‹…› „‹…›“ spielt nicht: ‹…›“ erscheint als „Cue 3 „Intro“ spielt nicht: Datei fehlt oder ist nicht lesbar.“ Die Nummer (z. B. PLA5) nennst Du bitte bei jeder Änderung, die Du wünschst. Die Spalte „Ort“ nennt die Datei mit Zeile, in der der Text steht. Die Spalte „Befund“ nennt den Altfehler, zu dem der Text gehört.
 
