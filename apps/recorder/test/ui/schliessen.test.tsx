@@ -276,9 +276,12 @@ function steuerung(anfang: RecorderStatus = 'recording') {
     );
   }
   // B3 und Beenden-Wunsch (Cmd+Q): Abmelden oder Herunterfahren schließen ohne Frage; „Aufnahme beenden“ nach einem Wunsch beendet die App.
+  // Fix-Runde 2 (Ruling R19, Test angepasst): ohneFrage hebt die Frage nicht mehr auf Dauer auf; das Schließen geht durch, weil der Aufrufer
+  // danach shutdown() ruft und die Aufnahme damit endet (Status idle, wie hier gesetzt).
   {
     const t = steuerung();
     t.s?.ohneFrage();
+    t.status('idle');
     const durch = t.s?.beimSchliessen();
     const t2 = steuerung();
     t2.wunsch(true);
@@ -293,6 +296,71 @@ function steuerung(anfang: RecorderStatus = 'recording') {
       'RE-7a Fix-Runde 1: nach ohneFrage (Abmelden, Herunterfahren) schließt das Fenster ohne Frage; „Aufnahme beenden“ auf einen Beenden-Wunsch hin beendet die App; ohne Aufnahme schließt es wie bisher',
     );
   }
+}
+
+// ── Fix-Runde 2 (Task 7, Ruling R19): ohneFrage gilt nur dem Weg des Herunterfahrens. Es schließt eine offene Frage (ihre Frist endet, der
+// Rückfall kommt nicht mehr), der Aufrufer beendet danach mit shutdown() die Aufnahme. Es hebt die Frage nicht für später auf: läuft im selben
+// Fenster wieder eine Aufnahme, fragt das Schließen wieder. ──
+{
+  const t = steuerung();
+  t.s?.beimSchliessen();
+  t.s?.ohneFrage();
+  t.status('idle');
+  const durch = t.s?.beimSchliessen();
+  t.uhr.vor(5000);
+  const nachFrist = [...t.log];
+  t.status('recording');
+  const wieder = t.s?.beimSchliessen();
+  gleich(
+    [durch, nachFrist, wieder, t.log],
+    [false, ['frage true', 'frage false'], true, ['frage true', 'frage false', 'frage true']],
+    'RE-7a Fix-Runde 2 (R19): ohneFrage schließt die offene Frage im Fenster, ihr Rückfall kommt nicht mehr; nach dem Ende der Aufnahme schließt das Fenster; eine neue Aufnahme im selben Fenster fragt beim Schließen wieder',
+  );
+  const t2 = steuerung();
+  t2.s?.ohneFrage();
+  t2.status('idle');
+  t2.s?.beimSchliessen();
+  t2.status('recording');
+  const ohneOffeneFrage = t2.s?.beimSchliessen();
+  gleich(
+    [ohneOffeneFrage, t2.log],
+    [true, ['frage true']],
+    'RE-7a Fix-Runde 2 (R19): auch ohne offene Frage hebt ohneFrage nichts auf Dauer auf; ein späteres Schließen in einer neuen Aufnahme fragt',
+  );
+}
+
+// ── Fix-Runde 2 (Task 7, Ruling R20): weitere Schließen-Versuche und ein Neuladen, solange die Frist läuft, stellen die Frage erneut, verlängern
+// die Frist aber nicht: ohne „gezeigt“ kommt der Rückfall 1 s nach dem ersten Schließen. Erst wenn die Frist endete („gezeigt“), beginnt
+// sie neu (Fix-Runde 1). ──
+{
+  const t = steuerung();
+  t.s?.beimSchliessen();
+  t.uhr.vor(400);
+  t.s?.beimSchliessen();
+  t.uhr.vor(400);
+  t.s?.beimSchliessen();
+  t.uhr.vor(199);
+  const bei999 = [...t.log];
+  t.uhr.vor(1);
+  const bei1000 = [...t.log];
+  t.uhr.vor(2000);
+  gleich(
+    [bei999, bei1000, t.log],
+    [['frage true', 'frage true', 'frage true'], ['frage true', 'frage true', 'frage true', 'frage false', 'nativ'], ['frage true', 'frage true', 'frage true', 'frage false', 'nativ']],
+    'RE-7a Fix-Runde 2 (R20): Schließen bei 0, 400 und 800 ms ohne „gezeigt“: die Frage geht jedes Mal ans Fenster, der native Rückfall kommt bei 1000 ms (nicht bei 999, nicht erst bei 1800), genau einmal',
+  );
+  const t2 = steuerung();
+  t2.s?.beimSchliessen();
+  t2.uhr.vor(600);
+  t2.s?.geladen();
+  t2.uhr.vor(399);
+  const vorher = t2.log.includes('nativ');
+  t2.uhr.vor(1);
+  gleich(
+    [vorher, t2.log],
+    [false, ['frage true', 'frage true', 'frage false', 'nativ']],
+    'RE-7a Fix-Runde 2 (R20): ein Neuladen bei laufender Frist stellt die Frage erneut, der Rückfall bleibt 1 s nach dem Schließen',
+  );
 }
 
 // ── RE-7a Texte: SCHLIESSEN_TEXTE wörtlich, RECORDER_TEXTE.schliessen ist dieselbe Konstante ──

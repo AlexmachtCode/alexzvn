@@ -14,7 +14,7 @@ import {
   type RecorderState,
   type ScheduleInput,
 } from '../shared/types';
-import { MultiWavWriter, WavWriter } from './wav';
+import { MultiWavWriter, SpurFehler, WavWriter } from './wav';
 import { freierBasisname } from './dateiname';
 import { BLOECKE_TAKT_MS, bloeckeLage } from './eingang-waechter';
 import { istLoopback, StilleUhr, STILLE_PAUSE_MS, STILLE_TAKT_MS } from './stille';
@@ -53,8 +53,6 @@ const state: RecorderState = {
 };
 let writer: WavWriter | null = null;
 let multiWriter: MultiWavWriter | null = null;
-/** Fix-Runde 1 (Ruling R18b): Ordner der Einzelspuren der laufenden Aufnahme (für die Meldung, wenn ihr Kopf scheitert); null ohne Spuren. */
-let spurenOrdner: string | null = null;
 let peaks: number[] = [];
 let lastEmit = 0;
 // Loopback-Eingänge: kein Block in Stille → Uhr + Wächter füllen die Lücken auf.
@@ -302,7 +300,8 @@ function schreibfehler(art: RecorderFehler['art'], e: unknown, kopf = false, gen
     try {
       multiWriter.finalize();
     } catch {
-      // eine Spur bricht das Abschließen der übrigen nicht ab
+      // eine Spur bricht das Abschließen der übrigen nicht ab (Fix-Runde 2, R21: MultiWavWriter schließt sie alle ab, dann wirft er); gemeldet
+      // wird der Fehler, der die Aufnahme beendete
     }
     multiWriter = null;
   }
@@ -444,12 +443,10 @@ export function startRecording(input: RecordInput): OpResult {
     writer = new WavWriter(filePath, state.channels, state.sampleRate);
     // Optional zusätzlich jede Spur einzeln in einen Unterordner (Issue #20). Bei
     // Mono gibt es nichts zu trennen — die Kombi-Datei ist bereits die eine Spur.
-    spurenOrdner = null;
     if (input.separateTracks && state.channels > 1) {
       const tracksDir = path.join(input.dir, `${base}-Spuren`);
       mkdirSync(tracksDir, { recursive: true });
       multiWriter = new MultiWavWriter(tracksDir, base, state.channels, state.sampleRate);
-      spurenOrdner = tracksDir;
     }
     state.filePath = filePath;
     state.recordedSec = 0;
@@ -516,12 +513,14 @@ export function stopRecording(): RecordResult {
   if (multiWriter) {
     // Fix-Runde 1 (Ruling R18b): die Spuren genau einmal abschließen (schreibfehler sieht sie danach nicht mehr). Scheitert ihr Kopf, ist die
     // Kombidatei schon fertig: die Meldung nennt den Ordner der Spuren, nicht die Kombidatei.
+    // Fix-Runde 2 (Ruling R21): MultiWavWriter.finalize schließt alle Spuren ab und wirft danach den ersten Fehler als SpurFehler mit der
+    // Datei seiner Spur; Meldung, Log und Fehlerfeld nennen diese Datei statt des Ordners.
     const spuren = multiWriter;
     multiWriter = null;
     try {
       spuren.finalize();
     } catch (e) {
-      schreibfehler('schreiben', e, true, spurenOrdner ?? filePath);
+      schreibfehler('schreiben', e, true, e instanceof SpurFehler ? e.datei : undefined);
       return { ok: false, error: grundVon(e) };
     }
   }

@@ -59,6 +59,7 @@ const GEAENDERT = [
   'src/main/netzordner.ts',
   'src/main/platz.ts',
   'src/main/recorder.ts',
+  'src/main/wav.ts',
   'src/preload/index.ts',
   'src/renderer/src/App.tsx',
   'src/renderer/src/components/Topbar.tsx',
@@ -95,6 +96,7 @@ const GEAENDERT = [
   'test/ui/selftest.ts',
   'test/ui/testzustand.ts',
   'test/ui/werkzeug.test.tsx',
+  'test/wav.test.ts',
   'tsconfig.test.json',
 ].map((p) => `apps/recorder/${p}`);
 
@@ -115,7 +117,7 @@ const NUR_MELDUNG = new Set(['apps/recorder/src/main/control-server.ts']);
  * Netzwerkordner erst nach „Übernehmen“) und RE-NAS (Ordnerprüfung eines Presets außerhalb der Warteschlange); Task 7: RE-3 (Fehlerfeld,
  * die Aufnahme endet sauber nach einem Schreibfehler oder ohne Blöcke), RE-7a (Rückfrage beim Schließen während einer Aufnahme) und
  * RE-PLATZ (freier Platz als Restzeit in der Statusleiste). RE-3 nennt zusätzlich store/recorder.ts (das Neuöffnen eines Presets nur über
- * arm, Pre-flight K7).
+ * arm, Pre-flight K7). Fix-Runde 2 (Ruling R21): RE-3 nennt auch main/wav.ts (MultiWavWriter meldet die erste kaputte Spur mit ihrer Datei).
  */
 const APP = (p: string): string => `apps/recorder/src/${p}`;
 const RENDERER = (p: string): string => `apps/recorder/src/renderer/src/${p}`;
@@ -143,7 +145,16 @@ const ALTFEHLER = new Map<string, readonly string[]>([
   ['RE-NAS', [RENDERER('store/recorder.ts')]],
   [
     'RE-3',
-    [APP('main/recorder.ts'), APP('main/eingang-waechter.ts'), APP('main/ipc.ts'), APP('shared/types.ts'), RENDERER('lib/oberflaeche.ts'), RENDERER('views/LiveBereich.tsx'), RENDERER('store/recorder.ts')],
+    [
+      APP('main/recorder.ts'),
+      APP('main/eingang-waechter.ts'),
+      APP('main/wav.ts'),
+      APP('main/ipc.ts'),
+      APP('shared/types.ts'),
+      RENDERER('lib/oberflaeche.ts'),
+      RENDERER('views/LiveBereich.tsx'),
+      RENDERER('store/recorder.ts'),
+    ],
   ],
   [
     'RE-7a',
@@ -350,8 +361,16 @@ for (const z of alle) {
     ['views/LiveBereich.tsx', 'renderer/src/views/LiveBereich.tsx', 'apps/recorder/src/renderer/src/views/LiveBereich.tsx'].every((p) => (zeilenFehler(synth(p)) ?? '').includes('geänderter Datei')) &&
       (zeilenFehler(synth('views/LiveBereich.tsx', ' (E2)')) ?? '').includes('mehr als die lesenden Brücken') &&
       zeilenFehler(synth('main/control-server.ts', ' (E2)')) === null &&
-      zeilenFehler(synth('main/wav.ts')) === null,
+      zeilenFehler(synth('main/stille.ts')) === null,
     'RE Funktionsliste: eine geänderte Datei wird in jeder Schreibweise erkannt; E2 entlastet nur Dateien mit den lesenden Brücken; eine unveränderte Datei ist frei',
+  );
+  // Fix-Runde 2 (Ruling R21, Altfehler RE-3; Probe umgestellt): main/wav.ts war bis dahin die unveränderte Probe; seit MultiWavWriter die erste
+  // kaputte Spur meldet, ist sie geändert und nur „Altfehler RE-3“ entlastet sie (statt ihrer prüft die Probe oben main/stille.ts).
+  ok(
+    (zeilenFehler(synth('main/wav.ts')) ?? '').includes('geänderter Datei') &&
+      zeilenFehler(synth('main/wav.ts', ' (Altfehler RE-3)')) === null &&
+      ['RE-7a', 'RE-PLATZ', 'RE-3a'].every((id) => (zeilenFehler(synth('main/wav.ts', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')),
+    'RE Funktionsliste (Fix-Runde 2, R21): main/wav.ts gilt als geändert; nur „Altfehler RE-3“ entlastet sie, RE-7a, RE-PLATZ und RE-3a nicht',
   );
   // Der Verweis „Altfehler <ID>“ (Stufe 2, B7) entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt (R6); nur mit dem
   // Wort „Altfehler“ und nur die sieben Recorder-IDs; RE-2 und RE-2b sind getrennt. main/index.ts, preload/index.ts und shared/types.ts
@@ -688,8 +707,10 @@ ok(
 ok(
   von([76, 77, 78, 79, 81, 82, 83, 84, 85, 86, 87, 88, 92, 93, 94, 95], (nr) => unveraendert(nr)) &&
     von([76, 77, 78, 79, 81, 82, 83, 85, 86, 87, 88, 89, 92, 93, 94, 95], (nr) => gebunden(nr, 'main/recorder.ts')) &&
-    !GEAENDERT_KANON.has('apps/recorder/src/main/wav.ts') && !GEAENDERT_KANON.has('apps/recorder/src/main/stille.ts') && !GEAENDERT_KANON.has('apps/recorder/src/main/dateiname.ts'),
-  'RE Funktionsliste Nr. 76–95: Aufnahmekern, Dateinamen, Folgedatei, Stille-Auffüllung und Zeitplan im Main sind unverändert; main/recorder.ts änderte sich nur mit Altfehler RE-2 (gebunden, B7)',
+    // Fix-Runde 2 (Ruling R21, Altfehler RE-3; Wächter umgestellt): main/wav.ts ist geändert und in Nr. 83, 84 und 137 an RE-3 gebunden.
+    GEAENDERT_KANON.has('apps/recorder/src/main/wav.ts') && von([83, 84, 137], (nr) => gebunden(nr, 'main/wav.ts')) &&
+    !GEAENDERT_KANON.has('apps/recorder/src/main/stille.ts') && !GEAENDERT_KANON.has('apps/recorder/src/main/dateiname.ts'),
+  'RE Funktionsliste Nr. 76–95: Aufnahmekern, Dateinamen, Folgedatei, Stille-Auffüllung und Zeitplan im Main sind unverändert; main/recorder.ts änderte sich nur mit Altfehler RE-2 (gebunden, B7); main/wav.ts nur mit Altfehler RE-3 (Fix-Runde 2, R21)',
 );
 // ── Altfehler RE-3, RE-7a, RE-PLATZ (Task 7): die Zeilen nennen ihre ID ausdrücklich (die Bindung aus Task 6 entlastet die Dateien schon) ──
 ok(
@@ -708,6 +729,13 @@ ok(
     nennt(88, 'Fix-Runde 1', 'Ordner der Spuren', 'genau einmal') && nennt(89, 'Fix-Runde 1', '`SchliessenSteuerung`', 'Neuladen', 'Renderer weg', '`powerMonitor`', 'nicht auf dem Mac gemessen') &&
     gebunden(89, 'shared/schliessen.ts') && quelle('main/index.ts').includes("win.webContents.on('did-finish-load', () => steuerung.geladen());") && obf.includes("neuAufnehmenZu: 'Eingang öffnen, dann neu aufnehmen'"),
   'RE Funktionsliste Nr. 1, 23, 79, 88, 89 (Task 7, Fix-Runde 1): Freigabe mit Schrägstrichen nur bis zur Wurzel, Haupttaste mit Fehler bei geschlossenem Eingang, Stau ab zwei Takten, Kopf der Spuren, Rückfrage nach Neuladen und Absturz, powerMonitor',
+);
+ok(
+  von([83, 84, 137], (nr) => nennt(nr, '`main/wav.ts` änderte sich nur mit Altfehler RE-3: nach allen Spuren wirft `MultiWavWriter.finalize` den ersten Fehler mit der Datei der Spur, statt ihn zu verschlucken (Nr. 88)')) &&
+    nennt(88, 'Fix-Runde 1 (Ruling R18b)', 'Ordner der Spuren', 'Fix-Runde 2 (Ruling R21)', 'die Datei dieser Spur', 'die übrigen Spuren') &&
+    nennt(89, 'Fix-Runde 1 (Befund 1, Ruling R15)', 'Fix-Runde 2 (Ruling R19, R20)', 'nur unter Linux', 'RE-K3', 'ohne die Frist zu verlängern', 'fragt wieder') &&
+    quelle('main/index.ts').includes("if (process.platform === 'linux') {") && quelle('main/wav.ts').includes('export class SpurFehler'),
+  'RE Funktionsliste Nr. 83, 84, 88, 89, 137 (Task 7, Fix-Runde 2): main/wav.ts meldet die kaputte Spur (an RE-3 gebunden), der Kopf einer Spur nennt ihre Datei, powerMonitor nur unter Linux, die Frist verlängert sich nicht, ohneFrage hebt nichts auf Dauer auf (ergänzt, nicht ersetzt)',
 );
 ok(
   nennt(134, 'Altfehler RE-3', 'Altfehler RE-PLATZ') && nennt(138, 'Altfehler RE-3', '`fehler`', 'Altfehler RE-PLATZ', '`spuren`', 'Altfehler RE-7a') &&

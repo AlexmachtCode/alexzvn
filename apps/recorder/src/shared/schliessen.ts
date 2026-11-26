@@ -42,6 +42,8 @@ const ECHTE_UHR: SchliessenUhr = {
  * (das Fenster zeigt sie) löscht die Frist; `antwort` schließt sie und gibt nur für die erste Antwort true.
  * Fix-Runde 1 (Befund 1): `erneut` startet die Frist einer offenen Frage neu (die Frage ging im Fenster verloren, etwa durch Neuladen),
  * `sofort` ruft den Rückfall ohne Frist (der Renderer ist weg). Steht der Rückfall schon, tun beide nichts: es gibt keinen zweiten Dialog.
+ * Fix-Runde 2 (Ruling R20): läuft die Frist noch, lässt `erneut` sie stehen (der Rückfall bleibt 1 s nach dem ersten Schließen); neu beginnt
+ * sie nur, wenn sie schon endete („gezeigt“).
  */
 export class SchliessenAblauf {
   private istOffen = false;
@@ -67,8 +69,7 @@ export class SchliessenAblauf {
 
   erneut(rueckfall: () => void): boolean {
     if (!this.istOffen || this.rueckfallLaeuft) return false;
-    this.gezeigt();
-    this.starteFrist(rueckfall);
+    if (this.frist === null) this.starteFrist(rueckfall);
     return true;
   }
 
@@ -124,8 +125,9 @@ export interface SchliessenPorts {
 /**
  * Die Rückfrage beim Schließen im Hauptprozess (Altfehler RE-7a; B3, D4; Fix-Runde 1, Befund 1), ohne Electron und darum mit Ports und
  * Schein-Uhr testbar. Ein `close` fragt in der Aufnahme nach; ist die Frage schon offen, geht sie erneut ans Fenster und die Frist beginnt
- * neu (das Fenster kann sie durch Neuladen oder einen Absturz verloren haben). Nach einem Neuladen (`geladen`) geht eine offene Frage
- * erneut hin; ist der Renderer weg (`rendererWeg`), fragt sofort der native Dialog. Die erste Antwort gilt, aus dem Fenster oder dem Dialog.
+ * neu (das Fenster kann sie durch Neuladen oder einen Absturz verloren haben), seit Fix-Runde 2 (R20) nur, wenn sie schon endete. Nach
+ * einem Neuladen (`geladen`) geht eine offene Frage erneut hin; ist der Renderer weg (`rendererWeg`), fragt sofort der native Dialog. Die
+ * erste Antwort gilt, aus dem Fenster oder dem Dialog.
  */
 export class SchliessenSteuerung {
   readonly ablauf: SchliessenAblauf;
@@ -150,7 +152,7 @@ export class SchliessenSteuerung {
     return true;
   }
 
-  /** Das Fenster hat (neu) geladen: eine offene Frage geht erneut hin, die Frist beginnt neu. */
+  /** Das Fenster hat (neu) geladen: eine offene Frage geht erneut hin, die Frist beginnt neu, wenn sie schon endete (Fix-Runde 2, R20). */
   geladen(): void {
     if (this.ablauf.erneut(this.rueckfall)) this.p.sendeFrage(true);
   }
@@ -166,9 +168,13 @@ export class SchliessenSteuerung {
     else this.antworte(a === 'beenden');
   }
 
-  /** Abmelden oder Herunterfahren: das Fenster schließt ohne Frage (B3). */
+  /**
+   * Abmelden oder Herunterfahren: das Fenster schließt ohne Frage (B3). Fix-Runde 2 (Ruling R19): nur für diesen Weg. Eine offene Frage
+   * schließt (im Fenster, ihre Frist endet, eine spätere Antwort des nativen Dialogs zählt nicht); der Aufrufer beendet danach mit
+   * `shutdown()` die Aufnahme, darum geht das Schließen durch. Nichts gilt auf Dauer: eine neue Aufnahme im selben Fenster fragt wieder.
+   */
   ohneFrage(): void {
-    this.bestaetigt = true;
+    if (this.ablauf.antwort()) this.p.sendeFrage(false);
   }
 
   private readonly rueckfall = (): void => {

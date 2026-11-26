@@ -69,6 +69,11 @@ export class WavWriter {
     }
   }
 
+  /** Die gerade offene Datei (die erste oder die laufende Folgedatei); ihren Kopf schreibt `finalize`. */
+  get aktuelleDatei(): string {
+    return this.files[this.files.length - 1];
+  }
+
   /** Header mit echten Größen überschreiben + Datei schließen. */
   finalize(): { bytes: number; durationSec: number; files: string[] } {
     this.schliesse();
@@ -123,6 +128,20 @@ export class WavWriter {
 }
 
 /**
+ * Altfehler RE-3 (Task 7, Fix-Runde 2, Ruling R21): eine Spur ließ sich nicht abschließen. `datei` ist die Datei dieser Spur, deren Kopf
+ * scheiterte; die Meldung bleibt die des ursprünglichen Fehlers (`cause`).
+ */
+export class SpurFehler extends Error {
+  readonly datei: string;
+
+  constructor(datei: string, ursache: unknown) {
+    super(ursache instanceof Error ? ursache.message : String(ursache), { cause: ursache });
+    this.name = 'SpurFehler';
+    this.datei = datei;
+  }
+}
+
+/**
  * Schreibt zusätzlich jede Spur als eigene Mono-WAV in einen Ordner (Issue #20).
  * Demultiplext die planaren Frames ([ch0:frames][ch1:frames]…) auf je einen
  * WavWriter pro Kanal — parallel zur kombinierten Mehrkanal-Datei. Jede Spur teilt
@@ -153,14 +172,19 @@ export class MultiWavWriter {
     }
   }
 
-  /** Alle Spuren best-effort finalisieren (eine kaputte Spur bricht nicht alle ab). */
+  /**
+   * Alle Spuren best-effort finalisieren (eine kaputte Spur bricht nicht alle ab). Altfehler RE-3 (Fix-Runde 2, Ruling R21): danach wirft
+   * der erste Fehler als `SpurFehler` mit der Datei seiner Spur, statt still zu verschwinden.
+   */
   finalize(): void {
+    let erster: SpurFehler | null = null;
     for (const w of this.writers) {
       try {
         w.finalize();
-      } catch {
-        // ignore
+      } catch (e) {
+        erster ??= new SpurFehler(w.aktuelleDatei, e);
       }
     }
+    if (erster) throw erster;
   }
 }

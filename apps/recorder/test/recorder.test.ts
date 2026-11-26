@@ -485,34 +485,44 @@ const aufraeumen = (): void => {
 
 // Fix-Runde 1 (Ruling R18b): der Kopf der Spuren lässt sich beim Stopp nicht schreiben, die Kombidatei ist abgeschlossen. Die Meldung nennt
 // den Ordner der Spuren (nicht die Kombidatei), die Spuren werden genau einmal abgeschlossen.
+// Fix-Runde 2 (Ruling R21, Test umgestellt): bisher verschluckte MultiWavWriter.finalize den Fehler einer Spur, darum schlug der Test die
+// Attrappe am ganzen MultiWavWriter ein. Jetzt scheitert der Kopf einer echten Spur (Spur01): die übrigen Spuren werden trotzdem
+// abgeschlossen, Meldung, Log und Fehlerfeld nennen die Datei dieser Spur, nicht den Ordner.
 {
   ck('RE-3 R18b: arm', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
   ck('RE-3 R18b: start mit Spuren', rec.startRecording({ dir, fileName: 'SpurKopf', separateTracks: true }).ok);
   zehn();
   protokoll.length = 0;
   gesendet.length = 0;
-  const echtSpurKopf = MultiWavWriter.prototype.finalize;
-  let aufrufe = 0;
-  MultiWavWriter.prototype.finalize = function (this: unknown): void {
-    aufrufe++;
-    throw new Error('EIO: i/o error, write');
+  const versucht: Record<string, number> = {};
+  WavWriter.prototype.finalize = function (this: InstanceType<typeof WavWriter>): ReturnType<InstanceType<typeof WavWriter>['finalize']> {
+    const datei = (this as unknown as { files: string[] }).files[0];
+    versucht[datei] = (versucht[datei] ?? 0) + 1;
+    const r = echtKopf.call(this);
+    if (datei.endsWith('-Spur01.wav')) throw new Error('EIO: i/o error, write');
+    return r;
   };
   let r: { ok: boolean; error?: string } = { ok: true };
   try {
     r = rec.stopRecording();
   } finally {
-    MultiWavWriter.prototype.finalize = echtSpurKopf;
+    WavWriter.prototype.finalize = echtKopf;
   }
   const kombi = join(dir, 'SpurKopf.wav');
   const spuren = join(dir, 'SpurKopf-Spuren');
+  const spur1 = join(spuren, 'SpurKopf-Spur01.wav');
+  const spur2 = join(spuren, 'SpurKopf-Spur02.wav');
   ck(
-    `RE-3 R18b Kopf der Spuren nicht schreibbar: die Meldung nennt den Ordner der Spuren, das Fehlerfeld auch (${JSON.stringify(meldungen())}, ${JSON.stringify(fehler())})`,
+    `RE-3 R21 Kopf einer Spur nicht schreibbar: die Meldung nennt die Datei dieser Spur, das Fehlerfeld auch (${JSON.stringify(meldungen())}, ${JSON.stringify(fehler())})`,
     r.ok === false &&
-      JSON.stringify(meldungen()) === JSON.stringify([`Aufnahme beendet: Der Dateikopf von „${spuren}“ konnte nicht geschrieben werden: EIO: i/o error, write.`]) &&
-      fehler()?.datei === spuren && fehler()?.art === 'schreiben' && rec.getState().status === 'armed',
+      JSON.stringify(meldungen()) === JSON.stringify([`Aufnahme beendet: Der Dateikopf von „${spur1}“ konnte nicht geschrieben werden: EIO: i/o error, write.`]) &&
+      fehler()?.datei === spur1 && fehler()?.art === 'schreiben' && rec.getState().status === 'armed',
   );
-  ck(`RE-3 R18b: die Spuren werden genau einmal abgeschlossen (${aufrufe}), die Kombidatei trägt ihren Kopf (${dataLaenge(kombi)})`, aufrufe === 1 && dataLaenge(kombi) === 80);
-  ck(`RE-3 R18b: eine Logzeile mit dem Ordner der Spuren (${JSON.stringify(protokoll)})`, protokoll.length === 1 && protokoll[0] === `Aufnahme beendet (schreiben): ${spuren}: EIO: i/o error, write`);
+  ck(
+    `RE-3 R18b/R21: jede Spur und die Kombidatei werden genau einmal abgeschlossen (${JSON.stringify(versucht)}), Spur02 trägt ihren Kopf (${dataLaenge(spur2)}), die Kombidatei auch (${dataLaenge(kombi)})`,
+    versucht[kombi] === 1 && versucht[spur1] === 1 && versucht[spur2] === 1 && Object.keys(versucht).length === 3 && dataLaenge(spur2) === 40 && dataLaenge(kombi) === 80,
+  );
+  ck(`RE-3 R21: eine Logzeile mit der Datei der Spur (${JSON.stringify(protokoll)})`, protokoll.length === 1 && protokoll[0] === `Aufnahme beendet (schreiben): ${spur1}: EIO: i/o error, write`);
   aufraeumen();
 }
 

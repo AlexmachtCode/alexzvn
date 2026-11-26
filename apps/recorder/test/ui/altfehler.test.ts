@@ -166,9 +166,13 @@ const stueck = (t: string, von: string, bis: string): string => {
   );
   ok(!index.includes('showMessageBoxSync'), 'RE-7a Wächter: nie showMessageBoxSync (hielte Hauptprozess, Audioblöcke, IPC und Steuerserver an)');
   ok(/win\.on\('session-end', \(\) => \{\s*steuerung\.ohneFrage\(\);\s*shutdown\(\);/.test(index), 'RE-7a Wächter: Abmelden und Herunterfahren unter Windows (session-end) beenden ohne Frage und schließen die Datei sauber ab (shutdown)');
+  // Fix-Runde 2 (Ruling R19, Wächter umgestellt): der Hörer gilt nur unter Linux. Abmelden, Herunterfahren und Cmd+Q auf dem Mac bleiben beim
+  // Kandidaten RE-K3 (der Recorder wird nur für Windows gebaut, R14).
   ok(
-    /powerMonitor\.on\('shutdown', \(\) => \{\s*schliessenSteuerung\?\.ohneFrage\(\);\s*shutdown\(\);/.test(index) && /import \{[^}]*\bpowerMonitor\b[^}]*\} from 'electron';/.test(index),
-    'RE-7a Wächter (Ruling R15, B3): auf macOS und Linux meldet powerMonitor „shutdown“ (auch Abmelden); der Recorder beendet ohne Frage und schließt die Datei sauber ab (nicht auf dem Mac gemessen)',
+    /if \(process\.platform === 'linux'\) \{\s*powerMonitor\.on\('shutdown', \(\) => \{\s*schliessenSteuerung\?\.ohneFrage\(\);\s*shutdown\(\);/.test(index) &&
+      index.split("powerMonitor.on('shutdown'").length === 2 &&
+      /import \{[^}]*\bpowerMonitor\b[^}]*\} from 'electron';/.test(index),
+    'RE-7a Wächter (Ruling R15, B3; Fix-Runde 2, R19): nur unter Linux (process.platform === linux) hört der Recorder auf powerMonitor „shutdown“, genau einmal; er beendet ohne Frage und schließt die Datei sauber ab (nicht unter Linux gemessen)',
   );
   ok(/win\.on\('closed', \(\) => \{\s*shutdown\(\);/.test(index), 'RE-7a Wächter: closed ruft weiter shutdown() (Kopf mit echter Länge)');
   const vorEnde = stueck(index, "app.on('before-quit'", ');\n');

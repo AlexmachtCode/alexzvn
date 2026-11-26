@@ -109,5 +109,68 @@ ck('MAX_DATA_BYTES liegt nah an 4 GB (> 4 000 000 000)', MAX_DATA_BYTES > 4_000_
   ck('multi: Spur02-Folgedatei trägt Kanal 2', JSON.stringify(lies(join(wurzel, 'multi-Spur02_002.wav')).werte) === JSON.stringify([21]));
 }
 
+// --- Altfehler RE-3 (Task 7, Fix-Runde 2, Ruling R21): eine kaputte Spur bricht das Abschließen der übrigen nicht ab, verschwindet aber
+// auch nicht mehr still: nach allen Spuren wirft finalize den ersten Fehler, mit der Datei der Spur, deren Kopf scheiterte (`datei`).
+{
+  const echt = WavWriter.prototype.finalize;
+  const versucht: string[] = [];
+  const kaputt = (enden: string[]) =>
+    function (this: WavWriter): ReturnType<WavWriter['finalize']> {
+      const dateien = (this as unknown as { files: string[] }).files;
+      const aktuell = dateien[dateien.length - 1];
+      versucht.push(aktuell);
+      const r = echt.call(this);
+      if (enden.some((e) => aktuell.endsWith(e))) throw Object.assign(new Error(`EIO: i/o error, write (${aktuell.slice(-11)})`), { code: 'EIO' });
+      return r;
+    };
+  const fange = (f: () => void): (Error & { datei?: string }) | null => {
+    try {
+      f();
+      return null;
+    } catch (e) {
+      return e as Error & { datei?: string };
+    }
+  };
+  const w = new MultiWavWriter(wurzel, 'kaputt', 3, 48000);
+  w.writeBlock(block(3, 3, 0), 3, 3);
+  WavWriter.prototype.finalize = kaputt(['-Spur01.wav', '-Spur03.wav']);
+  let e: (Error & { datei?: string }) | null;
+  try {
+    e = fange(() => w.finalize());
+  } finally {
+    WavWriter.prototype.finalize = echt;
+  }
+  const spur = (n: number): string => join(wurzel, `kaputt-Spur0${n}.wav`);
+  ck(
+    `RE-3 R21 MultiWavWriter: Spur01 und Spur03 scheitern, alle drei werden versucht (${versucht.length}), Spur02 trägt ihren Kopf (${lies(spur(2)).data})`,
+    versucht.length === 3 && lies(spur(2)).data === 12 && JSON.stringify(lies(spur(2)).werte) === JSON.stringify([1, 11, 21]),
+  );
+  ck(
+    `RE-3 R21 MultiWavWriter: danach wirft finalize den ersten Fehler, mit der Datei der Spur (${e?.datei}, ${e?.message})`,
+    e !== null && e.datei === spur(1) && e.message === 'EIO: i/o error, write (-Spur01.wav)',
+  );
+
+  // Teilt eine Spur in Folgedateien, nennt der Fehler die Datei, deren Kopf scheiterte (die laufende Folgedatei).
+  versucht.length = 0;
+  const f = new MultiWavWriter(wurzel, 'kaputtFolge', 2, 48000, 8);
+  f.writeBlock(block(2, 3, 0), 2, 3);
+  WavWriter.prototype.finalize = kaputt(['-Spur02_002.wav']);
+  let e2: (Error & { datei?: string }) | null;
+  try {
+    e2 = fange(() => f.finalize());
+  } finally {
+    WavWriter.prototype.finalize = echt;
+  }
+  ck(
+    `RE-3 R21 MultiWavWriter: in einer Folgedatei nennt der Fehler die laufende Folgedatei (${e2?.datei})`,
+    e2 !== null && e2.datei === join(wurzel, 'kaputtFolge-Spur02_002.wav') && versucht.length === 2,
+  );
+
+  // Ohne Fehler wirft finalize nichts (wie bisher).
+  const heil = new MultiWavWriter(wurzel, 'heil', 2, 48000);
+  heil.writeBlock(block(2, 2, 0), 2, 2);
+  ck('RE-3 R21 MultiWavWriter: ohne kaputte Spur wirft finalize nichts', fange(() => heil.finalize()) === null && lies(join(wurzel, 'heil-Spur02.wav')).data === 8);
+}
+
 console.log(`\nwav: ${pass} ok, ${fail} FAIL`);
 if (fail) process.exit(1);

@@ -237,10 +237,14 @@ if (!gotLock) {
     });
     // Ruling R15 (B3, macOS und Linux): session-end gibt es nur unter Windows. Meldet das System Herunterfahren, Neustart oder (macOS)
     // Abmelden, schließt der Recorder ohne Frage und die Datei sauber ab. Nicht auf dem Mac gemessen.
-    powerMonitor.on('shutdown', () => {
-      schliessenSteuerung?.ohneFrage();
-      shutdown();
-    });
+    // Fix-Runde 2 (Ruling R19): nur unter Linux. Abmelden, Herunterfahren und Cmd+Q auf dem Mac bleiben beim Kandidaten RE-K3 (der Recorder
+    // wird nur für Windows gebaut, R14). Nicht unter Linux gemessen.
+    if (process.platform === 'linux') {
+      powerMonitor.on('shutdown', () => {
+        schliessenSteuerung?.ohneFrage();
+        shutdown();
+      });
+    }
     registerIpc(() => mainWindow);
     createMainWindow();
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — Befehle
