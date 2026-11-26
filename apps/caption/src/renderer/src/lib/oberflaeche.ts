@@ -40,9 +40,11 @@ export const CAPTION_TEXTE = {
   ndi: { titel: 'NDI' },
   /**
    * Mikrofon: Titel des Statuseintrags, Beschriftung der Wahl (Tooltip des alten Felds), die Option für die leere ID und der Name
-   * eines Eingangs ohne Namen (wie bisher, App.tsx:172, Zählung ab 1).
+   * eines Eingangs ohne Namen (wie bisher, App.tsx:172, Zählung ab 1). `nichtVerfuegbar` ist der Grund eines Mikrofonfehlers, wenn
+   * der Browser keine Meldung mitgibt und es nicht „Gerät nicht gefunden“ ist (Altfehler CA-1, Ruling R8; lib/aktionen.ts,
+   * mikrofonGrund). Entwurf, Freigabe über die Texttabelle.
    */
-  mikrofon: { titel: 'Mikrofon', wahl: 'Audio-Eingang (Mikrofon)', standard: 'System-Standard (Mikrofon)', ohneName: (n: number) => `Audiogerät ${n}` },
+  mikrofon: { titel: 'Mikrofon', wahl: 'Audio-Eingang (Mikrofon)', standard: 'System-Standard (Mikrofon)', ohneName: (n: number) => `Audiogerät ${n}`, nichtVerfuegbar: 'nicht verfügbar' },
   /** Live-Bereich: Wortlaut wie bisher (App.tsx:332-407); „Mikrofon: …“ steht jetzt als Text unter den Haupttasten (E9). */
   live: {
     bereit: '— bereit —',

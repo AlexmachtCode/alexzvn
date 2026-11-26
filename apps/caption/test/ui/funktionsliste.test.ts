@@ -508,6 +508,7 @@ ok(
 ok(
   beginnt(25, 'Live-Bereich Haupttasten') && beginnt(61, 'Live-Bereich Haupttasten') && von([25, 61], (nr) => nennt(nr, 'E9', 'Mikrofon: ‹Meldung›', 'nie live')) && nennt(25, 'Ruling Task 25/26', 'nächsten erfolgreich') &&
     von([25, 61], (nr) => nennt(nr, 'Altfehler CA-1', 'running=0')) && nennt(61, '`mikrofonGescheitert`', 'nicht von selbst neu') && gebunden(61, 'views/CaptionOberflaeche.tsx') &&
+    nennt(25, '„Gerät nicht gefunden“', '„nicht verfügbar“', '`mikrofonGrund`', 'Abschnitt Audiogerät') && akt.includes('export function mikrofonGrund(e: unknown): string {') &&
     live.includes('{stand.micError !== null && (') && live.includes('T.live.mikrofonFehler(stand.micError)') && obf.includes('`Mikrofon: ${meldung}`') && obf.includes('error: s.micError ?? undefined') && wurzel.includes('setMicError(null)') &&
     wurzel.includes('.catch((e: unknown) => mikrofonGescheitert({ stop }, setMicError, e));') && akt.includes('export function mikrofonGescheitert(') && kopfOnAirOhneMic(),
   'CA Funktionsliste Nr. 25, 61: der Mikrofonfehler ist ein Statuseintrag und ein Text unter den Haupttasten (E9); Start bleibt bedienbar und ist nie live; er bleibt bis zum nächsten erfolgreichen Start; Altfehler CA-1: er beendet die Transkription (running=0), kein Neustart von selbst',
@@ -815,7 +816,7 @@ ok(
   );
   ok(
     [4, 5, 6, 7, 8, 11, 12, 13].every((n) => /Welle 2a:[^]*unverändert[^]*Owner/.test(befund(n))),
-    'CA Funktionsliste Abschnitt 10: die Befunde 4–8 und 11–13 bleiben unverändert, Owner-Entscheidung offen',
+    'CA Funktionsliste Abschnitt 10: die Befunde 6–8 und 11–13 sind offen (Welle 2a: unverändert, Owner-Entscheidung offen); Befund 4 und 5 behalten diesen Satz der Welle 2a und sind seit Altfehler CA-4 und CA-5 behoben',
   );
   ok(
     /Welle 2a:[^]*Korrektur/.test(befund(5)) && /Welle 2a:[^]*Number\(Wert\)[^]*leer/.test(befund(8)) && /Welle 2a:[^]*Stopp[^]*letzten Worte/.test(befund(6)) && /Welle 2a:[^]*Base/.test(befund(7)),

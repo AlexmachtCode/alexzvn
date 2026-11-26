@@ -3,11 +3,16 @@
 // Stand, CA-5 die Korrektur trifft die angeklickte Zeile über ihre Kennung. Reine Module unter tsx ohne Electron und ohne window;
 // der Hauptprozess (importiert electron), der Preload und die Wurzel-View nur als Quelltext-Wächter (R3).
 // Die Module werden als Namensraum bzw. dynamisch geladen: Fehlt ein Export oder das Modul, ist jeder Fall einzeln rot.
+import * as settings from '@jm/settings';
+import { AUDIO_TEXTE } from '@jm/settings';
+import { MASTER_LINK_TEXTE } from '@jm/ui';
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
 import type { CaptionLine } from '@shared/types';
 import * as aktionen from '@/lib/aktionen';
 import * as engine from '@/lib/ndi-engine';
-import { ohneKommentare, store, ZEILEN } from './testzustand';
+import { CAPTION_TEXTE, mikrofonAbschnitt } from '@/lib/oberflaeche';
+import { UI_TEXTE } from '../../../../packages/ui/src/lib/texte';
+import { caption, GERAETE, ohneKommentare, store, ZEILEN } from './testzustand';
 
 const QUELLE = (pfad: string): string => ohneKommentare(leseText(pfad));
 const MIKRO_FEHLER = 'Requested device not found';
@@ -33,6 +38,45 @@ function versuch<T>(f: () => T): T | string {
   const log2: string[] = [];
   versuch(() => aktionen.mikrofonGescheitert(store(log2), (m) => log2.push('micError:' + m), 'kaputt'));
   gleich(log2, ['micError:kaputt', 'stop'], 'CA-1 Mikrofonfehler: ein Wurf ohne Error-Objekt erscheint als Text (String(e)), die Transkription endet ebenso');
+}
+
+// ── CA-1 (Fix-Runde 1, Ruling R8): ein Grund auch bei leerer Meldung des Browsers ──
+// Gemessen (Task 4, out/t4-mikrofonfehler.png): Ist ein gemerkter Eingang weg, lehnt Chromium mit OverconstrainedError und leerer
+// Meldung ab; dann stand nur „Mikrofon:“ im Fenster und der Abschnitt Audiogerät bekam error: ''.
+{
+  const fehler = (name: string, message: string): Error => Object.assign(new Error(message), { name });
+  const grund = (e: unknown): unknown => versuch(() => aktionen.mikrofonGrund(e));
+  gleich(
+    grund(fehler('OverconstrainedError', '')),
+    'Gerät nicht gefunden',
+    'CA-1 Grund: OverconstrainedError mit leerer Meldung (ein gemerkter Eingang ist weg) ergibt „Gerät nicht gefunden“',
+  );
+  gleich(grund(fehler('NotFoundError', '')), 'Gerät nicht gefunden', 'CA-1 Grund: NotFoundError mit leerer Meldung ergibt „Gerät nicht gefunden“');
+  gleich(grund(fehler('NotAllowedError', '')), 'nicht verfügbar', 'CA-1 Grund: jede andere leere Meldung (etwa NotAllowedError) ergibt „nicht verfügbar“');
+  gleich(grund(fehler('NotFoundError', MIKRO_FEHLER)), MIKRO_FEHLER, 'CA-1 Grund: eine Meldung des Browsers bleibt, wie sie ist, auch bei NotFoundError');
+  gleich(grund(fehler('OverconstrainedError', '   ')), 'Gerät nicht gefunden', 'CA-1 Grund: eine Meldung nur aus Leerzeichen gilt als leer');
+  gleich(grund('kaputt'), 'kaputt', 'CA-1 Grund: ein Wurf ohne Error-Objekt erscheint als Text (String(e))');
+  // Fenster und Panel zeigen denselben Grund (micError ist der Text unter den Tasten und der Fehler des Abschnitts Audiogerät, E9).
+  const gesetzt: { micError: string | null } = { micError: null };
+  const log: string[] = [];
+  versuch(() => aktionen.mikrofonGescheitert(store(log), (m) => void (gesetzt.micError = m), fehler('OverconstrainedError', '')));
+  const panel = mikrofonAbschnitt({ caption: caption({ running: false, config: { audioInputDeviceId: 'weg' } }), geraete: GERAETE, micError: gesetzt.micError, pegel: 0 }).error;
+  gleich(
+    { panel, fenster: gesetzt.micError === null ? null : CAPTION_TEXTE.live.mikrofonFehler(gesetzt.micError), log },
+    { panel: 'Gerät nicht gefunden', fenster: 'Mikrofon: Gerät nicht gefunden', log: ['stop'] },
+    'CA-1 Grund: bei OverconstrainedError ist der Fehler im Abschnitt Audiogerät nicht leer, das Fenster zeigt „Mikrofon: Gerät nicht gefunden“, die Transkription endet',
+  );
+  // Der Text kommt aus @jm/settings (nicht nachgebaut); „nicht verfügbar“ ist ein eigener, benannter Caption-Text, der keinem Text aus
+  // @jm/settings oder @jm/ui gleicht (auch nicht UI_TEXTE, das @jm/ui nicht exportiert).
+  const flach = (v: unknown): string[] =>
+    typeof v === 'function' ? flach((v as (...a: unknown[]) => unknown)('x', 2, 3)) : typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(flach) : [];
+  const fremd = new Set([...Object.entries(settings).filter(([k]) => k.endsWith('_TEXTE')).map(([, v]) => v), MASTER_LINK_TEXTE, UI_TEXTE].flatMap(flach));
+  const akt = QUELLE('src/renderer/src/lib/aktionen.ts');
+  ok(
+    AUDIO_TEXTE.nichtGefunden === 'Gerät nicht gefunden' && akt.includes('AUDIO_TEXTE.nichtGefunden') && !akt.includes('Gerät nicht gefunden') &&
+      (CAPTION_TEXTE.mikrofon as Record<string, unknown>).nichtVerfuegbar === 'nicht verfügbar' && !fremd.has('nicht verfügbar') && akt.includes('CAPTION_TEXTE.mikrofon.nichtVerfuegbar'),
+    'CA-1 Grund: „Gerät nicht gefunden“ ist AUDIO_TEXTE.nichtGefunden aus @jm/settings (importiert), „nicht verfügbar“ steht als CAPTION_TEXTE.mikrofon.nichtVerfuegbar und gleicht keinem Text aus @jm/settings oder @jm/ui',
+  );
 }
 
 // ── CA-4: „Leeren“ bei Hold leert das Bild, Hold hält den leeren Stand ──
@@ -104,9 +148,9 @@ function versuch<T>(f: () => T): T | string {
     'CA-1 Wächter: der .catch des Aufnahme-Effekts ruft mikrofonGescheitert({ stop }, setMicError, e), stop aus useCaption()',
   );
   ok(
-    /export function mikrofonGescheitert\(store: Pick<CaptionStore, 'stop'>, setzeFehler: \(m: string\) => void, e: unknown\): void \{\s*setzeFehler\(String\(\(e as Error\)\?\.message \?\? e\)\);\s*void store\.stop\(\);\s*\}/.test(akt) &&
+    /export function mikrofonGescheitert\(store: Pick<CaptionStore, 'stop'>, setzeFehler: \(m: string\) => void, e: unknown\): void \{\s*setzeFehler\(mikrofonGrund\(e\)\);\s*void store\.stop\(\);\s*\}/.test(akt) &&
       !/\bwindow\./.test(akt),
-    'CA-1 Wächter: mikrofonGescheitert setzt den Text und ruft store.stop(), ohne window und ohne eigenen Kanal (der Stopp ist caption:stop)',
+    'CA-1 Wächter: mikrofonGescheitert setzt den Grund (mikrofonGrund, Ruling R8) und ruft store.stop(), ohne window und ohne eigenen Kanal (der Stopp ist caption:stop)',
   );
   // CA-4: der Main zählt die Leerungen, der Zustand trägt sie, die Engine wählt den Text über angezeigterText.
   ok(

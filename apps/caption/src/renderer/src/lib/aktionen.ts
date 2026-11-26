@@ -2,6 +2,7 @@
 // alten Knöpfe und Felder sie riefen (App.tsx:145-321 und :376-405 bei d7cdd79ce0). Keine Taste und kein Feld bekommt eine neue
 // Wirkung; jede Wahl im Panel speichert nur (setConfig), wie bisher. Rein: kein window, kein navigator, kein Store-Import; die
 // View reicht die Store-Aktionen herein, die Tests Attrappen.
+import { AUDIO_TEXTE } from '@jm/settings';
 import type { CaptionConfig } from '@shared/types';
 import { CAPTION_TEXTE, type CaptionAktionen, type MikrofonGeraet } from './oberflaeche';
 
@@ -76,8 +77,22 @@ export function liveAktionen(store: CaptionStore, ndiName: string | undefined, b
  * Aufnahme-Effekt nicht von selbst neu. Kein eigener Kanal.
  */
 export function mikrofonGescheitert(store: Pick<CaptionStore, 'stop'>, setzeFehler: (m: string) => void, e: unknown): void {
-  setzeFehler(String((e as Error)?.message ?? e));
+  setzeFehler(mikrofonGrund(e));
   void store.stop();
+}
+
+/**
+ * Grund eines Mikrofonfehlers für das Fenster („Mikrofon: …“) und den Abschnitt Audiogerät (Altfehler CA-1, Ruling R8): die Meldung
+ * des Browsers, wie sie ist. Ist sie leer (gemessen: ein gemerkter Eingang, den es nicht mehr gibt, ergibt OverconstrainedError ohne
+ * Meldung), dann bei OverconstrainedError und NotFoundError der Text „Gerät nicht gefunden“ aus @jm/settings, sonst
+ * CAPTION_TEXTE.mikrofon.nichtVerfuegbar. Nie leer.
+ */
+export function mikrofonGrund(e: unknown): string {
+  const meldung = String((e as Error)?.message ?? e);
+  if (meldung.trim() !== '') return meldung;
+  const name = (e as Error)?.name;
+  if (name === 'OverconstrainedError' || name === 'NotFoundError') return AUDIO_TEXTE.nichtGefunden;
+  return CAPTION_TEXTE.mikrofon.nichtVerfuegbar;
 }
 
 /** Gemessene Eingänge aus listAudioInputs: id = deviceId, ohne Namen „Audiogerät n“ (wie bisher, App.tsx:170-173). */
