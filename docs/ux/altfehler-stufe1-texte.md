@@ -109,7 +109,7 @@ Wo Spec und Code schwiegen, steht hier, was gilt. Du kannst jede umstoßen.
 Hier entscheidest Du.
 
 1. AltGr auf deutschen Tastaturen: Entschieden (R17): AltGr-Zeichen wie @ lösen weiter aus wie bisher; auf Wunsch sperrbar.
-2. Pille im Abschnitt „Browser-Zugang“ (SCA5, SCA6): behalten oder streichen? Ohne Pille stehen nur Titel und Satz. Mit Pille ist „Datei vorhanden“ gelb, „keine Datei“ grün.
+2. Pille im Abschnitt „Browser-Zugang“ (SCA5, SCA6): behalten oder streichen? Ohne Pille stehen nur Titel und Satz. Mit Pille ist „Datei vorhanden“ gelb, „keine Datei“ grün. Entschieden (Owner 26.11.2026 09:43, alle Texte wie hier): Die Pille bleibt.
 
 ## Handbuch
 
@@ -152,4 +152,4 @@ Die zwei Handbücher im Kochbuch (Player, Studio-Control) nennen jetzt die geän
 
 + [ ] Erst-Passwort geändert und die Datei gelöscht (Panel ⚙ › „Browser-Zugang“ zeigt „Keine Datei …“)
 
-Freigabe: ☐ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren)
+Freigabe: ☒ alle Texte wie hier (Owner 26.11.2026 09:43: „texte sind freigegeben“) ☐ mit Änderungen (bitte je Nr. notieren)
