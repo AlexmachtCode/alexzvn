@@ -8,6 +8,8 @@ import { VORGABE_HOST } from '@shared/mdns';
 import { ohneKommentare } from './testzustand';
 
 const nachricht = (c: StageConfig): [string, string | undefined] => [c.message, c.nachrichtEntwurf];
+/** Standardwerte vor dem ersten Aufruf: Lesen und Mischen dürfen sie nie ändern (geprüft am Ende des Moduls). */
+const DEFAULT_VORHER = JSON.stringify(DEFAULT_CONFIG);
 
 // ── SD-1 Konfiguration aus der Datei: nach dem Start steht nichts auf der Bühne, der letzte Text bleibt Entwurf ──
 {
@@ -43,9 +45,6 @@ const nachricht = (c: StageConfig): [string, string | undefined] => [c.message, 
     ['127.0.0.1', '127.0.0.1', '127.0.0.1', '', '', '127.0.0.1'],
     'SD-1 DEFAULT_CONFIG: Hosts auf der Vorgabe VORGABE_HOST, Nachricht und Entwurf leer',
   );
-  const vorher = JSON.stringify(DEFAULT_CONFIG);
-  konfigMischen(konfigAusDatei({}), { timer: { host: '10.0.0.9' }, nachrichtEntwurf: 'x' });
-  ok(JSON.stringify(DEFAULT_CONFIG) === vorher, 'SD-1 DEFAULT_CONFIG: Lesen und Mischen ändern die Standardwerte nicht');
 }
 
 // ── SD-1 Mischen: ein Entwurf lässt die Nachricht auf der Bühne stehen, Senden setzt sie, leer senden nimmt sie herunter ──
@@ -57,6 +56,8 @@ const nachricht = (c: StageConfig): [string, string | undefined] => [c.message, 
   gleich(nachricht(konfigMischen(basis, { widgets: { clock: false } })), ['Auf der Bühne', 'Alt'], 'SD-1 konfigMischen: ein Patch ohne Nachricht und Entwurf lässt beide stehen');
   const m = konfigMischen(basis, { timer: { host: '10.0.0.9' }, presenter: { pin: '12' }, outputDisplayId: null });
   gleich([m.timer, m.presenter.pin, m.presenter.port, m.outputDisplayId], [{ enabled: false, host: '10.0.0.9', port: 7777 }, '12', 7330, null], 'SD-1 konfigMischen: verschachtelt gemischt wie bisher');
+  konfigMischen(konfigAusDatei({}), { timer: { host: '10.0.0.9' }, switcher: { enabled: true }, nachrichtEntwurf: 'x' });
+  ok(JSON.stringify(DEFAULT_CONFIG) === DEFAULT_VORHER, 'SD-1 DEFAULT_CONFIG: Lesen und Mischen ändern die Standardwerte nicht (Stand vor dem ersten Aufruf dieses Moduls)');
 }
 
 // ── Wächter: main/config.ts liest über konfigAusDatei und schreibt über konfigMischen; DEFAULT_CONFIG steht im reinen Modul ──

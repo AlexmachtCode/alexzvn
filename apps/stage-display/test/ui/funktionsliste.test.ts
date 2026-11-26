@@ -621,7 +621,7 @@ ok(
 {
   ok(
     [57, 58, 59, 60].every((nr) => gebunden(nr, 'main/index.ts') && gebunden(nr, 'shared/mdns.ts') && kuenftig(nr).includes('Vorgabe 127.0.0.1')) &&
-      ['nicht erreichbar', 'Vorschläge', 'C5', 'Befund 3', '`mdnsUebernahme`'].every((w) => kuenftig(57).includes(w)) &&
+      ['„nicht erreichbar“', 'Vorschläge', 'C5', 'Befund 3', '`mdnsUebernahme`'].every((w) => kuenftig(57).includes(w)) &&
       [90, 91, 92, 93, 94, 95, 96, 97].every((nr) => kuenftig(nr).includes('Altfehler SD-3') && kuenftig(nr).includes('Vorgabe 127.0.0.1')) &&
       kuenftig(43).includes('nicht erreichbar') &&
       quelle('main/index.ts').includes('mdnsUebernahme(getConfig(),') &&
