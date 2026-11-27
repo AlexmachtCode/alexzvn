@@ -9,7 +9,7 @@ import { pruefeShowOrdner } from '@shared/netzordner';
 import { saeubereAnzeige } from '@shared/presets';
 import { SCHLIESSEN_TEXTE, SchliessenSteuerung } from '@shared/schliessen';
 import { netzordnerListe, registerIpc } from './ipc';
-import { getState, shutdown } from './recorder';
+import { getState, kopfAktualisieren, shutdown } from './recorder';
 import { startControlServer, stopControlServer } from './control-server';
 
 declare const __dirname: string;
@@ -152,6 +152,8 @@ function createMainWindow(): BrowserWindow {
   // Den Ablauf führt SchliessenSteuerung (shared/schliessen.ts); hier stehen nur Fenster, Dialog und App als Ports. Fix-Runde 1 (Befund 1):
   // geht die Frage im Fenster verloren (Neuladen mit Strg+R, Absturz), fragt ein weiteres Schließen erneut, ein Neuladen stellt sie erneut,
   // und ist der Renderer weg, fragt sofort der native Dialog. Ein close bleibt so nie ohne Antwortweg.
+  // Fix-Welle (Ruling S2-R26, I1): vor der Frage schreibt jedes close in der Aufnahme die Dateiköpfe neu (Port kopfAktualisieren), damit ein
+  // Installer, der nach WM_CLOSE hart beendet, eine abspielbare Datei hinterlässt.
   const steuerung = new SchliessenSteuerung({
     status: () => getState().status,
     sendeFrage: (offen) => {
@@ -183,6 +185,7 @@ function createMainWindow(): BrowserWindow {
       beendenWunsch = false;
     },
     beende: () => app.quit(),
+    kopfAktualisieren: () => kopfAktualisieren(),
   });
   schliessenSteuerung = steuerung;
   win.on('close', (e) => {

@@ -85,6 +85,8 @@ export const AUFNAHME_FEHLER_TEXTE = {
   eingang: 'Aufnahme beendet: Vom Eingang kamen 2 s lang keine Audiodaten. Das bisher Aufgenommene ist gespeichert.',
   eingangGrund: 'Keine Audiodaten vom Eingang',
   log: (art: RecorderFehler['art'], datei: string, grund: string): string => `Aufnahme beendet (${art}): ${datei}: ${grund}`,
+  /** Fix-Welle (Ruling S2-R26): Logzeile, wenn sich ein Dateikopf bei der Schließ-Anfrage nicht neu schreiben ließ (`kopfAktualisieren`). */
+  kopfAnfrage: (datei: string, grund: string): string => `Dateikopf bei der Schließ-Anfrage nicht aktualisiert: ${datei}: ${grund}`,
 } as const;
 
 const grundVon = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -272,6 +274,7 @@ function blockTakt(): void {
  * Eingang (`eingang`): keine Stille mehr auffüllen, Block-Wächter und geplante Start- und Stopp-Zeitgeber lösen, beide Schreiber je für
  * sich abschließen, Status `armed` (der Eingang bleibt offen), das Fehlerfeld setzen, eine Meldung bis „OK“, eine Logzeile, Zustand an
  * Fenster und Steuerserver. Companion sieht recording=0; main/control-server.ts ändert sich nicht.
+ * Fix-Welle (Ruling S2-R28): bei `eingang` schließt danach auch der Eingang (Status `idle`, Companion armed=0); das Fehlerfeld bleibt.
  */
 function schreibfehler(art: RecorderFehler['art'], e: unknown, kopf = false, genannt?: string): void {
   if (state.status !== 'recording') return;
@@ -305,7 +308,24 @@ function schreibfehler(art: RecorderFehler['art'], e: unknown, kopf = false, gen
     }
     multiWriter = null;
   }
-  state.status = 'armed';
+  if (art === 'eingang') {
+    // Fix-Welle (Ruling S2-R28, I3; ändert B2 für „eingang“): ein Eingang, der 2 s nichts liefert (Gerät abgezogen, toter USB-Strom), erholt
+    // sich nicht. Nach dem Abschluss der Datei schließt der Recorder darum auch den Eingang: Status `idle`, Companion sieht armed=0, die
+    // Haupttaste zeigt „Neu aufnehmen“, gesperrt mit „Eingang öffnen, dann neu aufnehmen“ (R17). Datei und Dauer bleiben im Zustand wie nach
+    // einem Schreibfehler. Das Fehlerfeld bleibt (K7: nur ein gelungener Start, die Quittung eines Stopps oder „Eingang schließen“ des
+    // Bedieners löschen es, dieses Schließen nicht). Schreibfehler lassen den Eingang offen (`armed`).
+    stopWaechter();
+    loopback = false;
+    letzterBlockMs = 0;
+    try {
+      if (audioMod && inited) audioMod.stopInput();
+    } catch {
+      // der Eingang gilt trotzdem als geschlossen
+    }
+    state.status = 'idle';
+  } else {
+    state.status = 'armed';
+  }
   state.fehler = { art, text: grund, datei: genannt ?? state.filePath };
   notice(kopfGrund !== null ? T.kopf(datei, kopfGrund) : art === 'eingang' ? T.eingang : T.schreiben(datei, grund));
   protokoll(T.log(art, datei, grund));
@@ -621,6 +641,31 @@ export function cancelSchedule(): void {
   pendingInput = null;
   emitState();
   if (had) notice('Planung abgebrochen.');
+}
+
+/**
+ * Fix-Welle (Ruling S2-R26, I1; Altfehler RE-7a): jede Schließ-Anfrage während einer Aufnahme ruft dies (main/index.ts über
+ * SchliessenSteuerung), bevor die Rückfrage kommt. Die Köpfe aller offenen Dateien (Kombidatei und jede Spur, auch Folgedateien) bekommen
+ * die aktuellen Größen; geschlossen wird nichts, die Aufnahme schreibt weiter. Beendet danach der Installer eines Updates oder einer
+ * Deinstallation den Recorder hart (WM_CLOSE, etwa 1,3 s, dann taskkill /f), ist die Datei bis zur Anfrage abspielbar. Scheitert das
+ * Neuschreiben, gibt es je Datei nur eine Logzeile: kein Fehlerfeld, keine Meldung, die Frage kommt trotzdem.
+ */
+export function kopfAktualisieren(): void {
+  const T = AUFNAHME_FEHLER_TEXTE;
+  if (writer) {
+    try {
+      writer.kopfAktualisieren();
+    } catch (e) {
+      protokoll(T.kopfAnfrage(writer.aktuelleDatei, grundVon(e)));
+    }
+  }
+  if (multiWriter) {
+    try {
+      multiWriter.kopfAktualisieren();
+    } catch (e) {
+      protokoll(T.kopfAnfrage(e instanceof SpurFehler ? e.datei : (state.filePath ?? ''), grundVon(e)));
+    }
+  }
 }
 
 /**

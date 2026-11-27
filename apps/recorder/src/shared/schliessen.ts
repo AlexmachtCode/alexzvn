@@ -120,6 +120,11 @@ export interface SchliessenPorts {
   wunschVerwerfen(): void;
   /** Die App beenden. */
   beende(): void;
+  /**
+   * Fix-Welle (Ruling S2-R26, I1): die Köpfe aller offenen Aufnahmedateien mit den aktuellen Größen neu schreiben, ohne zu schließen
+   * (main/recorder.ts `kopfAktualisieren`).
+   */
+  kopfAktualisieren(): void;
 }
 
 /**
@@ -143,6 +148,16 @@ export class SchliessenSteuerung {
   beimSchliessen(): boolean {
     const e = schliessenEntscheid({ status: this.p.status(), bestaetigt: this.bestaetigt, frageOffen: this.ablauf.offen });
     if (e === 'schliessen') return false;
+    // Fix-Welle (Ruling S2-R26, I1): jede Schließ-Anfrage während einer Aufnahme schreibt zuerst die Dateiköpfe mit den aktuellen Größen
+    // neu. Der Installer eines Updates oder einer Deinstallation schickt WM_CLOSE und beendet etwa 1,3 s später hart; ohne diesen Schritt
+    // bliebe dann der Platzhalter-Kopf stehen. Scheitert er, kommt die Frage trotzdem (die Logzeile schreibt der Aufnahmekern).
+    if (this.p.status() === 'recording') {
+      try {
+        this.p.kopfAktualisieren();
+      } catch {
+        // die Frage läuft trotzdem
+      }
+    }
     if (e === 'fragen') {
       this.ablauf.stelle(this.rueckfall);
       this.p.sendeFrage(true);

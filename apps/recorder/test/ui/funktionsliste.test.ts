@@ -118,6 +118,8 @@ const NUR_MELDUNG = new Set(['apps/recorder/src/main/control-server.ts']);
  * die Aufnahme endet sauber nach einem Schreibfehler oder ohne Blöcke), RE-7a (Rückfrage beim Schließen während einer Aufnahme) und
  * RE-PLATZ (freier Platz als Restzeit in der Statusleiste). RE-3 nennt zusätzlich store/recorder.ts (das Neuöffnen eines Presets nur über
  * arm, Pre-flight K7). Fix-Runde 2 (Ruling R21): RE-3 nennt auch main/wav.ts (MultiWavWriter meldet die erste kaputte Spur mit ihrer Datei).
+ * Fix-Welle (Ruling S2-R26): RE-7a nennt auch main/recorder.ts und main/wav.ts (eine Schließ-Anfrage in der Aufnahme schreibt die Dateiköpfe
+ * mit den aktuellen Größen neu, kopfAktualisieren).
  */
 const APP = (p: string): string => `apps/recorder/src/${p}`;
 const RENDERER = (p: string): string => `apps/recorder/src/renderer/src/${p}`;
@@ -161,6 +163,8 @@ const ALTFEHLER = new Map<string, readonly string[]>([
     [
       APP('shared/schliessen.ts'),
       APP('main/index.ts'),
+      APP('main/recorder.ts'),
+      APP('main/wav.ts'),
       APP('preload/index.ts'),
       APP('shared/types.ts'),
       RENDERER('store/recorder.ts'),
@@ -366,22 +370,26 @@ for (const z of alle) {
   );
   // Fix-Runde 2 (Ruling R21, Altfehler RE-3; Probe umgestellt): main/wav.ts war bis dahin die unveränderte Probe; seit MultiWavWriter die erste
   // kaputte Spur meldet, ist sie geändert und nur „Altfehler RE-3“ entlastet sie (statt ihrer prüft die Probe oben main/stille.ts).
+  // Fix-Welle (Ruling S2-R26, Probe umgestellt): seit kopfAktualisieren entlastet auch „Altfehler RE-7a“ sie; RE-PLATZ und RE-3a weiter nicht.
   ok(
     (zeilenFehler(synth('main/wav.ts')) ?? '').includes('geänderter Datei') &&
       zeilenFehler(synth('main/wav.ts', ' (Altfehler RE-3)')) === null &&
-      ['RE-7a', 'RE-PLATZ', 'RE-3a'].every((id) => (zeilenFehler(synth('main/wav.ts', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')),
-    'RE Funktionsliste (Fix-Runde 2, R21): main/wav.ts gilt als geändert; nur „Altfehler RE-3“ entlastet sie, RE-7a, RE-PLATZ und RE-3a nicht',
+      zeilenFehler(synth('main/wav.ts', ' (Altfehler RE-7a)')) === null &&
+      ['RE-PLATZ', 'RE-3a', 'RE-7'].every((id) => (zeilenFehler(synth('main/wav.ts', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')),
+    'RE Funktionsliste (Fix-Runde 2, R21; Fix-Welle, S2-R26): main/wav.ts gilt als geändert; „Altfehler RE-3“ und „Altfehler RE-7a“ entlasten sie, RE-PLATZ, RE-3a und RE-7 nicht',
   );
   // Der Verweis „Altfehler <ID>“ (Stufe 2, B7) entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt (R6); nur mit dem
   // Wort „Altfehler“ und nur die sieben Recorder-IDs; RE-2 und RE-2b sind getrennt. main/index.ts, preload/index.ts und shared/types.ts
   // verlassen NUR_MELDUNG: E2 allein entlastet sie nicht mehr. Task 7: „Altfehler RE-3“ entlastet main/recorder.ts seither (Probe
-  // umgestellt, statt RE-3 jetzt RE-7a, RE-30 und RE-3a als fremde IDs).
+  // umgestellt, statt RE-3 jetzt RE-7a, RE-30 und RE-3a als fremde IDs). Fix-Welle (Ruling S2-R26, Probe umgestellt): seit kopfAktualisieren
+  // entlastet auch „Altfehler RE-7a“ main/recorder.ts; als fremde ID dient statt ihrer RE-7.
   ok(
     (zeilenFehler(synth('views/LiveBereich.tsx', ' (Altfehler RE-2)')) ?? '').includes('geänderter Datei') &&
       zeilenFehler(synth('views/LiveBereich.tsx', ' (Altfehler RE-7b)')) === null &&
       zeilenFehler(synth('main/recorder.ts', ' (Altfehler RE-2)')) === null &&
       (zeilenFehler(synth('main/recorder.ts')) ?? '').includes('geänderter Datei') &&
-      ['RE-2b', 'RE-7b', 'RE-NAS', 'RE-2a', 'RE-20', 'RE-2-b', 'RE-7a', 'RE-30', 'RE-3a', 'CA-11', 'PL-16a'].every((id) => (zeilenFehler(synth('main/recorder.ts', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')) &&
+      ['RE-2b', 'RE-7b', 'RE-NAS', 'RE-2a', 'RE-20', 'RE-2-b', 'RE-7', 'RE-30', 'RE-3a', 'CA-11', 'PL-16a'].every((id) => (zeilenFehler(synth('main/recorder.ts', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')) &&
+      zeilenFehler(synth('main/recorder.ts', ' (Altfehler RE-7a)')) === null &&
       (zeilenFehler(synth('main/recorder.ts', ' (RE-2)')) ?? '').includes('geänderter Datei') &&
       zeilenFehler(synth('store/recorder.ts', ' (Altfehler RE-NAS)')) === null &&
       zeilenFehler(synth('store/recorder.ts', ' (Altfehler RE-2b)')) === null &&
@@ -710,7 +718,7 @@ ok(
     // Fix-Runde 2 (Ruling R21, Altfehler RE-3; Wächter umgestellt): main/wav.ts ist geändert und in Nr. 83, 84 und 137 an RE-3 gebunden.
     GEAENDERT_KANON.has('apps/recorder/src/main/wav.ts') && von([83, 84, 137], (nr) => gebunden(nr, 'main/wav.ts')) &&
     !GEAENDERT_KANON.has('apps/recorder/src/main/stille.ts') && !GEAENDERT_KANON.has('apps/recorder/src/main/dateiname.ts'),
-  'RE Funktionsliste Nr. 76–95: Aufnahmekern, Dateinamen, Folgedatei, Stille-Auffüllung und Zeitplan im Main sind unverändert; main/recorder.ts änderte sich nur mit Altfehler RE-2 (gebunden, B7); main/wav.ts nur mit Altfehler RE-3 (Fix-Runde 2, R21)',
+  'RE Funktionsliste Nr. 76–95: Aufnahmekern, Dateinamen, Folgedatei, Stille-Auffüllung und Zeitplan im Main sind unverändert; main/recorder.ts änderte sich nur mit Altfehler RE-2 (gebunden, B7); main/wav.ts nur mit Altfehler RE-3 (Fix-Runde 2, R21) und RE-7a (Fix-Welle, S2-R26)',
 );
 // ── Altfehler RE-3, RE-7a, RE-PLATZ (Task 7): die Zeilen nennen ihre ID ausdrücklich (die Bindung aus Task 6 entlastet die Dateien schon) ──
 ok(
@@ -736,6 +744,17 @@ ok(
     nennt(89, 'Fix-Runde 1 (Befund 1, Ruling R15)', 'Fix-Runde 2 (Ruling R19, R20)', 'nur unter Linux', 'RE-K3', 'ohne die Frist zu verlängern', 'fragt wieder') &&
     quelle('main/index.ts').includes("if (process.platform === 'linux') {") && quelle('main/wav.ts').includes('export class SpurFehler'),
   'RE Funktionsliste Nr. 83, 84, 88, 89, 137 (Task 7, Fix-Runde 2): main/wav.ts meldet die kaputte Spur (an RE-3 gebunden), der Kopf einer Spur nennt ihre Datei, powerMonitor nur unter Linux, die Frist verlängert sich nicht, ohneFrage hebt nichts auf Dauer auf (ergänzt, nicht ersetzt)',
+);
+// ── Fix-Welle (Ruling S2-R26, S2-R28): die Zeilen nennen die Köpfe bei der Schließ-Anfrage (Altfehler RE-7a) und den Eingang, der nach einem
+// Geräteverlust schließt (Altfehler RE-3); die Sätze „… änderte sich nur mit …“ sind ergänzt, nicht ersetzt ──
+ok(
+  nennt(89, 'Fix-Welle (Ruling S2-R26, Altfehler RE-7a)', '`kopfAktualisieren`', 'Folgedateien', 'hart', 'Logzeile') &&
+    von([76, 79, 81, 82, 83, 85, 86, 87, 88, 89, 92, 93, 94, 95, 137], (nr) => gebunden(nr, 'main/recorder.ts')) && von([83, 84, 137], (nr) => gebunden(nr, 'main/wav.ts')) &&
+    von([83, 84, 137], (nr) => nennt(nr, '`main/wav.ts` änderte sich nur mit Altfehler RE-3', 'seit der Fix-Welle (Ruling S2-R26) auch mit Altfehler RE-7a: `kopfAktualisieren`')) &&
+    von([76, 79, 81, 82, 83, 85, 86, 87, 88, 89, 92, 93, 94, 95, 134, 137, 138], (nr) => nennt(nr, 'seit der Fix-Welle (Ruling S2-R26) auch mit Altfehler RE-7a: eine Schließ-Anfrage während der Aufnahme schreibt die Dateiköpfe')) &&
+    nennt(79, 'Fix-Welle (Ruling S2-R28, Altfehler RE-3)', 'Status `idle`', 'armed=0', 'das Fehlerfeld bleibt') && nennt(23, 'Fix-Welle (Ruling S2-R28)', 'Eingang öffnen, dann neu aufnehmen') &&
+    quelle('main/recorder.ts').includes('export function kopfAktualisieren(): void {') && quelle('main/wav.ts').includes('  kopfAktualisieren(): void {'),
+  'RE Funktionsliste Nr. 23, 76–95, 134, 137, 138 (Fix-Welle, S2-R26, S2-R28): Köpfe bei der Schließ-Anfrage (Altfehler RE-7a, an main/recorder.ts und main/wav.ts gebunden), Eingang zu nach einem Geräteverlust (Altfehler RE-3); ergänzt, nicht ersetzt',
 );
 ok(
   nennt(134, 'Altfehler RE-3', 'Altfehler RE-PLATZ') && nennt(138, 'Altfehler RE-3', '`fehler`', 'Altfehler RE-PLATZ', '`spuren`', 'Altfehler RE-7a') &&

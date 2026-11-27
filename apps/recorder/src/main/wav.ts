@@ -74,6 +74,20 @@ export class WavWriter {
     return this.files[this.files.length - 1];
   }
 
+  /**
+   * Fix-Welle (Ruling S2-R26, I1; Altfehler RE-7a): den Kopf der offenen Datei mit den aktuellen Größen neu schreiben, ohne zu schließen.
+   * Positions-Schreiben auf die offene Kennung, nur die RIFF-Größe (Offset 4) und die data-Größe (Offset 40); der Anhänge-Zeiger bleibt
+   * stehen (Node/libuv schreibt mit Position wie pwrite und stellt unter Windows die Dateiposition wieder her), weitere Blöcke hängen
+   * dahinter an. Wird der Prozess danach hart beendet (Installer eines Updates: taskkill /f), ist die Datei bis hierher abspielbar.
+   */
+  kopfAktualisieren(): void {
+    const b = Buffer.alloc(4);
+    b.writeUInt32LE(36 + this.segBytes, 0);
+    writeSync(this.fd, b, 0, 4, 4);
+    b.writeUInt32LE(this.segBytes, 0);
+    writeSync(this.fd, b, 0, 4, 40);
+  }
+
   /** Header mit echten Größen überschreiben + Datei schließen. */
   finalize(): { bytes: number; durationSec: number; files: string[] } {
     this.schliesse();
@@ -177,10 +191,20 @@ export class MultiWavWriter {
    * der erste Fehler als `SpurFehler` mit der Datei seiner Spur, statt still zu verschwinden.
    */
   finalize(): void {
+    this.jedeSpur((w) => w.finalize());
+  }
+
+  /** Fix-Welle (Ruling S2-R26, I1): den Kopf jeder Spur neu schreiben (`WavWriter.kopfAktualisieren`), wie `finalize` je Spur best-effort. */
+  kopfAktualisieren(): void {
+    this.jedeSpur((w) => w.kopfAktualisieren());
+  }
+
+  /** Jede Spur versuchen; danach den ersten Fehler als `SpurFehler` mit der Datei seiner Spur werfen. */
+  private jedeSpur(f: (w: WavWriter) => void): void {
     let erster: SpurFehler | null = null;
     for (const w of this.writers) {
       try {
-        w.finalize();
+        f(w);
       } catch (e) {
         erster ??= new SpurFehler(w.aktuelleDatei, e);
       }

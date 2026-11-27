@@ -125,6 +125,11 @@ const stueck = (t: string, von: string, bis: string): string => {
     suite !== '' && felder.length >= 4 && felder.every((f) => f === 'status' || f === 'recordedSec') && felder.includes('status') && felder.includes('recordedSec'),
     `RE-3 Wächter (B2): toSuiteState in main/control-server.ts liest nur status und recordedSec; Companion sieht recording=0 ohne neuen Zustandswert (${felder.join(', ')})`,
   );
+  // Fix-Welle (Ruling S2-R28): recorder.test.ts rechnet die Companion-Werte nach einem Geräteverlust mit dieser Abbildung (idle → armed=0).
+  ok(
+    suite.includes("recording: s.status === 'recording',") && suite.includes("armed: s.status === 'armed',"),
+    'RE-3 Wächter (S2-R28): toSuiteState meldet recording und armed allein aus status; nach einem Geräteverlust (idle) sieht Companion armed=0',
+  );
   ok(!/from '@jm\/app-runtime'/.test(recM) && !/^import \{[^}]*\} from 'electron'/m.test(recM), 'RE-3 Wächter (D3): main/recorder.ts bleibt ohne @jm/app-runtime und ohne Electron-Werte (testbar unter tsx); die Logzeile kommt über setProtokoll');
   ok(/rec\.setProtokoll\(\(zeile\) => getLog\(\)\.warn\(zeile\.slice\(0, 500\)\)\);/.test(ipc), 'RE-3 Wächter (D3): main/ipc.ts hängt getLog().warn über rec.setProtokoll ein (500 Zeichen)');
   const block = stueck(recM, 'function onFrames(', '\n}\n');
@@ -154,6 +159,11 @@ const stueck = (t: string, von: string, bis: string): string => {
   );
   const close = stueck(index, "win.on('close', (e) => {", '\n  });\n');
   ok(/if \(steuerung\.beimSchliessen\(\)\) e\.preventDefault\(\);/.test(close), 'RE-7a Wächter: main/index.ts hört auf win.on(close) und verhindert das Schließen (preventDefault), solange die Steuerung fragt');
+  // Fix-Welle (Ruling S2-R26, I1): der Port kopfAktualisieren der Steuerung ist der des Aufnahmekerns (main/recorder.ts), nicht ein leerer.
+  ok(
+    /\n {4}kopfAktualisieren: \(\) => kopfAktualisieren\(\),\n/.test(index) && /import \{[^}]*\bkopfAktualisieren\b[^}]*\} from '\.\/recorder';/.test(index),
+    'RE-7a Wächter (Fix-Welle, S2-R26): main/index.ts gibt der SchliessenSteuerung als Port kopfAktualisieren den Aufruf des Aufnahmekerns (main/recorder.ts)',
+  );
   ok(
     index.includes("win.webContents.on('did-finish-load', () => steuerung.geladen());") && index.includes("win.webContents.on('render-process-gone', () => steuerung.rendererWeg());"),
     'RE-7a Wächter (Fix-Runde 1, Befund 1b): nach einem Neuladen geht eine offene Frage erneut ans Fenster, ist der Renderer weg, fragt sofort der native Dialog',

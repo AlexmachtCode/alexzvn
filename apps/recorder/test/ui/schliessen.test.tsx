@@ -142,6 +142,8 @@ interface SteuerungPorts {
   beendenGewuenscht(): boolean;
   wunschVerwerfen(): void;
   beende(): void;
+  /** Fix-Welle (Ruling S2-R26, I1): die Köpfe aller offenen Dateien mit den aktuellen Größen neu schreiben, ohne zu schließen. */
+  kopfAktualisieren(): void;
 }
 interface Steuerung {
   beimSchliessen(): boolean;
@@ -157,6 +159,10 @@ function steuerung(anfang: RecorderStatus = 'recording') {
   let lage = anfang;
   let wunsch = false;
   let antworteNativ: ((n: number) => void) | null = null;
+  // Fix-Welle (S2-R26): jeder Aufruf von kopfAktualisieren merkt, wie viele Wirkungen im Protokoll schon davor standen (die Reihenfolge zur
+  // Frage); kopfWirft lässt ihn werfen. Getrennt vom Protokoll, damit die Fälle oben unverändert bleiben.
+  const koepfe: number[] = [];
+  let kopfWirft = false;
   const ports: SteuerungPorts = {
     status: () => lage,
     sendeFrage: (offen) => void log.push(`frage ${offen}`),
@@ -171,12 +177,18 @@ function steuerung(anfang: RecorderStatus = 'recording') {
       log.push('wunsch weg');
     },
     beende: () => void log.push('beende'),
+    kopfAktualisieren: () => {
+      koepfe.push(log.length);
+      if (kopfWirft) throw new Error('EIO: i/o error, write');
+    },
   };
   const s = SteuerungKlasse ? new SteuerungKlasse(ports, uhr) : null;
   return {
     s,
     uhr,
     log,
+    koepfe,
+    kopfWirft: (w: boolean) => void (kopfWirft = w),
     status: (x: RecorderStatus) => void (lage = x),
     wunsch: (w: boolean) => void (wunsch = w),
     nativ: async (n: number) => {
@@ -360,6 +372,57 @@ function steuerung(anfang: RecorderStatus = 'recording') {
     [vorher, t2.log],
     [false, ['frage true', 'frage true', 'frage false', 'nativ']],
     'RE-7a Fix-Runde 2 (R20): ein Neuladen bei laufender Frist stellt die Frage erneut, der Rückfall bleibt 1 s nach dem Schließen',
+  );
+}
+
+// ── Fix-Welle (Ruling S2-R26, I1): jede Schließ-Anfrage während einer Aufnahme schreibt zuerst die Dateiköpfe mit den aktuellen Größen neu.
+// Der Installer eines Updates oder einer Deinstallation (electron-builder NSIS unter /S) schickt WM_CLOSE, wartet etwa 1,3 s und beendet
+// dann hart; seit RE-7a öffnet WM_CLOSE die Frage, und ohne diesen Schritt bliebe der Platzhalter-Kopf (data 0) stehen. Ohne Aufnahme, nach
+// dem Ende der Aufnahme und nach „Aufnahme beenden“ (das Schließen geht durch, shutdown schließt ab) gibt es keinen Aufruf. Scheitert er,
+// fragt die Steuerung trotzdem. ──
+{
+  const t = steuerung();
+  const erstes = t.s?.beimSchliessen();
+  const nachErstem = [...t.koepfe];
+  t.s?.antwortFenster('gezeigt');
+  const zweites = t.s?.beimSchliessen();
+  const nachZweitem = [...t.koepfe];
+  t.status('armed');
+  t.s?.beimSchliessen();
+  t.s?.antwortFenster('weiter');
+  const ohneAufnahme = t.s?.beimSchliessen();
+  gleich(
+    [erstes, nachErstem, zweites, nachZweitem, t.koepfe, ohneAufnahme, t.log],
+    [true, [0], true, [0, 1], [0, 1], false, ['frage true', 'frage true', 'frage true', 'wunsch weg']],
+    'RE-7a Fix-Welle (S2-R26): die Schließ-Anfrage in der Aufnahme ruft kopfAktualisieren vor der Frage, ein weiteres Schließen bei offener Frage wieder; endete die Aufnahme während der Frage oder läuft keine, nicht',
+  );
+  const t2 = steuerung('idle');
+  const zu = t2.s?.beimSchliessen();
+  const t3 = steuerung();
+  t3.wunsch(true);
+  t3.s?.beimSchliessen();
+  t3.s?.antwortFenster('gezeigt');
+  t3.s?.antwortFenster('beenden');
+  const nachBeenden = t3.s?.beimSchliessen();
+  gleich(
+    [zu, t2.koepfe, t3.koepfe, nachBeenden, t3.log],
+    [false, [], [0], false, ['frage true', 'schliesse', 'beende']],
+    'RE-7a Fix-Welle (S2-R26): ohne Aufnahme kein Aufruf; nach „Aufnahme beenden“ geht das Schließen ohne weiteren Aufruf durch (shutdown schließt die Datei ab)',
+  );
+  const t4 = steuerung();
+  t4.kopfWirft(true);
+  let wurf: unknown = null;
+  let verhindert: boolean | undefined;
+  try {
+    verhindert = t4.s?.beimSchliessen();
+  } catch (e) {
+    wurf = e;
+  }
+  t4.uhr.vor(1000);
+  gleich(
+    [wurf, verhindert, t4.koepfe, t4.log],
+    [null, true, [0], ['frage true', 'frage false', 'nativ']],
+    'RE-7a Fix-Welle (S2-R26): scheitert kopfAktualisieren, fragt die Steuerung trotzdem (kein Wurf, das Schließen bleibt verhindert, der Rückfall kommt nach 1 s wie sonst)',
   );
 }
 

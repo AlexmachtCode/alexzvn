@@ -234,6 +234,7 @@ const aufraeumen = (): void => {
   zehn();
   protokoll.length = 0;
   gesendet.length = 0;
+  const offenVor = gestoppt;
   WavWriter.prototype.writeBlock = ENOSPC;
   let wurf: unknown = null;
   try {
@@ -246,7 +247,8 @@ const aufraeumen = (): void => {
   ck(`RE-3 Schreibfehler im Block wirft nicht (${wurf === null ? 'kein Wurf' : (wurf as Error).message})`, wurf === null);
   const s = rec.getState();
   const f = fehler();
-  ck(`RE-3 Zustand nach Schreibfehler: status armed (${s.status})`, s.status === 'armed');
+  // Fix-Welle (Ruling S2-R28): nur ein Geräteverlust (`eingang`) schließt den Eingang; ein Schreibfehler lässt ihn offen (B2 wie bisher).
+  ck(`RE-3 Zustand nach Schreibfehler: status armed, der Eingang bleibt offen (S2-R28: kein stopInput) (${s.status}, ${gestoppt - offenVor})`, s.status === 'armed' && gestoppt === offenVor);
   ck(`RE-3 Zustand nach Schreibfehler: fehler.art schreiben, der Text nennt ENOSPC, die Datei (${JSON.stringify(f)})`, f?.art === 'schreiben' && f.text.includes('ENOSPC') && f.datei === datei);
   ck('RE-3 Zustand nach Schreibfehler: filePath bleibt', s.filePath === datei);
   ck(`RE-3 Zustand nach Schreibfehler: der Kopf trägt die 10 Frames vor dem Fehler (${dataLaenge(datei)})`, dataLaenge(datei) === 80);
@@ -412,6 +414,7 @@ const aufraeumen = (): void => {
     zehn();
     protokoll.length = 0;
     gesendet.length = 0;
+    const zuVor = gestoppt;
     const t0 = uhr;
     let erstFehler: number | null = null;
     for (let t = 250; t <= 2250; t += 250) {
@@ -421,14 +424,37 @@ const aufraeumen = (): void => {
     }
     const datei = join(dir, 'Stumm.wav');
     const f = fehler();
-    ck(`RE-3 kein Block 2 s (Gerät 0): status armed, fehler.art eingang mit „Keine Audiodaten vom Eingang“ (${rec.getState().status}, ${JSON.stringify(f)})`, rec.getState().status === 'armed' && f?.art === 'eingang' && f.text === 'Keine Audiodaten vom Eingang' && f.datei === datei);
+    // Fix-Welle (Ruling S2-R28, I3; ändert B2 für „eingang“, Prüfung umgestellt): bisher blieb der Status `armed`, Companion meldete armed=1
+    // und die Statusleiste „Eingang offen“ auf einem toten Strom. Jetzt schließt der Recorder nach dem Abschluss der Datei auch den Eingang:
+    // Status `idle`, das Addon gestoppt; das Fehlerfeld bleibt (K7: das Schließen durch den Recorder selbst löscht es nicht).
+    const s = rec.getState();
+    ck(
+      `RE-3 S2-R28 kein Block 2 s (Gerät 0): status idle, der Eingang ist geschlossen (stopInput einmal), fehler.art eingang mit „Keine Audiodaten vom Eingang“ bleibt (${s.status}, ${gestoppt - zuVor}, ${JSON.stringify(f)})`,
+      s.status === 'idle' && gestoppt - zuVor === 1 && f?.art === 'eingang' && f.text === 'Keine Audiodaten vom Eingang' && f.datei === datei,
+    );
     ck(`RE-3 kein Block 2 s: der Fehler kommt bei +2000 ms, nicht früher (${erstFehler})`, erstFehler === 2000);
-    ck(`RE-3 kein Block 2 s: der Kopf trägt die 10 Frames (${dataLaenge(datei)})`, dataLaenge(datei) === 80);
+    ck(`RE-3 kein Block 2 s: der Kopf trägt die 10 Frames = Dateigröße − 44 (${dataLaenge(datei)}, ${dateiGroesse(datei)})`, dataLaenge(datei) === 80 && dateiGroesse(datei) - 44 === 80);
+    // Companion liest status über toSuiteState (main/control-server.ts, unverändert; die Abbildung prüft der Wächter in altfehler.test.ts).
+    const companion = (z: { status: string }): string => `recording=${Number(z.status === 'recording')} armed=${Number(z.status === 'armed')}`;
+    const zustaende = gesendet.filter(([k]) => k === 'recorder:state').map(([, p]) => p as { status: string; fehler?: Fehler });
+    ck(`RE-3 S2-R28: Companion sieht nach dem Geräteverlust recording=0 armed=0 (${companion(s)}); der Zustand ging so ans Fenster`, companion(s) === 'recording=0 armed=0' && zustaende.at(-1)?.status === 'idle' && zustaende.at(-1)?.fehler?.art === 'eingang');
+    ck(`RE-3 S2-R28: Datei und Dauer der beendeten Aufnahme bleiben im Zustand wie nach einem Schreibfehler (${s.filePath})`, s.filePath === datei && s.recordedSec > 0);
+    const nachSchliessen = gestoppt;
+    uhr += 250;
+    w[0]?.();
+    ck('RE-3 S2-R28: nach dem Schließen tut der Block-Wächter nichts mehr (keine zweite Meldung, kein zweites stopInput)', protokoll.length === 1 && gestoppt === nachSchliessen);
     ck(
       `RE-3 kein Block 2 s: Meldung und Logzeile (${JSON.stringify(meldungen())}, ${JSON.stringify(protokoll)})`,
       JSON.stringify(meldungen()) === JSON.stringify(['Aufnahme beendet: Vom Eingang kamen 2 s lang keine Audiodaten. Das bisher Aufgenommene ist gespeichert.']) &&
         JSON.stringify(protokoll) === JSON.stringify([`Aufnahme beendet (eingang): ${datei}: Keine Audiodaten vom Eingang`]),
     );
+    // Gerät wieder da: Eingang öffnen lässt den Fehler stehen (K7), erst ein gelungener Start löscht ihn.
+    ck('RE-3 S2-R28: Eingang wieder öffnen', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+    ck(`RE-3 S2-R28: nach dem Öffnen steht der Fehler noch (K7) (${JSON.stringify(fehler())})`, rec.getState().status === 'armed' && fehler()?.art === 'eingang');
+    ck('RE-3 S2-R28: neu aufnehmen', rec.startRecording({ dir, fileName: 'StummNeu' }).ok);
+    ck(`RE-3 S2-R28: der gelungene Start löscht den Fehler (${JSON.stringify(fehler())})`, fehler() === null && rec.getState().status === 'recording');
+    zehn();
+    ck('RE-3 S2-R28: die neue Aufnahme schreibt', rec.stopRecording().ok && dataLaenge(join(dir, 'StummNeu.wav')) === 80);
     aufraeumen();
 
     // Die Ereignisschleife hing: der erste Takt kommt erst nach 2,1 s. Das ist ein Stau, kein Geräteverlust; die Grundlinie beginnt neu.
@@ -544,6 +570,99 @@ const aufraeumen = (): void => {
     w?.('ARM', { ok: true }) === null && w?.('ARM', { ok: false, error: 'Gerät belegt' }) === null && w?.('DISARM', { ok: false }) === null,
   );
   ck('RE-2 R11: Stopp', rec.stopRecording().ok);
+  aufraeumen();
+}
+
+// --- Fix-Welle (Ruling S2-R26, I1; Altfehler RE-7a): eine Schließ-Anfrage während der Aufnahme ruft kopfAktualisieren (main/index.ts über
+// SchliessenSteuerung). Es schreibt die Köpfe aller offenen Dateien (Kombidatei und jede Spur) mit den aktuellen Größen neu, schließt nichts,
+// und die Aufnahme schreibt weiter. Scheitert das, gibt es nur eine Logzeile: kein Fehlerfeld, keine Meldung, die Aufnahme läuft.
+{
+  const K = rec as unknown as { kopfAktualisieren?: () => void };
+  const T = rec.AUFNAHME_FEHLER_TEXTE as unknown as { kopfAnfrage?: (datei: string, grund: string) => string };
+  ck('S2-R26 kopfAktualisieren gibt es', typeof K.kopfAktualisieren === 'function');
+  ck(
+    `S2-R26 Texte: Logzeile wörtlich (${T.kopfAnfrage?.('D:\\a.wav', 'EIO')})`,
+    T.kopfAnfrage?.('D:\\a.wav', 'EIO') === 'Dateikopf bei der Schließ-Anfrage nicht aktualisiert: D:\\a.wav: EIO',
+  );
+  ck('S2-R26: arm', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+  ck('S2-R26: start mit Spuren', rec.startRecording({ dir, fileName: 'Zwischen', separateTracks: true }).ok);
+  const kombi = join(dir, 'Zwischen.wav');
+  const spur1 = join(dir, 'Zwischen-Spuren', 'Zwischen-Spur01.wav');
+  const spur2 = join(dir, 'Zwischen-Spuren', 'Zwischen-Spur02.wav');
+  zehn();
+  zehn();
+  protokoll.length = 0;
+  gesendet.length = 0;
+  const vorher = [dataLaenge(kombi), dataLaenge(spur1), dataLaenge(spur2)];
+  K.kopfAktualisieren?.();
+  ck(`S2-R26: vorher standen Platzhalter in den Köpfen (${JSON.stringify(vorher)})`, JSON.stringify(vorher) === '[0,0,0]');
+  ck(
+    `S2-R26 Kombidatei und beide Spuren tragen die Größen von 20 Frames = Dateigröße − 44 (${dataLaenge(kombi)}, ${dataLaenge(spur1)}, ${dataLaenge(spur2)})`,
+    dataLaenge(kombi) === 160 && dateiGroesse(kombi) - 44 === 160 && dataLaenge(spur1) === 80 && dateiGroesse(spur1) - 44 === 80 && dataLaenge(spur2) === 80 && dateiGroesse(spur2) - 44 === 80,
+  );
+  ck(
+    `S2-R26: nichts geschlossen, kein Fehlerfeld, keine Meldung, keine Logzeile (${rec.getState().status}, ${JSON.stringify(fehler())}, ${gesendet.length}, ${protokoll.length})`,
+    rec.getState().status === 'recording' && fehler() === null && meldungen().length === 0 && protokoll.length === 0,
+  );
+  zehn();
+  ck(
+    `S2-R26: die Aufnahme schreibt weiter (Kombidatei ${dateiGroesse(kombi)} = 44 + 30 Frames), der Kopf bleibt beim Stand der Anfrage (${dataLaenge(kombi)})`,
+    dateiGroesse(kombi) === 44 + 240 && dateiGroesse(spur1) === 44 + 120 && dataLaenge(kombi) === 160,
+  );
+  const r = rec.stopRecording();
+  ck(`S2-R26: der Stopp danach schließt mit der vollen Länge ab (${dataLaenge(kombi)}, ${dataLaenge(spur1)})`, r.ok && dataLaenge(kombi) === 240 && dataLaenge(spur1) === 120);
+  const groesseNachStopp = dateiGroesse(kombi);
+  K.kopfAktualisieren?.();
+  ck('S2-R26: ohne Aufnahme tut kopfAktualisieren nichts', protokoll.length === 0 && rec.getState().status === 'armed' && dateiGroesse(kombi) === groesseNachStopp && dataLaenge(kombi) === 240);
+  aufraeumen();
+}
+// Scheitert das Neuschreiben (Kombidatei oder eine Spur), entsteht je Datei eine Logzeile; die Aufnahme läuft weiter, ohne Fehlerfeld.
+{
+  const K = rec as unknown as { kopfAktualisieren?: () => void };
+  type Kopf = { kopfAktualisieren?: () => void };
+  const proto = WavWriter.prototype as unknown as Kopf;
+  const echt = proto.kopfAktualisieren;
+  ck('S2-R26 Fehler: arm', rec.arm({ device: 0, channels: 2, sampleRate: 48000 }).ok);
+  ck('S2-R26 Fehler: start mit Spuren', rec.startRecording({ dir, fileName: 'ZwFehler', separateTracks: true }).ok);
+  const kombi = join(dir, 'ZwFehler.wav');
+  const spur1 = join(dir, 'ZwFehler-Spuren', 'ZwFehler-Spur01.wav');
+  const spur2 = join(dir, 'ZwFehler-Spuren', 'ZwFehler-Spur02.wav');
+  zehn();
+  protokoll.length = 0;
+  gesendet.length = 0;
+  const scheitert = (ende: string): void => {
+    proto.kopfAktualisieren = function (this: InstanceType<typeof WavWriter>): void {
+      if (this.aktuelleDatei.endsWith(ende)) throw new Error('EIO: i/o error, write');
+      echt?.call(this);
+    };
+  };
+  let wurf: unknown = null;
+  try {
+    scheitert('ZwFehler.wav');
+    K.kopfAktualisieren?.();
+    scheitert('-Spur01.wav');
+    K.kopfAktualisieren?.();
+  } catch (e) {
+    wurf = e;
+  } finally {
+    proto.kopfAktualisieren = echt;
+  }
+  ck(`S2-R26 Fehler: kopfAktualisieren wirft nicht (${wurf === null ? 'kein Wurf' : String(wurf)})`, wurf === null);
+  ck(
+    `S2-R26 Fehler: je eine Logzeile mit der Datei, die scheiterte (${JSON.stringify(protokoll)})`,
+    JSON.stringify(protokoll) ===
+      JSON.stringify([`Dateikopf bei der Schließ-Anfrage nicht aktualisiert: ${kombi}: EIO: i/o error, write`, `Dateikopf bei der Schließ-Anfrage nicht aktualisiert: ${spur1}: EIO: i/o error, write`]),
+  );
+  ck(
+    `S2-R26 Fehler: die übrigen Köpfe sind geschrieben (Spuren im ersten, Kombidatei und Spur02 im zweiten Durchgang: ${dataLaenge(kombi)}, ${dataLaenge(spur2)})`,
+    dataLaenge(kombi) === 80 && dataLaenge(spur2) === 40,
+  );
+  ck(
+    `S2-R26 Fehler: ohne Fehlerzustand, die Aufnahme läuft (${rec.getState().status}, ${JSON.stringify(fehler())}, Meldungen ${meldungen().length})`,
+    rec.getState().status === 'recording' && fehler() === null && meldungen().length === 0,
+  );
+  zehn();
+  ck('S2-R26 Fehler: Stopp schließt ab', rec.stopRecording().ok && dataLaenge(kombi) === 160);
   aufraeumen();
 }
 
