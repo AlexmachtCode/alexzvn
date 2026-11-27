@@ -349,7 +349,7 @@
     "entries": [
       {
         "version": "0.10.1",
-        "date": "2026-11-26",
+        "date": "2026-11-27",
         "notes": [
           "Ein Cue, der während seiner Vorlaufzeit gelöscht wird, startet nicht mehr, auch nicht in oder nach der Pause. Das gilt auch für einen Video-Cue, der noch auf das Ausgabefenster wartet.",
           "GO in der Pause auf einen Cue ohne Vorlaufzeit hebt die Pause jetzt ganz auf, wie „▶ Weiter“: Angehaltene Töne und ein angehaltenes Video in der Ausgabe laufen weiter. „▶ Weiter“ startet ein Video, das schon zu Ende gelaufen ist, nicht mehr neu."
@@ -450,7 +450,7 @@
     "entries": [
       {
         "version": "0.11.0",
-        "date": "2026-11-26",
+        "date": "2026-11-27",
         "notes": [
           "Companion: ARM und DISARM beenden keine laufende Aufnahme mehr, sie werden abgelehnt; beenden geht nur mit Stopp. RECORD ON ohne Zielordner wird abgelehnt, statt am Rechner einen Ordnerdialog zu öffnen. Den Grund zeigt das Fenster. Im Fenster ist „Eingang schließen“ während der Aufnahme gesperrt.",
           "Zielordner aus einer Show: Ein Netzwerkordner gilt erst, wenn ihn jemand im Fenster mit „Übernehmen“ bestätigt; danach ist er gemerkt und geht ohne Klick. Ungültige Pfade übernimmt der Recorder nicht. Das Prüfen eines Netzwerkordners hält weder den Start des Recorders noch den Wechsel zum nächsten Preset auf.",
@@ -694,7 +694,7 @@
     "entries": [
       {
         "version": "0.15.1",
-        "date": "2026-11-26",
+        "date": "2026-11-27",
         "notes": [
           "Handy-Fernsteuerung: „Verbinden“ mit der PIN hebt ein Schwarz- oder Weißbild nicht mehr auf. Es bleibt stehen, bis jemand „Folie“ drückt oder weiterblättert.",
           "Companion: Die Aktionen „Schwarz“ und „Weiß“ haben eine Wahl „Umschalten“, „An“ oder „Aus“ (Companion-Modul 0.4.0, Datei jm-suite-companion-0.4.0.tgz am Release presenter-v0.15.1 auf GitHub; der Launcher lädt es nicht mit, in Companion über „Import custom module“ importieren). Vorgabe ist „Umschalten“, bestehende Tasten wirken wie bisher. Wer sicher schwarz will, stellt die Taste auf „An“. Presenter bis 0.15.0 schalten bei jeder Wahl um; erst ab Presenter 0.15.1 wirken „An“ und „Aus“."
@@ -1269,7 +1269,7 @@
     "entries": [
       {
         "version": "0.8.0",
-        "date": "2026-11-26",
+        "date": "2026-11-27",
         "notes": [
           "Die Presenter-PIN steht verdeckt im Feld („Anzeigen“ zeigt sie) und gilt erst mit „Setzen“. In stage-config.json und in der Anfrage an den Presenter steht sie weiter im Klartext, weil das Protokoll des Presenters es so verlangt.",
           "Die Nachricht ist ein Entwurf: Sie geht erst mit „Senden“ oder Enter auf die Bühne; „Senden“ mit leerem Feld nimmt sie wieder herunter. Nach einem Neustart steht keine Nachricht auf der Bühne, der letzte Text bleibt als Entwurf im Feld.",
@@ -2041,7 +2041,7 @@
     "entries": [
       {
         "version": "0.7.0",
-        "date": "2026-11-26",
+        "date": "2026-11-27",
         "notes": [
           "Ein Mikrofonfehler beendet jetzt die Transkription: Die Haupttaste steht wieder auf „Start“, Companion meldet running=0, und Caption startet nicht mehr von selbst neu. Der Fehler bleibt im Fenster stehen, bis wieder gestartet wird.",
           "„Leeren“ leert jetzt auch die NDI-Quelle, wenn Hold an ist; Hold bleibt an und hält das leere Bild. Eine Korrektur im Verlauf trifft die angeklickte Zeile, auch wenn inzwischen neue Zeilen kamen; Escape bricht die Korrektur ab.",
@@ -2115,7 +2115,7 @@
     "entries": [
       {
         "version": "0.6.1",
-        "date": "2026-11-26",
+        "date": "2026-11-27",
         "notes": [
           "„Meeting verlassen“ bei laufenden Slots: „Ja, verlassen“ nimmt erst nach einer Sekunde einen Klick an. Ein Doppelklick auf „Meeting verlassen“ verlässt das Meeting also nicht mehr."
         ]
@@ -2286,7 +2286,7 @@
     "entries": [
       {
         "version": "0.3.1",
-        "date": "2026-11-26",
+        "date": "2026-11-27",
         "notes": [
           "„Starten“ ist gesperrt, solange der Start läuft („Startet …“); ein zweiter Klick verwirft den ersten Start nicht mehr. Antworten die Geräte 15 Sekunden lang nicht, bricht der Start mit einer Meldung ab, und die Taste ist wieder frei.",
           "„Ducking-Werte zurücksetzen“ lässt die beiden Vorverstärkungen stehen."
