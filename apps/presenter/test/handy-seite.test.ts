@@ -58,10 +58,17 @@ interface Seite {
   aufrufe: Aufruf[];
   quellen: Array<{ url: string; zu: boolean }>;
   status: { wert: number };
+  /** Wie oft die Seite den Antwortkörper abgebrochen hat (body.cancel, Rückfall ohne AbortController). */
+  koerperAbbrueche: { zahl: number };
+  /** typeof AbortController im Seiten-Kontext. */
+  typAbort: string;
 }
 
-/** Lädt die Seite mit PIN-Schutz: Elemente mit ihren Klassen aus dem HTML, Skript in einem eigenen vm-Kontext. */
-function lade(): Seite {
+/**
+ * Lädt die Seite mit PIN-Schutz: Elemente mit ihren Klassen aus dem HTML, Skript in einem eigenen vm-Kontext. Mit
+ * ohneAbortController fehlt AbortController im Kontext wie in iOS Safari vor 12.2 und Chrome vor 66 (Fix-Runde 1, R23).
+ */
+function lade(opt: { ohneAbortController?: boolean } = {}): Seite {
   const html = controllerHtml(true);
   const elemente = new Map<string, Element>();
   const knoepfe: Element[] = [];
@@ -81,6 +88,7 @@ function lade(): Seite {
   const aufrufe: Aufruf[] = [];
   const quellen: Array<{ url: string; zu: boolean }> = [];
   const status = { wert: 200 };
+  const koerperAbbrueche = { zahl: 0 };
   class EventSourceAttrappe {
     onopen: (() => void) | null = null;
     onmessage: ((e: { data: string }) => void) | null = null;
@@ -106,11 +114,12 @@ function lade(): Seite {
       removeItem: (k: string) => void speicher.delete(k),
     },
     EventSource: EventSourceAttrappe,
-    AbortController,
+    ...(opt.ohneAbortController ? {} : { AbortController }),
     fetch: (url: string, opt?: { method?: string; body?: string; signal?: AbortSignal }) => {
       aufrufe.push({ url, methode: opt?.method ?? 'GET', body: opt?.body, signal: opt?.signal });
       const s = status.wert;
-      return Promise.resolve({ status: s, json: () => Promise.resolve({ active: false }) });
+      const body = { cancel: () => { koerperAbbrueche.zahl++; return Promise.resolve(); } };
+      return Promise.resolve({ status: s, body, json: () => Promise.resolve({ active: false }) });
     },
     confirm: () => true,
     setTimeout,
@@ -119,7 +128,8 @@ function lade(): Seite {
   });
   const skript = html.slice(html.indexOf('<script>') + '<script>'.length, html.indexOf('</script>'));
   vm.runInContext(skript, kontext);
-  return { el, knopf: (s) => knoepfe.find((k) => k.dataset.screen === s) as Element, aufrufe, quellen, status };
+  const typAbort = String(vm.runInContext('typeof AbortController', kontext));
+  return { el, knopf: (s) => knoepfe.find((k) => k.dataset.screen === s) as Element, aufrufe, quellen, status, koerperAbbrueche, typAbort };
 }
 
 const anCmd = (s: Seite): Aufruf[] => s.aufrufe.filter((a) => a.url.startsWith('/cmd'));
@@ -178,6 +188,43 @@ const pruefungen = (s: Seite): Aufruf[] => s.aufrufe.filter((a) => a.methode ===
   s.el('connect').click();
   await ruhe();
   ck('PS-15 Randfall: weniger als vier Ziffern → „4-stellige PIN.“, kein Abruf', s.el('gateErr').textContent === '4-stellige PIN.' && s.aufrufe.length === 0);
+}
+
+// ── Fix-Runde 1 (R23): ohne AbortController (iOS Safari vor 12.2, Chrome vor 66) verbindet „Verbinden“ weiter ──
+/** Klickt „Verbinden“; ein Wurf im Hörer (etwa ReferenceError) wird gemeldet statt den Test abzubrechen. */
+const verbinde = async (s: Seite, pin: string): Promise<string | null> => {
+  s.el('pin').value = pin;
+  let wurf: string | null = null;
+  try {
+    s.el('connect').click();
+  } catch (e) {
+    wurf = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+  }
+  await ruhe();
+  return wurf;
+};
+{
+  const s = lade({ ohneAbortController: true });
+  ck('PS-15 ohne AbortController Vorbedingung: im Seiten-Kontext fehlt AbortController', s.typAbort === 'undefined');
+  s.status.wert = 200;
+  const wurf = await verbinde(s, '1234');
+  ck(`PS-15 ohne AbortController (200): „Verbinden“ wirft nicht (${wurf ?? 'kein Wurf'})`, wurf === null);
+  ck('PS-15 ohne AbortController (200): genau ein GET auf /events?pin=1234 und sonst nichts', pruefungen(s).length === 1 && s.aufrufe.length === 1);
+  ck('PS-15 ohne AbortController (200): kein Aufruf an /cmd', anCmd(s).length === 0 && mitLive(s).length === 0);
+  ck(
+    'PS-15 ohne AbortController (200): genau eine EventSource(/events?pin=1234) ist offen, gate versteckt',
+    s.quellen.length === 1 && s.quellen[0].url === '/events?pin=1234' && !s.quellen[0].zu && s.el('gate').klassen.has('hidden') && !s.el('app').klassen.has('hidden'),
+  );
+  ck(`PS-15 ohne AbortController (200): die Prüfung bricht den Antwortkörper ab (body.cancel genau einmal, ist ${s.koerperAbbrueche.zahl})`, s.koerperAbbrueche.zahl === 1);
+}
+{
+  const s = lade({ ohneAbortController: true });
+  s.status.wert = 401;
+  const wurf = await verbinde(s, '1234');
+  ck(
+    'PS-15 ohne AbortController (401): kein Wurf, „Falsche PIN.“, das Tor bleibt, kein Strom offen',
+    wurf === null && s.el('gateErr').textContent === 'Falsche PIN.' && !s.el('gate').klassen.has('hidden') && s.quellen.length === 0 && pruefungen(s).length === 1,
+  );
 }
 
 console.log(`\nhandy-seite: ${pass} ok, ${fail} FAIL`);

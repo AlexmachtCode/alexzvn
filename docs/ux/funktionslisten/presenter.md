@@ -565,7 +565,7 @@ Weitere Zuordnung (Plan-Block Presenter, B11 bis B14):
     Hauptprozess setzt dann `setScreen('live')` (`src/main/present.ts:145-150`): verbindet sich ein Handy während eines Schwarz-
     oder Weißbilds, sieht das Publikum wieder die Folie (abgeleitet, nicht gemessen). Die Seite bleibt unverändert.
     Altfehler Stufe 2 (PS-15): behoben. „Verbinden“ prüft die PIN über den lesenden Strom `/events?pin=…` und bricht ihn nach der
-    Antwort ab (`src/main/remote-page.ts:141-144`); bei 401 steht „Falsche PIN.“ im Tor, sonst öffnet die Seite wie bisher ihren
+    Antwort ab (`src/main/remote-page.ts:141-144`; mit `AbortController`, in Browsern ohne ihn über `body.cancel`, Fix-Runde 1); bei 401 steht „Falsche PIN.“ im Tor, sonst öffnet die Seite wie bisher ihren
     Strom. Ein Schwarz- oder Weißbild bleibt stehen. `src/main/remote.ts` blieb unverändert, es gibt kein neues Verb (P7).
 16. **Handy-Fenster nach einem Startfehler:** jedes Anwenden nimmt `enabled` aus dem gemessenen `running`
     (`R/components/RemotePanel.tsx:33-45`). Nach „Port … ist belegt“ startet ein neuer Port oder eine andere Netzwerkkarte den

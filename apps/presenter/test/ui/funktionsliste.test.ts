@@ -638,9 +638,11 @@ const zeigtAuf = (nr: number, datei: string, ...woerter: string[]): boolean => {
         [170, 171, 172, 173, 174, 175, 176, 213, 221].every((nr) => beginnt(nr, 'Handy-Seite (unverändert)') && nennt(nr, '`src/main/remote-page.ts', 'PS-15')) &&
         GEAENDERT_KANON.has('apps/presenter/src/main/remote-page.ts') &&
         JSON.stringify(ERLAUBT.get('apps/presenter/src/main/remote-page.ts')) === JSON.stringify(['PS-15']) &&
-        seite.includes("fetch('/events?pin=' + encodeURIComponent(pin), { signal: pruefung.signal })") &&
+        // Fix-Runde 1 (R23): AbortController nur, wenn der Browser ihn kennt; sonst bricht body.cancel die Prüfung ab.
+        seite.includes("var pruefung = typeof AbortController === 'function' ? new AbortController() : null;") &&
+        seite.includes("fetch('/events?pin=' + encodeURIComponent(pin), pruefung ? { signal: pruefung.signal } : {})") &&
         !seite.includes("action:'live'"),
-      'PS Funktionsliste Nr. 169–176, 213, 221: die Handy-Seite (src/main/remote-page.ts) änderte nur die PIN-Prüfung (Altfehler PS-15): Nr. 169 am Ort Handy-Seite, die übrigen „Handy-Seite (unverändert)“ mit PS-15',
+      'PS Funktionsliste Nr. 169–176, 213, 221: die Handy-Seite (src/main/remote-page.ts) änderte nur die PIN-Prüfung (Altfehler PS-15, auch ohne AbortController): Nr. 169 am Ort Handy-Seite, die übrigen „Handy-Seite (unverändert)“ mit PS-15',
     );
   }
   ok([177, 178, 179, 180].every((nr) => beginnt(nr, 'Publikum (unverändert)')) && [181, 182].every((nr) => beginnt(nr, 'NDI-Fenster (unverändert)')), 'PS Funktionsliste Nr. 177–182: Publikumsbild und NDI-Bild unverändert (B5)');

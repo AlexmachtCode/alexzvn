@@ -138,10 +138,10 @@ export function controllerHtml(pinRequired: boolean): string {
     var v = $('pin').value.trim();
     if (v.length<4){ $('gateErr').textContent='4-stellige PIN.'; return; }
     pin = v; localStorage.setItem('jmpr_pin', pin);
-    var pruefung = new AbortController();
-    fetch('/events?pin=' + encodeURIComponent(pin), { signal: pruefung.signal })
+    var pruefung = typeof AbortController === 'function' ? new AbortController() : null; // iOS Safari vor 12.2, Chrome vor 66: ohne
+    fetch('/events?pin=' + encodeURIComponent(pin), pruefung ? { signal: pruefung.signal } : {})
       .then(function(r){ if (r.status===401){ $('gateErr').textContent='Falsche PIN.'; return; }
-        pruefung.abort(); $('gate').classList.add('hidden'); $('app').classList.remove('hidden'); connect(); });
+        if (pruefung) pruefung.abort(); else if (r.body && r.body.cancel) r.body.cancel(); $('gate').classList.add('hidden'); $('app').classList.remove('hidden'); connect(); });
   });
   $('pin').addEventListener('keydown', function(e){ if(e.key==='Enter') $('connect').click(); });
 
