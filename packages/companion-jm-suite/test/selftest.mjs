@@ -6,8 +6,13 @@
 import crypto from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { CAPABILITIES, KNOWN_ROLES, parseSuiteCommand, parseSuiteState, formatSuiteState, parseAuthReq, formatAuth, isAuthOk, isAuthFail } from '../generated/protocol.mjs'
-import { buildCommandLine, matchesRole, isControlService, pickEndpoint, isTruthy, slotSchluessel, feedbackAn, presetFeedbacks } from '../lib.mjs'
+import * as lib from '../lib.mjs'
+import { buildCommandLine, matchesRole, isControlService, pickEndpoint, isTruthy, slotSchluessel, feedbackAn, presetFeedbacks, toCompanionOption } from '../lib.mjs'
 import { computeAuthProof, normalizeFingerprint } from '../auth.mjs'
+
+// PS-18 (Modul 0.4.0): Presenter Schwarz/Weiß bekommen die Wahl nur im Modul (P1). Fehlt aktionenFuer (Modul 0.3.0), gilt
+// die Tabelle unverändert; die Prüfungen unten werden dann rot, der Rest läuft weiter.
+const aktionenFuer = typeof lib.aktionenFuer === 'function' ? lib.aktionenFuer : (cap) => cap.actions
 
 let failed = 0
 function eq(actual, expected, msg) {
@@ -60,9 +65,10 @@ eq(pickEndpoint('presenter', svcs), null, 'pickEndpoint presenter → null (nur 
 eq(pickEndpoint('daw', svcs), null, 'pickEndpoint daw → null (nicht im LAN gefunden)')
 
 // ── Round-Trip: jede Action → parsebar mit korrektem ns + verb ───────────────
+// Über aktionenFuer (PS-18): so wie main.js die Aktionen baut, also mit der Wahl an Presenter Schwarz/Weiß.
 let rtCount = 0
 for (const role of KNOWN_ROLES) {
-  for (const a of CAPABILITIES[role].actions) {
+  for (const a of aktionenFuer(CAPABILITIES[role])) {
     const options = {}
     for (const arg of a.args ?? []) options[arg.id] = arg.default
     const line = buildCommandLine(role, a, options, {})
@@ -230,6 +236,108 @@ eq(
   const na = C?.feedbacks.find((f) => f.id === 'ndi_alarm')
   eq(na ? [na.label, na.stateKey, na.match, na.arg ?? null] : null, ['Connect: NDI-Ausfall', 'ndi_alarm', 'truthy', null], 'connect: S T136 Feedback „Connect: NDI-Ausfall“ auf ndi_alarm, truthy, ohne Argument')
   eq(na ? [feedbackAn(na, {}, { ndi_alarm: '1' }), feedbackAn(na, {}, { ndi_alarm: '0' })] : null, [true, false], 'Feedback ndi_alarm: an bei 1, aus bei 0 (22.6)')
+}
+
+// ── PS-18: Presenter „Schwarz“ und „Weiß“ mit der Wahl Umschalten/An/Aus (Modul 0.4.0; P1 nur im Modul, P2 Rückfall, K5) ──
+{
+  const P = CAPABILITIES.presenter
+  const PA = (id) => aktionenFuer(P).find((a) => a.id === id)
+  const WAHL = { id: 'mode', label: 'Modus', type: 'dropdown', default: 'toggle', choices: [{ id: 'toggle', label: 'Umschalten' }, { id: 'on', label: 'An' }, { id: 'off', label: 'Aus' }] }
+  eq(typeof lib.aktionenFuer, 'function', 'PS-18: lib.mjs exportiert aktionenFuer')
+  eq(lib.SCHIRM_WAHL ?? null, WAHL, 'PS-18: SCHIRM_WAHL wörtlich: Option „Modus“, Vorgabe toggle, Wahlen „Umschalten“, „An“, „Aus“')
+  for (const [id, VERB, name] of [['black', 'BLACK', 'Schwarz'], ['white', 'WHITE', 'Weiß']]) {
+    const a = PA(id)
+    eq(
+      a ? (a.args ?? []).map(toCompanionOption) : null,
+      [{ type: 'dropdown', id: 'mode', label: 'Modus', default: 'toggle', choices: WAHL.choices }],
+      `PS-18 ${id}: Companion-Option „Modus“ mit Vorgabe „Umschalten“ (toggle) und den Wahlen „Umschalten“, „An“, „Aus“`,
+    )
+    eq(a ? [a.label, a.verb, a.toggleKey ?? null] : null, [name, id, null], `PS-18 ${id}: Aktion heißt weiter „${name}“, ohne toggleKey (Umschalten löst der Presenter auf)`)
+    eq(a ? buildCommandLine('presenter', a, { mode: 'on' }, {}) : null, `PRESENTER ${VERB} ON`, `PS-18 ${id}: { mode: 'on' } → PRESENTER ${VERB} ON`)
+    eq(a ? buildCommandLine('presenter', a, { mode: 'off' }, {}) : null, `PRESENTER ${VERB} OFF`, `PS-18 ${id}: { mode: 'off' } → PRESENTER ${VERB} OFF`)
+    eq(a ? buildCommandLine('presenter', a, { mode: 'toggle' }, {}) : null, `PRESENTER ${VERB} TOGGLE`, `PS-18 ${id}: { mode: 'toggle' } → PRESENTER ${VERB} TOGGLE`)
+    eq(a ? buildCommandLine('presenter', a, {}, {}) : null, `PRESENTER ${VERB} TOGGLE`, `PS-18 ${id}: {} (Taste aus Modul 0.3.0) → PRESENTER ${VERB} TOGGLE`)
+    eq(a ? buildCommandLine('presenter', a, undefined, {}) : null, `PRESENTER ${VERB} TOGGLE`, `PS-18 ${id}: ohne Optionen → PRESENTER ${VERB} TOGGLE`)
+    eq(a ? buildCommandLine('presenter', a, { mode: 'toggle' }, { [id]: '1' }) : null, `PRESENTER ${VERB} TOGGLE`, `PS-18 ${id}: toggle wird nicht im Modul über den STATE aufgelöst`)
+    const p = a ? parseSuiteCommand(buildCommandLine('presenter', a, { mode: 'on' }, {})) : null
+    eq(p ? [p.ns, p.verb, p.args] : null, ['presenter', id, ['ON']], `PS-18 ${id}: der Presenter liest ns, verb und die Wahl als Argument`)
+  }
+  // P1: die geteilte Tabelle (generated/protocol.mjs aus capabilities.ts) bleibt ohne Wahl; aktionenFuer verändert sie nicht.
+  eq(['black', 'white'].map((id) => P.actions.find((a) => a.id === id)?.args ?? null), [null, null], 'PS-18 P1: Schwarz und Weiß der geteilten Tabelle haben weiter keine args (die Wahl steht nur im Modul)')
+  const anders = KNOWN_ROLES.flatMap((role) => {
+    const neu = aktionenFuer(CAPABILITIES[role])
+    return CAPABILITIES[role].actions
+      .filter((a, i) => neu[i] !== a && !(role === 'presenter' && (a.id === 'black' || a.id === 'white')))
+      .map((a) => `${role}.${a.id}`)
+      .concat(neu.length === CAPABILITIES[role].actions.length ? [] : [`${role}: ${neu.length} statt ${CAPABILITIES[role].actions.length} Aktionen`])
+  })
+  eq(anders, [], 'PS-18: aktionenFuer lässt jede andere Aktion jeder Rolle unberührt (dasselbe Objekt, dieselbe Reihenfolge)')
+  // Preset wie main.js buildPresets: Optionen aus den Vorgaben der args.
+  const vorgabe = (a) => Object.fromEntries((a?.args ?? []).map((arg) => [arg.id, arg.default]))
+  eq([vorgabe(PA('black')), vorgabe(PA('white'))], [{ mode: 'toggle' }, { mode: 'toggle' }], 'PS-18: die Presets Schwarz und Weiß stehen auf „Umschalten“')
+
+  // K5: Großschreibung und Rückfall auf die Vorgabe nur für SCHIRM_WAHL. Die Connect-Zeile SLIDES bleibt zeichengleich.
+  const sl = CAPABILITIES.connect.actions.find((a) => a.id === 'slides')
+  eq(sl ? buildCommandLine('connect', sl, { guest: 'g1', mode: 'toggle' }, {}) : null, 'CONNECT SLIDES g1 toggle', 'K5: Connect SLIDES … toggle bleibt zeichengleich (mode ohne toggleKey bleibt klein)')
+  // K5: jede übrige Aktion jeder Rolle baut dieselbe Zeile wie Modul 0.3.0 (Referenz: buildCommandLine aus 0.3.0, wörtlich).
+  const zeile030 = (role, action, options, state) => {
+    const args = []
+    for (const arg of action.args ?? []) {
+      let val = options?.[arg.id]
+      if (arg.id === 'mode' && action.toggleKey) {
+        if (val === 'toggle') {
+          const cur = state?.[slotSchluessel(action.toggleKey, options)]
+          val = cur === '1' || cur === 'an' || cur === 'true' ? 'off' : 'on'
+        }
+        args.push(String(val).toUpperCase())
+      } else {
+        args.push(String(val))
+      }
+    }
+    const verb = action.verb.toUpperCase()
+    const prefix = role === 'switcher' ? '' : `${role.toUpperCase()} `
+    const tail = args.length ? ` ${args.join(' ')}` : ''
+    return `${prefix}${verb}${tail}`
+  }
+  const alleAn = new Proxy({}, { get: () => '1' })
+  const abweichend = []
+  let verglichen = 0
+  for (const role of KNOWN_ROLES) {
+    for (const a of aktionenFuer(CAPABILITIES[role])) {
+      if (role === 'presenter' && (a.id === 'black' || a.id === 'white')) continue
+      for (const [opt, st] of [[vorgabe(a), {}], [vorgabe(a), alleAn], [{}, {}], [undefined, {}]]) {
+        verglichen++
+        const neu = buildCommandLine(role, a, opt, st)
+        const alt = zeile030(role, a, opt, st)
+        if (neu !== alt) abweichend.push(`${role}.${a.id}: ${JSON.stringify(neu)} statt ${JSON.stringify(alt)}`)
+      }
+    }
+  }
+  eq(abweichend, [], `K5: alle übrigen Aktionen bauen dieselbe Zeile wie Modul 0.3.0 (${verglichen} Vergleiche: Vorgaben, Umschalten bei an, ohne Optionen)`)
+
+  // main.js lädt @companion-module/base und läuft hier nicht; geprüft wird, dass Aktionen und Presets aus aktionenFuer kommen.
+  const main = readFileSync(new URL('../main.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+  const methode = (name) => {
+    const von = main.indexOf(`  ${name}(cap) {`)
+    return von < 0 ? '' : main.slice(von, main.indexOf('\n  }\n', von))
+  }
+  eq(
+    [
+      methode('buildActions').includes('for (const a of aktionenFuer(cap)) {'),
+      methode('buildPresets').includes('for (const a of aktionenFuer(cap)) {'),
+      main.includes('cap.actions'),
+      /^import \{[^}]*\baktionenFuer\b[^}]*\} from '\.\/lib\.mjs'$/m.test(main),
+    ],
+    [true, true, false, true],
+    'PS-18: main.js baut buildActions und buildPresets aus aktionenFuer(cap), nirgends mehr aus cap.actions',
+  )
+  eq([paket.version, manifest.version], ['0.4.0', '0.4.0'], 'PS-18: Modul 0.4.0 in package.json und companion/manifest.json')
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+  eq(
+    [readme.includes('\n## Rolle „JM Presenter“ (ab Modul 0.4.0)\n'), readme.includes('Ein Presenter bis 0.15.0 schaltet bei jeder Wahl um.')],
+    [true, true],
+    'PS-18: README mit dem Abschnitt „Rolle „JM Presenter“ (ab Modul 0.4.0)“ und dem Satz zur Verträglichkeit',
+  )
 }
 
 console.log(failed === 0 ? '\nALLE TESTS OK' : `\n${failed} FEHLER`)

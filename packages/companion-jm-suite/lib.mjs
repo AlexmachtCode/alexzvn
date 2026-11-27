@@ -2,6 +2,35 @@
 // @companion-module/base, damit sie ohne Companion-Runtime getestet werden
 // können (test/selftest.mjs). main.js nutzt sie.
 
+/**
+ * PS-18 (Modul 0.4.0): die Wahl an Presenter „Schwarz“ und „Weiß“. Sie steht nur hier im Modul, nicht in der geteilten
+ * Tabelle (capabilities.ts, P1). Vorgabe „Umschalten“, damit Tasten aus Modul 0.3.0 wirken wie bisher. Der Presenter (ab 0.15.1)
+ * löst „Umschalten“ selbst auf; ein Presenter bis 0.15.0 liest das Argument nicht und schaltet bei jeder Wahl um.
+ */
+export const SCHIRM_WAHL = {
+  id: 'mode',
+  label: 'Modus',
+  type: 'dropdown',
+  default: 'toggle',
+  choices: [
+    { id: 'toggle', label: 'Umschalten' },
+    { id: 'on', label: 'An' },
+    { id: 'off', label: 'Aus' },
+  ],
+};
+
+/**
+ * Die Aktionen einer Rolle, so wie das Modul sie anbietet (main.js buildActions, buildPresets): die der geteilten Tabelle,
+ * bei der Rolle presenter bekommen `black` und `white` ohne eigene args die Wahl SCHIRM_WAHL (PS-18). Alle anderen Aktionen
+ * bleiben dieselben Objekte; die Tabelle selbst wird nicht verändert.
+ */
+export function aktionenFuer(cap) {
+  if (cap.role !== 'presenter') return cap.actions;
+  return cap.actions.map((a) =>
+    (a.id === 'black' || a.id === 'white') && (a.args ?? []).length === 0 ? { ...a, args: [SCHIRM_WAHL] } : a,
+  );
+}
+
 /** Eine CapabilityArg in ein Companion-Options-Feld übersetzen. */
 export function toCompanionOption(arg) {
   if (arg.type === 'dropdown') {
@@ -20,6 +49,10 @@ export function toCompanionOption(arg) {
  *    STATE-Wert auf und senden ON/OFF (alle Tools akzeptieren ON/OFF).
  *    Ein Platzhalter {slot} im toggleKey wird vorher aus der Option „slot“
  *    aufgelöst (Connect 0.4.0, Spec 8.5 Nr. 2; slotSchluessel).
+ *  - Die Wahl SCHIRM_WAHL (Presenter Schwarz/Weiß, PS-18) geht immer groß
+ *    hinaus (TOGGLE|ON|OFF); fehlt sie (Taste aus Modul 0.3.0), gilt die
+ *    Vorgabe „toggle“. Nur für dieses Argument (K5): alle anderen Zeilen,
+ *    etwa Connect `SLIDES <gast> toggle`, bleiben zeichengleich.
  *
  * @param {string} role      Tool-Rolle (z. B. 'timer')
  * @param {object} action    Capability-Action {verb, args?, toggleKey?}
@@ -31,7 +64,9 @@ export function buildCommandLine(role, action, options, state) {
   const args = [];
   for (const arg of action.args ?? []) {
     let val = options?.[arg.id];
-    if (arg.id === 'mode' && action.toggleKey) {
+    if (arg === SCHIRM_WAHL) {
+      args.push(String(val ?? arg.default).toUpperCase());
+    } else if (arg.id === 'mode' && action.toggleKey) {
       if (val === 'toggle') {
         const cur = state?.[slotSchluessel(action.toggleKey, options)];
         val = cur === '1' || cur === 'an' || cur === 'true' ? 'off' : 'on';

@@ -1,6 +1,8 @@
 // UX Welle 2b, Presenter b · Brücken (Spec 3.9, 7.2, B2, B11): Fernsteuerungs-Meldung (Kreuzprodukt der Ereignisse, Port
 // belegt), Quellen ohne und mit window, Quelltext-Wächter für Preload, Main, Steuerport und das Bildschirm-Ereignis samt `move`
-// des Publikumsfensters. Kein Electron, kein window beim Import.
+// des Publikumsfensters; seit Altfehler Stufe 2 auch die Wahl an BLACK und WHITE im Steuerserver (PS-18). Kein Electron, kein
+// window beim Import.
+import { existsSync } from 'node:fs';
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
 import { FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
 import {
@@ -248,6 +250,23 @@ const folge = (...es: FernsteuerungEreignis[]): FernsteuerungMeldung | undefined
     'PS Rückspiel Wächter STEUER_PORT 8728: startControlServer nimmt onMeldung; jeder Statuswechsel des Servers wird mit dem Modus der meldenden Instanz gemeldet (srv.modus(), nicht die Modulvariable)',
   );
   ok(cs.includes('  return server.start(CONTROL_PORT);\n'), 'PS Wächter STEUER_PORT 8728: der Steuerserver startet unverändert auf CONTROL_PORT');
+  // PS-18 Wächter (Altfehler Stufe 2): Companion BLACK und WHITE lesen die Wahl über schirmBefehl (test/schirm-wahl.test.ts);
+  // der Steuerserver selbst ist im Test nicht startbar (electron, fester Port 8728, Ruling R3 aus Stufe 1), darum am Quelltext.
+  {
+    const fall = (ziel: string): boolean =>
+      new RegExp(`case '${ziel}': \\{\\s*const m = schirmBefehl\\(getState\\(\\)\\.screen, '${ziel}', cmd\\.args\\[0\\]\\);\\s*if \\(m\\) setScreen\\(m\\);\\s*break;\\s*\\}`).test(cs);
+    ok(
+      fall('black') && fall('white') && /^import \{ schirmBefehl \} from '\.\/schirm-wahl';$/m.test(cs) && !cs.includes("setScreen('black')") && !cs.includes("setScreen('white')"),
+      "PS-18 Wächter: control-server.ts ruft in case 'black' und case 'white' schirmBefehl(getState().screen, '<ziel>', cmd.args[0]) und schaltet nur mit dessen Ergebnis",
+    );
+    ok(cs.includes('PRESENTER BLACK|WHITE [ON|OFF|TOGGLE]'), 'PS-18 Wächter: der Kopfkommentar des Steuerservers nennt PRESENTER BLACK|WHITE [ON|OFF|TOGGLE]');
+    const sw = existsSync('src/main/schirm-wahl.ts') ? leseText('src/main/schirm-wahl.ts') : '';
+    gleich(
+      sw.split('\n').filter((z) => /^import\b/.test(z)),
+      ["import type { ScreenMode } from '@shared/types';"],
+      'PS-18 Wächter: src/main/schirm-wahl.ts importiert nur den Typ ScreenMode (kein electron, im Test ohne Attrappe ladbar)',
+    );
+  }
   {
     const start = main.slice(main.indexOf('startControlServer('), main.indexOf('startControlServer(') + 1200);
     ok(

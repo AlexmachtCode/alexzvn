@@ -20,7 +20,7 @@ import {
   CAPABILITIES,
   KNOWN_ROLES,
 } from './generated/protocol.mjs'
-import { buildCommandLine, toCompanionOption, matchesRole, feedbackAn, presetFeedbacks, isControlService, pickEndpoint } from './lib.mjs'
+import { aktionenFuer, buildCommandLine, toCompanionOption, matchesRole, feedbackAn, presetFeedbacks, isControlService, pickEndpoint } from './lib.mjs'
 import { computeAuthProof, normalizeFingerprint } from './auth.mjs'
 import { browseSuite } from './discovery.mjs'
 
@@ -107,7 +107,8 @@ class JmSuiteInstance extends InstanceBase {
 
   buildActions(cap) {
     const actions = {}
-    for (const a of cap.actions) {
+    // PS-18 (Modul 0.4.0): Presenter Schwarz/Weiß mit der Wahl Umschalten/An/Aus (lib.mjs aktionenFuer, nur im Modul).
+    for (const a of aktionenFuer(cap)) {
       actions[a.id] = {
         name: a.label,
         options: (a.args ?? []).map(toCompanionOption),
@@ -138,7 +139,7 @@ class JmSuiteInstance extends InstanceBase {
 
   buildPresets(cap) {
     const presets = {}
-    for (const a of cap.actions) {
+    for (const a of aktionenFuer(cap)) {
       const options = {}
       for (const arg of a.args ?? []) options[arg.id] = arg.default
       // Feedback des Presets (Spec 8.5 Nr. 3): mit Platzhalter {slot} für Slot 1 (lib.mjs presetFeedbacks).

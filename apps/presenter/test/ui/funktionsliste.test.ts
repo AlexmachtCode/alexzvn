@@ -10,8 +10,9 @@
 // Läuft im Paketordner apps/presenter (npm run selftest -w @jm/presenter), per await import aus test/ui/selftest.ts.
 // „unverändert (…)“ und die Orte „… (unverändert)“ nennen keine Datei, die seit der Erhebung (481c998c08) geändert wurde, außer
 // sie bekam nur, was der Plan erlaubt (Master-Link und Fernsteuerungs-Meldung B2, Bildschirm-Ereignis und move B11, die Wurzel
-// des Referenten B12): dann nennt der Haken diesen Verweis. Der Abgleich der statischen Listen mit git läuft nur mit
-// JM_FUNKTIONSLISTE_GIT=1; dann prüft der Test auch die Zeilenangaben der übrigen Spalten gegen die Erhebung.
+// des Referenten B12): dann nennt der Haken diesen Verweis. Altfehler Stufe 2: die Handy-Seite bekam nur die PIN-Prüfung über
+// /events (PS-15), der Steuerserver die Wahl an BLACK und WHITE (PS-18). Der Abgleich der statischen Listen mit git läuft nur
+// mit JM_FUNKTIONSLISTE_GIT=1; dann prüft der Test auch die Zeilenangaben der übrigen Spalten gegen die Erhebung.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
@@ -26,7 +27,8 @@ const ERHEBUNG = '481c998c08';
 /**
  * Ortsregister (Plan Task 12): Editor-Kopf, Editor-Werkzeugleiste, Arbeitsfläche, Referent-Kopf, Referent-Leiste, Live-Bereich
  * (Folie, Tasten, nächste Folie, Notizen, Timer), Statusleiste, Panel je Abschnitt (die Titel der Abschnitte im Panel), Publikum,
- * NDI-Fenster und Handy-Seite je mit „(unverändert)“.
+ * NDI-Fenster und Handy-Seite je mit „(unverändert)“. Altfehler Stufe 2 (PS-15, G17): dazu die Handy-Seite ohne den Zusatz für
+ * die eine Zeile, deren Verhalten sich ändert (Nr. 169, PIN-Prüfung); die übrigen Handy-Zeilen bleiben „(unverändert)“.
  */
 const ABSCHNITTE = ['Ausgabe auf Bildschirm', 'NDI-Ausgabe', 'Fernsteuerung', 'Handy-Fernsteuerung', 'Gast-Klicker', 'Gegenstellen', 'Import'];
 const LIVE = ['Folie', 'Tasten', 'nächste Folie', 'Notizen', 'Timer'];
@@ -42,6 +44,7 @@ const ORTE: readonly string[] = [
   'Statusleiste',
   'Panel',
   ...ABSCHNITTE.map((a) => `Panel ${a}`),
+  'Handy-Seite',
   ...UNVERAENDERT_ORTE,
 ];
 
@@ -62,6 +65,9 @@ const GEAENDERT = [
   'package.json',
   'src/main/control-server.ts',
   'src/main/index.ts',
+  // Altfehler Stufe 2: PIN-Prüfung der Handy-Seite (PS-15), Wahl an Schwarz/Weiß (PS-18) samt den neuen Tests.
+  'src/main/remote-page.ts',
+  'src/main/schirm-wahl.ts',
   'src/main/windows.ts',
   'src/preload/index.ts',
   'src/renderer/src/components/GastKlickerAbschnitt.tsx',
@@ -87,7 +93,9 @@ const GEAENDERT = [
   'src/renderer/src/views/ReferentOberflaeche.tsx',
   'src/shared/fernsteuerung.ts',
   'src/shared/types.ts',
+  'test/handy-seite.test.ts',
   'test/ndi-ausgang.test.ts',
+  'test/schirm-wahl.test.ts',
   'test/ui/bruecken.test.ts',
   'test/ui/funktionsliste.test.ts',
   'test/ui/hilfe.ts',
@@ -131,10 +139,13 @@ const PAKETE_GEAENDERT = [
  * Geänderte Dateien, die nur bekamen, was der Plan erlaubt, und der Verweis, der das belegt: Main und Preload die lesenden
  * Brücken (Master-Link, Fernsteuerungs-Meldung, B2) und das lesende Bildschirm-Ereignis samt move des Publikumsfensters (B11),
  * die Typdatei die Typen dazu, R/main.tsx nur die Wurzel des Referenten (ReferentOberflaeche statt PresenterView, B12).
+ * Altfehler Stufe 2: der Steuerserver zusätzlich die Wahl an BLACK und WHITE (PS-18), die Handy-Seite nur die PIN-Prüfung über
+ * /events (PS-15, P7).
  */
 const ERLAUBT = new Map<string, readonly string[]>([
   ['apps/presenter/src/main/index.ts', ['B2', 'B11']],
-  ['apps/presenter/src/main/control-server.ts', ['B2']],
+  ['apps/presenter/src/main/control-server.ts', ['B2', 'PS-18']],
+  ['apps/presenter/src/main/remote-page.ts', ['PS-15']],
   ['apps/presenter/src/main/windows.ts', ['B11']],
   ['apps/presenter/src/preload/index.ts', ['B2', 'B11']],
   ['apps/presenter/src/shared/types.ts', ['B2', 'B11']],
@@ -398,6 +409,18 @@ for (const z of alle) {
       (zeilenFehler(synth('✓ unverändert (`packages/ui/src/components/AppShell.tsx`): x')) ?? '').includes('geänderter Datei'),
     'PS Funktionsliste: unverändert erkennt geänderte Dateien in jeder Schreibweise; B2/B11/B12 entlasten nur ihre Dateien; unveränderte Dateien sind frei',
   );
+  // Altfehler Stufe 2 (PS-15, PS-18): remote-page.ts entlastet nur PS-15, control-server.ts B2 oder PS-18, die neue Datei
+  // schirm-wahl.ts nichts; der Ort „Handy-Seite“ ohne Zusatz (Nr. 169) verlangt kein Unverändertes.
+  ok(
+    (zeilenFehler(synth('✓ Handy-Seite (unverändert) (`src/main/remote-page.ts`): x')) ?? '').includes('ohne Verweis auf PS-15') &&
+      (zeilenFehler(synth('✓ unverändert (`src/main/remote-page.ts`, B2): x')) ?? '').includes('ohne Verweis auf PS-15') &&
+      zeilenFehler(synth('✓ Handy-Seite (unverändert) (`src/main/remote-page.ts`): x, Altfehler PS-15')) === null &&
+      zeilenFehler(synth('✓ unverändert (`src/main/control-server.ts`, PS-18): x')) === null &&
+      (zeilenFehler(synth('✓ unverändert (`src/main/control-server.ts`, PS-15): x')) ?? '').includes('ohne Verweis auf B2 oder PS-18') &&
+      (zeilenFehler(synth('✓ unverändert (`src/main/schirm-wahl.ts`, PS-18): x')) ?? '').includes('geänderter Datei') &&
+      zeilenFehler(synth('✓ Handy-Seite (`src/main/remote-page.ts`): x')) === null,
+    'PS Funktionsliste Altfehler PS-15/PS-18: remote-page.ts ohne PS-15 ergibt geänderte Datei (auch mit B2), mit PS-15 frei; control-server.ts mit B2 oder PS-18; schirm-wahl.ts ist neu und nie „unverändert“; der Ort Handy-Seite prüft nicht auf Unverändertes',
+  );
   ok(
     zeilenFehler(synth('✓ entfällt (x, B1)')) === null &&
       zeilenFehler(synth('✓ entfällt (x, B22)')) === null &&
@@ -467,8 +490,15 @@ const zeigtAuf = (nr: number, datei: string, ...woerter: string[]): boolean => {
   const cs = quelle('src/main/control-server.ts');
   ok(
     ['open', 'next', 'prev', 'goto', 'black', 'white', 'live', 'stop'].every((v) => cs.includes(`case '${v}'`)) &&
-      [74, 75, 76, 77, 78, 79, 80, 81].every((nr) => kuenftig(nr).startsWith('✓ unverändert (`src/main/control-server.ts') && /\bB2\b/.test(kuenftig(nr))),
-    'PS Funktionsliste Nr. 74–81 (Verben): PRESENTER NEXT, PREV, GOTO, BLACK, WHITE, LIVE, STOP, OPEN laufen unverändert im Steuerserver (nur die lesende Meldung kam dazu, B2)',
+      [74, 75, 76, 77, 78, 79, 80, 81].every((nr) => kuenftig(nr).startsWith('✓ unverändert (`src/main/control-server.ts') && /\bB2\b/.test(kuenftig(nr))) &&
+      [74, 75, 76, 79, 80, 81].every((nr) => !/\bPS-18\b/.test(kuenftig(nr))),
+    'PS Funktionsliste Nr. 74–81 (Verben): PRESENTER NEXT, PREV, GOTO, BLACK, WHITE, LIVE, STOP, OPEN laufen im Steuerserver (die lesende Meldung kam dazu, B2); nur BLACK und WHITE nennen Altfehler PS-18',
+  );
+  ok(
+    [77, 78].every((nr) => /\bPS-18\b/.test(kuenftig(nr)) && nennt(nr, '`ON`', '`OFF`', '`TOGGLE`')) &&
+      zeigtAuf(77, 'src/main/control-server.ts', "case 'black'", "schirmBefehl(getState().screen, 'black', cmd.args[0])") &&
+      zeigtAuf(78, 'src/main/control-server.ts', "case 'white'", "schirmBefehl(getState().screen, 'white', cmd.args[0])"),
+    'PS Funktionsliste Nr. 77/78 (Altfehler PS-18): BLACK und WHITE nehmen die Wahl ON, OFF oder TOGGLE; der Haken zeigt auf den Fall mit schirmBefehl im Steuerserver',
   );
   ok(cs.includes('CONTROL_PORT = 8728') && quelle('src/shared/fernsteuerung.ts').includes('STEUER_PORT = 8728') && unveraendert(82), 'PS Funktionsliste Nr. 82/83: Port 8728 und die STATE-Rückmeldung bleiben');
   const remote = quelle('src/main/remote.ts');
@@ -599,7 +629,20 @@ const zeigtAuf = (nr: number, datei: string, ...woerter: string[]): boolean => {
     'PS Funktionsliste Nr. 122–165: jeder Haken nennt eine Datei des umgebauten Referenten (Wurzel, Leiste, Live-Bereich, Panel)',
   );
   ok(beginnt(166, 'Publikum (unverändert)') && beginnt(167, 'Publikum (unverändert)') && beginnt(168, 'NDI-Fenster (unverändert)'), 'PS Funktionsliste Nr. 166–168: Publikum und NDI-Fenster unverändert');
-  ok([169, 170, 171, 172, 173, 174, 175, 176, 221].every((nr) => beginnt(nr, 'Handy-Seite (unverändert)') && nennt(nr, '`src/main/remote-page.ts')) && !GEAENDERT_KANON.has('apps/presenter/src/main/remote-page.ts'), 'PS Funktionsliste Nr. 169–176, 221: die Handy-Seite (src/main/remote-page.ts) ist unverändert');
+  // Altfehler Stufe 2 (PS-15, G17): nur Nr. 169 (PIN-Prüfung) zieht an den Ort „Handy-Seite“; die übrigen Zeilen der Seite
+  // bleiben „Handy-Seite (unverändert)“ und nennen PS-15, das remote-page.ts über ERLAUBT entlastet.
+  {
+    const seite = quelle('src/main/remote-page.ts');
+    ok(
+      beginnt(169, 'Handy-Seite') && nennt(169, '`src/main/remote-page.ts', '`/events`', 'ohne zu schalten', 'PS-15') &&
+        [170, 171, 172, 173, 174, 175, 176, 213, 221].every((nr) => beginnt(nr, 'Handy-Seite (unverändert)') && nennt(nr, '`src/main/remote-page.ts', 'PS-15')) &&
+        GEAENDERT_KANON.has('apps/presenter/src/main/remote-page.ts') &&
+        JSON.stringify(ERLAUBT.get('apps/presenter/src/main/remote-page.ts')) === JSON.stringify(['PS-15']) &&
+        seite.includes("fetch('/events?pin=' + encodeURIComponent(pin), { signal: pruefung.signal })") &&
+        !seite.includes("action:'live'"),
+      'PS Funktionsliste Nr. 169–176, 213, 221: die Handy-Seite (src/main/remote-page.ts) änderte nur die PIN-Prüfung (Altfehler PS-15): Nr. 169 am Ort Handy-Seite, die übrigen „Handy-Seite (unverändert)“ mit PS-15',
+    );
+  }
   ok([177, 178, 179, 180].every((nr) => beginnt(nr, 'Publikum (unverändert)')) && [181, 182].every((nr) => beginnt(nr, 'NDI-Fenster (unverändert)')), 'PS Funktionsliste Nr. 177–182: Publikumsbild und NDI-Bild unverändert (B5)');
   const publikum = quelle('R/views/AudienceView.tsx');
   ok(!publikum.includes('AppShell') && !publikum.includes('@jm/settings') && !GEAENDERT_KANON.has('apps/presenter/src/renderer/src/ndi/ndi-ansicht.ts'), 'PS Funktionsliste Abschnitt 4/5: Publikum ohne AppShell und ohne @jm/settings, NDI-Ansicht unverändert (B5)');

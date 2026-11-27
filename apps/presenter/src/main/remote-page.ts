@@ -133,15 +133,15 @@ export function controllerHtml(pinRequired: boolean): string {
     es.onerror = function(){ $('conn').classList.remove('on'); };
   }
 
-  // gate
+  // gate (PS-15: die PIN prüft der lesende Strom /events, der nichts schaltet; nach der Antwort wird er abgebrochen)
   $('connect').addEventListener('click', function(){
     var v = $('pin').value.trim();
     if (v.length<4){ $('gateErr').textContent='4-stellige PIN.'; return; }
     pin = v; localStorage.setItem('jmpr_pin', pin);
-    // verify via a harmless state fetch
-    fetch('/cmd', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({action:'live', pin:pin}) })
+    var pruefung = new AbortController();
+    fetch('/events?pin=' + encodeURIComponent(pin), { signal: pruefung.signal })
       .then(function(r){ if (r.status===401){ $('gateErr').textContent='Falsche PIN.'; return; }
-        $('gate').classList.add('hidden'); $('app').classList.remove('hidden'); connect(); });
+        pruefung.abort(); $('gate').classList.add('hidden'); $('app').classList.remove('hidden'); connect(); });
   });
   $('pin').addEventListener('keydown', function(e){ if(e.key==='Enter') $('connect').click(); });
 

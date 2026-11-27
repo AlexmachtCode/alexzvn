@@ -4,7 +4,8 @@
 // Logik aus present.ts (die einzige Wahrheit; beide Pfade gehen dorthin).
 //
 //   Client → Presenter:  PRESENTER NEXT|PREV | PRESENTER GOTO <n> |
-//                        PRESENTER BLACK|WHITE|LIVE|STOP | STATE?
+//                        PRESENTER BLACK|WHITE [ON|OFF|TOGGLE] | PRESENTER LIVE|STOP | STATE?
+//                        (ON an, OFF aus, ohne oder mit unbekannter Wahl umschalten; schirm-wahl.ts, PS-18)
 //   Presenter → Client:  STATE ns=presenter slide=<n> total=<n> active=0|1
 //                        live=0|1 black=0|1 white=0|1
 //                        (live=1 nur bei laufender Präsentation, siehe suite-state.ts)
@@ -19,6 +20,7 @@ import type { SuiteState } from '@jm/suite-control-protocol';
 import { getState, goto, next, prev, setScreen, stopPresentation, subscribe } from './present';
 import { openByPath } from './control-open';
 import { presenterStateKv } from './suite-state';
+import { schirmBefehl } from './schirm-wahl';
 import type { FernsteuerungEreignis } from '../shared/fernsteuerung';
 
 /** Eigener TCP-Steuerport (getrennt vom HTTP-Remote 7330). */
@@ -70,12 +72,16 @@ export function startControlServer(
           if (Number.isFinite(n)) goto(Math.trunc(n) - 1); // 1-basiert → 0-basiert
           break;
         }
-        case 'black':
-          setScreen('black');
+        case 'black': {
+          const m = schirmBefehl(getState().screen, 'black', cmd.args[0]);
+          if (m) setScreen(m);
           break;
-        case 'white':
-          setScreen('white');
+        }
+        case 'white': {
+          const m = schirmBefehl(getState().screen, 'white', cmd.args[0]);
+          if (m) setScreen(m);
           break;
+        }
         case 'live':
           setScreen('live');
           break;
