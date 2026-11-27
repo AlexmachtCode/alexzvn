@@ -697,7 +697,7 @@
         "date": "2026-11-26",
         "notes": [
           "Handy-Fernsteuerung: „Verbinden“ mit der PIN hebt ein Schwarz- oder Weißbild nicht mehr auf. Es bleibt stehen, bis jemand „Folie“ drückt oder weiterblättert.",
-          "Companion: Die Aktionen „Schwarz“ und „Weiß“ haben eine Wahl „Umschalten“, „An“ oder „Aus“ (Companion-Modul 0.4.0, Datei jm-suite-companion-0.4.0.tgz am Release presenter-v0.15.1 auf GitHub; der Launcher lädt es nicht mit, in Companion über „Import custom module“ importieren). Vorgabe ist „Umschalten“, bestehende Tasten wirken wie bisher. Wer sicher schwarz will, stellt die Taste auf „An“. Ältere Presenter schalten bei jeder Wahl um."
+          "Companion: Die Aktionen „Schwarz“ und „Weiß“ haben eine Wahl „Umschalten“, „An“ oder „Aus“ (Companion-Modul 0.4.0, Datei jm-suite-companion-0.4.0.tgz am Release presenter-v0.15.1 auf GitHub; der Launcher lädt es nicht mit, in Companion über „Import custom module“ importieren). Vorgabe ist „Umschalten“, bestehende Tasten wirken wie bisher. Wer sicher schwarz will, stellt die Taste auf „An“. Presenter bis 0.15.0 schalten bei jeder Wahl um; erst ab Presenter 0.15.1 wirken „An“ und „Aus“."
         ]
       },
       {

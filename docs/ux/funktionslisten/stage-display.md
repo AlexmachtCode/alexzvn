@@ -234,7 +234,7 @@ Presenter HTTP/SSE Port 7330), mDNS-Suche, `jmps://`-Deep-Link, Einzelinstanz. K
 
 | Spec-Baustein | Ist-Nr. | Bemerkung |
 |---|---|---|
-| Live-Bereich (Vorschau, Nachricht, Anzeige-Elemente) | Nr. 5, 32 bis 39 | Vorschau unverändert; direkt darunter das Nachricht-Feld (wirkt wie heute mit jedem Tastendruck) und die Schalterreihe der Anzeige-Elemente (W2-8) |
+| Live-Bereich (Vorschau, Nachricht, Anzeige-Elemente) | Nr. 5, 32 bis 39 | Vorschau unverändert; direkt darunter das Nachricht-Feld (wirkt wie heute mit jedem Tastendruck) und die Schalterreihe der Anzeige-Elemente (W2-8). Altfehler Stufe 2 (SD-1): Das Nachricht-Feld wirkt nicht mehr mit jedem Tastendruck; Tippen schreibt nur den gemerkten Entwurf `nachrichtEntwurf`, auf die Bühne kommt er erst mit „Senden“ oder Enter, leer gesendet nimmt er die Nachricht herunter, und nach einem Neustart steht keine Nachricht auf der Bühne (Nr. 39, 105) |
 | Haupttaste (1) | Nr. 8 bis 10 | „Bühnenschirm“ öffnen und schließen (`output:open` mit `outputDisplayId`, `output:close`); Bildschirmwechsel wirkt als erneutes Öffnen |
 | `ScreenOutputSection` | Nr. 7 bis 10, 11 | Bildschirmwahl, öffnen, schließen; der Ausgabezustand kommt aus dem lesenden Zustand statt aus dem geglaubten `outputOpen` |
 | `PeersSection` (Timer, Switcher, Presenter) | Nr. 13 bis 17, 18 bis 22, 23 bis 27 | Rollen timer, switcher, presenter; Standardports 7777, 8723, 7330; ohne „Auto“-Modell (`source` nicht gesetzt), `capabilities { toggle: true }` |

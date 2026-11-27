@@ -6,7 +6,7 @@ Stand: Branch `feat/altfehler-stufe2`, Code-Stand `3a7184fe61` (Tasks 1 bis 9 fe
 
 Lesehilfe: ‹…› steht für den Teil, der sich zur Laufzeit ändert (eine Zahl, ein Name, ein Befehl oder ein Pfad). Beispiel: „Companion „‹…›“ abgelehnt: ‹…›“ erscheint als „Companion „ARM“ abgelehnt: Erst die Aufnahme stoppen.“ Die Nummer (z. B. REA3) nennst Du bitte bei jeder Änderung, die Du wünschst. Die Spalte „Ort“ nennt die Datei mit Zeile, in der der Text steht. Die Spalte „Befund“ nennt den Altfehler, zu dem der Text gehört. Steht dort „übernommen aus @jm/settings“ oder „übernommen aus @jm/ui“, ist der Text nicht neu: Das gemeinsame Paket hat ihn schon, das Werkzeug zeigt ihn jetzt zusätzlich an dieser Stelle.
 
-Aufbau: je Werkzeug ein Abschnitt (Player, Interpreter, Stage Display, Caption, Recorder, Presenter, Companion-Modul, Connect), die Log-Zeilen, dann „Changelog“, „Geänderte Bedienung“, „Entscheidungen“, „Offene Fragen“ und „Hinweise“.
+Aufbau: je Werkzeug ein Abschnitt (Player, Interpreter, Stage Display, Caption, Recorder, Presenter, Companion-Modul, Connect), die Log-Zeilen, dann „Changelog“, „Geänderte Bedienung“, „Entscheidungen“, „Offene Fragen“, „Hinweise“ und „Handbuch“.
 
 ## Player
 
@@ -147,10 +147,10 @@ Entwurf der Release-Notizen (`packages/suite-manifest/changelog.json`), wörtlic
 | CL-RE4 | Recorder 0.11.0 | „Wer das Fenster während einer Aufnahme schließt, wird jetzt gefragt; ohne Aufnahme schließt es wie bisher. Beim Abmelden oder Herunterfahren von Windows wird die Aufnahme ohne Frage sauber abgeschlossen.“ |
 | CL-RE5 | Recorder 0.11.0 | „Neu in der Statusleiste: „Platz“ zeigt, wie lange der freie Speicher im Zielordner für das eingestellte Format reicht, vor und während der Aufnahme; gelb unter 15 Minuten, rot unter 5 Minuten. Gesperrt wird nichts. Am NAS nicht gemessen.“ |
 | CL-PS1 | Presenter 0.15.1 | „Handy-Fernsteuerung: „Verbinden“ mit der PIN hebt ein Schwarz- oder Weißbild nicht mehr auf. Es bleibt stehen, bis jemand „Folie“ drückt oder weiterblättert.“ |
-| CL-PS2 | Presenter 0.15.1 | „Companion: Die Aktionen „Schwarz“ und „Weiß“ haben eine Wahl „Umschalten“, „An“ oder „Aus“ (Companion-Modul 0.4.0, Datei jm-suite-companion-0.4.0.tgz am Release presenter-v0.15.1 auf GitHub; der Launcher lädt es nicht mit, in Companion über „Import custom module“ importieren). Vorgabe ist „Umschalten“, bestehende Tasten wirken wie bisher. Wer sicher schwarz will, stellt die Taste auf „An“. Ältere Presenter schalten bei jeder Wahl um.“ |
+| CL-PS2 | Presenter 0.15.1 | „Companion: Die Aktionen „Schwarz“ und „Weiß“ haben eine Wahl „Umschalten“, „An“ oder „Aus“ (Companion-Modul 0.4.0, Datei jm-suite-companion-0.4.0.tgz am Release presenter-v0.15.1 auf GitHub; der Launcher lädt es nicht mit, in Companion über „Import custom module“ importieren). Vorgabe ist „Umschalten“, bestehende Tasten wirken wie bisher. Wer sicher schwarz will, stellt die Taste auf „An“. Presenter bis 0.15.0 schalten bei jeder Wahl um; erst ab Presenter 0.15.1 wirken „An“ und „Aus“.“ |
 | CL-CN1 | Connect 0.6.1 | „„Meeting verlassen“ bei laufenden Slots: „Ja, verlassen“ nimmt erst nach einer Sekunde einen Klick an. Ein Doppelklick auf „Meeting verlassen“ verlässt das Meeting also nicht mehr.“ |
 
-Pflichtsätze: P2 (Modul 0.4.0 mit einem Presenter bis 0.15.0 schaltet bei jeder Wahl um, erst ab 0.15.1 wirken „An“ und „Aus“, bestehende Tasten bleiben „Umschalten“) steht in CL-PS2 („Vorgabe ist „Umschalten“, bestehende Tasten wirken wie bisher.“ und „Ältere Presenter schalten bei jeder Wahl um.“). C2 („nicht auf dem Mac gemessen“) steht in CL-CA4.
+Pflichtsätze: P2 (Modul 0.4.0 mit einem Presenter bis 0.15.0 schaltet bei jeder Wahl um, erst ab 0.15.1 wirken „An“ und „Aus“, bestehende Tasten bleiben „Umschalten“) steht in CL-PS2 („Vorgabe ist „Umschalten“, bestehende Tasten wirken wie bisher.“ und „Presenter bis 0.15.0 schalten bei jeder Wahl um; erst ab Presenter 0.15.1 wirken „An“ und „Aus“.“). C2 („nicht auf dem Mac gemessen“) steht in CL-CA4.
 
 ## Geänderte Bedienung
 
@@ -182,7 +182,7 @@ Je Befund ein Satz, was Du anders erlebst.
 
 ## Entscheidungen
 
-Wo Spec und Code schwiegen, steht hier, was gilt: die Festlegungen B, C, P und D des Plans in Kurzform, darunter die Rulings aus dem Bau, die etwas Sichtbares ändern. Du kannst jede umstoßen. Die vollständige Liste mit Grund und „Kostet, wenn falsch“ kommt mit Task 11 nach `docs/ux/altfehler-entscheidungen.md`.
+Wo Spec und Code schwiegen, steht hier, was gilt: die Festlegungen B, C, P und D des Plans in Kurzform, darunter die Rulings aus dem Bau, die etwas Sichtbares ändern. Du kannst jede umstoßen. Die vollständige Liste mit Grund und „Kostet, wenn falsch“ steht in `docs/ux/altfehler-entscheidungen.md`, Abschnitt „Stufe 2“.
 
 - B1 (RE-3): Kommen an einem Eingang, der kein Loopback ist, während der Aufnahme 2 Sekunden lang keine Audioblöcke, endet die Aufnahme wie bei einem Schreibfehler; ein USB-Aussetzer über 2 Sekunden beendet sie also.
 - B2 (RE-3): Kein Schreibfehler erreicht das Audio-Modul; die Aufnahme endet sauber (Datei abgeschlossen, Eingang bleibt offen, Fehler bleibt stehen), Companion sieht recording=0. Auch ein gescheiterter Start setzt den Fehler. Die Abnahme zieht einen USB-Stick während der Aufnahme ab.
@@ -254,5 +254,115 @@ Zur Kenntnis, keine Frage.
 6. Recorder, REA20 („Dateikopf“): Der Text nennt immer eine Datei, die Aufnahmedatei oder seit R21 die Spurdatei, die scheiterte; ein Ordner erscheint dort nicht mehr. Offen und klein: Ein Schreibfehler einer Spur mitten in der Aufnahme nennt in REA19 die Aufnahmedatei statt der Spurdatei, und REA19 und REA21 sagen „gespeichert“ auch dann, wenn dabei der Kopf einer Spurdatei scheiterte.
 7. Player 0.10.1: keine neuen Texte; die Bedienung ändert sich nur bei PL-K1 und PL-K2.
 8. Connect 0.6.1: „Ja, verlassen“ ist unverändert; die Sperrzeit von 1 Sekunde hat keinen eigenen Text und keinen Hinweis für Screenreader.
+
+## Handbuch
+
+Die sechs Handbücher im Kochbuch (Player, Stage Display, Caption, Recorder, Presenter, Connect) nennen jetzt die geänderte Bedienung, in den Worten der Crew: was man sieht und tut. Der Interpreter hat kein Handbuch (C7); seine Änderung steht nur im Changelog. Je Stelle steht oben der alte Wortlaut (`-`), darunter der neue (`+`); Stellen, die es vorher nicht gab, haben nur `+`-Zeilen. Der Kochbuch-Bau (`npm run cookbook:build`) hat `packages/cookbook/cookbook.json` neu erzeugt.
+
+### Player
+
+- `` Beim Aufräumen: Der Standby bleibt auf seinem Cue, wenn man andere Cues löscht oder umsortiert (wird der Standby-Cue selbst gelöscht, steht er danach auf dem nächsten). Der Player fragt nach, wenn man mit ✕ einen Cue löscht, während in der Show etwas läuft („Die Show läuft. Cue 3 „Intro“ trotzdem entfernen?“), und wenn man ein Medium mit ✕ aus der Bibliothek entfernt, das Cues oder Pads benutzen („‹Titel› wird von 2 Cues und 1 Pad benutzt. Trotzdem aus der Bibliothek entfernen? Dort steht danach „Medium fehlt“.“). Die Rückfrage erscheint als Fenster im Player-Fenster, die Show läuft währenddessen weiter (auch Companion-Befehle wirken); „Abbrechen“ ist vorgewählt und lässt wie Escape alles, wie es war, „Entfernen“ entfernt ``
++ Beim Aufräumen: Der Standby bleibt auf seinem Cue, wenn man andere Cues löscht oder umsortiert (wird der Standby-Cue selbst gelöscht, steht er danach auf dem nächsten). Der Player fragt nach, wenn man mit ✕ einen Cue löscht, während in der Show etwas läuft („Die Show läuft. Cue 3 „Intro“ trotzdem entfernen?“), und wenn man ein Medium mit ✕ aus der Bibliothek entfernt, das Cues oder Pads benutzen („‹Titel› wird von 2 Cues und 1 Pad benutzt. Trotzdem aus der Bibliothek entfernen? Dort steht danach „Medium fehlt“.“). Die Rückfrage erscheint als Fenster im Player-Fenster, die Show läuft währenddessen weiter (auch Companion-Befehle wirken); „Abbrechen“ ist vorgewählt und lässt wie Escape alles, wie es war, „Entfernen“ entfernt. Ein Cue, den man so während seiner Vorlaufzeit entfernt, startet danach nicht mehr, auch nicht, wenn die Vorlaufzeit in der Pause angehalten ist oder ein Video-Cue noch auf das Ausgabefenster wartet; die Vorlaufzeiten der anderen Cues laufen weiter
+
+- `` `PAUSE` für kurze Unterbrechung: Sie hält laufende Cues und auch die Vorlaufzeit (Pre-Wait) noch nicht gestarteter Cues an; „▶ Weiter“ setzt beides fort, und eine angefangene Vorlaufzeit läuft mit der Restzeit weiter, nicht von vorn. Ein `GO` mitten in der Pause auf einen Cue mit Vorlaufzeit stellt ihn an, lässt ihn aber warten, bis „▶ Weiter“ gedrückt wird; ein `GO` auf einen Cue ohne Vorlaufzeit startet sofort und hebt die Pause auf. `STOP` beendet sauber, `PANIC` bei Bedarf hart abwürgen (lokal die Haupttasten „❚❚ Pause“, „■ Stop“ und „⛔ Panik“ im Transport der Cue-Show; „■ Stop“ und „⛔ Panik“ stehen auch in der Fußleiste von Bibliothek und Soundboard, Panik stoppt jetzt auch die Pads) ``
++ `PAUSE` für kurze Unterbrechung: Sie hält laufende Cues und auch die Vorlaufzeit (Pre-Wait) noch nicht gestarteter Cues an; „▶ Weiter“ setzt beides fort, und eine angefangene Vorlaufzeit läuft mit der Restzeit weiter, nicht von vorn. Ein `GO` mitten in der Pause auf einen Cue mit Vorlaufzeit stellt ihn an, lässt ihn aber warten, bis „▶ Weiter“ gedrückt wird; ein `GO` auf einen Cue ohne Vorlaufzeit hebt die Pause ganz auf wie „▶ Weiter“: Angehaltene Töne, Vorlaufzeiten und ein angehaltenes Video in der Ausgabe laufen weiter, dann startet der neue Cue. „▶ Weiter“ startet ein Video, das schon zu Ende gelaufen ist, nicht neu. `STOP` beendet sauber, `PANIC` bei Bedarf hart abwürgen (lokal die Haupttasten „❚❚ Pause“, „■ Stop“ und „⛔ Panik“ im Transport der Cue-Show; „■ Stop“ und „⛔ Panik“ stehen auch in der Fußleiste von Bibliothek und Soundboard, Panik stoppt jetzt auch die Pads)
+
+### Stage Display
+
+- `` Nicht verbundene Quellen werden per mDNS automatisch mit Host/Port vorbefüllt (die PIN bleibt manuell: Panel ⚙ › Presenter-Kopplung). ``
++ Quellen, die noch auf der Vorgabe stehen (Host `127.0.0.1` oder leer), füllt die automatische Suche (mDNS) mit dem gefundenen Host und Port. Ein eingetragener oder einmal gefundener Host bleibt danach stehen: Die Suche ersetzt ihn nie mehr von selbst, auch nicht, wenn die Quelle ausfällt; dann zeigt sie „nicht erreichbar“ (die PIN bleibt manuell: Panel ⚙ › Presenter-Kopplung).
+
+- `` Im Panel ⚙ › Gegenstellen je Quelle den Schalter „Aktiv“ einschalten und **Host + Port** eintragen, dann mit „Setzen“ übernehmen (oder die mDNS-Vorbefüllung übernehmen). Für den Presenter zusätzlich die **PIN** im Panel ⚙ › Presenter-Kopplung wie in dessen Fernsteuerung (der Abschnitt erscheint, sobald die Presenter-Quelle an ist). ``
++ Im Panel ⚙ › Gegenstellen je Quelle den Schalter „Aktiv“ einschalten und **Host + Port** eintragen, dann mit „Setzen“ übernehmen (oder die mDNS-Vorbefüllung übernehmen). Für den Presenter zusätzlich die **PIN** im Panel ⚙ › Presenter-Kopplung wie in dessen Fernsteuerung eintragen und mit „Setzen“ übernehmen (der Abschnitt erscheint, sobald die Presenter-Quelle an ist). Die PIN steht verdeckt im Feld, „Anzeigen“ zeigt sie, „Verbergen“ deckt sie wieder zu; Tippen allein ändert nichts. In `stage-config.json` und in der Anfrage an den Presenter steht sie weiter im Klartext, weil das Protokoll des Presenters es so verlangt.
+
+- `` Statusleiste prüfen: jede aktive Quelle (Einträge „JM Timer“, „JM Switcher“, „JM Presenter“) sollte „verbunden“ zeigen (sonst „nicht gefunden“; dieselbe Zeile steht im Panel ⚙ › Gegenstellen). ``
++ Statusleiste prüfen: jede aktive Quelle (Einträge „JM Timer“, „JM Switcher“, „JM Presenter“) sollte „verbunden“ zeigen (sonst „nicht gefunden“, bei eingetragenem Host „nicht erreichbar“; dieselbe Zeile steht im Panel ⚙ › Gegenstellen).
+
+- `` Bei Bedarf eine **Ad-hoc-Nachricht** im Feld „Nachricht“ direkt unter der Vorschau einblenden (hat Vorrang vor der Timer-Nachricht; die Statusleiste „Nachricht“ zeigt „auf dem Schirm“, sobald sie auf dem offenen Bühnenschirm steht) — z. B. „Bitte zum Schluss kommen". ``
++ Bei Bedarf eine **Ad-hoc-Nachricht** im Feld „Nachricht“ direkt unter der Vorschau schreiben und mit „Senden“ oder Enter einblenden (hat Vorrang vor der Timer-Nachricht; die Statusleiste „Nachricht“ zeigt „auf dem Schirm“, sobald sie auf dem offenen Bühnenschirm steht) — z. B. „Bitte zum Schluss kommen". Das Tippen ist nur ein Entwurf: Auf die Bühne kommt der Text erst mit „Senden“, und „Senden“ mit leerem Feld nimmt die Nachricht wieder herunter. Nach einem Neustart steht keine Nachricht auf der Bühne, der letzte Text bleibt als Entwurf im Feld.
+
+- `` Bei getrennten Event-Netzen (mDNS blockiert) Host/Port je Quelle von Hand im Panel ⚙ › Gegenstellen eintragen und mit „Setzen“ übernehmen — Stage Display braucht dafür keine Discovery. ``
++ Bei getrennten Event-Netzen (mDNS blockiert) Host/Port je Quelle von Hand im Panel ⚙ › Gegenstellen eintragen und mit „Setzen“ übernehmen — Stage Display braucht dafür keine Discovery. Ein so eingetragener Host bleibt stehen; die Suche ersetzt ihn nicht, auch wenn im Netz ein anderer Rechner mit demselben Tool auftaucht.
+
+- `` | Quelle bleibt „nicht gefunden“ (Statusleiste, Panel ⚙ › Gegenstellen) | Host/Port richtig? Tool läuft? Bei Firewall/getrenntem Netz Adresse von Hand im Panel ⚙ › Gegenstellen eintragen und mit „Setzen“ übernehmen | ``
+- `` | Switcher „nicht gefunden“ trotz Erreichbarkeit | Läuft der Switcher sicher (Token/TLS)? Dann muss die geteilte control.json auch hier provisioniert sein | ``
++ | Quelle bleibt „nicht gefunden“ oder „nicht erreichbar“ (Statusleiste, Panel ⚙ › Gegenstellen) | „nicht gefunden“: Die Quelle steht auf der Vorgabe (`127.0.0.1` oder leer), und nichts antwortet. „nicht erreichbar“: Ein eingetragener oder früher gefundener Host antwortet nicht; die Suche wechselt dann nicht von selbst auf einen anderen Rechner. Host/Port richtig? Tool läuft? Bei Firewall/getrenntem Netz Adresse von Hand im Panel ⚙ › Gegenstellen eintragen und mit „Setzen“ übernehmen. Soll die Suche den Host wieder füllen, ihn auf `127.0.0.1` setzen oder leeren |
++ | Switcher „nicht gefunden“ bzw. „nicht erreichbar“ trotz Erreichbarkeit | Läuft der Switcher sicher (Token/TLS)? Dann muss die geteilte control.json auch hier provisioniert sein |
+
+- `` [ ] Quellen aktiviert, Host/Port gesetzt (oder mDNS-Vorbefüllung) ``
+- `` [ ] Presenter-PIN eingetragen (falls Presenter genutzt) ``
++ [ ] Quellen aktiviert, Host/Port gesetzt (oder mDNS-Vorbefüllung; ein eingetragener Host bleibt stehen)
++ [ ] Presenter-PIN eingetragen und mit „Setzen“ übernommen (falls Presenter genutzt)
+
+- `` [ ] Ad-hoc-Nachricht getestet ``
++ [ ] Ad-hoc-Nachricht getestet (mit „Senden“ auf die Bühne, mit leerem „Senden“ wieder herunter)
+
+### Caption
+
+- `` Stil und Position der Untertitel im Panel ⚙ › Darstellung anpassen (Schrift, Zeilen, Band) ``
++ Stil und Position der Untertitel im Panel ⚙ › Darstellung anpassen (Schrift, Zeilen, Band). „Schrift“ (16 bis 160) und „Max. Äußerung (s)“ im Panel ⚙ › Erkennung (2 bis 15) gelten erst nach Enter oder beim Verlassen des Feldes; ein leeres Feld oder eine Zahl außerhalb der Grenzen wird nicht übernommen, unter dem Feld steht der Grund (etwa „Bitte eine Zahl eingeben.“ oder „Mindestens 16.“)
+
+- `` Transkription starten (lokal mit der Haupttaste „Start“ oder CAPTION transcribe on) ``
+- `` Bei Fehlern mit der Haupttaste „Hold“ bzw. CAPTION hold on einfrieren, die letzte Zeile per Doppelklick im Verlauf korrigieren, dann Hold wieder lösen („Hold ✓“ bzw. hold off) ``
+- `` Die Haupttaste „Leeren“ bzw. CAPTION clear leert die Anzeige hart (z. B. vor einem neuen Sprecher) ``
++ Transkription starten (lokal mit der Haupttaste „Start“ oder CAPTION transcribe on). Scheitert das Mikrofon beim Start, endet die Transkription gleich wieder: Die Haupttaste steht auf „Start“, Companion sieht running=0, und unter den Haupttasten steht „Mikrofon: …“ mit dem Grund (etwa „Gerät nicht gefunden“), bis wieder gestartet wird; Caption startet nicht von selbst neu
++ Bei Fehlern mit der Haupttaste „Hold“ bzw. CAPTION hold on einfrieren, die jüngste Zeile per Doppelklick im Verlauf korrigieren (Enter oder ein Klick daneben übernimmt, Escape bricht ab und lässt den alten Text; kommen beim Tippen neue Zeilen dazu, trifft die Korrektur trotzdem die angeklickte Zeile), dann Hold wieder lösen („Hold ✓“ bzw. hold off)
++ Die Haupttaste „Leeren“ bzw. CAPTION clear leert die Anzeige hart (z. B. vor einem neuen Sprecher); bei Hold leert sie auch die NDI-Quelle, Hold bleibt an und hält das leere Bild
+
+- `` Transkription stoppen (Haupttaste „Stopp“ bzw. CAPTION transcribe off), NDI bei Bedarf abschalten (Haupttaste „NDI an“ oder Schalter „Ausgabe“ im Panel ⚙ › NDI-Ausgabe) ``
++ Transkription stoppen (Haupttaste „Stopp“ bzw. CAPTION transcribe off), NDI bei Bedarf abschalten (Haupttaste „NDI an“ oder Schalter „Ausgabe“ im Panel ⚙ › NDI-Ausgabe). Auf dem Mac (nicht gemessen, Caption wird nur für Windows ausgeliefert): Schließt man das Fenster, endet die Transkription und Hold geht aus, auch für Companion; ein Klick aufs Dock öffnet das Fenster wieder, und solange es zu ist, lehnt Caption ein CAPTION transcribe on ab
+
++ | Transkription geht nach „Start“ gleich wieder aus, unter den Haupttasten steht „Mikrofon: …“ | Der Grund steht hinter „Mikrofon:“ (etwa „Gerät nicht gefunden“: das gewählte Gerät ist abgezogen oder heißt anders). Gerät im Panel ⚙ › Audiogerät prüfen oder neu wählen, dann „Start“; Caption versucht es nicht von selbst neu, Companion sieht so lange running=0. Fällt ein Mikrofon erst mitten im Lauf aus, meldet Caption das noch nicht: Pegel im Live-Bereich im Blick behalten |
++ | „Schrift“ oder „Max. Äußerung (s)“ wirkt nicht, unter dem Feld steht ein Grund | Der Wert ist leer, keine (ganze) Zahl oder außerhalb der Grenzen (Schrift 16 bis 160, Max. Äußerung 2 bis 15): korrigieren und mit Enter übernehmen; bis dahin gilt der alte Wert |
+
+### Recorder
+
+- `` Zielordner mit ausreichend Platz — die Aufnahme ist **WAV** (unkomprimiert; grob ~10 MB pro Kanal und Minute bei 48 kHz/24 bit). ``
++ Zielordner mit ausreichend Platz — die Aufnahme ist **WAV** (unkomprimiert, 32-bit Float, rund 11,5 MB je Kanal und Minute bei 48 kHz, doppelt mit „Spuren einzeln“ ab zwei Kanälen). Wie lange der Platz reicht, zeigt die Statusleiste „Platz“ (siehe Profi-Tipps).
+
+- `` `RECORDER ARM` / `RECORDER DISARM` — Eingang öffnen/schließen (Pegel ohne Datei) ``
+- `` `RECORDER RECORD ON` / `RECORDER RECORD OFF` / `RECORDER RECORD TOGGLE` — Aufnahme starten/stoppen/umschalten ``
+- `` `STATE?` — Zustand abfragen. Gepushte STATE-Werte: `recording` (0/1), `armed` (0/1), `status` ``
++ `RECORDER ARM` / `RECORDER DISARM` — Eingang öffnen/schließen (Pegel ohne Datei). Während einer Aufnahme lehnt der Recorder beide ab, die Aufnahme läuft weiter; beenden geht nur mit `RECORD OFF` bzw. „Stopp“
++ `RECORDER RECORD ON` / `RECORDER RECORD OFF` / `RECORDER RECORD TOGGLE` — Aufnahme starten/stoppen/umschalten. Ist kein Zielordner gewählt oder wartet ein Netzwerkordner aus der Show noch auf „Übernehmen“, lehnt der Recorder den Start ab, statt am Rechner einen Ordnerdialog zu öffnen
++ `STATE?` — Zustand abfragen. Gepushte STATE-Werte: `recording` (0/1), `armed` (0/1), `status`. Ein abgelehnter Befehl ändert daran nichts; den Grund zeigt das Fenster als Meldung bis „OK“ (etwa „Companion „ARM“ abgelehnt: Erst die Aufnahme stoppen.“), dazu steht eine Zeile im Log
+
++ **Schließen:** Läuft eine Aufnahme, fragt der Recorder beim Schließen des Fensters „Aufnahme läuft. Wirklich beenden?“, als Fenster im Recorder-Fenster; die Aufnahme läuft dabei weiter. „Weiter aufnehmen“ lässt alles, wie es war, „Aufnahme beenden“ schließt die Datei sauber ab und beendet den Recorder. Antwortet das Fenster nicht binnen einer Sekunde, stellt der Recorder dieselbe Frage als Windows-Dialog („Weiter aufnehmen“ ist vorgewählt). Ohne Aufnahme schließt das Fenster wie bisher. Beim Abmelden oder Herunterfahren von Windows schließt der Recorder die Aufnahme ohne Frage sauber ab.
+
+- `` **Getrennte Spuren** im Panel ⚙ › Ziel aktivieren, wenn hinterher gemischt wird — die Mono-WAVs pro Kanal landen direkt auf der DAW-Timeline. ``
+- `` `RECORD TOGGLE` auf einen Companion-Button legen: ein Knopf für Start und Stopp, mit rückgemeldetem `recording`-Zustand als Tally. ``
+- `` Zeitgesteuerte Aufnahme für Vorträge/Streams, die pünktlich beginnen — Startzeit in der Karte „Geplante Aufnahme“ setzen, der Recorder scharf lassen, fertig. ``
+- `` Über eine **`.jmshow`** lassen sich Zielordner, Dateiname, getrennte Spuren, Kanäle und Samplerate pro Produktion vorbelegen (das Eingangsgerät bleibt bewusst lokal). ``
++ **Getrennte Spuren** im Panel ⚙ › Ziel aktivieren, wenn hinterher gemischt wird — die Mono-WAVs pro Kanal landen direkt auf der DAW-Timeline. Sie brauchen noch einmal so viel Platz wie die Aufnahme selbst.
++ Vor langen Mitschnitten auf die Statusleiste **„Platz“** schauen: Sie zeigt vor und während der Aufnahme, wie lange der freie Speicher im Zielordner für das eingestellte Format reicht (etwa „Platz für 2 h 10 min“), gelb unter 15 Minuten, rot unter 5 Minuten. Gesperrt wird nie, eine Aufnahme startet auch bei wenig Platz. Lässt sich der Platz nicht lesen (etwa ein NAS, das nicht binnen 3 Sekunden antwortet), steht „Platz unbekannt“ da. Ein Klick auf den Eintrag öffnet Panel ⚙ › Ziel.
++ `RECORD TOGGLE` auf einen Companion-Button legen: ein Knopf für Start und Stopp, mit rückgemeldetem `recording`-Zustand als Tally. Endet eine Aufnahme mit einem Fehler (Datenträger voll, Eingang weg), geht `recording` sofort auf 0.
++ Zeitgesteuerte Aufnahme für Vorträge/Streams, die pünktlich beginnen — Startzeit in der Karte „Geplante Aufnahme“ setzen, der Recorder scharf lassen, fertig. Ein Schreibfehler löscht auch die geplanten Start- und Stoppzeiten.
++ Über eine **`.jmshow`** lassen sich Zielordner, Dateiname, getrennte Spuren, Kanäle und Samplerate pro Produktion vorbelegen (das Eingangsgerät bleibt bewusst lokal). Ein Ordner auf einem Laufwerk gilt sofort; ein Netzwerkordner aus der Show gilt erst, wenn ihn jemand im Fenster mit „Übernehmen“ bestätigt, danach ist er gemerkt und geht beim nächsten Mal ohne Klick. Ein ungültiger Pfad wird nicht übernommen.
+
+- `` | Companion startet nicht | Statusleiste „Fernsteuerung“ ansehen; Port 8729 offen? `jm-recorder-ctl` im mDNS sichtbar (sonst Adresse manuell eintragen)? | ``
+- `` | WAV unvollständig/nicht abspielbar | Aufnahme sauber mit **Record OFF** beenden (Haupttaste „Stopp“) — die Datei wird erst beim Stopp finalisiert | ``
+- `` | Platte voll mitten in der Aufnahme | Vorher Speicher prüfen; WAV ist groß — bei langen/mehrkanaligen Mitschnitten großzügig planen | ``
++ | Companion startet nicht | Statusleiste „Fernsteuerung“ ansehen; Port 8729 offen? `jm-recorder-ctl` im mDNS sichtbar (sonst Adresse manuell eintragen)? Steht im Fenster „Companion „…“ abgelehnt: …“? Dann nennt die Meldung den Grund: „Kein Zielordner gewählt.“ (Ordner wählen), „Der Netzwerkordner aus der Show ist noch nicht bestätigt.“ (im Hinweisband „Übernehmen“ drücken) oder „Erst die Aufnahme stoppen.“ (`ARM`/`DISARM` während der Aufnahme) |
++ | WAV unvollständig/nicht abspielbar | Aufnahme sauber mit **Record OFF** beenden (Haupttaste „Stopp“) — die Datei wird erst beim Stopp finalisiert. Fenster schließen während der Aufnahme fragt nach (siehe „Schließen“); Abmelden oder Herunterfahren von Windows schließt die Datei ohne Frage sauber ab |
++ | Platte voll mitten in der Aufnahme | Vorher die Statusleiste „Platz“ ansehen (gelb unter 15 min, rot unter 5 min); WAV ist groß — bei langen/mehrkanaligen Mitschnitten großzügig planen. Läuft der Datenträger trotzdem voll, endet die Aufnahme sauber (siehe nächste Zeile) |
++ | „Schreibfehler“ oder „Kein Eingang“ statt „REC“ | Die Aufnahme ist mit einem Fehler sauber zu Ende gegangen: „REC“ ist aus, Companion sieht `recording` 0, die Datei bis dahin ist abgeschlossen (ließ sich auch ihr Dateikopf nicht mehr schreiben, etwa weil der USB-Stick abgezogen wurde, sagt die Meldung das). „Schreibfehler“: Datenträger voll, abgezogen oder Netzwerkordner weg. „Kein Eingang“: Vom Gerät kamen 2 Sekunden lang keine Audiodaten (Interface abgezogen, Treiber hängt). Der Grund steht als Meldung bis „OK“, im Statuseintrag „Aufnahme“ und an der Taste „Neu aufnehmen“, bis eine Aufnahme gelingt, der Eingang geschlossen wird oder Companion `RECORD OFF` ihn quittiert. Ursache beheben (neuer Zielordner im Panel ⚙ › Ziel, Gerät prüfen), dann „Neu aufnehmen“ |
++ | Hinweis „Die Show möchte in einem Netzwerkordner aufnehmen: …“ | Ist der Ordner bekannt, „Übernehmen“ drücken; danach ist er gemerkt. „×“ verwirft den Vorschlag, dann gilt wieder der Ordner von vorher. Bis dahin ist kein Ordner gesetzt, und Companion kann nicht starten |
++ | Preset mit Netzwerkordner wechselt den Ordner nicht sofort | Der Netzwerkordner eines Presets gilt erst, wenn seine Prüfung geantwortet hat; der Rest des Presets wirkt sofort, und ein nächstes Preset wartet nicht. Antwortet das NAS nicht (ausgeschaltet, Netz weg), gilt bis zur Antwort der Ordner von vorher, und die Preset-Auswahl zeigt „(geändert)“ |
+
+### Presenter
+
+- `` `PRESENTER BLACK` / `PRESENTER WHITE` — Pausenbild schwarz/weiß ``
++ `PRESENTER BLACK` / `PRESENTER WHITE` — Pausenbild schwarz/weiß. Ohne Zusatz oder mit `TOGGLE` holt ein zweiter Befehl die Folie zurück (wie bisher); mit `ON` bleibt das Bild an, auch beim zweiten Mal; mit `OFF` geht es zurück zur Folie, wenn das Bild an ist, sonst passiert nichts. In Companion (Modul ab 0.4.0) ist das die Option „Modus“ der Aktionen „Schwarz“ und „Weiß“: „Umschalten“ (Vorgabe), „An“ und „Aus“; für sicher schwarz die Taste auf „An“ stellen. Ein Presenter bis 0.15.0 schaltet bei jeder Wahl um
+
+- `` `STOP` beendet die Präsentation (lokal „■ Beenden“ ganz rechts im Kopf des Referenten, bei schmalem Fenster als letzte Taste rechts in der Leiste, oder Esc außerhalb des Panels, im Editor „Beenden“ in der Werkzeugleiste); Projekt (.jmpres) mit „Speichern“ sichern, falls Overlays/Anpassungen erhalten bleiben sollen. ``
++ `STOP` beendet die Präsentation (lokal „■ Beenden“ ganz rechts im Kopf des Referenten, bei schmalem Fenster als letzte Taste rechts in der Leiste, oder Esc außerhalb des Panels, im Editor „Beenden“ in der Werkzeugleiste). Esc beendet die Präsentation sofort und ohne Rückfrage, im Referenten, im Publikumsfenster und in der Übersicht; im Panel schließt Esc das Panel. Projekt (.jmpres) mit „Speichern“ sichern, falls Overlays/Anpassungen erhalten bleiben sollen.
+
+- `` `BLACK` auf einen Companion-Button — schneller sauberer „Vorhang" zwischen zwei Programmpunkten. ``
++ `BLACK` auf einen Companion-Button — schneller sauberer „Vorhang" zwischen zwei Programmpunkten. Für sicher schwarz die Taste auf „An“ stellen (Option „Modus“, `ON`): Ein zweiter Druck bleibt schwarz. Eine zweite Taste mit „Aus“ (`OFF`) holt die Folie zurück; „Umschalten“ (`TOGGLE`, Vorgabe) wirkt wie bisher.
+
+### Connect
+
+- `` „Meeting verlassen“ (bei laufenden Slots fragt der Knopf einmal nach) oder Connect über das Tray beenden. Beides verlässt das Meeting sauber; die Zoom-Quellen verschwinden aus dem Switcher. Gespeicherte Slots bleiben samt Einstellungen für das nächste Meeting; vorübergehende sind weg, und per ZOOM_LOAD nur für dieses Meeting eingeschaltete Slots sind wieder aus. ``
++ „Meeting verlassen“ (bei laufenden Slots fragt der Knopf einmal nach; „Ja, verlassen“ wirkt erst nach einer Sekunde, ein Doppelklick verlässt nicht) oder Connect über das Tray beenden. Beides verlässt das Meeting sauber; die Zoom-Quellen verschwinden aus dem Switcher. Gespeicherte Slots bleiben samt Einstellungen für das nächste Meeting; vorübergehende sind weg, und per ZOOM_LOAD nur für dieses Meeting eingeschaltete Slots sind wieder aus.
 
 Freigabe: ☐ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren)
