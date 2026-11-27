@@ -6,7 +6,7 @@
 // Statusleiste), Fehlertexte aus dem Main (ZoomErgebnis.text, abbild.meldung). Der Kenncode lebt hier nur bis zum Klick auf
 // „Beitreten“ (Spec 5.7). Bewusst NICHT wiederverwendet: TallyButton, GuestActions, PhaseBadge (kein Tally, kein Talkback, keine
 // Phasen). Knöpfe aus @jm/ui, Farben als Tokens (W2-9).
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Button } from '@jm/ui';
 import type { ZoomAbbild, ZoomLetztesMeeting } from '@shared/types';
 import {
@@ -25,6 +25,7 @@ import {
 } from '@shared/zoom-text';
 import { antwortAm, ohneText, type ZoomAufrufe } from './aufrufe';
 import { STIL } from './SlotEinstellungen';
+import { VERLASSEN_SPERRE_MS, verlassenBedienung, verlassenGesperrt } from './verlassen';
 
 // Hinweistext wörtlich aus Spec 8 und 9 (der Renderer importiert klartext.ts nicht).
 const TEXT_Q13 = 'Bild-Versatz: erlaubt sind ganze Zahlen von 0 bis 1000 ms.';
@@ -57,7 +58,7 @@ export function ZoomCard({ a, zoom }: { a: ZoomAbbild; zoom: ZoomAufrufe }): JSX
   /** null = unverändert, dann gilt der gespeicherte Versatz aus dem Abbild. */
   const [versatz, setVersatz] = useState<string | null>(null);
   const [versatzFehler, setVersatzFehler] = useState<string | null>(null);
-  const [verlassenFrage, setVerlassenFrage] = useState(false);
+  const [frageSeit, setFrageSeit] = useState<number | null>(null);
 
   // Abrufe des gemerkten Meetings: Nur die Antwort auf die neueste Anfrage zählt (eine ältere, später eintreffende hielte einen
   // überholten Stand), und nach dem Aushängen setzt keine mehr etwas.
@@ -105,13 +106,25 @@ export function ZoomCard({ a, zoom }: { a: ZoomAbbild; zoom: ZoomAufrufe }): JSX
   const kn = useMemo(() => zoomKnoepfe(a), [a]);
   const verlassenMoeglich = kn.verlassen;
   useEffect(() => {
-    if (!verlassenMoeglich) setVerlassenFrage(false);
+    if (!verlassenMoeglich) setFrageSeit(null);
   }, [verlassenMoeglich]);
+  // Altfehler CN-MV: am Ende der Sperrzeit neu zeichnen (erst gesperrt dargestellt, danach frei); ein zu früher Zeitgeber plant neu.
+  const [sperrTakt, zeichneNeu] = useReducer((x: number) => x + 1, 0);
+  useEffect(() => {
+    if (frageSeit === null) return;
+    const rest = frageSeit + VERLASSEN_SPERRE_MS - performance.now();
+    if (rest <= 0) return;
+    const t = setTimeout(zeichneNeu, rest + 1);
+    return () => clearTimeout(t);
+  }, [frageSeit, sperrTakt]);
 
   const k = a.kurz;
   // Slot-Spec 7.5 Nr. 5/6: Die Verlassen-Rückfrage hängt an n = laufende Slots (T80).
   const n = k.slotsLaufen;
-  const frage = verlassenFrage && n > 0;
+  const frage = frageSeit !== null && n > 0;
+  // Altfehler CN-MV (D9, G19): gesperrt nur, solange die Rückfrage steht und ihre Sperrzeit läuft; ohne laufende Slots verlässt ein
+  // Klick sofort, auch während der Sperre.
+  const sperre = frage && verlassenGesperrt(frageSeit, performance.now());
 
   const beitreten = (): void => {
     const code = kenncode;
@@ -143,14 +156,15 @@ export function ZoomCard({ a, zoom }: { a: ZoomAbbild; zoom: ZoomAufrufe }): JSX
     });
   };
 
-  const verlassen = (): void => {
-    if (n > 0 && !verlassenFrage) {
-      setVerlassenFrage(true); // erster Klick: T80 „Ja, verlassen (n Slots laufen)“
-      return;
-    }
-    setVerlassenFrage(false);
-    void fuehreAus('verlassen', null, () => ohneText(window.jmconnect.zoomVerlassen()));
-  };
+  // Erster Klick mit laufenden Slots: T80 „Ja, verlassen (n Slots laufen)“; sie nimmt erst nach der Sperrzeit einen Klick an, ein
+  // Doppelklick verlässt nie (Altfehler CN-MV, P6; Logik in verlassen.ts). Die Zeit kommt von der monotonen Uhr.
+  const verlassen = verlassenBedienung({
+    n,
+    frageSeit,
+    setzeFrageSeit: setFrageSeit,
+    jetzt: () => performance.now(),
+    verlasse: () => void fuehreAus('verlassen', null, () => ohneText(window.jmconnect.zoomVerlassen())),
+  });
 
   // Spec 6.7: ungültig → Feld rot, Text Q13, nichts gesendet.
   const uebernimmVersatz = (): void => {
@@ -287,7 +301,16 @@ export function ZoomCard({ a, zoom }: { a: ZoomAbbild; zoom: ZoomAufrufe }): JSX
       {kn.verlassen && (
         // Tastenplatz (Task 24): rechtsbündig, „Meeting verlassen“ ganz rechts (links lag es auf dem alten „Talkback alle“).
         <div data-connect="zoom-laufend" className="flex flex-row-reverse flex-wrap gap-2">
-          <Button size="sm" uppercase={false} variant={frage ? 'destructive' : 'outline'} disabled={laeuft.has('verlassen')} onClick={verlassen}>
+          {/* Altfehler CN-MV (D9): in der Sperrzeit aria-disabled, nicht disabled (Fokus und Platz bleiben), abgeschwächt wie gesperrt. */}
+          <Button
+            size="sm"
+            uppercase={false}
+            variant={frage ? 'destructive' : 'outline'}
+            disabled={laeuft.has('verlassen')}
+            aria-disabled={sperre ? true : undefined}
+            className="aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
+            onClick={verlassen}
+          >
             {frage ? verlassenFrageText(n) : 'Meeting verlassen'}
           </Button>
           {kn.abbrechen && (
