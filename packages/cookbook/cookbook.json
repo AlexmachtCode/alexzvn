@@ -1162,7 +1162,8 @@
           "nach": [
             "**Record OFF** (Haupttaste „Stopp“) beendet und finalisiert die WAV sauber (Datei erst danach vollständig lesbar).",
             "Aufnahme kontrollieren (Pegel, Vollständigkeit); Dateien sichern. Für Schnitt/Mix in JM DAW importieren.",
-            "**Schließen:** Läuft eine Aufnahme, fragt der Recorder beim Schließen des Fensters „Aufnahme läuft. Wirklich beenden?“, als Fenster im Recorder-Fenster; die Aufnahme läuft dabei weiter. „Weiter aufnehmen“ lässt alles, wie es war, „Aufnahme beenden“ schließt die Datei sauber ab und beendet den Recorder. Antwortet das Fenster nicht binnen einer Sekunde, stellt der Recorder dieselbe Frage als Windows-Dialog („Weiter aufnehmen“ ist vorgewählt). Ohne Aufnahme schließt das Fenster wie bisher. Beim Abmelden oder Herunterfahren von Windows schließt der Recorder die Aufnahme ohne Frage sauber ab."
+            "**Schließen:** Läuft eine Aufnahme, fragt der Recorder beim Schließen des Fensters „Aufnahme läuft. Wirklich beenden?“, als Fenster im Recorder-Fenster; die Aufnahme läuft dabei weiter. „Weiter aufnehmen“ lässt alles, wie es war, „Aufnahme beenden“ schließt die Datei sauber ab und beendet den Recorder. Antwortet das Fenster nicht binnen einer Sekunde, stellt der Recorder dieselbe Frage als Windows-Dialog („Weiter aufnehmen“ ist vorgewählt). Ohne Aufnahme schließt das Fenster wie bisher. Beim Abmelden oder Herunterfahren von Windows schließt der Recorder die Aufnahme ohne Frage sauber ab (nicht gemessen).",
+            "**Update:** Vor einem Update über den Launcher die Aufnahme stoppen: Das Update beendet den Recorder; die Datei bleibt bis zu diesem Moment abspielbar."
           ]
         },
         "troubleshooting": [
@@ -1184,7 +1185,7 @@
           },
           {
             "risk": "WAV unvollständig/nicht abspielbar",
-            "remedy": "Aufnahme sauber mit **Record OFF** beenden (Haupttaste „Stopp“) — die Datei wird erst beim Stopp finalisiert. Fenster schließen während der Aufnahme fragt nach (siehe „Schließen“); Abmelden oder Herunterfahren von Windows schließt die Datei ohne Frage sauber ab"
+            "remedy": "Aufnahme sauber mit **Record OFF** beenden (Haupttaste „Stopp“) — die Datei wird erst beim Stopp finalisiert. Fenster schließen während der Aufnahme fragt nach (siehe „Schließen“); Abmelden oder Herunterfahren von Windows schließt die Datei ohne Frage sauber ab (nicht gemessen)"
           },
           {
             "risk": "Platte voll mitten in der Aufnahme",
@@ -1192,7 +1193,7 @@
           },
           {
             "risk": "„Schreibfehler“ oder „Kein Eingang“ statt „REC“",
-            "remedy": "Die Aufnahme ist mit einem Fehler sauber zu Ende gegangen: „REC“ ist aus, Companion sieht `recording` 0, die Datei bis dahin ist abgeschlossen (ließ sich auch ihr Dateikopf nicht mehr schreiben, etwa weil der USB-Stick abgezogen wurde, sagt die Meldung das). „Schreibfehler“: Datenträger voll, abgezogen oder Netzwerkordner weg. „Kein Eingang“: Vom Gerät kamen 2 Sekunden lang keine Audiodaten (Interface abgezogen, Treiber hängt). Der Grund steht als Meldung bis „OK“, im Statuseintrag „Aufnahme“ und an der Taste „Neu aufnehmen“, bis eine Aufnahme gelingt, der Eingang geschlossen wird oder Companion `RECORD OFF` ihn quittiert. Ursache beheben (neuer Zielordner im Panel ⚙ › Ziel, Gerät prüfen), dann „Neu aufnehmen“"
+            "remedy": "Die Aufnahme ist mit einem Fehler sauber zu Ende gegangen: „REC“ ist aus, Companion sieht `recording` 0, die Datei bis dahin ist abgeschlossen (ließ sich auch ihr Dateikopf nicht mehr schreiben, etwa weil der USB-Stick abgezogen wurde, sagt die Meldung das). „Schreibfehler“: Datenträger voll, abgezogen oder Netzwerkordner weg. „Kein Eingang“: Vom Gerät kamen 2 Sekunden lang keine Audiodaten (Interface abgezogen, Treiber hängt); der Recorder schließt dann auch den Eingang, Companion sieht `armed` 0. Der Grund steht als Meldung bis „OK“, im Statuseintrag „Aufnahme“ und an der Taste „Neu aufnehmen“, bis eine Aufnahme gelingt, der Eingang geschlossen wird oder Companion `RECORD OFF` ihn quittiert. Ursache beheben: bei „Schreibfehler“ einen neuen Zielordner im Panel ⚙ › Ziel wählen, dann „Neu aufnehmen“; bei „Kein Eingang“ Gerät prüfen, Eingang wieder öffnen, dann neu aufnehmen"
           },
           {
             "risk": "Hinweis „Die Show möchte in einem Netzwerkordner aufnehmen: …“",
