@@ -164,7 +164,7 @@ Beobachtungen außerhalb des Auftrags dieser Stufe; sie stehen als Kandidaten in
 Für wen: spätere Entwickler, die an Player, Interpreter, Stage Display, Caption, Recorder, Presenter, dem Companion-Modul oder Connect weiterarbeiten. Hier steht, was in Stufe 2 entschieden wurde, wo Spec und Code schwiegen, mit dem Grund und dem, was es kostet, wenn die Entscheidung falsch war:
 - die Festlegungen B1 bis B7, C1 bis C10, P1 bis P9 und D1 bis D11 des Plans (Abschnitt 6); B, C und P sind Festlegungen des Controllers (Owner 26.11. 12:13 „los“), D die des Plans; der Owner hat sie in der Texttabelle `docs/ux/altfehler-stufe2-texte.md`, Abschnitt „Entscheidungen“, zur Kenntnis;
 - die Pre-flight-Rulings K1 bis K9 und G1 bis G22, die vor Task 1 galten und dem Plantext vorgingen (Abschnitt 7);
-- die Rulings des Controllers während des Baus (Abschnitt 8). Sie heißen hier **S2-R1 bis S2-R24**, damit sie nicht mit R1 bis R21 der Stufe 1 verwechselt werden. S2-R5 bis S2-R24 tragen im Ledger und in der Texttabelle die Nummern R5 bis R24; S2-R1 bis S2-R4 hießen dort R1-Fokus, R2-Fokus, R3-Fokus und R4-mDNS.
+- die Rulings des Controllers während des Baus (Abschnitt 8). Sie heißen hier **S2-R1 bis S2-R25**, damit sie nicht mit R1 bis R21 der Stufe 1 verwechselt werden. S2-R5 bis S2-R25 tragen im Ledger und in der Texttabelle die Nummern R5 bis R25; S2-R1 bis S2-R4 hießen dort R1-Fokus, R2-Fokus, R3-Fokus und R4-mDNS.
 
 Danach jede Kleinigkeit, die ein Prüfer vermerkt und aufgeschoben hat (Abschnitt 9), und die Kandidaten für eine spätere Runde (Abschnitt 10). Die Gesamtprüfung des Branches und ihre Fix-Welle folgen nach diesem Stand; ihre Entscheidungen kommen als eigener Abschnitt dazu.
 
@@ -252,9 +252,9 @@ Ein Scan von Plan, Spec und Code vor Task 1 fand neun Konflikte (K) und 22 Lück
 | G21 | alle Tasks | Code über den zitierten Anker suchen, nicht über die Zeilennummer. | Die Nummern verschieben sich nach früheren Tasks. | Nichts. |
 | G22 | Task 1 | Den neuen `resume`-Block für die Ausgabe hinter `set({ … showPaused: false })` setzen; der Wächter der Funktionsliste erlaubt dort 1200 Zeichen. | Lücke im Plan. | Nacharbeit im Test-Gerüst. |
 
-### 8. Rulings des Controllers (S2-R1 bis S2-R24)
+### 8. Rulings des Controllers (S2-R1 bis S2-R25)
 
-Im Ledger stehen 30 Zeilen mit „Ruling“: sechs davon sind die Pre-flight-Rulings aus Abschnitt 7 (K1, K5, K6, K7, K9 und die Sammelzeile K2, K3, K4, K8 mit G1 bis G22), die übrigen 24 stehen hier.
+Im Ledger stehen 31 Zeilen mit „Ruling“: sechs davon sind die Pre-flight-Rulings aus Abschnitt 7 (K1, K5, K6, K7, K9 und die Sammelzeile K2, K3, K4, K8 mit G1 bis G22), die übrigen 25 stehen hier.
 
 | # | Befund | Entschieden | Grund | Kostet, wenn falsch |
 | --- | --- | --- | --- | --- |
@@ -282,10 +282,11 @@ Im Ledger stehen 30 Zeilen mit „Ruling“: sechs davon sind die Pre-flight-Rul
 | S2-R22 | Werkzeug (Bericht Task 8) | Junctions nur aus PowerShell anlegen und lösen, mit `Test-Path`-Nachweis; Nachtrag in den globalen Regeln. | `mklink /J` aus Git Bash legt still nichts an. | Nichts. |
 | S2-R23 | PS-15 (Prüfung Task 8, Minor 1, nach der Wirkung Important) | `AbortController` auf der Handy-Seite mit Rückfall (Prüfung mit `typeof`, sonst `r.body.cancel`). | Ein Handy, das sich vorher verbinden konnte (iOS vor 12.2, Chrome vor 66), könnte es sonst gar nicht mehr; die Seite muss auf jedem Handy gehen. | Zwei Zeilen. |
 | S2-R24 | PS-18, Changelog (Prüfung Task 10, Minor 1) | Den P2-Satz genau fassen: „Presenter bis 0.15.0 schalten bei jeder Wahl um; erst ab Presenter 0.15.1 wirken „An“ und „Aus“.“ im Changelog (Presenter 0.15.1, Notiz 2) und in CL-PS2 der Texttabelle. Umgesetzt in Task 11. | Das Modul wird getrennt vom Presenter installiert; „Ältere Presenter“ ließ offen, welche. | Nichts. |
+| S2-R25 | Doku, Prüfung Task 11 (Minor 1, 2 und 4) | Im selben Durchgang wie die Fix-Runde: Abschnitt 8 der Funktionsliste Recorder (IPC-Übersicht) bekommt die neuen Kanäle `recorder:ablehnung`, `recorder:netzordnerBestaetigen`, `fs:platz`, `recorder:schliessenFrage`, `recorder:schliessenAntwort` und die geänderten Rückgaben (`rec:disarm` → `OpResult`, `settings:load` mit `ordnerDa: null`), je mit „Altfehler Stufe 2 (‹ID›)“ und ohne neue Zeile; das Rezept des Wegwerf-Profils sagt, wie `$a` und `$h` je App zu setzen sind; RE-K4 bis RE-K7 stehen im Wortlaut der 0.9.2-Liste von PR #296. Umgesetzt in Fix-Runde 1 von Task 11. | Billig und nah an Abnahme und Inventar; die eigene Lesung der Liste war an zwei Punkten ungenau (RE-K6, RE-K7). | Nichts. |
 
 ### 9. Vermerkte Kleinigkeiten (Minor), aufgeschoben
 
-Jede Zeile ein Fund eines Prüfers, den der Controller als „minor (deferred)“ ins Ledger übernommen hat, mit Datei und Zeile (Stand der Prüfung). Nichts davon blockierte einen Task; nichts davon ist bis Task 11 behoben. Was die Gesamtprüfung und ihre Fix-Welle davon beheben, bekommt dort den Vermerk.
+Jede Zeile ein Fund eines Prüfers, den der Controller als „minor (deferred)“ ins Ledger übernommen hat, mit Datei und Zeile (Stand der Prüfung). Nichts davon blockierte einen Task; behoben ist bis Task 11 nur, was den Vermerk **behoben** trägt. Was die Gesamtprüfung und ihre Fix-Welle davon beheben, bekommt dort den Vermerk.
 
 #### Player (Task 1)
 - Läuft Video 1 und kommt GO auf Video 2, das während seines `isOpen`-Rundlaufs gelöscht wird, ist `videoCue` leer, obwohl Video 1 weiterläuft; „Weiter“ weckt es nicht, sein natürliches Ende wird übergangen. Das Fenster ist Millisekunden kurz; der Kostensatz von D5 („kein solcher Weg“) stimmt dafür nicht: `R/store/player.ts:510-516`, `:581`, `:687`.
@@ -338,7 +339,7 @@ Jede Zeile ein Fund eines Prüfers, den der Controller als „minor (deferred)�
 
 #### Dokumentation (Task 10 und 11)
 - Der Recorder-Eintrag im Changelog hat fünf Notizen (Regel: Minor drei bis vier); das Prüfskript gleicht die Presenter-Version nicht mit `lib.mjs` ab.
-- Abschnitt 8 der Funktionsliste Recorder (IPC-Übersicht, „Stand der Erhebung“) nennt die neuen Kanäle der Stufe 2 nicht (`recorder:ablehnung`, `recorder:netzordnerBestaetigen`, `fs:platz`, `recorder:schliessenFrage`, `recorder:schliessenAntwort`). Die Berichte von Task 6 und 7 wiesen das Task 11 zu; die verbindlichen Hinweise für Task 11 nennen es nicht, darum ist es offen.
+- Abschnitt 8 der Funktionsliste Recorder (IPC-Übersicht, „Stand der Erhebung“) nennt die neuen Kanäle der Stufe 2 nicht (`recorder:ablehnung`, `recorder:netzordnerBestaetigen`, `fs:platz`, `recorder:schliessenFrage`, `recorder:schliessenAntwort`). Die Berichte von Task 6 und 7 wiesen das Task 11 zu; die verbindlichen Hinweise für Task 11 nennen es nicht, darum ist es offen. **behoben (Fix-Runde 1 von Task 11, S2-R25)**: Abschnitt 8 nennt die fünf Kanäle und die zwei geänderten Rückgaben, ohne neue Zeile.
 
 ### 10. Kandidaten für eine spätere Runde
 
@@ -348,7 +349,7 @@ Beobachtungen außerhalb des Auftrags dieser Stufe; sie stehen als Kandidaten in
 - Connect (P6, CN-K1): „Ja, verlassen“ verfällt nie.
 - Recorder (B4, RE-K1): Die Show-Datei wird synchron gelesen; beim Start einer Aufnahme legt der Hauptprozess den Ordner synchron an und prüft ihn synchron.
 - Recorder (S2-R14, S2-R19, RE-K3): Auf dem Mac fehlt der Schutz durch die Rückfrage bei Cmd+Q, Abmelden und Herunterfahren.
-- Recorder (Spec 8, RE-K4 bis RE-K7): die vier übrigen Punkte der 0.9.2-Liste aus PR #296 (englischer Präfix der Fehlermeldungen, ungenutztes Feld `netzwerk`, Grenze der Preset-Datei erst nach dem Dialog, Aufnahmezeit je Block aus dem Addon).
+- Recorder (Spec 8, RE-K4 bis RE-K7): die Punkte 2 bis 5 der 0.9.2-Liste aus PR #296: Fehlertexte von `presets:speichern` und `presets:loeschen` tragen Electrons englischen Präfix; `PresetDateiErgebnis.netzwerk` hat keinen Nutzer mehr; die Export-Grenze greift erst nach dem Speicherdialog; langfristig die Aufnahmezeit je Block aus dem Addon (`inputBufferAdcTime`). Punkt 1, die langsame NAS-Prüfung, die das nächste Preset aufhält, ist RE-NAS und in dieser Stufe behoben.
 
 Aus den Berichten, noch nicht im Inventar (der Controller entscheidet, ob sie Kandidaten werden):
 - Recorder (Bericht Task 6): Einen bestätigten Netzwerkordner kann man nur in der Datei `recorder-netzordner.json` von Hand wieder vergessen; die Liste wächst ohne Grenze.

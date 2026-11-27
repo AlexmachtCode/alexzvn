@@ -281,7 +281,7 @@ der Umbau hat sie ergänzt (Entscheidung E2, Recorder b, Task 19, nur lesend). D
 | `platform` | – | – | `process.platform` (im Renderer nirgends benutzt, abgeleitet) |
 | `listDevices()` | `rec:listDevices` | invoke | Eingangsgeräte (Nr. 76) |
 | `arm(input)` | `rec:arm` | invoke | Eingang öffnen, Ergebnis `OpResult` (Nr. 77) |
-| `disarm()` | `rec:disarm` | invoke | Eingang schließen (Nr. 78) |
+| `disarm()` | `rec:disarm` | invoke | Eingang schließen (Nr. 78). Altfehler Stufe 2 (RE-2): Ergebnis jetzt `OpResult`; während einer Aufnahme lehnt der Hauptprozess ab („Erst die Aufnahme stoppen.“) |
 | `startRecording(input)` | `rec:start` | invoke | Aufnahme starten (Nr. 81) |
 | `stopRecording()` | `rec:stop` | invoke | Aufnahme beenden, Ergebnis `RecordResult` (Nr. 88) |
 | `schedule(input)` | `rec:schedule` | invoke | Aufnahme planen (Nr. 92) |
@@ -296,7 +296,7 @@ der Umbau hat sie ergänzt (Entscheidung E2, Recorder b, Task 19, nur lesend). D
 | `onRemoteCommand(cb)` | `recorder:remote-cmd` | Ereignis | Fernbefehl vom Steuerserver (Nr. 111) |
 | `takeShowSettings()` | `rec:takeShowSettings` | invoke | gemerkte Show-Vorgaben holen (einmalig, leert den Puffer) |
 | `onShowSettings(cb)` | `recorder:show-settings` | Ereignis | Show-Vorgaben zur Laufzeit |
-| `settings.load()` | `settings:load` | invoke | gemerkte Einstellungen und `ordnerDa` |
+| `settings.load()` | `settings:load` | invoke | gemerkte Einstellungen und `ordnerDa`. Altfehler Stufe 2 (RE-7b): `ordnerDa` ist jetzt immer `null` (kein `existsSync` mehr im Hauptprozess); den gemerkten Ordner prüft der Renderer danach asynchron über `fs:ordnerDa` |
 | `settings.save(e)` | `settings:save` | send | Einstellungen schreiben, ohne Antwort |
 | `presets.list()` | `presets:list` | invoke | Presets lesen |
 | `presets.speichern(p)` | `presets:speichern` | invoke | Preset ersetzen oder anlegen, neue Liste |
@@ -311,6 +311,14 @@ der Umbau hat sie ergänzt (Entscheidung E2, Recorder b, Task 19, nur lesend). D
 
 Nicht über den Preload, sondern im Hauptprozess: der Steuerserver (TCP 8729, Nr. 105), der Show-Deep-Link (Nr. 73),
 die Einzelinstanz (Nr. 90), die Laufzeitschicht (`initAppRuntime`, nicht gelesen).
+
+Altfehler Stufe 2: Seit der Stufe 2 hat `window.jmrec` fünf Kanäle mehr; die Tabelle oben bleibt der Stand der Erhebung, ohne neue Zeilen.
+- Altfehler Stufe 2 (RE-2, RE-2b, RE-7b): `ablehnung(a)` über `recorder:ablehnung` (invoke): Meldung bis „OK“ und Log-Zeile für einen abgelehnten Fernbefehl (B6).
+- Altfehler Stufe 2 (RE-7b): `netzordnerBestaetigen(pfad)` über `recorder:netzordnerBestaetigen` (invoke): merkt einen Netzwerkordner aus der Show als bestätigt („Übernehmen“), Ergebnis `boolean`.
+- Altfehler Stufe 2 (RE-PLATZ): `platz(dir)` über `fs:platz` (invoke): freier Platz im Ordner in Byte (`statfs`, Zeitgrenze 3 s), `null` = nicht lesbar.
+- Altfehler Stufe 2 (RE-7a): `onSchliessenFrage(cb)` über `recorder:schliessenFrage` (Ereignis, Hauptprozess → Fenster): Rückfrage beim Schließen zeigen (`true`) oder schließen (`false`); der Preload merkt die letzte Lage für ein Neuladen.
+- Altfehler Stufe 2 (RE-7a): `schliessenAntwort(a)` über `recorder:schliessenAntwort` (invoke, Fenster → Hauptprozess): `gezeigt` (die 1-s-Frist des Rückfalls endet), `beenden` oder `weiter`.
+- Geänderte Rückgaben: `rec:disarm` liefert `OpResult` (RE-2), `settings:load` liefert `ordnerDa: null` (RE-7b); siehe die beiden Zeilen der Tabelle.
 
 ## 9 · Einstellungen nach Spec 6 / Anhang A (Zuordnung der Ist-Elemente)
 
