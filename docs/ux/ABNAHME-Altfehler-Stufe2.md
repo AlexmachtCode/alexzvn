@@ -10,7 +10,7 @@ Die Nummer jeder Zeile beginnt mit AL (Player), AI (Interpreter), AD (Stage Disp
 - **„Aus dem Code abgeleitet“** heißt: Beim Bau wurde das weder im Fenster gesehen noch mit dem echten Gerät geprüft; dann zählt, was wirklich passiert, und Du notierst es.
 - **Nicht Teil Deiner Prüfung** (läuft auf Deinen Rechnern nicht oder lässt sich von Hand nicht auslösen): siehe „Was Du nicht prüfst“ am Ende.
 
-**Ergebnis (Owner):** durch, am 27.11.2026 um 10:00 („freigabe für texte und abnahme“). Die Texttabelle ist zur selben Zeit freigegeben, mit den Vorschlägen zu ihren drei offenen Fragen (Ruling S2-R35). Danach folgen Push und PR, dann Merge und Release je App, jeder Schritt nur mit Deinem OK.
+**Ergebnis (Owner):** durch, am 27.11.2026 um 10:00 („freigabe für texte und abnahme“). Die Texttabelle ist zur selben Zeit freigegeben, mit den Vorschlägen zu ihren drei offenen Fragen (Ruling S2-R35). Released am 27.11.2026 (Freigabe 11:26): PR #336 gemergt (`5c0a6903d8`). Player 0.10.1, Interpreter 0.3.1 und Stage Display 0.8.0 über die CI (Windows und Mac); Presenter 0.15.1 Windows lokal mit NDI, Mac per CI, mit dem Companion-Modul 0.4.0 am Release; Caption 0.7.0, Recorder 0.11.0 und Connect 0.6.1 lokal gebaut (Windows), Connect mit neu gebauter Zoom-Bridge und Mac per `connect-mac.yml`. Der Katalog steht auf allen sieben Versionen. Die neu gebaute Zoom-Bridge ist noch in keinem Zoom-Meeting gelaufen.
 
 ## Voraussetzungen
 
