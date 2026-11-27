@@ -14,9 +14,13 @@ import {
   type RemoteControlSectionProps,
 } from '@jm/settings';
 import { formatUhrzeitKurz, masterLinkStatusItem, unbekannt, type StatusItem } from '@jm/ui';
-import { portBelegt, STEUER_PORT, type FernsteuerungMeldung } from '@shared/fernsteuerung';
-import type { AudioDevice, MasterLinkMeldungZeile, RecorderState } from '@shared/types';
+// Relativ statt über den Alias @shared/: der Store lädt dieses Modul (Texte, Altfehler Stufe 2), und sein Test läuft unter tsx ohne Aliase.
+import { portBelegt, STEUER_PORT, type FernsteuerungMeldung } from '../../../shared/fernsteuerung';
+import { netzwerkServer, saeubereAnzeige } from '../../../shared/presets';
+import { SCHLIESSEN_TEXTE } from '../../../shared/schliessen';
+import { ERST_AUFNAHME_STOPPEN, FERNBEFEHL_ABGELEHNT, type AudioDevice, type MasterLinkMeldungZeile, type RecorderFehler, type RecorderState } from '../../../shared/types';
 import { basename } from './format';
+import { bytesProSekunde, platzEintrag, platzOrdner, PLATZ_TEXTE } from './platz';
 
 /** Abschnitts-ids = Panel-Anker (`einstellung-{id}`) = settingsSection der Statuseinträge. `format` und `ziel` sind tool-eigen. */
 export const ABSCHNITT = {
@@ -31,8 +35,11 @@ export const ABSCHNITT = {
  * @jm/settings und @jm/ui werden nie nachgebaut, sondern dort gelesen (AUDIO_TEXTE, REMOTE_TEXTE, MASTER_LINK_TEXTE).
  */
 export const RECORDER_TEXTE = {
-  /** Haupttasten: Beschriftungen wie die alten Knöpfe (RecorderView.tsx:146-176). */
-  taste: { eingangOeffnen: 'Eingang öffnen', eingangSchliessen: 'Eingang schließen', aufnahme: 'Aufnahme', stopp: 'Stopp' },
+  /**
+   * Haupttasten: Beschriftungen wie die alten Knöpfe (RecorderView.tsx:146-176). Altfehler RE-3: „Neu aufnehmen“ heißt die Aufnahme-Taste,
+   * solange das Fehlerfeld des Hauptprozesses steht (ein gelungener Start löscht es).
+   */
+  taste: { eingangOeffnen: 'Eingang öffnen', eingangSchliessen: 'Eingang schließen', aufnahme: 'Aufnahme', stopp: 'Stopp', neuAufnehmen: 'Neu aufnehmen' },
   /**
    * Gründe gesperrter Tasten: Wortlaut der Meldungen von heute (Store: Kein Eingang gewählt.; Seitenkopf: Suche Audiogeräte…;
    * Hauptprozess: Erst den Eingang öffnen (Arm)., src/main/recorder.ts:298, ohne den Zusatz; Fix-Runde 1, für Z1).
@@ -42,7 +49,52 @@ export const RECORDER_TEXTE = {
     sucheGeraete: 'Suche Audiogeräte…',
     zustandOffen: 'Aufnahmezustand wird abgefragt…',
     eingangZu: 'Erst den Eingang öffnen',
+    /** Altfehler RE-2: „Eingang schließen“ in der Aufnahme, Wortlaut der Spec; derselbe Satz wie ERST_AUFNAHME_STOPPEN ohne den Punkt (K4). */
+    aufnahmeLaeuft: ERST_AUFNAHME_STOPPEN.replace(/\.$/, ''),
+    /**
+     * Altfehler RE-3, Fix-Runde 1 (Ruling R17): „Neu aufnehmen“ bei geschlossenem Eingang mit Fehlerfeld (die Haupttaste zeigt den Fehler auch
+     * dann). Entwurf für die Texttabelle (Task 10).
+     */
+    neuAufnehmenZu: 'Eingang öffnen, dann neu aufnehmen',
   },
+  /**
+   * Abgelehnter Fernbefehl (B6; Altfehler RE-2, RE-2b, RE-7b), als Meldung bis „OK“ (recorder:notice). Das Verb wie Companion es schickt
+   * (ARM, DISARM, RECORD ON, RECORD TOGGLE); „Companion“ wie im Player (PL-16a), auch wenn der Befehl von Rundown kommt.
+   */
+  fernbefehl: {
+    /** Seit Ruling R11 nennt auch der Wächter des Hauptprozesses diesen Satz; er steht darum einmal in shared/types.ts (K4). */
+    abgelehnt: FERNBEFEHL_ABGELEHNT.hinweis,
+    grund: {
+      aufnahmeLaeuft: ERST_AUFNAHME_STOPPEN,
+      keinOrdner: 'Kein Zielordner gewählt.',
+      netzordnerOffen: 'Der Netzwerkordner aus der Show ist noch nicht bestätigt.',
+    },
+  },
+  /**
+   * Altfehler RE-7b: ein Netzwerkordner aus der Show wartet im Hinweisband auf „Übernehmen“ (nie ein Dialog, B4); ein ungültiger Ordner aus
+   * der Show wird nicht übernommen. Ersetzt den Hinweis „Zielordner aus der Show liegt im Netzwerk: … – nur verwenden, wenn dieser Ordner
+   * bekannt ist.“ (store/recorder.ts bis 0.10.0). „Übernehmen“ wie der Knopf der Rückfrage im Preset-Import (main/ipc.ts).
+   */
+  netzordner: {
+    hinweis: (pfad: string, server: string): string =>
+      `Die Show möchte in einem Netzwerkordner aufnehmen: ${pfad} (Server ${server}). Erst nach „Übernehmen“ ist er gesetzt – Windows meldet sich dann bei diesem Server an.`,
+    uebernehmen: 'Übernehmen',
+    ungueltig: (pfad: string): string => `Zielordner aus der Show ist kein gültiger Ordner und wurde nicht übernommen: ${pfad}`,
+  },
+  /**
+   * Altfehler RE-3: das Fehlerfeld des Hauptprozesses (die Aufnahme endete mit einem Fehler oder ein Start scheiterte). Die Marke heißt nie
+   * „Fehler“, das ist UI_TEXTE.zustand.error; das Detail steht im Statuseintrag „Aufnahme“. Bei `eingang` ist der Grund der Text des
+   * Fehlerfelds aus dem Hauptprozess („Keine Audiodaten vom Eingang“, AUFNAHME_FEHLER_TEXTE.eingangGrund), er steht nur dort.
+   */
+  fehler: {
+    marke: { schreiben: 'Schreibfehler', eingang: 'Kein Eingang', start: 'Nicht gestartet' },
+    detail: (f: Pick<RecorderFehler, 'art' | 'text'>): string =>
+      f.art === 'schreiben' ? `Schreibfehler – Aufnahme beendet: ${f.text}` : f.art === 'eingang' ? `${f.text} – Aufnahme beendet` : `Aufnahme nicht gestartet: ${f.text}`,
+  },
+  /** Altfehler RE-7a: Rückfrage beim Schließen während einer Aufnahme (die Konstante steht in shared/schliessen.ts, K4). */
+  schliessen: SCHLIESSEN_TEXTE,
+  /** Altfehler RE-PLATZ: Statuseintrag „Platz“ (Restzeit im Zielordner; die Konstante steht in lib/platz.ts, K4). */
+  platz: PLATZ_TEXTE,
   /** ON AIR im Kopf (E4). */
   onAirLabel: 'REC',
   /** Eingang: Titel wie das Feld, Zustandswörter, Maßeinheiten; die Geräteliste „Name — Treiber (n ch)“ wie bisher. */
@@ -148,6 +200,11 @@ export interface OberflaechenStand {
   masterLink: MasterLinkMeldungZeile | null | undefined;
   /** Meldung des Steuerservers (Port 8729): undefined/null = noch keine Antwort. */
   fernsteuerung: FernsteuerungMeldung | null | undefined;
+  /**
+   * Altfehler RE-PLATZ: freier Platz (Store `platzFrei`: undefined = noch keine Antwort, null = nicht lesbar), der Spuren-Wunsch und der
+   * Zielordner des Stores. Optional; fehlt er, steht „Platz unbekannt“.
+   */
+  platz?: { frei: number | null | undefined; spuren: boolean; dir: string | null };
 }
 
 /** Aktionen des Panels: die View ruft damit den Store erst im Rückruf. */
@@ -179,9 +236,12 @@ function geraeteListe(s: OberflaechenStand): readonly AudioDevice[] | undefined 
   return s.geraete;
 }
 
-/** ON AIR (E4): nur gemessenes `recording`, nie `armed`; ohne Store nie live. */
+/** Das Fehlerfeld des Hauptprozesses (Altfehler RE-3); null, wenn keins steht oder der Zustand unbekannt ist. */
+const fehlerVon = (z: RecorderState | undefined): RecorderFehler | null => z?.fehler ?? null;
+
+/** ON AIR (E4): nur gemessenes `recording`, nie `armed`; ohne Store nie live; nie bei einem Fehlerfeld (Altfehler RE-3, B2). */
 export function kopfOnAir(s: Pick<OberflaechenStand, 'zustand'>): { live: boolean; label: string } {
-  return { live: nimmtAuf(s.zustand), label: RECORDER_TEXTE.onAirLabel };
+  return { live: nimmtAuf(s.zustand) && fehlerVon(s.zustand) === null, label: RECORDER_TEXTE.onAirLabel };
 }
 
 /**
@@ -294,13 +354,16 @@ function eingangItem(s: OberflaechenStand): StatusItem {
 
 /**
  * Aufnahme: live NUR bei gemessenem `recording` (E4, `armed` nicht), mit Dateiname; sonst off „keine Aufnahme“. Ohne Store
- * unbekannt.
+ * unbekannt. Altfehler RE-3: steht das Fehlerfeld, ist der Eintrag error mit dem Grund (bis ein Start gelingt, ein Stopp quittiert oder
+ * jemand den Eingang schließt).
  */
 function aufnahmeItem(s: OberflaechenStand): StatusItem {
   const T = RECORDER_TEXTE.aufnahme;
   const kopf = { id: 'aufnahme', group: 'ausgabe', label: T.titel } as const;
   const z = s.zustand;
   if (z === undefined) return unbekannt(kopf);
+  const f = fehlerVon(z);
+  if (f !== null) return { ...kopf, state: 'error', detail: RECORDER_TEXTE.fehler.detail(f) };
   if (!nimmtAuf(z)) return { ...kopf, state: 'off', detail: T.keine };
   return { ...kopf, state: 'live', detail: z.filePath ? basename(z.filePath) : T.laeuft };
 }
@@ -336,11 +399,31 @@ function meldungItem(s: OberflaechenStand): StatusItem[] {
   return text === '' ? [] : [{ id: 'meldung', group: 'tool', label: RECORDER_TEXTE.meldung.titel, state: 'warn', detail: text }];
 }
 
-/** Statusleiste: master-link, aufnahme, fernsteuerung, eingang, zeitplan, audio-modul (nur bei Fehler), meldung (nur offen). */
+/**
+ * Altfehler RE-PLATZ: der freie Platz als Restzeit für das Format, das gerade gilt: vor der Aufnahme der Wunsch des Stores (Kanäle,
+ * Samplerate, Spuren), bei offenem Eingang die gemessenen Kanäle und die Samplerate, in der Aufnahme zusätzlich die gemessenen Spuren und
+ * der Ordner der Datei. Ohne Platz-Stand „Platz unbekannt“ (G15).
+ */
+function platzItem(s: OberflaechenStand): StatusItem {
+  const p = s.platz;
+  if (p === undefined) return platzEintrag(undefined, 0, null);
+  const z = s.zustand;
+  const offen = eingangOffen(z);
+  const kanaele = offen && z ? z.channels : (s.recorder?.channels ?? 0);
+  const rate = offen && z ? z.sampleRate : (s.recorder?.sampleRate ?? 0);
+  const spuren = nimmtAuf(z) && z ? z.spuren : p.spuren;
+  return platzEintrag(p.frei, bytesProSekunde({ kanaele, rate, spuren }), platzOrdner(z, p.dir));
+}
+
+/**
+ * Statusleiste: master-link, aufnahme, platz (Altfehler RE-PLATZ), fernsteuerung, eingang, zeitplan, audio-modul (nur bei Fehler), meldung
+ * (nur offen).
+ */
 export function statusLeiste(s: OberflaechenStand): StatusItem[] {
   return [
     masterLinkStatusItem(s.masterLink),
     aufnahmeItem(s),
+    platzItem(s),
     abschnittStatusItem(remoteControlView(fernsteuerungAbschnitt(s)), { group: 'fernsteuerung', label: REMOTE_TEXTE.titel }),
     eingangItem(s),
     zeitplanItem(s),
@@ -354,11 +437,21 @@ function taste(label: string, state: TasteZustand['state'], grund?: string): Hau
 }
 
 /**
+ * Hinweis zu einem Netzwerkordner aus der Show, der auf „Übernehmen“ wartet (Altfehler RE-7b): Pfad und Server gesäubert wie im
+ * Dialog des Imports (saeubereAnzeige, netzwerkServer); ohne erkennbaren Server steht der Pfad dort.
+ */
+export function netzordnerHinweis(pfad: string): string {
+  return RECORDER_TEXTE.netzordner.hinweis(saeubereAnzeige(pfad), saeubereAnzeige(netzwerkServer(pfad) ?? pfad));
+}
+
+/**
  * Die zwei Haupttasten (E7): eine Taste Eingang öffnen/schließen mit wechselnder Beschriftung, eine Taste Aufnahme/Stopp.
  * - Eingang: nie `live`. „Eingang öffnen“ ist gesperrt ohne gewähltes Gerät (RecorderView.tsx:147, `deviceIndex == null`), Grund
- *   „Kein Eingang gewählt“, solange die Geräte noch gesucht werden „Suche Audiogeräte…“; „Eingang schließen“ ist immer bereit
- *   (`:177-181`, auch während der Aufnahme).
- * - Aufnahme: `live` bei `recording` mit „Stopp“ (`:151-163`), bereit bei `armed` (`:160-170`). Bei zu gab es bisher keine
+ *   „Kein Eingang gewählt“, solange die Geräte noch gesucht werden „Suche Audiogeräte…“; „Eingang schließen“ ist bereit bei `armed`
+ *   und seit Altfehler RE-2 in der Aufnahme gesperrt mit „Erst die Aufnahme stoppen“ (bisher bereit, `:177-181`; es beendete die
+ *   Aufnahme ohne Rückfrage).
+ * - Aufnahme: `live` bei `recording` mit „Stopp“ (`:151-163`), bereit bei `armed` (`:160-170`), mit Fehlerfeld als „Neu aufnehmen“
+ *   (Altfehler RE-3). Bei zu gab es bisher keine
  *   Aufnahme-Taste, und ein Start scheitert dort immer im Main: gesperrt mit „Erst den Eingang öffnen“ (Fix-Runde 1, Ruling). Der
  *   Fernbefehl RECORD läuft weiter über den Store (Nr. 80).
  * - Ohne gemessenen Zustand (`zustand` undefined) sind beide gesperrt, Grund „Aufnahmezustand wird abgefragt…“.
@@ -371,15 +464,22 @@ export function hauptTasten(s: Pick<OberflaechenStand, 'recorder' | 'zustand'>):
   if (z === undefined) return { eingang: taste(T.taste.eingangOeffnen, 'gesperrt', T.grund.zustandOffen), aufnahme: taste(T.taste.aufnahme, 'gesperrt', T.grund.zustandOffen) };
   const sucht = r === undefined || r.loading;
   const ohneGeraet = r === undefined || r.deviceIndex === null;
-  const eingang = eingangOffen(z)
-    ? taste(T.taste.eingangSchliessen, 'bereit')
-    : ohneGeraet
-      ? taste(T.taste.eingangOeffnen, 'gesperrt', sucht ? T.grund.sucheGeraete : T.grund.keinEingang)
-      : taste(T.taste.eingangOeffnen, 'bereit');
+  const eingang = nimmtAuf(z)
+    ? taste(T.taste.eingangSchliessen, 'gesperrt', T.grund.aufnahmeLaeuft)
+    : eingangOffen(z)
+      ? taste(T.taste.eingangSchliessen, 'bereit')
+      : ohneGeraet
+        ? taste(T.taste.eingangOeffnen, 'gesperrt', sucht ? T.grund.sucheGeraete : T.grund.keinEingang)
+        : taste(T.taste.eingangOeffnen, 'bereit');
+  // Altfehler RE-3: mit Fehlerfeld heißt die Taste „Neu aufnehmen“: bei offenem Eingang bereit (ein gelungener Start löscht den Fehler), bei
+  // geschlossenem gesperrt mit eigenem Grund (Fix-Runde 1, Ruling R17: der Fehler bleibt auch dann in der Haupttaste sichtbar).
+  const fehler = fehlerVon(z) !== null;
   const aufnahme = nimmtAuf(z)
     ? taste(T.taste.stopp, 'live')
     : eingangOffen(z)
-      ? taste(T.taste.aufnahme, 'bereit')
-      : taste(T.taste.aufnahme, 'gesperrt', T.grund.eingangZu);
+      ? taste(fehler ? T.taste.neuAufnehmen : T.taste.aufnahme, 'bereit')
+      : fehler
+        ? taste(T.taste.neuAufnehmen, 'gesperrt', T.grund.neuAufnehmenZu)
+        : taste(T.taste.aufnahme, 'gesperrt', T.grund.eingangZu);
   return { eingang, aufnahme };
 }

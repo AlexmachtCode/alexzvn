@@ -4,11 +4,15 @@
 // Max. Äußerung) und Darstellung (vorher NDI-Leiste: Schrift, Zeilen, Band). Jedes Feld ruft dieselbe Store-Aktion wie bisher
 // und speichert nur (setConfig); keine Wahl startet oder stoppt etwas. Wie bisher wirken Auflösung, Bildrate, Schrift, Zeilen
 // und Band sofort auf Vorschau und NDI-Bild, ein Gerätewechsel startet eine laufende Aufnahme mit dem neuen Eingang neu, und ein
-// Modellwechsel startet den whisper-Server bei der nächsten Äußerung neu (Nr. 60, 69, 80). Die Zahlenfelder bleiben native
-// Felder wie bisher (Number(Wert) bei jeder Taste, Nr. 101). Jeder Abschnitt ist ein Sprungziel (PanelAnker, id wie das
-// settingsSection des Statuseintrags). Kein window, kein Store, keine Hooks (E15): Werte und Aktionen kommen aus der View.
+// Modellwechsel startet den whisper-Server bei der nächsten Äußerung neu (Nr. 60, 69, 80). Die Zahlenfelder „Schrift“ und
+// „Max. Äußerung (s)“ sind seit Altfehler CA-8 NumberInput aus @jm/ui wie im Recorder (E13): Übernahme bei Enter oder Verlassen,
+// ein leeres oder ungültiges Feld zeigt den Fehlertext aus @jm/ui und wirkt nicht (zuvor Number(Wert) bei jeder Taste, Nr. 16, 23,
+// 101). Die Grenzen kommen aus shared/konfig.ts, dieselben, auf die der Main Datei und IPC zieht (C1). Jeder Abschnitt ist ein
+// Sprungziel (PanelAnker, id wie das settingsSection des Statuseintrags). Kein window, kein Store, keine Hooks (E15): Werte und
+// Aktionen kommen aus der View.
 import { AudioDeviceSection, NdiOutputSection, RemoteControlSection } from '@jm/settings';
-import { Field, PanelAnker, Select, SettingsSection, UNBEKANNT } from '@jm/ui';
+import { Field, NumberInput, PanelAnker, Select, SettingsSection, UNBEKANNT } from '@jm/ui';
+import { CAPTION_GRENZEN } from '@shared/konfig';
 import type { CaptionConfig, WhisperModelId } from '@shared/types';
 import type { EinstellungenAktionen } from '@/lib/aktionen';
 import {
@@ -29,11 +33,10 @@ export interface EinstellungenProps {
   aktionen: EinstellungenAktionen;
 }
 
-/** Native Felder (Zahl, Wörterbuch) in der Gestalt der @jm/ui-Eingaben, nur Tokens. */
+/** Natives Feld (Wörterbuch) in der Gestalt der @jm/ui-Eingaben, nur Tokens. */
 const FELD =
   'w-full min-w-0 rounded-[var(--radius-md)] border border-[var(--field-border)] bg-[var(--input)] px-2.5 text-[13px] text-[var(--foreground)] ' +
   'placeholder:text-[var(--muted-foreground)] select-text focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ring)]';
-const ZAHL = `${FELD} h-[var(--control-h)]`;
 
 export function Einstellungen({ stand, aktionen }: EinstellungenProps): React.JSX.Element {
   const T = CAPTION_TEXTE;
@@ -81,14 +84,13 @@ export function Einstellungen({ stand, aktionen }: EinstellungenProps): React.JS
                 />
               </Field>
               <Field label={T.erkennung.maxAeusserung} id="ca-max-aeusserung">
-                <input
+                <NumberInput
                   id="ca-max-aeusserung"
-                  type="number"
-                  min={2}
-                  max={15}
                   value={c.maxUtteranceSec}
-                  onChange={(e) => aktionen.konfigurieren({ maxUtteranceSec: Number(e.target.value) })}
-                  className={`${ZAHL} w-24`}
+                  min={CAPTION_GRENZEN.maxUtteranceSec.min}
+                  max={CAPTION_GRENZEN.maxUtteranceSec.max}
+                  onChange={(n) => aktionen.konfigurieren({ maxUtteranceSec: n })}
+                  className="w-24"
                 />
               </Field>
             </div>
@@ -103,14 +105,14 @@ export function Einstellungen({ stand, aktionen }: EinstellungenProps): React.JS
           ) : (
             <div className="space-y-2.5">
               <Field label={T.darstellung.schrift} id="ca-schrift">
-                <input
+                <NumberInput
                   id="ca-schrift"
-                  type="number"
-                  min={16}
-                  max={160}
                   value={c.ndiFontSize}
-                  onChange={(e) => aktionen.konfigurieren({ ndiFontSize: Number(e.target.value) })}
-                  className={`${ZAHL} w-24`}
+                  min={CAPTION_GRENZEN.ndiFontSize.min}
+                  max={CAPTION_GRENZEN.ndiFontSize.max}
+                  ganzzahl
+                  onChange={(n) => aktionen.konfigurieren({ ndiFontSize: n })}
+                  className="w-24"
                 />
               </Field>
               <Field label={T.darstellung.zeilen}>

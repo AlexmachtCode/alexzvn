@@ -7,7 +7,8 @@
 // und der Code trägt, was der Haken sagt. Die Einleitungen und die Abschnitte 8–10 sagen nichts, was der neue Aufbau widerlegt.
 // Läuft im Paketordner apps/interpreter (npm run selftest -w @jm/interpreter).
 // „unverändert (…)“ darf keine Datei nennen, die seit der Erhebung (d7cdd79ce0) geändert wurde, außer sie bekam nur die lesenden
-// Brücken (E2): dann steht der Hinweis im Haken. Der Abgleich der statischen Liste GEAENDERT mit git läuft nur mit
+// Brücken (E2): dann steht der Hinweis im Haken; oder ein Altfehler der Stufe 2 hat sie geändert: dann steht „Altfehler <ID>“ im
+// Haken, und die Liste der ID in ALTFEHLER nennt die Datei (C8, R6). Der Abgleich der statischen Liste GEAENDERT mit git läuft nur mit
 // JM_FUNKTIONSLISTE_GIT=1 (Arbeitsbaum gegen die Erhebung, damit auch eine noch nicht eingecheckte Datei zählt).
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -15,7 +16,9 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { gleich, leseText, ok } from '@jm/ui/testhilfe';
 import { DEFAULT_SETTINGS } from '@shared/ducking';
+import { START_FRIST_TEXT } from '@/core/engine';
 import { DUCKING_REGLER, geraeteAbschnitt, hauptTaste, INTERPRETER_TEXTE, kopfOnAir, statusLeiste, VORVERSTAERKUNG_REGLER } from '@/lib/oberflaeche';
+import { DUCKING_VORGABEN } from '@/store/settings';
 import { selectOptionen } from '../../../../packages/ui/src/lib/eingabe';
 import { einst, geraete, motor, stand } from './testzustand';
 
@@ -55,15 +58,18 @@ const GEAENDERT = [
   'package.json',
   'src/preload/index.ts',
   'src/renderer/src/App.tsx',
+  'src/renderer/src/core/engine.ts',
   'src/renderer/src/globals.css',
   'src/renderer/src/lib/aktionen.ts',
   'src/renderer/src/lib/bruecken.ts',
   'src/renderer/src/lib/oberflaeche.ts',
+  'src/renderer/src/store/settings.ts',
   'src/renderer/src/views/Einstellungen.tsx',
   'src/renderer/src/views/InterpreterOberflaeche.tsx',
   'src/renderer/src/views/LiveBereich.tsx',
   'src/shared/api.ts',
   'test/ui/bruecken.test.ts',
+  'test/ui/engine.test.ts',
   'test/ui/funktionsliste.test.ts',
   'test/ui/hilfe.ts',
   'test/ui/live.test.tsx',
@@ -71,6 +77,7 @@ const GEAENDERT = [
   'test/ui/panel.test.tsx',
   'test/ui/rahmen.test.tsx',
   'test/ui/selftest.ts',
+  'test/ui/store.test.ts',
   'test/ui/testzustand.ts',
   'test/ui/werkzeug.test.tsx',
   'tsconfig.node.json',
@@ -79,6 +86,23 @@ const GEAENDERT = [
 
 /** Dateien, die nur die lesenden Brücken (E2) bekamen oder sind: der Preload, der Vertrag dazu und die Quelle im Renderer. */
 const NUR_MELDUNG = new Set(['apps/interpreter/src/preload/index.ts', 'apps/interpreter/src/shared/api.ts', 'apps/interpreter/src/renderer/src/lib/bruecken.ts']);
+
+/**
+ * Altfehler Stufe 2 (Plan 2026-11-26, Task 2; C8): je erlaubter Interpreter-ID die Dateien (ab der Repo-Wurzel), die der Befund
+ * geändert hat, wie im Player (Ruling R6). „Altfehler <ID>“ im Haken entlastet ein „unverändert (…)“, das eine geänderte Datei nennt,
+ * nur, wenn die Liste dieser ID die Datei enthält; dann für die ganze Änderung des Befunds, nicht nur für lesende Brücken. Erlaubt sind
+ * genau die zwei Interpreter-IDs IN-3 (Startsperre mit Frist) und IN-8 (Zurücksetzen ohne Vorverstärkungen).
+ */
+const ALTFEHLER = new Map<string, readonly string[]>([
+  ['IN-3', ['core/engine.ts', 'lib/oberflaeche.ts'].map((p) => `apps/interpreter/src/renderer/src/${p}`)],
+  ['IN-8', ['store/settings.ts'].map((p) => `apps/interpreter/src/renderer/src/${p}`)],
+]);
+/** Verweis „Altfehler <ID>“ auf eine der erlaubten IDs; die ID steht in Gruppe 1. */
+const ALTFEHLER_VERWEIS = new RegExp(`\\bAltfehler (${[...ALTFEHLER.keys()].join('|')})(?![\\w-])`, 'g');
+/** Die Altfehler-IDs, die ein Text (ohne Code) als Verweis nennt. */
+const altfehlerIds = (text: string): string[] => [...text.matchAll(ALTFEHLER_VERWEIS)].map((m) => m[1]);
+/** Entlastet einer der Verweise die Datei (kanonischer Pfad)? */
+const entlastet = (ids: readonly string[], datei: string): boolean => ids.some((id) => ALTFEHLER.get(id)?.includes(datei) === true);
 
 const GEAENDERT_KANON = new Set(GEAENDERT);
 
@@ -184,11 +208,13 @@ function zeilenFehler(z: Zeile): string | null {
   if (form !== 'entfällt' && pfade.length === 0) return 'Ort ohne Datei';
   const fehlt = pfade.filter((p) => !gibtEs(p));
   if (fehlt.length > 0) return `Datei fehlt: ${fehlt.join(', ')}`;
-  // „unverändert“ nennt nur Dateien, die seit der Erhebung unverändert sind; Dateien mit nur den lesenden Brücken (E2) mit Hinweis.
+  // „unverändert“ nennt nur Dateien, die seit der Erhebung unverändert sind; Dateien mit nur den lesenden Brücken (E2) mit Hinweis,
+  // Dateien, die ein Altfehler der Stufe 2 geändert hat, mit dem Verweis „Altfehler <ID>“, dessen Liste sie nennt (R6).
   if (form === 'unverändert') {
-    const veraendert = pfade.filter((p) => GEAENDERT_KANON.has(kanon(p)) || GIT?.has(kanon(p)) === true);
-    if (veraendert.length > 0 && !/\bE2\b/.test(ohneCode)) return `unverändert mit geänderter Datei (${veraendert.join(', ')}) ohne Hinweis auf E2`;
-    if (veraendert.some((p) => !NUR_MELDUNG.has(kanon(p)))) return `unverändert mit einer Datei, die mehr als die lesenden Brücken bekam (${veraendert.join(', ')})`;
+    const ids = altfehlerIds(ohneCode);
+    const offen = pfade.filter((p) => (GEAENDERT_KANON.has(kanon(p)) || GIT?.has(kanon(p)) === true) && !entlastet(ids, kanon(p)));
+    if (offen.length > 0 && !/\bE2\b/.test(ohneCode)) return `unverändert mit geänderter Datei (${offen.join(', ')}) ohne Hinweis auf E2 und ohne Altfehler-Verweis, dessen Liste sie nennt`;
+    if (offen.some((p) => !NUR_MELDUNG.has(kanon(p)))) return `unverändert mit einer Datei, die mehr als die lesenden Brücken bekam (${offen.join(', ')})`;
   }
   return null;
 }
@@ -221,11 +247,27 @@ for (const z of alle) {
     ok(fehlend.length === 0, `IN Funktionsliste: GEAENDERT nennt alle seit ${ERHEBUNG} geänderten Dateien von apps/interpreter (fehlt: ${fehlend.join(', ') || 'nichts'})`);
     const zuviel = GEAENDERT.filter((n) => !GIT.has(n));
     ok(zuviel.length === 0, `IN Funktionsliste: GEAENDERT nennt keine Datei, die git nicht als geändert kennt (zu viel: ${zuviel.join(', ') || 'nichts'})`);
-    const zitiert = alle.filter((z) => z.zellen[6].startsWith('✓ unverändert (')).flatMap((z) => [...z.zellen[6].matchAll(PFAD)].map((m) => kanon(m[1])));
+    const zitiert = alle
+      .filter((z) => z.zellen[6].startsWith('✓ unverändert ('))
+      .flatMap((z) => {
+        const ids = altfehlerIds(z.zellen[6].replace(/`[^`]*`/g, ''));
+        return [...z.zellen[6].matchAll(PFAD)].map((m) => kanon(m[1])).filter((n) => !entlastet(ids, n));
+      });
     const getroffen = zitiert.filter((n) => GIT.has(n));
-    ok(getroffen.every((n) => NUR_MELDUNG.has(n)), `IN Funktionsliste: keine in einem unverändert-Haken zitierte Datei bekam mehr als die lesenden Brücken (${getroffen.join(', ') || 'keine'})`);
-    const engine = ['apps/interpreter/src/main/index.ts', 'apps/interpreter/src/renderer/src/core/engine.ts', 'apps/interpreter/src/renderer/src/store/settings.ts', 'apps/interpreter/src/shared/ducking.ts', 'apps/interpreter/src/shared/virtual-cable.ts'];
-    ok(engine.every((p) => !GIT.has(p)), 'IN Funktionsliste: Main, Engine, Store, Ducking und Kabelmuster sind seit der Erhebung unverändert');
+    ok(getroffen.every((n) => NUR_MELDUNG.has(n)), `IN Funktionsliste: keine in einem unverändert-Haken zitierte Datei bekam mehr als die lesenden Brücken, außer ein Altfehler-Verweis nennt sie in seiner Liste (${getroffen.join(', ') || 'keine'})`);
+    const listen = [...ALTFEHLER.values()].flat();
+    ok(listen.every((n) => GIT.has(n)), `IN Funktionsliste: jede Datei einer Altfehler-Liste ist laut git geändert (nicht: ${listen.filter((n) => !GIT.has(n)).join(', ') || 'nichts'})`);
+    // G2: Engine und Store ändern sich mit Altfehler IN-3 und IN-8; Main, Ducking-Logik und Kabelmuster bleiben seit der Erhebung unverändert.
+    const unberuehrt = ['apps/interpreter/src/main/index.ts', 'apps/interpreter/src/shared/ducking.ts', 'apps/interpreter/src/shared/virtual-cable.ts'];
+    ok(unberuehrt.every((p) => !GIT.has(p)), 'IN Funktionsliste: Main, Ducking und Kabelmuster sind seit der Erhebung unverändert (Engine und Store: Altfehler IN-3, IN-8)');
+  }
+  // Jede Datei einer Altfehler-Liste steht in GEAENDERT: eine Liste entlastet nur, was wirklich geändert ist.
+  {
+    const listen = [...ALTFEHLER.values()].flat();
+    ok(
+      listen.length > 0 && listen.every((n) => GEAENDERT_KANON.has(n)),
+      `IN Funktionsliste: jede Datei einer Altfehler-Liste steht in GEAENDERT (nicht: ${listen.filter((n) => !GEAENDERT_KANON.has(n)).join(', ') || 'nichts'})`,
+    );
   }
   // Negativprobe: andere Schreibweisen derselben geänderten Datei werden erkannt, eine unveränderte nicht.
   const synth = (pfad: string, zusatz = ''): Zeile => ({ abschnitt: 3, nr: 0, zellen: ['0', '', '', '', '', '', `✓ unverändert (\`${pfad}\`): x${zusatz}`] });
@@ -236,8 +278,31 @@ for (const z of alle) {
       zeilenFehler(synth('shared/api.ts', ' (E2)')) === null &&
       (zeilenFehler(synth('preload/index.ts')) ?? '').includes('ohne Hinweis auf E2') &&
       zeilenFehler(synth('main/index.ts')) === null &&
-      zeilenFehler(synth('core/engine.ts')) === null,
+      zeilenFehler(synth('shared/ducking.ts')) === null,
     'IN Funktionsliste: eine geänderte Datei wird in jeder Schreibweise erkannt; E2 entlastet nur Preload und Vertrag der lesenden Brücken; eine unveränderte Datei ist frei',
+  );
+  // Der Verweis „Altfehler <ID>“ (Stufe 2, C8) entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt (R6); nur mit dem
+  // Wort „Altfehler“ und nur die zwei Interpreter-IDs.
+  ok(
+    (zeilenFehler(synth('core/engine.ts')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('core/engine.ts', ' (Altfehler IN-8)')) ?? '').includes('geänderter Datei') &&
+      zeilenFehler(synth('core/engine.ts', ' (Altfehler IN-3)')) === null &&
+      zeilenFehler(synth('apps/interpreter/src/renderer/src/core/engine.ts', ' (Altfehler IN-3)')) === null &&
+      zeilenFehler(synth('lib/oberflaeche.ts', ' (Altfehler IN-3)')) === null &&
+      zeilenFehler(synth('store/settings.ts', ' (Altfehler IN-8)')) === null &&
+      (zeilenFehler(synth('store/settings.ts', ' (Altfehler IN-3)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('core/engine.ts', ' (IN-3)')) ?? '').includes('geänderter Datei') &&
+      ['IN-1', 'IN-30', 'IN-3a', 'IN-3-b', 'PL-N', 'SC-S2'].every((id) => (zeilenFehler(synth('core/engine.ts', ` (Altfehler ${id})`)) ?? '').includes('geänderter Datei')),
+    'IN Funktionsliste: „Altfehler IN-3“ entlastet core/engine.ts im unverändert-Haken, ohne ID, mit „Altfehler IN-8“, ohne das Wort „Altfehler“ oder mit einer anderen ID nicht',
+  );
+  // Negativprobe R6: nennt ein Haken zwei geänderte Dateien, entlastet die ID nur die aus ihrer Liste; eine Datei mit mehr als den
+  // lesenden Brücken entlastet auch E2 nicht.
+  ok(
+    /geänderter Datei \(store\/settings\.ts\)/.test(zeilenFehler(synth('core/engine.ts', ' und `store/settings.ts` (Altfehler IN-3)')) ?? '') &&
+      zeilenFehler(synth('core/engine.ts', ' und `store/settings.ts` (Altfehler IN-3, Altfehler IN-8)')) === null &&
+      (zeilenFehler(synth('views/LiveBereich.tsx', ' (Altfehler IN-3)')) ?? '').includes('geänderter Datei') &&
+      (zeilenFehler(synth('core/engine.ts', ' (E2)')) ?? '').includes('mehr als die lesenden Brücken'),
+    'IN Funktionsliste: eine geänderte Datei mit einer Altfehler-ID, deren Liste sie nicht nennt, wird gemeldet (R6)',
   );
   // Parser: maskierte Striche trennen nicht.
   ok(zeilen('## 1 · x\n|1| a \\| b | c | d | e | f | ✓ Rahmen (`App.tsx`) |')[0]?.zellen.length === 7, 'IN Funktionsliste: der Parser teilt nur an nicht maskierten Strichen');
@@ -250,6 +315,8 @@ const beginnt = (nr: number, ...orte: string[]): boolean => orte.some((o) => kue
 const ersetzt = (nr: number, ort: string): boolean => kuenftig(nr).startsWith(`✓ ersetzt durch ${ort} (`);
 const nennt = (nr: number, ...woerter: string[]): boolean => woerter.every((w) => kuenftig(nr).includes(w));
 const unveraendert = (nr: number): boolean => kuenftig(nr).startsWith('✓ unverändert (');
+/** Nennt der Haken der Zeile einen Altfehler-Verweis, dessen Liste die Datei (Pfad nach der Pfadregel der Liste) enthält? */
+const gebunden = (nr: number, datei: string): boolean => entlastet(altfehlerIds(kuenftig(nr).replace(/`[^`]*`/g, '')), kanon(datei));
 const ohneKommentar = (s: string): string => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const flach = (s: string): string => s.replace(/\s+/g, ' ');
 const von = (nrn: number[], f: (nr: number) => boolean): boolean => nrn.every(f);
@@ -303,17 +370,25 @@ ok(
   const laeuft = hauptTaste({ engine: motor({ running: true }), einstellungen: einst() });
   const ohneEingang = hauptTaste({ engine: motor({ running: true }), einstellungen: einst({ floorId: '' }) });
   const ohneAntwort = hauptTaste({ engine: undefined, einstellungen: einst() });
+  const startet = hauptTaste({ engine: motor({ starting: true }), einstellungen: einst() });
   ok(
-    beginnt(5, 'Live-Bereich Haupttaste') && nennt(5, '`views/LiveBereich.tsx`', '`lib/oberflaeche.ts`', '`lib/aktionen.ts`', 'Starten', 'Stoppen', 'E4', 'Lädt …', 'oben rechts', 'breiter', 'Gelb') &&
+    beginnt(5, 'Live-Bereich Haupttaste') && nennt(5, '`views/LiveBereich.tsx`', '`lib/oberflaeche.ts`', '`lib/aktionen.ts`', 'Starten', 'Stoppen', 'E4', 'Lädt …', 'Startet …', 'Altfehler IN-3', 'oben rechts', 'breiter', 'Gelb') &&
       live.includes('<TallyButton {...liveTaste(stand, aktionen)} />') && live.includes('className="w-56 shrink-0"') && akt.includes('void motor.stop().then(() => gestartetMerken(null))') && akt.includes('void motor.start(geraete)') &&
       wurzel.includes('{ floorId: s.floorId, interpreterId: s.interpreterId, outputId: s.outputId }') && !/shortcut/.test(quellen) &&
-      bereit.label === 'Starten' && bereit.state === 'bereit' && laeuft.label === 'Stoppen' && laeuft.state === 'live' && ohneAntwort.state === 'gesperrt' && ohneAntwort.disabledReason === 'Lädt …',
-    'IN Funktionsliste Nr. 5: Starten/Stoppen sitzt als TallyButton oben rechts im Live-Bereich, ruft engine.start mit den drei Geräten bzw. stop, ist nur im Lauf live (E4) und vor der ersten Antwort „Lädt …“',
+      bereit.label === 'Starten' && bereit.state === 'bereit' && laeuft.label === 'Stoppen' && laeuft.state === 'live' && ohneAntwort.state === 'gesperrt' && ohneAntwort.disabledReason === 'Lädt …' &&
+      startet.label === 'Starten' && startet.state === 'gesperrt' && startet.disabledReason === 'Startet …',
+    'IN Funktionsliste Nr. 5: Starten/Stoppen sitzt als TallyButton oben rechts im Live-Bereich, ruft engine.start mit den drei Geräten bzw. stop, ist nur im Lauf live (E4), vor der ersten Antwort „Lädt …“ und während des Starts „Startet …“ (Altfehler IN-3)',
   );
+  // Altfehler IN-3: der Wächter „die Taste ist beim Start nicht gesperrt“ (Befund 3) ist umgestellt: gesperrt mit „Startet …“, geprüft
+  // nach „Lädt …“ und vor „Erst beide Eingänge wählen“.
+  const tasteQuelle = ohneKommentar(obf.slice(obf.indexOf('export function hauptTaste')));
+  const anZustandOffen = tasteQuelle.indexOf('T.grund.zustandOffen);');
+  const anStartet = tasteQuelle.indexOf("if (s.engine.starting) return taste(T.taste.starten, 'gesperrt', T.grund.startet);");
+  const anEingaenge = tasteQuelle.indexOf("if (!e.floorId || !e.interpreterId) return taste(label, 'gesperrt', T.grund.eingaengeFehlen);");
   ok(
-    beginnt(6, 'Live-Bereich Haupttaste') && nennt(6, 'Erst beide Eingänge wählen', 'Befund 2', 'Befund 3', 'Lädt …', 'Nr. 8, 9, 80') && ohneEingang.state === 'gesperrt' && ohneEingang.disabledReason === 'Erst beide Eingänge wählen' && ohneEingang.label === 'Stoppen' &&
-      obf.includes("if (!e.floorId || !e.interpreterId) return taste(label, 'gesperrt', T.grund.eingaengeFehlen);") && !/starting|startet/i.test(ohneKommentar(obf.slice(obf.indexOf('export function hauptTaste')))),
-    'IN Funktionsliste Nr. 6: der Sperrgrund „Erst beide Eingänge wählen“ gilt wie heute auch im Lauf (Befund 2), die Taste ist beim Start nicht gesperrt (Befund 3); vor der ersten Antwort „Lädt …“',
+    beginnt(6, 'Live-Bereich Haupttaste') && nennt(6, 'Erst beide Eingänge wählen', 'Befund 2', 'Befund 3', 'Lädt …', 'Startet …', 'höchstens 15 s', 'Altfehler IN-3', 'Nr. 8, 9, 80') && ohneEingang.state === 'gesperrt' && ohneEingang.disabledReason === 'Erst beide Eingänge wählen' && ohneEingang.label === 'Stoppen' &&
+      anZustandOffen > 0 && anStartet > anZustandOffen && anEingaenge > anStartet && T.grund.startet === 'Startet …',
+    'IN Funktionsliste Nr. 6: der Sperrgrund „Erst beide Eingänge wählen“ gilt wie heute auch im Lauf (Befund 2); Altfehler IN-3: beim Start gesperrt mit „Startet …“ (früher nicht gesperrt, Befund 3), nach „Lädt …“ und vor dem Eingangs-Grund',
   );
   ok(kopfOnAir({ engine: undefined }).live === false && kopfOnAir({ engine: motor() }).live === false && kopfOnAir({ engine: motor({ running: true }) }).live === true && kopfOnAir({ engine: motor({ running: true }) }).label === 'MIX AKTIV', 'IN Funktionsliste Nr. 4, 5: ON AIR „MIX AKTIV“ nur im Lauf, ohne Antwort nie');
 }
@@ -471,9 +546,16 @@ ok(
     ersetzt(28, 'Panel Ducking') && ersetzt(35, 'Panel Ducking') && nennt(28, 'E15') && nennt(35, 'E15', 'Unterüberschrift') && panel.includes('<SettingsSection title={T.ducking.titel}>') && panel.includes('<h4 className="text-sm font-semibold text-[var(--foreground)]">{T.ducking.vorverstaerkung}</h4>') && T.ducking.titel === 'Ducking' && T.ducking.vorverstaerkung === 'Vorverstärkung',
     'IN Funktionsliste Nr. 28, 35: die Karten „Ducking“ und „Vorverstärkung“ sind der Abschnitt „Ducking“ und seine Unterüberschrift im Panel',
   );
+  // Altfehler IN-8: der Wächter „setzt dieselben sieben Werte zurück“ (Befund 8) ist umgestellt: fünf Werte, nicht die Vorverstärkungen.
   ok(
-    beginnt(38, 'Panel Ducking') && nennt(38, 'Befund 8', 'sieben Werte', 'Bypass', 'Geräte') && T.ducking.zuruecksetzen === 'Ducking-Werte zurücksetzen' && panel.includes('onClick={() => aktionen.zuruecksetzen()}') && akt.includes('zuruecksetzen: () => store.reset()') && store.includes('reset: () => set({ ...DEFAULT_SETTINGS }),'),
-    'IN Funktionsliste Nr. 38: „Ducking-Werte zurücksetzen“ steht am Ende des Abschnitts „Ducking“ und setzt dieselben sieben Werte zurück, nicht Bypass und Geräte',
+    beginnt(38, 'Panel Ducking') && nennt(38, 'Befund 8', 'fünf Werte', 'nicht die Vorverstärkungen', 'Altfehler IN-8', 'Bypass', 'Geräte') && T.ducking.zuruecksetzen === 'Ducking-Werte zurücksetzen' && panel.includes('onClick={() => aktionen.zuruecksetzen()}') &&
+      akt.includes('zuruecksetzen: () => store.reset()') && store.includes('reset: () => set({ ...DUCKING_VORGABEN }),') && !store.includes('set({ ...DEFAULT_SETTINGS })'),
+    'IN Funktionsliste Nr. 38: „Ducking-Werte zurücksetzen“ steht am Ende des Abschnitts „Ducking“ und setzt fünf Werte zurück, nicht die Vorverstärkungen, nicht Bypass und Geräte (Altfehler IN-8)',
+  );
+  gleich(
+    DUCKING_VORGABEN,
+    { thresholdDb: DEFAULT_SETTINGS.thresholdDb, duckDb: DEFAULT_SETTINGS.duckDb, attackMs: DEFAULT_SETTINGS.attackMs, releaseMs: DEFAULT_SETTINGS.releaseMs, holdMs: DEFAULT_SETTINGS.holdMs },
+    'IN Funktionsliste Nr. 38: DUCKING_VORGABEN sind genau die fünf Ducking-Werte mit den Vorgaben aus DEFAULT_SETTINGS, ohne Vorverstärkungen (Altfehler IN-8)',
   );
   ok(
     beginnt(39, 'Panel Ducking') && nennt(39, '`views/InterpreterOberflaeche.tsx`') && wurzel.includes('engine.setSettings(duckSettings(s));') && wurzel.includes('}, [engine, s]);') && wurzel.includes('}, [engine, s.bypass]);') && !/floorId|interpreterId|outputId/.test(wurzel.slice(wurzel.indexOf('engine.setSettings'), wurzel.indexOf('// Lesende Brücke'))),
@@ -498,8 +580,9 @@ ok(
   'IN Funktionsliste Nr. 41: die Mikrofon-Freigabe im Main bleibt',
 );
 ok(
-  beginnt(42, 'Live-Bereich') && nennt(42, '`core/engine.ts`', 'rohe', 'Statuseintrag') && engine.includes('error: e instanceof Error ? e.message : String(e)') && !/error:\s*['"`]/.test(ohneKommentar(engine)),
-  'IN Funktionsliste Nr. 42: es gibt weiter keinen eigenen Wortlaut für Startfehler, die rohe Meldung erscheint im Live-Bereich und im Eintrag fehler',
+  beginnt(42, 'Live-Bereich') && nennt(42, '`core/engine.ts`', 'rohe', 'Statuseintrag', 'Altfehler IN-3', START_FRIST_TEXT, '`START_FRIST_TEXT`') && engine.includes('error: e instanceof Error ? e.message : String(e)') && !/error:\s*['"`]/.test(ohneKommentar(engine)) &&
+    [...ohneKommentar(engine).matchAll(/this\.patch\(\{([^}]*)\}\)/g)].flatMap((m) => [...m[1].matchAll(/\berror: ([^,]+?)\s*(?:,|$)/g)].map((x) => x[1])).sort().join('|') === 'START_FRIST_TEXT|e instanceof Error ? e.message : String(e)|null',
+  'IN Funktionsliste Nr. 42: einen eigenen Wortlaut für Startfehler gibt es nur nach der Frist (START_FRIST_TEXT, Altfehler IN-3); sonst erscheint die rohe Meldung im Live-Bereich und im Eintrag fehler',
 );
 {
   const ids = statusLeiste(stand()).map((i) => i.id);
@@ -526,7 +609,7 @@ ok(
 );
 {
   const teile: Array<[number[], string[]]> = [
-    [[49, 53], ['await this.stop();', "latencyHint: 'interactive'", 'this.patch({ running: true, error: null, startedOutputId: devices.outputId });', 'await this.route(devices.outputId);']],
+    [[49, 53], ['await this.stop();', "latencyHint: 'interactive'", 'this.patch({ running: true, error: null, startedOutputId: devices.outputId });', 'await this.route(devices.outputId, gilt);']],
     [[50], ['echoCancellation: false', 'noiseSuppression: false', 'autoGainControl: false']],
     [[51], ['setSinkId', 'el.autoplay = true']],
     [[52], ['startedOutputId: null,']],
@@ -536,8 +619,18 @@ ok(
     [[59], ['private publish(']],
   ];
   ok(
-    teile.every(([nrn, wo]) => nrn.every((nr) => unveraendert(nr) && nennt(nr, '`core/engine.ts`')) && wo.every((w) => engine.includes(w))) && !GEAENDERT_KANON.has('apps/interpreter/src/renderer/src/core/engine.ts'),
-    'IN Funktionsliste Nr. 49–54, 56, 57, 59: die Engine bleibt wörtlich (Start, Aufnahme ohne Aufbereitung, Ausgabe, Stopp, Fehlerfall, Takt, Rampe, Vorverstärkung, Meldetakt)',
+    teile.every(([nrn, wo]) => nrn.every((nr) => unveraendert(nr) && nennt(nr, '`core/engine.ts`') && gebunden(nr, 'core/engine.ts')) && wo.every((w) => engine.includes(w))),
+    'IN Funktionsliste Nr. 49–54, 56, 57, 59: die Engine bleibt bis auf den Start wörtlich (Aufnahme ohne Aufbereitung, Ausgabe, Stopp, Fehlerfall, Takt, Rampe, Vorverstärkung, Meldetakt); die Zeilen tragen den Verweis Altfehler IN-3',
+  );
+  // Altfehler IN-3 im Start (Nr. 49, 52): die Sperre steht vor dem ersten await, die Frist läuft gegen den Rumpf, stop() fasst die
+  // Startsperre nicht an.
+  const startQuelle = ohneKommentar(engine.slice(engine.indexOf('async start(devices: Devices)'), engine.indexOf('private async starte(')));
+  const stopQuelle = ohneKommentar(engine.slice(engine.indexOf('async stop(): Promise<void> {'), engine.indexOf('private open(')));
+  ok(
+    nennt(49, 'Altfehler IN-3', 'Frist von 15 s', 'Startnummer') && nennt(52, 'Startsperre nicht') && startQuelle.indexOf('if (this.starting) return;') > 0 && startQuelle.indexOf('if (this.starting) return;') < startQuelle.indexOf('await') &&
+      startQuelle.includes('Promise.race([this.starte(devices, nr), abgelaufen])') && startQuelle.includes('this.patch({ error: START_FRIST_TEXT });') && /finally \{\s*clearTimeout\(frist\);\s*this\.starting = false;\s*this\.patch\(\{ starting: false \}\);/.test(startQuelle) &&
+      stopQuelle.length > 0 && !/starting|startNr/.test(stopQuelle),
+    'IN Funktionsliste Nr. 49, 52: Altfehler IN-3: die Startsperre steht vor dem ersten await, der Rumpf läuft gegen die Frist, die Sperre endet in finally; stop() fasst sie nicht an',
   );
   ok(
     unveraendert(55) && nennt(55, '`shared/ducking.ts`') && quelle('shared/ducking.ts').includes('export function step(') && !GEAENDERT_KANON.has('apps/interpreter/src/shared/ducking.ts'),
@@ -579,7 +672,7 @@ ok(
   'IN Funktionsliste Nr. 64, 65, 67: Geräteliste, Mikrofon-Probe und Nachziehen laufen zeichengleich in der Wurzel-View vor jeder Bedingung',
 );
 ok(
-  unveraendert(66) && nennt(66, '`core/engine.ts`', 'unbekannt') && engine.includes('labelsAvailable'),
+  unveraendert(66) && nennt(66, '`core/engine.ts`', 'unbekannt') && gebunden(66, 'core/engine.ts') && engine.includes('labelsAvailable'),
   'IN Funktionsliste Nr. 66: labelsAvailable bleibt; die Oberfläche liest es („unbekannt“ ohne lesbare Namen)',
 );
 ok(
@@ -598,13 +691,13 @@ ok(
   'IN Funktionsliste Nr. 74: der Main bleibt; der Preload bekam nur die lesende Master-Link-Brücke (E2), der Eintrag master-link steht in der Statusleiste, es gibt weiter keine Fernsteuerung',
 );
 ok(
-  unveraendert(75) && nennt(75, '`store/settings.ts`') && store.includes("{ name: 'jm-interpreter-settings' }") && store.includes('persist(') && !GEAENDERT_KANON.has('apps/interpreter/src/renderer/src/store/settings.ts'),
-  'IN Funktionsliste Nr. 75: der Speicher bleibt (zustand mit persist, Name jm-interpreter-settings)',
+  unveraendert(75) && nennt(75, '`store/settings.ts`') && gebunden(75, 'store/settings.ts') && store.includes("{ name: 'jm-interpreter-settings' }") && store.includes('persist('),
+  'IN Funktionsliste Nr. 75: der Speicher bleibt (zustand mit persist, Name jm-interpreter-settings); die Änderung trägt den Verweis Altfehler IN-8',
 );
 
 // ── Ausgabe, Tastatur (Nr. 76–81) ──
 ok(
-  unveraendert(76) && nennt(76, '`core/engine.ts`', '`main/index.ts`', 'Wurzel-View') && engine.includes('setSinkId') && !/@jm\/output-window|output:zustand/.test(quellen + hauptIndex),
+  unveraendert(76) && nennt(76, '`core/engine.ts`', '`main/index.ts`', 'Wurzel-View') && gebunden(76, 'core/engine.ts') && engine.includes('setSinkId') && !/@jm\/output-window|output:zustand/.test(quellen + hauptIndex),
   'IN Funktionsliste Nr. 76: der Interpreter hat weiter kein Ausgabefenster; die Ausgabe ist Ton aus dem Renderer der Wurzel-View',
 );
 ok(
@@ -626,7 +719,7 @@ ok(
 
 // ── Gemerkte Zustände (Nr. 82–86): jm-interpreter-settings unverändert, jm-theme neu (E5) ──
 ok(
-  unveraendert(82) && nennt(82, '`store/settings.ts`', 'jm-interpreter-settings', 'jm-theme', 'E5', '`packages/ui/src/lib/theme.ts`', 'thresholdDb', 'bypass') && quelle('packages/ui/src/lib/theme.ts').includes("export const THEME_SCHLUESSEL = 'jm-theme';") && !/localStorage|setTheme|classList/.test(quellen) &&
+  unveraendert(82) && nennt(82, '`store/settings.ts`', 'jm-interpreter-settings', 'jm-theme', 'E5', '`packages/ui/src/lib/theme.ts`', 'thresholdDb', 'bypass') && gebunden(82, 'store/settings.ts') && quelle('packages/ui/src/lib/theme.ts').includes("export const THEME_SCHLUESSEL = 'jm-theme';") && !/localStorage|setTheme|classList/.test(quellen) &&
     ['thresholdDb', 'duckDb', 'attackMs', 'releaseMs', 'holdMs', 'floorGainDb', 'interpreterGainDb'].every((k) => quelle('shared/ducking.ts').includes(`${k}:`)) && ['floorId', 'interpreterId', 'outputId', 'bypass'].every((k) => store.includes(`${k}:`)),
   'IN Funktionsliste Nr. 82: jm-interpreter-settings bleibt mit denselben elf Feldern, dazu der zweite Schlüssel jm-theme (E5, packages/ui/src/lib/theme.ts); die App selbst greift nicht auf localStorage zu',
 );
@@ -728,6 +821,13 @@ ok(
   ok(
     [3, 6, 10, 13, 16].every((n) => /Welle 2a:[^]*unverändert/.test(befund(n))) && /Welle 2a:[^]*gleich/.test(befund(8)) && /Task 29/.test(befund(11)) && /`apps\/interpreter\/package\.json:17`/.test(befund(11)) && !/`apps\/interpreter\/package\.json:16`/.test(abschnitt10),
     'IN Funktionsliste Abschnitt 10: die Befunde 3, 6, 10, 13 und 16 bleiben unverändert; Befund 11 nennt den CI-Schritt und die Zeile `package.json:17` der Erhebung',
+  );
+  // Altfehler Stufe 2: hinter dem Satz der Welle 2a (er bleibt stehen, Widerruf ohne Löschen) steht der Satz zu IN-3 bzw. IN-8.
+  ok(
+    /Welle 2a: unverändert \(`hauptTaste` sperrt beim Start nicht[^]*\n {3}Altfehler Stufe 2 \(IN-3\): behoben:[^]*Startet …[^]*15 s/.test(befund(3)) &&
+      /Welle 2a: gleich: der Knopf setzt dieselben sieben Werte zurück[^]*\n {3}Altfehler Stufe 2 \(IN-8\): behoben:[^]*fünf Ducking-Werte[^]*Vorverstärkungen bleiben/.test(befund(8)) &&
+      /Altfehler Stufe 2 \(IN-3, IN-8\)/.test(befund(15)) && /Die Altfehler-Stufe 2 änderte danach Engine und Store/.test(stand_),
+    'IN Funktionsliste Abschnitt 10: Befund 3 und 8 behalten den Satz der Welle 2a und nennen dahinter Altfehler Stufe 2 (IN-3, IN-8); Befund 15 und der Stand nennen die Änderung an Engine und Store',
   );
   {
     const nr = (k: string): string => text.slice(text.indexOf(k));

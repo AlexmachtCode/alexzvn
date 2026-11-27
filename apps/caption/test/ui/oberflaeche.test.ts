@@ -52,7 +52,7 @@ function status(z: Partial<CaptionStatus> = {}): CaptionStatus {
 /** Antwort des Main (CaptionState). Bis zur ersten Antwort ist der Wert im Stand `undefined`, nicht eine solche Vorgabe. */
 function caption(z: Partial<Omit<CaptionState, 'config' | 'status'>> & { config?: Partial<CaptionConfig>; status?: Partial<CaptionStatus> } = {}): CaptionState {
   const { config, status: st, ...rest } = z;
-  return { running: false, hold: false, busy: false, whisperAvailable: true, lines: [], error: null, ...rest, config: { ...CONFIG, ...config }, status: status(st) };
+  return { running: false, hold: false, busy: false, whisperAvailable: true, lines: [], leerungen: 0, error: null, ...rest, config: { ...CONFIG, ...config }, status: status(st) };
 }
 function stand(teil: Partial<OberflaechenStand> = {}): OberflaechenStand {
   return { caption: undefined, geraete: undefined, micError: null, masterLink: undefined, fernsteuerung: undefined, ...teil };

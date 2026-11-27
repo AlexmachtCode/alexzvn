@@ -29,6 +29,9 @@ const letzterStart = new Map<number, number>();
 // Fix-Welle K6 (R9 gegen Pause-Wechsel): zählt jedes Pause/Weiter. Ein Ladefehler stellt die Pause nur wieder her, wenn seit seinem
 // Start niemand Pause oder Weiter gedrückt hat; sonst gilt, was der Bediener zuletzt gestellt hat.
 let pauseZaehler = 0;
+// Altfehler PL-K1 (P4): der Start eines Video-Cues, dessen GO noch auf die Ausgabe wartet (isOpen, open bis „bereit“), bis sein load
+// läuft. removeShowCue nimmt ihn dann aus videoCue, und load sendet nichts mehr; ein laufendes Video bleibt wie bisher.
+let videoWartet: { id: number; index: number; autoContinue: boolean } | null = null;
 function clearShowTimers(): void {
   vorlaeufe.leeren();
 }
@@ -501,8 +504,17 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
   },
   removeShowCue: async (cueId) => {
     showAudio.stop(cueId);
+    // Altfehler PL-K1: Vorlauf und Warten auf die Ausgabe enden vor dem ersten await, denn shows.removeCue ist IPC mit SQLite und
+    // kann länger dauern als die Restzeit. Ein laufendes Video stoppt ✕ weiter nicht (Funktionsliste Nr. 50).
+    vorlaeufe.abbrechen(cueId);
+    const wartet = videoWartet !== null && videoWartet.id === cueId && get().videoCue === videoWartet;
+    if (wartet) videoWartet = null;
+    set((s) => ({
+      playingCueIds: s.playingCueIds.filter((x) => x !== cueId),
+      vorlaufCueIds: s.vorlaufCueIds.filter((x) => x !== cueId),
+      ...(wartet ? { videoCue: null, videoProgress: null } : {}),
+    }));
     await window.jmplay.shows.removeCue(cueId);
-    set((s) => ({ playingCueIds: s.playingCueIds.filter((x) => x !== cueId) }));
     await get().refreshShowCues();
   },
   reorderShow: async (orderedCueIds) => {
@@ -550,15 +562,29 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
         vorlaufCueIds: s.vorlaufCueIds.filter((x) => x !== cue.id),
         showPaused: false,
       }));
+      // Altfehler PL-K2: Hebt dieser Start die Pause auf, dann ganz wie „▶ Weiter“, aber nur für Angehaltenes (P3). Ein Video-Cue weckt
+      // die Töne; ein Ton-Cue weckt das Ausgabevideo, wenn der Store eins hält (D5: dann ging pause hinaus), seine Töne weckt play
+      // selbst (R1). Kein pauseZaehler++: Das ist kein Druck auf Pause/Weiter (K6). GO mit Vorlauf kommt hier erst nach Weiter an (A1).
+      let ausgabeGeweckt = false;
+      if (warPausiert) {
+        if (media.kind === 'video') void showAudio.resume();
+        else if (get().videoCue !== null) {
+          void window.jmplay.output.command({ type: 'resume' });
+          ausgabeGeweckt = true;
+        }
+      }
       if (media.kind === 'video') {
         // Video → Ausgabefenster (ggf. öffnen). Ende-/Auto-Continue läuft über
         // onOutputEnded (das Ausgabefenster meldet das natürliche Ende zurück).
         const dieserStart = { id: cue.id, index, autoContinue: cue.autoContinue };
         set({ videoCue: dieserStart, videoProgress: null });
+        videoWartet = dieserStart;
         // Altfehler PL-N: open löst erst nach „bereit“ auf. Kamen Panik, Stop oder ein neuer Video-Cue dazwischen, lädt dieser
         // Start nicht mehr, sonst überholt sein load den späteren Befehl. Fix-Welle K5: Ist die Show beim Senden von load pausiert
         // (Pause während des Wartens; deren pause ging vor dem load hinaus), folgt direkt ein pause, damit das Video steht wie die Show.
+        // Altfehler PL-K1 (P4): Mit load endet das Warten; löschte removeShowCue den Cue vorher, ist videoCue schon nicht mehr dieser Start.
         const load = (): Promise<void> => {
+          if (videoWartet === dieserStart) videoWartet = null;
           if (get().videoCue !== dieserStart) return Promise.resolve();
           const geladen = window.jmplay.output.command({
             type: 'load',
@@ -592,6 +618,10 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
             if (startZaehler === meinStart && pauseZaehler === meinePause && warPausiert) {
               set({ showPaused: true });
               vorlaeufe.anhalten();
+              // Altfehler PL-K2: Hatte dieser Start das Ausgabevideo geweckt, steht es mit der Pause wieder. Unter diesen Bedingungen
+              // kam kein anderer Video-Start dazwischen (jeder Start, Stop und jede Panik zählt startZaehler hoch); endete das Video
+              // inzwischen oder ging die Ausgabe zu, wirkt das pause dort nicht.
+              if (ausgabeGeweckt) void window.jmplay.output.command({ type: 'pause' });
             }
             const grund = e instanceof Error ? e.message : String(e);
             const hinweis = PLAYER_TEXTE.cueFehler(index + 1, cue.label || media.fileName || '—', grund);
@@ -612,7 +642,8 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
           vorlaufCueIds: klingt ? s.vorlaufCueIds : [...new Set([...s.vorlaufCueIds, cue.id])],
         };
       });
-      vorlaeufe.starte(cue.preWaitSec * 1000, startNow);
+      // Altfehler PL-K1: unter der Cue-ID, damit removeShowCue den Vorlauf abbrechen kann.
+      vorlaeufe.starte(cue.preWaitSec * 1000, startNow, cue.id);
     } else {
       startNow();
     }
@@ -651,7 +682,9 @@ export const usePlayer = create<PlayerStore>((set, get) => ({
     if (get().showPaused) {
       vorlaeufe.fortsetzen();
       void showAudio.resume();
-      void window.jmplay.output.command({ type: 'resume' });
+      // Altfehler PL-K2 (P3, D5): resume nur, wenn der Store ein Video hält. Nach dem natürlichen Ende (videoCue leer) steht das alte
+      // Video noch im Element, und resume (v.play()) startete es von vorn.
+      if (get().videoCue !== null) void window.jmplay.output.command({ type: 'resume' });
       set({ showPaused: false });
     } else {
       vorlaeufe.anhalten();

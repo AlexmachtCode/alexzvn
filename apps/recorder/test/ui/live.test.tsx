@@ -10,7 +10,7 @@ import type { RecorderState, RecorderStatus } from '@shared/types';
 import { meldungAbonnieren } from '@/lib/aktionen';
 import { dbfsLabel, formatClock } from '@/lib/format';
 import { hauptTasten, RECORDER_TEXTE, statusLeiste, type OberflaechenStand, type RecorderZustand } from '@/lib/oberflaeche';
-import { LiveBereich, liveKnoepfe, type LiveAktionen, type LiveWerte } from '@/views/LiveBereich';
+import { aufnahmeMarke, LiveBereich, liveKnoepfe, type LiveAktionen, type LiveWerte } from '@/views/LiveBereich';
 import { RecorderOberflaeche } from '@/views/RecorderOberflaeche';
 import { ZeitplanKarte, type ZeitplanAktionen } from '@/views/RecorderView';
 import { tallyHandler } from '../../../../packages/ui/src/components/TallyButton';
@@ -29,7 +29,7 @@ function recorder(z: Partial<RecorderZustand> = {}): RecorderZustand {
 function stand(z: Partial<OberflaechenStand> = {}): OberflaechenStand {
   return { recorder: recorder(), zustand: zustand('idle'), geraete: GERAETE, meldung: null, masterLink: undefined, fernsteuerung: undefined, ...z };
 }
-const WERTE: LiveWerte = { peaks: [], gainDb: 0, hinweisOrdner: null, dir: null };
+const WERTE: LiveWerte = { peaks: [], gainDb: 0, hinweisOrdner: null, dir: null, netzordnerOffen: null };
 /** Attrappen der Aktionen; jeder Aufruf schreibt den Namen der Store-Aktion (mit Argument) ins Protokoll. */
 function aktionen(log: string[] = []): LiveAktionen {
   return {
@@ -39,6 +39,7 @@ function aktionen(log: string[] = []): LiveAktionen {
     stop: () => void log.push('stop'),
     setGain: (db) => void log.push(`setGain:${db}`),
     hinweiseSchliessen: () => void log.push('hinweiseSchliessen'),
+    netzordnerUebernehmen: () => void log.push('netzordnerUebernehmen'),
     meldungQuittieren: () => void log.push('meldungQuittieren'),
     dateiZeigen: (p) => void log.push(`dateiZeigen:${p}`),
   };
@@ -152,9 +153,9 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
     return vergleiche(JSON.stringify(knoepfe(live(s))), JSON.stringify([t.aufnahme, t.eingang].map(erwartet)));
   });
   gleich(
-    knoepfe(live(stand({ zustand: zustand('recording') }))).map((k) => [k.label, k.state]),
-    [[T.taste.stopp, 'live'], [T.taste.eingangSchliessen, 'bereit']],
-    'RE Live Tasten: bei recording „Stopp“ live (E4) links, „Eingang schließen“ rechts wie bisher',
+    knoepfe(live(stand({ zustand: zustand('recording') }))).map((k) => [k.label, k.state, k.grund]),
+    [[T.taste.stopp, 'live', undefined], [T.taste.eingangSchliessen, 'gesperrt', 'Erst die Aufnahme stoppen']],
+    'RE Live Tasten (Altfehler RE-2): bei recording „Stopp“ live (E4) links, „Eingang schließen“ rechts gesperrt mit sichtbarem Grund „Erst die Aufnahme stoppen“',
   );
   gleich(
     [knoepfe(live(stand({ zustand: zustand('idle') })))[0], knoepfe(live(stand({ zustand: zustand('armed') })))[0], knoepfe(live(stand({ zustand: zustand('recording') })))[0]],
@@ -177,6 +178,7 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
   // Orakel aus dem alten Code (RecorderView.tsx:146-176 bei d7cdd79ce0): zu → „Eingang öffnen“ (arm, gesperrt ohne Gerät);
   // armed → „Aufnahme“ (record) und „Eingang schließen“ (disarm); recording → „Stopp“ (stop) und „Eingang schließen“ (disarm).
   // Fix-Runde 1 (Ruling): bei zu ist „Aufnahme“ gesperrt (ein Start scheitert dort immer), also wie heute nur „Eingang öffnen“.
+  // Altfehler RE-2: in der Aufnahme ist „Eingang schließen“ gesperrt und ruft nichts mehr (bisher disarm, das die Aufnahme beendete).
   const ORAKEL: Record<string, string[]> = {
     'undefined/0': [],
     'undefined/null': [],
@@ -184,11 +186,11 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
     'idle/null': [],
     'armed/0': ['record', 'disarm'],
     'armed/null': ['record', 'disarm'],
-    'recording/0': ['stop', 'disarm'],
-    'recording/null': ['stop', 'disarm'],
+    'recording/0': ['stop'],
+    'recording/null': ['stop'],
   };
   const faelle = kreuz({ status: ['undefined', ...STATI], geraet: [0, null] } as const);
-  pruefeFaelle('RE Live Verdrahtung: Klick über tallyHandler auf beide Tasten ruft arm, disarm, record bzw. stop wie bisher; gesperrt ruft nichts', faelle, (f) => {
+  pruefeFaelle('RE Live Verdrahtung (Altfehler RE-2): Klick über tallyHandler auf beide Tasten ruft arm, disarm, record bzw. stop wie bisher; gesperrt ruft nichts, auch nicht „Eingang schließen“ in der Aufnahme', faelle, (f) => {
     const log: string[] = [];
     const s = stand({ recorder: recorder({ deviceIndex: f.geraet }), zustand: f.status === 'undefined' ? undefined : zustand(f.status) });
     for (const k of liveKnoepfe(s, aktionen(log))) klick(k);
@@ -305,7 +307,7 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
 // ── RE Live Hinweisband: Hinweise des Stores, Token statt Amber ──
 {
   const beide = live(stand({ recorder: recorder({ hinweisEingang: 'Gemerkter Eingang fehlt.' }) }), { hinweisOrdner: 'Ordner fehlt.' });
-  // Vom Band bis zum Ende seines ersten Knopfs (das „ד), über die innere Spalte der Absätze hinweg.
+  // Vom Band bis zum Ende seines ersten Knopfs (das „×“), über die innere Spalte der Absätze hinweg.
   const von = beide.indexOf('role="alert"');
   const band = von < 0 ? '' : beide.slice(von, beide.indexOf('</button>', von) + '</button>'.length);
   ok(band.includes('<p>Gemerkter Eingang fehlt.</p>') && band.includes('<p>Ordner fehlt.</p>') && tags(band, 'button').some((t) => attr(t, 'title') === 'Hinweis schließen'), 'RE Live Hinweisband: beide Hinweise als Absätze und „×“ mit Tooltip „Hinweis schließen“');
@@ -451,10 +453,87 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
   gleich(createHash('sha256').update(roh).digest('hex'), 'cc66f4a0b6a883fd764120b48c1b1d11bd3395d70d0b413f294c0e2b4f2675a3', 'RE Presets unverändert: components/PresetLeiste.tsx wie vor dem Umbau (Auswahl, Rückfragen, Menü, Sperren)');
 }
 
+// ── RE-7b (Altfehler): ein Netzwerkordner aus der Show wartet im Hinweisband auf „Übernehmen“, nie als Dialog ──
+{
+  try {
+    const P = '\\\\nas\\x';
+    const mit = live(stand(), { netzordnerOffen: P });
+    const kasten = element(mit, 'div', 'data-recorder="hinweise"');
+    const von = kasten.indexOf('data-recorder="netzordner"');
+    const zeile = von < 0 ? '' : kasten.slice(von);
+    ok(
+      kasten.includes('role="alert"') &&
+        text(zeile).includes('Die Show möchte in einem Netzwerkordner aufnehmen: \\\\nas\\x (Server nas). Erst nach „Übernehmen“ ist er gesetzt – Windows meldet sich dann bei diesem Server an.') &&
+        tags(zeile, 'button').length === 1 &&
+        text(zeile).includes(T.netzordner.uebernehmen),
+      'RE-7b Hinweis mit Taste „Übernehmen“: der Netzwerkordner aus der Show steht mit Pfad und Server im Hinweisband, daneben die Taste „Übernehmen“',
+    );
+    const log: string[] = [];
+    const els = baum(stand(), { netzordnerOffen: P }, log);
+    (els.find((e) => e.type === Button && elementText(e) === T.netzordner.uebernehmen)?.props.onClick as (() => void) | undefined)?.();
+    gleich(log, ['netzordnerUebernehmen'], 'RE-7b Hinweis mit Taste „Übernehmen“: der Klick ruft netzordnerUebernehmen');
+    const ohne = live(stand(), { netzordnerOffen: null });
+    ok(!ohne.includes('data-recorder="netzordner"') && !text(ohne).includes(T.netzordner.uebernehmen) && !ohne.includes('data-recorder="hinweise"'), 'RE-7b ohne netzordnerOffen keine Taste „Übernehmen“ (und ohne andere Hinweise kein Kasten)');
+    const steuer = live(stand(), { netzordnerOffen: '\\\\nas\\x\u{202E}evil' });
+    ok(!steuer.includes('\u{202E}') && text(steuer).includes('\\\\nas\\x evil'), 'RE-7b Hinweis: Steuer- und Bidi-Zeichen im Pfad werden zu Leerzeichen (saeubereAnzeige)');
+    const ober = QUELLE('views/RecorderOberflaeche.tsx');
+    ok(
+      ober.includes('const netzordnerOffen = useRec((s) => s.netzordnerOffen);') &&
+        ober.includes('const netzordnerUebernehmen = useRec((s) => s.netzordnerUebernehmen);') &&
+        ober.includes('netzordnerUebernehmen: () => void netzordnerUebernehmen()') &&
+        /werte=\{\{[^}]*\bnetzordnerOffen\b[^}]*\}\}/.test(ober),
+      'RE-7b Verdrahtung: die View reicht netzordnerOffen und die Store-Aktion netzordnerUebernehmen in den Live-Bereich',
+    );
+  } catch (e) {
+    ok(false, `RE-7b Hinweis mit Taste „Übernehmen“: Wurf (${e instanceof Error ? e.message : String(e)})`);
+  }
+}
+
 // ── RE keine rohen Farben: geänderte Dateien nur mit Tokens ──
 {
   const dateien = ['App.tsx', 'views/RecorderOberflaeche.tsx', 'views/LiveBereich.tsx', 'views/Einstellungen.tsx', 'views/RecorderView.tsx', 'components/PresetLeiste.tsx', 'lib/aktionen.ts', 'lib/format.ts'];
   const roh = /\b(?:bg|text|border|ring|from|to|via|fill|stroke|outline|divide|shadow|accent)-(?:white|black|neutral|gray|grey|zinc|slate|stone|red|green|blue|yellow|amber|orange|lime|emerald|teal|cyan|sky|indigo|violet|purple|fuchsia|pink|rose)(?:-\d+)?\b|#[0-9a-fA-F]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\(/;
   ok(roh.test('border-amber-500/60 bg-amber-500/10') && roh.test("background: '#121212'") && roh.test('rgba(0,0,0,.5)') && !roh.test('border-[var(--status-warn)]/60'), 'RE keine rohen Farben: Gegenprobe (Amber des alten Hinweisbands, Hex und rgba() werden erkannt, Tokens nicht)');
   gleich(dateien.filter((d) => roh.test(QUELLE(d))), [], 'RE keine rohen Farben: keine rohen Farbklassen, Hex- oder rgb-Werte in Rahmen, Live-Bereich, Panel, Zeitplan, Preset-Leiste und Aktionen');
+}
+
+// ── Altfehler RE-3 (Plan 2026-11-26, Task 7): die Marke zeigt das Fehlerfeld des Hauptprozesses in der Tönung destructive (nie
+// „Fehler“, das ist UI_TEXTE.zustand.error); die Aufnahme-Taste heißt „Neu aufnehmen“ und ruft record, „Eingang schließen“ quittiert ──
+{
+  type Art = 'schreiben' | 'eingang' | 'start';
+  const mitFehler = (art: Art, status: RecorderStatus = 'armed'): RecorderState => zustand(status, { fehler: { art, text: 'ENOSPC', datei: null } } as Partial<RecorderState>);
+  const m = (z: RecorderState): unknown => aufnahmeMarke(z);
+  gleich(
+    [m(mitFehler('schreiben')), m(mitFehler('eingang')), m(mitFehler('start')), m(mitFehler('schreiben', 'idle'))],
+    [
+      { tone: 'destructive', text: 'Schreibfehler' },
+      { tone: 'destructive', text: 'Kein Eingang' },
+      { tone: 'destructive', text: 'Nicht gestartet' },
+      { tone: 'destructive', text: 'Schreibfehler' },
+    ],
+    'RE-3 Marke: bei Fehlerfeld „Schreibfehler“, „Kein Eingang“ bzw. „Nicht gestartet“ in der Tönung destructive (statt „Bereit“ oder „Inaktiv“)',
+  );
+  const html = live(stand({ zustand: mitFehler('schreiben') }));
+  const tag = tags(html, 'span').find((t) => attr(t, 'data-recorder') === 'marke');
+  ok(
+    text(element(html, 'span', 'data-recorder="marke"')) === 'Schreibfehler' && (attr(tag, 'class') ?? '').includes('var(--destructive)') && !(attr(tag, 'class') ?? '').includes('var(--success)'),
+    'RE-3 Marke „Schreibfehler“ im Live-Bereich, Farbe aus --destructive',
+  );
+  gleich(
+    knoepfe(live(stand({ zustand: mitFehler('schreiben') }))).map((k) => [k.label, k.state]),
+    [['Neu aufnehmen', 'bereit'], [T.taste.eingangSchliessen, 'bereit']],
+    'RE-3 Live Tasten: bei Fehlerfeld links „Neu aufnehmen“ (bereit), rechts „Eingang schließen“ (bereit)',
+  );
+  const log: string[] = [];
+  for (const k of liveKnoepfe(stand({ zustand: mitFehler('schreiben') }), aktionen(log))) klick(k);
+  gleich(log, ['record', 'disarm'], 'RE-3 Live Verdrahtung: „Neu aufnehmen“ ruft record (ein gelungener Start löscht den Fehler), „Eingang schließen“ ruft disarm (quittiert, K7)');
+  // Fix-Runde 1 (Ruling R17): bei geschlossenem Eingang zeigt die Haupttaste den Fehler, gesperrt mit sichtbarem Grund; ein Klick tut nichts.
+  const zu = knoepfe(live(stand({ zustand: mitFehler('schreiben', 'idle') }))).map((k) => [k.label, k.state, k.grund]);
+  const log2: string[] = [];
+  for (const k of liveKnoepfe(stand({ zustand: mitFehler('schreiben', 'idle') }), aktionen(log2))) klick(k);
+  gleich(
+    [zu, log2],
+    [[['Neu aufnehmen', 'gesperrt', 'Eingang öffnen, dann neu aufnehmen'], [T.taste.eingangOeffnen, 'bereit', undefined]], ['arm']],
+    'RE-3 R17 Live Tasten: bei geschlossenem Eingang mit Fehlerfeld links „Neu aufnehmen“ gesperrt mit sichtbarem Grund, rechts „Eingang öffnen“; nur „Eingang öffnen“ klickt',
+  );
 }

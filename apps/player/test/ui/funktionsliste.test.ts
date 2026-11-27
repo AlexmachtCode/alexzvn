@@ -134,7 +134,8 @@ const NUR_MELDUNG = new Set([
  * Altfehler Runde 1, Stufe 1 (Plan 2026-11-25): je erlaubter Player-ID die Dateien (ab der Repo-Wurzel), die der Befund geändert hat,
  * wie ERLAUBT in Studio-Control (Ruling R6). „Altfehler <ID>“ im Haken entlastet ein „unverändert (…)“, das eine geänderte Datei nennt,
  * nur, wenn die Liste dieser ID die Datei enthält; dann für die ganze Änderung des Befunds, nicht nur für lesende Brücken. Erlaubt sind
- * genau die sieben Player-IDs der Stufe (SC-S1 bis SC-S3 betreffen Studio-Control). Task 2–4 tragen ihre Dateien bei ihrer ID ein.
+ * genau die neun Player-IDs: die sieben der Stufe 1 (SC-S1 bis SC-S3 betreffen Studio-Control; Task 2–4 trugen ihre Dateien bei ihrer
+ * ID ein) und PL-K1, PL-K2 der Stufe 2 (Plan 2026-11-26, Task 1).
  */
 const ALTFEHLER = new Map<string, readonly string[]>([
   [
@@ -181,6 +182,8 @@ const ALTFEHLER = new Map<string, readonly string[]>([
     'PL-T14',
     ['src/renderer/src/lib/show-audio.ts', 'src/renderer/src/lib/oberflaeche.ts', 'src/renderer/src/store/player.ts'].map((p) => `apps/player/${p}`),
   ],
+  ['PL-K1', ['src/renderer/src/lib/vorlauf.ts', 'src/renderer/src/store/player.ts', 'src/renderer/src/lib/oberflaeche.ts'].map((p) => `apps/player/${p}`)],
+  ['PL-K2', ['src/renderer/src/store/player.ts'].map((p) => `apps/player/${p}`)],
 ]);
 /** Verweis „Altfehler <ID>“ auf eine der erlaubten IDs; die ID steht in Gruppe 1. */
 const ALTFEHLER_VERWEIS = new RegExp(`\\bAltfehler (${[...ALTFEHLER.keys()].join('|')})(?![\\w-])`, 'g');
@@ -365,8 +368,8 @@ for (const z of alle) {
       zeilenFehler(synth('main/media-protocol.ts')) === null,
     'PL Funktionsliste: eine geänderte Datei wird in jeder Schreibweise erkannt; E2 und E3 entlasten nur Dateien mit den lesenden Brücken; eine unveränderte Datei ist frei',
   );
-  // Der Verweis „Altfehler <ID>“ (Stufe 1) entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt (R6); nur mit dem Wort
-  // „Altfehler“ und nur die sieben Player-IDs.
+  // Der Verweis „Altfehler <ID>“ (Stufe 1 und 2) entlastet eine geänderte Datei nur, wenn die Liste der ID sie nennt (R6); nur mit dem
+  // Wort „Altfehler“ und nur die neun Player-IDs.
   ok(
     zeilenFehler(synth('views/OutputView.tsx', ' (Altfehler PL-N)')) === null &&
       zeilenFehler(synth('main/output-window.ts', ' (E3, Altfehler PL-T13)')) === null &&

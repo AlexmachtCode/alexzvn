@@ -94,12 +94,33 @@ Bis Modul 0.1.0 fehlte die Rolle ganz; mit 0.2.0 ist Connect erstmals steuerbar
   Zoom-Befehle schreibt Connect dort nur ins Log. Die `ndi_*`-Werte sendet Connect auf beiden Plattformen.
 - JM Rundown bietet die Zoom-Aktionen erst mit seinem nächsten Release an.
 
+## Rolle „JM Presenter“ (ab Modul 0.4.0)
+
+Die Aktionen „Schwarz“ und „Weiß“ haben die Option **Modus** mit der Wahl
+„Umschalten“, „An“ oder „Aus“. Vorgabe ist „Umschalten“; Tasten, die mit Modul
+0.3.0 angelegt wurden, wirken darum weiter wie bisher.
+
+- **Umschalten** (`PRESENTER BLACK TOGGLE`): wie bisher, ein zweiter Druck zeigt
+  wieder die Folie.
+- **An** (`PRESENTER BLACK ON`): Schwarzbild, auch beim zweiten Druck; aus einem
+  Weißbild wird Schwarz.
+- **Aus** (`PRESENTER BLACK OFF`): zurück auf die Folie, wenn das Schwarzbild an
+  ist; sonst geschieht nichts.
+
+Für „Weiß“ gilt dasselbe mit `PRESENTER WHITE`. Das Umschalten löst der Presenter
+selbst auf (ab Presenter 0.15.1); ohne Wahl oder mit einer unbekannten schaltet er
+um. Ein Presenter bis 0.15.0 schaltet bei jeder Wahl um.
+
+Die Wahl steht nur im Modul, nicht in der geteilten Capabilities-Tabelle der
+Suite. JM Rundown sendet `PRESENTER BLACK` und `PRESENTER WHITE` darum weiter ohne
+Wahl, also als Umschalten.
+
 ## Aufbau
 
 | Datei | Inhalt |
 |---|---|
 | `main.js` | Companion-Modul (InstanceBase). Generiert Definitionen aus `CAPABILITIES`, verbindet per TCP (manuell oder mDNS-Auto), liest STATE → Variablen/Feedbacks. |
-| `lib.mjs` | Pure Hilfsfunktionen (Zeilenbau, Optionsfelder, Toggle-Auflösung, Platzhalter `{slot}`, Feedback-Auswertung, Preset-Feedbacks, Endpunkt-Auswahl) — ohne Companion-Runtime testbar. |
+| `lib.mjs` | Pure Hilfsfunktionen (Zeilenbau, Optionsfelder, Toggle-Auflösung, Platzhalter `{slot}`, Feedback-Auswertung, Preset-Feedbacks, Endpunkt-Auswahl, Wahl an Presenter „Schwarz“/„Weiß“ über `aktionenFuer`) — ohne Companion-Runtime testbar. |
 | `discovery.mjs` | mDNS-Browse (`bonjour-service`) der Suite-Steuer-Endpunkte (`_jmps._tcp`, TXT `ctl=1`). Spiegelt `@jm/discovery`, da das Modul standalone ist. |
 | `generated/protocol.mjs` | **Generiert** aus `packages/suite-control-protocol/src/{index,capabilities}.ts` — Parser + Capabilities. NICHT von Hand bearbeiten. |
 | `companion/manifest.json` | Companion-Modul-Manifest (node22, nodejs-ipc). |

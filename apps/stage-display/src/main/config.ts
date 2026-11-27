@@ -1,20 +1,9 @@
 import { app } from 'electron';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { DEFAULT_CONTROL_PORT } from '@jm/companion-protocol';
 import type { PartialStageConfig, StageConfig } from '@shared/types';
-
-const TIMER_DEFAULT_PORT = 7777;
-const PRESENTER_DEFAULT_PORT = 7330;
-
-const DEFAULT_CONFIG: StageConfig = {
-  timer: { enabled: false, host: '127.0.0.1', port: TIMER_DEFAULT_PORT },
-  switcher: { enabled: false, host: '127.0.0.1', port: DEFAULT_CONTROL_PORT },
-  presenter: { enabled: false, host: '127.0.0.1', port: PRESENTER_DEFAULT_PORT, pin: '', mode: 'ref' },
-  widgets: { clock: true, timer: true, switcher: true, message: true, presenter: true },
-  message: '',
-  outputDisplayId: null,
-};
+// Altfehler SD-1: Standardwerte, Lesen und Mischen stehen als reines Modul in shared/konfig-regeln.ts (dort getestet).
+import { DEFAULT_CONFIG, konfigAusDatei, konfigMischen } from '@shared/konfig-regeln';
 
 function configFile(): string {
   return join(app.getPath('userData'), 'stage-config.json');
@@ -26,15 +15,7 @@ export function getConfig(): StageConfig {
   if (cache) return cache;
   try {
     if (existsSync(configFile())) {
-      const data = JSON.parse(readFileSync(configFile(), 'utf8')) as Partial<StageConfig>;
-      cache = {
-        ...DEFAULT_CONFIG,
-        ...data,
-        timer: { ...DEFAULT_CONFIG.timer, ...data.timer },
-        switcher: { ...DEFAULT_CONFIG.switcher, ...data.switcher },
-        presenter: { ...DEFAULT_CONFIG.presenter, ...data.presenter },
-        widgets: { ...DEFAULT_CONFIG.widgets, ...data.widgets },
-      };
+      cache = konfigAusDatei(JSON.parse(readFileSync(configFile(), 'utf8')) as Partial<StageConfig>);
       return cache;
     }
   } catch {
@@ -46,16 +27,7 @@ export function getConfig(): StageConfig {
 
 /** Teil-Update mit verschachteltem Merge; persistiert und liefert den neuen Stand. */
 export function patchConfig(patch: PartialStageConfig): StageConfig {
-  const cur = getConfig();
-  const next: StageConfig = {
-    ...cur,
-    ...(patch.message !== undefined ? { message: patch.message } : {}),
-    ...(patch.outputDisplayId !== undefined ? { outputDisplayId: patch.outputDisplayId } : {}),
-    timer: { ...cur.timer, ...patch.timer },
-    switcher: { ...cur.switcher, ...patch.switcher },
-    presenter: { ...cur.presenter, ...patch.presenter },
-    widgets: { ...cur.widgets, ...patch.widgets },
-  };
+  const next = konfigMischen(getConfig(), patch);
   cache = next;
   try {
     mkdirSync(app.getPath('userData'), { recursive: true });

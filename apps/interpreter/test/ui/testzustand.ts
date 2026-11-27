@@ -27,9 +27,9 @@ export const AUSGAENGE = [
   { deviceId: 'vm-in', label: 'VoiceMeeter Input (VB-Audio VoiceMeeter VAIO)' },
 ];
 
-/** Zustand der Engine wie getState() (Vorgabe: steht, kein Fehler). */
+/** Zustand der Engine wie getState() (Vorgabe: steht, startet nicht, kein Fehler). */
 export function motor(p: Partial<EngineState> = {}): EngineState {
-  return { running: false, ducking: false, floorDb: -Infinity, interpreterDb: -Infinity, error: null, startedOutputId: null, ...p };
+  return { running: false, starting: false, ducking: false, floorDb: -Infinity, interpreterDb: -Infinity, error: null, startedOutputId: null, ...p };
 }
 
 export function einst(p: Partial<Einstellungen> = {}): Einstellungen {

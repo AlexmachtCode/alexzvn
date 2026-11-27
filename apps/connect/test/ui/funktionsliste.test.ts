@@ -97,6 +97,8 @@ const GEAENDERT = [
   'src/renderer/src/zoom/ZoomEinrichtung.tsx',
   'src/renderer/src/zoom/ZoomVorgaben.tsx',
   'src/renderer/src/zoom/aufrufe.ts',
+  // Altfehler CN-MV, Stufe 2: Sperrzeit der Rückfrage „Ja, verlassen“ (neu; ZoomCard.tsx steht schon oben).
+  'src/renderer/src/zoom/verlassen.ts',
   'src/shared/fernsteuerung.ts',
   'src/shared/ipc.ts',
   'src/shared/types.ts',
@@ -112,6 +114,7 @@ const GEAENDERT = [
   'test/ui/rahmen.test.tsx',
   'test/ui/selftest.ts',
   'test/ui/testzustand.ts',
+  'test/ui/verlassen.test.ts',
   'test/ui/werkzeug.test.tsx',
   'test/zoom-teile.test.ts',
   'tsconfig.node.json',
@@ -125,6 +128,8 @@ const PAKETE_GEAENDERT = [
   'packages/output-window/src/index.ts',
   'packages/settings/src/SectionFrame.tsx',
   'packages/settings/src/abschnitte/ScreenOutputSection.tsx',
+  // Altfehler SD-3, Stufe 2: PeerRow.eingerichtet und „nicht erreichbar“ (Stage Display; Connect setzt das Feld nicht).
+  'packages/settings/src/abschnitte/peers.ts',
   'packages/settings/src/abschnitte/screen-output.ts',
   'packages/ui/src/components/AppHeader.tsx',
   'packages/ui/src/components/AppShell.tsx',
@@ -464,11 +469,12 @@ for (const z of alle) {
         return x === null || y === null || ohne(x) !== ohne(y);
       });
       ok(anders.length === 0, `CN Funktionsliste Abschnitt 3: Raum-Client, Raum-Folge, Wachhund, Talkback, Folien, STATE, Einladen, Abos und Fernbefehle in der Wurzel-View zeichengleich mit App.tsx der Erhebung (anders: ${anders.map(([a]) => a).join(' | ') || 'nichts'})`);
+      // Altfehler CN-MV (Stufe 2): der Block „Verlassen“ ist nicht mehr zeichengleich, die Rückfrage hat jetzt eine Sperrzeit
+      // (verlassenBedienung aus R/zoom/verlassen.ts, Test test/ui/verlassen.test.ts); die übrigen Blöcke bleiben.
       const zoom: Array<[string, string]> = [
         ['const holeLetztes = useCallback((): void => {', '  }, []);'],
         ['const beitreten = (): void => {', '  };'],
         ['const vergessen = (): void => {', '  };'],
-        ['const verlassen = (): void => {', '  };'],
         ['const uebernimmVersatz = (): void => {', '  };'],
       ];
       const zc = quelle('R/zoom/ZoomCard.tsx');
@@ -477,7 +483,7 @@ for (const z of alle) {
         const y = block(zc, a, e);
         return x === null || y === null || ohne(x) !== ohne(y);
       });
-      ok(zAnders.length === 0, `CN Funktionsliste Nr. 69–77: gemerktes Meeting, Beitreten, Vergessen, Verlassen und Bild-Versatz zeichengleich mit der ZoomCard der Erhebung (anders: ${zAnders.map(([a]) => a).join(' | ') || 'nichts'})`);
+      ok(zAnders.length === 0, `CN Funktionsliste Nr. 69–77: gemerktes Meeting, Beitreten, Vergessen und Bild-Versatz zeichengleich mit der ZoomCard der Erhebung; Verlassen nicht mehr (Altfehler CN-MV, Sperrzeit) (anders: ${zAnders.map(([a]) => a).join(' | ') || 'nichts'})`);
     }
   }
   // Negativproben: eine geänderte Datei in jeder Schreibweise, eine erlaubte nur mit ihrem Verweis, eine unveränderte frei.
@@ -604,10 +610,13 @@ const OF = 'R/lib/oberflaeche.ts';
 {
   const renderer = rendererQuelle();
   const tastenHoerer = renderer.match(/onKeyDown=\{\((\w+)\) => \{\s*if \(\1\.key === 'Enter'/g) ?? [];
+  // Fix-Welle (Ruling S2-R29, Wächter umgestellt): dazu genau ein onKeyDown, das kein Kürzel ist: „Meeting verlassen“ verwirft die
+  // Tastenwiederholung (verlassenTaste), es wirkt nur auf diese Taste und nur mit Fokus.
+  const wiederholung = zaehle(renderer, 'onKeyDown={verlassenTaste}');
   ok(
-    !/addEventListener\(\s*'key/.test(renderer) && !renderer.includes('shortcut=') && zaehle(renderer, 'onKeyDown') === tastenHoerer.length && tastenHoerer.length >= 5 &&
-      beginnt(194, 'Kopf') && mitVerweis(194, 'B1') && nennt(194, 'keine eigenen Kürzel'),
-    'CN Funktionsliste Nr. 194: weiter keine eigenen Kürzel im Renderer (kein Tastenhörer, kein shortcut; jedes onKeyDown ist Enter in einem Feld, B1)',
+    !/addEventListener\(\s*'key/.test(renderer) && !renderer.includes('shortcut=') && zaehle(renderer, 'onKeyDown') === tastenHoerer.length + wiederholung && wiederholung === 1 && tastenHoerer.length >= 5 &&
+      beginnt(194, 'Kopf') && mitVerweis(194, 'B1') && nennt(194, 'keine eigenen Kürzel', 'Fix-Welle (Ruling S2-R29)', '`verlassenTaste`'),
+    'CN Funktionsliste Nr. 194: weiter keine eigenen Kürzel im Renderer (kein Tastenhörer, kein shortcut; jedes onKeyDown ist Enter in einem Feld, B1; Fix-Welle S2-R29: außer verlassenTaste an „Meeting verlassen“, das nur die Tastenwiederholung verwirft)',
   );
   const main = readdirSync('src/main', { recursive: true })
     .map((d) => String(d).replace(/\\/g, '/'))
@@ -828,6 +837,18 @@ const OF = 'R/lib/oberflaeche.ts';
   ok(
     [56, 57, 72, 75, 76].every((nr) => beginnt(nr, 'Zoom-Spalte') && nennt(nr, 'rechts')) && zaehle(zc, 'flex flex-row-reverse') === 3,
     'CN Funktionsliste Nr. 56, 57, 72, 75, 76: Erneut beitreten, Beitreten und Meeting verlassen ganz rechts ihrer Zeile (flex-row-reverse, Tastenplatz, Task 24); Nachbarn seitenverkehrt',
+  );
+  ok(
+    [75, 122].every((nr) => nennt(nr, '1 s Sperrzeit (Altfehler CN-MV)') && zeigtAuf(nr, 'R/zoom/verlassen.ts', 'export const VERLASSEN_SPERRE_MS = 1000;', 'export function verlassenBedienung(')) &&
+      !kuenftig(122).includes('der zweite verlässt') && zeigtAuf(75, 'R/zoom/ZoomCard.tsx', 'const verlassen = verlassenBedienung({', 'aria-disabled={sperre ? true : undefined}') &&
+      zeigtAuf(122, 'R/zoom/ZoomCard.tsx', 'const sperre = frage && verlassenGesperrt(frageSeit, performance.now());', "{frage ? verlassenFrageText(n) : 'Meeting verlassen'}"),
+    'CN Funktionsliste Nr. 75, 122 (Altfehler CN-MV): „Ja, verlassen“ erst nach 1 s Sperrzeit, ein Doppelklick verlässt nicht; die Haken zeigen auf Sperrzeit, Verdrahtung und Sperre',
+  );
+  // Fix-Welle (Ruling S2-R29): eine gehaltene Taste verlässt nicht; die Haken nennen es und zeigen auf verlassenTaste und seine Verdrahtung.
+  ok(
+    [75, 122].every((nr) => nennt(nr, 'Fix-Welle (Ruling S2-R29)', '`verlassenTaste`') && zeigtAuf(nr, 'R/zoom/verlassen.ts', 'export function verlassenTaste(', 'if (e.repeat) e.preventDefault();')) &&
+      zeigtAuf(75, 'R/zoom/ZoomCard.tsx', 'onKeyDown={verlassenTaste}') && zeigtAuf(122, 'R/zoom/ZoomCard.tsx', 'onKeyDown={verlassenTaste}'),
+    'CN Funktionsliste Nr. 75, 122 (Fix-Welle, S2-R29): eine gehaltene Taste (Enter, Leertaste) verlässt nicht; die Haken zeigen auf verlassenTaste und onKeyDown der Taste',
   );
   ok(ersetzt(60, 'Panel Zoom-Einrichtung') && mitVerweis(60, 'B20') && !renderer.includes('setEinrichtungAuf'), 'CN Funktionsliste Nr. 60: der Knopf „Einrichtung“ entfällt, die Einrichtung steht im Panel (B20)');
   ok(

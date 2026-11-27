@@ -440,7 +440,8 @@ const art = (a: AusgabeArt | null | undefined, displayId: number | null = 1): Au
   };
   const ZAHL: Record<string, number> = { nichts: 0, vorlauf: 0, videoOhneFortschritt: 0, audio: 1, zwei: 2, veraltetesVideo: 0, audioUndVeraltet: 1 };
   // Ohne Cue-Liste (ohneShow) ist ID 2 nicht als Video erkennbar und zählt (Irrtum zur Seite „an“, wie das frühe Ende von
-  // showAudio.play); ein laufender Cue ohne Listeneintrag kann wirklich klingen (Vorlauf-Zeitgeber eines entfernten Cues).
+  // showAudio.play); bis Altfehler PL-K1 konnte ein laufender Cue ohne Listeneintrag wirklich klingen (Vorlauf-Zeitgeber eines
+  // entfernten Cues), seitdem bricht removeShowCue den Vorlauf ab.
   const ZAHL_OHNE_LISTE: Record<string, number> = { ...ZAHL, veraltetesVideo: 1, audioUndVeraltet: 2 };
   const STANDBY: Record<number, string> = { 0: 'Cue 1 · Intro', 1: 'Cue 2 · m102.mp4', 2: 'Cue 3 · —', 3: '— Ende —' };
   const faelle = kreuz({ player: ['undefined', 'ohneShow', 'da'], pausiert: [false, true], lauf: Object.keys(LAUF), standby: [0, 1, 2, 3] } as const);

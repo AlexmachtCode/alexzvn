@@ -178,10 +178,10 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
   gleich(log2[0], 'ndiStart:Saal 2', 'CA Live Verdrahtung: NDI starten nimmt den Quellnamen der Konfiguration (ndiStart(c.ndiName))');
   const ober = QUELLE('views/CaptionOberflaeche.tsx');
   ok(
-    ober.includes('const { state, level, load, setLevel, setConfig, start, stop, setHold, clear, correctLast, ndiStart, ndiStop } =') &&
-      ober.includes('const store: CaptionStore = { setConfig, start, stop, setHold, clear, correctLast, ndiStart, ndiStop };') &&
+    ober.includes('const { state, level, load, setLevel, setConfig, start, stop, setHold, clear, correctLine, ndiStart, ndiStop } =') &&
+      ober.includes('const store: CaptionStore = { setConfig, start, stop, setHold, clear, correctLine, ndiStart, ndiStop };') &&
       ober.includes('liveAktionen(store, cfg?.ndiName, setEditing)'),
-    'CA Live Verdrahtung: die View reicht genau die Store-Aktionen aus useCaption an liveAktionen (Name der NDI-Quelle aus der Konfiguration)',
+    'CA Live Verdrahtung: die View reicht genau die Store-Aktionen aus useCaption an liveAktionen (Name der NDI-Quelle aus der Konfiguration; Altfehler CA-5: correctLine statt correctLast, G8)',
   );
 }
 
@@ -279,23 +279,58 @@ const erwartet = (t: { label: string; state: string; disabledReason?: string }):
   const els = baum(stand({ caption: caption({ lines: ZEILEN }) }), null, log).filter((e) => typeof e.props.onDoubleClick === 'function');
   for (const e of els) (e.props.onDoubleClick as () => void)();
   gleich(log, ['bearbeiten:l3'], 'CA Live Korrektur: Doppelklick auf die jüngste Zeile startet die Korrektur, ältere Zeilen reagieren nicht');
-  // Im Korrekturmodus: Feld mit altem Text, Fokus sofort; Verlassen übernimmt (correctLast, dann Ende); Enter verlässt; Escape nichts.
-  const html = live(stand({ caption: caption({ lines: ZEILEN }) }), 'l3');
+  // Im Korrekturmodus: Feld mit altem Text, Fokus sofort. Das Feld hängt an der angeklickten Zeile: l2, inzwischen kam l3.
+  const html = live(stand({ caption: caption({ lines: ZEILEN }) }), 'l2');
   const feld = tags(verlauf(html), 'input')[0];
-  ok(attr(feld, 'value') === ZEILEN[2].text && !text(verlauf(html)).includes(ZEILEN[2].text) && text(verlauf(html)).includes(ZEILEN[1].text), 'CA Live Korrektur: die jüngste Zeile wird zum Feld mit dem alten Text, die übrigen bleiben');
-  const log2: string[] = [];
-  const eingabe = baum(stand({ caption: caption({ lines: ZEILEN }) }), 'l3', log2).find((e) => e.type === 'input');
-  ok(eingabe?.props.autoFocus === true && eingabe.props.defaultValue === ZEILEN[2].text && eingabe.props.value === undefined, 'CA Live Korrektur: ungesteuertes Feld (defaultValue) mit Fokus beim Öffnen');
-  (eingabe?.props.onBlur as ((e: unknown) => void) | undefined)?.({ target: { value: 'Bitte nehmen Sie jetzt Platz.' } });
-  let geblurt = 0;
-  const ziel = { blur: () => void geblurt++ };
-  (eingabe?.props.onKeyDown as ((e: unknown) => void) | undefined)?.({ key: 'Enter', target: ziel });
-  (eingabe?.props.onKeyDown as ((e: unknown) => void) | undefined)?.({ key: 'Escape', target: ziel });
+  ok(
+    attr(feld, 'value') === ZEILEN[1].text && !text(verlauf(html)).includes(ZEILEN[1].text) && text(verlauf(html)).includes(ZEILEN[2].text),
+    'CA Live Korrektur: kommt während der Eingabe eine neue Zeile, bleibt das Feld an der angeklickten (l2) mit ihrem alten Text, die übrigen bleiben Zeilen',
+  );
+  /** Das Feld der Korrektur an l2 aus dem Baum der View; jeder Aufruf landet im Protokoll. */
+  const eingabe = (log: string[]) => baum(stand({ caption: caption({ lines: ZEILEN }) }), 'l2', log).find((e) => e.type === 'input');
+  /** Ruft einen Hörer des Felds; ein Wurf landet als „Wurf: …“ im Protokoll (macht den Vergleich rot, bricht das Modul nicht ab). */
+  const ruf = (log: string[], name: 'onBlur' | 'onKeyDown', e: unknown): void => {
+    try {
+      (eingabe(log)?.props[name] as ((e: unknown) => void) | undefined)?.(e);
+    } catch (f) {
+      log.push(`Wurf: ${f instanceof Error ? f.message : String(f)}`);
+    }
+  };
+  const blur = (log: string[], target: unknown): void => ruf(log, 'onBlur', { target });
+  const taste = (log: string[], e: unknown): void => ruf(log, 'onKeyDown', e);
+  const offen = eingabe([]);
+  ok(offen?.props.autoFocus === true && offen.props.defaultValue === ZEILEN[1].text && offen.props.value === undefined, 'CA Live Korrektur: ungesteuertes Feld (defaultValue) mit Fokus beim Öffnen');
+  // Altfehler CA-5: Verlassen schickt die Korrektur an die Kennung der angeklickten Zeile (correctLine), dann endet der Modus.
+  const logNeu: string[] = [];
+  blur(logNeu, { value: 'Neu' });
   await warte();
-  gleich([log2, geblurt], [['correctLast:Bitte nehmen Sie jetzt Platz.', 'bearbeiten:null'], 1], 'CA Live Korrektur: Verlassen ruft correctLast(Text) und beendet den Modus; Enter verlässt das Feld; Escape tut nichts (wie heute)');
-  // Die Korrektur gilt weiter der jüngsten Zeile im Main (correctLast ohne Zeilen-Id), auch wenn das Feld an einer älteren hängt.
-  const alt = live(stand({ caption: caption({ lines: ZEILEN }) }), 'l2');
-  ok(attr(tags(verlauf(alt), 'input')[0], 'value') === ZEILEN[1].text, 'CA Live Korrektur: kommt während der Eingabe eine neue Zeile, bleibt das Feld an der alten (wie heute, Befund 5)');
+  gleich(logNeu, ['correctLine:l2:Neu', 'bearbeiten:null'], 'CA-5 Korrektur trifft die Zeile: Verlassen ruft correctLine(l2, Text) für die angeklickte Zeile, auch wenn inzwischen l3 kam, und beendet den Modus');
+  // Altfehler CA-5: Escape bricht ab (verbraucht die Taste, stellt den alten Text her, beendet den Modus); das blur beim Abbau des Felds
+  // findet den alten Text vor und schickt nichts.
+  const logEsc: string[] = [];
+  let verhindert = 0;
+  let geblurtEsc = 0;
+  const feldEsc = { value: 'angefangen', blur: () => void geblurtEsc++ };
+  taste(logEsc, { key: 'Escape', preventDefault: () => void verhindert++, currentTarget: feldEsc, target: feldEsc });
+  const nachEscape = [...logEsc];
+  blur(logEsc, feldEsc);
+  await warte();
+  gleich(
+    { nachEscape, verhindert, wert: feldEsc.value, nachBlur: logEsc, geblurtEsc },
+    { nachEscape: ['bearbeiten:null'], verhindert: 1, wert: ZEILEN[1].text, nachBlur: ['bearbeiten:null', 'bearbeiten:null'], geblurtEsc: 0 },
+    'CA-5 Escape bricht die Korrektur ab: preventDefault, alter Text im Feld, Modus aus; das folgende blur schickt kein correctLine',
+  );
+  // Ein unveränderter Text geht nicht mehr an den Main (heute ging er mit, wirkte aber nicht).
+  const logGleich: string[] = [];
+  blur(logGleich, { value: ZEILEN[1].text });
+  await warte();
+  gleich(logGleich, ['bearbeiten:null'], 'CA-5 Korrektur: unveränderter Text beim Verlassen schickt kein correctLine, der Modus endet');
+  // Enter verlässt das Feld wie bisher (blur übernimmt), ohne selbst zu senden.
+  const logEnter: string[] = [];
+  let geblurt = 0;
+  taste(logEnter, { key: 'Enter', preventDefault: () => {}, target: { blur: () => void geblurt++ } });
+  await warte();
+  gleich([logEnter, geblurt], [[], 1], 'CA Live Korrektur: Enter verlässt das Feld (blur) und schickt selbst nichts');
   ok(QUELLE('views/CaptionOberflaeche.tsx').includes('const [editing, setEditing] = useState<string | null>(null);'), 'CA Live Korrektur: der Korrekturzustand liegt wie bisher in der Wurzel-View');
 }
 

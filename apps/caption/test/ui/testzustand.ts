@@ -62,7 +62,7 @@ export function caption(
   z: Partial<Omit<CaptionState, 'config' | 'status'>> & { config?: Partial<CaptionConfig>; status?: Partial<CaptionStatus> } = {},
 ): CaptionState {
   const { config, status: st, ...rest } = z;
-  return { running: false, hold: false, busy: false, whisperAvailable: true, lines: [], error: null, ...rest, config: { ...CONFIG, ...config }, status: status(st) };
+  return { running: false, hold: false, busy: false, whisperAvailable: true, lines: [], leerungen: 0, error: null, ...rest, config: { ...CONFIG, ...config }, status: status(st) };
 }
 
 /** Attrappe der Store-Aktionen unter ihren Namen im Store (store/useCaption.ts); jeder Aufruf landet im Protokoll. */
@@ -73,7 +73,7 @@ export function store(log: string[]): CaptionStore {
     stop: async () => void log.push('stop'),
     setHold: async (h) => void log.push(`setHold:${h}`),
     clear: async () => void log.push('clear'),
-    correctLast: async (t) => void log.push(`correctLast:${t}`),
+    correctLine: async (id, t) => void log.push(`correctLine:${id}:${t}`),
     ndiStart: async (name) => void log.push(`ndiStart:${name}`),
     ndiStop: async () => void log.push('ndiStop'),
   };

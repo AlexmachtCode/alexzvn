@@ -4,7 +4,7 @@
 // (Modell, Sprache, Engine, Wörterbuch, Max. Äußerung) und Darstellung (Schrift, Zeilen, Band). Jeder Abschnitt ist ein
 // Sprungziel, jedes Feld ruft dieselbe Store-Aktion wie bisher (Attrappen). Eine Wahl löst keinen Start aus (Wahl ≠ Bewegung).
 import { AUDIO_TEXTE, AudioDeviceSection, NDI_TEXTE, NdiOutputSection, REMOTE_TEXTE, type AudioDeviceSectionProps, type NdiOutputSectionProps } from '@jm/settings';
-import { Select } from '@jm/ui';
+import { NumberInput, Select } from '@jm/ui';
 import { gleich, leseText, ok, pruefeIdVerweise, render } from '@jm/ui/testhilfe';
 import { geraeteListe, panelAktionen, type EinstellungenAktionen } from '@/lib/aktionen';
 import { ABSCHNITT, CAPTION_TEXTE, ENGINES, MODELLE, SPRACHEN, statusLeiste, type OberflaechenStand } from '@/lib/oberflaeche';
@@ -81,16 +81,24 @@ const auswahlen = (h: string): string[] => [...h.matchAll(/<select[\s\S]*?<\/sel
   ok([T.erkennung.modell, T.erkennung.sprache, T.erkennung.engine, T.erkennung.woerterbuch, T.erkennung.maxAeusserung].every((w) => text(e).includes(w)), 'CA Panel Erkennung: Beschriftungen Modell, Sprache, Engine, „Fachwörter-Wörterbuch (eine je Zeile)“, „Max. Äußerung (s)“');
   const wb = e.match(/<textarea[^>]*>[^<]*<\/textarea>/)?.[0] ?? '';
   ok(attr(wb, 'rows') === '4' && attr(wb, 'placeholder') === 'z. B.\nJakobs Medien\niveo\nNITROVON' && wb.includes('>iveo</textarea>'), 'CA Panel Erkennung: Wörterbuch mit 4 Zeilen und dem alten Platzhalter');
-  const zahl = tags(e, 'input').find((t) => attr(t, 'type') === 'number');
-  gleich([attr(zahl, 'min'), attr(zahl, 'max'), attr(zahl, 'value')], ['2', '15', '6'], 'CA Panel Erkennung: Max. Äußerung als Zahlenfeld 2 bis 15 wie bisher (Nr. 23, 101)');
+  const zahl = tags(e, 'input');
+  gleich(
+    zahl.map((t) => [attr(t, 'type'), attr(t, 'id'), attr(t, 'value'), attr(t, 'inputMode'), attr(t, 'min'), attr(t, 'max')]),
+    [['text', 'ca-max-aeusserung', '6', 'decimal', undefined, undefined]],
+    'CA Panel Erkennung: Max. Äußerung ist seit Altfehler CA-8 ein NumberInput (Textfeld ohne Pfeile, Komma erlaubt) mit dem gemerkten Wert 6; die Grenzen 2 bis 15 prüft das Feld beim Übernehmen (Nr. 23, 101)',
+  );
   ok(text(abschnitt(panel(stand({ caption: undefined })), ABSCHNITT.erkennung)).includes('unbekannt') && auswahlen(abschnitt(panel(stand({ caption: undefined })), ABSCHNITT.erkennung)).length === 0, 'CA Panel Erkennung: vor der ersten Antwort „unbekannt“, keine erfundenen Werte');
 }
 
 // ── CA Panel Darstellung: Schrift, Zeilen, Band ──
 {
   const d = abschnitt(panel(stand({ caption: caption({ config: { ndiFontSize: 72, ndiLines: 3, ndiBand: false } }) })), ABSCHNITT.darstellung);
-  const zahl = tags(d, 'input').find((t) => attr(t, 'type') === 'number');
-  gleich([attr(zahl, 'min'), attr(zahl, 'max'), attr(zahl, 'value')], ['16', '160', '72'], 'CA Panel Darstellung: Schrift als Zahlenfeld 16 bis 160 wie bisher (Nr. 16, 101)');
+  const zahl = tags(d, 'input').filter((t) => attr(t, 'type') !== 'checkbox');
+  gleich(
+    zahl.map((t) => [attr(t, 'type'), attr(t, 'id'), attr(t, 'value'), attr(t, 'inputMode'), attr(t, 'min'), attr(t, 'max')]),
+    [['text', 'ca-schrift', '72', 'numeric', undefined, undefined]],
+    'CA Panel Darstellung: Schrift ist seit Altfehler CA-8 ein NumberInput (Textfeld ohne Pfeile, ganze Zahlen) mit dem gemerkten Wert 72; die Grenzen 16 bis 160 prüft das Feld beim Übernehmen (Nr. 16, 101)',
+  );
   gleich(optionen(auswahlen(d)[0] ?? ''), ['1', '2', '3'], 'CA Panel Darstellung: Zeilen 1, 2, 3');
   const kasten = tags(d, 'input').find((t) => attr(t, 'type') === 'checkbox');
   ok(kasten !== undefined && !kasten.includes(' checked') && text(d).includes(T.darstellung.band), 'CA Panel Darstellung: Kontrollkästchen „Band“');
@@ -117,9 +125,10 @@ const auswahlen = (h: string): string[] => [...h.matchAll(/<select[\s\S]*?<\/sel
   wahlen[3]?.('3');
   const feld = (art: string) => els.find((e) => e.type === art);
   (feld('textarea')?.props.onChange as ((e: unknown) => void) | undefined)?.({ target: { value: 'iveo\nNITROVON' } });
-  const zahlen = els.filter((e) => e.type === 'input' && e.props.type === 'number').map((e) => e.props.onChange as (e: unknown) => void);
-  zahlen[0]?.({ target: { value: '12' } });
-  zahlen[1]?.({ target: { value: '96' } });
+  // Altfehler CA-8: die Zahlenfelder sind NumberInput; onChange kommt mit der übernommenen Zahl (nach Enter oder Verlassen).
+  const zahlen = els.filter((e) => e.type === NumberInput).map((e) => e.props.onChange as (n: number) => void);
+  zahlen[0]?.(12);
+  zahlen[1]?.(96);
   (els.find((e) => e.type === 'input' && e.props.type === 'checkbox')?.props.onChange as ((e: unknown) => void) | undefined)?.({ target: { checked: false } });
   await warte();
   gleich(
@@ -144,18 +153,28 @@ const auswahlen = (h: string): string[] => [...h.matchAll(/<select[\s\S]*?<\/sel
     'CA Panel Verdrahtung: NDI-Schalter → ndiStart(Name)/ndiStop, Quellname/Auflösung/Bildrate/Eingang/Modell/Sprache/Engine/Zeilen/Wörterbuch/Max. Äußerung/Schrift/Band → setConfig wie bisher, Aktualisieren → refreshDevices',
   );
   gleich(
-    log.filter((z) => /^(start|stop|setHold|clear|correctLast)/.test(z)),
+    log.filter((z) => /^(start|stop|setHold|clear|correctLine)/.test(z)),
     [],
     'CA Panel Verdrahtung: keine Wahl im Panel startet oder stoppt die Transkription, schaltet Hold oder leert (Wahl ≠ Bewegung); NDI schaltet nur der Schalter „Ausgabe“',
   );
-  // Leeres Zahlenfeld wird 0, eine Zahl außerhalb bleibt stehen (wie heute, Nr. 101, Befund 8).
+  // Altfehler CA-8 (C1): genau zwei NumberInput mit den Caption-Grenzen; ein leeres oder ungültiges Feld meldet nichts (der Fehlertext
+  // kommt aus @jm/ui), eine gültige Zahl kommt als Zahl über onChange (Befund 8, Nr. 16, 23, 101).
   const log2: string[] = [];
-  const els2 = elemente(Einstellungen({ stand: stand(), aktionen: aktionen(log2) }));
-  const z2 = els2.filter((e) => e.type === 'input' && e.props.type === 'number').map((e) => e.props.onChange as (e: unknown) => void);
-  z2[0]?.({ target: { value: '' } });
-  z2[1]?.({ target: { value: '400' } });
+  const s2 = stand({ caption: caption({ config: { maxUtteranceSec: 6, ndiFontSize: 72 } }) });
+  const felder = elemente(Einstellungen({ stand: s2, aktionen: aktionen(log2) })).filter((e) => e.type === NumberInput);
+  gleich(
+    felder.map((e) => ({ min: e.props.min, max: e.props.max, value: e.props.value, ganzzahl: e.props.ganzzahl === true, id: e.props.id, className: e.props.className })),
+    [
+      { min: 2, max: 15, value: 6, ganzzahl: false, id: 'ca-max-aeusserung', className: 'w-24' },
+      { min: 16, max: 160, value: 72, ganzzahl: true, id: 'ca-schrift', className: 'w-24' },
+    ],
+    'CA-8 Panel: genau zwei NumberInput, Max. Äußerung (2 bis 15, Wert 6, Kommazahl erlaubt) und Schrift (16 bis 160, Wert 72, ganzzahl)',
+  );
+  (felder[1]?.props.onChange as ((n: number) => void) | undefined)?.(96);
   await warte();
-  gleich(log2, ['setConfig:{"maxUtteranceSec":0}', 'setConfig:{"ndiFontSize":400}'], 'CA Panel Verdrahtung: Zahlenfelder setzen Number(Wert) bei jeder Taste, ohne Klemmen (wie heute)');
+  gleich(log2, ['setConfig:{"ndiFontSize":96}'], 'CA-8 Panel: onChange(96) an Schrift ruft setConfig({ ndiFontSize: 96 }), sonst nichts');
+  const html2 = panel(s2);
+  ok(!/type="number"/.test(html2) && html2.includes('<label for="ca-schrift"') && html2.includes('<label for="ca-max-aeusserung"'), 'CA-8 Panel: im HTML kein natives Zahlenfeld (type="number"), die Beschriftungen zeigen auf die zwei Felder');
   const ober = QUELLE('views/CaptionOberflaeche.tsx');
   ok(ober.includes('panelAktionen(store, cfg?.ndiName, refreshDevices)') && ober.includes('settings={<Einstellungen stand={stand} aktionen={panel} />}'), 'CA Panel Verdrahtung: die View reicht Store-Aktionen, Quellnamen und refreshDevices an panelAktionen und den Stand an das Panel');
 }

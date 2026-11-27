@@ -56,11 +56,12 @@ const STAND_ANFANG: OberflaechenStand = {
     [
       ['master-link', 'off', true],
       ['aufnahme', 'off', true],
+      ['platz', 'off', true],
       ['fernsteuerung', 'off', true],
       ['eingang', 'off', true],
       ['zeitplan', 'off', true],
     ],
-    'RE Rahmen: vor der ersten Antwort sind Master, Aufnahme, Fernsteuerung, Eingang und Zeitplan „unbekannt“, nichts ist ok',
+    'RE Rahmen (Altfehler RE-PLATZ, geänderte Erwartung): vor der ersten Antwort sind Master, Aufnahme, Platz, Fernsteuerung, Eingang und Zeitplan „unbekannt“, nichts ist ok',
   );
   ok(html.includes('data-onair="bereit"') && !html.includes('data-onair="live"'), 'RE Rahmen: ON AIR im Kopf, nicht live vor der ersten Antwort (E4)');
   pruefeIdVerweise(html, 'RE Rahmen: id-Verweise im ganzen Bedienfenster gültig');

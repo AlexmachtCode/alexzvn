@@ -1,17 +1,28 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, powerMonitor, shell } from 'electron';
 import path, { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { initAppRuntime, getLog } from '@jm/app-runtime';
 import { parseShow, parseShowDeepLink } from '@jm/show';
 import type { RecShowSettings } from '@shared/types';
 import { naechsteFernsteuerung, type FernsteuerungEreignis, type FernsteuerungMeldung } from '@shared/fernsteuerung';
-import { registerIpc } from './ipc';
-import { shutdown } from './recorder';
+import { pruefeShowOrdner } from '@shared/netzordner';
+import { saeubereAnzeige } from '@shared/presets';
+import { SCHLIESSEN_TEXTE, SchliessenSteuerung } from '@shared/schliessen';
+import { netzordnerListe, registerIpc } from './ipc';
+import { getState, kopfAktualisieren, shutdown } from './recorder';
 import { startControlServer, stopControlServer } from './control-server';
 
 declare const __dirname: string;
 
 let mainWindow: BrowserWindow | null = null;
+
+/**
+ * Altfehler RE-7a (D4): die App soll beenden (Mac Cmd+Q, app.quit). Fragt das Schließen des Fensters nach, wartet der Wunsch auf die Antwort:
+ * „Aufnahme beenden“ beendet danach die App, „Weiter aufnehmen“ verwirft ihn.
+ */
+let beendenWunsch = false;
+/** Altfehler RE-7a: die Rückfrage des Hauptfensters (Antworten aus recorder:schliessenAntwort, powerMonitor); null ohne Fenster. */
+let schliessenSteuerung: SchliessenSteuerung | null = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Show-Integration (C3): Wird der Recorder per Show-Deep-Link gestartet, übernimmt
@@ -31,7 +42,22 @@ function applyShowFromDeepLink(url: string): void {
     const s = show.tools.find((t) => t.appId === 'jm-recorder')?.settings;
     if (!s) return;
     const out: RecShowSettings = {};
-    if (typeof s.dir === 'string') out.dir = s.dir;
+    // Altfehler RE-7b (B4): der Ordner geht durch dieselbe Prüfung wie beim Import. Gesetzt wird nur ein Laufwerksordner oder ein schon
+    // bestätigter Netzwerkordner; ein neuer Netzwerkordner wartet auf „Übernehmen“ im Fenster (nie ein Dialog), ein ungültiger kommt
+    // nicht durch. Die Liste ist eine lokale Datei, geprüft wird im Speicher. Ein leeres Feld fehlt wie beim Import.
+    if (typeof s.dir === 'string' && s.dir !== '') {
+      const o = pruefeShowOrdner(s.dir, (p) => netzordnerListe().enthaelt(p));
+      const anzeige = saeubereAnzeige(o.dir).slice(0, 500);
+      if (o.art === 'setzen') {
+        out.dir = o.dir;
+      } else if (o.art === 'bestaetigen') {
+        out.netzordnerOffen = o.dir;
+        getLog().warn(`Show-Zielordner wartet auf Bestätigung: ${anzeige}`);
+      } else {
+        out.ordnerUngueltig = o.dir;
+        getLog().warn(`Show-Zielordner ungültig, nicht übernommen: ${anzeige}`);
+      }
+    }
     if (typeof s.fileName === 'string') out.fileName = s.fileName;
     if (typeof s.separateTracks === 'boolean') out.separateTracks = s.separateTracks;
     if (typeof s.channels === 'number' && Number.isFinite(s.channels)) out.channels = s.channels;
@@ -120,8 +146,62 @@ function createMainWindow(): BrowserWindow {
     return { action: 'deny' };
   });
 
+  // Altfehler RE-7a (B3, D4): läuft eine Aufnahme, fragt das Schließen nach. Die Frage steht im Fenster (SchliessenFrage) und hält den
+  // Hauptprozess nicht an (Audioblöcke, IPC, Steuerserver laufen weiter). Meldet das Fenster sie nicht binnen 1 s als gezeigt (hängender
+  // Renderer), fragt der Hauptprozess mit einem nicht blockierenden nativen Dialog, nie mit showMessageBoxSync. Die erste Antwort gilt.
+  // Den Ablauf führt SchliessenSteuerung (shared/schliessen.ts); hier stehen nur Fenster, Dialog und App als Ports. Fix-Runde 1 (Befund 1):
+  // geht die Frage im Fenster verloren (Neuladen mit Strg+R, Absturz), fragt ein weiteres Schließen erneut, ein Neuladen stellt sie erneut,
+  // und ist der Renderer weg, fragt sofort der native Dialog. Ein close bleibt so nie ohne Antwortweg.
+  // Fix-Welle (Ruling S2-R26, I1): vor der Frage schreibt jedes close in der Aufnahme die Dateiköpfe neu (Port kopfAktualisieren), damit ein
+  // Installer, der nach WM_CLOSE hart beendet, eine abspielbare Datei hinterlässt.
+  const steuerung = new SchliessenSteuerung({
+    status: () => getState().status,
+    sendeFrage: (offen) => {
+      // Ein abgestürzter Renderer darf den Rückfall nicht aufhalten: nach dem Senden fragt der native Dialog in jedem Fall.
+      try {
+        if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send('recorder:schliessenFrage', offen);
+      } catch {
+        // das Fenster ist weg; der native Dialog (Rückfall) fragt trotzdem
+      }
+    },
+    frageNativ: () =>
+      win.isDestroyed()
+        ? Promise.reject(new Error('Fenster zu'))
+        : dialog
+            .showMessageBox(win, {
+              type: 'warning',
+              message: SCHLIESSEN_TEXTE.frage,
+              detail: SCHLIESSEN_TEXTE.detail,
+              buttons: [SCHLIESSEN_TEXTE.beenden, SCHLIESSEN_TEXTE.weiter],
+              defaultId: 1,
+              cancelId: 1,
+            })
+            .then((r) => r.response),
+    schliesse: () => {
+      if (!win.isDestroyed()) win.close();
+    },
+    beendenGewuenscht: () => beendenWunsch,
+    wunschVerwerfen: () => {
+      beendenWunsch = false;
+    },
+    beende: () => app.quit(),
+    kopfAktualisieren: () => kopfAktualisieren(),
+  });
+  schliessenSteuerung = steuerung;
+  win.on('close', (e) => {
+    if (steuerung.beimSchliessen()) e.preventDefault();
+  });
+  win.webContents.on('did-finish-load', () => steuerung.geladen());
+  win.webContents.on('render-process-gone', () => steuerung.rendererWeg());
+  // Abmelden oder Herunterfahren (Windows): ohne Frage; die Datei wird sauber abgeschlossen, bevor das System den Prozess beendet.
+  win.on('session-end', () => {
+    steuerung.ohneFrage();
+    shutdown();
+  });
+
   win.on('closed', () => {
     shutdown(); // geplante Aufnahme-Timer lösen + Eingang schließen
+    schliessenSteuerung = null;
     mainWindow = null;
   });
 
@@ -153,6 +233,21 @@ if (!gotLock) {
       return s;
     });
     ipcMain.handle('recorder:fernsteuerung', () => fernsteuerung);
+    // Altfehler RE-7a: das Fenster meldet die Rückfrage als gezeigt (die 1-s-Frist für den nativen Rückfall endet) oder antwortet.
+    ipcMain.handle('recorder:schliessenAntwort', (e, a: unknown): void => {
+      if (!mainWindow || e.sender !== mainWindow.webContents) return;
+      if (a === 'gezeigt' || a === 'beenden' || a === 'weiter') schliessenSteuerung?.antwortFenster(a);
+    });
+    // Ruling R15 (B3, macOS und Linux): session-end gibt es nur unter Windows. Meldet das System Herunterfahren, Neustart oder (macOS)
+    // Abmelden, schließt der Recorder ohne Frage und die Datei sauber ab. Nicht auf dem Mac gemessen.
+    // Fix-Runde 2 (Ruling R19): nur unter Linux. Abmelden, Herunterfahren und Cmd+Q auf dem Mac bleiben beim Kandidaten RE-K3 (der Recorder
+    // wird nur für Windows gebaut, R14). Nicht unter Linux gemessen.
+    if (process.platform === 'linux') {
+      powerMonitor.on('shutdown', () => {
+        schliessenSteuerung?.ohneFrage();
+        shutdown();
+      });
+    }
     registerIpc(() => mainWindow);
     createMainWindow();
     // TCP-Steuerserver (suite-weites Protokoll) für Companion u. a. — Befehle
@@ -176,7 +271,12 @@ if (!gotLock) {
     });
   });
 
-  app.on('before-quit', () => stopControlServer());
+  // Altfehler RE-7a (B3, Mac Cmd+Q): before-quit kommt vor dem close der Fenster. Hier nur den Wunsch merken; bricht jemand die Rückfrage
+  // ab, läuft der Recorder mit Steuerserver weiter. Angehalten wird er erst in will-quit, wenn wirklich beendet wird.
+  app.on('before-quit', () => {
+    beendenWunsch = true;
+  });
+  app.on('will-quit', () => stopControlServer());
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

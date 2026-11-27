@@ -3,6 +3,22 @@ import type { CaptionConfig, CaptionLine } from '@shared/types';
 import { drawCaption } from './caption-cg';
 
 /**
+ * Text der Ausgabe je Takt (Altfehler CA-4): ohne Hold der Text der jüngsten Zeile; mit Hold bleibt der vorige Text stehen, außer
+ * seit dem vorigen Takt kam eine Leerung (`leerungen` zählt der Main bei jedem „Leeren“): dann ist der Text leer, und Hold hält
+ * diesen leeren Stand. „Leeren“ ist der Griff im Notfall und leert darum immer auch die NDI-Quelle. Rein, ohne window.
+ */
+export function angezeigterText(
+  vorher: { text: string; leerung: number },
+  lines: CaptionLine[],
+  hold: boolean,
+  leerungen: number,
+): { text: string; leerung: number } {
+  if (!hold) return { text: lines.length ? lines[lines.length - 1].text : '', leerung: leerungen };
+  if (leerungen !== vorher.leerung) return { text: '', leerung: leerungen };
+  return vorher;
+}
+
+/**
  * NDI-/Render-Engine der Caption (läuft im Operator-Renderer, Muster aus
  * apps/titler/src/renderer/src/lib/engine.ts):
  *  - zeichnet den aktuellen Untertitel pro Frame auf einen Offscreen-Canvas in
@@ -12,12 +28,14 @@ import { drawCaption } from './caption-cg';
  *    (Main → utilityProcess → sendVideoBGRA), gedrosselt auf cfg.ndiFps.
  *
  * `hold` friert die Ausgabe ein: der zuletzt angezeigte Text bleibt stehen, neue
- * Transkriptionen erscheinen erst nach dem Lösen von Hold.
+ * Transkriptionen erscheinen erst nach dem Lösen von Hold. Eine neue Leerung
+ * (`leerungen`) leert die Ausgabe auch bei Hold (Altfehler CA-4, angezeigterText).
  */
 export function useCaptionNdiEngine(
   config: CaptionConfig,
   lines: CaptionLine[],
   hold: boolean,
+  leerungen: number,
   ndiActive: boolean,
   previewRef: React.RefObject<HTMLCanvasElement | null>,
 ): void {
@@ -29,13 +47,15 @@ export function useCaptionNdiEngine(
   holdRef.current = hold;
   const linesRef = useRef(lines);
   linesRef.current = lines;
+  const leerungenRef = useRef(leerungen);
+  leerungenRef.current = leerungen;
 
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
   const offctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const portRef = useRef<MessagePort | null>(null);
   const lastSendRef = useRef(0);
-  // Bei Hold eingefrorener Text (sonst folgt die Ausgabe der jüngsten Zeile).
-  const shownTextRef = useRef('');
+  // Gezeigter Text und die Leerung, die er schon kennt: bei Hold eingefroren, sonst folgt die Ausgabe der jüngsten Zeile.
+  const shownRef = useRef({ text: '', leerung: leerungen });
 
   // Frame-Port vom Main empfangen (per window.postMessage-Transfer aus dem Preload).
   useEffect(() => {
@@ -78,12 +98,9 @@ export function useCaptionNdiEngine(
       const ctx = ensureOffscreen(W, H);
       const now = performance.now();
 
-      // Anzuzeigenden Text bestimmen — bei Hold eingefroren.
-      if (!holdRef.current) {
-        const ls = linesRef.current;
-        shownTextRef.current = ls.length ? ls[ls.length - 1].text : '';
-      }
-      drawCaption(ctx, W, H, c, shownTextRef.current);
+      // Anzuzeigenden Text bestimmen — bei Hold eingefroren, eine neue Leerung leert auch bei Hold (Altfehler CA-4).
+      shownRef.current = angezeigterText(shownRef.current, linesRef.current, holdRef.current, leerungenRef.current);
+      drawCaption(ctx, W, H, c, shownRef.current.text);
 
       // Vorschau (skaliert)
       const pv = previewRef.current;

@@ -40,7 +40,7 @@ summary: "Folien aus PDF/PowerPoint aufbereiten und mit getrennter Referenten- u
 ### Fernsteuer-Befehle (TCP 8728)
 - `PRESENTER NEXT` / `PRESENTER PREV` — eine Folie vor/zurück
 - `PRESENTER GOTO <n>` — zu Folie n springen (1-basiert)
-- `PRESENTER BLACK` / `PRESENTER WHITE` — Pausenbild schwarz/weiß
+- `PRESENTER BLACK` / `PRESENTER WHITE` — Pausenbild schwarz/weiß. Ohne Zusatz oder mit `TOGGLE` holt ein zweiter Befehl die Folie zurück (wie bisher); mit `ON` bleibt das Bild an, auch beim zweiten Mal; mit `OFF` geht es zurück zur Folie, wenn das Bild an ist, sonst passiert nichts. In Companion (Modul ab 0.4.0) ist das die Option „Modus“ der Aktionen „Schwarz“ und „Weiß“: „Umschalten“ (Vorgabe), „An“ und „Aus“; für sicher schwarz die Taste auf „An“ stellen. Ein Presenter bis 0.15.0 schaltet bei jeder Wahl um
 - `PRESENTER LIVE` — zurück zur Folie (Pause aufheben)
 - `PRESENTER OPEN <pfad>` — Dokument öffnen (.pdf/.pptx/.jmpres/Bild)
 - `PRESENTER STOP` — Präsentation beenden
@@ -63,14 +63,14 @@ summary: "Folien aus PDF/PowerPoint aufbereiten und mit getrennter Referenten- u
 - Gast-Klicker: Die Anzeige **„Gast-Klick ●“** in der Leiste der Referentenansicht pausiert Gast-Klicks per Klick (**„Gast-Klick pausiert“**) und setzt sie fort. Der eigene Clicker und die Tastatur wirken immer.
 
 ### Nachbereitung
-- `STOP` beendet die Präsentation (lokal „■ Beenden“ ganz rechts im Kopf des Referenten, bei schmalem Fenster als letzte Taste rechts in der Leiste, oder Esc außerhalb des Panels, im Editor „Beenden“ in der Werkzeugleiste); Projekt (.jmpres) mit „Speichern“ sichern, falls Overlays/Anpassungen erhalten bleiben sollen.
+- `STOP` beendet die Präsentation (lokal „■ Beenden“ ganz rechts im Kopf des Referenten, bei schmalem Fenster als letzte Taste rechts in der Leiste, oder Esc außerhalb des Panels, im Editor „Beenden“ in der Werkzeugleiste). Esc beendet die Präsentation sofort und ohne Rückfrage, im Referenten, im Publikumsfenster und in der Übersicht; im Panel schließt Esc das Panel. Projekt (.jmpres) mit „Speichern“ sichern, falls Overlays/Anpassungen erhalten bleiben sollen.
 
 ## Profi-Tipps
 - Office vorab importieren und als **.jmpres** speichern — der LibreOffice-Wandlungsschritt passiert dann einmal in Ruhe, nicht unter Live-Druck.
 - Notizen in der Quelldatei pflegen — sie erscheinen in der Referentenansicht und (optional) auf dem JM Stage Display als Confidence-Monitor.
 - Handy-Clicker mit **PIN** betreiben, sonst kann jeder im WLAN weiterklicken. Dieselbe PIN braucht das Stage Display für den Folien-Feed.
 - Gast-Klicker: Wer den Link hat, kann vor/zurück klicken. Ist Publikum im Zoom-Chat, den Link **privat** an den Gast schicken. Wurde ein Link weitergegeben, im Panel ⚙ › Gast-Klicker **„Neuer Link“** – der alte wirkt dann nicht mehr.
-- `BLACK` auf einen Companion-Button — schneller sauberer „Vorhang" zwischen zwei Programmpunkten.
+- `BLACK` auf einen Companion-Button — schneller sauberer „Vorhang" zwischen zwei Programmpunkten. Für sicher schwarz die Taste auf „An“ stellen (Option „Modus“, `ON`): Ein zweiter Druck bleibt schwarz. Eine zweite Taste mit „Aus“ (`OFF`) holt die Folie zurück; „Umschalten“ (`TOGGLE`, Vorgabe) wirkt wie bisher.
 - Über eine **`.jmshow`** öffnet der Presenter sein `.jmpres` automatisch; das Stage Display zieht Referenten-Feed + PIN aus derselben Show.
 
 ## Pannenhilfe

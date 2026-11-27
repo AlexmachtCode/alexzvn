@@ -8,7 +8,11 @@ import type {
   RecShowSettings,
 } from '@shared/types';
 import { findeEingang } from '../../../shared/einstellungen';
+import { normiereOrdner } from '../../../shared/netzordner';
 import { gleicheDefinierteWerte, istNetzwerkPfad, PRESET_NAME_MAX, presetWerte, saeubereAnzeige } from '../../../shared/presets';
+import { pruefeFernbefehl } from '../lib/fernbefehl';
+import { RECORDER_TEXTE } from '../lib/oberflaeche';
+import { PLATZ_TAKT_MS, platzOrdner } from '../lib/platz';
 
 const IDLE: RecorderState = {
   status: 'idle',
@@ -17,6 +21,8 @@ const IDLE: RecorderState = {
   sampleRate: 0,
   filePath: null,
   recordedSec: 0,
+  fehler: null,
+  spuren: false,
 };
 
 /** Wartezeit, bis eine Änderung in die Einstellungsdatei geht — Tippen im Dateinamen schreibt nicht je Taste. */
@@ -59,6 +65,20 @@ interface RecStore {
   hinweisEingang: string | null;
   /** Bleibt stehen, bis es sich erledigt: gemerkter Zielordner beim Start nicht erreichbar (#291). */
   hinweisOrdner: string | null;
+  /**
+   * Altfehler RE-7b: Netzwerkordner aus der Show, den noch niemand bestätigt hat. Solange er wartet, ist `dir` null (kein Ordner gesetzt,
+   * Companion RECORD ON wird abgelehnt); „Übernehmen“ im Hinweisband setzt ihn. „×“, „Ordner wählen“ und ein Preset mit Ordner beenden ihn (D1).
+   */
+  netzordnerOffen: string | null;
+  /** Altfehler RE-7b: der Ordner von vorher, solange ein Show-Vorschlag offen ist; „×“ stellt ihn her (D1), das Merken schreibt ihn (B4). */
+  dirGemerkt: string | null;
+  /** Altfehler RE-7a: der Main fragt beim Schließen während einer Aufnahme nach; true, solange die Rückfrage im Fenster steht. */
+  schliessenFrage: boolean;
+  /**
+   * Altfehler RE-PLATZ: freie Byte im Ordner, der zählt (in der Aufnahme der Ordner der Datei, sonst der Zielordner); undefined = noch
+   * keine Antwort (auch nach einem Ordnerwechsel), null = nicht lesbar oder kein Zielordner.
+   */
+  platzFrei: number | null | undefined;
   loading: boolean;
   /** Gespeicherte Presets (Namen sortiert, wie der Main sie liefert). */
   presets: RecPreset[];
@@ -85,6 +105,10 @@ interface RecStore {
   cancelSchedule: () => Promise<void>;
   setNotice: (s: string | null) => void;
   hinweiseSchliessen: () => void;
+  /** Altfehler RE-7b: den Netzwerkordner aus der Show bestätigen (der Main merkt ihn) und setzen. */
+  netzordnerUebernehmen: () => Promise<void>;
+  /** Altfehler RE-7a: die Rückfrage beim Schließen beantworten („Aufnahme beenden“ oder „Weiter aufnehmen“); sie verschwindet sofort. */
+  schliessenAntworten: (a: 'beenden' | 'weiter') => void;
   presetAnwenden: (name: string) => Promise<void>;
   /** Überschreibt ohne Rückfrage — die fragt die UI. */
   presetSpeichern: (name: string) => Promise<void>;
@@ -111,6 +135,43 @@ let vorbehalt: { eingang: GemerkterEingang; channels?: number; sampleRate?: numb
 let anwendenKette: Promise<void> | null = null;
 let anwendenNr = 0;
 
+/**
+ * Altfehler RE-NAS (Pre-flight K6): jede Wahl des Zielordners (Ordnerdialog, Show, „Übernehmen“, „×“, Preset) zählt hoch. Der
+ * Netzwerkordner eines Presets wartet in `netzWunsch` auf seine Prüfung und gilt nur, wenn seither keine neuere Wahl kam.
+ */
+let ordnerWahl = 0;
+let netzWunsch: { dir: string; wahl: number } | null = null;
+
+/** Altfehler RE-NAS: laufende Ordnerprüfungen je Pfad; wer denselben Pfad fragt, solange die Prüfung läuft, teilt sie (ein ordnerDa-Aufruf). */
+const laufendePruefungen = new Map<string, Promise<boolean>>();
+function ordnerPruefung(dir: string): Promise<boolean> {
+  const laeuft = laufendePruefungen.get(dir);
+  if (laeuft) return laeuft;
+  let p: Promise<boolean>;
+  try {
+    p = window.jmrec.ordnerDa(dir);
+  } catch (e) {
+    p = Promise.reject(e);
+  }
+  const geteilt = p.finally(() => laufendePruefungen.delete(dir));
+  laufendePruefungen.set(dir, geteilt);
+  return geteilt;
+}
+
+/** Felder, die ein offener Show-Vorschlag belegt (RE-7b); beim Ende des Vorschlags beide leer. */
+const OHNE_VORSCHLAG = { netzordnerOffen: null, dirGemerkt: null } as const;
+
+/**
+ * Zwei Show-Vorgaben, die während des Startens ankommen, zu einer (die jüngere gewinnt). Bringt die jüngere einen Zielordner (`dir` oder
+ * `netzordnerOffen`), ersetzt er jeden der älteren; ein ungültiger Ordner allein lässt den älteren stehen, wie nacheinander angewandt (RE-7b).
+ */
+function vereineShow(alt: RecShowSettings | null, neu: RecShowSettings): RecShowSettings {
+  if (alt === null) return { ...neu };
+  if (neu.dir === undefined && neu.netzordnerOffen === undefined) return { ...alt, ...neu };
+  const { dir: _dir, netzordnerOffen: _netz, ordnerUngueltig: _ungueltig, ...rest } = alt;
+  return { ...rest, ...neu };
+}
+
 /** Begrenzungen für Kanäle und Samplerate — Setter und Show-Vorgaben benutzen dieselben. */
 const kanaele = (n: number): number => Math.max(1, Math.floor(n) || 1);
 const rate = (n: number): number => Math.max(8000, Math.floor(n) || 48000);
@@ -127,21 +188,30 @@ export const useRec = create<RecStore>((set, get) => {
     if (sampleRate) get().setSampleRate(sampleRate);
   };
 
-  /** Ein Preset anwenden (läuft nur über die Kette in `presetAnwenden`). */
-  const wendeAn = async (name: string): Promise<void> => {
+  /**
+   * Ein Preset anwenden (läuft nur über die Kette in `presetAnwenden`). Gibt den Ordner zurück, den `pruefeOrdner` danach außerhalb der
+   * Kette prüft (Altfehler RE-NAS): eine langsame NAS-Prüfung hält das nächste Preset nicht mehr auf.
+   */
+  const wendeAn = async (name: string): Promise<string | undefined> => {
     const p = get().presets.find((x) => x.name === name);
-    if (!p) return;
+    if (!p) return undefined;
     const st = get().state;
     if (st.status === 'recording' || st.scheduledStartAt != null) {
       set({ notice: 'Während einer laufenden oder geplanten Aufnahme lässt sich kein Preset anwenden.' });
-      return;
+      return undefined;
     }
     const w = p.werte;
     // Aktives Preset und Werte im selben synchronen Schritt, vor jedem await — sonst blitzt
     // „(geändert)“ auf und das Merken schriebe die neuen Werte unter dem alten Namen.
     set({ aktivesPreset: name });
-    // Ordner, Dateiname, Einzelspuren, Dauer, Verstärkung — fehlendes Feld = aktueller Wert bleibt.
-    if (typeof w.dir === 'string') set({ dir: w.dir });
+    // Ordner (Altfehler RE-NAS, K6): ein Laufwerksordner gilt sofort und beendet einen offenen Show-Vorschlag (RE-7b, D1); ein
+    // Netzwerkordner gilt erst, wenn seine Prüfung geantwortet hat (pruefeOrdner), bis dahin bleibt der Ordner, wie er ist.
+    if (typeof w.dir === 'string') {
+      const wahl = ++ordnerWahl;
+      if (istNetzwerkPfad(w.dir)) netzWunsch = { dir: w.dir, wahl };
+      else set({ dir: w.dir, ...OHNE_VORSCHLAG });
+    }
+    // Dateiname, Einzelspuren, Dauer, Verstärkung — fehlendes Feld = aktueller Wert bleibt.
     if (typeof w.fileName === 'string') set({ fileName: w.fileName });
     if (typeof w.separateTracks === 'boolean') set({ separateTracks: w.separateTracks });
     if (typeof w.scheduleDurationMin === 'number') get().setScheduleDurationMin(w.scheduleDurationMin);
@@ -175,7 +245,8 @@ export const useRec = create<RecStore>((set, get) => {
       (ist.device !== soll.deviceIndex || ist.channels !== soll.channels || ist.sampleRate !== soll.sampleRate)
     ) {
       try {
-        await get().disarm();
+        // Altfehler RE-3 (Pre-flight K7): nur arm; der Main schließt den offenen Eingang dabei selbst. „Eingang schließen“ (disarm) gälte
+        // als Quittung des Bedieners und löschte ein Fehlerfeld des Hauptprozesses still.
         offen = await get().arm();
       } catch (e) {
         offen = false;
@@ -183,25 +254,38 @@ export const useRec = create<RecStore>((set, get) => {
       }
       neu = ' Eingang neu geöffnet.';
     }
-    // Erst nach dem Gerätewechsel: ein unerreichbares NAS hält das Neuöffnen nicht auf.
-    if (w.dir) {
-      let da = true;
-      try {
-        da = await window.jmrec.ordnerDa(w.dir);
-      } catch {
-        // nicht prüfbar → nicht als fehlend melden
-      }
-      set({
-        hinweisOrdner: da
-          ? null
-          : `Zielordner des Presets „${name}“ nicht erreichbar: ${w.dir} — neuen Ordner wählen und das Preset neu speichern.`,
-      });
-    }
     // Scheitert das Neuöffnen, steht dessen Fehlertext schon in `notice` — nicht überschreiben.
     set({
       notice: offen
         ? `Preset „${name}“ angewendet.${neu}`
         : `Preset „${name}“ angewendet – der Eingang ließ sich nicht wieder öffnen: ${get().notice ?? ''}`,
+    });
+    // Die Ordnerprüfung läuft nach dem Gerätewechsel und außerhalb der Kette (Altfehler RE-NAS): ein unerreichbares NAS hält weder
+    // das Neuöffnen noch das nächste Preset auf.
+    return w.dir;
+  };
+
+  /**
+   * Prüft den Ordner eines angewendeten Presets außerhalb der Kette (Altfehler RE-NAS). Ein Netzwerkordner gilt erst jetzt, und nur, wenn
+   * seither keine neuere Wahl des Ordners kam (K6). Der Hinweis gilt nur, solange der geprüfte Ordner der gesetzte ist: eine späte Antwort
+   * für einen inzwischen anderen Ordner wird verworfen.
+   */
+  const pruefeOrdner = async (dir: string | undefined, name: string): Promise<void> => {
+    if (!dir) return;
+    let da = true;
+    try {
+      da = await ordnerPruefung(dir);
+    } catch {
+      // nicht prüfbar → nicht als fehlend melden
+    }
+    if (netzWunsch !== null && netzWunsch.dir === dir) {
+      if (netzWunsch.wahl !== ordnerWahl) return;
+      netzWunsch = null;
+      set({ dir, ...OHNE_VORSCHLAG });
+    }
+    if (get().dir !== dir) return;
+    set({
+      hinweisOrdner: da ? null : `Zielordner des Presets „${name}“ nicht erreichbar: ${dir} — neuen Ordner wählen und das Preset neu speichern.`,
     });
   };
 
@@ -221,18 +305,48 @@ export const useRec = create<RecStore>((set, get) => {
     notice: null,
     hinweisEingang: null,
     hinweisOrdner: null,
+    netzordnerOffen: null,
+    dirGemerkt: null,
+    schliessenFrage: false,
+    platzFrei: undefined,
     loading: true,
     presets: [],
     aktivesPreset: null,
 
     setNotice: (notice) => set({ notice }),
-    hinweiseSchliessen: () => set({ hinweisEingang: null, hinweisOrdner: null }),
+    schliessenAntworten: (a) => {
+      set({ schliessenFrage: false });
+      void window.jmrec.schliessenAntwort(a).catch(() => {});
+    },
+    hinweiseSchliessen: () => {
+      // „×“: beide Hinweise weg; ein offener Show-Vorschlag ist verworfen, es gilt wieder der Ordner von vorher (Altfehler RE-7b, D1).
+      const s = get();
+      const vorschlag = s.netzordnerOffen !== null;
+      if (vorschlag) ordnerWahl++;
+      set({ hinweisEingang: null, hinweisOrdner: null, ...(vorschlag ? { dir: s.dirGemerkt, ...OHNE_VORSCHLAG } : {}) });
+    },
+
+    netzordnerUebernehmen: async () => {
+      const p = get().netzordnerOffen;
+      if (p === null) return;
+      let bestaetigt = false;
+      try {
+        bestaetigt = await window.jmrec.netzordnerBestaetigen(p);
+      } catch (e) {
+        set({ notice: (e as Error).message });
+        return;
+      }
+      // Inzwischen verworfen oder ersetzt („×“, Ordner wählen, Preset, neue Show)? Dann gilt die neuere Wahl.
+      if (!bestaetigt || get().netzordnerOffen !== p) return;
+      ordnerWahl++;
+      set({ dir: p, ...OHNE_VORSCHLAG, hinweisOrdner: null });
+    },
 
     presetAnwenden: (name) => {
       const nr = ++anwendenNr;
       // Läuft gerade keins, sofort (die Werte stehen dann synchron); sonst hinten anstellen.
       // Wer wartet und von einem neueren Aufruf überholt wird, entfällt.
-      const lauf = anwendenKette
+      const lauf: Promise<string | undefined> = anwendenKette
         ? anwendenKette.then(() => (nr === anwendenNr ? wendeAn(name) : undefined))
         : wendeAn(name);
       const kette: Promise<void> = lauf
@@ -241,7 +355,8 @@ export const useRec = create<RecStore>((set, get) => {
           if (anwendenKette === kette) anwendenKette = null;
         });
       anwendenKette = kette;
-      return lauf;
+      // Die Kette wartet nur auf das Anwenden; die Ordnerprüfung läuft daneben (Altfehler RE-NAS). Das Ergebnis schließt sie ein.
+      return lauf.then((d) => pruefeOrdner(d, name));
     },
 
     presetSpeichern: async (name) => {
@@ -302,14 +417,27 @@ export const useRec = create<RecStore>((set, get) => {
       // channels/sampleRate mit derselben Begrenzung wie die Setter, aber direkt: ein Vorbehalt
       // auf einen fehlenden Eingang bleibt stehen.
       const applyShowSettings = (s: RecShowSettings): void => {
-        if (typeof s.dir === 'string') {
-          set({
-            dir: s.dir,
-            hinweisOrdner: istNetzwerkPfad(s.dir)
-              ? `Zielordner aus der Show liegt im Netzwerk: ${saeubereAnzeige(s.dir)} – nur verwenden, wenn dieser Ordner bekannt ist.`
-              : null,
-          });
+        // Zielordner (Altfehler RE-7b): der Main hat ihn mit pruefeShowOrdner geprüft und schickt genau eins der drei Felder.
+        if (typeof s.netzordnerOffen === 'string') {
+          const p = s.netzordnerOffen;
+          const jetzt = get().dir;
+          ordnerWahl++;
+          if (jetzt !== null && normiereOrdner(jetzt) === normiereOrdner(p)) {
+            // D2: gleich dem gesetzten Ordner → gilt als bestätigt, wird gesetzt und gemerkt wie nach „Übernehmen“ (B4).
+            set({ dir: p, ...OHNE_VORSCHLAG, hinweisOrdner: null });
+            void window.jmrec.netzordnerBestaetigen(p).catch(() => {});
+          } else {
+            // Bis „Übernehmen“ ist kein Ordner gesetzt. Der Ordner von vorher bleibt gemerkt; ein zweiter Vorschlag ersetzt den ersten.
+            const vorher = get().netzordnerOffen !== null ? get().dirGemerkt : jetzt;
+            set({ dirGemerkt: vorher, dir: null, netzordnerOffen: p, hinweisOrdner: null });
+          }
+        } else if (typeof s.dir === 'string') {
+          // Laufwerk oder bestätigter Netzwerkordner: gesetzt wie bisher, ohne den früheren Netzwerk-Hinweis; ein offener Vorschlag endet.
+          ordnerWahl++;
+          set({ dir: s.dir, ...OHNE_VORSCHLAG, hinweisOrdner: null });
         }
+        // Kein gültiger Ordner (wie beim Import): nicht übernommen, der Ordner bleibt, das Hinweisband nennt den Pfad.
+        if (typeof s.ordnerUngueltig === 'string') set({ hinweisOrdner: RECORDER_TEXTE.netzordner.ungueltig(saeubereAnzeige(s.ordnerUngueltig)) });
         if (typeof s.fileName === 'string') set({ fileName: s.fileName });
         if (typeof s.separateTracks === 'boolean') set({ separateTracks: s.separateTracks });
         // Show schlägt gemerkt: auch im Vorbehalt (fehlender Eingang) gelten die Show-Werte, wenn er zurückkommt.
@@ -329,9 +457,22 @@ export const useRec = create<RecStore>((set, get) => {
       window.jmrec.onLevels((l) => set({ peaks: l.peaks }));
       window.jmrec.onState((s) => set({ state: s }));
       window.jmrec.onNotice((msg) => set({ notice: msg }));
+      // Altfehler RE-7a (B3, D4): der Main stellt die Rückfrage beim Schließen; „gezeigt“ geht sofort zurück, sonst fragt er nach 1 s selbst
+      // (nativer Dialog). Ein false schließt sie (der Rückfall griff, dort gilt die erste Antwort).
+      window.jmrec.onSchliessenFrage((offen) => {
+        set({ schliessenFrage: offen });
+        if (offen) void window.jmrec.schliessenAntwort('gezeigt').catch(() => {});
+      });
       // TCP-Fernsteuerung (Companion): Befehle auf die Store-Aktionen abbilden.
       window.jmrec.onRemoteCommand((cmd) => {
         const s = get();
+        // B6 (Altfehler RE-2, RE-2b, RE-7b): vor jeder Wirkung prüfen. Eine Ablehnung ändert nichts; Grund und Logzeile gehen an den
+        // Main (Meldung bis „OK“, Protokoll). Am Show-Rechner öffnet ein Fernbefehl so nie den Ordnerdialog.
+        const p = pruefeFernbefehl(cmd, { status: s.state.status, dir: s.dir, netzordnerOffen: s.netzordnerOffen });
+        if (!p.ok) {
+          void window.jmrec.ablehnung({ hinweis: p.hinweis, log: p.log }).catch(() => {});
+          return;
+        }
         switch (cmd.t) {
           case 'record':
             if (cmd.mode === 'off') void s.stop();
@@ -353,22 +494,32 @@ export const useRec = create<RecStore>((set, get) => {
       let frueheShow: RecShowSettings | null = null;
       window.jmrec.onShowSettings((s) => {
         if (wiederhergestellt) applyShowSettings(s);
-        else frueheShow = { ...(frueheShow ?? {}), ...s };
+        else frueheShow = vereineShow(frueheShow, s);
       });
 
       // Gemerkte Einstellungen (#291). Reihenfolge: gemerkt → Show schlägt gemerkt.
-      const { einstellungen: e, ordnerDa } = await window.jmrec.settings.load();
+      const { einstellungen: e } = await window.jmrec.settings.load();
       set({
         dir: e.dir ?? null,
         fileName: e.fileName ?? '',
         separateTracks: e.separateTracks ?? false,
         scheduleDurationMin: e.scheduleDurationMin ?? 0,
         gainDb: e.gainDb ?? loadAltGain(),
-        hinweisOrdner:
-          e.dir && ordnerDa === false
-            ? `Gemerkter Zielordner nicht erreichbar: ${e.dir} — Laufwerk prüfen oder neuen Ordner wählen.`
-            : null,
+        hinweisOrdner: null,
       });
+      // Altfehler RE-7b: settings:load prüft den gemerkten Ordner nicht mehr (ein unerreichbares NAS hielte den Hauptprozess an). Der
+      // Store fragt hier, ohne zu warten; der Hinweis kommt nur, solange der gemerkte Ordner noch der gesetzte ist.
+      if (e.dir) {
+        const gemerkt = e.dir;
+        void ordnerPruefung(gemerkt).then(
+          (da) => {
+            if (!da && get().dir === gemerkt) set({ hinweisOrdner: `Gemerkter Zielordner nicht erreichbar: ${gemerkt} — Laufwerk prüfen oder neuen Ordner wählen.` });
+          },
+          () => {
+            // nicht prüfbar → nicht als fehlend melden
+          },
+        );
+      }
       // Presets + das zuletzt aktive — VOR dem Merken, damit der Start nichts speichert.
       let presets: RecPreset[] = [];
       try {
@@ -405,6 +556,7 @@ export const useRec = create<RecStore>((set, get) => {
       wiederhergestellt = true;
       set({ loading: false });
       starteMerken();
+      startePlatz();
     },
 
     refreshDevices: async () => {
@@ -474,7 +626,11 @@ export const useRec = create<RecStore>((set, get) => {
 
     pickDir: async () => {
       const dir = await window.jmrec.dialog.pickDir();
-      if (dir) set({ dir, hinweisOrdner: null });
+      // Wer selbst wählt, hat entschieden: ein offener Show-Vorschlag endet (Altfehler RE-7b, D1); ein Abbruch ändert nichts.
+      if (dir) {
+        ordnerWahl++;
+        set({ dir, hinweisOrdner: null, ...OHNE_VORSCHLAG });
+      }
     },
 
     arm: async () => {
@@ -489,7 +645,12 @@ export const useRec = create<RecStore>((set, get) => {
     },
 
     disarm: async () => {
-      await window.jmrec.disarm();
+      const r = await window.jmrec.disarm();
+      // Altfehler RE-2: in der Aufnahme lehnt der Main ab (beenden geht nur mit Stopp); der Grund kommt als Toast, die Pegel bleiben.
+      if (!r.ok) {
+        set({ notice: r.error ?? null });
+        return;
+      }
       set({ peaks: [] });
     },
 
@@ -579,11 +740,22 @@ export function presetGeaendert(s: RecStore): boolean {
 }
 
 /**
+ * Was in die Einstellungsdatei geht: die aktuellen Werte, nur hält ein offener Show-Vorschlag den Ordner von vorher fest (Altfehler
+ * RE-7b, B4): der gemerkte Ordner wird erst überschrieben, wenn ein Ordner bestätigt oder neu gewählt ist. Presets nehmen weiter
+ * `aktuelleWerte`.
+ */
+function merkWerte(s: RecStore): RecEinstellungen {
+  const e = aktuelleWerte(s);
+  if (s.netzordnerOffen !== null) e.dir = s.dirGemerkt ?? undefined;
+  return e;
+}
+
+/**
  * Ab jetzt jede Änderung merken. Erst nach dem Wiederherstellen gestartet — sonst überschriebe
  * der leere Anfangszustand die Datei. Vor dem Schließen wird eine wartende Änderung sofort geschrieben.
  */
 function starteMerken(): void {
-  let zuletzt = JSON.stringify(aktuelleWerte(useRec.getState()));
+  let zuletzt = JSON.stringify(merkWerte(useRec.getState()));
   let wartet: ReturnType<typeof setTimeout> | null = null;
   const schreibe = (): void => {
     if (wartet) clearTimeout(wartet);
@@ -591,7 +763,7 @@ function starteMerken(): void {
     window.jmrec.settings.save(JSON.parse(zuletzt) as RecEinstellungen);
   };
   useRec.subscribe((s) => {
-    const jetzt = JSON.stringify(aktuelleWerte(s));
+    const jetzt = JSON.stringify(merkWerte(s));
     if (jetzt === zuletzt) return; // z. B. nur Pegel/Zustand geändert
     zuletzt = jetzt;
     if (wartet) clearTimeout(wartet);
@@ -600,4 +772,66 @@ function starteMerken(): void {
   window.addEventListener('beforeunload', () => {
     if (wartet) schreibe();
   });
+}
+
+/**
+ * Altfehler RE-PLATZ (B5): fragt den freien Platz im Ordner, der zählt (`platzOrdner`), sofort bei jedem Wechsel von Ordner, Format, Spuren
+ * oder Status und im Takt PLATZ_TAKT_MS. Höchstens eine Abfrage zugleich; was während einer Abfrage geändert wird, fragt gleich danach. Eine
+ * Antwort für einen inzwischen anderen Ordner gilt nicht; nach einem Ordnerwechsel ist der Platz bis zur Antwort unbekannt. Ohne Ordner
+ * (auch bei einem offenen Netzwerkvorschlag der Show, RE-7b) gibt es keine Abfrage. Die Brücke steht fest (ein späteres window, etwa im
+ * Test, fragt nicht über diesen Store).
+ */
+function startePlatz(): void {
+  const jmrec = window.jmrec;
+  const ordnerVon = (s: RecStore): string | null => platzOrdner(s.state, s.dir);
+  const schluesselVon = (s: RecStore): string => JSON.stringify([ordnerVon(s), s.channels, s.sampleRate, s.separateTracks, s.state.status]);
+  let laeuft = false;
+  let nochmal = false;
+  let ordnerZuletzt = ordnerVon(useRec.getState());
+  let schluessel = schluesselVon(useRec.getState());
+  const frage = (): void => {
+    if (laeuft) {
+      nochmal = true;
+      return;
+    }
+    const ordner = ordnerVon(useRec.getState());
+    if (ordner === null) {
+      if (useRec.getState().platzFrei !== null) useRec.setState({ platzFrei: null });
+      return;
+    }
+    laeuft = true;
+    let antwort: Promise<number | null>;
+    try {
+      antwort = jmrec.platz(ordner);
+    } catch (e) {
+      antwort = Promise.reject(e);
+    }
+    void antwort
+      .then(
+        (frei) => (typeof frei === 'number' && Number.isFinite(frei) && frei >= 0 ? frei : null),
+        () => null,
+      )
+      .then((frei) => {
+        laeuft = false;
+        if (ordnerVon(useRec.getState()) === ordner) useRec.setState({ platzFrei: frei });
+        if (nochmal) {
+          nochmal = false;
+          frage();
+        }
+      });
+  };
+  useRec.subscribe((s) => {
+    const k = schluesselVon(s);
+    if (k === schluessel) return;
+    schluessel = k;
+    const ordner = ordnerVon(s);
+    if (ordner !== ordnerZuletzt) {
+      ordnerZuletzt = ordner;
+      if (ordner !== null && s.platzFrei !== undefined) useRec.setState({ platzFrei: undefined });
+    }
+    frage();
+  });
+  const takt = setInterval(frage, PLATZ_TAKT_MS);
+  (takt as { unref?: () => void }).unref?.();
+  frage();
 }

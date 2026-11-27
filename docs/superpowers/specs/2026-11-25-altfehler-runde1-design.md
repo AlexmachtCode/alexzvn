@@ -1,6 +1,6 @@
 # Altfehler, Runde 1: Sicherheit und Show-Risiken (Entwurf)
 
-Stand: 25.11.2026, Owner-Fragen beantwortet (12:49), **Owner-Freigabe 25.11.2026 14:08** („passt“). Grundlage: die Bestandsaufnahme `docs/ux/altfehler-inventar.md`
+Stand: 25.11.2026, Owner-Fragen beantwortet (12:49), **Owner-Freigabe 25.11.2026 14:08** („passt“). **Nachtrag Stufe 2 (Abschnitt 8): Owner 26.11.2026 12:13** („A bitte und los“). Grundlage: die Bestandsaufnahme `docs/ux/altfehler-inventar.md`
 (am Code von main `cf42db4e4a` geprüft, jeder Befund mit Datei und Zeile belegt). Kennungen wie `PL-N` oder `SC-S2` stammen
 von dort; die Zeilenangaben gelten für diesen Stand.
 
@@ -204,3 +204,37 @@ Die Antworten sind in Abschnitt 5 eingearbeitet. Die Fragen stehen hier, wie sie
 - Die Entwürfe der neuen Texte; sie gehen als Texttabelle an den Owner.
 - Wo ein Befund im echten Fenster gemessen werden muss: mindestens PL-N, PL-T13, PL-T14, RE-7a, CN-MV und SC-S2 (das
   App-Fenster bleibt Admin, ein fremder Ursprung wird abgelehnt).
+
+## 8. Nachtrag für Stufe 2 (Owner 26.11.2026)
+
+Zum Umfang von Stufe 2 kommen vier Zusätze. Ziele, Rahmen und Anti-Ziele aus den Abschnitten 2 und 3 gelten für sie unverändert.
+
+Owner am 26.11.2026:
+- 12:05: „weiter mit deiner empfehlung“;
+- 12:13: „A bitte und los“, also Variante A für den Plattenplatz. Bei den übrigen Punkten gilt mein Vorschlag.
+
+PL-K1 und PL-K2 waren bisher nur Kandidaten (`docs/ux/altfehler-inventar.md`, Abschnitt 7). Sie kommen erst in den Plan, wenn sie am Code bestätigt sind.
+
+### Player (Version 0.10.1)
+
+| ID | Heute | Ziel | Entscheid |
+|---|---|---|---|
+| PL-K1 | Ein Cue, der im Vorlauf gelöscht wird, startet nach Ablauf trotzdem. `removeShowCue` stoppt den Ton, räumt aber den Vorlauf-Zeitgeber nicht. | Wer einen Cue löscht, bricht auch dessen Vorlauf ab, ob er läuft oder in der Pause angehalten ist. Der Cue startet nicht mehr. Andere Vorläufe laufen weiter. | Mein Vorschlag, Owner 26.11. |
+| PL-K2 | Ein GO ohne Vorlauf in der Pause hebt die Pause auf (A1). Ein angehaltenes Ausgabevideo bleibt aber stehen, obwohl die Show als laufend gilt. | Ein GO, das die Pause aufhebt, hebt sie ganz auf, wie „Weiter“: Angehaltene Ton-Cues, Vorläufe und das Ausgabevideo laufen weiter, dann startet der neue Cue. Ein GO auf einen Cue mit Vorlauf bleibt wie A1: Der Vorlauf steht angehalten bis „Weiter“. | Mein Vorschlag, Owner 26.11. |
+
+### Recorder
+
+| ID | Heute | Ziel | Entscheid |
+|---|---|---|---|
+| RE-NAS | Die Netzwerkprüfung beim Anwenden eines Presets läuft in der Warteschlange der Presets. Eine langsame NAS-Prüfung hält deshalb das nächste Preset auf. Das ist der erste Punkt der 0.9.2-Liste in PR #296. | Die Prüfung hält kein anderes Preset auf. Ein Preset, dessen Netzwerkordner noch geprüft wird, setzt den Ordner erst, wenn die Prüfung durch ist. Das Übrige des Presets wirkt sofort. | Mein Vorschlag, Owner 26.11. |
+| RE-PLATZ | Es gibt keine Prüfung des freien Plattenplatzes (Roadmap Block 5). Ist die Platte voll, bricht das Schreiben ab, und das fängt erst RE-3 als „Fehler“ ab. | Die Statusleiste zeigt den freien Platz im Zielordner als Restzeit für das aktuelle Format, etwa „Platz für 2 h 10 min“. Unter 15 min wird die Anzeige gelb, unter 5 min rot. Das gilt vor und während der Aufnahme. Gesperrt wird nie, denn eine falsche Schätzung darf keine nötige Aufnahme verhindern. Lässt sich der Platz nicht lesen, steht „Platz unbekannt“ da, nie eine erfundene Zahl. | Owner 26.11. 12:13 (Variante A) |
+
+Die übrigen vier Punkte der 0.9.2-Liste sind Kategorie B bis D und damit Nicht-Ziel nach Weg 1. Sie gehen in die Bestandsaufnahme:
+- der englische Präfix der Fehlermeldungen;
+- das unbenutzte Feld `netzwerk`;
+- die Export-Grenze, die erst nach dem Dialog greift;
+- die Aufnahmezeit je Block aus dem Addon.
+
+### Release
+
+Stufe 2 releast je App, wie die Wellen. Die Wege stehen in Abschnitt 3, für den Player gilt: CI.

@@ -348,6 +348,14 @@
     "name": "JM Player",
     "entries": [
       {
+        "version": "0.10.1",
+        "date": "2026-11-27",
+        "notes": [
+          "Ein Cue, der während seiner Vorlaufzeit gelöscht wird, startet nicht mehr, auch nicht in oder nach der Pause. Das gilt auch für einen Video-Cue, der noch auf das Ausgabefenster wartet.",
+          "GO in der Pause auf einen Cue ohne Vorlaufzeit hebt die Pause jetzt ganz auf, wie „▶ Weiter“: Angehaltene Töne und ein angehaltenes Video in der Ausgabe laufen weiter. „▶ Weiter“ startet ein Video, das schon zu Ende gelaufen ist, nicht mehr neu."
+        ]
+      },
+      {
         "version": "0.10.0",
         "date": "2026-11-26",
         "notes": [
@@ -440,6 +448,17 @@
     "app": "recorder",
     "name": "JM Audio Recorder",
     "entries": [
+      {
+        "version": "0.11.0",
+        "date": "2026-11-27",
+        "notes": [
+          "Companion: ARM und DISARM beenden keine laufende Aufnahme mehr, sie werden abgelehnt; beenden geht nur mit Stopp. RECORD ON ohne Zielordner wird abgelehnt, statt am Rechner einen Ordnerdialog zu öffnen. Den Grund zeigt das Fenster. Im Fenster ist „Eingang schließen“ während der Aufnahme gesperrt.",
+          "Zielordner aus einer Show: Ein Netzwerkordner gilt erst, wenn ihn jemand im Fenster mit „Übernehmen“ bestätigt; danach ist er gemerkt und geht ohne Klick. Ungültige Pfade übernimmt der Recorder nicht. Das Prüfen eines Netzwerkordners hält weder den Start des Recorders noch den Wechsel zum nächsten Preset auf.",
+          "Schreibfehler, etwa ein voller Datenträger oder ein Netzwerkordner, der wegfällt, und ein Eingang, der 2 Sekunden lang nichts liefert, beenden die Aufnahme jetzt sauber. Der Grund bleibt in Statusleiste und Haupttaste stehen, bis neu aufgenommen, gestoppt oder der Eingang geschlossen wird; „REC“ leuchtet dann nicht mehr, und Companion sieht, dass nicht aufgenommen wird. Fällt ein Gerät aus, schließt der Recorder auch den Eingang; er muss danach wieder geöffnet werden, bevor Companion „RECORD ON“ wirkt. Nicht am echten Datenträger gemessen.",
+          "Wer das Fenster während einer Aufnahme schließt, wird jetzt gefragt; ohne Aufnahme schließt es wie bisher. Beim Abmelden oder Herunterfahren von Windows wird die Aufnahme ohne Frage sauber abgeschlossen (nicht gemessen).",
+          "Neu in der Statusleiste: „Platz“ zeigt, wie lange der freie Speicher im Zielordner für das eingestellte Format reicht, vor und während der Aufnahme; gelb unter 15 Minuten, rot unter 5 Minuten. Gesperrt wird nichts. Am NAS nicht gemessen."
+        ]
+      },
       {
         "version": "0.10.0",
         "date": "2026-11-23",
@@ -673,6 +692,14 @@
     "app": "presenter",
     "name": "JM Presenter",
     "entries": [
+      {
+        "version": "0.15.1",
+        "date": "2026-11-27",
+        "notes": [
+          "Handy-Fernsteuerung: „Verbinden“ mit der PIN hebt ein Schwarz- oder Weißbild nicht mehr auf. Es bleibt stehen, bis jemand „Folie“ drückt oder weiterblättert.",
+          "Companion: Die Aktionen „Schwarz“ und „Weiß“ haben eine Wahl „Umschalten“, „An“ oder „Aus“ (Companion-Modul 0.4.0, Datei jm-suite-companion-0.4.0.tgz am Release presenter-v0.15.1 auf GitHub; der Launcher lädt es nicht mit, in Companion über „Import custom module“ importieren). Vorgabe ist „Umschalten“, bestehende Tasten wirken wie bisher. Wer sicher schwarz will, stellt die Taste auf „An“. Presenter bis 0.15.0 schalten bei jeder Wahl um; erst ab Presenter 0.15.1 wirken „An“ und „Aus“."
+        ]
+      },
       {
         "version": "0.15.0",
         "date": "2026-11-25",
@@ -1240,6 +1267,15 @@
     "app": "stage-display",
     "name": "JM Stage Display",
     "entries": [
+      {
+        "version": "0.8.0",
+        "date": "2026-11-27",
+        "notes": [
+          "Die Presenter-PIN steht verdeckt im Feld („Anzeigen“ zeigt sie) und gilt erst mit „Setzen“. In stage-config.json und in der Anfrage an den Presenter steht sie weiter im Klartext, weil das Protokoll des Presenters es so verlangt.",
+          "Die Nachricht ist ein Entwurf: Sie geht erst mit „Senden“ oder Enter auf die Bühne; „Senden“ mit leerem Feld nimmt sie wieder herunter. Nach einem Neustart steht keine Nachricht auf der Bühne, der letzte Text bleibt als Entwurf im Feld.",
+          "Die automatische Suche (mDNS) übernimmt einen gefundenen Rechner nur noch, solange eine Quelle auf 127.0.0.1 steht. Ein eingetragener oder früher gefundener Host bleibt stehen; ist er nicht erreichbar, steht in der Statusleiste „nicht erreichbar“."
+        ]
+      },
       {
         "version": "0.7.1",
         "date": "2026-11-25",
@@ -2004,6 +2040,16 @@
     "name": "JM Caption",
     "entries": [
       {
+        "version": "0.7.0",
+        "date": "2026-11-27",
+        "notes": [
+          "Ein Mikrofonfehler beendet jetzt die Transkription: Die Haupttaste steht wieder auf „Start“, Companion meldet running=0, und Caption startet nicht mehr von selbst neu. Der Fehler bleibt im Fenster stehen, bis wieder gestartet wird.",
+          "„Leeren“ leert jetzt auch die NDI-Quelle, wenn Hold an ist; Hold bleibt an und hält das leere Bild. Eine Korrektur im Verlauf trifft die angeklickte Zeile, auch wenn inzwischen neue Zeilen kamen; Escape bricht die Korrektur ab.",
+          "„Schrift“ und „Max. Äußerung (s)“ gelten erst nach Enter oder beim Verlassen des Feldes. Ein leeres Feld oder eine Zahl außerhalb von 16 bis 160 bzw. 2 bis 15 wird nicht übernommen, unter dem Feld steht der Grund.",
+          "Mac: Schließt man das Fenster, endet die Transkription und Hold geht aus, auch für Companion; ein Klick aufs Dock öffnet das Fenster wieder. Companion „Transkription“ auf „Start“ wird bei geschlossenem Fenster abgelehnt. Nicht auf dem Mac gemessen."
+        ]
+      },
+      {
         "version": "0.6.0",
         "date": "2026-11-23",
         "notes": [
@@ -2067,6 +2113,13 @@
     "app": "connect",
     "name": "JM Connect",
     "entries": [
+      {
+        "version": "0.6.1",
+        "date": "2026-11-27",
+        "notes": [
+          "„Meeting verlassen“ bei laufenden Slots: „Ja, verlassen“ nimmt erst nach einer Sekunde einen Klick an. Ein Doppelklick auf „Meeting verlassen“ verlässt das Meeting also nicht mehr."
+        ]
+      },
       {
         "version": "0.6.0",
         "date": "2026-11-25",
@@ -2231,6 +2284,14 @@
     "app": "interpreter",
     "name": "JM Interpreter",
     "entries": [
+      {
+        "version": "0.3.1",
+        "date": "2026-11-27",
+        "notes": [
+          "„Starten“ ist gesperrt, solange der Start läuft („Startet …“); ein zweiter Klick verwirft den ersten Start nicht mehr. Antworten die Geräte 15 Sekunden lang nicht, bricht der Start mit einer Meldung ab, und die Taste ist wieder frei.",
+          "„Ducking-Werte zurücksetzen“ lässt die beiden Vorverstärkungen stehen."
+        ]
+      },
       {
         "version": "0.3.0",
         "date": "2026-11-23",

@@ -72,10 +72,12 @@ import { fallText, kreuz, pruefeFaelle, vergleiche } from './hilfe';
   const paket = JSON.parse(leseText('package.json'));
   const aelter =
     'node --experimental-strip-types test/suite-state.test.ts && tsx test/wiedergabe.test.ts && tsx test/publikumsbild.test.ts && tsx test/ndi-bild.test.ts && tsx test/dateien.test.ts && tsx test/bildformat.test.ts && tsx test/dateien-laden.test.ts && tsx test/ndi-sender-kern.test.ts && tsx test/ndi-ausgang.test.ts && tsx test/ndi-schalter.test.ts && tsx test/nur-ndi.test.ts && tsx test/release-weg.test.ts && tsx test/referent-vollbild.test.ts && tsx test/gast-klicker.test.ts';
+  // Altfehler Stufe 2: die Tests der Handy-Seite (PS-15) und der Wahl an Schwarz/Weiß (PS-18) hängen vor den Oberflächentests.
+  const stufe2 = 'tsx test/handy-seite.test.ts && tsx test/schirm-wahl.test.ts';
   gleich(
     paket.scripts.selftest,
-    `${aelter} && tsx --tsconfig tsconfig.test.json test/ui/selftest.ts`,
-    'PS Werkzeug rendert: selftest ist der bisherige Lauf plus der tsx-Lauf der Oberflächentests',
+    `${aelter} && ${stufe2} && tsx --tsconfig tsconfig.test.json test/ui/selftest.ts`,
+    'PS Werkzeug rendert: selftest ist der bisherige Lauf, dann Handy-Seite und Schirm-Wahl (Altfehler PS-15, PS-18), dann der tsx-Lauf der Oberflächentests',
   );
   ok(
     paket.scripts.typecheck === 'npm run typecheck:node && npm run typecheck:web && npm run typecheck:test' &&

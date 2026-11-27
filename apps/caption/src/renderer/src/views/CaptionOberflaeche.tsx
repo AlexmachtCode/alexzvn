@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppShell, useBrueckenWert } from '@jm/ui';
 import type { CaptionConfig } from '@shared/types';
-import { geraeteListe, liveAktionen, panelAktionen, type CaptionStore } from '@/lib/aktionen';
+import { geraeteListe, liveAktionen, mikrofonGescheitert, panelAktionen, type CaptionStore } from '@/lib/aktionen';
 import { FERNSTEUERUNG_QUELLE, MASTER_LINK_QUELLE } from '@/lib/bruecken';
 import { startCapture, listAudioInputs, type Capture } from '@/lib/capture';
 import { useCaptionNdiEngine } from '@/lib/ndi-engine';
@@ -46,7 +46,7 @@ export function CaptionOberflaeche({
   /** Panel beim Start offen (nur für Tests; im Betrieb zu, nichts gemerkt). */
   anfangOffen?: boolean;
 }): React.JSX.Element {
-  const { state, level, load, setLevel, setConfig, start, stop, setHold, clear, correctLast, ndiStart, ndiStop } =
+  const { state, level, load, setLevel, setConfig, start, stop, setHold, clear, correctLine, ndiStart, ndiStop } =
     useCaption();
   const captureRef = useRef<Capture | null>(null);
   // Audio-Eingang, mit dem die laufende Aufnahme gestartet wurde — für den
@@ -84,8 +84,8 @@ export function CaptionOberflaeche({
   const ndiActive = state?.status.ndiActive ?? false;
 
   // NDI-/Render-Engine (zeichnet Untertitel → Vorschau + NDI-Frames). Läuft immer;
-  // sendet nur bei aktivem NDI. Hold friert die Ausgabe ein.
-  useCaptionNdiEngine(cfg ?? FALLBACK_CFG, state?.lines ?? [], hold, ndiActive, previewRef);
+  // sendet nur bei aktivem NDI. Hold friert die Ausgabe ein; „Leeren“ leert sie auch bei Hold (Altfehler CA-4).
+  useCaptionNdiEngine(cfg ?? FALLBACK_CFG, state?.lines ?? [], hold, state?.leerungen ?? 0, ndiActive, previewRef);
 
   // Aufnahme-Lebenszyklus an das running-Flag koppeln.
   useEffect(() => {
@@ -117,7 +117,9 @@ export function CaptionOberflaeche({
             setMicError(null);
           }
         })
-        .catch((e: unknown) => setMicError(String((e as Error)?.message ?? e)));
+        // Altfehler CA-1: auch ein schon abgebrochener Versuch meldet und beendet die Transkription, sonst verschluckten häufige
+        // Übertragungen den Fehler und der Effekt startete bei jeder neu.
+        .catch((e: unknown) => mikrofonGescheitert({ stop }, setMicError, e));
       return () => {
         cancelled = true;
       };
@@ -140,7 +142,7 @@ export function CaptionOberflaeche({
   // Ein Stand für Statusleiste, Panel, ON AIR und Haupttasten (lib/oberflaeche.ts): alle zeigen dieselbe Ableitung.
   const stand: OberflaechenStand = { caption: state ?? undefined, geraete, micError, pegel: level, masterLink, fernsteuerung };
   // Store-Aktionen unter ihrem Namen (dieselben wie im alten App.tsx).
-  const store: CaptionStore = { setConfig, start, stop, setHold, clear, correctLast, ndiStart, ndiStop };
+  const store: CaptionStore = { setConfig, start, stop, setHold, clear, correctLine, ndiStart, ndiStop };
   const panel = panelAktionen(store, cfg?.ndiName, refreshDevices);
   const live = liveAktionen(store, cfg?.ndiName, setEditing);
 

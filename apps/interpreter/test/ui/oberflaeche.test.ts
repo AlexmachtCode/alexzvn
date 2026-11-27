@@ -24,7 +24,7 @@ import { ohneKommentare } from './testzustand';
 const EIN = [{ deviceId: 'a', label: 'Mikro A' }, { deviceId: 'b', label: 'Mikro B' }];
 const AUS = [{ deviceId: 'k', label: 'CABLE Input (VB-Audio Virtual Cable)' }, { deviceId: 'l', label: 'Lautsprecher' }];
 
-const motor = (p: Partial<EngineState> = {}): EngineState => ({ running: false, ducking: false, floorDb: -Infinity, interpreterDb: -Infinity, error: null, startedOutputId: null, ...p });
+const motor = (p: Partial<EngineState> = {}): EngineState => ({ running: false, starting: false, ducking: false, floorDb: -Infinity, interpreterDb: -Infinity, error: null, startedOutputId: null, ...p });
 const einst = (p: Partial<Einstellungen> = {}): Einstellungen => ({ floorId: 'a', interpreterId: 'b', outputId: '', bypass: false, ...p });
 const stand = (p: Partial<OberflaechenStand> = {}): OberflaechenStand => ({ engine: motor(), einstellungen: einst(), geraete: { eingaenge: EIN, ausgaenge: AUS, labelsAvailable: true }, masterLink: { art: 'aus' }, gestartet: null, ...p });
 const leer: OberflaechenStand = { engine: undefined, einstellungen: undefined, geraete: undefined, masterLink: undefined, gestartet: null };
@@ -247,6 +247,13 @@ pruefeFaelle(
   ok(hauptTaste(stand({ geraete: undefined })).state === 'bereit', 'IN Haupttaste: die Geräteliste sperrt nicht (wie bisher)');
   gleich(INTERPRETER_TEXTE.grund.eingaengeFehlen, GRUND, 'IN Haupttaste: Grund wörtlich wie App.tsx:96');
 }
+// Altfehler IN-3: solange die Engine startet, ist die Taste gesperrt mit „Startet …“; vor der ersten Antwort gilt weiter „Lädt …“.
+gleich(hauptTaste(stand({ engine: motor({ starting: true }) })), { label: 'Starten', state: 'gesperrt', disabledReason: 'Startet …' }, 'IN-3 Haupttaste: während des Starts gesperrt mit „Startet …“');
+gleich(
+  [hauptTaste(stand({ engine: motor({ starting: true }), einstellungen: undefined })).disabledReason, hauptTaste(stand({ engine: motor({ starting: true }), einstellungen: einst({ floorId: '' }) })).disabledReason],
+  [INTERPRETER_TEXTE.grund.zustandOffen, 'Startet …'],
+  'IN-3 Haupttaste: „Lädt …“ geht vor „Startet …“, „Startet …“ vor „Erst beide Eingänge wählen“',
+);
 
 // ── IN ON AIR ──
 pruefeFaelle(

@@ -1,5 +1,6 @@
 // Testhilfen der Stage-Display-Oberflächentests (UX Welle 2a, Aufgabe b): feste Zustände und Attrappen für Render- und
 // Ableitungstests. Wächst mit den Aufgaben c bis d.
+import { isValidElement, type ReactElement, type ReactNode } from 'react';
 import type { AusgabeZustand } from '@jm/output-window/zustand';
 import type { StageConfig, StageState } from '@shared/types';
 import { useStage } from '@/store/stage';
@@ -80,6 +81,18 @@ export function text(html: string): string {
 /** Statuseinträge der Leiste in Reihenfolge: [id, Zustand, Tooltip „Label: Detail“]. */
 export function statusEintraege(html: string): Array<[string | undefined, string | undefined, string | undefined]> {
   return [...html.matchAll(/<(?:button|span)\s[^>]*data-status-id="[^"]*"[^>]*>/g)].map((m) => [attr(m[0], 'data-status-id'), attr(m[0], 'data-state'), attr(m[0], 'title')]);
+}
+
+/**
+ * Alle React-Elemente eines Baums, ohne Bausteine aufzurufen: Nur props.children wird durchlaufen (wie im Interpreter). Für
+ * Ansichten ohne Hooks (LiveBereich, Einstellungen, PinFeldAnsicht), die sich direkt aufrufen lassen; so prüfen die Tests die
+ * Rückrufe am Element (Altfehler Stufe 2, SD-5 und SD-1).
+ */
+export function elemente(n: ReactNode): Array<ReactElement<Record<string, unknown>>> {
+  if (Array.isArray(n)) return n.flatMap(elemente);
+  if (!isValidElement(n)) return [];
+  const el = n as ReactElement<Record<string, unknown>>;
+  return [el, ...elemente(el.props.children as ReactNode)];
 }
 
 /** Der Abschnitt mit dem Anker einstellung-{id}: vom Anker bis zum nächsten Anker (bzw. bis zum Ende). */

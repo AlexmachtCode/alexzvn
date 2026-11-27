@@ -19,6 +19,14 @@ import type {
   ScheduleInput,
 } from '@shared/types';
 
+/** Altfehler RE-7a, Fix-Runde 1: die zuletzt gemeldete Lage der Rückfrage beim Schließen und ihre Hörer (siehe onSchliessenFrage). */
+let letzteFrage = false;
+const frageHoerer = new Set<(offen: boolean) => void>();
+ipcRenderer.on('recorder:schliessenFrage', (_e: unknown, offen: boolean): void => {
+  letzteFrage = offen;
+  for (const cb of frageHoerer) cb(offen);
+});
+
 const api: JmrecApi = {
   platform: process.platform,
   // UX Welle 2a (Spec 3.9): Master-Link-Zustand lesend. null, solange die Brücke fehlt oder ablehnt (Statusleiste: unbekannt).
@@ -37,7 +45,7 @@ const api: JmrecApi = {
   },
   listDevices: () => ipcRenderer.invoke('rec:listDevices') as Promise<AudioDevice[]>,
   arm: (input: ArmInput) => ipcRenderer.invoke('rec:arm', input) as Promise<OpResult>,
-  disarm: () => ipcRenderer.invoke('rec:disarm') as Promise<void>,
+  disarm: () => ipcRenderer.invoke('rec:disarm') as Promise<OpResult>,
   startRecording: (input: RecordInput) => ipcRenderer.invoke('rec:start', input) as Promise<OpResult>,
   stopRecording: () => ipcRenderer.invoke('rec:stop') as Promise<RecordResult>,
   schedule: (input: ScheduleInput) => ipcRenderer.invoke('rec:schedule', input) as Promise<OpResult>,
@@ -89,6 +97,24 @@ const api: JmrecApi = {
     importieren: () => ipcRenderer.invoke('presets:importieren') as Promise<PresetDateiErgebnis>,
   },
   ordnerDa: (dir: string) => ipcRenderer.invoke('fs:ordnerDa', dir) as Promise<boolean>,
+  // B6 (Altfehler RE-2, RE-2b, RE-7b): ein abgelehnter Fernbefehl geht mit Hinweis und Logzeile an den Main.
+  ablehnung: (a) => ipcRenderer.invoke('recorder:ablehnung', a) as Promise<void>,
+  // Altfehler RE-7b: „Übernehmen“ eines Netzwerkordners aus der Show; der Main merkt ihn.
+  netzordnerBestaetigen: (pfad) => ipcRenderer.invoke('recorder:netzordnerBestaetigen', pfad) as Promise<boolean>,
+  // Altfehler RE-7a: Rückfrage beim Schließen während einer Aufnahme (der Main stellt und schließt sie, das Fenster zeigt und beantwortet).
+  // Fix-Runde 1: der Preload hört ab dem Laden mit; ein Abo, das erst später kommt (der Store abonniert in init, nach dem Laden), bekommt
+  // eine offene Frage sofort. Nach einem Neuladen geht die erneut gestellte Frage so nicht verloren.
+  onSchliessenFrage: (cb) => {
+    frageHoerer.add(cb);
+    if (letzteFrage) cb(true);
+    return () => frageHoerer.delete(cb);
+  },
+  schliessenAntwort: (a) => {
+    if (a !== 'gezeigt') letzteFrage = false;
+    return ipcRenderer.invoke('recorder:schliessenAntwort', a) as Promise<void>;
+  },
+  // Altfehler RE-PLATZ: freier Platz im Zielordner (Byte), null = nicht lesbar.
+  platz: (dir) => ipcRenderer.invoke('fs:platz', dir) as Promise<number | null>,
 };
 
 if (process.contextIsolated) {
