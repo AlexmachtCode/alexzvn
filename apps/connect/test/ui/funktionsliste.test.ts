@@ -610,10 +610,13 @@ const OF = 'R/lib/oberflaeche.ts';
 {
   const renderer = rendererQuelle();
   const tastenHoerer = renderer.match(/onKeyDown=\{\((\w+)\) => \{\s*if \(\1\.key === 'Enter'/g) ?? [];
+  // Fix-Welle (Ruling S2-R29, Wächter umgestellt): dazu genau ein onKeyDown, das kein Kürzel ist: „Meeting verlassen“ verwirft die
+  // Tastenwiederholung (verlassenTaste), es wirkt nur auf diese Taste und nur mit Fokus.
+  const wiederholung = zaehle(renderer, 'onKeyDown={verlassenTaste}');
   ok(
-    !/addEventListener\(\s*'key/.test(renderer) && !renderer.includes('shortcut=') && zaehle(renderer, 'onKeyDown') === tastenHoerer.length && tastenHoerer.length >= 5 &&
-      beginnt(194, 'Kopf') && mitVerweis(194, 'B1') && nennt(194, 'keine eigenen Kürzel'),
-    'CN Funktionsliste Nr. 194: weiter keine eigenen Kürzel im Renderer (kein Tastenhörer, kein shortcut; jedes onKeyDown ist Enter in einem Feld, B1)',
+    !/addEventListener\(\s*'key/.test(renderer) && !renderer.includes('shortcut=') && zaehle(renderer, 'onKeyDown') === tastenHoerer.length + wiederholung && wiederholung === 1 && tastenHoerer.length >= 5 &&
+      beginnt(194, 'Kopf') && mitVerweis(194, 'B1') && nennt(194, 'keine eigenen Kürzel', 'Fix-Welle (Ruling S2-R29)', '`verlassenTaste`'),
+    'CN Funktionsliste Nr. 194: weiter keine eigenen Kürzel im Renderer (kein Tastenhörer, kein shortcut; jedes onKeyDown ist Enter in einem Feld, B1; Fix-Welle S2-R29: außer verlassenTaste an „Meeting verlassen“, das nur die Tastenwiederholung verwirft)',
   );
   const main = readdirSync('src/main', { recursive: true })
     .map((d) => String(d).replace(/\\/g, '/'))
@@ -840,6 +843,12 @@ const OF = 'R/lib/oberflaeche.ts';
       !kuenftig(122).includes('der zweite verlässt') && zeigtAuf(75, 'R/zoom/ZoomCard.tsx', 'const verlassen = verlassenBedienung({', 'aria-disabled={sperre ? true : undefined}') &&
       zeigtAuf(122, 'R/zoom/ZoomCard.tsx', 'const sperre = frage && verlassenGesperrt(frageSeit, performance.now());', "{frage ? verlassenFrageText(n) : 'Meeting verlassen'}"),
     'CN Funktionsliste Nr. 75, 122 (Altfehler CN-MV): „Ja, verlassen“ erst nach 1 s Sperrzeit, ein Doppelklick verlässt nicht; die Haken zeigen auf Sperrzeit, Verdrahtung und Sperre',
+  );
+  // Fix-Welle (Ruling S2-R29): eine gehaltene Taste verlässt nicht; die Haken nennen es und zeigen auf verlassenTaste und seine Verdrahtung.
+  ok(
+    [75, 122].every((nr) => nennt(nr, 'Fix-Welle (Ruling S2-R29)', '`verlassenTaste`') && zeigtAuf(nr, 'R/zoom/verlassen.ts', 'export function verlassenTaste(', 'if (e.repeat) e.preventDefault();')) &&
+      zeigtAuf(75, 'R/zoom/ZoomCard.tsx', 'onKeyDown={verlassenTaste}') && zeigtAuf(122, 'R/zoom/ZoomCard.tsx', 'onKeyDown={verlassenTaste}'),
+    'CN Funktionsliste Nr. 75, 122 (Fix-Welle, S2-R29): eine gehaltene Taste (Enter, Leertaste) verlässt nicht; die Haken zeigen auf verlassenTaste und onKeyDown der Taste',
   );
   ok(ersetzt(60, 'Panel Zoom-Einrichtung') && mitVerweis(60, 'B20') && !renderer.includes('setEinrichtungAuf'), 'CN Funktionsliste Nr. 60: der Knopf „Einrichtung“ entfällt, die Einrichtung steht im Panel (B20)');
   ok(

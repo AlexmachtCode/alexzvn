@@ -25,7 +25,7 @@ import {
 } from '@shared/zoom-text';
 import { antwortAm, ohneText, type ZoomAufrufe } from './aufrufe';
 import { STIL } from './SlotEinstellungen';
-import { VERLASSEN_SPERRE_MS, verlassenBedienung, verlassenGesperrt } from './verlassen';
+import { VERLASSEN_SPERRE_MS, verlassenBedienung, verlassenGesperrt, verlassenTaste } from './verlassen';
 
 // Hinweistext wörtlich aus Spec 8 und 9 (der Renderer importiert klartext.ts nicht).
 const TEXT_Q13 = 'Bild-Versatz: erlaubt sind ganze Zahlen von 0 bis 1000 ms.';
@@ -301,7 +301,7 @@ export function ZoomCard({ a, zoom }: { a: ZoomAbbild; zoom: ZoomAufrufe }): JSX
       {kn.verlassen && (
         // Tastenplatz (Task 24): rechtsbündig, „Meeting verlassen“ ganz rechts (links lag es auf dem alten „Talkback alle“).
         <div data-connect="zoom-laufend" className="flex flex-row-reverse flex-wrap gap-2">
-          {/* Altfehler CN-MV (D9): in der Sperrzeit aria-disabled, nicht disabled (Fokus und Platz bleiben), abgeschwächt wie gesperrt. */}
+          {/* Altfehler CN-MV (D9): in der Sperrzeit aria-disabled, nicht disabled (Fokus und Platz bleiben), abgeschwächt wie gesperrt; gehaltene Tasten verwirft verlassenTaste (S2-R29). */}
           <Button
             size="sm"
             uppercase={false}
@@ -309,6 +309,7 @@ export function ZoomCard({ a, zoom }: { a: ZoomAbbild; zoom: ZoomAufrufe }): JSX
             disabled={laeuft.has('verlassen')}
             aria-disabled={sperre ? true : undefined}
             className="aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
+            onKeyDown={verlassenTaste}
             onClick={verlassen}
           >
             {frage ? verlassenFrageText(n) : 'Meeting verlassen'}

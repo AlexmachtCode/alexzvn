@@ -49,3 +49,12 @@ export function verlassenBedienung(b: {
     }
   };
 }
+
+/**
+ * Fix-Welle (Ruling S2-R29): keydown an der Taste. Die Tastenwiederholung des Systems (Enter oder Leertaste gehalten) kommt als keydown mit
+ * `repeat`; am Knopf würde jedes solche Enter einen Klick auslösen und nach der Sperrzeit das Meeting verlassen, ohne neuen Druck. Ein
+ * wiederholtes keydown wird darum verworfen (preventDefault: kein Klick); der erste Druck und jeder neue wirken wie bisher.
+ */
+export function verlassenTaste(e: { repeat: boolean; preventDefault: () => void }): void {
+  if (e.repeat) e.preventDefault();
+}

@@ -86,6 +86,45 @@ await pruefe('CN-MV keine Slots mehr während der Sperre: Klick verlässt (Frage
   return V.verlassenSchritt(0, 0, 120) === 'verlassen' && JSON.stringify(t.s.verlassen) === '[120]' && t.s.frageSeit === null;
 });
 
+// ── Fix-Welle (Ruling S2-R29, Gesamtprüfung): gehaltenes Enter (oder Leertaste) auf „Ja, verlassen“. Die Tastenwiederholung des Systems
+// schickt keydown mit repeat = true; am Knopf löst jedes Enter-keydown, das niemand verwirft, einen Klick aus. Ohne Gegenmittel verließ die
+// Wiederholung das Meeting also nach der Sperrsekunde, ohne dass jemand ein zweites Mal gedrückt hätte. Jetzt verwirft die Taste jedes
+// wiederholte keydown (preventDefault, dann kein Klick); ein neuer Druck nach der Sperrzeit verlässt wie bisher. ──
+type TastenEreignis = { repeat: boolean; preventDefault: () => void };
+type MitTaste = typeof Verlassen & { verlassenTaste?: (e: TastenEreignis) => void };
+/** Ein keydown an der Taste: erst der Handler der Taste, dann (wie der Browser bei Enter) ein Klick, wenn niemand ihn verworfen hat. */
+function druecke(V: MitTaste, t: ReturnType<typeof taste>, zeit: number, repeat: boolean): boolean {
+  let verworfen = false;
+  V.verlassenTaste?.({ repeat, preventDefault: () => void (verworfen = true) });
+  if (!verworfen) t.klick(zeit);
+  return verworfen;
+}
+await pruefe('CN-MV S2-R29 verlassenTaste: ein wiederholtes keydown (repeat) wird verworfen, ein erstes nicht', async () => {
+  const V = (await modul()) as MitTaste;
+  const log: string[] = [];
+  V.verlassenTaste?.({ repeat: true, preventDefault: () => void log.push('wiederholt verworfen') });
+  V.verlassenTaste?.({ repeat: false, preventDefault: () => void log.push('erstes verworfen') });
+  return typeof V.verlassenTaste === 'function' && JSON.stringify(log) === '["wiederholt verworfen"]';
+});
+await pruefe('CN-MV S2-R29 Enter 2 s gehalten (Wiederholung alle 33 ms): der erste Druck fragt, keine Wiederholung verlässt, auch nach der Sperrsekunde nicht; ein neuer Druck danach verlässt genau einmal', async () => {
+  const V = (await modul()) as MitTaste;
+  const t = taste(V, 2);
+  druecke(V, t, 0, false);
+  const gefragt = t.s.frageSeit === 0;
+  let verworfen = 0;
+  for (let zeit = 500; zeit <= 2000; zeit += 33) if (druecke(V, t, zeit, true)) verworfen++;
+  const gehalten = t.s.verlassen.length === 0 && t.s.frageSeit === 0;
+  druecke(V, t, 2100, false);
+  return gefragt && gehalten && verworfen === 46 && JSON.stringify(t.s.verlassen) === '[2100]';
+});
+await pruefe('CN-MV S2-R29 Wächter: die Taste „Meeting verlassen“ der ZoomCard verwirft wiederholte Tasten (onKeyDown={verlassenTaste}); das Modul liest weiter kein window', () => {
+  const zc = QUELLE('zoom/ZoomCard.tsx');
+  const v = QUELLE('zoom/verlassen.ts');
+  const knopf = zc.slice(zc.indexOf('<div data-connect="zoom-laufend"'), zc.indexOf("{frage ? verlassenFrageText(n) : 'Meeting verlassen'}"));
+  return knopf.includes('onKeyDown={verlassenTaste}') && knopf.includes('onClick={verlassen}') && zaehle(zc, 'onKeyDown={verlassenTaste}') === 1
+    && /export function verlassenTaste\(/.test(v) && /if \(e\.repeat\) e\.preventDefault\(\);/.test(v) && !/\bwindow\b|\bdocument\b/.test(v);
+});
+
 // ── Render-Gegenprobe (Wächter, K8): im Meeting mit zwei laufenden Slots steht „Meeting verlassen“, frei und ohne Rückfrage ──
 {
   const html = render(createElement(ZoomCard, { a: zoomAbbild({ kurz: { zustand: 'im_meeting', slotsLaufen: 2 } }), zoom: zoomSpeicher() }));
