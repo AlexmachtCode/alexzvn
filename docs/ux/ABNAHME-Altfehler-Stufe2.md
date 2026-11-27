@@ -10,7 +10,7 @@ Die Nummer jeder Zeile beginnt mit AL (Player), AI (Interpreter), AD (Stage Disp
 - **„Aus dem Code abgeleitet“** heißt: Beim Bau wurde das weder im Fenster gesehen noch mit dem echten Gerät geprüft; dann zählt, was wirklich passiert, und Du notierst es.
 - **Nicht Teil Deiner Prüfung** (läuft auf Deinen Rechnern nicht oder lässt sich von Hand nicht auslösen): siehe „Was Du nicht prüfst“ am Ende.
 
-**Ergebnis (Owner):** offen.
+**Ergebnis (Owner):** durch, am 27.11.2026 um 10:00 („freigabe für texte und abnahme“). Die Texttabelle ist zur selben Zeit freigegeben, mit den Vorschlägen zu ihren drei offenen Fragen (Ruling S2-R35). Danach folgen Push und PR, dann Merge und Release je App, jeder Schritt nur mit Deinem OK.
 
 ## Voraussetzungen
 
@@ -153,8 +153,8 @@ Die fünf Punkte des Plans, die beim Bau ausdrücklich getestet oder gemessen wu
 ## Hinweise zur Abnahme
 
 - **Handbücher:** Die Kochbuch-Handbücher Player, Stage Display, Caption, Recorder, Presenter und Connect nennen die neue Bedienung; die Änderungen stehen in `docs/ux/altfehler-stufe2-texte.md`, Abschnitt „Handbuch“. Der Interpreter hat kein Handbuch (C7).
-- **Entscheidungen:** Wo Spec und Code schwiegen, steht in `docs/ux/altfehler-entscheidungen.md`, Abschnitt „Stufe 2“, die Festlegung mit ihrem Grund und ihren Kosten, wenn sie falsch wäre (B1 bis D11, Pre-flight K1 bis K9 und G1 bis G22, Rulings S2-R1 bis S2-R30; S2-R26 bis S2-R30 kamen aus der Gesamtprüfung, Abschnitt 11). Du kannst jede umstoßen.
-- **Offene Fragen der Texttabelle:** drei Stück, alle offen (Caption auf dem Mac: `transcribe on` bei geschlossenem Fenster ablehnen; Wortlaut von CAA3; Länge von INA2).
+- **Entscheidungen:** Wo Spec und Code schwiegen, steht in `docs/ux/altfehler-entscheidungen.md`, Abschnitt „Stufe 2“, die Festlegung mit ihrem Grund und ihren Kosten, wenn sie falsch wäre (B1 bis D11, Pre-flight K1 bis K9 und G1 bis G22, Rulings S2-R1 bis S2-R35; S2-R26 bis S2-R30 kamen aus der Gesamtprüfung, Abschnitt 11, S2-R31 bis S2-R35 danach). Du kannst jede umstoßen.
+- **Offene Fragen der Texttabelle:** drei Stück, entschieden mit den Vorschlägen (Freigabe 27.11.2026 10:00, Ruling S2-R35): Caption auf dem Mac lehnt `transcribe on` bei geschlossenem Fenster weiter ab; CAA3 heißt „Fernbefehl „‹…›“ abgelehnt: Das Fenster war geschlossen. Die Transkription läuft nicht.“; INA2 heißt „Start abgebrochen: keine Antwort der Geräte.“ Die Testbauten zeigen noch die alten Wortlaute; kein Schritt dieser Abnahme liest einen der beiden (CAA3 gibt es nur auf dem Mac, INA2 ist nur gemessen).
 - **Was Du nicht prüfst**, weil es auf Deinen Rechnern nicht läuft oder sich von Hand nicht auslösen lässt; es ist nur per Test oder Messung belegt:
   - Caption auf dem Mac (CA-11, CL-CA4): Caption wird nur für Windows ausgeliefert.
   - Recorder auf dem Mac (Cmd+Q, Abmelden und Herunterfahren ohne Schutz durch die Rückfrage, Kandidat RE-K3) und unter Linux (Herunterfahren ohne Frage, Ruling S2-R19): Der Recorder wird nur für Windows gebaut.

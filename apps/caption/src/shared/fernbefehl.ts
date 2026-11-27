@@ -4,7 +4,7 @@
 
 /** Grund (steht in state.error, das Fenster zeigt ihn, sobald es wieder offen ist) und Logzeile; Entwurf für die Texttabelle (Task 10). */
 export const CA11_TEXTE = {
-  hinweis: (verb: string) => `Companion „${verb}“ abgelehnt: Das Caption-Fenster ist geschlossen. Ein Klick aufs Dock öffnet es.`,
+  hinweis: (verb: string) => `Fernbefehl „${verb}“ abgelehnt: Das Fenster war geschlossen. Die Transkription läuft nicht.`,
   log: (verb: string) => `Fernbefehl abgelehnt: ${verb} (kein Fenster offen)`,
 } as const;
 

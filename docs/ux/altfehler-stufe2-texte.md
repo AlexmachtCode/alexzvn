@@ -19,7 +19,7 @@ Keine neuen sichtbaren Texte. Player 0.10.1 ändert nur die Bedienung (PL-K1, PL
 | Nr. | Ort | Text | Befund |
 | --- | --- | --- | --- |
 | INA1 | `apps/interpreter/src/renderer/src/lib/oberflaeche.ts:31` (Grund der gesperrten Haupttaste „Starten“, solange der Start läuft) | „Startet …“ | IN-3 |
-| INA2 | `apps/interpreter/src/renderer/src/core/engine.ts:33` (Fehler, wenn die Geräte 15 Sekunden nach „Starten“ nicht geantwortet haben; der halbe Start ist aufgeräumt, siehe Offene Frage 3) | „Start abgebrochen: Die Geräte haben nach 15 s nicht geantwortet.“ | IN-3 |
+| INA2 | `apps/interpreter/src/renderer/src/core/engine.ts:33` (Fehler, wenn die Geräte 15 Sekunden nach „Starten“ nicht geantwortet haben; der halbe Start ist aufgeräumt, siehe Offene Frage 3) | „Start abgebrochen: keine Antwort der Geräte.“ | IN-3 |
 
 ## Stage Display
 
@@ -41,7 +41,7 @@ CAA1 steht in `CAPTION_TEXTE.mikrofon`, CAA3 in `CA11_TEXTE` (`shared/fernbefehl
 | --- | --- | --- | --- |
 | CAA1 | `apps/caption/src/renderer/src/lib/oberflaeche.ts:47` (Grund nach „Mikrofon: “, wenn der Browser keine Meldung mitgibt und es nicht CAA2 ist) | „nicht verfügbar“ | CA-1 |
 | CAA2 | `packages/settings/src/abschnitte/audio-device.ts:33` (Grund nach „Mikrofon: “, wenn das gewählte Gerät fehlt und der Browser keine Meldung mitgibt) | „Gerät nicht gefunden“ | CA-1 (übernommen aus @jm/settings) |
-| CAA3 | `apps/caption/src/shared/fernbefehl.ts:7` (nur Mac: ein Fernbefehl „Transkription“ würde bei geschlossenem Fenster einschalten; ‹…› ist der Befehl, etwa TRANSCRIBE ON) | „Companion „‹…›“ abgelehnt: Das Caption-Fenster ist geschlossen. Ein Klick aufs Dock öffnet es.“ | CA-11 |
+| CAA3 | `apps/caption/src/shared/fernbefehl.ts:7` (nur Mac: ein Fernbefehl „Transkription“ würde bei geschlossenem Fenster einschalten; ‹…› ist der Befehl, etwa TRANSCRIBE ON) | „Fernbefehl „‹…›“ abgelehnt: Das Fenster war geschlossen. Die Transkription läuft nicht.“ | CA-11 |
 | CAA4 | `packages/ui/src/lib/texte.ts:29` (unter dem Feld, wenn es leer ist oder keine Zahl enthält) | „Bitte eine Zahl eingeben.“ | CA-8 (übernommen aus @jm/ui) |
 | CAA5 | `packages/ui/src/lib/texte.ts:30` (unter „Schrift“, wenn die Zahl nicht ganz ist) | „Bitte eine ganze Zahl eingeben.“ | CA-8 (übernommen aus @jm/ui) |
 | CAA6 | `packages/ui/src/lib/texte.ts:31` (unter dem Feld, wenn die Zahl zu klein ist; ‹…› ist 16 bzw. 2) | „Mindestens ‹…›.“ | CA-8 (übernommen aus @jm/ui) |
@@ -243,9 +243,9 @@ Wo Spec und Code schwiegen, steht hier, was gilt: die Festlegungen B, C, P und D
 
 Hier entscheidest Du. Was nur zur Kenntnis ist, steht unter „Hinweise“.
 
-1. Caption auf dem Mac: Companion `transcribe on` bei geschlossenem Fenster wird abgelehnt (C2). Vorschlag: so lassen; sonst startet Companion eine Transkription ohne Fenster. Das ändert die Wirkung eines Befehls, darum fragen wir ausdrücklich. Zur Kenntnis dazu: Es gibt kein lokal gebautes DMG; Caption wird wie in 2a nur für Windows ausgeliefert, CA-11 (CL-CA4, CAA3, LOG1) kommt also erst mit einem späteren Mac-Bau an.
-2. Wortlaut von CAA3: Heute „Companion „‹…›“ abgelehnt: Das Caption-Fenster ist geschlossen. Ein Klick aufs Dock öffnet es.“ Gelesen wird der Text aber erst, wenn das Fenster wieder offen ist, und jeder Client des Steuerservers kann `transcribe` senden, nicht nur Companion. Vorschlag: „Fernbefehl „‹…›“ abgelehnt: Das Fenster war geschlossen. Die Transkription läuft nicht.“ Player (PL-16a) und Recorder (REA3) sagen „Companion „…“ abgelehnt“ auch für andere Clients; wer den Gleichklang will, nimmt „Companion „‹…›“ abgelehnt: Das Fenster war geschlossen. Die Transkription läuft nicht.“
-3. Länge von INA2: Steht der Frist-Text im Statuseintrag „Fehlermeldung“, kürzt er die übrigen Einträge der Statusleiste („Mast…“, „Flo…“, „Dolmetsch…“; gemessen in Task 2). Vorschlag, kürzer: „Start abgebrochen: keine Antwort der Geräte.“ (44 statt 64 Zeichen); die 15 Sekunden nennt dann nur der Changelog (CL-IN1).
+1. Caption auf dem Mac: Companion `transcribe on` bei geschlossenem Fenster wird abgelehnt (C2). Vorschlag: so lassen; sonst startet Companion eine Transkription ohne Fenster. Das ändert die Wirkung eines Befehls, darum fragen wir ausdrücklich. Zur Kenntnis dazu: Es gibt kein lokal gebautes DMG; Caption wird wie in 2a nur für Windows ausgeliefert, CA-11 (CL-CA4, CAA3, LOG1) kommt also erst mit einem späteren Mac-Bau an. Entschieden (Owner 27.11.2026 10:00, Freigabe mit den Vorschlägen): Die Ablehnung bleibt.
+2. Wortlaut von CAA3: Heute „Companion „‹…›“ abgelehnt: Das Caption-Fenster ist geschlossen. Ein Klick aufs Dock öffnet es.“ Gelesen wird der Text aber erst, wenn das Fenster wieder offen ist, und jeder Client des Steuerservers kann `transcribe` senden, nicht nur Companion. Vorschlag: „Fernbefehl „‹…›“ abgelehnt: Das Fenster war geschlossen. Die Transkription läuft nicht.“ Player (PL-16a) und Recorder (REA3) sagen „Companion „…“ abgelehnt“ auch für andere Clients; wer den Gleichklang will, nimmt „Companion „‹…›“ abgelehnt: Das Fenster war geschlossen. Die Transkription läuft nicht.“ Entschieden (Owner 27.11.2026 10:00, Freigabe mit den Vorschlägen): CAA3 heißt „Fernbefehl „‹…›“ abgelehnt: Das Fenster war geschlossen. Die Transkription läuft nicht.“
+3. Länge von INA2: Steht der Frist-Text im Statuseintrag „Fehlermeldung“, kürzt er die übrigen Einträge der Statusleiste („Mast…“, „Flo…“, „Dolmetsch…“; gemessen in Task 2). Vorschlag, kürzer: „Start abgebrochen: keine Antwort der Geräte.“ (44 statt 64 Zeichen); die 15 Sekunden nennt dann nur der Changelog (CL-IN1). Entschieden (Owner 27.11.2026 10:00, Freigabe mit den Vorschlägen): INA2 heißt „Start abgebrochen: keine Antwort der Geräte.“
 
 ## Hinweise
 
@@ -373,4 +373,4 @@ Die sechs Handbücher im Kochbuch (Player, Stage Display, Caption, Recorder, Pre
 - `` „Meeting verlassen“ (bei laufenden Slots fragt der Knopf einmal nach) oder Connect über das Tray beenden. Beides verlässt das Meeting sauber; die Zoom-Quellen verschwinden aus dem Switcher. Gespeicherte Slots bleiben samt Einstellungen für das nächste Meeting; vorübergehende sind weg, und per ZOOM_LOAD nur für dieses Meeting eingeschaltete Slots sind wieder aus. ``
 + „Meeting verlassen“ (bei laufenden Slots fragt der Knopf einmal nach; „Ja, verlassen“ wirkt erst nach einer Sekunde, ein Doppelklick verlässt nicht) oder Connect über das Tray beenden. Beides verlässt das Meeting sauber; die Zoom-Quellen verschwinden aus dem Switcher. Gespeicherte Slots bleiben samt Einstellungen für das nächste Meeting; vorübergehende sind weg, und per ZOOM_LOAD nur für dieses Meeting eingeschaltete Slots sind wieder aus.
 
-Freigabe: ☐ alle Texte wie hier ☐ mit Änderungen (bitte je Nr. notieren)
+Freigabe: ☒ alle Texte wie hier, mit den Vorschlägen zu den Offenen Fragen 1 bis 3 (Owner 27.11.2026 10:00: „freigabe für texte und abnahme“) ☐ mit Änderungen (bitte je Nr. notieren)

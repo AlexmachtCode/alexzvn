@@ -222,7 +222,7 @@ try {
   gleich(
     ablehnung('on', true, false),
     {
-      hinweis: 'Companion „TRANSCRIBE ON“ abgelehnt: Das Caption-Fenster ist geschlossen. Ein Klick aufs Dock öffnet es.',
+      hinweis: 'Fernbefehl „TRANSCRIBE ON“ abgelehnt: Das Fenster war geschlossen. Die Transkription läuft nicht.',
       log: 'Fernbefehl abgelehnt: TRANSCRIBE ON (kein Fenster offen)',
     },
     'CA-11 transcribeAblehnung: „transcribe on“ ohne Fenster wird abgelehnt, mit Grund fürs Fenster (state.error) und Logzeile',
@@ -242,7 +242,7 @@ try {
   const fremd = new Set([...Object.entries(settings).filter(([k]) => k.endsWith('_TEXTE')).map(([, v]) => v), MASTER_LINK_TEXTE, UI_TEXTE].flatMap(flach));
   const eigene = T ? flach(T) : [];
   ok(
-    T !== undefined && T.hinweis?.('TRANSCRIBE ON') === 'Companion „TRANSCRIBE ON“ abgelehnt: Das Caption-Fenster ist geschlossen. Ein Klick aufs Dock öffnet es.' &&
+    T !== undefined && T.hinweis?.('TRANSCRIBE ON') === 'Fernbefehl „TRANSCRIBE ON“ abgelehnt: Das Fenster war geschlossen. Die Transkription läuft nicht.' &&
       T.log?.('TRANSCRIBE ON') === 'Fernbefehl abgelehnt: TRANSCRIBE ON (kein Fenster offen)' && eigene.length === 2 && eigene.every((t) => !t.includes('"') && !fremd.has(t)) &&
       !QUELLE('src/main/index.ts').includes('abgelehnt'),
     'CA-11 Texte: Grund und Logzeile stehen in CA11_TEXTE (shared/fernbefehl.ts, K4), ohne ASCII-Anführungszeichen, gleichen keinem Text aus @jm/settings oder @jm/ui und stehen nicht im Main',

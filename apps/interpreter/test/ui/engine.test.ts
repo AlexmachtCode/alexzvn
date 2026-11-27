@@ -130,7 +130,7 @@ g.clearInterval = ((id: Parameters<typeof clearInterval>[0]) => {
 Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true, value: { mediaDevices: { getUserMedia, enumerateDevices: async () => [] } } });
 
 try {
-  gleich([START_FRIST_MS, START_FRIST_TEXT], [15000, 'Start abgebrochen: Die Geräte haben nach 15 s nicht geantwortet.'], 'IN-3 Frist: 15 s (C4), Fehlertext als Konstante der Engine (D6)');
+  gleich([START_FRIST_MS, START_FRIST_TEXT], [15000, 'Start abgebrochen: keine Antwort der Geräte.'], 'IN-3 Frist: 15 s (C4), Fehlertext als Konstante der Engine (D6)');
   ok(ohneKommentare(leseText('src/renderer/src/core/engine.ts')).includes('constructor(startFristMs: number = START_FRIST_MS)'), 'IN-3 Frist: ohne Wert gilt START_FRIST_MS (die Wurzel-View baut die Engine ohne Wert)');
 
   // ── Zweiter Start während des ersten ──

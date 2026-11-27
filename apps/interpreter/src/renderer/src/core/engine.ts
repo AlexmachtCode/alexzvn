@@ -30,7 +30,7 @@ const RAW_AUDIO: MediaTrackConstraints = {
  */
 export const START_FRIST_MS = 15000;
 /** Fehlertext nach Ablauf der Frist (D6, K4): steht im Fehlerband und im Statuseintrag `fehler` wie jede andere Startmeldung. */
-export const START_FRIST_TEXT = 'Start abgebrochen: Die Geräte haben nach 15 s nicht geantwortet.';
+export const START_FRIST_TEXT = 'Start abgebrochen: keine Antwort der Geräte.';
 
 export interface EngineState {
   running: boolean;
